@@ -1,0 +1,278 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;; PEG test suite.
+;; Tests the parsing capabilities of (ice-9 peg).  Could use more
+;; tests for edge cases.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define-module (test-suite test-peg)
+  :use-module (test-suite lib)
+  :use-module (ice-9 peg)
+  :use-module (ice-9 pretty-print)
+  :use-module (srfi srfi-1))
+
+;; Doubled up for pasting into REPL.
+(use-modules (test-suite lib))  
+(use-modules (ice-9 peg))
+(use-modules (ice-9 pretty-print))
+(use-modules (srfi srfi-1))
+
+;; Evaluates an expression at the toplevel.  Not the prettiest
+;; solution to runtime issues ever, but m3h.  Runs at toplevel so that
+;; symbols are bound globally instead of in the scope of the pass-if
+;; expression.
+(define (eeval exp)
+  (eval exp (interaction-environment)))
+(define make-prec (@@ (ice-9 peg) make-prec))
+
+;; Maps the nonterminals defined in the PEG parser written as a PEG to
+;; the nonterminals defined in the PEG parser written with
+;; S-expressions.
+(define grammar-mapping
+  '((grammar peg-grammar)
+    (pattern peg-pattern)
+    (alternative peg-alternative)
+    (suffix peg-suffix)
+    (primary peg-primary)
+    (literal peg-literal)
+    (charclass peg-charclass)
+    (CCrange charclass-range)
+    (CCsingle charclass-single)
+    (nonterminal peg-nonterminal)
+    (sp peg-sp)))
+
+;; Transforms the nonterminals defined in the PEG parser written as a PEG to the nonterminals defined in the PEG parser written with S-expressions.
+(define (grammar-transform x)
+  (let ((res (assoc x grammar-mapping)))
+    (if res (cadr res) x)))
+
+;; Maps a function onto a tree (recurses until it finds atoms, then calls the function on the atoms).
+(define (tree-map fn lst)
+  (if (list? lst)
+      (if (null? lst)
+	  lst
+	  (cons (tree-map fn (car lst))
+		(tree-map fn (cdr lst))))
+      (fn lst)))
+
+;; Tests to make sure that we can parse a PEG defining a grammar for
+;; PEGs, then uses that grammar to parse the same PEG again to make
+;; sure we get the same result (i.e. make sure our PEG grammar
+;; expressed as a PEG is equivalent to our PEG grammar expressed with
+;; S-expressions).
+(with-test-prefix "PEG Grammar"
+  (pass-if
+   "defining PEGs with PEG"
+   (and (eeval `(define-grammar ,(@@ (ice-9 peg) peg-as-peg))) #t))
+  (pass-if
+   "equivalence of definitions"
+   (equal?
+    (peg:tree (peg-parse (@@ (ice-9 peg) peg-grammar) (@@ (ice-9 peg) peg-as-peg)))
+    (tree-map
+     grammar-transform
+     (peg:tree (peg-parse grammar (@@ (ice-9 peg) peg-as-peg)))))))
+
+;; A grammar for pascal-style comments from Wikipedia.
+(define comment-grammar
+  "Begin <-- '(*'
+End <-- '*)'
+C <- Begin N* End
+N <- C / (!Begin !End Z)
+Z <- .")
+
+;; A short /etc/passwd file.
+(define *etc-passwd*
+  "root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/bin/sh
+bin:x:2:2:bin:/bin:/bin/sh
+sys:x:3:3:sys:/dev:/bin/sh
+nobody:x:65534:65534:nobody:/nonexistent:/bin/sh
+messagebus:x:103:107::/var/run/dbus:/bin/false
+")
+
+;; A grammar for parsing /etc/passwd files.
+(define-grammar
+  "passwd <-- entry* !.
+entry <-- login CO pass CO uid CO gid CO nameORcomment CO homedir CO shell NL*
+login <-- text
+pass <-- text
+uid <-- [0-9]*
+gid <-- [0-9]*
+nameORcomment <-- text
+homedir <-- path
+shell <-- path
+path <-- (SLASH pathELEMENT)*
+pathELEMENT <-- (!NL !CO  !'/' .)*
+text <- (!NL !CO  .)*
+CO < ':'
+NL < '\n'
+SLASH < '/'")
+
+;; Tests some actual parsing using PEGs.
+(with-test-prefix "Parsing"
+  (eeval `(define-grammar ,comment-grammar))		  
+  (pass-if
+   ;; Pascal-style comment parsing
+   "simple comment"
+   (equal?
+    (peg-parse C "(*blah*)")
+    (make-prec 0 8 "(*blah*)"
+	       '((Begin "(*") "blah" (End "*)")))))
+  (pass-if
+   "simple comment padded"
+   (equal?
+    (peg-parse C "(*blah*)abc")
+    (make-prec 0 8 "(*blah*)abc"
+	       '((Begin "(*") "blah" (End "*)")))))
+  (pass-if
+   "nested comment"
+   (equal?
+    (peg-parse C "(*1(*2*)*)")
+    (make-prec 0 10 "(*1(*2*)*)"
+	       '((Begin "(*") ("1" ((Begin "(*") "2" (End "*)"))) (End "*)")))))
+  (pass-if
+   "early termination"
+   (not (peg-parse C "(*blah")))
+  (pass-if
+   "never starts"
+   (not (peg-parse C "blah")))
+  ;; /etc/passwd parsing
+  (pass-if
+   "/etc/passwd"
+   (equal?
+    (peg-parse passwd *etc-passwd*)
+    (make-prec 0 220 *etc-passwd*
+	       '(passwd (entry (login "root") (pass "x") (uid "0") (gid "0") (nameORcomment "root") (homedir (path (pathELEMENT "root"))) (shell (path (pathELEMENT "bin") (pathELEMENT "bash")))) (entry (login "daemon") (pass "x") (uid "1") (gid "1") (nameORcomment "daemon") (homedir (path (pathELEMENT "usr") (pathELEMENT "sbin"))) (shell (path (pathELEMENT "bin") (pathELEMENT "sh")))) (entry (login "bin") (pass "x") (uid "2") (gid "2") (nameORcomment "bin") (homedir (path (pathELEMENT "bin"))) (shell (path (pathELEMENT "bin") (pathELEMENT "sh")))) (entry (login "sys") (pass "x") (uid "3") (gid "3") (nameORcomment "sys") (homedir (path (pathELEMENT "dev"))) (shell (path (pathELEMENT "bin") (pathELEMENT "sh")))) (entry (login "nobody") (pass "x") (uid "65534") (gid "65534") (nameORcomment "nobody") (homedir (path (pathELEMENT "nonexistent"))) (shell (path (pathELEMENT "bin") (pathELEMENT "sh")))) (entry (login "messagebus") (pass "x") (uid "103") (gid "107") nameORcomment (homedir (path (pathELEMENT "var") (pathELEMENT "run") (pathELEMENT "dbus"))) (shell (path (pathELEMENT "bin") (pathELEMENT "false")))))))))
+
+;; Tests the functions for pulling data out of PEG Match Records.
+(with-test-prefix "PEG Match Records"
+  (define-nonterm bs all (peg "'b'+"))
+  (pass-if
+   "basic parameter extraction"
+   (equal?
+    (let ((pm (peg-match bs "aabbcc")))
+      `((string ,(peg:string pm))
+	(start ,(peg:start pm))
+	(end ,(peg:end pm))
+	(substring ,(peg:substring pm))
+	(tree ,(peg:tree pm))
+	(record? ,(peg-record? pm))))
+    '((string "aabbcc")
+      (start 2)
+      (end 4)
+      (substring "bb")
+      (tree (bs "bb"))
+      (record? #t)))))
+
+;; PEG for parsing right-associative equations.
+(define-grammar
+  "expr <- sum
+sum <-- (product ('+' / '-') sum) / product
+product <-- (value ('*' / '/') product) / value
+value <-- number / '(' expr ')'
+number <-- [0-9]+")
+
+;; Functions to actually evaluate the equations parsed with the PEG.
+(define (parse-sum sum left . rest)
+  (if (null? rest)
+      (apply parse-product left)
+      (list (string->symbol (car rest))
+	    (apply parse-product left)
+	    (apply parse-sum (cadr rest)))))
+
+(define (parse-product product left . rest)
+  (if (null? rest)
+      (apply parse-value left)
+      (list (string->symbol (car rest))
+	    (apply parse-value left)
+	    (apply parse-product (cadr rest)))))
+
+(define (parse-value value first . rest)
+  (if (null? rest)
+      (string->number (cadr first))
+      (apply parse-sum (car rest))))
+
+(define parse-expr parse-sum)
+(define (eq-parse str) (apply parse-expr (peg:tree (peg-parse expr str))))
+
+(with-test-prefix "Parsing right-associative equations"
+  (pass-if
+   "1"
+   (equal? (eq-parse "1") 1))
+  (pass-if
+   "1+2"
+   (equal? (eq-parse "1+2") '(+ 1 2)))
+  (pass-if
+   "1+2+3"
+   (equal? (eq-parse "1+2+3") '(+ 1 (+ 2 3))))
+  (pass-if
+   "1+2*3+4"
+   (equal? (eq-parse "1+2*3+4") '(+ 1 (+ (* 2 3) 4))))
+  (pass-if
+   "1+2/3*(4+5)/6-7-8"
+   (equal? (eq-parse "1+2/3*(4+5)/6-7-8")
+	   '(+ 1 (- (/ 2 (* 3 (/ (+ 4 5) 6))) (- 7 8)))))
+  (pass-if
+   "1+1/2*3+(1+1)/2"
+   (equal? (eq-parse "1+1/2*3+(1+1)/2")
+	   '(+ 1 (+ (/ 1 (* 2 3)) (/ (+ 1 1) 2))))))
+
+;; PEG for parsing left-associative equations (normal ones).
+(define-grammar
+  "expr <- sum
+sum <-- (product ('+' / '-'))* product
+product <-- (value ('*' / '/'))* value
+value <-- number / '(' expr ')'
+number <-- [0-9]+")
+
+;; Functions to actually evaluate the equations parsed with the PEG.
+(define (make-left-parser next-func)
+  (lambda (sum first . rest)
+    (if (null? rest)
+      (apply next-func first)
+      (if (string? (cadr first))
+	  (list (string->symbol (cadr first))
+		(apply next-func (car first))
+		(apply next-func (car rest)))
+	  (car
+	   (reduce
+	    (lambda (l r)
+	      (list (list (cadr r) (car r) (apply next-func (car l)))
+		    (string->symbol (cadr l))))
+	    'ignore
+	    (append
+	     (list (list (apply next-func (caar first))
+			 (string->symbol (cadar first))))
+	     (cdr first)
+	     (list (append rest '("done"))))))))))
+
+(define (parse-value value first . rest)
+  (if (null? rest)
+      (string->number (cadr first))
+      (apply parse-sum (car rest))))
+(define parse-product (make-left-parser parse-value))
+(define parse-sum (make-left-parser parse-product))
+(define parse-expr parse-sum)
+(define (eq-parse str) (apply parse-expr (peg:tree (peg-parse expr str))))
+
+(with-test-prefix "Parsing left-associative equations"
+  (pass-if
+   "1"
+   (equal? (eq-parse "1") 1))
+  (pass-if
+   "1+2"
+   (equal? (eq-parse "1+2") '(+ 1 2)))
+  (pass-if
+   "1+2+3"
+   (equal? (eq-parse "1+2+3") '(+ (+ 1 2) 3)))
+  (pass-if
+   "1+2*3+4"
+   (equal? (eq-parse "1+2*3+4") '(+ (+ 1 (* 2 3)) 4)))
+  (pass-if
+   "1+2/3*(4+5)/6-7-8"
+   (equal? (eq-parse "1+2/3*(4+5)/6-7-8")
+	   '(- (- (+ 1 (/ (* (/ 2 3) (+ 4 5)) 6)) 7) 8)))
+  (pass-if
+   "1+1/2*3+(1+1)/2"
+   (equal? (eq-parse "1+1/2*3+(1+1)/2")
+	   '(+ (+ 1 (* (/ 1 2) 3)) (/ (+ 1 1) 2)))))
+

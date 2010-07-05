@@ -1,0 +1,173 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;; PEG benchmark suite (minimal right now).
+;; Parses very long equations several times; outputs the average time
+;; it took and the standard deviation of times.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(use-modules (ice-9 pretty-print))
+(use-modules (srfi srfi-1))
+(use-modules (ice-9 peg))
+(use-modules (ice-9 popen))
+
+;; Generate random equations.
+(define (gen-rand-eq len)
+  (if (= len 0)
+      (random 1000)
+      (let ((len (if (even? len) (+ len 1) len)))
+	(map (lambda (x)
+	       (if (odd? x)
+		   (gen-rand len 'op)
+		   (gen-rand len 'number)))
+	     (iota len)))))
+(define (gen-rand len type)
+  (cond ((eq? type 'number)
+	 (cond
+	  ((= (random 5) 0) (gen-rand-eq (floor (/ len 5))))
+	  (#t (random 1000))))
+	(#t (list-ref '(+ - * /) (random 4)))))
+
+;; Generates a random equation string (len is a rough indicator of the
+;; resulting length).
+(define (gen-str len)
+  (with-output-to-string (lambda () (write (gen-rand-eq len)))))
+
+;; Generates a left-associative parser (see tutorial).
+(define (make-left-parser next-func)
+  (lambda (sum first . rest)
+    (if (null? rest)
+      (apply next-func first)
+      (if (string? (cadr first))
+	  (list (string->symbol (cadr first))
+		(apply next-func (car first))
+		(apply next-func (car rest)))
+	  (car
+	   (reduce
+	    (lambda (l r)
+	      (list (list (cadr r) (car r) (apply next-func (car l)))
+		    (string->symbol (cadr l))))
+	    'ignore
+	    (append
+	     (list (list (apply next-func (caar first))
+			 (string->symbol (cadar first))))
+	     (cdr first)
+	     (list (append rest '("done"))))))))))
+
+;; Functions for parsing equations (see tutorial).
+(define (parse-value value first . rest)
+  (if (null? rest)
+      (string->number (cadr first))
+      (apply parse-sum (car rest))))
+(define parse-product (make-left-parser parse-value))
+(define parse-sum (make-left-parser parse-product))
+(define parse-expr parse-sum)
+(define (eq-parse str) (apply parse-expr (peg:tree (peg-parse expr str))))
+
+;; PEG for parsing equations (see tutorial).
+(define-grammar
+  "expr <- sum
+sum <-- (product ('+' / '-'))* product
+product <-- (value ('*' / '/'))* value
+value <-- sp number sp / sp '(' expr ')' sp
+number <-- [0-9]+
+sp < [ \t\n]*")
+
+;; gets the time in seconds (with a fractional part)
+(define (canon-time)
+  (let ((pair (gettimeofday)))
+    (+ (+ (car pair) (* (cdr pair) (expt 10 -6))) 0.0)))
+
+;; Times how long it takes for FUNC to complete when called on ARGS.
+;; **SIDE EFFECT** Writes the time FUNC took to stdout.
+;; Returns the return value of FUNC.
+(define (time-func func . args)
+  (let ((start (canon-time)))
+    (let ((res (apply func args)))
+      (pretty-print `(took ,(- (canon-time) start) seconds))
+      res)))
+;; Times how long it takes for FUNC to complete when called on ARGS.
+;; Returns the time FUNC took to complete.
+(define (time-ret-func func . args)
+  (let ((start (canon-time)))
+    (let ((res (apply func args)))
+      (- (canon-time) start))))
+
+;; test string (randomly generated)
+(define tst1 "(621 - 746 * 945 - 194 * (204 * (965 - 738 + (846)) - 450 / (116 * 293 * 543) + 858 / 693 - (890 * (260) - 855) + 875 - 684 / (749 - (846) + 127) / 670) - 293 - 815 - 628 * 93 - 662 + 561 / 645 + 112 - 71 - (286 - ((324) / 424 + 956) / 190 + ((848) / 132 * 602) + 5 + 765 * 220 - ((801) / 191 - 299) * 708 + 151 * 682) + (943 + 847 - 145 - 816 / 550 - 217 / 9 / 969 * 524 * 447 / 323) * 991 - 283 * 915 / 733 / 478 / (680 + 343 * 186 / 341 * ((571) * 848 - 47) - (492 + 398 * (616)) + 270 - 539 * 34 / 47 / 458) * 417 / 406 / 354 * 678 + 524 + 40 / 282 - 792 * 570 - 305 * 14 + (248 - 678 * 8 - 53 - 215 / 677 - 665 / 216 - 275 - 462 / 502) - 24 - 780 + (967 / (636 / 400 * 823) + 933 - 361 - 620 - 255 / 372 + 394 * 869 / 839 * 727) + (436 + 993 - 668 + 772 - 33 + 64 - 252 * 957 * 320 + 540 / (23 * 74 / (422))) + (516 / (348 * 219 * 986) * 85 * 149 * 957 * 602 / 141 / 80 / 456 / 92 / (443 * 468 * 466)) * 568 / (271 - 42 + 271 + 592 + 71 * (766 + (11) * 946) / 728 / 137 / 111 + 557 / 962) * 179 - 936 / 821 * 101 - 206 / (267 - (11 / 906 * 290) / 722 / 98 - 987 / 989 - 470 * 833 - (720 / 34 - 280) + 638 / 940) - 889 * 84 * 630 + ((214 - 888 + (46)) / 540 + 941 * 724 / 759 * (679 / 527 - 764) * 413 + 831 / 559 - (308 / 796 / 737) / 20))")
+
+;; appends two equations (adds them together)
+(define (eq-append . eqs)
+  (if (null? eqs)
+      "0"
+      (if (null? (cdr eqs))
+	  (car eqs)
+	  (string-append
+	   (car eqs)
+	   " + "
+	   (apply eq-append (cdr eqs))))))
+
+;; concatenates an equation onto itself n times using eq-append
+(define (string-n str n)
+  (if (<= n 0)
+      "0"
+      (if (= n 1)
+	  str
+	  (eq-append str (string-n str (- n 1))))))
+
+;; standard deviation (no bias-correction)
+;; (also called population standard deviation)
+(define (stddev . lst)
+  (let ((llen (length lst)))
+    (if (<= llen 0)
+	0
+	(let* ((avg (/ (reduce + 0 lst) llen))
+	       (mapfun (lambda (x) (real-part (expt (- x avg) 2)))))
+	  (sqrt (/ (reduce + 0 (map mapfun lst)) llen))))))
+
+;; average
+(define (avg . lst)
+  (if (null? lst)
+      0
+      (/ (reduce + 0 lst) (length lst))))
+
+(pretty-print "Parsing equations (see PEG in tutorial).  Sample size of 10 for each test.")
+(pretty-print
+ (let ((lst
+	(map
+	 (lambda (ignore)
+	   (reduce-right
+	    append
+	    0
+	    (map
+	     (lambda (x)
+	       (let* ((mstr (string-n tst1 x))
+		      (strlen (string-length mstr)))
+		 (let ((func (lambda () (begin (peg-parse expr mstr)
+					       'done))))
+		   `(((string of length ,strlen first pass)
+		      ,(time-ret-func func))
+		     ((string of length ,strlen second pass)
+		      ,(time-ret-func func))))))
+	     (filter (lambda (x) (= (modulo x 25) 0)) (iota 100)))))
+	 (iota 10))))
+   (let ((compacted
+	  (reduce-right
+	   (lambda (accum conc)
+	     (map (lambda (l r) (append l (cdr r))) accum conc))
+	   0
+	   lst)))
+     (map
+      (lambda (els)
+	`(,(car els)
+	  (average time in seconds ,(apply avg (cdr els)))
+	  (standard deviation ,(apply stddev (cdr els)))))
+      compacted))))
+
+(define (sys-calc str)
+  (let* ((pipe (open-input-pipe (string-append "echo \"" str "\" | bc -l")))
+	 (str (read pipe)))
+    (close-pipe pipe)
+    str))
+(define (lisp-calc str)
+  (+ (eval (eq-parse str) (interaction-environment)) 0.0))
+
+;; (pretty-print `(,(sys-calc tst1) ,(lisp-calc tst1)))
