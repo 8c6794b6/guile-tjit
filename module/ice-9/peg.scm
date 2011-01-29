@@ -365,6 +365,34 @@
 ;; the point of diminishing returns on my box.
 (define *cache-size* 512)
 
+(define (code-for-non-cache-case matchf accumsym symsym)
+  (safe-bind
+   (str strlen at res body)
+   `(lambda (,str ,strlen ,at)
+      (let ((,res (,matchf ,str ,strlen ,at)))
+        ;; Try to match the nonterminal.
+        (if ,res
+            ;; If we matched, do some post-processing to figure out
+            ;; what data to propagate upward.
+            (let ((,at (car ,res))
+                  (,body (cadr ,res)))
+              ,(cond
+                ((eq? accumsym 'name)
+                 `(list ,at ',symsym))
+                ((eq? accumsym 'all)
+                 `(list (car ,res)
+                        (cond
+                         ((not (list? ,body))
+                          (list ',symsym ,body))
+                         ((null? ,body) ',symsym)
+                         ((symbol? (car ,body))
+                          (list ',symsym ,body))
+                         (#t (cons ',symsym ,body)))))
+                ((eq? accumsym 'none) `(list (car ,res) '()))
+                (#t (begin res))))
+            ;; If we didn't match, just return false.
+            #f)))))
+
 ;; Defines a new nonterminal symbol accumulating with ACCUM.
 (define-syntax define-nonterm
   (lambda (x)
@@ -376,33 +404,7 @@
              (accumsym (syntax->datum #'accum))
              (c (datum->syntax x (gensym))));; the cache
          ;; CODE is the code to parse the string if the result isn't cached.
-         (let ((code
-                (safe-bind
-                 (str strlen at res body)
-                `(lambda (,str ,strlen ,at)
-                   (let ((,res (,matchf ,str ,strlen ,at)))
-                     ;; Try to match the nonterminal.
-                     (if ,res
-                         ;; If we matched, do some post-processing to figure out
-                         ;; what data to propagate upward.
-                         (let ((,at (car ,res))
-                               (,body (cadr ,res)))
-                           ,(cond
-                             ((eq? accumsym 'name)
-                              `(list ,at ',symsym))
-                             ((eq? accumsym 'all)
-                              `(list (car ,res)
-                                     (cond
-                                      ((not (list? ,body))
-                                       (list ',symsym ,body))
-                                      ((null? ,body) ',symsym)
-                                      ((symbol? (car ,body))
-                                       (list ',symsym ,body))
-                                      (#t (cons ',symsym ,body)))))
-                             ((eq? accumsym 'none) `(list (car ,res) '()))
-                             (#t (begin res))))
-                         ;; If we didn't match, just return false.
-                         #f))))))
+         (let ((code (code-for-non-cache-case matchf accumsym symsym)))
            #`(begin
                (define #,c (make-vector *cache-size* #f));; the cache
                (define (sym str strlen at)
