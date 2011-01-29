@@ -211,6 +211,7 @@
 ;; Takes an arbitrary expressions and accumulation variable, then parses it.
 ;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
 (define (peg-sexp-compile for-syntax match accum)
+  (datum->syntax for-syntax
    (cond
     ((string? match) (cg-string for-syntax match (baf accum)))
     ((symbol? match) ;; either peg-any or a nonterminal
@@ -225,18 +226,18 @@
     ((eq? (car match) 'range) ;; range of characters (e.g. [a-z])
      (cg-range for-syntax (cadr match) (caddr match) (baf accum)))
     ((eq? (car match) 'ignore) ;; match but don't parse
-     (peg-sexp-compile for-syntax (cadr match) 'none))
+     (syntax->datum (peg-sexp-compile for-syntax (cadr match) 'none)))
     ((eq? (car match) 'capture) ;; parse
-     (peg-sexp-compile for-syntax (cadr match) 'body))
+     (syntax->datum (peg-sexp-compile for-syntax (cadr match) 'body)))
     ((eq? (car match) 'peg) ;; embedded PEG string
-     (peg-string-compile for-syntax (cadr match) (baf accum)))
+     (syntax->datum (peg-string-compile for-syntax (cadr match) (baf accum))))
     ((eq? (car match) 'and) (cg-and for-syntax (cdr match) (baf accum)))
     ((eq? (car match) 'or) (cg-or for-syntax (cdr match) (baf accum)))
     ((eq? (car match) 'body)
      (if (not (= (length match) 4))
          (error-val `(peg-sexp-compile-error-2 ,match ,accum))
          (apply cg-body for-syntax (cons (baf accum) (cdr match)))))
-    (#t (error-val `(peg-sexp-compile-error-3 ,match ,accum)))))
+    (#t (error-val `(peg-sexp-compile-error-3 ,match ,accum))))))
 
 ;;;;; Convenience macros for making sure things come out in a readable form.
 ;; If SYM is a list of one element, return (car SYM), else return SYM.
@@ -266,7 +267,8 @@
    (res newat newbody)
    (if (null? arglst)
        (cggr for-syntax accum 'cg-and `(reverse ,body) at) ;; base case
-       (let ((mf (peg-sexp-compile for-syntax (car arglst) accum))) ;; match function
+       (let ((mf (syntax->datum
+                  (peg-sexp-compile for-syntax (car arglst) accum)))) ;; match function
          `(let ((,res (,mf ,str ,strlen ,at)))
             (if (not ,res) 
                 #f ;; if the match failed, the and failed
@@ -290,7 +292,8 @@
    (res)
    (if (null? arglst)
        #f ;; base case
-       (let ((mf (peg-sexp-compile for-syntax (car arglst) accum)))
+       (let ((mf (syntax->datum
+                  (peg-sexp-compile for-syntax (car arglst) accum))))
          `(let ((,res (,mf ,str ,strlen ,at)))
             (if ,res ;; if the match succeeds, we're done
                 ,(cggr for-syntax accum 'cg-or `(cadr ,res) `(car ,res))
@@ -301,7 +304,8 @@
 (define (cg-body-test for-syntax match accum str strlen at body)
   (safe-bind
    (at2-body2 at2 body2)
-   (let ((mf (peg-sexp-compile for-syntax match accum)))
+   (let ((mf (syntax->datum
+              (peg-sexp-compile for-syntax match accum))))
      `(let ((,at2-body2 (,mf ,str ,strlen ,at)))
         (if (or (not ,at2-body2) (= ,at (car ,at2-body2)))
             #f
@@ -369,8 +373,8 @@
 ;; the point of diminishing returns on my box.
 (define *cache-size* 512)
 
-(define (syntax-for-non-cache-case for-syntax matchf accumsym s-syn)
-  (let ((matchf-syn (datum->syntax for-syntax matchf)))
+(define (syntax-for-non-cache-case for-syntax matchf-syn accumsym s-syn)
+;  (let ((matchf-syn (datum->syntax for-syntax matchf)))
    #`(lambda (str strlen at)
       (let ((res (#,matchf-syn str strlen at)))
         ;; Try to match the nonterminal.
@@ -394,7 +398,7 @@
                  ((eq? accumsym 'none) #`(list (car res) '()))
                  (#t #`(begin res))))
             ;; If we didn't match, just return false.
-            #f)))))
+            #f))))
 
 ;; Defines a new nonterminal symbol accumulating with ACCUM.
 (define-syntax define-nonterm
@@ -462,7 +466,7 @@
                    (at 0))
                (let ((ret ((@@ (ice-9 peg) until-works)
                            (or (>= at strlen)
-                               (#,(datum->syntax x peg-sexp-compile)
+                               (#,peg-sexp-compile
                                 string strlen at))
                            (set! at (+ at 1)))))
                  (if (eq? ret #t) ;; (>= at strlen) succeeded
