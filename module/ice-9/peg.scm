@@ -365,8 +365,8 @@
 ;; the point of diminishing returns on my box.
 (define *cache-size* 512)
 
-(define (code-for-non-cache-case matchf accumsym symsym)
-  (safe-bind
+(define (syntax-for-non-cache-case for-syntax matchf accumsym symsym)
+  (datum->syntax for-syntax (safe-bind
    (str strlen at res body)
    `(lambda (,str ,strlen ,at)
       (let ((,res (,matchf ,str ,strlen ,at)))
@@ -391,7 +391,7 @@
                 ((eq? accumsym 'none) `(list (car ,res) '()))
                 (#t (begin res))))
             ;; If we didn't match, just return false.
-            #f)))))
+            #f))))))
 
 ;; Defines a new nonterminal symbol accumulating with ACCUM.
 (define-syntax define-nonterm
@@ -404,7 +404,7 @@
              (accumsym (syntax->datum #'accum))
              (c (datum->syntax x (gensym))));; the cache
          ;; CODE is the code to parse the string if the result isn't cached.
-         (let ((code (code-for-non-cache-case matchf accumsym symsym)))
+         (let ((syn (syntax-for-non-cache-case x matchf accumsym symsym)))
            #`(begin
                (define #,c (make-vector *cache-size* #f));; the cache
                (define (sym str strlen at)
@@ -413,14 +413,14 @@
                    (if (and vref (eq? (car vref) str) (= (cadr vref) at))
                        (caddr vref);; If it is return it.
                        (let ((fres ;; Else calculate it and cache it.
-                              (#,(datum->syntax x code) str strlen at)))
+                              (#,syn str strlen at)))
                          (vector-set! #,c (modulo at *cache-size*)
                                       (list str at fres))
                          fres))))
 
                ;; Store the code in case people want to debug.
                (set-symbol-property!
-                'sym 'code #,(datum->syntax x (list 'quote code)))
+                'sym 'code #,(datum->syntax x (list 'quote (syntax->datum syn))))
                sym)))))))
 
 ;; Gets the code corresponding to NONTERM
