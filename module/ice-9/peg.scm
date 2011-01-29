@@ -366,32 +366,38 @@
 (define *cache-size* 512)
 
 (define (syntax-for-non-cache-case for-syntax matchf accumsym symsym)
-  (datum->syntax for-syntax (safe-bind
-   (str strlen at res body)
-   `(lambda (,str ,strlen ,at)
-      (let ((,res (,matchf ,str ,strlen ,at)))
+  (let ((m-syn (datum->syntax for-syntax matchf))
+        (a-syn (datum->syntax for-syntax accumsym))
+        (s-syn (datum->syntax for-syntax symsym))
+        (str-syn (syntax str))
+        (strlen-syn (syntax strlen))
+        (at-syn (syntax at))
+        (res-syn (syntax res))
+        (body-syn (syntax body)))        
+   #`(lambda (#,str-syn #,strlen-syn #,at-syn)
+      (let ((#,res-syn (#,m-syn #,str-syn #,strlen-syn #,at-syn)))
         ;; Try to match the nonterminal.
-        (if ,res
+        (if #,res-syn
             ;; If we matched, do some post-processing to figure out
             ;; what data to propagate upward.
-            (let ((,at (car ,res))
-                  (,body (cadr ,res)))
-              ,(cond
-                ((eq? accumsym 'name)
-                 `(list ,at ',symsym))
-                ((eq? accumsym 'all)
-                 `(list (car ,res)
-                        (cond
-                         ((not (list? ,body))
-                          (list ',symsym ,body))
-                         ((null? ,body) ',symsym)
-                         ((symbol? (car ,body))
-                          (list ',symsym ,body))
-                         (#t (cons ',symsym ,body)))))
-                ((eq? accumsym 'none) `(list (car ,res) '()))
-                (#t (begin res))))
+            (let ((#,at-syn (car #,res-syn))
+                  (#,body-syn (cadr #,res-syn)))
+              #,(cond
+                 ((eq? accumsym 'name)
+                  #`(list #,at-syn '#,s-syn))
+                 ((eq? accumsym 'all)
+                  #`(list (car #,res-syn)
+                          (cond
+                           ((not (list? #,body-syn))
+                            (list '#,s-syn #,body-syn))
+                           ((null? #,body-syn) '#,s-syn)
+                           ((symbol? (car #,body-syn))
+                            (list '#,s-syn #,body-syn))
+                           (#t (cons '#,s-syn #,body-syn)))))
+                 ((eq? accumsym 'none) #`(list (car #,res-syn) '()))
+                 (#t #`(begin #,res-syn))))
             ;; If we didn't match, just return false.
-            #f))))))
+            #f)))))
 
 ;; Defines a new nonterminal symbol accumulating with ACCUM.
 (define-syntax define-nonterm
