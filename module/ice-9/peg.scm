@@ -368,34 +368,29 @@
 (define (syntax-for-non-cache-case for-syntax matchf accumsym symsym)
   (let ((m-syn (datum->syntax for-syntax matchf))
         (a-syn (datum->syntax for-syntax accumsym))
-        (s-syn (datum->syntax for-syntax symsym))
-        (str-syn (syntax str))
-        (strlen-syn (syntax strlen))
-        (at-syn (syntax at))
-        (res-syn (syntax res))
-        (body-syn (syntax body)))        
-   #`(lambda (#,str-syn #,strlen-syn #,at-syn)
-      (let ((#,res-syn (#,m-syn #,str-syn #,strlen-syn #,at-syn)))
+        (s-syn (datum->syntax for-syntax symsym)))
+   #`(lambda (str strlen at)
+      (let ((res (#,m-syn str strlen at)))
         ;; Try to match the nonterminal.
-        (if #,res-syn
+        (if res
             ;; If we matched, do some post-processing to figure out
             ;; what data to propagate upward.
-            (let ((#,at-syn (car #,res-syn))
-                  (#,body-syn (cadr #,res-syn)))
+            (let ((at (car res))
+                  (body (cadr res)))
               #,(cond
                  ((eq? accumsym 'name)
-                  #`(list #,at-syn '#,s-syn))
+                  #`(list at '#,s-syn))
                  ((eq? accumsym 'all)
-                  #`(list (car #,res-syn)
+                  #`(list (car res)
                           (cond
-                           ((not (list? #,body-syn))
-                            (list '#,s-syn #,body-syn))
-                           ((null? #,body-syn) '#,s-syn)
-                           ((symbol? (car #,body-syn))
-                            (list '#,s-syn #,body-syn))
-                           (#t (cons '#,s-syn #,body-syn)))))
-                 ((eq? accumsym 'none) #`(list (car #,res-syn) '()))
-                 (#t #`(begin #,res-syn))))
+                           ((not (list? body))
+                            (list '#,s-syn body))
+                           ((null? body) '#,s-syn)
+                           ((symbol? (car body))
+                            (list '#,s-syn body))
+                           (#t (cons '#,s-syn body)))))
+                 ((eq? accumsym 'none) #`(list (car res) '()))
+                 (#t #`(begin res))))
             ;; If we didn't match, just return false.
             #f)))))
 
