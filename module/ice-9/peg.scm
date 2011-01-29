@@ -110,7 +110,7 @@
 
 ;; Code we generate will be defined in a function, and always has to test
 ;; whether it's beyond the bounds of the string before it executes.
-(define (cg-generic-lambda str strlen at code)
+(define (cg-generic-lambda for-syntax str strlen at code)
   `(lambda (,str ,strlen ,at)
      (if (>= ,at ,strlen)
          #f
@@ -124,7 +124,7 @@
 
 ;; Code we generate will have a certain return structure depending on how we're
 ;; accumulating (the ACCUM variable).
-(define (cg-generic-ret accum name body-uneval at)
+(define (cg-generic-ret for-syntax accum name body-uneval at)
   (safe-bind
    (body)
    `(let ((,body ,body-uneval))
@@ -157,36 +157,37 @@
 (define cggr cg-generic-ret)
 
 ;; Generates code that matches a particular string.
-;; E.g.: (cg-string "abc" 'body)
-(define (cg-string match accum)
+;; E.g.: (cg-string syntax "abc" 'body)
+(define (cg-string for-syntax match accum)
   (safe-bind
    (str strlen at)
    (let ((len (string-length match)))
-     (cggl str strlen at
+     (cggl for-syntax str strlen at
            `(if (string=? (substring ,str ,at (min (+ ,at ,len) ,strlen))
                           ,match)
-                ,(cggr accum 'cg-string match `(+ ,at ,len))
+                ,(cggr for-syntax accum 'cg-string match `(+ ,at ,len))
                 #f)))))
 
 ;; Generates code for matching any character.
-;; E.g.: (cg-peg-any 'body)
-(define (cg-peg-any accum)
+;; E.g.: (cg-peg-any syntax 'body)
+(define (cg-peg-any for-syntax accum)
   (safe-bind
    (str strlen at)
-   (cggl str strlen at
-         (cggr accum 'cg-peg-any `(substring ,str ,at (+ ,at 1)) `(+ ,at 1)))))
+   (cggl for-syntax str strlen at
+         (cggr for-syntax accum
+               'cg-peg-any `(substring ,str ,at (+ ,at 1)) `(+ ,at 1)))))
 
 ;; Generates code for matching a range of characters between start and end.
-;; E.g.: (cg-range #\a #\z 'body)
-(define (cg-range start end accum)
+;; E.g.: (cg-range syntax #\a #\z 'body)
+(define (cg-range for-syntax start end accum)
   (safe-bind
    (str strlen at c)
-   (cggl str strlen at
+   (cggl for-syntax str strlen at
          `(let ((,c (string-ref ,str ,at)))
             (if (and
                  (char>=? ,c ,start)
                  (char<=? ,c ,end))
-                ,(cggr accum 'cg-range `(string ,c) `(+ ,at 1))
+                ,(cggr for-syntax accum 'cg-range `(string ,c) `(+ ,at 1))
                 #f)))))
 
 ;; Filters the accum argument to peg-sexp-compile for buildings like string
@@ -208,13 +209,13 @@
     val))
 
 ;; Takes an arbitrary expressions and accumulation variable, then parses it.
-;; E.g.: (peg-sexp-compile '(and "abc" (or "-" (range #\a #\z))) 'all)
-(define (peg-sexp-compile match accum)
+;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
+(define (peg-sexp-compile for-syntax match accum)
    (cond
-    ((string? match) (cg-string match (baf accum)))
+    ((string? match) (cg-string for-syntax match (baf accum)))
     ((symbol? match) ;; either peg-any or a nonterminal
      (cond
-      ((eq? match 'peg-any) (cg-peg-any (baf accum)))
+      ((eq? match 'peg-any) (cg-peg-any for-syntax (baf accum)))
       ;; if match is any other symbol it's a nonterminal, so just return it
       (#t match)))
     ((or (not (list? match)) (null? match))
@@ -222,19 +223,19 @@
      (error-val `(peg-sexp-compile-error-1 ,match ,accum)))
     
     ((eq? (car match) 'range) ;; range of characters (e.g. [a-z])
-     (cg-range (cadr match) (caddr match) (baf accum)))
+     (cg-range for-syntax (cadr match) (caddr match) (baf accum)))
     ((eq? (car match) 'ignore) ;; match but don't parse
-     (peg-sexp-compile (cadr match) 'none))
+     (peg-sexp-compile for-syntax (cadr match) 'none))
     ((eq? (car match) 'capture) ;; parse
-     (peg-sexp-compile (cadr match) 'body))
+     (peg-sexp-compile for-syntax (cadr match) 'body))
     ((eq? (car match) 'peg) ;; embedded PEG string
-     (peg-string-compile (cadr match) (baf accum)))
-    ((eq? (car match) 'and) (cg-and (cdr match) (baf accum)))
-    ((eq? (car match) 'or) (cg-or (cdr match) (baf accum)))
+     (peg-string-compile for-syntax (cadr match) (baf accum)))
+    ((eq? (car match) 'and) (cg-and for-syntax (cdr match) (baf accum)))
+    ((eq? (car match) 'or) (cg-or for-syntax (cdr match) (baf accum)))
     ((eq? (car match) 'body)
      (if (not (= (length match) 4))
          (error-val `(peg-sexp-compile-error-2 ,match ,accum))
-         (apply cg-body (cons (baf accum) (cdr match)))))
+         (apply cg-body for-syntax (cons (baf accum) (cdr match)))))
     (#t (error-val `(peg-sexp-compile-error-3 ,match ,accum)))))
 
 ;;;;; Convenience macros for making sure things come out in a readable form.
@@ -252,20 +253,20 @@
        #'(if (not (null? obj)) (push! lst obj))))))
 
 ;; Top-level function builder for AND.  Reduces to a call to CG-AND-INT.
-(define (cg-and arglst accum)
+(define (cg-and for-syntax arglst accum)
   (safe-bind
    (str strlen at body)
    `(lambda (,str ,strlen ,at)
       (let ((,body '()))
-        ,(cg-and-int arglst accum str strlen at body)))))
+        ,(cg-and-int for-syntax arglst accum str strlen at body)))))
 
 ;; Internal function builder for AND (calls itself).
-(define (cg-and-int arglst accum str strlen at body)
+(define (cg-and-int for-syntax arglst accum str strlen at body)
   (safe-bind
    (res newat newbody)
    (if (null? arglst)
-       (cggr accum 'cg-and `(reverse ,body) at) ;; base case
-       (let ((mf (peg-sexp-compile (car arglst) accum))) ;; match function
+       (cggr for-syntax accum 'cg-and `(reverse ,body) at) ;; base case
+       (let ((mf (peg-sexp-compile for-syntax (car arglst) accum))) ;; match function
          `(let ((,res (,mf ,str ,strlen ,at)))
             (if (not ,res) 
                 #f ;; if the match failed, the and failed
@@ -274,33 +275,33 @@
                       (,newbody (cadr ,res)))
                   (set! ,at ,newat)
                   ((@@ (ice-9 peg) push-not-null!) ,body ((@@ (ice-9 peg) single-filter) ,newbody))
-                  ,(cg-and-int (cdr arglst) accum str strlen at body))))))))
+                  ,(cg-and-int for-syntax (cdr arglst) accum str strlen at body))))))))
 
 ;; Top-level function builder for OR.  Reduces to a call to CG-OR-INT.
-(define (cg-or arglst accum)
+(define (cg-or for-syntax arglst accum)
   (safe-bind
    (str strlen at body)
    `(lambda (,str ,strlen ,at)
-      ,(cg-or-int arglst accum str strlen at body))))
+      ,(cg-or-int for-syntax arglst accum str strlen at body))))
 
 ;; Internal function builder for OR (calls itself).
-(define (cg-or-int arglst accum str strlen at body)
+(define (cg-or-int for-syntax arglst accum str strlen at body)
   (safe-bind
    (res)
    (if (null? arglst)
        #f ;; base case
-       (let ((mf (peg-sexp-compile (car arglst) accum)))
+       (let ((mf (peg-sexp-compile for-syntax (car arglst) accum)))
          `(let ((,res (,mf ,str ,strlen ,at)))
             (if ,res ;; if the match succeeds, we're done
-                ,(cggr accum 'cg-or `(cadr ,res) `(car ,res))
-                ,(cg-or-int (cdr arglst) accum str strlen at body)))))))
+                ,(cggr for-syntax accum 'cg-or `(cadr ,res) `(car ,res))
+                ,(cg-or-int for-syntax (cdr arglst) accum str strlen at body)))))))
 
 ;; Returns a block of code that tries to match MATCH, and on success updates AT
 ;; and BODY, return #f on failure and #t on success.
-(define (cg-body-test match accum str strlen at body)
+(define (cg-body-test for-syntax match accum str strlen at body)
   (safe-bind
    (at2-body2 at2 body2)
-   (let ((mf (peg-sexp-compile match accum)))
+   (let ((mf (peg-sexp-compile for-syntax match accum)))
      `(let ((,at2-body2 (,mf ,str ,strlen ,at)))
         (if (or (not ,at2-body2) (= ,at (car ,at2-body2)))
             #f
@@ -314,7 +315,7 @@
 
 ;; Returns a block of code that sees whether NUM wants us to try and match more
 ;; given that we've already matched COUNT.
-(define (cg-body-more num count)
+(define (cg-body-more for-syntax num count)
   (cond ((number? num) `(< ,count ,num))
         ((eq? num '+) #t)
         ((eq? num '*) #t)
@@ -323,20 +324,23 @@
 
 ;; Returns a function that takes a paramter indicating whether or not the match
 ;; was succesful and returns what the body expression should return.
-(define (cg-body-ret accum type name body at at2)
+(define (cg-body-ret for-syntax accum type name body at at2)
   (safe-bind
    (success)
    `(lambda (,success)
-      ,(cond ((eq? type '!) `(if ,success #f ,(cggr accum name ''() at)))
-             ((eq? type '&) `(if ,success ,(cggr accum name ''() at) #f))
+      ,(cond ((eq? type '!)
+              `(if ,success #f ,(cggr for-syntax accum name ''() at)))
+             ((eq? type '&)
+              `(if ,success ,(cggr for-syntax accum name ''() at) #f))
              ((eq? type 'lit)
-              `(if ,success ,(cggr accum name `(reverse ,body) at2) #f))
+              `(if ,success
+                   ,(cggr for-syntax accum name `(reverse ,body) at2) #f))
              (#t (error-val
                   `(cg-body-ret-error ,type ,accum ,name ,body ,at ,at2)))))))
 
 ;; Returns a block of code that sees whether COUNT satisfies the constraints of
 ;; NUM.
-(define (cg-body-success num count)
+(define (cg-body-success for-syntax num count)
   (cond ((number? num) `(= ,count ,num))
         ((eq? num '+) `(>= ,count 1))
         ((eq? num '*) #t)
@@ -344,16 +348,16 @@
         (#t `(cg-body-success-error ,num))))
 
 ;; Returns a function that parses a BODY element.
-(define (cg-body accum type match num)
+(define (cg-body for-syntax accum type match num)
   (safe-bind
    (str strlen at at2 count body)
    `(lambda (,str ,strlen ,at)
       (let ((,at2 ,at) (,count 0) (,body '()))
-        (while (and ,(cg-body-test match accum str strlen at2 body)
+        (while (and ,(cg-body-test for-syntax match accum str strlen at2 body)
                     (set! ,count (+ ,count 1))
-                    ,(cg-body-more num count)))
-        (,(cg-body-ret accum type 'cg-body body at at2)
-         ,(cg-body-success num count))))))
+                    ,(cg-body-more for-syntax num count)))
+        (,(cg-body-ret for-syntax accum type 'cg-body body at at2)
+         ,(cg-body-success for-syntax num count))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; FOR DEFINING AND USING NONTERMINALS
@@ -397,8 +401,8 @@
   (lambda (x)
     (syntax-case x ()
       ((_ sym accum match)
-       (let ((matchf (peg-sexp-compile (syntax->datum #'match)
-                                    (syntax->datum #'accum)))
+       (let ((matchf (peg-sexp-compile x (syntax->datum #'match)
+                                       (syntax->datum #'accum)))
              (accumsym (syntax->datum #'accum))
              (c (datum->syntax x (gensym))));; the cache
          ;; CODE is the code to parse the string if the result isn't cached.
@@ -447,8 +451,8 @@
        (let ((pmsym (syntax->datum #'peg-matcher)))
          (let ((peg-sexp-compile
                 (if (string? pmsym)
-                    (peg-string-compile pmsym 'body)
-                    (peg-sexp-compile pmsym 'body))))
+                    (peg-string-compile x pmsym 'body)
+                    (peg-sexp-compile x pmsym 'body))))
            ;; We copy the string before using it because it might have been
            ;; modified in-place since the last time it was parsed, which would
            ;; invalidate the cache.  Guile uses copy-on-write for strings, so
@@ -729,8 +733,8 @@ RB < ']'
        (#t (map compressor lst)))))
 
 ;; Builds a lambda-expressions for the pattern STR using accum.
-(define (peg-string-compile str accum)
-  (peg-sexp-compile
+(define (peg-string-compile for-syntax str accum)
+  (peg-sexp-compile for-syntax
    (compressor (peg-parse-pattern (peg:tree (peg-parse peg-pattern str))))
    accum))
 
