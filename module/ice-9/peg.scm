@@ -365,12 +365,10 @@
 ;; the point of diminishing returns on my box.
 (define *cache-size* 512)
 
-(define (syntax-for-non-cache-case for-syntax matchf accumsym symsym)
-  (let ((m-syn (datum->syntax for-syntax matchf))
-        (a-syn (datum->syntax for-syntax accumsym))
-        (s-syn (datum->syntax for-syntax symsym)))
+(define (syntax-for-non-cache-case for-syntax matchf accumsym s-syn)
+  (let ((matchf-syn (datum->syntax for-syntax matchf)))
    #`(lambda (str strlen at)
-      (let ((res (#,m-syn str strlen at)))
+      (let ((res (#,matchf-syn str strlen at)))
         ;; Try to match the nonterminal.
         (if res
             ;; If we matched, do some post-processing to figure out
@@ -401,11 +399,10 @@
       ((_ sym accum match)
        (let ((matchf (peg-sexp-compile (syntax->datum #'match)
                                     (syntax->datum #'accum)))
-             (symsym (syntax->datum #'sym))
              (accumsym (syntax->datum #'accum))
              (c (datum->syntax x (gensym))));; the cache
          ;; CODE is the code to parse the string if the result isn't cached.
-         (let ((syn (syntax-for-non-cache-case x matchf accumsym symsym)))
+         (let ((syn (syntax-for-non-cache-case x matchf accumsym #'sym)))
            #`(begin
                (define #,c (make-vector *cache-size* #f));; the cache
                (define (sym str strlen at)
