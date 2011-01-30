@@ -173,11 +173,13 @@
 ;; Generates code for matching any character.
 ;; E.g.: (cg-peg-any syntax 'body)
 (define (cg-peg-any for-syntax accum)
-  (safe-bind
-   (str strlen at)
-   (cggl for-syntax str strlen at
-         (cggr for-syntax accum
-               'cg-peg-any `(substring ,str ,at (+ ,at 1)) `(+ ,at 1)))))
+  (let ((str (syntax str))
+        (strlen (syntax strlen))
+        (at (syntax at)))
+    (datum->syntax for-syntax
+      (cggl for-syntax str strlen at
+            (cggr for-syntax accum
+                  'cg-peg-any `(substring ,str ,at (+ ,at 1)) `(+ ,at 1))))))
 
 ;; Generates code for matching a range of characters between start and end.
 ;; E.g.: (cg-range syntax #\a #\z 'body)
@@ -217,8 +219,7 @@
    ((string? match) (cg-string for-syntax match (baf accum)))
    ((symbol? match) ;; either peg-any or a nonterminal
     (cond
-     ((eq? match 'peg-any) (datum->syntax for-syntax
-                                          (cg-peg-any for-syntax (baf accum))))
+     ((eq? match 'peg-any) (cg-peg-any for-syntax (baf accum)))
      ;; if match is any other symbol it's a nonterminal, so just return it
      (#t (datum->syntax for-syntax match))))
    ((or (not (list? match)) (null? match))
