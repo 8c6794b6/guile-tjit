@@ -159,9 +159,11 @@
 ;; Generates code that matches a particular string.
 ;; E.g.: (cg-string syntax "abc" 'body)
 (define (cg-string for-syntax match accum)
-  (safe-bind
-   (str strlen at)
-   (let ((len (string-length match)))
+  (let ((str (syntax str))
+        (strlen (syntax strlen))
+        (at (syntax at))
+        (len (string-length match)))
+    (datum->syntax for-syntax
      (cggl for-syntax str strlen at
            `(if (string=? (substring ,str ,at (min (+ ,at ,len) ,strlen))
                           ,match)
@@ -212,8 +214,7 @@
 ;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
 (define (peg-sexp-compile for-syntax match accum)
   (cond
-   ((string? match) (datum->syntax for-syntax
-                                   (cg-string for-syntax match (baf accum))))
+   ((string? match) (cg-string for-syntax match (baf accum)))
    ((symbol? match) ;; either peg-any or a nonterminal
     (cond
      ((eq? match 'peg-any) (datum->syntax for-syntax
