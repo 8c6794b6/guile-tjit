@@ -211,33 +211,43 @@
 ;; Takes an arbitrary expressions and accumulation variable, then parses it.
 ;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
 (define (peg-sexp-compile for-syntax match accum)
-  (datum->syntax for-syntax
-   (cond
-    ((string? match) (cg-string for-syntax match (baf accum)))
-    ((symbol? match) ;; either peg-any or a nonterminal
-     (cond
-      ((eq? match 'peg-any) (cg-peg-any for-syntax (baf accum)))
-      ;; if match is any other symbol it's a nonterminal, so just return it
-      (#t match)))
-    ((or (not (list? match)) (null? match))
-     ;; anything besides a string, symbol, or list is an error
-     (error-val `(peg-sexp-compile-error-1 ,match ,accum)))
-    
-    ((eq? (car match) 'range) ;; range of characters (e.g. [a-z])
-     (cg-range for-syntax (cadr match) (caddr match) (baf accum)))
-    ((eq? (car match) 'ignore) ;; match but don't parse
-     (syntax->datum (peg-sexp-compile for-syntax (cadr match) 'none)))
-    ((eq? (car match) 'capture) ;; parse
-     (syntax->datum (peg-sexp-compile for-syntax (cadr match) 'body)))
-    ((eq? (car match) 'peg) ;; embedded PEG string
-     (syntax->datum (peg-string-compile for-syntax (cadr match) (baf accum))))
-    ((eq? (car match) 'and) (cg-and for-syntax (cdr match) (baf accum)))
-    ((eq? (car match) 'or) (cg-or for-syntax (cdr match) (baf accum)))
-    ((eq? (car match) 'body)
-     (if (not (= (length match) 4))
-         (error-val `(peg-sexp-compile-error-2 ,match ,accum))
-         (apply cg-body for-syntax (cons (baf accum) (cdr match)))))
-    (#t (error-val `(peg-sexp-compile-error-3 ,match ,accum))))))
+  (cond
+   ((string? match) (datum->syntax for-syntax
+                                   (cg-string for-syntax match (baf accum))))
+   ((symbol? match) ;; either peg-any or a nonterminal
+    (cond
+     ((eq? match 'peg-any) (datum->syntax for-syntax
+                                          (cg-peg-any for-syntax (baf accum))))
+     ;; if match is any other symbol it's a nonterminal, so just return it
+     (#t (datum->syntax for-syntax match))))
+   ((or (not (list? match)) (null? match))
+    ;; anything besides a string, symbol, or list is an error
+    (datum->syntax for-syntax
+                   (error-val `(peg-sexp-compile-error-1 ,match ,accum))))
+   
+   ((eq? (car match) 'range) ;; range of characters (e.g. [a-z])
+    (datum->syntax for-syntax
+                   (cg-range for-syntax (cadr match) (caddr match) (baf accum))))
+   ((eq? (car match) 'ignore) ;; match but don't parse
+    (peg-sexp-compile for-syntax (cadr match) 'none))
+   ((eq? (car match) 'capture) ;; parse
+    (peg-sexp-compile for-syntax (cadr match) 'body))
+   ((eq? (car match) 'peg) ;; embedded PEG string
+    (peg-string-compile for-syntax (cadr match) (baf accum)))
+   ((eq? (car match) 'and)
+    (datum->syntax for-syntax
+                   (cg-and for-syntax (cdr match) (baf accum))))
+   ((eq? (car match) 'or)
+    (datum->syntax for-syntax
+                   (cg-or for-syntax (cdr match) (baf accum))))
+   ((eq? (car match) 'body)
+    (if (not (= (length match) 4))
+        (datum->syntax for-syntax
+                       (error-val `(peg-sexp-compile-error-2 ,match ,accum)))
+        (datum->syntax for-syntax
+                       (apply cg-body for-syntax (cons (baf accum) (cdr match))))))
+   (#t (datum->syntax for-syntax
+                      (error-val `(peg-sexp-compile-error-3 ,match ,accum))))))
 
 ;;;;; Convenience macros for making sure things come out in a readable form.
 ;; If SYM is a list of one element, return (car SYM), else return SYM.
