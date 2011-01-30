@@ -184,15 +184,18 @@
 ;; Generates code for matching a range of characters between start and end.
 ;; E.g.: (cg-range syntax #\a #\z 'body)
 (define (cg-range for-syntax start end accum)
-  (safe-bind
-   (str strlen at c)
-   (cggl for-syntax str strlen at
-         `(let ((,c (string-ref ,str ,at)))
-            (if (and
-                 (char>=? ,c ,start)
-                 (char<=? ,c ,end))
-                ,(cggr for-syntax accum 'cg-range `(string ,c) `(+ ,at 1))
-                #f)))))
+  (let ((str (syntax str))
+        (strlen (syntax strlen))
+        (at (syntax at))
+        (c (syntax c)))
+    (datum->syntax for-syntax
+      (cggl for-syntax str strlen at
+            `(let ((,c (string-ref ,str ,at)))
+               (if (and
+                    (char>=? ,c ,start)
+                    (char<=? ,c ,end))
+                   ,(cggr for-syntax accum 'cg-range `(string ,c) `(+ ,at 1))
+                   #f))))))
 
 ;; Filters the accum argument to peg-sexp-compile for buildings like string
 ;; literals (since we don't want to tag them with their name if we're doing an
@@ -228,8 +231,7 @@
                    (error-val `(peg-sexp-compile-error-1 ,match ,accum))))
    
    ((eq? (car match) 'range) ;; range of characters (e.g. [a-z])
-    (datum->syntax for-syntax
-                   (cg-range for-syntax (cadr match) (caddr match) (baf accum))))
+    (cg-range for-syntax (cadr match) (caddr match) (baf accum)))
    ((eq? (car match) 'ignore) ;; match but don't parse
     (peg-sexp-compile for-syntax (cadr match) 'none))
    ((eq? (car match) 'capture) ;; parse
