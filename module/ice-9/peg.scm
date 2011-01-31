@@ -212,10 +212,10 @@
   (let ((str (syntax str))
         (strlen (syntax strlen))
         (at (syntax at)))
-    (datum->syntax for-syntax
-      (cggl for-syntax str strlen at
-            (cggr for-syntax accum
-                  'cg-peg-any `(substring ,str ,at (+ ,at 1)) `(+ ,at 1))))))
+    (cggl-syn for-syntax str strlen at
+          (cggr-syn for-syntax accum
+                    'cg-peg-any #`(substring #,str #,at (+ #,at 1))
+                    #`(+ #,at 1)))))
 
 ;; Generates code for matching a range of characters between start and end.
 ;; E.g.: (cg-range syntax #\a #\z 'body)
