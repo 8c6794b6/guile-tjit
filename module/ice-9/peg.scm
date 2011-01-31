@@ -264,8 +264,7 @@
    ((or (not (list? match)) (null? match))
     ;; anything besides a string, symbol, or list is an error
     (datum->syntax for-syntax
-                   (error-val `(peg-sexp-compile-error-1 ,match ,accum))))
-   
+                   (error-val `(peg-sexp-compile-error-1 ,match ,accum))))   
    ((eq? (car match) 'range) ;; range of characters (e.g. [a-z])
     (cg-range for-syntax (cadr match) (caddr match) (baf accum)))
    ((eq? (car match) 'ignore) ;; match but don't parse
@@ -275,8 +274,7 @@
    ((eq? (car match) 'peg) ;; embedded PEG string
     (peg-string-compile for-syntax (cadr match) (baf accum)))
    ((eq? (car match) 'and)
-    (datum->syntax for-syntax
-                   (cg-and for-syntax (cdr match) (baf accum))))
+    (cg-and for-syntax (cdr match) (baf accum)))
    ((eq? (car match) 'or)
     (datum->syntax for-syntax
                    (cg-or for-syntax (cdr match) (baf accum))))
@@ -305,29 +303,31 @@
 
 ;; Top-level function builder for AND.  Reduces to a call to CG-AND-INT.
 (define (cg-and for-syntax arglst accum)
-  (safe-bind
-   (str strlen at body)
-   `(lambda (,str ,strlen ,at)
-      (let ((,body '()))
-        ,(cg-and-int for-syntax arglst accum str strlen at body)))))
+  (let ((str (syntax str))
+        (strlen (syntax strlen))
+        (at (syntax at))
+        (body (syntax body)))
+   #`(lambda (#,str #,strlen #,at)
+      (let ((#,body '()))
+        #,(cg-and-int for-syntax arglst accum str strlen at body)))))
 
 ;; Internal function builder for AND (calls itself).
 (define (cg-and-int for-syntax arglst accum str strlen at body)
-  (safe-bind
-   (res newat newbody)
+  (let ((res (syntax res))
+        (newat (syntax newat))
+        (newbody (syntax newbody)))
    (if (null? arglst)
-       (cggr for-syntax accum 'cg-and `(reverse ,body) at) ;; base case
-       (let ((mf (syntax->datum
-                  (peg-sexp-compile for-syntax (car arglst) accum)))) ;; match function
-         `(let ((,res (,mf ,str ,strlen ,at)))
-            (if (not ,res) 
+       (cggr-syn for-syntax accum 'cg-and #`(reverse #,body) at) ;; base case
+       (let ((mf (peg-sexp-compile for-syntax (car arglst) accum))) ;; match function
+         #`(let ((#,res (#,mf #,str #,strlen #,at)))
+            (if (not #,res) 
                 #f ;; if the match failed, the and failed
                 ;; otherwise update AT and BODY then recurse
-                (let ((,newat (car ,res))
-                      (,newbody (cadr ,res)))
-                  (set! ,at ,newat)
-                  ((@@ (ice-9 peg) push-not-null!) ,body ((@@ (ice-9 peg) single-filter) ,newbody))
-                  ,(cg-and-int for-syntax (cdr arglst) accum str strlen at body))))))))
+                (let ((#,newat (car #,res))
+                      (#,newbody (cadr #,res)))
+                  (set! #,at #,newat)
+                  ((@@ (ice-9 peg) push-not-null!) #,body ((@@ (ice-9 peg) single-filter) #,newbody))
+                  #,(cg-and-int for-syntax (cdr arglst) accum str strlen at body))))))))
 
 ;; Top-level function builder for OR.  Reduces to a call to CG-OR-INT.
 (define (cg-or for-syntax arglst accum)
