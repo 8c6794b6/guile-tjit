@@ -118,6 +118,13 @@
 ;; The short name makes the formatting below much easier to read.
 (define cggl cg-generic-lambda)
 
+(define (cggl-syn for-syntax str strlen at code)
+  ;; all arguments are syntax
+  #`(lambda (#,str #,strlen #,at)
+     (if (>= #,at #,strlen)
+         #f
+         #,code)))
+
 ;; Optimizations for CG-GENERIC-RET below...
 (define *op-known-single-body* '(cg-string cg-peg-any cg-range))
 ;; ...done with optimizations (could use more of these).
@@ -156,6 +163,35 @@
 ;; The short name makes the formatting below much easier to read.
 (define cggr cg-generic-ret)
 
+(define (cggr-syn for-syntax accum name body-uneval at)
+  ;; name, body-uneval and at are syntax
+  #`(let ((body #,body-uneval))
+     #,(cond
+        ((and (eq? accum 'all) name)
+         #`(list #,at
+                 (cond
+                  ((not (list? body)) (list '#,name body))
+                  ((null? body) '#,name)
+                  ((symbol? (car body)) (list '#,name body))
+                  (#t (cons '#,name body)))))
+        ((eq? accum 'name)
+         #`(list #,at '#,name))
+        ((eq? accum 'body)
+         (cond
+          ((member (syntax->datum name) *op-known-single-body*)
+           #`(list #,at body))
+          (#t #`(list #,at
+                      (cond
+                       (((@@ (ice-9 peg) single?) body) (car body))
+                       (#t body))))))
+        ((eq? accum 'none)
+         #`(list #,at '()))
+        (#t
+         (begin
+           (pretty-print `(cg-generic-ret-error ,accum ,name ,body-uneval ,at))
+           (pretty-print "Defaulting to accum of none.\n")
+           #`(list #,at '()))))))
+
 ;; Generates code that matches a particular string.
 ;; E.g.: (cg-string syntax "abc" 'body)
 (define (cg-string for-syntax match accum)
@@ -163,12 +199,12 @@
         (strlen (syntax strlen))
         (at (syntax at))
         (len (string-length match)))
-    (datum->syntax for-syntax
-     (cggl for-syntax str strlen at
-           `(if (string=? (substring ,str ,at (min (+ ,at ,len) ,strlen))
-                          ,match)
-                ,(cggr for-syntax accum 'cg-string match `(+ ,at ,len))
-                #f)))))
+     (cggl-syn for-syntax str strlen at
+               #`(if (string=? (substring #,str #,at (min (+ #,at #,len) #,strlen))
+                              #,match)
+                    #,(cggr-syn for-syntax accum 'cg-string match
+                                #`(+ #,at #,len))
+                    #f))))
 
 ;; Generates code for matching any character.
 ;; E.g.: (cg-peg-any syntax 'body)
