@@ -276,8 +276,7 @@
    ((eq? (car match) 'and)
     (cg-and for-syntax (cdr match) (baf accum)))
    ((eq? (car match) 'or)
-    (datum->syntax for-syntax
-                   (cg-or for-syntax (cdr match) (baf accum))))
+    (cg-or for-syntax (cdr match) (baf accum)))
    ((eq? (car match) 'body)
     (if (not (= (length match) 4))
         (datum->syntax for-syntax
@@ -331,23 +330,23 @@
 
 ;; Top-level function builder for OR.  Reduces to a call to CG-OR-INT.
 (define (cg-or for-syntax arglst accum)
-  (safe-bind
-   (str strlen at body)
-   `(lambda (,str ,strlen ,at)
-      ,(cg-or-int for-syntax arglst accum str strlen at body))))
+  (let ((str (syntax str))
+        (strlen (syntax strlen))
+        (at (syntax at))
+        (body (syntax body)))
+   #`(lambda (#,str #,strlen #,at)
+      #,(cg-or-int for-syntax arglst accum str strlen at body))))
 
 ;; Internal function builder for OR (calls itself).
 (define (cg-or-int for-syntax arglst accum str strlen at body)
-  (safe-bind
-   (res)
+  (let ((res (syntax res)))
    (if (null? arglst)
        #f ;; base case
-       (let ((mf (syntax->datum
-                  (peg-sexp-compile for-syntax (car arglst) accum))))
-         `(let ((,res (,mf ,str ,strlen ,at)))
-            (if ,res ;; if the match succeeds, we're done
-                ,(cggr for-syntax accum 'cg-or `(cadr ,res) `(car ,res))
-                ,(cg-or-int for-syntax (cdr arglst) accum str strlen at body)))))))
+       (let ((mf (peg-sexp-compile for-syntax (car arglst) accum)))
+         #`(let ((#,res (#,mf #,str #,strlen #,at)))
+            (if #,res ;; if the match succeeds, we're done
+                #,(cggr-syn for-syntax accum 'cg-or #`(cadr #,res) #`(car #,res))
+                #,(cg-or-int for-syntax (cdr arglst) accum str strlen at body)))))))
 
 ;; Returns a block of code that tries to match MATCH, and on success updates AT
 ;; and BODY, return #f on failure and #t on success.
