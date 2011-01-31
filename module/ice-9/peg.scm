@@ -224,14 +224,14 @@
         (strlen (syntax strlen))
         (at (syntax at))
         (c (syntax c)))
-    (datum->syntax for-syntax
-      (cggl for-syntax str strlen at
-            `(let ((,c (string-ref ,str ,at)))
-               (if (and
-                    (char>=? ,c ,start)
-                    (char<=? ,c ,end))
-                   ,(cggr for-syntax accum 'cg-range `(string ,c) `(+ ,at 1))
-                   #f))))))
+    (cggl-syn for-syntax str strlen at
+          #`(let ((#,c (string-ref #,str #,at)))
+             (if (and
+                  (char>=? #,c #,start)
+                  (char<=? #,c #,end))
+                 #,(cggr-syn for-syntax accum 'cg-range
+                             #`(string #,c) #`(+ #,at 1))
+                 #f)))))
 
 ;; Filters the accum argument to peg-sexp-compile for buildings like string
 ;; literals (since we don't want to tag them with their name if we're doing an
