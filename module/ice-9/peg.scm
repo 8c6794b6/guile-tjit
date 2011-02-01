@@ -351,66 +351,71 @@
 ;; Returns a block of code that tries to match MATCH, and on success updates AT
 ;; and BODY, return #f on failure and #t on success.
 (define (cg-body-test for-syntax match accum str strlen at body)
-  (safe-bind
-   (at2-body2 at2 body2)
-   (let ((mf (syntax->datum
-              (peg-sexp-compile for-syntax match accum))))
-     `(let ((,at2-body2 (,mf ,str ,strlen ,at)))
-        (if (or (not ,at2-body2) (= ,at (car ,at2-body2)))
+  (let ((at2-body2 (syntax at2-body2))
+        (at2 (syntax at2))
+        (body2 (syntax body2)))
+   (let ((mf (peg-sexp-compile for-syntax match accum)))
+     #`(let ((#,at2-body2 (#,mf #,str #,strlen #,at)))
+        (if (or (not #,at2-body2) (= #,at (car #,at2-body2)))
             #f
-            (let ((,at2 (car ,at2-body2))
-                  (,body2 (cadr ,at2-body2)))
-              (set! ,at ,at2)
+            (let ((#,at2 (car #,at2-body2))
+                  (#,body2 (cadr #,at2-body2)))
+              (set! #,at #,at2)
               ((@@ (ice-9 peg) push-not-null!)
-               ,body
-               ((@@ (ice-9 peg) single-filter) ,body2))
+               #,body
+               ((@@ (ice-9 peg) single-filter) #,body2))
               #t))))))
 
 ;; Returns a block of code that sees whether NUM wants us to try and match more
 ;; given that we've already matched COUNT.
 (define (cg-body-more for-syntax num count)
-  (cond ((number? num) `(< ,count ,num))
+  (cond ((number? num) #`(< #,count #,(datum->syntax for-syntax num)))
         ((eq? num '+) #t)
         ((eq? num '*) #t)
-        ((eq? num '?) `(< ,count 1))
+        ((eq? num '?) #`(< #,count 1))
         (#t (error-val `(cg-body-more-error ,num ,count)))))
 
 ;; Returns a function that takes a paramter indicating whether or not the match
 ;; was succesful and returns what the body expression should return.
 (define (cg-body-ret for-syntax accum type name body at at2)
-  (safe-bind
-   (success)
-   `(lambda (,success)
-      ,(cond ((eq? type '!)
-              `(if ,success #f ,(cggr for-syntax accum name ''() at)))
+  (let ((success (syntax success)))
+   #`(lambda (#,success)
+      #,(cond ((eq? type '!)
+              #`(if #,success #f #,(cggr-syn for-syntax accum name ''() at)))
              ((eq? type '&)
-              `(if ,success ,(cggr for-syntax accum name ''() at) #f))
+              #`(if #,success #,(cggr-syn for-syntax accum name ''() at) #f))
              ((eq? type 'lit)
-              `(if ,success
-                   ,(cggr for-syntax accum name `(reverse ,body) at2) #f))
+              #`(if #,success
+                   #,(cggr-syn for-syntax accum name #`(reverse #,body) at2) #f))
              (#t (error-val
                   `(cg-body-ret-error ,type ,accum ,name ,body ,at ,at2)))))))
 
 ;; Returns a block of code that sees whether COUNT satisfies the constraints of
 ;; NUM.
 (define (cg-body-success for-syntax num count)
-  (cond ((number? num) `(= ,count ,num))
-        ((eq? num '+) `(>= ,count 1))
+  (cond ((number? num) #`(= #,count #,num))
+        ((eq? num '+) #`(>= #,count 1))
         ((eq? num '*) #t)
-        ((eq? num '?) `(<= ,count 1))
+        ((eq? num '?) #`(<= #,count 1))
         (#t `(cg-body-success-error ,num))))
 
 ;; Returns a function that parses a BODY element.
 (define (cg-body for-syntax accum type match num)
-  (safe-bind
-   (str strlen at at2 count body)
-   `(lambda (,str ,strlen ,at)
-      (let ((,at2 ,at) (,count 0) (,body '()))
-        (while (and ,(cg-body-test for-syntax match accum str strlen at2 body)
-                    (set! ,count (+ ,count 1))
-                    ,(cg-body-more for-syntax num count)))
-        (,(cg-body-ret for-syntax accum type 'cg-body body at at2)
-         ,(cg-body-success for-syntax num count))))))
+  (let ((str (syntax str))
+        (strlen (syntax strlen))
+        (at (syntax at))
+        ; this next one doesn't work with (syntax at2), and I'd really
+        ; like to know why.
+        (at2 (datum->syntax for-syntax (gensym)))
+        (count (syntax count))
+        (body (syntax body)))
+   #`(lambda (#,str #,strlen #,at)
+      (let ((#,at2 #,at) (#,count 0) (#,body '()))
+        (while (and #,(cg-body-test for-syntax match accum str strlen at2 body)
+                    (set! #,count (+ #,count 1))
+                    #,(cg-body-more for-syntax num count)))
+        (#,(cg-body-ret for-syntax accum type 'cg-body body at at2)
+         #,(cg-body-success for-syntax num count))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; FOR DEFINING AND USING NONTERMINALS
