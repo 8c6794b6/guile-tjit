@@ -111,19 +111,15 @@
 ;; Code we generate will be defined in a function, and always has to test
 ;; whether it's beyond the bounds of the string before it executes.
 (define (cg-generic-lambda for-syntax str strlen at code)
-  `(lambda (,str ,strlen ,at)
-     (if (>= ,at ,strlen)
-         #f
-         ,code)))
-;; The short name makes the formatting below much easier to read.
-(define cggl cg-generic-lambda)
-
-(define (cggl-syn for-syntax str strlen at code)
   ;; all arguments are syntax
   #`(lambda (#,str #,strlen #,at)
      (if (>= #,at #,strlen)
          #f
          #,code)))
+
+;; The short name makes the formatting below much easier to read.
+(define cggl cg-generic-lambda)
+
 
 ;; Optimizations for CG-GENERIC-RET below...
 (define *op-known-single-body* '(cg-string cg-peg-any cg-range))
@@ -132,38 +128,6 @@
 ;; Code we generate will have a certain return structure depending on how we're
 ;; accumulating (the ACCUM variable).
 (define (cg-generic-ret for-syntax accum name body-uneval at)
-  (safe-bind
-   (body)
-   `(let ((,body ,body-uneval))
-      ,(cond
-        ((and (eq? accum 'all) name body)
-         `(list ,at
-                (cond
-                 ((not (list? ,body)) (list ',name ,body))
-                 ((null? ,body) ',name)
-                 ((symbol? (car ,body)) (list ',name ,body))
-                 (#t (cons ',name ,body)))))
-        ((and (eq? accum 'name) name)
-         `(list ,at ',name))
-        ((and (eq? accum 'body) body)
-         (cond
-          ((member name *op-known-single-body*)
-           `(list ,at ,body))
-          (#t `(list ,at
-                     (cond
-                      (((@@ (ice-9 peg) single?) ,body) (car ,body))
-                      (#t ,body))))))
-        ((eq? accum 'none)
-         `(list ,at '()))
-        (#t
-         (begin
-           (pretty-print `(cg-generic-ret-error ,accum ,name ,body-uneval ,at))
-           (pretty-print "Defaulting to accum of none.\n")
-           `(list ,at '())))))))
-;; The short name makes the formatting below much easier to read.
-(define cggr cg-generic-ret)
-
-(define (cggr-syn for-syntax accum name body-uneval at)
   ;; name, body-uneval and at are syntax
   #`(let ((body #,body-uneval))
      #,(cond
@@ -192,6 +156,9 @@
            (pretty-print "Defaulting to accum of none.\n")
            #`(list #,at '()))))))
 
+;; The short name makes the formatting below much easier to read.
+(define cggr cg-generic-ret)
+
 ;; Generates code that matches a particular string.
 ;; E.g.: (cg-string syntax "abc" 'body)
 (define (cg-string for-syntax match accum)
@@ -199,12 +166,12 @@
         (strlen (syntax strlen))
         (at (syntax at))
         (len (string-length match)))
-     (cggl-syn for-syntax str strlen at
-               #`(if (string=? (substring #,str #,at (min (+ #,at #,len) #,strlen))
-                              #,match)
-                    #,(cggr-syn for-syntax accum 'cg-string match
-                                #`(+ #,at #,len))
-                    #f))))
+     (cggl for-syntax str strlen at
+           #`(if (string=? (substring #,str #,at (min (+ #,at #,len) #,strlen))
+                           #,match)
+                 #,(cggr for-syntax accum 'cg-string match
+                         #`(+ #,at #,len))
+                 #f))))
 
 ;; Generates code for matching any character.
 ;; E.g.: (cg-peg-any syntax 'body)
@@ -212,10 +179,10 @@
   (let ((str (syntax str))
         (strlen (syntax strlen))
         (at (syntax at)))
-    (cggl-syn for-syntax str strlen at
-          (cggr-syn for-syntax accum
-                    'cg-peg-any #`(substring #,str #,at (+ #,at 1))
-                    #`(+ #,at 1)))))
+    (cggl for-syntax str strlen at
+          (cggr for-syntax accum
+                'cg-peg-any #`(substring #,str #,at (+ #,at 1))
+                #`(+ #,at 1)))))
 
 ;; Generates code for matching a range of characters between start and end.
 ;; E.g.: (cg-range syntax #\a #\z 'body)
@@ -224,14 +191,14 @@
         (strlen (syntax strlen))
         (at (syntax at))
         (c (syntax c)))
-    (cggl-syn for-syntax str strlen at
+    (cggl for-syntax str strlen at
           #`(let ((#,c (string-ref #,str #,at)))
-             (if (and
-                  (char>=? #,c #,start)
-                  (char<=? #,c #,end))
-                 #,(cggr-syn for-syntax accum 'cg-range
-                             #`(string #,c) #`(+ #,at 1))
-                 #f)))))
+              (if (and
+                   (char>=? #,c #,start)
+                   (char<=? #,c #,end))
+                  #,(cggr for-syntax accum 'cg-range
+                          #`(string #,c) #`(+ #,at 1))
+                  #f)))))
 
 ;; Filters the accum argument to peg-sexp-compile for buildings like string
 ;; literals (since we don't want to tag them with their name if we're doing an
@@ -316,7 +283,7 @@
         (newat (syntax newat))
         (newbody (syntax newbody)))
    (if (null? arglst)
-       (cggr-syn for-syntax accum 'cg-and #`(reverse #,body) at) ;; base case
+       (cggr for-syntax accum 'cg-and #`(reverse #,body) at) ;; base case
        (let ((mf (peg-sexp-compile for-syntax (car arglst) accum))) ;; match function
          #`(let ((#,res (#,mf #,str #,strlen #,at)))
             (if (not #,res) 
@@ -345,7 +312,7 @@
        (let ((mf (peg-sexp-compile for-syntax (car arglst) accum)))
          #`(let ((#,res (#,mf #,str #,strlen #,at)))
             (if #,res ;; if the match succeeds, we're done
-                #,(cggr-syn for-syntax accum 'cg-or #`(cadr #,res) #`(car #,res))
+                #,(cggr for-syntax accum 'cg-or #`(cadr #,res) #`(car #,res))
                 #,(cg-or-int for-syntax (cdr arglst) accum str strlen at body)))))))
 
 ;; Returns a block of code that tries to match MATCH, and on success updates AT
@@ -381,12 +348,12 @@
   (let ((success (syntax success)))
    #`(lambda (#,success)
       #,(cond ((eq? type '!)
-              #`(if #,success #f #,(cggr-syn for-syntax accum name ''() at)))
+              #`(if #,success #f #,(cggr for-syntax accum name ''() at)))
              ((eq? type '&)
-              #`(if #,success #,(cggr-syn for-syntax accum name ''() at) #f))
+              #`(if #,success #,(cggr for-syntax accum name ''() at) #f))
              ((eq? type 'lit)
               #`(if #,success
-                   #,(cggr-syn for-syntax accum name #`(reverse #,body) at2) #f))
+                   #,(cggr for-syntax accum name #`(reverse #,body) at2) #f))
              (#t (error-val
                   `(cg-body-ret-error ,type ,accum ,name ,body ,at ,at2)))))))
 
