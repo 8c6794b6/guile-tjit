@@ -27,46 +27,6 @@
 (eval-when (compile load eval)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; CONVENIENCE MACROS
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define (eeval exp)
-  (eval exp (interaction-environment)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; MACRO BUILDERS
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; Safe-bind helps to bind macros safely.
-;; e.g.:
-;; (safe-bind
-;;  (a b)
-;;  `(,a ,b))
-;; gives:
-;; (#<uninterned-symbol a cc608d0> #<uninterned-symbol b cc608a0>)
-(define-syntax safe-bind
-  (lambda (x)
-    (syntax-case x ()
-      ((_ vals . actions)
-       (datum->syntax x (apply safe-bind-f
-                               (cons
-                                (syntax->datum #'vals)
-                                (syntax->datum #'actions))))))))
-;; (define-macro (safe-bind vals . actions)
-;;   (apply safe-bind-f (cons vals actions)))
-(define (safe-bind-f vals . actions)
-  `(let ,(map (lambda (val) `(,val (make-symbol ,(symbol->string val)))) vals)
-     ,@actions))
-
-;; Unsafe-bind is like safe-bind but uses symbols that are easier to read while
-;; debugging rather than safe ones.  Currently unused.
-;; (define-macro (unsafe-bind vals . actions)
-;;   (apply unsafe-bind-f (cons vals actions)))
-;; (define (unsafe-bind-f vals . actions)
-;;   `(let ,(map (lambda (val) `(,val ',val)) vals)
-;;      ,@actions))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; LOOPING CONSTRUCTS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
