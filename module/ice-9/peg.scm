@@ -80,7 +80,6 @@
 ;; The short name makes the formatting below much easier to read.
 (define cggl cg-generic-lambda)
 
-
 ;; Optimizations for CG-GENERIC-RET below...
 (define *op-known-single-body* '(cg-string cg-peg-any cg-range))
 ;; ...done with optimizations (could use more of these).
@@ -122,43 +121,33 @@
 ;; Generates code that matches a particular string.
 ;; E.g.: (cg-string syntax "abc" 'body)
 (define (cg-string for-syntax match accum)
-  (let ((str (syntax str))
-        (strlen (syntax strlen))
-        (at (syntax at))
-        (len (string-length match)))
-     (cggl for-syntax str strlen at
-           #`(if (string=? (substring #,str #,at (min (+ #,at #,len) #,strlen))
-                           #,match)
-                 #,(cggr for-syntax accum 'cg-string match
-                         #`(+ #,at #,len))
-                 #f))))
+  (let ((len (string-length match)))
+    (cggl for-syntax #'str #'strlen #'at
+          #`(if (string=? (substring str at (min (+ at #,len) strlen))
+                          #,match)
+                #,(cggr for-syntax accum 'cg-string match
+                        #`(+ at #,len))
+                #f))))
 
 ;; Generates code for matching any character.
 ;; E.g.: (cg-peg-any syntax 'body)
 (define (cg-peg-any for-syntax accum)
-  (let ((str (syntax str))
-        (strlen (syntax strlen))
-        (at (syntax at)))
-    (cggl for-syntax str strlen at
-          (cggr for-syntax accum
-                'cg-peg-any #`(substring #,str #,at (+ #,at 1))
-                #`(+ #,at 1)))))
+  (cggl for-syntax #'str #'strlen #'at
+        (cggr for-syntax accum
+              'cg-peg-any #`(substring str at (+ at 1))
+              #`(+ at 1))))
 
 ;; Generates code for matching a range of characters between start and end.
 ;; E.g.: (cg-range syntax #\a #\z 'body)
 (define (cg-range for-syntax start end accum)
-  (let ((str (syntax str))
-        (strlen (syntax strlen))
-        (at (syntax at))
-        (c (syntax c)))
-    (cggl for-syntax str strlen at
-          #`(let ((#,c (string-ref #,str #,at)))
-              (if (and
-                   (char>=? #,c #,start)
-                   (char<=? #,c #,end))
-                  #,(cggr for-syntax accum 'cg-range
-                          #`(string #,c) #`(+ #,at 1))
-                  #f)))))
+  (cggl for-syntax #'str #'strlen #'at
+        #`(let ((c (string-ref str at)))
+            (if (and
+                 (char>=? c #,start)
+                 (char<=? c #,end))
+                #,(cggr for-syntax accum 'cg-range
+                        #`(string c) #`(+ at 1))
+                #f))))
 
 ;; Filters the accum argument to peg-sexp-compile for buildings like string
 ;; literals (since we don't want to tag them with their name if we're doing an
@@ -229,69 +218,54 @@
 
 ;; Top-level function builder for AND.  Reduces to a call to CG-AND-INT.
 (define (cg-and for-syntax arglst accum)
-  (let ((str (syntax str))
-        (strlen (syntax strlen))
-        (at (syntax at))
-        (body (syntax body)))
-   #`(lambda (#,str #,strlen #,at)
-      (let ((#,body '()))
-        #,(cg-and-int for-syntax arglst accum str strlen at body)))))
+   #`(lambda (str strlen at)
+      (let ((body '()))
+        #,(cg-and-int for-syntax arglst accum #'str #'strlen #'at #'body))))
 
 ;; Internal function builder for AND (calls itself).
 (define (cg-and-int for-syntax arglst accum str strlen at body)
-  (let ((res (syntax res))
-        (newat (syntax newat))
-        (newbody (syntax newbody)))
-   (if (null? arglst)
-       (cggr for-syntax accum 'cg-and #`(reverse #,body) at) ;; base case
-       (let ((mf (peg-sexp-compile for-syntax (car arglst) accum))) ;; match function
-         #`(let ((#,res (#,mf #,str #,strlen #,at)))
-            (if (not #,res) 
+  (if (null? arglst)
+      (cggr for-syntax accum 'cg-and #`(reverse #,body) at) ;; base case
+      (let ((mf (peg-sexp-compile for-syntax (car arglst) accum))) ;; match function
+        #`(let ((res (#,mf #,str #,strlen #,at)))
+            (if (not res) 
                 #f ;; if the match failed, the and failed
                 ;; otherwise update AT and BODY then recurse
-                (let ((#,newat (car #,res))
-                      (#,newbody (cadr #,res)))
-                  (set! #,at #,newat)
-                  ((@@ (ice-9 peg) push-not-null!) #,body ((@@ (ice-9 peg) single-filter) #,newbody))
-                  #,(cg-and-int for-syntax (cdr arglst) accum str strlen at body))))))))
+                (let ((newat (car res))
+                      (newbody (cadr res)))
+                  (set! #,at newat)
+                  ((@@ (ice-9 peg) push-not-null!) #,body ((@@ (ice-9 peg) single-filter) newbody))
+                  #,(cg-and-int for-syntax (cdr arglst) accum str strlen at body)))))))
 
 ;; Top-level function builder for OR.  Reduces to a call to CG-OR-INT.
 (define (cg-or for-syntax arglst accum)
-  (let ((str (syntax str))
-        (strlen (syntax strlen))
-        (at (syntax at))
-        (body (syntax body)))
-   #`(lambda (#,str #,strlen #,at)
-      #,(cg-or-int for-syntax arglst accum str strlen at body))))
+  #`(lambda (str strlen at)
+      #,(cg-or-int for-syntax arglst accum #'str #'strlen #'at #'body)))
 
 ;; Internal function builder for OR (calls itself).
 (define (cg-or-int for-syntax arglst accum str strlen at body)
-  (let ((res (syntax res)))
-   (if (null? arglst)
-       #f ;; base case
-       (let ((mf (peg-sexp-compile for-syntax (car arglst) accum)))
-         #`(let ((#,res (#,mf #,str #,strlen #,at)))
-            (if #,res ;; if the match succeeds, we're done
-                #,(cggr for-syntax accum 'cg-or #`(cadr #,res) #`(car #,res))
-                #,(cg-or-int for-syntax (cdr arglst) accum str strlen at body)))))))
+  (if (null? arglst)
+      #f ;; base case
+      (let ((mf (peg-sexp-compile for-syntax (car arglst) accum)))
+        #`(let ((res (#,mf #,str #,strlen #,at)))
+            (if res ;; if the match succeeds, we're done
+                #,(cggr for-syntax accum 'cg-or #`(cadr res) #`(car res))
+                #,(cg-or-int for-syntax (cdr arglst) accum str strlen at body))))))
 
 ;; Returns a block of code that tries to match MATCH, and on success updates AT
 ;; and BODY, return #f on failure and #t on success.
 (define (cg-body-test for-syntax match accum str strlen at body)
-  (let ((at2-body2 (syntax at2-body2))
-        (at2 (syntax at2))
-        (body2 (syntax body2)))
-   (let ((mf (peg-sexp-compile for-syntax match accum)))
-     #`(let ((#,at2-body2 (#,mf #,str #,strlen #,at)))
-        (if (or (not #,at2-body2) (= #,at (car #,at2-body2)))
+  (let ((mf (peg-sexp-compile for-syntax match accum)))
+    #`(let ((at2-body2 (#,mf #,str #,strlen #,at)))
+        (if (or (not at2-body2) (= #,at (car at2-body2)))
             #f
-            (let ((#,at2 (car #,at2-body2))
-                  (#,body2 (cadr #,at2-body2)))
-              (set! #,at #,at2)
+            (let ((at2 (car at2-body2))
+                  (body2 (cadr at2-body2)))
+              (set! #,at at2)
               ((@@ (ice-9 peg) push-not-null!)
                #,body
-               ((@@ (ice-9 peg) single-filter) #,body2))
-              #t))))))
+               ((@@ (ice-9 peg) single-filter) body2))
+              #t)))))
 
 ;; Returns a block of code that sees whether NUM wants us to try and match more
 ;; given that we've already matched COUNT.
@@ -305,17 +279,16 @@
 ;; Returns a function that takes a paramter indicating whether or not the match
 ;; was succesful and returns what the body expression should return.
 (define (cg-body-ret for-syntax accum type name body at at2)
-  (let ((success (syntax success)))
-   #`(lambda (#,success)
+   #`(lambda (success)
       #,(cond ((eq? type '!)
-              #`(if #,success #f #,(cggr for-syntax accum name ''() at)))
+              #`(if success #f #,(cggr for-syntax accum name ''() at)))
              ((eq? type '&)
-              #`(if #,success #,(cggr for-syntax accum name ''() at) #f))
+              #`(if success #,(cggr for-syntax accum name ''() at) #f))
              ((eq? type 'lit)
-              #`(if #,success
+              #`(if success
                    #,(cggr for-syntax accum name #`(reverse #,body) at2) #f))
              (#t (error-val
-                  `(cg-body-ret-error ,type ,accum ,name ,body ,at ,at2)))))))
+                  `(cg-body-ret-error ,type ,accum ,name ,body ,at ,at2))))))
 
 ;; Returns a block of code that sees whether COUNT satisfies the constraints of
 ;; NUM.
@@ -328,21 +301,17 @@
 
 ;; Returns a function that parses a BODY element.
 (define (cg-body for-syntax accum type match num)
-  (let ((str (syntax str))
-        (strlen (syntax strlen))
-        (at (syntax at))
-        ; this next one doesn't work with (syntax at2), and I'd really
+  (let (; this doesn't work with regular syntax, and I'd really
         ; like to know why.
-        (at2 (datum->syntax for-syntax (gensym)))
-        (count (syntax count))
-        (body (syntax body)))
-   #`(lambda (#,str #,strlen #,at)
-      (let ((#,at2 #,at) (#,count 0) (#,body '()))
-        (while (and #,(cg-body-test for-syntax match accum str strlen at2 body)
-                    (set! #,count (+ #,count 1))
-                    #,(cg-body-more for-syntax num count)))
-        (#,(cg-body-ret for-syntax accum type 'cg-body body at at2)
-         #,(cg-body-success for-syntax num count))))))
+        (at2 (datum->syntax for-syntax (gensym))))
+   #`(lambda (str strlen at)
+      (let ((#,at2 at) (count 0) (body '()))
+        (while (and #,(cg-body-test for-syntax match accum
+                                    #'str #'strlen at2 #'body)
+                    (set! count (+ count 1))
+                    #,(cg-body-more for-syntax num #'count)))
+        (#,(cg-body-ret for-syntax accum type 'cg-body #'body #'at at2)
+         #,(cg-body-success for-syntax num #'count))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; FOR DEFINING AND USING NONTERMINALS
