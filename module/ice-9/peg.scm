@@ -45,15 +45,12 @@
 
 ;; Perform ACTION. If it succeeded, return its return value.  If it failed, run
 ;; IF_FAILS and try again
-(define-syntax until-works
-  (lambda (x)
-    (syntax-case x ()
-      ((_ action if-fails)
-       #'(let ((retval action))
-           (while (not retval)
-                  if-fails
-                  (set! retval action))
-           retval)))))
+(define-syntax until
+  (syntax-rules ()
+    ((_ test stmt stmt* ...)
+     (let lp ()
+       (or action
+           (begin stmt stmt* (lp)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; GENERIC LIST-PROCESSING MACROS
@@ -427,11 +424,10 @@
            #`(let ((string (string-copy string-uncopied))
                    (strlen (string-length string-uncopied))
                    (at 0))
-               (let ((ret ((@@ (ice-9 peg) until-works)
-                           (or (>= at strlen)
-                               (#,peg-sexp-compile
-                                string strlen at))
-                           (set! at (+ at 1)))))
+               (let ((ret (until (or (>= at strlen)
+                                     (#,peg-sexp-compile
+                                      string strlen at))
+                                 (set! at (+ at 1)))))
                  (if (eq? ret #t) ;; (>= at strlen) succeeded
                      #f
                      (let ((end (car ret))
