@@ -48,7 +48,7 @@
   (syntax-rules ()
     ((_ test stmt stmt* ...)
      (let lp ()
-       (or action
+       (or test
            (begin stmt stmt* ... (lp)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -69,6 +69,21 @@
   (syntax-rules ()
     ((_ lst obj)
      (set! lst (cons obj lst)))))
+
+;; If SYM is a list of one element, return (car SYM), else return SYM.
+(define-syntax single-filter
+  (syntax-rules ()
+    ((_ exp)
+     (pmatch exp
+       ((,elt) elt)
+       (,elts elts)))))
+
+;; If OBJ is non-null, push it onto LST, otherwise do nothing.
+(define-syntax push-not-null!
+  (syntax-rules ()
+    ((_ lst obj)
+     (if (not (null? obj))
+         (push! lst obj)))))
 
 (eval-when (compile load eval)
 
@@ -212,20 +227,6 @@
                        (apply cg-body for-syntax (cons (baf accum) (cdr match))))))
    (else (datum->syntax for-syntax
                       (error-val `(peg-sexp-compile-error-3 ,match ,accum))))))
-
-;;;;; Convenience macros for making sure things come out in a readable form.
-;; If SYM is a list of one element, return (car SYM), else return SYM.
-(define-syntax single-filter
-  (lambda (x)
-    (syntax-case x ()
-      ((_ sym)
-       #'(if (single? sym) (car sym) sym)))))
-;; If OBJ is non-null, push it onto LST, otherwise do nothing.
-(define-syntax push-not-null!
-  (lambda (x)
-    (syntax-case x ()
-      ((_ lst obj)
-       #'(if (not (null? obj)) (push! lst obj))))))
 
 ;; Top-level function builder for AND.  Reduces to a call to CG-AND-INT.
 (define (cg-and for-syntax arglst accum)
