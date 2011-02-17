@@ -35,9 +35,8 @@
             peg:substring
             peg-record?
             keyword-flatten)
+  #:use-module (system base pmatch)
   #:use-module (ice-9 pretty-print))
-
-(eval-when (compile load eval)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; LOOPING CONSTRUCTS
@@ -50,7 +49,7 @@
     ((_ test stmt stmt* ...)
      (let lp ()
        (or action
-           (begin stmt stmt* (lp)))))))
+           (begin stmt stmt* ... (lp)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; GENERIC LIST-PROCESSING MACROS
@@ -59,17 +58,19 @@
 ;; Return #t if the list has only one element (calling length all the time on
 ;; potentially long lists was really slow).
 (define-syntax single?
-  (lambda (x)
-    (syntax-case x ()
-      ((_ lst)
-       #'(and (list? lst) (not (null? lst)) (null? (cdr lst)))))))
+  (syntax-rules ()
+    ((_ x)
+     (pmatch x
+       ((_) #t)
+       (else #f)))))
 
 ;; Push an object onto a list.
 (define-syntax push!
-  (lambda (x)
-    (syntax-case x ()
-      ((_ lst obj)
-       #'(set! lst (cons obj lst))))))
+  (syntax-rules ()
+    ((_ lst obj)
+     (set! lst (cons obj lst)))))
+
+(eval-when (compile load eval)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; CODE GENERATORS
