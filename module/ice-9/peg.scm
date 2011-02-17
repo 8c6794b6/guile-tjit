@@ -107,20 +107,20 @@
                   ((not (list? body)) (list '#,name body))
                   ((null? body) '#,name)
                   ((symbol? (car body)) (list '#,name body))
-                  (#t (cons '#,name body)))))
+                  (else (cons '#,name body)))))
         ((eq? accum 'name)
          #`(list #,at '#,name))
         ((eq? accum 'body)
          (cond
           ((member (syntax->datum name) *op-known-single-body*)
            #`(list #,at body))
-          (#t #`(list #,at
+          (else #`(list #,at
                       (cond
                        (((@@ (ice-9 peg) single?) body) (car body))
-                       (#t body))))))
+                       (else body))))))
         ((eq? accum 'none)
          #`(list #,at '()))
-        (#t
+        (else
          (begin
            (pretty-print `(cg-generic-ret-error ,accum ,name ,body-uneval ,at))
            (pretty-print "Defaulting to accum of none.\n")
@@ -187,7 +187,7 @@
     (cond
      ((eq? match 'peg-any) (cg-peg-any for-syntax (baf accum)))
      ;; if match is any other symbol it's a nonterminal, so just return it
-     (#t (datum->syntax for-syntax match))))
+     (else (datum->syntax for-syntax match))))
    ((or (not (list? match)) (null? match))
     ;; anything besides a string, symbol, or list is an error
     (datum->syntax for-syntax
@@ -210,7 +210,7 @@
                        (error-val `(peg-sexp-compile-error-2 ,match ,accum)))
         (datum->syntax for-syntax
                        (apply cg-body for-syntax (cons (baf accum) (cdr match))))))
-   (#t (datum->syntax for-syntax
+   (else (datum->syntax for-syntax
                       (error-val `(peg-sexp-compile-error-3 ,match ,accum))))))
 
 ;;;;; Convenience macros for making sure things come out in a readable form.
@@ -285,7 +285,7 @@
         ((eq? num '+) #t)
         ((eq? num '*) #t)
         ((eq? num '?) #`(< #,count 1))
-        (#t (error-val `(cg-body-more-error ,num ,count)))))
+        (else (error-val `(cg-body-more-error ,num ,count)))))
 
 ;; Returns a function that takes a paramter indicating whether or not the match
 ;; was succesful and returns what the body expression should return.
@@ -298,7 +298,7 @@
              ((eq? type 'lit)
               #`(if success
                    #,(cggr for-syntax accum name #`(reverse #,body) at2) #f))
-             (#t (error-val
+             (else (error-val
                   `(cg-body-ret-error ,type ,accum ,name ,body ,at ,at2))))))
 
 ;; Returns a block of code that sees whether COUNT satisfies the constraints of
@@ -308,7 +308,7 @@
         ((eq? num '+) #`(>= #,count 1))
         ((eq? num '*) #t)
         ((eq? num '?) #`(<= #,count 1))
-        (#t `(cg-body-success-error ,num))))
+        (else `(cg-body-success-error ,num))))
 
 ;; Returns a function that parses a BODY element.
 (define (cg-body for-syntax accum type match num)
@@ -355,9 +355,9 @@
                            ((null? body) '#,s-syn)
                            ((symbol? (car body))
                             (list '#,s-syn body))
-                           (#t (cons '#,s-syn body)))))
+                           (else (cons '#,s-syn body)))))
                  ((eq? accumsym 'none) #`(list (car res) '()))
-                 (#t #`(begin res))))
+                 (else #`(begin res))))
             ;; If we didn't match, just return false.
             #f))))
 
@@ -606,7 +606,7 @@ RB < ']'
        ,(cond
          ((string=? grabber "<--") 'all)
          ((string=? grabber "<-") 'body)
-         (#t 'none))
+         (else 'none))
        ,(compressor (peg-parse-pattern pattern)))))
 
 ;; Parse a pattern.
@@ -632,7 +632,7 @@ RB < ']'
      ((string? (car lst))
       (begin (set! front (string->symbol (car lst)))
              (set! suffix (cadr lst))))
-     (#t `(peg-parse-body-fail ,lst)))
+     (else `(peg-parse-body-fail ,lst)))
     `(body ,front ,@(peg-parse-suffix suffix))))
 
 ;; Parse a suffix.
@@ -660,8 +660,8 @@ RB < ']'
       (peg-parse-pattern (caddr lst)))
      ((equal? el ".")
       'peg-any)
-     (#t `(peg-parse-any unknown-string ,lst))))
-   (#t `(peg-parse-any unknown-el ,lst)))))
+     (else `(peg-parse-any unknown-string ,lst))))
+   (else `(peg-parse-any unknown-el ,lst)))))
 
 ;; Parses a literal.
 (define (peg-parse-literal lst) (trim-1chars (cadr lst)))
@@ -694,7 +694,7 @@ RB < ']'
              (eq? (cadr lst) 'lit)
              (eq? (cadddr lst) 1))
         (compressor (caddr lst)))
-       (#t (map compressor lst)))))
+       (else (map compressor lst)))))
 
 ;; Builds a lambda-expressions for the pattern STR using accum.
 (define (peg-string-compile for-syntax str accum)
