@@ -25,7 +25,6 @@
             define-nonterm
             define-nonterm-f
             peg-match
-            get-code
             define-grammar
             define-grammar-f
             peg:start
@@ -384,19 +383,7 @@
                               (#,syn str strlen at)))
                          (vector-set! #,c (modulo at *cache-size*)
                                       (list str at fres))
-                         fres))))
-
-               ;; Store the code in case people want to debug.
-               (set-symbol-property!
-                'sym 'code #,(datum->syntax x (list 'quote (syntax->datum syn))))
-               sym)))))))
-
-;; Gets the code corresponding to NONTERM
-(define-syntax get-code
-  (lambda (x)
-    (syntax-case x ()
-      ((_ nonterm)
-       #`(pretty-print (symbol-property 'nonterm 'code))))))
+                         fres)))))))))))
 
 ;; Parses STRING using NONTERM
 (define (peg-parse nonterm string)
