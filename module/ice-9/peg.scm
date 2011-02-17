@@ -18,11 +18,24 @@
 ;;;;
 
 (define-module (ice-9 peg)
-  :export (peg-sexp-compile peg-string-compile context-flatten peg-parse define-nonterm define-nonterm-f peg-match get-code define-grammar define-grammar-f peg:start peg:end peg:string peg:tree peg:substring peg-record? keyword-flatten)
-  :autoload (ice-9 pretty-print) (peg-sexp-compile peg-string-compile context-flatten peg-parse define-nonterm define-nonterm-f peg-match get-code define-grammar define-grammar-f keyword-flatten)
-  :use-module (ice-9 pretty-print))
-
-(use-modules (ice-9 pretty-print))
+  #:export (peg-sexp-compile
+            peg-string-compile
+            context-flatten
+            peg-parse
+            define-nonterm
+            define-nonterm-f
+            peg-match
+            get-code
+            define-grammar
+            define-grammar-f
+            peg:start
+            peg:end
+            peg:string
+            peg:tree
+            peg:substring
+            peg-record?
+            keyword-flatten)
+  #:use-module (ice-9 pretty-print))
 
 (eval-when (compile load eval)
 
