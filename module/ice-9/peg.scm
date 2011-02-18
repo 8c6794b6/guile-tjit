@@ -130,7 +130,7 @@
            #`(list #,at body))
           (else #`(list #,at
                       (cond
-                       (((@@ (ice-9 peg) single?) body) (car body))
+                       ((single? body) (car body))
                        (else body))))))
         ((eq? accum 'none)
          #`(list #,at '()))
@@ -245,7 +245,7 @@
                 (let ((newat (car res))
                       (newbody (cadr res)))
                   (set! #,at newat)
-                  ((@@ (ice-9 peg) push-not-null!) #,body ((@@ (ice-9 peg) single-filter) newbody))
+                  (push-not-null! #,body (single-filter newbody))
                   #,(cg-and-int for-syntax (cdr arglst) accum str strlen at body)))))))
 
 ;; Top-level function builder for OR.  Reduces to a call to CG-OR-INT.
@@ -273,9 +273,9 @@
             (let ((at2 (car at2-body2))
                   (body2 (cadr at2-body2)))
               (set! #,at at2)
-              ((@@ (ice-9 peg) push-not-null!)
+              (push-not-null!
                #,body
-               ((@@ (ice-9 peg) single-filter) body2))
+               (single-filter body2))
               #t)))))
 
 ;; Returns a block of code that sees whether NUM wants us to try and match more
