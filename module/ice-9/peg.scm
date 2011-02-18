@@ -174,13 +174,6 @@ return EXP."
    ((eq? accum 'none) 'none)))
 (define baf builtin-accum-filter)
 
-;; Takes a value, prints some debug output, and returns it.
-(define (error-val val)
-  (begin
-    (pretty-print val)
-    (pretty-print "Inserting into code for debugging.\n")
-    val))
-
 ;; Takes an arbitrary expressions and accumulation variable, then parses it.
 ;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
 (define (peg-sexp-compile pat accum)
