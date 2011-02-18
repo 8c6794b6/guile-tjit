@@ -144,8 +144,7 @@ return EXP."
 (define (cg-string for-syntax match accum)
   (let ((len (string-length match)))
     (cggl for-syntax #'str #'strlen #'at
-          #`(if (string=? (substring str at (min (+ at #,len) strlen))
-                          #,match)
+          #`(if (string= str #,match at (min (+ at #,len) strlen))
                 #,(cggr for-syntax accum 'cg-string match
                         #`(+ at #,len))
                 #f))))
