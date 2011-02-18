@@ -122,16 +122,16 @@ return EXP."
 
 ;; Generates code that matches a particular string.
 ;; E.g.: (cg-string syntax "abc" 'body)
-(define (cg-string for-syntax match accum)
-  (let ((mlen (string-length match)))
+(define (cg-string for-syntax pat accum)
+  (let ((plen (string-length pat)))
     #`(lambda (str len pos)
-        (let ((end (+ pos #,mlen)))
+        (let ((end (+ pos #,plen)))
           (and (<= end len)
-               (string= str #,match pos end)
+               (string= str #,pat pos end)
                #,(case accum
-                   ((all) #`(list end (list 'cg-string #,match)))
+                   ((all) #`(list end (list 'cg-string #,pat)))
                    ((name) #`(list end 'cg-string))
-                   ((body) #`(list end #,match))
+                   ((body) #`(list end #,pat))
                    ((none) #`(list end '()))
                    (else (error "bad accum" accum))))))))
 
@@ -183,38 +183,38 @@ return EXP."
 
 ;; Takes an arbitrary expressions and accumulation variable, then parses it.
 ;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
-(define (peg-sexp-compile for-syntax match accum)
+(define (peg-sexp-compile for-syntax pat accum)
   (cond
-   ((string? match) (cg-string for-syntax match (baf accum)))
-   ((symbol? match) ;; either peg-any or a nonterminal
+   ((string? pat) (cg-string for-syntax pat (baf accum)))
+   ((symbol? pat) ;; either peg-any or a nonterminal
     (cond
-     ((eq? match 'peg-any) (cg-peg-any for-syntax (baf accum)))
-     ;; if match is any other symbol it's a nonterminal, so just return it
-     (else (datum->syntax for-syntax match))))
-   ((or (not (list? match)) (null? match))
+     ((eq? pat 'peg-any) (cg-peg-any for-syntax (baf accum)))
+     ;; if pat is any other symbol it's a nonterminal, so just return it
+     (else (datum->syntax for-syntax pat))))
+   ((or (not (list? pat)) (null? pat))
     ;; anything besides a string, symbol, or list is an error
     (datum->syntax for-syntax
-                   (error-val `(peg-sexp-compile-error-1 ,match ,accum))))   
-   ((eq? (car match) 'range) ;; range of characters (e.g. [a-z])
-    (cg-range for-syntax (cadr match) (caddr match) (baf accum)))
-   ((eq? (car match) 'ignore) ;; match but don't parse
-    (peg-sexp-compile for-syntax (cadr match) 'none))
-   ((eq? (car match) 'capture) ;; parse
-    (peg-sexp-compile for-syntax (cadr match) 'body))
-   ((eq? (car match) 'peg) ;; embedded PEG string
-    (peg-string-compile for-syntax (cadr match) (baf accum)))
-   ((eq? (car match) 'and)
-    (cg-and for-syntax (cdr match) (baf accum)))
-   ((eq? (car match) 'or)
-    (cg-or for-syntax (cdr match) (baf accum)))
-   ((eq? (car match) 'body)
-    (if (not (= (length match) 4))
+                   (error-val `(peg-sexp-compile-error-1 ,pat ,accum))))   
+   ((eq? (car pat) 'range) ;; range of characters (e.g. [a-z])
+    (cg-range for-syntax (cadr pat) (caddr pat) (baf accum)))
+   ((eq? (car pat) 'ignore) ;; match but don't parse
+    (peg-sexp-compile for-syntax (cadr pat) 'none))
+   ((eq? (car pat) 'capture) ;; parse
+    (peg-sexp-compile for-syntax (cadr pat) 'body))
+   ((eq? (car pat) 'peg) ;; embedded PEG string
+    (peg-string-compile for-syntax (cadr pat) (baf accum)))
+   ((eq? (car pat) 'and)
+    (cg-and for-syntax (cdr pat) (baf accum)))
+   ((eq? (car pat) 'or)
+    (cg-or for-syntax (cdr pat) (baf accum)))
+   ((eq? (car pat) 'body)
+    (if (not (= (length pat) 4))
         (datum->syntax for-syntax
-                       (error-val `(peg-sexp-compile-error-2 ,match ,accum)))
+                       (error-val `(peg-sexp-compile-error-2 ,pat ,accum)))
         (datum->syntax for-syntax
-                       (apply cg-body for-syntax (cons (baf accum) (cdr match))))))
+                       (apply cg-body for-syntax (cons (baf accum) (cdr pat))))))
    (else (datum->syntax for-syntax
-                      (error-val `(peg-sexp-compile-error-3 ,match ,accum))))))
+                      (error-val `(peg-sexp-compile-error-3 ,pat ,accum))))))
 
 ;; Top-level function builder for AND.  Reduces to a call to CG-AND-INT.
 (define (cg-and for-syntax arglst accum)
@@ -252,10 +252,10 @@ return EXP."
                 #,(cggr for-syntax accum 'cg-or #`(cadr res) #`(car res))
                 #,(cg-or-int for-syntax (cdr arglst) accum str strlen at body))))))
 
-;; Returns a block of code that tries to match MATCH, and on success updates AT
+;; Returns a block of code that tries to match PAT, and on success updates AT
 ;; and BODY, return #f on failure and #t on success.
-(define (cg-body-test for-syntax match accum str strlen at body)
-  (let ((mf (peg-sexp-compile for-syntax match accum)))
+(define (cg-body-test for-syntax pat accum str strlen at body)
+  (let ((mf (peg-sexp-compile for-syntax pat accum)))
     #`(let ((at2-body2 (#,mf #,str #,strlen #,at)))
         (if (or (not at2-body2) (= #,at (car at2-body2)))
             #f
@@ -300,13 +300,13 @@ return EXP."
         (else `(cg-body-success-error ,num))))
 
 ;; Returns a function that parses a BODY element.
-(define (cg-body for-syntax accum type match num)
+(define (cg-body for-syntax accum type pat num)
   (let (; this doesn't work with regular syntax, and I'd really
         ; like to know why.
         (at2 (datum->syntax for-syntax (gensym))))
    #`(lambda (str strlen at)
       (let ((#,at2 at) (count 0) (body '()))
-        (while (and #,(cg-body-test for-syntax match accum
+        (while (and #,(cg-body-test for-syntax pat accum
                                     #'str #'strlen at2 #'body)
                     (set! count (+ count 1))
                     #,(cg-body-more for-syntax num #'count)))
@@ -354,8 +354,8 @@ return EXP."
 (define-syntax define-nonterm
   (lambda (x)
     (syntax-case x ()
-      ((_ sym accum match)
-       (let ((matchf (peg-sexp-compile x (syntax->datum #'match)
+      ((_ sym accum pat)
+       (let ((matchf (peg-sexp-compile x (syntax->datum #'pat)
                                        (syntax->datum #'accum)))
              (accumsym (syntax->datum #'accum))
              (c (datum->syntax x (gensym))));; the cache
