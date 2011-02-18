@@ -142,12 +142,12 @@ return EXP."
 ;; Generates code that matches a particular string.
 ;; E.g.: (cg-string syntax "abc" 'body)
 (define (cg-string for-syntax match accum)
-  (let ((len (string-length match)))
-    (cggl for-syntax #'str #'strlen #'at
-          #`(if (string= str #,match at (min (+ at #,len) strlen))
-                #,(cggr for-syntax accum 'cg-string match
-                        #`(+ at #,len))
-                #f))))
+  (let ((mlen (string-length match)))
+    #`(lambda (str len pos)
+        (and (<= (+ pos #,mlen) len)
+             (string= str #,match pos (+ pos #,mlen))
+             #,(cggr for-syntax accum 'cg-string match
+                     #`(+ pos #,mlen))))))
 
 ;; Generates code for matching any character.
 ;; E.g.: (cg-peg-any syntax 'body)
