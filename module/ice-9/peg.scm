@@ -89,22 +89,6 @@ return EXP."
 ;;   accum: (all name body none)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Code we generate will be defined in a function, and always has to test
-;; whether it's beyond the bounds of the string before it executes.
-(define (cg-generic-lambda for-syntax str strlen at code)
-  ;; all arguments are syntax
-  #`(lambda (#,str #,strlen #,at)
-     (if (>= #,at #,strlen)
-         #f
-         #,code)))
-
-;; The short name makes the formatting below much easier to read.
-(define cggl cg-generic-lambda)
-
-;; Optimizations for CG-GENERIC-RET below...
-(define *op-known-single-body* '(cg-string cg-peg-any cg-range))
-;; ...done with optimizations (could use more of these).
-
 ;; Code we generate will have a certain return structure depending on how we're
 ;; accumulating (the ACCUM variable).
 (define (cg-generic-ret for-syntax accum name body-uneval at)
@@ -121,13 +105,10 @@ return EXP."
         ((eq? accum 'name)
          #`(list #,at '#,name))
         ((eq? accum 'body)
-         (cond
-          ((member (syntax->datum name) *op-known-single-body*)
-           #`(list #,at body))
-          (else #`(list #,at
-                      (cond
-                       ((single? body) (car body))
-                       (else body))))))
+         #`(list #,at
+                 (cond
+                  ((single? body) (car body))
+                  (else body))))
         ((eq? accum 'none)
          #`(list #,at '()))
         (else
