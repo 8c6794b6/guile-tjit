@@ -144,10 +144,15 @@ return EXP."
 (define (cg-string for-syntax match accum)
   (let ((mlen (string-length match)))
     #`(lambda (str len pos)
-        (and (<= (+ pos #,mlen) len)
-             (string= str #,match pos (+ pos #,mlen))
-             #,(cggr for-syntax accum 'cg-string match
-                     #`(+ pos #,mlen))))))
+        (let ((end (+ pos #,mlen)))
+          (and (<= end len)
+               (string= str #,match pos end)
+               #,(case accum
+                   ((all) #`(list end (list 'cg-string #,match)))
+                   ((name) #`(list end 'cg-string))
+                   ((body) #`(list end #,match))
+                   ((none) #`(list end '()))
+                   (else (error "bad accum" accum))))))))
 
 ;; Generates code for matching any character.
 ;; E.g.: (cg-peg-any syntax 'body)
