@@ -159,21 +159,28 @@ return EXP."
 (define (cg-peg-any for-syntax accum)
   #`(lambda (str len pos)
       (and (< pos len)
-           #,(cggr for-syntax accum
-                   'cg-peg-any #`(substring str pos (+ pos 1))
-                   #`(+ pos 1)))))
+           #,(case accum
+               ((all) #`(list (1+ pos)
+                              (list 'cg-peg-any (substring str pos (1+ pos)))))
+               ((name) #`(list (1+ pos) 'cg-peg-any))
+               ((body) #`(list (1+ pos) (substring str pos (1+ pos))))
+               ((none) #`(list (1+ pos) '()))
+               (else (error "bad accum" accum))))))
 
 ;; Generates code for matching a range of characters between start and end.
 ;; E.g.: (cg-range syntax #\a #\z 'body)
 (define (cg-range for-syntax start end accum)
-  (cggl for-syntax #'str #'strlen #'at
-        #`(let ((c (string-ref str at)))
-            (if (and
-                 (char>=? c #,start)
-                 (char<=? c #,end))
-                #,(cggr for-syntax accum 'cg-range
-                        #`(string c) #`(+ at 1))
-                #f))))
+  #`(lambda (str len pos)
+      (and (< pos len)
+           (let ((c (string-ref str pos)))
+             (and (char>=? c #,start)
+                  (char<=? c #,end)
+                  #,(case accum
+                      ((all) #`(list (1+ pos) (list 'cg-range (string c))))
+                      ((name) #`(list (1+ pos) 'cg-range))
+                      ((body) #`(list (1+ pos) (string c)))
+                      ((none) #`(list (1+ pos) '()))
+                      (else (error "bad accum" accum))))))))
 
 ;; Filters the accum argument to peg-sexp-compile for buildings like string
 ;; literals (since we don't want to tag them with their name if we're doing an
