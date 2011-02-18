@@ -122,7 +122,7 @@ return EXP."
 
 ;; Generates code that matches a particular string.
 ;; E.g.: (cg-string syntax "abc" 'body)
-(define (cg-string for-syntax pat accum)
+(define (cg-string pat accum)
   (let ((plen (string-length pat)))
     #`(lambda (str len pos)
         (let ((end (+ pos #,plen)))
@@ -137,7 +137,7 @@ return EXP."
 
 ;; Generates code for matching any character.
 ;; E.g.: (cg-peg-any syntax 'body)
-(define (cg-peg-any for-syntax accum)
+(define (cg-peg-any accum)
   #`(lambda (str len pos)
       (and (< pos len)
            #,(case accum
@@ -150,7 +150,7 @@ return EXP."
 
 ;; Generates code for matching a range of characters between start and end.
 ;; E.g.: (cg-range syntax #\a #\z 'body)
-(define (cg-range for-syntax start end accum)
+(define (cg-range start end accum)
   #`(lambda (str len pos)
       (and (< pos len)
            (let ((c (string-ref str pos)))
@@ -185,10 +185,10 @@ return EXP."
 ;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
 (define (peg-sexp-compile for-syntax pat accum)
   (cond
-   ((string? pat) (cg-string for-syntax pat (baf accum)))
+   ((string? pat) (cg-string pat (baf accum)))
    ((symbol? pat) ;; either peg-any or a nonterminal
     (cond
-     ((eq? pat 'peg-any) (cg-peg-any for-syntax (baf accum)))
+     ((eq? pat 'peg-any) (cg-peg-any (baf accum)))
      ;; if pat is any other symbol it's a nonterminal, so just return it
      (else (datum->syntax for-syntax pat))))
    ((or (not (list? pat)) (null? pat))
@@ -196,7 +196,7 @@ return EXP."
     (datum->syntax for-syntax
                    (error-val `(peg-sexp-compile-error-1 ,pat ,accum))))   
    ((eq? (car pat) 'range) ;; range of characters (e.g. [a-z])
-    (cg-range for-syntax (cadr pat) (caddr pat) (baf accum)))
+    (cg-range (cadr pat) (caddr pat) (baf accum)))
    ((eq? (car pat) 'ignore) ;; match but don't parse
     (peg-sexp-compile for-syntax (cadr pat) 'none))
    ((eq? (car pat) 'capture) ;; parse
