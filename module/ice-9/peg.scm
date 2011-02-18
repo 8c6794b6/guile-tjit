@@ -152,10 +152,11 @@ return EXP."
 ;; Generates code for matching any character.
 ;; E.g.: (cg-peg-any syntax 'body)
 (define (cg-peg-any for-syntax accum)
-  (cggl for-syntax #'str #'strlen #'at
-        (cggr for-syntax accum
-              'cg-peg-any #`(substring str at (+ at 1))
-              #`(+ at 1))))
+  #`(lambda (str len pos)
+      (and (< pos len)
+           #,(cggr for-syntax accum
+                   'cg-peg-any #`(substring str pos (+ pos 1))
+                   #`(+ pos 1)))))
 
 ;; Generates code for matching a range of characters between start and end.
 ;; E.g.: (cg-range syntax #\a #\z 'body)
