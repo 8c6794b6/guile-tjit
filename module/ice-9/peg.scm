@@ -37,49 +37,45 @@
   #:use-module (system base pmatch)
   #:use-module (ice-9 pretty-print))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; LOOPING CONSTRUCTS
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;
+;;; Helper Macros
+;;;
 
-;; Perform ACTION. If it succeeded, return its return value.  If it failed, run
-;; IF_FAILS and try again
 (define-syntax until
   (syntax-rules ()
+    "Evaluate TEST.  If it is true, return its value.  Otherwise,
+execute the STMTs and try again."
     ((_ test stmt stmt* ...)
      (let lp ()
        (or test
            (begin stmt stmt* ... (lp)))))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; GENERIC LIST-PROCESSING MACROS
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; Return #t if the list has only one element (calling length all the time on
-;; potentially long lists was really slow).
 (define-syntax single?
   (syntax-rules ()
+    "Return #t if X is a list of one element."
     ((_ x)
      (pmatch x
        ((_) #t)
        (else #f)))))
 
-;; Push an object onto a list.
 (define-syntax push!
   (syntax-rules ()
+    "Push an object onto a list."
     ((_ lst obj)
      (set! lst (cons obj lst)))))
 
-;; If SYM is a list of one element, return (car SYM), else return SYM.
 (define-syntax single-filter
   (syntax-rules ()
+    "If EXP is a list of one element, return the element.  Otherwise
+return EXP."
     ((_ exp)
      (pmatch exp
        ((,elt) elt)
        (,elts elts)))))
 
-;; If OBJ is non-null, push it onto LST, otherwise do nothing.
 (define-syntax push-not-null!
   (syntax-rules ()
+    "If OBJ is non-null, push it onto LST, otherwise do nothing."
     ((_ lst obj)
      (if (not (null? obj))
          (push! lst obj)))))
