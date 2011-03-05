@@ -305,7 +305,7 @@ RB < ']'
            ((or (not (list? lst)) (null? lst))
             lst)
            ((eq? (car lst) 'peg-grammar)
-            (cons 'begin (map (lambda (x) (peg-parse-nonterm x))
+            (cons 'begin (map (lambda (x) (peg-nonterm->defn x))
                               (context-flatten (lambda (lst) (<= (depth lst) 2))
                                           (cdr lst))))))))))
 
@@ -319,7 +319,7 @@ RB < ']'
 (define define-grammar-f peg-parser)
 
 ;; Parse a nonterminal and pattern listed in LST.
-(define (peg-parse-nonterm lst)
+(define (peg-nonterm->defn lst)
   (let ((nonterm (car lst))
         (grabber (cadr lst))
         (pattern (caddr lst)))
@@ -328,23 +328,23 @@ RB < ']'
          ((string=? grabber "<--") 'all)
          ((string=? grabber "<-") 'body)
          (else 'none))
-       ,(compressor (peg-parse-pattern pattern)))))
+       ,(compressor (peg-pattern->defn pattern)))))
 
 ;; Parse a pattern.
-(define (peg-parse-pattern lst)
-  (cons 'or (map peg-parse-alternative
+(define (peg-pattern->defn lst)
+  (cons 'or (map peg-alternative->defn
                  (context-flatten (lambda (x) (eq? (car x) 'peg-alternative))
                              (cdr lst)))))
 
 ;; Parse an alternative.
-(define (peg-parse-alternative lst)
-  (cons 'and (map peg-parse-body
+(define (peg-alternative->defn lst)
+  (cons 'and (map peg-body->defn
                   (context-flatten (lambda (x) (or (string? (car x))
                                               (eq? (car x) 'peg-suffix)))
                               (cdr lst)))))
 
 ;; Parse a body.
-(define (peg-parse-body lst)
+(define (peg-body->defn lst)
   (let ((suffix '())
         (front 'lit))
     (cond
@@ -354,41 +354,41 @@ RB < ']'
       (begin (set! front (string->symbol (car lst)))
              (set! suffix (cadr lst))))
      (else `(peg-parse-body-fail ,lst)))
-    `(body ,front ,@(peg-parse-suffix suffix))))
+    `(body ,front ,@(peg-suffix->defn suffix))))
 
 ;; Parse a suffix.
-(define (peg-parse-suffix lst)
-  (list (peg-parse-primary (cadr lst))
+(define (peg-suffix->defn lst)
+  (list (peg-primary->defn (cadr lst))
         (if (null? (cddr lst))
             1
             (string->symbol (caddr lst)))))
 
 ;; Parse a primary.
-(define (peg-parse-primary lst)
+(define (peg-primary->defn lst)
   (let ((el (cadr lst)))
   (cond
    ((list? el)
     (cond
      ((eq? (car el) 'peg-literal)
-      (peg-parse-literal el))
+      (peg-literal->defn el))
      ((eq? (car el) 'peg-charclass)
-      (peg-parse-charclass el))
+      (peg-charclass->defn el))
      ((eq? (car el) 'peg-nonterminal)
       (string->symbol (cadr el)))))
    ((string? el)
     (cond
      ((equal? el "(")
-      (peg-parse-pattern (caddr lst)))
+      (peg-pattern->defn (caddr lst)))
      ((equal? el ".")
       'peg-any)
      (else `(peg-parse-any unknown-string ,lst))))
    (else `(peg-parse-any unknown-el ,lst)))))
 
 ;; Parses a literal.
-(define (peg-parse-literal lst) (trim-1chars (cadr lst)))
+(define (peg-literal->defn lst) (trim-1chars (cadr lst)))
 
 ;; Parses a charclass.
-(define (peg-parse-charclass lst)
+(define (peg-charclass->defn lst)
   (cons 'or
         (map
          (lambda (cc)
@@ -423,7 +423,7 @@ RB < ']'
    (datum->syntax
     str-stx
     (compressor
-     (peg-parse-pattern
+     (peg-pattern->defn
       (peg:tree (peg-parse peg-pattern (syntax->datum str-stx))))))
    accum))
 
