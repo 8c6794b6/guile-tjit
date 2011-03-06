@@ -20,6 +20,7 @@
 (define-module (ice-9 peg codegen)
   #:export (peg-sexp-compile)
   #:use-module (ice-9 peg)
+  #:use-module (ice-9 peg string-peg)
   #:use-module (ice-9 pretty-print)
   #:use-module (system base pmatch))
 
