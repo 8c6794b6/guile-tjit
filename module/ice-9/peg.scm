@@ -21,23 +21,24 @@
   #:export (peg-parse
 ;            define-nonterm
 ;            define-nonterm-f
-            peg-match
-            peg:start
-            peg:end
-            peg:string
-            peg:tree
-            peg:substring
-            peg-record?)
+            peg-match)
 ;  #:export-syntax (define-nonterm)
   #:use-module (ice-9 peg codegen)
   #:use-module (ice-9 peg string-peg)
   #:use-module (ice-9 peg simplify-tree)
+  #:use-module (ice-9 peg match-record)
   #:re-export (peg-sexp-compile
                define-grammar
                define-grammar-f
                define-nonterm
                keyword-flatten
-               context-flatten))
+               context-flatten
+               peg:start
+               peg:end
+               peg:string
+               peg:tree
+               peg:substring
+               peg-record?))
 
 ;;;
 ;;; Helper Macros
@@ -95,27 +96,6 @@ execute the STMTs and try again."
                        (make-prec
                         at end string
                         (string-collapse match))))))))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; PMATCH STRUCTURE MUNGING
-;; Pretty self-explanatory.
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(define prec
-  (make-record-type "peg" '(start end string tree)))
-(define make-prec
-  (record-constructor prec '(start end string tree)))
-(define (peg:start pm)
-  (if pm ((record-accessor prec 'start) pm) #f))
-(define (peg:end pm)
-  (if pm ((record-accessor prec 'end) pm) #f))
-(define (peg:string pm)
-  (if pm ((record-accessor prec 'string) pm) #f))
-(define (peg:tree pm)
-  (if pm ((record-accessor prec 'tree) pm) #f))
-(define (peg:substring pm)
-  (if pm (substring (peg:string pm) (peg:start pm) (peg:end pm)) #f))
-(define peg-record? (record-predicate prec))
 
 )
 
