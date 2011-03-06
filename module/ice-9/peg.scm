@@ -18,8 +18,7 @@
 ;;;;
 
 (define-module (ice-9 peg)
-  #:export (context-flatten
-            peg-parse
+  #:export (peg-parse
 ;            define-nonterm
 ;            define-nonterm-f
             peg-match
@@ -28,16 +27,17 @@
             peg:string
             peg:tree
             peg:substring
-            peg-record?
-            keyword-flatten)
+            peg-record?)
 ;  #:export-syntax (define-nonterm)
   #:use-module (ice-9 peg codegen)
   #:use-module (ice-9 peg string-peg)
+  #:use-module (ice-9 peg simplify-tree)
   #:re-export (peg-sexp-compile
                define-grammar
                define-grammar-f
-               define-nonterm)
-  #:use-module (system base pmatch))
+               define-nonterm
+               keyword-flatten
+               context-flatten))
 
 ;;;
 ;;; Helper Macros
@@ -51,14 +51,6 @@ execute the STMTs and try again."
      (let lp ()
        (or test
            (begin stmt stmt* ... (lp)))))))
-
-(define-syntax single?
-  (syntax-rules ()
-    "Return #t if X is a list of one element."
-    ((_ x)
-     (pmatch x
-       ((_) #t)
-       (else #f)))))
 
 (eval-when (compile load eval)
 
@@ -103,73 +95,6 @@ execute the STMTs and try again."
                        (make-prec
                         at end string
                         (string-collapse match))))))))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; POST-PROCESSING FUNCTIONS (TO CANONICALIZE MATCH TREES)
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; Is everything in LST true?
-(define (andlst lst)
-  (or (null? lst)
-      (and (car lst) (andlst (cdr lst)))))
-
-;; Is LST a list of strings?
-(define (string-list? lst)
-  (and (list? lst) (not (null? lst))
-       (andlst (map string? lst))))
-
-;; Groups all strings that are next to each other in LST.  Used in
-;; STRING-COLLAPSE.
-(define (string-group lst)
-  (if (not (list? lst))
-      lst
-      (if (null? lst)
-          '()
-          (let ((next (string-group (cdr lst))))
-            (if (not (string? (car lst)))
-                (cons (car lst) next)
-                (if (and (not (null? next))
-                         (list? (car next))
-                         (string? (caar next)))
-                    (cons (cons (car lst) (car next)) (cdr next))
-                    (cons (list (car lst)) next)))))))
-
-
-;; Collapses all the string in LST.
-;; ("a" "b" (c d) "e" "f") -> ("ab" (c d) "ef")
-(define (string-collapse lst)
-  (if (list? lst)
-      (let ((res (map (lambda (x) (if (string-list? x)
-                                      (apply string-append x)
-                                      x))
-                      (string-group (map string-collapse lst)))))
-        (if (single? res) (car res) res))
-      lst))
-
-;; If LST is an atom, return (list LST), else return LST.
-(define (mklst lst)
-  (if (not (list? lst)) (list lst) lst))
-
-;; Takes a list and "flattens" it, using the predicate TST to know when to stop
-;; instead of terminating on atoms (see tutorial).
-(define (context-flatten tst lst)
-  (if (or (not (list? lst)) (null? lst))
-      lst
-      (if (tst lst)
-          (list lst)
-          (apply append
-                 (map (lambda (x) (mklst (context-flatten tst x)))
-                      lst)))))
-
-;; Takes a list and "flattens" it, using the list of keywords KEYWORD-LST to
-;; know when to stop at (see tutorial).
-(define (keyword-flatten keyword-lst lst)
-  (context-flatten
-   (lambda (x)
-     (if (or (not (list? x)) (null? x))
-         #t
-         (member (car x) keyword-lst)))
-   lst))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; PMATCH STRUCTURE MUNGING
