@@ -53,8 +53,6 @@ execute the STMTs and try again."
        (or test
            (begin stmt stmt* ... (lp)))))))
 
-(eval-when (compile load eval)
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; FOR DEFINING AND USING NONTERMINALS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -96,6 +94,3 @@ execute the STMTs and try again."
                        (make-prec
                         at end string
                         (string-collapse match))))))))))))
-
-)
-
