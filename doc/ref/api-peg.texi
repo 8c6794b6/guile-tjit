@@ -35,6 +35,7 @@ reference, and a tutorial.
 * PEG Syntax Reference::
 * PEG API Reference::
 * PEG Tutorial::
+* PEG Internals::
 @end menu
 
 @node PEG Syntax Reference
@@ -921,3 +922,73 @@ instantiation of a common pattern for matching syntactically irrelevant
 information.  Since it's tagged with @code{<} and ends with @code{*} it
 won't clutter up the parse trees (all the empty lists will be discarded
 during the compression step) and it will never cause parsing to fail.
+
+@node PEG Internals
+@subsection PEG Internals
+
+A PEG parser takes a string as input and attempts to parse it as a given
+nonterminal. The key idea of the PEG implementation is that every
+nonterminal is just a function that takes a string as an argument and
+attempts to parse that string as its nonterminal. The functions always
+start from the beginning, but a parse is considered successful if there
+is material left over at the end.
+
+This makes it easy to model different PEG parsing operations. For
+instance, consider the PEG grammar @code{"ab"}, which could also be
+written @code{(and "a" "b")}. It matches the string ``ab''. Here's how
+that might be implemented in the PEG style:
+
+@lisp
+(define (match-and-a-b str)
+  (match-a str)
+  (match-b str))
+@end lisp
+
+As you can see, the use of functions provides an easy way to model
+sequencing. In a similar way, one could model @code{(or a b)} with
+something like the following:
+
+@lisp
+(define (match-or-a-b str)
+  (or (match-a str) (match-b str)))
+@end lisp
+
+Here the semantics of a PEG @code{or} expression map naturally onto
+Scheme's @code{or} operator. This function will attempt to run
+@code{(match-a str)}, and return its result if it succeeds. Otherwise it
+will run @code{(match-b str)}.
+
+Of course, the code above wouldn't quite work. We need some way for the
+parsing functions to communicate. The actual interface used is below.
+
+@subsubheading Parsing Function Interface
+
+A parsing function takes three arguments - a string, the length of that
+string, and the position in that string it should start parsing at. In
+effect, the parsing functions pass around substrings in pieces - the
+first argument is a buffer of characters, and the second two give a
+range within that buffer that the parsing function should look at.
+
+Parsing functions return either #f, if they failed to match their
+nonterminal, or a list whose first element must be an integer
+representing the final position in the string they matched and whose cdr
+can be any other data the function wishes to return, or '() if it
+doesn't have any more data.
+
+The one caveat is that if the extra data it returns is a list, any
+adjacent strings in that list will be appended by @code{peg-parse}. For
+instance, if a parsing function returns @code{(13 ("a" "b" "c"))},
+@code{peg-parse} will take @code{(13 ("abc"))} as its value.
+
+For example, here is a function to match ``ab'' using the actual
+interface.
+
+@lisp
+(define (match-a-b str len pos)
+   (and (<= (+ pos 2) len)
+        (string= str "ab" pos (+ pos 2))
+        (list (+ pos 2) '()))) ; we return no extra information
+@end lisp
+
+The above function can be used to match a string by running
+@code{(peg-parse match-a-b "ab")}.
