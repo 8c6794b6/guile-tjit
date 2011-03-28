@@ -67,6 +67,13 @@ execute the STMTs and try again."
         #f
         (make-prec 0 (car res) string (string-collapse (cadr res))))))
 
+(define (peg-extended-compile pattern accum)
+  (syntax-case pattern (peg)
+    ((peg str)
+     (string? (syntax->datum #'str))
+     (peg-string-compile #'str (if (eq? accum 'all) 'body accum)))
+    (else (peg-sexp-compile pattern accum))))
+
 ;; The results of parsing using a nonterminal are cached.  Think of it like a
 ;; hash with no conflict resolution.  Process for deciding on the cache size
 ;; wasn't very scientific; just ran the benchmarks and stopped a little after
@@ -78,7 +85,7 @@ execute the STMTs and try again."
   (lambda (x)
     (syntax-case x ()
       ((_ sym accum pat)
-       (let ((matchf (peg-sexp-compile #'pat (syntax->datum #'accum)))
+       (let ((matchf (peg-extended-compile #'pat (syntax->datum #'accum)))
              (accumsym (syntax->datum #'accum))
              (c (datum->syntax x (gensym))));; the cache
          ;; CODE is the code to parse the string if the result isn't cached.

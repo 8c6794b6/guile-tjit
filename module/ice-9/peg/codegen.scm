@@ -164,9 +164,6 @@ return EXP."
      (peg-sexp-compile #'pat 'none))
     ((capture pat) ;; parse
      (peg-sexp-compile #'pat 'body))
-    ((peg pat)  ;; embedded PEG string
-     (string? (syntax->datum #'pat))
-     (peg-string-compile #'pat (baf accum)))
     ((and pat ...)
      (cg-and #'(pat ...) (baf accum)))
     ((or pat ...)
