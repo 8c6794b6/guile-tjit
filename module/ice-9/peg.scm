@@ -19,7 +19,7 @@
 
 (define-module (ice-9 peg)
   #:export (peg-parse
-;            define-nonterm
+            define-nonterm
 ;            define-nonterm-f
             peg-match)
 ;  #:export-syntax (define-nonterm)
@@ -30,7 +30,7 @@
   #:re-export (peg-sexp-compile
                define-grammar
                define-grammar-f
-               define-nonterm
+;               define-nonterm
                keyword-flatten
                context-flatten
                peg:start
@@ -66,6 +66,35 @@ execute the STMTs and try again."
     (if (not res)
         #f
         (make-prec 0 (car res) string (string-collapse (cadr res))))))
+
+;; The results of parsing using a nonterminal are cached.  Think of it like a
+;; hash with no conflict resolution.  Process for deciding on the cache size
+;; wasn't very scientific; just ran the benchmarks and stopped a little after
+;; the point of diminishing returns on my box.
+(define *cache-size* 512)
+
+;; Defines a new nonterminal symbol accumulating with ACCUM.
+(define-syntax define-nonterm
+  (lambda (x)
+    (syntax-case x ()
+      ((_ sym accum pat)
+       (let ((matchf (peg-sexp-compile #'pat (syntax->datum #'accum)))
+             (accumsym (syntax->datum #'accum))
+             (c (datum->syntax x (gensym))));; the cache
+         ;; CODE is the code to parse the string if the result isn't cached.
+         (let ((syn (wrap-parser-for-users x matchf accumsym #'sym)))
+           #`(begin
+               (define #,c (make-vector *cache-size* #f));; the cache
+               (define (sym str strlen at)
+                 (let* ((vref (vector-ref #,c (modulo at *cache-size*))))
+                   ;; Check to see whether the value is cached.
+                   (if (and vref (eq? (car vref) str) (= (cadr vref) at))
+                       (caddr vref);; If it is return it.
+                       (let ((fres ;; Else calculate it and cache it.
+                              (#,syn str strlen at)))
+                         (vector-set! #,c (modulo at *cache-size*)
+                                      (list str at fres))
+                         fres)))))))))))
 
 ;; Searches through STRING for something that parses to PEG-MATCHER.  Think
 ;; regexp search.

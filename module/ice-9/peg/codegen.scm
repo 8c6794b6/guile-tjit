@@ -18,7 +18,7 @@
 ;;;;
 
 (define-module (ice-9 peg codegen)
-  #:export (peg-sexp-compile)
+  #:export (peg-sexp-compile wrap-parser-for-users)
   #:use-module (ice-9 peg)
   #:use-module (ice-9 peg string-peg)
   #:use-module (ice-9 pretty-print)
@@ -244,3 +244,30 @@ return EXP."
                       (lit
                        #`(and success
                               #,(cggr accum 'cg-body #'(reverse body) #'new-end)))))))))))
+
+;; Packages the results of a parser
+(define (wrap-parser-for-users for-syntax parser accumsym s-syn)
+   #`(lambda (str strlen at)
+      (let ((res (#,parser str strlen at)))
+        ;; Try to match the nonterminal.
+        (if res
+            ;; If we matched, do some post-processing to figure out
+            ;; what data to propagate upward.
+            (let ((at (car res))
+                  (body (cadr res)))
+              #,(cond
+                 ((eq? accumsym 'name)
+                  #`(list at '#,s-syn))
+                 ((eq? accumsym 'all)
+                  #`(list (car res)
+                          (cond
+                           ((not (list? body))
+                            (list '#,s-syn body))
+                           ((null? body) '#,s-syn)
+                           ((symbol? (car body))
+                            (list '#,s-syn body))
+                           (else (cons '#,s-syn body)))))
+                 ((eq? accumsym 'none) #`(list (car res) '()))
+                 (else #`(begin res))))
+            ;; If we didn't match, just return false.
+            #f))))
