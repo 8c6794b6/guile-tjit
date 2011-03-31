@@ -22,7 +22,6 @@
             define-nonterm
 ;            define-nonterm-f
             peg-match)
-;  #:export-syntax (define-nonterm)
   #:use-module (ice-9 peg codegen)
   #:use-module (ice-9 peg string-peg)
   #:use-module (ice-9 peg simplify-tree)
@@ -30,7 +29,6 @@
   #:re-export (peg-sexp-compile
                define-grammar
                define-grammar-f
-;               define-nonterm
                keyword-flatten
                context-flatten
                peg:start
@@ -67,13 +65,6 @@ execute the STMTs and try again."
         #f
         (make-prec 0 (car res) string (string-collapse (cadr res))))))
 
-(define (peg-extended-compile pattern accum)
-  (syntax-case pattern (peg)
-    ((peg str)
-     (string? (syntax->datum #'str))
-     (peg-string-compile #'str (if (eq? accum 'all) 'body accum)))
-    (else (peg-sexp-compile pattern accum))))
-
 ;; The results of parsing using a nonterminal are cached.  Think of it like a
 ;; hash with no conflict resolution.  Process for deciding on the cache size
 ;; wasn't very scientific; just ran the benchmarks and stopped a little after
@@ -85,7 +76,7 @@ execute the STMTs and try again."
   (lambda (x)
     (syntax-case x ()
       ((_ sym accum pat)
-       (let ((matchf (peg-extended-compile #'pat (syntax->datum #'accum)))
+       (let ((matchf (peg-sexp-compile #'pat (syntax->datum #'accum)))
              (accumsym (syntax->datum #'accum))
              (c (datum->syntax x (gensym))));; the cache
          ;; CODE is the code to parse the string if the result isn't cached.
@@ -103,6 +94,11 @@ execute the STMTs and try again."
                                       (list str at fres))
                          fres)))))))))))
 
+(define (peg-like->peg pat)
+  (syntax-case pat ()
+    (str (string? (syntax->datum #'str)) #'(peg str))
+    (else pat)))
+
 ;; Searches through STRING for something that parses to PEG-MATCHER.  Think
 ;; regexp search.
 (define-syntax peg-match
@@ -110,9 +106,7 @@ execute the STMTs and try again."
     (syntax-case x ()
       ((_ pattern string-uncopied)
        (let ((pmsym (syntax->datum #'pattern)))
-         (let ((matcher (if (string? (syntax->datum #'pattern))
-                            (peg-string-compile #'pattern 'body)
-                            (peg-sexp-compile #'pattern 'body))))
+         (let ((matcher (peg-sexp-compile (peg-like->peg #'pattern) 'body)))
            ;; We copy the string before using it because it might have been
            ;; modified in-place since the last time it was parsed, which would
            ;; invalidate the cache.  Guile uses copy-on-write for strings, so

@@ -18,8 +18,7 @@
 ;;;;
 
 (define-module (ice-9 peg string-peg)
-  #:export (peg-string-compile
-            peg-as-peg
+  #:export (peg-as-peg
             define-grammar
             define-grammar-f
             peg-grammar)
@@ -248,11 +247,17 @@ RB < ']'
                  (compressor-core (syntax->datum syn))))
 
 ;; Builds a lambda-expressions for the pattern STR using accum.
-(define (peg-string-compile str-stx accum)
-  (let ((string (syntax->datum str-stx)))
-    (peg-sexp-compile
-     (compressor
-      (peg-pattern->defn
-       (peg:tree (peg-parse peg-pattern string)) str-stx)
-      str-stx)
-     accum)))
+(define (peg-string-compile args accum)
+  (syntax-case args ()
+    ((str-stx) (string? (syntax->datum #'str-stx))
+     (let ((string (syntax->datum #'str-stx)))
+       (peg-sexp-compile
+        (compressor
+         (peg-pattern->defn
+          (peg:tree (peg-parse peg-pattern string)) #'str-stx)
+         #'str-stx)
+        (if (eq? accum 'all) 'body accum))))
+     (else (error "Bad embedded PEG string" args))))
+
+(add-peg-compiler! 'peg peg-string-compile)
+
