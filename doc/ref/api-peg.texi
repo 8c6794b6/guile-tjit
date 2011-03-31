@@ -992,3 +992,35 @@ interface.
 
 The above function can be used to match a string by running
 @code{(peg-parse match-a-b "ab")}.
+
+@subsubheading Code Generators and Extensible Syntax
+
+PEG expressions, such as those in a @code{define-nonterm} form, are
+interpreted internally in two steps.
+
+First, any string PEG is expanded into an s-expression PEG by the code
+in the @code{(ice-9 peg string-peg)} module.
+
+Then, then s-expression PEG that results is compiled into a parsing
+function by the @code{(ice-9 peg codegen)} module. In particular, the
+function @code{peg-sexp-compile} is called on the s-expression. It then
+decides what to do based on the form it is passed.
+
+The PEG syntax can be expanded by providing @code{peg-sexp-compile} more
+options for what to do with its forms. The extended syntax will be
+associated with a symbol, for instance @code{my-parsing-form}, and will
+be called on all PEG expressions of the form
+@lisp
+(my-parsing-form ...)
+@end lisp
+
+The parsing function should take two arguments. The first will be a
+syntax object containing a list with all of the arguments to the form
+(but not the form's name), and the second will be the
+@code{capture-type} argument that is passed to @code{define-nonterm}.
+
+New functions can be registered by calling @code{(add-peg-compiler!
+symbol function)}, where @code{symbol} is the symbol that will indicate
+a form of this type and @code{function} is the code generating function
+described above. The function @code{add-peg-compiler!} is exported from
+the @code{(ice-9 peg codegen)} module.

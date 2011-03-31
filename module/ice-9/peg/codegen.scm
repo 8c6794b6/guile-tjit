@@ -18,9 +18,7 @@
 ;;;;
 
 (define-module (ice-9 peg codegen)
-  #:export (peg-sexp-compile wrap-parser-for-users)
-  #:use-module (ice-9 peg)
-  #:use-module (ice-9 peg string-peg)
+  #:export (peg-sexp-compile wrap-parser-for-users add-peg-compiler!)
   #:use-module (ice-9 pretty-print)
   #:use-module (system base pmatch))
 
@@ -123,18 +121,35 @@ return EXP."
 
 ;; Generates code for matching a range of characters between start and end.
 ;; E.g.: (cg-range syntax #\a #\z 'body)
-(define (cg-range start end accum)
-  #`(lambda (str len pos)
-      (and (< pos len)
-           (let ((c (string-ref str pos)))
-             (and (char>=? c #,start)
-                  (char<=? c #,end)
-                  #,(case accum
-                      ((all) #`(list (1+ pos) (list 'cg-range (string c))))
-                      ((name) #`(list (1+ pos) 'cg-range))
-                      ((body) #`(list (1+ pos) (string c)))
-                      ((none) #`(list (1+ pos) '()))
-                      (else (error "bad accum" accum))))))))
+(define (cg-range pat accum)
+  (syntax-case pat ()
+    ((start end)
+     (if (not (and (char? (syntax->datum #'start))
+                   (char? (syntax->datum #'end))))
+         (error "range PEG should have characters after it; instead got"
+                #'start #'end))
+     #`(lambda (str len pos)
+         (and (< pos len)
+              (let ((c (string-ref str pos)))
+                (and (char>=? c start)
+                     (char<=? c end)
+                     #,(case accum
+                         ((all) #`(list (1+ pos) (list 'cg-range (string c))))
+                         ((name) #`(list (1+ pos) 'cg-range))
+                         ((body) #`(list (1+ pos) (string c)))
+                         ((none) #`(list (1+ pos) '()))
+                         (else (error "bad accum" accum))))))))))
+
+;; Generate code to match a pattern and do nothing with the result
+(define (cg-ignore pat accum)
+  (syntax-case pat ()
+    ((inner)
+     (peg-sexp-compile #'inner 'none))))
+
+(define (cg-capture pat accum)
+  (syntax-case pat ()
+    ((inner)
+     (peg-sexp-compile #'inner 'body))))
 
 ;; Filters the accum argument to peg-sexp-compile for buildings like string
 ;; literals (since we don't want to tag them with their name if we're doing an
@@ -147,35 +162,11 @@ return EXP."
    ((eq? accum 'none) 'none)))
 (define baf builtin-accum-filter)
 
-;; Takes an arbitrary expressions and accumulation variable, then parses it.
-;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
-(define (peg-sexp-compile pat accum)
-  (syntax-case pat (peg-any range ignore capture peg and or body)
-    (peg-any
-     (cg-peg-any (baf accum)))
-    (sym (identifier? #'sym) ;; nonterminal
-     #'sym)
-    (str (string? (syntax->datum #'str)) ;; literal string
-     (cg-string (syntax->datum #'str) (baf accum)))
-    ((range start end) ;; range of characters (e.g. [a-z])
-     (and (char? (syntax->datum #'start)) (char? (syntax->datum #'end)))
-     (cg-range (syntax->datum #'start) (syntax->datum #'end) (baf accum)))
-    ((ignore pat) ;; match but don't parse
-     (peg-sexp-compile #'pat 'none))
-    ((capture pat) ;; parse
-     (peg-sexp-compile #'pat 'body))
-    ((and pat ...)
-     (cg-and #'(pat ...) (baf accum)))
-    ((or pat ...)
-     (cg-or #'(pat ...) (baf accum)))
-    ((body type pat num)
-     (cg-body (baf accum) #'type #'pat #'num))))
-
 ;; Top-level function builder for AND.  Reduces to a call to CG-AND-INT.
 (define (cg-and clauses accum)
   #`(lambda (str len pos)
       (let ((body '()))
-        #,(cg-and-int clauses accum #'str #'len #'pos #'body))))
+        #,(cg-and-int clauses (baf accum) #'str #'len #'pos #'body))))
 
 ;; Internal function builder for AND (calls itself).
 (define (cg-and-int clauses accum str strlen at body)
@@ -195,7 +186,7 @@ return EXP."
 ;; Top-level function builder for OR.  Reduces to a call to CG-OR-INT.
 (define (cg-or clauses accum)
   #`(lambda (str len pos)
-      #,(cg-or-int clauses accum #'str #'len #'pos)))
+      #,(cg-or-int clauses (baf accum) #'str #'len #'pos)))
 
 ;; Internal function builder for OR (calls itself).
 (define (cg-or-int clauses accum str strlen at)
@@ -207,40 +198,75 @@ return EXP."
            #,(cg-or-int #'(rest ...) accum str strlen at)))))
 
 ;; Returns a function that parses a BODY element.
-(define (cg-body accum type pat num)
-  #`(lambda (str strlen at)
-      (let ((body '()))
-        (let lp ((end at) (count 0))
-          (let* ((match (#,(peg-sexp-compile pat accum) str strlen end))
-                 (new-end (if match (car match) end))
-                 (count (if (> new-end end) (1+ count) count)))
-            (if (> new-end end)
-                (push-not-null! body (single-filter (cadr match))))
-            (if (and (> new-end end)
-                     #,(syntax-case num (+ * ?)
-                         (n (number? (syntax->datum #'n))
-                            #'(< count n))
-                         (+ #t)
-                         (* #t)
-                         (? #'(< count 1))))
-                (lp new-end count)
-                (let ((success #,(syntax-case num (+ * ?)
-                                   (n (number? (syntax->datum #'n))
-                                      #'(= count n))
-                                   (+ #'(>= count 1))
-                                   (* #t)
-                                   (? #t))))
-                  #,(syntax-case type (! & lit)
-                      (!
-                       #`(if success
-                             #f
-                             #,(cggr accum 'cg-body #''() #'at)))
-                      (&
-                       #`(and success
-                              #,(cggr accum 'cg-body #''() #'at)))
-                      (lit
-                       #`(and success
-                              #,(cggr accum 'cg-body #'(reverse body) #'new-end)))))))))))
+(define (cg-body args accum)
+  (syntax-case args ()
+    ((type pat num)
+     #`(lambda (str strlen at)
+         (let ((body '()))
+           (let lp ((end at) (count 0))
+             (let* ((match (#,(peg-sexp-compile #'pat (baf accum))
+                            str strlen end))
+                    (new-end (if match (car match) end))
+                    (count (if (> new-end end) (1+ count) count)))
+               (if (> new-end end)
+                   (push-not-null! body (single-filter (cadr match))))
+               (if (and (> new-end end)
+                        #,(syntax-case #'num (+ * ?)
+                            (n (number? (syntax->datum #'n))
+                               #'(< count n))
+                            (+ #t)
+                            (* #t)
+                            (? #'(< count 1))))
+                   (lp new-end count)
+                   (let ((success #,(syntax-case #'num (+ * ?)
+                                      (n (number? (syntax->datum #'n))
+                                         #'(= count n))
+                                      (+ #'(>= count 1))
+                                      (* #t)
+                                      (? #t))))
+                     #,(syntax-case #'type (! & lit)
+                         (!
+                          #`(if success
+                                #f
+                                #,(cggr (baf accum) 'cg-body #''() #'at)))
+                         (&
+                          #`(and success
+                                 #,(cggr (baf accum) 'cg-body #''() #'at)))
+                         (lit
+                          #`(and success
+                                 #,(cggr (baf accum) 'cg-body
+                                         #'(reverse body) #'new-end)))))))))))))
+
+;; Association list of functions to handle different expressions as PEGs
+(define peg-compiler-alist '())
+
+(define (add-peg-compiler! symbol function)
+  (set! peg-compiler-alist
+        (assq-set! peg-compiler-alist symbol function)))
+
+(add-peg-compiler! 'range cg-range)
+(add-peg-compiler! 'ignore cg-ignore)
+(add-peg-compiler! 'capture cg-capture)
+(add-peg-compiler! 'and cg-and)
+(add-peg-compiler! 'or cg-or)
+(add-peg-compiler! 'body cg-body)
+
+;; Takes an arbitrary expressions and accumulation variable, then parses it.
+;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
+(define (peg-sexp-compile pat accum)
+  (syntax-case pat (peg-any range ignore capture peg and or body)
+    (peg-any
+     (cg-peg-any (baf accum)))
+    (sym (identifier? #'sym) ;; nonterminal
+     #'sym)
+    (str (string? (syntax->datum #'str)) ;; literal string
+     (cg-string (syntax->datum #'str) (baf accum)))
+    ((name . args) (let* ((nm (syntax->datum #'name))
+                          (entry (assq-ref peg-compiler-alist nm)))
+                     (if entry
+                         (entry #'args accum)
+                         (error "Bad peg form" nm #'args
+                                "Not one of" (map car peg-compiler-alist)))))))
 
 ;; Packages the results of a parser
 (define (wrap-parser-for-users for-syntax parser accumsym s-syn)
