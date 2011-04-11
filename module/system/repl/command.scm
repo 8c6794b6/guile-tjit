@@ -1,6 +1,6 @@
 ;;; Repl commands
 
-;; Copyright (C) 2001, 2009, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -465,7 +465,11 @@ Compile a file."
 (define-meta-command (disassemble repl (form))
   "disassemble EXP
 Disassemble a compiled procedure."
-  (guile:disassemble (repl-eval repl (repl-parse repl form))))
+  (let ((obj (repl-eval repl (repl-parse repl form))))
+    (if (or (program? obj) (objcode? obj))
+        (guile:disassemble obj)
+        (format #t "Argument to ,disassemble not a procedure or objcode: ~a~%"
+                obj))))
 
 (define-meta-command (disassemble-file repl file)
   "disassemble-file FILE
@@ -546,7 +550,7 @@ Trace execution."
                  (format #t "Nothing to debug.~%"))))))))
 
 (define-stack-command (backtrace repl #:optional count
-                                 #:key (width 72) full?)
+                                 #:key (width (terminal-width)) full?)
   "backtrace [COUNT] [#:width W] [#:full? F]
 Print a backtrace.
 
@@ -626,12 +630,12 @@ With an argument, select a frame by index, then show it."
 Print the procedure for the selected frame."
   (repl-print repl (frame-procedure cur)))
 
-(define-stack-command (locals repl)
+(define-stack-command (locals repl #:key (width (terminal-width)))
   "locals
 Show local variables.
 
 Show locally-bound variables in the selected frame."
-  (print-locals cur))
+  (print-locals cur #:width width))
 
 (define-stack-command (error-message repl)
   "error-message
@@ -811,6 +815,15 @@ Print registers.
 Print the registers of the current frame."
   (print-registers cur))
 
+(define-meta-command (width repl #:optional x)
+  "width [X]
+Set debug output width.
+
+Set the number of screen columns in the output from `backtrace' and
+`locals'."
+  (terminal-width x)
+  (format #t "Set screen width to ~a columns.~%" (terminal-width)))
+
 
 
 ;;;
@@ -858,30 +871,21 @@ Display statistics."
       (display-diff-stat "GC times:" #t this-times last-times "times")
       (newline))
     ;; Memory size
-    (let ((this-cells  (assq-ref this-gcs 'cells-allocated))
-	  (this-heap   (assq-ref this-gcs 'cell-heap-size))
-	  (this-bytes  (assq-ref this-gcs 'bytes-malloced))
-	  (this-malloc (assq-ref this-gcs 'gc-malloc-threshold)))
+    (let ((this-heap  (assq-ref this-gcs 'heap-size))
+	  (this-free   (assq-ref this-gcs 'heap-free-size)))
       (display-stat-title "Memory size:" "current" "limit")
-      (display-stat "heap" #f this-cells this-heap "cells")
-      (display-stat "malloc" #f this-bytes this-malloc "bytes")
+      (display-stat "heap" #f (- this-heap this-free) this-heap "bytes")
       (newline))
     ;; Cells collected
-    (let ((this-marked (assq-ref this-gcs 'cells-marked))
-	  (last-marked (assq-ref last-gcs 'cells-marked))
-	  (this-swept  (assq-ref this-gcs 'cells-swept))
-	  (last-swept  (assq-ref last-gcs 'cells-swept)))
-      (display-stat-title "Cells collected:" "diff" "total")
-      (display-diff-stat "marked" #f this-marked last-marked "cells")
-      (display-diff-stat "swept" #f this-swept last-swept "cells")
+    (let ((this-alloc (assq-ref this-gcs 'heap-total-allocated))
+	  (last-alloc (assq-ref last-gcs 'heap-total-allocated)))
+      (display-stat-title "Bytes allocated:" "diff" "total")
+      (display-diff-stat "allocated" #f this-alloc last-alloc "bytes")
       (newline))
     ;; GC time taken
-    (let ((this-mark  (assq-ref this-gcs 'gc-mark-time-taken))
-	  (last-mark  (assq-ref last-gcs 'gc-mark-time-taken))
-	  (this-total (assq-ref this-gcs 'gc-time-taken))
+    (let ((this-total (assq-ref this-gcs 'gc-time-taken))
 	  (last-total (assq-ref last-gcs 'gc-time-taken)))
       (display-stat-title "GC time taken:" "diff" "total")
-      (display-time-stat "mark" this-mark last-mark)
       (display-time-stat "total" this-total last-total)
       (newline))
     ;; Process time spent

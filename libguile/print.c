@@ -309,15 +309,10 @@ print_circref (SCM port, scm_print_state *pstate, SCM ref)
 /* Print the name of a symbol. */
 
 static int
-quote_keywordish_symbol (SCM symbol)
+quote_keywordish_symbols (void)
 {
-  SCM option;
+  SCM option = SCM_PRINT_KEYWORD_STYLE;
 
-  if (scm_i_symbol_ref (symbol, 0) != ':'
-      && scm_i_symbol_ref (symbol, scm_i_symbol_length (symbol) - 1) !=  ':')
-    return 0;
-
-  option = SCM_PRINT_KEYWORD_STYLE;
   if (scm_is_false (option))
     return 0;
   if (scm_is_eq (option, sym_reader))
@@ -325,91 +320,114 @@ quote_keywordish_symbol (SCM symbol)
   return 1;
 }
 
-void
-scm_i_print_symbol_name (SCM str, SCM port)
-{
-  /* This points to the first character that has not yet been written to the
-   * port. */
-  size_t pos = 0;
-  /* This points to the character we're currently looking at. */
-  size_t end;
-  /* If the name contains weird characters, we'll escape them with
-   * backslashes and set this flag; it indicates that we should surround the
-   * name with "#{" and "}#". */
-  int weird = 0;
-  /* Backslashes are not sufficient to make a name weird, but if a name is
-   * weird because of other characters, backslahes need to be escaped too.
-   * The first time we see a backslash, we set maybe_weird, and mw_pos points
-   * to the backslash.  Then if the name turns out to be weird, we re-process
-   * everything starting from mw_pos.
-   * We could instead make backslashes always weird.  This is not necessary
-   * to ensure that the output is (read)-able, but it would make this code
-   * simpler and faster. */
-  int maybe_weird = 0;
-  size_t mw_pos = 0;
-  size_t len = scm_i_symbol_length (str);
-  scm_t_wchar str0 = scm_i_symbol_ref (str, 0);
+#define INITIAL_IDENTIFIER_MASK                                      \
+  (UC_CATEGORY_MASK_Lu | UC_CATEGORY_MASK_Ll | UC_CATEGORY_MASK_Lt   \
+   | UC_CATEGORY_MASK_Lm | UC_CATEGORY_MASK_Lo | UC_CATEGORY_MASK_Mn \
+   | UC_CATEGORY_MASK_Nl | UC_CATEGORY_MASK_No | UC_CATEGORY_MASK_Pd \
+   | UC_CATEGORY_MASK_Pc | UC_CATEGORY_MASK_Po | UC_CATEGORY_MASK_Sc \
+   | UC_CATEGORY_MASK_Sm | UC_CATEGORY_MASK_Sk | UC_CATEGORY_MASK_So \
+   | UC_CATEGORY_MASK_Co)
 
-  if (len == 0 || str0 == '\'' || str0 == '`' || str0 == ','
-      || quote_keywordish_symbol (str) 
-      || (str0 == '.' && len == 1)
-      || scm_is_true (scm_i_string_to_number (scm_symbol_to_string (str), 10)))
+#define SUBSEQUENT_IDENTIFIER_MASK                                      \
+  (INITIAL_IDENTIFIER_MASK                                              \
+   | UC_CATEGORY_MASK_Nd | UC_CATEGORY_MASK_Mc | UC_CATEGORY_MASK_Me)
+
+static int
+symbol_has_extended_read_syntax (SCM sym)
+{
+  size_t pos, len = scm_i_symbol_length (sym);
+  scm_t_wchar c;
+
+  /* The empty symbol.  */
+  if (len == 0)
+    return 1;
+
+  c = scm_i_symbol_ref (sym, 0);
+
+  /* Single dot; conflicts with dotted-pair notation.  */
+  if (len == 1 && c == '.')
+    return 1;
+
+  /* Other initial-character constraints.  */
+  if (c == '\'' || c == '`' || c == ',' || c == '"' || c == ';' || c == '#')
+    return 1;
+  
+  /* Keywords can be identified by trailing colons too.  */
+  if (c == ':' || scm_i_symbol_ref (sym, len - 1) == ':')
+    return quote_keywordish_symbols ();
+  
+  /* Number-ish symbols.  */
+  if (scm_is_true (scm_i_string_to_number (scm_symbol_to_string (sym), 10)))
+    return 1;
+  
+  /* Other disallowed first characters.  */
+  if (!uc_is_general_category_withtable (c, INITIAL_IDENTIFIER_MASK))
+    return 1;
+
+  /* Otherwise, any character that's in the identifier category mask is
+     fine to pass through as-is, provided it's not one of the ASCII
+     delimiters like `;'.  */
+  for (pos = 1; pos < len; pos++)
     {
-      scm_lfwrite ("#{", 2, port);
-      weird = 1;
+      c = scm_i_symbol_ref (sym, pos);
+      if (!uc_is_general_category_withtable (c, SUBSEQUENT_IDENTIFIER_MASK))
+        return 1;
+      else if (c == '"' || c == ';' || c == '#')
+        return 1;
     }
 
-  for (end = pos; end < len; ++end)
-    switch (scm_i_symbol_ref (str, end))
-      {
-#ifdef BRACKETS_AS_PARENS
-      case '[':
-      case ']':
-#endif
-      case '(':
-      case ')':
-      case '"':
-      case ';':
-      case '#':
-      case SCM_WHITE_SPACES:
-      case SCM_LINE_INCREMENTORS:
-      weird_handler:
-	if (maybe_weird)
-	  {
-	    end = mw_pos;
-	    maybe_weird = 0;
-	  }
-	if (!weird)
-	  {
-	    scm_lfwrite ("#{", 2, port);
-	    weird = 1;
-	  }
-	if (pos < end)
-	  scm_lfwrite_substr (scm_symbol_to_string (str), pos, end, port);
-	{
-	  char buf[2];
-	  buf[0] = '\\';
-	  buf[1] = (char) (unsigned char) scm_i_symbol_ref (str, end);
-	  scm_lfwrite (buf, 2, port);
-	}
-	pos = end + 1;
-	break;
-      case '\\':
-	if (weird)
-	  goto weird_handler;
-	if (!maybe_weird)
-	  {
-	    maybe_weird = 1;
-	    mw_pos = pos;
-	  }
-	break;
-      default:
-	break;
-      }
-  if (pos < end)
-    scm_lfwrite_substr (scm_symbol_to_string (str), pos, end, port);
-  if (weird)
-    scm_lfwrite ("}#", 2, port);
+  return 0;
+}
+
+static void
+print_normal_symbol (SCM sym, SCM port)
+{
+  scm_display (scm_symbol_to_string (sym), port);
+}
+
+static void
+print_extended_symbol (SCM sym, SCM port)
+{
+  size_t pos, len;
+  scm_t_string_failed_conversion_handler strategy;
+
+  len = scm_i_symbol_length (sym);
+  strategy = scm_i_get_conversion_strategy (port);
+
+  scm_lfwrite ("#{", 2, port);
+
+  for (pos = 0; pos < len; pos++)
+    {
+      scm_t_wchar c = scm_i_symbol_ref (sym, pos);
+      
+      if (uc_is_general_category_withtable (c,
+                                            SUBSEQUENT_IDENTIFIER_MASK
+                                            | UC_CATEGORY_MASK_Zs))
+        {
+          if (!display_character (c, port, strategy))
+            scm_encoding_error ("print_extended_symbol", errno,
+                                "cannot convert to output locale",
+                                port, SCM_MAKE_CHAR (c));
+        }
+      else
+        {
+          display_string ("\\x", 1, 2, port, iconveh_question_mark);
+          scm_intprint (c, 16, port);
+          display_character (';', port, iconveh_question_mark);
+        }
+    }
+
+  scm_lfwrite ("}#", 2, port);
+}
+
+/* FIXME: allow R6RS hex escapes instead of #{...}#.  */
+void
+scm_i_print_symbol_name (SCM sym, SCM port)
+{
+  if (symbol_has_extended_read_syntax (sym))
+    print_extended_symbol (sym, port);
+  else
+    print_normal_symbol (sym, port);
 }
 
 void
@@ -862,6 +880,8 @@ display_string (const void *str, int narrow_p,
 
       if (SCM_UNLIKELY (done == (size_t) -1))
 	{
+          int errno_save = errno;
+
 	  /* Reset the `iconv' state.  */
 	  iconv (pt->output_cd, NULL, NULL, NULL, NULL);
 
@@ -873,7 +893,7 @@ display_string (const void *str, int narrow_p,
 	  codepoints_read = offsets[input - utf8_buf] - printed;
 	  printed += codepoints_read;
 
-	  if (errno == EILSEQ &&
+	  if (errno_save == EILSEQ &&
 	      strategy != SCM_FAILED_CONVERSION_ERROR)
 	    {
 	      /* Conversion failed somewhere in INPUT and we want to
@@ -1282,8 +1302,7 @@ SCM_DEFINE (scm_simple_format, "simple-format", 2, 0, 1,
   else if (scm_is_false (destination))
     {
       fReturnString = 1;
-      port = scm_mkstrport (SCM_INUM0, 
-			    scm_make_string (SCM_INUM0, SCM_UNDEFINED),
+      port = scm_mkstrport (SCM_INUM0, SCM_BOOL_F,
 			    SCM_OPN | SCM_WRTNG,
 			    FUNC_NAME);
       destination = port;

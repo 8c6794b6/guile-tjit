@@ -74,6 +74,7 @@
 
 	  syntax-rules identifier-syntax)
   (import (rename (except (guile) error raise)
+                  (log log-internal)
                   (euclidean-quotient div)
                   (euclidean-remainder mod)
                   (euclidean/ div-and-mod)
@@ -84,6 +85,14 @@
                   (exact->inexact inexact)
                   (inexact->exact exact))
           (srfi srfi-11))
+
+ (define log
+   (case-lambda
+     ((n)
+      (log-internal n))
+     ((n base)
+      (/ (log n)
+         (log base)))))
 
  (define (boolean=? . bools)
    (define (boolean=?-internal lst last)
@@ -103,9 +112,6 @@
        (let ((sym (car syms)))
          (and (symbol? sym) (symbol=?-internal (cdr syms) sym)))))
 
- (define (exact-integer-sqrt x)
-   (let* ((s (exact (floor (sqrt x)))) (e (- x (* s s)))) (values s e)))
-
  (define (real-valued? x)
    (and (complex? x)
         (zero? (imag-part x))))
@@ -123,24 +129,33 @@
  (define (vector-map proc . vecs)
    (list->vector (apply map (cons proc (map vector->list vecs)))))
 
- (define-syntax raise
-   ;; Resolve the real `raise' lazily to avoid a circular dependency
-   ;; between `(rnrs base)' and `(rnrs exceptions)'.
-   (syntax-rules ()
-     ((_ c)
-      ((@ (rnrs exceptions) raise) c))))
+ (define-syntax define-proxy
+   (syntax-rules (@)
+     ;; Define BINDING to point to (@ MODULE ORIGINAL).  This hack is to
+     ;; make sure MODULE is loaded lazily, at run-time, when BINDING is
+     ;; encountered, rather than being loaded while compiling and
+     ;; loading (rnrs base).
+     ;; This avoids circular dependencies among modules and makes
+     ;; (rnrs base) more lightweight.
+     ((_ binding (@ module original))
+      (define-syntax binding
+        (identifier-syntax
+         (module-ref (resolve-interface 'module) 'original))))))
 
- (define condition
+ (define-proxy raise
+   (@ (rnrs exceptions) raise))
+
+ (define-proxy condition
    (@ (rnrs conditions) condition))
- (define make-error
+ (define-proxy make-error
    (@ (rnrs conditions) make-error))
- (define make-assertion-violation
+ (define-proxy make-assertion-violation
    (@ (rnrs conditions) make-assertion-violation))
- (define make-who-condition
+ (define-proxy make-who-condition
    (@ (rnrs conditions) make-who-condition))
- (define make-message-condition
+ (define-proxy make-message-condition
    (@ (rnrs conditions) make-message-condition))
- (define make-irritants-condition
+ (define-proxy make-irritants-condition
    (@ (rnrs conditions) make-irritants-condition))
 
  (define (error who message . irritants)
@@ -160,7 +175,7 @@
  (define-syntax assert
    (syntax-rules ()
      ((_ expression)
-      (if (not expression)
+      (or expression
           (raise (condition
                   (make-assertion-violation)
                   (make-message-condition

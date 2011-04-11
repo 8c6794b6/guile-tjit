@@ -36,6 +36,8 @@
   (cons 'read-error "Unknown # object: .*$"))
 (define exception:eof-in-string
   (cons 'read-error "end of file in string constant$"))
+(define exception:eof-in-symbol
+  (cons 'read-error "end of file while reading symbol$"))
 (define exception:illegal-escape
   (cons 'read-error "illegal character in escape sequence: .*$"))
 (define exception:missing-expression
@@ -253,6 +255,14 @@
                     (read-string "'abcde")))))
       (and (equal? (source-property sexp 'line) 0)
            (equal? (source-property sexp 'column) 0))))
+  (pass-if "position of SCSH block comment"
+    ;; In Guile 2.0.0 the reader would not update the port's position
+    ;; when reading an SCSH block comment.
+    (let ((sexp (with-read-options '(positions)
+                  (lambda ()
+                    (read-string "#!foo\nbar\nbaz\n!#\n(hello world)\n")))))
+      (= 4 (source-property sexp 'line))))
+
   (with-test-prefix "r6rs-hex-escapes"
       (pass-if-exception "non-hex char in two-digit hex-escape"
       exception:illegal-escape
@@ -416,4 +426,18 @@
      ("#,foo" . (unsyntax foo))
      ("#,@foo" . (unsyntax-splicing foo)))))
 
+(with-test-prefix "#{}#"
+  (pass-if (equal? (read-string "#{}#") '#{}#))
+  (pass-if (equal? (read-string "#{a}#") 'a))
+  (pass-if (equal? (read-string "#{a b}#") '#{a b}#))
+  (pass-if-exception "#{" exception:eof-in-symbol
+                     (read-string "#{"))
+  (pass-if (equal? (read-string "#{a\\x20;b}#") '#{a b}#)))
 
+(begin-deprecated
+ (with-test-prefix "deprecated #{}# escapes"
+   (pass-if (equal? (read-string "#{a\\ b}#") '#{a b}#))))
+
+;;; Local Variables:
+;;; eval: (put 'with-read-options 'scheme-indent-function 1)
+;;; End:

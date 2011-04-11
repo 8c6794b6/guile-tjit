@@ -59,8 +59,8 @@ valid dates.  Error handling for a number of basic cases, like invalid
 dates, occurs on the boundary in which we produce a SRFI 19 date record
 from other types, like strings.
 
-With regards to the web, data types are help in the two broad phases of
-HTTP messages: parsing and generation.
+With regards to the web, data types are helpful in the two broad phases
+of HTTP messages: parsing and generation.
 
 Consider a server, which has to parse a request, and produce a response.
 Guile will parse the request into an HTTP request object
@@ -339,7 +339,7 @@ For example:
 
 (string->header "FOO")
 @result{} foo
-(header->string 'foo
+(header->string 'foo)
 @result{} "Foo"
 @end example
 
@@ -387,12 +387,6 @@ leaving it as a string.  You could register this header with Guile's
 HTTP stack like this:
 
 @example
-(define (parse-ip str)
-  (inet-aton str)
-(define (validate-ip ip)
-(define (write-ip ip port)
-  (display (inet-ntoa ip) port))
-
 (declare-header! "X-Client-Address"
   (lambda (str)
     (inet-aton str))
@@ -1331,13 +1325,20 @@ If the read failed, the @code{read} hook may return #f for the client
 socket, request, and body.
 
 @item
-A user-provided handler procedure is called, with the request
-and body as its arguments.  The handler should return two
-values: the response, as a @code{<response>} record from @code{(web
-response)}, and the response body as a string, bytevector, or
-@code{#f} if not present.  We also allow the response to be simply an
-alist of headers, in which case a default response object is
-constructed with those headers.
+A user-provided handler procedure is called, with the request and body
+as its arguments.  The handler should return two values: the response,
+as a @code{<response>} record from @code{(web response)}, and the
+response body as bytevector, or @code{#f} if not present.
+
+The respose and response body are run through @code{sanitize-response},
+documented below.  This allows the handler writer to take some
+convenient shortcuts: for example, instead of a @code{<response>}, the
+handler can simply return an alist of headers, in which case a default
+response object is constructed with those headers.  Instead of a
+bytevector for the body, the handler can return a string, which will be
+serialized into an appropriate encoding; or it can return a procedure,
+which will be called on a port to write out the data.  See the
+@code{sanitize-response} documentation, for more.
 
 @item
 The @code{write} hook is called with three arguments: the client
@@ -1581,7 +1582,7 @@ probably know, we'll want to return a 404 response.
 (define (not-found request)
   (values (build-response #:code 404)
           (string-append "Resource not found: "
-                         (unparse-uri (request-uri request)))))
+                         (uri->string (request-uri request)))))
 
 ;; Now paste this to let the web server keep going:
 ,continue

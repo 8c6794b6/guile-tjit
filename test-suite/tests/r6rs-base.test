@@ -19,7 +19,25 @@
 
 (define-module (test-suite test-r6rs-base)
   :use-module ((rnrs base) :version (6))
+  :use-module ((rnrs conditions) :version (6))
+  :use-module ((rnrs exceptions) :version (6))
   :use-module (test-suite lib))
+
+
+;; numbers are considered =? if their difference is less than a set
+;; tolerance
+(define (=? alpha beta)
+  (< (abs (- alpha beta)) 1e-10))
+
+(with-test-prefix "log (2nd arg)"
+  (pass-if "log positive-base" (=? (log 8 2) 3))
+  (pass-if "log negative-base" (=? (real-part (log 256 -4))
+                                   0.6519359443))
+  (pass-if "log base-one" (= (log 10 1) +inf.0))
+  (pass-if "log base-zero"
+    (catch #t
+      (lambda () (log 10 0) #f)
+      (lambda args #t))))
 
 (with-test-prefix "boolean=?"
   (pass-if "boolean=? null" (boolean=?))
@@ -172,3 +190,9 @@
   (pass-if (not (integer-valued? +0.01i)))
   (pass-if (not (integer-valued? -inf.0i))))
 
+(with-test-prefix "assert"
+  (pass-if "assert returns value" (= 1 (assert 1)))
+  (pass-if "assertion-violation"
+    (guard (condition ((assertion-violation? condition) #t))
+      (assert #f)
+      #f)))

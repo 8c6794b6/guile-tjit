@@ -766,16 +766,10 @@ compare_u32_strings (SCM s1, SCM s2, SCM locale, const char *func_name)
 static const char *
 locale_language ()
 {
-  /* FIXME: If the locale has been set with 'uselocale',
-     libunistring's uc_locale_language will return the incorrect
-     language: it will return the language appropriate for the global
-     (non-thread-specific) locale.
-
-     There appears to be no portable way to extract the language from
-     the thread-specific locale_t.  There is no LANGUAGE capability in
-     nl_langinfo or nl_langinfo_l.
-
-     Thus, uc_locale_language needs to be fixed upstream.  */
+  /* Note: If the locale has been set with 'uselocale', uc_locale_language
+     from libunistring versions 0.9.1 and older will return the incorrect
+     (non-thread-specific) locale.  This is fixed in versions 0.9.2 and
+     newer.  */
   return uc_locale_language ();
 }
 
@@ -1113,23 +1107,19 @@ chr_to_case (SCM chr, scm_t_locale c_locale,
 #define FUNC_NAME func_name
 {
   int ret;
-  scm_t_wchar *buf;
+  scm_t_uint32 c;
   scm_t_uint32 *convbuf;
   size_t convlen;
-  SCM str, convchar;
+  SCM convchar;
 
-  str = scm_i_make_wide_string (1, &buf);
-  buf[0] = SCM_CHAR (chr);
+  c = SCM_CHAR (chr);
 
   if (c_locale != NULL)
     RUN_IN_LOCALE_SECTION (c_locale, ret =
-                           u32_locale_tocase ((scm_t_uint32 *) buf, 1,
-                                              &convbuf,
-                                              &convlen, func));
+                           u32_locale_tocase (&c, 1, &convbuf, &convlen, func));
   else
     ret =
-      u32_locale_tocase ((scm_t_uint32 *) buf, 1, &convbuf,
-                         &convlen, func);
+      u32_locale_tocase (&c, 1, &convbuf, &convlen, func);
 
   if (SCM_UNLIKELY (ret != 0))
     {
@@ -1256,7 +1246,7 @@ str_to_case (SCM str, scm_t_locale c_locale,
       return NULL;
     }
 
-  convstr = scm_i_make_wide_string (convlen, &c_buf);
+  convstr = scm_i_make_wide_string (convlen, &c_buf, 0);
   memcpy (c_buf, c_convstr, convlen * sizeof (scm_t_wchar));
   free (c_convstr);
 
@@ -1564,11 +1554,14 @@ SCM_DEFINE (scm_nl_langinfo, "nl-langinfo", 1, 1, 0,
 	  {
 	    char *p;
 
-	    /* In this cases, the result is to be interpreted as a list of
-	       numbers.  If the last item is `CHARS_MAX', it has the special
-	       meaning "no more grouping".  */
+	    /* In this cases, the result is to be interpreted as a list
+	       of numbers.  If the last item is `CHAR_MAX' or a negative
+	       number, it has the special meaning "no more grouping"
+	       (negative numbers aren't specified in POSIX but can be
+	       used by glibc; see
+	       <http://lists.gnu.org/archive/html/bug-guile/2011-02/msg00159.html>).  */
 	    result = SCM_EOL;
-	    for (p = c_result; (*p != '\0') && (*p != CHAR_MAX); p++)
+	    for (p = c_result; (*p > 0) && (*p != CHAR_MAX); p++)
 	      result = scm_cons (SCM_I_MAKINUM ((int) *p), result);
 
 	    {
@@ -1576,7 +1569,7 @@ SCM_DEFINE (scm_nl_langinfo, "nl-langinfo", 1, 1, 0,
 
 	      result = scm_reverse_x (result, SCM_EOL);
 
-	      if (*p != CHAR_MAX)
+	      if (*p == 0)
 		{
 		  /* Cyclic grouping information.  */
 		  if (last_pair != SCM_EOL)

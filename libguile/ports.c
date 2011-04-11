@@ -352,7 +352,7 @@ SCM_DEFINE (scm_drain_input, "drain-input", 1, 0, 0,
 
   if (count)
     {
-      result = scm_i_make_string (count, &data);
+      result = scm_i_make_string (count, &data, 0);
       scm_take_from_input_buffers (port, data, count);
     }
   else
@@ -522,11 +522,8 @@ static void finalize_port (GC_PTR, GC_PTR);
 static SCM_C_INLINE_KEYWORD void
 register_finalizer_for_port (SCM port)
 {
-  long port_type;
   GC_finalization_proc prev_finalizer;
   GC_PTR prev_finalization_data;
-
-  port_type = SCM_TC2PTOBNUM (SCM_CELL_TYPE (port));
 
   /* Register a finalizer for PORT so that its iconv CDs get freed and
      optionally its type's `free' function gets called.  */
@@ -661,6 +658,19 @@ scm_i_remove_port (SCM port)
   scm_port_non_buffer (p);
   p->putback_buf = NULL;
   p->putback_buf_size = 0;
+
+  if (p->input_cd != (iconv_t) -1)
+    {
+      iconv_close (p->input_cd);
+      p->input_cd = (iconv_t) -1;
+    }
+  
+  if (p->output_cd != (iconv_t) -1)
+    {
+      iconv_close (p->output_cd);
+      p->output_cd = (iconv_t) -1;
+    }
+
   SCM_SETPTAB_ENTRY (port, 0);
 
   scm_hashq_remove_x (scm_i_port_weak_hash, port);
@@ -1929,9 +1939,8 @@ SCM_DEFINE (scm_set_port_column_x, "set-port-column!", 2, 0, 0,
 
 SCM_DEFINE (scm_port_filename, "port-filename", 1, 0, 0,
             (SCM port),
-	    "Return the filename associated with @var{port}.  This function returns\n"
-	    "the strings \"standard input\", \"standard output\" and \"standard error\"\n"
-	    "when called on the current input, output and error ports respectively.")
+	    "Return the filename associated with @var{port}, or @code{#f}\n"
+	    "if no filename is associated with the port.")
 #define FUNC_NAME s_scm_port_filename
 {
   port = SCM_COERCE_OUTPORT (port);
@@ -2099,6 +2108,7 @@ SCM_DEFINE (scm_set_port_encoding_x, "set-port-encoding!", 2, 0, 0,
 
   enc_str = scm_to_locale_string (enc);
   scm_i_set_port_encoding_x (port, enc_str);
+  free (enc_str);
 
   return SCM_UNSPECIFIED;
 }

@@ -538,7 +538,7 @@ If there is no handler at all, Guile prints an error and then exits."
              ((subr msg args . rest)
               (if subr
                   (format port "In procedure ~a: " subr))
-              (apply format port msg args))
+              (apply format port msg (or args '())))
              (_ (default-printer)))
            args))
 
@@ -1987,29 +1987,27 @@ VALUE."
         ;; Newly used modules must be appended rather than consed, so that
         ;; `module-variable' traverses the use list starting from the first
         ;; used module.
-        (set-module-uses! module
-                          (append (filter (lambda (m)
-                                            (not
-                                             (equal? (module-name m)
-                                                     (module-name interface))))
-                                          (module-uses module))
-                                  (list interface)))
+        (set-module-uses! module (append (module-uses module)
+                                         (list interface)))
         (hash-clear! (module-import-obarray module))
         (module-modified module))))
 
 ;; MODULE-USE-INTERFACES! module interfaces
 ;;
-;; Same as MODULE-USE! but add multiple interfaces and check for duplicates
+;; Same as MODULE-USE!, but only notifies module observers after all
+;; interfaces are added to the inports list.
 ;;
 (define (module-use-interfaces! module interfaces)
-  (let ((prev (filter (lambda (used)
-                        (and-map (lambda (iface)
-                                   (not (equal? (module-name used)
-                                                (module-name iface))))
-                                 interfaces))
-                      (module-uses module))))
-    (set-module-uses! module
-                      (append prev interfaces))
+  (let* ((cur (module-uses module))
+         (new (let lp ((in interfaces) (out '()))
+                (if (null? in)
+                    (reverse out)
+                    (lp (cdr in)
+                        (let ((iface (car in)))
+                          (if (or (memq iface cur) (memq iface out))
+                              out
+                              (cons iface out))))))))
+    (set-module-uses! module (append cur new))
     (hash-clear! (module-import-obarray module))
     (module-modified module)))
 
@@ -3406,6 +3404,7 @@ module '(ice-9 q) '(make-q q-length))}."
     srfi-4   ;; homogenous numeric vectors
     srfi-6   ;; open-input-string etc, in the guile core
     srfi-13  ;; string library
+    srfi-23  ;; `error` procedure
     srfi-14  ;; character sets
     srfi-55  ;; require-extension
     srfi-61  ;; general cond clause
@@ -3496,6 +3495,42 @@ module '(ice-9 q) '(make-q q-length))}."
        (identifier? #'type)
        (syntax-violation 'require-extension "Not a recognized extension type"
                          x)))))
+
+
+;;; Defining transparently inlinable procedures
+;;;
+
+(define-syntax define-inlinable
+  ;; Define a macro and a procedure such that direct calls are inlined, via
+  ;; the macro expansion, whereas references in non-call contexts refer to
+  ;; the procedure.  Inspired by the `define-integrable' macro by Dybvig et al.
+  (lambda (x)
+    ;; Use a space in the prefix to avoid potential -Wunused-toplevel
+    ;; warning
+    (define prefix (string->symbol "% "))
+    (define (make-procedure-name name)
+      (datum->syntax name
+                     (symbol-append prefix (syntax->datum name)
+                                    '-procedure)))
+
+    (syntax-case x ()
+      ((_ (name formals ...) body ...)
+       (identifier? #'name)
+       (with-syntax ((proc-name  (make-procedure-name #'name))
+                     ((args ...) (generate-temporaries #'(formals ...))))
+         #`(begin
+             (define (proc-name formals ...)
+               body ...)
+             (define-syntax name
+               (lambda (x)
+                 (syntax-case x ()
+                   ((_ args ...)
+                    #'((lambda (formals ...)
+                         body ...)
+                       args ...))
+                   (_
+                    (identifier? x)
+                    #'proc-name))))))))))
 
 
 

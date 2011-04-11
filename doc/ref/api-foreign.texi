@@ -79,6 +79,12 @@ Normally, @var{library} is just the name of some shared library file
 that will be searched for in the places where shared libraries usually
 reside, such as in @file{/usr/lib} and @file{/usr/local/lib}.
 
+@var{library} should not contain an extension such as @code{.so}.  The
+correct file name extension for the host operating system is provided
+automatically, according to libltdl's rules (@pxref{Libltdl interface,
+lt_dlopenext, @code{lt_dlopenext}, libtool, Shared Library Support for
+GNU}).
+
 When @var{library} is omitted, a @dfn{global symbol handle} is returned.  This
 handle provides access to the symbols available to the program at run-time,
 including those exported by the program itself and the shared libraries already
@@ -196,12 +202,13 @@ In that case, you would statically link your program with the desired
 library, and register its init function right after Guile has been
 initialized.
 
-LIB should be a string denoting a shared library without any file type
-suffix such as ".so".  The suffix is provided automatically.  It
+As for @code{dynamic-link}, @var{lib} should not contain any suffix such
+as @code{.so} (@pxref{Foreign Libraries, dynamic-link}).  It
 should also not contain any directory components.  Libraries that
 implement Guile Extensions should be put into the normal locations for
 shared libraries.  We recommend to use the naming convention
-libguile-bla-blum for a extension related to a module `(bla blum)'.
+@file{libguile-bla-blum} for a extension related to a module @code{(bla
+blum)}.
 
 The normal way for a extension to be used is to write a small Scheme
 file that defines a module, and to load the extension into this
@@ -360,8 +367,8 @@ When loaded with @code{(use-modules (foo bar))}, the
 @code{load-extension} call looks for the @file{foobar-c-code.so} (etc)
 object file in Guile's @code{extensiondir}, which is usually a
 subdirectory of the @code{libdir}. For example, if your libdir is
-@file{/usr/lib}, the @code{extensiondir} for the Guile 2.0.@var{x}
-series will be @file{/usr/lib/guile/2.0/}.
+@file{/usr/lib}, the @code{extensiondir} for the Guile @value{EFFECTIVE-VERSION}.@var{x}
+series will be @file{/usr/lib/guile/@value{EFFECTIVE-VERSION}/}.
 
 The extension path includes the major and minor version of Guile (the
 ``effective version''), because Guile guarantees compatibility within a
@@ -399,7 +406,7 @@ with the following in a @file{Makefile}, using @command{sed}
 
 @example
 foo.scm: foo.scm.in
-        sed 's|XXextensiondirXX|$(libdir)/guile/2.0|' <foo.scm.in >foo.scm
+        sed 's|XXextensiondirXX|$(libdir)/guile/@value{EFFECTIVE-VERSION}|' <foo.scm.in >foo.scm
 @end example
 
 The actual pattern @code{XXextensiondirXX} is arbitrary, it's only something
@@ -561,6 +568,20 @@ A foreign pointer whose value is 0.
 Return @code{#t} if @var{pointer} is the null pointer, @code{#f} otherwise.
 @end deffn
 
+For the purpose of passing SCM values directly to foreign functions, and
+allowing them to return SCM values, Guile also supports some unsafe
+casting operators.
+
+@deffn {Scheme Procedure} scm->pointer scm
+Return a foreign pointer object with the @code{object-address}
+of @var{scm}.
+@end deffn
+
+@deffn {Scheme Procedure} pointer->scm pointer
+Unsafely cast @var{pointer} to a Scheme object.
+Cross your fingers!
+@end deffn
+
 
 @node Void Pointers and Byte Access
 @subsubsection Void Pointers and Byte Access
@@ -605,20 +626,22 @@ Assuming @var{pointer} points to a memory region that holds a pointer,
 return this pointer.
 @end deffn
 
-@deffn {Scheme Procedure} string->pointer string
+@deffn {Scheme Procedure} string->pointer string [encoding]
 Return a foreign pointer to a nul-terminated copy of @var{string} in the
-current locale encoding.  The C string is freed when the returned
-foreign pointer becomes unreachable.
+given @var{encoding}, defaulting to the current locale encoding.  The C
+string is freed when the returned foreign pointer becomes unreachable.
 
-This is the Scheme equivalent of @code{scm_to_locale_string}.
+This is the Scheme equivalent of @code{scm_to_stringn}.
 @end deffn
 
-@deffn {Scheme Procedure} pointer->string pointer
-Return the string representing the C nul-terminated string
-pointed to by @var{pointer}.  The C string is assumed to be
-in the current locale encoding.
+@deffn {Scheme Procedure} pointer->string pointer [length] [encoding]
+Return the string representing the C string pointed to by @var{pointer}.
+If @var{length} is omitted or @code{-1}, the string is assumed to be
+nul-terminated.  Otherwise @var{length} is the number of bytes in memory
+pointed to by @var{pointer}.  The C string is assumed to be in the given
+@var{encoding}, defaulting to the current locale encoding.
 
-This is the Scheme equivalent of @code{scm_from_locale_string}.
+This is the Scheme equivalent of @code{scm_from_stringn}.
 @end deffn
 
 @cindex wrapped pointer types

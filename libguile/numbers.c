@@ -146,7 +146,7 @@ static double atanh (double x) { return 0.5 * log ((1 + x) / (1 - x)); }
 
 
 #if defined (GUILE_I)
-#if HAVE_COMPLEX_DOUBLE
+#if defined HAVE_COMPLEX_DOUBLE
 
 /* For an SCM object Z which is a complex number (ie. satisfies
    SCM_COMPLEXP), return its value as a C level "complex double". */
@@ -5668,7 +5668,7 @@ mem2decimal_from_point (SCM result, SCM mem,
 	  if (sign == 1)
 	    result = scm_product (result, e);
 	  else
-	    result = scm_divide2real (result, e);
+	    result = scm_divide (result, e);
 
 	  /* We've seen an exponent, thus the value is implicitly inexact. */
 	  x = INEXACT;
@@ -9449,7 +9449,8 @@ SCM_PRIMITIVE_GENERIC (scm_log, "log", 1, 0, 0,
 {
   if (SCM_COMPLEXP (z))
     {
-#if HAVE_COMPLEX_DOUBLE && HAVE_CLOG && defined (SCM_COMPLEX_VALUE)
+#if defined HAVE_COMPLEX_DOUBLE && defined HAVE_CLOG \
+  && defined (SCM_COMPLEX_VALUE)
       return scm_from_complex_double (clog (SCM_COMPLEX_VALUE (z)));
 #else
       double re = SCM_COMPLEX_REAL (z);
@@ -9534,7 +9535,8 @@ SCM_PRIMITIVE_GENERIC (scm_exp, "exp", 1, 0, 0,
 {
   if (SCM_COMPLEXP (z))
     {
-#if HAVE_COMPLEX_DOUBLE && HAVE_CEXP && defined (SCM_COMPLEX_VALUE)
+#if defined HAVE_COMPLEX_DOUBLE && defined HAVE_CEXP \
+  && defined (SCM_COMPLEX_VALUE)
       return scm_from_complex_double (cexp (SCM_COMPLEX_VALUE (z)));
 #else
       return scm_c_make_polar (exp (SCM_COMPLEX_REAL (z)),
@@ -9551,6 +9553,70 @@ SCM_PRIMITIVE_GENERIC (scm_exp, "exp", 1, 0, 0,
     SCM_WTA_DISPATCH_1 (g_scm_exp, z, 1, s_scm_exp);
 }
 #undef FUNC_NAME
+
+
+SCM_DEFINE (scm_i_exact_integer_sqrt, "exact-integer-sqrt", 1, 0, 0,
+	    (SCM k),
+	    "Return two exact non-negative integers @var{s} and @var{r}\n"
+	    "such that @math{@var{k} = @var{s}^2 + @var{r}} and\n"
+	    "@math{@var{s}^2 <= @var{k} < (@var{s} + 1)^2}.\n"
+	    "An error is raised if @var{k} is not an exact non-negative integer.\n"
+	    "\n"
+	    "@lisp\n"
+	    "(exact-integer-sqrt 10) @result{} 3 and 1\n"
+	    "@end lisp")
+#define FUNC_NAME s_scm_i_exact_integer_sqrt
+{
+  SCM s, r;
+
+  scm_exact_integer_sqrt (k, &s, &r);
+  return scm_values (scm_list_2 (s, r));
+}
+#undef FUNC_NAME
+
+void
+scm_exact_integer_sqrt (SCM k, SCM *sp, SCM *rp)
+{
+  if (SCM_LIKELY (SCM_I_INUMP (k)))
+    {
+      scm_t_inum kk = SCM_I_INUM (k);
+      scm_t_inum uu = kk;
+      scm_t_inum ss;
+
+      if (SCM_LIKELY (kk > 0))
+	{
+	  do
+	    {
+	      ss = uu;
+	      uu = (ss + kk/ss) / 2;
+	    } while (uu < ss);
+	  *sp = SCM_I_MAKINUM (ss);
+	  *rp = SCM_I_MAKINUM (kk - ss*ss);
+	}
+      else if (SCM_LIKELY (kk == 0))
+	*sp = *rp = SCM_INUM0;
+      else
+	scm_wrong_type_arg_msg ("exact-integer-sqrt", SCM_ARG1, k,
+				"exact non-negative integer");
+    }
+  else if (SCM_LIKELY (SCM_BIGP (k)))
+    {
+      SCM s, r;
+
+      if (mpz_sgn (SCM_I_BIG_MPZ (k)) < 0)
+	scm_wrong_type_arg_msg ("exact-integer-sqrt", SCM_ARG1, k,
+				"exact non-negative integer");
+      s = scm_i_mkbig ();
+      r = scm_i_mkbig ();
+      mpz_sqrtrem (SCM_I_BIG_MPZ (s), SCM_I_BIG_MPZ (r), SCM_I_BIG_MPZ (k));
+      scm_remember_upto_here_1 (k);
+      *sp = scm_i_normbig (s);
+      *rp = scm_i_normbig (r);
+    }
+  else
+    scm_wrong_type_arg_msg ("exact-integer-sqrt", SCM_ARG1, k,
+			    "exact non-negative integer");
+}
 
 
 SCM_PRIMITIVE_GENERIC (scm_sqrt, "sqrt", 1, 0, 0,

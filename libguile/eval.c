@@ -424,7 +424,7 @@ eval (SCM x, SCM env)
           {
             /* The prompt exited nonlocally. */
             proc = handler;
-            args = scm_i_prompt_pop_abort_args_x (prompt);
+            args = scm_i_prompt_pop_abort_args_x (scm_the_vm ());
             goto apply_proc;
           }
         
@@ -474,6 +474,21 @@ scm_call_4 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4)
 {
   SCM args[] = { arg1, arg2, arg3, arg4 };
   return scm_c_vm_run (scm_the_vm (), proc, args, 4);
+}
+
+SCM
+scm_call_5 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4, SCM arg5)
+{
+  SCM args[] = { arg1, arg2, arg3, arg4, arg5 };
+  return scm_c_vm_run (scm_the_vm (), proc, args, 5);
+}
+
+SCM
+scm_call_6 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4, SCM arg5,
+            SCM arg6)
+{
+  SCM args[] = { arg1, arg2, arg3, arg4, arg5, arg6 };
+  return scm_c_vm_run (scm_the_vm (), proc, args, 6);
 }
 
 SCM
@@ -543,11 +558,7 @@ SCM_DEFINE (scm_nconc2last, "apply:nconc2last", 1, 0, 0,
   SCM *lloc;
   SCM_VALIDATE_NONEMPTYLIST (1, lst);
   lloc = &lst;
-  while (!scm_is_null (SCM_CDR (*lloc))) /* Perhaps should be
-                                          SCM_NULL_OR_NIL_P, but not
-                                          needed in 99.99% of cases,
-                                          and it could seriously hurt
-                                          performance. - Neil */
+  while (!scm_is_null (SCM_CDR (*lloc)))
     lloc = SCM_CDRLOC (*lloc);
   SCM_ASSERT (scm_ilength (SCM_CAR (*lloc)) >= 0, lst, SCM_ARG1, FUNC_NAME);
   *lloc = SCM_CAR (*lloc);

@@ -1,6 +1,6 @@
 ;;; transformation of letrec into simpler forms
 
-;; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -96,9 +96,10 @@
                                 (s '()) (l '()) (c '()))
                          (cond
                           ((null? gensyms)
-                           ;; Unreferenced vars are still complex for letrec*.
-                           ;; We need to update our algorithm to "Fixing letrec
-                           ;; reloaded" to fix this.
+                           ;; Unreferenced complex vars are still
+                           ;; complex for letrec*.  We need to update
+                           ;; our algorithm to "Fixing letrec reloaded"
+                           ;; to fix this.
                            (values (if in-order?
                                        (lset-difference eq? unref c)
                                        unref)
@@ -109,7 +110,11 @@
                                    (append c complex)))
                           ((memq (car gensyms) unref)
                            ;; See above note about unref and letrec*.
-                           (if in-order?
+                           (if (and in-order?
+                                    (not (lambda? (car vals)))
+                                    (not (simple-expression?
+                                          (car vals) orig-gensyms
+                                          effect+exception-free-primitive?)))
                                (lp (cdr gensyms) (cdr vals)
                                    s l (cons (car gensyms) c))
                                (lp (cdr gensyms) (cdr vals)
@@ -229,7 +234,8 @@
                     ;; body.
                     (append
                      (map (lambda (c)
-                            (make-lexical-set #f (cadr c) (car c) (caddr c)))
+                            (make-lexical-set #f (cadr c) (car c)
+                                              (caddr c)))
                           c)
                      (list body)))
                    (else
@@ -271,3 +277,7 @@
          
          (else x)))
      x)))
+
+;;; Local Variables:
+;;; eval: (put 'record-case 'scheme-indent-function 1)
+;;; End:

@@ -32,6 +32,48 @@
   #:export (start-repl run-repl))
 
 
+;;;
+;;; Comments
+;;;
+;;; (You don't want a comment to force a continuation line.)
+;;;
+
+(define (read-scheme-line-comment port)
+  (let lp ()
+    (let ((ch (read-char port)))
+      (or (eof-object? ch)
+          (eqv? ch #\newline)
+          (lp)))))
+
+(define (read-scheme-datum-comment port)
+  (read port))
+
+;; ch is a peeked char
+(define (read-comment lang port ch)
+  (and (eq? (language-name lang) 'scheme)
+       (case ch
+         ((#\;)
+          (read-char port)
+          (read-scheme-line-comment port)
+          #t)
+         ((#\#)
+          (read-char port)
+          (case (peek-char port)
+            ((#\;)
+             (read-char port)
+             (read-scheme-datum-comment port)
+             #t)
+            ;; Not doing R6RS block comments because of the possibility
+            ;; of read-hash extensions.  Lame excuse.  Not doing scsh
+            ;; block comments either, because I don't feel like handling
+            ;; #!r6rs.
+            (else
+             (unread-char #\# port)
+             #f)))
+         (else
+          #f))))
+
+
 
 ;;;
 ;;; Meta commands
@@ -39,11 +81,11 @@
 
 (define meta-command-token (cons 'meta 'command))
 
-(define (meta-reader read env)
+(define (meta-reader lang env)
   (lambda* (#:optional (port (current-input-port)))
     (with-input-from-port port
       (lambda ()
-        (let ((ch (next-char #t)))
+        (let ((ch (flush-leading-whitespace)))
           (cond ((eof-object? ch)
                  ;; EOF objects are not buffered. It's quite possible
                  ;; to peek an EOF then read something else. It's
@@ -52,8 +94,17 @@
                 ((eqv? ch #\,)
                  (read-char port)
                  meta-command-token)
-                (else (read port env))))))))
+                ((read-comment lang port ch)
+                 *unspecified*)
+                (else ((language-reader lang) port env))))))))
         
+(define (flush-all-input)
+  (if (and (char-ready?)
+           (not (eof-object? (peek-char))))
+      (begin
+        (read-char)
+        (flush-all-input))))
+
 ;; repl-reader is a function defined in boot-9.scm, and is replaced by
 ;; something else if readline has been activated. much of this hoopla is
 ;; to be able to re-use the existing readline machinery.
@@ -63,8 +114,7 @@
   (catch #t
     (lambda ()
       (repl-reader (lambda () (repl-prompt repl))
-                   (meta-reader (language-reader (repl-language repl))
-                                (current-module))))
+                   (meta-reader (repl-language repl) (current-module))))
     (lambda (key . args)
       (case key
         ((quit)
@@ -72,6 +122,7 @@
         (else
          (format (current-output-port) "While reading expression:\n")
          (print-exception (current-output-port) #f key args)
+         (flush-all-input)
          *unspecified*)))))
 
 
@@ -108,7 +159,7 @@
        (let prompt-loop ()
          (let ((exp (prompting-meta-read repl)))
            (cond
-            ((eqv? exp *unspecified*))  ; read error, pass
+            ((eqv? exp *unspecified*))  ; read error or comment, pass
             ((eq? exp meta-command-token)
              (catch #t
                (lambda ()
@@ -139,8 +190,10 @@
                                        (abort-on-error "parsing expression"
                                          (repl-parse repl exp))))))
                                (run-hook before-eval-hook exp)
-                               (with-error-handling
-                                 (with-stack-and-prompt thunk)))
+                               (call-with-error-handling
+                                (lambda ()
+                                  (with-stack-and-prompt thunk))
+                                #:on-error (repl-option-ref repl 'on-error)))
                              (lambda (k) (values))))
                       (lambda l
                         (for-each (lambda (v)
@@ -148,19 +201,19 @@
                                   l))))
                   (lambda (k . args)
                     (abort args))))
+              #:on-error (repl-option-ref repl 'on-error)
               #:trap-handler 'disabled)))
-           (next-char #f) ;; consume trailing whitespace
+           (flush-to-newline) ;; consume trailing whitespace
            (prompt-loop))))
      (lambda (k status)
        status)))
 
-(define (next-char wait)
-  (if (or wait (char-ready?))
-      (let ((ch (peek-char)))
-	(cond ((eof-object? ch) ch)
-	      ((char-whitespace? ch) (read-char) (next-char wait))
-	      (else ch)))
-      #f))
+;; Returns first non-whitespace char.
+(define (flush-leading-whitespace)
+  (let ((ch (peek-char)))
+    (cond ((eof-object? ch) ch)
+          ((char-whitespace? ch) (read-char) (flush-leading-whitespace))
+          (else ch))))
 
 (define (flush-to-newline) 
   (if (char-ready?)

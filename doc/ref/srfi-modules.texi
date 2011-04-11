@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010, 2011
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -35,6 +35,7 @@ get the relevant SRFI documents from the SRFI home page
 * SRFI-17::                     Generalized set!
 * SRFI-18::                     Multithreading support
 * SRFI-19::                     Time/Date library.
+* SRFI-23::                     Error reporting
 * SRFI-26::                     Specializing parameters
 * SRFI-27::                     Sources of Random Bits
 * SRFI-30::                     Nested multi-line block comments
@@ -1927,6 +1928,13 @@ The functions created by @code{define-record-type} are ordinary
 top-level @code{define}s.  They can be redefined or @code{set!} as
 desired, exported from a module, etc.
 
+@unnumberedsubsubsec Non-toplevel Record Definitions
+
+The SRFI-9 specification explicitly disallows record definitions in a
+non-toplevel context, such as inside @code{lambda} body or inside a
+@var{let} block.  However, Guile's implementation does not enforce that
+restriction.
+
 @unnumberedsubsubsec Custom Printers
 
 You may use @code{set-record-type-printer!} to customize the default printing
@@ -3128,6 +3136,11 @@ Conversion is locale-dependent on systems that support it
 locale.
 @end defun
 
+@node SRFI-23
+@subsection SRFI-23 - Error Reporting
+@cindex SRFI-23
+
+The SRFI-23 @code{error} procedure is always available.
 
 @node SRFI-26
 @subsection SRFI-26 - specializing parameters

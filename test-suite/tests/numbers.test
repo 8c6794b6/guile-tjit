@@ -1456,6 +1456,11 @@
     (pass-if (string=? (number->string 35 36) "z"))
     (pass-if (= (num->str->num 35 36) 35))
 
+    ;; Before Guile 2.0.1, even in the presence of a #e forced exactness
+    ;; specifier, negative exponents were applied inexactly and then
+    ;; later coerced to exact, yielding an incorrect fraction.
+    (pass-if (eqv? (string->number "#e1e-10") 1/10000000000))
+
     ;; Numeric conversion from decimal is not precise, in its current
     ;; implementation, so 11.333... and 1.324... can't be expected to
     ;; reliably come out to precise values.  These tests did actually work
@@ -4540,6 +4545,54 @@
 	      (lognot #xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)))
   (pass-if (= #xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 	      (lognot #x-100000000000000000000000000000000))))
+
+;;;
+;;; exact-integer-sqrt
+;;;
+
+(with-test-prefix "exact-integer-sqrt"
+  (define (non-negative-exact-integer? k)
+    (and (integer? k) (exact? k) (>= k 0)))
+
+  (define (test k)
+    (pass-if k (let-values (((s r) (exact-integer-sqrt k)))
+                 (and (non-negative-exact-integer? s)
+                      (non-negative-exact-integer? r)
+                      (= k (+ r (* s s)))
+                      (< k (* (1+ s) (1+ s)))))))
+
+  (define (test-wrong-type-arg k)
+    (pass-if-exception k exception:wrong-type-arg
+                       (let-values (((s r) (exact-integer-sqrt k)))
+                         #t)))
+
+  (pass-if (documented? exact-integer-sqrt))
+
+  (pass-if-exception "no args" exception:wrong-num-args
+    (exact-integer-sqrt))
+  (pass-if-exception "two args" exception:wrong-num-args
+    (exact-integer-sqrt 123 456))
+
+  (test 0)
+  (test 1)
+  (test 9)
+  (test 10)
+  (test fixnum-max)
+  (test (1+ fixnum-max))
+  (test (* fixnum-max fixnum-max))
+  (test (+ 1 (* fixnum-max fixnum-max)))
+  (test (expt 10 100))
+  (test (+ 3 (expt 10 100)))
+
+  (test-wrong-type-arg -1)
+  (test-wrong-type-arg 1/9)
+  (test-wrong-type-arg fixnum-min)
+  (test-wrong-type-arg (1- fixnum-min))
+  (test-wrong-type-arg 1.0)
+  (test-wrong-type-arg 1.5)
+  (test-wrong-type-arg "foo")
+  (test-wrong-type-arg 'foo))
+
 
 ;;;
 ;;; sqrt

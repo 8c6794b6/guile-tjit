@@ -516,7 +516,7 @@ scm_read_string (int chr, SCM port)
   unsigned c_str_len = 0;
   scm_t_wchar c;
 
-  str = scm_i_make_string (READER_STRING_BUFFER_SIZE, NULL);
+  str = scm_i_make_string (READER_STRING_BUFFER_SIZE, NULL, 0);
   while ('"' != (c = scm_getc (port)))
     {
       if (c == EOF)
@@ -528,7 +528,7 @@ scm_read_string (int chr, SCM port)
 
       if (c_str_len + 1 >= scm_i_string_length (str))
         {
-          SCM addy = scm_i_make_string (READER_STRING_BUFFER_SIZE, NULL);
+          SCM addy = scm_i_make_string (READER_STRING_BUFFER_SIZE, NULL, 0);
 
           str = scm_string_append (scm_list_2 (str, addy));
         }
@@ -1116,13 +1116,9 @@ scm_read_scsh_block_comment (scm_t_wchar chr, SCM port)
 {
   int bang_seen = 0;
 
-  /* We can use the get_byte here because there is no need to get the
-     locale correct when reading comments. This presumes that 
-     hash and exclamation points always represent themselves no
-     matter what the source encoding is.*/
   for (;;)
     {
-      int c = scm_get_byte_or_eof (port);
+      int c = scm_getc (port);
 
       if (c == EOF)
 	scm_i_input_error ("skip_block_comment", port,
@@ -1234,9 +1230,9 @@ scm_read_extended_symbol (scm_t_wchar chr, SCM port)
        #{This is all a symbol name}#
 
      So here, CHR is expected to be `{'.  */
-  int saw_brace = 0, finished = 0;
+  int saw_brace = 0;
   size_t len = 0;
-  SCM buf = scm_i_make_string (1024, NULL);
+  SCM buf = scm_i_make_string (1024, NULL, 0);
 
   buf = scm_i_string_start_writing (buf);
 
@@ -1246,36 +1242,75 @@ scm_read_extended_symbol (scm_t_wchar chr, SCM port)
 	{
 	  if (chr == '#')
 	    {
-	      finished = 1;
 	      break;
 	    }
 	  else
 	    {
 	      saw_brace = 0;
 	      scm_i_string_set_x (buf, len++, '}');
-	      scm_i_string_set_x (buf, len++, chr);
 	    }
 	}
-      else if (chr == '}')
+
+      if (chr == '}')
 	saw_brace = 1;
+      else if (chr == '\\')
+        {
+          /* It used to be that print.c would print extended-read-syntax
+             symbols with backslashes before "non-standard" chars, but
+             this routine wouldn't do anything with those escapes.
+             Bummer.  What we've done is to change print.c to output
+             R6RS hex escapes for those characters, relying on the fact
+             that the extended read syntax would never put a `\' before
+             an `x'.  For now, we just ignore other instances of
+             backslash in the string.  */
+          switch ((chr = scm_getc (port)))
+            {
+            case EOF:
+              goto done;
+            case 'x':
+              {
+                scm_t_wchar c;
+                
+                SCM_READ_HEX_ESCAPE (10, ';');
+                scm_i_string_set_x (buf, len++, c);
+                break;
+
+              str_eof:
+                chr = EOF;
+                goto done;
+
+              bad_escaped:
+                scm_i_string_stop_writing ();
+                scm_i_input_error ("scm_read_extended_symbol", port,
+                                   "illegal character in escape sequence: ~S",
+                                   scm_list_1 (SCM_MAKE_CHAR (c)));
+                break;
+              }
+            default:
+	      scm_i_string_set_x (buf, len++, chr);
+              break;
+            }
+        }
       else
-	scm_i_string_set_x (buf, len++, chr);
+        scm_i_string_set_x (buf, len++, chr);
 
       if (len >= scm_i_string_length (buf) - 2)
 	{
 	  SCM addy;
 
 	  scm_i_string_stop_writing ();
-	  addy = scm_i_make_string (1024, NULL);
+	  addy = scm_i_make_string (1024, NULL, 0);
 	  buf = scm_string_append (scm_list_2 (buf, addy));
 	  len = 0;
 	  buf = scm_i_string_start_writing (buf);
 	}
-
-      if (finished)
-	break;
     }
+
+ done:
   scm_i_string_stop_writing ();
+  if (chr == EOF)
+    scm_i_input_error ("scm_read_extended_symbol", port,
+                       "end of file while reading symbol", SCM_EOL);
 
   return (scm_string_to_symbol (scm_c_substring (buf, 0, len)));
 }
@@ -1333,6 +1368,7 @@ scm_read_sharp (scm_t_wchar chr, SCM port)
     case 's':
     case 'u':
     case 'f':
+    case 'c':
       /* This one may return either a boolean or an SRFI-4 vector.  */
       return (scm_read_srfi4_vector (chr, port));
     case 'v':
@@ -1352,7 +1388,6 @@ scm_read_sharp (scm_t_wchar chr, SCM port)
 #if SCM_ENABLE_DEPRECATED
       /* See below for 'i' and 'e'. */
     case 'a':
-    case 'c':
     case 'y':
     case 'h':
     case 'l':
@@ -1654,6 +1689,7 @@ scm_get_hash_procedure (int c)
 char *
 scm_i_scan_for_encoding (SCM port)
 {
+  scm_t_port *pt;
   char header[SCM_ENCODING_SEARCH_SIZE+1];
   size_t bytes_read, encoding_length, i;
   char *encoding = NULL;
@@ -1661,15 +1697,46 @@ scm_i_scan_for_encoding (SCM port)
   char *pos, *encoding_start;
   int in_comment;
 
-  if (SCM_FPORTP (port) && !SCM_FDES_RANDOM_P (SCM_FPORT_FDES (port)))
-    /* PORT is a non-seekable file port (e.g., as created by Bash when using
-       "guile <(echo '(display "hello")')") so bail out.  */
-    return NULL;
+  pt = SCM_PTAB_ENTRY (port);
 
-  bytes_read = scm_c_read (port, header, SCM_ENCODING_SEARCH_SIZE);
-  header[bytes_read] = '\0';
+  if (pt->rw_active == SCM_PORT_WRITE)
+    scm_flush (port);
 
-  scm_seek (port, scm_from_int (0), scm_from_int (SEEK_SET));
+  if (pt->rw_random)
+    pt->rw_active = SCM_PORT_READ;
+
+  if (pt->read_pos == pt->read_end)
+    {
+      /* We can use the read buffer, and thus avoid a seek. */
+      if (scm_fill_input (port) == EOF)
+        return NULL;
+
+      bytes_read = pt->read_end - pt->read_pos;
+      if (bytes_read > SCM_ENCODING_SEARCH_SIZE)
+        bytes_read = SCM_ENCODING_SEARCH_SIZE;
+
+      if (bytes_read <= 1)
+        /* An unbuffered port -- don't scan.  */
+        return NULL;
+
+      memcpy (header, pt->read_pos, bytes_read);
+      header[bytes_read] = '\0';
+    }
+  else
+    {
+      /* Try to read some bytes and then seek back.  Not all ports
+         support seeking back; and indeed some file ports (like
+         /dev/urandom) will succeed on an lseek (fd, 0, SEEK_CUR)---the
+         check performed by SCM_FPORT_FDES---but fail to seek
+         backwards.  Hence this block comes second.  We prefer to use
+         the read buffer in-place.  */
+      if (SCM_FPORTP (port) && !SCM_FDES_RANDOM_P (SCM_FPORT_FDES (port)))
+        return NULL;
+
+      bytes_read = scm_c_read (port, header, SCM_ENCODING_SEARCH_SIZE);
+      header[bytes_read] = '\0';
+      scm_seek (port, scm_from_int (0), scm_from_int (SEEK_SET));
+    }
 
   if (bytes_read > 3 
       && header[0] == '\xef' && header[1] == '\xbb' && header[2] == '\xbf')
@@ -1718,22 +1785,26 @@ scm_i_scan_for_encoding (SCM port)
   pos = encoding_start;
   while (pos >= header)
     {
-      if (*pos == '\n')
-	{
-	  /* This wasn't in a semicolon comment. Check for a
-	   hash-bang comment. */
-	  char *beg = strstr (header, "#!");
-	  char *end = strstr (header, "!#");
-	  if (beg < encoding_start && encoding_start + encoding_length < end)
-	    in_comment = 1;
-	  break;
-	}
       if (*pos == ';')
 	{
 	  in_comment = 1;
 	  break;
 	}
-      pos --;
+      else if (*pos == '\n' || pos == header)
+	{
+	  /* This wasn't in a semicolon comment. Check for a
+	   hash-bang comment. */
+	  char *beg = strstr (header, "#!");
+	  char *end = strstr (header, "!#");
+	  if (beg < encoding_start && encoding_start + encoding_length <= end)
+	    in_comment = 1;
+	  break;
+	}
+      else
+        {
+          pos --;
+          continue;
+        }
     }
   if (!in_comment)
     /* This wasn't in a comment */
@@ -1760,6 +1831,8 @@ SCM_DEFINE (scm_file_encoding, "file-encoding", 1, 0, 0,
 {
   char *enc;
   SCM s_enc;
+
+  SCM_VALIDATE_OPINPORT (SCM_ARG1, port);
 
   enc = scm_i_scan_for_encoding (port);
   if (enc == NULL)

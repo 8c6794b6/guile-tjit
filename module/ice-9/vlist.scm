@@ -1,6 +1,6 @@
 ;;; -*- mode: scheme; coding: utf-8; -*-
 ;;;
-;;; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+;;; Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -32,7 +32,8 @@
 
             vhash? vhash-cons vhash-consq vhash-consv
             vhash-assoc vhash-assq vhash-assv
-            vhash-delete vhash-fold
+            vhash-delete vhash-delq vhash-delv
+            vhash-fold
             vhash-fold* vhash-foldq* vhash-foldv*
             alist->vhash))
 
@@ -529,14 +530,16 @@ value of @var{result} for the first call to @var{proc}."
 (define* (vhash-delete key vhash #:optional (equal? equal?) (hash hash))
   "Remove all associations from @var{vhash} with @var{key}, comparing keys
 with @var{equal?}."
-  (vlist-fold (lambda (k+v result)
-                (let ((k (car k+v))
-                      (v (cdr k+v)))
-                  (if (equal? k key)
-                      result
-                      (vhash-cons k v result))))
-              vlist-null
-              vhash))
+  (if (vhash-assoc key vhash equal? hash)
+      (vlist-fold (lambda (k+v result)
+                    (let ((k (car k+v))
+                          (v (cdr k+v)))
+                      (if (equal? k key)
+                          result
+                          (vhash-cons k v result hash))))
+                  vlist-null
+                  vhash)
+      vhash))
 
 (define vhash-delq (cut vhash-delete <> <> eq? hashq))
 (define vhash-delv (cut vhash-delete <> <> eqv? hashv))

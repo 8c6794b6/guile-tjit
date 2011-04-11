@@ -29,9 +29,7 @@ Floor, Boston, MA 02110-1301, USA.
 AC_PREREQ(2.61)
 
 AC_INIT([GNU Guile],
-        m4_esyscmd([build-aux/git-version-gen					\
-          .tarball-version							\
-          's/^release_\([0-9][0-9]*\)-\([0-9][0-9]*\)-\([0-9][0-9]*\)/v\1.\2\.\3/g']),
+        m4_esyscmd([build-aux/git-version-gen .tarball-version]),
         [bug-guile@gnu.org])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
@@ -775,7 +773,7 @@ AC_CHECK_FUNCS([DINFINITY DQNAN cexp chsize clog clog10 ctermid fesetround ftime
 #   cuserid - on Tru64 5.1b the declaration is documented to be available
 #       only with `_XOPEN_SOURCE' or some such.
 #
-AC_CHECK_HEADERS([crypt.h netdb.h pthread.h sys/param.h sys/resource.h sys/file.h])
+AC_CHECK_HEADERS([crypt.h netdb.h pthread.h sys/param.h sys/resource.h sys/file.h sys/mman.h])
 AC_CHECK_FUNCS(chroot flock getlogin cuserid getpriority setpriority getpass sethostname gethostname)
 AC_CHECK_DECLS([sethostname, hstrerror, cuserid])
 
@@ -1240,7 +1238,7 @@ save_LIBS="$LIBS"
 LIBS="$BDW_GC_LIBS $LIBS"
 CFLAGS="$BDW_GC_CFLAGS $CFLAGS"
 
-AC_CHECK_FUNCS([GC_do_blocking GC_call_with_gc_active])
+AC_CHECK_FUNCS([GC_do_blocking GC_call_with_gc_active GC_pthread_exit GC_pthread_cancel GC_allow_register_threads GC_pthread_sigmask])
 
 # Though the `GC_do_blocking ()' symbol is present in GC 7.1, it is not
 # declared, and has a different type (returning void instead of
@@ -1255,6 +1253,13 @@ AC_CHECK_DECL([GC_do_blocking],
 AC_CHECK_TYPE([GC_fn_type],
   [AC_DEFINE([HAVE_GC_FN_TYPE], [1],
     [Define this if the `GC_fn_type' type is available.])],
+  [],
+  [#include <gc/gc.h>])
+
+# `GC_stack_base' is not available in GC 7.1 and earlier.
+AC_CHECK_TYPE([struct GC_stack_base],
+  [AC_DEFINE([HAVE_GC_STACK_BASE], [1],
+    [Define this if the `GC_stack_base' type is available.])],
   [],
   [#include <gc/gc.h>])
 
@@ -1489,7 +1494,7 @@ if test "$cross_compiling" = "yes"; then
   AC_MSG_CHECKING(guile for build)
   GUILE_FOR_BUILD="${GUILE_FOR_BUILD-guile}"
 else
-  GUILE_FOR_BUILD='$(preinstguile)'
+  GUILE_FOR_BUILD='this-value-will-never-be-used'
 fi   
 
 ## AC_MSG_CHECKING("if we are cross compiling")
@@ -1498,7 +1503,7 @@ if test "$cross_compiling" = "yes"; then
    AC_MSG_RESULT($GUILE_FOR_BUILD)
 fi
 AC_ARG_VAR(GUILE_FOR_BUILD,[guile for build system])
-AC_SUBST(GUILE_FOR_BUILD)
+AM_SUBST_NOTMAKE(GUILE_FOR_BUILD)
   			
 ## If we're using GCC, ask for aggressive warnings.
 GCC_CFLAGS=""
@@ -1568,9 +1573,27 @@ AC_SUBST(LIBGUILE_I18N_INTERFACE)
 
 #######################################################################
 
-dnl Tell guile-config what flags guile users should compile and link with.
+dnl Tell guile-config what flags guile users should compile and link
+dnl with, keeping only `-I' flags from $CPPFLAGS.
+GUILE_CFLAGS=""
+next_is_includedir=false
+for flag in $CPPFLAGS
+do
+  if $next_is_includedir; then
+    GUILE_CFLAGS="$GUILE_CFLAGS -I $flag"
+    next_is_includedir=false
+  else
+    case "$flag" in
+      -I)  next_is_includedir=true;;
+      -I*) GUILE_CFLAGS="$GUILE_CFLAGS $flag";;
+      *)   ;;
+    esac
+  fi
+done
+
+GUILE_CFLAGS="$GUILE_CFLAGS $PTHREAD_CFLAGS"
 GUILE_LIBS="$LDFLAGS $LIBS"
-GUILE_CFLAGS="$CPPFLAGS $PTHREAD_CFLAGS"
+
 AC_SUBST(GUILE_LIBS)
 AC_SUBST(GUILE_CFLAGS)
 
@@ -1602,6 +1625,7 @@ AC_CONFIG_FILES([
   am/Makefile
   lib/Makefile
   benchmark-suite/Makefile
+  gc-benchmarks/Makefile
   doc/Makefile
   doc/r5rs/Makefile
   doc/ref/Makefile

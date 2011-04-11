@@ -75,7 +75,7 @@
 (define-module (web server)
   #:use-module (srfi srfi-9)
   #:use-module (rnrs bytevectors)
-  #:use-module (rnrs io ports)
+  #:use-module (ice-9 binary-ports)
   #:use-module (web request)
   #:use-module (web response)
   #:use-module (system repl error-handling)
@@ -167,18 +167,33 @@ values."
      (warn "Error while accepting client" k args)
      (values #f #f #f))))
 
+;; like call-with-output-string, but actually closes the port (doh)
+(define (call-with-output-string* proc)
+  (let ((port (open-output-string)))
+    (proc port)
+    (let ((str (get-output-string port)))
+      (close-port port)
+      str)))
+
+(define (call-with-output-bytevector* proc)
+  (call-with-values
+      (lambda ()
+        (open-bytevector-output-port))
+    (lambda (port get-bytevector)
+      (proc port)
+      (let ((bv (get-bytevector)))
+        (close-port port)
+        bv))))
+
 (define (call-with-encoded-output-string charset proc)
   (if (string-ci=? charset "utf-8")
       ;; I don't know why, but this appears to be faster; at least for
       ;; examples/debug-sxml.scm (1464 reqs/s versus 850 reqs/s).
-      (string->utf8 (call-with-output-string proc))
-      (call-with-values
-          (lambda ()
-            (open-bytevector-output-port))
-        (lambda (port get-bytevector)
-          (set-port-encoding! port charset)
-          (proc port)
-          (get-bytevector)))))
+      (string->utf8 (call-with-output-string* proc))
+      (call-with-output-bytevector*
+       (lambda (port)
+         (set-port-encoding! port charset)
+         (proc port)))))
 
 (define (encode-string str charset)
   (if (string-ci=? charset "utf-8")
