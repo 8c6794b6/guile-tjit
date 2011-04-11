@@ -5,7 +5,7 @@ GUILE_MAJOR_VERSION=2
 GUILE_MINOR_VERSION=1
 GUILE_MICRO_VERSION=0
 
-GUILE_EFFECTIVE_VERSION=2.0
+GUILE_EFFECTIVE_VERSION=2.2
 
 
 # All of the shared lib versioning info.  Right now, for this to work

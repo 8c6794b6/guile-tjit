@@ -1,5 +1,5 @@
-CFLAGS = `pkg-config guile-2.0 --cflags`
-LIBS   = `pkg-config guile-2.0 --libs`
+CFLAGS = `pkg-config guile-2.2 --cflags`
+LIBS   = `pkg-config guile-2.2 --libs`
 
 O_FILES = image-type.o myguile.o
 

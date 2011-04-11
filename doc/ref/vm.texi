@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  2008,2009,2010
+@c Copyright (C)  2008,2009,2010,2011
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -79,9 +79,9 @@ but it is not normally used at runtime.)
 
 The upside of implementing the interpreter in Scheme is that we preserve
 tail calls and multiple-value handling between interpreted and compiled
-code. The downside is that the interpreter in Guile 2.0 is slower than
-the interpreter in 1.8. We hope the that the compiler's speed makes up
-for the loss!
+code. The downside is that the interpreter in Guile 2.@var{x} is slower
+than the interpreter in 1.8. We hope the that the compiler's speed makes
+up for the loss!
 
 Also note that this decision to implement a bytecode compiler does not
 preclude native compilation. We can compile from bytecode to native

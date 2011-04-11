@@ -66,8 +66,8 @@ guile-procedures.txt
 guile-config/guile-config
 *.go
 TAGS
-/meta/guile-2.0.pc
-/meta/guile-2.0-uninstalled.pc
+/meta/guile-2.2.pc
+/meta/guile-2.2-uninstalled.pc
 gdb-pre-inst-guile
 cscope.out
 cscope.files

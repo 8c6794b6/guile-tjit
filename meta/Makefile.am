@@ -1,7 +1,7 @@
 ## Process this file with Automake to create Makefile.in
 ## Jim Blandy <jimb@red-bean.com> --- September 1997
 ##
-##  	Copyright (C) 1998, 1999, 2001, 2006, 2007, 2008, 2009 Free Software Foundation, Inc.
+##  	Copyright (C) 1998, 1999, 2001, 2006, 2007, 2008, 2009, 2011 Free Software Foundation, Inc.
 ##
 ##   This file is part of GUILE.
 ##   
@@ -23,11 +23,11 @@
 bin_SCRIPTS = guile-config guile-tools
 EXTRA_DIST= \
   guile.m4 ChangeLog-2008			\
-  guile-2.0.pc.in guile-2.0-uninstalled.pc.in	\
+  guile-2.2.pc.in guile-2.2-uninstalled.pc.in	\
   guile-tools.in guile-config.in
 
 pkgconfigdir = $(libdir)/pkgconfig
-pkgconfig_DATA = guile-2.0.pc
+pkgconfig_DATA = guile-2.2.pc
 
 ## FIXME: in the future there will be direct automake support for
 ## doing this.  When that happens, switch over.

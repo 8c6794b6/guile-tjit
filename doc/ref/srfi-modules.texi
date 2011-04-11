@@ -171,8 +171,8 @@ how to load it with the Guile mechanism.
 @cindex @code{guile-2} SRFI-0 feature
 @cindex portability between 2.0 and older versions
 Likewise, testing the @code{guile-2} feature allows code to be portable
-between Guile 2.0 and previous versions of Guile.  For instance, it
-makes it possible to write code that accounts for Guile 2.0's compiler,
+between Guile 2.@var{x} and previous versions of Guile.  For instance, it
+makes it possible to write code that accounts for Guile 2.@var{x}'s compiler,
 yet be correctly interpreted on 1.8 and earlier versions:
 
 @example

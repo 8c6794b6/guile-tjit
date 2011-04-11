@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2005, 2010
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2005, 2010, 2011
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -449,16 +449,18 @@ that are stored in local variables.  When a thread puts itself into
 guile mode for the first time, it gets a Scheme representation and is
 listed by @code{all-threads}, for example.
 
-Threads in guile mode can block (e.g., do blocking I/O) without causing any
-problems@footnote{In Guile 1.8, a thread blocking in guile mode would prevent
-garbage collection to occur.  Thus, threads had to leave guile mode whenever
-they could block.  This is no longer needed with Guile 2.0.}; temporarily
-leaving guile mode with @code{scm_without_guile} before blocking slightly
-improves GC performance, though.  For some common blocking operations, Guile
-provides convenience functions.  For example, if you want to lock a pthread
-mutex while in guile mode, you might want to use @code{scm_pthread_mutex_lock}
-which is just like @code{pthread_mutex_lock} except that it leaves guile mode
-while blocking.
+Threads in guile mode can block (e.g., do blocking I/O) without causing
+any problems@footnote{In Guile 1.8, a thread blocking in guile mode
+would prevent garbage collection to occur.  Thus, threads had to leave
+guile mode whenever they could block.  This is no longer needed with
+Guile 2.@var{x}.}; temporarily leaving guile mode with
+@code{scm_without_guile} before blocking slightly improves GC
+performance, though.  For some common blocking operations, Guile
+provides convenience functions.  For example, if you want to lock a
+pthread mutex while in guile mode, you might want to use
+@code{scm_pthread_mutex_lock} which is just like
+@code{pthread_mutex_lock} except that it leaves guile mode while
+blocking.
 
 
 All libguile functions are (intended to be) robust in the face of
