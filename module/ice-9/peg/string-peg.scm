@@ -22,9 +22,8 @@
             define-grammar
             define-grammar-f
             peg-grammar)
-  #:use-module (ice-9 peg)
+  #:use-module (ice-9 peg using-parsers)
   #:use-module (ice-9 peg codegen)
-  #:use-module (ice-9 peg match-record)
   #:use-module (ice-9 peg simplify-tree))
 
 ;; Gets the left-hand depth of a list.

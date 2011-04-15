@@ -18,16 +18,15 @@
 ;;;;
 
 (define-module (ice-9 peg)
-  #:export (peg-parse
-            define-nonterm
-;            define-nonterm-f
-            peg-match)
   #:use-module (ice-9 peg codegen)
   #:use-module (ice-9 peg string-peg)
   #:use-module (ice-9 peg simplify-tree)
-  #:use-module (ice-9 peg match-record)
+  #:use-module (ice-9 peg using-parsers)
   #:use-module (ice-9 peg cache)
-  #:re-export (peg-sexp-compile
+  #:re-export (peg-parse
+               define-nonterm
+               peg-match
+               peg-sexp-compile
                define-grammar
                define-grammar-f
                keyword-flatten
@@ -39,71 +38,3 @@
                peg:substring
                peg-record?))
 
-;;;
-;;; Helper Macros
-;;;
-
-(define-syntax until
-  (syntax-rules ()
-    "Evaluate TEST.  If it is true, return its value.  Otherwise,
-execute the STMTs and try again."
-    ((_ test stmt stmt* ...)
-     (let lp ()
-       (or test
-           (begin stmt stmt* ... (lp)))))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; FOR DEFINING AND USING NONTERMINALS
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;; Parses STRING using NONTERM
-(define (peg-parse nonterm string)
-  ;; We copy the string before using it because it might have been modified
-  ;; in-place since the last time it was parsed, which would invalidate the
-  ;; cache.  Guile uses copy-on-write for strings, so this is fast.
-  (let ((res (nonterm (string-copy string) (string-length string) 0)))
-    (if (not res)
-        #f
-        (make-prec 0 (car res) string (string-collapse (cadr res))))))
-
-;; Defines a new nonterminal symbol accumulating with ACCUM.
-(define-syntax define-nonterm
-  (lambda (x)
-    (syntax-case x ()
-      ((_ sym accum pat)
-       (let ((matchf (peg-sexp-compile #'pat (syntax->datum #'accum)))
-             (accumsym (syntax->datum #'accum)))
-         ;; CODE is the code to parse the string if the result isn't cached.
-         (let ((syn (wrap-parser-for-users x matchf accumsym #'sym)))
-           #`(define sym #,(cg-cached-parser syn))))))))
-
-(define (peg-like->peg pat)
-  (syntax-case pat ()
-    (str (string? (syntax->datum #'str)) #'(peg str))
-    (else pat)))
-
-;; Searches through STRING for something that parses to PEG-MATCHER.  Think
-;; regexp search.
-(define-syntax peg-match
-  (lambda (x)
-    (syntax-case x ()
-      ((_ pattern string-uncopied)
-       (let ((pmsym (syntax->datum #'pattern)))
-         (let ((matcher (peg-sexp-compile (peg-like->peg #'pattern) 'body)))
-           ;; We copy the string before using it because it might have been
-           ;; modified in-place since the last time it was parsed, which would
-           ;; invalidate the cache.  Guile uses copy-on-write for strings, so
-           ;; this is fast.
-           #`(let ((string (string-copy string-uncopied))
-                   (strlen (string-length string-uncopied))
-                   (at 0))
-               (let ((ret (until (or (>= at strlen)
-                                     (#,matcher string strlen at))
-                                 (set! at (+ at 1)))))
-                 (if (eq? ret #t) ;; (>= at strlen) succeeded
-                     #f
-                     (let ((end (car ret))
-                           (match (cadr ret)))
-                       (make-prec
-                        at end string
-                        (string-collapse match))))))))))))
