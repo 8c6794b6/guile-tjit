@@ -20,6 +20,9 @@
 (define-module (ice-9 peg)
   #:use-module (ice-9 peg codegen)
   #:use-module (ice-9 peg string-peg)
+  ;; Note: the most important effect of using string-peg is not whatever
+  ;; functions it exports, but the fact that it adds a new handler to
+  ;; peg-sexp-compile.
   #:use-module (ice-9 peg simplify-tree)
   #:use-module (ice-9 peg using-parsers)
   #:use-module (ice-9 peg cache)

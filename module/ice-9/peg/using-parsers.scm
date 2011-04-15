@@ -21,7 +21,6 @@
   #:use-module (ice-9 peg simplify-tree)
   #:use-module (ice-9 peg codegen)
   #:use-module (ice-9 peg cache)
-  #:use-module (ice-9 peg string-peg)
   #:export (peg-parse define-nonterm peg-match
             prec make-prec peg:start peg:end peg:string
             peg:tree peg:substring peg-record?))

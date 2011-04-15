@@ -218,6 +218,11 @@ ICE_9_SOURCES = \
   ice-9/null.scm \
   ice-9/occam-channel.scm \
   ice-9/optargs.scm \
+  ice-9/peg/simplify-tree.scm \
+  ice-9/peg/codegen.scm \
+  ice-9/peg/cache.scm \
+  ice-9/peg/using-parsers.scm \
+  ice-9/peg/string-peg.scm \
   ice-9/peg.scm \
   ice-9/poe.scm \
   ice-9/poll.scm \
