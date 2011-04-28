@@ -45,6 +45,8 @@
 #  include <config.h>
 #endif
 
+#include <verify.h>
+
 #include <math.h>
 #include <string.h>
 #include <unicase.h>

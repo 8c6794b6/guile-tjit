@@ -7,17 +7,203 @@ Please send Guile bug reports to bug-guile@gnu.org.
 
 Changes in 2.0.1 (since 2.0.0):
 
-* New procedures (see the manual for details)
+* Notable changes
 
-** exact-integer-sqrt, imported into core from (rnrs base)
+** guile.m4 supports linking with rpath
+    
+The GUILE_FLAGS macro now sets GUILE_LIBS and GUILE_LTLIBS, which
+include appropriate directives to the linker to include libguile-2.0.so
+in the runtime library lookup path.
 
+** `begin' expands macros in its body before other expressions
+
+This enables support for programs like the following:
+
+    (begin
+      (define even?
+        (lambda (x)
+          (or (= x 0) (odd? (- x 1)))))
+      (define-syntax odd?
+        (syntax-rules ()
+          ((odd? x) (not (even? x)))))
+      (even? 10))
+
+** REPL reader usability enhancements
+
+The REPL now flushes input after a read error, which should prevent one
+error from causing other errors.  The REPL also now interprets comments
+as whitespace.
+
+** REPL output has configurable width
+
+The REPL now defaults to output with the current terminal's width, in
+columns.  See "Debug Commands" in the manual for more information on
+the ,width command.
+
+** Better C access to the module system
+
+Guile now has convenient C accessors to look up variables or values in
+modules and their public interfaces.  See `scm_c_public_ref' and friends
+in "Accessing Modules from C" in the manual.
+
+** Added `scm_call_5', `scm_call_6'
+    
+See "Fly Evaluation" in the manual.
+
+** Added `scm_from_latin1_keyword', `scm_from_utf8_keyword'
+    
+See "Keyword Procedures" in the manual, for more.  Note that
+`scm_from_locale_keyword' should not be used when the name is a C string
+constant.
+
+** R6RS unicode and string I/O work
+
+Added efficient implementations of `get-string-n' and `get-string-n!'
+for binary ports.  Exported `current-input-port', `current-output-port'
+and `current-error-port' from `(rnrs io ports)', and enhanced support
+for transcoders.
+
+** Added `pointer->scm', `scm->pointer' to `(system foreign)'
+    
+These procedure are useful if one needs to pass and receive SCM values
+to and from foreign functions.  See "Foreign Variables" in the manual,
+for more.
+    
+** Added `heap-allocated-since-gc' to `(gc-stats)'
+
+Also fixed the long-standing bug in the REPL `,stat' command.
+    
+** Add `on-error' REPL option
+    
+This option controls what happens when an error occurs at the REPL, and
+defaults to `debug', indicating that Guile should enter the debugger.
+Other values include `report', which will simply print a backtrace
+without entering the debugger.  See "System Commands" in the manual.
+
+** Enforce immutability of string literals
+
+Attempting to mutate a string literal now causes a runtime error.
+    
+** Fix pthread redirection
+
+Guile 2.0.0 shipped with headers that, if configured with pthread
+support, would re-define `pthread_create', `pthread_join', and other API
+to redirect to the BDW-GC wrappers, `GC_pthread_create', etc.  This was
+unintended, and not necessary: because threads must enter Guile with
+`scm_with_guile', Guile can handle thread registration itself, without
+needing to make the GC aware of all threads.  This oversight has been
+fixed.
+
+** `with-continuation-barrier' now unwinds on `quit'
+
+A throw to `quit' in a continuation barrier will cause Guile to exit.
+Before, it would do so before unwinding to the barrier, which would
+prevent cleanup handlers from running.  This has been fixed so that it
+exits only after unwinding.
+    
+** `string->pointer' and `pointer->string' have optional encoding arg
+    
+This allows users of the FFI to more easily deal in strings with
+particular (non-locale) encodings, like "utf-8".  See "Void Pointers and
+Byte Access" in the manual, for more.
+
+** R6RS fixnum arithmetic optimizations
+    
+R6RS fixnum operations are are still slower than generic arithmetic,
+however.
+
+** New procedure: `define-inlinable'
+    
+See "Inlinable Procedures" in the manual, for more.
+
+** New procedure: `exact-integer-sqrt'
+
+See "Integer Operations" in the manual, for more.
+    
+** "Extended read syntax" for symbols parses better
+
+In #{foo}# symbols, backslashes are now treated as escapes, as the
+symbol-printing code intended.  Additionally, "\x" within #{foo}# is now
+interpreted as starting an R6RS hex escape.  This is backward compatible
+because the symbol printer would never produce a "\x" before.  The
+printer also works better too.
+
+** Added `--fresh-auto-compile' option
+
+This allows a user to invalidate the auto-compilation cache.  It's
+usually not needed.  See "Compilation" in the manual, for a discussion.
+
+* Manual updates
+
+** GOOPS documentation updates
+
+** New man page
+
+Thanks to Mark Harig for improvements to guile.1.
+
+** SRFI-23 documented
+
+The humble `error' SRFI now has an entry in the manual.
+
+* New modules
+
+** `(ice-9 binary-ports)': "R6RS I/O Ports", in the manual
+** `(ice-9 eval-string)': "Fly Evaluation", in the manual
+** `(ice-9 command-line)', not documented yet
+    
 * Bugs fixed
 
-** exact-integer-sqrt now handles large integers correctly
+** Fixed `iconv_t' memory leak on close-port
+** Fixed some leaks with weak hash tables
+** Export `vhash-delq' and `vhash-delv' from `(ice-9 vlist)'
+** `after-gc-hook' works again
+** `define-record-type' now allowed in nested contexts
+** `exact-integer-sqrt' now handles large integers correctly
+** Fixed C extension examples in manual
+** `vhash-delete' honors HASH argument
+** Make `locale-digit-grouping' more robust
+** Default exception printer robustness fixes
+** Fix presence of non-I CPPFLAGS in `guile-2.0.pc'
+** `read' updates line/column numbers when reading SCSH block comments
+** Fix imports of multiple custom interfaces of same module
+** Fix encoding scanning for non-seekable ports
+** Fix `setter' when called with a non-setter generic
+** Fix f32 and f64 bytevectors to not accept rationals
+** Fix description of the R6RS `finite?' in manual
+** Quotient, remainder and modulo accept inexact integers again
+** Fix `continue' within `while' to take zero arguments
+** Fix alignment for structures in FFI
+** Fix port-filename of stdin, stdout, stderr to match the docs
+** Fix weak hash table-related bug in `define-wrapped-pointer-type'
+** Fix partial continuation application with pending procedure calls
+** scm_{to,from}_locale_string use current locale, not current ports
+** Fix thread cleanup, by using a pthread_key destructor
+** Fix `quit' at the REPL
+** Fix a failure to sync regs in vm bytevector ops
+** Fix (texinfo reflection) to handle nested structures like syntax patterns
+** Fix stexi->html double translation
+** Fix tree-il->scheme fix for <prompt>
+** Fix compilation of <prompt> in <fix> in single-value context
+** Fix race condition in ensure-writable-dir
+** Fix error message on ,disassemble "non-procedure"
+** Fix prompt and abort with the boot evaluator
+** Fix `procedure->pointer' for functions returning `void'
+** Fix error reporting in dynamic-pointer
+** Fix problems detecting coding: in block comments
+** Fix duplicate load-path and load-compiled-path in compilation environment
+** Add fallback read(2) suppport for .go files if mmap(2) unavailable
+** Fix c32vector-set!, c64vector-set!
+** Fix mistakenly deprecated read syntax for uniform complex vectors
+** Fix parsing of exact numbers with negative exponents
+** Ignore SIGPIPE in (system repl server)
+** Fix optional second arg to R6RS log function
+** Fix R6RS `assert' to return true value.
+** Fix fencepost error when seeking in bytevector input ports
+** Gracefully handle `setlocale' errors when starting the REPL
+** Improve support of the `--disable-posix' configure option
+** Make sure R6RS binary ports pass `binary-port?' regardless of the locale
+** Gracefully handle unterminated UTF-8 sequences instead of hitting an `assert'
 
-exact-integer-sqrt now works correctly when applied to very large
-integers (too large to be precisely represented by a C double).
-It has also been imported into core from (rnrs base).
 
 
 Changes in 2.0.0 (changes since the 1.8.x series):

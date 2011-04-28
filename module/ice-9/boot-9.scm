@@ -957,8 +957,9 @@ VALUE."
 
 
 
-(if (provided? 'posix)
-    (primitive-load-path "ice-9/posix"))
+;; Load `posix.scm' even when not (provided? 'posix) so that we get the
+;; `stat' accessors.
+(primitive-load-path "ice-9/posix")
 
 (if (provided? 'socket)
     (primitive-load-path "ice-9/networking"))
@@ -2784,13 +2785,11 @@ module '(ice-9 q) '(make-q q-length))}."
               (define-syntax #,(datum->syntax #'while 'break)
                 (lambda (x)
                   (syntax-case x ()
-                    ((_)
-                     #'(abort-to-prompt break-tag))
-                    ((_ . args)
-                     (syntax-violation 'break "too many arguments" x))
+                    ((_ arg (... ...))
+                     #'(abort-to-prompt break-tag arg (... ...)))
                     (_
-                     #'(lambda ()
-                         (abort-to-prompt break-tag))))))
+                     #'(lambda args
+                         (apply abort-to-prompt break-tag args))))))
               (let lp ()
                 (call-with-prompt
                  continue-tag
@@ -2805,10 +2804,12 @@ module '(ice-9 q) '(make-q q-length))}."
                          (_
                           #'(lambda ()
                               (abort-to-prompt continue-tag))))))
-                   (do () ((not cond)) body ...))
+                   (do () ((not cond) #f) body ...))
                  (lambda (k) (lp)))))
-            (lambda (k)
-              #t)))))))
+            (lambda (k . args)
+              (if (null? args)
+                  #t
+                  (apply values args)))))))))
 
 
 
@@ -3289,7 +3290,8 @@ module '(ice-9 q) '(make-q q-length))}."
     (catch #t
       (lambda ()
         (let* ((scmstat (stat name))
-               (gostat  (stat go-path #f)))
+               (gostat  (and (not %fresh-auto-compile)
+                             (stat go-path #f))))
           (if (and gostat
                    (or (> (stat:mtime gostat) (stat:mtime scmstat))
                        (and (= (stat:mtime gostat) (stat:mtime scmstat))

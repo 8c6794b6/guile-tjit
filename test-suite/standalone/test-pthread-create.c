@@ -1,6 +1,4 @@
-/* test-list.c - exercise libguile/list.c functions */
-
-/* Copyright (C) 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -18,48 +16,54 @@
  * 02110-1301 USA
  */
 
+/* Test whether threads created with `pthread_create' work (bug #32436)
+   when then main thread is the one that initializes Guile.  */
+
 #ifdef HAVE_CONFIG_H
 # include <config.h>
 #endif
 
+#include <pthread.h>
+#include <stdlib.h>
 #include <libguile.h>
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-
-/* pretty trivial, but ensure this entrypoint exists, since it was
-   documented in Guile 1.6 and earlier */
-static void
-test_scm_list (void)
+static void *
+do_something (void *arg)
 {
-  {
-    if (! scm_is_eq (SCM_EOL, scm_list (SCM_EOL)))
-      {
-        fprintf (stderr, "fail: scm_list SCM_EOL\n");
-        exit (EXIT_FAILURE);
-      }
-  }
-
-  {
-    SCM lst = scm_list_2 (scm_from_int (1), scm_from_int (2));
-    if (! scm_is_true (scm_equal_p (lst, scm_list (lst))))
-      {
-        fprintf (stderr, "fail: scm_list '(1 2)\n");
-        exit (EXIT_FAILURE);
-      }
-  }
+  scm_list_copy (scm_make_list (scm_from_int (1234), SCM_BOOL_T));
+  scm_gc ();
+  return NULL;
 }
 
-static void
-tests (void *data, int argc, char **argv)
+static void *
+thread (void *arg)
 {
-  test_scm_list ();
+  scm_with_guile (do_something, NULL);
+  return NULL;
 }
 
+static void *
+inner_main (void *data)
+{
+  int i;
+  pthread_t thr;
+
+  do_something (NULL);
+
+  for (i = 0; i < 77; i++)
+    {
+      pthread_create (&thr, NULL, thread, NULL);
+      pthread_join (thr, NULL);
+    }
+
+  return NULL;
+}
+
+
 int
 main (int argc, char *argv[])
 {
-  scm_boot_guile (argc, argv, tests, NULL);
-  return 0;
+  scm_with_guile (inner_main, NULL);
+
+  return EXIT_SUCCESS;
 }

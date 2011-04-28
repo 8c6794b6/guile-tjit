@@ -39,6 +39,7 @@
 #endif
 
 #include <assert.h>
+#include <nproc.h>
 
 #include "libguile/validate.h"
 #include "libguile/root.h"
@@ -613,6 +614,10 @@ do_thread_exit (void *v)
 {
   scm_i_thread *t = (scm_i_thread *) v;
 
+  /* Ensure the signal handling thread has been launched, because we might be
+     shutting it down.  This needs to be done in Guile mode.  */
+  scm_i_ensure_signal_delivery_thread ();
+
   if (!scm_is_false (t->cleanup_handler))
     {
       SCM ptr = t->cleanup_handler;
@@ -661,7 +666,9 @@ static void *
 do_thread_exit_trampoline (struct GC_stack_base *sb, void *v)
 {
   /* Won't hurt if we are already registered.  */
+#if SCM_USE_PTHREAD_THREADS
   GC_register_my_thread (sb);
+#endif
 
   return scm_with_guile (do_thread_exit, v);
 }
@@ -684,10 +691,6 @@ on_thread_exit (void *v)
      guile-mode cleanup handlers.  Only really needed in the non-TLS
      case but it doesn't hurt to be consistent.  */
   scm_i_pthread_setspecific (scm_i_thread_key, t);
-
-  /* Ensure the signal handling thread has been launched, because we might be
-     shutting it down.  */
-  scm_i_ensure_signal_delivery_thread ();
 
   /* Scheme-level thread finalizers and other cleanup needs to happen in
      guile mode.  */
@@ -720,7 +723,7 @@ on_thread_exit (void *v)
 
   scm_i_pthread_setspecific (scm_i_thread_key, NULL);
 
-#if !SCM_USE_NULL_THREADS
+#if SCM_USE_PTHREAD_THREADS
   GC_unregister_my_thread ();
 #endif
 }
@@ -774,7 +777,7 @@ scm_i_init_thread_for_guile (struct GC_stack_base *base, SCM parent)
 	  */
 	  scm_i_init_guile (base);
 
-#ifdef HAVE_GC_ALLOW_REGISTER_THREADS
+#if defined (HAVE_GC_ALLOW_REGISTER_THREADS) && SCM_USE_PTHREAD_THREADS
           /* Allow other threads to come in later.  */
           GC_allow_register_threads ();
 #endif
@@ -789,7 +792,9 @@ scm_i_init_thread_for_guile (struct GC_stack_base *base, SCM parent)
 	  scm_i_pthread_mutex_unlock (&scm_i_init_mutex);
 
           /* Register this thread with libgc.  */
+#if SCM_USE_PTHREAD_THREADS
           GC_register_my_thread (base);
+#endif
 
 	  guilify_self_1 (base);
 	  guilify_self_2 (parent);
@@ -2005,6 +2010,39 @@ scm_c_thread_exited_p (SCM thread)
   return t->exited;
 }
 #undef FUNC_NAME
+
+SCM_DEFINE (scm_total_processor_count, "total-processor-count", 0, 0, 0,
+	    (void),
+	    "Return the total number of processors of the machine, which\n"
+	    "is guaranteed to be at least 1.  A ``processor'' here is a\n"
+	    "thread execution unit, which can be either:\n\n"
+	    "@itemize\n"
+	    "@item an execution core in a (possibly multi-core) chip, in a\n"
+	    "  (possibly multi- chip) module, in a single computer, or\n"
+	    "@item a thread execution unit inside a core in the case of\n"
+	    "  @dfn{hyper-threaded} CPUs.\n"
+	    "@end itemize\n\n"
+	    "Which of the two definitions is used, is unspecified.\n")
+#define FUNC_NAME s_scm_total_processor_count
+{
+  return scm_from_ulong (num_processors (NPROC_ALL));
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_current_processor_count, "current-processor-count", 0, 0, 0,
+	    (void),
+	    "Like @code{total-processor-count}, but return the number of\n"
+	    "processors available to the current process.  See\n"
+	    "@code{setaffinity} and @code{getaffinity} for more\n"
+	    "information.\n")
+#define FUNC_NAME s_scm_current_processor_count
+{
+  return scm_from_ulong (num_processors (NPROC_CURRENT));
+}
+#undef FUNC_NAME
+
+
+
 
 static scm_i_pthread_cond_t wake_up_cond;
 static int threads_initialized_p = 0;

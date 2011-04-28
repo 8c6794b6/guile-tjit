@@ -1164,6 +1164,10 @@ presented above (@pxref{Input and Output}).
 * R6RS Binary Output::          Binary output.
 @end menu
 
+A subset of the @code{(rnrs io ports)} module is provided by the
+@code{(ice-9 binary-ports)} module.  It contains binary input/output
+procedures and does not rely on R6RS support.
+
 @node R6RS End-of-File
 @subsubsection The End-of-File Object
 
@@ -1227,6 +1231,31 @@ Return @code{#t} is @var{port} supports @code{set-port-position!}.
 @deffn {Scheme Procedure} call-with-port port proc
 Call @var{proc}, passing it @var{port} and closing @var{port} upon exit
 of @var{proc}.  Return the return values of @var{proc}.
+@end deffn
+
+@deffn {Scheme Procedure} binary-port? port
+Return @code{#t} if @var{port} is a @dfn{binary port}, suitable for
+binary data input/output.
+
+Note that internally Guile does not differentiate between binary and
+textual ports, unlike the R6RS.  Thus, this procedure returns true when
+@var{port} does not have an associated encoding---i.e., when
+@code{(port-encoding @var{port})} is @code{#f} (@pxref{Ports,
+port-encoding}).  This is the case for ports returned by R6RS procedures
+such as @code{open-bytevector-input-port} and
+@code{make-custom-binary-output-port}.
+
+However, Guile currently does not prevent use of textual I/O procedures
+such as @code{display} or @code{read-char} with binary ports.  Doing so
+``upgrades'' the port from binary to textual, under the ISO-8859-1
+encoding.  Likewise, Guile does not prevent use of
+@code{set-port-encoding!} on a binary port, which also turns it into a
+``textual'' port.
+@end deffn
+
+@deffn {Scheme Procedure} textual-port? port
+Always return @var{#t}, as all ports can be used for textual I/O in
+Guile.
 @end deffn
 
 

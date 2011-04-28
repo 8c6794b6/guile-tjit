@@ -127,7 +127,7 @@ AC_ARG_ENABLE(guile-debug,
   fi)
 
 AC_ARG_ENABLE(posix,
-  [  --disable-posix         omit posix interfaces],,
+  [  --disable-posix         omit non-essential POSIX interfaces],,
   enable_posix=yes)
 
 AC_ARG_ENABLE(networking,
@@ -230,10 +230,9 @@ if test "$use_modules" != no; then
 fi
 
 if test "$enable_posix" = yes; then
-   AC_LIBOBJ([filesys])
    AC_LIBOBJ([posix])
    AC_DEFINE([HAVE_POSIX], 1,
-     [Define this if you want support for POSIX system calls in Guile.])
+     [Define this if you want support for non-essential POSIX system calls in Guile.])
 fi
 
 if test "$enable_networking" = yes; then
@@ -644,12 +643,13 @@ AC_SUBST([SCM_I_GSC_HAVE_STRUCT_DIRENT64])
 #     this file instead of <fenv.h>
 #   process.h - mingw specific
 #   langinfo.h, nl_types.h - SuS v2
+#   sched.h - missing on MinGW
 #
 AC_CHECK_HEADERS([complex.h fenv.h io.h libc.h limits.h malloc.h memory.h process.h string.h \
 regex.h rxposix.h rx/rxposix.h sys/dir.h sys/ioctl.h sys/select.h \
 sys/time.h sys/timeb.h sys/times.h sys/stdtypes.h sys/types.h \
 sys/utime.h time.h unistd.h utime.h pwd.h grp.h sys/utsname.h \
-direct.h langinfo.h nl_types.h machine/fpu.h poll.h])
+direct.h langinfo.h nl_types.h machine/fpu.h poll.h sched.h])
 
 # Reasons for testing:
 #   nl_item - lacking on Cygwin
@@ -872,6 +872,11 @@ fi
 dnl GNU libunistring is checked for by Gnulib's `libunistring' module.
 if test "x$LTLIBUNISTRING" = "x"; then
   AC_MSG_ERROR([GNU libunistring is required, please install it.])
+fi
+
+GUILE_LIBUNISTRING_WITH_ICONV_SUPPORT
+if test "x$ac_cv_libunistring_with_iconv_support" != "xyes"; then
+  AC_MSG_ERROR([No iconv support.  Please recompile libunistring with iconv enabled.])
 fi
 
 dnl Libffi is needed to compile Guile's foreign function interface, but its
@@ -1238,7 +1243,7 @@ save_LIBS="$LIBS"
 LIBS="$BDW_GC_LIBS $LIBS"
 CFLAGS="$BDW_GC_CFLAGS $CFLAGS"
 
-AC_CHECK_FUNCS([GC_do_blocking GC_call_with_gc_active GC_pthread_exit GC_pthread_cancel GC_allow_register_threads GC_pthread_sigmask])
+AC_CHECK_FUNCS([GC_do_blocking GC_call_with_gc_active GC_pthread_exit GC_pthread_cancel GC_allow_register_threads GC_pthread_sigmask GC_set_start_callback])
 
 # Though the `GC_do_blocking ()' symbol is present in GC 7.1, it is not
 # declared, and has a different type (returning void instead of
@@ -1514,8 +1519,10 @@ case "$GCC" in
     ## less than exasperating.
     ## -Wpointer-arith was here too, but something changed in gcc/glibc
     ## and it became equally exasperating (gcc 2.95 and/or glibc 2.1.2).
+    ## -Wundef was removed because Gnulib prevented it (see
+    ## <http://thread.gmane.org/gmane.lisp.guile.bugs/5329>.)
     POTENTIAL_GCC_CFLAGS="-Wall -Wmissing-prototypes \
-      -Wdeclaration-after-statement -Wundef \
+      -Wdeclaration-after-statement \
       -Wswitch-enum"
     # Do this here so we don't screw up any of the tests above that might
     # not be "warning free"
