@@ -1066,20 +1066,21 @@
   
     (define chi-when-list
       (lambda (e when-list w)
-        ;; when-list is syntax'd version of list of situations
+        ;; `when-list' is syntax'd version of list of situations.  We
+        ;; could match these keywords lexically, via free-id=?, but then
+        ;; we twingle the definition of eval-when to the bindings of
+        ;; eval, load, expand, and compile, which is totally unintended.
+        ;; So do a symbolic match instead.
         (let f ((when-list when-list) (situations '()))
           (if (null? when-list)
               situations
               (f (cdr when-list)
-                 (cons (let ((x (car when-list)))
-                         (cond
-                          ((free-id=? x #'compile) 'compile)
-                          ((free-id=? x #'load) 'load)
-                          ((free-id=? x #'eval) 'eval)
-                          ((free-id=? x #'expand) 'expand)
-                          (else (syntax-violation 'eval-when
-                                                  "invalid situation"
-                                                  e (wrap x w #f)))))
+                 (cons (let ((x (syntax->datum (car when-list))))
+                         (if (memq x '(compile load eval expand))
+                             x
+                             (syntax-violation 'eval-when
+                                               "invalid situation"
+                                               e (wrap (car when-list) w #f))))
                        situations))))))
 
     ;; syntax-type returns six values: type, value, e, w, s, and mod. The
