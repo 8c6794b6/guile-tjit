@@ -55,13 +55,11 @@ gen_scmconfig_SOURCES = gen-scmconfig.c
 ## Override default rule; this should be compiled for BUILD host.
 ## For some reason, OBJEXT does not include the dot
 gen-scmconfig.$(OBJEXT): gen-scmconfig.c
-	$(AM_V_GEN)							\
-	if [ "$(cross_compiling)" = "yes" ]; then			\
-		$(CC_FOR_BUILD) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES)	\
-		  $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)	\
-	          -c -o $@ $<;						\
-	else								\
-		$(COMPILE) -c -o $@ $<;					\
+	$(AM_V_GEN) \
+	if [ "$(cross_compiling)" = "yes" ]; then \
+		$(CC_FOR_BUILD) $(DEFS) $(DEFAULT_INCLUDES) $(AM_CPPFLAGS) -c -o $@ $<; \
+	else \
+		$(COMPILE) -c -o $@ $<; \
 	fi
 
 ## Override default rule; this should run on BUILD host.
@@ -474,6 +472,7 @@ libguile_@GUILE_EFFECTIVE_VERSION@_la_LDFLAGS =	\
   $(ISNANF_LIBM)				\
   $(ISNANL_LIBM)				\
   $(LDEXP_LIBM)					\
+  $(LIB_CLOCK_GETTIME) 				\
   $(LIBSOCKET)					\
   $(LOG1P_LIBM)					\
   $(LTLIBICONV)					\

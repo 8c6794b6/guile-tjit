@@ -752,6 +752,37 @@ SCM_DEPRECATED SCM scm_primitive_property_del_x (SCM prop, SCM obj);
 
 
 
+/* {The old whash table interface}
+ * Deprecated, as the hash table interface is sufficient, and accessing
+ * handles of weak hash tables is no longer supported.
+ */
+
+#define scm_whash_handle SCM
+
+SCM_DEPRECATED SCM scm_whash_get_handle (SCM whash, SCM key);
+SCM_DEPRECATED int SCM_WHASHFOUNDP (SCM h);
+SCM_DEPRECATED SCM SCM_WHASHREF (SCM whash, SCM handle);
+SCM_DEPRECATED void SCM_WHASHSET (SCM whash, SCM handle, SCM obj);
+SCM_DEPRECATED SCM scm_whash_create_handle (SCM whash, SCM key);
+SCM_DEPRECATED SCM scm_whash_lookup (SCM whash, SCM obj);
+SCM_DEPRECATED void scm_whash_insert (SCM whash, SCM key, SCM obj);
+
+
+
+
+/* No need for a table for names, and the struct->class mapping is
+   maintained by GOOPS now.  */
+#define SCM_STRUCT_TABLE_NAME(X) SCM_CAR (X)
+#define SCM_SET_STRUCT_TABLE_NAME(X, NAME) SCM_SETCAR (X, NAME)
+#define SCM_STRUCT_TABLE_CLASS(X) SCM_CDR (X)
+#define SCM_SET_STRUCT_TABLE_CLASS(X, CLASS) SCM_SETCDR (X, CLASS)
+
+SCM_DEPRECATED SCM scm_struct_table;
+SCM_DEPRECATED SCM scm_struct_create_handle (SCM obj);
+
+
+
+
 void scm_i_init_deprecated (void);
 
 #endif

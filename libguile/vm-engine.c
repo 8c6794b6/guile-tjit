@@ -20,12 +20,14 @@
 
 #if (VM_ENGINE == SCM_VM_REGULAR_ENGINE)
 #define VM_USE_HOOKS		0	/* Various hooks */
-#define VM_CHECK_OBJECT         1       /* Check object table */
-#define VM_CHECK_FREE_VARIABLES 1       /* Check free variable access */
+#define VM_CHECK_OBJECT         0       /* Check object table */
+#define VM_CHECK_FREE_VARIABLES 0       /* Check free variable access */
+#define VM_CHECK_UNDERFLOW      0       /* Check underflow when popping values */
 #elif (VM_ENGINE == SCM_VM_DEBUG_ENGINE)
 #define VM_USE_HOOKS		1
-#define VM_CHECK_OBJECT         1
-#define VM_CHECK_FREE_VARIABLES 1
+#define VM_CHECK_OBJECT         0
+#define VM_CHECK_FREE_VARIABLES 0
+#define VM_CHECK_UNDERFLOW      0       /* Check underflow when popping values */
 #else
 #error unknown debug engine VM_ENGINE
 #endif
@@ -45,7 +47,9 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   /* Cache variables */
   struct scm_objcode *bp = NULL;	/* program base pointer */
   SCM *objects = NULL;			/* constant objects */
+#if VM_CHECK_OBJECT
   size_t object_count = 0;              /* length of OBJECTS */
+#endif
   SCM *stack_limit = vp->stack_limit;	/* stack limit address */
 
   SCM dynstate = SCM_I_CURRENT_THREAD->dynamic_state;
@@ -134,21 +138,21 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
     /* FIXME: need to sync regs before allocating anything, in each case. */
 
   vm_error_bad_instruction:
-    err_msg  = scm_from_locale_string ("VM: Bad instruction: ~s");
+    err_msg  = scm_from_latin1_string ("VM: Bad instruction: ~s");
     finish_args = scm_list_1 (scm_from_uchar (ip[-1]));
     goto vm_error;
 
   vm_error_unbound:
     /* FINISH_ARGS should be the name of the unbound variable.  */
     SYNC_ALL ();
-    err_msg = scm_from_locale_string ("Unbound variable: ~s");
+    err_msg = scm_from_latin1_string ("Unbound variable: ~s");
     scm_error_scm (scm_misc_error_key, program, err_msg,
                    scm_list_1 (finish_args), SCM_BOOL_F);
     goto vm_error;
 
   vm_error_unbound_fluid:
     SYNC_ALL ();
-    err_msg = scm_from_locale_string ("Unbound fluid: ~s");
+    err_msg = scm_from_latin1_string ("Unbound fluid: ~s");
     scm_error_scm (scm_misc_error_key, program, err_msg,
                    scm_list_1 (finish_args), SCM_BOOL_F);
     goto vm_error;
@@ -167,26 +171,26 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
 
   vm_error_kwargs_length_not_even:
     SYNC_ALL ();
-    err_msg = scm_from_locale_string ("Odd length of keyword argument list");
+    err_msg = scm_from_latin1_string ("Odd length of keyword argument list");
     scm_error_scm (sym_keyword_argument_error, program, err_msg,
                    SCM_EOL, SCM_BOOL_F);
 
   vm_error_kwargs_invalid_keyword:
     /* FIXME say which one it was */
     SYNC_ALL ();
-    err_msg = scm_from_locale_string ("Invalid keyword");
+    err_msg = scm_from_latin1_string ("Invalid keyword");
     scm_error_scm (sym_keyword_argument_error, program, err_msg,
                    SCM_EOL, SCM_BOOL_F);
 
   vm_error_kwargs_unrecognized_keyword:
     /* FIXME say which one it was */
     SYNC_ALL ();
-    err_msg = scm_from_locale_string ("Unrecognized keyword");
+    err_msg = scm_from_latin1_string ("Unrecognized keyword");
     scm_error_scm (sym_keyword_argument_error, program, err_msg,
                    SCM_EOL, SCM_BOOL_F);
 
   vm_error_too_many_args:
-    err_msg  = scm_from_locale_string ("VM: Too many arguments");
+    err_msg  = scm_from_latin1_string ("VM: Too many arguments");
     finish_args = scm_list_1 (scm_from_int (nargs));
     goto vm_error;
 
@@ -204,7 +208,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
     goto vm_error;
 
   vm_error_stack_overflow:
-    err_msg  = scm_from_locale_string ("VM: Stack overflow");
+    err_msg  = scm_from_latin1_string ("VM: Stack overflow");
     finish_args = SCM_EOL;
     if (stack_limit < vp->stack_base + vp->stack_size)
       /* There are VM_STACK_RESERVE_SIZE bytes left.  Make them available so
@@ -213,12 +217,12 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
     goto vm_error;
 
   vm_error_stack_underflow:
-    err_msg  = scm_from_locale_string ("VM: Stack underflow");
+    err_msg  = scm_from_latin1_string ("VM: Stack underflow");
     finish_args = SCM_EOL;
     goto vm_error;
 
   vm_error_improper_list:
-    err_msg  = scm_from_locale_string ("Expected a proper list, but got object with tail ~s");
+    err_msg  = scm_from_latin1_string ("Expected a proper list, but got object with tail ~s");
     goto vm_error;
 
   vm_error_not_a_pair:
@@ -246,41 +250,41 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
     goto vm_error;
 
   vm_error_no_values:
-    err_msg  = scm_from_locale_string ("Zero values returned to single-valued continuation");
+    err_msg  = scm_from_latin1_string ("Zero values returned to single-valued continuation");
     finish_args = SCM_EOL;
     goto vm_error;
 
   vm_error_not_enough_values:
-    err_msg  = scm_from_locale_string ("Too few values returned to continuation");
+    err_msg  = scm_from_latin1_string ("Too few values returned to continuation");
     finish_args = SCM_EOL;
     goto vm_error;
 
   vm_error_continuation_not_rewindable:
-    err_msg  = scm_from_locale_string ("Unrewindable partial continuation");
+    err_msg  = scm_from_latin1_string ("Unrewindable partial continuation");
     finish_args = scm_cons (finish_args, SCM_EOL);
     goto vm_error;
 
   vm_error_bad_wide_string_length:
-    err_msg  = scm_from_locale_string ("VM: Bad wide string length: ~S");
+    err_msg  = scm_from_latin1_string ("VM: Bad wide string length: ~S");
     goto vm_error;
 
 #ifdef VM_CHECK_IP
   vm_error_invalid_address:
-    err_msg  = scm_from_locale_string ("VM: Invalid program address");
+    err_msg  = scm_from_latin1_string ("VM: Invalid program address");
     finish_args = SCM_EOL;
     goto vm_error;
 #endif
 
 #if VM_CHECK_OBJECT
   vm_error_object:
-    err_msg = scm_from_locale_string ("VM: Invalid object table access");
+    err_msg = scm_from_latin1_string ("VM: Invalid object table access");
     finish_args = SCM_EOL;
     goto vm_error;
 #endif
 
 #if VM_CHECK_FREE_VARIABLES
   vm_error_free_variable:
-    err_msg = scm_from_locale_string ("VM: Invalid free variable access");
+    err_msg = scm_from_latin1_string ("VM: Invalid free variable access");
     finish_args = SCM_EOL;
     goto vm_error;
 #endif
@@ -298,6 +302,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
 #undef VM_USE_HOOKS
 #undef VM_CHECK_OBJECT
 #undef VM_CHECK_FREE_VARIABLE
+#undef VM_CHECK_UNDERFLOW
 
 /*
   Local Variables:

@@ -2425,17 +2425,17 @@ SCM_DEFINE (scm_primitive_property_ref, "primitive-property-ref", 2, 0, 0,
 	    "property value.")
 #define FUNC_NAME s_scm_primitive_property_ref
 {
-  SCM h;
+  SCM alist;
 
   scm_c_issue_deprecation_warning
     ("`primitive-property-ref' is deprecated.  Use object properties.");
 
   SCM_VALIDATE_CONS (SCM_ARG1, prop);
 
-  h = scm_hashq_get_handle (properties_whash, obj);
-  if (scm_is_true (h))
+  alist = scm_hashq_ref (properties_whash, obj, SCM_EOL);
+  if (scm_is_pair (alist))
     {
-      SCM assoc = scm_assq (prop, SCM_CDR (h));
+      SCM assoc = scm_assq (prop, alist);
       if (scm_is_true (assoc))
 	return SCM_CDR (assoc);
     }
@@ -2445,9 +2445,8 @@ SCM_DEFINE (scm_primitive_property_ref, "primitive-property-ref", 2, 0, 0,
   else
     {
       SCM val = scm_call_2 (SCM_CAR (prop), prop, obj);
-      if (scm_is_false (h))
-	h = scm_hashq_create_handle_x (properties_whash, obj, SCM_EOL);
-      SCM_SETCDR (h, scm_acons (prop, val, SCM_CDR (h)));
+      scm_hashq_set_x (properties_whash, obj,
+                       scm_acons (prop, val, alist));
       return val;
     }
 }
@@ -2459,21 +2458,19 @@ SCM_DEFINE (scm_primitive_property_set_x, "primitive-property-set!", 3, 0, 0,
 	    "Set the property @var{prop} of @var{obj} to @var{val}.")
 #define FUNC_NAME s_scm_primitive_property_set_x
 {
-  SCM h, assoc;
+  SCM alist, assoc;
 
   scm_c_issue_deprecation_warning
     ("`primitive-property-set!' is deprecated.  Use object properties.");
 
   SCM_VALIDATE_CONS (SCM_ARG1, prop);
-  h = scm_hashq_create_handle_x (properties_whash, obj, SCM_EOL);
-  assoc = scm_assq (prop, SCM_CDR (h));
-  if (SCM_NIMP (assoc))
+  alist = scm_hashq_ref (properties_whash, obj, SCM_EOL);
+  assoc = scm_assq (prop, alist);
+  if (scm_is_pair (assoc))
     SCM_SETCDR (assoc, val);
   else
-    {
-      assoc = scm_acons (prop, val, SCM_CDR (h));
-      SCM_SETCDR (h, assoc);
-    }
+    scm_hashq_set_x (properties_whash, obj,
+                     scm_acons (prop, val, alist));
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -2484,26 +2481,104 @@ SCM_DEFINE (scm_primitive_property_del_x, "primitive-property-del!", 2, 0, 0,
 	    "Remove any value associated with @var{prop} and @var{obj}.")
 #define FUNC_NAME s_scm_primitive_property_del_x
 {
-  SCM h;
+  SCM alist;
 
   scm_c_issue_deprecation_warning
     ("`primitive-property-del!' is deprecated.  Use object properties.");
 
   SCM_VALIDATE_CONS (SCM_ARG1, prop);
-  h = scm_hashq_get_handle (properties_whash, obj);
-  if (scm_is_true (h))
-    SCM_SETCDR (h, scm_assq_remove_x (SCM_CDR (h), prop));
+  alist = scm_hashq_ref (properties_whash, obj, SCM_EOL);
+  if (scm_is_pair (alist))
+    scm_hashq_set_x (properties_whash, obj, scm_assq_remove_x (alist, prop));
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
 
 
+SCM
+scm_whash_get_handle (SCM whash, SCM key)
+{
+  scm_c_issue_deprecation_warning
+    ("The `scm_whash' API is deprecated.  Use the `scm_hashq' API instead.");
+
+  return scm_hashq_get_handle (whash, key);
+}
+
+int
+SCM_WHASHFOUNDP (SCM h)
+{
+  scm_c_issue_deprecation_warning
+    ("The `scm_whash' API is deprecated.  Use the `scm_hashq' API instead.");
+
+  return scm_is_true (h);
+}
+
+SCM
+SCM_WHASHREF (SCM whash, SCM handle)
+{
+  scm_c_issue_deprecation_warning
+    ("The `scm_whash' API is deprecated.  Use the `scm_hashq' API instead.");
+
+  return SCM_CDR (handle);
+}
+
+void
+SCM_WHASHSET (SCM whash, SCM handle, SCM obj)
+{
+  scm_c_issue_deprecation_warning
+    ("The `scm_whash' API is deprecated.  Use the `scm_hashq' API instead.");
+
+  SCM_SETCDR (handle, obj);
+}
+
+SCM
+scm_whash_create_handle (SCM whash, SCM key)
+{
+  scm_c_issue_deprecation_warning
+    ("The `scm_whash' API is deprecated.  Use the `scm_hashq' API instead.");
+
+  return scm_hashq_create_handle_x (whash, key, SCM_UNSPECIFIED);
+}
+
+SCM
+scm_whash_lookup (SCM whash, SCM obj)
+{
+  scm_c_issue_deprecation_warning
+    ("The `scm_whash' API is deprecated.  Use the `scm_hashq' API instead.");
+
+  return scm_hashq_ref (whash, obj, SCM_BOOL_F);
+}
+
+void
+scm_whash_insert (SCM whash, SCM key, SCM obj)
+{
+  scm_c_issue_deprecation_warning
+    ("The `scm_whash' API is deprecated.  Use the `scm_hashq' API instead.");
+
+  scm_hashq_set_x (whash, key, obj);
+}
+
+
+
+SCM scm_struct_table = SCM_BOOL_F;
+
+SCM
+scm_struct_create_handle (SCM obj)
+{
+  scm_c_issue_deprecation_warning
+    ("`scm_struct_create_handle' is deprecated, and has no effect.");
+  
+  return scm_cons (obj, scm_cons (SCM_BOOL_F, SCM_BOOL_F));
+}
+
+
 
 void
 scm_i_init_deprecated ()
 {
   properties_whash = scm_make_weak_key_hash_table (SCM_UNDEFINED);
+  scm_struct_table = scm_make_hash_table (SCM_UNDEFINED);
 #include "libguile/deprecated.x"
 }
 
