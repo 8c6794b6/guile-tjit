@@ -193,6 +193,9 @@
   SCM_SET_BYTEVECTOR_FLAGS ((bv),					\
                             (hint)					\
                             | (SCM_BYTEVECTOR_CONTIGUOUS_P (bv) << 8UL))
+#define SCM_BYTEVECTOR_SET_PARENT(_bv, _parent)	\
+  SCM_SET_CELL_OBJECT_3 ((_bv), (_parent))
+
 #define SCM_BYTEVECTOR_TYPE_SIZE(var)                           \
   (scm_i_array_element_type_sizes[SCM_BYTEVECTOR_ELEMENT_TYPE (var)]/8)
 #define SCM_BYTEVECTOR_TYPED_LENGTH(var)                        \
@@ -233,6 +236,7 @@ make_bytevector (size_t len, scm_t_array_element_type element_type)
       SCM_BYTEVECTOR_SET_CONTENTS (ret, contents);
       SCM_BYTEVECTOR_SET_CONTIGUOUS_P (ret, 1);
       SCM_BYTEVECTOR_SET_ELEMENT_TYPE (ret, element_type);
+      SCM_BYTEVECTOR_SET_PARENT (ret, SCM_BOOL_F);
     }
 
   return ret;
@@ -262,6 +266,7 @@ make_bytevector_from_buffer (size_t len, void *contents,
       SCM_BYTEVECTOR_SET_CONTENTS (ret, contents);
       SCM_BYTEVECTOR_SET_CONTIGUOUS_P (ret, 0);
       SCM_BYTEVECTOR_SET_ELEMENT_TYPE (ret, element_type);
+      SCM_BYTEVECTOR_SET_PARENT (ret, SCM_BOOL_F);
     }
 
   return ret;
@@ -282,19 +287,31 @@ scm_i_make_typed_bytevector (size_t len, scm_t_array_element_type element_type)
   return make_bytevector (len, element_type);
 }
 
-/* Return a bytevector of size LEN made up of CONTENTS.  The area pointed to
-   by CONTENTS must have been allocated using `scm_gc_malloc ()'.  */
+/* Return a bytevector of size LEN made up of CONTENTS.  The area
+   pointed to by CONTENTS must be protected from GC somehow: either
+   because it was allocated using `scm_gc_malloc ()', or because it is
+   part of PARENT.  */
 SCM
-scm_c_take_bytevector (signed char *contents, size_t len)
+scm_c_take_bytevector (signed char *contents, size_t len, SCM parent)
 {
-  return make_bytevector_from_buffer (len, contents, SCM_ARRAY_ELEMENT_TYPE_VU8);
+  SCM ret;
+
+  ret = make_bytevector_from_buffer (len, contents, SCM_ARRAY_ELEMENT_TYPE_VU8);
+  SCM_BYTEVECTOR_SET_PARENT (ret, parent);
+
+  return ret;
 }
 
 SCM
 scm_c_take_typed_bytevector (signed char *contents, size_t len,
-                             scm_t_array_element_type element_type)
+                             scm_t_array_element_type element_type, SCM parent)
 {
-  return make_bytevector_from_buffer (len, contents, element_type);
+  SCM ret;
+
+  ret = make_bytevector_from_buffer (len, contents, element_type);
+  SCM_BYTEVECTOR_SET_PARENT (ret, parent);
+
+  return ret;
 }
 
 /* Shrink BV to C_NEW_LEN (which is assumed to be smaller than its current

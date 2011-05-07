@@ -269,8 +269,8 @@ SCM_DEFINE (scm_pointer_to_bytevector, "pointer->bytevector", 2, 2, 0,
 
   blen = scm_to_size_t (len);
 
-  ret = scm_c_take_typed_bytevector (ptr + boffset, blen, btype);
-  register_weak_reference (ret, pointer);
+  ret = scm_c_take_typed_bytevector (ptr + boffset, blen, btype, pointer);
+
   return ret;
 }
 #undef FUNC_NAME

@@ -308,17 +308,14 @@ SCM_DEFINE (scm_objcode_to_bytecode, "objcode->bytecode", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_objcode_to_bytecode
 {
-  scm_t_int8 *s8vector;
   scm_t_uint32 len;
 
   SCM_VALIDATE_OBJCODE (1, objcode);
 
   len = sizeof (struct scm_objcode) + SCM_OBJCODE_TOTAL_LEN (objcode);
 
-  s8vector = scm_malloc (len);
-  memcpy (s8vector, SCM_OBJCODE_DATA (objcode), len);
-
-  return scm_c_take_bytevector (s8vector, len);
+  return scm_c_take_bytevector ((scm_t_int8*)SCM_OBJCODE_DATA (objcode),
+                                len, objcode);
 }
 #undef FUNC_NAME
 

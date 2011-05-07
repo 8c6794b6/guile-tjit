@@ -1,6 +1,6 @@
 /* srfi-4.c --- Uniform numeric vector datatypes.
  *
- * 	Copyright (C) 2001, 2004, 2006, 2009, 2010 Free Software Foundation, Inc.
+ * 	Copyright (C) 2001, 2004, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -113,7 +113,8 @@
 #define DEFINE_SRFI_4_C_FUNCS(TAG, tag, ctype, width)                   \
   SCM scm_take_##tag##vector (ctype *data, size_t n)                    \
   {                                                                     \
-    return scm_c_take_typed_bytevector ((scm_t_int8*)data, n, ETYPE (TAG));   \
+    return scm_c_take_typed_bytevector ((scm_t_int8*)data, n, ETYPE (TAG), \
+                                        SCM_BOOL_F);                    \
   }                                                                     \
   const ctype* scm_array_handle_##tag##_elements (scm_t_array_handle *h) \
   {                                                                     \

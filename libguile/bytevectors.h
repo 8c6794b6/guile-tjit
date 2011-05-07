@@ -1,7 +1,7 @@
 #ifndef SCM_BYTEVECTORS_H
 #define SCM_BYTEVECTORS_H
 
-/* Copyright (C) 2009 Free Software Foundation, Inc.
+/* Copyright (C) 2009, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -28,12 +28,14 @@
 
 /* The size in words of the bytevector header (type tag and flags, length,
    and pointer to the underlying buffer).  */
-#define SCM_BYTEVECTOR_HEADER_SIZE   3U
+#define SCM_BYTEVECTOR_HEADER_SIZE   4U
 
 #define SCM_BYTEVECTOR_LENGTH(_bv)		\
   ((size_t) SCM_CELL_WORD_1 (_bv))
 #define SCM_BYTEVECTOR_CONTENTS(_bv)		\
   ((signed char *) SCM_CELL_WORD_2 (_bv))
+#define SCM_BYTEVECTOR_PARENT(_bv)		\
+  (SCM_CELL_OBJECT_3 (_bv))
 
 
 SCM_API SCM scm_endianness_big;
@@ -132,13 +134,13 @@ SCM_API SCM scm_utf32_to_string (SCM, SCM);
 
 SCM_INTERNAL SCM scm_i_make_typed_bytevector (size_t, scm_t_array_element_type);
 SCM_INTERNAL SCM scm_c_take_typed_bytevector (signed char *, size_t,
-                                              scm_t_array_element_type);
+                                              scm_t_array_element_type, SCM);
 
 SCM_INTERNAL void scm_bootstrap_bytevectors (void);
 SCM_INTERNAL void scm_init_bytevectors (void);
 
 SCM_INTERNAL SCM scm_i_native_endianness;
-SCM_INTERNAL SCM scm_c_take_bytevector (signed char *, size_t);
+SCM_INTERNAL SCM scm_c_take_bytevector (signed char *, size_t, SCM);
 
 SCM_INTERNAL int scm_i_print_bytevector (SCM, SCM, scm_print_state *);
 
