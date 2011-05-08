@@ -33,7 +33,7 @@
             vhash? vhash-cons vhash-consq vhash-consv
             vhash-assoc vhash-assq vhash-assv
             vhash-delete vhash-delq vhash-delv
-            vhash-fold
+            vhash-fold vhash-fold-right
             vhash-fold* vhash-foldq* vhash-foldv*
             alist->vhash))
 
@@ -245,7 +245,14 @@ tail."
 (define (vlist-fold-right proc init vlist)
   "Fold over @var{vlist}, calling @var{proc} for each element, starting from
 the last element."
-  (vlist-fold proc init (vlist-reverse vlist)))
+  (define len (vlist-length vlist))
+
+  (let loop ((index  (1- len))
+             (result init))
+    (if (< index 0)
+        result
+        (loop (1- index)
+              (proc (vlist-ref vlist index) result)))))
 
 (define (vlist-reverse vlist)
   "Return a new @var{vlist} whose content are those of @var{vlist} in reverse
@@ -552,6 +559,16 @@ with @var{equal?}."
                       result))
               seed
               vhash))
+
+(define (vhash-fold-right proc seed vhash)
+  "Fold over the key/pair elements of @var{vhash}, starting from the 0th
+element.  For each pair call @var{proc} as @code{(@var{proc} key value
+result)}."
+  (vlist-fold-right (lambda (key+value result)
+                      (proc (car key+value) (cdr key+value)
+                            result))
+                    seed
+                    vhash))
 
 (define* (alist->vhash alist #:optional (hash hash))
   "Return the vhash corresponding to @var{alist}, an association list."
