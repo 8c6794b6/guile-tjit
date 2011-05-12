@@ -621,29 +621,6 @@ scm_new_port_table_entry (scm_t_bits tag)
 }
 #undef FUNC_NAME
 
-#if SCM_ENABLE_DEPRECATED==1
-scm_t_port *
-scm_add_to_port_table (SCM port)
-{
-  SCM z;
-  scm_t_port * pt;
-
-  scm_c_issue_deprecation_warning ("scm_add_to_port_table is deprecated.");
-
-  scm_i_pthread_mutex_lock (&scm_i_port_table_mutex);
-  z = scm_new_port_table_entry (scm_tc7_port);
-  pt = SCM_PTAB_ENTRY(z);
-  pt->port = port;
-  SCM_SETCAR (z, SCM_EOL);
-  SCM_SETCDR (z, SCM_EOL);
-  SCM_SETPTAB_ENTRY (port, pt);
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
-
-  return pt;
-}
-#endif
-
-
 /* Remove a port from the table and destroy it.  */
 
 static void

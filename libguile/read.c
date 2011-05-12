@@ -1385,29 +1385,10 @@ scm_read_sharp (scm_t_wchar chr, SCM port)
     case '0': case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8': case '9':
     case '@':
-#if SCM_ENABLE_DEPRECATED
-      /* See below for 'i' and 'e'. */
-    case 'a':
-    case 'y':
-    case 'h':
-    case 'l':
-#endif
       return (scm_i_read_array (port, chr));
 
     case 'i':
     case 'e':
-#if SCM_ENABLE_DEPRECATED
-      {
-	/* When next char is '(', it really is an old-style
-	   uniform array. */
-	scm_t_wchar next_c = scm_getc (port);
-	if (next_c != EOF)
-	  scm_ungetc (next_c, port);
-	if (next_c == '(')
-	  return scm_i_read_array (port, chr);
-	/* Fall through. */
-      }
-#endif
     case 'b':
     case 'B':
     case 'o':

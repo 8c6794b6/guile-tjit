@@ -3,7 +3,7 @@
 #ifndef SCM_DEBUG_H
 #define SCM_DEBUG_H
 
-/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002,2004,2008,2009,2010
+/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002,2004,2008,2009,2010,2011
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -51,18 +51,6 @@ SCM_INTERNAL void scm_init_debug (void);
 #ifdef GUILE_DEBUG
 SCM_API SCM scm_debug_hang (SCM obj);
 #endif /*GUILE_DEBUG*/
-
-#if SCM_ENABLE_DEPRECATED == 1
-
-#define CHECK_ENTRY      scm_check_entry_p
-#define CHECK_APPLY	 scm_check_apply_p
-#define CHECK_EXIT       scm_check_exit_p
-
-/* Deprecated in guile 1.7.0 on 2004-03-29.  */
-#define SCM_DEBUGGINGP scm_debug_mode_p
-#define scm_debug_mode scm_debug_mode_p
-
-#endif
 
 #endif  /* SCM_DEBUG_H */
 

@@ -2,7 +2,7 @@
 #define SCM_SRFI_4_H
 /* srfi-4.c --- Homogeneous numeric vector datatypes.
  *
- * 	Copyright (C) 2001, 2004, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+ * 	Copyright (C) 2001, 2004, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -278,16 +278,6 @@ SCM_INTERNAL SCM scm_i_generalized_vector_type (SCM vec);
 SCM_INTERNAL const char *scm_i_uniform_vector_tag (SCM uvec);
 SCM_INTERNAL scm_i_t_array_ref scm_i_uniform_vector_ref_proc (SCM uvec);
 SCM_INTERNAL scm_i_t_array_set scm_i_uniform_vector_set_proc (SCM uvec);
-
-#if SCM_ENABLE_DEPRECATED
-
-/* Deprecated because we want people to use the scm_t_array_handle
-   interface.
-*/
-
-SCM_DEPRECATED size_t scm_uniform_element_size (SCM obj);
-
-#endif
 
 SCM_INTERNAL void scm_init_srfi_4 (void);
 

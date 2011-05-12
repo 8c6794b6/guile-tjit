@@ -2122,66 +2122,6 @@ scm_i_get_substring_spec (size_t len,
     *cend = scm_to_unsigned_integer (end, *cstart, len);
 }
 		  
-#if SCM_ENABLE_DEPRECATED
-
-/* When these definitions are removed, it becomes reasonable to use
-   read-only strings for string literals.  For that, change the reader
-   to create string literals with scm_c_substring_read_only instead of
-   with scm_c_substring_copy.
-*/
-
-int
-scm_i_deprecated_stringp (SCM str)
-{
-  scm_c_issue_deprecation_warning
-    ("SCM_STRINGP is deprecated.  Use scm_is_string instead.");
-  
-  return scm_is_string (str);
-}
-
-char *
-scm_i_deprecated_string_chars (SCM str)
-{
-  char *chars;
-
-  scm_c_issue_deprecation_warning
-    ("SCM_STRING_CHARS is deprecated.  See the manual for alternatives.");
-
-  /* We don't accept shared substrings here since they are not
-     null-terminated.
-  */
-  if (IS_SH_STRING (str))
-    scm_misc_error (NULL,
-		    "SCM_STRING_CHARS does not work with shared substrings",
-		    SCM_EOL);
-
-  /* We explicitly test for read-only strings to produce a better
-     error message.
-  */
-
-  if (IS_RO_STRING (str))
-    scm_misc_error (NULL,
-		    "SCM_STRING_CHARS does not work with read-only strings",
-		    SCM_EOL);
-
-  /* The following is still wrong, of course...
-   */
-  str = scm_i_string_start_writing (str);
-  chars = scm_i_string_writable_chars (str);
-  scm_i_string_stop_writing ();
-  return chars;
-}
-
-size_t
-scm_i_deprecated_string_length (SCM str)
-{
-  scm_c_issue_deprecation_warning
-    ("SCM_STRING_LENGTH is deprecated.  Use scm_c_string_length instead.");
-  return scm_c_string_length (str);
-}
-
-#endif
-
 static SCM
 string_handle_ref (scm_t_array_handle *h, size_t index)
 {

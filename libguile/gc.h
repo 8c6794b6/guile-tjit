@@ -3,7 +3,7 @@
 #ifndef SCM_GC_H
 #define SCM_GC_H
 
-/* Copyright (C) 1995,1996,1998,1999,2000,2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,1999,2000,2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -138,20 +138,6 @@ void *scm_ia64_ar_bsp (const void *);
 
 
 
-#if (SCM_ENABLE_DEPRECATED == 1)
-SCM_DEPRECATED size_t scm_default_init_heap_size_1;
-SCM_DEPRECATED int scm_default_min_yield_1;
-SCM_DEPRECATED size_t scm_default_init_heap_size_2;
-SCM_DEPRECATED int scm_default_min_yield_2;
-SCM_DEPRECATED size_t scm_default_max_segment_size;
-#else
-#define  scm_default_init_heap_size_1 deprecated
-#define  scm_default_min_yield_1 deprecated
-#define  scm_default_init_heap_size_2 deprecated
-#define  scm_default_min_yield_2 deprecated
-#define  scm_default_max_segment_size deprecated
-#endif
-
 SCM_API unsigned long scm_gc_ports_collected;
 
 SCM_API SCM scm_after_gc_hook;
@@ -246,28 +232,6 @@ SCM_API SCM scm_protects;
 SCM_INTERNAL void scm_storage_prehistory (void);
 SCM_INTERNAL void scm_init_gc_protect_object (void);
 SCM_INTERNAL void scm_init_gc (void);
-
-#if SCM_ENABLE_DEPRECATED == 1
-
-SCM_DEPRECATED SCM scm_deprecated_newcell (void);
-SCM_DEPRECATED SCM scm_deprecated_newcell2 (void);
-
-#define SCM_NEWCELL(_into) \
-  do { _into = scm_deprecated_newcell (); } while (0)
-#define SCM_NEWCELL2(_into) \
-  do { _into = scm_deprecated_newcell2 (); } while (0)
-
-SCM_DEPRECATED void * scm_must_malloc (size_t len, const char *what);
-SCM_DEPRECATED void * scm_must_realloc (void *where,
-					size_t olen, size_t len,
-					const char *what);
-SCM_DEPRECATED char *scm_must_strdup (const char *str);
-SCM_DEPRECATED char *scm_must_strndup (const char *str, size_t n);
-SCM_DEPRECATED void scm_done_malloc (long size);
-SCM_DEPRECATED void scm_done_free (long size);
-SCM_DEPRECATED void scm_must_free (void *obj);
-
-#endif
 
 #endif  /* SCM_GC_H */
 

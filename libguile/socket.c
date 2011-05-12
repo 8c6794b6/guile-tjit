@@ -39,10 +39,6 @@
 #include "libguile/validate.h"
 #include "libguile/socket.h"
 
-#if SCM_ENABLE_DEPRECATED == 1
-# include "libguile/deprecation.h"
-#endif
-
 #ifdef __MINGW32__
 #include "win32-socket.h"
 #include <netdb.h>
@@ -1414,33 +1410,12 @@ SCM_DEFINE (scm_recv, "recv!", 2, 1, 0,
     flg = scm_to_int (flags);
   fd = SCM_FPORT_FDES (sock);
 
-#if SCM_ENABLE_DEPRECATED == 1
-  if (SCM_UNLIKELY (scm_is_string (buf)))
-    {
-      SCM msg;
-      char *dest;
-      size_t len;
+  SCM_VALIDATE_BYTEVECTOR (1, buf);
 
-      scm_c_issue_deprecation_warning
-	("Passing a string to `recv!' is deprecated, "
-	 "use a bytevector instead.");
-
-      len = scm_i_string_length (buf);
-      msg = scm_i_make_string (len, &dest, 0);
-      SCM_SYSCALL (rv = recv (fd, dest, len, flg));
-      scm_string_copy_x (buf, scm_from_int (0),
-			 msg, scm_from_int (0), scm_from_size_t (len));
-    }
-  else
-#endif
-    {
-      SCM_VALIDATE_BYTEVECTOR (1, buf);
-
-      SCM_SYSCALL (rv = recv (fd,
-			      SCM_BYTEVECTOR_CONTENTS (buf),
-			      SCM_BYTEVECTOR_LENGTH (buf),
-			      flg));
-    }
+  SCM_SYSCALL (rv = recv (fd,
+                          SCM_BYTEVECTOR_CONTENTS (buf),
+                          SCM_BYTEVECTOR_LENGTH (buf),
+                          flg));
 
   if (SCM_UNLIKELY (rv == -1))
     SCM_SYSERROR;
@@ -1480,35 +1455,12 @@ SCM_DEFINE (scm_send, "send", 2, 1, 0,
 
   fd = SCM_FPORT_FDES (sock);
 
-#if SCM_ENABLE_DEPRECATED == 1
-  if (SCM_UNLIKELY (scm_is_string (message)))
-    {
-      scm_c_issue_deprecation_warning
-	("Passing a string to `send' is deprecated, "
-	 "use a bytevector instead.");
+  SCM_VALIDATE_BYTEVECTOR (1, message);
 
-      /* If the string is wide, see if it can be coerced into a narrow
-	 string.  */
-      if (!scm_i_is_narrow_string (message)
-	  || !scm_i_try_narrow_string (message))
-	SCM_MISC_ERROR ("the message string is not 8-bit: ~s",
-                        scm_list_1 (message));
-
-      SCM_SYSCALL (rv = send (fd,
-			      scm_i_string_chars (message),
-			      scm_i_string_length (message),
-			      flg));
-    }
-  else
-#endif
-    {
-      SCM_VALIDATE_BYTEVECTOR (1, message);
-
-      SCM_SYSCALL (rv = send (fd,
-			      SCM_BYTEVECTOR_CONTENTS (message),
-			      SCM_BYTEVECTOR_LENGTH (message),
-			      flg));
-    }
+  SCM_SYSCALL (rv = send (fd,
+                          SCM_BYTEVECTOR_CONTENTS (message),
+                          SCM_BYTEVECTOR_LENGTH (message),
+                          flg));
 
   if (rv == -1)
     SCM_SYSERROR;
@@ -1566,51 +1518,27 @@ SCM_DEFINE (scm_recvfrom, "recvfrom!", 2, 3, 0,
 
   ((struct sockaddr *) &addr)->sa_family = AF_UNSPEC;
 
-#if SCM_ENABLE_DEPRECATED == 1
-  if (SCM_UNLIKELY (scm_is_string (buf)))
-    {
-      char *cbuf;
+  SCM_VALIDATE_BYTEVECTOR (1, buf);
 
-      scm_c_issue_deprecation_warning
-	("Passing a string to `recvfrom!' is deprecated, "
-	 "use a bytevector instead.");
-
-      scm_i_get_substring_spec (scm_i_string_length (buf),
-				start, &offset, end, &cend);
-
-      buf = scm_i_string_start_writing (buf);
-      cbuf = scm_i_string_writable_chars (buf);
-
-      SCM_SYSCALL (rv = recvfrom (fd, cbuf + offset,
-				  cend - offset, flg,
-				  (struct sockaddr *) &addr, &addr_size));
-      scm_i_string_stop_writing ();
-    }
+  if (SCM_UNBNDP (start))
+    offset = 0;
   else
-#endif
+    offset = scm_to_size_t (start);
+
+  if (SCM_UNBNDP (end))
+    cend = SCM_BYTEVECTOR_LENGTH (buf);
+  else
     {
-      SCM_VALIDATE_BYTEVECTOR (1, buf);
-
-      if (SCM_UNBNDP (start))
-	offset = 0;
-      else
-	offset = scm_to_size_t (start);
-
-      if (SCM_UNBNDP (end))
-	cend = SCM_BYTEVECTOR_LENGTH (buf);
-      else
-	{
-	  cend = scm_to_size_t (end);
-	  if (SCM_UNLIKELY (cend >= SCM_BYTEVECTOR_LENGTH (buf)
-			    || cend < offset))
-	    scm_out_of_range (FUNC_NAME, end);
-	}
-
-      SCM_SYSCALL (rv = recvfrom (fd,
-				  SCM_BYTEVECTOR_CONTENTS (buf) + offset,
-				  cend - offset, flg,
-				  (struct sockaddr *) &addr, &addr_size));
+      cend = scm_to_size_t (end);
+      if (SCM_UNLIKELY (cend >= SCM_BYTEVECTOR_LENGTH (buf)
+                        || cend < offset))
+        scm_out_of_range (FUNC_NAME, end);
     }
+
+  SCM_SYSCALL (rv = recvfrom (fd,
+                              SCM_BYTEVECTOR_CONTENTS (buf) + offset,
+                              cend - offset, flg,
+                              (struct sockaddr *) &addr, &addr_size));
 
   if (rv == -1)
     SCM_SYSERROR;
@@ -1681,35 +1609,12 @@ SCM_DEFINE (scm_sendto, "sendto", 3, 1, 1,
       flg = SCM_NUM2ULONG (5, SCM_CAR (args_and_flags));
     }
 
-#if SCM_ENABLE_DEPRECATED == 1
-  if (SCM_UNLIKELY (scm_is_string (message)))
-    {
-      scm_c_issue_deprecation_warning
-	("Passing a string to `sendto' is deprecated, "
-	 "use a bytevector instead.");
+  SCM_VALIDATE_BYTEVECTOR (1, message);
 
-      /* If the string is wide, see if it can be coerced into a narrow
-	 string.  */
-      if (!scm_i_is_narrow_string (message)
-	  || !scm_i_try_narrow_string (message))
-	SCM_MISC_ERROR ("the message string is not 8-bit: ~s",
-                        scm_list_1 (message));
-
-      SCM_SYSCALL (rv = sendto (fd,
-				scm_i_string_chars (message),
-				scm_i_string_length (message),
-				flg, soka, size));
-    }
-  else
-#endif
-    {
-      SCM_VALIDATE_BYTEVECTOR (1, message);
-
-      SCM_SYSCALL (rv = sendto (fd,
-				SCM_BYTEVECTOR_CONTENTS (message),
-				SCM_BYTEVECTOR_LENGTH (message),
-				flg, soka, size));
-    }
+  SCM_SYSCALL (rv = sendto (fd,
+                            SCM_BYTEVECTOR_CONTENTS (message),
+                            SCM_BYTEVECTOR_LENGTH (message),
+                            flg, soka, size));
 
   if (rv == -1)
     {

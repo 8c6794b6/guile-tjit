@@ -3,7 +3,7 @@
 #ifndef SCM_TAGS_H
 #define SCM_TAGS_H
 
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2008,2009,2010
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -651,13 +651,6 @@ enum scm_tc8_tags
   case scm_tc3_struct + 120
 
 
-
-#if (SCM_ENABLE_DEPRECATED == 1)
-
-#define SCM_CELLP(x) 	(((sizeof (scm_t_cell) - 1) & SCM_UNPACK (x)) == 0)
-#define SCM_NCELLP(x) 	(!SCM_CELLP (x))
-
-#endif
 
 #endif  /* SCM_TAGS_H */
 

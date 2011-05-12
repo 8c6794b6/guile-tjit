@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1998,2000,2001,2003,2004, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000,2001,2003,2004, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -22,13 +22,9 @@
 # include <config.h>
 #endif
 
-#define SCM_BUILDING_DEPRECATED_CODE
-
 #include "libguile/_scm.h"
 
 #include "libguile/alist.h"
-#include "libguile/deprecation.h"
-#include "libguile/deprecated.h"
 #include "libguile/eval.h"
 #include "libguile/procs.h"
 #include "libguile/gsubr.h"
@@ -43,9 +39,6 @@
 
 
 SCM_GLOBAL_SYMBOL (scm_sym_system_procedure, "system-procedure");
-#if (SCM_ENABLE_DEPRECATED == 1)
-SCM_GLOBAL_SYMBOL (scm_sym_arity, "arity");
-#endif
 SCM_GLOBAL_SYMBOL (scm_sym_name, "name");
 
 static SCM overrides;
@@ -123,10 +116,6 @@ SCM_DEFINE (scm_procedure_properties, "procedure-properties", 1, 0, 0,
         ret = SCM_EOL;
     }
   
-#if (SCM_ENABLE_DEPRECATED == 1)
-  ret = scm_acons (scm_sym_arity, scm_procedure_minimum_arity (proc), ret);
-#endif
-
   return ret;
 }
 #undef FUNC_NAME
@@ -137,11 +126,6 @@ SCM_DEFINE (scm_set_procedure_properties_x, "set-procedure-properties!", 2, 0, 0
 #define FUNC_NAME s_scm_set_procedure_properties_x
 {
   SCM_VALIDATE_PROC (1, proc);
-
-#if (SCM_ENABLE_DEPRECATED == 1)
-  if (scm_assq (alist, scm_sym_arity))
-    SCM_MISC_ERROR ("arity is a read-only property", SCM_EOL);
-#endif
 
   scm_i_pthread_mutex_lock (&overrides_lock);
   scm_hashq_set_x (overrides, proc, alist);
@@ -158,13 +142,6 @@ SCM_DEFINE (scm_procedure_property, "procedure-property", 2, 0, 0,
 {
   SCM_VALIDATE_PROC (1, proc);
 
-#if (SCM_ENABLE_DEPRECATED == 1)
-  if (scm_is_eq (key, scm_sym_arity))
-    scm_c_issue_deprecation_warning
-      ("Accessing a procedure's arity via `procedure-property' is deprecated.\n"
-       "Use `procedure-minimum-arity instead.");
-#endif
-
   return scm_assq_ref (scm_procedure_properties (proc), key);
 }
 #undef FUNC_NAME
@@ -179,17 +156,7 @@ SCM_DEFINE (scm_set_procedure_property_x, "set-procedure-property!", 3, 0, 0,
 
   SCM_VALIDATE_PROC (1, proc);
 
-#if (SCM_ENABLE_DEPRECATED == 1)
-  if (scm_is_eq (key, scm_sym_arity))
-    SCM_MISC_ERROR ("arity is a deprecated read-only property", SCM_EOL);
-#endif
-
   props = scm_procedure_properties (proc);
-
-#if (SCM_ENABLE_DEPRECATED == 1)
-  /* cdr past the consed-on arity. */
-  props = scm_cdr (props);
-#endif
 
   scm_i_pthread_mutex_lock (&overrides_lock);
   scm_hashq_set_x (overrides, proc, scm_assq_set_x (props, key, val));

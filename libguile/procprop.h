@@ -3,7 +3,7 @@
 #ifndef SCM_PROCPROP_H
 #define SCM_PROCPROP_H
 
-/* Copyright (C) 1995,1996,1998,2000, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -28,9 +28,6 @@
 
 
 SCM_API SCM scm_sym_name;
-#if (SCM_ENABLE_DEPRECATED == 1)
-SCM_DEPRECATED SCM scm_sym_arity;
-#endif
 SCM_API SCM scm_sym_system_procedure;
 
 

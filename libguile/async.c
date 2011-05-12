@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2002, 2004, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2002, 2004, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -21,8 +21,6 @@
 #ifdef HAVE_CONFIG_H
 #  include <config.h>
 #endif
-
-#define SCM_BUILDING_DEPRECATED_CODE
 
 #include "libguile/_scm.h"
 #include "libguile/eval.h"
@@ -169,23 +167,6 @@ scm_async_click ()
       asyncs = next;
     }
 }
-
-#if (SCM_ENABLE_DEPRECATED == 1)
-
-SCM_DEFINE (scm_system_async, "system-async", 1, 0, 0,
-            (SCM thunk),
-	    "This function is deprecated.  You can use @var{thunk} directly\n"
-            "instead of explicitly creating an async object.\n")
-#define FUNC_NAME s_scm_system_async
-{
-  scm_c_issue_deprecation_warning 
-    ("'system-async' is deprecated.  "
-     "Use the procedure directly with 'system-async-mark'.");
-  return thunk;
-}
-#undef FUNC_NAME
-
-#endif /* SCM_ENABLE_DEPRECATED == 1 */
 
 void
 scm_i_queue_async_cell (SCM c, scm_i_thread *t)
@@ -340,47 +321,6 @@ SCM_DEFINE (scm_noop, "noop", 0, 0, 1,
 
 
 
-
-#if (SCM_ENABLE_DEPRECATED == 1)
-
-SCM_DEFINE (scm_unmask_signals, "unmask-signals", 0, 0, 0,
-	    (),
-	    "Unmask signals. The returned value is not specified.")
-#define FUNC_NAME s_scm_unmask_signals
-{
-  scm_i_thread *t = SCM_I_CURRENT_THREAD;
-
-  scm_c_issue_deprecation_warning 
-    ("'unmask-signals' is deprecated.  "
-     "Use 'call-with-blocked-asyncs' instead.");
-
-  if (t->block_asyncs == 0)
-    SCM_MISC_ERROR ("signals already unmasked", SCM_EOL);
-  t->block_asyncs = 0;
-  scm_async_click ();
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-
-SCM_DEFINE (scm_mask_signals, "mask-signals", 0, 0, 0,
-	    (),
-	    "Mask signals. The returned value is not specified.")
-#define FUNC_NAME s_scm_mask_signals
-{
-  scm_i_thread *t = SCM_I_CURRENT_THREAD;
-
-  scm_c_issue_deprecation_warning 
-    ("'mask-signals' is deprecated.  Use 'call-with-blocked-asyncs' instead.");
-
-  if (t->block_asyncs > 0)
-    SCM_MISC_ERROR ("signals already masked", SCM_EOL);
-  t->block_asyncs = 1;
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-#endif /* SCM_ENABLE_DEPRECATED == 1 */
 
 static void
 increase_block (void *data)

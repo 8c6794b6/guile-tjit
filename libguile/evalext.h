@@ -3,7 +3,7 @@
 #ifndef SCM_EVALEXT_H
 #define SCM_EVALEXT_H
 
-/* Copyright (C) 1998,1999,2000, 2003, 2006, 2008 Free Software Foundation, Inc.
+/* Copyright (C) 1998,1999,2000, 2003, 2006, 2008, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -30,12 +30,6 @@
 SCM_API SCM scm_defined_p (SCM sym, SCM env);
 SCM_API SCM scm_self_evaluating_p (SCM obj);
 SCM_INTERNAL void scm_init_evalext (void);
-
-#if (SCM_ENABLE_DEPRECATED == 1)
-
-#define scm_definedp scm_defined_p
-
-#endif
 
 #endif  /* SCM_EVALEXT_H */
 

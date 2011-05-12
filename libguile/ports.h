@@ -316,10 +316,6 @@ SCM_API SCM scm_void_port (char * mode_str);
 SCM_API SCM scm_sys_make_void_port (SCM mode);
 SCM_INTERNAL void scm_init_ports (void);
 
-#if SCM_ENABLE_DEPRECATED==1
-SCM_DEPRECATED scm_t_port * scm_add_to_port_table (SCM port);
-#endif
-
 #ifdef GUILE_DEBUG
 SCM_API SCM scm_pt_size (void);
 SCM_API SCM scm_pt_member (SCM member);

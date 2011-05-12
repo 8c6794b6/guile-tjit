@@ -383,15 +383,6 @@ main (int argc, char *argv[])
 #endif
 
   pf ("\n");
-  pf ("#if SCM_ENABLE_DEPRECATED == 1\n"
-      "# define USE_THREADS 1 /* always true now */\n"
-      "# define GUILE_ISELECT 1 /* always true now */\n"
-      "# define READER_EXTENSIONS 1 /* always true now */\n"
-      "# define DEBUG_EXTENSIONS 1 /* always true now */\n"
-      "# define DYNAMIC_LINKING 1 /* always true now */\n"
-      "#endif\n");
-  printf ("\n");
-
   pf ("#define SCM_HAVE_ARRAYS 1 /* always true now */\n");
 
   pf ("\n");
