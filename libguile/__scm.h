@@ -283,7 +283,7 @@
  * errors, and then do 'make clean; make'.
  */
 #ifndef SCM_DEBUG_TYPING_STRICTNESS
-#define SCM_DEBUG_TYPING_STRICTNESS 1
+#define SCM_DEBUG_TYPING_STRICTNESS 2
 #endif
 
 /* If SCM_DEBUG_DEBUGGING_SUPPORT is set to 1, guile will provide a set of
