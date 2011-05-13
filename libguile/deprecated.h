@@ -31,6 +31,17 @@
 
 #if (SCM_ENABLE_DEPRECATED == 1)
 
+/* Deprecated 13-05-2011 because it's better just to scm_dynwind_begin.
+   That also avoids the temptation to stuff pointers in an SCM.  */
+
+typedef SCM (*scm_t_inner) (void *);
+SCM_DEPRECATED SCM scm_internal_dynamic_wind (scm_t_guard before,
+                                              scm_t_inner inner,
+                                              scm_t_guard after,
+                                              void *inner_data,
+                                              void *guard_data);
+
+
 #define SCM_LIST0 SCM_EOL
 #define SCM_LIST1(e0) scm_cons ((e0), SCM_EOL)
 #define SCM_LIST2(e0, e1) scm_cons2 ((e0), (e1), SCM_EOL)

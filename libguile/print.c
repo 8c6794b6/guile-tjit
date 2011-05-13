@@ -100,11 +100,11 @@ static const char *iflagnames[] =
 SCM_SYMBOL (sym_reader, "reader");
 
 scm_t_option scm_print_opts[] = {
-  { SCM_OPTION_SCM, "highlight-prefix", (scm_t_bits)SCM_BOOL_F,
+  { SCM_OPTION_SCM, "highlight-prefix", (scm_t_bits)SCM_BOOL_F_BITS,
     "The string to print before highlighted values." },
-  { SCM_OPTION_SCM, "highlight-suffix", (scm_t_bits)SCM_BOOL_F,
+  { SCM_OPTION_SCM, "highlight-suffix", (scm_t_bits)SCM_BOOL_F_BITS,
     "The string to print after highlighted values." },
-  { SCM_OPTION_SCM, "quote-keywordish-symbols", (scm_t_bits)SCM_BOOL_F,
+  { SCM_OPTION_SCM, "quote-keywordish-symbols", (scm_t_bits)SCM_BOOL_F_BITS,
     "How to print symbols that have a colon as their first or last character. "
     "The value '#f' does not quote the colons; '#t' quotes them; "
     "'reader' quotes them when the reader option 'keywords' is not '#f'." 
@@ -525,7 +525,7 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	    if (SCM_OBJ_CLASS_FLAGS (exp) & SCM_CLASSF_GOOPS)
 	      {
 		SCM pwps, print = pstate->writingp ? g_write : g_display;
-		if (!print)
+		if (SCM_UNPACK (print) == 0)
 		  goto print_struct;
 		pwps = scm_i_port_with_print_state (port, pstate->handle);
 		pstate->revealed = 1;

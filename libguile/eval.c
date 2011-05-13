@@ -102,7 +102,8 @@
  */
 
 static scm_t_bits scm_tc16_boot_closure;
-#define RETURN_BOOT_CLOSURE(code, env) SCM_RETURN_NEWSMOB2 (scm_tc16_boot_closure, (code), (env))
+#define RETURN_BOOT_CLOSURE(code, env) \
+  SCM_RETURN_NEWSMOB2 (scm_tc16_boot_closure, SCM_UNPACK (code), SCM_UNPACK (env))
 #define BOOT_CLOSURE_P(obj) SCM_TYP16_PREDICATE (scm_tc16_boot_closure, (obj))
 #define BOOT_CLOSURE_CODE(x) SCM_SMOB_OBJECT (x)
 #define BOOT_CLOSURE_ENV(x) SCM_SMOB_OBJECT_2 (x)
@@ -210,8 +211,8 @@ truncate_values (SCM x)
    case, because further lexical contours should capture the current module.
 */
 #define CAPTURE_ENV(env)                                        \
-  ((env == SCM_EOL) ? scm_current_module () :                   \
-   ((env == SCM_BOOL_F) ? scm_the_root_module () : env))
+  (scm_is_null (env) ? scm_current_module () :                  \
+   (scm_is_false (env) ? scm_the_root_module () : env))
 
 static SCM
 eval (SCM x, SCM env)

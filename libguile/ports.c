@@ -365,10 +365,10 @@ SCM_DEFINE (scm_drain_input, "drain-input", 1, 0, 0,
 
 /* Standard ports --- current input, output, error, and more(!).  */
 
-static SCM cur_inport_fluid = 0;
-static SCM cur_outport_fluid = 0;
-static SCM cur_errport_fluid = 0;
-static SCM cur_loadport_fluid = 0;
+static SCM cur_inport_fluid = SCM_BOOL_F;
+static SCM cur_outport_fluid = SCM_BOOL_F;
+static SCM cur_errport_fluid = SCM_BOOL_F;
+static SCM cur_loadport_fluid = SCM_BOOL_F;
 
 SCM_DEFINE (scm_current_input_port, "current-input-port", 0, 0, 0,
 	    (),
@@ -377,7 +377,7 @@ SCM_DEFINE (scm_current_input_port, "current-input-port", 0, 0, 0,
 	    "returns the @dfn{standard input} in Unix and C terminology.")
 #define FUNC_NAME s_scm_current_input_port
 {
-  if (cur_inport_fluid)
+  if (scm_is_true (cur_inport_fluid))
     return scm_fluid_ref (cur_inport_fluid);
   else
     return SCM_BOOL_F;
@@ -392,7 +392,7 @@ SCM_DEFINE (scm_current_output_port, "current-output-port", 0, 0, 0,
 	    "Unix and C terminology.")
 #define FUNC_NAME s_scm_current_output_port
 {
-  if (cur_outport_fluid)
+  if (scm_is_true (cur_outport_fluid))
     return scm_fluid_ref (cur_outport_fluid);
   else
     return SCM_BOOL_F;
@@ -405,7 +405,7 @@ SCM_DEFINE (scm_current_error_port, "current-error-port", 0, 0, 0,
 	    "@dfn{standard error} in Unix and C terminology).")
 #define FUNC_NAME s_scm_current_error_port
 {
-  if (cur_errport_fluid)
+  if (scm_is_true (cur_errport_fluid))
     return scm_fluid_ref (cur_errport_fluid);
   else
     return SCM_BOOL_F;
@@ -898,9 +898,21 @@ SCM_DEFINE (scm_port_for_each, "port-for-each", 1, 0, 0,
 	    "have no effect as far as @var{port-for-each} is concerned.") 
 #define FUNC_NAME s_scm_port_for_each
 {
+  SCM ports;
+
   SCM_VALIDATE_PROC (1, proc);
 
-  scm_c_port_for_each ((void (*)(void*,SCM))scm_call_1, proc);
+  /* Copy out the port table as a list so that we get strong references
+     to all the values.  */
+  scm_i_pthread_mutex_lock (&scm_i_port_table_mutex);
+  ports = scm_internal_hash_fold (collect_keys, NULL,
+				  SCM_EOL, scm_i_port_weak_hash);
+  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
+
+  for (; scm_is_pair (ports); ports = scm_cdr (ports))
+    if (SCM_PORTP (SCM_CAR (ports)))
+      scm_call_1 (proc, SCM_CAR (ports));
+
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -2294,7 +2306,7 @@ scm_i_set_conversion_strategy_x (SCM port,
   if (scm_is_false (port))
     {
       /* Set the default encoding for future ports.  */
-      if (!scm_conversion_strategy
+      if (!scm_conversion_strategy_init
 	  || !scm_is_fluid (SCM_VARIABLE_REF (scm_conversion_strategy)))
 	scm_misc_error (NULL, "tried to set conversion strategy fluid before it is initialized",
                        SCM_EOL);

@@ -124,7 +124,7 @@ SCM_VARIABLE (scm_var_make_extended_generic, "make-extended-generic");
 #define NXT_MTHD_ARGS(m)	(SCM_VELTS (m)[2])
 
 #define SCM_GOOPS_UNBOUND SCM_UNBOUND
-#define SCM_GOOPS_UNBOUNDP(x) ((x) == SCM_GOOPS_UNBOUND)
+#define SCM_GOOPS_UNBOUNDP(x) (scm_is_eq (x, SCM_GOOPS_UNBOUND))
 
 static int goops_loaded_p = 0;
 static scm_t_rstate *goops_rstate;
@@ -293,7 +293,8 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	    return scm_class_fraction;
           }
 	case scm_tc7_program:
-	  if (SCM_PROGRAM_IS_PRIMITIVE_GENERIC (x) && *SCM_SUBR_GENERIC (x))
+	  if (SCM_PROGRAM_IS_PRIMITIVE_GENERIC (x)
+              && SCM_UNPACK (*SCM_SUBR_GENERIC (x)))
 	    return scm_class_primitive_generic;
 	  else
 	    return scm_class_procedure;
@@ -494,8 +495,8 @@ compute_getters_n_setters (SCM slots)
       SCM options = SCM_CDAR (slots);
       if (!scm_is_null (options))
 	{
-	  init = scm_get_keyword (k_init_value, options, 0);
-	  if (init)
+	  init = scm_get_keyword (k_init_value, options, SCM_PACK (0));
+	  if (SCM_UNPACK (init))
             {
               init = scm_primitive_eval (scm_list_3 (scm_sym_lambda,
                                                      SCM_EOL,
@@ -592,7 +593,7 @@ SCM_DEFINE (scm_sys_initialize_object, "%initialize-object", 2, 0, 0,
        get_n_set = SCM_CDR (get_n_set), slots = SCM_CDR (slots))
     {
       SCM slot_name  = SCM_CAR (slots);
-      SCM slot_value = 0;
+      SCM slot_value = SCM_PACK (0);
 
       if (!scm_is_null (SCM_CDR (slot_name)))
 	{
@@ -604,10 +605,10 @@ SCM_DEFINE (scm_sys_initialize_object, "%initialize-object", 2, 0, 0,
 	  tmp 	= scm_i_get_keyword (k_init_keyword,
 				     SCM_CDR (slot_name),
 				     n,
-				     0,
+				     SCM_PACK (0),
 				     FUNC_NAME);
 	  slot_name = SCM_CAR (slot_name);
-	  if (tmp)
+	  if (SCM_UNPACK (tmp))
 	    {
 	      /* an initarg was provided for this slot */
 	      if (!scm_is_keyword (tmp))
@@ -616,12 +617,12 @@ SCM_DEFINE (scm_sys_initialize_object, "%initialize-object", 2, 0, 0,
 	      slot_value = scm_i_get_keyword (tmp,
 					      initargs,
 					      n_initargs,
-					      0,
+					      SCM_PACK (0),
 					      FUNC_NAME);
 	    }
 	}
 
-      if (slot_value)
+      if (SCM_UNPACK (slot_value))
 	/* set slot to provided value */
 	set_slot_value (class, obj, SCM_CAR (get_n_set), slot_value);
       else
@@ -1231,7 +1232,7 @@ slot_definition_using_name (SCM class, SCM slot_name)
 {
   register SCM slots = SCM_SLOT (class, scm_si_getters_n_setters);
   for (; !scm_is_null (slots); slots = SCM_CDR (slots))
-    if (SCM_CAAR (slots) == slot_name)
+    if (scm_is_eq (SCM_CAAR (slots), slot_name))
       return SCM_CAR (slots);
   return SCM_BOOL_F;
 }
@@ -1599,7 +1600,7 @@ burnin (SCM o)
 static void
 go_to_hell (void *o)
 {
-  SCM obj = SCM_PACK ((scm_t_bits) o);
+  SCM obj = *(SCM*)o;
   scm_lock_mutex (hell_mutex);
   if (n_hell >= hell_size)
     {
@@ -1613,8 +1614,9 @@ go_to_hell (void *o)
 static void
 go_to_heaven (void *o)
 {
+  SCM obj = *(SCM*)o;
   scm_lock_mutex (hell_mutex);
-  hell[burnin (SCM_PACK ((scm_t_bits) o))] = hell[--n_hell];
+  hell[burnin (obj)] = hell[--n_hell];
   scm_unlock_mutex (hell_mutex);
 }
 
@@ -1622,10 +1624,9 @@ go_to_heaven (void *o)
 SCM_SYMBOL (scm_sym_change_class, "change-class");
 
 static SCM
-purgatory (void *args)
+purgatory (SCM obj, SCM new_class)
 {
-  return scm_apply_0 (SCM_VARIABLE_REF (var_change_class),
-		      SCM_PACK ((scm_t_bits) args));
+  return scm_call_2 (SCM_VARIABLE_REF (var_change_class), obj, new_class);
 }
 
 /* This function calls the generic function change-class for all
@@ -1636,9 +1637,13 @@ void
 scm_change_object_class (SCM obj, SCM old_class SCM_UNUSED, SCM new_class)
 {
   if (!burnin (obj))
-    scm_internal_dynamic_wind (go_to_hell, purgatory, go_to_heaven,
-			       (void *) SCM_UNPACK (scm_list_2 (obj, new_class)),
-			       (void *) SCM_UNPACK (obj));
+    {
+      scm_dynwind_begin (SCM_F_DYNWIND_REWINDABLE);
+      scm_dynwind_rewind_handler (go_to_hell, &obj, SCM_F_WIND_EXPLICITLY);
+      scm_dynwind_unwind_handler (go_to_heaven, &obj, SCM_F_WIND_EXPLICITLY);
+      purgatory (obj, new_class);
+      scm_dynwind_end ();
+    }
 }
 
 /******************************************************************************
@@ -1697,7 +1702,7 @@ static SCM
 make_dispatch_procedure (SCM gf)
 {
   static SCM var = SCM_BOOL_F;
-  if (var == SCM_BOOL_F)
+  if (scm_is_false (var))
     var = scm_module_variable (scm_c_resolve_module ("oop goops dispatch"),
                                sym_delayed_compile);
   return scm_call_1 (SCM_VARIABLE_REF (var), gf);
@@ -1771,7 +1776,7 @@ SCM_DEFINE (scm_primitive_generic_generic, "primitive-generic-generic", 1, 0, 0,
 {
   if (SCM_PRIMITIVE_GENERIC_P (subr))
     {
-      if (!*SCM_SUBR_GENERIC (subr))
+      if (!SCM_UNPACK (*SCM_SUBR_GENERIC (subr)))
 	scm_enable_primitive_generic_x (scm_list_1 (subr));
       return *SCM_SUBR_GENERIC (subr);
     }
@@ -1798,7 +1803,7 @@ scm_c_extend_primitive_generic (SCM extended, SCM extension)
   if (goops_loaded_p)
     {
       SCM gf, gext;
-      if (!*SCM_SUBR_GENERIC (extended))
+      if (!SCM_UNPACK (*SCM_SUBR_GENERIC (extended)))
 	scm_enable_primitive_generic_x (scm_list_1 (extended));
       gf = *SCM_SUBR_GENERIC (extended);
       gext = scm_call_2 (SCM_VARIABLE_REF (scm_var_make_extended_generic),
@@ -1815,7 +1820,7 @@ scm_c_extend_primitive_generic (SCM extended, SCM extension)
        * extensions in the extensions list.  O(N^2) algorithm, but
        * extensions of primitive generics are rare.
        */
-      while (*loc && extension != (*loc)->extended)
+      while (*loc && !scm_is_eq (extension, (*loc)->extended))
 	loc = &(*loc)->next;
       e->next = *loc;
       e->extended = extended;
@@ -1883,13 +1888,13 @@ more_specificp (SCM m1, SCM m2, SCM const *targs)
   for (i=0, s1=SPEC_OF(m1), s2=SPEC_OF(m2); ; i++, s1=SCM_CDR(s1), s2=SCM_CDR(s2)) {
     if (scm_is_null(s1)) return 1;
     if (scm_is_null(s2)) return 0;
-    if (SCM_CAR(s1) != SCM_CAR(s2)) {
+    if (!scm_is_eq (SCM_CAR(s1), SCM_CAR(s2))) {
       register SCM l, cs1 = SCM_CAR(s1), cs2 = SCM_CAR(s2);
 
       for (l = SCM_SLOT (targs[i], scm_si_cpl);   ; l = SCM_CDR(l)) {
-	if (cs1 == SCM_CAR(l))
+	if (scm_is_eq (cs1, SCM_CAR (l)))
 	  return 1;
-	if (cs2 == SCM_CAR(l))
+	if (scm_is_eq (cs2, SCM_CAR (l)))
 	  return 0;
       }
       return 0;/* should not occur! */
@@ -2106,7 +2111,8 @@ SCM_DEFINE (scm_make, "make",  0, 0, 1,
   class = SCM_CAR(args);
   args  = SCM_CDR(args);
 
-  if (class == scm_class_generic || class == scm_class_accessor)
+  if (scm_is_eq (class, scm_class_generic)
+      || scm_is_eq (class, scm_class_accessor))
     {
       z = scm_make_struct (class, SCM_INUM0,
                            scm_list_4 (SCM_BOOL_F,
@@ -2118,7 +2124,7 @@ SCM_DEFINE (scm_make, "make",  0, 0, 1,
 						     args,
 						     SCM_BOOL_F));
       clear_method_cache (z);
-      if (class == scm_class_accessor)
+      if (scm_is_eq (class, scm_class_accessor))
 	{
 	  SCM setter = scm_get_keyword (k_setter, args, SCM_BOOL_F);
 	  if (scm_is_true (setter))
@@ -2129,8 +2135,8 @@ SCM_DEFINE (scm_make, "make",  0, 0, 1,
     {
       z = scm_sys_allocate_instance (class, args);
 
-      if (class == scm_class_method
-	  || class == scm_class_accessor_method)
+      if (scm_is_eq (class, scm_class_method)
+	  || scm_is_eq (class, scm_class_accessor_method))
 	{
 	  SCM_SET_SLOT (z, scm_si_generic_function,
 	    scm_i_get_keyword (k_gf,
@@ -2513,7 +2519,7 @@ static SCM
 make_class_from_symbol (SCM type_name_sym, SCM supers, int applicablep)
 {
   SCM class, name;
-  if (type_name_sym != SCM_BOOL_F)
+  if (scm_is_true (type_name_sym))
     {
       name = scm_string_append (scm_list_3 (scm_from_locale_string ("<"),
 					    scm_symbol_to_string (type_name_sym),
@@ -2595,12 +2601,12 @@ create_smob_classes (void)
   long i;
 
   for (i = 0; i < SCM_I_MAX_SMOB_TYPE_COUNT; ++i)
-    scm_smob_class[i] = 0;
+    scm_smob_class[i] = SCM_BOOL_F;
 
   scm_smob_class[SCM_TC2SMOBNUM (scm_tc16_keyword)] = scm_class_keyword;
 
   for (i = 0; i < scm_numsmob; ++i)
-    if (!scm_smob_class[i])
+    if (scm_is_false (scm_smob_class[i]))
       scm_smob_class[i] = scm_make_extended_class (SCM_SMOBNAME (i),
 						   scm_smobs[i].apply != 0);
 }
