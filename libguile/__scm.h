@@ -337,15 +337,11 @@ typedef void *scm_t_subr;
 
 
 #ifdef vms
-# ifndef CHEAP_CONTINUATIONS
-   typedef int jmp_buf[17];
-   extern int setjump(jmp_buf env);
-   extern int longjump(jmp_buf env, int ret);
-#  define setjmp setjump
-#  define longjmp longjump
-# else
-#  include <setjmp.h>
-# endif
+typedef int jmp_buf[17];
+extern int setjump(jmp_buf env);
+extern int longjump(jmp_buf env, int ret);
+# define setjmp setjump
+# define longjmp longjump
 #else				/* ndef vms */
 # ifdef _CRAY1
     typedef int jmp_buf[112];

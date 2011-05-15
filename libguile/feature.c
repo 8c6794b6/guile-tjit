@@ -111,9 +111,6 @@ scm_init_feature()
 #ifndef GO32
   scm_add_feature("char-ready?");
 #endif
-#ifndef CHEAP_CONTINUATIONS
-  scm_add_feature ("full-continuation");
-#endif
 #if SCM_USE_PTHREAD_THREADS
   scm_add_feature ("threads");
 #endif
