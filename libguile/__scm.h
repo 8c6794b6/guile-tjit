@@ -324,10 +324,6 @@
 #define SCM_T_INTPTR_MIN  SCM_I_TYPE_MIN(scm_t_intptr,SCM_T_UINTPTR_MAX)
 #define SCM_T_INTPTR_MAX  SCM_I_TYPE_MAX(scm_t_intptr,SCM_T_UINTPTR_MAX)
 
-#define SCM_I_SIZE_MAX    SCM_I_UTYPE_MAX(size_t)
-#define SCM_I_SSIZE_MIN   SCM_I_TYPE_MIN(ssize_t,SCM_I_SIZE_MAX)
-#define SCM_I_SSIZE_MAX   SCM_I_TYPE_MAX(ssize_t,SCM_I_SIZE_MAX)
-
 
 
 #include "libguile/tags.h"

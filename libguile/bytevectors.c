@@ -213,7 +213,7 @@ make_bytevector (size_t len, scm_t_array_element_type element_type)
 
   if (SCM_UNLIKELY (element_type > SCM_ARRAY_ELEMENT_TYPE_LAST
                     || scm_i_array_element_type_sizes[element_type] < 8
-                    || len >= (SCM_I_SIZE_MAX
+                    || len >= (((size_t) -1)
                                / (scm_i_array_element_type_sizes[element_type]/8))))
     /* This would be an internal Guile programming error */
     abort ();
