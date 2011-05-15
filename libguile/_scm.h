@@ -191,6 +191,41 @@
 #define scm_from_off64_t  scm_from_int64
 
 
+
+
+#if defined (vms)
+/* VMS: Implement SCM_I_SETJMP in terms of setjump.  */
+extern int setjump(scm_i_jmp_buf env);
+extern int longjump(scm_i_jmp_buf env, int ret);
+#define SCM_I_SETJMP setjump
+#define SCM_I_LONGJMP longjump
+
+#elif defined (_CRAY1)
+/* Cray: Implement SCM_I_SETJMP in terms of setjump.  */
+extern int setjump(scm_i_jmp_buf env);
+extern int longjump(scm_i_jmp_buf env, int ret);
+#define SCM_I_SETJMP setjump
+#define SCM_I_LONGJMP longjump
+
+#elif defined (__ia64__)
+/* IA64: Implement SCM_I_SETJMP in terms of getcontext. */
+# define SCM_I_SETJMP(JB)			        \
+  ( (JB).fresh = 1,				        \
+    getcontext (&((JB).ctx)),                           \
+    ((JB).fresh ? ((JB).fresh = 0, 0) : 1) )
+# define SCM_I_LONGJMP(JB,VAL) scm_ia64_longjmp (&(JB), VAL)
+void scm_ia64_longjmp (scm_i_jmp_buf *, int);
+
+#else
+/* All other systems just use setjmp and longjmp.  */
+
+#define SCM_I_SETJMP setjmp
+#define SCM_I_LONGJMP longjmp
+#endif
+
+
+
+
 /* The endianness marker in objcode.  */
 #ifdef WORDS_BIGENDIAN
 # define SCM_OBJCODE_ENDIANNESS "BE"

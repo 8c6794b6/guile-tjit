@@ -337,54 +337,33 @@ typedef void *scm_t_subr;
 
 
 
-/* Setjmp and longjmp
+/* scm_i_jmp_buf
+ *
+ * The corresponding SCM_I_SETJMP and SCM_I_LONGJMP are defined in the
+ * _scm.h private header.
  */
 
 #if defined (vms)
-/* VMS: Implement setjmp in terms of setjump.  */
-typedef int jmp_buf[17];
-extern int setjump(jmp_buf env);
-extern int longjump(jmp_buf env, int ret);
-# define setjmp setjump
-# define longjmp longjump
+typedef int scm_i_jmp_buf[17];
 
 #elif defined (_CRAY1)
-/* Cray: Implement setjmp in terms of setjump.  */
-typedef int jmp_buf[112];
-extern int setjump(jmp_buf env);
-extern int longjump(jmp_buf env, int ret);
-# define setjmp setjump
-# define longjmp longjump
+typedef int scm_i_jmp_buf[112];
 
 #elif defined (__ia64__)
-/* IA64: Implement setjmp in terms of getcontext. */
 # include <signal.h>
 # include <ucontext.h>
 typedef struct {
   ucontext_t ctx;
   int fresh;
 } scm_i_jmp_buf;
-# define SCM_I_SETJMP(JB)			        \
-  ( (JB).fresh = 1,				        \
-    getcontext (&((JB).ctx)),                           \
-    ((JB).fresh ? ((JB).fresh = 0, 0) : 1) )
-# define SCM_I_LONGJMP(JB,VAL) scm_ia64_longjmp (&(JB), VAL)
-void scm_ia64_longjmp (scm_i_jmp_buf *, int);
 
 #else
-/* All other systems just use setjmp.h.  */
 # include <setjmp.h>
-
+typedef jmp_buf scm_i_jmp_buf;
 #endif
 
-/* For any platform where SCM_I_SETJMP hasn't been defined in some
-   special way above, map SCM_I_SETJMP, SCM_I_LONGJMP and
-   scm_i_jmp_buf to setjmp, longjmp and jmp_buf. */
-#ifndef SCM_I_SETJMP
-#define scm_i_jmp_buf jmp_buf
-#define SCM_I_SETJMP setjmp
-#define SCM_I_LONGJMP longjmp
-#endif
+
+
 
 /* If stack is not longword aligned then
  */
