@@ -336,39 +336,46 @@ typedef void *scm_t_subr;
 #endif
 
 
-#ifdef vms
+
+/* Setjmp and longjmp
+ */
+
+#if defined (vms)
+/* VMS: Implement setjmp in terms of setjump.  */
 typedef int jmp_buf[17];
 extern int setjump(jmp_buf env);
 extern int longjump(jmp_buf env, int ret);
 # define setjmp setjump
 # define longjmp longjump
-#else				/* ndef vms */
-# ifdef _CRAY1
-    typedef int jmp_buf[112];
-    extern int setjump(jmp_buf env);
-    extern int longjump(jmp_buf env, int ret);
-#  define setjmp setjump
-#  define longjmp longjump
-# else				/* ndef _CRAY1 */
-#  if defined (__ia64__)
-/* For IA64, emulate the setjmp API using getcontext. */
-#   include <signal.h>
-#   include <ucontext.h>
-    typedef struct {
-      ucontext_t ctx;
-      int fresh;
-    } scm_i_jmp_buf;
-#   define SCM_I_SETJMP(JB)			        \
-      ( (JB).fresh = 1,				        \
-        getcontext (&((JB).ctx)),			\
-        ((JB).fresh ? ((JB).fresh = 0, 0) : 1) )
-#   define SCM_I_LONGJMP(JB,VAL) scm_ia64_longjmp (&(JB), VAL)
-    void scm_ia64_longjmp (scm_i_jmp_buf *, int);
-#  else                 	/* ndef __ia64__ */
-#   include <setjmp.h>
-#  endif			/* ndef __ia64__ */
-# endif				/* ndef _CRAY1 */
-#endif				/* ndef vms */
+
+#elif defined (_CRAY1)
+/* Cray: Implement setjmp in terms of setjump.  */
+typedef int jmp_buf[112];
+extern int setjump(jmp_buf env);
+extern int longjump(jmp_buf env, int ret);
+# define setjmp setjump
+# define longjmp longjump
+
+#elif defined (__ia64__)
+/* IA64: Implement setjmp in terms of getcontext. */
+# include <signal.h>
+# include <ucontext.h>
+typedef struct {
+  ucontext_t ctx;
+  int fresh;
+} scm_i_jmp_buf;
+# define SCM_I_SETJMP(JB)			        \
+  ( (JB).fresh = 1,				        \
+    getcontext (&((JB).ctx)),                           \
+    ((JB).fresh ? ((JB).fresh = 0, 0) : 1) )
+# define SCM_I_LONGJMP(JB,VAL) scm_ia64_longjmp (&(JB), VAL)
+void scm_ia64_longjmp (scm_i_jmp_buf *, int);
+
+#else
+/* All other systems just use setjmp.h.  */
+# include <setjmp.h>
+
+#endif
 
 /* For any platform where SCM_I_SETJMP hasn't been defined in some
    special way above, map SCM_I_SETJMP, SCM_I_LONGJMP and
