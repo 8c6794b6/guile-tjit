@@ -153,10 +153,6 @@
 /* #define GUILE_DEBUG_FREELIST */
 
 
-/* Use engineering notation when converting numbers strings?
- */
-#undef ENGNOT
-
 
 /* {Unsupported Options}
  *

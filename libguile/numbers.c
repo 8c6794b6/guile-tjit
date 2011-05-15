@@ -5109,12 +5109,6 @@ idbl2str (double f, char *a, int radix)
       exp++;
     }
  zero:
-#ifdef ENGNOT 
-  /* adding 9999 makes this equivalent to abs(x) % 3 */
-  dpt = (exp + 9999) % 3;
-  exp -= dpt++;
-  efmt = 1;
-#else
   efmt = (exp < -3) || (exp > wp + 2);
   if (!efmt)
     {
@@ -5131,7 +5125,6 @@ idbl2str (double f, char *a, int radix)
     }
   else
     dpt = 1;
-#endif
 
   do
     {
@@ -5153,7 +5146,6 @@ idbl2str (double f, char *a, int radix)
 
   if (dpt > 0)
     {
-#ifndef ENGNOT
       if ((dpt > 4) && (exp > 6))
 	{
 	  d = (a[0] == '-' ? 2 : 1);
@@ -5163,7 +5155,6 @@ idbl2str (double f, char *a, int radix)
 	  efmt = 1;
 	}
       else
-#endif
 	{
 	  while (--dpt)
 	    a[ch++] = '0';
