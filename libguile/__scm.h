@@ -386,17 +386,6 @@ void scm_ia64_longjmp (scm_i_jmp_buf *, int);
 #define SCM_I_LONGJMP longjmp
 #endif
 
-/* James Clark came up with this neat one instruction fix for
- * continuations on the SPARC.  It flushes the register windows so
- * that all the state of the process is contained in the stack.
- */
-
-#if defined (sparc) || defined (__sparc__) || defined (__sparc)
-# define SCM_FLUSH_REGISTER_WINDOWS asm("ta 3")
-#else
-# define SCM_FLUSH_REGISTER_WINDOWS /* empty */
-#endif
-
 /* If stack is not longword aligned then
  */
 

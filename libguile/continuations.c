@@ -182,6 +182,17 @@ continuation_print (SCM obj, SCM port, scm_print_state *state SCM_UNUSED)
   return 1;
 }
 
+/* James Clark came up with this neat one instruction fix for
+ * continuations on the SPARC.  It flushes the register windows so
+ * that all the state of the process is contained in the stack.
+ */
+
+#if defined (sparc) || defined (__sparc__) || defined (__sparc)
+# define SCM_FLUSH_REGISTER_WINDOWS asm("ta 3")
+#else
+# define SCM_FLUSH_REGISTER_WINDOWS /* empty */
+#endif
+
 /* this may return more than once: the first time with the escape
    procedure, then subsequently with SCM_UNDEFINED (the vals already having been
    placed on the VM stack). */
