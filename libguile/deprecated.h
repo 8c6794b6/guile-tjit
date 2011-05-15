@@ -42,6 +42,38 @@ SCM_DEPRECATED SCM scm_internal_dynamic_wind (scm_t_guard before,
                                               void *guard_data);
 
 
+/* Deprecated 15-05-2011 because it's better to be explicit with the
+   `return'.  Code is more readable that way.  */
+#define SCM_WTA_DISPATCH_0(gf, subr)			        \
+  return scm_wta_dispatch_0 ((gf), (subr))
+#define SCM_WTA_DISPATCH_1(gf, a1, pos, subr)			\
+  return scm_wta_dispatch_1 ((gf), (a1), (pos), (subr))
+#define SCM_WTA_DISPATCH_2(gf, a1, a2, pos, subr)          \
+  return scm_wta_dispatch_2 ((gf), (a1), (a2), (pos), (subr))
+#define SCM_WTA_DISPATCH_N(gf, args, pos, subr)			\
+  return scm_wta_dispatch_n ((gf), (args), (pos), (subr))
+
+/* Deprecated 15-05-2011 because this idiom is not very readable.  */
+#define SCM_GASSERT0(cond, gf, subr)            \
+  if (SCM_UNLIKELY (!(cond)))                   \
+    return scm_wta_dispatch_0 ((gf), (subr))
+#define SCM_GASSERT1(cond, gf, a1, pos, subr)           \
+  if (SCM_UNLIKELY (!(cond)))                           \
+    return scm_wta_dispatch_1 ((gf), (a1), (pos), (subr))
+#define SCM_GASSERT2(cond, gf, a1, a2, pos, subr)	\
+  if (SCM_UNLIKELY (!(cond)))                           \
+    return scm_wta_dispatch_2 ((gf), (a1), (a2), (pos), (subr))
+#define SCM_GASSERTn(cond, gf, args, pos, subr)         \
+  if (SCM_UNLIKELY (!(cond)))                           \
+    return scm_wta_dispatch_n ((gf), (args), (pos), (subr))
+
+/* Deprecated 15-05-2011 because this is a one-off macro that does
+   strange things.  */
+#define SCM_WTA_DISPATCH_1_SUBR(subr, a1, pos)				\
+  return (SCM_UNPACK ((*SCM_SUBR_GENERIC (subr)))			\
+	  ? scm_call_1 ((*SCM_SUBR_GENERIC (subr)), (a1))               \
+	  : (scm_i_wrong_type_arg_symbol (SCM_SUBR_NAME (subr), (pos), (a1)), SCM_UNSPECIFIED))
+
 #define SCM_LIST0 SCM_EOL
 #define SCM_LIST1(e0) scm_cons ((e0), SCM_EOL)
 #define SCM_LIST2(e0, e1) scm_cons2 ((e0), (e1), SCM_EOL)
@@ -73,6 +105,11 @@ SCM_DEPRECATED SCM scm_internal_dynamic_wind (scm_t_guard before,
 #define scm_array scm_array__GONE__REPLACE_WITH__scm_t_array
 #define scm_array_dim scm_array_dim__GONE__REPLACE_WITH__scm_t_array_dim
 #define scm_async_click scm_async_click__GONE__REPLACE_WITH__scm_async_tick
+#define scm_call_generic_0 scm_call_generic_0__GONE__REPLACE_WITH__scm_call_0
+#define scm_call_generic_1 scm_call_generic_1__GONE__REPLACE_WITH__scm_call_1
+#define scm_call_generic_2 scm_call_generic_2__GONE__REPLACE_WITH__scm_call_2
+#define scm_call_generic_3 scm_call_generic_3__GONE__REPLACE_WITH__scm_call_3
+#define scm_apply_generic scm_apply_generic__GONE__REPLACE_WITH__scm_apply_0
 #define scm_fport scm_fport__GONE__REPLACE_WITH__scm_t_fport
 #define scm_listify scm_listify__GONE__REPLACE_WITH__scm_list_n
 #define scm_option scm_option__GONE__REPLACE_WITH__scm_t_option

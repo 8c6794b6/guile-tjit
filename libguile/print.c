@@ -529,7 +529,7 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 		  goto print_struct;
 		pwps = scm_i_port_with_print_state (port, pstate->handle);
 		pstate->revealed = 1;
-		scm_call_generic_2 (print, exp, pwps);
+		scm_call_2 (print, exp, pwps);
 	      }
 	    else
 	      {

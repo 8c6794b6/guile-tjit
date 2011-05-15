@@ -398,67 +398,6 @@ typedef long SCM_STACKITEM;
 
 
 
-/*
- * SCM_WTA_DISPATCH
- */
-
-/* Dirk:FIXME:: In all of the SCM_WTA_DISPATCH_* macros it is assumed that
- * 'gf' is zero if uninitialized.  It would be cleaner if some valid SCM value
- * like SCM_BOOL_F or SCM_UNDEFINED was chosen.
- */
-
-SCM_API SCM scm_call_generic_0 (SCM gf);
-
-#define SCM_WTA_DISPATCH_0(gf, subr)			        \
-  return (SCM_UNPACK (gf)					\
-	  ? scm_call_generic_0 ((gf))				\
-	  : (scm_error_num_args_subr ((subr)), SCM_UNSPECIFIED))
-#define SCM_GASSERT0(cond, gf, subr)		\
-  if (SCM_UNLIKELY(!(cond)))		\
-    SCM_WTA_DISPATCH_0((gf), (subr))
-
-SCM_API SCM scm_call_generic_1 (SCM gf, SCM a1);
-
-#define SCM_WTA_DISPATCH_1(gf, a1, pos, subr)			\
-  return (SCM_UNPACK (gf)					\
-	  ? scm_call_generic_1 ((gf), (a1))			\
-	  : (scm_wrong_type_arg ((subr), (pos), (a1)), SCM_UNSPECIFIED))
-
-/* This form is for dispatching a subroutine.  */
-#define SCM_WTA_DISPATCH_1_SUBR(subr, a1, pos)				\
-  return (SCM_UNPACK ((*SCM_SUBR_GENERIC (subr)))			\
-	  ? scm_call_generic_1 ((*SCM_SUBR_GENERIC (subr)), (a1))	\
-	  : (scm_i_wrong_type_arg_symbol (SCM_SUBR_NAME (subr), (pos), (a1)), SCM_UNSPECIFIED))
-
-#define SCM_GASSERT1(cond, gf, a1, pos, subr)		\
-  if (SCM_UNLIKELY (!(cond)))			\
-    SCM_WTA_DISPATCH_1((gf), (a1), (pos), (subr))
-
-SCM_API SCM scm_call_generic_2 (SCM gf, SCM a1, SCM a2);
-
-#define SCM_WTA_DISPATCH_2(gf, a1, a2, pos, subr)			\
-  return (SCM_UNPACK (gf)						\
-	  ? scm_call_generic_2 ((gf), (a1), (a2))			\
-	  : (scm_wrong_type_arg ((subr), (pos),				\
-				 (pos) == SCM_ARG1 ? (a1) : (a2)),	\
-	     SCM_UNSPECIFIED))
-#define SCM_GASSERT2(cond, gf, a1, a2, pos, subr)	\
-  if (SCM_UNLIKELY (!(cond)))			\
-    SCM_WTA_DISPATCH_2((gf), (a1), (a2), (pos), (subr))
-
-SCM_API SCM scm_apply_generic (SCM gf, SCM args);
-
-#define SCM_WTA_DISPATCH_n(gf, args, pos, subr)				  \
-  return (SCM_UNPACK (gf)						  \
-	  ? scm_apply_generic ((gf), (args))				  \
-	  : (scm_wrong_type_arg ((subr), (pos),				  \
-				 scm_list_ref ((args),			  \
-					       scm_from_int ((pos) - 1))), \
-	     SCM_UNSPECIFIED))
-#define SCM_GASSERTn(cond, gf, args, pos, subr)		\
-  if (SCM_UNLIKELY (!(cond)))			\
-    SCM_WTA_DISPATCH_n((gf), (args), (pos), (subr))
-
 #ifndef SCM_MAGIC_SNARFER
 /* Let these macros pass through if
    we are snarfing;  thus we can tell the

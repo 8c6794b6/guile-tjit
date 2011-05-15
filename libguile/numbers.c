@@ -532,7 +532,7 @@ SCM_PRIMITIVE_GENERIC (scm_exact_p, "exact?", 1, 0, 0,
   else if (SCM_NUMBERP (x))
     return SCM_BOOL_T;
   else
-    SCM_WTA_DISPATCH_1 (g_scm_exact_p, x, 1, s_scm_exact_p);
+    return scm_wta_dispatch_1 (g_scm_exact_p, x, 1, s_scm_exact_p);
 }
 #undef FUNC_NAME
 
@@ -548,7 +548,7 @@ SCM_PRIMITIVE_GENERIC (scm_inexact_p, "inexact?", 1, 0, 0,
   else if (SCM_NUMBERP (x))
     return SCM_BOOL_F;
   else
-    SCM_WTA_DISPATCH_1 (g_scm_inexact_p, x, 1, s_scm_inexact_p);
+    return scm_wta_dispatch_1 (g_scm_inexact_p, x, 1, s_scm_inexact_p);
 }
 #undef FUNC_NAME
 
@@ -582,7 +582,7 @@ SCM_PRIMITIVE_GENERIC (scm_odd_p, "odd?", 1, 0, 0,
 	    return SCM_BOOL_F;
 	}
     }
-  SCM_WTA_DISPATCH_1 (g_scm_odd_p, n, 1, s_scm_odd_p);
+  return scm_wta_dispatch_1 (g_scm_odd_p, n, 1, s_scm_odd_p);
 }
 #undef FUNC_NAME
 
@@ -616,7 +616,7 @@ SCM_PRIMITIVE_GENERIC (scm_even_p, "even?", 1, 0, 0,
 	    return SCM_BOOL_T;
 	}
     }
-  SCM_WTA_DISPATCH_1 (g_scm_even_p, n, 1, s_scm_even_p);
+  return scm_wta_dispatch_1 (g_scm_even_p, n, 1, s_scm_even_p);
 }
 #undef FUNC_NAME
 
@@ -631,7 +631,7 @@ SCM_PRIMITIVE_GENERIC (scm_finite_p, "finite?", 1, 0, 0,
   else if (scm_is_real (x))
     return SCM_BOOL_T;
   else
-    SCM_WTA_DISPATCH_1 (g_scm_finite_p, x, 1, s_scm_finite_p);
+    return scm_wta_dispatch_1 (g_scm_finite_p, x, 1, s_scm_finite_p);
 }
 #undef FUNC_NAME
 
@@ -646,7 +646,7 @@ SCM_PRIMITIVE_GENERIC (scm_inf_p, "inf?", 1, 0, 0,
   else if (scm_is_real (x))
     return SCM_BOOL_F;
   else
-    SCM_WTA_DISPATCH_1 (g_scm_inf_p, x, 1, s_scm_inf_p);
+    return scm_wta_dispatch_1 (g_scm_inf_p, x, 1, s_scm_inf_p);
 }
 #undef FUNC_NAME
 
@@ -661,7 +661,7 @@ SCM_PRIMITIVE_GENERIC (scm_nan_p, "nan?", 1, 0, 0,
   else if (scm_is_real (x))
     return SCM_BOOL_F;
   else
-    SCM_WTA_DISPATCH_1 (g_scm_nan_p, x, 1, s_scm_nan_p);
+    return scm_wta_dispatch_1 (g_scm_nan_p, x, 1, s_scm_nan_p);
 }
 #undef FUNC_NAME
 
@@ -788,7 +788,7 @@ SCM_PRIMITIVE_GENERIC (scm_abs, "abs", 1, 0, 0,
 			     SCM_FRACTION_DENOMINATOR (x));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_abs, x, 1, s_scm_abs);
+    return scm_wta_dispatch_1 (g_scm_abs, x, 1, s_scm_abs);
 }
 #undef FUNC_NAME
 
@@ -803,10 +803,10 @@ SCM_PRIMITIVE_GENERIC (scm_quotient, "quotient", 2, 0, 0,
       if (SCM_LIKELY (scm_is_integer (y)))
 	return scm_truncate_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_quotient, x, y, SCM_ARG2, s_scm_quotient);
+	return scm_wta_dispatch_2 (g_scm_quotient, x, y, SCM_ARG2, s_scm_quotient);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_quotient, x, y, SCM_ARG1, s_scm_quotient);
+    return scm_wta_dispatch_2 (g_scm_quotient, x, y, SCM_ARG1, s_scm_quotient);
 }
 #undef FUNC_NAME
 
@@ -824,10 +824,10 @@ SCM_PRIMITIVE_GENERIC (scm_remainder, "remainder", 2, 0, 0,
       if (SCM_LIKELY (scm_is_integer (y)))
 	return scm_truncate_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_remainder, x, y, SCM_ARG2, s_scm_remainder);
+	return scm_wta_dispatch_2 (g_scm_remainder, x, y, SCM_ARG2, s_scm_remainder);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_remainder, x, y, SCM_ARG1, s_scm_remainder);
+    return scm_wta_dispatch_2 (g_scm_remainder, x, y, SCM_ARG1, s_scm_remainder);
 }
 #undef FUNC_NAME
 
@@ -846,10 +846,10 @@ SCM_PRIMITIVE_GENERIC (scm_modulo, "modulo", 2, 0, 0,
       if (SCM_LIKELY (scm_is_integer (y)))
 	return scm_floor_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_modulo, x, y, SCM_ARG2, s_scm_modulo);
+	return scm_wta_dispatch_2 (g_scm_modulo, x, y, SCM_ARG2, s_scm_modulo);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_modulo, x, y, SCM_ARG1, s_scm_modulo);
+    return scm_wta_dispatch_2 (g_scm_modulo, x, y, SCM_ARG1, s_scm_modulo);
 }
 #undef FUNC_NAME
 
@@ -870,10 +870,9 @@ static void
 two_valued_wta_dispatch_2 (SCM gf, SCM a1, SCM a2, int pos,
 			   const char *subr, SCM *rp1, SCM *rp2)
 {
-  if (SCM_UNPACK (gf))
-    scm_i_extract_values_2 (scm_call_generic_2 (gf, a1, a2), rp1, rp2);
-  else
-    scm_wrong_type_arg (subr, pos, (pos == SCM_ARG1) ? a1 : a2);
+  SCM vals = scm_wta_dispatch_2 (gf, a1, a2, pos, subr);
+  
+  scm_i_extract_values_2 (vals, rp1, rp2);
 }
 
 SCM_DEFINE (scm_euclidean_quotient, "euclidean-quotient", 2, 0, 0,
@@ -1005,8 +1004,8 @@ SCM_PRIMITIVE_GENERIC (scm_floor_quotient, "floor-quotient", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_floor_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_floor_quotient, x, y, SCM_ARG2,
-			    s_scm_floor_quotient);
+	return scm_wta_dispatch_2 (g_scm_floor_quotient, x, y, SCM_ARG2,
+                                   s_scm_floor_quotient);
     }
   else if (SCM_BIGP (x))
     {
@@ -1046,8 +1045,8 @@ SCM_PRIMITIVE_GENERIC (scm_floor_quotient, "floor-quotient", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_floor_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_floor_quotient, x, y, SCM_ARG2,
-			    s_scm_floor_quotient);
+	return scm_wta_dispatch_2 (g_scm_floor_quotient, x, y, SCM_ARG2,
+                                   s_scm_floor_quotient);
     }
   else if (SCM_REALP (x))
     {
@@ -1056,8 +1055,8 @@ SCM_PRIMITIVE_GENERIC (scm_floor_quotient, "floor-quotient", 2, 0, 0,
 	return scm_i_inexact_floor_quotient
 	  (SCM_REAL_VALUE (x), scm_to_double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_scm_floor_quotient, x, y, SCM_ARG2,
-			    s_scm_floor_quotient);
+	return scm_wta_dispatch_2 (g_scm_floor_quotient, x, y, SCM_ARG2,
+                                   s_scm_floor_quotient);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -1067,12 +1066,12 @@ SCM_PRIMITIVE_GENERIC (scm_floor_quotient, "floor-quotient", 2, 0, 0,
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
 	return scm_i_exact_rational_floor_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_floor_quotient, x, y, SCM_ARG2,
-			    s_scm_floor_quotient);
+	return scm_wta_dispatch_2 (g_scm_floor_quotient, x, y, SCM_ARG2,
+                                   s_scm_floor_quotient);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_floor_quotient, x, y, SCM_ARG1,
-			s_scm_floor_quotient);
+    return scm_wta_dispatch_2 (g_scm_floor_quotient, x, y, SCM_ARG1,
+                               s_scm_floor_quotient);
 }
 #undef FUNC_NAME
 
@@ -1165,8 +1164,8 @@ SCM_PRIMITIVE_GENERIC (scm_floor_remainder, "floor-remainder", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_floor_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_floor_remainder, x, y, SCM_ARG2,
-			    s_scm_floor_remainder);
+	return scm_wta_dispatch_2 (g_scm_floor_remainder, x, y, SCM_ARG2,
+                                   s_scm_floor_remainder);
     }
   else if (SCM_BIGP (x))
     {
@@ -1201,8 +1200,8 @@ SCM_PRIMITIVE_GENERIC (scm_floor_remainder, "floor-remainder", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_floor_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_floor_remainder, x, y, SCM_ARG2,
-			    s_scm_floor_remainder);
+	return scm_wta_dispatch_2 (g_scm_floor_remainder, x, y, SCM_ARG2,
+                                   s_scm_floor_remainder);
     }
   else if (SCM_REALP (x))
     {
@@ -1211,8 +1210,8 @@ SCM_PRIMITIVE_GENERIC (scm_floor_remainder, "floor-remainder", 2, 0, 0,
 	return scm_i_inexact_floor_remainder
 	  (SCM_REAL_VALUE (x), scm_to_double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_scm_floor_remainder, x, y, SCM_ARG2,
-			    s_scm_floor_remainder);
+	return scm_wta_dispatch_2 (g_scm_floor_remainder, x, y, SCM_ARG2,
+                                   s_scm_floor_remainder);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -1222,12 +1221,12 @@ SCM_PRIMITIVE_GENERIC (scm_floor_remainder, "floor-remainder", 2, 0, 0,
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
 	return scm_i_exact_rational_floor_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_floor_remainder, x, y, SCM_ARG2,
-			    s_scm_floor_remainder);
+	return scm_wta_dispatch_2 (g_scm_floor_remainder, x, y, SCM_ARG2,
+                                   s_scm_floor_remainder);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_floor_remainder, x, y, SCM_ARG1,
-			s_scm_floor_remainder);
+    return scm_wta_dispatch_2 (g_scm_floor_remainder, x, y, SCM_ARG1,
+                               s_scm_floor_remainder);
 }
 #undef FUNC_NAME
 
@@ -1540,8 +1539,8 @@ SCM_PRIMITIVE_GENERIC (scm_ceiling_quotient, "ceiling-quotient", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_ceiling_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_ceiling_quotient, x, y, SCM_ARG2,
-			    s_scm_ceiling_quotient);
+	return scm_wta_dispatch_2 (g_scm_ceiling_quotient, x, y, SCM_ARG2,
+                                   s_scm_ceiling_quotient);
     }
   else if (SCM_BIGP (x))
     {
@@ -1581,8 +1580,8 @@ SCM_PRIMITIVE_GENERIC (scm_ceiling_quotient, "ceiling-quotient", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_ceiling_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_ceiling_quotient, x, y, SCM_ARG2,
-			    s_scm_ceiling_quotient);
+	return scm_wta_dispatch_2 (g_scm_ceiling_quotient, x, y, SCM_ARG2,
+                                   s_scm_ceiling_quotient);
     }
   else if (SCM_REALP (x))
     {
@@ -1591,8 +1590,8 @@ SCM_PRIMITIVE_GENERIC (scm_ceiling_quotient, "ceiling-quotient", 2, 0, 0,
 	return scm_i_inexact_ceiling_quotient
 	  (SCM_REAL_VALUE (x), scm_to_double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_scm_ceiling_quotient, x, y, SCM_ARG2,
-			    s_scm_ceiling_quotient);
+	return scm_wta_dispatch_2 (g_scm_ceiling_quotient, x, y, SCM_ARG2,
+                                   s_scm_ceiling_quotient);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -1602,12 +1601,12 @@ SCM_PRIMITIVE_GENERIC (scm_ceiling_quotient, "ceiling-quotient", 2, 0, 0,
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
 	return scm_i_exact_rational_ceiling_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_ceiling_quotient, x, y, SCM_ARG2,
-			    s_scm_ceiling_quotient);
+	return scm_wta_dispatch_2 (g_scm_ceiling_quotient, x, y, SCM_ARG2,
+                                   s_scm_ceiling_quotient);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_ceiling_quotient, x, y, SCM_ARG1,
-			s_scm_ceiling_quotient);
+    return scm_wta_dispatch_2 (g_scm_ceiling_quotient, x, y, SCM_ARG1,
+                               s_scm_ceiling_quotient);
 }
 #undef FUNC_NAME
 
@@ -1710,8 +1709,8 @@ SCM_PRIMITIVE_GENERIC (scm_ceiling_remainder, "ceiling-remainder", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_ceiling_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_ceiling_remainder, x, y, SCM_ARG2,
-			    s_scm_ceiling_remainder);
+	return scm_wta_dispatch_2 (g_scm_ceiling_remainder, x, y, SCM_ARG2,
+                                   s_scm_ceiling_remainder);
     }
   else if (SCM_BIGP (x))
     {
@@ -1746,8 +1745,8 @@ SCM_PRIMITIVE_GENERIC (scm_ceiling_remainder, "ceiling-remainder", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_ceiling_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_ceiling_remainder, x, y, SCM_ARG2,
-			    s_scm_ceiling_remainder);
+	return scm_wta_dispatch_2 (g_scm_ceiling_remainder, x, y, SCM_ARG2,
+                                   s_scm_ceiling_remainder);
     }
   else if (SCM_REALP (x))
     {
@@ -1756,8 +1755,8 @@ SCM_PRIMITIVE_GENERIC (scm_ceiling_remainder, "ceiling-remainder", 2, 0, 0,
 	return scm_i_inexact_ceiling_remainder
 	  (SCM_REAL_VALUE (x), scm_to_double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_scm_ceiling_remainder, x, y, SCM_ARG2,
-			    s_scm_ceiling_remainder);
+	return scm_wta_dispatch_2 (g_scm_ceiling_remainder, x, y, SCM_ARG2,
+                                   s_scm_ceiling_remainder);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -1767,12 +1766,12 @@ SCM_PRIMITIVE_GENERIC (scm_ceiling_remainder, "ceiling-remainder", 2, 0, 0,
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
 	return scm_i_exact_rational_ceiling_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_ceiling_remainder, x, y, SCM_ARG2,
-			    s_scm_ceiling_remainder);
+	return scm_wta_dispatch_2 (g_scm_ceiling_remainder, x, y, SCM_ARG2,
+                                   s_scm_ceiling_remainder);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_ceiling_remainder, x, y, SCM_ARG1,
-			s_scm_ceiling_remainder);
+    return scm_wta_dispatch_2 (g_scm_ceiling_remainder, x, y, SCM_ARG1,
+                               s_scm_ceiling_remainder);
 }
 #undef FUNC_NAME
 
@@ -2072,8 +2071,8 @@ SCM_PRIMITIVE_GENERIC (scm_truncate_quotient, "truncate-quotient", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_truncate_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_truncate_quotient, x, y, SCM_ARG2,
-			    s_scm_truncate_quotient);
+	return scm_wta_dispatch_2 (g_scm_truncate_quotient, x, y, SCM_ARG2,
+                                   s_scm_truncate_quotient);
     }
   else if (SCM_BIGP (x))
     {
@@ -2113,8 +2112,8 @@ SCM_PRIMITIVE_GENERIC (scm_truncate_quotient, "truncate-quotient", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_truncate_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_truncate_quotient, x, y, SCM_ARG2,
-			    s_scm_truncate_quotient);
+	return scm_wta_dispatch_2 (g_scm_truncate_quotient, x, y, SCM_ARG2,
+                                   s_scm_truncate_quotient);
     }
   else if (SCM_REALP (x))
     {
@@ -2123,8 +2122,8 @@ SCM_PRIMITIVE_GENERIC (scm_truncate_quotient, "truncate-quotient", 2, 0, 0,
 	return scm_i_inexact_truncate_quotient
 	  (SCM_REAL_VALUE (x), scm_to_double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_scm_truncate_quotient, x, y, SCM_ARG2,
-			    s_scm_truncate_quotient);
+	return scm_wta_dispatch_2 (g_scm_truncate_quotient, x, y, SCM_ARG2,
+                                   s_scm_truncate_quotient);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -2134,12 +2133,12 @@ SCM_PRIMITIVE_GENERIC (scm_truncate_quotient, "truncate-quotient", 2, 0, 0,
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
 	return scm_i_exact_rational_truncate_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_truncate_quotient, x, y, SCM_ARG2,
-			    s_scm_truncate_quotient);
+	return scm_wta_dispatch_2 (g_scm_truncate_quotient, x, y, SCM_ARG2,
+                                   s_scm_truncate_quotient);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_truncate_quotient, x, y, SCM_ARG1,
-			s_scm_truncate_quotient);
+    return scm_wta_dispatch_2 (g_scm_truncate_quotient, x, y, SCM_ARG1,
+                               s_scm_truncate_quotient);
 }
 #undef FUNC_NAME
 
@@ -2207,8 +2206,8 @@ SCM_PRIMITIVE_GENERIC (scm_truncate_remainder, "truncate-remainder", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_truncate_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_truncate_remainder, x, y, SCM_ARG2,
-			    s_scm_truncate_remainder);
+	return scm_wta_dispatch_2 (g_scm_truncate_remainder, x, y, SCM_ARG2,
+                                   s_scm_truncate_remainder);
     }
   else if (SCM_BIGP (x))
     {
@@ -2241,8 +2240,8 @@ SCM_PRIMITIVE_GENERIC (scm_truncate_remainder, "truncate-remainder", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_truncate_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_truncate_remainder, x, y, SCM_ARG2,
-			    s_scm_truncate_remainder);
+	return scm_wta_dispatch_2 (g_scm_truncate_remainder, x, y, SCM_ARG2,
+                                   s_scm_truncate_remainder);
     }
   else if (SCM_REALP (x))
     {
@@ -2251,8 +2250,8 @@ SCM_PRIMITIVE_GENERIC (scm_truncate_remainder, "truncate-remainder", 2, 0, 0,
 	return scm_i_inexact_truncate_remainder
 	  (SCM_REAL_VALUE (x), scm_to_double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_scm_truncate_remainder, x, y, SCM_ARG2,
-			    s_scm_truncate_remainder);
+	return scm_wta_dispatch_2 (g_scm_truncate_remainder, x, y, SCM_ARG2,
+                                   s_scm_truncate_remainder);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -2262,12 +2261,12 @@ SCM_PRIMITIVE_GENERIC (scm_truncate_remainder, "truncate-remainder", 2, 0, 0,
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
 	return scm_i_exact_rational_truncate_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_truncate_remainder, x, y, SCM_ARG2,
-			    s_scm_truncate_remainder);
+	return scm_wta_dispatch_2 (g_scm_truncate_remainder, x, y, SCM_ARG2,
+                                   s_scm_truncate_remainder);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_truncate_remainder, x, y, SCM_ARG1,
-			s_scm_truncate_remainder);
+    return scm_wta_dispatch_2 (g_scm_truncate_remainder, x, y, SCM_ARG1,
+                               s_scm_truncate_remainder);
 }
 #undef FUNC_NAME
 
@@ -2554,8 +2553,8 @@ SCM_PRIMITIVE_GENERIC (scm_centered_quotient, "centered-quotient", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_centered_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_centered_quotient, x, y, SCM_ARG2,
-			    s_scm_centered_quotient);
+	return scm_wta_dispatch_2 (g_scm_centered_quotient, x, y, SCM_ARG2,
+                                   s_scm_centered_quotient);
     }
   else if (SCM_BIGP (x))
     {
@@ -2603,8 +2602,8 @@ SCM_PRIMITIVE_GENERIC (scm_centered_quotient, "centered-quotient", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_centered_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_centered_quotient, x, y, SCM_ARG2,
-			    s_scm_centered_quotient);
+	return scm_wta_dispatch_2 (g_scm_centered_quotient, x, y, SCM_ARG2,
+                                   s_scm_centered_quotient);
     }
   else if (SCM_REALP (x))
     {
@@ -2613,8 +2612,8 @@ SCM_PRIMITIVE_GENERIC (scm_centered_quotient, "centered-quotient", 2, 0, 0,
 	return scm_i_inexact_centered_quotient
 	  (SCM_REAL_VALUE (x), scm_to_double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_scm_centered_quotient, x, y, SCM_ARG2,
-			    s_scm_centered_quotient);
+	return scm_wta_dispatch_2 (g_scm_centered_quotient, x, y, SCM_ARG2,
+                                   s_scm_centered_quotient);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -2624,12 +2623,12 @@ SCM_PRIMITIVE_GENERIC (scm_centered_quotient, "centered-quotient", 2, 0, 0,
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
 	return scm_i_exact_rational_centered_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_centered_quotient, x, y, SCM_ARG2,
-			    s_scm_centered_quotient);
+	return scm_wta_dispatch_2 (g_scm_centered_quotient, x, y, SCM_ARG2,
+                                   s_scm_centered_quotient);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_centered_quotient, x, y, SCM_ARG1,
-			s_scm_centered_quotient);
+    return scm_wta_dispatch_2 (g_scm_centered_quotient, x, y, SCM_ARG1,
+                               s_scm_centered_quotient);
 }
 #undef FUNC_NAME
 
@@ -2768,8 +2767,8 @@ SCM_PRIMITIVE_GENERIC (scm_centered_remainder, "centered-remainder", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_centered_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_centered_remainder, x, y, SCM_ARG2,
-			    s_scm_centered_remainder);
+	return scm_wta_dispatch_2 (g_scm_centered_remainder, x, y, SCM_ARG2,
+                                   s_scm_centered_remainder);
     }
   else if (SCM_BIGP (x))
     {
@@ -2809,8 +2808,8 @@ SCM_PRIMITIVE_GENERIC (scm_centered_remainder, "centered-remainder", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_centered_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_centered_remainder, x, y, SCM_ARG2,
-			    s_scm_centered_remainder);
+	return scm_wta_dispatch_2 (g_scm_centered_remainder, x, y, SCM_ARG2,
+                                   s_scm_centered_remainder);
     }
   else if (SCM_REALP (x))
     {
@@ -2819,8 +2818,8 @@ SCM_PRIMITIVE_GENERIC (scm_centered_remainder, "centered-remainder", 2, 0, 0,
 	return scm_i_inexact_centered_remainder
 	  (SCM_REAL_VALUE (x), scm_to_double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_scm_centered_remainder, x, y, SCM_ARG2,
-			    s_scm_centered_remainder);
+	return scm_wta_dispatch_2 (g_scm_centered_remainder, x, y, SCM_ARG2,
+                                   s_scm_centered_remainder);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -2830,12 +2829,12 @@ SCM_PRIMITIVE_GENERIC (scm_centered_remainder, "centered-remainder", 2, 0, 0,
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
 	return scm_i_exact_rational_centered_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_centered_remainder, x, y, SCM_ARG2,
-			    s_scm_centered_remainder);
+	return scm_wta_dispatch_2 (g_scm_centered_remainder, x, y, SCM_ARG2,
+                                   s_scm_centered_remainder);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_centered_remainder, x, y, SCM_ARG1,
-			s_scm_centered_remainder);
+    return scm_wta_dispatch_2 (g_scm_centered_remainder, x, y, SCM_ARG1,
+                               s_scm_centered_remainder);
 }
 #undef FUNC_NAME
 
@@ -3250,8 +3249,8 @@ SCM_PRIMITIVE_GENERIC (scm_round_quotient, "round-quotient", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_round_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_round_quotient, x, y, SCM_ARG2,
-			    s_scm_round_quotient);
+	return scm_wta_dispatch_2 (g_scm_round_quotient, x, y, SCM_ARG2,
+                                   s_scm_round_quotient);
     }
   else if (SCM_BIGP (x))
     {
@@ -3301,8 +3300,8 @@ SCM_PRIMITIVE_GENERIC (scm_round_quotient, "round-quotient", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_round_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_round_quotient, x, y, SCM_ARG2,
-			    s_scm_round_quotient);
+	return scm_wta_dispatch_2 (g_scm_round_quotient, x, y, SCM_ARG2,
+                                   s_scm_round_quotient);
     }
   else if (SCM_REALP (x))
     {
@@ -3311,8 +3310,8 @@ SCM_PRIMITIVE_GENERIC (scm_round_quotient, "round-quotient", 2, 0, 0,
 	return scm_i_inexact_round_quotient
 	  (SCM_REAL_VALUE (x), scm_to_double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_scm_round_quotient, x, y, SCM_ARG2,
-			    s_scm_round_quotient);
+	return scm_wta_dispatch_2 (g_scm_round_quotient, x, y, SCM_ARG2,
+                                   s_scm_round_quotient);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -3322,12 +3321,12 @@ SCM_PRIMITIVE_GENERIC (scm_round_quotient, "round-quotient", 2, 0, 0,
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
 	return scm_i_exact_rational_round_quotient (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_round_quotient, x, y, SCM_ARG2,
-			    s_scm_round_quotient);
+	return scm_wta_dispatch_2 (g_scm_round_quotient, x, y, SCM_ARG2,
+                                   s_scm_round_quotient);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_round_quotient, x, y, SCM_ARG1,
-			s_scm_round_quotient);
+    return scm_wta_dispatch_2 (g_scm_round_quotient, x, y, SCM_ARG1,
+                               s_scm_round_quotient);
 }
 #undef FUNC_NAME
 
@@ -3454,8 +3453,8 @@ SCM_PRIMITIVE_GENERIC (scm_round_remainder, "round-remainder", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_round_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_round_remainder, x, y, SCM_ARG2,
-			    s_scm_round_remainder);
+	return scm_wta_dispatch_2 (g_scm_round_remainder, x, y, SCM_ARG2,
+                                   s_scm_round_remainder);
     }
   else if (SCM_BIGP (x))
     {
@@ -3502,8 +3501,8 @@ SCM_PRIMITIVE_GENERIC (scm_round_remainder, "round-remainder", 2, 0, 0,
       else if (SCM_FRACTIONP (y))
 	return scm_i_exact_rational_round_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_round_remainder, x, y, SCM_ARG2,
-			    s_scm_round_remainder);
+	return scm_wta_dispatch_2 (g_scm_round_remainder, x, y, SCM_ARG2,
+                                   s_scm_round_remainder);
     }
   else if (SCM_REALP (x))
     {
@@ -3512,8 +3511,8 @@ SCM_PRIMITIVE_GENERIC (scm_round_remainder, "round-remainder", 2, 0, 0,
 	return scm_i_inexact_round_remainder
 	  (SCM_REAL_VALUE (x), scm_to_double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_scm_round_remainder, x, y, SCM_ARG2,
-			    s_scm_round_remainder);
+	return scm_wta_dispatch_2 (g_scm_round_remainder, x, y, SCM_ARG2,
+                                   s_scm_round_remainder);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -3523,12 +3522,12 @@ SCM_PRIMITIVE_GENERIC (scm_round_remainder, "round-remainder", 2, 0, 0,
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
 	return scm_i_exact_rational_round_remainder (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_round_remainder, x, y, SCM_ARG2,
-			    s_scm_round_remainder);
+	return scm_wta_dispatch_2 (g_scm_round_remainder, x, y, SCM_ARG2,
+                                   s_scm_round_remainder);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_round_remainder, x, y, SCM_ARG1,
-			s_scm_round_remainder);
+    return scm_wta_dispatch_2 (g_scm_round_remainder, x, y, SCM_ARG1,
+                               s_scm_round_remainder);
 }
 #undef FUNC_NAME
 
@@ -3912,7 +3911,7 @@ scm_gcd (SCM x, SCM y)
           goto big_inum;
         }
       else
-        SCM_WTA_DISPATCH_2 (g_gcd, x, y, SCM_ARG2, s_gcd);
+        return scm_wta_dispatch_2 (g_gcd, x, y, SCM_ARG2, s_gcd);
     }
   else if (SCM_BIGP (x))
     {
@@ -3942,10 +3941,10 @@ scm_gcd (SCM x, SCM y)
           return scm_i_normbig (result);
         }
       else
-        SCM_WTA_DISPATCH_2 (g_gcd, x, y, SCM_ARG2, s_gcd);
+        return scm_wta_dispatch_2 (g_gcd, x, y, SCM_ARG2, s_gcd);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_gcd, x, y, SCM_ARG1, s_gcd);
+    return scm_wta_dispatch_2 (g_gcd, x, y, SCM_ARG1, s_gcd);
 }
 
 SCM_PRIMITIVE_GENERIC (scm_i_lcm, "lcm", 0, 2, 1,
@@ -3976,10 +3975,11 @@ scm_lcm (SCM n1, SCM n2)
       n2 = SCM_I_MAKINUM (1L);
     }
 
-  SCM_GASSERT2 (SCM_I_INUMP (n1) || SCM_BIGP (n1),
-                g_lcm, n1, n2, SCM_ARG1, s_lcm);
-  SCM_GASSERT2 (SCM_I_INUMP (n2) || SCM_BIGP (n2),
-                g_lcm, n1, n2, SCM_ARGn, s_lcm);
+  if (SCM_UNLIKELY (!(SCM_I_INUMP (n1) || SCM_BIGP (n1))))
+    return scm_wta_dispatch_2 (g_lcm, n1, n2, SCM_ARG1, s_lcm);
+  
+  if (SCM_UNLIKELY (!(SCM_I_INUMP (n2) || SCM_BIGP (n2))))
+    return scm_wta_dispatch_2 (g_lcm, n1, n2, SCM_ARG2, s_lcm);
 
   if (SCM_I_INUMP (n1))
     {
@@ -6177,7 +6177,8 @@ scm_num_eq_p (SCM x, SCM y)
       else if (SCM_FRACTIONP (y))
 	return SCM_BOOL_F;
       else
-	SCM_WTA_DISPATCH_2 (g_scm_i_num_eq_p, x, y, SCM_ARGn, s_scm_i_num_eq_p);
+	return scm_wta_dispatch_2 (g_scm_i_num_eq_p, x, y, SCM_ARGn,
+                                   s_scm_i_num_eq_p);
     }
   else if (SCM_BIGP (x))
     {
@@ -6212,7 +6213,8 @@ scm_num_eq_p (SCM x, SCM y)
       else if (SCM_FRACTIONP (y))
 	return SCM_BOOL_F;
       else
-	SCM_WTA_DISPATCH_2 (g_scm_i_num_eq_p, x, y, SCM_ARGn, s_scm_i_num_eq_p);
+	return scm_wta_dispatch_2 (g_scm_i_num_eq_p, x, y, SCM_ARGn,
+                                   s_scm_i_num_eq_p);
     }
   else if (SCM_REALP (x))
     {
@@ -6250,7 +6252,8 @@ scm_num_eq_p (SCM x, SCM y)
           goto again;
         }
       else
-	SCM_WTA_DISPATCH_2 (g_scm_i_num_eq_p, x, y, SCM_ARGn, s_scm_i_num_eq_p);
+	return scm_wta_dispatch_2 (g_scm_i_num_eq_p, x, y, SCM_ARGn,
+                                   s_scm_i_num_eq_p);
     }
   else if (SCM_COMPLEXP (x))
     {
@@ -6288,7 +6291,8 @@ scm_num_eq_p (SCM x, SCM y)
           goto again;
         }
       else
-	SCM_WTA_DISPATCH_2 (g_scm_i_num_eq_p, x, y, SCM_ARGn, s_scm_i_num_eq_p);
+	return scm_wta_dispatch_2 (g_scm_i_num_eq_p, x, y, SCM_ARGn,
+                                   s_scm_i_num_eq_p);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -6322,10 +6326,12 @@ scm_num_eq_p (SCM x, SCM y)
       else if (SCM_FRACTIONP (y))
 	return scm_i_fraction_equalp (x, y);
       else
-	SCM_WTA_DISPATCH_2 (g_scm_i_num_eq_p, x, y, SCM_ARGn, s_scm_i_num_eq_p);
+	return scm_wta_dispatch_2 (g_scm_i_num_eq_p, x, y, SCM_ARGn,
+                                   s_scm_i_num_eq_p);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_i_num_eq_p, x, y, SCM_ARG1, s_scm_i_num_eq_p);
+    return scm_wta_dispatch_2 (g_scm_i_num_eq_p, x, y, SCM_ARG1,
+                               s_scm_i_num_eq_p);
 }
 
 
@@ -6384,7 +6390,8 @@ scm_less_p (SCM x, SCM y)
           goto again;
         }
       else
-	SCM_WTA_DISPATCH_2 (g_scm_i_num_less_p, x, y, SCM_ARGn, s_scm_i_num_less_p);
+	return scm_wta_dispatch_2 (g_scm_i_num_less_p, x, y, SCM_ARGn,
+                                   s_scm_i_num_less_p);
     }
   else if (SCM_BIGP (x))
     {
@@ -6412,7 +6419,8 @@ scm_less_p (SCM x, SCM y)
       else if (SCM_FRACTIONP (y))
         goto int_frac;
       else
-	SCM_WTA_DISPATCH_2 (g_scm_i_num_less_p, x, y, SCM_ARGn, s_scm_i_num_less_p);
+	return scm_wta_dispatch_2 (g_scm_i_num_less_p, x, y, SCM_ARGn,
+                                   s_scm_i_num_less_p);
     }
   else if (SCM_REALP (x))
     {
@@ -6440,7 +6448,8 @@ scm_less_p (SCM x, SCM y)
           goto again;
         }
       else
-	SCM_WTA_DISPATCH_2 (g_scm_i_num_less_p, x, y, SCM_ARGn, s_scm_i_num_less_p);
+	return scm_wta_dispatch_2 (g_scm_i_num_less_p, x, y, SCM_ARGn,
+                                   s_scm_i_num_less_p);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -6473,10 +6482,12 @@ scm_less_p (SCM x, SCM y)
           goto again;
         }
       else
-	SCM_WTA_DISPATCH_2 (g_scm_i_num_less_p, x, y, SCM_ARGn, s_scm_i_num_less_p);
+	return scm_wta_dispatch_2 (g_scm_i_num_less_p, x, y, SCM_ARGn,
+                                   s_scm_i_num_less_p);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_i_num_less_p, x, y, SCM_ARG1, s_scm_i_num_less_p);
+    return scm_wta_dispatch_2 (g_scm_i_num_less_p, x, y, SCM_ARG1,
+                               s_scm_i_num_less_p);
 }
 
 
@@ -6505,9 +6516,9 @@ SCM
 scm_gr_p (SCM x, SCM y)
 {
   if (!SCM_NUMBERP (x))
-    SCM_WTA_DISPATCH_2 (g_scm_i_num_gr_p, x, y, SCM_ARG1, FUNC_NAME);
+    return scm_wta_dispatch_2 (g_scm_i_num_gr_p, x, y, SCM_ARG1, FUNC_NAME);
   else if (!SCM_NUMBERP (y))
-    SCM_WTA_DISPATCH_2 (g_scm_i_num_gr_p, x, y, SCM_ARG2, FUNC_NAME);
+    return scm_wta_dispatch_2 (g_scm_i_num_gr_p, x, y, SCM_ARG2, FUNC_NAME);
   else
     return scm_less_p (y, x);
 }
@@ -6539,9 +6550,9 @@ SCM
 scm_leq_p (SCM x, SCM y)
 {
   if (!SCM_NUMBERP (x))
-    SCM_WTA_DISPATCH_2 (g_scm_i_num_leq_p, x, y, SCM_ARG1, FUNC_NAME);
+    return scm_wta_dispatch_2 (g_scm_i_num_leq_p, x, y, SCM_ARG1, FUNC_NAME);
   else if (!SCM_NUMBERP (y))
-    SCM_WTA_DISPATCH_2 (g_scm_i_num_leq_p, x, y, SCM_ARG2, FUNC_NAME);
+    return scm_wta_dispatch_2 (g_scm_i_num_leq_p, x, y, SCM_ARG2, FUNC_NAME);
   else if (scm_is_true (scm_nan_p (x)) || scm_is_true (scm_nan_p (y)))
     return SCM_BOOL_F;
   else
@@ -6575,9 +6586,9 @@ SCM
 scm_geq_p (SCM x, SCM y)
 {
   if (!SCM_NUMBERP (x))
-    SCM_WTA_DISPATCH_2 (g_scm_i_num_geq_p, x, y, SCM_ARG1, FUNC_NAME);
+    return scm_wta_dispatch_2 (g_scm_i_num_geq_p, x, y, SCM_ARG1, FUNC_NAME);
   else if (!SCM_NUMBERP (y))
-    SCM_WTA_DISPATCH_2 (g_scm_i_num_geq_p, x, y, SCM_ARG2, FUNC_NAME);
+    return scm_wta_dispatch_2 (g_scm_i_num_geq_p, x, y, SCM_ARG2, FUNC_NAME);
   else if (scm_is_true (scm_nan_p (x)) || scm_is_true (scm_nan_p (y)))
     return SCM_BOOL_F;
   else
@@ -6604,7 +6615,7 @@ SCM_PRIMITIVE_GENERIC (scm_zero_p, "zero?", 1, 0, 0,
   else if (SCM_FRACTIONP (z))
     return SCM_BOOL_F;
   else
-    SCM_WTA_DISPATCH_1 (g_scm_zero_p, z, SCM_ARG1, s_scm_zero_p);
+    return scm_wta_dispatch_1 (g_scm_zero_p, z, SCM_ARG1, s_scm_zero_p);
 }
 #undef FUNC_NAME
 
@@ -6628,7 +6639,7 @@ SCM_PRIMITIVE_GENERIC (scm_positive_p, "positive?", 1, 0, 0,
   else if (SCM_FRACTIONP (x))
     return scm_positive_p (SCM_FRACTION_NUMERATOR (x));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_positive_p, x, SCM_ARG1, s_scm_positive_p);
+    return scm_wta_dispatch_1 (g_scm_positive_p, x, SCM_ARG1, s_scm_positive_p);
 }
 #undef FUNC_NAME
 
@@ -6652,7 +6663,7 @@ SCM_PRIMITIVE_GENERIC (scm_negative_p, "negative?", 1, 0, 0,
   else if (SCM_FRACTIONP (x))
     return scm_negative_p (SCM_FRACTION_NUMERATOR (x));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_negative_p, x, SCM_ARG1, s_scm_negative_p);
+    return scm_wta_dispatch_1 (g_scm_negative_p, x, SCM_ARG1, s_scm_negative_p);
 }
 #undef FUNC_NAME
 
@@ -6686,11 +6697,11 @@ scm_max (SCM x, SCM y)
   if (SCM_UNBNDP (y))
     {
       if (SCM_UNBNDP (x))
-	SCM_WTA_DISPATCH_0 (g_max, s_max);
+	return scm_wta_dispatch_0 (g_max, s_max);
       else if (SCM_I_INUMP(x) || SCM_BIGP(x) || SCM_REALP(x) || SCM_FRACTIONP(x))
 	return x;
       else
-	SCM_WTA_DISPATCH_1 (g_max, x, SCM_ARG1, s_max);
+	return scm_wta_dispatch_1 (g_max, x, SCM_ARG1, s_max);
     }
   
   if (SCM_I_INUMP (x))
@@ -6729,7 +6740,7 @@ scm_max (SCM x, SCM y)
           return (scm_is_false (scm_less_p (x, y)) ? x : y);
 	}
       else
-	SCM_WTA_DISPATCH_2 (g_max, x, y, SCM_ARGn, s_max);
+	return scm_wta_dispatch_2 (g_max, x, y, SCM_ARGn, s_max);
     }
   else if (SCM_BIGP (x))
     {
@@ -6759,7 +6770,7 @@ scm_max (SCM x, SCM y)
           goto use_less;
 	}
       else
-	SCM_WTA_DISPATCH_2 (g_max, x, y, SCM_ARGn, s_max);
+	return scm_wta_dispatch_2 (g_max, x, y, SCM_ARGn, s_max);
     }
   else if (SCM_REALP (x))
     {
@@ -6814,7 +6825,7 @@ scm_max (SCM x, SCM y)
 	  return (xx < yy) ? scm_from_double (yy) : x;
 	}
       else
-	SCM_WTA_DISPATCH_2 (g_max, x, y, SCM_ARGn, s_max);
+	return scm_wta_dispatch_2 (g_max, x, y, SCM_ARGn, s_max);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -6837,10 +6848,10 @@ scm_max (SCM x, SCM y)
           goto use_less;
 	}
       else
-	SCM_WTA_DISPATCH_2 (g_max, x, y, SCM_ARGn, s_max);
+	return scm_wta_dispatch_2 (g_max, x, y, SCM_ARGn, s_max);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_max, x, y, SCM_ARG1, s_max);
+    return scm_wta_dispatch_2 (g_max, x, y, SCM_ARG1, s_max);
 }
 
 
@@ -6867,11 +6878,11 @@ scm_min (SCM x, SCM y)
   if (SCM_UNBNDP (y))
     {
       if (SCM_UNBNDP (x))
-	SCM_WTA_DISPATCH_0 (g_min, s_min);
+	return scm_wta_dispatch_0 (g_min, s_min);
       else if (SCM_I_INUMP(x) || SCM_BIGP(x) || SCM_REALP(x) || SCM_FRACTIONP(x))
 	return x;
       else
-	SCM_WTA_DISPATCH_1 (g_min, x, SCM_ARG1, s_min);
+	return scm_wta_dispatch_1 (g_min, x, SCM_ARG1, s_min);
     }
   
   if (SCM_I_INUMP (x))
@@ -6900,7 +6911,7 @@ scm_min (SCM x, SCM y)
           return (scm_is_false (scm_less_p (x, y)) ? y : x);
 	}
       else
-	SCM_WTA_DISPATCH_2 (g_min, x, y, SCM_ARGn, s_min);
+	return scm_wta_dispatch_2 (g_min, x, y, SCM_ARGn, s_min);
     }
   else if (SCM_BIGP (x))
     {
@@ -6930,7 +6941,7 @@ scm_min (SCM x, SCM y)
           goto use_less;
 	}
       else
-	SCM_WTA_DISPATCH_2 (g_min, x, y, SCM_ARGn, s_min);
+	return scm_wta_dispatch_2 (g_min, x, y, SCM_ARGn, s_min);
     }
   else if (SCM_REALP (x))
     {
@@ -6974,7 +6985,7 @@ scm_min (SCM x, SCM y)
 	  return (yy < xx) ? scm_from_double (yy) : x;
 	}
       else
-	SCM_WTA_DISPATCH_2 (g_min, x, y, SCM_ARGn, s_min);
+	return scm_wta_dispatch_2 (g_min, x, y, SCM_ARGn, s_min);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -6997,10 +7008,10 @@ scm_min (SCM x, SCM y)
           goto use_less;
 	}
       else
-	SCM_WTA_DISPATCH_2 (g_min, x, y, SCM_ARGn, s_min);
+	return scm_wta_dispatch_2 (g_min, x, y, SCM_ARGn, s_min);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_min, x, y, SCM_ARG1, s_min);
+    return scm_wta_dispatch_2 (g_min, x, y, SCM_ARG1, s_min);
 }
 
 
@@ -7029,7 +7040,7 @@ scm_sum (SCM x, SCM y)
     {
       if (SCM_NUMBERP (x)) return x;
       if (SCM_UNBNDP (x)) return SCM_INUM0;
-      SCM_WTA_DISPATCH_1 (g_sum, x, SCM_ARG1, s_sum);
+      return scm_wta_dispatch_1 (g_sum, x, SCM_ARG1, s_sum);
     }
 
   if (SCM_LIKELY (SCM_I_INUMP (x)))
@@ -7062,7 +7073,7 @@ scm_sum (SCM x, SCM y)
 					scm_product (x, SCM_FRACTION_DENOMINATOR (y))),
 			       SCM_FRACTION_DENOMINATOR (y));
       else
-        SCM_WTA_DISPATCH_2 (g_sum, x, y, SCM_ARGn, s_sum);
+        return scm_wta_dispatch_2 (g_sum, x, y, SCM_ARGn, s_sum);
     } else if (SCM_BIGP (x))
       {
 	if (SCM_I_INUMP (y))
@@ -7127,7 +7138,7 @@ scm_sum (SCM x, SCM y)
 					  scm_product (x, SCM_FRACTION_DENOMINATOR (y))),
 				 SCM_FRACTION_DENOMINATOR (y));
 	else
-	  SCM_WTA_DISPATCH_2 (g_sum, x, y, SCM_ARGn, s_sum);
+	  return scm_wta_dispatch_2 (g_sum, x, y, SCM_ARGn, s_sum);
       }
   else if (SCM_REALP (x))
     {
@@ -7147,7 +7158,7 @@ scm_sum (SCM x, SCM y)
       else if (SCM_FRACTIONP (y))
 	return scm_from_double (SCM_REAL_VALUE (x) + scm_i_fraction2double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_sum, x, y, SCM_ARGn, s_sum);
+	return scm_wta_dispatch_2 (g_sum, x, y, SCM_ARGn, s_sum);
     }
   else if (SCM_COMPLEXP (x))
     {
@@ -7171,7 +7182,7 @@ scm_sum (SCM x, SCM y)
 	return scm_c_make_rectangular (SCM_COMPLEX_REAL (x) + scm_i_fraction2double (y),
 				 SCM_COMPLEX_IMAG (x));
       else
-	SCM_WTA_DISPATCH_2 (g_sum, x, y, SCM_ARGn, s_sum);
+	return scm_wta_dispatch_2 (g_sum, x, y, SCM_ARGn, s_sum);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -7194,10 +7205,10 @@ scm_sum (SCM x, SCM y)
 					scm_product (SCM_FRACTION_NUMERATOR (y), SCM_FRACTION_DENOMINATOR (x))),
 			       scm_product (SCM_FRACTION_DENOMINATOR (x), SCM_FRACTION_DENOMINATOR (y)));
       else
-	SCM_WTA_DISPATCH_2 (g_sum, x, y, SCM_ARGn, s_sum);
+	return scm_wta_dispatch_2 (g_sum, x, y, SCM_ARGn, s_sum);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_sum, x, y, SCM_ARG1, s_sum);
+    return scm_wta_dispatch_2 (g_sum, x, y, SCM_ARG1, s_sum);
 }
 
 
@@ -7237,7 +7248,7 @@ scm_difference (SCM x, SCM y)
   if (SCM_UNLIKELY (SCM_UNBNDP (y)))
     {
       if (SCM_UNBNDP (x))
-        SCM_WTA_DISPATCH_0 (g_difference, s_difference);
+        return scm_wta_dispatch_0 (g_difference, s_difference);
       else 
         if (SCM_I_INUMP (x))
           {
@@ -7260,7 +7271,7 @@ scm_difference (SCM x, SCM y)
 	  return scm_i_make_ratio (scm_difference (SCM_FRACTION_NUMERATOR (x), SCM_UNDEFINED),
 				 SCM_FRACTION_DENOMINATOR (x));
         else
-          SCM_WTA_DISPATCH_1 (g_difference, x, SCM_ARG1, s_difference);
+          return scm_wta_dispatch_1 (g_difference, x, SCM_ARG1, s_difference);
     }
   
   if (SCM_LIKELY (SCM_I_INUMP (x)))
@@ -7347,7 +7358,7 @@ scm_difference (SCM x, SCM y)
 					       SCM_FRACTION_NUMERATOR (y)),
 			       SCM_FRACTION_DENOMINATOR (y));
       else
-	SCM_WTA_DISPATCH_2 (g_difference, x, y, SCM_ARGn, s_difference);
+	return scm_wta_dispatch_2 (g_difference, x, y, SCM_ARGn, s_difference);
     }
   else if (SCM_BIGP (x))
     {
@@ -7411,7 +7422,8 @@ scm_difference (SCM x, SCM y)
 	return scm_i_make_ratio (scm_difference (scm_product (x, SCM_FRACTION_DENOMINATOR (y)),
 					       SCM_FRACTION_NUMERATOR (y)),
 			       SCM_FRACTION_DENOMINATOR (y));
-      else SCM_WTA_DISPATCH_2 (g_difference, x, y, SCM_ARGn, s_difference);
+      else
+        return scm_wta_dispatch_2 (g_difference, x, y, SCM_ARGn, s_difference);
     }
   else if (SCM_REALP (x))
     {
@@ -7431,7 +7443,7 @@ scm_difference (SCM x, SCM y)
       else if (SCM_FRACTIONP (y))
 	return scm_from_double (SCM_REAL_VALUE (x) - scm_i_fraction2double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_difference, x, y, SCM_ARGn, s_difference);
+	return scm_wta_dispatch_2 (g_difference, x, y, SCM_ARGn, s_difference);
     }
   else if (SCM_COMPLEXP (x))
     {
@@ -7455,7 +7467,7 @@ scm_difference (SCM x, SCM y)
 	return scm_c_make_rectangular (SCM_COMPLEX_REAL (x) - scm_i_fraction2double (y),
 				 SCM_COMPLEX_IMAG (x));
       else
-	SCM_WTA_DISPATCH_2 (g_difference, x, y, SCM_ARGn, s_difference);
+	return scm_wta_dispatch_2 (g_difference, x, y, SCM_ARGn, s_difference);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -7479,10 +7491,10 @@ scm_difference (SCM x, SCM y)
 					       scm_product (SCM_FRACTION_NUMERATOR (y), SCM_FRACTION_DENOMINATOR (x))),
 			       scm_product (SCM_FRACTION_DENOMINATOR (x), SCM_FRACTION_DENOMINATOR (y)));
       else
-	SCM_WTA_DISPATCH_2 (g_difference, x, y, SCM_ARGn, s_difference);
+	return scm_wta_dispatch_2 (g_difference, x, y, SCM_ARGn, s_difference);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_difference, x, y, SCM_ARG1, s_difference);
+    return scm_wta_dispatch_2 (g_difference, x, y, SCM_ARG1, s_difference);
 }
 #undef FUNC_NAME
 
@@ -7525,7 +7537,7 @@ scm_product (SCM x, SCM y)
       else if (SCM_NUMBERP (x))
 	return x;
       else
-	SCM_WTA_DISPATCH_1 (g_product, x, SCM_ARG1, s_product);
+	return scm_wta_dispatch_1 (g_product, x, SCM_ARG1, s_product);
     }
   
   if (SCM_LIKELY (SCM_I_INUMP (x)))
@@ -7558,7 +7570,7 @@ scm_product (SCM x, SCM y)
 	  else if (SCM_NUMP (y))
 	    return SCM_INUM0;
 	  else
-	    SCM_WTA_DISPATCH_2 (g_product, x, y, SCM_ARGn, s_product);
+	    return scm_wta_dispatch_2 (g_product, x, y, SCM_ARGn, s_product);
 	  break;
         case -1:
 	  /*
@@ -7603,7 +7615,7 @@ scm_product (SCM x, SCM y)
 	return scm_i_make_ratio (scm_product (x, SCM_FRACTION_NUMERATOR (y)),
 			       SCM_FRACTION_DENOMINATOR (y));
       else
-	SCM_WTA_DISPATCH_2 (g_product, x, y, SCM_ARGn, s_product);
+	return scm_wta_dispatch_2 (g_product, x, y, SCM_ARGn, s_product);
     }
   else if (SCM_BIGP (x))
     {
@@ -7638,7 +7650,7 @@ scm_product (SCM x, SCM y)
 	return scm_i_make_ratio (scm_product (x, SCM_FRACTION_NUMERATOR (y)),
 			       SCM_FRACTION_DENOMINATOR (y));
       else
-	SCM_WTA_DISPATCH_2 (g_product, x, y, SCM_ARGn, s_product);
+	return scm_wta_dispatch_2 (g_product, x, y, SCM_ARGn, s_product);
     }
   else if (SCM_REALP (x))
     {
@@ -7661,7 +7673,7 @@ scm_product (SCM x, SCM y)
       else if (SCM_FRACTIONP (y))
 	return scm_from_double (SCM_REAL_VALUE (x) * scm_i_fraction2double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_product, x, y, SCM_ARGn, s_product);
+	return scm_wta_dispatch_2 (g_product, x, y, SCM_ARGn, s_product);
     }
   else if (SCM_COMPLEXP (x))
     {
@@ -7694,7 +7706,7 @@ scm_product (SCM x, SCM y)
 				   yy * SCM_COMPLEX_IMAG (x));
 	}
       else
-	SCM_WTA_DISPATCH_2 (g_product, x, y, SCM_ARGn, s_product);
+	return scm_wta_dispatch_2 (g_product, x, y, SCM_ARGn, s_product);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -7719,10 +7731,10 @@ scm_product (SCM x, SCM y)
 			       scm_product (SCM_FRACTION_DENOMINATOR (x),
 					    SCM_FRACTION_DENOMINATOR (y)));
       else
-	SCM_WTA_DISPATCH_2 (g_product, x, y, SCM_ARGn, s_product);
+	return scm_wta_dispatch_2 (g_product, x, y, SCM_ARGn, s_product);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_product, x, y, SCM_ARG1, s_product);
+    return scm_wta_dispatch_2 (g_product, x, y, SCM_ARG1, s_product);
 }
 
 #if ((defined (HAVE_ISINF) && defined (HAVE_ISNAN)) \
@@ -7786,7 +7798,7 @@ do_divide (SCM x, SCM y, int inexact)
   if (SCM_UNLIKELY (SCM_UNBNDP (y)))
     {
       if (SCM_UNBNDP (x))
-	SCM_WTA_DISPATCH_0 (g_divide, s_divide);
+	return scm_wta_dispatch_0 (g_divide, s_divide);
       else if (SCM_I_INUMP (x))
 	{
 	  scm_t_inum xx = SCM_I_INUM (x);
@@ -7840,7 +7852,7 @@ do_divide (SCM x, SCM y, int inexact)
 	return scm_i_make_ratio (SCM_FRACTION_DENOMINATOR (x),
 			       SCM_FRACTION_NUMERATOR (x));
       else
-	SCM_WTA_DISPATCH_1 (g_divide, x, SCM_ARG1, s_divide);
+	return scm_wta_dispatch_1 (g_divide, x, SCM_ARG1, s_divide);
     }
 
   if (SCM_LIKELY (SCM_I_INUMP (x)))
@@ -7914,7 +7926,7 @@ do_divide (SCM x, SCM y, int inexact)
 	return scm_i_make_ratio (scm_product (x, SCM_FRACTION_DENOMINATOR (y)),
 			       SCM_FRACTION_NUMERATOR (y));
       else
-	SCM_WTA_DISPATCH_2 (g_divide, x, y, SCM_ARGn, s_divide);
+	return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARGn, s_divide);
     }
   else if (SCM_BIGP (x))
     {
@@ -8013,7 +8025,7 @@ do_divide (SCM x, SCM y, int inexact)
 	return scm_i_make_ratio (scm_product (x, SCM_FRACTION_DENOMINATOR (y)),
 			       SCM_FRACTION_NUMERATOR (y));
       else
-	SCM_WTA_DISPATCH_2 (g_divide, x, y, SCM_ARGn, s_divide);
+	return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARGn, s_divide);
     }
   else if (SCM_REALP (x))
     {
@@ -8052,7 +8064,7 @@ do_divide (SCM x, SCM y, int inexact)
       else if (SCM_FRACTIONP (y))
 	return scm_from_double (rx / scm_i_fraction2double (y));
       else
-	SCM_WTA_DISPATCH_2 (g_divide, x, y, SCM_ARGn, s_divide);
+	return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARGn, s_divide);
     }
   else if (SCM_COMPLEXP (x))
     {
@@ -8110,7 +8122,7 @@ do_divide (SCM x, SCM y, int inexact)
 	  return scm_c_make_rectangular (rx / yy, ix / yy);
 	}
       else
-	SCM_WTA_DISPATCH_2 (g_divide, x, y, SCM_ARGn, s_divide);
+	return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARGn, s_divide);
     }
   else if (SCM_FRACTIONP (x))
     {
@@ -8149,10 +8161,10 @@ do_divide (SCM x, SCM y, int inexact)
 	return scm_i_make_ratio (scm_product (SCM_FRACTION_NUMERATOR (x), SCM_FRACTION_DENOMINATOR (y)),
 			       scm_product (SCM_FRACTION_NUMERATOR (y), SCM_FRACTION_DENOMINATOR (x)));
       else 
-	SCM_WTA_DISPATCH_2 (g_divide, x, y, SCM_ARGn, s_divide);
+	return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARGn, s_divide);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_divide, x, y, SCM_ARG1, s_divide);
+    return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARG1, s_divide);
 }
 
 SCM
@@ -8229,7 +8241,7 @@ SCM_PRIMITIVE_GENERIC (scm_truncate_number, "truncate", 1, 0, 0,
     return scm_truncate_quotient (SCM_FRACTION_NUMERATOR (x),
 				  SCM_FRACTION_DENOMINATOR (x));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_truncate_number, x, SCM_ARG1,
+    return scm_wta_dispatch_1 (g_scm_truncate_number, x, SCM_ARG1,
 			s_scm_truncate_number);
 }
 #undef FUNC_NAME
@@ -8249,8 +8261,8 @@ SCM_PRIMITIVE_GENERIC (scm_round_number, "round", 1, 0, 0,
     return scm_round_quotient (SCM_FRACTION_NUMERATOR (x),
 			       SCM_FRACTION_DENOMINATOR (x));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_round_number, x, SCM_ARG1,
-			s_scm_round_number);
+    return scm_wta_dispatch_1 (g_scm_round_number, x, SCM_ARG1,
+                               s_scm_round_number);
 }
 #undef FUNC_NAME
 
@@ -8267,7 +8279,7 @@ SCM_PRIMITIVE_GENERIC (scm_floor, "floor", 1, 0, 0,
     return scm_floor_quotient (SCM_FRACTION_NUMERATOR (x),
 			       SCM_FRACTION_DENOMINATOR (x));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_floor, x, 1, s_scm_floor);
+    return scm_wta_dispatch_1 (g_scm_floor, x, 1, s_scm_floor);
 }  
 #undef FUNC_NAME
 
@@ -8284,7 +8296,7 @@ SCM_PRIMITIVE_GENERIC (scm_ceiling, "ceiling", 1, 0, 0,
     return scm_ceiling_quotient (SCM_FRACTION_NUMERATOR (x),
 				 SCM_FRACTION_DENOMINATOR (x));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_ceiling, x, 1, s_scm_ceiling);
+    return scm_wta_dispatch_1 (g_scm_ceiling, x, 1, s_scm_ceiling);
 }
 #undef FUNC_NAME
 
@@ -8323,9 +8335,9 @@ SCM_PRIMITIVE_GENERIC (scm_expt, "expt", 2, 0, 0,
   else if (scm_is_complex (x) && scm_is_complex (y))
     return scm_exp (scm_product (scm_log (x), y));
   else if (scm_is_complex (x))
-    SCM_WTA_DISPATCH_2 (g_scm_expt, x, y, SCM_ARG2, s_scm_expt);
+    return scm_wta_dispatch_2 (g_scm_expt, x, y, SCM_ARG2, s_scm_expt);
   else
-    SCM_WTA_DISPATCH_2 (g_scm_expt, x, y, SCM_ARG1, s_scm_expt);
+    return scm_wta_dispatch_2 (g_scm_expt, x, y, SCM_ARG1, s_scm_expt);
 }
 #undef FUNC_NAME
 
@@ -8352,7 +8364,7 @@ SCM_PRIMITIVE_GENERIC (scm_sin, "sin", 1, 0, 0,
                                      cos (x) * sinh (y));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_sin, z, 1, s_scm_sin);
+    return scm_wta_dispatch_1 (g_scm_sin, z, 1, s_scm_sin);
 }
 #undef FUNC_NAME
 
@@ -8373,7 +8385,7 @@ SCM_PRIMITIVE_GENERIC (scm_cos, "cos", 1, 0, 0,
                                      -sin (x) * sinh (y));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_cos, z, 1, s_scm_cos);
+    return scm_wta_dispatch_1 (g_scm_cos, z, 1, s_scm_cos);
 }
 #undef FUNC_NAME
 
@@ -8398,7 +8410,7 @@ SCM_PRIMITIVE_GENERIC (scm_tan, "tan", 1, 0, 0,
       return scm_c_make_rectangular (sin (x) / w, sinh (y) / w);
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_tan, z, 1, s_scm_tan);
+    return scm_wta_dispatch_1 (g_scm_tan, z, 1, s_scm_tan);
 }
 #undef FUNC_NAME
 
@@ -8419,7 +8431,7 @@ SCM_PRIMITIVE_GENERIC (scm_sinh, "sinh", 1, 0, 0,
                                      cosh (x) * sin (y));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_sinh, z, 1, s_scm_sinh);
+    return scm_wta_dispatch_1 (g_scm_sinh, z, 1, s_scm_sinh);
 }
 #undef FUNC_NAME
 
@@ -8440,7 +8452,7 @@ SCM_PRIMITIVE_GENERIC (scm_cosh, "cosh", 1, 0, 0,
                                      sinh (x) * sin (y));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_cosh, z, 1, s_scm_cosh);
+    return scm_wta_dispatch_1 (g_scm_cosh, z, 1, s_scm_cosh);
 }
 #undef FUNC_NAME
 
@@ -8465,7 +8477,7 @@ SCM_PRIMITIVE_GENERIC (scm_tanh, "tanh", 1, 0, 0,
       return scm_c_make_rectangular (sinh (x) / w, sin (y) / w);
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_tanh, z, 1, s_scm_tanh);
+    return scm_wta_dispatch_1 (g_scm_tanh, z, 1, s_scm_tanh);
 }
 #undef FUNC_NAME
 
@@ -8493,7 +8505,7 @@ SCM_PRIMITIVE_GENERIC (scm_asin, "asin", 1, 0, 0,
                           scm_sys_asinh (scm_c_make_rectangular (-y, x)));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_asin, z, 1, s_scm_asin);
+    return scm_wta_dispatch_1 (g_scm_asin, z, 1, s_scm_asin);
 }
 #undef FUNC_NAME
 
@@ -8523,7 +8535,7 @@ SCM_PRIMITIVE_GENERIC (scm_acos, "acos", 1, 0, 0,
                                    scm_sys_asinh (scm_c_make_rectangular (-y, x))));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_acos, z, 1, s_scm_acos);
+    return scm_wta_dispatch_1 (g_scm_acos, z, 1, s_scm_acos);
 }
 #undef FUNC_NAME
 
@@ -8550,17 +8562,17 @@ SCM_PRIMITIVE_GENERIC (scm_atan, "atan", 1, 1, 0,
                              scm_c_make_rectangular (0, 2));
         }
       else
-        SCM_WTA_DISPATCH_1 (g_scm_atan, z, SCM_ARG1, s_scm_atan);
+        return scm_wta_dispatch_1 (g_scm_atan, z, SCM_ARG1, s_scm_atan);
     }
   else if (scm_is_real (z))
     {
       if (scm_is_real (y))
         return scm_from_double (atan2 (scm_to_double (z), scm_to_double (y)));
       else
-        SCM_WTA_DISPATCH_2 (g_scm_atan, z, y, SCM_ARG2, s_scm_atan);
+        return scm_wta_dispatch_2 (g_scm_atan, z, y, SCM_ARG2, s_scm_atan);
     }
   else
-    SCM_WTA_DISPATCH_2 (g_scm_atan, z, y, SCM_ARG1, s_scm_atan);
+    return scm_wta_dispatch_2 (g_scm_atan, z, y, SCM_ARG1, s_scm_atan);
 }
 #undef FUNC_NAME
 
@@ -8578,7 +8590,7 @@ SCM_PRIMITIVE_GENERIC (scm_sys_asinh, "asinh", 1, 0, 0,
                              scm_sqrt (scm_sum (scm_product (z, z),
                                                 SCM_INUM1))));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_sys_asinh, z, 1, s_scm_sys_asinh);
+    return scm_wta_dispatch_1 (g_scm_sys_asinh, z, 1, s_scm_sys_asinh);
 }
 #undef FUNC_NAME
 
@@ -8596,7 +8608,7 @@ SCM_PRIMITIVE_GENERIC (scm_sys_acosh, "acosh", 1, 0, 0,
                              scm_sqrt (scm_difference (scm_product (z, z),
                                                        SCM_INUM1))));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_sys_acosh, z, 1, s_scm_sys_acosh);
+    return scm_wta_dispatch_1 (g_scm_sys_acosh, z, 1, s_scm_sys_acosh);
 }
 #undef FUNC_NAME
 
@@ -8614,7 +8626,7 @@ SCM_PRIMITIVE_GENERIC (scm_sys_atanh, "atanh", 1, 0, 0,
                                             scm_difference (SCM_INUM1, z))),
                        SCM_I_MAKINUM (2));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_sys_atanh, z, 1, s_scm_sys_atanh);
+    return scm_wta_dispatch_1 (g_scm_sys_atanh, z, 1, s_scm_sys_atanh);
 }
 #undef FUNC_NAME
 
@@ -8715,7 +8727,7 @@ SCM_PRIMITIVE_GENERIC (scm_real_part, "real-part", 1, 0, 0,
   else if (SCM_I_INUMP (z) || SCM_BIGP (z) || SCM_REALP (z) || SCM_FRACTIONP (z))
     return z;
   else
-    SCM_WTA_DISPATCH_1 (g_scm_real_part, z, SCM_ARG1, s_scm_real_part);
+    return scm_wta_dispatch_1 (g_scm_real_part, z, SCM_ARG1, s_scm_real_part);
 }
 #undef FUNC_NAME
 
@@ -8730,7 +8742,7 @@ SCM_PRIMITIVE_GENERIC (scm_imag_part, "imag-part", 1, 0, 0,
   else if (SCM_I_INUMP (z) || SCM_REALP (z) || SCM_BIGP (z) || SCM_FRACTIONP (z))
     return SCM_INUM0;
   else
-    SCM_WTA_DISPATCH_1 (g_scm_imag_part, z, SCM_ARG1, s_scm_imag_part);
+    return scm_wta_dispatch_1 (g_scm_imag_part, z, SCM_ARG1, s_scm_imag_part);
 }
 #undef FUNC_NAME
 
@@ -8746,7 +8758,7 @@ SCM_PRIMITIVE_GENERIC (scm_numerator, "numerator", 1, 0, 0,
   else if (SCM_REALP (z))
     return scm_exact_to_inexact (scm_numerator (scm_inexact_to_exact (z)));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_numerator, z, SCM_ARG1, s_scm_numerator);
+    return scm_wta_dispatch_1 (g_scm_numerator, z, SCM_ARG1, s_scm_numerator);
 }
 #undef FUNC_NAME
 
@@ -8763,7 +8775,8 @@ SCM_PRIMITIVE_GENERIC (scm_denominator, "denominator", 1, 0, 0,
   else if (SCM_REALP (z))
     return scm_exact_to_inexact (scm_denominator (scm_inexact_to_exact (z)));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_denominator, z, SCM_ARG1, s_scm_denominator);
+    return scm_wta_dispatch_1 (g_scm_denominator, z, SCM_ARG1,
+                               s_scm_denominator);
 }
 #undef FUNC_NAME
 
@@ -8805,7 +8818,8 @@ SCM_PRIMITIVE_GENERIC (scm_magnitude, "magnitude", 1, 0, 0,
 			     SCM_FRACTION_DENOMINATOR (z));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_magnitude, z, SCM_ARG1, s_scm_magnitude);
+    return scm_wta_dispatch_1 (g_scm_magnitude, z, SCM_ARG1,
+                               s_scm_magnitude);
 }
 #undef FUNC_NAME
 
@@ -8851,7 +8865,7 @@ SCM_PRIMITIVE_GENERIC (scm_angle, "angle", 1, 0, 0,
       else return scm_from_double (atan2 (0.0, -1.0));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_angle, z, SCM_ARG1, s_scm_angle);
+    return scm_wta_dispatch_1 (g_scm_angle, z, SCM_ARG1, s_scm_angle);
 }
 #undef FUNC_NAME
 
@@ -8870,7 +8884,8 @@ SCM_PRIMITIVE_GENERIC (scm_exact_to_inexact, "exact->inexact", 1, 0, 0,
   else if (SCM_INEXACTP (z))
     return z;
   else
-    SCM_WTA_DISPATCH_1 (g_scm_exact_to_inexact, z, 1, s_scm_exact_to_inexact);
+    return scm_wta_dispatch_1 (g_scm_exact_to_inexact, z, 1,
+                               s_scm_exact_to_inexact);
 }
 #undef FUNC_NAME
 
@@ -8891,7 +8906,8 @@ SCM_PRIMITIVE_GENERIC (scm_inexact_to_exact, "inexact->exact", 1, 0, 0,
       else if (SCM_COMPLEXP (z) && SCM_COMPLEX_IMAG (z) == 0.0)
 	val = SCM_COMPLEX_REAL (z);
       else
-	SCM_WTA_DISPATCH_1 (g_scm_inexact_to_exact, z, 1, s_scm_inexact_to_exact);
+	return scm_wta_dispatch_1 (g_scm_inexact_to_exact, z, 1,
+                                   s_scm_inexact_to_exact);
 
       if (!SCM_LIKELY (DOUBLE_IS_FINITE (val)))
 	SCM_OUT_OF_RANGE (1, z);
@@ -9428,7 +9444,7 @@ SCM_PRIMITIVE_GENERIC (scm_log, "log", 1, 0, 0,
     return log_of_fraction (SCM_FRACTION_NUMERATOR (z),
 			    SCM_FRACTION_DENOMINATOR (z));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_log, z, 1, s_scm_log);
+    return scm_wta_dispatch_1 (g_scm_log, z, 1, s_scm_log);
 }
 #undef FUNC_NAME
 
@@ -9475,7 +9491,7 @@ SCM_PRIMITIVE_GENERIC (scm_log10, "log10", 1, 0, 0,
 			log_of_fraction (SCM_FRACTION_NUMERATOR (z),
 					 SCM_FRACTION_DENOMINATOR (z)));
   else
-    SCM_WTA_DISPATCH_1 (g_scm_log10, z, 1, s_scm_log10);
+    return scm_wta_dispatch_1 (g_scm_log10, z, 1, s_scm_log10);
 }
 #undef FUNC_NAME
 
@@ -9503,7 +9519,7 @@ SCM_PRIMITIVE_GENERIC (scm_exp, "exp", 1, 0, 0,
       return scm_from_double (exp (scm_to_double (z)));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_exp, z, 1, s_scm_exp);
+    return scm_wta_dispatch_1 (g_scm_exp, z, 1, s_scm_exp);
 }
 #undef FUNC_NAME
 
@@ -9608,7 +9624,7 @@ SCM_PRIMITIVE_GENERIC (scm_sqrt, "sqrt", 1, 0, 0,
         return scm_from_double (sqrt (xx));
     }
   else
-    SCM_WTA_DISPATCH_1 (g_scm_sqrt, z, 1, s_scm_sqrt);
+    return scm_wta_dispatch_1 (g_scm_sqrt, z, 1, s_scm_sqrt);
 }
 #undef FUNC_NAME
 

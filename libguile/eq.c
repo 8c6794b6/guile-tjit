@@ -365,7 +365,7 @@ scm_equal_p (SCM x, SCM y)
   
  generic_equal:
   if (SCM_UNPACK (g_scm_i_equal_p))
-    return scm_call_generic_2 (g_scm_i_equal_p, x, y);
+    return scm_call_2 (g_scm_i_equal_p, x, y);
   else
     return SCM_BOOL_F;
 }

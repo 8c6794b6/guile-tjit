@@ -1667,36 +1667,6 @@ SCM_KEYWORD (k_name, "name");
 SCM_GLOBAL_SYMBOL (scm_sym_args, "args");
 
 
-SCM
-scm_apply_generic (SCM gf, SCM args)
-{
-  return scm_apply (SCM_STRUCT_PROCEDURE (gf), args, SCM_EOL);
-}
-
-SCM
-scm_call_generic_0 (SCM gf)
-{
-  return scm_call_0 (SCM_STRUCT_PROCEDURE (gf));
-}
-
-SCM
-scm_call_generic_1 (SCM gf, SCM a1)
-{
-  return scm_call_1 (SCM_STRUCT_PROCEDURE (gf), a1);
-}
-
-SCM
-scm_call_generic_2 (SCM gf, SCM a1, SCM a2)
-{
-  return scm_call_2 (SCM_STRUCT_PROCEDURE (gf), a1, a2);
-}
-
-SCM
-scm_call_generic_3 (SCM gf, SCM a1, SCM a2, SCM a3)
-{
-  return scm_call_3 (SCM_STRUCT_PROCEDURE (gf), a1, a2, a3);
-}
-
 SCM_SYMBOL (sym_delayed_compile, "delayed-compile");
 static SCM
 make_dispatch_procedure (SCM gf)
@@ -1838,6 +1808,47 @@ setup_extended_primitive_generics ()
       scm_c_extend_primitive_generic (e->extended, e->extension);
       extensions = e->next;
     }
+}
+
+/* Dirk:FIXME:: In all of these scm_wta_dispatch_* routines it is
+ * assumed that 'gf' is zero if uninitialized.  It would be cleaner if
+ * some valid SCM value like SCM_BOOL_F or SCM_UNDEFINED were chosen.
+ */
+
+SCM
+scm_wta_dispatch_0 (SCM gf, const char *subr)
+{
+  if (!SCM_UNPACK (gf))
+    scm_error_num_args_subr (subr);
+
+  return scm_call_0 (gf);
+}
+
+SCM
+scm_wta_dispatch_1 (SCM gf, SCM a1, int pos, const char *subr)
+{
+  if (!SCM_UNPACK (gf))
+    scm_wrong_type_arg (subr, pos, a1);
+
+  return scm_call_1 (gf, a1);
+}
+
+SCM
+scm_wta_dispatch_2 (SCM gf, SCM a1, SCM a2, int pos, const char *subr)
+{
+  if (!SCM_UNPACK (gf))
+    scm_wrong_type_arg (subr, pos, (pos == SCM_ARG1) ? a1 : a2);
+
+  return scm_call_2 (gf, a1, a2);
+}
+
+SCM
+scm_wta_dispatch_n (SCM gf, SCM args, int pos, const char *subr)
+{
+  if (!SCM_UNPACK (gf))
+    scm_wrong_type_arg (subr, pos, scm_list_ref (args, scm_from_int (pos)));
+
+  return scm_apply_0 (gf, args);
 }
 
 /******************************************************************************

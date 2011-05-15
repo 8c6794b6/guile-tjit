@@ -146,14 +146,15 @@ SCM_PRIMITIVE_GENERIC (scm_setter, "setter", 1, 0, 0,
                        "applicable struct with a setter.")
 #define FUNC_NAME s_scm_setter
 {
-  SCM_GASSERT1 (SCM_STRUCTP (proc), g_scm_setter, proc, SCM_ARG1, FUNC_NAME);
+  if (SCM_UNLIKELY (!SCM_STRUCTP (proc)))
+    return scm_wta_dispatch_1 (g_scm_setter, proc, SCM_ARG1, FUNC_NAME);
   if (SCM_STRUCT_SETTER_P (proc))
     return SCM_STRUCT_SETTER (proc);
   if (SCM_PUREGENERICP (proc)
       && SCM_IS_A_P (proc, scm_class_generic_with_setter))
     /* FIXME: might not be an accessor */
     return SCM_GENERIC_SETTER (proc);
-  SCM_WTA_DISPATCH_1 (g_scm_setter, proc, SCM_ARG1, FUNC_NAME);
+  return scm_wta_dispatch_1 (g_scm_setter, proc, SCM_ARG1, FUNC_NAME);
   return SCM_BOOL_F; /* not reached */
 }
 #undef FUNC_NAME

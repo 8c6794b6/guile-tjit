@@ -299,13 +299,14 @@ SCM_API SCM scm_make (SCM args);
 SCM_API SCM scm_find_method (SCM args);
 SCM_API SCM scm_sys_method_more_specific_p (SCM m1, SCM m2, SCM targs);
 SCM_API void scm_change_object_class (SCM, SCM, SCM);
-/* The following are declared in __scm.h
-SCM_API SCM scm_call_generic_0 (SCM gf);
-SCM_API SCM scm_call_generic_1 (SCM gf, SCM a1);
-SCM_API SCM scm_call_generic_2 (SCM gf, SCM a1, SCM a2);
-SCM_API SCM scm_apply_generic (SCM gf, SCM args);
-*/
-SCM_API SCM scm_call_generic_3 (SCM gf, SCM a1, SCM a2, SCM a3);
+
+/* These procedures are for dispatching to a generic when a primitive
+   fails to apply.  They raise a wrong-type-arg error if the primitive's
+   generic has not been initialized yet.  */
+SCM_API SCM scm_wta_dispatch_0 (SCM gf, const char *subr);
+SCM_API SCM scm_wta_dispatch_1 (SCM gf, SCM a1, int pos, const char *subr);
+SCM_API SCM scm_wta_dispatch_2 (SCM gf, SCM a1, SCM a2, int pos, const char *subr);
+SCM_API SCM scm_wta_dispatch_n (SCM gf, SCM args, int pos, const char *subr);
 
 SCM_INTERNAL SCM scm_i_define_class_for_vtable (SCM vtable);
 
