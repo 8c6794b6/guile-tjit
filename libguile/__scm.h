@@ -154,17 +154,6 @@
 
 
 
-/* {Unsupported Options}
- *
- * These must be defined as given here.
- */
-
-
-/* Guile Scheme supports the #f/() distinction; Guile Lisp won't.  We
-   have horrible plans for their unification.  */
-#undef SICP
-
-
 
 /* Random options (not yet supported or in final form). */
 
