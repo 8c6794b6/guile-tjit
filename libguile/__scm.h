@@ -406,7 +406,6 @@ typedef long SCM_STACKITEM;
 #ifdef SCM_RECKLESS
 #define SCM_ASSERT(_cond, _arg, _pos, _subr)
 #define SCM_ASSERT_TYPE(_cond, _arg, _pos, _subr, _msg)
-#define SCM_ASRTGO(_cond, _label)
 #else
 #define SCM_ASSERT(_cond, _arg, _pos, _subr)			\
         do { if (SCM_UNLIKELY (!(_cond)))			\
@@ -414,9 +413,6 @@ typedef long SCM_STACKITEM;
 #define SCM_ASSERT_TYPE(_cond, _arg, _pos, _subr, _msg)			\
         do { if (SCM_UNLIKELY (!(_cond)))				\
           scm_wrong_type_arg_msg(_subr, _pos, _arg, _msg);  } while (0)
-#define SCM_ASRTGO(_cond, _label)		\
-        do {  if (SCM_UNLIKELY (!(_cond)))	\
-          goto _label; } while (0)
 #endif
 
 /*
