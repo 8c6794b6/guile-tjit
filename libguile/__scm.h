@@ -290,12 +290,6 @@
 # define SCM_LONG_BIT (SCM_CHAR_BIT * sizeof (long) / sizeof (char))
 #endif
 
-#ifdef UCHAR_MAX
-# define SCM_CHAR_CODE_LIMIT (UCHAR_MAX + 1L)
-#else
-# define SCM_CHAR_CODE_LIMIT 256L
-#endif
-
 #define SCM_I_UTYPE_MAX(type)      ((type)-1)
 #define SCM_I_TYPE_MAX(type,umax)  ((type)((umax)/2))
 #define SCM_I_TYPE_MIN(type,umax)  (-((type)((umax)/2))-1)

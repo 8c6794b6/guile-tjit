@@ -118,8 +118,6 @@ scm_init_feature()
   scm_add_feature ("threads");
 #endif
 
-  scm_c_define ("char-code-limit", scm_from_int (SCM_CHAR_CODE_LIMIT));
-
 #include "libguile/feature.x"
 }
 
