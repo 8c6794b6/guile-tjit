@@ -3,7 +3,7 @@
 #ifndef SCM_ERROR_H
 #define SCM_ERROR_H
 
-/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2002, 2006, 2008 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2002, 2006, 2008, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -33,6 +33,16 @@ SCM_API SCM scm_args_number_key;
 SCM_API SCM scm_arg_type_key;
 SCM_API SCM scm_memory_alloc_key;
 SCM_API SCM scm_misc_error_key;
+
+
+
+#define SCM_ASSERT(_cond, _arg, _pos, _subr)			\
+  do { if (SCM_UNLIKELY (!(_cond)))                             \
+      scm_wrong_type_arg (_subr, _pos, _arg); } while (0)
+#define SCM_ASSERT_TYPE(_cond, _arg, _pos, _subr, _msg)			\
+  do { if (SCM_UNLIKELY (!(_cond)))                                     \
+      scm_wrong_type_arg_msg(_subr, _pos, _arg, _msg);  } while (0)
+
 
 
 
