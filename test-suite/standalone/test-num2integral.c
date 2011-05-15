@@ -1,4 +1,4 @@
-/* Copyright (C) 1999,2000,2001,2003,2004, 2006, 2008, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1999,2000,2001,2003,2004, 2006, 2008, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -24,6 +24,7 @@
 
 #include <stdio.h>
 #include <assert.h>
+#include <limits.h>
 
 SCM out_of_range_handler (void *data, SCM key, SCM args);
 SCM call_num2long_long_body (void *data);
@@ -56,14 +57,14 @@ static void
 test_long_long ()
 {
   {
-    SCM n = scm_from_long_long (SCM_I_LLONG_MIN);
+    SCM n = scm_from_long_long (LLONG_MIN);
     long long result = scm_to_long_long(n);
-    assert (result == SCM_I_LLONG_MIN);
+    assert (result == LLONG_MIN);
   }
 
   /* LLONG_MIN - 1 */
   {
-    SCM n = scm_difference (scm_from_long_long (SCM_I_LLONG_MIN), scm_from_int (1));
+    SCM n = scm_difference (scm_from_long_long (LLONG_MIN), scm_from_int (1));
     SCM caught = scm_internal_catch (SCM_BOOL_T, call_num2long_long_body, &n,
                                      out_of_range_handler, NULL);
     assert (scm_is_true (caught));
@@ -71,8 +72,8 @@ test_long_long ()
 
   /* SCM_I_LLONG_MIN + SCM_I_LLONG_MIN/2 */
   {
-    SCM n = scm_sum (scm_from_long_long (SCM_I_LLONG_MIN),
-                     scm_from_long_long (SCM_I_LLONG_MIN / 2));
+    SCM n = scm_sum (scm_from_long_long (LLONG_MIN),
+                     scm_from_long_long (LLONG_MIN / 2));
     SCM caught = scm_internal_catch (SCM_BOOL_T, call_num2long_long_body, &n,
                                      out_of_range_handler, NULL);
     assert (scm_is_true (caught));
@@ -80,7 +81,7 @@ test_long_long ()
 
   /* SCM_I_LLONG_MAX + 1 */
   {
-    SCM n = scm_sum (scm_from_long_long (SCM_I_LLONG_MAX), scm_from_int (1));
+    SCM n = scm_sum (scm_from_long_long (LLONG_MAX), scm_from_int (1));
     SCM caught = scm_internal_catch (SCM_BOOL_T, call_num2long_long_body, &n,
                                      out_of_range_handler, NULL);
     assert (scm_is_true (caught));
@@ -108,9 +109,9 @@ static void
 test_ulong_long ()
 {
   {
-    SCM n = scm_from_ulong_long (SCM_I_ULLONG_MAX);
+    SCM n = scm_from_ulong_long (ULLONG_MAX);
     unsigned long long result = scm_to_ulong_long(n);
-    assert (result == SCM_I_ULLONG_MAX);
+    assert (result == ULLONG_MAX);
   }
 
   /* -1 */
@@ -123,7 +124,7 @@ test_ulong_long ()
 
   /* SCM_I_ULLONG_MAX + 1 */
   {
-    SCM n = scm_sum (scm_from_ulong_long (SCM_I_ULLONG_MAX), scm_from_int (1));
+    SCM n = scm_sum (scm_from_ulong_long (ULLONG_MAX), scm_from_int (1));
     SCM caught = scm_internal_catch (SCM_BOOL_T, call_num2ulong_long_body, &n,
                                      out_of_range_handler, NULL);
     assert (scm_is_true (caught));
