@@ -420,27 +420,6 @@ typedef long SCM_STACKITEM;
 
 
 
-/* SCM_EXIT_SUCCESS is the default code to return from SCM if no errors
- * were encountered.  SCM_EXIT_FAILURE is the default code to return from
- * SCM if errors were encountered.  The return code can be explicitly
- * specified in a SCM program with (scm_quit <n>).
- */
-
-#ifndef SCM_EXIT_SUCCESS
-#ifdef vms
-#define SCM_EXIT_SUCCESS 1
-#else
-#define SCM_EXIT_SUCCESS 0
-#endif /* def vms */
-#endif /* ndef SCM_EXIT_SUCCESS */
-#ifndef SCM_EXIT_FAILURE
-#ifdef vms
-#define SCM_EXIT_FAILURE 2
-#else
-#define SCM_EXIT_FAILURE 1
-#endif /* def vms */
-#endif /* ndef SCM_EXIT_FAILURE */
-
 /* Define SCM_C_INLINE_KEYWORD so that it can be used as a replacement
    for the "inline" keyword, expanding to nothing when "inline" is not
    available.
