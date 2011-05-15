@@ -37,9 +37,9 @@
    - use 1 and 0 for public #defines instead of "def and undef",
      i.e. use #define SCM_HAVE_FOO rather than just not defining
      SCM_HAVE_FOO whenever possible.  See GNU Coding Guidelines for
-     rationale.  The only notable non-deprecated exceptions to this
-     rule are GUILE_DEBUG and GUILE_DEBUG_FREELIST which do not follow
-     this convention in order to retain backward compatibility.
+     rationale.  The only notable non-deprecated exception to this rule
+     is GUILE_DEBUG which does not follow this convention in order to
+     retain backward compatibility.
 
    - in the code below, be *VERY* careful not to use or rely on any
      runtime-dynamic information below.  For example, you cannot use

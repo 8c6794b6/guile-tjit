@@ -145,15 +145,6 @@
 #endif
 
 
-/* {Supported Options}
- *
- * These may be defined or undefined.
- */
-
-/* #define GUILE_DEBUG_FREELIST */
-
-
-
 
 /* SCM_API is a macro prepended to all function and data definitions
    which should be exported from libguile. */
