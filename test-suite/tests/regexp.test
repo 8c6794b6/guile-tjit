@@ -145,6 +145,8 @@
          (with-latin1-locale body ...)
          (begin body ...)))))
 
+(define char-code-limit 256)
+
 (with-test-prefix "regexp-quote"
 
   (pass-if-exception "no args" exception:wrong-num-args
