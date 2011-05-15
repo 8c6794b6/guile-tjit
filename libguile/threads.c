@@ -821,7 +821,7 @@ scm_init_guile ()
   else
     {
       fprintf (stderr, "Failed to get stack base for current thread.\n");
-      exit (1);
+      exit (EXIT_FAILURE);
     }
 }
 

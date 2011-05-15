@@ -329,9 +329,9 @@ scm_exit_status (SCM args)
       if (scm_is_integer (cqa))
 	return (scm_to_int (cqa));
       else if (scm_is_false (cqa))
-	return 1;
+	return EXIT_FAILURE;
     }
-  return 0;
+  return EXIT_SUCCESS;
 }
 	
 
