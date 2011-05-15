@@ -61,7 +61,6 @@
 /* For dealing with the bit level representation of scheme objects we define
  * scm_t_bits:
  */
-
 typedef scm_t_intptr  scm_t_signed_bits;
 typedef scm_t_uintptr scm_t_bits;
 
@@ -70,47 +69,28 @@ typedef scm_t_uintptr scm_t_bits;
 #define SCM_T_BITS_MAX        SCM_T_UINTPTR_MAX
 
 
-/* But as external interface, we define SCM, which may, according to the
- * desired level of type checking, be defined in several ways:
+/* But as external interface, we pack the bits in a union.  This makes
+ * the compiler treat SCM values as a disjoint type, allowing the
+ * detection of many common errors.
  */
-#if (SCM_DEBUG_TYPING_STRICTNESS == 2)
-typedef union SCM { scm_t_bits n; } SCM;
-#   define SCM_UNPACK(x) ((x).n)
-#   define SCM_PACK(x) ((SCM) { (scm_t_bits) (x) })
-#elif (SCM_DEBUG_TYPING_STRICTNESS == 1)
-/* This is the default, which provides an intermediate level of compile time
- * type checking while still resulting in very efficient code.
+union SCM
+{
+  scm_t_bits n;
+};
+
+#ifndef SCM_USING_PREHISTORIC_COMPILER
+/* With GCC at least, wrapping the bits in a union provides no
+ * performance penalty.
  */
-    typedef struct scm_unused_struct { char scm_unused_field; } *SCM;
-
-/*
-  The 0?: constructions makes sure that the code is never executed,
-  and that there is no performance hit.  However, the alternative is
-  compiled, and does generate a warning when used with the wrong
-  pointer type.
-
-  The Tru64 and ia64-hp-hpux11.23 compilers fail on `case (0?0=0:x)'
-  statements, so for them type-checking is disabled.  */
-#if defined __DECC || defined __HP_cc
-#   define SCM_UNPACK(x) ((scm_t_bits) (x))
+typedef union SCM SCM;
+#define SCM_UNPACK(x) ((x).n)
+#define SCM_PACK(x) ((SCM) { (scm_t_bits) (x) })
 #else
-#   define SCM_UNPACK(x) ((scm_t_bits) (0? (*(SCM*)0=(x)): x))
-#endif
-
-/*
-  There is no typechecking on SCM_PACK, since all kinds of types
-  (unsigned long, void*) go in SCM_PACK
+/* But we do provide an escape valve for less capable compilers.
  */
-#   define SCM_PACK(x) ((SCM) (x))
-
-#else
-/* This should be used as a fall back solution for machines on which casting
- * to a pointer may lead to loss of bit information, e. g. in the three least
- * significant bits.
- */
-    typedef scm_t_bits SCM;
-#   define SCM_UNPACK(x) (x)
-#   define SCM_PACK(x) ((SCM) (x))
+typedef scm_t_bits SCM;
+#define SCM_UNPACK(x) (x)
+#define SCM_PACK(x) ((SCM) (x))
 #endif
 
 

@@ -261,31 +261,6 @@
 #define SCM_DEBUG_REST_ARGUMENT SCM_DEBUG
 #endif
 
-/* The macro SCM_DEBUG_TYPING_STRICTNESS indicates what level of type checking
- * shall be performed with respect to the use of the SCM datatype.  The macro
- * may be defined to one of the values 0, 1 and 2.
- *
- * A value of 0 means that there will be no compile time type checking, since
- * the SCM datatype will be declared as an integral type.  This setting should
- * only be used on systems, where casting from integral types to pointers may
- * lead to loss of bit information.
- *
- * A value of 1 means that there will an intermediate level of compile time
- * type checking, since the SCM datatype will be declared as a pointer to an
- * undefined struct.  This setting is the default, since it does not cost
- * anything in terms of performance or code size.
- *
- * A value of 2 provides a maximum level of compile time type checking since
- * the SCM datatype will be declared as a struct.  This setting should be used
- * for _compile time_ type checking only, since the compiled result is likely
- * to be quite inefficient.  The right way to make use of this option is to do
- * a 'make clean; make CFLAGS=-DSCM_DEBUG_TYPING_STRICTNESS=2', fix your
- * errors, and then do 'make clean; make'.
- */
-#ifndef SCM_DEBUG_TYPING_STRICTNESS
-#define SCM_DEBUG_TYPING_STRICTNESS 2
-#endif
-
 /* If SCM_DEBUG_DEBUGGING_SUPPORT is set to 1, guile will provide a set of
  * special functions that support debugging with a debugger like gdb or
  * debugging of guile internals on the scheme level.  The behaviour of guile
