@@ -445,10 +445,11 @@ SCM_API void scm_async_tick (void);
 #define SCM_FENCE
 #endif
 
-#define SCM_TICK \
-do { \
-  SCM_ASYNC_TICK; \
-} while (0)
+#ifdef BUILDING_LIBGUILE
+#define SCM_TICK SCM_ASYNC_TICK
+#else
+#define SCM_TICK scm_async_tick ()
+#endif
 
 
 
