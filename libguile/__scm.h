@@ -189,14 +189,6 @@
 #define SCM_DEBUG 0
 #endif
 
-/* For debugging purposes: define this is to ensure nobody is using
- * the mark bits outside of the marking phase.  This is meant for
- * debugging purposes only.
- */
-#ifndef SCM_DEBUG_MARKING_API
-#define SCM_DEBUG_MARKING_API 0
-#endif
-
 /* If SCM_DEBUG_CELL_ACCESSES is set to 1, cell accesses will perform
  * exhaustive parameter checking:  It will be verified that cell parameters
  * actually point to a valid heap cell.  Note:  If this option is enabled,
@@ -204,13 +196,6 @@
  */
 #ifndef SCM_DEBUG_CELL_ACCESSES
 #define SCM_DEBUG_CELL_ACCESSES SCM_DEBUG
-#endif
-
-/* If SCM_DEBUG_INTERRUPTS is set to 1, with every deferring and allowing of
- * interrupts a consistency check will be performed.
- */
-#ifndef SCM_DEBUG_INTERRUPTS
-#define SCM_DEBUG_INTERRUPTS SCM_DEBUG
 #endif
 
 /* If SCM_DEBUG_PAIR_ACCESSES is set to 1, accesses to cons cells will be
@@ -228,22 +213,6 @@
  */
 #ifndef SCM_DEBUG_REST_ARGUMENT
 #define SCM_DEBUG_REST_ARGUMENT SCM_DEBUG
-#endif
-
-/* If SCM_DEBUG_DEBUGGING_SUPPORT is set to 1, guile will provide a set of
- * special functions that support debugging with a debugger like gdb or
- * debugging of guile internals on the scheme level.  The behaviour of guile
- * is not changed by this macro, only the set of functions that are available
- * will differ.  All functions that are introduced this way have the prefix
- * 'scm_dbg_' on the C level and the prefix 'dbg-' on the scheme level.  This
- * allows to easily determine the set of support functions, given that your
- * debugger or repl provide automatic name completion.  Note that these
- * functions are intended to be used during interactive debugging sessions
- * only.  They are not considered part of guile's official API.  They may
- * change or disappear without notice or deprecation phase.
- */
-#ifndef SCM_DEBUG_DEBUGGING_SUPPORT
-#define SCM_DEBUG_DEBUGGING_SUPPORT SCM_DEBUG
 #endif
 
 
