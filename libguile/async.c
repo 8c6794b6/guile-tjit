@@ -137,7 +137,7 @@ static scm_i_pthread_mutex_t async_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 /* System asyncs. */
 
 void
-scm_async_click ()
+scm_async_tick (void)
 {
   scm_i_thread *t = SCM_I_CURRENT_THREAD;
   SCM asyncs;
@@ -334,7 +334,7 @@ decrease_block (void *data)
 {
   scm_i_thread *t = data;
   if (--t->block_asyncs == 0)
-    scm_async_click ();
+    scm_async_tick ();
 }
 
 void
@@ -442,12 +442,6 @@ void
 scm_critical_section_end (void)
 {
   SCM_CRITICAL_SECTION_END;
-}
-
-void
-scm_async_tick (void)
-{
-  SCM_ASYNC_TICK;
 }
 
 

@@ -29,7 +29,7 @@
 
 
 
-SCM_API void scm_async_click (void);
+SCM_API void scm_async_tick (void);
 SCM_API void scm_switch (void);
 SCM_API SCM scm_async (SCM thunk);
 SCM_API SCM scm_async_mark (SCM a);
@@ -75,7 +75,7 @@ SCM_API void scm_critical_section_end (void);
     SCM_I_CURRENT_THREAD->critical_section_level--;		\
     SCM_I_CURRENT_THREAD->block_asyncs--;			\
     scm_i_pthread_mutex_unlock (&scm_i_critical_section_mutex); \
-    scm_async_click ();						\
+    scm_async_tick ();						\
   } while (0)
 
 #else /* !BUILDING_LIBGUILE */

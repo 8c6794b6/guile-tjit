@@ -72,6 +72,7 @@ SCM_DEPRECATED SCM scm_internal_dynamic_wind (scm_t_guard before,
 #define SCM_VALIDATE_SUBSTRING_SPEC_COPY SCM_VALIDATE_SUBSTRING_SPEC_COPY__GONE
 #define scm_array scm_array__GONE__REPLACE_WITH__scm_t_array
 #define scm_array_dim scm_array_dim__GONE__REPLACE_WITH__scm_t_array_dim
+#define scm_async_click scm_async_click__GONE__REPLACE_WITH__scm_async_tick
 #define scm_fport scm_fport__GONE__REPLACE_WITH__scm_t_fport
 #define scm_listify scm_listify__GONE__REPLACE_WITH__scm_list_n
 #define scm_option scm_option__GONE__REPLACE_WITH__scm_t_option
@@ -91,6 +92,11 @@ SCM_DEPRECATED SCM scm_internal_dynamic_wind (scm_t_guard before,
 #define scm_vtable_index_printer scm_vtable_index_printer__GONE__REPLACE_WITH__scm_vtable_index_instance_printer
 #define scm_vtable_index_vtable scm_vtable_index_vtable__GONE__REPLACE_WITH__scm_vtable_index_self
 typedef scm_i_t_array scm_i_t_array__GONE__REPLACE_WITH__scm_t_array;
+
+#ifndef BUILDING_LIBGUILE
+#define SCM_ASYNC_TICK  SCM_ASYNC_TICK__GONE__REPLACE_WITH__scm_async_tick
+#endif
+
 
 
 

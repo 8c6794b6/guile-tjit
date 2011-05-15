@@ -1575,7 +1575,7 @@ fat_mutex_unlock (SCM mutex, SCM cond,
 	    }
 
 	  t->block_asyncs--;
-	  scm_async_click ();
+	  scm_async_tick ();
 
 	  scm_remember_upto_here_2 (cond, mutex);
 

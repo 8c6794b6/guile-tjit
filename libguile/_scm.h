@@ -225,6 +225,27 @@ void scm_ia64_longjmp (scm_i_jmp_buf *, int);
 
 
 
+#define SCM_ASYNC_TICK                                                  \
+  do                                                                    \
+    {                                                                   \
+      if (SCM_UNLIKELY (SCM_I_CURRENT_THREAD->pending_asyncs))          \
+        scm_async_tick ();                                              \
+    }                                                                   \
+  while (0)
+
+#define SCM_ASYNC_TICK_WITH_CODE(thr, stmt)                             \
+  do                                                                    \
+    {                                                                   \
+      if (SCM_UNLIKELY (thr->pending_asyncs))                           \
+        {                                                               \
+          stmt;                                                         \
+          scm_async_tick ();                                            \
+        }                                                               \
+    }                                                                   \
+  while (0)
+
+
+
 
 /* The endianness marker in objcode.  */
 #ifdef WORDS_BIGENDIAN
