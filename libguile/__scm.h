@@ -390,29 +390,6 @@ typedef long SCM_STACKITEM;
 #define SCM_STACK_PTR(ptr) ((SCM_STACKITEM *) (void *) (ptr))
 
 
-/* Anthony Green writes:
-   When the compiler sees...
-	   DEFER_INTS;
-	   [critical code here]
-	   ALLOW_INTS;
-   ...it doesn't actually promise to keep the critical code within the
-   boundries of the DEFER/ALLOW_INTS instructions. It may very well
-   schedule it outside of the magic defined in those macros.
-
-   However, GCC's volatile asm feature forms a barrier over which code is
-   never moved. So if you add...
-	   asm ("");
-   ...to each of the DEFER_INTS and ALLOW_INTS macros, the critical
-   code will always remain in place.  asm's without inputs or outputs
-   are implicitly volatile. */
-#ifdef __GNUC__
-#define SCM_FENCE asm /* volatile */ ("")
-#elif defined (__INTEL_COMPILER) && defined (__ia64)
-#define SCM_FENCE __memory_barrier()
-#else
-#define SCM_FENCE
-#endif
-
 #ifdef BUILDING_LIBGUILE
 #define SCM_TICK SCM_ASYNC_TICK
 #else
