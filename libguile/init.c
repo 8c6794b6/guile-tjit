@@ -513,9 +513,7 @@ scm_i_init_guile (void *base)
 
   scm_initialized_p = 1;
 
-#ifdef STACK_CHECKING
   scm_stack_checking_enabled_p = SCM_STACK_CHECKING_P;
-#endif
 
   scm_init_rdelim ();
   scm_init_rw ();

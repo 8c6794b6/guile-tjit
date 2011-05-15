@@ -1,4 +1,4 @@
-/*	Copyright (C) 1995,1996,1997, 2000, 2001, 2006, 2008, 2010 Free Software Foundation, Inc.
+/*	Copyright (C) 1995,1996,1997, 2000, 2001, 2006, 2008, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -34,7 +34,6 @@
 /* {Stack Checking}
  */
 
-#ifdef STACK_CHECKING
 int scm_stack_checking_enabled_p;
 
 SCM_SYMBOL (scm_stack_overflow_key, "stack-overflow");
@@ -64,8 +63,6 @@ scm_report_stack_overflow ()
   /* not reached */
   scm_dynwind_end ();
 }
-
-#endif
 
 long
 scm_stack_size (SCM_STACKITEM *start)

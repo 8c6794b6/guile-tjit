@@ -108,9 +108,7 @@ SCM_DEFINE (scm_debug_options, "debug-options-interface", 0, 1, 0,
   scm_dynwind_critical_section (SCM_BOOL_F);
 
   ans = scm_options (setting, scm_debug_opts, FUNC_NAME);
-#ifdef STACK_CHECKING
   scm_stack_checking_enabled_p = SCM_STACK_CHECKING_P;
-#endif
 
   scm_dynwind_end ();
   return ans;

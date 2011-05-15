@@ -3,7 +3,7 @@
 #ifndef SCM_STACKCHK_H
 #define SCM_STACKCHK_H
 
-/* Copyright (C) 1995,1996,1998,2000, 2003, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000, 2003, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -34,7 +34,7 @@
  */
 #define SCM_STACK_CHECKING_P SCM_STACK_LIMIT
 
-#if defined BUILDING_LIBGUILE && defined STACK_CHECKING
+#if defined BUILDING_LIBGUILE
 #include "libguile/private-options.h"
 # if SCM_STACK_GROWS_UP
 #  define SCM_STACK_OVERFLOW_P(s)\
