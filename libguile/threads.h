@@ -142,9 +142,6 @@ SCM_INTERNAL void scm_init_thread_procs (void);
 SCM_INTERNAL void scm_init_threads_default_dynamic_state (void);
 
 
-#define SCM_THREAD_SWITCHING_CODE \
-  do { } while (0)
-
 SCM_API SCM scm_call_with_new_thread (SCM thunk, SCM handler);
 SCM_API SCM scm_yield (void);
 SCM_API SCM scm_cancel_thread (SCM t);

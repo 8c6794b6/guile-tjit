@@ -448,7 +448,6 @@ SCM_API void scm_async_tick (void);
 #define SCM_TICK \
 do { \
   SCM_ASYNC_TICK; \
-  SCM_THREAD_SWITCHING_CODE; \
 } while (0)
 
 
