@@ -33,7 +33,8 @@ SCM call_num2ulong_long_body (void *data);
 SCM
 out_of_range_handler (void *data, SCM key, SCM args)
 {
-  assert (scm_equal_p (key, scm_from_locale_symbol ("out-of-range")));
+  assert (scm_is_true
+          (scm_equal_p (key, scm_from_locale_symbol ("out-of-range"))));
   return SCM_BOOL_T;
 }
 
