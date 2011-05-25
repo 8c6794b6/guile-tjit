@@ -156,9 +156,15 @@ SCM_DEFINE (scm_set_procedure_property_x, "set-procedure-property!", 3, 0, 0,
 
   SCM_VALIDATE_PROC (1, proc);
 
-  props = scm_procedure_properties (proc);
-
   scm_i_pthread_mutex_lock (&overrides_lock);
+  props = scm_hashq_ref (overrides, proc, SCM_BOOL_F);
+  if (scm_is_false (props))
+    {
+      if (SCM_PROGRAM_P (proc))
+        props = scm_i_program_properties (proc);
+      else
+        props = SCM_EOL;
+    }
   scm_hashq_set_x (overrides, proc, scm_assq_set_x (props, key, val));
   scm_i_pthread_mutex_unlock (&overrides_lock);
 
