@@ -29,27 +29,15 @@
 #include <pthread.h>
 #include <sched.h>
 
-/* `libgc' defines wrapper procedures for pthread calls.  */
-#include "libguile/bdw-gc.h"
-
 /* Threads 
 */
 #define scm_i_pthread_t                     pthread_t
 #define scm_i_pthread_self                  pthread_self
-#define scm_i_pthread_create                GC_pthread_create
-#define scm_i_pthread_detach                GC_pthread_detach
+#define scm_i_pthread_create                pthread_create
+#define scm_i_pthread_detach                pthread_detach
 
-#if SCM_HAVE_GC_PTHREAD_EXIT
-#define scm_i_pthread_exit                  GC_pthread_exit
-#else
 #define scm_i_pthread_exit                  pthread_exit
-#endif
-
-#if SCM_HAVE_GC_PTHREAD_CANCEL
-#define scm_i_pthread_cancel                GC_pthread_cancel
-#else
 #define scm_i_pthread_cancel                pthread_cancel
-#endif
 
 #define scm_i_pthread_cleanup_push          pthread_cleanup_push
 #define scm_i_pthread_cleanup_pop           pthread_cleanup_pop
@@ -57,11 +45,7 @@
 
 /* Signals
  */
-#if SCM_HAVE_GC_PTHREAD_SIGMASK
-#define scm_i_pthread_sigmask               GC_pthread_sigmask
-#else
 #define scm_i_pthread_sigmask               pthread_sigmask
-#endif
 
 /* Mutexes
  */
