@@ -252,7 +252,7 @@
 
   )
 
-(with-test-prefix "multiple occurrances"
+(with-test-prefix "multiple occurrences"
 
   (define (test9 . args)
     (equal? (getopt-long (cons "foo" args)
@@ -285,6 +285,17 @@
   (pass-if "lf/sa" (test9 "--inc" "1" "-f" "-I2"))
   (pass-if "sa/la" (test9 "-I1" "-f" "--inc=2"))
   (pass-if "la/sa" (test9 "--inc=1" "-f" "-I2"))
+
+  )
+
+(with-test-prefix "stop-at-first-non-option"
+
+  (pass-if "guile-tools compile example"
+    (equal? (getopt-long '("guile-tools" "compile" "-Wformat" "eval.scm" "-o" "eval.go")
+                         '((help (single-char #\h))
+                           (version (single-char #\v)))
+                         #:stop-at-first-non-option #t)
+            '((() "compile" "-Wformat" "eval.scm" "-o" "eval.go"))))
 
   )
 

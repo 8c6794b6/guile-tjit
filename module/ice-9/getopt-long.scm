@@ -161,6 +161,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (ice-9 match)
   #:use-module (ice-9 regex)
+  #:use-module (ice-9 optargs)
   #:export (getopt-long option-ref))
 
 (define %program-name (make-fluid))
@@ -179,8 +180,6 @@
   option-spec?
   (name
    option-spec->name set-option-spec-name!)
-  (value 
-   option-spec->value set-option-spec-value!)
   (required?
    option-spec->required? set-option-spec-required?!)
   (option-spec->single-char
@@ -228,33 +227,12 @@
 (define long-opt-no-value-rx   (make-regexp "^--([^=]+)$"))
 (define long-opt-with-value-rx (make-regexp "^--([^=]+)=(.*)"))
 
-(define (expand-clumped-singles opt-ls)
-  ;; example: ("--xyz" "-abc5d") => ("--xyz" "-a" "-b" "-c" "5d")
-  (let loop ((opt-ls opt-ls) (ret-ls '()))
-    (cond ((null? opt-ls)
-           (reverse ret-ls))                                    ;;; retval
-          ((regexp-exec short-opt-rx (car opt-ls))
-           => (lambda (match)
-                (let ((singles (reverse
-                                (map (lambda (c)
-                                       (string-append "-" (make-string 1 c)))
-                                     (string->list
-                                      (match:substring match 1)))))
-                      (extra (match:substring match 2)))
-                  (loop (cdr opt-ls)
-                        (append (if (string=? "" extra)
-                                    singles
-                                    (cons extra singles))
-                                ret-ls)))))
-          (else (loop (cdr opt-ls)
-                      (cons (car opt-ls) ret-ls))))))
-
 (define (looks-like-an-option string)
   (or (regexp-exec short-opt-rx string)
       (regexp-exec long-opt-with-value-rx string)
       (regexp-exec long-opt-no-value-rx string)))
 
-(define (process-options specs argument-ls)
+(define (process-options specs argument-ls stop-at-first-non-option)
   ;; Use SPECS to scan ARGUMENT-LS; return (FOUND . ETC).
   ;; FOUND is an unordered list of option specs for found options, while ETC
   ;; is an order-maintained list of elements in ARGUMENT-LS that are neither
@@ -266,32 +244,22 @@
                        (cons (make-string 1 (option-spec->single-char spec))
                              spec))
                      (remove-if-not option-spec->single-char specs))))
-    (let loop ((argument-ls argument-ls) (found '()) (etc '()))
+    (let loop ((unclumped 0) (argument-ls argument-ls) (found '()) (etc '()))
       (define (eat! spec ls)
-        (define (val!loop val n-ls n-found n-etc)
-          (set-option-spec-value!
-           spec
-           ;; handle multiple occurrances
-           (cond ((option-spec->value spec)
-                  => (lambda (cur)
-                       ((if (list? cur) cons list)
-                        val cur)))
-                 (else val)))
-          (loop n-ls n-found n-etc))
         (cond
          ((eq? 'optional (option-spec->value-policy spec))
           (if (or (null? ls)
                   (looks-like-an-option (car ls)))
-              (val!loop #t ls (cons spec found) etc)
-              (val!loop (car ls) (cdr ls) (cons spec found) etc)))
+              (loop (- unclumped 1) ls (acons spec #t found) etc)
+              (loop (- unclumped 2) (cdr ls) (acons spec (car ls) found) etc)))
          ((eq? #t (option-spec->value-policy spec))
           (if (or (null? ls)
                   (looks-like-an-option (car ls)))
               (fatal-error "option must be specified with argument: --~a"
                            (option-spec->name spec))
-              (val!loop (car ls) (cdr ls) (cons spec found) etc)))
+              (loop (- unclumped 2) (cdr ls) (acons spec (car ls) found) etc)))
          (else
-          (val!loop #t ls (cons spec found) etc))))
+          (loop (- unclumped 1) ls (acons spec #t found) etc))))
       
       (match argument-ls
         (()
@@ -300,10 +268,24 @@
          (cond
           ((regexp-exec short-opt-rx opt)
            => (lambda (match)
-                (let* ((c (match:substring match 1))
-                       (spec (or (assoc-ref sc-idx c)
-                                 (fatal-error "no such option: -~a" c))))
-                  (eat! spec rest))))
+                (if (> unclumped 0)
+                    ;; Next option is known not to be clumped.
+                    (let* ((c (match:substring match 1))
+                           (spec (or (assoc-ref sc-idx c)
+                                     (fatal-error "no such option: -~a" c))))
+                      (eat! spec rest))
+                    ;; Expand a clumped group of short options.
+                    (let* ((extra (match:substring match 2))
+                           (unclumped-opts
+                            (append (map (lambda (c)
+                                           (string-append "-" (make-string 1 c)))
+                                         (string->list
+                                          (match:substring match 1)))
+                                    (if (string=? "" extra) '() (list extra)))))
+                      (loop (length unclumped-opts)
+                            (append unclumped-opts rest)
+                            found
+                            etc)))))
           ((regexp-exec long-opt-no-value-rx opt)
            => (lambda (match)
                 (let* ((opt (match:substring match 1))
@@ -319,10 +301,14 @@
                       (eat! spec (cons (match:substring match 2) rest))
                       (fatal-error "option does not support argument: --~a"
                                    opt)))))
+          ((and stop-at-first-non-option
+                (<= unclumped 0))
+           (cons found (append (reverse etc) argument-ls)))
           (else
-           (loop rest found (cons opt etc)))))))))
+           (loop (- unclumped 1) rest found (cons opt etc)))))))))
 
-(define (getopt-long program-arguments option-desc-list)
+(define* (getopt-long program-arguments option-desc-list
+                      #:key stop-at-first-non-option)
   "Process options, handling both long and short options, similar to
 the glibc function 'getopt_long'.  PROGRAM-ARGUMENTS should be a value
 similar to what (program-arguments) returns.  OPTION-DESC-LIST is a
@@ -356,44 +342,27 @@ to add a `single-char' clause to the option description."
   (with-fluids ((%program-name (car program-arguments)))
     (let* ((specifications (map parse-option-spec option-desc-list))
            (pair (split-arg-list (cdr program-arguments)))
-           (split-ls (expand-clumped-singles (car pair)))
+           (split-ls (car pair))
            (non-split-ls (cdr pair))
-           (found/etc (process-options specifications split-ls))
+           (found/etc (process-options specifications split-ls
+                                       stop-at-first-non-option))
            (found (car found/etc))
            (rest-ls (append (cdr found/etc) non-split-ls)))
       (for-each (lambda (spec)
                   (let ((name (option-spec->name spec))
-                        (val (option-spec->value spec)))
+                        (val (assq-ref found spec)))
                     (and (option-spec->required? spec)
-                         (or (memq spec found)
+                         (or val
                              (fatal-error "option must be specified: --~a"
                                           name)))
-                    (and (memq spec found)
-                         (eq? #t (option-spec->value-policy spec))
-                         (or val
-                             (fatal-error
-                              "option must be specified with argument: --~a"
-                              name)))
                     (let ((pred (option-spec->predicate spec)))
                       (and pred (pred name val)))))
                 specifications)
-      (cons (cons '() rest-ls)
-            (let ((multi-count (map (lambda (desc)
-                                      (cons (car desc) 0))
-                                    option-desc-list)))
-              (map (lambda (spec)
-                     (let ((name (string->symbol (option-spec->name spec))))
-                       (cons name
-                             ;; handle multiple occurrances
-                             (let ((maybe-ls (option-spec->value spec)))
-                               (if (list? maybe-ls)
-                                   (let* ((look (assq name multi-count))
-                                          (idx (cdr look))
-                                          (val (list-ref maybe-ls idx)))
-                                     (set-cdr! look (1+ idx)) ; ugh!
-                                     val)
-                                   maybe-ls)))))
-                   found))))))
+      (for-each (lambda (spec+val)
+                  (set-car! spec+val
+                            (string->symbol (option-spec->name (car spec+val)))))
+                found)
+      (cons (cons '() rest-ls) found))))
 
 (define (option-ref options key default)
   "Return value in alist OPTIONS using KEY, a symbol; or DEFAULT if not found.

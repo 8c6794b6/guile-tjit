@@ -27,12 +27,6 @@
   #:use-module (rnrs exceptions)
   #:use-module (rnrs bytevectors))
 
-;;; All these tests assume Guile 1.8's port system, where characters are
-;;; treated as octets.
-
-;; Set the default encoding of future ports to be Latin-1.
-(fluid-set! %default-port-encoding #f)
-
 (define-syntax pass-if-condition
   (syntax-rules ()
     ((_ name predicate body0 body ...)
@@ -71,6 +65,12 @@
                #\space)
              (lambda () #t)) ;; close-port
      "rw")))
+
+(define (call-with-bytevector-output-port/transcoded transcoder receiver)
+  (call-with-bytevector-output-port
+    (lambda (bv-port)
+      (call-with-port (transcoded-port bv-port transcoder)
+        receiver))))
 
 
 (with-test-prefix "7.2.5 End-of-File Object"
@@ -316,6 +316,22 @@
 
 (with-test-prefix "7.2.7 Input Ports"
 
+  (let ((filename (test-file))
+        (contents (string->utf8 "GNU λ")))
+    
+    ;; Create file
+    (call-with-output-file filename
+      (lambda (port) (put-bytevector port contents)))
+  
+    (pass-if "open-file-input-port [opens binary port]"
+      (with-fluids ((%default-port-encoding "UTF-8"))
+          (call-with-port (open-file-input-port filename)
+            (lambda (port)
+              (and (binary-port? port)
+                   (bytevector=? contents (get-bytevector-all port)))))))
+
+    (delete-file filename))
+  
   ;; This section appears here so that it can use the binary input
   ;; primitives.
 
@@ -463,11 +479,12 @@
 (with-test-prefix "8.2.10 Output ports"
 
   (let ((filename (test-file)))
-    (pass-if "open-file-output-port [opens binary port]"
-      (call-with-port (open-file-output-port filename)
-        (lambda (port)
-          (put-bytevector port '#vu8(1 2 3))
-          (binary-port? port))))
+    (with-fluids ((%default-port-encoding "UTF-8"))
+      (pass-if "open-file-output-port [opens binary port]"
+        (call-with-port (open-file-output-port filename)
+          (lambda (port)
+            (put-bytevector port '#vu8(1 2 3))
+            (binary-port? port)))))
     
     (pass-if-condition "open-file-output-port [exception: already-exists]"
         i/o-file-already-exists-error?
@@ -620,11 +637,9 @@
     (let ((s "Hello\nÄÖÜ"))
       (bytevector=?
        (string->utf8 s)
-       (call-with-bytevector-output-port
-         (lambda (bv-port)
-           (call-with-port (transcoded-port bv-port (make-transcoder (utf-8-codec)))
-             (lambda (utf8-port)
-               (put-string utf8-port s))))))))
+       (call-with-bytevector-output-port/transcoded (make-transcoder (utf-8-codec))
+         (lambda (utf8-port)
+           (put-string utf8-port s))))))
 
   (pass-if "transcoded-port [input]"
     (let ((s "Hello\nÄÖÜ"))
@@ -720,6 +735,11 @@
     (pass-if-condition "get-datum" i/o-read-error?
       (get-datum (make-failing-port)))))
 
+(define (encoding-error-predicate char)
+  (lambda (c)
+    (and (i/o-encoding-error? c)
+         (char=? char (i/o-encoding-error-char c)))))
+
 (with-test-prefix "8.2.12 Textual Output"
   
   (with-test-prefix "write error"
@@ -728,7 +748,22 @@
     (pass-if-condition "put-string" i/o-write-error?
       (put-string (make-failing-port) "Hello World!"))
     (pass-if-condition "put-datum" i/o-write-error?
-      (put-datum (make-failing-port) '(hello world!)))))
+      (put-datum (make-failing-port) '(hello world!))))
+  (with-test-prefix "encoding error"
+    (pass-if-condition "put-char" (encoding-error-predicate #\λ)
+      (call-with-bytevector-output-port/transcoded
+          (make-transcoder (latin-1-codec)
+                           (native-eol-style)
+                           (error-handling-mode raise))
+        (lambda (port)
+          (put-char port #\λ))))
+    (pass-if-condition "put-string" (encoding-error-predicate #\λ)
+      (call-with-bytevector-output-port/transcoded
+          (make-transcoder (latin-1-codec)
+                           (native-eol-style)
+                           (error-handling-mode raise))
+        (lambda (port)
+          (put-string port "FooλBar"))))))
 
 (with-test-prefix "8.3 Simple I/O"
   (with-test-prefix "read error"
