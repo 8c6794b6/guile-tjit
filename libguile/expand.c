@@ -73,8 +73,8 @@ static const char** exp_field_names[SCM_NUM_EXPANDED_TYPES];
   SCM_MAKE_EXPANDED_CONDITIONAL(src, test, consequent, alternate)
 #define CALL(src, proc, exps) \
   SCM_MAKE_EXPANDED_CALL(src, proc, exps)
-#define SEQUENCE(src, exps) \
-  SCM_MAKE_EXPANDED_SEQUENCE(src, exps)
+#define SEQ(src, head, tail) \
+  SCM_MAKE_EXPANDED_SEQ(src, head, tail)
 #define LAMBDA(src, meta, body) \
   SCM_MAKE_EXPANDED_LAMBDA(src, meta, body)
 #define LAMBDA_CASE(src, req, opt, rest, kw, inits, gensyms, body, alternate) \
@@ -396,7 +396,9 @@ expand_sequence (const SCM forms, const SCM env)
   if (scm_is_null (CDR (forms)))
     return expand (CAR (forms), env);
   else
-    return SEQUENCE (SCM_BOOL_F, expand_exprs (forms, env));
+    return SEQ (scm_source_properties (forms),
+                expand (CAR (forms), env),
+                expand_sequence (CDR (forms), env));
 }
 
 
@@ -1245,7 +1247,7 @@ scm_init_expand ()
   DEFINE_NAMES (CONDITIONAL);
   DEFINE_NAMES (CALL);
   DEFINE_NAMES (PRIMCALL);
-  DEFINE_NAMES (SEQUENCE);
+  DEFINE_NAMES (SEQ);
   DEFINE_NAMES (LAMBDA);
   DEFINE_NAMES (LAMBDA_CASE);
   DEFINE_NAMES (LET);

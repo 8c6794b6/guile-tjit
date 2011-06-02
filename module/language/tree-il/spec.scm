@@ -1,6 +1,6 @@
 ;;; Tree Intermediate Language
 
-;; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -33,7 +33,9 @@
   (pmatch exps
     (() (make-void #f))
     ((,x) x)
-    (else (make-sequence #f exps))))
+    ((,x . ,rest)
+     (make-seq #f x (join rest env)))
+    (else (error "what!" x rest env))))
 
 (define-language tree-il
   #:title	"Tree Intermediate Language"

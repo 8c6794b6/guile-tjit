@@ -223,13 +223,8 @@
       ((<toplevel-define> exp)
        (step exp))
       
-      ((<sequence> exps)
-       (let lp ((exps exps) (ret '()))
-         (cond ((null? exps) '())
-               ((null? (cdr exps))
-                (lset-union eq? ret (step-tail (car exps))))
-               (else
-                (lp (cdr exps) (lset-union eq? ret (step (car exps))))))))
+      ((<seq> head tail)
+       (lset-union eq? (step head) (step-tail tail)))
       
       ((<lambda> body)
        ;; order is important here
@@ -388,8 +383,9 @@
       ((<toplevel-define> exp)
        (recur exp))
       
-      ((<sequence> exps)
-       (apply max (map recur exps)))
+      ((<seq> head tail)
+       (max (recur head)
+            (recur tail)))
       
       ((<lambda> body)
        ;; allocate closure vars in order

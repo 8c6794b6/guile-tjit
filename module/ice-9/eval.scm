@@ -1,6 +1,6 @@
 ;;; -*- mode: scheme; coding: utf-8; -*-
 
-;;;; Copyright (C) 2009, 2010
+;;;; Copyright (C) 2009, 2010, 2011
 ;;;; Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -381,14 +381,11 @@
                                        0 #f '() #f)
                  (apply make-general-closure (capture-env env) body nreq tail))))
 
-        (('begin (first . rest))
-         (let lp ((first first) (rest rest))
-           (if (null? rest)
-               (eval first env)
-               (begin
-                 (eval first env)
-                 (lp (car rest) (cdr rest))))))
-      
+        (('seq (head . tail))
+         (begin
+           (eval head env)
+           (eval tail env)))
+        
         (('lexical-set! (n . x))
          (let ((val (eval x env)))
            (list-set! env n val)))

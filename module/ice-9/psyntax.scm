@@ -417,7 +417,7 @@
       (lambda (src exps)
         (if (null? (cdr exps))
             (car exps)
-            (make-sequence src exps))))
+            (make-seq src (car exps) (build-sequence #f (cdr exps))))))
 
     (define build-let
       (lambda (src ids vars val-exps body-exp)

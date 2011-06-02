@@ -67,8 +67,8 @@ scm_t_bits scm_tc16_memoized;
 #define MAKMEMO(n, args)                                                \
   (scm_cell (scm_tc16_memoized | ((n) << 16), SCM_UNPACK (args)))
 
-#define MAKMEMO_BEGIN(exps) \
-  MAKMEMO (SCM_M_BEGIN, exps)
+#define MAKMEMO_SEQ(head,tail) \
+  MAKMEMO (SCM_M_SEQ, scm_cons (head, tail))
 #define MAKMEMO_IF(test, then, else_) \
   MAKMEMO (SCM_M_IF, scm_cons (test, scm_cons (then, else_)))
 #define FIXED_ARITY(nreq) \
@@ -124,7 +124,7 @@ scm_t_bits scm_tc16_memoizer;
 /* This table must agree with the list of M_ constants in memoize.h */
 static const char *const memoized_tags[] =
 {
-  "begin",
+  "seq",
   "if",
   "lambda",
   "let",
@@ -277,8 +277,9 @@ memoize (SCM exp, SCM env)
         return MAKMEMO_CALL (proc, scm_ilength (args), args);
       }
 
-    case SCM_EXPANDED_SEQUENCE:
-      return MAKMEMO_BEGIN (memoize_exps (REF (exp, SEQUENCE, EXPS), env));
+    case SCM_EXPANDED_SEQ:
+      return MAKMEMO_SEQ (memoize (REF (exp, SEQ, HEAD), env),
+                          memoize (REF (exp, SEQ, TAIL), env));
 
     case SCM_EXPANDED_LAMBDA:
       /* The body will be a lambda-case. */
@@ -408,18 +409,21 @@ memoize (SCM exp, SCM env)
 
         if (in_order_p)
           {
-            SCM body_exps = SCM_EOL;
+            SCM body_exps = SCM_EOL, seq;
             for (; scm_is_pair (exps); exps = CDR (exps), i--)
               body_exps = scm_cons (MAKMEMO_LEX_SET (i-1,
                                                      memoize (CAR (exps), new_env)),
                                     body_exps);
-            body_exps = scm_cons (memoize (body, new_env), body_exps);
-            body_exps = scm_reverse_x (body_exps, SCM_UNDEFINED);
-            return MAKMEMO_LET (undefs, MAKMEMO_BEGIN (body_exps));
+
+            seq = memoize (body, new_env);
+            for (; scm_is_pair (body_exps); body_exps = CDR (body_exps))
+              seq = MAKMEMO_SEQ (CAR (body_exps), seq);
+
+            return MAKMEMO_LET (undefs, seq);
           }
         else
           {
-            SCM sets = SCM_EOL, inits = SCM_EOL;
+            SCM sets = SCM_EOL, inits = SCM_EOL, set_seq;
             for (; scm_is_pair (exps); exps = CDR (exps), i--)
               {
                 sets = scm_cons (MAKMEMO_LEX_SET ((i-1) + nvars,
@@ -428,10 +432,18 @@ memoize (SCM exp, SCM env)
                 inits = scm_cons (memoize (CAR (exps), new_env), inits);
               }
             inits = scm_reverse_x (inits, SCM_UNDEFINED);
-            return MAKMEMO_LET
-              (undefs,
-               MAKMEMO_BEGIN (scm_list_2 (MAKMEMO_LET (inits, MAKMEMO_BEGIN (sets)),
-                                          memoize (body, new_env))));
+
+            sets = scm_reverse_x (sets, SCM_UNDEFINED);
+            if (scm_is_null (sets))
+              return memoize (body, env);
+
+            for (set_seq = CAR (sets), sets = CDR (sets); scm_is_pair (sets);
+                 sets = CDR (sets))
+              set_seq = MAKMEMO_SEQ (CAR (sets), set_seq);
+            
+            return MAKMEMO_LET (undefs,
+                                MAKMEMO_SEQ (MAKMEMO_LET (inits, set_seq),
+                                             memoize (body, new_env)));
           }
       }
 
@@ -622,8 +634,9 @@ unmemoize (const SCM expr)
     {
     case SCM_M_APPLY:
       return scm_cons (scm_sym_atapply, unmemoize_exprs (args));
-    case SCM_M_BEGIN:
-      return scm_cons (scm_sym_begin, unmemoize_exprs (args));
+    case SCM_M_SEQ:
+      return scm_list_3 (scm_sym_begin, unmemoize (CAR (args)),
+                         unmemoize (CDR (args)));
     case SCM_M_CALL:
       return scm_cons (unmemoize (CAR (args)), unmemoize_exprs (CDDR (args)));
     case SCM_M_CONT:

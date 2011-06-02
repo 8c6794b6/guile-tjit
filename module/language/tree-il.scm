@@ -36,7 +36,7 @@
             <conditional> conditional? make-conditional conditional-src conditional-test conditional-consequent conditional-alternate
             <call> call? make-call call-src call-proc call-args
             <primcall> primcall? make-primcall primcall-src primcall-name primcall-args
-            <sequence> sequence? make-sequence sequence-src sequence-exps
+            <seq> seq? make-seq seq-head seq-tail
             <lambda> lambda? make-lambda lambda-src lambda-meta lambda-body
             <lambda-case> lambda-case? make-lambda-case lambda-case-src
                           lambda-case-req lambda-case-opt lambda-case-rest lambda-case-kw
@@ -52,6 +52,8 @@
             <dynset> dynset? make-dynset dynset-src dynset-fluid dynset-exp
             <prompt> prompt? make-prompt prompt-src prompt-tag prompt-body prompt-handler
             <abort> abort? make-abort abort-src abort-tag abort-args abort-tail
+
+            list->seq
 
             parse-tree-il
             unparse-tree-il
@@ -121,7 +123,7 @@
   ;; (<conditional> test consequent alternate)
   ;; (<call> proc args)
   ;; (<primcall> name args)
-  ;; (<sequence> exps)
+  ;; (<seq> head tail)
   ;; (<lambda> meta body)
   ;; (<lambda-case> req opt rest kw inits gensyms body alternate)
   ;; (<let> names gensyms vals body)
@@ -136,6 +138,14 @@
   (<dynset> fluid exp)
   (<prompt> tag body handler)
   (<abort> tag args tail))
+
+
+
+;; A helper.
+(define (list->seq loc exps)
+  (if (null? (cdr exps))
+      (car exps)
+      (make-seq loc (car exps) (list->seq #f (cdr exps)))))
 
 
 
@@ -214,8 +224,12 @@
      ((const ,exp)
       (make-const loc exp))
 
+     ((seq ,head ,tail)
+      (make-seq loc (retrans head) (retrans tail)))
+
+     ;; Convenience.
      ((begin . ,exps)
-      (make-sequence loc (map retrans exps)))
+      (list->seq loc (map retrans exps)))
 
      ((let ,names ,gensyms ,vals ,body)
       (make-let loc names gensyms (map retrans vals) (retrans body)))
@@ -302,9 +316,9 @@
     ((<const> exp)
      `(const ,exp))
 
-    ((<sequence> exps)
-     `(begin ,@(map unparse-tree-il exps)))
-
+    ((<seq> head tail)
+     `(seq ,(unparse-tree-il head) ,(unparse-tree-il tail)))
+    
     ((<let> names gensyms vals body)
      `(let ,names ,gensyms ,(map unparse-tree-il vals) ,(unparse-tree-il body)))
 
@@ -444,8 +458,13 @@
          exp
          (list 'quote exp)))
 
-    ((<sequence> exps)
-     `(begin ,@(map tree-il->scheme exps)))
+    ((<seq> head tail)
+     `(begin ,(tree-il->scheme head)
+             ,@(unfold (lambda (x) (not (seq? x)))
+                       (lambda (x) (tree-il->scheme (seq-head x)))
+                       seq-tail
+                       tail
+                       tree-il->scheme)))
 
     ((<let> gensyms vals body)
      `(let ,(map list gensyms (map tree-il->scheme vals)) ,(tree-il->scheme body)))
@@ -523,8 +542,8 @@ This is an implementation of `foldts' as described by Andy Wingo in
            (up tree (loop (cons proc args) (down tree result))))
           ((<primcall> name args)
            (up tree (loop args (down tree result))))
-          ((<sequence> exps)
-           (up tree (loop exps (down tree result))))
+          ((<seq> head tail)
+           (up tree (loop tail (loop head (down tree result)))))
           ((<lambda> body)
            (up tree (loop body (down tree result))))
           ((<lambda-case> inits body alternate)
@@ -599,8 +618,9 @@ This is an implementation of `foldts' as described by Andy Wingo in
                     (fold-values foldts args seed ...)))
                  ((<primcall> name args)
                   (fold-values foldts args seed ...))
-                 ((<sequence> exps)
-                  (fold-values foldts exps seed ...))
+                 ((<seq> head tail)
+                  (let-values (((seed ...) (foldts head seed ...)))
+                    (foldts tail seed ...)))
                  ((<lambda> body)
                   (foldts body seed ...))
                  ((<lambda-case> inits body alternate)
@@ -682,9 +702,10 @@ This is an implementation of `foldts' as described by Andy Wingo in
        (if alternate
            (set! (lambda-case-alternate x) (lp alternate))))
 
-      ((<sequence> exps)
-       (set! (sequence-exps x) (map lp exps)))
-
+      ((<seq> head tail)
+       (set! (seq-head x) (lp head))
+       (set! (seq-tail x) (lp tail)))
+      
       ((<let> gensyms vals body)
        (set! (let-vals x) (map lp vals))
        (set! (let-body x) (lp body)))
@@ -768,9 +789,10 @@ This is an implementation of `foldts' as described by Andy Wingo in
          (set! (lambda-case-body x) (lp body))
          (if alternate (set! (lambda-case-alternate x) (lp alternate))))
 
-        ((<sequence> exps)
-         (set! (sequence-exps x) (map lp exps)))
-
+        ((<seq> head tail)
+         (set! (seq-head x) (lp head))
+         (set! (seq-tail x) (lp tail)))
+        
         ((<let> vals body)
          (set! (let-vals x) (map lp vals))
          (set! (let-body x) (lp body)))

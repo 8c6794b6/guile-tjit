@@ -49,7 +49,7 @@ typedef enum
     SCM_EXPANDED_CONDITIONAL,
     SCM_EXPANDED_CALL,
     SCM_EXPANDED_PRIMCALL,
-    SCM_EXPANDED_SEQUENCE,
+    SCM_EXPANDED_SEQ,
     SCM_EXPANDED_LAMBDA,
     SCM_EXPANDED_LAMBDA_CASE,
     SCM_EXPANDED_LET,
@@ -255,17 +255,18 @@ enum
 #define SCM_MAKE_EXPANDED_PRIMCALL(src, name, args) \
   scm_c_make_struct (exp_vtables[SCM_EXPANDED_PRIMCALL], 0, SCM_NUM_EXPANDED_PRIMCALL_FIELDS, SCM_UNPACK (src), SCM_UNPACK (name), SCM_UNPACK (args))
 
-#define SCM_EXPANDED_SEQUENCE_TYPE_NAME "sequence"
-#define SCM_EXPANDED_SEQUENCE_FIELD_NAMES       \
-  {  "src", "exps", }
+#define SCM_EXPANDED_SEQ_TYPE_NAME "seq"
+#define SCM_EXPANDED_SEQ_FIELD_NAMES       \
+  {  "src", "head", "tail", }
 enum
   {
-    SCM_EXPANDED_SEQUENCE_SRC,
-    SCM_EXPANDED_SEQUENCE_EXPS,
-    SCM_NUM_EXPANDED_SEQUENCE_FIELDS,
+    SCM_EXPANDED_SEQ_SRC,
+    SCM_EXPANDED_SEQ_HEAD,
+    SCM_EXPANDED_SEQ_TAIL,
+    SCM_NUM_EXPANDED_SEQ_FIELDS,
   };
-#define SCM_MAKE_EXPANDED_SEQUENCE(src, exps) \
-  scm_c_make_struct (exp_vtables[SCM_EXPANDED_SEQUENCE], 0, SCM_NUM_EXPANDED_SEQUENCE_FIELDS, SCM_UNPACK (src), SCM_UNPACK (exps))
+#define SCM_MAKE_EXPANDED_SEQ(src, head, tail)                          \
+  scm_c_make_struct (exp_vtables[SCM_EXPANDED_SEQ], 0, SCM_NUM_EXPANDED_SEQ_FIELDS, SCM_UNPACK (src), SCM_UNPACK (head), SCM_UNPACK (tail))
 
 #define SCM_EXPANDED_LAMBDA_TYPE_NAME "lambda"
 #define SCM_EXPANDED_LAMBDA_FIELD_NAMES         \

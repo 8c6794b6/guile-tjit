@@ -246,15 +246,10 @@
           (emit-code src (make-glil-const exp))))
        (maybe-emit-return))
 
-      ;; FIXME: should represent sequence as exps tail
-      ((<sequence> exps)
-       (let lp ((exps exps))
-         (if (null? (cdr exps))
-             (comp-tail (car exps))
-             (begin
-               (comp-drop (car exps))
-               (lp (cdr exps))))))
-
+      ((<seq> head tail)
+       (comp-drop head)
+       (comp-tail tail))
+      
       ((<call> src proc args)
        (cond
         ;; self-call in tail position

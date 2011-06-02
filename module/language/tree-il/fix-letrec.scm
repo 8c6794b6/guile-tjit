@@ -41,9 +41,9 @@
      (and (simple-expression? test bound-vars simple-primitive?)
           (simple-expression? consequent bound-vars simple-primitive?)
           (simple-expression? alternate bound-vars simple-primitive?)))
-    ((<sequence> exps)
-     (and-map (lambda (x) (simple-expression? x bound-vars simple-primitive?))
-              exps))
+    ((<seq> head tail)
+     (and (simple-expression? head bound-vars simple-primitive?)
+          (simple-expression? tail bound-vars simple-primitive?)))
     ((<primcall> name args)
      (and (simple-primitive? name)
           ;; FIXME: check arity?
@@ -190,7 +190,7 @@
          ;; expression, called for effect.
          ((<lexical-set> gensym exp)
           (if (memq gensym unref)
-              (make-sequence #f (list exp (make-void #f)))
+              (make-seq #f exp (make-void #f))
               x))
 
          ((<letrec> src in-order? names gensyms vals body)
@@ -218,7 +218,7 @@
                ;; Bind lambdas using the fixpoint operator.
                (make-fix
                 src (map cadr l) (map car l) (map caddr l)
-                (make-sequence
+                (list->seq
                  src
                  (append
                   ;; The right-hand-sides of the unreferenced
@@ -245,7 +245,7 @@
                      (let ((tmps (map (lambda (x) (gensym)) c)))
                        (make-let
                         #f (map cadr c) tmps (map caddr c)
-                        (make-sequence
+                        (list->seq
                          #f
                          (map (lambda (x tmp)
                                 (make-lexical-set
@@ -262,7 +262,7 @@
             (let ((u (lookup unref))
                   (l (lookup lambda*))
                   (c (lookup complex)))
-              (make-sequence
+              (list->seq
                src
                (append
                 ;; unreferenced bindings, called for effect.

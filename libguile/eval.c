@@ -229,10 +229,9 @@ eval (SCM x, SCM env)
   mx = SCM_MEMOIZED_ARGS (x);
   switch (SCM_MEMOIZED_TAG (x))
     {
-    case SCM_M_BEGIN:
-      for (; !scm_is_null (CDR (mx)); mx = CDR (mx))
-        eval (CAR (mx), env);
-      x = CAR (mx);
+    case SCM_M_SEQ:
+      eval (CAR (mx), env);
+      x = CDR (mx);
       goto loop;
 
     case SCM_M_IF:

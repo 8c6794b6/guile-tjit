@@ -107,11 +107,11 @@
          #{name 838}#
          #{args 839}#)))
    (#{make-sequence 229}#
-     (lambda (#{src 843}# #{exps 844}#)
+     (lambda (#{src 843}# head tail)
        (make-struct/no-tail
          (vector-ref %expanded-vtables 13)
          #{src 843}#
-         #{exps 844}#)))
+         head tail)))
    (#{make-lambda 231}#
      (lambda (#{src 847}# #{meta 848}# #{body 849}#)
        (make-struct/no-tail
@@ -445,8 +445,8 @@
        (if (null? (cdr #{exps 1099}#))
          (car #{exps 1099}#)
          (#{make-sequence 229}#
-           #{src 1098}#
-           #{exps 1099}#))))
+          #f (car #{exps 1099}#)
+          (#{build-sequence 297}# #f (cdr #{exps 1099}#))))))
    (#{build-let 299}#
      (lambda (#{src 1102}#
               #{ids 1103}#

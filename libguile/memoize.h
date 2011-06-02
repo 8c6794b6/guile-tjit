@@ -3,7 +3,7 @@
 #ifndef SCM_MEMOIZE_H
 #define SCM_MEMOIZE_H
 
-/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002,2004,2008,2009,2010
+/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002,2004,2008,2009,2010,2011
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -72,7 +72,7 @@ SCM_INTERNAL scm_t_bits scm_tc16_memoized;
 
 enum
   {
-    SCM_M_BEGIN,
+    SCM_M_SEQ,
     SCM_M_IF,
     SCM_M_LAMBDA,
     SCM_M_LET,

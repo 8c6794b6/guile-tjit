@@ -134,7 +134,7 @@
                    (make-const loc sym))))
 
 (define (ensuring-globals loc bindings body)
-  (make-sequence
+  (list->seq
    loc
    `(,@(map-globals-needed (fluid-ref bindings)
                            (lambda (mod sym)
@@ -286,7 +286,7 @@
                              (map (lambda (el) (compile-expr (cdr el)))
                                   for)))
               (make-body (lambda ()
-                           (make-sequence loc (map compile-expr body)))))
+                           (list->seq loc (map compile-expr body)))))
           (if (null? lexical)
               (let-dynamic loc (map car dynamic) module
                            (make-values dynamic) (make-body))
@@ -330,7 +330,7 @@
                 (map car bind))
       (let iterate ((tail bind))
         (if (null? tail)
-            (make-sequence loc (map compile-expr body))
+            (list->seq loc (map compile-expr body))
             (let ((sym (caar tail))
                   (value (compile-expr (cdar tail))))
               (if (bind-lexically? sym module)
@@ -500,36 +500,35 @@
               (map (lambda (x) (nil-value loc)) optional)
               all-syms
               (let ((compiled-body
-                     (make-sequence loc (map compile-expr body))))
-                (make-sequence
+                     (list->seq loc (map compile-expr body))))
+                (make-seq
                  loc
-                 (list
-                  (if rest
-                      (make-conditional
-                       loc
-                       (call-primitive loc
-                                       'null?
-                                       (make-lexical-ref loc
-                                                         rest
-                                                         the-rest-sym))
-                       (make-lexical-set loc
-                                         rest
-                                         the-rest-sym
-                                         (nil-value loc))
-                       (make-void loc))
+                 (if rest
+                     (make-conditional
+                      loc
+                      (call-primitive loc
+                                      'null?
+                                      (make-lexical-ref loc
+                                                        rest
+                                                        the-rest-sym))
+                      (make-lexical-set loc
+                                        rest
+                                        the-rest-sym
+                                        (nil-value loc))
                       (make-void loc))
-                  (if (null? dynamic)
-                      compiled-body
-                      (let-dynamic loc
-                                   dynamic
-                                   value-slot
-                                   (map (lambda (name-sym)
-                                          (make-lexical-ref
-                                           loc
-                                           (car name-sym)
-                                           (cdr name-sym)))
-                                        all-dyn-pairs)
-                                   compiled-body)))))
+                     (make-void loc))
+                 (if (null? dynamic)
+                     compiled-body
+                     (let-dynamic loc
+                                  dynamic
+                                  value-slot
+                                  (map (lambda (name-sym)
+                                         (make-lexical-ref
+                                          loc
+                                          (car name-sym)
+                                          (cdr name-sym)))
+                                       all-dyn-pairs)
+                                  compiled-body))))
               #f)))))))))
 
 ;;; Handle the common part of defconst and defvar, that is, checking for
@@ -621,7 +620,7 @@
       (report-error loc "invalid symbol list" syms))
   (let ((old (fluid-ref fluid))
         (make-body (lambda ()
-                     (make-sequence loc (map compile-expr body)))))
+                     (list->seq loc (map compile-expr body)))))
     (if (eq? old 'all)
         (make-body)
         (let ((new (if (eq? syms 'all)
@@ -633,7 +632,7 @@
 ;;; Special operators
 
 (defspecial progn (loc args)
-  (make-sequence loc (map compile-expr args)))
+  (list->seq loc (map compile-expr args)))
 
 (defspecial if (loc args)
   (pmatch args
@@ -643,53 +642,51 @@
                        (compile-expr then)
                        (if (null? else)
                            (nil-value loc)
-                           (make-sequence loc
-                                          (map compile-expr else)))))))
+                           (list->seq loc (map compile-expr else)))))))
 
 (defspecial defconst (loc args)
   (pmatch args
     ((,sym ,value . ,doc)
      (if (handle-var-def loc sym doc)
-         (make-sequence loc
-                        (list (set-variable! loc
-                                             sym
-                                             value-slot
-                                             (compile-expr value))
-                              (make-const loc sym)))))))
+         (make-seq loc
+                        (set-variable! loc
+                                       sym
+                                       value-slot
+                                       (compile-expr value))
+                        (make-const loc sym))))))
 
 (defspecial defvar (loc args)
   (pmatch args
     ((,sym) (make-const loc sym))
     ((,sym ,value . ,doc)
      (if (handle-var-def loc sym doc)
-         (make-sequence
+         (make-seq
           loc
-          (list
+          (make-conditional
+           loc
            (make-conditional
             loc
-            (make-conditional
+            (call-primitive
              loc
-             (call-primitive
-              loc
-              'module-bound?
-              (call-primitive loc
-                              'resolve-interface
-                              (make-const loc value-slot))
-              (make-const loc sym))
+             'module-bound?
              (call-primitive loc
-                             'fluid-bound?
-                             (make-module-ref loc value-slot sym #t))
-             (make-const loc #f))
-            (make-void loc)
-            (set-variable! loc sym value-slot (compile-expr value)))
-           (make-const loc sym)))))))
+                             'resolve-interface
+                             (make-const loc value-slot))
+             (make-const loc sym))
+            (call-primitive loc
+                            'fluid-bound?
+                            (make-module-ref loc value-slot sym #t))
+            (make-const loc #f))
+           (make-void loc)
+           (set-variable! loc sym value-slot (compile-expr value)))
+          (make-const loc sym))))))
 
 (defspecial setq (loc args)
   (define (car* x) (if (null? x) '() (car x)))
   (define (cdr* x) (if (null? x) '() (cdr x)))
   (define (cadr* x) (car* (cdr* x)))
   (define (cddr* x) (cdr* (cdr* x)))
-  (make-sequence
+  (list->seq
    loc
    (let loop ((args args) (last (nil-value loc)))
      (if (null? args)
@@ -782,8 +779,7 @@
                                                     'iterate
                                                     itersym)
                                   (list)))
-            (full-body (make-sequence loc
-                                      `(,@compiled-body ,iter-call)))
+            (full-body (list->seq loc `(,@compiled-body ,iter-call)))
             (lambda-body (make-conditional loc
                                            (compile-expr condition)
                                            full-body
@@ -819,17 +815,16 @@
      (if (not (symbol? name))
          (report-error loc "expected symbol as macro name" name)
          (let* ((tree-il
-                 (make-sequence
+                 (make-seq
                   loc
-                  (list
-                   (set-variable!
-                    loc
-                    name
-                    function-slot
-                    (make-primcall loc 'cons
-                                   (list (make-const loc 'macro)
-                                         (compile-lambda loc args body))))
-                   (make-const loc name)))))
+                  (set-variable!
+                   loc
+                   name
+                   function-slot
+                   (make-primcall loc 'cons
+                                  (list (make-const loc 'macro)
+                                        (compile-lambda loc args body))))
+                  (make-const loc name))))
            (compile (ensuring-globals loc bindings-data tree-il)
                     #:from 'tree-il
                     #:to 'value)
@@ -840,14 +835,14 @@
     ((,name ,args . ,body)
      (if (not (symbol? name))
          (report-error loc "expected symbol as function name" name)
-         (make-sequence loc
-                        (list (set-variable! loc
-                                             name
-                                             function-slot
-                                             (compile-lambda loc
-                                                             args
-                                                             body))
-                              (make-const loc name)))))))
+         (make-seq loc
+                   (set-variable! loc
+                                  name
+                                  function-slot
+                                  (compile-lambda loc
+                                                  args
+                                                  body))
+                   (make-const loc name))))))
 
 (defspecial #{`}# (loc args)
   (pmatch args
