@@ -255,7 +255,7 @@
                (comp-drop (car exps))
                (lp (cdr exps))))))
 
-      ((<application> src proc args)
+      ((<call> src proc args)
        ;; FIXME: need a better pattern-matcher here
        (cond
         ((and (primitive-ref? proc)
@@ -289,8 +289,8 @@
                 (maybe-emit-return))
                ((vals)
                 (comp-vals
-                 (make-application src (make-primitive-ref #f 'apply)
-                                   (cons proc args))
+                 (make-call src (make-primitive-ref #f 'apply)
+                            (cons proc args))
                  MVRA)
                 (maybe-emit-return))
                ((drop)
@@ -299,8 +299,8 @@
                 ;; yet apply does not create a MV continuation. So we
                 ;; mv-call out to our trampoline instead.
                 (comp-drop
-                 (make-application src (make-primitive-ref #f 'apply)
-                                   (cons proc args)))
+                 (make-call src (make-primitive-ref #f 'apply)
+                            (cons proc args)))
                 (maybe-emit-return)))))))
         
         ((and (primitive-ref? proc) (eq? (primitive-ref-name proc) 'values)
@@ -333,8 +333,8 @@
            ((vals)
             ;; Fall back.
             (comp-vals
-             (make-application src (make-primitive-ref #f 'call-with-values)
-                               args)
+             (make-call src (make-primitive-ref #f 'call-with-values)
+                        args)
              MVRA)
             (maybe-emit-return))
            (else
@@ -368,7 +368,7 @@
             (emit-code src (make-glil-call 'tail-call/cc 1)))
            ((vals)
             (comp-vals
-             (make-application
+             (make-call
               src (make-primitive-ref #f 'call-with-current-continuation)
               args)
              MVRA)
@@ -380,7 +380,7 @@
            ((drop)
             ;; Crap. Just like `apply' in drop context.
             (comp-drop
-             (make-application
+             (make-call
               src (make-primitive-ref #f 'call-with-current-continuation)
               args))
             (maybe-emit-return))))
@@ -528,7 +528,7 @@
        (let ((L1 (make-label)) (L2 (make-label)))
          ;; need a pattern matcher
          (record-case test
-           ((<application> proc args)
+           ((<call> proc args)
             (record-case proc
               ((<primitive-ref> name)
                (let ((len (length args)))
@@ -546,7 +546,7 @@
                   ((and (eq? name 'not) (= len 1))
                    (let ((app (car args)))
                      (record-case app
-                       ((<application> proc args)
+                       ((<call> proc args)
                         (let ((len (length args)))
                           (record-case proc
                             ((<primitive-ref> name)
@@ -948,7 +948,7 @@
       ((<dynwind> src body winder unwinder)
        (comp-push winder)
        (comp-push unwinder)
-       (comp-drop (make-application src winder '()))
+       (comp-drop (make-call src winder '()))
        (emit-code #f (make-glil-call 'wind 2))
 
        (case context
@@ -957,14 +957,14 @@
             (comp-vals body MV)
             ;; one value: unwind...
             (emit-code #f (make-glil-call 'unwind 0))
-            (comp-drop (make-application src unwinder '()))
+            (comp-drop (make-call src unwinder '()))
             ;; ...and return the val
             (emit-code #f (make-glil-call 'return 1))
             
             (emit-label MV)
             ;; multiple values: unwind...
             (emit-code #f (make-glil-call 'unwind 0))
-            (comp-drop (make-application src unwinder '()))
+            (comp-drop (make-call src unwinder '()))
             ;; and return the values.
             (emit-code #f (make-glil-call 'return/nvalues 1))))
          
@@ -973,7 +973,7 @@
           (comp-push body)
           ;; and unwind, leaving the val on the stack
           (emit-code #f (make-glil-call 'unwind 0))
-          (comp-drop (make-application src unwinder '())))
+          (comp-drop (make-call src unwinder '())))
          
          ((vals)
           (let ((MV (make-label)))
@@ -984,7 +984,7 @@
             (emit-label MV)
             ;; multiple values: unwind...
             (emit-code #f (make-glil-call 'unwind 0))
-            (comp-drop (make-application src unwinder '()))
+            (comp-drop (make-call src unwinder '()))
             ;; and goto the MVRA.
             (emit-branch #f 'br MVRA)))
          
@@ -992,7 +992,7 @@
           ;; compile body, discarding values. then unwind...
           (comp-drop body)
           (emit-code #f (make-glil-call 'unwind 0))
-          (comp-drop (make-application src unwinder '()))
+          (comp-drop (make-call src unwinder '()))
           ;; and fall through, or goto RA if there is one.
           (if RA
               (emit-branch #f 'br RA)))))

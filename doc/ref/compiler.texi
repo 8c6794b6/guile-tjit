@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  2008, 2009, 2010
+@c Copyright (C)  2008, 2009, 2010, 2011
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -158,12 +158,11 @@ different worlds indefinitely, as shown by the following quine:
 @node The Scheme Compiler
 @subsection The Scheme Compiler
 
-The job of the Scheme compiler is to expand all macros and all of
-Scheme to its most primitive expressions. The definition of
-``primitive'' is given by the inventory of constructs provided by
-Tree-IL, the target language of the Scheme compiler: procedure
-applications, conditionals, lexical references, etc. This is described
-more fully in the next section.
+The job of the Scheme compiler is to expand all macros and all of Scheme
+to its most primitive expressions. The definition of ``primitive'' is
+given by the inventory of constructs provided by Tree-IL, the target
+language of the Scheme compiler: procedure calls, conditionals, lexical
+references, etc. This is described more fully in the next section.
 
 The tricky and amusing thing about the Scheme-to-Tree-IL compiler is
 that it is completely implemented by the macro expander. Since the
@@ -181,10 +180,10 @@ The Scheme-to-Tree-IL expander may be invoked using the generic
 @lisp
 (compile '(+ 1 2) #:from 'scheme #:to 'tree-il)
 @result{}
- #<<application> src: #f
-                 proc: #<<toplevel-ref> src: #f name: +>
-                 args: (#<<const> src: #f exp: 1>
-                        #<<const> src: #f exp: 2>)>
+ #<<call> src: #f
+          proc: #<<toplevel-ref> src: #f name: +>
+          args: (#<<const> src: #f exp: 1>
+                 #<<const> src: #f exp: 2>)>
 @end lisp
 
 Or, since Tree-IL is so close to Scheme, it is often useful to expand
@@ -339,9 +338,9 @@ instruction.
 
 Compilation of Tree-IL usually begins with a pass that resolves some
 @code{<module-ref>} and @code{<toplevel-ref>} expressions to
-@code{<primitive-ref>} expressions. The actual compilation pass
-has special cases for applications of certain primitives, like
-@code{apply} or @code{cons}.
+@code{<primitive-ref>} expressions. The actual compilation pass has
+special cases for calls to certain primitives, like @code{apply} or
+@code{cons}.
 @end deftp
 @deftp {Scheme Variable} <lexical-ref> src name gensym
 @deftpx {External Representation} (lexical @var{name} @var{gensym})
@@ -385,8 +384,8 @@ Defines a new top-level variable in the current procedure's module.
 @deftpx {External Representation} (if @var{test} @var{then} @var{else})
 A conditional. Note that @var{else} is not optional.
 @end deftp
-@deftp {Scheme Variable} <application> src proc args
-@deftpx {External Representation} (apply @var{proc} . @var{args})
+@deftp {Scheme Variable} <call> src proc args
+@deftpx {External Representation} (call @var{proc} . @var{args})
 A procedure call.
 @end deftp
 @deftp {Scheme Variable} <sequence> src exps
@@ -506,7 +505,7 @@ Like Scheme's @code{receive} -- binds the values returned by
 evaluating @code{exp} to the @code{lambda}-like bindings described by
 @var{gensyms}. That is to say, @var{gensyms} may be an improper list.
 
-@code{<let-values>} is an optimization of @code{<application>} of the
+@code{<let-values>} is an optimization of a @code{<call>} to the
 primitive, @code{call-with-values}.
 @end deftp
 @deftp {Scheme Variable} <fix> src names gensyms vals body

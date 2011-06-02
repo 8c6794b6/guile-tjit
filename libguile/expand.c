@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011
  * Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
@@ -71,8 +71,8 @@ static const char** exp_field_names[SCM_NUM_EXPANDED_TYPES];
   SCM_MAKE_EXPANDED_TOPLEVEL_DEFINE(src, name, exp)
 #define CONDITIONAL(src, test, consequent, alternate) \
   SCM_MAKE_EXPANDED_CONDITIONAL(src, test, consequent, alternate)
-#define APPLICATION(src, proc, exps) \
-  SCM_MAKE_EXPANDED_APPLICATION(src, proc, exps)
+#define CALL(src, proc, exps) \
+  SCM_MAKE_EXPANDED_CALL(src, proc, exps)
 #define SEQUENCE(src, exps) \
   SCM_MAKE_EXPANDED_SEQUENCE(src, exps)
 #define LAMBDA(src, meta, body) \
@@ -359,9 +359,9 @@ expand (SCM exp, SCM env)
                arg_exps = CDR (arg_exps))
             args = scm_cons (expand (CAR (arg_exps), env), args);
           if (scm_is_null (arg_exps))
-            return APPLICATION (scm_source_properties (exp),
-                                expand (proc, env),
-                                scm_reverse_x (args, SCM_UNDEFINED));
+            return CALL (scm_source_properties (exp),
+                         expand (proc, env),
+                         scm_reverse_x (args, SCM_UNDEFINED));
           else
             syntax_error ("expected a proper list", exp, SCM_UNDEFINED);
         }
@@ -487,10 +487,10 @@ expand_cond_clauses (SCM clause, SCM rest, int elp, int alp, SCM env)
                   scm_list_1 (expand (test, env)),
                   CONDITIONAL (SCM_BOOL_F,
                                LEXICAL_REF (SCM_BOOL_F, tmp, tmp),
-                               APPLICATION (SCM_BOOL_F,
-                                            expand (CADDR (clause), new_env),
-                                            scm_list_1 (LEXICAL_REF (SCM_BOOL_F,
-                                                                     tmp, tmp))),
+                               CALL (SCM_BOOL_F,
+                                     expand (CADDR (clause), new_env),
+                                     scm_list_1 (LEXICAL_REF (SCM_BOOL_F,
+                                                              tmp, tmp))),
                                rest));
     }
   /* FIXME length == 1 case */
@@ -993,9 +993,9 @@ expand_named_let (const SCM expr, SCM env)
                                       SCM_BOOL_F, SCM_BOOL_F, var_syms,
                                       expand_sequence (CDDDR (expr), inner_env),
                                       SCM_BOOL_F))),
-     APPLICATION (SCM_BOOL_F,
-                  LEXICAL_REF (SCM_BOOL_F, name, name_sym),
-                  expand_exprs (inits, env)));
+     CALL (SCM_BOOL_F,
+           LEXICAL_REF (SCM_BOOL_F, name, name_sym),
+           expand_exprs (inits, env)));
 }
 
 static SCM
@@ -1243,7 +1243,7 @@ scm_init_expand ()
   DEFINE_NAMES (TOPLEVEL_SET);
   DEFINE_NAMES (TOPLEVEL_DEFINE);
   DEFINE_NAMES (CONDITIONAL);
-  DEFINE_NAMES (APPLICATION);
+  DEFINE_NAMES (CALL);
   DEFINE_NAMES (SEQUENCE);
   DEFINE_NAMES (LAMBDA);
   DEFINE_NAMES (LAMBDA_CASE);

@@ -34,7 +34,7 @@
             <toplevel-set> toplevel-set? make-toplevel-set toplevel-set-src toplevel-set-name toplevel-set-exp
             <toplevel-define> toplevel-define? make-toplevel-define toplevel-define-src toplevel-define-name toplevel-define-exp
             <conditional> conditional? make-conditional conditional-src conditional-test conditional-consequent conditional-alternate
-            <application> application? make-application application-src application-proc application-args
+            <call> call? make-call call-src call-proc call-args
             <sequence> sequence? make-sequence sequence-src sequence-exps
             <lambda> lambda? make-lambda lambda-src lambda-meta lambda-body
             <lambda-case> lambda-case? make-lambda-case lambda-case-src
@@ -118,7 +118,7 @@
   ;; (<toplevel-set> name exp)
   ;; (<toplevel-define> name exp)
   ;; (<conditional> test consequent alternate)
-  ;; (<application> proc args)
+  ;; (<call> proc args)
   ;; (<sequence> exps)
   ;; (<lambda> meta body)
   ;; (<lambda-case> req opt rest kw inits gensyms body alternate)
@@ -149,8 +149,8 @@
      ((void)
       (make-void loc))
 
-     ((apply ,proc . ,args)
-      (make-application loc (retrans proc) (map retrans args)))
+     ((call ,proc . ,args)
+      (make-call loc (retrans proc) (map retrans args)))
 
      ((if ,test ,consequent ,alternate)
       (make-conditional loc (retrans test) (retrans consequent) (retrans alternate)))
@@ -253,8 +253,8 @@
     ((<void>)
      '(void))
 
-    ((<application> proc args)
-     `(apply ,(unparse-tree-il proc) ,@(map unparse-tree-il args)))
+    ((<call> proc args)
+     `(call ,(unparse-tree-il proc) ,@(map unparse-tree-il args)))
 
     ((<conditional> test consequent alternate)
      `(if ,(unparse-tree-il test) ,(unparse-tree-il consequent) ,(unparse-tree-il alternate)))
@@ -336,7 +336,7 @@
     ((<void>)
      '(if #f #f))
 
-    ((<application> proc args)
+    ((<call> proc args)
      `(,(tree-il->scheme proc) ,@(map tree-il->scheme args)))
 
     ((<conditional> test consequent alternate)
@@ -478,7 +478,8 @@
 
 
     ((<abort> tag args tail)
-     `(apply abort ,(tree-il->scheme tag) ,@(map tree-il->scheme args)
+     `(apply abort-to-prompt
+             ,(tree-il->scheme tag) ,@(map tree-il->scheme args)
              ,(tree-il->scheme tail)))))
 
 
@@ -489,7 +490,7 @@ invoked as `(PROC TREE SEED)', where TREE is the sub-tree or leaf considered
 and SEED is the current result, intially seeded with SEED.
 
 This is an implementation of `foldts' as described by Andy Wingo in
-``Applications of fold to XML transformation''."
+``Calls of fold to XML transformation''."
   (let loop ((tree   tree)
              (result seed))
     (if (or (null? tree) (pair? tree))
@@ -507,7 +508,7 @@ This is an implementation of `foldts' as described by Andy Wingo in
            (up tree (loop alternate
                           (loop consequent
                                 (loop test (down tree result))))))
-          ((<application> proc args)
+          ((<call> proc args)
            (up tree (loop (cons proc args) (down tree result))))
           ((<sequence> exps)
            (up tree (loop exps (down tree result))))
@@ -580,7 +581,7 @@ This is an implementation of `foldts' as described by Andy Wingo in
                   (let*-values (((seed ...) (foldts test seed ...))
                                 ((seed ...) (foldts consequent seed ...)))
                     (foldts alternate seed ...)))
-                 ((<application> proc args)
+                 ((<call> proc args)
                   (let-values (((seed ...) (foldts proc seed ...)))
                     (fold-values foldts args seed ...)))
                  ((<sequence> exps)
@@ -633,9 +634,9 @@ This is an implementation of `foldts' as described by Andy Wingo in
 (define (post-order! f x)
   (let lp ((x x))
     (record-case x
-      ((<application> proc args)
-       (set! (application-proc x) (lp proc))
-       (set! (application-args x) (map lp args)))
+      ((<call> proc args)
+       (set! (call-proc x) (lp proc))
+       (set! (call-args x) (map lp args)))
 
       ((<conditional> test consequent alternate)
        (set! (conditional-test x) (lp test))
@@ -717,9 +718,9 @@ This is an implementation of `foldts' as described by Andy Wingo in
   (let lp ((x x))
     (let ((x (or (f x) x)))
       (record-case x
-        ((<application> proc args)
-         (set! (application-proc x) (lp proc))
-         (set! (application-args x) (map lp args)))
+        ((<call> proc args)
+         (set! (call-proc x) (lp proc))
+         (set! (call-args x) (map lp args)))
 
         ((<conditional> test consequent alternate)
          (set! (conditional-test x) (lp test))

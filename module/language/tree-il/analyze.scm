@@ -178,7 +178,7 @@
       (analyze! x new-proc (append labels labels-in-proc) #t #f))
     (define (recur x new-proc) (analyze! x new-proc '() tail? #f))
     (record-case x
-      ((<application> proc args)
+      ((<call> proc args)
        (apply lset-union eq? (step-tail-call proc args)
               (map step args)))
 
@@ -364,7 +364,7 @@
   (define (allocate! x proc n)
     (define (recur y) (allocate! y proc n))
     (record-case x
-      ((<application> proc args)
+      ((<call> proc args)
        (apply max (recur proc) (map recur args)))
 
       ((<conditional> test consequent alternate)
@@ -863,7 +863,7 @@ accurate information is missing from a given `tree-il' element."
   (defs  toplevel-info-defs)) ;; (VARIABLE-NAME ...)
 
 (define (goops-toplevel-definition proc args env)
-  ;; If application of PROC to ARGS is a GOOPS top-level definition, return
+  ;; If call of PROC to ARGS is a GOOPS top-level definition, return
   ;; the name of the variable being defined; otherwise return #f.  This
   ;; assumes knowledge of the current implementation of `define-class' et al.
   (define (toplevel-define-arg args)
@@ -929,7 +929,7 @@ accurate information is missing from a given `tree-il' element."
           (make-toplevel-info (vhash-delq name refs)
                               (vhash-consq name #t defs)))
 
-         ((<application> proc args)
+         ((<call> proc args)
           ;; Check for a dynamic top-level definition, as is
           ;; done by code expanded from GOOPS macros.
           (let ((name (goops-toplevel-definition proc args
@@ -967,12 +967,12 @@ accurate information is missing from a given `tree-il' element."
 (define-record-type <arity-info>
   (make-arity-info toplevel-calls lexical-lambdas toplevel-lambdas)
   arity-info?
-  (toplevel-calls   toplevel-procedure-calls) ;; ((NAME . APPLICATION) ...)
+  (toplevel-calls   toplevel-procedure-calls) ;; ((NAME . CALL) ...)
   (lexical-lambdas  lexical-lambdas)          ;; ((GENSYM . DEFINITION) ...)
   (toplevel-lambdas toplevel-lambdas))        ;; ((NAME . DEFINITION) ...)
 
-(define (validate-arity proc application lexical?)
-  ;; Validate the argument count of APPLICATION, a tree-il application of
+(define (validate-arity proc call lexical?)
+  ;; Validate the argument count of CALL, a tree-il call of
   ;; PROC, emitting a warning in case of argument count mismatch.
 
   (define (filter-keyword-args keywords allow-other-keys? args)
@@ -1032,8 +1032,8 @@ accurate information is missing from a given `tree-il' element."
                    (else
                     (values #f #f))))))))
 
-  (let ((args (application-args application))
-        (src  (tree-il-src application)))
+  (let ((args (call-args call))
+        (src  (tree-il-src call)))
     (call-with-values (lambda () (arities proc))
       (lambda (name arities)
         (define matches?
@@ -1120,7 +1120,7 @@ accurate information is missing from a given `tree-il' element."
          ((<fix> gensyms vals)
           (fold extend info gensyms vals))
 
-         ((<application> proc args src)
+         ((<call> proc args src)
           (record-case proc
             ((<lambda> body)
              (validate-arity proc x #t)
@@ -1180,9 +1180,9 @@ accurate information is missing from a given `tree-il' element."
      (let ((toplevel-calls   (toplevel-procedure-calls result))
            (toplevel-lambdas (toplevel-lambdas result)))
        (vlist-for-each
-        (lambda (name+application)
-          (let* ((name        (car name+application))
-                 (application (cdr name+application))
+        (lambda (name+call)
+          (let* ((name (car name+call))
+                 (call (cdr name+call))
                  (proc
                   (or (and=> (vhash-assq name toplevel-lambdas) cdr)
                       (and (module? env)
@@ -1197,7 +1197,7 @@ accurate information is missing from a given `tree-il' element."
                               (module-ref env name))))
                       proc)))
             (if (or (lambda? proc*) (procedure? proc*))
-                (validate-arity proc* application (lambda? proc*)))))
+                (validate-arity proc* call (lambda? proc*)))))
         toplevel-calls)))
 
    (make-arity-info vlist-null vlist-null vlist-null)))
@@ -1348,7 +1348,7 @@ accurate information is missing from a given `tree-il' element."
   (record-case x
     ((<const> exp)
      exp)
-    ((<application> proc args)
+    ((<call> proc args)
      ;; Gettexted literals, like `(_ "foo")'.
      (and (record-case proc
             ((<toplevel-ref> name) (eq? name '_))
@@ -1412,7 +1412,7 @@ accurate information is missing from a given `tree-il' element."
             (false-if-exception (module-ref env name))))
 
      (record-case x
-       ((<application> proc args src)
+       ((<call> proc args src)
         (let ((loc src))
           (record-case proc
             ((<toplevel-ref> name src)

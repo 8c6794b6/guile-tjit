@@ -241,12 +241,12 @@ memoize (SCM exp, SCM env)
                          memoize (REF (exp, CONDITIONAL, CONSEQUENT), env),
                          memoize (REF (exp, CONDITIONAL, ALTERNATE), env));
 
-    case SCM_EXPANDED_APPLICATION:
+    case SCM_EXPANDED_CALL:
       {
         SCM proc, args;
 
-        proc = REF (exp, APPLICATION, PROC);
-        args = memoize_exps (REF (exp, APPLICATION, ARGS), env);
+        proc = REF (exp, CALL, PROC);
+        args = memoize_exps (REF (exp, CALL, ARGS), env);
 
         if (SCM_EXPANDED_TYPE (proc) == SCM_EXPANDED_TOPLEVEL_REF)
           {

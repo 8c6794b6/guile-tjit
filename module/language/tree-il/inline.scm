@@ -47,7 +47,7 @@
             (else x)))
          (else x)))
       
-      ((<application> src proc args)
+      ((<call> src proc args)
        (record-case proc
          ;; ((lambda (y ...) x) z ...) => (let ((y z) ...) x)
          ((<primitive-ref> name)
@@ -66,7 +66,7 @@
                                           (const-exp k) (const-exp l)))))
                  (else
                   (let lp ((elts (const-exp l)))
-                    (let ((test (make-application
+                    (let ((test (make-call
                                  #f
                                  (make-primitive-ref #f (case name
                                                           ((memq) 'eq?)
@@ -101,7 +101,7 @@
 (define (inline! x)
   (define (inline1 x)
     (record-case x
-      ((<application> src proc args)
+      ((<call> src proc args)
        (record-case proc
          ;; ((lambda (y ...) x) z ...) => (let ((y z) ...) x)
          ((<lambda> body)
@@ -133,7 +133,7 @@
                        (not (lambda-case-alternate (lambda-body consumer))))
                 (make-let-values
                  src
-                 (let ((x (make-application src producer '())))
+                 (let ((x (make-call src producer '())))
                    (or (inline1 x) x))
                  (lambda-body consumer)))
                (else #f)))
@@ -178,7 +178,7 @@
          
        (and (not opt) (not kw) rest (not alternate)
             (record-case body
-              ((<application> proc args)
+              ((<call> proc args)
                ;; (lambda args (apply (lambda ...) args)) => (lambda ...)
                (and (primitive-ref? proc)
                     (eq? (primitive-ref-name proc) '@apply)
@@ -189,7 +189,7 @@
               (else #f))))
 
       ;; Actually the opposite of inlining -- if the prompt cannot be proven to
-      ;; be escape-only, ensure that its body is the application of a thunk.
+      ;; be escape-only, ensure that its body is the call of a thunk.
       ((<prompt> src tag body handler)
        (define (escape-only? handler)
          (and (pair? (lambda-case-req handler))
@@ -206,13 +206,13 @@
        (define (make-thunk body)
          (make-lambda #f '() (make-lambda-case #f '() #f #f #f '() '() body #f)))
 
-       (if (or (and (application? body)
-                    (lambda? (application-proc body))
-                    (null? (application-args body)))
+       (if (or (and (call? body)
+                    (lambda? (call-proc body))
+                    (null? (call-args body)))
                (escape-only? handler))
            x
            (make-prompt src tag
-                        (make-application #f (make-thunk body) '())
+                        (make-call #f (make-thunk body) '())
                         handler)))
       
       (else #f)))

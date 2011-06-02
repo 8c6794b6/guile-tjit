@@ -1,6 +1,6 @@
 ;;; open-coding primitive procedures
 
-;; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -183,7 +183,7 @@
   (pre-order!
    (lambda (x)
      (record-case x
-       ((<application> src proc args)
+       ((<call> src proc args)
         (and (primitive-ref? proc)
              (let ((expand (hashq-ref *primitive-expand-table*
                                       (primitive-ref-name proc))))
@@ -203,8 +203,8 @@
              (lp (cdr in)
                  (cons (if (eq? (caar in) 'quote)
                            `(make-const src ,@(cdar in))
-                           `(make-application src (make-primitive-ref src ',(caar in))
-                                              ,(inline-args (cdar in))))
+                           `(make-call src (make-primitive-ref src ',(caar in))
+                                       ,(inline-args (cdar in))))
                        out)))
             ((symbol? (car in))
              ;; assume it's locally bound
@@ -222,8 +222,8 @@
               ,(consequent then)
               ,(consequent else)))
         (else
-         `(make-application src (make-primitive-ref src ',(car exp))
-                            ,(inline-args (cdr exp))))))
+         `(make-call src (make-primitive-ref src ',(car exp))
+                     ,(inline-args (cdr exp))))))
      ((symbol? exp)
       ;; assume locally bound
       exp)
@@ -412,7 +412,7 @@
                     (make-dynwind
                      src
                      (make-lexical-ref #f 'pre PRE)
-                     (make-application #f thunk '())
+                     (make-call #f thunk '())
                      (make-lexical-ref #f 'post POST)))))
                 (else
                  (let ((PRE (gensym " pre"))
@@ -426,7 +426,7 @@
                     (make-dynwind
                      src
                      (make-lexical-ref #f 'pre PRE)
-                     (make-application #f (make-lexical-ref #f 'thunk THUNK) '())
+                     (make-call #f (make-lexical-ref #f 'thunk THUNK) '())
                      (make-lexical-ref #f 'post POST)))))))
               (else #f)))
 
@@ -470,9 +470,9 @@
                   ;; trickery here.
                   (make-lambda-case
                    (tree-il-src handler) '() #f 'args #f '() (list args-sym)
-                   (make-application #f (make-primitive-ref #f 'apply)
-                                     (list handler
-                                           (make-lexical-ref #f 'args args-sym)))
+                   (make-call #f (make-primitive-ref #f 'apply)
+                              (list handler
+                                    (make-lexical-ref #f 'args args-sym)))
                    #f))))
               (else #f)))
 
@@ -486,14 +486,14 @@
                 ((lambda? handler)
                  (let ((args-sym (gensym)))
                    (make-prompt
-                    src tag (make-application #f thunk '())
+                    src tag (make-call #f thunk '())
                     ;; If handler itself is a lambda, the inliner can do some
                     ;; trickery here.
                     (make-lambda-case
                      (tree-il-src handler) '() #f 'args #f '() (list args-sym)
-                     (make-application #f (make-primitive-ref #f 'apply)
-                                       (list handler
-                                             (make-lexical-ref #f 'args args-sym)))
+                     (make-call #f (make-primitive-ref #f 'apply)
+                                (list handler
+                                      (make-lexical-ref #f 'args args-sym)))
                      #f))))
                 (else #f)))
               (else #f)))

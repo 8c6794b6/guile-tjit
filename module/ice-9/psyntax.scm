@@ -313,9 +313,9 @@
       (lambda (source)
         (make-void source)))
 
-    (define build-application
+    (define build-call
       (lambda (source fun-exp arg-exps)
-        (make-application source fun-exp arg-exps)))
+        (make-call source fun-exp arg-exps)))
   
     (define build-conditional
       (lambda (source test-exp then-exp else-exp)
@@ -436,8 +436,8 @@
             (make-letrec
              src #f
              (list f-name) (list f) (list proc)
-             (build-application src (build-lexical-reference 'fun src f-name f)
-                                val-exps))))))
+             (build-call src (build-lexical-reference 'fun src f-name f)
+                         val-exps))))))
 
     (define build-letrec
       (lambda (src in-order? ids vars val-exps body-exp)
@@ -1038,7 +1038,7 @@
         (build-global-definition
          no-source
          name
-         (build-application
+         (build-call
           no-source
           (build-primref no-source 'make-syntax-transformer)
           (list (build-data no-source name)
@@ -1200,7 +1200,7 @@
              (lambda (e r w s mod)
                (chi e r w mod))))
           ((lexical-call)
-           (chi-application
+           (chi-call
             (let ((id (car e)))
               (build-lexical-reference 'fun (source-annotation id)
                                        (if (syntax-object? id)
@@ -1209,7 +1209,7 @@
                                        value))
             e r w s mod))
           ((global-call)
-           (chi-application
+           (chi-call
             (build-global-reference (source-annotation (car e))
                                     (if (syntax-object? value)
                                         (syntax-object-expression value)
@@ -1220,7 +1220,7 @@
             e r w s mod))
           ((constant) (build-data s (strip (source-wrap e w s mod) empty-wrap)))
           ((global) (build-global-reference s value mod))
-          ((call) (chi-application (chi (car e) r w mod) e r w s mod))
+          ((call) (chi-call (chi (car e) r w mod) e r w s mod))
           ((begin-form)
            (syntax-case e ()
              ((_ e1 e2 ...) (chi-sequence #'(e1 e2 ...) r w s mod))))
@@ -1245,12 +1245,12 @@
           (else (syntax-violation #f "unexpected syntax"
                                   (source-wrap e w s mod))))))
 
-    (define chi-application
+    (define chi-call
       (lambda (x e r w s mod)
         (syntax-case e ()
           ((e0 e1 ...)
-           (build-application s x
-                              (map (lambda (e) (chi e r w mod)) #'(e1 ...)))))))
+           (build-call s x
+                       (map (lambda (e) (chi e r w mod)) #'(e1 ...)))))))
 
     ;; (What follows is my interpretation of what's going on here -- Andy)
     ;;
@@ -1954,9 +1954,9 @@
                             (if (list? (cadr x))
                                 (build-simple-lambda no-source (cadr x) #f (cadr x) '() (regen (caddr x)))
                                 (error "how did we get here" x)))
-                           (else (build-application no-source
-                                                    (build-primref no-source (car x))
-                                                    (map regen (cdr x)))))))
+                           (else (build-call no-source
+                                             (build-primref no-source (car x))
+                                             (map regen (cdr x)))))))
 
                      (lambda (e r w s mod)
                        (let ((e (source-wrap e w s mod)))
@@ -2147,10 +2147,10 @@
                                           (build-global-assignment s (syntax->datum #'e)
                                                                    val mod)))))))
                               (else
-                               (build-application s
-                                                  (chi #'(setter head) r w mod)
-                                                  (map (lambda (e) (chi e r w mod))
-                                                       #'(tail ... val))))))))
+                               (build-call s
+                                           (chi #'(setter head) r w mod)
+                                           (map (lambda (e) (chi e r w mod))
+                                                #'(tail ... val))))))))
                        (_ (syntax-violation 'set! "bad set!" (source-wrap e w s mod))))))
 
     (global-extend 'module-ref '@
@@ -2288,20 +2288,20 @@
                        (lambda (pvars exp y r mod)
                          (let ((ids (map car pvars)) (levels (map cdr pvars)))
                            (let ((labels (gen-labels ids)) (new-vars (map gen-var ids)))
-                             (build-application no-source
-                                                (build-primref no-source 'apply)
-                                                (list (build-simple-lambda no-source (map syntax->datum ids) #f new-vars '()
-                                                                           (chi exp
-                                                                                (extend-env
-                                                                                 labels
-                                                                                 (map (lambda (var level)
-                                                                                        (make-binding 'syntax `(,var . ,level)))
-                                                                                      new-vars
-                                                                                      (map cdr pvars))
-                                                                                 r)
-                                                                                (make-binding-wrap ids labels empty-wrap)
-                                                                                mod))
-                                                      y))))))
+                             (build-call no-source
+                                         (build-primref no-source 'apply)
+                                         (list (build-simple-lambda no-source (map syntax->datum ids) #f new-vars '()
+                                                                    (chi exp
+                                                                         (extend-env
+                                                                          labels
+                                                                          (map (lambda (var level)
+                                                                                 (make-binding 'syntax `(,var . ,level)))
+                                                                               new-vars
+                                                                               (map cdr pvars))
+                                                                          r)
+                                                                         (make-binding-wrap ids labels empty-wrap)
+                                                                         mod))
+                                               y))))))
 
                      (define gen-clause
                        (lambda (x keys clauses r pat fender exp mod)
@@ -2316,36 +2316,36 @@
                               (else
                                (let ((y (gen-var 'tmp)))
                                  ;; fat finger binding and references to temp variable y
-                                 (build-application no-source
-                                                    (build-simple-lambda no-source (list 'tmp) #f (list y) '()
-                                                                         (let ((y (build-lexical-reference 'value no-source
-                                                                                                           'tmp y)))
-                                                                           (build-conditional no-source
-                                                                                              (syntax-case fender ()
-                                                                                                (#t y)
-                                                                                                (_ (build-conditional no-source
-                                                                                                                      y
-                                                                                                                      (build-dispatch-call pvars fender y r mod)
-                                                                                                                      (build-data no-source #f))))
-                                                                                              (build-dispatch-call pvars exp y r mod)
-                                                                                              (gen-syntax-case x keys clauses r mod))))
-                                                    (list (if (eq? p 'any)
-                                                              (build-application no-source
-                                                                                 (build-primref no-source 'list)
-                                                                                 (list x))
-                                                              (build-application no-source
-                                                                                 (build-primref no-source '$sc-dispatch)
-                                                                                 (list x (build-data no-source p)))))))))))))
+                                 (build-call no-source
+                                             (build-simple-lambda no-source (list 'tmp) #f (list y) '()
+                                                                  (let ((y (build-lexical-reference 'value no-source
+                                                                                                    'tmp y)))
+                                                                    (build-conditional no-source
+                                                                                       (syntax-case fender ()
+                                                                                         (#t y)
+                                                                                         (_ (build-conditional no-source
+                                                                                                               y
+                                                                                                               (build-dispatch-call pvars fender y r mod)
+                                                                                                               (build-data no-source #f))))
+                                                                                       (build-dispatch-call pvars exp y r mod)
+                                                                                       (gen-syntax-case x keys clauses r mod))))
+                                             (list (if (eq? p 'any)
+                                                       (build-call no-source
+                                                                   (build-primref no-source 'list)
+                                                                   (list x))
+                                                       (build-call no-source
+                                                                   (build-primref no-source '$sc-dispatch)
+                                                                   (list x (build-data no-source p)))))))))))))
 
                      (define gen-syntax-case
                        (lambda (x keys clauses r mod)
                          (if (null? clauses)
-                             (build-application no-source
-                                                (build-primref no-source 'syntax-violation)
-                                                (list (build-data no-source #f)
-                                                      (build-data no-source
-                                                                  "source expression failed to match any pattern")
-                                                      x))
+                             (build-call no-source
+                                         (build-primref no-source 'syntax-violation)
+                                         (list (build-data no-source #f)
+                                               (build-data no-source
+                                                           "source expression failed to match any pattern")
+                                               x))
                              (syntax-case (car clauses) ()
                                ((pat exp)
                                 (if (and (id? #'pat)
@@ -2355,18 +2355,18 @@
                                         (chi #'exp r empty-wrap mod)
                                         (let ((labels (list (gen-label)))
                                               (var (gen-var #'pat)))
-                                          (build-application no-source
-                                                             (build-simple-lambda
-                                                              no-source (list (syntax->datum #'pat)) #f (list var)
-                                                              '()
-                                                              (chi #'exp
-                                                                   (extend-env labels
-                                                                               (list (make-binding 'syntax `(,var . 0)))
-                                                                               r)
-                                                                   (make-binding-wrap #'(pat)
-                                                                                      labels empty-wrap)
-                                                                   mod))
-                                                             (list x))))
+                                          (build-call no-source
+                                                      (build-simple-lambda
+                                                       no-source (list (syntax->datum #'pat)) #f (list var)
+                                                       '()
+                                                       (chi #'exp
+                                                            (extend-env labels
+                                                                        (list (make-binding 'syntax `(,var . 0)))
+                                                                        r)
+                                                            (make-binding-wrap #'(pat)
+                                                                               labels empty-wrap)
+                                                            mod))
+                                                      (list x))))
                                     (gen-clause x keys (cdr clauses) r
                                                 #'pat #t #'exp mod)))
                                ((pat fender exp)
@@ -2383,14 +2383,14 @@
                                          #'(key ...))
                                 (let ((x (gen-var 'tmp)))
                                   ;; fat finger binding and references to temp variable x
-                                  (build-application s
-                                                     (build-simple-lambda no-source (list 'tmp) #f (list x) '()
-                                                                          (gen-syntax-case (build-lexical-reference 'value no-source
-                                                                                                                    'tmp x)
-                                                                                           #'(key ...) #'(m ...)
-                                                                                           r
-                                                                                           mod))
-                                                     (list (chi #'val r empty-wrap mod))))
+                                  (build-call s
+                                              (build-simple-lambda no-source (list 'tmp) #f (list x) '()
+                                                                   (gen-syntax-case (build-lexical-reference 'value no-source
+                                                                                                             'tmp x)
+                                                                                    #'(key ...) #'(m ...)
+                                                                                    r
+                                                                                    mod))
+                                              (list (chi #'val r empty-wrap mod))))
                                 (syntax-violation 'syntax-case "invalid literals list" e))))))))
 
     ;; The portable macroexpand seeds chi-top's mode m with 'e (for

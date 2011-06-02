@@ -1,6 +1,6 @@
 ;;; Brainfuck for GNU Guile
 
-;; Copyright (C) 2009 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2011 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -94,7 +94,7 @@
    (parse-tree-il
     `(let (pointer tape) (pointer tape)
           ((const 0)
-           (apply (primitive make-vector) (const ,tape-size) (const 0)))
+           (call (primitive make-vector) (const ,tape-size) (const 0)))
           ,(compile-body exp)))
    env
    env))
@@ -109,11 +109,11 @@
     (cond
      ((null? in)
       ;; No more input, build our output.
-       (cond
-        ((null? out) '(void)) ; no output
-        ((null? (cdr out)) (car out)) ; single expression
-        (else `(begin ,@(reverse out))))  ; sequence
-       )
+      (cond
+       ((null? out) '(void))             ; no output
+       ((null? (cdr out)) (car out))     ; single expression
+       (else `(begin ,@(reverse out))))  ; sequence
+      )
      (else
       (pmatch (car in)
 
@@ -121,34 +121,34 @@
         ;;   (set! pointer (+ pointer +-1))
         ((<bf-move> ,dir)
          (emit `(set! (lexical pointer)
-                      (apply (primitive +) (lexical pointer) (const ,dir)))))
+                      (call (primitive +) (lexical pointer) (const ,dir)))))
 
         ;; Cell increment +- is done as:
         ;;   (vector-set! tape pointer (+ (vector-ref tape pointer) +-1))
         ((<bf-increment> ,inc) 
-         (emit `(apply (primitive vector-set!) (lexical tape) (lexical pointer)
-                       (apply (primitive +)
-                              (apply (primitive vector-ref)
-                                     (lexical tape) (lexical pointer))
-                              (const ,inc)))))
+         (emit `(call (primitive vector-set!) (lexical tape) (lexical pointer)
+                      (call (primitive +)
+                            (call (primitive vector-ref)
+                                  (lexical tape) (lexical pointer))
+                            (const ,inc)))))
 
         ;; Output . is done by converting the cell's integer value to a
         ;; character first and then printing out this character:
         ;;   (write-char (integer->char (vector-ref tape pointer)))
         ((<bf-print>) 
-         (emit `(apply (primitive write-char)
-                       (apply (primitive integer->char)
-                              (apply (primitive vector-ref)
-                                     (lexical tape) (lexical pointer))))))
+         (emit `(call (primitive write-char)
+                      (call (primitive integer->char)
+                            (call (primitive vector-ref)
+                                  (lexical tape) (lexical pointer))))))
 
         ;; Input , is done similarly, read in a character, get its ASCII
         ;; code and store it into the current cell:
         ;;   (vector-set! tape pointer (char->integer (read-char)))
         ((<bf-read>) 
-         (emit `(apply (primitive vector-set!)
-                       (lexical tape) (lexical pointer)
-                       (apply (primitive char->integer)
-                              (apply (primitive read-char))))))
+         (emit `(call (primitive vector-set!)
+                      (lexical tape) (lexical pointer)
+                      (call (primitive char->integer)
+                            (call (primitive read-char))))))
 
         ;; For loops [...] we use a letrec construction to execute the body until
         ;; the current cell gets zero.  The body is compiled via a recursive call
@@ -171,14 +171,14 @@
                           ((lambda ()
                              (lambda-case
                               ((() #f #f #f () ())
-                               (if (apply (primitive =)
-                                          (apply (primitive vector-ref)
-                                                 (lexical tape) (lexical pointer))
-                                          (const 0))
+                               (if (call (primitive =)
+                                         (call (primitive vector-ref)
+                                               (lexical tape) (lexical pointer))
+                                         (const 0))
                                    (void)
                                    (begin ,(compile-body body)
-                                          (apply (lexical ,iterate)))))
+                                          (call (lexical ,iterate)))))
                               #f)))
-                     (apply (lexical ,iterate))))))
+                          (call (lexical ,iterate))))))
 
         (else (error "unknown brainfuck instruction" (car in))))))))

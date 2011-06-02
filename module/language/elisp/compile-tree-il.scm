@@ -1,6 +1,6 @@
 ;;; Guile Emacs Lisp
 
-;; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -109,7 +109,7 @@
 ;;; Build a call to a primitive procedure nicely.
 
 (define (call-primitive loc sym . args)
-  (make-application loc (make-primitive-ref loc sym) args))
+  (make-call loc (make-primitive-ref loc sym) args))
 
 ;;; Error reporting routine for syntax/compilation problems or build
 ;;; code for a runtime-error output.
@@ -118,9 +118,9 @@
   (apply error args))
 
 (define (runtime-error loc msg . args)
-  (make-application loc
-                    (make-primitive-ref loc 'error)
-                    (cons (make-const loc msg) args)))
+  (make-call loc
+             (make-primitive-ref loc 'error)
+             (cons (make-const loc msg) args)))
 
 ;;; Generate code to ensure a global symbol is there for further use of
 ;;; a given symbol.  In general during the compilation, those needed are
@@ -129,10 +129,10 @@
 ;;; this routine.
 
 (define (generate-ensure-global loc sym module)
-  (make-application loc
-                    (make-module-ref loc runtime 'ensure-fluid! #t)
-                    (list (make-const loc module)
-                          (make-const loc sym))))
+  (make-call loc
+             (make-module-ref loc runtime 'ensure-fluid! #t)
+             (list (make-const loc module)
+                   (make-const loc sym))))
 
 (define (ensuring-globals loc bindings body)
   (make-sequence
@@ -151,12 +151,12 @@
   (call-primitive
    loc
    'with-fluids*
-   (make-application loc
-                     (make-primitive-ref loc 'list)
-                     (map (lambda (sym)
-                            (make-module-ref loc module sym #t))
-                          syms))
-   (make-application loc (make-primitive-ref loc 'list) vals)
+   (make-call loc
+              (make-primitive-ref loc 'list)
+              (map (lambda (sym)
+                     (make-module-ref loc module sym #t))
+                   syms))
+   (make-call loc (make-primitive-ref loc 'list) vals)
    (make-lambda loc
                 '()
                 (make-lambda-case #f '() #f #f #f '() '() body #f))))
@@ -204,7 +204,7 @@
    sym
    module
    (lambda ()
-     (make-application
+     (make-call
       loc
       (make-module-ref loc runtime 'set-variable! #t)
       (list (make-const loc module) (make-const loc sym) value)))
@@ -779,11 +779,11 @@
     ((,condition . ,body)
      (let* ((itersym (gensym))
             (compiled-body (map compile-expr body))
-            (iter-call (make-application loc
-                                         (make-lexical-ref loc
-                                                           'iterate
-                                                           itersym)
-                                         (list)))
+            (iter-call (make-call loc
+                                  (make-lexical-ref loc
+                                                    'iterate
+                                                    itersym)
+                                  (list)))
             (full-body (make-sequence loc
                                       `(,@compiled-body ,iter-call)))
             (lambda-body (make-conditional loc
@@ -828,7 +828,7 @@
                     loc
                     name
                     function-slot
-                    (make-application
+                    (make-call
                      loc
                      (make-module-ref loc '(guile) 'cons #t)
                      (list (make-const loc 'macro)
@@ -876,13 +876,13 @@
       => (lambda (macro-function)
            (compile-expr (apply macro-function arguments))))
      (else
-      (make-application loc
-                        (if (symbol? operator)
-                            (reference-variable loc
-                                                operator
-                                                function-slot)
-                            (compile-expr operator))
-                        (map compile-expr arguments))))))
+      (make-call loc
+                 (if (symbol? operator)
+                     (reference-variable loc
+                                         operator
+                                         function-slot)
+                     (compile-expr operator))
+                 (map compile-expr arguments))))))
 
 ;;; Compile a symbol expression.  This is a variable reference or maybe
 ;;; some special value like nil.

@@ -86,7 +86,7 @@
          #{test 820}#
          #{consequent 821}#
          #{alternate 822}#)))
-   (#{make-application 225}#
+   (#{make-call 225}#
      (lambda (#{src 827}# #{proc 828}# #{args 829}#)
        (make-struct/no-tail
          (vector-ref %expanded-vtables 11)
@@ -234,9 +234,9 @@
    (#{build-void 263}#
      (lambda (#{source 943}#)
        (#{make-void 203}# #{source 943}#)))
-   (#{build-application 265}#
+   (#{build-call 265}#
      (lambda (#{source 945}# #{fun-exp 946}# #{arg-exps 947}#)
-       (#{make-application 225}#
+       (#{make-call 225}#
          #{source 945}#
          #{fun-exp 946}#
          #{arg-exps 947}#)))
@@ -487,7 +487,7 @@
                    (list #{f-name 1111}#)
                    (list #{f 1110}#)
                    (list #{proc 1115}#)
-                   (#{build-application 265}#
+                   (#{build-call 265}#
                      #{src 1096}#
                      (#{build-lexical-reference 271}#
                        'fun
@@ -1479,7 +1479,7 @@
        (#{build-global-definition 281}#
          #f
          #{name 1713}#
-         (#{build-application 265}#
+         (#{build-call 265}#
            #f
            (#{build-primref 289}#
              #f
@@ -1531,7 +1531,7 @@
                                           chi-local-syntax
                                           chi-body
                                           chi-macro
-                                          chi-application
+                                          chi-call
                                           chi-expr
                                           chi
                                           syntax-type
@@ -1620,7 +1620,7 @@
                                           build-lexical-reference
                                           build-dynlet
                                           build-conditional
-                                          build-application
+                                          build-call
                                           build-void
                                           maybe-name-value!
                                           decorate-source
@@ -1642,7 +1642,7 @@
                                           make-lambda-case
                                           make-lambda
                                           make-sequence
-                                          make-application
+                                          make-call
                                           make-conditional
                                           make-toplevel-define
                                           make-toplevel-set
@@ -1967,7 +1967,7 @@
                                             chi-local-syntax
                                             chi-body
                                             chi-macro
-                                            chi-application
+                                            chi-call
                                             chi-expr
                                             chi
                                             syntax-type
@@ -2056,7 +2056,7 @@
                                             build-lexical-reference
                                             build-dynlet
                                             build-conditional
-                                            build-application
+                                            build-call
                                             build-void
                                             maybe-name-value!
                                             decorate-source
@@ -2078,7 +2078,7 @@
                                             make-lambda-case
                                             make-lambda
                                             make-sequence
-                                            make-application
+                                            make-call
                                             make-conditional
                                             make-toplevel-define
                                             make-toplevel-set
@@ -2403,7 +2403,7 @@
                                               chi-local-syntax
                                               chi-body
                                               chi-macro
-                                              chi-application
+                                              chi-call
                                               chi-expr
                                               chi
                                               syntax-type
@@ -2492,7 +2492,7 @@
                                               build-lexical-reference
                                               build-dynlet
                                               build-conditional
-                                              build-application
+                                              build-call
                                               build-void
                                               maybe-name-value!
                                               decorate-source
@@ -2514,7 +2514,7 @@
                                               make-lambda-case
                                               make-lambda
                                               make-sequence
-                                              make-application
+                                              make-call
                                               make-conditional
                                               make-toplevel-define
                                               make-toplevel-set
@@ -2839,7 +2839,7 @@
                                                 chi-local-syntax
                                                 chi-body
                                                 chi-macro
-                                                chi-application
+                                                chi-call
                                                 chi-expr
                                                 chi
                                                 syntax-type
@@ -2928,7 +2928,7 @@
                                                 build-lexical-reference
                                                 build-dynlet
                                                 build-conditional
-                                                build-application
+                                                build-call
                                                 build-void
                                                 maybe-name-value!
                                                 decorate-source
@@ -2950,7 +2950,7 @@
                                                 make-lambda-case
                                                 make-lambda
                                                 make-sequence
-                                                make-application
+                                                make-call
                                                 make-conditional
                                                 make-toplevel-define
                                                 make-toplevel-set
@@ -3581,7 +3581,7 @@
                                                                      chi-local-syntax
                                                                      chi-body
                                                                      chi-macro
-                                                                     chi-application
+                                                                     chi-call
                                                                      chi-expr
                                                                      chi
                                                                      syntax-type
@@ -3670,7 +3670,7 @@
                                                                      build-lexical-reference
                                                                      build-dynlet
                                                                      build-conditional
-                                                                     build-application
+                                                                     build-call
                                                                      build-void
                                                                      maybe-name-value!
                                                                      decorate-source
@@ -3692,7 +3692,7 @@
                                                                      make-lambda-case
                                                                      make-lambda
                                                                      make-sequence
-                                                                     make-application
+                                                                     make-call
                                                                      make-conditional
                                                                      make-toplevel-define
                                                                      make-toplevel-set
@@ -4108,7 +4108,7 @@
                                                                   chi-local-syntax
                                                                   chi-body
                                                                   chi-macro
-                                                                  chi-application
+                                                                  chi-call
                                                                   chi-expr
                                                                   chi
                                                                   syntax-type
@@ -4197,7 +4197,7 @@
                                                                   build-lexical-reference
                                                                   build-dynlet
                                                                   build-conditional
-                                                                  build-application
+                                                                  build-call
                                                                   build-void
                                                                   maybe-name-value!
                                                                   decorate-source
@@ -4219,7 +4219,7 @@
                                                                   make-lambda-case
                                                                   make-lambda
                                                                   make-sequence
-                                                                  make-application
+                                                                  make-call
                                                                   make-conditional
                                                                   make-toplevel-define
                                                                   make-toplevel-set
@@ -4604,7 +4604,7 @@
                                                                   chi-local-syntax
                                                                   chi-body
                                                                   chi-macro
-                                                                  chi-application
+                                                                  chi-call
                                                                   chi-expr
                                                                   chi
                                                                   syntax-type
@@ -4693,7 +4693,7 @@
                                                                   build-lexical-reference
                                                                   build-dynlet
                                                                   build-conditional
-                                                                  build-application
+                                                                  build-call
                                                                   build-void
                                                                   maybe-name-value!
                                                                   decorate-source
@@ -4715,7 +4715,7 @@
                                                                   make-lambda-case
                                                                   make-lambda
                                                                   make-sequence
-                                                                  make-application
+                                                                  make-call
                                                                   make-conditional
                                                                   make-toplevel-define
                                                                   make-toplevel-set
@@ -5100,7 +5100,7 @@
                                                                   chi-local-syntax
                                                                   chi-body
                                                                   chi-macro
-                                                                  chi-application
+                                                                  chi-call
                                                                   chi-expr
                                                                   chi
                                                                   syntax-type
@@ -5189,7 +5189,7 @@
                                                                   build-lexical-reference
                                                                   build-dynlet
                                                                   build-conditional
-                                                                  build-application
+                                                                  build-call
                                                                   build-void
                                                                   maybe-name-value!
                                                                   decorate-source
@@ -5211,7 +5211,7 @@
                                                                   make-lambda-case
                                                                   make-lambda
                                                                   make-sequence
-                                                                  make-application
+                                                                  make-call
                                                                   make-conditional
                                                                   make-toplevel-define
                                                                   make-toplevel-set
@@ -5646,7 +5646,7 @@
                    #{w 1915}#
                    #{mod 1917}#)))
              (if (eqv? #{type 1896}# 'lexical-call)
-               (#{chi-application 423}#
+               (#{chi-call 423}#
                  (begin
                    (let ((#{id 1925}# (car #{e 1898}#)))
                      (#{build-lexical-reference 271}#
@@ -5662,7 +5662,7 @@
                  #{s 1901}#
                  #{mod 1902}#)
                (if (eqv? #{type 1896}# 'global-call)
-                 (#{chi-application 423}#
+                 (#{chi-call 423}#
                    (#{build-global-reference 277}#
                      (#{source-annotation 320}# (car #{e 1898}#))
                      (if (#{syntax-object? 305}# #{value 1897}#)
@@ -5692,7 +5692,7 @@
                        #{value 1897}#
                        #{mod 1902}#)
                      (if (eqv? #{type 1896}# 'call)
-                       (#{chi-application 423}#
+                       (#{chi-call 423}#
                          (#{chi 419}#
                            (car #{e 1898}#)
                            #{r 1899}#
@@ -5799,7 +5799,7 @@
                                        #{w 1900}#
                                        #{s 1901}#
                                        #{mod 1902}#))))))))))))))))))
-   (#{chi-application 423}#
+   (#{chi-call 423}#
      (lambda (#{x 1957}#
               #{e 1958}#
               #{r 1959}#
@@ -5812,7 +5812,7 @@
            (if #{tmp 1970}#
              (@apply
                (lambda (#{e0 1973}# #{e1 1974}#)
-                 (#{build-application 265}#
+                 (#{build-call 265}#
                    #{s 1961}#
                    #{x 1957}#
                    (map (lambda (#{e 1975}#)
@@ -6332,7 +6332,7 @@
                    chi-local-syntax
                    chi-body
                    chi-macro
-                   chi-application
+                   chi-call
                    chi-expr
                    chi
                    syntax-type
@@ -6421,7 +6421,7 @@
                    build-lexical-reference
                    build-dynlet
                    build-conditional
-                   build-application
+                   build-call
                    build-void
                    maybe-name-value!
                    decorate-source
@@ -6443,7 +6443,7 @@
                    make-lambda-case
                    make-lambda
                    make-sequence
-                   make-application
+                   make-call
                    make-conditional
                    make-toplevel-define
                    make-toplevel-set
@@ -7008,7 +7008,7 @@
                                                    chi-local-syntax
                                                    chi-body
                                                    chi-macro
-                                                   chi-application
+                                                   chi-call
                                                    chi-expr
                                                    chi
                                                    syntax-type
@@ -7097,7 +7097,7 @@
                                                    build-lexical-reference
                                                    build-dynlet
                                                    build-conditional
-                                                   build-application
+                                                   build-call
                                                    build-void
                                                    maybe-name-value!
                                                    decorate-source
@@ -7119,7 +7119,7 @@
                                                    make-lambda-case
                                                    make-lambda
                                                    make-sequence
-                                                   make-application
+                                                   make-call
                                                    make-conditional
                                                    make-toplevel-define
                                                    make-toplevel-set
@@ -7578,7 +7578,7 @@
                                                              chi-local-syntax
                                                              chi-body
                                                              chi-macro
-                                                             chi-application
+                                                             chi-call
                                                              chi-expr
                                                              chi
                                                              syntax-type
@@ -7667,7 +7667,7 @@
                                                              build-lexical-reference
                                                              build-dynlet
                                                              build-conditional
-                                                             build-application
+                                                             build-call
                                                              build-void
                                                              maybe-name-value!
                                                              decorate-source
@@ -7689,7 +7689,7 @@
                                                              make-lambda-case
                                                              make-lambda
                                                              make-sequence
-                                                             make-application
+                                                             make-call
                                                              make-conditional
                                                              make-toplevel-define
                                                              make-toplevel-set
@@ -9166,7 +9166,7 @@
                                '()
                                (#{regen 2903}# (car (cdr (cdr #{x 3099}#)))))
                              (error "how did we get here" #{x 3099}#))
-                           (#{build-application 265}#
+                           (#{build-call 265}#
                              #f
                              (#{build-primref 289}# #f (car #{x 3099}#))
                              (map #{regen 2903}# (cdr #{x 3099}#))))))))))))
@@ -9908,7 +9908,7 @@
                                               #f
                                               "source expression failed to match any pattern"
                                               #{tmp 3555}#))))))))
-                              (#{build-application 265}#
+                              (#{build-call 265}#
                                 #{s 3483}#
                                 (#{chi 419}#
                                   (list '#(syntax-object
@@ -9957,7 +9957,7 @@
                                                 chi-local-syntax
                                                 chi-body
                                                 chi-macro
-                                                chi-application
+                                                chi-call
                                                 chi-expr
                                                 chi
                                                 syntax-type
@@ -10046,7 +10046,7 @@
                                                 build-lexical-reference
                                                 build-dynlet
                                                 build-conditional
-                                                build-application
+                                                build-call
                                                 build-void
                                                 maybe-name-value!
                                                 decorate-source
@@ -10068,7 +10068,7 @@
                                                 make-lambda-case
                                                 make-lambda
                                                 make-sequence
-                                                make-application
+                                                make-call
                                                 make-conditional
                                                 make-toplevel-define
                                                 make-toplevel-set
@@ -10431,7 +10431,7 @@
                                       chi-local-syntax
                                       chi-body
                                       chi-macro
-                                      chi-application
+                                      chi-call
                                       chi-expr
                                       chi
                                       syntax-type
@@ -10520,7 +10520,7 @@
                                       build-lexical-reference
                                       build-dynlet
                                       build-conditional
-                                      build-application
+                                      build-call
                                       build-void
                                       maybe-name-value!
                                       decorate-source
@@ -10542,7 +10542,7 @@
                                       make-lambda-case
                                       make-lambda
                                       make-sequence
-                                      make-application
+                                      make-call
                                       make-conditional
                                       make-toplevel-define
                                       make-toplevel-set
@@ -10927,7 +10927,7 @@
                                                   chi-local-syntax
                                                   chi-body
                                                   chi-macro
-                                                  chi-application
+                                                  chi-call
                                                   chi-expr
                                                   chi
                                                   syntax-type
@@ -11016,7 +11016,7 @@
                                                   build-lexical-reference
                                                   build-dynlet
                                                   build-conditional
-                                                  build-application
+                                                  build-call
                                                   build-void
                                                   maybe-name-value!
                                                   decorate-source
@@ -11038,7 +11038,7 @@
                                                   make-lambda-case
                                                   make-lambda
                                                   make-sequence
-                                                  make-application
+                                                  make-call
                                                   make-conditional
                                                   make-toplevel-define
                                                   make-toplevel-set
@@ -11529,7 +11529,7 @@
                                         chi-local-syntax
                                         chi-body
                                         chi-macro
-                                        chi-application
+                                        chi-call
                                         chi-expr
                                         chi
                                         syntax-type
@@ -11618,7 +11618,7 @@
                                         build-lexical-reference
                                         build-dynlet
                                         build-conditional
-                                        build-application
+                                        build-call
                                         build-void
                                         maybe-name-value!
                                         decorate-source
@@ -11640,7 +11640,7 @@
                                         make-lambda-case
                                         make-lambda
                                         make-sequence
-                                        make-application
+                                        make-call
                                         make-conditional
                                         make-toplevel-define
                                         make-toplevel-set
@@ -12076,7 +12076,7 @@
                              (#{gen-labels 354}# #{ids 3800}#))
                            (#{new-vars 3805}#
                              (map #{gen-var 447}# #{ids 3800}#)))
-                       (#{build-application 265}#
+                       (#{build-call 265}#
                          #f
                          (#{build-primref 289}# #f 'apply)
                          (list (#{build-simple-lambda 283}#
@@ -12133,7 +12133,7 @@
                          #{pat 3820}#)
                        (begin
                          (let ((#{y 3844}# (#{gen-var 447}# 'tmp)))
-                           (#{build-application 265}#
+                           (#{build-call 265}#
                              #f
                              (#{build-simple-lambda 283}#
                                #f
@@ -12183,11 +12183,11 @@
                                        #{r 3819}#
                                        #{mod 3823}#)))))
                              (list (if (eq? #{p 3832}# 'any)
-                                     (#{build-application 265}#
+                                     (#{build-call 265}#
                                        #f
                                        (#{build-primref 289}# #f 'list)
                                        (list #{x 3816}#))
-                                     (#{build-application 265}#
+                                     (#{build-call 265}#
                                        #f
                                        (#{build-primref 289}# #f '$sc-dispatch)
                                        (list #{x 3816}#
@@ -12201,7 +12201,7 @@
                       #{r 3865}#
                       #{mod 3866}#)
                (if (null? #{clauses 3864}#)
-                 (#{build-application 265}#
+                 (#{build-call 265}#
                    #f
                    (#{build-primref 289}# #f 'syntax-violation)
                    (list (#{build-data 291}# #f #f)
@@ -12261,7 +12261,7 @@
                                                  chi-local-syntax
                                                  chi-body
                                                  chi-macro
-                                                 chi-application
+                                                 chi-call
                                                  chi-expr
                                                  chi
                                                  syntax-type
@@ -12350,7 +12350,7 @@
                                                  build-lexical-reference
                                                  build-dynlet
                                                  build-conditional
-                                                 build-application
+                                                 build-call
                                                  build-void
                                                  maybe-name-value!
                                                  decorate-source
@@ -12372,7 +12372,7 @@
                                                  make-lambda-case
                                                  make-lambda
                                                  make-sequence
-                                                 make-application
+                                                 make-call
                                                  make-conditional
                                                  make-toplevel-define
                                                  make-toplevel-set
@@ -12703,7 +12703,7 @@
                                            chi-local-syntax
                                            chi-body
                                            chi-macro
-                                           chi-application
+                                           chi-call
                                            chi-expr
                                            chi
                                            syntax-type
@@ -12792,7 +12792,7 @@
                                            build-lexical-reference
                                            build-dynlet
                                            build-conditional
-                                           build-application
+                                           build-call
                                            build-void
                                            maybe-name-value!
                                            decorate-source
@@ -12814,7 +12814,7 @@
                                            make-lambda-case
                                            make-lambda
                                            make-sequence
-                                           make-application
+                                           make-call
                                            make-conditional
                                            make-toplevel-define
                                            make-toplevel-set
@@ -13142,7 +13142,7 @@
                                            chi-local-syntax
                                            chi-body
                                            chi-macro
-                                           chi-application
+                                           chi-call
                                            chi-expr
                                            chi
                                            syntax-type
@@ -13231,7 +13231,7 @@
                                            build-lexical-reference
                                            build-dynlet
                                            build-conditional
-                                           build-application
+                                           build-call
                                            build-void
                                            maybe-name-value!
                                            decorate-source
@@ -13253,7 +13253,7 @@
                                            make-lambda-case
                                            make-lambda
                                            make-sequence
-                                           make-application
+                                           make-call
                                            make-conditional
                                            make-toplevel-define
                                            make-toplevel-set
@@ -13554,7 +13554,7 @@
                                          (list (#{gen-label 352}#)))
                                        (#{var 3890}#
                                          (#{gen-var 447}# #{pat 3880}#)))
-                                   (#{build-application 265}#
+                                   (#{build-call 265}#
                                      #f
                                      (#{build-simple-lambda 283}#
                                        #f
@@ -13636,7 +13636,7 @@
                                   #{key 3923}#)
                               (begin
                                 (let ((#{x 3931}# (#{gen-var 447}# 'tmp)))
-                                  (#{build-application 265}#
+                                  (#{build-call 265}#
                                     #{s 3908}#
                                     (#{build-simple-lambda 283}#
                                       #f
