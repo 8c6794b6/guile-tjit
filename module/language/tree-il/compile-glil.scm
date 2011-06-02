@@ -256,172 +256,7 @@
                (lp (cdr exps))))))
 
       ((<call> src proc args)
-       ;; FIXME: need a better pattern-matcher here
        (cond
-        ((and (primitive-ref? proc)
-              (eq? (primitive-ref-name proc) '@apply)
-              (>= (length args) 1))
-         (let ((proc (car args))
-               (args (cdr args)))
-           (cond
-            ((and (primitive-ref? proc) (eq? (primitive-ref-name proc) 'values)
-                  (not (eq? context 'push)) (not (eq? context 'vals)))
-             ;; tail: (lambda () (apply values '(1 2)))
-             ;; drop: (lambda () (apply values '(1 2)) 3)
-             ;; push: (lambda () (list (apply values '(10 12)) 1))
-             (case context
-               ((drop) (for-each comp-drop args) (maybe-emit-return))
-               ((tail)
-                (for-each comp-push args)
-                (emit-code src (make-glil-call 'return/values* (length args))))))
-
-            (else
-             (case context
-               ((tail)
-                (comp-push proc)
-                (for-each comp-push args)
-                (emit-code src (make-glil-call 'tail-apply (1+ (length args)))))
-               ((push)
-                (emit-code src (make-glil-call 'new-frame 0))
-                (comp-push proc)
-                (for-each comp-push args)
-                (emit-code src (make-glil-call 'apply (1+ (length args))))
-                (maybe-emit-return))
-               ((vals)
-                (comp-vals
-                 (make-call src (make-primitive-ref #f 'apply)
-                            (cons proc args))
-                 MVRA)
-                (maybe-emit-return))
-               ((drop)
-                ;; Well, shit. The proc might return any number of
-                ;; values (including 0), since it's in a drop context,
-                ;; yet apply does not create a MV continuation. So we
-                ;; mv-call out to our trampoline instead.
-                (comp-drop
-                 (make-call src (make-primitive-ref #f 'apply)
-                            (cons proc args)))
-                (maybe-emit-return)))))))
-        
-        ((and (primitive-ref? proc) (eq? (primitive-ref-name proc) 'values)
-              (not (eq? context 'push)))
-         ;; tail: (lambda () (values '(1 2)))
-         ;; drop: (lambda () (values '(1 2)) 3)
-         ;; push: (lambda () (list (values '(10 12)) 1))
-         ;; vals: (let-values (((a b ...) (values 1 2 ...))) ...)
-         (case context
-           ((drop) (for-each comp-drop args) (maybe-emit-return))
-           ((vals)
-            (for-each comp-push args)
-            (emit-code #f (make-glil-const (length args)))
-            (emit-branch src 'br MVRA))
-           ((tail)
-            (for-each comp-push args)
-            (emit-code src (make-glil-call 'return/values (length args))))))
-        
-        ((and (primitive-ref? proc)
-              (eq? (primitive-ref-name proc) '@call-with-values)
-              (= (length args) 2))
-	 ;; CONSUMER
-         ;; PRODUCER
-         ;; (mv-call MV)
-         ;; ([tail]-call 1)
-         ;; goto POST
-         ;; MV: [tail-]call/nargs
-         ;; POST: (maybe-drop)
-         (case context
-           ((vals)
-            ;; Fall back.
-            (comp-vals
-             (make-call src (make-primitive-ref #f 'call-with-values)
-                        args)
-             MVRA)
-            (maybe-emit-return))
-           (else
-            (let ((MV (make-label)) (POST (make-label))
-                  (producer (car args)) (consumer (cadr args)))
-              (if (not (eq? context 'tail))
-                  (emit-code src (make-glil-call 'new-frame 0)))
-              (comp-push consumer)
-              (emit-code src (make-glil-call 'new-frame 0))
-              (comp-push producer)
-              (emit-code src (make-glil-mv-call 0 MV))
-              (case context
-                ((tail) (emit-code src (make-glil-call 'tail-call 1)))
-                (else   (emit-code src (make-glil-call 'call 1))
-                        (emit-branch #f 'br POST)))
-              (emit-label MV)
-              (case context
-                ((tail) (emit-code src (make-glil-call 'tail-call/nargs 0)))
-                (else   (emit-code src (make-glil-call 'call/nargs 0))
-                        (emit-label POST)
-                        (if (eq? context 'drop)
-                            (emit-code #f (make-glil-call 'drop 1)))
-                        (maybe-emit-return)))))))
-
-        ((and (primitive-ref? proc)
-              (eq? (primitive-ref-name proc) '@call-with-current-continuation)
-              (= (length args) 1))
-         (case context
-           ((tail)
-            (comp-push (car args))
-            (emit-code src (make-glil-call 'tail-call/cc 1)))
-           ((vals)
-            (comp-vals
-             (make-call
-              src (make-primitive-ref #f 'call-with-current-continuation)
-              args)
-             MVRA)
-            (maybe-emit-return))
-           ((push)
-            (comp-push (car args))
-            (emit-code src (make-glil-call 'call/cc 1))
-            (maybe-emit-return))
-           ((drop)
-            ;; Crap. Just like `apply' in drop context.
-            (comp-drop
-             (make-call
-              src (make-primitive-ref #f 'call-with-current-continuation)
-              args))
-            (maybe-emit-return))))
-
-        ;; A hack for variable-set, the opcode for which takes its args
-        ;; reversed, relative to the variable-set! function
-        ((and (primitive-ref? proc)
-              (eq? (primitive-ref-name proc) 'variable-set!)
-              (= (length args) 2))
-         (comp-push (cadr args))
-         (comp-push (car args))
-         (emit-code src (make-glil-call 'variable-set 2))
-         (case context
-           ((tail push vals) (emit-code #f (make-glil-void))))
-         (maybe-emit-return))
-        
-        ((and (primitive-ref? proc)
-              (or (hash-ref *primcall-ops*
-                            (cons (primitive-ref-name proc) (length args)))
-                  (hash-ref *primcall-ops* (primitive-ref-name proc))))
-         => (lambda (op)
-              (for-each comp-push args)
-              (emit-code src (make-glil-call op (length args)))
-              (case (instruction-pushes op)
-                ((0)
-                 (case context
-                   ((tail push vals) (emit-code #f (make-glil-void))))
-                 (maybe-emit-return))
-                ((1)
-                 (case context
-                   ((drop) (emit-code #f (make-glil-call 'drop 1))))
-                 (maybe-emit-return))
-                ((-1)
-                 ;; A control instruction, like return/values.  Here we
-                 ;; just have to hope that the author of the tree-il
-                 ;; knew what they were doing.
-                 *unspecified*)
-                (else
-                 (error "bad primitive op: too many pushes"
-                        op (instruction-pushes op))))))
-        
         ;; self-call in tail position
         ((and (lexical-ref? proc)
               self-label (eq? (lexical-ref-gensym proc) self-label)
@@ -518,6 +353,141 @@
                            (emit-branch #f 'br RA)
                            (emit-label POST)))))))))
 
+      ((<primcall> src name args)
+       (pmatch (cons name args)
+         ((@apply ,proc . ,args)
+          (cond
+           ((and (primitive-ref? proc) (eq? (primitive-ref-name proc) 'values)
+                 (not (eq? context 'push)) (not (eq? context 'vals)))
+            ;; tail: (lambda () (apply values '(1 2)))
+            ;; drop: (lambda () (apply values '(1 2)) 3)
+            ;; push: (lambda () (list (apply values '(10 12)) 1))
+            (case context
+              ((drop) (for-each comp-drop args) (maybe-emit-return))
+              ((tail)
+               (for-each comp-push args)
+               (emit-code src (make-glil-call 'return/values* (length args))))))
+
+           (else
+            (case context
+              ((tail)
+               (comp-push proc)
+               (for-each comp-push args)
+               (emit-code src (make-glil-call 'tail-apply (1+ (length args)))))
+              ((push)
+               (emit-code src (make-glil-call 'new-frame 0))
+               (comp-push proc)
+               (for-each comp-push args)
+               (emit-code src (make-glil-call 'apply (1+ (length args))))
+               (maybe-emit-return))
+              (else
+               (comp-tail (make-primcall src 'apply (cons proc args))))))))
+
+         ((values . _) (guard (not (eq? context 'push)))
+          ;; tail: (lambda () (values '(1 2)))
+          ;; drop: (lambda () (values '(1 2)) 3)
+          ;; push: (lambda () (list (values '(10 12)) 1))
+          ;; vals: (let-values (((a b ...) (values 1 2 ...))) ...)
+          (case context
+            ((drop) (for-each comp-drop args) (maybe-emit-return))
+            ((vals)
+             (for-each comp-push args)
+             (emit-code #f (make-glil-const (length args)))
+             (emit-branch src 'br MVRA))
+            ((tail)
+             (for-each comp-push args)
+             (emit-code src (make-glil-call 'return/values (length args))))))
+        
+         ((@call-with-values ,producer ,consumer)
+          ;; CONSUMER
+          ;; PRODUCER
+          ;; (mv-call MV)
+          ;; ([tail]-call 1)
+          ;; goto POST
+          ;; MV: [tail-]call/nargs
+          ;; POST: (maybe-drop)
+          (case context
+            ((vals)
+             ;; Fall back.
+             (comp-tail (make-primcall src 'call-with-values args)))
+            (else
+             (let ((MV (make-label)) (POST (make-label)))
+               (if (not (eq? context 'tail))
+                   (emit-code src (make-glil-call 'new-frame 0)))
+               (comp-push consumer)
+               (emit-code src (make-glil-call 'new-frame 0))
+               (comp-push producer)
+               (emit-code src (make-glil-mv-call 0 MV))
+               (case context
+                 ((tail) (emit-code src (make-glil-call 'tail-call 1)))
+                 (else   (emit-code src (make-glil-call 'call 1))
+                         (emit-branch #f 'br POST)))
+               (emit-label MV)
+               (case context
+                 ((tail) (emit-code src (make-glil-call 'tail-call/nargs 0)))
+                 (else   (emit-code src (make-glil-call 'call/nargs 0))
+                         (emit-label POST)
+                         (if (eq? context 'drop)
+                             (emit-code #f (make-glil-call 'drop 1)))
+                         (maybe-emit-return)))))))
+
+         ((@call-with-current-continuation ,proc)
+          (case context
+            ((tail)
+             (comp-push proc)
+             (emit-code src (make-glil-call 'tail-call/cc 1)))
+            ((vals)
+             (comp-vals
+              (make-primcall src 'call-with-current-continuation args)
+              MVRA)
+             (maybe-emit-return))
+            ((push)
+             (comp-push proc)
+             (emit-code src (make-glil-call 'call/cc 1))
+             (maybe-emit-return))
+            ((drop)
+             ;; Fall back.
+             (comp-tail
+              (make-primcall src 'call-with-current-continuation args)))))
+         
+        ;; A hack for variable-set, the opcode for which takes its args
+        ;; reversed, relative to the variable-set! function
+        ((variable-set! ,var ,val)
+         (comp-push val)
+         (comp-push var)
+         (emit-code src (make-glil-call 'variable-set 2))
+         (case context
+           ((tail push vals) (emit-code #f (make-glil-void))))
+         (maybe-emit-return))
+        
+        (else
+         (cond
+          ((or (hash-ref *primcall-ops* (cons name (length args)))
+               (hash-ref *primcall-ops* name))
+           => (lambda (op)
+                (for-each comp-push args)
+                (emit-code src (make-glil-call op (length args)))
+                (case (instruction-pushes op)
+                  ((0)
+                   (case context
+                     ((tail push vals) (emit-code #f (make-glil-void))))
+                   (maybe-emit-return))
+                  ((1)
+                   (case context
+                     ((drop) (emit-code #f (make-glil-call 'drop 1))))
+                   (maybe-emit-return))
+                  ((-1)
+                   ;; A control instruction, like return/values.  Here we
+                   ;; just have to hope that the author of the tree-il
+                   ;; knew what they were doing.
+                   *unspecified*)
+                  (else
+                   (error "bad primitive op: too many pushes"
+                          op (instruction-pushes op))))))
+          (else
+           ;; Fall back to the normal compilation strategy.
+           (comp-tail (make-call src (make-primitive-ref #f name) args)))))))
+
       ((<conditional> src test consequent alternate)
        ;;     TEST
        ;;     (br-if-not L1)
@@ -526,54 +496,33 @@
        ;; L1: alternate
        ;; L2:
        (let ((L1 (make-label)) (L2 (make-label)))
-         ;; need a pattern matcher
          (record-case test
-           ((<call> proc args)
-            (record-case proc
-              ((<primitive-ref> name)
-               (let ((len (length args)))
-                 (cond
-
-                  ((and (eq? name 'eq?) (= len 2))
-                   (comp-push (car args))
-                   (comp-push (cadr args))
-                   (emit-branch src 'br-if-not-eq L1))
-
-                  ((and (eq? name 'null?) (= len 1))
-                   (comp-push (car args))
-                   (emit-branch src 'br-if-not-null L1))
-
-                  ((and (eq? name 'not) (= len 1))
-                   (let ((app (car args)))
-                     (record-case app
-                       ((<call> proc args)
-                        (let ((len (length args)))
-                          (record-case proc
-                            ((<primitive-ref> name)
-                             (cond
-
-                              ((and (eq? name 'eq?) (= len 2))
-                               (comp-push (car args))
-                               (comp-push (cadr args))
-                               (emit-branch src 'br-if-eq L1))
-                            
-                              ((and (eq? name 'null?) (= len 1))
-                               (comp-push (car args))
-                               (emit-branch src 'br-if-null L1))
-
-                              (else
-                               (comp-push app)
-                               (emit-branch src 'br-if L1))))
-                            (else
-                             (comp-push app)
-                             (emit-branch src 'br-if L1)))))
-                       (else
-                        (comp-push app)
-                        (emit-branch src 'br-if L1)))))
-                  
-                  (else
-                   (comp-push test)
-                   (emit-branch src 'br-if-not L1)))))
+           ((<primcall> name args)
+            (pmatch (cons name args)
+              ((eq? ,a ,b)
+               (comp-push a)
+               (comp-push b)
+               (emit-branch src 'br-if-not-eq L1))
+              ((null? ,x)
+               (comp-push x)
+               (emit-branch src 'br-if-not-null L1))
+              ((not ,x)
+               (record-case x
+                 ((<primcall> name args)
+                  (pmatch (cons name args)
+                    ((eq? ,a ,b)
+                     (comp-push a)
+                     (comp-push b)
+                     (emit-branch src 'br-if-eq L1))
+                    ((null? ,x)
+                     (comp-push x)
+                     (emit-branch src 'br-if-null L1))
+                    (else
+                     (comp-push x)
+                     (emit-branch src 'br-if L1))))
+                 (else
+                  (comp-push x)
+                  (emit-branch src 'br-if L1))))
               (else
                (comp-push test)
                (emit-branch src 'br-if-not L1))))

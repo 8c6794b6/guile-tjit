@@ -388,6 +388,15 @@ A conditional. Note that @var{else} is not optional.
 @deftpx {External Representation} (call @var{proc} . @var{args})
 A procedure call.
 @end deftp
+@deftp {Scheme Variable} <primcall> src name args
+@deftpx {External Representation} (primcall @var{name} . @var{args})
+A call to a primitive.  Equivalent to @code{(call (primitive @var{name})
+. @var{args})}.  This construct is often more convenient to generate and
+analyze than @code{<call>}.
+
+As part of the compilation process, instances of @code{(call (primitive
+@var{name}) . @var{args})} are transformed into primcalls.
+@end deftp
 @deftp {Scheme Variable} <sequence> src exps
 @deftpx {External Representation} (begin . @var{exps})
 Like Scheme's @code{begin}.

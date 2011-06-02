@@ -182,6 +182,9 @@
        (apply lset-union eq? (step-tail-call proc args)
               (map step args)))
 
+      ((<primcall> args)
+       (apply lset-union eq? (map step args)))
+
       ((<conditional> test consequent alternate)
        (lset-union eq? (step test) (step-tail consequent) (step-tail alternate)))
 
@@ -366,6 +369,9 @@
     (record-case x
       ((<call> proc args)
        (apply max (recur proc) (map recur args)))
+
+      ((<primcall> args)
+       (apply max n (map recur args)))
 
       ((<conditional> test consequent alternate)
        (max (recur test) (recur consequent) (recur alternate)))

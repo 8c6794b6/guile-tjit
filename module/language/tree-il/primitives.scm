@@ -172,6 +172,9 @@
                (and=> (hashq-ref *interesting-primitive-vars*
                                  (module-variable m name))
                       (lambda (name) (make-primitive-ref src name))))))
+       ((<call> src proc args)
+        (and (primitive-ref? proc)
+             (make-primcall src (primitive-ref-name proc) args)))
        (else #f)))
    x))
 
@@ -183,11 +186,9 @@
   (pre-order!
    (lambda (x)
      (record-case x
-       ((<call> src proc args)
-        (and (primitive-ref? proc)
-             (let ((expand (hashq-ref *primitive-expand-table*
-                                      (primitive-ref-name proc))))
-               (and expand (apply expand src args)))))
+       ((<primcall> src name args)
+        (let ((expand (hashq-ref *primitive-expand-table* name)))
+          (and expand (apply expand src args))))
        (else #f)))
    x))
 
@@ -203,8 +204,8 @@
              (lp (cdr in)
                  (cons (if (eq? (caar in) 'quote)
                            `(make-const src ,@(cdar in))
-                           `(make-call src (make-primitive-ref src ',(caar in))
-                                       ,(inline-args (cdar in))))
+                           `(make-primcall src ',(caar in)
+                                           ,(inline-args (cdar in))))
                        out)))
             ((symbol? (car in))
              ;; assume it's locally bound
@@ -222,8 +223,8 @@
               ,(consequent then)
               ,(consequent else)))
         (else
-         `(make-call src (make-primitive-ref src ',(car exp))
-                     ,(inline-args (cdr exp))))))
+         `(make-primcall src ',(car exp)
+                         ,(inline-args (cdr exp))))))
      ((symbol? exp)
       ;; assume locally bound
       exp)
@@ -470,9 +471,9 @@
                   ;; trickery here.
                   (make-lambda-case
                    (tree-il-src handler) '() #f 'args #f '() (list args-sym)
-                   (make-call #f (make-primitive-ref #f 'apply)
-                              (list handler
-                                    (make-lexical-ref #f 'args args-sym)))
+                   (make-primcall #f 'apply
+                                  (list handler
+                                        (make-lexical-ref #f 'args args-sym)))
                    #f))))
               (else #f)))
 
@@ -491,9 +492,9 @@
                     ;; trickery here.
                     (make-lambda-case
                      (tree-il-src handler) '() #f 'args #f '() (list args-sym)
-                     (make-call #f (make-primitive-ref #f 'apply)
-                                (list handler
-                                      (make-lexical-ref #f 'args args-sym)))
+                     (make-primcall #f 'apply
+                                    (list handler
+                                          (make-lexical-ref #f 'args args-sym)))
                      #f))))
                 (else #f)))
               (else #f)))

@@ -35,6 +35,7 @@
             <toplevel-define> toplevel-define? make-toplevel-define toplevel-define-src toplevel-define-name toplevel-define-exp
             <conditional> conditional? make-conditional conditional-src conditional-test conditional-consequent conditional-alternate
             <call> call? make-call call-src call-proc call-args
+            <primcall> primcall? make-primcall primcall-src primcall-name primcall-args
             <sequence> sequence? make-sequence sequence-src sequence-exps
             <lambda> lambda? make-lambda lambda-src lambda-meta lambda-body
             <lambda-case> lambda-case? make-lambda-case lambda-case-src
@@ -119,6 +120,7 @@
   ;; (<toplevel-define> name exp)
   ;; (<conditional> test consequent alternate)
   ;; (<call> proc args)
+  ;; (<primcall> name args)
   ;; (<sequence> exps)
   ;; (<lambda> meta body)
   ;; (<lambda-case> req opt rest kw inits gensyms body alternate)
@@ -151,6 +153,9 @@
 
      ((call ,proc . ,args)
       (make-call loc (retrans proc) (map retrans args)))
+
+     ((primcall ,name . ,args)
+      (make-primcall loc name (map retrans args)))
 
      ((if ,test ,consequent ,alternate)
       (make-conditional loc (retrans test) (retrans consequent) (retrans alternate)))
@@ -256,6 +261,9 @@
     ((<call> proc args)
      `(call ,(unparse-tree-il proc) ,@(map unparse-tree-il args)))
 
+    ((<primcall> name args)
+     `(primcall ,name ,@(map unparse-tree-il args)))
+
     ((<conditional> test consequent alternate)
      `(if ,(unparse-tree-il test) ,(unparse-tree-il consequent) ,(unparse-tree-il alternate)))
 
@@ -338,6 +346,9 @@
 
     ((<call> proc args)
      `(,(tree-il->scheme proc) ,@(map tree-il->scheme args)))
+
+    ((<primcall> name args)
+     `(,name ,@(map tree-il->scheme args)))
 
     ((<conditional> test consequent alternate)
      (if (void? alternate)
@@ -510,6 +521,8 @@ This is an implementation of `foldts' as described by Andy Wingo in
                                 (loop test (down tree result))))))
           ((<call> proc args)
            (up tree (loop (cons proc args) (down tree result))))
+          ((<primcall> name args)
+           (up tree (loop args (down tree result))))
           ((<sequence> exps)
            (up tree (loop exps (down tree result))))
           ((<lambda> body)
@@ -584,6 +597,8 @@ This is an implementation of `foldts' as described by Andy Wingo in
                  ((<call> proc args)
                   (let-values (((seed ...) (foldts proc seed ...)))
                     (fold-values foldts args seed ...)))
+                 ((<primcall> name args)
+                  (fold-values foldts args seed ...))
                  ((<sequence> exps)
                   (fold-values foldts exps seed ...))
                  ((<lambda> body)
@@ -637,6 +652,9 @@ This is an implementation of `foldts' as described by Andy Wingo in
       ((<call> proc args)
        (set! (call-proc x) (lp proc))
        (set! (call-args x) (map lp args)))
+
+      ((<primcall> name args)
+       (set! (primcall-args x) (map lp args)))
 
       ((<conditional> test consequent alternate)
        (set! (conditional-test x) (lp test))
@@ -721,6 +739,9 @@ This is an implementation of `foldts' as described by Andy Wingo in
         ((<call> proc args)
          (set! (call-proc x) (lp proc))
          (set! (call-args x) (map lp args)))
+
+        ((<primcall> name args)
+         (set! (primcall-args x) (map lp args)))
 
         ((<conditional> test consequent alternate)
          (set! (conditional-test x) (lp test))

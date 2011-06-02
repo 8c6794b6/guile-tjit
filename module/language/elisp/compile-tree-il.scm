@@ -109,7 +109,7 @@
 ;;; Build a call to a primitive procedure nicely.
 
 (define (call-primitive loc sym . args)
-  (make-call loc (make-primitive-ref loc sym) args))
+  (make-primcall loc sym args))
 
 ;;; Error reporting routine for syntax/compilation problems or build
 ;;; code for a runtime-error output.
@@ -118,9 +118,8 @@
   (apply error args))
 
 (define (runtime-error loc msg . args)
-  (make-call loc
-             (make-primitive-ref loc 'error)
-             (cons (make-const loc msg) args)))
+  (make-primcall loc 'error
+                 (cons (make-const loc msg) args)))
 
 ;;; Generate code to ensure a global symbol is there for further use of
 ;;; a given symbol.  In general during the compilation, those needed are
@@ -151,12 +150,11 @@
   (call-primitive
    loc
    'with-fluids*
-   (make-call loc
-              (make-primitive-ref loc 'list)
-              (map (lambda (sym)
-                     (make-module-ref loc module sym #t))
-                   syms))
-   (make-call loc (make-primitive-ref loc 'list) vals)
+   (make-primcall loc 'list
+                  (map (lambda (sym)
+                         (make-module-ref loc module sym #t))
+                       syms))
+   (make-primcall loc 'list vals)
    (make-lambda loc
                 '()
                 (make-lambda-case #f '() #f #f #f '() '() body #f))))
@@ -828,11 +826,9 @@
                     loc
                     name
                     function-slot
-                    (make-call
-                     loc
-                     (make-module-ref loc '(guile) 'cons #t)
-                     (list (make-const loc 'macro)
-                           (compile-lambda loc args body))))
+                    (make-primcall loc 'cons
+                                   (list (make-const loc 'macro)
+                                         (compile-lambda loc args body))))
                    (make-const loc name)))))
            (compile (ensuring-globals loc bindings-data tree-il)
                     #:from 'tree-il

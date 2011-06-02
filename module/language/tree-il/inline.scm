@@ -47,44 +47,36 @@
             (else x)))
          (else x)))
       
-      ((<call> src proc args)
-       (record-case proc
-         ;; ((lambda (y ...) x) z ...) => (let ((y z) ...) x)
-         ((<primitive-ref> name)
-          (case name
-            ((memq memv)
-             (pmatch args
-               ((,k ,l) (guard (const? l) (list? (const-exp l)))
-                (cond
-                 ((null? (const-exp l))
-                  (make-const #f #f))
-                 ((const? k)
-                  (make-const #f (->bool ((case name
-                                            ((memq) memq)
-                                            ((memv) memv)
-                                            (else (error "unexpected member func" name)))
-                                          (const-exp k) (const-exp l)))))
-                 (else
-                  (let lp ((elts (const-exp l)))
-                    (let ((test (make-call
-                                 #f
-                                 (make-primitive-ref #f (case name
-                                                          ((memq) 'eq?)
-                                                          ((memv) 'eqv?)
-                                                          (else (error "what"))))
-                                 (list k (make-const #f (car elts))))))
-                      (if (null? (cdr elts))
-                          test
-                          (make-conditional
-                           src
-                           test
-                           (make-const #f #t)
-                           (lp (cdr elts)))))))))
-
-               (else x)))
-
-            (else x)))
-
+      ((<primcall> src name args)
+       (pmatch (cons name args)
+         ((,member ,k ,l) (guard (and (memq member '(memq memv))
+                                      (const? k)
+                                      (list? (const-exp l))))
+          (cond
+           ((null? (const-exp l))
+            (make-const #f #f))
+           ((const? k)
+            (make-const #f (->bool ((case member
+                                      ((memq) memq)
+                                      ((memv) memv)
+                                      (else (error "what" member)))
+                                    (const-exp k) (const-exp l)))))
+           (else
+            (let lp ((elts (const-exp l)))
+              (let ((test (make-primcall
+                           #f
+                           (case member
+                             ((memq) 'eq?)
+                             ((memv) 'eqv?)
+                             (else (error "what" member)))
+                           (list k (make-const #f (car elts))))))
+                (if (null? (cdr elts))
+                    test
+                    (make-conditional
+                     src
+                     test
+                     (make-const #f #t)
+                     (lp (cdr elts)))))))))
          (else x)))
        
       ((<lambda> meta body)
@@ -114,34 +106,29 @@
                           (or (inline1 x) x))
                         (lp alternate)))))))
 
-         ((<primitive-ref> name)
-          (case name
-            ((@call-with-values)
-             (pmatch args
-               ;; (call-with-values (lambda () foo) (lambda (a b . c) bar))
-               ;; => (let-values (((a b . c) foo)) bar)
-               ;;
-               ;; Note that this is a singly-binding form of let-values.
-               ;; Also note that Scheme's let-values expands into
-               ;; call-with-values, then here we reduce it to tree-il's
-               ;; let-values.
-               ((,producer ,consumer)
-                (guard (lambda? consumer)
-                       (lambda-case? (lambda-body consumer))
-                       (not (lambda-case-opt (lambda-body consumer)))
-                       (not (lambda-case-kw (lambda-body consumer)))
-                       (not (lambda-case-alternate (lambda-body consumer))))
-                (make-let-values
-                 src
-                 (let ((x (make-call src producer '())))
-                   (or (inline1 x) x))
-                 (lambda-body consumer)))
-               (else #f)))
-
-            (else #f)))
-
          (else #f)))
        
+      ((<primcall> src name args)
+       (pmatch (cons name args)
+         ;; (call-with-values (lambda () foo) (lambda (a b . c) bar))
+         ;; => (let-values (((a b . c) foo)) bar)
+         ;;
+         ;; Note that this is a singly-binding form of let-values.  Also
+         ;; note that Scheme's let-values expands into call-with-values,
+         ;; then here we reduce it to tree-il's let-values.
+         ((@call-with-values ,producer ,consumer)
+          (guard (lambda? consumer)
+                 (lambda-case? (lambda-body consumer))
+                 (not (lambda-case-opt (lambda-body consumer)))
+                 (not (lambda-case-kw (lambda-body consumer)))
+                 (not (lambda-case-alternate (lambda-body consumer))))
+          (make-let-values
+           src
+           (let ((x (make-call src producer '())))
+             (or (inline1 x) x))
+           (lambda-body consumer)))
+         (else #f)))
+
       ((<conditional> test consequent alternate)
        (let ((btest (boolean-value test)))
          (or (record-case btest
@@ -178,10 +165,9 @@
          
        (and (not opt) (not kw) rest (not alternate)
             (record-case body
-              ((<call> proc args)
+              ((<primcall> name args)
                ;; (lambda args (apply (lambda ...) args)) => (lambda ...)
-               (and (primitive-ref? proc)
-                    (eq? (primitive-ref-name proc) '@apply)
+               (and (eq? name '@apply)
                     (pair? args)
                     (lambda? (car args))
                     (args-compatible? (cdr args) gensyms)

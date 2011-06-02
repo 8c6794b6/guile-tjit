@@ -44,9 +44,8 @@
     ((<sequence> exps)
      (and-map (lambda (x) (simple-expression? x bound-vars simple-primitive?))
               exps))
-    ((<call> proc args)
-     (and (primitive-ref? proc)
-          (simple-primitive? (primitive-ref-name proc))
+    ((<primcall> name args)
+     (and (simple-primitive? name)
           ;; FIXME: check arity?
           (and-map (lambda (x)
                      (simple-expression? x bound-vars simple-primitive?))

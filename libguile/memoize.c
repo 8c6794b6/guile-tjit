@@ -263,6 +263,20 @@ memoize (SCM exp, SCM env)
         return MAKMEMO_CALL (memoize (proc, env), scm_ilength (args), args);
       }
 
+    case SCM_EXPANDED_PRIMCALL:
+      {
+        SCM proc, args;
+
+        if (scm_is_eq (scm_current_module (), scm_the_root_module ()))
+          proc = MAKMEMO_TOP_REF (REF (exp, PRIMCALL, NAME));
+        else
+          proc = MAKMEMO_MOD_REF (list_of_guile, REF (exp, PRIMCALL, NAME),
+                                  SCM_BOOL_F);
+        args = memoize_exps (REF (exp, PRIMCALL, ARGS), env);
+
+        return MAKMEMO_CALL (proc, scm_ilength (args), args);
+      }
+
     case SCM_EXPANDED_SEQUENCE:
       return MAKMEMO_BEGIN (memoize_exps (REF (exp, SEQUENCE, EXPS), env));
 

@@ -402,12 +402,14 @@
       (lambda (src req opt rest kw inits vars body else-case)
         (make-lambda-case src req opt rest kw inits vars body else-case)))
 
+    (define build-primcall
+      (lambda (src name args)
+        (make-primcall src name args)))
+    
     (define build-primref
       (lambda (src name)
-        (if (equal? (module-name (current-module)) '(guile))
-            (make-toplevel-ref src name)
-            (make-module-ref src '(guile) name #f))))
-
+        (make-primitive-ref src name)))
+    
     (define (build-data src exp)
       (make-const src exp))
 
@@ -1038,9 +1040,9 @@
         (build-global-definition
          no-source
          name
-         (build-call
+         (build-primcall
           no-source
-          (build-primref no-source 'make-syntax-transformer)
+          'make-syntax-transformer
           (list (build-data no-source name)
                 (build-data no-source 'macro)
                 e)))))
@@ -1954,9 +1956,7 @@
                             (if (list? (cadr x))
                                 (build-simple-lambda no-source (cadr x) #f (cadr x) '() (regen (caddr x)))
                                 (error "how did we get here" x)))
-                           (else (build-call no-source
-                                             (build-primref no-source (car x))
-                                             (map regen (cdr x)))))))
+                           (else (build-primcall no-source (car x) (map regen (cdr x)))))))
 
                      (lambda (e r w s mod)
                        (let ((e (source-wrap e w s mod)))
@@ -2288,20 +2288,21 @@
                        (lambda (pvars exp y r mod)
                          (let ((ids (map car pvars)) (levels (map cdr pvars)))
                            (let ((labels (gen-labels ids)) (new-vars (map gen-var ids)))
-                             (build-call no-source
-                                         (build-primref no-source 'apply)
-                                         (list (build-simple-lambda no-source (map syntax->datum ids) #f new-vars '()
-                                                                    (chi exp
-                                                                         (extend-env
-                                                                          labels
-                                                                          (map (lambda (var level)
-                                                                                 (make-binding 'syntax `(,var . ,level)))
-                                                                               new-vars
-                                                                               (map cdr pvars))
-                                                                          r)
-                                                                         (make-binding-wrap ids labels empty-wrap)
-                                                                         mod))
-                                               y))))))
+                             (build-primcall
+                              no-source
+                              'apply
+                              (list (build-simple-lambda no-source (map syntax->datum ids) #f new-vars '()
+                                                         (chi exp
+                                                              (extend-env
+                                                               labels
+                                                               (map (lambda (var level)
+                                                                      (make-binding 'syntax `(,var . ,level)))
+                                                                    new-vars
+                                                                    (map cdr pvars))
+                                                               r)
+                                                              (make-binding-wrap ids labels empty-wrap)
+                                                              mod))
+                                    y))))))
 
                      (define gen-clause
                        (lambda (x keys clauses r pat fender exp mod)
@@ -2330,22 +2331,18 @@
                                                                                        (build-dispatch-call pvars exp y r mod)
                                                                                        (gen-syntax-case x keys clauses r mod))))
                                              (list (if (eq? p 'any)
-                                                       (build-call no-source
-                                                                   (build-primref no-source 'list)
-                                                                   (list x))
-                                                       (build-call no-source
-                                                                   (build-primref no-source '$sc-dispatch)
-                                                                   (list x (build-data no-source p)))))))))))))
+                                                       (build-primcall no-source 'list (list x))
+                                                       (build-primcall no-source '$sc-dispatch
+                                                                       (list x (build-data no-source p)))))))))))))
 
                      (define gen-syntax-case
                        (lambda (x keys clauses r mod)
                          (if (null? clauses)
-                             (build-call no-source
-                                         (build-primref no-source 'syntax-violation)
-                                         (list (build-data no-source #f)
-                                               (build-data no-source
-                                                           "source expression failed to match any pattern")
-                                               x))
+                             (build-primcall no-source 'syntax-violation
+                                             (list (build-data no-source #f)
+                                                   (build-data no-source
+                                                               "source expression failed to match any pattern")
+                                                   x))
                              (syntax-case (car clauses) ()
                                ((pat exp)
                                 (if (and (id? #'pat)
