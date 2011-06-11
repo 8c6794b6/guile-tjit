@@ -41,7 +41,6 @@
             compile-let*
             compile-lexical-let*
             compile-flet*
-            compile-without-void-checks
             compile-with-always-lexical
             compile-guile-ref
             compile-guile-primitive
@@ -60,10 +59,6 @@
 ;;; data.
 
 (define bindings-data (make-fluid))
-
-;;; Store for which symbols (or all/none) void checks are disabled.
-
-(define disable-void-check (make-fluid))
 
 ;;; Store which symbols (or all/none) should always be bound lexically,
 ;;; even with ordinary let and as lambda arguments.
@@ -612,8 +607,8 @@
       (make-const loc expr)))
 
 ;;; Temporarily update a list of symbols that are handled specially
-;;; (disabled void check or always lexical) for compiling body.  We need
-;;; to handle special cases for already all / set to all and the like.
+;;; (e.g., always lexical) for compiling body. We need to handle special
+;;; cases for already all / set to all and the like.
 
 (define (with-added-symbols loc fluid syms body)
   (if (null? body)
@@ -939,7 +934,6 @@
 (define (compile-tree-il expr env opts)
   (values
    (with-fluids ((bindings-data (make-bindings))
-                 (disable-void-check '())
                  (always-lexical '()))
      (process-options! opts)
      (let ((compiled (compile-expr expr)))
