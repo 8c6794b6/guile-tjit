@@ -22,6 +22,7 @@
   #:use-module (language elisp compile-tree-il)
   #:use-module (language elisp parser)
   #:use-module (system base language)
+  #:use-module (system base compile)
   #:export (elisp))
 
 (define-language elisp
@@ -29,3 +30,6 @@
   #:reader    (lambda (port env) (read-elisp port))
   #:printer   write
   #:compilers `((tree-il . ,compile-tree-il)))
+
+(compile-and-load (%search-load-path "language/elisp/boot.el")
+                  #:from 'elisp)

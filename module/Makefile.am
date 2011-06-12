@@ -370,6 +370,9 @@ WEB_SOURCES =					\
 
 EXTRA_DIST += oop/ChangeLog-2008
 
+ELISP_SOURCES =					\
+    language/elisp/boot.el
+
 NOCOMP_SOURCES =				\
   ice-9/match.upstream.scm			\
   ice-9/psyntax.scm				\
