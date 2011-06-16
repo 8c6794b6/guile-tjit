@@ -635,13 +635,15 @@
 (defspecial if (loc args)
   (pmatch args
     ((,cond ,then . ,else)
-     (make-conditional loc
-                       (compile-expr cond)
-                       (compile-expr then)
-                       (if (null? else)
-                           (nil-value loc)
-                           (make-sequence loc
-                                          (map compile-expr else)))))))
+     (make-conditional
+      loc
+      (call-primitive loc 'not
+       (call-primitive loc 'nil? (compile-expr cond)))
+      (compile-expr then)
+      (if (null? else)
+          (nil-value loc)
+          (make-sequence loc
+                         (map compile-expr else)))))))
 
 (defspecial defconst (loc args)
   (pmatch args
@@ -937,6 +939,6 @@
                  (always-lexical '()))
      (process-options! opts)
      (let ((compiled (compile-expr expr)))
-      (ensuring-globals (location expr) bindings-data compiled)))
+       (ensuring-globals (location expr) bindings-data compiled)))
    env
    env))
