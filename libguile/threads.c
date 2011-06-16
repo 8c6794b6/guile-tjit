@@ -39,6 +39,7 @@
 #endif
 
 #include <assert.h>
+#include <fcntl.h>
 #include <nproc.h>
 
 #include "libguile/validate.h"
@@ -56,15 +57,6 @@
 #include "libguile/scmsigs.h"
 #include "libguile/strings.h"
 #include "libguile/weaks.h"
-
-#ifdef __MINGW32__
-#ifndef ETIMEDOUT
-# define ETIMEDOUT       WSAETIMEDOUT
-#endif
-# include <fcntl.h>
-# include <process.h>
-# define pipe(fd) _pipe (fd, 256, O_BINARY)
-#endif /* __MINGW32__ */
 
 #include <full-read.h>
 
@@ -484,6 +476,24 @@ static int thread_count;
 
 static SCM scm_i_default_dynamic_state;
 
+/* Run when a fluid is collected.  */
+void
+scm_i_reset_fluid (size_t n, SCM val)
+{
+  scm_i_thread *t;
+
+  scm_i_pthread_mutex_lock (&thread_admin_mutex);
+  for (t = all_threads; t; t = t->next_thread)
+    if (SCM_I_DYNAMIC_STATE_P (t->dynamic_state))
+      {
+        SCM v = SCM_I_DYNAMIC_STATE_FLUIDS (t->dynamic_state);
+          
+        if (n < SCM_SIMPLE_VECTOR_LENGTH (v))
+          SCM_SIMPLE_VECTOR_SET (v, n, val);
+      }
+  scm_i_pthread_mutex_unlock (&thread_admin_mutex);
+}
+
 /* Perform first stage of thread initialisation, in non-guile mode.
  */
 static void
@@ -520,7 +530,7 @@ guilify_self_1 (struct GC_stack_base *base)
   t.sleep_object = SCM_BOOL_F;
   t.sleep_fd = -1;
 
-  if (pipe (t.sleep_pipe) != 0)
+  if (pipe2 (t.sleep_pipe, O_CLOEXEC) != 0)
     /* FIXME: Error conditions during the initialization phase are handled
        gracelessly since public functions such as `scm_init_guile ()'
        currently have type `void'.  */
