@@ -125,7 +125,9 @@
     (case inst
       ((list vector) 
        (list "~a element~:p" (apply make-int16 args)))
-      ((br br-if br-if-eq br-if-not br-if-not-eq br-if-not-null br-if-null)
+      ((br
+        br-if br-if-eq br-if-not br-if-not-eq br-if-not-null br-if-null
+        br-if-nil br-if-not-nil)
        (list "-> ~A" (assq-ref labels (car args))))
       ((br-if-nargs-ne br-if-nargs-lt br-if-nargs-gt)
        (list "-> ~A" (assq-ref labels (caddr args))))
