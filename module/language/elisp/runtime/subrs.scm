@@ -144,7 +144,7 @@
   (lambda (el)
     (elisp-bool (pair? el))))
 
-(built-in-func atomp
+(built-in-func atom
   (lambda (el)
     (elisp-bool (prim not (pair? el)))))
 

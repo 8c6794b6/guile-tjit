@@ -607,11 +607,11 @@
 
 (with-test-prefix/compile "List Built-Ins"
 
-  (pass-if "consp and atomp"
+  (pass-if "consp and atom"
     (and (consp '(1 2 3)) (consp '(1 2 . 3)) (consp '(a . b))
          (not (consp '())) (not (consp 1)) (not (consp "abc"))
-         (atomp 'a) (atomp '()) (atomp -1.5) (atomp "abc")
-         (not (atomp '(1 . 2))) (not (atomp '(1)))))
+         (atom 'a) (atom '()) (atom -1.5) (atom "abc")
+         (not (atom '(1 . 2))) (not (atom '(1)))))
   (pass-if "listp and nlistp"
     (and (listp '(1 2 3)) (listp '(1)) (listp '()) (listp '(1 . 2))
          (not (listp 'a)) (not (listp 42)) (nlistp 42)
