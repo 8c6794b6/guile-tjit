@@ -225,42 +225,6 @@
 
 (built-in-func reverse (@ (guile) reverse))
 
-(built-in-func copy-tree (@ (guile) copy-tree))
-
-(built-in-func number-sequence
-  (lambda (from . rest)
-    (if (prim > (prim length rest) 2)
-        (runtime-error "too many arguments for number-sequence"
-                       (prim cdddr rest))
-        (if (null? rest)
-            `(,from)
-            (let ((to (prim car rest))
-                  (sep (if (or (null? (prim cdr rest))
-                               (eq? nil-value (prim cadr rest)))
-                           1
-                           (prim cadr rest))))
-              (cond
-               ((or (eq? nil-value to) (prim = to from)) `(,from))
-               ((and (zero? sep) (prim not (prim = from to)))
-                (runtime-error "infinite list in number-sequence"))
-               ((prim < (prim * to sep) (prim * from sep)) '())
-               (else
-                (let iterate ((i (prim +
-                                       from
-                                       (prim *
-                                             sep
-                                             (prim quotient
-                                                   (prim abs
-                                                         (prim -
-                                                               to
-                                                               from))
-                                                   (prim abs sep)))))
-                              (result '()))
-                  (if (prim = i from)
-                      (prim cons i result)
-                      (iterate (prim - i sep)
-                               (prim cons i result)))))))))))
-
 ;;; Changing lists.
 
 (built-in-func setcar

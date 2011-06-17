@@ -662,20 +662,6 @@
   (pass-if "reverse"
     (and (equal (reverse '(5 4 3 2 1)) '(1 2 3 4 5))
          (equal (reverse '()) '())))
-  (pass-if "copy-tree"
-    (progn (setq mylist '(1 2 (3 4)))
-           (and (not (eq mylist (copy-tree mylist)))
-                (equal mylist (copy-tree mylist)))))
-
-  (pass-if "number-sequence"
-    (and (equal (number-sequence 5) '(5))
-         (equal (number-sequence 5 9) '(5 6 7 8 9))
-         (equal (number-sequence 5 9 3) '(5 8))
-         (equal (number-sequence 5 1 -2) '(5 3 1))
-         (equal (number-sequence 5 8 -1) '())
-         (equal (number-sequence 5 1) '())
-         (equal (number-sequence 5 5 0) '(5))))
-
   (pass-if "setcar and setcdr"
     (progn (setq pair '(1 . 2))
            (setq copy pair)
