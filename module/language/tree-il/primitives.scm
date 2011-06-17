@@ -249,7 +249,7 @@
 
 (define-primitive-expander +
   () 0
-  (x) x
+  (x) (values x)
   (x y) (if (and (const? y)
                  (let ((y (const-exp y)))
                    (and (number? y) (exact? y) (= y 1))))
@@ -267,7 +267,7 @@
   
 (define-primitive-expander *
   () 1
-  (x) x
+  (x) (values x)
   (x y z . rest) (* x (* y z . rest)))
   
 (define-primitive-expander -
@@ -313,7 +313,7 @@
 (define-primitive-expander cddddr (x) (cdr (cdr (cdr (cdr x)))))
 
 (define-primitive-expander cons*
-  (x) x
+  (x) (values x)
   (x y) (cons x y)
   (x y . rest) (cons x (cons* y . rest)))
 
@@ -331,8 +331,6 @@
 
 (define-primitive-expander call/cc (proc)
   (@call-with-current-continuation proc))
-
-(define-primitive-expander values (x) x)
 
 (define-primitive-expander make-struct (vtable tail-size . args)
   (if (and (const? tail-size)

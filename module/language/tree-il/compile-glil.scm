@@ -207,10 +207,12 @@
          ;; write source info for proc
          (if src (emit-code #f (make-glil-source src)))
          ;; compile the body, yo
-         (flatten body allocation x self-label (car (hashq-ref allocation x))
-                  emit-code)))))))
+         (flatten-lambda-case body allocation x self-label
+                              (car (hashq-ref allocation x))
+                              emit-code)))))))
 
-(define (flatten x allocation self self-label fix-labels emit-code)
+(define (flatten-lambda-case lcase allocation self self-label fix-labels
+                             emit-code)
   (define (emit-label label)
     (emit-code #f (make-glil-label label)))
   (define (emit-branch src inst label)
@@ -218,7 +220,7 @@
 
   ;; RA: "return address"; #f unless we're in a non-tail fix with labels
   ;; MVRA: "multiple-values return address"; #f unless we're in a let-values
-  (let comp ((x x) (context 'tail) (RA #f) (MVRA #f))
+  (let comp ((x lcase) (context 'tail) (RA #f) (MVRA #f))
     (define (comp-tail tree) (comp tree context RA MVRA))
     (define (comp-push tree) (comp tree 'push #f #f))
     (define (comp-drop tree) (comp tree 'drop #f #f))
@@ -252,41 +254,26 @@
       
       ((<call> src proc args)
        (cond
-        ;; self-call in tail position
+        ;; call to the same lambda-case in tail position
         ((and (lexical-ref? proc)
               self-label (eq? (lexical-ref-gensym proc) self-label)
-              (eq? context 'tail))
-         (let lp ((lcase (lambda-body self)))
-           (cond
-            ((and (lambda-case? lcase)
-                  (not (lambda-case-kw lcase))
-                  (not (lambda-case-rest lcase))
-                  (= (length args)
-                     (+ (length (lambda-case-req lcase))
-                        (or (and=> (lambda-case-opt lcase) length) 0))))
-             ;; we have a case that matches the args; evaluate new
-             ;; values, rename variables and goto the case label
-             (for-each comp-push args)
-             (for-each (lambda (sym)
-                         (pmatch (hashq-ref (hashq-ref allocation sym) self)
-                           ((#t #f . ,index) ; unboxed
-                            (emit-code #f (make-glil-lexical #t #f 'set index)))
-                           ((#t #t . ,index) ; boxed
-                            ;; new box
-                            (emit-code #f (make-glil-lexical #t #t 'box index)))
-                           (,x (error "bad lambda-case arg allocation" x))))
-                       (reverse (lambda-case-gensyms lcase)))
-             (emit-branch src 'br (car (hashq-ref allocation lcase))))
-            ((lambda-case? lcase)
-             ;; no match, try next case
-             (lp (lambda-case-alternate lcase)))
-            (else
-             ;; no cases left -- use the normal tail call mechanism. we
-             ;; can't just shuffle the args down and jump back to the
-             ;; self label, because we don't have space.
-             (comp-push proc)
-             (for-each comp-push args)
-             (emit-code src (make-glil-call 'tail-call (length args)))))))
+              (eq? context 'tail)
+              (not (lambda-case-kw lcase))
+              (not (lambda-case-rest lcase))
+              (= (length args)
+                 (+ (length (lambda-case-req lcase))
+                    (or (and=> (lambda-case-opt lcase) length) 0))))
+         (for-each comp-push args)
+         (for-each (lambda (sym)
+                     (pmatch (hashq-ref (hashq-ref allocation sym) self)
+                       ((#t #f . ,index) ; unboxed
+                        (emit-code #f (make-glil-lexical #t #f 'set index)))
+                       ((#t #t . ,index) ; boxed
+                        ;; new box
+                        (emit-code #f (make-glil-lexical #t #t 'box index)))
+                       (,x (error "bad lambda-case arg allocation" x))))
+                   (reverse (lambda-case-gensyms lcase)))
+         (emit-branch src 'br (car (hashq-ref allocation lcase))))
         
         ;; lambda, the ultimate goto
         ((and (lexical-ref? proc)
@@ -378,20 +365,37 @@
               (else
                (comp-tail (make-primcall src 'apply (cons proc args))))))))
 
-         ((values . _) (guard (not (eq? context 'push)))
+         ((values . _)
           ;; tail: (lambda () (values '(1 2)))
           ;; drop: (lambda () (values '(1 2)) 3)
           ;; push: (lambda () (list (values '(10 12)) 1))
           ;; vals: (let-values (((a b ...) (values 1 2 ...))) ...)
           (case context
             ((drop) (for-each comp-drop args) (maybe-emit-return))
+            ((push)
+             (case (length args)
+               ((0)
+                ;; FIXME: This is surely an error.  We need to add a
+                ;; values-mismatch warning pass.
+                (comp-push (make-call src (make-primitive-ref #f 'values)
+                                      '())))
+               ((1)
+                (comp-push (car args)))
+               (else
+                ;; Taking advantage of unspecified order of evaluation of
+                ;; arguments.
+                (for-each comp-drop (cdr args))
+                (comp-push (car args)))))
             ((vals)
              (for-each comp-push args)
              (emit-code #f (make-glil-const (length args)))
              (emit-branch src 'br MVRA))
             ((tail)
              (for-each comp-push args)
-             (emit-code src (make-glil-call 'return/values (length args))))))
+             (emit-code src (let ((len (length args)))
+                              (if (= len 1)
+                                  (make-glil-call 'return 1)
+                                  (make-glil-call 'return/values len)))))))
         
          ((@call-with-values ,producer ,consumer)
           ;; CONSUMER
@@ -724,7 +728,8 @@
          (if alternate-label
              (begin
                (emit-label alternate-label)
-               (comp-tail alternate)))))
+               (flatten-lambda-case alternate allocation self self-label
+                                    fix-labels emit-code)))))
       
       ((<let> src names gensyms vals body)
        (for-each comp-push vals)

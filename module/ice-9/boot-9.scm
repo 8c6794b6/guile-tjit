@@ -3411,7 +3411,7 @@ module '(ice-9 q) '(make-q q-length))}."
 
 (define %auto-compilation-options
   ;; Default `compile-file' option when auto-compiling.
-  '(#:warnings (unbound-variable arity-mismatch)))
+  '(#:warnings (unbound-variable arity-mismatch format)))
 
 (define* (load-in-vicinity dir path #:optional reader)
   ;; Returns the .go file corresponding to `name'. Does not search load
@@ -3470,8 +3470,14 @@ module '(ice-9 q) '(make-q q-length))}."
                  (else #f))))))
       (lambda (k . args)
         (format (current-error-port)
-                ";;; WARNING: compilation of ~a failed:\n;;; key ~a, throw_args ~s\n"
-                name k args)
+                ";;; WARNING: compilation of ~a failed:\n" name)
+        (for-each (lambda (s)
+                    (if (not (string-null? s))
+                        (format (current-error-port) ";;; ~a\n" s)))
+                  (string-split
+                   (call-with-output-string
+                    (lambda (port) (print-exception port #f k args)))
+                   #\newline))
         #f)))
 
   (define (absolute-path? path)
