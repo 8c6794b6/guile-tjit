@@ -169,7 +169,7 @@
          (= (catch 'abc (throw 'abc 2) 1) 2)
          (= (catch 'abc (catch 'def (throw 'abc (1+ 0)) 2) 3) 1)
          (= (catch 'abc (catch 'def (throw 'def 1) 2) 3) 3)
-         (= (catch mylist (catch '(1 2) (throw mylist 1) 2) 3) 1)))
+         (= (catch mylist (catch (list 1 2) (throw mylist 1) 2) 3) 1)))
 
   (pass-if "unwind-protect"
     (progn (setq a 0 b 1 c 1)
@@ -563,8 +563,8 @@
            (setq some-string "abc")
            (and (eq 2 2) (not (eq 1 2))
                 (eq 'abc 'abc) (not (eq 'abc 'def))
-                (eq some-string some-string) (not (eq some-string "abc"))
-                (eq some-list some-list) (not (eq some-list '(1 2)))))))
+                (eq some-string some-string) (not (eq some-string (string 97 98 99)))
+                (eq some-list some-list) (not (eq some-list (list 1 2)))))))
 
 (with-test-prefix/compile "Number Built-Ins"
 
