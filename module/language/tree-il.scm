@@ -464,7 +464,8 @@
                        (lambda (x) (tree-il->scheme (seq-head x)))
                        seq-tail
                        tail
-                       tree-il->scheme)))
+                       (lambda (x)
+                         (list (tree-il->scheme x))))))
 
     ((<let> gensyms vals body)
      `(let ,(map list gensyms (map tree-il->scheme vals)) ,(tree-il->scheme body)))
