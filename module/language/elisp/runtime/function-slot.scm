@@ -17,7 +17,8 @@
 ;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
 (define-module (language elisp runtime function-slot)
-  #:use-module (language elisp runtime subrs)
+  #:use-module ((language elisp runtime subrs)
+                #:select (apply))
   #:use-module ((language elisp runtime macros)
                 #:select
                 ((macro-lambda . lambda)
@@ -94,65 +95,4 @@
                pop
                push)
   ;; functions
-  #:re-export (eq
-               equal
-               floatp
-               integerp
-               numberp
-               wholenump
-               zerop
-               =
-               /=
-               <
-               <=
-               >
-               >=
-               max
-               min
-               abs
-               float
-               1+
-               1-
-               +
-               -
-               *
-               %
-               ffloor
-               fceiling
-               ftruncate
-               fround
-               consp
-               atomp
-               listp
-               nlistp
-               null
-               car
-               cdr
-               car-safe
-               cdr-safe
-               nth
-               nthcdr
-               length
-               cons
-               list
-               make-list
-               append
-               reverse
-               copy-tree
-               number-sequence
-               setcar
-               setcdr
-               symbol-value
-               symbol-function
-               set
-               fset
-               makunbound
-               fmakunbound
-               boundp
-               fboundp
-               apply
-               funcall
-               throw
-               not
-               eval
-               load))
+  #:re-export (apply))

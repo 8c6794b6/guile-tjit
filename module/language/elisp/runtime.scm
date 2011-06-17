@@ -29,7 +29,7 @@
             set-variable!
             runtime-error
             macro-error)
-  #:export-syntax (built-in-func built-in-macro defspecial prim))
+  #:export-syntax (built-in-macro defspecial prim))
 
 ;;; This module provides runtime support for the Elisp front-end.
 
@@ -102,14 +102,7 @@
      (fluid-set! (module-ref resolved sym) value))))
   value)
 
-;;; Define a predefined function or predefined macro for use in the
-;;; function-slot and macro-slot modules, respectively.
-
-(define-syntax built-in-func
-  (syntax-rules ()
-    ((_ name value)
-     (begin
-       (define-public name value)))))
+;;; Define a predefined macro for use in the function-slot module.
 
 (define (make-id template-id . data)
   (let ((append-symbols
