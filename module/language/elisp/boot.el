@@ -178,6 +178,15 @@
 (defun nth (n list)
   (car (nthcdr n list)))
 
+;;; Strings
+
+(defun string (&rest characters)
+  (funcall (@ (guile) list->string)
+           (mapcar (@ (guile) integer->char) characters)))
+
 ;;; Sequences
 
 (fset 'length (@ (guile) length))
+
+(defun mapcar (function sequence)
+  (funcall (@ (guile) map) function sequence))
