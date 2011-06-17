@@ -24,17 +24,11 @@
                 ((macro-lambda . lambda)
                  (macro-prog1 . prog1)
                  (macro-prog2 . prog2)
-                 (macro-when . when)
-                 (macro-unless . unless)
                  (macro-cond . cond)
                  (macro-and . and)
                  (macro-or . or)
-                 (macro-dotimes . dotimes)
-                 (macro-dolist . dolist)
                  (macro-catch . catch)
-                 (macro-unwind-protect . unwind-protect)
-                 (macro-pop . pop)
-                 (macro-push . push)))
+                 (macro-unwind-protect . unwind-protect)))
   #:use-module ((language elisp compile-tree-il)
                 #:select
                 ((compile-progn . progn)
@@ -83,16 +77,10 @@
   #:re-export (lambda
                prog1
                prog2
-               when
-               unless
                cond
                and
                or
-               dotimes
-               dolist
                catch
-               unwind-protect
-               pop
-               push)
+               unwind-protect)
   ;; functions
   #:re-export (apply))

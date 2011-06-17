@@ -45,16 +45,6 @@
   (lambda (form1 form2 . rest)
     `(progn ,form1 (prog1 ,form2 ,@rest))))
 
-;;; Define the conditionals when and unless as macros.
-
-(built-in-macro when
-  (lambda (condition . thens)
-    `(if ,condition (progn ,@thens) nil)))
-
-(built-in-macro unless
-  (lambda (condition . elses)
-    `(if ,condition nil (progn ,@elses))))
-
 ;;; Impement the cond form as nested if's.  A special case is a
 ;;; (condition) subform, in which case we need to return the condition
 ;;; itself if it is true and thus save it in a local variable before
@@ -109,50 +99,6 @@
                     ,var
                     ,(iterate (car tail) (cdr tail))))))))))
 
-;;; Define the dotimes and dolist iteration macros.
-
-(built-in-macro dotimes
-  (lambda (args . body)
-    (if (prim or
-              (not (list? args))
-              (< (length args) 2)
-              (> (length args) 3))
-        (macro-error "invalid dotimes arguments" args)
-        (let ((var (car args))
-              (count (cadr args)))
-          (if (not (symbol? var))
-              (macro-error "expected symbol as dotimes variable"))
-          `(let ((,var 0))
-             (while ((guile-primitive <) ,var ,count)
-               ,@body
-               (setq ,var ((guile-primitive 1+) ,var)))
-             ,@(if (= (length args) 3)
-                   (list (caddr args))
-                   '()))))))
-
-(built-in-macro dolist
-  (lambda (args . body)
-    (if (prim or
-              (not (list? args))
-              (< (length args) 2)
-              (> (length args) 3))
-        (macro-error "invalid dolist arguments" args)
-        (let ((var (car args))
-              (iter-list (cadr args))
-              (tailvar (gensym)))
-          (if (not (symbol? var))
-              (macro-error "expected symbol as dolist variable")
-              `(let (,var)
-                 (lexical-let ((,tailvar ,iter-list))
-                   (while ((guile-primitive not)
-                           ((guile-primitive null?) ,tailvar))
-                          (setq ,var ((guile-primitive car) ,tailvar))
-                          ,@body
-                          (setq ,tailvar ((guile-primitive cdr) ,tailvar)))
-                   ,@(if (= (length args) 3)
-                         (list (caddr args))
-                         '()))))))))
-
 ;;; Exception handling.  unwind-protect and catch are implemented as
 ;;; macros (throw is a built-in function).
 
@@ -196,13 +142,3 @@
       (lambda () ,body)
       (lambda () ,@clean-ups))))
 
-;;; Pop off the first element from a list or push one to it.
-
-(built-in-macro pop
-  (lambda (list-name)
-    `(prog1 (car ,list-name)
-            (setq ,list-name (cdr ,list-name)))))
-
-(built-in-macro push
-  (lambda (new-el list-name)
-    `(setq ,list-name (cons ,new-el ,list-name))))
