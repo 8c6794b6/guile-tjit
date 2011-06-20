@@ -22,11 +22,98 @@
 (defmacro @ (module symbol)
   `(guile-ref ,module ,symbol))
 
-(defun funcall (function &rest arguments)
-  (apply function arguments))
+(defmacro eval-and-compile (&rest body)
+  `(progn
+     (eval-when-compile ,@body)
+     (progn ,@body)))
 
-(defun fset (symbol definition)
-  (funcall (@ (language elisp runtime subrs) fset) symbol definition))
+(eval-and-compile
+  (defun funcall (function &rest arguments)
+    (apply function arguments))
+  (defun fset (symbol definition)
+    (funcall (@ (language elisp runtime subrs) fset) symbol definition))
+  (defun null (object)
+    (if object nil t))
+  (fset 'consp (@ (guile) pair?))
+  (defun listp (object)
+    (if object (consp object) t))
+  (defun car (list)
+    (if list (funcall (@ (guile) car) list) nil))
+  (defun cdr (list)
+    (if list (funcall (@ (guile) cdr) list) nil))
+  (fset 'make-symbol (@ (guile) make-symbol))
+  (defun signal (&rest args)
+    (funcall (@ (guile) throw) 'elisp-error args)))
+
+(defmacro lambda (&rest cdr)
+  `#'(lambda ,@cdr))
+
+(defmacro prog1 (first &rest body)
+  (let ((temp (make-symbol "prog1-temp")))
+    `(lexical-let ((,temp ,first))
+       ,@body
+       ,temp)))
+
+(defmacro prog2 (form1 form2 &rest body)
+  `(progn ,form1 (prog1 ,form2 ,@body)))
+
+(defmacro cond (&rest clauses)
+  (if (null clauses)
+      nil
+    (let ((first (car clauses))
+          (rest (cdr clauses)))
+     (if (listp first)
+         (let ((condition (car first))
+               (body (cdr first)))
+           (if (null body)
+               (let ((temp (make-symbol "cond-temp")))
+                 `(lexical-let ((,temp ,condition))
+                    (if ,temp
+                        ,temp
+                      (cond ,@rest))))
+             `(if ,condition
+                  (progn ,@body)
+                (cond ,@rest))))
+       (signal 'wrong-type-argument `(listp ,first))))))
+
+(defmacro and (&rest conditions)
+  (cond ((null conditions) t)
+        ((null (cdr conditions)) (car conditions))
+        (t `(if ,(car conditions)
+                (and ,@(cdr conditions))
+              nil))))
+
+(defmacro or (&rest conditions)
+  (cond ((null conditions) nil)
+        ((null (cdr conditions)) (car conditions))
+        (t (let ((temp (make-symbol "or-temp")))
+             `(lexical-let ((,temp ,(car conditions)))
+                (if ,temp
+                    ,temp
+                  (or ,@(cdr conditions))))))))
+
+(defmacro catch (tag &rest body)
+  (let* ((temp (make-symbol "catch-temp"))
+         (elisp-key (make-symbol "catch-elisp-key"))
+         (dummy-key (make-symbol "catch-dummy-key"))
+         (value (make-symbol "catch-value")))
+    `(lexical-let ((,temp ,tag))
+       (funcall (@ (guile) catch)
+                t
+                #'(lambda () ,@body)
+                #'(lambda (,dummy-key ,elisp-key ,value)
+                    (if (eq ,elisp-key ,temp)
+                        ,value
+                      (funcall (@ (guile) throw)
+                               ,dummy-key
+                               ,elisp-key
+                               ,value)))))))
+
+(defmacro unwind-protect (bodyform &rest unwindforms)
+  `(funcall (@ (guile) dynamic-wind)
+            #'(lambda () nil)
+            #'(lambda () ,bodyform)
+            #'(lambda () ,@unwindforms)))
 
 (fset 'symbol-value (@ (language elisp runtime subrs) symbol-value))
 (fset 'symbol-function (@ (language elisp runtime subrs) symbol-function))
@@ -110,18 +197,10 @@
 
 ;;; List predicates
 
-(fset 'consp (@ (guile) pair?))
-
-(defun null (object)
-  (if object nil t))
-
 (fset 'not #'null)
 
 (defun atom (object)
   (null (consp object)))
-
-(defun listp (object)
-  (or (consp object) (null object)))
 
 (defun nlistp (object)
   (null (listp object)))
@@ -133,16 +212,6 @@
 (fset 'make-list (@ (guile) make-list))
 (fset 'append (@ (guile) append))
 (fset 'reverse (@ (guile) reverse))
-
-(defun car (list)
-  (if (null list)
-      nil
-    (funcall (@ (guile) car) list)))
-
-(defun cdr (list)
-  (if (null list)
-      nil
-    (funcall (@ (guile) cdr) list)))
 
 (defun car-safe (object)
   (if (consp object)

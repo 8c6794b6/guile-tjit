@@ -19,16 +19,6 @@
 (define-module (language elisp runtime function-slot)
   #:use-module ((language elisp runtime subrs)
                 #:select (apply))
-  #:use-module ((language elisp runtime macros)
-                #:select
-                ((macro-lambda . lambda)
-                 (macro-prog1 . prog1)
-                 (macro-prog2 . prog2)
-                 (macro-cond . cond)
-                 (macro-and . and)
-                 (macro-or . or)
-                 (macro-catch . catch)
-                 (macro-unwind-protect . unwind-protect)))
   #:use-module ((language elisp compile-tree-il)
                 #:select
                 ((compile-progn . progn)
@@ -75,14 +65,5 @@
                defmacro
                #{`}#
                quote)
-  ;; macros
-  #:re-export (lambda
-               prog1
-               prog2
-               cond
-               and
-               or
-               catch
-               unwind-protect)
   ;; functions
   #:re-export (apply))

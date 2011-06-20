@@ -29,7 +29,7 @@
             set-variable!
             runtime-error
             macro-error)
-  #:export-syntax (built-in-macro defspecial prim))
+  #:export-syntax (defspecial prim))
 
 ;;; This module provides runtime support for the Elisp front-end.
 
@@ -117,15 +117,6 @@
                                 identity)
                             datum))
                          data)))))
-
-(define-syntax built-in-macro
-  (lambda (x)
-    (syntax-case x ()
-      ((_ name value)
-       (with-syntax ((scheme-name (make-id #'name 'macro- #'name)))
-        #'(begin
-            (define-public scheme-name (make-fluid))
-            (fluid-set! scheme-name (cons 'macro value))))))))
 
 (define-syntax defspecial
   (lambda (x)
