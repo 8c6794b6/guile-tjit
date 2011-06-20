@@ -31,6 +31,7 @@
   #:use-module (srfi srfi-26)
   #:export (compile-tree-il
             compile-progn
+            compile-eval-when-compile
             compile-if
             compile-defconst
             compile-defvar
@@ -631,6 +632,9 @@
 
 (defspecial progn (loc args)
   (make-sequence loc (map compile-expr args)))
+
+(defspecial eval-when-compile (loc args)
+  (make-const loc (compile `(progn ,@args) #:from 'elisp #:to 'value)))
 
 (defspecial if (loc args)
   (pmatch args

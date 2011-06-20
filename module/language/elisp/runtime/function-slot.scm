@@ -32,6 +32,7 @@
   #:use-module ((language elisp compile-tree-il)
                 #:select
                 ((compile-progn . progn)
+                 (compile-eval-when-compile . eval-when-compile)
                  (compile-if . if)
                  (compile-defconst . defconst)
                  (compile-defvar . defvar)
@@ -54,6 +55,7 @@
   #:duplicates (last)
   ;; special operators
   #:re-export (progn
+               eval-when-compile
                if
                defconst
                defvar
