@@ -283,8 +283,7 @@
         (let ((make-values (lambda (for)
                              (map (lambda (el) (compile-expr (cdr el)))
                                   for)))
-              (make-body (lambda ()
-                           (make-sequence loc (map compile-expr body)))))
+              (make-body (lambda () (compile-expr `(progn ,@body)))))
           (if (null? lexical)
               (let-dynamic loc (map car dynamic) module
                            (make-values dynamic) (make-body))
@@ -328,7 +327,7 @@
                 (map car bind))
       (let iterate ((tail bind))
         (if (null? tail)
-            (make-sequence loc (map compile-expr body))
+            (compile-expr `(progn ,@body))
             (let ((sym (caar tail))
                   (value (compile-expr (cdar tail))))
               (if (bind-lexically? sym module)
@@ -435,8 +434,6 @@
 (define (compile-lambda loc args body)
   (if (not (list? args))
       (report-error loc "expected list for argument-list" args))
-  (if (null? body)
-      (report-error loc "function body must not be empty"))
   (receive (required optional rest lexical dynamic)
            (split-lambda-arguments loc args)
     (define (process-args args)
@@ -497,8 +494,7 @@
               #f
               (map (lambda (x) (nil-value loc)) optional)
               all-syms
-              (let ((compiled-body
-                     (make-sequence loc (map compile-expr body))))
+              (let ((compiled-body (compile-expr `(progn ,@body))))
                 (make-sequence
                  loc
                  (list
@@ -618,8 +614,7 @@
                (and (list? syms) (and-map symbol? syms))))
       (report-error loc "invalid symbol list" syms))
   (let ((old (fluid-ref fluid))
-        (make-body (lambda ()
-                     (make-sequence loc (map compile-expr body)))))
+        (make-body (lambda () (compile-expr `(progn ,@body)))))
     (if (eq? old 'all)
         (make-body)
         (let ((new (if (eq? syms 'all)
@@ -631,7 +626,10 @@
 ;;; Special operators
 
 (defspecial progn (loc args)
-  (make-sequence loc (map compile-expr args)))
+  (make-sequence loc
+                 (if (null? args)
+                     (list (nil-value loc))
+                     (map compile-expr args))))
 
 (defspecial eval-when-compile (loc args)
   (make-const loc (compile `(progn ,@args) #:from 'elisp #:to 'value)))
@@ -644,10 +642,7 @@
       (call-primitive loc 'not
        (call-primitive loc 'nil? (compile-expr cond)))
       (compile-expr then)
-      (if (null? else)
-          (nil-value loc)
-          (make-sequence loc
-                         (map compile-expr else)))))))
+      (compile-expr `(progn ,@else))))))
 
 (defspecial defconst (loc args)
   (pmatch args

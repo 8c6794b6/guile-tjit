@@ -54,6 +54,9 @@
            (setq a (1+ a))
            a))
 
+  (pass-if-equal "empty progn" #nil
+    (progn))
+
   (pass-if "prog1"
     (progn (setq a 0)
            (setq b (prog1 a (setq a (1+ a))))
@@ -76,6 +79,9 @@
               (setq a 2) (setq a (1+ a)) a)
             3)
          (equal (if nil 1) nil)))
+
+  (pass-if-equal "if with no else" #nil
+    (if nil t))
 
   (pass-if-equal "empty cond" nil-value
     (cond))
@@ -214,6 +220,8 @@
                  (b a))
              b)))
 
+  (pass-if-equal "empty let" #nil (let ()))
+
   (pass-if "let*"
     (progn (setq a 0)
            (and (let* ((a 1)
@@ -224,6 +232,9 @@
                   (and (= a 1) (= b 2)))
                 (= a 0)
                 (not (boundp 'b)))))
+
+  (pass-if-equal "empty let*" #nil
+    (let* ()))
 
   (pass-if "local scope"
     (progn (setq a 0)
@@ -397,7 +408,10 @@
   (pass-if-equal "rest argument" '(3 4 5)
     ((lambda (a b &rest c) c) 1 2 3 4 5))
   (pass-if-equal "rest missing" nil-value
-    ((lambda (a b &rest c) c) 1 2)))
+    ((lambda (a b &rest c) c) 1 2))
+
+  (pass-if-equal "empty lambda" #nil
+    ((lambda ()))))
 
 (with-test-prefix/compile "Function Definitions"
 
