@@ -150,6 +150,26 @@ struct signal_pipe_data
   int err;
 };
 
+#ifndef HAVE_GC_GET_SUSPEND_SIGNAL
+static int
+GC_get_suspend_signal (void)
+{
+#if defined SIG_SUSPEND
+  return SIG_SUSPEND;
+#elif defined SIGPWR
+  return SIGPWR;
+#elif defined SIGLOST
+  return SIGLOST;
+#elif defined _SIGRTMIN
+  return _SIGRTMIN + 6;
+#elif defined SIGRTMIN
+  return SIGRTMIN + 6;
+#else
+#error what suspend signal to use?
+#endif
+}
+#endif /* HAVE_GC_GET_SUSPEND_SIGNAL */
+
 static void*
 read_signal_pipe_data (void * data)
 {
@@ -168,6 +188,11 @@ signal_delivery_thread (void *data)
 #if HAVE_PTHREAD_SIGMASK  /* not on mingw, see notes above */
   sigset_t all_sigs;
   sigfillset (&all_sigs);
+  /* On libgc 7.1 and earlier, GC_do_blocking doesn't actually do
+     anything.  So in that case, libgc will want to suspend the signal
+     delivery thread, so we need to allow it to do so by unmasking the
+     suspend signal.  */
+  sigdelset (&all_sigs, GC_get_suspend_signal ());
   scm_i_pthread_sigmask (SIG_SETMASK, &all_sigs, NULL);
 #endif
 
