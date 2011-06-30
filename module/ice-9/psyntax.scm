@@ -804,9 +804,35 @@
 
     (define free-id=?
       (lambda (i j)
-        (and (eq? (id-sym-name i) (id-sym-name j)) ; accelerator
-             (eq? (id-var-name i empty-wrap) (id-var-name j empty-wrap)))))
-
+        (let ((ni (id-var-name i empty-wrap))
+              (nj (id-var-name j empty-wrap)))
+          (define (id-module-binding id)
+            (let ((mod (and (syntax-object? id) (syntax-object-module id))))
+              (module-variable
+               (if mod
+                   ;; The normal case.
+                   (resolve-module (cdr mod))
+                   ;; Either modules have not been booted, or we have a
+                   ;; raw symbol coming in, which is possible.
+                   (current-module))
+               (id-sym-name id))))
+          (if (eq? ni (id-sym-name i))
+              ;; `i' is not lexically bound.  Assert that `j' is free,
+              ;; and if so, compare their bindings, that they are either
+              ;; bound to the same variable, or both unbound and have
+              ;; the same name.
+              (and (eq? nj (id-sym-name j))
+                   (let ((bi (id-module-binding i)))
+                     (if bi
+                         (eq? bi (id-module-binding j))
+                         (and (not (id-module-binding j))
+                              (eq? ni nj))))
+                   (eq? (id-module-binding i) (id-module-binding j)))
+              ;; Otherwise `i' is bound, so check that `j' is bound, and
+              ;; bound to the same thing.
+              (and (eq? ni nj)
+                   (not (eq? nj (id-sym-name j))))))))
+    
     ;; bound-id=? may be passed unwrapped (or partially wrapped) ids as
     ;; long as the missing portion of the wrap is common to both of the ids
     ;; since (bound-id=? x y) iff (bound-id=? (wrap x w) (wrap y w))
@@ -1049,20 +1075,21 @@
   
     (define chi-when-list
       (lambda (e when-list w)
-        ;; when-list is syntax'd version of list of situations
+        ;; `when-list' is syntax'd version of list of situations.  We
+        ;; could match these keywords lexically, via free-id=?, but then
+        ;; we twingle the definition of eval-when to the bindings of
+        ;; eval, load, expand, and compile, which is totally unintended.
+        ;; So do a symbolic match instead.
         (let f ((when-list when-list) (situations '()))
           (if (null? when-list)
               situations
               (f (cdr when-list)
-                 (cons (let ((x (car when-list)))
-                         (cond
-                          ((free-id=? x #'compile) 'compile)
-                          ((free-id=? x #'load) 'load)
-                          ((free-id=? x #'eval) 'eval)
-                          ((free-id=? x #'expand) 'expand)
-                          (else (syntax-violation 'eval-when
-                                                  "invalid situation"
-                                                  e (wrap x w #f)))))
+                 (cons (let ((x (syntax->datum (car when-list))))
+                         (if (memq x '(compile load eval expand))
+                             x
+                             (syntax-violation 'eval-when
+                                               "invalid situation"
+                                               e (wrap (car when-list) w #f))))
                        situations))))))
 
     ;; syntax-type returns six values: type, value, e, w, s, and mod. The

@@ -97,6 +97,7 @@
 	     (oop goops compile))
 
 
+;; FIXME: deprecate.
 (eval-when (eval load compile)
   (define min-fixnum (- (expt 2 29)))
   (define max-fixnum (- (expt 2 29) 1)))
