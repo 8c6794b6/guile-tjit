@@ -30,12 +30,14 @@
 (define-record-type simple-rtd)
 (define-record-type 
   (specified-rtd specified-rtd-constructor specified-rtd-predicate))
-(define-record-type parent-rtd (fields x y))
+;; Can't be named as `parent-rtd', as that shadows the `parent-rtd'
+;; literal.
+(define-record-type *parent-rtd (fields x y))
 (define-record-type child-parent-rtd-rtd 
-  (parent-rtd (record-type-descriptor parent-rtd) 
-	      (record-constructor-descriptor parent-rtd))
+  (parent-rtd (record-type-descriptor *parent-rtd) 
+	      (record-constructor-descriptor *parent-rtd))
   (fields z))
-(define-record-type child-parent-rtd (parent parent-rtd) (fields z))
+(define-record-type child-parent-rtd (parent *parent-rtd) (fields z))
 (define-record-type mutable-fields-rtd 
   (fields (mutable mutable-bar) 
 	  (mutable mutable-baz mutable-baz-accessor mutable-baz-mutator)))
@@ -69,10 +71,10 @@
     (defined? 'specified-rtd-constructor)))
 
 (pass-if "parent-rtd clause includes specified parent"
-  (eq? (record-type-parent child-parent-rtd-rtd) parent-rtd))
+  (eq? (record-type-parent child-parent-rtd-rtd) *parent-rtd))
 
 (pass-if "parent clause includes specified parent"
-  (eq? (record-type-parent child-parent-rtd) parent-rtd))
+  (eq? (record-type-parent child-parent-rtd) *parent-rtd))
 
 (pass-if "protocol clause includes specified protocol"
   (let ((protocol-record (make-protocol-rtd 1 2)))
