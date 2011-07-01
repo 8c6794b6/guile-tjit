@@ -26,54 +26,112 @@
 ;;;;
 
 (define-module (oop goops)
-  :use-module (srfi srfi-1)
-  :export-syntax (define-class class standard-define-class
-		  define-generic define-accessor define-method
-		  define-extended-generic define-extended-generics
-		  method)
-  :export (is-a? class-of
-           ensure-metaclass ensure-metaclass-with-supers
-	   make-class
-	   make-generic ensure-generic
-	   make-extended-generic
-	   make-accessor ensure-accessor
-	   add-method!
-	   class-slot-ref class-slot-set! slot-unbound slot-missing 
-	   slot-definition-name  slot-definition-options
-	   slot-definition-allocation
-	   slot-definition-getter slot-definition-setter
-	   slot-definition-accessor
-	   slot-definition-init-value slot-definition-init-form
-	   slot-definition-init-thunk slot-definition-init-keyword 
-	   slot-init-function class-slot-definition
-	   method-source
-	   compute-cpl compute-std-cpl compute-get-n-set compute-slots
-	   compute-getter-method compute-setter-method
-	   allocate-instance initialize make-instance make
-	   no-next-method  no-applicable-method no-method
-	   change-class update-instance-for-different-class
-	   shallow-clone deep-clone
-	   class-redefinition
-	   apply-generic apply-method apply-methods
-	   compute-applicable-methods %compute-applicable-methods
-	   method-more-specific? sort-applicable-methods
-	   class-subclasses class-methods
-	   goops-error
-	   min-fixnum max-fixnum
-	   ;;; *fixme* Should go into goops.c
-	   instance?  slot-ref-using-class
-	   slot-set-using-class! slot-bound-using-class?
-	   slot-exists-using-class? slot-ref slot-set! slot-bound?
-	   class-name class-direct-supers class-direct-subclasses
-	   class-direct-methods class-direct-slots class-precedence-list
-	   class-slots
-	   generic-function-name
-	   generic-function-methods method-generic-function
-	   method-specializers method-formals
-	   primitive-generic-generic enable-primitive-generic!
-	   method-procedure accessor-method-slot-definition
-	   slot-exists? make find-method get-keyword)
-  :no-backtrace)
+  #:use-module (srfi srfi-1)
+  #:export-syntax (define-class class standard-define-class
+                    define-generic define-accessor define-method
+                    define-extended-generic define-extended-generics
+                    method)
+  #:export ( ;; The root of everything.
+            <top>
+            <class> <object>
+
+            ;; Slot types.
+            <foreign-slot> <protected-slot> <hidden-slot> <opaque-slot>
+            <read-only-slot> <self-slot> <protected-opaque-slot>
+            <protected-hidden-slot> <protected-read-only-slot>
+            <scm-slot> <int-slot> <float-slot> <double-slot>
+
+            ;; Methods are implementations of generic functions.
+            <method> <accessor-method> 
+
+            ;; Applicable objects, either procedures or applicable structs.
+            <procedure-class> <applicable>
+            <procedure> <primitive-generic>
+           
+            ;; Applicable structs.
+            <applicable-struct-class>
+            <applicable-struct>
+            <generic> <extended-generic>
+            <generic-with-setter> <extended-generic-with-setter>
+            <accessor> <extended-accessor>
+
+            ;; Types with their own allocated typecodes.
+            <boolean> <char> <list> <pair> <null> <string> <symbol>
+            <vector> <bytevector> <uvec> <foreign> <hashtable>
+            <fluid> <dynamic-state> <frame> <objcode> <vm> <vm-continuation>
+
+            ;; Numbers.
+            <number> <complex> <real> <integer> <fraction>
+
+            ;; Unknown.
+            <unknown>
+
+            ;; Particular SMOB data types.  All SMOB types have
+            ;; corresponding classes, which may be obtained via class-of,
+            ;; once you have an instance.  Perhaps FIXME to provide a
+            ;; smob-type-name->class procedure.
+            <arbiter> <promise> <thread> <mutex> <condition-variable>
+            <regexp> <hook> <bitvector> <random-state> <async>
+            <directory> <keyword> <array> <character-set>
+            <dynamic-object> <guardian>
+
+            ;; Modules.
+            <module>
+
+            ;; Ports.
+            <port> <input-port> <output-port> <input-output-port>
+
+            ;; Like SMOB types, all port types have their own classes,
+            ;; which can be accessed via `class-of' once you have an
+            ;; instance.  Here we export bindings just for file ports.
+            <file-port>
+            <file-input-port> <file-output-port> <file-input-output-port>
+
+            is-a? class-of
+            ensure-metaclass ensure-metaclass-with-supers
+            make-class
+            make-generic ensure-generic
+            make-extended-generic
+            make-accessor ensure-accessor
+            add-method!
+            class-slot-ref class-slot-set! slot-unbound slot-missing 
+            slot-definition-name  slot-definition-options
+            slot-definition-allocation
+
+            slot-definition-getter slot-definition-setter
+            slot-definition-accessor
+            slot-definition-init-value slot-definition-init-form
+            slot-definition-init-thunk slot-definition-init-keyword 
+            slot-init-function class-slot-definition
+            method-source
+            compute-cpl compute-std-cpl compute-get-n-set compute-slots
+            compute-getter-method compute-setter-method
+            allocate-instance initialize make-instance make
+            no-next-method  no-applicable-method no-method
+            change-class update-instance-for-different-class
+            shallow-clone deep-clone
+            class-redefinition
+            apply-generic apply-method apply-methods
+            compute-applicable-methods %compute-applicable-methods
+            method-more-specific? sort-applicable-methods
+            class-subclasses class-methods
+            goops-error
+            min-fixnum max-fixnum
+           
+;;; *fixme* Should go into goops.c
+            instance?  slot-ref-using-class
+            slot-set-using-class! slot-bound-using-class?
+            slot-exists-using-class? slot-ref slot-set! slot-bound?
+            class-name class-direct-supers class-direct-subclasses
+            class-direct-methods class-direct-slots class-precedence-list
+            class-slots
+            generic-function-name
+            generic-function-methods method-generic-function
+            method-specializers method-formals
+            primitive-generic-generic enable-primitive-generic!
+            method-procedure accessor-method-slot-definition
+            slot-exists? make find-method get-keyword)
+  #:no-backtrace)
 
 (define *goops-module* (current-module))
 
@@ -812,6 +870,20 @@
 ;;;
 ;;; Handling of duplicate bindings in the module system
 ;;;
+
+(define (find-subclass super name)
+  (let lp ((classes (class-direct-subclasses super)))
+    (cond
+     ((null? classes)
+      (error "class not found" name))
+     ((and (slot-bound? (car classes) 'name)
+           (eq? (class-name (car classes)) name))
+      (car classes))
+     (else
+      (lp (cdr classes))))))
+
+;; A record type.
+(define <module> (find-subclass <top> '<module>))
 
 (define-method (merge-generics (module <module>)
 			       (name <symbol>)
@@ -1657,3 +1729,33 @@
 
 ;; Tell C code that the main bulk of Goops has been loaded
 (%goops-loaded)
+
+
+
+
+;;;
+;;; {SMOB and port classes}
+;;;
+
+(define <arbiter> (find-subclass <top> '<arbiter>))
+(define <promise> (find-subclass <top> '<promise>))
+(define <thread> (find-subclass <top> '<thread>))
+(define <mutex> (find-subclass <top> '<mutex>))
+(define <condition-variable> (find-subclass <top> '<condition-variable>))
+(define <regexp> (find-subclass <top> '<regexp>))
+(define <hook> (find-subclass <top> '<hook>))
+(define <bitvector> (find-subclass <top> '<bitvector>))
+(define <random-state> (find-subclass <top> '<random-state>))
+(define <async> (find-subclass <top> '<async>))
+(define <directory> (find-subclass <top> '<directory>))
+(define <keyword> (find-subclass <top> '<keyword>))
+(define <array> (find-subclass <top> '<array>))
+(define <character-set> (find-subclass <top> '<character-set>))
+(define <dynamic-object> (find-subclass <top> '<dynamic-object>))
+(define <guardian> (find-subclass <applicable> '<guardian>))
+
+(define (define-class-subtree class)
+  (define! (class-name class) class)
+  (for-each define-class-subtree (class-direct-subclasses class)))
+
+(define-class-subtree (find-subclass <port> '<file-port>))

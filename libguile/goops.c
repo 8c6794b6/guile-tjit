@@ -85,13 +85,6 @@ SCM_SYMBOL (sym_change_class, "change-class");
 SCM_VARIABLE (scm_var_make_extended_generic, "make-extended-generic");
 
 
-/* FIXME, exports should come from the scm file only */
-#define DEFVAR(v, val)                                          \
-  { scm_module_define (scm_module_goops, (v), (val));           \
-    scm_module_export (scm_module_goops, scm_list_1 ((v)));     \
-  }
-
-
 /* Class redefinition protocol:
 
    A class is represented by a heap header h1 which points to a
@@ -943,21 +936,21 @@ create_basic_classes (void)
 
   prep_hashsets (scm_class_class);
 
-  DEFVAR(name, scm_class_class);
+  scm_module_define (scm_module_goops, name, scm_class_class);
 
   /**** <top> ****/
   name = scm_from_latin1_symbol ("<top>");
   scm_class_top = scm_basic_make_class (scm_class_class, name,
                                         SCM_EOL, SCM_EOL);
 
-  DEFVAR(name, scm_class_top);
+  scm_module_define (scm_module_goops, name, scm_class_top);
 
   /**** <object> ****/
   name	 = scm_from_latin1_symbol ("<object>");
   scm_class_object = scm_basic_make_class (scm_class_class, name,
                                            scm_list_1 (scm_class_top), SCM_EOL);
 
-  DEFVAR (name, scm_class_object);
+  scm_module_define (scm_module_goops, name, scm_class_object);
 
   /* <top> <object> and <class> were partially initialized. Correct them here */
   SCM_SET_SLOT (scm_class_object, scm_si_direct_subclasses, scm_list_1 (scm_class_class));
@@ -2320,7 +2313,7 @@ make_stdcls (SCM *var, char *name, SCM meta, SCM super, SCM slots)
    *var = scm_basic_make_class (meta, tmp,
                                 scm_is_pair (super) ? super : scm_list_1 (super),
                                 slots);
-   DEFVAR(tmp, *var);
+   scm_module_define (scm_module_goops, tmp, *var);
 }
 
 
@@ -2515,7 +2508,7 @@ create_standard_classes (void)
 static SCM
 make_class_from_template (char const *template, char const *type_name, SCM supers, int applicablep)
 {
-  SCM class, name;
+  SCM name;
   if (type_name)
     {
       char buffer[100];
@@ -2525,20 +2518,15 @@ make_class_from_template (char const *template, char const *type_name, SCM super
   else
     name = SCM_GOOPS_UNBOUND;
 
-  class = scm_basic_make_class (applicablep ? scm_class_procedure_class : scm_class_class,
-                                name, supers, SCM_EOL);
-
-  /* Only define name if doesn't already exist. */
-  if (!SCM_GOOPS_UNBOUNDP (name)
-      && scm_is_false (scm_module_variable (scm_module_goops, name)))
-    DEFVAR (name, class);
-  return class;
+  return scm_basic_make_class (applicablep ? scm_class_procedure_class : scm_class_class,
+                               name, supers, SCM_EOL);
 }
 
 static SCM
 make_class_from_symbol (SCM type_name_sym, SCM supers, int applicablep)
 {
-  SCM class, name;
+  SCM name;
+
   if (scm_is_true (type_name_sym))
     {
       name = scm_string_append (scm_list_3 (scm_from_locale_string ("<"),
@@ -2549,14 +2537,8 @@ make_class_from_symbol (SCM type_name_sym, SCM supers, int applicablep)
   else
     name = SCM_GOOPS_UNBOUND;
 
-  class = scm_basic_make_class (applicablep ? scm_class_procedure_class : scm_class_class,
-                                name, supers, SCM_EOL);
-
-  /* Only define name if doesn't already exist. */
-  if (!SCM_GOOPS_UNBOUNDP (name)
-      && scm_is_false (scm_module_variable (scm_module_goops, name)))
-    DEFVAR (name, class);
-  return class;
+  return scm_basic_make_class (applicablep ? scm_class_procedure_class : scm_class_class,
+                               name, supers, SCM_EOL);
 }
 
 SCM
@@ -2786,7 +2768,7 @@ scm_init_goops_builtins (void)
     SCM name = scm_from_latin1_symbol ("no-applicable-method");
     scm_no_applicable_method =
       scm_make (scm_list_3 (scm_class_generic, k_name, name));
-    DEFVAR (name, scm_no_applicable_method);
+    scm_module_define (scm_module_goops, name, scm_no_applicable_method);
   }
 
   return SCM_UNSPECIFIED;
