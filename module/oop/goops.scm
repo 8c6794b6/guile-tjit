@@ -42,12 +42,15 @@
             <scm-slot> <int-slot> <float-slot> <double-slot>
 
             ;; Methods are implementations of generic functions.
-            <method> <accessor-method> 
+            <method> <accessor-method>
+
+            ;; Macros.
+            <macro>
 
             ;; Applicable objects, either procedures or applicable structs.
             <procedure-class> <applicable>
             <procedure> <primitive-generic>
-           
+
             ;; Applicable structs.
             <applicable-struct-class>
             <applicable-struct>
