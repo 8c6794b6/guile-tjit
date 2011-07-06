@@ -35,7 +35,7 @@
     ((,x) x)
     ((,x . ,rest)
      (make-seq #f x (join rest env)))
-    (else (error "what!" x rest env))))
+    (else (error "what!" exps env))))
 
 (define-language tree-il
   #:title	"Tree Intermediate Language"
