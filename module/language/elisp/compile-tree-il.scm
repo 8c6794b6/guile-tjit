@@ -133,9 +133,9 @@
 (define (ensuring-globals loc bindings body)
   (make-sequence
    loc
-   `(,@(map-globals-needed (fluid-ref bindings)
-                           (lambda (mod sym)
-                             (generate-ensure-global loc sym mod)))
+   `(,@(map-globals (fluid-ref bindings)
+                    (lambda (mod sym)
+                      (generate-ensure-global loc sym mod)))
      ,body)))
 
 ;;; Build a construct that establishes dynamic bindings for certain
@@ -185,7 +185,7 @@
    (lambda () (make-module-ref loc module sym #t))
    (lambda (lexical) (make-lexical-ref loc lexical lexical))
    (lambda ()
-     (mark-global-needed! (fluid-ref bindings-data) sym module)
+     (mark-global! (fluid-ref bindings-data) sym module)
      (call-primitive loc
                      'fluid-ref
                      (make-module-ref loc module sym #t)))))
@@ -206,7 +206,7 @@
       (list (make-const loc module) (make-const loc sym) value)))
    (lambda (lexical) (make-lexical-set loc lexical lexical value))
    (lambda ()
-     (mark-global-needed! (fluid-ref bindings-data) sym module)
+     (mark-global! (fluid-ref bindings-data) sym module)
      (call-primitive loc
                      'fluid-set!
                      (make-module-ref loc module sym #t)
@@ -276,9 +276,9 @@
         (lambda () (split-let-bindings bind module))
       (lambda (lexical dynamic)
         (for-each (lambda (sym)
-                    (mark-global-needed! (fluid-ref bindings-data)
-                                         sym
-                                         module))
+                    (mark-global! (fluid-ref bindings-data)
+                                  sym
+                                  module))
                   (map car dynamic))
         (let ((make-values (lambda (for)
                              (map (lambda (el) (compile-expr (cdr el)))
@@ -321,9 +321,9 @@
     (begin
       (for-each (lambda (sym)
                   (if (not (bind-lexically? sym module))
-                      (mark-global-needed! (fluid-ref bindings-data)
-                                           sym
-                                           module)))
+                      (mark-global! (fluid-ref bindings-data)
+                                    sym
+                                    module)))
                 (map car bind))
       (let iterate ((tail bind))
         (if (null? tail)
@@ -470,9 +470,9 @@
                                            optional-dyn-pairs
                                            rest-dyn-pairs)))
       (for-each (lambda (sym)
-                  (mark-global-needed! (fluid-ref bindings-data)
-                                       sym
-                                       value-slot))
+                  (mark-global! (fluid-ref bindings-data)
+                                sym
+                                value-slot))
                 dynamic)
       (with-dynamic-bindings
        (fluid-ref bindings-data)
