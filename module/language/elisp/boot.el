@@ -122,9 +122,11 @@
 (fset 'fmakunbound (@ (language elisp runtime subrs) fmakunbound))
 (fset 'boundp (@ (language elisp runtime subrs) boundp))
 (fset 'fboundp (@ (language elisp runtime subrs) fboundp))
-(fset 'throw (@ (language elisp runtime subrs) throw))
 (fset 'eval (@ (language elisp runtime subrs) eval))
 (fset' load (@ (language elisp runtime subrs) load))
+
+(defun throw (tag value)
+  (funcall (@ (guile) throw) 'elisp-exception tag value))
 
 ;;; Equality predicates
 

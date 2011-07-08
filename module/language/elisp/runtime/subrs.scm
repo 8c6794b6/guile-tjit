@@ -31,7 +31,6 @@
             boundp
             fboundp
             apply
-            throw
             eval
             load))
 
@@ -105,11 +104,6 @@
                                         func)))
                     (else func))))
     (prim apply (@ (guile) apply) real-func args)))
-
-;;; Throw can be implemented as built-in function.
-
-(define (throw tag value)
-  (prim throw 'elisp-exception tag value))
 
 ;;; Miscellaneous.
 
