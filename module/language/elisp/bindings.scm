@@ -19,7 +19,10 @@
 ;;; Code:
 
 (define-module (language elisp bindings)
+  #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-8)
   #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-26)
   #:export (make-bindings
             mark-global!
             map-globals
@@ -70,22 +73,11 @@
 ;;; their creation or some other analysis.
 
 (define (map-globals bindings proc)
-  (let iterate-modules ((mod-tail (globals bindings))
-                        (mod-result '()))
-    (if (null? mod-tail)
-        mod-result
-        (iterate-modules
-         (cdr mod-tail)
-         (let* ((aentry (car mod-tail))
-                (module (car aentry))
-                (symbols (cdr aentry)))
-           (let iterate-symbols ((sym-tail symbols)
-                                 (sym-result mod-result))
-             (if (null? sym-tail)
-                 sym-result
-                 (iterate-symbols (cdr sym-tail)
-                                  (cons (proc module (car sym-tail))
-                                        sym-result)))))))))
+  (append-map
+   (lambda (module+symbols)
+     (receive (module symbols) (car+cdr module+symbols)
+       (map (cut proc module <>) symbols)))
+   (globals bindings)))
 
 ;;; Get the current lexical binding (gensym it should refer to in the
 ;;; current scope) for a symbol or #f if it is dynamically bound.
