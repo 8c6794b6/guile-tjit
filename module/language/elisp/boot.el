@@ -95,17 +95,17 @@
 (defmacro catch (tag &rest body)
   (let* ((temp (make-symbol "catch-temp"))
          (elisp-key (make-symbol "catch-elisp-key"))
-         (dummy-key (make-symbol "catch-dummy-key"))
+         (key (make-symbol "catch-key"))
          (value (make-symbol "catch-value")))
     `(lexical-let ((,temp ,tag))
        (funcall (@ (guile) catch)
-                t
+                'elisp-exception
                 #'(lambda () ,@body)
-                #'(lambda (,dummy-key ,elisp-key ,value)
+                #'(lambda (,key ,elisp-key ,value)
                     (if (eq ,elisp-key ,temp)
                         ,value
                       (funcall (@ (guile) throw)
-                               ,dummy-key
+                               ,key
                                ,elisp-key
                                ,value)))))))
 
