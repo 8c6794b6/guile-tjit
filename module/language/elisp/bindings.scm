@@ -24,6 +24,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-26)
   #:export (make-bindings
+            global?
             mark-global!
             map-globals
             with-lexical-bindings
@@ -56,6 +57,9 @@
 
 (define (make-bindings)
   (%make-bindings '() (make-hash-table)))
+
+(define (global? bindings sym module)
+  (and=> (assoc-ref (globals bindings) module) (cut memq sym <>)))
 
 ;;; Mark that a given symbol is needed as global in the specified
 ;;; slot-module.

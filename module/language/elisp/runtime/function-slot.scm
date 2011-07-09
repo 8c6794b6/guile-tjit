@@ -41,7 +41,9 @@
                  (compile-defun . defun)
                  (compile-defmacro . defmacro)
                  (#{compile-`}# . #{`}#)
-                 (compile-quote . quote)))
+                 (compile-quote . quote)
+                 (compile-%set-lexical-binding-mode
+                  . %set-lexical-binding-mode)))
   #:duplicates (last)
   ;; special operators
   #:re-export (progn
@@ -64,6 +66,7 @@
                defun
                defmacro
                #{`}#
-               quote)
+               quote
+               %set-lexical-binding-mode)
   ;; functions
   #:re-export (apply))

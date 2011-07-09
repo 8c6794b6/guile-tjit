@@ -50,7 +50,8 @@
             compile-defmacro
             compile-defun
             #{compile-`}#
-            compile-quote))
+            compile-quote
+            compile-%set-lexical-binding-mode))
 
 ;;; Certain common parameters (like the bindings data structure or
 ;;; compiler options) are not always passed around but accessed using
@@ -65,6 +66,8 @@
 ;;; even with ordinary let and as lambda arguments.
 
 (define always-lexical (make-fluid))
+
+(define lexical-binding (make-fluid))
 
 ;;; Find the source properties of some parsed expression if there are
 ;;; any associated with it.
@@ -245,7 +248,10 @@
            (let ((always (fluid-ref always-lexical)))
              (or (eq? always 'all)
                  (memq sym always)
-                 (get-lexical-binding (fluid-ref bindings-data) sym))))))
+                 (get-lexical-binding (fluid-ref bindings-data) sym)
+                 (and
+                  (fluid-ref lexical-binding)
+                  (not (global? (fluid-ref bindings-data) sym module))))))))
 
 (define (split-let-bindings bindings module)
   (let iterate ((tail bindings)
@@ -853,6 +859,12 @@
   (pmatch args
     ((,val)
      (make-const loc val))))
+
+(defspecial %set-lexical-binding-mode (loc args)
+  (pmatch args
+    ((,val)
+     (fluid-set! lexical-binding val)
+     (make-void loc))))
 
 ;;; Compile a compound expression to Tree-IL.
 
