@@ -354,11 +354,6 @@
 ;;; split into those to be bound lexically and dynamically.  Returned is
 ;;; as multiple values: required optional rest lexical dynamic
 
-(define (bind-arg-lexical? arg)
-  (let ((always (fluid-ref always-lexical)))
-    (or (eq? always 'all)
-        (memq arg always))))
-
 (define (split-lambda-arguments loc args)
   (let iterate ((tail args)
                 (mode 'required)
@@ -385,7 +380,7 @@
               (not (null? (cddr tail))))
           (report-error loc "expected exactly one symbol after &rest")
           (let* ((rest (cadr tail))
-                 (rest-lexical (bind-arg-lexical? rest))
+                 (rest-lexical (bind-lexically? rest value-slot))
                  (final-required (reverse required))
                  (final-optional (reverse optional))
                  (final-lexical (reverse (if rest-lexical
@@ -405,7 +400,7 @@
                         "expected symbol in argument list, got"
                         (car tail))
           (let* ((arg (car tail))
-                 (bind-lexical (bind-arg-lexical? arg))
+                 (bind-lexical (bind-lexically? arg value-slot))
                  (new-lexical (if bind-lexical
                                   (cons arg lexical)
                                   lexical))
