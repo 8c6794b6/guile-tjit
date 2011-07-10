@@ -42,7 +42,6 @@
             compile-let*
             compile-lexical-let*
             compile-flet*
-            compile-with-always-lexical
             compile-guile-ref
             compile-guile-primitive
             compile-while
@@ -61,11 +60,6 @@
 ;;; data.
 
 (define bindings-data (make-fluid))
-
-;;; Store which symbols (or all/none) should always be bound lexically,
-;;; even with ordinary let and as lambda arguments.
-
-(define always-lexical (make-fluid))
 
 (define lexical-binding (make-fluid))
 
@@ -245,13 +239,10 @@
   (or (eq? module 'lexical)
       (eq? module function-slot)
       (and (equal? module value-slot)
-           (let ((always (fluid-ref always-lexical)))
-             (or (eq? always 'all)
-                 (memq sym always)
-                 (get-lexical-binding (fluid-ref bindings-data) sym)
-                 (and
-                  (fluid-ref lexical-binding)
-                  (not (global? (fluid-ref bindings-data) sym module))))))))
+           (or (get-lexical-binding (fluid-ref bindings-data) sym)
+               (and
+                (fluid-ref lexical-binding)
+                (not (global? (fluid-ref bindings-data) sym module)))))))
 
 (define (split-let-bindings bindings module)
   (let iterate ((tail bindings)
@@ -604,26 +595,6 @@
                         expr))
       (make-const loc expr)))
 
-;;; Temporarily update a list of symbols that are handled specially
-;;; (e.g., always lexical) for compiling body. We need to handle special
-;;; cases for already all / set to all and the like.
-
-(define (with-added-symbols loc fluid syms body)
-  (if (null? body)
-      (report-error loc "symbol-list construct has empty body"))
-  (if (not (or (eq? syms 'all)
-               (and (list? syms) (and-map symbol? syms))))
-      (report-error loc "invalid symbol list" syms))
-  (let ((old (fluid-ref fluid))
-        (make-body (lambda () (compile-expr `(progn ,@body)))))
-    (if (eq? old 'all)
-        (make-body)
-        (let ((new (if (eq? syms 'all)
-                       'all
-                       (append syms old))))
-          (with-fluids ((fluid new))
-            (make-body))))))
-
 ;;; Special operators
 
 (defspecial progn (loc args)
@@ -731,14 +702,6 @@
   (pmatch args
     ((,bindings . ,body)
      (generate-let* loc function-slot bindings body))))
-
-;;; Temporarily set symbols as always lexical only for the lexical scope
-;;; of a construct.
-
-(defspecial with-always-lexical (loc args)
-  (pmatch args
-    ((,syms . ,body)
-     (with-added-symbols loc always-lexical syms body))))
 
 ;;; guile-ref allows building TreeIL's module references from within
 ;;; elisp as a way to access data within the Guile universe.  The module
@@ -924,12 +887,6 @@
             (case key
               ((#:warnings)             ; ignore
                #f)
-              ((#:always-lexical)
-               (if (valid-symbol-list-arg? value)
-                   (fluid-set! always-lexical value)
-                   (report-error #f
-                                 "Invalid value for #:always-lexical"
-                                 value)))
               (else (report-error #f
                                   "Invalid compiler option"
                                   key)))))))
@@ -941,8 +898,7 @@
 
 (define (compile-tree-il expr env opts)
   (values
-   (with-fluids ((bindings-data (make-bindings))
-                 (always-lexical '()))
+   (with-fluids ((bindings-data (make-bindings)))
      (process-options! opts)
      (let ((compiled (compile-expr expr)))
        (ensuring-globals (location expr) bindings-data compiled)))

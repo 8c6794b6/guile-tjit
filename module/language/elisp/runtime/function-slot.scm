@@ -33,7 +33,6 @@
                  (compile-let* . let*)
                  (compile-lexical-let* . lexical-let*)
                  (compile-flet* . flet*)
-                 (compile-with-always-lexical . with-always-lexical)
                  (compile-guile-ref . guile-ref)
                  (compile-guile-primitive . guile-primitive)
                  (compile-while . while)
@@ -58,7 +57,6 @@
                let*
                lexical-let*
                flet*
-               with-always-lexical
                guile-ref
                guile-primitive
                while

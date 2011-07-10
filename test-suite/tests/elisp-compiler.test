@@ -315,33 +315,11 @@
          (= (funcall c1) 4)
          (= (funcall c2) 3)))
 
-  (pass-if "always lexical option (all)"
-    (progn (setq a 0)
-           (defun dyna () a)
-           (let ((a 1))
-             (and (= a 1) (= (dyna) 0))))
-    #:opts '(#:always-lexical all))
-  (pass-if "always lexical option (list)"
-    (progn (setq a 0 b 0)
-           (defun dyna () a)
-           (defun dynb () b)
-           (let ((a 1)
-                 (b 1))
-             (and (= a 1) (= (dyna) 0)
-                  (= b 1) (= (dynb) 1))))
-    #:opts '(#:always-lexical (a)))
-  (pass-if "with-always-lexical"
-    (progn (setq a 0)
-           (defun dyna () a)
-           (with-always-lexical (a)
-             (let ((a 1))
-               (and (= a 1) (= (dyna) 0))))))
-
   (pass-if "lexical lambda args"
     (progn (setq a 1 b 1)
            (defun dyna () a)
            (defun dynb () b)
-           (with-always-lexical (a c)
+           (lexical-let (a c)
              ((lambda (a b &optional c)
                 (and (= a 3) (= (dyna) 1)
                      (= b 2) (= (dynb) 2)
@@ -352,7 +330,7 @@
   ; is tail-optimized by doing a deep recursion that would otherwise overflow
   ; the stack.
   (pass-if "lexical lambda tail-recursion"
-    (with-always-lexical (i)
+    (lexical-let (i)
       (setq to 1000000)
       (defun iteration-1 (i)
         (if (< i to)
