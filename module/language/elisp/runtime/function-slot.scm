@@ -32,7 +32,6 @@
                  (compile-flet . flet)
                  (compile-let* . let*)
                  (compile-lexical-let* . lexical-let*)
-                 (compile-flet* . flet*)
                  (compile-guile-ref . guile-ref)
                  (compile-guile-primitive . guile-primitive)
                  (compile-while . while)
@@ -56,7 +55,6 @@
                flet
                let*
                lexical-let*
-               flet*
                guile-ref
                guile-primitive
                while

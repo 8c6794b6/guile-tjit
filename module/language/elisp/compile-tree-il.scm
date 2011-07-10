@@ -41,7 +41,6 @@
             compile-flet
             compile-let*
             compile-lexical-let*
-            compile-flet*
             compile-guile-ref
             compile-guile-primitive
             compile-while
@@ -255,7 +254,7 @@
             (iterate (cdr tail) lexical (cons (car tail) dynamic))))))
 
 ;;; Compile let and let* expressions.  The code here is used both for
-;;; let/let* and flet/flet*, just with a different bindings module.
+;;; let/let* and flet, just with a different bindings module.
 ;;;
 ;;; A special module value 'lexical means that we're doing a lexical-let
 ;;; instead and the bindings should not be saved to globals at all but
@@ -697,11 +696,6 @@
   (pmatch args
     ((,bindings . ,body)
      (generate-let* loc 'lexical bindings body))))
-
-(defspecial flet* (loc args)
-  (pmatch args
-    ((,bindings . ,body)
-     (generate-let* loc function-slot bindings body))))
 
 ;;; guile-ref allows building TreeIL's module references from within
 ;;; elisp as a way to access data within the Guile universe.  The module

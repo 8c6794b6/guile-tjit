@@ -413,7 +413,7 @@
                 (not (fboundp 'a))
                 (= a 1))))
 
-  (pass-if "flet and flet*"
+  (pass-if "flet"
     (progn (defun foobar () 42)
            (defun test () (foobar))
            (and (= (test) 42)
@@ -421,9 +421,6 @@
                        (myfoo (symbol-function 'foobar)))
                   (and (= (myfoo) 42)
                        (= (test) 42)))
-                (flet* ((foobar (lambda () 0))
-                        (myfoo (symbol-function 'foobar)))
-                  (= (myfoo) 42))
                 (flet (foobar)
                   (defun foobar () 0)
                   (= (test) 42))
