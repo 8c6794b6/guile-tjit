@@ -67,9 +67,7 @@
 (define (mark-global! bindings sym module)
   (let* ((old-globals (globals bindings))
          (old-in-module (or (assoc-ref old-globals module) '()))
-         (new-in-module (if (memq sym old-in-module)
-                            old-in-module
-                            (cons sym old-in-module)))
+         (new-in-module (lset-adjoin eq? old-in-module sym))
          (new-globals (assoc-set! old-globals module new-in-module)))
     (set-globals! bindings new-globals)))
 
