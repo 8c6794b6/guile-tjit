@@ -198,8 +198,8 @@
    (lambda ()
      (make-application
       loc
-      (make-module-ref loc runtime 'set-variable! #t)
-      (list (make-const loc module) (make-const loc sym) value)))
+      (make-module-ref loc runtime 'set-symbol-function! #t) ;++ fix
+      (list (make-const loc sym) value)))
    (lambda (lexical) (make-lexical-set loc lexical lexical value))
    (lambda ()
      (mark-global! (fluid-ref bindings-data) sym module)

@@ -31,7 +31,9 @@
   (defun funcall (function &rest arguments)
     (apply function arguments))
   (defun fset (symbol definition)
-    (funcall (@ (language elisp runtime subrs) fset) symbol definition))
+    (funcall (@ (language elisp runtime) set-symbol-function!)
+             symbol
+             definition))
   (defun null (object)
     (if object nil t))
   (fset 'consp (@ (guile) pair?))
@@ -115,13 +117,6 @@
             #'(lambda () ,bodyform)
             #'(lambda () ,@unwindforms)))
 
-(fset 'symbol-value (@ (language elisp runtime subrs) symbol-value))
-(fset 'symbol-function (@ (language elisp runtime subrs) symbol-function))
-(fset 'set (@ (language elisp runtime subrs) set))
-(fset 'makunbound (@ (language elisp runtime subrs) makunbound))
-(fset 'fmakunbound (@ (language elisp runtime subrs) fmakunbound))
-(fset 'boundp (@ (language elisp runtime subrs) boundp))
-(fset 'fboundp (@ (language elisp runtime subrs) fboundp))
 (fset 'eval (@ (language elisp runtime subrs) eval))
 (fset' load (@ (language elisp runtime subrs) load))
 
@@ -132,6 +127,17 @@
 
 (fset 'eq (@ (guile) eq?))
 (fset 'equal (@ (guile) equal?))
+
+;;; Symbols
+
+(fset 'symbolp (@ (guile) symbol?))
+(fset 'symbol-value (@ (language elisp runtime) symbol-value))
+(fset 'symbol-function (@ (language elisp runtime) symbol-function))
+(fset 'set (@ (language elisp runtime) set-symbol-value!))
+(fset 'makunbound (@ (language elisp runtime) makunbound!))
+(fset 'fmakunbound (@ (language elisp runtime) fmakunbound!))
+(fset 'boundp (@ (language elisp runtime) symbol-bound?))
+(fset 'fboundp (@ (language elisp runtime) symbol-fbound?))
 
 ;;; Numerical type predicates
 
