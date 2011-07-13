@@ -139,6 +139,14 @@
 (fset 'boundp (@ (language elisp runtime) symbol-bound?))
 (fset 'fboundp (@ (language elisp runtime) symbol-fbound?))
 
+(defun defvaralias (new-alias base-variable &optional docstring)
+  (let ((fluid (funcall (@ (language elisp runtime) symbol-fluid)
+                        base-variable)))
+    (funcall (@ (language elisp runtime) set-symbol-fluid!)
+             new-alias
+             fluid)
+    base-variable))
+
 ;;; Numerical type predicates
 
 (defun floatp (object)
