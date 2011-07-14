@@ -422,7 +422,7 @@
 ;;; binding for them (the lexical target variable is already there,
 ;;; namely the real lambda argument from TreeIL).
 
-(define (compile-lambda loc args body)
+(define (compile-lambda loc meta args body)
   (if (not (list? args))
       (report-error loc "expected list for argument-list" args))
   (receive (required optional rest lexical dynamic)
@@ -476,7 +476,7 @@
           (lambda ()
             (make-lambda
              loc
-             '()
+             meta
              (make-lambda-case
               #f
               required
@@ -765,7 +765,7 @@
 (defspecial function (loc args)
   (pmatch args
     (((lambda ,args . ,body))
-     (compile-lambda loc args body))
+     (compile-lambda loc '() args body))
     ((,sym) (guard (symbol? sym))
      (reference-variable loc sym function-slot))))
 
@@ -786,7 +786,10 @@
                      loc
                      (make-module-ref loc '(guile) 'cons #t)
                      (list (make-const loc 'macro)
-                           (compile-lambda loc args body))))
+                           (compile-lambda loc
+                                           `((name . ,name))
+                                           args
+                                           body))))
                    (make-const loc name)))))
            (compile (ensuring-globals loc bindings-data tree-il)
                     #:from 'tree-il
@@ -803,6 +806,7 @@
                                              name
                                              function-slot
                                              (compile-lambda loc
+                                                             `((name . ,name))
                                                              args
                                                              body))
                               (make-const loc name)))))))
