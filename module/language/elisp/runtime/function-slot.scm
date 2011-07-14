@@ -65,4 +65,5 @@
                quote
                %set-lexical-binding-mode)
   ;; functions
-  #:re-export (apply))
+  #:re-export (apply)
+  #:pure)
