@@ -841,11 +841,7 @@
            (compile-expr (apply macro-function arguments))))
      (else
       (make-application loc
-                        (if (symbol? operator)
-                            (reference-variable loc
-                                                operator
-                                                function-slot)
-                            (compile-expr operator))
+                        (compile-expr `(function ,operator))
                         (map compile-expr arguments))))))
 
 ;;; Compile a symbol expression.  This is a variable reference or maybe

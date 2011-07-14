@@ -379,7 +379,7 @@
     ((lambda (a b c) c) 1 2 3))
 
   (pass-if-equal "optional argument" 3
-    ((function (lambda (a &optional b c) c)) 1 2 3))
+    ((lambda (a &optional b c) c) 1 2 3))
   (pass-if-equal "optional missing" nil-value
     ((lambda (&optional a) a)))
 
