@@ -117,11 +117,25 @@
             #'(lambda () ,bodyform)
             #'(lambda () ,@unwindforms)))
 
-(fset 'eval (@ (language elisp runtime subrs) eval))
-(fset' load (@ (language elisp runtime subrs) load))
-
 (defun throw (tag value)
   (funcall (@ (guile) throw) 'elisp-exception tag value))
+
+(defun eval (form)
+  (funcall (@ (system base compile) compile)
+           form
+           (funcall (@ (guile) symbol->keyword) 'from)
+           'elisp
+           (funcall (@ (guile) symbol->keyword) 'to)
+           'value))
+
+(defun load (file)
+  (funcall (@ (system base compile) compile-file)
+           file
+           (funcall (@ (guile) symbol->keyword) 'from)
+           'elisp
+           (funcall (@ (guile) symbol->keyword) 'to)
+           'value)
+  t)
 
 ;;; Equality predicates
 

@@ -22,9 +22,7 @@
 (define-module (language elisp runtime subrs)
   #:use-module (language elisp runtime)
   #:use-module (system base compile)
-  #:export (apply
-            eval
-            load))
+  #:export (apply))
 
 ;;; Function calls. These must take care of special cases, like using
 ;;; symbols or raw lambda-lists as functions!
@@ -41,12 +39,3 @@
                                         func)))
                     (else func))))
     (prim apply (@ (guile) apply) real-func args)))
-
-;;; Miscellaneous.
-
-(define (eval form)
-  (compile form #:from 'elisp #:to 'value))
-
-(define (load file)
-  (compile-file file #:from 'elisp #:to 'value)
-  #t)
