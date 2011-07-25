@@ -146,7 +146,6 @@ BRAINFUCK_LANG_SOURCES =			\
   language/brainfuck/spec.scm
 
 SCRIPTS_SOURCES =				\
-  scripts/PROGRAM.scm				\
   scripts/autofrisk.scm				\
   scripts/compile.scm				\
   scripts/disassemble.scm			\
@@ -154,6 +153,7 @@ SCRIPTS_SOURCES =				\
   scripts/doc-snarf.scm				\
   scripts/frisk.scm				\
   scripts/generate-autoload.scm			\
+  scripts/help.scm				\
   scripts/lint.scm				\
   scripts/list.scm				\
   scripts/punify.scm				\
@@ -356,6 +356,7 @@ LIB_SOURCES =					\
   texinfo/serialize.scm
 
 WEB_SOURCES =					\
+  web/client.scm				\
   web/http.scm					\
   web/request.scm				\
   web/response.scm				\

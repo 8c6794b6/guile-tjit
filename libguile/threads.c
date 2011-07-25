@@ -692,6 +692,10 @@ on_thread_exit (void *v)
   /* This handler is executed in non-guile mode.  */
   scm_i_thread *t = (scm_i_thread *) v, **tp;
 
+  /* If we were canceled, we were unable to clear `t->guile_mode', so do
+     it here.  */
+  t->guile_mode = 0;
+
   /* If this thread was cancelled while doing a cond wait, it will
      still have a mutex locked, so we unlock it here. */
   if (t->held_mutex)
@@ -829,12 +833,6 @@ scm_init_guile ()
       fprintf (stderr, "Failed to get stack base for current thread.\n");
       exit (EXIT_FAILURE);
     }
-}
-
-SCM_UNUSED static void
-scm_leave_guile_cleanup (void *x)
-{
-  on_thread_exit (SCM_I_CURRENT_THREAD);
 }
 
 struct with_guile_args
@@ -1368,7 +1366,9 @@ fat_mutex_lock (SCM mutex, scm_t_timespec *timeout, SCM owner, int *ret)
 	    {
 	      scm_i_thread *t = SCM_I_THREAD_DATA (new_owner);
 
-	      scm_i_pthread_mutex_unlock (&m->lock);
+	      /* FIXME: The order in which `t->admin_mutex' and
+		 `m->lock' are taken differs from that in
+		 `on_thread_exit', potentially leading to deadlocks.  */
 	      scm_i_pthread_mutex_lock (&t->admin_mutex);
 
 	      /* Only keep a weak reference to MUTEX so that it's not
@@ -1379,7 +1379,6 @@ fat_mutex_lock (SCM mutex, scm_t_timespec *timeout, SCM owner, int *ret)
 	      t->mutexes = scm_weak_car_pair (mutex, t->mutexes);
 
 	      scm_i_pthread_mutex_unlock (&t->admin_mutex);
-	      scm_i_pthread_mutex_lock (&m->lock);
 	    }
 	  *ret = 1;
 	  break;
@@ -1457,6 +1456,9 @@ SCM_DEFINE (scm_lock_mutex_timed, "lock-mutex", 1, 2, 0,
       to_timespec (timeout, &cwaittime);
       waittime = &cwaittime;
     }
+
+  if (!SCM_UNBNDP (owner) && !scm_is_false (owner))
+    SCM_VALIDATE_THREAD (3, owner);
 
   exception = fat_mutex_lock (m, waittime, owner, &ret);
   if (!scm_is_false (exception))

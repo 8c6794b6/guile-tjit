@@ -1,4 +1,4 @@
-;;; List --- List scripts that can be invoked by guild  -*- coding: iso-8859-1 -*-
+;;; Help --- Show help on guild commands
 
 ;;;; 	Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
 ;;;; 
@@ -19,17 +19,19 @@
 
 ;;; Commentary:
 
-;; Usage: list
+;; Usage: help
 ;;
-;; List scripts that can be invoked by guild.
+;; Show help for Guild scripts.
 
 ;;; Code:
 
-(define-module (scripts list)
-  #:export (list-scripts))
+(define-module (scripts help)
+  #:use-module (ice-9 format)
+  #:use-module (ice-9 documentation)
+  #:use-module ((srfi srfi-1) #:select (fold append-map))
+  #:export (main))
 
-(define %include-in-guild-list #f)
-(define %summary "An alias for \"help\".")
+(define %summary "Show a brief help message.")
 
 
 (define (directory-files dir)
@@ -80,11 +82,67 @@
                   %load-path)
       string<?))))
 
-(define (list-scripts . args)
-  (for-each (lambda (x)
-              ;; would be nice to show a summary.
-              (format #t "~A\n" x))
-            (find-submodules '(scripts))))
+(define (list-commands all?)
+  (display "\
+Usage: guild COMMAND [ARGS]
+Run command-line scripts provided by GNU Guile and related programs.
+
+Commands:
+")
+
+  (for-each
+   (lambda (name)
+     (let* ((modname `(scripts ,(string->symbol name)))
+            (mod (resolve-module modname #:ensure #f))
+            (summary (and mod (and=> (module-variable mod '%summary)
+                                     variable-ref))))
+       (if (and mod
+                (or all?
+                    (let ((v (module-variable mod '%include-in-guild-list)))
+                      (if v (variable-ref v) #t))))
+           (if summary
+               (format #t "  ~A ~23t~a\n" name summary)
+               (format #t "  ~A\n" name)))))
+   (find-submodules '(scripts)))
+  (format #t "
+For help on a specific command, try \"guild help COMMAND\".
+
+Report guild bugs to ~a
+GNU Guile home page: <http://www.gnu.org/software/guile/>
+General help using GNU software: <http://www.gnu.org/gethelp/>
+For complete documentation, run: info guile 'Using Guile Tools'
+" %guile-bug-report-address))
+
+(define (module-commentary mod)
+  (file-commentary
+   (%search-load-path (module-filename mod))))
 
 (define (main . args)
-  (apply (@@ (scripts help) main) args))
+  (cond
+   ((null? args)
+    (list-commands #f))
+   ((or (equal? args '("--all")) (equal? args '("-a")))
+    (list-commands #t))
+   ((not (string-prefix? "-" (car args)))
+    ;; help for particular command
+    (let* ((name (car args))
+           (mod (resolve-module `(scripts ,(string->symbol name))
+                                #:ensure #f)))
+      (if mod
+          (let ((commentary (module-commentary mod)))
+            (if commentary
+                (display commentary)
+                (format #t "No documentation found for command \"~a\".\n"
+                        name)))
+          (begin
+            (format #t "No command named \"~a\".\n" name)
+            (exit 1)))))
+   (else
+    (display "Usage: guild help
+       guild help --all
+       guild help COMMAND
+
+Show a help on guild commands.  With --all, show arcane incantations as
+well.  With COMMAND, show more detailed help for a particular command.
+")
+    (exit 1))))

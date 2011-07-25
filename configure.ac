@@ -35,7 +35,8 @@ AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR(GUILE-VERSION)
 
-AM_INIT_AUTOMAKE([gnu no-define -Wall -Wno-override])
+dnl `AM_SUBST_NOTMAKE' was introduced in Automake 1.11.
+AM_INIT_AUTOMAKE([1.11 gnu no-define -Wall -Wno-override dist-xz])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])], [AC_SUBST([AM_DEFAULT_VERBOSITY],1)])
 
 AC_COPYRIGHT(GUILE_CONFIGURE_COPYRIGHT)
@@ -1634,6 +1635,10 @@ dnl `sitedir' goes into libpath.h and the pkg-config file.
 pkgdatadir="$datadir/$PACKAGE_TARNAME"
 sitedir="$pkgdatadir/site/$GUILE_EFFECTIVE_VERSION"
 AC_SUBST([sitedir])
+
+dnl Name of the `guile' program.
+guile_program_name="`echo guile | "$SED" "$program_transform_name"`"
+AC_SUBST([guile_program_name])
 
 # Additional SCM_I_GSC definitions are above.
 AC_SUBST([SCM_I_GSC_GUILE_DEBUG])

@@ -2109,26 +2109,56 @@ SCM_DEFINE (scm_utf32_to_string, "utf32->string",
 
 /* Bytevectors as generalized vectors & arrays.  */
 
+#define COMPLEX_ACCESSOR_PROLOGUE(_type)			\
+  size_t c_len, c_index;					\
+  char *c_bv;							\
+								\
+  SCM_VALIDATE_BYTEVECTOR (1, bv);				\
+  c_index = scm_to_size_t (index);				\
+								\
+  c_len = SCM_BYTEVECTOR_LENGTH (bv);				\
+  c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (bv);			\
+								\
+  if (SCM_UNLIKELY (c_index + 2 * sizeof (_type) - 1 >= c_len))	\
+    scm_out_of_range (FUNC_NAME, index);
+
+/* Template for native access to complex numbers of type TYPE.  */
+#define COMPLEX_NATIVE_REF(_type)					\
+  SCM result;								\
+									\
+  COMPLEX_ACCESSOR_PROLOGUE (_type);					\
+									\
+  {									\
+    _type real, imag;							\
+									\
+    memcpy (&real, &c_bv[c_index], sizeof (_type));			\
+    memcpy (&imag, &c_bv[c_index + sizeof (_type)], sizeof (_type));	\
+									\
+    result = scm_c_make_rectangular (real, imag);			\
+  }									\
+									\
+  return result;
 
 static SCM
-bytevector_ref_c32 (SCM bv, SCM idx)
-{ /* FIXME add some checks */
-  const float *contents = (const float*)SCM_BYTEVECTOR_CONTENTS (bv);
-  size_t i = scm_to_size_t (idx);
-  return scm_c_make_rectangular (contents[i/4], contents[i/4 + 1]);
+bytevector_ref_c32 (SCM bv, SCM index)
+#define FUNC_NAME "bytevector_ref_c32"
+{
+  COMPLEX_NATIVE_REF (float);
 }
+#undef FUNC_NAME
 
 static SCM
-bytevector_ref_c64 (SCM bv, SCM idx)
-{ /* FIXME add some checks */
-  const double *contents = (const double*)SCM_BYTEVECTOR_CONTENTS (bv);
-  size_t i = scm_to_size_t (idx);
-  return scm_c_make_rectangular (contents[i/8], contents[i/8 + 1]);
+bytevector_ref_c64 (SCM bv, SCM index)
+#define FUNC_NAME "bytevector_ref_c64"
+{
+  COMPLEX_NATIVE_REF (double);
 }
+#undef FUNC_NAME
 
 typedef SCM (*scm_t_bytevector_ref_fn)(SCM, SCM);
 
-const scm_t_bytevector_ref_fn bytevector_ref_fns[SCM_ARRAY_ELEMENT_TYPE_LAST + 1] = 
+static const scm_t_bytevector_ref_fn
+bytevector_ref_fns[SCM_ARRAY_ELEMENT_TYPE_LAST + 1] =
 {
   NULL, /* SCM */
   NULL, /* CHAR */
@@ -2160,24 +2190,36 @@ bv_handle_ref (scm_t_array_handle *h, size_t index)
   return ref_fn (h->array, byte_index);
 }
 
-/* FIXME add checks!!! */
-static SCM
-bytevector_set_c32 (SCM bv, SCM idx, SCM val)
-{ float *contents = (float*)SCM_BYTEVECTOR_CONTENTS (bv);
-  size_t i = scm_to_size_t (idx);
-  contents[i/4] = scm_c_real_part (val);
-  contents[i/4 + 1] = scm_c_imag_part (val);
+/* Template for native modification of complex numbers of type TYPE.  */
+#define COMPLEX_NATIVE_SET(_type)					\
+  COMPLEX_ACCESSOR_PROLOGUE (_type);					\
+									\
+  {									\
+    _type real, imag;							\
+    real = scm_c_real_part (value);					\
+    imag = scm_c_imag_part (value);					\
+									\
+    memcpy (&c_bv[c_index], &real, sizeof (_type));			\
+    memcpy (&c_bv[c_index + sizeof (_type)], &imag, sizeof (_type));	\
+  }									\
+									\
   return SCM_UNSPECIFIED;
-}
 
 static SCM
-bytevector_set_c64 (SCM bv, SCM idx, SCM val)
-{ double *contents = (double*)SCM_BYTEVECTOR_CONTENTS (bv);
-  size_t i = scm_to_size_t (idx);
-  contents[i/8] = scm_c_real_part (val);
-  contents[i/8 + 1] = scm_c_imag_part (val);
-  return SCM_UNSPECIFIED;
+bytevector_set_c32 (SCM bv, SCM index, SCM value)
+#define FUNC_NAME "bytevector_set_c32"
+{
+  COMPLEX_NATIVE_SET (float);
 }
+#undef FUNC_NAME
+
+static SCM
+bytevector_set_c64 (SCM bv, SCM index, SCM value)
+#define FUNC_NAME "bytevector_set_c64"
+{
+  COMPLEX_NATIVE_SET (double);
+}
+#undef FUNC_NAME
 
 typedef SCM (*scm_t_bytevector_set_fn)(SCM, SCM, SCM);
 
