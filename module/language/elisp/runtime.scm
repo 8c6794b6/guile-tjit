@@ -34,9 +34,7 @@
             symbol-bound?
             symbol-fbound?
             makunbound!
-            fmakunbound!
-            runtime-error
-            macro-error)
+            fmakunbound!)
   #:export-syntax (defspecial prim))
 
 ;;; This module provides runtime support for the Elisp front-end.
@@ -54,22 +52,6 @@
 (define value-slot-module '(language elisp runtime value-slot))
 
 (define function-slot-module '(language elisp runtime function-slot))
-
-;;; Report an error during macro compilation, that means some special
-;;; compilation (syntax) error; or report a simple runtime-error from a
-;;; built-in function.
-
-(define (macro-error msg . args)
-  (apply error msg args))
-
-(define runtime-error macro-error)
-
-;;; Convert a scheme boolean to Elisp.
-
-(define (elisp-bool b)
-  (if b
-      t-value
-      nil-value))
 
 ;;; Routines for access to elisp dynamically bound symbols.  This is
 ;;; used for runtime access using functions like symbol-value or set,
@@ -178,11 +160,3 @@
              (fluid-set! scheme-name
                          (cons 'special-operator
                                (lambda args body ...)))))))))
-
-;;; Call a guile-primitive that may be rebound for elisp and thus needs
-;;; absolute addressing.
-
-(define-syntax prim
-  (syntax-rules ()
-    ((_ sym args ...)
-     ((@ (guile) sym) args ...))))

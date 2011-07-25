@@ -110,11 +110,6 @@
 (define (report-error loc . args)
   (apply error args))
 
-(define (runtime-error loc msg . args)
-  (make-application loc
-                    (make-primitive-ref loc 'error)
-                    (cons (make-const loc msg) args)))
-
 ;;; Generate code to ensure a global symbol is there for further use of
 ;;; a given symbol.  In general during the compilation, those needed are
 ;;; only tracked with the bindings data structure.  Afterwards, however,
