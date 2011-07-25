@@ -164,8 +164,10 @@ GC_get_suspend_signal (void)
   return _SIGRTMIN + 6;
 #elif defined SIGRTMIN
   return SIGRTMIN + 6;
+#elif defined __GLIBC__
+  return 32+6;
 #else
-#error what suspend signal to use?
+  return SIGUSR1;
 #endif
 }
 #endif /* HAVE_GC_GET_SUSPEND_SIGNAL */
