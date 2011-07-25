@@ -40,6 +40,7 @@
                  (compile-defmacro . defmacro)
                  (#{compile-`}# . #{`}#)
                  (compile-quote . quote)
+                 (compile-%funcall . %funcall)
                  (compile-%set-lexical-binding-mode
                   . %set-lexical-binding-mode)))
   #:duplicates (last)
@@ -63,6 +64,7 @@
                defmacro
                #{`}#
                quote
+               %funcall
                %set-lexical-binding-mode)
   ;; functions
   #:re-export (apply)

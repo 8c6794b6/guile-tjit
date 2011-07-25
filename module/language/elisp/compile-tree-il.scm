@@ -49,6 +49,7 @@
             compile-defun
             #{compile-`}#
             compile-quote
+            compile-%funcall
             compile-%set-lexical-binding-mode))
 
 ;;; Certain common parameters (like the bindings data structure or
@@ -820,6 +821,13 @@
   (pmatch args
     ((,val)
      (make-const loc val))))
+
+(defspecial %funcall (loc args)
+  (pmatch args
+    ((,function . ,arguments)
+     (make-application loc
+                       (compile-expr function)
+                       (map compile-expr arguments)))))
 
 (defspecial %set-lexical-binding-mode (loc args)
   (pmatch args
