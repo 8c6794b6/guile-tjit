@@ -842,9 +842,7 @@
       => (lambda (macro-function)
            (compile-expr (apply macro-function arguments))))
      (else
-      (make-application loc
-                        (compile-expr `(function ,operator))
-                        (map compile-expr arguments))))))
+      (compile-expr `(%funcall (function ,operator) ,@arguments))))))
 
 ;;; Compile a symbol expression.  This is a variable reference or maybe
 ;;; some special value like nil.

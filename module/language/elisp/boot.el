@@ -28,24 +28,20 @@
      (progn ,@body)))
 
 (eval-and-compile
-  (defun funcall (function &rest arguments)
-    (apply function arguments))
-  (defun fset (symbol definition)
-    (funcall (@ (language elisp runtime) set-symbol-function!)
-             symbol
-             definition))
   (defun null (object)
     (if object nil t))
-  (fset 'consp (@ (guile) pair?))
+  (defun consp (object)
+    (%funcall (@ (guile) pair?) object))
   (defun listp (object)
     (if object (consp object) t))
   (defun car (list)
-    (if list (funcall (@ (guile) car) list) nil))
+    (if list (%funcall (@ (guile) car) list) nil))
   (defun cdr (list)
-    (if list (funcall (@ (guile) cdr) list) nil))
-  (fset 'make-symbol (@ (guile) make-symbol))
+    (if list (%funcall (@ (guile) cdr) list) nil))
+  (defun make-symbol (name)
+    (%funcall (@ (guile) make-symbol) name))
   (defun signal (&rest args)
-    (funcall (@ (guile) throw) 'elisp-error args)))
+    (%funcall (@ (guile) throw) 'elisp-error args)))
 
 (defmacro lambda (&rest cdr)
   `#'(lambda ,@cdr))
@@ -117,16 +113,61 @@
             #'(lambda () ,bodyform)
             #'(lambda () ,@unwindforms)))
 
-(defun throw (tag value)
-  (funcall (@ (guile) throw) 'elisp-exception tag value))
+(defun symbolp (object)
+  (%funcall (@ (guile) symbol?) object))
+
+(defun functionp (object)
+  (%funcall (@ (guile) procedure?) object))
+
+(defun symbol-function (symbol)
+  (let ((f (%funcall (@ (language elisp runtime) symbol-function)
+                     symbol)))
+    (if (%funcall (@ (language elisp falias) falias?) f)
+        (%funcall (@ (language elisp falias) falias-object) f)
+      f)))
 
 (defun eval (form)
-  (funcall (@ (system base compile) compile)
-           form
-           (funcall (@ (guile) symbol->keyword) 'from)
-           'elisp
-           (funcall (@ (guile) symbol->keyword) 'to)
-           'value))
+  (%funcall (@ (system base compile) compile)
+            form
+            (%funcall (@ (guile) symbol->keyword) 'from)
+            'elisp
+            (%funcall (@ (guile) symbol->keyword) 'to)
+            'value))
+
+(defun %indirect-function (object)
+  (cond
+   ((functionp object)
+    object)
+   ((symbolp object)                    ;++ cycle detection
+    (%indirect-function (symbol-function object)))
+   ((listp object)
+    (eval `(function ,object)))
+   (t
+    (signal 'invalid-function `(,object)))))
+
+(defun apply (function &rest arguments)
+  (%funcall (@ (guile) apply)
+            (@ (guile) apply)
+            (%indirect-function function)
+            arguments))
+
+(defun funcall (function &rest arguments)
+  (%funcall (@ (guile) apply)
+            (%indirect-function function)
+            arguments))
+
+(defun fset (symbol definition)
+  (funcall (@ (language elisp runtime) set-symbol-function!)
+           symbol
+           (if (functionp definition)
+               definition
+             (funcall (@ (language elisp falias) make-falias)
+                      #'(lambda (&rest args) (apply definition args))
+                      definition)))
+  definition)
+
+(defun throw (tag value)
+  (funcall (@ (guile) throw) 'elisp-exception tag value))
 
 (defun load (file)
   (funcall (@ (system base compile) compile-file)
@@ -156,9 +197,9 @@
 
 ;;; Symbols
 
-(fset 'symbolp (@ (guile) symbol?))
+;;; `symbolp' and `symbol-function' are defined above.
+
 (fset 'symbol-value (@ (language elisp runtime) symbol-value))
-(fset 'symbol-function (@ (language elisp runtime) symbol-function))
 (fset 'set (@ (language elisp runtime) set-symbol-value!))
 (fset 'makunbound (@ (language elisp runtime) makunbound!))
 (fset 'fmakunbound (@ (language elisp runtime) fmakunbound!))

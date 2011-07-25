@@ -132,6 +132,7 @@ ECMASCRIPT_LANG_SOURCES =			\
   language/ecmascript/spec.scm
 
 ELISP_LANG_SOURCES =				\
+  language/elisp/falias.scm			\
   language/elisp/lexer.scm			\
   language/elisp/parser.scm			\
   language/elisp/bindings.scm			\
@@ -139,7 +140,6 @@ ELISP_LANG_SOURCES =				\
   language/elisp/runtime.scm			\
   language/elisp/runtime/function-slot.scm	\
   language/elisp/runtime/value-slot.scm		\
-  language/elisp/runtime/subrs.scm		\
   language/elisp/spec.scm
 
 BRAINFUCK_LANG_SOURCES =			\

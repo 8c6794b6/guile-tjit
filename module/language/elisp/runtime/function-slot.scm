@@ -17,8 +17,6 @@
 ;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
 (define-module (language elisp runtime function-slot)
-  #:use-module ((language elisp runtime subrs)
-                #:select (apply))
   #:use-module ((language elisp compile-tree-il)
                 #:select
                 ((compile-progn . progn)
@@ -66,6 +64,4 @@
                quote
                %funcall
                %set-lexical-binding-mode)
-  ;; functions
-  #:re-export (apply)
   #:pure)
