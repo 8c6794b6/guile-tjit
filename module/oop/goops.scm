@@ -44,9 +44,6 @@
             ;; Methods are implementations of generic functions.
             <method> <accessor-method>
 
-            ;; Macros.
-            <macro>
-
             ;; Applicable objects, either procedures or applicable structs.
             <procedure-class> <applicable>
             <procedure> <primitive-generic>
@@ -76,7 +73,7 @@
             <arbiter> <promise> <thread> <mutex> <condition-variable>
             <regexp> <hook> <bitvector> <random-state> <async>
             <directory> <keyword> <array> <character-set>
-            <dynamic-object> <guardian>
+            <dynamic-object> <guardian> <macro>
 
             ;; Modules.
             <module>
@@ -1751,6 +1748,7 @@
 (define <character-set> (find-subclass <top> '<character-set>))
 (define <dynamic-object> (find-subclass <top> '<dynamic-object>))
 (define <guardian> (find-subclass <applicable> '<guardian>))
+(define <macro> (find-subclass <top> '<macro>))
 
 (define (define-class-subtree class)
   (define! (class-name class) class)
