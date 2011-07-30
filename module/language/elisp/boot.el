@@ -139,8 +139,20 @@
 
 ;;; Equality predicates
 
-(fset 'eq (@ (guile) eq?))
-(fset 'equal (@ (guile) equal?))
+(defun eq (obj1 obj2)
+  (if obj1
+      (funcall (@ (guile) eq?) obj1 obj2)
+    (null obj2)))
+
+(defun eql (obj1 obj2)
+  (if obj1
+      (funcall (@ (guile) eqv?) obj1 obj2)
+    (null obj2)))
+
+(defun equal (obj1 obj2)
+  (if obj1
+      (funcall (@ (guile) equal?) obj1 obj2)
+    (null obj2)))
 
 ;;; Symbols
 
