@@ -1,4 +1,4 @@
-;;; Guile Emacs Lisp
+;;; Guile Emacs Lisp -*- lexical-binding: t -*-
 
 ;;; Copyright (C) 2011 Free Software Foundation, Inc.
 
