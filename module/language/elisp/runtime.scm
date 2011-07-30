@@ -108,12 +108,9 @@
 (define (symbol-fbound? symbol)
   (and
    (module-bound? (resolve-interface function-slot-module) symbol)
-   (let* ((var (module-variable (resolve-module function-slot-module)
-                                symbol)))
-     (and (variable-bound? var)
-          (if (fluid? (variable-ref var))
-              (fluid-bound? (variable-ref var))
-              #t)))))
+   (variable-bound?
+    (module-variable (resolve-module function-slot-module)
+                     symbol))))
 
 (define (makunbound! symbol)
   (if (module-bound? (resolve-interface value-slot-module) symbol)
@@ -126,12 +123,9 @@
 
 (define (fmakunbound! symbol)
   (if (module-bound? (resolve-interface function-slot-module) symbol)
-      (let ((var (module-variable
-                  (resolve-module function-slot-module)
-                  symbol)))
-        (if (and (variable-bound? var) (fluid? (variable-ref var)))
-            (fluid-unset! (variable-ref var))
-            (variable-unset! var))))
+      (variable-unset! (module-variable
+                        (resolve-module function-slot-module)
+                        symbol)))
   symbol)
 
 ;;; Define a predefined macro for use in the function-slot module.
@@ -155,8 +149,5 @@
     (syntax-case x ()
       ((_ name args body ...)
        (with-syntax ((scheme-name (make-id #'name 'compile- #'name)))
-         #'(begin
-             (define scheme-name (make-fluid))
-             (fluid-set! scheme-name
-                         (cons 'special-operator
-                               (lambda args body ...)))))))))
+         #'(define scheme-name
+             (cons 'special-operator (lambda args body ...))))))))

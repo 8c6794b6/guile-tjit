@@ -529,12 +529,11 @@
 
 ;;; Handle macro and special operator bindings.
 
-(define (find-operator sym type)
+(define (find-operator name type)
   (and
-   (symbol? sym)
-   (module-defined? (resolve-interface function-slot) sym)
-   (let* ((op (module-ref (resolve-module function-slot) sym))
-          (op (if (fluid? op) (fluid-ref op) op)))
+   (symbol? name)
+   (module-defined? (resolve-interface function-slot) name)
+   (let ((op (module-ref (resolve-module function-slot) name)))
      (if (and (pair? op) (eq? (car op) type))
          (cdr op)
          #f))))
