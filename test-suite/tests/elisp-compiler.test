@@ -385,8 +385,8 @@
 
   (pass-if-equal "rest argument" '(3 4 5)
     ((lambda (a b &rest c) c) 1 2 3 4 5))
-  (pass-if-equal "rest missing" nil-value
-    ((lambda (a b &rest c) c) 1 2))
+  (pass-if "rest missing"
+    (null ((lambda (a b &rest c) c) 1 2)))
 
   (pass-if-equal "empty lambda" #nil
     ((lambda ()))))

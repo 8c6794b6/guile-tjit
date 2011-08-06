@@ -339,179 +339,98 @@
                                `(,value)
                                (iterate (cdr tail))))))))))
 
-;;; Split the argument list of a lambda expression into required,
-;;; optional and rest arguments and also check it is actually valid.
-;;; Additionally, we create a list of all "local variables" (that is,
-;;; required, optional and rest arguments together) and also this one
-;;; split into those to be bound lexically and dynamically.  Returned is
-;;; as multiple values: required optional rest lexical dynamic
+;;; Partition the argument list of a lambda expression into required,
+;;; optional and rest arguments.
 
-(define (split-lambda-arguments loc args)
-  (let iterate ((tail args)
-                (mode 'required)
-                (required '())
-                (optional '())
-                (lexical '())
-                (dynamic '()))
-    (cond
-     ((null? tail)
-      (let ((final-required (reverse required))
-            (final-optional (reverse optional))
-            (final-lexical (reverse lexical))
-            (final-dynamic (reverse dynamic)))
-        (values final-required
-                final-optional
-                #f
-                final-lexical
-                final-dynamic)))
-     ((and (eq? mode 'required)
-           (eq? (car tail) '&optional))
-      (iterate (cdr tail) 'optional required optional lexical dynamic))
-     ((eq? (car tail) '&rest)
-      (if (or (null? (cdr tail))
-              (not (null? (cddr tail))))
-          (report-error loc "expected exactly one symbol after &rest")
-          (let* ((rest (cadr tail))
-                 (rest-lexical (bind-lexically? rest value-slot))
-                 (final-required (reverse required))
-                 (final-optional (reverse optional))
-                 (final-lexical (reverse (if rest-lexical
-                                             (cons rest lexical)
-                                             lexical)))
-                 (final-dynamic (reverse (if rest-lexical
-                                             dynamic
-                                             (cons rest dynamic)))))
-            (values final-required
-                    final-optional
-                    rest
-                    final-lexical
-                    final-dynamic))))
-     (else
-      (if (not (symbol? (car tail)))
-          (report-error loc
-                        "expected symbol in argument list, got"
-                        (car tail))
-          (let* ((arg (car tail))
-                 (bind-lexical (bind-lexically? arg value-slot))
-                 (new-lexical (if bind-lexical
-                                  (cons arg lexical)
-                                  lexical))
-                 (new-dynamic (if bind-lexical
-                                  dynamic
-                                  (cons arg dynamic))))
-            (case mode
-              ((required) (iterate (cdr tail) mode
-                                   (cons arg required) optional
-                                   new-lexical new-dynamic))
-              ((optional) (iterate (cdr tail) mode
-                                   required (cons arg optional)
-                                   new-lexical new-dynamic))
-              (else
-               (error "invalid mode in split-lambda-arguments"
-                      mode)))))))))
+(define (parse-lambda-list lst)
+  (define (%match lst null optional rest symbol)
+    (pmatch lst
+      (() (null))
+      ((&optional . ,tail) (optional tail))
+      ((&rest . ,tail) (rest tail))
+      ((,arg . ,tail) (guard (symbol? arg)) (symbol arg tail))
+      (else (fail))))
+  (define (return rreq ropt rest)
+    (values #t (reverse rreq) (reverse ropt) rest))
+  (define (fail)
+    (values #f #f #f #f))
+  (define (parse-req lst rreq)
+    (%match lst
+            (lambda () (return rreq '() #f))
+            (lambda (tail) (parse-opt tail rreq '()))
+            (lambda (tail) (parse-rest tail rreq '()))
+            (lambda (arg tail) (parse-req tail (cons arg rreq)))))
+  (define (parse-opt lst rreq ropt)
+    (%match lst
+            (lambda () (return rreq ropt #f))
+            (lambda (tail) (fail))
+            (lambda (tail) (parse-rest tail rreq ropt))
+            (lambda (arg tail) (parse-opt tail rreq (cons arg ropt)))))
+  (define (parse-rest lst rreq ropt)
+    (%match lst
+            (lambda () (fail))
+            (lambda (tail) (fail))
+            (lambda (tail) (fail))
+            (lambda (arg tail) (parse-post-rest tail rreq ropt arg))))
+  (define (parse-post-rest lst rreq ropt rest)
+    (%match lst
+            (lambda () (return rreq ropt rest))
+            (lambda () (fail))
+            (lambda () (fail))
+            (lambda (arg tail) (fail))))
+  (parse-req lst '()))
 
-;;; Compile a lambda expression.  One thing we have to be aware of is
-;;; that lambda arguments are usually dynamically bound, even when a
-;;; lexical binding is intact for a symbol.  For symbols that are marked
-;;; as 'always lexical,' however, we lexically bind here as well, and
-;;; thus we get them out of the let-dynamic call and register a lexical
-;;; binding for them (the lexical target variable is already there,
-;;; namely the real lambda argument from TreeIL).
+(define (make-simple-lambda loc meta req opt init rest vars body)
+  (make-lambda loc
+               meta
+               (make-lambda-case #f req opt rest #f init vars body #f)))
 
 (define (compile-lambda loc meta args body)
-  (if (not (list? args))
-      (report-error loc "expected list for argument-list" args))
-  (receive (required optional rest lexical dynamic)
-           (split-lambda-arguments loc args)
-    (define (process-args args)
-      (define (find-pairs pairs filter)
-        (lset-intersection (lambda (name+sym x)
-                             (eq? (car name+sym) x))
-                           pairs
-                           filter))
-      (let* ((syms (map (lambda (x) (gensym)) args))
-             (pairs (map cons args syms))
-             (lexical-pairs (find-pairs pairs lexical))
-             (dynamic-pairs (find-pairs pairs dynamic)))
-        (values syms pairs lexical-pairs dynamic-pairs)))
-    (let*-values (((required-syms
-                    required-pairs
-                    required-lex-pairs
-                    required-dyn-pairs)
-                   (process-args required))
-                  ((optional-syms
-                    optional-pairs
-                    optional-lex-pairs
-                    optional-dyn-pairs)
-                   (process-args optional))
-                  ((rest-syms rest-pairs rest-lex-pairs rest-dyn-pairs)
-                   (process-args (if rest (list rest) '())))
-                  ((the-rest-sym) (if rest (car rest-syms) #f))
-                  ((all-syms) (append required-syms
-                                      optional-syms
-                                      rest-syms))
-                  ((all-lex-pairs) (append required-lex-pairs
-                                           optional-lex-pairs
-                                           rest-lex-pairs))
-                  ((all-dyn-pairs) (append required-dyn-pairs
-                                           optional-dyn-pairs
-                                           rest-dyn-pairs)))
-      (for-each (lambda (sym)
-                  (mark-global! (fluid-ref bindings-data)
-                                sym
-                                value-slot))
-                dynamic)
-      (with-dynamic-bindings
-       (fluid-ref bindings-data)
-       dynamic
-       (lambda ()
-         (with-lexical-bindings
-          (fluid-ref bindings-data)
-          (map car all-lex-pairs)
-          (map cdr all-lex-pairs)
-          (lambda ()
-            (make-lambda
-             loc
-             meta
-             (make-lambda-case
-              #f
-              required
-              optional
-              rest
-              #f
-              (map (lambda (x) (nil-value loc)) optional)
-              all-syms
-              (let ((compiled-body (compile-expr `(progn ,@body))))
-                (make-sequence
-                 loc
-                 (list
-                  (if rest
-                      (make-conditional
-                       loc
-                       (call-primitive loc
-                                       'null?
-                                       (make-lexical-ref loc
-                                                         rest
-                                                         the-rest-sym))
-                       (make-lexical-set loc
-                                         rest
-                                         the-rest-sym
-                                         (nil-value loc))
-                       (make-void loc))
-                      (make-void loc))
-                  (if (null? dynamic)
-                      compiled-body
-                      (let-dynamic loc
-                                   dynamic
-                                   value-slot
-                                   (map (lambda (name-sym)
-                                          (make-lexical-ref
-                                           loc
-                                           (car name-sym)
-                                           (cdr name-sym)))
-                                        all-dyn-pairs)
-                                   compiled-body)))))
-              #f)))))))))
+  (receive (valid? req-ids opt-ids rest-id)
+           (parse-lambda-list args)
+    (if valid?
+        (let* ((all-ids (append req-ids
+                                opt-ids
+                                (or (and=> rest-id list) '())))
+               (all-vars (map (lambda (ignore) (gensym)) all-ids)))
+          (receive (lexical dynamic)
+                   (partition (compose (cut bind-lexically? <> value-slot) car)
+                              (map list all-ids all-vars))
+            (receive (lexical-ids lexical-vars) (unzip2 lexical)
+              (receive (dynamic-ids dynamic-vars) (unzip2 dynamic)
+                (with-dynamic-bindings
+                 (fluid-ref bindings-data)
+                 dynamic-ids
+                 (lambda ()
+                   (with-lexical-bindings
+                    (fluid-ref bindings-data)
+                    lexical-ids
+                    lexical-vars
+                    (lambda ()
+                     (let* ((tree-il (compile-expr `(progn ,@body)))
+                            (full-body
+                             (if (null? dynamic)
+                                 tree-il
+                                 (let-dynamic loc
+                                              dynamic-ids
+                                              value-slot
+                                              (map (cut make-lexical-ref
+                                                        loc
+                                                        <>
+                                                        <>)
+                                                   dynamic-ids
+                                                   dynamic-vars)
+                                              tree-il))))
+                       (make-simple-lambda loc
+                                           meta
+                                           req-ids
+                                           opt-ids
+                                           (map (const (nil-value loc))
+                                                opt-ids)
+                                           rest-id
+                                           all-vars
+                                           full-body))))))))))
+        (report-error "invalid function" `(lambda ,args ,@body)))))
 
 ;;; Handle the common part of defconst and defvar, that is, checking for
 ;;; a correct doc string and arguments as well as maybe in the future
