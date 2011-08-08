@@ -90,6 +90,14 @@
                     ,temp
                   (or ,@(cdr conditions))))))))
 
+(defmacro while (test &rest body)
+  (let ((loop (make-symbol "loop")))
+    `(labels ((,loop ()
+                 (if ,test
+                     (progn ,@body (,loop))
+                   nil)))
+       (,loop))))
+
 (defmacro catch (tag &rest body)
   (let* ((temp (make-symbol "catch-temp"))
          (elisp-key (make-symbol "catch-elisp-key"))

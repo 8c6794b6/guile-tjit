@@ -33,7 +33,6 @@
                  (compile-lexical-let* . lexical-let*)
                  (compile-guile-ref . guile-ref)
                  (compile-guile-primitive . guile-primitive)
-                 (compile-while . while)
                  (compile-function . function)
                  (compile-defun . defun)
                  (compile-defmacro . defmacro)
@@ -58,7 +57,6 @@
                lexical-let*
                guile-ref
                guile-primitive
-               while
                function
                defun
                defmacro

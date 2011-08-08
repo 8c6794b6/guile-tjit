@@ -44,7 +44,6 @@
             compile-lexical-let*
             compile-guile-ref
             compile-guile-primitive
-            compile-while
             compile-function
             compile-defmacro
             compile-defun
@@ -691,53 +690,6 @@
   (pmatch args
     ((,sym)
      (make-primitive-ref loc sym))))
-
-;;; A while construct is transformed into a tail-recursive loop like
-;;; this:
-;;;
-;;; (letrec ((iterate (lambda ()
-;;;                     (if condition
-;;;                       (begin body
-;;;                              (iterate))
-;;;                       #nil))))
-;;;   (iterate))
-;;;
-;;; As letrec is not directly accessible from elisp, while is
-;;; implemented here instead of with a macro.
-
-(defspecial while (loc args)
-  (pmatch args
-    ((,condition . ,body)
-     (let* ((itersym (gensym))
-            (compiled-body (map compile-expr body))
-            (iter-call (make-application loc
-                                         (make-lexical-ref loc
-                                                           'iterate
-                                                           itersym)
-                                         (list)))
-            (full-body (make-sequence loc
-                                      `(,@compiled-body ,iter-call)))
-            (lambda-body (make-conditional loc
-                                           (compile-expr condition)
-                                           full-body
-                                           (nil-value loc)))
-            (iter-thunk (make-lambda loc
-                                     '()
-                                     (make-lambda-case #f
-                                                       '()
-                                                       #f
-                                                       #f
-                                                       #f
-                                                       '()
-                                                       '()
-                                                       lambda-body
-                                                       #f))))
-       (make-letrec loc
-                    #f
-                    '(iterate)
-                    (list itersym)
-                    (list iter-thunk)
-                    iter-call)))))
 
 (defspecial function (loc args)
   (pmatch args
