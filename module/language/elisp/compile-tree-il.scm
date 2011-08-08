@@ -39,6 +39,7 @@
             compile-let
             compile-lexical-let
             compile-flet
+            compile-labels
             compile-let*
             compile-lexical-let*
             compile-guile-ref
@@ -636,6 +637,26 @@
                    function-slot
                    (map (cut parse-flet-binding loc <>) bindings)
                    body))))
+
+(defspecial labels (loc args)
+  (pmatch args
+    ((,bindings . ,body)
+     (let ((names+vals (map (cut parse-flet-binding loc <>) bindings)))
+       (receive (decls forms) (parse-body body)
+         (let ((names (map car names+vals))
+               (vals (map cdr names+vals))
+               (gensyms (map (lambda (x) (gensym)) names+vals)))
+           (with-lexical-bindings
+            (fluid-ref bindings-data)
+            names
+            gensyms
+            (lambda ()
+              (make-letrec #f
+                           loc
+                           names
+                           gensyms
+                           (map compile-expr vals)
+                           (compile-expr `(progn ,@forms)))))))))))
 
 (defspecial let* (loc args)
   (pmatch args

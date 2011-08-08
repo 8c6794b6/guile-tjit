@@ -28,6 +28,7 @@
                  (compile-let . let)
                  (compile-lexical-let . lexical-let)
                  (compile-flet . flet)
+                 (compile-labels . labels)
                  (compile-let* . let*)
                  (compile-lexical-let* . lexical-let*)
                  (compile-guile-ref . guile-ref)
@@ -52,6 +53,7 @@
                let
                lexical-let
                flet
+               labels
                let*
                lexical-let*
                guile-ref
