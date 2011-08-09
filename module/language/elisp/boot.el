@@ -48,7 +48,8 @@
 
 (defmacro prog1 (first &rest body)
   (let ((temp (make-symbol "prog1-temp")))
-    `(lexical-let ((,temp ,first))
+    `(let ((,temp ,first))
+       (declare (lexical ,temp))
        ,@body
        ,temp)))
 
@@ -65,7 +66,8 @@
                (body (cdr first)))
            (if (null body)
                (let ((temp (make-symbol "cond-temp")))
-                 `(lexical-let ((,temp ,condition))
+                 `(let ((,temp ,condition))
+                    (declare (lexical ,temp))
                     (if ,temp
                         ,temp
                       (cond ,@rest))))
@@ -85,7 +87,8 @@
   (cond ((null conditions) nil)
         ((null (cdr conditions)) (car conditions))
         (t (let ((temp (make-symbol "or-temp")))
-             `(lexical-let ((,temp ,(car conditions)))
+             `(let ((,temp ,(car conditions)))
+                (declare (lexical ,temp))
                 (if ,temp
                     ,temp
                   (or ,@(cdr conditions))))))))
@@ -103,7 +106,8 @@
          (elisp-key (make-symbol "catch-elisp-key"))
          (key (make-symbol "catch-key"))
          (value (make-symbol "catch-value")))
-    `(lexical-let ((,temp ,tag))
+    `(let ((,temp ,tag))
+       (declare (lexical ,temp))
        (funcall (@ (guile) catch)
                 'elisp-exception
                 #'(lambda () ,@body)
@@ -364,7 +368,7 @@
   (car (%plist-member plist property test)))
 
 (defun %plist-put (plist property value test)
-  (lexical-let ((x (%plist-member plist property test)))
+  (let ((x (%plist-member plist property test)))
     (if x
         (progn (setcar x value) plist)
       (cons property (cons value plist)))))
