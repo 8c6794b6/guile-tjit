@@ -128,25 +128,6 @@
                       (generate-ensure-global loc sym mod)))
      ,body)))
 
-;;; Build a construct that establishes dynamic bindings for certain
-;;; variables.  We may want to choose between binding with fluids and
-;;; with-fluids* and using just ordinary module symbols and
-;;; setting/reverting their values with a dynamic-wind.
-
-(define (let-dynamic loc syms module vals body)
-  (call-primitive
-   loc
-   'with-fluids*
-   (make-application loc
-                     (make-primitive-ref loc 'list)
-                     (map (lambda (sym)
-                            (make-module-ref loc module sym #t))
-                          syms))
-   (make-application loc (make-primitive-ref loc 'list) vals)
-   (make-lambda loc
-                '()
-                (make-lambda-case #f '() #f #f #f '() '() body #f))))
-
 ;;; Handle access to a variable (reference/setting) correctly depending
 ;;; on whether it is currently lexically or dynamically bound.  lexical
 ;;; access is done only for references to the value-slot module!
@@ -344,16 +325,14 @@
                          (full-body
                           (if (null? dynamic)
                               tree-il
-                              (let-dynamic loc
-                                           dynamic-ids
-                                           value-slot
-                                           (map (cut make-lexical-ref
-                                                     loc
-                                                     <>
-                                                     <>)
-                                                dynamic-ids
-                                                dynamic-vars)
-                                           tree-il))))
+                              (make-dynlet
+                               loc
+                               (map (cut make-module-ref loc value-slot <> #t)
+                                    dynamic-ids)
+                               (map (cut make-lexical-ref loc <> <>)
+                                    dynamic-ids
+                                    dynamic-vars)
+                               tree-il))))
                     (make-simple-lambda loc
                                         meta
                                         req-ids
@@ -539,8 +518,17 @@
                                      for)))
                  (make-body (lambda () (compile-expr `(progn ,@forms)))))
              (if (null? lexical)
-                 (let-dynamic loc (map car dynamic) value-slot
-                              (make-values dynamic) (make-body))
+                 (make-dynlet loc
+                              (map (compose (cut make-module-ref
+                                                 loc
+                                                 value-slot
+                                                 <>
+                                                 #t)
+                                            car)
+                                   dynamic)
+                              (map (compose compile-expr cdr)
+                                   dynamic)
+                              (make-body))
                  (let* ((lexical-syms (map (lambda (el) (gensym)) lexical))
                         (dynamic-syms (map (lambda (el) (gensym)) dynamic))
                         (all-syms (append lexical-syms dynamic-syms))
@@ -557,14 +545,22 @@
                               (lambda ()
                                 (if (null? dynamic)
                                     (make-body)
-                                    (let-dynamic loc
-                                                 (map car dynamic)
-                                                 value-slot
+                                    (make-dynlet loc
+                                                 (map
+                                                  (compose
+                                                   (cut make-module-ref
+                                                        loc
+                                                        value-slot
+                                                        <>
+                                                        #t)
+                                                   car)
+                                                  dynamic)
                                                  (map
                                                   (lambda (sym)
-                                                    (make-lexical-ref loc
-                                                                      sym
-                                                                      sym))
+                                                    (make-lexical-ref
+                                                     loc
+                                                     sym
+                                                     sym))
                                                   dynamic-syms)
                                                  (make-body)))))))))))))))
 
@@ -595,10 +591,9 @@
                                   `(,sym)
                                   `(,target)
                                   (lambda () (iterate (cdr tail))))))
-                     (let-dynamic loc
-                                  `(,(caar tail))
-                                  value-slot
-                                  `(,value)
+                     (make-dynlet loc
+                                  (list (make-module-ref loc value-slot sym #t))
+                                  (list value)
                                   (iterate (cdr tail))))))))))))
 
 (defspecial flet (loc args)
