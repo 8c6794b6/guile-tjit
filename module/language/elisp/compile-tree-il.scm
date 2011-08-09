@@ -268,9 +268,6 @@
   (receive (decls intspec doc body) (parse-body-1 body #f)
     (values decls body)))
 
-;;; Compile let and let* expressions.  The code here is used both for
-;;; let/let* and flet, just with a different bindings module.
-
 ;;; Let is done with a single call to let-dynamic binding them locally
 ;;; to new values all "at once".  If there is at least one variable to
 ;;; bind lexically among the bindings, we first do a let for all of them
@@ -617,10 +614,21 @@
 (defspecial flet (loc args)
   (pmatch args
     ((,bindings . ,body)
-     (generate-let loc
-                   function-slot
-                   (map (cut parse-flet-binding loc <>) bindings)
-                   body))))
+     (let ((names+vals (map (cut parse-flet-binding loc <>) bindings)))
+       (receive (decls forms) (parse-body body)
+         (let ((names (map car names+vals))
+               (vals (map cdr names+vals))
+               (gensyms (map (lambda (x) (gensym)) names+vals)))
+           (with-lexical-bindings
+            (fluid-ref bindings-data)
+            names
+            gensyms
+            (lambda ()
+              (make-let loc
+                        names
+                        gensyms
+                        (map compile-expr vals)
+                        (compile-expr `(progn ,@forms)))))))))))
 
 (defspecial labels (loc args)
   (pmatch args
