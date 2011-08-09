@@ -26,11 +26,9 @@
                  (compile-defvar . defvar)
                  (compile-setq . setq)
                  (compile-let . let)
-                 (compile-lexical-let . lexical-let)
                  (compile-flet . flet)
                  (compile-labels . labels)
                  (compile-let* . let*)
-                 (compile-lexical-let* . lexical-let*)
                  (compile-guile-ref . guile-ref)
                  (compile-guile-primitive . guile-primitive)
                  (compile-function . function)
@@ -50,11 +48,9 @@
                defvar
                setq
                let
-               lexical-let
                flet
                labels
                let*
-               lexical-let*
                guile-ref
                guile-primitive
                function

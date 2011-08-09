@@ -93,6 +93,30 @@
                     ,temp
                   (or ,@(cdr conditions))))))))
 
+(defmacro lexical-let (bindings &rest body)
+  (labels ((loop (list vars)
+             (if (null list)
+                 `(let ,bindings
+                    (declare (lexical ,@vars))
+                    ,@body)
+               (loop (cdr list)
+                     (if (consp (car list))
+                         `(,(car (car list)) ,@vars)
+                       `(,(car list) ,@vars))))))
+    (loop bindings '())))
+
+(defmacro lexical-let* (bindings &rest body)
+  (labels ((loop (list vars)
+             (if (null list)
+                 `(let* ,bindings
+                    (declare (lexical ,@vars))
+                    ,@body)
+               (loop (cdr list)
+                     (if (consp (car list))
+                         (cons (car (car list)) vars)
+                       (cons (car list) vars))))))
+    (loop bindings '())))
+
 (defmacro while (test &rest body)
   (let ((loop (make-symbol "loop")))
     `(labels ((,loop ()

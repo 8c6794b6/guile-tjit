@@ -37,11 +37,9 @@
             compile-defvar
             compile-setq
             compile-let
-            compile-lexical-let
             compile-flet
             compile-labels
             compile-let*
-            compile-lexical-let*
             compile-guile-ref
             compile-guile-primitive
             compile-function
@@ -205,8 +203,7 @@
                      value))))
 
 (define (bind-lexically? sym module decls)
-  (or (eq? module 'lexical)
-      (eq? module function-slot)
+  (or (eq? module function-slot)
       (let ((decl (assq-ref decls sym)))
         (and (equal? module value-slot)
              (or
@@ -273,10 +270,6 @@
 
 ;;; Compile let and let* expressions.  The code here is used both for
 ;;; let/let* and flet, just with a different bindings module.
-;;;
-;;; A special module value 'lexical means that we're doing a lexical-let
-;;; instead and the bindings should not be saved to globals at all but
-;;; be done with the lexical framework instead.
 
 ;;; Let is done with a single call to let-dynamic binding them locally
 ;;; to new values all "at once".  If there is at least one variable to
@@ -621,14 +614,6 @@
                    (map (cut parse-let-binding loc <>) bindings)
                    body))))
 
-(defspecial lexical-let (loc args)
-  (pmatch args
-    ((,bindings . ,body)
-     (generate-let loc
-                   'lexical
-                   (map (cut parse-let-binding loc <>) bindings)
-                   body))))
-
 (defspecial flet (loc args)
   (pmatch args
     ((,bindings . ,body)
@@ -662,14 +647,6 @@
     ((,bindings . ,body)
      (generate-let* loc
                     value-slot
-                    (map (cut parse-let-binding loc <>) bindings)
-                    body))))
-
-(defspecial lexical-let* (loc args)
-  (pmatch args
-    ((,bindings . ,body)
-     (generate-let* loc
-                    'lexical
                     (map (cut parse-let-binding loc <>) bindings)
                     body))))
 
