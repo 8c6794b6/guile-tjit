@@ -268,90 +268,6 @@
   (receive (decls intspec doc body) (parse-body-1 body #f)
     (values decls body)))
 
-;;; Let is done with a single call to let-dynamic binding them locally
-;;; to new values all "at once".  If there is at least one variable to
-;;; bind lexically among the bindings, we first do a let for all of them
-;;; to evaluate all values before any bindings take place, and then call
-;;; let-dynamic for the variables to bind dynamically.
-
-(define (generate-let loc module bindings body)
-  (receive (decls forms) (parse-body body)
-    (receive (lexical dynamic)
-             (partition (compose (cut bind-lexically? <> module decls)
-                                 car)
-                        bindings)
-      (for-each (lambda (sym)
-                  (mark-global! (fluid-ref bindings-data)
-                                sym
-                                module))
-                (map car dynamic))
-      (let ((make-values (lambda (for)
-                           (map (lambda (el) (compile-expr (cdr el)))
-                                for)))
-            (make-body (lambda () (compile-expr `(progn ,@forms)))))
-        (if (null? lexical)
-            (let-dynamic loc (map car dynamic) module
-                         (make-values dynamic) (make-body))
-            (let* ((lexical-syms (map (lambda (el) (gensym)) lexical))
-                   (dynamic-syms (map (lambda (el) (gensym)) dynamic))
-                   (all-syms (append lexical-syms dynamic-syms))
-                   (vals (append (make-values lexical)
-                                 (make-values dynamic))))
-              (make-let loc
-                        all-syms
-                        all-syms
-                        vals
-                        (with-lexical-bindings
-                         (fluid-ref bindings-data)
-                         (map car lexical) lexical-syms
-                         (lambda ()
-                           (if (null? dynamic)
-                               (make-body)
-                               (let-dynamic loc
-                                            (map car dynamic)
-                                            module
-                                            (map
-                                             (lambda (sym)
-                                               (make-lexical-ref loc
-                                                                 sym
-                                                                 sym))
-                                             dynamic-syms)
-                                            (make-body))))))))))))
-
-;;; Let* is compiled to a cascaded set of "small lets" for each binding
-;;; in turn so that each one already sees the preceding bindings.
-
-(define (generate-let* loc module bindings body)
-  (receive (decls forms) (parse-body body)
-    (begin
-      (for-each (lambda (sym)
-                  (if (not (bind-lexically? sym module decls))
-                      (mark-global! (fluid-ref bindings-data)
-                                    sym
-                                    module)))
-                (map car bindings))
-      (let iterate ((tail bindings))
-        (if (null? tail)
-            (compile-expr `(progn ,@forms))
-            (let ((sym (caar tail))
-                  (value (compile-expr (cdar tail))))
-              (if (bind-lexically? sym module decls)
-                  (let ((target (gensym)))
-                    (make-let loc
-                              `(,target)
-                              `(,target)
-                              `(,value)
-                              (with-lexical-bindings
-                               (fluid-ref bindings-data)
-                               `(,sym)
-                               `(,target)
-                               (lambda () (iterate (cdr tail))))))
-                  (let-dynamic loc
-                               `(,(caar tail))
-                               module
-                               `(,value)
-                               (iterate (cdr tail))))))))))
-
 ;;; Partition the argument list of a lambda expression into required,
 ;;; optional and rest arguments.
 
@@ -605,11 +521,85 @@
   
 (defspecial let (loc args)
   (pmatch args
-    ((,bindings . ,body)
-     (generate-let loc
-                   value-slot
-                   (map (cut parse-let-binding loc <>) bindings)
-                   body))))
+    ((,varlist . ,body)
+     (let ((bindings (map (cut parse-let-binding loc <>) varlist)))
+       (receive (decls forms) (parse-body body)
+         (receive (lexical dynamic)
+                  (partition
+                   (compose (cut bind-lexically? <> value-slot decls)
+                            car)
+                   bindings)
+           (for-each (lambda (sym)
+                       (mark-global! (fluid-ref bindings-data)
+                                     sym
+                                     value-slot))
+                     (map car dynamic))
+           (let ((make-values (lambda (for)
+                                (map (lambda (el) (compile-expr (cdr el)))
+                                     for)))
+                 (make-body (lambda () (compile-expr `(progn ,@forms)))))
+             (if (null? lexical)
+                 (let-dynamic loc (map car dynamic) value-slot
+                              (make-values dynamic) (make-body))
+                 (let* ((lexical-syms (map (lambda (el) (gensym)) lexical))
+                        (dynamic-syms (map (lambda (el) (gensym)) dynamic))
+                        (all-syms (append lexical-syms dynamic-syms))
+                        (vals (append (make-values lexical)
+                                      (make-values dynamic))))
+                   (make-let loc
+                             all-syms
+                             all-syms
+                             vals
+                             (with-lexical-bindings
+                              (fluid-ref bindings-data)
+                              (map car lexical)
+                              lexical-syms
+                              (lambda ()
+                                (if (null? dynamic)
+                                    (make-body)
+                                    (let-dynamic loc
+                                                 (map car dynamic)
+                                                 value-slot
+                                                 (map
+                                                  (lambda (sym)
+                                                    (make-lexical-ref loc
+                                                                      sym
+                                                                      sym))
+                                                  dynamic-syms)
+                                                 (make-body)))))))))))))))
+
+(defspecial let* (loc args)
+  (pmatch args
+    ((,varlist . ,body)
+     (let ((bindings (map (cut parse-let-binding loc <>) varlist)))
+       (receive (decls forms) (parse-body body)
+         (for-each (lambda (sym)
+                     (if (not (bind-lexically? sym value-slot decls))
+                         (mark-global! (fluid-ref bindings-data)
+                                       sym
+                                       value-slot)))
+                   (map car bindings))
+         (let iterate ((tail bindings))
+           (if (null? tail)
+               (compile-expr `(progn ,@forms))
+               (let ((sym (caar tail))
+                     (value (compile-expr (cdar tail))))
+                 (if (bind-lexically? sym value-slot decls)
+                     (let ((target (gensym)))
+                       (make-let loc
+                                 `(,target)
+                                 `(,target)
+                                 `(,value)
+                                 (with-lexical-bindings
+                                  (fluid-ref bindings-data)
+                                  `(,sym)
+                                  `(,target)
+                                  (lambda () (iterate (cdr tail))))))
+                     (let-dynamic loc
+                                  `(,(caar tail))
+                                  value-slot
+                                  `(,value)
+                                  (iterate (cdr tail))))))))))))
 
 (defspecial flet (loc args)
   (pmatch args
@@ -649,14 +639,6 @@
                            gensyms
                            (map compile-expr vals)
                            (compile-expr `(progn ,@forms)))))))))))
-
-(defspecial let* (loc args)
-  (pmatch args
-    ((,bindings . ,body)
-     (generate-let* loc
-                    value-slot
-                    (map (cut parse-let-binding loc <>) bindings)
-                    body))))
 
 ;;; guile-ref allows building TreeIL's module references from within
 ;;; elisp as a way to access data within the Guile universe.  The module
