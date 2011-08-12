@@ -40,8 +40,8 @@
     (if list (%funcall (@ (guile) cdr) list) nil))
   (defun make-symbol (name)
     (%funcall (@ (guile) make-symbol) name))
-  (defun signal (&rest args)
-    (%funcall (@ (guile) throw) 'elisp-error args)))
+  (defun signal (error-symbol data)
+    (%funcall (@ (guile) throw) 'elisp-condition error-symbol data)))
 
 (defmacro lambda (&rest cdr)
   `#'(lambda ,@cdr))
@@ -443,3 +443,28 @@
 
 (defun put (symbol propname value)
   (setplist symbol (plist-put (symbol-plist symbol) propname value)))
+
+;;; Nonlocal exits
+
+(defmacro condition-case (var bodyform &rest handlers)
+  (let ((key (make-symbol "key"))
+        (error-symbol (make-symbol "error-symbol"))
+        (data (make-symbol "data"))
+        (conditions (make-symbol "conditions")))
+    (flet ((handler->cond-clause (handler)
+             `((or ,@(mapcar #'(lambda (c) `(memq ',c ,conditions))
+                             (if (consp (car handler))
+                                 (car handler)
+                               (list (car handler)))))
+               ,@(cdr handler))))
+      `(funcall (@ (guile) catch)
+                'elisp-condition
+                #'(lambda () ,bodyform)
+                #'(lambda (,key ,error-symbol ,data)
+                    (let ((,conditions
+                           (get ,error-symbol 'error-conditions))
+                          ,@(if var
+                                `((,var (cons ,error-symbol ,data)))
+                              '()))
+                      (cond ,@(mapcar #'handler->cond-clause handlers)
+                            (t (signal ,error-symbol ,data)))))))))
