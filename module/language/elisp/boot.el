@@ -125,24 +125,6 @@
                    nil)))
        (,loop))))
 
-(defmacro catch (tag &rest body)
-  (let* ((temp (make-symbol "catch-temp"))
-         (elisp-key (make-symbol "catch-elisp-key"))
-         (key (make-symbol "catch-key"))
-         (value (make-symbol "catch-value")))
-    `(let ((,temp ,tag))
-       (declare (lexical ,temp))
-       (funcall (@ (guile) catch)
-                'elisp-exception
-                #'(lambda () ,@body)
-                #'(lambda (,key ,elisp-key ,value)
-                    (if (eq ,elisp-key ,temp)
-                        ,value
-                      (funcall (@ (guile) throw)
-                               ,key
-                               ,elisp-key
-                               ,value)))))))
-
 (defmacro unwind-protect (bodyform &rest unwindforms)
   `(funcall (@ (guile) dynamic-wind)
             #'(lambda () nil)
@@ -201,9 +183,6 @@
                       #'(lambda (&rest args) (apply definition args))
                       definition)))
   definition)
-
-(defun throw (tag value)
-  (funcall (@ (guile) throw) 'elisp-exception tag value))
 
 (defun load (file)
   (funcall (@ (system base compile) compile-file)
@@ -475,4 +454,20 @@
 (put 'wrong-type-argument 'error-conditions '(wrong-type-argument error))
 (put 'invalid-function 'error-conditions '(invalid-function error))
 (put 'no-catch 'error-conditions '(no-catch error))
+(put 'throw 'error-conditions '(throw))
 
+(defmacro catch (tag &rest body)
+  (let ((tag-value (make-symbol "tag-value"))
+        (c (make-symbol "c"))
+        (data (make-symbol "data")))
+    `(let ((,tag-value ,tag))
+       (condition-case ,c
+           (progn ,@body)
+         (throw
+          (let ((,data (cdr ,c)))
+            (if (eq (car ,data) ,tag-value)
+                (car (cdr ,data))
+              (signal 'throw ,data))))))))
+
+(defun throw (tag value)
+  (signal 'throw (list tag value)))
