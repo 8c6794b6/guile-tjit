@@ -456,18 +456,21 @@
 (put 'no-catch 'error-conditions '(no-catch error))
 (put 'throw 'error-conditions '(throw))
 
+(defvar %catch nil)
+
 (defmacro catch (tag &rest body)
   (let ((tag-value (make-symbol "tag-value"))
         (c (make-symbol "c"))
         (data (make-symbol "data")))
     `(let ((,tag-value ,tag))
        (condition-case ,c
-           (progn ,@body)
+           (let ((%catch t))
+             ,@body)
          (throw
           (let ((,data (cdr ,c)))
             (if (eq (car ,data) ,tag-value)
                 (car (cdr ,data))
-              (signal 'throw ,data))))))))
+              (apply #'throw ,data))))))))
 
 (defun throw (tag value)
-  (signal 'throw (list tag value)))
+  (signal (if %catch 'throw 'no-catch) (list tag value)))
