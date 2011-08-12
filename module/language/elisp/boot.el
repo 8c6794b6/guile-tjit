@@ -470,3 +470,9 @@
                               '()))
                       (cond ,@(mapcar #'handler->cond-clause handlers)
                             (t (signal ,error-symbol ,data)))))))))
+
+(put 'error 'error-conditions '(error))
+(put 'wrong-type-argument 'error-conditions '(wrong-type-argument error))
+(put 'invalid-function 'error-conditions '(invalid-function error))
+(put 'no-catch 'error-conditions '(no-catch error))
+
