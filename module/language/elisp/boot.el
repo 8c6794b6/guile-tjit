@@ -400,11 +400,13 @@
 ;;; Property lists
 
 (defun %plist-member (plist property test)
-  (catch 'loop
-    (while plist
-      (if (funcall test (car plist) property)
-          (throw 'loop (cdr plist))
-        (setq plist (cddr plist))))))
+  (cond
+   ((null plist) nil)
+   ((consp plist)
+    (if (funcall test (car plist) property)
+        (cdr plist)
+      (%plist-member (cdr (cdr plist)) property test)))
+   (t (signal 'wrong-type-argument `(listp ,plist)))))
 
 (defun %plist-get (plist property test)
   (car (%plist-member plist property test)))
