@@ -366,6 +366,24 @@
 (defun nth (n list)
   (car (nthcdr n list)))
 
+(defun %member (elt list test)
+  (cond
+   ((null list) nil)
+   ((consp list)
+    (if (funcall test elt (car list))
+        list
+      (%member elt (cdr list) test)))
+   (t (signal 'wrong-type-argument `(listp ,list)))))
+
+(defun member (elt list)
+  (%member elt list #'equal))
+
+(defun memql (elt list)
+  (%member elt list #'eql))
+
+(defun memq (elt list)
+  (%member elt list #'eq))
+
 ;;; Strings
 
 (defun string (&rest characters)
