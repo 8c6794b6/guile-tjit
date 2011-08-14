@@ -479,3 +479,17 @@
 
 (defun throw (tag value)
   (signal (if %catch 'throw 'no-catch) (list tag value)))
+
+;;; I/O
+
+(defun princ (object)
+  (funcall (@ (guile) display) object))
+
+(defun print (object)
+  (funcall (@ (guile) write) object))
+
+(defun terpri ()
+  (funcall (@ (guile) newline)))
+
+(defun format* (stream string &rest args)
+  (apply (@ (guile) format) stream string args))
