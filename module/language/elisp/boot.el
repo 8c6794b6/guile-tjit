@@ -442,11 +442,14 @@
                 'elisp-condition
                 #'(lambda () ,bodyform)
                 #'(lambda (,key ,error-symbol ,data)
+                    (declare (lexical ,key ,error-symbol ,data))
                     (let ((,conditions
                            (get ,error-symbol 'error-conditions))
                           ,@(if var
                                 `((,var (cons ,error-symbol ,data)))
                               '()))
+                      (declare (lexical ,conditions
+                                        ,@(if var `(,var) '())))
                       (cond ,@(mapcar #'handler->cond-clause handlers)
                             (t (signal ,error-symbol ,data)))))))))
 
@@ -463,11 +466,13 @@
         (c (make-symbol "c"))
         (data (make-symbol "data")))
     `(let ((,tag-value ,tag))
+       (declare (lexical ,tag-value))
        (condition-case ,c
            (let ((%catch t))
              ,@body)
          (throw
           (let ((,data (cdr ,c)))
+            (declare (lexical ,data))
             (if (eq (car ,data) ,tag-value)
                 (car (cdr ,data))
               (apply #'throw ,data))))))))
