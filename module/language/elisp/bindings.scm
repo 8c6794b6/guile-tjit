@@ -24,9 +24,6 @@
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-26)
   #:export (make-bindings
-            global?
-            mark-global!
-            map-globals
             with-lexical-bindings
             with-dynamic-bindings
             get-lexical-binding))
@@ -36,9 +33,6 @@
 ;;; symbols, for which globals need to be created, or mark certain
 ;;; symbols as lexically bound.
 ;;;
-;;; Needed globals are stored in an association-list that stores a list
-;;; of symbols for each module they are needed in.
-;;;
 ;;; The lexical bindings of symbols are stored in a hash-table that
 ;;; associates symbols to fluids; those fluids are used in the
 ;;; with-lexical-binding and with-dynamic-binding routines to associate
@@ -47,39 +41,15 @@
 ;;; Record type used to hold the data necessary.
 
 (define-record-type bindings
-  (%make-bindings globals lexical-bindings)
+  (%make-bindings lexical-bindings)
   bindings?
-  (globals globals set-globals!)
   (lexical-bindings lexical-bindings set-lexical-bindings!))
 
 ;;; Construct an 'empty' instance of the bindings data structure to be
 ;;; used at the start of a fresh compilation.
 
 (define (make-bindings)
-  (%make-bindings '() (make-hash-table)))
-
-(define (global? bindings sym module)
-  (and=> (assoc-ref (globals bindings) module) (cut memq sym <>)))
-
-;;; Mark that a given symbol is needed as global in the specified
-;;; slot-module.
-
-(define (mark-global! bindings sym module)
-  (let* ((old-globals (globals bindings))
-         (old-in-module (or (assoc-ref old-globals module) '()))
-         (new-in-module (lset-adjoin eq? old-in-module sym))
-         (new-globals (assoc-set! old-globals module new-in-module)))
-    (set-globals! bindings new-globals)))
-
-;;; Cycle through all globals needed in order to generate the code for
-;;; their creation or some other analysis.
-
-(define (map-globals bindings proc)
-  (append-map
-   (lambda (module+symbols)
-     (receive (module symbols) (car+cdr module+symbols)
-       (map (cut proc module <>) symbols)))
-   (globals bindings)))
+  (%make-bindings (make-hash-table)))
 
 ;;; Get the current lexical binding (gensym it should refer to in the
 ;;; current scope) for a symbol or #f if it is dynamically bound.
