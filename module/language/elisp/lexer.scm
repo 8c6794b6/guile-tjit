@@ -337,7 +337,12 @@
              (let ((mark (get-circular-marker port)))
                (return (car mark) (cdr mark))))
             ((#\')
-             (return 'function #f)))))
+             (return 'function #f))
+            ((#\:)
+             (call-with-values
+                 (lambda () (get-symbol-or-number port))
+               (lambda (type str)
+                 (return 'symbol (make-symbol str))))))))
         ;; Parentheses and other special-meaning single characters.
         ((#\() (return 'paren-open #f))
         ((#\)) (return 'paren-close #f))
