@@ -108,43 +108,30 @@
 (define (report-error loc . args)
   (apply error args))
 
-;;; Handle access to a variable (reference/setting) correctly depending
-;;; on whether it is currently lexically or dynamically bound.  lexical
-;;; access is done only for references to the value-slot module!
+(define (access-variable loc symbol handle-lexical handle-dynamic)
+  (cond
+   ((get-lexical-binding (fluid-ref bindings-data) symbol)
+    => handle-lexical)
+   (else
+    (handle-dynamic))))
 
-(define (access-variable loc
-                         sym
-                         module
-                         handle-global
-                         handle-lexical
-                         handle-dynamic)
-  (let ((lexical (get-lexical-binding (fluid-ref bindings-data) sym)))
-    (cond
-     (lexical (handle-lexical lexical))
-     ((equal? module function-slot) (handle-global))
-     (else (handle-dynamic)))))
-
-;;; Generate code to reference a variable.  For references in the
-;;; value-slot module, we may want to generate a lexical reference
-;;; instead if the variable has a lexical binding.
-
-(define (reference-variable loc sym module)
+(define (reference-variable loc symbol)
   (access-variable
    loc
-   sym
-   module
-   (lambda () (make-module-ref loc module sym #t))
-   (lambda (lexical) (make-lexical-ref loc lexical lexical))
+   symbol
+   (lambda (lexical)
+     (make-lexical-ref loc lexical lexical))
    (lambda ()
      (call-primitive loc
                      'fluid-ref
-                     (make-module-ref loc module sym #t)))))
+                     (make-module-ref loc value-slot symbol #t)))))
 
 (define (global? module symbol)
   (module-variable module symbol))
 
 (define (ensure-globals! loc names body)
-  (if (every (cut global? (resolve-module value-slot) <>) names)
+  (if (and (every (cut global? (resolve-module value-slot) <>) names)
+           (every symbol-interned? names))
       body
       (make-sequence
        loc
@@ -158,28 +145,45 @@
             names)
          ,body))))
 
-;;; Generate code to set a variable.  Just as with reference-variable, in
-;;; case of a reference to value-slot, we want to generate a lexical set
-;;; when the variable has a lexical binding.
-
-(define (set-variable! loc sym module value)
+(define (set-variable! loc symbol value)
   (access-variable
    loc
-   sym
-   module
+   symbol
+   (lambda (lexical)
+     (make-lexical-set loc lexical lexical value))
+   (lambda ()
+     (ensure-globals!
+      loc
+      (list symbol)
+      (call-primitive loc
+                      'fluid-set!
+                      (make-module-ref loc value-slot symbol #t)
+                      value)))))
+
+(define (access-function loc symbol handle-lexical handle-global)
+  (cond
+   ((get-function-binding (fluid-ref bindings-data) symbol)
+    => handle-lexical)
+   (else
+    (handle-global))))
+
+(define (reference-function loc symbol)
+  (access-function
+   loc
+   symbol
+   (lambda (gensym) (make-lexical-ref loc symbol gensym))
+   (lambda () (make-module-ref loc function-slot symbol #t))))
+
+(define (set-function! loc symbol value)
+  (access-function
+   loc
+   symbol
+   (lambda (gensym) (make-lexical-set loc symbol gensym value))
    (lambda ()
      (make-application
       loc
-      (make-module-ref loc runtime 'set-symbol-function! #t) ;++ fix
-      (list (make-const loc sym) value)))
-   (lambda (lexical) (make-lexical-set loc lexical lexical value))
-   (lambda ()
-     (ensure-globals! loc
-                      (list sym)
-                      (call-primitive loc
-                                      'fluid-set!
-                                      (make-module-ref loc module sym #t)
-                                      value)))))
+      (make-module-ref loc runtime 'set-symbol-function! #t)
+      (list (make-const loc symbol) value)))))
 
 (define (bind-lexically? sym module decls)
   (or (eq? module function-slot)
@@ -447,10 +451,7 @@
     ((,sym ,value . ,doc)
      (if (handle-var-def loc sym doc)
          (make-sequence loc
-                        (list (set-variable! loc
-                                             sym
-                                             value-slot
-                                             (compile-expr value))
+                        (list (set-variable! loc sym (compile-expr value))
                               (make-const loc sym)))))))
 
 (defspecial defvar (loc args)
@@ -477,7 +478,7 @@
                              (make-module-ref loc value-slot sym #t))
              (make-const loc #f))
             (make-void loc)
-            (set-variable! loc sym value-slot (compile-expr value)))
+            (set-variable! loc sym (compile-expr value)))
            (make-const loc sym)))))))
 
 (defspecial setq (loc args)
@@ -495,9 +496,9 @@
            (if (not (symbol? sym))
                (report-error loc "expected symbol in setq")
                (cons
-                (set-variable! loc sym value-slot val)
+                (set-variable! loc sym val)
                 (loop (cddr* args)
-                      (reference-variable loc sym value-slot)))))))))
+                      (reference-variable loc sym)))))))))
   
 (defspecial let (loc args)
   (pmatch args
@@ -600,7 +601,7 @@
          (let ((names (map car names+vals))
                (vals (map cdr names+vals))
                (gensyms (map (lambda (x) (gensym)) names+vals)))
-           (with-lexical-bindings
+           (with-function-bindings
             (fluid-ref bindings-data)
             names
             gensyms
@@ -619,7 +620,7 @@
          (let ((names (map car names+vals))
                (vals (map cdr names+vals))
                (gensyms (map (lambda (x) (gensym)) names+vals)))
-           (with-lexical-bindings
+           (with-function-bindings
             (fluid-ref bindings-data)
             names
             gensyms
@@ -654,7 +655,7 @@
     (((lambda ,args . ,body))
      (compile-lambda loc '() args body))
     ((,sym) (guard (symbol? sym))
-     (reference-variable loc sym function-slot))))
+     (reference-function loc sym))))
 
 (defspecial defmacro (loc args)
   (pmatch args
@@ -665,10 +666,9 @@
                  (make-sequence
                   loc
                   (list
-                   (set-variable!
+                   (set-function!
                     loc
                     name
-                    function-slot
                     (make-application
                      loc
                      (make-module-ref loc '(guile) 'cons #t)
@@ -687,9 +687,8 @@
      (if (not (symbol? name))
          (report-error loc "expected symbol as function name" name)
          (make-sequence loc
-                        (list (set-variable! loc
+                        (list (set-function! loc
                                              name
-                                             function-slot
                                              (compile-lambda loc
                                                              `((name . ,name))
                                                              args
@@ -741,7 +740,7 @@
   (case sym
     ((nil) (nil-value loc))
     ((t) (t-value loc))
-    (else (reference-variable loc sym value-slot))))
+    (else (reference-variable loc sym))))
 
 ;;; Compile a single expression to TreeIL.
 

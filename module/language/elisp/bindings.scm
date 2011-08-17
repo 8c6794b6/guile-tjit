@@ -26,7 +26,9 @@
   #:export (make-bindings
             with-lexical-bindings
             with-dynamic-bindings
-            get-lexical-binding))
+            with-function-bindings
+            get-lexical-binding
+            get-function-binding))
 
 ;;; This module defines routines to handle analysis of symbol bindings
 ;;; used during elisp compilation.  This data allows to collect the
@@ -41,15 +43,16 @@
 ;;; Record type used to hold the data necessary.
 
 (define-record-type bindings
-  (%make-bindings lexical-bindings)
+  (%make-bindings lexical-bindings function-bindings)
   bindings?
-  (lexical-bindings lexical-bindings set-lexical-bindings!))
+  (lexical-bindings lexical-bindings)
+  (function-bindings function-bindings))
 
 ;;; Construct an 'empty' instance of the bindings data structure to be
 ;;; used at the start of a fresh compilation.
 
 (define (make-bindings)
-  (%make-bindings (make-hash-table)))
+  (%make-bindings (make-hash-table) (make-hash-table)))
 
 ;;; Get the current lexical binding (gensym it should refer to in the
 ;;; current scope) for a symbol or #f if it is dynamically bound.
@@ -60,6 +63,10 @@
     (if slot
         (fluid-ref slot)
         #f)))
+
+(define (get-function-binding bindings symbol)
+  (and=> (hash-ref (function-bindings bindings) symbol)
+         fluid-ref))
 
 ;;; Establish a binding or mark a symbol as dynamically bound for the
 ;;; extent of calling proc.
@@ -88,3 +95,13 @@
                         syms
                         (map (lambda (el) #f) syms)
                         proc))
+
+(define (with-function-bindings bindings symbols gensyms thunk)
+  (let ((fb (function-bindings bindings)))
+    (for-each (lambda (symbol)
+                (if (not (hash-ref fb symbol))
+                    (hash-set! fb symbol (make-fluid))))
+              symbols)
+    (with-fluids* (map (cut hash-ref fb <>) symbols)
+                  gensyms
+                  thunk)))
