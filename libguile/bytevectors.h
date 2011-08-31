@@ -140,7 +140,7 @@ SCM_INTERNAL void scm_bootstrap_bytevectors (void);
 SCM_INTERNAL void scm_init_bytevectors (void);
 
 SCM_INTERNAL SCM scm_i_native_endianness;
-SCM_INTERNAL SCM scm_c_take_bytevector (signed char *, size_t, SCM);
+SCM_INTERNAL SCM scm_c_take_gc_bytevector (signed char *, size_t, SCM);
 
 SCM_INTERNAL int scm_i_print_bytevector (SCM, SCM, scm_print_state *);
 

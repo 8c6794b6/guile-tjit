@@ -178,7 +178,7 @@
 /* Bytevector type.  */
 
 #define SCM_BYTEVECTOR_HEADER_BYTES		\
-  (SCM_BYTEVECTOR_HEADER_SIZE * sizeof (SCM))
+  (SCM_BYTEVECTOR_HEADER_SIZE * sizeof (scm_t_bits))
 
 #define SCM_BYTEVECTOR_SET_LENGTH(_bv, _len)            \
   SCM_SET_CELL_WORD_1 ((_bv), (scm_t_bits) (_len))
@@ -292,7 +292,7 @@ scm_i_make_typed_bytevector (size_t len, scm_t_array_element_type element_type)
    because it was allocated using `scm_gc_malloc ()', or because it is
    part of PARENT.  */
 SCM
-scm_c_take_bytevector (signed char *contents, size_t len, SCM parent)
+scm_c_take_gc_bytevector (signed char *contents, size_t len, SCM parent)
 {
   SCM ret;
 

@@ -314,8 +314,8 @@ SCM_DEFINE (scm_objcode_to_bytecode, "objcode->bytecode", 1, 0, 0,
 
   len = sizeof (struct scm_objcode) + SCM_OBJCODE_TOTAL_LEN (objcode);
 
-  return scm_c_take_bytevector ((scm_t_int8*)SCM_OBJCODE_DATA (objcode),
-                                len, objcode);
+  return scm_c_take_gc_bytevector ((scm_t_int8*)SCM_OBJCODE_DATA (objcode),
+                                   len, objcode);
 }
 #undef FUNC_NAME
 
