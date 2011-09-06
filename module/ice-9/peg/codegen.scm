@@ -254,7 +254,7 @@ return EXP."
 ;; Takes an arbitrary expressions and accumulation variable, then parses it.
 ;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
 (define (peg-sexp-compile pat accum)
-  (syntax-case pat (peg-any range ignore capture peg and or body)
+  (syntax-case pat (peg-any)
     (peg-any
      (cg-peg-any (baf accum)))
     (sym (identifier? #'sym) ;; nonterminal
