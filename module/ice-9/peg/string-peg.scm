@@ -68,11 +68,11 @@ RB < ']'
   (body lit (and peg-nonterminal (or "<--" "<-" "<") peg-sp peg-pattern) +))
 (define-sexp-parser peg-pattern all
   (and peg-alternative
-       (body lit (and (ignore "/") peg-sp peg-alternative) *)))
+       (* (and (ignore "/") peg-sp peg-alternative))))
 (define-sexp-parser peg-alternative all
   (body lit (and (body lit (or "!" "&") ?) peg-sp peg-suffix) +))
 (define-sexp-parser peg-suffix all
-  (and peg-primary (body lit (and (or "*" "+" "?") peg-sp) *)))
+  (and peg-primary (* (and (or "*" "+" "?") peg-sp))))
 (define-sexp-parser peg-primary all
   (or (and "(" peg-sp peg-pattern ")" peg-sp)
       (and "." peg-sp)
@@ -80,11 +80,11 @@ RB < ']'
       peg-charclass
       (and peg-nonterminal (body ! "<" 1))))
 (define-sexp-parser peg-literal all
-  (and "'" (body lit (and (body ! "'" 1) peg-any) *) "'" peg-sp))
+  (and "'" (* (and (body ! "'" 1) peg-any)) "'" peg-sp))
 (define-sexp-parser peg-charclass all
   (and (ignore "[")
-       (body lit (and (body ! "]" 1)
-                      (or charclass-range charclass-single)) *)
+       (* (and (body ! "]" 1)
+               (or charclass-range charclass-single)))
        (ignore "]")
        peg-sp))
 (define-sexp-parser charclass-range all (and peg-any "-" peg-any))
@@ -92,7 +92,7 @@ RB < ']'
 (define-sexp-parser peg-nonterminal all
   (and (body lit (or (range #\a #\z) (range #\A #\Z) (range #\0 #\9) "-") +) peg-sp))
 (define-sexp-parser peg-sp none
-  (body lit (or " " "\t" "\n") *))
+  (* (or " " "\t" "\n")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; PARSE STRING PEGS

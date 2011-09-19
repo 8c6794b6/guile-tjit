@@ -69,7 +69,7 @@ succeeds.
 
 @code{"a*"}
 
-@code{(body lit a *)}
+@code{(* a)}
 @end deftp
 
 @deftp {PEG Pattern} {one or more} a
