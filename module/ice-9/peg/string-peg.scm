@@ -125,7 +125,10 @@ RB < ']'
        (peg-parser (syntax->datum #'str) x)))))
 (define define-grammar-f peg-parser)
 
-;; Parse a nonterminal and pattern listed in LST.
+;; lst has format (nonterm grabber pattern), where
+;;   nonterm is a symbol (the name of the nonterminal),
+;;   grabber is a string (either "<", "<-" or "<--"), and
+;;   pattern is the parse of a PEG pattern expressed as as string.
 (define (peg-nonterm->defn lst for-syntax)
   (let* ((nonterm (car lst))
          (grabber (cadr lst))
@@ -139,20 +142,28 @@ RB < ']'
           (else (datum->syntax for-syntax 'none)))
        #,(compressor (peg-pattern->defn pattern for-syntax) for-syntax))))
 
-;; Parse a pattern.
+;; lst has format ('peg-pattern ...).
+;; After the context-flatten, (cdr lst) has format
+;;   (('peg-alternative ...) ...), where the outer list is a collection
+;;   of elements from a '/' alternative.
 (define (peg-pattern->defn lst for-syntax)
   #`(or #,@(map (lambda (x) (peg-alternative->defn x for-syntax))
                 (context-flatten (lambda (x) (eq? (car x) 'peg-alternative))
                                  (cdr lst)))))
 
-;; Parse an alternative.
+;; lst has format ('peg-alternative ...).
+;; After the context-flatten, (cdr lst) has the format
+;;   (item ...), where each item has format either ("!" ...), ("&" ...),
+;;   or ('peg-suffix ...).
 (define (peg-alternative->defn lst for-syntax)
   #`(and #,@(map (lambda (x) (peg-body->defn x for-syntax))
                  (context-flatten (lambda (x) (or (string? (car x))
                                              (eq? (car x) 'peg-suffix)))
                                   (cdr lst)))))
 
-;; Parse a body.
+;; lst has the format either
+;;   ("!" ('peg-suffix ...)), ("&" ('peg-suffix ...)), or
+;;     ('peg-suffix ...).
 (define (peg-body->defn lst for-syntax)
     (cond
       ((equal? (car lst) "&")
@@ -163,7 +174,7 @@ RB < ']'
        (peg-suffix->defn lst for-syntax))
       (else `(peg-parse-body-fail ,lst))))
 
-;; Parse a suffix.
+;; lst has format ('peg-suffix <peg-primary> (? (/ "*" "?" "+")))
 (define (peg-suffix->defn lst for-syntax)
   (let ((inner-defn (peg-primary->defn (cadr lst) for-syntax)))
     (cond
