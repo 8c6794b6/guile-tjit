@@ -90,13 +90,13 @@ Tries to parse @var{a}.  Succeeds if @var{a} succeeds.
 @code{(? a)}
 @end deftp
 
-@deftp {PEG Pattern} {and predicate} a
+@deftp {PEG Pattern} {followed by} a
 Makes sure it is possible to parse @var{a}, but does not actually parse
 it.  Succeeds if @var{a} would succeed.
 
 @code{"&a"}
 
-@code{(body & a 1)}
+@code{(followed-by a)}
 @end deftp
 
 @deftp {PEG Pattern} {not predicate} a
