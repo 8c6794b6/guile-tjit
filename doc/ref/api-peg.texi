@@ -99,13 +99,13 @@ it.  Succeeds if @var{a} would succeed.
 @code{(followed-by a)}
 @end deftp
 
-@deftp {PEG Pattern} {not predicate} a
+@deftp {PEG Pattern} {not followed by} a
 Makes sure it is impossible to parse @var{a}, but does not actually
 parse it.  Succeeds if @var{a} would fail.
 
 @code{"!a"}
 
-@code{(body ! a 1)}
+@code{(not-followed-by a)}
 @end deftp
 
 @deftp {PEG Pattern} {string literal} ``abc''

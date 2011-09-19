@@ -78,12 +78,12 @@ RB < ']'
       (and "." peg-sp)
       peg-literal
       peg-charclass
-      (and peg-nonterminal (body ! "<" 1))))
+      (and peg-nonterminal (not-followed-by "<"))))
 (define-sexp-parser peg-literal all
-  (and "'" (* (and (body ! "'" 1) peg-any)) "'" peg-sp))
+  (and "'" (* (and (not-followed-by "'") peg-any)) "'" peg-sp))
 (define-sexp-parser peg-charclass all
   (and (ignore "[")
-       (* (and (body ! "]" 1)
+       (* (and (not-followed-by "]")
                (or charclass-range charclass-single)))
        (ignore "]")
        peg-sp))
