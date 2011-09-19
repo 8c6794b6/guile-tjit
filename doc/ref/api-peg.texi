@@ -87,7 +87,7 @@ Tries to parse @var{a}.  Succeeds if @var{a} succeeds.
 
 @code{"a?"}
 
-@code{(body lit a ?)}
+@code{(? a)}
 @end deftp
 
 @deftp {PEG Pattern} {and predicate} a

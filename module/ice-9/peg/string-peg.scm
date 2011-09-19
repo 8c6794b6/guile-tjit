@@ -70,7 +70,7 @@ RB < ']'
   (and peg-alternative
        (* (and (ignore "/") peg-sp peg-alternative))))
 (define-sexp-parser peg-alternative all
-  (+ (and (body lit (or "!" "&") ?) peg-sp peg-suffix)))
+  (+ (and (? (or "!" "&")) peg-sp peg-suffix)))
 (define-sexp-parser peg-suffix all
   (and peg-primary (* (and (or "*" "+" "?") peg-sp))))
 (define-sexp-parser peg-primary all
