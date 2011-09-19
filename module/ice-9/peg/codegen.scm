@@ -197,46 +197,6 @@ return EXP."
      #`(or (#,(peg-sexp-compile #'first accum) #,str #,strlen #,at)
            #,(cg-or-int #'(rest ...) accum str strlen at)))))
 
-;; Returns a function that parses a BODY element.
-(define (cg-body args accum)
-  (syntax-case args ()
-    ((type pat num)
-     #`(lambda (str strlen at)
-         (let ((body '()))
-           (let lp ((end at) (count 0))
-             (let* ((match (#,(peg-sexp-compile #'pat (baf accum))
-                            str strlen end))
-                    (new-end (if match (car match) end))
-                    (count (if (> new-end end) (1+ count) count)))
-               (if (> new-end end)
-                   (push-not-null! body (single-filter (cadr match))))
-               (if (and (> new-end end)
-                        #,(syntax-case #'num (+ * ?)
-                            (n (number? (syntax->datum #'n))
-                               #'(< count n))
-                            (+ #t)
-                            (* #t)
-                            (? #'(< count 1))))
-                   (lp new-end count)
-                   (let ((success #,(syntax-case #'num (+ * ?)
-                                      (n (number? (syntax->datum #'n))
-                                         #'(= count n))
-                                      (+ #'(>= count 1))
-                                      (* #t)
-                                      (? #t))))
-                     #,(syntax-case #'type (! & lit)
-                         (!
-                          #`(if success
-                                #f
-                                #,(cggr (baf accum) 'cg-body #''() #'at)))
-                         (&
-                          #`(and success
-                                 #,(cggr (baf accum) 'cg-body #''() #'at)))
-                         (lit
-                          #`(and success
-                                 #,(cggr (baf accum) 'cg-body
-                                         #'(reverse body) #'new-end)))))))))))))
-
 (define (cg-* args accum)
   (syntax-case args ()
     ((pat)
@@ -348,7 +308,6 @@ return EXP."
 (add-peg-compiler! 'capture cg-capture)
 (add-peg-compiler! 'and cg-and)
 (add-peg-compiler! 'or cg-or)
-(add-peg-compiler! 'body cg-body)
 (add-peg-compiler! '* cg-*)
 (add-peg-compiler! '+ cg-+)
 (add-peg-compiler! '? cg-?)

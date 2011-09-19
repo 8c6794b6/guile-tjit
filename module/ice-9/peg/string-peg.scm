@@ -154,26 +154,27 @@ RB < ']'
 
 ;; Parse a body.
 (define (peg-body->defn lst for-syntax)
-  (let ((suffix '())
-        (front (datum->syntax for-syntax 'lit)))
     (cond
-     ((eq? (car lst) 'peg-suffix)
-      (set! suffix lst))
-     ((string? (car lst))
-      (begin (set! front (datum->syntax for-syntax
-                                        (string->symbol (car lst))))
-             (set! suffix (cadr lst))))
-     (else `(peg-parse-body-fail ,lst)))
-    #`(body #,front #,@(peg-suffix->defn
-                        suffix
-                        for-syntax))))
+      ((equal? (car lst) "&")
+       #`(followed-by #,(peg-suffix->defn (cadr lst) for-syntax)))
+      ((equal? (car lst) "!")
+       #`(not-followed-by #,(peg-suffix->defn (cadr lst) for-syntax)))
+      ((eq? (car lst) 'peg-suffix)
+       (peg-suffix->defn lst for-syntax))
+      (else `(peg-parse-body-fail ,lst))))
 
 ;; Parse a suffix.
 (define (peg-suffix->defn lst for-syntax)
-  #`(#,(peg-primary->defn (cadr lst) for-syntax)
-     #,(if (null? (cddr lst))
-           1
-           (datum->syntax for-syntax (string->symbol (caddr lst))))))
+  (let ((inner-defn (peg-primary->defn (cadr lst) for-syntax)))
+    (cond
+      ((null? (cddr lst))
+       inner-defn)
+      ((equal? (caddr lst) "*")
+       #`(* #,inner-defn))
+      ((equal? (caddr lst) "?")
+       #`(? #,inner-defn))
+      ((equal? (caddr lst) "+")
+       #`(+ #,inner-defn)))))
 
 ;; Parse a primary.
 (define (peg-primary->defn lst for-syntax)
