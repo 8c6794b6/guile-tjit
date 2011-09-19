@@ -79,7 +79,7 @@ least one @var{a} was parsed.
 
 @code{"a+"}
 
-@code{(body lit a +)}
+@code{(+ a)}
 @end deftp
 
 @deftp {PEG Pattern} optional a

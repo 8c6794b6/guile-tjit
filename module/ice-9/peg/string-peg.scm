@@ -65,12 +65,12 @@ RB < ']'
            #`(define sym #,syn))))))
 
 (define-sexp-parser peg-grammar all
-  (body lit (and peg-nonterminal (or "<--" "<-" "<") peg-sp peg-pattern) +))
+  (+ (and peg-nonterminal (or "<--" "<-" "<") peg-sp peg-pattern)))
 (define-sexp-parser peg-pattern all
   (and peg-alternative
        (* (and (ignore "/") peg-sp peg-alternative))))
 (define-sexp-parser peg-alternative all
-  (body lit (and (body lit (or "!" "&") ?) peg-sp peg-suffix) +))
+  (+ (and (body lit (or "!" "&") ?) peg-sp peg-suffix)))
 (define-sexp-parser peg-suffix all
   (and peg-primary (* (and (or "*" "+" "?") peg-sp))))
 (define-sexp-parser peg-primary all
@@ -90,7 +90,7 @@ RB < ']'
 (define-sexp-parser charclass-range all (and peg-any "-" peg-any))
 (define-sexp-parser charclass-single all peg-any)
 (define-sexp-parser peg-nonterminal all
-  (and (body lit (or (range #\a #\z) (range #\A #\Z) (range #\0 #\9) "-") +) peg-sp))
+  (and (+ (or (range #\a #\z) (range #\A #\Z) (range #\0 #\9) "-")) peg-sp))
 (define-sexp-parser peg-sp none
   (* (or " " "\t" "\n")))
 

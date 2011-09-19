@@ -257,6 +257,26 @@ return EXP."
                                  #,(cggr (baf accum) 'cg-body
                                          #'(reverse body) #'new-end)))))))))))
 
+(define (cg-+ args accum)
+  (syntax-case args ()
+    ((pat)
+     #`(lambda (str strlen at)
+         (let ((body '()))
+           (let lp ((end at) (count 0))
+             (let* ((match (#,(peg-sexp-compile #'pat (baf accum))
+                            str strlen end))
+                    (new-end (if match (car match) end))
+                    (count (if (> new-end end) (1+ count) count)))
+               (if (> new-end end)
+                   (push-not-null! body (single-filter (cadr match))))
+               (if (and (> new-end end)
+                        #,#t)
+                   (lp new-end count)
+                   (let ((success #,#'(>= count 1)))
+                     #,#`(and success
+                                 #,(cggr (baf accum) 'cg-body
+                                         #'(reverse body) #'new-end)))))))))))
+
 ;; Association list of functions to handle different expressions as PEGs
 (define peg-compiler-alist '())
 
@@ -271,6 +291,7 @@ return EXP."
 (add-peg-compiler! 'or cg-or)
 (add-peg-compiler! 'body cg-body)
 (add-peg-compiler! '* cg-*)
+(add-peg-compiler! '+ cg-+)
 
 ;; Takes an arbitrary expressions and accumulation variable, then parses it.
 ;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
