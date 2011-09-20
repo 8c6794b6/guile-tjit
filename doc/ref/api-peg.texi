@@ -153,9 +153,9 @@ Would be:
 @lisp
 (and
  (or
-  (and a (body ! b 1))
-  (and c (body & d *)))
- (body lit "e" +))
+  (and a (not-followed-by b))
+  (and c (followed-by (* d))))
+ (+ "e"))
 @end lisp
 
 @subsubheading Extended Syntax
@@ -180,10 +180,16 @@ Example:
 "!a / 'b'"
 @end example
 
-Would be:
+Is equivalent to
 
 @lisp
 (or (peg "!a") "b")
+@end lisp
+
+and
+
+@lisp
+(or (not-followed-by a) "b")
 @end lisp
 
 @node PEG API Reference
@@ -255,11 +261,11 @@ passes nothing up the parse tree.
 
 For Example, if we:
 @lisp
-(define-nonterm as body (body lit "a" +))
-(define-nonterm bs body (body lit "b" +))
+(define-nonterm as body (+ "a"))
+(define-nonterm bs body (+ "b"))
 (define-nonterm as-or-bs body (or as bs))
-(define-nonterm as-tag all (body lit "a" +))
-(define-nonterm bs-tag all (body lit "b" +))
+(define-nonterm as-tag all (+ "a"))
+(define-nonterm bs-tag all (+ "b"))
 (define-nonterm as-or-bs-tag all (or as-tag bs-tag))
 @end lisp
 Then:
@@ -278,7 +284,7 @@ Note that in doing this, we have bound 6 variables at the toplevel
 These are macros, with all that entails.  If you've built up a list at
 runtime and want to define a new PEG from it, you should e.g.:
 @lisp
-(define exp '(body lit "a" +))
+(define exp '(+ "a"))
 (eval `(define-nonterm as body ,exp) (interaction-environment))
 @end lisp
 The @code{eval} function has a bad reputation with regard to efficiency,
@@ -332,19 +338,19 @@ nothing
 @end table
 
 @lisp
-(define-nonterm as all (body lit "a" +))
+(define-nonterm as all (+ "a"))
 (peg-parse as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: (as aa)>
 
-(define-nonterm as body (body lit "a" +))
+(define-nonterm as body (+ "a"))
 (peg-parse as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
 
-(define-nonterm as none (body lit "a" +))
+(define-nonterm as none (+ "a"))
 (peg-parse as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: ()>
 
-(define-nonterm bs body (body lit "b" +))
+(define-nonterm bs body (+ "b"))
 (peg-parse bs "aabbcc") @result{} 
 #f
 @end lisp
@@ -359,30 +365,30 @@ to.  If no match was found, @code{peg-match} returns false.  If a match
 was found, a PEG match record is returned.
 
 @lisp
-(define-nonterm as body (body lit "a" +))
+(define-nonterm as body (+ "a"))
 (peg-match as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
-(peg-match (body lit "a" +) "aabbcc") @result{} 
+(peg-match (+ "a") "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
 (peg-match "'a'+" "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
 
-(define-nonterm as all (body lit "a" +))
+(define-nonterm as all (+ "a"))
 (peg-match as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: (as aa)>
 
-(define-nonterm bs body (body lit "b" +))
+(define-nonterm bs body (+ "b"))
 (peg-match bs "aabbcc") @result{} 
 #<peg start: 2 end: 4 string: aabbcc tree: bb>
-(peg-match (body lit "b" +) "aabbcc") @result{} 
+(peg-match (+ "b") "aabbcc") @result{} 
 #<peg start: 2 end: 4 string: aabbcc tree: bb>
 (peg-match "'b'+" "aabbcc") @result{} 
 #<peg start: 2 end: 4 string: aabbcc tree: bb>
 
-(define-nonterm zs body (body lit "z" +))
+(define-nonterm zs body (+ "z"))
 (peg-match zs "aabbcc") @result{} 
 #f
-(peg-match (body lit "z" +) "aabbcc") @result{} 
+(peg-match (+ "z") "aabbcc") @result{} 
 #f
 (peg-match "'z'+" "aabbcc") @result{} 
 #f
@@ -524,9 +530,9 @@ away the captured data.
 
 Here is the same PEG defined using S-expressions:
 @lisp
-(define-nonterm passwd body (and (body lit entry *) (body ! peg-any 1)))
-(define-nonterm entry all (and (body lit (and (body ! NL 1) peg-any) *)
-			       (body lit NL *)))
+(define-nonterm passwd body (and (* entry) (not-followed-by peg-any)))
+(define-nonterm entry all (and (* (and (not-followed-by NL) peg-any))
+			       (* NL)))
 (define-nonterm NL none "\n")
 @end lisp
 
