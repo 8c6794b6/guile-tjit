@@ -281,17 +281,6 @@ Note that in doing this, we have bound 6 variables at the toplevel
 @var{as-or-bs-tag}).
 @end deffn
 
-These are macros, with all that entails.  If you've built up a list at
-runtime and want to define a new PEG from it, you should e.g.:
-@lisp
-(define exp '(+ "a"))
-(eval `(define-nonterm as body ,exp) (interaction-environment))
-@end lisp
-The @code{eval} function has a bad reputation with regard to efficiency,
-but this is mostly because of the extra work that has to be done
-compiling the expressions, which has to be done anyway when compiling
-the PEGs at runtime.
-
 @subsubheading Compile Functions
 It is sometimes useful to be able to compile anonymous PEG patterns at
 runtime.  These functions let you do that using either syntax.
@@ -309,6 +298,21 @@ Compiles the PEG pattern in @var{peg-sexp} propagating according to
 @code{define-nonterm}).
 @end deffn
 
+The functions return syntax objects, which can be useful if you want to
+use them in macros. If all you want is to define a new nonterminal, you
+can do the following:
+
+@lisp
+(define exp '(+ "a"))
+(define as (compile (peg-sexp-compile exp 'body)))
+@end lisp
+
+You can use this nonterminal with all of the regular PEG functions:
+
+@lisp
+(peg-parse as "aaaaa") @result{}
+#<peg start: 0 end: 5 string: bbbbb tree: bbbbb>
+@end lisp
 
 @subsubheading Parsing & Matching Functions
 
