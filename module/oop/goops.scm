@@ -347,21 +347,18 @@
        #'(define-class-pre-definitions (rest ...) 
          out ... (define-class-pre-definition (slotopt ...)))))))
 
-(define-syntax define-class
-  (syntax-rules ()
-    ((_ name supers slot ...)
-     (begin
-       (define-class-pre-definitions (slot ...))
-       (if (and (defined? 'name)
-                (is-a? name <class>)
-                (memq <object> (class-precedence-list name)))
-           (class-redefinition name
-                               (class supers slot ... #:name 'name))
-           (toplevel-define! 'name (class supers slot ... #:name 'name)))))))
+(define-syntax-rule (define-class name supers slot ...)
+  (begin
+    (define-class-pre-definitions (slot ...))
+    (if (and (defined? 'name)
+             (is-a? name <class>)
+             (memq <object> (class-precedence-list name)))
+        (class-redefinition name
+                            (class supers slot ... #:name 'name))
+        (toplevel-define! 'name (class supers slot ... #:name 'name)))))
        
-(define-syntax standard-define-class
-  (syntax-rules ()
-    ((_ arg ...) (define-class arg ...))))
+(define-syntax-rule (standard-define-class arg ...)
+  (define-class arg ...))
 
 ;;;
 ;;; {Generic functions and accessors}
@@ -428,13 +425,15 @@
   (for-each (lambda (gf)
 	      (slot-set! gf 'extended-by
 			 (cons eg (slot-ref gf 'extended-by))))
-	    gfs))
+	    gfs)
+  (invalidate-method-cache! eg))
 
 (define (not-extended-by! gfs eg)
   (for-each (lambda (gf)
 	      (slot-set! gf 'extended-by
 			 (delq! eg (slot-ref gf 'extended-by))))
-	    gfs))
+	    gfs)
+  (invalidate-method-cache! eg))
 
 (define* (ensure-generic old-definition #:optional name)
   (cond ((is-a? old-definition <generic>) old-definition)
@@ -449,13 +448,11 @@
         (else (make <generic> #:name name))))
 
 ;; same semantics as <generic>
-(define-syntax define-accessor
-  (syntax-rules ()
-    ((_ name)
-     (define name
-       (cond ((not (defined? 'name))  (ensure-accessor #f 'name))
-             ((is-a? name <accessor>) (make <accessor> #:name 'name))
-             (else                    (ensure-accessor name 'name)))))))
+(define-syntax-rule (define-accessor name)
+  (define name
+    (cond ((not (defined? 'name))  (ensure-accessor #f 'name))
+          ((is-a? name <accessor>) (make <accessor> #:name 'name))
+          (else                    (ensure-accessor name 'name)))))
 
 (define (make-setter-name name)
   (string->symbol (string-append "setter:" (symbol->string name))))
@@ -505,6 +502,7 @@
 		(slot-set! method 'generic-function gws))
 	      methods)
     (slot-set! gws 'methods methods)
+    (invalidate-method-cache! gws)
     gws))
 
 ;;;
@@ -669,15 +667,25 @@
 		methods)
 	      (loop (cdr l)))))))
 
+(define (method-n-specializers m)
+  (length* (slot-ref m 'specializers)))
+
+(define (calculate-n-specialized gf)
+  (fold (lambda (m n) (max n (method-n-specializers m)))
+        0
+        (generic-function-methods gf)))
+
+(define (invalidate-method-cache! gf)
+  (%invalidate-method-cache! gf)
+  (slot-set! gf 'n-specialized (calculate-n-specialized gf))
+  (for-each (lambda (gf) (invalidate-method-cache! gf))
+            (slot-ref gf 'extended-by)))
+
 (define internal-add-method!
   (method ((gf <generic>) (m <method>))
     (slot-set! m  'generic-function gf)
     (slot-set! gf 'methods (compute-new-list-of-methods gf m))
-    (let ((specializers (slot-ref m 'specializers)))
-      (slot-set! gf 'n-specialized
-                 (max (length* specializers)
-                      (slot-ref gf 'n-specialized))))
-    (%invalidate-method-cache! gf)
+    (invalidate-method-cache! gf)
     (add-method-in-classes! m)
     *unspecified*))
 
@@ -917,6 +925,7 @@
 	 (slot-set! val2
 		    'extended-by
 		    (cons gf (delq! gf (slot-ref val2 'extended-by))))
+         (invalidate-method-cache! gf)
 	 var)))
 
 (module-define! duplicate-handlers 'merge-generics merge-generics)
@@ -1100,7 +1109,7 @@
 		    ;; remove the method from its GF
 		    (slot-set! gf 'methods
 			       (delq1! m (slot-ref gf 'methods)))
-		    (%invalidate-method-cache! gf)
+		    (invalidate-method-cache! gf)
 		    ;; remove the method from its specializers
 		    (remove-method-in-classes! m))))
 	    (class-direct-methods c)))

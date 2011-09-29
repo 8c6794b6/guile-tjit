@@ -122,8 +122,8 @@ If FILE begins with `-' the -s switch is mandatory.
   -e FUNCTION    after reading script, apply FUNCTION to
                  command line arguments
   -ds            do -s script at this point
-  --debug        start with debugging evaluator and backtraces
-  --no-debug     start with normal evaluator
+  --debug        start with the \"debugging\" VM engine
+  --no-debug     start with the normal VM engine, which also supports debugging
                  Default is to enable debugging for interactive
                  use, but not for `-s' and `-c'.
   --auto-compile compile source files automatically
@@ -331,15 +331,15 @@ If FILE begins with `-' the -s switch is mandatory.
             (parse
              args
              (cons
-              (let ((where (substring arg 8)))
+              (let ((where (substring arg 9)))
                 (cond
                  ((string->number where) ; --listen=PORT
                   => (lambda (port)
                        (if (and (integer? port) (exact? port) (>= port 0))
-                           (error "invalid port for --listen")
                            `(@@ (system repl server)
                                 (spawn-server
-                                 (make-tcp-server-socket #:port ,port))))))
+                                 (make-tcp-server-socket #:port ,port)))
+                           (error "invalid port for --listen"))))
                  ((string-prefix? "/" where) ; --listen=/PATH/TO/SOCKET
                   `(@@ (system repl server)
                        (spawn-server
