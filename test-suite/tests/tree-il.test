@@ -716,17 +716,16 @@
      (if (zero? i)
          r
          (loop (1- i) (cons (cons i i) r))))
-   (letrec (loop) (_) (_)
-           (let (r) (_)
-                ((primcall list
-                           (primcall cons (const 3) (const 3))))
-                (let (r) (_)
-                     ((primcall cons
-                                (primcall cons (const 2) (const 2))
-                                (lexical r _)))
-                     (primcall cons
-                               (primcall cons (const 1) (const 1))
-                               (lexical r _))))))
+   (let (r) (_)
+        ((primcall list
+                   (primcall cons (const 3) (const 3))))
+        (let (r) (_)
+             ((primcall cons
+                        (primcall cons (const 2) (const 2))
+                        (lexical r _)))
+             (primcall cons
+                       (primcall cons (const 1) (const 1))
+                       (lexical r _)))))
 
   ;; See above.
   (pass-if-peval
@@ -735,23 +734,22 @@
      (if (<= i 0)
          (car r)
          (loop (1- i) (cons i r))))
-   (letrec (loop) (_) (_)
-           (let (r) (_)
-                ((primcall list (const 4)))
-                (let (r) (_)
-                     ((primcall cons
-                                (const 3)
-                                (lexical r _)))
-                     (let (r) (_)
-                          ((primcall cons
-                                     (const 2)
-                                     (lexical r _)))
-                          (let (r) (_)
-                               ((primcall cons
-                                          (const 1)
-                                          (lexical r _)))
-                               (primcall car
-                                         (lexical r _))))))))
+   (let (r) (_)
+        ((primcall list (const 4)))
+        (let (r) (_)
+             ((primcall cons
+                        (const 3)
+                        (lexical r _)))
+             (let (r) (_)
+                  ((primcall cons
+                             (const 2)
+                             (lexical r _)))
+                  (let (r) (_)
+                       ((primcall cons
+                                  (const 1)
+                                  (lexical r _)))
+                       (primcall car
+                                 (lexical r _)))))))
 
    ;; Static sums.
   (pass-if-peval
@@ -760,6 +758,18 @@
          sum
          (loop (cdr l) (+ sum (car l)))))
    (const 10))
+
+  (pass-if-peval
+    ;; Primitives in module-refs are resolved (the expansion of `pmatch'
+    ;; below leads to calls to (@@ (system base pmatch) car) and
+    ;; similar, which is what we want to be inlined.)
+    (begin
+      (use-modules (system base pmatch))
+      (pmatch '(a b c d)
+        ((a b . _)
+         #t)))
+    (seq (call . _)
+         (const #t)))
 
   (pass-if-peval
    ;; Mutability preserved.
@@ -1037,14 +1047,68 @@
       (_ #f)))
 
   (pass-if-peval
+   ;; Unused letrec bindings are pruned.
+   (letrec ((a (lambda () (b)))
+            (b (lambda () (a)))
+            (c (lambda (x) x)))
+     (c 10))
+   (const 10))
+
+  (pass-if-peval
+   ;; Unused letrec bindings are pruned.
+   (letrec ((a (foo!))
+            (b (lambda () (a)))
+            (c (lambda (x) x)))
+     (c 10))
+   (seq (call (toplevel foo!))
+        (const 10)))
+
+  (pass-if-peval
     ;; Higher order, mutually recursive procedures.
     (letrec ((even? (lambda (x)
                       (or (= 0 x)
                           (odd? (- x 1)))))
              (odd?  (lambda (x)
-                      (not (even? (- x 1))))))
+                      (not (even? x)))))
       (and (even? 4) (odd? 7)))
     (const #t))
+
+  (pass-if-peval
+    ;; Memv with constants.
+    (memv 1 '(3 2 1))
+    (const '(1)))
+
+  (pass-if-peval
+    ;; Memv with non-constant list.  It could fold but doesn't
+    ;; currently.
+    (memv 1 (list 3 2 1))
+    (primcall memv
+              (const 1)
+              (primcall list (const 3) (const 2) (const 1))))
+
+  (pass-if-peval
+    ;; Memv with non-constant key, constant list, test context
+    (case foo
+      ((3 2 1) 'a)
+      (else 'b))
+    (if (let (t) (_) ((toplevel foo))
+             (if (primcall eqv? (lexical t _) (const 3))
+                 (const #t)
+                 (if (primcall eqv? (lexical t _) (const 2))
+                     (const #t)
+                     (primcall eqv? (lexical t _) (const 1)))))
+        (const a)
+        (const b)))
+
+  (pass-if-peval
+    ;; Memv with non-constant key, empty list, test context.  Currently
+    ;; doesn't fold entirely.
+    (case foo
+      (() 'a)
+      (else 'b))
+    (if (seq (toplevel foo) (const #f))
+        (const a)
+        (const b)))
 
   ;;
   ;; Below are cases where constant propagation should bail out.
@@ -1190,8 +1254,7 @@
             (loop x (1- y))
             (foo x y))))
     (let (x) (_) ((call (toplevel top)))
-         (letrec (loop) (_) (_)
-                 (call (toplevel foo) (lexical x _) (const 0)))))
+         (call (toplevel foo) (lexical x _) (const 0))))
 
   (pass-if-peval
     ;; Inlining aborted when residual code contains recursive calls.
@@ -1219,6 +1282,94 @@
       (f 0))
     (letrec _ . _))
 
+  (pass-if-peval
+    ;; Infinite recursion: all the arguments to `loop' are static, but
+    ;; unrolling it would lead `peval' to enter an infinite loop.
+    (let loop ((x 0))
+      (and (< x top)
+           (loop (1+ x))))
+    (letrec (loop) (_) ((lambda . _))
+            (call (lexical loop _) (const 0))))
+
+  (pass-if-peval
+    ;; This test checks that the `start' binding is indeed residualized.
+    ;; See the `referenced?' procedure in peval's `prune-bindings'.
+    (let ((pos 0))
+      (set! pos 1) ;; Cause references to `pos' to residualize.
+      (let ((here (let ((start pos)) (lambda () start))))
+        (here)))
+    (let (pos) (_) ((const 0))
+         (seq
+           (set! (lexical pos _) (const 1))
+           (let (here) (_) (_)
+                (call (lexical here _))))))
+  
+  (pass-if-peval
+   ;; FIXME: should this one residualize the binding?
+   (letrec ((a a))
+     1)
+   (const 1))
+
+  (pass-if-peval
+   ;; This is a fun one for peval to handle.
+   (letrec ((a a))
+     a)
+   (letrec (a) (_) ((lexical a _))
+           (lexical a _)))
+
+  (pass-if-peval
+   ;; Another interesting recursive case.
+   (letrec ((a b) (b a))
+     a)
+   (letrec (a) (_) ((lexical a _))
+           (lexical a _)))
+
+  (pass-if-peval
+   ;; Another pruning case, that `a' is residualized.
+   (letrec ((a (lambda () (a)))
+            (b (lambda () (a)))
+            (c (lambda (x) x)))
+     (let ((d (foo b)))
+       (c d)))
+
+   ;; "b c a" is the current order that we get with unordered letrec,
+   ;; but it's not important to this test, so if it changes, just adapt
+   ;; the test.
+   (letrec (b c a) (_ _ _)
+     ((lambda _
+        (lambda-case
+         ((() #f #f #f () ())
+          (call (lexical a _)))))
+      (lambda _
+        (lambda-case
+         (((x) #f #f #f () (_))
+          (lexical x _))))
+      (lambda _
+        (lambda-case
+         ((() #f #f #f () ())
+          (call (lexical a _))))))
+     (let (d)
+       (_)
+       ((call (toplevel foo) (lexical b _)))
+       (call (lexical c _) (lexical d _)))))
+
+  (pass-if-peval
+   ;; In this case, we can prune the bindings.  `a' ends up being copied
+   ;; because it is only referenced once in the source program.  Oh
+   ;; well.
+   (letrec* ((a (lambda (x) (top x)))
+             (b (lambda () a)))
+     (foo (b) (b)))
+   (call (toplevel foo)
+         (lambda _
+           (lambda-case
+            (((x) #f #f #f () (_))
+             (call (toplevel top) (lexical x _)))))
+         (lambda _
+           (lambda-case
+            (((x) #f #f #f () (_))
+             (call (toplevel top) (lexical x _)))))))
+  
   (pass-if-peval
     ;; Constant folding: cons
    (begin (cons 1 2) #f)
