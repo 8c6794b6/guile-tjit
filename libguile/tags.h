@@ -123,51 +123,57 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 
 /* Representation of scheme objects:
  *
- * Guile's type system is designed to work on systems where scm_t_bits and SCM
- * variables consist of at least 32 bits.  The objects that a SCM variable can
- * represent belong to one of the following two major categories:
+ * Guile's type system is designed to work on systems where scm_t_bits
+ * and SCM variables consist of at least 32 bits.  The objects that a
+ * SCM variable can represent belong to one of the following two major
+ * categories:
  *
- * - Immediates -- meaning that the SCM variable contains an entire Scheme
- *   object.  That means, all the object's data (including the type tagging
- *   information that is required to identify the object's type) must fit into
- *   32 bits.
+ * - Immediates -- meaning that the SCM variable contains an entire
+ *   Scheme object.  That means, all the object's data (including the
+ *   type tagging information that is required to identify the object's
+ *   type) must fit into 32 bits.
  *
- * - Non-immediates -- meaning that the SCM variable holds a pointer into the
- *   heap of cells (see below).  On systems where a pointer needs more than 32
- *   bits this means that scm_t_bits and SCM variables need to be large enough
- *   to hold such pointers.  In contrast to immediates, the object's data of
- *   a non-immediate can consume arbitrary amounts of memory: The heap cell
- *   being pointed to consists of at least two scm_t_bits variables and thus
- *   can be used to hold pointers to malloc'ed memory of any size.
+ * - Heap objects -- meaning that the SCM variable holds a pointer into
+ *   the heap.  On systems where a pointer needs more than 32 bits this
+ *   means that scm_t_bits and SCM variables need to be large enough to
+ *   hold such pointers.  In contrast to immediates, the data associated
+ *   with a heap object can consume arbitrary amounts of memory.
  *
- * The 'heap' is the memory area that is under control of Guile's garbage
- * collector.  It holds 'single-cells' or 'double-cells', which consist of
- * either two or four scm_t_bits variables, respectively.  It is guaranteed
- * that the address of a cell on the heap is 8-byte aligned.  That is, since
- * non-immediates hold a cell address, the three least significant bits of a
- * non-immediate can be used to store additional information.  The bits are
- * used to store information about the object's type and thus are called
- * tc3-bits, where tc stands for type-code.  
+ * The 'heap' is the memory area that is under control of Guile's
+ * garbage collector.  It holds allocated memory of various sizes.  The
+ * impact on the runtime type system is that Guile needs to be able to
+ * determine the type of an object given the pointer.  Usually the way
+ * that Guile does this is by storing a "type tag" in the first word of
+ * the object.
  *
- * For a given SCM value, the distinction whether it holds an immediate or
- * non-immediate object is based on the tc3-bits (see above) of its scm_t_bits
+ * Some objects are common enough that they get special treatment.
+ * Since Guile guarantees that the address of a GC-allocated object on
+ * the heap is 8-byte aligned, Guile can play tricks with the lower 3
+ * bits.  That is, since heap objects encode a pointer to an
+ * 8-byte-aligned pointer, the three least significant bits of a SCM can
+ * be used to store additional information.  The bits are used to store
+ * information about the object's type and thus are called tc3-bits,
+ * where tc stands for type-code.
+ *
+ * For a given SCM value, the distinction whether it holds an immediate
+ * or heap object is based on the tc3-bits (see above) of its scm_t_bits
  * equivalent: If the tc3-bits equal #b000, then the SCM value holds a
- * non-immediate, and the scm_t_bits variable's value is just the pointer to
- * the heap cell.
+ * heap object, and the scm_t_bits variable's value is just the pointer
+ * to the heap cell.
  *
  * Summarized, the data of a scheme object that is represented by a SCM
- * variable consists of a) the SCM variable itself, b) in case of
- * non-immediates the data of the single-cell or double-cell the SCM object
- * points to, c) in case of non-immediates potentially additional data outside
- * of the heap (like for example malloc'ed data), and d) in case of
- * non-immediates potentially additional data inside of the heap, since data
- * stored in b) and c) may hold references to other cells.
+ * variable consists of a) the SCM variable itself, b) in case of heap
+ * objects memory that the SCM object points to, c) in case of heap
+ * objects potentially additional data outside of the heap (like for
+ * example malloc'ed data), and d) in case of heap objects potentially
+ * additional data inside of the heap, since data stored in b) and c)
+ * may hold references to other cells.
  *
  *
  * Immediates
  *
  * Operations on immediate objects can typically be processed faster than on
- * non-immediates.  The reason is that the object's data can be extracted
+ * heap objects.  The reason is that the object's data can be extracted
  * directly from the SCM variable (or rather a corresponding scm_t_bits
  * variable), instead of having to perform additional memory accesses to
  * obtain the object's data from the heap.  In order to get the best possible
@@ -201,69 +207,56 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
  * special objects listed above.
  *
  *
- * Non-Immediates
+ * Heap Objects
  *
- * All object types not mentioned above in the list of immedate objects are
- * represented as non-immediates.  Whether a non-immediate scheme object is
- * represented by a single-cell or a double-cell depends on the object's type,
- * namely on the set of attributes that have to be stored with objects of that
- * type.  Every non-immediate type is allowed to define its own layout and
- * interpretation of the data stored in its cell (with some restrictions, see
- * below).
+ * All object types not mentioned above in the list of immedate objects
+ * are represented as heap objects.  The amount of memory referenced by
+ * a heap object depends on the object's type, namely on the set of
+ * attributes that have to be stored with objects of that type.  Every
+ * heap object type is allowed to define its own layout and
+ * interpretation of the data stored in its cell (with some
+ * restrictions, see below).
  *
- * One of the design goals of guile's type system is to make it possible to
- * store a scheme pair with as little memory usage as possible.  The minimum
- * amount of memory that is required to store two scheme objects (car and cdr
- * of a pair) is the amount of memory required by two scm_t_bits or SCM
- * variables.  Therefore pairs in guile are stored in single-cells.
- *
- * Another design goal for the type system is to store procedure objects
- * created by lambda expresssions (closures) and class instances (goops
- * objects) with as little memory usage as possible.  Closures are represented
- * by a reference to the function code and a reference to the closure's
- * environment.  Class instances are represented by a reference to the
- * instance's class definition and a reference to the instance's data.  Thus,
- * closures as well as class instances also can be stored in single-cells.
- *
- * Certain other non-immediate types also store their data in single-cells.
- * By design decision, the heap is split into areas for single-cells and
- * double-cells, but not into areas for single-cells-holding-pairs and areas
- * for single-cells-holding-non-pairs.  Any single-cell on the heap therefore
- * can hold pairs (consisting of two scm_t_bits variables representing two
- * scheme objects - the car and cdr of the pair) and non-pairs (consisting of
- * two scm_t_bits variables that hold bit patterns as defined by the layout of
- * the corresponding object's type).
+ * One of the design goals of guile's type system is to make it possible
+ * to store a scheme pair with as little memory usage as possible.  The
+ * minimum amount of memory that is required to store two scheme objects
+ * (car and cdr of a pair) is the amount of memory required by two
+ * scm_t_bits or SCM variables.  Therefore pairs in guile are stored in
+ * two words, and are tagged with a bit pattern in the SCM value, not
+ * with a type tag on the heap.
  *
  *
  * Garbage collection
  *
- * During garbage collection, unreachable cells on the heap will be freed.
- * That is, the garbage collector will detect cells which have no SCM variable
- * pointing towards them.  In order to properly release all memory belonging
- * to the object to which a cell belongs, the gc needs to be able to interpret
- * the cell contents in the correct way.  That means that the gc needs to be
- * able to determine the object type associated with a cell only from the cell
- * itself.
+ * During garbage collection, unreachable objects on the heap will be
+ * freed.  To determine the set of reachable objects, by default, the GC
+ * just traces all words in all heap objects.  It is possible to
+ * register custom tracing ("marking") procedures.
  *
- * Consequently, if the gc detects an unreachable single-cell, those two
- * scm_t_bits variables must provide enough information to determine whether
- * they belong to a pair (i. e. both scm_t_bits variables represent valid
- * scheme objects), to a closure, a class instance or if they belong to any
- * other non-immediate.  Guile's type system is designed to make it possible
- * to determine a the type to which a cell belongs in the majority of cases
- * from the cell's first scm_t_bits variable.  (Given a SCM variable X holding
- * a non-immediate object, the macro SCM_CELL_TYPE(X) will deliver the
- * corresponding cell's first scm_t_bits variable.)
+ * If an object is unreachable, by default, the GC just notes this fact
+ * and moves on.  Later allocations will clear out the memory associated
+ * with the object, and re-use it.  It is possible to register custom
+ * finalizers, however.
  *
- * If the cell holds a scheme pair, then we already know that the first
- * scm_t_bits variable of the cell will hold a scheme object with one of the
- * following tc3-codes: #b000 (non-immediate), #b010 (small integer), #b110
- * (small integer), #b100 (non-integer immediate).  All these tc3-codes have
- * in common, that their least significant bit is #b0.  This fact is used by
- * the garbage collector to identify cells that hold pairs.  The remaining
- * tc3-codes are assigned as follows: #b001 (class instance or, more
- * precisely, a struct, of which a class instance is a special case), #b011
- * (closure), #b101/#b111 (all remaining non-immediate types).
+ *
+ * Run-time type introspection
+ *
+ * Guile's type system is designed to make it possible to determine a
+ * the type of a heap object from the object's first scm_t_bits
+ * variable.  (Given a SCM variable X holding a heap object, the macro
+ * SCM_CELL_TYPE(X) will deliver the corresponding object's first
+ * scm_t_bits variable.)
+ *
+ * If the object holds a scheme pair, then we already know that the
+ * first scm_t_bits variable of the cell will hold a scheme object with
+ * one of the following tc3-codes: #b000 (heap object), #b010 (small
+ * integer), #b110 (small integer), #b100 (non-integer immediate).  All
+ * these tc3-codes have in common, that their least significant bit is
+ * #b0.  This fact is used by the garbage collector to identify cells
+ * that hold pairs.  The remaining tc3-codes are assigned as follows:
+ * #b001 (class instance or, more precisely, a struct, of which a class
+ * instance is a special case), #b011 (closure), #b101/#b111 (all
+ * remaining heap object types).
  *
  *
  * Summary of type codes of scheme objects (SCM variables)
@@ -274,7 +267,7 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
  * of the SCM variables corresponding scm_t_bits value.
  *
  * Note that (as has been explained above) tc1==1 can only occur in the first
- * scm_t_bits variable of a cell belonging to a non-immediate object that is
+ * scm_t_bits variable of a cell belonging to a heap object that is
  * not a pair.  For an explanation of the tc tags with tc1==1, see the next
  * section with the summary of the type codes on the heap.
  *
@@ -283,13 +276,13 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
  *  (1:  This can never be the case for a scheme object.)
  *
  * tc2:
- *   00:  Either a non-immediate or some non-integer immediate
+ *   00:  Either a heap object or some non-integer immediate
  *  (01:  This can never be the case for a scheme object.)
  *   10:  Small integer
  *  (11:  This can never be the case for a scheme object.)
  *
  * tc3:
- *   000:  a non-immediate object (pair, closure, class instance etc.)
+ *   000:  a heap object (pair, closure, class instance etc.)
  *  (001:  This can never be the case for a scheme object.)
  *   010:  an even small integer (least significant bit is 0).
  *  (011:  This can never be the case for a scheme object.)
@@ -298,8 +291,8 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
  *   110:  an odd small integer (least significant bit is 1).
  *  (111:  This can never be the case for a scheme object.)
  *
- * The remaining bits of the non-immediate objects form the pointer to the
- * heap cell.  The remaining bits of the small integers form the integer's
+ * The remaining bits of the heap objects form the pointer to the heap
+ * cell.  The remaining bits of the small integers form the integer's
  * value and sign.  Thus, the only scheme objects for which a further
  * subdivision is of interest are the ones with tc3==100.
  *
@@ -321,19 +314,19 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
  *
  * tc2:
  *   00:  the cell belongs to a pair with no short integer in its car.
- *   01:  the cell belongs to a non-pair (struct or some other non-immediate).
+ *   01:  the cell belongs to a non-pair (struct or some other heap object).
  *   10:  the cell belongs to a pair with a short integer in its car.
- *   11:  the cell belongs to a non-pair (closure or some other non-immediate).
+ *   11:  the cell belongs to a non-pair (closure or some other heap object).
  *
  * tc3:
- *   000:  the cell belongs to a pair with a non-immediate in its car.
+ *   000:  the cell belongs to a pair with a heap object in its car.
  *   001:  the cell belongs to a struct
  *   010:  the cell belongs to a pair with an even short integer in its car.
  *   011:  the cell belongs to a closure
  *   100:  the cell belongs to a pair with a non-integer immediate in its car.
- *   101:  the cell belongs to some other non-immediate.
+ *   101:  the cell belongs to some other heap object.
  *   110:  the cell belongs to a pair with an odd short integer in its car.
- *   111:  the cell belongs to some other non-immediate.
+ *   111:  the cell belongs to some other heap object.
  *
  * tc7 (for tc3==1x1):
  *   See below for the list of types.  Note the special case of scm_tc7_vector
@@ -352,7 +345,7 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 
 
 
-/* Checking if a SCM variable holds an immediate or a non-immediate object:
+/* Checking if a SCM variable holds an immediate or a heap object:
  * This check can either be performed by checking for tc3==000 or tc3==00x,
  * since for a SCM variable it is known that tc1==0.  */
 #define SCM_IMP(x) 		(6 & SCM_UNPACK (x))
@@ -364,7 +357,7 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 
 /* Checking if a SCM variable holds a pair (for historical reasons, in Guile
  * also known as a cons-cell): This is done by first checking that the SCM
- * variable holds a non-immediate, and second, by checking that tc1==0 holds
+ * variable holds a heap object, and second, by checking that tc1==0 holds
  * for the SCM_CELL_TYPE of the SCM variable.  
 */
 
@@ -621,7 +614,7 @@ enum scm_tc8_tags
   case scm_tc2_int + 112: case scm_tc2_int + 116: case scm_tc3_imm24 + 112:\
   case scm_tc2_int + 120: case scm_tc2_int + 124: case scm_tc3_imm24 + 120
 
-/* For cons pairs with non-immediate values in the SCM_CAR
+/* For cons pairs with heap objects in the SCM_CAR
  */
 #define scm_tcs_cons_nimcar \
        scm_tc3_cons + 0:\
