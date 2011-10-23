@@ -84,16 +84,13 @@ make_bip (SCM bv)
   scm_t_port *c_port;
   const unsigned long mode_bits = SCM_OPN | SCM_RDNG;
 
-  scm_i_scm_pthread_mutex_lock (&scm_i_port_table_mutex);
+  port = scm_c_make_port_with_encoding (bytevector_input_port_type,
+                                        mode_bits,
+                                        NULL, /* encoding */
+                                        SCM_FAILED_CONVERSION_ERROR,
+                                        SCM_UNPACK (bv));
 
-  port = scm_new_port_table_entry (bytevector_input_port_type);
   c_port = SCM_PTAB_ENTRY (port);
-
-  /* Match the expectation of `binary-port?'.  */
-  c_port->encoding = NULL;
-
-  /* Prevent BV from being GC'd.  */
-  SCM_SETSTREAM (port, SCM_UNPACK (bv));
 
   /* Have the port directly access the bytevector.  */
   c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
@@ -102,11 +99,6 @@ make_bip (SCM bv)
   c_port->read_pos = c_port->read_buf = (unsigned char *) c_bv;
   c_port->read_end = (unsigned char *) c_bv + c_len;
   c_port->read_buf_size = c_len;
-
-  /* Mark PORT as open, readable and unbuffered (hmm, how elegant...).  */
-  SCM_SET_CELL_TYPE (port, bytevector_input_port_type | mode_bits);
-
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
 
   return port;
 }
@@ -312,26 +304,18 @@ make_cbip (SCM read_proc, SCM get_position_proc,
   SCM_SIMPLE_VECTOR_SET (method_vector, 2, set_position_proc);
   SCM_SIMPLE_VECTOR_SET (method_vector, 3, close_proc);
 
-  scm_i_pthread_mutex_lock (&scm_i_port_table_mutex);
+  port = scm_c_make_port_with_encoding (custom_binary_input_port_type,
+                                        mode_bits,
+                                        NULL, /* encoding */
+                                        SCM_FAILED_CONVERSION_ERROR,
+                                        SCM_UNPACK (method_vector));
 
-  port = scm_new_port_table_entry (custom_binary_input_port_type);
   c_port = SCM_PTAB_ENTRY (port);
-
-  /* Match the expectation of `binary-port?'.  */
-  c_port->encoding = NULL;
-
-  /* Attach it the method vector.  */
-  SCM_SETSTREAM (port, SCM_UNPACK (method_vector));
 
   /* Have the port directly access the buffer (bytevector).  */
   c_port->read_pos = c_port->read_buf = (unsigned char *) c_bv;
   c_port->read_end = (unsigned char *) c_bv;
   c_port->read_buf_size = c_len;
-
-  /* Mark PORT as open, readable and unbuffered (hmm, how elegant...).  */
-  SCM_SET_CELL_TYPE (port, custom_binary_input_port_type | mode_bits);
-
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
 
   return port;
 }
@@ -829,26 +813,19 @@ make_bop (void)
   scm_t_bop_buffer *buf;
   const unsigned long mode_bits = SCM_OPN | SCM_WRTNG;
 
-  scm_i_pthread_mutex_lock (&scm_i_port_table_mutex);
-
-  port = scm_new_port_table_entry (bytevector_output_port_type);
-  c_port = SCM_PTAB_ENTRY (port);
-
-  /* Match the expectation of `binary-port?'.  */
-  c_port->encoding = NULL;
-
   buf = (scm_t_bop_buffer *) scm_gc_malloc (sizeof (* buf), SCM_GC_BOP);
   bop_buffer_init (buf);
 
+  port = scm_c_make_port_with_encoding (bytevector_output_port_type,
+                                        mode_bits,
+                                        NULL, /* encoding */
+                                        SCM_FAILED_CONVERSION_ERROR,
+                                        (scm_t_bits)buf);
+
+  c_port = SCM_PTAB_ENTRY (port);
+
   c_port->write_buf = c_port->write_pos = c_port->write_end = NULL;
   c_port->write_buf_size = 0;
-
-  SCM_SET_BOP_BUFFER (port, buf);
-
-  /* Mark PORT as open and writable.  */
-  SCM_SET_CELL_TYPE (port, bytevector_output_port_type | mode_bits);
-
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
 
   /* Make the bop procedure.  */
   SCM_NEWSMOB (bop_proc, bytevector_output_port_procedure, buf);
@@ -988,25 +965,17 @@ make_cbop (SCM write_proc, SCM get_position_proc,
   SCM_SIMPLE_VECTOR_SET (method_vector, 2, set_position_proc);
   SCM_SIMPLE_VECTOR_SET (method_vector, 3, close_proc);
 
-  scm_i_pthread_mutex_lock (&scm_i_port_table_mutex);
+  port = scm_c_make_port_with_encoding (custom_binary_output_port_type,
+                                        mode_bits,
+                                        NULL, /* encoding */
+                                        SCM_FAILED_CONVERSION_ERROR,
+                                        SCM_UNPACK (method_vector));
 
-  port = scm_new_port_table_entry (custom_binary_output_port_type);
   c_port = SCM_PTAB_ENTRY (port);
-
-  /* Match the expectation of `binary-port?'.  */
-  c_port->encoding = NULL;
-
-  /* Attach it the method vector.  */
-  SCM_SETSTREAM (port, SCM_UNPACK (method_vector));
 
   /* Have the port directly access the buffer (bytevector).  */
   c_port->write_buf = c_port->write_pos = c_port->write_end = NULL;
   c_port->write_buf_size = c_port->read_buf_size = 0;
-
-  /* Mark PORT as open, writable and unbuffered.  */
-  SCM_SET_CELL_TYPE (port, custom_binary_output_port_type | mode_bits);
-
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
 
   return port;
 }
@@ -1105,13 +1074,8 @@ make_tp (SCM binary_port, unsigned long mode)
   scm_t_port *c_port;
   const unsigned long mode_bits = SCM_OPN | mode;
   
-  scm_i_pthread_mutex_lock (&scm_i_port_table_mutex);
-
-  port = scm_new_port_table_entry (transcoded_port_type);
-
-  SCM_SETSTREAM (port, SCM_UNPACK (binary_port));
-
-  SCM_SET_CELL_TYPE (port, transcoded_port_type | mode_bits);
+  port = scm_c_make_port (transcoded_port_type, mode_bits,
+                          SCM_UNPACK (binary_port));
 
   if (SCM_INPUT_PORT_P (port))
     {
@@ -1124,8 +1088,6 @@ make_tp (SCM binary_port, unsigned long mode)
       SCM_SET_CELL_WORD_0 (port, SCM_CELL_WORD_0 (port) & ~SCM_BUF0);
     }
   
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
-
   return port;
 }
 

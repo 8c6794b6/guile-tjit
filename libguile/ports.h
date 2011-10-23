@@ -118,8 +118,7 @@ typedef struct
 } scm_t_port;
 
 
-SCM_INTERNAL scm_i_pthread_mutex_t scm_i_port_table_mutex;
-SCM_INTERNAL SCM scm_i_port_weak_hash;
+SCM_INTERNAL SCM scm_i_port_weak_set;
 
 
 #define SCM_READ_BUFFER_EMPTY_P(c_port) (c_port->read_pos >= c_port->read_end)
@@ -254,6 +253,16 @@ SCM_API SCM scm_set_current_error_port (SCM port);
 SCM_API void scm_dynwind_current_input_port (SCM port);
 SCM_API void scm_dynwind_current_output_port (SCM port);
 SCM_API void scm_dynwind_current_error_port (SCM port);
+
+SCM_API SCM
+scm_c_make_port_with_encoding (scm_t_bits tag,
+                               unsigned long mode_bits,
+                               const char *encoding,
+                               scm_t_string_failed_conversion_handler handler,
+                               scm_t_bits stream);
+SCM_API SCM scm_c_make_port (scm_t_bits tag, unsigned long mode_bits,
+                             scm_t_bits stream);
+
 SCM_API SCM scm_new_port_table_entry (scm_t_bits tag);
 SCM_API void scm_grow_port_cbuf (SCM port, size_t requested);
 SCM_API SCM scm_pt_size (void);

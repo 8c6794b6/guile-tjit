@@ -277,17 +277,14 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
 {
   SCM z, buf;
   scm_t_port *pt;
-  size_t str_len, c_pos;
+  const char *encoding;
+  size_t read_buf_size, str_len, c_pos;
   char *c_buf;
 
   if (!((modes & SCM_WRTNG) || (modes & SCM_RDNG)))
     scm_misc_error ("scm_mkstrport", "port must read or write", SCM_EOL);
 
-  scm_dynwind_begin (0);
-  scm_i_dynwind_pthread_mutex_lock (&scm_i_port_table_mutex);
-
-  z = scm_new_port_table_entry (scm_tc16_strport);
-  pt = SCM_PTAB_ENTRY(z);
+  encoding = scm_i_default_port_encoding ();
 
   if (scm_is_false (str))
     {
@@ -297,8 +294,8 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
       c_buf = (char *) SCM_BYTEVECTOR_CONTENTS (buf);
 
       /* Reset `read_buf_size'.  It will contain the actual number of
-	 bytes written to PT.  */
-      pt->read_buf_size = 0;
+	 bytes written to the port.  */
+      read_buf_size = 0;
       c_pos = 0;
     }
   else
@@ -308,8 +305,8 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
 
       SCM_ASSERT (scm_is_string (str), str, SCM_ARG1, caller);
 
-      /* Create a copy of STR in the encoding of PT.  */
-      copy = scm_to_stringn (str, &str_len, pt->encoding,
+      /* Create a copy of STR in ENCODING.  */
+      copy = scm_to_stringn (str, &str_len, encoding,
 			     SCM_FAILED_CONVERSION_ERROR);
       buf = scm_c_make_bytevector (str_len);
       c_buf = (char *) SCM_BYTEVECTOR_CONTENTS (buf);
@@ -317,26 +314,26 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
       free (copy);
 
       c_pos = scm_to_unsigned_integer (pos, 0, str_len);
-      pt->read_buf_size = str_len;
+      read_buf_size = str_len;
     }
 
-  SCM_SETSTREAM (z, SCM_UNPACK (buf));
-  SCM_SET_CELL_TYPE (z, scm_tc16_strport | modes);
+  z = scm_c_make_port_with_encoding (scm_tc16_strport, modes,
+                                     encoding,
+                                     SCM_FAILED_CONVERSION_ERROR,
+                                     (scm_t_bits)buf);
 
+  pt = SCM_PTAB_ENTRY (z);
   pt->write_buf = pt->read_buf = (unsigned char *) c_buf;
   pt->read_pos = pt->write_pos = pt->read_buf + c_pos;
+  pt->read_buf_size = read_buf_size;
   pt->write_buf_size = str_len;
   pt->write_end = pt->read_end = pt->read_buf + pt->read_buf_size;
-
   pt->rw_random = 1;
-
-  scm_dynwind_end ();
 
   /* Ensure WRITE_POS is writable.  */
   if ((modes & SCM_WRTNG) && pt->write_pos == pt->write_end)
     st_flush (z);
 
-  scm_i_set_conversion_strategy_x (z, SCM_FAILED_CONVERSION_ERROR);
   return z;
 }
 

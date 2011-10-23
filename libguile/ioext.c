@@ -1,4 +1,4 @@
-/* 	Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2006 Free Software Foundation, Inc.
+/* 	Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2006, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -269,7 +269,7 @@ SCM_DEFINE (scm_primitive_move_to_fdes, "primitive-move->fdes", 2, 0, 0,
 #undef FUNC_NAME
 
 static SCM
-get_matching_port (void *closure, SCM port, SCM val, SCM result)
+get_matching_port (void *closure, SCM port, SCM result)
 {
   int fd = * (int *) closure;
   scm_t_port *entry = SCM_PTAB_ENTRY (port);
@@ -292,11 +292,9 @@ SCM_DEFINE (scm_fdes_to_ports, "fdes->ports", 1, 0, 0,
   SCM result = SCM_EOL;
   int int_fd = scm_to_int (fd);
 
-  scm_i_scm_pthread_mutex_lock (&scm_i_port_table_mutex);
-  result = scm_internal_hash_fold (get_matching_port,
-				   (void*) &int_fd, result, 
-				   scm_i_port_weak_hash);
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
+  result = scm_c_weak_set_fold (get_matching_port,
+                                (void*) &int_fd, result, 
+                                scm_i_port_weak_set);
   return result;
 }
 #undef FUNC_NAME    

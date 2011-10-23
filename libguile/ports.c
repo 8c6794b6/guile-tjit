@@ -56,7 +56,7 @@
 #include "libguile/validate.h"
 #include "libguile/ports.h"
 #include "libguile/vectors.h"
-#include "libguile/weaks.h"
+#include "libguile/weak-set.h"
 #include "libguile/fluids.h"
 #include "libguile/eq.h"
 
@@ -508,9 +508,7 @@ scm_i_dynwind_current_load_port (SCM port)
   We need a global registry of ports to flush them all at exit, and to
   get all the ports matching a file descriptor.
  */
-SCM scm_i_port_weak_hash;
-
-scm_i_pthread_mutex_t scm_i_port_table_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
+SCM scm_i_port_weak_set;
 
 
 /* Port finalization.  */
@@ -579,47 +577,51 @@ finalize_port (GC_PTR ptr, GC_PTR data)
 
 
 
-/* This function is not and should not be thread safe. */
 SCM
-scm_new_port_table_entry (scm_t_bits tag)
-#define FUNC_NAME "scm_new_port_table_entry"
+scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
+                               const char *encoding,
+                               scm_t_string_failed_conversion_handler handler,
+                               scm_t_bits stream)
 {
-  /*
-    We initialize the cell to empty, this is in case scm_gc_calloc
-    triggers GC ; we don't want the GC to scan a half-finished Z.
-   */
-  
-  SCM z = scm_cons (SCM_EOL, SCM_EOL);
-  scm_t_port *entry = (scm_t_port *) scm_gc_calloc (sizeof (scm_t_port), "port");
-  const char *enc;
+  SCM ret;
+  scm_t_port *entry;
+
+  entry = (scm_t_port *) scm_gc_calloc (sizeof (scm_t_port), "port");
+  ret = scm_cell (tag | mode_bits, (scm_t_bits)entry);
 
   entry->file_name = SCM_BOOL_F;
   entry->rw_active = SCM_PORT_NEITHER;
-  entry->port = z;
-
-  /* Initialize this port with the thread's current default
-     encoding.  */
-  enc = scm_i_default_port_encoding ();
-  entry->encoding = enc ? scm_gc_strdup (enc, "port") : NULL;
-
+  entry->port = ret;
+  entry->stream = stream;
+  entry->encoding = encoding ? scm_gc_strdup (encoding, "port") : NULL;
   /* The conversion descriptors will be opened lazily.  */
   entry->input_cd = (iconv_t) -1;
   entry->output_cd = (iconv_t) -1;
+  entry->ilseq_handler = handler;
 
-  entry->ilseq_handler = scm_i_get_conversion_strategy (SCM_BOOL_F);
-
-  SCM_SET_CELL_TYPE (z, tag);
-  SCM_SETPTAB_ENTRY (z, entry);
-
-  scm_hashq_set_x (scm_i_port_weak_hash, z, SCM_BOOL_F);
+  scm_weak_set_add_x (scm_i_port_weak_set, ret);
 
   /* For each new port, register a finalizer so that it port type's free
      function can be invoked eventually.  */
-  register_finalizer_for_port (z);
+  register_finalizer_for_port (ret);
 
-  return z;
+  return ret;
 }
-#undef FUNC_NAME
+
+SCM
+scm_c_make_port (scm_t_bits tag, unsigned long mode_bits, scm_t_bits stream)
+{
+  return scm_c_make_port_with_encoding (tag, mode_bits,
+                                        scm_i_default_port_encoding (),
+                                        scm_i_get_conversion_strategy (SCM_BOOL_F),
+                                        stream);
+}
+
+SCM
+scm_new_port_table_entry (scm_t_bits tag)
+{
+  return scm_c_make_port (tag, 0, 0);
+}
 
 /* Remove a port from the table and destroy it.  */
 
@@ -629,10 +631,11 @@ scm_i_remove_port (SCM port)
 {
   scm_t_port *p;
 
-  scm_i_scm_pthread_mutex_lock (&scm_i_port_table_mutex);
-
   p = SCM_PTAB_ENTRY (port);
   scm_port_non_buffer (p);
+  SCM_SETPTAB_ENTRY (port, 0);
+  scm_weak_set_remove_x (scm_i_port_weak_set, port);
+
   p->putback_buf = NULL;
   p->putback_buf_size = 0;
 
@@ -647,28 +650,9 @@ scm_i_remove_port (SCM port)
       iconv_close (p->output_cd);
       p->output_cd = (iconv_t) -1;
     }
-
-  SCM_SETPTAB_ENTRY (port, 0);
-
-  scm_hashq_remove_x (scm_i_port_weak_hash, port);
-
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
 }
 #undef FUNC_NAME
 
-
-/* Functions for debugging.  */
-#ifdef GUILE_DEBUG
-SCM_DEFINE (scm_pt_size, "pt-size", 0, 0, 0,
-            (),
-	    "Return the number of ports in the port table.  @code{pt-size}\n"
-	    "is only included in @code{--enable-guile-debug} builds.")
-#define FUNC_NAME s_scm_pt_size
-{
-  return scm_from_int (SCM_HASHTABLE_N_ITEMS (scm_i_port_weak_hash));
-}
-#undef FUNC_NAME
-#endif
 
 void
 scm_port_non_buffer (scm_t_port *pt)
@@ -862,30 +846,38 @@ SCM_DEFINE (scm_close_output_port, "close-output-port", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-static SCM
-collect_keys (void *unused, SCM key, SCM value, SCM result)
+struct for_each_data 
 {
-  return scm_cons (key, result);
+  void (*proc) (void *data, SCM p);
+  void *data;
+};
+
+static SCM
+for_each_trampoline (void *data, SCM port, SCM result)
+{
+  struct for_each_data *d = data;
+  
+  d->proc (d->data, port);
+
+  return result;
 }
 
 void
 scm_c_port_for_each (void (*proc)(void *data, SCM p), void *data)
 {
-  SCM ports;
+  struct for_each_data d;
+  
+  d.proc = proc;
+  d.data = data;
 
-  /* Copy out the port table as a list so that we get strong references
-     to all the values.  */
-  scm_i_pthread_mutex_lock (&scm_i_port_table_mutex);
-  ports = scm_internal_hash_fold (collect_keys, NULL,
-				  SCM_EOL, scm_i_port_weak_hash);
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
+  scm_c_weak_set_fold (for_each_trampoline, &d, SCM_EOL,
+                       scm_i_port_weak_set);
+}
 
-  for (; scm_is_pair (ports); ports = scm_cdr (ports))
-    {
-      SCM p = scm_car (ports);
-      if (SCM_PORTP (p))
-        proc (data, p);
-    }
+static void
+scm_for_each_trampoline (void *data, SCM port)
+{
+  scm_call_1 (PTR2SCM (data), port);
 }
 
 SCM_DEFINE (scm_port_for_each, "port-for-each", 1, 0, 0,
@@ -898,21 +890,10 @@ SCM_DEFINE (scm_port_for_each, "port-for-each", 1, 0, 0,
 	    "have no effect as far as @var{port-for-each} is concerned.") 
 #define FUNC_NAME s_scm_port_for_each
 {
-  SCM ports;
-
   SCM_VALIDATE_PROC (1, proc);
 
-  /* Copy out the port table as a list so that we get strong references
-     to all the values.  */
-  scm_i_pthread_mutex_lock (&scm_i_port_table_mutex);
-  ports = scm_internal_hash_fold (collect_keys, NULL,
-				  SCM_EOL, scm_i_port_weak_hash);
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
-
-  for (; scm_is_pair (ports); ports = scm_cdr (ports))
-    if (SCM_PORTP (SCM_CAR (ports)))
-      scm_call_1 (proc, SCM_CAR (ports));
-
+  scm_c_port_for_each (scm_for_each_trampoline, SCM2PTR (proc));
+  
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -2470,18 +2451,13 @@ write_void_port (SCM port SCM_UNUSED,
 static SCM
 scm_i_void_port (long mode_bits)
 {
-  scm_i_scm_pthread_mutex_lock (&scm_i_port_table_mutex);
-  {
-    SCM answer = scm_new_port_table_entry (scm_tc16_void_port);
-    scm_t_port * pt = SCM_PTAB_ENTRY(answer);
+  SCM ret;
 
-    scm_port_non_buffer (pt);
+  ret = scm_c_make_port (scm_tc16_void_port, mode_bits, 0);
+
+  scm_port_non_buffer (SCM_PTAB_ENTRY (ret));
   
-    SCM_SETSTREAM (answer, 0);
-    SCM_SET_CELL_TYPE (answer, scm_tc16_void_port | mode_bits);
-    scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
-    return answer;
-  }
+  return ret;
 }
 
 SCM
@@ -2521,7 +2497,7 @@ scm_init_ports ()
   cur_errport_fluid = scm_make_fluid ();
   cur_loadport_fluid = scm_make_fluid ();
 
-  scm_i_port_weak_hash = scm_make_weak_key_hash_table (SCM_I_MAKINUM(31));
+  scm_i_port_weak_set = scm_c_make_weak_set (31);
 
 #include "libguile/ports.x"
 

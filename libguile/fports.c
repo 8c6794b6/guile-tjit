@@ -532,7 +532,7 @@ scm_i_fdes_to_port (int fdes, long mode_bits, SCM name)
 #define FUNC_NAME "scm_fdes_to_port"
 {
   SCM port;
-  scm_t_port *pt;
+  scm_t_fport *fp;
   int flags;
 
   /* test that fdes is valid.  */
@@ -551,26 +551,21 @@ scm_i_fdes_to_port (int fdes, long mode_bits, SCM name)
       SCM_MISC_ERROR ("requested file mode not available on fdes", SCM_EOL);
     }
 
-  scm_i_scm_pthread_mutex_lock (&scm_i_port_table_mutex);
+  fp = (scm_t_fport *) scm_gc_malloc_pointerless (sizeof (scm_t_fport),
+                                                  "file port");
+  fp->fdes = fdes;
 
-  port = scm_new_port_table_entry (scm_tc16_fport);
-  SCM_SET_CELL_TYPE(port, scm_tc16_fport | mode_bits);
-  pt = SCM_PTAB_ENTRY(port);
-  {
-    scm_t_fport *fp
-      = (scm_t_fport *) scm_gc_malloc_pointerless (sizeof (scm_t_fport),
-						   "file port");
+  port = scm_c_make_port (scm_tc16_fport, mode_bits, (scm_t_bits)fp);
+  
+  SCM_PTAB_ENTRY (port)->rw_random = SCM_FDES_RANDOM_P (fdes);
 
-    fp->fdes = fdes;
-    pt->rw_random = SCM_FDES_RANDOM_P (fdes);
-    SCM_SETSTREAM (port, fp);
-    if (mode_bits & SCM_BUF0)
-      scm_fport_buffer_add (port, 0, 0);
-    else
-      scm_fport_buffer_add (port, -1, -1);
-  }
+  if (mode_bits & SCM_BUF0)
+    scm_fport_buffer_add (port, 0, 0);
+  else
+    scm_fport_buffer_add (port, -1, -1);
+
   SCM_SET_FILENAME (port, name);
-  scm_i_pthread_mutex_unlock (&scm_i_port_table_mutex);
+
   return port;
 }
 #undef FUNC_NAME
