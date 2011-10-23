@@ -36,20 +36,13 @@
  */
 
 static SCM object_whash;
-static scm_i_pthread_mutex_t whash_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 SCM_DEFINE (scm_object_properties, "object-properties", 1, 0, 0, 
            (SCM obj),
 	    "Return @var{obj}'s property list.")
 #define FUNC_NAME s_scm_object_properties
 {
-  SCM ret;
-
-  scm_i_pthread_mutex_lock (&whash_mutex);
-  ret = scm_hashq_ref (object_whash, obj, SCM_EOL);
-  scm_i_pthread_mutex_unlock (&whash_mutex);
-
-  return ret;
+  return scm_weak_table_refq (object_whash, obj, SCM_EOL);
 }
 #undef FUNC_NAME
 
@@ -59,9 +52,7 @@ SCM_DEFINE (scm_set_object_properties_x, "set-object-properties!", 2, 0, 0,
 	    "Set @var{obj}'s property list to @var{alist}.")
 #define FUNC_NAME s_scm_set_object_properties_x
 {
-  scm_i_pthread_mutex_lock (&whash_mutex);
-  scm_hashq_set_x (object_whash, obj, alist);
-  scm_i_pthread_mutex_unlock (&whash_mutex);
+  scm_weak_table_putq_x (object_whash, obj, alist);
 
   return alist;
 }
@@ -87,14 +78,14 @@ SCM_DEFINE (scm_set_object_property_x, "set-object-property!", 3, 0, 0,
   SCM alist;
   SCM assoc;
 
-  scm_i_pthread_mutex_lock (&whash_mutex);
-  alist = scm_hashq_ref (object_whash, obj, SCM_EOL);
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
+  alist = scm_weak_table_refq (object_whash, obj, SCM_EOL);
   assoc = scm_assq (key, alist);
   if (SCM_NIMP (assoc))
     SCM_SETCDR (assoc, value);
   else
-    scm_hashq_set_x (object_whash, obj, scm_acons (key, value, alist));
-  scm_i_pthread_mutex_unlock (&whash_mutex);
+    scm_weak_table_putq_x (object_whash, obj, scm_acons (key, value, alist));
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
 
   return value;
 }
@@ -104,7 +95,7 @@ SCM_DEFINE (scm_set_object_property_x, "set-object-property!", 3, 0, 0,
 void
 scm_init_objprop ()
 {
-  object_whash = scm_make_weak_key_hash_table (SCM_UNDEFINED);
+  object_whash = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
 #include "libguile/objprop.x"
 }
 

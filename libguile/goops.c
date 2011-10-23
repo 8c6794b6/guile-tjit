@@ -163,7 +163,6 @@ static SCM class_bytevector;
 static SCM class_uvec;
 
 static SCM vtable_class_map = SCM_BOOL_F;
-static scm_i_pthread_mutex_t vtable_class_map_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 /* Port classes.  Allocate 3 times the maximum number of port types so that
    input ports, output ports, and in/out ports can be stored at different
@@ -191,17 +190,15 @@ scm_i_define_class_for_vtable (SCM vtable)
 {
   SCM class;
 
-  scm_i_pthread_mutex_lock (&vtable_class_map_lock);
-
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
   if (scm_is_false (vtable_class_map))
-    vtable_class_map = scm_make_weak_key_hash_table (SCM_UNDEFINED);
+    vtable_class_map = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
   
   if (scm_is_false (scm_struct_vtable_p (vtable)))
     abort ();
 
-  class = scm_hashq_ref (vtable_class_map, vtable, SCM_BOOL_F);
-  
-  scm_i_pthread_mutex_unlock (&vtable_class_map_lock);
+  class = scm_weak_table_refq (vtable_class_map, vtable, SCM_BOOL_F);
 
   if (scm_is_false (class))
     {
@@ -220,9 +217,7 @@ scm_i_define_class_for_vtable (SCM vtable)
 
       /* Don't worry about races.  This only happens when creating a
          vtable, which happens by definition in one thread.  */
-      scm_i_pthread_mutex_lock (&vtable_class_map_lock);
-      scm_hashq_set_x (vtable_class_map, vtable, class);
-      scm_i_pthread_mutex_unlock (&vtable_class_map_lock);
+      scm_weak_table_putq_x (vtable_class_map, vtable, class);
     }
 
   return class;

@@ -87,15 +87,12 @@ static SCM cif_to_procedure (SCM cif, SCM func_ptr);
 
 
 static SCM pointer_weak_refs = SCM_BOOL_F;
-static scm_i_pthread_mutex_t weak_refs_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 
 static void
 register_weak_reference (SCM from, SCM to)
 {
-  scm_i_pthread_mutex_lock (&weak_refs_lock);
-  scm_hashq_set_x (pointer_weak_refs, from, to);
-  scm_i_pthread_mutex_unlock (&weak_refs_lock);
+  scm_weak_table_putq_x (pointer_weak_refs, from, to);
 }
 
 static void
@@ -1272,7 +1269,7 @@ scm_register_foreign (void)
                             "scm_init_foreign",
                             (scm_t_extension_init_func)scm_init_foreign,
                             NULL);
-  pointer_weak_refs = scm_make_weak_key_hash_table (SCM_UNDEFINED);
+  pointer_weak_refs = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
 }
 
 /*

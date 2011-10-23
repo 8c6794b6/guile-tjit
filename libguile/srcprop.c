@@ -61,7 +61,6 @@ SCM_GLOBAL_SYMBOL (scm_sym_line, "line");
 SCM_GLOBAL_SYMBOL (scm_sym_column, "column");
 
 static SCM scm_source_whash;
-static scm_i_pthread_mutex_t source_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 
 /*
@@ -167,9 +166,7 @@ SCM_DEFINE (scm_source_properties, "source-properties", 1, 0, 0,
   SCM p;
   SCM_VALIDATE_NIM (1, obj);
 
-  scm_i_pthread_mutex_lock (&source_lock);
-  p = scm_hashq_ref (scm_source_whash, obj, SCM_EOL); 
-  scm_i_pthread_mutex_unlock (&source_lock);
+  p = scm_weak_table_refq (scm_source_whash, obj, SCM_EOL); 
 
   if (SRCPROPSP (p))
     return scm_srcprops_to_alist (p);
@@ -189,9 +186,7 @@ SCM_DEFINE (scm_set_source_properties_x, "set-source-properties!", 2, 0, 0,
 {
   SCM_VALIDATE_NIM (1, obj);
 
-  scm_i_pthread_mutex_lock (&source_lock);
-  scm_hashq_set_x (scm_source_whash, obj, alist);
-  scm_i_pthread_mutex_unlock (&source_lock);
+  scm_weak_table_putq_x (scm_source_whash, obj, alist);
 
   return alist;
 }
@@ -205,9 +200,7 @@ scm_i_has_source_properties (SCM obj)
   
   SCM_VALIDATE_NIM (1, obj);
 
-  scm_i_pthread_mutex_lock (&source_lock);
-  ret = scm_is_true (scm_hashq_ref (scm_source_whash, obj, SCM_BOOL_F));
-  scm_i_pthread_mutex_unlock (&source_lock);
+  ret = scm_is_true (scm_weak_table_refq (scm_source_whash, obj, SCM_BOOL_F));
 
   return ret;
 }
@@ -220,14 +213,12 @@ scm_i_set_source_properties_x (SCM obj, long line, int col, SCM fname)
 {
   SCM_VALIDATE_NIM (1, obj);
 
-  scm_i_pthread_mutex_lock (&source_lock);
-  scm_hashq_set_x (scm_source_whash, obj,
-                   scm_make_srcprops (line, col, fname,
-                                      SCM_COPY_SOURCE_P
-                                      ? scm_copy_tree (obj)
-                                      : SCM_UNDEFINED,
-                                      SCM_EOL));
-  scm_i_pthread_mutex_unlock (&source_lock);
+  scm_weak_table_putq_x (scm_source_whash, obj,
+                         scm_make_srcprops (line, col, fname,
+                                            SCM_COPY_SOURCE_P
+                                            ? scm_copy_tree (obj)
+                                            : SCM_UNDEFINED,
+                                            SCM_EOL));
 }
 #undef FUNC_NAME
 
@@ -240,9 +231,7 @@ SCM_DEFINE (scm_source_property, "source-property", 2, 0, 0,
   SCM p;
   SCM_VALIDATE_NIM (1, obj);
 
-  scm_i_pthread_mutex_lock (&source_lock);
-  p = scm_hashq_ref (scm_source_whash, obj, SCM_EOL);
-  scm_i_pthread_mutex_unlock (&source_lock);
+  p = scm_weak_table_refq (scm_source_whash, obj, SCM_EOL);
 
   if (!SRCPROPSP (p))
     goto alist;
@@ -272,44 +261,44 @@ SCM_DEFINE (scm_set_source_property_x, "set-source-property!", 3, 0, 0,
   SCM p;
   SCM_VALIDATE_NIM (1, obj);
 
-  scm_i_pthread_mutex_lock (&source_lock);
-  p = scm_hashq_ref (scm_source_whash, obj, SCM_EOL);
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
+  p = scm_weak_table_refq (scm_source_whash, obj, SCM_EOL);
 
   if (scm_is_eq (scm_sym_line, key))
     {
       if (SRCPROPSP (p))
 	SETSRCPROPLINE (p, scm_to_int (datum));
       else
-	scm_hashq_set_x (scm_source_whash, obj,
-                         scm_make_srcprops (scm_to_int (datum), 0,
-                                            SCM_UNDEFINED, SCM_UNDEFINED, p));
+	scm_weak_table_putq_x (scm_source_whash, obj,
+                               scm_make_srcprops (scm_to_int (datum), 0,
+                                                  SCM_UNDEFINED, SCM_UNDEFINED, p));
     }
   else if (scm_is_eq (scm_sym_column, key))
     {
       if (SRCPROPSP (p))
 	SETSRCPROPCOL (p, scm_to_int (datum));
       else
-	scm_hashq_set_x (scm_source_whash, obj,
-                         scm_make_srcprops (0, scm_to_int (datum),
-                                            SCM_UNDEFINED, SCM_UNDEFINED, p));
+	scm_weak_table_putq_x (scm_source_whash, obj,
+                               scm_make_srcprops (0, scm_to_int (datum),
+                                                  SCM_UNDEFINED, SCM_UNDEFINED, p));
     }
   else if (scm_is_eq (scm_sym_copy, key))
     {
       if (SRCPROPSP (p))
 	SETSRCPROPCOPY (p, datum);
       else
-	scm_hashq_set_x (scm_source_whash, obj,
-                         scm_make_srcprops (0, 0, SCM_UNDEFINED, datum, p));
+	scm_weak_table_putq_x (scm_source_whash, obj,
+                               scm_make_srcprops (0, 0, SCM_UNDEFINED, datum, p));
     }
   else
     {
       if (SRCPROPSP (p))
 	SETSRCPROPALIST (p, scm_acons (key, datum, SRCPROPALIST (p)));
       else
-	scm_hashq_set_x (scm_source_whash, obj,
-                         scm_acons (key, datum, p));
+	scm_weak_table_putq_x (scm_source_whash, obj,
+                               scm_acons (key, datum, p));
     }
-  scm_i_pthread_mutex_unlock (&source_lock);
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
 
   return SCM_UNSPECIFIED;
 }
@@ -325,12 +314,10 @@ SCM_DEFINE (scm_cons_source, "cons-source", 3, 0, 0,
 {
   SCM p, z;
   z = scm_cons (x, y);
-  scm_i_pthread_mutex_lock (&source_lock);
   /* Copy source properties possibly associated with xorig. */
-  p = scm_hashq_ref (scm_source_whash, xorig, SCM_BOOL_F);
+  p = scm_weak_table_refq (scm_source_whash, xorig, SCM_BOOL_F);
   if (scm_is_true (p))
-    scm_hashq_set_x (scm_source_whash, z, p);
-  scm_i_pthread_mutex_unlock (&source_lock);
+    scm_weak_table_putq_x (scm_source_whash, z, p);
   return z;
 }
 #undef FUNC_NAME
@@ -342,7 +329,7 @@ scm_init_srcprop ()
   scm_tc16_srcprops = scm_make_smob_type ("srcprops", 0);
   scm_set_smob_print (scm_tc16_srcprops, srcprops_print);
 
-  scm_source_whash = scm_make_weak_key_hash_table (scm_from_int (2047));
+  scm_source_whash = scm_c_make_weak_table (2047, SCM_WEAK_TABLE_KIND_KEY);
   scm_c_define ("source-whash", scm_source_whash);
 
   scm_last_alist_filename = scm_cons (SCM_EOL,

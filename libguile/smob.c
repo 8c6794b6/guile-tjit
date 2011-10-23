@@ -418,16 +418,13 @@ scm_set_smob_apply (scm_t_bits tc, SCM (*apply) (),
 }
 
 static SCM tramp_weak_map = SCM_BOOL_F;
-static scm_i_pthread_mutex_t tramp_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 SCM
 scm_i_smob_apply_trampoline (SCM smob)
 {
   SCM tramp;
 
-  scm_i_pthread_mutex_lock (&tramp_lock);
-  tramp = scm_hashq_ref (tramp_weak_map, smob, SCM_BOOL_F);
-  scm_i_pthread_mutex_unlock (&tramp_lock);
+  tramp = scm_weak_table_refq (tramp_weak_map, smob, SCM_BOOL_F);
 
   if (scm_is_true (tramp))
     return tramp;
@@ -447,9 +444,7 @@ scm_i_smob_apply_trampoline (SCM smob)
 
       /* Race conditions (between the ref and this set!) cannot cause
          any harm here.  */
-      scm_i_pthread_mutex_lock (&tramp_lock);
-      scm_hashq_set_x (tramp_weak_map, smob, tramp);
-      scm_i_pthread_mutex_unlock (&tramp_lock);
+      scm_weak_table_putq_x (tramp_weak_map, smob, tramp);
       return tramp;
     }
 }
@@ -677,7 +672,7 @@ scm_smob_prehistory ()
       scm_smobs[i].apply_trampoline_objcode = SCM_BOOL_F;
     }
 
-  tramp_weak_map = scm_make_weak_key_hash_table (SCM_UNDEFINED);
+  tramp_weak_map = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
 }
 
 /*

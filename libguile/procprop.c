@@ -31,7 +31,7 @@
 #include "libguile/smob.h"
 #include "libguile/root.h"
 #include "libguile/vectors.h"
-#include "libguile/hashtab.h"
+#include "libguile/weak-table.h"
 #include "libguile/programs.h"
 
 #include "libguile/validate.h"
@@ -42,7 +42,6 @@ SCM_GLOBAL_SYMBOL (scm_sym_system_procedure, "system-procedure");
 SCM_GLOBAL_SYMBOL (scm_sym_name, "name");
 
 static SCM overrides;
-static scm_i_pthread_mutex_t overrides_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 int
 scm_i_procedure_arity (SCM proc, int *req, int *opt, int *rest)
@@ -104,9 +103,7 @@ SCM_DEFINE (scm_procedure_properties, "procedure-properties", 1, 0, 0,
   
   SCM_VALIDATE_PROC (1, proc);
 
-  scm_i_pthread_mutex_lock (&overrides_lock);
-  ret = scm_hashq_ref (overrides, proc, SCM_BOOL_F);
-  scm_i_pthread_mutex_unlock (&overrides_lock);
+  ret = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
 
   if (scm_is_false (ret))
     {
@@ -127,9 +124,7 @@ SCM_DEFINE (scm_set_procedure_properties_x, "set-procedure-properties!", 2, 0, 0
 {
   SCM_VALIDATE_PROC (1, proc);
 
-  scm_i_pthread_mutex_lock (&overrides_lock);
-  scm_hashq_set_x (overrides, proc, alist);
-  scm_i_pthread_mutex_unlock (&overrides_lock);
+  scm_weak_table_putq_x (overrides, proc, alist);
 
   return SCM_UNSPECIFIED;
 }
@@ -156,8 +151,8 @@ SCM_DEFINE (scm_set_procedure_property_x, "set-procedure-property!", 3, 0, 0,
 
   SCM_VALIDATE_PROC (1, proc);
 
-  scm_i_pthread_mutex_lock (&overrides_lock);
-  props = scm_hashq_ref (overrides, proc, SCM_BOOL_F);
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
+  props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
   if (scm_is_false (props))
     {
       if (SCM_PROGRAM_P (proc))
@@ -165,8 +160,8 @@ SCM_DEFINE (scm_set_procedure_property_x, "set-procedure-property!", 3, 0, 0,
       else
         props = SCM_EOL;
     }
-  scm_hashq_set_x (overrides, proc, scm_assq_set_x (props, key, val));
-  scm_i_pthread_mutex_unlock (&overrides_lock);
+  scm_weak_table_putq_x (overrides, proc, scm_assq_set_x (props, key, val));
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
 
   return SCM_UNSPECIFIED;
 }
@@ -178,7 +173,7 @@ SCM_DEFINE (scm_set_procedure_property_x, "set-procedure-property!", 3, 0, 0,
 void
 scm_init_procprop ()
 {
-  overrides = scm_make_weak_key_hash_table (SCM_UNDEFINED);
+  overrides = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
 #include "libguile/procprop.x"
 }
 
