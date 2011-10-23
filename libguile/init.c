@@ -489,6 +489,7 @@ scm_i_init_guile (void *base)
   scm_init_trees ();
   scm_init_version ();
   scm_init_weaks ();
+  scm_init_weak_set ();
   scm_init_guardians (); /* requires smob_prehistory */
   scm_init_vports ();
   scm_init_standard_ports ();  /* Requires fports */

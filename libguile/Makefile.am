@@ -218,6 +218,7 @@ libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES =				\
 	version.c				\
 	vm.c					\
 	vports.c				\
+	weak-set.c				\
 	weaks.c
 
 DOT_X_FILES =					\
@@ -314,6 +315,7 @@ DOT_X_FILES =					\
 	vectors.x				\
 	version.x				\
 	vports.x				\
+	weak-set.x				\
 	weaks.x
 
 # vm-related snarfs
@@ -415,6 +417,7 @@ DOT_DOC_FILES = 				\
 	vectors.doc				\
 	version.doc				\
 	vports.doc				\
+	weak-set.doc				\
 	weaks.doc
 
 EXTRA_DOT_DOC_FILES = @EXTRA_DOT_DOC_FILES@
@@ -617,6 +620,7 @@ modinclude_HEADERS =				\
 	vm-expand.h				\
 	vm.h					\
 	vports.h				\
+	weak-set.h				\
 	weaks.h
 
 nodist_modinclude_HEADERS = version.h scmconfig.h

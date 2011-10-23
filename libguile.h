@@ -115,6 +115,7 @@ extern "C" {
 #include "libguile/srfi-4.h"
 #include "libguile/version.h"
 #include "libguile/vports.h"
+#include "libguile/weak-set.h"
 #include "libguile/weaks.h"
 #include "libguile/backtrace.h"
 #include "libguile/debug.h"

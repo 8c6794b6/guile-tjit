@@ -621,6 +621,9 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	case scm_tc7_hashtable:
 	  scm_i_hashtable_print (exp, port, pstate);
 	  break;
+	case scm_tc7_weak_set:
+	  scm_i_weak_set_print (exp, port, pstate);
+	  break;
 	case scm_tc7_fluid:
 	  scm_i_fluid_print (exp, port, pstate);
 	  break;

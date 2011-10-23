@@ -751,6 +751,8 @@ scm_i_tag_name (scm_t_bits tag)
       return "foreign";
     case scm_tc7_hashtable:
       return "hashtable";
+    case scm_tc7_weak_set:
+      return "weak-set";
     case scm_tc7_fluid:
       return "fluid";
     case scm_tc7_dynamic_state:
