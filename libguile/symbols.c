@@ -33,8 +33,7 @@
 #include "libguile/fluids.h"
 #include "libguile/strings.h"
 #include "libguile/vectors.h"
-#include "libguile/hashtab.h"
-#include "libguile/weaks.h"
+#include "libguile/weak-set.h"
 #include "libguile/modules.h"
 #include "libguile/read.h"
 #include "libguile/srfi-13.h"
@@ -52,7 +51,6 @@
 
 
 static SCM symbols;
-static scm_i_pthread_mutex_t symbols_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 #ifdef GUILE_DEBUG
 SCM_DEFINE (scm_sys_symbols, "%symbols", 0, 0, 0,
@@ -104,21 +102,13 @@ static SCM
 lookup_interned_symbol (SCM name, unsigned long raw_hash)
 {
   struct string_lookup_data data;
-  SCM handle;
 
   data.string = name;
   data.string_hash = raw_hash;
   
-  scm_i_pthread_mutex_lock (&symbols_lock);
-  handle = scm_hash_fn_get_handle_by_hash (symbols, raw_hash,
-                                           string_lookup_predicate_fn,
-                                           &data);  
-  scm_i_pthread_mutex_unlock (&symbols_lock);
-
-  if (scm_is_true (handle))
-    return SCM_CAR (handle);
-  else
-    return SCM_BOOL_F;
+  return scm_c_weak_set_lookup (symbols, raw_hash,
+                                string_lookup_predicate_fn,
+                                &data, SCM_BOOL_F);
 }
 
 struct latin1_lookup_data
@@ -144,63 +134,37 @@ lookup_interned_latin1_symbol (const char *str, size_t len,
                                unsigned long raw_hash)
 {
   struct latin1_lookup_data data;
-  SCM handle;
 
   data.str = str;
   data.len = len;
   data.string_hash = raw_hash;
   
-  scm_i_pthread_mutex_lock (&symbols_lock);
-  handle = scm_hash_fn_get_handle_by_hash (symbols, raw_hash,
-                                           latin1_lookup_predicate_fn,
-                                           &data);  
-  scm_i_pthread_mutex_unlock (&symbols_lock);
-
-  if (scm_is_true (handle))
-    return SCM_CAR (handle);
-  else
-    return SCM_BOOL_F;
+  return scm_c_weak_set_lookup (symbols, raw_hash,
+                                latin1_lookup_predicate_fn,
+                                &data, SCM_BOOL_F);
 }
 
-static unsigned long
-symbol_lookup_hash_fn (SCM obj, unsigned long max, void *closure)
+static int
+symbol_lookup_predicate_fn (SCM sym, void *closure)
 {
-  return scm_i_symbol_hash (obj) % max;
-}
+  SCM other = PTR2SCM (closure);
 
-static SCM
-symbol_lookup_assoc_fn (SCM obj, SCM alist, void *closure)
-{
-  for (; !scm_is_null (alist); alist = SCM_CDR (alist))
+  if (scm_i_symbol_hash (sym) == scm_i_symbol_hash (other)
+      && scm_i_symbol_length (sym) == scm_i_symbol_length (other))
     {
-      SCM sym = SCM_CAAR (alist);
-
-      if (scm_i_symbol_hash (sym) == scm_i_symbol_hash (obj)
-          && scm_is_true (scm_string_equal_p (scm_symbol_to_string (sym),
-                                              scm_symbol_to_string (obj))))
-        return SCM_CAR (alist);
+      if (scm_i_is_narrow_symbol (sym))
+        return scm_i_is_narrow_symbol (other)
+          && (strncmp (scm_i_symbol_chars (sym),
+                       scm_i_symbol_chars (other),
+                       scm_i_symbol_length (other)) == 0);
+      else
+        return scm_is_true
+          (scm_string_equal_p (scm_symbol_to_string (sym),
+                               scm_symbol_to_string (other)));
     }
-
-  return SCM_BOOL_F;
+  return 0;
 }
-
-/* Intern SYMBOL, an uninterned symbol.  Might return a different
-   symbol, if another one was interned at the same time.  */
-static SCM
-intern_symbol (SCM symbol)
-{
-  SCM handle;
-
-  scm_i_pthread_mutex_lock (&symbols_lock);
-  handle = scm_hash_fn_create_handle_x (symbols, symbol, SCM_UNDEFINED,
-                                        symbol_lookup_hash_fn,
-                                        symbol_lookup_assoc_fn,
-                                        NULL);
-  scm_i_pthread_mutex_unlock (&symbols_lock);
-
-  return SCM_CAR (handle);
-}
-
+ 
 static SCM
 scm_i_str2symbol (SCM str)
 {
@@ -215,7 +179,12 @@ scm_i_str2symbol (SCM str)
       /* The symbol was not found, create it.  */
       symbol = scm_i_make_symbol (str, 0, raw_hash,
 				  scm_cons (SCM_BOOL_F, SCM_EOL));
-      return intern_symbol (symbol);
+
+      /* Might return a different symbol, if another one was interned at
+         the same time.  */
+      return scm_c_weak_set_add_x (symbols, raw_hash,
+                                   symbol_lookup_predicate_fn,
+                                   SCM2PTR (symbol), symbol);
     }
 }
 
@@ -497,7 +466,7 @@ scm_from_utf8_symboln (const char *sym, size_t len)
 void
 scm_symbols_prehistory ()
 {
-  symbols = scm_make_weak_key_hash_table (scm_from_int (2139));
+  symbols = scm_c_make_weak_set (5000);
 }
 
 
