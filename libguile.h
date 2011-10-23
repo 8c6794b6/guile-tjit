@@ -116,6 +116,7 @@ extern "C" {
 #include "libguile/version.h"
 #include "libguile/vports.h"
 #include "libguile/weak-set.h"
+#include "libguile/weak-table.h"
 #include "libguile/weaks.h"
 #include "libguile/backtrace.h"
 #include "libguile/debug.h"

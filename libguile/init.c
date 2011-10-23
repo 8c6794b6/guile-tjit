@@ -384,6 +384,7 @@ scm_i_init_guile (void *base)
   scm_storage_prehistory ();
   scm_threads_prehistory (base);  /* requires storage_prehistory */
   scm_weaks_prehistory ();        /* requires storage_prehistory */
+  scm_weak_table_prehistory ();        /* requires storage_prehistory */
 #ifdef GUILE_DEBUG_MALLOC
   scm_debug_malloc_prehistory ();
 #endif
@@ -490,6 +491,7 @@ scm_i_init_guile (void *base)
   scm_init_version ();
   scm_init_weaks ();
   scm_init_weak_set ();
+  scm_init_weak_table ();
   scm_init_guardians (); /* requires smob_prehistory */
   scm_init_vports ();
   scm_init_standard_ports ();  /* Requires fports */
