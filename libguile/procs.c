@@ -46,21 +46,10 @@ SCM_DEFINE (scm_procedure_p, "procedure?", 1, 0, 0,
 	    "Return @code{#t} if @var{obj} is a procedure.")
 #define FUNC_NAME s_scm_procedure_p
 {
-  if (SCM_NIMP (obj))
-    switch (SCM_TYP7 (obj))
-      {
-      case scm_tcs_struct:
-	if (!((SCM_OBJ_CLASS_FLAGS (obj) & SCM_CLASSF_PURE_GENERIC)
-              || SCM_STRUCT_APPLICABLE_P (obj)))
-	  break;
-      case scm_tc7_program:
-	return SCM_BOOL_T;
-      case scm_tc7_smob:
-	return scm_from_bool (SCM_SMOB_DESCRIPTOR (obj).apply);
-      default:
-	return SCM_BOOL_F;
-      }
-  return SCM_BOOL_F;
+  return scm_from_bool (SCM_PROGRAM_P (obj)
+                        || (SCM_STRUCTP (obj) && SCM_STRUCT_APPLICABLE_P (obj))
+                        || (SCM_HAS_TYP7 (obj, scm_tc7_smob)
+                            && SCM_SMOB_APPLICABLE_P (obj)));
 }
 #undef FUNC_NAME
 
