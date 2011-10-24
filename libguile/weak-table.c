@@ -1024,6 +1024,90 @@ scm_weak_table_map_to_list (SCM proc, SCM table)
 #undef FUNC_NAME
 
 
+
+
+/* Legacy interface.  */
+
+SCM_DEFINE (scm_make_weak_key_hash_table, "make-weak-key-hash-table", 0, 1, 0, 
+	    (SCM n),
+	    "@deffnx {Scheme Procedure} make-weak-value-hash-table size\n"
+	    "@deffnx {Scheme Procedure} make-doubly-weak-hash-table size\n"
+	    "Return a weak hash table with @var{size} buckets.\n"
+	    "\n"
+	    "You can modify weak hash tables in exactly the same way you\n"
+	    "would modify regular hash tables. (@pxref{Hash Tables})")
+#define FUNC_NAME s_scm_make_weak_key_hash_table
+{
+  return scm_c_make_weak_table (SCM_UNBNDP (n) ? 0 : scm_to_ulong (n),
+                                SCM_WEAK_TABLE_KIND_KEY);
+}
+#undef FUNC_NAME
+
+
+SCM_DEFINE (scm_make_weak_value_hash_table, "make-weak-value-hash-table", 0, 1, 0, 
+            (SCM n),
+	    "Return a hash table with weak values with @var{size} buckets.\n"
+	    "(@pxref{Hash Tables})")
+#define FUNC_NAME s_scm_make_weak_value_hash_table
+{
+  return scm_c_make_weak_table (SCM_UNBNDP (n) ? 0 : scm_to_ulong (n),
+                                SCM_WEAK_TABLE_KIND_VALUE);
+}
+#undef FUNC_NAME
+
+
+SCM_DEFINE (scm_make_doubly_weak_hash_table, "make-doubly-weak-hash-table", 1, 0, 0, 
+            (SCM n),
+	    "Return a hash table with weak keys and values with @var{size}\n"
+	    "buckets.  (@pxref{Hash Tables})")
+#define FUNC_NAME s_scm_make_doubly_weak_hash_table
+{
+  return scm_c_make_weak_table (SCM_UNBNDP (n) ? 0 : scm_to_ulong (n),
+                                SCM_WEAK_TABLE_KIND_BOTH);
+}
+#undef FUNC_NAME
+
+
+SCM_DEFINE (scm_weak_key_hash_table_p, "weak-key-hash-table?", 1, 0, 0, 
+           (SCM obj),
+	    "@deffnx {Scheme Procedure} weak-value-hash-table? obj\n"
+	    "@deffnx {Scheme Procedure} doubly-weak-hash-table? obj\n"
+	    "Return @code{#t} if @var{obj} is the specified weak hash\n"
+	    "table. Note that a doubly weak hash table is neither a weak key\n"
+	    "nor a weak value hash table.")
+#define FUNC_NAME s_scm_weak_key_hash_table_p
+{
+  return scm_from_bool (SCM_WEAK_TABLE_P (obj) &&
+                        SCM_WEAK_TABLE (obj)->kind == SCM_WEAK_TABLE_KIND_KEY);
+}
+#undef FUNC_NAME
+
+
+SCM_DEFINE (scm_weak_value_hash_table_p, "weak-value-hash-table?", 1, 0, 0, 
+            (SCM obj),
+	    "Return @code{#t} if @var{obj} is a weak value hash table.")
+#define FUNC_NAME s_scm_weak_value_hash_table_p
+{
+  return scm_from_bool (SCM_WEAK_TABLE_P (obj) &&
+                        SCM_WEAK_TABLE (obj)->kind == SCM_WEAK_TABLE_KIND_VALUE);
+}
+#undef FUNC_NAME
+
+
+SCM_DEFINE (scm_doubly_weak_hash_table_p, "doubly-weak-hash-table?", 1, 0, 0, 
+            (SCM obj),
+	    "Return @code{#t} if @var{obj} is a doubly weak hash table.")
+#define FUNC_NAME s_scm_doubly_weak_hash_table_p
+{
+  return scm_from_bool (SCM_WEAK_TABLE_P (obj) &&
+                        SCM_WEAK_TABLE (obj)->kind == SCM_WEAK_TABLE_KIND_BOTH);
+}
+#undef FUNC_NAME
+
+
+
+
+
 void
 scm_weak_table_prehistory (void)
 {

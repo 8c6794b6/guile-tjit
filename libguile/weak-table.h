@@ -69,6 +69,18 @@ SCM_INTERNAL SCM scm_weak_table_fold (SCM proc, SCM init, SCM table);
 SCM_INTERNAL SCM scm_weak_table_for_each (SCM proc, SCM table);
 SCM_INTERNAL SCM scm_weak_table_map_to_list (SCM proc, SCM table);
 
+
+
+/* Legacy interface.  */
+SCM_API SCM scm_make_weak_key_hash_table (SCM k);
+SCM_API SCM scm_make_weak_value_hash_table (SCM k);
+SCM_API SCM scm_make_doubly_weak_hash_table (SCM k);
+SCM_API SCM scm_weak_key_hash_table_p (SCM h);
+SCM_API SCM scm_weak_value_hash_table_p (SCM h);
+SCM_API SCM scm_doubly_weak_hash_table_p (SCM h);
+
+
+
 SCM_INTERNAL void scm_i_weak_table_print (SCM exp, SCM port, scm_print_state *pstate);
 SCM_INTERNAL void scm_weak_table_prehistory (void);
 SCM_INTERNAL void scm_init_weak_table (void);

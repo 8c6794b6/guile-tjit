@@ -3,7 +3,7 @@
 #ifndef SCM_HASHTAB_H
 #define SCM_HASHTAB_H
 
-/* Copyright (C) 1995,1996,1999,2000,2001, 2003, 2004, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1999,2000,2001, 2003, 2004, 2006, 2008, 2009, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -25,12 +25,7 @@
 
 #include "libguile/__scm.h"
 
-#include "weaks.h"
-
 
-
-#define SCM_HASHTABLEF_WEAK_CAR SCM_WVECTF_WEAK_KEY
-#define SCM_HASHTABLEF_WEAK_CDR SCM_WVECTF_WEAK_VALUE
 
 #define SCM_HASHTABLE_P(x) (!SCM_IMP (x) && SCM_TYP7(x) == scm_tc7_hashtable)
 #define SCM_VALIDATE_HASHTABLE(pos, arg) \
@@ -38,16 +33,6 @@
 #define SCM_HASHTABLE_VECTOR(h)  SCM_CELL_OBJECT_1 (h)
 #define SCM_SET_HASHTABLE_VECTOR(x, v) SCM_SET_CELL_OBJECT_1 ((x), (v))
 #define SCM_HASHTABLE(x)	   ((scm_t_hashtable *) SCM_CELL_WORD_2 (x))
-#define SCM_HASHTABLE_FLAGS(x)	   (SCM_HASHTABLE (x)->flags)
-#define SCM_HASHTABLE_WEAK_KEY_P(x) \
-  (SCM_HASHTABLE_FLAGS (x) & SCM_HASHTABLEF_WEAK_CAR)
-#define SCM_HASHTABLE_WEAK_VALUE_P(x) \
-  (SCM_HASHTABLE_FLAGS (x) & SCM_HASHTABLEF_WEAK_CDR)
-#define SCM_HASHTABLE_DOUBLY_WEAK_P(x)				\
-  ((SCM_HASHTABLE_FLAGS (x)					\
-    & (SCM_HASHTABLEF_WEAK_CAR | SCM_HASHTABLEF_WEAK_CDR))	\
-   == (SCM_HASHTABLEF_WEAK_CAR | SCM_HASHTABLEF_WEAK_CDR))
-#define SCM_HASHTABLE_WEAK_P(x)	   SCM_HASHTABLE_FLAGS (x)
 #define SCM_HASHTABLE_N_ITEMS(x)   (SCM_HASHTABLE (x)->n_items)
 #define SCM_SET_HASHTABLE_N_ITEMS(x, n)   (SCM_HASHTABLE (x)->n_items = n)
 #define SCM_HASHTABLE_INCREMENT(x) (SCM_HASHTABLE_N_ITEMS(x)++)
@@ -70,10 +55,6 @@ typedef unsigned long (*scm_t_hash_fn) (SCM obj, unsigned long max,
    some equality predicate.  */
 typedef SCM (*scm_t_assoc_fn) (SCM obj, SCM alist, void *closure);
 
-/* Function that returns true if the given object is the one we are
-   looking for, for scm_hash_fn_ref_by_hash.  */
-typedef int (*scm_t_hash_predicate_fn) (SCM obj, void *closure);
-
 /* Function to fold over the entries of a hash table.  */
 typedef SCM (*scm_t_hash_fold_fn) (void *closure, SCM key, SCM value,
 				   SCM result);
@@ -83,7 +64,6 @@ typedef SCM (*scm_t_hash_fold_fn) (void *closure, SCM key, SCM value,
 typedef SCM (*scm_t_hash_handle_fn) (void *closure, SCM handle);
 
 typedef struct scm_t_hashtable {
-  int flags;			/* properties of table */
   unsigned long n_items;	/* number of items in table */
   unsigned long lower;		/* when to shrink */
   unsigned long upper;		/* when to grow */
@@ -97,14 +77,8 @@ typedef struct scm_t_hashtable {
 SCM_API SCM scm_vector_to_hash_table (SCM vector);
 SCM_API SCM scm_c_make_hash_table (unsigned long k);
 SCM_API SCM scm_make_hash_table (SCM n);
-SCM_API SCM scm_make_weak_key_hash_table (SCM k);
-SCM_API SCM scm_make_weak_value_hash_table (SCM k);
-SCM_API SCM scm_make_doubly_weak_hash_table (SCM k);
 
 SCM_API SCM scm_hash_table_p (SCM h);
-SCM_API SCM scm_weak_key_hash_table_p (SCM h);
-SCM_API SCM scm_weak_value_hash_table_p (SCM h);
-SCM_API SCM scm_doubly_weak_hash_table_p (SCM h);
 
 SCM_INTERNAL void scm_i_rehash (SCM table, scm_t_hash_fn hash_fn,
 				void *closure, const char *func_name);
@@ -114,10 +88,6 @@ SCM_API SCM scm_hash_fn_get_handle (SCM table, SCM obj,
 				    scm_t_hash_fn hash_fn,
 				    scm_t_assoc_fn assoc_fn,
 				    void *closure);
-SCM_INTERNAL
-SCM scm_hash_fn_get_handle_by_hash (SCM table, unsigned long raw_hash,
-                                    scm_t_hash_predicate_fn predicate_fn,
-                                    void *closure);
 SCM_API SCM scm_hash_fn_create_handle_x (SCM table, SCM obj, SCM init,
 					 scm_t_hash_fn hash_fn,
 					 scm_t_assoc_fn assoc_fn,
