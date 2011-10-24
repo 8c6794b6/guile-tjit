@@ -192,10 +192,6 @@ which does the reverse.  PRINT must name a user-defined object printer."
                ;; PTR1 == PTR2 <-> (eq? (wrap PTR1) (wrap PTR2)).
                (let ((ptr->obj (make-weak-value-hash-table 3000)))
                  (lambda (ptr)
-                   ;; XXX: We can't use `hash-create-handle!' +
-                   ;; `set-cdr!' here because the former would create a
-                   ;; weak-cdr pair but the latter wouldn't register a
-                   ;; disappearing link (see `scm_hash_fn_set_x'.)
                    (or (hash-ref ptr->obj ptr)
                        (let ((o (%wrap ptr)))
                          (hash-set! ptr->obj ptr o)
