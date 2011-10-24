@@ -195,7 +195,7 @@ SCM_DEFINE (scm_scm_to_pointer, "scm->pointer", 1, 0, 0,
   SCM ret;
 
   ret = scm_from_pointer ((void*) SCM_UNPACK (scm), NULL);
-  if (SCM_NIMP (ret))
+  if (SCM_HEAP_OBJECT_P (ret))
     register_weak_reference (ret, scm);
 
   return ret;

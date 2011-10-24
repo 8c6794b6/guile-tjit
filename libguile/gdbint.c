@@ -158,7 +158,7 @@ gdb_read (char *str)
   ans = scm_read (gdb_input_port);
   if (SCM_GC_P)
     {
-      if (SCM_NIMP (ans))
+      if (SCM_HEAP_OBJECT_P (ans))
 	{
 	  SEND_STRING ("Non-immediate created during gc.  Memory may be trashed.");
 	  status = -1;
@@ -167,7 +167,7 @@ gdb_read (char *str)
     }
   gdb_result = ans;
   /* Protect answer from future GC (FIXME: still needed with BDW-GC?) */
-  if (SCM_NIMP (ans))
+  if (SCM_HEAP_OBJECT_P (ans))
     scm_permanent_object (ans);
 exit:
   remark_port (gdb_input_port);

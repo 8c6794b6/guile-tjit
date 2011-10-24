@@ -171,7 +171,7 @@ move_weak_entry (scm_t_weak_entry *from, scm_t_weak_entry *to)
       to->hash = copy.hash;
       to->key = copy.key;
 
-      if (copy.key && SCM_NIMP (SCM_PACK (copy.key)))
+      if (copy.key && SCM_HEAP_OBJECT_P (SCM_PACK (copy.key)))
         {
           GC_unregister_disappearing_link ((GC_PTR) &from->key);
           SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &to->key,
@@ -358,7 +358,7 @@ resize_set (scm_t_weak_set *set)
       new_entries[new_k].hash = copy.hash;
       new_entries[new_k].key = copy.key;
 
-      if (SCM_NIMP (SCM_PACK (copy.key)))
+      if (SCM_HEAP_OBJECT_P (SCM_PACK (copy.key)))
         SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &new_entries[new_k].key,
                                           (GC_PTR) new_entries[new_k].key);
     }
@@ -519,7 +519,7 @@ weak_set_add_x (scm_t_weak_set *set, unsigned long hash,
   entries[k].hash = hash;
   entries[k].key = SCM_UNPACK (obj);
 
-  if (SCM_NIMP (obj))
+  if (SCM_HEAP_OBJECT_P (obj))
     SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entries[k].key,
                                       (GC_PTR) SCM2PTR (obj));
 
@@ -571,7 +571,7 @@ weak_set_remove_x (scm_t_weak_set *set, unsigned long hash,
               entries[k].hash = 0;
               entries[k].key = 0;
 
-              if (SCM_NIMP (SCM_PACK (copy.key)))
+              if (SCM_HEAP_OBJECT_P (SCM_PACK (copy.key)))
                 GC_unregister_disappearing_link ((GC_PTR) &entries[k].key);
 
               if (--set->n_items < set->lower)

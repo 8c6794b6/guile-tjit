@@ -53,7 +53,7 @@ make_weak_vector (size_t len, SCM fill)
 
   SCM_SET_CELL_WORD_0 (wv, (len << 8) | scm_tc7_wvect);
 
-  if (SCM_NIMP (fill))
+  if (SCM_HEAP_OBJECT_P (fill))
     {
       memset (SCM_I_VECTOR_WELTS (wv), 0, len * sizeof (SCM));
       for (j = 0; j < len; j++)
@@ -170,12 +170,12 @@ scm_c_weak_vector_set_x (SCM wv, size_t k, SCM x)
 
   elts = SCM_I_VECTOR_WELTS (wv);
 
-  if (prev && SCM_NIMP (PTR2SCM (prev)))
+  if (prev && SCM_HEAP_OBJECT_P (SCM_PACK_POINTER (prev)))
     GC_unregister_disappearing_link ((GC_PTR) &elts[k]);
   
   elts[k] = x;
 
-  if (SCM_NIMP (x))
+  if (SCM_HEAP_OBJECT_P (x))
     SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &elts[k],
                                       (GC_PTR) SCM2PTR (x));
 }

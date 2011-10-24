@@ -695,7 +695,7 @@ scm_sym2var (SCM sym, SCM proc, SCM definep)
 {
   SCM var;
 
-  if (SCM_NIMP (proc))
+  if (SCM_HEAP_OBJECT_P (proc))
     {
       if (SCM_EVAL_CLOSURE_P (proc))
 	{

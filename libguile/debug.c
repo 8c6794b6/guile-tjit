@@ -144,16 +144,9 @@ SCM_DEFINE (scm_procedure_source, "procedure-source", 1, 0, 0,
       if (scm_is_true (src))
         return src;
 
-      switch (SCM_TYP7 (proc)) {
-      case scm_tcs_struct:
-        if (!SCM_STRUCT_APPLICABLE_P (proc)
-            || SCM_IMP (SCM_STRUCT_PROCEDURE (proc)))
-          break;
-        proc = SCM_STRUCT_PROCEDURE (proc);
+      if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc)
+          && SCM_HEAP_OBJECT_P ((proc = SCM_STRUCT_PROCEDURE (proc))))
         continue;
-      default:
-        break;
-      }
     }
   while (0);
 

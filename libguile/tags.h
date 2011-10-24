@@ -355,6 +355,7 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
  * since for a SCM variable it is known that tc1==0.  */
 #define SCM_IMP(x) 		(6 & SCM_UNPACK (x))
 #define SCM_NIMP(x) 		(!SCM_IMP (x))
+#define SCM_HEAP_OBJECT_P(x)    (SCM_NIMP (x))
 
 /* Checking if a SCM variable holds an immediate integer: See numbers.h for
  * the definition of the following macros: SCM_I_FIXNUM_BIT,

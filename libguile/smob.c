@@ -516,7 +516,7 @@ smob_mark (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
 
       mark_stack_ptr = SCM_I_CURRENT_THREAD->current_mark_stack_ptr;
 
-      if (SCM_NIMP (obj))
+      if (SCM_HEAP_OBJECT_P (obj))
 	/* Mark the returned object.  */
 	mark_stack_ptr = GC_MARK_AND_PUSH (SCM2PTR (obj),
 					   mark_stack_ptr,
@@ -541,7 +541,7 @@ scm_gc_mark (SCM o)
 #define CURRENT_MARK_LIMIT						   \
   ((struct GC_ms_entry *)(SCM_I_CURRENT_THREAD->current_mark_stack_limit))
 
-  if (SCM_NIMP (o))
+  if (SCM_HEAP_OBJECT_P (o))
     {
       /* At this point, the `current_mark_*' fields of the current thread
 	 must be defined (they are set in `smob_mark ()').  */

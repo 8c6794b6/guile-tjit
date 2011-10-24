@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1998,2000,2001, 2006, 2008, 2009, 2010 Free Software Foundation
+/* Copyright (C) 1995,1996,1998,2000,2001, 2006, 2008, 2009, 2010, 2011 Free Software Foundation
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -231,9 +231,9 @@ change_option_setting (SCM args, scm_t_option options[], const char *s,
 	{
 	  SCM old = SCM_PACK (options[i].val);
 	  SCM new = SCM_PACK (flags[i]);
-	  if (!SCM_IMP (old))
+	  if (SCM_HEAP_OBJECT_P (old))
 	    protected_objects = scm_delq1_x (old, protected_objects);
-	  if (!SCM_IMP (new))
+	  if (SCM_HEAP_OBJECT_P (new))
 	    protected_objects = scm_cons (new, protected_objects);
 	}
       options[i].val = flags[i];

@@ -127,13 +127,13 @@ register_disappearing_links (scm_t_weak_entry *entry,
                              SCM k, SCM v,
                              scm_t_weak_table_kind kind)
 {
-  if (SCM_UNPACK (k) && SCM_NIMP (k)
+  if (SCM_UNPACK (k) && SCM_HEAP_OBJECT_P (k)
       && (kind == SCM_WEAK_TABLE_KIND_KEY
           || kind == SCM_WEAK_TABLE_KIND_BOTH))
     SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entry->key,
                                       (GC_PTR) SCM2PTR (k));
 
-  if (SCM_UNPACK (v) && SCM_NIMP (v)
+  if (SCM_UNPACK (v) && SCM_HEAP_OBJECT_P (v)
       && (kind == SCM_WEAK_TABLE_KIND_VALUE
           || kind == SCM_WEAK_TABLE_KIND_BOTH))
     SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entry->value,

@@ -193,7 +193,7 @@ scm_i_guard (SCM guardian, SCM obj)
 {
   t_guardian *g = GUARDIAN_DATA (guardian);
 
-  if (SCM_NIMP (obj))
+  if (SCM_HEAP_OBJECT_P (obj))
     {
       /* Register a finalizer and pass a pair as the ``client data''
 	 argument.  The pair contains in its car `#f' or a pair describing a
