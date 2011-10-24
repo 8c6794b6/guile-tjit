@@ -1,4 +1,4 @@
-/* Copyright (C) 1995, 96, 97, 98, 99, 2000, 2001, 2004, 2006, 2008, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995, 96, 97, 98, 99, 2000, 2001, 2004, 2006, 2008, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -40,9 +40,7 @@ SCM_DEFINE (scm_acons, "acons", 3, 0, 0,
 	    "function is @emph{not} destructive; @var{alist} is not modified.")
 #define FUNC_NAME s_scm_acons
 {
-  return scm_cell (SCM_UNPACK (scm_cell (SCM_UNPACK (key),
-					 SCM_UNPACK (value))),
-		   SCM_UNPACK (alist));
+  return scm_cons (scm_cons (key, value), alist);
 }
 #undef FUNC_NAME
 
