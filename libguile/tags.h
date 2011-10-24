@@ -390,6 +390,10 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 #define SCM_ITAG7(x) 		(127 & SCM_UNPACK (x))
 #define SCM_TYP7(x) 		(0x7f &        SCM_CELL_TYPE (x))
 #define SCM_TYP7S(x) 		((0x7f & ~2) & SCM_CELL_TYPE (x))
+#define SCM_HAS_HEAP_TYPE(x, type, tag)                         \
+  (SCM_NIMP (x) && type (x) == (tag))
+#define SCM_HAS_TYP7(x, tag)    (SCM_HAS_HEAP_TYPE (x, SCM_TYP7, tag))
+#define SCM_HAS_TYP7S(x, tag)   (SCM_HAS_HEAP_TYPE (x, SCM_TYP7S, tag))
 
 #define scm_tc7_symbol		5
 #define scm_tc7_variable        7
@@ -440,7 +444,8 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 
 /* Definitions for tc16: */
 #define SCM_TYP16(x) 		(0xffff & SCM_CELL_TYPE (x))
-#define SCM_TYP16_PREDICATE(tag, x) (!SCM_IMP (x) && SCM_TYP16 (x) == (tag))
+#define SCM_HAS_TYP16(x, tag)   (SCM_HAS_HEAP_TYPE (x, SCM_TYP16, tag))
+#define SCM_TYP16_PREDICATE(tag, x) (SCM_HAS_TYP16 (x, tag))
 
 
 

@@ -191,7 +191,7 @@ typedef struct {
 } scm_t_weak_table;
 
 
-#define SCM_WEAK_TABLE_P(x) (!SCM_IMP (x) && SCM_TYP7(x) == scm_tc7_weak_table)
+#define SCM_WEAK_TABLE_P(x) (SCM_HAS_TYP7 (x, scm_tc7_weak_table))
 #define SCM_VALIDATE_WEAK_TABLE(pos, arg) \
   SCM_MAKE_VALIDATE_MSG (pos, arg, WEAK_TABLE_P, "weak-table")
 #define SCM_WEAK_TABLE(x) ((scm_t_weak_table *) SCM_CELL_WORD_1 (x))

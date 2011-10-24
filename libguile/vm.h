@@ -55,7 +55,7 @@ struct scm_vm {
 
 SCM_API SCM scm_the_vm_fluid;
 
-#define SCM_VM_P(x)		(SCM_NIMP (x) && SCM_TYP7 (x) == scm_tc7_vm)
+#define SCM_VM_P(x)		(SCM_HAS_TYP7 (x, scm_tc7_vm))
 #define SCM_VM_DATA(vm)		((struct scm_vm *) SCM_CELL_WORD_1 (vm))
 #define SCM_VALIDATE_VM(pos,x)	SCM_MAKE_VALIDATE (pos, x, VM_P)
 
@@ -96,7 +96,7 @@ struct scm_vm_cont {
   scm_t_uint32 flags;
 };
 
-#define SCM_VM_CONT_P(OBJ)	(SCM_NIMP (OBJ) && SCM_TYP7 (OBJ) == scm_tc7_vm_cont)
+#define SCM_VM_CONT_P(OBJ)	(SCM_HAS_TYP7 (OBJ, scm_tc7_vm_cont))
 #define SCM_VM_CONT_DATA(CONT)	((struct scm_vm_cont *) SCM_CELL_WORD_1 (CONT))
 #define SCM_VM_CONT_PARTIAL_P(CONT) (SCM_VM_CONT_DATA (CONT)->flags & SCM_F_VM_CONT_PARTIAL)
 #define SCM_VM_CONT_REWINDABLE_P(CONT) (SCM_VM_CONT_DATA (CONT)->flags & SCM_F_VM_CONT_REWINDABLE)

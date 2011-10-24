@@ -125,8 +125,8 @@ typedef scm_t_int32 scm_t_wchar;
 
 #define SCM_INEXACTP(x) \
   (!SCM_IMP (x) && (0xfeff & SCM_CELL_TYPE (x)) == scm_tc16_real)
-#define SCM_REALP(x) (!SCM_IMP (x) && SCM_TYP16 (x) == scm_tc16_real)
-#define SCM_COMPLEXP(x) (!SCM_IMP (x) && SCM_TYP16 (x) == scm_tc16_complex)
+#define SCM_REALP(x) (SCM_HAS_TYP16 (x, scm_tc16_real))
+#define SCM_COMPLEXP(x) (SCM_HAS_TYP16 (x, scm_tc16_complex))
 
 #define SCM_REAL_VALUE(x) (((scm_t_double *) SCM2PTR (x))->real)
 #define SCM_COMPLEX_REAL(x) (((scm_t_complex *) SCM2PTR (x))->real)
@@ -134,13 +134,12 @@ typedef scm_t_int32 scm_t_wchar;
 
 /* Each bignum is just an mpz_t stored in a double cell starting at word 1. */
 #define SCM_I_BIG_MPZ(x) (*((mpz_t *) (SCM_CELL_OBJECT_LOC((x),1))))
-#define SCM_BIGP(x) (!SCM_IMP (x) && SCM_TYP16 (x) == scm_tc16_big)
+#define SCM_BIGP(x) (SCM_HAS_TYP16 (x, scm_tc16_big))
 
 #define SCM_NUMBERP(x) (SCM_I_INUMP(x) || SCM_NUMP(x))
-#define SCM_NUMP(x) (!SCM_IMP(x) \
-		     && ((0x00ff & SCM_CELL_TYPE (x)) == scm_tc7_number))
+#define SCM_NUMP(x) (SCM_HAS_TYP7 (x, scm_tc7_number))
 
-#define SCM_FRACTIONP(x) (!SCM_IMP (x) && SCM_TYP16 (x) == scm_tc16_fraction)
+#define SCM_FRACTIONP(x) (SCM_HAS_TYP16 (x, scm_tc16_fraction))
 #define SCM_FRACTION_NUMERATOR(x) (SCM_CELL_OBJECT_1 (x))
 #define SCM_FRACTION_DENOMINATOR(x) (SCM_CELL_OBJECT_2 (x))
 

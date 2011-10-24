@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -32,7 +32,7 @@
 #define SCM_F_PROGRAM_IS_CONTINUATION 0x800
 #define SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION 0x1000
 
-#define SCM_PROGRAM_P(x)	(!SCM_IMP (x) && SCM_TYP7(x) == scm_tc7_program)
+#define SCM_PROGRAM_P(x)	(SCM_HAS_TYP7 (x, scm_tc7_program))
 #define SCM_PROGRAM_OBJCODE(x)	(SCM_CELL_OBJECT_1 (x))
 #define SCM_PROGRAM_OBJTABLE(x)	(SCM_CELL_OBJECT_2 (x))
 #define SCM_PROGRAM_FREE_VARIABLES(x) (SCM_CELL_OBJECT_LOC (x, 3))

@@ -50,7 +50,7 @@ typedef struct scm_smob_descriptor
 #define SCM_SMOBNUM(x)			(SCM_TC2SMOBNUM (SCM_CELL_TYPE (x)))
 /* SCM_SMOBNAME can be 0 if name is missing */
 #define SCM_SMOBNAME(smobnum)		(scm_smobs[smobnum].name)
-#define SCM_SMOB_PREDICATE(tag, obj)	SCM_TYP16_PREDICATE (tag, obj)
+#define SCM_SMOB_PREDICATE(tag, obj)	SCM_HAS_TYP16 (obj, tag)
 #define SCM_SMOB_DESCRIPTOR(x)		(scm_smobs[SCM_SMOBNUM (x)])
 #define SCM_SMOB_APPLICABLE_P(x)	(SCM_SMOB_DESCRIPTOR (x).apply)
 

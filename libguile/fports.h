@@ -3,7 +3,7 @@
 #ifndef SCM_FPORTS_H
 #define SCM_FPORTS_H
 
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2006, 2008, 2009, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -39,7 +39,7 @@ SCM_API scm_t_bits scm_tc16_fport;
 #define SCM_FSTREAM(x) ((scm_t_fport *) SCM_STREAM (x))
 #define SCM_FPORT_FDES(x) (SCM_FSTREAM (x)->fdes)
 
-#define SCM_FPORTP(x) (!SCM_IMP (x) && (SCM_TYP16 (x) == scm_tc16_fport))
+#define SCM_FPORTP(x) (SCM_HAS_TYP16 (x, scm_tc16_fport))
 #define SCM_OPFPORTP(x) (SCM_FPORTP (x) && (SCM_CELL_WORD_0 (x) & SCM_OPN))
 #define SCM_OPINFPORTP(x) (SCM_OPFPORTP (x) && (SCM_CELL_WORD_0 (x) & SCM_RDNG))
 #define SCM_OPOUTFPORTP(x) (SCM_OPFPORTP (x) && (SCM_CELL_WORD_0 (x) & SCM_WRTNG))

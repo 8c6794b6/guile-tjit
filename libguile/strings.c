@@ -240,7 +240,7 @@ scm_i_pthread_mutex_t stringbuf_write_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 #define SET_STRING_STRINGBUF(str,buf) (SCM_SET_CELL_OBJECT_1(str,buf))
 #define SET_STRING_START(str,start) (SCM_SET_CELL_WORD_2(str,start))
 
-#define IS_STRING(str)        (SCM_NIMP(str) && SCM_TYP7(str) == STRING_TAG)
+#define IS_STRING(str)        (SCM_HAS_TYP7 (str, STRING_TAG))
 
 /* Read-only strings.
  */

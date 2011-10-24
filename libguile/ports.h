@@ -138,18 +138,14 @@ SCM_INTERNAL SCM scm_i_port_weak_set;
 #define SCM_BUF0	(8L<<16) /* Is it unbuffered? */
 #define SCM_BUFLINE     (64L<<16) /* Is it line-buffered? */
 
-#define SCM_PORTP(x) (!SCM_IMP (x) && (SCM_TYP7 (x) == scm_tc7_port))
-#define SCM_OPPORTP(x) (!SCM_IMP(x) && (((0x7f | SCM_OPN) & SCM_CELL_WORD_0(x))==(scm_tc7_port | SCM_OPN)))
-#define SCM_OPINPORTP(x) (!SCM_IMP(x) && (((0x7f | SCM_OPN | SCM_RDNG) & SCM_CELL_WORD_0(x))==(scm_tc7_port | SCM_OPN | SCM_RDNG)))
-#define SCM_OPOUTPORTP(x) (!SCM_IMP(x) && (((0x7f | SCM_OPN | SCM_WRTNG) & SCM_CELL_WORD_0(x))==(scm_tc7_port | SCM_OPN | SCM_WRTNG)))
-#define SCM_INPUT_PORT_P(x) \
-  (!SCM_IMP(x) \
-   && (((0x7f | SCM_RDNG) & SCM_CELL_WORD_0(x)) == (scm_tc7_port | SCM_RDNG)))
-#define SCM_OUTPUT_PORT_P(x) \
-  (!SCM_IMP(x) \
-   && (((0x7f | SCM_WRTNG) & SCM_CELL_WORD_0(x))==(scm_tc7_port | SCM_WRTNG)))
-#define SCM_OPENP(x) (!SCM_IMP(x) && (SCM_OPN & SCM_CELL_WORD_0 (x)))
-#define SCM_CLOSEDP(x) (!SCM_OPENP(x))
+#define SCM_PORTP(x) (SCM_HAS_TYP7 (x, scm_tc7_port))
+#define SCM_OPPORTP(x) (SCM_PORTP (x) && (SCM_CELL_WORD_0 (x) & SCM_OPN))
+#define SCM_INPUT_PORT_P(x) (SCM_PORTP (x) && (SCM_CELL_WORD_0 (x) & SCM_RDNG))
+#define SCM_OUTPUT_PORT_P(x) (SCM_PORTP (x) && (SCM_CELL_WORD_0 (x) & SCM_WRTNG))
+#define SCM_OPINPORTP(x) (SCM_OPPORTP (x) && SCM_INPUT_PORT_P (x))
+#define SCM_OPOUTPORTP(x) (SCM_OPPORTP (x) && SCM_OUTPUT_PORT_P (x))
+#define SCM_OPENP(x) (SCM_OPPORTP (x))
+#define SCM_CLOSEDP(x) (!SCM_OPENP (x))
 #define SCM_CLR_PORT_OPEN_FLAG(p) \
   SCM_SET_CELL_WORD_0 ((p), SCM_CELL_WORD_0 (p) & ~SCM_OPN)
 

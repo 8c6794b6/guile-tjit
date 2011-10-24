@@ -49,8 +49,7 @@ typedef enum scm_t_foreign_type scm_t_foreign_type;
 
 typedef void (*scm_t_pointer_finalizer) (void *);
 
-#define SCM_POINTER_P(x)                                                \
-  (!SCM_IMP (x) && SCM_TYP7(x) == scm_tc7_pointer)
+#define SCM_POINTER_P(x) (SCM_HAS_TYP7 (x, scm_tc7_pointer))
 #define SCM_VALIDATE_POINTER(pos, x)		\
   SCM_MAKE_VALIDATE (pos, x, POINTER_P)
 #define SCM_POINTER_VALUE(x)			\

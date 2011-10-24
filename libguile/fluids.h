@@ -3,7 +3,7 @@
 #ifndef SCM_FLUIDS_H
 #define SCM_FLUIDS_H
 
-/* Copyright (C) 1996,2000,2001, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1996,2000,2001, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -32,7 +32,7 @@
    always in the same place for a given thread, in the dynamic-state vector.
  */
 
-#define SCM_WITH_FLUIDS_P(x) (!SCM_IMP (x) && SCM_TYP7(x) == scm_tc7_with_fluids)
+#define SCM_WITH_FLUIDS_P(x) (SCM_HAS_TYP7 (x, scm_tc7_with_fluids))
 #define SCM_WITH_FLUIDS_LEN(x) (SCM_CELL_WORD ((x), 0) >> 8)
 #define SCM_WITH_FLUIDS_NTH_FLUID(x,n) (SCM_CELL_OBJECT ((x), 1 + (n)*2))
 #define SCM_WITH_FLUIDS_NTH_VAL(x,n) (SCM_CELL_OBJECT ((x), 2 + (n)*2))
@@ -54,7 +54,7 @@
    grow.
  */
 
-#define SCM_FLUID_P(x)          (!SCM_IMP (x) && SCM_TYP7 (x) == scm_tc7_fluid)
+#define SCM_FLUID_P(x)          (SCM_HAS_TYP7 (x, scm_tc7_fluid))
 #ifdef BUILDING_LIBGUILE
 #define SCM_I_FLUID_NUM(x)        ((size_t)SCM_CELL_WORD_1(x))
 #endif
@@ -81,7 +81,7 @@ SCM_API SCM scm_with_fluid (SCM fluid, SCM val, SCM thunk);
 SCM_API void scm_dynwind_fluid (SCM fluid, SCM value);
 
 #ifdef BUILDING_LIBGUILE
-#define SCM_I_DYNAMIC_STATE_P(x) (!SCM_IMP (x) && SCM_TYP7 (x) == scm_tc7_dynamic_state)
+#define SCM_I_DYNAMIC_STATE_P(x) (SCM_HAS_TYP7 (x, scm_tc7_dynamic_state))
 #define SCM_I_DYNAMIC_STATE_FLUIDS(x)        SCM_PACK (SCM_CELL_WORD_1 (x))
 #endif
 

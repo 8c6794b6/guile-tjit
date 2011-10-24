@@ -96,7 +96,7 @@ struct scm_frame
   scm_t_ptrdiff offset;
 };
 
-#define SCM_VM_FRAME_P(x)	(SCM_NIMP (x) && SCM_TYP7 (x) == scm_tc7_frame)
+#define SCM_VM_FRAME_P(x)	(SCM_HAS_TYP7 (x, scm_tc7_frame))
 #define SCM_VM_FRAME_DATA(x)	((struct scm_frame*)SCM_CELL_WORD_1 (x))
 #define SCM_VM_FRAME_STACK_HOLDER(f)	SCM_VM_FRAME_DATA(f)->stack_holder
 #define SCM_VM_FRAME_FP(f)	SCM_VM_FRAME_DATA(f)->fp

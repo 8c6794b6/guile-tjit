@@ -3,7 +3,7 @@
 #ifndef SCM_VARIABLE_H
 #define SCM_VARIABLE_H
 
-/* Copyright (C) 1995,1996,2000,2001, 2006, 2008 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,2000,2001, 2006, 2008, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -30,7 +30,7 @@
 
 /* Variables 
  */
-#define SCM_VARIABLEP(X)      (!SCM_IMP (X) && SCM_TYP7(X) == scm_tc7_variable)
+#define SCM_VARIABLEP(X)      (SCM_HAS_TYP7 (X, scm_tc7_variable))
 #define SCM_VARIABLE_REF(V)   SCM_CELL_OBJECT_1 (V)
 #define SCM_VARIABLE_SET(V, X) SCM_SET_CELL_OBJECT_1 (V, X)
 #define SCM_VARIABLE_LOC(V)   (SCM_CELL_OBJECT_LOC ((V), 1))

@@ -111,7 +111,7 @@ scm_is_pair (SCM x)
 SCM_INLINE_IMPLEMENTATION int
 scm_is_string (SCM x)
 {
-  return SCM_NIMP (x) && (SCM_TYP7 (x) == scm_tc7_string);
+  return SCM_HAS_TYP7 (x, scm_tc7_string);
 }
 
 /* Port I/O.  */

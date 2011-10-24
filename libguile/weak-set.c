@@ -136,7 +136,7 @@ typedef struct {
 } scm_t_weak_set;
 
 
-#define SCM_WEAK_SET_P(x) (!SCM_IMP (x) && SCM_TYP7(x) == scm_tc7_weak_set)
+#define SCM_WEAK_SET_P(x) (SCM_HAS_TYP7 (x, scm_tc7_weak_set))
 #define SCM_VALIDATE_WEAK_SET(pos, arg) \
   SCM_MAKE_VALIDATE_MSG (pos, arg, WEAK_SET_P, "weak-set")
 #define SCM_WEAK_SET(x) ((scm_t_weak_set *) SCM_CELL_WORD_1 (x))

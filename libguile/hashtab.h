@@ -27,7 +27,7 @@
 
 
 
-#define SCM_HASHTABLE_P(x) (!SCM_IMP (x) && SCM_TYP7(x) == scm_tc7_hashtable)
+#define SCM_HASHTABLE_P(x) (SCM_HAS_TYP7 (x, scm_tc7_hashtable))
 #define SCM_VALIDATE_HASHTABLE(pos, arg) \
   SCM_MAKE_VALIDATE_MSG (pos, arg, HASHTABLE_P, "hash-table")
 #define SCM_HASHTABLE_VECTOR(h)  SCM_CELL_OBJECT_1 (h)

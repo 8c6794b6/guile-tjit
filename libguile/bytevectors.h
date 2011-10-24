@@ -117,7 +117,7 @@ SCM_API SCM scm_utf32_to_string (SCM, SCM);
 /* Internal API.  */
 
 #define SCM_BYTEVECTOR_P(x)				\
-  (!SCM_IMP (x) && SCM_TYP7(x) == scm_tc7_bytevector)
+  (SCM_HAS_TYP7 (x, scm_tc7_bytevector))
 #define SCM_BYTEVECTOR_FLAGS(_bv)		\
   (SCM_CELL_TYPE (_bv) >> 7UL)
 #define SCM_SET_BYTEVECTOR_FLAGS(_bv, _f)				\

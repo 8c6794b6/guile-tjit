@@ -787,7 +787,7 @@ VM_DEFINE_INSTRUCTION (53, call, "call", 1, -1, 1)
           sp[-nargs] = SCM_STRUCT_PROCEDURE (program);
           goto vm_call;
         }
-      else if (SCM_NIMP (program) && SCM_TYP7 (program) == scm_tc7_smob
+      else if (SCM_HAS_TYP7 (program, scm_tc7_smob)
                && SCM_SMOB_APPLICABLE_P (program))
         {
           SYNC_REGISTER ();
@@ -835,7 +835,7 @@ VM_DEFINE_INSTRUCTION (54, tail_call, "tail-call", 1, -1, 1)
           sp[-nargs] = SCM_STRUCT_PROCEDURE (program);
           goto vm_tail_call;
         }
-      else if (SCM_NIMP (program) && SCM_TYP7 (program) == scm_tc7_smob
+      else if (SCM_HAS_TYP7 (program, scm_tc7_smob)
                && SCM_SMOB_APPLICABLE_P (program))
         {
           SYNC_REGISTER ();
@@ -1096,7 +1096,7 @@ VM_DEFINE_INSTRUCTION (62, mv_call, "mv-call", 4, -1, 1)
           sp[-nargs] = SCM_STRUCT_PROCEDURE (program);
           goto vm_mv_call;
         }
-      else if (SCM_NIMP (program) && SCM_TYP7 (program) == scm_tc7_smob
+      else if (SCM_HAS_TYP7 (program, scm_tc7_smob)
                && SCM_SMOB_APPLICABLE_P (program))
         {
           SYNC_REGISTER ();

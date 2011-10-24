@@ -40,7 +40,7 @@ struct scm_objcode
 #define SCM_OBJCODE_TYPE_SLICE      (2)
 #define SCM_OBJCODE_TYPE_STATIC     (3)
 
-#define SCM_OBJCODE_P(x)	(SCM_NIMP (x) && SCM_TYP7 (x) == scm_tc7_objcode)
+#define SCM_OBJCODE_P(x)	(SCM_HAS_TYP7 (x, scm_tc7_objcode))
 #define SCM_OBJCODE_DATA(x)	((struct scm_objcode *) SCM_CELL_WORD_1 (x))
 #define SCM_VALIDATE_OBJCODE(p,x) SCM_MAKE_VALIDATE (p, x, OBJCODE_P)
 
