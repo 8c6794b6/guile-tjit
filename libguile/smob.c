@@ -604,7 +604,7 @@ scm_i_new_smob (scm_t_bits tc, scm_t_bits data)
       GC_finalization_proc prev_finalizer;
       GC_PTR prev_finalizer_data;
 
-      GC_REGISTER_FINALIZER_NO_ORDER (SCM2PTR (ret),
+      GC_REGISTER_FINALIZER_NO_ORDER (SCM_HEAP_OBJECT_BASE (ret),
                                       finalize_smob, NULL,
                                       &prev_finalizer, &prev_finalizer_data);
     }
@@ -638,7 +638,7 @@ scm_i_new_double_smob (scm_t_bits tc, scm_t_bits data1,
       GC_finalization_proc prev_finalizer;
       GC_PTR prev_finalizer_data;
 
-      GC_REGISTER_FINALIZER_NO_ORDER (SCM2PTR (ret),
+      GC_REGISTER_FINALIZER_NO_ORDER (SCM_HEAP_OBJECT_BASE (ret),
                                       finalize_smob, NULL,
                                       &prev_finalizer, &prev_finalizer_data);
     }

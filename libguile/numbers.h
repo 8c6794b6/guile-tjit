@@ -128,9 +128,9 @@ typedef scm_t_int32 scm_t_wchar;
 #define SCM_REALP(x) (SCM_HAS_TYP16 (x, scm_tc16_real))
 #define SCM_COMPLEXP(x) (SCM_HAS_TYP16 (x, scm_tc16_complex))
 
-#define SCM_REAL_VALUE(x) (((scm_t_double *) SCM2PTR (x))->real)
-#define SCM_COMPLEX_REAL(x) (((scm_t_complex *) SCM2PTR (x))->real)
-#define SCM_COMPLEX_IMAG(x) (((scm_t_complex *) SCM2PTR (x))->imag)
+#define SCM_REAL_VALUE(x) (((scm_t_double *) SCM_HEAP_OBJECT_BASE (x))->real)
+#define SCM_COMPLEX_REAL(x) (((scm_t_complex *) SCM_HEAP_OBJECT_BASE (x))->real)
+#define SCM_COMPLEX_IMAG(x) (((scm_t_complex *) SCM_HEAP_OBJECT_BASE (x))->imag)
 
 /* Each bignum is just an mpz_t stored in a double cell starting at word 1. */
 #define SCM_I_BIG_MPZ(x) (*((mpz_t *) (SCM_CELL_OBJECT_LOC((x),1))))

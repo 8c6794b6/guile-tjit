@@ -391,6 +391,17 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 #define scm_tc3_tc7_2		 7
 
 
+/* As we have seen, heap objects have a tag in their three lowest bits.
+   If you have a heap object and want the pointer to the start of the
+   object, perhaps for GC purposes, you need to mask off the low bits,
+   which is what SCM_HEAP_OBJECT_BASE does.
+
+   Note that you can avoid this macro if you know the specific type of
+   the object (pair, struct, or other).
+ */
+#define SCM_HEAP_OBJECT_BASE(x) ((scm_t_bits*)((SCM_UNPACK (x)) & ~7))
+
+
 /* Definitions for tc7: */
 
 #define SCM_ITAG7(x) 		(127 & SCM_UNPACK (x))

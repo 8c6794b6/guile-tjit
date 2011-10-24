@@ -177,7 +177,7 @@ scm_c_weak_vector_set_x (SCM wv, size_t k, SCM x)
 
   if (SCM_HEAP_OBJECT_P (x))
     SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &elts[k],
-                                      (GC_PTR) SCM2PTR (x));
+                                      (GC_PTR) SCM_HEAP_OBJECT_BASE (x));
 }
 
 

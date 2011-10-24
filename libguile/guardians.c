@@ -218,6 +218,8 @@ scm_i_guard (SCM guardian, SCM obj)
                                     SCM_EOL);
       finalizer_data = scm_cons (SCM_BOOL_F, guardians_for_obj);
 
+      /* FIXME: should be SCM_HEAP_OBJECT_BASE, but will the finalizer
+         strip the tag bits of pairs or structs?  */
       GC_REGISTER_FINALIZER_NO_ORDER (SCM_UNPACK_POINTER (obj), finalize_guarded,
 				      SCM_UNPACK_POINTER (finalizer_data),
 				      &prev_finalizer, &prev_data);

@@ -131,13 +131,13 @@ register_disappearing_links (scm_t_weak_entry *entry,
       && (kind == SCM_WEAK_TABLE_KIND_KEY
           || kind == SCM_WEAK_TABLE_KIND_BOTH))
     SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entry->key,
-                                      (GC_PTR) SCM2PTR (k));
+                                      (GC_PTR) SCM_HEAP_OBJECT_BASE (k));
 
   if (SCM_UNPACK (v) && SCM_HEAP_OBJECT_P (v)
       && (kind == SCM_WEAK_TABLE_KIND_VALUE
           || kind == SCM_WEAK_TABLE_KIND_BOTH))
     SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entry->value,
-                                      (GC_PTR) SCM2PTR (v));
+                                      (GC_PTR) SCM_HEAP_OBJECT_BASE (v));
 }
 
 static void
@@ -302,7 +302,7 @@ mark_weak_key_table (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
     if (entries[k].hash && entries[k].key)
       {
         SCM value = SCM_PACK (entries[k].value);
-        mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word*) SCM2PTR (value),
+        mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word*) SCM_HEAP_OBJECT_BASE (value),
                                            mark_stack_ptr, mark_stack_limit,
                                            NULL);
       }
@@ -321,7 +321,7 @@ mark_weak_value_table (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
     if (entries[k].hash && entries[k].value)
       {
         SCM key = SCM_PACK (entries[k].key);
-        mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word*) SCM2PTR (key),
+        mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word*) SCM_HEAP_OBJECT_BASE (key),
                                            mark_stack_ptr, mark_stack_limit,
                                            NULL);
       }
@@ -784,7 +784,7 @@ scm_c_register_weak_gc_callback (SCM obj, void (*callback) (SCM))
 
   weak[0] = SCM_UNPACK_POINTER (obj);
   weak[1] = (void*)callback;
-  GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM2PTR (obj));
+  GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM_HEAP_OBJECT_BASE (obj));
 
 #ifdef HAVE_GC_TABLE_START_CALLBACK
   scm_c_hook_add (&scm_after_gc_c_hook, weak_gc_hook, weak, 0);

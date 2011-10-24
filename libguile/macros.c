@@ -103,7 +103,7 @@ SCM_DEFINE (scm_make_syntax_transformer, "make-syntax-transformer", 3, 0, 0,
   SCM_VALIDATE_SYMBOL (2, type);
 
   z = scm_words (scm_tc16_macro, 5);
-  SCM_SET_SMOB_DATA_N (z, 1, prim);
+  SCM_SET_SMOB_DATA_N (z, 1, (scm_t_bits)prim);
   SCM_SET_SMOB_OBJECT_N (z, 2, name);
   SCM_SET_SMOB_OBJECT_N (z, 3, type);
   SCM_SET_SMOB_OBJECT_N (z, 4, binding);

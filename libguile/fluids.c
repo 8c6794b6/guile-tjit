@@ -160,7 +160,7 @@ new_fluid ()
   SCM_SET_CELL_WORD_1 (fluid, (scm_t_bits) n);
 
   GC_GENERAL_REGISTER_DISAPPEARING_LINK (&allocated_fluids[n],
-					 SCM2PTR (fluid));
+					 SCM_HEAP_OBJECT_BASE (fluid));
 
   scm_dynwind_end ();
 
