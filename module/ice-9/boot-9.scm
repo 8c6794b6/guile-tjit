@@ -886,15 +886,11 @@ VALUE."
 ;; properties within the object itself.
 
 (define (make-object-property)
-  (define-syntax-rule (with-mutex lock exp)
-    (dynamic-wind (lambda () (lock-mutex lock))
-                  (lambda () exp)
-                  (lambda () (unlock-mutex lock))))
-  (let ((prop (make-weak-key-hash-table))
-        (lock (make-mutex)))
+  ;; Weak tables are thread-safe.
+  (let ((prop (make-weak-key-hash-table)))
     (make-procedure-with-setter
-     (lambda (obj) (with-mutex lock (hashq-ref prop obj)))
-     (lambda (obj val) (with-mutex lock (hashq-set! prop obj val))))))
+     (lambda (obj) (hashq-ref prop obj))
+     (lambda (obj val) (hashq-set! prop obj val)))))
 
 
 
