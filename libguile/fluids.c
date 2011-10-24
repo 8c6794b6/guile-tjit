@@ -110,7 +110,7 @@ new_fluid ()
 
   /* Fluids are pointerless cells: the first word is the type tag; the second
      word is the fluid number.  */
-  fluid = PTR2SCM (scm_gc_malloc_pointerless (sizeof (scm_t_cell), "fluid"));
+  fluid = SCM_PACK_POINTER (scm_gc_malloc_pointerless (sizeof (scm_t_cell), "fluid"));
   SCM_SET_CELL_TYPE (fluid, scm_tc7_fluid);
 
   scm_dynwind_begin (0);
@@ -156,7 +156,7 @@ new_fluid ()
       allocated_fluids_len += FLUID_GROW;
     }
 
-  allocated_fluids[n] = SCM2PTR (fluid);
+  allocated_fluids[n] = SCM_UNPACK_POINTER (fluid);
   SCM_SET_CELL_WORD_1 (fluid, (scm_t_bits) n);
 
   GC_GENERAL_REGISTER_DISAPPEARING_LINK (&allocated_fluids[n],

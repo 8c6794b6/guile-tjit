@@ -178,7 +178,7 @@ finalize_bignum (GC_PTR ptr, GC_PTR data)
 {
   SCM bignum;
 
-  bignum = PTR2SCM (ptr);
+  bignum = SCM_PACK_POINTER (ptr);
   mpz_clear (SCM_I_BIG_MPZ (bignum));
 }
 
@@ -8655,7 +8655,7 @@ scm_c_make_rectangular (double re, double im)
 {
   SCM z;
 
-  z = PTR2SCM (scm_gc_malloc_pointerless (sizeof (scm_t_complex),
+  z = SCM_PACK_POINTER (scm_gc_malloc_pointerless (sizeof (scm_t_complex),
 					  "complex"));
   SCM_SET_CELL_TYPE (z, scm_tc16_complex);
   SCM_COMPLEX_REAL (z) = re;
@@ -9307,7 +9307,7 @@ scm_from_double (double val)
 {
   SCM z;
 
-  z = PTR2SCM (scm_gc_malloc_pointerless (sizeof (scm_t_double), "real"));
+  z = SCM_PACK_POINTER (scm_gc_malloc_pointerless (sizeof (scm_t_double), "real"));
 
   SCM_SET_CELL_TYPE (z, scm_tc16_real);
   SCM_REAL_VALUE (z) = val;

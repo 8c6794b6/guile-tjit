@@ -682,7 +682,7 @@ SCM_SYMBOL (sym_auto_compilation_options, "%auto-compilation-options");
 static SCM
 do_try_auto_compile (void *data)
 {
-  SCM source = PTR2SCM (data);
+  SCM source = SCM_PACK_POINTER (data);
   SCM comp_mod, compile_file;
 
   scm_puts (";;; compiling ", scm_current_error_port ());
@@ -732,7 +732,7 @@ do_try_auto_compile (void *data)
 static SCM
 auto_compile_catch_handler (void *data, SCM tag, SCM throw_args)
 {
-  SCM source = PTR2SCM (data);
+  SCM source = SCM_PACK_POINTER (data);
   SCM oport, lines;
 
   oport = scm_open_output_string ();
@@ -784,9 +784,9 @@ scm_try_auto_compile (SCM source)
   scm_sys_warn_auto_compilation_enabled ();
   return scm_c_catch (SCM_BOOL_T,
                       do_try_auto_compile,
-                      SCM2PTR (source),
+                      SCM_UNPACK_POINTER (source),
                       auto_compile_catch_handler,
-                      SCM2PTR (source),
+                      SCM_UNPACK_POINTER (source),
                       NULL, NULL);
 }
 

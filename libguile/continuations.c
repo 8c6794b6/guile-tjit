@@ -543,7 +543,7 @@ pre_unwind_handler (void *error_port, SCM tag, SCM args)
 {
   /* Print the exception unless TAG is  `quit'.  */
   if (!scm_is_eq (tag, scm_from_latin1_symbol ("quit")))
-    print_exception_and_backtrace (PTR2SCM (error_port), tag, args);
+    print_exception_and_backtrace (SCM_PACK_POINTER (error_port), tag, args);
 
   return SCM_UNSPECIFIED;
 }
@@ -557,7 +557,7 @@ scm_c_with_continuation_barrier (void *(*func) (void *), void *data)
   scm_i_with_continuation_barrier (c_body, &c_data,
 				   c_handler, &c_data,
 				   pre_unwind_handler,
-                                   SCM2PTR (scm_current_error_port ()));
+                                   SCM_UNPACK_POINTER (scm_current_error_port ()));
   return c_data.result;
 }
 
@@ -601,7 +601,7 @@ SCM_DEFINE (scm_with_continuation_barrier, "with-continuation-barrier", 1,0,0,
   return scm_i_with_continuation_barrier (scm_body, &scm_data,
 					  scm_handler, &scm_data,
 					  pre_unwind_handler,
-                                          SCM2PTR (scm_current_error_port ()));
+                                          SCM_UNPACK_POINTER (scm_current_error_port ()));
 }
 #undef FUNC_NAME
 

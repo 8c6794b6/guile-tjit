@@ -491,7 +491,7 @@ SCM_DEFINE (scm_hashv_create_handle_x, "hashv-create-handle!", 3, 0, 0,
 static int
 assv_predicate (SCM k, SCM v, void *closure)
 {
-  return scm_is_true (scm_eqv_p (k, PTR2SCM (closure)));
+  return scm_is_true (scm_eqv_p (k, SCM_PACK_POINTER (closure)));
 }
 
 SCM_DEFINE (scm_hashv_ref, "hashv-ref", 2, 1, 0,
@@ -596,7 +596,7 @@ SCM_DEFINE (scm_hash_create_handle_x, "hash-create-handle!", 3, 0, 0,
 static int
 assoc_predicate (SCM k, SCM v, void *closure)
 {
-  return scm_is_true (scm_equal_p (k, PTR2SCM (closure)));
+  return scm_is_true (scm_equal_p (k, SCM_PACK_POINTER (closure)));
 }
 
 SCM_DEFINE (scm_hash_ref, "hash-ref", 2, 1, 0,

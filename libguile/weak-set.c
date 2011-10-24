@@ -654,7 +654,7 @@ weak_gc_callback (void **weak)
   if (!val)
     return 0;
   
-  callback (PTR2SCM (val));
+  callback (SCM_PACK_POINTER (val));
 
   return 1;
 }
@@ -682,7 +682,7 @@ scm_c_register_weak_gc_callback (SCM obj, void (*callback) (SCM))
 {
   void **weak = GC_MALLOC_ATOMIC (sizeof (void*) * 2);
 
-  weak[0] = SCM2PTR (obj);
+  weak[0] = SCM_UNPACK_POINTER (obj);
   weak[1] = (void*)callback;
   GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM2PTR (obj));
 
@@ -777,21 +777,21 @@ scm_c_weak_set_remove_x (SCM set, unsigned long raw_hash,
 static int
 eq_predicate (SCM x, void *closure)
 {
-  return scm_is_eq (x, PTR2SCM (closure));
+  return scm_is_eq (x, SCM_PACK_POINTER (closure));
 }
 
 SCM
 scm_weak_set_add_x (SCM set, SCM obj)
 {
   return scm_c_weak_set_add_x (set, scm_ihashq (obj, -1),
-                               eq_predicate, SCM2PTR (obj), obj);
+                               eq_predicate, SCM_UNPACK_POINTER (obj), obj);
 }
 
 SCM
 scm_weak_set_remove_x (SCM set, SCM obj)
 {
   scm_c_weak_set_remove_x (set, scm_ihashq (obj, -1),
-                           eq_predicate, SCM2PTR (obj));
+                           eq_predicate, SCM_UNPACK_POINTER (obj));
 
   return SCM_UNSPECIFIED;
 }
@@ -837,26 +837,26 @@ scm_c_weak_set_fold (scm_t_set_fold_fn proc, void *closure,
 static SCM
 fold_trampoline (void *closure, SCM item, SCM init)
 {
-  return scm_call_2 (PTR2SCM (closure), item, init);
+  return scm_call_2 (SCM_PACK_POINTER (closure), item, init);
 }
 
 SCM
 scm_weak_set_fold (SCM proc, SCM init, SCM set)
 {
-  return scm_c_weak_set_fold (fold_trampoline, SCM2PTR (proc), init, set);
+  return scm_c_weak_set_fold (fold_trampoline, SCM_UNPACK_POINTER (proc), init, set);
 }
 
 static SCM
 for_each_trampoline (void *closure, SCM item, SCM seed)
 {
-  scm_call_1 (PTR2SCM (closure), item);
+  scm_call_1 (SCM_PACK_POINTER (closure), item);
   return seed;
 }
 
 SCM
 scm_weak_set_for_each (SCM proc, SCM set)
 {
-  scm_c_weak_set_fold (for_each_trampoline, SCM2PTR (proc), SCM_BOOL_F, set);
+  scm_c_weak_set_fold (for_each_trampoline, SCM_UNPACK_POINTER (proc), SCM_BOOL_F, set);
 
   return SCM_UNSPECIFIED;
 }
@@ -864,13 +864,13 @@ scm_weak_set_for_each (SCM proc, SCM set)
 static SCM
 map_trampoline (void *closure, SCM item, SCM seed)
 {
-  return scm_cons (scm_call_1 (PTR2SCM (closure), item), seed);
+  return scm_cons (scm_call_1 (SCM_PACK_POINTER (closure), item), seed);
 }
 
 SCM
 scm_weak_set_map_to_list (SCM proc, SCM set)
 {
-  return scm_c_weak_set_fold (map_trampoline, SCM2PTR (proc), SCM_EOL, set);
+  return scm_c_weak_set_fold (map_trampoline, SCM_UNPACK_POINTER (proc), SCM_EOL, set);
 }
 
 

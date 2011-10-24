@@ -113,6 +113,11 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 #   define SCM_PACK(x) ((SCM) (x))
 #endif
 
+/* Packing SCM objects into and out of pointers.
+ */
+#define SCM_UNPACK_POINTER(x) ((scm_t_bits *) (SCM_UNPACK (x)))
+#define SCM_PACK_POINTER(x) (SCM_PACK ((scm_t_bits) (x)))
+
 
 /* SCM values can not be compared by using the operator ==.  Use the following
  * macro instead, which is the equivalent of the scheme predicate 'eq?'.

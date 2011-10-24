@@ -48,7 +48,7 @@ make_weak_vector (size_t len, SCM fill)
   if (SCM_UNBNDP (fill))
     fill = SCM_UNSPECIFIED;
 
-  wv = PTR2SCM (scm_gc_malloc_pointerless ((len + 1) * sizeof (SCM),
+  wv = SCM_PACK_POINTER (scm_gc_malloc_pointerless ((len + 1) * sizeof (SCM),
                                            "weak vector"));
 
   SCM_SET_CELL_WORD_0 (wv, (len << 8) | scm_tc7_wvect);
@@ -147,7 +147,7 @@ scm_c_weak_vector_ref (SCM wv, size_t k)
   ret = GC_call_with_alloc_lock (weak_vector_ref, &d);
   
   if (ret)
-    return PTR2SCM (ret);
+    return SCM_PACK_POINTER (ret);
   else
     return SCM_BOOL_F;
 }

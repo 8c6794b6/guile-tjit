@@ -126,7 +126,7 @@ make_stringbuf (size_t len)
     lenhist[1000]++;
 #endif
 
-  buf = PTR2SCM (scm_gc_malloc_pointerless (STRINGBUF_HEADER_BYTES + len + 1,
+  buf = SCM_PACK_POINTER (scm_gc_malloc_pointerless (STRINGBUF_HEADER_BYTES + len + 1,
 					    "string"));
 
   SCM_SET_CELL_TYPE (buf, STRINGBUF_TAG);
@@ -153,7 +153,7 @@ make_wide_stringbuf (size_t len)
 #endif
 
   raw_len = (len + 1) * sizeof (scm_t_wchar);
-  buf = PTR2SCM (scm_gc_malloc_pointerless (STRINGBUF_HEADER_BYTES + raw_len,
+  buf = SCM_PACK_POINTER (scm_gc_malloc_pointerless (STRINGBUF_HEADER_BYTES + raw_len,
 					    "string"));
 
   SCM_SET_CELL_TYPE (buf, STRINGBUF_TAG | STRINGBUF_F_WIDE);

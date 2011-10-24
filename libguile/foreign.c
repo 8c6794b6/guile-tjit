@@ -99,7 +99,7 @@ static void
 pointer_finalizer_trampoline (GC_PTR ptr, GC_PTR data)
 {
   scm_t_pointer_finalizer finalizer = data;
-  finalizer (SCM_POINTER_VALUE (PTR2SCM (ptr)));
+  finalizer (SCM_POINTER_VALUE (SCM_PACK_POINTER (ptr)));
 }
 
 SCM_DEFINE (scm_pointer_p, "pointer?", 1, 0, 0,
@@ -1102,7 +1102,7 @@ invoke_closure (ffi_cif *cif, void *ret, void **args, void *data)
   size_t i;
   SCM proc, *argv, result;
 
-  proc = PTR2SCM (data);
+  proc = SCM_PACK_POINTER (data);
 
   argv = alloca (cif->nargs * sizeof (*argv));
 
@@ -1133,7 +1133,7 @@ SCM_DEFINE (scm_procedure_to_pointer, "procedure->pointer", 3, 0, 0,
 
   closure = ffi_closure_alloc (sizeof (ffi_closure), &executable);
   err = ffi_prep_closure_loc ((ffi_closure *) closure, cif,
-			      invoke_closure, SCM2PTR (proc),
+			      invoke_closure, SCM_UNPACK_POINTER (proc),
 			      executable);
   if (err != FFI_OK)
     {

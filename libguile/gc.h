@@ -35,22 +35,9 @@ typedef struct scm_t_cell
   SCM word_1;
 } scm_t_cell;
 
-/* Cray machines have pointers that are incremented once for each
- * word, rather than each byte, the 3 most significant bits encode the
- * byte within the word.  The following macros deal with this by
- * storing the native Cray pointers like the ones that looks like scm
- * expects.  This is done for any pointers that point to a cell,
- * pointers to scm_vector elts, functions, &c are not munged.
- */
-#ifdef _UNICOS
-#  define SCM2PTR(x) ((scm_t_cell *) (SCM_UNPACK (x) >> 3))
-#  define PTR2SCM(x) (SCM_PACK (((scm_t_bits) (x)) << 3))
-#else
-#  define SCM2PTR(x) ((scm_t_cell *) (SCM_UNPACK (x)))
-#  define PTR2SCM(x) (SCM_PACK ((scm_t_bits) (x)))
-#endif /* def _UNICOS */
-
-
+/* FIXME: deprecate. */
+#define PTR2SCM(x) (SCM_PACK_POINTER (x))
+#define SCM2PTR(x) ((scm_t_cell *) (SCM_UNPACK_POINTER (x)))
 
 /* Low level cell data accessing macros.  These macros should only be used
  * from within code related to garbage collection issues, since they will
@@ -212,7 +199,7 @@ SCM_INLINE SCM scm_words (scm_t_bits car, scm_t_uint16 n_words);
 SCM_INLINE_IMPLEMENTATION SCM
 scm_cell (scm_t_bits car, scm_t_bits cdr)
 {
-  SCM cell = PTR2SCM (SCM_GC_MALLOC (sizeof (scm_t_cell)));
+  SCM cell = SCM_PACK_POINTER (SCM_GC_MALLOC (sizeof (scm_t_cell)));
 
   /* Initialize the type slot last so that the cell is ignored by the GC
      until it is completely initialized.  This is only relevant when the GC
@@ -230,7 +217,7 @@ scm_double_cell (scm_t_bits car, scm_t_bits cbr,
 {
   SCM z;
 
-  z = PTR2SCM (SCM_GC_MALLOC (2 * sizeof (scm_t_cell)));
+  z = SCM_PACK_POINTER (SCM_GC_MALLOC (2 * sizeof (scm_t_cell)));
   /* Initialize the type slot last so that the cell is ignored by the
      GC until it is completely initialized.  This is only relevant
      when the GC can actually run during this code, which it can't
@@ -269,7 +256,7 @@ scm_words (scm_t_bits car, scm_t_uint16 n_words)
 {
   SCM z;
 
-  z = PTR2SCM (SCM_GC_MALLOC (sizeof (scm_t_bits) * n_words));
+  z = SCM_PACK_POINTER (SCM_GC_MALLOC (sizeof (scm_t_bits) * n_words));
   SCM_GC_SET_CELL_WORD (z, 0, car);
 
   /* FIXME: is the following concern even relevant with BDW-GC? */

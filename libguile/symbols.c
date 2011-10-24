@@ -147,7 +147,7 @@ lookup_interned_latin1_symbol (const char *str, size_t len,
 static int
 symbol_lookup_predicate_fn (SCM sym, void *closure)
 {
-  SCM other = PTR2SCM (closure);
+  SCM other = SCM_PACK_POINTER (closure);
 
   if (scm_i_symbol_hash (sym) == scm_i_symbol_hash (other)
       && scm_i_symbol_length (sym) == scm_i_symbol_length (other))
@@ -184,7 +184,7 @@ scm_i_str2symbol (SCM str)
          the same time.  */
       return scm_c_weak_set_add_x (symbols, raw_hash,
                                    symbol_lookup_predicate_fn,
-                                   SCM2PTR (symbol), symbol);
+                                   SCM_UNPACK_POINTER (symbol), symbol);
     }
 }
 

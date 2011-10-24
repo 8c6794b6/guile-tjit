@@ -479,7 +479,7 @@ smob_mark (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
   register SCM cell;
   register scm_t_bits tc, smobnum;
 
-  cell = PTR2SCM (addr);
+  cell = SCM_PACK_POINTER (addr);
 
   if (SCM_TYP7 (cell) != scm_tc7_smob)
     /* It is likely that the GC passed us a pointer to a free-list element
@@ -568,7 +568,7 @@ finalize_smob (GC_PTR ptr, GC_PTR data)
   SCM smob;
   size_t (* free_smob) (SCM);
 
-  smob = PTR2SCM (ptr);
+  smob = SCM_PACK_POINTER (ptr);
 #if 0
   printf ("finalizing SMOB %p (smobnum: %u)\n",
 	  ptr, SCM_SMOBNUM (smob));
@@ -592,9 +592,9 @@ scm_i_new_smob (scm_t_bits tc, scm_t_bits data)
      allocates a double cell.  We leave words 2 and 3 to there initial
      values, which is 0.  */
   if (scm_smobs [smobnum].mark)
-    ret = PTR2SCM (GC_generic_malloc (2 * sizeof (scm_t_cell), smob_gc_kind));
+    ret = SCM_PACK_POINTER (GC_generic_malloc (2 * sizeof (scm_t_cell), smob_gc_kind));
   else
-    ret = PTR2SCM (GC_MALLOC (sizeof (scm_t_cell)));
+    ret = SCM_PACK_POINTER (GC_MALLOC (sizeof (scm_t_cell)));
   
   SCM_SET_CELL_WORD_1 (ret, data);
   SCM_SET_CELL_WORD_0 (ret, tc);
@@ -624,9 +624,9 @@ scm_i_new_double_smob (scm_t_bits tc, scm_t_bits data1,
   /* Use the smob_gc_kind if needed to allow the mark procedure to
      run.  */
   if (scm_smobs [smobnum].mark)
-    ret = PTR2SCM (GC_generic_malloc (2 * sizeof (scm_t_cell), smob_gc_kind));
+    ret = SCM_PACK_POINTER (GC_generic_malloc (2 * sizeof (scm_t_cell), smob_gc_kind));
   else
-    ret = PTR2SCM (GC_MALLOC (2 * sizeof (scm_t_cell)));
+    ret = SCM_PACK_POINTER (GC_MALLOC (2 * sizeof (scm_t_cell)));
   
   SCM_SET_CELL_WORD_3 (ret, data3);
   SCM_SET_CELL_WORD_2 (ret, data2);

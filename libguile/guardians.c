@@ -108,9 +108,9 @@ finalize_guarded (GC_PTR ptr, GC_PTR finalizer_data)
   SCM cell_pool;
   SCM obj, guardian_list, proxied_finalizer;
 
-  obj = PTR2SCM (ptr);
-  guardian_list = SCM_CDR (PTR2SCM (finalizer_data));
-  proxied_finalizer = SCM_CAR (PTR2SCM (finalizer_data));
+  obj = SCM_PACK_POINTER (ptr);
+  guardian_list = SCM_CDR (SCM_PACK_POINTER (finalizer_data));
+  proxied_finalizer = SCM_CAR (SCM_PACK_POINTER (finalizer_data));
 
 #ifdef DEBUG_GUARDIANS
   printf ("finalizing guarded %p (%u guardians)\n",
@@ -168,8 +168,8 @@ finalize_guarded (GC_PTR ptr, GC_PTR finalizer_data)
       GC_finalization_proc finalizer, prev_finalizer;
       GC_PTR finalizer_data, prev_finalizer_data;
 
-      finalizer = (GC_finalization_proc) SCM2PTR (SCM_CAR (proxied_finalizer));
-      finalizer_data = SCM2PTR (SCM_CDR (proxied_finalizer));
+      finalizer = (GC_finalization_proc) SCM_UNPACK_POINTER (SCM_CAR (proxied_finalizer));
+      finalizer_data = SCM_UNPACK_POINTER (SCM_CDR (proxied_finalizer));
 
       if (finalizer == NULL)
 	abort ();
@@ -218,8 +218,8 @@ scm_i_guard (SCM guardian, SCM obj)
                                     SCM_EOL);
       finalizer_data = scm_cons (SCM_BOOL_F, guardians_for_obj);
 
-      GC_REGISTER_FINALIZER_NO_ORDER (SCM2PTR (obj), finalize_guarded,
-				      SCM2PTR (finalizer_data),
+      GC_REGISTER_FINALIZER_NO_ORDER (SCM_UNPACK_POINTER (obj), finalize_guarded,
+				      SCM_UNPACK_POINTER (finalizer_data),
 				      &prev_finalizer, &prev_data);
 
       if (prev_finalizer == finalize_guarded)
@@ -231,7 +231,7 @@ scm_i_guard (SCM guardian, SCM obj)
 	  if (prev_data == NULL)
 	    abort ();
 
-	  prev_finalizer_data = PTR2SCM (prev_data);
+	  prev_finalizer_data = SCM_PACK_POINTER (prev_data);
 	  if (!scm_is_pair (prev_finalizer_data))
 	    abort ();
 
@@ -248,8 +248,8 @@ scm_i_guard (SCM guardian, SCM obj)
 	     `finalize_guarded ()' has finished.  */
 	  SCM proxied_finalizer;
 
-	  proxied_finalizer = scm_cons (PTR2SCM (prev_finalizer),
-					PTR2SCM (prev_data));
+	  proxied_finalizer = scm_cons (SCM_PACK_POINTER (prev_finalizer),
+					SCM_PACK_POINTER (prev_data));
 	  SCM_SETCAR (finalizer_data, proxied_finalizer);
 	}
     }

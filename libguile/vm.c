@@ -228,8 +228,8 @@ vm_dispatch_hook (SCM vm, int hook_num)
   frame = (scm_t_cell *) ROUND_UP ((scm_t_uintptr) frame, 8UL);
 
   frame->word_0 = SCM_PACK (scm_tc7_frame);
-  frame->word_1 = PTR2SCM (&c_frame);
-  args[0] = PTR2SCM (frame);
+  frame->word_1 = SCM_PACK_POINTER (&c_frame);
+  args[0] = SCM_PACK_POINTER (frame);
 
   scm_c_run_hookn (hook, args, 1);
 
@@ -504,7 +504,7 @@ make_vm (void)
 
   /* Keep a pointer to VP so that `vm_stack_mark ()' can know what the stack
      top is.  */
-  *vp->stack_base = PTR2SCM (vp);
+  *vp->stack_base = SCM_PACK_POINTER (vp);
   vp->stack_base++;
   vp->stack_size--;
 #else

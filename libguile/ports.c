@@ -535,7 +535,7 @@ static void
 finalize_port (GC_PTR ptr, GC_PTR data)
 {
   long port_type;
-  SCM port = PTR2SCM (ptr);
+  SCM port = SCM_PACK_POINTER (ptr);
 
   if (!SCM_PORTP (port))
     abort ();
@@ -877,7 +877,7 @@ scm_c_port_for_each (void (*proc)(void *data, SCM p), void *data)
 static void
 scm_for_each_trampoline (void *data, SCM port)
 {
-  scm_call_1 (PTR2SCM (data), port);
+  scm_call_1 (SCM_PACK_POINTER (data), port);
 }
 
 SCM_DEFINE (scm_port_for_each, "port-for-each", 1, 0, 0,
@@ -892,7 +892,7 @@ SCM_DEFINE (scm_port_for_each, "port-for-each", 1, 0, 0,
 {
   SCM_VALIDATE_PROC (1, proc);
 
-  scm_c_port_for_each (scm_for_each_trampoline, SCM2PTR (proc));
+  scm_c_port_for_each (scm_for_each_trampoline, SCM_UNPACK_POINTER (proc));
   
   return SCM_UNSPECIFIED;
 }

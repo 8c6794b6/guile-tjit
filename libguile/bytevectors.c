@@ -229,7 +229,7 @@ make_bytevector (size_t len, scm_t_array_element_type element_type)
 
       contents = scm_gc_malloc_pointerless (SCM_BYTEVECTOR_HEADER_BYTES + c_len,
 					    SCM_GC_BYTEVECTOR);
-      ret = PTR2SCM (contents);
+      ret = SCM_PACK_POINTER (contents);
       contents += SCM_BYTEVECTOR_HEADER_BYTES;
 
       SCM_BYTEVECTOR_SET_LENGTH (ret, c_len);
@@ -257,7 +257,7 @@ make_bytevector_from_buffer (size_t len, void *contents,
     {
       size_t c_len;
 
-      ret = PTR2SCM (scm_gc_malloc (SCM_BYTEVECTOR_HEADER_BYTES,
+      ret = SCM_PACK_POINTER (scm_gc_malloc (SCM_BYTEVECTOR_HEADER_BYTES,
 				    SCM_GC_BYTEVECTOR));
 
       c_len = len * (scm_i_array_element_type_sizes[element_type] / 8);

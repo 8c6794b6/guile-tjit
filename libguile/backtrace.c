@@ -511,7 +511,7 @@ display_backtrace_body (struct display_backtrace_args *a)
 static SCM
 error_during_backtrace (void *data, SCM tag, SCM throw_args)
 {
-  SCM port = PTR2SCM (data);
+  SCM port = SCM_PACK_POINTER (data);
   
   scm_puts ("Exception thrown while printing backtrace:\n", port);
   scm_print_exception (port, SCM_BOOL_F, tag, throw_args);
@@ -544,7 +544,7 @@ SCM_DEFINE (scm_display_backtrace_with_highlights, "display-backtrace", 2, 3, 0,
 
   scm_internal_catch (SCM_BOOL_T,
 		      (scm_t_catch_body) display_backtrace_body, &a,
-		      (scm_t_catch_handler) error_during_backtrace, SCM2PTR (port));
+		      (scm_t_catch_handler) error_during_backtrace, SCM_UNPACK_POINTER (port));
 
   return SCM_UNSPECIFIED;
 }

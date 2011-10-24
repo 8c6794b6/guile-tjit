@@ -754,7 +754,7 @@ weak_gc_callback (void **weak)
   if (!val)
     return 0;
   
-  callback (PTR2SCM (val));
+  callback (SCM_PACK_POINTER (val));
 
   return 1;
 }
@@ -782,7 +782,7 @@ scm_c_register_weak_gc_callback (SCM obj, void (*callback) (SCM))
 {
   void **weak = GC_MALLOC_ATOMIC (sizeof (void*) * 2);
 
-  weak[0] = SCM2PTR (obj);
+  weak[0] = SCM_UNPACK_POINTER (obj);
   weak[1] = (void*)callback;
   GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM2PTR (obj));
 
@@ -877,7 +877,7 @@ scm_c_weak_table_remove_x (SCM table, unsigned long raw_hash,
 static int
 assq_predicate (SCM x, SCM y, void *closure)
 {
-  return scm_is_eq (x, PTR2SCM (closure));
+  return scm_is_eq (x, SCM_PACK_POINTER (closure));
 }
 
 SCM
@@ -887,7 +887,7 @@ scm_weak_table_refq (SCM table, SCM key, SCM dflt)
     dflt = SCM_BOOL_F;
   
   return scm_c_weak_table_ref (table, scm_ihashq (key, -1),
-                               assq_predicate, SCM2PTR (key),
+                               assq_predicate, SCM_UNPACK_POINTER (key),
                                dflt);
 }
 
@@ -895,7 +895,7 @@ SCM
 scm_weak_table_putq_x (SCM table, SCM key, SCM value)
 {
   scm_c_weak_table_put_x (table, scm_ihashq (key, -1),
-                          assq_predicate, SCM2PTR (key),
+                          assq_predicate, SCM_UNPACK_POINTER (key),
                           key, value);
   return SCM_UNSPECIFIED;
 }
@@ -904,7 +904,7 @@ SCM
 scm_weak_table_remq_x (SCM table, SCM key)
 {
   scm_c_weak_table_remove_x (table, scm_ihashq (key, -1),
-                             assq_predicate, SCM2PTR (key));
+                             assq_predicate, SCM_UNPACK_POINTER (key));
   return SCM_UNSPECIFIED;
 }
 
@@ -972,7 +972,7 @@ scm_c_weak_table_fold (scm_t_table_fold_fn proc, void *closure,
 static SCM
 fold_trampoline (void *closure, SCM k, SCM v, SCM init)
 {
-  return scm_call_3 (PTR2SCM (closure), k, v, init);
+  return scm_call_3 (SCM_PACK_POINTER (closure), k, v, init);
 }
 
 SCM
@@ -982,14 +982,14 @@ scm_weak_table_fold (SCM proc, SCM init, SCM table)
   SCM_VALIDATE_WEAK_TABLE (3, table);
   SCM_VALIDATE_PROC (1, proc);
 
-  return scm_c_weak_table_fold (fold_trampoline, SCM2PTR (proc), init, table);
+  return scm_c_weak_table_fold (fold_trampoline, SCM_UNPACK_POINTER (proc), init, table);
 }
 #undef FUNC_NAME
 
 static SCM
 for_each_trampoline (void *closure, SCM k, SCM v, SCM seed)
 {
-  scm_call_2 (PTR2SCM (closure), k, v);
+  scm_call_2 (SCM_PACK_POINTER (closure), k, v);
   return seed;
 }
 
@@ -1000,7 +1000,7 @@ scm_weak_table_for_each (SCM proc, SCM table)
   SCM_VALIDATE_WEAK_TABLE (2, table);
   SCM_VALIDATE_PROC (1, proc);
 
-  scm_c_weak_table_fold (for_each_trampoline, SCM2PTR (proc), SCM_BOOL_F, table);
+  scm_c_weak_table_fold (for_each_trampoline, SCM_UNPACK_POINTER (proc), SCM_BOOL_F, table);
 
   return SCM_UNSPECIFIED;
 }
@@ -1009,7 +1009,7 @@ scm_weak_table_for_each (SCM proc, SCM table)
 static SCM
 map_trampoline (void *closure, SCM k, SCM v, SCM seed)
 {
-  return scm_cons (scm_call_2 (PTR2SCM (closure), k, v), seed);
+  return scm_cons (scm_call_2 (SCM_PACK_POINTER (closure), k, v), seed);
 }
 
 SCM
@@ -1019,7 +1019,7 @@ scm_weak_table_map_to_list (SCM proc, SCM table)
   SCM_VALIDATE_WEAK_TABLE (2, table);
   SCM_VALIDATE_PROC (1, proc);
 
-  return scm_c_weak_table_fold (map_trampoline, SCM2PTR (proc), SCM_EOL, table);
+  return scm_c_weak_table_fold (map_trampoline, SCM_UNPACK_POINTER (proc), SCM_EOL, table);
 }
 #undef FUNC_NAME
 
