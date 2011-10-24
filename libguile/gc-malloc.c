@@ -43,7 +43,6 @@ extern unsigned long * __libc_ia64_register_backing_store_base;
 #include "libguile/root.h"
 #include "libguile/strings.h"
 #include "libguile/vectors.h"
-#include "libguile/weaks.h"
 #include "libguile/hashtab.h"
 #include "libguile/tags.h"
 

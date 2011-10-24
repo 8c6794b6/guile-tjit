@@ -29,7 +29,6 @@
 #include "libguile/chars.h"
 #include "libguile/eval.h"
 #include "libguile/alist.h"
-#include "libguile/weaks.h"
 #include "libguile/hashtab.h"
 #include "libguile/ports.h"
 #include "libguile/strings.h"

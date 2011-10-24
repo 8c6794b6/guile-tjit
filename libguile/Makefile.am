@@ -220,7 +220,7 @@ libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES =				\
 	vports.c				\
 	weak-set.c				\
 	weak-table.c				\
-	weaks.c
+	weak-vector.c
 
 DOT_X_FILES =					\
 	alist.x					\
@@ -318,7 +318,7 @@ DOT_X_FILES =					\
 	vports.x				\
 	weak-set.x				\
 	weak-table.x				\
-	weaks.x
+	weak-vector.x
 
 # vm-related snarfs
 DOT_X_FILES += frames.x instructions.x objcodes.x programs.x vm.x
@@ -421,7 +421,7 @@ DOT_DOC_FILES = 				\
 	vports.doc				\
 	weak-set.doc				\
 	weak-table.doc				\
-	weaks.doc
+	weak-vector.doc
 
 EXTRA_DOT_DOC_FILES = @EXTRA_DOT_DOC_FILES@
 
@@ -625,7 +625,7 @@ modinclude_HEADERS =				\
 	vports.h				\
 	weak-set.h				\
 	weak-table.h				\
-	weaks.h
+	weak-vector.h
 
 nodist_modinclude_HEADERS = version.h scmconfig.h
 

@@ -67,9 +67,7 @@ scm_vector_elements (SCM vec, scm_t_array_handle *h,
 		     size_t *lenp, ssize_t *incp)
 {
   if (SCM_I_WVECTP (vec))
-    /* FIXME: We should check each (weak) element of the vector for NULL and
-       convert it to SCM_BOOL_F.  */
-    abort ();
+    scm_wrong_type_arg_msg (NULL, 0, vec, "non-weak vector");
 
   scm_generalized_vector_get_handle (vec, h);
   if (lenp)
@@ -86,9 +84,7 @@ scm_vector_writable_elements (SCM vec, scm_t_array_handle *h,
 			      size_t *lenp, ssize_t *incp)
 {
   if (SCM_I_WVECTP (vec))
-    /* FIXME: We should check each (weak) element of the vector for NULL and
-       convert it to SCM_BOOL_F.  */
-    abort ();
+    scm_wrong_type_arg_msg (NULL, 0, vec, "non-weak vector");
 
   scm_generalized_vector_get_handle (vec, h);
   if (lenp)
@@ -205,40 +201,29 @@ scm_vector_ref (SCM v, SCM k)
 SCM
 scm_c_vector_ref (SCM v, size_t k)
 {
-  if (SCM_I_IS_VECTOR (v))
+  if (SCM_I_IS_NONWEAK_VECTOR (v))
     {
-      register SCM elt;
-
       if (k >= SCM_I_VECTOR_LENGTH (v))
 	scm_out_of_range (NULL, scm_from_size_t (k));
-      elt = (SCM_I_VECTOR_ELTS(v))[k];
-
-      if (SCM_UNPACK (elt) == 0 && SCM_I_WVECTP (v))
-	/* ELT was a weak pointer and got nullified by the GC.  */
-	return SCM_BOOL_F;
-
-      return elt;
+      return SCM_SIMPLE_VECTOR_REF (v, k);
     }
+  else if (SCM_I_WVECTP (v))
+    return scm_c_weak_vector_ref (v, k);
   else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
     {
       scm_t_array_dim *dim = SCM_I_ARRAY_DIMS (v);
       SCM vv = SCM_I_ARRAY_V (v);
-      if (SCM_I_IS_VECTOR (vv))
-	{
-	  register SCM elt;
 
-	  if (k >= dim->ubnd - dim->lbnd + 1)
-	    scm_out_of_range (NULL, scm_from_size_t (k));
-	  k = SCM_I_ARRAY_BASE (v) + k*dim->inc;
-	  elt = (SCM_I_VECTOR_ELTS (vv))[k];
+      k = SCM_I_ARRAY_BASE (v) + k*dim->inc;
+      if (k >= dim->ubnd - dim->lbnd + 1)
+        scm_out_of_range (NULL, scm_from_size_t (k));
 
-	  if (SCM_UNPACK (elt) == 0 && (SCM_I_WVECTP (vv)))
-	    /* ELT was a weak pointer and got nullified by the GC.  */
-	    return SCM_BOOL_F;
-
-	  return elt;
-	}
-      scm_wrong_type_arg_msg (NULL, 0, v, "non-uniform vector");
+      if (SCM_I_IS_NONWEAK_VECTOR (vv))
+        return SCM_SIMPLE_VECTOR_REF (vv, k);
+      else if (SCM_I_WVECTP (vv))
+        return scm_c_weak_vector_ref (vv, k);
+      else
+        scm_wrong_type_arg_msg (NULL, 0, v, "non-uniform vector");
     }
   else
     return scm_wta_dispatch_2 (g_vector_ref, v, scm_from_size_t (k), 2,
@@ -270,38 +255,27 @@ scm_vector_set_x (SCM v, SCM k, SCM obj)
 void
 scm_c_vector_set_x (SCM v, size_t k, SCM obj)
 {
-  if (SCM_I_IS_VECTOR (v))
+  if (SCM_I_IS_NONWEAK_VECTOR (v))
     {
       if (k >= SCM_I_VECTOR_LENGTH (v))
-	scm_out_of_range (NULL, scm_from_size_t (k)); 
-      (SCM_I_VECTOR_WELTS(v))[k] = obj;
-      if (SCM_I_WVECTP (v))
-	{
-	  /* Make it a weak pointer.  */
-	  GC_PTR link = (GC_PTR) & ((SCM_I_VECTOR_WELTS (v))[k]);
-	  SCM_I_REGISTER_DISAPPEARING_LINK (link,
-                                            (GC_PTR) SCM2PTR (obj));
-	}
+        scm_out_of_range (NULL, scm_from_size_t (k)); 
+      SCM_SIMPLE_VECTOR_SET (v, k, obj);
     }
+  else if (SCM_I_WVECTP (v))
+    scm_c_weak_vector_set_x (v, k, obj);
   else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
     {
       scm_t_array_dim *dim = SCM_I_ARRAY_DIMS (v);
       SCM vv = SCM_I_ARRAY_V (v);
-      if (SCM_I_IS_VECTOR (vv))
-	{
-	  if (k >= dim->ubnd - dim->lbnd + 1)
-	    scm_out_of_range (NULL, scm_from_size_t (k));
-	  k = SCM_I_ARRAY_BASE (v) + k*dim->inc;
-	  (SCM_I_VECTOR_WELTS (vv))[k] = obj;
 
-	  if (SCM_I_WVECTP (vv))
-	    {
-	      /* Make it a weak pointer.  */
-	      GC_PTR link = (GC_PTR) & ((SCM_I_VECTOR_WELTS (vv))[k]);
-	      SCM_I_REGISTER_DISAPPEARING_LINK (link,
-                                                (GC_PTR) SCM2PTR (obj));
-	    }
-	}
+      k = SCM_I_ARRAY_BASE (v) + k*dim->inc;
+      if (k >= dim->ubnd - dim->lbnd + 1)
+        scm_out_of_range (NULL, scm_from_size_t (k));
+
+      if (SCM_I_IS_NONWEAK_VECTOR (vv))
+        SCM_SIMPLE_VECTOR_SET (vv, k, obj);
+      else if (SCM_I_WVECTP (vv))
+        scm_c_weak_vector_set_x (vv, k, obj);
       else
 	scm_wrong_type_arg_msg (NULL, 0, v, "non-uniform vector");
     }
@@ -339,28 +313,17 @@ SCM
 scm_c_make_vector (size_t k, SCM fill)
 #define FUNC_NAME s_scm_make_vector
 {
-  SCM *vector;
+  SCM vector;
+  unsigned long int j;
 
-  vector = (SCM *)
-    scm_gc_malloc ((k + SCM_I_VECTOR_HEADER_SIZE) * sizeof (SCM),
-		   "vector");
+  SCM_ASSERT_RANGE (1, scm_from_size_t (k), k <= VECTOR_MAX_LENGTH);
 
-  if (k > 0)
-    {
-      SCM *base;
-      unsigned long int j;
+  vector = scm_words ((k << 8) | scm_tc7_vector, k + 1);
 
-      SCM_ASSERT_RANGE (1, scm_from_ulong (k), k <= VECTOR_MAX_LENGTH);
+  for (j = 0; j < k; ++j)
+    SCM_SIMPLE_VECTOR_SET (vector, j, fill);
 
-      base = vector + SCM_I_VECTOR_HEADER_SIZE;
-      for (j = 0; j != k; ++j)
-	base[j] = fill;
-    }
-
-  ((scm_t_bits *) vector)[0] = (k << 8) | scm_tc7_vector;
-  ((scm_t_bits *) vector)[1] = 0;
-
-  return PTR2SCM (vector);
+  return vector;
 }
 #undef FUNC_NAME
 
@@ -387,72 +350,6 @@ SCM_DEFINE (scm_vector_copy, "vector-copy", 1, 0, 0,
   return result;
 }
 #undef FUNC_NAME
-
-
-/* Weak vectors.  */
-
-/* Allocate memory for the elements of a weak vector on behalf of the
-   caller.  */
-static SCM
-make_weak_vector (scm_t_bits type, size_t c_size)
-{
-  SCM *vector;
-  size_t total_size;
-
-  total_size = (c_size + SCM_I_VECTOR_HEADER_SIZE) * sizeof (SCM);
-  vector = (SCM *) scm_gc_malloc_pointerless (total_size, "weak vector");
-
-  ((scm_t_bits *) vector)[0] = (c_size << 8) | scm_tc7_wvect;
-  ((scm_t_bits *) vector)[1] = type;
-
-  return PTR2SCM (vector);
-}
-
-/* Return a new weak vector.  The allocated vector will be of the given weak
-   vector subtype.  It will contain SIZE elements which are initialized with
-   the FILL object, or, if FILL is undefined, with an unspecified object.  */
-SCM
-scm_i_make_weak_vector (scm_t_bits type, SCM size, SCM fill)
-{
-  SCM wv, *base;
-  size_t c_size, j;
-
-  if (SCM_UNBNDP (fill))
-    fill = SCM_UNSPECIFIED;
-
-  c_size = scm_to_unsigned_integer (size, 0, VECTOR_MAX_LENGTH);
-  wv = make_weak_vector (type, c_size);
-  base = SCM_I_WVECT_GC_WVELTS (wv);
-
-  for (j = 0; j != c_size; ++j)
-    base[j] = fill;
-
-  return wv;
-}
-
-/* Return a new weak vector with type TYPE and whose content are taken from
-   list LST.  */
-SCM
-scm_i_make_weak_vector_from_list (scm_t_bits type, SCM lst)
-{
-  SCM wv, *elt;
-  long c_size;
-
-  c_size = scm_ilength (lst);
-  SCM_ASSERT (c_size >= 0, lst, SCM_ARG2, "scm_i_make_weak_vector_from_list");
-
-  wv = make_weak_vector(type, (size_t) c_size);
-
-  for (elt = SCM_I_WVECT_GC_WVELTS (wv);
-       scm_is_pair (lst);
-       lst = SCM_CDR (lst), elt++)
-    {
-      *elt = SCM_CAR (lst);
-    }
-
-  return wv;
-}
-
 
 
 SCM_DEFINE (scm_vector_to_list, "vector->list", 1, 0, 0, 

@@ -133,7 +133,6 @@
 #include "libguile/version.h"
 #include "libguile/vm.h"
 #include "libguile/vports.h"
-#include "libguile/weaks.h"
 #include "libguile/guardians.h"
 #include "libguile/extensions.h"
 #include "libguile/uniform.h"
@@ -383,12 +382,11 @@ scm_i_init_guile (void *base)
 
   scm_storage_prehistory ();
   scm_threads_prehistory (base);  /* requires storage_prehistory */
-  scm_weaks_prehistory ();        /* requires storage_prehistory */
   scm_weak_table_prehistory ();        /* requires storage_prehistory */
 #ifdef GUILE_DEBUG_MALLOC
   scm_debug_malloc_prehistory ();
 #endif
-  scm_symbols_prehistory ();      /* requires weaks_prehistory */
+  scm_symbols_prehistory ();      /* requires weak_table_prehistory */
   scm_modules_prehistory ();
   scm_init_array_handle ();
   scm_bootstrap_bytevectors ();   /* Requires array-handle */
@@ -489,9 +487,9 @@ scm_i_init_guile (void *base)
   scm_init_throw ();    /* Requires smob_prehistory */
   scm_init_trees ();
   scm_init_version ();
-  scm_init_weaks ();
   scm_init_weak_set ();
   scm_init_weak_table ();
+  scm_init_weak_vectors ();
   scm_init_guardians (); /* requires smob_prehistory */
   scm_init_vports ();
   scm_init_standard_ports ();  /* Requires fports */

@@ -53,7 +53,6 @@
 #include "libguile/strings.h"
 #include "libguile/strports.h"
 #include "libguile/vectors.h"
-#include "libguile/weaks.h"
 #include "libguile/vm.h"
 
 #include "libguile/validate.h"

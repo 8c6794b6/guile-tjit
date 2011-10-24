@@ -56,7 +56,6 @@
 #include "libguile/init.h"
 #include "libguile/scmsigs.h"
 #include "libguile/strings.h"
-#include "libguile/weaks.h"
 
 #include <full-read.h>
 
@@ -651,9 +650,9 @@ do_thread_exit (void *v)
 
   while (!scm_is_null (t->mutexes))
     {
-      SCM mutex = SCM_WEAK_PAIR_CAR (t->mutexes);
+      SCM mutex = scm_c_weak_vector_ref (scm_car (t->mutexes), 0);
 
-      if (!SCM_UNBNDP (mutex))
+      if (scm_is_true (mutex))
 	{
 	  fat_mutex *m  = SCM_MUTEX_DATA (mutex);
 
@@ -667,7 +666,7 @@ do_thread_exit (void *v)
 	  scm_i_pthread_mutex_unlock (&m->lock);
 	}
 
-      t->mutexes = SCM_WEAK_PAIR_CDR (t->mutexes);
+      t->mutexes = scm_cdr (t->mutexes);
     }
 
   scm_i_pthread_mutex_unlock (&t->admin_mutex);
@@ -1376,7 +1375,8 @@ fat_mutex_lock (SCM mutex, scm_t_timespec *timeout, SCM owner, int *ret)
 		 The weak pair itself is eventually removed when MUTEX
 		 is unlocked.  Note that `t->mutexes' lists mutexes
 		 currently held by T, so it should be small.  */
-	      t->mutexes = scm_weak_car_pair (mutex, t->mutexes);
+              t->mutexes = scm_cons (scm_make_weak_vector (SCM_INUM1, mutex),
+                                     t->mutexes);
 
 	      scm_i_pthread_mutex_unlock (&t->admin_mutex);
 	    }
@@ -1520,6 +1520,25 @@ typedef struct {
 #define SCM_CONDVARP(x)       SCM_SMOB_PREDICATE (scm_tc16_condvar, x)
 #define SCM_CONDVAR_DATA(x)   ((fat_cond *) SCM_SMOB_DATA (x))
 
+static void
+remove_mutex_from_thread (SCM mutex, scm_i_thread *t)
+{
+  SCM walk, prev;
+  
+  for (prev = SCM_BOOL_F, walk = t->mutexes; scm_is_pair (walk);
+       walk = SCM_CDR (walk))
+    {
+      if (scm_is_eq (mutex, scm_c_weak_vector_ref (SCM_CAR (walk), 0)))
+        {
+          if (scm_is_pair (prev))
+            SCM_SETCDR (prev, SCM_CDR (walk));
+          else
+            t->mutexes = SCM_CDR (walk);
+          break;
+        }
+    }
+}
+
 static int
 fat_mutex_unlock (SCM mutex, SCM cond,
 		  const scm_t_timespec *waittime, int relock)
@@ -1564,7 +1583,7 @@ fat_mutex_unlock (SCM mutex, SCM cond,
 	  if (m->level == 0)
 	    {
 	      /* Change the owner of MUTEX.  */
-	      t->mutexes = scm_delq_x (mutex, t->mutexes);
+	      remove_mutex_from_thread (mutex, t);
 	      m->owner = unblock_from_queue (m->waiting);
 	    }
 
@@ -1612,7 +1631,7 @@ fat_mutex_unlock (SCM mutex, SCM cond,
       if (m->level == 0)
 	{
 	  /* Change the owner of MUTEX.  */
-	  t->mutexes = scm_delq_x (mutex, t->mutexes);
+	  remove_mutex_from_thread (mutex, t);
 	  m->owner = unblock_from_queue (m->waiting);
 	}
 

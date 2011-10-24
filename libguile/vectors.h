@@ -3,7 +3,7 @@
 #ifndef SCM_VECTORS_H
 #define SCM_VECTORS_H
 
-/* Copyright (C) 1995,1996,1998,2000,2001,2002,2004,2005, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000,2001,2002,2004,2005, 2006, 2008, 2009, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -63,31 +63,14 @@ SCM_API SCM *scm_vector_writable_elements (SCM vec,
 
 /* Internals */
 
-/* Vectors have a 2-word header: 1 for the type tag, and 1 for the weak
-   vector extra data (see below.)  */
-#define SCM_I_VECTOR_HEADER_SIZE  2U
-
 #define SCM_I_IS_VECTOR(x)     (!SCM_IMP(x) && (SCM_TYP7S(x)==scm_tc7_vector))
 #define SCM_I_IS_NONWEAK_VECTOR(x) (!SCM_IMP(x) && (SCM_TYP7(x)==scm_tc7_vector))
 #define SCM_I_VECTOR_ELTS(x)   ((const SCM *) SCM_I_VECTOR_WELTS (x))
-#define SCM_I_VECTOR_WELTS(x)  (SCM_CELL_OBJECT_LOC (x, SCM_I_VECTOR_HEADER_SIZE))
+#define SCM_I_VECTOR_WELTS(x)  (SCM_CELL_OBJECT_LOC (x, 1))
 #define SCM_I_VECTOR_LENGTH(x) (((size_t) SCM_CELL_WORD_0 (x)) >> 8)
 
 SCM_INTERNAL SCM  scm_i_vector_equal_p (SCM x, SCM y);
 
-/* Weak vectors share implementation details with ordinary vectors,
-   but no one else should.  */
-
-#define SCM_I_WVECTP(x)                 (!SCM_IMP (x) && \
-                                         SCM_TYP7 (x) == scm_tc7_wvect)
-#define SCM_I_WVECT_LENGTH              SCM_I_VECTOR_LENGTH
-#define SCM_I_WVECT_VELTS               SCM_I_VECTOR_ELTS
-#define SCM_I_WVECT_GC_WVELTS           SCM_I_VECTOR_WELTS
-#define SCM_I_WVECT_EXTRA(x)            (SCM_CELL_WORD_1 (x))
-#define SCM_I_SET_WVECT_EXTRA(x, t)     (SCM_SET_CELL_WORD_1 ((x),(t)))
-
-SCM_INTERNAL SCM scm_i_make_weak_vector (scm_t_bits type, SCM size, SCM fill);
-SCM_INTERNAL SCM scm_i_make_weak_vector_from_list (scm_t_bits type, SCM lst);
 
 SCM_INTERNAL void scm_init_vectors (void);
 

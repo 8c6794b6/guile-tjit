@@ -960,16 +960,8 @@ SCM_DEFINE (scm_module_reverse_lookup, "module-reverse-lookup", 2, 0, 0,
 	{
 	  handle = SCM_CAR (ls);
 
-	  if (SCM_UNPACK (SCM_CAR (handle)) == 0)
-	    {
-	      /* FIXME: We hit a weak pair whose car has become unreachable.
-		 We should remove the pair in question or something.  */
-	    }
-	  else
-	    {
-	      if (scm_is_eq (SCM_CDR (handle), variable))
-		return SCM_CAR (handle);
-	    }
+          if (scm_is_eq (SCM_CDR (handle), variable))
+            return SCM_CAR (handle);
 
 	  ls = SCM_CDR (ls);
 	}

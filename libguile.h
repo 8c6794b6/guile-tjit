@@ -117,7 +117,7 @@ extern "C" {
 #include "libguile/vports.h"
 #include "libguile/weak-set.h"
 #include "libguile/weak-table.h"
-#include "libguile/weaks.h"
+#include "libguile/weak-vector.h"
 #include "libguile/backtrace.h"
 #include "libguile/debug.h"
 #include "libguile/stacks.h"

@@ -40,7 +40,6 @@
 #include "libguile/macros.h"
 #include "libguile/procprop.h"
 #include "libguile/read.h"
-#include "libguile/weaks.h"
 #include "libguile/programs.h"
 #include "libguile/alist.h"
 #include "libguile/struct.h"
@@ -653,10 +652,7 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	  break;
 	case scm_tc7_wvect:
 	  ENTER_NESTED_DATA (pstate, exp, circref);
-	  if (SCM_IS_WHVEC (exp))
-	    scm_puts ("#wh(", port);
-	  else
-	    scm_puts ("#w(", port);
+          scm_puts ("#w(", port);
 	  goto common_vector_printer;
 
 	case scm_tc7_bytevector:
@@ -676,26 +672,11 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 		last = pstate->length - 1;
 		cutp = 1;
 	      }
-	    if (SCM_I_WVECTP (exp))
-	      {
-		/* Elements of weak vectors may not be accessed via the
-		   `SIMPLE_VECTOR_REF ()' macro.  */
-		for (i = 0; i < last; ++i)
-		  {
-		    scm_iprin1 (scm_c_vector_ref (exp, i),
-				port, pstate);
-		    scm_putc (' ', port);
-		  }
-	      }
-	    else
-	      {
-		for (i = 0; i < last; ++i)
-		  {
-		    scm_iprin1 (SCM_SIMPLE_VECTOR_REF (exp, i), port, pstate);
-		    scm_putc (' ', port);
-		  }
-	      }
-
+            for (i = 0; i < last; ++i)
+              {
+                scm_iprin1 (scm_c_vector_ref (exp, i), port, pstate);
+                scm_putc (' ', port);
+              }
 	    if (i == last)
 	      {
 		/* CHECK_INTS; */

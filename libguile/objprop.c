@@ -27,7 +27,6 @@
 #include "libguile/hashtab.h"
 #include "libguile/alist.h"
 #include "libguile/root.h"
-#include "libguile/weaks.h"
 
 #include "libguile/objprop.h"
 

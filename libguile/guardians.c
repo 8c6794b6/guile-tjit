@@ -57,7 +57,6 @@
 #include "libguile/validate.h"
 #include "libguile/root.h"
 #include "libguile/hashtab.h"
-#include "libguile/weaks.h"
 #include "libguile/deprecation.h"
 #include "libguile/eval.h"
 
@@ -131,9 +130,12 @@ finalize_guarded (GC_PTR ptr, GC_PTR finalizer_data)
        guardian_list = SCM_CDR (guardian_list))
     {
       SCM zombies;
+      SCM guardian;
       t_guardian *g;
 
-      if (SCM_WEAK_PAIR_CAR_DELETED_P (guardian_list))
+      guardian = scm_c_weak_vector_ref (scm_car (guardian_list), 0);
+      
+      if (scm_is_false (guardian))
 	{
 	  /* The guardian itself vanished in the meantime.  */
 #ifdef DEBUG_GUARDIANS
@@ -142,7 +144,7 @@ finalize_guarded (GC_PTR ptr, GC_PTR finalizer_data)
 	  continue;
 	}
 
-      g = GUARDIAN_DATA (SCM_CAR (guardian_list));
+      g = GUARDIAN_DATA (guardian);
       if (g->live == 0)
 	abort ();
 
@@ -209,9 +211,11 @@ scm_i_guard (SCM guardian, SCM obj)
 
       g->live++;
 
-      /* Note: GUARDIANS_FOR_OBJ is a weak list so that a guardian can be
-	 collected before the objects it guards (see `guardians.test').  */
-      guardians_for_obj = scm_weak_car_pair (guardian, SCM_EOL);
+      /* Note: GUARDIANS_FOR_OBJ holds weak references to guardians so
+	 that a guardian can be collected before the objects it guards
+	 (see `guardians.test').  */
+      guardians_for_obj = scm_cons (scm_make_weak_vector (SCM_INUM1, guardian),
+                                    SCM_EOL);
       finalizer_data = scm_cons (SCM_BOOL_F, guardians_for_obj);
 
       GC_REGISTER_FINALIZER_NO_ORDER (SCM2PTR (obj), finalize_guarded,

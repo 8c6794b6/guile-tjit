@@ -119,9 +119,9 @@ SCM_SNARF_HERE(							        \
 )									\
 SCM_SNARF_INIT(							\
   /* Initialize the foreign.  */                                        \
-  scm_i_paste (FNAME, __raw_objtable)[2] = scm_i_paste (FNAME, __subr_foreign); \
+  scm_i_paste (FNAME, __raw_objtable)[1] = scm_i_paste (FNAME, __subr_foreign); \
   /* Initialize the procedure name (an interned symbol).  */		\
-  scm_i_paste (FNAME, __raw_objtable)[3] = scm_i_paste (FNAME, __name); \
+  scm_i_paste (FNAME, __raw_objtable)[2] = scm_i_paste (FNAME, __name); \
   /* Initialize the objcode trampoline.  */                             \
   SCM_SET_CELL_OBJECT (scm_i_paste (FNAME, __subr), 1,                  \
                        scm_subr_objcode_trampoline (REQ, OPT, VAR));    \
@@ -366,12 +366,11 @@ SCM_SNARF_INIT(scm_set_smob_apply((tag), (c_name), (req), (opt), (rest));)
 
 /* for primitive-generics, add a foreign to the end */
 #define SCM_STATIC_SUBR_OBJVECT(c_name, foreign)                        \
-  static SCM_ALIGNED (8) SCM c_name[4] =                                \
+  static SCM_ALIGNED (8) SCM c_name[3] =                                \
   {                                                                     \
     SCM_PACK (scm_tc7_vector | (2 << 8)),                               \
-    SCM_PACK (0),                                                       \
     foreign,                                                            \
-    SCM_BOOL_F, /* the name */                                          \
+    SCM_BOOL_F /* the name */                                           \
   }
 
 #define SCM_STATIC_PROGRAM(c_name, objcode, objtable, freevars)         \
