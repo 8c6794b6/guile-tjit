@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1998,1999,2000,2001, 2003, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,1999,2000,2001, 2003, 2006, 2008, 2009, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -139,7 +139,7 @@ hook_print (SCM hook, SCM port, scm_print_state *pstate)
   scm_putc (' ', port);
   scm_uintprint (SCM_UNPACK (hook), 16, port);
   ls = SCM_HOOK_PROCEDURES (hook);
-  while (SCM_NIMP (ls))
+  while (scm_is_pair (ls))
     {
       scm_putc (' ', port);
       name = scm_procedure_name (SCM_CAR (ls));
@@ -269,7 +269,7 @@ void
 scm_c_run_hook (SCM hook, SCM args)
 {
   SCM procs = SCM_HOOK_PROCEDURES (hook);
-  while (SCM_NIMP (procs))
+  while (scm_is_pair (procs))
     {
       scm_apply_0 (SCM_CAR (procs), args);
       procs = SCM_CDR (procs);
@@ -280,7 +280,7 @@ void
 scm_c_run_hookn (SCM hook, SCM *argv, size_t nargs)
 {
   SCM procs = SCM_HOOK_PROCEDURES (hook);
-  while (SCM_NIMP (procs))
+  while (scm_is_pair (procs))
     {
       scm_call_n (SCM_CAR (procs), argv, nargs);
       procs = SCM_CDR (procs);

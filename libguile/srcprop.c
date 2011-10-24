@@ -245,7 +245,7 @@ SCM_DEFINE (scm_source_property, "source-property", 2, 0, 0,
       p = SRCPROPALIST (p);
     alist:
       p = scm_assoc (key, p);
-      return (SCM_NIMP (p) ? SCM_CDR (p) : SCM_BOOL_F);
+      return (scm_is_pair (p) ? SCM_CDR (p) : SCM_BOOL_F);
     }
   return SCM_UNBNDP (p) ? SCM_BOOL_F : p;
 }

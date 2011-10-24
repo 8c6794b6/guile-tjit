@@ -195,7 +195,7 @@ void
 scm_swap_bindings (SCM vars, SCM vals)
 {
   SCM tmp;
-  while (SCM_NIMP (vals))
+  while (scm_is_pair (vals))
     {
       tmp = SCM_VARIABLE_REF (SCM_CAR (vars));
       SCM_VARIABLE_SET (SCM_CAR (vars), SCM_CAR (vals));

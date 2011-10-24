@@ -1,4 +1,4 @@
-/* Copyright (C) 1996,1998,2000,2001,2004,2005, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1996,1998,2000,2001,2004,2005, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -99,7 +99,7 @@ scm_ra_matchp (SCM ra0, SCM ras)
   else
     return 0;
 
-  while (SCM_NIMP (ras))
+  while (scm_is_pair (ras))
     {
       ra1 = SCM_CAR (ras);
       
@@ -204,7 +204,7 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
 	}
       lvra = SCM_EOL;
       plvra = &lvra;
-      for (z = lra; SCM_NIMP (z); z = SCM_CDR (z))
+      for (z = lra; scm_is_pair (z); z = SCM_CDR (z))
 	{
 	  ra1 = SCM_CAR (z);
 	  vra1 = scm_i_make_array (1);
@@ -262,7 +262,7 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
       }
     lvra = SCM_EOL;
     plvra = &lvra;
-    for (z = lra; SCM_NIMP (z); z = SCM_CDR (z))
+    for (z = lra; scm_is_pair (z); z = SCM_CDR (z))
       {
 	ra1 = SCM_CAR (z);
 	vra1 = scm_i_make_array (1);
@@ -295,7 +295,7 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
 	  {
 	    SCM y = lra;
 	    SCM_I_ARRAY_BASE (vra0) = cind (ra0, vinds);
-	    for (z = lvra; SCM_NIMP (z); z = SCM_CDR (z), y = SCM_CDR (y))
+	    for (z = lvra; scm_is_pair (z); z = SCM_CDR (z), y = SCM_CDR (y))
 	      SCM_I_ARRAY_BASE (SCM_CAR (z)) = cind (SCM_CAR (y), vinds);
 	    if (0 == (SCM_UNBNDP (data) ? cproc(vra0, lvra) : cproc(vra0, data, lvra)))
 	      return 0;

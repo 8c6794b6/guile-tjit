@@ -64,7 +64,7 @@ SCM_DEFINE (scm_object_property, "object-property", 2, 0, 0,
 {
   SCM assoc;
   assoc = scm_assq (key, scm_object_properties (obj));
-  return (SCM_NIMP (assoc) ? SCM_CDR (assoc) : SCM_BOOL_F);
+  return (scm_is_pair (assoc) ? SCM_CDR (assoc) : SCM_BOOL_F);
 }
 #undef FUNC_NAME
 
@@ -80,7 +80,7 @@ SCM_DEFINE (scm_set_object_property_x, "set-object-property!", 3, 0, 0,
   scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
   alist = scm_weak_table_refq (object_whash, obj, SCM_EOL);
   assoc = scm_assq (key, alist);
-  if (SCM_NIMP (assoc))
+  if (scm_is_pair (assoc))
     SCM_SETCDR (assoc, value);
   else
     scm_weak_table_putq_x (object_whash, obj, scm_acons (key, value, alist));
