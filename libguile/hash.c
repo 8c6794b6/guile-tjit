@@ -253,11 +253,10 @@ scm_raw_ihashq (scm_t_bits key)
 
 
 /* Dirk:FIXME:: why downcase for characters? (2x: scm_hasher, scm_ihashv) */
-/* Dirk:FIXME:: scm_hasher could be made static. */
 
 
-unsigned long
-scm_hasher(SCM obj, unsigned long n, size_t d)
+static unsigned long
+hasher (SCM obj, unsigned long n, size_t d)
 {
   switch (SCM_ITAG3 (obj)) {
   case scm_tc3_int_1: 
@@ -341,7 +340,7 @@ scm_hasher(SCM obj, unsigned long n, size_t d)
 	    while (i--)
 	      {
 		SCM elt = SCM_SIMPLE_VECTOR_REF (obj, h % len);
-		h = ((h << 8) + (scm_hasher (elt, n, 2))) % n;
+		h = ((h << 8) + (hasher (elt, n, 2))) % n;
 	      }
 	    return h;
 	  }
@@ -352,15 +351,15 @@ scm_hasher(SCM obj, unsigned long n, size_t d)
 	    while (i--)
 	      {
 		SCM elt = SCM_SIMPLE_VECTOR_REF (obj, h % len);
-		h = ((h << 8) + (scm_hasher (elt, n, d/len))) % n;
+		h = ((h << 8) + (hasher (elt, n, d/len))) % n;
 	      }
 	    return h;
 	  }
       }
     case scm_tcs_cons_imcar: 
     case scm_tcs_cons_nimcar:
-      if (d) return (scm_hasher (SCM_CAR (obj), n, d/2)
-                     + scm_hasher (SCM_CDR (obj), n, d/2)) % n;
+      if (d) return (hasher (SCM_CAR (obj), n, d/2)
+                     + hasher (SCM_CDR (obj), n, d/2)) % n;
       else return 1;
     case scm_tc7_port:
       return ((SCM_RDNG & SCM_CELL_WORD_0 (obj)) ? 260 : 261) % n;
@@ -410,7 +409,7 @@ scm_ihashv (SCM obj, unsigned long n)
     return ((unsigned long) (scm_c_downcase (SCM_CHAR (obj)))) % n; /* downcase!?!! */
 
   if (SCM_NUMP(obj))
-    return (unsigned long) scm_hasher(obj, n, 10);
+    return (unsigned long) hasher(obj, n, 10);
   else
     return scm_raw_ihashq (SCM_UNPACK (obj)) % n;
 }
@@ -442,7 +441,7 @@ SCM_DEFINE (scm_hashv, "hashv", 2, 0, 0,
 unsigned long
 scm_ihash (SCM obj, unsigned long n)
 {
-  return (unsigned long) scm_hasher (obj, n, 10);
+  return (unsigned long) hasher (obj, n, 10);
 }
 
 SCM_DEFINE (scm_hash, "hash", 2, 0, 0,
