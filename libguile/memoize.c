@@ -618,7 +618,7 @@ unmemoize_lexical (SCM n)
   char buf[16];
   buf[15] = 0;
   snprintf (buf, 15, "<%u>", scm_to_uint32 (n));
-  return scm_from_locale_symbol (buf);
+  return scm_from_utf8_symbol (buf);
 }
 
 static SCM

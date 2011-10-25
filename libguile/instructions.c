@@ -72,7 +72,7 @@ fetch_instruction_table ()
         {
           table[i].opcode = i;
           if (table[i].name)
-            table[i].symname = scm_from_locale_symbol (table[i].name);
+            table[i].symname = scm_from_utf8_symbol (table[i].name);
           else
             table[i].symname = SCM_BOOL_F;
         }

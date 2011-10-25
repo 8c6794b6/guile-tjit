@@ -791,7 +791,7 @@ create_gsubr (int define, const char *name,
   scm_t_bits flags;
 
   /* make objtable */
-  sname = scm_from_locale_symbol (name);
+  sname = scm_from_utf8_symbol (name);
   table = scm_c_make_vector (generic_loc ? 3 : 2, SCM_UNDEFINED);
   SCM_SIMPLE_VECTOR_SET (table, 0, scm_from_pointer (fcn, NULL));
   SCM_SIMPLE_VECTOR_SET (table, 1, sname);

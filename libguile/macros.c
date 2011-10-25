@@ -64,7 +64,7 @@ scm_i_make_primitive_macro (const char *name, scm_t_macro_primitive fn)
 {
   SCM z = scm_words (scm_tc16_macro, 5);
   SCM_SET_SMOB_DATA_N (z, 1, (scm_t_bits)fn);
-  SCM_SET_SMOB_OBJECT_N (z, 2, scm_from_locale_symbol (name));
+  SCM_SET_SMOB_OBJECT_N (z, 2, scm_from_utf8_symbol (name));
   SCM_SET_SMOB_OBJECT_N (z, 3, SCM_BOOL_F);
   SCM_SET_SMOB_OBJECT_N (z, 4, SCM_BOOL_F);
   return z;

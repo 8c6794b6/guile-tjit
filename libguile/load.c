@@ -998,7 +998,7 @@ init_build_info ()
 
   for (i = 0; i < (sizeof (info) / sizeof (info[0])); i++)
     {
-      SCM key = scm_from_locale_symbol (info[i].name);
+      SCM key = scm_from_utf8_symbol (info[i].name);
       SCM val = scm_from_locale_string (info[i].value);
       *loc = scm_acons (key, val, *loc);
     }

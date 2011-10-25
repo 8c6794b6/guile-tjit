@@ -153,7 +153,7 @@ convert_module_name (const char *name)
 	ptr++;
       if (ptr > name)
 	{
-	  SCM sym = scm_from_locale_symboln (name, ptr-name);
+	  SCM sym = scm_from_utf8_symboln (name, ptr-name);
 	  *tail = scm_cons (sym, SCM_EOL);
 	  tail = SCM_CDRLOC (*tail);
 	}
@@ -218,7 +218,7 @@ scm_c_export (const char *name, ...)
   if (name)
     {
       va_list ap;
-      SCM names = scm_cons (scm_from_locale_symbol (name), SCM_EOL);
+      SCM names = scm_cons (scm_from_utf8_symbol (name), SCM_EOL);
       SCM *tail = SCM_CDRLOC (names);
       va_start (ap, name);
       while (1)
@@ -226,7 +226,7 @@ scm_c_export (const char *name, ...)
 	  const char *n = va_arg (ap, const char *);
 	  if (n == NULL)
 	    break;
-	  *tail = scm_cons (scm_from_locale_symbol (n), SCM_EOL);
+	  *tail = scm_cons (scm_from_utf8_symbol (n), SCM_EOL);
 	  tail = SCM_CDRLOC (*tail);
 	}
       va_end (ap);
@@ -734,7 +734,7 @@ scm_sym2var (SCM sym, SCM proc, SCM definep)
 SCM
 scm_c_module_lookup (SCM module, const char *name)
 {
-  return scm_module_lookup (module, scm_from_locale_symbol (name));
+  return scm_module_lookup (module, scm_from_utf8_symbol (name));
 }
 
 SCM
@@ -754,7 +754,7 @@ scm_module_lookup (SCM module, SCM sym)
 SCM
 scm_c_lookup (const char *name)
 {
-  return scm_lookup (scm_from_locale_symbol (name));
+  return scm_lookup (scm_from_utf8_symbol (name));
 }
 
 SCM
@@ -807,14 +807,14 @@ SCM
 scm_c_public_variable (const char *module_name, const char *name)
 {
   return scm_public_variable (convert_module_name (module_name),
-                              scm_from_locale_symbol (name));
+                              scm_from_utf8_symbol (name));
 }
 
 SCM
 scm_c_private_variable (const char *module_name, const char *name)
 {
   return scm_private_variable (convert_module_name (module_name),
-                               scm_from_locale_symbol (name));
+                               scm_from_utf8_symbol (name));
 }
 
 SCM
@@ -849,14 +849,14 @@ SCM
 scm_c_public_lookup (const char *module_name, const char *name)
 {
   return scm_public_lookup (convert_module_name (module_name),
-                            scm_from_locale_symbol (name));
+                            scm_from_utf8_symbol (name));
 }
 
 SCM
 scm_c_private_lookup (const char *module_name, const char *name)
 {
   return scm_private_lookup (convert_module_name (module_name),
-                             scm_from_locale_symbol (name));
+                             scm_from_utf8_symbol (name));
 }
 
 SCM
@@ -875,20 +875,20 @@ SCM
 scm_c_public_ref (const char *module_name, const char *name)
 {
   return scm_public_ref (convert_module_name (module_name),
-                         scm_from_locale_symbol (name));
+                         scm_from_utf8_symbol (name));
 }
 
 SCM
 scm_c_private_ref (const char *module_name, const char *name)
 {
   return scm_private_ref (convert_module_name (module_name),
-                          scm_from_locale_symbol (name));
+                          scm_from_utf8_symbol (name));
 }
 
 SCM
 scm_c_module_define (SCM module, const char *name, SCM value)
 {
-  return scm_module_define (module, scm_from_locale_symbol (name), value);
+  return scm_module_define (module, scm_from_utf8_symbol (name), value);
 }
 
 SCM
@@ -907,7 +907,7 @@ scm_module_define (SCM module, SCM sym, SCM value)
 SCM
 scm_c_define (const char *name, SCM value)
 {
-  return scm_define (scm_from_locale_symbol (name), value);
+  return scm_define (scm_from_utf8_symbol (name), value);
 }
 
 SCM_DEFINE (scm_define, "define!", 2, 0, 0,

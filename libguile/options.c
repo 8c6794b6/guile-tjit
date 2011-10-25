@@ -133,7 +133,7 @@ get_documented_option_setting (const scm_t_option options[])
 
   for (i = 0; options[i].name; ++i)
     {
-      SCM ls = scm_cons (scm_from_locale_string (options[i].doc), SCM_EOL);
+      SCM ls = scm_cons (scm_from_utf8_string (options[i].doc), SCM_EOL);
       switch (options[i].type)
 	{
 	case SCM_OPTION_BOOLEAN:
@@ -278,7 +278,7 @@ scm_init_opts (SCM (*func) (SCM), scm_t_option options[])
 
   for (i = 0; options[i].name; ++i)
     {
-      SCM name = scm_from_locale_symbol (options[i].name);
+      SCM name = scm_from_utf8_symbol (options[i].name);
       options[i].name =	(char *) SCM_UNPACK (name);
     }
   func (SCM_UNDEFINED);

@@ -1214,13 +1214,13 @@ make_exp_vtable (size_t n)
     (scm_string_append (scm_make_list (scm_from_size_t (exp_nfields[n]),
                                        scm_from_locale_string ("pw"))));
   printer = SCM_BOOL_F;
-  name = scm_from_locale_symbol (exp_names[n]);
+  name = scm_from_utf8_symbol (exp_names[n]);
   code = scm_from_size_t (n);
   fields = SCM_EOL;
   {
     size_t m = exp_nfields[n];
     while (m--)
-      fields = scm_cons (scm_from_locale_symbol (exp_field_names[n][m]), fields);
+      fields = scm_cons (scm_from_utf8_symbol (exp_field_names[n][m]), fields);
   }
 
   return scm_c_make_struct (scm_exp_vtable_vtable, 0, 5,

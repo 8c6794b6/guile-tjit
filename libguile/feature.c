@@ -43,7 +43,7 @@ void
 scm_add_feature (const char *str)
 {
   SCM old = SCM_VARIABLE_REF (features_var);
-  SCM new = scm_cons (scm_from_locale_symbol (str), old);
+  SCM new = scm_cons (scm_from_utf8_symbol (str), old);
   SCM_VARIABLE_SET (features_var, new);
 }
 

@@ -2308,7 +2308,7 @@ fix_cpl (SCM c, SCM before, SCM after)
 static void
 make_stdcls (SCM *var, char *name, SCM meta, SCM super, SCM slots)
 {
-   SCM tmp = scm_from_locale_symbol (name);
+   SCM tmp = scm_from_utf8_symbol (name);
 
    *var = scm_basic_make_class (meta, tmp,
                                 scm_is_pair (super) ? super : scm_list_1 (super),
@@ -2514,7 +2514,7 @@ make_class_from_template (char const *template, char const *type_name, SCM super
     {
       char buffer[100];
       sprintf (buffer, template, type_name);
-      name = scm_from_locale_symbol (buffer);
+      name = scm_from_utf8_symbol (buffer);
     }
   else
     name = SCM_GOOPS_UNBOUND;

@@ -438,7 +438,7 @@ scm_i_smob_apply_trampoline (SCM smob)
         name = "smob-apply";
       objtable = scm_c_make_vector (2, SCM_UNDEFINED);
       SCM_SIMPLE_VECTOR_SET (objtable, 0, smob);
-      SCM_SIMPLE_VECTOR_SET (objtable, 1, scm_from_locale_symbol (name));
+      SCM_SIMPLE_VECTOR_SET (objtable, 1, scm_from_utf8_symbol (name));
       tramp = scm_make_program (SCM_SMOB_DESCRIPTOR (smob).apply_trampoline_objcode,
                                 objtable, SCM_BOOL_F);
 

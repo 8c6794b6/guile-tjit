@@ -1,4 +1,4 @@
-/*	Copyright (C) 1995,1996,1998, 2000, 2001, 2004, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/*	Copyright (C) 1995,1996,1998, 2000, 2001, 2004, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -492,7 +492,7 @@ SCM_DEFINE (scm_char_general_category, "char-general-category", 1, 0, 0,
   sym = uc_general_category_name (cat);
 
   if (sym != NULL)
-    return scm_from_locale_symbol (sym);
+    return scm_from_utf8_symbol (sym);
   return SCM_BOOL_F;
 }
 #undef FUNC_NAME
