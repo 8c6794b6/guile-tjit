@@ -252,9 +252,6 @@ scm_raw_ihashq (scm_t_bits key)
 }
 
 
-/* Dirk:FIXME:: why downcase for characters? (2x: scm_hasher, scm_ihashv) */
-
-
 static unsigned long
 hasher (SCM obj, unsigned long n, size_t d)
 {
@@ -264,7 +261,7 @@ hasher (SCM obj, unsigned long n, size_t d)
     return SCM_I_INUM(obj) % n;   /* SCM_INUMP(obj) */
   case scm_tc3_imm24:
     if (SCM_CHARP(obj))
-      return (unsigned)(scm_c_downcase(SCM_CHAR(obj))) % n;
+      return ((unsigned)SCM_CHAR(obj)) % n;
     switch (SCM_UNPACK (obj)) {
     case SCM_EOL_BITS:
       d = 256; 
@@ -405,9 +402,6 @@ SCM_DEFINE (scm_hashq, "hashq", 2, 0, 0,
 unsigned long
 scm_ihashv (SCM obj, unsigned long n)
 {
-  if (SCM_CHARP(obj))
-    return ((unsigned long) (scm_c_downcase (SCM_CHAR (obj)))) % n; /* downcase!?!! */
-
   if (SCM_NUMP(obj))
     return (unsigned long) hasher(obj, n, 10);
   else
