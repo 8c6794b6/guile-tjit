@@ -220,11 +220,11 @@
       (and (fold (lambda (k v result)
                    (and result
                         (equal? (cons k v)
-                                (vhash-assq k vh))))
+                                (vhash-assoc k vh))))
                  #t
                  keys
                  values)
-           (not (vhash-assq 'x vh)))))
+           (not (vhash-assoc 'x vh)))))
 
   (pass-if "vhash as vlist"
     (let* ((keys   '(a b c d e f g h i))
