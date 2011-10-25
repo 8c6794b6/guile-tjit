@@ -23,6 +23,8 @@
 #  include <config.h>
 #endif
 
+#include <unistr.h>
+
 #include "libguile/_scm.h"
 #include "libguile/chars.h"
 #include "libguile/eval.h"
@@ -141,6 +143,73 @@ lookup_interned_latin1_symbol (const char *str, size_t len,
   
   return scm_c_weak_set_lookup (symbols, raw_hash,
                                 latin1_lookup_predicate_fn,
+                                &data, SCM_BOOL_F);
+}
+
+struct utf8_lookup_data
+{
+  const char *str;
+  size_t len;
+  unsigned long string_hash;
+};
+
+static int
+utf8_string_equals_wide_string (const scm_t_uint8 *narrow, size_t nlen,
+                                const scm_t_wchar *wide, size_t wlen)
+{
+  size_t byte_idx = 0, char_idx = 0;
+  
+  while (byte_idx < nlen && char_idx < wlen)
+    {
+      ucs4_t c;
+      int nbytes;
+
+      nbytes = u8_mbtouc (&c, narrow + byte_idx, nlen - byte_idx);
+      if (nbytes == 0)
+        break;
+      else if (nbytes < 0)
+        /* Bad UTF-8.  */
+        return 0;
+      else if (c != wide[char_idx])
+        return 0;
+
+      byte_idx += nbytes;
+      char_idx++;
+    }
+
+  return byte_idx == nlen && char_idx == wlen;
+}
+
+static int
+utf8_lookup_predicate_fn (SCM sym, void *closure)
+{
+  struct utf8_lookup_data *data = closure;
+
+  if (scm_i_symbol_hash (sym) != data->string_hash)
+    return 0;
+  
+  if (scm_i_is_narrow_symbol (sym))
+    return (scm_i_symbol_length (sym) == data->len
+            && strncmp (scm_i_symbol_chars (sym), data->str, data->len) == 0);
+  else
+    return utf8_string_equals_wide_string ((const scm_t_uint8 *) data->str,
+                                           data->len,
+                                           scm_i_symbol_wide_chars (sym),
+                                           scm_i_symbol_length (sym));
+}
+
+static SCM
+lookup_interned_utf8_symbol (const char *str, size_t len,
+                             unsigned long raw_hash)
+{
+  struct utf8_lookup_data data;
+
+  data.str = str;
+  data.len = len;
+  data.string_hash = raw_hash;
+  
+  return scm_c_weak_set_lookup (symbols, raw_hash,
+                                utf8_lookup_predicate_fn,
                                 &data, SCM_BOOL_F);
 }
 
@@ -459,8 +528,21 @@ scm_from_utf8_symbol (const char *sym)
 SCM
 scm_from_utf8_symboln (const char *sym, size_t len)
 {
-  SCM str = scm_from_utf8_stringn (sym, len);
-  return scm_i_str2symbol (str);
+  unsigned long hash;
+  SCM ret;
+
+  if (len == (size_t) -1)
+    len = strlen (sym);
+  hash = scm_i_utf8_string_hash (sym, len);
+
+  ret = lookup_interned_utf8_symbol (sym, len, hash);
+  if (scm_is_false (ret))
+    {
+      SCM str = scm_from_utf8_stringn (sym, len);
+      ret = scm_i_str2symbol (str);
+    }
+
+  return ret;
 }
 
 void
