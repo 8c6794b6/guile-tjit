@@ -224,6 +224,34 @@ scm_i_utf8_string_hash (const char *str, size_t len)
 }
 
 
+/* Thomas Wang's integer hasher, from
+   http://www.cris.com/~Ttwang/tech/inthash.htm.  */
+static unsigned long
+scm_raw_ihashq (scm_t_bits key)
+{
+  if (sizeof (key) < 8)
+    {
+      key = (key ^ 61) ^ (key >> 16);
+      key = key + (key << 3);
+      key = key ^ (key >> 4);
+      key = key * 0x27d4eb2d;
+      key = key ^ (key >> 15);
+    }
+  else
+    {
+      key = (~key) + (key << 21); // key = (key << 21) - key - 1;
+      key = key ^ (key >> 24);
+      key = (key + (key << 3)) + (key << 8); // key * 265
+      key = key ^ (key >> 14);
+      key = (key + (key << 2)) + (key << 4); // key * 21
+      key = key ^ (key >> 28);
+      key = key + (key << 31);
+    }
+  key >>= 2; /* Ensure that it fits in a fixnum.  */
+  return key;
+}
+
+
 /* Dirk:FIXME:: why downcase for characters? (2x: scm_hasher, scm_ihashv) */
 /* Dirk:FIXME:: scm_hasher could be made static. */
 
@@ -345,11 +373,10 @@ scm_hasher(SCM obj, unsigned long n, size_t d)
 
 
 
-
 unsigned long
 scm_ihashq (SCM obj, unsigned long n)
 {
-  return (SCM_UNPACK (obj) >> 1) % n;
+  return scm_raw_ihashq (SCM_UNPACK (obj)) % n;
 }
 
 
@@ -385,7 +412,7 @@ scm_ihashv (SCM obj, unsigned long n)
   if (SCM_NUMP(obj))
     return (unsigned long) scm_hasher(obj, n, 10);
   else
-    return SCM_UNPACK (obj) % n;
+    return scm_raw_ihashq (SCM_UNPACK (obj)) % n;
 }
 
 
