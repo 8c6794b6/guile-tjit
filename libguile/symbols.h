@@ -90,7 +90,7 @@ SCM_API SCM scm_take_utf8_symboln (char *sym, size_t len);
 /* internal functions. */
 
 SCM_INTERNAL unsigned long scm_i_hash_symbol (SCM obj, unsigned long n,
-					 void *closure);
+                                              void *closure);
 
 SCM_INTERNAL void scm_symbols_prehistory (void);
 SCM_INTERNAL void scm_init_symbols (void);
