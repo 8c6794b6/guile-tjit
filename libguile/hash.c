@@ -45,103 +45,182 @@ extern double floor();
 #endif
 
 
+/* This hash function is originally from
+   http://burtleburtle.net/bob/c/lookup3.c by Bob Jenkins, May 2006,
+   Public Domain.  No warranty.  */
+
+#define rot(x,k) (((x)<<(k)) | ((x)>>(32-(k))))
+#define mix(a,b,c) \
+{ \
+  a -= c;  a ^= rot(c, 4);  c += b; \
+  b -= a;  b ^= rot(a, 6);  a += c; \
+  c -= b;  c ^= rot(b, 8);  b += a; \
+  a -= c;  a ^= rot(c,16);  c += b; \
+  b -= a;  b ^= rot(a,19);  a += c; \
+  c -= b;  c ^= rot(b, 4);  b += a; \
+}
+
+#define final(a,b,c) \
+{ \
+  c ^= b; c -= rot(b,14); \
+  a ^= c; a -= rot(c,11); \
+  b ^= a; b -= rot(a,25); \
+  c ^= b; c -= rot(b,16); \
+  a ^= c; a -= rot(c,4);  \
+  b ^= a; b -= rot(a,14); \
+  c ^= b; c -= rot(b,24); \
+}
+
+#define JENKINS_LOOKUP3_HASHWORD2(k, length, ret)                       \
+  do {                                                                  \
+    scm_t_uint32 a, b, c;                                               \
+                                                                        \
+    /* Set up the internal state.  */                                   \
+    a = b = c = 0xdeadbeef + ((scm_t_uint32)(length<<2)) + 47;          \
+                                                                        \
+    /* Handle most of the key.  */                                      \
+    while (length > 3)                                                  \
+      {                                                                 \
+        a += k[0];                                                      \
+        b += k[1];                                                      \
+        c += k[2];                                                      \
+        mix (a, b, c);                                                  \
+        length -= 3;                                                    \
+        k += 3;                                                         \
+      }                                                                 \
+                                                                        \
+    /* Handle the last 3 elements.  */                                  \
+    switch(length) /* All the case statements fall through.  */         \
+      {                                                                 \
+      case 3 : c += k[2];                                               \
+      case 2 : b += k[1];                                               \
+      case 1 : a += k[0];                                               \
+        final (a, b, c);                                                \
+      case 0:     /* case 0: nothing left to add */                     \
+        break;                                                          \
+      }                                                                 \
+                                                                        \
+    if (sizeof (ret) == 8)                                              \
+      ret = (((unsigned long) c) << 32) | b;                            \
+    else                                                                \
+      ret = c;                                                          \
+  } while (0)
+
+
+static unsigned long
+narrow_string_hash (const scm_t_uint8 *str, size_t len)
+{
+  unsigned long ret;
+  JENKINS_LOOKUP3_HASHWORD2 (str, len, ret);
+  ret >>= 2; /* Ensure that it fits in a fixnum.  */
+  return ret;
+}
+
+static unsigned long
+wide_string_hash (const scm_t_wchar *str, size_t len)
+{
+  unsigned long ret;
+  JENKINS_LOOKUP3_HASHWORD2 (str, len, ret);
+  ret >>= 2; /* Ensure that it fits in a fixnum.  */
+  return ret;
+}
+
 unsigned long 
 scm_string_hash (const unsigned char *str, size_t len)
 {
-  /* from suggestion at: */
-  /* http://srfi.schemers.org/srfi-13/mail-archive/msg00112.html */
-
-  unsigned long h = 0;
-  while (len-- > 0)
-    h = *str++ + h*37;
-  return h;
+  return narrow_string_hash (str, len);
 }
 
 unsigned long 
 scm_i_string_hash (SCM str)
 {
   size_t len = scm_i_string_length (str);
-  size_t i = 0;
 
-  unsigned long h = 0;
-  while (len-- > 0)
-    h = (unsigned long) scm_i_string_ref (str, i++) + h * 37;
-
-  scm_remember_upto_here_1 (str);
-  return h;
+  if (scm_i_is_narrow_string (str))
+    return narrow_string_hash ((const scm_t_uint8 *) scm_i_string_chars (str),
+                               len);
+  else
+    return wide_string_hash (scm_i_string_wide_chars (str), len);
 }
 
 unsigned long 
 scm_i_locale_string_hash (const char *str, size_t len)
 {
-#ifdef HAVE_WCHAR_H
-  mbstate_t state;
-  wchar_t c;
-  size_t byte_idx = 0, nbytes;
-  unsigned long h = 0;
-
-  if (len == (size_t) -1)
-    len = strlen (str);
-
-  while ((nbytes = mbrtowc (&c, str + byte_idx, len - byte_idx, &state)) > 0)
-    {
-      if (nbytes >= (size_t) -2)
-        /* Invalid input string; punt.  */
-        return scm_i_string_hash (scm_from_locale_stringn (str, len));
-
-      h = (unsigned long) c + h * 37;
-      byte_idx += nbytes;
-    }
-
-  return h;
-#else
   return scm_i_string_hash (scm_from_locale_stringn (str, len));
-#endif
 }
 
 unsigned long 
 scm_i_latin1_string_hash (const char *str, size_t len)
 {
-  const scm_t_uint8 *ustr = (const scm_t_uint8 *) str;
-  size_t i = 0;
-  unsigned long h = 0;
-  
   if (len == (size_t) -1)
     len = strlen (str);
 
-  for (; i < len; i++)
-    h = (unsigned long) ustr[i] + h * 37;
-
-  return h;
+  return narrow_string_hash ((const scm_t_uint8 *) str, len);
 }
 
+/* A tricky optimization, but probably worth it.  */
 unsigned long 
 scm_i_utf8_string_hash (const char *str, size_t len)
 {
-  const scm_t_uint8 *ustr = (const scm_t_uint8 *) str;
-  size_t byte_idx = 0;
-  unsigned long h = 0;
-  
+  const scm_t_uint8 *end, *ustr = (const scm_t_uint8 *) str;
+  unsigned long ret;
+
+  /* The length of the string in characters.  This name corresponds to
+     Jenkins' original name.  */
+  size_t length;
+
+  scm_t_uint32 a, b, c, u32;
+
   if (len == (size_t) -1)
     len = strlen (str);
 
-  while (byte_idx < len)
+  end = ustr + len;
+
+  if (u8_check (ustr, len) != NULL)
+    /* Invalid UTF-8; punt.  */
+    return scm_i_string_hash (scm_from_utf8_stringn (str, len));
+
+  length = u8_strnlen (ustr, len);
+
+  /* Set up the internal state.  */
+  a = b = c = 0xdeadbeef + ((scm_t_uint32)(length<<2)) + 47;
+
+  /* Handle most of the key.  */
+  while (length > 3)
     {
-      ucs4_t c;
-      int nbytes;
-
-      nbytes = u8_mbtouc (&c, ustr + byte_idx, len - byte_idx);
-      if (nbytes == 0)
-        break;
-      else if (nbytes < 0)
-        /* Bad UTF-8; punt.  */
-        return scm_i_string_hash (scm_from_utf8_stringn (str, len));
-
-      h = (unsigned long) c + h * 37;
-      byte_idx += nbytes;
+      ustr += u8_mbtouc_unsafe (&u32, ustr, end - ustr);
+      a += u32;
+      ustr += u8_mbtouc_unsafe (&u32, ustr, end - ustr);
+      b += u32;
+      ustr += u8_mbtouc_unsafe (&u32, ustr, end - ustr);
+      c += u32;
+      mix (a, b, c);
+      length -= 3;
     }
 
-  return h;
+  /* Handle the last 3 elements's.  */
+  ustr += u8_mbtouc_unsafe (&u32, ustr, end - ustr);
+  a += u32;
+  if (--length)
+    {
+      ustr += u8_mbtouc_unsafe (&u32, ustr, end - ustr);
+      b += u32;
+      if (--length)
+        {
+          ustr += u8_mbtouc_unsafe (&u32, ustr, end - ustr);
+          c += u32;
+        }
+    }
+
+  final (a, b, c);
+
+  if (sizeof (unsigned long) == 8)
+    ret = (((unsigned long) c) << 32) | b;
+  else
+    ret = c;
+
+  ret >>= 2; /* Ensure that it fits in a fixnum.  */
+  return ret;
 }
 
 
