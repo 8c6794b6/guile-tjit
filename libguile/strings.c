@@ -1446,6 +1446,23 @@ scm_decoding_error (const char *subr, int err, const char *message, SCM port)
 
 /* String conversion to/from C.  */
 
+static void
+decoding_error (const char *func_name, int errno_save,
+                const char *str, size_t len)
+{
+  /* Raise an error and pass the raw C string as a bytevector to the `throw'
+     handler.  */
+  SCM bv;
+  signed char *buf;
+
+  buf = scm_gc_malloc_pointerless (len, "bytevector");
+  memcpy (buf, str, len);
+  bv = scm_c_take_gc_bytevector (buf, len, SCM_BOOL_F);
+
+  scm_decoding_error (func_name, errno_save,
+                      "input locale conversion error", bv);
+}
+
 SCM
 scm_from_stringn (const char *str, size_t len, const char *encoding,
                   scm_t_string_failed_conversion_handler handler)
@@ -1481,19 +1498,7 @@ scm_from_stringn (const char *str, size_t len, const char *encoding,
                                                 NULL, &u32len);
 
   if (SCM_UNLIKELY (u32 == NULL))
-    {
-      /* Raise an error and pass the raw C string as a bytevector to the `throw'
-	 handler.  */
-      SCM bv;
-      signed char *buf;
-
-      buf = scm_gc_malloc_pointerless (len, "bytevector");
-      memcpy (buf, str, len);
-      bv = scm_c_take_gc_bytevector (buf, len, SCM_BOOL_F);
-
-      scm_decoding_error (__func__, errno,
-			  "input locale conversion error", bv);
-    }
+    decoding_error (__func__, errno, str, len);
 
   i = 0;
   while (i < u32len)
@@ -1567,7 +1572,81 @@ scm_from_utf8_string (const char *str)
 SCM
 scm_from_utf8_stringn (const char *str, size_t len)
 {
-  return scm_from_stringn (str, len, "UTF-8", SCM_FAILED_CONVERSION_ERROR);
+  size_t i, char_len;
+  const scm_t_uint8 *ustr = (const scm_t_uint8 *) str;
+  int ascii = 1, narrow = 1;
+  SCM res;
+
+  if (len == (size_t) -1)
+    len = strlen (str);
+
+  i = 0;
+  char_len = 0;
+
+  while (i < len)
+    {
+      if (ustr[i] <= 127)
+        {
+          char_len++;
+          i++;
+        }
+      else
+        {
+          ucs4_t c;
+          int nbytes;
+
+          ascii = 0;
+
+          nbytes = u8_mbtouc (&c, ustr + i, len - i);
+
+          if (nbytes < 0)
+            /* Bad UTF-8.  */
+            decoding_error (__func__, errno, str, len);
+
+          if (c > 255)
+            narrow = 0;
+          
+          char_len++;
+          i += nbytes;
+        }
+    }
+  
+  if (ascii)
+    {
+      char *dst;
+      res = scm_i_make_string (char_len, &dst, 0);
+      memcpy (dst, str, len);
+    }
+  else if (narrow)
+    {
+      char *dst;
+      size_t j;
+      ucs4_t c;
+
+      res = scm_i_make_string (char_len, &dst, 0);
+
+      for (i = 0, j = 0; i < len; i++, j++)
+        {
+          i += u8_mbtouc_unsafe (&c, ustr + i, len - i);
+          dst[j] = (signed char) c;
+        }
+    }
+  else
+    {
+      scm_t_wchar *dst;
+      size_t j;
+      ucs4_t c;
+
+      res = scm_i_make_wide_string (char_len, &dst, 0);
+
+      for (i = 0, j = 0; i < len; i++, j++)
+        {
+          i += u8_mbtouc_unsafe (&c, ustr + i, len - i);
+          dst[j] = c;
+        }
+    }
+
+  return res;
 }
 
 SCM
