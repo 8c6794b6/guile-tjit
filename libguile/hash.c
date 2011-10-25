@@ -251,119 +251,55 @@ scm_raw_ihashq (scm_t_bits key)
   return key;
 }
 
-
+/* `depth' is used to limit recursion. */
 static unsigned long
-hasher (SCM obj, unsigned long n, size_t d)
+scm_raw_ihash (SCM obj, size_t depth)
 {
-  switch (SCM_ITAG3 (obj)) {
-  case scm_tc3_int_1: 
-  case scm_tc3_int_2:
-    return SCM_I_INUM(obj) % n;   /* SCM_INUMP(obj) */
-  case scm_tc3_imm24:
-    if (SCM_CHARP(obj))
-      return ((unsigned)SCM_CHAR(obj)) % n;
-    switch (SCM_UNPACK (obj)) {
-    case SCM_EOL_BITS:
-      d = 256; 
-      break;
-    case SCM_BOOL_T_BITS:
-      d = 257; 
-      break;
-    case SCM_BOOL_F_BITS:
-      d = 258; 
-      break;
-    case SCM_EOF_VAL_BITS:
-      d = 259; 
-      break;
-    default: 
-      d = 263;		/* perhaps should be error */
-    }
-    return d % n;
-  default: 
-    return 263 % n;	/* perhaps should be error */
-  case scm_tc3_cons:
-    switch SCM_TYP7(obj) {
-    default: 
-      return 263 % n;
-    case scm_tc7_smob:
-      return 263 % n;
-    case scm_tc7_number:
-      switch SCM_TYP16 (obj) {
-      case scm_tc16_big:
-        return scm_to_ulong (scm_modulo (obj, scm_from_ulong (n)));
-      case scm_tc16_real:
-	{
-	  double r = SCM_REAL_VALUE (obj);
-	  if (floor (r) == r && !isinf (r) && !isnan (r))
-	    {
-	      obj = scm_inexact_to_exact (obj);
-	      return scm_to_ulong (scm_modulo (obj, scm_from_ulong (n)));
-	    }
-	}
-        /* Fall through */
-      case scm_tc16_complex:
-      case scm_tc16_fraction:
-	obj = scm_number_to_string (obj, scm_from_int (10));
-        /* Fall through */
-      }
-      /* Fall through */
-    case scm_tc7_string:
-      {
-	unsigned long hash =
-	  scm_i_string_hash (obj) % n;
-	return hash;
-      }
-    case scm_tc7_symbol:
-      return scm_i_symbol_hash (obj) % n;
-    case scm_tc7_pointer:
-      {
-	/* Pointer objects are typically used to store addresses of heap
-	   objects.  On most platforms, these are at least 3-byte
-	   aligned (on x86_64-*-gnu, `malloc' returns 4-byte aligned
-	   addresses), so get rid of the least significant bits.  */
-	scm_t_uintptr significant_bits;
+  if (SCM_IMP (obj))
+    return scm_raw_ihashq (SCM_UNPACK (obj));
 
-	significant_bits = (scm_t_uintptr) SCM_POINTER_VALUE (obj) >> 4UL;
-	return (size_t) significant_bits  % n;
-      }
+  switch (SCM_TYP7(obj))
+    {
+      /* FIXME: do better for structs, variables, ...  Also the hashes
+         are currently associative, which ain't the right thing.  */
+    case scm_tc7_smob:
+      return scm_raw_ihashq (SCM_TYP16 (obj));
+    case scm_tc7_number:
+      if (scm_is_integer (obj))
+        {
+          SCM n = SCM_I_MAKINUM (SCM_MOST_POSITIVE_FIXNUM);
+          if (scm_is_inexact (obj))
+            obj = scm_inexact_to_exact (obj);
+          return scm_raw_ihashq (scm_to_ulong (scm_modulo (obj, n)));
+        }
+      else
+        return scm_i_string_hash (scm_number_to_string (obj, scm_from_int (10)));
+    case scm_tc7_string:
+      return scm_i_string_hash (obj);
+    case scm_tc7_symbol:
+      return scm_i_symbol_hash (obj);
+    case scm_tc7_pointer:
+      return scm_raw_ihashq ((scm_t_uintptr) SCM_POINTER_VALUE (obj));
     case scm_tc7_wvect:
     case scm_tc7_vector:
       {
 	size_t len = SCM_SIMPLE_VECTOR_LENGTH (obj);
-	if (len > 5)
-	  {
-	    size_t i = d/2;
-	    unsigned long h = 1;
-	    while (i--)
-	      {
-		SCM elt = SCM_SIMPLE_VECTOR_REF (obj, h % len);
-		h = ((h << 8) + (hasher (elt, n, 2))) % n;
-	      }
-	    return h;
-	  }
-	else
-	  {
-	    size_t i = len;
-	    unsigned long h = (n)-1;
-	    while (i--)
-	      {
-		SCM elt = SCM_SIMPLE_VECTOR_REF (obj, h % len);
-		h = ((h << 8) + (hasher (elt, n, d/len))) % n;
-	      }
-	    return h;
-	  }
+        size_t i = depth / 2;
+        unsigned long h = scm_raw_ihashq (SCM_CELL_WORD_0 (obj));
+        while (i--)
+          h ^= scm_raw_ihash (scm_c_vector_ref (obj, h % len), i);
+        return h;
       }
     case scm_tcs_cons_imcar: 
     case scm_tcs_cons_nimcar:
-      if (d) return (hasher (SCM_CAR (obj), n, d/2)
-                     + hasher (SCM_CDR (obj), n, d/2)) % n;
-      else return 1;
-    case scm_tc7_port:
-      return ((SCM_RDNG & SCM_CELL_WORD_0 (obj)) ? 260 : 261) % n;
-    case scm_tc7_program:
-      return 262 % n;
+      if (depth)
+        return (scm_raw_ihash (SCM_CAR (obj), depth / 2)
+                ^ scm_raw_ihash (SCM_CDR (obj), depth / 2));
+      else
+        return scm_raw_ihashq (scm_tc3_cons);
+    default:
+      return scm_raw_ihashq (SCM_CELL_WORD_0 (obj));
     }
-  }
 }
 
 
@@ -403,7 +339,7 @@ unsigned long
 scm_ihashv (SCM obj, unsigned long n)
 {
   if (SCM_NUMP(obj))
-    return (unsigned long) hasher(obj, n, 10);
+    return scm_raw_ihash (obj, 10) % n;
   else
     return scm_raw_ihashq (SCM_UNPACK (obj)) % n;
 }
@@ -435,7 +371,7 @@ SCM_DEFINE (scm_hashv, "hashv", 2, 0, 0,
 unsigned long
 scm_ihash (SCM obj, unsigned long n)
 {
-  return (unsigned long) hasher (obj, n, 10);
+  return (unsigned long) scm_raw_ihash (obj, 10) % n;
 }
 
 SCM_DEFINE (scm_hash, "hash", 2, 0, 0,
