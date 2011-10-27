@@ -1,0 +1,151 @@
+@c -*-texinfo-*-
+@c This is part of the GNU Guile Reference Manual.
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2009, 2011
+@c   Free Software Foundation, Inc.
+@c See the file guile.texi for copying conditions.
+
+@page
+@node Autoconf Support
+@section Autoconf Support
+
+Autoconf, a part of the GNU build system, makes it easy for users to
+build your package.  This section documents Guile's Autoconf support.
+
+@menu
+* Autoconf Background::         Why use autoconf?
+* Autoconf Macros::             The GUILE_* macros.
+* Using Autoconf Macros::       How to use them, plus examples.
+@end menu
+
+
+@node Autoconf Background
+@subsection Autoconf Background
+
+As explained in the @cite{GNU Autoconf Manual}, any package needs
+configuration at build-time (@pxref{Top, ,Introduction,autoconf,The GNU
+Autoconf Manual}).  If your package uses Guile (or uses a package that
+in turn uses Guile), you probably need to know what specific Guile
+features are available and details about them.
+
+The way to do this is to write feature tests and arrange for their execution
+by the @file{configure} script, typically by adding the tests to
+@file{configure.ac}, and running @code{autoconf} to create @file{configure}.
+Users of your package then run @file{configure} in the normal way.
+
+Macros are a way to make common feature tests easy to express.
+Autoconf provides a wide range of macros 
+(@pxref{Existing Tests,,,autoconf,The GNU Autoconf Manual}), 
+and Guile installation provides Guile-specific tests in the areas of:
+program detection, compilation flags reporting, and Scheme module
+checks.
+
+
+@node Autoconf Macros
+@subsection Autoconf Macros
+
+As mentioned earlier in this chapter, Guile supports parallel
+installation, and uses @code{pkg-config} to let the user choose which
+version of Guile they are interested in.  @code{pkg-config} has its own
+set of Autoconf macros that are probably installed on most every
+development system.  The most useful of these macros is
+@code{PKG_CHECK_MODULES}.
+
+@findex PKG_CHECK_MODULES
+
+@example
+PKG_CHECK_MODULES([GUILE], [guile-@value{EFFECTIVE-VERSION}])
+@end example
+
+This example looks for Guile and sets the @code{GUILE_CFLAGS} and
+@code{GUILE_LIBS} variables accordingly, or prints an error and exits if
+Guile was not found.
+
+Guile comes with additional Autoconf macros providing more information,
+installed as @file{@var{prefix}/share/aclocal/guile.m4}.  Their names
+all begin with @code{GUILE_}.
+
+@c see Makefile.am
+@include autoconf-macros.texi
+
+
+@node Using Autoconf Macros
+@subsection Using Autoconf Macros
+
+Using the autoconf macros is straightforward: Add the macro "calls" (actually
+instantiations) to @file{configure.ac}, run @code{aclocal}, and finally,
+run @code{autoconf}.  If your system doesn't have guile.m4 installed, place
+the desired macro definitions (@code{AC_DEFUN} forms) in @file{acinclude.m4},
+and @code{aclocal} will do the right thing.
+
+Some of the macros can be used inside normal shell constructs: @code{if foo ;
+then GUILE_BAZ ; fi}, but this is not guaranteed.  It's probably a good idea
+to instantiate macros at top-level.
+
+We now include two examples, one simple and one complicated.
+
+The first example is for a package that uses libguile, and thus needs to
+know how to compile and link against it.  So we use
+@code{PKG_CHECK_MODULES} to set the vars @code{GUILE_CFLAGS} and
+@code{GUILE_LIBS}, which are automatically substituted in the Makefile.
+
+@example
+In configure.ac:
+
+  PKG_CHECK_MODULES([GUILE], [guile-@value{EFFECTIVE-VERSION}])
+
+In Makefile.in:
+
+  GUILE_CFLAGS  = @@GUILE_CFLAGS@@
+  GUILE_LIBS = @@GUILE_LIBS@@
+
+  myprog.o: myprog.c
+          $(CC) -o $@ $(GUILE_CFLAGS) $<
+  myprog: myprog.o
+          $(CC) -o $@ $< $(GUILE_LIBS)
+@end example
+
+The second example is for a package of Guile Scheme modules that uses an
+external program and other Guile Scheme modules (some might call this a "pure
+scheme" package).  So we use the @code{GUILE_SITE_DIR} macro, a regular
+@code{AC_PATH_PROG} macro, and the @code{GUILE_MODULE_AVAILABLE} macro.
+
+@example
+In configure.ac:
+
+  GUILE_SITE_DIR
+
+  probably_wont_work=""
+
+  # pgtype pgtable
+  GUILE_MODULE_AVAILABLE(have_guile_pg, (database postgres))
+  test $have_guile_pg = no &&
+      probably_wont_work="(my pgtype) (my pgtable) $probably_wont_work"
+
+  # gpgutils
+  AC_PATH_PROG(GNUPG,gpg)
+  test x"$GNUPG" = x &&
+      probably_wont_work="(my gpgutils) $probably_wont_work"
+
+  if test ! "$probably_wont_work" = "" ; then
+      p="         ***"
+      echo
+      echo "$p"
+      echo "$p NOTE:"
+      echo "$p The following modules probably won't work:"
+      echo "$p   $probably_wont_work"
+      echo "$p They can be installed anyway, and will work if their"
+      echo "$p dependencies are installed later.  Please see README."
+      echo "$p"
+      echo
+  fi
+
+In Makefile.in:
+
+  instdir = @@GUILE_SITE@@/my
+
+  install:
+        $(INSTALL) my/*.scm $(instdir)
+@end example
+
+
+@c autoconf.texi ends here

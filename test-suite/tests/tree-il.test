@@ -625,6 +625,19 @@
             (call tail-call 1))))
 
 
+(with-test-prefix "labels allocation"
+  (pass-if "http://debbugs.gnu.org/9769"
+    ((compile '(lambda ()
+                 (let ((fail (lambda () #f)))
+                   (let ((test (lambda () (fail))))
+                     (test))
+                   #t))
+              ;; Prevent inlining.  We're testing analyze.scm's
+              ;; labels allocator here, and inlining it will
+              ;; reduce the entire thing to #t.
+              #:opts '(#:partial-eval? #f)))))
+
+
 (with-test-prefix "partial evaluation"
 
   (pass-if-peval
@@ -758,6 +771,21 @@
          sum
          (loop (cdr l) (+ sum (car l)))))
    (const 10))
+
+  (pass-if-peval resolve-primitives
+   (let ((string->chars
+          (lambda (s)
+            (define (char-at n)
+              (string-ref s n))
+            (define (len)
+              (string-length s))
+            (let loop ((i 0))
+              (if (< i (len))
+                  (cons (char-at i)
+                        (loop (1+ i)))
+                  '())))))
+     (string->chars "yo"))
+   (apply (primitive list) (const #\y) (const #\o)))
 
   (pass-if-peval
     ;; Primitives in module-refs are resolved (the expansion of `pmatch'

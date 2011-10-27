@@ -181,6 +181,9 @@ scheme@@(guile-user)> (j0 2)
 $1 = 0.223890779141236
 @end smallexample
 
+For more on how to install your extension, @pxref{Installing Site
+Packages}.
+
 
 @node Using the Guile Module System
 @subsection Using the Guile Module System
@@ -235,7 +238,7 @@ in a location where Guile can automatically find it.  The following
 session shows a simple example.
 
 @smallexample
-$ cat /usr/local/share/guile/foo/bar.scm
+$ cat /usr/local/share/guile/site/foo/bar.scm
 
 (define-module (foo bar)
   #:export (frob))
@@ -248,6 +251,10 @@ scheme@@(guile-user)> (frob 12)
 $1 = 24
 @end smallexample
 
+For more on how to install your module, @pxref{Installing Site
+Packages}.
+
+
 @node Putting Extensions into Modules
 @subsubsection Putting Extensions into Modules
 
@@ -258,14 +265,14 @@ You do this by writing a small Scheme file that defines the module and
 call @code{load-extension} directly in the body of the module.
 
 @smallexample
-$ cat /usr/local/share/guile/math/bessel.scm
+$ cat /usr/local/share/guile/site/math/bessel.scm
 
 (define-module (math bessel)
   #:export (j0))
 
 (load-extension "libguile-bessel" "init_bessel")
 
-$ file /usr/local/lib/libguile-bessel.so
+$ file /usr/local/lib/guile/@value{EFFECTIVE-VERSION}/extensions/libguile-bessel.so
 @dots{} ELF 32-bit LSB shared object @dots{}
 $ guile
 scheme@@(guile-user)> (use-modules (math bessel))

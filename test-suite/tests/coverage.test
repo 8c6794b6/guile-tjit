@@ -1,6 +1,6 @@
 ;;;; coverage.test --- Code coverage.    -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;; 	Copyright (C) 2010 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2010, 2011 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -34,6 +34,12 @@
        (compile (read input))))))
 
 (define %test-vm (make-vm))
+
+(define test-procedure
+  (compile '(lambda (x)
+              (if (> x 2)
+                  (- x 2)
+                  (+ x 2)))))
 
 
 (with-test-prefix "instrumented/executed-lines"
@@ -156,6 +162,18 @@
                             (else    #f))))
                       counts))))))
 
+  (pass-if "case-lambda"
+    (let ((proc (code "cl.scm"  "(case-lambda       ;; 0
+                                   ((x)   (+ x 3))  ;; 1
+                                   ((x y) (+ x y))) ;; 2")))
+      (let-values (((data result)
+                    (with-code-coverage %test-vm
+                      (lambda ()
+                        (+ (proc 1) (proc 2 3))))))
+        (let ((counts (line-execution-counts data "cl.scm")))
+          (and (pair? counts)
+               (lset= equal? '((0 . 2) (1 . 1) (2 . 1)) counts))))))
+
   (pass-if "all code on one line"
     ;; There are several proc/IP pairs pointing to this source line, yet the hit
     ;; count for the line should be 1.
@@ -177,6 +195,16 @@
                       (lambda () (+ (proc 1 2) (proc 2 3))))))
         (and (coverage-data? data)
              (= 3 result)
+             (= (procedure-execution-count data proc) 2)))))
+
+  (pass-if "case-lambda"
+    (let ((proc (code "foo.scm" "(case-lambda ((x) x) ((x y) (+ x y)))")))
+      (let-values (((data result)
+                    (with-code-coverage %test-vm
+                      (lambda ()
+                        (+ (proc 1) (proc 2 3))))))
+        (and (coverage-data? data)
+             (= 6 result)
              (= (procedure-execution-count data proc) 2)))))
 
   (pass-if "never"
@@ -204,7 +232,16 @@
                               (make-pointer (object-address 2)))))))
         (and (coverage-data? data)
              (= (object-address 3) (pointer-address result))
-             (= (procedure-execution-count data proc) 1))))))
+             (= (procedure-execution-count data proc) 1)))))
+
+  (pass-if "called from eval"
+    (let-values (((data result)
+                  (with-code-coverage %test-vm
+                    (lambda ()
+                      (eval '(test-procedure 123) (current-module))))))
+      (and (coverage-data? data)
+           (= (test-procedure 123) result)
+           (= (procedure-execution-count data test-procedure) 1)))))
 
 
 (with-test-prefix "instrumented-source-files"
