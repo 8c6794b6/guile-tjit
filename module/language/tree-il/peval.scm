@@ -542,9 +542,10 @@ top-level bindings from ENV and return the resulting expression."
         (($ <primcall> _ name args)
          (and (effect-free-primitive? name)
               (not (constructor-primitive? name))
-              (not (accessor-primitive? name))
               (types-check? name args)
-              (every loop args)))
+              (if (accessor-primitive? name)
+                  (every const? args)
+                  (every loop args))))
         (($ <call> _ ($ <lambda> _ _ body) args)
          (and (loop body) (every loop args)))
         (($ <seq> _ head tail)
@@ -1003,7 +1004,7 @@ top-level bindings from ENV and return the resulting expression."
               (else
                (make-primcall src name (list k (make-const #f elts))))))))
          ((name . args)
-          (make-primcall src name args))))
+          (fold-constants src name args ctx))))
 
       (($ <primcall> src (? effect-free-primitive? name) args)
        (fold-constants src name (map for-value args) ctx))

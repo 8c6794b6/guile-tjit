@@ -785,7 +785,7 @@
                         (loop (1+ i)))
                   '())))))
      (string->chars "yo"))
-   (apply (primitive list) (const #\y) (const #\o)))
+   (primcall list (const #\y) (const #\o)))
 
   (pass-if-peval
     ;; Primitives in module-refs are resolved (the expansion of `pmatch'
