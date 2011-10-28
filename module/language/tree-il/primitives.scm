@@ -60,7 +60,7 @@
     caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
     cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
 
-    vector-ref vector-set!
+    vector-length vector-ref vector-set!
     variable-ref variable-set!
     variable-bound?
 
@@ -141,7 +141,7 @@
     + * - / 1- 1+ quotient remainder modulo
     not
     pair? null? list? symbol? vector? struct? string?
-    string-length
+    string-length vector-length
     ;; These all should get expanded out by expand-primitives!.
     caar cadr cdar cddr
     caaar caadr cadar caddr cdaar cdadr cddar cdddr
