@@ -261,7 +261,7 @@ void scm_ia64_longjmp (scm_i_jmp_buf *, int);
 #define SCM_OBJCODE_WORD_SIZE  SCM_CPP_STRINGIFY (SIZEOF_VOID_P)
 
 /* Major and minor versions must be single characters. */
-#define SCM_OBJCODE_MAJOR_VERSION 2
+#define SCM_OBJCODE_MAJOR_VERSION 3
 #define SCM_OBJCODE_MINOR_VERSION 0
 #define SCM_OBJCODE_MAJOR_VERSION_STRING        \
   SCM_CPP_STRINGIFY(SCM_OBJCODE_MAJOR_VERSION)
