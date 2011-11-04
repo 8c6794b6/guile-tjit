@@ -322,7 +322,7 @@ scm_handle_by_proc_catching_all (void *handler_data, SCM tag, SCM throw_args)
 int
 scm_exit_status (SCM args)
 {
-  if (!SCM_NULL_OR_NIL_P (args))
+  if (scm_is_pair (args))
     {
       SCM cqa = SCM_CAR (args);
       
@@ -330,8 +330,14 @@ scm_exit_status (SCM args)
 	return (scm_to_int (cqa));
       else if (scm_is_false (cqa))
 	return EXIT_FAILURE;
+      else
+        return EXIT_SUCCESS;
     }
-  return EXIT_SUCCESS;
+  else if (scm_is_null (args))
+    return EXIT_SUCCESS;
+  else
+    /* A type error.  Strictly speaking we shouldn't get here.  */
+    return EXIT_FAILURE;
 }
 	
 
