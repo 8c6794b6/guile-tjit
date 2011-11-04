@@ -74,11 +74,8 @@
   (@@ (language tree-il optimize) peval))
 
 (define-syntax pass-if-peval
-  (syntax-rules (resolve-primitives)
+  (syntax-rules ()
     ((_ in pat)
-     (pass-if-peval in pat
-                    (compile 'in #:from 'scheme #:to 'tree-il)))
-    ((_ resolve-primitives in pat)
      (pass-if-peval in pat
                     (expand-primitives!
                      (resolve-primitives!
@@ -652,7 +649,7 @@
         (f)))
     (const 3))
 
-  (pass-if-peval resolve-primitives
+  (pass-if-peval
     ;; First order, let-values (requires primitive expansion for
     ;; `call-with-values'.)
     (let ((x 0))
@@ -772,7 +769,7 @@
          (loop (cdr l) (+ sum (car l)))))
    (const 10))
 
-  (pass-if-peval resolve-primitives
+  (pass-if-peval
    (let ((string->chars
           (lambda (s)
             (define (char-at n)
@@ -814,7 +811,7 @@
    (let (x) (_) ((primcall list (const 1)))
         (let (y) (_) ((primcall car (lexical x _)))
              (seq
-               (call (toplevel set-car!) (lexical x _) (const 0))
+               (primcall set-car! (lexical x _) (const 0))
                (lexical y _)))))
   
   (pass-if-peval
@@ -825,7 +822,7 @@
      y)
    (let (y) (_) ((primcall car (toplevel x)))
         (seq
-          (call (toplevel set-car!) (toplevel x) (const 0))
+          (primcall set-car! (toplevel x) (const 0))
           (lexical y _))))
   
   (pass-if-peval
@@ -915,15 +912,22 @@
         (f -1 y)
         (f 2 y)
         (f z y)))
-   (primcall +
-             (const -1)                               ; (f -1 0)
-             (const 0)                                ; (f 1 0)
-             (seq (toplevel y) (const -1))          ; (f -1 y)
-             (toplevel y)                             ; (f 2 y)
-             (let (x y) (_ _) ((toplevel z) (toplevel y)) ; (f z y)
-                  (if (primcall > (lexical x _) (const 0))
-                      (lexical y _)
-                      (lexical x _)))))
+   (primcall
+    +
+    (const -1)                          ; (f -1 0)
+    (primcall
+     +
+     (const 0)                          ; (f 1 0)
+     (primcall
+      +
+      (seq (toplevel y) (const -1))     ; (f -1 y)
+      (primcall
+       +
+       (toplevel y)                                 ; (f 2 y)
+       (let (x y) (_ _) ((toplevel z) (toplevel y)) ; (f z y)
+            (if (primcall > (lexical x _) (const 0))
+                (lexical y _)
+                (lexical x _))))))))
 
   (pass-if-peval
     ;; First order, conditional.
@@ -1040,7 +1044,7 @@
                    (lambda ()
                      (lambda-case
                       (((x2) #f #f #f () (_))
-                       (primcall - (lexical x2 _) (const 1))))))))
+                       (primcall 1- (lexical x2 _))))))))
 
   (pass-if "inlined lambdas are alpha-renamed"
     ;; In this example, `make-adder' is inlined more than once; thus,
@@ -1051,11 +1055,14 @@
     ;; <https://lists.gnu.org/archive/html/bug-guile/2011-09/msg00019.html> and
     ;; <https://lists.gnu.org/archive/html/bug-guile/2011-09/msg00029.html>.
     (pmatch (unparse-tree-il
-             (peval (compile
-                     '(let ((make-adder
-                             (lambda (x) (lambda (y) (+ x y)))))
-                        (cons (make-adder 1) (make-adder 2)))
-                     #:to 'tree-il)))
+             (peval (expand-primitives!
+                     (resolve-primitives!
+                      (compile
+                       '(let ((make-adder
+                               (lambda (x) (lambda (y) (+ x y)))))
+                          (cons (make-adder 1) (make-adder 2)))
+                       #:to 'tree-il)
+                      (current-module)))))
       ((primcall cons
                  (lambda ()
                    (lambda-case
@@ -1152,8 +1159,8 @@
          (lambda ()
            (lambda-case
             (((n) #f #f #f () (_))
-             (call (toplevel vector-set!)
-                    (lexical v _) (lexical n _) (lexical n _)))))))
+             (primcall vector-set!
+                       (lexical v _) (lexical n _) (lexical n _)))))))
 
   (pass-if-peval
     ;; Mutable lexical is not propagated.
@@ -1177,7 +1184,8 @@
                       (call (toplevel display) (const chbouib))))
          (let (y) (_) ((primcall * (lexical x _) (const 2)))
               (primcall +
-                        (lexical x _) (lexical x _) (lexical y _)))))
+                        (lexical x _)
+                        (primcall + (lexical x _) (lexical y _))))))
 
   (pass-if-peval
     ;; Non-constant arguments not propagated to lambdas.
@@ -1193,12 +1201,12 @@
           (call (toplevel make-list) (const 10))
           (primcall list (const 1) (const 2) (const 3)))
          (seq
-           (call (toplevel vector-set!)
-                  (lexical x _) (const 0) (const 0))
-           (seq (call (toplevel set-car!)
-                  (lexical y _) (const 0))
-                (call (toplevel set-cdr!)
-                      (lexical z _) (const ()))))))
+           (primcall vector-set!
+                     (lexical x _) (const 0) (const 0))
+           (seq (primcall set-car!
+                          (lexical y _) (const 0))
+                (primcall set-cdr!
+                          (lexical z _) (const ()))))))
 
   (pass-if-peval
    (let ((foo top-foo) (bar top-bar))
@@ -1454,7 +1462,6 @@
    (seq (call (toplevel bar)) (primcall list (const 0))))
   
   (pass-if-peval
-   resolve-primitives
    ;; Prompt is removed if tag is unreferenced
    (let ((tag (make-prompt-tag)))
      (call-with-prompt tag
@@ -1463,7 +1470,6 @@
    (const 1))
   
   (pass-if-peval
-   resolve-primitives
    ;; Prompt is removed if tag is unreferenced, with explicit stem
    (let ((tag (make-prompt-tag "foo")))
      (call-with-prompt tag
@@ -1472,7 +1478,6 @@
    (const 1))
 
   (pass-if-peval
-   resolve-primitives
    ;; `while' without `break' or `continue' has no prompts and gets its
    ;; condition folded.  Unfortunately the outer `lp' does not yet get
    ;; elided.

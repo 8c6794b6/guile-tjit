@@ -868,12 +868,7 @@ top-level bindings from ENV and return the resulting expression."
       (($ <dynset> src fluid exp)
        (make-dynset src (for-value fluid) (for-value exp)))
       (($ <toplevel-ref> src (? effect-free-primitive? name))
-       (if (local-toplevel? name)
-           exp
-           (let ((exp (resolve-primitives! exp cenv)))
-             (if (primitive-ref? exp)
-                 (for-tail exp)
-                 exp))))
+       exp)
       (($ <toplevel-ref>)
        ;; todo: open private local bindings.
        exp)
