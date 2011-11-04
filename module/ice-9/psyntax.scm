@@ -991,6 +991,20 @@
               (extend-ribcage! ribcage id
                                (cons (syntax-object-module id)
                                      (wrap var top-wrap mod)))))
+          (define (macro-introduced-identifier? id)
+            (not (equal? (wrap-marks (syntax-object-wrap id)) '(top))))
+          (define (fresh-derived-name id orig-form)
+            (symbol-append
+             (syntax-object-expression id)
+             '-
+             (string->symbol
+              ;; FIXME: `hash' currently stops descending into nested
+              ;; data at some point, so it's less unique than we would
+              ;; like.  Also this encodes hash values into the ABI of
+              ;; compiled modules; a problem?
+              (number->string
+               (hash (syntax->datum orig-form) most-positive-fixnum)
+               16))))
           (define (parse body r w s m esew mod)
             (let lp ((body body) (exps '()))
               (if (null? body)
@@ -1007,7 +1021,9 @@
                   ((define-form)
                    (let* ((id (wrap value w mod))
                           (label (gen-label))
-                          (var (syntax-object-expression id)))
+                          (var (if (macro-introduced-identifier? id)
+                                   (fresh-derived-name id x)
+                                   (syntax-object-expression id))))
                      (record-definition! id var)
                      (list
                       (if (eq? m 'c&e)
@@ -1019,7 +1035,9 @@
                   ((define-syntax-form define-syntax-parameter-form)
                    (let* ((id (wrap value w mod))
                           (label (gen-label))
-                          (var (syntax-object-expression id)))
+                          (var (if (macro-introduced-identifier? id)
+                                   (fresh-derived-name id x)
+                                   (syntax-object-expression id))))
                      (record-definition! id var)
                      (case m
                        ((c)
