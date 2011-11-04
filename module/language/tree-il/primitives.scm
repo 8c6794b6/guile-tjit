@@ -232,12 +232,25 @@
   (hashq-ref *singly-valued-primitive-table* prim))
 
 (define (resolve-primitives! x mod)
+  (define local-definitions
+    (make-hash-table))
+
+  (let collect-local-definitions ((x x))
+    (record-case x
+      ((<toplevel-define> name)
+       (hashq-set! local-definitions name #t))
+      ((<seq> head tail)
+       (collect-local-definitions head)
+       (collect-local-definitions tail))
+      (else #f)))
+  
   (post-order!
    (lambda (x)
      (record-case x
        ((<toplevel-ref> src name)
-        (and=> (hashq-ref *interesting-primitive-vars*
-                          (module-variable mod name))
+        (and=> (and (not (hashq-ref local-definitions name))
+                    (hashq-ref *interesting-primitive-vars*
+                               (module-variable mod name)))
                (lambda (name) (make-primitive-ref src name))))
        ((<module-ref> src mod name public?)
         ;; for the moment, we're disabling primitive resolution for
