@@ -1115,7 +1115,6 @@
                  (b (lookup n r mod))
                  (type (binding-type b)))
             (case type
-              ((lexical) (values type (binding-value b) e w s mod))
               ((global) (values type n e w s mod))
               ((macro)
                (if for-car?
@@ -2652,7 +2651,7 @@
            #((macro-type . syntax-rules)
              (patterns pattern ...))
            (syntax-case x (k ...)
-             ((dummy . pattern) #'template)
+             ((_ . pattern) #'template)
              ...)))
       ((_ (k ...) docstring ((keyword . pattern) template) ...)
        (string? (syntax->datum #'docstring))
@@ -2662,7 +2661,7 @@
            #((macro-type . syntax-rules)
              (patterns pattern ...))
            (syntax-case x (k ...)
-             ((dummy . pattern) #'template)
+             ((_ . pattern) #'template)
              ...))))))
 
 (define-syntax define-syntax-rule
