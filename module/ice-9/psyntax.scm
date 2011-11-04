@@ -486,7 +486,7 @@
 
     ;; global (assumed global variable) and displaced-lexical (see below)
     ;; do not show up in any environment; instead, they are fabricated by
-    ;; lookup when it finds no other bindings.
+    ;; resolve-identifier when it finds no other bindings.
 
     ;; <environment>              ::= ((<label> . <binding>)*)
 
@@ -566,18 +566,6 @@
               (if (eq? (cadr a) 'macro)
                   (cons a (macros-only-env (cdr r)))
                   (macros-only-env (cdr r)))))))
-
-    (define lookup
-      ;; x may be a label or a symbol
-      ;; although symbols are usually global, we check the environment first
-      ;; anyway because a temporary binding may have been established by
-      ;; fluid-let-syntax
-      (lambda (x r mod)
-        (cond
-         ((assq x r) => cdr)
-         ((symbol? x)
-          (or (get-global-definition-hook x mod) (make-binding 'global)))
-         (else (make-binding 'displaced-lexical)))))
 
     (define global-extend
       (lambda (type sym val)
@@ -738,6 +726,20 @@
                  (same-marks? (cdr x) (cdr y))))))
 
     (define id-var-name
+      ;; Syntax objects use wraps to associate names with marked
+      ;; identifiers.  This function returns the name corresponding to
+      ;; the given identifier and wrap, or the original identifier if no
+      ;; corresponding name was found.
+      ;;
+      ;; The name may be a string created by gen-label, indicating a
+      ;; lexical binding, or another syntax object, indicating a
+      ;; reference to a top-level definition created during a previous
+      ;; macroexpansion.
+      ;;
+      ;; The identifer may be passed in wrapped or unwrapped.  In any
+      ;; case, this routine returns either a symbol, a syntax object, or
+      ;; a string label.
+      ;;
       (lambda (id w)
         (define-syntax-rule (first e)
           ;; Rely on Guile's multiple-values truncation.
@@ -786,6 +788,43 @@
                       id))))))
          (else (syntax-violation 'id-var-name "invalid id" id)))))
 
+    ;; Returns four values: binding type, binding value, the module (for
+    ;; resolving toplevel vars), and the name (for possible overriding
+    ;; by fluid-let-syntax).
+    (define (resolve-identifier id w r mod)
+      (define (resolve-global var mod)
+        ;; `var' is probably a global, but we check the environment
+        ;; first anyway because a temporary binding may have been
+        ;; established by `fluid-let-syntax'.  FIXME: overriding a
+        ;; toplevel via fluid-let-syntax using just a symbolic name
+        ;; (without a module) does not make sense.
+        (let ((b (or (assq-ref r var)
+                     (get-global-definition-hook var mod)
+                     (make-binding 'global))))
+          (if (eq? 'global (binding-type b))
+              (values 'global var mod var)
+              (values (binding-type b) (binding-value b) mod var))))
+      (define (resolve-lexical label mod)
+        (let ((b (or (assq-ref r label)
+                     (make-binding 'displaced-lexical))))
+          (values (binding-type b) (binding-value b) mod label)))
+      (let ((n (id-var-name id w)))
+        (cond
+         ((syntax-object? n)
+          ;; Recursing allows fluid-let-syntax to override
+          ;; macro-introduced bindings, I think.
+          (resolve-identifier n w r mod))
+         ((symbol? n)
+          (resolve-global n (if (syntax-object? id)
+                                (syntax-object-module id)
+                                mod)))
+         ((string? n)
+          (resolve-lexical n (if (syntax-object? id)
+                                 (syntax-object-module id)
+                                 mod)))
+         (else
+          (error "unexpected id-var-name" id w n)))))
+
     ;; free-id=? must be passed fully wrapped ids since (free-id=? x y)
     ;; may be true even if (free-id=? (wrap x w) (wrap y w)) is not.
 
@@ -803,22 +842,25 @@
                    ;; raw symbol coming in, which is possible.
                    (current-module))
                (id-sym-name id))))
-          (if (eq? ni (id-sym-name i))
-              ;; `i' is not lexically bound.  Assert that `j' is free,
-              ;; and if so, compare their bindings, that they are either
-              ;; bound to the same variable, or both unbound and have
-              ;; the same name.
-              (and (eq? nj (id-sym-name j))
-                   (let ((bi (id-module-binding i)))
-                     (if bi
-                         (eq? bi (id-module-binding j))
-                         (and (not (id-module-binding j))
-                              (eq? ni nj))))
-                   (eq? (id-module-binding i) (id-module-binding j)))
-              ;; Otherwise `i' is bound, so check that `j' is bound, and
-              ;; bound to the same thing.
-              (and (eq? ni nj)
-                   (not (eq? nj (id-sym-name j))))))))
+          (cond
+           ((syntax-object? ni) (free-id=? ni j))
+           ((syntax-object? nj) (free-id=? i nj))
+           ((symbol? ni)
+            ;; `i' is not lexically bound.  Assert that `j' is free,
+            ;; and if so, compare their bindings, that they are either
+            ;; bound to the same variable, or both unbound and have
+            ;; the same name.
+            (and (eq? nj (id-sym-name j))
+                 (let ((bi (id-module-binding i)))
+                   (if bi
+                       (eq? bi (id-module-binding j))
+                       (and (not (id-module-binding j))
+                            (eq? ni nj))))
+                 (eq? (id-module-binding i) (id-module-binding j))))
+           (else
+            ;; Otherwise `i' is bound, so check that `j' is bound, and
+            ;; bound to the same thing.
+            (equal? ni nj))))))
     
     ;; bound-id=? may be passed unwrapped (or partially wrapped) ids as
     ;; long as the missing portion of the wrap is common to both of the ids
@@ -1096,17 +1138,19 @@
       (lambda (e r w s rib mod for-car?)
         (cond
          ((symbol? e)
-          (let* ((n (id-var-name e w))
-                 (b (lookup n r mod))
-                 (type (binding-type b)))
-            (case type
-              ((global) (values type n e w s mod))
-              ((macro)
-               (if for-car?
-                   (values type (binding-value b) e w s mod)
-                   (syntax-type (chi-macro (binding-value b) e r w s rib mod)
-                                r empty-wrap s rib mod #f)))
-              (else (values type (binding-value b) e w s mod)))))
+          (call-with-values (lambda () (resolve-identifier e w r mod))
+            (lambda (type value mod* name)
+              (case type
+                ((macro)
+                 (if for-car?
+                     (values type value e w s mod)
+                     (syntax-type (chi-macro value e r w s rib mod)
+                                  r empty-wrap s rib mod #f)))
+                ((global)
+                 ;; Toplevel definitions may resolve to bindings with
+                 ;; different names or in different modules.
+                 (values type value value w s mod*))
+                (else (values type value e w s mod))))))
          ((pair? e)
           (let ((first (car e)))
             (call-with-values
@@ -1757,38 +1801,39 @@
     (global-extend 'local-syntax 'letrec-syntax #t)
     (global-extend 'local-syntax 'let-syntax #f)
 
-    (global-extend 'core 'fluid-let-syntax
-                   (lambda (e r w s mod)
-                     (syntax-case e ()
-                       ((_ ((var val) ...) e1 e2 ...)
-                        (valid-bound-ids? #'(var ...))
-                        (let ((names (map (lambda (x) (id-var-name x w)) #'(var ...))))
-                          (for-each
-                           (lambda (id n)
-                             (case (binding-type (lookup n r mod))
-                               ((displaced-lexical)
-                                (syntax-violation 'fluid-let-syntax
-                                                  "identifier out of context"
-                                                  e
-                                                  (source-wrap id w s mod)))))
-                           #'(var ...)
-                           names)
-                          (chi-body
-                           #'(e1 e2 ...)
-                           (source-wrap e w s mod)
-                           (extend-env
-                            names
-                            (let ((trans-r (macros-only-env r)))
-                              (map (lambda (x)
-                                     (make-binding 'macro
-                                                   (eval-local-transformer (chi x trans-r w mod)
-                                                                           mod)))
-                                   #'(val ...)))
-                            r)
-                           w
-                           mod)))
-                       (_ (syntax-violation 'fluid-let-syntax "bad syntax"
-                                            (source-wrap e w s mod))))))
+    (global-extend
+     'core 'fluid-let-syntax
+     (lambda (e r w s mod)
+       (syntax-case e ()
+         ((_ ((var val) ...) e1 e2 ...)
+          (valid-bound-ids? #'(var ...))
+          (let ((names
+                 (map (lambda (x)
+                        (call-with-values
+                            (lambda () (resolve-identifier x w r mod))
+                          (lambda (type value mod name)
+                            (case type
+                              ((displaced-lexical)
+                               (syntax-violation 'fluid-let-syntax
+                                                 "identifier out of context"
+                                                 e
+                                                 (source-wrap x w s mod)))
+                              (else name)))))
+                      #'(var ...)))
+                (bindings
+                 (let ((trans-r (macros-only-env r)))
+                   (map (lambda (x)
+                          (make-binding
+                           'macro
+                           (eval-local-transformer (chi x trans-r w mod) mod)))
+                        #'(val ...)))))
+            (chi-body #'(e1 e2 ...)
+                      (source-wrap e w s mod)
+                      (extend-env names bindings r)
+                      w
+                      mod)))
+         (_ (syntax-violation 'fluid-let-syntax "bad syntax"
+                              (source-wrap e w s mod))))))
 
     (global-extend 'core 'quote
                    (lambda (e r w s mod)
@@ -1797,165 +1842,166 @@
                        (_ (syntax-violation 'quote "bad syntax"
                                             (source-wrap e w s mod))))))
 
-    (global-extend 'core 'syntax
-                   (let ()
-                     (define gen-syntax
-                       (lambda (src e r maps ellipsis? mod)
-                         (if (id? e)
-                             (let ((label (id-var-name e empty-wrap)))
-                               ;; Mod does not matter, we are looking to see if
-                               ;; the id is lexical syntax.
-                               (let ((b (lookup label r mod)))
-                                 (if (eq? (binding-type b) 'syntax)
-                                     (call-with-values
-                                         (lambda ()
-                                           (let ((var.lev (binding-value b)))
-                                             (gen-ref src (car var.lev) (cdr var.lev) maps)))
-                                       (lambda (var maps) (values `(ref ,var) maps)))
-                                     (if (ellipsis? e)
-                                         (syntax-violation 'syntax "misplaced ellipsis" src)
-                                         (values `(quote ,e) maps)))))
-                             (syntax-case e ()
-                               ((dots e)
-                                (ellipsis? #'dots)
-                                (gen-syntax src #'e r maps (lambda (x) #f) mod))
-                               ((x dots . y)
-                                ;; this could be about a dozen lines of code, except that we
-                                ;; choose to handle #'(x ... ...) forms
-                                (ellipsis? #'dots)
-                                (let f ((y #'y)
-                                        (k (lambda (maps)
-                                             (call-with-values
-                                                 (lambda ()
-                                                   (gen-syntax src #'x r
-                                                               (cons '() maps) ellipsis? mod))
-                                               (lambda (x maps)
-                                                 (if (null? (car maps))
-                                                     (syntax-violation 'syntax "extra ellipsis"
-                                                                       src)
-                                                     (values (gen-map x (car maps))
-                                                             (cdr maps))))))))
-                                  (syntax-case y ()
-                                    ((dots . y)
-                                     (ellipsis? #'dots)
-                                     (f #'y
-                                        (lambda (maps)
-                                          (call-with-values
-                                              (lambda () (k (cons '() maps)))
-                                            (lambda (x maps)
-                                              (if (null? (car maps))
-                                                  (syntax-violation 'syntax "extra ellipsis" src)
-                                                  (values (gen-mappend x (car maps))
-                                                          (cdr maps))))))))
-                                    (_ (call-with-values
-                                           (lambda () (gen-syntax src y r maps ellipsis? mod))
-                                         (lambda (y maps)
-                                           (call-with-values
-                                               (lambda () (k maps))
-                                             (lambda (x maps)
-                                               (values (gen-append x y) maps)))))))))
-                               ((x . y)
-                                (call-with-values
-                                    (lambda () (gen-syntax src #'x r maps ellipsis? mod))
-                                  (lambda (x maps)
-                                    (call-with-values
-                                        (lambda () (gen-syntax src #'y r maps ellipsis? mod))
-                                      (lambda (y maps) (values (gen-cons x y) maps))))))
-                               (#(e1 e2 ...)
-                                (call-with-values
-                                    (lambda ()
-                                      (gen-syntax src #'(e1 e2 ...) r maps ellipsis? mod))
-                                  (lambda (e maps) (values (gen-vector e) maps))))
-                               (_ (values `(quote ,e) maps))))))
-
-                     (define gen-ref
-                       (lambda (src var level maps)
-                         (if (fx= level 0)
-                             (values var maps)
-                             (if (null? maps)
-                                 (syntax-violation 'syntax "missing ellipsis" src)
-                                 (call-with-values
-                                     (lambda () (gen-ref src var (fx- level 1) (cdr maps)))
-                                   (lambda (outer-var outer-maps)
-                                     (let ((b (assq outer-var (car maps))))
-                                       (if b
-                                           (values (cdr b) maps)
-                                           (let ((inner-var (gen-var 'tmp)))
-                                             (values inner-var
-                                                     (cons (cons (cons outer-var inner-var)
-                                                                 (car maps))
-                                                           outer-maps)))))))))))
-
-                     (define gen-mappend
-                       (lambda (e map-env)
-                         `(apply (primitive append) ,(gen-map e map-env))))
-
-                     (define gen-map
-                       (lambda (e map-env)
-                         (let ((formals (map cdr map-env))
-                               (actuals (map (lambda (x) `(ref ,(car x))) map-env)))
-                           (cond
-                            ((eq? (car e) 'ref)
-                             ;; identity map equivalence:
-                             ;; (map (lambda (x) x) y) == y
-                             (car actuals))
-                            ((and-map
-                              (lambda (x) (and (eq? (car x) 'ref) (memq (cadr x) formals)))
-                              (cdr e))
-                             ;; eta map equivalence:
-                             ;; (map (lambda (x ...) (f x ...)) y ...) == (map f y ...)
-                             `(map (primitive ,(car e))
-                                   ,@(map (let ((r (map cons formals actuals)))
-                                            (lambda (x) (cdr (assq (cadr x) r))))
-                                          (cdr e))))
-                            (else `(map (lambda ,formals ,e) ,@actuals))))))
-
-                     (define gen-cons
-                       (lambda (x y)
-                         (case (car y)
-                           ((quote)
-                            (if (eq? (car x) 'quote)
-                                `(quote (,(cadr x) . ,(cadr y)))
-                                (if (eq? (cadr y) '())
-                                    `(list ,x)
-                                    `(cons ,x ,y))))
-                           ((list) `(list ,x ,@(cdr y)))
-                           (else `(cons ,x ,y)))))
-
-                     (define gen-append
-                       (lambda (x y)
-                         (if (equal? y '(quote ()))
-                             x
-                             `(append ,x ,y))))
-
-                     (define gen-vector
-                       (lambda (x)
-                         (cond
-                          ((eq? (car x) 'list) `(vector ,@(cdr x)))
-                          ((eq? (car x) 'quote) `(quote #(,@(cadr x))))
-                          (else `(list->vector ,x)))))
-
-
-                     (define regen
-                       (lambda (x)
-                         (case (car x)
-                           ((ref) (build-lexical-reference 'value no-source (cadr x) (cadr x)))
-                           ((primitive) (build-primref no-source (cadr x)))
-                           ((quote) (build-data no-source (cadr x)))
-                           ((lambda)
-                            (if (list? (cadr x))
-                                (build-simple-lambda no-source (cadr x) #f (cadr x) '() (regen (caddr x)))
-                                (error "how did we get here" x)))
-                           (else (build-primcall no-source (car x) (map regen (cdr x)))))))
-
-                     (lambda (e r w s mod)
-                       (let ((e (source-wrap e w s mod)))
-                         (syntax-case e ()
-                           ((_ x)
+    (global-extend
+     'core 'syntax
+     (let ()
+       (define gen-syntax
+         (lambda (src e r maps ellipsis? mod)
+           (if (id? e)
+               (call-with-values (lambda ()
+                                   (resolve-identifier e empty-wrap r mod))
+                 (lambda (type value mod name)
+                   (case type
+                     ((syntax)
+                      (call-with-values
+                          (lambda () (gen-ref src (car value) (cdr value) maps))
+                        (lambda (var maps)
+                          (values `(ref ,var) maps))))
+                     (else
+                      (if (ellipsis? e)
+                          (syntax-violation 'syntax "misplaced ellipsis" src)
+                          (values `(quote ,e) maps))))))
+               (syntax-case e ()
+                 ((dots e)
+                  (ellipsis? #'dots)
+                  (gen-syntax src #'e r maps (lambda (x) #f) mod))
+                 ((x dots . y)
+                  ;; this could be about a dozen lines of code, except that we
+                  ;; choose to handle #'(x ... ...) forms
+                  (ellipsis? #'dots)
+                  (let f ((y #'y)
+                          (k (lambda (maps)
+                               (call-with-values
+                                   (lambda ()
+                                     (gen-syntax src #'x r
+                                                 (cons '() maps) ellipsis? mod))
+                                 (lambda (x maps)
+                                   (if (null? (car maps))
+                                       (syntax-violation 'syntax "extra ellipsis"
+                                                         src)
+                                       (values (gen-map x (car maps))
+                                               (cdr maps))))))))
+                    (syntax-case y ()
+                      ((dots . y)
+                       (ellipsis? #'dots)
+                       (f #'y
+                          (lambda (maps)
                             (call-with-values
-                                (lambda () (gen-syntax e #'x r '() ellipsis? mod))
-                              (lambda (e maps) (regen e))))
-                           (_ (syntax-violation 'syntax "bad `syntax' form" e)))))))
+                                (lambda () (k (cons '() maps)))
+                              (lambda (x maps)
+                                (if (null? (car maps))
+                                    (syntax-violation 'syntax "extra ellipsis" src)
+                                    (values (gen-mappend x (car maps))
+                                            (cdr maps))))))))
+                      (_ (call-with-values
+                             (lambda () (gen-syntax src y r maps ellipsis? mod))
+                           (lambda (y maps)
+                             (call-with-values
+                                 (lambda () (k maps))
+                               (lambda (x maps)
+                                 (values (gen-append x y) maps)))))))))
+                 ((x . y)
+                  (call-with-values
+                      (lambda () (gen-syntax src #'x r maps ellipsis? mod))
+                    (lambda (x maps)
+                      (call-with-values
+                          (lambda () (gen-syntax src #'y r maps ellipsis? mod))
+                        (lambda (y maps) (values (gen-cons x y) maps))))))
+                 (#(e1 e2 ...)
+                  (call-with-values
+                      (lambda ()
+                        (gen-syntax src #'(e1 e2 ...) r maps ellipsis? mod))
+                    (lambda (e maps) (values (gen-vector e) maps))))
+                 (_ (values `(quote ,e) maps))))))
+
+       (define gen-ref
+         (lambda (src var level maps)
+           (if (fx= level 0)
+               (values var maps)
+               (if (null? maps)
+                   (syntax-violation 'syntax "missing ellipsis" src)
+                   (call-with-values
+                       (lambda () (gen-ref src var (fx- level 1) (cdr maps)))
+                     (lambda (outer-var outer-maps)
+                       (let ((b (assq outer-var (car maps))))
+                         (if b
+                             (values (cdr b) maps)
+                             (let ((inner-var (gen-var 'tmp)))
+                               (values inner-var
+                                       (cons (cons (cons outer-var inner-var)
+                                                   (car maps))
+                                             outer-maps)))))))))))
+
+       (define gen-mappend
+         (lambda (e map-env)
+           `(apply (primitive append) ,(gen-map e map-env))))
+
+       (define gen-map
+         (lambda (e map-env)
+           (let ((formals (map cdr map-env))
+                 (actuals (map (lambda (x) `(ref ,(car x))) map-env)))
+             (cond
+              ((eq? (car e) 'ref)
+               ;; identity map equivalence:
+               ;; (map (lambda (x) x) y) == y
+               (car actuals))
+              ((and-map
+                (lambda (x) (and (eq? (car x) 'ref) (memq (cadr x) formals)))
+                (cdr e))
+               ;; eta map equivalence:
+               ;; (map (lambda (x ...) (f x ...)) y ...) == (map f y ...)
+               `(map (primitive ,(car e))
+                     ,@(map (let ((r (map cons formals actuals)))
+                              (lambda (x) (cdr (assq (cadr x) r))))
+                            (cdr e))))
+              (else `(map (lambda ,formals ,e) ,@actuals))))))
+
+       (define gen-cons
+         (lambda (x y)
+           (case (car y)
+             ((quote)
+              (if (eq? (car x) 'quote)
+                  `(quote (,(cadr x) . ,(cadr y)))
+                  (if (eq? (cadr y) '())
+                      `(list ,x)
+                      `(cons ,x ,y))))
+             ((list) `(list ,x ,@(cdr y)))
+             (else `(cons ,x ,y)))))
+
+       (define gen-append
+         (lambda (x y)
+           (if (equal? y '(quote ()))
+               x
+               `(append ,x ,y))))
+
+       (define gen-vector
+         (lambda (x)
+           (cond
+            ((eq? (car x) 'list) `(vector ,@(cdr x)))
+            ((eq? (car x) 'quote) `(quote #(,@(cadr x))))
+            (else `(list->vector ,x)))))
+
+
+       (define regen
+         (lambda (x)
+           (case (car x)
+             ((ref) (build-lexical-reference 'value no-source (cadr x) (cadr x)))
+             ((primitive) (build-primref no-source (cadr x)))
+             ((quote) (build-data no-source (cadr x)))
+             ((lambda)
+              (if (list? (cadr x))
+                  (build-simple-lambda no-source (cadr x) #f (cadr x) '() (regen (caddr x)))
+                  (error "how did we get here" x)))
+             (else (build-primcall no-source (car x) (map regen (cdr x)))))))
+
+       (lambda (e r w s mod)
+         (let ((e (source-wrap e w s mod)))
+           (syntax-case e ()
+             ((_ x)
+              (call-with-values
+                  (lambda () (gen-syntax e #'x r '() ellipsis? mod))
+                (lambda (e maps) (regen e))))
+             (_ (syntax-violation 'syntax "bad `syntax' form" e)))))))
 
     (global-extend 'core 'lambda
                    (lambda (e r w s mod)
@@ -2090,58 +2136,53 @@
                        (_ (syntax-violation 'letrec* "bad letrec*" (source-wrap e w s mod))))))
 
 
-    (global-extend 'core 'set!
-                   (lambda (e r w s mod)
-                     (syntax-case e ()
-                       ((_ id val)
-                        (id? #'id)
-                        (let ((n (id-var-name #'id w))
-                              ;; Lookup id in its module
-                              (id-mod (if (syntax-object? #'id)
-                                          (syntax-object-module #'id)
-                                          mod)))
-                          (let ((b (lookup n r id-mod)))
-                            (case (binding-type b)
-                              ((lexical)
-                               (build-lexical-assignment s
-                                                         (syntax->datum #'id)
-                                                         (binding-value b)
-                                                         (chi #'val r w mod)))
-                              ((global)
-                               (build-global-assignment s n (chi #'val r w mod) id-mod))
-                              ((macro)
-                               (let ((p (binding-value b)))
-                                 (if (procedure-property p 'variable-transformer)
-                                     ;; As syntax-type does, call chi-macro with
-                                     ;; the mod of the expression. Hmm.
-                                     (chi (chi-macro p e r w s #f mod) r empty-wrap mod)
-                                     (syntax-violation 'set! "not a variable transformer"
-                                                       (wrap e w mod)
-                                                       (wrap #'id w id-mod)))))
-                              ((displaced-lexical)
-                               (syntax-violation 'set! "identifier out of context"
-                                                 (wrap #'id w mod)))
-                              (else (syntax-violation 'set! "bad set!"
-                                                      (source-wrap e w s mod)))))))
-                       ((_ (head tail ...) val)
-                        (call-with-values
-                            (lambda () (syntax-type #'head r empty-wrap no-source #f mod #t))
-                          (lambda (type value ee ww ss modmod)
-                            (case type
-                              ((module-ref)
-                               (let ((val (chi #'val r w mod)))
-                                 (call-with-values (lambda () (value #'(head tail ...) r w))
-                                   (lambda (e r w s* mod)
-                                     (syntax-case e ()
-                                       (e (id? #'e)
-                                          (build-global-assignment s (syntax->datum #'e)
-                                                                   val mod)))))))
-                              (else
-                               (build-call s
-                                           (chi #'(setter head) r w mod)
-                                           (map (lambda (e) (chi e r w mod))
-                                                #'(tail ... val))))))))
-                       (_ (syntax-violation 'set! "bad set!" (source-wrap e w s mod))))))
+    (global-extend
+     'core 'set!
+     (lambda (e r w s mod)
+       (syntax-case e ()
+         ((_ id val)
+          (id? #'id)
+          (call-with-values
+              (lambda () (resolve-identifier #'id w r mod))
+            (lambda (type value id-mod name)
+              (case type
+                ((lexical)
+                 (build-lexical-assignment s (syntax->datum #'id) value
+                                           (chi #'val r w mod)))
+                ((global)
+                 (build-global-assignment s name (chi #'val r w mod) id-mod))
+                ((macro)
+                 (if (procedure-property value 'variable-transformer)
+                     ;; As syntax-type does, call chi-macro with
+                     ;; the mod of the expression. Hmm.
+                     (chi (chi-macro value e r w s #f mod) r empty-wrap mod)
+                     (syntax-violation 'set! "not a variable transformer"
+                                       (wrap e w mod)
+                                       (wrap #'id w id-mod))))
+                ((displaced-lexical)
+                 (syntax-violation 'set! "identifier out of context"
+                                   (wrap #'id w mod)))
+                (else
+                 (syntax-violation 'set! "bad set!" (source-wrap e w s mod)))))))
+         ((_ (head tail ...) val)
+          (call-with-values
+              (lambda () (syntax-type #'head r empty-wrap no-source #f mod #t))
+            (lambda (type value ee ww ss modmod)
+              (case type
+                ((module-ref)
+                 (let ((val (chi #'val r w mod)))
+                   (call-with-values (lambda () (value #'(head tail ...) r w))
+                     (lambda (e r w s* mod)
+                       (syntax-case e ()
+                         (e (id? #'e)
+                            (build-global-assignment s (syntax->datum #'e)
+                                                     val mod)))))))
+                (else
+                 (build-call s
+                             (chi #'(setter head) r w mod)
+                             (map (lambda (e) (chi e r w mod))
+                                  #'(tail ... val))))))))
+         (_ (syntax-violation 'set! "bad set!" (source-wrap e w s mod))))))
 
     (global-extend 'module-ref '@
                    (lambda (e r w)
