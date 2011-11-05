@@ -493,6 +493,7 @@
     ;; identifier bindings include a type and a value
 
     ;; <binding> ::= (macro . <procedure>)           macros
+    ;;               (syntax-parameter . (<procedure>)) syntax parameters
     ;;               (core . <procedure>)            core forms
     ;;               (module-ref . <procedure>)      @ or @@
     ;;               (begin)                         begin
@@ -564,7 +565,7 @@
         (if (null? r)
             '()
             (let ((a (car r)))
-              (if (eq? (cadr a) 'macro)
+              (if (memq (cadr a) '(macro syntax-parameter))
                   (cons a (macros-only-env (cdr r)))
                   (macros-only-env (cdr r)))))))
 
@@ -789,32 +790,33 @@
                       id))))))
          (else (syntax-violation 'id-var-name "invalid id" id)))))
 
-    ;; Returns four values: binding type, binding value, the module (for
-    ;; resolving toplevel vars), and the name (for possible overriding
-    ;; by syntax-parameterize).
-    (define (resolve-identifier id w r mod)
+    ;; Returns three values: binding type, binding value, the module (for
+    ;; resolving toplevel vars).
+    (define (resolve-identifier id w r mod resolve-syntax-parameters?)
+      (define (resolve-syntax-parameters b)
+        (if (and resolve-syntax-parameters?
+                 (eq? (binding-type b) 'syntax-parameter))
+            (or (assq-ref r (binding-value b))
+                (make-binding 'macro (car (binding-value b))))
+            b))
       (define (resolve-global var mod)
-        ;; `var' is probably a global, but we check the environment
-        ;; first anyway because a temporary binding may have been
-        ;; established by `syntax-parameterize'.  FIXME: overriding a
-        ;; toplevel via syntax-parameterize using just a symbolic name
-        ;; (without a module) does not make sense.
-        (let ((b (or (assq-ref r var)
-                     (get-global-definition-hook var mod)
-                     (make-binding 'global))))
-          (if (eq? 'global (binding-type b))
-              (values 'global var mod var)
-              (values (binding-type b) (binding-value b) mod var))))
+        (let ((b (resolve-syntax-parameters
+                  (or (get-global-definition-hook var mod)
+                      (make-binding 'global)))))
+          (if (eq? (binding-type b) 'global)
+              (values 'global var mod)
+              (values (binding-type b) (binding-value b) mod))))
       (define (resolve-lexical label mod)
-        (let ((b (or (assq-ref r label)
-                     (make-binding 'displaced-lexical))))
-          (values (binding-type b) (binding-value b) mod label)))
+        (let ((b (resolve-syntax-parameters
+                  (or (assq-ref r label)
+                      (make-binding 'displaced-lexical)))))
+          (values (binding-type b) (binding-value b) mod)))
       (let ((n (id-var-name id w)))
         (cond
          ((syntax-object? n)
           ;; Recursing allows syntax-parameterize to override
-          ;; macro-introduced bindings, I think.
-          (resolve-identifier n w r mod))
+          ;; macro-introduced syntax parameters.
+          (resolve-identifier n w r mod resolve-syntax-parameters?))
          ((symbol? n)
           (resolve-global n (if (syntax-object? id)
                                 (syntax-object-module id)
@@ -992,23 +994,23 @@
                        ((c)
                         (cond
                          ((memq 'compile esew)
-                          (let ((e (chi-install-global var (chi e r w mod))))
+                          (let ((e (chi-install-global var type (chi e r w mod))))
                             (top-level-eval-hook e mod)
                             (if (memq 'load esew)
                                 (list (lambda () e))
                                 '())))
                          ((memq 'load esew)
                           (list (lambda ()
-                                  (chi-install-global var (chi e r w mod)))))
+                                  (chi-install-global var type (chi e r w mod)))))
                          (else '())))
                        ((c&e)
-                        (let ((e (chi-install-global var (chi e r w mod))))
+                        (let ((e (chi-install-global var type (chi e r w mod))))
                           (top-level-eval-hook e mod)
                           (list (lambda () e))))
                        (else
                         (if (memq 'eval esew)
                             (top-level-eval-hook
-                             (chi-install-global var (chi e r w mod))
+                             (chi-install-global var type (chi e r w mod))
                              mod))
                         '()))))
                   ((begin-form)
@@ -1069,17 +1071,21 @@
                 (build-sequence s exps))))))
     
     (define chi-install-global
-      (lambda (name e)
+      (lambda (name type e)
         (build-global-definition
          no-source
          name
          (build-primcall
           no-source
           'make-syntax-transformer
-          (list (build-data no-source name)
-                (build-data no-source 'macro)
-                e)))))
-  
+          (if (eq? type 'define-syntax-parameter-form)
+              (list (build-data no-source name)
+                    (build-data no-source 'syntax-parameter)
+                    (build-primcall no-source 'list (list e)))
+              (list (build-data no-source name)
+                    (build-data no-source 'macro)
+                    e))))))
+    
     (define chi-when-list
       (lambda (e when-list w)
         ;; `when-list' is syntax'd version of list of situations.  We
@@ -1142,8 +1148,8 @@
       (lambda (e r w s rib mod for-car?)
         (cond
          ((symbol? e)
-          (call-with-values (lambda () (resolve-identifier e w r mod))
-            (lambda (type value mod* name)
+          (call-with-values (lambda () (resolve-identifier e w r mod #t))
+            (lambda (type value mod*)
               (case type
                 ((macro)
                  (if for-car?
@@ -1438,7 +1444,11 @@
                            (parse (cdr body)
                                   (cons id ids) (cons label labels)
                                   var-ids vars vals
-                                  (cons (make-binding 'macro (cons er (wrap e w mod)))
+                                  (cons (make-binding
+                                         (if (eq? type 'define-syntax-parameter-form)
+                                             'syntax-parameter
+                                             'macro)
+                                         (cons er (wrap e w mod)))
                                         bindings))))
                         ((begin-form)
                          (syntax-case e ()
@@ -1473,7 +1483,7 @@
                                (let loop ((bs bindings) (er-cache #f) (r-cache #f))
                                  (if (not (null? bs))
                                      (let* ((b (car bs)))
-                                       (if (eq? (car b) 'macro)
+                                       (if (memq (car b) '(macro syntax-parameter))
                                            (let* ((er (cadr b))
                                                   (r-cache
                                                    (if (eq? er er-cache)
@@ -1483,6 +1493,8 @@
                                                        (eval-local-transformer
                                                         (chi (cddr b) r-cache empty-wrap mod)
                                                         mod))
+                                             (if (eq? (car b) 'syntax-parameter)
+                                                 (set-cdr! b (list (cdr b))))
                                              (loop (cdr bs) er r-cache))
                                            (loop (cdr bs) er-cache r-cache)))))
                                (set-cdr! r (extend-env labels bindings (cdr r)))
@@ -1818,15 +1830,21 @@
           (let ((names
                  (map (lambda (x)
                         (call-with-values
-                            (lambda () (resolve-identifier x w r mod))
-                          (lambda (type value mod name)
+                            (lambda () (resolve-identifier x w r mod #f))
+                          (lambda (type value mod)
                             (case type
                               ((displaced-lexical)
                                (syntax-violation 'syntax-parameterize
                                                  "identifier out of context"
                                                  e
                                                  (source-wrap x w s mod)))
-                              (else name)))))
+                              ((syntax-parameter)
+                               value)
+                              (else
+                               (syntax-violation 'syntax-parameterize
+                                                 "invalid syntax parameter"
+                                                 e
+                                                 (source-wrap x w s mod)))))))
                       #'(var ...)))
                 (bindings
                  (let ((trans-r (macros-only-env r)))
@@ -1857,8 +1875,8 @@
          (lambda (src e r maps ellipsis? mod)
            (if (id? e)
                (call-with-values (lambda ()
-                                   (resolve-identifier e empty-wrap r mod))
-                 (lambda (type value mod name)
+                                   (resolve-identifier e empty-wrap r mod #f))
+                 (lambda (type value mod)
                    (case type
                      ((syntax)
                       (call-with-values
@@ -2151,14 +2169,14 @@
          ((_ id val)
           (id? #'id)
           (call-with-values
-              (lambda () (resolve-identifier #'id w r mod))
-            (lambda (type value id-mod name)
+              (lambda () (resolve-identifier #'id w r mod #t))
+            (lambda (type value id-mod)
               (case type
                 ((lexical)
                  (build-lexical-assignment s (syntax->datum #'id) value
                                            (chi #'val r w mod)))
                 ((global)
-                 (build-global-assignment s name (chi #'val r w mod) id-mod))
+                 (build-global-assignment s value (chi #'val r w mod) id-mod))
                 ((macro)
                  (if (procedure-property value 'variable-transformer)
                      ;; As syntax-type does, call chi-macro with
