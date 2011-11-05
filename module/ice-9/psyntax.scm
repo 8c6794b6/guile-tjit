@@ -51,7 +51,7 @@
 ;;;   bound-identifier=?
 ;;;   datum->syntax
 ;;;   define-syntax
-;;;   fluid-let-syntax
+;;;   syntax-parameterize
 ;;;   free-identifier=?
 ;;;   generate-temporaries
 ;;;   identifier?
@@ -791,13 +791,13 @@
 
     ;; Returns four values: binding type, binding value, the module (for
     ;; resolving toplevel vars), and the name (for possible overriding
-    ;; by fluid-let-syntax).
+    ;; by syntax-parameterize).
     (define (resolve-identifier id w r mod)
       (define (resolve-global var mod)
         ;; `var' is probably a global, but we check the environment
         ;; first anyway because a temporary binding may have been
-        ;; established by `fluid-let-syntax'.  FIXME: overriding a
-        ;; toplevel via fluid-let-syntax using just a symbolic name
+        ;; established by `syntax-parameterize'.  FIXME: overriding a
+        ;; toplevel via syntax-parameterize using just a symbolic name
         ;; (without a module) does not make sense.
         (let ((b (or (assq-ref r var)
                      (get-global-definition-hook var mod)
@@ -812,7 +812,7 @@
       (let ((n (id-var-name id w)))
         (cond
          ((syntax-object? n)
-          ;; Recursing allows fluid-let-syntax to override
+          ;; Recursing allows syntax-parameterize to override
           ;; macro-introduced bindings, I think.
           (resolve-identifier n w r mod))
          ((symbol? n)
@@ -1810,7 +1810,7 @@
     (global-extend 'local-syntax 'let-syntax #f)
 
     (global-extend
-     'core 'fluid-let-syntax
+     'core 'syntax-parameterize
      (lambda (e r w s mod)
        (syntax-case e ()
          ((_ ((var val) ...) e1 e2 ...)
@@ -1822,7 +1822,7 @@
                           (lambda (type value mod name)
                             (case type
                               ((displaced-lexical)
-                               (syntax-violation 'fluid-let-syntax
+                               (syntax-violation 'syntax-parameterize
                                                  "identifier out of context"
                                                  e
                                                  (source-wrap x w s mod)))
@@ -1840,7 +1840,7 @@
                       (extend-env names bindings r)
                       w
                       mod)))
-         (_ (syntax-violation 'fluid-let-syntax "bad syntax"
+         (_ (syntax-violation 'syntax-parameterize "bad syntax"
                               (source-wrap e w s mod))))))
 
     (global-extend 'core 'quote
