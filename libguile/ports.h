@@ -305,8 +305,10 @@ SCM_API SCM scm_set_port_revealed_x (SCM port, SCM rcount);
 SCM_API SCM scm_adjust_port_revealed_x (SCM port, SCM addend);
 
 /* Input.  */
-SCM_INLINE int scm_get_byte_or_eof (SCM port);
-SCM_INLINE int scm_peek_byte_or_eof (SCM port);
+SCM_API int scm_get_byte_or_eof (SCM port);
+SCM_API int scm_peek_byte_or_eof (SCM port);
+SCM_INLINE int scm_get_byte_or_eof_unlocked (SCM port);
+SCM_INLINE int scm_peek_byte_or_eof_unlocked (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
 SCM_API scm_t_wchar scm_getc (SCM port);
 SCM_API SCM scm_read_char (SCM port);
@@ -398,7 +400,7 @@ scm_c_unlock_port (SCM port)
 }
 
 SCM_INLINE_IMPLEMENTATION int
-scm_get_byte_or_eof (SCM port)
+scm_get_byte_or_eof_unlocked (SCM port)
 {
   int c;
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
@@ -423,7 +425,7 @@ scm_get_byte_or_eof (SCM port)
 
 /* Like `scm_get_byte_or_eof' but does not change PORT's `read_pos'.  */
 SCM_INLINE_IMPLEMENTATION int
-scm_peek_byte_or_eof (SCM port)
+scm_peek_byte_or_eof_unlocked (SCM port)
 {
   int c;
   scm_t_port *pt = SCM_PTAB_ENTRY (port);

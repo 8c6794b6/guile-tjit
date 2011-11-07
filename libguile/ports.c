@@ -1167,6 +1167,30 @@ SCM_DEFINE (scm_adjust_port_revealed_x, "adjust-port-revealed!", 2, 0, 0,
 
 /* Input.  */
 
+int
+scm_get_byte_or_eof (SCM port)
+{
+  int ret;
+
+  scm_c_lock_port (port);
+  ret = scm_get_byte_or_eof_unlocked (port);
+  scm_c_unlock_port (port);
+
+  return ret;
+}
+
+int
+scm_peek_byte_or_eof (SCM port)
+{
+  int ret;
+
+  scm_c_lock_port (port);
+  ret = scm_peek_byte_or_eof_unlocked (port);
+  scm_c_unlock_port (port);
+
+  return ret;
+}
+
 /* scm_c_read
  *
  * Used by an application to read arbitrary number of bytes from an
@@ -1391,7 +1415,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
   *len = 0;
   pt = SCM_PTAB_ENTRY (port);
 
-  byte = scm_get_byte_or_eof (port);
+  byte = scm_get_byte_or_eof_unlocked (port);
   if (byte == EOF)
     {
       *codepoint = EOF;
@@ -1407,7 +1431,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
   else if (buf[0] >= 0xc2 && buf[0] <= 0xdf)
     {
       /* 2-byte form.  */
-      byte = scm_peek_byte_or_eof (port);
+      byte = scm_peek_byte_or_eof_unlocked (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
@@ -1423,7 +1447,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
   else if ((buf[0] & 0xf0) == 0xe0)
     {
       /* 3-byte form.  */
-      byte = scm_peek_byte_or_eof (port);
+      byte = scm_peek_byte_or_eof_unlocked (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY ((byte & 0xc0) != 0x80
@@ -1435,7 +1459,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
       buf[1] = (scm_t_uint8) byte;
       *len = 2;
 
-      byte = scm_peek_byte_or_eof (port);
+      byte = scm_peek_byte_or_eof_unlocked (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
@@ -1452,7 +1476,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
   else if (buf[0] >= 0xf0 && buf[0] <= 0xf4)
     {
       /* 4-byte form.  */
-      byte = scm_peek_byte_or_eof (port);
+      byte = scm_peek_byte_or_eof_unlocked (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY (((byte & 0xc0) != 0x80)
@@ -1464,7 +1488,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
       buf[1] = (scm_t_uint8) byte;
       *len = 2;
 
-      byte = scm_peek_byte_or_eof (port);
+      byte = scm_peek_byte_or_eof_unlocked (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
@@ -1474,7 +1498,7 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
       buf[2] = (scm_t_uint8) byte;
       *len = 3;
 
-      byte = scm_peek_byte_or_eof (port);
+      byte = scm_peek_byte_or_eof_unlocked (port);
       ASSERT_NOT_EOF (byte);
 
       if (SCM_UNLIKELY ((byte & 0xc0) != 0x80))
@@ -1529,7 +1553,7 @@ get_iconv_codepoint (SCM port, scm_t_wchar *codepoint,
       char *input;
       size_t input_left, output_left, done;
 
-      byte_read = scm_get_byte_or_eof (port);
+      byte_read = scm_get_byte_or_eof_unlocked (port);
       if (byte_read == EOF)
 	{
 	  if (bytes_consumed == 0)

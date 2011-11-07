@@ -216,7 +216,7 @@ read_token (SCM port, char *buf, const size_t buf_size, size_t *read)
      {
        int chr;
 
-       chr = scm_get_byte_or_eof (port);
+       chr = scm_get_byte_or_eof_unlocked (port);
 
        if (chr == EOF)
         return 0;
@@ -857,9 +857,9 @@ scm_read_semicolon_comment (int chr, SCM port)
   /* We use the get_byte here because there is no need to get the
      locale correct with comment input. This presumes that newline
      always represents itself no matter what the encoding is.  */
-  for (c = scm_get_byte_or_eof (port);
+  for (c = scm_get_byte_or_eof_unlocked (port);
        (c != EOF) && (c != '\n');
-       c = scm_get_byte_or_eof (port));
+       c = scm_get_byte_or_eof_unlocked (port));
 
   return SCM_UNSPECIFIED;
 }
@@ -1097,25 +1097,25 @@ static SCM
 scm_read_shebang (scm_t_wchar chr, SCM port)
 {
   int c = 0;
-  if ((c = scm_get_byte_or_eof (port)) != 'r')
+  if ((c = scm_get_byte_or_eof_unlocked (port)) != 'r')
     {
       scm_ungetc (c, port);
       return scm_read_scsh_block_comment (chr, port);
     }
-  if ((c = scm_get_byte_or_eof (port)) != '6')
+  if ((c = scm_get_byte_or_eof_unlocked (port)) != '6')
     {
       scm_ungetc (c, port);
       scm_ungetc ('r', port);
       return scm_read_scsh_block_comment (chr, port);
     }
-  if ((c = scm_get_byte_or_eof (port)) != 'r')
+  if ((c = scm_get_byte_or_eof_unlocked (port)) != 'r')
     {
       scm_ungetc (c, port);
       scm_ungetc ('6', port);
       scm_ungetc ('r', port);
       return scm_read_scsh_block_comment (chr, port);
     }
-  if ((c = scm_get_byte_or_eof (port)) != 's')
+  if ((c = scm_get_byte_or_eof_unlocked (port)) != 's')
     {
       scm_ungetc (c, port);
       scm_ungetc ('r', port);
