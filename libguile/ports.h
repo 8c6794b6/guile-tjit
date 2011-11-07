@@ -298,7 +298,7 @@ SCM_INLINE int scm_c_lock_port (scm_t_port *entry);
 SCM_INLINE int scm_c_try_lock_port (scm_t_port *entry);
 SCM_INLINE int scm_c_unlock_port (scm_t_port *entry);
 
-/* Meta.  */
+/* Revealed counts.  */
 SCM_API int scm_revealed_count (SCM port);
 SCM_API SCM scm_port_revealed (SCM port);
 SCM_API SCM scm_set_port_revealed_x (SCM port, SCM rcount);
@@ -308,13 +308,13 @@ SCM_INLINE int scm_get_byte_or_eof (SCM port);
 SCM_INLINE int scm_peek_byte_or_eof (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
 SCM_API scm_t_wchar scm_getc (SCM port);
-SCM_API SCM scm_peek_char (SCM port);
 SCM_API SCM scm_read_char (SCM port);
 
 /* Pushback.  */
 SCM_INTERNAL void scm_unget_byte (int c, SCM port); 
 SCM_API void scm_ungetc (scm_t_wchar c, SCM port);
 SCM_API void scm_ungets (const char *s, int n, SCM port);
+SCM_API SCM scm_peek_char (SCM port);
 SCM_API SCM scm_unread_char (SCM cobj, SCM port);
 SCM_API SCM scm_unread_string (SCM str, SCM port);
 

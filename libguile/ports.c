@@ -230,7 +230,7 @@ scm_set_port_free (scm_t_bits tc, size_t (*free) (SCM))
 
 void
 scm_set_port_print (scm_t_bits tc, int (*print) (SCM exp, SCM port,
-					   scm_print_state *pstate))
+                                                 scm_print_state *pstate))
 {
   scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->print = print;
 }
@@ -239,6 +239,12 @@ void
 scm_set_port_equalp (scm_t_bits tc, SCM (*equalp) (SCM, SCM))
 {
   scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->equalp = equalp;
+}
+
+void
+scm_set_port_close (scm_t_bits tc, int (*close) (SCM))
+{
+  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->close = close;
 }
 
 void
@@ -254,14 +260,7 @@ scm_set_port_end_input (scm_t_bits tc, void (*end_input) (SCM port, int offset))
 }
 
 void
-scm_set_port_close (scm_t_bits tc, int (*close) (SCM))
-{
-  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->close = close;
-}
-
-void
-scm_set_port_seek (scm_t_bits tc,
-		   scm_t_off (*seek) (SCM, scm_t_off, int))
+scm_set_port_seek (scm_t_bits tc, scm_t_off (*seek) (SCM, scm_t_off, int))
 {
   scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->seek = seek;
 }
@@ -280,128 +279,6 @@ scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM))
 
 
 
-SCM_DEFINE (scm_char_ready_p, "char-ready?", 0, 1, 0, 
-	    (SCM port),
-	    "Return @code{#t} if a character is ready on input @var{port}\n"
-	    "and return @code{#f} otherwise.  If @code{char-ready?} returns\n"
-	    "@code{#t} then the next @code{read-char} operation on\n"
-	    "@var{port} is guaranteed not to hang.  If @var{port} is a file\n"
-	    "port at end of file then @code{char-ready?} returns @code{#t}.\n"
-	    "\n"
-	    "@code{char-ready?} exists to make it possible for a\n"
-	    "program to accept characters from interactive ports without\n"
-	    "getting stuck waiting for input.  Any input editors associated\n"
-	    "with such ports must make sure that characters whose existence\n"
-	    "has been asserted by @code{char-ready?} cannot be rubbed out.\n"
-	    "If @code{char-ready?} were to return @code{#f} at end of file,\n"
-	    "a port at end of file would be indistinguishable from an\n"
-	    "interactive port that has no ready characters.")
-#define FUNC_NAME s_scm_char_ready_p
-{
-  scm_t_port *pt;
-
-  if (SCM_UNBNDP (port))
-    port = scm_current_input_port ();
-  /* It's possible to close the current input port, so validate even in
-     this case. */
-  SCM_VALIDATE_OPINPORT (1, port);
-
-  pt = SCM_PTAB_ENTRY (port);
-
-  /* if the current read buffer is filled, or the
-     last pushed-back char has been read and the saved buffer is
-     filled, result is true.  */
-  if (pt->read_pos < pt->read_end 
-      || (pt->read_buf == pt->putback_buf
-	  && pt->saved_read_pos < pt->saved_read_end))
-    return SCM_BOOL_T;
-  else
-    {
-      scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
-      
-      if (ptob->input_waiting)
-	return scm_from_bool(ptob->input_waiting (port));
-      else
-	return SCM_BOOL_T;
-    }
-}
-#undef FUNC_NAME
-
-/* move up to read_len chars from port's putback and/or read buffers
-   into memory starting at dest.  returns the number of chars moved.  */
-size_t
-scm_take_from_input_buffers (SCM port, char *dest, size_t read_len)
-{
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  size_t chars_read = 0;
-  size_t from_buf = min (pt->read_end - pt->read_pos, read_len);
-
-  if (from_buf > 0)
-    {
-      memcpy (dest, pt->read_pos, from_buf);
-      pt->read_pos += from_buf;
-      chars_read += from_buf;
-      read_len -= from_buf;
-      dest += from_buf;
-    }
-
-  /* if putback was active, try the real input buffer too.  */
-  if (pt->read_buf == pt->putback_buf)
-    {
-      from_buf = min (pt->saved_read_end - pt->saved_read_pos, read_len);
-      if (from_buf > 0)
-	{
-	  memcpy (dest, pt->saved_read_pos, from_buf);
-	  pt->saved_read_pos += from_buf;
-	  chars_read += from_buf;
-	}
-    }
-  return chars_read;
-}
-
-/* Clear a port's read buffers, returning the contents.  */
-SCM_DEFINE (scm_drain_input, "drain-input", 1, 0, 0, 
-            (SCM port),
-	    "This procedure clears a port's input buffers, similar\n"
-	    "to the way that force-output clears the output buffer.  The\n"
-	    "contents of the buffers are returned as a single string, e.g.,\n"
-	    "\n"
-	    "@lisp\n"
-	    "(define p (open-input-file ...))\n"
-	    "(drain-input p) => empty string, nothing buffered yet.\n"
-	    "(unread-char (read-char p) p)\n"
-	    "(drain-input p) => initial chars from p, up to the buffer size.\n"
-	    "@end lisp\n\n"
-	    "Draining the buffers may be useful for cleanly finishing\n"
-	    "buffered I/O so that the file descriptor can be used directly\n"
-	    "for further input.")
-#define FUNC_NAME s_scm_drain_input
-{
-  SCM result;
-  char *data;
-  scm_t_port *pt;
-  long count;
-
-  SCM_VALIDATE_OPINPORT (1, port);
-  pt = SCM_PTAB_ENTRY (port);
-
-  count = pt->read_end - pt->read_pos;
-  if (pt->read_buf == pt->putback_buf)
-    count += pt->saved_read_end - pt->saved_read_pos;
-
-  if (count)
-    {
-      result = scm_i_make_string (count, &data, 0);
-      scm_take_from_input_buffers (port, data, count);
-    }
-  else
-    result = scm_nullstr;
-  
-  return result;
-}
-#undef FUNC_NAME
-
-
 /* Standard ports --- current input, output, error, and more(!).  */
 
 static SCM cur_inport_fluid = SCM_BOOL_F;
@@ -540,18 +417,94 @@ scm_i_dynwind_current_load_port (SCM port)
   scm_dynwind_fluid (cur_loadport_fluid, port);
 }
 
-
-/* The port table --- an array of pointers to ports.  */
 
-/*
-  We need a global registry of ports to flush them all at exit, and to
-  get all the ports matching a file descriptor.
+
+
+/* Retrieving a port's mode.  */
+
+/* Return the flags that characterize a port based on the mode
+ * string used to open a file for that port.
+ *
+ * See PORT FLAGS in scm.h
  */
+
+static long
+scm_i_mode_bits_n (SCM modes)
+{
+  return (SCM_OPN
+	  | (scm_i_string_contains_char (modes, 'r') 
+	     || scm_i_string_contains_char (modes, '+') ? SCM_RDNG : 0)
+	  | (scm_i_string_contains_char (modes, 'w')
+	     || scm_i_string_contains_char (modes, 'a')
+	     || scm_i_string_contains_char (modes, '+') ? SCM_WRTNG : 0)
+	  | (scm_i_string_contains_char (modes, '0') ? SCM_BUF0 : 0)
+	  | (scm_i_string_contains_char (modes, 'l') ? SCM_BUFLINE : 0));
+}
+
+long
+scm_mode_bits (char *modes)
+{
+  return scm_i_mode_bits (scm_from_locale_string (modes));
+}
+
+long
+scm_i_mode_bits (SCM modes)
+{
+  long bits;
+
+  if (!scm_is_string (modes))
+    scm_wrong_type_arg_msg (NULL, 0, modes, "string");
+
+  bits = scm_i_mode_bits_n (modes);
+  scm_remember_upto_here_1 (modes);
+  return bits;
+}
+
+/* Return the mode flags from an open port.
+ * Some modes such as "append" are only used when opening
+ * a file and are not returned here.  */
+
+SCM_DEFINE (scm_port_mode, "port-mode", 1, 0, 0,
+           (SCM port),
+	    "Return the port modes associated with the open port @var{port}.\n"
+	    "These will not necessarily be identical to the modes used when\n"
+	    "the port was opened, since modes such as \"append\" which are\n"
+	    "used only during port creation are not retained.")
+#define FUNC_NAME s_scm_port_mode
+{
+  char modes[4];
+  modes[0] = '\0';
+
+  port = SCM_COERCE_OUTPORT (port);
+  SCM_VALIDATE_OPPORT (1, port);
+  if (SCM_CELL_WORD_0 (port) & SCM_RDNG) {
+    if (SCM_CELL_WORD_0 (port) & SCM_WRTNG)
+      strcpy (modes, "r+");
+    else
+      strcpy (modes, "r");
+  }
+  else if (SCM_CELL_WORD_0 (port) & SCM_WRTNG)
+    strcpy (modes, "w");
+  if (SCM_CELL_WORD_0 (port) & SCM_BUF0)
+    strcat (modes, "0");
+
+  return scm_from_latin1_string (modes);
+}
+#undef FUNC_NAME
+
+
+
+
+/* The port table --- a weak set of all ports.
+
+   We need a global registry of ports to flush them all at exit, and to
+   get all the ports matching a file descriptor.  */
 SCM scm_i_port_weak_set;
 
-
-/* Port finalization.  */
 
+
+
+/* Port finalization.  */
 
 static void finalize_port (GC_PTR, GC_PTR);
 
@@ -608,7 +561,6 @@ finalize_port (GC_PTR ptr, GC_PTR data)
 	}
     }
 }
-
 
 
 
@@ -699,133 +651,68 @@ scm_i_remove_port (SCM port)
 #undef FUNC_NAME
 
 
-void
-scm_port_non_buffer (scm_t_port *pt)
-{
-  pt->read_pos = pt->read_buf = pt->read_end = &pt->shortbuf;
-  pt->write_buf = pt->write_pos = &pt->shortbuf;
-  pt->read_buf_size = pt->write_buf_size = 1;
-  pt->write_end = pt->write_buf + pt->write_buf_size;
-}
-
 
-/* Revealed counts --- an oddity inherited from SCSH.  */
 
-/* Find a port in the table and return its revealed count.
-   Also used by the garbage collector.
- */
+/* Predicates.  */
 
-int
-scm_revealed_count (SCM port)
+SCM_DEFINE (scm_port_p, "port?", 1, 0, 0,
+	    (SCM x),
+	    "Return a boolean indicating whether @var{x} is a port.\n"
+	    "Equivalent to @code{(or (input-port? @var{x}) (output-port?\n"
+	    "@var{x}))}.")
+#define FUNC_NAME s_scm_port_p
 {
-  return SCM_REVEALED(port);
+  return scm_from_bool (SCM_PORTP (x));
 }
+#undef FUNC_NAME
 
+SCM_DEFINE (scm_input_port_p, "input-port?", 1, 0, 0,
+           (SCM x),
+	    "Return @code{#t} if @var{x} is an input port, otherwise return\n"
+	    "@code{#f}.  Any object satisfying this predicate also satisfies\n"
+	    "@code{port?}.")
+#define FUNC_NAME s_scm_input_port_p
+{
+  return scm_from_bool (SCM_INPUT_PORT_P (x));
+}
+#undef FUNC_NAME
 
+SCM_DEFINE (scm_output_port_p, "output-port?", 1, 0, 0,
+           (SCM x),
+	    "Return @code{#t} if @var{x} is an output port, otherwise return\n"
+	    "@code{#f}.  Any object satisfying this predicate also satisfies\n"
+	    "@code{port?}.")
+#define FUNC_NAME s_scm_output_port_p
+{
+  x = SCM_COERCE_OUTPORT (x);
+  return scm_from_bool (SCM_OUTPUT_PORT_P (x));
+}
+#undef FUNC_NAME
 
-/* Return the revealed count for a port.  */
-
-SCM_DEFINE (scm_port_revealed, "port-revealed", 1, 0, 0,
+SCM_DEFINE (scm_port_closed_p, "port-closed?", 1, 0, 0,
            (SCM port),
-	    "Return the revealed count for @var{port}.")
-#define FUNC_NAME s_scm_port_revealed
+	    "Return @code{#t} if @var{port} is closed or @code{#f} if it is\n"
+	    "open.")
+#define FUNC_NAME s_scm_port_closed_p
 {
-  port = SCM_COERCE_OUTPORT (port);
-  SCM_VALIDATE_OPENPORT (1, port);
-  return scm_from_int (scm_revealed_count (port));
+  SCM_VALIDATE_PORT (1, port);
+  return scm_from_bool (!SCM_OPPORTP (port));
 }
 #undef FUNC_NAME
 
-/* Set the revealed count for a port.  */
-SCM_DEFINE (scm_set_port_revealed_x, "set-port-revealed!", 2, 0, 0,
-           (SCM port, SCM rcount),
-	    "Sets the revealed count for a port to a given value.\n"
-	    "The return value is unspecified.")
-#define FUNC_NAME s_scm_set_port_revealed_x
+SCM_DEFINE (scm_eof_object_p, "eof-object?", 1, 0, 0,
+           (SCM x),
+	    "Return @code{#t} if @var{x} is an end-of-file object; otherwise\n"
+	    "return @code{#f}.")
+#define FUNC_NAME s_scm_eof_object_p
 {
-  port = SCM_COERCE_OUTPORT (port);
-  SCM_VALIDATE_OPENPORT (1, port);
-  SCM_REVEALED (port) = scm_to_int (rcount);
-  return SCM_UNSPECIFIED;
+  return scm_from_bool (SCM_EOF_OBJECT_P (x));
 }
 #undef FUNC_NAME
 
 
 
-/* Retrieving a port's mode.  */
 
-/* Return the flags that characterize a port based on the mode
- * string used to open a file for that port.
- *
- * See PORT FLAGS in scm.h
- */
-
-static long
-scm_i_mode_bits_n (SCM modes)
-{
-  return (SCM_OPN
-	  | (scm_i_string_contains_char (modes, 'r') 
-	     || scm_i_string_contains_char (modes, '+') ? SCM_RDNG : 0)
-	  | (scm_i_string_contains_char (modes, 'w')
-	     || scm_i_string_contains_char (modes, 'a')
-	     || scm_i_string_contains_char (modes, '+') ? SCM_WRTNG : 0)
-	  | (scm_i_string_contains_char (modes, '0') ? SCM_BUF0 : 0)
-	  | (scm_i_string_contains_char (modes, 'l') ? SCM_BUFLINE : 0));
-}
-
-long
-scm_mode_bits (char *modes)
-{
-  return scm_i_mode_bits (scm_from_locale_string (modes));
-}
-
-long
-scm_i_mode_bits (SCM modes)
-{
-  long bits;
-
-  if (!scm_is_string (modes))
-    scm_wrong_type_arg_msg (NULL, 0, modes, "string");
-
-  bits = scm_i_mode_bits_n (modes);
-  scm_remember_upto_here_1 (modes);
-  return bits;
-}
-
-/* Return the mode flags from an open port.
- * Some modes such as "append" are only used when opening
- * a file and are not returned here.  */
-
-SCM_DEFINE (scm_port_mode, "port-mode", 1, 0, 0,
-           (SCM port),
-	    "Return the port modes associated with the open port @var{port}.\n"
-	    "These will not necessarily be identical to the modes used when\n"
-	    "the port was opened, since modes such as \"append\" which are\n"
-	    "used only during port creation are not retained.")
-#define FUNC_NAME s_scm_port_mode
-{
-  char modes[4];
-  modes[0] = '\0';
-
-  port = SCM_COERCE_OUTPORT (port);
-  SCM_VALIDATE_OPPORT (1, port);
-  if (SCM_CELL_WORD_0 (port) & SCM_RDNG) {
-    if (SCM_CELL_WORD_0 (port) & SCM_WRTNG)
-      strcpy (modes, "r+");
-    else
-      strcpy (modes, "r");
-  }
-  else if (SCM_CELL_WORD_0 (port) & SCM_WRTNG)
-    strcpy (modes, "w");
-  if (SCM_CELL_WORD_0 (port) & SCM_BUF0)
-    strcat (modes, "0");
-
-  return scm_from_latin1_string (modes);
-}
-#undef FUNC_NAME
-
-
-
 /* Closing ports.  */
 
 /* scm_close_port
@@ -890,177 +777,503 @@ SCM_DEFINE (scm_close_output_port, "close-output-port", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-struct for_each_data 
-{
-  void (*proc) (void *data, SCM p);
-  void *data;
-};
 
-static SCM
-for_each_trampoline (void *data, SCM port, SCM result)
-{
-  struct for_each_data *d = data;
-  
-  d->proc (d->data, port);
+
 
-  return result;
+/* Encoding characters to byte streams, and decoding byte streams to
+   characters.  */
+
+/* A fluid specifying the default encoding for newly created ports.  If it is
+   a string, that is the encoding.  If it is #f, it is in the "native"
+   (Latin-1) encoding.  */
+SCM_VARIABLE (default_port_encoding_var, "%default-port-encoding");
+
+static int scm_port_encoding_init = 0;
+
+/* Use ENCODING as the default encoding for future ports.  */
+void
+scm_i_set_default_port_encoding (const char *encoding)
+{
+  if (!scm_port_encoding_init
+      || !scm_is_fluid (SCM_VARIABLE_REF (default_port_encoding_var)))
+    scm_misc_error (NULL, "tried to set port encoding fluid before it is initialized",
+		    SCM_EOL);
+
+  if (encoding == NULL
+      || !strcmp (encoding, "ASCII")
+      || !strcmp (encoding, "ANSI_X3.4-1968")
+      || !strcmp (encoding, "ISO-8859-1"))
+    scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var), SCM_BOOL_F);
+  else
+    scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var),
+		     scm_from_locale_string (encoding));
+}
+
+/* Return the name of the default encoding for newly created ports; a
+   return value of NULL means "ISO-8859-1".  */
+const char *
+scm_i_default_port_encoding (void)
+{
+  if (!scm_port_encoding_init)
+    return NULL;
+  else if (!scm_is_fluid (SCM_VARIABLE_REF (default_port_encoding_var)))
+    return NULL;
+  else
+    {
+      SCM encoding;
+
+      encoding = scm_fluid_ref (SCM_VARIABLE_REF (default_port_encoding_var));
+      if (!scm_is_string (encoding))
+	return NULL;
+      else
+	return scm_i_string_chars (encoding);
+    }
 }
 
 void
-scm_c_port_for_each (void (*proc)(void *data, SCM p), void *data)
+scm_i_set_port_encoding_x (SCM port, const char *encoding)
 {
-  struct for_each_data d;
-  
-  d.proc = proc;
-  d.data = data;
+  scm_t_port *pt;
+  iconv_t new_input_cd, new_output_cd;
 
-  scm_c_weak_set_fold (for_each_trampoline, &d, SCM_EOL,
-                       scm_i_port_weak_set);
+  new_input_cd = (iconv_t) -1;
+  new_output_cd = (iconv_t) -1;
+
+  /* Set the character encoding for this port.  */
+  pt = SCM_PTAB_ENTRY (port);
+
+  if (encoding == NULL)
+    encoding = "ISO-8859-1";
+
+  if (pt->encoding != encoding)
+    pt->encoding = scm_gc_strdup (encoding, "port");
+
+  /* If ENCODING is UTF-8, then no conversion descriptor is opened
+     because we do I/O ourselves.  This saves 100+ KiB for each
+     descriptor.  */
+  if (strcmp (encoding, "UTF-8"))
+    {
+      if (SCM_CELL_WORD_0 (port) & SCM_RDNG)
+	{
+	  /* Open an input iconv conversion descriptor, from ENCODING
+	     to UTF-8.  We choose UTF-8, not UTF-32, because iconv
+	     implementations can typically convert from anything to
+	     UTF-8, but not to UTF-32 (see
+	     <http://lists.gnu.org/archive/html/bug-libunistring/2010-09/msg00007.html>).  */
+	  new_input_cd = iconv_open ("UTF-8", encoding);
+	  if (new_input_cd == (iconv_t) -1)
+	    goto invalid_encoding;
+	}
+
+      if (SCM_CELL_WORD_0 (port) & SCM_WRTNG)
+	{
+	  new_output_cd = iconv_open (encoding, "UTF-8");
+	  if (new_output_cd == (iconv_t) -1)
+	    {
+	      if (new_input_cd != (iconv_t) -1)
+		iconv_close (new_input_cd);
+	      goto invalid_encoding;
+	    }
+	}
+    }
+
+  if (pt->input_cd != (iconv_t) -1)
+    iconv_close (pt->input_cd);
+  if (pt->output_cd != (iconv_t) -1)
+    iconv_close (pt->output_cd);
+
+  pt->input_cd = new_input_cd;
+  pt->output_cd = new_output_cd;
+
+  return;
+
+ invalid_encoding:
+  {
+    SCM err;
+    err = scm_from_locale_string (encoding);
+    scm_misc_error ("scm_i_set_port_encoding_x",
+		    "invalid or unknown character encoding ~s",
+		    scm_list_1 (err));
+  }
 }
 
-static void
-scm_for_each_trampoline (void *data, SCM port)
+SCM_DEFINE (scm_port_encoding, "port-encoding", 1, 0, 0,
+	    (SCM port),
+	    "Returns, as a string, the character encoding that @var{port}\n"
+	    "uses to interpret its input and output.\n")
+#define FUNC_NAME s_scm_port_encoding
 {
-  scm_call_1 (SCM_PACK_POINTER (data), port);
+  scm_t_port *pt;
+  const char *enc;
+
+  SCM_VALIDATE_PORT (1, port);
+
+  pt = SCM_PTAB_ENTRY (port);
+  enc = pt->encoding;
+  if (enc)
+    return scm_from_locale_string (pt->encoding);
+  else
+    return SCM_BOOL_F;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_set_port_encoding_x, "set-port-encoding!", 2, 0, 0,
+	    (SCM port, SCM enc),
+	    "Sets the character encoding that will be used to interpret all\n"
+	    "port I/O.  New ports are created with the encoding\n"
+	    "appropriate for the current locale if @code{setlocale} has \n"
+	    "been called or ISO-8859-1 otherwise\n"
+	    "and this procedure can be used to modify that encoding.\n")
+#define FUNC_NAME s_scm_set_port_encoding_x
+{
+  char *enc_str;
+
+  SCM_VALIDATE_PORT (1, port);
+  SCM_VALIDATE_STRING (2, enc);
+
+  enc_str = scm_to_locale_string (enc);
+  scm_i_set_port_encoding_x (port, enc_str);
+  free (enc_str);
+
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+
+/* This determines how conversions handle unconvertible characters.  */
+SCM_GLOBAL_VARIABLE (scm_conversion_strategy, "%port-conversion-strategy");
+static int scm_conversion_strategy_init = 0;
+
+scm_t_string_failed_conversion_handler
+scm_i_get_conversion_strategy (SCM port)
+{
+  SCM encoding;
+  
+  if (scm_is_false (port))
+    {
+      if (!scm_conversion_strategy_init
+	  || !scm_is_fluid (SCM_VARIABLE_REF (scm_conversion_strategy)))
+	return SCM_FAILED_CONVERSION_QUESTION_MARK;
+      else
+	{
+	  encoding = scm_fluid_ref (SCM_VARIABLE_REF (scm_conversion_strategy));
+	  if (scm_is_false (encoding))
+	    return SCM_FAILED_CONVERSION_QUESTION_MARK;
+	  else 
+	    return (scm_t_string_failed_conversion_handler) scm_to_int (encoding);
+	}
+    }
+  else
+    {
+      scm_t_port *pt;
+      pt = SCM_PTAB_ENTRY (port);
+      return pt->ilseq_handler;
+    }
+      
 }
 
-SCM_DEFINE (scm_port_for_each, "port-for-each", 1, 0, 0,
-	    (SCM proc),
-	    "Apply @var{proc} to each port in the Guile port table\n"
-	    "in turn.  The return value is unspecified.  More specifically,\n"
-	    "@var{proc} is applied exactly once to every port that exists\n"
-	    "in the system at the time @var{port-for-each} is invoked.\n"
-	    "Changes to the port table while @var{port-for-each} is running\n"
-	    "have no effect as far as @var{port-for-each} is concerned.") 
-#define FUNC_NAME s_scm_port_for_each
+void
+scm_i_set_conversion_strategy_x (SCM port, 
+				 scm_t_string_failed_conversion_handler handler)
 {
-  SCM_VALIDATE_PROC (1, proc);
-
-  scm_c_port_for_each (scm_for_each_trampoline, SCM_UNPACK_POINTER (proc));
+  SCM strategy;
+  scm_t_port *pt;
   
+  strategy = scm_from_int ((int) handler);
+  
+  if (scm_is_false (port))
+    {
+      /* Set the default encoding for future ports.  */
+      if (!scm_conversion_strategy_init
+	  || !scm_is_fluid (SCM_VARIABLE_REF (scm_conversion_strategy)))
+	scm_misc_error (NULL, "tried to set conversion strategy fluid before it is initialized",
+                       SCM_EOL);
+      scm_fluid_set_x (SCM_VARIABLE_REF (scm_conversion_strategy), strategy);
+    }
+  else
+    {
+      /* Set the character encoding for this port.  */
+      pt = SCM_PTAB_ENTRY (port);
+      pt->ilseq_handler = handler;
+    }
+}
+
+SCM_DEFINE (scm_port_conversion_strategy, "port-conversion-strategy",
+	    1, 0, 0, (SCM port),
+	    "Returns the behavior of the port when handling a character that\n"
+	    "is not representable in the port's current encoding.\n"
+	    "It returns the symbol @code{error} if unrepresentable characters\n"
+	    "should cause exceptions, @code{substitute} if the port should\n"
+	    "try to replace unrepresentable characters with question marks or\n"
+	    "approximate characters, or @code{escape} if unrepresentable\n"
+	    "characters should be converted to string escapes.\n"
+	    "\n"
+	    "If @var{port} is @code{#f}, then the current default behavior\n"
+	    "will be returned.  New ports will have this default behavior\n"
+	    "when they are created.\n")
+#define FUNC_NAME s_scm_port_conversion_strategy
+{
+  scm_t_string_failed_conversion_handler h;
+
+  SCM_VALIDATE_OPPORT (1, port);
+
+  if (!scm_is_false (port))
+    {
+      SCM_VALIDATE_OPPORT (1, port);
+    }
+
+  h = scm_i_get_conversion_strategy (port);
+  if (h == SCM_FAILED_CONVERSION_ERROR)
+    return scm_from_latin1_symbol ("error");
+  else if (h == SCM_FAILED_CONVERSION_QUESTION_MARK)
+    return scm_from_latin1_symbol ("substitute");
+  else if (h == SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE)
+    return scm_from_latin1_symbol ("escape");
+  else
+    abort ();
+
+  /* Never gets here. */
+  return SCM_UNDEFINED;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_set_port_conversion_strategy_x, "set-port-conversion-strategy!",
+	    2, 0, 0, 
+	    (SCM port, SCM sym),
+	    "Sets the behavior of the interpreter when outputting a character\n"
+	    "that is not representable in the port's current encoding.\n"
+	    "@var{sym} can be either @code{'error}, @code{'substitute}, or\n"
+	    "@code{'escape}.  If it is @code{'error}, an error will be thrown\n"
+	    "when an unconvertible character is encountered.  If it is\n"
+	    "@code{'substitute}, then unconvertible characters will \n"
+	    "be replaced with approximate characters, or with question marks\n"
+	    "if no approximately correct character is available.\n"
+	    "If it is @code{'escape},\n"
+	    "it will appear as a hex escape when output.\n"
+	    "\n"
+	    "If @var{port} is an open port, the conversion error behavior\n"
+	    "is set for that port.  If it is @code{#f}, it is set as the\n"
+	    "default behavior for any future ports that get created in\n"
+	    "this thread.\n")
+#define FUNC_NAME s_scm_set_port_conversion_strategy_x
+{
+  SCM err;
+  SCM qm;
+  SCM esc;
+
+  if (!scm_is_false (port))
+    {
+      SCM_VALIDATE_OPPORT (1, port);
+    }
+
+  err = scm_from_latin1_symbol ("error");
+  if (scm_is_true (scm_eqv_p (sym, err)))
+    {
+      scm_i_set_conversion_strategy_x (port, SCM_FAILED_CONVERSION_ERROR);
+      return SCM_UNSPECIFIED;
+    }
+
+  qm = scm_from_latin1_symbol ("substitute");
+  if (scm_is_true (scm_eqv_p (sym, qm)))
+    {
+      scm_i_set_conversion_strategy_x (port, 
+                                       SCM_FAILED_CONVERSION_QUESTION_MARK);
+      return SCM_UNSPECIFIED;
+    }
+
+  esc = scm_from_latin1_symbol ("escape");
+  if (scm_is_true (scm_eqv_p (sym, esc)))
+    {
+      scm_i_set_conversion_strategy_x (port,
+                                       SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE);
+      return SCM_UNSPECIFIED;
+    }
+
+  SCM_MISC_ERROR ("unknown conversion behavior ~s", scm_list_1 (sym));
+
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
 
 
-/* Utter miscellany.  Gosh, we should clean this up some time.  */
 
-SCM_DEFINE (scm_input_port_p, "input-port?", 1, 0, 0,
-           (SCM x),
-	    "Return @code{#t} if @var{x} is an input port, otherwise return\n"
-	    "@code{#f}.  Any object satisfying this predicate also satisfies\n"
-	    "@code{port?}.")
-#define FUNC_NAME s_scm_input_port_p
+/* Revealed counts --- an oddity inherited from SCSH.  */
+
+/* Find a port in the table and return its revealed count.
+   Also used by the garbage collector.
+ */
+int
+scm_revealed_count (SCM port)
 {
-  return scm_from_bool (SCM_INPUT_PORT_P (x));
+  return SCM_REVEALED (port);
 }
-#undef FUNC_NAME
 
-SCM_DEFINE (scm_output_port_p, "output-port?", 1, 0, 0,
-           (SCM x),
-	    "Return @code{#t} if @var{x} is an output port, otherwise return\n"
-	    "@code{#f}.  Any object satisfying this predicate also satisfies\n"
-	    "@code{port?}.")
-#define FUNC_NAME s_scm_output_port_p
-{
-  x = SCM_COERCE_OUTPORT (x);
-  return scm_from_bool (SCM_OUTPUT_PORT_P (x));
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_port_p, "port?", 1, 0, 0,
-	    (SCM x),
-	    "Return a boolean indicating whether @var{x} is a port.\n"
-	    "Equivalent to @code{(or (input-port? @var{x}) (output-port?\n"
-	    "@var{x}))}.")
-#define FUNC_NAME s_scm_port_p
-{
-  return scm_from_bool (SCM_PORTP (x));
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_port_closed_p, "port-closed?", 1, 0, 0,
+SCM_DEFINE (scm_port_revealed, "port-revealed", 1, 0, 0,
            (SCM port),
-	    "Return @code{#t} if @var{port} is closed or @code{#f} if it is\n"
-	    "open.")
-#define FUNC_NAME s_scm_port_closed_p
+	    "Return the revealed count for @var{port}.")
+#define FUNC_NAME s_scm_port_revealed
 {
-  SCM_VALIDATE_PORT (1, port);
-  return scm_from_bool (!SCM_OPPORTP (port));
+  port = SCM_COERCE_OUTPORT (port);
+  SCM_VALIDATE_OPENPORT (1, port);
+  return scm_from_int (scm_revealed_count (port));
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_eof_object_p, "eof-object?", 1, 0, 0,
-           (SCM x),
-	    "Return @code{#t} if @var{x} is an end-of-file object; otherwise\n"
-	    "return @code{#f}.")
-#define FUNC_NAME s_scm_eof_object_p
-{
-  return scm_from_bool(SCM_EOF_OBJECT_P (x));
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
-           (SCM port),
-	    "Flush the specified output port, or the current output port if @var{port}\n"
-	    "is omitted.  The current output buffer contents are passed to the\n"
-	    "underlying port implementation (e.g., in the case of fports, the\n"
-	    "data will be written to the file and the output buffer will be cleared.)\n"
-	    "It has no effect on an unbuffered port.\n\n"
+/* Set the revealed count for a port.  */
+SCM_DEFINE (scm_set_port_revealed_x, "set-port-revealed!", 2, 0, 0,
+           (SCM port, SCM rcount),
+	    "Sets the revealed count for a port to a given value.\n"
 	    "The return value is unspecified.")
-#define FUNC_NAME s_scm_force_output
+#define FUNC_NAME s_scm_set_port_revealed_x
 {
-  if (SCM_UNBNDP (port))
-    port = scm_current_output_port ();
-  else
-    {
-      port = SCM_COERCE_OUTPORT (port);
-      SCM_VALIDATE_OPOUTPORT (1, port);
-    }
-  scm_flush (port);
+  port = SCM_COERCE_OUTPORT (port);
+  SCM_VALIDATE_OPENPORT (1, port);
+  SCM_REVEALED (port) = scm_to_int (rcount);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
+
+
+
+/* Input.  */
+
+/* scm_c_read
+ *
+ * Used by an application to read arbitrary number of bytes from an
+ * SCM port.  Same semantics as libc read, except that scm_c_read only
+ * returns less than SIZE bytes if at end-of-file.
+ *
+ * Warning: Doesn't update port line and column counts!  */
+
+/* This structure, and the following swap_buffer function, are used
+   for temporarily swapping a port's own read buffer, and the buffer
+   that the caller of scm_c_read provides. */
+struct port_and_swap_buffer
+{
+  scm_t_port *pt;
+  unsigned char *buffer;
+  size_t size;
+};
 
 static void
-flush_output_port (void *closure, SCM port)
+swap_buffer (void *data)
 {
-  if (SCM_OPOUTPORTP (port))
-    scm_flush (port);
+  struct port_and_swap_buffer *psb = (struct port_and_swap_buffer *) data;
+  unsigned char *old_buf = psb->pt->read_buf;
+  size_t old_size = psb->pt->read_buf_size;
+
+  /* Make the port use (buffer, size) from the struct. */
+  psb->pt->read_pos = psb->pt->read_buf = psb->pt->read_end = psb->buffer;
+  psb->pt->read_buf_size = psb->size;
+
+  /* Save the port's old (buffer, size) in the struct. */
+  psb->buffer = old_buf;
+  psb->size = old_size;
 }
 
-SCM_DEFINE (scm_flush_all_ports, "flush-all-ports", 0, 0, 0,
-            (),
-	    "Equivalent to calling @code{force-output} on\n"
-	    "all open output ports.  The return value is unspecified.")
-#define FUNC_NAME s_scm_flush_all_ports
+size_t
+scm_c_read (SCM port, void *buffer, size_t size)
+#define FUNC_NAME "scm_c_read"
 {
-  scm_c_port_for_each (&flush_output_port, NULL);
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
+  scm_t_port *pt;
+  size_t n_read = 0, n_available;
+  struct port_and_swap_buffer psb;
 
-SCM_DEFINE (scm_read_char, "read-char", 0, 1, 0,
-           (SCM port),
-	    "Return the next character available from @var{port}, updating\n"
-	    "@var{port} to point to the following character.  If no more\n"
-	    "characters are available, the end-of-file object is returned.\n"
-	    "\n"
-	    "When @var{port}'s data cannot be decoded according to its\n"
-	    "character encoding, a @code{decoding-error} is raised and\n"
-	    "@var{port} points past the erroneous byte sequence.\n")
-#define FUNC_NAME s_scm_read_char
-{
-  scm_t_wchar c;
-  if (SCM_UNBNDP (port))
-    port = scm_current_input_port ();
   SCM_VALIDATE_OPINPORT (1, port);
-  c = scm_getc (port);
-  if (EOF == c)
-    return SCM_EOF_VAL;
-  return SCM_MAKE_CHAR (c);
+
+  pt = SCM_PTAB_ENTRY (port);
+  if (pt->rw_active == SCM_PORT_WRITE)
+    SCM_PORT_DESCRIPTOR (port)->flush (port);
+
+  if (pt->rw_random)
+    pt->rw_active = SCM_PORT_READ;
+
+  /* Take bytes first from the port's read buffer. */
+  if (pt->read_pos < pt->read_end)
+    {
+      n_available = min (size, pt->read_end - pt->read_pos);
+      memcpy (buffer, pt->read_pos, n_available);
+      buffer = (char *) buffer + n_available;
+      pt->read_pos += n_available;
+      n_read += n_available;
+      size -= n_available;
+    }
+
+  /* Avoid the scm_dynwind_* costs if we now have enough data. */
+  if (size == 0)
+    return n_read;
+
+  /* Now we will call scm_fill_input repeatedly until we have read the
+     requested number of bytes.  (Note that a single scm_fill_input
+     call does not guarantee to fill the whole of the port's read
+     buffer.) */
+  if (pt->read_buf_size <= 1 && pt->encoding == NULL)
+    {
+      /* The port that we are reading from is unbuffered - i.e. does
+	 not have its own persistent buffer - but we have a buffer,
+	 provided by our caller, that is the right size for the data
+	 that is wanted.  For the following scm_fill_input calls,
+	 therefore, we use the buffer in hand as the port's read
+	 buffer.
+
+	 We need to make sure that the port's normal (1 byte) buffer
+	 is reinstated in case one of the scm_fill_input () calls
+	 throws an exception; we use the scm_dynwind_* API to achieve
+	 that. 
+
+         A consequence of this optimization is that the fill_input
+         functions can't unget characters.  That'll push data to the
+         pushback buffer instead of this psb buffer.  */
+#if SCM_DEBUG == 1
+      unsigned char *pback = pt->putback_buf;
+#endif      
+      psb.pt = pt;
+      psb.buffer = buffer;
+      psb.size = size;
+      scm_dynwind_begin (SCM_F_DYNWIND_REWINDABLE);
+      scm_dynwind_rewind_handler (swap_buffer, &psb, SCM_F_WIND_EXPLICITLY);
+      scm_dynwind_unwind_handler (swap_buffer, &psb, SCM_F_WIND_EXPLICITLY);
+
+      /* Call scm_fill_input until we have all the bytes that we need,
+	 or we hit EOF. */
+      while (pt->read_buf_size && (scm_fill_input (port) != EOF))
+	{
+	  pt->read_buf_size -= (pt->read_end - pt->read_pos);
+	  pt->read_pos = pt->read_buf = pt->read_end;
+	}
+#if SCM_DEBUG == 1
+      if (pback != pt->putback_buf 
+          || pt->read_buf - (unsigned char *) buffer < 0)
+        scm_misc_error (FUNC_NAME, 
+                        "scm_c_read must not call a fill function that pushes "
+                        "back characters onto an unbuffered port", SCM_EOL);
+#endif      
+      n_read += pt->read_buf - (unsigned char *) buffer;
+      
+      /* Reinstate the port's normal buffer. */
+      scm_dynwind_end ();
+    }
+  else
+    {
+      /* The port has its own buffer.  It is important that we use it,
+	 even if it happens to be smaller than our caller's buffer, so
+	 that a custom port implementation's entry points (in
+	 particular, fill_input) can rely on the buffer always being
+	 the same as they first set up. */
+      while (size && (scm_fill_input (port) != EOF))
+	{
+	  n_available = min (size, pt->read_end - pt->read_pos);
+	  memcpy (buffer, pt->read_pos, n_available);
+	  buffer = (char *) buffer + n_available;
+	  pt->read_pos += n_available;
+	  n_read += n_available;
+	  size -= n_available;
+	} 
+    }
+
+  return n_read;
 }
 #undef FUNC_NAME
 
@@ -1386,269 +1599,32 @@ scm_getc (SCM port)
 }
 #undef FUNC_NAME
 
-/* this should only be called when the read buffer is empty.  it
-   tries to refill the read buffer.  it returns the first char from
-   the port, which is either EOF or *(pt->read_pos).  */
-int
-scm_fill_input (SCM port)
+SCM_DEFINE (scm_read_char, "read-char", 0, 1, 0,
+           (SCM port),
+	    "Return the next character available from @var{port}, updating\n"
+	    "@var{port} to point to the following character.  If no more\n"
+	    "characters are available, the end-of-file object is returned.\n"
+	    "\n"
+	    "When @var{port}'s data cannot be decoded according to its\n"
+	    "character encoding, a @code{decoding-error} is raised and\n"
+	    "@var{port} points past the erroneous byte sequence.\n")
+#define FUNC_NAME s_scm_read_char
 {
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  assert (pt->read_pos == pt->read_end);
-
-  if (pt->read_buf == pt->putback_buf)
-    {
-      /* finished reading put-back chars.  */
-      pt->read_buf = pt->saved_read_buf;
-      pt->read_pos = pt->saved_read_pos;
-      pt->read_end = pt->saved_read_end;
-      pt->read_buf_size = pt->saved_read_buf_size;
-      if (pt->read_pos < pt->read_end)
-	return *(pt->read_pos);
-    }
-  return SCM_PORT_DESCRIPTOR (port)->fill_input (port);
-}
-
-
-/* scm_lfwrite
- *
- * This function differs from scm_c_write; it updates port line and
- * column. */
-
-void
-scm_lfwrite (const char *ptr, size_t size, SCM port)
-{
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
-
-  if (pt->rw_active == SCM_PORT_READ)
-    scm_end_input (port);
-
-  ptob->write (port, ptr, size);
-
-  for (; size; ptr++, size--)
-    update_port_lf ((scm_t_wchar) (unsigned char) *ptr, port);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_WRITE;
-}
-
-/* Write STR to PORT from START inclusive to END exclusive.  */
-void
-scm_lfwrite_substr (SCM str, size_t start, size_t end, SCM port)
-{
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  if (pt->rw_active == SCM_PORT_READ)
-    scm_end_input (port);
-
-  if (end == (size_t) -1)
-    end = scm_i_string_length (str);
-
-  scm_display (scm_c_substring (str, start, end), port);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_WRITE;
-}
-
-/* scm_c_read
- *
- * Used by an application to read arbitrary number of bytes from an
- * SCM port.  Same semantics as libc read, except that scm_c_read only
- * returns less than SIZE bytes if at end-of-file.
- *
- * Warning: Doesn't update port line and column counts!  */
-
-/* This structure, and the following swap_buffer function, are used
-   for temporarily swapping a port's own read buffer, and the buffer
-   that the caller of scm_c_read provides. */
-struct port_and_swap_buffer
-{
-  scm_t_port *pt;
-  unsigned char *buffer;
-  size_t size;
-};
-
-static void
-swap_buffer (void *data)
-{
-  struct port_and_swap_buffer *psb = (struct port_and_swap_buffer *) data;
-  unsigned char *old_buf = psb->pt->read_buf;
-  size_t old_size = psb->pt->read_buf_size;
-
-  /* Make the port use (buffer, size) from the struct. */
-  psb->pt->read_pos = psb->pt->read_buf = psb->pt->read_end = psb->buffer;
-  psb->pt->read_buf_size = psb->size;
-
-  /* Save the port's old (buffer, size) in the struct. */
-  psb->buffer = old_buf;
-  psb->size = old_size;
-}
-
-size_t
-scm_c_read (SCM port, void *buffer, size_t size)
-#define FUNC_NAME "scm_c_read"
-{
-  scm_t_port *pt;
-  size_t n_read = 0, n_available;
-  struct port_and_swap_buffer psb;
-
+  scm_t_wchar c;
+  if (SCM_UNBNDP (port))
+    port = scm_current_input_port ();
   SCM_VALIDATE_OPINPORT (1, port);
-
-  pt = SCM_PTAB_ENTRY (port);
-  if (pt->rw_active == SCM_PORT_WRITE)
-    SCM_PORT_DESCRIPTOR (port)->flush (port);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_READ;
-
-  /* Take bytes first from the port's read buffer. */
-  if (pt->read_pos < pt->read_end)
-    {
-      n_available = min (size, pt->read_end - pt->read_pos);
-      memcpy (buffer, pt->read_pos, n_available);
-      buffer = (char *) buffer + n_available;
-      pt->read_pos += n_available;
-      n_read += n_available;
-      size -= n_available;
-    }
-
-  /* Avoid the scm_dynwind_* costs if we now have enough data. */
-  if (size == 0)
-    return n_read;
-
-  /* Now we will call scm_fill_input repeatedly until we have read the
-     requested number of bytes.  (Note that a single scm_fill_input
-     call does not guarantee to fill the whole of the port's read
-     buffer.) */
-  if (pt->read_buf_size <= 1 && pt->encoding == NULL)
-    {
-      /* The port that we are reading from is unbuffered - i.e. does
-	 not have its own persistent buffer - but we have a buffer,
-	 provided by our caller, that is the right size for the data
-	 that is wanted.  For the following scm_fill_input calls,
-	 therefore, we use the buffer in hand as the port's read
-	 buffer.
-
-	 We need to make sure that the port's normal (1 byte) buffer
-	 is reinstated in case one of the scm_fill_input () calls
-	 throws an exception; we use the scm_dynwind_* API to achieve
-	 that. 
-
-         A consequence of this optimization is that the fill_input
-         functions can't unget characters.  That'll push data to the
-         pushback buffer instead of this psb buffer.  */
-#if SCM_DEBUG == 1
-      unsigned char *pback = pt->putback_buf;
-#endif      
-      psb.pt = pt;
-      psb.buffer = buffer;
-      psb.size = size;
-      scm_dynwind_begin (SCM_F_DYNWIND_REWINDABLE);
-      scm_dynwind_rewind_handler (swap_buffer, &psb, SCM_F_WIND_EXPLICITLY);
-      scm_dynwind_unwind_handler (swap_buffer, &psb, SCM_F_WIND_EXPLICITLY);
-
-      /* Call scm_fill_input until we have all the bytes that we need,
-	 or we hit EOF. */
-      while (pt->read_buf_size && (scm_fill_input (port) != EOF))
-	{
-	  pt->read_buf_size -= (pt->read_end - pt->read_pos);
-	  pt->read_pos = pt->read_buf = pt->read_end;
-	}
-#if SCM_DEBUG == 1
-      if (pback != pt->putback_buf 
-          || pt->read_buf - (unsigned char *) buffer < 0)
-        scm_misc_error (FUNC_NAME, 
-                        "scm_c_read must not call a fill function that pushes "
-                        "back characters onto an unbuffered port", SCM_EOL);
-#endif      
-      n_read += pt->read_buf - (unsigned char *) buffer;
-      
-      /* Reinstate the port's normal buffer. */
-      scm_dynwind_end ();
-    }
-  else
-    {
-      /* The port has its own buffer.  It is important that we use it,
-	 even if it happens to be smaller than our caller's buffer, so
-	 that a custom port implementation's entry points (in
-	 particular, fill_input) can rely on the buffer always being
-	 the same as they first set up. */
-      while (size && (scm_fill_input (port) != EOF))
-	{
-	  n_available = min (size, pt->read_end - pt->read_pos);
-	  memcpy (buffer, pt->read_pos, n_available);
-	  buffer = (char *) buffer + n_available;
-	  pt->read_pos += n_available;
-	  n_read += n_available;
-	  size -= n_available;
-	} 
-    }
-
-  return n_read;
+  c = scm_getc (port);
+  if (EOF == c)
+    return SCM_EOF_VAL;
+  return SCM_MAKE_CHAR (c);
 }
 #undef FUNC_NAME
 
-/* scm_c_write
- *
- * Used by an application to write arbitrary number of bytes to an SCM
- * port.  Similar semantics as libc write.  However, unlike libc
- * write, scm_c_write writes the requested number of bytes and has no
- * return value.
- *
- * Warning: Doesn't update port line and column counts!
- */
-
-void
-scm_c_write (SCM port, const void *ptr, size_t size)
-#define FUNC_NAME "scm_c_write"
-{
-  scm_t_port *pt;
-  scm_t_ptob_descriptor *ptob;
-
-  SCM_VALIDATE_OPOUTPORT (1, port);
-
-  pt = SCM_PTAB_ENTRY (port);
-  ptob = SCM_PORT_DESCRIPTOR (port);
-
-  if (pt->rw_active == SCM_PORT_READ)
-    scm_end_input (port);
-
-  ptob->write (port, ptr, size);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_WRITE;
-}
-#undef FUNC_NAME
-
-void
-scm_flush (SCM port)
-{
-  SCM_PORT_DESCRIPTOR (port)->flush (port);
-}
-
-void
-scm_end_input (SCM port)
-{
-  long offset;
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  if (pt->read_buf == pt->putback_buf)
-    {
-      offset = pt->read_end - pt->read_pos;
-      pt->read_buf = pt->saved_read_buf;
-      pt->read_pos = pt->saved_read_pos;
-      pt->read_end = pt->saved_read_end;
-      pt->read_buf_size = pt->saved_read_buf_size;
-    }
-  else
-    offset = 0;
-
-  SCM_PORT_DESCRIPTOR (port)->end_input (port, offset);
-}
 
 
 
+/* Pushback.  */
 
 void 
 scm_unget_byte (int c, SCM port)
@@ -1877,6 +1853,293 @@ SCM_DEFINE (scm_unread_string, "unread-string", 2, 0, 0,
     scm_ungetc (scm_i_string_ref (str, n), port);
   
   return str;
+}
+#undef FUNC_NAME
+
+
+
+
+/* Manipulating the buffers.  */
+
+void
+scm_port_non_buffer (scm_t_port *pt)
+{
+  pt->read_pos = pt->read_buf = pt->read_end = &pt->shortbuf;
+  pt->write_buf = pt->write_pos = &pt->shortbuf;
+  pt->read_buf_size = pt->write_buf_size = 1;
+  pt->write_end = pt->write_buf + pt->write_buf_size;
+}
+
+/* this should only be called when the read buffer is empty.  it
+   tries to refill the read buffer.  it returns the first char from
+   the port, which is either EOF or *(pt->read_pos).  */
+int
+scm_fill_input (SCM port)
+{
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+
+  assert (pt->read_pos == pt->read_end);
+
+  if (pt->read_buf == pt->putback_buf)
+    {
+      /* finished reading put-back chars.  */
+      pt->read_buf = pt->saved_read_buf;
+      pt->read_pos = pt->saved_read_pos;
+      pt->read_end = pt->saved_read_end;
+      pt->read_buf_size = pt->saved_read_buf_size;
+      if (pt->read_pos < pt->read_end)
+	return *(pt->read_pos);
+    }
+  return SCM_PORT_DESCRIPTOR (port)->fill_input (port);
+}
+
+/* move up to read_len chars from port's putback and/or read buffers
+   into memory starting at dest.  returns the number of chars moved.  */
+size_t
+scm_take_from_input_buffers (SCM port, char *dest, size_t read_len)
+{
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  size_t chars_read = 0;
+  size_t from_buf = min (pt->read_end - pt->read_pos, read_len);
+
+  if (from_buf > 0)
+    {
+      memcpy (dest, pt->read_pos, from_buf);
+      pt->read_pos += from_buf;
+      chars_read += from_buf;
+      read_len -= from_buf;
+      dest += from_buf;
+    }
+
+  /* if putback was active, try the real input buffer too.  */
+  if (pt->read_buf == pt->putback_buf)
+    {
+      from_buf = min (pt->saved_read_end - pt->saved_read_pos, read_len);
+      if (from_buf > 0)
+	{
+	  memcpy (dest, pt->saved_read_pos, from_buf);
+	  pt->saved_read_pos += from_buf;
+	  chars_read += from_buf;
+	}
+    }
+  return chars_read;
+}
+
+/* Clear a port's read buffers, returning the contents.  */
+SCM_DEFINE (scm_drain_input, "drain-input", 1, 0, 0, 
+            (SCM port),
+	    "This procedure clears a port's input buffers, similar\n"
+	    "to the way that force-output clears the output buffer.  The\n"
+	    "contents of the buffers are returned as a single string, e.g.,\n"
+	    "\n"
+	    "@lisp\n"
+	    "(define p (open-input-file ...))\n"
+	    "(drain-input p) => empty string, nothing buffered yet.\n"
+	    "(unread-char (read-char p) p)\n"
+	    "(drain-input p) => initial chars from p, up to the buffer size.\n"
+	    "@end lisp\n\n"
+	    "Draining the buffers may be useful for cleanly finishing\n"
+	    "buffered I/O so that the file descriptor can be used directly\n"
+	    "for further input.")
+#define FUNC_NAME s_scm_drain_input
+{
+  SCM result;
+  char *data;
+  scm_t_port *pt;
+  long count;
+
+  SCM_VALIDATE_OPINPORT (1, port);
+  pt = SCM_PTAB_ENTRY (port);
+
+  count = pt->read_end - pt->read_pos;
+  if (pt->read_buf == pt->putback_buf)
+    count += pt->saved_read_end - pt->saved_read_pos;
+
+  if (count)
+    {
+      result = scm_i_make_string (count, &data, 0);
+      scm_take_from_input_buffers (port, data, count);
+    }
+  else
+    result = scm_nullstr;
+  
+  return result;
+}
+#undef FUNC_NAME
+
+void
+scm_end_input (SCM port)
+{
+  long offset;
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+
+  if (pt->read_buf == pt->putback_buf)
+    {
+      offset = pt->read_end - pt->read_pos;
+      pt->read_buf = pt->saved_read_buf;
+      pt->read_pos = pt->saved_read_pos;
+      pt->read_end = pt->saved_read_end;
+      pt->read_buf_size = pt->saved_read_buf_size;
+    }
+  else
+    offset = 0;
+
+  SCM_PORT_DESCRIPTOR (port)->end_input (port, offset);
+}
+
+SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
+           (SCM port),
+	    "Flush the specified output port, or the current output port if @var{port}\n"
+	    "is omitted.  The current output buffer contents are passed to the\n"
+	    "underlying port implementation (e.g., in the case of fports, the\n"
+	    "data will be written to the file and the output buffer will be cleared.)\n"
+	    "It has no effect on an unbuffered port.\n\n"
+	    "The return value is unspecified.")
+#define FUNC_NAME s_scm_force_output
+{
+  if (SCM_UNBNDP (port))
+    port = scm_current_output_port ();
+  else
+    {
+      port = SCM_COERCE_OUTPORT (port);
+      SCM_VALIDATE_OPOUTPORT (1, port);
+    }
+  scm_flush (port);
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+void
+scm_flush (SCM port)
+{
+  SCM_PORT_DESCRIPTOR (port)->flush (port);
+}
+
+
+
+
+/* Output.  */
+
+/* scm_c_write
+ *
+ * Used by an application to write arbitrary number of bytes to an SCM
+ * port.  Similar semantics as libc write.  However, unlike libc
+ * write, scm_c_write writes the requested number of bytes and has no
+ * return value.
+ *
+ * Warning: Doesn't update port line and column counts!
+ */
+void
+scm_c_write (SCM port, const void *ptr, size_t size)
+#define FUNC_NAME "scm_c_write"
+{
+  scm_t_port *pt;
+  scm_t_ptob_descriptor *ptob;
+
+  SCM_VALIDATE_OPOUTPORT (1, port);
+
+  pt = SCM_PTAB_ENTRY (port);
+  ptob = SCM_PORT_DESCRIPTOR (port);
+
+  if (pt->rw_active == SCM_PORT_READ)
+    scm_end_input (port);
+
+  ptob->write (port, ptr, size);
+
+  if (pt->rw_random)
+    pt->rw_active = SCM_PORT_WRITE;
+}
+#undef FUNC_NAME
+
+/* scm_lfwrite
+ *
+ * This function differs from scm_c_write; it updates port line and
+ * column. */
+void
+scm_lfwrite (const char *ptr, size_t size, SCM port)
+{
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
+
+  if (pt->rw_active == SCM_PORT_READ)
+    scm_end_input (port);
+
+  ptob->write (port, ptr, size);
+
+  for (; size; ptr++, size--)
+    update_port_lf ((scm_t_wchar) (unsigned char) *ptr, port);
+
+  if (pt->rw_random)
+    pt->rw_active = SCM_PORT_WRITE;
+}
+
+/* Write STR to PORT from START inclusive to END exclusive.  */
+void
+scm_lfwrite_substr (SCM str, size_t start, size_t end, SCM port)
+{
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+
+  if (pt->rw_active == SCM_PORT_READ)
+    scm_end_input (port);
+
+  if (end == (size_t) -1)
+    end = scm_i_string_length (str);
+
+  scm_display (scm_c_substring (str, start, end), port);
+
+  if (pt->rw_random)
+    pt->rw_active = SCM_PORT_WRITE;
+}
+
+
+
+
+/* Querying and setting positions, and character availability.  */
+
+SCM_DEFINE (scm_char_ready_p, "char-ready?", 0, 1, 0, 
+	    (SCM port),
+	    "Return @code{#t} if a character is ready on input @var{port}\n"
+	    "and return @code{#f} otherwise.  If @code{char-ready?} returns\n"
+	    "@code{#t} then the next @code{read-char} operation on\n"
+	    "@var{port} is guaranteed not to hang.  If @var{port} is a file\n"
+	    "port at end of file then @code{char-ready?} returns @code{#t}.\n"
+	    "\n"
+	    "@code{char-ready?} exists to make it possible for a\n"
+	    "program to accept characters from interactive ports without\n"
+	    "getting stuck waiting for input.  Any input editors associated\n"
+	    "with such ports must make sure that characters whose existence\n"
+	    "has been asserted by @code{char-ready?} cannot be rubbed out.\n"
+	    "If @code{char-ready?} were to return @code{#f} at end of file,\n"
+	    "a port at end of file would be indistinguishable from an\n"
+	    "interactive port that has no ready characters.")
+#define FUNC_NAME s_scm_char_ready_p
+{
+  scm_t_port *pt;
+
+  if (SCM_UNBNDP (port))
+    port = scm_current_input_port ();
+  /* It's possible to close the current input port, so validate even in
+     this case. */
+  SCM_VALIDATE_OPINPORT (1, port);
+
+  pt = SCM_PTAB_ENTRY (port);
+
+  /* if the current read buffer is filled, or the
+     last pushed-back char has been read and the saved buffer is
+     filled, result is true.  */
+  if (pt->read_pos < pt->read_end 
+      || (pt->read_buf == pt->putback_buf
+	  && pt->saved_read_pos < pt->saved_read_end))
+    return SCM_BOOL_T;
+  else
+    {
+      scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
+      
+      if (ptob->input_waiting)
+	return scm_from_bool(ptob->input_waiting (port));
+      else
+	return SCM_BOOL_T;
+    }
 }
 #undef FUNC_NAME
 
@@ -2128,319 +2391,10 @@ SCM_DEFINE (scm_set_port_filename_x, "set-port-filename!", 2, 0, 0,
 }
 #undef FUNC_NAME
 
-/* A fluid specifying the default encoding for newly created ports.  If it is
-   a string, that is the encoding.  If it is #f, it is in the "native"
-   (Latin-1) encoding.  */
-SCM_VARIABLE (default_port_encoding_var, "%default-port-encoding");
 
-static int scm_port_encoding_init = 0;
+
 
-/* Use ENCODING as the default encoding for future ports.  */
-void
-scm_i_set_default_port_encoding (const char *encoding)
-{
-  if (!scm_port_encoding_init
-      || !scm_is_fluid (SCM_VARIABLE_REF (default_port_encoding_var)))
-    scm_misc_error (NULL, "tried to set port encoding fluid before it is initialized",
-		    SCM_EOL);
-
-  if (encoding == NULL
-      || !strcmp (encoding, "ASCII")
-      || !strcmp (encoding, "ANSI_X3.4-1968")
-      || !strcmp (encoding, "ISO-8859-1"))
-    scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var), SCM_BOOL_F);
-  else
-    scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var),
-		     scm_from_locale_string (encoding));
-}
-
-/* Return the name of the default encoding for newly created ports; a
-   return value of NULL means "ISO-8859-1".  */
-const char *
-scm_i_default_port_encoding (void)
-{
-  if (!scm_port_encoding_init)
-    return NULL;
-  else if (!scm_is_fluid (SCM_VARIABLE_REF (default_port_encoding_var)))
-    return NULL;
-  else
-    {
-      SCM encoding;
-
-      encoding = scm_fluid_ref (SCM_VARIABLE_REF (default_port_encoding_var));
-      if (!scm_is_string (encoding))
-	return NULL;
-      else
-	return scm_i_string_chars (encoding);
-    }
-}
-
-void
-scm_i_set_port_encoding_x (SCM port, const char *encoding)
-{
-  scm_t_port *pt;
-  iconv_t new_input_cd, new_output_cd;
-
-  new_input_cd = (iconv_t) -1;
-  new_output_cd = (iconv_t) -1;
-
-  /* Set the character encoding for this port.  */
-  pt = SCM_PTAB_ENTRY (port);
-
-  if (encoding == NULL)
-    encoding = "ISO-8859-1";
-
-  if (pt->encoding != encoding)
-    pt->encoding = scm_gc_strdup (encoding, "port");
-
-  /* If ENCODING is UTF-8, then no conversion descriptor is opened
-     because we do I/O ourselves.  This saves 100+ KiB for each
-     descriptor.  */
-  if (strcmp (encoding, "UTF-8"))
-    {
-      if (SCM_CELL_WORD_0 (port) & SCM_RDNG)
-	{
-	  /* Open an input iconv conversion descriptor, from ENCODING
-	     to UTF-8.  We choose UTF-8, not UTF-32, because iconv
-	     implementations can typically convert from anything to
-	     UTF-8, but not to UTF-32 (see
-	     <http://lists.gnu.org/archive/html/bug-libunistring/2010-09/msg00007.html>).  */
-	  new_input_cd = iconv_open ("UTF-8", encoding);
-	  if (new_input_cd == (iconv_t) -1)
-	    goto invalid_encoding;
-	}
-
-      if (SCM_CELL_WORD_0 (port) & SCM_WRTNG)
-	{
-	  new_output_cd = iconv_open (encoding, "UTF-8");
-	  if (new_output_cd == (iconv_t) -1)
-	    {
-	      if (new_input_cd != (iconv_t) -1)
-		iconv_close (new_input_cd);
-	      goto invalid_encoding;
-	    }
-	}
-    }
-
-  if (pt->input_cd != (iconv_t) -1)
-    iconv_close (pt->input_cd);
-  if (pt->output_cd != (iconv_t) -1)
-    iconv_close (pt->output_cd);
-
-  pt->input_cd = new_input_cd;
-  pt->output_cd = new_output_cd;
-
-  return;
-
- invalid_encoding:
-  {
-    SCM err;
-    err = scm_from_locale_string (encoding);
-    scm_misc_error ("scm_i_set_port_encoding_x",
-		    "invalid or unknown character encoding ~s",
-		    scm_list_1 (err));
-  }
-}
-
-SCM_DEFINE (scm_port_encoding, "port-encoding", 1, 0, 0,
-	    (SCM port),
-	    "Returns, as a string, the character encoding that @var{port}\n"
-	    "uses to interpret its input and output.\n")
-#define FUNC_NAME s_scm_port_encoding
-{
-  scm_t_port *pt;
-  const char *enc;
-
-  SCM_VALIDATE_PORT (1, port);
-
-  pt = SCM_PTAB_ENTRY (port);
-  enc = pt->encoding;
-  if (enc)
-    return scm_from_locale_string (pt->encoding);
-  else
-    return SCM_BOOL_F;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_set_port_encoding_x, "set-port-encoding!", 2, 0, 0,
-	    (SCM port, SCM enc),
-	    "Sets the character encoding that will be used to interpret all\n"
-	    "port I/O.  New ports are created with the encoding\n"
-	    "appropriate for the current locale if @code{setlocale} has \n"
-	    "been called or ISO-8859-1 otherwise\n"
-	    "and this procedure can be used to modify that encoding.\n")
-#define FUNC_NAME s_scm_set_port_encoding_x
-{
-  char *enc_str;
-
-  SCM_VALIDATE_PORT (1, port);
-  SCM_VALIDATE_STRING (2, enc);
-
-  enc_str = scm_to_locale_string (enc);
-  scm_i_set_port_encoding_x (port, enc_str);
-  free (enc_str);
-
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-
-/* This determines how conversions handle unconvertible characters.  */
-SCM_GLOBAL_VARIABLE (scm_conversion_strategy, "%port-conversion-strategy");
-static int scm_conversion_strategy_init = 0;
-
-scm_t_string_failed_conversion_handler
-scm_i_get_conversion_strategy (SCM port)
-{
-  SCM encoding;
-  
-  if (scm_is_false (port))
-    {
-      if (!scm_conversion_strategy_init
-	  || !scm_is_fluid (SCM_VARIABLE_REF (scm_conversion_strategy)))
-	return SCM_FAILED_CONVERSION_QUESTION_MARK;
-      else
-	{
-	  encoding = scm_fluid_ref (SCM_VARIABLE_REF (scm_conversion_strategy));
-	  if (scm_is_false (encoding))
-	    return SCM_FAILED_CONVERSION_QUESTION_MARK;
-	  else 
-	    return (scm_t_string_failed_conversion_handler) scm_to_int (encoding);
-	}
-    }
-  else
-    {
-      scm_t_port *pt;
-      pt = SCM_PTAB_ENTRY (port);
-      return pt->ilseq_handler;
-    }
-      
-}
-
-void
-scm_i_set_conversion_strategy_x (SCM port, 
-				 scm_t_string_failed_conversion_handler handler)
-{
-  SCM strategy;
-  scm_t_port *pt;
-  
-  strategy = scm_from_int ((int) handler);
-  
-  if (scm_is_false (port))
-    {
-      /* Set the default encoding for future ports.  */
-      if (!scm_conversion_strategy_init
-	  || !scm_is_fluid (SCM_VARIABLE_REF (scm_conversion_strategy)))
-	scm_misc_error (NULL, "tried to set conversion strategy fluid before it is initialized",
-                       SCM_EOL);
-      scm_fluid_set_x (SCM_VARIABLE_REF (scm_conversion_strategy), strategy);
-    }
-  else
-    {
-      /* Set the character encoding for this port.  */
-      pt = SCM_PTAB_ENTRY (port);
-      pt->ilseq_handler = handler;
-    }
-}
-
-SCM_DEFINE (scm_port_conversion_strategy, "port-conversion-strategy",
-	    1, 0, 0, (SCM port),
-	    "Returns the behavior of the port when handling a character that\n"
-	    "is not representable in the port's current encoding.\n"
-	    "It returns the symbol @code{error} if unrepresentable characters\n"
-	    "should cause exceptions, @code{substitute} if the port should\n"
-	    "try to replace unrepresentable characters with question marks or\n"
-	    "approximate characters, or @code{escape} if unrepresentable\n"
-	    "characters should be converted to string escapes.\n"
-	    "\n"
-	    "If @var{port} is @code{#f}, then the current default behavior\n"
-	    "will be returned.  New ports will have this default behavior\n"
-	    "when they are created.\n")
-#define FUNC_NAME s_scm_port_conversion_strategy
-{
-  scm_t_string_failed_conversion_handler h;
-
-  SCM_VALIDATE_OPPORT (1, port);
-
-  if (!scm_is_false (port))
-    {
-      SCM_VALIDATE_OPPORT (1, port);
-    }
-
-  h = scm_i_get_conversion_strategy (port);
-  if (h == SCM_FAILED_CONVERSION_ERROR)
-    return scm_from_latin1_symbol ("error");
-  else if (h == SCM_FAILED_CONVERSION_QUESTION_MARK)
-    return scm_from_latin1_symbol ("substitute");
-  else if (h == SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE)
-    return scm_from_latin1_symbol ("escape");
-  else
-    abort ();
-
-  /* Never gets here. */
-  return SCM_UNDEFINED;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_set_port_conversion_strategy_x, "set-port-conversion-strategy!",
-	    2, 0, 0, 
-	    (SCM port, SCM sym),
-	    "Sets the behavior of the interpreter when outputting a character\n"
-	    "that is not representable in the port's current encoding.\n"
-	    "@var{sym} can be either @code{'error}, @code{'substitute}, or\n"
-	    "@code{'escape}.  If it is @code{'error}, an error will be thrown\n"
-	    "when an unconvertible character is encountered.  If it is\n"
-	    "@code{'substitute}, then unconvertible characters will \n"
-	    "be replaced with approximate characters, or with question marks\n"
-	    "if no approximately correct character is available.\n"
-	    "If it is @code{'escape},\n"
-	    "it will appear as a hex escape when output.\n"
-	    "\n"
-	    "If @var{port} is an open port, the conversion error behavior\n"
-	    "is set for that port.  If it is @code{#f}, it is set as the\n"
-	    "default behavior for any future ports that get created in\n"
-	    "this thread.\n")
-#define FUNC_NAME s_scm_set_port_conversion_strategy_x
-{
-  SCM err;
-  SCM qm;
-  SCM esc;
-
-  if (!scm_is_false (port))
-    {
-      SCM_VALIDATE_OPPORT (1, port);
-    }
-
-  err = scm_from_latin1_symbol ("error");
-  if (scm_is_true (scm_eqv_p (sym, err)))
-    {
-      scm_i_set_conversion_strategy_x (port, SCM_FAILED_CONVERSION_ERROR);
-      return SCM_UNSPECIFIED;
-    }
-
-  qm = scm_from_latin1_symbol ("substitute");
-  if (scm_is_true (scm_eqv_p (sym, qm)))
-    {
-      scm_i_set_conversion_strategy_x (port, 
-                                       SCM_FAILED_CONVERSION_QUESTION_MARK);
-      return SCM_UNSPECIFIED;
-    }
-
-  esc = scm_from_latin1_symbol ("escape");
-  if (scm_is_true (scm_eqv_p (sym, esc)))
-    {
-      scm_i_set_conversion_strategy_x (port,
-                                       SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE);
-      return SCM_UNSPECIFIED;
-    }
-
-  SCM_MISC_ERROR ("unknown conversion behavior ~s", scm_list_1 (sym));
-
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-
+/* Implementation helpers for port printing functions.  */
 
 void
 scm_print_port_mode (SCM exp, SCM port)
@@ -2471,6 +2425,82 @@ scm_port_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
   scm_putc ('>', port);
   return 1;
 }
+
+
+
+
+/* Iterating over all ports.  */
+
+struct for_each_data 
+{
+  void (*proc) (void *data, SCM p);
+  void *data;
+};
+
+static SCM
+for_each_trampoline (void *data, SCM port, SCM result)
+{
+  struct for_each_data *d = data;
+  
+  d->proc (d->data, port);
+
+  return result;
+}
+
+void
+scm_c_port_for_each (void (*proc)(void *data, SCM p), void *data)
+{
+  struct for_each_data d;
+  
+  d.proc = proc;
+  d.data = data;
+
+  scm_c_weak_set_fold (for_each_trampoline, &d, SCM_EOL,
+                       scm_i_port_weak_set);
+}
+
+static void
+scm_for_each_trampoline (void *data, SCM port)
+{
+  scm_call_1 (SCM_PACK_POINTER (data), port);
+}
+
+SCM_DEFINE (scm_port_for_each, "port-for-each", 1, 0, 0,
+	    (SCM proc),
+	    "Apply @var{proc} to each port in the Guile port table\n"
+	    "in turn.  The return value is unspecified.  More specifically,\n"
+	    "@var{proc} is applied exactly once to every port that exists\n"
+	    "in the system at the time @var{port-for-each} is invoked.\n"
+	    "Changes to the port table while @var{port-for-each} is running\n"
+	    "have no effect as far as @var{port-for-each} is concerned.") 
+#define FUNC_NAME s_scm_port_for_each
+{
+  SCM_VALIDATE_PROC (1, proc);
+
+  scm_c_port_for_each (scm_for_each_trampoline, SCM_UNPACK_POINTER (proc));
+  
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+static void
+flush_output_port (void *closure, SCM port)
+{
+  if (SCM_OPOUTPORTP (port))
+    scm_flush (port);
+}
+
+SCM_DEFINE (scm_flush_all_ports, "flush-all-ports", 0, 0, 0,
+            (),
+	    "Equivalent to calling @code{force-output} on\n"
+	    "all open output ports.  The return value is unspecified.")
+#define FUNC_NAME s_scm_flush_all_ports
+{
+  scm_c_port_for_each (&flush_output_port, NULL);
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
 
 
 
@@ -2520,7 +2550,9 @@ SCM_DEFINE (scm_sys_make_void_port, "%make-void-port", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+
 
+
 /* Initialization.  */
 
 void
