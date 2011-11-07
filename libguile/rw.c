@@ -1,4 +1,4 @@
-/* 	Copyright (C) 2001, 2006, 2009 Free Software Foundation, Inc.
+/* 	Copyright (C) 2001, 2006, 2009, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -248,7 +248,7 @@ SCM_DEFINE (scm_write_string_partial, "write-string/partial", 1, 3, 0,
 	  return scm_from_long (write_len);
 	}
       if (pt->write_pos > pt->write_buf)
-	scm_flush (port);
+	scm_flush_unlocked (port);
       fdes = SCM_FPORT_FDES (port);
     }
   {

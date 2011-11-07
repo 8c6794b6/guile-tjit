@@ -215,7 +215,7 @@ SCM_DEFINE (scm_setvbuf, "setvbuf", 2, 1, 0,
     drained = scm_nullstr;
 
   if (SCM_OUTPUT_PORT_P (port))
-    scm_flush (port);
+    scm_flush_unlocked (port);
 
   if (pt->read_buf == pt->putback_buf)
     {
@@ -717,7 +717,7 @@ fport_seek (SCM port, scm_t_off offset, int whence)
       if (offset != 0 || whence != SEEK_CUR)
 	{
 	  /* could expand to avoid a second seek.  */
-	  scm_end_input (port);
+	  scm_end_input_unlocked (port);
 	  result = rv = lseek_or_lseek64 (fp->fdes, offset, whence);
 	}
       else

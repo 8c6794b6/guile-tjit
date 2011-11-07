@@ -1588,7 +1588,7 @@ scm_i_scan_for_encoding (SCM port)
   pt = SCM_PTAB_ENTRY (port);
 
   if (pt->rw_active == SCM_PORT_WRITE)
-    scm_flush (port);
+    scm_flush_unlocked (port);
 
   if (pt->rw_random)
     pt->rw_active = SCM_PORT_READ;
@@ -1596,7 +1596,7 @@ scm_i_scan_for_encoding (SCM port)
   if (pt->read_pos == pt->read_end)
     {
       /* We can use the read buffer, and thus avoid a seek. */
-      if (scm_fill_input (port) == EOF)
+      if (scm_fill_input_unlocked (port) == EOF)
         return NULL;
 
       bytes_read = pt->read_end - pt->read_pos;

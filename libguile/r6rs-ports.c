@@ -1112,7 +1112,7 @@ tp_fill_input (SCM port)
     scm_force_output (bport);
 
   if (c_bport->read_pos >= c_bport->read_end)
-    scm_fill_input (bport);
+    scm_fill_input_unlocked (bport);
   
   count = c_bport->read_end - c_bport->read_pos;
   if (count > c_port->read_buf_size)

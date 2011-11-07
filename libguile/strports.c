@@ -207,7 +207,7 @@ st_seek (SCM port, scm_t_off offset, int whence)
 	st_flush (port);
   
       if (pt->rw_active == SCM_PORT_READ)
-	scm_end_input (port);
+	scm_end_input_unlocked (port);
 
       switch (whence)
 	{

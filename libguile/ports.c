@@ -1290,7 +1290,7 @@ scm_c_read_unlocked (SCM port, void *buffer, size_t size)
 
       /* Call scm_fill_input until we have all the bytes that we need,
 	 or we hit EOF. */
-      while (pt->read_buf_size && (scm_fill_input (port) != EOF))
+      while (pt->read_buf_size && (scm_fill_input_unlocked (port) != EOF))
 	{
 	  pt->read_buf_size -= (pt->read_end - pt->read_pos);
 	  pt->read_pos = pt->read_buf = pt->read_end;
@@ -1314,7 +1314,7 @@ scm_c_read_unlocked (SCM port, void *buffer, size_t size)
 	 that a custom port implementation's entry points (in
 	 particular, fill_input) can rely on the buffer always being
 	 the same as they first set up. */
-      while (size && (scm_fill_input (port) != EOF))
+      while (size && (scm_fill_input_unlocked (port) != EOF))
 	{
 	  n_available = min (size, pt->read_end - pt->read_pos);
 	  memcpy (buffer, pt->read_pos, n_available);
@@ -1959,6 +1959,8 @@ SCM_DEFINE (scm_unread_string, "unread-string", 2, 0, 0,
 
 /* Manipulating the buffers.  */
 
+/* This routine does not take any locks, as it is usually called as part
+   of a port implementation.  */
 void
 scm_port_non_buffer (scm_t_port *pt)
 {
@@ -1972,7 +1974,7 @@ scm_port_non_buffer (scm_t_port *pt)
    tries to refill the read buffer.  it returns the first char from
    the port, which is either EOF or *(pt->read_pos).  */
 int
-scm_fill_input (SCM port)
+scm_fill_input_unlocked (SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
@@ -1989,6 +1991,18 @@ scm_fill_input (SCM port)
 	return *(pt->read_pos);
     }
   return SCM_PORT_DESCRIPTOR (port)->fill_input (port);
+}
+
+int
+scm_fill_input (SCM port)
+{
+  int ret;
+  
+  scm_c_lock_port (port);
+  ret = scm_fill_input_unlocked (port);
+  scm_c_unlock_port (port);
+
+  return ret;
 }
 
 /* move up to read_len chars from port's putback and/or read buffers
@@ -2066,7 +2080,7 @@ SCM_DEFINE (scm_drain_input, "drain-input", 1, 0, 0,
 #undef FUNC_NAME
 
 void
-scm_end_input (SCM port)
+scm_end_input_unlocked (SCM port)
 {
   long offset;
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
@@ -2083,6 +2097,14 @@ scm_end_input (SCM port)
     offset = 0;
 
   SCM_PORT_DESCRIPTOR (port)->end_input (port, offset);
+}
+
+void
+scm_end_input (SCM port)
+{
+  scm_c_lock_port (port);
+  scm_end_input_unlocked (port);
+  scm_c_unlock_port (port);
 }
 
 SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
@@ -2102,15 +2124,23 @@ SCM_DEFINE (scm_force_output, "force-output", 0, 1, 0,
       port = SCM_COERCE_OUTPORT (port);
       SCM_VALIDATE_OPOUTPORT (1, port);
     }
-  scm_flush (port);
+  scm_flush_unlocked (port);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
 void
-scm_flush (SCM port)
+scm_flush_unlocked (SCM port)
 {
   SCM_PORT_DESCRIPTOR (port)->flush (port);
+}
+
+void
+scm_flush (SCM port)
+{
+  scm_c_lock_port (port);
+  scm_flush_unlocked (port);
+  scm_c_unlock_port (port);
 }
 
 
@@ -2140,7 +2170,7 @@ scm_c_write (SCM port, const void *ptr, size_t size)
   ptob = SCM_PORT_DESCRIPTOR (port);
 
   if (pt->rw_active == SCM_PORT_READ)
-    scm_end_input (port);
+    scm_end_input_unlocked (port);
 
   ptob->write (port, ptr, size);
 
@@ -2160,7 +2190,7 @@ scm_lfwrite (const char *ptr, size_t size, SCM port)
   scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
 
   if (pt->rw_active == SCM_PORT_READ)
-    scm_end_input (port);
+    scm_end_input_unlocked (port);
 
   ptob->write (port, ptr, size);
 
@@ -2178,7 +2208,7 @@ scm_lfwrite_substr (SCM str, size_t start, size_t end, SCM port)
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
   if (pt->rw_active == SCM_PORT_READ)
-    scm_end_input (port);
+    scm_end_input_unlocked (port);
 
   if (end == (size_t) -1)
     end = scm_i_string_length (str);
@@ -2378,7 +2408,7 @@ SCM_DEFINE (scm_truncate_file, "truncate-file", 1, 1, 0,
       if (!ptob->truncate)
 	SCM_MISC_ERROR ("port is not truncatable", SCM_EOL);
       if (pt->rw_active == SCM_PORT_READ)
-	scm_end_input (object);
+	scm_end_input_unlocked (object);
       else if (pt->rw_active == SCM_PORT_WRITE)
 	ptob->flush (object);
       
@@ -2585,7 +2615,7 @@ static void
 flush_output_port (void *closure, SCM port)
 {
   if (SCM_OPOUTPORTP (port))
-    scm_flush (port);
+    scm_flush_unlocked (port);
 }
 
 SCM_DEFINE (scm_flush_all_ports, "flush-all-ports", 0, 0, 0,

@@ -95,7 +95,7 @@ SCM_DEFINE (scm_redirect_port, "redirect-port", 2, 0, 0,
       if (pt->rw_active == SCM_PORT_WRITE)
 	ptob->flush (new);
       else if (pt->rw_active == SCM_PORT_READ)
-	scm_end_input (new);
+	scm_end_input_unlocked (new);
       ans = dup2 (oldfd, newfd);
       if (ans == -1)
 	SCM_SYSERROR;

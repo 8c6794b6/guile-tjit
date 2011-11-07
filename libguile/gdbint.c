@@ -213,7 +213,7 @@ gdb_print (SCM obj)
       {
 	scm_t_port *pt = SCM_PTAB_ENTRY (gdb_output_port);
 
-	scm_flush (gdb_output_port);
+	scm_flush_unlocked (gdb_output_port);
 	*(pt->write_buf + pt->read_buf_size) = 0;
 	SEND_STRING (pt->read_buf);
       }

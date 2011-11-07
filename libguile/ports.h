@@ -329,11 +329,14 @@ SCM_API SCM scm_unread_string (SCM str, SCM port);
 /* Manipulating the buffers.  */
 SCM_API void scm_port_non_buffer (scm_t_port *pt);
 SCM_API int scm_fill_input (SCM port);
+SCM_API int scm_fill_input_unlocked (SCM port);
 SCM_INTERNAL size_t scm_take_from_input_buffers (SCM port, char *dest, size_t read_len);
 SCM_API SCM scm_drain_input (SCM port);
 SCM_API void scm_end_input (SCM port);
+SCM_API void scm_end_input_unlocked (SCM port);
 SCM_API SCM scm_force_output (SCM port);
 SCM_API void scm_flush (SCM port);
+SCM_API void scm_flush_unlocked (SCM port);
 
 /* Output.  */
 SCM_INLINE void scm_putc (char c, SCM port);
@@ -419,7 +422,7 @@ scm_get_byte_or_eof_unlocked (SCM port)
 
   if (pt->read_pos >= pt->read_end)
     {
-      if (SCM_UNLIKELY (scm_fill_input (port) == EOF))
+      if (SCM_UNLIKELY (scm_fill_input_unlocked (port) == EOF))
 	return EOF;
     }
 
@@ -444,7 +447,7 @@ scm_peek_byte_or_eof_unlocked (SCM port)
 
   if (pt->read_pos >= pt->read_end)
     {
-      if (SCM_UNLIKELY (scm_fill_input (port) == EOF))
+      if (SCM_UNLIKELY (scm_fill_input_unlocked (port) == EOF))
 	return EOF;
     }
 
