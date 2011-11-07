@@ -27,9 +27,6 @@
    platforms that do support inline functions, the definitions are still
    compiled into the library, once, in inline.c.  */
 
-#include <stdio.h>
-#include <string.h>
-
 #include "libguile/__scm.h"
 
 #include "libguile/pairs.h"
@@ -46,12 +43,6 @@ SCM_INLINE void scm_array_handle_set (scm_t_array_handle *h, ssize_t pos, SCM va
 
 SCM_INLINE int scm_is_pair (SCM x);
 SCM_INLINE int scm_is_string (SCM x);
-
-SCM_INLINE int scm_get_byte_or_eof (SCM port);
-SCM_INLINE int scm_peek_byte_or_eof (SCM port);
-SCM_INLINE void scm_putc (char c, SCM port);
-SCM_INLINE void scm_puts (const char *str_data, SCM port);
-
 
 SCM_INLINE SCM scm_cell (scm_t_bits car, scm_t_bits cdr);
 SCM_INLINE SCM scm_double_cell (scm_t_bits car, scm_t_bits cbr,
@@ -113,72 +104,6 @@ scm_is_string (SCM x)
 {
   return SCM_HAS_TYP7 (x, scm_tc7_string);
 }
-
-/* Port I/O.  */
-
-SCM_INLINE_IMPLEMENTATION int
-scm_get_byte_or_eof (SCM port)
-{
-  int c;
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  if (pt->rw_active == SCM_PORT_WRITE)
-    /* may be marginally faster than calling scm_flush.  */
-    scm_ptobs[SCM_PTOBNUM (port)].flush (port);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_READ;
-
-  if (pt->read_pos >= pt->read_end)
-    {
-      if (SCM_UNLIKELY (scm_fill_input (port) == EOF))
-	return EOF;
-    }
-
-  c = *(pt->read_pos++);
-
-  return c;
-}
-
-/* Like `scm_get_byte_or_eof' but does not change PORT's `read_pos'.  */
-SCM_INLINE_IMPLEMENTATION int
-scm_peek_byte_or_eof (SCM port)
-{
-  int c;
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  if (pt->rw_active == SCM_PORT_WRITE)
-    /* may be marginally faster than calling scm_flush.  */
-    scm_ptobs[SCM_PTOBNUM (port)].flush (port);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_READ;
-
-  if (pt->read_pos >= pt->read_end)
-    {
-      if (SCM_UNLIKELY (scm_fill_input (port) == EOF))
-	return EOF;
-    }
-
-  c = *pt->read_pos;
-
-  return c;
-}
-
-SCM_INLINE_IMPLEMENTATION void
-scm_putc (char c, SCM port)
-{
-  SCM_ASSERT_TYPE (SCM_OPOUTPORTP (port), port, 0, NULL, "output port");
-  scm_lfwrite (&c, 1, port);
-}
-
-SCM_INLINE_IMPLEMENTATION void
-scm_puts (const char *s, SCM port)
-{
-  SCM_ASSERT_TYPE (SCM_OPOUTPORTP (port), port, 0, NULL, "output port");
-  scm_lfwrite (s, strlen (s), port);
-}
-
 
 #endif
 #endif

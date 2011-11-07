@@ -26,7 +26,12 @@
 
 #include "libguile/__scm.h"
 
+#include <stdio.h>
+#include <string.h>
 #include <unistd.h>
+#include "libguile/gc.h"
+#include "libguile/tags.h"
+#include "libguile/error.h"
 #include "libguile/print.h"
 #include "libguile/struct.h"
 #include "libguile/threads.h"
@@ -267,38 +272,6 @@ SCM_INLINE int scm_c_lock_port (scm_t_port *entry);
 SCM_INLINE int scm_c_try_lock_port (scm_t_port *entry);
 SCM_INLINE int scm_c_unlock_port (scm_t_port *entry);
 
-#if SCM_CAN_INLINE || defined SCM_INLINE_C_IMPLEMENTING_INLINES
-SCM_INLINE_IMPLEMENTATION int
-scm_c_lock_port (scm_t_port *entry)
-{
-#if SCM_USE_PTHREAD_THREADS
-  return scm_i_pthread_mutex_lock (&entry->lock);
-#else
-  return 0;
-#endif
-}
-
-SCM_INLINE_IMPLEMENTATION int
-scm_c_try_lock_port (scm_t_port *entry)
-{
-#if SCM_USE_PTHREAD_THREADS
-  return scm_i_pthread_mutex_trylock (&entry->lock);
-#else
-  return 0;
-#endif
-}
-
-SCM_INLINE_IMPLEMENTATION int
-scm_c_unlock_port (scm_t_port *entry)
-{
-#if SCM_USE_PTHREAD_THREADS
-  return scm_i_pthread_mutex_unlock (&entry->lock);
-#else
-  return 0;
-#endif
-}
-#endif
-
 SCM_API SCM scm_new_port_table_entry (scm_t_bits tag);
 SCM_API void scm_grow_port_cbuf (SCM port, size_t requested);
 SCM_API SCM scm_pt_size (void);
@@ -323,7 +296,11 @@ SCM_API SCM scm_force_output (SCM port);
 SCM_API SCM scm_flush_all_ports (void);
 SCM_API SCM scm_read_char (SCM port);
 SCM_API scm_t_wchar scm_getc (SCM port);
+SCM_INLINE int scm_get_byte_or_eof (SCM port);
+SCM_INLINE int scm_peek_byte_or_eof (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
+SCM_INLINE void scm_putc (char c, SCM port);
+SCM_INLINE void scm_puts (const char *str_data, SCM port);
 SCM_API void scm_c_write (SCM port, const void *buffer, size_t size);
 SCM_API void scm_lfwrite (const char *ptr, size_t size, SCM port);
 SCM_INTERNAL void scm_lfwrite_substr (SCM str, size_t start, size_t end,
@@ -371,6 +348,103 @@ SCM_API SCM scm_pt_member (SCM member);
 SCM_INTERNAL long scm_i_mode_bits (SCM modes);
 SCM_INTERNAL void scm_i_dynwind_current_load_port (SCM port);
 
+
+/* Inline function implementations.  */
+
+#if SCM_CAN_INLINE || defined SCM_INLINE_C_IMPLEMENTING_INLINES
+SCM_INLINE_IMPLEMENTATION int
+scm_c_lock_port (scm_t_port *entry)
+{
+#if SCM_USE_PTHREAD_THREADS
+  return scm_i_pthread_mutex_lock (&entry->lock);
+#else
+  return 0;
+#endif
+}
+
+SCM_INLINE_IMPLEMENTATION int
+scm_c_try_lock_port (scm_t_port *entry)
+{
+#if SCM_USE_PTHREAD_THREADS
+  return scm_i_pthread_mutex_trylock (&entry->lock);
+#else
+  return 0;
+#endif
+}
+
+SCM_INLINE_IMPLEMENTATION int
+scm_c_unlock_port (scm_t_port *entry)
+{
+#if SCM_USE_PTHREAD_THREADS
+  return scm_i_pthread_mutex_unlock (&entry->lock);
+#else
+  return 0;
+#endif
+}
+
+SCM_INLINE_IMPLEMENTATION int
+scm_get_byte_or_eof (SCM port)
+{
+  int c;
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+
+  if (pt->rw_active == SCM_PORT_WRITE)
+    /* may be marginally faster than calling scm_flush.  */
+    scm_ptobs[SCM_PTOBNUM (port)].flush (port);
+
+  if (pt->rw_random)
+    pt->rw_active = SCM_PORT_READ;
+
+  if (pt->read_pos >= pt->read_end)
+    {
+      if (SCM_UNLIKELY (scm_fill_input (port) == EOF))
+	return EOF;
+    }
+
+  c = *(pt->read_pos++);
+
+  return c;
+}
+
+/* Like `scm_get_byte_or_eof' but does not change PORT's `read_pos'.  */
+SCM_INLINE_IMPLEMENTATION int
+scm_peek_byte_or_eof (SCM port)
+{
+  int c;
+  scm_t_port *pt = SCM_PTAB_ENTRY (port);
+
+  if (pt->rw_active == SCM_PORT_WRITE)
+    /* may be marginally faster than calling scm_flush.  */
+    scm_ptobs[SCM_PTOBNUM (port)].flush (port);
+
+  if (pt->rw_random)
+    pt->rw_active = SCM_PORT_READ;
+
+  if (pt->read_pos >= pt->read_end)
+    {
+      if (SCM_UNLIKELY (scm_fill_input (port) == EOF))
+	return EOF;
+    }
+
+  c = *pt->read_pos;
+
+  return c;
+}
+
+SCM_INLINE_IMPLEMENTATION void
+scm_putc (char c, SCM port)
+{
+  SCM_ASSERT_TYPE (SCM_OPOUTPORTP (port), port, 0, NULL, "output port");
+  scm_lfwrite (&c, 1, port);
+}
+
+SCM_INLINE_IMPLEMENTATION void
+scm_puts (const char *s, SCM port)
+{
+  SCM_ASSERT_TYPE (SCM_OPOUTPORTP (port), port, 0, NULL, "output port");
+  scm_lfwrite (s, strlen (s), port);
+}
+#endif  /* SCM_CAN_INLINE || defined SCM_INLINE_C_IMPLEMENTING_INLINES */
 
 #endif  /* SCM_PORTS_H */
 
