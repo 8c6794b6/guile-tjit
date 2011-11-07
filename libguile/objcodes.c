@@ -355,9 +355,10 @@ SCM_DEFINE (scm_write_objcode, "write-objcode", 2, 0, 0,
   cookie[SCM_OBJCODE_ENDIANNESS_OFFSET] = endianness;
   cookie[SCM_OBJCODE_WORD_SIZE_OFFSET] = word_size;
 
-  scm_c_write (port, cookie, strlen (SCM_OBJCODE_COOKIE));
-  scm_c_write (port, SCM_OBJCODE_DATA (objcode),
-               sizeof (struct scm_objcode) + SCM_OBJCODE_TOTAL_LEN (objcode));
+  scm_c_write_unlocked (port, cookie, strlen (SCM_OBJCODE_COOKIE));
+  scm_c_write_unlocked (port, SCM_OBJCODE_DATA (objcode),
+                        sizeof (struct scm_objcode)
+                        + SCM_OBJCODE_TOTAL_LEN (objcode));
 
   return SCM_UNSPECIFIED;
 }

@@ -2174,7 +2174,7 @@ scm_puts (const char *s, SCM port)
  * Warning: Doesn't update port line and column counts!
  */
 void
-scm_c_write (SCM port, const void *ptr, size_t size)
+scm_c_write_unlocked (SCM port, const void *ptr, size_t size)
 #define FUNC_NAME "scm_c_write"
 {
   scm_t_port *pt;
@@ -2195,12 +2195,20 @@ scm_c_write (SCM port, const void *ptr, size_t size)
 }
 #undef FUNC_NAME
 
+void
+scm_c_write (SCM port, const void *ptr, size_t size)
+{
+  scm_c_lock_port (port);
+  scm_c_write_unlocked (port, ptr, size);
+  scm_c_unlock_port (port);
+}
+
 /* scm_lfwrite
  *
  * This function differs from scm_c_write; it updates port line and
  * column. */
 void
-scm_lfwrite (const char *ptr, size_t size, SCM port)
+scm_lfwrite_unlocked (const char *ptr, size_t size, SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
@@ -2215,6 +2223,14 @@ scm_lfwrite (const char *ptr, size_t size, SCM port)
 
   if (pt->rw_random)
     pt->rw_active = SCM_PORT_WRITE;
+}
+
+void
+scm_lfwrite (const char *ptr, size_t size, SCM port)
+{
+  scm_c_lock_port (port);
+  scm_lfwrite_unlocked (ptr, size, port);
+  scm_c_unlock_port (port);
 }
 
 /* Write STR to PORT from START inclusive to END exclusive.  */

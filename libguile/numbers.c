@@ -5318,7 +5318,7 @@ int
 scm_print_real (SCM sexp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
   char num_buf[FLOBUFLEN];
-  scm_lfwrite (num_buf, iflo2str (sexp, num_buf, 10), port);
+  scm_lfwrite_unlocked (num_buf, iflo2str (sexp, num_buf, 10), port);
   return !0;
 }
 
@@ -5326,7 +5326,7 @@ void
 scm_i_print_double (double val, SCM port)
 {
   char num_buf[FLOBUFLEN];
-  scm_lfwrite (num_buf, idbl2str (val, num_buf, 10), port);
+  scm_lfwrite_unlocked (num_buf, idbl2str (val, num_buf, 10), port);
 }
 
 int
@@ -5334,7 +5334,7 @@ scm_print_complex (SCM sexp, SCM port, scm_print_state *pstate SCM_UNUSED)
 
 {
   char num_buf[FLOBUFLEN];
-  scm_lfwrite (num_buf, iflo2str (sexp, num_buf, 10), port);
+  scm_lfwrite_unlocked (num_buf, iflo2str (sexp, num_buf, 10), port);
   return !0;
 }
 
@@ -5342,7 +5342,7 @@ void
 scm_i_print_complex (double real, double imag, SCM port)
 {
   char num_buf[FLOBUFLEN];
-  scm_lfwrite (num_buf, icmplx2str (real, imag, num_buf, 10), port);
+  scm_lfwrite_unlocked (num_buf, icmplx2str (real, imag, num_buf, 10), port);
 }
 
 int
@@ -5360,7 +5360,7 @@ scm_bigprint (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
   char *str = mpz_get_str (NULL, 10, SCM_I_BIG_MPZ (exp));
   scm_remember_upto_here_1 (exp);
-  scm_lfwrite (str, (size_t) strlen (str), port);
+  scm_lfwrite_unlocked (str, (size_t) strlen (str), port);
   free (str);
   return !0;
 }

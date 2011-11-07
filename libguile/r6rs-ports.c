@@ -731,7 +731,7 @@ SCM_DEFINE (scm_put_bytevector, "put-bytevector", 2, 2, 0,
   else
     c_start = 0, c_count = c_len;
 
-  scm_c_write (port, c_bv + c_start, c_count);
+  scm_c_write_unlocked (port, c_bv + c_start, c_count);
 
   return SCM_UNSPECIFIED;
 }
@@ -1094,7 +1094,7 @@ make_tp (SCM binary_port, unsigned long mode)
 static void
 tp_write (SCM port, const void *data, size_t size)
 {
-  scm_c_write (SCM_TP_BINARY_PORT (port), data, size);
+  scm_c_write_unlocked (SCM_TP_BINARY_PORT (port), data, size);
 }
 
 static int
@@ -1149,7 +1149,7 @@ tp_flush (SCM port)
      We just throw away the data when the underlying port is closed.  */
   
   if (SCM_OPOUTPORTP (binary_port))
-      scm_c_write (binary_port, c_port->write_buf, count);
+      scm_c_write_unlocked (binary_port, c_port->write_buf, count);
 
   c_port->write_pos = c_port->write_buf;
   c_port->rw_active = SCM_PORT_NEITHER;
