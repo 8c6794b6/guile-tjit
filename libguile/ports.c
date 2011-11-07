@@ -101,18 +101,6 @@
 scm_t_ptob_descriptor *scm_ptobs = NULL;
 long scm_numptob = 0;
 
-/* GC marker for a port with stream of SCM type.  */
-SCM 
-scm_markstream (SCM ptr)
-{
-  int openp;
-  openp = SCM_CELL_WORD_0 (ptr) & SCM_OPN;
-  if (openp)
-    return SCM_PACK (SCM_STREAM (ptr));
-  else
-    return SCM_BOOL_F;
-}
-
 /*
  * We choose to use an interface similar to the smob interface with
  * fill_input and write as standard fields, passed to the port

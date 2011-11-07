@@ -217,7 +217,6 @@ SCM_API long scm_numptob;
 
 
 
-SCM_API SCM scm_markstream (SCM ptr);
 SCM_API scm_t_bits scm_make_port_type (char *name,
 				       int (*fill_input) (SCM port),
 				       void (*write) (SCM port, 
@@ -245,9 +244,6 @@ SCM_API void scm_set_port_truncate (scm_t_bits tc,
 				    void (*truncate) (SCM port,
 						      scm_t_off length));
 SCM_API void scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM));
-SCM_API SCM scm_char_ready_p (SCM port);
-size_t scm_take_from_input_buffers (SCM port, char *dest, size_t read_len);
-SCM_API SCM scm_drain_input (SCM port);
 SCM_API SCM scm_current_input_port (void);
 SCM_API SCM scm_current_output_port (void);
 SCM_API SCM scm_current_error_port (void);
@@ -273,6 +269,9 @@ SCM_INLINE int scm_c_lock_port (scm_t_port *entry);
 SCM_INLINE int scm_c_try_lock_port (scm_t_port *entry);
 SCM_INLINE int scm_c_unlock_port (scm_t_port *entry);
 
+SCM_API SCM scm_char_ready_p (SCM port);
+size_t scm_take_from_input_buffers (SCM port, char *dest, size_t read_len);
+SCM_API SCM scm_drain_input (SCM port);
 SCM_API void scm_port_non_buffer (scm_t_port *pt);
 SCM_API int scm_revealed_count (SCM port);
 SCM_API SCM scm_port_revealed (SCM port);
