@@ -159,6 +159,7 @@ SCM_INTERNAL SCM scm_i_port_weak_set;
   SCM_SET_CELL_WORD_0 ((p), SCM_CELL_WORD_0 (p) & ~SCM_OPN)
 
 #define SCM_PTAB_ENTRY(x)         ((scm_t_port *) SCM_CELL_WORD_1 (x))
+#define SCM_PORT_DESCRIPTOR(port) ((scm_t_ptob_descriptor *) SCM_CELL_WORD_2 (port))
 #define SCM_SETPTAB_ENTRY(x, ent)  (SCM_SET_CELL_WORD_1 ((x), (scm_t_bits) (ent)))
 #define SCM_STREAM(x)             (SCM_PTAB_ENTRY(x)->stream)
 #define SCM_SETSTREAM(x, s)        (SCM_PTAB_ENTRY(x)->stream = (scm_t_bits) (s))
@@ -205,19 +206,12 @@ typedef struct scm_t_ptob_descriptor
 #define SCM_TC2PTOBNUM(x) (0x0ff & ((x) >> 8))
 #define SCM_PTOBNUM(x) (SCM_TC2PTOBNUM (SCM_CELL_TYPE (x)))
 /* SCM_PTOBNAME can be 0 if name is missing */
-#define SCM_PTOBNAME(ptobnum) scm_ptobs[ptobnum].name
-
-
-
-/* Hey you!  Yes you, reading the header file!  We're going to deprecate
-   scm_ptobs in 2.2, so please don't write any new code that uses it.
-   Thanks.  */
-SCM_API scm_t_ptob_descriptor *scm_ptobs;
-SCM_API long scm_numptob;
-
-
+#define SCM_PTOBNAME(ptobnum) (scm_c_port_type_ref (ptobnum)->name)
 
 /* Port types, and their vtables.  */
+SCM_INTERNAL long scm_c_num_port_types (void);
+SCM_API scm_t_ptob_descriptor* scm_c_port_type_ref (long ptobnum);
+SCM_API long scm_c_port_type_add_x (scm_t_ptob_descriptor *desc);
 SCM_API scm_t_bits scm_make_port_type (char *name,
 				       int (*fill_input) (SCM port),
 				       void (*write) (SCM port, 
@@ -232,11 +226,10 @@ SCM_API void scm_set_port_print (scm_t_bits tc,
 SCM_API void scm_set_port_equalp (scm_t_bits tc, SCM (*equalp) (SCM, SCM));
 SCM_API void scm_set_port_close (scm_t_bits tc, int (*close) (SCM));
 
-SCM_API void scm_set_port_flush (scm_t_bits tc, 
-				 void (*flush) (SCM port));
+SCM_API void scm_set_port_flush (scm_t_bits tc, void (*flush) (SCM port));
 SCM_API void scm_set_port_end_input (scm_t_bits tc,
-				     void (*end_input) (SCM port,
-							int offset));
+                                     void (*end_input) (SCM port,
+                                                        int offset));
 SCM_API void scm_set_port_seek (scm_t_bits tc,
 				scm_t_off (*seek) (SCM port,
 						   scm_t_off OFFSET,
@@ -411,7 +404,7 @@ scm_get_byte_or_eof (SCM port)
 
   if (pt->rw_active == SCM_PORT_WRITE)
     /* may be marginally faster than calling scm_flush.  */
-    scm_ptobs[SCM_PTOBNUM (port)].flush (port);
+    SCM_PORT_DESCRIPTOR (port)->flush (port);
 
   if (pt->rw_random)
     pt->rw_active = SCM_PORT_READ;
@@ -436,7 +429,7 @@ scm_peek_byte_or_eof (SCM port)
 
   if (pt->rw_active == SCM_PORT_WRITE)
     /* may be marginally faster than calling scm_flush.  */
-    scm_ptobs[SCM_PTOBNUM (port)].flush (port);
+    SCM_PORT_DESCRIPTOR (port)->flush (port);
 
   if (pt->rw_random)
     pt->rw_active = SCM_PORT_READ;

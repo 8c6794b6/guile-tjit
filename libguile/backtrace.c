@@ -214,7 +214,7 @@ static void
 display_frame_expr (char *hdr, SCM exp, char *tlr, int indentation, SCM sport, SCM port, scm_print_state *pstate)
 {
   int i = 0, n;
-  scm_t_ptob_descriptor *ptob = scm_ptobs + SCM_PTOBNUM (sport);
+  scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (sport);
   do
     {
       pstate->length = print_params[i].length;

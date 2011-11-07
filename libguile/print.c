@@ -690,10 +690,8 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	  break;
 	case scm_tc7_port:
 	  {
-	    register long i = SCM_PTOBNUM (exp);
-	    if (i < scm_numptob
-		&& scm_ptobs[i].print
-		&& (scm_ptobs[i].print) (exp, port, pstate))
+	    scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (exp);
+	    if (ptob->print && ptob->print (exp, port, pstate))
 	      break;
 	    goto punk;
 	  }
@@ -1469,7 +1467,7 @@ static int
 port_with_ps_print (SCM obj, SCM port, scm_print_state *pstate)
 {
   obj = SCM_PORT_WITH_PS_PORT (obj);
-  return scm_ptobs[SCM_PTOBNUM (obj)].print (obj, port, pstate);
+  return SCM_PORT_DESCRIPTOR (obj)->print (obj, port, pstate);
 }
 
 SCM

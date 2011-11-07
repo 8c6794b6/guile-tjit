@@ -2698,7 +2698,7 @@ create_port_classes (void)
 {
   long i;
 
-  for (i = 0; i < scm_numptob; ++i)
+  for (i = scm_c_num_port_types () - 1; i >= 0; i--)
     scm_make_port_classes (i, SCM_PTOBNAME (i));
 }
 
