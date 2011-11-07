@@ -294,9 +294,9 @@ SCM_API SCM scm_port_conversion_strategy (SCM port);
 SCM_API SCM scm_set_port_conversion_strategy_x (SCM port, SCM behavior);
 
 /* Acquiring and releasing the port lock.  */
-SCM_INLINE int scm_c_lock_port (scm_t_port *entry);
-SCM_INLINE int scm_c_try_lock_port (scm_t_port *entry);
-SCM_INLINE int scm_c_unlock_port (scm_t_port *entry);
+SCM_INLINE int scm_c_lock_port (SCM port);
+SCM_INLINE int scm_c_try_lock_port (SCM port);
+SCM_INLINE int scm_c_unlock_port (SCM port);
 
 /* Revealed counts.  */
 SCM_API int scm_revealed_count (SCM port);
@@ -367,30 +367,30 @@ SCM_INTERNAL void scm_init_ports (void);
 
 #if SCM_CAN_INLINE || defined SCM_INLINE_C_IMPLEMENTING_INLINES
 SCM_INLINE_IMPLEMENTATION int
-scm_c_lock_port (scm_t_port *entry)
+scm_c_lock_port (SCM port)
 {
 #if SCM_USE_PTHREAD_THREADS
-  return scm_i_pthread_mutex_lock (&entry->lock);
+  return scm_i_pthread_mutex_lock (&SCM_PTAB_ENTRY (port)->lock);
 #else
   return 0;
 #endif
 }
 
 SCM_INLINE_IMPLEMENTATION int
-scm_c_try_lock_port (scm_t_port *entry)
+scm_c_try_lock_port (SCM port)
 {
 #if SCM_USE_PTHREAD_THREADS
-  return scm_i_pthread_mutex_trylock (&entry->lock);
+  return scm_i_pthread_mutex_trylock (&SCM_PTAB_ENTRY (port)->lock);
 #else
   return 0;
 #endif
 }
 
 SCM_INLINE_IMPLEMENTATION int
-scm_c_unlock_port (scm_t_port *entry)
+scm_c_unlock_port (SCM port)
 {
 #if SCM_USE_PTHREAD_THREADS
-  return scm_i_pthread_mutex_unlock (&entry->lock);
+  return scm_i_pthread_mutex_unlock (&SCM_PTAB_ENTRY (port)->lock);
 #else
   return 0;
 #endif
