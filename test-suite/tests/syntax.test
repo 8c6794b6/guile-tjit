@@ -825,7 +825,43 @@
          (define a (@@ (top-level-define/module-scoping-3) a))
          a)
       (current-module))
-     10)))
+     10))
+  
+  (pass-if "module scoping, introduced names"
+    (equal?
+     (eval
+      '(begin
+         (define-module (top-level-define/module-scoping-5)
+           #:export (define-constant))
+         (define-syntax-rule (define-constant name val)
+           (begin
+             (define t val)
+             (define (name) t)))
+         (define-module (top-level-define/module-scoping-6)
+           #:use-module (top-level-define/module-scoping-5))
+         (define-constant foo 10)
+         (define-constant bar 20)
+         (foo))
+      (current-module))
+     10))
+
+  (pass-if "module scoping, duplicate introduced name"
+    (equal?
+     (eval
+      '(begin
+         (define-module (top-level-define/module-scoping-7)
+           #:export (define-constant))
+         (define-syntax-rule (define-constant name val)
+           (begin
+             (define t val)
+             (define (name) t)))
+         (define-module (top-level-define/module-scoping-8)
+           #:use-module (top-level-define/module-scoping-7))
+         (define-constant foo 10)
+         (define-constant foo 20)
+         (foo))
+      (current-module))
+     20)))
 
 (with-test-prefix "internal define"
 
