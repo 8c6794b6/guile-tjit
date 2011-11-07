@@ -288,7 +288,7 @@ flush_ws (SCM port, const char *eoferr)
 {
   register scm_t_wchar c;
   while (1)
-    switch (c = scm_getc (port))
+    switch (c = scm_getc_unlocked (port))
       {
       case EOF:
       goteof:
@@ -303,7 +303,7 @@ flush_ws (SCM port, const char *eoferr)
 
       case ';':
       lp:
-	switch (c = scm_getc (port))
+	switch (c = scm_getc_unlocked (port))
 	  {
 	  case EOF:
 	    goto goteof;
@@ -315,7 +315,7 @@ flush_ws (SCM port, const char *eoferr)
 	break;
 
       case '#':
-	switch (c = scm_getc (port))
+	switch (c = scm_getc_unlocked (port))
 	  {
 	  case EOF:
 	    eoferr = "read_sharp";
@@ -442,7 +442,7 @@ scm_read_sexp (scm_t_wchar chr, SCM port)
       c = 0;                                                       \
       while (i < ndigits)                                          \
         {                                                          \
-          a = scm_getc (port);                                     \
+          a = scm_getc_unlocked (port);                                     \
           if (a == EOF)                                            \
             goto str_eof;                                          \
           if (terminator                                           \
@@ -472,7 +472,7 @@ skip_intraline_whitespace (SCM port)
   
   do
     {
-      c = scm_getc (port);
+      c = scm_getc_unlocked (port);
       if (c == EOF)
         return;
     }
@@ -493,7 +493,7 @@ scm_read_string (int chr, SCM port)
   scm_t_wchar c;
 
   str = scm_i_make_string (READER_STRING_BUFFER_SIZE, NULL, 0);
-  while ('"' != (c = scm_getc (port)))
+  while ('"' != (c = scm_getc_unlocked (port)))
     {
       if (c == EOF)
         {
@@ -511,7 +511,7 @@ scm_read_string (int chr, SCM port)
 
       if (c == '\\')
         {
-          switch (c = scm_getc (port))
+          switch (c = scm_getc_unlocked (port))
             {
             case EOF:
               goto str_eof;
@@ -762,7 +762,7 @@ scm_read_quote (int chr, SCM port)
       {
 	scm_t_wchar c;
 
-	c = scm_getc (port);
+	c = scm_getc_unlocked (port);
 	if ('@' == c)
 	  p = scm_sym_uq_splicing;
 	else
@@ -812,7 +812,7 @@ scm_read_syntax (int chr, SCM port)
       {
 	int c;
 
-	c = scm_getc (port);
+	c = scm_getc_unlocked (port);
 	if ('@' == c)
 	  p = sym_unsyntax_splicing;
 	else
@@ -901,7 +901,7 @@ scm_read_character (scm_t_wchar chr, SCM port)
 
   if (bytes_read == 0)
     {
-      chr = scm_getc (port);
+      chr = scm_getc_unlocked (port);
       if (chr == EOF)
 	scm_i_input_error (FUNC_NAME, port, "unexpected end of file "
 			   "while reading character", SCM_EOL);
@@ -1028,15 +1028,15 @@ scm_read_srfi4_vector (int chr, SCM port)
 static SCM
 scm_read_bytevector (scm_t_wchar chr, SCM port)
 {
-  chr = scm_getc (port);
+  chr = scm_getc_unlocked (port);
   if (chr != 'u')
     goto syntax;
 
-  chr = scm_getc (port);
+  chr = scm_getc_unlocked (port);
   if (chr != '8')
     goto syntax;
 
-  chr = scm_getc (port);
+  chr = scm_getc_unlocked (port);
   if (chr != '(')
     goto syntax;
 
@@ -1056,9 +1056,9 @@ scm_read_guile_bit_vector (scm_t_wchar chr, SCM port)
      terribly inefficient but who cares?  */
   SCM s_bits = SCM_EOL;
 
-  for (chr = scm_getc (port);
+  for (chr = scm_getc_unlocked (port);
        (chr != EOF) && ((chr == '0') || (chr == '1'));
-       chr = scm_getc (port))
+       chr = scm_getc_unlocked (port))
     {
       s_bits = scm_cons ((chr == '0') ? SCM_BOOL_F : SCM_BOOL_T, s_bits);
     }
@@ -1076,7 +1076,7 @@ scm_read_scsh_block_comment (scm_t_wchar chr, SCM port)
 
   for (;;)
     {
-      int c = scm_getc (port);
+      int c = scm_getc_unlocked (port);
 
       if (c == EOF)
 	scm_i_input_error ("skip_block_comment", port,
@@ -1134,7 +1134,7 @@ scm_read_r6rs_block_comment (scm_t_wchar chr, SCM port)
      nested.  So care must be taken.  */
   int nesting_level = 1;
 
-  int a = scm_getc (port);
+  int a = scm_getc_unlocked (port);
 
   if (a == EOF)
     scm_i_input_error ("scm_read_r6rs_block_comment", port,
@@ -1142,7 +1142,7 @@ scm_read_r6rs_block_comment (scm_t_wchar chr, SCM port)
 
   while (nesting_level > 0)
     {
-      int b = scm_getc (port);
+      int b = scm_getc_unlocked (port);
 
       if (b == EOF)
 	scm_i_input_error ("scm_read_r6rs_block_comment", port,
@@ -1193,7 +1193,7 @@ scm_read_extended_symbol (scm_t_wchar chr, SCM port)
 
   buf = scm_i_string_start_writing (buf);
 
-  while ((chr = scm_getc (port)) != EOF)
+  while ((chr = scm_getc_unlocked (port)) != EOF)
     {
       if (saw_brace)
 	{
@@ -1220,7 +1220,7 @@ scm_read_extended_symbol (scm_t_wchar chr, SCM port)
              that the extended read syntax would never put a `\' before
              an `x'.  For now, we just ignore other instances of
              backslash in the string.  */
-          switch ((chr = scm_getc (port)))
+          switch ((chr = scm_getc_unlocked (port)))
             {
             case EOF:
               goto done;
@@ -1307,7 +1307,7 @@ scm_read_sharp (scm_t_wchar chr, SCM port)
 {
   SCM result;
 
-  chr = scm_getc (port);
+  chr = scm_getc_unlocked (port);
 
   result = scm_read_sharp_extension (chr, port);
   if (!scm_is_eq (result, SCM_UNSPECIFIED))
@@ -1398,7 +1398,7 @@ scm_read_expression (SCM port)
     {
       register scm_t_wchar chr;
 
-      chr = scm_getc (port);
+      chr = scm_getc_unlocked (port);
 
       switch (chr)
 	{
@@ -1621,7 +1621,7 @@ scm_i_scan_for_encoding (SCM port)
       if (SCM_FPORTP (port) && !SCM_FDES_RANDOM_P (SCM_FPORT_FDES (port)))
         return NULL;
 
-      bytes_read = scm_c_read (port, header, SCM_ENCODING_SEARCH_SIZE);
+      bytes_read = scm_c_read_unlocked (port, header, SCM_ENCODING_SEARCH_SIZE);
       header[bytes_read] = '\0';
       scm_seek (port, scm_from_int (0), scm_from_int (SEEK_SET));
     }

@@ -832,14 +832,14 @@ read_decimal_integer (SCM port, int c, ssize_t *resp)
   if (c == '-')
     {
       sign = -1;
-      c = scm_getc (port);
+      c = scm_getc_unlocked (port);
     }
 
   while ('0' <= c && c <= '9')
     {
       res = 10*res + c-'0';
       got_it = 1;
-      c = scm_getc (port);
+      c = scm_getc_unlocked (port);
     }
 
   if (got_it)
@@ -870,7 +870,7 @@ scm_i_read_array (SCM port, int c)
    */
   if (c == 'f')
     {
-      c = scm_getc (port);
+      c = scm_getc_unlocked (port);
       if (c != '3' && c != '6')
 	{
 	  if (c != EOF)
@@ -899,7 +899,7 @@ scm_i_read_array (SCM port, int c)
          && tag_len < sizeof tag_buf / sizeof tag_buf[0])
     {
       tag_buf[tag_len++] = c;
-      c = scm_getc (port);
+      c = scm_getc_unlocked (port);
     }
   if (tag_len == 0)
     tag = SCM_BOOL_T;
@@ -924,7 +924,7 @@ scm_i_read_array (SCM port, int c)
 
 	  if (c == '@')
 	    {
-	      c = scm_getc (port);
+	      c = scm_getc_unlocked (port);
 	      c = read_decimal_integer (port, c, &lbnd);
 	    }
 	  
@@ -932,7 +932,7 @@ scm_i_read_array (SCM port, int c)
 
 	  if (c == ':')
 	    {
-	      c = scm_getc (port);
+	      c = scm_getc_unlocked (port);
 	      c = read_decimal_integer (port, c, &len);
 	      if (len < 0)
 		scm_i_input_error (NULL, port,

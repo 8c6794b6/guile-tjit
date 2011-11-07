@@ -475,7 +475,7 @@ SCM_DEFINE (scm_get_bytevector_n, "get-bytevector-n", 2, 0, 0,
 
   if (SCM_LIKELY (c_count > 0))
     /* XXX: `scm_c_read ()' does not update the port position.  */
-    c_read = scm_c_read (port, c_bv, c_count);
+    c_read = scm_c_read_unlocked (port, c_bv, c_count);
   else
     /* Don't invoke `scm_c_read ()' since it may block.  */
     c_read = 0;
@@ -522,7 +522,7 @@ SCM_DEFINE (scm_get_bytevector_n_x, "get-bytevector-n!", 4, 0, 0,
     scm_out_of_range (FUNC_NAME, count);
 
   if (SCM_LIKELY (c_count > 0))
-    c_read = scm_c_read (port, c_bv + c_start, c_count);
+    c_read = scm_c_read_unlocked (port, c_bv + c_start, c_count);
   else
     /* Don't invoke `scm_c_read ()' since it may block.  */
     c_read = 0;
@@ -577,7 +577,7 @@ SCM_DEFINE (scm_get_bytevector_some, "get-bytevector-some", 1, 0, 0,
 	}
 
       /* We can't use `scm_c_read ()' since it blocks.  */
-      c_chr = scm_getc (port);
+      c_chr = scm_getc_unlocked (port);
       if (c_chr != EOF)
 	{
 	  c_bv[c_total] = (char) c_chr;
@@ -642,7 +642,7 @@ SCM_DEFINE (scm_get_bytevector_all, "get-bytevector-all", 1, 0, 0,
 
       /* `scm_c_read ()' blocks until C_COUNT bytes are available or EOF is
 	 reached.  */
-      c_read = scm_c_read (port, c_bv + c_total, c_count);
+      c_read = scm_c_read_unlocked (port, c_bv + c_total, c_count);
       c_total += c_read, c_count -= c_read;
     }
   while (!SCM_EOF_OBJECT_P (scm_peek_char (port)));
@@ -1231,7 +1231,7 @@ SCM_DEFINE (scm_get_string_n_x,
 
   for (j = c_start; j < c_end; j++)
     {
-      c = scm_getc (port);
+      c = scm_getc_unlocked (port);
       if (c == EOF)
         {
           size_t chars_read = j - c_start;
