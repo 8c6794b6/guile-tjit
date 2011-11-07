@@ -1,4 +1,4 @@
-/*	Copyright (C) 1995,1996, 1997, 2000, 2001, 2004, 2005, 2006, 2008 Free Software Foundation, Inc.
+/*	Copyright (C) 1995,1996, 1997, 2000, 2001, 2004, 2005, 2006, 2008, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -89,11 +89,11 @@ static scm_t_bits scm_tc16_arbiter;
 static int 
 arbiter_print (SCM exp, SCM port, scm_print_state *pstate)
 {
-  scm_puts ("#<arbiter ", port);
+  scm_puts_unlocked ("#<arbiter ", port);
   if (SCM_ARB_LOCKED (exp))
-    scm_puts ("locked ", port);
+    scm_puts_unlocked ("locked ", port);
   scm_iprin1 (SCM_PACK (SCM_SMOB_DATA (exp)), port, pstate);
-  scm_putc ('>', port);
+  scm_putc_unlocked ('>', port);
   return !0;
 }
 

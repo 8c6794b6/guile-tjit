@@ -88,11 +88,11 @@ static int
 promise_print (SCM exp, SCM port, scm_print_state *pstate)
 {
   int writingp = SCM_WRITINGP (pstate);
-  scm_puts ("#<promise ", port);
+  scm_puts_unlocked ("#<promise ", port);
   SCM_SET_WRITINGP (pstate, 1);
   scm_iprin1 (SCM_PROMISE_DATA (exp), port, pstate);
   SCM_SET_WRITINGP (pstate, writingp);
-  scm_putc ('>', port);
+  scm_putc_unlocked ('>', port);
   return !0;
 }
 

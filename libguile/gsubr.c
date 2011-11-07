@@ -858,13 +858,13 @@ scm_c_define_gsubr_with_generic (const char *name,
 SCM
 gsubr_21l(SCM req1, SCM req2, SCM opt, SCM rst)
 {
-  scm_puts ("gsubr-2-1-l:\n req1: ", scm_cur_outp);
+  scm_puts_unlocked ("gsubr-2-1-l:\n req1: ", scm_cur_outp);
   scm_display(req1, scm_cur_outp);
-  scm_puts ("\n req2: ", scm_cur_outp);
+  scm_puts_unlocked ("\n req2: ", scm_cur_outp);
   scm_display(req2, scm_cur_outp);
-  scm_puts ("\n opt: ", scm_cur_outp);
+  scm_puts_unlocked ("\n opt: ", scm_cur_outp);
   scm_display(opt, scm_cur_outp);
-  scm_puts ("\n rest: ", scm_cur_outp);
+  scm_puts_unlocked ("\n rest: ", scm_cur_outp);
   scm_display(rst, scm_cur_outp);
   scm_newline(scm_cur_outp);
   return SCM_UNSPECIFIED;

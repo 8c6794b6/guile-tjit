@@ -2148,6 +2148,22 @@ scm_flush (SCM port)
 
 /* Output.  */
 
+void
+scm_putc (char c, SCM port)
+{
+  scm_c_lock_port (port);
+  scm_putc_unlocked (c, port);
+  scm_c_unlock_port (port);
+}
+
+void
+scm_puts (const char *s, SCM port)
+{
+  scm_c_lock_port (port);
+  scm_puts_unlocked (s, port);
+  scm_c_unlock_port (port);
+}
+  
 /* scm_c_write
  *
  * Used by an application to write arbitrary number of bytes to an SCM
@@ -2527,7 +2543,7 @@ SCM_DEFINE (scm_set_port_filename_x, "set-port-filename!", 2, 0, 0,
 void
 scm_print_port_mode (SCM exp, SCM port)
 {
-  scm_puts (SCM_CLOSEDP (exp)
+  scm_puts_unlocked (SCM_CLOSEDP (exp)
 	    ? "closed: "
 	    : (SCM_RDNG & SCM_CELL_WORD_0 (exp)
 	       ? (SCM_WRTNG & SCM_CELL_WORD_0 (exp)
@@ -2545,12 +2561,12 @@ scm_port_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
   char *type = SCM_PTOBNAME (SCM_PTOBNUM (exp));
   if (!type)
     type = "port";
-  scm_puts ("#<", port);
+  scm_puts_unlocked ("#<", port);
   scm_print_port_mode (exp, port);
-  scm_puts (type, port);
-  scm_putc (' ', port);
+  scm_puts_unlocked (type, port);
+  scm_putc_unlocked (' ', port);
   scm_uintprint (SCM_CELL_WORD_1 (exp), 16, port);
-  scm_putc ('>', port);
+  scm_putc_unlocked ('>', port);
   return 1;
 }
 

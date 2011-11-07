@@ -619,12 +619,12 @@ make_weak_set (unsigned long k)
 void
 scm_i_weak_set_print (SCM exp, SCM port, scm_print_state *pstate)
 {
-  scm_puts ("#<", port);
-  scm_puts ("weak-set ", port);
+  scm_puts_unlocked ("#<", port);
+  scm_puts_unlocked ("weak-set ", port);
   scm_uintprint (SCM_WEAK_SET (exp)->n_items, 10, port);
-  scm_putc ('/', port);
+  scm_putc_unlocked ('/', port);
   scm_uintprint (SCM_WEAK_SET (exp)->size, 10, port);
-  scm_puts (">", port);
+  scm_puts_unlocked (">", port);
 }
 
 static void

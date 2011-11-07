@@ -1797,12 +1797,12 @@ SCM_DEFINE (scm_closedir, "closedir", 1, 0, 0,
 static int
 scm_dir_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
-  scm_puts ("#<", port);
+  scm_puts_unlocked ("#<", port);
   if (!SCM_DIR_OPEN_P (exp))
-    scm_puts ("closed: ", port);
-  scm_puts ("directory stream ", port);
+    scm_puts_unlocked ("closed: ", port);
+  scm_puts_unlocked ("directory stream ", port);
   scm_uintprint (SCM_SMOB_DATA_1 (exp), 16, port);
-  scm_putc ('>', port);
+  scm_putc_unlocked ('>', port);
   return 1;
 }
 

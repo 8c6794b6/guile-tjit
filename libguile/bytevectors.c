@@ -415,17 +415,17 @@ scm_i_print_bytevector (SCM bv, SCM port, scm_print_state *pstate SCM_UNUSED)
   
   scm_array_get_handle (bv, &h);
 
-  scm_putc ('#', port);
+  scm_putc_unlocked ('#', port);
   scm_write (scm_array_handle_element_type (&h), port);
-  scm_putc ('(', port);
+  scm_putc_unlocked ('(', port);
   for (i = h.dims[0].lbnd, ubnd = h.dims[0].ubnd, inc = h.dims[0].inc;
        i <= ubnd; i += inc)
     {
       if (i > 0)
-	scm_putc (' ', port);
+	scm_putc_unlocked (' ', port);
       scm_write (scm_array_handle_ref (&h, i), port);
     }
-  scm_putc (')', port);
+  scm_putc_unlocked (')', port);
 
   return 1;
 }

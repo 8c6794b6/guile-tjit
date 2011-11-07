@@ -79,25 +79,25 @@ grow_dynamic_state (SCM state)
 void
 scm_i_fluid_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
-  scm_puts ("#<fluid ", port);
+  scm_puts_unlocked ("#<fluid ", port);
   scm_intprint ((int) FLUID_NUM (exp), 10, port);
-  scm_putc ('>', port);
+  scm_putc_unlocked ('>', port);
 }
 
 void
 scm_i_dynamic_state_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
-  scm_puts ("#<dynamic-state ", port);
+  scm_puts_unlocked ("#<dynamic-state ", port);
   scm_intprint (SCM_UNPACK (exp), 16, port);
-  scm_putc ('>', port);
+  scm_putc_unlocked ('>', port);
 }
 
 void
 scm_i_with_fluids_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
-  scm_puts ("#<with-fluids ", port);
+  scm_puts_unlocked ("#<with-fluids ", port);
   scm_intprint (SCM_UNPACK (exp), 16, port);
-  scm_putc ('>', port);
+  scm_putc_unlocked ('>', port);
 }
 
 

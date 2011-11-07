@@ -45,12 +45,12 @@ scm_c_make_frame (SCM stack_holder, SCM *fp, SCM *sp,
 void
 scm_i_frame_print (SCM frame, SCM port, scm_print_state *pstate)
 {
-  scm_puts ("#<frame ", port);
+  scm_puts_unlocked ("#<frame ", port);
   scm_uintprint (SCM_UNPACK (frame), 16, port);
-  scm_putc (' ', port);
+  scm_putc_unlocked (' ', port);
   scm_write (scm_frame_procedure (frame), port);
   /* don't write args, they can get us into trouble. */
-  scm_puts (">", port);
+  scm_puts_unlocked (">", port);
 }
 
 

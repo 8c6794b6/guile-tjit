@@ -83,9 +83,9 @@ static SCM sym_debug;
 void
 scm_i_vm_cont_print (SCM x, SCM port, scm_print_state *pstate)
 {
-  scm_puts ("#<vm-continuation ", port);
+  scm_puts_unlocked ("#<vm-continuation ", port);
   scm_uintprint (SCM_UNPACK (x), 16, port);
-  scm_puts (">", port);
+  scm_puts_unlocked (">", port);
 }
 
 /* In theory, a number of vm instances can be active in the call trace, and we
@@ -351,22 +351,22 @@ scm_i_vm_print (SCM x, SCM port, scm_print_state *pstate)
 
   vm = SCM_VM_DATA (x);
 
-  scm_puts ("#<vm ", port);
+  scm_puts_unlocked ("#<vm ", port);
   switch (vm->engine)
     {
     case SCM_VM_REGULAR_ENGINE:
-      scm_puts ("regular-engine ", port);
+      scm_puts_unlocked ("regular-engine ", port);
       break;
 
     case SCM_VM_DEBUG_ENGINE:
-      scm_puts ("debug-engine ", port);
+      scm_puts_unlocked ("debug-engine ", port);
       break;
 
     default:
-      scm_puts ("unknown-engine ", port);
+      scm_puts_unlocked ("unknown-engine ", port);
     }
   scm_uintprint (SCM_UNPACK (x), 16, port);
-  scm_puts (">", port);
+  scm_puts_unlocked (">", port);
 }
 
 static SCM

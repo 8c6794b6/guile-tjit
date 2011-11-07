@@ -366,9 +366,9 @@ SCM_DEFINE (scm_write_objcode, "write-objcode", 2, 0, 0,
 void
 scm_i_objcode_print (SCM objcode, SCM port, scm_print_state *pstate)
 {
-  scm_puts ("#<objcode ", port);
+  scm_puts_unlocked ("#<objcode ", port);
   scm_uintprint ((scm_t_bits)SCM_OBJCODE_BASE (objcode), 16, port);
-  scm_puts (">", port);
+  scm_puts_unlocked (">", port);
 }
 
 

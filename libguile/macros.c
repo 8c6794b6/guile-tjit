@@ -49,11 +49,11 @@ static int
 macro_print (SCM macro, SCM port, scm_print_state *pstate)
 {
   if (scm_is_false (SCM_MACRO_TYPE (macro)))
-    scm_puts ("#<primitive-syntax-transformer ", port);
+    scm_puts_unlocked ("#<primitive-syntax-transformer ", port);
   else
-    scm_puts ("#<syntax-transformer ", port);
+    scm_puts_unlocked ("#<syntax-transformer ", port);
   scm_iprin1 (scm_macro_name (macro), port, pstate);
-  scm_putc ('>', port);
+  scm_putc_unlocked ('>', port);
 
   return 1;
 }

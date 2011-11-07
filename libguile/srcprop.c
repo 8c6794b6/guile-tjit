@@ -95,11 +95,11 @@ static int
 srcprops_print (SCM obj, SCM port, scm_print_state *pstate)
 {
   int writingp = SCM_WRITINGP (pstate);
-  scm_puts ("#<srcprops ", port);
+  scm_puts_unlocked ("#<srcprops ", port);
   SCM_SET_WRITINGP (pstate, 1);
   scm_iprin1 (scm_srcprops_to_alist (obj), port, pstate);
   SCM_SET_WRITINGP (pstate, writingp);
-  scm_putc ('>', port);
+  scm_putc_unlocked ('>', port);
   return 1;
 }
 

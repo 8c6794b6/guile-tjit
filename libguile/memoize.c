@@ -148,9 +148,9 @@ static const char *const memoized_tags[] =
 static int
 scm_print_memoized (SCM memoized, SCM port, scm_print_state *pstate)
 {
-  scm_puts ("#<memoized ", port);
+  scm_puts_unlocked ("#<memoized ", port);
   scm_write (scm_unmemoize_expression (memoized), port);
-  scm_puts (">", port);
+  scm_puts_unlocked (">", port);
   return 1;
 }
 

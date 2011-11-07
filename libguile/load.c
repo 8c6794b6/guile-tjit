@@ -663,11 +663,11 @@ compiled_is_fresh (SCM full_filename, SCM compiled_filename,
   else
     {
       compiled_is_newer = 0;
-      scm_puts (";;; note: source file ", scm_current_error_port ());
+      scm_puts_unlocked (";;; note: source file ", scm_current_error_port ());
       scm_display (full_filename, scm_current_error_port ());
-      scm_puts ("\n;;;       newer than compiled ", scm_current_error_port ());
+      scm_puts_unlocked ("\n;;;       newer than compiled ", scm_current_error_port ());
       scm_display (compiled_filename, scm_current_error_port ());
-      scm_puts ("\n", scm_current_error_port ());
+      scm_puts_unlocked ("\n", scm_current_error_port ());
     }
 
   return compiled_is_newer;
@@ -685,7 +685,7 @@ do_try_auto_compile (void *data)
   SCM source = SCM_PACK_POINTER (data);
   SCM comp_mod, compile_file;
 
-  scm_puts (";;; compiling ", scm_current_error_port ());
+  scm_puts_unlocked (";;; compiling ", scm_current_error_port ());
   scm_display (source, scm_current_error_port ());
   scm_newline (scm_current_error_port ());
 
@@ -714,16 +714,16 @@ do_try_auto_compile (void *data)
       /* Assume `*current-warning-prefix*' has an appropriate value.  */
       res = scm_call_n (scm_variable_ref (compile_file), args, 5);
 
-      scm_puts (";;; compiled ", scm_current_error_port ());
+      scm_puts_unlocked (";;; compiled ", scm_current_error_port ());
       scm_display (res, scm_current_error_port ());
       scm_newline (scm_current_error_port ());
       return res;
     }
   else
     {
-      scm_puts (";;; it seems ", scm_current_error_port ());
+      scm_puts_unlocked (";;; it seems ", scm_current_error_port ());
       scm_display (source, scm_current_error_port ());
-      scm_puts ("\n;;; is part of the compiler; skipping auto-compilation\n",
+      scm_puts_unlocked ("\n;;; is part of the compiler; skipping auto-compilation\n",
                 scm_current_error_port ());
       return SCM_BOOL_F;
     }
@@ -738,16 +738,16 @@ auto_compile_catch_handler (void *data, SCM tag, SCM throw_args)
   oport = scm_open_output_string ();
   scm_print_exception (oport, SCM_BOOL_F, tag, throw_args);
 
-  scm_puts (";;; WARNING: compilation of ", scm_current_error_port ());
+  scm_puts_unlocked (";;; WARNING: compilation of ", scm_current_error_port ());
   scm_display (source, scm_current_error_port ());
-  scm_puts (" failed:\n", scm_current_error_port ());
+  scm_puts_unlocked (" failed:\n", scm_current_error_port ());
 
   lines = scm_string_split (scm_get_output_string (oport),
                             SCM_MAKE_CHAR ('\n'));
   for (; scm_is_pair (lines); lines = scm_cdr (lines))
     if (scm_c_string_length (scm_car (lines)))
       {
-        scm_puts (";;; ", scm_current_error_port ());
+        scm_puts_unlocked (";;; ", scm_current_error_port ());
         scm_display (scm_car (lines), scm_current_error_port ());
         scm_newline (scm_current_error_port ());
       }
@@ -765,7 +765,7 @@ SCM_DEFINE (scm_sys_warn_auto_compilation_enabled, "%warn-auto-compilation-enabl
 
   if (!message_shown)
     {
-      scm_puts (";;; note: auto-compilation is enabled, set GUILE_AUTO_COMPILE=0\n"
+      scm_puts_unlocked (";;; note: auto-compilation is enabled, set GUILE_AUTO_COMPILE=0\n"
                 ";;;       or pass the --no-auto-compile argument to disable.\n",
                 scm_current_error_port ());
       message_shown = 1;
@@ -933,7 +933,7 @@ SCM_DEFINE (scm_primitive_load_path, "primitive-load-path", 0, 0, 1,
       if (stat_ret == 0 && compiled_is_fresh (full_filename, fallback,
                                               &stat_source, &stat_compiled))
         {
-          scm_puts (";;; found fresh local cache at ", scm_current_error_port ());
+          scm_puts_unlocked (";;; found fresh local cache at ", scm_current_error_port ());
           scm_display (fallback, scm_current_error_port ());
           scm_newline (scm_current_error_port ());
           return scm_load_compiled_with_vm (fallback);

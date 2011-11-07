@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -53,12 +53,12 @@ bitvector_print (SCM vec, SCM port, scm_print_state *pstate)
   scm_t_uint32 *bits = BITVECTOR_BITS (vec);
   size_t i, j;
 
-  scm_puts ("#*", port);
+  scm_puts_unlocked ("#*", port);
   for (i = 0; i < word_len; i++, bit_len -= 32)
     {
       scm_t_uint32 mask = 1;
       for (j = 0; j < 32 && j < bit_len; j++, mask <<= 1)
-	scm_putc ((bits[i] & mask)? '1' : '0', port);
+	scm_putc_unlocked ((bits[i] & mask)? '1' : '0', port);
     }
     
   return 1;

@@ -150,7 +150,7 @@ gdb_read (char *str)
   SCM_BEGIN_FOREIGN_BLOCK;
   unmark_port (gdb_input_port);
   scm_seek (gdb_input_port, SCM_INUM0, scm_from_int (SEEK_SET));
-  scm_puts (str, gdb_input_port);
+  scm_puts_unlocked (str, gdb_input_port);
   scm_truncate_file (gdb_input_port, SCM_UNDEFINED);
   scm_seek (gdb_input_port, SCM_INUM0, scm_from_int (SEEK_SET));
 

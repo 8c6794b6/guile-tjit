@@ -59,9 +59,9 @@ static SCM
 boot_print_exception (SCM port, SCM frame, SCM key, SCM args)
 #define FUNC_NAME "boot-print-exception"
 {
-  scm_puts ("Throw to key ", port);
+  scm_puts_unlocked ("Throw to key ", port);
   scm_write (key, port);
-  scm_puts (" with args ", port);
+  scm_puts_unlocked (" with args ", port);
   scm_write (args, port);
   return SCM_UNSPECIFIED;
 }
@@ -207,7 +207,7 @@ indent (int n, SCM port)
 {
   int i;
   for (i = 0; i < n; ++i)
-    scm_putc (' ', port);
+    scm_putc_unlocked (' ', port);
 }
 
 static void
@@ -223,7 +223,7 @@ display_frame_expr (char *hdr, SCM exp, char *tlr, int indentation, SCM sport, S
 	{
 	  pstate->level = print_params[i].level - 1;
 	  scm_iprlist (hdr, exp, tlr[0], sport, pstate);
-	  scm_puts (&tlr[1], sport);
+	  scm_puts_unlocked (&tlr[1], sport);
 	}
       else
 	{
@@ -328,19 +328,19 @@ display_backtrace_file (frame, last_file, port, pstate)
 
   *last_file = file;
 
-  scm_puts ("In ", port);
+  scm_puts_unlocked ("In ", port);
   if (scm_is_false (file))
     if (scm_is_false (line))
-      scm_puts ("unknown file", port);
+      scm_puts_unlocked ("unknown file", port);
     else
-      scm_puts ("current input", port);
+      scm_puts_unlocked ("current input", port);
   else
     {
       pstate->writingp = 0;
       scm_iprin1 (file, port, pstate);
       pstate->writingp = 1;
     }
-  scm_puts (":\n", port);
+  scm_puts_unlocked (":\n", port);
 }
 
 static void
@@ -355,9 +355,9 @@ display_backtrace_file_and_line (SCM frame, SCM port, scm_print_state *pstate)
       if (scm_is_false (file))
 	{
 	  if (scm_is_false (line))
-	    scm_putc ('?', port);
+	    scm_putc_unlocked ('?', port);
 	  else
-	    scm_puts ("<stdin>", port);
+	    scm_puts_unlocked ("<stdin>", port);
 	}
       else
 	{
@@ -372,7 +372,7 @@ display_backtrace_file_and_line (SCM frame, SCM port, scm_print_state *pstate)
 	  pstate -> writingp = 1;
 	}
 
-      scm_putc (':', port);
+      scm_putc_unlocked (':', port);
     }
   else if (scm_is_true (line))
     {
@@ -383,10 +383,10 @@ display_backtrace_file_and_line (SCM frame, SCM port, scm_print_state *pstate)
     }
 
   if (scm_is_false (line))
-    scm_puts ("   ?", port);
+    scm_puts_unlocked ("   ?", port);
   else
     scm_intprint (scm_to_int (line) + 1, 10, port);
-  scm_puts (": ", port);
+  scm_puts_unlocked (": ", port);
 }
 
 static void
@@ -413,7 +413,7 @@ display_frame (SCM frame, int n, int nfield, int indentation,
 
   /* Display an application. */
   display_application (frame, nfield + 1 + indentation, sport, port, pstate);
-  scm_putc ('\n', port);
+  scm_putc_unlocked ('\n', port);
 }
 
 struct display_backtrace_args {
@@ -513,7 +513,7 @@ error_during_backtrace (void *data, SCM tag, SCM throw_args)
 {
   SCM port = SCM_PACK_POINTER (data);
   
-  scm_puts ("Exception thrown while printing backtrace:\n", port);
+  scm_puts_unlocked ("Exception thrown while printing backtrace:\n", port);
   scm_print_exception (port, SCM_BOOL_F, tag, throw_args);
 
   return SCM_UNSPECIFIED;
@@ -574,7 +574,7 @@ SCM_DEFINE (scm_backtrace_with_highlights, "backtrace", 0, 1, 0,
     highlights = SCM_EOL;
 
   scm_newline (port);
-  scm_puts ("Backtrace:\n", port);
+  scm_puts_unlocked ("Backtrace:\n", port);
   scm_display_backtrace_with_highlights (stack, port, SCM_BOOL_F, SCM_BOOL_F,
                                          highlights);
   scm_newline (port);

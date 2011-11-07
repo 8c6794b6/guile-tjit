@@ -1,5 +1,5 @@
 /* classes: src_files 
- * Copyright (C) 1995,1997,1998,2000,2001, 2006 Free Software Foundation, Inc.
+ * Copyright (C) 1995,1997,1998,2000,2001, 2006, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -46,9 +46,9 @@ scm_t_bits scm_tc16_malloc;
 static int
 malloc_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
-  scm_puts("#<malloc ", port);
+  scm_puts_unlocked("#<malloc ", port);
   scm_uintprint (SCM_SMOB_DATA (exp), 16, port);
-  scm_putc('>', port);
+  scm_putc_unlocked('>', port);
   return 1;
 }
 

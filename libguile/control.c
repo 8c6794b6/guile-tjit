@@ -269,9 +269,9 @@ SCM_DEFINE (scm_at_abort, "@abort", 2, 0, 0, (SCM tag, SCM args),
 void
 scm_i_prompt_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
-  scm_puts ("#<prompt ", port);
+  scm_puts_unlocked ("#<prompt ", port);
   scm_intprint (SCM_UNPACK (exp), 16, port);
-  scm_putc ('>', port);
+  scm_putc_unlocked ('>', port);
 }
 
 void
