@@ -114,7 +114,7 @@ sf_fill_input (SCM port)
       return *pt->read_buf;
     }
   else
-    scm_ungetc (SCM_CHAR (ans), port);
+    scm_ungetc_unlocked (SCM_CHAR (ans), port);
   return SCM_CHAR (ans);
 }
 

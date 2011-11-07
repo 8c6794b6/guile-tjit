@@ -862,7 +862,7 @@ scm_i_read_array (SCM port, int c)
   */
   if (c == '(')
     {
-      scm_ungetc (c, port);
+      scm_ungetc_unlocked (c, port);
       return scm_vector (scm_read (port));
     }
 
@@ -874,7 +874,7 @@ scm_i_read_array (SCM port, int c)
       if (c != '3' && c != '6')
 	{
 	  if (c != EOF)
-	    scm_ungetc (c, port);
+	    scm_ungetc_unlocked (c, port);
 	  return SCM_BOOL_F;
 	}
       rank = 1;
@@ -954,7 +954,7 @@ scm_i_read_array (SCM port, int c)
     scm_i_input_error (NULL, port,
 		       "missing '(' in vector or array literal",
 		       SCM_EOL);
-  scm_ungetc (c, port);
+  scm_ungetc_unlocked (c, port);
   elements = scm_read (port);
 
   if (scm_is_false (shape))

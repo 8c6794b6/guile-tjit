@@ -306,8 +306,8 @@ SCM_API SCM scm_adjust_port_revealed_x (SCM port, SCM addend);
 
 /* Input.  */
 SCM_API int scm_get_byte_or_eof (SCM port);
-SCM_API int scm_peek_byte_or_eof (SCM port);
 SCM_INLINE int scm_get_byte_or_eof_unlocked (SCM port);
+SCM_API int scm_peek_byte_or_eof (SCM port);
 SCM_INLINE int scm_peek_byte_or_eof_unlocked (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
 SCM_API size_t scm_c_read_unlocked (SCM port, void *buffer, size_t size);
@@ -317,8 +317,11 @@ SCM_API SCM scm_read_char (SCM port);
 
 /* Pushback.  */
 SCM_INTERNAL void scm_unget_byte (int c, SCM port); 
+SCM_INTERNAL void scm_unget_byte_unlocked (int c, SCM port); 
 SCM_API void scm_ungetc (scm_t_wchar c, SCM port);
+SCM_API void scm_ungetc_unlocked (scm_t_wchar c, SCM port);
 SCM_API void scm_ungets (const char *s, int n, SCM port);
+SCM_API void scm_ungets_unlocked (const char *s, int n, SCM port);
 SCM_API SCM scm_peek_char (SCM port);
 SCM_API SCM scm_unread_char (SCM cobj, SCM port);
 SCM_API SCM scm_unread_string (SCM str, SCM port);

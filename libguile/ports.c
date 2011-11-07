@@ -1703,7 +1703,7 @@ SCM_DEFINE (scm_read_char, "read-char", 0, 1, 0,
 /* Pushback.  */
 
 void 
-scm_unget_byte (int c, SCM port)
+scm_unget_byte_unlocked (int c, SCM port)
 #define FUNC_NAME "scm_unget_byte"
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
@@ -1766,8 +1766,16 @@ scm_unget_byte (int c, SCM port)
 }
 #undef FUNC_NAME
 
+void 
+scm_unget_byte (int c, SCM port)
+{
+  scm_c_lock_port (port);
+  scm_unget_byte_unlocked (c, port);
+  scm_c_unlock_port (port);
+}
+
 void
-scm_ungetc (scm_t_wchar c, SCM port)
+scm_ungetc_unlocked (scm_t_wchar c, SCM port)
 #define FUNC_NAME "scm_ungetc"
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
@@ -1794,7 +1802,7 @@ scm_ungetc (scm_t_wchar c, SCM port)
 			SCM_BOOL_F, SCM_MAKE_CHAR (c));
 
   for (i = len - 1; i >= 0; i--)
-    scm_unget_byte (result[i], port);
+    scm_unget_byte_unlocked (result[i], port);
 
   if (SCM_UNLIKELY (result != result_buf))
     free (result);
@@ -1811,9 +1819,16 @@ scm_ungetc (scm_t_wchar c, SCM port)
 }
 #undef FUNC_NAME
 
+void 
+scm_ungetc (scm_t_wchar c, SCM port)
+{
+  scm_c_lock_port (port);
+  scm_ungetc_unlocked (c, port);
+  scm_c_unlock_port (port);
+}
 
 void 
-scm_ungets (const char *s, int n, SCM port)
+scm_ungets_unlocked (const char *s, int n, SCM port)
 {
   /* This is simple minded and inefficient, but unreading strings is
    * probably not a common operation, and remember that line and
@@ -1822,9 +1837,16 @@ scm_ungets (const char *s, int n, SCM port)
    * Please feel free to write an optimized version!
    */
   while (n--)
-    scm_ungetc (s[n], port);
+    scm_ungetc_unlocked (s[n], port);
 }
 
+void
+scm_ungets (const char *s, int n, SCM port)
+{
+  scm_c_lock_port (port);
+  scm_ungets_unlocked (s, n, port);
+  scm_c_unlock_port (port);
+}
 
 SCM_DEFINE (scm_peek_char, "peek-char", 0, 1, 0,
            (SCM port),
@@ -1866,7 +1888,7 @@ SCM_DEFINE (scm_peek_char, "peek-char", 0, 1, 0,
   err = get_codepoint (port, &c, bytes, &len);
 
   for (i = len - 1; i >= 0; i--)
-    scm_unget_byte (bytes[i], port);
+    scm_unget_byte_unlocked (bytes[i], port);
 
   SCM_COL (port) = column;
   SCM_LINUM (port) = line;
@@ -1904,7 +1926,7 @@ SCM_DEFINE (scm_unread_char, "unread-char", 1, 1, 0,
 
   c = SCM_CHAR (cobj);
 
-  scm_ungetc (c, port);
+  scm_ungetc_unlocked (c, port);
   return cobj;
 }
 #undef FUNC_NAME
@@ -1926,7 +1948,7 @@ SCM_DEFINE (scm_unread_string, "unread-string", 2, 0, 0,
   n = scm_i_string_length (str);
 
   while (n--)
-    scm_ungetc (scm_i_string_ref (str, n), port);
+    scm_ungetc_unlocked (scm_i_string_ref (str, n), port);
   
   return str;
 }
