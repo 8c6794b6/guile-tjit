@@ -812,6 +812,19 @@
          (define-10 foo)
          (foo))
       (current-module))
+     10))
+
+  (pass-if "module scoping, same symbolic name"
+    (equal?
+     (eval
+      '(begin
+         (define-module (top-level-define/module-scoping-3))
+         (define a 10)
+         (define-module (top-level-define/module-scoping-4)
+           #:use-module (top-level-define/module-scoping-3))
+         (define a (@@ (top-level-define/module-scoping-3) a))
+         a)
+      (current-module))
      10)))
 
 (with-test-prefix "internal define"
