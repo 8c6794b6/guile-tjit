@@ -302,6 +302,7 @@ SCM_INLINE int scm_c_unlock_port (SCM port);
 SCM_API int scm_revealed_count (SCM port);
 SCM_API SCM scm_port_revealed (SCM port);
 SCM_API SCM scm_set_port_revealed_x (SCM port, SCM rcount);
+SCM_API SCM scm_adjust_port_revealed_x (SCM port, SCM addend);
 
 /* Input.  */
 SCM_INLINE int scm_get_byte_or_eof (SCM port);

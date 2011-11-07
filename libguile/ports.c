@@ -1106,7 +1106,13 @@ SCM_DEFINE (scm_set_port_conversion_strategy_x, "set-port-conversion-strategy!",
 int
 scm_revealed_count (SCM port)
 {
-  return SCM_REVEALED (port);
+  int ret;
+  
+  scm_c_lock_port (port);
+  ret = SCM_REVEALED (port);
+  scm_c_unlock_port (port);
+  
+  return ret;
 }
 
 SCM_DEFINE (scm_port_revealed, "port-revealed", 1, 0, 0,
@@ -1127,9 +1133,31 @@ SCM_DEFINE (scm_set_port_revealed_x, "set-port-revealed!", 2, 0, 0,
 	    "The return value is unspecified.")
 #define FUNC_NAME s_scm_set_port_revealed_x
 {
+  int r;
   port = SCM_COERCE_OUTPORT (port);
   SCM_VALIDATE_OPENPORT (1, port);
-  SCM_REVEALED (port) = scm_to_int (rcount);
+  r = scm_to_int (rcount);
+  scm_c_lock_port (port);
+  SCM_REVEALED (port) = r;
+  scm_c_unlock_port (port);
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+/* Set the revealed count for a port.  */
+SCM_DEFINE (scm_adjust_port_revealed_x, "adjust-port-revealed!", 2, 0, 0,
+           (SCM port, SCM addend),
+	    "Add @var{addend} to the revealed count of @var{port}.\n"
+	    "The return value is unspecified.")
+#define FUNC_NAME s_scm_set_port_revealed_x
+{
+  int a;
+  port = SCM_COERCE_OUTPORT (port);
+  SCM_VALIDATE_OPENPORT (1, port);
+  a = scm_to_int (addend);
+  scm_c_lock_port (port);
+  SCM_REVEALED (port) += a;
+  scm_c_unlock_port (port);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
