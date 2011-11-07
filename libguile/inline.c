@@ -25,3 +25,4 @@
 #include "libguile/inline.h"
 #include "libguile/gc.h"
 #include "libguile/smob.h"
+#include "libguile/ports.h"

@@ -48,6 +48,10 @@ typedef enum scm_t_port_rw_active {
 typedef struct 
 {
   SCM port;			/* Link back to the port object.  */
+#if SCM_USE_PTHREAD_THREADS
+  scm_i_pthread_mutex_t lock;   /* A recursive lock for this port.  */
+#endif
+
   int revealed;			/* 0 not revealed, > 1 revealed.
 				 * Revealed ports do not get GC'd.
 				 */
@@ -258,6 +262,42 @@ scm_c_make_port_with_encoding (scm_t_bits tag,
                                scm_t_bits stream);
 SCM_API SCM scm_c_make_port (scm_t_bits tag, unsigned long mode_bits,
                              scm_t_bits stream);
+
+SCM_INLINE int scm_c_lock_port (scm_t_port *entry);
+SCM_INLINE int scm_c_try_lock_port (scm_t_port *entry);
+SCM_INLINE int scm_c_unlock_port (scm_t_port *entry);
+
+#if SCM_CAN_INLINE || defined SCM_INLINE_C_IMPLEMENTING_INLINES
+SCM_INLINE_IMPLEMENTATION int
+scm_c_lock_port (scm_t_port *entry)
+{
+#if SCM_USE_PTHREAD_THREADS
+  return scm_i_pthread_mutex_lock (&entry->lock);
+#else
+  return 0;
+#endif
+}
+
+SCM_INLINE_IMPLEMENTATION int
+scm_c_try_lock_port (scm_t_port *entry)
+{
+#if SCM_USE_PTHREAD_THREADS
+  return scm_i_pthread_mutex_trylock (&entry->lock);
+#else
+  return 0;
+#endif
+}
+
+SCM_INLINE_IMPLEMENTATION int
+scm_c_unlock_port (scm_t_port *entry)
+{
+#if SCM_USE_PTHREAD_THREADS
+  return scm_i_pthread_mutex_unlock (&entry->lock);
+#else
+  return 0;
+#endif
+}
+#endif
 
 SCM_API SCM scm_new_port_table_entry (scm_t_bits tag);
 SCM_API void scm_grow_port_cbuf (SCM port, size_t requested);

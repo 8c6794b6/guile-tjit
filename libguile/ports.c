@@ -590,6 +590,10 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   entry = (scm_t_port *) scm_gc_calloc (sizeof (scm_t_port), "port");
   ret = scm_cell (tag | mode_bits, (scm_t_bits)entry);
 
+#if SCM_USE_PTHREAD_THREADS
+  scm_i_pthread_mutex_init (&entry->lock, scm_i_pthread_mutexattr_recursive);
+#endif
+
   entry->file_name = SCM_BOOL_F;
   entry->rw_active = SCM_PORT_NEITHER;
   entry->port = ret;
