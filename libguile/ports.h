@@ -217,6 +217,7 @@ SCM_API long scm_numptob;
 
 
 
+/* Port types, and their vtables.  */
 SCM_API scm_t_bits scm_make_port_type (char *name,
 				       int (*fill_input) (SCM port),
 				       void (*write) (SCM port, 
@@ -244,6 +245,8 @@ SCM_API void scm_set_port_truncate (scm_t_bits tc,
 				    void (*truncate) (SCM port,
 						      scm_t_off length));
 SCM_API void scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM));
+
+/* The input, output, error, and load ports.  */
 SCM_API SCM scm_current_input_port (void);
 SCM_API SCM scm_current_output_port (void);
 SCM_API SCM scm_current_error_port (void);
@@ -254,7 +257,14 @@ SCM_API SCM scm_set_current_error_port (SCM port);
 SCM_API void scm_dynwind_current_input_port (SCM port);
 SCM_API void scm_dynwind_current_output_port (SCM port);
 SCM_API void scm_dynwind_current_error_port (SCM port);
+SCM_INTERNAL void scm_i_dynwind_current_load_port (SCM port);
 
+/* Mode bits.  */
+SCM_INTERNAL long scm_i_mode_bits (SCM modes);
+SCM_API long scm_mode_bits (char *modes);
+SCM_API SCM scm_port_mode (SCM port);
+
+/* Low-level constructors.  */
 SCM_API SCM
 scm_c_make_port_with_encoding (scm_t_bits tag,
                                unsigned long mode_bits,
@@ -265,59 +275,20 @@ SCM_API SCM scm_c_make_port (scm_t_bits tag, unsigned long mode_bits,
                              scm_t_bits stream);
 SCM_API SCM scm_new_port_table_entry (scm_t_bits tag);
 
-SCM_INLINE int scm_c_lock_port (scm_t_port *entry);
-SCM_INLINE int scm_c_try_lock_port (scm_t_port *entry);
-SCM_INLINE int scm_c_unlock_port (scm_t_port *entry);
-
-SCM_API SCM scm_char_ready_p (SCM port);
-size_t scm_take_from_input_buffers (SCM port, char *dest, size_t read_len);
-SCM_API SCM scm_drain_input (SCM port);
-SCM_API void scm_port_non_buffer (scm_t_port *pt);
-SCM_API int scm_revealed_count (SCM port);
-SCM_API SCM scm_port_revealed (SCM port);
-SCM_API SCM scm_set_port_revealed_x (SCM port, SCM rcount);
-SCM_API long scm_mode_bits (char *modes);
-SCM_API SCM scm_port_mode (SCM port);
-SCM_API SCM scm_close_input_port (SCM port);
-SCM_API SCM scm_close_output_port (SCM port);
-SCM_API SCM scm_close_port (SCM port);
-SCM_API SCM scm_port_for_each (SCM proc);
-SCM_API void scm_c_port_for_each (void (*proc)(void *data, SCM p), void *data);
+/* Predicates.  */
+SCM_API SCM scm_port_p (SCM x);
 SCM_API SCM scm_input_port_p (SCM x);
 SCM_API SCM scm_output_port_p (SCM x);
-SCM_API SCM scm_port_p (SCM x);
 SCM_API SCM scm_port_closed_p (SCM port);
 SCM_API SCM scm_eof_object_p (SCM x);
-SCM_API SCM scm_force_output (SCM port);
-SCM_API SCM scm_flush_all_ports (void);
-SCM_API SCM scm_read_char (SCM port);
-SCM_API scm_t_wchar scm_getc (SCM port);
-SCM_INLINE int scm_get_byte_or_eof (SCM port);
-SCM_INLINE int scm_peek_byte_or_eof (SCM port);
-SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
-SCM_INLINE void scm_putc (char c, SCM port);
-SCM_INLINE void scm_puts (const char *str_data, SCM port);
-SCM_API void scm_c_write (SCM port, const void *buffer, size_t size);
-SCM_API void scm_lfwrite (const char *ptr, size_t size, SCM port);
-SCM_INTERNAL void scm_lfwrite_substr (SCM str, size_t start, size_t end,
-				      SCM port);
-SCM_API void scm_flush (SCM port);
-SCM_API void scm_end_input (SCM port);
-SCM_API int scm_fill_input (SCM port);
-SCM_INTERNAL void scm_unget_byte (int c, SCM port); 
-SCM_API void scm_ungetc (scm_t_wchar c, SCM port);
-SCM_API void scm_ungets (const char *s, int n, SCM port);
-SCM_API SCM scm_peek_char (SCM port);
-SCM_API SCM scm_unread_char (SCM cobj, SCM port);
-SCM_API SCM scm_unread_string (SCM str, SCM port);
-SCM_API SCM scm_seek (SCM object, SCM offset, SCM whence);
-SCM_API SCM scm_truncate_file (SCM object, SCM length);
-SCM_API SCM scm_port_line (SCM port);
-SCM_API SCM scm_set_port_line_x (SCM port, SCM line);
-SCM_API SCM scm_port_column (SCM port);
-SCM_API SCM scm_set_port_column_x (SCM port, SCM line);
-SCM_API SCM scm_port_filename (SCM port);
-SCM_API SCM scm_set_port_filename_x (SCM port, SCM filename);
+
+/* Closing ports.  */
+SCM_API SCM scm_close_port (SCM port);
+SCM_API SCM scm_close_input_port (SCM port);
+SCM_API SCM scm_close_output_port (SCM port);
+
+/* Encoding characters to byte streams, and decoding byte streams to
+   characters.  */
 SCM_INTERNAL const char *scm_i_default_port_encoding (void);
 SCM_INTERNAL void scm_i_set_default_port_encoding (const char *);
 SCM_INTERNAL void scm_i_set_port_encoding_x (SCM port, const char *str);
@@ -328,16 +299,75 @@ SCM_INTERNAL void scm_i_set_conversion_strategy_x (SCM port,
 						   scm_t_string_failed_conversion_handler h);
 SCM_API SCM scm_port_conversion_strategy (SCM port);
 SCM_API SCM scm_set_port_conversion_strategy_x (SCM port, SCM behavior);
+
+/* Acquiring and releasing the port lock.  */
+SCM_INLINE int scm_c_lock_port (scm_t_port *entry);
+SCM_INLINE int scm_c_try_lock_port (scm_t_port *entry);
+SCM_INLINE int scm_c_unlock_port (scm_t_port *entry);
+
+/* Meta.  */
+SCM_API int scm_revealed_count (SCM port);
+SCM_API SCM scm_port_revealed (SCM port);
+SCM_API SCM scm_set_port_revealed_x (SCM port, SCM rcount);
+
+/* Input.  */
+SCM_INLINE int scm_get_byte_or_eof (SCM port);
+SCM_INLINE int scm_peek_byte_or_eof (SCM port);
+SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
+SCM_API scm_t_wchar scm_getc (SCM port);
+SCM_API SCM scm_peek_char (SCM port);
+SCM_API SCM scm_read_char (SCM port);
+
+/* Pushback.  */
+SCM_INTERNAL void scm_unget_byte (int c, SCM port); 
+SCM_API void scm_ungetc (scm_t_wchar c, SCM port);
+SCM_API void scm_ungets (const char *s, int n, SCM port);
+SCM_API SCM scm_unread_char (SCM cobj, SCM port);
+SCM_API SCM scm_unread_string (SCM str, SCM port);
+
+/* Manipulating the buffers.  */
+SCM_API void scm_port_non_buffer (scm_t_port *pt);
+SCM_API int scm_fill_input (SCM port);
+SCM_INTERNAL size_t scm_take_from_input_buffers (SCM port, char *dest, size_t read_len);
+SCM_API SCM scm_drain_input (SCM port);
+SCM_API void scm_end_input (SCM port);
+SCM_API SCM scm_force_output (SCM port);
+SCM_API void scm_flush (SCM port);
+
+/* Output.  */
+SCM_INLINE void scm_putc (char c, SCM port);
+SCM_INLINE void scm_puts (const char *str_data, SCM port);
+SCM_API void scm_c_write (SCM port, const void *buffer, size_t size);
+SCM_API void scm_lfwrite (const char *ptr, size_t size, SCM port);
+SCM_INTERNAL void scm_lfwrite_substr (SCM str, size_t start, size_t end,
+				      SCM port);
+
+/* Querying and setting positions, and character availability.  */
+SCM_API SCM scm_char_ready_p (SCM port);
+SCM_API SCM scm_seek (SCM object, SCM offset, SCM whence);
+SCM_API SCM scm_truncate_file (SCM object, SCM length);
+SCM_API SCM scm_port_line (SCM port);
+SCM_API SCM scm_set_port_line_x (SCM port, SCM line);
+SCM_API SCM scm_port_column (SCM port);
+SCM_API SCM scm_set_port_column_x (SCM port, SCM line);
+SCM_API SCM scm_port_filename (SCM port);
+SCM_API SCM scm_set_port_filename_x (SCM port, SCM filename);
+
+/* Implementation helpers for port printing functions.  */
 SCM_API int scm_port_print (SCM exp, SCM port, scm_print_state *);
 SCM_API void scm_print_port_mode (SCM exp, SCM port);
+
+/* Iterating over all ports.  */
+SCM_API SCM scm_port_for_each (SCM proc);
+SCM_API void scm_c_port_for_each (void (*proc)(void *data, SCM p), void *data);
+SCM_API SCM scm_flush_all_ports (void);
+
+/* Void ports.  */
 SCM_API SCM scm_void_port (char * mode_str);
 SCM_API SCM scm_sys_make_void_port (SCM mode);
+
+/* Initialization.  */
 SCM_INTERNAL void scm_init_ports (void);
-
-/* internal */
-
-SCM_INTERNAL long scm_i_mode_bits (SCM modes);
-SCM_INTERNAL void scm_i_dynwind_current_load_port (SCM port);
 
 
 /* Inline function implementations.  */
