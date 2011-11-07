@@ -738,55 +738,76 @@
       ;; reference to a top-level definition created during a previous
       ;; macroexpansion.
       ;;
+      ;; For lexical variables, finding a label simply amounts to
+      ;; looking for an entry with the same symbolic name and the same
+      ;; marks.  Finding a toplevel definition is the same, except we
+      ;; also have to compare modules, hence the `mod' parameter.
+      ;; Instead of adding a separate entry in the ribcage for modules,
+      ;; which wouldn't be used for lexicals, we arrange for the entry
+      ;; for the name entry to be a pair with the module in its car, and
+      ;; the name itself in the cdr.  So if the name that we find is a
+      ;; pair, we have to check modules.
+      ;;
       ;; The identifer may be passed in wrapped or unwrapped.  In any
       ;; case, this routine returns either a symbol, a syntax object, or
       ;; a string label.
       ;;
-      (lambda (id w)
+      (lambda (id w mod)
         (define-syntax-rule (first e)
           ;; Rely on Guile's multiple-values truncation.
           e)
         (define search
-          (lambda (sym subst marks)
+          (lambda (sym subst marks mod)
             (if (null? subst)
                 (values #f marks)
                 (let ((fst (car subst)))
                   (if (eq? fst 'shift)
-                      (search sym (cdr subst) (cdr marks))
+                      (search sym (cdr subst) (cdr marks) mod)
                       (let ((symnames (ribcage-symnames fst)))
                         (if (vector? symnames)
-                            (search-vector-rib sym subst marks symnames fst)
-                            (search-list-rib sym subst marks symnames fst))))))))
+                            (search-vector-rib sym subst marks symnames fst mod)
+                            (search-list-rib sym subst marks symnames fst mod))))))))
         (define search-list-rib
-          (lambda (sym subst marks symnames ribcage)
+          (lambda (sym subst marks symnames ribcage mod)
             (let f ((symnames symnames) (i 0))
               (cond
-               ((null? symnames) (search sym (cdr subst) marks))
+               ((null? symnames) (search sym (cdr subst) marks mod))
                ((and (eq? (car symnames) sym)
                      (same-marks? marks (list-ref (ribcage-marks ribcage) i)))
-                (values (list-ref (ribcage-labels ribcage) i) marks))
+                (let ((n (list-ref (ribcage-labels ribcage) i)))
+                  (if (pair? n)
+                      (if (equal? mod (car n))
+                          (values (cdr n) marks)
+                          (f (cdr symnames) (fx+ i 1)))
+                      (values n marks))))
                (else (f (cdr symnames) (fx+ i 1)))))))
         (define search-vector-rib
-          (lambda (sym subst marks symnames ribcage)
+          (lambda (sym subst marks symnames ribcage mod)
             (let ((n (vector-length symnames)))
               (let f ((i 0))
                 (cond
-                 ((fx= i n) (search sym (cdr subst) marks))
+                 ((fx= i n) (search sym (cdr subst) marks mod))
                  ((and (eq? (vector-ref symnames i) sym)
                        (same-marks? marks (vector-ref (ribcage-marks ribcage) i)))
-                  (values (vector-ref (ribcage-labels ribcage) i) marks))
+                  (let ((n (vector-ref (ribcage-labels ribcage) i)))
+                    (if (pair? n)
+                        (if (equal? mod (car n))
+                            (values (cdr n) marks)
+                            (f (fx+ i 1)))
+                        (values n marks))))
                  (else (f (fx+ i 1))))))))
         (cond
          ((symbol? id)
-          (or (first (search id (wrap-subst w) (wrap-marks w))) id))
+          (or (first (search id (wrap-subst w) (wrap-marks w) mod)) id))
          ((syntax-object? id)
           (let ((id (syntax-object-expression id))
-                (w1 (syntax-object-wrap id)))
+                (w1 (syntax-object-wrap id))
+                (mod (syntax-object-module id)))
             (let ((marks (join-marks (wrap-marks w) (wrap-marks w1))))
-              (call-with-values (lambda () (search id (wrap-subst w) marks))
+              (call-with-values (lambda () (search id (wrap-subst w) marks mod))
                 (lambda (new-id marks)
                   (or new-id
-                      (first (search id (wrap-subst w1) marks))
+                      (first (search id (wrap-subst w1) marks mod))
                       id))))))
          (else (syntax-violation 'id-var-name "invalid id" id)))))
 
@@ -811,7 +832,7 @@
                   (or (assq-ref r label)
                       (make-binding 'displaced-lexical)))))
           (values (binding-type b) (binding-value b) mod)))
-      (let ((n (id-var-name id w)))
+      (let ((n (id-var-name id w mod)))
         (cond
          ((syntax-object? n)
           ;; Recursing allows syntax-parameterize to override
@@ -833,18 +854,19 @@
 
     (define free-id=?
       (lambda (i j)
-        (let ((ni (id-var-name i empty-wrap))
-              (nj (id-var-name j empty-wrap)))
-          (define (id-module-binding id)
-            (let ((mod (and (syntax-object? id) (syntax-object-module id))))
-              (module-variable
-               (if mod
-                   ;; The normal case.
-                   (resolve-module (cdr mod))
-                   ;; Either modules have not been booted, or we have a
-                   ;; raw symbol coming in, which is possible.
-                   (current-module))
-               (id-sym-name id))))
+        (let* ((mi (and (syntax-object? i) (syntax-object-module i)))
+               (mj (and (syntax-object? j) (syntax-object-module j)))
+               (ni (id-var-name i empty-wrap mi))
+               (nj (id-var-name j empty-wrap mj)))
+          (define (id-module-binding id mod)
+            (module-variable
+             (if mod
+                 ;; The normal case.
+                 (resolve-module (cdr mod))
+                 ;; Either modules have not been booted, or we have a
+                 ;; raw symbol coming in, which is possible.
+                 (current-module))
+             (id-sym-name id)))
           (cond
            ((syntax-object? ni) (free-id=? ni j))
            ((syntax-object? nj) (free-id=? i nj))
@@ -854,12 +876,12 @@
             ;; bound to the same variable, or both unbound and have
             ;; the same name.
             (and (eq? nj (id-sym-name j))
-                 (let ((bi (id-module-binding i)))
+                 (let ((bi (id-module-binding i mi)))
                    (if bi
-                       (eq? bi (id-module-binding j))
-                       (and (not (id-module-binding j))
+                       (eq? bi (id-module-binding j mj))
+                       (and (not (id-module-binding j mj))
                             (eq? ni nj))))
-                 (eq? (id-module-binding i) (id-module-binding j))))
+                 (eq? (id-module-binding i mi) (id-module-binding j mj))))
            (else
             ;; Otherwise `i' is bound, so check that `j' is bound, and
             ;; bound to the same thing.
@@ -960,7 +982,15 @@
                (w (make-wrap (wrap-marks w) (cons ribcage (wrap-subst w)))))
           (define (record-definition! id var)
             (let ((mod (cons 'hygiene (module-name (current-module)))))
-              (extend-ribcage! ribcage id (wrap var top-wrap mod))))
+              ;; Ribcages map symbol+marks to names, mostly for
+              ;; resolving lexicals.  Here to add a mapping for toplevel
+              ;; definitions we also need to match the module.  So, we
+              ;; put it in the name instead, and make id-var-name handle
+              ;; the special case of names that are pairs.  See the
+              ;; comments in id-var-name for more.
+              (extend-ribcage! ribcage id
+                               (cons (syntax-object-module id)
+                                     (wrap var top-wrap mod)))))
           (define (parse body r w s m esew mod)
             (let lp ((body body) (exps '()))
               (if (null? body)
