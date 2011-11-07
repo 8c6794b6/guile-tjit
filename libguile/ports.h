@@ -267,15 +267,12 @@ scm_c_make_port_with_encoding (scm_t_bits tag,
                                scm_t_bits stream);
 SCM_API SCM scm_c_make_port (scm_t_bits tag, unsigned long mode_bits,
                              scm_t_bits stream);
+SCM_API SCM scm_new_port_table_entry (scm_t_bits tag);
 
 SCM_INLINE int scm_c_lock_port (scm_t_port *entry);
 SCM_INLINE int scm_c_try_lock_port (scm_t_port *entry);
 SCM_INLINE int scm_c_unlock_port (scm_t_port *entry);
 
-SCM_API SCM scm_new_port_table_entry (scm_t_bits tag);
-SCM_API void scm_grow_port_cbuf (SCM port, size_t requested);
-SCM_API SCM scm_pt_size (void);
-SCM_API SCM scm_pt_member (SCM member);
 SCM_API void scm_port_non_buffer (scm_t_port *pt);
 SCM_API int scm_revealed_count (SCM port);
 SCM_API SCM scm_port_revealed (SCM port);
@@ -337,11 +334,6 @@ SCM_API void scm_print_port_mode (SCM exp, SCM port);
 SCM_API SCM scm_void_port (char * mode_str);
 SCM_API SCM scm_sys_make_void_port (SCM mode);
 SCM_INTERNAL void scm_init_ports (void);
-
-#ifdef GUILE_DEBUG
-SCM_API SCM scm_pt_size (void);
-SCM_API SCM scm_pt_member (SCM member);
-#endif /* GUILE_DEBUG */
 
 /* internal */
 
