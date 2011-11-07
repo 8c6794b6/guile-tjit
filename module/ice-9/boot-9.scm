@@ -1576,7 +1576,7 @@ VALUE."
     ((define-record-type
        (lambda (x)
          (define (make-id scope . fragments)
-           (datum->syntax #'scope
+           (datum->syntax scope
                           (apply symbol-append
                                  (map (lambda (x)
                                         (if (symbol? x) x (syntax->datum x)))
