@@ -795,7 +795,24 @@
     (pass-if-syntax-error "(define)"
       exception:generic-syncase-error
       (eval '(define)
-	    (interaction-environment)))))
+	    (interaction-environment))))
+
+  (pass-if "module scoping"
+    (equal?
+     (eval
+      '(begin
+         (define-module (top-level-define/module-scoping-1)
+           #:export (define-10))
+         (define-syntax-rule (define-10 name)
+           (begin
+             (define t 10)
+             (define (name) t)))
+         (define-module (top-level-define/module-scoping-2)
+           #:use-module (top-level-define/module-scoping-1))
+         (define-10 foo)
+         (foo))
+      (current-module))
+     10)))
 
 (with-test-prefix "internal define"
 
