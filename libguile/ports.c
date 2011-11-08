@@ -1098,6 +1098,32 @@ SCM_DEFINE (scm_set_port_conversion_strategy_x, "set-port-conversion-strategy!",
 
 
 
+/* The port lock.  */
+
+static void
+lock_port (SCM port)
+{
+  scm_c_lock_port (port);
+}
+
+static void
+unlock_port (SCM port)
+{
+  scm_c_unlock_port (port);
+}
+
+void
+scm_dynwind_lock_port (SCM port)
+{
+  scm_dynwind_unwind_handler_with_scm (unlock_port, port,
+                                       SCM_F_WIND_EXPLICITLY);
+  scm_dynwind_rewind_handler_with_scm (lock_port, port,
+                                       SCM_F_WIND_EXPLICITLY);
+}
+
+
+
+
 /* Revealed counts --- an oddity inherited from SCSH.  */
 
 /* Find a port in the table and return its revealed count.

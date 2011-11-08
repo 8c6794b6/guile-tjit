@@ -294,6 +294,7 @@ SCM_API SCM scm_port_conversion_strategy (SCM port);
 SCM_API SCM scm_set_port_conversion_strategy_x (SCM port, SCM behavior);
 
 /* Acquiring and releasing the port lock.  */
+SCM_API void scm_dynwind_lock_port (SCM port);
 SCM_INLINE int scm_c_lock_port (SCM port);
 SCM_INLINE int scm_c_try_lock_port (SCM port);
 SCM_INLINE int scm_c_unlock_port (SCM port);
