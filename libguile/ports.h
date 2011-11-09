@@ -385,7 +385,7 @@ SCM_INTERNAL void scm_init_ports (void);
 SCM_INLINE_IMPLEMENTATION int
 scm_c_lock_port (SCM port)
 {
-#if SCM_USE_PTHREAD_THREADS
+#if 0 && SCM_USE_PTHREAD_THREADS
   return scm_i_pthread_mutex_lock (&SCM_PTAB_ENTRY (port)->lock);
 #else
   return 0;
@@ -395,7 +395,7 @@ scm_c_lock_port (SCM port)
 SCM_INLINE_IMPLEMENTATION int
 scm_c_try_lock_port (SCM port)
 {
-#if SCM_USE_PTHREAD_THREADS
+#if 0 && SCM_USE_PTHREAD_THREADS
   return scm_i_pthread_mutex_trylock (&SCM_PTAB_ENTRY (port)->lock);
 #else
   return 0;
@@ -405,7 +405,7 @@ scm_c_try_lock_port (SCM port)
 SCM_INLINE_IMPLEMENTATION int
 scm_c_unlock_port (SCM port)
 {
-#if SCM_USE_PTHREAD_THREADS
+#if 0 && SCM_USE_PTHREAD_THREADS
   return scm_i_pthread_mutex_unlock (&SCM_PTAB_ENTRY (port)->lock);
 #else
   return 0;
