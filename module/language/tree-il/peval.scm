@@ -523,16 +523,18 @@ top-level bindings from ENV and return the resulting expression."
            (and tail (make-seq src head tail)))))))
 
   (define (constant-expression? x)
-    ;; Return true if X is constant---i.e., if it is known to have no
-    ;; effects, does not allocate storage for a mutable object, and does
-    ;; not access mutable data (like `car' or toplevel references).
+    ;; Return true if X is constant, for the purposes of copying or
+    ;; elision---i.e., if it is known to have no effects, does not
+    ;; allocate storage for a mutable object, and does not access
+    ;; mutable data (like `car' or toplevel references).
     (let loop ((x x))
       (match x
         (($ <void>) #t)
         (($ <const>) #t)
         (($ <lambda>) #t)
-        (($ <lambda-case> _ req opt rest kw inits _ body alternate)
-         (and (every loop inits) (loop body)
+        (($ <lambda-case> _ req opt rest kw inits syms body alternate)
+         (and (not (any assigned-lexical? syms))
+              (every loop inits) (loop body)
               (or (not alternate) (loop alternate))))
         (($ <lexical-ref> _ _ gensym)
          (not (assigned-lexical? gensym)))
@@ -550,10 +552,12 @@ top-level bindings from ENV and return the resulting expression."
          (and (loop body) (every loop args)))
         (($ <seq> _ head tail)
          (and (loop head) (loop tail)))
-        (($ <let> _ _ _ vals body)
-         (and (every loop vals) (loop body)))
-        (($ <letrec> _ _ _ _ vals body)
-         (and (every loop vals) (loop body)))
+        (($ <let> _ _ syms vals body)
+         (and (not (any assigned-lexical? syms))
+              (every loop vals) (loop body)))
+        (($ <letrec> _ _ _ syms vals body)
+         (and (not (any assigned-lexical? syms))
+              (every loop vals) (loop body)))
         (($ <fix> _ _ _ vals body)
          (and (every loop vals) (loop body)))
         (($ <let-values> _ exp body)
@@ -824,8 +828,10 @@ top-level bindings from ENV and return the resulting expression."
                  (ops (make-bound-operands vars new vals visit))
                  (env* (fold extend-env env gensyms ops))
                  (body* (visit body counter ctx)))
-         (if (and (const? body*)
-                  (every constant-expression? vals))
+         (if (and (const? body*) (every constant-expression? vals))
+             ;; We may have folded a loop completely, even though there
+             ;; might be cyclical references between the bound values.
+             ;; Handle this degenerate case specially.
              body*
              (prune-bindings ops in-order? body* counter ctx
                              (lambda (names gensyms vals body)
@@ -858,8 +864,39 @@ top-level bindings from ENV and return the resulting expression."
                (_ #f))
              (make-let-values lv-src producer (for-tail consumer)))))
       (($ <dynwind> src winder body unwinder)
-       (make-dynwind src (for-value winder) (for-tail body)
-                     (for-value unwinder)))
+       (let ((pre (for-value winder))
+             (body (for-tail body))
+             (post (for-value unwinder)))
+         (cond
+          ((not (constant-expression? pre))
+           (cond
+            ((not (constant-expression? post))
+             (let ((pre-sym (gensym "pre ")) (post-sym (gensym "post ")))
+               (record-new-temporary! 'pre pre-sym 1)
+               (record-new-temporary! 'post post-sym 1)
+               (make-let src '(pre post) (list pre-sym post-sym) (list pre post)
+                         (make-dynwind src
+                                       (make-lexical-ref #f 'pre pre-sym)
+                                       body
+                                       (make-lexical-ref #f 'post post-sym)))))
+            (else
+             (let ((pre-sym (gensym "pre ")))
+               (record-new-temporary! 'pre pre-sym 1)
+               (make-let src '(pre) (list pre-sym) (list pre)
+                         (make-dynwind src
+                                       (make-lexical-ref #f 'pre pre-sym)
+                                       body
+                                       post))))))
+          ((not (constant-expression? post))
+           (let ((post-sym (gensym "post ")))
+             (record-new-temporary! 'post post-sym 1)
+             (make-let src '(post) (list post-sym) (list post)
+                       (make-dynwind src
+                                     pre
+                                     body
+                                     (make-lexical-ref #f 'post post-sym)))))
+          (else
+           (make-dynwind src pre body post)))))
       (($ <dynlet> src fluids vals body)
        (make-dynlet src (map for-value fluids) (map for-value vals)
                     (for-tail body)))
