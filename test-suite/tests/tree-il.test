@@ -1464,8 +1464,12 @@
   (pass-if-peval
    ;; Non-constant guards get lexical bindings.
    (dynamic-wind foo (lambda () bar) baz)
-   (let (pre post) (_ _) ((toplevel foo) (toplevel baz))
-        (dynwind (lexical pre _) (toplevel bar) (lexical post _))))
+   (let (w u) (_ _) ((toplevel foo) (toplevel baz))
+        (dynwind (lexical w _)
+                 (call (lexical w _))
+                 (toplevel bar)
+                 (call (lexical u _))
+                 (lexical u _))))
   
   (pass-if-peval
    ;; Constant guards don't need lexical bindings.
@@ -1474,7 +1478,9 @@
     (lambda ()
       (lambda-case
        ((() #f #f #f () ()) (toplevel foo))))
+    (toplevel foo)
     (toplevel bar)
+    (toplevel baz)
     (lambda ()
       (lambda-case
        ((() #f #f #f () ()) (toplevel baz))))))

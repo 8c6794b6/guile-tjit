@@ -46,7 +46,7 @@
             <letrec> letrec? make-letrec letrec-src letrec-in-order? letrec-names letrec-gensyms letrec-vals letrec-body
             <fix> fix? make-fix fix-src fix-names fix-gensyms fix-vals fix-body
             <let-values> let-values? make-let-values let-values-src let-values-exp let-values-body
-            <dynwind> dynwind? make-dynwind dynwind-src dynwind-winder dynwind-body dynwind-unwinder
+            <dynwind> dynwind? make-dynwind dynwind-src dynwind-winder dynwind-pre dynwind-body dynwind-post dynwind-unwinder
             <dynlet> dynlet? make-dynlet dynlet-src dynlet-fluids dynlet-vals dynlet-body
             <dynref> dynref? make-dynref dynref-src dynref-fluid
             <dynset> dynset? make-dynset dynset-src dynset-fluid dynset-exp
@@ -133,7 +133,7 @@
 (define-type (<tree-il> #:common-slots (src) #:printer print-tree-il)
   (<fix> names gensyms vals body)
   (<let-values> exp body)
-  (<dynwind> winder body unwinder)
+  (<dynwind> winder pre body post unwinder)
   (<dynref> fluid)
   (<dynset> fluid exp)
   (<prompt> tag body handler)
@@ -246,8 +246,10 @@
      ((let-values ,exp ,body)
       (make-let-values loc (retrans exp) (retrans body)))
 
-     ((dynwind ,winder ,body ,unwinder)
-      (make-dynwind loc (retrans winder) (retrans body) (retrans unwinder)))
+     ((dynwind ,winder ,pre ,body ,post ,unwinder)
+      (make-dynwind loc (retrans winder) (retrans pre)
+                    (retrans body)
+                    (retrans post) (retrans unwinder)))
 
      ((dynlet ,fluids ,vals ,body)
       (make-dynlet loc (map retrans fluids) (map retrans vals) (retrans body)))
@@ -332,9 +334,10 @@
     ((<let-values> exp body)
      `(let-values ,(unparse-tree-il exp) ,(unparse-tree-il body)))
 
-    ((<dynwind> winder body unwinder)
-     `(dynwind ,(unparse-tree-il winder) ,(unparse-tree-il body)
-               ,(unparse-tree-il unwinder)))
+    ((<dynwind> winder pre body post unwinder)
+     `(dynwind ,(unparse-tree-il winder) ,(unparse-tree-il pre)
+               ,(unparse-tree-il body)
+               ,(unparse-tree-il post) ,(unparse-tree-il unwinder)))
 
     ((<dynlet> fluids vals body)
      `(dynlet ,(map unparse-tree-il fluids) ,(map unparse-tree-il vals)
@@ -484,7 +487,7 @@
      `(call-with-values (lambda () ,(tree-il->scheme exp))
         ,(tree-il->scheme (make-lambda #f '() body))))
 
-    ((<dynwind> body winder unwinder)
+    ((<dynwind> winder body unwinder)
      `(dynamic-wind ,(tree-il->scheme winder)
                     (lambda () ,(tree-il->scheme body))
                     ,(tree-il->scheme unwinder)))
@@ -566,10 +569,13 @@ This is an implementation of `foldts' as described by Andy Wingo in
                                 (down tree result)))))
           ((<let-values> exp body)
            (up tree (loop body (loop exp (down tree result)))))
-          ((<dynwind> body winder unwinder)
+          ((<dynwind> winder pre body post unwinder)
            (up tree (loop unwinder
-                          (loop winder
-                                (loop body (down tree result))))))
+                      (loop post
+                        (loop body
+                          (loop pre
+                            (loop winder
+                              (down tree result))))))))
           ((<dynlet> fluids vals body)
            (up tree (loop body
                           (loop vals
@@ -640,9 +646,11 @@ This is an implementation of `foldts' as described by Andy Wingo in
               ((<let-values> exp body)
                (let*-values (((seed ...) (foldts exp seed ...)))
                  (foldts body seed ...)))
-              ((<dynwind> body winder unwinder)
-               (let*-values (((seed ...) (foldts body seed ...))
-                             ((seed ...) (foldts winder seed ...)))
+              ((<dynwind> winder pre body post unwinder)
+               (let*-values (((seed ...) (foldts winder seed ...))
+                             ((seed ...) (foldts pre seed ...))
+                             ((seed ...) (foldts body seed ...))
+                             ((seed ...) (foldts post seed ...)))
                  (foldts unwinder seed ...)))
               ((<dynlet> fluids vals body)
                (let*-values (((seed ...) (fold-values foldts fluids seed ...))
@@ -721,9 +729,11 @@ This is an implementation of `foldts' as described by Andy Wingo in
        (set! (let-values-exp x) (lp exp))
        (set! (let-values-body x) (lp body)))
 
-      ((<dynwind> body winder unwinder)
-       (set! (dynwind-body x) (lp body))
+      ((<dynwind> winder pre body post unwinder)
        (set! (dynwind-winder x) (lp winder))
+       (set! (dynwind-pre x) (lp pre))
+       (set! (dynwind-body x) (lp body))
+       (set! (dynwind-post x) (lp post))
        (set! (dynwind-unwinder x) (lp unwinder)))
 
       ((<dynlet> fluids vals body)
@@ -808,9 +818,11 @@ This is an implementation of `foldts' as described by Andy Wingo in
          (set! (let-values-exp x) (lp exp))
          (set! (let-values-body x) (lp body)))
 
-        ((<dynwind> body winder unwinder)
-         (set! (dynwind-body x) (lp body))
+        ((<dynwind> winder pre body post unwinder)
          (set! (dynwind-winder x) (lp winder))
+         (set! (dynwind-pre x) (lp pre))
+         (set! (dynwind-body x) (lp body))
+         (set! (dynwind-post x) (lp post))
          (set! (dynwind-unwinder x) (lp unwinder)))
 
         ((<dynlet> fluids vals body)

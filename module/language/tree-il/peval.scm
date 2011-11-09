@@ -510,10 +510,10 @@ top-level bindings from ENV and return the resulting expression."
                 (make-let-values src exp
                                  (make-lambda-case src2 req opt rest kw
                                                    inits gensyms body #f)))))
-        (($ <dynwind> src winder body unwinder)
+        (($ <dynwind> src winder pre body post unwinder)
          (let ((body (loop body)))
            (and body
-                (make-dynwind src winder body unwinder))))
+                (make-dynwind src winder pre body post unwinder))))
         (($ <dynlet> src fluids vals body)
          (let ((body (loop body)))
            (and body
@@ -863,40 +863,10 @@ top-level bindings from ENV and return the resulting expression."
                  (else #f)))
                (_ #f))
              (make-let-values lv-src producer (for-tail consumer)))))
-      (($ <dynwind> src winder body unwinder)
-       (let ((pre (for-value winder))
-             (body (for-tail body))
-             (post (for-value unwinder)))
-         (cond
-          ((not (constant-expression? pre))
-           (cond
-            ((not (constant-expression? post))
-             (let ((pre-sym (gensym "pre ")) (post-sym (gensym "post ")))
-               (record-new-temporary! 'pre pre-sym 1)
-               (record-new-temporary! 'post post-sym 1)
-               (make-let src '(pre post) (list pre-sym post-sym) (list pre post)
-                         (make-dynwind src
-                                       (make-lexical-ref #f 'pre pre-sym)
-                                       body
-                                       (make-lexical-ref #f 'post post-sym)))))
-            (else
-             (let ((pre-sym (gensym "pre ")))
-               (record-new-temporary! 'pre pre-sym 1)
-               (make-let src '(pre) (list pre-sym) (list pre)
-                         (make-dynwind src
-                                       (make-lexical-ref #f 'pre pre-sym)
-                                       body
-                                       post))))))
-          ((not (constant-expression? post))
-           (let ((post-sym (gensym "post ")))
-             (record-new-temporary! 'post post-sym 1)
-             (make-let src '(post) (list post-sym) (list post)
-                       (make-dynwind src
-                                     pre
-                                     body
-                                     (make-lexical-ref #f 'post post-sym)))))
-          (else
-           (make-dynwind src pre body post)))))
+      (($ <dynwind> src winder pre body post unwinder)
+       (make-dynwind src (for-value winder) (for-effect pre)
+                     (for-tail body)
+                     (for-effect post) (for-value unwinder)))
       (($ <dynlet> src fluids vals body)
        (make-dynlet src (map for-value fluids) (map for-value vals)
                     (for-tail body)))
@@ -949,6 +919,49 @@ top-level bindings from ENV and return the resulting expression."
                       _ req #f rest #f () gensyms body #f)))))
        (for-tail (make-let-values src (make-call src producer '())
                                   consumer)))
+
+      (($ <primcall> src 'dynamic-wind (w thunk u))
+       (for-tail
+        (cond
+         ((not (constant-expression? w))
+          (cond
+           ((not (constant-expression? u))
+            (let ((w-sym (gensym "w ")) (u-sym (gensym "u ")))
+              (record-new-temporary! 'w w-sym 2)
+              (record-new-temporary! 'u u-sym 2)
+              (make-let src '(w u) (list w-sym u-sym) (list w u)
+                        (make-dynwind
+                         src
+                         (make-lexical-ref #f 'w w-sym)
+                         (make-call #f (make-lexical-ref #f 'w w-sym) '())
+                         (make-call #f thunk '())
+                         (make-call #f (make-lexical-ref #f 'u u-sym) '())
+                         (make-lexical-ref #f 'u u-sym)))))
+           (else
+            (let ((w-sym (gensym "w ")))
+              (record-new-temporary! 'w w-sym 2)
+              (make-let src '(w) (list w-sym) (list w)
+                        (make-dynwind
+                         src
+                         (make-lexical-ref #f 'w w-sym)
+                         (make-call #f (make-lexical-ref #f 'w w-sym) '())
+                         (make-call #f thunk '())
+                         (make-call #f u '())
+                         u))))))
+         ((not (constant-expression? u))
+          (let ((u-sym (gensym "u ")))
+            (record-new-temporary! 'u u-sym 2)
+            (make-let src '(u) (list u-sym) (list u)
+                      (make-dynwind
+                       src
+                       w
+                       (make-call #f w '())
+                       (make-call #f thunk '())
+                       (make-call #f (make-lexical-ref #f 'u u-sym) '())
+                       (make-lexical-ref #f 'u u-sym)))))
+         (else
+          (make-dynwind src w (make-call #f w '()) (make-call #f thunk '())
+                        (make-call #f u '()) u)))))
 
       (($ <primcall> src (? constructor-primitive? name) args)
        (cond

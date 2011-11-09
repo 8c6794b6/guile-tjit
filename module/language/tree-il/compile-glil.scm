@@ -899,10 +899,10 @@
       ;; to have body's return value(s) on the stack while the unwinder runs,
       ;; then proceed with returning or dropping or what-have-you, interacting
       ;; with RA and MVRA. What have you, I say.
-      ((<dynwind> src body winder unwinder)
+      ((<dynwind> src winder pre body post unwinder)
        (comp-push winder)
        (comp-push unwinder)
-       (comp-drop (make-call src winder '()))
+       (comp-drop pre)
        (emit-code #f (make-glil-call 'wind 2))
 
        (case context
@@ -911,14 +911,14 @@
             (comp-vals body MV)
             ;; one value: unwind...
             (emit-code #f (make-glil-call 'unwind 0))
-            (comp-drop (make-call src unwinder '()))
+            (comp-drop post)
             ;; ...and return the val
             (emit-code #f (make-glil-call 'return 1))
             
             (emit-label MV)
             ;; multiple values: unwind...
             (emit-code #f (make-glil-call 'unwind 0))
-            (comp-drop (make-call src unwinder '()))
+            (comp-drop post)
             ;; and return the values.
             (emit-code #f (make-glil-call 'return/nvalues 1))))
          
@@ -927,7 +927,7 @@
           (comp-push body)
           ;; and unwind, leaving the val on the stack
           (emit-code #f (make-glil-call 'unwind 0))
-          (comp-drop (make-call src unwinder '())))
+          (comp-drop post))
          
          ((vals)
           (let ((MV (make-label)))
@@ -938,7 +938,7 @@
             (emit-label MV)
             ;; multiple values: unwind...
             (emit-code #f (make-glil-call 'unwind 0))
-            (comp-drop (make-call src unwinder '()))
+            (comp-drop post)
             ;; and goto the MVRA.
             (emit-branch #f 'br MVRA)))
          
@@ -946,7 +946,7 @@
           ;; compile body, discarding values. then unwind...
           (comp-drop body)
           (emit-code #f (make-glil-call 'unwind 0))
-          (comp-drop (make-call src unwinder '()))
+          (comp-drop post)
           ;; and fall through, or goto RA if there is one.
           (if RA
               (emit-branch #f 'br RA)))))

@@ -484,25 +484,6 @@
   (bytevector-ieee-double-native-set! vec (* i 8) x))
 
 (hashq-set! *primitive-expand-table*
-            'dynamic-wind
-            (case-lambda
-              ((src pre thunk post)
-               (let ((PRE (gensym " pre"))
-                     (THUNK (gensym " thunk"))
-                     (POST (gensym " post")))
-                 (make-let
-                  src
-                  '(pre thunk post)
-                  (list PRE THUNK POST)
-                  (list pre thunk post)
-                  (make-dynwind
-                   src
-                   (make-lexical-ref #f 'pre PRE)
-                   (make-call #f (make-lexical-ref #f 'thunk THUNK) '())
-                   (make-lexical-ref #f 'post POST)))))
-              (else #f)))
-
-(hashq-set! *primitive-expand-table*
             '@dynamic-wind
             (case-lambda
               ((src pre expr post)
@@ -516,7 +497,9 @@
                   (make-dynwind
                    src
                    (make-lexical-ref #f 'pre PRE)
+                   (make-call #f (make-lexical-ref #f 'pre PRE) '())
                    expr
+                   (make-call #f (make-lexical-ref #f 'post POST) '())
                    (make-lexical-ref #f 'post POST)))))))
 
 (hashq-set! *primitive-expand-table*
