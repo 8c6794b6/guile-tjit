@@ -240,6 +240,24 @@
           (if (eq? context 'tail)
               (emit-code #f (make-glil-call 'return 1)))))
     
+    ;; After lexical binding forms in non-tail context, call this
+    ;; function to clear stack slots, allowing their previous values to
+    ;; be collected.
+    (define (clear-stack-slots context syms)
+      (case context
+        ((push drop)
+         (for-each (lambda (v)
+                     (and=>
+                      ;; Can be #f if the var is labels-allocated.
+                      (hashq-ref allocation v)
+                      (lambda (h)
+                        (pmatch (hashq-ref h self)
+                          ((#t _ . ,n)
+                           (emit-code #f (make-glil-void))
+                           (emit-code #f (make-glil-lexical #t #f 'set n)))
+                          (,loc (error "bad let var allocation" x loc))))))
+                   syms))))
+
     (record-case x
       ((<void>)
        (case context
@@ -748,6 +766,7 @@
                      (,loc (error "bad let var allocation" x loc))))
                  (reverse gensyms))
        (comp-tail body)
+       (clear-stack-slots context gensyms)
        (emit-code #f (make-glil-unbind)))
 
       ((<letrec> src in-order? names gensyms vals body)
@@ -780,6 +799,7 @@
                        (,loc (error "bad letrec var allocation" x loc))))
                    (reverse gensyms))))
        (comp-tail body)
+       (clear-stack-slots context gensyms)
        (emit-code #f (make-glil-unbind)))
 
       ((<fix> src names gensyms vals body)
@@ -868,6 +888,7 @@
          (comp-tail body)
          (if new-RA
              (emit-label new-RA))
+         (clear-stack-slots context gensyms)
          (emit-code #f (make-glil-unbind))))
 
       ((<let-values> src exp body)
@@ -893,6 +914,7 @@
                           (,loc (error "bad let-values var allocation" x loc))))
                       (reverse gensyms))
             (comp-tail body)
+            (clear-stack-slots context gensyms)
             (emit-code #f (make-glil-unbind))))))
 
       ;; much trickier than i thought this would be, at first, due to the need
