@@ -325,7 +325,6 @@ SCM_API void scm_gc_register_root (SCM *p);
 SCM_API void scm_gc_unregister_root (SCM *p);
 SCM_API void scm_gc_register_roots (SCM *b, unsigned long n);
 SCM_API void scm_gc_unregister_roots (SCM *b, unsigned long n);
-SCM_API SCM scm_protects;
 SCM_INTERNAL void scm_storage_prehistory (void);
 SCM_INTERNAL void scm_init_gc_protect_object (void);
 SCM_INTERNAL void scm_init_gc (void);
