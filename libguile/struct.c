@@ -24,6 +24,8 @@
 #include <alloca.h>
 #include <assert.h>
 
+#define SCM_BUILDING_DEPRECATED_CODE
+
 #include "libguile/_scm.h"
 #include "libguile/async.h"
 #include "libguile/chars.h"
@@ -569,6 +571,7 @@ SCM_DEFINE (scm_make_struct, "make-struct", 2, 0, 1,
 
 
 
+#if SCM_ENABLE_DEPRECATED == 1
 SCM_DEFINE (scm_make_vtable_vtable, "make-vtable-vtable", 2, 0, 1,
             (SCM user_fields, SCM tail_array_size, SCM init),
 	    "Return a new, self-describing vtable structure.\n\n"
@@ -663,7 +666,38 @@ SCM_DEFINE (scm_make_vtable_vtable, "make-vtable-vtable", 2, 0, 1,
   return obj;
 }
 #undef FUNC_NAME
+#endif
 
+SCM
+scm_i_make_vtable_vtable (SCM user_fields)
+#define FUNC_NAME s_scm_make_vtable_vtable
+{
+  SCM fields, layout, obj;
+  size_t basic_size;
+  scm_t_bits v;
+
+  SCM_VALIDATE_STRING (1, user_fields);
+
+  fields = scm_string_append (scm_list_2 (required_vtable_fields,
+					  user_fields));
+  layout = scm_make_struct_layout (fields);
+  if (!scm_is_valid_vtable_layout (layout))
+    SCM_MISC_ERROR ("invalid user fields", scm_list_1 (user_fields));
+
+  basic_size = scm_i_symbol_length (layout) / 2;
+
+  obj = scm_i_alloc_struct (NULL, basic_size);
+  /* Make it so that the vtable of OBJ is itself.  */
+  SCM_SET_CELL_WORD_0 (obj, (scm_t_bits) SCM_STRUCT_DATA (obj) | scm_tc3_struct);
+
+  v = SCM_UNPACK (layout);
+  scm_struct_init (obj, layout, 0, 1, &v);
+  SCM_SET_VTABLE_FLAGS (obj,
+                        SCM_VTABLE_FLAG_VTABLE | SCM_VTABLE_FLAG_VALIDATED);
+
+  return obj;
+}
+#undef FUNC_NAME
 
 SCM_DEFINE (scm_make_vtable, "make-vtable", 1, 1, 0,
             (SCM fields, SCM printer),
@@ -1038,8 +1072,7 @@ scm_init_struct ()
   required_applicable_fields = scm_from_locale_string (SCM_APPLICABLE_BASE_LAYOUT);
   required_applicable_with_setter_fields = scm_from_locale_string (SCM_APPLICABLE_WITH_SETTER_BASE_LAYOUT);
 
-  scm_standard_vtable_vtable =
-    scm_make_vtable_vtable (scm_nullstr, SCM_INUM0, SCM_EOL);
+  scm_standard_vtable_vtable = scm_i_make_vtable_vtable (scm_nullstr);
   scm_c_define ("<standard-vtable>", scm_standard_vtable_vtable);
 
   scm_applicable_struct_vtable_vtable =
