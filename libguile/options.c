@@ -93,8 +93,6 @@
 SCM_SYMBOL (scm_yes_sym, "yes");
 SCM_SYMBOL (scm_no_sym, "no");
 
-static SCM protected_objects = SCM_EOL;
-
 /* Return a list of the current option setting.  The format of an
  * option setting is described in the above documentation.  */
 static SCM
@@ -177,16 +175,17 @@ change_option_setting (SCM args, scm_t_option options[], const char *s,
 		       int dry_run)
 {
   unsigned int i;
-  SCM locally_protected_args = args;
-  SCM malloc_obj = scm_malloc_obj (options_length (options) * sizeof (scm_t_bits));
-  scm_t_bits *flags = (scm_t_bits *) SCM_MALLOCDATA (malloc_obj);
+  scm_t_bits *new_vals;
+
+  new_vals = scm_gc_malloc (options_length (options) * sizeof (scm_t_bits),
+                            "new-options");
 
   for (i = 0; options[i].name; ++i)
     {
       if (options[i].type == SCM_OPTION_BOOLEAN)
-	flags[i] = 0;
+	new_vals[i] = 0;
       else
-	flags[i] = options[i].val;
+	new_vals[i] = options[i].val;
     }
 
   while (!SCM_NULL_OR_NIL_P (args))
@@ -201,15 +200,15 @@ change_option_setting (SCM args, scm_t_option options[], const char *s,
 	      switch (options[i].type)
 		{
 		case SCM_OPTION_BOOLEAN:
-		  flags[i] = 1;
+		  new_vals[i] = 1;
 		  break;
 		case SCM_OPTION_INTEGER:
 		  args = SCM_CDR (args);
-		  flags[i] = scm_to_size_t (scm_car (args));
+		  new_vals[i] = scm_to_size_t (scm_car (args));
 		  break;
 		case SCM_OPTION_SCM:
 		  args = SCM_CDR (args);
-		  flags[i] = SCM_UNPACK (scm_car (args));
+		  new_vals[i] = SCM_UNPACK (scm_car (args));
 		  break;
 		}
 	      found = 1;
@@ -226,20 +225,7 @@ change_option_setting (SCM args, scm_t_option options[], const char *s,
     return;
   
   for (i = 0; options[i].name; ++i)
-    {
-      if (options[i].type == SCM_OPTION_SCM)
-	{
-	  SCM old = SCM_PACK (options[i].val);
-	  SCM new = SCM_PACK (flags[i]);
-	  if (SCM_HEAP_OBJECT_P (old))
-	    protected_objects = scm_delq1_x (old, protected_objects);
-	  if (SCM_HEAP_OBJECT_P (new))
-	    protected_objects = scm_cons (new, protected_objects);
-	}
-      options[i].val = flags[i];
-    }
-
-  scm_remember_upto_here_2 (locally_protected_args, malloc_obj);
+    options[i].val = new_vals[i];
 }
 
 
@@ -288,8 +274,6 @@ scm_init_opts (SCM (*func) (SCM), scm_t_option options[])
 void
 scm_init_options ()
 {
-  scm_gc_register_root (&protected_objects);
-
 #include "libguile/options.x"
 }
 
