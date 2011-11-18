@@ -1529,8 +1529,6 @@ scm_init_print ()
 				 scm_from_latin1_symbol ("highlight-suffix"),
 				 scm_from_locale_string ("}")));
 
-  scm_gc_register_root (&print_state_pool);
-  scm_gc_register_root (&scm_print_state_vtable);
   type = scm_make_vtable (scm_from_locale_string (SCM_PRINT_STATE_LAYOUT),
                           SCM_BOOL_F);
   scm_set_struct_vtable_name_x (type, scm_from_latin1_symbol ("print-state"));
