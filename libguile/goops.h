@@ -98,8 +98,7 @@
 #define scm_si_cpl		 (scm_vtable_offset_user + 13) /* (class ...) */
 #define scm_si_slotdef_class	 (scm_vtable_offset_user + 14)
 #define scm_si_slots		 (scm_vtable_offset_user + 15) /* ((name . options) ...) */
-#define scm_si_name_access	 (scm_vtable_offset_user + 16)
-#define scm_si_getters_n_setters scm_si_name_access
+#define scm_si_getters_n_setters (scm_vtable_offset_user + 16)
 #define scm_si_nfields		 (scm_vtable_offset_user + 17) /* an integer */
 #define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 18)
 
