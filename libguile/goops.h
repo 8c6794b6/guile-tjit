@@ -79,7 +79,6 @@
   "pw" /* default-slot-definition-class */      \
   "pw" /* slots */                              \
   "pw" /* getters-n-setters */                  \
-  "pw" /* keyword access */                     \
   "pw" /* nfields */
 
 #define scm_si_redefined         (scm_vtable_offset_user + 0)
@@ -101,9 +100,8 @@
 #define scm_si_slots		 (scm_vtable_offset_user + 15) /* ((name . options) ...) */
 #define scm_si_name_access	 (scm_vtable_offset_user + 16)
 #define scm_si_getters_n_setters scm_si_name_access
-#define scm_si_keyword_access	 (scm_vtable_offset_user + 17)
-#define scm_si_nfields		 (scm_vtable_offset_user + 18) /* an integer */
-#define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 19)
+#define scm_si_nfields		 (scm_vtable_offset_user + 17) /* an integer */
+#define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 18)
 
 typedef struct scm_t_method {
   SCM generic_function;

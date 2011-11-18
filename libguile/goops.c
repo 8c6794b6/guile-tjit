@@ -915,7 +915,6 @@ SCM_SYMBOL (sym_cpl, "cpl");
 SCM_SYMBOL (sym_default_slot_definition_class, "default-slot-definition-class");
 SCM_SYMBOL (sym_slots, "slots");
 SCM_SYMBOL (sym_getters_n_setters, "getters-n-setters");
-SCM_SYMBOL (sym_keyword_access, "keyword-access");
 SCM_SYMBOL (sym_nfields, "nfields");
 
 
@@ -950,7 +949,6 @@ build_class_class_slots (void)
     scm_list_1 (sym_default_slot_definition_class),
     scm_list_1 (sym_slots),
     scm_list_1 (sym_getters_n_setters),
-    scm_list_1 (sym_keyword_access),
     scm_list_1 (sym_nfields),
     SCM_UNDEFINED);
 }
