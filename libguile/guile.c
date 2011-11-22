@@ -1,5 +1,6 @@
-/* Copyright (C) 1996,1997,2000,2001, 2006, 2008 Free Software Foundation, Inc.
- * 
+/* Copyright (C) 1996, 1997, 2000, 2001, 2006, 2008,
+ *   2011 Free Software Foundation, Inc.
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
  * as published by the Free Software Foundation; either version 3 of
@@ -36,6 +37,7 @@
 #include <libguile/scmconfig.h>
 #endif
 #include <ltdl.h>
+#include <locale.h>
 
 #ifdef HAVE_WINSOCK2_H
 #include <winsock2.h>
@@ -67,6 +69,14 @@ inner_main (void *closure SCM_UNUSED, int argc, char **argv)
 int
 main (int argc, char **argv)
 {
+  /* Install the locale right at the beginning so that string conversion
+     for command-line arguments, along with possible error messages, use
+     the right locale.  See
+     <https://lists.gnu.org/archive/html/guile-devel/2011-11/msg00041.html>
+     for the rationale.  */
+  if (setlocale (LC_ALL, "") == NULL)
+    fprintf (stderr, "guile: warning: failed to install locale\n");
+
   scm_boot_guile (argc, argv, inner_main, 0);
   return 0; /* never reached */
 }
