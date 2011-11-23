@@ -152,6 +152,33 @@ unregister_disappearing_links (scm_t_weak_entry *entry,
 }
 
 static void
+move_disappearing_links (scm_t_weak_entry *from, scm_t_weak_entry *to,
+                         SCM key, SCM value, scm_t_weak_table_kind kind)
+{
+  if ((kind == SCM_WEAK_TABLE_KIND_KEY || kind == SCM_WEAK_TABLE_KIND_BOTH)
+      && SCM_HEAP_OBJECT_P (key))
+    {
+#ifdef HAVE_GC_MOVE_DISAPPEARING_LINK
+      GC_move_disappearing_link ((GC_PTR) &from->key, (GC_PTR) &to->key);
+#else
+      GC_unregister_disappearing_link (&from->key);
+      SCM_I_REGISTER_DISAPPEARING_LINK (&to->key, SCM_HEAP_OBJECT_BASE (key));
+#endif
+    }
+
+  if ((kind == SCM_WEAK_TABLE_KIND_VALUE || kind == SCM_WEAK_TABLE_KIND_BOTH)
+      && SCM_HEAP_OBJECT_P (value))
+    {
+#ifdef HAVE_GC_MOVE_DISAPPEARING_LINK
+      GC_move_disappearing_link ((GC_PTR) &from->value, (GC_PTR) &to->value);
+#else
+      GC_unregister_disappearing_link (&from->value);
+      SCM_I_REGISTER_DISAPPEARING_LINK (&to->value, SCM_HEAP_OBJECT_BASE (value));
+#endif
+    }
+}
+
+static void
 move_weak_entry (scm_t_weak_entry *from, scm_t_weak_entry *to,
                  scm_t_weak_table_kind kind)
 {
@@ -164,10 +191,9 @@ move_weak_entry (scm_t_weak_entry *from, scm_t_weak_entry *to,
       to->key = copy.key;
       to->value = copy.value;
 
-      unregister_disappearing_links (from, kind);
-      register_disappearing_links (to,
-                                   SCM_PACK (copy.key), SCM_PACK (copy.value),
-                                   kind);
+      move_disappearing_links (from, to,
+                               SCM_PACK (copy.key), SCM_PACK (copy.value),
+                               kind);
     }
   else
     {

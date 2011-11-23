@@ -173,9 +173,13 @@ move_weak_entry (scm_t_weak_entry *from, scm_t_weak_entry *to)
 
       if (copy.key && SCM_HEAP_OBJECT_P (SCM_PACK (copy.key)))
         {
+#ifdef HAVE_GC_MOVE_DISAPPEARING_LINK
+          GC_move_disappearing_link ((GC_PTR) &from->key, (GC_PTR) &to->key);
+#else
           GC_unregister_disappearing_link ((GC_PTR) &from->key);
           SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &to->key,
                                             (GC_PTR) to->key);
+#endif
         }
     }
   else
