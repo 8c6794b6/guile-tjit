@@ -477,7 +477,7 @@ static SCM scm_i_default_dynamic_state;
 
 /* Run when a fluid is collected.  */
 void
-scm_i_reset_fluid (size_t n, SCM val)
+scm_i_reset_fluid (size_t n)
 {
   scm_i_thread *t;
 
@@ -488,7 +488,7 @@ scm_i_reset_fluid (size_t n, SCM val)
         SCM v = SCM_I_DYNAMIC_STATE_FLUIDS (t->dynamic_state);
           
         if (n < SCM_SIMPLE_VECTOR_LENGTH (v))
-          SCM_SIMPLE_VECTOR_SET (v, n, val);
+          SCM_SIMPLE_VECTOR_SET (v, n, SCM_UNDEFINED);
       }
   scm_i_pthread_mutex_unlock (&thread_admin_mutex);
 }
@@ -1001,6 +1001,7 @@ SCM_DEFINE (scm_call_with_new_thread, "call-with-new-thread", 1, 1, 0,
   SCM_ASSERT (SCM_UNBNDP (handler) || scm_is_true (scm_procedure_p (handler)),
 	      handler, SCM_ARG2, FUNC_NAME);
 
+  GC_collect_a_little ();
   data.parent = scm_current_dynamic_state ();
   data.thunk = thunk;
   data.handler = handler;

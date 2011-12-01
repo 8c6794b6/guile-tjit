@@ -952,17 +952,17 @@
 
     ;; expanding
 
-    (define chi-sequence
+    (define expand-sequence
       (lambda (body r w s mod)
         (build-sequence s
                         (let dobody ((body body) (r r) (w w) (mod mod))
                           (if (null? body)
                               '()
-                              (let ((first (chi (car body) r w mod)))
+                              (let ((first (expand (car body) r w mod)))
                                 (cons first (dobody (cdr body) r w mod))))))))
 
     ;; At top-level, we allow mixed definitions and expressions.  Like
-    ;; chi-body we expand in two passes.
+    ;; expand-body we expand in two passes.
     ;;
     ;; First, from left to right, we expand just enough to know what
     ;; expressions are definitions, syntax definitions, and splicing
@@ -975,7 +975,7 @@
     ;; expansions of all normal definitions and expressions in the
     ;; sequence.
     ;;
-    (define chi-top-sequence
+    (define expand-top-sequence
       (lambda (body r w s m esew mod)
         (let* ((r (cons '("placeholder" . (placeholder)) r))
                (ribcage (make-empty-ribcage))
@@ -1027,11 +1027,11 @@
                      (record-definition! id var)
                      (list
                       (if (eq? m 'c&e)
-                          (let ((x (build-global-definition s var (chi e r w mod))))
+                          (let ((x (build-global-definition s var (expand e r w mod))))
                             (top-level-eval-hook x mod)
                             (lambda () x))
                           (lambda ()
-                            (build-global-definition s var (chi e r w mod)))))))
+                            (build-global-definition s var (expand e r w mod)))))))
                   ((define-syntax-form define-syntax-parameter-form)
                    (let* ((id (wrap value w mod))
                           (label (gen-label))
@@ -1043,23 +1043,23 @@
                        ((c)
                         (cond
                          ((memq 'compile esew)
-                          (let ((e (chi-install-global var type (chi e r w mod))))
+                          (let ((e (expand-install-global var type (expand e r w mod))))
                             (top-level-eval-hook e mod)
                             (if (memq 'load esew)
                                 (list (lambda () e))
                                 '())))
                          ((memq 'load esew)
                           (list (lambda ()
-                                  (chi-install-global var type (chi e r w mod)))))
+                                  (expand-install-global var type (expand e r w mod)))))
                          (else '())))
                        ((c&e)
-                        (let ((e (chi-install-global var type (chi e r w mod))))
+                        (let ((e (expand-install-global var type (expand e r w mod))))
                           (top-level-eval-hook e mod)
                           (list (lambda () e))))
                        (else
                         (if (memq 'eval esew)
                             (top-level-eval-hook
-                             (chi-install-global var type (chi e r w mod))
+                             (expand-install-global var type (expand e r w mod))
                              mod))
                         '()))))
                   ((begin-form)
@@ -1067,13 +1067,13 @@
                      ((_ e1 ...)
                       (parse #'(e1 ...) r w s m esew mod))))
                   ((local-syntax-form)
-                   (chi-local-syntax value e r w s mod
+                   (expand-local-syntax value e r w s mod
                                      (lambda (forms r w s mod)
                                        (parse forms r w s m esew mod))))
                   ((eval-when-form)
                    (syntax-case e ()
                      ((_ (x ...) e1 e2 ...)
-                      (let ((when-list (chi-when-list e #'(x ...) w))
+                      (let ((when-list (parse-when-list e #'(x ...)))
                             (body #'(e1 e2 ...)))
                         (define (recurse m esew)
                           (parse body r w s m esew mod))
@@ -1085,7 +1085,7 @@
                               (begin
                                 (if (memq 'expand when-list)
                                     (top-level-eval-hook
-                                     (chi-top-sequence body r w s 'e '(eval) mod)
+                                     (expand-top-sequence body r w s 'e '(eval) mod)
                                      mod))
                                 '())))
                          ((memq 'load when-list)
@@ -1100,7 +1100,7 @@
                               (memq 'expand when-list)
                               (and (eq? m 'c&e) (memq 'eval when-list)))
                           (top-level-eval-hook
-                           (chi-top-sequence body r w s 'e '(eval) mod)
+                           (expand-top-sequence body r w s 'e '(eval) mod)
                            mod)
                           '())
                          (else
@@ -1108,18 +1108,18 @@
                   (else
                    (list
                     (if (eq? m 'c&e)
-                        (let ((x (chi-expr type value e r w s mod)))
+                        (let ((x (expand-expr type value e r w s mod)))
                           (top-level-eval-hook x mod)
                           (lambda () x))
                         (lambda ()
-                          (chi-expr type value e r w s mod)))))))))
+                          (expand-expr type value e r w s mod)))))))))
           (let ((exps (map (lambda (x) (x))
                            (reverse (parse body r w s m esew mod)))))
             (if (null? exps)
                 (build-void s)
                 (build-sequence s exps))))))
     
-    (define chi-install-global
+    (define expand-install-global
       (lambda (name type e)
         (build-global-definition
          no-source
@@ -1135,24 +1135,21 @@
                     (build-data no-source 'macro)
                     e))))))
     
-    (define chi-when-list
-      (lambda (e when-list w)
+    (define parse-when-list
+      (lambda (e when-list)
         ;; `when-list' is syntax'd version of list of situations.  We
         ;; could match these keywords lexically, via free-id=?, but then
         ;; we twingle the definition of eval-when to the bindings of
         ;; eval, load, expand, and compile, which is totally unintended.
         ;; So do a symbolic match instead.
-        (let f ((when-list when-list) (situations '()))
-          (if (null? when-list)
-              situations
-              (f (cdr when-list)
-                 (cons (let ((x (syntax->datum (car when-list))))
-                         (if (memq x '(compile load eval expand))
-                             x
-                             (syntax-violation 'eval-when
-                                               "invalid situation"
-                                               e (wrap (car when-list) w #f))))
-                       situations))))))
+        (let ((result (strip when-list empty-wrap)))
+          (let lp ((l result))
+            (if (null? l)
+                result
+                (if (memq (car l) '(compile load eval expand))
+                    (lp (cdr l))
+                    (syntax-violation 'eval-when "invalid situation" e
+                                      (car l))))))))
 
     ;; syntax-type returns six values: type, value, e, w, s, and mod. The
     ;; first two are described in the table below.
@@ -1203,7 +1200,7 @@
                 ((macro)
                  (if for-car?
                      (values type value e w s mod)
-                     (syntax-type (chi-macro value e r w s rib mod)
+                     (syntax-type (expand-macro value e r w s rib mod)
                                   r empty-wrap s rib mod #f)))
                 ((global)
                  ;; Toplevel definitions may resolve to bindings with
@@ -1225,7 +1222,7 @@
                    (values 'global-call (make-syntax-object fval w fmod)
                            e w s mod))
                   ((macro)
-                   (syntax-type (chi-macro fval e r w s rib mod)
+                   (syntax-type (expand-macro fval e r w s rib mod)
                                 r empty-wrap s rib mod for-car?))
                   ((module-ref)
                    (call-with-values (lambda () (fval e r w))
@@ -1279,14 +1276,14 @@
          ((self-evaluating? e) (values 'constant #f e w s mod))
          (else (values 'other #f e w s mod)))))
 
-    (define chi
+    (define expand
       (lambda (e r w mod)
         (call-with-values
             (lambda () (syntax-type e r w (source-annotation e) #f mod #f))
           (lambda (type value e w s mod)
-            (chi-expr type value e r w s mod)))))
+            (expand-expr type value e r w s mod)))))
 
-    (define chi-expr
+    (define expand-expr
       (lambda (type value e r w s mod)
         (case type
           ((lexical)
@@ -1297,9 +1294,9 @@
           ((module-ref)
            (call-with-values (lambda () (value e r w))
              (lambda (e r w s mod)
-               (chi e r w mod))))
+               (expand e r w mod))))
           ((lexical-call)
-           (chi-call
+           (expand-call
             (let ((id (car e)))
               (build-lexical-reference 'fun (source-annotation id)
                                        (if (syntax-object? id)
@@ -1308,7 +1305,7 @@
                                        value))
             e r w s mod))
           ((global-call)
-           (chi-call
+           (expand-call
             (build-global-reference (source-annotation (car e))
                                     (if (syntax-object? value)
                                         (syntax-object-expression value)
@@ -1319,19 +1316,19 @@
             e r w s mod))
           ((constant) (build-data s (strip (source-wrap e w s mod) empty-wrap)))
           ((global) (build-global-reference s value mod))
-          ((call) (chi-call (chi (car e) r w mod) e r w s mod))
+          ((call) (expand-call (expand (car e) r w mod) e r w s mod))
           ((begin-form)
            (syntax-case e ()
-             ((_ e1 e2 ...) (chi-sequence #'(e1 e2 ...) r w s mod))))
+             ((_ e1 e2 ...) (expand-sequence #'(e1 e2 ...) r w s mod))))
           ((local-syntax-form)
-           (chi-local-syntax value e r w s mod chi-sequence))
+           (expand-local-syntax value e r w s mod expand-sequence))
           ((eval-when-form)
            (syntax-case e ()
              ((_ (x ...) e1 e2 ...)
-              (let ((when-list (chi-when-list e #'(x ...) w)))
+              (let ((when-list (parse-when-list e #'(x ...))))
                 (if (memq 'eval when-list)
-                    (chi-sequence #'(e1 e2 ...) r w s mod)
-                    (chi-void))))))
+                    (expand-sequence #'(e1 e2 ...) r w s mod)
+                    (expand-void))))))
           ((define-form define-syntax-form define-syntax-parameter-form)
            (syntax-violation #f "definition in expression context"
                              e (wrap value w mod)))
@@ -1344,12 +1341,12 @@
           (else (syntax-violation #f "unexpected syntax"
                                   (source-wrap e w s mod))))))
 
-    (define chi-call
+    (define expand-call
       (lambda (x e r w s mod)
         (syntax-case e ()
           ((e0 e1 ...)
            (build-call s x
-                       (map (lambda (e) (chi e r w mod)) #'(e1 ...)))))))
+                       (map (lambda (e) (expand e r w mod)) #'(e1 ...)))))))
 
     ;; (What follows is my interpretation of what's going on here -- Andy)
     ;;
@@ -1384,7 +1381,7 @@
     ;; really nice if we could also annotate introduced expressions with the
     ;; locations corresponding to the macro definition, but that is not yet
     ;; possible.
-    (define chi-macro
+    (define expand-macro
       (lambda (p e r w s rib mod)
         (define rebuild-macro-output
           (lambda (x m)
@@ -1425,7 +1422,7 @@
         (rebuild-macro-output (p (source-wrap e (anti-mark w) s mod))
                               (new-mark))))
 
-    (define chi-body
+    (define expand-body
       ;; In processing the forms of the body, we create a new, empty wrap.
       ;; This wrap is augmented (destructively) each time we discover that
       ;; the next form is a definition.  This is done:
@@ -1509,19 +1506,19 @@
                                                (f (cdr forms)))))
                                    ids labels var-ids vars vals bindings))))
                         ((local-syntax-form)
-                         (chi-local-syntax value e er w s mod
-                                           (lambda (forms er w s mod)
-                                             (parse (let f ((forms forms))
-                                                      (if (null? forms)
-                                                          (cdr body)
-                                                          (cons (cons er (wrap (car forms) w mod))
-                                                                (f (cdr forms)))))
-                                                    ids labels var-ids vars vals bindings))))
+                         (expand-local-syntax value e er w s mod
+                                              (lambda (forms er w s mod)
+                                                (parse (let f ((forms forms))
+                                                         (if (null? forms)
+                                                             (cdr body)
+                                                             (cons (cons er (wrap (car forms) w mod))
+                                                                   (f (cdr forms)))))
+                                                       ids labels var-ids vars vals bindings))))
                         (else           ; found a non-definition
                          (if (null? ids)
                              (build-sequence no-source
                                              (map (lambda (x)
-                                                    (chi (cdr x) (car x) empty-wrap mod))
+                                                    (expand (cdr x) (car x) empty-wrap mod))
                                                   (cons (cons er (source-wrap e w s mod))
                                                         (cdr body))))
                              (begin
@@ -1540,7 +1537,7 @@
                                                        (macros-only-env er))))
                                              (set-cdr! b
                                                        (eval-local-transformer
-                                                        (chi (cddr b) r-cache empty-wrap mod)
+                                                        (expand (cddr b) r-cache empty-wrap mod)
                                                         mod))
                                              (if (eq? (car b) 'syntax-parameter)
                                                  (set-cdr! b (list (cdr b))))
@@ -1551,15 +1548,15 @@
                                              (reverse (map syntax->datum var-ids))
                                              (reverse vars)
                                              (map (lambda (x)
-                                                    (chi (cdr x) (car x) empty-wrap mod))
+                                                    (expand (cdr x) (car x) empty-wrap mod))
                                                   (reverse vals))
                                              (build-sequence no-source
                                                              (map (lambda (x)
-                                                                    (chi (cdr x) (car x) empty-wrap mod))
+                                                                    (expand (cdr x) (car x) empty-wrap mod))
                                                                   (cons (cons er (source-wrap e w s mod))
                                                                         (cdr body)))))))))))))))))
 
-    (define chi-local-syntax
+    (define expand-local-syntax
       (lambda (rec? e r w s mod k)
         (syntax-case e ()
           ((_ ((id val) ...) e1 e2 ...)
@@ -1576,7 +1573,7 @@
                            (map (lambda (x)
                                   (make-binding 'macro
                                                 (eval-local-transformer
-                                                 (chi x trans-r w mod)
+                                                 (expand x trans-r w mod)
                                                  mod)))
                                 #'(val ...)))
                          r)
@@ -1593,7 +1590,7 @@
               p
               (syntax-violation #f "nonprocedure transformer" p)))))
 
-    (define chi-void
+    (define expand-void
       (lambda ()
         (build-void no-source)))
 
@@ -1623,7 +1620,7 @@
                               orig-args))))
         (req orig-args '())))
 
-    (define chi-simple-lambda
+    (define expand-simple-lambda
       (lambda (e r w s mod req rest meta body)
         (let* ((ids (if rest (append req (list rest)) req))
                (vars (map gen-var ids))
@@ -1632,10 +1629,10 @@
            s
            (map syntax->datum req) (and rest (syntax->datum rest)) vars
            meta
-           (chi-body body (source-wrap e w s mod)
-                     (extend-var-env labels vars r)
-                     (make-binding-wrap ids labels w)
-                     mod)))))
+           (expand-body body (source-wrap e w s mod)
+                        (extend-var-env labels vars r)
+                        (make-binding-wrap ids labels w)
+                        mod)))))
 
     (define lambda*-formals
       (lambda (orig-args)
@@ -1718,16 +1715,16 @@
                               orig-args))))
         (req orig-args '())))
 
-    (define chi-lambda-case
+    (define expand-lambda-case
       (lambda (e r w s mod get-formals clauses)
-        (define (expand-req req opt rest kw body)
+        (define (parse-req req opt rest kw body)
           (let ((vars (map gen-var req))
                 (labels (gen-labels req)))
             (let ((r* (extend-var-env labels vars r))
                   (w* (make-binding-wrap req labels w)))
-              (expand-opt (map syntax->datum req)
-                          opt rest kw body (reverse vars) r* w* '() '()))))
-        (define (expand-opt req opt rest kw body vars r* w* out inits)
+              (parse-opt (map syntax->datum req)
+                         opt rest kw body (reverse vars) r* w* '() '()))))
+        (define (parse-opt req opt rest kw body vars r* w* out inits)
           (cond
            ((pair? opt)
             (syntax-case (car opt) ()
@@ -1736,27 +1733,27 @@
                       (l (gen-labels (list v)))
                       (r** (extend-var-env l (list v) r*))
                       (w** (make-binding-wrap (list #'id) l w*)))
-                 (expand-opt req (cdr opt) rest kw body (cons v vars)
-                             r** w** (cons (syntax->datum #'id) out)
-                             (cons (chi #'i r* w* mod) inits))))))
+                 (parse-opt req (cdr opt) rest kw body (cons v vars)
+                            r** w** (cons (syntax->datum #'id) out)
+                            (cons (expand #'i r* w* mod) inits))))))
            (rest
             (let* ((v (gen-var rest))
                    (l (gen-labels (list v)))
                    (r* (extend-var-env l (list v) r*))
                    (w* (make-binding-wrap (list rest) l w*)))
-              (expand-kw req (if (pair? out) (reverse out) #f)
-                         (syntax->datum rest)
-                         (if (pair? kw) (cdr kw) kw)
-                         body (cons v vars) r* w* 
-                         (if (pair? kw) (car kw) #f)
-                         '() inits)))
+              (parse-kw req (if (pair? out) (reverse out) #f)
+                        (syntax->datum rest)
+                        (if (pair? kw) (cdr kw) kw)
+                        body (cons v vars) r* w* 
+                        (if (pair? kw) (car kw) #f)
+                        '() inits)))
            (else
-            (expand-kw req (if (pair? out) (reverse out) #f) #f
-                       (if (pair? kw) (cdr kw) kw)
-                       body vars r* w*
-                       (if (pair? kw) (car kw) #f)
-                       '() inits))))
-        (define (expand-kw req opt rest kw body vars r* w* aok out inits)
+            (parse-kw req (if (pair? out) (reverse out) #f) #f
+                      (if (pair? kw) (cdr kw) kw)
+                      body vars r* w*
+                      (if (pair? kw) (car kw) #f)
+                      '() inits))))
+        (define (parse-kw req opt rest kw body vars r* w* aok out inits)
           (cond
            ((pair? kw)
             (syntax-case (car kw) ()
@@ -1765,31 +1762,31 @@
                       (l (gen-labels (list v)))
                       (r** (extend-var-env l (list v) r*))
                       (w** (make-binding-wrap (list #'id) l w*)))
-                 (expand-kw req opt rest (cdr kw) body (cons v vars)
-                            r** w** aok
-                            (cons (list (syntax->datum #'k)
-                                        (syntax->datum #'id)
-                                        v)
-                                  out)
-                            (cons (chi #'i r* w* mod) inits))))))
+                 (parse-kw req opt rest (cdr kw) body (cons v vars)
+                           r** w** aok
+                           (cons (list (syntax->datum #'k)
+                                       (syntax->datum #'id)
+                                       v)
+                                 out)
+                           (cons (expand #'i r* w* mod) inits))))))
            (else
-            (expand-body req opt rest
-                         (if (or aok (pair? out)) (cons aok (reverse out)) #f)
-                         body (reverse vars) r* w* (reverse inits) '()))))
-        (define (expand-body req opt rest kw body vars r* w* inits meta)
+            (parse-body req opt rest
+                        (if (or aok (pair? out)) (cons aok (reverse out)) #f)
+                        body (reverse vars) r* w* (reverse inits) '()))))
+        (define (parse-body req opt rest kw body vars r* w* inits meta)
           (syntax-case body ()
             ((docstring e1 e2 ...) (string? (syntax->datum #'docstring))
-             (expand-body req opt rest kw #'(e1 e2 ...) vars r* w* inits
-                          (append meta 
-                                  `((documentation
-                                     . ,(syntax->datum #'docstring))))))
+             (parse-body req opt rest kw #'(e1 e2 ...) vars r* w* inits
+                         (append meta 
+                                 `((documentation
+                                    . ,(syntax->datum #'docstring))))))
             ((#((k . v) ...) e1 e2 ...) 
-             (expand-body req opt rest kw #'(e1 e2 ...) vars r* w* inits
-                          (append meta (syntax->datum #'((k . v) ...)))))
+             (parse-body req opt rest kw #'(e1 e2 ...) vars r* w* inits
+                         (append meta (syntax->datum #'((k . v) ...)))))
             ((e1 e2 ...)
              (values meta req opt rest kw inits vars
-                     (chi-body #'(e1 e2 ...) (source-wrap e w s mod)
-                               r* w* mod)))))
+                     (expand-body #'(e1 e2 ...) (source-wrap e w s mod)
+                                  r* w* mod)))))
 
         (syntax-case clauses ()
           (() (values '() #f))
@@ -1797,12 +1794,12 @@
            (call-with-values (lambda () (get-formals #'args))
              (lambda (req opt rest kw)
                (call-with-values (lambda ()
-                                   (expand-req req opt rest kw #'(e1 e2 ...)))
+                                   (parse-req req opt rest kw #'(e1 e2 ...)))
                  (lambda (meta req opt rest kw inits vars body)
                    (call-with-values
                        (lambda ()
-                         (chi-lambda-case e r w s mod get-formals
-                                          #'((args* e1* e2* ...) ...)))
+                         (expand-lambda-case e r w s mod get-formals
+                                             #'((args* e1* e2* ...) ...)))
                      (lambda (meta* else*)
                        (values
                         (append meta meta*)
@@ -1900,9 +1897,9 @@
                    (map (lambda (x)
                           (make-binding
                            'macro
-                           (eval-local-transformer (chi x trans-r w mod) mod)))
+                           (eval-local-transformer (expand x trans-r w mod) mod)))
                         #'(val ...)))))
-            (chi-body #'(e1 e2 ...)
+            (expand-body #'(e1 e2 ...)
                       (source-wrap e w s mod)
                       (extend-env names bindings r)
                       w
@@ -2094,7 +2091,7 @@
                                 ((#((k . v) ...) e1 e2 ...) 
                                  (lp #'(e1 e2 ...)
                                      (append meta (syntax->datum #'((k . v) ...)))))
-                                (_ (chi-simple-lambda e r w s mod req rest meta body)))))))
+                                (_ (expand-simple-lambda e r w s mod req rest meta body)))))))
                        (_ (syntax-violation 'lambda "bad lambda" e)))))
   
     (global-extend 'core 'lambda*
@@ -2103,8 +2100,8 @@
                        ((_ args e1 e2 ...)
                         (call-with-values
                             (lambda ()
-                              (chi-lambda-case e r w s mod
-                                               lambda*-formals #'((args e1 e2 ...))))
+                              (expand-lambda-case e r w s mod
+                                                  lambda*-formals #'((args e1 e2 ...))))
                           (lambda (meta lcase)
                             (build-case-lambda s meta lcase))))
                        (_ (syntax-violation 'lambda "bad lambda*" e)))))
@@ -2115,9 +2112,9 @@
                        ((_ (args e1 e2 ...) (args* e1* e2* ...) ...)
                         (call-with-values
                             (lambda ()
-                              (chi-lambda-case e r w s mod
-                                               lambda-formals
-                                               #'((args e1 e2 ...) (args* e1* e2* ...) ...)))
+                              (expand-lambda-case e r w s mod
+                                                  lambda-formals
+                                                  #'((args e1 e2 ...) (args* e1* e2* ...) ...)))
                           (lambda (meta lcase)
                             (build-case-lambda s meta lcase))))
                        (_ (syntax-violation 'case-lambda "bad case-lambda" e)))))
@@ -2128,16 +2125,16 @@
                        ((_ (args e1 e2 ...) (args* e1* e2* ...) ...)
                         (call-with-values
                             (lambda ()
-                              (chi-lambda-case e r w s mod
-                                               lambda*-formals
-                                               #'((args e1 e2 ...) (args* e1* e2* ...) ...)))
+                              (expand-lambda-case e r w s mod
+                                                  lambda*-formals
+                                                  #'((args e1 e2 ...) (args* e1* e2* ...) ...)))
                           (lambda (meta lcase)
                             (build-case-lambda s meta lcase))))
                        (_ (syntax-violation 'case-lambda "bad case-lambda*" e)))))
 
     (global-extend 'core 'let
                    (let ()
-                     (define (chi-let e r w s mod constructor ids vals exps)
+                     (define (expand-let e r w s mod constructor ids vals exps)
                        (if (not (valid-bound-ids? ids))
                            (syntax-violation 'let "duplicate bound variable" e)
                            (let ((labels (gen-labels ids))
@@ -2147,25 +2144,25 @@
                                (constructor s
                                             (map syntax->datum ids)
                                             new-vars
-                                            (map (lambda (x) (chi x r w mod)) vals)
-                                            (chi-body exps (source-wrap e nw s mod)
-                                                      nr nw mod))))))
+                                            (map (lambda (x) (expand x r w mod)) vals)
+                                            (expand-body exps (source-wrap e nw s mod)
+                                                         nr nw mod))))))
                      (lambda (e r w s mod)
                        (syntax-case e ()
                          ((_ ((id val) ...) e1 e2 ...)
                           (and-map id? #'(id ...))
-                          (chi-let e r w s mod
-                                   build-let
-                                   #'(id ...)
-                                   #'(val ...)
-                                   #'(e1 e2 ...)))
+                          (expand-let e r w s mod
+                                      build-let
+                                      #'(id ...)
+                                      #'(val ...)
+                                      #'(e1 e2 ...)))
                          ((_ f ((id val) ...) e1 e2 ...)
                           (and (id? #'f) (and-map id? #'(id ...)))
-                          (chi-let e r w s mod
-                                   build-named-let
-                                   #'(f id ...)
-                                   #'(val ...)
-                                   #'(e1 e2 ...)))
+                          (expand-let e r w s mod
+                                      build-named-let
+                                      #'(f id ...)
+                                      #'(val ...)
+                                      #'(e1 e2 ...)))
                          (_ (syntax-violation 'let "bad let" (source-wrap e w s mod)))))))
 
 
@@ -2184,9 +2181,9 @@
                                   (build-letrec s #f
                                                 (map syntax->datum ids)
                                                 new-vars
-                                                (map (lambda (x) (chi x r w mod)) #'(val ...))
-                                                (chi-body #'(e1 e2 ...) 
-                                                          (source-wrap e w s mod) r w mod)))))))
+                                                (map (lambda (x) (expand x r w mod)) #'(val ...))
+                                                (expand-body #'(e1 e2 ...) 
+                                                             (source-wrap e w s mod) r w mod)))))))
                        (_ (syntax-violation 'letrec "bad letrec" (source-wrap e w s mod))))))
 
 
@@ -2205,9 +2202,9 @@
                                   (build-letrec s #t
                                                 (map syntax->datum ids)
                                                 new-vars
-                                                (map (lambda (x) (chi x r w mod)) #'(val ...))
-                                                (chi-body #'(e1 e2 ...) 
-                                                          (source-wrap e w s mod) r w mod)))))))
+                                                (map (lambda (x) (expand x r w mod)) #'(val ...))
+                                                (expand-body #'(e1 e2 ...) 
+                                                             (source-wrap e w s mod) r w mod)))))))
                        (_ (syntax-violation 'letrec* "bad letrec*" (source-wrap e w s mod))))))
 
 
@@ -2223,14 +2220,14 @@
               (case type
                 ((lexical)
                  (build-lexical-assignment s (syntax->datum #'id) value
-                                           (chi #'val r w mod)))
+                                           (expand #'val r w mod)))
                 ((global)
-                 (build-global-assignment s value (chi #'val r w mod) id-mod))
+                 (build-global-assignment s value (expand #'val r w mod) id-mod))
                 ((macro)
                  (if (procedure-property value 'variable-transformer)
-                     ;; As syntax-type does, call chi-macro with
+                     ;; As syntax-type does, call expand-macro with
                      ;; the mod of the expression. Hmm.
-                     (chi (chi-macro value e r w s #f mod) r empty-wrap mod)
+                     (expand (expand-macro value e r w s #f mod) r empty-wrap mod)
                      (syntax-violation 'set! "not a variable transformer"
                                        (wrap e w mod)
                                        (wrap #'id w id-mod))))
@@ -2245,7 +2242,7 @@
             (lambda (type value ee ww ss modmod)
               (case type
                 ((module-ref)
-                 (let ((val (chi #'val r w mod)))
+                 (let ((val (expand #'val r w mod)))
                    (call-with-values (lambda () (value #'(head tail ...) r w))
                      (lambda (e r w s* mod)
                        (syntax-case e ()
@@ -2254,8 +2251,8 @@
                                                      val mod)))))))
                 (else
                  (build-call s
-                             (chi #'(setter head) r w mod)
-                             (map (lambda (e) (chi e r w mod))
+                             (expand #'(setter head) r w mod)
+                             (map (lambda (e) (expand e r w mod))
                                   #'(tail ... val))))))))
          (_ (syntax-violation 'set! "bad set!" (source-wrap e w s mod))))))
 
@@ -2301,15 +2298,15 @@
                        ((_ test then)
                         (build-conditional
                          s
-                         (chi #'test r w mod)
-                         (chi #'then r w mod)
+                         (expand #'test r w mod)
+                         (expand #'then r w mod)
                          (build-void no-source)))
                        ((_ test then else)
                         (build-conditional
                          s
-                         (chi #'test r w mod)
-                         (chi #'then r w mod)
-                         (chi #'else r w mod))))))
+                         (expand #'test r w mod)
+                         (expand #'then r w mod)
+                         (expand #'else r w mod))))))
 
     (global-extend 'core 'with-fluids
                    (lambda (e r w s mod)
@@ -2317,10 +2314,10 @@
                        ((_ ((fluid val) ...) b b* ...)
                         (build-dynlet
                          s
-                         (map (lambda (x) (chi x r w mod)) #'(fluid ...))
-                         (map (lambda (x) (chi x r w mod)) #'(val ...))
-                         (chi-body #'(b b* ...)
-                                   (source-wrap e w s mod) r w mod))))))
+                         (map (lambda (x) (expand x r w mod)) #'(fluid ...))
+                         (map (lambda (x) (expand x r w mod)) #'(val ...))
+                         (expand-body #'(b b* ...)
+                                      (source-wrap e w s mod) r w mod))))))
   
     (global-extend 'begin 'begin '())
 
@@ -2410,7 +2407,7 @@
                               no-source
                               'apply
                               (list (build-simple-lambda no-source (map syntax->datum ids) #f new-vars '()
-                                                         (chi exp
+                                                         (expand exp
                                                               (extend-env
                                                                labels
                                                                (map (lambda (var level)
@@ -2467,14 +2464,14 @@
                                          (and-map (lambda (x) (not (free-id=? #'pat x)))
                                                   (cons #'(... ...) keys)))
                                     (if (free-id=? #'pad #'_)
-                                        (chi #'exp r empty-wrap mod)
+                                        (expand #'exp r empty-wrap mod)
                                         (let ((labels (list (gen-label)))
                                               (var (gen-var #'pat)))
                                           (build-call no-source
                                                       (build-simple-lambda
                                                        no-source (list (syntax->datum #'pat)) #f (list var)
                                                        '()
-                                                       (chi #'exp
+                                                       (expand #'exp
                                                             (extend-env labels
                                                                         (list (make-binding 'syntax `(,var . 0)))
                                                                         r)
@@ -2505,10 +2502,10 @@
                                                                                     #'(key ...) #'(m ...)
                                                                                     r
                                                                                     mod))
-                                              (list (chi #'val r empty-wrap mod))))
+                                              (list (expand #'val r empty-wrap mod))))
                                 (syntax-violation 'syntax-case "invalid literals list" e))))))))
 
-    ;; The portable macroexpand seeds chi-top's mode m with 'e (for
+    ;; The portable macroexpand seeds expand-top's mode m with 'e (for
     ;; evaluating) and esew (which stands for "eval syntax expanders
     ;; when") with '(eval).  In Chez Scheme, m is set to 'c instead of e
     ;; if we are compiling a file, and esew is set to
@@ -2519,8 +2516,8 @@
     ;; the object file if we are compiling a file.
     (set! macroexpand
           (lambda* (x #:optional (m 'e) (esew '(eval)))
-            (chi-top-sequence (list x) null-env top-wrap #f m esew
-                              (cons 'hygiene (module-name (current-module))))))
+            (expand-top-sequence (list x) null-env top-wrap #f m esew
+                                 (cons 'hygiene (module-name (current-module))))))
 
     (set! identifier?
           (lambda (x)

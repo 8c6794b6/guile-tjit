@@ -69,23 +69,6 @@
 
 (define with-throw-handler #f)
 (let ()
-  ;; Ideally we'd like to be able to give these default values for all threads,
-  ;; even threads not created by Guile; but alack, that does not currently seem
-  ;; possible. So wrap the getters in thunks.
-  (define %running-exception-handlers (make-fluid))
-  (define %exception-handler (make-fluid))
-
-  (define (running-exception-handlers)
-    (or (fluid-ref %running-exception-handlers)
-        (begin
-          (fluid-set! %running-exception-handlers '())
-          '())))
-  (define (exception-handler)
-    (or (fluid-ref %exception-handler)
-        (begin
-          (fluid-set! %exception-handler default-exception-handler)
-          default-exception-handler)))
-
   (define (default-exception-handler k . args)
     (cond
      ((eq? k 'quit)
@@ -98,18 +81,21 @@
       (format (current-error-port) "guile: uncaught throw to ~a: ~a\n" k args)
       (primitive-exit 1))))
 
+  (define %running-exception-handlers (make-fluid '()))
+  (define %exception-handler (make-fluid default-exception-handler))
+
   (define (default-throw-handler prompt-tag catch-k)
-    (let ((prev (exception-handler)))
+    (let ((prev (fluid-ref %exception-handler)))
       (lambda (thrown-k . args)
         (if (or (eq? thrown-k catch-k) (eqv? catch-k #t))
             (apply abort-to-prompt prompt-tag thrown-k args)
             (apply prev thrown-k args)))))
 
   (define (custom-throw-handler prompt-tag catch-k pre)
-    (let ((prev (exception-handler)))
+    (let ((prev (fluid-ref %exception-handler)))
       (lambda (thrown-k . args)
         (if (or (eq? thrown-k catch-k) (eqv? catch-k #t))
-            (let ((running (running-exception-handlers)))
+            (let ((running (fluid-ref %running-exception-handlers)))
               (with-fluids ((%running-exception-handlers (cons pre running)))
                 (if (not (memq pre running))
                     (apply pre thrown-k args))
@@ -192,9 +178,9 @@ for key @var{key}, then invoke @var{thunk}."
 
 If there is no handler at all, Guile prints an error and then exits."
           (if (not (symbol? key))
-              ((exception-handler) 'wrong-type-arg "throw"
+              ((fluid-ref %exception-handler) 'wrong-type-arg "throw"
                "Wrong type argument in position ~a: ~a" (list 1 key) (list key))
-              (apply (exception-handler) key args)))))
+              (apply (fluid-ref %exception-handler) key args)))))
 
 
 
@@ -1404,8 +1390,7 @@ VALUE."
 ;;; Reader code for various "#c" forms.
 ;;;
 
-(define read-eval? (make-fluid))
-(fluid-set! read-eval? #f)
+(define read-eval? (make-fluid #f))
 (read-hash-extend #\.
                   (lambda (c port)
                     (if (fluid-ref read-eval?)
@@ -2843,14 +2828,14 @@ module '(ice-9 q) '(make-q q-length))}."
 ;;; {Running Repls}
 ;;;
 
-(define *repl-stack* (make-fluid))
+(define *repl-stack* (make-fluid '()))
 
 ;; Programs can call `batch-mode?' to see if they are running as part of a
 ;; script or if they are running interactively. REPL implementations ensure that
 ;; `batch-mode?' returns #f during their extent.
 ;;
 (define (batch-mode?)
-  (null? (or (fluid-ref *repl-stack*) '())))
+  (null? (fluid-ref *repl-stack*)))
 
 ;; Programs can re-enter batch mode, for example after a fork, by calling
 ;; `ensure-batch-mode!'. It's not a great interface, though; it would be better
@@ -2889,7 +2874,26 @@ module '(ice-9 q) '(make-q q-length))}."
 (define repl-reader
   (lambda* (prompt #:optional (reader (fluid-ref current-reader)))
     (if (not (char-ready?))
-        (display (if (string? prompt) prompt (prompt))))
+        (begin
+          (display (if (string? prompt) prompt (prompt)))
+          ;; An interesting situation.  The printer resets the column to
+          ;; 0 by printing a newline, but we then advance it by printing
+          ;; the prompt.  However the port-column of the output port
+          ;; does not typically correspond with the actual column on the
+          ;; screen, because the input is is echoed back!  Since the
+          ;; input is line-buffered and thus ends with a newline, the
+          ;; output will really start on column zero.  So, here we zero
+          ;; it out.  See bug 9664.
+          ;;
+          ;; Note that for similar reasons, the output-line will not
+          ;; reflect the actual line on the screen.  But given the
+          ;; possibility of multiline input, the fix is not as
+          ;; straightforward, so we don't bother.
+          ;;
+          ;; Also note that the readline implementation papers over
+          ;; these concerns, because it's readline itself printing the
+          ;; prompt, and not Guile.
+          (set-port-column! (current-output-port) 0)))
     (force-output)
     (run-hook before-read-hook)
     ((or reader read) (current-input-port))))
@@ -3241,8 +3245,7 @@ module '(ice-9 q) '(make-q q-length))}."
 ;;;
 
 (define* (make-mutable-parameter init #:optional (converter identity))
-  (let ((fluid (make-fluid)))
-    (fluid-set! fluid (converter init))
+  (let ((fluid (make-fluid (converter init))))
     (case-lambda
       (() (fluid-ref fluid))
       ((val) (fluid-set! fluid (converter val))))))
