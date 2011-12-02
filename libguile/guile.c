@@ -77,6 +77,7 @@ main (int argc, char **argv)
   if (setlocale (LC_ALL, "") == NULL)
     fprintf (stderr, "guile: warning: failed to install locale\n");
 
+  scm_install_gmp_memory_functions = 1;
   scm_boot_guile (argc, argv, inner_main, 0);
   return 0; /* never reached */
 }
