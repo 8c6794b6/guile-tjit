@@ -106,8 +106,9 @@ scm_t_option scm_print_opts[] = {
   { SCM_OPTION_SCM, "quote-keywordish-symbols", (scm_t_bits)SCM_BOOL_F_BITS,
     "How to print symbols that have a colon as their first or last character. "
     "The value '#f' does not quote the colons; '#t' quotes them; "
-    "'reader' quotes them when the reader option 'keywords' is not '#f'." 
-  },
+    "'reader' quotes them when the reader option 'keywords' is not '#f'." },
+  { SCM_OPTION_BOOLEAN, "escape-newlines", 1,
+    "Render newlines as \\n when printing using `write'." },
   { 0 },
 };
 
@@ -1104,6 +1105,12 @@ write_character (scm_t_wchar ch, SCM port, int string_escapes_p)
 	  display_character (ch, port, strategy);
 	  printed = 1;
 	}
+      else if (ch == '\n' && SCM_PRINT_ESCAPE_NEWLINES_P)
+        {
+	  display_character ('\\', port, iconveh_question_mark);
+	  display_character ('n', port, strategy);
+	  printed = 1;
+        }
       else if (ch == ' ' || ch == '\n')
 	{
 	  display_character (ch, port, strategy);
@@ -1522,13 +1529,6 @@ scm_init_print ()
 {
   SCM type;
 
-  scm_init_opts (scm_print_options, scm_print_opts);
-
-  scm_print_options (scm_list_4 (scm_from_latin1_symbol ("highlight-prefix"),
-				 scm_from_locale_string ("{"),
-				 scm_from_latin1_symbol ("highlight-suffix"),
-				 scm_from_locale_string ("}")));
-
   type = scm_make_vtable (scm_from_locale_string (SCM_PRINT_STATE_LAYOUT),
                           SCM_BOOL_F);
   scm_set_struct_vtable_name_x (type, scm_from_latin1_symbol ("print-state"));
@@ -1540,6 +1540,11 @@ scm_init_print ()
 
 #include "libguile/print.x"
 
+  scm_init_opts (scm_print_options, scm_print_opts);
+  scm_print_opts[SCM_PRINT_HIGHLIGHT_PREFIX_I].val =
+    SCM_UNPACK (scm_from_locale_string ("{"));
+  scm_print_opts[SCM_PRINT_HIGHLIGHT_SUFFIX_I].val =
+    SCM_UNPACK (scm_from_locale_string ("}"));
   scm_print_opts[SCM_PRINT_KEYWORD_STYLE_I].val = SCM_UNPACK (sym_reader);
 }
 

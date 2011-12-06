@@ -213,9 +213,11 @@ If there is no handler at all, Guile prints an error and then exits."
 
 (define pk peek)
 
+;; Temporary definition; replaced later.
+(define current-warning-port current-error-port)
 
 (define (warn . stuff)
-  (with-output-to-port (current-error-port)
+  (with-output-to-port (current-warning-port)
     (lambda ()
       (newline)
       (display ";;; WARNING ")
@@ -1373,7 +1375,7 @@ VALUE."
 
 (define (%load-announce file)
   (if %load-verbosely
-      (with-output-to-port (current-error-port)
+      (with-output-to-port (current-warning-port)
         (lambda ()
           (display ";;; ")
           (display "loading ")
@@ -2825,6 +2827,68 @@ module '(ice-9 q) '(make-q q-length))}."
 
 
 
+;;; {Parameters}
+;;;
+
+(define <parameter>
+  ;; Three fields: the procedure itself, the fluid, and the converter.
+  (make-struct <applicable-struct-vtable> 0 'pwprpr))
+(set-struct-vtable-name! <parameter> '<parameter>)
+
+(define* (make-parameter init #:optional (conv (lambda (x) x)))
+  (let ((fluid (make-fluid (conv init))))
+    (make-struct <parameter> 0
+                 (case-lambda
+                   (() (fluid-ref fluid))
+                   ((x) (let ((prev (fluid-ref fluid)))
+                          (fluid-set! fluid (conv x))
+                          prev)))
+                 fluid conv)))
+
+(define (parameter? x)
+  (and (struct? x) (eq? (struct-vtable x) <parameter>)))
+
+(define (parameter-fluid p)
+  (if (parameter? p)
+      (struct-ref p 1)
+      (scm-error 'wrong-type-arg "parameter-fluid"
+                 "Not a parameter: ~S" (list p) #f)))
+
+(define (parameter-converter p)
+  (if (parameter? p)
+      (struct-ref p 2)
+      (scm-error 'wrong-type-arg "parameter-fluid"
+                 "Not a parameter: ~S" (list p) #f)))
+
+(define-syntax parameterize
+  (lambda (x)
+    (syntax-case x ()
+      ((_ ((param value) ...) body body* ...)
+       (with-syntax (((p ...) (generate-temporaries #'(param ...))))
+         #'(let ((p param) ...)
+             (if (not (parameter? p))
+                        (scm-error 'wrong-type-arg "parameterize"
+                                   "Not a parameter: ~S" (list p) #f))
+             ...
+             (with-fluids (((struct-ref p 1) ((struct-ref p 2) value))
+                           ...)
+               body body* ...)))))))
+
+
+;;;
+;;; Warnings.
+;;;
+
+(define current-warning-port
+  (make-parameter (current-error-port)
+                  (lambda (x)
+                    (if (output-port? x)
+                        x
+                        (error "expected an output port" x)))))
+
+
+
+
 ;;; {Running Repls}
 ;;;
 
@@ -3288,7 +3352,7 @@ module '(ice-9 q) '(make-q q-length))}."
                  #f))
     
     (define (warn module name int1 val1 int2 val2 var val)
-      (format (current-error-port)
+      (format (current-warning-port)
               "WARNING: ~A: `~A' imported from both ~A and ~A\n"
               (module-name module)
               name
@@ -3310,7 +3374,7 @@ module '(ice-9 q) '(make-q q-length))}."
     (define (warn-override-core module name int1 val1 int2 val2 var val)
       (and (eq? int1 the-scm-module)
            (begin
-             (format (current-error-port)
+             (format (current-warning-port)
                      "WARNING: ~A: imported module ~A overrides core binding `~A'\n"
                      (module-name module)
                      (module-name int2)
@@ -3432,13 +3496,13 @@ module '(ice-9 q) '(make-q q-length))}."
               go-path
               (begin
                 (if gostat
-                    (format (current-error-port)
+                    (format (current-warning-port)
                             ";;; note: source file ~a\n;;;       newer than compiled ~a\n"
                             name go-path))
                 (cond
                  (%load-should-auto-compile
                   (%warn-auto-compilation-enabled)
-                  (format (current-error-port) ";;; compiling ~a\n" name)
+                  (format (current-warning-port) ";;; compiling ~a\n" name)
                   (let ((cfn
                          ((module-ref
                                (resolve-interface '(system base compile))
@@ -3446,15 +3510,15 @@ module '(ice-9 q) '(make-q q-length))}."
                               name
                               #:opts %auto-compilation-options
                               #:env (current-module))))
-                    (format (current-error-port) ";;; compiled ~a\n" cfn)
+                    (format (current-warning-port) ";;; compiled ~a\n" cfn)
                     cfn))
                  (else #f))))))
       (lambda (k . args)
-        (format (current-error-port)
+        (format (current-warning-port)
                 ";;; WARNING: compilation of ~a failed:\n" name)
         (for-each (lambda (s)
                     (if (not (string-null? s))
-                        (format (current-error-port) ";;; ~a\n" s)))
+                        (format (current-warning-port) ";;; ~a\n" s)))
                   (string-split
                    (call-with-output-string
                     (lambda (port) (print-exception port #f k args)))

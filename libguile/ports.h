@@ -241,10 +241,12 @@ SCM_API void scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SC
 SCM_API SCM scm_current_input_port (void);
 SCM_API SCM scm_current_output_port (void);
 SCM_API SCM scm_current_error_port (void);
+SCM_API SCM scm_current_warning_port (void);
 SCM_API SCM scm_current_load_port (void);
 SCM_API SCM scm_set_current_input_port (SCM port);
 SCM_API SCM scm_set_current_output_port (SCM port);
 SCM_API SCM scm_set_current_error_port (SCM port);
+SCM_API SCM scm_set_current_warning_port (SCM port);
 SCM_API void scm_dynwind_current_input_port (SCM port);
 SCM_API void scm_dynwind_current_output_port (SCM port);
 SCM_API void scm_dynwind_current_error_port (SCM port);
