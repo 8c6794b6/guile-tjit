@@ -53,9 +53,7 @@ typedef enum scm_t_port_rw_active {
 typedef struct 
 {
   SCM port;			/* Link back to the port object.  */
-#if SCM_USE_PTHREAD_THREADS
-  scm_i_pthread_mutex_t lock;   /* A recursive lock for this port.  */
-#endif
+  scm_i_pthread_mutex_t *lock;  /* A recursive lock for this port.  */
 
   int revealed;			/* 0 not revealed, > 1 revealed.
 				 * Revealed ports do not get GC'd.
@@ -295,9 +293,8 @@ SCM_API SCM scm_set_port_conversion_strategy_x (SCM port, SCM behavior);
 
 /* Acquiring and releasing the port lock.  */
 SCM_API void scm_dynwind_lock_port (SCM port);
-SCM_INLINE int scm_c_lock_port (SCM port);
-SCM_INLINE int scm_c_try_lock_port (SCM port);
-SCM_INLINE int scm_c_unlock_port (SCM port);
+SCM_INLINE int scm_c_lock_port (SCM port, scm_i_pthread_mutex_t **lock);
+SCM_INLINE int scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock);
 
 /* Revealed counts.  */
 SCM_API int scm_revealed_count (SCM port);
@@ -383,33 +380,29 @@ SCM_INTERNAL void scm_init_ports (void);
 
 #if SCM_CAN_INLINE || defined SCM_INLINE_C_IMPLEMENTING_INLINES
 SCM_INLINE_IMPLEMENTATION int
-scm_c_lock_port (SCM port)
+scm_c_lock_port (SCM port, scm_i_pthread_mutex_t **lock)
 {
-#if 0 && SCM_USE_PTHREAD_THREADS
-  return scm_i_pthread_mutex_lock (&SCM_PTAB_ENTRY (port)->lock);
-#else
-  return 0;
-#endif
+  *lock = SCM_PTAB_ENTRY (port)->lock;
+
+  if (*lock)
+    return scm_i_pthread_mutex_lock (*lock);
+  else
+    return 0;
 }
 
 SCM_INLINE_IMPLEMENTATION int
-scm_c_try_lock_port (SCM port)
+scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock)
 {
-#if 0 && SCM_USE_PTHREAD_THREADS
-  return scm_i_pthread_mutex_trylock (&SCM_PTAB_ENTRY (port)->lock);
-#else
-  return 0;
-#endif
-}
-
-SCM_INLINE_IMPLEMENTATION int
-scm_c_unlock_port (SCM port)
-{
-#if 0 && SCM_USE_PTHREAD_THREADS
-  return scm_i_pthread_mutex_unlock (&SCM_PTAB_ENTRY (port)->lock);
-#else
-  return 0;
-#endif
+  *lock = SCM_PTAB_ENTRY (port)->lock;
+  if (*lock)
+    {
+      int ret = scm_i_pthread_mutex_trylock (*lock);
+      if (ret != 0)
+        *lock = NULL;
+      return ret;
+    }
+  else
+    return 0;
 }
 
 SCM_INLINE_IMPLEMENTATION int
