@@ -1188,7 +1188,7 @@ SCM_DEFINE (scm_adjust_port_revealed_x, "adjust-port-revealed!", 2, 0, 0,
            (SCM port, SCM addend),
 	    "Add @var{addend} to the revealed count of @var{port}.\n"
 	    "The return value is unspecified.")
-#define FUNC_NAME s_scm_set_port_revealed_x
+#define FUNC_NAME s_scm_adjust_port_revealed_x
 {
   scm_i_pthread_mutex_t *lock;
   int a;
