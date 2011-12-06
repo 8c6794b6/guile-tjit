@@ -582,11 +582,8 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   SCM_SET_CELL_WORD_1 (ret, (scm_t_bits) entry);
   SCM_SET_CELL_WORD_2 (ret, (scm_t_bits) ptob);
 
-  entry->lock = NULL;
-#if 0
   entry->lock = scm_gc_malloc_pointerless (sizeof (*entry->lock), "port lock");
   scm_i_pthread_mutex_init (entry->lock, scm_i_pthread_mutexattr_recursive);
-#endif
 
   entry->file_name = SCM_BOOL_F;
   entry->rw_active = SCM_PORT_NEITHER;
