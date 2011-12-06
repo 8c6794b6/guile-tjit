@@ -130,7 +130,7 @@
                (string=? (target-os) os)))))))
 
 (define %objcode-cookie-size
-  (string-length "GOOF----LE-8-2.0"))
+  (string-length "GOOF----LE-8"))
 
 (define (test-target triplet endian word-size)
   (pass-if (format #f "target `~a' honored" triplet)
@@ -153,7 +153,7 @@
                       #f)))
               (write-objcode (bytecode->objcode b) p)
               (let ((cookie   (make-bytevector %objcode-cookie-size))
-                    (expected (format #f "GOOF----~a-~a-~a"
+                    (expected (format #f "GOOF----~a-~a"
                                       (cond ((eq? endian (endianness little))
                                              "LE")
                                             ((eq? endian (endianness big))
@@ -161,8 +161,7 @@
                                             (else
                                              (error "unknown endianness"
                                                     endian)))
-                                      word-size
-                                      (effective-version))))
+                                      word-size)))
                 (bytevector-copy! (get-objcode) 0 cookie 0
                                   %objcode-cookie-size)
                 (string=? (utf8->string cookie) expected)))))))))
