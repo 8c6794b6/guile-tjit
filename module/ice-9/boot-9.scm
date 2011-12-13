@@ -732,6 +732,9 @@ If there is no handler at all, Guile prints an error and then exits."
              (_ (default-printer)))
            args))
 
+  (define (getaddrinfo-error-printer port key args default-printer)
+    (format port "In procedure getaddrinfo: ~a" (gai-strerror (car args))))
+
   (set-exception-printer! 'goops-error scm-error-printer)
   (set-exception-printer! 'host-not-found scm-error-printer)
   (set-exception-printer! 'keyword-argument-error scm-error-printer)
@@ -751,7 +754,9 @@ If there is no handler at all, Guile prints an error and then exits."
   (set-exception-printer! 'wrong-number-of-args scm-error-printer)
   (set-exception-printer! 'wrong-type-arg scm-error-printer)
 
-  (set-exception-printer! 'syntax-error syntax-error-printer))
+  (set-exception-printer! 'syntax-error syntax-error-printer)
+
+  (set-exception-printer! 'getaddrinfo-error getaddrinfo-error-printer))
 
 
 
@@ -2876,6 +2881,36 @@ module '(ice-9 q) '(make-q q-length))}."
 
 
 ;;;
+;;; Current ports as parameters.
+;;;
+
+(let ((fluid->parameter
+       (lambda (fluid conv)
+         (make-struct <parameter> 0
+                      (case-lambda
+                        (() (fluid-ref fluid))
+                        ((x) (let ((prev (fluid-ref fluid)))
+                               (fluid-set! fluid (conv x))
+                               prev)))
+                      fluid conv))))
+  (define-syntax-rule (port-parameterize! binding fluid predicate msg)
+    (begin
+      (set! binding (fluid->parameter (module-ref (current-module) 'fluid)
+                                      (lambda (x)
+                                        (if (predicate x) x
+                                            (error msg x)))))
+      (module-remove! (current-module) 'fluid)))
+  
+  (port-parameterize! current-input-port %current-input-port-fluid
+                      input-port? "expected an input port")
+  (port-parameterize! current-output-port %current-output-port-fluid
+                      output-port? "expected an output port")
+  (port-parameterize! current-error-port %current-error-port-fluid
+                      output-port? "expected an output port"))
+
+
+
+;;;
 ;;; Warnings.
 ;;;
 
@@ -3611,8 +3646,9 @@ module '(ice-9 q) '(make-q q-length))}."
     srfi-4   ;; homogenous numeric vectors
     srfi-6   ;; open-input-string etc, in the guile core
     srfi-13  ;; string library
-    srfi-23  ;; `error` procedure
     srfi-14  ;; character sets
+    srfi-23  ;; `error` procedure
+    srfi-39  ;; parameterize
     srfi-55  ;; require-extension
     srfi-61  ;; general cond clause
     ))
