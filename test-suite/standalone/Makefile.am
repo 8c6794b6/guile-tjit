@@ -33,6 +33,7 @@ EXTRA_DIST =
 TESTS_ENVIRONMENT =						\
   srcdir="$(srcdir)"						\
   builddir="$(builddir)"					\
+  @LOCALCHARSET_TESTS_ENVIRONMENT@				\
   GUILE_AUTO_COMPILE=0 "${top_builddir}/meta/uninstalled-env"
 
 ## Check for headers in $(srcdir) and bulid dir before $(CPPFLAGS), which
@@ -80,6 +81,9 @@ check_SCRIPTS += test-import-order
 TESTS += test-import-order
 EXTRA_DIST += test-import-order-a.scm test-import-order-b.scm \
   test-import-order-c.scm test-import-order-d.scm
+
+check_SCRIPTS += test-command-line-encoding
+TESTS += test-command-line-encoding
 
 # test-num2integral
 test_num2integral_SOURCES = test-num2integral.c

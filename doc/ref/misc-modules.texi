@@ -1098,17 +1098,171 @@ try to use one of them.  The reason for two versions is that the full
 @section File Tree Walk
 @cindex file tree walk
 
+@cindex file system traversal
+@cindex directory traversal
+
 The functions in this section traverse a tree of files and
-directories, in a fashion similar to the C @code{ftw} and @code{nftw}
-routines (@pxref{Working with Directory Trees,,, libc, GNU C Library
-Reference Manual}).
+directories.  They come in two flavors: the first one is a high-level
+functional interface, and the second one is similar to the C @code{ftw}
+and @code{nftw} routines (@pxref{Working with Directory Trees,,, libc,
+GNU C Library Reference Manual}).
 
 @example
 (use-modules (ice-9 ftw))
 @end example
 @sp 1
 
-@defun ftw startname proc ['hash-size n]
+@deffn {Scheme Procedure} file-system-tree file-name [enter? [stat]]
+Return a tree of the form @code{(@var{file-name} @var{stat}
+@var{children} ...)} where @var{stat} is the result of @code{(@var{stat}
+@var{file-name})} and @var{children} are similar structures for each
+file contained in @var{file-name} when it designates a directory.
+
+The optional @var{enter?} predicate is invoked as @code{(@var{enter?}
+@var{name} @var{stat})} and should return true to allow recursion into
+directory @var{name}; the default value is a procedure that always
+returns @code{#t}.  When a directory does not match @var{enter?}, it
+nonetheless appears in the resulting tree, only with zero children.
+
+The @var{stat} argument is optional and defaults to @code{lstat}, as for
+@code{file-system-fold} (see below.)
+
+The example below shows how to obtain a hierarchical listing of the
+files under the @file{module/language} directory in the Guile source
+tree, discarding their @code{stat} info:
+
+@example
+(use-modules (ice-9 match))
+
+(define remove-stat
+  ;; Remove the `stat' object the `file-system-tree' provides
+  ;; for each file in the tree.
+  (match-lambda
+    ((name stat)              ; flat file
+     name)
+    ((name stat children ...) ; directory
+     (list name (map remove-stat children)))))
+
+(let ((dir (string-append (assq-ref %guile-build-info 'top_srcdir)
+                          "/module/language")))
+  (remove-stat (file-system-tree dir)))
+
+@result{}
+("language"
+ (("value" ("spec.go" "spec.scm"))
+  ("scheme"
+   ("spec.go"
+    "spec.scm"
+    "compile-tree-il.scm"
+    "decompile-tree-il.scm"
+    "decompile-tree-il.go"
+    "compile-tree-il.go"))
+  ("tree-il"
+   ("spec.go"
+    "fix-letrec.go"
+    "inline.go"
+    "fix-letrec.scm"
+    "compile-glil.go"
+    "spec.scm"
+    "optimize.scm"
+    "primitives.scm"
+    @dots{}))
+  @dots{}))
+@end example
+@end deffn
+
+@cindex file system combinator
+
+It is often desirable to process directories entries directly, rather
+than building up a tree of entries in memory, like
+@code{file-system-tree} does.  The following procedure, a
+@dfn{combinator}, is designed to allow directory entries to be processed
+directly as a directory tree is traversed; in fact,
+@code{file-system-tree} is implemented in terms of it.
+
+@deffn {Scheme Procedure} file-system-fold enter? leaf down up skip init file-name [stat]
+Traverse the directory at @var{file-name}, recursively, and return the
+result of the successive applications of the @var{leaf}, @var{down},
+@var{up}, and @var{skip} procedures as described below.
+
+Enter sub-directories only when @code{(@var{enter?} @var{path}
+@var{stat} @var{result})} returns true.  When a sub-directory is
+entered, call @code{(@var{down} @var{path} @var{stat} @var{result})},
+where @var{path} is the path of the sub-directory and @var{stat} the
+result of @code{(false-if-exception (@var{stat} @var{path}))}; when it is
+left, call @code{(@var{up} @var{path} @var{stat} @var{result})}.
+
+For each file in a directory, call @code{(@var{leaf} @var{path}
+@var{stat} @var{result})}.
+
+When @var{enter?} returns @code{#f}, or when an unreadable directory is
+encountered, call @code{(@var{skip} @var{path} @var{stat}
+@var{result})}.
+
+When @var{file-name} names a flat file, @code{(@var{leaf} @var{path}
+@var{stat} @var{init})} is returned.
+
+The special @file{.} and @file{..} entries are not passed to these
+procedures.  The @var{path} argument to the procedures is a full file
+name---e.g., @code{"../foo/bar/gnu"}; if @var{file-name} is an absolute
+file name, then @var{path} is also an absolute file name.  Files and
+directories, as identified by their device/inode number pair, are
+traversed only once.
+
+The optional @var{stat} argument defaults to @code{lstat}, which means
+that symbolic links are not followed; the @code{stat} procedure can be
+used instead when symbolic links are to be followed (@pxref{File System,
+stat}).
+
+The example below illustrates the use of @code{file-system-fold}:
+
+@example
+(define (total-file-size file-name)
+  "Return the size in bytes of the files under FILE-NAME (similar
+to `du --apparent-size' with GNU Coreutils.)"
+
+  (define (enter? name stat result)
+    ;; Skip version control directories.
+    (not (member (basename name) '(".git" ".svn" "CVS"))))
+  (define (leaf name stat result)
+    ;; Return RESULT plus the size of the file at NAME.
+    (+ result (stat:size stat)))
+
+  ;; Count zero bytes for directories.
+  (define (down name stat result) result)
+  (define (up name stat result) result)
+
+  ;; Likewise for skipped directories.
+  (define (skip name stat result) result)
+
+  (file-system-fold enter? leaf down up skip
+                           0  ; initial counter is zero bytes
+                           file-name))
+
+(total-file-size ".")
+@result{} 8217554
+
+(total-file-size "/dev/null")
+@result{} 0
+@end example
+@end deffn
+
+The alternative C-like functions are described below.
+
+@deffn {Scheme Procedure} scandir name [select? [entry<?]]
+Return the list of the names of files contained in directory @var{name}
+that match predicate @var{select?} (by default, all files).  The
+returned list of file names is sorted according to @var{entry<?}, which
+defaults to @code{string-locale<?} such that file names are sorted in
+the locale's alphabetical order (@pxref{Text Collation}).  Return
+@code{#f} when @var{name} is unreadable or is not a directory.
+
+This procedure is modeled after the C library function of the same name
+(@pxref{Scanning Directory Content,,, libc, GNU C Library Reference
+Manual}).
+@end deffn
+
+@deffn {Scheme Procedure} ftw startname proc ['hash-size n]
 Walk the file system tree descending from @var{startname}, calling
 @var{proc} for each file and directory.
 
@@ -1161,10 +1315,10 @@ to set the size of the hash table used to track items already visited.
 In the current implementation, returning non-@code{#t} from @var{proc}
 is the only valid way to terminate @code{ftw}.  @var{proc} must not
 use @code{throw} or similar to escape.
-@end defun
+@end deffn
 
 
-@defun nftw startname proc ['chdir] ['depth] ['hash-size n] ['mount] ['physical]
+@deffn {Scheme Procedure} nftw startname proc ['chdir] ['depth] ['hash-size n] ['mount] ['physical]
 Walk the file system tree starting at @var{startname}, calling
 @var{proc} for each file and directory.  @code{nftw} has extra
 features over the basic @code{ftw} described above.
@@ -1267,7 +1421,7 @@ caused the stop.
 In the current implementation, returning non-@code{#t} from @var{proc}
 is the only valid way to terminate @code{ftw}.  @var{proc} must not
 use @code{throw} or similar to escape.
-@end defun
+@end deffn
 
 
 @node Queues
@@ -1433,7 +1587,7 @@ a list, but they could be printed (infinitely) with for example
 @end example
 
 @sp 1
-@defun make-stream proc initial-state
+@deffn {Scheme Procedure} make-stream proc initial-state
 Return a new stream, formed by calling @var{proc} successively.
 
 Each call is @code{(@var{proc} @var{state})}, it should return a pair,
@@ -1441,32 +1595,32 @@ the @code{car} being the value for the stream, and the @code{cdr}
 being the new @var{state} for the next call.  For the first call
 @var{state} is the given @var{initial-state}.  At the end of the
 stream, @var{proc} should return some non-pair object.
-@end defun
+@end deffn
 
-@defun stream-car stream
+@deffn {Scheme Procedure} stream-car stream
 Return the first element from @var{stream}.  @var{stream} must not be
 empty.
-@end defun
+@end deffn
 
-@defun stream-cdr stream
+@deffn {Scheme Procedure} stream-cdr stream
 Return a stream which is the second and subsequent elements of
 @var{stream}.  @var{stream} must not be empty.
-@end defun
+@end deffn
 
-@defun stream-null? stream
+@deffn {Scheme Procedure} stream-null? stream
 Return true if @var{stream} is empty.
-@end defun
+@end deffn
 
-@defun list->stream list
-@defunx vector->stream vector
+@deffn {Scheme Procedure} list->stream list
+@deffnx {Scheme Procedure} vector->stream vector
 Return a stream with the contents of @var{list} or @var{vector}.
 
 @var{list} or @var{vector} should not be modified subsequently, since
 it's unspecified whether changes there will be reflected in the stream
 returned.
-@end defun
+@end deffn
 
-@defun port->stream port readproc
+@deffn {Scheme Procedure} port->stream port readproc
 Return a stream which is the values obtained by reading from
 @var{port} using @var{readproc}.  Each read call is
 @code{(@var{readproc} @var{port})}, and it should return an EOF object
@@ -1477,34 +1631,34 @@ For example a stream of characters from a file,
 @example
 (port->stream (open-input-file "/foo/bar.txt") read-char)
 @end example
-@end defun
+@end deffn
 
-@defun stream->list stream
+@deffn {Scheme Procedure} stream->list stream
 Return a list which is the entire contents of @var{stream}.
-@end defun
+@end deffn
 
-@defun stream->reversed-list stream
+@deffn {Scheme Procedure} stream->reversed-list stream
 Return a list which is the entire contents of @var{stream}, but in
 reverse order.
-@end defun
+@end deffn
 
-@defun stream->list&length stream
+@deffn {Scheme Procedure} stream->list&length stream
 Return two values (@pxref{Multiple Values}), being firstly a list
 which is the entire contents of @var{stream}, and secondly the number
 of elements in that list.
-@end defun
+@end deffn
 
-@defun stream->reversed-list&length stream
+@deffn {Scheme Procedure} stream->reversed-list&length stream
 Return two values (@pxref{Multiple Values}) being firstly a list which
 is the entire contents of @var{stream}, but in reverse order, and
 secondly the number of elements in that list.
-@end defun
+@end deffn
 
-@defun stream->vector stream
+@deffn {Scheme Procedure} stream->vector stream
 Return a vector which is the entire contents of @var{stream}.
-@end defun
+@end deffn
 
-@defun stream-fold proc init stream0 @dots{} streamN
+@deffn {Scheme Procedure} stream-fold proc init stream0 @dots{} streamN
 Apply @var{proc} successively over the elements of the given streams,
 from first to last until the end of the shortest stream is reached.
 Return the result from the last @var{proc} call.
@@ -1513,9 +1667,9 @@ Each call is @code{(@var{proc} elem0 @dots{} elemN prev)}, where each
 @var{elem} is from the corresponding @var{stream}.  @var{prev} is the
 return from the previous @var{proc} call, or the given @var{init} for
 the first call.
-@end defun
+@end deffn
 
-@defun stream-for-each proc stream0 @dots{} streamN
+@deffn {Scheme Procedure} stream-for-each proc stream0 @dots{} streamN
 Call @var{proc} on the elements from the given @var{stream}s.  The
 return value is unspecified.
 
@@ -1523,16 +1677,16 @@ Each call is @code{(@var{proc} elem0 @dots{} elemN)}, where each
 @var{elem} is from the corresponding @var{stream}.
 @code{stream-for-each} stops when it reaches the end of the shortest
 @var{stream}.
-@end defun
+@end deffn
 
-@defun stream-map proc stream0 @dots{} streamN
+@deffn {Scheme Procedure} stream-map proc stream0 @dots{} streamN
 Return a new stream which is the results of applying @var{proc} to the
 elements of the given @var{stream}s.
 
 Each call is @code{(@var{proc} elem0 @dots{} elemN)}, where each
 @var{elem} is from the corresponding @var{stream}.  The new stream
 ends when the end of the shortest given @var{stream} is reached.
-@end defun
+@end deffn
 
 
 @node Buffered Input
@@ -1551,7 +1705,7 @@ characters which are to be handed out on reading the port.  A notion
 of further input for an application level logical expression is
 maintained too, and passed through to the reader.
 
-@defun make-buffered-input-port reader
+@deffn {Scheme Procedure} make-buffered-input-port reader
 Create an input port which returns characters obtained from the given
 @var{reader} function.  @var{reader} is called (@var{reader} cont),
 and should return a string or an EOF object.
@@ -1566,9 +1720,9 @@ application level notion, set with
 @code{set-buffered-input-continuation?!} below.  If the user has
 entered a partial expression then it allows @var{reader} for instance
 to give a different prompt to show more is required.
-@end defun
+@end deffn
 
-@defun make-line-buffered-input-port reader
+@deffn {Scheme Procedure} make-line-buffered-input-port reader
 @cindex Line buffered input
 Create an input port which returns characters obtained from the
 specified @var{reader} function, similar to
@@ -1578,9 +1732,9 @@ expected to be a line-oriented.
 @var{reader} is called (@var{reader} cont), and should return a string
 or an EOF object as above.  Each string is a line of input without a
 newline character, the port code inserts a newline after each string.
-@end defun
+@end deffn
 
-@defun set-buffered-input-continuation?! port cont
+@deffn {Scheme Procedure} set-buffered-input-continuation?! port cont
 Set the input continuation flag for a given buffered input
 @var{port}.
 
@@ -1595,7 +1749,7 @@ example with the Scheme @code{read} function (@pxref{Scheme Read}),
 (let ((obj (read my-port)))
   ...
 @end example
-@end defun
+@end deffn
 
 
 @c Local Variables:

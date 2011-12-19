@@ -727,7 +727,7 @@ VM_DEFINE_INSTRUCTION (176, slot_set, "slot-set", 0, 3, 0)
 
 /* Return true (non-zero) if PTR has suitable alignment for TYPE.  */
 #define ALIGNED_P(ptr, type)			\
-  ((scm_t_uintptr) (ptr) % alignof (type) == 0)
+  ((scm_t_uintptr) (ptr) % alignof_type (type) == 0)
 
 VM_DEFINE_FUNCTION (177, bv_u16_ref, "bv-u16-ref", 3)
 BV_REF_WITH_ENDIANNESS (u16, u16)

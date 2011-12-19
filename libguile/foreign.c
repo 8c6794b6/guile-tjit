@@ -451,32 +451,32 @@ SCM_DEFINE (scm_alignof, "alignof", 1, 0, 0, (SCM type),
       switch (SCM_I_INUM (type))
         {
         case SCM_FOREIGN_TYPE_FLOAT:
-          return scm_from_size_t (alignof (float));
+          return scm_from_size_t (alignof_type (float));
         case SCM_FOREIGN_TYPE_DOUBLE:
-          return scm_from_size_t (alignof (double));
+          return scm_from_size_t (alignof_type (double));
         case SCM_FOREIGN_TYPE_UINT8:
-          return scm_from_size_t (alignof (scm_t_uint8));
+          return scm_from_size_t (alignof_type (scm_t_uint8));
         case SCM_FOREIGN_TYPE_INT8:
-          return scm_from_size_t (alignof (scm_t_int8));
+          return scm_from_size_t (alignof_type (scm_t_int8));
         case SCM_FOREIGN_TYPE_UINT16:
-          return scm_from_size_t (alignof (scm_t_uint16));
+          return scm_from_size_t (alignof_type (scm_t_uint16));
         case SCM_FOREIGN_TYPE_INT16:
-          return scm_from_size_t (alignof (scm_t_int16));
+          return scm_from_size_t (alignof_type (scm_t_int16));
         case SCM_FOREIGN_TYPE_UINT32:
-          return scm_from_size_t (alignof (scm_t_uint32));
+          return scm_from_size_t (alignof_type (scm_t_uint32));
         case SCM_FOREIGN_TYPE_INT32:
-          return scm_from_size_t (alignof (scm_t_int32));
+          return scm_from_size_t (alignof_type (scm_t_int32));
         case SCM_FOREIGN_TYPE_UINT64:
-          return scm_from_size_t (alignof (scm_t_uint64));
+          return scm_from_size_t (alignof_type (scm_t_uint64));
         case SCM_FOREIGN_TYPE_INT64:
-          return scm_from_size_t (alignof (scm_t_int64));
+          return scm_from_size_t (alignof_type (scm_t_int64));
         default:
           scm_wrong_type_arg (FUNC_NAME, 1, type);
         }
     }
   else if (scm_is_eq (type, sym_asterisk))
     /* a pointer */
-    return scm_from_size_t (alignof (void*));
+    return scm_from_size_t (alignof_type (void*));
   else if (scm_is_pair (type))
     {
       /* TYPE is a structure.  Section 3-3 of the i386, x86_64, PowerPC,
@@ -704,12 +704,12 @@ make_cif (SCM return_type, SCM arg_types, const char *caller)
 
   /* then ffi_type pointers: one for each arg, one for each struct
      element, and one for each struct (for null-termination) */
-  cif_len = (ROUND_UP (cif_len, alignof(void*))
+  cif_len = (ROUND_UP (cif_len, alignof_type (void *))
 	     + (nargs + n_structs + n_struct_elts)*sizeof(void*));
 
   /* then the ffi_type structs themselves, one per arg and struct element, and
      one for the return val */
-  cif_len = (ROUND_UP (cif_len, alignof(ffi_type))
+  cif_len = (ROUND_UP (cif_len, alignof_type (ffi_type))
 	     + (nargs + n_struct_elts + 1)*sizeof(ffi_type));
 
   mem = scm_gc_malloc_pointerless (cif_len, "foreign");
@@ -718,11 +718,11 @@ make_cif (SCM return_type, SCM arg_types, const char *caller)
   cif = (ffi_cif *) mem;
 
   /* reuse cif_len to walk through the mem */
-  cif_len = ROUND_UP (sizeof (ffi_cif), alignof(void*));
+  cif_len = ROUND_UP (sizeof (ffi_cif), alignof_type (void *));
   type_ptrs = (ffi_type**)(mem + cif_len);
   cif_len = ROUND_UP (cif_len
 		      + (nargs + n_structs + n_struct_elts)*sizeof(void*),
-		      alignof(ffi_type));
+		      alignof_type (ffi_type));
   types = (ffi_type*)(mem + cif_len);
 
   /* whew. now knit the pointers together. */
@@ -910,7 +910,7 @@ cif_to_procedure (SCM cif, SCM func_ptr)
 
 /* Set *LOC to the foreign representation of X with TYPE.  */
 static void
-unpack (const ffi_type *type, void *loc, SCM x)
+unpack (const ffi_type *type, void *loc, SCM x, int return_value_p)
 #define FUNC_NAME "scm_i_foreign_call"
 {
   switch (type->type)
@@ -921,23 +921,45 @@ unpack (const ffi_type *type, void *loc, SCM x)
     case FFI_TYPE_DOUBLE:
       *(double *) loc = scm_to_double (x);
       break;
+
+    /* For integer return values smaller than `int', libffi expects the
+       result in an `ffi_arg'-long buffer.  */
+
     case FFI_TYPE_UINT8:
-      *(scm_t_uint8 *) loc = scm_to_uint8 (x);
+      if (return_value_p)
+	*(ffi_arg *) loc = scm_to_uint8 (x);
+      else
+	*(scm_t_uint8 *) loc = scm_to_uint8 (x);
       break;
     case FFI_TYPE_SINT8:
-      *(scm_t_int8 *) loc = scm_to_int8 (x);
+      if (return_value_p)
+	*(ffi_arg *) loc = scm_to_int8 (x);
+      else
+	*(scm_t_int8 *) loc = scm_to_int8 (x);
       break;
     case FFI_TYPE_UINT16:
-      *(scm_t_uint16 *) loc = scm_to_uint16 (x);
+      if (return_value_p)
+	*(ffi_arg *) loc = scm_to_uint16 (x);
+      else
+	*(scm_t_uint16 *) loc = scm_to_uint16 (x);
       break;
     case FFI_TYPE_SINT16:
-      *(scm_t_int16 *) loc = scm_to_int16 (x);
+      if (return_value_p)
+	*(ffi_arg *) loc = scm_to_int16 (x);
+      else
+	*(scm_t_int16 *) loc = scm_to_int16 (x);
       break;
     case FFI_TYPE_UINT32:
-      *(scm_t_uint32 *) loc = scm_to_uint32 (x);
+      if (return_value_p)
+	*(ffi_arg *) loc = scm_to_uint32 (x);
+      else
+	*(scm_t_uint32 *) loc = scm_to_uint32 (x);
       break;
     case FFI_TYPE_SINT32:
-      *(scm_t_int32 *) loc = scm_to_int32 (x);
+      if (return_value_p)
+	*(ffi_arg *) loc = scm_to_int32 (x);
+      else
+	*(scm_t_int32 *) loc = scm_to_int32 (x);
       break;
     case FFI_TYPE_UINT64:
       *(scm_t_uint64 *) loc = scm_to_uint64 (x);
@@ -1073,7 +1095,7 @@ scm_i_foreign_call (SCM foreign, const SCM *argv)
       args[i] = (void *) ROUND_UP ((scm_t_uintptr) data + off,
 				   cif->arg_types[i]->alignment);
       assert ((scm_t_uintptr) args[i] % cif->arg_types[i]->alignment == 0);
-      unpack (cif->arg_types[i], args[i], argv[i]);
+      unpack (cif->arg_types[i], args[i], argv[i], 0);
     }
 
   /* Prepare space for the return value.  On some platforms, such as
@@ -1112,7 +1134,7 @@ invoke_closure (ffi_cif *cif, void *ret, void **args, void *data)
 
   result = scm_call_n (proc, argv, cif->nargs);
 
-  unpack (cif->rtype, ret, result);
+  unpack (cif->rtype, ret, result, 1);
 }
 
 SCM_DEFINE (scm_procedure_to_pointer, "procedure->pointer", 3, 0, 0,
