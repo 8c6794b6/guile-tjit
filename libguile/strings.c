@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1998,2000,2001, 2004, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000,2001, 2004, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -436,6 +436,9 @@ scm_i_string_length (SCM str)
 int
 scm_i_is_narrow_string (SCM str)
 {
+  if (IS_SH_STRING (str))
+    str = SH_STRING_STRING (str);
+
   return !STRINGBUF_WIDE (STRING_STRINGBUF (str));
 }
 
@@ -446,6 +449,9 @@ scm_i_is_narrow_string (SCM str)
 int
 scm_i_try_narrow_string (SCM str)
 {
+  if (IS_SH_STRING (str))
+    str = SH_STRING_STRING (str);
+
   SET_STRING_STRINGBUF (str, narrow_stringbuf (STRING_STRINGBUF (str)));
 
   return scm_i_is_narrow_string (str);
@@ -664,6 +670,12 @@ scm_i_string_strcmp (SCM sstr, size_t start_x, const char *cstr)
 void
 scm_i_string_set_x (SCM str, size_t p, scm_t_wchar chr)
 {
+  if (IS_SH_STRING (str))
+    {
+      p += STRING_START (str);
+      str = SH_STRING_STRING (str);
+    }
+
   if (chr > 0xFF && scm_i_is_narrow_string (str))
     SET_STRING_STRINGBUF (str, wide_stringbuf (STRING_STRINGBUF (str)));
 
@@ -2243,7 +2255,7 @@ SCM_VECTOR_IMPLEMENTATION (SCM_ARRAY_ELEMENT_TYPE_CHAR, scm_make_string)
 void
 scm_init_strings ()
 {
-  scm_nullstr = scm_i_make_string (0, NULL, 1);
+  scm_nullstr = scm_i_make_string (0, NULL, 0);
 
 #include "libguile/strings.x"
 }

@@ -1,4 +1,5 @@
-/* Copyright (C) 1999,2000,2001,2003,2004, 2006, 2008, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1999, 2000, 2001, 2003, 2004, 2006, 2008, 2010, 2011
+ *   2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -34,8 +35,7 @@ SCM call_num2ulong_long_body (void *data);
 SCM
 out_of_range_handler (void *data, SCM key, SCM args)
 {
-  assert (scm_is_true
-          (scm_equal_p (key, scm_from_locale_symbol ("out-of-range"))));
+  assert (scm_is_eq (key, scm_from_locale_symbol ("out-of-range")));
   return SCM_BOOL_T;
 }
 

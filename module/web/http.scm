@@ -805,9 +805,6 @@ ordered alist."
     (display-digits (date-second date) 2 port)
     (display " GMT" port)))
 
-(define (write-uri uri port)
-  (display (uri->string uri) port))
-
 (define (parse-entity-tag val)
   (if (string-prefix? "W/" val)
       (cons (parse-qstring val 2) #f)
@@ -1082,7 +1079,18 @@ three values: the method, the URI, and the version."
   "Write the first line of an HTTP request to @var{port}."
   (display method port)
   (display #\space port)
-  (write-uri uri port)
+  (let ((path (uri-path uri))
+        (query (uri-query uri)))
+    (if (not (string-null? path))
+        (display path port))
+    (if query
+        (begin
+          (display "?" port)
+          (display query port)))
+    (if (and (string-null? path)
+             (not query))
+        ;; Make sure we display something.
+        (display "/" port)))
   (display #\space port)
   (write-http-version version port)
   (display "\r\n" port))
@@ -1506,7 +1514,15 @@ phrase\"."
 
 ;; Expires = HTTP-date
 ;;
-(declare-date-header! "Expires")
+(define *date-in-the-past* (parse-date "Thu, 01 Jan 1970 00:00:00 GMT"))
+
+(declare-header! "Expires"
+  (lambda (str)
+    (if (member str '("0" "-1"))
+        *date-in-the-past*
+        (parse-date str)))
+  date?
+  write-date)
 
 ;; Last-Modified = HTTP-date
 ;;

@@ -160,6 +160,8 @@ static SCM class_vm;
 static SCM class_vm_cont;
 static SCM class_bytevector;
 static SCM class_uvec;
+static SCM class_array;
+static SCM class_bitvector;
 
 static SCM vtable_class_map = SCM_BOOL_F;
 
@@ -275,6 +277,10 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
             return class_bytevector;
           else
             return class_uvec;
+	case scm_tc7_array:
+          return class_array;
+	case scm_tc7_bitvector:
+          return class_bitvector;
 	case scm_tc7_string:
 	  return scm_class_string;
         case scm_tc7_number:
@@ -2519,6 +2525,10 @@ create_standard_classes (void)
 	       scm_class_class, scm_class_top,		   SCM_EOL);
   make_stdcls (&class_uvec,		   "<uvec>",
 	       scm_class_class, class_bytevector,	   SCM_EOL);
+  make_stdcls (&class_array,		   "<array>",
+	       scm_class_class, scm_class_top,		   SCM_EOL);
+  make_stdcls (&class_bitvector,           "<bitvector>",
+	       scm_class_class, scm_class_top,		   SCM_EOL);
   make_stdcls (&scm_class_number,	   "<number>",
 	       scm_class_class, scm_class_top,		   SCM_EOL);
   make_stdcls (&scm_class_complex,	   "<complex>",
