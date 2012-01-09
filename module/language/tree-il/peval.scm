@@ -1,6 +1,6 @@
 ;;; Tree-IL partial evaluator
 
-;; Copyright (C) 2011 Free Software Foundation, Inc.
+;; Copyright (C) 2011, 2012 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -1032,7 +1032,7 @@ top-level bindings from ENV and return the resulting expression."
            (for-tail (list->seq src (append args (list res))))))
         (else
          (match (cons name (map for-value args))
-           (('cons x ($ <const> _ ()))
+           (('cons x ($ <const> _ (? (cut eq? <> '()))))
             (make-primcall src 'list (list x)))
            (('cons x ($ <primcall> _ 'list elts))
             (make-primcall src 'list (cons x elts)))

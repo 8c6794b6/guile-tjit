@@ -1426,6 +1426,11 @@
              (call (toplevel top) (lexical x _)))))))
   
   (pass-if-peval
+   ;; Constant folding: cons of #nil does not make list
+   (cons 1 #nil)
+   (primcall cons (const 1) (const '#nil)))
+  
+  (pass-if-peval
     ;; Constant folding: cons
    (begin (cons 1 2) #f)
    (const #f))
