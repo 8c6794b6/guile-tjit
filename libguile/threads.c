@@ -38,6 +38,10 @@
 #include <sys/time.h>
 #endif
 
+#if HAVE_PTHREAD_NP_H
+# include <pthread_np.h>
+#endif
+
 #include <assert.h>
 #include <fcntl.h>
 #include <nproc.h>
@@ -138,6 +142,29 @@ static void *
 get_thread_stack_base ()
 {
   return pthread_get_stackaddr_np (pthread_self ());
+}
+
+#elif HAVE_PTHREAD_ATTR_GET_NP
+/* This one is for FreeBSD 9.  */
+static void *
+get_thread_stack_base ()
+{
+  pthread_attr_t attr;
+  void *start, *end;
+  size_t size;
+
+  pthread_attr_init (&attr);
+  pthread_attr_get_np (pthread_self (), &attr);
+  pthread_attr_getstack (&attr, &start, &size);
+  pthread_attr_destroy (&attr);
+
+  end = (char *)start + size;
+
+#if SCM_STACK_GROWS_UP
+  return start;
+#else
+  return end;
+#endif
 }
 
 #else 
@@ -2216,6 +2243,21 @@ scm_ia64_ar_bsp (const void *opaque)
   return (void *) ctx->uc_mcontext.sc_ar_bsp;
 }
 # endif /* linux */
+# ifdef __FreeBSD__
+#  include <ucontext.h>
+void *
+scm_ia64_register_backing_store_base (void)
+{
+  return (void *)0x8000000000000000;
+}
+void *
+scm_ia64_ar_bsp (const void *opaque)
+{
+  const ucontext_t *ctx = opaque;
+  return (void *)(ctx->uc_mcontext.mc_special.bspstore
+                  + ctx->uc_mcontext.mc_special.ndirty);
+}
+# endif /* __FreeBSD__ */
 #endif /* __ia64__ */
 
 

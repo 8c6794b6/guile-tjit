@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include <math.h>
 
 #ifdef __ia64__
@@ -62,10 +63,6 @@ extern unsigned long * __libc_ia64_register_backing_store_base;
 
 #ifdef GUILE_DEBUG_MALLOC
 #include "libguile/debug-malloc.h"
-#endif
-
-#ifdef HAVE_MALLOC_H
-#include <malloc.h>
 #endif
 
 #ifdef HAVE_UNISTD_H
