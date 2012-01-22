@@ -31,7 +31,6 @@
                match-pattern
                search-for-pattern
                compile-peg-pattern
-               define-grammar-f
                keyword-flatten
                context-flatten
                peg:start

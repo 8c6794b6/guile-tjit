@@ -20,7 +20,6 @@
 (define-module (ice-9 peg string-peg)
   #:export (peg-as-peg
             define-peg-string-patterns
-            define-grammar-f
             peg-grammar)
   #:use-module (ice-9 peg using-parsers)
   #:use-module (ice-9 peg codegen)
@@ -98,8 +97,9 @@ RB < ']'
 ;;;;; PARSE STRING PEGS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; Pakes a string representing a PEG grammar and defines all the nonterminals in
-;; it as the associated PEGs.
+;; Takes a string representing a PEG grammar and returns syntax that
+;; will define all of the nonterminals in the grammar with equivalent
+;; PEG s-expressions.
 (define (peg-parser str for-syntax)
   (let ((parsed (match-pattern peg-grammar str)))
     (if (not parsed)
@@ -123,7 +123,6 @@ RB < ']'
     (syntax-case x ()
       ((_ str)
        (peg-parser (syntax->datum #'str) x)))))
-(define define-grammar-f peg-parser)
 
 ;; lst has format (nonterm grabber pattern), where
 ;;   nonterm is a symbol (the name of the nonterminal),
