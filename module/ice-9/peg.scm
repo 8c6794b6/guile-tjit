@@ -26,8 +26,8 @@
   #:use-module (ice-9 peg simplify-tree)
   #:use-module (ice-9 peg using-parsers)
   #:use-module (ice-9 peg cache)
-  #:re-export (match-pattern
-               define-nonterm
+  #:re-export (define-peg-pattern
+               match-pattern
                search-for-pattern
                peg-sexp-compile
                define-grammar

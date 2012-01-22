@@ -135,7 +135,7 @@ RB < ']'
          (pattern (caddr lst))
          (nonterm-name (datum->syntax for-syntax
                                       (string->symbol (cadr nonterm)))))
-    #`(define-nonterm #,nonterm-name
+    #`(define-peg-pattern #,nonterm-name
        #,(cond
           ((string=? grabber "<--") (datum->syntax for-syntax 'all))
           ((string=? grabber "<-") (datum->syntax for-syntax 'body))

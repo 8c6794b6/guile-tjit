@@ -145,7 +145,7 @@ SLASH < '/'")
 
 ;; Tests the functions for pulling data out of PEG Match Records.
 (with-test-prefix "PEG Match Records"
-  (define-nonterm bs all (peg "'b'+"))
+  (define-peg-pattern bs all (peg "'b'+"))
   (pass-if
    "basic parameter extraction"
    (equal?

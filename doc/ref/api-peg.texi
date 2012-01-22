@@ -19,7 +19,7 @@ familiarize yourself with the syntax:
 
 The module works by compiling PEGs down to lambda expressions.  These
 can either be stored in variables at compile-time by the define macros
-(@code{define-nonterm} and @code{define-grammar}) or calculated
+(@code{define-peg-pattern} and @code{define-grammar}) or calculated
 explicitly at runtime with the compile functions
 (@code{peg-sexp-compile} and @code{peg-string-compile}).
 
@@ -242,7 +242,7 @@ Note that in doing this, we have bound 6 variables at the toplevel
 @var{as-or-bs-tag}).
 @end deffn
 
-@deffn {Scheme Macro} define-nonterm name capture-type peg-sexp
+@deffn {Scheme Macro} define-peg-pattern name capture-type peg-sexp
 Defines a single nonterminal @var{name}.  @var{capture-type} determines
 how much information is passed up the parse tree.  @var{peg-sexp} is a
 PEG in S-expression form.
@@ -261,12 +261,12 @@ passes nothing up the parse tree.
 
 For Example, if we:
 @lisp
-(define-nonterm as body (+ "a"))
-(define-nonterm bs body (+ "b"))
-(define-nonterm as-or-bs body (or as bs))
-(define-nonterm as-tag all (+ "a"))
-(define-nonterm bs-tag all (+ "b"))
-(define-nonterm as-or-bs-tag all (or as-tag bs-tag))
+(define-peg-pattern as body (+ "a"))
+(define-peg-pattern bs body (+ "b"))
+(define-peg-pattern as-or-bs body (or as bs))
+(define-peg-pattern as-tag all (+ "a"))
+(define-peg-pattern bs-tag all (+ "b"))
+(define-peg-pattern as-or-bs-tag all (or as-tag bs-tag))
 @end lisp
 Then:
 @lisp
@@ -288,14 +288,14 @@ runtime.  These functions let you do that using either syntax.
 @deffn {Scheme Procedure} peg-string-compile peg-string capture-type
 Compiles the PEG pattern in @var{peg-string} propagating according to
 @var{capture-type} (capture-type can be any of the values from
-@code{define-nonterm}).
+@code{define-peg-pattern}).
 @end deffn
 
 
 @deffn {Scheme Procedure} peg-sexp-compile peg-sexp capture-type
 Compiles the PEG pattern in @var{peg-sexp} propagating according to
 @var{capture-type} (capture-type can be any of the values from
-@code{define-nonterm}).
+@code{define-peg-pattern}).
 @end deffn
 
 The functions return syntax objects, which can be useful if you want to
@@ -329,7 +329,7 @@ Parses @var{string} using the PEG stored in @var{nonterm}.  If no match
 was found, @code{match-pattern} returns false.  If a match was found, a PEG
 match record is returned.
 
-The @code{capture-type} argument to @code{define-nonterm} allows you to
+The @code{capture-type} argument to @code{define-peg-pattern} allows you to
 choose what information to hold on to while parsing.  The options are:
 
 @table @code
@@ -342,19 +342,19 @@ nothing
 @end table
 
 @lisp
-(define-nonterm as all (+ "a"))
+(define-peg-pattern as all (+ "a"))
 (match-pattern as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: (as aa)>
 
-(define-nonterm as body (+ "a"))
+(define-peg-pattern as body (+ "a"))
 (match-pattern as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
 
-(define-nonterm as none (+ "a"))
+(define-peg-pattern as none (+ "a"))
 (match-pattern as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: ()>
 
-(define-nonterm bs body (+ "b"))
+(define-peg-pattern bs body (+ "b"))
 (match-pattern bs "aabbcc") @result{} 
 #f
 @end lisp
@@ -369,7 +369,7 @@ to.  If no match was found, @code{search-for-pattern} returns false.  If a match
 was found, a PEG match record is returned.
 
 @lisp
-(define-nonterm as body (+ "a"))
+(define-peg-pattern as body (+ "a"))
 (search-for-pattern as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
 (search-for-pattern (+ "a") "aabbcc") @result{} 
@@ -377,11 +377,11 @@ was found, a PEG match record is returned.
 (search-for-pattern "'a'+" "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
 
-(define-nonterm as all (+ "a"))
+(define-peg-pattern as all (+ "a"))
 (search-for-pattern as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: (as aa)>
 
-(define-nonterm bs body (+ "b"))
+(define-peg-pattern bs body (+ "b"))
 (search-for-pattern bs "aabbcc") @result{} 
 #<peg start: 2 end: 4 string: aabbcc tree: bb>
 (search-for-pattern (+ "b") "aabbcc") @result{} 
@@ -389,7 +389,7 @@ was found, a PEG match record is returned.
 (search-for-pattern "'b'+" "aabbcc") @result{} 
 #<peg start: 2 end: 4 string: aabbcc tree: bb>
 
-(define-nonterm zs body (+ "z"))
+(define-peg-pattern zs body (+ "z"))
 (search-for-pattern zs "aabbcc") @result{} 
 #f
 (search-for-pattern (+ "z") "aabbcc") @result{} 
@@ -438,7 +438,7 @@ otherwise.
 
 Example:
 @lisp
-(define-nonterm bs all (peg "'b'+"))
+(define-peg-pattern bs all (peg "'b'+"))
 
 (search-for-pattern bs "aabbcc") @result{}
 #<peg start: 2 end: 4 string: aabbcc tree: (bs bb)>
@@ -534,10 +534,10 @@ away the captured data.
 
 Here is the same PEG defined using S-expressions:
 @lisp
-(define-nonterm passwd body (and (* entry) (not-followed-by peg-any)))
-(define-nonterm entry all (and (* (and (not-followed-by NL) peg-any))
+(define-peg-pattern passwd body (and (* entry) (not-followed-by peg-any)))
+(define-peg-pattern entry all (and (* (and (not-followed-by NL) peg-any))
 			       (* NL)))
-(define-nonterm NL none "\n")
+(define-peg-pattern NL none "\n")
 @end lisp
 
 Obviously this is much more verbose.  On the other hand, it's more
@@ -552,7 +552,7 @@ the @code{peg} keyword can be used to embed string syntax in
 S-expression syntax.  For instance, we could have written:
 
 @lisp
-(define-nonterm passwd body (peg "entry* !."))
+(define-peg-pattern passwd body (peg "entry* !."))
 @end lisp
 
 However we define it, parsing @code{*etc-passwd*} with the @code{passwd}
@@ -613,7 +613,7 @@ probably just tag the @code{passwd} nonterminal to remove the ambiguity
 symbol for strings)..
 
 @lisp
-(define-nonterm tag-passwd all (peg "entry* !."))
+(define-peg-pattern tag-passwd all (peg "entry* !."))
 (peg:tree (match-pattern tag-passwd *etc-passwd*)) @result{}
 (tag-passwd
   (entry "root:x:0:0:root:/root:/bin/bash")
@@ -1005,7 +1005,7 @@ The above function can be used to match a string by running
 
 @subsubheading Code Generators and Extensible Syntax
 
-PEG expressions, such as those in a @code{define-nonterm} form, are
+PEG expressions, such as those in a @code{define-peg-pattern} form, are
 interpreted internally in two steps.
 
 First, any string PEG is expanded into an s-expression PEG by the code
@@ -1027,7 +1027,7 @@ be called on all PEG expressions of the form
 The parsing function should take two arguments. The first will be a
 syntax object containing a list with all of the arguments to the form
 (but not the form's name), and the second will be the
-@code{capture-type} argument that is passed to @code{define-nonterm}.
+@code{capture-type} argument that is passed to @code{define-peg-pattern}.
 
 New functions can be registered by calling @code{(add-peg-compiler!
 symbol function)}, where @code{symbol} is the symbol that will indicate

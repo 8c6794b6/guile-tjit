@@ -21,7 +21,7 @@
   #:use-module (ice-9 peg simplify-tree)
   #:use-module (ice-9 peg codegen)
   #:use-module (ice-9 peg cache)
-  #:export (match-pattern define-nonterm search-for-pattern
+  #:export (match-pattern define-peg-pattern search-for-pattern
             prec make-prec peg:start peg:end peg:string
             peg:tree peg:substring peg-record?))
 
@@ -53,7 +53,7 @@ execute the STMTs and try again."
         (make-prec 0 (car res) string (string-collapse (cadr res))))))
 
 ;; Defines a new nonterminal symbol accumulating with ACCUM.
-(define-syntax define-nonterm
+(define-syntax define-peg-pattern
   (lambda (x)
     (syntax-case x ()
       ((_ sym accum pat)
