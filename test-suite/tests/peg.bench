@@ -63,7 +63,7 @@
 (define (eq-parse str) (apply parse-expr (peg:tree (match-pattern expr str))))
 
 ;; PEG for parsing equations (see tutorial).
-(define-grammar
+(define-peg-string-patterns
   "expr <- sum
 sum <-- (product ('+' / '-'))* product
 product <-- (value ('*' / '/'))* value

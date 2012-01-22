@@ -62,7 +62,7 @@
 (with-test-prefix "PEG Grammar"
   (pass-if
    "defining PEGs with PEG"
-   (and (eeval `(define-grammar ,(@@ (ice-9 peg) peg-as-peg))) #t))
+   (and (eeval `(define-peg-string-patterns ,(@@ (ice-9 peg) peg-as-peg))) #t))
   (pass-if
    "equivalence of definitions"
    (equal?
@@ -90,7 +90,7 @@ messagebus:x:103:107::/var/run/dbus:/bin/false
 ")
 
 ;; A grammar for parsing /etc/passwd files.
-(define-grammar
+(define-peg-string-patterns
   "passwd <-- entry* !.
 entry <-- login CO pass CO uid CO gid CO nameORcomment CO homedir CO shell NL*
 login <-- text
@@ -109,7 +109,7 @@ SLASH < '/'")
 
 ;; Tests some actual parsing using PEGs.
 (with-test-prefix "Parsing"
-  (eeval `(define-grammar ,comment-grammar))		  
+  (eeval `(define-peg-string-patterns ,comment-grammar))		  
   (pass-if
    ;; Pascal-style comment parsing
    "simple comment"
@@ -164,7 +164,7 @@ SLASH < '/'")
       (record? #t)))))
 
 ;; PEG for parsing right-associative equations.
-(define-grammar
+(define-peg-string-patterns
   "expr <- sum
 sum <-- (product ('+' / '-') sum) / product
 product <-- (value ('*' / '/') product) / value
@@ -217,7 +217,7 @@ number <-- [0-9]+")
 	   '(+ 1 (+ (/ 1 (* 2 3)) (/ (+ 1 1) 2))))))
 
 ;; PEG for parsing left-associative equations (normal ones).
-(define-grammar
+(define-peg-string-patterns
   "expr <- sum
 sum <-- (product ('+' / '-'))* product
 product <-- (value ('*' / '/'))* value

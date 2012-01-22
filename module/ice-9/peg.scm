@@ -27,10 +27,10 @@
   #:use-module (ice-9 peg using-parsers)
   #:use-module (ice-9 peg cache)
   #:re-export (define-peg-pattern
+               define-peg-string-patterns
                match-pattern
                search-for-pattern
                peg-sexp-compile
-               define-grammar
                define-grammar-f
                keyword-flatten
                context-flatten

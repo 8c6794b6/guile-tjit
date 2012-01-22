@@ -19,7 +19,7 @@ familiarize yourself with the syntax:
 
 The module works by compiling PEGs down to lambda expressions.  These
 can either be stored in variables at compile-time by the define macros
-(@code{define-peg-pattern} and @code{define-grammar}) or calculated
+(@code{define-peg-pattern} and @code{define-peg-string-patterns}) or calculated
 explicitly at runtime with the compile functions
 (@code{peg-sexp-compile} and @code{peg-string-compile}).
 
@@ -206,11 +206,11 @@ retrieved from this record with the PEG match deconstructor functions.
 More complicated (and perhaps enlightening) examples can be found in the
 tutorial.
 
-@deffn {Scheme Macro} define-grammar peg-string
+@deffn {Scheme Macro} define-peg-string-patterns peg-string
 Defines all the nonterminals in the PEG @var{peg-string}.  More
-precisely, @code{define-grammar} takes a superset of PEGs.  A normal PEG
+precisely, @code{define-peg-string-patterns} takes a superset of PEGs.  A normal PEG
 has a @code{<-} between the nonterminal and the pattern.
-@code{define-grammar} uses this symbol to determine what information it
+@code{define-peg-string-patterns} uses this symbol to determine what information it
 should propagate up the parse tree.  The normal @code{<-} propagates the
 matched text up the parse tree, @code{<--} propagates the matched text
 up the parse tree tagged with the name of the nonterminal, and @code{<}
@@ -220,11 +220,11 @@ character (in normal PEGs nonterminals can only be alphabetic).
 
 For example, if we:
 @lisp
-(define-grammar 
+(define-peg-string-patterns 
   "as <- 'a'+
 bs <- 'b'+
 as-or-bs <- as/bs")
-(define-grammar 
+(define-peg-string-patterns 
   "as-tag <-- 'a'+
 bs-tag <-- 'b'+
 as-or-bs-tag <-- as-tag/bs-tag")
@@ -513,7 +513,7 @@ As a first pass at this, we might want to have all the entries in
 
 Doing this with string-based PEG syntax would look like this:
 @lisp
-(define-grammar
+(define-peg-string-patterns
   "passwd <- entry* !.
 entry <-- (! NL .)* NL*
 NL < '\n'")
@@ -644,7 +644,7 @@ Let's extend this example a bit more and actually pull some useful
 information out of the passwd file:
 
 @lisp
-(define-grammar
+(define-peg-string-patterns
   "passwd <-- entry* !.
 entry <-- login C pass C uid C gid C nameORcomment C homedir C shell NL*
 login <-- text
@@ -732,7 +732,7 @@ continue because it didn't have to match the nameORcomment to continue.
 We can parse simple mathematical expressions with the following PEG:
 
 @lisp
-(define-grammar
+(define-peg-string-patterns
   "expr <- sum
 sum <-- (product ('+' / '-') sum) / product
 product <-- (value ('*' / '/') product) / value
@@ -822,7 +822,7 @@ a good choice:
 @lisp
 (use-modules (srfi srfi-1))
 
-(define-grammar
+(define-peg-string-patterns
   "expr <- sum
 sum <-- (product ('+' / '-'))* product
 product <-- (value ('*' / '/'))* value
@@ -881,7 +881,7 @@ For a more tantalizing example, consider the following grammar that
 parses (highly) simplified C functions:
 
 @lisp
-(define-grammar
+(define-peg-string-patterns
   "cfunc <-- cSP ctype cSP cname cSP cargs cLB cSP cbody cRB
 ctype <-- cidentifier
 cname <-- cidentifier

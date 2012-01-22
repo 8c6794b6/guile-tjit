@@ -19,7 +19,7 @@
 
 (define-module (ice-9 peg string-peg)
   #:export (peg-as-peg
-            define-grammar
+            define-peg-string-patterns
             define-grammar-f
             peg-grammar)
   #:use-module (ice-9 peg using-parsers)
@@ -118,7 +118,7 @@ RB < ']'
 
 ;; Macro wrapper for PEG-PARSER.  Parses PEG grammars expressed as strings and
 ;; defines all the appropriate nonterminals.
-(define-syntax define-grammar
+(define-syntax define-peg-string-patterns
   (lambda (x)
     (syntax-case x ()
       ((_ str)
