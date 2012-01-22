@@ -23,10 +23,10 @@ can either be stored in variables at compile-time by the define macros
 explicitly at runtime with the compile functions
 (@code{peg-sexp-compile} and @code{peg-string-compile}).
 
-They can then be used for either parsing (@code{peg-parse}) or matching
-(@code{peg-match}).  For convenience, @code{peg-match} also takes
-pattern literals in case you want to inline a simple search (people
-often use regular expressions this way).
+They can then be used for either parsing (@code{peg-parse}) or searching
+(@code{search-for-pattern}).  For convenience, @code{search-for-pattern}
+also takes pattern literals in case you want to inline a simple search
+(people often use regular expressions this way).
 
 The rest of this documentation consists of a syntax reference, an API
 reference, and a tutorial.
@@ -201,7 +201,7 @@ The most straightforward way to define a PEG is by using one of the
 define macros (both of these macroexpand into @code{define}
 expressions).  These macros bind parsing functions to variables.  These
 parsing functions may be invoked by @code{peg-parse} or
-@code{peg-match}, which return a PEG match record.  Raw data can be
+@code{search-for-pattern}, which return a PEG match record.  Raw data can be
 retrieved from this record with the PEG match deconstructor functions.
 More complicated (and perhaps enlightening) examples can be found in the
 tutorial.
@@ -320,7 +320,7 @@ For our purposes, ``parsing'' means parsing a string into a tree
 starting from the first character, while ``matching'' means searching
 through the string for a substring.  In practice, the only difference
 between the two functions is that @code{peg-parse} gives up if it can't
-find a valid substring starting at index 0 and @code{peg-match} keeps
+find a valid substring starting at index 0 and @code{search-for-pattern} keeps
 looking.  They are both equally capable of ``parsing'' and ``matching''
 given those constraints.
 
@@ -360,79 +360,79 @@ nothing
 @end lisp
 @end deffn
 
-@deffn {Scheme Macro} peg-match nonterm-or-peg string
+@deffn {Scheme Macro} search-for-pattern nonterm-or-peg string
 Searches through @var{string} looking for a matching subexpression.
 @var{nonterm-or-peg} can either be a nonterminal or a literal PEG
-pattern.  When a literal PEG pattern is provided, @code{peg-match} works
+pattern.  When a literal PEG pattern is provided, @code{search-for-pattern} works
 very similarly to the regular expression searches many hackers are used
-to.  If no match was found, @code{peg-match} returns false.  If a match
+to.  If no match was found, @code{search-for-pattern} returns false.  If a match
 was found, a PEG match record is returned.
 
 @lisp
 (define-nonterm as body (+ "a"))
-(peg-match as "aabbcc") @result{} 
+(search-for-pattern as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
-(peg-match (+ "a") "aabbcc") @result{} 
+(search-for-pattern (+ "a") "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
-(peg-match "'a'+" "aabbcc") @result{} 
+(search-for-pattern "'a'+" "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
 
 (define-nonterm as all (+ "a"))
-(peg-match as "aabbcc") @result{} 
+(search-for-pattern as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: (as aa)>
 
 (define-nonterm bs body (+ "b"))
-(peg-match bs "aabbcc") @result{} 
+(search-for-pattern bs "aabbcc") @result{} 
 #<peg start: 2 end: 4 string: aabbcc tree: bb>
-(peg-match (+ "b") "aabbcc") @result{} 
+(search-for-pattern (+ "b") "aabbcc") @result{} 
 #<peg start: 2 end: 4 string: aabbcc tree: bb>
-(peg-match "'b'+" "aabbcc") @result{} 
+(search-for-pattern "'b'+" "aabbcc") @result{} 
 #<peg start: 2 end: 4 string: aabbcc tree: bb>
 
 (define-nonterm zs body (+ "z"))
-(peg-match zs "aabbcc") @result{} 
+(search-for-pattern zs "aabbcc") @result{} 
 #f
-(peg-match (+ "z") "aabbcc") @result{} 
+(search-for-pattern (+ "z") "aabbcc") @result{} 
 #f
-(peg-match "'z'+" "aabbcc") @result{} 
+(search-for-pattern "'z'+" "aabbcc") @result{} 
 #f
 @end lisp
 @end deffn
 
 @subsubheading PEG Match Records
-The @code{peg-parse} and @code{peg-match} functions both return PEG
+The @code{peg-parse} and @code{search-for-pattern} functions both return PEG
 match records.  Actual information can be extracted from these with the
 following functions.
 
-@deffn {Scheme Procedure} peg:string peg-match
+@deffn {Scheme Procedure} peg:string match-record
 Returns the original string that was parsed in the creation of
-@code{peg-match}.
+@code{match-record}.
 @end deffn
 
-@deffn {Scheme Procedure} peg:start peg-match
+@deffn {Scheme Procedure} peg:start match-record
 Returns the index of the first parsed character in the original string
 (from @code{peg:string}).  If this is the same as @code{peg:end},
 nothing was parsed.
 @end deffn
 
-@deffn {Scheme Procedure} peg:end peg-match
+@deffn {Scheme Procedure} peg:end match-record
 Returns one more than the index of the last parsed character in the
 original string (from @code{peg:string}).  If this is the same as
 @code{peg:start}, nothing was parsed.
 @end deffn
 
-@deffn {Scheme Procedure} peg:substring peg-match
-Returns the substring parsed by @code{peg-match}.  This is equivalent to
-@code{(substring (peg:string peg-match) (peg:start peg-match) (peg:end
-peg-match))}.
+@deffn {Scheme Procedure} peg:substring match-record
+Returns the substring parsed by @code{match-record}.  This is equivalent to
+@code{(substring (peg:string match-record) (peg:start match-record) (peg:end
+match-record))}.
 @end deffn
 
-@deffn {Scheme Procedure} peg:tree peg-match
-Returns the tree parsed by @code{peg-match}.
+@deffn {Scheme Procedure} peg:tree match-record
+Returns the tree parsed by @code{match-record}.
 @end deffn
 
-@deffn {Scheme Procedure} peg-record? peg-match
-Returns true if @code{peg-match} is a PEG match record, or false
+@deffn {Scheme Procedure} peg-record? match-record
+Returns true if @code{match-record} is a PEG match record, or false
 otherwise.
 @end deffn
 
@@ -440,10 +440,10 @@ Example:
 @lisp
 (define-nonterm bs all (peg "'b'+"))
 
-(peg-match bs "aabbcc") @result{}
+(search-for-pattern bs "aabbcc") @result{}
 #<peg start: 2 end: 4 string: aabbcc tree: (bs bb)>
 
-(let ((pm (peg-match bs "aabbcc")))
+(let ((pm (search-for-pattern bs "aabbcc")))
    `((string ,(peg:string pm))
      (start ,(peg:start pm))
      (end ,(peg:end pm))

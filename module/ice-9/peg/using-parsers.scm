@@ -21,7 +21,7 @@
   #:use-module (ice-9 peg simplify-tree)
   #:use-module (ice-9 peg codegen)
   #:use-module (ice-9 peg cache)
-  #:export (peg-parse define-nonterm peg-match
+  #:export (peg-parse define-nonterm search-for-pattern
             prec make-prec peg:start peg:end peg:string
             peg:tree peg:substring peg-record?))
 
@@ -70,7 +70,7 @@ execute the STMTs and try again."
 
 ;; Searches through STRING for something that parses to PEG-MATCHER.  Think
 ;; regexp search.
-(define-syntax peg-match
+(define-syntax search-for-pattern
   (lambda (x)
     (syntax-case x ()
       ((_ pattern string-uncopied)

@@ -28,7 +28,7 @@
   #:use-module (ice-9 peg cache)
   #:re-export (peg-parse
                define-nonterm
-               peg-match
+               search-for-pattern
                peg-sexp-compile
                define-grammar
                define-grammar-f

@@ -149,7 +149,7 @@ SLASH < '/'")
   (pass-if
    "basic parameter extraction"
    (equal?
-    (let ((pm (peg-match bs "aabbcc")))
+    (let ((pm (search-for-pattern bs "aabbcc")))
       `((string ,(peg:string pm))
 	(start ,(peg:start pm))
 	(end ,(peg:end pm))
