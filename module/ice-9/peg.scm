@@ -30,7 +30,7 @@
                define-peg-string-patterns
                match-pattern
                search-for-pattern
-               peg-sexp-compile
+               compile-peg-pattern
                define-grammar-f
                keyword-flatten
                context-flatten

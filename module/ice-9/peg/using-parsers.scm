@@ -57,7 +57,7 @@ execute the STMTs and try again."
   (lambda (x)
     (syntax-case x ()
       ((_ sym accum pat)
-       (let ((matchf (peg-sexp-compile #'pat (syntax->datum #'accum)))
+       (let ((matchf (compile-peg-pattern #'pat (syntax->datum #'accum)))
              (accumsym (syntax->datum #'accum)))
          ;; CODE is the code to parse the string if the result isn't cached.
          (let ((syn (wrap-parser-for-users x matchf accumsym #'sym)))
@@ -75,7 +75,7 @@ execute the STMTs and try again."
     (syntax-case x ()
       ((_ pattern string-uncopied)
        (let ((pmsym (syntax->datum #'pattern)))
-         (let ((matcher (peg-sexp-compile (peg-like->peg #'pattern) 'body)))
+         (let ((matcher (compile-peg-pattern (peg-like->peg #'pattern) 'body)))
            ;; We copy the string before using it because it might have been
            ;; modified in-place since the last time it was parsed, which would
            ;; invalidate the cache.  Guile uses copy-on-write for strings, so

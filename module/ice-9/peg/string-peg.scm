@@ -59,7 +59,7 @@ RB < ']'
   (lambda (x)
     (syntax-case x ()
       ((_ sym accum pat)
-       (let* ((matchf (peg-sexp-compile #'pat (syntax->datum #'accum)))
+       (let* ((matchf (compile-peg-pattern #'pat (syntax->datum #'accum)))
               (accumsym (syntax->datum #'accum))
               (syn (wrap-parser-for-users x matchf accumsym #'sym)))
            #`(define sym #,syn))))))
@@ -262,7 +262,7 @@ RB < ']'
   (syntax-case args ()
     ((str-stx) (string? (syntax->datum #'str-stx))
      (let ((string (syntax->datum #'str-stx)))
-       (peg-sexp-compile
+       (compile-peg-pattern
         (compressor
          (peg-pattern->defn
           (peg:tree (match-pattern peg-pattern string)) #'str-stx)

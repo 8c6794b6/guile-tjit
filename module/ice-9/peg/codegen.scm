@@ -18,7 +18,7 @@
 ;;;;
 
 (define-module (ice-9 peg codegen)
-  #:export (peg-sexp-compile wrap-parser-for-users add-peg-compiler!)
+  #:export (compile-peg-pattern wrap-parser-for-users add-peg-compiler!)
   #:use-module (ice-9 pretty-print)
   #:use-module (system base pmatch))
 
@@ -144,14 +144,14 @@ return EXP."
 (define (cg-ignore pat accum)
   (syntax-case pat ()
     ((inner)
-     (peg-sexp-compile #'inner 'none))))
+     (compile-peg-pattern #'inner 'none))))
 
 (define (cg-capture pat accum)
   (syntax-case pat ()
     ((inner)
-     (peg-sexp-compile #'inner 'body))))
+     (compile-peg-pattern #'inner 'body))))
 
-;; Filters the accum argument to peg-sexp-compile for buildings like string
+;; Filters the accum argument to compile-peg-pattern for buildings like string
 ;; literals (since we don't want to tag them with their name if we're doing an
 ;; "all" accum).
 (define (builtin-accum-filter accum)
@@ -174,7 +174,7 @@ return EXP."
     (()
      (cggr accum 'cg-and #`(reverse #,body) at))
     ((first rest ...)
-     #`(let ((res (#,(peg-sexp-compile #'first accum) #,str #,strlen #,at)))
+     #`(let ((res (#,(compile-peg-pattern #'first accum) #,str #,strlen #,at)))
          (and res 
               ;; update AT and BODY then recurse
               (let ((newat (car res))
@@ -194,7 +194,7 @@ return EXP."
     (()
      #f)
     ((first rest ...)
-     #`(or (#,(peg-sexp-compile #'first accum) #,str #,strlen #,at)
+     #`(or (#,(compile-peg-pattern #'first accum) #,str #,strlen #,at)
            #,(cg-or-int #'(rest ...) accum str strlen at)))))
 
 (define (cg-* args accum)
@@ -203,7 +203,7 @@ return EXP."
      #`(lambda (str strlen at)
          (let ((body '()))
            (let lp ((end at) (count 0))
-             (let* ((match (#,(peg-sexp-compile #'pat (baf accum))
+             (let* ((match (#,(compile-peg-pattern #'pat (baf accum))
                             str strlen end))
                     (new-end (if match (car match) end))
                     (count (if (> new-end end) (1+ count) count)))
@@ -223,7 +223,7 @@ return EXP."
      #`(lambda (str strlen at)
          (let ((body '()))
            (let lp ((end at) (count 0))
-             (let* ((match (#,(peg-sexp-compile #'pat (baf accum))
+             (let* ((match (#,(compile-peg-pattern #'pat (baf accum))
                             str strlen end))
                     (new-end (if match (car match) end))
                     (count (if (> new-end end) (1+ count) count)))
@@ -243,7 +243,7 @@ return EXP."
      #`(lambda (str strlen at)
          (let ((body '()))
            (let lp ((end at) (count 0))
-             (let* ((match (#,(peg-sexp-compile #'pat (baf accum))
+             (let* ((match (#,(compile-peg-pattern #'pat (baf accum))
                             str strlen end))
                     (new-end (if match (car match) end))
                     (count (if (> new-end end) (1+ count) count)))
@@ -263,7 +263,7 @@ return EXP."
      #`(lambda (str strlen at)
          (let ((body '()))
            (let lp ((end at) (count 0))
-             (let* ((match (#,(peg-sexp-compile #'pat (baf accum))
+             (let* ((match (#,(compile-peg-pattern #'pat (baf accum))
                             str strlen end))
                     (new-end (if match (car match) end))
                     (count (if (> new-end end) (1+ count) count)))
@@ -282,7 +282,7 @@ return EXP."
      #`(lambda (str strlen at)
          (let ((body '()))
            (let lp ((end at) (count 0))
-             (let* ((match (#,(peg-sexp-compile #'pat (baf accum))
+             (let* ((match (#,(compile-peg-pattern #'pat (baf accum))
                             str strlen end))
                     (new-end (if match (car match) end))
                     (count (if (> new-end end) (1+ count) count)))
@@ -315,8 +315,8 @@ return EXP."
 (add-peg-compiler! 'not-followed-by cg-not-followed-by)
 
 ;; Takes an arbitrary expressions and accumulation variable, then parses it.
-;; E.g.: (peg-sexp-compile syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
-(define (peg-sexp-compile pat accum)
+;; E.g.: (compile-peg-pattern syntax '(and "abc" (or "-" (range #\a #\z))) 'all)
+(define (compile-peg-pattern pat accum)
   (syntax-case pat (peg-any)
     (peg-any
      (cg-peg-any (baf accum)))

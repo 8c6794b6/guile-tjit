@@ -21,7 +21,7 @@ The module works by compiling PEGs down to lambda expressions.  These
 can either be stored in variables at compile-time by the define macros
 (@code{define-peg-pattern} and @code{define-peg-string-patterns}) or calculated
 explicitly at runtime with the compile functions
-(@code{peg-sexp-compile} and @code{peg-string-compile}).
+(@code{compile-peg-pattern} and @code{peg-string-compile}).
 
 They can then be used for either parsing (@code{match-pattern}) or searching
 (@code{search-for-pattern}).  For convenience, @code{search-for-pattern}
@@ -292,7 +292,7 @@ Compiles the PEG pattern in @var{peg-string} propagating according to
 @end deffn
 
 
-@deffn {Scheme Procedure} peg-sexp-compile peg-sexp capture-type
+@deffn {Scheme Procedure} compile-peg-pattern peg-sexp capture-type
 Compiles the PEG pattern in @var{peg-sexp} propagating according to
 @var{capture-type} (capture-type can be any of the values from
 @code{define-peg-pattern}).
@@ -304,7 +304,7 @@ can do the following:
 
 @lisp
 (define exp '(+ "a"))
-(define as (compile (peg-sexp-compile exp 'body)))
+(define as (compile (compile-peg-pattern exp 'body)))
 @end lisp
 
 You can use this nonterminal with all of the regular PEG functions:
@@ -1013,10 +1013,10 @@ in the @code{(ice-9 peg string-peg)} module.
 
 Then, then s-expression PEG that results is compiled into a parsing
 function by the @code{(ice-9 peg codegen)} module. In particular, the
-function @code{peg-sexp-compile} is called on the s-expression. It then
+function @code{compile-peg-pattern} is called on the s-expression. It then
 decides what to do based on the form it is passed.
 
-The PEG syntax can be expanded by providing @code{peg-sexp-compile} more
+The PEG syntax can be expanded by providing @code{compile-peg-pattern} more
 options for what to do with its forms. The extended syntax will be
 associated with a symbol, for instance @code{my-parsing-form}, and will
 be called on all PEG expressions of the form
