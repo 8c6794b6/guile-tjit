@@ -60,7 +60,7 @@
 (define parse-product (make-left-parser parse-value))
 (define parse-sum (make-left-parser parse-product))
 (define parse-expr parse-sum)
-(define (eq-parse str) (apply parse-expr (peg:tree (peg-parse expr str))))
+(define (eq-parse str) (apply parse-expr (peg:tree (match-pattern expr str))))
 
 ;; PEG for parsing equations (see tutorial).
 (define-grammar
@@ -141,7 +141,7 @@ sp < [ \t\n]*")
 	     (lambda (x)
 	       (let* ((mstr (string-n tst1 x))
 		      (strlen (string-length mstr)))
-		 (let ((func (lambda () (begin (peg-parse expr mstr)
+		 (let ((func (lambda () (begin (match-pattern expr mstr)
 					       'done))))
 		   `(((string of length ,strlen first pass)
 		      ,(time-ret-func func))

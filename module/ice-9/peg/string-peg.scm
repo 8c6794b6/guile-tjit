@@ -101,7 +101,7 @@ RB < ']'
 ;; Pakes a string representing a PEG grammar and defines all the nonterminals in
 ;; it as the associated PEGs.
 (define (peg-parser str for-syntax)
-  (let ((parsed (peg-parse peg-grammar str)))
+  (let ((parsed (match-pattern peg-grammar str)))
     (if (not parsed)
         (begin
           ;; (display "Invalid PEG grammar!\n")
@@ -265,7 +265,7 @@ RB < ']'
        (peg-sexp-compile
         (compressor
          (peg-pattern->defn
-          (peg:tree (peg-parse peg-pattern string)) #'str-stx)
+          (peg:tree (match-pattern peg-pattern string)) #'str-stx)
          #'str-stx)
         (if (eq? accum 'all) 'body accum))))
      (else (error "Bad embedded PEG string" args))))

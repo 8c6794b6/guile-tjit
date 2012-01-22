@@ -21,7 +21,7 @@
   #:use-module (ice-9 peg simplify-tree)
   #:use-module (ice-9 peg codegen)
   #:use-module (ice-9 peg cache)
-  #:export (peg-parse define-nonterm search-for-pattern
+  #:export (match-pattern define-nonterm search-for-pattern
             prec make-prec peg:start peg:end peg:string
             peg:tree peg:substring peg-record?))
 
@@ -43,7 +43,7 @@ execute the STMTs and try again."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; Parses STRING using NONTERM
-(define (peg-parse nonterm string)
+(define (match-pattern nonterm string)
   ;; We copy the string before using it because it might have been modified
   ;; in-place since the last time it was parsed, which would invalidate the
   ;; cache.  Guile uses copy-on-write for strings, so this is fast.

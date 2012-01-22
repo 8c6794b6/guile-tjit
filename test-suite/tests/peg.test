@@ -66,10 +66,10 @@
   (pass-if
    "equivalence of definitions"
    (equal?
-    (peg:tree (peg-parse (@@ (ice-9 peg) peg-grammar) (@@ (ice-9 peg) peg-as-peg)))
+    (peg:tree (match-pattern (@@ (ice-9 peg) peg-grammar) (@@ (ice-9 peg) peg-as-peg)))
     (tree-map
      grammar-transform
-     (peg:tree (peg-parse grammar (@@ (ice-9 peg) peg-as-peg)))))))
+     (peg:tree (match-pattern grammar (@@ (ice-9 peg) peg-as-peg)))))))
 
 ;; A grammar for pascal-style comments from Wikipedia.
 (define comment-grammar
@@ -114,32 +114,32 @@ SLASH < '/'")
    ;; Pascal-style comment parsing
    "simple comment"
    (equal?
-    (peg-parse C "(*blah*)")
+    (match-pattern C "(*blah*)")
     (make-prec 0 8 "(*blah*)"
 	       '((Begin "(*") "blah" (End "*)")))))
   (pass-if
    "simple comment padded"
    (equal?
-    (peg-parse C "(*blah*)abc")
+    (match-pattern C "(*blah*)abc")
     (make-prec 0 8 "(*blah*)abc"
 	       '((Begin "(*") "blah" (End "*)")))))
   (pass-if
    "nested comment"
    (equal?
-    (peg-parse C "(*1(*2*)*)")
+    (match-pattern C "(*1(*2*)*)")
     (make-prec 0 10 "(*1(*2*)*)"
 	       '((Begin "(*") ("1" ((Begin "(*") "2" (End "*)"))) (End "*)")))))
   (pass-if
    "early termination"
-   (not (peg-parse C "(*blah")))
+   (not (match-pattern C "(*blah")))
   (pass-if
    "never starts"
-   (not (peg-parse C "blah")))
+   (not (match-pattern C "blah")))
   ;; /etc/passwd parsing
   (pass-if
    "/etc/passwd"
    (equal?
-    (peg-parse passwd *etc-passwd*)
+    (match-pattern passwd *etc-passwd*)
     (make-prec 0 220 *etc-passwd*
 	       '(passwd (entry (login "root") (pass "x") (uid "0") (gid "0") (nameORcomment "root") (homedir (path (pathELEMENT "root"))) (shell (path (pathELEMENT "bin") (pathELEMENT "bash")))) (entry (login "daemon") (pass "x") (uid "1") (gid "1") (nameORcomment "daemon") (homedir (path (pathELEMENT "usr") (pathELEMENT "sbin"))) (shell (path (pathELEMENT "bin") (pathELEMENT "sh")))) (entry (login "bin") (pass "x") (uid "2") (gid "2") (nameORcomment "bin") (homedir (path (pathELEMENT "bin"))) (shell (path (pathELEMENT "bin") (pathELEMENT "sh")))) (entry (login "sys") (pass "x") (uid "3") (gid "3") (nameORcomment "sys") (homedir (path (pathELEMENT "dev"))) (shell (path (pathELEMENT "bin") (pathELEMENT "sh")))) (entry (login "nobody") (pass "x") (uid "65534") (gid "65534") (nameORcomment "nobody") (homedir (path (pathELEMENT "nonexistent"))) (shell (path (pathELEMENT "bin") (pathELEMENT "sh")))) (entry (login "messagebus") (pass "x") (uid "103") (gid "107") nameORcomment (homedir (path (pathELEMENT "var") (pathELEMENT "run") (pathELEMENT "dbus"))) (shell (path (pathELEMENT "bin") (pathELEMENT "false")))))))))
 
@@ -192,7 +192,7 @@ number <-- [0-9]+")
       (apply parse-sum (car rest))))
 
 (define parse-expr parse-sum)
-(define (eq-parse str) (apply parse-expr (peg:tree (peg-parse expr str))))
+(define (eq-parse str) (apply parse-expr (peg:tree (match-pattern expr str))))
 
 (with-test-prefix "Parsing right-associative equations"
   (pass-if
@@ -252,7 +252,7 @@ number <-- [0-9]+")
 (define parse-product (make-left-parser parse-value))
 (define parse-sum (make-left-parser parse-product))
 (define parse-expr parse-sum)
-(define (eq-parse str) (apply parse-expr (peg:tree (peg-parse expr str))))
+(define (eq-parse str) (apply parse-expr (peg:tree (match-pattern expr str))))
 
 (with-test-prefix "Parsing left-associative equations"
   (pass-if

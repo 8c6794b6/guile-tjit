@@ -23,7 +23,7 @@ can either be stored in variables at compile-time by the define macros
 explicitly at runtime with the compile functions
 (@code{peg-sexp-compile} and @code{peg-string-compile}).
 
-They can then be used for either parsing (@code{peg-parse}) or searching
+They can then be used for either parsing (@code{match-pattern}) or searching
 (@code{search-for-pattern}).  For convenience, @code{search-for-pattern}
 also takes pattern literals in case you want to inline a simple search
 (people often use regular expressions this way).
@@ -200,7 +200,7 @@ and
 The most straightforward way to define a PEG is by using one of the
 define macros (both of these macroexpand into @code{define}
 expressions).  These macros bind parsing functions to variables.  These
-parsing functions may be invoked by @code{peg-parse} or
+parsing functions may be invoked by @code{match-pattern} or
 @code{search-for-pattern}, which return a PEG match record.  Raw data can be
 retrieved from this record with the PEG match deconstructor functions.
 More complicated (and perhaps enlightening) examples can be found in the
@@ -231,9 +231,9 @@ as-or-bs-tag <-- as-tag/bs-tag")
 @end lisp
 Then:
 @lisp
-(peg-parse as-or-bs "aabbcc") @result{}
+(match-pattern as-or-bs "aabbcc") @result{}
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
-(peg-parse as-or-bs-tag "aabbcc") @result{}
+(match-pattern as-or-bs-tag "aabbcc") @result{}
 #<peg start: 0 end: 2 string: aabbcc tree: (as-or-bs-tag (as-tag aa))>
 @end lisp
 
@@ -270,9 +270,9 @@ For Example, if we:
 @end lisp
 Then:
 @lisp
-(peg-parse as-or-bs "aabbcc") @result{} 
+(match-pattern as-or-bs "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
-(peg-parse as-or-bs-tag "aabbcc") @result{} 
+(match-pattern as-or-bs-tag "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: (as-or-bs-tag (as-tag aa))>
 @end lisp
 
@@ -310,7 +310,7 @@ can do the following:
 You can use this nonterminal with all of the regular PEG functions:
 
 @lisp
-(peg-parse as "aaaaa") @result{}
+(match-pattern as "aaaaa") @result{}
 #<peg start: 0 end: 5 string: bbbbb tree: bbbbb>
 @end lisp
 
@@ -319,14 +319,14 @@ You can use this nonterminal with all of the regular PEG functions:
 For our purposes, ``parsing'' means parsing a string into a tree
 starting from the first character, while ``matching'' means searching
 through the string for a substring.  In practice, the only difference
-between the two functions is that @code{peg-parse} gives up if it can't
+between the two functions is that @code{match-pattern} gives up if it can't
 find a valid substring starting at index 0 and @code{search-for-pattern} keeps
 looking.  They are both equally capable of ``parsing'' and ``matching''
 given those constraints.
 
-@deffn {Scheme Procedure} peg-parse nonterm string 
+@deffn {Scheme Procedure} match-pattern nonterm string 
 Parses @var{string} using the PEG stored in @var{nonterm}.  If no match
-was found, @code{peg-parse} returns false.  If a match was found, a PEG
+was found, @code{match-pattern} returns false.  If a match was found, a PEG
 match record is returned.
 
 The @code{capture-type} argument to @code{define-nonterm} allows you to
@@ -343,19 +343,19 @@ nothing
 
 @lisp
 (define-nonterm as all (+ "a"))
-(peg-parse as "aabbcc") @result{} 
+(match-pattern as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: (as aa)>
 
 (define-nonterm as body (+ "a"))
-(peg-parse as "aabbcc") @result{} 
+(match-pattern as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: aa>
 
 (define-nonterm as none (+ "a"))
-(peg-parse as "aabbcc") @result{} 
+(match-pattern as "aabbcc") @result{} 
 #<peg start: 0 end: 2 string: aabbcc tree: ()>
 
 (define-nonterm bs body (+ "b"))
-(peg-parse bs "aabbcc") @result{} 
+(match-pattern bs "aabbcc") @result{} 
 #f
 @end lisp
 @end deffn
@@ -400,7 +400,7 @@ was found, a PEG match record is returned.
 @end deffn
 
 @subsubheading PEG Match Records
-The @code{peg-parse} and @code{search-for-pattern} functions both return PEG
+The @code{match-pattern} and @code{search-for-pattern} functions both return PEG
 match records.  Actual information can be extracted from these with the
 following functions.
 
@@ -559,7 +559,7 @@ However we define it, parsing @code{*etc-passwd*} with the @code{passwd}
 nonterminal yields the same results:
 
 @lisp
-(peg:tree (peg-parse passwd *etc-passwd*)) @result{}
+(peg:tree (match-pattern passwd *etc-passwd*)) @result{}
 ((entry "root:x:0:0:root:/root:/bin/bash")
  (entry "daemon:x:1:1:daemon:/usr/sbin:/bin/sh")
  (entry "bin:x:2:2:bin:/bin:/bin/sh")
@@ -571,7 +571,7 @@ nonterminal yields the same results:
 However, here is something to be wary of:
 
 @lisp
-(peg:tree (peg-parse passwd "one entry")) @result{}
+(peg:tree (match-pattern passwd "one entry")) @result{}
 (entry "one entry")
 @end lisp
 
@@ -596,14 +596,14 @@ predicate that should indicate whether a given sublist is good enough
 
 What we want here is @code{keyword-flatten}.
 @lisp
-(keyword-flatten '(entry) (peg:tree (peg-parse passwd *etc-passwd*))) @result{}
+(keyword-flatten '(entry) (peg:tree (match-pattern passwd *etc-passwd*))) @result{}
 ((entry "root:x:0:0:root:/root:/bin/bash")
  (entry "daemon:x:1:1:daemon:/usr/sbin:/bin/sh")
  (entry "bin:x:2:2:bin:/bin:/bin/sh")
  (entry "sys:x:3:3:sys:/dev:/bin/sh")
  (entry "nobody:x:65534:65534:nobody:/nonexistent:/bin/sh")
  (entry "messagebus:x:103:107::/var/run/dbus:/bin/false"))
-(keyword-flatten '(entry) (peg:tree (peg-parse passwd "one entry"))) @result{}
+(keyword-flatten '(entry) (peg:tree (match-pattern passwd "one entry"))) @result{}
 ((entry "one entry"))
 @end lisp
 
@@ -614,7 +614,7 @@ symbol for strings)..
 
 @lisp
 (define-nonterm tag-passwd all (peg "entry* !."))
-(peg:tree (peg-parse tag-passwd *etc-passwd*)) @result{}
+(peg:tree (match-pattern tag-passwd *etc-passwd*)) @result{}
 (tag-passwd
   (entry "root:x:0:0:root:/root:/bin/bash")
   (entry "daemon:x:1:1:daemon:/usr/sbin:/bin/sh")
@@ -622,7 +622,7 @@ symbol for strings)..
   (entry "sys:x:3:3:sys:/dev:/bin/sh")
   (entry "nobody:x:65534:65534:nobody:/nonexistent:/bin/sh")
   (entry "messagebus:x:103:107::/var/run/dbus:/bin/false"))
-(peg:tree (peg-parse tag-passwd "one entry"))
+(peg:tree (match-pattern tag-passwd "one entry"))
 (tag-passwd 
   (entry "one entry"))
 @end lisp
@@ -742,7 +742,7 @@ number <-- [0-9]+")
 
 Then:
 @lisp
-(peg:tree (peg-parse expr "1+1/2*3+(1+1)/2")) @result{}
+(peg:tree (match-pattern expr "1+1/2*3+(1+1)/2")) @result{}
 (sum (product (value (number "1")))
      "+"
      (sum (product
@@ -799,7 +799,7 @@ PEG, it would be worth abstracting.)
 
 Then:
 @lisp
-(apply parse-expr (peg:tree (peg-parse expr "1+1/2*3+(1+1)/2"))) @result{}
+(apply parse-expr (peg:tree (match-pattern expr "1+1/2*3+(1+1)/2"))) @result{}
 (+ 1 (+ (/ 1 (* 2 3)) (/ (+ 1 1) 2)))
 @end lisp
 
@@ -865,7 +865,7 @@ number <-- [0-9]+")
 
 Then:
 @lisp
-(apply parse-expr (peg:tree (peg-parse expr "1+1/2*3+(1+1)/2"))) @result{}
+(apply parse-expr (peg:tree (match-pattern expr "1+1/2*3+(1+1)/2"))) @result{}
 (+ (+ 1 (* (/ 1 2) 3)) (/ (+ 1 1) 2))
 @end lisp
 
@@ -901,7 +901,7 @@ cSP < [ \t\n]*")
 
 Then:
 @lisp
-(peg-parse cfunc "int square(int a) @{ return a*a;@}") @result{}
+(match-pattern cfunc "int square(int a) @{ return a*a;@}") @result{}
 (32
  (cfunc (ctype "int")
         (cname "square")
@@ -911,7 +911,7 @@ Then:
 
 And:
 @lisp
-(peg-parse cfunc "int mod(int a, int b) @{ int c = a/b;return a-b*c; @}") @result{}
+(match-pattern cfunc "int mod(int a, int b) @{ int c = a/b;return a-b*c; @}") @result{}
 (52
  (cfunc (ctype "int")
         (cname "mod")
@@ -924,7 +924,7 @@ And:
 By wrapping all the @code{carg} nonterminals in a @code{cargs}
 nonterminal, we were able to remove any ambiguity in the parsing
 structure and avoid having to call @code{context-flatten} on the output
-of @code{peg-parse}.  We used the same trick with the @code{cstatement}
+of @code{match-pattern}.  We used the same trick with the @code{cstatement}
 nonterminals, wrapping them in a @code{cbody} nonterminal.
 
 The whitespace nonterminal @code{cSP} used here is a (very) useful
@@ -986,9 +986,9 @@ can be any other data the function wishes to return, or '() if it
 doesn't have any more data.
 
 The one caveat is that if the extra data it returns is a list, any
-adjacent strings in that list will be appended by @code{peg-parse}. For
+adjacent strings in that list will be appended by @code{match-pattern}. For
 instance, if a parsing function returns @code{(13 ("a" "b" "c"))},
-@code{peg-parse} will take @code{(13 ("abc"))} as its value.
+@code{match-pattern} will take @code{(13 ("abc"))} as its value.
 
 For example, here is a function to match ``ab'' using the actual
 interface.
@@ -1001,7 +1001,7 @@ interface.
 @end lisp
 
 The above function can be used to match a string by running
-@code{(peg-parse match-a-b "ab")}.
+@code{(match-pattern match-a-b "ab")}.
 
 @subsubheading Code Generators and Extensible Syntax
 
