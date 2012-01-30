@@ -411,7 +411,7 @@ top-level bindings from ENV and return the resulting expression."
   (define (fresh-gensyms vars)
     (map (lambda (var)
            (let ((new (gensym (string-append (symbol->string (var-name var))
-                                             " "))))
+                                             "-"))))
              (set! store (vhash-consq new var store))
              new))
          vars))

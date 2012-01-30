@@ -550,12 +550,12 @@
 
   ;; Testing `(values foo)' in push context with RA.
   (assert-tree-il->glil without-partial-evaluation
-   (apply (primitive cdr)
-          (letrec (lp) (#{lp ~V9KrhVD4PFEL6oCTrLg3A}#)
-                  ((lambda ((name . lp))
-                     (lambda-case ((() #f #f #f () ())
-                                   (apply (toplevel values) (const (one two)))))))
-                  (apply (lexical lp #{lp ~V9KrhVD4PFEL6oCTrLg3A}#))))
+   (primcall cdr
+             (letrec (lp) (#{lp ~V9KrhVD4PFEL6oCTrLg3A}#)
+                     ((lambda ((name . lp))
+                        (lambda-case ((() #f #f #f () ())
+                                      (primcall values (const (one two)))))))
+                     (call (lexical lp #{lp ~V9KrhVD4PFEL6oCTrLg3A}#))))
    (program () (std-prelude 0 0 #f) (label _)
             (branch br _) ;; entering the fix, jump to :2
             ;; :1 body of lp, jump to :3
@@ -2194,7 +2194,8 @@
      (pass-if "~%, ~~, ~&, ~t, ~_, and ~\\n"
        (null? (call-with-warnings
                (lambda ()
-                 (compile '(format some-port "~&~3_~~ ~\n~12they~%")
+                 (compile '((@ (ice-9 format) format) some-port
+                            "~&~3_~~ ~\n~12they~%")
                           #:opts %opts-w-format
                           #:to 'assembly)))))
 
@@ -2221,7 +2222,8 @@
      (pass-if "two missing arguments"
        (let ((w (call-with-warnings
                  (lambda ()
-                   (compile '(format #f "foo ~10,2f and bar ~S~%")
+                   (compile '((@ (ice-9 format) format) #f
+                              "foo ~10,2f and bar ~S~%")
                             #:opts %opts-w-format
                             #:to 'assembly)))))
          (and (= (length w) 1)
@@ -2252,7 +2254,7 @@
        (pass-if "literals"
         (null? (call-with-warnings
                 (lambda ()
-                  (compile '(format #f "~A ~[foo~;bar~;baz~;~] ~10,2f"
+                  (compile '((@ (ice-9 format) format) #f "~A ~[foo~;bar~;baz~;~] ~10,2f"
                                     'a 1 3.14)
                            #:opts %opts-w-format
                            #:to 'assembly)))))
@@ -2260,7 +2262,7 @@
        (pass-if "literals with selector"
          (let ((w (call-with-warnings
                    (lambda ()
-                     (compile '(format #f "~2[foo~;bar~;baz~;~] ~A"
+                     (compile '((@ (ice-9 format) format) #f "~2[foo~;bar~;baz~;~] ~A"
                                        1 'dont-ignore-me)
                               #:opts %opts-w-format
                               #:to 'assembly)))))
@@ -2271,7 +2273,7 @@
        (pass-if "escapes (exact count)"
          (let ((w (call-with-warnings
                    (lambda ()
-                     (compile '(format #f "~[~a~;~a~]")
+                     (compile '((@ (ice-9 format) format) #f "~[~a~;~a~]")
                               #:opts %opts-w-format
                               #:to 'assembly)))))
            (and (= (length w) 1)
@@ -2281,7 +2283,7 @@
        (pass-if "escapes with selector"
          (let ((w (call-with-warnings
                    (lambda ()
-                     (compile '(format #f "~1[chbouib~;~a~]")
+                     (compile '((@ (ice-9 format) format) #f "~1[chbouib~;~a~]")
                               #:opts %opts-w-format
                               #:to 'assembly)))))
            (and (= (length w) 1)
@@ -2291,7 +2293,7 @@
        (pass-if "escapes, range"
          (let ((w (call-with-warnings
                    (lambda ()
-                     (compile '(format #f "~[chbouib~;~a~;~2*~a~]")
+                     (compile '((@ (ice-9 format) format) #f "~[chbouib~;~a~;~2*~a~]")
                               #:opts %opts-w-format
                               #:to 'assembly)))))
            (and (= (length w) 1)
@@ -2301,7 +2303,7 @@
        (pass-if "@"
          (let ((w (call-with-warnings
                    (lambda ()
-                     (compile '(format #f "~@[temperature=~d~]")
+                     (compile '((@ (ice-9 format) format) #f "~@[temperature=~d~]")
                               #:opts %opts-w-format
                               #:to 'assembly)))))
            (and (= (length w) 1)
@@ -2311,7 +2313,7 @@
        (pass-if "nested"
          (let ((w (call-with-warnings
                    (lambda ()
-                     (compile '(format #f "~:[~[hey~;~a~;~va~]~;~3*~]")
+                     (compile '((@ (ice-9 format) format) #f "~:[~[hey~;~a~;~va~]~;~3*~]")
                               #:opts %opts-w-format
                               #:to 'assembly)))))
            (and (= (length w) 1)
@@ -2321,7 +2323,7 @@
        (pass-if "unterminated"
          (let ((w (call-with-warnings
                    (lambda ()
-                     (compile '(format #f "~[unterminated")
+                     (compile '((@ (ice-9 format) format) #f "~[unterminated")
                               #:opts %opts-w-format
                               #:to 'assembly)))))
            (and (= (length w) 1)
@@ -2331,7 +2333,7 @@
        (pass-if "unexpected ~;"
          (let ((w (call-with-warnings
                    (lambda ()
-                     (compile '(format #f "foo~;bar")
+                     (compile '((@ (ice-9 format) format) #f "foo~;bar")
                               #:opts %opts-w-format
                               #:to 'assembly)))))
            (and (= (length w) 1)
@@ -2341,7 +2343,7 @@
        (pass-if "unexpected ~]"
          (let ((w (call-with-warnings
                    (lambda ()
-                     (compile '(format #f "foo~]")
+                     (compile '((@ (ice-9 format) format) #f "foo~]")
                               #:opts %opts-w-format
                               #:to 'assembly)))))
            (and (= (length w) 1)
@@ -2351,7 +2353,7 @@
      (pass-if "~{...~}"
        (null? (call-with-warnings
                (lambda ()
-                 (compile '(format #f "~A ~{~S~} ~A"
+                 (compile '((@ (ice-9 format) format) #f "~A ~{~S~} ~A"
                                    'hello '("ladies" "and")
                                    'gentlemen)
                           #:opts %opts-w-format
@@ -2360,7 +2362,7 @@
      (pass-if "~{...~}, too many args"
        (let ((w (call-with-warnings
                  (lambda ()
-                   (compile '(format #f "~{~S~}" 1 2 3)
+                   (compile '((@ (ice-9 format) format) #f "~{~S~}" 1 2 3)
                             #:opts %opts-w-format
                             #:to 'assembly)))))
          (and (= (length w) 1)
@@ -2370,14 +2372,14 @@
      (pass-if "~@{...~}"
        (null? (call-with-warnings
                (lambda ()
-                 (compile '(format #f "~@{~S~}" 1 2 3)
+                 (compile '((@ (ice-9 format) format) #f "~@{~S~}" 1 2 3)
                           #:opts %opts-w-format
                           #:to 'assembly)))))
 
      (pass-if "~@{...~}, too few args"
        (let ((w (call-with-warnings
                  (lambda ()
-                   (compile '(format #f "~A ~@{~S~}")
+                   (compile '((@ (ice-9 format) format) #f "~A ~@{~S~}")
                             #:opts %opts-w-format
                             #:to 'assembly)))))
          (and (= (length w) 1)
@@ -2387,7 +2389,7 @@
      (pass-if "unterminated ~{...~}"
        (let ((w (call-with-warnings
                  (lambda ()
-                   (compile '(format #f "~{")
+                   (compile '((@ (ice-9 format) format) #f "~{")
                             #:opts %opts-w-format
                             #:to 'assembly)))))
          (and (= (length w) 1)
@@ -2397,14 +2399,14 @@
      (pass-if "~(...~)"
        (null? (call-with-warnings
                (lambda ()
-                 (compile '(format #f "~:@(~A ~A~)" 'foo 'bar)
+                 (compile '((@ (ice-9 format) format) #f "~:@(~A ~A~)" 'foo 'bar)
                           #:opts %opts-w-format
                           #:to 'assembly)))))
 
      (pass-if "~v"
        (let ((w (call-with-warnings
                  (lambda ()
-                   (compile '(format #f "~v_foo")
+                   (compile '((@ (ice-9 format) format) #f "~v_foo")
                             #:opts %opts-w-format
                             #:to 'assembly)))))
          (and (= (length w) 1)
@@ -2413,7 +2415,7 @@
      (pass-if "~v:@y"
        (null? (call-with-warnings
                (lambda ()
-                 (compile '(format #f "~v:@y" 1 123)
+                 (compile '((@ (ice-9 format) format) #f "~v:@y" 1 123)
                           #:opts %opts-w-format
                           #:to 'assembly)))))
 
@@ -2421,7 +2423,7 @@
      (pass-if "~*"
        (let ((w (call-with-warnings
                  (lambda ()
-                   (compile '(format #f "~2*~a" 'a 'b)
+                   (compile '((@ (ice-9 format) format) #f "~2*~a" 'a 'b)
                             #:opts %opts-w-format
                             #:to 'assembly)))))
          (and (= (length w) 1)
@@ -2431,14 +2433,14 @@
      (pass-if "~?"
        (null? (call-with-warnings
                (lambda ()
-                 (compile '(format #f "~?" "~d ~d" '(1 2))
+                 (compile '((@ (ice-9 format) format) #f "~?" "~d ~d" '(1 2))
                           #:opts %opts-w-format
                           #:to 'assembly)))))
 
      (pass-if "complex 1"
        (let ((w (call-with-warnings
                  (lambda ()
-                   (compile '(format #f
+                   (compile '((@ (ice-9 format) format) #f
                                      "~4@S    ~32S~@[;; ~1{~@?~}~]~@[~61t at ~a~]\n"
                                      1 2 3 4 5 6)
                             #:opts %opts-w-format
@@ -2450,7 +2452,7 @@
      (pass-if "complex 2"
        (let ((w (call-with-warnings
                  (lambda ()
-                   (compile '(format #f
+                   (compile '((@ (ice-9 format) format) #f
                                      "~:(~A~) Commands~:[~; [abbrev]~]:~2%"
                                      1 2 3 4)
                             #:opts %opts-w-format
@@ -2462,7 +2464,7 @@
      (pass-if "complex 3"
        (let ((w (call-with-warnings
                  (lambda ()
-                   (compile '(format #f "~9@a~:[~*~3_~;~3d~] ~v:@y~%")
+                   (compile '((@ (ice-9 format) format) #f "~9@a~:[~*~3_~;~3d~] ~v:@y~%")
                             #:opts %opts-w-format
                             #:to 'assembly)))))
          (and (= (length w) 1)
@@ -2489,4 +2491,31 @@
                  (compile '(let ((format chbouib))
                              (format #t "not ~A a format string"))
                           #:opts %opts-w-format
-                          #:to 'assembly)))))))
+                          #:to 'assembly)))))
+
+     (with-test-prefix "simple-format"
+
+       (pass-if "good"
+         (null? (call-with-warnings
+                 (lambda ()
+                   (compile '(simple-format #t "foo ~a bar ~s ~%~~" 1 2)
+                            #:opts %opts-w-format
+                            #:to 'assembly)))))
+
+       (pass-if "wrong number of args"
+         (let ((w (call-with-warnings
+                   (lambda ()
+                     (compile '(simple-format #t "foo ~a ~s~%" 'one-missing)
+                              #:opts %opts-w-format
+                              #:to 'assembly)))))
+           (and (= (length w) 1)
+                (number? (string-contains (car w) "wrong number")))))
+
+       (pass-if "unsupported"
+         (let ((w (call-with-warnings
+                   (lambda ()
+                     (compile '(simple-format #t "foo ~x~%" 16)
+                              #:opts %opts-w-format
+                              #:to 'assembly)))))
+           (and (= (length w) 1)
+                (number? (string-contains (car w) "unsupported format option"))))))))

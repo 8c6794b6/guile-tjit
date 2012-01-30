@@ -20,6 +20,8 @@ loading, evaluating, and compiling Scheme code at run time.
 * Load Paths::                  Where Guile looks for code.
 * Character Encoding of Source Files:: Loading non-ASCII Scheme code from file.
 * Delayed Evaluation::          Postponing evaluation until it is needed.
+* Local Evaluation::            Evaluation in a local lexical environment.
+* Local Inclusion::             Compile-time inclusion of one file in another.
 @end menu
 
 
@@ -531,7 +533,22 @@ then there's no @var{arg1}@dots{}@var{argN} and @var{arg} is the
 @deffnx {C Function} scm_call_4 (proc, arg1, arg2, arg3, arg4)
 @deffnx {C Function} scm_call_5 (proc, arg1, arg2, arg3, arg4, arg5)
 @deffnx {C Function} scm_call_6 (proc, arg1, arg2, arg3, arg4, arg5, arg6)
+@deffnx {C Function} scm_call_7 (proc, arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+@deffnx {C Function} scm_call_8 (proc, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
+@deffnx {C Function} scm_call_9 (proc, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9)
 Call @var{proc} with the given arguments.
+@end deffn
+
+@deffn {C Function} scm_call (proc, ...)
+Call @var{proc} with any number of arguments.  The argument list must be
+terminated by @code{SCM_UNDEFINED}.  For example:
+
+@example
+scm_call (scm_c_public_ref ("guile", "+"),
+          scm_from_int (1),
+          scm_from_int (2),
+          SCM_UNDEFINED);
+@end example
 @end deffn
 
 @deffn {C Function} scm_call_n (proc, argv, nargs)
@@ -807,7 +824,15 @@ The procedure in the previous section look for Scheme code in the file
 system at specific location.  Guile also has some procedures to search
 the load path for code.
 
-For more on the @code{%load-path} variable, @xref{Build Config}.
+@cindex @env{GUILE_LOAD_PATH}
+@defvar %load-path
+List of directories which should be searched for Scheme modules and
+libraries.  @code{%load-path} is initialized when Guile starts up to
+@code{(list (%site-dir) (%library-dir) (%package-data-dir))}, prepended
+with the contents of the @env{GUILE_LOAD_PATH} environment variable, if
+it is set.  @xref{Build Config}, for more on @code{%site-dir} and
+related procedures.
+@end defvar
 
 @deffn {Scheme Procedure} load-from-path filename
 Similar to @code{load}, but searches for @var{filename} in the load
@@ -819,6 +844,7 @@ A user can extend the load path by calling @code{add-to-load-path}.
 
 @deffn {Scheme Syntax} add-to-load-path dir
 Add @var{dir} to the load path.
+@end deffn
 
 For example, a script might include this form to add the directory that
 it is in to the load path:
@@ -826,7 +852,6 @@ it is in to the load path:
 @example
 (add-to-load-path (dirname (current-filename)))
 @end example
-@end deffn
 
 It's better to use @code{add-to-load-path} than to modify
 @code{%load-path} directly, because @code{add-to-load-path} takes care
@@ -850,12 +875,11 @@ the C function takes only one argument, which can be either a string
 
 @deffn {Scheme Procedure} %search-load-path filename
 @deffnx {C Function} scm_sys_search_load_path (filename)
-Search @code{%load-path} for the file named @var{filename},
-which must be readable by the current user.  If @var{filename}
-is found in the list of paths to search or is an absolute
-pathname, return its full pathname.  Otherwise, return
-@code{#f}.  Filenames may have any of the optional extensions
-in the @code{%load-extensions} list; @code{%search-load-path}
+Search @code{%load-path} for the file named @var{filename}, which must
+be readable by the current user.  If @var{filename} is found in the list
+of paths to search or is an absolute pathname, return its full pathname.
+Otherwise, return @code{#f}.  Filenames may have any of the optional
+extensions in the @code{%load-extensions} list; @code{%search-load-path}
 will try each extension automatically.
 @end deffn
 
@@ -865,6 +889,61 @@ A list of default file extensions for files containing Scheme code.
 a file to load.  By default, @code{%load-extensions} is bound to the
 list @code{("" ".scm")}.
 @end defvar
+
+As mentioned above, when Guile searches the @code{%load-path} for a
+source file, it will also search the @code{%load-compiled-path} for a
+corresponding compiled file.  If the compiled file is as new or newer
+than the source file, it will be loaded instead of the source file,
+using @code{load-compiled}.
+
+@defvar %load-compiled-path
+Like @code{%load-path}, but for compiled files.  By default, this path
+has two entries: one for compiled files from Guile itself, and one for
+site packages.
+@end defvar
+
+When @code{primitive-load-path} searches the @code{%load-compiled-path}
+for a corresponding compiled file for a relative path it does so by
+appending @code{.go} to the relative path.  For example, searching for
+@code{ice-9/popen} could find
+@code{/usr/lib/guile/2.0/ccache/ice-9/popen.go}, and use it instead of
+@code{/usr/share/guile/2.0/ice-9/popen.scm}.
+
+If @code{primitive-load-path} does not find a corresponding @code{.go}
+file in the @code{%load-compiled-path}, or the @code{.go} file is out of
+date, it will search for a corresponding auto-compiled file in the
+fallback path, possibly creating one if one does not exist.
+
+@xref{Installing Site Packages}, for more on how to correctly install
+site packages.  @xref{Modules and the File System}, for more on the
+relationship between load paths and modules.  @xref{Compilation}, for
+more on the fallback path and auto-compilation.
+
+Finally, there are a couple of helper procedures for general path
+manipulation.
+
+@deffn {Scheme Procedure} parse-path path [tail]
+@deffnx {C Function} scm_parse_path (path, tail)
+Parse @var{path}, which is expected to be a colon-separated string, into
+a list and return the resulting list with @var{tail} appended. If
+@var{path} is @code{#f}, @var{tail} is returned.
+@end deffn
+
+@deffn {Scheme Procedure} search-path path filename [extensions [require-exts?]]
+@deffnx {C Function} scm_search_path (path, filename, rest)
+Search @var{path} for a directory containing a file named
+@var{filename}. The file must be readable, and not a directory.  If we
+find one, return its full filename; otherwise, return @code{#f}.  If
+@var{filename} is absolute, return it unchanged.  If given,
+@var{extensions} is a list of strings; for each directory in @var{path},
+we search for @var{filename} concatenated with each @var{extension}.  If
+@var{require-exts?}  is true, require that the returned file name have
+one of the given extensions; if @var{require-exts?} is not given, it
+defaults to @code{#f}.
+
+For compatibility with Guile 1.8 and earlier, the C function takes only
+three arguments.
+@end deffn
 
 
 @node Character Encoding of Source Files
@@ -979,6 +1058,125 @@ their results are ignored, @code{force} always returns the first
 value.
 @end deffn
 
+
+@node Local Evaluation
+@subsection Local Evaluation
+
+Guile includes a facility to capture a lexical environment, and later
+evaluate a new expression within that environment.  This code is
+implemented in a module.
+
+@example
+(use-modules (ice-9 local-eval))
+@end example
+
+@deffn syntax the-environment
+Captures and returns a lexical environment for use with
+@code{local-eval} or @code{local-compile}.
+@end deffn
+
+@deffn {Scheme Procedure} local-eval exp env
+@deffnx {C Function} scm_local_eval (exp, env)
+@deffnx {Scheme Procedure} local-compile exp env [opts=()]
+Evaluate or compile the expression @var{exp} in the lexical environment
+@var{env}.
+@end deffn
+
+Here is a simple example, illustrating that it is the variable
+that gets captured, not just its value at one point in time.
+
+@example
+(define e (let ((x 100)) (the-environment)))
+(define fetch-x (local-eval '(lambda () x) e))
+(fetch-x)
+@result{} 100
+(local-eval '(set! x 42) e)
+(fetch-x)
+@result{} 42
+@end example
+
+While @var{exp} is evaluated within the lexical environment of
+@code{(the-environment)}, it has the dynamic environment of the call to
+@code{local-eval}.
+
+@code{local-eval} and @code{local-compile} can only evaluate
+expressions, not definitions.
+
+@example
+(local-eval '(define foo 42)
+            (let ((x 100)) (the-environment)))
+@result{} syntax error: definition in expression context
+@end example
+
+Note that the current implementation of @code{(the-environment)} only
+captures ``normal'' lexical bindings, and pattern variables bound by
+@code{syntax-case}.  It does not currently capture local syntax
+transformers bound by @code{let-syntax}, @code{letrec-syntax} or
+non-top-level @code{define-syntax} forms.  Any attempt to reference such
+captured syntactic keywords via @code{local-eval} or
+@code{local-compile} produces an error.
+
+
+@node Local Inclusion
+@subsection Local Inclusion
+
+This section has discussed various means of linking Scheme code
+together: fundamentally, loading up files at run-time using @code{load}
+and @code{load-compiled}.  Guile provides another option to compose
+parts of programs together at expansion-time instead of at run-time.
+
+@deffn {Scheme Syntax} include file-name
+Open @var{file-name}, at expansion-time, and read the Scheme forms that
+it contains, splicing them into the location of the @code{include},
+within a @code{begin}.
+@end deffn
+
+If you are a C programmer, if @code{load} in Scheme is like
+@code{dlopen} in C, consider @code{include} to be like the C
+preprocessor's @code{#include}.  When you use @code{include}, it is as
+if the contents of the included file were typed in instead of the
+@code{include} form.
+
+Because the code is included at compile-time, it is available to the
+macroexpander.  Syntax definitions in the included file are available to
+later code in the form in which the @code{include} appears, without the
+need for @code{eval-when}.  (@xref{Eval When}.)
+
+For the same reason, compiling a form that uses @code{include} results
+in one compilation unit, composed of multiple files.  Loading the
+compiled file is one @code{stat} operation for the compilation unit,
+instead of @code{2*@var{n}} in the case of @code{load} (once for each
+loaded source file, and once each corresponding compiled file, in the
+best case).
+
+Unlike @code{load}, @code{include} also works within nested lexical
+contexts.  It so happens that the optimizer works best within a lexical
+context, because all of the uses of bindings in a lexical context are
+visible, so composing files by including them within a @code{(let ()
+...)} can sometimes lead to important speed improvements.
+
+On the other hand, @code{include} does have all the disadvantages of
+early binding: once the code with the @code{include} is compiled, no
+change to the included file is reflected in the future behavior of the
+including form.
+
+Also, the particular form of @code{include}, which requires an absolute
+path, or a path relative to the current directory at compile-time, is
+not very amenable to compiling the source in one place, but then
+installing the source to another place.  For this reason, Guile provides
+another form, @code{include-from-path}, which looks for the source file
+to include within a load path.
+
+@deffn {Scheme Syntax} include-from-path file-name
+Like @code{include}, but instead of expecting @code{file-name} to be an
+absolute file name, it is expected to be a relative path to search in
+the @code{%load-path}.
+@end deffn
+
+@code{include-from-path} is more useful when you want to install all of
+the source files for a package (as you should!).  It makes it possible
+to evaluate an installed file from source, instead of relying on the
+@code{.go} file being up to date.
 
 @c Local Variables:
 @c TeX-master: "guile.texi"

@@ -1,6 +1,6 @@
 ;;; open-coding primitive procedures
 
-;; Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -487,8 +487,8 @@
             '@dynamic-wind
             (case-lambda
               ((src pre expr post)
-               (let ((PRE (gensym " pre"))
-                     (POST (gensym " post")))
+               (let ((PRE (gensym "pre-"))
+                     (POST (gensym "post-")))
                  (make-let
                   src
                   '(pre post)
