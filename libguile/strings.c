@@ -267,8 +267,22 @@ SCM scm_nullstr;
 SCM
 scm_i_make_string (size_t len, char **charsp, int read_only_p)
 {
-  SCM buf = make_stringbuf (len);
+  static SCM null_stringbuf = SCM_BOOL_F;
+  SCM buf;
   SCM res;
+
+  if (len == 0)
+    {
+      if (SCM_UNLIKELY (scm_is_false (null_stringbuf)))
+        {
+          null_stringbuf = make_stringbuf (0);
+          SET_STRINGBUF_SHARED (null_stringbuf);
+        }
+      buf = null_stringbuf;
+    }
+  else
+    buf = make_stringbuf (len);
+
   if (charsp)
     *charsp = (char *) STRINGBUF_CHARS (buf);
   res = scm_double_cell (read_only_p ? RO_STRING_TAG : STRING_TAG,
@@ -320,37 +334,48 @@ get_str_buf_start (SCM *str, SCM *buf, size_t *start)
 SCM
 scm_i_substring (SCM str, size_t start, size_t end)
 {
-  SCM buf;
-  size_t str_start;
-  get_str_buf_start (&str, &buf, &str_start);
-  scm_i_pthread_mutex_lock (&stringbuf_write_mutex);
-  SET_STRINGBUF_SHARED (buf);
-  scm_i_pthread_mutex_unlock (&stringbuf_write_mutex);
-  return scm_double_cell (STRING_TAG, SCM_UNPACK(buf),
-			  (scm_t_bits)str_start + start,
-			  (scm_t_bits) end - start);
+  if (start == end)
+    return scm_i_make_string (0, NULL, 0);
+  else
+    {
+      SCM buf;
+      size_t str_start;
+      get_str_buf_start (&str, &buf, &str_start);
+      scm_i_pthread_mutex_lock (&stringbuf_write_mutex);
+      SET_STRINGBUF_SHARED (buf);
+      scm_i_pthread_mutex_unlock (&stringbuf_write_mutex);
+      return scm_double_cell (STRING_TAG, SCM_UNPACK(buf),
+                              (scm_t_bits)str_start + start,
+                              (scm_t_bits) end - start);
+    }
 }
 
 SCM
 scm_i_substring_read_only (SCM str, size_t start, size_t end)
 {
-  SCM buf;
-  size_t str_start;
-  get_str_buf_start (&str, &buf, &str_start);
-  scm_i_pthread_mutex_lock (&stringbuf_write_mutex);
-  SET_STRINGBUF_SHARED (buf);
-  scm_i_pthread_mutex_unlock (&stringbuf_write_mutex);
-  return scm_double_cell (RO_STRING_TAG, SCM_UNPACK(buf),
-			  (scm_t_bits)str_start + start,
-			  (scm_t_bits) end - start);
+  if (start == end)
+    return scm_i_make_string (0, NULL, 1);
+  else
+    {
+      SCM buf;
+      size_t str_start;
+      get_str_buf_start (&str, &buf, &str_start);
+      scm_i_pthread_mutex_lock (&stringbuf_write_mutex);
+      SET_STRINGBUF_SHARED (buf);
+      scm_i_pthread_mutex_unlock (&stringbuf_write_mutex);
+      return scm_double_cell (RO_STRING_TAG, SCM_UNPACK(buf),
+                              (scm_t_bits)str_start + start,
+                              (scm_t_bits) end - start);
+    }
 }
 
 SCM
 scm_i_substring_copy (SCM str, size_t start, size_t end)
 {
   size_t len = end - start;
-  SCM buf, my_buf;
+  SCM buf, my_buf, substr;
   size_t str_start;
+  int wide = 0;
   get_str_buf_start (&str, &buf, &str_start);
   if (scm_i_is_narrow_string (str))
     {
@@ -364,12 +389,14 @@ scm_i_substring_copy (SCM str, size_t start, size_t end)
       u32_cpy ((scm_t_uint32 *) STRINGBUF_WIDE_CHARS (my_buf),
                (scm_t_uint32 *) (STRINGBUF_WIDE_CHARS (buf) + str_start 
                                  + start), len);
-      /* Even though this string is wide, the substring may be narrow.
-         Consider adding code to narrow the string.  */
+      wide = 1;
     }
   scm_remember_upto_here_1 (buf);
-  return scm_double_cell (STRING_TAG, SCM_UNPACK (my_buf),
-                          (scm_t_bits) 0, (scm_t_bits) len);
+  substr = scm_double_cell (STRING_TAG, SCM_UNPACK (my_buf),
+                            (scm_t_bits) 0, (scm_t_bits) len);
+  if (wide)
+    scm_i_try_narrow_string (substr);
+  return substr;
 }
 
 SCM
@@ -377,7 +404,9 @@ scm_i_substring_shared (SCM str, size_t start, size_t end)
 {
   if (start == 0 && end == STRING_LENGTH (str))
     return str;
-  else 
+  else if (start == end)
+    return scm_i_make_string (0, NULL, 0);
+  else
     {
       size_t len = end - start;
       if (IS_SH_STRING (str))
@@ -1489,12 +1518,10 @@ scm_from_stringn (const char *str, size_t len, const char *encoding,
     scm_misc_error ("scm_from_stringn", "NULL string pointer", SCM_EOL);
   if (len == (size_t) -1)
     len = strlen (str);
-  if (len == 0)
-    return scm_nullstr;
 
-  if (encoding == NULL)
+  if (encoding == NULL || len == 0)
     {
-      /* If encoding is null, use Latin-1.  */
+      /* If encoding is null (or the string is empty), use Latin-1.  */
       char *buf;
       res = scm_i_make_string (len, &buf, 0);
       memcpy (buf, str, len);

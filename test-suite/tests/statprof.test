@@ -31,8 +31,22 @@
   #:use-module (srfi srfi-1)
   #:use-module (statprof))
 
+;; Throw `unresolved' upon ENOSYS.  This is used to skip tests on
+;; platforms such as GNU/Hurd where `ITIMER_PROF' is is currently
+;; unimplemented.
+(define-syntax-rule (when-implemented body ...)
+  (catch 'system-error
+    (lambda ()
+      body ...)
+    (lambda args
+      (let ((errno (system-error-errno args)))
+        (false-if-exception (statprof-stop))
+        (if (= errno ENOSYS)
+            (throw 'unresolved)
+            (apply throw args))))))
+
 (pass-if "statistical sample counts within expected range"
-  (let ()
+  (when-implemented
     ;; test to see that if we call 3 identical functions equally, they
     ;; show up equally in the call count, +/- 30%. it's a big range, and
     ;; I tried to do something more statistically valid, but failed (for
@@ -43,18 +57,18 @@
       ;; Disable partial evaluation so that `(+ i i)' doesn't get
       ;; stripped.
       (compile '(lambda (n)
-                  (do ((i 0 (+ i 1))) ((= 200 i)) (+ i i)))
-               #:opts '(#:partial-eval? #f)))
+		  (do ((i 0 (+ i 1))) ((= 200 i)) (+ i i)))
+	       #:opts '(#:partial-eval? #f)))
     (define run-test
       (compile '(lambda (num-calls funcs)
-                  (let loop ((x num-calls) (funcs funcs))
-                    (cond
-                     ((positive? x)
-                      ((car funcs) x)
-                      (loop (- x 1) (cdr funcs))))))))
-    
+		  (let loop ((x num-calls) (funcs funcs))
+		    (cond
+		     ((positive? x)
+		      ((car funcs) x)
+		      (loop (- x 1) (cdr funcs))))))))
+
     (let ((num-calls 80000)
-          (funcs (circular-list (make-func) (make-func) (make-func))))
+	  (funcs (circular-list (make-func) (make-func) (make-func))))
 
       ;; Run test. 20000 us == 200 Hz.
       (statprof-reset 0 20000 #f #f)
@@ -62,25 +76,31 @@
       (run-test num-calls funcs)
       (statprof-stop)
 
-      (let* ((a-data (statprof-proc-call-data (car funcs)))
-             (b-data (statprof-proc-call-data (cadr funcs)))
-             (c-data (statprof-proc-call-data (caddr funcs)))
-             (samples (map statprof-call-data-cum-samples
-                           (list a-data b-data c-data)))
-             (average (/ (apply + samples) 3))
-             (max-allowed-drift 0.30) ; 30%
-             (diffs (map (lambda (x) (abs (- x average)))
-                         samples))
-             (max-diff (apply max diffs)))
+      (let ((a-data (statprof-proc-call-data (car funcs)))
+	    (b-data (statprof-proc-call-data (cadr funcs)))
+	    (c-data (statprof-proc-call-data (caddr funcs))))
+	(if (and a-data b-data c-data)
+	    (let* ((samples (map statprof-call-data-cum-samples
+				 (list a-data b-data c-data)))
+		   (average (/ (apply + samples) 3))
+		   (max-allowed-drift 0.30)     ; 30%
+                   (diffs (map (lambda (x) (abs (- x average)))
+                               samples))
+                   (max-diff (apply max diffs)))
 
-        (let ((drift-fraction (/ max-diff average)))
-          (or (< drift-fraction max-allowed-drift)
-              ;; don't stop the test suite for what statistically is
-              ;; bound to happen.
-              (throw 'unresolved (pk average drift-fraction))))))))
+	      (let ((drift-fraction (/ max-diff average)))
+		(or (< drift-fraction max-allowed-drift)
+		    ;; don't stop the test suite for what statistically is
+		    ;; bound to happen.
+		    (throw 'unresolved (pk average drift-fraction)))))
+
+            ;; Samples were not collected for at least one of the
+            ;; functions, possibly because NUM-CALLS is too low compared
+            ;; to the CPU speed.
+	    (throw 'unresolved (pk (list a-data b-data c-data))))))))
 
 (pass-if "accurate call counting"
-  (let ()
+  (when-implemented
     ;; Test to see that if we call a function N times while the profiler
     ;; is active, it shows up N times.
     (let ((num-calls 200))

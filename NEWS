@@ -5,6 +5,144 @@ See the end for copying conditions.
 Please send Guile bug reports to bug-guile@gnu.org.
 
 
+Changes in 2.0.4 (since 2.0.3):
+
+* Notable changes
+
+** Better debuggability for interpreted procedures.
+    
+Guile 2.0 came with a great debugging experience for compiled
+procedures, but the story for interpreted procedures was terrible.  Now,
+at least, interpreted procedures have names, and the `arity' procedure
+property is always correct (or, as correct as it can be, in the presence
+of `case-lambda').
+
+** Support for cross-compilation.
+    
+One can now use a native Guile to cross-compile `.go' files for a
+different architecture.  See the documentation for `--target' in the
+"Compilation" section of the manual, for information on how to use the
+cross-compiler.  See the "Cross building Guile" section of the README,
+for more on how to cross-compile Guile itself.
+
+** Fluids can now have default values.
+
+Fluids are used for dynamic and thread-local binding.  They have always
+inherited their values from the context or thread that created them.
+However, there was a case in which a new thread would enter Guile, and
+the default values of all the fluids would be `#f' for that thread.
+
+This has now been fixed so that `make-fluid' has an optional default
+value for fluids in unrelated dynamic roots, which defaults to `#f'.
+
+** Garbage collector tuning.
+
+The garbage collector has now been tuned to run more often under some
+circumstances.
+
+*** Unmanaged allocation
+
+The new `scm_gc_register_allocation' function will notify the collector
+of unmanaged allocation.  This will cause the collector to run sooner.
+Guile's `scm_malloc', `scm_calloc', and `scm_realloc' unmanaged
+allocators eventually call this function.  This leads to better
+performance under steady-state unmanaged allocation.
+
+*** Transient allocation
+    
+When the collector runs, it will try to record the total memory
+footprint of a process, if the platform supports this information.  If
+the memory footprint is growing, the collector will run more frequently.
+This reduces the increase of the resident size of a process in response
+to a transient increase in allocation.
+
+*** Management of threads, bignums
+
+Creating a thread will allocate a fair amount of memory.  Guile now does
+some GC work (using `GC_collect_a_little') when allocating a thread.
+This leads to a better memory footprint when creating many short-lived
+threads.
+    
+Similarly, bignums can occupy a lot of memory.  Guile now offers hooks
+to enable custom GMP allocators that end up calling
+`scm_gc_register_allocation'.  These allocators are enabled by default
+when running Guile from the command-line.  To enable them in libraries,
+set the `scm_install_gmp_memory_functions' variable to a nonzero value
+before loading Guile.
+
+** SRFI-39 parameters are available by default.
+    
+Guile now includes support for parameters, as defined by SRFI-39, in the
+default environment.  See "Parameters" in the manual, for more
+information.  `current-input-port', `current-output-port', and
+`current-error-port' are now parameters.
+    
+** Add `current-warning-port'
+    
+Guile now outputs warnings on a separate port, `current-warning-port',
+initialized to the value that `current-error-port' has on startup.
+
+** Syntax parameters.
+
+Following Racket's lead, Guile now supports syntax parameters.  See
+"Syntax parameters" in the manual, for more.
+
+Also see Barzilay, Culpepper, and Flatt's 2011 SFP workshop paper,
+"Keeping it Clean with syntax-parameterize".
+    
+** Parse command-line arguments from the locale encoding.
+    
+Guile now attempts to parse command-line arguments using the user's
+locale.  However for backwards compatibility with other 2.0.x releases,
+it does so without actually calling `setlocale'.  Please report any bugs
+in this facility to bug-guile@gnu.org.
+
+* New interfaces
+
+** (ice-9 session): `apropos-hook'
+** New print option: `escape-newlines', defaults to #t.
+** (ice-9 ftw): `file-system-fold', `file-system-tree', `scandir'
+
+* Bug fixes
+
+** Fix R6RS `fold-left' so the accumulator is the first argument.
+** fix <dynwind> serialization.
+** Fix bugs in the new `peval' optimizer.
+** Allow values bound in non-tail let expressions to be collected.
+** Fix bit-set*! bug from 2005.
+** Fix bug in `make-repl' when `lang' is actually a language.
+** Hack the port-column of current-output-port after printing a prompt.
+** FFI: Hold a weak reference to the CIF made by `procedure->pointer'.
+** FFI: Hold a weak reference to the procedure passed to `procedure->pointer'.
+** FFI: Properly unpack small integer return values in closure call.
+** Allow overlapping regions to be passed to `bytevector-copy!'.
+** Fix `validate-target' in (system base target).
+** `,language' at REPL sets the current-language fluid.
+** `primitive-load' returns the value(s) of the last expression.
+** Add an exception printer for `getaddrinfo-error'.
+** Add a deprecated alias for $expt.
+** Document invalidity of (begin) as expression; add back-compat shim.
+** Web: Allow URIs with empty authorities, like "file:///etc/hosts".
+** HTTP: Fix validators for various list-style headers.
+** HTTP: Extend handling of "Cache-Control" header.
+** HTTP: Fix qstring writing of cache-extension values
+** HTTP: `write-request-line' writes absolute paths, not absolute URIs.
+** HTTP: Permit non-date values for Expires header.
+** FreeBSD build fixes.
+** Fix generalized-vector-{ref,set!} for slices.
+** Fix erroneous check in `set-procedure-properties!'.
+** Don't leak file descriptors when mmaping objcode.
+** Fix bugs related to mutation, the null string, and shared substrings.
+** Deprecate SCM_ASRTGO.
+** Add deprecated shim for `scm_display_error' with stack as first argument.
+** i18n: Fix gc_malloc/free mismatch on non-GNU systems.
+** Make sure `regexp-quote' tests use Unicode-capable string ports.
+** Have `cpu-word-size' error out on unknown CPUs; add support for MIPSEL.
+** `scm_from_stringn' always returns unique strings.
+** Empty substrings no longer reference the original stringbuf.
+** `scm_i_substring_copy' tries to narrow the substring.
+** Avoid calling `u32_conv_from_encoding' on the null string.
+
 Changes in 2.0.3 (since 2.0.2):
 
 * Speed improvements

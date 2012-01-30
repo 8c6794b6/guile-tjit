@@ -550,7 +550,7 @@ guilify_self_1 (struct GC_stack_base *base)
   t.critical_section_level = 0;
   t.base = base->mem_base;
 #ifdef __ia64__
-  t.register_backing_store_base = base->reg-base;
+  t.register_backing_store_base = base->reg_base;
 #endif
   t.continuation_root = SCM_EOL;
   t.continuation_base = t.base;
@@ -1126,6 +1126,8 @@ scm_spawn_thread (scm_t_catch_body body, void *body_data,
     }
   scm_i_scm_pthread_cond_wait (&data.cond, &data.mutex);
   scm_i_pthread_mutex_unlock (&data.mutex);
+
+  assert (SCM_I_IS_THREAD (data.thread));
 
   return data.thread;
 }
