@@ -1008,7 +1008,9 @@ top-level bindings from ENV and return the resulting expression."
              exp))
         (else
          (let ((vals (map for-value exps)))
-           (if (and (memq ctx '(value test effect))
+           (if (and (case ctx
+                      ((value test effect) #t)
+                      (else (null? (cdr vals))))
                     (every singly-valued-expression? vals))
                (for-tail (list->seq src (append (cdr vals) (list (car vals)))))
                (make-primcall src 'values vals))))))

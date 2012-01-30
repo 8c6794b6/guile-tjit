@@ -390,6 +390,7 @@ If there is no handler at all, Guile prints an error and then exits."
 (define bound-identifier=? #f)
 (define free-identifier=? #f)
 (define syntax-local-binding #f)
+(define syntax-locally-bound-identifiers #f)
 
 ;; $sc-dispatch is an implementation detail of psyntax. It is used by
 ;; expanded macros, to dispatch an input against a set of patterns.
@@ -411,6 +412,12 @@ If there is no handler at all, Guile prints an error and then exits."
     ((_) #f)
     ((_ x) x)
     ((_ x y ...) (let ((t x)) (if t t (or y ...))))))
+
+(define-syntax-rule (when test stmt stmt* ...)
+  (if test (begin stmt stmt* ...)))
+
+(define-syntax-rule (unless test stmt stmt* ...)
+  (if (not test) (begin stmt stmt* ...)))
 
 ;; The "maybe-more" bits are something of a hack, so that we can support
 ;; SRFI-61. Rewrites into a standalone syntax-case macro would be
@@ -505,6 +512,18 @@ If there is no handler at all, Guile prints an error and then exits."
       ((_)
        (with-syntax ((s (datum->syntax x (syntax-source x))))
          #''s)))))
+
+;; We provide this accessor out of convenience.  current-line and
+;; current-column aren't so interesting, because they distort what they
+;; are measuring; better to use syntax-source from a macro.
+;;
+(define-syntax current-filename
+  (lambda (x)
+    "A macro that expands to the current filename: the filename that
+the (current-filename) form appears in.  Expands to #f if this
+information is unavailable."
+    (false-if-exception
+     (canonicalize-path (assq-ref (syntax-source x) 'filename)))))
 
 (define-syntax-rule (define-once sym val)
   (define sym
@@ -1376,6 +1395,11 @@ VALUE."
 (define (load-from-path name)
   (start-stack 'load-stack
                (primitive-load-path name)))
+
+(define-syntax-rule (add-to-load-path elt)
+  "Add ELT to Guile's load path, at compile-time and at run-time."
+  (eval-when (compile load eval)
+    (set! %load-path (cons elt %load-path))))
 
 (define %load-verbosely #f)
 (define (assert-load-verbosity v) (set! %load-verbosely v))
