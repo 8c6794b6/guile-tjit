@@ -180,7 +180,11 @@
                                  t)
                            patterns))))
               (else
-               (error "what" type val))))))))))
+               ;; Interestingly, this case can include globals (and
+               ;; global macros), now that Guile tracks which globals it
+               ;; introduces.  Not sure what to do here!  For now, punt.
+               ;; 
+               (lp ids capture formals wrappers patterns))))))))))
 
 (define-syntax the-environment
   (lambda (x)
