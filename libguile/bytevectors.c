@@ -333,7 +333,7 @@ scm_c_shrink_bytevector (SCM bv, size_t c_new_len)
   SCM_BYTEVECTOR_SET_LENGTH (bv, c_new_len);
 
   if (SCM_BYTEVECTOR_CONTIGUOUS_P (bv))
-    new_bv = SCM_PACK_POINTER (scm_gc_realloc (SCM_HEAP_OBJECT_BASE (bv),
+    new_bv = PTR2SCM (scm_gc_realloc (SCM2PTR (bv),
 				      c_len + SCM_BYTEVECTOR_HEADER_BYTES,
 				      c_new_len + SCM_BYTEVECTOR_HEADER_BYTES,
 				      SCM_GC_BYTEVECTOR));

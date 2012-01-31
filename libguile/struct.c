@@ -448,7 +448,7 @@ scm_i_alloc_struct (scm_t_bits *vtable_data, int n_words)
       /* Register a finalizer for the newly created instance.  */
       GC_finalization_proc prev_finalizer;
       GC_PTR prev_finalizer_data;
-      GC_REGISTER_FINALIZER_NO_ORDER (SCM_HEAP_OBJECT_BASE (ret),
+      GC_REGISTER_FINALIZER_NO_ORDER (SCM2PTR (ret),
 				      struct_finalizer_trampoline,
 				      NULL,
 				      &prev_finalizer,

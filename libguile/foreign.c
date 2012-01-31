@@ -152,7 +152,7 @@ scm_from_pointer (void *ptr, scm_t_pointer_finalizer finalizer)
 	  /* Register a finalizer for the newly created instance.  */
 	  GC_finalization_proc prev_finalizer;
 	  GC_PTR prev_finalizer_data;
-	  GC_REGISTER_FINALIZER_NO_ORDER (SCM_HEAP_OBJECT_BASE (ret),
+	  GC_REGISTER_FINALIZER_NO_ORDER (SCM2PTR (ret),
 					  pointer_finalizer_trampoline,
 					  finalizer,
 					  &prev_finalizer,
@@ -316,7 +316,7 @@ SCM_DEFINE (scm_set_pointer_finalizer_x, "set-pointer-finalizer!", 2, 0, 0,
 
   c_finalizer = SCM_POINTER_VALUE (finalizer);
 
-  GC_REGISTER_FINALIZER_NO_ORDER (SCM_HEAP_OBJECT_BASE (pointer),
+  GC_REGISTER_FINALIZER_NO_ORDER (SCM2PTR (pointer),
                                   pointer_finalizer_trampoline,
                                   c_finalizer,
                                   &prev_finalizer,

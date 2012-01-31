@@ -45,13 +45,12 @@ typedef struct scm_t_cell
  * in debug mode.  In particular these macros will even work for free cells,
  * which should never be encountered by user code.  */
 
-#define SCM_GC_CELL_OBJECT(x, n) (SCM_PACK (SCM_HEAP_OBJECT_BASE (x)[n]))
-#define SCM_GC_CELL_WORD(x, n)   (SCM_HEAP_OBJECT_BASE (x)[n])
+#define SCM_GC_CELL_OBJECT(x, n) (((SCM *)SCM2PTR (x)) [n])
+#define SCM_GC_CELL_WORD(x, n)   (SCM_UNPACK (SCM_GC_CELL_OBJECT ((x), (n))))
 
-#define SCM_GC_SET_CELL_OBJECT(x, n, v) \
-  (SCM_HEAP_OBJECT_BASE (x)[n] = SCM_UNPACK (v))
+#define SCM_GC_SET_CELL_OBJECT(x, n, v) ((((SCM *)SCM2PTR (x)) [n]) = (v))
 #define SCM_GC_SET_CELL_WORD(x, n, v)  \
-  (SCM_HEAP_OBJECT_BASE (x)[n] = (v))
+  (SCM_GC_SET_CELL_OBJECT ((x), (n), SCM_PACK (v)))
 
 #define SCM_GC_CELL_TYPE(x) (SCM_GC_CELL_OBJECT ((x), 0))
 
@@ -97,8 +96,7 @@ typedef struct scm_t_cell
 #define SCM_SET_CELL_OBJECT_2(x, v) SCM_SET_CELL_OBJECT ((x), 2, (v))
 #define SCM_SET_CELL_OBJECT_3(x, v) SCM_SET_CELL_OBJECT ((x), 3, (v))
 
-#define SCM_CELL_WORD_LOC(x, n)   (SCM_VALIDATE_CELL((x), &SCM_GC_CELL_WORD ((x), (n))))
-#define SCM_CELL_OBJECT_LOC(x, n) ((SCM *) SCM_CELL_WORD_LOC (x, n))
+#define SCM_CELL_OBJECT_LOC(x, n) (SCM_VALIDATE_CELL((x), &SCM_GC_CELL_OBJECT ((x), (n))))
 #define SCM_CARLOC(x)             (SCM_CELL_OBJECT_LOC ((x), 0))
 #define SCM_CDRLOC(x)             (SCM_CELL_OBJECT_LOC ((x), 1))
 

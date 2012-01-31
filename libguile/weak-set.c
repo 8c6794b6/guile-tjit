@@ -525,7 +525,7 @@ weak_set_add_x (scm_t_weak_set *set, unsigned long hash,
 
   if (SCM_HEAP_OBJECT_P (obj))
     SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entries[k].key,
-                                      (GC_PTR) SCM_HEAP_OBJECT_BASE (obj));
+                                      (GC_PTR) SCM2PTR (obj));
 
   return obj;
 }
@@ -688,7 +688,7 @@ scm_c_register_weak_gc_callback (SCM obj, void (*callback) (SCM))
 
   weak[0] = SCM_UNPACK_POINTER (obj);
   weak[1] = (void*)callback;
-  GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM_HEAP_OBJECT_BASE (obj));
+  GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM2PTR (obj));
 
 #ifdef HAVE_GC_SET_START_CALLBACK
   scm_c_hook_add (&scm_after_gc_c_hook, weak_gc_hook, weak, 0);

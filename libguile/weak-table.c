@@ -1,4 +1,4 @@
-/* Copyright (C) 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -131,13 +131,13 @@ register_disappearing_links (scm_t_weak_entry *entry,
       && (kind == SCM_WEAK_TABLE_KIND_KEY
           || kind == SCM_WEAK_TABLE_KIND_BOTH))
     SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entry->key,
-                                      (GC_PTR) SCM_HEAP_OBJECT_BASE (k));
+                                      (GC_PTR) SCM2PTR (k));
 
   if (SCM_UNPACK (v) && SCM_HEAP_OBJECT_P (v)
       && (kind == SCM_WEAK_TABLE_KIND_VALUE
           || kind == SCM_WEAK_TABLE_KIND_BOTH))
     SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entry->value,
-                                      (GC_PTR) SCM_HEAP_OBJECT_BASE (v));
+                                      (GC_PTR) SCM2PTR (v));
 }
 
 static void
@@ -162,7 +162,7 @@ move_disappearing_links (scm_t_weak_entry *from, scm_t_weak_entry *to,
       GC_move_disappearing_link ((GC_PTR) &from->key, (GC_PTR) &to->key);
 #else
       GC_unregister_disappearing_link (&from->key);
-      SCM_I_REGISTER_DISAPPEARING_LINK (&to->key, SCM_HEAP_OBJECT_BASE (key));
+      SCM_I_REGISTER_DISAPPEARING_LINK (&to->key, SCM2PTR (key));
 #endif
     }
 
@@ -173,7 +173,7 @@ move_disappearing_links (scm_t_weak_entry *from, scm_t_weak_entry *to,
       GC_move_disappearing_link ((GC_PTR) &from->value, (GC_PTR) &to->value);
 #else
       GC_unregister_disappearing_link (&from->value);
-      SCM_I_REGISTER_DISAPPEARING_LINK (&to->value, SCM_HEAP_OBJECT_BASE (value));
+      SCM_I_REGISTER_DISAPPEARING_LINK (&to->value, SCM2PTR (value));
 #endif
     }
 }
@@ -328,7 +328,7 @@ mark_weak_key_table (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
     if (entries[k].hash && entries[k].key)
       {
         SCM value = SCM_PACK (entries[k].value);
-        mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word*) SCM_HEAP_OBJECT_BASE (value),
+        mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word*) SCM2PTR (value),
                                            mark_stack_ptr, mark_stack_limit,
                                            NULL);
       }
@@ -347,7 +347,7 @@ mark_weak_value_table (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
     if (entries[k].hash && entries[k].value)
       {
         SCM key = SCM_PACK (entries[k].key);
-        mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word*) SCM_HEAP_OBJECT_BASE (key),
+        mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word*) SCM2PTR (key),
                                            mark_stack_ptr, mark_stack_limit,
                                            NULL);
       }
@@ -810,7 +810,7 @@ scm_c_register_weak_gc_callback (SCM obj, void (*callback) (SCM))
 
   weak[0] = SCM_UNPACK_POINTER (obj);
   weak[1] = (void*)callback;
-  GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM_HEAP_OBJECT_BASE (obj));
+  GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM2PTR (obj));
 
 #ifdef HAVE_GC_TABLE_START_CALLBACK
   scm_c_hook_add (&scm_after_gc_c_hook, weak_gc_hook, weak, 0);

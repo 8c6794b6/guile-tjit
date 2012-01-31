@@ -541,8 +541,7 @@ register_finalizer_for_port (SCM port)
 
   /* Register a finalizer for PORT so that its iconv CDs get freed and
      optionally its type's `free' function gets called.  */
-  GC_REGISTER_FINALIZER_NO_ORDER (SCM_HEAP_OBJECT_BASE (port),
-                                  finalize_port, 0,
+  GC_REGISTER_FINALIZER_NO_ORDER (SCM2PTR (port), finalize_port, 0,
 				  &prev_finalizer,
 				  &prev_finalization_data);
 }
