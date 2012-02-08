@@ -326,7 +326,7 @@ the last pair of the list.
 @c  no-op since it does nothing but return the list the caller must
 @c  have already created.
 @c
-@deffn {Scheme Procedure} list elem1 @dots{} elemN
+@deffn {Scheme Procedure} list elem @dots{}
 @deffnx {C Function} scm_list_1 (elem1)
 @deffnx {C Function} scm_list_2 (elem1, elem2)
 @deffnx {C Function} scm_list_3 (elem1, elem2, elem3)
@@ -334,11 +334,11 @@ the last pair of the list.
 @deffnx {C Function} scm_list_5 (elem1, elem2, elem3, elem4, elem5)
 @deffnx {C Function} scm_list_n (elem1, @dots{}, elemN, @nicode{SCM_UNDEFINED})
 @rnindex list
-Return a new list containing elements @var{elem1} to @var{elemN}.
+Return a new list containing elements @var{elem} @enddots{}.
 
 @code{scm_list_n} takes a variable number of arguments, terminated by
 the special @code{SCM_UNDEFINED}.  That final @code{SCM_UNDEFINED} is
-not included in the list.  None of @var{elem1} to @var{elemN} can
+not included in the list.  None of @var{elem} @dots{} can
 themselves be @code{SCM_UNDEFINED}, or @code{scm_list_n} will
 terminate at that point.
 @end deffn
@@ -430,12 +430,14 @@ pairs.  This is why you should be careful when using the side-effecting
 variants.
 
 @rnindex append
-@deffn {Scheme Procedure} append lst1 @dots{} lstN
-@deffnx {Scheme Procedure} append! lst1 @dots{} lstN
+@deffn {Scheme Procedure} append lst @dots{} obj
+@deffnx {Scheme Procedure} append
+@deffnx {Scheme Procedure} append! lst @dots{} obj
+@deffnx {Scheme Procedure} append!
 @deffnx {C Function} scm_append (lstlst)
 @deffnx {C Function} scm_append_x (lstlst)
-Return a list comprising all the elements of lists @var{lst1} to
-@var{lstN}.
+Return a list comprising all the elements of lists @var{lst} @dots{}
+@var{obj}.  If called with no arguments, return the empty list.
 
 @lisp
 (append '(x) '(y))          @result{}  (x y)
@@ -443,7 +445,7 @@ Return a list comprising all the elements of lists @var{lst1} to
 (append '(a (b)) '((c)))    @result{}  (a (b) (c))
 @end lisp
 
-The last argument @var{lstN} may actually be any object; an improper
+The last argument @var{obj} may actually be any object; an improper
 list results if the last argument is not a proper list.
 
 @lisp
@@ -452,11 +454,11 @@ list results if the last argument is not a proper list.
 @end lisp
 
 @code{append} doesn't modify the given lists, but the return may share
-structure with the final @var{lstN}.  @code{append!} modifies the
+structure with the final @var{obj}.  @code{append!} modifies the
 given lists to form its return.
 
 For @code{scm_append} and @code{scm_append_x}, @var{lstlst} is a list
-of the list operands @var{lst1} @dots{} @var{lstN}.  That @var{lstlst}
+of the list operands @var{lst} @dots{} @var{obj}.  That @var{lstlst}
 itself is not modified or used in the return.
 @end deffn
 
@@ -709,7 +711,7 @@ thus created is determined implicitly by the number of arguments given.
 
 @rnindex vector
 @rnindex list->vector
-@deffn {Scheme Procedure} vector . l
+@deffn {Scheme Procedure} vector arg @dots{}
 @deffnx {Scheme Procedure} list->vector l
 @deffnx {C Function} scm_vector (l)
 Return a newly allocated vector composed of the
@@ -775,19 +777,19 @@ in the vector.
 
 @rnindex vector-length
 @deffn {Scheme Procedure} vector-length vector
-@deffnx {C Function} scm_vector_length vector
+@deffnx {C Function} scm_vector_length (vector)
 Return the number of elements in @var{vector} as an exact integer.
 @end deffn
 
-@deftypefn {C Function} size_t scm_c_vector_length (SCM v)
-Return the number of elements in @var{vector} as a @code{size_t}.
+@deftypefn {C Function} size_t scm_c_vector_length (SCM vec)
+Return the number of elements in @var{vec} as a @code{size_t}.
 @end deftypefn
 
 @rnindex vector-ref
-@deffn {Scheme Procedure} vector-ref vector k
-@deffnx {C Function} scm_vector_ref vector k
-Return the contents of position @var{k} of @var{vector}.
-@var{k} must be a valid index of @var{vector}.
+@deffn {Scheme Procedure} vector-ref vec k
+@deffnx {C Function} scm_vector_ref (vec, k)
+Return the contents of position @var{k} of @var{vec}.
+@var{k} must be a valid index of @var{vec}.
 @lisp
 (vector-ref '#(1 1 2 3 5 8 13 21) 5) @result{} 8
 (vector-ref '#(1 1 2 3 5 8 13 21)
@@ -798,9 +800,9 @@ Return the contents of position @var{k} of @var{vector}.
 @end lisp
 @end deffn
 
-@deftypefn {C Function} SCM scm_c_vector_ref (SCM v, size_t k)
+@deftypefn {C Function} SCM scm_c_vector_ref (SCM vec, size_t k)
 Return the contents of position @var{k} (a @code{size_t}) of
-@var{vector}.
+@var{vec}.
 @end deftypefn
 
 A vector created by one of the dynamic vector constructor procedures
@@ -813,10 +815,10 @@ considered as constants.  Currently, however, Guile does not detect this
 error.
 
 @rnindex vector-set!
-@deffn {Scheme Procedure} vector-set! vector k obj
-@deffnx {C Function} scm_vector_set_x vector k obj
-Store @var{obj} in position @var{k} of @var{vector}.
-@var{k} must be a valid index of @var{vector}.
+@deffn {Scheme Procedure} vector-set! vec k obj
+@deffnx {C Function} scm_vector_set_x (vec, k, obj)
+Store @var{obj} in position @var{k} of @var{vec}.
+@var{k} must be a valid index of @var{vec}.
 The value returned by @samp{vector-set!} is unspecified.
 @lisp
 (let ((vec (vector 0 '(2 2 2 2) "Anna")))
@@ -825,14 +827,14 @@ The value returned by @samp{vector-set!} is unspecified.
 @end lisp
 @end deffn
 
-@deftypefn {C Function} void scm_c_vector_set_x (SCM v, size_t k, SCM obj)
-Store @var{obj} in position @var{k} (a @code{size_t}) of @var{v}.
+@deftypefn {C Function} void scm_c_vector_set_x (SCM vec, size_t k, SCM obj)
+Store @var{obj} in position @var{k} (a @code{size_t}) of @var{vec}.
 @end deftypefn
 
 @rnindex vector-fill!
-@deffn {Scheme Procedure} vector-fill! v fill
-@deffnx {C Function} scm_vector_fill_x (v, fill)
-Store @var{fill} in every position of @var{vector}.  The value
+@deffn {Scheme Procedure} vector-fill! vec fill
+@deffnx {C Function} scm_vector_fill_x (vec, fill)
+Store @var{fill} in every position of @var{vec}.  The value
 returned by @code{vector-fill!} is unspecified.
 @end deffn
 
@@ -1010,7 +1012,7 @@ Like @code{scm_make_bitvector}, but the length is given as a
 @code{size_t}.
 @end deftypefn
 
-@deffn {Scheme Procedure} bitvector . bits
+@deffn {Scheme Procedure} bitvector bit @dots{}
 @deffnx {C Function} scm_bitvector (bits)
 Create a new bitvector with the arguments as elements.
 @end deffn
@@ -1031,7 +1033,7 @@ Return the element at index @var{idx} of the bitvector
 @var{vec}.
 @end deffn
 
-@deftypefn {C Function} SCM scm_c_bitvector_ref (SCM obj, size_t idx)
+@deftypefn {C Function} SCM scm_c_bitvector_ref (SCM vec, size_t idx)
 Return the element at index @var{idx} of the bitvector
 @var{vec}.
 @end deftypefn
@@ -1042,7 +1044,7 @@ Set the element at index @var{idx} of the bitvector
 @var{vec} when @var{val} is true, else clear it.
 @end deffn
 
-@deftypefn {C Function} SCM scm_c_bitvector_set_x (SCM obj, size_t idx, SCM val)
+@deftypefn {C Function} SCM scm_c_bitvector_set_x (SCM vec, size_t idx, SCM val)
 Set the element at index @var{idx} of the bitvector
 @var{vec} when @var{val} is true, else clear it.
 @end deftypefn
@@ -1427,8 +1429,8 @@ stored in the variable @code{*unspecified*} so that for example
 @code{(make-typed-array 'u32 *unspecified* 4)} creates a uninitialized
 @code{u32} vector of length 4.
 
-Each @var{bound} may be a positive non-zero integer @var{N}, in which
-case the index for that dimension can range from 0 through @var{N-1}; or
+Each @var{bound} may be a positive non-zero integer @var{n}, in which
+case the index for that dimension can range from 0 through @var{n}-1; or
 an explicit index range specifier in the form @code{(LOWER UPPER)},
 where both @var{lower} and @var{upper} are integers, possibly less than
 zero, and possibly the same number (however, @var{lower} cannot be
@@ -1512,8 +1514,8 @@ For example,
 @end example
 @end deffn
 
-@deffn {Scheme Procedure} array-rank obj
-@deffnx {C Function} scm_array_rank (obj)
+@deffn {Scheme Procedure} array-rank array
+@deffnx {C Function} scm_array_rank (array)
 Return the rank of @var{array}.
 @end deffn
 
@@ -1546,7 +1548,7 @@ is unspecified.
 @end deffn
 
 @c begin (texi-doc-string "guile" "array-equal?")
-@deffn {Scheme Procedure} array-equal? array1 array2 @dots{}
+@deffn {Scheme Procedure} array-equal? array @dots{}
 Return @code{#t} if all arguments are arrays with the same shape, the
 same type, and have corresponding elements which are either
 @code{equal?} or @code{array-equal?}.  This function differs from
@@ -1563,7 +1565,7 @@ same type, and have corresponding elements which are either
 @c  at least vaguely matches array-map!, but is it meant to be a
 @c  documented feature?
 
-@deffn {Scheme Procedure} array-map! dst proc src1 @dots{} srcN
+@deffn {Scheme Procedure} array-map! dst proc src @dots{}
 @deffnx {Scheme Procedure} array-map-in-order! dst proc src1 @dots{} srcN
 @deffnx {C Function} scm_array_map_x (dst, proc, srclist)
 Set each element of the @var{dst} array to values obtained from calls
@@ -1580,10 +1582,10 @@ range in @var{dst}.  This ensures all @var{dst} indices are valid in
 each @var{src}.
 @end deffn
 
-@deffn {Scheme Procedure} array-for-each proc src1 @dots{} srcN
+@deffn {Scheme Procedure} array-for-each proc src1 src2 @dots{}
 @deffnx {C Function} scm_array_for_each (proc, src1, srclist)
-Apply @var{proc} to each tuple of elements of @var{src1} @dots{}
-@var{srcN}, in row-major order.  The value returned is unspecified.
+Apply @var{proc} to each tuple of elements of @var{src1} @var{src2}
+@dots{}, in row-major order.  The value returned is unspecified.
 @end deffn
 
 @deffn {Scheme Procedure} array-index-map! dst proc
@@ -1625,10 +1627,10 @@ $\left(\matrix{%
 
 @deffn {Scheme Procedure} uniform-array-read! ra [port_or_fd [start [end]]]
 @deffnx {C Function} scm_uniform_array_read_x (ra, port_or_fd, start, end)
-Attempt to read all elements of @var{ura}, in lexicographic order, as
-binary objects from @var{port-or-fdes}.
+Attempt to read all elements of array @var{ra}, in lexicographic order, as
+binary objects from @var{port_or_fd}.
 If an end of file is encountered,
-the objects up to that point are put into @var{ura}
+the objects up to that point are put into @var{ra}
 (starting at the beginning) and the remainder of the array is
 unchanged.
 
@@ -1637,21 +1639,21 @@ a specified region of a vector (or linearized array) to be read,
 leaving the remainder of the vector unchanged.
 
 @code{uniform-array-read!} returns the number of objects read.
-@var{port-or-fdes} may be omitted, in which case it defaults to the value
+@var{port_or_fd} may be omitted, in which case it defaults to the value
 returned by @code{(current-input-port)}.
 @end deffn
 
-@deffn {Scheme Procedure} uniform-array-write v [port_or_fd [start [end]]]
-@deffnx {C Function} scm_uniform_array_write (v, port_or_fd, start, end)
-Writes all elements of @var{ura} as binary objects to
-@var{port-or-fdes}.
+@deffn {Scheme Procedure} uniform-array-write ra [port_or_fd [start [end]]]
+@deffnx {C Function} scm_uniform_array_write (ra, port_or_fd, start, end)
+Writes all elements of @var{ra} as binary objects to
+@var{port_or_fd}.
 
 The optional arguments @var{start}
 and @var{end} allow
 a specified region of a vector (or linearized array) to be written.
 
 The number of objects actually written is returned.
-@var{port-or-fdes} may be
+@var{port_or_fd} may be
 omitted, in which case it defaults to the value returned by
 @code{(current-output-port)}.
 @end deffn
@@ -1663,7 +1665,7 @@ omitted, in which case it defaults to the value returned by
 @deffnx {C Function} scm_make_shared_array (oldarray, mapfunc, boundlist)
 Return a new array which shares the storage of @var{oldarray}.
 Changes made through either affect the same underlying storage.  The
-@var{bound@dots{}} arguments are the shape of the new array, the same
+@var{bound} @dots{} arguments are the shape of the new array, the same
 as @code{make-array} (@pxref{Array Procedures}).
 
 @var{mapfunc} translates coordinates from the new array to the
@@ -1793,7 +1795,7 @@ be returned only if its elements are stored internally contiguous in
 memory.
 @end deffn
 
-@deffn {Scheme Procedure} transpose-array array dim1 @dots{}
+@deffn {Scheme Procedure} transpose-array array dim1 dim2 @dots{}
 @deffnx {C Function} scm_transpose_array (array, dimlist)
 Return an array sharing contents with @var{array}, but with
 dimensions arranged in a different order.  There must be one
@@ -2235,7 +2237,7 @@ Return a new vlist, as for SRFI-1 @code{unfold} and @code{unfold-right}
 (@pxref{SRFI-1, @code{unfold}}).
 @end deffn
 
-@deffn {Scheme Procedure} vlist-append vlists ...
+@deffn {Scheme Procedure} vlist-append vlist @dots{}
 Append the given vlists and return the resulting vlist.
 @end deffn
 
@@ -2465,7 +2467,7 @@ This section describes the basic procedures for working with
 structures.  @code{make-struct} creates a structure, and
 @code{struct-ref} and @code{struct-set!} access write fields.
 
-@deffn {Scheme Procedure} make-struct vtable tail-size [init...]
+@deffn {Scheme Procedure} make-struct vtable tail-size init @dots{}
 @deffnx {C Function} scm_make_struct (vtable, tail_size, init_list)
 Create a new structure, with layout per the given @var{vtable}
 (@pxref{Vtables}).

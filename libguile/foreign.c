@@ -136,6 +136,15 @@ SCM_DEFINE (scm_make_pointer, "make-pointer", 1, 1, 0,
 }
 #undef FUNC_NAME
 
+void *
+scm_to_pointer (SCM pointer)
+#define FUNC_NAME "scm_to_pointer"
+{
+  SCM_VALIDATE_POINTER (1, pointer);
+  return SCM_POINTER_VALUE (pointer);
+}
+#undef FUNC_NAME
+
 SCM
 scm_from_pointer (void *ptr, scm_t_pointer_finalizer finalizer)
 {
@@ -1138,11 +1147,11 @@ invoke_closure (ffi_cif *cif, void *ret, void **args, void *data)
 
 SCM_DEFINE (scm_procedure_to_pointer, "procedure->pointer", 3, 0, 0,
 	    (SCM return_type, SCM proc, SCM arg_types),
-	    "Return a pointer to a C function of type @var{return-type}\n"
-	    "taking arguments of types @var{arg-types} (a list) and\n"
+	    "Return a pointer to a C function of type @var{return_type}\n"
+	    "taking arguments of types @var{arg_types} (a list) and\n"
 	    "behaving as a proxy to procedure @var{proc}.  Thus\n"
 	    "@var{proc}'s arity, supported argument types, and return\n"
-	    "type should match @var{return-type} and @var{arg-types}.\n")
+	    "type should match @var{return_type} and @var{arg_types}.\n")
 #define FUNC_NAME s_scm_procedure_to_pointer
 {
   SCM cif_pointer, pointer;

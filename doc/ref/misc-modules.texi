@@ -90,13 +90,13 @@ dots.}, or in the worst case, displayed as @nicode{#}.
 
 @deffn {Scheme Procedure} truncated-print obj [port] [keyword-options]
 Print @var{obj}, truncating the output, if necessary, to make it fit
-into @var{width} characters. By default, @var{x} will be printed using
+into @var{width} characters. By default, @var{obj} will be printed using
 @code{write}, though that behavior can be overridden via the
 @var{display?} keyword argument.
 
 The default behaviour is to print depth-first, meaning that the entire
-remaining width will be available to each sub-expression of @var{x} --
-e.g., if @var{x} is a vector, each member of @var{x}. One can attempt to
+remaining width will be available to each sub-expression of @var{obj} --
+e.g., if @var{obj} is a vector, each member of @var{obj}. One can attempt to
 ``ration'' the available width, trying to allocate it equally to each
 sub-expression, via the @var{breadth-first?} keyword argument.
 
@@ -156,7 +156,7 @@ C programmers will note the similarity between @code{format} and
 instead of @nicode{%}, and are more powerful.
 
 @sp 1
-@deffn {Scheme Procedure} format dest fmt [args@dots{}]
+@deffn {Scheme Procedure} format dest fmt arg @dots{}
 Write output specified by the @var{fmt} string to @var{dest}.
 @var{dest} can be an output port, @code{#t} for
 @code{current-output-port} (@pxref{Default Ports}), or @code{#f} to
@@ -269,7 +269,7 @@ Integer.  Parameters: @var{minwidth}, @var{padchar}, @var{commachar},
 @var{commawidth}.
 
 Output an integer argument as a decimal, hexadecimal, octal or binary
-integer (respectively).
+integer (respectively), in a locale-independent way.
 
 @example
 (format #t "~d" 123) @print{} 123
@@ -297,7 +297,9 @@ minimum), it's padded on the left with the @var{padchar} parameter
 @end example
 
 @nicode{~:d} adds commas (or the @var{commachar} parameter) every
-three digits (or the @var{commawidth} parameter many).
+three digits (or the @var{commawidth} parameter many).  However, when
+your intent is to write numbers in a way that follows typographical
+conventions, using @nicode{~h} is recommended.
 
 @example
 (format #t "~:d" 1234567)         @print{} 1,234,567
@@ -402,6 +404,29 @@ printed instead of the value.
 @example
 (format #t "~6,,,'xf" 12345) @print{} 12345.
 (format #t "~5,,,'xf" 12345) @print{} xxxxx
+@end example
+
+@item @nicode{~h}
+Localized number@footnote{The @nicode{~h} format specifier first
+appeared in Guile version 2.0.6.}.  Parameters: @var{width},
+@var{decimals}, @var{padchar}.
+
+Like @nicode{~f}, output an exact or floating point number, but do so
+according to the current locale, or according to the given locale object
+when the @code{:} modifier is used (@pxref{Number Input and Output,
+@code{number->locale-string}}).
+
+@example
+(format #t "~h" 12345.5678)  ; with "C" as the current locale
+@print{} 12345.5678
+
+(format #t "~14,,'*:h" 12345.5678
+        (make-locale LC_ALL "en_US"))
+@print{} ***12,345.5678
+
+(format #t "~,2:h" 12345.5678
+        (make-locale LC_NUMERIC "fr_FR"))
+@print{} 12 345,56
 @end example
 
 @item @nicode{~e}
@@ -1670,35 +1695,35 @@ secondly the number of elements in that list.
 Return a vector which is the entire contents of @var{stream}.
 @end deffn
 
-@deffn {Scheme Procedure} stream-fold proc init stream0 @dots{} streamN
+@defun stream-fold proc init stream1 stream2 @dots{}
 Apply @var{proc} successively over the elements of the given streams,
 from first to last until the end of the shortest stream is reached.
 Return the result from the last @var{proc} call.
 
-Each call is @code{(@var{proc} elem0 @dots{} elemN prev)}, where each
+Each call is @code{(@var{proc} elem1 elem2 @dots{} prev)}, where each
 @var{elem} is from the corresponding @var{stream}.  @var{prev} is the
 return from the previous @var{proc} call, or the given @var{init} for
 the first call.
-@end deffn
+@end defun
 
-@deffn {Scheme Procedure} stream-for-each proc stream0 @dots{} streamN
+@defun stream-for-each proc stream1 stream2 @dots{}
 Call @var{proc} on the elements from the given @var{stream}s.  The
 return value is unspecified.
 
-Each call is @code{(@var{proc} elem0 @dots{} elemN)}, where each
+Each call is @code{(@var{proc} elem1 elem2 @dots{})}, where each
 @var{elem} is from the corresponding @var{stream}.
 @code{stream-for-each} stops when it reaches the end of the shortest
 @var{stream}.
-@end deffn
+@end defun
 
-@deffn {Scheme Procedure} stream-map proc stream0 @dots{} streamN
+@defun stream-map proc stream1 stream2 @dots{}
 Return a new stream which is the results of applying @var{proc} to the
 elements of the given @var{stream}s.
 
-Each call is @code{(@var{proc} elem0 @dots{} elemN)}, where each
+Each call is @code{(@var{proc} elem1 elem2 @dots{})}, where each
 @var{elem} is from the corresponding @var{stream}.  The new stream
 ends when the end of the shortest given @var{stream} is reached.
-@end deffn
+@end defun
 
 
 @node Buffered Input

@@ -1,6 +1,6 @@
 ;;;; i18n.scm --- internationalization support    -*- coding: utf-8 -*-
 
-;;;;	Copyright (C) 2006, 2007, 2009, 2010 Free Software Foundation, Inc.
+;;;;	Copyright (C) 2006, 2007, 2009, 2010, 2012 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -101,13 +101,10 @@
 ;;;
 
 ;; Helper macro: Define a procedure named NAME that maps its argument to
-;; NL-ITEMS (when `nl-langinfo' is provided) or DEFAULTS (when `nl-langinfo'
-;; is not provided).
-(define-macro (define-vector-langinfo-mapping name nl-items defaults)
+;; NL-ITEMS.  Gnulib guarantees that these items are available.
+(define-macro (define-vector-langinfo-mapping name nl-items)
   (let* ((item-count (length nl-items))
-         (defines    (if (provided? 'nl-langinfo)
-                         `(define %nl-items (vector #f ,@nl-items))
-                         `(define %defaults (vector #f ,@defaults))))
+         (defines   `(define %nl-items (vector #f ,@nl-items)))
          (make-body (lambda (result)
                       `(if (and (integer? item) (exact? item))
                            (if (and (>= item 1) (<= item ,item-count))
@@ -116,28 +113,21 @@
                            (throw 'wrong-type-arg "wrong argument type" item)))))
     `(define (,name item . locale)
        ,defines
-       ,(make-body (if (provided? 'nl-langinfo)
-                       '(apply nl-langinfo (vector-ref %nl-items item) locale)
-                       '(vector-ref %defaults item))))))
+       ,(make-body '(apply nl-langinfo (vector-ref %nl-items item) locale)))))
 
 
 (define-vector-langinfo-mapping locale-day-short
-  (ABDAY_1 ABDAY_2 ABDAY_3 ABDAY_4 ABDAY_5 ABDAY_6 ABDAY_7)
-  ("Sun" "Mon" "Tue" "Wed" "Thu" "Fri" "Sat"))
+  (ABDAY_1 ABDAY_2 ABDAY_3 ABDAY_4 ABDAY_5 ABDAY_6 ABDAY_7))
 
 (define-vector-langinfo-mapping locale-day
-  (DAY_1 DAY_2 DAY_3 DAY_4 DAY_5 DAY_6 DAY_7)
-  ("Sunday" "Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday"))
+  (DAY_1 DAY_2 DAY_3 DAY_4 DAY_5 DAY_6 DAY_7))
 
 (define-vector-langinfo-mapping locale-month-short
   (ABMON_1 ABMON_2 ABMON_3 ABMON_4 ABMON_5 ABMON_6
-   ABMON_7 ABMON_8 ABMON_9 ABMON_10 ABMON_11 ABMON_12)
-  ("Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"))
+   ABMON_7 ABMON_8 ABMON_9 ABMON_10 ABMON_11 ABMON_12))
 
 (define-vector-langinfo-mapping locale-month
-  (MON_1 MON_2 MON_3 MON_4 MON_5 MON_6 MON_7 MON_8 MON_9 MON_10 MON_11 MON_12)
-  ("January" "February" "March" "April" "May" "June" "July" "August"
-   "September" "October" "November" "December"))
+  (MON_1 MON_2 MON_3 MON_4 MON_5 MON_6 MON_7 MON_8 MON_9 MON_10 MON_11 MON_12))
 
 
 
@@ -145,9 +135,13 @@
 ;;; Date and time.
 ;;;
 
-;; Helper macro: Define a procedure NAME that gets langinfo item ITEM.
+;; Define a procedure NAME that gets langinfo item ITEM.  Gnulib's
+;; `nl_langinfo' does not guarantee that all these items are supported
+;; (for instance, `GROUPING' is lacking on Darwin and Gnulib provides no
+;; replacement), so use DEFAULT as the default value when ITEM is not
+;; available.
 (define-macro (define-simple-langinfo-mapping name item default)
-  (let ((body (if (and (provided? 'nl-langinfo) (defined? item))
+  (let ((body (if (defined? item)
                   `(apply nl-langinfo ,item locale)
                   default)))
     `(define (,name . locale)
@@ -182,13 +176,18 @@
 ;;; Monetary information.
 ;;;
 
+;; Define a procedure NAME that gets item LOCAL-ITEM or INTL-ITEM,
+;; depending on whether the caller asked for the international version
+;; or not.  Since Gnulib's `nl_langinfo' module doesn't guarantee that
+;; all these items are available, use DEFAULT/LOCAL and DEFAULT/INTL as
+;; default values when the system does not support them.
 (define-macro (define-monetary-langinfo-mapping name local-item intl-item
                                                 default/local default/intl)
   (let ((body
-         (let ((intl  (if (and (provided? 'nl-langinfo) (defined? intl-item))
+         (let ((intl  (if (defined? intl-item)
                           `(apply nl-langinfo ,intl-item locale)
                           default/intl))
-               (local (if (and (provided? 'nl-langinfo) (defined? local-item))
+               (local (if (defined? local-item)
                           `(apply nl-langinfo ,local-item locale)
                           default/local)))
            `(if intl? ,intl ,local))))
