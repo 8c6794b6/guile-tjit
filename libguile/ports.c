@@ -103,6 +103,7 @@ static long scm_numptob = 0; /* Number of port types.  */
 static long scm_ptobs_size = 0; /* Number of slots in the port type
                                    table.  */
 static scm_i_pthread_mutex_t scm_ptobs_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
+SCM_PTHREAD_ATFORK_LOCK_STATIC_MUTEX (scm_ptobs_lock);
 
 long
 scm_c_num_port_types (void)
