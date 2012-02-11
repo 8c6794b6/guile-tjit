@@ -1162,24 +1162,21 @@
     (case foo
       ((3 2 1) 'a)
       (else 'b))
-    (if (let (t) (_) ((toplevel foo))
-             (if (primcall eqv? (lexical t _) (const 3))
+    (let (key) (_) ((toplevel foo))
+         (if (if (primcall eqv? (lexical key _) (const 3))
                  (const #t)
-                 (if (primcall eqv? (lexical t _) (const 2))
+                 (if (primcall eqv? (lexical key _) (const 2))
                      (const #t)
-                     (primcall eqv? (lexical t _) (const 1)))))
-        (const a)
-        (const b)))
+                     (primcall eqv? (lexical key _) (const 1))))
+             (const a)
+             (const b))))
 
   (pass-if-peval
-    ;; Memv with non-constant key, empty list, test context.  Currently
-    ;; doesn't fold entirely.
+    ;; Memv with non-constant key, empty list, test context.
     (case foo
       (() 'a)
       (else 'b))
-    (if (seq (toplevel foo) (const #f))
-        (const a)
-        (const b)))
+    (seq (toplevel foo) (const 'b)))
 
   ;;
   ;; Below are cases where constant propagation should bail out.

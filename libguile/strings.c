@@ -372,31 +372,36 @@ scm_i_substring_read_only (SCM str, size_t start, size_t end)
 SCM
 scm_i_substring_copy (SCM str, size_t start, size_t end)
 {
-  size_t len = end - start;
-  SCM buf, my_buf, substr;
-  size_t str_start;
-  int wide = 0;
-  get_str_buf_start (&str, &buf, &str_start);
-  if (scm_i_is_narrow_string (str))
-    {
-      my_buf = make_stringbuf (len);
-      memcpy (STRINGBUF_CHARS (my_buf),
-              STRINGBUF_CHARS (buf) + str_start + start, len);
-    }
+  if (start == end)
+    return scm_i_make_string (0, NULL, 0);
   else
     {
-      my_buf = make_wide_stringbuf (len);
-      u32_cpy ((scm_t_uint32 *) STRINGBUF_WIDE_CHARS (my_buf),
-               (scm_t_uint32 *) (STRINGBUF_WIDE_CHARS (buf) + str_start 
-                                 + start), len);
-      wide = 1;
+      size_t len = end - start;
+      SCM buf, my_buf, substr;
+      size_t str_start;
+      int wide = 0;
+      get_str_buf_start (&str, &buf, &str_start);
+      if (scm_i_is_narrow_string (str))
+        {
+          my_buf = make_stringbuf (len);
+          memcpy (STRINGBUF_CHARS (my_buf),
+                  STRINGBUF_CHARS (buf) + str_start + start, len);
+        }
+      else
+        {
+          my_buf = make_wide_stringbuf (len);
+          u32_cpy ((scm_t_uint32 *) STRINGBUF_WIDE_CHARS (my_buf),
+                   (scm_t_uint32 *) (STRINGBUF_WIDE_CHARS (buf) + str_start 
+                                     + start), len);
+          wide = 1;
+        }
+      scm_remember_upto_here_1 (buf);
+      substr = scm_double_cell (STRING_TAG, SCM_UNPACK (my_buf),
+                                (scm_t_bits) 0, (scm_t_bits) len);
+      if (wide)
+        scm_i_try_narrow_string (substr);
+      return substr;
     }
-  scm_remember_upto_here_1 (buf);
-  substr = scm_double_cell (STRING_TAG, SCM_UNPACK (my_buf),
-                            (scm_t_bits) 0, (scm_t_bits) len);
-  if (wide)
-    scm_i_try_narrow_string (substr);
-  return substr;
 }
 
 SCM
@@ -1918,10 +1923,47 @@ scm_to_utf8_string (SCM str)
   return scm_to_utf8_stringn (str, NULL);
 }
 
+static size_t
+latin1_u8_strlen (const scm_t_uint8 *str, size_t len)
+{
+  size_t ret, i;
+  for (i = 0, ret = 0; i < len; i++)
+    ret += (str[i] < 128) ? 1 : 2;
+  return ret;
+}
+
+static scm_t_uint8*
+latin1_to_u8 (const scm_t_uint8 *str, size_t latin_len,
+              scm_t_uint8 *u8_result, size_t *u8_lenp)
+{
+  size_t i, n;
+  size_t u8_len = latin1_u8_strlen (str, latin_len);
+
+  if (!(u8_result && u8_lenp && *u8_lenp > u8_len))
+    u8_result = scm_malloc (u8_len + 1);
+  if (u8_lenp)
+    *u8_lenp = u8_len;
+
+  for (i = 0, n = 0; i < latin_len; i++)
+    n += u8_uctomb (u8_result + n, str[i], u8_len - n);
+  if (n != u8_len)
+    abort ();
+  u8_result[n] = 0;
+
+  return u8_result;
+}
+
 char *
 scm_to_utf8_stringn (SCM str, size_t *lenp)
 {
-  return scm_to_stringn (str, lenp, "UTF-8", SCM_FAILED_CONVERSION_ERROR);
+  if (scm_i_is_narrow_string (str))
+    return (char *) latin1_to_u8 ((scm_t_uint8 *) scm_i_string_chars (str),
+                                  scm_i_string_length (str),
+                                  NULL, lenp);
+  else
+    return (char *) u32_to_u8 ((scm_t_uint32*)scm_i_string_wide_chars (str),
+                               scm_i_string_length (str),
+                               NULL, lenp);
 }
 
 scm_t_wchar *
@@ -1939,9 +1981,20 @@ scm_to_utf32_stringn (SCM str, size_t *lenp)
   SCM_VALIDATE_STRING (1, str);
 
   if (scm_i_is_narrow_string (str))
-    result = (scm_t_wchar *)
-      scm_to_stringn (str, lenp, "UTF-32",
-		      SCM_FAILED_CONVERSION_ERROR);
+    {
+      scm_t_uint8 *codepoints;
+      size_t i, len;
+
+      codepoints = (scm_t_uint8*) scm_i_string_chars (str);
+      len = scm_i_string_length (str);
+      if (lenp)
+	*lenp = len;
+
+      result = scm_malloc ((len + 1) * sizeof (scm_t_wchar));
+      for (i = 0; i < len; i++)
+        result[i] = codepoints[i];
+      result[len] = 0;
+    }
   else
     {
       size_t len;
