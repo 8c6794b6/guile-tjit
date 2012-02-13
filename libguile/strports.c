@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002, 2003, 2005, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002, 2003, 2005, 2006, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -56,10 +56,8 @@
 /* NOTES:
 
    write_buf/write_end point to the ends of the allocated bytevector.
-   read_buf/read_end in principle point to the part of the bytevector which
-   has been written to, but this is only updated after a flush.
-   read_pos and write_pos in principle should be equal, but this is only true
-   when rw_active is SCM_PORT_NEITHER.
+   read_buf/read_end point to the part of the bytevector which has been
+   written to.  read_pos and write_pos are always equal.
 
    ENHANCE-ME - output blocks:
 
@@ -89,14 +87,14 @@ scm_t_bits scm_tc16_strport;
 
 
 static int
-stfill_buffer (SCM port)
+st_fill_input (SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   
   if (pt->read_pos >= pt->read_end)
     return EOF;
   else
-    return scm_return_first_int (*pt->read_pos, port);
+    return *pt->read_pos;
 }
 
 /* Change the size of a port's bytevector to NEW_SIZE.  This doesn't
@@ -111,7 +109,7 @@ st_resize_port (scm_t_port *pt, scm_t_off new_size)
   unsigned long int old_size = SCM_BYTEVECTOR_LENGTH (old_stream);
   unsigned long int min_size = min (old_size, new_size);
 
-  scm_t_off index = pt->write_pos - pt->write_buf;
+  scm_t_off offset = pt->write_pos - pt->write_buf;
 
   pt->write_buf_size = new_size;
 
@@ -123,49 +121,28 @@ st_resize_port (scm_t_port *pt, scm_t_off new_size)
   {
     pt->stream = SCM_UNPACK (new_stream);
     pt->read_buf = pt->write_buf = (unsigned char *)dst;
-    pt->read_pos = pt->write_pos = pt->write_buf + index;
+    pt->read_pos = pt->write_pos = pt->write_buf + offset;
     pt->write_end = pt->write_buf + pt->write_buf_size;
     pt->read_end = pt->read_buf + pt->read_buf_size;
   }
-}
-
-/* Ensure that `write_pos' < `write_end' by enlarging the buffer when
-   necessary.  Update `read_buf' to account for written chars.  The
-   buffer is enlarged geometrically.  */
-static void
-st_flush (SCM port)
-{
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  if (pt->write_pos == pt->write_end)
-    st_resize_port (pt, pt->write_buf_size * 2);
-
-  pt->read_pos = pt->write_pos;
-  if (pt->read_pos > pt->read_end)
-    {
-      pt->read_end = (unsigned char *) pt->read_pos;
-      pt->read_buf_size = pt->read_end - pt->read_buf;
-    }
-  pt->rw_active = SCM_PORT_NEITHER;
 }
 
 static void
 st_write (SCM port, const void *data, size_t size)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
-  const char *input = (char *) data;
 
-  while (size > 0)
+  if (size > pt->write_end - pt->write_pos)
+    st_resize_port (pt, max (pt->write_buf_size * 2,
+                             pt->write_end - pt->write_pos + size));
+
+  memcpy ((char *) pt->write_pos, data, size);
+  pt->read_pos = (pt->write_pos += size);
+
+  if (pt->read_pos > pt->read_end)
     {
-      int space = pt->write_end - pt->write_pos;
-      int write_len = (size > space) ? space : size;
-      
-      memcpy ((char *) pt->write_pos, input, write_len);
-      pt->write_pos += write_len;
-      size -= write_len;
-      input += write_len;
-      if (write_len == space)
-	st_flush (port);
+      pt->read_end = (unsigned char *) pt->read_pos;
+      pt->read_buf_size = pt->read_end - pt->read_buf;
     }
 }
 
@@ -203,11 +180,10 @@ st_seek (SCM port, scm_t_off offset, int whence)
   else
     /* all other cases.  */
     {
-      if (pt->rw_active == SCM_PORT_WRITE)
-	st_flush (port);
-  
       if (pt->rw_active == SCM_PORT_READ)
 	scm_end_input_unlocked (port);
+
+      pt->rw_active = SCM_PORT_NEITHER;
 
       switch (whence)
 	{
@@ -260,10 +236,7 @@ st_truncate (SCM port, scm_t_off length)
   pt->read_buf_size = length;
   pt->read_end = pt->read_buf + length;
   if (pt->read_pos > pt->read_end)
-    pt->read_pos = pt->read_end;
-  
-  if (pt->write_pos > pt->read_end)
-    pt->write_pos = pt->read_end;
+    pt->read_pos = pt->write_pos = pt->read_end;
 }
 
 /* The initial size in bytes of a string port's buffer.  */
@@ -330,10 +303,6 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
   pt->write_end = pt->read_end = pt->read_buf + pt->read_buf_size;
   pt->rw_random = 1;
 
-  /* Ensure WRITE_POS is writable.  */
-  if ((modes & SCM_WRTNG) && pt->write_pos == pt->write_end)
-    st_flush (z);
-
   return z;
 }
 
@@ -342,26 +311,13 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
 SCM
 scm_strport_to_string (SCM port)
 {
-  SCM str;
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
-
-  if (pt->rw_active == SCM_PORT_WRITE)
-    st_flush (port);
 
   if (pt->read_buf_size == 0)
     return scm_nullstr;
 
-  if (pt->encoding == NULL)
-    {
-      char *buf;
-      str = scm_i_make_string (pt->read_buf_size, &buf, 0);
-      memcpy (buf, pt->read_buf, pt->read_buf_size);
-    }
-  else
-    str = scm_from_stringn ((char *)pt->read_buf, pt->read_buf_size,
-                            pt->encoding, pt->ilseq_handler);
-  scm_remember_upto_here_1 (port);
-  return str;
+  return scm_from_stringn ((char *)pt->read_buf, pt->read_buf_size,
+                           pt->encoding, pt->ilseq_handler);
 }
 
 SCM_DEFINE (scm_object_to_string, "object->string", 1, 1, 0,
@@ -541,10 +497,9 @@ scm_eval_string (SCM string)
 static scm_t_bits
 scm_make_stptob ()
 {
-  scm_t_bits tc = scm_make_port_type ("string", stfill_buffer, st_write);
+  scm_t_bits tc = scm_make_port_type ("string", st_fill_input, st_write);
 
   scm_set_port_end_input   (tc, st_end_input);
-  scm_set_port_flush       (tc, st_flush);
   scm_set_port_seek        (tc, st_seek);
   scm_set_port_truncate    (tc, st_truncate);
 
