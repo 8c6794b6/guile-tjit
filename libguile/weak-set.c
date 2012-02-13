@@ -1,4 +1,4 @@
-/* Copyright (C) 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -281,28 +281,22 @@ static unsigned long hashset_size[] = {
 
 #define HASHSET_SIZE_N (sizeof(hashset_size)/sizeof(unsigned long))
 
-static void
-resize_set (scm_t_weak_set *set)
+static int
+compute_size_index (scm_t_weak_set *set)
 {
-  scm_t_weak_entry *old_entries, *new_entries;
-  int i;
-  unsigned long old_size, new_size, old_k;
+  int i = set->size_index;
 
-  old_entries = set->entries;
-  old_size = set->size;
-  
   if (set->n_items < set->lower)
     {
       /* rehashing is not triggered when i <= min_size */
-      i = set->size_index;
       do
 	--i;
       while (i > set->min_size_index
-	     && set->n_items < hashset_size[i] / 4);
+	     && set->n_items < hashset_size[i] / 5);
     }
-  else
+  else if (set->n_items > set->upper)
     {
-      i = set->size_index + 1;
+      ++i;
       if (i >= HASHSET_SIZE_N)
         /* The biggest size currently is 230096423, which for a 32-bit
            machine will occupy 1.5GB of memory at a load of 80%.  There
@@ -311,14 +305,39 @@ resize_set (scm_t_weak_set *set)
         abort ();
     }
 
-  new_size = hashset_size[i];
-  new_entries = scm_gc_malloc_pointerless (new_size * sizeof(scm_t_weak_entry),
-                                           "weak set");
+  return i;
+}
+
+static void
+resize_set (scm_t_weak_set *set)
+{
+  scm_t_weak_entry *old_entries, *new_entries;
+  int new_size_index;
+  unsigned long old_size, new_size, old_k;
+
+  do 
+    {
+      new_size_index = compute_size_index (set);
+      if (new_size_index == set->size_index)
+        return;
+      new_size = hashset_size[new_size_index];
+      scm_i_pthread_mutex_unlock (&set->lock);
+      /* Allocating memory might cause finalizers to run, which could
+         run anything, so drop our lock to avoid deadlocks.  */
+      new_entries = scm_gc_malloc_pointerless (new_size * sizeof(scm_t_weak_entry),
+                                               "weak set");
+      scm_i_pthread_mutex_unlock (&set->lock);
+    }
+  while (new_size_index != compute_size_index (set));
+
+  old_entries = set->entries;
+  old_size = set->size;
+
   memset (new_entries, 0, new_size * sizeof(scm_t_weak_entry));
 
-  set->size_index = i;
+  set->size_index = new_size_index;
   set->size = new_size;
-  if (i <= set->min_size_index)
+  if (new_size_index <= set->min_size_index)
     set->lower = 0;
   else
     set->lower = new_size / 5;

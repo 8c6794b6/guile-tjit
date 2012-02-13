@@ -404,28 +404,22 @@ static unsigned long hashtable_size[] = {
 
 #define HASHTABLE_SIZE_N (sizeof(hashtable_size)/sizeof(unsigned long))
 
-static void
-resize_table (scm_t_weak_table *table)
+static int
+compute_size_index (scm_t_weak_table *table)
 {
-  scm_t_weak_entry *old_entries, *new_entries;
-  int i;
-  unsigned long old_size, new_size, old_k;
+  int i = table->size_index;
 
-  old_entries = table->entries;
-  old_size = table->size;
-  
   if (table->n_items < table->lower)
     {
       /* rehashing is not triggered when i <= min_size */
-      i = table->size_index;
       do
 	--i;
       while (i > table->min_size_index
-	     && table->n_items < hashtable_size[i] / 4);
+	     && table->n_items < hashtable_size[i] / 5);
     }
-  else
+  else if (table->n_items > table->upper)
     {
-      i = table->size_index + 1;
+      ++i;
       if (i >= HASHTABLE_SIZE_N)
         /* The biggest size currently is 230096423, which for a 32-bit
            machine will occupy 2.3GB of memory at a load of 80%.  There
@@ -434,12 +428,36 @@ resize_table (scm_t_weak_table *table)
         abort ();
     }
 
-  new_size = hashtable_size[i];
-  new_entries = allocate_entries (new_size, table->kind);
+  return i;
+}
 
-  table->size_index = i;
+static void
+resize_table (scm_t_weak_table *table)
+{
+  scm_t_weak_entry *old_entries, *new_entries;
+  int new_size_index;
+  unsigned long old_size, new_size, old_k;
+
+  do 
+    {
+      new_size_index = compute_size_index (table);
+      if (new_size_index == table->size_index)
+        return;
+      new_size = hashtable_size[new_size_index];
+      scm_i_pthread_mutex_unlock (&table->lock);
+      /* Allocating memory might cause finalizers to run, which could
+         run anything, so drop our lock to avoid deadlocks.  */
+      new_entries = allocate_entries (new_size, table->kind);
+      scm_i_pthread_mutex_unlock (&table->lock);
+    }
+  while (new_size_index != compute_size_index (table));
+
+  old_entries = table->entries;
+  old_size = table->size;
+  
+  table->size_index = new_size_index;
   table->size = new_size;
-  if (i <= table->min_size_index)
+  if (new_size_index <= table->min_size_index)
     table->lower = 0;
   else
     table->lower = new_size / 5;
