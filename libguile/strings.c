@@ -1525,13 +1525,9 @@ scm_from_stringn (const char *str, size_t len, const char *encoding,
     len = strlen (str);
 
   if (encoding == NULL || len == 0)
-    {
-      /* If encoding is null (or the string is empty), use Latin-1.  */
-      char *buf;
-      res = scm_i_make_string (len, &buf, 0);
-      memcpy (buf, str, len);
-      return res;
-    }
+    return scm_from_latin1_stringn (str, len);
+  else if (strcmp (encoding, "UTF-8") == 0)
+    return scm_from_utf8_stringn (str, len);
 
   u32len = 0;
   u32 = (scm_t_wchar *) u32_conv_from_encoding (encoding,
