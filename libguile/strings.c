@@ -1669,7 +1669,7 @@ scm_from_utf8_stringn (const char *str, size_t len)
 
       res = scm_i_make_string (char_len, &dst, 0);
 
-      for (i = 0, j = 0; i < len; i++, j++)
+      for (i = 0, j = 0; i < len; j++)
         {
           i += u8_mbtouc_unsafe (&c, ustr + i, len - i);
           dst[j] = (signed char) c;
@@ -1683,7 +1683,7 @@ scm_from_utf8_stringn (const char *str, size_t len)
 
       res = scm_i_make_wide_string (char_len, &dst, 0);
 
-      for (i = 0, j = 0; i < len; i++, j++)
+      for (i = 0, j = 0; i < len; j++)
         {
           i += u8_mbtouc_unsafe (&c, ustr + i, len - i);
           dst[j] = c;
