@@ -4,7 +4,7 @@
 #define SCM_PORTS_H
 
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004,
- *   2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+ *   2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -48,6 +48,20 @@ typedef enum scm_t_port_rw_active {
   SCM_PORT_WRITE = 2
 } scm_t_port_rw_active;
 
+typedef enum scm_t_port_encoding_mode {
+  SCM_PORT_ENCODING_MODE_UTF8,
+  SCM_PORT_ENCODING_MODE_ICONV
+} scm_t_port_encoding_mode;
+
+/* This is a separate object so that only those ports that use iconv
+   cause finalizers to be registered.  */
+typedef struct scm_t_iconv_descriptors
+{
+  /* input/output iconv conversion descriptors */
+  void *input_cd;
+  void *output_cd;
+} scm_t_iconv_descriptors;
+
 /* C representation of a Scheme port.  */
 
 typedef struct 
@@ -64,10 +78,6 @@ typedef struct
   SCM file_name;		/* debugging support.  */
   long line_number;		/* debugging support.  */
   int column_number;		/* debugging support.  */
-
-  /* Character encoding support  */
-  char *encoding;
-  scm_t_string_failed_conversion_handler ilseq_handler;
 
   /* port buffers.  the buffer(s) are set up for all ports.  
      in the case of string ports, the buffer is the string itself.
@@ -119,9 +129,11 @@ typedef struct
   unsigned char *putback_buf;
   size_t putback_buf_size;        /* allocated size of putback_buf.  */
 
-  /* input/output iconv conversion descriptors */
-  void *input_cd;
-  void *output_cd;
+  /* Character encoding support  */
+  char *encoding;
+  scm_t_port_encoding_mode encoding_mode;
+  scm_t_string_failed_conversion_handler ilseq_handler;
+  scm_t_iconv_descriptors *iconv_descriptors;
 } scm_t_port;
 
 
@@ -284,6 +296,7 @@ SCM_API SCM scm_close_output_port (SCM port);
    characters.  */
 SCM_INTERNAL const char *scm_i_default_port_encoding (void);
 SCM_INTERNAL void scm_i_set_default_port_encoding (const char *);
+SCM_INTERNAL scm_t_iconv_descriptors *scm_i_port_iconv_descriptors (SCM port);
 SCM_INTERNAL void scm_i_set_port_encoding_x (SCM port, const char *str);
 SCM_API SCM scm_port_encoding (SCM port);
 SCM_API SCM scm_set_port_encoding_x (SCM port, SCM encoding);

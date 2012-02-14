@@ -563,19 +563,11 @@ finalize_port (GC_PTR ptr, GC_PTR data)
       else
 	{
           scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
-	  scm_t_port *entry;
 
 	  if (ptob->free)
 	    /* Yes, I really do mean `free' rather than `close'.  `close'
 	       is for explicit `close-port' by user.  */
 	    ptob->free (port);
-
-	  entry = SCM_PTAB_ENTRY (port);
-
-	  if (entry->input_cd != (iconv_t) -1)
-	    iconv_close (entry->input_cd);
-	  if (entry->output_cd != (iconv_t) -1)
-	    iconv_close (entry->output_cd);
 
 	  SCM_SETSTREAM (port, 0);
 	  SCM_CLR_PORT_OPEN_FLAG (port);
@@ -613,10 +605,12 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   entry->port = ret;
   entry->stream = stream;
   entry->encoding = encoding ? scm_gc_strdup (encoding, "port") : NULL;
-  /* The conversion descriptors will be opened lazily.  */
-  entry->input_cd = (iconv_t) -1;
-  entry->output_cd = (iconv_t) -1;
+  if (encoding && strcmp (encoding, "UTF-8") == 0)
+    entry->encoding_mode = SCM_PORT_ENCODING_MODE_UTF8;
+  else
+    entry->encoding_mode = SCM_PORT_ENCODING_MODE_ICONV;
   entry->ilseq_handler = handler;
+  entry->iconv_descriptors = NULL;
 
   scm_weak_set_add_x (scm_i_port_weak_set, ret);
 
@@ -644,6 +638,8 @@ scm_new_port_table_entry (scm_t_bits tag)
 
 /* Remove a port from the table and destroy it.  */
 
+static void close_iconv_descriptors (scm_t_iconv_descriptors *id);
+
 static void
 scm_i_remove_port (SCM port)
 #define FUNC_NAME "scm_remove_port"
@@ -658,16 +654,10 @@ scm_i_remove_port (SCM port)
   p->putback_buf = NULL;
   p->putback_buf_size = 0;
 
-  if (p->input_cd != (iconv_t) -1)
+  if (p->iconv_descriptors)
     {
-      iconv_close (p->input_cd);
-      p->input_cd = (iconv_t) -1;
-    }
-  
-  if (p->output_cd != (iconv_t) -1)
-    {
-      iconv_close (p->output_cd);
-      p->output_cd = (iconv_t) -1;
+      close_iconv_descriptors (p->iconv_descriptors);
+      p->iconv_descriptors = NULL;
     }
 }
 #undef FUNC_NAME
@@ -852,71 +842,143 @@ scm_i_default_port_encoding (void)
     }
 }
 
-void
-scm_i_set_port_encoding_x (SCM port, const char *encoding)
+static void
+finalize_iconv_descriptors (GC_PTR ptr, GC_PTR data)
 {
-  scm_t_port *pt;
-  iconv_t new_input_cd, new_output_cd;
+  close_iconv_descriptors (ptr);
+}
 
-  new_input_cd = (iconv_t) -1;
-  new_output_cd = (iconv_t) -1;
+static scm_t_iconv_descriptors *
+open_iconv_descriptors (const char *encoding, int reading, int writing)
+{
+  scm_t_iconv_descriptors *id;
+  iconv_t input_cd, output_cd;
 
-  /* Set the character encoding for this port.  */
-  pt = SCM_PTAB_ENTRY (port);
+  input_cd = (iconv_t) -1;
+  output_cd = (iconv_t) -1;
 
-  if (encoding == NULL)
-    encoding = "ISO-8859-1";
-
-  if (pt->encoding != encoding)
-    pt->encoding = scm_gc_strdup (encoding, "port");
-
-  /* If ENCODING is UTF-8, then no conversion descriptor is opened
-     because we do I/O ourselves.  This saves 100+ KiB for each
-     descriptor.  */
-  if (strcmp (encoding, "UTF-8"))
+  if (reading)
     {
-      if (SCM_CELL_WORD_0 (port) & SCM_RDNG)
-	{
-	  /* Open an input iconv conversion descriptor, from ENCODING
-	     to UTF-8.  We choose UTF-8, not UTF-32, because iconv
-	     implementations can typically convert from anything to
-	     UTF-8, but not to UTF-32 (see
-	     <http://lists.gnu.org/archive/html/bug-libunistring/2010-09/msg00007.html>).  */
-	  new_input_cd = iconv_open ("UTF-8", encoding);
-	  if (new_input_cd == (iconv_t) -1)
-	    goto invalid_encoding;
-	}
+      /* Open an input iconv conversion descriptor, from ENCODING
+         to UTF-8.  We choose UTF-8, not UTF-32, because iconv
+         implementations can typically convert from anything to
+         UTF-8, but not to UTF-32 (see
+         <http://lists.gnu.org/archive/html/bug-libunistring/2010-09/msg00007.html>).  */
 
-      if (SCM_CELL_WORD_0 (port) & SCM_WRTNG)
-	{
-	  new_output_cd = iconv_open (encoding, "UTF-8");
-	  if (new_output_cd == (iconv_t) -1)
-	    {
-	      if (new_input_cd != (iconv_t) -1)
-		iconv_close (new_input_cd);
-	      goto invalid_encoding;
-	    }
-	}
+      /* Assume opening an iconv descriptor causes about 16 KB of
+         allocation.  */
+      scm_gc_register_allocation (16 * 1024);
+
+      input_cd = iconv_open ("UTF-8", encoding);
+      if (input_cd == (iconv_t) -1)
+        goto invalid_encoding;
     }
 
-  if (pt->input_cd != (iconv_t) -1)
-    iconv_close (pt->input_cd);
-  if (pt->output_cd != (iconv_t) -1)
-    iconv_close (pt->output_cd);
+  if (writing)
+    {
+      /* Assume opening an iconv descriptor causes about 16 KB of
+         allocation.  */
+      scm_gc_register_allocation (16 * 1024);
 
-  pt->input_cd = new_input_cd;
-  pt->output_cd = new_output_cd;
+      output_cd = iconv_open (encoding, "UTF-8");
+      if (output_cd == (iconv_t) -1)
+        {
+          if (input_cd != (iconv_t) -1)
+            iconv_close (input_cd);
+          goto invalid_encoding;
+        }
+    }
 
-  return;
+  id = scm_gc_malloc_pointerless (sizeof (*id), "iconv descriptors");
+  id->input_cd = input_cd;
+  id->output_cd = output_cd;
+
+  {
+    GC_finalization_proc prev_finalizer;
+    GC_PTR prev_finalization_data;
+
+    /* Register a finalizer to close the descriptors.  */
+    GC_REGISTER_FINALIZER_NO_ORDER (id, finalize_iconv_descriptors, 0,
+                                    &prev_finalizer, &prev_finalization_data);
+  }
+
+  return id;
 
  invalid_encoding:
   {
     SCM err;
     err = scm_from_locale_string (encoding);
-    scm_misc_error ("scm_i_set_port_encoding_x",
+    scm_misc_error ("open_iconv_descriptors",
 		    "invalid or unknown character encoding ~s",
 		    scm_list_1 (err));
   }
+}
+
+static void
+close_iconv_descriptors (scm_t_iconv_descriptors *id)
+{
+  if (id->input_cd != (iconv_t) -1)
+    iconv_close (id->input_cd);
+  if (id->output_cd != (iconv_t) -1)
+    iconv_close (id->output_cd);
+  id->input_cd = (void *) -1;
+  id->output_cd = (void *) -1;
+}
+
+scm_t_iconv_descriptors *
+scm_i_port_iconv_descriptors (SCM port)
+{
+  scm_t_port *pt;
+
+  pt = SCM_PTAB_ENTRY (port);
+
+  assert (pt->encoding_mode == SCM_PORT_ENCODING_MODE_ICONV);
+
+  if (!pt->iconv_descriptors)
+    {
+      if (!pt->encoding)
+        pt->encoding = "ISO-8859-1";
+      pt->iconv_descriptors =
+        open_iconv_descriptors (pt->encoding,
+                                SCM_INPUT_PORT_P (port),
+                                SCM_OUTPUT_PORT_P (port));
+    }
+
+  return pt->iconv_descriptors;
+}
+
+void
+scm_i_set_port_encoding_x (SCM port, const char *encoding)
+{
+  scm_t_port *pt;
+  scm_t_iconv_descriptors *prev;
+
+  /* Set the character encoding for this port.  */
+  pt = SCM_PTAB_ENTRY (port);
+  prev = pt->iconv_descriptors;
+
+  if (encoding == NULL)
+    encoding = "ISO-8859-1";
+
+  if (strcmp (encoding, "UTF-8") == 0)
+    {
+      pt->encoding = "UTF-8";
+      pt->encoding_mode = SCM_PORT_ENCODING_MODE_UTF8;
+      pt->iconv_descriptors = NULL;
+    }
+  else
+    {
+      /* Open descriptors before mutating the port. */
+      pt->iconv_descriptors =
+        open_iconv_descriptors (encoding,
+                                SCM_INPUT_PORT_P (port),
+                                SCM_OUTPUT_PORT_P (port));
+      pt->encoding = scm_gc_strdup (encoding, "port");
+      pt->encoding_mode = SCM_PORT_ENCODING_MODE_ICONV;
+    }
+
+  if (prev)
+    close_iconv_descriptors (prev);
 }
 
 SCM_DEFINE (scm_port_encoding, "port-encoding", 1, 0, 0,
@@ -1616,13 +1678,13 @@ static int
 get_iconv_codepoint (SCM port, scm_t_wchar *codepoint,
 		     char buf[SCM_MBCHAR_BUF_SIZE], size_t *len)
 {
-  scm_t_port *pt;
+  scm_t_iconv_descriptors *id;
   int err, byte_read;
   size_t bytes_consumed, output_size;
   char *output;
   scm_t_uint8 utf8_buf[SCM_MBCHAR_BUF_SIZE];
 
-  pt = SCM_PTAB_ENTRY (port);
+  id = scm_i_port_iconv_descriptors (port);
 
   for (output_size = 0, output = (char *) utf8_buf,
 	 bytes_consumed = 0, err = 0;
@@ -1652,8 +1714,7 @@ get_iconv_codepoint (SCM port, scm_t_wchar *codepoint,
       input_left = bytes_consumed + 1;
       output_left = sizeof (utf8_buf);
 
-      done = iconv (pt->input_cd, &input, &input_left,
-		    &output, &output_left);
+      done = iconv (id->input_cd, &input, &input_left, &output, &output_left);
       if (done == (size_t) -1)
 	{
 	  err = errno;
@@ -1689,12 +1750,7 @@ get_codepoint (SCM port, scm_t_wchar *codepoint,
   int err;
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
-  if (pt->input_cd == (iconv_t) -1)
-    /* Initialize the conversion descriptors, if needed.  */
-    scm_i_set_port_encoding_x (port, pt->encoding);
-
-  /* FIXME: In 2.1, add a flag to determine whether a port is UTF-8.  */
-  if (pt->input_cd == (iconv_t) -1)
+  if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
     err = get_utf8_codepoint (port, codepoint, (scm_t_uint8 *) buf, len);
   else
     err = get_iconv_codepoint (port, codepoint, buf, len);

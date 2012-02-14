@@ -861,9 +861,9 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
 			    scm_t_string_failed_conversion_handler strategy)
 {
   size_t printed;
-  scm_t_port *pt;
+  scm_t_iconv_descriptors *id;
 
-  pt = SCM_PTAB_ENTRY (port);
+  id = scm_i_port_iconv_descriptors (port);
 
   printed = 0;
 
@@ -892,7 +892,7 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
       output = encoded_output;
       output_left = sizeof (encoded_output);
 
-      done = iconv (pt->output_cd, &input, &input_left,
+      done = iconv (id->output_cd, &input, &input_left,
 		    &output, &output_left);
 
       output_len = sizeof (encoded_output) - output_left;
@@ -902,7 +902,7 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
           int errno_save = errno;
 
 	  /* Reset the `iconv' state.  */
-	  iconv (pt->output_cd, NULL, NULL, NULL, NULL);
+	  iconv (id->output_cd, NULL, NULL, NULL, NULL);
 
 	  /* Print the OUTPUT_LEN bytes successfully converted.  */
 	  scm_lfwrite_unlocked (encoded_output, output_len, port);
@@ -966,12 +966,7 @@ display_string (const void *str, int narrow_p,
 
   pt = SCM_PTAB_ENTRY (port);
 
-  if (pt->output_cd == (iconv_t) -1)
-    /* Initialize the conversion descriptors, if needed.  */
-    scm_i_set_port_encoding_x (port, pt->encoding);
-
-  /* FIXME: In 2.1, add a flag to determine whether a port is UTF-8.  */
-  if (pt->output_cd == (iconv_t) -1)
+  if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
     return display_string_as_utf8 (str, narrow_p, len, port);
   else
     return display_string_using_iconv (str, narrow_p, len,
