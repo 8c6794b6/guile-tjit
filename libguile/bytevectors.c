@@ -1934,10 +1934,12 @@ utf_encoding_name (char *name, size_t utf_width, SCM endianness)
   c_strlen = scm_i_string_length (str);                                 \
   if (scm_i_is_narrow_string (str))                                     \
     {                                                                   \
+      scm_i_lock_iconv ();                                              \
       err = mem_iconveh (scm_i_string_chars (str), c_strlen,            \
                          "ISO-8859-1", c_utf_name,                      \
                          iconveh_question_mark, NULL,                   \
                          &c_utf, &c_utf_len);                           \
+      scm_i_unlock_iconv ();                                            \
       if (SCM_UNLIKELY (err))                                           \
         scm_syserror_msg (FUNC_NAME, "failed to convert string: ~A",    \
                           scm_list_1 (str), err);                       \
@@ -1945,10 +1947,12 @@ utf_encoding_name (char *name, size_t utf_width, SCM endianness)
   else                                                                  \
     {                                                                   \
       const scm_t_wchar *wbuf = scm_i_string_wide_chars (str);          \
+      scm_i_lock_iconv ();                                              \
       c_utf = u32_conv_to_encoding (c_utf_name,                         \
                                     iconveh_question_mark,              \
                                     (scm_t_uint32 *) wbuf,              \
                                     c_strlen, NULL, NULL, &c_utf_len);  \
+      scm_i_unlock_iconv ();                                            \
       if (SCM_UNLIKELY (c_utf == NULL))                                 \
         scm_syserror_msg (FUNC_NAME, "failed to convert string: ~A",    \
                           scm_list_1 (str), errno);                     \
@@ -2050,10 +2054,12 @@ SCM_DEFINE (scm_string_to_utf32, "string->utf32",
   c_utf = (char *) SCM_BYTEVECTOR_CONTENTS (utf);			\
   utf_encoding_name (c_utf_name, (_utf_width), endianness);		\
 									\
+  scm_i_lock_iconv ();                                                  \
   err = mem_iconveh (c_utf, c_utf_len,					\
 		     c_utf_name, "UTF-8",				\
 		     iconveh_question_mark, NULL,			\
 		     &c_str, &c_strlen);				\
+  scm_i_unlock_iconv ();                                                \
   if (SCM_UNLIKELY (err))						\
     scm_syserror_msg (FUNC_NAME, "failed to convert to string: ~A",	\
 		      scm_list_1 (utf), err);				\

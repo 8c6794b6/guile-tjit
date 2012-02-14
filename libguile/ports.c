@@ -882,7 +882,9 @@ open_iconv_descriptors (const char *encoding, int reading, int writing)
          allocation.  */
       scm_gc_register_allocation (16 * 1024);
 
+      scm_i_lock_iconv ();
       input_cd = iconv_open ("UTF-8", encoding);
+      scm_i_unlock_iconv ();
       if (input_cd == (iconv_t) -1)
         goto invalid_encoding;
     }
@@ -893,11 +895,15 @@ open_iconv_descriptors (const char *encoding, int reading, int writing)
          allocation.  */
       scm_gc_register_allocation (16 * 1024);
 
+      scm_i_lock_iconv ();
       output_cd = iconv_open (encoding, "UTF-8");
+      scm_i_unlock_iconv ();
       if (output_cd == (iconv_t) -1)
         {
+          scm_i_lock_iconv ();
           if (input_cd != (iconv_t) -1)
             iconv_close (input_cd);
+          scm_i_unlock_iconv ();
           goto invalid_encoding;
         }
     }
@@ -930,10 +936,12 @@ open_iconv_descriptors (const char *encoding, int reading, int writing)
 static void
 close_iconv_descriptors (scm_t_iconv_descriptors *id)
 {
+  scm_i_lock_iconv ();
   if (id->input_cd != (iconv_t) -1)
     iconv_close (id->input_cd);
   if (id->output_cd != (iconv_t) -1)
     iconv_close (id->output_cd);
+  scm_i_unlock_iconv ();
   id->input_cd = (void *) -1;
   id->output_cd = (void *) -1;
 }
@@ -1937,10 +1945,12 @@ scm_ungetc_unlocked (scm_t_wchar c, SCM port)
     encoding = "ISO-8859-1";
 
   len = sizeof (result_buf);
+  scm_i_lock_iconv ();
   result = u32_conv_to_encoding (encoding,
 				 (enum iconv_ilseq_handler) pt->ilseq_handler,
 				 (uint32_t *) &c, 1, NULL,
 				 result_buf, &len);
+  scm_i_unlock_iconv ();
 
   if (SCM_UNLIKELY (result == NULL || len == 0))
     scm_encoding_error (FUNC_NAME, errno,
