@@ -250,7 +250,9 @@ scm_set_port_close (scm_t_bits tc, int (*close) (SCM))
 void
 scm_set_port_flush (scm_t_bits tc, void (*flush) (SCM port))
 {
-   scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->flush = flush;
+  scm_t_ptob_descriptor *ptob = scm_c_port_type_ref (SCM_TC2PTOBNUM (tc));
+  ptob->flush = flush;
+  ptob->flags |= SCM_PORT_TYPE_HAS_FLUSH;
 }
 
 void
@@ -612,11 +614,11 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   entry->ilseq_handler = handler;
   entry->iconv_descriptors = NULL;
 
-  scm_weak_set_add_x (scm_i_port_weak_set, ret);
+  if (SCM_PORT_DESCRIPTOR (ret)->flags & SCM_PORT_TYPE_HAS_FLUSH)
+    scm_weak_set_add_x (scm_i_port_weak_set, ret);
 
-  /* For each new port, register a finalizer so that it port type's free
-     function can be invoked eventually.  */
-  register_finalizer_for_port (ret);
+  if (SCM_PORT_DESCRIPTOR (ret)->free)
+    register_finalizer_for_port (ret);
 
   return ret;
 }
@@ -635,33 +637,6 @@ scm_new_port_table_entry (scm_t_bits tag)
 {
   return scm_c_make_port (tag, 0, 0);
 }
-
-/* Remove a port from the table and destroy it.  */
-
-static void close_iconv_descriptors (scm_t_iconv_descriptors *id);
-
-static void
-scm_i_remove_port (SCM port)
-#define FUNC_NAME "scm_remove_port"
-{
-  scm_t_port *p;
-
-  p = SCM_PTAB_ENTRY (port);
-  scm_port_non_buffer (p);
-  SCM_SETPTAB_ENTRY (port, 0);
-  scm_weak_set_remove_x (scm_i_port_weak_set, port);
-
-  p->putback_buf = NULL;
-  p->putback_buf_size = 0;
-
-  if (p->iconv_descriptors)
-    {
-      close_iconv_descriptors (p->iconv_descriptors);
-      p->iconv_descriptors = NULL;
-    }
-}
-#undef FUNC_NAME
-
 
 
 
@@ -727,6 +702,8 @@ SCM_DEFINE (scm_eof_object_p, "eof-object?", 1, 0, 0,
 
 /* Closing ports.  */
 
+static void close_iconv_descriptors (scm_t_iconv_descriptors *id);
+
 /* scm_close_port
  * Call the close operation on a port object. 
  * see also scm_close.
@@ -741,6 +718,7 @@ SCM_DEFINE (scm_close_port, "close-port", 1, 0, 0,
 	    "descriptors.")
 #define FUNC_NAME s_scm_close_port
 {
+  scm_t_port *p;
   int rv;
 
   port = SCM_COERCE_OUTPORT (port);
@@ -752,8 +730,26 @@ SCM_DEFINE (scm_close_port, "close-port", 1, 0, 0,
     rv = SCM_PORT_DESCRIPTOR (port)->close (port);
   else
     rv = 0;
-  scm_i_remove_port (port);
+
+  p = SCM_PTAB_ENTRY (port);
+
+  scm_port_non_buffer (p);
+  SCM_SETPTAB_ENTRY (port, 0);
+
+  if (SCM_PORT_DESCRIPTOR (port)->flags & SCM_PORT_TYPE_HAS_FLUSH)
+    scm_weak_set_remove_x (scm_i_port_weak_set, port);
+
+  p->putback_buf = NULL;
+  p->putback_buf_size = 0;
+
+  if (p->iconv_descriptors)
+    {
+      close_iconv_descriptors (p->iconv_descriptors);
+      p->iconv_descriptors = NULL;
+    }
+
   SCM_CLR_PORT_OPEN_FLAG (port);
+
   return scm_from_bool (rv >= 0);
 }
 #undef FUNC_NAME
@@ -1254,6 +1250,9 @@ SCM_DEFINE (scm_set_port_revealed_x, "set-port-revealed!", 2, 0, 0,
   int r;
   scm_i_pthread_mutex_t *lock;
   
+  /* FIXME: It doesn't make sense to manipulate revealed counts on ports
+     without a free function.  */
+
   port = SCM_COERCE_OUTPORT (port);
   SCM_VALIDATE_OPENPORT (1, port);
   r = scm_to_int (rcount);

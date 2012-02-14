@@ -191,6 +191,10 @@ SCM_INTERNAL SCM scm_i_port_weak_set;
 
 
 
+typedef enum scm_t_port_type_flags {
+  SCM_PORT_TYPE_HAS_FLUSH = 1 << 0
+} scm_t_port_type_flags;
+
 /* port-type description.  */
 typedef struct scm_t_ptob_descriptor
 {
@@ -211,6 +215,7 @@ typedef struct scm_t_ptob_descriptor
   scm_t_off (*seek) (SCM port, scm_t_off OFFSET, int WHENCE);
   void (*truncate) (SCM port, scm_t_off length);
 
+  unsigned flags;
 } scm_t_ptob_descriptor;
 
 #define SCM_TC2PTOBNUM(x) (0x0ff & ((x) >> 8))
