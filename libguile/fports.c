@@ -852,32 +852,38 @@ fport_end_input (SCM port, int offset)
   pt->rw_active = SCM_PORT_NEITHER;
 }
 
+static void
+close_the_fd (void *data)
+{
+  scm_t_fport *fp = data;
+
+  close (fp->fdes);
+  /* There's already one exception.  That's probably enough!  */
+  errno = 0;
+}
+
 static int
 fport_close (SCM port)
 {
   scm_t_fport *fp = SCM_FSTREAM (port);
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
   int rv;
 
+  scm_dynwind_begin (0);
+  scm_dynwind_unwind_handler (close_the_fd, fp, 0);
   fport_flush (port);
-  SCM_SYSCALL (rv = close (fp->fdes));
-  if (rv == -1 && errno != EBADF)
-    {
-      if (scm_gc_running_p)
-	/* silently ignore the error.  scm_error would abort if we
-	   called it now.  */
-	;
-      else
-	scm_syserror ("fport_close");
-    }
-  if (pt->read_buf == pt->putback_buf)
-    pt->read_buf = pt->saved_read_buf;
-  if (pt->read_buf != &pt->shortbuf)
-    scm_gc_free (pt->read_buf, pt->read_buf_size, "port buffer");
-  if (pt->write_buf != &pt->shortbuf)
-    scm_gc_free (pt->write_buf, pt->write_buf_size, "port buffer");
-  scm_gc_free (fp, sizeof (*fp), "file port");
-  return rv;
+  scm_dynwind_end ();
+
+  scm_port_non_buffer (SCM_PTAB_ENTRY (port));
+
+  rv = close (fp->fdes);
+  if (rv)
+    /* It's not useful to retry after EINTR, as the file descriptor is
+       in an undefined state.  See http://lwn.net/Articles/365294/.
+       Instead just throw an error if close fails, trusting that the fd
+       was cleaned up.  */
+    scm_syserror ("fport_close");
+
+  return 0;
 }
 
 static size_t

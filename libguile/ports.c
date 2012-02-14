@@ -548,6 +548,24 @@ register_finalizer_for_port (SCM port)
 				  &prev_finalization_data);
 }
 
+struct do_free_data
+{
+  scm_t_ptob_descriptor *ptob;
+  SCM port;
+};
+
+static SCM
+do_free (void *body_data)
+{
+  struct do_free_data *data = body_data;
+
+  /* `close' is for explicit `close-port' by user.  `free' is for this
+     purpose: ports collected by the GC.  */
+  data->ptob->free (data->port);
+
+  return SCM_BOOL_T;
+}
+
 /* Finalize the object (a port) pointed to by PTR.  */
 static void
 finalize_port (GC_PTR ptr, GC_PTR data)
@@ -564,15 +582,15 @@ finalize_port (GC_PTR ptr, GC_PTR data)
 	register_finalizer_for_port (port);
       else
 	{
-          scm_t_ptob_descriptor *ptob = SCM_PORT_DESCRIPTOR (port);
+          struct do_free_data data;
 
-	  if (ptob->free)
-	    /* Yes, I really do mean `free' rather than `close'.  `close'
-	       is for explicit `close-port' by user.  */
-	    ptob->free (port);
-
-	  SCM_SETSTREAM (port, 0);
 	  SCM_CLR_PORT_OPEN_FLAG (port);
+
+          data.ptob = SCM_PORT_DESCRIPTOR (port);
+          data.port = port;
+
+          scm_internal_catch (SCM_BOOL_T, do_free, &data,
+                              scm_handle_by_message_noexit, NULL);
 
 	  scm_gc_ports_collected++;
 	}
@@ -726,29 +744,27 @@ SCM_DEFINE (scm_close_port, "close-port", 1, 0, 0,
   SCM_VALIDATE_PORT (1, port);
   if (SCM_CLOSEDP (port))
     return SCM_BOOL_F;
-  if (SCM_PORT_DESCRIPTOR (port)->close)
-    rv = SCM_PORT_DESCRIPTOR (port)->close (port);
-  else
-    rv = 0;
 
   p = SCM_PTAB_ENTRY (port);
-
-  scm_port_non_buffer (p);
-  SCM_SETPTAB_ENTRY (port, 0);
+  SCM_CLR_PORT_OPEN_FLAG (port);
 
   if (SCM_PORT_DESCRIPTOR (port)->flags & SCM_PORT_TYPE_HAS_FLUSH)
     scm_weak_set_remove_x (scm_i_port_weak_set, port);
 
-  p->putback_buf = NULL;
-  p->putback_buf_size = 0;
+  if (SCM_PORT_DESCRIPTOR (port)->close)
+    /* Note!  This may throw an exception.  Anything after this point
+       should be resilient to non-local exits.  */
+    rv = SCM_PORT_DESCRIPTOR (port)->close (port);
+  else
+    rv = 0;
 
   if (p->iconv_descriptors)
     {
+      /* If we don't get here, the iconv_descriptors finalizer will
+         clean up. */
       close_iconv_descriptors (p->iconv_descriptors);
       p->iconv_descriptors = NULL;
     }
-
-  SCM_CLR_PORT_OPEN_FLAG (port);
 
   return scm_from_bool (rv >= 0);
 }
