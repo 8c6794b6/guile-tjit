@@ -1459,25 +1459,25 @@
                     s))
                   ((syntax-object? x)
                    (let ((w (syntax-object-wrap x)))
-                     (let ((ms (wrap-marks w)) (s (wrap-subst w)))
+                     (let ((ms (wrap-marks w)) (ss (wrap-subst w)))
                        (if (and (pair? ms) (eq? (car ms) the-anti-mark))
                            ;; output is from original text
                            (make-syntax-object
                             (syntax-object-expression x)
-                            (make-wrap (cdr ms) (if rib (cons rib (cdr s)) (cdr s)))
+                            (make-wrap (cdr ms) (if rib (cons rib (cdr ss)) (cdr ss)))
                             (syntax-object-module x))
                            ;; output introduced by macro
                            (make-syntax-object
                             (decorate-source (syntax-object-expression x) s)
                             (make-wrap (cons m ms)
                                        (if rib
-                                           (cons rib (cons 'shift s))
-                                           (cons 'shift s)))
+                                           (cons rib (cons 'shift ss))
+                                           (cons 'shift ss)))
                             (syntax-object-module x))))))
                 
                   ((vector? x)
                    (let* ((n (vector-length x))
-                          (v (decorate-source (make-vector n) x)))
+                          (v (decorate-source (make-vector n) s)))
                      (do ((i 0 (fx+ i 1)))
                          ((fx= i n) v)
                        (vector-set! v i
@@ -2630,7 +2630,8 @@
                        who 'syntax-violation)
             (arg-check string? message 'syntax-violation)
             (throw 'syntax-error who message
-                   (source-annotation (or form subform))
+                   (or (source-annotation subform)
+                       (source-annotation form))
                    (strip form empty-wrap)
                    (and subform (strip subform empty-wrap)))))
 
