@@ -72,10 +72,4 @@
   (pass-if "opt, eval"
     (equal? (procedure-minimum-arity (eval '(lambda* (a b #:optional c) #t)
                                            (current-module)))
-            '(2 1 #f)))
-
-  (if (include-deprecated-features)
-      (pass-if-exception "set-procedure-properties! arity"
-        '(misc-error . "arity is a read-only property")
-        (set-procedure-properties! (lambda x x) '((arity . 3))))
-      #t))
+            '(2 1 #f))))
