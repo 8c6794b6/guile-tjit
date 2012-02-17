@@ -1,4 +1,5 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002, 2006, 2008, 2009, 2010, 2011 Free Software Foundation
+/* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2006,
+ *   2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -91,6 +92,14 @@ static SCM scm_srcprops_to_alist (SCM obj);
 
 scm_t_bits scm_tc16_srcprops;
 
+
+static int
+supports_source_props (SCM obj)
+{
+  return SCM_NIMP (obj) && !scm_is_symbol (obj) && !scm_is_keyword (obj);
+}
+
+
 static int
 srcprops_print (SCM obj, SCM port, scm_print_state *pstate)
 {
@@ -157,21 +166,33 @@ scm_srcprops_to_alist (SCM obj)
   return alist;
 }
 
+SCM_DEFINE (scm_supports_source_properties_p, "supports-source-properties?", 1, 0, 0,
+            (SCM obj),
+            "Return #t if @var{obj} supports adding source properties,\n"
+            "otherwise return #f.")
+#define FUNC_NAME s_scm_supports_source_properties_p
+{
+  return scm_from_bool (supports_source_props (obj));
+}
+#undef FUNC_NAME
+
 SCM_DEFINE (scm_source_properties, "source-properties", 1, 0, 0, 
             (SCM obj),
 	    "Return the source property association list of @var{obj}.")
 #define FUNC_NAME s_scm_source_properties
 {
-  SCM p;
-  SCM_VALIDATE_NIM (1, obj);
-
-  p = scm_weak_table_refq (scm_source_whash, obj, SCM_EOL); 
-
-  if (SRCPROPSP (p))
-    return scm_srcprops_to_alist (p);
+  if (SCM_IMP (obj))
+    return SCM_EOL;
   else
-    /* list from set-source-properties!, or SCM_EOL for not found */
-    return p;
+    {
+      SCM p = scm_weak_table_refq (scm_source_whash, obj, SCM_EOL); 
+
+      if (SRCPROPSP (p))
+        return scm_srcprops_to_alist (p);
+      else
+        /* list from set-source-properties!, or SCM_EOL for not found */
+        return p;
+    }
 }
 #undef FUNC_NAME
 
@@ -195,13 +216,10 @@ int
 scm_i_has_source_properties (SCM obj)
 #define FUNC_NAME "%set-source-properties"
 {
-  int ret;
-  
-  SCM_VALIDATE_NIM (1, obj);
-
-  ret = scm_is_true (scm_weak_table_refq (scm_source_whash, obj, SCM_BOOL_F));
-
-  return ret;
+  if (SCM_IMP (obj))
+    return 0;
+  else
+    return scm_is_true (scm_weak_table_refq (scm_source_whash, obj, SCM_BOOL_F));
 }
 #undef FUNC_NAME
   
@@ -228,18 +246,20 @@ SCM_DEFINE (scm_source_property, "source-property", 2, 0, 0,
 #define FUNC_NAME s_scm_source_property
 {
   SCM p;
-  SCM_VALIDATE_NIM (1, obj);
+
+  if (SCM_IMP (obj))
+    return SCM_BOOL_F;
 
   p = scm_weak_table_refq (scm_source_whash, obj, SCM_EOL);
 
   if (!SRCPROPSP (p))
     goto alist;
   if (scm_is_eq (scm_sym_line, key))
-    p = scm_from_int (SRCPROPLINE (p));
+    return scm_from_int (SRCPROPLINE (p));
   else if (scm_is_eq (scm_sym_column, key))
-    p = scm_from_int (SRCPROPCOL (p));
+    return scm_from_int (SRCPROPCOL (p));
   else if (scm_is_eq (scm_sym_copy, key))
-    p = SRCPROPCOPY (p);
+    return SRCPROPCOPY (p);
   else
     {
       p = SRCPROPALIST (p);
@@ -247,7 +267,6 @@ SCM_DEFINE (scm_source_property, "source-property", 2, 0, 0,
       p = scm_assoc (key, p);
       return (scm_is_pair (p) ? SCM_CDR (p) : SCM_BOOL_F);
     }
-  return SCM_UNBNDP (p) ? SCM_BOOL_F : p;
 }
 #undef FUNC_NAME
 

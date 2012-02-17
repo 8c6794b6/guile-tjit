@@ -239,8 +239,8 @@ Guile's debugger can point back to the file and location where the
 expression originated.
 
 The way that source properties are stored means that Guile cannot
-associate source properties with individual numbers, symbols,
-characters, booleans, or keywords.  This can be seen by typing
+associate source properties with individual symbols, keywords,
+characters, booleans, or small integers.  This can be seen by typing
 @code{(xxx)} and @code{xxx} at the Guile prompt (where the variable
 @code{xxx} has not been defined):
 
@@ -257,6 +257,12 @@ ERROR: Unbound variable: xxx
 @noindent
 In the latter case, no source properties were stored, so the error
 doesn't have any source information.
+
+@deffn {Scheme Procedure} supports-source-properties? obj
+@deffnx {C Function} scm_supports_source_properties_p (obj)
+Return #t if source properties can be associated with @var{obj},
+otherwise return #f.
+@end deffn
 
 The recording of source properties is controlled by the read option
 named ``positions'' (@pxref{Scheme Read}).  This option is switched
