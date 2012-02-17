@@ -383,6 +383,7 @@ scm_i_init_guile (void *base)
 
   scm_storage_prehistory ();
   scm_threads_prehistory (base);  /* requires storage_prehistory */
+  scm_weak_set_prehistory ();        /* requires storage_prehistory */
   scm_weak_table_prehistory ();        /* requires storage_prehistory */
 #ifdef GUILE_DEBUG_MALLOC
   scm_debug_malloc_prehistory ();
