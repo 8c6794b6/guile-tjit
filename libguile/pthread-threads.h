@@ -3,7 +3,7 @@
 #ifndef SCM_PTHREADS_THREADS_H
 #define SCM_PTHREADS_THREADS_H
 
-/* Copyright (C) 2002, 2005, 2006, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2002, 2005, 2006, 2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -96,6 +96,14 @@ extern pthread_mutexattr_t scm_i_pthread_mutexattr_recursive[1];
 #define scm_i_dynwind_pthread_mutex_lock    scm_dynwind_pthread_mutex_lock
 #define scm_i_scm_pthread_cond_wait         scm_pthread_cond_wait
 #define scm_i_scm_pthread_cond_timedwait    scm_pthread_cond_timedwait
+
+#define SCM_DEFINE_ATFORK_HANDLERS_FOR_MUTEX(m,lock,unlock) \
+  static void lock (void) { pthread_mutex_lock (m); }        \
+  static void unlock (void) { pthread_mutex_unlock (m); }
+
+/* noop */
+#define scm_i_pthread_atfork(pre,parent,child) \
+  pthread_atfork (pre, parent, child)
 
 #endif  /* SCM_PTHREADS_THREADS_H */
 
