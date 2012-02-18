@@ -29,7 +29,7 @@
             expand-primitives!
             effect-free-primitive? effect+exception-free-primitive?
             constructor-primitive? accessor-primitive?
-            singly-valued-primitive?))
+            singly-valued-primitive? equality-primitive?))
 
 (define *interesting-primitive-names* 
   '(apply @apply
@@ -206,9 +206,13 @@
     bytevector-ieee-double-native-ref bytevector-ieee-double-native-set!
     f32vector-ref f32vector-set! f64vector-ref f64vector-set!))
 
+(define *equality-primitives*
+  '(eq? eqv? equal?))
+
 (define *effect-free-primitive-table* (make-hash-table))
 (define *effect+exceptions-free-primitive-table* (make-hash-table))
 (define *singly-valued-primitive-table* (make-hash-table))
+(define *equality-primitive-table* (make-hash-table))
 
 (for-each (lambda (x)
             (hashq-set! *effect-free-primitive-table* x #t))
@@ -219,6 +223,9 @@
 (for-each (lambda (x) 
             (hashq-set! *singly-valued-primitive-table* x #t))
           *singly-valued-primitives*)
+(for-each (lambda (x)
+            (hashq-set! *equality-primitive-table* x #t))
+          *equality-primitives*)
 
 (define (constructor-primitive? prim)
   (memq prim *primitive-constructors*))
@@ -230,6 +237,8 @@
   (hashq-ref *effect+exceptions-free-primitive-table* prim))
 (define (singly-valued-primitive? prim)
   (hashq-ref *singly-valued-primitive-table* prim))
+(define (equality-primitive? prim)
+  (hashq-ref *equality-primitive-table* prim))
 
 (define (resolve-primitives! x mod)
   (define local-definitions

@@ -1103,6 +1103,17 @@ top-level bindings from ENV and return the resulting expression."
          ((name . args)
           (fold-constants src name args ctx))))
 
+      (($ <primcall> src (? equality-primitive? name) (a b))
+       (let ((val-a (for-value a))
+             (val-b (for-value b)))
+         (log 'equality-primitive name val-a val-b)
+         (cond ((and (lexical-ref? val-a) (lexical-ref? val-b)
+                     (eq? (lexical-ref-gensym val-a)
+                          (lexical-ref-gensym val-b)))
+                (for-tail (make-const #f #t)))
+               (else
+                (fold-constants src name (list val-a val-b) ctx)))))
+      
       (($ <primcall> src (? effect-free-primitive? name) args)
        (fold-constants src name (map for-value args) ctx))
 

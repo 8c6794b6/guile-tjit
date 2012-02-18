@@ -1498,6 +1498,16 @@
    ;; Constant folding: cdr+list, impure
    (cdr (list (bar) 0))
    (seq (call (toplevel bar)) (primcall list (const 0))))
+
+  (pass-if-peval
+   ;; Equality primitive: same lexical
+   (let ((x (random))) (eq? x x))
+   (seq (call (toplevel random)) (const #t)))
+
+  (pass-if-peval
+   ;; Equality primitive: merge lexical identities
+   (let* ((x (random)) (y x)) (eq? x y))
+   (seq (call (toplevel random)) (const #t)))
   
   (pass-if-peval
    ;; Non-constant guards get lexical bindings.
