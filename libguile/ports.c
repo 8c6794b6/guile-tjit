@@ -533,22 +533,6 @@ SCM scm_i_port_weak_set;
 
 /* Port finalization.  */
 
-static void finalize_port (GC_PTR, GC_PTR);
-
-/* Register a finalizer for PORT.  */
-static SCM_C_INLINE_KEYWORD void
-register_finalizer_for_port (SCM port)
-{
-  GC_finalization_proc prev_finalizer;
-  GC_PTR prev_finalization_data;
-
-  /* Register a finalizer for PORT so that its iconv CDs get freed and
-     optionally its type's `free' function gets called.  */
-  GC_REGISTER_FINALIZER_NO_ORDER (SCM2PTR (port), finalize_port, 0,
-				  &prev_finalizer,
-				  &prev_finalization_data);
-}
-
 struct do_free_data
 {
   scm_t_ptob_descriptor *ptob;
@@ -627,11 +611,11 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   entry->ilseq_handler = handler;
   entry->iconv_descriptors = NULL;
 
+  if (SCM_PORT_DESCRIPTOR (ret)->free)
+    scm_i_set_finalizer (SCM2PTR (ret), finalize_port, NULL);
+
   if (SCM_PORT_DESCRIPTOR (ret)->flags & SCM_PORT_TYPE_HAS_FLUSH)
     scm_weak_set_add_x (scm_i_port_weak_set, ret);
-
-  if (SCM_PORT_DESCRIPTOR (ret)->free)
-    register_finalizer_for_port (ret);
 
   return ret;
 }
@@ -906,14 +890,8 @@ open_iconv_descriptors (const char *encoding, int reading, int writing)
   id->input_cd = input_cd;
   id->output_cd = output_cd;
 
-  {
-    GC_finalization_proc prev_finalizer;
-    GC_PTR prev_finalization_data;
-
-    /* Register a finalizer to close the descriptors.  */
-    GC_REGISTER_FINALIZER_NO_ORDER (id, finalize_iconv_descriptors, 0,
-                                    &prev_finalizer, &prev_finalization_data);
-  }
+  /* Register a finalizer to close the descriptors.  */
+  scm_i_set_finalizer (id, finalize_iconv_descriptors, NULL);
 
   return id;
 

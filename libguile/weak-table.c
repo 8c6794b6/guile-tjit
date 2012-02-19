@@ -927,7 +927,7 @@ static void
 weak_gc_finalizer (void *ptr, void *data)
 {
   if (weak_gc_callback (ptr))
-    GC_REGISTER_FINALIZER_NO_ORDER (ptr, weak_gc_finalizer, data, NULL, NULL);
+    scm_i_set_finalizer (ptr, weak_gc_finalizer, data);
 }
 #endif
 
@@ -943,7 +943,7 @@ scm_c_register_weak_gc_callback (SCM obj, void (*callback) (SCM))
 #ifdef HAVE_GC_TABLE_START_CALLBACK
   scm_c_hook_add (&scm_after_gc_c_hook, weak_gc_hook, weak, 0);
 #else
-  GC_REGISTER_FINALIZER_NO_ORDER (weak, weak_gc_finalizer, NULL, NULL, NULL);
+  scm_i_set_finalizer (weak, weak_gc_finalizer, NULL);
 #endif
 }
 
