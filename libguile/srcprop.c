@@ -347,7 +347,7 @@ scm_init_srcprop ()
   scm_tc16_srcprops = scm_make_smob_type ("srcprops", 0);
   scm_set_smob_print (scm_tc16_srcprops, srcprops_print);
 
-  scm_source_whash = scm_c_make_weak_table (2047, SCM_WEAK_TABLE_KIND_KEY);
+  scm_source_whash = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
   scm_c_define ("source-whash", scm_source_whash);
 
   scm_last_alist_filename = scm_cons (SCM_EOL,

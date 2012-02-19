@@ -1,4 +1,4 @@
-/* Copyright (C) 1998,2000,2001,2002,2003,2004,2006,2007,2008,2009,2010,2011 Free Software Foundation, Inc.
+/* Copyright (C) 1998,2000,2001,2002,2003,2004,2006,2007,2008,2009,2010,2011,2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -1000,7 +1000,7 @@ SCM_SYMBOL (scm_sym_system_module, "system-module");
 void
 scm_modules_prehistory ()
 {
-  scm_pre_modules_obarray = scm_c_make_hash_table (1533);
+  scm_pre_modules_obarray = scm_c_make_hash_table (1790);
 }
 
 void

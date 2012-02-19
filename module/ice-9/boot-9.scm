@@ -1803,10 +1803,6 @@ VALUE."
 ;; initial uses list, or binding procedure.
 ;;
 (define* (make-module #:optional (size 31) (uses '()) (binder #f))
-  (define %default-import-size
-    ;; Typical number of imported bindings actually used by a module.
-    600)
-
   (if (not (integer? size))
       (error "Illegal size to make-module." size))
   (if (not (and (list? uses)
@@ -1819,7 +1815,7 @@ VALUE."
   (let ((module (module-constructor (make-hash-table size)
                                     uses binder #f macroexpand
                                     #f #f #f
-                                    (make-hash-table %default-import-size)
+                                    (make-hash-table)
                                     '()
                                     (make-weak-key-hash-table 31) #f
                                     (make-hash-table 7) #f #f #f)))
