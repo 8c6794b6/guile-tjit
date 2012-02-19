@@ -431,6 +431,42 @@ compute_size_index (scm_t_weak_table *table)
   return i;
 }
 
+static int
+is_acceptable_size_index (scm_t_weak_table *table, int size_index)
+{
+  int computed = compute_size_index (table);
+
+  if (size_index == computed)
+    /* We were going to grow or shrink, and allocating the new vector
+       didn't change the target size.  */
+    return 1;
+
+  if (size_index == computed + 1)
+    {
+      /* We were going to enlarge the table, but allocating the new
+         vector finalized some objects, making an enlargement
+         unnecessary.  It might still be a good idea to use the larger
+         table, though.  (This branch also gets hit if, while allocating
+         the vector, some other thread was actively removing items from
+         the table.  That is less likely, though.)  */
+      unsigned long new_lower = hashtable_size[size_index] / 5;
+
+      return table->size > new_lower;
+    }
+
+  if (size_index == computed - 1)
+    {
+      /* We were going to shrink the table, but when we dropped the lock
+         to allocate the new vector, some other thread added elements to
+         the table.  */
+      return 0;
+    }
+
+  /* The computed size differs from our newly allocated size by more
+     than one size index -- recalculate.  */
+  return 0;
+}
+
 static void
 resize_table (scm_t_weak_table *table)
 {
@@ -450,7 +486,7 @@ resize_table (scm_t_weak_table *table)
       new_entries = allocate_entries (new_size, table->kind);
       scm_i_pthread_mutex_unlock (&table->lock);
     }
-  while (new_size_index != compute_size_index (table));
+  while (!is_acceptable_size_index (table, new_size_index));
 
   old_entries = table->entries;
   old_size = table->size;
