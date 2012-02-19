@@ -1,6 +1,6 @@
 ;; poll
 
-;;;; Copyright (C) 2010, 2011 Free Software Foundation, Inc.
+;;;; Copyright (C) 2010, 2011, 2012 Free Software Foundation, Inc.
 ;;;; 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -139,13 +139,7 @@
          (off (pollfd-offset idx))
          (fd (if (integer? fd-or-port)
                  fd-or-port
-                 (port->fdes fd-or-port))))
-
-    (if (port? fd-or-port)
-        ;; As we store the port in the fdset, there is no need to
-        ;; increment the revealed count to prevent the fd from being
-        ;; closed by a gc'd port.
-        (release-port-handle fd-or-port))
+                 (fileno fd-or-port))))
 
     (ensure-pset-size! set (1+ idx))
     (bytevector-s32-native-set! (pset-pollfds set) off fd)
