@@ -165,8 +165,7 @@ stream_body (void *data)
 {
   stream_body_data *body_data = (stream_body_data *) data;
   SCM port = scm_fdes_to_port (body_data->fdes, body_data->mode, SCM_BOOL_F);
-
-  SCM_REVEALED (port) = 1;
+  scm_set_port_revealed_x (port, SCM_INUM1);
   return port;
 }
 

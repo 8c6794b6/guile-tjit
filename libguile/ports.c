@@ -578,23 +578,17 @@ finalize_port (GC_PTR ptr, GC_PTR data)
 
   if (SCM_OPENP (port))
     {
-      if (SCM_REVEALED (port) > 0)
-	/* Keep "revealed" ports alive and re-register a finalizer.  */
-	register_finalizer_for_port (port);
-      else
-	{
-          struct do_free_data data;
+      struct do_free_data data;
 
-	  SCM_CLR_PORT_OPEN_FLAG (port);
+      SCM_CLR_PORT_OPEN_FLAG (port);
 
-          data.ptob = SCM_PORT_DESCRIPTOR (port);
-          data.port = port;
+      data.ptob = SCM_PORT_DESCRIPTOR (port);
+      data.port = port;
 
-          scm_internal_catch (SCM_BOOL_T, do_free, &data,
-                              scm_handle_by_message_noexit, NULL);
+      scm_internal_catch (SCM_BOOL_T, do_free, &data,
+                          scm_handle_by_message_noexit, NULL);
 
-	  scm_gc_ports_collected++;
-	}
+      scm_gc_ports_collected++;
     }
 }
 
@@ -1229,83 +1223,6 @@ scm_dynwind_lock_port (SCM port)
       scm_dynwind_unwind_handler (unlock_port, lock, SCM_F_WIND_EXPLICITLY);
       scm_dynwind_rewind_handler (lock_port, lock, 0);
     }
-}
-#undef FUNC_NAME
-
-
-
-
-/* Revealed counts --- an oddity inherited from SCSH.  */
-
-/* Find a port in the table and return its revealed count.
-   Also used by the garbage collector.
- */
-int
-scm_revealed_count (SCM port)
-{
-  scm_i_pthread_mutex_t *lock;
-  int ret;
-  
-  scm_c_lock_port (port, &lock);
-  ret = SCM_REVEALED (port);
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-  
-  return ret;
-}
-
-SCM_DEFINE (scm_port_revealed, "port-revealed", 1, 0, 0,
-           (SCM port),
-	    "Return the revealed count for @var{port}.")
-#define FUNC_NAME s_scm_port_revealed
-{
-  port = SCM_COERCE_OUTPORT (port);
-  SCM_VALIDATE_OPENPORT (1, port);
-  return scm_from_int (scm_revealed_count (port));
-}
-#undef FUNC_NAME
-
-/* Set the revealed count for a port.  */
-SCM_DEFINE (scm_set_port_revealed_x, "set-port-revealed!", 2, 0, 0,
-           (SCM port, SCM rcount),
-	    "Sets the revealed count for a port to a given value.\n"
-	    "The return value is unspecified.")
-#define FUNC_NAME s_scm_set_port_revealed_x
-{
-  int r;
-  scm_i_pthread_mutex_t *lock;
-  
-  /* FIXME: It doesn't make sense to manipulate revealed counts on ports
-     without a free function.  */
-
-  port = SCM_COERCE_OUTPORT (port);
-  SCM_VALIDATE_OPENPORT (1, port);
-  r = scm_to_int (rcount);
-  scm_c_lock_port (port, &lock);
-  SCM_REVEALED (port) = r;
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-/* Set the revealed count for a port.  */
-SCM_DEFINE (scm_adjust_port_revealed_x, "adjust-port-revealed!", 2, 0, 0,
-           (SCM port, SCM addend),
-	    "Add @var{addend} to the revealed count of @var{port}.\n"
-	    "The return value is unspecified.")
-#define FUNC_NAME s_scm_adjust_port_revealed_x
-{
-  scm_i_pthread_mutex_t *lock;
-  int a;
-  port = SCM_COERCE_OUTPORT (port);
-  SCM_VALIDATE_OPENPORT (1, port);
-  a = scm_to_int (addend);
-  scm_c_lock_port (port, &lock);
-  SCM_REVEALED (port) += a;
-  if (lock)
-    scm_i_pthread_mutex_unlock (lock);
-  return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 

@@ -3,7 +3,7 @@
 #ifndef SCM_FPORTS_H
 #define SCM_FPORTS_H
 
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2006, 2008, 2009, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2006, 2008, 2009, 2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -32,6 +32,9 @@
 /* struct allocated for each buffered FPORT.  */
 typedef struct scm_t_fport {
   int fdes;			/* file descriptor.  */
+  int revealed;			/* 0 not revealed, > 1 revealed.
+				 * Revealed ports do not get GC'd.
+				 */
 } scm_t_fport;
 
 SCM_API scm_t_bits scm_tc16_fport;
@@ -54,6 +57,15 @@ SCM_API void scm_evict_ports (int fd);
 SCM_API SCM scm_open_file (SCM filename, SCM modes);
 SCM_API SCM scm_fdes_to_port (int fdes, char *mode, SCM name);
 SCM_API SCM scm_file_port_p (SCM obj);
+
+
+/* Revealed counts.  */
+SCM_API int scm_revealed_count (SCM port);
+SCM_API SCM scm_port_revealed (SCM port);
+SCM_API SCM scm_set_port_revealed_x (SCM port, SCM rcount);
+SCM_API SCM scm_adjust_port_revealed_x (SCM port, SCM addend);
+
+
 SCM_INTERNAL void scm_init_fports (void);
 
 /* internal functions */

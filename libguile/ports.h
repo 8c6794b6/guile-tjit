@@ -69,9 +69,6 @@ typedef struct
   SCM port;			/* Link back to the port object.  */
   scm_i_pthread_mutex_t *lock;  /* A recursive lock for this port.  */
 
-  int revealed;			/* 0 not revealed, > 1 revealed.
-				 * Revealed ports do not get GC'd.
-				 */
   /* data for the underlying port implementation as a raw C value. */
   scm_t_bits stream;
 
@@ -177,8 +174,6 @@ SCM_INTERNAL SCM scm_i_port_weak_set;
 #define SCM_SET_FILENAME(x, n)    (SCM_PTAB_ENTRY(x)->file_name = (n))
 #define SCM_LINUM(x)              (SCM_PTAB_ENTRY(x)->line_number)
 #define SCM_COL(x)                (SCM_PTAB_ENTRY(x)->column_number)
-#define SCM_REVEALED(x)           (SCM_PTAB_ENTRY(x)->revealed)
-#define SCM_SETREVEALED(x, s)      (SCM_PTAB_ENTRY(x)->revealed = (s))
 
 #define SCM_INCLINE(port)  	do {SCM_LINUM (port) += 1; SCM_COL (port) = 0;} while (0)
 #define SCM_ZEROCOL(port)  	do {SCM_COL (port) = 0;} while (0)
@@ -315,12 +310,6 @@ SCM_API SCM scm_set_port_conversion_strategy_x (SCM port, SCM behavior);
 SCM_API void scm_dynwind_lock_port (SCM port);
 SCM_INLINE int scm_c_lock_port (SCM port, scm_i_pthread_mutex_t **lock);
 SCM_INLINE int scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock);
-
-/* Revealed counts.  */
-SCM_API int scm_revealed_count (SCM port);
-SCM_API SCM scm_port_revealed (SCM port);
-SCM_API SCM scm_set_port_revealed_x (SCM port, SCM rcount);
-SCM_API SCM scm_adjust_port_revealed_x (SCM port, SCM addend);
 
 /* Input.  */
 SCM_API int scm_get_byte_or_eof (SCM port);
