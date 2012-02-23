@@ -1353,15 +1353,40 @@ accurate information is missing from a given `tree-il' element."
                               min-count max-count))))
           (else (error "computer bought the farm" state))))))
 
-(define (const-fmt x)
-  ;; Return the literal format pattern for X, or #f.
+(define (proc-ref? exp proc special-name env)
+  "Return #t when EXP designates procedure PROC in ENV.  As a last
+resort, return #t when EXP refers to the global variable SPECIAL-NAME."
+  (match exp
+    (($ <toplevel-ref> _ name)
+     (let ((var (false-if-exception (module-variable env name))))
+       (if var
+           (eq? (variable-ref var) proc)
+           (eq? name special-name))))      ; special hack to support local aliases
+    (($ <module-ref> _ module name public?)
+     (let ((m (false-if-exception (if public?
+                                      (resolve-interface module)
+                                      (resolve-module module)))))
+       (and m (eq? (false-if-exception (module-ref module name)) proc))))
+    (_ #f)))
+
+(define gettext? (cut proc-ref? <> gettext '_ <>))
+(define ngettext? (cut proc-ref? <> ngettext 'N_ <>))
+
+(define (const-fmt x env)
+  ;; Return the literal format string for X, or #f.
   (match x
-    (($ <const> _ exp)
+    (($ <const> _ (? string? exp))
      exp)
-    (($ <call> _
-        (or ($ <toplevel-ref> _ '_) ($ <module-ref> _ '_))
-        (($ <const> _ (and (? string?) fmt))))
+    (($ <call> _ (? (cut gettext? <> env))
+        (($ <const> _ (? string? fmt))))
      ;; Gettexted literals, like `(_ "foo")'.
+     fmt)
+    (($ <call> _ (? (cut ngettext? <> env))
+        (($ <const> _ (? string? fmt)) ($ <const> _ (? string?)) _ ..1))
+     ;; Plural gettextized literals, like `(N_ "singular" "plural" n)'.
+
+     ;; TODO: Check whether the singular and plural strings have the
+     ;; same format escapes.
      fmt)
     (_ #f)))
 
@@ -1377,36 +1402,38 @@ accurate information is missing from a given `tree-il' element."
      (define (check-format-args args loc)
        (pmatch args
          ((,port ,fmt . ,rest)
-          (guard (const-fmt fmt))
+          (guard (const-fmt fmt env))
           (if (and (const? port)
                    (not (boolean? (const-exp port))))
               (warning 'format loc 'wrong-port (const-exp port)))
-          (let ((fmt   (const-fmt fmt))
+          (let ((fmt   (const-fmt fmt env))
                 (count (length rest)))
-            (if (string? fmt)
-                (catch &syntax-error
-                  (lambda ()
-                    (let-values (((min max)
-                                  (format-string-argument-count fmt)))
-                      (and min max
-                           (or (and (or (eq? min 'any) (>= count min))
-                                    (or (eq? max 'any) (<= count max)))
-                               (warning 'format loc 'wrong-format-arg-count
-                                        fmt min max count)))))
-                  (lambda (_ key)
-                    (warning 'format loc 'syntax-error key fmt)))
-                (warning 'format loc 'wrong-format-string fmt))))
+            (catch &syntax-error
+              (lambda ()
+                (let-values (((min max)
+                              (format-string-argument-count fmt)))
+                  (and min max
+                       (or (and (or (eq? min 'any) (>= count min))
+                                (or (eq? max 'any) (<= count max)))
+                           (warning 'format loc 'wrong-format-arg-count
+                                    fmt min max count)))))
+              (lambda (_ key)
+                (warning 'format loc 'syntax-error key fmt)))))
          ((,port ,fmt . ,rest)
           (if (and (const? port)
                    (not (boolean? (const-exp port))))
               (warning 'format loc 'wrong-port (const-exp port)))
-          ;; Warn on non-literal format strings, unless they refer to a
-          ;; lexical variable named "fmt".
-          (if (record-case fmt
-                ((<lexical-ref> name)
-                 (not (eq? name 'fmt)))
-                (else #t))
-              (warning 'format loc 'non-literal-format-string)))
+
+          (match fmt
+            (($ <const> loc* (? (negate string?) fmt))
+             (warning 'format (or loc* loc) 'wrong-format-string fmt))
+
+            ;; Warn on non-literal format strings, unless they refer to
+            ;; a lexical variable named "fmt".
+            (($ <lexical-ref> _ fmt)
+             #t)
+            ((? (negate const?))
+             (warning 'format loc 'non-literal-format-string))))
          (else
           (warning 'format loc 'wrong-num-args (length args)))))
 
@@ -1436,8 +1463,8 @@ accurate information is missing from a given `tree-il' element."
                   (warning 'format loc 'simple-format fmt
                            (find (negate (cut memq <> allowed-chars)) opts))
                   #f))))
-         ((port (($ <const> _ '_) fmt) args ...)
-          (check-simple-format-args `(,port ,fmt ,args) loc))
+         ((port (= (cut const-fmt <> env) (? string? fmt)) args ...)
+          (check-simple-format-args `(,port ,(make-const loc fmt) ,args) loc))
          (_ #t)))
 
      (define (resolve-toplevel name)
