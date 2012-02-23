@@ -3,7 +3,7 @@
 #ifndef SCM_WEAK_SET_H
 #define SCM_WEAK_SET_H
 
-/* Copyright (C) 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -57,10 +57,7 @@ SCM_INTERNAL SCM scm_weak_set_fold (SCM proc, SCM init, SCM set);
 SCM_INTERNAL SCM scm_weak_set_for_each (SCM proc, SCM set);
 SCM_INTERNAL SCM scm_weak_set_map_to_list (SCM proc, SCM set);
 
-SCM_INTERNAL void scm_i_weak_set_lock (SCM set);
-SCM_INTERNAL void scm_i_weak_set_unlock (SCM set);
 SCM_INTERNAL void scm_i_weak_set_print (SCM exp, SCM port, scm_print_state *pstate);
-SCM_INTERNAL void scm_weak_set_prehistory (void);
 SCM_INTERNAL void scm_init_weak_set (void);
 
 #endif  /* SCM_WEAK_SET_H */

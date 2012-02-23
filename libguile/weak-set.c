@@ -650,74 +650,6 @@ weak_set_remove_x (scm_t_weak_set *set, unsigned long hash,
 
 
 
-
-static void
-lock_weak_set (scm_t_weak_set *set)
-{
-  scm_i_pthread_mutex_lock (&set->lock);
-}
-
-static void
-unlock_weak_set (scm_t_weak_set *set)
-{
-  scm_i_pthread_mutex_unlock (&set->lock);
-}
-
-/* A weak set of weak sets, for use in the pthread_atfork handler. */
-static SCM all_weak_sets = SCM_BOOL_F;
-
-#if SCM_USE_PTHREAD_THREADS
-
-static void
-lock_all_weak_sets (void)
-{
-  scm_t_weak_set *s;
-  scm_t_weak_entry *entries;
-  unsigned long k, size;
-  scm_t_weak_entry copy;
-
-  s = SCM_WEAK_SET (all_weak_sets);
-  lock_weak_set (s);
-  size = s->size;
-  entries = s->entries;
-
-  for (k = 0; k < size; k++)
-    if (entries[k].hash)
-      {
-        copy_weak_entry (&entries[k], &copy);
-        if (copy.key)
-          lock_weak_set (SCM_WEAK_SET (SCM_PACK (copy.key)));
-      }
-}
-
-static void
-unlock_all_weak_sets (void)
-{
-  scm_t_weak_set *s;
-  scm_t_weak_entry *entries;
-  unsigned long k, size;
-  scm_t_weak_entry copy;
-
-  s = SCM_WEAK_SET (all_weak_sets);
-  size = s->size;
-  entries = s->entries;
-
-  for (k = 0; k < size; k++)
-    if (entries[k].hash)
-      {
-        copy_weak_entry (&entries[k], &copy);
-        if (copy.key)
-          unlock_weak_set (SCM_WEAK_SET (SCM_PACK (copy.key)));
-      }
-  
-  unlock_weak_set (s);
-}
-
-#endif /* SCM_USE_PTHREAD_THREADS */
-
-
-
-
 static SCM
 make_weak_set (unsigned long k)
 {
@@ -764,7 +696,7 @@ do_vacuum_weak_set (SCM set)
   if (scm_i_pthread_mutex_trylock (&s->lock) == 0)
     {
       vacuum_weak_set (s);
-      unlock_weak_set (s);
+      scm_i_pthread_mutex_unlock (&s->lock);
     }
 
   return;
@@ -829,9 +761,6 @@ scm_c_make_weak_set (unsigned long k)
 
   scm_c_register_weak_gc_callback (ret, do_vacuum_weak_set);
 
-  if (scm_is_true (all_weak_sets))
-    scm_weak_set_add_x (all_weak_sets, ret);
-
   return ret;
 }
 
@@ -846,12 +775,12 @@ scm_weak_set_clear_x (SCM set)
 {
   scm_t_weak_set *s = SCM_WEAK_SET (set);
 
-  lock_weak_set (s);
+  scm_i_pthread_mutex_lock (&s->lock);
 
   memset (s->entries, 0, sizeof (scm_t_weak_entry) * s->size);
   s->n_items = 0;
 
-  unlock_weak_set (s);
+  scm_i_pthread_mutex_unlock (&s->lock);
 
   return SCM_UNSPECIFIED;
 }
@@ -864,11 +793,11 @@ scm_c_weak_set_lookup (SCM set, unsigned long raw_hash,
   SCM ret;
   scm_t_weak_set *s = SCM_WEAK_SET (set);
 
-  lock_weak_set (s);
+  scm_i_pthread_mutex_lock (&s->lock);
 
   ret = weak_set_lookup (s, raw_hash, pred, closure, dflt);
 
-  unlock_weak_set (s);
+  scm_i_pthread_mutex_unlock (&s->lock);
 
   return ret;
 }
@@ -881,11 +810,11 @@ scm_c_weak_set_add_x (SCM set, unsigned long raw_hash,
   SCM ret;
   scm_t_weak_set *s = SCM_WEAK_SET (set);
 
-  lock_weak_set (s);
+  scm_i_pthread_mutex_lock (&s->lock);
 
   ret = weak_set_add_x (s, raw_hash, pred, closure, obj);
 
-  unlock_weak_set (s);
+  scm_i_pthread_mutex_unlock (&s->lock);
 
   return ret;
 }
@@ -897,11 +826,11 @@ scm_c_weak_set_remove_x (SCM set, unsigned long raw_hash,
 {
   scm_t_weak_set *s = SCM_WEAK_SET (set);
 
-  lock_weak_set (s);
+  scm_i_pthread_mutex_lock (&s->lock);
 
   weak_set_remove_x (s, raw_hash, pred, closure);
 
-  unlock_weak_set (s);
+  scm_i_pthread_mutex_unlock (&s->lock);
 }
 
 static int
@@ -936,7 +865,7 @@ scm_c_weak_set_fold (scm_t_set_fold_fn proc, void *closure,
 
   s = SCM_WEAK_SET (set);
 
-  lock_weak_set (s);
+  scm_i_pthread_mutex_lock (&s->lock);
 
   size = s->size;
   entries = s->entries;
@@ -952,14 +881,14 @@ scm_c_weak_set_fold (scm_t_set_fold_fn proc, void *closure,
           if (copy.key)
             {
               /* Release set lock while we call the function.  */
-              unlock_weak_set (s);
+              scm_i_pthread_mutex_unlock (&s->lock);
               init = proc (closure, SCM_PACK (copy.key), init);
-              lock_weak_set (s);
+              scm_i_pthread_mutex_lock (&s->lock);
             }
         }
     }
   
-  unlock_weak_set (s);
+  scm_i_pthread_mutex_unlock (&s->lock);
   
   return init;
 }
@@ -1003,17 +932,6 @@ scm_weak_set_map_to_list (SCM proc, SCM set)
   return scm_c_weak_set_fold (map_trampoline, SCM_UNPACK_POINTER (proc), SCM_EOL, set);
 }
 
-
-
-
-void
-scm_weak_set_prehistory (void)
-{
-#if SCM_USE_PTHREAD_THREADS
-  all_weak_sets = scm_c_make_weak_set (0);
-  pthread_atfork (lock_all_weak_sets, unlock_all_weak_sets, unlock_all_weak_sets);
-#endif
-}
 
 void
 scm_init_weak_set ()

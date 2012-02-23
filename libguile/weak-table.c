@@ -772,79 +772,10 @@ weak_table_remove_x (scm_t_weak_table *table, unsigned long hash,
 
 
 
-
-static void
-lock_weak_table (scm_t_weak_table *table)
-{
-  scm_i_pthread_mutex_lock (&table->lock);
-}
-
-static void
-unlock_weak_table (scm_t_weak_table *table)
-{
-  scm_i_pthread_mutex_unlock (&table->lock);
-}
-
-/* A weak table of weak tables, for use in the pthread_atfork handler. */
-static SCM all_weak_tables = SCM_BOOL_F;
-
-#if SCM_USE_PTHREAD_THREADS
-
-static void
-lock_all_weak_tables (void)
-{
-  scm_t_weak_table *s;
-  scm_t_weak_entry *entries;
-  unsigned long k, size;
-  scm_t_weak_entry copy;
-
-  s = SCM_WEAK_TABLE (all_weak_tables);
-  lock_weak_table (s);
-  size = s->size;
-  entries = s->entries;
-
-  for (k = 0; k < size; k++)
-    if (entries[k].hash)
-      {
-        copy_weak_entry (&entries[k], &copy);
-        if (copy.key)
-          lock_weak_table (SCM_WEAK_TABLE (SCM_PACK (copy.key)));
-      }
-}
-
-static void
-unlock_all_weak_tables (void)
-{
-  scm_t_weak_table *s;
-  scm_t_weak_entry *entries;
-  unsigned long k, size;
-  scm_t_weak_entry copy;
-
-  s = SCM_WEAK_TABLE (all_weak_tables);
-  size = s->size;
-  entries = s->entries;
-
-  for (k = 0; k < size; k++)
-    if (entries[k].hash)
-      {
-        copy_weak_entry (&entries[k], &copy);
-        if (copy.key)
-          unlock_weak_table (SCM_WEAK_TABLE (SCM_PACK (copy.key)));
-      }
-
-  unlock_weak_table (s);
-}
-
-#endif /* SCM_USE_PTHREAD_THREADS */
-
-
-
-
 static SCM
 make_weak_table (unsigned long k, scm_t_weak_table_kind kind)
 {
   scm_t_weak_table *table;
-  SCM ret;
 
   int i = 0, n = k ? k : 31;
   while (i + 1 < HASHTABLE_SIZE_N && n > hashtable_size[i])
@@ -862,12 +793,7 @@ make_weak_table (unsigned long k, scm_t_weak_table_kind kind)
   table->min_size_index = i;
   scm_i_pthread_mutex_init (&table->lock, NULL);
 
-  ret = scm_cell (scm_tc7_weak_table, (scm_t_bits)table);
-
-  if (scm_is_true (all_weak_tables))
-    scm_weak_table_putq_x (all_weak_tables, ret, SCM_BOOL_T);
-  
-  return ret;
+  return scm_cell (scm_tc7_weak_table, (scm_t_bits)table);
 }
 
 void
@@ -891,7 +817,7 @@ do_vacuum_weak_table (SCM table)
   if (scm_i_pthread_mutex_trylock (&t->lock) == 0)
     {
       vacuum_weak_table (t);
-      unlock_weak_table (t);
+      scm_i_pthread_mutex_unlock (&t->lock);
     }
 
   return;
@@ -978,11 +904,11 @@ scm_c_weak_table_ref (SCM table, unsigned long raw_hash,
 
   t = SCM_WEAK_TABLE (table);
 
-  lock_weak_table (t);
+  scm_i_pthread_mutex_lock (&t->lock);
 
   ret = weak_table_ref (t, raw_hash, pred, closure, dflt);
 
-  unlock_weak_table (t);
+  scm_i_pthread_mutex_unlock (&t->lock);
 
   return ret;
 }
@@ -1000,11 +926,11 @@ scm_c_weak_table_put_x (SCM table, unsigned long raw_hash,
 
   t = SCM_WEAK_TABLE (table);
 
-  lock_weak_table (t);
+  scm_i_pthread_mutex_lock (&t->lock);
 
   weak_table_put_x (t, raw_hash, pred, closure, key, value);
 
-  unlock_weak_table (t);
+  scm_i_pthread_mutex_unlock (&t->lock);
 }
 #undef FUNC_NAME
 
@@ -1020,11 +946,11 @@ scm_c_weak_table_remove_x (SCM table, unsigned long raw_hash,
 
   t = SCM_WEAK_TABLE (table);
 
-  lock_weak_table (t);
+  scm_i_pthread_mutex_lock (&t->lock);
 
   weak_table_remove_x (t, raw_hash, pred, closure);
 
-  unlock_weak_table (t);
+  scm_i_pthread_mutex_unlock (&t->lock);
 }
 #undef FUNC_NAME
 
@@ -1072,12 +998,12 @@ scm_weak_table_clear_x (SCM table)
 
   t = SCM_WEAK_TABLE (table);
 
-  lock_weak_table (t);
+  scm_i_pthread_mutex_lock (&t->lock);
 
   memset (t->entries, 0, sizeof (scm_t_weak_entry) * t->size);
   t->n_items = 0;
 
-  unlock_weak_table (t);
+  scm_i_pthread_mutex_unlock (&t->lock);
 
   return SCM_UNSPECIFIED;
 }
@@ -1093,7 +1019,7 @@ scm_c_weak_table_fold (scm_t_table_fold_fn proc, void *closure,
 
   t = SCM_WEAK_TABLE (table);
 
-  lock_weak_table (t);
+  scm_i_pthread_mutex_lock (&t->lock);
 
   size = t->size;
   entries = t->entries;
@@ -1109,16 +1035,16 @@ scm_c_weak_table_fold (scm_t_table_fold_fn proc, void *closure,
           if (copy.key && copy.value)
             {
               /* Release table lock while we call the function.  */
-              unlock_weak_table (t);
+              scm_i_pthread_mutex_unlock (&t->lock);
               init = proc (closure,
                            SCM_PACK (copy.key), SCM_PACK (copy.value),
                            init);
-              lock_weak_table (t);
+              scm_i_pthread_mutex_lock (&t->lock);
             }
         }
     }
   
-  unlock_weak_table (t);
+  scm_i_pthread_mutex_unlock (&t->lock);
   
   return init;
 }
@@ -1273,12 +1199,6 @@ scm_weak_table_prehistory (void)
     GC_new_kind (GC_new_free_list (),
 		 GC_MAKE_PROC (GC_new_proc (mark_weak_value_table), 0),
 		 0, 0);
-
-#if SCM_USE_PTHREAD_THREADS
-  all_weak_tables = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
-  pthread_atfork (lock_all_weak_tables, unlock_all_weak_tables,
-                  unlock_all_weak_tables);
-#endif
 }
 
 void
