@@ -3,7 +3,7 @@
 #ifndef SCM_STRINGS_H
 #define SCM_STRINGS_H
 
-/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2004, 2005, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2004, 2005, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -219,9 +219,6 @@ SCM_INTERNAL void scm_decoding_error (const char *subr, int err,
 				      const char *message, SCM port);
 
 /* internal utility functions. */
-
-SCM_INTERNAL void scm_i_lock_iconv (void);
-SCM_INTERNAL void scm_i_unlock_iconv (void);
 
 SCM_INTERNAL char **scm_i_allocate_string_pointers (SCM list);
 SCM_INTERNAL void scm_i_get_substring_spec (size_t len,
