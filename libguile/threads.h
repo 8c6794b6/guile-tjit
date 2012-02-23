@@ -3,7 +3,7 @@
 #ifndef SCM_THREADS_H
 #define SCM_THREADS_H
 
-/* Copyright (C) 1996,1997,1998,2000,2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1996,1997,1998,2000,2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -129,10 +129,6 @@ typedef struct scm_i_thread {
   scm_assert_smob_type (scm_tc16_mutex, (a))
 #define SCM_VALIDATE_CONDVAR(pos, a) \
   scm_assert_smob_type (scm_tc16_condvar, (a))
-
-#define SCM_PTHREAD_ATFORK_LOCK_STATIC_MUTEX(m) \
-  SCM_SNARF_HERE(SCM_DEFINE_ATFORK_HANDLERS_FOR_MUTEX(&m,lock_##m,unlock_##m))\
-  SCM_SNARF_INIT(scm_i_pthread_atfork (lock_##m, unlock_##m, unlock_##m);)
 
 SCM_API SCM scm_spawn_thread (scm_t_catch_body body, void *body_data,
 			      scm_t_catch_handler handler, void *handler_data);
