@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -1688,7 +1688,6 @@ SCM_DEFINE (scm_putenv, "putenv", 1, 0, 0,
    is also acquired before calls to `nl_langinfo ()'.  See `i18n.c' for
    details.  */
 scm_i_pthread_mutex_t scm_i_locale_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
-SCM_PTHREAD_ATFORK_LOCK_STATIC_MUTEX (scm_i_locale_mutex);
 
 #ifdef HAVE_SETLOCALE
 

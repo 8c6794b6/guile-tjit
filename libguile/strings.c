@@ -226,7 +226,6 @@ narrow_stringbuf (SCM buf)
 }
 
 scm_i_pthread_mutex_t stringbuf_write_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
-SCM_PTHREAD_ATFORK_LOCK_STATIC_MUTEX (stringbuf_write_mutex);
 
 
 /* Copy-on-write strings.

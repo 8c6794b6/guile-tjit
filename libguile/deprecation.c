@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2006, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2006, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -48,7 +48,6 @@ struct issued_warning {
 };
 
 static scm_i_pthread_mutex_t warn_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
-SCM_PTHREAD_ATFORK_LOCK_STATIC_MUTEX (warn_lock);
 static struct issued_warning *issued_warnings;
 static int print_summary = 0;
 

@@ -44,7 +44,6 @@ static void **allocated_fluids = NULL;
 static size_t allocated_fluids_len = 0;
 
 static scm_i_pthread_mutex_t fluid_admin_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
-SCM_PTHREAD_ATFORK_LOCK_STATIC_MUTEX (fluid_admin_mutex);
 
 #define IS_FLUID(x)         SCM_FLUID_P (x)
 #define FLUID_NUM(x)        SCM_I_FLUID_NUM (x)

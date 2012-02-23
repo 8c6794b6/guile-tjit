@@ -500,7 +500,6 @@ SCM_THREAD_LOCAL scm_i_thread *scm_i_current_thread = NULL;
 
 
 static scm_i_pthread_mutex_t thread_admin_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
-SCM_PTHREAD_ATFORK_LOCK_STATIC_MUTEX (thread_admin_mutex);
 static scm_i_thread *all_threads = NULL;
 static int thread_count;
 
@@ -2135,7 +2134,6 @@ static int threads_initialized_p = 0;
 /* This mutex is used by SCM_CRITICAL_SECTION_START/END.
  */
 scm_i_pthread_mutex_t scm_i_critical_section_mutex;
-SCM_PTHREAD_ATFORK_LOCK_STATIC_MUTEX (scm_i_critical_section_mutex);
 
 static SCM dynwind_critical_section_mutex;
 
@@ -2151,7 +2149,6 @@ scm_dynwind_critical_section (SCM mutex)
 /*** Initialization */
 
 scm_i_pthread_mutex_t scm_i_misc_mutex;
-SCM_PTHREAD_ATFORK_LOCK_STATIC_MUTEX (scm_i_misc_mutex);
 
 #if SCM_USE_PTHREAD_THREADS
 pthread_mutexattr_t scm_i_pthread_mutexattr_recursive[1];
