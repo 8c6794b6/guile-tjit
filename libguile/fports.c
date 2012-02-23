@@ -642,7 +642,6 @@ fport_input_waiting (SCM port)
 
 static SCM revealed_ports = SCM_EOL;
 static scm_i_pthread_mutex_t revealed_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
-SCM_PTHREAD_ATFORK_LOCK_STATIC_MUTEX (revealed_lock);
 
 /* Find a port in the table and return its revealed count.
    Also used by the garbage collector.
