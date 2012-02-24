@@ -34,6 +34,9 @@ SCM_INTERNAL void scm_i_add_finalizer (void *obj, scm_t_finalizer_proc,
 SCM_INTERNAL void scm_i_add_resuscitator (void *obj, scm_t_finalizer_proc,
                                           void *data);
 
+SCM_INTERNAL void scm_i_finalizer_pre_fork (void);
+
 SCM_INTERNAL void scm_init_finalizers (void);
+SCM_INTERNAL void scm_init_finalizer_thread (void);
 
 #endif  /* SCM_FINALIZERS_H */

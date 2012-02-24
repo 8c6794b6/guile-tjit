@@ -59,6 +59,7 @@
 #include "libguile/expand.h"
 #include "libguile/feature.h"
 #include "libguile/filesys.h"
+#include "libguile/finalizers.h"
 #include "libguile/fluids.h"
 #include "libguile/fports.h"
 #include "libguile/frames.h"
@@ -421,6 +422,7 @@ scm_i_init_guile (void *base)
   scm_init_dynwind ();            /* requires smob_prehistory */
   scm_init_eq ();
   scm_init_error ();
+  scm_init_finalizers ();
   scm_init_fluids ();
   scm_init_control ();            /* requires fluids */
   scm_init_feature ();
@@ -529,6 +531,9 @@ scm_i_init_guile (void *base)
   /* Capture the dynamic state after loading boot-9, so that new threads end up
      in the guile-user module. */
   scm_init_threads_default_dynamic_state ();
+
+  /* Finally, cause finalizers to run in a separate thread.  */
+  scm_init_finalizer_thread ();
 }
 
 /*
