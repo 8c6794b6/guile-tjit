@@ -171,7 +171,7 @@ queue_finalizer_async (void)
 static int finalization_pipe[2];
 static scm_i_pthread_mutex_t finalization_thread_lock =
   SCM_I_PTHREAD_MUTEX_INITIALIZER;
-static SCM finalization_thread = SCM_BOOL_F;
+static pthread_t finalization_thread;
 
 static void
 notify_finalizers_to_run (void)
@@ -205,7 +205,7 @@ read_finalization_pipe_data (void *data)
   return NULL;
 }
   
-static SCM
+static void*
 finalization_thread_proc (void *unused)
 {
   while (1)
@@ -216,8 +216,8 @@ finalization_thread_proc (void *unused)
       
       if (data.n <= 0 && data.err != EINTR) 
         {
-          perror ("error in finalization delivery thread");
-          return SCM_UNSPECIFIED;
+          perror ("error in finalization thread");
+          return NULL;
         }
 
       switch (data.byte)
@@ -226,21 +226,31 @@ finalization_thread_proc (void *unused)
           finalization_count += GC_invoke_finalizers ();
           break;
         case 1:
-          return SCM_UNSPECIFIED;
+          return NULL;
         default:
           abort ();
         }
     }
 }
 
+static void*
+run_finalization_thread (void *arg)
+{
+  return scm_with_guile (finalization_thread_proc, arg);
+}
+
 static void
 start_finalization_thread (void)
 {
   scm_i_pthread_mutex_lock (&finalization_thread_lock);
-  if (scm_is_false (finalization_thread))
-    finalization_thread = scm_spawn_thread (finalization_thread_proc, NULL,
-                                            scm_handle_by_message,
-                                            "finalization thread");
+  if (!finalization_thread)
+    /* Use the raw pthread API and scm_with_guile, because we don't want
+       to block on any lock that scm_spawn_thread might want to take,
+       and we don't want to inherit the dynamic state (fluids) of the
+       caller.  */
+    if (pthread_create (&finalization_thread, NULL,
+                        run_finalization_thread, NULL))
+      perror ("error creating finalization thread");
   scm_i_pthread_mutex_unlock (&finalization_thread_lock);
 }
 
@@ -248,11 +258,12 @@ static void
 stop_finalization_thread (void)
 {
   scm_i_pthread_mutex_lock (&finalization_thread_lock);
-  if (scm_is_true (finalization_thread))
+  if (finalization_thread)
     {
       notify_about_to_fork ();
-      scm_join_thread (finalization_thread);
-      finalization_thread = SCM_BOOL_F;
+      if (pthread_join (finalization_thread, NULL))
+        perror ("joining finalization thread");
+      finalization_thread = 0;
     }
   scm_i_pthread_mutex_unlock (&finalization_thread_lock);
 }
