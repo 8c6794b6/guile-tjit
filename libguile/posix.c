@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -1248,6 +1248,18 @@ SCM_DEFINE (scm_fork, "primitive-fork", 0, 0, 0,
 #define FUNC_NAME s_scm_fork
 {
   int pid;
+  if (scm_ilength (scm_all_threads ()) != 1)
+    /* Other threads may be holding on to resources that Guile needs --
+       it is not safe to permit one thread to fork while others are
+       running.
+
+       In addition, POSIX clearly specifies that if a multi-threaded
+       program forks, the child must only call functions that are
+       async-signal-safe.  We can't guarantee that in general.  The best
+       we can do is to allow forking only very early, before any call to
+       sigaction spawns the signal-handling thread.  */
+    SCM_MISC_ERROR ("attempt to fork while multiple threads are running",
+                    SCM_EOL);
   pid = fork ();
   if (pid == -1)
     SCM_SYSERROR;

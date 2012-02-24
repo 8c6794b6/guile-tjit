@@ -1,7 +1,7 @@
 ## Process this file with automake to produce Makefile.in.
 ##
 ## Copyright 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-##   2010, 2011 Software Foundation, Inc.
+##   2010, 2011, 2012 Software Foundation, Inc.
 ##
 ## This file is part of GUILE.
 ##
@@ -23,6 +23,7 @@
 SUBDIRS = standalone vm
 
 SCM_TESTS = tests/00-initial-env.test		\
+	    tests/00-socket.test		\
             tests/alist.test			\
 	    tests/and-let-star.test		\
 	    tests/arbiters.test			\
@@ -111,7 +112,6 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/regexp.test			\
 	    tests/session.test			\
 	    tests/signals.test			\
-	    tests/socket.test			\
 	    tests/srcprop.test			\
 	    tests/srfi-1.test			\
 	    tests/srfi-6.test			\
