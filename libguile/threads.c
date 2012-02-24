@@ -1291,14 +1291,6 @@ SCM_DEFINE (scm_thread_p, "thread?", 1, 0, 0,
 #undef FUNC_NAME
 
 
-static size_t
-fat_mutex_free (SCM mx)
-{
-  fat_mutex *m = SCM_MUTEX_DATA (mx);
-  scm_i_pthread_mutex_destroy (&m->lock);
-  return 0;
-}
-
 static int
 fat_mutex_print (SCM mx, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
@@ -1314,9 +1306,12 @@ make_fat_mutex (int recursive, int unchecked_unlock, int external_unlock)
 {
   fat_mutex *m;
   SCM mx;
+  scm_i_pthread_mutex_t lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
   m = scm_gc_malloc (sizeof (fat_mutex), "mutex");
-  scm_i_pthread_mutex_init (&m->lock, NULL);
+  /* Because PTHREAD_MUTEX_INITIALIZER is static, it's plain old data,
+     and so we can just copy it.  */
+  memcpy (&m->lock, &lock, sizeof (m->lock));
   m->owner = SCM_BOOL_F;
   m->level = 0;
 
@@ -2183,7 +2178,6 @@ scm_init_threads ()
 
   scm_tc16_mutex = scm_make_smob_type ("mutex", sizeof (fat_mutex));
   scm_set_smob_print (scm_tc16_mutex, fat_mutex_print);
-  scm_set_smob_free (scm_tc16_mutex, fat_mutex_free);
 
   scm_tc16_condvar = scm_make_smob_type ("condition-variable",
 					 sizeof (fat_cond));
