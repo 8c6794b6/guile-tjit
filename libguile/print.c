@@ -853,6 +853,54 @@ display_string_as_utf8 (const void *str, int narrow_p, size_t len,
   return len;
 }
 
+/* Write STR to PORT as ISO-8859-1.  STR is a LEN-codepoint string; it
+   is narrow if NARROW_P is true, wide otherwise.  Return LEN.  */
+static size_t
+display_string_as_latin1 (const void *str, int narrow_p, size_t len,
+                          SCM port,
+                          scm_t_string_failed_conversion_handler strategy)
+{
+  size_t printed = 0;
+
+  if (narrow_p)
+    {
+      scm_lfwrite_unlocked (str, len, port);
+      return len;
+    }
+
+  while (printed < len)
+    {
+      char buf[256];
+      size_t i;
+
+      for (i = 0; i < sizeof(buf) && printed < len; i++, printed++)
+        {
+          scm_t_wchar c = STR_REF (str, printed);
+
+          if (c < 256)
+            buf[i] = c;
+          else
+            break;
+        }
+
+      scm_lfwrite_unlocked (buf, i, port);
+
+      if (i < sizeof(buf) && printed < len)
+        {
+          if (strategy == SCM_FAILED_CONVERSION_ERROR)
+            break;
+          else if (strategy == SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE)
+            write_character_escaped (STR_REF (str, printed), 1, port);
+          else
+            /* STRATEGY is `SCM_FAILED_CONVERSION_QUESTION_MARK'.  */
+            display_string ("?", 1, 1, port, strategy);
+          printed++;
+        }
+    }
+
+  return printed;
+}
+
 /* Convert STR through PORT's output conversion descriptor and write the
    output to PORT.  Return the number of codepoints written.  */
 static size_t
@@ -968,9 +1016,10 @@ display_string (const void *str, int narrow_p,
 
   if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
     return display_string_as_utf8 (str, narrow_p, len, port);
+  else if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
+    return display_string_as_latin1 (str, narrow_p, len, port, strategy);
   else
-    return display_string_using_iconv (str, narrow_p, len,
-				       port, strategy);
+    return display_string_using_iconv (str, narrow_p, len, port, strategy);
 }
 
 /* Attempt to display CH to PORT according to STRATEGY.  Return non-zero

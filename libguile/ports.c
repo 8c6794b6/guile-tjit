@@ -605,6 +605,8 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   entry->encoding = encoding ? scm_gc_strdup (encoding, "port") : NULL;
   if (encoding && strcmp (encoding, "UTF-8") == 0)
     entry->encoding_mode = SCM_PORT_ENCODING_MODE_UTF8;
+  else if (!encoding || strcmp (encoding, "ISO-8859-1") == 0)
+    entry->encoding_mode = SCM_PORT_ENCODING_MODE_LATIN1;
   else
     entry->encoding_mode = SCM_PORT_ENCODING_MODE_ICONV;
   entry->ilseq_handler = handler;
@@ -941,13 +943,16 @@ scm_i_set_port_encoding_x (SCM port, const char *encoding)
   pt = SCM_PTAB_ENTRY (port);
   prev = pt->iconv_descriptors;
 
-  if (encoding == NULL)
-    encoding = "ISO-8859-1";
-
-  if (strcmp (encoding, "UTF-8") == 0)
+  if (encoding && strcmp (encoding, "UTF-8") == 0)
     {
       pt->encoding = "UTF-8";
       pt->encoding_mode = SCM_PORT_ENCODING_MODE_UTF8;
+      pt->iconv_descriptors = NULL;
+    }
+  else if (!encoding || strcmp (encoding, "ISO-8859-1") == 0)
+    {
+      pt->encoding = "ISO-8859-1";
+      pt->encoding_mode = SCM_PORT_ENCODING_MODE_LATIN1;
       pt->iconv_descriptors = NULL;
     }
   else
@@ -1582,6 +1587,26 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
 #undef ASSERT_NOT_EOF
 }
 
+/* Read an ISO-8859-1 codepoint (a byte) from PORT.  On success, return
+   *0 and set CODEPOINT to the codepoint that was read, fill BUF with
+   *its UTF-8 representation, and set *LEN to the length in bytes.
+   *Return `EILSEQ' on error.  */
+static int
+get_latin1_codepoint (SCM port, scm_t_wchar *codepoint,
+                      char buf[SCM_MBCHAR_BUF_SIZE], size_t *len)
+{
+  *codepoint = scm_get_byte_or_eof_unlocked (port);
+
+  if (*codepoint == EOF)
+    *len = 0;
+  else
+    {
+      *len = 1;
+      buf[0] = *codepoint;
+    }
+  return 0;
+}
+
 /* Likewise, read a byte sequence from PORT, passing it through its
    input conversion descriptor.  */
 static int
@@ -1662,6 +1687,8 @@ get_codepoint (SCM port, scm_t_wchar *codepoint,
 
   if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
     err = get_utf8_codepoint (port, codepoint, (scm_t_uint8 *) buf, len);
+  else if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
+    err = get_latin1_codepoint (port, codepoint, buf, len);
   else
     err = get_iconv_codepoint (port, codepoint, buf, len);
 

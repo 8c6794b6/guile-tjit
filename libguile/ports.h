@@ -50,6 +50,7 @@ typedef enum scm_t_port_rw_active {
 
 typedef enum scm_t_port_encoding_mode {
   SCM_PORT_ENCODING_MODE_UTF8,
+  SCM_PORT_ENCODING_MODE_LATIN1,
   SCM_PORT_ENCODING_MODE_ICONV
 } scm_t_port_encoding_mode;
 
