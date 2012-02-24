@@ -1,6 +1,6 @@
 ;;; srfi-18.scm --- Multithreading support
 
-;; Copyright (C) 2008, 2009, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2008, 2009, 2010, 2012 Free Software Foundation, Inc.
 ;;
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -145,15 +145,15 @@
     (check-arg-type procedure? handler "with-exception-handler") 
     (check-arg-type thunk? thunk "with-exception-handler")
     (hashq-set! thread-exception-handlers ct (cons handler hl))
-    (apply (@ (srfi srfi-34) with-exception-handler) 
-           (list (lambda (obj)
-                   (hashq-set! thread-exception-handlers ct hl) 
-                   (handler obj))
-                 (lambda () 
-                   (call-with-values thunk
-                     (lambda res
-                       (hashq-set! thread-exception-handlers ct hl)
-                       (apply values res))))))))
+    ((@ (srfi srfi-34) with-exception-handler) 
+     (lambda (obj)
+       (hashq-set! thread-exception-handlers ct hl) 
+       (handler obj))
+     (lambda () 
+       (call-with-values thunk
+         (lambda res
+           (hashq-set! thread-exception-handlers ct hl)
+           (apply values res)))))))
 
 (define (current-exception-handler)
   (car (current-handler-stack)))
@@ -277,7 +277,7 @@
 (define (thread-join! thread . args) 
   (define thread-join-inner!
     (wrap (lambda ()
-	    (let ((v (apply join-thread (cons thread args)))
+	    (let ((v (apply join-thread thread args))
 		  (e (thread->exception thread)))
 	      (if (and (= (length args) 1) (not v))
 		  (raise join-timeout-exception))
@@ -320,12 +320,12 @@
   (define mutex-lock-inner!
     (wrap (lambda ()
 	    (catch 'abandoned-mutex-error
-		   (lambda () (apply lock-mutex (cons mutex args)))
+		   (lambda () (apply lock-mutex mutex args))
 		   (lambda (key . args) (raise abandoned-mutex-exception))))))
   (call/cc mutex-lock-inner!))
 
 (define (mutex-unlock! mutex . args) 
-  (apply unlock-mutex (cons mutex args)))
+  (apply unlock-mutex mutex args))
 
 ;; CONDITION VARIABLES
 ;; These functions are all pass-thrus to the existing Guile implementations.
