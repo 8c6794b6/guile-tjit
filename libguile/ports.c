@@ -1588,9 +1588,9 @@ get_utf8_codepoint (SCM port, scm_t_wchar *codepoint,
 }
 
 /* Read an ISO-8859-1 codepoint (a byte) from PORT.  On success, return
-   *0 and set CODEPOINT to the codepoint that was read, fill BUF with
-   *its UTF-8 representation, and set *LEN to the length in bytes.
-   *Return `EILSEQ' on error.  */
+   0 and set *CODEPOINT to the codepoint that was read, fill BUF with
+   its UTF-8 representation, and set *LEN to the length in bytes.
+   Return `EILSEQ' on error.  */
 static int
 get_latin1_codepoint (SCM port, scm_t_wchar *codepoint,
                       char buf[SCM_MBCHAR_BUF_SIZE], size_t *len)
