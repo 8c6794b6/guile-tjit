@@ -3,7 +3,7 @@
 #ifndef SCM_WEAK_TABLE_H
 #define SCM_WEAK_TABLE_H
 
-/* Copyright (C) 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -58,15 +58,15 @@ SCM_INTERNAL void scm_c_weak_table_remove_x (SCM table, unsigned long raw_hash,
                                              void *closure);
 
 SCM_INTERNAL SCM scm_weak_table_refq (SCM table, SCM key, SCM dflt);
-SCM_INTERNAL SCM scm_weak_table_putq_x (SCM table, SCM key, SCM value);
-SCM_INTERNAL SCM scm_weak_table_remq_x (SCM table, SCM key);
+SCM_INTERNAL void scm_weak_table_putq_x (SCM table, SCM key, SCM value);
+SCM_INTERNAL void scm_weak_table_remq_x (SCM table, SCM key);
 
-SCM_INTERNAL SCM scm_weak_table_clear_x (SCM table);
+SCM_INTERNAL void scm_weak_table_clear_x (SCM table);
 
 SCM_INTERNAL SCM scm_c_weak_table_fold (scm_t_table_fold_fn proc, void *closure,
                                       SCM init, SCM table);
 SCM_INTERNAL SCM scm_weak_table_fold (SCM proc, SCM init, SCM table);
-SCM_INTERNAL SCM scm_weak_table_for_each (SCM proc, SCM table);
+SCM_INTERNAL void scm_weak_table_for_each (SCM proc, SCM table);
 SCM_INTERNAL SCM scm_weak_table_map_to_list (SCM proc, SCM table);
 
 

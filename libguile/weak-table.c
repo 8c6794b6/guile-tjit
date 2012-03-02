@@ -971,24 +971,22 @@ scm_weak_table_refq (SCM table, SCM key, SCM dflt)
                                dflt);
 }
 
-SCM
+void
 scm_weak_table_putq_x (SCM table, SCM key, SCM value)
 {
   scm_c_weak_table_put_x (table, scm_ihashq (key, -1),
                           assq_predicate, SCM_UNPACK_POINTER (key),
                           key, value);
-  return SCM_UNSPECIFIED;
 }
 
-SCM
+void
 scm_weak_table_remq_x (SCM table, SCM key)
 {
   scm_c_weak_table_remove_x (table, scm_ihashq (key, -1),
                              assq_predicate, SCM_UNPACK_POINTER (key));
-  return SCM_UNSPECIFIED;
 }
 
-SCM
+void
 scm_weak_table_clear_x (SCM table)
 #define FUNC_NAME "weak-table-clear!"
 {
@@ -1004,8 +1002,6 @@ scm_weak_table_clear_x (SCM table)
   t->n_items = 0;
 
   scm_i_pthread_mutex_unlock (&t->lock);
-
-  return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
@@ -1073,7 +1069,7 @@ for_each_trampoline (void *closure, SCM k, SCM v, SCM seed)
   return seed;
 }
 
-SCM
+void
 scm_weak_table_for_each (SCM proc, SCM table)
 #define FUNC_NAME "weak-table-for-each"
 {
@@ -1081,8 +1077,6 @@ scm_weak_table_for_each (SCM proc, SCM table)
   SCM_VALIDATE_PROC (1, proc);
 
   scm_c_weak_table_fold (for_each_trampoline, SCM_UNPACK_POINTER (proc), SCM_BOOL_F, table);
-
-  return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 

@@ -356,7 +356,10 @@ SCM_DEFINE (scm_hash_clear_x, "hash-clear!", 1, 0, 0,
 #define FUNC_NAME s_scm_hash_clear_x
 {
   if (SCM_WEAK_TABLE_P (table))
-    return scm_weak_table_clear_x (table);
+    {
+      scm_weak_table_clear_x (table);
+      return SCM_UNSPECIFIED;
+    }
 
   SCM_VALIDATE_HASHTABLE (SCM_ARG1, table);
 
@@ -430,7 +433,10 @@ SCM_DEFINE (scm_hashq_set_x, "hashq-set!", 3, 0, 0,
 #define FUNC_NAME s_scm_hashq_set_x
 {
   if (SCM_WEAK_TABLE_P (table))
-    return scm_weak_table_putq_x (table, key, val);
+    {
+      scm_weak_table_putq_x (table, key, val);
+      return val;
+    }
 
   return scm_hash_fn_set_x (table, key, val,
 			    (scm_t_hash_fn) scm_ihashq,
@@ -448,7 +454,14 @@ SCM_DEFINE (scm_hashq_remove_x, "hashq-remove!", 2, 0, 0,
 #define FUNC_NAME s_scm_hashq_remove_x
 {
   if (SCM_WEAK_TABLE_P (table))
-    return scm_weak_table_remq_x (table, key);
+    {
+      scm_weak_table_remq_x (table, key);
+      /* This return value is for historical compatibility with
+         hash-remove!, which returns either the "handle" corresponding
+         to the entry, or #f.  Since weak tables don't have handles, we
+         have to return #f.  */
+      return SCM_BOOL_F;
+    }
 
   return scm_hash_fn_remove_x (table, key,
 			       (scm_t_hash_fn) scm_ihashq,
@@ -532,7 +545,7 @@ SCM_DEFINE (scm_hashv_set_x, "hashv-set!", 3, 0, 0,
       scm_c_weak_table_put_x (table, scm_ihashv (key, -1),
                               assv_predicate, SCM_PACK (key),
                               key, val);
-      return SCM_UNSPECIFIED;
+      return val;
     }
 
   return scm_hash_fn_set_x (table, key, val,
@@ -553,7 +566,8 @@ SCM_DEFINE (scm_hashv_remove_x, "hashv-remove!", 2, 0, 0,
     {
       scm_c_weak_table_remove_x (table, scm_ihashv (key, -1),
                                  assv_predicate, SCM_PACK (key));
-      return SCM_UNSPECIFIED;
+      /* See note in hashq-remove!.  */
+      return SCM_BOOL_F;
     }
 
   return scm_hash_fn_remove_x (table, key,
@@ -638,7 +652,7 @@ SCM_DEFINE (scm_hash_set_x, "hash-set!", 3, 0, 0,
       scm_c_weak_table_put_x (table, scm_ihash (key, -1),
                               assoc_predicate, SCM_PACK (key),
                               key, val);
-      return SCM_UNSPECIFIED;
+      return val;
     }
 
   return scm_hash_fn_set_x (table, key, val,
@@ -660,7 +674,8 @@ SCM_DEFINE (scm_hash_remove_x, "hash-remove!", 2, 0, 0,
     {
       scm_c_weak_table_remove_x (table, scm_ihash (key, -1),
                                  assoc_predicate, SCM_PACK (key));
-      return SCM_UNSPECIFIED;
+      /* See note in hashq-remove!.  */
+      return SCM_BOOL_F;
     }
 
   return scm_hash_fn_remove_x (table, key,
@@ -812,7 +827,7 @@ SCM_DEFINE (scm_hashx_set_x, "hashx-set!", 5, 0, 0,
       unsigned long h = scm_to_ulong (scm_call_2 (hash, key,
                                                   scm_from_ulong (-1)));
       scm_c_weak_table_put_x (table, h, assx_predicate, &closure, key, val);
-      return SCM_UNSPECIFIED;
+      return val;
     }
 
   return scm_hash_fn_set_x (table, key, val, scm_ihashx, scm_sloppy_assx,
@@ -843,7 +858,8 @@ SCM_DEFINE (scm_hashx_remove_x, "hashx-remove!", 4, 0, 0,
       unsigned long h = scm_to_ulong (scm_call_2 (hash, obj,
                                                   scm_from_ulong (-1)));
       scm_c_weak_table_remove_x (table, h, assx_predicate, &closure);
-      return SCM_UNSPECIFIED;
+      /* See note in hashq-remove!.  */
+      return SCM_BOOL_F;
     }
 
   return scm_hash_fn_remove_x (table, obj, scm_ihashx, scm_sloppy_assx,
@@ -893,7 +909,10 @@ SCM_DEFINE (scm_hash_for_each, "hash-for-each", 2, 0, 0,
   SCM_VALIDATE_PROC (1, proc);
 
   if (SCM_WEAK_TABLE_P (table))
-    return scm_weak_table_for_each (proc, table);
+    {
+      scm_weak_table_for_each (proc, table);
+      return SCM_UNSPECIFIED;
+    }
 
   SCM_VALIDATE_HASHTABLE (2, table);
   
