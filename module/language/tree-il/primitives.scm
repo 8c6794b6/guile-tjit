@@ -544,22 +544,21 @@
             'call-with-prompt
             (case-lambda
               ((src tag thunk handler)
-               ;; Sigh. Until the inliner does its job, manually inline
-               ;; (let ((h (lambda ...))) (prompt k x h))
-               (cond
-                ((lambda? handler)
-                 (let ((args-sym (gensym)))
-                   (make-prompt
-                    src tag (make-call #f thunk '())
-                    ;; If handler itself is a lambda, the inliner can do some
-                    ;; trickery here.
-                    (make-lambda-case
-                     (tree-il-src handler) '() #f 'args #f '() (list args-sym)
-                     (make-primcall #f 'apply
-                                    (list handler
-                                          (make-lexical-ref #f 'args args-sym)))
-                     #f))))
-                (else #f)))
+               (let ((handler-sym (gensym))
+                     (args-sym (gensym)))
+                 (make-let
+                  src '(handler) (list handler-sym) (list handler)
+                  (make-prompt
+                   src tag (make-call #f thunk '())
+                   ;; If handler itself is a lambda, the inliner can do some
+                   ;; trickery here.
+                   (make-lambda-case
+                    (tree-il-src handler) '() #f 'args #f '() (list args-sym)
+                    (make-primcall
+                     #f 'apply
+                     (list (make-lexical-ref #f 'handler handler-sym)
+                           (make-lexical-ref #f 'args args-sym)))
+                    #f)))))
               (else #f)))
 
 (hashq-set! *primitive-expand-table*

@@ -1549,6 +1549,31 @@
                        (lambda args args)))
    (const 1))
 
+  ;; Handler lambda inlined
+  (pass-if-peval
+   (call-with-prompt tag
+                     (lambda () 1)
+                     (lambda (k x) x))
+   (prompt (toplevel tag)
+           (const 1)
+           (lambda-case
+            (((k x) #f #f #f () (_ _))
+             (lexical x _)))))
+
+  ;; Handler toplevel not inlined
+  (pass-if-peval
+   (call-with-prompt tag
+                     (lambda () 1)
+                     handler)
+   (let (handler) (_) ((toplevel handler))
+        (prompt (toplevel tag)
+                (const 1)
+                (lambda-case
+                 ((() #f args #f () (_))
+                  (primcall @apply
+                            (lexical handler _)
+                            (lexical args _)))))))
+
   (pass-if-peval
    ;; `while' without `break' or `continue' has no prompts and gets its
    ;; condition folded.  Unfortunately the outer `lp' does not yet get
@@ -1564,7 +1589,16 @@
                             ((() #f #f #f () ())
                              (call (lexical loop _))))))
                         (call (lexical loop _)))))))
-           (call (lexical lp _)))))
+           (call (lexical lp _))))
+
+  (pass-if-peval
+   (lambda (a . rest)
+     (apply (lambda (x y) (+ x y))
+            a rest))
+   (lambda _
+     (lambda-case
+      (((x y) #f #f #f () (_ _))
+       _)))))
 
 
 
@@ -2199,6 +2233,19 @@
                  (compile '(format #t (N_ "~a thing" "~a things" n) n)
                           #:opts %opts-w-format
                           #:to 'assembly)))))
+
+     (pass-if "non-literal format string with forward declaration"
+       (let ((w (call-with-warnings
+                 (lambda ()
+                   (compile '(begin
+                               (define (foo)
+                                 (format #t (_ "~A ~A!") "hello" "world"))
+                               (define _ bar))
+                            #:opts %opts-w-format
+                            #:to 'assembly)))))
+         (and (= (length w) 1)
+              (number? (string-contains (car w)
+                                        "non-literal format string")))))
 
      (pass-if "wrong format string"
        (let ((w (call-with-warnings
