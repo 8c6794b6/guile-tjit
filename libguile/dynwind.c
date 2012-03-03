@@ -66,7 +66,6 @@ scm_dynwind_begin (scm_t_dynwind_flags flags)
   scm_dynstack_push_frame (&thread->dynstack, flags);
 }
 
-/* FIXME -- breaking abstractions */
 void
 scm_dynwind_end (void)
 {
