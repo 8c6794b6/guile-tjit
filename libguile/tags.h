@@ -423,8 +423,8 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 #define scm_tc7_vm		55
 #define scm_tc7_vm_cont		71
 
-#define scm_tc7_prompt		61
-#define scm_tc7_with_fluids	63
+#define scm_tc7_unused_17	61
+#define scm_tc7_unused_21	63
 #define scm_tc7_unused_19	69
 #define scm_tc7_program		79
 #define scm_tc7_weak_set	85

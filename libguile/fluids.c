@@ -20,7 +20,6 @@
 # include <config.h>
 #endif
 
-#include <alloca.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -88,14 +87,6 @@ void
 scm_i_dynamic_state_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
   scm_puts_unlocked ("#<dynamic-state ", port);
-  scm_intprint (SCM_UNPACK (exp), 16, port);
-  scm_putc_unlocked ('>', port);
-}
-
-void
-scm_i_with_fluids_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
-{
-  scm_puts_unlocked ("#<with-fluids ", port);
   scm_intprint (SCM_UNPACK (exp), 16, port);
   scm_putc_unlocked ('>', port);
 }
@@ -310,76 +301,67 @@ apply_thunk (void *thunk)
   return scm_call_0 (SCM_PACK (thunk));
 }
 
-SCM
-scm_i_make_with_fluids (size_t n, SCM *fluids, SCM *vals)
+size_t
+scm_prepare_fluids (size_t n, SCM *fluids, SCM *values)
 {
-  SCM ret;
+  size_t j = n;
 
   /* Ensure that there are no duplicates in the fluids set -- an N^2 operation,
      but N will usually be small, so perhaps that's OK. */
-  {
-    size_t i, j = n;
+  while (j--)
+    {
+      size_t i;
 
-    while (j--)
+      if (SCM_UNLIKELY (!IS_FLUID (fluids[j])))
+        scm_wrong_type_arg ("with-fluids", 0, fluids[j]);
+
       for (i = 0; i < j; i++)
         if (scm_is_eq (fluids[i], fluids[j]))
           {
-            vals[i] = vals[j]; /* later bindings win */
+            values[i] = values[j]; /* later bindings win */
             n--;
             break;
           }
-  }
-        
-  ret = scm_words (scm_tc7_with_fluids | (n << 8), 1 + n*2);
-  SCM_SET_CELL_WORD_1 (ret, n);
-
-  while (n--)
-    {
-      if (SCM_UNLIKELY (!IS_FLUID (fluids[n])))
-        scm_wrong_type_arg ("with-fluids", 0, fluids[n]);
-      SCM_SET_CELL_OBJECT (ret, 1 + n * 2, fluids[n]);
-      SCM_SET_CELL_OBJECT (ret, 2 + n * 2, vals[n]);
     }
 
-  return ret;
+  return n;
 }
   
 void
-scm_i_swap_with_fluids (SCM wf, SCM dynstate)
+scm_swap_fluids (size_t n, SCM *fluids, SCM *values, SCM dynstate)
 {
-  SCM fluids;
+  SCM fluid_vector;
   size_t i, max = 0;
 
-  fluids = DYNAMIC_STATE_FLUIDS (dynstate);
+  fluid_vector = DYNAMIC_STATE_FLUIDS (dynstate);
 
   /* We could cache the max in the with-fluids, but that would take more mem,
      and we're touching all the fluids anyway, so this per-swap traversal should
      be OK. */
-  for (i = 0; i < SCM_WITH_FLUIDS_LEN (wf); i++)
+  for (i = 0; i < n; i++)
     {
-      size_t num = FLUID_NUM (SCM_WITH_FLUIDS_NTH_FLUID (wf, i));
+      size_t num = FLUID_NUM (fluids[i]);
       max = (max > num) ? max : num;
     }
 
-  if (SCM_UNLIKELY (max >= SCM_SIMPLE_VECTOR_LENGTH (fluids)))
+  if (SCM_UNLIKELY (max >= SCM_SIMPLE_VECTOR_LENGTH (fluid_vector)))
     {
       /* Lazily grow the current thread's dynamic state.  */
       grow_dynamic_state (dynstate);
 
-      fluids = DYNAMIC_STATE_FLUIDS (dynstate);
+      fluid_vector = DYNAMIC_STATE_FLUIDS (dynstate);
     }
 
   /* Bind the fluids. Order doesn't matter, as all fluids are distinct. */
-  for (i = 0; i < SCM_WITH_FLUIDS_LEN (wf); i++)
+  for (i = 0; i < n; i++)
     {
       size_t fluid_num;
       SCM x;
       
-      fluid_num = FLUID_NUM (SCM_WITH_FLUIDS_NTH_FLUID (wf, i));
-      x = SCM_SIMPLE_VECTOR_REF (fluids, fluid_num);
-      SCM_SIMPLE_VECTOR_SET (fluids, fluid_num,
-                             SCM_WITH_FLUIDS_NTH_VAL (wf, i));
-      SCM_WITH_FLUIDS_SET_NTH_VAL (wf, i, x);
+      fluid_num = FLUID_NUM (fluids[i]);
+      x = SCM_SIMPLE_VECTOR_REF (fluid_vector, fluid_num);
+      SCM_SIMPLE_VECTOR_SET (fluid_vector, fluid_num, values[i]);
+      values[i] = x;
     }
 }
   
@@ -400,9 +382,10 @@ SCM
 scm_c_with_fluids (SCM fluids, SCM values, SCM (*cproc) (), void *cdata)
 #define FUNC_NAME "scm_c_with_fluids"
 {
-  SCM wf, ans;
+  SCM ans;
   long flen, vlen, i;
   SCM *fluidsv, *valuesv;
+  scm_i_thread *thread = SCM_I_CURRENT_THREAD;
 
   SCM_VALIDATE_LIST_COPYLEN (1, fluids, flen);
   SCM_VALIDATE_LIST_COPYLEN (2, values, vlen);
@@ -423,12 +406,10 @@ scm_c_with_fluids (SCM fluids, SCM values, SCM (*cproc) (), void *cdata)
       values = SCM_CDR (values);
     }
 
-  wf = scm_i_make_with_fluids (flen, fluidsv, valuesv);
-  scm_i_swap_with_fluids (wf, SCM_I_CURRENT_THREAD->dynamic_state);
-  scm_i_set_dynwinds (scm_cons (wf, scm_i_dynwinds ()));
+  scm_dynstack_push_fluids (&thread->dynstack, flen, fluidsv, valuesv,
+                            thread->dynamic_state);
   ans = cproc (cdata);
-  scm_i_swap_with_fluids (wf, SCM_I_CURRENT_THREAD->dynamic_state);
-  scm_i_set_dynwinds (scm_cdr (scm_i_dynwinds ()));
+  scm_dynstack_unwind_fluids (&thread->dynstack, thread->dynamic_state);
 
   return ans;
 }
@@ -449,14 +430,13 @@ SCM
 scm_c_with_fluid (SCM fluid, SCM value, SCM (*cproc) (), void *cdata)
 #define FUNC_NAME "scm_c_with_fluid"
 {
-  SCM ans, wf;
+  SCM ans;
+  scm_i_thread *thread = SCM_I_CURRENT_THREAD;
 
-  wf = scm_i_make_with_fluids (1, &fluid, &value);
-  scm_i_swap_with_fluids (wf, SCM_I_CURRENT_THREAD->dynamic_state);
-  scm_i_set_dynwinds (scm_cons (wf, scm_i_dynwinds ()));
+  scm_dynstack_push_fluids (&thread->dynstack, 1, &fluid, &value,
+                            thread->dynamic_state);
   ans = cproc (cdata);
-  scm_i_swap_with_fluids (wf, SCM_I_CURRENT_THREAD->dynamic_state);
-  scm_i_set_dynwinds (scm_cdr (scm_i_dynwinds ()));
+  scm_dynstack_unwind_fluids (&thread->dynstack, thread->dynamic_state);
 
   return ans;
 }

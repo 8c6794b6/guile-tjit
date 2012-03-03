@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -93,6 +93,7 @@ struct scm_vm_cont {
   scm_t_ptrdiff stack_size;
   SCM *stack_base;
   scm_t_ptrdiff reloc;
+  scm_t_dynstack *dynstack;
   scm_t_uint32 flags;
 };
 
@@ -107,9 +108,10 @@ SCM_INTERNAL SCM scm_c_vm_run (SCM vm, SCM program, SCM *argv, int nargs);
 
 SCM_INTERNAL void scm_i_vm_print (SCM x, SCM port,
                                   scm_print_state *pstate);
-SCM_INTERNAL SCM scm_i_vm_capture_continuation (SCM vm);
+SCM_INTERNAL SCM scm_i_capture_current_stack (void);
 SCM_INTERNAL SCM scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp,
                                          scm_t_uint8 *ra, scm_t_uint8 *mvra,
+                                         scm_t_dynstack *dynstack,
                                          scm_t_uint32 flags);
 SCM_INTERNAL void scm_i_vm_cont_print (SCM x, SCM port,
                                        scm_print_state *pstate);

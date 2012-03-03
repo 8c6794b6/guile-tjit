@@ -3,7 +3,7 @@
 #ifndef SCM_DYNWIND_H
 #define SCM_DYNWIND_H
 
-/* Copyright (C) 1995,1996,1998,1999,2000,2003,2004, 2006, 2008, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,1999,2000,2003,2004, 2006, 2008, 2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -24,25 +24,22 @@
 
 
 #include "libguile/__scm.h"
+#include "libguile/dynstack.h"
 
 
 
-typedef void (*scm_t_guard) (void *);
-
 SCM_API SCM scm_dynamic_wind (SCM thunk1, SCM thunk2, SCM thunk3);
-SCM_API void scm_dowinds (SCM to, long delta);
-SCM_INTERNAL void scm_i_dowinds (SCM to, long delta,
-				 void (*turn_func) (void *), void *data);
+
 SCM_INTERNAL void scm_init_dynwind (void);
 
 SCM_API void scm_swap_bindings (SCM vars, SCM vals);
 
 typedef enum {
-  SCM_F_DYNWIND_REWINDABLE = (1 << 0)
+  SCM_F_DYNWIND_REWINDABLE = SCM_F_DYNSTACK_FRAME_REWINDABLE
 } scm_t_dynwind_flags;
 
 typedef enum {
-  SCM_F_WIND_EXPLICITLY = (1 << 0)
+  SCM_F_WIND_EXPLICITLY = SCM_F_DYNSTACK_WINDER_EXPLICIT
 } scm_t_wind_flags;
 
 SCM_API void scm_dynwind_begin (scm_t_dynwind_flags);
@@ -60,9 +57,6 @@ SCM_API void scm_dynwind_rewind_handler_with_scm (void (*func) (SCM), SCM data,
 
 SCM_API void scm_dynwind_free (void *mem);
 
-#ifdef GUILE_DEBUG
-SCM_API SCM scm_wind_chain (void);
-#endif /*GUILE_DEBUG*/
 
 #endif  /* SCM_DYNWIND_H */
 

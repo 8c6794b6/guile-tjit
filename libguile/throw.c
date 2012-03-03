@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2003, 2004, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2003, 2004, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -456,7 +456,11 @@ SCM_SYMBOL (sym_pre_init_catch_tag, "%pre-init-catch-tag");
 static SCM
 pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
 {
-  SCM vm, prompt, res;
+  volatile SCM vm, v_handler;
+  SCM res;
+  scm_t_prompt_registers *regs;
+  scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
+  scm_t_dynstack_prompt_flags flags;
 
   /* Only handle catch-alls without pre-unwind handlers */
   if (!SCM_UNBNDP (pre_unwind_handler))
@@ -464,22 +468,29 @@ pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
   if (scm_is_false (scm_eqv_p (tag, SCM_BOOL_T)))
     abort ();
 
+  /* These two are volatile, so we know we can access them after a
+     nonlocal return to the setjmp.  */
   vm = scm_the_vm ();
-  prompt = scm_c_make_prompt (sym_pre_init_catch_tag,
-                              SCM_VM_DATA (vm)->fp, SCM_VM_DATA (vm)->sp,
-                              SCM_VM_DATA (vm)->ip, 1, -1, scm_i_dynwinds ());
-  scm_i_set_dynwinds (scm_cons (prompt, SCM_PROMPT_DYNWINDS (prompt)));
+  v_handler = handler;
 
-  if (SCM_PROMPT_SETJMP (prompt))
+  /* Push the prompt onto the dynamic stack. */
+  regs = scm_c_make_prompt_registers (SCM_VM_DATA (vm)->fp,
+                                      SCM_VM_DATA (vm)->sp,
+                                      SCM_VM_DATA (vm)->ip,
+                                      -1);
+  flags = SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY;
+  scm_dynstack_push_prompt (dynstack, flags, sym_pre_init_catch_tag, regs);
+
+  if (SCM_I_SETJMP (regs->regs))
     {
       /* nonlocal exit */
       SCM args = scm_i_prompt_pop_abort_args_x (vm);
       /* cdr past the continuation */
-      return scm_apply_0 (handler, scm_cdr (args));
+      return scm_apply_0 (v_handler, scm_cdr (args));
     }
 
   res = scm_call_0 (thunk);
-  scm_i_set_dynwinds (scm_cdr (scm_i_dynwinds ()));
+  scm_dynstack_pop (dynstack);
 
   return res;
 }
@@ -487,14 +498,9 @@ pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
 static int
 find_pre_init_catch (void)
 {
-  SCM winds;
-
-  /* Search the wind list for an appropriate prompt.
-     "Waiter, please bring us the wind list." */
-  for (winds = scm_i_dynwinds (); scm_is_pair (winds); winds = SCM_CDR (winds))
-    if (SCM_PROMPT_P (SCM_CAR (winds))
-        && scm_is_eq (SCM_PROMPT_TAG (SCM_CAR (winds)), sym_pre_init_catch_tag))
-      return 1;
+  if (scm_dynstack_find_prompt (&SCM_I_CURRENT_THREAD->dynstack,
+                                sym_pre_init_catch_tag, NULL, NULL))
+    return 1;
 
   return 0;
 }

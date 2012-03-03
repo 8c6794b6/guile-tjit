@@ -30,18 +30,18 @@
 
 
 
+#define PROMPT_ESCAPE_P(p)                              \
+  (SCM_DYNSTACK_TAG_FLAGS (SCM_DYNSTACK_TAG (p))        \
+   & SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY)
 
-SCM
-scm_c_make_prompt (SCM k, SCM *fp, SCM *sp, scm_t_uint8 *abort_ip,
-                   scm_t_uint8 escape_only_p, scm_t_int64 vm_cookie,
-                   SCM winds)
+
+
+
+scm_t_prompt_registers*
+scm_c_make_prompt_registers (SCM *fp, SCM *sp, scm_t_uint8 *abort_ip,
+                             scm_t_int64 vm_cookie)
 {
-  scm_t_bits tag;
-  struct scm_prompt_registers *regs;
-
-  tag = scm_tc7_prompt;
-  if (escape_only_p)
-    tag |= (SCM_F_PROMPT_ESCAPE<<8);
+  scm_t_prompt_registers *regs;
 
   regs = scm_gc_malloc_pointerless (sizeof (*regs), "prompt registers");
   regs->fp = fp;
@@ -49,11 +49,10 @@ scm_c_make_prompt (SCM k, SCM *fp, SCM *sp, scm_t_uint8 *abort_ip,
   regs->ip = abort_ip;
   regs->cookie = vm_cookie;
 
-  return scm_double_cell (tag, SCM_UNPACK (k), (scm_t_bits)regs, 
-                          SCM_UNPACK (winds));
+  return regs;
 }
 
-/* Only to be called if the SCM_PROMPT_SETJMP returns 1 */
+/* Only to be called if the SCM_I_SETJMP returns 1 */
 SCM
 scm_i_prompt_pop_abort_args_x (SCM vm)
 {
@@ -115,9 +114,9 @@ SCM_STATIC_OBJCODE (cont_objcode) = {
   OBJCODE_HEADER (8, 19),
   /* leave args on the stack */
   /* 0 */ scm_op_object_ref, 0, /* push scm_vm_cont object */
-  /* 2 */ scm_op_object_ref, 1, /* push internal winds */
-  /* 4 */ scm_op_partial_cont_call, /* and go! */
-  /* 5 */ scm_op_nop, scm_op_nop, scm_op_nop, /* pad to 8 bytes */
+  /* 2 */ scm_op_partial_cont_call, /* and go! */
+  /* 3 */ scm_op_nop,
+  /* 4 */ scm_op_nop, scm_op_nop, scm_op_nop, scm_op_nop, /* pad to 8 bytes */
   /* 8 */
 
   /* We could put some meta-info to say that this proc is a continuation. Not sure
@@ -125,7 +124,7 @@ SCM_STATIC_OBJCODE (cont_objcode) = {
   META_HEADER (19),
   /* 0 */ scm_op_make_eol, /* bindings */
   /* 1 */ scm_op_make_eol, /* sources */
-  /* 2 */ scm_op_make_int8, 0, scm_op_make_int8, 5, /* arity: from ip 0 to ip 7 */
+  /* 2 */ scm_op_make_int8, 0, scm_op_make_int8, 3, /* arity: from ip 0 to ip 3 */
   /* 6 */ scm_op_make_int8_0, /* the arity is 0 required args */
   /* 7 */ scm_op_make_int8_0, /* 0 optionals */
   /* 8 */ scm_op_make_true, /* and a rest arg */
@@ -138,45 +137,35 @@ SCM_STATIC_OBJCODE (cont_objcode) = {
 
 
 static SCM
-reify_partial_continuation (SCM vm, SCM prompt, SCM extwinds,
+reify_partial_continuation (SCM vm, scm_t_prompt_registers *regs,
+                            scm_t_dynstack *dynstack,
                             scm_t_int64 cookie)
 {
-  SCM vm_cont, dynwinds, intwinds = SCM_EOL, ret;
+  SCM vm_cont, ret;
   scm_t_uint32 flags;
 
-  /* No need to reify if the continuation is never referenced in the handler. */
-  if (SCM_PROMPT_ESCAPE_P (prompt))
-    return SCM_BOOL_F;
-
-  dynwinds = scm_i_dynwinds ();
-  while (!scm_is_eq (dynwinds, extwinds))
-    {
-      intwinds = scm_cons (scm_car (dynwinds), intwinds);
-      dynwinds = scm_cdr (dynwinds);
-    }
-
   flags = SCM_F_VM_CONT_PARTIAL;
-  if (cookie >= 0 && SCM_PROMPT_REGISTERS (prompt)->cookie == cookie)
+  if (cookie >= 0 && regs->cookie == cookie)
     flags |= SCM_F_VM_CONT_REWINDABLE;
 
   /* Since non-escape continuations should begin with a thunk application, the
      first bit of the stack should be a frame, with the saved fp equal to the fp
      that was current when the prompt was made. */
-  if ((SCM*)SCM_UNPACK (SCM_PROMPT_REGISTERS (prompt)->sp[1])
-      != SCM_PROMPT_REGISTERS (prompt)->fp)
+  if ((SCM*)SCM_UNPACK (regs->sp[1]) != regs->fp)
     abort ();
 
   /* Capture from the top of the thunk application frame up to the end. Set an
      MVRA only, as the post-abort code is in an MV context. */
-  vm_cont = scm_i_vm_capture_stack (SCM_PROMPT_REGISTERS (prompt)->sp + 4,
+  vm_cont = scm_i_vm_capture_stack (regs->sp + 4,
                                     SCM_VM_DATA (vm)->fp,
                                     SCM_VM_DATA (vm)->sp,
                                     NULL,
                                     SCM_VM_DATA (vm)->ip,
+                                    dynstack,
                                     flags);
 
   ret = scm_make_program (cont_objcode,
-                          scm_vector (scm_list_2 (vm_cont, intwinds)),
+                          scm_c_make_vector (1, vm_cont),
                           SCM_BOOL_F);
   SCM_SET_CELL_WORD_0 (ret,
                        SCM_CELL_WORD_0 (ret) | SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION);
@@ -186,46 +175,42 @@ reify_partial_continuation (SCM vm, SCM prompt, SCM extwinds,
 void
 scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv, scm_t_int64 cookie)
 {
-  SCM cont, winds, prompt = SCM_BOOL_F;
-  long delta;
+  SCM cont;
+  scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
+  scm_t_bits *prompt;
+  scm_t_prompt_registers *regs;
+  scm_t_dynstack_prompt_flags flags;
   size_t i;
 
-  /* Search the wind list for an appropriate prompt.
-     "Waiter, please bring us the wind list." */
-  for (winds = scm_i_dynwinds (), delta = 0;
-       scm_is_pair (winds);
-       winds = SCM_CDR (winds), delta++)
-    {
-      SCM elt = SCM_CAR (winds);
-      if (SCM_PROMPT_P (elt) && scm_is_eq (SCM_PROMPT_TAG (elt), tag))
-        {
-          prompt = elt;
-          break;
-        }
-    }
-  
-  /* If we didn't find anything, raise an error. */
-  if (scm_is_false (prompt))
+  prompt = scm_dynstack_find_prompt (dynstack, tag, &regs, &flags);
+
+  if (!prompt)
     scm_misc_error ("abort", "Abort to unknown prompt", scm_list_1 (tag));
 
-  cont = reify_partial_continuation (vm, prompt, winds, cookie);
+  /* Only reify if the continuation referenced in the handler. */
+  if (flags & SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY)
+    cont = SCM_BOOL_F;
+  else
+    {
+      scm_t_dynstack *captured;
 
-  /* Unwind once more, beyond the prompt. */
-  winds = SCM_CDR (winds), delta++;
+      captured = scm_dynstack_capture (dynstack, SCM_DYNSTACK_NEXT (prompt));
+      cont = reify_partial_continuation (vm, regs, captured, cookie);
+    }
 
-  /* Unwind */
-  scm_dowinds (winds, delta);
+  /* Unwind.  */
+  scm_dynstack_unwind (dynstack, prompt);
 
   /* Unwinding may have changed the current thread's VM, so use the
      new one.  */
   vm = scm_the_vm ();
 
   /* Restore VM regs */
-  SCM_VM_DATA (vm)->fp = SCM_PROMPT_REGISTERS (prompt)->fp;
-  SCM_VM_DATA (vm)->sp = SCM_PROMPT_REGISTERS (prompt)->sp;
-  SCM_VM_DATA (vm)->ip = SCM_PROMPT_REGISTERS (prompt)->ip;
+  SCM_VM_DATA (vm)->fp = regs->fp;
+  SCM_VM_DATA (vm)->sp = regs->sp;
+  SCM_VM_DATA (vm)->ip = regs->ip;
 
-  /* Since we're jumping down, we should always have enough space */
+  /* Since we're jumping down, we should always have enough space.  */
   if (SCM_VM_DATA (vm)->sp + n + 1 >= SCM_VM_DATA (vm)->stack_limit)
     abort ();
 
@@ -236,7 +221,7 @@ scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv, scm_t_int64 cookie)
   *(++(SCM_VM_DATA (vm)->sp)) = scm_from_size_t (n+1); /* +1 for continuation */
 
   /* Jump! */
-  SCM_I_LONGJMP (SCM_PROMPT_REGISTERS (prompt)->regs, 1);
+  SCM_I_LONGJMP (regs->regs, 1);
 
   /* Shouldn't get here */
   abort ();
@@ -264,14 +249,6 @@ SCM_DEFINE (scm_at_abort, "@abort", 2, 0, 0, (SCM tag, SCM args),
   abort ();
 }
 #undef FUNC_NAME
-
-void
-scm_i_prompt_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
-{
-  scm_puts_unlocked ("#<prompt ", port);
-  scm_intprint (SCM_UNPACK (exp), 16, port);
-  scm_putc_unlocked ('>', port);
-}
 
 void
 scm_init_control (void)

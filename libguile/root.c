@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000, 2001, 2002, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,1999,2000, 2001, 2002, 2006, 2008, 2009, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -109,12 +109,14 @@ scm_internal_cwdr (scm_t_catch_body body, void *body_data,
 		   SCM_STACKITEM *stack_start)
 {
   struct cwdr_handler_data my_handler_data;
-  SCM answer, old_winds;
+  scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
+  SCM answer;
+  scm_t_dynstack *old_dynstack;
 
   /* Exit caller's dynamic state.
    */
-  old_winds = scm_i_dynwinds ();
-  scm_dowinds (SCM_EOL, scm_ilength (old_winds));
+  old_dynstack = scm_dynstack_capture_all (dynstack);
+  scm_dynstack_unwind (dynstack, SCM_DYNSTACK_FIRST (dynstack));
 
   scm_dynwind_begin (SCM_F_DYNWIND_REWINDABLE);
   scm_dynwind_current_dynamic_state (scm_make_dynamic_state (SCM_UNDEFINED));
@@ -128,7 +130,7 @@ scm_internal_cwdr (scm_t_catch_body body, void *body_data,
 
   /* Enter caller's dynamic state.
    */
-  scm_dowinds (old_winds, - scm_ilength (old_winds));
+  scm_dynstack_wind (dynstack, SCM_DYNSTACK_FIRST (old_dynstack));
 
   /* Now run the real handler iff the body did a throw. */
   if (my_handler_data.run_handler)

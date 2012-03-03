@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012
  * Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
@@ -266,14 +266,14 @@ eval (SCM x, SCM env)
 
     case SCM_M_DYNWIND:
       {
-        SCM in, out, res, old_winds;
+        SCM in, out, res;
+        scm_i_thread *t = SCM_I_CURRENT_THREAD;
         in = EVAL1 (CAR (mx), env);
         out = EVAL1 (CDDR (mx), env);
         scm_call_0 (in);
-        old_winds = scm_i_dynwinds ();
-        scm_i_set_dynwinds (scm_acons (in, out, old_winds));
+        scm_dynstack_push_dynwind (&t->dynstack, in, out);
         res = eval (CADR (mx), env);
-        scm_i_set_dynwinds (old_winds);
+        scm_dynstack_pop (&t->dynstack);
         scm_call_0 (out);
         return res;
       }
@@ -281,7 +281,9 @@ eval (SCM x, SCM env)
     case SCM_M_WITH_FLUIDS:
       {
         long i, len;
-        SCM *fluidv, *valuesv, walk, wf, res;
+        SCM *fluidv, *valuesv, walk, res;
+        scm_i_thread *thread = SCM_I_CURRENT_THREAD;
+
         len = scm_ilength (CAR (mx));
         fluidv = alloca (sizeof (SCM)*len);
         for (i = 0, walk = CAR (mx); i < len; i++, walk = CDR (walk))
@@ -290,12 +292,10 @@ eval (SCM x, SCM env)
         for (i = 0, walk = CADR (mx); i < len; i++, walk = CDR (walk))
           valuesv[i] = EVAL1 (CAR (walk), env);
         
-        wf = scm_i_make_with_fluids (len, fluidv, valuesv);
-        scm_i_swap_with_fluids (wf, SCM_I_CURRENT_THREAD->dynamic_state);
-        scm_i_set_dynwinds (scm_cons (wf, scm_i_dynwinds ()));
+        scm_dynstack_push_fluids (&thread->dynstack, len, fluidv, valuesv,
+                                  thread->dynamic_state);
         res = eval (CDDR (mx), env);
-        scm_i_swap_with_fluids (wf, SCM_I_CURRENT_THREAD->dynamic_state);
-        scm_i_set_dynwinds (CDR (scm_i_dynwinds ()));
+        scm_dynstack_unwind_fluids (&thread->dynstack, thread->dynamic_state);
         
         return res;
       }
@@ -437,20 +437,27 @@ eval (SCM x, SCM env)
 
     case SCM_M_PROMPT:
       {
-        SCM vm, res;
-        /* We need the prompt and handler values after a longjmp case,
-           so make sure they are volatile.  */
-        volatile SCM handler, prompt;
+        SCM vm, k, res;
+        scm_t_dynstack_prompt_flags flags;
+        scm_t_prompt_registers *regs;
+        /* We need the handler after nonlocal return to the setjmp, so
+           make sure it is volatile.  */
+        volatile SCM handler;
 
-        vm = scm_the_vm ();
-        prompt = scm_c_make_prompt (EVAL1 (CAR (mx), env),
-                                    SCM_VM_DATA (vm)->fp,
-                                    SCM_VM_DATA (vm)->sp, SCM_VM_DATA (vm)->ip,
-                                    0, -1, scm_i_dynwinds ());
+        k = EVAL1 (CAR (mx), env);
         handler = EVAL1 (CDDR (mx), env);
-        scm_i_set_dynwinds (scm_cons (prompt, scm_i_dynwinds ()));
+        vm = scm_the_vm ();
 
-        if (SCM_PROMPT_SETJMP (prompt))
+        /* Push the prompt onto the dynamic stack. */
+        regs = scm_c_make_prompt_registers (SCM_VM_DATA (vm)->fp,
+                                            SCM_VM_DATA (vm)->sp,
+                                            SCM_VM_DATA (vm)->ip,
+                                            -1);
+        flags = SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY;
+        scm_dynstack_push_prompt (&SCM_I_CURRENT_THREAD->dynstack,
+                                  flags, k, regs);
+
+        if (SCM_I_SETJMP (regs->regs))
           {
             /* The prompt exited nonlocally. */
             proc = handler;
@@ -459,7 +466,7 @@ eval (SCM x, SCM env)
           }
         
         res = eval (CADR (mx), env);
-        scm_i_set_dynwinds (CDR (scm_i_dynwinds ()));
+        scm_dynstack_pop (&SCM_I_CURRENT_THREAD->dynstack);
         return res;
       }
 

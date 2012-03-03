@@ -101,7 +101,8 @@ scm_i_vm_cont_print (SCM x, SCM port, scm_print_state *pstate)
  */
 SCM
 scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp, scm_t_uint8 *ra,
-                        scm_t_uint8 *mvra, scm_t_uint32 flags)
+                        scm_t_uint8 *mvra, scm_t_dynstack *dynstack,
+                        scm_t_uint32 flags)
 {
   struct scm_vm_cont *p;
 
@@ -124,6 +125,7 @@ scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp, scm_t_uint8 *ra,
   p->fp = fp;
   memcpy (p->stack_base, stack_base, (sp + 1 - stack_base) * sizeof (SCM));
   p->reloc = p->stack_base - stack_base;
+  p->dynstack = dynstack;
   p->flags = flags;
   return scm_cell (scm_tc7_vm_cont, (scm_t_bits)p);
 }
@@ -183,10 +185,19 @@ vm_return_to_continuation (SCM vm, SCM cont, size_t n, SCM *argv)
 }
 
 SCM
-scm_i_vm_capture_continuation (SCM vm)
+scm_i_capture_current_stack (void)
 {
-  struct scm_vm *vp = SCM_VM_DATA (vm);
-  return scm_i_vm_capture_stack (vp->stack_base, vp->fp, vp->sp, vp->ip, NULL, 0);
+  scm_i_thread *thread;
+  SCM vm;
+  struct scm_vm *vp;
+
+  thread = SCM_I_CURRENT_THREAD;
+  vm = scm_the_vm ();
+  vp = SCM_VM_DATA (vm);
+
+  return scm_i_vm_capture_stack (vp->stack_base, vp->fp, vp->sp, vp->ip, NULL,
+                                 scm_dynstack_capture_all (&thread->dynstack),
+                                 0);
 }
 
 static void
@@ -264,13 +275,14 @@ vm_abort (SCM vm, size_t n, scm_t_int64 vm_cookie)
   scm_c_abort (vm, tag, n + tail_len, argv, vm_cookie);
 }
 
-static void
-vm_reinstate_partial_continuation (SCM vm, SCM cont, SCM intwinds,
+static scm_t_ptrdiff
+vm_reinstate_partial_continuation (SCM vm, SCM cont,
                                    size_t n, SCM *argv, scm_t_int64 vm_cookie)
 {
   struct scm_vm *vp;
   struct scm_vm_cont *cp;
   SCM *argv_copy, *base;
+  scm_t_ptrdiff reloc;
   size_t i;
 
   argv_copy = alloca (n * sizeof(SCM));
@@ -279,9 +291,10 @@ vm_reinstate_partial_continuation (SCM vm, SCM cont, SCM intwinds,
   vp = SCM_VM_DATA (vm);
   cp = SCM_VM_CONT_DATA (cont);
   base = SCM_FRAME_UPPER_ADDRESS (vp->fp) + 1;
+  reloc = cp->reloc + (base - cp->stack_base);
 
 #define RELOC(scm_p)						\
-  (((SCM *) (scm_p)) + cp->reloc + (base - cp->stack_base))
+  (((SCM *) (scm_p)) + reloc)
 
   if ((base - vp->stack_base) + cp->stack_size + n + 1 > vp->stack_size)
     scm_misc_error ("vm-engine",
@@ -312,31 +325,16 @@ vm_reinstate_partial_continuation (SCM vm, SCM cont, SCM intwinds,
   vp->sp++;
   *vp->sp = scm_from_size_t (n);
 
-  /* Finally, rewind the dynamic state.
+  /* Finally, rewind the dynamic state.  Unhappily, we have to do this
+     in the vm_engine.  If we do it here, the stack frame will likely
+     have been stompled by some future call out of the VM, so we will
+     return to some other part of the VM.
 
-     We have to treat prompts specially, because we could be rewinding the
-     dynamic state from a different thread, or just a different position on the
-     C and/or VM stack -- so we need to reset the jump buffers so that an abort
-     comes back here, with appropriately adjusted sp and fp registers. */
-  {
-    long delta = 0;
-    SCM newwinds = scm_i_dynwinds ();
-    for (; scm_is_pair (intwinds); intwinds = scm_cdr (intwinds), delta--)
-      {
-        SCM x = scm_car (intwinds);
-        if (SCM_PROMPT_P (x))
-          /* the jmpbuf will be reset by our caller */
-          x = scm_c_make_prompt (SCM_PROMPT_TAG (x),
-                                 RELOC (SCM_PROMPT_REGISTERS (x)->fp),
-                                 RELOC (SCM_PROMPT_REGISTERS (x)->sp),
-                                 SCM_PROMPT_REGISTERS (x)->ip,
-                                 SCM_PROMPT_ESCAPE_P (x),
-                                 vm_cookie,
-                                 newwinds);
-        newwinds = scm_cons (x, newwinds);
-      }
-    scm_dowinds (newwinds, delta);
-  }
+     We used to wind and relocate the prompts here, but that's bogus,
+     because a rewinder would then be able to abort to a prompt with a
+     stale jmpbuf.  */
+
+  return reloc;
 #undef RELOC
 }
 

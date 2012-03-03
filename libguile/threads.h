@@ -3,7 +3,7 @@
 #ifndef SCM_THREADS_H
 #define SCM_THREADS_H
 
-/* Copyright (C) 1996,1997,1998,2000,2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1996,1997,1998,2000,2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -27,8 +27,8 @@
 #include "libguile/procs.h"
 #include "libguile/throw.h"
 #include "libguile/root.h"
+#include "libguile/dynstack.h"
 #include "libguile/iselect.h"
-#include "libguile/dynwind.h"
 #include "libguile/continuations.h"
 
 #if SCM_USE_PTHREAD_THREADS
@@ -79,7 +79,9 @@ typedef struct scm_i_thread {
   /* Other thread local things.
    */
   SCM dynamic_state;
-  SCM dynwinds;
+
+  /* The dynamic stack.  */
+  scm_t_dynstack dynstack;
 
   /* For system asyncs.
    */
@@ -200,11 +202,7 @@ SCM_INTERNAL SCM_THREAD_LOCAL scm_i_thread *scm_i_current_thread;
 
 # endif /* !SCM_HAVE_THREAD_STORAGE_CLASS */
 
-# define scm_i_dynwinds()         (SCM_I_CURRENT_THREAD->dynwinds)
-# define scm_i_set_dynwinds(w)    (SCM_I_CURRENT_THREAD->dynwinds = (w))
-
 #endif /* BUILDING_LIBGUILE */
-
 
 SCM_INTERNAL scm_i_pthread_mutex_t scm_i_misc_mutex;
 

@@ -3,7 +3,7 @@
 #ifndef SCM_FLUIDS_H
 #define SCM_FLUIDS_H
 
-/* Copyright (C) 1996,2000,2001, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1996,2000,2001, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -26,17 +26,6 @@
 #include "libguile/__scm.h"
 #include "libguile/root.h"
 #include "libguile/vectors.h"
-
-/* These "with-fluids" objects live on the dynamic stack, and record previous
-   values of fluids. Guile uses shallow binding, so the current fluid values are
-   always in the same place for a given thread, in the dynamic-state vector.
- */
-
-#define SCM_WITH_FLUIDS_P(x) (SCM_HAS_TYP7 (x, scm_tc7_with_fluids))
-#define SCM_WITH_FLUIDS_LEN(x) (SCM_CELL_WORD ((x), 0) >> 8)
-#define SCM_WITH_FLUIDS_NTH_FLUID(x,n) (SCM_CELL_OBJECT ((x), 1 + (n)*2))
-#define SCM_WITH_FLUIDS_NTH_VAL(x,n) (SCM_CELL_OBJECT ((x), 2 + (n)*2))
-#define SCM_WITH_FLUIDS_SET_NTH_VAL(x,n,v) (SCM_SET_CELL_OBJECT ((x), 2 + (n)*2, (v)))
 
 
 /* Fluids.
@@ -70,8 +59,9 @@ SCM_API SCM scm_fluid_set_x (SCM fluid, SCM value);
 SCM_API SCM scm_fluid_unset_x (SCM fluid);
 SCM_API SCM scm_fluid_bound_p (SCM fluid);
 
-SCM_INTERNAL SCM scm_i_make_with_fluids (size_t n, SCM *fluids, SCM *vals);
-SCM_INTERNAL void scm_i_swap_with_fluids (SCM with_fluids, SCM dynamic_state);
+SCM_INTERNAL size_t scm_prepare_fluids (size_t n, SCM *fluids, SCM *vals);
+SCM_INTERNAL void scm_swap_fluids (size_t n, SCM *fluids, SCM *vals,
+                                   SCM dynamic_state);
 
 SCM_API SCM scm_c_with_fluids (SCM fluids, SCM vals,
 			       SCM (*cproc)(void *), void *cdata);
@@ -101,7 +91,6 @@ SCM_INTERNAL SCM scm_i_make_initial_dynamic_state (void);
 
 SCM_INTERNAL void scm_i_fluid_print (SCM exp, SCM port, scm_print_state *pstate);
 SCM_INTERNAL void scm_i_dynamic_state_print (SCM exp, SCM port, scm_print_state *pstate);
-SCM_INTERNAL void scm_i_with_fluids_print (SCM exp, SCM port, scm_print_state *pstate);
 SCM_INTERNAL void scm_init_fluids (void);
 
 #endif  /* SCM_FLUIDS_H */

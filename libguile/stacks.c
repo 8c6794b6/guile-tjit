@@ -1,5 +1,5 @@
 /* A stack holds a frame chain
- * Copyright (C) 1996,1997,2000,2001, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation
+ * Copyright (C) 1996,1997,2000,2001, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Free Software Foundation
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -95,19 +95,17 @@ stack_depth (SCM frame)
  * encountered.
  */
 
-static SCM
+static SCM*
 find_prompt (SCM key)
 {
-  SCM winds;
-  for (winds = scm_i_dynwinds (); scm_is_pair (winds); winds = scm_cdr (winds))
-    {
-      SCM elt = scm_car (winds);
-      if (SCM_PROMPT_P (elt) && scm_is_eq (SCM_PROMPT_TAG (elt), key))
-        return elt;
-    }
-  scm_misc_error ("make-stack", "Prompt tag not found while narrowing stack",
-                  scm_list_1 (key));
-  return SCM_BOOL_F; /* not reached */
+  scm_t_prompt_registers *regs;
+
+  if (!scm_dynstack_find_prompt (&SCM_I_CURRENT_THREAD->dynstack, key,
+                                 &regs, NULL))
+    scm_misc_error ("make-stack", "Prompt tag not found while narrowing stack",
+                    scm_list_1 (key));
+
+  return regs->fp;
 }
 
 static void
@@ -136,10 +134,9 @@ narrow_stack (SCM stack, long inner, SCM inner_key, long outer, SCM outer_key)
     {
       /* Cut until the given prompt tag is seen. FIXME, assumes prompt tags are
          symbols. */
-      SCM prompt = find_prompt (inner_key);
+      SCM *fp = find_prompt (inner_key);
       for (; len; len--, frame = scm_frame_previous (frame))
-        if (SCM_PROMPT_REGISTERS (prompt)->fp
-            == SCM_VM_FRAME_FP (frame) - SCM_VM_FRAME_OFFSET (frame))
+        if (fp == SCM_VM_FRAME_FP (frame) - SCM_VM_FRAME_OFFSET (frame))
           break;
     }
   else
@@ -171,13 +168,12 @@ narrow_stack (SCM stack, long inner, SCM inner_key, long outer, SCM outer_key)
     {
       /* Cut until the given prompt tag is seen. FIXME, assumes prompt tags are
          symbols. */
-      SCM prompt = find_prompt (outer_key);
+      SCM *fp = find_prompt (outer_key);
       while (len)
         {
           frame = scm_stack_ref (stack, scm_from_long (len - 1));
           len--;
-          if (SCM_PROMPT_REGISTERS (prompt)->fp
-              == SCM_VM_FRAME_FP (frame) - SCM_VM_FRAME_OFFSET (frame))
+          if (fp == SCM_VM_FRAME_FP (frame) - SCM_VM_FRAME_OFFSET (frame))
             break;
         }
     }
@@ -257,7 +253,7 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
       SCM cont;
       struct scm_vm_cont *c;
 
-      cont = scm_i_vm_capture_continuation (scm_the_vm ());
+      cont = scm_i_capture_current_stack ();
       c = SCM_VM_CONT_DATA (cont);
 
       frame = scm_c_make_frame (cont, c->fp + c->reloc,

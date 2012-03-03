@@ -645,12 +645,6 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	case scm_tc7_vm_cont:
 	  scm_i_vm_cont_print (exp, port, pstate);
 	  break;
-	case scm_tc7_prompt:
-	  scm_i_prompt_print (exp, port, pstate);
-	  break;
-	case scm_tc7_with_fluids:
-	  scm_i_with_fluids_print (exp, port, pstate);
-	  break;
 	case scm_tc7_array:
 	  ENTER_NESTED_DATA (pstate, exp, circref);
           scm_i_print_array (exp, port, pstate);

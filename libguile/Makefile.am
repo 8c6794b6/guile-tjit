@@ -133,6 +133,7 @@ libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES =				\
 	debug.c					\
 	deprecated.c				\
 	deprecation.c				\
+	dynstack.c				\
 	dynwind.c				\
 	eq.c					\
 	error.c					\
@@ -529,6 +530,7 @@ modinclude_HEADERS =				\
 	deprecated.h				\
 	deprecation.h				\
 	dynl.h					\
+	dynstack.h				\
 	dynwind.h				\
 	eq.h					\
 	error.h					\

@@ -24,6 +24,7 @@
 
 #include "libguile/_scm.h"
 
+#include <assert.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -33,7 +34,7 @@
 #include "libguile/stackchk.h"
 #include "libguile/smob.h"
 #include "libguile/ports.h"
-#include "libguile/dynwind.h"
+#include "libguile/dynstack.h"
 #include "libguile/eval.h"
 #include "libguile/vm.h"
 #include "libguile/instructions.h"
@@ -52,7 +53,6 @@ static scm_t_bits tc16_continuation;
 #define SCM_SET_CONTINUATION_LENGTH(x, n)\
    (SCM_CONTREGS (x)->num_stack_items = (n))
 #define SCM_JMPBUF(x)		 ((SCM_CONTREGS (x))->jmpbuf)
-#define SCM_DYNENV(x)		 ((SCM_CONTREGS (x))->dynenv)
 #define SCM_CONTINUATION_ROOT(x) ((SCM_CONTREGS (x))->root)   
 #define SCM_DFRAME(x)		 ((SCM_CONTREGS (x))->dframe)
 
@@ -211,7 +211,6 @@ scm_i_make_continuation (int *first, SCM vm, SCM vm_cont)
 				+ (stack_size - 1) * sizeof (SCM_STACKITEM),
 				"continuation");
   continuation->num_stack_items = stack_size;
-  continuation->dynenv = scm_i_dynwinds ();
   continuation->root = thread->continuation_root;
   src = thread->continuation_base;
 #if ! SCM_STACK_GROWS_UP
@@ -334,33 +333,25 @@ grow_stack (SCM cont)
  * own frame are overwritten.  Thus, memcpy can be used for best performance.
  */
 
-typedef struct {
-  scm_t_contregs *continuation;
-  SCM_STACKITEM *dst;
-} copy_stack_data;
-
-static void
-copy_stack (void *data)
-{
-  copy_stack_data *d = (copy_stack_data *)data;
-  memcpy (d->dst, d->continuation->stack,
-	  sizeof (SCM_STACKITEM) * d->continuation->num_stack_items);
-#ifdef __ia64__
-  SCM_I_CURRENT_THREAD->pending_rbs_continuation = d->continuation;
-#endif
-}
-
 static void
 copy_stack_and_call (scm_t_contregs *continuation,
 		     SCM_STACKITEM * dst)
 {
-  long delta;
-  copy_stack_data data;
+  scm_t_dynstack *dynstack;
+  scm_t_bits *joint;
+  scm_i_thread *thread = SCM_I_CURRENT_THREAD;
 
-  delta = scm_ilength (scm_i_dynwinds ()) - scm_ilength (continuation->dynenv);
-  data.continuation = continuation;
-  data.dst = dst;
-  scm_i_dowinds (continuation->dynenv, delta, copy_stack, &data);
+  dynstack = SCM_VM_CONT_DATA (continuation->vm_cont)->dynstack;
+
+  joint = scm_dynstack_unwind_fork (&thread->dynstack, dynstack);
+
+  memcpy (dst, continuation->stack,
+	  sizeof (SCM_STACKITEM) * continuation->num_stack_items);
+#ifdef __ia64__
+  thread->pending_rbs_continuation = continuation;
+#endif
+
+  scm_dynstack_wind (&thread->dynstack, joint);
 
   SCM_I_LONGJMP (continuation->jmpbuf, 1);
 }

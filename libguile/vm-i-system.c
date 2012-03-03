@@ -1,4 +1,4 @@
-/* Copyright (C) 2001,2008,2009,2010,2011 Free Software Foundation, Inc.
+/* Copyright (C) 2001,2008,2009,2010,2011,2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -1032,25 +1032,49 @@ VM_DEFINE_INSTRUCTION (58, continuation_call, "continuation-call", 0, -1, 0)
 
 VM_DEFINE_INSTRUCTION (59, partial_cont_call, "partial-cont-call", 0, -1, 0)
 {
-  SCM vmcont, intwinds, prevwinds;
-  POP2 (intwinds, vmcont);
+  SCM vmcont;
+  scm_t_ptrdiff reloc;
+  POP (vmcont);
   SYNC_REGISTER ();
   if (SCM_UNLIKELY (!SCM_VM_CONT_REWINDABLE_P (vmcont)))
     { finish_args = vmcont;
       goto vm_error_continuation_not_rewindable;
     }
-  prevwinds = scm_i_dynwinds ();
-  vm_reinstate_partial_continuation (vm, vmcont, intwinds, sp + 1 - fp, fp,
-                                     vm_cookie);
+  reloc = vm_reinstate_partial_continuation (vm, vmcont, sp + 1 - fp, fp,
+                                             vm_cookie);
 
-  /* Rewind prompt jmpbuffers, if any. */
+  /* The prompt captured a slice of the dynamic stack.  Here we wind
+     those entries onto the current thread's stack.
+
+     Unhappily, this code must be here, in vm_engine, so that the setjmp
+     captures the stack in this function, and so that subsequently wound
+     stack entries don't see stale prompts.  */
   {
-    SCM winds = scm_i_dynwinds ();
-    for (; !scm_is_eq (winds, prevwinds); winds = scm_cdr (winds))
-      if (SCM_PROMPT_P (scm_car (winds)) && SCM_PROMPT_SETJMP (scm_car (winds)))
-        break;
+    scm_t_bits *walk;
+
+    for (walk = SCM_DYNSTACK_FIRST (SCM_VM_CONT_DATA (vmcont)->dynstack);
+         SCM_DYNSTACK_TAG (walk);
+         walk = SCM_DYNSTACK_NEXT (walk))
+      {
+        scm_t_bits tag = SCM_DYNSTACK_TAG (walk);
+
+        scm_dynstack_wind_1 (&current_thread->dynstack, walk);
+
+        if (SCM_DYNSTACK_TAG_TYPE (tag) == SCM_DYNSTACK_TYPE_PROMPT)
+          {
+            scm_t_prompt_registers *rewound;
+
+            rewound = scm_dynstack_relocate_prompt (&current_thread->dynstack,
+                                                    reloc, vm_cookie);
+
+            /* Reset the jmpbuf.  */
+            if (SCM_I_SETJMP (rewound->regs))
+              /* Non-local exit to this newly rewound prompt.  */
+              break;
+          }
+      }
   }
-    
+
   CACHE_REGISTER ();
   program = SCM_FRAME_PROGRAM (fp);
   CACHE_PROGRAM ();
@@ -1176,9 +1200,12 @@ VM_DEFINE_INSTRUCTION (65, call_cc, "call/cc", 0, 1, 1)
 {
   int first;
   SCM proc, vm_cont, cont;
+  scm_t_dynstack *dynstack;
   POP (proc);
   SYNC_ALL ();
-  vm_cont = scm_i_vm_capture_stack (vp->stack_base, fp, sp, ip, NULL, 0);
+  dynstack = scm_dynstack_capture_all (&current_thread->dynstack);
+  vm_cont = scm_i_vm_capture_stack (vp->stack_base, fp, sp, ip, NULL,
+                                    dynstack, 0);
   cont = scm_i_make_continuation (&first, vm, vm_cont);
   if (first) 
     {
@@ -1211,15 +1238,18 @@ VM_DEFINE_INSTRUCTION (66, tail_call_cc, "tail-call/cc", 0, 1, 1)
 {
   int first;
   SCM proc, vm_cont, cont;
+  scm_t_dynstack *dynstack;
   POP (proc);
   SYNC_ALL ();
   /* In contrast to call/cc, tail-call/cc captures the continuation without the
      stack frame. */
+  dynstack = scm_dynstack_capture_all (&current_thread->dynstack);
   vm_cont = scm_i_vm_capture_stack (vp->stack_base,
                                     SCM_FRAME_DYNAMIC_LINK (fp),
                                     SCM_FRAME_LOWER_ADDRESS (fp) - 1,
                                     SCM_FRAME_RETURN_ADDRESS (fp),
                                     SCM_FRAME_MV_RETURN_ADDRESS (fp),
+                                    dynstack,
                                     0);
   cont = scm_i_make_continuation (&first, vm, vm_cont);
   if (first) 
@@ -1543,7 +1573,9 @@ VM_DEFINE_INSTRUCTION (85, prompt, "prompt", 4, 2, 0)
 {
   scm_t_int32 offset;
   scm_t_uint8 escape_only_p;
-  SCM k, prompt;
+  SCM k;
+  scm_t_dynstack_prompt_flags flags;
+  scm_t_prompt_registers *regs;
 
   escape_only_p = FETCH ();
   FETCH_OFFSET (offset);
@@ -1551,10 +1583,10 @@ VM_DEFINE_INSTRUCTION (85, prompt, "prompt", 4, 2, 0)
 
   SYNC_REGISTER ();
   /* Push the prompt onto the dynamic stack. */
-  prompt = scm_c_make_prompt (k, fp, sp, ip + offset, escape_only_p, vm_cookie,
-                              scm_i_dynwinds ());
-  scm_i_set_dynwinds (scm_cons (prompt, SCM_PROMPT_DYNWINDS (prompt)));
-  if (SCM_PROMPT_SETJMP (prompt))
+  regs = scm_c_make_prompt_registers (fp, sp, ip + offset, vm_cookie);
+  flags = escape_only_p ? SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY : 0;
+  scm_dynstack_push_prompt (&current_thread->dynstack, flags, k, regs);
+  if (SCM_I_SETJMP (regs->regs))
     {
       /* The prompt exited nonlocally. Cache the regs back from the vp, and go
          to the handler.
@@ -1595,7 +1627,7 @@ VM_DEFINE_INSTRUCTION (86, wind, "wind", 0, 2, 0)
       finish_args = unwind;
       goto vm_error_not_a_thunk;
     }
-  scm_i_set_dynwinds (scm_cons (scm_cons (wind, unwind), scm_i_dynwinds ()));
+  scm_dynstack_push_dynwind (&current_thread->dynstack, wind, unwind);
   NEXT;
 }
 
@@ -1614,32 +1646,28 @@ VM_DEFINE_INSTRUCTION (88, unwind, "unwind", 0, 0, 0)
 {
   /* A normal exit from the dynamic extent of an expression. Pop the top entry
      off of the dynamic stack. */
-  scm_i_set_dynwinds (scm_cdr (scm_i_dynwinds ()));
+  scm_dynstack_pop (&current_thread->dynstack);
   NEXT;
 }
 
 VM_DEFINE_INSTRUCTION (89, wind_fluids, "wind-fluids", 1, -1, 0)
 {
   unsigned n = FETCH ();
-  SCM wf;
   
   SYNC_REGISTER ();
   sp -= 2 * n;
   CHECK_UNDERFLOW ();
-  wf = scm_i_make_with_fluids (n, sp + 1, sp + 1 + n);
+  scm_dynstack_push_fluids (&current_thread->dynstack, n, sp + 1, sp + 1 + n,
+                            current_thread->dynamic_state);
   NULLSTACK (2 * n);
-
-  scm_i_swap_with_fluids (wf, current_thread->dynamic_state);
-  scm_i_set_dynwinds (scm_cons (wf, scm_i_dynwinds ()));
   NEXT;
 }
 
 VM_DEFINE_INSTRUCTION (90, unwind_fluids, "unwind-fluids", 0, 0, 0)
 {
-  SCM wf;
-  wf = scm_car (scm_i_dynwinds ());
-  scm_i_set_dynwinds (scm_cdr (scm_i_dynwinds ()));
-  scm_i_swap_with_fluids (wf, current_thread->dynamic_state);
+  /* This function must not allocate.  */
+  scm_dynstack_unwind_fluids (&current_thread->dynstack,
+                              current_thread->dynamic_state);
   NEXT;
 }
 

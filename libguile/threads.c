@@ -543,7 +543,9 @@ guilify_self_1 (struct GC_stack_base *base)
   t.held_mutex = NULL;
   t.join_queue = SCM_EOL;
   t.dynamic_state = SCM_BOOL_F;
-  t.dynwinds = SCM_EOL;
+  t.dynstack.base = NULL;
+  t.dynstack.top = NULL;
+  t.dynstack.limit = NULL;
   t.active_asyncs = SCM_EOL;
   t.block_asyncs = 1;
   t.pending_asyncs = 1;
@@ -616,6 +618,10 @@ guilify_self_2 (SCM parent)
     t->dynamic_state = scm_make_dynamic_state (parent);
   else
     t->dynamic_state = scm_i_make_initial_dynamic_state ();
+
+  t->dynstack.base = scm_gc_malloc (16 * sizeof (scm_t_bits), "dynstack");
+  t->dynstack.limit = t->dynstack.base + 16;
+  t->dynstack.top = t->dynstack.base + SCM_DYNSTACK_HEADER_LEN;
 
   t->join_queue = make_queue ();
   t->block_asyncs = 0;
