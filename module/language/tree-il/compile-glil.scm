@@ -921,7 +921,31 @@
       ;; then proceed with returning or dropping or what-have-you, interacting
       ;; with RA and MVRA. What have you, I say.
       ((<dynwind> src winder pre body post unwinder)
+       (define (thunk? x)
+         (and (lambda? x)
+              (null? (lambda-case-gensyms (lambda-body x)))))
+       (define (make-wrong-type-arg x)
+         (make-primcall src 'scm-error
+                        (list
+                         (make-const #f 'wrong-type-arg)
+                         (make-const #f "dynamic-wind")
+                         (make-const #f "Wrong type (expecting thunk): ~S")
+                         (make-primcall #f 'list (list x))
+                         (make-primcall #f 'list (list x)))))
+       (define (emit-thunk-check x)
+         (comp-drop (make-conditional
+                     src
+                     (make-primcall src 'thunk? (list x))
+                     (make-void #f)
+                     (make-wrong-type-arg x))))
+
+       ;; We know at this point that `winder' and `unwinder' are
+       ;; constant expressions and can be duplicated.
+       (if (not (thunk? winder))
+           (emit-thunk-check winder))
        (comp-push winder)
+       (if (not (thunk? unwinder))
+           (emit-thunk-check unwinder))
        (comp-push unwinder)
        (comp-drop pre)
        (emit-code #f (make-glil-call 'wind 2))

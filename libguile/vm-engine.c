@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -248,12 +248,6 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   vm_error_not_a_struct:
     SYNC_ALL ();
     scm_wrong_type_arg_msg (func_name, 1, finish_args, "struct");
-    /* shouldn't get here */
-    goto vm_error;
-
-  vm_error_not_a_thunk:
-    SYNC_ALL ();
-    scm_wrong_type_arg_msg ("dynamic-wind", 1, finish_args, "thunk");
     /* shouldn't get here */
     goto vm_error;
 

@@ -1616,17 +1616,9 @@ VM_DEFINE_INSTRUCTION (86, wind, "wind", 0, 2, 0)
   SYNC_REGISTER ();
   /* Push wind and unwind procedures onto the dynamic stack. Note that neither
      are actually called; the compiler should emit calls to wind and unwind for
-     the normal dynamic-wind control flow. */
-  if (SCM_UNLIKELY (scm_is_false (scm_thunk_p (wind))))
-    {
-      finish_args = wind;
-      goto vm_error_not_a_thunk;
-    }
-  if (SCM_UNLIKELY (scm_is_false (scm_thunk_p (unwind))))
-    {
-      finish_args = unwind;
-      goto vm_error_not_a_thunk;
-    }
+     the normal dynamic-wind control flow.  Also note that the compiler
+     should have inserted checks that they wind and unwind procs are
+     thunks, if it could not prove that to be the case.  */
   scm_dynstack_push_dynwind (&current_thread->dynstack, wind, unwind);
   NEXT;
 }
