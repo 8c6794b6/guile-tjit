@@ -326,7 +326,14 @@
                   (ensure-globals!
                    loc
                    dynamic-ids
-                   (let* ((tree-il (compile-expr `(progn ,@forms)))
+                   (let* ((tree-il
+                           (compile-expr
+                            (if rest-id
+                                `(let ((,rest-id (if ,rest-id
+                                                     ,rest-id
+                                                     nil)))
+                                   ,@forms)
+                                `(progn ,@forms))))
                           (full-body
                            (if (null? dynamic)
                                tree-il
