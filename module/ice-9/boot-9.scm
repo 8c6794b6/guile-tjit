@@ -256,24 +256,13 @@ a-cont
 @end lisp"
   (@dynamic-wind in (thunk) out))
 
-;;;; Basic Port Code
+
 
-;;; Specifically, the parts of the low-level port code that are written in 
-;;; Scheme rather than C.
+;;; {Low-Level Port Code}
 ;;;
-;;; WARNING: the parts of this interface that refer to file ports
-;;; are going away.   It would be gone already except that it is used
-;;; "internally" in a few places.
 
-
-;;; OPEN_READ, OPEN_WRITE, and OPEN_BOTH are used to request the
-;;; proper mode to open files in.
-;;;
-;;; If we want to support systems that do CRLF->LF translation, like
-;;; Windows, then we should have a symbol in scmconfig.h made visible
-;;; to the Scheme level that we can test here, and autoconf magic to
-;;; #define it when appropriate.  Windows will probably just have a
-;;; hand-generated scmconfig.h file.
+;; These are used to request the proper mode to open files in.
+;;
 (define OPEN_READ "r")
 (define OPEN_WRITE "w")
 (define OPEN_BOTH "r+")
@@ -296,117 +285,6 @@ file with the given name already exists, the effect is unspecified."
 (define (open-io-file str) 
   "Open file with name STR for both input and output."
   (open-file str OPEN_BOTH))
-
-(define (call-with-input-file str proc)
-  "PROC should be a procedure of one argument, and STR should be a
-string naming a file.  The file must
-already exist. These procedures call PROC
-with one argument: the port obtained by opening the named file for
-input or output.  If the file cannot be opened, an error is
-signalled.  If the procedure returns, then the port is closed
-automatically and the values yielded by the procedure are returned.
-If the procedure does not return, then the port will not be closed
-automatically unless it is possible to prove that the port will
-never again be used for a read or write operation."
-  (let ((p (open-input-file str)))
-    (call-with-values
-      (lambda () (proc p))
-      (lambda vals
-        (close-input-port p)
-        (apply values vals)))))
-
-(define (call-with-output-file str proc)
-  "PROC should be a procedure of one argument, and STR should be a
-string naming a file.  The behaviour is unspecified if the file 
-already exists. These procedures call PROC
-with one argument: the port obtained by opening the named file for
-input or output.  If the file cannot be opened, an error is
-signalled.  If the procedure returns, then the port is closed
-automatically and the values yielded by the procedure are returned.
-If the procedure does not return, then the port will not be closed
-automatically unless it is possible to prove that the port will
-never again be used for a read or write operation."
-  (let ((p (open-output-file str)))
-    (call-with-values
-      (lambda () (proc p))
-      (lambda vals
-        (close-output-port p)
-        (apply values vals)))))
-
-(define (with-input-from-port port thunk)
-  (let* ((swaports (lambda () (set! port (set-current-input-port port)))))
-    (dynamic-wind swaports thunk swaports)))
-
-(define (with-output-to-port port thunk)
-  (let* ((swaports (lambda () (set! port (set-current-output-port port)))))
-    (dynamic-wind swaports thunk swaports)))
-
-(define (with-error-to-port port thunk)
-  (let* ((swaports (lambda () (set! port (set-current-error-port port)))))
-    (dynamic-wind swaports thunk swaports)))
-
-(define (with-input-from-file file thunk)
-  "THUNK must be a procedure of no arguments, and FILE must be a
-string naming a file.  The file must already exist. The file is opened for
-input, an input port connected to it is made
-the default value returned by `current-input-port', 
-and the THUNK is called with no arguments.
-When the THUNK returns, the port is closed and the previous
-default is restored.  Returns the values yielded by THUNK.  If an
-escape procedure is used to escape from the continuation of these
-procedures, their behavior is implementation dependent."
-  (call-with-input-file file
-   (lambda (p) (with-input-from-port p thunk))))
-
-(define (with-output-to-file file thunk)
-  "THUNK must be a procedure of no arguments, and FILE must be a
-string naming a file.  The effect is unspecified if the file already exists. 
-The file is opened for output, an output port connected to it is made
-the default value returned by `current-output-port', 
-and the THUNK is called with no arguments.
-When the THUNK returns, the port is closed and the previous
-default is restored.  Returns the values yielded by THUNK.  If an
-escape procedure is used to escape from the continuation of these
-procedures, their behavior is implementation dependent."
-  (call-with-output-file file
-   (lambda (p) (with-output-to-port p thunk))))
-
-(define (with-error-to-file file thunk)
-  "THUNK must be a procedure of no arguments, and FILE must be a
-string naming a file.  The effect is unspecified if the file already exists. 
-The file is opened for output, an output port connected to it is made
-the default value returned by `current-error-port', 
-and the THUNK is called with no arguments.
-When the THUNK returns, the port is closed and the previous
-default is restored.  Returns the values yielded by THUNK.  If an
-escape procedure is used to escape from the continuation of these
-procedures, their behavior is implementation dependent."
-  (call-with-output-file file
-   (lambda (p) (with-error-to-port p thunk))))
-
-(define (with-input-from-string string thunk)
-  "THUNK must be a procedure of no arguments.
-The test of STRING  is opened for
-input, an input port connected to it is made, 
-and the THUNK is called with no arguments.
-When the THUNK returns, the port is closed.
-Returns the values yielded by THUNK.  If an
-escape procedure is used to escape from the continuation of these
-procedures, their behavior is implementation dependent."
-  (call-with-input-string string
-   (lambda (p) (with-input-from-port p thunk))))
-
-(define (with-output-to-string thunk)
-  "Calls THUNK and returns its output as a string."
-  (call-with-output-string
-   (lambda (p) (with-output-to-port p thunk))))
-
-(define (with-error-to-string thunk)
-  "Calls THUNK and returns its error output as a string."
-  (call-with-output-string
-   (lambda (p) (with-error-to-port p thunk))))
-
-(define the-eof-object (call-with-input-string "" (lambda (p) (read-char p))))
 
 
 
@@ -1486,6 +1364,121 @@ VALUE."
                     (if (output-port? x)
                         x
                         (error "expected an output port" x)))))
+
+
+
+;;; {High-Level Port Routines}
+;;;
+
+(define (call-with-input-file str proc)
+  "PROC should be a procedure of one argument, and STR should be a
+string naming a file.  The file must already exist. These procedures
+call PROC with one argument: the port obtained by opening the named file
+for input or output.  If the file cannot be opened, an error is
+signalled.  If the procedure returns, then the port is closed
+automatically and the values yielded by the procedure are returned.  If
+the procedure does not return, then the port will not be closed
+automatically unless it is possible to prove that the port will never
+again be used for a read or write operation."
+  (let ((p (open-input-file str)))
+    (call-with-values
+      (lambda () (proc p))
+      (lambda vals
+        (close-input-port p)
+        (apply values vals)))))
+
+(define (call-with-output-file str proc)
+  "PROC should be a procedure of one argument, and STR should be a
+string naming a file.  The behaviour is unspecified if the file 
+already exists. These procedures call PROC
+with one argument: the port obtained by opening the named file for
+input or output.  If the file cannot be opened, an error is
+signalled.  If the procedure returns, then the port is closed
+automatically and the values yielded by the procedure are returned.
+If the procedure does not return, then the port will not be closed
+automatically unless it is possible to prove that the port will
+never again be used for a read or write operation."
+  (let ((p (open-output-file str)))
+    (call-with-values
+      (lambda () (proc p))
+      (lambda vals
+        (close-output-port p)
+        (apply values vals)))))
+
+(define (with-input-from-port port thunk)
+  (parameterize ((current-input-port port))
+    (thunk)))
+
+(define (with-output-to-port port thunk)
+  (parameterize ((current-output-port port))
+    (thunk)))
+
+(define (with-error-to-port port thunk)
+  (parameterize ((current-error-port port))
+    (thunk)))
+
+(define (with-input-from-file file thunk)
+  "THUNK must be a procedure of no arguments, and FILE must be a
+string naming a file.  The file must already exist. The file is opened for
+input, an input port connected to it is made
+the default value returned by `current-input-port', 
+and the THUNK is called with no arguments.
+When the THUNK returns, the port is closed and the previous
+default is restored.  Returns the values yielded by THUNK.  If an
+escape procedure is used to escape from the continuation of these
+procedures, their behavior is implementation dependent."
+  (call-with-input-file file
+   (lambda (p) (with-input-from-port p thunk))))
+
+(define (with-output-to-file file thunk)
+  "THUNK must be a procedure of no arguments, and FILE must be a
+string naming a file.  The effect is unspecified if the file already exists. 
+The file is opened for output, an output port connected to it is made
+the default value returned by `current-output-port', 
+and the THUNK is called with no arguments.
+When the THUNK returns, the port is closed and the previous
+default is restored.  Returns the values yielded by THUNK.  If an
+escape procedure is used to escape from the continuation of these
+procedures, their behavior is implementation dependent."
+  (call-with-output-file file
+   (lambda (p) (with-output-to-port p thunk))))
+
+(define (with-error-to-file file thunk)
+  "THUNK must be a procedure of no arguments, and FILE must be a
+string naming a file.  The effect is unspecified if the file already exists. 
+The file is opened for output, an output port connected to it is made
+the default value returned by `current-error-port', 
+and the THUNK is called with no arguments.
+When the THUNK returns, the port is closed and the previous
+default is restored.  Returns the values yielded by THUNK.  If an
+escape procedure is used to escape from the continuation of these
+procedures, their behavior is implementation dependent."
+  (call-with-output-file file
+   (lambda (p) (with-error-to-port p thunk))))
+
+(define (with-input-from-string string thunk)
+  "THUNK must be a procedure of no arguments.
+The test of STRING  is opened for
+input, an input port connected to it is made, 
+and the THUNK is called with no arguments.
+When the THUNK returns, the port is closed.
+Returns the values yielded by THUNK.  If an
+escape procedure is used to escape from the continuation of these
+procedures, their behavior is implementation dependent."
+  (call-with-input-string string
+   (lambda (p) (with-input-from-port p thunk))))
+
+(define (with-output-to-string thunk)
+  "Calls THUNK and returns its output as a string."
+  (call-with-output-string
+   (lambda (p) (with-output-to-port p thunk))))
+
+(define (with-error-to-string thunk)
+  "Calls THUNK and returns its error output as a string."
+  (call-with-output-string
+   (lambda (p) (with-error-to-port p thunk))))
+
+(define the-eof-object (call-with-input-string "" (lambda (p) (read-char p))))
 
 
 
