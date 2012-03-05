@@ -1397,6 +1397,96 @@ VALUE."
 
 (provide 'record)
 
+
+
+;;; {Parameters}
+;;;
+
+(define <parameter>
+  ;; Three fields: the procedure itself, the fluid, and the converter.
+  (make-struct <applicable-struct-vtable> 0 'pwprpr))
+(set-struct-vtable-name! <parameter> '<parameter>)
+
+(define* (make-parameter init #:optional (conv (lambda (x) x)))
+  (let ((fluid (make-fluid (conv init))))
+    (make-struct <parameter> 0
+                 (case-lambda
+                   (() (fluid-ref fluid))
+                   ((x) (let ((prev (fluid-ref fluid)))
+                          (fluid-set! fluid (conv x))
+                          prev)))
+                 fluid conv)))
+
+(define (parameter? x)
+  (and (struct? x) (eq? (struct-vtable x) <parameter>)))
+
+(define (parameter-fluid p)
+  (if (parameter? p)
+      (struct-ref p 1)
+      (scm-error 'wrong-type-arg "parameter-fluid"
+                 "Not a parameter: ~S" (list p) #f)))
+
+(define (parameter-converter p)
+  (if (parameter? p)
+      (struct-ref p 2)
+      (scm-error 'wrong-type-arg "parameter-fluid"
+                 "Not a parameter: ~S" (list p) #f)))
+
+(define-syntax parameterize
+  (lambda (x)
+    (syntax-case x ()
+      ((_ ((param value) ...) body body* ...)
+       (with-syntax (((p ...) (generate-temporaries #'(param ...))))
+         #'(let ((p param) ...)
+             (if (not (parameter? p))
+                        (scm-error 'wrong-type-arg "parameterize"
+                                   "Not a parameter: ~S" (list p) #f))
+             ...
+             (with-fluids (((struct-ref p 1) ((struct-ref p 2) value))
+                           ...)
+               body body* ...)))))))
+
+
+
+;;; Current ports as parameters.
+;;;
+
+(let ((fluid->parameter
+       (lambda (fluid conv)
+         (make-struct <parameter> 0
+                      (case-lambda
+                        (() (fluid-ref fluid))
+                        ((x) (let ((prev (fluid-ref fluid)))
+                               (fluid-set! fluid (conv x))
+                               prev)))
+                      fluid conv))))
+  (define-syntax-rule (port-parameterize! binding fluid predicate msg)
+    (begin
+      (set! binding (fluid->parameter (module-ref (current-module) 'fluid)
+                                      (lambda (x)
+                                        (if (predicate x) x
+                                            (error msg x)))))
+      (hashq-remove! (%get-pre-modules-obarray) 'fluid)))
+  
+  (port-parameterize! current-input-port %current-input-port-fluid
+                      input-port? "expected an input port")
+  (port-parameterize! current-output-port %current-output-port-fluid
+                      output-port? "expected an output port")
+  (port-parameterize! current-error-port %current-error-port-fluid
+                      output-port? "expected an output port"))
+
+
+
+;;; {Warnings}
+;;;
+
+(define current-warning-port
+  (make-parameter (current-error-port)
+                  (lambda (x)
+                    (if (output-port? x)
+                        x
+                        (error "expected an output port" x)))))
+
 
 
 ;;; {Booleans}
@@ -3141,98 +3231,6 @@ module '(ice-9 q) '(make-q q-length))}."
   (identifier-syntax (if #f #f)))
 
 (define (unspecified? v) (eq? v *unspecified*))
-
-
-
-
-;;; {Parameters}
-;;;
-
-(define <parameter>
-  ;; Three fields: the procedure itself, the fluid, and the converter.
-  (make-struct <applicable-struct-vtable> 0 'pwprpr))
-(set-struct-vtable-name! <parameter> '<parameter>)
-
-(define* (make-parameter init #:optional (conv (lambda (x) x)))
-  (let ((fluid (make-fluid (conv init))))
-    (make-struct <parameter> 0
-                 (case-lambda
-                   (() (fluid-ref fluid))
-                   ((x) (let ((prev (fluid-ref fluid)))
-                          (fluid-set! fluid (conv x))
-                          prev)))
-                 fluid conv)))
-
-(define (parameter? x)
-  (and (struct? x) (eq? (struct-vtable x) <parameter>)))
-
-(define (parameter-fluid p)
-  (if (parameter? p)
-      (struct-ref p 1)
-      (scm-error 'wrong-type-arg "parameter-fluid"
-                 "Not a parameter: ~S" (list p) #f)))
-
-(define (parameter-converter p)
-  (if (parameter? p)
-      (struct-ref p 2)
-      (scm-error 'wrong-type-arg "parameter-fluid"
-                 "Not a parameter: ~S" (list p) #f)))
-
-(define-syntax parameterize
-  (lambda (x)
-    (syntax-case x ()
-      ((_ ((param value) ...) body body* ...)
-       (with-syntax (((p ...) (generate-temporaries #'(param ...))))
-         #'(let ((p param) ...)
-             (if (not (parameter? p))
-                        (scm-error 'wrong-type-arg "parameterize"
-                                   "Not a parameter: ~S" (list p) #f))
-             ...
-             (with-fluids (((struct-ref p 1) ((struct-ref p 2) value))
-                           ...)
-               body body* ...)))))))
-
-
-;;;
-;;; Current ports as parameters.
-;;;
-
-(let ((fluid->parameter
-       (lambda (fluid conv)
-         (make-struct <parameter> 0
-                      (case-lambda
-                        (() (fluid-ref fluid))
-                        ((x) (let ((prev (fluid-ref fluid)))
-                               (fluid-set! fluid (conv x))
-                               prev)))
-                      fluid conv))))
-  (define-syntax-rule (port-parameterize! binding fluid predicate msg)
-    (begin
-      (set! binding (fluid->parameter (module-ref (current-module) 'fluid)
-                                      (lambda (x)
-                                        (if (predicate x) x
-                                            (error msg x)))))
-      (module-remove! (current-module) 'fluid)))
-  
-  (port-parameterize! current-input-port %current-input-port-fluid
-                      input-port? "expected an input port")
-  (port-parameterize! current-output-port %current-output-port-fluid
-                      output-port? "expected an output port")
-  (port-parameterize! current-error-port %current-error-port-fluid
-                      output-port? "expected an output port"))
-
-
-
-;;;
-;;; Warnings.
-;;;
-
-(define current-warning-port
-  (make-parameter (current-error-port)
-                  (lambda (x)
-                    (if (output-port? x)
-                        x
-                        (error "expected an output port" x)))))
 
 
 
