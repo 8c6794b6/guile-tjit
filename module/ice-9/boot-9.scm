@@ -435,13 +435,11 @@ procedures, their behavior is implementation dependent."
 (define current-warning-port current-error-port)
 
 (define (warn . stuff)
-  (with-output-to-port (current-warning-port)
-    (lambda ()
-      (newline)
-      (display ";;; WARNING ")
-      (display stuff)
-      (newline)
-      (car (last-pair stuff)))))
+  (newline (current-warning-port))
+  (display ";;; WARNING " (current-warning-port))
+  (display stuff (current-warning-port))
+  (newline (current-warning-port))
+  (car (last-pair stuff)))
 
 
 
