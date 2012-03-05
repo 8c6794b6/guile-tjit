@@ -183,7 +183,6 @@ SYSTEM_BASE_SOURCES =				\
   system/base/target.scm
 
 ICE_9_SOURCES = \
-  ice-9/r4rs.scm \
   ice-9/r5rs.scm \
   ice-9/deprecated.scm \
   ice-9/and-let-star.scm \
