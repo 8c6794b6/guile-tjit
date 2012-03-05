@@ -298,8 +298,6 @@ file with the given name already exists, the effect is unspecified."
   "Open file with name STR for both input and output."
   (open-file str OPEN_BOTH))
 
-(define close-io-port close-port)
-
 (define (call-with-input-file str proc)
   "PROC should be a procedure of one argument, and STR should be a
 string naming a file.  The file must
