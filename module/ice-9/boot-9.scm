@@ -186,19 +186,18 @@ If there is no handler at all, Guile prints an error and then exits."
 
 
 
-;;; {R4RS compliance}
+;;; {Language primitives}
 ;;;
 
-;;;; apply and call-with-current-continuation
-
-;;; The deal with these is that they are the procedural wrappers around the
-;;; primitives of Guile's language. There are about 20 different kinds of
-;;; expression in Guile, and e.g. @apply is one of them. (It has to be that way
-;;; to preserve tail recursion.)
-;;;
-;;; Usually we recognize (apply foo bar) to be an instance of @apply, but in the
-;;; case that apply is passed to apply, or we're bootstrapping, we need a
-;;; trampoline -- and here they are.
+;; These are are the procedural wrappers around the primitives of
+;; Guile's language: @apply, @call-with-current-continuation, etc.
+;;
+;; Usually, a call to a primitive is compiled specially.  The compiler
+;; knows about all these kinds of expressions.  But the primitives may
+;; be referenced not only as operators, but as values as well.  These
+;; stub procedures are the "values" of apply, dynamic-wind, and other
+;; such primitives.
+;;
 (define (apply fun . args)
   (@apply fun (apply:nconc2last args)))
 (define (call-with-current-continuation proc)
