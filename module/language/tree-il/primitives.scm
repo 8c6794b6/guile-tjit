@@ -46,6 +46,7 @@
     ash logand logior logxor
     not
     pair? null? list? symbol? vector? string? struct?
+    nil?
     acons cons cons*
 
     list vector
@@ -141,6 +142,7 @@
     + * - / 1- 1+ quotient remainder modulo
     not
     pair? null? list? symbol? vector? struct? string?
+    nil?
     string-length vector-length
     ;; These all should get expanded out by expand-primitives!.
     caar cadr cdar cddr
@@ -168,6 +170,7 @@
     ash logand logior logxor
     not
     pair? null? list? symbol? vector? acons cons cons*
+    nil?
     list vector
     car cdr
     set-car! set-cdr!

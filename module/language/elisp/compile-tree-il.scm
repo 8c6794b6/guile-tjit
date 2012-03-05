@@ -31,26 +31,24 @@
   #:use-module (srfi srfi-26)
   #:export (compile-tree-il
             compile-progn
+            compile-eval-when-compile
             compile-if
             compile-defconst
             compile-defvar
             compile-setq
             compile-let
-            compile-lexical-let
             compile-flet
+            compile-labels
             compile-let*
-            compile-lexical-let*
-            compile-flet*
-            compile-without-void-checks
-            compile-with-always-lexical
             compile-guile-ref
             compile-guile-primitive
-            compile-while
             compile-function
             compile-defmacro
             compile-defun
             #{compile-`}#
-            compile-quote))
+            compile-quote
+            compile-%funcall
+            compile-%set-lexical-binding-mode))
 
 ;;; Certain common parameters (like the bindings data structure or
 ;;; compiler options) are not always passed around but accessed using
@@ -61,14 +59,7 @@
 
 (define bindings-data (make-fluid))
 
-;;; Store for which symbols (or all/none) void checks are disabled.
-
-(define disable-void-check (make-fluid))
-
-;;; Store which symbols (or all/none) should always be bound lexically,
-;;; even with ordinary let and as lambda arguments.
-
-(define always-lexical (make-fluid))
+(define lexical-binding (make-fluid))
 
 ;;; Find the source properties of some parsed expression if there are
 ;;; any associated with it.
@@ -117,419 +108,246 @@
 (define (report-error loc . args)
   (apply error args))
 
-(define (runtime-error loc msg . args)
-  (make-primcall loc 'error
-                 (cons (make-const loc msg) args)))
+(define (access-variable loc symbol handle-lexical handle-dynamic)
+  (cond
+   ((get-lexical-binding (fluid-ref bindings-data) symbol)
+    => handle-lexical)
+   (else
+    (handle-dynamic))))
 
-;;; Generate code to ensure a global symbol is there for further use of
-;;; a given symbol.  In general during the compilation, those needed are
-;;; only tracked with the bindings data structure.  Afterwards, however,
-;;; for all those needed symbols the globals are really generated with
-;;; this routine.
-
-(define (generate-ensure-global loc sym module)
-  (make-call loc
-             (make-module-ref loc runtime 'ensure-fluid! #t)
-             (list (make-const loc module)
-                   (make-const loc sym))))
-
-(define (ensuring-globals loc bindings body)
-  (list->seq
-   loc
-   `(,@(map-globals-needed (fluid-ref bindings)
-                           (lambda (mod sym)
-                             (generate-ensure-global loc sym mod)))
-     ,body)))
-
-;;; Build a construct that establishes dynamic bindings for certain
-;;; variables.  We may want to choose between binding with fluids and
-;;; with-fluids* and using just ordinary module symbols and
-;;; setting/reverting their values with a dynamic-wind.
-
-(define (let-dynamic loc syms module vals body)
-  (call-primitive
-   loc
-   'with-fluids*
-   (make-primcall loc 'list
-                  (map (lambda (sym)
-                         (make-module-ref loc module sym #t))
-                       syms))
-   (make-primcall loc 'list vals)
-   (make-lambda loc
-                '()
-                (make-lambda-case #f '() #f #f #f '() '() body #f))))
-
-;;; Handle access to a variable (reference/setting) correctly depending
-;;; on whether it is currently lexically or dynamically bound.  lexical
-;;; access is done only for references to the value-slot module!
-
-(define (access-variable loc
-                         sym
-                         module
-                         handle-global
-                         handle-lexical
-                         handle-dynamic)
-  (let ((lexical (get-lexical-binding (fluid-ref bindings-data) sym)))
-    (cond
-     (lexical (handle-lexical lexical))
-     ((equal? module function-slot) (handle-global))
-     (else (handle-dynamic)))))
-
-;;; Generate code to reference a variable.  For references in the
-;;; value-slot module, we may want to generate a lexical reference
-;;; instead if the variable has a lexical binding.
-
-(define (reference-variable loc sym module)
+(define (reference-variable loc symbol)
   (access-variable
    loc
-   sym
-   module
-   (lambda () (make-module-ref loc module sym #t))
-   (lambda (lexical) (make-lexical-ref loc lexical lexical))
+   symbol
+   (lambda (lexical)
+     (make-lexical-ref loc lexical lexical))
    (lambda ()
-     (mark-global-needed! (fluid-ref bindings-data) sym module)
      (call-primitive loc
                      'fluid-ref
-                     (make-module-ref loc module sym #t)))))
+                     (make-module-ref loc value-slot symbol #t)))))
 
-;;; Generate code to set a variable.  Just as with reference-variable, in
-;;; case of a reference to value-slot, we want to generate a lexical set
-;;; when the variable has a lexical binding.
+(define (global? module symbol)
+  (module-variable module symbol))
 
-(define (set-variable! loc sym module value)
+(define (ensure-globals! loc names body)
+  (if (and (every (cut global? (resolve-module value-slot) <>) names)
+           (every symbol-interned? names))
+      body
+      (list->seq
+       loc
+       `(,@(map
+            (lambda (name)
+              (ensure-fluid! value-slot name)
+              (make-call loc
+                         (make-module-ref loc runtime 'ensure-fluid! #t)
+                         (list (make-const loc value-slot)
+                               (make-const loc name))))
+            names)
+         ,body))))
+
+(define (set-variable! loc symbol value)
   (access-variable
    loc
-   sym
-   module
+   symbol
+   (lambda (lexical)
+     (make-lexical-set loc lexical lexical value))
+   (lambda ()
+     (ensure-globals!
+      loc
+      (list symbol)
+      (call-primitive loc
+                      'fluid-set!
+                      (make-module-ref loc value-slot symbol #t)
+                      value)))))
+
+(define (access-function loc symbol handle-lexical handle-global)
+  (cond
+   ((get-function-binding (fluid-ref bindings-data) symbol)
+    => handle-lexical)
+   (else
+    (handle-global))))
+
+(define (reference-function loc symbol)
+  (access-function
+   loc
+   symbol
+   (lambda (gensym) (make-lexical-ref loc symbol gensym))
+   (lambda () (make-module-ref loc function-slot symbol #t))))
+
+(define (set-function! loc symbol value)
+  (access-function
+   loc
+   symbol
+   (lambda (gensym) (make-lexical-set loc symbol gensym value))
    (lambda ()
      (make-call
       loc
-      (make-module-ref loc runtime 'set-variable! #t)
-      (list (make-const loc module) (make-const loc sym) value)))
-   (lambda (lexical) (make-lexical-set loc lexical lexical value))
-   (lambda ()
-     (mark-global-needed! (fluid-ref bindings-data) sym module)
-     (call-primitive loc
-                     'fluid-set!
-                     (make-module-ref loc module sym #t)
-                     value))))
+      (make-module-ref loc runtime 'set-symbol-function! #t)
+      (list (make-const loc symbol) value)))))
 
-;;; Process the bindings part of a let or let* expression; that is,
-;;; check for correctness and bring it to the form ((sym1 . val1) (sym2
-;;; . val2) ...).
+(define (bind-lexically? sym module decls)
+  (or (eq? module function-slot)
+      (let ((decl (assq-ref decls sym)))
+        (and (equal? module value-slot)
+             (or
+              (eq? decl 'lexical)
+              (and
+               (fluid-ref lexical-binding)
+               (not (global? (resolve-module module) sym))))))))
 
-(define (process-let-bindings loc bindings)
-  (map
-   (lambda (b)
-     (if (symbol? b)
-         (cons b 'nil)
-         (if (or (not (list? b))
-                 (not (= (length b) 2)))
-             (report-error
-              loc
-              "expected symbol or list of 2 elements in let")
-             (if (not (symbol? (car b)))
-                 (report-error loc "expected symbol in let")
-                 (cons (car b) (cadr b))))))
-   bindings))
+(define (parse-let-binding loc binding)
+  (pmatch binding
+    ((unquote var)
+     (guard (symbol? var))
+     (cons var #nil))
+    ((,var)
+     (guard (symbol? var))
+     (cons var #nil))
+    ((,var ,val)
+     (guard (symbol? var))
+     (cons var val))
+    (else
+     (report-error loc "malformed variable binding" binding))))
 
-;;; Split the let bindings into a list to be done lexically and one
-;;; dynamically.  A symbol will be bound lexically if and only if: We're
-;;; processing a lexical-let (i.e. module is 'lexical), OR we're
-;;; processing a value-slot binding AND the symbol is already lexically
-;;; bound or is always lexical, OR we're processing a function-slot
-;;; binding.
+(define (parse-flet-binding loc binding)
+  (pmatch binding
+    ((,var ,args . ,body)
+     (guard (symbol? var))
+     (cons var `(function (lambda ,args ,@body))))
+    (else
+     (report-error loc "malformed function binding" binding))))
 
-(define (bind-lexically? sym module)
-  (or (eq? module 'lexical)
-      (eq? module function-slot)
-      (and (equal? module value-slot)
-           (let ((always (fluid-ref always-lexical)))
-             (or (eq? always 'all)
-                 (memq sym always)
-                 (get-lexical-binding (fluid-ref bindings-data) sym))))))
+(define (parse-declaration expr)
+  (pmatch expr
+    ((lexical . ,vars)
+     (map (cut cons <> 'lexical) vars))
+    (else
+     '())))
 
-(define (split-let-bindings bindings module)
-  (let iterate ((tail bindings)
-                (lexical '())
-                (dynamic '()))
-    (if (null? tail)
-        (values (reverse lexical) (reverse dynamic))
-        (if (bind-lexically? (caar tail) module)
-            (iterate (cdr tail) (cons (car tail) lexical) dynamic)
-            (iterate (cdr tail) lexical (cons (car tail) dynamic))))))
+(define (parse-body-1 body lambda?)
+  (let loop ((lst body)
+             (decls '())
+             (intspec #f)
+             (doc #f))
+    (pmatch lst
+      (((declare . ,x) . ,tail)
+       (loop tail (append-reverse x decls) intspec doc))
+      (((interactive . ,x) . ,tail)
+       (guard lambda? (not intspec))
+       (loop tail decls x doc))
+      ((,x . ,tail)
+       (guard lambda? (string? x) (not doc) (not (null? tail)))
+       (loop tail decls intspec x))
+      (else
+       (values (append-map parse-declaration decls)
+               intspec
+               doc
+               lst)))))
 
-;;; Compile let and let* expressions.  The code here is used both for
-;;; let/let* and flet/flet*, just with a different bindings module.
-;;;
-;;; A special module value 'lexical means that we're doing a lexical-let
-;;; instead and the bindings should not be saved to globals at all but
-;;; be done with the lexical framework instead.
+(define (parse-lambda-body body)
+  (parse-body-1 body #t))
 
-;;; Let is done with a single call to let-dynamic binding them locally
-;;; to new values all "at once".  If there is at least one variable to
-;;; bind lexically among the bindings, we first do a let for all of them
-;;; to evaluate all values before any bindings take place, and then call
-;;; let-dynamic for the variables to bind dynamically.
+(define (parse-body body)
+  (receive (decls intspec doc body) (parse-body-1 body #f)
+    (values decls body)))
 
-(define (generate-let loc module bindings body)
-  (let ((bind (process-let-bindings loc bindings)))
-    (call-with-values
-        (lambda () (split-let-bindings bind module))
-      (lambda (lexical dynamic)
-        (for-each (lambda (sym)
-                    (mark-global-needed! (fluid-ref bindings-data)
-                                         sym
-                                         module))
-                  (map car dynamic))
-        (let ((make-values (lambda (for)
-                             (map (lambda (el) (compile-expr (cdr el)))
-                                  for)))
-              (make-body (lambda ()
-                           (list->seq loc (map compile-expr body)))))
-          (if (null? lexical)
-              (let-dynamic loc (map car dynamic) module
-                           (make-values dynamic) (make-body))
-              (let* ((lexical-syms (map (lambda (el) (gensym)) lexical))
-                     (dynamic-syms (map (lambda (el) (gensym)) dynamic))
-                     (all-syms (append lexical-syms dynamic-syms))
-                     (vals (append (make-values lexical)
-                                   (make-values dynamic))))
-                (make-let loc
-                          all-syms
-                          all-syms
-                          vals
-                          (with-lexical-bindings
-                           (fluid-ref bindings-data)
-                           (map car lexical) lexical-syms
-                           (lambda ()
-                             (if (null? dynamic)
-                                 (make-body)
-                                 (let-dynamic loc
-                                              (map car dynamic)
-                                              module
-                                              (map
-                                               (lambda (sym)
-                                                 (make-lexical-ref loc
-                                                                   sym
-                                                                   sym))
-                                               dynamic-syms)
-                                              (make-body)))))))))))))
+;;; Partition the argument list of a lambda expression into required,
+;;; optional and rest arguments.
 
-;;; Let* is compiled to a cascaded set of "small lets" for each binding
-;;; in turn so that each one already sees the preceding bindings.
+(define (parse-lambda-list lst)
+  (define (%match lst null optional rest symbol)
+    (pmatch lst
+      (() (null))
+      ((&optional . ,tail) (optional tail))
+      ((&rest . ,tail) (rest tail))
+      ((,arg . ,tail) (guard (symbol? arg)) (symbol arg tail))
+      (else (fail))))
+  (define (return rreq ropt rest)
+    (values #t (reverse rreq) (reverse ropt) rest))
+  (define (fail)
+    (values #f #f #f #f))
+  (define (parse-req lst rreq)
+    (%match lst
+            (lambda () (return rreq '() #f))
+            (lambda (tail) (parse-opt tail rreq '()))
+            (lambda (tail) (parse-rest tail rreq '()))
+            (lambda (arg tail) (parse-req tail (cons arg rreq)))))
+  (define (parse-opt lst rreq ropt)
+    (%match lst
+            (lambda () (return rreq ropt #f))
+            (lambda (tail) (fail))
+            (lambda (tail) (parse-rest tail rreq ropt))
+            (lambda (arg tail) (parse-opt tail rreq (cons arg ropt)))))
+  (define (parse-rest lst rreq ropt)
+    (%match lst
+            (lambda () (fail))
+            (lambda (tail) (fail))
+            (lambda (tail) (fail))
+            (lambda (arg tail) (parse-post-rest tail rreq ropt arg))))
+  (define (parse-post-rest lst rreq ropt rest)
+    (%match lst
+            (lambda () (return rreq ropt rest))
+            (lambda () (fail))
+            (lambda () (fail))
+            (lambda (arg tail) (fail))))
+  (parse-req lst '()))
 
-(define (generate-let* loc module bindings body)
-  (let ((bind (process-let-bindings loc bindings)))
-    (begin
-      (for-each (lambda (sym)
-                  (if (not (bind-lexically? sym module))
-                      (mark-global-needed! (fluid-ref bindings-data)
-                                           sym
-                                           module)))
-                (map car bind))
-      (let iterate ((tail bind))
-        (if (null? tail)
-            (list->seq loc (map compile-expr body))
-            (let ((sym (caar tail))
-                  (value (compile-expr (cdar tail))))
-              (if (bind-lexically? sym module)
-                  (let ((target (gensym)))
-                    (make-let loc
-                              `(,target)
-                              `(,target)
-                              `(,value)
-                              (with-lexical-bindings
-                               (fluid-ref bindings-data)
-                               `(,sym)
-                               `(,target)
-                               (lambda () (iterate (cdr tail))))))
-                  (let-dynamic loc
-                               `(,(caar tail))
-                               module
-                               `(,value)
-                               (iterate (cdr tail))))))))))
+(define (make-simple-lambda loc meta req opt init rest vars body)
+  (make-lambda loc
+               meta
+               (make-lambda-case #f req opt rest #f init vars body #f)))
 
-;;; Split the argument list of a lambda expression into required,
-;;; optional and rest arguments and also check it is actually valid.
-;;; Additionally, we create a list of all "local variables" (that is,
-;;; required, optional and rest arguments together) and also this one
-;;; split into those to be bound lexically and dynamically.  Returned is
-;;; as multiple values: required optional rest lexical dynamic
-
-(define (bind-arg-lexical? arg)
-  (let ((always (fluid-ref always-lexical)))
-    (or (eq? always 'all)
-        (memq arg always))))
-
-(define (split-lambda-arguments loc args)
-  (let iterate ((tail args)
-                (mode 'required)
-                (required '())
-                (optional '())
-                (lexical '())
-                (dynamic '()))
-    (cond
-     ((null? tail)
-      (let ((final-required (reverse required))
-            (final-optional (reverse optional))
-            (final-lexical (reverse lexical))
-            (final-dynamic (reverse dynamic)))
-        (values final-required
-                final-optional
-                #f
-                final-lexical
-                final-dynamic)))
-     ((and (eq? mode 'required)
-           (eq? (car tail) '&optional))
-      (iterate (cdr tail) 'optional required optional lexical dynamic))
-     ((eq? (car tail) '&rest)
-      (if (or (null? (cdr tail))
-              (not (null? (cddr tail))))
-          (report-error loc "expected exactly one symbol after &rest")
-          (let* ((rest (cadr tail))
-                 (rest-lexical (bind-arg-lexical? rest))
-                 (final-required (reverse required))
-                 (final-optional (reverse optional))
-                 (final-lexical (reverse (if rest-lexical
-                                             (cons rest lexical)
-                                             lexical)))
-                 (final-dynamic (reverse (if rest-lexical
-                                             dynamic
-                                             (cons rest dynamic)))))
-            (values final-required
-                    final-optional
-                    rest
-                    final-lexical
-                    final-dynamic))))
-     (else
-      (if (not (symbol? (car tail)))
-          (report-error loc
-                        "expected symbol in argument list, got"
-                        (car tail))
-          (let* ((arg (car tail))
-                 (bind-lexical (bind-arg-lexical? arg))
-                 (new-lexical (if bind-lexical
-                                  (cons arg lexical)
-                                  lexical))
-                 (new-dynamic (if bind-lexical
-                                  dynamic
-                                  (cons arg dynamic))))
-            (case mode
-              ((required) (iterate (cdr tail) mode
-                                   (cons arg required) optional
-                                   new-lexical new-dynamic))
-              ((optional) (iterate (cdr tail) mode
-                                   required (cons arg optional)
-                                   new-lexical new-dynamic))
-              (else
-               (error "invalid mode in split-lambda-arguments"
-                      mode)))))))))
-
-;;; Compile a lambda expression.  One thing we have to be aware of is
-;;; that lambda arguments are usually dynamically bound, even when a
-;;; lexical binding is intact for a symbol.  For symbols that are marked
-;;; as 'always lexical,' however, we lexically bind here as well, and
-;;; thus we get them out of the let-dynamic call and register a lexical
-;;; binding for them (the lexical target variable is already there,
-;;; namely the real lambda argument from TreeIL).
-
-(define (compile-lambda loc args body)
-  (if (not (list? args))
-      (report-error loc "expected list for argument-list" args))
-  (if (null? body)
-      (report-error loc "function body must not be empty"))
-  (receive (required optional rest lexical dynamic)
-           (split-lambda-arguments loc args)
-    (define (process-args args)
-      (define (find-pairs pairs filter)
-        (lset-intersection (lambda (name+sym x)
-                             (eq? (car name+sym) x))
-                           pairs
-                           filter))
-      (let* ((syms (map (lambda (x) (gensym)) args))
-             (pairs (map cons args syms))
-             (lexical-pairs (find-pairs pairs lexical))
-             (dynamic-pairs (find-pairs pairs dynamic)))
-        (values syms pairs lexical-pairs dynamic-pairs)))
-    (let*-values (((required-syms
-                    required-pairs
-                    required-lex-pairs
-                    required-dyn-pairs)
-                   (process-args required))
-                  ((optional-syms
-                    optional-pairs
-                    optional-lex-pairs
-                    optional-dyn-pairs)
-                   (process-args optional))
-                  ((rest-syms rest-pairs rest-lex-pairs rest-dyn-pairs)
-                   (process-args (if rest (list rest) '())))
-                  ((the-rest-sym) (if rest (car rest-syms) #f))
-                  ((all-syms) (append required-syms
-                                      optional-syms
-                                      rest-syms))
-                  ((all-lex-pairs) (append required-lex-pairs
-                                           optional-lex-pairs
-                                           rest-lex-pairs))
-                  ((all-dyn-pairs) (append required-dyn-pairs
-                                           optional-dyn-pairs
-                                           rest-dyn-pairs)))
-      (for-each (lambda (sym)
-                  (mark-global-needed! (fluid-ref bindings-data)
-                                       sym
-                                       value-slot))
-                dynamic)
-      (with-dynamic-bindings
-       (fluid-ref bindings-data)
-       dynamic
-       (lambda ()
-         (with-lexical-bindings
-          (fluid-ref bindings-data)
-          (map car all-lex-pairs)
-          (map cdr all-lex-pairs)
-          (lambda ()
-            (make-lambda
-             loc
-             '()
-             (make-lambda-case
-              #f
-              required
-              optional
-              rest
-              #f
-              (map (lambda (x) (nil-value loc)) optional)
-              all-syms
-              (let ((compiled-body
-                     (list->seq loc (map compile-expr body))))
-                (make-seq
-                 loc
-                 (if rest
-                     (make-conditional
-                      loc
-                      (call-primitive loc
-                                      'null?
-                                      (make-lexical-ref loc
-                                                        rest
-                                                        the-rest-sym))
-                      (make-lexical-set loc
-                                        rest
-                                        the-rest-sym
-                                        (nil-value loc))
-                      (make-void loc))
-                     (make-void loc))
-                 (if (null? dynamic)
-                     compiled-body
-                     (let-dynamic loc
-                                  dynamic
-                                  value-slot
-                                  (map (lambda (name-sym)
-                                         (make-lexical-ref
-                                          loc
-                                          (car name-sym)
-                                          (cdr name-sym)))
-                                       all-dyn-pairs)
-                                  compiled-body))))
-              #f)))))))))
+(define (compile-lambda loc meta args body)
+  (receive (valid? req-ids opt-ids rest-id)
+           (parse-lambda-list args)
+    (if valid?
+        (let* ((all-ids (append req-ids
+                                opt-ids
+                                (or (and=> rest-id list) '())))
+               (all-vars (map (lambda (ignore) (gensym)) all-ids)))
+          (let*-values (((decls intspec doc forms)
+                         (parse-lambda-body body))
+                        ((lexical dynamic)
+                         (partition
+                          (compose (cut bind-lexically? <> value-slot decls)
+                                   car)
+                          (map list all-ids all-vars)))
+                        ((lexical-ids lexical-vars) (unzip2 lexical))
+                        ((dynamic-ids dynamic-vars) (unzip2 dynamic)))
+            (with-dynamic-bindings
+             (fluid-ref bindings-data)
+             dynamic-ids
+             (lambda ()
+               (with-lexical-bindings
+                (fluid-ref bindings-data)
+                lexical-ids
+                lexical-vars
+                (lambda ()
+                  (ensure-globals!
+                   loc
+                   dynamic-ids
+                   (let* ((tree-il (compile-expr `(progn ,@forms)))
+                          (full-body
+                           (if (null? dynamic)
+                               tree-il
+                               (make-dynlet
+                                loc
+                                (map (cut make-module-ref loc value-slot <> #t)
+                                     dynamic-ids)
+                                (map (cut make-lexical-ref loc <> <>)
+                                     dynamic-ids
+                                     dynamic-vars)
+                                tree-il))))
+                     (make-simple-lambda loc
+                                         meta
+                                         req-ids
+                                         opt-ids
+                                         (map (const (nil-value loc))
+                                              opt-ids)
+                                         rest-id
+                                         all-vars
+                                         full-body)))))))))
+        (report-error "invalid function" `(lambda ,args ,@body)))))
 
 ;;; Handle the common part of defconst and defvar, that is, checking for
 ;;; a correct doc string and arguments as well as maybe in the future
@@ -547,12 +365,11 @@
 
 ;;; Handle macro and special operator bindings.
 
-(define (find-operator sym type)
+(define (find-operator name type)
   (and
-   (symbol? sym)
-   (module-defined? (resolve-interface function-slot) sym)
-   (let* ((op (module-ref (resolve-module function-slot) sym))
-          (op (if (fluid? op) (fluid-ref op) op)))
+   (symbol? name)
+   (module-defined? (resolve-interface function-slot) name)
+   (let ((op (module-ref (resolve-module function-slot) name)))
      (if (and (pair? op) (eq? (car op) type))
          (cdr op)
          #f))))
@@ -608,52 +425,34 @@
                         expr))
       (make-const loc expr)))
 
-;;; Temporarily update a list of symbols that are handled specially
-;;; (disabled void check or always lexical) for compiling body.  We need
-;;; to handle special cases for already all / set to all and the like.
-
-(define (with-added-symbols loc fluid syms body)
-  (if (null? body)
-      (report-error loc "symbol-list construct has empty body"))
-  (if (not (or (eq? syms 'all)
-               (and (list? syms) (and-map symbol? syms))))
-      (report-error loc "invalid symbol list" syms))
-  (let ((old (fluid-ref fluid))
-        (make-body (lambda ()
-                     (list->seq loc (map compile-expr body)))))
-    (if (eq? old 'all)
-        (make-body)
-        (let ((new (if (eq? syms 'all)
-                       'all
-                       (append syms old))))
-          (with-fluids ((fluid new))
-            (make-body))))))
-
 ;;; Special operators
 
 (defspecial progn (loc args)
-  (list->seq loc (map compile-expr args)))
+  (list->seq loc
+             (if (null? args)
+                 (list (nil-value loc))
+                 (map compile-expr args))))
+
+(defspecial eval-when-compile (loc args)
+  (make-const loc (compile `(progn ,@args) #:from 'elisp #:to 'value)))
 
 (defspecial if (loc args)
   (pmatch args
     ((,cond ,then . ,else)
-     (make-conditional loc
-                       (compile-expr cond)
-                       (compile-expr then)
-                       (if (null? else)
-                           (nil-value loc)
-                           (list->seq loc (map compile-expr else)))))))
+     (make-conditional
+      loc
+      (call-primitive loc 'not
+       (call-primitive loc 'nil? (compile-expr cond)))
+      (compile-expr then)
+      (compile-expr `(progn ,@else))))))
 
 (defspecial defconst (loc args)
   (pmatch args
     ((,sym ,value . ,doc)
      (if (handle-var-def loc sym doc)
          (make-seq loc
-                        (set-variable! loc
-                                       sym
-                                       value-slot
-                                       (compile-expr value))
-                        (make-const loc sym))))))
+                   (set-variable! loc sym (compile-expr value))
+                   (make-const loc sym))))))
 
 (defspecial defvar (loc args)
   (pmatch args
@@ -678,7 +477,7 @@
                             (make-module-ref loc value-slot sym #t))
             (make-const loc #f))
            (make-void loc)
-           (set-variable! loc sym value-slot (compile-expr value)))
+           (set-variable! loc sym (compile-expr value)))
           (make-const loc sym))))))
 
 (defspecial setq (loc args)
@@ -696,47 +495,141 @@
            (if (not (symbol? sym))
                (report-error loc "expected symbol in setq")
                (cons
-                (set-variable! loc sym value-slot val)
+                (set-variable! loc sym val)
                 (loop (cddr* args)
-                      (reference-variable loc sym value-slot)))))))))
+                      (reference-variable loc sym)))))))))
   
 (defspecial let (loc args)
   (pmatch args
-    ((,bindings . ,body)
-     (generate-let loc value-slot bindings body))))
+    ((,varlist . ,body)
+     (let ((bindings (map (cut parse-let-binding loc <>) varlist)))
+       (receive (decls forms) (parse-body body)
+         (receive (lexical dynamic)
+                  (partition
+                   (compose (cut bind-lexically? <> value-slot decls)
+                            car)
+                   bindings)
+           (let ((make-values (lambda (for)
+                                (map (lambda (el) (compile-expr (cdr el)))
+                                     for)))
+                 (make-body (lambda () (compile-expr `(progn ,@forms)))))
+             (ensure-globals!
+              loc
+              (map car dynamic)
+              (if (null? lexical)
+                  (make-dynlet loc
+                               (map (compose (cut make-module-ref
+                                                  loc
+                                                  value-slot
+                                                  <>
+                                                  #t)
+                                             car)
+                                    dynamic)
+                               (map (compose compile-expr cdr)
+                                    dynamic)
+                               (make-body))
+                  (let* ((lexical-syms (map (lambda (el) (gensym)) lexical))
+                         (dynamic-syms (map (lambda (el) (gensym)) dynamic))
+                         (all-syms (append lexical-syms dynamic-syms))
+                         (vals (append (make-values lexical)
+                                       (make-values dynamic))))
+                    (make-let loc
+                              all-syms
+                              all-syms
+                              vals
+                              (with-lexical-bindings
+                               (fluid-ref bindings-data)
+                               (map car lexical)
+                               lexical-syms
+                               (lambda ()
+                                 (if (null? dynamic)
+                                     (make-body)
+                                     (make-dynlet loc
+                                                  (map
+                                                   (compose
+                                                    (cut make-module-ref
+                                                         loc
+                                                         value-slot
+                                                         <>
+                                                         #t)
+                                                    car)
+                                                   dynamic)
+                                                  (map
+                                                   (lambda (sym)
+                                                     (make-lexical-ref
+                                                      loc
+                                                      sym
+                                                      sym))
+                                                   dynamic-syms)
+                                                  (make-body))))))))))))))))
 
-(defspecial lexical-let (loc args)
+(defspecial let* (loc args)
   (pmatch args
-    ((,bindings . ,body)
-     (generate-let loc 'lexical bindings body))))
+    ((,varlist . ,body)
+     (let ((bindings (map (cut parse-let-binding loc <>) varlist)))
+       (receive (decls forms) (parse-body body)
+         (let iterate ((tail bindings))
+           (if (null? tail)
+               (compile-expr `(progn ,@forms))
+               (let ((sym (caar tail))
+                     (value (compile-expr (cdar tail))))
+                 (if (bind-lexically? sym value-slot decls)
+                     (let ((target (gensym)))
+                       (make-let loc
+                                 `(,target)
+                                 `(,target)
+                                 `(,value)
+                                 (with-lexical-bindings
+                                  (fluid-ref bindings-data)
+                                  `(,sym)
+                                  `(,target)
+                                  (lambda () (iterate (cdr tail))))))
+                     (ensure-globals!
+                      loc
+                      (list sym)
+                      (make-dynlet loc
+                                   (list (make-module-ref loc value-slot sym #t))
+                                   (list value)
+                                   (iterate (cdr tail)))))))))))))
 
 (defspecial flet (loc args)
   (pmatch args
     ((,bindings . ,body)
-     (generate-let loc function-slot bindings body))))
+     (let ((names+vals (map (cut parse-flet-binding loc <>) bindings)))
+       (receive (decls forms) (parse-body body)
+         (let ((names (map car names+vals))
+               (vals (map cdr names+vals))
+               (gensyms (map (lambda (x) (gensym)) names+vals)))
+           (with-function-bindings
+            (fluid-ref bindings-data)
+            names
+            gensyms
+            (lambda ()
+              (make-let loc
+                        names
+                        gensyms
+                        (map compile-expr vals)
+                        (compile-expr `(progn ,@forms)))))))))))
 
-(defspecial let* (loc args)
+(defspecial labels (loc args)
   (pmatch args
     ((,bindings . ,body)
-     (generate-let* loc value-slot bindings body))))
-
-(defspecial lexical-let* (loc args)
-  (pmatch args
-    ((,bindings . ,body)
-     (generate-let* loc 'lexical bindings body))))
-
-(defspecial flet* (loc args)
-  (pmatch args
-    ((,bindings . ,body)
-     (generate-let* loc function-slot bindings body))))
-
-;;; Temporarily set symbols as always lexical only for the lexical scope
-;;; of a construct.
-
-(defspecial with-always-lexical (loc args)
-  (pmatch args
-    ((,syms . ,body)
-     (with-added-symbols loc always-lexical syms body))))
+     (let ((names+vals (map (cut parse-flet-binding loc <>) bindings)))
+       (receive (decls forms) (parse-body body)
+         (let ((names (map car names+vals))
+               (vals (map cdr names+vals))
+               (gensyms (map (lambda (x) (gensym)) names+vals)))
+           (with-function-bindings
+            (fluid-ref bindings-data)
+            names
+            gensyms
+            (lambda ()
+              (make-letrec #f
+                           loc
+                           names
+                           gensyms
+                           (map compile-expr vals)
+                           (compile-expr `(progn ,@forms)))))))))))
 
 ;;; guile-ref allows building TreeIL's module references from within
 ;;; elisp as a way to access data within the Guile universe.  The module
@@ -756,58 +649,12 @@
     ((,sym)
      (make-primitive-ref loc sym))))
 
-;;; A while construct is transformed into a tail-recursive loop like
-;;; this:
-;;;
-;;; (letrec ((iterate (lambda ()
-;;;                     (if condition
-;;;                       (begin body
-;;;                              (iterate))
-;;;                       #nil))))
-;;;   (iterate))
-;;;
-;;; As letrec is not directly accessible from elisp, while is
-;;; implemented here instead of with a macro.
-
-(defspecial while (loc args)
-  (pmatch args
-    ((,condition . ,body)
-     (let* ((itersym (gensym))
-            (compiled-body (map compile-expr body))
-            (iter-call (make-call loc
-                                  (make-lexical-ref loc
-                                                    'iterate
-                                                    itersym)
-                                  (list)))
-            (full-body (list->seq loc `(,@compiled-body ,iter-call)))
-            (lambda-body (make-conditional loc
-                                           (compile-expr condition)
-                                           full-body
-                                           (nil-value loc)))
-            (iter-thunk (make-lambda loc
-                                     '()
-                                     (make-lambda-case #f
-                                                       '()
-                                                       #f
-                                                       #f
-                                                       #f
-                                                       '()
-                                                       '()
-                                                       lambda-body
-                                                       #f))))
-       (make-letrec loc
-                    #f
-                    '(iterate)
-                    (list itersym)
-                    (list iter-thunk)
-                    iter-call)))))
-
 (defspecial function (loc args)
   (pmatch args
     (((lambda ,args . ,body))
-     (compile-lambda loc args body))
+     (compile-lambda loc '() args body))
     ((,sym) (guard (symbol? sym))
-     (reference-variable loc sym function-slot))))
+     (reference-function loc sym))))
 
 (defspecial defmacro (loc args)
   (pmatch args
@@ -817,17 +664,19 @@
          (let* ((tree-il
                  (make-seq
                   loc
-                  (set-variable!
+                  (set-function!
                    loc
                    name
-                   function-slot
-                   (make-primcall loc 'cons
-                                  (list (make-const loc 'macro)
-                                        (compile-lambda loc args body))))
+                   (make-call
+                    loc
+                    (make-module-ref loc '(guile) 'cons #t)
+                    (list (make-const loc 'macro)
+                          (compile-lambda loc
+                                          `((name . ,name))
+                                          args
+                                          body))))
                   (make-const loc name))))
-           (compile (ensuring-globals loc bindings-data tree-il)
-                    #:from 'tree-il
-                    #:to 'value)
+           (compile tree-il #:from 'tree-il #:to 'value)
            tree-il)))))
 
 (defspecial defun (loc args)
@@ -836,10 +685,10 @@
      (if (not (symbol? name))
          (report-error loc "expected symbol as function name" name)
          (make-seq loc
-                   (set-variable! loc
+                   (set-function! loc
                                   name
-                                  function-slot
                                   (compile-lambda loc
+                                                  `((name . ,name))
                                                   args
                                                   body))
                    (make-const loc name))))))
@@ -854,6 +703,19 @@
     ((,val)
      (make-const loc val))))
 
+(defspecial %funcall (loc args)
+  (pmatch args
+    ((,function . ,arguments)
+     (make-call loc
+                (compile-expr function)
+                (map compile-expr arguments)))))
+
+(defspecial %set-lexical-binding-mode (loc args)
+  (pmatch args
+    ((,val)
+     (fluid-set! lexical-binding val)
+     (make-void loc))))
+
 ;;; Compile a compound expression to Tree-IL.
 
 (define (compile-pair loc expr)
@@ -867,13 +729,7 @@
       => (lambda (macro-function)
            (compile-expr (apply macro-function arguments))))
      (else
-      (make-call loc
-                 (if (symbol? operator)
-                     (reference-variable loc
-                                         operator
-                                         function-slot)
-                     (compile-expr operator))
-                 (map compile-expr arguments))))))
+      (compile-expr `(%funcall (function ,operator) ,@arguments))))))
 
 ;;; Compile a symbol expression.  This is a variable reference or maybe
 ;;; some special value like nil.
@@ -882,7 +738,7 @@
   (case sym
     ((nil) (nil-value loc))
     ((t) (t-value loc))
-    (else (reference-variable loc sym value-slot))))
+    (else (reference-variable loc sym))))
 
 ;;; Compile a single expression to TreeIL.
 
@@ -912,28 +768,14 @@
             (case key
               ((#:warnings)             ; ignore
                #f)
-              ((#:always-lexical)
-               (if (valid-symbol-list-arg? value)
-                   (fluid-set! always-lexical value)
-                   (report-error #f
-                                 "Invalid value for #:always-lexical"
-                                 value)))
               (else (report-error #f
                                   "Invalid compiler option"
                                   key)))))))
 
-;;; Entry point for compilation to TreeIL.  This creates the bindings
-;;; data structure, and after compiling the main expression we need to
-;;; make sure all globals for symbols used during the compilation are
-;;; created using the generate-ensure-global function.
-
 (define (compile-tree-il expr env opts)
   (values
-   (with-fluids ((bindings-data (make-bindings))
-                 (disable-void-check '())
-                 (always-lexical '()))
+   (with-fluids ((bindings-data (make-bindings)))
      (process-options! opts)
-     (let ((compiled (compile-expr expr)))
-      (ensuring-globals (location expr) bindings-data compiled)))
+     (compile-expr expr))
    env
    env))

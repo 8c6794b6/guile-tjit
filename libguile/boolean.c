@@ -62,6 +62,14 @@ SCM_DEFINE (scm_not, "not", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_nil_p, "nil?", 1, 0, 0,
+            (SCM x),
+            "Return @code{#t} iff @var{x} is nil, else return @code{#f}.")
+#define FUNC_NAME s_scm_nil_p
+{
+  return scm_from_bool (scm_is_lisp_false (x));
+}
+#undef FUNC_NAME
 
 SCM_DEFINE (scm_boolean_p, "boolean?", 1, 0, 0, 
            (SCM obj),

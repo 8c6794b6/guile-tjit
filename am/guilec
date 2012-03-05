@@ -1,14 +1,14 @@
 # -*- makefile -*-
-GOBJECTS = $(SOURCES:%.scm=%.go)
+GOBJECTS = $(SOURCES:%.scm=%.go) $(ELISP_SOURCES:%.el=%.go)
 
 GUILE_WARNINGS = -Wunbound-variable -Warity-mismatch -Wformat
 
 moddir = $(pkgdatadir)/$(GUILE_EFFECTIVE_VERSION)/$(modpath)
-nobase_mod_DATA = $(SOURCES) $(NOCOMP_SOURCES)
+nobase_mod_DATA = $(SOURCES) $(ELISP_SOURCES) $(NOCOMP_SOURCES)
 ccachedir = $(pkglibdir)/$(GUILE_EFFECTIVE_VERSION)/ccache/$(modpath)
 nobase_ccache_DATA = $(GOBJECTS)
-EXTRA_DIST = $(SOURCES) $(NOCOMP_SOURCES)
-ETAGS_ARGS = $(SOURCES) $(NOCOMP_SOURCES)
+EXTRA_DIST = $(SOURCES) $(ELISP_SOURCES) $(NOCOMP_SOURCES)
+ETAGS_ARGS = $(SOURCES) $(ELISP_SOURCES) $(NOCOMP_SOURCES)
 
 CLEANFILES = $(GOBJECTS)
 
@@ -24,7 +24,8 @@ AM_V_GUILEC = $(AM_V_GUILEC_$(V))
 AM_V_GUILEC_ = $(AM_V_GUILEC_$(AM_DEFAULT_VERBOSITY))
 AM_V_GUILEC_0 = @echo "  GUILEC" $@;
 
-SUFFIXES = .scm .go
+SUFFIXES = .scm .el .go
+
 .scm.go:
 	$(AM_V_GUILEC)GUILE_AUTO_COMPILE=0			\
 	$(top_builddir)/meta/uninstalled-env			\
@@ -32,3 +33,11 @@ SUFFIXES = .scm .go
 	  -L "$(abs_srcdir)" -L "$(abs_builddir)"		\
 	  -L "$(abs_top_srcdir)/guile-readline"			\
 	  -o "$@" "$<"
+
+.el.go:
+	$(AM_V_GUILEC)GUILE_AUTO_COMPILE=0			\
+	$(top_builddir)/meta/uninstalled-env			\
+	guild compile --target="$(host)" $(GUILE_WARNINGS)	\
+	  -L "$(abs_srcdir)" -L "$(abs_builddir)"		\
+	  -L "$(abs_top_srcdir)/guile-readline"			\
+	  --from=elisp -o "$@" "$<"

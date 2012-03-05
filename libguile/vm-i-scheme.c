@@ -65,7 +65,19 @@ VM_DEFINE_FUNCTION (133, not_nullp, "not-null?", 1)
   RETURN (scm_from_bool (!scm_is_null (x)));
 }
 
-VM_DEFINE_FUNCTION (134, eqv, "eqv?", 2)
+VM_DEFINE_FUNCTION (134, nilp, "nil?", 1)
+{
+  ARGS1 (x);
+  RETURN (scm_from_bool (scm_is_lisp_false (x)));
+}
+
+VM_DEFINE_FUNCTION (135, not_nilp, "not-nil?", 1)
+{
+  ARGS1 (x);
+  RETURN (scm_from_bool (!scm_is_lisp_false (x)));
+}
+
+VM_DEFINE_FUNCTION (136, eqv, "eqv?", 2)
 {
   ARGS2 (x, y);
   if (scm_is_eq (x, y))
@@ -76,7 +88,7 @@ VM_DEFINE_FUNCTION (134, eqv, "eqv?", 2)
   RETURN (scm_eqv_p (x, y));
 }
 
-VM_DEFINE_FUNCTION (135, equal, "equal?", 2)
+VM_DEFINE_FUNCTION (137, equal, "equal?", 2)
 {
   ARGS2 (x, y);
   if (scm_is_eq (x, y))
@@ -87,25 +99,25 @@ VM_DEFINE_FUNCTION (135, equal, "equal?", 2)
   RETURN (scm_equal_p (x, y));
 }
 
-VM_DEFINE_FUNCTION (136, pairp, "pair?", 1)
+VM_DEFINE_FUNCTION (138, pairp, "pair?", 1)
 {
   ARGS1 (x);
   RETURN (scm_from_bool (scm_is_pair (x)));
 }
 
-VM_DEFINE_FUNCTION (137, listp, "list?", 1)
+VM_DEFINE_FUNCTION (139, listp, "list?", 1)
 {
   ARGS1 (x);
   RETURN (scm_from_bool (scm_ilength (x) >= 0));
 }
 
-VM_DEFINE_FUNCTION (138, symbolp, "symbol?", 1)
+VM_DEFINE_FUNCTION (140, symbolp, "symbol?", 1)
 {
   ARGS1 (x);
   RETURN (scm_from_bool (scm_is_symbol (x)));
 }
 
-VM_DEFINE_FUNCTION (139, vectorp, "vector?", 1)
+VM_DEFINE_FUNCTION (141, vectorp, "vector?", 1)
 {
   ARGS1 (x);
   RETURN (scm_from_bool (SCM_I_IS_VECTOR (x)));
@@ -116,7 +128,7 @@ VM_DEFINE_FUNCTION (139, vectorp, "vector?", 1)
  * Basic data
  */
 
-VM_DEFINE_FUNCTION (140, cons, "cons", 2)
+VM_DEFINE_FUNCTION (142, cons, "cons", 2)
 {
   ARGS2 (x, y);
   CONS (x, x, y);
@@ -130,21 +142,21 @@ VM_DEFINE_FUNCTION (140, cons, "cons", 2)
       goto vm_error_not_a_pair;                 \
     }
   
-VM_DEFINE_FUNCTION (141, car, "car", 1)
+VM_DEFINE_FUNCTION (143, car, "car", 1)
 {
   ARGS1 (x);
   VM_VALIDATE_CONS (x, "car");
   RETURN (SCM_CAR (x));
 }
 
-VM_DEFINE_FUNCTION (142, cdr, "cdr", 1)
+VM_DEFINE_FUNCTION (144, cdr, "cdr", 1)
 {
   ARGS1 (x);
   VM_VALIDATE_CONS (x, "cdr");
   RETURN (SCM_CDR (x));
 }
 
-VM_DEFINE_INSTRUCTION (143, set_car, "set-car!", 0, 2, 0)
+VM_DEFINE_INSTRUCTION (145, set_car, "set-car!", 0, 2, 0)
 {
   SCM x, y;
   POP2 (y, x);
@@ -153,7 +165,7 @@ VM_DEFINE_INSTRUCTION (143, set_car, "set-car!", 0, 2, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (144, set_cdr, "set-cdr!", 0, 2, 0)
+VM_DEFINE_INSTRUCTION (146, set_cdr, "set-cdr!", 0, 2, 0)
 {
   SCM x, y;
   POP2 (y, x);
@@ -178,27 +190,27 @@ VM_DEFINE_INSTRUCTION (144, set_cdr, "set-cdr!", 0, 2, 0)
     RETURN (srel (x, y));						\
   }
 
-VM_DEFINE_FUNCTION (145, ee, "ee?", 2)
+VM_DEFINE_FUNCTION (147, ee, "ee?", 2)
 {
   REL (==, scm_num_eq_p);
 }
 
-VM_DEFINE_FUNCTION (146, lt, "lt?", 2)
+VM_DEFINE_FUNCTION (148, lt, "lt?", 2)
 {
   REL (<, scm_less_p);
 }
 
-VM_DEFINE_FUNCTION (147, le, "le?", 2)
+VM_DEFINE_FUNCTION (149, le, "le?", 2)
 {
   REL (<=, scm_leq_p);
 }
 
-VM_DEFINE_FUNCTION (148, gt, "gt?", 2)
+VM_DEFINE_FUNCTION (150, gt, "gt?", 2)
 {
   REL (>, scm_gr_p);
 }
 
-VM_DEFINE_FUNCTION (149, ge, "ge?", 2)
+VM_DEFINE_FUNCTION (151, ge, "ge?", 2)
 {
   REL (>=, scm_geq_p);
 }
@@ -280,7 +292,7 @@ VM_DEFINE_FUNCTION (149, ge, "ge?", 2)
 #endif
 
 
-VM_DEFINE_FUNCTION (150, add, "add", 2)
+VM_DEFINE_FUNCTION (152, add, "add", 2)
 {
 #ifndef ASM_ADD
   FUNC2 (+, scm_sum);
@@ -292,7 +304,7 @@ VM_DEFINE_FUNCTION (150, add, "add", 2)
 #endif
 }
 
-VM_DEFINE_FUNCTION (151, add1, "add1", 1)
+VM_DEFINE_FUNCTION (153, add1, "add1", 1)
 {
   ARGS1 (x);
 
@@ -314,7 +326,7 @@ VM_DEFINE_FUNCTION (151, add1, "add1", 1)
   RETURN (scm_sum (x, SCM_I_MAKINUM (1)));
 }
 
-VM_DEFINE_FUNCTION (152, sub, "sub", 2)
+VM_DEFINE_FUNCTION (154, sub, "sub", 2)
 {
 #ifndef ASM_SUB
   FUNC2 (-, scm_difference);
@@ -326,7 +338,7 @@ VM_DEFINE_FUNCTION (152, sub, "sub", 2)
 #endif
 }
 
-VM_DEFINE_FUNCTION (153, sub1, "sub1", 1)
+VM_DEFINE_FUNCTION (155, sub1, "sub1", 1)
 {
   ARGS1 (x);
 
@@ -351,42 +363,42 @@ VM_DEFINE_FUNCTION (153, sub1, "sub1", 1)
 # undef ASM_ADD
 # undef ASM_SUB
 
-VM_DEFINE_FUNCTION (154, mul, "mul", 2)
+VM_DEFINE_FUNCTION (156, mul, "mul", 2)
 {
   ARGS2 (x, y);
   SYNC_REGISTER ();
   RETURN (scm_product (x, y));
 }
 
-VM_DEFINE_FUNCTION (155, div, "div", 2)
+VM_DEFINE_FUNCTION (157, div, "div", 2)
 {
   ARGS2 (x, y);
   SYNC_REGISTER ();
   RETURN (scm_divide (x, y));
 }
 
-VM_DEFINE_FUNCTION (156, quo, "quo", 2)
+VM_DEFINE_FUNCTION (158, quo, "quo", 2)
 {
   ARGS2 (x, y);
   SYNC_REGISTER ();
   RETURN (scm_quotient (x, y));
 }
 
-VM_DEFINE_FUNCTION (157, rem, "rem", 2)
+VM_DEFINE_FUNCTION (159, rem, "rem", 2)
 {
   ARGS2 (x, y);
   SYNC_REGISTER ();
   RETURN (scm_remainder (x, y));
 }
 
-VM_DEFINE_FUNCTION (158, mod, "mod", 2)
+VM_DEFINE_FUNCTION (160, mod, "mod", 2)
 {
   ARGS2 (x, y);
   SYNC_REGISTER ();
   RETURN (scm_modulo (x, y));
 }
 
-VM_DEFINE_FUNCTION (159, ash, "ash", 2)
+VM_DEFINE_FUNCTION (161, ash, "ash", 2)
 {
   ARGS2 (x, y);
   if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -415,7 +427,7 @@ VM_DEFINE_FUNCTION (159, ash, "ash", 2)
   RETURN (scm_ash (x, y));
 }
 
-VM_DEFINE_FUNCTION (160, logand, "logand", 2)
+VM_DEFINE_FUNCTION (162, logand, "logand", 2)
 {
   ARGS2 (x, y);
   if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -424,7 +436,7 @@ VM_DEFINE_FUNCTION (160, logand, "logand", 2)
   RETURN (scm_logand (x, y));
 }
 
-VM_DEFINE_FUNCTION (161, logior, "logior", 2)
+VM_DEFINE_FUNCTION (163, logior, "logior", 2)
 {
   ARGS2 (x, y);
   if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -433,7 +445,7 @@ VM_DEFINE_FUNCTION (161, logior, "logior", 2)
   RETURN (scm_logior (x, y));
 }
 
-VM_DEFINE_FUNCTION (162, logxor, "logxor", 2)
+VM_DEFINE_FUNCTION (164, logxor, "logxor", 2)
 {
   ARGS2 (x, y);
   if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -447,7 +459,7 @@ VM_DEFINE_FUNCTION (162, logxor, "logxor", 2)
  * Strings
  */
 
-VM_DEFINE_FUNCTION (163, string_length, "string-length", 1)
+VM_DEFINE_FUNCTION (165, string_length, "string-length", 1)
 {
   ARGS1 (str);
   if (SCM_LIKELY (scm_is_string (str)))
@@ -459,7 +471,7 @@ VM_DEFINE_FUNCTION (163, string_length, "string-length", 1)
     }
 }
 
-VM_DEFINE_FUNCTION (164, string_ref, "string-ref", 2)
+VM_DEFINE_FUNCTION (166, string_ref, "string-ref", 2)
 {
   scm_t_signed_bits i = 0;
   ARGS2 (str, idx);
@@ -482,7 +494,7 @@ VM_DEFINE_FUNCTION (164, string_ref, "string-ref", 2)
  * Vectors and arrays
  */
 
-VM_DEFINE_FUNCTION (165, vector_length, "vector-length", 1)
+VM_DEFINE_FUNCTION (167, vector_length, "vector-length", 1)
 {
   ARGS1 (vect);
   if (SCM_LIKELY (SCM_I_IS_VECTOR (vect)))
@@ -494,7 +506,7 @@ VM_DEFINE_FUNCTION (165, vector_length, "vector-length", 1)
     }
 }
 
-VM_DEFINE_FUNCTION (166, vector_ref, "vector-ref", 2)
+VM_DEFINE_FUNCTION (168, vector_ref, "vector-ref", 2)
 {
   scm_t_signed_bits i = 0;
   ARGS2 (vect, idx);
@@ -510,7 +522,7 @@ VM_DEFINE_FUNCTION (166, vector_ref, "vector-ref", 2)
     }
 }
 
-VM_DEFINE_INSTRUCTION (167, vector_set, "vector-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (169, vector_set, "vector-set", 0, 3, 0)
 {
   scm_t_signed_bits i = 0;
   SCM vect, idx, val;
@@ -528,7 +540,7 @@ VM_DEFINE_INSTRUCTION (167, vector_set, "vector-set", 0, 3, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (168, make_array, "make-array", 3, -1, 1)
+VM_DEFINE_INSTRUCTION (170, make_array, "make-array", 3, -1, 1)
 {
   scm_t_uint32 len;
   SCM shape, ret;
@@ -557,20 +569,20 @@ VM_DEFINE_INSTRUCTION (168, make_array, "make-array", 3, -1, 1)
       goto vm_error_not_a_struct;		\
     }
 
-VM_DEFINE_FUNCTION (169, struct_p, "struct?", 1)
+VM_DEFINE_FUNCTION (171, struct_p, "struct?", 1)
 {
   ARGS1 (obj);
   RETURN (scm_from_bool (SCM_STRUCTP (obj)));
 }
 
-VM_DEFINE_FUNCTION (170, struct_vtable, "struct-vtable", 1)
+VM_DEFINE_FUNCTION (172, struct_vtable, "struct-vtable", 1)
 {
   ARGS1 (obj);
   VM_VALIDATE_STRUCT (obj, "struct_vtable");
   RETURN (SCM_STRUCT_VTABLE (obj));
 }
 
-VM_DEFINE_INSTRUCTION (171, make_struct, "make-struct", 2, -1, 1)
+VM_DEFINE_INSTRUCTION (173, make_struct, "make-struct", 2, -1, 1)
 {
   unsigned h = FETCH ();
   unsigned l = FETCH ();
@@ -603,7 +615,7 @@ VM_DEFINE_INSTRUCTION (171, make_struct, "make-struct", 2, -1, 1)
   NEXT;
 }
 
-VM_DEFINE_FUNCTION (172, struct_ref, "struct-ref", 2)
+VM_DEFINE_FUNCTION (174, struct_ref, "struct-ref", 2)
 {
   ARGS2 (obj, pos);
 
@@ -633,7 +645,7 @@ VM_DEFINE_FUNCTION (172, struct_ref, "struct-ref", 2)
   RETURN (scm_struct_ref (obj, pos));
 }
 
-VM_DEFINE_FUNCTION (173, struct_set, "struct-set", 3)
+VM_DEFINE_FUNCTION (175, struct_set, "struct-set", 3)
 {
   ARGS3 (obj, pos, val);
 
@@ -667,7 +679,7 @@ VM_DEFINE_FUNCTION (173, struct_set, "struct-set", 3)
 /*
  * GOOPS support
  */
-VM_DEFINE_FUNCTION (174, class_of, "class-of", 1)
+VM_DEFINE_FUNCTION (176, class_of, "class-of", 1)
 {
   ARGS1 (obj);
   if (SCM_INSTANCEP (obj))
@@ -677,7 +689,7 @@ VM_DEFINE_FUNCTION (174, class_of, "class-of", 1)
 }
 
 /* FIXME: No checking whatsoever. */
-VM_DEFINE_FUNCTION (175, slot_ref, "slot-ref", 2)
+VM_DEFINE_FUNCTION (177, slot_ref, "slot-ref", 2)
 {
   size_t slot;
   ARGS2 (instance, idx);
@@ -686,7 +698,7 @@ VM_DEFINE_FUNCTION (175, slot_ref, "slot-ref", 2)
 }
 
 /* FIXME: No checking whatsoever. */
-VM_DEFINE_INSTRUCTION (176, slot_set, "slot-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (178, slot_set, "slot-set", 0, 3, 0)
 {
   SCM instance, idx, val;
   size_t slot;
@@ -729,21 +741,21 @@ VM_DEFINE_INSTRUCTION (176, slot_set, "slot-set", 0, 3, 0)
 #define ALIGNED_P(ptr, type)			\
   ((scm_t_uintptr) (ptr) % alignof_type (type) == 0)
 
-VM_DEFINE_FUNCTION (177, bv_u16_ref, "bv-u16-ref", 3)
+VM_DEFINE_FUNCTION (179, bv_u16_ref, "bv-u16-ref", 3)
 BV_REF_WITH_ENDIANNESS (u16, u16)
-VM_DEFINE_FUNCTION (178, bv_s16_ref, "bv-s16-ref", 3)
+VM_DEFINE_FUNCTION (180, bv_s16_ref, "bv-s16-ref", 3)
 BV_REF_WITH_ENDIANNESS (s16, s16)
-VM_DEFINE_FUNCTION (179, bv_u32_ref, "bv-u32-ref", 3)
+VM_DEFINE_FUNCTION (181, bv_u32_ref, "bv-u32-ref", 3)
 BV_REF_WITH_ENDIANNESS (u32, u32)
-VM_DEFINE_FUNCTION (180, bv_s32_ref, "bv-s32-ref", 3)
+VM_DEFINE_FUNCTION (182, bv_s32_ref, "bv-s32-ref", 3)
 BV_REF_WITH_ENDIANNESS (s32, s32)
-VM_DEFINE_FUNCTION (181, bv_u64_ref, "bv-u64-ref", 3)
+VM_DEFINE_FUNCTION (183, bv_u64_ref, "bv-u64-ref", 3)
 BV_REF_WITH_ENDIANNESS (u64, u64)
-VM_DEFINE_FUNCTION (182, bv_s64_ref, "bv-s64-ref", 3)
+VM_DEFINE_FUNCTION (184, bv_s64_ref, "bv-s64-ref", 3)
 BV_REF_WITH_ENDIANNESS (s64, s64)
-VM_DEFINE_FUNCTION (183, bv_f32_ref, "bv-f32-ref", 3)
+VM_DEFINE_FUNCTION (185, bv_f32_ref, "bv-f32-ref", 3)
 BV_REF_WITH_ENDIANNESS (f32, ieee_single)
-VM_DEFINE_FUNCTION (184, bv_f64_ref, "bv-f64-ref", 3)
+VM_DEFINE_FUNCTION (186, bv_f64_ref, "bv-f64-ref", 3)
 BV_REF_WITH_ENDIANNESS (f64, ieee_double)
 
 #undef BV_REF_WITH_ENDIANNESS
@@ -821,33 +833,33 @@ BV_REF_WITH_ENDIANNESS (f64, ieee_double)
     RETURN (scm_bytevector_ ## fn_stem ## _native_ref (bv, idx));	\
 }
 
-VM_DEFINE_FUNCTION (185, bv_u8_ref, "bv-u8-ref", 2)
+VM_DEFINE_FUNCTION (187, bv_u8_ref, "bv-u8-ref", 2)
 BV_FIXABLE_INT_REF (u8, u8, uint8, 1)
-VM_DEFINE_FUNCTION (186, bv_s8_ref, "bv-s8-ref", 2)
+VM_DEFINE_FUNCTION (188, bv_s8_ref, "bv-s8-ref", 2)
 BV_FIXABLE_INT_REF (s8, s8, int8, 1)
-VM_DEFINE_FUNCTION (187, bv_u16_native_ref, "bv-u16-native-ref", 2)
+VM_DEFINE_FUNCTION (189, bv_u16_native_ref, "bv-u16-native-ref", 2)
 BV_FIXABLE_INT_REF (u16, u16_native, uint16, 2)
-VM_DEFINE_FUNCTION (188, bv_s16_native_ref, "bv-s16-native-ref", 2)
+VM_DEFINE_FUNCTION (190, bv_s16_native_ref, "bv-s16-native-ref", 2)
 BV_FIXABLE_INT_REF (s16, s16_native, int16, 2)
-VM_DEFINE_FUNCTION (189, bv_u32_native_ref, "bv-u32-native-ref", 2)
+VM_DEFINE_FUNCTION (191, bv_u32_native_ref, "bv-u32-native-ref", 2)
 #if SIZEOF_VOID_P > 4
 BV_FIXABLE_INT_REF (u32, u32_native, uint32, 4)
 #else
 BV_INT_REF (u32, uint32, 4)
 #endif
-VM_DEFINE_FUNCTION (190, bv_s32_native_ref, "bv-s32-native-ref", 2)
+VM_DEFINE_FUNCTION (192, bv_s32_native_ref, "bv-s32-native-ref", 2)
 #if SIZEOF_VOID_P > 4
 BV_FIXABLE_INT_REF (s32, s32_native, int32, 4)
 #else
 BV_INT_REF (s32, int32, 4)
 #endif
-VM_DEFINE_FUNCTION (191, bv_u64_native_ref, "bv-u64-native-ref", 2)
+VM_DEFINE_FUNCTION (193, bv_u64_native_ref, "bv-u64-native-ref", 2)
 BV_INT_REF (u64, uint64, 8)
-VM_DEFINE_FUNCTION (192, bv_s64_native_ref, "bv-s64-native-ref", 2)
+VM_DEFINE_FUNCTION (194, bv_s64_native_ref, "bv-s64-native-ref", 2)
 BV_INT_REF (s64, int64, 8)
-VM_DEFINE_FUNCTION (193, bv_f32_native_ref, "bv-f32-native-ref", 2)
+VM_DEFINE_FUNCTION (195, bv_f32_native_ref, "bv-f32-native-ref", 2)
 BV_FLOAT_REF (f32, ieee_single, float, 4)
-VM_DEFINE_FUNCTION (194, bv_f64_native_ref, "bv-f64-native-ref", 2)
+VM_DEFINE_FUNCTION (196, bv_f64_native_ref, "bv-f64-native-ref", 2)
 BV_FLOAT_REF (f64, ieee_double, double, 8)
 
 #undef BV_FIXABLE_INT_REF
@@ -870,21 +882,21 @@ BV_FLOAT_REF (f64, ieee_double, double, 8)
   }                                                                     \
 }
 
-VM_DEFINE_INSTRUCTION (195, bv_u16_set, "bv-u16-set", 0, 4, 0)
+VM_DEFINE_INSTRUCTION (197, bv_u16_set, "bv-u16-set", 0, 4, 0)
 BV_SET_WITH_ENDIANNESS (u16, u16)
-VM_DEFINE_INSTRUCTION (196, bv_s16_set, "bv-s16-set", 0, 4, 0)
+VM_DEFINE_INSTRUCTION (198, bv_s16_set, "bv-s16-set", 0, 4, 0)
 BV_SET_WITH_ENDIANNESS (s16, s16)
-VM_DEFINE_INSTRUCTION (197, bv_u32_set, "bv-u32-set", 0, 4, 0)
+VM_DEFINE_INSTRUCTION (199, bv_u32_set, "bv-u32-set", 0, 4, 0)
 BV_SET_WITH_ENDIANNESS (u32, u32)
-VM_DEFINE_INSTRUCTION (198, bv_s32_set, "bv-s32-set", 0, 4, 0)
+VM_DEFINE_INSTRUCTION (200, bv_s32_set, "bv-s32-set", 0, 4, 0)
 BV_SET_WITH_ENDIANNESS (s32, s32)
-VM_DEFINE_INSTRUCTION (199, bv_u64_set, "bv-u64-set", 0, 4, 0)
+VM_DEFINE_INSTRUCTION (201, bv_u64_set, "bv-u64-set", 0, 4, 0)
 BV_SET_WITH_ENDIANNESS (u64, u64)
-VM_DEFINE_INSTRUCTION (200, bv_s64_set, "bv-s64-set", 0, 4, 0)
+VM_DEFINE_INSTRUCTION (202, bv_s64_set, "bv-s64-set", 0, 4, 0)
 BV_SET_WITH_ENDIANNESS (s64, s64)
-VM_DEFINE_INSTRUCTION (201, bv_f32_set, "bv-f32-set", 0, 4, 0)
+VM_DEFINE_INSTRUCTION (203, bv_f32_set, "bv-f32-set", 0, 4, 0)
 BV_SET_WITH_ENDIANNESS (f32, ieee_single)
-VM_DEFINE_INSTRUCTION (202, bv_f64_set, "bv-f64-set", 0, 4, 0)
+VM_DEFINE_INSTRUCTION (204, bv_f64_set, "bv-f64-set", 0, 4, 0)
 BV_SET_WITH_ENDIANNESS (f64, ieee_double)
 
 #undef BV_SET_WITH_ENDIANNESS
@@ -964,33 +976,33 @@ BV_SET_WITH_ENDIANNESS (f64, ieee_double)
   NEXT;                                                                 \
 }
 
-VM_DEFINE_INSTRUCTION (203, bv_u8_set, "bv-u8-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (205, bv_u8_set, "bv-u8-set", 0, 3, 0)
 BV_FIXABLE_INT_SET (u8, u8, uint8, 0, SCM_T_UINT8_MAX, 1)
-VM_DEFINE_INSTRUCTION (204, bv_s8_set, "bv-s8-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (206, bv_s8_set, "bv-s8-set", 0, 3, 0)
 BV_FIXABLE_INT_SET (s8, s8, int8, SCM_T_INT8_MIN, SCM_T_INT8_MAX, 1)
-VM_DEFINE_INSTRUCTION (205, bv_u16_native_set, "bv-u16-native-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (207, bv_u16_native_set, "bv-u16-native-set", 0, 3, 0)
 BV_FIXABLE_INT_SET (u16, u16_native, uint16, 0, SCM_T_UINT16_MAX, 2)
-VM_DEFINE_INSTRUCTION (206, bv_s16_native_set, "bv-s16-native-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (208, bv_s16_native_set, "bv-s16-native-set", 0, 3, 0)
 BV_FIXABLE_INT_SET (s16, s16_native, int16, SCM_T_INT16_MIN, SCM_T_INT16_MAX, 2)
-VM_DEFINE_INSTRUCTION (207, bv_u32_native_set, "bv-u32-native-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (209, bv_u32_native_set, "bv-u32-native-set", 0, 3, 0)
 #if SIZEOF_VOID_P > 4
 BV_FIXABLE_INT_SET (u32, u32_native, uint32, 0, SCM_T_UINT32_MAX, 4)
 #else
 BV_INT_SET (u32, uint32, 4)
 #endif
-VM_DEFINE_INSTRUCTION (208, bv_s32_native_set, "bv-s32-native-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (210, bv_s32_native_set, "bv-s32-native-set", 0, 3, 0)
 #if SIZEOF_VOID_P > 4
 BV_FIXABLE_INT_SET (s32, s32_native, int32, SCM_T_INT32_MIN, SCM_T_INT32_MAX, 4)
 #else
 BV_INT_SET (s32, int32, 4)
 #endif
-VM_DEFINE_INSTRUCTION (209, bv_u64_native_set, "bv-u64-native-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (211, bv_u64_native_set, "bv-u64-native-set", 0, 3, 0)
 BV_INT_SET (u64, uint64, 8)
-VM_DEFINE_INSTRUCTION (210, bv_s64_native_set, "bv-s64-native-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (212, bv_s64_native_set, "bv-s64-native-set", 0, 3, 0)
 BV_INT_SET (s64, int64, 8)
-VM_DEFINE_INSTRUCTION (211, bv_f32_native_set, "bv-f32-native-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (213, bv_f32_native_set, "bv-f32-native-set", 0, 3, 0)
 BV_FLOAT_SET (f32, ieee_single, float, 4)
-VM_DEFINE_INSTRUCTION (212, bv_f64_native_set, "bv-f64-native-set", 0, 3, 0)
+VM_DEFINE_INSTRUCTION (214, bv_f64_native_set, "bv-f64-native-set", 0, 3, 0)
 BV_FLOAT_SET (f64, ieee_double, double, 8)
 
 #undef BV_FIXABLE_INT_SET

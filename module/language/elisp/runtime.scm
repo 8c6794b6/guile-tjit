@@ -25,11 +25,17 @@
             function-slot-module
             elisp-bool
             ensure-fluid!
-            reference-variable
-            set-variable!
-            runtime-error
-            macro-error)
-  #:export-syntax (built-in-func built-in-macro defspecial prim))
+            symbol-fluid
+            set-symbol-fluid!
+            symbol-value
+            set-symbol-value!
+            symbol-function
+            set-symbol-function!
+            symbol-bound?
+            symbol-fbound?
+            makunbound!
+            fmakunbound!)
+  #:export-syntax (defspecial prim))
 
 ;;; This module provides runtime support for the Elisp front-end.
 
@@ -47,22 +53,6 @@
 
 (define function-slot-module '(language elisp runtime function-slot))
 
-;;; Report an error during macro compilation, that means some special
-;;; compilation (syntax) error; or report a simple runtime-error from a
-;;; built-in function.
-
-(define (macro-error msg . args)
-  (apply error msg args))
-
-(define runtime-error macro-error)
-
-;;; Convert a scheme boolean to Elisp.
-
-(define (elisp-bool b)
-  (if b
-      t-value
-      nil-value))
-
 ;;; Routines for access to elisp dynamically bound symbols.  This is
 ;;; used for runtime access using functions like symbol-value or set,
 ;;; where the symbol accessed might not be known at compile-time.  These
@@ -77,39 +67,68 @@
           (module-define! resolved sym fluid)
           (module-export! resolved `(,sym))))))
 
-(define (reference-variable module sym)
-  (let ((resolved (resolve-module module)))
-   (cond
-    ((equal? module function-slot-module)
-     (module-ref resolved sym))
-    (else
-     (ensure-fluid! module sym)
-     (fluid-ref (module-ref resolved sym))))))
+(define (symbol-fluid symbol)
+  (let ((module (resolve-module value-slot-module)))
+    (ensure-fluid! value-slot-module symbol) ;++ implicit special proclamation
+    (module-ref module symbol)))
 
-(define (set-variable! module sym value)
-  (let ((intf (resolve-interface module))
-        (resolved (resolve-module module)))
-    (cond
-     ((equal? module function-slot-module)
-      (cond
-       ((module-defined? intf sym)
-        (module-set! resolved sym value))
-      (else
-       (module-define! resolved sym value)
-       (module-export! resolved `(,sym)))))
-    (else
-     (ensure-fluid! module sym)
-     (fluid-set! (module-ref resolved sym) value))))
+(define (set-symbol-fluid! symbol fluid)
+  (let ((module (resolve-module value-slot-module)))
+    (module-define! module symbol fluid)
+    (module-export! module (list symbol)))
+  fluid)
+
+(define (symbol-value symbol)
+  (fluid-ref (symbol-fluid symbol)))
+
+(define (set-symbol-value! symbol value)
+  (fluid-set! (symbol-fluid symbol) value)
   value)
 
-;;; Define a predefined function or predefined macro for use in the
-;;; function-slot and macro-slot modules, respectively.
+(define (symbol-function symbol)
+  (let ((module (resolve-module function-slot-module)))
+    (module-ref module symbol)))
 
-(define-syntax built-in-func
-  (syntax-rules ()
-    ((_ name value)
-     (begin
-       (define-public name value)))))
+(define (set-symbol-function! symbol value)
+  (let ((module (resolve-module function-slot-module)))
+   (module-define! module symbol value)
+   (module-export! module (list symbol)))
+  value)
+
+(define (symbol-bound? symbol)
+  (and
+   (module-bound? (resolve-interface value-slot-module) symbol)
+   (let ((var (module-variable (resolve-module value-slot-module)
+                               symbol)))
+     (and (variable-bound? var)
+          (if (fluid? (variable-ref var))
+              (fluid-bound? (variable-ref var))
+              #t)))))
+
+(define (symbol-fbound? symbol)
+  (and
+   (module-bound? (resolve-interface function-slot-module) symbol)
+   (variable-bound?
+    (module-variable (resolve-module function-slot-module)
+                     symbol))))
+
+(define (makunbound! symbol)
+  (if (module-bound? (resolve-interface value-slot-module) symbol)
+      (let ((var (module-variable (resolve-module value-slot-module)
+                                  symbol)))
+        (if (and (variable-bound? var) (fluid? (variable-ref var)))
+            (fluid-unset! (variable-ref var))
+            (variable-unset! var))))
+    symbol)
+
+(define (fmakunbound! symbol)
+  (if (module-bound? (resolve-interface function-slot-module) symbol)
+      (variable-unset! (module-variable
+                        (resolve-module function-slot-module)
+                        symbol)))
+  symbol)
+
+;;; Define a predefined macro for use in the function-slot module.
 
 (define (make-id template-id . data)
   (let ((append-symbols
@@ -125,30 +144,10 @@
                             datum))
                          data)))))
 
-(define-syntax built-in-macro
-  (lambda (x)
-    (syntax-case x ()
-      ((_ name value)
-       (with-syntax ((scheme-name (make-id #'name 'macro- #'name)))
-        #'(begin
-            (define-public scheme-name
-              (make-fluid (cons 'macro value)))))))))
-
 (define-syntax defspecial
   (lambda (x)
     (syntax-case x ()
       ((_ name args body ...)
        (with-syntax ((scheme-name (make-id #'name 'compile- #'name)))
-         #'(begin
-             (define scheme-name
-               (make-fluid
-                (cons 'special-operator
-                      (lambda args body ...))))))))))
-
-;;; Call a guile-primitive that may be rebound for elisp and thus needs
-;;; absolute addressing.
-
-(define-syntax prim
-  (syntax-rules ()
-    ((_ sym args ...)
-     ((@ (guile) sym) args ...))))
+         #'(define scheme-name
+             (cons 'special-operator (lambda args body ...))))))))

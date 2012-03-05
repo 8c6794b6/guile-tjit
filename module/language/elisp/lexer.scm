@@ -252,7 +252,15 @@
 ;;; Main lexer routine, which is given a port and does look for the next
 ;;; token.
 
+(define lexical-binding-regexp
+  (make-regexp
+   "-\\*-(|.*;)[ \t]*lexical-binding:[ \t]*([^;]*[^ \t;]).*-\\*-"))
+
 (define (lex port)
+  (define (lexical-binding-value string)
+    (and=> (regexp-exec lexical-binding-regexp string)
+           (lambda (match)
+             (not (member (match:substring match 2) '("nil" "()"))))))
   (let ((return (let ((file (if (file-port? port)
                                 (port-filename port)
                                 #f))
@@ -283,11 +291,19 @@
       (case c
         ;; A line comment, skip until end-of-line is found.
         ((#\;)
-         (let iterate ()
-           (let ((cur (read-char port)))
-             (if (or (eof-object? cur) (char=? cur #\newline))
-                 (lex port)
-                 (iterate)))))
+         (if (= (port-line port) 0)
+             (let iterate ((chars '()))
+               (let ((cur (read-char port)))
+                 (if (or (eof-object? cur) (char=? cur #\newline))
+                     (let ((string (list->string (reverse chars))))
+                       (return 'set-lexical-binding-mode!
+                               (lexical-binding-value string)))
+                     (iterate (cons cur chars)))))
+             (let iterate ()
+               (let ((cur (read-char port)))
+                 (if (or (eof-object? cur) (char=? cur #\newline))
+                     (lex port)
+                     (iterate))))))
         ;; A character literal.
         ((#\?)
          (return 'character (get-character port #f)))
@@ -321,7 +337,12 @@
              (let ((mark (get-circular-marker port)))
                (return (car mark) (cdr mark))))
             ((#\')
-             (return 'function #f)))))
+             (return 'function #f))
+            ((#\:)
+             (call-with-values
+                 (lambda () (get-symbol-or-number port))
+               (lambda (type str)
+                 (return 'symbol (make-symbol str))))))))
         ;; Parentheses and other special-meaning single characters.
         ((#\() (return 'paren-open #f))
         ((#\)) (return 'paren-close #f))

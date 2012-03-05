@@ -201,6 +201,8 @@
          (setter expr)
          (force-promises! expr)
          expr))
+      ((set-lexical-binding-mode!)
+       (return `(%set-lexical-binding-mode ,(cdr token))))
       (else
        (parse-error token "expected expression, got" token)))))
 

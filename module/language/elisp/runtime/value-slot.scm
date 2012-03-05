@@ -18,6 +18,7 @@
 
 ;;; Code:
 
-(define-module (language elisp runtime value-slot))
+(define-module (language elisp runtime value-slot)
+  #:pure)
 
 ;;; This module contains the value-slots of elisp symbols.

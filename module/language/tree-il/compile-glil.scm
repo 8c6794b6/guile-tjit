@@ -110,6 +110,7 @@
    ((list? . 1) . list?)
    ((symbol? . 1) . symbol?)
    ((vector? . 1) . vector?)
+   ((nil? . 1) . nil?)
    (list . list)
    (vector . vector)
    ((class-of . 1) . class-of)
@@ -527,6 +528,9 @@
               ((null? ,x)
                (comp-push x)
                (emit-branch src 'br-if-not-null L1))
+              ((nil? ,x)
+               (comp-push x)
+               (emit-branch src 'br-if-not-nil L1))
               ((not ,x)
                (record-case x
                  ((<primcall> name args)
@@ -538,6 +542,9 @@
                     ((null? ,x)
                      (comp-push x)
                      (emit-branch src 'br-if-null L1))
+                    ((nil? ,x)
+                     (comp-push x)
+                     (emit-branch src 'br-if-nil L1))
                     (else
                      (comp-push x)
                      (emit-branch src 'br-if L1))))

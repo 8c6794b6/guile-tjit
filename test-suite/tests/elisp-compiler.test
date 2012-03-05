@@ -47,12 +47,17 @@
 ; Test control structures.
 ; ========================
 
+(compile '(%set-lexical-binding-mode #nil) #:from 'elisp #:to 'value)
+
 (with-test-prefix/compile "Sequencing"
   
   (pass-if-equal "progn" 1
     (progn (setq a 0)
            (setq a (1+ a))
            a))
+
+  (pass-if-equal "empty progn" #nil
+    (progn))
 
   (pass-if "prog1"
     (progn (setq a 0)
@@ -77,17 +82,8 @@
             3)
          (equal (if nil 1) nil)))
 
-  (pass-if-equal "failing when" nil-value
-    (when nil 1 2 3))
-  (pass-if-equal "succeeding when" 42
-    (progn (setq a 0)
-           (when t (setq a 42) a)))
-
-  (pass-if-equal "failing unless" nil-value
-    (unless t 1 2 3))
-  (pass-if-equal "succeeding unless" 42
-    (progn (setq a 0)
-           (unless nil (setq a 42) a)))
+  (pass-if-equal "if with no else" #nil
+    (if nil t))
 
   (pass-if-equal "empty cond" nil-value
     (cond))
@@ -127,27 +123,7 @@
            (while (<= i 5)
              (setq prod (* i prod))
              (setq i (1+ i)))
-           prod))
-
-  (pass-if "dotimes"
-    (progn (setq a 0)
-           (setq count 100)
-           (setq b (dotimes (i count)
-                     (setq j (1+ i))
-                     (setq a (+ a j))))
-           (setq c (dotimes (i 10 42) nil))
-           (and (= a 5050) (equal b nil) (= c 42))))
-
-  (pass-if "dolist"
-    (let ((mylist '(7 2 5)))
-      (setq sum 0)
-      (setq a (dolist (i mylist)
-                (setq sum (+ sum i))))
-      (setq b (dolist (i mylist 5) 0))
-      (and (= sum (+ 7 2 5))
-           (equal a nil)
-           (equal mylist '(7 2 5))
-           (equal b 5)))))
+           prod)))
 
 (with-test-prefix/compile "Exceptions"
 
@@ -169,7 +145,7 @@
          (= (catch 'abc (throw 'abc 2) 1) 2)
          (= (catch 'abc (catch 'def (throw 'abc (1+ 0)) 2) 3) 1)
          (= (catch 'abc (catch 'def (throw 'def 1) 2) 3) 3)
-         (= (catch mylist (catch '(1 2) (throw mylist 1) 2) 3) 1)))
+         (= (catch mylist (catch (list 1 2) (throw mylist 1) 2) 3) 1)))
 
   (pass-if "unwind-protect"
     (progn (setq a 0 b 1 c 1)
@@ -246,6 +222,8 @@
                  (b a))
              b)))
 
+  (pass-if-equal "empty let" #nil (let ()))
+
   (pass-if "let*"
     (progn (setq a 0)
            (and (let* ((a 1)
@@ -256,6 +234,9 @@
                   (and (= a 1) (= b 2)))
                 (= a 0)
                 (not (boundp 'b)))))
+
+  (pass-if-equal "empty let*" #nil
+    (let* ()))
 
   (pass-if "local scope"
     (progn (setq a 0)
@@ -303,9 +284,11 @@
          (lexical-let ((a 2))
            (and (= a 2) (equal (dynvals) '(1 . 1))
                 (let ((a 3) (b a))
+                  (declare (lexical a))
                   (and (= a 3) (= b 2)
                        (equal (dynvals) '(1 . 2))))
                 (let* ((a 4) (b a))
+                  (declare (lexical a))
                   (and (= a 4) (= b 4)
                        (equal (dynvals) '(1 . 4))))
                 (= a 2)))
@@ -316,8 +299,11 @@
          (defun dyna () a)
          (lexical-let ((a 2) (b 42))
            (and (= a 2) (= (dyna) 1)
-                ((lambda (a) (and (= a 3) (= b 42) (= (dyna) 3))) 3)
+                ((lambda (a)
+                   (declare (lexical a))
+                   (and (= a 3) (= b 42) (= (dyna) 1))) 3)
                 ((lambda () (let ((a 3))
+                              (declare (lexical a))
                               (and (= a 3) (= (dyna) 1)))))
                 (= a 2) (= (dyna) 1)))
          (= a 1)))
@@ -336,34 +322,13 @@
          (= (funcall c1) 4)
          (= (funcall c2) 3)))
 
-  (pass-if "always lexical option (all)"
-    (progn (setq a 0)
-           (defun dyna () a)
-           (let ((a 1))
-             (and (= a 1) (= (dyna) 0))))
-    #:opts '(#:always-lexical all))
-  (pass-if "always lexical option (list)"
-    (progn (setq a 0 b 0)
-           (defun dyna () a)
-           (defun dynb () b)
-           (let ((a 1)
-                 (b 1))
-             (and (= a 1) (= (dyna) 0)
-                  (= b 1) (= (dynb) 1))))
-    #:opts '(#:always-lexical (a)))
-  (pass-if "with-always-lexical"
-    (progn (setq a 0)
-           (defun dyna () a)
-           (with-always-lexical (a)
-             (let ((a 1))
-               (and (= a 1) (= (dyna) 0))))))
-
   (pass-if "lexical lambda args"
     (progn (setq a 1 b 1)
            (defun dyna () a)
            (defun dynb () b)
-           (with-always-lexical (a c)
+           (lexical-let (a c)
              ((lambda (a b &optional c)
+                (declare (lexical a c))
                 (and (= a 3) (= (dyna) 1)
                      (= b 2) (= (dynb) 2)
                      (= c 1)))
@@ -373,9 +338,10 @@
   ; is tail-optimized by doing a deep recursion that would otherwise overflow
   ; the stack.
   (pass-if "lexical lambda tail-recursion"
-    (with-always-lexical (i)
+    (lexical-let (i)
       (setq to 1000000)
       (defun iteration-1 (i)
+        (declare (lexical i))
         (if (< i to)
           (iteration-1 (1+ i))))
       (iteration-1 0)
@@ -422,14 +388,17 @@
     ((lambda (a b c) c) 1 2 3))
 
   (pass-if-equal "optional argument" 3
-    ((function (lambda (a &optional b c) c)) 1 2 3))
+    ((lambda (a &optional b c) c) 1 2 3))
   (pass-if-equal "optional missing" nil-value
     ((lambda (&optional a) a)))
 
   (pass-if-equal "rest argument" '(3 4 5)
     ((lambda (a b &rest c) c) 1 2 3 4 5))
-  (pass-if-equal "rest missing" nil-value
-    ((lambda (a b &rest c) c) 1 2)))
+  (pass-if "rest missing"
+    (null ((lambda (a b &rest c) c) 1 2)))
+
+  (pass-if-equal "empty lambda" #nil
+    ((lambda ()))))
 
 (with-test-prefix/compile "Function Definitions"
 
@@ -453,18 +422,16 @@
                 (not (fboundp 'a))
                 (= a 1))))
 
-  (pass-if "flet and flet*"
+  (pass-if "flet"
     (progn (defun foobar () 42)
            (defun test () (foobar))
            (and (= (test) 42)
-                (flet ((foobar (lambda () 0))
-                       (myfoo (symbol-function 'foobar)))
+                (flet ((foobar () 0)
+                       (myfoo ()
+                         (funcall (symbol-function 'foobar))))
                   (and (= (myfoo) 42)
                        (= (test) 42)))
-                (flet* ((foobar (lambda () 0))
-                        (myfoo (symbol-function 'foobar)))
-                  (= (myfoo) 42))
-                (flet (foobar)
+                (flet ((foobar () nil))
                   (defun foobar () 0)
                   (= (test) 42))
                 (= (test) 42)))))
@@ -563,8 +530,8 @@
            (setq some-string "abc")
            (and (eq 2 2) (not (eq 1 2))
                 (eq 'abc 'abc) (not (eq 'abc 'def))
-                (eq some-string some-string) (not (eq some-string "abc"))
-                (eq some-list some-list) (not (eq some-list '(1 2)))))))
+                (eq some-string some-string) (not (eq some-string (string 97 98 99)))
+                (eq some-list some-list) (not (eq some-list (list 1 2)))))))
 
 (with-test-prefix/compile "Number Built-Ins"
 
@@ -607,11 +574,11 @@
 
 (with-test-prefix/compile "List Built-Ins"
 
-  (pass-if "consp and atomp"
+  (pass-if "consp and atom"
     (and (consp '(1 2 3)) (consp '(1 2 . 3)) (consp '(a . b))
          (not (consp '())) (not (consp 1)) (not (consp "abc"))
-         (atomp 'a) (atomp '()) (atomp -1.5) (atomp "abc")
-         (not (atomp '(1 . 2))) (not (atomp '(1)))))
+         (atom 'a) (atom '()) (atom -1.5) (atom "abc")
+         (not (atom '(1 . 2))) (not (atom '(1)))))
   (pass-if "listp and nlistp"
     (and (listp '(1 2 3)) (listp '(1)) (listp '()) (listp '(1 . 2))
          (not (listp 'a)) (not (listp 42)) (nlistp 42)
@@ -627,15 +594,6 @@
   (pass-if "car-safe and cdr-safe"
     (and (equal (car-safe '(1 2)) 1) (equal (cdr-safe '(1 2)) '(2))
          (equal (car-safe 5) nil) (equal (cdr-safe 5) nil)))
-
-  (pass-if "pop"
-    (progn (setq mylist '(a b c))
-           (setq value (pop mylist))
-           (and (equal value 'a)
-                (equal mylist '(b c)))))
-  (pass-if-equal "push" '(a b c)
-    (progn (setq mylist '(b c))
-           (push 'a mylist)))
 
   (pass-if "nth and nthcdr"
     (and (equal (nth -5 '(1 2 3)) 1) (equal (nth 3 '(1 2 3)) nil)
@@ -662,20 +620,6 @@
   (pass-if "reverse"
     (and (equal (reverse '(5 4 3 2 1)) '(1 2 3 4 5))
          (equal (reverse '()) '())))
-  (pass-if "copy-tree"
-    (progn (setq mylist '(1 2 (3 4)))
-           (and (not (eq mylist (copy-tree mylist)))
-                (equal mylist (copy-tree mylist)))))
-
-  (pass-if "number-sequence"
-    (and (equal (number-sequence 5) '(5))
-         (equal (number-sequence 5 9) '(5 6 7 8 9))
-         (equal (number-sequence 5 9 3) '(5 8))
-         (equal (number-sequence 5 1 -2) '(5 3 1))
-         (equal (number-sequence 5 8 -1) '())
-         (equal (number-sequence 5 1) '())
-         (equal (number-sequence 5 5 0) '(5))))
-
   (pass-if "setcar and setcdr"
     (progn (setq pair '(1 . 2))
            (setq copy pair)

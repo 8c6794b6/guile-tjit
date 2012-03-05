@@ -538,12 +538,25 @@ VM_DEFINE_INSTRUCTION (40, br_if_not_null, "br-if-not-null", 3, 0, 0)
   BR (!scm_is_null (x));
 }
 
+VM_DEFINE_INSTRUCTION (41, br_if_nil, "br-if-nil", 3, 0, 0)
+{
+  SCM x;
+  POP (x);
+  BR (scm_is_lisp_false (x));
+}
+
+VM_DEFINE_INSTRUCTION (42, br_if_not_nil, "br-if-not-nil", 3, 0, 0)
+{
+  SCM x;
+  POP (x);
+  BR (!scm_is_lisp_false (x));
+}
 
 /*
  * Subprogram call
  */
 
-VM_DEFINE_INSTRUCTION (41, br_if_nargs_ne, "br-if-nargs-ne", 5, 0, 0)
+VM_DEFINE_INSTRUCTION (43, br_if_nargs_ne, "br-if-nargs-ne", 5, 0, 0)
 {
   scm_t_ptrdiff n;
   scm_t_int32 offset;
@@ -555,7 +568,7 @@ VM_DEFINE_INSTRUCTION (41, br_if_nargs_ne, "br-if-nargs-ne", 5, 0, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (42, br_if_nargs_lt, "br-if-nargs-lt", 5, 0, 0)
+VM_DEFINE_INSTRUCTION (44, br_if_nargs_lt, "br-if-nargs-lt", 5, 0, 0)
 {
   scm_t_ptrdiff n;
   scm_t_int32 offset;
@@ -567,7 +580,7 @@ VM_DEFINE_INSTRUCTION (42, br_if_nargs_lt, "br-if-nargs-lt", 5, 0, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (43, br_if_nargs_gt, "br-if-nargs-gt", 5, 0, 0)
+VM_DEFINE_INSTRUCTION (45, br_if_nargs_gt, "br-if-nargs-gt", 5, 0, 0)
 {
   scm_t_ptrdiff n;
   scm_t_int32 offset;
@@ -580,7 +593,7 @@ VM_DEFINE_INSTRUCTION (43, br_if_nargs_gt, "br-if-nargs-gt", 5, 0, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (44, assert_nargs_ee, "assert-nargs-ee", 2, 0, 0)
+VM_DEFINE_INSTRUCTION (46, assert_nargs_ee, "assert-nargs-ee", 2, 0, 0)
 {
   scm_t_ptrdiff n;
   n = FETCH () << 8;
@@ -590,7 +603,7 @@ VM_DEFINE_INSTRUCTION (44, assert_nargs_ee, "assert-nargs-ee", 2, 0, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (45, assert_nargs_ge, "assert-nargs-ge", 2, 0, 0)
+VM_DEFINE_INSTRUCTION (47, assert_nargs_ge, "assert-nargs-ge", 2, 0, 0)
 {
   scm_t_ptrdiff n;
   n = FETCH () << 8;
@@ -600,7 +613,7 @@ VM_DEFINE_INSTRUCTION (45, assert_nargs_ge, "assert-nargs-ge", 2, 0, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (46, bind_optionals, "bind-optionals", 2, -1, -1)
+VM_DEFINE_INSTRUCTION (48, bind_optionals, "bind-optionals", 2, -1, -1)
 {
   scm_t_ptrdiff n;
   n = FETCH () << 8;
@@ -610,7 +623,7 @@ VM_DEFINE_INSTRUCTION (46, bind_optionals, "bind-optionals", 2, -1, -1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (47, bind_optionals_shuffle, "bind-optionals/shuffle", 6, -1, -1)
+VM_DEFINE_INSTRUCTION (49, bind_optionals_shuffle, "bind-optionals/shuffle", 6, -1, -1)
 {
   SCM *walk;
   scm_t_ptrdiff nreq, nreq_and_opt, ntotal;
@@ -653,7 +666,7 @@ VM_DEFINE_INSTRUCTION (47, bind_optionals_shuffle, "bind-optionals/shuffle", 6, 
 #define F_ALLOW_OTHER_KEYS  1
 #define F_REST              2
 
-VM_DEFINE_INSTRUCTION (48, bind_kwargs, "bind-kwargs", 5, 0, 0)
+VM_DEFINE_INSTRUCTION (50, bind_kwargs, "bind-kwargs", 5, 0, 0)
 {
   scm_t_uint16 idx;
   scm_t_ptrdiff nkw;
@@ -706,7 +719,7 @@ VM_DEFINE_INSTRUCTION (48, bind_kwargs, "bind-kwargs", 5, 0, 0)
 #undef F_REST
 
 
-VM_DEFINE_INSTRUCTION (49, push_rest, "push-rest", 2, -1, -1)
+VM_DEFINE_INSTRUCTION (51, push_rest, "push-rest", 2, -1, -1)
 {
   scm_t_ptrdiff n;
   SCM rest = SCM_EOL;
@@ -719,7 +732,7 @@ VM_DEFINE_INSTRUCTION (49, push_rest, "push-rest", 2, -1, -1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (50, bind_rest, "bind-rest", 4, -1, -1)
+VM_DEFINE_INSTRUCTION (52, bind_rest, "bind-rest", 4, -1, -1)
 {
   scm_t_ptrdiff n;
   scm_t_uint32 i;
@@ -735,7 +748,7 @@ VM_DEFINE_INSTRUCTION (50, bind_rest, "bind-rest", 4, -1, -1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (51, reserve_locals, "reserve-locals", 2, -1, -1)
+VM_DEFINE_INSTRUCTION (53, reserve_locals, "reserve-locals", 2, -1, -1)
 {
   SCM *old_sp;
   scm_t_int32 n;
@@ -756,7 +769,7 @@ VM_DEFINE_INSTRUCTION (51, reserve_locals, "reserve-locals", 2, -1, -1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (52, new_frame, "new-frame", 0, 0, 3)
+VM_DEFINE_INSTRUCTION (54, new_frame, "new-frame", 0, 0, 3)
 {
   /* NB: if you change this, see frames.c:vm-frame-num-locals */
   /* and frames.h, vm-engine.c, etc of course */
@@ -771,7 +784,7 @@ VM_DEFINE_INSTRUCTION (52, new_frame, "new-frame", 0, 0, 3)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (53, call, "call", 1, -1, 1)
+VM_DEFINE_INSTRUCTION (55, call, "call", 1, -1, 1)
 {
   nargs = FETCH ();
 
@@ -819,7 +832,7 @@ VM_DEFINE_INSTRUCTION (53, call, "call", 1, -1, 1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (54, tail_call, "tail-call", 1, -1, 1)
+VM_DEFINE_INSTRUCTION (56, tail_call, "tail-call", 1, -1, 1)
 {
   nargs = FETCH ();
 
@@ -870,7 +883,7 @@ VM_DEFINE_INSTRUCTION (54, tail_call, "tail-call", 1, -1, 1)
     }
 }
 
-VM_DEFINE_INSTRUCTION (55, subr_call, "subr-call", 1, -1, -1)
+VM_DEFINE_INSTRUCTION (57, subr_call, "subr-call", 1, -1, -1)
 {
   SCM pointer, ret;
   SCM (*subr)();
@@ -939,7 +952,7 @@ VM_DEFINE_INSTRUCTION (55, subr_call, "subr-call", 1, -1, -1)
     }
 }
 
-VM_DEFINE_INSTRUCTION (56, smob_call, "smob-call", 1, -1, -1)
+VM_DEFINE_INSTRUCTION (58, smob_call, "smob-call", 1, -1, -1)
 {
   SCM smob, ret;
   SCM (*subr)();
@@ -986,7 +999,7 @@ VM_DEFINE_INSTRUCTION (56, smob_call, "smob-call", 1, -1, -1)
     }
 }
 
-VM_DEFINE_INSTRUCTION (57, foreign_call, "foreign-call", 1, -1, -1)
+VM_DEFINE_INSTRUCTION (59, foreign_call, "foreign-call", 1, -1, -1)
 {
   SCM foreign, ret;
   nargs = FETCH ();
@@ -1014,7 +1027,7 @@ VM_DEFINE_INSTRUCTION (57, foreign_call, "foreign-call", 1, -1, -1)
     }
 }
 
-VM_DEFINE_INSTRUCTION (58, continuation_call, "continuation-call", 0, -1, 0)
+VM_DEFINE_INSTRUCTION (60, continuation_call, "continuation-call", 0, -1, 0)
 {
   SCM contregs;
   POP (contregs);
@@ -1030,7 +1043,7 @@ VM_DEFINE_INSTRUCTION (58, continuation_call, "continuation-call", 0, -1, 0)
   abort ();
 }
 
-VM_DEFINE_INSTRUCTION (59, partial_cont_call, "partial-cont-call", 0, -1, 0)
+VM_DEFINE_INSTRUCTION (61, partial_cont_call, "partial-cont-call", 0, -1, 0)
 {
   SCM vmcont;
   scm_t_ptrdiff reloc;
@@ -1081,7 +1094,7 @@ VM_DEFINE_INSTRUCTION (59, partial_cont_call, "partial-cont-call", 0, -1, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (60, tail_call_nargs, "tail-call/nargs", 0, 0, 1)
+VM_DEFINE_INSTRUCTION (62, tail_call_nargs, "tail-call/nargs", 0, 0, 1)
 {
   SCM x;
   POP (x);
@@ -1090,7 +1103,7 @@ VM_DEFINE_INSTRUCTION (60, tail_call_nargs, "tail-call/nargs", 0, 0, 1)
   goto vm_tail_call;
 }
 
-VM_DEFINE_INSTRUCTION (61, call_nargs, "call/nargs", 0, 0, 1)
+VM_DEFINE_INSTRUCTION (63, call_nargs, "call/nargs", 0, 0, 1)
 {
   SCM x;
   POP (x);
@@ -1099,7 +1112,7 @@ VM_DEFINE_INSTRUCTION (61, call_nargs, "call/nargs", 0, 0, 1)
   goto vm_call;
 }
 
-VM_DEFINE_INSTRUCTION (62, mv_call, "mv-call", 4, -1, 1)
+VM_DEFINE_INSTRUCTION (64, mv_call, "mv-call", 4, -1, 1)
 {
   scm_t_int32 offset;
   scm_t_uint8 *mvra;
@@ -1152,7 +1165,7 @@ VM_DEFINE_INSTRUCTION (62, mv_call, "mv-call", 4, -1, 1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (63, apply, "apply", 1, -1, 1)
+VM_DEFINE_INSTRUCTION (65, apply, "apply", 1, -1, 1)
 {
   int len;
   SCM ls;
@@ -1174,7 +1187,7 @@ VM_DEFINE_INSTRUCTION (63, apply, "apply", 1, -1, 1)
   goto vm_call;
 }
 
-VM_DEFINE_INSTRUCTION (64, tail_apply, "tail-apply", 1, -1, 1)
+VM_DEFINE_INSTRUCTION (66, tail_apply, "tail-apply", 1, -1, 1)
 {
   int len;
   SCM ls;
@@ -1196,7 +1209,7 @@ VM_DEFINE_INSTRUCTION (64, tail_apply, "tail-apply", 1, -1, 1)
   goto vm_tail_call;
 }
 
-VM_DEFINE_INSTRUCTION (65, call_cc, "call/cc", 0, 1, 1)
+VM_DEFINE_INSTRUCTION (67, call_cc, "call/cc", 0, 1, 1)
 {
   int first;
   SCM proc, vm_cont, cont;
@@ -1234,7 +1247,7 @@ VM_DEFINE_INSTRUCTION (65, call_cc, "call/cc", 0, 1, 1)
     }
 }
 
-VM_DEFINE_INSTRUCTION (66, tail_call_cc, "tail-call/cc", 0, 1, 1)
+VM_DEFINE_INSTRUCTION (68, tail_call_cc, "tail-call/cc", 0, 1, 1)
 {
   int first;
   SCM proc, vm_cont, cont;
@@ -1277,7 +1290,7 @@ VM_DEFINE_INSTRUCTION (66, tail_call_cc, "tail-call/cc", 0, 1, 1)
     }
 }
 
-VM_DEFINE_INSTRUCTION (67, return, "return", 0, 1, 1)
+VM_DEFINE_INSTRUCTION (69, return, "return", 0, 1, 1)
 {
  vm_return:
   POP_CONTINUATION_HOOK (1);
@@ -1313,7 +1326,7 @@ VM_DEFINE_INSTRUCTION (67, return, "return", 0, 1, 1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (68, return_values, "return/values", 1, -1, -1)
+VM_DEFINE_INSTRUCTION (70, return_values, "return/values", 1, -1, -1)
 {
   /* nvalues declared at top level, because for some reason gcc seems to think
      that perhaps it might be used without declaration. Fooey to that, I say. */
@@ -1369,7 +1382,7 @@ VM_DEFINE_INSTRUCTION (68, return_values, "return/values", 1, -1, -1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (69, return_values_star, "return/values*", 1, -1, -1)
+VM_DEFINE_INSTRUCTION (71, return_values_star, "return/values*", 1, -1, -1)
 {
   SCM l;
 
@@ -1392,7 +1405,7 @@ VM_DEFINE_INSTRUCTION (69, return_values_star, "return/values*", 1, -1, -1)
   goto vm_return_values;
 }
 
-VM_DEFINE_INSTRUCTION (70, return_nvalues, "return/nvalues", 0, 1, -1)
+VM_DEFINE_INSTRUCTION (72, return_nvalues, "return/nvalues", 0, 1, -1)
 {
   SCM n;
   POP (n);
@@ -1401,7 +1414,7 @@ VM_DEFINE_INSTRUCTION (70, return_nvalues, "return/nvalues", 0, 1, -1)
   goto vm_return_values;
 }
 
-VM_DEFINE_INSTRUCTION (71, truncate_values, "truncate-values", 2, -1, -1)
+VM_DEFINE_INSTRUCTION (73, truncate_values, "truncate-values", 2, -1, -1)
 {
   SCM x;
   int nbinds, rest;
@@ -1424,7 +1437,7 @@ VM_DEFINE_INSTRUCTION (71, truncate_values, "truncate-values", 2, -1, -1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (72, box, "box", 1, 1, 0)
+VM_DEFINE_INSTRUCTION (74, box, "box", 1, 1, 0)
 {
   SCM val;
   POP (val);
@@ -1438,7 +1451,7 @@ VM_DEFINE_INSTRUCTION (72, box, "box", 1, 1, 0)
      (set! a (lambda () (b ...)))
      ...)
  */
-VM_DEFINE_INSTRUCTION (73, empty_box, "empty-box", 1, 0, 0)
+VM_DEFINE_INSTRUCTION (75, empty_box, "empty-box", 1, 0, 0)
 {
   SYNC_BEFORE_GC ();
   LOCAL_SET (FETCH (),
@@ -1446,7 +1459,7 @@ VM_DEFINE_INSTRUCTION (73, empty_box, "empty-box", 1, 0, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (74, local_boxed_ref, "local-boxed-ref", 1, 0, 1)
+VM_DEFINE_INSTRUCTION (76, local_boxed_ref, "local-boxed-ref", 1, 0, 1)
 {
   SCM v = LOCAL_REF (FETCH ());
   ASSERT_BOUND_VARIABLE (v);
@@ -1454,7 +1467,7 @@ VM_DEFINE_INSTRUCTION (74, local_boxed_ref, "local-boxed-ref", 1, 0, 1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (75, local_boxed_set, "local-boxed-set", 1, 1, 0)
+VM_DEFINE_INSTRUCTION (77, local_boxed_set, "local-boxed-set", 1, 1, 0)
 {
   SCM v, val;
   v = LOCAL_REF (FETCH ());
@@ -1464,7 +1477,7 @@ VM_DEFINE_INSTRUCTION (75, local_boxed_set, "local-boxed-set", 1, 1, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (76, free_ref, "free-ref", 1, 0, 1)
+VM_DEFINE_INSTRUCTION (78, free_ref, "free-ref", 1, 0, 1)
 {
   scm_t_uint8 idx = FETCH ();
   
@@ -1475,7 +1488,7 @@ VM_DEFINE_INSTRUCTION (76, free_ref, "free-ref", 1, 0, 1)
 
 /* no free-set -- if a var is assigned, it should be in a box */
 
-VM_DEFINE_INSTRUCTION (77, free_boxed_ref, "free-boxed-ref", 1, 0, 1)
+VM_DEFINE_INSTRUCTION (79, free_boxed_ref, "free-boxed-ref", 1, 0, 1)
 {
   SCM v;
   scm_t_uint8 idx = FETCH ();
@@ -1486,7 +1499,7 @@ VM_DEFINE_INSTRUCTION (77, free_boxed_ref, "free-boxed-ref", 1, 0, 1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (78, free_boxed_set, "free-boxed-set", 1, 1, 0)
+VM_DEFINE_INSTRUCTION (80, free_boxed_set, "free-boxed-set", 1, 1, 0)
 {
   SCM v, val;
   scm_t_uint8 idx = FETCH ();
@@ -1498,7 +1511,7 @@ VM_DEFINE_INSTRUCTION (78, free_boxed_set, "free-boxed-set", 1, 1, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (79, make_closure, "make-closure", 2, -1, 1)
+VM_DEFINE_INSTRUCTION (81, make_closure, "make-closure", 2, -1, 1)
 {
   size_t n, len;
   SCM closure;
@@ -1517,7 +1530,7 @@ VM_DEFINE_INSTRUCTION (79, make_closure, "make-closure", 2, -1, 1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (80, make_variable, "make-variable", 0, 0, 1)
+VM_DEFINE_INSTRUCTION (82, make_variable, "make-variable", 0, 0, 1)
 {
   SYNC_BEFORE_GC ();
   /* fixme underflow */
@@ -1525,7 +1538,7 @@ VM_DEFINE_INSTRUCTION (80, make_variable, "make-variable", 0, 0, 1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (81, fix_closure, "fix-closure", 2, -1, 0)
+VM_DEFINE_INSTRUCTION (83, fix_closure, "fix-closure", 2, -1, 0)
 {
   SCM x;
   unsigned int i = FETCH ();
@@ -1542,7 +1555,7 @@ VM_DEFINE_INSTRUCTION (81, fix_closure, "fix-closure", 2, -1, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (82, define, "define", 0, 0, 2)
+VM_DEFINE_INSTRUCTION (84, define, "define", 0, 0, 2)
 {
   SCM sym, val;
   POP2 (sym, val);
@@ -1553,7 +1566,7 @@ VM_DEFINE_INSTRUCTION (82, define, "define", 0, 0, 2)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (83, make_keyword, "make-keyword", 0, 1, 1)
+VM_DEFINE_INSTRUCTION (85, make_keyword, "make-keyword", 0, 1, 1)
 {
   CHECK_UNDERFLOW ();
   SYNC_REGISTER ();
@@ -1561,7 +1574,7 @@ VM_DEFINE_INSTRUCTION (83, make_keyword, "make-keyword", 0, 1, 1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (84, make_symbol, "make-symbol", 0, 1, 1)
+VM_DEFINE_INSTRUCTION (86, make_symbol, "make-symbol", 0, 1, 1)
 {
   CHECK_UNDERFLOW ();
   SYNC_REGISTER ();
@@ -1569,7 +1582,7 @@ VM_DEFINE_INSTRUCTION (84, make_symbol, "make-symbol", 0, 1, 1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (85, prompt, "prompt", 4, 2, 0)
+VM_DEFINE_INSTRUCTION (87, prompt, "prompt", 4, 2, 0)
 {
   scm_t_int32 offset;
   scm_t_uint8 escape_only_p;
@@ -1609,7 +1622,7 @@ VM_DEFINE_INSTRUCTION (85, prompt, "prompt", 4, 2, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (86, wind, "wind", 0, 2, 0)
+VM_DEFINE_INSTRUCTION (88, wind, "wind", 0, 2, 0)
 {
   SCM wind, unwind;
   POP2 (unwind, wind);
@@ -1623,7 +1636,7 @@ VM_DEFINE_INSTRUCTION (86, wind, "wind", 0, 2, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (87, abort, "abort", 1, -1, -1)
+VM_DEFINE_INSTRUCTION (89, abort, "abort", 1, -1, -1)
 {
   unsigned n = FETCH ();
   SYNC_REGISTER ();
@@ -1634,7 +1647,7 @@ VM_DEFINE_INSTRUCTION (87, abort, "abort", 1, -1, -1)
   abort ();
 }
 
-VM_DEFINE_INSTRUCTION (88, unwind, "unwind", 0, 0, 0)
+VM_DEFINE_INSTRUCTION (90, unwind, "unwind", 0, 0, 0)
 {
   /* A normal exit from the dynamic extent of an expression. Pop the top entry
      off of the dynamic stack. */
@@ -1642,7 +1655,7 @@ VM_DEFINE_INSTRUCTION (88, unwind, "unwind", 0, 0, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (89, wind_fluids, "wind-fluids", 1, -1, 0)
+VM_DEFINE_INSTRUCTION (91, wind_fluids, "wind-fluids", 1, -1, 0)
 {
   unsigned n = FETCH ();
   
@@ -1655,7 +1668,7 @@ VM_DEFINE_INSTRUCTION (89, wind_fluids, "wind-fluids", 1, -1, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (90, unwind_fluids, "unwind-fluids", 0, 0, 0)
+VM_DEFINE_INSTRUCTION (92, unwind_fluids, "unwind-fluids", 0, 0, 0)
 {
   /* This function must not allocate.  */
   scm_dynstack_unwind_fluids (&current_thread->dynstack,
@@ -1663,7 +1676,7 @@ VM_DEFINE_INSTRUCTION (90, unwind_fluids, "unwind-fluids", 0, 0, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (91, fluid_ref, "fluid-ref", 0, 1, 1)
+VM_DEFINE_INSTRUCTION (93, fluid_ref, "fluid-ref", 0, 1, 1)
 {
   size_t num;
   SCM fluids;
@@ -1693,7 +1706,7 @@ VM_DEFINE_INSTRUCTION (91, fluid_ref, "fluid-ref", 0, 1, 1)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (92, fluid_set, "fluid-set", 0, 2, 0)
+VM_DEFINE_INSTRUCTION (94, fluid_set, "fluid-set", 0, 2, 0)
 {
   size_t num;
   SCM val, fluid, fluids;
@@ -1713,7 +1726,7 @@ VM_DEFINE_INSTRUCTION (92, fluid_set, "fluid-set", 0, 2, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (93, assert_nargs_ee_locals, "assert-nargs-ee/locals", 1, 0, 0)
+VM_DEFINE_INSTRUCTION (95, assert_nargs_ee_locals, "assert-nargs-ee/locals", 1, 0, 0)
 {
   scm_t_ptrdiff n;
   SCM *old_sp;
@@ -1732,7 +1745,6 @@ VM_DEFINE_INSTRUCTION (93, assert_nargs_ee_locals, "assert-nargs-ee/locals", 1, 
   
   NEXT;
 }
-
 
 /*
 (defun renumber-ops ()
