@@ -198,11 +198,13 @@ values."
                                          (display str port)))))
 
 (define (extend-response r k v . additional)
+  (define (extend-alist alist k v)
+    (let ((pair (assq k alist)))
+      (acons k v (if pair (delq pair alist) alist))))
   (let ((r (build-response #:version (response-version r)
                            #:code (response-code r)
                            #:headers
-                           (assoc-set! (copy-tree (response-headers r))
-                                       k v)
+                           (extend-alist (response-headers r) k v)
                            #:port (response-port r))))
     (if (null? additional)
         r
