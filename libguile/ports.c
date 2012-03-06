@@ -1678,7 +1678,7 @@ get_iconv_codepoint (SCM port, scm_t_wchar *codepoint,
    with the byte representation of the codepoint in PORT's encoding, and
    set *LEN to the length in bytes of that representation.  Return 0 on
    success and an errno value on error.  */
-static int
+static SCM_C_INLINE int
 get_codepoint (SCM port, scm_t_wchar *codepoint,
 	       char buf[SCM_MBCHAR_BUF_SIZE], size_t *len)
 {
