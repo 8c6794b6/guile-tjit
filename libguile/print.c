@@ -332,6 +332,7 @@ quote_keywordish_symbols (void)
   (INITIAL_IDENTIFIER_MASK                                              \
    | UC_CATEGORY_MASK_Nd | UC_CATEGORY_MASK_Mc | UC_CATEGORY_MASK_Me)
 
+/* FIXME: Cache this information on the symbol, somehow.  */
 static int
 symbol_has_extended_read_syntax (SCM sym)
 {
@@ -344,25 +345,55 @@ symbol_has_extended_read_syntax (SCM sym)
 
   c = scm_i_symbol_ref (sym, 0);
 
-  /* Single dot; conflicts with dotted-pair notation.  */
-  if (len == 1 && c == '.')
-    return 1;
+  switch (c) 
+    {
+    case '\'':
+    case '`':
+    case ',':
+    case '"':
+    case ';':
+    case '#':
+      /* Some initial-character constraints.  */
+      return 1;
+  
+    case ':':
+      /* Symbols that look like keywords.  */
+      return quote_keywordish_symbols ();
+  
+    case '.':
+      /* Single dot conflicts with dotted-pair notation.  */
+      if (len == 1)
+        return 1;
+      /* Fall through to check numbers.  */
+    case '+':
+    case '-':
+    case '0':
+    case '1':
+    case '2':
+    case '3':
+    case '4':
+    case '5':
+    case '6': 
+    case '7':
+    case '8':
+    case '9':
+     /* Number-ish symbols.  Numbers with radixes already caught be #
+        above.  */
+      if (scm_is_true (scm_i_string_to_number (scm_symbol_to_string (sym), 10)))
+        return 1;
+      break;
 
-  /* Other initial-character constraints.  */
-  if (c == '\'' || c == '`' || c == ',' || c == '"' || c == ';' || c == '#')
-    return 1;
-  
-  /* Keywords can be identified by trailing colons too.  */
-  if (c == ':' || scm_i_symbol_ref (sym, len - 1) == ':')
-    return quote_keywordish_symbols ();
-  
-  /* Number-ish symbols.  */
-  if (scm_is_true (scm_i_string_to_number (scm_symbol_to_string (sym), 10)))
-    return 1;
+    default:
+      break;
+    }
   
   /* Other disallowed first characters.  */
   if (!uc_is_general_category_withtable (c, INITIAL_IDENTIFIER_MASK))
     return 1;
+
+  /* Keywords can be identified by trailing colons too.  */
+  if (scm_i_symbol_ref (sym, len - 1) == ':')
+    return quote_keywordish_symbols ();
 
   /* Otherwise, any character that's in the identifier category mask is
      fine to pass through as-is, provided it's not one of the ASCII
@@ -382,7 +413,16 @@ symbol_has_extended_read_syntax (SCM sym)
 static void
 print_normal_symbol (SCM sym, SCM port)
 {
-  scm_display (scm_symbol_to_string (sym), port);
+  size_t len;
+  scm_t_string_failed_conversion_handler strategy;
+
+  len = scm_i_symbol_length (sym);
+  strategy = scm_i_get_conversion_strategy (port);
+
+  if (scm_i_is_narrow_symbol (sym))
+    display_string (scm_i_symbol_chars (sym), 1, len, port, strategy);
+  else
+    display_string (scm_i_symbol_wide_chars (sym), 0, len, port, strategy);
 }
 
 static void
@@ -421,8 +461,8 @@ print_extended_symbol (SCM sym, SCM port)
 }
 
 /* FIXME: allow R6RS hex escapes instead of #{...}#.  */
-void
-scm_i_print_symbol_name (SCM sym, SCM port)
+static void
+print_symbol (SCM sym, SCM port)
 {
   if (symbol_has_extended_read_syntax (sym))
     print_extended_symbol (sym, port);
@@ -434,7 +474,7 @@ void
 scm_print_symbol_name (const char *str, size_t len, SCM port)
 {
   SCM symbol = scm_from_utf8_symboln (str, len);
-  scm_i_print_symbol_name (symbol, port);
+  print_symbol (symbol, port);
 }
 
 /* Print generally.  Handles both write and display according to PSTATE.
@@ -597,13 +637,13 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	case scm_tc7_symbol:
 	  if (scm_i_symbol_is_interned (exp))
 	    {
-	      scm_i_print_symbol_name (exp, port);
+	      print_symbol (exp, port);
 	      scm_remember_upto_here_1 (exp);
 	    }
 	  else
 	    {
 	      scm_puts_unlocked ("#<uninterned-symbol ", port);
-	      scm_i_print_symbol_name (exp, port);
+	      print_symbol (exp, port);
 	      scm_putc_unlocked (' ', port);
 	      scm_uintprint (SCM_UNPACK (exp), 16, port);
 	      scm_putc_unlocked ('>', port);
@@ -1002,7 +1042,6 @@ static size_t
 display_string (const void *str, int narrow_p,
 		size_t len, SCM port,
 		scm_t_string_failed_conversion_handler strategy)
-
 {
   scm_t_port *pt;
 

@@ -3,7 +3,7 @@
 #ifndef SCM_PRINT_H
 #define SCM_PRINT_H
 
-/* Copyright (C) 1995,1996,1998,2000,2001, 2003, 2004, 2006, 2008, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000,2001, 2003, 2004, 2006, 2008, 2010, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -82,7 +82,6 @@ SCM_API void scm_intprint (scm_t_intmax n, int radix, SCM port);
 SCM_API void scm_uintprint (scm_t_uintmax n, int radix, SCM port);
 SCM_API void scm_ipruk (char *hdr, SCM ptr, SCM port);
 SCM_API void scm_iprlist (char *hdr, SCM exp, int tlr, SCM port, scm_print_state *pstate);
-SCM_INTERNAL void scm_i_print_symbol_name (SCM sym, SCM port);
 SCM_API void scm_print_symbol_name (const char *str, size_t len, SCM port);
 SCM_API void scm_prin1 (SCM exp, SCM port, int writingp);
 SCM_API void scm_iprin1 (SCM exp, SCM port, scm_print_state *pstate);
