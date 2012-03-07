@@ -438,8 +438,7 @@ eval (SCM x, SCM env)
     case SCM_M_PROMPT:
       {
         SCM vm, k, res;
-        scm_t_dynstack_prompt_flags flags;
-        scm_t_prompt_registers *regs;
+        scm_i_jmp_buf registers;
         /* We need the handler after nonlocal return to the setjmp, so
            make sure it is volatile.  */
         volatile SCM handler;
@@ -449,15 +448,15 @@ eval (SCM x, SCM env)
         vm = scm_the_vm ();
 
         /* Push the prompt onto the dynamic stack. */
-        regs = scm_c_make_prompt_registers (SCM_VM_DATA (vm)->fp,
-                                            SCM_VM_DATA (vm)->sp,
-                                            SCM_VM_DATA (vm)->ip,
-                                            -1);
-        flags = SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY;
         scm_dynstack_push_prompt (&SCM_I_CURRENT_THREAD->dynstack,
-                                  flags, k, regs);
+                                  SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY,
+                                  k,
+                                  SCM_VM_DATA (vm)->fp,
+                                  SCM_VM_DATA (vm)->sp,
+                                  SCM_VM_DATA (vm)->ip,
+                                  &registers);
 
-        if (SCM_I_SETJMP (regs->regs))
+        if (SCM_I_SETJMP (registers))
           {
             /* The prompt exited nonlocally. */
             proc = handler;

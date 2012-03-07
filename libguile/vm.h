@@ -50,7 +50,6 @@ struct scm_vm {
   int engine;                   /* which vm engine we're using */
   SCM hooks[SCM_VM_NUM_HOOKS];	/* hooks */
   int trace_level;              /* traces enabled if trace_level > 0 */
-  scm_t_int64 cookie;           /* used to detect unrewindable continuations */
 };
 
 SCM_API SCM scm_the_vm_fluid;

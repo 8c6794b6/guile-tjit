@@ -156,7 +156,8 @@ SCM_INTERNAL void scm_dynstack_push_fluids (scm_t_dynstack *,
 SCM_INTERNAL void scm_dynstack_push_prompt (scm_t_dynstack *,
                                             scm_t_dynstack_prompt_flags,
                                             SCM key,
-                                            scm_t_prompt_registers *);
+                                            SCM *fp, SCM *sp, scm_t_uint8 *ip,
+                                            scm_i_jmp_buf *registers);
 SCM_INTERNAL void scm_dynstack_push_dynwind (scm_t_dynstack *,
                                              SCM enter, SCM leave);
 
@@ -177,6 +178,11 @@ SCM_INTERNAL scm_t_bits scm_dynstack_unwind_1 (scm_t_dynstack *);
 SCM_INTERNAL void scm_dynstack_wind (scm_t_dynstack *, scm_t_bits *);
 SCM_INTERNAL void scm_dynstack_unwind (scm_t_dynstack *, scm_t_bits *);
 
+
+
+
+/* Miscellany.  */
+
 SCM_INTERNAL scm_t_bits* scm_dynstack_unwind_fork (scm_t_dynstack *,
                                                    scm_t_dynstack *);
 
@@ -184,17 +190,13 @@ SCM_INTERNAL void scm_dynstack_unwind_frame (scm_t_dynstack *);
 SCM_INTERNAL void scm_dynstack_unwind_fluids (scm_t_dynstack *dynstack,
                                               SCM dynamic_state);
 
-
-
-
-/* Miscellany.  */
-
 SCM_INTERNAL scm_t_bits* scm_dynstack_find_prompt (scm_t_dynstack *, SCM,
-                                                   scm_t_prompt_registers **,
-                                                   scm_t_dynstack_prompt_flags *);
+                                                   scm_t_dynstack_prompt_flags *,
+                                                   SCM **, SCM **, scm_t_uint8 **,
+                                                   scm_i_jmp_buf **);
 
-SCM_INTERNAL scm_t_prompt_registers*
-scm_dynstack_relocate_prompt (scm_t_dynstack *, scm_t_ptrdiff, scm_t_uint64);
+SCM_INTERNAL void scm_dynstack_wind_prompt (scm_t_dynstack *, scm_t_bits *,
+                                            scm_t_ptrdiff, scm_i_jmp_buf *);
 
 
 #endif  /* SCM_DYNSTACK_H */

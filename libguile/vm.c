@@ -247,9 +247,11 @@ vm_dispatch_hook (SCM vm, int hook_num)
   vp->trace_level = saved_trace_level;
 }
 
-static void vm_abort (SCM vm, size_t n, scm_t_int64 cookie) SCM_NORETURN;
 static void
-vm_abort (SCM vm, size_t n, scm_t_int64 vm_cookie)
+vm_abort (SCM vm, size_t n, scm_i_jmp_buf *current_registers) SCM_NORETURN;
+
+static void
+vm_abort (SCM vm, size_t n, scm_i_jmp_buf *current_registers)
 {
   size_t i;
   ssize_t tail_len;
@@ -272,12 +274,13 @@ vm_abort (SCM vm, size_t n, scm_t_int64 vm_cookie)
   /* NULLSTACK (n + 1) */
   SCM_VM_DATA (vm)->sp -= n + 1;
 
-  scm_c_abort (vm, tag, n + tail_len, argv, vm_cookie);
+  scm_c_abort (vm, tag, n + tail_len, argv, current_registers);
 }
 
-static scm_t_ptrdiff
-vm_reinstate_partial_continuation (SCM vm, SCM cont,
-                                   size_t n, SCM *argv, scm_t_int64 vm_cookie)
+static void
+vm_reinstate_partial_continuation (SCM vm, SCM cont, size_t n, SCM *argv,
+                                   scm_t_dynstack *dynstack,
+                                   scm_i_jmp_buf *registers)
 {
   struct scm_vm *vp;
   struct scm_vm_cont *cp;
@@ -325,16 +328,24 @@ vm_reinstate_partial_continuation (SCM vm, SCM cont,
   vp->sp++;
   *vp->sp = scm_from_size_t (n);
 
-  /* Finally, rewind the dynamic state.  Unhappily, we have to do this
-     in the vm_engine.  If we do it here, the stack frame will likely
-     have been stompled by some future call out of the VM, so we will
-     return to some other part of the VM.
+  /* The prompt captured a slice of the dynamic stack.  Here we wind
+     those entries onto the current thread's stack.  We also have to
+     relocate any prompts that we see along the way.  */
+  {
+    scm_t_bits *walk;
 
-     We used to wind and relocate the prompts here, but that's bogus,
-     because a rewinder would then be able to abort to a prompt with a
-     stale jmpbuf.  */
+    for (walk = SCM_DYNSTACK_FIRST (cp->dynstack);
+         SCM_DYNSTACK_TAG (walk);
+         walk = SCM_DYNSTACK_NEXT (walk))
+      {
+        scm_t_bits tag = SCM_DYNSTACK_TAG (walk);
 
-  return reloc;
+        if (SCM_DYNSTACK_TAG_TYPE (tag) == SCM_DYNSTACK_TYPE_PROMPT)
+          scm_dynstack_wind_prompt (dynstack, walk, reloc, registers);
+        else
+          scm_dynstack_wind_1 (dynstack, walk);
+      }
+  }
 #undef RELOC
 }
 
@@ -522,7 +533,6 @@ make_vm (void)
   vp->trace_level = 0;
   for (i = 0; i < SCM_VM_NUM_HOOKS; i++)
     vp->hooks[i] = SCM_BOOL_F;
-  vp->cookie = 0;
   return scm_cell (scm_tc7_vm, (scm_t_bits)vp);
 }
 #undef FUNC_NAME

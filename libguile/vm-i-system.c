@@ -1046,47 +1046,15 @@ VM_DEFINE_INSTRUCTION (60, continuation_call, "continuation-call", 0, -1, 0)
 VM_DEFINE_INSTRUCTION (61, partial_cont_call, "partial-cont-call", 0, -1, 0)
 {
   SCM vmcont;
-  scm_t_ptrdiff reloc;
   POP (vmcont);
   SYNC_REGISTER ();
   if (SCM_UNLIKELY (!SCM_VM_CONT_REWINDABLE_P (vmcont)))
     { finish_args = vmcont;
       goto vm_error_continuation_not_rewindable;
     }
-  reloc = vm_reinstate_partial_continuation (vm, vmcont, sp + 1 - fp, fp,
-                                             vm_cookie);
-
-  /* The prompt captured a slice of the dynamic stack.  Here we wind
-     those entries onto the current thread's stack.
-
-     Unhappily, this code must be here, in vm_engine, so that the setjmp
-     captures the stack in this function, and so that subsequently wound
-     stack entries don't see stale prompts.  */
-  {
-    scm_t_bits *walk;
-
-    for (walk = SCM_DYNSTACK_FIRST (SCM_VM_CONT_DATA (vmcont)->dynstack);
-         SCM_DYNSTACK_TAG (walk);
-         walk = SCM_DYNSTACK_NEXT (walk))
-      {
-        scm_t_bits tag = SCM_DYNSTACK_TAG (walk);
-
-        scm_dynstack_wind_1 (&current_thread->dynstack, walk);
-
-        if (SCM_DYNSTACK_TAG_TYPE (tag) == SCM_DYNSTACK_TYPE_PROMPT)
-          {
-            scm_t_prompt_registers *rewound;
-
-            rewound = scm_dynstack_relocate_prompt (&current_thread->dynstack,
-                                                    reloc, vm_cookie);
-
-            /* Reset the jmpbuf.  */
-            if (SCM_I_SETJMP (rewound->regs))
-              /* Non-local exit to this newly rewound prompt.  */
-              break;
-          }
-      }
-  }
+  vm_reinstate_partial_continuation (vm, vmcont, sp + 1 - fp, fp,
+                                     &current_thread->dynstack,
+                                     &registers);
 
   CACHE_REGISTER ();
   program = SCM_FRAME_PROGRAM (fp);
@@ -1588,7 +1556,6 @@ VM_DEFINE_INSTRUCTION (87, prompt, "prompt", 4, 2, 0)
   scm_t_uint8 escape_only_p;
   SCM k;
   scm_t_dynstack_prompt_flags flags;
-  scm_t_prompt_registers *regs;
 
   escape_only_p = FETCH ();
   FETCH_OFFSET (offset);
@@ -1596,29 +1563,9 @@ VM_DEFINE_INSTRUCTION (87, prompt, "prompt", 4, 2, 0)
 
   SYNC_REGISTER ();
   /* Push the prompt onto the dynamic stack. */
-  regs = scm_c_make_prompt_registers (fp, sp, ip + offset, vm_cookie);
   flags = escape_only_p ? SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY : 0;
-  scm_dynstack_push_prompt (&current_thread->dynstack, flags, k, regs);
-  if (SCM_I_SETJMP (regs->regs))
-    {
-      /* The prompt exited nonlocally. Cache the regs back from the vp, and go
-         to the handler.
-
-         Note, at this point, we must assume that any variable local to
-         vm_engine that can be assigned *has* been assigned. So we need to pull
-         all our state back from the ip/fp/sp.
-      */
-      CACHE_REGISTER ();
-      program = SCM_FRAME_PROGRAM (fp);
-      CACHE_PROGRAM ();
-      /* The stack contains the values returned to this prompt, along
-         with a number-of-values marker -- like an MV return. */
-      ABORT_CONTINUATION_HOOK ();
-      NEXT;
-    }
-      
-  /* Otherwise setjmp returned for the first time, so we go to execute the
-     prompt's body. */
+  scm_dynstack_push_prompt (&current_thread->dynstack, flags, k,
+                            fp, sp, ip + offset, &registers);
   NEXT;
 }
 
@@ -1642,7 +1589,7 @@ VM_DEFINE_INSTRUCTION (89, abort, "abort", 1, -1, -1)
   SYNC_REGISTER ();
   if (sp - n - 2 <= SCM_FRAME_UPPER_ADDRESS (fp))
     goto vm_error_stack_underflow;
-  vm_abort (vm, n, vm_cookie);
+  vm_abort (vm, n, &registers);
   /* vm_abort should not return */
   abort ();
 }

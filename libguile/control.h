@@ -20,25 +20,10 @@
 #define SCM_CONTROL_H
 
 
-typedef struct
-{
-  scm_t_uint8 *ip;
-  SCM *sp;
-  SCM *fp;
-  scm_t_int64 cookie;
-  scm_i_jmp_buf regs;  
-} scm_t_prompt_registers;
-
-
-SCM_INTERNAL scm_t_prompt_registers*
-scm_c_make_prompt_registers (SCM *fp, SCM *sp,
-                             scm_t_uint8 *abort_ip,
-                             scm_t_int64 vm_cookie);
-
 SCM_INTERNAL SCM scm_i_prompt_pop_abort_args_x (SCM vm);
 
 SCM_INTERNAL void scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv,
-                               scm_t_int64 cookie) SCM_NORETURN;
+                               scm_i_jmp_buf *registers) SCM_NORETURN;
 SCM_INTERNAL SCM scm_at_abort (SCM tag, SCM args) SCM_NORETURN;
 
 

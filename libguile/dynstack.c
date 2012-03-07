@@ -34,9 +34,12 @@
 
 
 
-#define PROMPT_WORDS 2
+#define PROMPT_WORDS 5
 #define PROMPT_KEY(top) (SCM_PACK ((top)[0]))
-#define PROMPT_REGS(top) ((scm_t_prompt_registers*) ((top)[1]))
+#define PROMPT_FP(top) ((SCM *) ((top)[1]))
+#define PROMPT_SP(top) ((SCM *) ((top)[2]))
+#define PROMPT_IP(top) ((scm_t_uint8 *) ((top)[3]))
+#define PROMPT_JMPBUF(top) ((scm_i_jmp_buf *) ((top)[4]))
 
 #define WINDER_WORDS 2
 #define WINDER_PROC(top) ((scm_t_guard) ((top)[0]))
@@ -188,13 +191,19 @@ scm_dynstack_push_fluids (scm_t_dynstack *dynstack, size_t n,
 void
 scm_dynstack_push_prompt (scm_t_dynstack *dynstack,
                           scm_t_dynstack_prompt_flags flags,
-                          SCM key, scm_t_prompt_registers *regs)
+                          SCM key,
+                          SCM *fp, SCM *sp, scm_t_uint8 *ip,
+                          scm_i_jmp_buf *registers)
 {
   scm_t_bits *words;
 
-  words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_PROMPT, flags, 2);
+  words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_PROMPT, flags,
+                               PROMPT_WORDS);
   words[0] = SCM_UNPACK (key);
-  words[1] = (scm_t_bits) regs;
+  words[1] = (scm_t_bits) fp;
+  words[2] = (scm_t_bits) sp;
+  words[3] = (scm_t_bits) ip;
+  words[4] = (scm_t_bits) registers;
 }
 
 void
@@ -439,8 +448,9 @@ scm_dynstack_unwind_fork (scm_t_dynstack *dynstack, scm_t_dynstack *branch)
 
 scm_t_bits*
 scm_dynstack_find_prompt (scm_t_dynstack *dynstack, SCM key,
-                          scm_t_prompt_registers **regs,
-                          scm_t_dynstack_prompt_flags *flags)
+                          scm_t_dynstack_prompt_flags *flags,
+                          SCM **fp, SCM **sp, scm_t_uint8 **ip,
+                          scm_i_jmp_buf **registers)
 {
   scm_t_bits *walk;
 
@@ -452,10 +462,16 @@ scm_dynstack_find_prompt (scm_t_dynstack *dynstack, SCM key,
       if (SCM_DYNSTACK_TAG_TYPE (tag) == SCM_DYNSTACK_TYPE_PROMPT
           && scm_is_eq (PROMPT_KEY (walk), key))
         {
-          if (regs)
-            *regs = PROMPT_REGS (walk);
           if (flags)
             *flags = SCM_DYNSTACK_TAG_FLAGS (tag);
+          if (fp)
+            *fp = PROMPT_FP (walk);
+          if (sp)
+            *sp = PROMPT_SP (walk);
+          if (ip)
+            *ip = PROMPT_IP (walk);
+          if (registers)
+            *registers = PROMPT_JMPBUF (walk);
           return walk;
         }
     }
@@ -463,26 +479,22 @@ scm_dynstack_find_prompt (scm_t_dynstack *dynstack, SCM key,
   return NULL;
 }
 
-scm_t_prompt_registers*
-scm_dynstack_relocate_prompt (scm_t_dynstack *dynstack, scm_t_ptrdiff reloc,
-                              scm_t_uint64 vm_cookie)
+void
+scm_dynstack_wind_prompt (scm_t_dynstack *dynstack, scm_t_bits *item,
+                          scm_t_ptrdiff reloc, scm_i_jmp_buf *registers)
 {
-  scm_t_bits *item;
-  scm_t_prompt_registers *prev, *rewound;
+  scm_t_bits tag = SCM_DYNSTACK_TAG (item);
 
-  item = SCM_DYNSTACK_PREV (dynstack->top);
-  if (SCM_DYNSTACK_TAG_TYPE (SCM_DYNSTACK_TAG (item))
-      != SCM_DYNSTACK_TYPE_PROMPT)
+  if (SCM_DYNSTACK_TAG_TYPE (tag) != SCM_DYNSTACK_TYPE_PROMPT)
     abort ();
 
-  prev = PROMPT_REGS (item);
-  rewound = scm_c_make_prompt_registers (prev->fp + reloc,
-                                         prev->sp + reloc,
-                                         prev->ip,
-                                         vm_cookie);
-  item[1] = (scm_t_bits) rewound;
-
-  return rewound;
+  scm_dynstack_push_prompt (dynstack,
+                            SCM_DYNSTACK_TAG_FLAGS (tag),
+                            PROMPT_KEY (item),
+                            PROMPT_FP (item) + reloc,
+                            PROMPT_SP (item) + reloc,
+                            PROMPT_IP (item),
+                            registers);
 }
 
 void

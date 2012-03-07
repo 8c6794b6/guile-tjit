@@ -98,14 +98,14 @@ stack_depth (SCM frame)
 static SCM*
 find_prompt (SCM key)
 {
-  scm_t_prompt_registers *regs;
+  SCM *fp;
 
   if (!scm_dynstack_find_prompt (&SCM_I_CURRENT_THREAD->dynstack, key,
-                                 &regs, NULL))
+                                 NULL, &fp, NULL, NULL, NULL))
     scm_misc_error ("make-stack", "Prompt tag not found while narrowing stack",
                     scm_list_1 (key));
 
-  return regs->fp;
+  return fp;
 }
 
 static void

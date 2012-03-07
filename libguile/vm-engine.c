@@ -53,13 +53,14 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   SCM *stack_limit = vp->stack_limit;	/* stack limit address */
 
   scm_i_thread *current_thread = SCM_I_CURRENT_THREAD;
-  scm_t_int64 vm_cookie = vp->cookie++;
 
   /* Internal variables */
   int nvalues = 0;
   const char *func_name = NULL;         /* used for error reporting */
   SCM finish_args;                      /* used both for returns: both in error
                                            and normal situations */
+  scm_i_jmp_buf registers;              /* used for prompts */
+
 #ifdef HAVE_LABELS_AS_VALUES
   static const void **jump_table_pointer = NULL;
 #endif
@@ -87,6 +88,24 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
      load instruction at each instruction dispatch.  */
   jump_table = jump_table_pointer;
 #endif
+
+  if (SCM_I_SETJMP (registers))
+    {
+      /* Non-local return.  Cache the VM registers back from the vp, and
+         go to the handler.
+
+         Note, at this point, we must assume that any variable local to
+         vm_engine that can be assigned *has* been assigned. So we need to pull
+         all our state back from the ip/fp/sp.
+      */
+      CACHE_REGISTER ();
+      program = SCM_FRAME_PROGRAM (fp);
+      CACHE_PROGRAM ();
+      /* The stack contains the values returned to this continuation,
+         along with a number-of-values marker -- like an MV return. */
+      ABORT_CONTINUATION_HOOK ();
+      NEXT;
+    }
 
   /* Initialization */
   {

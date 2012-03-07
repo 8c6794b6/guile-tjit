@@ -458,9 +458,8 @@ pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
 {
   volatile SCM vm, v_handler;
   SCM res;
-  scm_t_prompt_registers *regs;
   scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
-  scm_t_dynstack_prompt_flags flags;
+  scm_i_jmp_buf registers;
 
   /* Only handle catch-alls without pre-unwind handlers */
   if (!SCM_UNBNDP (pre_unwind_handler))
@@ -474,14 +473,15 @@ pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
   v_handler = handler;
 
   /* Push the prompt onto the dynamic stack. */
-  regs = scm_c_make_prompt_registers (SCM_VM_DATA (vm)->fp,
-                                      SCM_VM_DATA (vm)->sp,
-                                      SCM_VM_DATA (vm)->ip,
-                                      -1);
-  flags = SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY;
-  scm_dynstack_push_prompt (dynstack, flags, sym_pre_init_catch_tag, regs);
+  scm_dynstack_push_prompt (dynstack,
+                            SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY,
+                            sym_pre_init_catch_tag,
+                            SCM_VM_DATA (vm)->fp,
+                            SCM_VM_DATA (vm)->sp,
+                            SCM_VM_DATA (vm)->ip,
+                            &registers);
 
-  if (SCM_I_SETJMP (regs->regs))
+  if (SCM_I_SETJMP (registers))
     {
       /* nonlocal exit */
       SCM args = scm_i_prompt_pop_abort_args_x (vm);
@@ -499,7 +499,8 @@ static int
 find_pre_init_catch (void)
 {
   if (scm_dynstack_find_prompt (&SCM_I_CURRENT_THREAD->dynstack,
-                                sym_pre_init_catch_tag, NULL, NULL))
+                                sym_pre_init_catch_tag,
+                                NULL, NULL, NULL, NULL, NULL))
     return 1;
 
   return 0;
