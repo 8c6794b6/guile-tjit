@@ -237,16 +237,14 @@
            (null (funcall (@ (guile) integer?) object)))))
 
 (defun integerp (object)
-  (and (funcall (@ (guile) exact?) object)
-       (funcall (@ (guile) integer?) object)))
+  (and (funcall (@ (guile) integer?) object)
+       (funcall (@ (guile) exact?) object)))
 
 (defun numberp (object)
   (funcall (@ (guile) real?) object))
 
 (defun wholenump (object)
-  (and (funcall (@ (guile) exact?) object)
-       (funcall (@ (guile) integer?) object)
-       (>= object 0)))
+  (and (integerp object) (>= object 0)))
 
 (defun zerop (object)
   (= object 0))
