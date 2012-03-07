@@ -51,10 +51,12 @@
 
 (define make-prompt-tag
   (lambda* (#:optional (stem "prompt"))
-    (gensym stem)))
+    ;; The only property that prompt tags need have is uniqueness in the
+    ;; sense of eq?.  A one-element list will serve nicely.
+    (list stem)))
 
 (define default-prompt-tag
-  ;; not sure if we should expose this to the user as a fluid
+  ;; Redefined later to be a parameter.
   (let ((%default-prompt-tag (make-prompt-tag)))
     (lambda ()
       %default-prompt-tag)))
@@ -1323,6 +1325,14 @@ VALUE."
              (with-fluids (((struct-ref p 1) ((struct-ref p 2) value))
                            ...)
                body body* ...)))))))
+
+
+
+;;; Once parameters have booted, define the default prompt tag as being
+;;; a parameter.
+;;;
+
+(set! default-prompt-tag (make-parameter (default-prompt-tag)))
 
 
 

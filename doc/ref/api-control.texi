@@ -494,14 +494,17 @@ those passed to @code{abort-to-prompt}.
 @end deffn
 
 @deffn {Scheme Procedure} make-prompt-tag [stem]
-Make a new prompt tag.  Currently prompt tags are generated symbols.
-This may change in some future Guile version.
+Make a new prompt tag.  A prompt tag is simply a unique object.
+Currently, a prompt tag is a fresh pair.  This may change in some future
+Guile version.
 @end deffn
 
 @deffn {Scheme Procedure} default-prompt-tag
 Return the default prompt tag.  Having a distinguished default prompt
 tag allows some useful prompt and abort idioms, discussed in the next
-section.
+section.  Note that @code{default-prompt-tag} is actually a parameter,
+and so may be dynamically rebound using @code{parameterize}.
+@xref{Parameters}.
 @end deffn
 
 @deffn {Scheme Procedure} abort-to-prompt tag val1 val2 @dots{}
