@@ -1456,6 +1456,12 @@ procedures, their behavior is implementation dependent."
   (call-with-output-file file
    (lambda (p) (with-error-to-port p thunk))))
 
+(define (call-with-input-string string proc)
+  "Calls the one-argument procedure @var{proc} with a newly created
+input port from which @var{string}'s contents may be read.  The value
+yielded by the @var{proc} is returned."
+  (proc (open-input-string string)))
+
 (define (with-input-from-string string thunk)
   "THUNK must be a procedure of no arguments.
 The test of STRING  is opened for
@@ -1467,6 +1473,14 @@ escape procedure is used to escape from the continuation of these
 procedures, their behavior is implementation dependent."
   (call-with-input-string string
    (lambda (p) (with-input-from-port p thunk))))
+
+(define (call-with-output-string proc)
+  "Calls the one-argument procedure @var{proc} with a newly created output
+port.  When the function returns, the string composed of the characters
+written into the port is returned."
+  (let ((port (open-output-string)))
+    (proc port)
+    (get-output-string port)))
 
 (define (with-output-to-string thunk)
   "Calls THUNK and returns its output as a string."

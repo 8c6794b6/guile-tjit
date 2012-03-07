@@ -354,35 +354,27 @@ SCM_DEFINE (scm_object_to_string, "object->string", 1, 1, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_call_with_output_string, "call-with-output-string", 1, 0, 0, 
-           (SCM proc),
-	    "Calls the one-argument procedure @var{proc} with a newly created output\n"
-	    "port.  When the function returns, the string composed of the characters\n"
-	    "written into the port is returned.")
-#define FUNC_NAME s_scm_call_with_output_string
+SCM
+scm_call_with_output_string (SCM proc)
 {
-  SCM p;
+  static SCM var = SCM_BOOL_F;
 
-  p = scm_mkstrport (SCM_INUM0, SCM_BOOL_F,
-		     SCM_OPN | SCM_WRTNG,
-                     FUNC_NAME);
-  scm_call_1 (proc, p);
+  if (scm_is_false (var))
+    var = scm_c_private_lookup ("guile", "call-with-output-string");
 
-  return scm_get_output_string (p);
+  return scm_call_1 (scm_variable_ref (var), proc);
 }
-#undef FUNC_NAME
 
-SCM_DEFINE (scm_call_with_input_string, "call-with-input-string", 2, 0, 0,
-           (SCM string, SCM proc),
-	    "Calls the one-argument procedure @var{proc} with a newly\n"
-	    "created input port from which @var{string}'s contents may be\n"
-	    "read.  The value yielded by the @var{proc} is returned.")
-#define FUNC_NAME s_scm_call_with_input_string
+SCM
+scm_call_with_input_string (SCM string, SCM proc)
 {
-  SCM p = scm_mkstrport(SCM_INUM0, string, SCM_OPN | SCM_RDNG, FUNC_NAME);
-  return scm_call_1 (proc, p);
+  static SCM var = SCM_BOOL_F;
+
+  if (scm_is_false (var))
+    var = scm_c_private_lookup ("guile", "call-with-input-string");
+
+  return scm_call_2 (scm_variable_ref (var), string, proc);
 }
-#undef FUNC_NAME
 
 SCM_DEFINE (scm_open_input_string, "open-input-string", 1, 0, 0,
 	    (SCM str),
