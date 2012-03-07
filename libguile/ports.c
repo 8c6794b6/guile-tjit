@@ -470,7 +470,8 @@ scm_i_mode_bits_n (SCM modes)
 long
 scm_mode_bits (char *modes)
 {
-  return scm_i_mode_bits (scm_from_locale_string (modes));
+  /* Valid characters are rw+a0l.  So, use latin1.  */
+  return scm_i_mode_bits (scm_from_latin1_string (modes));
 }
 
 long
@@ -809,8 +810,20 @@ scm_i_set_default_port_encoding (const char *encoding)
       || !strcmp (encoding, "ISO-8859-1"))
     scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var), SCM_BOOL_F);
   else
-    scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var),
-		     scm_from_locale_string (encoding));
+    {
+      SCM str;
+      size_t i;
+
+      str = scm_from_latin1_string (encoding);
+
+      /* Restrict to ASCII.  */
+      for (i = 0; encoding[i]; i++)
+        if (encoding[i] > 127)
+          scm_misc_error ("scm_i_set_default_port_encoding",
+                          "invalid character encoding ~s", scm_list_1 (str));
+
+      scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var), str);
+    }
 }
 
 /* Return the name of the default encoding for newly created ports; a
@@ -845,9 +858,14 @@ open_iconv_descriptors (const char *encoding, int reading, int writing)
 {
   scm_t_iconv_descriptors *id;
   iconv_t input_cd, output_cd;
+  size_t i;
 
   input_cd = (iconv_t) -1;
   output_cd = (iconv_t) -1;
+
+  for (i = 0; encoding[i]; i++)
+    if (encoding[i] > 127)
+      goto invalid_encoding;
 
   if (reading)
     {
@@ -893,7 +911,7 @@ open_iconv_descriptors (const char *encoding, int reading, int writing)
  invalid_encoding:
   {
     SCM err;
-    err = scm_from_locale_string (encoding);
+    err = scm_from_latin1_string (encoding);
     scm_misc_error ("open_iconv_descriptors",
 		    "invalid or unknown character encoding ~s",
 		    scm_list_1 (err));
@@ -933,6 +951,7 @@ scm_i_port_iconv_descriptors (SCM port)
   return pt->iconv_descriptors;
 }
 
+/* The name of the encoding is itself encoded in ASCII.  */
 void
 scm_i_set_port_encoding_x (SCM port, const char *encoding)
 {
@@ -984,7 +1003,7 @@ SCM_DEFINE (scm_port_encoding, "port-encoding", 1, 0, 0,
   pt = SCM_PTAB_ENTRY (port);
   enc = pt->encoding;
   if (enc)
-    return scm_from_locale_string (pt->encoding);
+    return scm_from_latin1_string (pt->encoding);
   else
     return SCM_BOOL_F;
 }
@@ -1004,7 +1023,7 @@ SCM_DEFINE (scm_set_port_encoding_x, "set-port-encoding!", 2, 0, 0,
   SCM_VALIDATE_PORT (1, port);
   SCM_VALIDATE_STRING (2, enc);
 
-  enc_str = scm_to_locale_string (enc);
+  enc_str = scm_to_latin1_string (enc);
   scm_i_set_port_encoding_x (port, enc_str);
   free (enc_str);
 
