@@ -4,7 +4,7 @@
 #define SCM_INLINE_H
 
 /* Copyright (C) 2001, 2002, 2003, 2004, 2006, 2008, 2009, 2010,
- *   2011 Free Software Foundation, Inc.
+ *   2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -47,7 +47,7 @@ SCM_INLINE int scm_is_string (SCM x);
 SCM_INLINE SCM scm_cell (scm_t_bits car, scm_t_bits cdr);
 SCM_INLINE SCM scm_double_cell (scm_t_bits car, scm_t_bits cbr,
 			     scm_t_bits ccr, scm_t_bits cdr);
-SCM_INLINE SCM scm_words (scm_t_bits car, scm_t_uint16 n_words);
+SCM_INLINE SCM scm_words (scm_t_bits car, scm_t_uint32 n_words);
 
 #if SCM_CAN_INLINE || defined SCM_INLINE_C_IMPLEMENTING_INLINES
 /* Either inlining, or being included from inline.c.  */
