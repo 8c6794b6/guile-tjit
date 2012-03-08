@@ -308,6 +308,7 @@
 (fset 'make-list (@ (guile) make-list))
 (fset 'append (@ (guile) append))
 (fset 'reverse (@ (guile) reverse))
+(fset 'nreverse (@ (guile) reverse!))
 
 (defun car-safe (object)
   (if (consp object)
@@ -361,11 +362,78 @@
 (defun memq (elt list)
   (%member elt list #'eq))
 
+(defun assoc (key list)
+  (funcall (@ (srfi srfi-1) assoc) key list #'equal))
+
+(defun assq (key list)
+  (funcall (@ (srfi srfi-1) assoc) key list #'eq))
+
+(defun rplaca (cell newcar)
+  (funcall (@ (guile) set-car!) cell newcar)
+  newcar)
+
+(defun rplacd (cell newcdr)
+  (funcall (@ (guile) set-cdr!) cell newcdr)
+  newcdr)
+
+(defun caar (x)
+  (car (car x)))
+
+(defun cadr (x)
+  (car (cdr x)))
+
+(defun cdar (x)
+  (cdr (car x)))
+
+(defun cddr (x)
+  (cdr (cdr x)))
+
+(defmacro dolist (spec &rest body)
+  (apply #'(lambda (var list &optional result)
+             `(mapc #'(lambda (,var)
+                        ,@body
+                        ,result)
+                    ,list))
+         spec))
+
 ;;; Strings
 
 (defun string (&rest characters)
   (funcall (@ (guile) list->string)
            (mapcar (@ (guile) integer->char) characters)))
+
+(defun stringp (object)
+  (funcall (@ (guile) string?) object))
+
+(defun string-equal (s1 s2)
+  (let ((s1 (if (symbolp s1) (symbol-name s1) s1))
+        (s2 (if (symbolp s2) (symbol-name s2) s2)))
+   (funcall (@ (guile) string=?) s1 s2)))
+
+(fset 'string= 'string-equal)
+
+(defun substring (string from &optional to)
+  (apply (@ (guile) substring) string from (if to (list to) nil)))
+
+(defun upcase (obj)
+  (funcall (@ (guile) string-upcase) obj))
+
+(defun downcase (obj)
+  (funcall (@ (guile) string-downcase) obj))
+
+(defun string-match (regexp string &optional start)
+  (let ((m (funcall (@ (ice-9 regex) string-match)
+                    regexp
+                    string
+                    (or start 0))))
+    (if m
+        (funcall (@ (ice-9 regex) match:start) m 0)
+      nil)))
+
+;; Vectors
+
+(defun make-vector (length init)
+  (funcall (@ (guile) make-vector) length init))
 
 ;;; Sequences
 
@@ -373,6 +441,20 @@
 
 (defun mapcar (function sequence)
   (funcall (@ (guile) map) function sequence))
+
+(defun mapc (function sequence)
+  (funcall (@ (guile) for-each) function sequence)
+  sequence)
+
+(defun aref (array idx)
+  (funcall (@ (guile) generalized-vector-ref) array idx))
+
+(defun aset (array idx newelt)
+  (funcall (@ (guile) generalized-vector-set!) array idx newelt)
+  newelt)
+
+(defun concat (&rest sequences)
+  (apply (@ (guile) string-append) sequences))
 
 ;;; Property lists
 
