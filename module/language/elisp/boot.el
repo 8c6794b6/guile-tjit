@@ -596,3 +596,18 @@
 
 (defun prin1-to-string (object)
   (format* nil "~S" object))
+
+;; Random number generation
+
+(defvar %random-state (funcall (@ (guile) copy-random-state)
+                               (@ (guile) *random-state*)))
+
+(defun random (&optional limit)
+  (if (eq limit t)
+      (setq %random-state
+            (funcall (@ (guile) random-state-from-platform))))
+  (funcall (@ (guile) random)
+           (if (wholenump limit)
+               limit
+             (@ (guile) most-positive-fixnum))
+           %random-state))
