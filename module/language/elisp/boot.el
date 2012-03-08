@@ -583,3 +583,16 @@
 
 (defun format* (stream string &rest args)
   (apply (@ (guile) format) stream string args))
+
+(defun send-string-to-terminal (string)
+  (princ string))
+
+(defun read-from-minibuffer (prompt &rest ignore)
+  (princ prompt)
+  (let ((value (funcall (@ (ice-9 rdelim) read-line))))
+    (if (funcall (@ (guile) eof-object?) value)
+        ""
+      value)))
+
+(defun prin1-to-string (object)
+  (format* nil "~S" object))
