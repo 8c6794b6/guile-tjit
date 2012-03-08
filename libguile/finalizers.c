@@ -43,6 +43,17 @@ static size_t finalization_count;
 
 
 
+#ifndef HAVE_GC_SET_FINALIZER_NOTIFIER
+static void
+GC_set_finalizer_notifier (void (*notifier) (void))
+{
+  GC_finalizer_notifier = notifier;
+}
+#endif
+
+
+
+
 void
 scm_i_set_finalizer (void *obj, scm_t_finalizer_proc proc, void *data)
 {
@@ -142,10 +153,9 @@ run_finalizers_async_thunk (void)
 }
 
 
-/* The function queue_after_gc_hook is run by the scm_before_gc_c_hook
- * at the end of the garbage collection.  The only purpose of this
- * function is to mark the after_gc_async (which will eventually lead to
- * the execution of the after_gc_async_thunk).
+/* The function queue_finalizer_async is run by the GC when there are
+ * objects to finalize.  It will enqueue an asynchronous call to
+ * GC_invoke_finalizers() at the next SCM_TICK in this thread.
  */
 static void
 queue_finalizer_async (void)
@@ -154,7 +164,10 @@ queue_finalizer_async (void)
   static scm_i_pthread_mutex_t lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
   scm_i_pthread_mutex_lock (&lock);
-  if (scm_is_false (SCM_CDR (finalizer_async_cell)))
+  /* If t is NULL, that could be because we're allocating in
+     threads.c:guilify_self_1.  In that case, rely on the
+     GC_invoke_finalizers call there after the thread spins up.  */
+  if (t && scm_is_false (SCM_CDR (finalizer_async_cell)))
     {
       SCM_SETCDR (finalizer_async_cell, t->active_asyncs);
       t->active_asyncs = finalizer_async_cell;

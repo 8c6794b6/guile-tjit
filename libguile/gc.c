@@ -384,6 +384,8 @@ SCM_DEFINE (scm_gc, "gc", 0, 0, 0,
 #define FUNC_NAME s_scm_gc
 {
   scm_i_gc ("call");
+  /* If you're calling scm_gc(), you probably want synchronous
+     finalization.  */
   GC_invoke_finalizers ();
   return SCM_UNSPECIFIED;
 }
