@@ -133,7 +133,7 @@
 
 (define (bad-request-printer port key args default-printer)
   (apply (case-lambda
-           ((msg . args)
+           ((msg args)
             (display "Bad request: " port)
             (apply format port msg args)
             (newline port))
