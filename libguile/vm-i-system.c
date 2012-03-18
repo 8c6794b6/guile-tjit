@@ -803,8 +803,8 @@ VM_DEFINE_INSTRUCTION (55, call, "call", 1, -1, 1)
       else if (SCM_HAS_TYP7 (program, scm_tc7_smob)
                && SCM_SMOB_APPLICABLE_P (program))
         {
-          SYNC_REGISTER ();
-          sp[-nargs] = scm_i_smob_apply_trampoline (program);
+          PUSH (program);
+          prepare_smob_call (sp, ++nargs, program);
           goto vm_call;
         }
       else
@@ -851,8 +851,8 @@ VM_DEFINE_INSTRUCTION (56, tail_call, "tail-call", 1, -1, 1)
       else if (SCM_HAS_TYP7 (program, scm_tc7_smob)
                && SCM_SMOB_APPLICABLE_P (program))
         {
-          SYNC_REGISTER ();
-          sp[-nargs] = scm_i_smob_apply_trampoline (program);
+          PUSH (program);
+          prepare_smob_call (sp, ++nargs, program);
           goto vm_tail_call;
         }
       else
@@ -952,52 +952,7 @@ VM_DEFINE_INSTRUCTION (57, subr_call, "subr-call", 1, -1, -1)
     }
 }
 
-VM_DEFINE_INSTRUCTION (58, smob_call, "smob-call", 1, -1, -1)
-{
-  SCM smob, ret;
-  SCM (*subr)();
-  nargs = FETCH ();
-  POP (smob);
-
-  subr = SCM_SMOB_DESCRIPTOR (smob).apply;
-
-  VM_HANDLE_INTERRUPTS;
-  SYNC_REGISTER ();
-
-  switch (nargs)
-    {
-    case 0:
-      ret = subr (smob);
-      break;
-    case 1:
-      ret = subr (smob, sp[0]);
-      break;
-    case 2:
-      ret = subr (smob, sp[-1], sp[0]);
-      break;
-    case 3:
-      ret = subr (smob, sp[-2], sp[-1], sp[0]);
-      break;
-    default:
-      abort ();
-    }
-  
-  NULLSTACK_FOR_NONLOCAL_EXIT ();
-      
-  if (SCM_UNLIKELY (SCM_VALUESP (ret)))
-    {
-      /* multiple values returned to continuation */
-      ret = scm_struct_ref (ret, SCM_INUM0);
-      nvalues = scm_ilength (ret);
-      PUSH_LIST (ret, scm_is_null);
-      goto vm_return_values;
-    }
-  else
-    {
-      PUSH (ret);
-      goto vm_return;
-    }
-}
+/* Instruction 58 used to be smob-call.  */
 
 VM_DEFINE_INSTRUCTION (59, foreign_call, "foreign-call", 1, -1, -1)
 {
@@ -1104,8 +1059,8 @@ VM_DEFINE_INSTRUCTION (64, mv_call, "mv-call", 4, -1, 1)
       else if (SCM_HAS_TYP7 (program, scm_tc7_smob)
                && SCM_SMOB_APPLICABLE_P (program))
         {
-          SYNC_REGISTER ();
-          sp[-nargs] = scm_i_smob_apply_trampoline (program);
+          PUSH (program);
+          prepare_smob_call (sp, ++nargs, program);
           goto vm_mv_call;
         }
       else

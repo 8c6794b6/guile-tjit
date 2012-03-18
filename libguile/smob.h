@@ -4,7 +4,7 @@
 #define SCM_SMOB_H
 
 /* Copyright (C) 1995, 1996, 1998, 1999, 2000, 2001, 2004, 2006, 2009,
- *   2010, 2011 Free Software Foundation, Inc.
+ *   2010, 2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -40,7 +40,7 @@ typedef struct scm_smob_descriptor
   int (*print) (SCM exp, SCM port, scm_print_state *pstate);
   SCM (*equalp) (SCM, SCM);
   scm_t_subr apply;
-  SCM apply_trampoline_objcode;
+  SCM apply_trampoline;
 } scm_smob_descriptor;
 
 
@@ -195,8 +195,6 @@ SCM_API void scm_assert_smob_type (scm_t_bits tag, SCM val);
 /* Function for creating smobs */
 
 SCM_API SCM scm_make_smob (scm_t_bits tc);
-
-SCM_INTERNAL SCM scm_i_smob_apply_trampoline (SCM smob);
 
 SCM_API void scm_smob_prehistory (void);
 
