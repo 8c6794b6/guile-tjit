@@ -72,11 +72,15 @@ scm_i_procedure_arity (SCM proc, int *req, int *opt, int *rest)
         {
           if (!SCM_SMOB_APPLICABLE_P (proc))
             return 0;
-          if (scm_i_program_arity (SCM_SMOB_DESCRIPTOR (proc).apply_trampoline,
-                                   req, opt, rest))
-            /* The trampoline gets the smob too, which users don't
-               see.  */
-            *req -= 1;
+          if (!scm_i_program_arity (SCM_SMOB_DESCRIPTOR (proc).apply_trampoline,
+                                    req, opt, rest))
+            return 0;
+
+          /* The trampoline gets the smob too, which users don't
+             see.  */
+          *req -= 1;
+
+          return 1;
         }
       else
         return 0;
