@@ -40,6 +40,7 @@
 #include <sys/un.h>
 #endif
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 
@@ -1711,6 +1712,14 @@ scm_init_socket ()
 #endif
 #ifdef MSG_DONTROUTE
   scm_c_define ("MSG_DONTROUTE", scm_from_int (MSG_DONTROUTE));
+#endif
+
+  /* TCP options.  */
+#ifdef TCP_NODELAY
+  scm_c_define ("TCP_NODELAY", scm_from_int (TCP_NODELAY));
+#endif
+#ifdef TCP_CORK
+  scm_c_define ("TCP_CORK", scm_from_int (TCP_CORK));
 #endif
 
 #ifdef IP_ADD_MEMBERSHIP

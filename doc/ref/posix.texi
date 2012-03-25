@@ -3178,6 +3178,15 @@ supporting that.
 @end defvar
 @end deffn
 
+For @code{IPPROTO_TCP} level the following @var{optname}s are defined
+(when provided by the system).  For their meaning see @command{man 7
+tcp}.
+
+@defvar TCP_NODELAY
+@defvarx TCP_CORK
+The @var{value} taken or returned is an integer.
+@end defvar
+
 @deffn {Scheme Procedure} shutdown sock how
 @deffnx {C Function} scm_shutdown (sock, how)
 Sockets can be closed simply by using @code{close-port}.  The

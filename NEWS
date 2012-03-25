@@ -54,6 +54,9 @@ avoid the crashes that led to the introduction of locking, but without
 locks.  For that reason we have removed port locks, and removed the
 "_unlocked" port API variants that were introduced in 2.1.0.
 
+* New interfaces
+** `TCP_NODELAY' and `TCP_CORK' socket options, if provided by the system
+
 * New deprecations
 ** `_IONBF', `_IOLBF', and `_IOFBF'
 
