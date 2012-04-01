@@ -447,7 +447,11 @@
 
 ;;; Sequences
 
-(fset 'length (@ (guile) length))
+(defun length (sequence)
+  (funcall (if (listp sequence)
+               (@ (guile) length)
+             (@ (guile) generalized-vector-length))
+           sequence))
 
 (defun mapcar (function sequence)
   (funcall (@ (guile) map) function sequence))
