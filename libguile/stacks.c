@@ -109,7 +109,7 @@ find_prompt (SCM key)
 }
 
 static void
-narrow_stack (SCM stack, long inner, SCM inner_key, long outer, SCM outer_key)
+narrow_stack (SCM stack, SCM inner_cut, SCM outer_cut)
 {
   unsigned long int len;
   SCM frame;
@@ -118,57 +118,67 @@ narrow_stack (SCM stack, long inner, SCM inner_key, long outer, SCM outer_key)
   frame = SCM_STACK_FRAME (stack);
 
   /* Cut inner part. */
-  if (scm_is_true (scm_procedure_p (inner_key)))
+  if (scm_is_true (scm_procedure_p (inner_cut)))
     {
       /* Cut until the given procedure is seen. */
-      for (; inner && len ; --inner)
+      for (; len ;)
         {
           SCM proc = scm_frame_procedure (frame);
           len--;
           frame = scm_frame_previous (frame);
-          if (scm_is_eq (proc, inner_key))
+          if (scm_is_eq (proc, inner_cut))
             break;
         }
     }
-  else if (scm_is_symbol (inner_key))
-    {
-      /* Cut until the given prompt tag is seen. FIXME, assumes prompt tags are
-         symbols. */
-      SCM *fp = find_prompt (inner_key);
-      for (; len; len--, frame = scm_frame_previous (frame))
-        if (fp == SCM_VM_FRAME_FP (frame) - SCM_VM_FRAME_OFFSET (frame))
-          break;
-    }
-  else
+  else if (scm_is_integer (inner_cut))
     {
       /* Cut specified number of frames. */
+      long inner = scm_to_int (inner_cut);
+      
       for (; inner && len; --inner)
         {
           len--;
           frame = scm_frame_previous (frame);
         }
     }
+  else
+    {
+      /* Cut until the given prompt tag is seen. */
+      SCM *fp = find_prompt (inner_cut);
+      for (; len; len--, frame = scm_frame_previous (frame))
+        if (fp == SCM_VM_FRAME_FP (frame) - SCM_VM_FRAME_OFFSET (frame))
+          break;
+    }
 
   SCM_SET_STACK_LENGTH (stack, len);
   SCM_SET_STACK_FRAME (stack, frame);
 
   /* Cut outer part. */
-  if (scm_is_true (scm_procedure_p (outer_key)))
+  if (scm_is_true (scm_procedure_p (outer_cut)))
     {
       /* Cut until the given procedure is seen. */
-      for (; outer && len ; --outer)
+      for (; len ;)
         {
           frame = scm_stack_ref (stack, scm_from_long (len - 1));
           len--;
-          if (scm_is_eq (scm_frame_procedure (frame), outer_key))
+          if (scm_is_eq (scm_frame_procedure (frame), outer_cut))
             break;
         }
     }
-  else if (scm_is_symbol (outer_key))
+  else if (scm_is_integer (outer_cut))
     {
-      /* Cut until the given prompt tag is seen. FIXME, assumes prompt tags are
-         symbols. */
-      SCM *fp = find_prompt (outer_key);
+      /* Cut specified number of frames. */
+      long outer = scm_to_int (outer_cut);
+      
+      if (outer < len)
+        len -= outer;
+      else
+        len = 0;
+    }
+  else
+    {
+      /* Cut until the given prompt tag is seen. */
+      SCM *fp = find_prompt (outer_cut);
       while (len)
         {
           frame = scm_stack_ref (stack, scm_from_long (len - 1));
@@ -176,14 +186,6 @@ narrow_stack (SCM stack, long inner, SCM inner_key, long outer, SCM outer_key)
           if (fp == SCM_VM_FRAME_FP (frame) - SCM_VM_FRAME_OFFSET (frame))
             break;
         }
-    }
-  else
-    {
-      /* Cut specified number of frames. */
-      if (outer < len)
-        len -= outer;
-      else
-        len = 0;
     }
 
   SCM_SET_STACK_LENGTH (stack, len);
@@ -308,10 +310,8 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
 	}
       
       narrow_stack (stack,
-		    scm_is_integer (inner_cut) ? scm_to_int (inner_cut) : n,
-		    scm_is_integer (inner_cut) ? SCM_BOOL_T : inner_cut,
-		    scm_is_integer (outer_cut) ? scm_to_int (outer_cut) : n,
-		    scm_is_integer (outer_cut) ? SCM_BOOL_T : outer_cut);
+                    inner_cut,
+                    outer_cut);
 
       n = SCM_STACK_LENGTH (stack);
     }

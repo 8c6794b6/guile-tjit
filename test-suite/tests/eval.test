@@ -379,6 +379,43 @@
              (pair? (member `(,substring  wrong type arg)
                             (cdr result))))))))
 
+(define (make-tagged-trimmed-stack tag spec)
+  (catch 'result
+    (lambda ()
+      (call-with-prompt
+        tag
+        (lambda ()
+          (with-throw-handler 'wrong-type-arg
+            (lambda () (substring 'wrong 'type 'arg))
+            (lambda _ (throw 'result (apply make-stack spec)))))
+        (lambda () (throw 'make-stack-failed))))
+    (lambda (key result) result)))
+
+(define tag (make-prompt-tag "foo"))
+
+(with-test-prefix "stacks and prompt handlers"
+  (pass-if "inner trim with prompt tag"
+    (let* ((stack (make-tagged-trimmed-stack tag `(#t ,tag)))
+           (frames (stack->frames stack)))
+      ;; the top frame on the stack is the lambda inside the 'catch, and the
+      ;; next frame is the (catch 'result ...)
+      (and (eq? (frame-procedure (cadr frames))
+                catch)
+           (eq? (car (frame-arguments (cadr frames)))
+                'result))))
+
+  (pass-if "outer trim with prompt tag"
+    (let* ((stack (make-tagged-trimmed-stack tag `(#t 0 ,tag)))
+           (frames (stack->frames stack)))
+      ;; the top frame on the stack is the make-stack call, and the last
+      ;; frame is the (with-throw-handler 'wrong-type-arg ...)
+      (and (eq? (frame-procedure (car frames))
+                make-stack)
+           (eq? (frame-procedure (car (last-pair frames)))
+                with-throw-handler)
+           (eq? (car (frame-arguments (car (last-pair frames))))
+                'wrong-type-arg)))))
+
 ;;;
 ;;; letrec init evaluation
 ;;;
