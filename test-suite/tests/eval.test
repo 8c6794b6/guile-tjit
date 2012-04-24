@@ -334,51 +334,6 @@
           1+
           0))
 
-(with-test-prefix "stacks"
-  (pass-if "stack involving a primitive"
-    ;; The primitive involving the error must appear exactly once on the
-    ;; stack.
-    (catch 'result
-      (lambda ()
-        (start-stack 'foo
-                     (with-throw-handler 'wrong-type-arg
-                       (lambda ()
-                         ;; Trigger a `wrong-type-arg' exception.
-                         (hashq-ref 'wrong 'type 'arg))
-                       (lambda _
-                         (let* ((stack  (make-stack #t))
-                                (frames (stack->frames stack)))
-                           (throw 'result
-                                  (count (lambda (frame)
-                                           (eq? (frame-procedure frame)
-                                                hashq-ref))
-                                         frames)))))))
-      (lambda (key result)
-        (= 1 result))))
-
-  (pass-if "arguments of a primitive stack frame"
-    ;; Create a stack with two primitive frames and make sure the
-    ;; arguments are correct.
-    (catch 'result
-      (lambda ()
-        (start-stack 'foo
-                     (with-throw-handler 'wrong-type-arg
-                       (lambda ()
-                         ;; Trigger a `wrong-type-arg' exception.
-                         (substring 'wrong 'type 'arg))
-                       (lambda _
-                         (let* ((stack  (make-stack #t))
-                                (frames (stack->frames stack)))
-                           (throw 'result
-                                  (map (lambda (frame)
-                                         (cons (frame-procedure frame)
-                                               (frame-arguments frame)))
-                                       frames)))))))
-      (lambda (key result)
-        (and (equal? (car result) `(,make-stack #t))
-             (pair? (member `(,substring  wrong type arg)
-                            (cdr result))))))))
-
 (define (make-tagged-trimmed-stack tag spec)
   (catch 'result
     (lambda ()
@@ -393,7 +348,29 @@
 
 (define tag (make-prompt-tag "foo"))
 
-(with-test-prefix "stacks and prompt handlers"
+(with-test-prefix "stacks"
+  (pass-if "stack involving a primitive"
+    ;; The primitive involving the error must appear exactly once on the
+    ;; stack.
+    (let* ((stack (make-tagged-trimmed-stack tag '(#t)))
+           (frames (stack->frames stack))
+           (num (count (lambda (frame) (eq? (frame-procedure frame)
+                                       substring))
+                       frames)))
+      (= num 1)))
+
+  (pass-if "arguments of a primitive stack frame"
+    ;; Create a stack with two primitive frames and make sure the
+    ;; arguments are correct.
+    (let* ((stack (make-tagged-trimmed-stack tag '(#t)))
+           (call-list (map (lambda (frame)
+                             (cons (frame-procedure frame)
+                                   (frame-arguments frame)))
+                           (stack->frames stack))))
+      (and (equal? (car call-list) `(,make-stack #t))
+           (pair? (member `(,substring wrong type arg)
+                          (cdr call-list))))))
+
   (pass-if "inner trim with prompt tag"
     (let* ((stack (make-tagged-trimmed-stack tag `(#t ,tag)))
            (frames (stack->frames stack)))
