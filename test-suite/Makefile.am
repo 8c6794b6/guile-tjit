@@ -165,7 +165,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 
 EXTRA_DIST = \
 	guile-test \
-	lib.scm \
+	test-suite/lib.scm \
 	$(SCM_TESTS) \
 	tests/rnrs-test-a.scm
 	ChangeLog-2008

@@ -1949,6 +1949,52 @@ latin1_to_u8 (const scm_t_uint8 *str, size_t latin_len,
   return u8_result;
 }
 
+/* UTF-8 code table
+
+   (Note that this includes code points that are not allowed by Unicode,
+    but since this function has no way to report an error, and its
+    purpose is to determine the size of destination buffers for
+    libunicode conversion functions, we err on the safe side and handle
+    everything that libunicode might conceivably handle, now or in the
+    future.)
+
+   Char. number range  |        UTF-8 octet sequence
+      (hexadecimal)    |              (binary)
+   --------------------+------------------------------------------------------
+   0000 0000-0000 007F | 0xxxxxxx
+   0000 0080-0000 07FF | 110xxxxx 10xxxxxx
+   0000 0800-0000 FFFF | 1110xxxx 10xxxxxx 10xxxxxx
+   0001 0000-001F FFFF | 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+   0020 0000-03FF FFFF | 111110xx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+   0400 0000-7FFF FFFF | 1111110x 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx 10xxxxxx
+*/
+
+static size_t
+u32_u8_length_in_bytes (const scm_t_uint32 *str, size_t len)
+{
+  size_t ret, i;
+
+  for (i = 0, ret = 0; i < len; i++)
+    {
+      scm_t_uint32 c = str[i];
+
+      if (c <= 0x7f)
+        ret += 1;
+      else if (c <= 0x7ff)
+        ret += 2;
+      else if (c <= 0xffff)
+        ret += 3;
+      else if (c <= 0x1fffff)
+        ret += 4;
+      else if (c <= 0x3ffffff)
+        ret += 5;
+      else
+        ret += 6;
+    }
+
+  return ret;
+}
+
 char *
 scm_to_utf8_stringn (SCM str, size_t *lenp)
 {
@@ -1957,9 +2003,46 @@ scm_to_utf8_stringn (SCM str, size_t *lenp)
                                   scm_i_string_length (str),
                                   NULL, lenp);
   else
-    return (char *) u32_to_u8 ((scm_t_uint32*)scm_i_string_wide_chars (str),
-                               scm_i_string_length (str),
-                               NULL, lenp);
+    {
+      scm_t_uint32 *chars = (scm_t_uint32 *) scm_i_string_wide_chars (str);
+      scm_t_uint8 *buf, *ret;
+      size_t num_chars = scm_i_string_length (str);
+      size_t num_bytes_predicted, num_bytes_actual;
+
+      num_bytes_predicted = u32_u8_length_in_bytes (chars, num_chars);
+
+      if (lenp)
+        {
+          *lenp = num_bytes_predicted;
+          buf = scm_malloc (num_bytes_predicted);
+        }
+      else
+        {
+          buf = scm_malloc (num_bytes_predicted + 1);
+          buf[num_bytes_predicted] = 0;
+        }
+
+      num_bytes_actual = num_bytes_predicted;
+      ret = u32_to_u8 (chars, num_chars, buf, &num_bytes_actual);
+
+      if (SCM_LIKELY (ret == buf && num_bytes_actual == num_bytes_predicted))
+        return (char *) ret;
+
+      /* An error: a bad codepoint.  */
+      {
+        int saved_errno = errno;
+
+        free (buf);
+        if (!saved_errno)
+          abort ();
+
+        scm_decoding_error ("scm_to_utf8_stringn", errno,
+                            "invalid codepoint in string", str);
+
+        /* Not reached.  */
+        return NULL;
+      }
+    }
 }
 
 scm_t_wchar *
