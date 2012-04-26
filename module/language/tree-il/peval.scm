@@ -19,6 +19,7 @@
 (define-module (language tree-il peval)
   #:use-module (language tree-il)
   #:use-module (language tree-il primitives)
+  #:use-module (language tree-il effects)
   #:use-module (ice-9 vlist)
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
@@ -298,12 +299,13 @@
   (constant-value operand-constant-value set-operand-constant-value!))
 
 (define* (make-operand var sym #:optional source visit)
-  ;; Bind SYM to VAR, with value SOURCE.  Bound operands are considered
-  ;; copyable until we prove otherwise.  If we have a source expression,
-  ;; truncate it to one value.  Copy propagation does not work on
-  ;; multiply-valued expressions.
+  ;; Bind SYM to VAR, with value SOURCE.  Unassigned bound operands are
+  ;; considered copyable until we prove otherwise.  If we have a source
+  ;; expression, truncate it to one value.  Copy propagation does not
+  ;; work on multiply-valued expressions.
   (let ((source (and=> source truncate-values)))
-    (%make-operand var sym visit source 0 #f (and source #t) #f #f)))
+    (%make-operand var sym visit source 0 #f
+                   (and source (not (var-set? var))) #f #f)))
 
 (define (make-bound-operands vars syms sources visit)
   (map (lambda (x y z) (make-operand x y z visit)) vars syms sources))
@@ -555,52 +557,15 @@ top-level bindings from ENV and return the resulting expression."
          (let ((tail (loop tail)))
            (and tail (make-seq src head tail)))))))
 
+  (define compute-effects
+    (make-effects-analyzer assigned-lexical?))
+
   (define (constant-expression? x)
     ;; Return true if X is constant, for the purposes of copying or
     ;; elision---i.e., if it is known to have no effects, does not
     ;; allocate storage for a mutable object, and does not access
     ;; mutable data (like `car' or toplevel references).
-    (let loop ((x x))
-      (match x
-        (($ <void>) #t)
-        (($ <const>) #t)
-        (($ <lambda>) #t)
-        (($ <lambda-case> _ req opt rest kw inits syms body alternate)
-         (and (not (any assigned-lexical? syms))
-              (every loop inits) (loop body)
-              (or (not alternate) (loop alternate))))
-        (($ <lexical-ref> _ _ gensym)
-         (not (assigned-lexical? gensym)))
-        (($ <primitive-ref>) #t)
-        (($ <conditional> _ condition subsequent alternate)
-         (and (loop condition) (loop subsequent) (loop alternate)))
-        (($ <primcall> _ 'values exps)
-         (and (not (null? exps))
-              (every loop exps)))
-        (($ <primcall> _ name args)
-         (and (effect-free-primitive? name)
-              (not (constructor-primitive? name))
-              (types-check? name args)
-              (if (accessor-primitive? name)
-                  (every const? args)
-                  (every loop args))))
-        (($ <call> _ ($ <lambda> _ _ body) args)
-         (and (loop body) (every loop args)))
-        (($ <seq> _ head tail)
-         (and (loop head) (loop tail)))
-        (($ <let> _ _ syms vals body)
-         (and (not (any assigned-lexical? syms))
-              (every loop vals) (loop body)))
-        (($ <letrec> _ _ _ syms vals body)
-         (and (not (any assigned-lexical? syms))
-              (every loop vals) (loop body)))
-        (($ <fix> _ _ _ vals body)
-         (and (every loop vals) (loop body)))
-        (($ <let-values> _ exp body)
-         (and (loop exp) (loop body)))
-        (($ <prompt> _ tag body handler)
-         (and (loop tag) (loop body) (loop handler)))
-        (_ #f))))
+    (constant? (compute-effects x)))
 
   (define (prune-bindings ops in-order? body counter ctx build-result)
     ;; This helper handles both `let' and `letrec'/`fix'.  In the latter
@@ -940,14 +905,20 @@ top-level bindings from ENV and return the resulting expression."
          ((test) (make-const #f #t))
          (else exp)))
       (($ <conditional> src condition subsequent alternate)
-       (let ((condition (for-test condition)))
-         (if (const? condition)
-             (if (const-exp condition)
-                 (for-tail subsequent)
-                 (for-tail alternate))
-             (make-conditional src condition
-                               (for-tail subsequent)
-                               (for-tail alternate)))))
+       (match (for-test condition)
+         (($ <const> _ val)
+          (if val
+              (for-tail subsequent)
+              (for-tail alternate)))
+         ;; Swap the arms of (if (not FOO) A B), to simplify.
+         (($ <primcall> _ 'not (c))
+          (make-conditional src c
+                            (for-tail alternate)
+                            (for-tail subsequent)))
+         (c
+          (make-conditional src c
+                            (for-tail subsequent)
+                            (for-tail alternate)))))
       (($ <primcall> src '@call-with-values
           (producer
            ($ <lambda> _ _
