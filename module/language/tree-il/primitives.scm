@@ -47,7 +47,7 @@
     memq memv
     = < > <= >= zero?
     + * - / 1- 1+ quotient remainder modulo
-    ash logand logior logxor
+    ash logand logior logxor lognot
     not
     pair? null? list? symbol? vector? string? struct? number? char? nil?
 
@@ -149,6 +149,7 @@
   `(values
     eq? eqv? equal?
     = < > <= >= zero?
+    ash logand logior logxor lognot
     + * - / 1- 1+ quotient remainder modulo
     not
     pair? null? list? symbol? vector? struct? string? number? char? nil
@@ -390,6 +391,18 @@
   (x) (/ 1 x)
   (x y z . rest) (/ x (* y z . rest)))
   
+(define-primitive-expander logior
+  () 0
+  (x) (logior x 0)
+  (x y) (logior x y)
+  (x y z . rest) (logior x (logior y z . rest)))
+
+(define-primitive-expander logand
+  () -1
+  (x) (logand x -1)
+  (x y) (logand x y)
+  (x y z . rest) (logand x (logand y z . rest)))
+
 (define-primitive-expander caar (x) (car (car x)))
 (define-primitive-expander cadr (x) (car (cdr x)))
 (define-primitive-expander cdar (x) (cdr (car x)))
