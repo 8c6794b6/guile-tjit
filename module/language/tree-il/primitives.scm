@@ -29,8 +29,12 @@
             expand-primitives!
             effect-free-primitive? effect+exception-free-primitive?
             constructor-primitive? accessor-primitive?
-            singly-valued-primitive? equality-primitive?))
+            singly-valued-primitive? equality-primitive?
+            bailout-primitive?
+            negate-primitive))
 
+;; When adding to this, be sure to update *multiply-valued-primitives*
+;; if appropriate.
 (define *interesting-primitive-names* 
   '(apply @apply
     call-with-values @call-with-values
@@ -45,8 +49,12 @@
     + * - / 1- 1+ quotient remainder modulo
     ash logand logior logxor
     not
-    pair? null? list? symbol? vector? string? struct?
-    nil?
+    pair? null? list? symbol? vector? string? struct? number? char? nil?
+
+    complex? real? rational? inf? nan? integer? exact? inexact? even? odd?
+
+    char<? char<=? char>=? char>?
+
     acons cons cons*
 
     list vector
@@ -69,6 +77,8 @@
 
     @prompt call-with-prompt @abort abort-to-prompt
     make-prompt-tag
+
+    throw error scm-error
 
     string-length string-ref string-set!
 
@@ -123,7 +133,7 @@
   '(vector-ref
     car cdr
     memq memv
-    struct-vtable struct-ref
+    struct-ref
     string-ref
     bytevector-u8-ref bytevector-s8-ref
     bytevector-u16-ref bytevector-u16-native-ref
@@ -141,8 +151,10 @@
     = < > <= >= zero?
     + * - / 1- 1+ quotient remainder modulo
     not
-    pair? null? list? symbol? vector? struct? string?
-    nil?
+    pair? null? list? symbol? vector? struct? string? number? char? nil
+    complex? real? rational? inf? nan? integer? exact? inexact? even? odd?
+    char<? char<=? char>=? char>?
+    struct-vtable
     string-length vector-length
     ;; These all should get expanded out by expand-primitives!.
     caar cadr cdar cddr
@@ -158,64 +170,42 @@
   '(values
     eq? eqv? equal?
     not
-    pair? null? list? symbol? vector? struct? string?
+    pair? null? list? symbol? vector? struct? string? number? char?
     acons cons cons* list vector))
 
-;; Primitives that only return one value.
-(define *singly-valued-primitives* 
-  '(eq? eqv? equal?
-    memq memv
-    = < > <= >= zero?
-    + * - / 1- 1+ quotient remainder modulo
-    ash logand logior logxor
-    not
-    pair? null? list? symbol? vector? acons cons cons*
-    nil?
-    list vector
-    car cdr
-    set-car! set-cdr!
-    caar cadr cdar cddr
-    caaar caadr cadar caddr cdaar cdadr cddar cdddr
-    caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
-    cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
-    vector-ref vector-set!
-    variable-ref variable-set!
-    variable-bound?
-    fluid-ref fluid-set!
-    make-prompt-tag
-    struct? struct-vtable make-struct struct-ref struct-set!
-    string-length string-ref string-set!
-    bytevector-u8-ref bytevector-u8-set!
-    bytevector-s8-ref bytevector-s8-set!
-    u8vector-ref u8vector-set! s8vector-ref s8vector-set!
-    bytevector-u16-ref bytevector-u16-set!
-    bytevector-u16-native-ref bytevector-u16-native-set!
-    bytevector-s16-ref bytevector-s16-set!
-    bytevector-s16-native-ref bytevector-s16-native-set!
-    u16vector-ref u16vector-set! s16vector-ref s16vector-set!
-    bytevector-u32-ref bytevector-u32-set!
-    bytevector-u32-native-ref bytevector-u32-native-set!
-    bytevector-s32-ref bytevector-s32-set!
-    bytevector-s32-native-ref bytevector-s32-native-set!
-    u32vector-ref u32vector-set! s32vector-ref s32vector-set!
-    bytevector-u64-ref bytevector-u64-set!
-    bytevector-u64-native-ref bytevector-u64-native-set!
-    bytevector-s64-ref bytevector-s64-set!
-    bytevector-s64-native-ref bytevector-s64-native-set!
-    u64vector-ref u64vector-set! s64vector-ref s64vector-set!
-    bytevector-ieee-single-ref bytevector-ieee-single-set!
-    bytevector-ieee-single-native-ref bytevector-ieee-single-native-set!
-    bytevector-ieee-double-ref bytevector-ieee-double-set!
-    bytevector-ieee-double-native-ref bytevector-ieee-double-native-set!
-    f32vector-ref f32vector-set! f64vector-ref f64vector-set!))
+;; Primitives that don't always return one value.
+(define *multiply-valued-primitives* 
+  '(apply @apply
+    call-with-values @call-with-values
+    call-with-current-continuation @call-with-current-continuation
+    call/cc
+    dynamic-wind
+    @dynamic-wind
+    values
+    @prompt call-with-prompt @abort abort-to-prompt))
+
+;; Procedures that cause a nonlocal, non-resumable abort.
+(define *bailout-primitives*
+  '(throw error scm-error))
+
+;; Negatable predicates.
+(define *negatable-primitives*
+  '((even? . odd?)
+    (exact? . inexact?)
+    (< . >=)
+    (> . <=)
+    (char<? . char>=?)
+    (char>? . char<=?)))
 
 (define *equality-primitives*
   '(eq? eqv? equal?))
 
 (define *effect-free-primitive-table* (make-hash-table))
 (define *effect+exceptions-free-primitive-table* (make-hash-table))
-(define *singly-valued-primitive-table* (make-hash-table))
 (define *equality-primitive-table* (make-hash-table))
+(define *multiply-valued-primitive-table* (make-hash-table))
+(define *bailout-primitive-table* (make-hash-table))
+(define *negatable-primitive-table* (make-hash-table))
 
 (for-each (lambda (x)
             (hashq-set! *effect-free-primitive-table* x #t))
@@ -223,12 +213,19 @@
 (for-each (lambda (x) 
             (hashq-set! *effect+exceptions-free-primitive-table* x #t))
           *effect+exception-free-primitives*)
-(for-each (lambda (x) 
-            (hashq-set! *singly-valued-primitive-table* x #t))
-          *singly-valued-primitives*)
 (for-each (lambda (x)
             (hashq-set! *equality-primitive-table* x #t))
           *equality-primitives*)
+(for-each (lambda (x) 
+            (hashq-set! *multiply-valued-primitive-table* x #t))
+          *multiply-valued-primitives*)
+(for-each (lambda (x)
+            (hashq-set! *bailout-primitive-table* x #t))
+          *bailout-primitives*)
+(for-each (lambda (x)
+            (hashq-set! *negatable-primitive-table* (car x) (cdr x))
+            (hashq-set! *negatable-primitive-table* (cdr x) (car x)))
+          *negatable-primitives*)
 
 (define (constructor-primitive? prim)
   (memq prim *primitive-constructors*))
@@ -238,10 +235,14 @@
   (hashq-ref *effect-free-primitive-table* prim))
 (define (effect+exception-free-primitive? prim)
   (hashq-ref *effect+exceptions-free-primitive-table* prim))
-(define (singly-valued-primitive? prim)
-  (hashq-ref *singly-valued-primitive-table* prim))
 (define (equality-primitive? prim)
   (hashq-ref *equality-primitive-table* prim))
+(define (singly-valued-primitive? prim)
+  (not (hashq-ref *multiply-valued-primitive-table* prim)))
+(define (bailout-primitive? prim)
+  (hashq-ref *bailout-primitive-table* prim))
+(define (negate-primitive prim)
+  (hashq-ref *negatable-primitive-table* prim))
 
 (define (resolve-primitives! x mod)
   (define local-definitions
