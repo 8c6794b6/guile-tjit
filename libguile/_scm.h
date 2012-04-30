@@ -247,6 +247,14 @@ void scm_ia64_longjmp (scm_i_jmp_buf *, int);
 
 
 
+#if (defined __GNUC__)
+# define SCM_NOINLINE __attribute__ ((__noinline__))
+#else
+# define SCM_NOINLINE /* noinline */
+#endif
+
+
+
 /* The endianness marker in objcode.  */
 #ifdef WORDS_BIGENDIAN
 # define SCM_OBJCODE_ENDIANNESS "BE"
