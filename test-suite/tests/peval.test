@@ -1005,11 +1005,11 @@
   ;; residualizing a reference to the leaf identifier.  The bailout is
   ;; driven by the recursive-effort-limit, which is currently 100.  We
   ;; make sure to trip it with this recursive sum thing.
-  (pass-if-peval resolve-primitives
+  (pass-if-peval
     (let ((x (let sum ((n 0) (out 0))
                (if (< n 10000)
                    (sum (1+ n) (+ out n))
                    out))))
       ((lambda (y) (list y)) x))
     (let (x) (_) (_)
-         (apply (primitive list) (lexical x _)))))
+         (primcall list (lexical x _)))))
