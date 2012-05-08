@@ -324,8 +324,8 @@ SCM_API scm_t_wchar scm_getc_unlocked (SCM port);
 SCM_API SCM scm_read_char (SCM port);
 
 /* Pushback.  */
-SCM_INTERNAL void scm_unget_byte (int c, SCM port); 
-SCM_INTERNAL void scm_unget_byte_unlocked (int c, SCM port); 
+SCM_API void scm_unget_byte (int c, SCM port);
+SCM_API void scm_unget_byte_unlocked (int c, SCM port);
 SCM_API void scm_ungetc (scm_t_wchar c, SCM port);
 SCM_API void scm_ungetc_unlocked (scm_t_wchar c, SCM port);
 SCM_API void scm_ungets (const char *s, int n, SCM port);

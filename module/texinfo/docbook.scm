@@ -1,6 +1,6 @@
 ;;;; (texinfo docbook) -- translating sdocbook into stexinfo
 ;;;;
-;;;; 	Copyright (C) 2009, 2010  Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2009, 2010, 2012  Free Software Foundation, Inc.
 ;;;;    Copyright (C) 2007, 2009 Andy Wingo <wingo at pobox dot com>
 ;;;; 
 ;;;; This library is free software; you can redistribute it and/or
@@ -89,14 +89,20 @@ a number of generic rules for transforming docbook into texinfo."
                          `(item ,@body))))
                   . ,(lambda (tag . body)
                        `(itemize ,@body)))
+    (acronym . ,(lambda (tag . body)
+                  `(acronym (% (acronym . ,body)))))
     (term . ,detag-one)
     (informalexample . ,detag-one)
     (section . ,identity)
     (subsection . ,identity)
     (subsubsection . ,identity)
     (ulink . ,(lambda (tag attrs . body)
-                `(uref (% ,(assq 'url (cdr attrs))
-                          (title ,@body)))))
+                (cond
+                 ((assq 'url (cdr attrs))
+                  => (lambda (url)
+                       `(uref (% ,url (title ,@body)))))
+                 (else
+                  (car body)))))
     (*text* . ,detag-one)
     (*default* . ,(lambda (tag . body)
                     (let ((subst (assq tag tag-replacements)))
