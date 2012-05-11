@@ -276,6 +276,7 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
 
   /* FIXME: is this even possible? */
   if (scm_is_true (frame)
+      && SCM_PROGRAM_P (scm_frame_procedure (frame))
       && SCM_PROGRAM_IS_BOOT (scm_frame_procedure (frame)))
     frame = scm_frame_previous (frame);
   
