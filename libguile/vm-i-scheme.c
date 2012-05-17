@@ -176,7 +176,6 @@ VM_DEFINE_INSTRUCTION (146, set_cdr, "set-cdr!", 0, 2, 0)
  * Numeric relational tests
  */
 
-#undef REL
 #define REL(crel,srel)                                                  \
   {                                                                     \
     ARGS2 (x, y);                                                       \
@@ -212,18 +211,17 @@ VM_DEFINE_FUNCTION (151, ge, "ge?", 2)
   REL (>=, scm_geq_p);
 }
 
+#undef REL
+
 
 /*
  * Numeric functions
  */
 
 /* The maximum/minimum tagged integers.  */
-#undef INUM_MAX
-#undef INUM_MIN
 #define INUM_MAX (INTPTR_MAX - 1)
 #define INUM_MIN (INTPTR_MIN + scm_tc2_int)
 
-#undef FUNC2
 #define FUNC2(CFUNC,SFUNC)				\
 {							\
   ARGS2 (x, y);						\
@@ -357,8 +355,11 @@ VM_DEFINE_FUNCTION (155, sub1, "sub1", 1)
   RETURN (scm_difference (x, SCM_I_MAKINUM (1)));
 }
 
-# undef ASM_ADD
-# undef ASM_SUB
+#undef ASM_ADD
+#undef ASM_SUB
+#undef FUNC2
+#undef INUM_MAX
+#undef INUM_MIN
 
 VM_DEFINE_FUNCTION (156, mul, "mul", 2)
 {
@@ -991,6 +992,17 @@ BV_FLOAT_SET (f64, ieee_double, double, 8)
 #undef BV_FIXABLE_INT_SET
 #undef BV_INT_SET
 #undef BV_FLOAT_SET
+
+#undef ALIGNED_P
+#undef VM_VALIDATE_BYTEVECTOR
+
+#undef VM_VALIDATE_STRUCT
+#undef VM_VALIDATE_CONS
+
+#undef ARGS1
+#undef ARGS2
+#undef ARGS3
+#undef RETURN
 
 /*
 (defun renumber-ops ()

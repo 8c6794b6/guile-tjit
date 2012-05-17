@@ -538,6 +538,9 @@ VM_DEFINE_INSTRUCTION (42, br_if_not_nil, "br-if-not-nil", 3, 0, 0)
   POP (x);
   BR (!scm_is_lisp_false (x));
 }
+
+#undef BR
+
 
 /*
  * Subprogram call
