@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,2000,2001, 2004, 2005, 2006, 2008, 2009, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,2000,2001, 2004, 2005, 2006, 2008, 2009, 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -67,18 +67,6 @@ void scm_error_pair_access (SCM non_pair)
 
 #endif
 
-SCM_DEFINE (scm_cons, "cons", 2, 0, 0,
-	    (SCM x, SCM y),
-	    "Return a newly allocated pair whose car is @var{x} and whose\n"
-	    "cdr is @var{y}.  The pair is guaranteed to be different (in the\n"
-	    "sense of @code{eq?}) from every previously existing object.")
-#define FUNC_NAME s_scm_cons
-{
-  return scm_cell (SCM_UNPACK (x), SCM_UNPACK (y));
-}
-#undef FUNC_NAME
-
-
 SCM 
 scm_cons2 (SCM w, SCM x, SCM y)
 {
@@ -143,14 +131,6 @@ SCM_DEFINE (scm_set_cdr_x, "set-cdr!", 2, 0, 0,
   return tree
 
 
-SCM_DEFINE (scm_cdr, "cdr", 1, 0, 0, (SCM x), "")
-{
-  CHASE_PAIRS (x, "cdr", 0x02); /* 00000010 */
-}
-SCM_DEFINE (scm_car, "car", 1, 0, 0, (SCM x), "")
-{
-  CHASE_PAIRS (x, "car", 0x03); /* 00000011 */
-}
 SCM_DEFINE (scm_cddr, "cddr", 1, 0, 0, (SCM x), "")
 {
   CHASE_PAIRS (x, "cddr", 0x0a); /* 00001010 */
@@ -270,6 +250,9 @@ void
 scm_init_pairs ()
 {
 #include "libguile/pairs.x"
+  scm_c_define_gsubr ("cons", 2, 0, 0, scm_cons);
+  scm_c_define_gsubr ("car", 1, 0, 0, scm_car);
+  scm_c_define_gsubr ("cdr", 1, 0, 0, scm_cdr);
 }
 
 
