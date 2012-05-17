@@ -715,9 +715,10 @@ VM_DEFINE_INSTRUCTION (51, push_rest, "push-rest", 2, -1, -1)
   SCM rest = SCM_EOL;
   n = FETCH () << 8;
   n += FETCH ();
+  SYNC_BEFORE_GC ();
   while (sp - (fp - 1) > n)
     /* No need to check for underflow. */
-    CONS (rest, *sp--, rest);
+    rest = scm_cons (*sp--, rest);
   PUSH (rest);
   NEXT;
 }
@@ -731,9 +732,10 @@ VM_DEFINE_INSTRUCTION (52, bind_rest, "bind-rest", 4, -1, -1)
   n += FETCH ();
   i = FETCH () << 8;
   i += FETCH ();
+  SYNC_BEFORE_GC ();
   while (sp - (fp - 1) > n)
     /* No need to check for underflow. */
-    CONS (rest, *sp--, rest);
+    rest = scm_cons (*sp--, rest);
   LOCAL_SET (i, rest);
   NEXT;
 }

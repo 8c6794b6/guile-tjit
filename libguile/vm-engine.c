@@ -315,17 +315,6 @@
 #define POP2(x,y) do { PRE_CHECK_UNDERFLOW (2); x = *sp--; y = *sp--; NULLSTACK (2); } while (0)
 #define POP3(x,y,z) do { PRE_CHECK_UNDERFLOW (3); x = *sp--; y = *sp--; z = *sp--; NULLSTACK (3); } while (0)
 
-/* A fast CONS.  This has to be fast since its used, for instance, by
-   POP_LIST when fetching a function's argument list.  Note: `scm_cell' is an
-   inlined function in Guile 1.7.  Unfortunately, it calls
-   `scm_gc_for_newcell ()' which is _not_ inlined and allocated cells on the
-   heap.  XXX  */
-#define CONS(x,y,z)					\
-{							\
-  SYNC_BEFORE_GC ();					\
-  x = scm_cell (SCM_UNPACK (y), SCM_UNPACK (z));	\
-}
-
 /* Pop the N objects on top of the stack and push a list that contains
    them.  */
 #define POP_LIST(n)				\
@@ -333,10 +322,11 @@ do						\
 {						\
   int i;					\
   SCM l = SCM_EOL, x;				\
+  SYNC_BEFORE_GC ();                            \
   for (i = n; i; i--)                           \
     {                                           \
       POP (x);                                  \
-      CONS (l, x, l);                           \
+      l = scm_cons (x, l);                      \
     }                                           \
   PUSH (l);					\
 } while (0)
@@ -348,33 +338,6 @@ do						\
   for (; scm_is_pair (l); l = SCM_CDR (l))      \
     PUSH (SCM_CAR (l));                         \
   VM_ASSERT (NILP (l), vm_error_improper_list (l)); \
-} while (0)
-
-
-#define POP_LIST_MARK()				\
-do {						\
-  SCM o;					\
-  SCM l = SCM_EOL;				\
-  POP (o);					\
-  while (!SCM_UNBNDP (o))			\
-    {						\
-      CONS (l, o, l);				\
-      POP (o);					\
-    }						\
-  PUSH (l);					\
-} while (0)
-
-#define POP_CONS_MARK()				\
-do {						\
-  SCM o, l;					\
-  POP (l);                                      \
-  POP (o);					\
-  while (!SCM_UNBNDP (o))			\
-    {						\
-      CONS (l, o, l);				\
-      POP (o);					\
-    }						\
-  PUSH (l);					\
 } while (0)
 
 

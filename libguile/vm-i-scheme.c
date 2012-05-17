@@ -131,7 +131,8 @@ VM_DEFINE_FUNCTION (141, vectorp, "vector?", 1)
 VM_DEFINE_FUNCTION (142, cons, "cons", 2)
 {
   ARGS2 (x, y);
-  CONS (x, x, y);
+  SYNC_BEFORE_GC ();
+  x = scm_cons (x, y);
   RETURN (x);
 }
 
