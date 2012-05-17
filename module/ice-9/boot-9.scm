@@ -3970,6 +3970,7 @@ module '(ice-9 q) '(make-q q-length))}."
   ;; Adjust the above comment when changing this.
   '(guile
     guile-2
+    guile-2.2
     r5rs
     srfi-0   ;; cond-expand itself
     srfi-4   ;; homogenous numeric vectors
