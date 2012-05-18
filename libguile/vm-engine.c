@@ -26,80 +26,31 @@
 # error unknown debug engine VM_ENGINE
 #endif
 
-
-/* Register optimization. [ stolen from librep/src/lispmach.h,v 1.3 ]
-
-   Some compilers underestimate the use of the local variables representing
-   the abstract machine registers, and don't put them in hardware registers,
-   which slows down the interpreter considerably.
-   For GCC, I have hand-assigned hardware registers for several architectures.
-*/
-
+/* Assign some registers by hand.  There used to be a bigger list here,
+   but it was never tested, and in the case of x86-32, was a source of
+   compilation failures.  It can be revived if it's useful, but my naive
+   hope is that simply annotating the locals with "register" will be a
+   sufficient hint to the compiler.  */
 #ifdef __GNUC__
-#ifdef __mips__
-#define IP_REG asm("$16")
-#define SP_REG asm("$17")
-#define FP_REG asm("$18")
-#endif
-#ifdef __sparc__
-#define IP_REG asm("%l0")
-#define SP_REG asm("%l1")
-#define FP_REG asm("%l2")
-#endif
-#ifdef __alpha__
-#ifdef __CRAY__
-#define IP_REG asm("r9")
-#define SP_REG asm("r10")
-#define FP_REG asm("r11")
-#else
-#define IP_REG asm("$9")
-#define SP_REG asm("$10")
-#define FP_REG asm("$11")
-#endif
-#endif
-#ifdef __i386__
-/* too few registers! because of register allocation errors with various gcs,
-   just punt on explicit assignments on i386, hoping that the "register"
-   declaration will be sufficient. */
-#elif defined __x86_64__
+# if defined __x86_64__
 /* GCC 4.6 chooses %rbp for IP_REG and %rbx for SP_REG, which works
    well.  Tell it to keep the jump table in a r12, which is
    callee-saved.  */
-#define JT_REG asm ("r12")
-#endif
-#if defined(PPC) || defined(_POWER) || defined(_IBMR2)
-#define IP_REG asm("26")
-#define SP_REG asm("27")
-#define FP_REG asm("28")
-#endif
-#ifdef __hppa__
-#define IP_REG asm("%r18")
-#define SP_REG asm("%r17")
-#define FP_REG asm("%r16")
-#endif
-#ifdef __mc68000__
-#define IP_REG asm("a5")
-#define SP_REG asm("a4")
-#define FP_REG
-#endif
-#ifdef __arm__
-#define IP_REG asm("r9")
-#define SP_REG asm("r8")
-#define FP_REG asm("r7")
-#endif
+#  define JT_REG asm ("r12")
+# endif
 #endif
 
 #ifndef IP_REG
-#define IP_REG
+# define IP_REG
 #endif
 #ifndef SP_REG
-#define SP_REG
+# define SP_REG
 #endif
 #ifndef FP_REG
-#define FP_REG
+# define FP_REG
 #endif
 #ifndef JT_REG
-#define JT_REG
+# define JT_REG
 #endif
 
 #define VM_ASSERT(condition, handler)           \
