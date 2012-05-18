@@ -630,7 +630,6 @@ modinclude_HEADERS =				\
 	values.h				\
 	variable.h				\
 	vectors.h				\
-	vm-engine.h				\
 	vm-expand.h				\
 	vm.h					\
 	vports.h				\
