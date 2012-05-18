@@ -19,17 +19,11 @@
 /* This file is included in vm.c multiple times */
 
 #if (VM_ENGINE == SCM_VM_REGULAR_ENGINE)
-#define VM_USE_HOOKS		0	/* Various hooks */
-#define VM_CHECK_OBJECT         0       /* Check object table */
-#define VM_CHECK_FREE_VARIABLES 0       /* Check free variable access */
-#define VM_CHECK_UNDERFLOW      0       /* Check underflow when popping values */
+# define VM_USE_HOOKS		0	/* Various hooks */
 #elif (VM_ENGINE == SCM_VM_DEBUG_ENGINE)
-#define VM_USE_HOOKS		1
-#define VM_CHECK_OBJECT         0
-#define VM_CHECK_FREE_VARIABLES 0
-#define VM_CHECK_UNDERFLOW      0       /* Check underflow when popping values */
+# define VM_USE_HOOKS		1
 #else
-#error unknown debug engine VM_ENGINE
+# error unknown debug engine VM_ENGINE
 #endif
 
 
@@ -163,12 +157,6 @@
 #define ASSERT_BOUND(x)
 #endif
 
-#if VM_CHECK_OBJECT
-#define SET_OBJECT_COUNT(n) object_count = n
-#else
-#define SET_OBJECT_COUNT(n) /* nop */
-#endif
-
 /* Cache the object table and free variables.  */
 #define CACHE_PROGRAM()							\
 {									\
@@ -177,10 +165,8 @@
     ASSERT_ALIGNED_PROCEDURE ();                                        \
     if (SCM_I_IS_VECTOR (SCM_PROGRAM_OBJTABLE (program))) {             \
       objects = SCM_I_VECTOR_WELTS (SCM_PROGRAM_OBJTABLE (program));    \
-      SET_OBJECT_COUNT (SCM_I_VECTOR_LENGTH (SCM_PROGRAM_OBJTABLE (program))); \
     } else {                                                            \
       objects = NULL;                                                   \
-      SET_OBJECT_COUNT (0);                                             \
     }                                                                   \
   }                                                                     \
 }
@@ -201,20 +187,8 @@
  */
 
 /* Accesses to a program's object table.  */
-#if VM_CHECK_OBJECT
-#define CHECK_OBJECT(_num)                              \
-  VM_ASSERT ((_num) < object_count, vm_error_object ())
-#else
 #define CHECK_OBJECT(_num)
-#endif
-
-#if VM_CHECK_FREE_VARIABLES
-#define CHECK_FREE_VARIABLE(_num)                               \
-  VM_ASSERT ((_num) < SCM_PROGRAM_NUM_FREE_VARIABLES (program), \
-             vm_error_free_variable ())
-#else
 #define CHECK_FREE_VARIABLE(_num)
-#endif
 
 
 /*
@@ -377,9 +351,6 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   /* Cache variables */
   struct scm_objcode *bp = NULL;	/* program base pointer */
   SCM *objects = NULL;			/* constant objects */
-#if VM_CHECK_OBJECT
-  size_t object_count = 0;              /* length of OBJECTS */
-#endif
   SCM *stack_limit = vp->stack_limit;	/* stack limit address */
 
   scm_i_thread *current_thread = SCM_I_CURRENT_THREAD;
@@ -518,9 +489,6 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
 #undef RUN_HOOK
 #undef RUN_HOOK1
 #undef VM_USE_HOOKS
-#undef VM_CHECK_OBJECT
-#undef VM_CHECK_FREE_VARIABLE
-#undef VM_CHECK_UNDERFLOW
 
 /*
   Local Variables:

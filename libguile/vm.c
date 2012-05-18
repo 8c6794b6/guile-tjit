@@ -408,15 +408,6 @@ static void vm_error_no_values (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_enough_values (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_continuation_not_rewindable (SCM cont) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_bad_wide_string_length (size_t len) SCM_NORETURN SCM_NOINLINE;
-#if VM_CHECK_IP
-static void vm_error_invalid_address (void) SCM_NORETURN SCM_NOINLINE;
-#endif
-#if VM_CHECK_OBJECT
-static void vm_error_object (void) SCM_NORETURN SCM_NOINLINE;
-#endif
-#if VM_CHECK_FREE_VARIABLES
-static void vm_error_free_variable (void) SCM_NORETURN SCM_NOINLINE;
-#endif
 
 static void
 vm_error (const char *msg, SCM arg)
@@ -575,29 +566,6 @@ vm_error_bad_wide_string_length (size_t len)
   vm_error ("VM: Bad wide string length: ~S", scm_from_size_t (len));
 }
 
-#ifdef VM_CHECK_IP
-static void
-vm_error_invalid_address (void)
-{
-  vm_error ("VM: Invalid program address", SCM_UNDEFINED);
-}
-#endif
-
-#if VM_CHECK_OBJECT
-static void
-vm_error_object ()
-{
-  vm_error ("VM: Invalid object table access", SCM_UNDEFINED);
-}
-#endif
-
-#if VM_CHECK_FREE_VARIABLES
-static void
-vm_error_free_variable ()
-{
-  vm_error ("VM: Invalid free variable access", SCM_UNDEFINED);
-}
-#endif
 
 
 
