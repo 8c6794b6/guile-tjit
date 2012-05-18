@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -32,11 +32,6 @@
 #error unknown debug engine VM_ENGINE
 #endif
 
-
-
-/*
- * Registers
- */
 
 /* Register optimization. [ stolen from librep/src/lispmach.h,v 1.3 ]
 
@@ -113,13 +108,14 @@
 #define JT_REG
 #endif
 
-
-/*
- * Cache/Sync
- */
-
-#define VM_ASSERT(condition, handler) \
-  do { if (SCM_UNLIKELY (!(condition))) { SYNC_ALL(); handler; } } while (0)
+#define VM_ASSERT(condition, handler)           \
+  do {                                          \
+    if (SCM_UNLIKELY (!(condition)))            \
+      {                                         \
+        SYNC_ALL();                             \
+        handler;                                \
+      }                                         \
+  } while (0)
 
 #ifdef VM_ENABLE_ASSERTIONS
 # define ASSERT(condition) VM_ASSERT (condition, abort())
@@ -148,13 +144,11 @@
 
 /* FIXME */
 #define ASSERT_VARIABLE(x)                                              \
-  do { if (!SCM_VARIABLEP (x)) { SYNC_REGISTER (); abort(); }           \
-  } while (0)
+  VM_ASSERT (SCM_VARIABLEP (x), abort())
 #define ASSERT_BOUND_VARIABLE(x)                                        \
-  do { ASSERT_VARIABLE (x);                                             \
-    if (scm_is_eq (SCM_VARIABLE_REF (x), SCM_UNDEFINED))                \
-      { SYNC_REGISTER (); abort(); }                                    \
-  } while (0)
+  VM_ASSERT (SCM_VARIABLEP (x)                                          \
+             && !scm_is_eq (SCM_VARIABLE_REF (x), SCM_UNDEFINED),       \
+             abort())
 
 #ifdef VM_ENABLE_PARANOID_ASSERTIONS
 #define CHECK_IP() \
@@ -162,8 +156,7 @@
 #define ASSERT_ALIGNED_PROCEDURE() \
   do { if ((scm_t_bits)bp % 8) abort (); } while (0)
 #define ASSERT_BOUND(x) \
-  do { if (scm_is_eq ((x), SCM_UNDEFINED)) { SYNC_REGISTER (); abort(); } \
-  } while (0)
+  VM_ASSERT (!scm_is_eq ((x), SCM_UNDEFINED), abort())
 #else
 #define CHECK_IP()
 #define ASSERT_ALIGNED_PROCEDURE()
@@ -228,8 +221,6 @@
  * Hooks
  */
 
-#undef RUN_HOOK
-#undef RUN_HOOK1
 #if VM_USE_HOOKS
 #define RUN_HOOK(h)                                     \
   {                                                     \
@@ -350,9 +341,9 @@ do						\
 
 #undef NEXT_JUMP
 #ifdef HAVE_LABELS_AS_VALUES
-#define NEXT_JUMP()		goto *jump_table[FETCH () & SCM_VM_INSTRUCTION_MASK]
+# define NEXT_JUMP()		goto *jump_table[FETCH () & SCM_VM_INSTRUCTION_MASK]
 #else
-#define NEXT_JUMP()		goto vm_start
+# define NEXT_JUMP()		goto vm_start
 #endif
 
 #define NEXT					\
@@ -524,6 +515,8 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   abort (); /* never reached */
 }
 
+#undef RUN_HOOK
+#undef RUN_HOOK1
 #undef VM_USE_HOOKS
 #undef VM_CHECK_OBJECT
 #undef VM_CHECK_FREE_VARIABLE
