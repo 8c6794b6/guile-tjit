@@ -362,7 +362,7 @@ resize_set (scm_t_weak_set *set)
          run anything, so drop our lock to avoid deadlocks.  */
       new_entries = scm_gc_malloc_pointerless (new_size * sizeof(scm_t_weak_entry),
                                                "weak set");
-      scm_i_pthread_mutex_unlock (&set->lock);
+      scm_i_pthread_mutex_lock (&set->lock);
     }
   while (!is_acceptable_size_index (set, new_size_index));
 
