@@ -484,7 +484,7 @@ resize_table (scm_t_weak_table *table)
       /* Allocating memory might cause finalizers to run, which could
          run anything, so drop our lock to avoid deadlocks.  */
       new_entries = allocate_entries (new_size, table->kind);
-      scm_i_pthread_mutex_unlock (&table->lock);
+      scm_i_pthread_mutex_lock (&table->lock);
     }
   while (!is_acceptable_size_index (table, new_size_index));
 
