@@ -1,6 +1,6 @@
 ;;; transformation of letrec into simpler forms
 
-;; Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -180,6 +180,26 @@
                   '())))
     (values unref simple lambda* complex)))
 
+(define (make-seq* src head tail)
+  (record-case head
+    ((<lambda>) tail)
+    ((<const>) tail)
+    ((<lexical-ref>) tail)
+    ((<void>) tail)
+    (else (make-seq src head tail))))
+
+(define (list->seq* loc exps)
+  (if (null? (cdr exps))
+      (car exps)
+      (let lp ((exps (cdr exps)) (effects (list (car exps))))
+        (if (null? (cdr exps))
+            (make-seq* loc
+                       (fold (lambda (exp tail) (make-seq* #f exp tail))
+                             (car effects)
+                             (cdr effects))
+                       (car exps))
+            (lp (cdr exps) (cons (car exps) effects))))))
+
 (define (fix-letrec! x)
   (let-values (((unref simple lambda* complex) (partition-vars x)))
     (post-order!
@@ -190,7 +210,7 @@
          ;; expression, called for effect.
          ((<lexical-set> gensym exp)
           (if (memq gensym unref)
-              (make-seq #f exp (make-void #f))
+              (make-seq* #f exp (make-void #f))
               x))
 
          ((<letrec> src in-order? names gensyms vals body)
@@ -218,7 +238,7 @@
                ;; Bind lambdas using the fixpoint operator.
                (make-fix
                 src (map cadr l) (map car l) (map caddr l)
-                (list->seq
+                (list->seq*
                  src
                  (append
                   ;; The right-hand-sides of the unreferenced
@@ -262,7 +282,7 @@
             (let ((u (lookup unref))
                   (l (lookup lambda*))
                   (c (lookup complex)))
-              (list->seq
+              (list->seq*
                src
                (append
                 ;; unreferenced bindings, called for effect.

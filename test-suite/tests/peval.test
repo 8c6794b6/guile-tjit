@@ -1012,4 +1012,60 @@
                    out))))
       ((lambda (y) (list y)) x))
     (let (x) (_) (_)
-         (primcall list (lexical x _)))))
+         (primcall list (lexical x _))))
+
+  ;; Here we test that a common test in a chain of ifs gets lifted.
+  (pass-if-peval
+    (if (and (struct? x) (eq? (struct-vtable x) A))
+        (foo x)
+        (if (and (struct? x) (eq? (struct-vtable x) B))
+            (bar x)
+            (if (and (struct? x) (eq? (struct-vtable x) C))
+                (baz x)
+                (qux x))))
+    (let (failure) (_) ((lambda _
+                          (lambda-case
+                           ((() #f #f #f () ())
+                            (call (toplevel qux) (toplevel x))))))
+         (if (primcall struct? (toplevel x))
+             (if (primcall eq?
+                           (primcall struct-vtable (toplevel x))
+                           (toplevel A))
+                 (call (toplevel foo) (toplevel x))
+                 (if (primcall eq?
+                               (primcall struct-vtable (toplevel x))
+                               (toplevel B))
+                     (call (toplevel bar) (toplevel x))
+                     (if (primcall eq?
+                                   (primcall struct-vtable (toplevel x))
+                                   (toplevel C))
+                         (call (toplevel baz) (toplevel x))
+                         (call (lexical failure _)))))
+             (call (lexical failure _)))))
+
+  ;; Multiple common tests should get lifted as well.
+  (pass-if-peval
+    (if (and (struct? x) (eq? (struct-vtable x) A) B)
+        (foo x)
+        (if (and (struct? x) (eq? (struct-vtable x) A) C)
+            (bar x)
+            (if (and (struct? x) (eq? (struct-vtable x) A) D)
+                (baz x)
+                (qux x))))
+    (let (failure) (_) ((lambda _
+                          (lambda-case
+                           ((() #f #f #f () ())
+                            (call (toplevel qux) (toplevel x))))))
+         (if (primcall struct? (toplevel x))
+             (if (primcall eq?
+                           (primcall struct-vtable (toplevel x))
+                           (toplevel A))
+                 (if (toplevel B)
+                     (call (toplevel foo) (toplevel x))
+                     (if (toplevel C)
+                         (call (toplevel bar) (toplevel x))
+                         (if (toplevel D)
+                             (call (toplevel baz) (toplevel x))
+                             (call (lexical failure _)))))
+                 (call (lexical failure _)))
+             (call (lexical failure _))))))

@@ -23,7 +23,9 @@
   #:use-module (system base pmatch)
   #:use-module (system base message)
   #:use-module (language tree-il)
+  #:use-module (language tree-il canonicalize)
   #:use-module (language tree-il primitives)
+  #:use-module (language tree-il fix-letrec)
   #:use-module (language tree-il cse)
   #:use-module (language tree-il peval)
   #:use-module (language glil)
@@ -34,12 +36,14 @@
     ((_ in pat)
      (pass-if 'in
        (let ((evaled (unparse-tree-il
-                      (cse
-                       (peval
-                        (expand-primitives!
-                         (resolve-primitives!
-                          (compile 'in #:from 'scheme #:to 'tree-il)
-                          (current-module))))))))
+                      (canonicalize!
+                       (fix-letrec!
+                        (cse
+                         (peval
+                          (expand-primitives!
+                           (resolve-primitives!
+                            (compile 'in #:from 'scheme #:to 'tree-il)
+                            (current-module))))))))))
          (pmatch evaled
            (pat #t)
            (_   (pk 'cse-mismatch)
@@ -212,15 +216,20 @@
     (lambda _
      (lambda-case
       (((x y) #f #f #f () (_ _))
-       (seq (if (if (primcall struct? (lexical x _))
-                    (primcall eq?
-                              (primcall struct-vtable
-                                        (lexical x _))
-                              (toplevel x-vtable))
-                    (const #f))
-                (void)
-                (primcall throw (const foo)))
-            (primcall struct-ref (lexical x _) (lexical y _)))))))
+       (seq
+         (fix (failure) (_)
+              ((lambda _
+                 (lambda-case
+                  ((() #f #f #f () ())
+                   (primcall throw (const foo))))))
+              (if (primcall struct? (lexical x _))
+                  (if (primcall eq?
+                                (primcall struct-vtable (lexical x _))
+                                (toplevel x-vtable))
+                      (void)
+                      (call (lexical failure _)))
+                  (call (lexical failure _))))
+         (primcall struct-ref (lexical x _) (lexical y _)))))))
 
   ;; Strict argument evaluation also adds info to the DB.
   (pass-if-cse
@@ -236,14 +245,19 @@
     (lambda _
       (lambda-case
        (((x) #f #f #f () (_))
-        (let (z) (_) ((if (if (primcall struct? (lexical x _))
-                              (primcall eq?
-                                        (primcall struct-vtable
-                                                  (lexical x _))
-                                        (toplevel x-vtable))
-                              (const #f))
-                          (primcall struct-ref (lexical x _) (const 1))
-                          (primcall throw (const foo))))
+        (let (z) (_)
+             ((fix (failure) (_)
+                   ((lambda _
+                      (lambda-case
+                       ((() #f #f #f () ())
+                        (primcall throw (const foo))))))
+                   (if (primcall struct? (lexical x _))
+                       (if (primcall eq?
+                                     (primcall struct-vtable (lexical x _))
+                                     (toplevel x-vtable))
+                           (primcall struct-ref (lexical x _) (const 1))
+                           (call (lexical failure _)))
+                       (call (lexical failure _)))))
              (primcall + (lexical z _)
                        (primcall struct-ref (lexical x _) (const 2))))))))
 

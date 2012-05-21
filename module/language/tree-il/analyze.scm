@@ -1014,10 +1014,14 @@ accurate information is missing from a given `tree-il' element."
                                 (arity:allow-other-keys? a)))
                         (program-arities proc))))
           ((procedure? proc)
-           (let ((arity (procedure-minimum-arity proc)))
-             (values (procedure-name proc)
-                     (list (list (car arity) (cadr arity) (caddr arity)
-                                 #f #f)))))
+           (if (struct? proc)
+               ;; An applicable struct.
+               (arities (struct-ref proc 0))
+               ;; An applicable smob.
+               (let ((arity (procedure-minimum-arity proc)))
+                 (values (procedure-name proc)
+                         (list (list (car arity) (cadr arity) (caddr arity)
+                                     #f #f))))))
           (else
            (let loop ((name    #f)
                       (proc    proc)
@@ -1200,8 +1204,10 @@ accurate information is missing from a given `tree-il' element."
                              (false-if-exception
                               (module-ref env name))))
                       proc)))
-            (if (or (lambda? proc*) (procedure? proc*))
-                (validate-arity proc* call (lambda? proc*)))))
+            (cond ((lambda? proc*)
+                   (validate-arity proc* call #t))
+                  ((procedure? proc*)
+                   (validate-arity proc* call #f)))))
         toplevel-calls)))
 
    (make-arity-info vlist-null vlist-null vlist-null)))
@@ -1356,18 +1362,28 @@ accurate information is missing from a given `tree-il' element."
 (define (proc-ref? exp proc special-name env)
   "Return #t when EXP designates procedure PROC in ENV.  As a last
 resort, return #t when EXP refers to the global variable SPECIAL-NAME."
+
+  (define special?
+    (cut eq? <> special-name))
+
   (match exp
+    (($ <toplevel-ref> _ (? special?))
+     ;; Allow top-levels like: (define _ (cut gettext <> "my-domain")).
+     #t)
     (($ <toplevel-ref> _ name)
      (let ((var (module-variable env name)))
-       (if (and var (variable-bound? var))
-           (eq? (variable-ref var) proc)
-           (eq? name special-name)))) ; special hack to support local aliases
+       (and var (variable-bound? var)
+            (eq? (variable-ref var) proc))))
+    (($ <module-ref> _ _ (? special?))
+     #t)
     (($ <module-ref> _ module name public?)
      (let* ((mod (if public?
                      (false-if-exception (resolve-interface module))
-                     (resolve-module module #:ensure? #f)))
+                     (resolve-module module #:ensure #f)))
             (var (and mod (module-variable mod name))))
        (and var (variable-bound? var) (eq? (variable-ref var) proc))))
+    (($ <lexical-ref> _ (? special?))
+     #t)
     (_ #f)))
 
 (define gettext? (cut proc-ref? <> gettext '_ <>))
