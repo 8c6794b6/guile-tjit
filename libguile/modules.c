@@ -80,9 +80,10 @@ SCM_DEFINE (scm_current_module, "current-module", 0, 0, 0,
 	    "Return the current module.")
 #define FUNC_NAME s_scm_current_module
 {
-  SCM curr = scm_fluid_ref (the_module);
-
-  return scm_is_true (curr) ? curr : scm_the_root_module ();
+  if (scm_module_system_booted_p)
+    return scm_fluid_ref (the_module);
+  else
+    return SCM_BOOL_F;
 }
 #undef FUNC_NAME
 
@@ -234,38 +235,6 @@ scm_c_export (const char *name, ...)
     }
 }
 
-
-/* Environments */
-
-SCM_SYMBOL (sym_module, "module");
-
-SCM
-scm_lookup_closure_module (SCM proc)
-{
-  if (scm_is_false (proc))
-    return scm_the_root_module ();
-  else if (SCM_EVAL_CLOSURE_P (proc))
-    return SCM_PACK (SCM_SMOB_DATA (proc));
-  else
-    {
-      SCM mod;
-
-      /* FIXME: The `module' property is no longer set on eval closures, as it
-	 introduced a circular reference that precludes garbage collection of
-	 modules with the current weak hash table semantics (see
-	 http://lists.gnu.org/archive/html/guile-devel/2009-01/msg00102.html and
-	 http://thread.gmane.org/gmane.comp.programming.garbage-collection.boehmgc/2465
-	 for details). Since it doesn't appear to be used (only in this
-	 function, which has 1 caller), we no longer extend
-	 `set-module-eval-closure!' to set the `module' property. */
-      abort ();
-
-      mod = scm_procedure_property (proc, sym_module);
-      if (scm_is_false (mod))
-	mod = scm_the_root_module ();
-      return mod;
-    }
-}
 
 /*
  * C level implementation of the standard eval closure
@@ -519,83 +488,36 @@ SCM_DEFINE (scm_module_variable, "module-variable", 2, 0, 0,
 }
 #undef FUNC_NAME
 
-scm_t_bits scm_tc16_eval_closure;
-
-#define SCM_F_EVAL_CLOSURE_INTERFACE (1<<0)
-#define SCM_EVAL_CLOSURE_INTERFACE_P(e) \
-  (SCM_SMOB_FLAGS (e) & SCM_F_EVAL_CLOSURE_INTERFACE)
-
-/* NOTE: This function may be called by a smob application
-   or from another C function directly. */
 SCM
-scm_eval_closure_lookup (SCM eclo, SCM sym, SCM definep)
+scm_module_ensure_local_variable (SCM module, SCM sym)
+#define FUNC_NAME "module-ensure-local-variable"
 {
-  SCM module = SCM_PACK (SCM_SMOB_DATA (eclo));
-  if (scm_is_true (definep))
+  if (SCM_LIKELY (scm_module_system_booted_p))
     {
-      if (SCM_EVAL_CLOSURE_INTERFACE_P (eclo))
-	return SCM_BOOL_F;
+      SCM_VALIDATE_MODULE (1, module);
+      SCM_VALIDATE_SYMBOL (2, sym);
+
       return scm_call_2 (SCM_VARIABLE_REF (module_make_local_var_x_var),
-			 module, sym);
+                         module, sym);
     }
-  else
-    return scm_module_variable (module, sym);
-}
 
-SCM_DEFINE (scm_standard_eval_closure, "standard-eval-closure", 1, 0, 0,
-	    (SCM module),
-	    "Return an eval closure for the module @var{module}.")
-#define FUNC_NAME s_scm_standard_eval_closure
-{
-  SCM_RETURN_NEWSMOB (scm_tc16_eval_closure, SCM_UNPACK (module));
-}
-#undef FUNC_NAME
+  {
+    SCM handle, var;
 
+    handle = scm_hashq_create_handle_x (scm_pre_modules_obarray,
+                                        sym, SCM_BOOL_F);
+    var = SCM_CDR (handle);
 
-SCM_DEFINE (scm_standard_interface_eval_closure,
-	    "standard-interface-eval-closure", 1, 0, 0,
-	    (SCM module),
-	    "Return a interface eval closure for the module @var{module}. "
-	    "Such a closure does not allow new bindings to be added.")
-#define FUNC_NAME s_scm_standard_interface_eval_closure
-{
-  SCM_RETURN_NEWSMOB (scm_tc16_eval_closure | (SCM_F_EVAL_CLOSURE_INTERFACE<<16),
-		      SCM_UNPACK (module));
+    if (scm_is_false (var))
+      {
+        var = scm_make_variable (SCM_UNDEFINED);
+        SCM_SETCDR (handle, var);
+      }
+
+    return var;
+  }
 }
 #undef FUNC_NAME
-
-SCM_DEFINE (scm_eval_closure_module,
-	    "eval-closure-module", 1, 0, 0,
-	    (SCM eval_closure),
-	    "Return the module associated with this eval closure.")
-/* the idea is that eval closures are really not the way to do things, they're
-   superfluous given our module system. this function lets mmacros migrate away
-   from eval closures. */
-#define FUNC_NAME s_scm_eval_closure_module
-{
-  SCM_MAKE_VALIDATE_MSG (SCM_ARG1, eval_closure, EVAL_CLOSURE_P,
-                         "eval-closure");
-  return SCM_SMOB_OBJECT (eval_closure);
-}
-#undef FUNC_NAME
-
-SCM
-scm_module_lookup_closure (SCM module)
-{
-  if (scm_is_false (module))
-    return SCM_BOOL_F;
-  else
-    return SCM_MODULE_EVAL_CLOSURE (module);
-}
-
-SCM
-scm_current_module_lookup_closure ()
-{
-  if (scm_module_system_booted_p)
-    return scm_module_lookup_closure (scm_current_module ());
-  else
-    return SCM_BOOL_F;
-}
 
 SCM_SYMBOL (sym_macroexpand, "macroexpand");
 
@@ -676,61 +598,6 @@ scm_module_public_interface (SCM module)
   return scm_call_1 (SCM_VARIABLE_REF (module_public_interface_var), module);
 }
 
-/* scm_sym2var
- *
- * looks up the variable bound to SYM according to PROC.  PROC should be
- * a `eval closure' of some module.
- *
- * When no binding exists, and DEFINEP is true, create a new binding
- * with a initial value of SCM_UNDEFINED.  Return `#f' when DEFINEP as
- * false and no binding exists.
- *
- * When PROC is `#f', it is ignored and the binding is searched for in
- * the scm_pre_modules_obarray (a `eq' hash table).
- */
-
-SCM 
-scm_sym2var (SCM sym, SCM proc, SCM definep)
-#define FUNC_NAME "scm_sym2var"
-{
-  SCM var;
-
-  if (SCM_HEAP_OBJECT_P (proc))
-    {
-      if (SCM_EVAL_CLOSURE_P (proc))
-	{
-	  /* Bypass evaluator in the standard case. */
-	  var = scm_eval_closure_lookup (proc, sym, definep);
-	}
-      else
-	var = scm_call_2 (proc, sym, definep);
-    }
-  else
-    {
-      SCM handle;
-
-      if (scm_is_false (definep))
-	var = scm_hashq_ref (scm_pre_modules_obarray, sym, SCM_BOOL_F);
-      else
-	{
-	  handle = scm_hashq_create_handle_x (scm_pre_modules_obarray,
-					      sym, SCM_BOOL_F);
-	  var = SCM_CDR (handle);
-	  if (scm_is_false (var))
-	    {
-	      var = scm_make_variable (SCM_UNDEFINED);
-	      SCM_SETCDR (handle, var);
-	    }
-	}
-    }
-
-  if (scm_is_true (var) && !SCM_VARIABLEP (var))
-    SCM_MISC_ERROR ("~S is not bound to a variable", scm_list_1 (sym));
-
-  return var;
-}
-#undef FUNC_NAME
-
 SCM
 scm_c_module_lookup (SCM module, const char *name)
 {
@@ -742,9 +609,7 @@ scm_module_lookup (SCM module, SCM sym)
 #define FUNC_NAME "module-lookup"
 {
   SCM var;
-  SCM_VALIDATE_MODULE (1, module);
-
-  var = scm_sym2var (sym, scm_module_lookup_closure (module), SCM_BOOL_F);
+  var = scm_module_variable (module, sym);
   if (scm_is_false (var))
     unbound_variable (FUNC_NAME, sym);
   return var;
@@ -760,11 +625,7 @@ scm_c_lookup (const char *name)
 SCM
 scm_lookup (SCM sym)
 {
-  SCM var = 
-    scm_sym2var (sym, scm_current_module_lookup_closure (), SCM_BOOL_F);
-  if (scm_is_false (var))
-    unbound_variable (NULL, sym);
-  return var;
+  return scm_module_lookup (scm_current_module (), sym);
 }
 
 SCM
@@ -896,10 +757,10 @@ scm_module_define (SCM module, SCM sym, SCM value)
 #define FUNC_NAME "module-define"
 {
   SCM var;
-  SCM_VALIDATE_MODULE (1, module);
 
-  var = scm_sym2var (sym, scm_module_lookup_closure (module), SCM_BOOL_T);
+  var = scm_module_ensure_local_variable (module, sym);
   SCM_VARIABLE_SET (var, value);
+
   return var;
 }
 #undef FUNC_NAME
@@ -917,11 +778,9 @@ SCM_DEFINE (scm_define, "define!", 2, 0, 0,
             "not a macro.")
 #define FUNC_NAME s_scm_define
 {
-  SCM var;
   SCM_VALIDATE_SYMBOL (SCM_ARG1, sym);
-  var = scm_sym2var (sym, scm_current_module_lookup_closure (), SCM_BOOL_T);
-  SCM_VARIABLE_SET (var, value);
-  return var;
+
+  return scm_module_define (scm_current_module (), sym, value);
 }
 #undef FUNC_NAME
 
@@ -1009,9 +868,6 @@ scm_init_modules ()
 #include "libguile/modules.x"
   module_make_local_var_x_var = scm_c_define ("module-make-local-var!",
 					    SCM_UNDEFINED);
-  scm_tc16_eval_closure = scm_make_smob_type ("eval-closure", 0);
-  scm_set_smob_apply (scm_tc16_eval_closure, scm_eval_closure_lookup, 2, 0, 0);
-
   the_module = scm_make_fluid ();
 }
 

@@ -3,7 +3,7 @@
 #ifndef SCM_MODULES_H
 #define SCM_MODULES_H
 
-/* Copyright (C) 1998, 2000, 2001, 2002, 2003, 2006, 2007, 2008, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1998, 2000, 2001, 2002, 2003, 2006, 2007, 2008, 2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -64,22 +64,20 @@ SCM_API scm_t_bits scm_module_tag;
 #define SCM_MODULE_IMPORT_OBARRAY(module) \
   SCM_PACK (SCM_STRUCT_DATA (module)[scm_module_index_import_obarray])
 
-SCM_API scm_t_bits scm_tc16_eval_closure;
-
-#define SCM_EVAL_CLOSURE_P(x)	SCM_TYP16_PREDICATE (scm_tc16_eval_closure, x)
-
 
 
 SCM_API SCM scm_current_module (void);
 SCM_API SCM scm_the_root_module (void);
-SCM_API SCM scm_module_variable (SCM module, SCM sym);
-SCM_API SCM scm_module_local_variable (SCM module, SCM sym);
 SCM_API SCM scm_interaction_environment (void);
 SCM_API SCM scm_set_current_module (SCM module);
 
 SCM_API SCM scm_c_call_with_current_module (SCM module,
 					    SCM (*func)(void *), void *data);
 SCM_API void scm_dynwind_current_module (SCM module);
+
+SCM_API SCM scm_module_variable (SCM module, SCM sym);
+SCM_API SCM scm_module_local_variable (SCM module, SCM sym);
+SCM_API SCM scm_module_ensure_local_variable (SCM module, SCM sym);
 
 SCM_API SCM scm_c_lookup (const char *name);
 SCM_API SCM scm_c_define (const char *name, SCM val);
@@ -115,20 +113,11 @@ SCM_API SCM scm_c_define_module (const char *name,
 SCM_API void scm_c_use_module (const char *name);
 SCM_API void scm_c_export (const char *name, ...);
 
-SCM_API SCM scm_sym2var (SCM sym, SCM thunk, SCM definep);
-
 SCM_API SCM scm_module_public_interface (SCM module);
 SCM_API SCM scm_module_import_interface (SCM module, SCM sym);
-SCM_API SCM scm_module_lookup_closure (SCM module);
 SCM_API SCM scm_module_transformer (SCM module);
-SCM_API SCM scm_current_module_lookup_closure (void);
 SCM_API SCM scm_current_module_transformer (void);
-SCM_API SCM scm_eval_closure_lookup (SCM eclo, SCM sym, SCM definep);
-SCM_API SCM scm_standard_eval_closure (SCM module);
-SCM_API SCM scm_standard_interface_eval_closure (SCM module);
-SCM_API SCM scm_eval_closure_module (SCM eval_closure); /* deprecated already */
 SCM_API SCM scm_get_pre_modules_obarray (void);
-SCM_API SCM scm_lookup_closure_module (SCM proc);
 
 SCM_INTERNAL void scm_modules_prehistory (void);
 SCM_INTERNAL void scm_init_modules (void);

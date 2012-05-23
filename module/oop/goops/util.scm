@@ -1,4 +1,4 @@
-;;;; 	Copyright (C) 1999, 2000, 2001, 2003, 2006, 2008 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 1999, 2000, 2001, 2003, 2006, 2008, 2012 Free Software Foundation, Inc.
 ;;;; 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
 
 
 (define-module (oop goops util)
-  :export (mapappend find-duplicate top-level-env top-level-env?
+  :export (mapappend find-duplicate
 	   map* for-each* length* improper->proper)
   :use-module (srfi srfi-1)
   :re-export  (any every)
@@ -36,16 +36,6 @@
     ((null? l)			#f)
     ((memv (car l) (cdr l))	(car l))
     (else 			(find-duplicate (cdr l)))))
-
-(define (top-level-env)
-  (let ((mod (current-module)))
-    (if mod
-	(module-eval-closure mod)
-	'())))
-
-(define (top-level-env? env)
-  (or (null? env)
-      (procedure? (car env))))
 
 (define (map* fn . l) 		; A map which accepts dotted lists (arg lists  
   (cond 			; must be "isomorph"
