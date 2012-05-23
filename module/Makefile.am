@@ -327,6 +327,7 @@ OOP_SOURCES = \
 SYSTEM_SOURCES =				\
   system/vm/inspect.scm				\
   system/vm/coverage.scm			\
+  system/vm/elf.scm				\
   system/vm/frame.scm				\
   system/vm/instruction.scm			\
   system/vm/objcode.scm				\
