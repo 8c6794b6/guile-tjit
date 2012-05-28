@@ -600,30 +600,27 @@ static SCM boot_continuation;
  */
 
 static SCM
-resolve_variable (SCM what, SCM program_module)
+resolve_variable (SCM what, SCM module)
 {
   if (SCM_LIKELY (scm_is_symbol (what)))
     {
-      if (scm_is_true (program_module))
-        return scm_module_lookup (program_module, what);
+      if (scm_is_true (module))
+        return scm_module_lookup (module, what);
       else
         return scm_module_lookup (scm_the_root_module (), what);
     }
   else
     {
-      SCM mod;
-      /* compilation of @ or @@
-         `what' is a three-element list: (MODNAME SYM INTERFACE?)
-         INTERFACE? is #t if we compiled @ or #f if we compiled @@
-      */
-      mod = scm_resolve_module (SCM_CAR (what));
-      if (scm_is_true (SCM_CADDR (what)))
-        mod = scm_module_public_interface (mod);
-      if (scm_is_false (mod))
-        scm_misc_error (NULL, "no such module: ~S",
-                        scm_list_1 (SCM_CAR (what)));
-      /* might longjmp */
-      return scm_module_lookup (mod, SCM_CADR (what));
+      SCM modname, sym, public;
+
+      modname = SCM_CAR (what);
+      sym = SCM_CADR (what);
+      public = SCM_CADDR (what);
+
+      if (scm_is_true (public))
+        return scm_public_lookup (modname, sym);
+      else
+        return scm_private_lookup (modname, sym);
     }
 }
   
