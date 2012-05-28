@@ -77,10 +77,13 @@
             elf-section-header-offset-offset
             write-elf-section-header
 
-            make-elf-symbol elf-symbol?
+            (make-elf-symbol* . make-elf-symbol)
+            elf-symbol?
             elf-symbol-name elf-symbol-value elf-symbol-size
             elf-symbol-info elf-symbol-other elf-symbol-shndx
             elf-symbol-binding elf-symbol-type elf-symbol-visibility
+
+            elf-symbol-len write-elf-symbol
 
             SHN_UNDEF
 
@@ -812,6 +815,13 @@
   (other elf-symbol-other)
   (shndx elf-symbol-shndx))
 
+(define* (make-elf-symbol* #:key (name 0) (value 0) (size 0)
+                           (binding STB_LOCAL) (type STT_NOTYPE)
+                           (info (logior (ash binding 4) type))
+                           (visibility STV_DEFAULT) (other visibility)
+                           (shndx SHN_UNDEF))
+  (make-elf-symbol name value size info other shndx))
+
 ;; typedef struct {
 ;;     uint32_t      st_name;
 ;;     Elf32_Addr    st_value;
@@ -820,6 +830,12 @@
 ;;     unsigned char st_other;
 ;;     uint16_t      st_shndx;
 ;; } Elf32_Sym;
+
+(define (elf-symbol-len word-size)
+  (case word-size
+    ((4) 16)
+    ((8) 24)
+    (else (error "bad word size" word-size))))
 
 (define (parse-elf32-symbol bv offset stroff byte-order)
   (if (<= (+ offset 16) (bytevector-length bv))
@@ -833,6 +849,14 @@
                        (bytevector-u8-ref bv (+ offset 13))
                        (bytevector-u16-ref bv (+ offset 14) byte-order))
       (error "corrupt ELF (offset out of range)" offset)))
+
+(define (write-elf32-symbol bv offset byte-order sym)
+  (bytevector-u32-set! bv offset (elf-symbol-name sym) byte-order)
+  (bytevector-u32-set! bv (+ offset 4) (elf-symbol-value sym) byte-order)
+  (bytevector-u32-set! bv (+ offset 8) (elf-symbol-size sym) byte-order)
+  (bytevector-u8-set! bv (+ offset 12) (elf-symbol-info sym))
+  (bytevector-u8-set! bv (+ offset 13) (elf-symbol-other sym))
+  (bytevector-u16-set! bv (+ offset 14) (elf-symbol-shndx sym) byte-order))
 
 ;; typedef struct {
 ;;     uint32_t      st_name;
@@ -855,6 +879,21 @@
                        (bytevector-u8-ref bv (+ offset 5))
                        (bytevector-u16-ref bv (+ offset 6) byte-order))
       (error "corrupt ELF (offset out of range)" offset)))
+
+(define (write-elf64-symbol bv offset byte-order sym)
+  (bytevector-u32-set! bv offset (elf-symbol-name sym) byte-order)
+  (bytevector-u8-set! bv (+ offset 4) (elf-symbol-info sym))
+  (bytevector-u8-set! bv (+ offset 5) (elf-symbol-other sym))
+  (bytevector-u16-set! bv (+ offset 6) (elf-symbol-shndx sym) byte-order)
+  (bytevector-u64-set! bv (+ offset 8) (elf-symbol-value sym) byte-order)
+  (bytevector-u64-set! bv (+ offset 16) (elf-symbol-size sym) byte-order))
+
+(define (write-elf-symbol bv offset byte-order word-size sym)
+  ((case word-size
+     ((4) write-elf32-symbol)
+     ((8) write-elf64-symbol)
+     (else (error "invalid word size" word-size)))
+   bv offset byte-order sym))
 
 (define* (elf-symbol-table-ref elf section n #:optional strtab)
   (let ((bv (elf-bytes elf))

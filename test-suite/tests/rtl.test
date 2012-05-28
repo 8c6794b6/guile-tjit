@@ -1,0 +1,249 @@
+;;;; Low-level tests of the RTL assembler -*- mode: scheme; coding: utf-8; -*-
+;;;;
+;;;; 	Copyright (C) 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;;
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;;
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (tests rtl)
+  #:use-module (test-suite lib)
+  #:use-module (system vm assembler))
+
+(define-syntax-rule (assert-equal val expr)
+  (let ((x val))
+    (pass-if (object->string x) (equal? expr x))))
+
+(define (return-constant val)
+  (assemble-program `((begin-program foo)
+                      (assert-nargs-ee/locals 0 1)
+                      (load-constant 0 ,val)
+                      (return 0)
+                      (end-program))))
+
+(define-syntax-rule (assert-constants val ...)
+  (begin
+    (assert-equal val ((return-constant val)))
+    ...))
+
+(with-test-prefix "load-constant"
+  (assert-constants
+   1
+   -1
+   0
+   most-positive-fixnum
+   most-negative-fixnum
+   #t
+   #\c
+   (integer->char 16000)
+   3.14
+   "foo"
+   'foo
+   #:foo
+   "æ" ;; a non-ASCII Latin-1 string
+   "λ" ;; non-ascii, non-latin-1
+   '(1 . 2)
+   '(1 2 3 4)
+   #(1 2 3)
+   #("foo" "bar" 'baz)
+   ;; FIXME: Add tests for arrays (uniform and otherwise)
+   ))
+
+(with-test-prefix "static procedure"
+  (assert-equal 42
+                (((assemble-program `((begin-program foo)
+                                      (assert-nargs-ee/locals 0 1)
+                                      (load-static-procedure 0 bar)
+                                      (return 0)
+                                      (end-program)
+                                      (begin-program bar)
+                                      (assert-nargs-ee/locals 0 1)
+                                      (load-constant 0 42)
+                                      (return 0)
+                                      (end-program)))))))
+
+(with-test-prefix "loop"
+  (assert-equal (* 999 500)
+                (let ((sumto
+                       (assemble-program
+                        ;; 0: limit
+                        ;; 1: n
+                        ;; 2: accum
+                        '((begin-program countdown)
+                          (assert-nargs-ee/locals 1 2)
+                          (br fix-body)
+                          (label loop-head)
+                          (br-if-= 1 0 out)
+                          (add 2 1 2)
+                          (add1 1 1)
+                          (br loop-head)
+                          (label fix-body)
+                          (load-constant 1 0)
+                          (load-constant 2 0)
+                          (br loop-head)
+                          (label out)
+                          (return 2)
+                          (end-program)))))
+                  (sumto 1000))))
+
+(with-test-prefix "accum"
+  (assert-equal (+ 1 2 3)
+                (let ((make-accum
+                       (assemble-program
+                        ;; 0: elt
+                        ;; 1: tail
+                        ;; 2: head
+                        '((begin-program make-accum)
+                          (assert-nargs-ee/locals 0 2)
+                          (load-constant 0 0)
+                          (box 0 0)
+                          (make-closure 1 accum (0))
+                          (return 1)
+                          (end-program)
+                          (begin-program accum)
+                          (assert-nargs-ee/locals 1 2)
+                          (free-ref 1 0)
+                          (box-ref 2 1)
+                          (add 2 2 0)
+                          (box-set! 1 2)
+                          (return 2)
+                          (end-program)))))
+                  (let ((accum (make-accum)))
+                    (accum 1)
+                    (accum 2)
+                    (accum 3)))))
+
+(with-test-prefix "call"
+  (assert-equal 42
+                (let ((call ;; (lambda (x) (x))
+                       (assemble-program
+                        '((begin-program call)
+                          (assert-nargs-ee/locals 1 0)
+                          (call 1 0 ())
+                          (return 1) ;; MVRA from call
+                          (return 1) ;; RA from call
+                          (end-program)))))
+                  (call (lambda () 42))))
+
+  (assert-equal 6
+                (let ((call-with-3 ;; (lambda (x) (x 3))
+                       (assemble-program
+                        '((begin-program call-with-3)
+                          (assert-nargs-ee/locals 1 1)
+                          (load-constant 1 3)
+                          (call 2 0 (1))
+                          (return 2) ;; MVRA from call
+                          (return 2) ;; RA from call
+                          (end-program)))))
+                  (call-with-3 (lambda (x) (* x 2))))))
+
+(with-test-prefix "tail-call"
+  (assert-equal 3
+                (let ((call ;; (lambda (x) (x))
+                       (assemble-program
+                        '((begin-program call)
+                          (assert-nargs-ee/locals 1 0)
+                          (tail-call 0 0)
+                          (end-program)))))
+                  (call (lambda () 3))))
+
+  (assert-equal 6
+                (let ((call-with-3 ;; (lambda (x) (x 3))
+                       (assemble-program
+                        '((begin-program call-with-3)
+                          (assert-nargs-ee/locals 1 1)
+                          (mov 1 0) ;; R1 <- R0
+                          (load-constant 0 3) ;; R0 <- 3
+                          (tail-call 1 1)
+                          (end-program)))))
+                  (call-with-3 (lambda (x) (* x 2))))))
+
+(with-test-prefix "cached-toplevel-ref"
+  (assert-equal 5.0
+                (let ((get-sqrt-trampoline
+                       (assemble-program
+                        '((begin-program get-sqrt-trampoline)
+                          (assert-nargs-ee/locals 0 1)
+                          (cache-current-module! 0 sqrt-scope)
+                          (load-static-procedure 0 sqrt-trampoline)
+                          (return 0)
+                          (end-program)
+
+                          (begin-program sqrt-trampoline)
+                          (assert-nargs-ee/locals 1 1)
+                          (cached-toplevel-ref 1 sqrt-scope sqrt)
+                          (tail-call 1 1)
+                          (end-program)))))
+                  ((get-sqrt-trampoline) 25.0))))
+
+(define *top-val* 0)
+
+(with-test-prefix "cached-toplevel-set!"
+  (let ((prev *top-val*))
+    (assert-equal (1+ prev)
+                  (let ((make-top-incrementor
+                         (assemble-program
+                          '((begin-program make-top-incrementor)
+                            (assert-nargs-ee/locals 0 1)
+                            (cache-current-module! 0 top-incrementor)
+                            (load-static-procedure 0 top-incrementor)
+                            (return 0)
+                            (end-program)
+
+                            (begin-program top-incrementor)
+                            (assert-nargs-ee/locals 0 1)
+                            (cached-toplevel-ref 0 top-incrementor *top-val*)
+                            (add1 0 0)
+                            (cached-toplevel-set! 0 top-incrementor *top-val*)
+                            (return/values 0)
+                            (end-program)))))
+                    ((make-top-incrementor))
+                    *top-val*))))
+
+(with-test-prefix "cached-module-ref"
+  (assert-equal 5.0
+                (let ((get-sqrt-trampoline
+                       (assemble-program
+                        '((begin-program get-sqrt-trampoline)
+                          (assert-nargs-ee/locals 0 1)
+                          (load-static-procedure 0 sqrt-trampoline)
+                          (return 0)
+                          (end-program)
+
+                          (begin-program sqrt-trampoline)
+                          (assert-nargs-ee/locals 1 1)
+                          (cached-module-ref 1 (guile) #t sqrt)
+                          (tail-call 1 1)
+                          (end-program)))))
+                  ((get-sqrt-trampoline) 25.0))))
+
+(with-test-prefix "cached-module-set!"
+  (let ((prev *top-val*))
+    (assert-equal (1+ prev)
+                  (let ((make-top-incrementor
+                         (assemble-program
+                          '((begin-program make-top-incrementor)
+                            (assert-nargs-ee/locals 0 1)
+                            (load-static-procedure 0 top-incrementor)
+                            (return 0)
+                            (end-program)
+
+                            (begin-program top-incrementor)
+                            (assert-nargs-ee/locals 0 1)
+                            (cached-module-ref 0 (tests rtl) #f *top-val*)
+                            (add1 0 0)
+                            (cached-module-set! 0 (tests rtl) #f *top-val*)
+                            (return 0)
+                            (end-program)))))
+                    ((make-top-incrementor))
+                    *top-val*))))
