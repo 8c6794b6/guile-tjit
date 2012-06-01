@@ -455,6 +455,7 @@ install-exec-hook:
 ## Perhaps we can deal with them normally once the merge seems to be
 ## working.
 noinst_HEADERS = conv-integer.i.c conv-uinteger.i.c		\
+                 elf.h						\
                  srfi-14.i.c					\
                  quicksort.i.c                                  \
                  win32-uname.h win32-socket.h			\

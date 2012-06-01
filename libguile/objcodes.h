@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -59,6 +59,9 @@ struct scm_objcode
 
 #define SCM_OBJCODE_NATIVE_CODE(x) (SCM_CELL_WORD_3 (x))
 #define SCM_SET_OBJCODE_NATIVE_CODE(x, code) (SCM_SET_CELL_WORD_3 (x, code))
+
+SCM_API SCM scm_load_thunk_from_file (SCM filename);
+SCM_API SCM scm_load_thunk_from_memory (SCM bv);
 
 SCM_API SCM scm_c_make_objcode_slice (SCM parent, const scm_t_uint8 *ptr);
 SCM_API SCM scm_load_objcode (SCM file);
