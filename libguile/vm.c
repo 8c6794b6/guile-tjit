@@ -1046,9 +1046,8 @@ SCM_DEFINE (scm_call_with_vm, "call-with-vm", 2, 0, 1,
 
 SCM scm_load_compiled_with_vm (SCM file)
 {
-  SCM program = scm_make_program (scm_load_objcode (file),
-                                  SCM_BOOL_F, SCM_BOOL_F);
-  
+  SCM program = scm_load_thunk_from_file (file);
+
   return scm_c_vm_run (scm_the_vm (), program, NULL, 0);
 }
 
@@ -1072,7 +1071,7 @@ make_boot_program (void)
   bp->metalen = 0;
 
   u8vec = scm_c_take_gc_bytevector ((scm_t_int8*)bp, bp_size, SCM_BOOL_F);
-  ret = scm_make_program (scm_bytecode_to_native_objcode (u8vec),
+  ret = scm_make_program (scm_bytecode_to_objcode (u8vec, SCM_UNDEFINED),
                           SCM_BOOL_F, SCM_BOOL_F);
   SCM_SET_CELL_WORD_0 (ret, (SCM_CELL_WORD_0 (ret) | SCM_F_PROGRAM_IS_BOOT));
 

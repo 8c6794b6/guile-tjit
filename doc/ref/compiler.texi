@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  2008, 2009, 2010, 2011
+@c Copyright (C)  2008, 2009, 2010, 2011, 2012
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -800,29 +800,36 @@ objcode)} module.
 Returns @code{#f} iff @var{obj} is object code, @code{#f} otherwise.
 @end deffn
 
-@deffn {Scheme Procedure} bytecode->objcode bytecode
+@deffn {Scheme Procedure} bytecode->objcode bytecode [endianness]
 @deffnx {C Function} scm_bytecode_to_objcode (bytecode)
 Makes a bytecode object from @var{bytecode}, which should be a
-bytevector. @xref{Bytevectors}.
+bytevector. @xref{Bytevectors}.  By default, the embedded length fields
+in the bytevector are interpreted in the native byte order.
 @end deffn
 
-@deffn {Scheme Variable} load-objcode file
-@deffnx {C Function} scm_load_objcode (file)
+@deffn {Scheme Variable} load-thunk-from-file file
+@deffnx {C Function} scm_load_thunk_from_file (file)
 Load object code from a file named @var{file}. The file will be mapped
 into memory via @code{mmap}, so this is a very fast operation.
 
-On disk, object code has an sixteen-byte cookie prepended to it, to
-prevent accidental loading of arbitrary garbage.
+On disk, object code is embedded in ELF, a flexible container format
+created for use in UNIX systems.  Guile has its own ELF linker and
+loader, so it uses the ELF format on all systems.
 @end deffn
 
 @deffn {Scheme Variable} write-objcode objcode file
 @deffnx {C Function} scm_write_objcode (objcode)
-Write object code out to a file, prepending the sixteen-byte cookie.
+Embed object code into an ELF container, and write it out to a file.
+
+This procedure is part of a separate module, @code{(language objcode
+elf)}.
 @end deffn
 
-@deffn {Scheme Variable} objcode->bytecode objcode
+@deffn {Scheme Variable} objcode->bytecode objcode [endianness]
 @deffnx {C Function} scm_objcode_to_bytecode (objcode)
-Copy object code out to a bytevector for analysis by Scheme.
+Copy object code out to a bytevector for analysis by Scheme.  By
+default, the length fields in the @code{struct scm_objcode} are
+interpreted in the native byte order.
 @end deffn
 
 The following procedure is actually in @code{(system vm program)}, but

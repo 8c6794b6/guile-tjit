@@ -22,6 +22,7 @@
   #:use-module (system base language)
   #:use-module (system vm objcode)
   #:use-module (system vm program)
+  #:use-module (language objcode elf)
   #:export (objcode))
 
 (define (objcode->value x e opts)

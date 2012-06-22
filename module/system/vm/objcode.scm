@@ -21,7 +21,6 @@
 (define-module (system vm objcode)
   #:export (objcode? objcode-meta
             bytecode->objcode objcode->bytecode
-            load-objcode write-objcode
             load-thunk-from-file load-thunk-from-memory
             word-size byte-order))
 

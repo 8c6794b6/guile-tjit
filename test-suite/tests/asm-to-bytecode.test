@@ -22,7 +22,9 @@
   #:use-module (test-suite lib)
   #:use-module (system vm instruction)
   #:use-module (system vm objcode)
+  #:use-module (system vm elf)
   #:use-module (system base target)
+  #:use-module (language objcode elf)
   #:use-module (language assembly)
   #:use-module (language assembly compile-bytecode))
 
@@ -167,20 +169,12 @@
                                      (nop) (nop) (nop)
                                      (nop) (nop))
                       #f)))
-              (write-objcode (bytecode->objcode b) p)
-              (let ((cookie   (make-bytevector %objcode-cookie-size))
-                    (expected (format #f "GOOF----~a-~a"
-                                      (cond ((eq? endian (endianness little))
-                                             "LE")
-                                            ((eq? endian (endianness big))
-                                             "BE")
-                                            (else
-                                             (error "unknown endianness"
-                                                    endian)))
-                                      word-size)))
-                (bytevector-copy! (get-objcode) 0 cookie 0
-                                  %objcode-cookie-size)
-                (string=? (utf8->string cookie) expected)))))))))
+              (write-objcode (bytecode->objcode b (target-endianness)) p)
+              (let* ((bv (get-objcode)))
+                (and=> (parse-elf bv)
+                       (lambda (elf)
+                         (and (equal? (elf-byte-order elf) endian)
+                              (equal? (elf-word-size elf) word-size))))))))))))
 
 (with-test-prefix "cross-compilation"
 
@@ -202,7 +196,7 @@
                                                    (make-int8 77)
                                                    (return))
                                     #f))
-               (o (bytecode->objcode b)))
+               (o (bytecode->objcode b (target-endianness))))
           (with-target "fcpu-unknown-gnu1.0"
             (lambda ()
               (write-objcode o p))))))))

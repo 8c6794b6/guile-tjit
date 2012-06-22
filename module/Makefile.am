@@ -123,7 +123,8 @@ BYTECODE_LANG_SOURCES =				\
   language/bytecode/spec.scm
 
 OBJCODE_LANG_SOURCES =				\
-  language/objcode/spec.scm
+  language/objcode/spec.scm 			\
+  language/objcode/elf.scm
 
 VALUE_LANG_SOURCES =				\
   language/value/spec.scm

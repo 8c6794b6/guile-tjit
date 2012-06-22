@@ -64,13 +64,10 @@ SCM_API SCM scm_load_thunk_from_file (SCM filename);
 SCM_API SCM scm_load_thunk_from_memory (SCM bv);
 
 SCM_API SCM scm_c_make_objcode_slice (SCM parent, const scm_t_uint8 *ptr);
-SCM_API SCM scm_load_objcode (SCM file);
 SCM_API SCM scm_objcode_p (SCM obj);
 SCM_API SCM scm_objcode_meta (SCM objcode);
-SCM_API SCM scm_bytecode_to_objcode (SCM bytecode);
-SCM_INTERNAL SCM scm_bytecode_to_native_objcode (SCM bytecode);
-SCM_API SCM scm_objcode_to_bytecode (SCM objcode);
-SCM_API SCM scm_write_objcode (SCM objcode, SCM port);
+SCM_API SCM scm_bytecode_to_objcode (SCM bytecode, SCM endianness);
+SCM_API SCM scm_objcode_to_bytecode (SCM objcode, SCM endianness);
 
 SCM_INTERNAL void scm_i_objcode_print (SCM objcode, SCM port,
                                        scm_print_state *pstate);
