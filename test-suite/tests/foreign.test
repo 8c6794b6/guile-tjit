@@ -25,6 +25,7 @@
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
+  #:use-module (ice-9 format)
   #:use-module (test-suite lib))
 
 
@@ -159,6 +160,29 @@
 
 
 (with-test-prefix "pointer<->string"
+
+  (pass-if-exception "%default-port-conversion-strategy is error"
+    exception:encoding-error
+    (let ((s "χαοσ"))
+      (with-fluids ((%default-port-conversion-strategy 'error))
+        (string->pointer s "ISO-8859-1"))))
+
+  (pass-if "%default-port-conversion-strategy is escape"
+    (let ((s "teĥniko"))
+      (equal? (with-fluids ((%default-port-conversion-strategy 'escape))
+                (pointer->string (string->pointer s "ISO-8859-1")))
+              (format #f "te\\u~4,'0xniko"
+                      (char->integer #\ĥ)))))
+
+  (pass-if "%default-port-conversion-strategy is substitute"
+    (let ((s "teĥniko")
+          (member (negate (negate member))))
+      (member (with-fluids ((%default-port-conversion-strategy 'substitute))
+                (pointer->string (string->pointer s "ISO-8859-1")))
+              '("te?niko"
+
+                ;; This form is found on FreeBSD 8.2 and Darwin 10.8.0.
+                "te^hniko"))))
 
   (pass-if "bijection"
     (let ((s "hello, world"))

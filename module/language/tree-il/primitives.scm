@@ -55,6 +55,8 @@
 
     char<? char<=? char>=? char>?
 
+    integer->char char->integer number->string string->number
+
     acons cons cons*
 
     list vector
@@ -155,6 +157,7 @@
     pair? null? list? symbol? vector? struct? string? number? char? nil
     complex? real? rational? inf? nan? integer? exact? inexact? even? odd?
     char<? char<=? char>=? char>?
+    integer->char char->integer number->string string->number
     struct-vtable
     string-length vector-length
     ;; These all should get expanded out by expand-primitives!.

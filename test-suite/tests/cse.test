@@ -266,4 +266,19 @@
    (let ((x (car y)))
      (cons x (car y)))
    (let (x) (_) ((primcall car (toplevel y)))
-        (primcall cons (lexical x _) (lexical x _)))))
+        (primcall cons (lexical x _) (lexical x _))))
+
+  ;; Dominating expressions only provide predicates when evaluated in
+  ;; test context.
+  (pass-if-cse
+   (let ((t (car x)))
+     (if (car x)
+         'one
+         'two))
+   ;; Actually this one should reduce in other ways, but this is the
+   ;; current reduction:
+   (seq
+     (primcall car (toplevel x))
+     (if (primcall car (toplevel x))
+         (const one)
+         (const two)))))

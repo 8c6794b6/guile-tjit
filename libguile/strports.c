@@ -1,5 +1,6 @@
-/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002, 2003, 2005, 2006, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
- * 
+/* Copyright (C) 1995, 1996, 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2006,
+ *   2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
  * as published by the Free Software Foundation; either version 3 of
@@ -292,10 +293,11 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
 
   z = scm_c_make_port_with_encoding (scm_tc16_strport, modes,
                                      encoding,
-                                     SCM_FAILED_CONVERSION_ERROR,
+                                     scm_i_default_port_conversion_handler (),
                                      (scm_t_bits)buf);
 
   pt = SCM_PTAB_ENTRY (z);
+
   pt->write_buf = pt->read_buf = (unsigned char *) c_buf;
   pt->read_pos = pt->write_pos = pt->read_buf + c_pos;
   pt->read_buf_size = read_buf_size;

@@ -297,13 +297,14 @@ SCM_API SCM scm_close_output_port (SCM port);
    characters.  */
 SCM_INTERNAL const char *scm_i_default_port_encoding (void);
 SCM_INTERNAL void scm_i_set_default_port_encoding (const char *);
+SCM_INTERNAL scm_t_string_failed_conversion_handler
+scm_i_default_port_conversion_handler (void);
+SCM_INTERNAL void
+scm_i_set_default_port_conversion_handler (scm_t_string_failed_conversion_handler);
 SCM_INTERNAL scm_t_iconv_descriptors *scm_i_port_iconv_descriptors (SCM port);
 SCM_INTERNAL void scm_i_set_port_encoding_x (SCM port, const char *str);
 SCM_API SCM scm_port_encoding (SCM port);
 SCM_API SCM scm_set_port_encoding_x (SCM port, SCM encoding);
-SCM_INTERNAL scm_t_string_failed_conversion_handler scm_i_get_conversion_strategy (SCM port);
-SCM_INTERNAL void scm_i_set_conversion_strategy_x (SCM port, 
-						   scm_t_string_failed_conversion_handler h);
 SCM_API SCM scm_port_conversion_strategy (SCM port);
 SCM_API SCM scm_set_port_conversion_strategy_x (SCM port, SCM behavior);
 

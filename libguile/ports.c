@@ -627,7 +627,7 @@ scm_c_make_port (scm_t_bits tag, unsigned long mode_bits, scm_t_bits stream)
 {
   return scm_c_make_port_with_encoding (tag, mode_bits,
                                         scm_i_default_port_encoding (),
-                                        scm_i_get_conversion_strategy (SCM_BOOL_F),
+                                        scm_i_default_port_conversion_handler (),
                                         stream);
 }
 
@@ -847,6 +847,83 @@ scm_i_default_port_encoding (void)
     }
 }
 
+/* A fluid specifying the default conversion handler for newly created
+   ports.  Its value should be one of the symbols below.  */
+SCM_VARIABLE (default_conversion_strategy_var,
+	      "%default-port-conversion-strategy");
+
+/* Whether the above fluid is initialized.  */
+static int scm_conversion_strategy_init = 0;
+
+/* The possible conversion strategies.  */
+SCM_SYMBOL (sym_error, "error");
+SCM_SYMBOL (sym_substitute, "substitute");
+SCM_SYMBOL (sym_escape, "escape");
+
+/* Return the default failed encoding conversion policy for new created
+   ports.  */
+scm_t_string_failed_conversion_handler
+scm_i_default_port_conversion_handler (void)
+{
+  scm_t_string_failed_conversion_handler handler;
+
+  if (!scm_conversion_strategy_init
+      || !scm_is_fluid (SCM_VARIABLE_REF (default_conversion_strategy_var)))
+    handler = SCM_FAILED_CONVERSION_QUESTION_MARK;
+  else
+    {
+      SCM fluid, value;
+
+      fluid = SCM_VARIABLE_REF (default_conversion_strategy_var);
+      value = scm_fluid_ref (fluid);
+
+      if (scm_is_eq (sym_substitute, value))
+	handler = SCM_FAILED_CONVERSION_QUESTION_MARK;
+      else if (scm_is_eq (sym_escape, value))
+	handler = SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE;
+      else
+	/* Default to 'error also when the fluid's value is not one of
+	   the valid symbols.  */
+	handler = SCM_FAILED_CONVERSION_ERROR;
+    }
+
+  return handler;
+}
+
+/* Use HANDLER as the default conversion strategy for future ports.  */
+void
+scm_i_set_default_port_conversion_handler (scm_t_string_failed_conversion_handler
+					   handler)
+{
+  SCM strategy;
+
+  if (!scm_conversion_strategy_init
+      || !scm_is_fluid (SCM_VARIABLE_REF (default_conversion_strategy_var)))
+    scm_misc_error (NULL, "tried to set conversion strategy fluid before it is initialized",
+		    SCM_EOL);
+
+  switch (handler)
+    {
+    case SCM_FAILED_CONVERSION_ERROR:
+      strategy = sym_error;
+      break;
+
+    case SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE:
+      strategy = sym_escape;
+      break;
+
+    case SCM_FAILED_CONVERSION_QUESTION_MARK:
+      strategy = sym_substitute;
+      break;
+
+    default:
+      abort ();
+    }
+
+  scm_fluid_set_x (SCM_VARIABLE_REF (default_conversion_strategy_var),
+		   strategy);
+}
+
 static void
 finalize_iconv_descriptors (GC_PTR ptr, GC_PTR data)
 {
@@ -1031,65 +1108,6 @@ SCM_DEFINE (scm_set_port_encoding_x, "set-port-encoding!", 2, 0, 0,
 }
 #undef FUNC_NAME
 
-
-/* This determines how conversions handle unconvertible characters.  */
-SCM_GLOBAL_VARIABLE (scm_conversion_strategy, "%port-conversion-strategy");
-static int scm_conversion_strategy_init = 0;
-
-scm_t_string_failed_conversion_handler
-scm_i_get_conversion_strategy (SCM port)
-{
-  SCM encoding;
-  
-  if (scm_is_false (port))
-    {
-      if (!scm_conversion_strategy_init
-	  || !scm_is_fluid (SCM_VARIABLE_REF (scm_conversion_strategy)))
-	return SCM_FAILED_CONVERSION_QUESTION_MARK;
-      else
-	{
-	  encoding = scm_fluid_ref (SCM_VARIABLE_REF (scm_conversion_strategy));
-	  if (scm_is_false (encoding))
-	    return SCM_FAILED_CONVERSION_QUESTION_MARK;
-	  else 
-	    return (scm_t_string_failed_conversion_handler) scm_to_int (encoding);
-	}
-    }
-  else
-    {
-      scm_t_port *pt;
-      pt = SCM_PTAB_ENTRY (port);
-      return pt->ilseq_handler;
-    }
-      
-}
-
-void
-scm_i_set_conversion_strategy_x (SCM port, 
-				 scm_t_string_failed_conversion_handler handler)
-{
-  SCM strategy;
-  scm_t_port *pt;
-  
-  strategy = scm_from_int ((int) handler);
-  
-  if (scm_is_false (port))
-    {
-      /* Set the default encoding for future ports.  */
-      if (!scm_conversion_strategy_init
-	  || !scm_is_fluid (SCM_VARIABLE_REF (scm_conversion_strategy)))
-	scm_misc_error (NULL, "tried to set conversion strategy fluid before it is initialized",
-                       SCM_EOL);
-      scm_fluid_set_x (SCM_VARIABLE_REF (scm_conversion_strategy), strategy);
-    }
-  else
-    {
-      /* Set the character encoding for this port.  */
-      pt = SCM_PTAB_ENTRY (port);
-      pt->ilseq_handler = handler;
-    }
-}
-
 SCM_DEFINE (scm_port_conversion_strategy, "port-conversion-strategy",
 	    1, 0, 0, (SCM port),
 	    "Returns the behavior of the port when handling a character that\n"
@@ -1109,12 +1127,18 @@ SCM_DEFINE (scm_port_conversion_strategy, "port-conversion-strategy",
 
   SCM_VALIDATE_OPPORT (1, port);
 
-  if (!scm_is_false (port))
+  if (scm_is_false (port))
+    h = scm_i_default_port_conversion_handler ();
+  else
     {
+      scm_t_port *pt;
+
       SCM_VALIDATE_OPPORT (1, port);
+      pt = SCM_PTAB_ENTRY (port);
+
+      h = pt->ilseq_handler;
     }
 
-  h = scm_i_get_conversion_strategy (port);
   if (h == SCM_FAILED_CONVERSION_ERROR)
     return scm_from_latin1_symbol ("error");
   else if (h == SCM_FAILED_CONVERSION_QUESTION_MARK)
@@ -1149,39 +1173,24 @@ SCM_DEFINE (scm_set_port_conversion_strategy_x, "set-port-conversion-strategy!",
 	    "this thread.\n")
 #define FUNC_NAME s_scm_set_port_conversion_strategy_x
 {
-  SCM err;
-  SCM qm;
-  SCM esc;
+  scm_t_string_failed_conversion_handler handler;
 
-  if (!scm_is_false (port))
+  if (scm_is_eq (sym, sym_error))
+    handler = SCM_FAILED_CONVERSION_ERROR;
+  else if (scm_is_eq (sym, sym_substitute))
+    handler = SCM_FAILED_CONVERSION_QUESTION_MARK;
+  else if (scm_is_eq (sym, sym_escape))
+    handler = SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE;
+  else
+    SCM_MISC_ERROR ("unknown conversion strategy ~s", scm_list_1 (sym));
+
+  if (scm_is_false (port))
+    scm_i_set_default_port_conversion_handler (handler);
+  else
     {
       SCM_VALIDATE_OPPORT (1, port);
+      SCM_PTAB_ENTRY (port)->ilseq_handler = handler;
     }
-
-  err = scm_from_latin1_symbol ("error");
-  if (scm_is_true (scm_eqv_p (sym, err)))
-    {
-      scm_i_set_conversion_strategy_x (port, SCM_FAILED_CONVERSION_ERROR);
-      return SCM_UNSPECIFIED;
-    }
-
-  qm = scm_from_latin1_symbol ("substitute");
-  if (scm_is_true (scm_eqv_p (sym, qm)))
-    {
-      scm_i_set_conversion_strategy_x (port, 
-                                       SCM_FAILED_CONVERSION_QUESTION_MARK);
-      return SCM_UNSPECIFIED;
-    }
-
-  esc = scm_from_latin1_symbol ("escape");
-  if (scm_is_true (scm_eqv_p (sym, esc)))
-    {
-      scm_i_set_conversion_strategy_x (port,
-                                       SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE);
-      return SCM_UNSPECIFIED;
-    }
-
-  SCM_MISC_ERROR ("unknown conversion behavior ~s", scm_list_1 (sym));
 
   return SCM_UNSPECIFIED;
 }
@@ -2857,11 +2866,10 @@ scm_init_ports ()
                     scm_make_fluid_with_default (SCM_BOOL_F));
   scm_port_encoding_init = 1;
 
-  SCM_VARIABLE_SET (scm_conversion_strategy,
-                    scm_make_fluid_with_default
-                    (scm_from_int ((int) SCM_FAILED_CONVERSION_QUESTION_MARK)));
+  SCM_VARIABLE_SET (default_conversion_strategy_var,
+                    scm_make_fluid_with_default (sym_substitute));
   scm_conversion_strategy_init = 1;
-  
+
   /* These bindings are used when boot-9 turns `current-input-port' et
      al into parameters.  They are then removed from the guile module.  */
   scm_c_define ("%current-input-port-fluid", cur_inport_fluid);
