@@ -130,14 +130,14 @@ register_disappearing_links (scm_t_weak_entry *entry,
   if (SCM_UNPACK (k) && SCM_HEAP_OBJECT_P (k)
       && (kind == SCM_WEAK_TABLE_KIND_KEY
           || kind == SCM_WEAK_TABLE_KIND_BOTH))
-    SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entry->key,
-                                      (GC_PTR) SCM2PTR (k));
+    SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &entry->key,
+                                      SCM2PTR (k));
 
   if (SCM_UNPACK (v) && SCM_HEAP_OBJECT_P (v)
       && (kind == SCM_WEAK_TABLE_KIND_VALUE
           || kind == SCM_WEAK_TABLE_KIND_BOTH))
-    SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entry->value,
-                                      (GC_PTR) SCM2PTR (v));
+    SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &entry->value,
+                                      SCM2PTR (v));
 }
 
 static void
@@ -145,10 +145,10 @@ unregister_disappearing_links (scm_t_weak_entry *entry,
                                scm_t_weak_table_kind kind)
 {
   if (kind == SCM_WEAK_TABLE_KIND_KEY || kind == SCM_WEAK_TABLE_KIND_BOTH)
-    GC_unregister_disappearing_link ((GC_PTR) &entry->key);
+    GC_unregister_disappearing_link ((void **) &entry->key);
 
   if (kind == SCM_WEAK_TABLE_KIND_VALUE || kind == SCM_WEAK_TABLE_KIND_BOTH)
-    GC_unregister_disappearing_link ((GC_PTR) &entry->value);
+    GC_unregister_disappearing_link ((void **) &entry->value);
 }
 
 static void
@@ -159,10 +159,10 @@ move_disappearing_links (scm_t_weak_entry *from, scm_t_weak_entry *to,
       && SCM_HEAP_OBJECT_P (key))
     {
 #ifdef HAVE_GC_MOVE_DISAPPEARING_LINK
-      GC_move_disappearing_link ((GC_PTR) &from->key, (GC_PTR) &to->key);
+      GC_move_disappearing_link ((void **) &from->key, (void **) &to->key);
 #else
-      GC_unregister_disappearing_link (&from->key);
-      SCM_I_REGISTER_DISAPPEARING_LINK (&to->key, SCM2PTR (key));
+      GC_unregister_disappearing_link ((void **) &from->key);
+      SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &to->key, SCM2PTR (key));
 #endif
     }
 
@@ -170,10 +170,10 @@ move_disappearing_links (scm_t_weak_entry *from, scm_t_weak_entry *to,
       && SCM_HEAP_OBJECT_P (value))
     {
 #ifdef HAVE_GC_MOVE_DISAPPEARING_LINK
-      GC_move_disappearing_link ((GC_PTR) &from->value, (GC_PTR) &to->value);
+      GC_move_disappearing_link ((void **) &from->value, (void **) &to->value);
 #else
-      GC_unregister_disappearing_link (&from->value);
-      SCM_I_REGISTER_DISAPPEARING_LINK (&to->value, SCM2PTR (value));
+      GC_unregister_disappearing_link ((void **) &from->value);
+      SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &to->value, SCM2PTR (value));
 #endif
     }
 }

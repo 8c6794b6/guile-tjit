@@ -32,7 +32,7 @@
   (@@ (language tree-il optimize) peval))
 
 (define-syntax pass-if-peval
-  (syntax-rules (resolve-primitives)
+  (syntax-rules ()
     ((_ in pat)
      (pass-if-peval in pat
                     (expand-primitives!
@@ -973,19 +973,24 @@
   (pass-if-peval
    ;; `while' without `break' or `continue' has no prompts and gets its
    ;; condition folded.  Unfortunately the outer `lp' does not yet get
-   ;; elided.
+   ;; elided, and the continuation tag stays around.  (The continue tag
+   ;; stays around because although it is not referenced, recursively
+   ;; visiting the loop in the continue handler manages to visit the tag
+   ;; twice before aborting.  The abort doesn't unroll the recursive
+   ;; reference.)
    (while #t #t)
-   (letrec (lp) (_)
-           ((lambda _
-              (lambda-case
-               ((() #f #f #f () ())
-                (letrec (loop) (_)
-                        ((lambda _
-                           (lambda-case
-                            ((() #f #f #f () ())
-                             (call (lexical loop _))))))
-                        (call (lexical loop _)))))))
-           (call (lexical lp _))))
+   (let (_) (_) ((primcall make-prompt-tag . _))
+        (letrec (lp) (_)
+                ((lambda _
+                   (lambda-case
+                    ((() #f #f #f () ())
+                     (letrec (loop) (_)
+                             ((lambda _
+                                (lambda-case
+                                 ((() #f #f #f () ())
+                                  (call (lexical loop _))))))
+                             (call (lexical loop _)))))))
+                (call (lexical lp _)))))
 
   (pass-if-peval
    (lambda (a . rest)
@@ -1068,4 +1073,19 @@
                              (call (toplevel baz) (toplevel x))
                              (call (lexical failure _)))))
                  (call (lexical failure _)))
-             (call (lexical failure _))))))
+             (call (lexical failure _)))))
+
+  (pass-if-peval
+    (apply (lambda (x y) (cons x y)) '(1 2))
+    (primcall cons (const 1) (const 2)))
+
+  (pass-if-peval
+    (apply (lambda (x y) (cons x y)) (list 1 2))
+    (primcall cons (const 1) (const 2)))
+
+  (pass-if-peval
+    (let ((t (make-prompt-tag)))
+      (call-with-prompt t
+                        (lambda () (abort-to-prompt t 1 2 3))
+                        (lambda (k x y z) (list x y z))))
+    (primcall list (const 1) (const 2) (const 3))))

@@ -174,11 +174,11 @@ move_weak_entry (scm_t_weak_entry *from, scm_t_weak_entry *to)
       if (copy.key && SCM_HEAP_OBJECT_P (SCM_PACK (copy.key)))
         {
 #ifdef HAVE_GC_MOVE_DISAPPEARING_LINK
-          GC_move_disappearing_link ((GC_PTR) &from->key, (GC_PTR) &to->key);
+          GC_move_disappearing_link ((void **) &from->key, (void **) &to->key);
 #else
-          GC_unregister_disappearing_link ((GC_PTR) &from->key);
-          SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &to->key,
-                                            (GC_PTR) to->key);
+          GC_unregister_disappearing_link ((void **) &from->key);
+          SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &to->key,
+                                            to->key);
 #endif
         }
     }
@@ -418,8 +418,8 @@ resize_set (scm_t_weak_set *set)
       new_entries[new_k].key = copy.key;
 
       if (SCM_HEAP_OBJECT_P (SCM_PACK (copy.key)))
-        SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &new_entries[new_k].key,
-                                          (GC_PTR) new_entries[new_k].key);
+        SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &new_entries[new_k].key,
+                                          (void *) new_entries[new_k].key);
     }
 }
 
@@ -579,8 +579,8 @@ weak_set_add_x (scm_t_weak_set *set, unsigned long hash,
   entries[k].key = SCM_UNPACK (obj);
 
   if (SCM_HEAP_OBJECT_P (obj))
-    SCM_I_REGISTER_DISAPPEARING_LINK ((GC_PTR) &entries[k].key,
-                                      (GC_PTR) SCM2PTR (obj));
+    SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &entries[k].key,
+                                      (void *) SCM2PTR (obj));
 
   return obj;
 }
@@ -631,7 +631,7 @@ weak_set_remove_x (scm_t_weak_set *set, unsigned long hash,
               entries[k].key = 0;
 
               if (SCM_HEAP_OBJECT_P (SCM_PACK (copy.key)))
-                GC_unregister_disappearing_link ((GC_PTR) &entries[k].key);
+                GC_unregister_disappearing_link ((void **) &entries[k].key);
 
               if (--set->n_items < set->lower)
                 resize_set (set);

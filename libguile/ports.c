@@ -553,7 +553,7 @@ do_free (void *body_data)
 
 /* Finalize the object (a port) pointed to by PTR.  */
 static void
-finalize_port (GC_PTR ptr, GC_PTR data)
+finalize_port (void *ptr, void *data)
 {
   SCM port = SCM_PACK_POINTER (ptr);
 
@@ -925,7 +925,7 @@ scm_i_set_default_port_conversion_handler (scm_t_string_failed_conversion_handle
 }
 
 static void
-finalize_iconv_descriptors (GC_PTR ptr, GC_PTR data)
+finalize_iconv_descriptors (void *ptr, void *data)
 {
   close_iconv_descriptors (ptr);
 }

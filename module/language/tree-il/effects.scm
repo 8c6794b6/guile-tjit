@@ -265,11 +265,32 @@ of an expression."
            (cause &zero-values))
 
           ;; Effect-free primitives.
-          (($ <primcall> _ (and name (? effect+exception-free-primitive?)) args)
-           (logior (accumulate-effects args)
-                   (if (constructor-primitive? name)
-                       (cause &allocation)
-                       &no-effects)))
+          (($ <primcall> _ (or 'values 'eq? 'eqv? 'equal?) args)
+           (accumulate-effects args))
+
+          (($ <primcall> _ (or 'not 'pair? 'null? 'list? 'symbol?
+                               'vector? 'struct? 'string? 'number?
+                               'char?)
+              (arg))
+           (compute-effects arg))
+
+          ;; Primitives that allocate memory.
+          (($ <primcall> _ 'cons (x y))
+           (logior (compute-effects x) (compute-effects y)
+                   &allocation))
+
+          (($ <primcall> _ (or 'list 'vector) args)
+           (logior (accumulate-effects args) &allocation))
+
+          (($ <primcall> _ 'make-prompt-tag ())
+           &allocation)
+
+          (($ <primcall> _ 'make-prompt-tag (arg))
+           (logior (compute-effects arg) &allocation))
+
+          ;; Primitives that are normally effect-free, but which might
+          ;; cause type checks, allocate memory, or access mutable
+          ;; memory.  FIXME: expand, to be more precise.
           (($ <primcall> _ (and name (? effect-free-primitive?)) args)
            (logior (accumulate-effects args)
                    (cause &type-check)
