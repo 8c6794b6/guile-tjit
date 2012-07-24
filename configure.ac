@@ -64,15 +64,10 @@ AC_PROG_CPP
 AC_PROG_SED
 AC_PROG_AWK
 AC_PROG_LN_S
+AM_PROG_AR
 
 dnl Gnulib.
 gl_INIT
-dnl FIXME: remove me and the acinclude.m4 code when clock-gettime is
-dnl fixed for clock_getcpuclockid and can be imported normally from
-dnl gnulib.  See
-dnl <http://lists.gnu.org/archive/html/bug-gnulib/2011-06/msg00227.html>
-dnl for details.
-gl_CLOCK_TIME
 
 AC_PROG_CC_C89
 

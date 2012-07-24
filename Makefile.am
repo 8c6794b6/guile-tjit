@@ -1,7 +1,7 @@
 ## Process this file with automake to produce Makefile.in.
 ##
 ##  	Copyright (C) 1998, 1999, 2000, 2001, 2002, 2006, 2007,
-##        2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+##        2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
 ##
 ##   This file is part of GUILE.
 ##
@@ -42,12 +42,16 @@ SUBDIRS =					\
 libguileincludedir = $(pkgincludedir)/$(GUILE_EFFECTIVE_VERSION)
 libguileinclude_HEADERS = libguile.h
 
-EXTRA_DIST = LICENSE HACKING GUILE-VERSION		\
-	     m4/ChangeLog-2008				\
-	     ChangeLog-2008				\
-	     .version					\
-	     gnulib-local/lib/localcharset.h.diff	\
-	     gnulib-local/lib/localcharset.c.diff
+EXTRA_DIST = LICENSE HACKING GUILE-VERSION			\
+	     m4/ChangeLog-2008					\
+	     m4/gnulib-cache.m4					\
+	     ChangeLog-2008					\
+	     .version						\
+	     gnulib-local/lib/localcharset.h.diff		\
+	     gnulib-local/lib/localcharset.c.diff		\
+	     gnulib-local/m4/clock_time.m4.diff			\
+	     gnulib-local/m4/canonicalize.m4.diff		\
+	     gnulib-local/build-aux/git-version-gen.diff
 
 TESTS = check-guile
 TESTS_ENVIRONMENT = @LOCALCHARSET_TESTS_ENVIRONMENT@

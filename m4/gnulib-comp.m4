@@ -56,6 +56,7 @@ AC_DEFUN([gl_EARLY],
   # Code from module canonicalize-lgpl:
   # Code from module ceil:
   # Code from module chdir:
+  # Code from module clock-time:
   # Code from module close:
   # Code from module configmake:
   # Code from module connect:
@@ -119,6 +120,8 @@ AC_DEFUN([gl_EARLY],
   # Code from module listen:
   # Code from module localcharset:
   # Code from module locale:
+  # Code from module localeconv:
+  # Code from module log:
   # Code from module log1p:
   # Code from module lstat:
   # Code from module maintainer-makefile:
@@ -150,6 +153,7 @@ AC_DEFUN([gl_EARLY],
   # Code from module regex:
   # Code from module rename:
   # Code from module rmdir:
+  # Code from module round:
   # Code from module safe-read:
   # Code from module safe-write:
   # Code from module same-inode:
@@ -180,12 +184,10 @@ AC_DEFUN([gl_EARLY],
   # Code from module stdint:
   # Code from module stdio:
   # Code from module stdlib:
-  # Code from module strcase:
   # Code from module streq:
   # Code from module strftime:
   # Code from module striconveh:
   # Code from module string:
-  # Code from module strings:
   # Code from module sys_file:
   # Code from module sys_socket:
   # Code from module sys_stat:
@@ -238,6 +240,7 @@ gl_SYS_SOCKET_MODULE_INDICATOR([accept])
 gl_FUNC_ALLOCA
 gl_HEADER_ARPA_INET
 AC_PROG_MKDIR_P
+AC_REQUIRE([AC_C_INLINE])
 AC_REQUIRE([gl_HEADER_SYS_SOCKET])
 if test "$ac_cv_header_winsock2_h" = yes; then
   AC_LIBOBJ([bind])
@@ -263,6 +266,7 @@ if test $REPLACE_CEIL = 1; then
 fi
 gl_MATH_MODULE_INDICATOR([ceil])
 gl_UNISTD_MODULE_INDICATOR([chdir])
+gl_CLOCK_TIME
 gl_FUNC_CLOSE
 if test $REPLACE_CLOSE = 1; then
   AC_LIBOBJ([close])
@@ -425,6 +429,7 @@ if test $HAVE_ISNANL = 0 || test $REPLACE_ISNAN = 1; then
 fi
 gl_MATH_MODULE_INDICATOR([isnanl])
 gl_LANGINFO_H
+AC_REQUIRE([gl_LARGEFILE])
 gl_FUNC_LDEXP
 gl_LD_VERSION_SCRIPT
 gl_VISIBILITY
@@ -438,7 +443,22 @@ gl_LOCALCHARSET
 LOCALCHARSET_TESTS_ENVIRONMENT="CHARSETALIASDIR=\"\$(abs_top_builddir)/$gl_source_base\""
 AC_SUBST([LOCALCHARSET_TESTS_ENVIRONMENT])
 gl_LOCALE_H
-gl_COMMON_DOUBLE_MATHFUNC([log1p])
+gl_FUNC_LOCALECONV
+if test $REPLACE_LOCALECONV = 1; then
+  AC_LIBOBJ([localeconv])
+  gl_PREREQ_LOCALECONV
+fi
+gl_LOCALE_MODULE_INDICATOR([localeconv])
+AC_REQUIRE([gl_FUNC_LOG])
+if test $REPLACE_LOG = 1; then
+  AC_LIBOBJ([log])
+fi
+gl_MATH_MODULE_INDICATOR([log])
+gl_FUNC_LOG1P
+if test $HAVE_LOG1P = 0 || test $REPLACE_LOG1P = 1; then
+  AC_LIBOBJ([log1p])
+fi
+gl_MATH_MODULE_INDICATOR([log1p])
 gl_FUNC_LSTAT
 if test $REPLACE_LSTAT = 1; then
   AC_LIBOBJ([lstat])
@@ -558,6 +578,11 @@ if test $REPLACE_RMDIR = 1; then
   AC_LIBOBJ([rmdir])
 fi
 gl_UNISTD_MODULE_INDICATOR([rmdir])
+gl_FUNC_ROUND
+if test $HAVE_ROUND = 0 || test $REPLACE_ROUND = 1; then
+  AC_LIBOBJ([round])
+fi
+gl_MATH_MODULE_INDICATOR([round])
 gl_PREREQ_SAFE_READ
 gl_PREREQ_SAFE_WRITE
 AC_REQUIRE([gl_HEADER_SYS_SOCKET])
@@ -623,22 +648,12 @@ gl_STDDEF_H
 gl_STDINT_H
 gl_STDIO_H
 gl_STDLIB_H
-gl_STRCASE
-if test $HAVE_STRCASECMP = 0; then
-  AC_LIBOBJ([strcasecmp])
-  gl_PREREQ_STRCASECMP
-fi
-if test $HAVE_STRNCASECMP = 0; then
-  AC_LIBOBJ([strncasecmp])
-  gl_PREREQ_STRNCASECMP
-fi
 gl_FUNC_GNU_STRFTIME
 if test $gl_cond_libtool = false; then
   gl_ltlibdeps="$gl_ltlibdeps $LTLIBICONV"
   gl_libdeps="$gl_libdeps $LIBICONV"
 fi
 gl_HEADER_STRING_H
-gl_HEADER_STRINGS_H
 gl_HEADER_SYS_FILE_H
 AC_PROG_MKDIR_P
 gl_HEADER_SYS_SOCKET
@@ -678,7 +693,6 @@ gl_LIBUNISTRING_LIBHEADER([0.9], [unitypes.h])
 gl_FUNC_VASNPRINTF
 gl_FUNC_VSNPRINTF
 gl_STDIO_MODULE_INDICATOR([vsnprintf])
-AC_SUBST([WARN_CFLAGS])
 gl_WCHAR_H
 gl_FUNC_WCRTOMB
 if test $HAVE_WCRTOMB = 0 || test $REPLACE_WCRTOMB = 1; then
@@ -918,6 +932,9 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/localcharset.c
   lib/localcharset.h
   lib/locale.in.h
+  lib/localeconv.c
+  lib/log.c
+  lib/log1p.c
   lib/lstat.c
   lib/malloc.c
   lib/malloca.c
@@ -962,6 +979,7 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/regexec.c
   lib/rename.c
   lib/rmdir.c
+  lib/round.c
   lib/safe-read.c
   lib/safe-read.h
   lib/safe-write.c
@@ -986,16 +1004,13 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/stdint.in.h
   lib/stdio.in.h
   lib/stdlib.in.h
-  lib/strcasecmp.c
   lib/streq.h
   lib/strftime.c
   lib/strftime.h
   lib/striconveh.c
   lib/striconveh.h
   lib/string.in.h
-  lib/strings.in.h
   lib/stripslash.c
-  lib/strncasecmp.c
   lib/sys_file.in.h
   lib/sys_socket.in.h
   lib/sys_stat.in.h
@@ -1036,6 +1051,7 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/canonicalize.m4
   m4/ceil.m4
   m4/check-math-lib.m4
+  m4/clock_time.m4
   m4/close.m4
   m4/codeset.m4
   m4/configmake.m4
@@ -1093,6 +1109,9 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/locale-ja.m4
   m4/locale-zh.m4
   m4/locale_h.m4
+  m4/localeconv.m4
+  m4/log.m4
+  m4/log1p.m4
   m4/longlong.m4
   m4/lstat.m4
   m4/malloc.m4
@@ -1114,6 +1133,7 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/nl_langinfo.m4
   m4/nocrash.m4
   m4/nproc.m4
+  m4/off_t.m4
   m4/open.m4
   m4/pathmax.m4
   m4/pipe2.m4
@@ -1125,6 +1145,7 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/regex.m4
   m4/rename.m4
   m4/rmdir.m4
+  m4/round.m4
   m4/safe-read.m4
   m4/safe-write.m4
   m4/servent.m4
@@ -1146,10 +1167,8 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/stdint_h.m4
   m4/stdio_h.m4
   m4/stdlib_h.m4
-  m4/strcase.m4
   m4/strftime.m4
   m4/string_h.m4
-  m4/strings_h.m4
   m4/sys_file_h.m4
   m4/sys_socket_h.m4
   m4/sys_stat_h.m4
