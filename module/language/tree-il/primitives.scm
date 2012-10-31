@@ -516,6 +516,27 @@
 (define-primitive-expander f64vector-set! (vec i x)
   (bytevector-ieee-double-native-set! vec (* i 8) x))
 
+;; Appropriate for use with either 'eqv?' or 'equal?'.
+(define maybe-simplify-to-eq
+  (case-lambda
+    ((src a b)
+     ;; Simplify cases where either A or B is constant.
+     (define (maybe-simplify a b)
+       (and (const? a)
+            (let ((v (const-exp a)))
+              (and (or (memq v '(#f #t () #nil))
+                       (symbol? v)
+                       (and (integer? v)
+                            (exact? v)
+                            (<= v most-positive-fixnum)
+                            (>= v most-negative-fixnum)))
+                   (make-primcall src 'eq? (list a b))))))
+     (or (maybe-simplify a b) (maybe-simplify b a)))
+    (else #f)))
+
+(hashq-set! *primitive-expand-table* 'eqv?   maybe-simplify-to-eq)
+(hashq-set! *primitive-expand-table* 'equal? maybe-simplify-to-eq)
+
 (hashq-set! *primitive-expand-table*
             '@dynamic-wind
             (case-lambda

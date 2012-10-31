@@ -58,6 +58,20 @@
      (assert-tree-il->glil with-partial-evaluation
                            in pat test ...))))
 
+(define-syntax-rule (pass-if-primitives-resolved in expected)
+  (pass-if (format #f "primitives-resolved in ~s" 'in)
+    (let* ((module   (let ((m (make-module)))
+                       (beautify-user-module! m)
+                       m))
+           (orig     (parse-tree-il 'in))
+           (resolved (expand-primitives! (resolve-primitives! orig module))))
+      (or (equal? (unparse-tree-il resolved) 'expected)
+          (begin
+            (format (current-error-port)
+                    "primitive test failed: got ~s, expected ~s"
+                    resolved 'expected)
+            #f)))))
+
 (define-syntax pass-if-tree-il->scheme
   (syntax-rules ()
     ((_ in pat)
@@ -68,6 +82,69 @@
                 (compile 'in #:from 'scheme #:to 'tree-il))
          (pat (guard guard-exp) #t)
          (_ #f))))))
+
+
+(with-test-prefix "primitives"
+
+  (with-test-prefix "eqv?"
+
+    (pass-if-primitives-resolved
+        (primcall eqv? (toplevel x) (const #f))
+      (primcall eq? (const #f) (toplevel x)))
+
+    (pass-if-primitives-resolved
+        (primcall eqv? (toplevel x) (const ()))
+      (primcall eq? (const ()) (toplevel x)))
+
+    (pass-if-primitives-resolved
+        (primcall eqv? (const #t) (lexical x y))
+      (primcall eq? (const #t) (lexical x y)))
+
+    (pass-if-primitives-resolved
+        (primcall eqv? (const this-is-a-symbol) (toplevel x))
+      (primcall eq? (const this-is-a-symbol) (toplevel x)))
+
+    (pass-if-primitives-resolved
+        (primcall eqv? (const 42) (toplevel x))
+      (primcall eq? (const 42) (toplevel x)))
+
+    (pass-if-primitives-resolved
+        (primcall eqv? (const 42.0) (toplevel x))
+      (primcall eqv? (const 42.0) (toplevel x)))
+
+    (pass-if-primitives-resolved
+        (primcall eqv? (const #nil) (toplevel x))
+      (primcall eq? (const #nil) (toplevel x))))
+
+  (with-test-prefix "equal?"
+
+    (pass-if-primitives-resolved
+        (primcall equal? (toplevel x) (const #f))
+      (primcall eq? (const #f) (toplevel x)))
+
+    (pass-if-primitives-resolved
+        (primcall equal? (toplevel x) (const ()))
+      (primcall eq? (const ()) (toplevel x)))
+
+    (pass-if-primitives-resolved
+        (primcall equal? (const #t) (lexical x y))
+      (primcall eq? (const #t) (lexical x y)))
+
+    (pass-if-primitives-resolved
+        (primcall equal? (const this-is-a-symbol) (toplevel x))
+      (primcall eq? (const this-is-a-symbol) (toplevel x)))
+
+    (pass-if-primitives-resolved
+        (primcall equal? (const 42) (toplevel x))
+      (primcall eq? (const 42) (toplevel x)))
+
+    (pass-if-primitives-resolved
+        (primcall equal? (const 42.0) (toplevel x))
+      (primcall equal? (const 42.0) (toplevel x)))
+
+    (pass-if-primitives-resolved
+        (primcall equal? (const #nil) (toplevel x))
+      (primcall eq? (const #nil) (toplevel x)))))
 
 
 (with-test-prefix "tree-il->scheme"
@@ -1704,3 +1781,8 @@
                               #:to 'assembly)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w) "unsupported format option"))))))))
+
+;; Local Variables:
+;; eval: (put 'pass-if-primitives-resolved 'scheme-indent-function 1)
+;; eval: (put 'pass-if-tree-il->scheme 'scheme-indent-function 1)
+;; End:

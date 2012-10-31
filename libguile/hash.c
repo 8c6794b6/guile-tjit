@@ -1,4 +1,5 @@
-/*	Copyright (C) 1995,1996,1997, 2000, 2001, 2003, 2004, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995, 1996, 1997, 2000, 2001, 2003, 2004, 2006, 2008,
+ *   2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -223,6 +224,53 @@ scm_i_utf8_string_hash (const char *str, size_t len)
   return ret;
 }
 
+static unsigned long scm_raw_ihashq (scm_t_bits key);
+static unsigned long scm_raw_ihash (SCM obj, size_t depth);
+
+/* Return the hash of struct OBJ.  Traverse OBJ's fields to compute the
+   result, unless DEPTH is zero.  Assumes that OBJ is a struct.  */
+static unsigned long
+scm_i_struct_hash (SCM obj, size_t depth)
+{
+  SCM layout;
+  scm_t_bits *data;
+  size_t struct_size, field_num;
+  unsigned long hash;
+
+  layout = SCM_STRUCT_LAYOUT (obj);
+  struct_size = scm_i_symbol_length (layout) / 2;
+  data = SCM_STRUCT_DATA (obj);
+
+  hash = scm_raw_ihashq (SCM_UNPACK (SCM_STRUCT_VTABLE (obj)));
+  if (depth > 0)
+    for (field_num = 0; field_num < struct_size; field_num++)
+      {
+        int protection;
+
+        protection = scm_i_symbol_ref (layout, field_num * 2 + 1);
+        if (protection != 'h' && protection != 'o')
+          {
+            int type;
+            type = scm_i_symbol_ref (layout, field_num * 2);
+            switch (type)
+              {
+              case 'p':
+                hash ^= scm_raw_ihash (SCM_PACK (data[field_num]),
+                                       depth / 2);
+                break;
+              case 'u':
+                hash ^= scm_raw_ihashq (data[field_num]);
+                break;
+              default:
+                /* Ignore 's' fields.  */;
+              }
+          }
+      }
+
+  /* FIXME: Tail elements should be taken into account.  */
+
+  return hash;
+}
 
 /* Thomas Wang's integer hasher, from
    http://www.cris.com/~Ttwang/tech/inthash.htm.  */
@@ -298,6 +346,8 @@ scm_raw_ihash (SCM obj, size_t depth)
                 ^ scm_raw_ihash (SCM_CDR (obj), depth / 2));
       else
         return scm_raw_ihashq (scm_tc3_cons);
+    case scm_tcs_struct:
+      return scm_i_struct_hash (obj, depth);
     default:
       return scm_raw_ihashq (SCM_CELL_WORD_0 (obj));
     }

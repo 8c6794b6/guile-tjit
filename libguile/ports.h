@@ -132,6 +132,10 @@ typedef struct
   scm_t_port_encoding_mode encoding_mode;
   scm_t_string_failed_conversion_handler ilseq_handler;
   scm_t_iconv_descriptors *iconv_descriptors;
+
+  /* an alist for storing additional information
+     (e.g. used to store per-port read options) */
+  SCM alist;
 } scm_t_port;
 
 

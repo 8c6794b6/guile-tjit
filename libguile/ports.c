@@ -613,6 +613,8 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   entry->ilseq_handler = handler;
   entry->iconv_descriptors = NULL;
 
+  entry->alist = SCM_EOL;
+
   if (SCM_PORT_DESCRIPTOR (ret)->free)
     scm_i_set_finalizer (SCM2PTR (ret), finalize_port, NULL);
 
@@ -2370,7 +2372,7 @@ scm_lfwrite_substr (SCM str, size_t start, size_t end, SCM port)
   if (end == (size_t) -1)
     end = scm_i_string_length (str);
 
-  scm_display (scm_c_substring (str, start, end), port);
+  scm_i_display_substring (str, start, end, port);
 
   if (pt->rw_random)
     pt->rw_active = SCM_PORT_WRITE;
