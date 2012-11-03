@@ -1,6 +1,6 @@
 ;;;; unif.test --- tests guile's uniform arrays     -*- scheme -*-
 ;;;;
-;;;; Copyright 2004, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
+;;;; Copyright 2004, 2006, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -211,11 +211,41 @@
 ;;;
 
 (with-test-prefix "array->list"
-  (pass-if (equal? (array->list #s16(1 2 3)) '(1 2 3)))
-  (pass-if (equal? (array->list #(1 2 3)) '(1 2 3)))
-  (pass-if (equal? (array->list #2((1 2) (3 4) (5 6))) '((1 2) (3 4) (5 6))))
-  (pass-if (equal? (array->list #()) '())))
+  (pass-if-equal '(1 2 3) (array->list #s16(1 2 3)))
+  (pass-if-equal '(1 2 3) (array->list #(1 2 3)))
+  (pass-if-equal '((1 2) (3 4) (5 6)) (array->list #2((1 2) (3 4) (5 6))))
+  (pass-if-equal '()  (array->list #()))
 
+  (pass-if-equal "http://bugs.gnu.org/12465 - ok"
+      '(3 4)
+    (let* ((a #2((1 2) (3 4)))
+           (b (make-shared-array a (lambda (j) (list 1 j)) 2)))
+      (array->list b)))
+  (pass-if-equal "http://bugs.gnu.org/12465 - bad"
+      '(2 4)
+    (let* ((a #2((1 2) (3 4)))
+           (b (make-shared-array a (lambda (i) (list i 1)) 2)))
+      (array->list b))))
+
+;;;
+;;; generalized-vector->list
+;;;
+
+(with-test-prefix "generalized-vector->list"
+  (pass-if-equal '(1 2 3) (generalized-vector->list #s16(1 2 3)))
+  (pass-if-equal '(1 2 3) (generalized-vector->list #(1 2 3)))
+  (pass-if-equal '()  (generalized-vector->list #()))
+
+  (pass-if-equal "http://bugs.gnu.org/12465 - ok"
+      '(3 4)
+    (let* ((a #2((1 2) (3 4)))
+           (b (make-shared-array a (lambda (j) (list 1 j)) 2)))
+      (generalized-vector->list b)))
+  (pass-if-equal "http://bugs.gnu.org/12465 - bad"
+      '(2 4)
+    (let* ((a #2((1 2) (3 4)))
+           (b (make-shared-array a (lambda (i) (list i 1)) 2)))
+      (generalized-vector->list b))))
 
 ;;;
 ;;; array-fill!
