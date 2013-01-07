@@ -3753,9 +3753,14 @@ module '(ice-9 q) '(make-q q-length))}."
 
 (define %auto-compilation-options
   ;; Default `compile-file' option when auto-compiling.
-  '(#:warnings (unbound-variable arity-mismatch format)))
+  '(#:warnings (unbound-variable arity-mismatch format
+                duplicate-case-datum bad-case-datum)))
 
 (define* (load-in-vicinity dir path #:optional reader)
+  "Load source file PATH in vicinity of directory DIR.  Use a pre-compiled
+version of PATH when available, and auto-compile one when none is available,
+reading PATH with READER."
+
   (define (canonical->suffix canon)
     (cond
      ((string-prefix? "/" canon) canon)
@@ -3764,6 +3769,49 @@ module '(ice-9 q) '(make-q q-length))}."
       ;; Paths like C:... transform to /C...
       (string-append "/" (substring canon 0 1) (substring canon 2)))
      (else canon)))
+
+  (define compiled-extension
+    ;; File name extension of compiled files.
+    (cond ((or (null? %load-compiled-extensions)
+               (string-null? (car %load-compiled-extensions)))
+           (warn "invalid %load-compiled-extensions"
+                 %load-compiled-extensions)
+           ".go")
+          (else (car %load-compiled-extensions))))
+
+  (define (more-recent? stat1 stat2)
+    ;; Return #t when STAT1 has an mtime greater than that of STAT2.
+    (or (> (stat:mtime stat1) (stat:mtime stat2))
+        (and (= (stat:mtime stat1) (stat:mtime stat2))
+             (>= (stat:mtimensec stat1)
+                 (stat:mtimensec stat2)))))
+
+  (define (fallback-file-name canon-path)
+    ;; Return the in-cache compiled file name for source file CANON-PATH.
+
+    ;; FIXME: would probably be better just to append SHA1(canon-path)
+    ;; to the %compile-fallback-path, to avoid deep directory stats.
+    (and %compile-fallback-path
+         (string-append %compile-fallback-path
+                        (canonical->suffix canon-path)
+                        compiled-extension)))
+
+  (define (compile file)
+    ;; Compile source FILE, lazily loading the compiler.
+    ((module-ref (resolve-interface '(system base compile))
+                 'compile-file)
+     file
+     #:opts %auto-compilation-options
+     #:env (current-module)))
+
+  (define (warn-about-exception key args)
+    (for-each (lambda (s)
+                (if (not (string-null? s))
+                    (format (current-warning-port) ";;; ~a\n" s)))
+              (string-split
+               (call-with-output-string
+                (lambda (port) (print-exception port #f key args)))
+               #\newline)))
 
   ;; Returns the .go file corresponding to `name'. Does not search load
   ;; paths, only the fallback path. If the .go file is missing or out of
@@ -3774,32 +3822,15 @@ module '(ice-9 q) '(make-q q-length))}."
   ;; NB: Unless we need to compile the file, this function should not cause
   ;; (system base compile) to be loaded up. For that reason compiled-file-name
   ;; partially duplicates functionality from (system base compile).
-  ;;
-  (define (compiled-file-name canon-path)
-    ;; FIXME: would probably be better just to append SHA1(canon-path)
-    ;; to the %compile-fallback-path, to avoid deep directory stats.
-    (and %compile-fallback-path
-         (string-append
-          %compile-fallback-path
-          (canonical->suffix canon-path)
-          (cond ((or (null? %load-compiled-extensions)
-                     (string-null? (car %load-compiled-extensions)))
-                 (warn "invalid %load-compiled-extensions"
-                       %load-compiled-extensions)
-                 ".go")
-                (else (car %load-compiled-extensions))))))
 
-  (define (fresh-compiled-file-name name go-path)
+  (define (fresh-compiled-file-name name scmstat go-path)
+    ;; Return GO-PATH after making sure that it contains a freshly compiled
+    ;; version of source file NAME with stat SCMSTAT; return #f on failure.
     (catch #t
       (lambda ()
-        (let* ((scmstat (stat name))
-               (gostat  (and (not %fresh-auto-compile)
-                             (stat go-path #f))))
-          (if (and gostat
-                   (or (> (stat:mtime gostat) (stat:mtime scmstat))
-                       (and (= (stat:mtime gostat) (stat:mtime scmstat))
-                            (>= (stat:mtimensec gostat)
-                                (stat:mtimensec scmstat)))))
+        (let ((gostat (and (not %fresh-auto-compile)
+                           (stat go-path #f))))
+          (if (and gostat (more-recent? gostat scmstat))
               go-path
               (begin
                 (if gostat
@@ -3810,51 +3841,66 @@ module '(ice-9 q) '(make-q q-length))}."
                  (%load-should-auto-compile
                   (%warn-auto-compilation-enabled)
                   (format (current-warning-port) ";;; compiling ~a\n" name)
-                  (let ((cfn
-                         ((module-ref
-                               (resolve-interface '(system base compile))
-                               'compile-file)
-                              name
-                              #:opts %auto-compilation-options
-                              #:env (current-module))))
+                  (let ((cfn (compile name)))
                     (format (current-warning-port) ";;; compiled ~a\n" cfn)
                     cfn))
                  (else #f))))))
       (lambda (k . args)
         (format (current-warning-port)
                 ";;; WARNING: compilation of ~a failed:\n" name)
-        (for-each (lambda (s)
-                    (if (not (string-null? s))
-                        (format (current-warning-port) ";;; ~a\n" s)))
-                  (string-split
-                   (call-with-output-string
-                    (lambda (port) (print-exception port #f k args)))
-                   #\newline))
+        (warn-about-exception k args)
         #f)))
 
   (define (absolute-path? path)
     (string-prefix? "/" path))
 
+  (define (sans-extension file)
+    (let ((dot (string-rindex file #\.)))
+      (if dot
+          (substring file 0 dot)
+          file)))
+
   (define (load-absolute abs-path)
-    (let ((cfn (let ((canon (false-if-exception (canonicalize-path abs-path))))
-                 (and canon
-                      (let ((go-path (compiled-file-name canon)))
-                        (and go-path
-                             (fresh-compiled-file-name abs-path go-path)))))))
-      (if cfn
+    ;; Load from ABS-PATH, using a compiled file or auto-compiling if needed.
+    (define scmstat
+      (catch #t
+        (lambda ()
+          (stat abs-path))
+        (lambda (key . args)
+          (warn-about-exception key args)
+          #f)))
+
+    (define (pre-compiled)
+      (let ((go-path (search-path %load-compiled-path (sans-extension path)
+                                  %load-compiled-extensions #t)))
+        (and go-path
+             (let ((gostat (stat go-path #f)))
+               (and gostat (more-recent? gostat scmstat)
+                    go-path)))))
+
+    (define (fallback)
+      (let ((canon (false-if-exception (canonicalize-path abs-path))))
+        (and canon
+             (let ((go-path (fallback-file-name canon)))
+               (and go-path
+                    (fresh-compiled-file-name abs-path scmstat go-path))))))
+
+    (let ((compiled (and scmstat
+                         (or (pre-compiled) (fallback)))))
+      (if compiled
           (begin
             (if %load-hook
                 (%load-hook abs-path))
-            (load-compiled cfn))
+            (load-compiled compiled))
           (start-stack 'load-stack
                        (primitive-load abs-path)))))
-  
+
   (save-module-excursion
    (lambda ()
      (with-fluids ((current-reader reader)
                    (%file-port-name-canonicalization 'relative))
        (cond
-        ((or (absolute-path? path))
+        ((absolute-path? path)
          (load-absolute path))
         ((absolute-path? dir)
          (load-absolute (in-vicinity dir path)))

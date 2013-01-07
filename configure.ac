@@ -35,8 +35,8 @@ AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR(GUILE-VERSION)
 
-dnl `AM_SUBST_NOTMAKE' was introduced in Automake 1.11.
-AM_INIT_AUTOMAKE([1.11 gnu no-define -Wall -Wno-override color-tests dist-xz])
+dnl `AM_PROG_AR' was introduced in Automake 1.11.2.
+AM_INIT_AUTOMAKE([1.11.2 gnu no-define -Wall -Wno-override color-tests dist-xz])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])], [AC_SUBST([AM_DEFAULT_VERBOSITY],1)])
 
 AC_COPYRIGHT(GUILE_CONFIGURE_COPYRIGHT)
@@ -78,10 +78,6 @@ AC_LIBTOOL_DLOPEN
 AC_PROG_LIBTOOL
 
 AM_CONDITIONAL([HAVE_SHARED_LIBRARIES], [test "x$enable_shared" = "xyes"])
-
-AC_DEFINE_UNQUOTED([SHARED_LIBRARY_PATH_VARIABLE], ["$shlibpath_var"],
-  [Name of the environment variable that tells the dynamic linker where
-to find shared libraries.])
 
 dnl Check for libltdl.
 AC_LIB_HAVE_LINKFLAGS([ltdl], [], [#include <ltdl.h>],
@@ -748,10 +744,13 @@ AC_CHECK_HEADERS([assert.h crt_externs.h])
 #   isblank - available as a GNU extension or in C99
 #   _NSGetEnviron - Darwin specific
 #   strcoll_l, newlocale - GNU extensions (glibc), also available on Darwin
+#   fork - unavailable on Windows
 #   utimensat: posix.1-2008
 #   sched_getaffinity, sched_setaffinity: GNU extensions (glibc)
 #
 AC_CHECK_FUNCS([DINFINITY DQNAN cexp chsize clog clog10 ctermid fesetround ftime ftruncate fchown fchmod getcwd geteuid getsid gettimeofday gmtime_r ioctl lstat mkdir mknod nice pipe _pipe poll readdir_r readdir64_r readlink rename rmdir select setegid seteuid setlocale setpgid setsid sigaction siginterrupt stat64 strftime strptime symlink sync sysconf tcgetpgrp tcsetpgrp times uname waitpid strdup system usleep atexit on_exit chown link fcntl ttyname getpwent getgrent kill getppid getpgrp fork setitimer getitimer strchr strcmp index bcopy memcpy rindex truncate unsetenv isblank _NSGetEnviron strcoll strcoll_l newlocale utimensat sched_getaffinity sched_setaffinity])
+
+AM_CONDITIONAL([HAVE_FORK], [test "x$ac_cv_func_fork" = "xyes"])
 
 # Reasons for testing:
 #   netdb.h - not in mingw

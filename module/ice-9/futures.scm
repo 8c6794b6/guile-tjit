@@ -19,8 +19,10 @@
 (define-module (ice-9 futures)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
-  #:use-module (ice-9 threads)
+  #:use-module (srfi srfi-9 gnu)
+  #:use-module (srfi srfi-11)
   #:use-module (ice-9 q)
+  #:use-module (ice-9 match)
   #:export (future make-future future? touch))
 
 ;;; Author: Ludovic Courtès <ludo@gnu.org>
@@ -44,19 +46,29 @@
 ;;;
 
 (define-record-type <future>
-  (%make-future thunk done? mutex)
+  (%make-future thunk state mutex completion)
   future?
-  (thunk     future-thunk)
-  (done?     future-done?  set-future-done?!)
-  (result    future-result set-future-result!)
-  (mutex     future-mutex))
+  (thunk        future-thunk  set-future-thunk!)
+  (state        future-state  set-future-state!)  ; done | started | queued
+  (result       future-result set-future-result!)
+  (mutex        future-mutex)
+  (completion   future-completion))               ; completion cond. var.
+
+(set-record-type-printer!
+ <future>
+ (lambda (future port)
+   (simple-format port "#<future ~a ~a ~s>"
+                  (number->string (object-address future) 16)
+                  (future-state future)
+                  (future-thunk future))))
 
 (define (make-future thunk)
   "Return a new future for THUNK.  Execution may start at any point
 concurrently, or it can start at the time when the returned future is
 touched."
   (create-workers!)
-  (let ((future (%make-future thunk #f (make-mutex))))
+  (let ((future (%make-future thunk 'queued
+                              (make-mutex) (make-condition-variable))))
     (register-future! future)
     future))
 
@@ -65,10 +77,44 @@ touched."
 ;;; Future queues.
 ;;;
 
+;; Global queue of pending futures.
+;; TODO: Use per-worker queues to reduce contention.
 (define %futures (make-q))
+
+;; Lock for %FUTURES and %FUTURES-WAITING.
 (define %futures-mutex (make-mutex))
 (define %futures-available (make-condition-variable))
 
+;; A mapping of nested futures to futures waiting for them to complete.
+(define %futures-waiting '())
+
+;; Whether currently running within a future.
+(define %within-future? (make-parameter #f))
+
+(define-syntax-rule (with-mutex m e0 e1 ...)
+  ;; Copied from (ice-9 threads) to avoid circular dependency.
+  (let ((x m))
+    (dynamic-wind
+      (lambda () (lock-mutex x))
+      (lambda () (begin e0 e1 ...))
+      (lambda () (unlock-mutex x)))))
+
+(define-syntax-rule (let/ec k e e* ...)           ; TODO: move to core
+  (let ((tag (make-prompt-tag)))
+    (call-with-prompt
+     tag
+     (lambda ()
+       (let ((k (lambda args (apply abort-to-prompt tag args))))
+         e e* ...))
+     (lambda (_ res) res))))
+
+
+(define %future-prompt
+  ;; The prompt futures abort to when they want to wait for another
+  ;; future.
+  (make-prompt-tag))
+
+
 (define (register-future! future)
   ;; Register FUTURE as being processable.
   (lock-mutex %futures-mutex)
@@ -77,66 +123,146 @@ touched."
   (unlock-mutex %futures-mutex))
 
 (define (process-future! future)
-  ;; Process FUTURE, assuming its mutex is already taken.
-  (set-future-result! future
-                      (catch #t
-                        (lambda ()
-                          (call-with-values (future-thunk future)
-                            (lambda results
+  "Process FUTURE.  When FUTURE completes, return #t and update its
+result; otherwise, when FUTURE touches a nested future that has not
+completed yet, then suspend it and return #f.  Suspending a future
+consists in capturing its continuation, marking it as `queued', and
+adding it to the waiter queue."
+  (let/ec return
+    (let* ((suspend
+            (lambda (cont future-to-wait)
+              ;; FUTURE wishes to wait for the completion of FUTURE-TO-WAIT.
+              ;; At this point, FUTURE is unlocked and in `started' state,
+              ;; and FUTURE-TO-WAIT is unlocked.
+              (with-mutex %futures-mutex
+                (with-mutex (future-mutex future)
+                  (set-future-thunk! future cont)
+                  (set-future-state! future 'queued))
+
+                (with-mutex (future-mutex future-to-wait)
+                  ;; If FUTURE-TO-WAIT completed in the meantime, then
+                  ;; reschedule FUTURE directly; otherwise, add it to the
+                  ;; waiter queue.
+                  (if (eq? 'done (future-state future-to-wait))
+                      (begin
+                        (enq! %futures future)
+                        (signal-condition-variable %futures-available))
+                      (set! %futures-waiting
+                            (alist-cons future-to-wait future
+                                        %futures-waiting))))
+
+                (return #f))))
+           (thunk (lambda ()
+                    (call-with-prompt %future-prompt
+                                      (lambda ()
+                                        (parameterize ((%within-future? #t))
+                                          ((future-thunk future))))
+                                      suspend))))
+      (set-future-result! future
+                          (catch #t
+                            (lambda ()
+                              (call-with-values thunk
+                                (lambda results
+                                  (lambda ()
+                                    (apply values results)))))
+                            (lambda args
                               (lambda ()
-                                (apply values results)))))
-                        (lambda args
-                          (lambda ()
-                            (apply throw args)))))
-  (set-future-done?! future #t))
+                                (apply throw args)))))
+      #t)))
+
+(define (process-one-future)
+  "Attempt to pick one future from the queue and process it."
+  ;; %FUTURES-MUTEX must be locked on entry, and is locked on exit.
+  (or (q-empty? %futures)
+      (let ((future (deq! %futures)))
+        (lock-mutex (future-mutex future))
+        (case (future-state future)
+          ((done started)
+           ;; Nothing to do.
+           (unlock-mutex (future-mutex future)))
+          (else
+           ;; Do the actual work.
+
+           ;; We want to release %FUTURES-MUTEX so that other workers can
+           ;; progress.  However, to avoid deadlocks, we have to unlock
+           ;; FUTURE as well, to preserve lock ordering.
+           (unlock-mutex (future-mutex future))
+           (unlock-mutex %futures-mutex)
+
+           (lock-mutex (future-mutex future))
+           (if (eq? (future-state future) 'queued) ; lost the race?
+               (begin                          ; no, so let's process it
+                 (set-future-state! future 'started)
+                 (unlock-mutex (future-mutex future))
+
+                 (let ((done? (process-future! future)))
+                   (when done?
+                     (with-mutex %futures-mutex
+                       (with-mutex (future-mutex future)
+                         (set-future-state! future 'done)
+                         (notify-completion future))))))
+               (unlock-mutex (future-mutex future))) ; yes
+
+           (lock-mutex %futures-mutex))))))
 
 (define (process-futures)
-  ;; Wait for futures to be available and process them.
+  "Continuously process futures from the queue."
   (lock-mutex %futures-mutex)
   (let loop ()
     (when (q-empty? %futures)
       (wait-condition-variable %futures-available
                                %futures-mutex))
 
-    (or (q-empty? %futures)
-        (let ((future (deq! %futures)))
-          (lock-mutex (future-mutex future))
-          (or (and (future-done? future)
-                   (unlock-mutex (future-mutex future)))
-              (begin
-                ;; Do the actual work.
-
-                ;; We want to release %FUTURES-MUTEX so that other workers
-                ;; can progress.  However, to avoid deadlocks, we have to
-                ;; unlock FUTURE as well, to preserve lock ordering.
-                (unlock-mutex (future-mutex future))
-                (unlock-mutex %futures-mutex)
-
-                (lock-mutex (future-mutex future))
-                (or (future-done? future)            ; lost the race?
-                    (process-future! future))
-                (unlock-mutex (future-mutex future))
-
-                (lock-mutex %futures-mutex)))))
+    (process-one-future)
     (loop)))
+
+(define (notify-completion future)
+  "Notify futures and callers waiting that FUTURE completed."
+  ;; FUTURE and %FUTURES-MUTEX are locked.
+  (broadcast-condition-variable (future-completion future))
+  (let-values (((waiting remaining)
+                (partition (match-lambda          ; TODO: optimize
+                            ((waitee . _)
+                             (eq? waitee future)))
+                           %futures-waiting)))
+    (set! %futures-waiting remaining)
+    (for-each (match-lambda
+               ((_ . waiter)
+                (enq! %futures waiter)))
+              waiting)))
 
 (define (touch future)
   "Return the result of FUTURE, computing it if not already done."
-  (lock-mutex (future-mutex future))
-  (or (future-done? future)
-      (begin
-        ;; Do the actual work.  Unlock FUTURE first to preserve lock
-        ;; ordering.
-        (unlock-mutex (future-mutex future))
+  (define (work)
+    ;; Do some work while waiting for FUTURE to complete.
+    (lock-mutex %futures-mutex)
+    (if (q-empty? %futures)
+        (begin
+          (unlock-mutex %futures-mutex)
+          (with-mutex (future-mutex future)
+            (unless (eq? 'done (future-state future))
+              (wait-condition-variable (future-completion future)
+                                       (future-mutex future)))))
+        (begin
+          (process-one-future)
+          (unlock-mutex %futures-mutex))))
 
-        (lock-mutex %futures-mutex)
-        (q-remove! %futures future)
-        (unlock-mutex %futures-mutex)
-
-        (lock-mutex (future-mutex future))
-        (or (future-done? future)            ; lost the race?
-            (process-future! future))))
-  (unlock-mutex (future-mutex future))
+  (let loop ()
+    (lock-mutex (future-mutex future))
+    (case (future-state future)
+      ((done)
+       (unlock-mutex (future-mutex future)))
+      ((started)
+       (unlock-mutex (future-mutex future))
+       (if (%within-future?)
+           (abort-to-prompt %future-prompt future)
+           (begin
+             (work)
+             (loop))))
+      (else
+       (unlock-mutex (future-mutex future))
+       (work)
+       (loop))))
   ((future-result future)))
 
 
@@ -184,3 +310,7 @@ touched."
 (define-syntax-rule (future body)
   "Return a new future for BODY."
   (make-future (lambda () body)))
+
+;;; Local Variables:
+;;; eval: (put 'with-mutex 'scheme-indent-function 1)
+;;; End:

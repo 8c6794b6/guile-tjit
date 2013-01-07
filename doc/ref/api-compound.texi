@@ -105,10 +105,14 @@ Return 1 when @var{x} is a pair; otherwise return 0.
 The two parts of a pair are traditionally called @dfn{car} and
 @dfn{cdr}.  They can be retrieved with procedures of the same name
 (@code{car} and @code{cdr}), and can be modified with the procedures
-@code{set-car!} and @code{set-cdr!}.  Since a very common operation in
-Scheme programs is to access the car of a car of a pair, or the car of
-the cdr of a pair, etc., the procedures called @code{caar},
-@code{cadr} and so on are also predefined.
+@code{set-car!} and @code{set-cdr!}.
+
+Since a very common operation in Scheme programs is to access the car of
+a car of a pair, or the car of the cdr of a pair, etc., the procedures
+called @code{caar}, @code{cadr} and so on are also predefined.  However,
+using these procedures is often detrimental to readability, and
+error-prone.  Thus, accessing the contents of a list is usually better
+achieved using pattern matching techniques (@pxref{Pattern Matching}).
 
 @rnindex car
 @rnindex cdr
@@ -2381,9 +2385,9 @@ You may use @code{set-record-type-printer!} to customize the default printing
 behavior of records.  This is a Guile extension and is not part of SRFI-9.  It
 is located in the @nicode{(srfi srfi-9 gnu)} module.
 
-@deffn {Scheme Syntax} set-record-type-printer! name thunk
+@deffn {Scheme Syntax} set-record-type-printer! name proc
 Where @var{type} corresponds to the first argument of @code{define-record-type},
-and @var{thunk} is a procedure accepting two arguments, the record to print, and
+and @var{proc} is a procedure accepting two arguments, the record to print, and
 an output port.
 @end deffn
 
@@ -3717,12 +3721,6 @@ search in constant time.  The drawback is that hash tables require a
 little bit more memory, and that you can not use the normal list
 procedures (@pxref{Lists}) for working with them.
 
-Guile provides two types of hashtables.  One is an abstract data type
-that can only be manipulated with the functions in this section.  The
-other type is concrete: it uses a normal vector with alists as
-elements.  The advantage of the abstract hash tables is that they will
-be automatically resized when they become too full or too empty.
-
 @menu
 * Hash Table Examples::         Demonstration of hash table usage.
 * Hash Table Reference::        Hash table procedure descriptions.
@@ -3746,13 +3744,6 @@ h
 @result{}
 #<hash-table 0/31>
 
-;; We can also use a vector of alists.
-(define h (make-vector 7 '()))
-
-h
-@result{}
-#(() () () () () () ())
-
 ;; Inserting into a hash table can be done with hashq-set!
 (hashq-set! h 'foo "bar")
 @result{}
@@ -3766,17 +3757,6 @@ h
 (hashq-create-handle! h 'frob #f)
 @result{}
 (frob . #f)
-
-;; The vector now contains three elements in the alists and the frob
-;; entry is at index (hashq 'frob).
-h
-@result{}
-#(((braz . "zonk")) ((foo . "bar")) () () () () ((frob . #f)))
-
-(hashq 'frob 7)
-@result{}
-6
-
 @end lisp
 
 You can get the value for a given key with the procedure
@@ -3845,19 +3825,12 @@ Hash tables are implemented as a vector indexed by a hash value formed
 from the key, with an association list of key/value pairs for each
 bucket in case distinct keys hash together.  Direct access to the
 pairs in those lists is provided by the @code{-handle-} functions.
-The abstract kind of hash tables hide the vector in an opaque object
-that represents the hash table, while for the concrete kind the vector
-@emph{is} the hashtable.
 
-When the number of table entries in an abstract hash table goes above
-a threshold, the vector is made larger and the entries are rehashed,
-to prevent the bucket lists from becoming too long and slowing down
-accesses.  When the number of entries goes below a threshold, the
-vector is shrunk to save space.
-
-A abstract hash table is created with @code{make-hash-table}.  To
-create a vector that is suitable as a hash table, use
-@code{(make-vector @var{size} '())}, for example.
+When the number of entries in a hash table goes above a threshold, the
+vector is made larger and the entries are rehashed, to prevent the
+bucket lists from becoming too long and slowing down accesses.  When the
+number of entries goes below a threshold, the vector is shrunk to save
+space.
 
 For the @code{hashx-} ``extended'' routines, an application supplies a
 @var{hash} function producing an integer index like @code{hashq} etc
@@ -3892,7 +3865,7 @@ addition to @code{hashq} etc below, include @code{symbol-hash}
 
 @sp 1
 @deffn {Scheme Procedure} make-hash-table [size]
-Create a new abstract hash table object, with an optional minimum
+Create a new hash table object, with an optional minimum
 vector @var{size}.
 
 When @var{size} is given, the table vector will still grow and shrink

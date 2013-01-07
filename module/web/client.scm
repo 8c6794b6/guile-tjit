@@ -38,26 +38,30 @@
   #:use-module (web request)
   #:use-module (web response)
   #:use-module (web uri)
+  #:use-module (srfi srfi-1)
   #:export (open-socket-for-uri
-            http-get))
+            http-get
+            http-get*))
 
 (define (open-socket-for-uri uri)
   "Return an open input/output port for a connection to URI."
   (define addresses
     (let ((port (uri-port uri)))
-      (getaddrinfo (uri-host uri)
-                   (cond (port => number->string)
-                         (else (symbol->string (uri-scheme uri))))
-                   (if port
-                       AI_NUMERICSERV
-                       0))))
+      (delete-duplicates
+       (getaddrinfo (uri-host uri)
+                    (cond (port => number->string)
+                          (else (symbol->string (uri-scheme uri))))
+                    (if port
+                        AI_NUMERICSERV
+                        0))
+       (lambda (ai1 ai2)
+         (equal? (addrinfo:addr ai1) (addrinfo:addr ai2))))))
 
   (let loop ((addresses addresses))
     (let* ((ai (car addresses))
-           (s  (socket (addrinfo:fam ai) (addrinfo:socktype ai)
-                       (addrinfo:protocol ai))))
-      (set-port-encoding! s "ISO-8859-1")
-
+           (s  (with-fluids ((%default-port-encoding #f))
+                 ;; Restrict ourselves to TCP.
+                 (socket (addrinfo:fam ai) SOCK_STREAM IPPROTO_IP))))
       (catch 'system-error
         (lambda ()
           (connect s (addrinfo:addr ai))
@@ -70,7 +74,7 @@
         (lambda args
           ;; Connection failed, so try one of the other addresses.
           (close s)
-          (if (null? addresses)
+          (if (null? (cdr addresses))
               (apply throw args)
               (loop (cdr addresses))))))))
 
@@ -82,12 +86,6 @@
         (let ((res (read-delimited "" p)))
           (close-port p)
           res))))
-
-(define (text-type? type)
-  (let ((type (symbol->string type)))
-    (or (string-prefix? "text/" type)
-        (string-suffix? "/xml" type)
-        (string-suffix? "+xml" type))))
 
 ;; Logically the inverse of (web server)'s `sanitize-response'.
 ;;
@@ -104,7 +102,7 @@
        ((response-content-type response)
         => (lambda (type)
              (cond
-              ((text-type? (car type))
+              ((text-content-type? (car type))
                (decode-string body (or (assq-ref (cdr type) 'charset)
                                        "iso-8859-1")))
               (else body))))
@@ -115,6 +113,15 @@
 (define* (http-get uri #:key (port (open-socket-for-uri uri))
                    (version '(1 . 1)) (keep-alive? #f) (extra-headers '())
                    (decode-body? #t))
+  "Connect to the server corresponding to URI and ask for the
+resource, using the ‘GET’ method.  If you already have a port open,
+pass it as PORT.  The port will be closed at the end of the
+request unless KEEP-ALIVE? is true.  Any extra headers in the
+alist EXTRA-HEADERS will be added to the request.
+
+If DECODE-BODY? is true, as is the default, the body of the
+response will be decoded to string, if it is a textual content-type.
+Otherwise it will be returned as a bytevector."
   (let ((req (build-request uri #:version version
                             #:headers (if keep-alive?
                                           extra-headers
@@ -132,3 +139,25 @@
               (if decode-body?
                   (decode-response-body res body)
                   body)))))
+
+(define* (http-get* uri #:key (port (open-socket-for-uri uri))
+                    (version '(1 . 1)) (keep-alive? #f) (extra-headers '())
+                    (decode-body? #t))
+  "Like ‘http-get’, but return an input port from which to read.  When
+DECODE-BODY? is true, as is the default, the returned port has its
+encoding set appropriately if the data at URI is textual.  Closing the
+returned port closes PORT, unless KEEP-ALIVE? is true."
+  (let ((req (build-request uri #:version version
+                            #:headers (if keep-alive?
+                                          extra-headers
+                                          (cons '(connection close)
+                                                extra-headers)))))
+    (write-request req port)
+    (force-output port)
+    (unless keep-alive?
+      (shutdown port 1))
+    (let* ((res (read-response port))
+           (body (response-body-port res
+                                     #:keep-alive? keep-alive?
+                                     #:decode? decode-body?)))
+      (values res body))))

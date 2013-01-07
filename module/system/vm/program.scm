@@ -1,6 +1,6 @@
 ;;; Guile VM program functions
 
-;;; Copyright (C) 2001, 2009, 2010 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2013 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -227,7 +227,7 @@
           rest? rest (1+ n)))
      (rest?
       (lp nreq req nopt opt
-          #f (var-by-index n)
+          #f (var-by-index (+ n (length (arity:kw arity))))
           (1+ n)))
      (else
       `((required . ,(reverse req))
@@ -238,11 +238,13 @@
 
 ;; the name "program-arguments" is taken by features.c...
 (define* (program-arguments-alist prog #:optional ip)
+  "Returns the signature of the given procedure in the form of an association list."
   (let ((arity (program-arity prog ip)))
     (and arity
          (arity->arguments-alist prog arity))))
 
 (define* (program-lambda-list prog #:optional ip)
+  "Returns the signature of the given procedure in the form of an argument list."
   (and=> (program-arguments-alist prog ip) arguments-alist->lambda-list))
 
 (define (arguments-alist->lambda-list arguments-alist)
