@@ -693,9 +693,6 @@
           (put-string tp "The letter λ cannot be represented in Latin-1.")
           #f))))
 
-  (pass-if "port-transcoder [binary port]"
-    (not (port-transcoder (open-bytevector-input-port #vu8()))))
-
   (pass-if "port-transcoder [transcoded port]"
     (let* ((p (transcoded-port (open-bytevector-input-port (string->utf8 "foo"))
                                (make-transcoder (utf-8-codec))))

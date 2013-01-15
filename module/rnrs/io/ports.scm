@@ -220,24 +220,22 @@
 (define (port-transcoder port)
   "Return the transcoder object associated with @var{port}, or @code{#f}
 if the port has no transcoder."
-  (cond ((port-encoding port)
-         => (lambda (encoding)
-              (make-transcoder
-               encoding
-               (native-eol-style)
-               (case (port-conversion-strategy port)
-                 ((error) 'raise)
-                 ((substitute) 'replace)
-                 (else
-                  (assertion-violation 'port-transcoder
-                                       "unsupported error handling mode"))))))
-        (else
-         #f)))
+  (and (textual-port? port)
+       ;; All textual ports have transcoders.
+       (make-transcoder
+        (port-encoding port)
+        (native-eol-style)
+        (case (port-conversion-strategy port)
+          ((error) 'raise)
+          ((substitute) 'replace)
+          (else
+           (assertion-violation 'port-transcoder
+                                "unsupported error handling mode"))))))
 
 (define (binary-port? port)
-  "Returns @code{#t} if @var{port} does not have an associated encoding,
-@code{#f} otherwise."
-  (not (port-encoding port)))
+  "Always returns @code{#t}, as all ports can be used for binary I/O in
+Guile."
+  (equal? (port-encoding port) "ISO-8859-1"))
 
 (define (textual-port? port)
   "Always returns @code{#t}, as all ports can be used for textual I/O in
