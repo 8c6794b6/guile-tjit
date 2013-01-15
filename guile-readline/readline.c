@@ -1,6 +1,6 @@
 /* readline.c --- line editing support for Guile */
 
-/* Copyright (C) 1997,1999,2000,2001, 2002, 2003, 2006, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1997,1999,2000,2001, 2002, 2003, 2006, 2007, 2008, 2009, 2010, 2013 Free Software Foundation, Inc.
  * 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -257,12 +257,7 @@ internal_readline (SCM text)
   promptp = 1;
   s = readline (prompt);
   if (s)
-    {
-      scm_t_port *pt = SCM_PTAB_ENTRY (output_port);
-      
-      ret = scm_from_stringn (s, strlen (s), pt->encoding, 
-                              SCM_FAILED_CONVERSION_ESCAPE_SEQUENCE);
-    }
+    ret = scm_from_port_string (s, output_port);
   else 
     ret = SCM_EOF_VAL;
 

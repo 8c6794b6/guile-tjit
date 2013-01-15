@@ -4428,6 +4428,19 @@ returned is the number of bytes for @code{scm_to_latin1_stringn} and
 for @code{scm_to_utf32_stringn}.
 @end deftypefn
 
+It is not often the case, but sometimes when you are dealing with the
+implementation details of a port, you need to encode and decode strings
+according to the encoding and conversion strategy of the port.  There
+are some convenience functions for that purpose as well.
+
+@deftypefn {C Function} SCM scm_from_port_string (const char *str, SCM port)
+@deftypefnx {C Function} SCM scm_from_port_stringn (const char *str, size_t len, SCM port)
+@deftypefnx {C Function} char* scm_to_port_string (SCM str, SCM port)
+@deftypefnx {C Function} char* scm_to_port_stringn (SCM str, size_t *lenp, SCM port)
+Like @code{scm_from_stringn} and friends, except they take their
+encoding and conversion strategy from a given port object.
+@end deftypefn
+
 @node String Internals
 @subsubsection String Internals
 

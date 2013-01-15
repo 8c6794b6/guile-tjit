@@ -704,7 +704,6 @@ scm_read_number (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   SCM result, str = SCM_EOL;
   char local_buffer[READER_BUFFER_SIZE], *buffer;
   size_t bytes_read;
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
   /* Need to capture line and column numbers here. */
   long line = SCM_LINUM (port);
@@ -714,7 +713,7 @@ scm_read_number (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   buffer = read_complete_token (port, opts, local_buffer, sizeof local_buffer,
 				&bytes_read);
 
-  str = scm_from_stringn (buffer, bytes_read, pt->encoding, pt->ilseq_handler);
+  str = scm_from_port_stringn (buffer, bytes_read, port);
 
   result = scm_string_to_number (str, SCM_UNDEFINED);
   if (scm_is_false (result))
@@ -739,7 +738,6 @@ scm_read_mixed_case_symbol (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   size_t bytes_read;
   int postfix = (opts->keyword_style == KEYWORD_STYLE_POSTFIX);
   char local_buffer[READER_BUFFER_SIZE], *buffer;
-  scm_t_port *pt = SCM_PTAB_ENTRY (port);
   SCM str;
 
   scm_ungetc_unlocked (chr, port);
@@ -750,8 +748,7 @@ scm_read_mixed_case_symbol (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
 
   if (postfix && ends_with_colon && (bytes_read > 1))
     {
-      str = scm_from_stringn (buffer, bytes_read - 1,
-			      pt->encoding, pt->ilseq_handler);
+      str = scm_from_port_stringn (buffer, bytes_read - 1, port);
 
       if (opts->case_insensitive_p)
         str = scm_string_downcase_x (str);
@@ -759,8 +756,7 @@ scm_read_mixed_case_symbol (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
     }
   else
     {
-      str = scm_from_stringn (buffer, bytes_read,
-			      pt->encoding, pt->ilseq_handler);
+      str = scm_from_port_stringn (buffer, bytes_read, port);
 
       if (opts->case_insensitive_p)
         str = scm_string_downcase_x (str);
@@ -780,7 +776,6 @@ scm_read_number_and_radix (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   char local_buffer[READER_BUFFER_SIZE], *buffer;
   unsigned int radix;
   SCM str;
-  scm_t_port *pt;
 
   switch (chr)
     {
@@ -813,8 +808,7 @@ scm_read_number_and_radix (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   buffer = read_complete_token (port, opts, local_buffer, sizeof local_buffer,
 				&read);
 
-  pt = SCM_PTAB_ENTRY (port);
-  str = scm_from_stringn (buffer, read, pt->encoding, pt->ilseq_handler);
+  str = scm_from_port_stringn (buffer, read, port);
 
   result = scm_string_to_number (str, scm_from_uint (radix));
 
@@ -1006,8 +1000,7 @@ scm_read_character (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
 
   /* Otherwise, convert the buffer into a proper scheme string for
      processing.  */
-  charname = scm_from_stringn (buffer, bytes_read, pt->encoding,
-			       pt->ilseq_handler);
+  charname = scm_from_port_stringn (buffer, bytes_read, port);
   charname_len = scm_i_string_length (charname);
   SCM_COL (port) += charname_len;
   cp = scm_i_string_ref (charname, 0);

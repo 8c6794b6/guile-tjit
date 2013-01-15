@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1998, 1999, 2000, 2001, 2002, 2003, 2005, 2006,
- *   2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -318,8 +318,7 @@ scm_strport_to_string (SCM port)
   if (pt->read_buf_size == 0)
     return scm_nullstr;
 
-  return scm_from_stringn ((char *)pt->read_buf, pt->read_buf_size,
-                           pt->encoding, pt->ilseq_handler);
+  return scm_from_port_stringn ((char *)pt->read_buf, pt->read_buf_size, port);
 }
 
 SCM_DEFINE (scm_object_to_string, "object->string", 1, 1, 0,

@@ -3,7 +3,7 @@
 #ifndef SCM_STRINGS_H
 #define SCM_STRINGS_H
 
-/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2004, 2005, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2004, 2005, 2006, 2008, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -152,6 +152,11 @@ SCM_API scm_t_wchar *scm_to_utf32_string (SCM str);
 SCM_API scm_t_wchar *scm_to_utf32_stringn (SCM str, size_t *lenp);
 SCM_API SCM scm_from_utf32_string (const scm_t_wchar *str);
 SCM_API SCM scm_from_utf32_stringn (const scm_t_wchar *str, size_t len);
+
+SCM_API char *scm_to_port_string (SCM str, SCM port);
+SCM_API char *scm_to_port_stringn (SCM str, size_t *lenp, SCM port);
+SCM_API SCM scm_from_port_string (const char *str, SCM port);
+SCM_API SCM scm_from_port_stringn (const char *str, size_t len, SCM port);
 
 SCM_API char *scm_to_stringn (SCM str, size_t *lenp, const char *encoding,
                               scm_t_string_failed_conversion_handler handler);
