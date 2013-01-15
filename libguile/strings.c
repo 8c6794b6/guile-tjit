@@ -1524,7 +1524,7 @@ scm_from_stringn (const char *str, size_t len, const char *encoding,
   if (len == (size_t) -1)
     len = strlen (str);
 
-  if (encoding == NULL || len == 0)
+  if (strcmp (encoding, "ISO-8859-1") == 0 || len == 0)
     return scm_from_latin1_stringn (str, len);
   else if (strcmp (encoding, "UTF-8") == 0
            && handler == SCM_FAILED_CONVERSION_ERROR)
@@ -2170,7 +2170,7 @@ scm_to_stringn (SCM str, size_t *lenp, const char *encoding,
                         "string contains #\\nul character: ~S",
                         scm_list_1 (str));
 
-  if (scm_i_is_narrow_string (str) && (encoding == NULL))
+  if (scm_i_is_narrow_string (str) && strcmp (encoding, "ISO-8859-1") == 0)
     {
       /* If using native Latin-1 encoding, just copy the string
          contents.  */
