@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004,
- *   2006, 2007, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -88,6 +88,56 @@
 #undef HAVE_FTRUNCATE
 #define HAVE_FTRUNCATE 1
 #endif
+
+
+/* Port encodings are case-insensitive ASCII strings.  */
+static char
+ascii_toupper (char c)
+{
+  return (c < 'a' || c > 'z') ? c : ('A' + (c - 'a'));
+}
+
+/* It is only necessary to use this function on encodings that come from
+   the user and have not been canonicalized yet.  Encodings that are set
+   on ports or in the default encoding fluid are in upper-case, and can
+   be compared with strcmp.  */
+static int
+encoding_matches (const char *enc, const char *upper)
+{
+  if (!enc)
+    enc = "ISO-8859-1";
+
+  while (*enc)
+    if (ascii_toupper (*enc++) != *upper++)
+      return 0;
+
+  return !*upper;
+}
+
+static char*
+canonicalize_encoding (const char *enc)
+{
+  char *ret;
+  int i;
+
+  if (!enc)
+    return "ISO-8859-1";
+
+  ret = scm_gc_strdup (enc, "port");
+
+  for (i = 0; ret[i]; i++)
+    {
+      if (ret[i] > 127)
+        /* Restrict to ASCII.  */
+        scm_misc_error (NULL, "invalid character encoding ~s",
+                        scm_list_1 (scm_from_latin1_string (enc)));
+      else
+        ret[i] = ascii_toupper (ret[i]);
+    }
+
+  return ret;
+}
+
 
 
 /* The port kind table --- a dynamically resized array of port types.  */
@@ -603,13 +653,23 @@ scm_c_make_port_with_encoding (scm_t_bits tag, unsigned long mode_bits,
   entry->rw_active = SCM_PORT_NEITHER;
   entry->port = ret;
   entry->stream = stream;
-  entry->encoding = encoding ? scm_gc_strdup (encoding, "port") : NULL;
-  if (encoding && strcmp (encoding, "UTF-8") == 0)
-    entry->encoding_mode = SCM_PORT_ENCODING_MODE_UTF8;
-  else if (!encoding || strcmp (encoding, "ISO-8859-1") == 0)
-    entry->encoding_mode = SCM_PORT_ENCODING_MODE_LATIN1;
+
+  if (encoding_matches (encoding, "UTF-8"))
+    {
+      entry->encoding_mode = SCM_PORT_ENCODING_MODE_UTF8;
+      entry->encoding = "UTF-8";
+    }
+  else if (encoding_matches (encoding, "ISO-8859-1"))
+    {
+      entry->encoding_mode = SCM_PORT_ENCODING_MODE_LATIN1;
+      entry->encoding = "ISO-8859-1";
+    }
   else
-    entry->encoding_mode = SCM_PORT_ENCODING_MODE_ICONV;
+    {
+      entry->encoding_mode = SCM_PORT_ENCODING_MODE_ICONV;
+      entry->encoding = canonicalize_encoding (encoding);
+    }
+
   entry->ilseq_handler = handler;
   entry->iconv_descriptors = NULL;
 
@@ -806,44 +866,30 @@ scm_i_set_default_port_encoding (const char *encoding)
     scm_misc_error (NULL, "tried to set port encoding fluid before it is initialized",
 		    SCM_EOL);
 
-  if (encoding == NULL
-      || !strcmp (encoding, "ASCII")
-      || !strcmp (encoding, "ANSI_X3.4-1968")
-      || !strcmp (encoding, "ISO-8859-1"))
+  if (encoding_matches (encoding, "ASCII")
+      || encoding_matches (encoding, "ANSI_X3.4-1968")
+      || encoding_matches (encoding, "ISO-8859-1"))
     scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var), SCM_BOOL_F);
   else
-    {
-      SCM str;
-      size_t i;
-
-      str = scm_from_latin1_string (encoding);
-
-      /* Restrict to ASCII.  */
-      for (i = 0; encoding[i]; i++)
-        if (encoding[i] > 127)
-          scm_misc_error ("scm_i_set_default_port_encoding",
-                          "invalid character encoding ~s", scm_list_1 (str));
-
-      scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var), str);
-    }
+    scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var),
+                     scm_from_latin1_string (canonicalize_encoding (encoding)));
 }
 
-/* Return the name of the default encoding for newly created ports; a
-   return value of NULL means "ISO-8859-1".  */
+/* Return the name of the default encoding for newly created ports.  */
 const char *
 scm_i_default_port_encoding (void)
 {
   if (!scm_port_encoding_init)
-    return NULL;
+    return "ISO-8859-1";
   else if (!scm_is_fluid (SCM_VARIABLE_REF (default_port_encoding_var)))
-    return NULL;
+    return "ISO-8859-1";
   else
     {
       SCM encoding;
 
       encoding = scm_fluid_ref (SCM_VARIABLE_REF (default_port_encoding_var));
       if (!scm_is_string (encoding))
-	return NULL;
+	return "ISO-8859-1";
       else
 	return scm_i_string_chars (encoding);
     }
@@ -1041,13 +1087,13 @@ scm_i_set_port_encoding_x (SCM port, const char *encoding)
   pt = SCM_PTAB_ENTRY (port);
   prev = pt->iconv_descriptors;
 
-  if (encoding && strcmp (encoding, "UTF-8") == 0)
+  if (encoding_matches (encoding, "UTF-8"))
     {
       pt->encoding = "UTF-8";
       pt->encoding_mode = SCM_PORT_ENCODING_MODE_UTF8;
       pt->iconv_descriptors = NULL;
     }
-  else if (!encoding || strcmp (encoding, "ISO-8859-1") == 0)
+  else if (encoding_matches (encoding, "ISO-8859-1"))
     {
       pt->encoding = "ISO-8859-1";
       pt->encoding_mode = SCM_PORT_ENCODING_MODE_LATIN1;
@@ -1056,11 +1102,12 @@ scm_i_set_port_encoding_x (SCM port, const char *encoding)
   else
     {
       /* Open descriptors before mutating the port. */
+      char *gc_encoding = canonicalize_encoding (encoding);
       pt->iconv_descriptors =
-        open_iconv_descriptors (encoding,
+        open_iconv_descriptors (gc_encoding,
                                 SCM_INPUT_PORT_P (port),
                                 SCM_OUTPUT_PORT_P (port));
-      pt->encoding = scm_gc_strdup (encoding, "port");
+      pt->encoding = gc_encoding;
       pt->encoding_mode = SCM_PORT_ENCODING_MODE_ICONV;
     }
 
@@ -1074,17 +1121,9 @@ SCM_DEFINE (scm_port_encoding, "port-encoding", 1, 0, 0,
 	    "uses to interpret its input and output.\n")
 #define FUNC_NAME s_scm_port_encoding
 {
-  scm_t_port *pt;
-  const char *enc;
-
   SCM_VALIDATE_PORT (1, port);
 
-  pt = SCM_PTAB_ENTRY (port);
-  enc = pt->encoding;
-  if (enc)
-    return scm_from_latin1_string (pt->encoding);
-  else
-    return SCM_BOOL_F;
+  return scm_from_latin1_string (SCM_PTAB_ENTRY (port)->encoding);
 }
 #undef FUNC_NAME
 

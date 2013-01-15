@@ -1,6 +1,6 @@
 ;;;; web-response.test --- HTTP responses       -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;;   Copyright (C) 2010, 2011, 2012 Free Software Foundation, Inc.
+;;;;   Copyright (C) 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -113,7 +113,7 @@ consectetur adipisicing elit,\r
       (response-content-encoding r))
 
     (pass-if-equal "response-body-port"
-        `("utf-8" ,body)
+        `("UTF-8" ,body)
       (with-fluids ((%default-port-encoding #f))
         (let* ((r (read-response (open-input-string example-1)))
                (p (response-body-port r)))

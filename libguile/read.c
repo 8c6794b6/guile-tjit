@@ -25,7 +25,6 @@
 #endif
 
 #include <stdio.h>
-#include <ctype.h>
 #include <string.h>
 #include <unistd.h>
 #include <unicase.h>
@@ -1949,6 +1948,15 @@ scm_get_hash_procedure (int c)
 
 #define SCM_ENCODING_SEARCH_SIZE (500)
 
+static int
+is_encoding_char (char c)
+{
+  if (c >= 'a' && c <= 'z') return 1;
+  if (c >= 'A' && c <= 'Z') return 1;
+  if (c >= '0' && c <= '9') return 1;
+  return strchr ("_-.:/,+=()", c) != NULL;
+}
+
 /* Search the first few hundred characters of a file for an Emacs-like coding
    declaration.  Returns either NULL or a string whose storage has been
    allocated with `scm_gc_malloc ()'.  */
@@ -2034,8 +2042,7 @@ scm_i_scan_for_encoding (SCM port)
   i = 0;
   while (encoding_start + i - header <= SCM_ENCODING_SEARCH_SIZE
          && encoding_start + i - header < bytes_read
-	 && (isalnum ((int) encoding_start[i])
-	     || strchr ("_-.:/,+=()", encoding_start[i]) != NULL))
+	 && is_encoding_char (encoding_start[i]))
     i++;
 
   encoding_length = i;
@@ -2043,8 +2050,6 @@ scm_i_scan_for_encoding (SCM port)
     return NULL;
 
   encoding = scm_gc_strndup (encoding_start, encoding_length, "encoding");
-  for (i = 0; i < encoding_length; i++)
-    encoding[i] = toupper ((int) encoding[i]);
 
   /* push backwards to make sure we were in a comment */
   in_comment = 0;
@@ -2076,7 +2081,7 @@ scm_i_scan_for_encoding (SCM port)
     /* This wasn't in a comment */
     return NULL;
 
-  if (utf8_bom && strcmp(encoding, "UTF-8"))
+  if (utf8_bom && strcasecmp (encoding, "UTF-8"))
     scm_misc_error (NULL,
 		    "the port input declares the encoding ~s but is encoded as UTF-8",
 		    scm_list_1 (scm_from_locale_string (encoding)));
