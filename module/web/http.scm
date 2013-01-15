@@ -1,6 +1,6 @@
 ;;; HTTP messages
 
-;; Copyright (C)  2010, 2011, 2012 Free Software Foundation, Inc.
+;; Copyright (C)  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -67,13 +67,6 @@
 
             make-chunked-input-port
             make-chunked-output-port))
-
-
-;;; TODO
-;;;
-;;; Look at quality lists with more insight.
-;;; Think about `accept' a bit more.
-;;; 
 
 
 (define (string->header name)
@@ -1307,9 +1300,19 @@ treated specially, and is just returned as a plain string."
 ;; Connection = "Connection" ":" 1#(connection-token)
 ;; connection-token  = token
 ;; e.g.
-;;     Connection: close, foo-header
+;;     Connection: close, Foo-Header
 ;; 
-(declare-header-list-header! "Connection")
+(declare-header! "Connection"
+  split-header-names
+  list-of-header-names?
+  (lambda (val port)
+    (write-list val port
+                (lambda (x port)
+                  (display (if (eq? x 'close)
+                               "close"
+                               (header->string x))
+                           port))
+                ", ")))
 
 ;; Date  = "Date" ":" HTTP-date
 ;; e.g.

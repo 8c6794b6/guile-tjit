@@ -5,7 +5,7 @@
 #ifndef SCM_DEPRECATED_H
 #define SCM_DEPRECATED_H
 
-/* Copyright (C) 2003,2004, 2005, 2006, 2007, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2003,2004, 2005, 2006, 2007, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -92,6 +92,7 @@ SCM_DEPRECATED SCM scm_internal_dynamic_wind (scm_t_guard before,
      scm_cons ((e0),\
 	       SCM_LIST8 ((e1), (e2), (e3), (e4), (e5), (e6), (e7), (e8)))
 
+#define SCM_CHAR_CODE_LIMIT SCM_CHAR_CODE_LIMIT__GONE__REPLACE_WITH__256L
 #define SCM_OPDIRP SCM_OPDIRP__GONE__REPLACE_WITH__SCM_DIRP_and_SCM_DIR_OPEN_P
 #define SCM_PROCEDURE SCM_PROCEDURE__GONE__REPLACE_WITH__scm_procedure
 #define SCM_PROCEDURE_WITH_SETTER_P SCM_PROCEDURE_WITH_SETTER_P__GONE__REPLACE_WITH__scm_is_true__scm_procedure_with_setter_p
