@@ -1,6 +1,6 @@
 ;;;; ecmascript.test --- ECMAScript.      -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;; 	Copyright (C) 2010, 2011 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2010, 2011, 2013 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -23,9 +23,11 @@
 
 
 (define (eread str)
-  (call-with-input-string str read-ecmascript))
+  (with-fluids ((%default-port-encoding "utf-8"))
+    (call-with-input-string str read-ecmascript)))
 (define (eread/1 str)
-  (call-with-input-string str read-ecmascript/1))
+  (with-fluids ((%default-port-encoding "utf-8"))
+    (call-with-input-string str read-ecmascript/1)))
 
 (define-syntax parse
   (syntax-rules ()
