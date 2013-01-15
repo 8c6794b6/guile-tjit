@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 2000, 2001, 2003, 2004,
- *   2006, 2009, 2011 Free Software Foundation, Inc.
+ *   2006, 2009, 2011, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -167,7 +167,7 @@ utf8_string_equals_wide_string (const scm_t_uint8 *narrow, size_t nlen,
       nbytes = u8_mbtouc (&c, narrow + byte_idx, nlen - byte_idx);
       if (nbytes == 0)
         break;
-      else if (nbytes < 0)
+      else if (c == 0xfffd)
         /* Bad UTF-8.  */
         return 0;
       else if (c != wide[char_idx])

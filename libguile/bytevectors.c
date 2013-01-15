@@ -1,4 +1,4 @@
-/* Copyright (C) 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -2050,8 +2050,7 @@ SCM_DEFINE (scm_utf8_to_string, "utf8->string",
 
   c_utf_len = SCM_BYTEVECTOR_LENGTH (utf);
   c_utf = (char *) SCM_BYTEVECTOR_CONTENTS (utf);
-  str = scm_from_stringn (c_utf, c_utf_len, "UTF-8",
-                          SCM_FAILED_CONVERSION_ERROR);
+  str = scm_from_utf8_stringn (c_utf, c_utf_len);
 
   return (str);
 }

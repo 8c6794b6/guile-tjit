@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1998,2000,2001, 2004, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000,2001, 2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -1526,7 +1526,8 @@ scm_from_stringn (const char *str, size_t len, const char *encoding,
 
   if (encoding == NULL || len == 0)
     return scm_from_latin1_stringn (str, len);
-  else if (strcmp (encoding, "UTF-8") == 0)
+  else if (strcmp (encoding, "UTF-8") == 0
+           && handler == SCM_FAILED_CONVERSION_ERROR)
     return scm_from_utf8_stringn (str, len);
 
   u32len = 0;
@@ -1639,7 +1640,7 @@ scm_from_utf8_stringn (const char *str, size_t len)
 
           nbytes = u8_mbtouc (&c, ustr + i, len - i);
 
-          if (nbytes < 0)
+          if (c == 0xfffd)
             /* Bad UTF-8.  */
             decoding_error (__func__, errno, str, len);
 
