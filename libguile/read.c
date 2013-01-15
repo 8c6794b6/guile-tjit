@@ -991,7 +991,9 @@ scm_read_character (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   /* Simple ASCII characters can be processed immediately.  Also, simple
      ISO-8859-1 characters can be processed immediately if the encoding for this
      port is ISO-8859-1.  */
-  if (bytes_read == 1 && ((unsigned char) buffer[0] <= 127 || pt->encoding == NULL))
+  if (bytes_read == 1 &&
+      ((unsigned char) buffer[0] <= 127
+       || pt->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1))
     {
       SCM_COL (port) += 1;
       return SCM_MAKE_CHAR (buffer[0]);

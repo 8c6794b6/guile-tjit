@@ -1372,7 +1372,8 @@ scm_c_read_unlocked (SCM port, void *buffer, size_t size)
      requested number of bytes.  (Note that a single scm_fill_input
      call does not guarantee to fill the whole of the port's read
      buffer.) */
-  if (pt->read_buf_size <= 1 && pt->encoding == NULL)
+  if (pt->read_buf_size <= 1
+      && pt->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
     {
       /* The port that we are reading from is unbuffered - i.e. does
 	 not have its own persistent buffer - but we have a buffer,
@@ -1917,17 +1918,11 @@ scm_ungetc_unlocked (scm_t_wchar c, SCM port)
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
   char *result;
   char result_buf[10];
-  const char *encoding;
   size_t len;
   int i;
 
-  if (pt->encoding != NULL)
-    encoding = pt->encoding;
-  else
-    encoding = "ISO-8859-1";
-
   len = sizeof (result_buf);
-  result = u32_conv_to_encoding (encoding,
+  result = u32_conv_to_encoding (pt->encoding,
 				 (enum iconv_ilseq_handler) pt->ilseq_handler,
 				 (uint32_t *) &c, 1, NULL,
 				 result_buf, &len);

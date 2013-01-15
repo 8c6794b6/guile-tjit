@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1998,1999,2000,2001, 2002, 2003, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,1999,2000,2001, 2002, 2003, 2006, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -94,7 +94,7 @@ sf_fill_input (SCM port)
   SCM_ASSERT (SCM_CHARP (ans), ans, SCM_ARG1, "sf_fill_input");
   pt = SCM_PTAB_ENTRY (port);    
 
-  if (pt->encoding == NULL)
+  if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
     {
       scm_t_port *pt = SCM_PTAB_ENTRY (port);    
       
