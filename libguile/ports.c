@@ -866,9 +866,7 @@ scm_i_set_default_port_encoding (const char *encoding)
     scm_misc_error (NULL, "tried to set port encoding fluid before it is initialized",
 		    SCM_EOL);
 
-  if (encoding_matches (encoding, "ASCII")
-      || encoding_matches (encoding, "ANSI_X3.4-1968")
-      || encoding_matches (encoding, "ISO-8859-1"))
+  if (encoding_matches (encoding, "ISO-8859-1"))
     scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var), SCM_BOOL_F);
   else
     scm_fluid_set_x (SCM_VARIABLE_REF (default_port_encoding_var),
