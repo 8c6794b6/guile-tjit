@@ -2028,8 +2028,7 @@ SCM_DEFINE (scm_string_to_utf32, "string->utf32",
 		      scm_list_1 (utf), err);				\
   else									\
     {                                                                   \
-      str = scm_from_stringn (c_str, c_strlen, "UTF-8",                 \
-                              SCM_FAILED_CONVERSION_ERROR);             \
+      str = scm_from_utf8_stringn (c_str, c_strlen);                    \
       free (c_str);                                                     \
     }                                                                   \
   return (str);
