@@ -1,4 +1,4 @@
-/* Copyright (C) 1996,1997,1998,1999,2000,2001, 2003, 2004, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1996,1997,1998,1999,2000,2001, 2003, 2004, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -532,8 +532,7 @@ SCM_DEFINE (scm_make_struct, "make-struct", 2, 0, 1,
 	    "Scheme programs.\n\n"
 	    "If fewer optional arguments than initializable fields are supplied,\n"
 	    "fields of type 'p' get default value #f while fields of type 'u' are\n"
-	    "initialized to 0.\n\n"
-	    "For more information, see the documentation for @code{make-vtable-vtable}.")
+	    "initialized to 0.")
 #define FUNC_NAME s_scm_make_struct
 {
   size_t i, n_init;
