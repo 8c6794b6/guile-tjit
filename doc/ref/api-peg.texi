@@ -1,0 +1,699 @@
+@c -*-texinfo-*-
+@c This is part of the GNU Guile Reference Manual.
+@c Copyright (C) 2006, 2010
+@c   Free Software Foundation, Inc.
+@c See the file guile.texi for copying conditions.
+
+@node PEG Parsing
+@section PEG Parsing
+
+Parsing Expression Grammars (PEGs) are a way of specifying formal languages for text processing.  They can be used either for matching (like regular expressions) or for building recursive descent parsers (like lex/yacc).  Guile uses a superset of PEG syntax that allows more control over what information is preserved during parsing.
+
+Wikipedia has a clear and concise introduction to PEGs if you want to familiarize yourself with the syntax: @url{http://en.wikipedia.org/wiki/Parsing_expression_grammar}.
+
+The module works by compiling PEGs down to lambda expressions.  These can either be stored in variables at compile-time by the define macros (@code{define-nonterm} and @code{define-grammar}) or calculated explicitly at runtime with the compile functions (@code{peg-sexp-compile} and @code{peg-string-compile}).
+
+They can then be used for either parsing (@code{peg-parse}) or matching (@code{peg-match}).  For convenience, @code{peg-match} also takes pattern literals in case you want to inline a simple search (people often use regular expressions this way).
+
+The rest of this documentation consists of a syntax reference, an API reference, and a tutorial.
+
+@menu
+* PEG Syntax Reference::
+* PEG API Reference::
+* PEG Tutorial::
+@end menu
+
+@node PEG Syntax Reference
+@subsection PEG Syntax Reference
+
+@subsubheading Normal PEG Syntax:
+
+Format: @*
+Name @*
+Description @*
+String Syntax @*
+S-expression Syntax @*
+
+Sequence @code{a} @code{b}: @*
+Parses @code{a}.  If this succeeds, continues to parse @code{b} from the end of the text parsed as @code{a}.  Succeeds if both @code{a} and @code{b} succeed. @*
+@code{"a b"} @*
+@code{(and a b)} @*
+
+Ordered choice @code{a} @code{b}: @*
+Parses @code{a}.  If this fails, backtracks and parses @code{b}.  Succeeds if either @code{a} or @code{b} succeeds. @*
+@code{"a/b"} @*
+@code{(or a b)} @*
+
+Zero or more @code{a}: @*
+Parses @code{a} as many times in a row as it can, starting each @code{a} at the end of the text parsed by the previous @code{a}.  Always succeeds. @*
+@code{"a*"} @*
+@code{(body lit a *)} @*
+
+One or more @code{a}: @*
+Parses @code{a} as many times in a row as it can, starting each @code{a} at the end of the text parsed by the previous @code{a}.  Succeeds if at least one @code{a} was parsed. @*
+@code{"a+"} @*
+@code{(body lit a +)} @*
+
+Optional @code{a}: @*
+Tries to parse @code{a}.  Succeeds if @code{a} succeeds. @*
+@code{"a?"} @*
+@code{(body lit a ?)} @*
+
+And predicate @code{a}: @*
+Makes sure it is possible to parse @code{a}, but does not actually parse it.  Succeeds if @code{a} would succeed. @*
+@code{"&a"} @*
+@code{(body & a 1)} @*
+
+Not predicate @code{a}: @*
+Makes sure it is impossible to parse @code{a}, but does not actually parse it.  Succeeds if @code{a} would fail. @*
+@code{"!a"} @*
+@code{(body ! a 1)} @*
+
+String literal @code{"abc"}: @*
+Parses the string @code{"abc"}.  Succeeds if that parsing succeeds. @*
+@code{"'abc'"} @*
+@code{"abc"} @*
+
+Any character: @*
+Parses any single character.  Succeeds unless there is no more text to be parsed. @*
+@code{"."} @*
+@code{peg-any} @*
+
+Character class @code{a} @code{b}: @*
+Alternative syntax for ``Ordered Choice @code{a} @code{b}'' if @code{a} and @code{b} are characters. @*
+@code{"[ab]"} @*
+@code{(or "a" "b")} @*
+
+Range of characters @code{a} to @code{z}: @*
+Parses any character falling between @code{a} and @code{z}. @*
+@code{"[a-z]"} @*
+@code{(range #\a #\z)} @*
+
+Example: @*
+@code{"(a !b / c &d*) 'e'+"} @*
+Would be:
+@lisp
+(and
+ (or
+  (and a (body ! b 1))
+  (and c (body & d *)))
+ (body lit "e" +))
+@end lisp
+
+@subsubheading Extended Syntax:
+There is some extra syntax for S-expressions.
+
+Format: @*
+Description @*
+S-expression syntax @*
+
+Ignore the text matching @code{a}: @*
+@code{(ignore a)} @*
+
+Capture the text matching @code{a}: @*
+@code{(capture a)} @*
+
+Embed the PEG pattern @code{a} using string syntax: @*
+@code{(peg a)} @*
+
+Example: @*
+@code{"!a / 'b'"} @*
+Would be:
+@lisp
+(or (peg "!a") "b")
+@end lisp
+
+@node PEG API Reference
+@subsection PEG API Reference
+
+@subsubheading Define Macros
+
+The most straightforward way to define a PEG is by using one of the define macros (both of these macroexpand into @code{define} expressions).  These macros bind parsing functions to variables.  These parsing functions may be invoked by @code{peg-parse} or @code{peg-match}, which return a PEG match record.  Raw data can be retrieved from this record with the PEG match deconstructor functions.  More complicated (and perhaps enlightening) examples can be found in the tutorial.
+
+@deffn {Scheme Macro} define-grammar peg-string
+Defines all the nonterminals in the PEG @var{peg-string}.  More precisely, @code{define-grammar} takes a superset of PEGs.  A normal PEG has a @code{<-} between the nonterminal and the pattern.  @code{define-grammar} uses this symbol to determine what information it should propagate up the parse tree.  The normal @code{<-} propagates the matched text up the parse tree, @code{<--} propagates the matched text up the parse tree tagged with the name of the nonterminal, and @code{<} discards that matched text and propagates nothing up the parse tree.  Also, nonterminals may consist of any alphanumeric character or a ``-'' character (in normal PEGs nonterminals can only be alphabetic).
+
+For example, if we:
+@lisp
+(define-grammar 
+  "as <- 'a'+
+bs <- 'b'+
+as-or-bs <- as/bs")
+(define-grammar 
+  "as-tag <-- 'a'+
+bs-tag <-- 'b'+
+as-or-bs-tag <-- as-tag/bs-tag")
+@end lisp
+Then:
+@lisp
+(peg-parse as-or-bs "aabbcc") @result{}
+#<peg start: 0 end: 2 string: aabbcc tree: aa>
+(peg-parse as-or-bs-tag "aabbcc") @result{}
+#<peg start: 0 end: 2 string: aabbcc tree: (as-or-bs-tag (as-tag aa))>
+@end lisp
+
+Note that in doing this, we have bound 6 variables at the toplevel (@var{as}, @var{bs}, @var{as-or-bs}, @var{as-tag}, @var{bs-tag}, and @var{as-or-bs-tag}).
+@end deffn
+
+@deffn {Scheme Macro} define-nonterm name capture-type peg-sexp
+Defines a single nonterminal @var{name}.  @var{capture-type} determines how much information is passed up the parse tree.  @var{peg-sexp} is a PEG in S-expression form.
+
+Possible values for capture-type: @*
+@code{all}: passes the matched text up the parse tree tagged with the name of the nonterminal. @*
+@code{body}: passes the matched text up the parse tree. @*
+@code{none}: passes nothing up the parse tree.
+
+For Example, if we:
+@lisp
+(define-nonterm as body (body lit "a" +))
+(define-nonterm bs body (body lit "b" +))
+(define-nonterm as-or-bs body (or as bs))
+(define-nonterm as-tag all (body lit "a" +))
+(define-nonterm bs-tag all (body lit "b" +))
+(define-nonterm as-or-bs-tag all (or as-tag bs-tag))
+@end lisp
+Then:
+@lisp
+(peg-parse as-or-bs "aabbcc") @result{} 
+#<peg start: 0 end: 2 string: aabbcc tree: aa>
+(peg-parse as-or-bs-tag "aabbcc") @result{} 
+#<peg start: 0 end: 2 string: aabbcc tree: (as-or-bs-tag (as-tag aa))>
+@end lisp
+
+Note that in doing this, we have bound 6 variables at the toplevel (@var{as}, @var{bs}, @var{as-or-bs}, @var{as-tag}, @var{bs-tag}, and @var{as-or-bs-tag}).
+@end deffn
+
+These are macros, with all that entails.  If you've built up a list at runtime and want to define a new PEG from it, you should e.g.:
+@lisp
+(define exp '(body lit "a" +))
+(eval `(define-nonterm as body ,exp) (interaction-environment))
+@end lisp
+The @code{eval} function has a bad reputation with regard to efficiency, but this is mostly because of the extra work that has to be done compiling the expressions, which has to be done anyway when compiling the PEGs at runtime.
+
+@subsubheading 
+
+@subsubheading Compile Functions
+It is sometimes useful to be able to compile anonymous PEG patterns at runtime.  These functions let you do that using either syntax.
+
+@deffn {Scheme Procedure} peg-string-compile peg-string capture-type
+Compiles the PEG pattern in @var{peg-string} propagating according to @var{capture-type} (capture-type can be any of the values from @code{define-nonterm}).
+@end deffn
+
+
+@deffn {Scheme Procedure} peg-sexp-compile peg-sexp capture-type
+Compiles the PEG pattern in @var{peg-sexp} propagating according to @var{capture-type} (capture-type can be any of the values from @code{define-nonterm}).
+@end deffn
+
+
+@subsubheading Parsing & Matching Functions
+
+For our purposes, ``parsing'' means parsing a string into a tree starting from the first character, while ``matching'' means searching through the string for a substring.  In practice, the only difference between the two functions is that @code{peg-parse} gives up if it can't find a valid substring starting at index 0 and @code{peg-match} keeps looking.  They are both equally capable of ``parsing'' and ``matching'' given those constraints.
+
+@deffn {Scheme Procedure} peg-parse nonterm string 
+Parses @var{string} using the PEG stored in @var{nonterm}.  If no match was found, @code{peg-parse} returns false.  If a match was found, a PEG match record is returned.
+
+The @code{capture-type} argument to @code{define-nonterm} allows you to choose what information to hold on to while parsing.  The options are: @*
+@code{all}: tag the matched text with the nonterminal @*
+@code{body}: just the matched text @*
+@code{none}: nothing @*
+
+@lisp
+(define-nonterm as all (body lit "a" +))
+(peg-parse as "aabbcc") @result{} 
+#<peg start: 0 end: 2 string: aabbcc tree: (as aa)>
+
+(define-nonterm as body (body lit "a" +))
+(peg-parse as "aabbcc") @result{} 
+#<peg start: 0 end: 2 string: aabbcc tree: aa>
+
+(define-nonterm as none (body lit "a" +))
+(peg-parse as "aabbcc") @result{} 
+#<peg start: 0 end: 2 string: aabbcc tree: ()>
+
+(define-nonterm bs body (body lit "b" +))
+(peg-parse bs "aabbcc") @result{} 
+#f
+@end lisp
+@end deffn
+
+@deffn {Scheme Macro} peg-match nonterm-or-peg string
+Searches through @var{string} looking for a matching subexpression.  @var{nonterm-or-peg} can either be a nonterminal or a literal PEG pattern.  When a literal PEG pattern is provided, @code{peg-match} works very similarly to the regular expression searches many hackers are used to.  If no match was found, @code{peg-match} returns false.  If a match was found, a PEG match record is returned.
+
+@lisp
+(define-nonterm as body (body lit "a" +))
+(peg-match as "aabbcc") @result{} 
+#<peg start: 0 end: 2 string: aabbcc tree: aa>
+(peg-match (body lit "a" +) "aabbcc") @result{} 
+#<peg start: 0 end: 2 string: aabbcc tree: aa>
+(peg-match "'a'+" "aabbcc") @result{} 
+#<peg start: 0 end: 2 string: aabbcc tree: aa>
+
+(define-nonterm as all (body lit "a" +))
+(peg-match as "aabbcc") @result{} 
+#<peg start: 0 end: 2 string: aabbcc tree: (as aa)>
+
+(define-nonterm bs body (body lit "b" +))
+(peg-match bs "aabbcc") @result{} 
+#<peg start: 2 end: 4 string: aabbcc tree: bb>
+(peg-match (body lit "b" +) "aabbcc") @result{} 
+#<peg start: 2 end: 4 string: aabbcc tree: bb>
+(peg-match "'b'+" "aabbcc") @result{} 
+#<peg start: 2 end: 4 string: aabbcc tree: bb>
+
+(define-nonterm zs body (body lit "z" +))
+(peg-match zs "aabbcc") @result{} 
+#f
+(peg-match (body lit "z" +) "aabbcc") @result{} 
+#f
+(peg-match "'z'+" "aabbcc") @result{} 
+#f
+@end lisp
+@end deffn
+
+@subsubheading PEG Match Records
+The @code{peg-parse} and @code{peg-match} functions both return PEG match records.  Actual information can be extracted from these with the following functions.
+
+@deffn {Scheme Procedure} peg:string peg-match
+Returns the original string that was parsed in the creation of @code{peg-match}.
+@end deffn
+
+@deffn {Scheme Procedure} peg:start peg-match
+Returns the index of the first parsed character in the original string (from @code{peg:string}).  If this is the same as @code{peg:end}, nothing was parsed.
+@end deffn
+
+@deffn {Scheme Procedure} peg:end peg-match
+Returns one more than the index of the last parsed character in the original string (from @code{peg:string}).  If this is the same as @code{peg:start}, nothing was parsed.
+@end deffn
+
+@deffn {Scheme Procedure} peg:substring peg-match
+Returns the substring parsed by @code{peg-match}.  This is equivalent to @code{(substring (peg:string peg-match) (peg:start peg-match) (peg:end peg-match))}.
+@end deffn
+
+@deffn {Scheme Procedure} peg:tree peg-match
+Returns the tree parsed by @code{peg-match}.
+@end deffn
+
+@deffn {Scheme Procedure} peg-record? peg-match
+Returns true if @code{peg-match} is a PEG match record, or false otherwise.
+@end deffn
+
+Example:
+@lisp
+(define-nonterm bs all (peg "'b'+"))
+
+(peg-match bs "aabbcc") @result{}
+#<peg start: 2 end: 4 string: aabbcc tree: (bs bb)>
+
+(let ((pm (peg-match bs "aabbcc")))
+   `((string ,(peg:string pm))
+     (start ,(peg:start pm))
+     (end ,(peg:end pm))
+     (substring ,(peg:substring pm))
+     (tree ,(peg:tree pm))
+     (record? ,(peg-record? pm)))) @result{}
+((string "aabbcc")
+ (start 2)
+ (end 4)
+ (substring "bb")
+ (tree (bs "bb"))
+ (record? #t))
+@end lisp
+
+@subsubheading Miscellaneous
+
+@deffn {Scheme Procedure} context-flatten tst lst
+Takes a predicate @var{tst} and a list @var{lst}.  Flattens @var{lst} until all elements are either atoms or satisfy @var{tst}.  If @var{lst} itself satisfies @var{tst}, @code{(list lst)} is returned (this is a flat list whose only element satisfies @var{tst}).
+
+@lisp
+(context-flatten (lambda (x) (and (number? (car x)) (= (car x) 1))) '(2 2 (1 1 (2 2)) (2 2 (1 1)))) @result{} 
+(2 2 (1 1 (2 2)) 2 2 (1 1))
+(context-flatten (lambda (x) (and (number? (car x)) (= (car x) 1))) '(1 1 (1 1 (2 2)) (2 2 (1 1)))) @result{} 
+((1 1 (1 1 (2 2)) (2 2 (1 1))))
+@end lisp
+
+If you're wondering why this is here, take a look at the tutorial.
+@end deffn
+
+@deffn {Scheme Procedure} keyword-flatten terms lst
+A less general form of @code{context-flatten}.  Takes a list of terminal atoms @code{terms} and flattens @var{lst} until all elements are either atoms, or lists which have an atom from @code{terms} as their first element.
+@lisp
+(keyword-flatten '(a b) '(c a b (a c) (b c) (c (b a) (c a)))) @result{}
+(c a b (a c) (b c) c (b a) c a)
+@end lisp
+
+If you're wondering why this is here, take a look at the tutorial.
+@end deffn
+
+@node PEG Tutorial
+@subsection PEG Tutorial
+
+@subsubheading Parsing /etc/passwd
+This example will show how to parse /etc/passwd using PEGs.
+
+First we define an example /etc/passwd file:
+
+@lisp
+(define *etc-passwd*
+  "root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/bin/sh
+bin:x:2:2:bin:/bin:/bin/sh
+sys:x:3:3:sys:/dev:/bin/sh
+nobody:x:65534:65534:nobody:/nonexistent:/bin/sh
+messagebus:x:103:107::/var/run/dbus:/bin/false
+")
+@end lisp
+
+As a first pass at this, we might want to have all the entries in /etc/passwd in a list.
+
+Doing this with string-based PEG syntax would look like this:
+@lisp
+(define-grammar
+  "passwd <- entry* !.
+entry <-- (! NL .)* NL*
+NL < '\n'")
+@end lisp
+A @code{passwd} file is 0 or more entries (@code{entry*}) until the end of the file (@code{!.} (@code{.} is any character, so @code{!.} means ``not anything'')).  We want to capture the data in the nonterminal @code{passwd}, but not tag it with the name, so we use @code{<-}.
+An entry is a series of 0 or more characters that aren't newlines (@code{(! NL .)*}) followed by 0 or more newlines (@code{NL*}).  We want to tag all the entries with @code{entry}, so we use @code{<--}.
+A newline is just a literal newline (@code{'\n'}).  We don't want a bunch of newlines cluttering up the output, so we use @code{<} to throw away the captured data.
+
+Here is the same PEG defined using S-expressions:
+@lisp
+(define-nonterm passwd body (and (body lit entry *) (body ! peg-any 1)))
+(define-nonterm entry all (and (body lit (and (body ! NL 1) peg-any) *)
+			       (body lit NL *)))
+(define-nonterm NL none "\n")
+@end lisp
+
+Obviously this is much more verbose.  On the other hand, it's more explicit, and thus easier to build automatically.  However, there are some tricks that make S-expressions easier to use in some cases.  One is the @code{ignore} keyword; the string syntax has no way to say ``throw away this text'' except breaking it out into a separate nonterminal.  For instance, to throw away the newlines we had to define @code{NL}.  In the S-expression syntax, we could have simply written @code{(ignore "\n")}.  Also, for the cases where string syntax is really much cleaner, the @code{peg} keyword can be used to embed string syntax in S-expression syntax.  For instance, we could have written:
+@lisp
+(define-nonterm passwd body (peg "entry* !."))
+@end lisp
+
+However we define it, parsing @code{*etc-passwd*} with the @code{passwd} nonterminal yields the same results:
+@lisp
+(peg:tree (peg-parse passwd *etc-passwd*)) @result{}
+((entry "root:x:0:0:root:/root:/bin/bash")
+ (entry "daemon:x:1:1:daemon:/usr/sbin:/bin/sh")
+ (entry "bin:x:2:2:bin:/bin:/bin/sh")
+ (entry "sys:x:3:3:sys:/dev:/bin/sh")
+ (entry "nobody:x:65534:65534:nobody:/nonexistent:/bin/sh")
+ (entry "messagebus:x:103:107::/var/run/dbus:/bin/false"))
+@end lisp
+
+However, here is something to be wary of:
+@lisp
+(peg:tree (peg-parse passwd "one entry")) @result{}
+(entry "one entry")
+@end lisp
+
+By default, the parse trees generated by PEGs are compressed as much as possible without losing information.  It may not look like this is what you want at first, but uncompressed parse trees are an enormous headache (there's no easy way to predict how deep particular lists will nest, there are empty lists littered everywhere, etc. etc.).  One side-effect of this, however, is that sometimes the compressor is too aggressive.  No information is discarded when @code{((entry "one entry"))} is compressed to @code{(entry "one entry")}, but in this particular case it probably isn't what we want. @*
+
+There are two functions for easily dealing with this: @code{keyword-flatten} and @code{context-flatten}.  The @code{keyword-flatten} function takes a list of keywords and a list to flatten, then tries to coerce the list such that the first element of all sublists is one of the keywords.  The @code{context-flatten} function is similar, but instead of a list of keywords it takes a predicate that should indicate whether a given sublist is good enough (refer to the API reference for more details). @*
+
+What we want here is @code{keyword-flatten}.
+@lisp
+(keyword-flatten '(entry) (peg:tree (peg-parse passwd *etc-passwd*))) @result{}
+((entry "root:x:0:0:root:/root:/bin/bash")
+ (entry "daemon:x:1:1:daemon:/usr/sbin:/bin/sh")
+ (entry "bin:x:2:2:bin:/bin:/bin/sh")
+ (entry "sys:x:3:3:sys:/dev:/bin/sh")
+ (entry "nobody:x:65534:65534:nobody:/nonexistent:/bin/sh")
+ (entry "messagebus:x:103:107::/var/run/dbus:/bin/false"))
+(keyword-flatten '(entry) (peg:tree (peg-parse passwd "one entry"))) @result{}
+((entry "one entry"))
+@end lisp
+
+Of course, this is a somewhat contrived example.  In practice we would probably just tag the @code{passwd} nonterminal to remove the ambiguity (using either the @code{all} keyword for S-expressions or the @code{<--} symbol for strings)..
+
+@lisp
+(define-nonterm tag-passwd all (peg "entry* !."))
+(peg:tree (peg-parse tag-passwd *etc-passwd*)) @result{}
+(tag-passwd
+  (entry "root:x:0:0:root:/root:/bin/bash")
+  (entry "daemon:x:1:1:daemon:/usr/sbin:/bin/sh")
+  (entry "bin:x:2:2:bin:/bin:/bin/sh")
+  (entry "sys:x:3:3:sys:/dev:/bin/sh")
+  (entry "nobody:x:65534:65534:nobody:/nonexistent:/bin/sh")
+  (entry "messagebus:x:103:107::/var/run/dbus:/bin/false"))
+(peg:tree (peg-parse tag-passwd "one entry"))
+(tag-passwd 
+  (entry "one entry"))
+@end lisp
+
+If you're ever uncertain about the potential results of parsing something, remember the two absolute rules: @*
+1. No parsing information will ever be discarded. @*
+2. There will never be any lists with fewer than 2 elements. @*
+
+For the purposes of (1), "parsing information" means things tagged with the @code{any} keyword or the @code{<--} symbol.  Plain strings will be concatenated. @*
+
+Let's extend this example a bit more and actually pull some useful information out of the passwd file:
+@lisp
+(define-grammar
+  "passwd <-- entry* !.
+entry <-- login C pass C uid C gid C nameORcomment C homedir C shell NL*
+login <-- text
+pass <-- text
+uid <-- [0-9]*
+gid <-- [0-9]*
+nameORcomment <-- text
+homedir <-- path
+shell <-- path
+path <-- (SLASH pathELEMENT)*
+pathELEMENT <-- (!NL !C  !'/' .)*
+text <- (!NL !C  .)*
+C < ':'
+NL < '\n'
+SLASH < '/'")
+@end lisp
+
+This produces rather pretty parse trees:
+@lisp
+(passwd
+  (entry (login "root")
+         (pass "x")
+         (uid "0")
+         (gid "0")
+         (nameORcomment "root")
+         (homedir (path (pathELEMENT "root")))
+         (shell (path (pathELEMENT "bin") (pathELEMENT "bash"))))
+  (entry (login "daemon")
+         (pass "x")
+         (uid "1")
+         (gid "1")
+         (nameORcomment "daemon")
+         (homedir
+           (path (pathELEMENT "usr") (pathELEMENT "sbin")))
+         (shell (path (pathELEMENT "bin") (pathELEMENT "sh"))))
+  (entry (login "bin")
+         (pass "x")
+         (uid "2")
+         (gid "2")
+         (nameORcomment "bin")
+         (homedir (path (pathELEMENT "bin")))
+         (shell (path (pathELEMENT "bin") (pathELEMENT "sh"))))
+  (entry (login "sys")
+         (pass "x")
+         (uid "3")
+         (gid "3")
+         (nameORcomment "sys")
+         (homedir (path (pathELEMENT "dev")))
+         (shell (path (pathELEMENT "bin") (pathELEMENT "sh"))))
+  (entry (login "nobody")
+         (pass "x")
+         (uid "65534")
+         (gid "65534")
+         (nameORcomment "nobody")
+         (homedir (path (pathELEMENT "nonexistent")))
+         (shell (path (pathELEMENT "bin") (pathELEMENT "sh"))))
+  (entry (login "messagebus")
+         (pass "x")
+         (uid "103")
+         (gid "107")
+         nameORcomment
+         (homedir
+           (path (pathELEMENT "var")
+                 (pathELEMENT "run")
+                 (pathELEMENT "dbus")))
+         (shell (path (pathELEMENT "bin") (pathELEMENT "false")))))
+@end lisp
+
+Notice that when there's no entry in a field (e.g. @code{nameORcomment} for messagebus) the symbol is inserted.  This is the ``don't throw away any information'' rule---we succesfully matched a @code{nameORcomment} of 0 characters (since we used @code{*} when defining it).  This is usually what you want, because it allows you to e.g. use @code{list-ref} to pull out elements (since they all have known offsets). @*
+
+If you'd prefer not to have symbols for empty matches, you can replace the @code{*} with a @code{+} and add a @code{?} after the @code{nameORcomment} in @code{entry}.  Then it will try to parse 1 or more characters, fail (inserting nothing into the parse tree), but continue because it didn't have to match the nameORcomment to continue.
+
+
+@subsubheading Embedding Arithmetic Expressions
+
+We can parse simple mathematical expressions with the following PEG:
+
+@lisp
+(define-grammar
+  "expr <- sum
+sum <-- (product ('+' / '-') sum) / product
+product <-- (value ('*' / '/') product) / value
+value <-- number / '(' expr ')'
+number <-- [0-9]+")
+@end lisp
+
+Then:
+@lisp
+(peg:tree (peg-parse expr "1+1/2*3+(1+1)/2")) @result{}
+(sum (product (value (number "1")))
+     "+"
+     (sum (product
+            (value (number "1"))
+            "/"
+            (product
+              (value (number "2"))
+              "*"
+              (product (value (number "3")))))
+          "+"
+          (sum (product
+                 (value "("
+                        (sum (product (value (number "1")))
+                             "+"
+                             (sum (product (value (number "1")))))
+                        ")")
+                 "/"
+                 (product (value (number "2")))))))
+@end lisp
+
+There is very little wasted effort in this PEG.  The @code{number} nonterminal has to be tagged because otherwise the numbers might run together with the arithmetic expressions during the string concatenation stage of parse-tree compression (the parser will see ``1'' followed by ``/'' and decide to call it ``1/'').  When in doubt, tag.
+
+It is very easy to turn these parse trees into lisp expressions:
+@lisp
+(define (parse-sum sum left . rest)
+  (if (null? rest)
+      (apply parse-product left)
+      (list (string->symbol (car rest))
+	    (apply parse-product left)
+	    (apply parse-sum (cadr rest)))))
+
+(define (parse-product product left . rest)
+  (if (null? rest)
+      (apply parse-value left)
+      (list (string->symbol (car rest))
+	    (apply parse-value left)
+	    (apply parse-product (cadr rest)))))
+
+(define (parse-value value first . rest)
+  (if (null? rest)
+      (string->number (cadr first))
+      (apply parse-sum (car rest))))
+
+(define parse-expr parse-sum)
+@end lisp
+(Notice all these functions look very similar; for a more complicated PEG, it would be worth abstracting.)
+
+Then:
+@lisp
+(apply parse-expr (peg:tree (peg-parse expr "1+1/2*3+(1+1)/2"))) @result{}
+(+ 1 (+ (/ 1 (* 2 3)) (/ (+ 1 1) 2)))
+@end lisp
+
+But wait!  The associativity is wrong!  Where it says @code{(/ 1 (* 2 3))}, it should say @code{(* (/ 1 2) 3)}.
+
+It's tempting to try replacing e.g. @code{"sum <-- (product ('+' / '-') sum) / product"} with @code{"sum <-- (sum ('+' / '-') product) / product"}, but this is a Bad Idea.  PEGs don't support left recursion.  To see why, imagine what the parser will do here.  When it tries to parse @code{sum}, it first has to try and parse @code{sum}.  But to do that, it first has to try and parse @code{sum}.  This will continue until the stack gets blown off.
+
+So how does one parse left-associative binary operators with PEGs?  Honestly, this is one of their major shortcomings.  There's no general-purpose way of doing this, but here the repetition operators are a good choice:
+
+@lisp
+(use-modules (srfi srfi-1))
+
+(define-grammar
+  "expr <- sum
+sum <-- (product ('+' / '-'))* product
+product <-- (value ('*' / '/'))* value
+value <-- number / '(' expr ')'
+number <-- [0-9]+")
+
+;; take a deep breath...
+(define (make-left-parser next-func)
+  (lambda (sum first . rest) ;; general form, comments below assume
+    ;; that we're dealing with a sum expression
+    (if (null? rest) ;; form (sum (product ...))
+      (apply next-func first)
+      (if (string? (cadr first));; form (sum ((product ...) "+") (product ...))
+	  (list (string->symbol (cadr first))
+		(apply next-func (car first))
+		(apply next-func (car rest)))
+          ;; form (sum (((product ...) "+") ((product ...) "+")) (product ...))
+	  (car 
+	   (reduce ;; walk through the list and build a left-associative tree
+	    (lambda (l r)
+	      (list (list (cadr r) (car r) (apply next-func (car l)))
+		    (string->symbol (cadr l))))
+	    'ignore
+	    (append ;; make a list of all the products
+             ;; the first one should be pre-parsed
+	     (list (list (apply next-func (caar first))
+			 (string->symbol (cadar first))))
+	     (cdr first)
+             ;; the last one has to be added in
+	     (list (append rest '("done"))))))))))
+
+(define (parse-value value first . rest)
+  (if (null? rest)
+      (string->number (cadr first))
+      (apply parse-sum (car rest))))
+(define parse-product (make-left-parser parse-value))
+(define parse-sum (make-left-parser parse-product))
+(define parse-expr parse-sum)
+@end lisp
+
+Then:
+@lisp
+(apply parse-expr (peg:tree (peg-parse expr "1+1/2*3+(1+1)/2"))) @result{}
+(+ (+ 1 (* (/ 1 2) 3)) (/ (+ 1 1) 2))
+@end lisp
+
+As you can see, this is much uglier (it could be made prettier by using @code{context-flatten}, but the way it's written above makes it clear how we deal with the three ways the zero-or-more @code{*} expression can parse).  Fortunately, most of the time we can get away with only using right-associativity.
+
+@subsubheading Simplified Functions
+
+For a more tantalizing example, consider the following grammar that parses (highly) simplified C functions:
+@lisp
+(define-grammar
+  "cfunc <-- cSP ctype cSP cname cSP cargs cLB cSP cbody cRB
+ctype <-- cidentifier
+cname <-- cidentifier
+cargs <-- cLP (! (cSP cRP) carg cSP (cCOMMA / cRP) cSP)* cSP
+carg <-- cSP ctype cSP cname
+cbody <-- cstatement *
+cidentifier <- [a-zA-z][a-zA-Z0-9_]*
+cstatement <-- (!';'.)*cSC cSP
+cSC < ';'
+cCOMMA < ','
+cLP < '('
+cRP < ')'
+cLB < '@{'
+cRB < '@}'
+cSP < [ \t\n]*")
+@end lisp
+
+Then:
+@lisp
+(peg-parse cfunc "int square(int a) @{ return a*a;@}") @result{}
+(32
+ (cfunc (ctype "int")
+        (cname "square")
+        (cargs (carg (ctype "int") (cname "a")))
+        (cbody (cstatement "return a*a"))))
+@end lisp
+
+And:
+@lisp
+(peg-parse cfunc "int mod(int a, int b) @{ int c = a/b;return a-b*c; @}") @result{}
+(52
+ (cfunc (ctype "int")
+        (cname "mod")
+        (cargs (carg (ctype "int") (cname "a"))
+               (carg (ctype "int") (cname "b")))
+        (cbody (cstatement "int c = a/b")
+               (cstatement "return a- b*c"))))
+@end lisp
+
+By wrapping all the @code{carg} nonterminals in a @code{cargs} nonterminal, we were able to remove any ambiguity in the parsing structure and avoid having to call @code{context-flatten} on the output of @code{peg-parse}.  We used the same trick with the @code{cstatement} nonterminals, wrapping them in a @code{cbody} nonterminal.
+
+The whitespace nonterminal @code{cSP} used here is a (very) useful instantiation of a common pattern for matching syntactically irrelevant information.  Since it's tagged with @code{<} and ends with @code{*} it won't clutter up the parse trees (all the empty lists will be discarded during the compression step) and it will never cause parsing to fail.
+

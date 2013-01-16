@@ -309,6 +309,7 @@ available through both Scheme and C interfaces.
 * Input and Output::            Ports, reading and writing.
 * Regular Expressions::         Pattern matching and substitution.
 * LALR(1) Parsing::             Generating LALR(1) parsers.
+* PEG Parsing::                 Parsing Expression Grammars.
 * Read/Load/Eval/Compile::      Reading and evaluating Scheme code.
 * Memory Management::           Memory management and garbage collection.
 * Modules::                     Designing reusable code libraries.
@@ -337,6 +338,7 @@ available through both Scheme and C interfaces.
 @include api-io.texi
 @include api-regex.texi
 @include api-lalr.texi
+@include api-peg.texi
 @include api-evaluation.texi
 @include api-memory.texi
 @include api-modules.texi

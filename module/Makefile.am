@@ -218,6 +218,7 @@ ICE_9_SOURCES = \
   ice-9/null.scm \
   ice-9/occam-channel.scm \
   ice-9/optargs.scm \
+  ice-9/peg.scm \
   ice-9/poe.scm \
   ice-9/poll.scm \
   ice-9/posix.scm \
