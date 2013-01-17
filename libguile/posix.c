@@ -1260,8 +1260,12 @@ SCM_DEFINE (scm_fork, "primitive-fork", 0, 0, 0,
        async-signal-safe.  We can't guarantee that in general.  The best
        we can do is to allow forking only very early, before any call to
        sigaction spawns the signal-handling thread.  */
-    SCM_MISC_ERROR ("attempt to fork while multiple threads are running",
-                    SCM_EOL);
+    scm_display
+      (scm_from_latin1_string
+       ("warning: call to primitive-fork while multiple threads are running;\n"
+        "         further behavior unspecified.  See \"Processes\" in the\n"
+        "         manual, for more information.\n"),
+       scm_current_warning_port ());
   pid = fork ();
   if (pid == -1)
     SCM_SYSERROR;
