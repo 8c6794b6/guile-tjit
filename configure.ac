@@ -1220,7 +1220,7 @@ main (int argc, char **argv)
 # Boehm's GC library
 #
 #--------------------------------------------------------------------
-PKG_CHECK_MODULES([BDW_GC], [bdw-gc])
+PKG_CHECK_MODULES([BDW_GC], [bdw-gc >= 7.2])
 
 save_LIBS="$LIBS"
 LIBS="$BDW_GC_LIBS $LIBS"
