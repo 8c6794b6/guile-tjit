@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -187,35 +187,6 @@ SCM_DEFINE (scm_set_debug_cell_accesses_x, "set-debug-cell-accesses!", 1, 0, 0,
 
 
 
-/* Compatibility.  */
-
-#ifndef HAVE_GC_GET_HEAP_USAGE_SAFE
-static void
-GC_get_heap_usage_safe (GC_word *pheap_size, GC_word *pfree_bytes,
-                        GC_word *punmapped_bytes, GC_word *pbytes_since_gc,
-                        GC_word *ptotal_bytes)
-{
-  *pheap_size = GC_get_heap_size ();
-  *pfree_bytes = GC_get_free_bytes ();
-#ifdef HAVE_GC_GET_UNMAPPED_BYTES
-  *punmapped_bytes = GC_get_unmapped_bytes ();
-#else
-  *punmapped_bytes = 0;
-#endif
-  *pbytes_since_gc = GC_get_bytes_since_gc ();
-  *ptotal_bytes = GC_get_total_bytes ();
-}
-#endif
-
-#ifndef HAVE_GC_GET_FREE_SPACE_DIVISOR
-static GC_word
-GC_get_free_space_divisor (void)
-{
-  return GC_free_space_divisor;
-}
-#endif
-
-
 /* Hooks.  */
 scm_t_c_hook scm_before_gc_c_hook;
 scm_t_c_hook scm_before_mark_c_hook;
@@ -394,9 +365,6 @@ SCM_DEFINE (scm_gc, "gc", 0, 0, 0,
 void
 scm_i_gc (const char *what)
 {
-#ifndef HAVE_GC_SET_START_CALLBACK
-  run_before_gc_c_hook ();
-#endif
   GC_gcollect ();
 }
 
@@ -610,14 +578,6 @@ scm_getenv_int (const char *var, int def)
     return def;
   return res;
 }
-
-#ifndef HAVE_GC_SET_FINALIZE_ON_DEMAND
-static void
-GC_set_finalize_on_demand (int foo)
-{
-  GC_finalize_on_demand = foo;
-}
-#endif
 
 void
 scm_storage_prehistory ()
@@ -1044,19 +1004,11 @@ scm_init_gc ()
   scm_c_hook_add (&scm_before_gc_c_hook, start_gc_timer, NULL, 0);
   scm_c_hook_add (&scm_after_gc_c_hook, accumulate_gc_timer, NULL, 0);
 
-#if HAVE_GC_GET_HEAP_USAGE_SAFE
   /* GC_get_heap_usage does not take a lock, and so can run in the GC
      start hook.  */
   scm_c_hook_add (&scm_before_gc_c_hook, adjust_gc_frequency, NULL, 0);
-#else
-  /* GC_get_heap_usage might take a lock (and did from 7.2alpha1 to
-     7.2alpha7), so call it in the after_gc_hook.  */
-  scm_c_hook_add (&scm_after_gc_c_hook, adjust_gc_frequency, NULL, 0);
-#endif
 
-#ifdef HAVE_GC_SET_START_CALLBACK
   GC_set_start_callback (run_before_gc_c_hook);
-#endif
 
 #include "libguile/gc.x"
 }
