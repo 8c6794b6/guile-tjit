@@ -1,4 +1,4 @@
-/* Copyright (C) 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -151,31 +151,26 @@ unregister_disappearing_links (scm_t_weak_entry *entry,
     GC_unregister_disappearing_link ((void **) &entry->value);
 }
 
+#ifndef HAVE_GC_MOVE_DISAPPEARING_LINK
+static void
+GC_move_disappearing_link (void **from, void **to)
+{
+  GC_unregister_disappearing_link (from);
+  SCM_I_REGISTER_DISAPPEARING_LINK (to, *to);
+}
+#endif
+
 static void
 move_disappearing_links (scm_t_weak_entry *from, scm_t_weak_entry *to,
                          SCM key, SCM value, scm_t_weak_table_kind kind)
 {
   if ((kind == SCM_WEAK_TABLE_KIND_KEY || kind == SCM_WEAK_TABLE_KIND_BOTH)
       && SCM_HEAP_OBJECT_P (key))
-    {
-#ifdef HAVE_GC_MOVE_DISAPPEARING_LINK
-      GC_move_disappearing_link ((void **) &from->key, (void **) &to->key);
-#else
-      GC_unregister_disappearing_link ((void **) &from->key);
-      SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &to->key, SCM2PTR (key));
-#endif
-    }
+    GC_move_disappearing_link ((void **) &from->key, (void **) &to->key);
 
   if ((kind == SCM_WEAK_TABLE_KIND_VALUE || kind == SCM_WEAK_TABLE_KIND_BOTH)
       && SCM_HEAP_OBJECT_P (value))
-    {
-#ifdef HAVE_GC_MOVE_DISAPPEARING_LINK
-      GC_move_disappearing_link ((void **) &from->value, (void **) &to->value);
-#else
-      GC_unregister_disappearing_link ((void **) &from->value);
-      SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &to->value, SCM2PTR (value));
-#endif
-    }
+    GC_move_disappearing_link ((void **) &from->value, (void **) &to->value);
 }
 
 static void
@@ -480,11 +475,7 @@ resize_table (scm_t_weak_table *table)
       if (new_size_index == table->size_index)
         return;
       new_size = hashtable_size[new_size_index];
-      scm_i_pthread_mutex_unlock (&table->lock);
-      /* Allocating memory might cause finalizers to run, which could
-         run anything, so drop our lock to avoid deadlocks.  */
       new_entries = allocate_entries (new_size, table->kind);
-      scm_i_pthread_mutex_lock (&table->lock);
     }
   while (!is_acceptable_size_index (table, new_size_index));
 
@@ -814,6 +805,14 @@ do_vacuum_weak_table (SCM table)
 
   t = SCM_WEAK_TABLE (table);
 
+  /* Unlike weak sets, the weak table interface allows custom predicates
+     to call out to arbitrary Scheme.  There are two ways that this code
+     can be re-entrant, then: calling weak hash procedures while in a
+     custom predicate, or via finalizers run explicitly by (gc) or in an
+     async (for non-threaded Guile).  We add a restriction that
+     prohibits the first case, by convention.  But since we can't
+     prohibit the second case, here we trylock instead of lock.  Not so
+     nice.  */
   if (scm_i_pthread_mutex_trylock (&t->lock) == 0)
     {
       vacuum_weak_table (t);
@@ -823,56 +822,6 @@ do_vacuum_weak_table (SCM table)
   return;
 }
 
-/* The before-gc C hook only runs if GC_table_start_callback is available,
-   so if not, fall back on a finalizer-based implementation.  */
-static int
-weak_gc_callback (void **weak)
-{
-  void *val = weak[0];
-  void (*callback) (SCM) = weak[1];
-  
-  if (!val)
-    return 0;
-  
-  callback (SCM_PACK_POINTER (val));
-
-  return 1;
-}
-
-#ifdef HAVE_GC_TABLE_START_CALLBACK
-static void*
-weak_gc_hook (void *hook_data, void *fn_data, void *data)
-{
-  if (!weak_gc_callback (fn_data))
-    scm_c_hook_remove (&scm_before_gc_c_hook, weak_gc_hook, fn_data);
-
-  return NULL;
-}
-#else
-static void
-weak_gc_finalizer (void *ptr, void *data)
-{
-  if (weak_gc_callback (ptr))
-    scm_i_set_finalizer (ptr, weak_gc_finalizer, data);
-}
-#endif
-
-static void
-scm_c_register_weak_gc_callback (SCM obj, void (*callback) (SCM))
-{
-  void **weak = GC_MALLOC_ATOMIC (sizeof (void*) * 2);
-
-  weak[0] = SCM_UNPACK_POINTER (obj);
-  weak[1] = (void*)callback;
-  GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM2PTR (obj));
-
-#ifdef HAVE_GC_TABLE_START_CALLBACK
-  scm_c_hook_add (&scm_after_gc_c_hook, weak_gc_hook, weak, 0);
-#else
-  scm_i_set_finalizer (weak, weak_gc_finalizer, NULL);
-#endif
-}
-
 SCM
 scm_c_make_weak_table (unsigned long k, scm_t_weak_table_kind kind)
 {
@@ -880,7 +829,7 @@ scm_c_make_weak_table (unsigned long k, scm_t_weak_table_kind kind)
 
   ret = make_weak_table (k, kind);
 
-  scm_c_register_weak_gc_callback (ret, do_vacuum_weak_table);
+  scm_i_register_weak_gc_callback (ret, do_vacuum_weak_table);
 
   return ret;
 }
