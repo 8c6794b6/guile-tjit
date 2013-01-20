@@ -1,4 +1,4 @@
-/* Copyright (C) 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -160,6 +160,15 @@ entry_distance (unsigned long hash, unsigned long k, unsigned long size)
     return size - origin + k;
 }
 
+#ifndef HAVE_GC_MOVE_DISAPPEARING_LINK
+static void
+GC_move_disappearing_link (void **from, void **to)
+{
+  GC_unregister_disappearing_link (from);
+  SCM_I_REGISTER_DISAPPEARING_LINK (to, *to);
+}
+#endif
+
 static void
 move_weak_entry (scm_t_weak_entry *from, scm_t_weak_entry *to)
 {
@@ -172,15 +181,7 @@ move_weak_entry (scm_t_weak_entry *from, scm_t_weak_entry *to)
       to->key = copy.key;
 
       if (copy.key && SCM_HEAP_OBJECT_P (SCM_PACK (copy.key)))
-        {
-#ifdef HAVE_GC_MOVE_DISAPPEARING_LINK
-          GC_move_disappearing_link ((void **) &from->key, (void **) &to->key);
-#else
-          GC_unregister_disappearing_link ((void **) &from->key);
-          SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &to->key,
-                                            to->key);
-#endif
-        }
+        GC_move_disappearing_link ((void **) &from->key, (void **) &to->key);
     }
   else
     {
@@ -357,12 +358,8 @@ resize_set (scm_t_weak_set *set)
       if (new_size_index == set->size_index)
         return;
       new_size = hashset_size[new_size_index];
-      scm_i_pthread_mutex_unlock (&set->lock);
-      /* Allocating memory might cause finalizers to run, which could
-         run anything, so drop our lock to avoid deadlocks.  */
       new_entries = scm_gc_malloc_pointerless (new_size * sizeof(scm_t_weak_entry),
                                                "weak set");
-      scm_i_pthread_mutex_lock (&set->lock);
     }
   while (!is_acceptable_size_index (set, new_size_index));
 
@@ -423,9 +420,9 @@ resize_set (scm_t_weak_set *set)
     }
 }
 
-/* Run after GC via do_vacuum_weak_set, this function runs over the
-   whole table, removing lost weak references, reshuffling the set as it
-   goes.  It might resize the set if it reaps enough entries.  */
+/* Run from a finalizer via do_vacuum_weak_set, this function runs over
+   the whole table, removing lost weak references, reshuffling the set
+   as it goes.  It might resize the set if it reaps enough entries.  */
 static void
 vacuum_weak_set (scm_t_weak_set *set)
 {
@@ -693,63 +690,12 @@ do_vacuum_weak_set (SCM set)
 
   s = SCM_WEAK_SET (set);
 
-  if (scm_i_pthread_mutex_trylock (&s->lock) == 0)
-    {
-      vacuum_weak_set (s);
-      scm_i_pthread_mutex_unlock (&s->lock);
-    }
-
-  return;
-}
-
-/* The before-gc C hook only runs if GC_set_start_callback is available,
-   so if not, fall back on a finalizer-based implementation.  */
-static int
-weak_gc_callback (void **weak)
-{
-  void *val = weak[0];
-  void (*callback) (SCM) = weak[1];
-  
-  if (!val)
-    return 0;
-  
-  callback (SCM_PACK_POINTER (val));
-
-  return 1;
-}
-
-#ifdef HAVE_GC_SET_START_CALLBACK
-static void*
-weak_gc_hook (void *hook_data, void *fn_data, void *data)
-{
-  if (!weak_gc_callback (fn_data))
-    scm_c_hook_remove (&scm_before_gc_c_hook, weak_gc_hook, fn_data);
-
-  return NULL;
-}
-#else
-static void
-weak_gc_finalizer (void *ptr, void *data)
-{
-  if (weak_gc_callback (ptr))
-    scm_i_set_finalizer (ptr, weak_gc_finalizer, data);
-}
-#endif
-
-static void
-scm_c_register_weak_gc_callback (SCM obj, void (*callback) (SCM))
-{
-  void **weak = GC_MALLOC_ATOMIC (sizeof (void*) * 2);
-
-  weak[0] = SCM_UNPACK_POINTER (obj);
-  weak[1] = (void*)callback;
-  GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM2PTR (obj));
-
-#ifdef HAVE_GC_SET_START_CALLBACK
-  scm_c_hook_add (&scm_after_gc_c_hook, weak_gc_hook, weak, 0);
-#else
-  scm_i_set_finalizer (weak, weak_gc_finalizer, NULL);
-#endif
+  /* We should always be able to grab this lock, because we are run from
+     a finalizer, which runs in another thread (or an async, which is
+     mostly equivalent).  */
+  scm_i_pthread_mutex_lock (&s->lock);
+  vacuum_weak_set (s);
+  scm_i_pthread_mutex_unlock (&s->lock);
 }
 
 SCM
@@ -759,7 +705,7 @@ scm_c_make_weak_set (unsigned long k)
 
   ret = make_weak_set (k);
 
-  scm_c_register_weak_gc_callback (ret, do_vacuum_weak_set);
+  scm_i_register_weak_gc_callback (ret, do_vacuum_weak_set);
 
   return ret;
 }

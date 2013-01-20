@@ -1,4 +1,4 @@
-/* Copyright (C) 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -300,6 +300,64 @@ scm_i_finalizer_pre_fork (void)
   stop_finalization_thread ();
   GC_set_finalizer_notifier (spawn_finalizer_thread);
 #endif
+}
+
+
+
+
+static void*
+weak_pointer_ref (void *weak_pointer) 
+{
+  return *(void **) weak_pointer;
+}
+
+static void
+weak_gc_finalizer (void *ptr, void *data)
+{
+  void **weak = ptr;
+  void *val;
+  void (*callback) (SCM) = weak[1];
+
+  val = GC_call_with_alloc_lock (weak_pointer_ref, &weak[0]);
+
+  if (!val)
+    return;
+
+  callback (SCM_PACK_POINTER (val));
+
+  scm_i_set_finalizer (ptr, weak_gc_finalizer, data);
+}
+
+/* CALLBACK will be called on OBJ, as long as OBJ is accessible.  It
+   will be called from a finalizer, which may be from an async or from
+   another thread.
+
+   As an implementation detail, the way this works is that we allocate
+   a fresh pointer-less object holding two words.  We know that this
+   object should get collected the next time GC is run, so we attach a
+   finalizer to it so that we get a callback after GC happens.
+
+   The first word of the object holds a weak reference to OBJ, and the
+   second holds the callback pointer.  When the callback is called, we
+   check if the weak reference on OBJ still holds.  If it doesn't hold,
+   then OBJ is no longer accessible, and we're done.  Otherwise we call
+   the callback and re-register a finalizer for our two-word GC object,
+   effectively resuscitating the object so that we will get a callback
+   on the next GC.
+
+   We could use the scm_after_gc_hook, but using a finalizer has the
+   advantage of potentially running in another thread, decreasing pause
+   time.  */
+void
+scm_i_register_weak_gc_callback (SCM obj, void (*callback) (SCM))
+{
+  void **weak = GC_MALLOC_ATOMIC (sizeof (void*) * 2);
+
+  weak[0] = SCM_UNPACK_POINTER (obj);
+  weak[1] = (void*)callback;
+  GC_GENERAL_REGISTER_DISAPPEARING_LINK (weak, SCM2PTR (obj));
+
+  scm_i_set_finalizer (weak, weak_gc_finalizer, NULL);
 }
 
 
