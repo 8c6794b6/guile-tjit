@@ -1,6 +1,6 @@
 ;;; High-level compiler interface
 
-;; Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -152,7 +152,7 @@
         file)
       comp)))
 
-(define* (compile-and-load file #:key (from 'scheme) (to 'value)
+(define* (compile-and-load file #:key (from (current-language)) (to 'value)
                            (env (current-module)) (opts '())
                            (canonicalization 'relative))
   (with-fluids ((%file-port-name-canonicalization canonicalization))
@@ -181,11 +181,25 @@
   (let lp ((in (reverse (or (lookup-compilation-order from to)
                             (error "no way to compile" from "to" to))))
            (lang to))
-    (cond ((null? in)
-           (error "don't know how to join expressions" from to))
+    (cond ((null? in) to)
           ((language-joiner lang) lang)
           (else
            (lp (cdr in) (caar in))))))
+
+(define (default-language-joiner lang)
+  (lambda (exps env)
+    (if (and (pair? exps) (null? (cdr exps)))
+        (car exps)
+        (error
+         "Multiple expressions read and compiled, but language has no joiner"
+         lang))))
+
+(define (read-and-parse lang port cenv)
+  (let ((exp ((language-reader lang) port cenv)))
+    (cond
+     ((eof-object? exp) exp)
+     ((language-parser lang) => (lambda (parse) (parse exp)))
+     (else exp))))
 
 (define* (read-and-compile port #:key
                            (from (current-language))
@@ -195,12 +209,16 @@
   (let ((from (ensure-language from))
         (to (ensure-language to)))
     (let ((joint (find-language-joint from to)))
-      (with-fluids ((*current-language* from))
+      (parameterize ((current-language from))
         (let lp ((exps '()) (env #f) (cenv env))
-          (let ((x ((language-reader (current-language)) port cenv)))
+          (let ((x (read-and-parse (current-language) port cenv)))
             (cond
              ((eof-object? x)
-              (compile ((language-joiner joint) (reverse exps) env)
+              (close-port port)
+              (compile ((or (language-joiner joint)
+                            (default-language-joiner joint))
+                        (reverse exps)
+                        env)
                        #:from joint #:to to
                        ;; env can be false if no expressions were read.
                        #:env (or env (default-environment joint))

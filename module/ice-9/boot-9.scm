@@ -1,7 +1,7 @@
 ;;; -*- mode: scheme; coding: utf-8; -*-
 
 ;;;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-;;;;   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
+;;;;   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
 ;;;;   Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -1289,6 +1289,34 @@ VALUE."
 (set-struct-vtable-name! <parameter> '<parameter>)
 
 (define* (make-parameter init #:optional (conv (lambda (x) x)))
+  "Make a new parameter.
+
+A parameter is a dynamically bound value, accessed through a procedure.
+To access the current value, apply the procedure with no arguments:
+
+  (define p (make-parameter 10))
+  (p) => 10
+
+To provide a new value for the parameter in a dynamic extent, use
+`parameterize':
+
+  (parameterize ((p 20))
+    (p)) => 20
+  (p) => 10
+
+The value outside of the dynamic extent of the body is unaffected.  To
+update the current value, apply it to one argument:
+
+  (p 20) => 10
+  (p) => 20
+
+As you can see, the call that updates a parameter returns its previous
+value.
+
+All values for the parameter are first run through the CONV procedure,
+including INIT, the initial value.  The default CONV procedure is the
+identity procedure.  CONV is commonly used to ensure some set of
+invariants on the values that a parameter may have."
   (let ((fluid (make-fluid (conv init))))
     (make-struct <parameter> 0
                  (case-lambda
@@ -1327,6 +1355,22 @@ VALUE."
                            ...)
                body body* ...)))))))
 
+(define* (fluid->parameter fluid #:optional (conv (lambda (x) x)))
+  "Make a parameter that wraps a fluid.
+
+The value of the parameter will be the same as the value of the fluid.
+If the parameter is rebound in some dynamic extent, perhaps via
+`parameterize', the new value will be run through the optional CONV
+procedure, as with any parameter.  Note that unlike `make-parameter',
+CONV is not applied to the initial value."
+  (make-struct <parameter> 0
+               (case-lambda
+                 (() (fluid-ref fluid))
+                 ((x) (let ((prev (fluid-ref fluid)))
+                        (fluid-set! fluid (conv x))
+                        prev)))
+               fluid conv))
+
 
 
 ;;; Once parameters have booted, define the default prompt tag as being
@@ -1340,15 +1384,7 @@ VALUE."
 ;;; Current ports as parameters.
 ;;;
 
-(let ((fluid->parameter
-       (lambda (fluid conv)
-         (make-struct <parameter> 0
-                      (case-lambda
-                        (() (fluid-ref fluid))
-                        ((x) (let ((prev (fluid-ref fluid)))
-                               (fluid-set! fluid (conv x))
-                               prev)))
-                      fluid conv))))
+(let ()
   (define-syntax-rule (port-parameterize! binding fluid predicate msg)
     (begin
       (set! binding (fluid->parameter (module-ref (current-module) 'fluid)
@@ -1375,6 +1411,18 @@ VALUE."
                     (if (output-port? x)
                         x
                         (error "expected an output port" x)))))
+
+
+
+
+;;; {Languages}
+;;;
+
+;; The language can be a symbolic name or a <language> object from
+;; (system base language).
+;;
+(define current-language (make-parameter 'scheme))
+
 
 
 
@@ -2880,8 +2928,8 @@ written into the port is returned."
                             version)
   (let* ((module (resolve-module name #t version #:ensure #f))
          (public-i (and module (module-public-interface module))))
-    (and (or (not module) (not public-i))
-         (error "no code for module" name))
+    (unless public-i
+      (error "no code for module" name))
     (if (and (not select) (null? hide) (eq? renamer identity))
         public-i
         (let ((selection (or select (module-map (lambda (sym var) sym)
@@ -3052,10 +3100,13 @@ module '(ice-9 q) '(make-q q-length))}."
 
 (define autoloads-in-progress '())
 
-;; This function is called from "modules.c".  If you change it, be
-;; sure to update "modules.c" as well.
-
+;; This function is called from scm_load_scheme_module in
+;; "deprecated.c".  Please do not change its interface.
+;;
 (define* (try-module-autoload module-name #:optional version)
+  "Try to load a module of the given name.  If it is not found, return
+#f.  Otherwise return #t.  May raise an exception if a file is found,
+but it fails to load."
   (let* ((reverse-name (reverse module-name))
          (name (symbol->string (car reverse-name)))
          (dir-hint-module-name (reverse (cdr reverse-name)))
@@ -3072,6 +3123,13 @@ module '(ice-9 q) '(make-q q-length))}."
               (with-fluids ((current-reader #f))
                 (save-module-excursion
                  (lambda () 
+                   (define (call/ec proc)
+                     (let ((tag (make-prompt-tag)))
+                       (call-with-prompt
+                        tag
+                        (lambda ()
+                          (proc (lambda () (abort-to-prompt tag))))
+                        (lambda (k) (values)))))
                    ;; The initial environment when loading a module is a fresh
                    ;; user module.
                    (set-current-module (make-fresh-user-module))
@@ -3081,8 +3139,11 @@ module '(ice-9 q) '(make-q q-length))}."
                    ;; out how to locate the compiled file, do auto-compilation,
                    ;; etc. Punt for now, and don't use versions when locating
                    ;; the file.
-                   (primitive-load-path (in-vicinity dir-hint name) #f)
-                   (set! didit #t)))))
+                   (call/ec
+                    (lambda (abort)
+                      (primitive-load-path (in-vicinity dir-hint name)
+                                           abort)
+                      (set! didit #t)))))))
             (lambda () (set-autoloaded! dir-hint name didit)))
            didit))))
 
