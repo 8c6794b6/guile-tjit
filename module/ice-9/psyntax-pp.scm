@@ -990,7 +990,7 @@
              (let ((e (cdar body)) (er (caar body)))
                (call-with-values
                  (lambda ()
-                   (syntax-type e er '(()) (source-annotation er) ribcage mod #f))
+                   (syntax-type e er '(()) (source-annotation e) ribcage mod #f))
                  (lambda (type value form e w s mod)
                    (let ((key type))
                      (cond ((memv key '(define-form))
@@ -1004,20 +1004,31 @@
                                        (cons var vars)
                                        (cons (cons er (wrap e w mod)) vals)
                                        (cons (cons 'lexical var) bindings)))))
-                           ((memv key '(define-syntax-form define-syntax-parameter-form))
-                            (let ((id (wrap value w mod)) (label (gen-label)))
+                           ((memv key '(define-syntax-form))
+                            (let ((id (wrap value w mod))
+                                  (label (gen-label))
+                                  (trans-r (macros-only-env er)))
                               (extend-ribcage! ribcage id label)
-                              (parse (cdr body)
-                                     (cons id ids)
-                                     (cons label labels)
-                                     var-ids
-                                     vars
-                                     vals
-                                     (cons (cons (if (eq? type 'define-syntax-parameter-form)
-                                                   'syntax-parameter
-                                                   'macro)
-                                                 (cons er (wrap e w mod)))
-                                           bindings))))
+                              (set-cdr!
+                                r
+                                (extend-env
+                                  (list label)
+                                  (list (cons 'macro (eval-local-transformer (expand e trans-r w mod) mod)))
+                                  (cdr r)))
+                              (parse (cdr body) (cons id ids) labels var-ids vars vals bindings)))
+                           ((memv key '(define-syntax-parameter-form))
+                            (let ((id (wrap value w mod))
+                                  (label (gen-label))
+                                  (trans-r (macros-only-env er)))
+                              (extend-ribcage! ribcage id label)
+                              (set-cdr!
+                                r
+                                (extend-env
+                                  (list label)
+                                  (list (cons 'syntax-parameter
+                                              (list (eval-local-transformer (expand e trans-r w mod) mod))))
+                                  (cdr r)))
+                              (parse (cdr body) (cons id ids) labels var-ids vars vals bindings)))
                            ((memv key '(begin-form))
                             (let* ((tmp-1 e) (tmp ($sc-dispatch tmp-1 '(_ . each-any))))
                               (if tmp
@@ -1067,18 +1078,6 @@
                                 #f
                                 "invalid or duplicate identifier in definition"
                                 outer-form))
-                            (let loop ((bs bindings) (er-cache #f) (r-cache #f))
-                              (if (not (null? bs))
-                                (let ((b (car bs)))
-                                  (if (memq (car b) '(macro syntax-parameter))
-                                    (let* ((er (cadr b))
-                                           (r-cache (if (eq? er er-cache) r-cache (macros-only-env er))))
-                                      (set-cdr!
-                                        b
-                                        (eval-local-transformer (expand (cddr b) r-cache '(()) mod) mod))
-                                      (if (eq? (car b) 'syntax-parameter) (set-cdr! b (list (cdr b))))
-                                      (loop (cdr bs) er r-cache))
-                                    (loop (cdr bs) er-cache r-cache)))))
                             (set-cdr! r (extend-env labels bindings (cdr r)))
                             (build-letrec
                               #f
@@ -3026,33 +3025,37 @@
     'macro
     (lambda (x)
       (letrec*
-        ((read-file
-           (lambda (fn k)
-             (let ((p (open-input-file fn)))
+        ((absolute-path? (lambda (path) (string-prefix? "/" path)))
+         (read-file
+           (lambda (fn dir k)
+             (let ((p (open-input-file (if (absolute-path? fn) fn (in-vicinity dir fn)))))
                (let f ((x (read p)) (result '()))
                  (if (eof-object? x)
                    (begin (close-input-port p) (reverse result))
                    (f (read p) (cons (datum->syntax k x) result))))))))
-        (let ((tmp-1 x))
-          (let ((tmp ($sc-dispatch tmp-1 '(any any))))
-            (if tmp
-              (apply (lambda (k filename)
-                       (let ((fn (syntax->datum filename)))
-                         (let ((tmp-1 (read-file fn filename)))
-                           (let ((tmp ($sc-dispatch tmp-1 'each-any)))
-                             (if tmp
-                               (apply (lambda (exp)
-                                        (cons '#(syntax-object begin ((top)) (hygiene guile)) exp))
-                                      tmp)
-                               (syntax-violation
-                                 #f
-                                 "source expression failed to match any pattern"
-                                 tmp-1))))))
-                     tmp)
-              (syntax-violation
-                #f
-                "source expression failed to match any pattern"
-                tmp-1))))))))
+        (let ((src (syntax-source x)))
+          (let ((file (if src (assq-ref src 'filename) #f)))
+            (let ((dir (if (string? file) (dirname file) #f)))
+              (let ((tmp-1 x))
+                (let ((tmp ($sc-dispatch tmp-1 '(any any))))
+                  (if tmp
+                    (apply (lambda (k filename)
+                             (let ((fn (syntax->datum filename)))
+                               (let ((tmp-1 (read-file fn dir filename)))
+                                 (let ((tmp ($sc-dispatch tmp-1 'each-any)))
+                                   (if tmp
+                                     (apply (lambda (exp)
+                                              (cons '#(syntax-object begin ((top)) (hygiene guile)) exp))
+                                            tmp)
+                                     (syntax-violation
+                                       #f
+                                       "source expression failed to match any pattern"
+                                       tmp-1))))))
+                           tmp)
+                    (syntax-violation
+                      #f
+                      "source expression failed to match any pattern"
+                      tmp-1)))))))))))
 
 (define include-from-path
   (make-syntax-transformer

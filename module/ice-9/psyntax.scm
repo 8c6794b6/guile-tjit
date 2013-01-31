@@ -1531,7 +1531,7 @@
                 (syntax-violation #f "no expressions in body" outer-form)
                 (let ((e (cdar body)) (er (caar body)))
                   (call-with-values
-                      (lambda () (syntax-type e er empty-wrap (source-annotation er) ribcage mod #f))
+                      (lambda () (syntax-type e er empty-wrap (source-annotation e) ribcage mod #f))
                     (lambda (type value form e w s mod)
                       (case type
                         ((define-form)
@@ -1543,18 +1543,40 @@
                                     (cons id var-ids)
                                     (cons var vars) (cons (cons er (wrap e w mod)) vals)
                                     (cons (make-binding 'lexical var) bindings)))))
-                        ((define-syntax-form define-syntax-parameter-form)
-                         (let ((id (wrap value w mod)) (label (gen-label)))
+                        ((define-syntax-form)
+                         (let ((id (wrap value w mod))
+                               (label (gen-label))
+                               (trans-r (macros-only-env er)))
                            (extend-ribcage! ribcage id label)
-                           (parse (cdr body)
-                                  (cons id ids) (cons label labels)
-                                  var-ids vars vals
-                                  (cons (make-binding
-                                         (if (eq? type 'define-syntax-parameter-form)
-                                             'syntax-parameter
-                                             'macro)
-                                         (cons er (wrap e w mod)))
-                                        bindings))))
+                           ;; As required by R6RS, evaluate the right-hand-sides of internal
+                           ;; syntax definition forms and add their transformers to the
+                           ;; compile-time environment immediately, so that the newly-defined
+                           ;; keywords may be used in definition context within the same
+                           ;; lexical contour.
+                           (set-cdr! r (extend-env
+                                        (list label)
+                                        (list (make-binding
+                                               'macro
+                                               (eval-local-transformer
+                                                (expand e trans-r w mod)
+                                                mod)))
+                                        (cdr r)))
+                           (parse (cdr body) (cons id ids) labels var-ids vars vals bindings)))
+                        ((define-syntax-parameter-form)
+                         ;; Same as define-syntax-form, but different format of the binding.
+                         (let ((id (wrap value w mod))
+                               (label (gen-label))
+                               (trans-r (macros-only-env er)))
+                           (extend-ribcage! ribcage id label)
+                           (set-cdr! r (extend-env
+                                        (list label)
+                                        (list (make-binding
+                                               'syntax-parameter
+                                               (list (eval-local-transformer
+                                                      (expand e trans-r w mod)
+                                                      mod))))
+                                        (cdr r)))
+                           (parse (cdr body) (cons id ids) labels var-ids vars vals bindings)))
                         ((begin-form)
                          (syntax-case e ()
                            ((_ e1 ...)
@@ -1585,23 +1607,6 @@
                                    (syntax-violation
                                     #f "invalid or duplicate identifier in definition"
                                     outer-form))
-                               (let loop ((bs bindings) (er-cache #f) (r-cache #f))
-                                 (if (not (null? bs))
-                                     (let* ((b (car bs)))
-                                       (if (memq (car b) '(macro syntax-parameter))
-                                           (let* ((er (cadr b))
-                                                  (r-cache
-                                                   (if (eq? er er-cache)
-                                                       r-cache
-                                                       (macros-only-env er))))
-                                             (set-cdr! b
-                                                       (eval-local-transformer
-                                                        (expand (cddr b) r-cache empty-wrap mod)
-                                                        mod))
-                                             (if (eq? (car b) 'syntax-parameter)
-                                                 (set-cdr! b (list (cdr b))))
-                                             (loop (cdr bs) er r-cache))
-                                           (loop (cdr bs) er-cache r-cache)))))
                                (set-cdr! r (extend-env labels bindings (cdr r)))
                                (build-letrec no-source #t
                                              (reverse (map syntax->datum var-ids))

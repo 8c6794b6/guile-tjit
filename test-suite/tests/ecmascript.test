@@ -80,6 +80,7 @@
 (with-test-prefix "compiler"
 
   (ecompile "true;" #t)
+  (ecompile "if (3 > 2) true; else false;" #t)
   (ecompile "2 + 2;" 4)
   (ecompile "\"hello\";" "hello")
   (ecompile "var test = { bar: 1 };")

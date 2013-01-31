@@ -1,6 +1,6 @@
 ;;; Guile Lowlevel Intermediate Language
 
-;; Copyright (C) 2001, 2009, 2010, 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -36,4 +36,5 @@
   #:printer	write
   #:compilers   `((objcode . ,compile-objcode))
   #:decompilers `((objcode . ,decompile-objcode))
+  #:for-humans? #f
   )
