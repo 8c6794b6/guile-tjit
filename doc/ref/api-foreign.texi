@@ -489,6 +489,8 @@ platform-dependent size:
 @defvrx {Scheme Variable} long
 @defvrx {Scheme Variable} unsigned-long
 @defvrx {Scheme Variable} size_t
+@defvrx {Scheme Variable} ssize_t
+@defvrx {Scheme Variable} ptrdiff_t
 Values exported by the @code{(system foreign)} module, representing C
 numeric types. For example, @code{long} may be @code{equal?} to
 @code{int64} on a 64-bit platform.
@@ -801,8 +803,8 @@ int64_t a; uint8_t b; @}}:
 @end example
 
 As yet, Guile only has convenience routines to support
-conventionally-packed structs. But given the @code{bytevector->foreign}
-and @code{foreign->bytevector} routines, one can create and parse
+conventionally-packed structs. But given the @code{bytevector->pointer}
+and @code{pointer->bytevector} routines, one can create and parse
 tightly packed structs and unions by hand. See the code for
 @code{(system foreign)} for details.
 

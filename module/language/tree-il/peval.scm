@@ -431,6 +431,13 @@ top-level bindings from ENV and return the resulting expression."
              new))
          vars))
 
+  (define (fresh-temporaries ls)
+    (map (lambda (elt)
+           (let ((new (gensym "tmp ")))
+             (record-new-temporary! 'tmp new 1)
+             new))
+         ls))
+
   (define (assigned-lexical? sym)
     (var-set? (lookup-var sym)))
 
@@ -508,7 +515,7 @@ top-level bindings from ENV and return the resulting expression."
      (else
       (residualize-call))))
 
-  (define (inline-values exp src names gensyms body)
+  (define (inline-values src exp nmin nmax consumer)
     (let loop ((exp exp))
       (match exp
         ;; Some expression types are always singly-valued.
@@ -524,17 +531,15 @@ top-level bindings from ENV and return the resulting expression."
              ($ <toplevel-set>)         ; could return zero values in
              ($ <toplevel-define>)      ; the future
              ($ <module-set>)           ;
-             ($ <dynset>))              ; 
-         (and (= (length names) 1)
-              (make-let src names gensyms (list exp) body)))
-        (($ <primcall> src (? singly-valued-primitive? name))
-         (and (= (length names) 1)
-              (make-let src names gensyms (list exp) body)))
+             ($ <dynset>)               ;
+             ($ <primcall> src (? singly-valued-primitive?)))
+         (and (<= nmin 1) (or (not nmax) (>= nmax 1))
+              (make-call src (make-lambda #f '() consumer) (list exp))))
 
         ;; Statically-known number of values.
         (($ <primcall> src 'values vals)
-         (and (= (length names) (length vals))
-              (make-let src names gensyms vals body)))
+         (and (<= nmin (length vals)) (or (not nmax) (>= nmax (length vals)))
+              (make-call src (make-lambda #f '() consumer) vals)))
 
         ;; Not going to copy code into both branches.
         (($ <conditional>) #f)
@@ -692,6 +697,49 @@ top-level bindings from ENV and return the resulting expression."
        ((vhash-assq var env) => cdr)
        (else (error "unbound var" var))))
 
+    ;; Find a value referenced a specific number of times.  This is a hack
+    ;; that's used for propagating fresh data structures like rest lists and
+    ;; prompt tags.  Usually we wouldn't copy consed data, but we can do so in
+    ;; some special cases like `apply' or prompts if we can account
+    ;; for all of its uses.
+    ;;
+    ;; You don't want to use this in general because it introduces a slight
+    ;; nonlinearity by running peval again (though with a small effort and size
+    ;; counter).
+    ;;
+    (define (find-definition x n-aliases)
+      (cond
+       ((lexical-ref? x)
+        (cond
+         ((lookup (lexical-ref-gensym x))
+          => (lambda (op)
+               (let ((y (or (operand-residual-value op)
+                            (visit-operand op counter 'value 10 10)
+                            (operand-source op))))
+                 (cond
+                  ((and (lexical-ref? y)
+                        (= (lexical-refcount (lexical-ref-gensym x)) 1))
+                   ;; X is a simple alias for Y.  Recurse, regardless of
+                   ;; the number of aliases we were expecting.
+                   (find-definition y n-aliases))
+                  ((= (lexical-refcount (lexical-ref-gensym x)) n-aliases)
+                   ;; We found a definition that is aliased the right
+                   ;; number of times.  We still recurse in case it is a
+                   ;; lexical.
+                   (values (find-definition y 1)
+                           op))
+                  (else
+                   ;; We can't account for our aliases.
+                   (values #f #f))))))
+         (else
+          ;; A formal parameter.  Can't say anything about that.
+          (values #f #f))))
+       ((= n-aliases 1)
+        ;; Not a lexical: success, but only if we are looking for an
+        ;; unaliased value.
+        (values x #f))
+       (else (values #f #f))))
+
     (define (visit exp ctx)
       (loop exp env counter ctx))
 
@@ -820,6 +868,30 @@ top-level bindings from ENV and return the resulting expression."
              (begin
                (record-operand-use op)
                (make-lexical-set src name (operand-sym op) (for-value exp))))))
+      (($ <let> src
+          (names ... rest)
+          (gensyms ... rest-sym)
+          (vals ... ($ <primcall> _ 'list rest-args))
+          ($ <primcall> asrc (or 'apply '@apply)
+             (proc args ...
+                   ($ <lexical-ref> _
+                      (? (cut eq? <> rest))
+                      (? (lambda (sym)
+                           (and (eq? sym rest-sym)
+                                (= (lexical-refcount sym) 1))))))))
+       (let* ((tmps (make-list (length rest-args) 'tmp))
+              (tmp-syms (fresh-temporaries tmps)))
+         (for-tail
+          (make-let src
+                    (append names tmps)
+                    (append gensyms tmp-syms)
+                    (append vals rest-args)
+                    (make-call
+                     asrc
+                     proc
+                     (append args
+                             (map (cut make-lexical-ref #f <> <>)
+                                  tmps tmp-syms)))))))
       (($ <let> src names gensyms vals body)
        (define (compute-alias exp)
          ;; It's very common for macros to introduce something like:
@@ -915,11 +987,13 @@ top-level bindings from ENV and return the resulting expression."
        ;; reconstruct the let-values, pevaling the consumer.
        (let ((producer (for-values producer)))
          (or (match consumer
-               (($ <lambda-case> src req #f #f #f () gensyms body #f)
-                (cond
-                 ((inline-values producer src req gensyms body)
-                  => for-tail)
-                 (else #f)))
+               (($ <lambda-case> src req opt rest #f inits gensyms body #f)
+                (let* ((nmin (length req))
+                       (nmax (and (not rest) (+ nmin (if opt (length opt) 0)))))
+                  (cond
+                   ((inline-values lv-src producer nmin nmax consumer)
+                    => for-tail)
+                   (else #f))))
                (_ #f))
              (make-let-values lv-src producer (for-tail consumer)))))
       (($ <dynwind> src winder pre body post unwinder)
@@ -1102,15 +1176,30 @@ top-level bindings from ENV and return the resulting expression."
                (make-primcall src 'values vals))))))
 
       (($ <primcall> src (or 'apply '@apply) (proc args ... tail))
-       (match (for-value tail)
-         (($ <const> _ (args* ...))
-          (let ((args* (map (lambda (x) (make-const #f x)) args*)))
-            (for-tail (make-call src proc (append args args*)))))
-         (($ <primcall> _ 'list args*)
-          (for-tail (make-call src proc (append args args*))))
-         (tail
-          (let ((args (append (map for-value args) (list tail))))
-            (make-primcall src '@apply (cons (for-value proc) args))))))
+       (let lp ((tail* (find-definition tail 1)) (speculative? #t))
+         (define (copyable? x)
+           ;; Inlining a result from find-definition effectively copies it,
+           ;; relying on the let-pruning to remove its original binding.  We
+           ;; shouldn't copy non-constant expressions.
+           (or (not speculative?) (constant-expression? x)))
+         (match tail*
+           (($ <const> _ (args* ...))
+            (let ((args* (map (cut make-const #f <>) args*)))
+              (for-tail (make-call src proc (append args args*)))))
+           (($ <primcall> _ 'cons
+               ((and head (? copyable?)) (and tail (? copyable?))))
+            (for-tail (make-primcall src '@apply
+                                     (cons proc
+                                           (append args (list head tail))))))
+           (($ <primcall> _ 'list
+               (and args* ((? copyable?) ...)))
+            (for-tail (make-call src proc (append args args*))))
+           (tail*
+            (if speculative?
+                (lp (for-value tail) #f)
+                (let ((args (append (map for-value args) (list tail*))))
+                  (make-primcall src '@apply
+                                 (cons (for-value proc) args))))))))
 
       (($ <primcall> src (? constructor-primitive? name) args)
        (cond
@@ -1219,20 +1308,39 @@ top-level bindings from ENV and return the resulting expression."
 
       (($ <call> src orig-proc orig-args)
        ;; todo: augment the global env with specialized functions
-       (let ((proc (visit orig-proc 'operator)))
+       (let revisit-proc ((proc (visit orig-proc 'operator)))
          (match proc
            (($ <primitive-ref> _ name)
             (for-tail (make-primcall src name orig-args)))
            (($ <lambda> _ _
-               ($ <lambda-case> _ req opt #f #f inits gensyms body #f))
-            ;; Simple case: no rest, no keyword arguments.
+               ($ <lambda-case> _ req opt rest #f inits gensyms body #f))
+            ;; Simple case: no keyword arguments.
             ;; todo: handle the more complex cases
             (let* ((nargs (length orig-args))
                    (nreq (length req))
                    (nopt (if opt (length opt) 0))
                    (key (source-expression proc)))
+              (define (inlined-call)
+                (make-let src
+                          (append req
+                                  (or opt '())
+                                  (if rest (list rest) '()))
+                          gensyms
+                          (if (> nargs (+ nreq nopt))
+                              (append (list-head orig-args (+ nreq nopt))
+                                      (list
+                                       (make-primcall
+                                        #f 'list
+                                        (drop orig-args (+ nreq nopt)))))
+                              (append orig-args
+                                      (drop inits (- nargs nreq))
+                                      (if rest
+                                          (list (make-const #f '()))
+                                          '())))
+                          body))
+
               (cond
-               ((or (< nargs nreq) (> nargs (+ nreq nopt)))
+               ((or (< nargs nreq) (and (not rest) (> nargs (+ nreq nopt))))
                 ;; An error, or effecting arguments.
                 (make-call src (for-call orig-proc) (map for-value orig-args)))
                ((or (and=> (find-counter key counter) counter-recursive?)
@@ -1256,12 +1364,7 @@ top-level bindings from ENV and return the resulting expression."
                               (lp (counter-prev counter)))))))
 
                 (log 'inline-recurse key)
-                (loop (make-let src (append req (or opt '()))
-                                gensyms
-                                (append orig-args
-                                        (drop inits (- nargs nreq)))
-                                body)
-                  env counter ctx))
+                (loop (inlined-call) env counter ctx))
                (else
                 ;; An integration at the top-level, the first
                 ;; recursion of a recursive procedure, or a nested
@@ -1292,12 +1395,7 @@ top-level bindings from ENV and return the resulting expression."
                       (make-top-counter effort-limit operand-size-limit
                                         abort key))))
                   (define result
-                    (loop (make-let src (append req (or opt '()))
-                                    gensyms
-                                    (append orig-args
-                                            (drop inits (- nargs nreq)))
-                                    body)
-                      env new-counter ctx))
+                    (loop (inlined-call) env new-counter ctx))
                       
                   (if counter
                       ;; The nested inlining attempt succeeded.
@@ -1307,6 +1405,31 @@ top-level bindings from ENV and return the resulting expression."
 
                   (log 'inline-end result exp)
                   result)))))
+           (($ <let> _ _ _ vals _)
+            ;; Attempt to inline `let' in the operator position.
+            ;;
+            ;; We have to re-visit the proc in value mode, since the
+            ;; `let' bindings might have been introduced or renamed,
+            ;; whereas the lambda (if any) in operator position has not
+            ;; been renamed.
+            (if (or (and-map constant-expression? vals)
+                    (and-map constant-expression? orig-args))
+                ;; The arguments and the let-bound values commute.
+                (match (for-value orig-proc)
+                  (($ <let> lsrc names syms vals body)
+                   (log 'inline-let orig-proc)
+                   (for-tail
+                    (make-let lsrc names syms vals
+                              (make-call src body orig-args))))
+                  ;; It's possible for a `let' to go away after the
+                  ;; visit due to the fact that visiting a procedure in
+                  ;; value context will prune unused bindings, whereas
+                  ;; visiting in operator mode can't because it doesn't
+                  ;; traverse through lambdas.  In that case re-visit
+                  ;; the procedure.
+                  (proc (revisit-proc proc)))
+                (make-call src (for-call orig-proc)
+                           (map for-value orig-args))))
            (_
             (make-call src (for-call orig-proc) (map for-value orig-args))))))
       (($ <lambda> src meta body)
@@ -1365,37 +1488,6 @@ top-level bindings from ENV and return the resulting expression."
            (($ <primcall> _ 'make-prompt-tag (or () ((? constant-expression?))))
             #t)
            (_ #f)))
-       (define (find-definition x n-aliases)
-         (cond
-          ((lexical-ref? x)
-           (cond
-            ((lookup (lexical-ref-gensym x))
-             => (lambda (op)
-                  (let ((y (or (operand-residual-value op)
-                               (visit-operand op counter 'value 10 10))))
-                    (cond
-                     ((and (lexical-ref? y)
-                           (= (lexical-refcount (lexical-ref-gensym x)) 1))
-                      ;; X is a simple alias for Y.  Recurse, regardless of
-                      ;; the number of aliases we were expecting.
-                      (find-definition y n-aliases))
-                     ((= (lexical-refcount (lexical-ref-gensym x)) n-aliases)
-                      ;; We found a definition that is aliased the right
-                      ;; number of times.  We still recurse in case it is a
-                      ;; lexical.
-                      (values (find-definition y 1)
-                              op))
-                     (else
-                      ;; We can't account for our aliases.
-                      (values #f #f))))))
-            (else
-             ;; A formal parameter.  Can't say anything about that.
-             (values #f #f))))
-          ((= n-aliases 1)
-           ;; Not a lexical: success, but only if we are looking for an
-           ;; unaliased value.
-           (values x #f))
-          (else (values #f #f))))
 
        (let ((tag (for-value tag))
              (body (for-tail body)))

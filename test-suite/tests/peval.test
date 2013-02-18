@@ -1,7 +1,7 @@
 ;;;; tree-il.test --- test suite for compiling tree-il   -*- scheme -*-
 ;;;; Andy Wingo <wingo@pobox.com> --- May 2009
 ;;;;
-;;;; 	Copyright (C) 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -25,6 +25,7 @@
   #:use-module (language tree-il)
   #:use-module (language tree-il primitives)
   #:use-module (language glil)
+  #:use-module (rnrs bytevectors) ;; for the bytevector primitives
   #:use-module (srfi srfi-13))
 
 (define peval
@@ -835,6 +836,153 @@
             (((x) #f #f #f () (_))
              (call (toplevel top) (lexical x _)))))))
   
+  (pass-if-peval
+    ;; The inliner sees through a `let'.
+    ((let ((a 10)) (lambda (b) (* b 2))) 30)
+    (const 60))
+
+  (pass-if-peval
+      ((lambda ()
+         (define (const x) (lambda (_) x))
+         (let ((v #f))
+           ((const #t) v))))
+    (const #t))
+
+  (pass-if-peval
+      ;; Applications of procedures with rest arguments can get inlined.
+      ((lambda (x y . z)
+         (list x y z))
+       1 2 3 4)
+    (let (z) (_) ((primcall list (const 3) (const 4)))
+         (primcall list (const 1) (const 2) (lexical z _))))
+
+  (pass-if-peval
+    ;; Unmutated lists can get inlined.
+    (let ((args (list 2 3)))
+      (apply (lambda (x y z w)
+               (list x y z w))
+             0 1 args))
+    (primcall list (const 0) (const 1) (const 2) (const 3)))
+
+  (pass-if-peval
+    ;; However if the list might have been mutated, it doesn't propagate.
+    (let ((args (list 2 3)))
+      (foo! args)
+      (apply (lambda (x y z w)
+               (list x y z w))
+             0 1 args))
+    (let (args) (_) ((primcall list (const 2) (const 3)))
+         (seq
+          (call (toplevel foo!) (lexical args _))
+          (primcall @apply
+                    (lambda ()
+                      (lambda-case
+                       (((x y z w) #f #f #f () (_ _ _ _))
+                        (primcall list
+                                  (lexical x _) (lexical y _)
+                                  (lexical z _) (lexical w _)))))
+                    (const 0)
+                    (const 1)
+                    (lexical args _)))))
+
+  (pass-if-peval
+    ;; Here the `args' that gets built by the application of the lambda
+    ;; takes more than effort "10" to visit.  Test that we fall back to
+    ;; the source expression of the operand, which is still a call to
+    ;; `list', so the inlining still happens.
+    (lambda (bv offset n)
+      (let ((x (bytevector-ieee-single-native-ref
+                bv
+                (+ offset 0)))
+            (y (bytevector-ieee-single-native-ref
+                bv
+                (+ offset 4))))
+        (let ((args (list x y)))
+          (@apply
+           (lambda (bv offset x y)
+             (bytevector-ieee-single-native-set!
+              bv
+              (+ offset 0)
+              x)
+             (bytevector-ieee-single-native-set!
+              bv
+              (+ offset 4)
+              y))
+           bv
+           offset
+           args))))
+    (lambda ()
+      (lambda-case
+       (((bv offset n) #f #f #f () (_ _ _))
+        (let (x y) (_ _) ((primcall bytevector-ieee-single-native-ref
+                                    (lexical bv _)
+                                    (primcall +
+                                              (lexical offset _) (const 0)))
+                          (primcall bytevector-ieee-single-native-ref
+                                    (lexical bv _)
+                                    (primcall +
+                                              (lexical offset _) (const 4))))
+             (seq
+              (primcall bytevector-ieee-single-native-set!
+                        (lexical bv _)
+                        (primcall +
+                                  (lexical offset _) (const 0))
+                        (lexical x _))
+              (primcall bytevector-ieee-single-native-set!
+                        (lexical bv _)
+                        (primcall +
+                                  (lexical offset _) (const 4))
+                        (lexical y _))))))))
+
+  (pass-if-peval
+    ;; Here we ensure that non-constant expressions are not copied.
+    (lambda ()
+      (let ((args (list (foo!))))
+        (@apply
+         (lambda (z x)
+           (list z x))
+         ;; This toplevel ref might raise an unbound variable exception.
+         ;; The effects of `(foo!)' must be visible before this effect.
+         z
+         args)))
+    (lambda ()
+      (lambda-case
+       ((() #f #f #f () ())
+        (let (_) (_) ((call (toplevel foo!)))
+             (let (z) (_) ((toplevel z))
+                  (primcall 'list
+                            (lexical z _)
+                            (lexical _ _))))))))
+
+  (pass-if-peval
+    ;; Rest args referenced more than once are not destructured.
+    (lambda ()
+      (let ((args (list 'foo)))
+        (set-car! args 'bar)
+        (@apply
+         (lambda (z x)
+           (list z x))
+         z
+         args)))
+    (lambda ()
+      (lambda-case
+       ((() #f #f #f () ())
+        (let (args) (_)
+             ((primcall list (const foo)))
+             (seq
+              (primcall set-car! (lexical args _) (const bar))
+              (primcall @apply
+                        (lambda . _)
+                        (toplevel z)
+                        (lexical args _))))))))
+
+  (pass-if-peval
+    ;; Let-values inlining, even with consumers with rest args.
+    (call-with-values (lambda () (values 1 2))
+      (lambda args
+        (apply list args)))
+    (primcall list (const 1) (const 2)))
+
   (pass-if-peval
    ;; Constant folding: cons of #nil does not make list
    (cons 1 #nil)
