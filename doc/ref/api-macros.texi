@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2009, 2010, 2011, 2012
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2009, 2010, 2011, 2012, 2013
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -725,7 +725,7 @@ Return the name of the module whose source contains the identifier
 @var{id}.
 @end deffn
 
-@deffn {Scheme Procedure} syntax-local-binding id
+@deffn {Scheme Procedure} syntax-local-binding id [#:resolve-syntax-parameters?=#t]
 Resolve the identifer @var{id}, a syntax object, within the current
 lexical environment, and return two values, the binding type and a
 binding value.  The binding type is a symbol, which may be one of the
@@ -738,6 +738,12 @@ of @code{eq?}) identifying this binding.
 @item macro
 A syntax transformer, either local or global.  The value is the
 transformer procedure.
+@item syntax-parameter
+A syntax parameter (@pxref{Syntax Parameters}).  By default,
+@code{syntax-local-binding} will resolve syntax parameters, so that this
+value will not be returned.  Pass @code{#:resolve-syntax-parameters? #f}
+to indicate that you are interested in syntax parameters.  The value is
+the default transformer procedure, as in @code{macro}.
 @item pattern-variable
 A pattern variable, bound via syntax-case.  The value is an opaque
 object, internal to the expander.

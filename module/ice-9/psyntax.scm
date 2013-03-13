@@ -2648,7 +2648,7 @@
         (arg-check nonsymbol-id? id 'syntax-module)
         (cdr (syntax-object-module id)))
 
-      (define (syntax-local-binding id)
+      (define* (syntax-local-binding id #:key (resolve-syntax-parameters? #t))
         (arg-check nonsymbol-id? id 'syntax-local-binding)
         (with-transformer-environment
          (lambda (e r w s rib mod)
@@ -2665,13 +2665,12 @@
                                 (strip-anti-mark (syntax-object-wrap id))
                                 r
                                 (syntax-object-module id)
-                                ;; FIXME: come up with a better policy for
-                                ;; resolve-syntax-parameters
-                                #t))
+                                resolve-syntax-parameters?))
              (lambda (type value mod)
                (case type
                  ((lexical) (values 'lexical value))
                  ((macro) (values 'macro value))
+                 ((syntax-parameter) (values 'syntax-parameter (car value)))
                  ((syntax) (values 'pattern-variable value))
                  ((displaced-lexical) (values 'displaced-lexical #f))
                  ((global) (values 'global (cons value (cdr mod))))

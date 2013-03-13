@@ -1,6 +1,6 @@
 ;;;; syncase.test --- test suite for (ice-9 syncase)            -*- scheme -*-
 ;;;;
-;;;; 	Copyright (C) 2001, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2001, 2006, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
 ;;;; 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -239,3 +239,28 @@
                  ((odd? x) (not (even? x)))))
              (even? 10))
           (current-module))))
+
+(use-modules (system syntax))
+
+(with-test-prefix "syntax-local-binding"
+  (define-syntax syntax-type
+    (lambda (x)
+      (syntax-case x ()
+        ((_ id resolve?)
+         (call-with-values
+             (lambda ()
+               (syntax-local-binding
+                #'id
+                #:resolve-syntax-parameters? (syntax->datum #'resolve?)))
+           (lambda (type value)
+             (with-syntax ((type (datum->syntax #'id type)))
+               #''type)))))))
+
+  (define-syntax-parameter foo
+    (syntax-rules ()))
+
+  (pass-if "syntax-parameters (resolved)"
+    (equal? (syntax-type foo #t) 'macro))
+
+  (pass-if "syntax-parameters (unresolved)"
+    (equal? (syntax-type foo #f) 'syntax-parameter)))

@@ -2345,7 +2345,9 @@
              (syntax-violation 'syntax-module "invalid argument" x)))
          (cdr (syntax-object-module id))))
      (syntax-local-binding
-       (lambda (id)
+       (lambda* (id
+                 #:key
+                 (resolve-syntax-parameters? #t #:resolve-syntax-parameters?))
          (let ((x id))
            (if (not (nonsymbol-id? x))
              (syntax-violation 'syntax-local-binding "invalid argument" x)))
@@ -2365,11 +2367,13 @@
                      (strip-anti-mark (syntax-object-wrap id))
                      r
                      (syntax-object-module id)
-                     #t))
+                     resolve-syntax-parameters?))
                  (lambda (type value mod)
                    (let ((key type))
                      (cond ((memv key '(lexical)) (values 'lexical value))
                            ((memv key '(macro)) (values 'macro value))
+                           ((memv key '(syntax-parameter))
+                            (values 'syntax-parameter (car value)))
                            ((memv key '(syntax)) (values 'pattern-variable value))
                            ((memv key '(displaced-lexical)) (values 'displaced-lexical #f))
                            ((memv key '(global)) (values 'global (cons value (cdr mod))))
