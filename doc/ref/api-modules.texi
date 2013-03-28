@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2007, 2008, 2009, 2010, 2011, 2012
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2007, 2008, 2009, 2010, 2011, 2012, 2013
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -759,8 +759,8 @@ Return a variable initialized to value @var{init}.
 
 @deffn {Scheme Procedure} variable-bound? var
 @deffnx {C Function} scm_variable_bound_p (var)
-Return @code{#t} iff @var{var} is bound to a value.
-Throws an error if @var{var} is not a variable object.
+Return @code{#t} if @var{var} is bound to a value, or @code{#f}
+otherwise.  Throws an error if @var{var} is not a variable object.
 @end deffn
 
 @deffn {Scheme Procedure} variable-ref var
@@ -784,8 +784,8 @@ Unset the value of the variable @var{var}, leaving @var{var} unbound.
 
 @deffn {Scheme Procedure} variable? obj
 @deffnx {C Function} scm_variable_p (obj)
-Return @code{#t} iff @var{obj} is a variable object, else
-return @code{#f}.
+Return @code{#t} if @var{obj} is a variable object, else return
+@code{#f}.
 @end deffn
 
 
@@ -827,7 +827,8 @@ the time @var{thunk}'s dynamic extent was last entered) is restored.  If
 saved, and the previously saved inner module is set current again.
 @end deffn
 
-@deffn {Scheme Procedure} resolve-module name [autoload=#t] [version=#f] [#:ensure=#t]
+@deffn {Scheme Procedure} resolve-module name [autoload=#t] [version=#f] @
+                          [#:ensure=#t]
 @deffnx {C Function} scm_resolve_module (name)
 Find the module named @var{name} and return it.  When it has not already
 been defined and @var{autoload} is true, try to auto-load it.  When it
@@ -837,7 +838,9 @@ that the resulting module is compatible with the given version reference
 (@pxref{R6RS Version References}).  The name is a list of symbols.
 @end deffn
 
-@deffn {Scheme Procedure} resolve-interface name [#:select=#f] [#:hide='()] [#:select=()] [#:prefix=#f] [#:renamer] [#:version=#f]
+@deffn {Scheme Procedure} resolve-interface name [#:select=#f] @
+                          [#:hide='()] [#:prefix=#f] @
+                          [#:renamer=#f] [#:version=#f]
 Find the module named @var{name} as with @code{resolve-module} and
 return its interface.  The interface of a module is also a module
 object, but it contains only the exported bindings.
@@ -942,14 +945,18 @@ the @var{name} is not bound in the module, signals an error.  Returns a
 variable, always.
 
 @example
+static SCM eval_string_var;
+
+/* NOTE: It is important that the call to 'my_init'
+   happens-before all calls to 'my_eval_string'. */
+void my_init (void)
+@{
+  eval_string_var = scm_c_public_lookup ("ice-9 eval-string",
+                                         "eval-string");
+@}
+
 SCM my_eval_string (SCM str)
 @{
-  static SCM eval_string_var = SCM_BOOL_F;
-
-  if (scm_is_false (eval_string_var))
-    eval_string_var =
-      scm_c_public_lookup ("ice-9 eval-string", "eval-string");
-
   return scm_call_1 (scm_variable_ref (eval_string_var), str);
 @}
 @end example

@@ -647,12 +647,13 @@ AC_SUBST([SCM_I_GSC_HAVE_STRUCT_DIRENT64])
 #     this file instead of <fenv.h>
 #   process.h - mingw specific
 #   sched.h - missing on MinGW
+#   sys/sendfile.h - non-POSIX, found in glibc
 #
 AC_CHECK_HEADERS([complex.h fenv.h io.h libc.h limits.h memory.h process.h string.h \
 sys/dir.h sys/ioctl.h sys/select.h \
 sys/time.h sys/timeb.h sys/times.h sys/stdtypes.h sys/types.h \
 sys/utime.h time.h unistd.h utime.h pwd.h grp.h sys/utsname.h \
-direct.h machine/fpu.h poll.h sched.h])
+direct.h machine/fpu.h sched.h sys/sendfile.h])
 
 # "complex double" is new in C99, and "complex" is only a keyword if
 # <complex.h> is included
@@ -705,9 +706,6 @@ case $host in
       [Define if you have the <winsock2.h> header file.])])
     AC_CHECK_LIB(ws2_32, main)
     AC_LIBOBJ([win32-uname])
-    if test "$enable_networking" = yes ; then
-      AC_LIBOBJ([win32-socket])
-    fi
     if test "$enable_shared" = yes ; then
       EXTRA_DEFS="-DSCM_IMPORT"
       AC_DEFINE([USE_DLL_IMPORT], 1,
@@ -738,7 +736,6 @@ AC_CHECK_HEADERS([assert.h crt_externs.h])
 #   gmtime_r - recent posix, not on old systems
 #   pipe - not in mingw
 #   _pipe - specific to mingw, taking 3 args
-#   poll - since posix 2001
 #   readdir_r - recent posix, not on old systems
 #   readdir64_r - not available on HP-UX 11.11
 #   stat64 - SuS largefile stuff, not on old systems
@@ -748,10 +745,21 @@ AC_CHECK_HEADERS([assert.h crt_externs.h])
 #   _NSGetEnviron - Darwin specific
 #   strcoll_l, newlocale - GNU extensions (glibc), also available on Darwin
 #   fork - unavailable on Windows
-#   utimensat: posix.1-2008
-#   sched_getaffinity, sched_setaffinity: GNU extensions (glibc)
+#   utimensat - posix.1-2008
+#   sched_getaffinity, sched_setaffinity - GNU extensions (glibc)
+#   sendfile - non-POSIX, found in glibc
 #
-AC_CHECK_FUNCS([DINFINITY DQNAN cexp chsize clog clog10 ctermid fesetround ftime ftruncate fchown fchmod getcwd geteuid getsid gettimeofday gmtime_r ioctl lstat mkdir mknod nice pipe _pipe poll readdir_r readdir64_r readlink rename rmdir select setegid seteuid setlocale setpgid setsid sigaction siginterrupt stat64 strftime strptime symlink sync sysconf tcgetpgrp tcsetpgrp times uname waitpid strdup system usleep atexit on_exit chown link fcntl ttyname getpwent getgrent kill getppid getpgrp fork setitimer getitimer strchr strcmp index bcopy memcpy rindex truncate unsetenv isblank _NSGetEnviron strcoll strcoll_l newlocale utimensat sched_getaffinity sched_setaffinity])
+AC_CHECK_FUNCS([DINFINITY DQNAN cexp chsize clog clog10 ctermid		\
+  fesetround ftime ftruncate fchown fchmod getcwd geteuid getsid	\
+  gettimeofday gmtime_r ioctl lstat mkdir mknod nice pipe _pipe		\
+  readdir_r readdir64_r readlink rename rmdir select setegid seteuid	\
+  setlocale setpgid setsid sigaction siginterrupt stat64 strftime	\
+  strptime symlink sync sysconf tcgetpgrp tcsetpgrp times uname waitpid	\
+  strdup system usleep atexit on_exit chown link fcntl ttyname getpwent	\
+  getgrent kill getppid getpgrp fork setitimer getitimer strchr strcmp	\
+  index bcopy memcpy rindex truncate unsetenv isblank _NSGetEnviron	\
+  strcoll strcoll_l newlocale utimensat sched_getaffinity		\
+  sched_setaffinity sendfile])
 
 AM_CONDITIONAL([HAVE_FORK], [test "x$ac_cv_func_fork" = "xyes"])
 
@@ -919,6 +927,8 @@ AC_DEFUN([GUILE_FUNC_DECLARED], [
 
 GUILE_FUNC_DECLARED(sleep, unistd.h)
 GUILE_FUNC_DECLARED(usleep, unistd.h)
+
+AC_CHECK_DECLS([getlogin, alarm])
 
 AC_CHECK_DECLS([strptime],,,
 [#define _GNU_SOURCE /* ask glibc to give strptime prototype */
@@ -1229,7 +1239,13 @@ save_LIBS="$LIBS"
 LIBS="$BDW_GC_LIBS $LIBS"
 CFLAGS="$BDW_GC_CFLAGS $CFLAGS"
 
-AC_CHECK_FUNCS([GC_do_blocking GC_call_with_gc_active GC_pthread_exit GC_pthread_cancel GC_allow_register_threads GC_pthread_sigmask GC_set_start_callback GC_get_suspend_signal GC_move_disappearing_link GC_get_heap_usage_safe GC_get_free_space_divisor GC_gcollect_and_unmap GC_get_unmapped_bytes GC_set_finalizer_notifier GC_set_finalize_on_demand])
+AC_CHECK_FUNCS([GC_do_blocking GC_call_with_gc_active GC_pthread_exit	\
+  GC_pthread_cancel GC_allow_register_threads GC_pthread_sigmask	\
+  GC_set_start_callback GC_get_suspend_signal GC_move_disappearing_link	\
+  GC_get_heap_usage_safe GC_get_free_space_divisor			\
+  GC_gcollect_and_unmap GC_get_unmapped_bytes GC_set_finalizer_notifier	\
+  GC_set_finalize_on_demand GC_set_all_interior_pointers GC_get_gc_no	\
+  GC_set_java_finalization])
 
 # Though the `GC_do_blocking ()' symbol is present in GC 7.1, it is not
 # declared, and has a different type (returning void instead of
@@ -1632,7 +1648,6 @@ AC_CONFIG_FILES([
 
 AC_CONFIG_FILES([meta/guile-2.2.pc])
 AC_CONFIG_FILES([meta/guile-2.2-uninstalled.pc])
-AC_CONFIG_FILES([doc/ref/effective-version.texi])
 
 GUILE_CONFIG_SCRIPT([check-guile])
 GUILE_CONFIG_SCRIPT([benchmark-guile])

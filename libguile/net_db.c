@@ -1,6 +1,6 @@
 /* "net_db.c" network database support
  * Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2006, 2009,
- *   2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -34,6 +34,17 @@
 #include <verify.h>
 #include <errno.h>
 
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+
+#include <sys/types.h>
+
+#include <sys/socket.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #include "libguile/_scm.h"
 #include "libguile/feature.h"
 #include "libguile/strings.h"
@@ -44,37 +55,14 @@
 #include "libguile/net_db.h"
 #include "libguile/socket.h"
 
-#ifdef HAVE_STRING_H
-#include <string.h>
-#endif
 
-#include <sys/types.h>
+#if defined (HAVE_H_ERRNO)
+/* Only wrap gethostbyname / gethostbyaddr if h_errno is available.  */
 
-#ifdef HAVE_WINSOCK2_H
-#include <winsock2.h>
-#else
-#include <sys/socket.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#endif
-
-#ifdef __MINGW32__
-#include "win32-socket.h"
-#endif
-
-#if !defined (HAVE_H_ERRNO) && !defined (__MINGW32__) && !defined (__CYGWIN__)
-/* h_errno not found in netdb.h, maybe this will help.  */
-extern int h_errno;
-#endif
-
-#if defined HAVE_HSTRERROR && !HAVE_DECL_HSTRERROR	\
-  && !defined __MINGW32__ && !defined __CYGWIN__
+#if defined HAVE_HSTRERROR && !HAVE_DECL_HSTRERROR
 /* Some OSes, such as Tru64 5.1b, lack a declaration for hstrerror(3).  */
 extern const char *hstrerror (int);
 #endif
-
-
 
 SCM_SYMBOL (scm_host_not_found_key, "host-not-found");
 SCM_SYMBOL (scm_try_again_key, "try-again");
@@ -204,6 +192,8 @@ SCM_DEFINE (scm_gethost, "gethost", 0, 1, 0,
 }
 #undef FUNC_NAME
 
+#endif /* HAVE_H_ERRNO */
+
 
 /* In all subsequent getMUMBLE functions, when we're called with no
    arguments, we're supposed to traverse the tables entry by entry.
@@ -267,7 +257,7 @@ SCM_DEFINE (scm_getnet, "getnet", 0, 1, 0,
 #undef FUNC_NAME
 #endif
 
-#if defined (HAVE_GETPROTOENT) || defined (__MINGW32__)
+#if defined (HAVE_GETPROTOENT)
 SCM_DEFINE (scm_getproto, "getproto", 0, 1, 0, 
             (SCM protocol),
 	    "@deffnx {Scheme Procedure} getprotobyname name\n"
@@ -318,7 +308,7 @@ SCM_DEFINE (scm_getproto, "getproto", 0, 1, 0,
 #undef FUNC_NAME
 #endif
 
-#if defined (HAVE_GETSERVENT) || defined (__MINGW32__)
+#if defined (HAVE_GETSERVENT)
 static SCM
 scm_return_entry (struct servent *entry)
 {
@@ -420,7 +410,7 @@ SCM_DEFINE (scm_setnet, "setnet", 0, 1, 0,
 #undef FUNC_NAME
 #endif
 
-#if defined (HAVE_SETPROTOENT) && defined (HAVE_ENDPROTOENT) || defined (__MINGW32__)
+#if defined (HAVE_SETPROTOENT) && defined (HAVE_ENDPROTOENT)
 SCM_DEFINE (scm_setproto, "setproto", 0, 1, 0, 
             (SCM stayopen),
 	    "If @var{stayopen} is omitted, this is equivalent to @code{endprotoent}.\n"
@@ -436,7 +426,7 @@ SCM_DEFINE (scm_setproto, "setproto", 0, 1, 0,
 #undef FUNC_NAME
 #endif
 
-#if defined (HAVE_SETSERVENT) && defined (HAVE_ENDSERVENT) || defined (__MINGW32__)
+#if defined (HAVE_SETSERVENT) && defined (HAVE_ENDSERVENT)
 SCM_DEFINE (scm_setserv, "setserv", 0, 1, 0, 
             (SCM stayopen),
 	    "If @var{stayopen} is omitted, this is equivalent to @code{endservent}.\n"
@@ -605,8 +595,10 @@ SCM_DEFINE (scm_getaddrinfo, "getaddrinfo", 1, 5, 0,
 	    "@item EAI_SOCKTYPE\n"
 	    "@var{hint_socktype} was not recognized.\n\n"
 	    "@item EAI_SYSTEM\n"
-	    "A system error occurred; the error code can be found in "
-	    "@code{errno}.\n"
+	    "A system error occurred.  In C, the error code can be found in "
+	    "@code{errno}; this value is not accessible from Scheme, but in\n"
+	    "practice it provides little information about the actual error "
+	    "cause.\n\n"	  /* see <http://bugs.gnu.org/13958>. */
 	    "@end table\n"
 	    "\n"
 	    "Users are encouraged to read the "

@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004,
- *   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012
+ *   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
  *   Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -44,6 +44,8 @@
 #if HAVE_PTHREAD_NP_H
 # include <pthread_np.h>
 #endif
+
+#include <sys/select.h>
 
 #include <assert.h>
 #include <fcntl.h>
@@ -1057,7 +1059,10 @@ SCM_DEFINE (scm_call_with_new_thread, "call-with-new-thread", 1, 1, 0,
       errno = err;
       scm_syserror (NULL);
     }
-  scm_i_scm_pthread_cond_wait (&data.cond, &data.mutex);
+
+  while (scm_is_false (data.thread))
+    scm_i_scm_pthread_cond_wait (&data.cond, &data.mutex);
+
   scm_i_pthread_mutex_unlock (&data.mutex);
 
   return data.thread;
@@ -1134,7 +1139,10 @@ scm_spawn_thread (scm_t_catch_body body, void *body_data,
       errno = err;
       scm_syserror (NULL);
     }
-  scm_i_scm_pthread_cond_wait (&data.cond, &data.mutex);
+
+  while (scm_is_false (data.thread))
+    scm_i_scm_pthread_cond_wait (&data.cond, &data.mutex);
+
   scm_i_pthread_mutex_unlock (&data.mutex);
 
   assert (SCM_I_IS_THREAD (data.thread));
@@ -1867,9 +1875,9 @@ SCM_DEFINE (scm_condition_variable_p, "condition-variable?", 1, 0, 0,
 struct select_args
 {
   int             nfds;
-  SELECT_TYPE    *read_fds;
-  SELECT_TYPE    *write_fds;
-  SELECT_TYPE    *except_fds;
+  fd_set         *read_fds;
+  fd_set         *write_fds;
+  fd_set         *except_fds;
   struct timeval *timeout;
 
   int             result;
@@ -1892,11 +1900,19 @@ do_std_select (void *args)
   return NULL;
 }
 
+#if !SCM_HAVE_SYS_SELECT_H
+static int scm_std_select (int nfds,
+                           fd_set *readfds,
+                           fd_set *writefds,
+                           fd_set *exceptfds,
+                           struct timeval *timeout);
+#endif
+
 int
 scm_std_select (int nfds,
-		SELECT_TYPE *readfds,
-		SELECT_TYPE *writefds,
-		SELECT_TYPE *exceptfds,
+		fd_set *readfds,
+		fd_set *writefds,
+		fd_set *exceptfds,
 		struct timeval *timeout)
 {
   fd_set my_readfds;

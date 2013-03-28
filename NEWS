@@ -1,10 +1,325 @@
 Guile NEWS --- history of user-visible changes.
-Copyright (C) 1996-2012 Free Software Foundation, Inc.
+Copyright (C) 1996-2013 Free Software Foundation, Inc.
 See the end for copying conditions.
 
 Please send Guile bug reports to bug-guile@gnu.org.
 
 
+Changes in 2.0.8 (since 2.0.7):
+
+* TODO
+
+Reorder points in order of importance and make comprehensible
+
+Assemble thanks
+
+file name docs
+
+gnulib version
+
+--language docs
+
+* Notable changes
+
+** New guile.m4.
+
+The `guile.m4' autoconf macros have been rewritten to use `guild' and
+`pkg-config' instead of the deprecated `guile-config' (which itself
+calls pkg-config).
+
+There is also a new macro, `GUILE_PKG', which allows packages to select
+the version of Guile that they want to compile against.  See "Autoconf
+Macros" in the manual, for more information.
+
+** Better Windows support.
+
+Guile now correctly identifies absolute paths on Windows (MinGW), and
+creates files on that platform according to its path conventions.  See
+XXX in the manual, for all details.
+
+In addition, the new Gnulib imports provide `select' and `poll' on
+Windows builds.
+
+As an incompatible change, systems that are missing <sys/select.h> were
+previously provided a public `scm_std_select' C function that defined a
+version of `select', but unhappily it also provided its own incompatible
+definitions for FD_SET, FD_ZERO, and other system interface.  Guile
+should not be setting these macros in public API, so this interface was
+removed on those plaforms (basically only MinGW).
+
+** Gnulib update.
+
+Guile's copy of Gnulib was updated to XXX.  The following modules were
+imported from Gnulib: select, times, pipe-posix, fstat, getlogin, and
+poll.
+
+** New optimizations.
+
+There were a number of improvements to the partial evaluator, allowing
+complete reduction of forms such as:
+
+  ((let ((_ 10)) (lambda () _)))
+
+  ((lambda _ _))
+
+  (apply (lambda _) 1 2 3 4)
+
+  (call-with-values (lambda () (values 1 2)) (lambda _ _))
+
+A number (ahem) of numeric operations on have been made faster, among
+them GCD and logarithms.
+
+Finally, `array-ref' and `array-set!' on arrays of rank 1 or 2 is now
+faster, because it avoids building a rest list.
+
+** `include' resolves relative file names relative to including file.
+
+Given a relative file name, `include' will look for it relative to the
+directory of the including file.  This harmonizes the behavior of
+`include' with that of `load'.
+
+** SLIB compatibility restored.
+
+Guile 2.0.8 is now compatible with SLIB.  You will have to use a
+development version of SLIB, however, until a new version of SLIB is
+released.
+
+** Better ,trace REPL command.
+
+Sometimes the ,trace output for nested function calls could overflow the
+terminal width, which wasn't useful.  Now there is a limit to the amount
+of space the prefix will take.  See the documentation for ",trace" for
+more information.
+
+** Update predefined character sets to Unicode 6.2.
+
+* Manual updates
+
+** Better SXML documentation.
+
+The documentation for SXML modules was much improved, though there is
+still far to go.  See "SXML" in manual.
+
+** Style updates.
+
+Use of "iff" was replaced with standard English.  Keyword arguments are
+now documented consistently, along with their default values.
+
+** An end to the generated-documentation experiment.
+
+When Guile 2.0 imported some modules from Guile-Lib, they came with a
+system that generated documentation from docstrings and module
+commentaries.  This produced terrible documentation.  We finally bit the
+bullet and incorporated these modules into the main text, and will be
+improving them manually over time, as is the case with SXML.  Help is
+appreciated.
+
+** New documentation.
+
+There is now documentation for `scm_array_type', and `scm_array_ref', as
+well as for the new `array-length' / 'scm_c_array_length' /
+`scm_array_length' functions.  `array-in-bounds?' has better
+documentation as well.  The `program-arguments-alist' and
+`program-lambda-list' functions are now documented.  Finally, the GOOPS
+class hierarchy diagram has been regenerated for the web and print
+output formats.
+
+* New deprecations
+
+** Deprecate generalized vector interface.
+
+The generalized vector interface, introduced in 1.8.0, is simply a
+redundant, verbose interface to arrays of rank 1.  `array-ref' and
+similar functions are entirely sufficient.  Thus,
+`scm_generalized_vector_p', `scm_generalized_vector_length',
+`scm_generalized_vector_ref', `scm_generalized_vector_set_x', and
+`scm_generalized_vector_to_list' are now deprecated.
+
+** Deprecate SCM_CHAR_CODE_LIMIT and char-code-limit.
+
+These constants were defined to 256, which is not the highest codepoint
+supported by Guile.  Given that they were useless and incorrect, they
+have been deprecated.
+
+** Deprecate `http-get*'.
+
+The new `#:streaming?' argument to `http-get' subsumes the functionality
+of `http-get*' (introduced in 2.0.7).  Also, the `#:extra-headers'
+argument is deprecated in favor of `#:headers'.
+
+** Deprecate (ice-9 mapping).
+
+This module, present in Guile since 1996 but never used or documented,
+has never worked in Guile 2.0.  It has now been deprecated and will be
+removed in Guile 2.2.
+
+* New interfaces
+
+** `round-ash', a bit-shifting operator that rounds on right-shift.
+
+See "Bitwise Operations".
+
+** New environment variables: `GUILE_STACK_SIZE', `GUILE_INSTALL_LOCALE'.
+
+See "Environment Variables".
+
+** New procedure `sendfile'.
+
+See "File System".
+
+** New procedures for dealing with file names.
+
+See XXX for documentation on `system-file-name-convention',
+`file-name-separator?', `absolute-file-name?', and
+`file-name-separator-string'.
+
+** `array-length', an array's first dimension.
+
+See "Array Procedures".
+
+** `hash-count', for hash tables.
+
+See "Hash Tables".
+
+** New foreign types: `ssize_t', `ptrdiff_t'.
+    
+See "Foreign Types".
+
+** New C helpers: `scm_from_ptrdiff_t', `scm_to_ptrdiff_t'.
+
+See "Integers".
+
+** Much more capable `xml->sxml'
+
+See "Reading and Writing XML" for information on how the `xml->sxml'
+parser deals with namespaces, processed entities, doctypes, and literal
+strings.  Incidentally, `current-ssax-error-port' is now a parameter
+object.
+
+** New command-line argument: `--language'
+
+See XXX in the manual.
+
+** `current-language' in default environment.
+
+Previously defined only in `(system base language)', `current-language'
+is now defined in the default environment, and is used to determine the
+language for the REPL, and for `compile-and-load'.
+
+** New procedure: `fluid->parameter'
+
+See "Parameters", for information on how to convert a fluid to a
+parameter.
+
+** New procedures to read all characters from a port
+
+See "Line/Delimited" in the manual for documentation on `read-string'
+ and `read-string!'.
+
+** New HTTP client procedures.
+
+See "Web Client" for documentation on the new `http-head', `http-post',
+`http-put', `http-delete', `http-trace', and `http-options' procedures,
+and also for more options to `http-get'.
+
+** New procedures for converting strings to and from bytevectors.
+
+See "Representing Strings as Bytes" for documention on the new `(ice-9
+iconv)' module and its `bytevector->string' and `string->bytevector'
+procedures.
+
+** New `print' REPL option.
+
+See "REPL Commands" in the manual for information on the new
+user-customizable REPL printer.
+
+** New variable: %site-ccache-dir.
+    
+The "Installing Site Packages" and "Build Config" manual sections now
+refer to this variable to describe where users should install their
+`.go' files.
+
+* Build fixes
+
+** Fix compilation against libgc 7.3.
+** Fix cross-compilation of `c-tokenize.o'.
+** Fix warning when compiling against glibc 2.17.
+** Fix documentation build against Texinfo 5.0.
+** Fix building Guile from a directory with non-ASCII characters.
+** Fix native MinGW build.
+** Fix --disable-posix build.
+** Fix MinGW builds with networking, POSIX, and thread support.
+
+* Bug fixes
+
+** SRFI-37: Fix infinite loop when parsing optional-argument short options
+   (http://bugs.gnu.org/13176)
+** web: Support non-GMT date headers in the HTTP client
+   (http://bugs.gnu.org/13544)
+** Avoid stack overflows with `par-map' and nested futures in general
+   (http://bugs.gnu.org/13188)
+** A fork when multiple threads are running will now print a warning.
+** Allow for spurious wakeups from pthread_cond_wait.
+   (http://bugs.gnu.org/10641)
+** Warn and ignore module autoload failures.
+   (http://bugs.gnu.org/12202)
+** Use chmod portably in (system base compile).
+   (http://bugs.gnu.org/10474)
+** Fix response-body-port for responses without content-length.
+   (http://bugs.gnu.org/13857)
+** Allow case-lambda expressions with no clauses.
+   (http://bugs.gnu.org/9776)
+** Improve standards conformance of string->number.
+   (http://bugs.gnu.org/11887)
+** Support calls and tail-calls with more than 255 formals.
+** ,option evaluates its right-hand-side.
+   (http://bugs.gnu.org/13076)
+** Structs with tail arrays are not simple.
+   (http://bugs.gnu.org/12808)
+** Make `SCM_LONG_BIT' usable in preprocessor conditionals.
+   (http://bugs.gnu.org/13848)
+** Fix thread-unsafe lazy initializations.
+** Allow SMOB mark procedures to be called from parallel markers.
+   (http://bugs.gnu.org/13611)
+** Fix later-bindings-win logic in with-fluids.
+   (http://bugs.gnu.org/13843)
+** Fix duplicate removal of with-fluids.
+   (http://bugs.gnu.org/13838)
+** Support calling foreign functions of 10 arguments or more.
+   (http://bugs.gnu.org/13809)
+** Let reverse! accept arbitrary types as second argument.
+   (http://bugs.gnu.org/13835)
+** Recognize the `x86_64.*-gnux32' triplet.
+** Check whether a triplet's OS part specifies an ABI.
+** Recognize mips64* as having 32-bit pointers by default.
+** Remove language/glil/decompile-assembly.scm.
+   (http://bugs.gnu.org/10622)
+** Use O_BINARY in `copy-file', `load-objcode', `mkstemp'.
+** Fix compilation of functions with more than 255 local variables.
+** Fix `getgroups' for when zero supplementary group IDs exist.
+** Allow (define-macro name (lambda ...)).
+** Various fixes to the (texinfo) modules.
+** guild: Gracefully handle failures to install the locale.
+** Fix format string warnings for ~!, ~|, ~/, ~q, ~Q, and ~^.
+   (http://bugs.gnu.org/13485)
+** Fix source annotation bug in psyntax 'expand-body'.
+** Ecmascript: Fix conversion to boolean for non-numbers.
+** A failure to find a module's file does not prevent future loading.
+** Many (oop goops save) fixes.
+** `http-get': don't shutdown write end of socket.
+   (http://bugs.gnu.org/13095)
+** Avoid signed integer overflow in scm_product.
+** http: read-response-body always returns bytevector or #f (not EOF in one case).
+** web: Correctly detect "No route to host" conditions.
+** `system*': failure to execvp no longer leaks dangling processes
+   (http://bugs.gnu.org/13166)
+** More sensible case-lambda* dispatch
+   (http://bugs.gnu.org/12929)
+** Do not defer expansion of internal define-syntax forms.
+   (http://bugs.gnu.org/13509)
+
+
+
 Changes in 2.0.7 (since 2.0.6):
 
 * Notable changes

@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
- *   2004, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2004, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -28,15 +28,6 @@
 
 #include <stdio.h>
 #include <fcntl.h>
-#include "libguile/_scm.h"
-#include "libguile/strings.h"
-#include "libguile/validate.h"
-#include "libguile/gc.h"
-#include "libguile/posix.h"
-#include "libguile/dynwind.h"
-#include "libguile/hashtab.h"
-
-#include "libguile/fports.h"
 
 #ifdef HAVE_STRING_H
 #include <string.h>
@@ -50,36 +41,23 @@
 #ifdef HAVE_STRUCT_STAT_ST_BLKSIZE
 #include <sys/stat.h>
 #endif
-#ifdef HAVE_POLL_H
 #include <poll.h>
-#endif
 #include <errno.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/select.h>
 
 #include <full-write.h>
 
-#include "libguile/iselect.h"
+#include "libguile/_scm.h"
+#include "libguile/strings.h"
+#include "libguile/validate.h"
+#include "libguile/gc.h"
+#include "libguile/posix.h"
+#include "libguile/dynwind.h"
+#include "libguile/hashtab.h"
 
-/* Some defines for Windows (native port, not Cygwin). */
-#ifdef __MINGW32__
-# include <sys/stat.h>
-# include <winsock2.h>
-#endif /* __MINGW32__ */
-
-#include <full-write.h>
-
-/* Mingw (version 3.4.5, circa 2006) has ftruncate as an alias for chsize
-   already, but have this code here in case that wasn't so in past versions,
-   or perhaps to help other minimal DOS environments.
-
-   gnulib ftruncate.c has code using fcntl F_CHSIZE and F_FREESP, which
-   might be possibilities if we've got other systems without ftruncate.  */
-
-#if defined HAVE_CHSIZE && ! defined HAVE_FTRUNCATE
-# define ftruncate(fd, size) chsize (fd, size)
-# undef HAVE_FTRUNCATE
-# define HAVE_FTRUNCATE 1
-#endif
+#include "libguile/fports.h"
 
 #if SIZEOF_OFF_T == SIZEOF_INT
 #define OFF_T_MAX  INT_MAX
@@ -496,48 +474,6 @@ SCM_DEFINE (scm_open_file, "open-file", 2, 0, 0,
 #undef FUNC_NAME
 
 
-#ifdef __MINGW32__
-/*
- * Try getting the appropiate file flags for a given file descriptor
- * under Windows. This incorporates some fancy operations because Windows
- * differentiates between file, pipe and socket descriptors.
- */
-#ifndef O_ACCMODE
-# define O_ACCMODE 0x0003
-#endif
-
-static int getflags (int fdes)
-{
-  int flags = 0;
-  struct stat buf;
-  int error, optlen = sizeof (int);
-
-  /* Is this a socket ? */
-  if (getsockopt (fdes, SOL_SOCKET, SO_ERROR, (void *) &error, &optlen) >= 0)
-    flags = O_RDWR;
-  /* Maybe a regular file ? */
-  else if (fstat (fdes, &buf) < 0)
-    flags = -1;
-  else
-    {
-      /* Or an anonymous pipe handle ? */
-      if (buf.st_mode & _S_IFIFO)
-	flags = PeekNamedPipe ((HANDLE) _get_osfhandle (fdes), NULL, 0, 
-			       NULL, NULL, NULL) ? O_RDONLY : O_WRONLY;
-      /* stdin ? */
-      else if (fdes == fileno (stdin) && isatty (fdes))
-	flags = O_RDONLY;
-      /* stdout / stderr ? */
-      else if ((fdes == fileno (stdout) || fdes == fileno (stderr)) && 
-	       isatty (fdes))
-	flags = O_WRONLY;
-      else
-	flags = buf.st_mode;
-    }
-  return flags;
-}
-#endif /* __MINGW32__ */
-
 /* Building Guile ports from a file descriptor.  */
 
 /* Build a Scheme port from an open file descriptor `fdes'.
@@ -551,14 +487,10 @@ scm_i_fdes_to_port (int fdes, long mode_bits, SCM name)
 {
   SCM port;
   scm_t_fport *fp;
-  int flags;
 
-  /* test that fdes is valid.  */
-#ifdef __MINGW32__
-  flags = getflags (fdes);
-#else
-  flags = fcntl (fdes, F_GETFL, 0);
-#endif
+  /* Test that fdes is valid.  */
+#ifdef F_GETFL
+  int flags = fcntl (fdes, F_GETFL, 0);
   if (flags == -1)
     SCM_SYSERROR;
   flags &= O_ACCMODE;
@@ -568,6 +500,13 @@ scm_i_fdes_to_port (int fdes, long mode_bits, SCM name)
     {
       SCM_MISC_ERROR ("requested file mode not available on fdes", SCM_EOL);
     }
+#else
+  /* If we don't have F_GETFL, as on mingw, at least we can test that
+     it is a valid file descriptor.  */
+  struct stat st;
+  if (fstat (fdes, &st) != 0)
+    SCM_SYSERROR;
+#endif
 
   fp = (scm_t_fport *) scm_gc_malloc_pointerless (sizeof (scm_t_fport),
                                                   "file port");
@@ -600,52 +539,12 @@ fport_input_waiting (SCM port)
 {
   int fdes = SCM_FSTREAM (port)->fdes;
 
-  /* `FD_SETSIZE', which is 1024 on GNU systems, effectively limits the
-     highest numerical value of file descriptors that can be monitored.
-     Thus, use poll(2) whenever that is possible.  */
-
-#ifdef HAVE_POLL
   struct pollfd pollfd = { fdes, POLLIN, 0 };
 
   if (poll (&pollfd, 1, 0) < 0)
     scm_syserror ("fport_input_waiting");
 
   return pollfd.revents & POLLIN ? 1 : 0;
-
-#elif defined(HAVE_SELECT)
-  struct timeval timeout;
-  SELECT_TYPE read_set;
-  SELECT_TYPE write_set;
-  SELECT_TYPE except_set;
-
-  FD_ZERO (&read_set);
-  FD_ZERO (&write_set);
-  FD_ZERO (&except_set);
-
-  FD_SET (fdes, &read_set);
-  
-  timeout.tv_sec = 0;
-  timeout.tv_usec = 0;
-
-  if (select (SELECT_SET_SIZE,
-	      &read_set, &write_set, &except_set, &timeout)
-      < 0)
-    scm_syserror ("fport_input_waiting");
-  return FD_ISSET (fdes, &read_set) ? 1 : 0;
-
-#elif HAVE_IOCTL && defined (FIONREAD)
-  /* Note: cannot test just defined(FIONREAD) here, since mingw has FIONREAD
-     (for use with winsock ioctlsocket()) but not ioctl().  */
-  int fdes = SCM_FSTREAM (port)->fdes;
-  int remir;
-  ioctl(fdes, FIONREAD, &remir);
-  return remir;
-
-#else    
-  scm_misc_error ("fport_input_waiting",
-		  "Not fully implemented on this platform",
-		  SCM_EOL);
-#endif
 }
 
 

@@ -46,15 +46,35 @@
 ;; the usual 53.
 ;;
 (define dbl-mant-dig
-  (let more ((i 1)
-	     (d 2.0))
-    (if (> i 1024)
-	(error "Oops, cannot determine number of bits in mantissa of inexact"))
-    (let* ((sum  (+ 1.0 d))
-	   (diff (- sum d)))
-      (if (= diff 1.0)
-	  (more (1+ i) (* 2.0 d))
-	  i))))
+  (do ((prec 0 (+ prec 1))
+       (eps 1.0 (/ eps 2.0)))
+      ((begin (when (> prec 1000000)
+                (error "Unable to determine dbl-mant-dig"))
+              (= 1.0 (+ 1.0 eps)))
+       prec)))
+
+(define dbl-epsilon
+  (expt 0.5 (- dbl-mant-dig 1)))
+
+(define dbl-epsilon-exact
+  (expt 1/2 (- dbl-mant-dig 1)))
+
+(define dbl-min-exp
+  (do ((x 1.0 (/ x 2.0))
+       (y (+ 1.0 dbl-epsilon) (/ y 2.0))
+       (e 2 (- e 1)))
+      ((begin (when (< e -100000000)
+                (error "Unable to determine dbl-min-exp"))
+              (= x y))
+       e)))
+
+(define dbl-max-exp
+  (do ((x 1.0 (* x 2.0))
+       (e 0 (+ e 1)))
+      ((begin (when (> e 100000000)
+                (error "Unable to determine dbl-max-exp"))
+              (inf? x))
+       e)))
 
 ;; like ash, but working on a flonum
 (define (ash-flo x n)
@@ -199,71 +219,6 @@
   ;; The minimum fixnum on a 64-bit architecture: -2^61.
   (pass-if "1- fixnum = bignum (64-bit)"
     (eqv? -2305843009213693953 (1- -2305843009213693952))))
-
-;;;
-;;; ash
-;;;
-
-(with-test-prefix "ash"
-
-  (pass-if "documented?"
-    (documented? ash))
-
-  (pass-if (eqv? 0 (ash 0 0)))
-  (pass-if (eqv? 0 (ash 0 1)))
-  (pass-if (eqv? 0 (ash 0 1000)))
-  (pass-if (eqv? 0 (ash 0 -1)))
-  (pass-if (eqv? 0 (ash 0 -1000)))
-
-  (pass-if (eqv? 1 (ash 1 0)))
-  (pass-if (eqv? 2 (ash 1 1)))
-  (pass-if (eqv? 340282366920938463463374607431768211456 (ash 1 128)))
-  (pass-if (eqv? 0 (ash 1 -1)))
-  (pass-if (eqv? 0 (ash 1 -1000)))
-
-  (pass-if (eqv? -1 (ash -1 0)))
-  (pass-if (eqv? -2 (ash -1 1)))
-  (pass-if (eqv? -340282366920938463463374607431768211456 (ash -1 128)))
-  (pass-if (eqv? -1 (ash -1 -1)))
-  (pass-if (eqv? -1 (ash -1 -1000)))
-
-  (pass-if (eqv? -3 (ash -3 0)))
-  (pass-if (eqv? -6 (ash -3 1)))
-  (pass-if (eqv? -1020847100762815390390123822295304634368 (ash -3 128)))
-  (pass-if (eqv? -2 (ash -3 -1)))
-  (pass-if (eqv? -1 (ash -3 -1000)))
-
-  (pass-if (eqv? -6 (ash -23 -2)))
-
-  (pass-if (eqv? most-positive-fixnum       (ash most-positive-fixnum 0)))
-  (pass-if (eqv? (* 2 most-positive-fixnum) (ash most-positive-fixnum 1)))
-  (pass-if (eqv? (* 4 most-positive-fixnum) (ash most-positive-fixnum 2)))
-  (pass-if
-      (eqv? (* most-positive-fixnum 340282366920938463463374607431768211456)
-	    (ash most-positive-fixnum 128)))
-  (pass-if (eqv? (quotient most-positive-fixnum 2)
-		 (ash most-positive-fixnum -1)))
-  (pass-if (eqv? 0 (ash most-positive-fixnum -1000)))
-
-  (let ((mpf4 (quotient most-positive-fixnum 4)))
-    (pass-if (eqv? (* 2 mpf4) (ash mpf4 1)))
-    (pass-if (eqv? (* 4 mpf4) (ash mpf4 2)))
-    (pass-if (eqv? (* 8 mpf4) (ash mpf4 3))))
-
-  (pass-if (eqv? most-negative-fixnum       (ash most-negative-fixnum 0)))
-  (pass-if (eqv? (* 2 most-negative-fixnum) (ash most-negative-fixnum 1)))
-  (pass-if (eqv? (* 4 most-negative-fixnum) (ash most-negative-fixnum 2)))
-  (pass-if
-      (eqv? (* most-negative-fixnum 340282366920938463463374607431768211456)
-	    (ash most-negative-fixnum 128)))
-  (pass-if (eqv? (quotient-floor most-negative-fixnum 2)
-		 (ash most-negative-fixnum -1)))
-  (pass-if (eqv? -1 (ash most-negative-fixnum -1000)))
-
-  (let ((mnf4 (quotient-floor most-negative-fixnum 4)))
-    (pass-if (eqv? (* 2 mnf4) (ash mnf4 1)))
-    (pass-if (eqv? (* 4 mnf4) (ash mnf4 2)))
-    (pass-if (eqv? (* 8 mnf4) (ash mnf4 3)))))
 
 ;;;
 ;;; exact?
@@ -1428,21 +1383,39 @@
          (lambda (n radix)
            (string->number (number->string n radix) radix))))
 
+    (define (test num)
+      (pass-if-equal (list num 'pos)
+          num
+        (num->str->num num 10))
+      (pass-if-equal (list num 'neg)
+          (- num)
+        (num->str->num (- num) 10)))
+
     (pass-if (documented? number->string))
     (pass-if (string=? (number->string 0) "0"))
     (pass-if (string=? (number->string 171) "171"))
     (pass-if (= (+ fixnum-max 1) (num->str->num (+ fixnum-max 1) 10)))
     (pass-if (= (- fixnum-min 1) (num->str->num (- fixnum-min 1) 10)))
-    (pass-if (= (inf) (num->str->num (inf) 10)))
-    (pass-if (= 1.3 (num->str->num 1.3 10)))
 
-    ;; XXX - some results depend on whether Guile is compiled optimzed
-    ;; or not.  It is clearly undesirable to have number->string to be
-    ;; influenced by this.
+    (test (inf))
+    (test 1.3)
+    (test (acos -1))  ; pi
+    (test (exp 1))    ; e
+    (test (/ 3.0))
+    (test (/ 7.0))
+    (test 2.2250738585072011e-308)
+    (test 2.2250738585072012e-308)
+
+    ;; Largest finite inexact
+    (test (* (- (expt 2.0 dbl-mant-dig) 1)
+             (expt 2.0 (- dbl-max-exp dbl-mant-dig))))
+
+    (pass-if (string=? "0.0" (number->string 0.0)))
+    (pass-if (or (eqv? 0.0 -0.0)
+                 (string=? "-0.0" (number->string -0.0))))
 
     (pass-if (string=? (number->string 35.25 36) "z.9"))
-    (pass-if (or (string=? (number->string 0.25 2) "0.01")
-		 (string=? (number->string 0.25 2) "0.010")))
+    (pass-if (string=? (number->string 0.25 2) "0.01"))
     (pass-if (string=? (number->string 255.0625 16) "ff.1"))
     (pass-if (string=? (number->string (/ 1 3) 3) "1/10"))
 
@@ -1456,26 +1429,65 @@
     (pass-if (string=? (number->string 35 36) "z"))
     (pass-if (= (num->str->num 35 36) 35))
 
+    (pass-if (string=? (number->string 12342342340000.0) "1.234234234e13"))
+    (pass-if (string=? (number->string 1234234234000.0) "1234234234000.0"))
+    (pass-if (string=? (number->string 1240000.0) "1240000.0"))
+
+    (with-test-prefix "powers of radix"
+      (for-each
+       (lambda (radix)
+         (for-each (lambda (k)
+                     (let ((val (exact->inexact (expt radix k)))
+                           (str (if (<= -3 k 6)
+                                    (assoc-ref '((-3 . "0.001")
+                                                 (-2 . "0.01")
+                                                 (-1 . "0.1")
+                                                 ( 0 . "1.0")
+                                                 ( 1 . "10.0")
+                                                 ( 2 . "100.0")
+                                                 ( 3 . "1000.0")
+                                                 ( 4 . "10000.0")
+                                                 ( 5 . "100000.0")
+                                                 ( 6 . "1000000.0"))
+                                               k)
+                                    (string-append "1.0e"
+                                                   (number->string k radix)))))
+                       (pass-if-equal (list radix k 'pos)
+                           str
+                         (number->string val radix))
+                       (pass-if-equal (list radix k 'neg)
+                           (string-append "-" str)
+                         (number->string (- val) radix))))
+                   (iota 41 -20)))
+       (iota 35 2)))
+
+    (with-test-prefix "multiples of smallest inexact"
+      (for-each (lambda (k)
+                  (let ((val (* k (expt 2.0 (- dbl-min-exp dbl-mant-dig)))))
+                    (test val)))
+                (iota 40 1)))
+
+    (with-test-prefix "one plus multiples of epsilon"
+      (for-each (lambda (k)
+                  (let ((val (+ 1.0 (* k dbl-epsilon))))
+                    (test val)))
+                (iota 40 1)))
+
+    (with-test-prefix "one minus multiples of 1/2 epsilon"
+      (for-each (lambda (k)
+                  (let ((val (- 1.0 (* k 1/2 dbl-epsilon))))
+                    (test val)))
+                (iota 40 1)))
+
     ;; Before Guile 2.0.1, even in the presence of a #e forced exactness
     ;; specifier, negative exponents were applied inexactly and then
     ;; later coerced to exact, yielding an incorrect fraction.
     (pass-if (eqv? (string->number "#e1e-10") 1/10000000000))
 
-    ;; Numeric conversion from decimal is not precise, in its current
-    ;; implementation, so 11.333... and 1.324... can't be expected to
-    ;; reliably come out to precise values.  These tests did actually work
-    ;; for a while, but something in gcc changed, affecting the conversion
-    ;; code.
-    ;;
-    ;; (pass-if (or (string=? (number->string 11.33333333333333333 12)
-    ;;                        "B.4")
-    ;;              (string=? (number->string 11.33333333333333333 12)
-    ;;                        "B.400000000000009")))
-    ;; (pass-if (or (string=? (number->string 1.324e44 16)
-    ;;                        "5.EFE0A14FAFEe24")
-    ;;              (string=? (number->string 1.324e44 16)
-    ;;                        "5.EFE0A14FAFDF8e24")))
-    ))
+    (pass-if (string=? (number->string 11.33333333333333333 12)
+                       "b.4"))
+    (pass-if (string=? (number->string 1.324e44 16)
+                       "5.efe0a14fafdf8e24"))))
   
 ;;;
 ;;; string->number
@@ -1493,7 +1505,9 @@
 		"#o.2" "3.4q" "15.16e17q" "18.19e+q" ".q" ".17#18" "10q" "#b2"
 		"#b3" "#b4" "#b5" "#b6" "#b7" "#b8" "#b9" "#ba" "#bb" "#bc"
 		"#bd" "#be" "#bf" "#q" "#b#b1" "#o#o1" "#d#d1" "#x#x1" "#e#e1"
-		"#i#i1" "12@12+0i"))
+		"#i#i1" "12@12+0i" "3/0" "0/0" "4+3/0i" "4/0-3i" "2+0/0i"
+                "nan.0" "inf.0" "#e+nan.0" "#e+inf.0" "#e-inf.0"
+                "3@inf.0" "4@nan.0"))
     #t)
 
   (pass-if "valid number strings"
@@ -1532,6 +1546,14 @@
                 ("1/1" 1) ("1/2" 1/2) ("-1/2" -1/2) ("1#/1" 10.0)
                 ("10/1#" 1.0) ("1#/1#" 1.0) ("#e9/10" 9/10) ("#e10/1#" 1)
                 ("#i6/8" 0.75) ("#i1/1" 1.0)
+                ;; Infinities and NaNs:
+                ("+inf.0" ,(inf)) ("-inf.0" ,(- (inf)))
+                ("+Inf.0" ,(inf)) ("-Inf.0" ,(- (inf)))
+                ("+InF.0" ,(inf)) ("-InF.0" ,(- (inf)))
+                ("+INF.0" ,(inf)) ("-INF.0" ,(- (inf)))
+                ("#i+InF.0" ,(inf)) ("#i-InF.0" ,(- (inf)))
+                ("+nan.0" ,(nan)) ("-nan.0" ,(nan))
+                ("#i+nan.0" ,(nan)) ("#i-nan.0" ,(nan))
                 ;; Decimal numbers:
                 ;; * <uinteger 10> <suffix>
                 ("1e2" 100.0) ("1E2" 100.0) ("1s2" 100.0) ("1S2" 100.0)
@@ -3913,21 +3935,17 @@
 ;;;
 
 (with-test-prefix "exact->inexact"
-  
+
+  ;; Test "(exact->inexact n)", expect "want".
+  (define (test name n want)
+    (with-test-prefix name
+      (pass-if-equal "pos" want (exact->inexact n))
+      (pass-if-equal "neg" (- want) (exact->inexact (- n)))))
+
   ;; Test "(exact->inexact n)", expect "want".
   ;; "i" is a index, for diagnostic purposes.
   (define (try-i i n want)
-    (with-test-prefix (list i n want)
-      (with-test-prefix "pos"
-	(let ((got (exact->inexact n)))
-	  (pass-if "inexact?" (inexact? got))
-	  (pass-if (list "=" got) (= want got))))
-      (set! n    (- n))
-      (set! want (- want))
-      (with-test-prefix "neg"
-	(let ((got (exact->inexact n)))
-	  (pass-if "inexact?" (inexact? got))
-	  (pass-if (list "=" got) (= want got))))))
+    (test (list i n want) n want))
   
   (with-test-prefix "2^i, no round"
     (do ((i    0   (1+ i))
@@ -4000,7 +4018,155 @@
   ;; convert the num and den to doubles, resulting in infs.
   (pass-if "frac big/big, exceeding double"
     (let ((big (ash 1 4096)))
-      (= 1.0 (exact->inexact (/ (1+ big) big))))))
+      (= 1.0 (exact->inexact (/ (1+ big) big)))))
+
+  (test "round up to odd"
+        ;; =====================================================
+        ;; 11111111111111111111111111111111111111111111111111000101 ->
+        ;; 11111111111111111111111111111111111111111111111111001000
+        (+ (expt 2   (+ dbl-mant-dig 3)) -64 #b000101)
+        (+ (expt 2.0 (+ dbl-mant-dig 3)) -64 #b001000))
+
+  (test "round down to odd"
+        ;; =====================================================
+        ;; 11111111111111111111111111111111111111111111111111001011 ->
+        ;; 11111111111111111111111111111111111111111111111111001000
+        (+ (expt 2   (+ dbl-mant-dig 3)) -64 #b001011)
+        (+ (expt 2.0 (+ dbl-mant-dig 3)) -64 #b001000))
+
+  (test "round tie up to even"
+        ;; =====================================================
+        ;; 11111111111111111111111111111111111111111111111111011100 ->
+        ;; 11111111111111111111111111111111111111111111111111100000
+        (+ (expt 2   (+ dbl-mant-dig 3)) -64 #b011100)
+        (+ (expt 2.0 (+ dbl-mant-dig 3)) -64 #b100000))
+
+  (test "round tie down to even"
+        ;; =====================================================
+        ;; 11111111111111111111111111111111111111111111111111000100 ->
+        ;; 11111111111111111111111111111111111111111111111111000000
+        (+ (expt 2   (+ dbl-mant-dig 3)) -64 #b000100)
+        (+ (expt 2.0 (+ dbl-mant-dig 3)) -64 #b000000))
+
+  (test "round tie up to next power of two"
+        ;;  =====================================================
+        ;;  11111111111111111111111111111111111111111111111111111100 ->
+        ;; 100000000000000000000000000000000000000000000000000000000
+        (+ (expt 2 (+ dbl-mant-dig 3)) -64 #b111100)
+        (expt 2.0 (+ dbl-mant-dig 3)))
+
+  (test "miniscule value rounds to zero of appropriate sign"
+        (expt 17 (- dbl-min-exp dbl-mant-dig))
+        0.0)
+
+  (test "smallest inexact"
+        (expt 2 (- dbl-min-exp dbl-mant-dig))
+        (expt 2.0 (- dbl-min-exp dbl-mant-dig)))
+
+  (test "1/2 smallest inexact rounds down to zero"
+        (* 1/2 (expt 2 (- dbl-min-exp dbl-mant-dig)))
+        0.0)
+
+  (test "just over 1/2 smallest inexact rounds up"
+        (+ (* 1/2 (expt 2 (- dbl-min-exp dbl-mant-dig)))
+           (expt 7 (- dbl-min-exp dbl-mant-dig)))
+        (expt 2.0 (- dbl-min-exp dbl-mant-dig)))
+
+  (test "3/2 smallest inexact rounds up to twice smallest inexact"
+        (* 3/2 (expt 2 (- dbl-min-exp dbl-mant-dig)))
+        (* 2.0 (expt 2.0 (- dbl-min-exp dbl-mant-dig))))
+
+  (test "just under 3/2 smallest inexact rounds down"
+        (- (* 3/2 (expt 2 (- dbl-min-exp dbl-mant-dig)))
+           (expt 11 (- dbl-min-exp dbl-mant-dig)))
+        (expt 2.0 (- dbl-min-exp dbl-mant-dig)))
+
+  (test "5/2 smallest inexact rounds down to twice smallest inexact"
+        (* 5/2 (expt 2 (- dbl-min-exp dbl-mant-dig)))
+        (* 2.0 (expt 2.0 (- dbl-min-exp dbl-mant-dig))))
+
+  (test "just over 5/2 smallest inexact rounds up"
+        (+ (* 5/2 (expt 2 (- dbl-min-exp dbl-mant-dig)))
+           (expt 13 (- dbl-min-exp dbl-mant-dig)))
+        (* 3.0 (expt 2.0 (- dbl-min-exp dbl-mant-dig))))
+
+  (test "one plus dbl-epsilon"
+        (+ 1 dbl-epsilon-exact)
+        (+ 1.0 dbl-epsilon))
+
+  (test "one plus 1/2 dbl-epsilon rounds down to 1.0"
+        (+ 1 (* 1/2 dbl-epsilon-exact))
+        1.0)
+
+  (test "just over one plus 1/2 dbl-epsilon rounds up"
+        (+ 1
+           (* 1/2 dbl-epsilon-exact)
+           (expt 13 (- dbl-min-exp dbl-mant-dig)))
+        (+ 1.0 dbl-epsilon))
+
+  (test "one plus 3/2 dbl-epsilon rounds up"
+        (+ 1 (* 3/2 dbl-epsilon-exact))
+        (+ 1.0 (* 2.0 dbl-epsilon)))
+
+  (test "just under one plus 3/2 dbl-epsilon rounds down"
+        (+ 1
+           (* 3/2 dbl-epsilon-exact)
+           (- (expt 17 (- dbl-min-exp dbl-mant-dig))))
+        (+ 1.0 dbl-epsilon))
+
+  (test "one plus 5/2 dbl-epsilon rounds down"
+        (+ 1 (* 5/2 dbl-epsilon-exact))
+        (+ 1.0 (* 2.0 dbl-epsilon)))
+
+  (test "just over one plus 5/2 dbl-epsilon rounds up"
+        (+ 1
+           (* 5/2 dbl-epsilon-exact)
+           (expt 13 (- dbl-min-exp dbl-mant-dig)))
+        (+ 1.0 (* 3.0 dbl-epsilon)))
+ 
+  (test "largest finite inexact"
+        (* (- (expt 2 dbl-mant-dig) 1)
+           (expt 2 (- dbl-max-exp dbl-mant-dig)))
+        (* (- (expt 2.0 dbl-mant-dig) 1)
+           (expt 2.0 (- dbl-max-exp dbl-mant-dig))))
+ 
+  (test "largest finite inexact plus 1/2 epsilon rounds up to infinity"
+        (* (+ (expt 2 dbl-mant-dig) -1 1/2)
+           (expt 2 (- dbl-max-exp dbl-mant-dig)))
+        (inf))
+ 
+  (test "largest finite inexact plus just under 1/2 epsilon rounds down"
+        (* (+ (expt 2 dbl-mant-dig) -1 1/2
+              (- (expt 13 (- dbl-min-exp dbl-mant-dig))))
+           (expt 2 (- dbl-max-exp dbl-mant-dig)))
+        (* (- (expt 2.0 dbl-mant-dig) 1)
+           (expt 2.0 (- dbl-max-exp dbl-mant-dig))))
+ 
+  (test "1/2 largest finite inexact"
+        (* (- (expt 2 dbl-mant-dig) 1)
+           (expt 2 (- dbl-max-exp dbl-mant-dig 1)))
+        (* (- (expt 2.0 dbl-mant-dig) 1)
+           (expt 2.0 (- dbl-max-exp dbl-mant-dig 1))))
+ 
+  (test "1/2 largest finite inexact plus 1/2 epsilon rounds up to next power of two"
+        (* (+ (expt 2 dbl-mant-dig) -1 1/2)
+           (expt 2 (- dbl-max-exp dbl-mant-dig 1)))
+        (expt 2.0 (- dbl-max-exp 1)))
+ 
+  (test "1/2 largest finite inexact plus just over 1/2 epsilon rounds up to next power of two"
+        (* (+ (expt 2 dbl-mant-dig) -1 1/2
+              (expt 13 (- dbl-min-exp dbl-mant-dig)))
+           (expt 2 (- dbl-max-exp dbl-mant-dig 1)))
+        (expt 2.0 (- dbl-max-exp 1)))
+ 
+  (test "1/2 largest finite inexact plus just under 1/2 epsilon rounds down"
+        (* (+ (expt 2 dbl-mant-dig) -1 1/2
+              (- (expt 13 (- dbl-min-exp dbl-mant-dig))))
+           (expt 2 (- dbl-max-exp dbl-mant-dig 1)))
+        (* (- (expt 2.0 dbl-mant-dig) 1)
+           (expt 2.0 (- dbl-max-exp dbl-mant-dig 1))))
+
+  )
 
 ;;;
 ;;; expt
@@ -4044,6 +4210,9 @@
   (pass-if (eqv? -0.125 (expt -2 -3.0)))
   (pass-if (eqv? -0.125 (expt -2.0 -3.0)))
   (pass-if (eqv? 0.25 (expt 2.0 -2.0)))
+  (pass-if (eqv? 32/243 (expt 2/3 5)))
+  (pass-if (eqv? 243/32 (expt 2/3 -5)))
+  (pass-if (eqv? 32 (expt 1/2 -5)))
   (pass-if (test-eqv? (* -1.0+0.0i 12398 12398) (expt +12398i 2.0)))
   (pass-if (eqv-loosely? +i (expt -1 0.5)))
   (pass-if (eqv-loosely? +i (expt -1 1/2)))
@@ -4272,6 +4441,13 @@
 ;;;
 
 (with-test-prefix "inexact->exact"
+
+  ;; Test "(inexact->exact f)", expect "want".
+  (define (test name f want)
+    (with-test-prefix name
+      (pass-if-equal "pos" want (inexact->exact f))
+      (pass-if-equal "neg" (- want) (inexact->exact (- f)))))
+
   (pass-if (documented? inexact->exact))
 
   (pass-if-exception "+inf" exception:out-of-range
@@ -4282,13 +4458,55 @@
   
   (pass-if-exception "nan" exception:out-of-range
     (inexact->exact +nan.0))
-  
-  (with-test-prefix "2.0**i to exact and back"
+
+  (test "0.0" 0.0 0)
+  (test "small even integer" 72.0 72)
+  (test "small odd integer"  73.0 73)
+
+  (test "largest inexact odd integer"
+        (- (expt 2.0 dbl-mant-dig) 1)
+        (- (expt 2   dbl-mant-dig) 1))
+
+  (test "largest inexact odd integer - 1"
+        (- (expt 2.0 dbl-mant-dig) 2)
+        (- (expt 2   dbl-mant-dig) 2))
+
+  (test "largest inexact odd integer + 3"
+        (+ (expt 2.0 dbl-mant-dig) 2)
+        (+ (expt 2   dbl-mant-dig) 2))
+
+  (test "largest inexact odd integer * 2^48"
+        (* (expt 2.0 48) (- (expt 2.0 dbl-mant-dig) 1))
+        (* (expt 2   48) (- (expt 2   dbl-mant-dig) 1)))
+
+  (test "largest inexact odd integer / 2^48"
+        (* (expt 0.5 48) (- (expt 2.0 dbl-mant-dig) 1))
+        (* (expt 1/2 48) (- (expt 2   dbl-mant-dig) 1)))
+
+  (test "largest finite inexact"
+        (* (- (expt 2.0 dbl-mant-dig) 1)
+           (expt 2.0 (- dbl-max-exp dbl-mant-dig)))
+        (* (- (expt 2 dbl-mant-dig) 1)
+           (expt 2 (- dbl-max-exp dbl-mant-dig))))
+
+  (test "smallest inexact"
+        (expt 2.0 (- dbl-min-exp dbl-mant-dig))
+        (expt 2   (- dbl-min-exp dbl-mant-dig)))
+
+  (test "smallest inexact * 2"
+        (* 2.0 (expt 2.0 (- dbl-min-exp dbl-mant-dig)))
+        (* 2   (expt 2   (- dbl-min-exp dbl-mant-dig))))
+
+  (test "smallest inexact * 3"
+        (* 3.0 (expt 2.0 (- dbl-min-exp dbl-mant-dig)))
+        (* 3   (expt 2   (- dbl-min-exp dbl-mant-dig))))
+
+  (with-test-prefix "2.0**i to exact"
     (do ((i 0   (1+ i))
-	 (n 1.0 (* 2.0 n)))
+         (n 1   (* 2 n))
+	 (f 1.0 (* 2.0 f)))
 	((> i 100))
-      (pass-if (list i n)
-	(= n (inexact->exact (exact->inexact n)))))))
+      (test (list i n) f n))))
 
 ;;;
 ;;; integer-expt
@@ -4317,6 +4535,9 @@
   (pass-if (eqv? -1/8 (integer-expt -2 -3)))
   (pass-if (eqv? -0.125 (integer-expt -2.0 -3)))
   (pass-if (eqv? 0.25 (integer-expt 2.0 -2)))
+  (pass-if (eqv? 32/243 (integer-expt 2/3 5)))
+  (pass-if (eqv? 243/32 (integer-expt 2/3 -5)))
+  (pass-if (eqv? 32 (integer-expt 1/2 -5)))
   (pass-if (test-eqv? (* -1.0+0.0i 12398 12398) (integer-expt +12398.0i 2))))
 
 
@@ -4619,7 +4840,80 @@
   (pass-if-exception "two args" exception:wrong-num-args
     (sqrt 123 456))
 
-  (pass-if (eqv? 0.0 (sqrt 0)))
+  (pass-if (eqv? 0 (sqrt 0)))
+  (pass-if (eqv? 1 (sqrt 1)))
+  (pass-if (eqv? 2 (sqrt 4)))
+  (pass-if (eqv? 3 (sqrt 9)))
+  (pass-if (eqv? 4 (sqrt 16)))
+  (pass-if (eqv? fixnum-max (sqrt (expt fixnum-max 2))))
+  (pass-if (eqv? (+ 1 fixnum-max) (sqrt (expt (+ 1 fixnum-max) 2))))
+  (pass-if (eqv? (expt 10 400) (sqrt (expt 10 800))))
+  (pass-if (eqv? (/ (expt 10 1000)
+                    (expt 13 1000))
+                 (sqrt (/ (expt 10 2000)
+                          (expt 13 2000)))))
+
+  (with-test-prefix "exact sqrt"
+
+    (define (test root)
+      (pass-if (list root 'exact)
+        (eqv? root (sqrt (expt root 2))))
+      (pass-if (list root '*2)
+        (let ((r (sqrt (* 2 (expt root 2)))))
+          (and (inexact? r)
+               (eqv-loosely? (* (sqrt 2) root) r))))
+      (pass-if (list root '-1)
+        (let ((r (sqrt (- (expt root 2) 1))))
+          (and (inexact? r)
+               (eqv-loosely? root r))))
+      (pass-if (list root '+1)
+        (let ((r (sqrt (+ (expt root 2) 1))))
+          (and (inexact? r)
+               (eqv-loosely? root r))))
+      (pass-if (list root 'negative)
+        (eqv-loosely? (* +i root) (sqrt (- (expt root 2))))))
+
+    (test (exact-integer-sqrt (+ -1 (expt 2 (+  2 dbl-mant-dig)))))
+    (test (exact-integer-sqrt (+ -1 (expt 2 (+  1 dbl-mant-dig)))))
+    (test (exact-integer-sqrt (+ -1 (expt 2 (+  0 dbl-mant-dig)))))
+    (test (exact-integer-sqrt (+ -1 (expt 2 (+ -1 dbl-mant-dig)))))
+    (test (exact-integer-sqrt (+ -1 (expt 2 (+ -2 dbl-mant-dig)))))
+
+    ;; largest finite inexact
+    (test (* (- (expt 2 dbl-mant-dig) 1)
+             (expt 2 (- dbl-max-exp dbl-mant-dig)))))
+
+  (pass-if-equal "smallest inexact"
+      (expt 2.0 (- dbl-min-exp dbl-mant-dig))
+    (sqrt (/ (+ -1 (expt 2 (* 2 (- dbl-mant-dig dbl-min-exp)))))))
+
+  (with-test-prefix "extreme ratios"
+    (define-syntax-rule (test want x)
+      (pass-if 'x
+        (let ((got (sqrt x)))
+          (and (inexact? got)
+               (test-eqv? 1.0 (/ want got))))))
+    (test 1.511139943175573e176   (/ (expt 3 2001) (expt 2 2001)))
+    (test 2.1370746022826034e176  (/ (expt 3 2001) (expt 2 2000)))
+    (test 8.724570529756128e175   (/ (expt 3 2000) (expt 2 2001)))
+    (test 6.6175207962444435e-177 (/ (expt 2 2001) (expt 3 2001)))
+    (test 1.1461882239239027e-176 (/ (expt 2 2001) (expt 3 2000)))
+    (test 4.679293829667447e-177  (/ (expt 2 2000) (expt 3 2001))))
+
+  (pass-if (eqv? (/ (expt 2 1000)
+                    (expt 3 1000))
+                 (sqrt (/ (expt 2 2000)
+                          (expt 3 2000)))))
+
+  (pass-if (eqv? (/ (expt 3 1000)
+                    (expt 2 1000))
+                 (sqrt (/ (expt 3 2000)
+                          (expt 2 2000)))))
+
+  (pass-if (eqv? +4i (sqrt -16)))
+  (pass-if (eqv-loosely? +1.0e150i (sqrt #e-1e300)))
+  (pass-if (eqv-loosely? +0.7071i (sqrt -1/2)))
+
   (pass-if (eqv? 0.0 (sqrt 0.0)))
   (pass-if (eqv? 1.0 (sqrt 1.0)))
   (pass-if (eqv-loosely? 2.0   (sqrt 4.0)))
@@ -4898,3 +5192,52 @@
                         round-quotient
                         round-remainder
                         valid-round-answer?)))
+
+;;;
+;;; ash
+;;; round-ash
+;;;
+
+(let ()
+  (define (test-ash-variant name ash-variant round-variant)
+    (with-test-prefix name
+      (define (test n count)
+        (pass-if (list n count)
+          (eqv? (ash-variant n count)
+                (round-variant (* n (expt 2 count))))))
+
+      (pass-if "documented?"
+        (documented? ash-variant))
+
+      (for-each (lambda (n)
+                  (for-each (lambda (count) (test n count))
+                            '(-1000 -3 -2 -1 0 1 2 3 1000)))
+                (list 0 1 3 23 -1 -3 -23
+                      fixnum-max
+                      (1+ fixnum-max)
+                      (1- fixnum-max)
+                      (* fixnum-max 4)
+                      (quotient fixnum-max 4)
+                      fixnum-min
+                      (1+ fixnum-min)
+                      (1- fixnum-min)
+                      (* fixnum-min 4)
+                      (quotient fixnum-min 4)))
+
+      (do ((count -2 (1- count))
+           (vals '(1 3 5 7 9 11)
+                 (map (lambda (n) (* 2 n)) vals)))
+          ((> (car vals) (* 2 fixnum-max)) 'done)
+        (for-each (lambda (n)
+                    (test    n  count)
+                    (test (- n) count))
+                  vals))
+
+      ;; Test rounding
+      (for-each (lambda (base)
+                  (for-each (lambda (offset) (test (+ base offset) -3))
+                            '(#b11001 #b11100 #b11101 #b10001 #b10100 #b10101)))
+                (list 0 64 -64 (* 64 fixnum-max) (* 64 fixnum-min)))))
+
+  (test-ash-variant       'ash       ash floor)
+  (test-ash-variant 'round-ash round-ash round))

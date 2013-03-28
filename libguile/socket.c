@@ -1,5 +1,5 @@
 /* Copyright (C) 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004, 2005,
- *   2006, 2007, 2009, 2011, 2012 Free Software Foundation, Inc.
+ *   2006, 2007, 2009, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -25,8 +25,27 @@
 #endif
 
 #include <errno.h>
-#include <gmp.h>
 #include <verify.h>
+
+#ifdef HAVE_STDINT_H
+#include <stdint.h>
+#endif
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#include <sys/types.h>
+#include <sys/socket.h>
+#ifdef HAVE_UNIX_DOMAIN_SOCKETS
+#include <sys/un.h>
+#endif
+#include <netinet/in.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+
+#include <gmp.h>
 
 #include "libguile/_scm.h"
 #include "libguile/arrays.h"
@@ -40,32 +59,11 @@
 #include "libguile/validate.h"
 #include "libguile/socket.h"
 
-#ifdef __MINGW32__
-#include "win32-socket.h"
-#include <netdb.h>
+#if SCM_ENABLE_DEPRECATED == 1
+# include "libguile/deprecation.h"
 #endif
 
-#ifdef HAVE_STDINT_H
-#include <stdint.h>
-#endif
-#ifdef HAVE_STRING_H
-#include <string.h>
-#endif
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-#include <sys/types.h>
-#ifdef HAVE_WINSOCK2_H
-#include <winsock2.h>
-#else
-#include <sys/socket.h>
-#ifdef HAVE_UNIX_DOMAIN_SOCKETS
-#include <sys/un.h>
-#endif
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#endif
+
 
 #if defined (HAVE_UNIX_DOMAIN_SOCKETS) && !defined (SUN_LEN)
 #define SUN_LEN(ptr) ((size_t) (((struct sockaddr_un *) 0)->sun_path) \
@@ -512,6 +510,7 @@ SCM_DEFINE (scm_getsockopt, "getsockopt", 3, 0, 0,
 	    "@defvarx SO_OOBINLINE\n"
 	    "@defvarx SO_NO_CHECK\n"
 	    "@defvarx SO_PRIORITY\n"
+	    "@defvarx SO_REUSEPORT\n"
 	    "The value returned is an integer.\n"
 	    "@end defvar\n"
 	    "\n"
@@ -610,6 +609,7 @@ SCM_DEFINE (scm_setsockopt, "setsockopt", 4, 0, 0,
 	    "@defvarx SO_OOBINLINE\n"
 	    "@defvarx SO_NO_CHECK\n"
 	    "@defvarx SO_PRIORITY\n"
+	    "@defvarx SO_REUSEPORT\n"
 	    "@var{value} is an integer.\n"
 	    "@end defvar\n"
 	    "\n"
@@ -1767,6 +1767,9 @@ scm_init_socket ()
 #ifdef SO_LINGER
   scm_c_define ("SO_LINGER", scm_from_int (SO_LINGER));
 #endif
+#ifdef SO_REUSEPORT				  /* new in Linux 3.9 */
+  scm_c_define ("SO_REUSEPORT", scm_from_int (SO_REUSEPORT));
+#endif
 
   /* recv/send options.  */
 #ifdef MSG_DONTWAIT
@@ -1780,10 +1783,6 @@ scm_init_socket ()
 #endif
 #ifdef MSG_DONTROUTE
   scm_c_define ("MSG_DONTROUTE", scm_from_int (MSG_DONTROUTE));
-#endif
-
-#ifdef __MINGW32__
-  scm_i_init_socket_Win32 ();
 #endif
 
 #ifdef IP_ADD_MEMBERSHIP

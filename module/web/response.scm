@@ -267,19 +267,32 @@ closes PORT, unless KEEP-ALIVE? is true."
 (define* (response-body-port r #:key (decode? #t) (keep-alive? #t))
   "Return an input port from which the body of R can be read.  The
 encoding of the returned port is set according to R's ‘content-type’
-header, when it's textual, except if DECODE? is #f.  Return #f when no
-body is available.
+header, when it's textual, except if DECODE? is ‘#f’.  Return #f when
+no body is available.
 
-When KEEP-ALIVE? is #f, closing the returned port also closes R's
+When KEEP-ALIVE? is ‘#f’, closing the returned port also closes R's
 response port."
   (define port
-    (if (member '(chunked) (response-transfer-encoding r))
-        (make-chunked-input-port (response-port r)
-                                 #:keep-alive? keep-alive?)
-        (let ((len (response-content-length r)))
-          (and len
-               (make-delimited-input-port (response-port r)
-                                          len keep-alive?)))))
+    (cond
+     ((member '(chunked) (response-transfer-encoding r))
+      (make-chunked-input-port (response-port r)
+                               #:keep-alive? keep-alive?))
+     ((response-content-length r)
+      => (lambda (len)
+           (make-delimited-input-port (response-port r)
+                                      len keep-alive?)))
+     ((response-must-not-include-body? r)
+      #f)
+     ((or (memq 'close (response-connection r))
+          (and (equal? (response-version r) '(1 . 0))
+               (not (memq 'keep-alive (response-connection r)))))
+      (response-port r))
+     (else
+      ;; Here we have a message with no transfer encoding, no
+      ;; content-length, and a response that won't necessarily be closed
+      ;; by the server.  Not much we can do; assume that the client
+      ;; knows how to handle it.
+      (response-port r))))
 
   (when (and decode? port)
     (match (response-content-type r)

@@ -48,7 +48,7 @@
         thunk
         (lambda () #t))))
 
-;; (put 'call-with-output-file/atomic 'scheme-indent-function 1)
+;; emacs: (put 'call-with-output-file/atomic 'scheme-indent-function 1)
 (define* (call-with-output-file/atomic filename proc #:optional reference)
   (let* ((template (string-append filename ".XXXXXX"))
          (tmp (mkstemp! template)))
@@ -57,10 +57,13 @@
        (with-throw-handler #t
          (lambda ()
            (proc tmp)
-           (chmod tmp (logand #o0666 (lognot (umask))))
+           ;; Chmodding by name instead of by port allows this chmod to
+           ;; work on systems without fchmod, like MinGW.
+           (chmod template (logand #o0666 (lognot (umask))))
            (close-port tmp)
            (rename-file template filename))
          (lambda args
+           (close-port tmp)
            (delete-file template)))))))
 
 (define (ensure-language x)

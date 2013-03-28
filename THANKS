@@ -9,6 +9,7 @@ Contributors since the last release:
          Daniel Hartwig
              No Itisnt
            Neil Jerram
+        Chris K Jester-Young
          Daniel Kraft
            Noah Lavine
         Gregory Marton
@@ -21,7 +22,7 @@ Contributors since the last release:
             Ken Raeburn
         Andreas Rottmann
           Kevin Ryde
-          Brian Templeton
+             BT Templeton
          Mark H Weaver
           Göran Weinholt
            Ralf Wildenhues
@@ -94,6 +95,7 @@ For fixes or providing information which led to a fix:
           David Jaquay
            Paul Jarc
           Steve Juranich
+          David Kastrup
         Richard Kim
           Bruce Korb
            René Köcher

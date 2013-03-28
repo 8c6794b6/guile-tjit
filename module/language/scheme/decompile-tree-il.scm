@@ -1,6 +1,6 @@
 ;;; Guile VM code converters
 
-;; Copyright (C) 2001, 2009, 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2009, 2012, 2013 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -261,20 +261,22 @@
          (build-define name (recurse exp)))
 
         ((<lambda> meta body)
-         (let ((body (recurse body))
-               (doc (assq-ref meta 'documentation)))
-           (if (not doc)
-               body
-               (match body
-                 (('lambda formals body ...)
-                  `(lambda ,formals ,doc ,@body))
-                 (('lambda* formals body ...)
-                  `(lambda* ,formals ,doc ,@body))
-                 (('case-lambda (formals body ...) clauses ...)
-                  `(case-lambda (,formals ,doc ,@body) ,@clauses))
-                 (('case-lambda* (formals body ...) clauses ...)
-                  `(case-lambda* (,formals ,doc ,@body) ,@clauses))
-                 (e e)))))
+         (if body
+             (let ((body (recurse body))
+                   (doc (assq-ref meta 'documentation)))
+               (if (not doc)
+                   body
+                   (match body
+                     (('lambda formals body ...)
+                      `(lambda ,formals ,doc ,@body))
+                     (('lambda* formals body ...)
+                      `(lambda* ,formals ,doc ,@body))
+                     (('case-lambda (formals body ...) clauses ...)
+                      `(case-lambda (,formals ,doc ,@body) ,@clauses))
+                     (('case-lambda* (formals body ...) clauses ...)
+                      `(case-lambda* (,formals ,doc ,@body) ,@clauses))
+                     (e e))))
+             '(case-lambda)))
 
         ((<lambda-case> req opt rest kw inits gensyms body alternate)
          (let ((names (map output-name gensyms)))
@@ -702,7 +704,8 @@
             ((<seq> head tail)
              (primitive 'begin) (recurse head) (recurse tail))
 
-            ((<lambda> body) (recurse body))
+            ((<lambda> body)
+             (if body (recurse body)))
 
             ((<lambda-case> req opt rest kw inits gensyms body alternate)
              (primitive 'lambda)

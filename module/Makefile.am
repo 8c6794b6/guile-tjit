@@ -112,8 +112,7 @@ TREE_IL_LANG_SOURCES =						\
   language/tree-il/spec.scm
 
 GLIL_LANG_SOURCES =						\
-  language/glil/spec.scm language/glil/compile-assembly.scm 	\
-  language/glil/decompile-assembly.scm
+  language/glil/spec.scm language/glil/compile-assembly.scm
 
 ASSEMBLY_LANG_SOURCES =				\
   language/assembly/spec.scm			\
@@ -287,6 +286,7 @@ SRFI_SOURCES = \
   srfi/srfi-35.scm \
   srfi/srfi-37.scm \
   srfi/srfi-38.scm \
+  srfi/srfi-41.scm \
   srfi/srfi-42.scm \
   srfi/srfi-39.scm \
   srfi/srfi-45.scm \

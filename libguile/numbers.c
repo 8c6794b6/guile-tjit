@@ -81,6 +81,9 @@
 #define M_PI       3.14159265358979323846
 #endif
 
+/* FIXME: We assume that FLT_RADIX is 2 */
+verify (FLT_RADIX == 2);
+
 typedef scm_t_signed_bits scm_t_inum;
 #define scm_from_inum(x) (scm_from_signed_integer (x))
 
@@ -327,81 +330,52 @@ scm_i_dbl2num (double u)
     return scm_i_dbl2big (u);
 }
 
-/* scm_i_big2dbl() rounds to the closest representable double, in accordance
-   with R5RS exact->inexact.
+static SCM round_right_shift_exact_integer (SCM n, long count);
 
-   The approach is to use mpz_get_d to pick out the high DBL_MANT_DIG bits
-   (ie. truncate towards zero), then adjust to get the closest double by
-   examining the next lower bit and adding 1 (to the absolute value) if
-   necessary.
+/* scm_i_big2dbl_2exp() is like frexp for bignums: it converts the
+   bignum b into a normalized significand and exponent such that
+   b = significand * 2^exponent and 1/2 <= abs(significand) < 1.
+   The return value is the significand rounded to the closest
+   representable double, and the exponent is placed into *expon_p.
+   If b is zero, then the returned exponent and significand are both
+   zero. */
 
-   Bignums exactly half way between representable doubles are rounded to the
-   next higher absolute value (ie. away from zero).  This seems like an
-   adequate interpretation of R5RS "numerically closest", and it's easier
-   and faster than a full "nearest-even" style.
-
-   The bit test must be done on the absolute value of the mpz_t, which means
-   we need to use mpz_getlimbn.  mpz_tstbit is not right, it treats
-   negatives as twos complement.
-
-   In GMP before 4.2, mpz_get_d rounding was unspecified.  It ended up
-   following the hardware rounding mode, but applied to the absolute
-   value of the mpz_t operand.  This is not what we want so we put the
-   high DBL_MANT_DIG bits into a temporary.  Starting with GMP 4.2
-   (released in March 2006) mpz_get_d now always truncates towards zero.
-
-   ENHANCE-ME: The temporary init+clear to force the rounding in GMP
-   before 4.2 is a slowdown.  It'd be faster to pick out the relevant
-   high bits with mpz_getlimbn.  */
-
-double
-scm_i_big2dbl (SCM b)
+static double
+scm_i_big2dbl_2exp (SCM b, long *expon_p)
 {
-  double result;
-  size_t bits;
-
-  bits = mpz_sizeinbase (SCM_I_BIG_MPZ (b), 2);
-
-#if 1
-  {
-    /* For GMP earlier than 4.2, force truncation towards zero */
-
-    /* FIXME: DBL_MANT_DIG is the number of base-`FLT_RADIX' digits,
-       _not_ the number of bits, so this code will break badly on a
-       system with non-binary doubles.  */
-
-    mpz_t  tmp;
-    if (bits > DBL_MANT_DIG)
-      {
-        size_t  shift = bits - DBL_MANT_DIG;
-        mpz_init2 (tmp, DBL_MANT_DIG);
-        mpz_tdiv_q_2exp (tmp, SCM_I_BIG_MPZ (b), shift);
-        result = ldexp (mpz_get_d (tmp), shift);
-        mpz_clear (tmp);
-      }
-    else
-      {
-        result = mpz_get_d (SCM_I_BIG_MPZ (b));
-      }
-  }
-#else
-  /* GMP 4.2 or later */
-  result = mpz_get_d (SCM_I_BIG_MPZ (b));
-#endif
+  size_t bits = mpz_sizeinbase (SCM_I_BIG_MPZ (b), 2);
+  size_t shift = 0;
 
   if (bits > DBL_MANT_DIG)
     {
-      unsigned long  pos = bits - DBL_MANT_DIG - 1;
-      /* test bit number "pos" in absolute value */
-      if (mpz_getlimbn (SCM_I_BIG_MPZ (b), pos / GMP_NUMB_BITS)
-          & ((mp_limb_t) 1 << (pos % GMP_NUMB_BITS)))
+      shift = bits - DBL_MANT_DIG;
+      b = round_right_shift_exact_integer (b, shift);
+      if (SCM_I_INUMP (b))
         {
-          result += ldexp ((double) mpz_sgn (SCM_I_BIG_MPZ (b)), pos + 1);
+          int expon;
+          double signif = frexp (SCM_I_INUM (b), &expon);
+          *expon_p = expon + shift;
+          return signif;
         }
     }
 
-  scm_remember_upto_here_1 (b);
-  return result;
+  {
+    long expon;
+    double signif = mpz_get_d_2exp (&expon, SCM_I_BIG_MPZ (b));
+    scm_remember_upto_here_1 (b);
+    *expon_p = expon + shift;
+    return signif;
+  }
+}
+
+/* scm_i_big2dbl() rounds to the closest representable double,
+   in accordance with R5RS exact->inexact.  */
+double
+scm_i_big2dbl (SCM b)
+{
+  long expon;
+  double signif = scm_i_big2dbl_2exp (b, &expon);
+  return ldexp (signif, expon);
 }
 
 SCM
@@ -436,107 +410,212 @@ scm_i_mpz2num (mpz_t b)
   }
 }
 
-/* this is needed when we want scm_divide to make a float, not a ratio, even if passed two ints */
-static SCM scm_divide2real (SCM x, SCM y);
+/* Make the ratio NUMERATOR/DENOMINATOR, where:
+    1. NUMERATOR and DENOMINATOR are exact integers
+    2. NUMERATOR and DENOMINATOR are reduced to lowest terms: gcd(n,d) == 1 */
+static SCM
+scm_i_make_ratio_already_reduced (SCM numerator, SCM denominator)
+{
+  /* Flip signs so that the denominator is positive. */
+  if (scm_is_false (scm_positive_p (denominator)))
+    {
+      if (SCM_UNLIKELY (scm_is_eq (denominator, SCM_INUM0)))
+	scm_num_overflow ("make-ratio");
+      else
+	{
+	  numerator = scm_difference (numerator, SCM_UNDEFINED);
+	  denominator = scm_difference (denominator, SCM_UNDEFINED);
+	}
+    }
 
+  /* Check for the integer case */
+  if (scm_is_eq (denominator, SCM_INUM1))
+    return numerator;
+
+  return scm_double_cell (scm_tc16_fraction,
+			  SCM_UNPACK (numerator),
+			  SCM_UNPACK (denominator), 0);
+}
+
+static SCM scm_exact_integer_quotient (SCM x, SCM y);
+
+/* Make the ratio NUMERATOR/DENOMINATOR */
 static SCM
 scm_i_make_ratio (SCM numerator, SCM denominator)
 #define FUNC_NAME "make-ratio"
 {
-  /* First make sure the arguments are proper.
-   */
-  if (SCM_I_INUMP (denominator))
-    {
-      if (scm_is_eq (denominator, SCM_INUM0))
-	scm_num_overflow ("make-ratio");
-      if (scm_is_eq (denominator, SCM_INUM1))
-	return numerator;
-    }
-  else 
-    {
-      if (!(SCM_BIGP(denominator)))
-	SCM_WRONG_TYPE_ARG (2, denominator);
-    }
-  if (!SCM_I_INUMP (numerator) && !SCM_BIGP (numerator))
+  /* Make sure the arguments are proper */
+  if (!SCM_LIKELY (SCM_I_INUMP (numerator) || SCM_BIGP (numerator)))
     SCM_WRONG_TYPE_ARG (1, numerator);
-
-  /* Then flip signs so that the denominator is positive.
-   */
-  if (scm_is_true (scm_negative_p (denominator)))
+  else if (!SCM_LIKELY (SCM_I_INUMP (denominator) || SCM_BIGP (denominator)))
+    SCM_WRONG_TYPE_ARG (2, denominator);
+  else
     {
-      numerator = scm_difference (numerator, SCM_UNDEFINED);
-      denominator = scm_difference (denominator, SCM_UNDEFINED);
-    }
-
-  /* Now consider for each of the four fixnum/bignum combinations
-     whether the rational number is really an integer.
-  */
-  if (SCM_I_INUMP (numerator))
-    {
-      scm_t_inum x = SCM_I_INUM (numerator);
-      if (scm_is_eq (numerator, SCM_INUM0))
-	return SCM_INUM0;
-      if (SCM_I_INUMP (denominator))
+      SCM the_gcd = scm_gcd (numerator, denominator);
+      if (!(scm_is_eq (the_gcd, SCM_INUM1)))
 	{
-	  scm_t_inum y;
-	  y = SCM_I_INUM (denominator);
-	  if (x == y)
-	    return SCM_INUM1;
-	  if ((x % y) == 0)
-	    return SCM_I_MAKINUM (x / y);
+	  /* Reduce to lowest terms */
+	  numerator = scm_exact_integer_quotient (numerator, the_gcd);
+	  denominator = scm_exact_integer_quotient (denominator, the_gcd);
 	}
-      else
-        {
-          /* When x == SCM_MOST_NEGATIVE_FIXNUM we could have the negative
-             of that value for the denominator, as a bignum.  Apart from
-             that case, abs(bignum) > abs(inum) so inum/bignum is not an
-             integer.  */
-          if (x == SCM_MOST_NEGATIVE_FIXNUM
-              && mpz_cmp_ui (SCM_I_BIG_MPZ (denominator),
-                             - SCM_MOST_NEGATIVE_FIXNUM) == 0)
-	    return SCM_I_MAKINUM(-1);
-        }
+      return scm_i_make_ratio_already_reduced (numerator, denominator);
     }
-  else if (SCM_BIGP (numerator))
-    {
-      if (SCM_I_INUMP (denominator))
-	{
-	  scm_t_inum yy = SCM_I_INUM (denominator);
-	  if (mpz_divisible_ui_p (SCM_I_BIG_MPZ (numerator), yy))
-	    return scm_divide (numerator, denominator);
-	}
-      else
-	{
-	  if (scm_is_eq (numerator, denominator))
-	    return SCM_INUM1;
-	  if (mpz_divisible_p (SCM_I_BIG_MPZ (numerator),
-			       SCM_I_BIG_MPZ (denominator)))
-	    return scm_divide(numerator, denominator);
-	}
-    }
-
-  /* No, it's a proper fraction.
-   */
-  {
-    SCM divisor = scm_gcd (numerator, denominator);
-    if (!(scm_is_eq (divisor, SCM_INUM1)))
-      {
-	numerator = scm_divide (numerator, divisor);
-	denominator = scm_divide (denominator, divisor);
-      }
-      
-    return scm_double_cell (scm_tc16_fraction,
-			    SCM_UNPACK (numerator),
-			    SCM_UNPACK (denominator), 0);
-  }
 }
 #undef FUNC_NAME
+
+static mpz_t scm_i_divide2double_lo2b;
+
+/* Return the double that is closest to the exact rational N/D, with
+   ties rounded toward even mantissas.  N and D must be exact
+   integers. */
+static double
+scm_i_divide2double (SCM n, SCM d)
+{
+  int neg;
+  mpz_t nn, dd, lo, hi, x;
+  ssize_t e;
+
+  if (SCM_LIKELY (SCM_I_INUMP (d)))
+    {
+      if (SCM_LIKELY (SCM_I_INUMP (n)
+                      && (SCM_I_FIXNUM_BIT-1 <= DBL_MANT_DIG
+                          || (SCM_I_INUM (n) < (1L << DBL_MANT_DIG)
+                              && SCM_I_INUM (d) < (1L << DBL_MANT_DIG)))))
+        /* If both N and D can be losslessly converted to doubles, then
+           we can rely on IEEE floating point to do proper rounding much
+           faster than we can. */
+        return ((double) SCM_I_INUM (n)) / ((double) SCM_I_INUM (d));
+
+      if (SCM_UNLIKELY (scm_is_eq (d, SCM_INUM0)))
+        {
+          if (scm_is_true (scm_positive_p (n)))
+            return 1.0 / 0.0;
+          else if (scm_is_true (scm_negative_p (n)))
+            return -1.0 / 0.0;
+          else
+            return 0.0 / 0.0;
+        }
+
+      mpz_init_set_si (dd, SCM_I_INUM (d));
+    }
+  else
+    mpz_init_set (dd, SCM_I_BIG_MPZ (d));
+
+  if (SCM_I_INUMP (n))
+    mpz_init_set_si (nn, SCM_I_INUM (n));
+  else
+    mpz_init_set (nn, SCM_I_BIG_MPZ (n));
+
+  neg = (mpz_sgn (nn) < 0) ^ (mpz_sgn (dd) < 0);
+  mpz_abs (nn, nn);
+  mpz_abs (dd, dd);
+
+  /* Now we need to find the value of e such that:
+ 
+     For e <= 0:
+          b^{p-1} - 1/2b  <=      b^-e n / d  <  b^p - 1/2            [1A]
+             (2 b^p - 1)  <=  2 b b^-e n / d  <  (2 b^p - 1) b        [2A]
+           (2 b^p - 1) d  <=  2 b b^-e n      <  (2 b^p - 1) d b      [3A]
+
+     For e >= 0:
+          b^{p-1} - 1/2b  <=      n / b^e d   <  b^p - 1/2            [1B]
+             (2 b^p - 1)  <=  2 b n / b^e d   <  (2 b^p - 1) b        [2B]
+       (2 b^p - 1) d b^e  <=  2 b n           <  (2 b^p - 1) d b b^e  [3B]
+
+         where:  p = DBL_MANT_DIG
+                 b = FLT_RADIX  (here assumed to be 2)
+
+     After rounding, the mantissa must be an integer between b^{p-1} and
+     (b^p - 1), except for subnormal numbers.  In the inequations [1A]
+     and [1B], the middle expression represents the mantissa *before*
+     rounding, and therefore is bounded by the range of values that will
+     round to a floating-point number with the exponent e.  The upper
+     bound is (b^p - 1 + 1/2) = (b^p - 1/2), and is exclusive because
+     ties will round up to the next power of b.  The lower bound is
+     (b^{p-1} - 1/2b), and is inclusive because ties will round toward
+     this power of b.  Here we subtract 1/2b instead of 1/2 because it
+     is in the range of the next smaller exponent, where the
+     representable numbers are closer together by a factor of b.
+
+     Inequations [2A] and [2B] are derived from [1A] and [1B] by
+     multiplying by 2b, and in [3A] and [3B] we multiply by the
+     denominator of the middle value to obtain integer expressions.
+
+     In the code below, we refer to the three expressions in [3A] or
+     [3B] as lo, x, and hi.  If the number is normalizable, we will
+     achieve the goal: lo <= x < hi */
+
+  /* Make an initial guess for e */
+  e = mpz_sizeinbase (nn, 2) - mpz_sizeinbase (dd, 2) - (DBL_MANT_DIG-1);
+  if (e < DBL_MIN_EXP - DBL_MANT_DIG)
+    e = DBL_MIN_EXP - DBL_MANT_DIG;
+
+  /* Compute the initial values of lo, x, and hi
+     based on the initial guess of e */
+  mpz_inits (lo, hi, x, NULL);
+  mpz_mul_2exp (x, nn, 2 + ((e < 0) ? -e : 0));
+  mpz_mul (lo, dd, scm_i_divide2double_lo2b);
+  if (e > 0)
+    mpz_mul_2exp (lo, lo, e);
+  mpz_mul_2exp (hi, lo, 1);
+
+  /* Adjust e as needed to satisfy the inequality lo <= x < hi,
+     (but without making e less then the minimum exponent) */
+  while (mpz_cmp (x, lo) < 0 && e > DBL_MIN_EXP - DBL_MANT_DIG)
+    {
+      mpz_mul_2exp (x, x, 1);
+      e--;
+    }
+  while (mpz_cmp (x, hi) >= 0)
+    {
+      /* If we ever used lo's value again,
+         we would need to double lo here. */
+      mpz_mul_2exp (hi, hi, 1);
+      e++;
+    }
+
+  /* Now compute the rounded mantissa:
+     n / b^e d   (if e >= 0)
+     n b^-e / d  (if e <= 0) */
+  {
+    int cmp;
+    double result;
+
+    if (e < 0)
+      mpz_mul_2exp (nn, nn, -e);
+    else
+      mpz_mul_2exp (dd, dd, e);
+
+    /* mpz does not directly support rounded right
+       shifts, so we have to do it the hard way.
+       For efficiency, we reuse lo and hi.
+       hi == quotient, lo == remainder */
+    mpz_fdiv_qr (hi, lo, nn, dd);
+
+    /* The fractional part of the unrounded mantissa would be
+       remainder/dividend, i.e. lo/dd.  So we have a tie if
+       lo/dd = 1/2.  Multiplying both sides by 2*dd yields the
+       integer expression 2*lo = dd.  Here we do that comparison
+       to decide whether to round up or down. */
+    mpz_mul_2exp (lo, lo, 1);
+    cmp = mpz_cmp (lo, dd);
+    if (cmp > 0 || (cmp == 0 && mpz_odd_p (hi)))
+      mpz_add_ui (hi, hi, 1);
+
+    result = ldexp (mpz_get_d (hi), e);
+    if (neg)
+      result = -result;
+
+    mpz_clears (nn, dd, lo, hi, x, NULL);
+    return result;
+  }
+}
 
 double
 scm_i_fraction2double (SCM z)
 {
-  return scm_to_double (scm_divide2real (SCM_FRACTION_NUMERATOR (z), 
-					 SCM_FRACTION_DENOMINATOR (z)));
+  return scm_i_divide2double (SCM_FRACTION_NUMERATOR (z),
+                              SCM_FRACTION_DENOMINATOR (z));
 }
 
 static int
@@ -820,8 +899,9 @@ SCM_PRIMITIVE_GENERIC (scm_abs, "abs", 1, 0, 0,
     {
       if (scm_is_false (scm_negative_p (SCM_FRACTION_NUMERATOR (x))))
 	return x;
-      return scm_i_make_ratio (scm_difference (SCM_FRACTION_NUMERATOR (x), SCM_UNDEFINED),
-			     SCM_FRACTION_DENOMINATOR (x));
+      return scm_i_make_ratio_already_reduced
+	(scm_difference (SCM_FRACTION_NUMERATOR (x), SCM_UNDEFINED),
+	 SCM_FRACTION_DENOMINATOR (x));
     }
   else
     return scm_wta_dispatch_1 (g_scm_abs, x, 1, s_scm_abs);
@@ -886,6 +966,84 @@ SCM_PRIMITIVE_GENERIC (scm_modulo, "modulo", 2, 0, 0,
     }
   else
     return scm_wta_dispatch_2 (g_scm_modulo, x, y, SCM_ARG1, s_scm_modulo);
+}
+#undef FUNC_NAME
+
+/* Return the exact integer q such that n = q*d, for exact integers n
+   and d, where d is known in advance to divide n evenly (with zero
+   remainder).  For large integers, this can be computed more
+   efficiently than when the remainder is unknown. */
+static SCM
+scm_exact_integer_quotient (SCM n, SCM d)
+#define FUNC_NAME "exact-integer-quotient"
+{
+  if (SCM_LIKELY (SCM_I_INUMP (n)))
+    {
+      scm_t_inum nn = SCM_I_INUM (n);
+      if (SCM_LIKELY (SCM_I_INUMP (d)))
+	{
+	  scm_t_inum dd = SCM_I_INUM (d);
+	  if (SCM_UNLIKELY (dd == 0))
+	    scm_num_overflow ("exact-integer-quotient");
+	  else
+	    {
+	      scm_t_inum qq = nn / dd;
+	      if (SCM_LIKELY (SCM_FIXABLE (qq)))
+		return SCM_I_MAKINUM (qq);
+	      else
+		return scm_i_inum2big (qq);
+	    }
+	}
+      else if (SCM_LIKELY (SCM_BIGP (d)))
+	{
+	  /* n is an inum and d is a bignum.  Given that d is known to
+	     divide n evenly, there are only two possibilities: n is 0,
+	     or else n is fixnum-min and d is abs(fixnum-min). */
+	  if (nn == 0)
+	    return SCM_INUM0;
+	  else
+	    return SCM_I_MAKINUM (-1);
+	}
+      else
+	SCM_WRONG_TYPE_ARG (2, d);
+    }
+  else if (SCM_LIKELY (SCM_BIGP (n)))
+    {
+      if (SCM_LIKELY (SCM_I_INUMP (d)))
+	{
+	  scm_t_inum dd = SCM_I_INUM (d);
+	  if (SCM_UNLIKELY (dd == 0))
+	    scm_num_overflow ("exact-integer-quotient");
+	  else if (SCM_UNLIKELY (dd == 1))
+	    return n;
+	  else
+	    {
+	      SCM q = scm_i_mkbig ();
+	      if (dd > 0)
+		mpz_divexact_ui (SCM_I_BIG_MPZ (q), SCM_I_BIG_MPZ (n), dd);
+	      else
+		{
+		  mpz_divexact_ui (SCM_I_BIG_MPZ (q), SCM_I_BIG_MPZ (n), -dd);
+		  mpz_neg (SCM_I_BIG_MPZ (q), SCM_I_BIG_MPZ (q));
+		}
+	      scm_remember_upto_here_1 (n);
+	      return scm_i_normbig (q);
+	    }
+	}
+      else if (SCM_LIKELY (SCM_BIGP (d)))
+	{
+	  SCM q = scm_i_mkbig ();
+	  mpz_divexact (SCM_I_BIG_MPZ (q),
+			SCM_I_BIG_MPZ (n),
+			SCM_I_BIG_MPZ (d));
+	  scm_remember_upto_here_2 (n, d);
+	  return scm_i_normbig (q);
+	}
+      else
+	SCM_WRONG_TYPE_ARG (2, d);
+    }
+  else
+    SCM_WRONG_TYPE_ARG (1, n);
 }
 #undef FUNC_NAME
 
@@ -3888,52 +4046,58 @@ SCM_PRIMITIVE_GENERIC (scm_i_gcd, "gcd", 0, 2, 1,
 SCM
 scm_gcd (SCM x, SCM y)
 {
-  if (SCM_UNBNDP (y))
+  if (SCM_UNLIKELY (SCM_UNBNDP (y)))
     return SCM_UNBNDP (x) ? SCM_INUM0 : scm_abs (x);
   
-  if (SCM_I_INUMP (x))
+  if (SCM_LIKELY (SCM_I_INUMP (x)))
     {
-      if (SCM_I_INUMP (y))
+      if (SCM_LIKELY (SCM_I_INUMP (y)))
         {
           scm_t_inum xx = SCM_I_INUM (x);
           scm_t_inum yy = SCM_I_INUM (y);
           scm_t_inum u = xx < 0 ? -xx : xx;
           scm_t_inum v = yy < 0 ? -yy : yy;
           scm_t_inum result;
-          if (xx == 0)
+          if (SCM_UNLIKELY (xx == 0))
 	    result = v;
-	  else if (yy == 0)
+	  else if (SCM_UNLIKELY (yy == 0))
 	    result = u;
 	  else
 	    {
-	      scm_t_inum k = 1;
-	      scm_t_inum t;
+	      int k = 0;
 	      /* Determine a common factor 2^k */
-	      while (!(1 & (u | v)))
+	      while (((u | v) & 1) == 0)
 		{
-		  k <<= 1;
+		  k++;
 		  u >>= 1;
 		  v >>= 1;
 		}
 	      /* Now, any factor 2^n can be eliminated */
-	      if (u & 1)
-		t = -v;
+	      if ((u & 1) == 0)
+		while ((u & 1) == 0)
+		  u >>= 1;
 	      else
+		while ((v & 1) == 0)
+		  v >>= 1;
+	      /* Both u and v are now odd.  Subtract the smaller one
+		 from the larger one to produce an even number, remove
+		 more factors of two, and repeat. */
+	      while (u != v)
 		{
-		  t = u;
-		b3:
-		  t = SCM_SRS (t, 1);
+		  if (u > v)
+		    {
+		      u -= v;
+		      while ((u & 1) == 0)
+			u >>= 1;
+		    }
+		  else
+		    {
+		      v -= u;
+		      while ((v & 1) == 0)
+			v >>= 1;
+		    }
 		}
-	      if (!(1 & t))
-		goto b3;
-	      if (t > 0)
-		u = t;
-	      else
-		v = -t;
-	      t = u - v;
-	      if (t != 0)
-		goto b3;
-	      result = u * k;
+	      result = u << k;
 	    }
           return (SCM_POSFIXABLE (result)
 		  ? SCM_I_MAKINUM (result)
@@ -4666,6 +4830,26 @@ SCM_DEFINE (scm_integer_expt, "integer-expt", 2, 0, 0,
       else  /* return NaN for (0 ^ k) for negative k per R6RS */
 	return scm_nan ();
     }
+  else if (SCM_FRACTIONP (n))
+    {
+      /* Optimize the fraction case by (a/b)^k ==> (a^k)/(b^k), to avoid
+         needless reduction of intermediate products to lowest terms.
+         If a and b have no common factors, then a^k and b^k have no
+         common factors.  Use 'scm_i_make_ratio_already_reduced' to
+         construct the final result, so that no gcd computations are
+         needed to exponentiate a fraction.  */
+      if (scm_is_true (scm_positive_p (k)))
+	return scm_i_make_ratio_already_reduced
+	  (scm_integer_expt (SCM_FRACTION_NUMERATOR (n), k),
+	   scm_integer_expt (SCM_FRACTION_DENOMINATOR (n), k));
+      else
+	{
+	  k = scm_difference (k, SCM_UNDEFINED);
+	  return scm_i_make_ratio_already_reduced
+	    (scm_integer_expt (SCM_FRACTION_DENOMINATOR (n), k),
+	     scm_integer_expt (SCM_FRACTION_NUMERATOR (n), k));
+	}
+    }
 
   if (SCM_I_INUMP (k))
     i2 = SCM_I_INUM (k);
@@ -4723,19 +4907,119 @@ SCM_DEFINE (scm_integer_expt, "integer-expt", 2, 0, 0,
 }
 #undef FUNC_NAME
 
+/* Efficiently compute (N * 2^COUNT),
+   where N is an exact integer, and COUNT > 0. */
+static SCM
+left_shift_exact_integer (SCM n, long count)
+{
+  if (SCM_I_INUMP (n))
+    {
+      scm_t_inum nn = SCM_I_INUM (n);
+
+      /* Left shift of count >= SCM_I_FIXNUM_BIT-1 will always
+         overflow a non-zero fixnum.  For smaller shifts we check the
+         bits going into positions above SCM_I_FIXNUM_BIT-1.  If they're
+         all 0s for nn>=0, or all 1s for nn<0 then there's no overflow.
+         Those bits are "nn >> (SCM_I_FIXNUM_BIT-1 - count)".  */
+
+      if (nn == 0)
+        return n;
+      else if (count < SCM_I_FIXNUM_BIT-1 &&
+               ((scm_t_bits) (SCM_SRS (nn, (SCM_I_FIXNUM_BIT-1 - count)) + 1)
+                <= 1))
+        return SCM_I_MAKINUM (nn << count);
+      else
+        {
+          SCM result = scm_i_inum2big (nn);
+          mpz_mul_2exp (SCM_I_BIG_MPZ (result), SCM_I_BIG_MPZ (result),
+                        count);
+          return result;
+        }
+    }
+  else if (SCM_BIGP (n))
+    {
+      SCM result = scm_i_mkbig ();
+      mpz_mul_2exp (SCM_I_BIG_MPZ (result), SCM_I_BIG_MPZ (n), count);
+      scm_remember_upto_here_1 (n);
+      return result;
+    }
+  else
+    scm_syserror ("left_shift_exact_integer");
+}
+
+/* Efficiently compute floor (N / 2^COUNT),
+   where N is an exact integer and COUNT > 0. */
+static SCM
+floor_right_shift_exact_integer (SCM n, long count)
+{
+  if (SCM_I_INUMP (n))
+    {
+      scm_t_inum nn = SCM_I_INUM (n);
+
+      if (count >= SCM_I_FIXNUM_BIT)
+        return (nn >= 0 ? SCM_INUM0 : SCM_I_MAKINUM (-1));
+      else
+        return SCM_I_MAKINUM (SCM_SRS (nn, count));
+    }
+  else if (SCM_BIGP (n))
+    {
+      SCM result = scm_i_mkbig ();
+      mpz_fdiv_q_2exp (SCM_I_BIG_MPZ (result), SCM_I_BIG_MPZ (n),
+                       count);
+      scm_remember_upto_here_1 (n);
+      return scm_i_normbig (result);
+    }
+  else
+    scm_syserror ("floor_right_shift_exact_integer");
+}
+
+/* Efficiently compute round (N / 2^COUNT),
+   where N is an exact integer and COUNT > 0. */
+static SCM
+round_right_shift_exact_integer (SCM n, long count)
+{
+  if (SCM_I_INUMP (n))
+    {
+      if (count >= SCM_I_FIXNUM_BIT)
+        return SCM_INUM0;
+      else
+        {
+          scm_t_inum nn = SCM_I_INUM (n);
+          scm_t_inum qq = SCM_SRS (nn, count);
+
+          if (0 == (nn & (1L << (count-1))))
+            return SCM_I_MAKINUM (qq);                /* round down */
+          else if (nn & ((1L << (count-1)) - 1))
+            return SCM_I_MAKINUM (qq + 1);            /* round up */
+          else
+            return SCM_I_MAKINUM ((~1L) & (qq + 1));  /* round to even */
+        }
+    }
+  else if (SCM_BIGP (n))
+    {
+      SCM q = scm_i_mkbig ();
+
+      mpz_fdiv_q_2exp (SCM_I_BIG_MPZ (q), SCM_I_BIG_MPZ (n), count);
+      if (mpz_tstbit (SCM_I_BIG_MPZ (n), count-1)
+          && (mpz_odd_p (SCM_I_BIG_MPZ (q))
+              || (mpz_scan1 (SCM_I_BIG_MPZ (n), 0) < count-1)))
+        mpz_add_ui (SCM_I_BIG_MPZ (q), SCM_I_BIG_MPZ (q), 1);
+      scm_remember_upto_here_1 (n);
+      return scm_i_normbig (q);
+    }
+  else
+    scm_syserror ("round_right_shift_exact_integer");
+}
+
 SCM_DEFINE (scm_ash, "ash", 2, 0, 0,
-            (SCM n, SCM cnt),
-	    "Return @var{n} shifted left by @var{cnt} bits, or shifted right\n"
-	    "if @var{cnt} is negative.  This is an ``arithmetic'' shift.\n"
+            (SCM n, SCM count),
+	    "Return @math{floor(@var{n} * 2^@var{count})}.\n"
+	    "@var{n} and @var{count} must be exact integers.\n"
 	    "\n"
-	    "This is effectively a multiplication by 2^@var{cnt}, and when\n"
-	    "@var{cnt} is negative it's a division, rounded towards negative\n"
-	    "infinity.  (Note that this is not the same rounding as\n"
-	    "@code{quotient} does.)\n"
-	    "\n"
-	    "With @var{n} viewed as an infinite precision twos complement,\n"
-	    "@code{ash} means a left shift introducing zero bits, or a right\n"
-	    "shift dropping bits.\n"
+	    "With @var{n} viewed as an infinite-precision twos-complement\n"
+	    "integer, @code{ash} means a left shift introducing zero bits\n"
+	    "when @var{count} is positive, or a right shift dropping bits\n"
+	    "when @var{count} is negative.  This is an ``arithmetic'' shift.\n"
 	    "\n"
 	    "@lisp\n"
 	    "(number->string (ash #b1 3) 2)     @result{} \"1000\"\n"
@@ -4746,79 +5030,57 @@ SCM_DEFINE (scm_ash, "ash", 2, 0, 0,
 	    "@end lisp")
 #define FUNC_NAME s_scm_ash
 {
-  long bits_to_shift;
-  bits_to_shift = scm_to_long (cnt);
-
-  if (SCM_I_INUMP (n))
+  if (SCM_I_INUMP (n) || SCM_BIGP (n))
     {
-      scm_t_inum nn = SCM_I_INUM (n);
+      long bits_to_shift = scm_to_long (count);
 
       if (bits_to_shift > 0)
-        {
-          /* Left shift of bits_to_shift >= SCM_I_FIXNUM_BIT-1 will always
-             overflow a non-zero fixnum.  For smaller shifts we check the
-             bits going into positions above SCM_I_FIXNUM_BIT-1.  If they're
-             all 0s for nn>=0, or all 1s for nn<0 then there's no overflow.
-             Those bits are "nn >> (SCM_I_FIXNUM_BIT-1 -
-             bits_to_shift)".  */
-
-          if (nn == 0)
-            return n;
-
-          if (bits_to_shift < SCM_I_FIXNUM_BIT-1
-              && ((scm_t_bits)
-                  (SCM_SRS (nn, (SCM_I_FIXNUM_BIT-1 - bits_to_shift)) + 1)
-                  <= 1))
-            {
-              return SCM_I_MAKINUM (nn << bits_to_shift);
-            }
-          else
-            {
-              SCM result = scm_i_inum2big (nn);
-              mpz_mul_2exp (SCM_I_BIG_MPZ (result), SCM_I_BIG_MPZ (result),
-                            bits_to_shift);
-              return result;
-            }
-        }
+        return left_shift_exact_integer (n, bits_to_shift);
+      else if (SCM_LIKELY (bits_to_shift < 0))
+        return floor_right_shift_exact_integer (n, -bits_to_shift);
       else
-        {
-          bits_to_shift = -bits_to_shift;
-          if (bits_to_shift >= SCM_LONG_BIT)
-            return (nn >= 0 ? SCM_INUM0 : SCM_I_MAKINUM(-1));
-          else
-            return SCM_I_MAKINUM (SCM_SRS (nn, bits_to_shift));
-        }
-
-    }
-  else if (SCM_BIGP (n))
-    {
-      SCM result;
-
-      if (bits_to_shift == 0)
         return n;
-
-      result = scm_i_mkbig ();
-      if (bits_to_shift >= 0)
-        {
-          mpz_mul_2exp (SCM_I_BIG_MPZ (result), SCM_I_BIG_MPZ (n),
-                        bits_to_shift);
-          return result;
-        }
-      else
-        {
-          /* GMP doesn't have an fdiv_q_2exp variant returning just a long, so
-             we have to allocate a bignum even if the result is going to be a
-             fixnum.  */
-          mpz_fdiv_q_2exp (SCM_I_BIG_MPZ (result), SCM_I_BIG_MPZ (n),
-                           -bits_to_shift);
-          return scm_i_normbig (result);
-        }
-
     }
   else
+    SCM_WRONG_TYPE_ARG (SCM_ARG1, n);
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_round_ash, "round-ash", 2, 0, 0,
+            (SCM n, SCM count),
+	    "Return @math{round(@var{n} * 2^@var{count})}.\n"
+	    "@var{n} and @var{count} must be exact integers.\n"
+	    "\n"
+	    "With @var{n} viewed as an infinite-precision twos-complement\n"
+	    "integer, @code{round-ash} means a left shift introducing zero\n"
+	    "bits when @var{count} is positive, or a right shift rounding\n"
+	    "to the nearest integer (with ties going to the nearest even\n"
+	    "integer) when @var{count} is negative.  This is a rounded\n"
+	    "``arithmetic'' shift.\n"
+	    "\n"
+	    "@lisp\n"
+	    "(number->string (round-ash #b1 3) 2)     @result{} \"1000\"\n"
+	    "(number->string (round-ash #b1010 -1) 2) @result{} \"101\"\n"
+	    "(number->string (round-ash #b1010 -2) 2) @result{} \"10\"\n"
+	    "(number->string (round-ash #b1011 -2) 2) @result{} \"11\"\n"
+	    "(number->string (round-ash #b1101 -2) 2) @result{} \"11\"\n"
+	    "(number->string (round-ash #b1110 -2) 2) @result{} \"100\"\n"
+	    "@end lisp")
+#define FUNC_NAME s_scm_round_ash
+{
+  if (SCM_I_INUMP (n) || SCM_BIGP (n))
     {
-      SCM_WRONG_TYPE_ARG (SCM_ARG1, n);
+      long bits_to_shift = scm_to_long (count);
+
+      if (bits_to_shift > 0)
+        return left_shift_exact_integer (n, bits_to_shift);
+      else if (SCM_LIKELY (bits_to_shift < 0))
+        return round_right_shift_exact_integer (n, -bits_to_shift);
+      else
+        return n;
     }
+  else
+    SCM_WRONG_TYPE_ARG (SCM_ARG1, n);
 }
 #undef FUNC_NAME
 
@@ -4998,220 +5260,230 @@ SCM_DEFINE (scm_integer_length, "integer-length", 1, 0, 0,
 #undef FUNC_NAME
 
 /*** NUMBERS -> STRINGS ***/
-#define SCM_MAX_DBL_PREC  60
 #define SCM_MAX_DBL_RADIX 36
-
-/* this is an array starting with radix 2, and ending with radix SCM_MAX_DBL_RADIX */
-static int scm_dblprec[SCM_MAX_DBL_RADIX - 1];
-static double fx_per_radix[SCM_MAX_DBL_RADIX - 1][SCM_MAX_DBL_PREC];
-
-static
-void init_dblprec(int *prec, int radix) {
-   /* determine floating point precision by adding successively
-      smaller increments to 1.0 until it is considered == 1.0 */
-   double f = ((double)1.0)/radix;
-   double fsum = 1.0 + f;
-
-   *prec = 0;
-   while (fsum != 1.0)
-   {
-      if (++(*prec) > SCM_MAX_DBL_PREC)
-         fsum = 1.0;
-      else
-      {
-         f /= radix;
-         fsum = f + 1.0;
-      }
-   }
-   (*prec) -= 1;
-}
-
-static
-void init_fx_radix(double *fx_list, int radix)
-{
-  /* initialize a per-radix list of tolerances.  When added
-     to a number < 1.0, we can determine if we should raund
-     up and quit converting a number to a string. */
-   int i;
-   fx_list[0] = 0.0;
-   fx_list[1] = 0.5;
-   for( i = 2 ; i < SCM_MAX_DBL_PREC; ++i ) 
-     fx_list[i] = (fx_list[i-1] / radix);
-}
 
 /* use this array as a way to generate a single digit */
 static const char number_chars[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
+static mpz_t dbl_minimum_normal_mantissa;
+
 static size_t
-idbl2str (double f, char *a, int radix)
+idbl2str (double dbl, char *a, int radix)
 {
-   int efmt, dpt, d, i, wp;
-   double *fx;
-#ifdef DBL_MIN_10_EXP
-   double f_cpy;
-   int exp_cpy;
-#endif /* DBL_MIN_10_EXP */
-   size_t ch = 0;
-   int exp = 0;
+  int ch = 0;
 
-   if(radix < 2 || 
-      radix > SCM_MAX_DBL_RADIX)
-   {
-      /* revert to existing behavior */
-      radix = 10;
-   }
+  if (radix < 2 || radix > SCM_MAX_DBL_RADIX)
+    /* revert to existing behavior */
+    radix = 10;
 
-   wp = scm_dblprec[radix-2];
-   fx = fx_per_radix[radix-2];
-
-  if (f == 0.0)
+  if (isinf (dbl))
     {
-#ifdef HAVE_COPYSIGN
-      double sgn = copysign (1.0, f);
-
-      if (sgn < 0.0)
-	a[ch++] = '-';
-#endif
-      goto zero;	/*{a[0]='0'; a[1]='.'; a[2]='0'; return 3;} */
+      strcpy (a, (dbl > 0.0) ? "+inf.0" : "-inf.0");
+      return 6;
     }
-
-  if (isinf (f))
+  else if (dbl > 0.0)
+    ;
+  else if (dbl < 0.0)
     {
-      if (f < 0)
-	strcpy (a, "-inf.0");
-      else
-	strcpy (a, "+inf.0");
-      return ch+6;
-    }
-  else if (isnan (f))
-    {
-      strcpy (a, "+nan.0");
-      return ch+6;
-    }
-
-  if (f < 0.0)
-    {
-      f = -f;
+      dbl = -dbl;
       a[ch++] = '-';
     }
-
-#ifdef DBL_MIN_10_EXP  /* Prevent unnormalized values, as from 
-			  make-uniform-vector, from causing infinite loops. */
-  /* just do the checking...if it passes, we do the conversion for our
-     radix again below */
-  f_cpy = f;
-  exp_cpy = exp;
-
-  while (f_cpy < 1.0)
+  else if (dbl == 0.0)
     {
-      f_cpy *= 10.0;
-      if (exp_cpy-- < DBL_MIN_10_EXP)
-	{
-	  a[ch++] = '#';
-	  a[ch++] = '.';
-	  a[ch++] = '#';
-	  return ch;
-	}
+      if (!double_is_non_negative_zero (dbl))
+        a[ch++] = '-';
+      strcpy (a + ch, "0.0");
+      return ch + 3;
     }
-  while (f_cpy > 10.0)
+  else if (isnan (dbl))
     {
-      f_cpy *= 0.10;
-      if (exp_cpy++ > DBL_MAX_10_EXP)
-	{
-	  a[ch++] = '#';
-	  a[ch++] = '.';
-	  a[ch++] = '#';
-	  return ch;
-	}
-    }
-#endif
-
-  while (f < 1.0)
-    {
-      f *= radix;
-      exp--;
-    }
-  while (f > radix)
-    {
-      f /= radix;
-      exp++;
+      strcpy (a, "+nan.0");
+      return 6;
     }
 
-  if (f + fx[wp] >= radix)
-    {
-      f = 1.0;
-      exp++;
-    }
- zero:
-  efmt = (exp < -3) || (exp > wp + 2);
-  if (!efmt)
-    {
-      if (exp < 0)
-	{
-	  a[ch++] = '0';
-	  a[ch++] = '.';
-	  dpt = exp;
-	  while (++dpt)
-	    a[ch++] = '0';
-	}
-      else
-	dpt = exp + 1;
-    }
-  else
-    dpt = 1;
+  /* Algorithm taken from "Printing Floating-Point Numbers Quickly and
+     Accurately" by Robert G. Burger and R. Kent Dybvig */
+  {
+    int e, k;
+    mpz_t f, r, s, mplus, mminus, hi, digit;
+    int f_is_even, f_is_odd;
+    int expon;
+    int show_exp = 0;
 
-  do
-    {
-      d = f;
-      f -= d;
-      a[ch++] = number_chars[d];
-      if (f < fx[wp])
-	break;
-      if (f + fx[wp] >= 1.0)
-	{
-          a[ch - 1] = number_chars[d+1]; 
-	  break;
-	}
-      f *= radix;
-      if (!(--dpt))
-	a[ch++] = '.';
-    }
-  while (wp--);
+    mpz_inits (f, r, s, mplus, mminus, hi, digit, NULL);
+    mpz_set_d (f, ldexp (frexp (dbl, &e), DBL_MANT_DIG));
+    if (e < DBL_MIN_EXP)
+      {
+        mpz_tdiv_q_2exp (f, f, DBL_MIN_EXP - e);
+        e = DBL_MIN_EXP;
+      }
+    e -= DBL_MANT_DIG;
 
-  if (dpt > 0)
+    f_is_even = !mpz_odd_p (f);
+    f_is_odd = !f_is_even;
+
+    /* Initialize r, s, mplus, and mminus according
+       to Table 1 from the paper. */
+    if (e < 0)
+      {
+        mpz_set_ui (mminus, 1);
+        if (mpz_cmp (f, dbl_minimum_normal_mantissa) != 0
+            || e == DBL_MIN_EXP - DBL_MANT_DIG)
+          {
+            mpz_set_ui (mplus, 1);
+            mpz_mul_2exp (r, f, 1);
+            mpz_mul_2exp (s, mminus, 1 - e);
+          }
+        else
+          {
+            mpz_set_ui (mplus, 2);
+            mpz_mul_2exp (r, f, 2);
+            mpz_mul_2exp (s, mminus, 2 - e);
+          }
+      }
+    else
+      {
+        mpz_set_ui (mminus, 1);
+        mpz_mul_2exp (mminus, mminus, e);
+        if (mpz_cmp (f, dbl_minimum_normal_mantissa) != 0)
+          {
+            mpz_set (mplus, mminus);
+            mpz_mul_2exp (r, f, 1 + e);
+            mpz_set_ui (s, 2);
+          }
+        else
+          {
+            mpz_mul_2exp (mplus, mminus, 1);
+            mpz_mul_2exp (r, f, 2 + e);
+            mpz_set_ui (s, 4);
+          }
+      }
+
+    /* Find the smallest k such that:
+         (r + mplus) / s <  radix^k  (if f is even)
+         (r + mplus) / s <= radix^k  (if f is odd) */
     {
-      if ((dpt > 4) && (exp > 6))
-	{
-	  d = (a[0] == '-' ? 2 : 1);
-	  for (i = ch++; i > d; i--)
-	    a[i] = a[i - 1];
-	  a[d] = '.';
-	  efmt = 1;
-	}
-      else
-	{
-	  while (--dpt)
-	    a[ch++] = '0';
-	  a[ch++] = '.';
-	}
+      /* IMPROVE-ME: Make an initial guess to speed this up */
+      mpz_add (hi, r, mplus);
+      k = 0;
+      while (mpz_cmp (hi, s) >= f_is_odd)
+        {
+          mpz_mul_ui (s, s, radix);
+          k++;
+        }
+      if (k == 0)
+        {
+          mpz_mul_ui (hi, hi, radix);
+          while (mpz_cmp (hi, s) < f_is_odd)
+            {
+              mpz_mul_ui (r, r, radix);
+              mpz_mul_ui (mplus, mplus, radix);
+              mpz_mul_ui (mminus, mminus, radix);
+              mpz_mul_ui (hi, hi, radix);
+              k--;
+            }
+        }
     }
-  if (a[ch - 1] == '.')
-    a[ch++] = '0';		/* trailing zero */
-  if (efmt && exp)
-    {
-      a[ch++] = 'e';
-      if (exp < 0)
-	{
-	  exp = -exp;
-	  a[ch++] = '-';
-	}
-      for (i = radix; i <= exp; i *= radix);
-      for (i /= radix; i; i /= radix)
-	{
-          a[ch++] = number_chars[exp / i];
-	  exp %= i;
-	}
-    }
+
+    expon = k - 1;
+    if (k <= 0)
+      {
+        if (k <= -3)
+          {
+            /* Use scientific notation */
+            show_exp = 1;
+            k = 1;
+          }
+        else
+          {
+            int i;
+
+            /* Print leading zeroes */
+            a[ch++] = '0';
+            a[ch++] = '.';
+            for (i = 0; i > k; i--)
+              a[ch++] = '0';
+          }
+      }
+
+    for (;;)
+      {
+        int end_1_p, end_2_p;
+        int d;
+
+        mpz_mul_ui (mplus, mplus, radix);
+        mpz_mul_ui (mminus, mminus, radix);
+        mpz_mul_ui (r, r, radix);
+        mpz_fdiv_qr (digit, r, r, s);
+        d = mpz_get_ui (digit);
+
+        mpz_add (hi, r, mplus);
+        end_1_p = (mpz_cmp (r, mminus) < f_is_even);
+        end_2_p = (mpz_cmp (s, hi) < f_is_even);
+        if (end_1_p || end_2_p)
+          {
+            mpz_mul_2exp (r, r, 1);
+            if (!end_2_p)
+              ;
+            else if (!end_1_p)
+              d++;
+            else if (mpz_cmp (r, s) >= !(d & 1))
+              d++;
+            a[ch++] = number_chars[d];
+            if (--k == 0)
+              a[ch++] = '.';
+            break;
+          }
+        else
+          {
+            a[ch++] = number_chars[d];
+            if (--k == 0)
+              a[ch++] = '.';
+          }
+      }
+
+    if (k > 0)
+      {
+        if (expon >= 7 && k >= 4 && expon >= k)
+          {
+            /* Here we would have to print more than three zeroes
+               followed by a decimal point and another zero.  It
+               makes more sense to use scientific notation. */
+
+            /* Adjust k to what it would have been if we had chosen
+               scientific notation from the beginning. */
+            k -= expon;
+
+            /* k will now be <= 0, with magnitude equal to the number of
+               digits that we printed which should now be put after the
+               decimal point. */
+
+            /* Insert a decimal point */
+            memmove (a + ch + k + 1, a + ch + k, -k);
+            a[ch + k] = '.';
+            ch++;
+
+            show_exp = 1;
+          }
+        else
+          {
+            for (; k > 0; k--)
+              a[ch++] = '0';
+            a[ch++] = '.';
+          }
+      }
+
+    if (k == 0)
+      a[ch++] = '0';
+
+    if (show_exp)
+      {
+        a[ch++] = 'e';
+        ch += scm_iint2str (expon, radix, a + ch);
+      }
+
+    mpz_clears (f, r, s, mplus, mminus, hi, digit, NULL);
+  }
   return ch;
 }
 
@@ -5695,7 +5967,7 @@ mem2decimal_from_point (SCM result, SCM mem,
 		break;
 	    }
 
-	  if (exponent > SCM_MAXEXP)
+	  if (exponent > ((sign == 1) ? SCM_MAXEXP : SCM_MAXEXP + DBL_DIG + 1))
 	    {
 	      size_t exp_len = idx - start;
 	      SCM exp_string = scm_i_substring_copy (mem, start, start + exp_len);
@@ -5731,7 +6003,8 @@ mem2decimal_from_point (SCM result, SCM mem,
 
 static SCM
 mem2ureal (SCM mem, unsigned int *p_idx,
-	   unsigned int radix, enum t_exactness forced_x)
+	   unsigned int radix, enum t_exactness forced_x,
+           int allow_inf_or_nan)
 {
   unsigned int idx = *p_idx;
   SCM result;
@@ -5744,30 +6017,53 @@ mem2ureal (SCM mem, unsigned int *p_idx,
   if (idx == len)
     return SCM_BOOL_F;
 
-  if (idx+5 <= len && !scm_i_string_strcmp (mem, idx, "inf.0"))
-    {
-      *p_idx = idx+5;
-      return scm_inf ();
-    }
-
-  if (idx+4 < len && !scm_i_string_strcmp (mem, idx, "nan."))
-    {
-      /* Cobble up the fractional part.  We might want to set the
-	 NaN's mantissa from it. */
-      idx += 4;
-      if (!scm_is_eq (mem2uinteger (mem, &idx, 10, &implicit_x), SCM_INUM0))
-        {
+  if (allow_inf_or_nan && forced_x != EXACT && idx+5 <= len)
+    switch (scm_i_string_ref (mem, idx))
+      {
+      case 'i': case 'I':
+        switch (scm_i_string_ref (mem, idx + 1))
+          {
+          case 'n': case 'N':
+            switch (scm_i_string_ref (mem, idx + 2))
+              {
+              case 'f': case 'F':
+                if (scm_i_string_ref (mem, idx + 3) == '.'
+                    && scm_i_string_ref (mem, idx + 4) == '0')
+                  {
+                    *p_idx = idx+5;
+                    return scm_inf ();
+                  }
+              }
+          }
+      case 'n': case 'N':
+        switch (scm_i_string_ref (mem, idx + 1))
+          {
+          case 'a': case 'A':
+            switch (scm_i_string_ref (mem, idx + 2))
+              {
+              case 'n': case 'N':
+                if (scm_i_string_ref (mem, idx + 3) == '.')
+                  {
+                    /* Cobble up the fractional part.  We might want to
+                       set the NaN's mantissa from it. */
+                    idx += 4;
+                    if (!scm_is_eq (mem2uinteger (mem, &idx, 10, &implicit_x),
+                                    SCM_INUM0))
+                      {
 #if SCM_ENABLE_DEPRECATED == 1
-          scm_c_issue_deprecation_warning
-            ("Non-zero suffixes to `+nan.' are deprecated.  Use `+nan.0'.");
+                        scm_c_issue_deprecation_warning
+                          ("Non-zero suffixes to `+nan.' are deprecated.  Use `+nan.0'.");
 #else
-          return SCM_BOOL_F;
+                        return SCM_BOOL_F;
 #endif
-        }
+                      }
           
-      *p_idx = idx;
-      return scm_nan ();
-    }
+                    *p_idx = idx;
+                    return scm_nan ();
+                  }
+              }
+          }
+      }
 
   if (scm_i_string_ref (mem, idx) == '.')
     {
@@ -5800,7 +6096,7 @@ mem2ureal (SCM mem, unsigned int *p_idx,
             return SCM_BOOL_F;
 
 	  divisor = mem2uinteger (mem, &idx, radix, &implicit_x);
-	  if (scm_is_false (divisor))
+	  if (scm_is_false (divisor) || scm_is_eq (divisor, SCM_INUM0))
 	    return SCM_BOOL_F;
 
 	  /* both are int/big here, I assume */
@@ -5876,7 +6172,7 @@ mem2complex (SCM mem, unsigned int idx,
   if (idx == len)
     return SCM_BOOL_F;
 
-  ureal = mem2ureal (mem, &idx, radix, forced_x);
+  ureal = mem2ureal (mem, &idx, radix, forced_x, sign != 0);
   if (scm_is_false (ureal))
     {
       /* input must be either +i or -i */
@@ -5945,9 +6241,9 @@ mem2complex (SCM mem, unsigned int idx,
 		  sign = -1;
 		}
 	      else
-		sign = 1;
+		sign = 0;
 
-	      angle = mem2ureal (mem, &idx, radix, forced_x);
+	      angle = mem2ureal (mem, &idx, radix, forced_x, sign != 0);
 	      if (scm_is_false (angle))
 		return SCM_BOOL_F;
 	      if (idx != len)
@@ -5969,7 +6265,7 @@ mem2complex (SCM mem, unsigned int idx,
 	  else
 	    {
 	      int sign = (c == '+') ? 1 : -1;
-	      SCM imag = mem2ureal (mem, &idx, radix, forced_x);
+	      SCM imag = mem2ureal (mem, &idx, radix, forced_x, sign != 0);
 
 	      if (scm_is_false (imag))
 		imag = SCM_I_MAKINUM (sign);
@@ -7323,8 +7619,9 @@ scm_difference (SCM x, SCM y)
           return scm_c_make_rectangular (-SCM_COMPLEX_REAL (x),
                                    -SCM_COMPLEX_IMAG (x));
 	else if (SCM_FRACTIONP (x))
-	  return scm_i_make_ratio (scm_difference (SCM_FRACTION_NUMERATOR (x), SCM_UNDEFINED),
-				 SCM_FRACTION_DENOMINATOR (x));
+	  return scm_i_make_ratio_already_reduced
+	    (scm_difference (SCM_FRACTION_NUMERATOR (x), SCM_UNDEFINED),
+	     SCM_FRACTION_DENOMINATOR (x));
         else
           return scm_wta_dispatch_1 (g_difference, x, SCM_ARG1, s_difference);
     }
@@ -7850,8 +8147,8 @@ SCM_PRIMITIVE_GENERIC (scm_i_divide, "/", 0, 2, 1,
 #define s_divide s_scm_i_divide
 #define g_divide g_scm_i_divide
 
-static SCM
-do_divide (SCM x, SCM y, int inexact)
+SCM
+scm_divide (SCM x, SCM y)
 #define FUNC_NAME s_divide
 {
   double a;
@@ -7870,18 +8167,10 @@ do_divide (SCM x, SCM y, int inexact)
 	    scm_num_overflow (s_divide);
 #endif
 	  else
-	    {
-	      if (inexact)
-		return scm_from_double (1.0 / (double) xx);
-	      else return scm_i_make_ratio (SCM_INUM1, x);
-	    }
+	    return scm_i_make_ratio_already_reduced (SCM_INUM1, x);
 	}
       else if (SCM_BIGP (x))
-	{
-	  if (inexact)
-	    return scm_from_double (1.0 / scm_i_big2dbl (x));
-	  else return scm_i_make_ratio (SCM_INUM1, x);
-	}
+	return scm_i_make_ratio_already_reduced (SCM_INUM1, x);
       else if (SCM_REALP (x))
 	{
 	  double xx = SCM_REAL_VALUE (x);
@@ -7910,8 +8199,8 @@ do_divide (SCM x, SCM y, int inexact)
 	    }
 	}
       else if (SCM_FRACTIONP (x))
-	return scm_i_make_ratio (SCM_FRACTION_DENOMINATOR (x),
-			       SCM_FRACTION_NUMERATOR (x));
+	return scm_i_make_ratio_already_reduced (SCM_FRACTION_DENOMINATOR (x),
+						 SCM_FRACTION_NUMERATOR (x));
       else
 	return scm_wta_dispatch_1 (g_divide, x, SCM_ARG1, s_divide);
     }
@@ -7931,11 +8220,7 @@ do_divide (SCM x, SCM y, int inexact)
 #endif
 	    }
 	  else if (xx % yy != 0)
-	    {
-	      if (inexact)
-		return scm_from_double ((double) xx / (double) yy);
-	      else return scm_i_make_ratio (x, y);
-	    }
+	    return scm_i_make_ratio (x, y);
 	  else
 	    {
 	      scm_t_inum z = xx / yy;
@@ -7946,11 +8231,7 @@ do_divide (SCM x, SCM y, int inexact)
 	    }
 	}
       else if (SCM_BIGP (y))
-	{
-	  if (inexact)
-	    return scm_from_double ((double) xx / scm_i_big2dbl (y));
-	  else return scm_i_make_ratio (x, y);
-	}
+	return scm_i_make_ratio (x, y);
       else if (SCM_REALP (y))
 	{
 	  double yy = SCM_REAL_VALUE (y);
@@ -7959,6 +8240,9 @@ do_divide (SCM x, SCM y, int inexact)
 	    scm_num_overflow (s_divide);
 	  else
 #endif
+            /* FIXME: Precision may be lost here due to:
+               (1) The cast from 'scm_t_inum' to 'double'
+               (2) Double rounding */
 	    return scm_from_double ((double) xx / yy);
 	}
       else if (SCM_COMPLEXP (y))
@@ -7985,7 +8269,7 @@ do_divide (SCM x, SCM y, int inexact)
       else if (SCM_FRACTIONP (y))
 	/* a / b/c = ac / b */
 	return scm_i_make_ratio (scm_product (x, SCM_FRACTION_DENOMINATOR (y)),
-			       SCM_FRACTION_NUMERATOR (y));
+                                 SCM_FRACTION_NUMERATOR (y));
       else
 	return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARGn, s_divide);
     }
@@ -8029,43 +8313,24 @@ do_divide (SCM x, SCM y, int inexact)
 		  return scm_i_normbig (result);
 		}
 	      else
-		{
-		  if (inexact)
-		    return scm_from_double (scm_i_big2dbl (x) / (double) yy);
-		  else return scm_i_make_ratio (x, y);
-		}
+		return scm_i_make_ratio (x, y);
 	    }
 	}
       else if (SCM_BIGP (y))
 	{
-	  /* big_x / big_y */
-	  if (inexact)
-	    {
-	      /* It's easily possible for the ratio x/y to fit a double
-		 but one or both x and y be too big to fit a double,
-		 hence the use of mpq_get_d rather than converting and
-		 dividing.  */
-	      mpq_t q;
-	      *mpq_numref(q) = *SCM_I_BIG_MPZ (x);
-	      *mpq_denref(q) = *SCM_I_BIG_MPZ (y);
-	      return scm_from_double (mpq_get_d (q));
-	    }
-	  else
-	    {
-	      int divisible_p = mpz_divisible_p (SCM_I_BIG_MPZ (x),
-						 SCM_I_BIG_MPZ (y));
-	      if (divisible_p)
-		{
-		  SCM result = scm_i_mkbig ();
-		  mpz_divexact (SCM_I_BIG_MPZ (result),
-				SCM_I_BIG_MPZ (x),
-				SCM_I_BIG_MPZ (y));
-		  scm_remember_upto_here_2 (x, y);
-		  return scm_i_normbig (result);
-		}
-	      else
-		return scm_i_make_ratio (x, y);
-	    }
+          int divisible_p = mpz_divisible_p (SCM_I_BIG_MPZ (x),
+                                             SCM_I_BIG_MPZ (y));
+          if (divisible_p)
+            {
+              SCM result = scm_i_mkbig ();
+              mpz_divexact (SCM_I_BIG_MPZ (result),
+                            SCM_I_BIG_MPZ (x),
+                            SCM_I_BIG_MPZ (y));
+              scm_remember_upto_here_2 (x, y);
+              return scm_i_normbig (result);
+            }
+          else
+            return scm_i_make_ratio (x, y);
 	}
       else if (SCM_REALP (y))
 	{
@@ -8075,6 +8340,8 @@ do_divide (SCM x, SCM y, int inexact)
 	    scm_num_overflow (s_divide);
 	  else
 #endif
+            /* FIXME: Precision may be lost here due to:
+               (1) scm_i_big2dbl (2) Double rounding */
 	    return scm_from_double (scm_i_big2dbl (x) / yy);
 	}
       else if (SCM_COMPLEXP (y))
@@ -8084,7 +8351,7 @@ do_divide (SCM x, SCM y, int inexact)
 	}
       else if (SCM_FRACTIONP (y))
 	return scm_i_make_ratio (scm_product (x, SCM_FRACTION_DENOMINATOR (y)),
-			       SCM_FRACTION_NUMERATOR (y));
+                                 SCM_FRACTION_NUMERATOR (y));
       else
 	return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARGn, s_divide);
     }
@@ -8099,10 +8366,16 @@ do_divide (SCM x, SCM y, int inexact)
 	    scm_num_overflow (s_divide);
 	  else
 #endif
+            /* FIXME: Precision may be lost here due to:
+               (1) The cast from 'scm_t_inum' to 'double'
+               (2) Double rounding */
 	    return scm_from_double (rx / (double) yy);
 	}
       else if (SCM_BIGP (y))
 	{
+          /* FIXME: Precision may be lost here due to:
+             (1) The conversion from bignum to double
+             (2) Double rounding */
 	  double dby = mpz_get_d (SCM_I_BIG_MPZ (y));
 	  scm_remember_upto_here_1 (y);
 	  return scm_from_double (rx / dby);
@@ -8140,12 +8413,18 @@ do_divide (SCM x, SCM y, int inexact)
 	  else
 #endif
 	    {
+              /* FIXME: Precision may be lost here due to:
+                 (1) The conversion from 'scm_t_inum' to double
+                 (2) Double rounding */
 	      double d = yy;
 	      return scm_c_make_rectangular (rx / d, ix / d);
 	    }
 	}
       else if (SCM_BIGP (y))
 	{
+          /* FIXME: Precision may be lost here due to:
+             (1) The conversion from bignum to double
+             (2) Double rounding */
 	  double dby = mpz_get_d (SCM_I_BIG_MPZ (y));
 	  scm_remember_upto_here_1 (y);
 	  return scm_c_make_rectangular (rx / dby, ix / dby);
@@ -8179,6 +8458,9 @@ do_divide (SCM x, SCM y, int inexact)
 	}
       else if (SCM_FRACTIONP (y))
 	{
+          /* FIXME: Precision may be lost here due to:
+             (1) The conversion from fraction to double
+             (2) Double rounding */
 	  double yy = scm_i_fraction2double (y);
 	  return scm_c_make_rectangular (rx / yy, ix / yy);
 	}
@@ -8196,12 +8478,12 @@ do_divide (SCM x, SCM y, int inexact)
 	  else
 #endif
 	    return scm_i_make_ratio (SCM_FRACTION_NUMERATOR (x),
-				   scm_product (SCM_FRACTION_DENOMINATOR (x), y));
+                                     scm_product (SCM_FRACTION_DENOMINATOR (x), y));
 	} 
       else if (SCM_BIGP (y)) 
 	{
 	  return scm_i_make_ratio (SCM_FRACTION_NUMERATOR (x),
-				 scm_product (SCM_FRACTION_DENOMINATOR (x), y));
+                                   scm_product (SCM_FRACTION_DENOMINATOR (x), y));
 	} 
       else if (SCM_REALP (y)) 
 	{
@@ -8211,32 +8493,27 @@ do_divide (SCM x, SCM y, int inexact)
 	    scm_num_overflow (s_divide);
 	  else
 #endif
+            /* FIXME: Precision may be lost here due to:
+               (1) The conversion from fraction to double
+               (2) Double rounding */
 	    return scm_from_double (scm_i_fraction2double (x) / yy);
 	}
       else if (SCM_COMPLEXP (y)) 
 	{
+          /* FIXME: Precision may be lost here due to:
+             (1) The conversion from fraction to double
+             (2) Double rounding */
 	  a = scm_i_fraction2double (x);
 	  goto complex_div;
 	} 
       else if (SCM_FRACTIONP (y))
 	return scm_i_make_ratio (scm_product (SCM_FRACTION_NUMERATOR (x), SCM_FRACTION_DENOMINATOR (y)),
-			       scm_product (SCM_FRACTION_NUMERATOR (y), SCM_FRACTION_DENOMINATOR (x)));
+                                 scm_product (SCM_FRACTION_NUMERATOR (y), SCM_FRACTION_DENOMINATOR (x)));
       else 
 	return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARGn, s_divide);
     }
   else
     return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARG1, s_divide);
-}
-
-SCM
-scm_divide (SCM x, SCM y)
-{
-  return do_divide (x, y, 0);
-}
-
-static SCM scm_divide2real (SCM x, SCM y)
-{
-  return do_divide (x, y, 1);
 }
 #undef FUNC_NAME
 
@@ -8875,8 +9152,9 @@ SCM_PRIMITIVE_GENERIC (scm_magnitude, "magnitude", 1, 0, 0,
     {
       if (scm_is_false (scm_negative_p (SCM_FRACTION_NUMERATOR (z))))
 	return z;
-      return scm_i_make_ratio (scm_difference (SCM_FRACTION_NUMERATOR (z), SCM_UNDEFINED),
-			     SCM_FRACTION_DENOMINATOR (z));
+      return scm_i_make_ratio_already_reduced
+	(scm_difference (SCM_FRACTION_NUMERATOR (z), SCM_UNDEFINED),
+	 SCM_FRACTION_DENOMINATOR (z));
     }
   else
     return scm_wta_dispatch_1 (g_scm_magnitude, z, SCM_ARG1,
@@ -8973,21 +9251,35 @@ SCM_PRIMITIVE_GENERIC (scm_inexact_to_exact, "inexact->exact", 1, 0, 0,
 
       if (!SCM_LIKELY (DOUBLE_IS_FINITE (val)))
 	SCM_OUT_OF_RANGE (1, z);
+      else if (val == 0.0)
+        return SCM_INUM0;
       else
 	{
-	  mpq_t frac;
-	  SCM q;
-	  
-	  mpq_init (frac);
-	  mpq_set_d (frac, val);
-	  q = scm_i_make_ratio (scm_i_mpz2num (mpq_numref (frac)),
-				scm_i_mpz2num (mpq_denref (frac)));
+          int expon;
+          SCM numerator;
 
-	  /* When scm_i_make_ratio throws, we leak the memory allocated
-	     for frac...
-	   */
-	  mpq_clear (frac);
-	  return q;
+          numerator = scm_i_dbl2big (ldexp (frexp (val, &expon),
+                                            DBL_MANT_DIG));
+          expon -= DBL_MANT_DIG;
+          if (expon < 0)
+            {
+              int shift = mpz_scan1 (SCM_I_BIG_MPZ (numerator), 0);
+
+              if (shift > -expon)
+                shift = -expon;
+              mpz_fdiv_q_2exp (SCM_I_BIG_MPZ (numerator),
+                               SCM_I_BIG_MPZ (numerator),
+                               shift);
+              expon += shift;
+            }
+          numerator = scm_i_normbig (numerator);
+          if (expon < 0)
+            return scm_i_make_ratio_already_reduced
+              (numerator, left_shift_exact_integer (SCM_INUM1, -expon));
+          else if (expon > 0)
+            return left_shift_exact_integer (numerator, expon);
+          else
+            return numerator;
 	}
     }
 }
@@ -9423,26 +9715,20 @@ log_of_shifted_double (double x, long shift)
     return scm_c_make_rectangular (ans, M_PI);
 }
 
-/* Returns log(n), for exact integer n of integer-length size */
-static SCM
-log_of_exact_integer_with_size (SCM n, long size)
-{
-  long shift = size - 2 * scm_dblprec[0];
-
-  if (shift > 0)
-    return log_of_shifted_double
-      (scm_to_double (scm_ash (n, scm_from_long(-shift))),
-       shift);
-  else
-    return log_of_shifted_double (scm_to_double (n), 0);
-}
-
 /* Returns log(n), for exact integer n */
 static SCM
 log_of_exact_integer (SCM n)
 {
-  return log_of_exact_integer_with_size
-    (n, scm_to_long (scm_integer_length (n)));
+  if (SCM_I_INUMP (n))
+    return log_of_shifted_double (SCM_I_INUM (n), 0);
+  else if (SCM_BIGP (n))
+    {
+      long expon;
+      double signif = scm_i_big2dbl_2exp (n, &expon);
+      return log_of_shifted_double (signif, expon);
+    }
+  else
+    scm_wrong_type_arg ("log_of_exact_integer", SCM_ARG1, n);
 }
 
 /* Returns log(n/d), for exact non-zero integers n and d */
@@ -9453,16 +9739,15 @@ log_of_fraction (SCM n, SCM d)
   long d_size = scm_to_long (scm_integer_length (d));
 
   if (abs (n_size - d_size) > 1)
-    return (scm_difference (log_of_exact_integer_with_size (n, n_size),
-			    log_of_exact_integer_with_size (d, d_size)));
+    return (scm_difference (log_of_exact_integer (n),
+			    log_of_exact_integer (d)));
   else if (scm_is_false (scm_negative_p (n)))
     return scm_from_double
-      (log1p (scm_to_double (scm_divide2real (scm_difference (n, d), d))));
+      (log1p (scm_i_divide2double (scm_difference (n, d), d)));
   else
     return scm_c_make_rectangular
-      (log1p (scm_to_double (scm_divide2real
-			     (scm_difference (scm_abs (n), d),
-			      d))),
+      (log1p (scm_i_divide2double (scm_difference (scm_abs (n), d),
+                                   d)),
        M_PI);
 }
 
@@ -9610,25 +9895,17 @@ scm_exact_integer_sqrt (SCM k, SCM *sp, SCM *rp)
 {
   if (SCM_LIKELY (SCM_I_INUMP (k)))
     {
-      scm_t_inum kk = SCM_I_INUM (k);
-      scm_t_inum uu = kk;
-      scm_t_inum ss;
+      mpz_t kk, ss, rr;
 
-      if (SCM_LIKELY (kk > 0))
-	{
-	  do
-	    {
-	      ss = uu;
-	      uu = (ss + kk/ss) / 2;
-	    } while (uu < ss);
-	  *sp = SCM_I_MAKINUM (ss);
-	  *rp = SCM_I_MAKINUM (kk - ss*ss);
-	}
-      else if (SCM_LIKELY (kk == 0))
-	*sp = *rp = SCM_INUM0;
-      else
+      if (SCM_I_INUM (k) < 0)
 	scm_wrong_type_arg_msg ("exact-integer-sqrt", SCM_ARG1, k,
 				"exact non-negative integer");
+      mpz_init_set_ui (kk, SCM_I_INUM (k));
+      mpz_inits (ss, rr, NULL);
+      mpz_sqrtrem (ss, rr, kk);
+      *sp = SCM_I_MAKINUM (mpz_get_ui (ss));
+      *rp = SCM_I_MAKINUM (mpz_get_ui (rr));
+      mpz_clears (kk, ss, rr, NULL);
     }
   else if (SCM_LIKELY (SCM_BIGP (k)))
     {
@@ -9647,6 +9924,56 @@ scm_exact_integer_sqrt (SCM k, SCM *sp, SCM *rp)
   else
     scm_wrong_type_arg_msg ("exact-integer-sqrt", SCM_ARG1, k,
 			    "exact non-negative integer");
+}
+
+/* Return true iff K is a perfect square.
+   K must be an exact integer. */
+static int
+exact_integer_is_perfect_square (SCM k)
+{
+  int result;
+
+  if (SCM_LIKELY (SCM_I_INUMP (k)))
+    {
+      mpz_t kk;
+
+      mpz_init_set_si (kk, SCM_I_INUM (k));
+      result = mpz_perfect_square_p (kk);
+      mpz_clear (kk);
+    }
+  else
+    {
+      result = mpz_perfect_square_p (SCM_I_BIG_MPZ (k));
+      scm_remember_upto_here_1 (k);
+    }
+  return result;
+}
+
+/* Return the floor of the square root of K.
+   K must be an exact integer. */
+static SCM
+exact_integer_floor_square_root (SCM k)
+{
+  if (SCM_LIKELY (SCM_I_INUMP (k)))
+    {
+      mpz_t kk;
+      scm_t_inum ss;
+
+      mpz_init_set_ui (kk, SCM_I_INUM (k));
+      mpz_sqrt (kk, kk);
+      ss = mpz_get_ui (kk);
+      mpz_clear (kk);
+      return SCM_I_MAKINUM (ss);
+    }
+  else
+    {
+      SCM s;
+
+      s = scm_i_mkbig ();
+      mpz_sqrt (SCM_I_BIG_MPZ (s), SCM_I_BIG_MPZ (k));
+      scm_remember_upto_here_1 (k);
+      return scm_i_normbig (s);
+    }
 }
 
 
@@ -9679,11 +10006,111 @@ SCM_PRIMITIVE_GENERIC (scm_sqrt, "sqrt", 1, 0, 0,
     }
   else if (SCM_NUMBERP (z))
     {
-      double xx = scm_to_double (z);
-      if (xx < 0)
-        return scm_c_make_rectangular (0.0, sqrt (-xx));
-      else
-        return scm_from_double (sqrt (xx));
+      if (SCM_I_INUMP (z))
+        {
+          scm_t_inum x = SCM_I_INUM (z);
+
+          if (SCM_LIKELY (x >= 0))
+            {
+              if (SCM_LIKELY (SCM_I_FIXNUM_BIT < DBL_MANT_DIG
+                              || x < (1L << (DBL_MANT_DIG - 1))))
+                {
+                  double root = sqrt (x);
+
+                  /* If 0 <= x < 2^(DBL_MANT_DIG-1) and sqrt(x) is an
+                     integer, then the result is exact. */
+                  if (root == floor (root))
+                    return SCM_I_MAKINUM ((scm_t_inum) root);
+                  else
+                    return scm_from_double (root);
+                }
+              else
+                {
+                  mpz_t xx;
+                  scm_t_inum root;
+
+                  mpz_init_set_ui (xx, x);
+                  if (mpz_perfect_square_p (xx))
+                    {
+                      mpz_sqrt (xx, xx);
+                      root = mpz_get_ui (xx);
+                      mpz_clear (xx);
+                      return SCM_I_MAKINUM (root);
+                    }
+                  else
+                    mpz_clear (xx);
+                }
+            }
+        }
+      else if (SCM_BIGP (z))
+        {
+          if (mpz_perfect_square_p (SCM_I_BIG_MPZ (z)))
+            {
+              SCM root = scm_i_mkbig ();
+
+              mpz_sqrt (SCM_I_BIG_MPZ (root), SCM_I_BIG_MPZ (z));
+              scm_remember_upto_here_1 (z);
+              return scm_i_normbig (root);
+            }
+          else
+            {
+              long expon;
+              double signif = scm_i_big2dbl_2exp (z, &expon);
+
+              if (expon & 1)
+                {
+                  signif *= 2;
+                  expon--;
+                }
+              if (signif < 0)
+                return scm_c_make_rectangular
+                  (0.0, ldexp (sqrt (-signif), expon / 2));
+              else
+                return scm_from_double (ldexp (sqrt (signif), expon / 2));
+            }
+        }
+      else if (SCM_FRACTIONP (z))
+        {
+          SCM n = SCM_FRACTION_NUMERATOR (z);
+          SCM d = SCM_FRACTION_DENOMINATOR (z);
+
+          if (exact_integer_is_perfect_square (n)
+              && exact_integer_is_perfect_square (d))
+            return scm_i_make_ratio_already_reduced
+              (exact_integer_floor_square_root (n),
+               exact_integer_floor_square_root (d));
+          else
+            {
+              double xx = scm_i_divide2double (n, d);
+              double abs_xx = fabs (xx);
+              long shift = 0;
+
+              if (SCM_UNLIKELY (abs_xx > DBL_MAX || abs_xx < DBL_MIN))
+                {
+                  shift = (scm_to_long (scm_integer_length (n))
+                           - scm_to_long (scm_integer_length (d))) / 2;
+                  if (shift > 0)
+                    d = left_shift_exact_integer (d, 2 * shift);
+                  else
+                    n = left_shift_exact_integer (n, -2 * shift);
+                  xx = scm_i_divide2double (n, d);
+                }
+
+              if (xx < 0)
+                return scm_c_make_rectangular (0.0, ldexp (sqrt (-xx), shift));
+              else
+                return scm_from_double (ldexp (sqrt (xx), shift));
+            }
+        }
+
+      /* Fallback method, when the cases above do not apply. */
+      {
+        double xx = scm_to_double (z);
+        if (xx < 0)
+          return scm_c_make_rectangular (0.0, sqrt (-xx));
+        else
+          return scm_from_double (sqrt (xx));
+      }
     }
   else
     return scm_wta_dispatch_1 (g_scm_sqrt, z, 1, s_scm_sqrt);
@@ -9695,8 +10122,6 @@ SCM_PRIMITIVE_GENERIC (scm_sqrt, "sqrt", 1, 0, 0,
 void
 scm_init_numbers ()
 {
-  int i;
-
   if (scm_install_gmp_memory_functions)
     mp_set_memory_functions (custom_gmp_malloc,
                              custom_gmp_realloc,
@@ -9718,18 +10143,25 @@ scm_init_numbers ()
   flo0 = scm_from_double (0.0);
   flo_log10e = scm_from_double (M_LOG10E);
 
-  /* determine floating point precision */
-  for (i=2; i <= SCM_MAX_DBL_RADIX; ++i)
-    {
-      init_dblprec(&scm_dblprec[i-2],i);
-      init_fx_radix(fx_per_radix[i-2],i);
-    }
-#ifdef DBL_DIG
-  /* hard code precision for base 10 if the preprocessor tells us to... */
-  scm_dblprec[10-2] = (DBL_DIG > 20) ? 20 : DBL_DIG;
-#endif
-
   exactly_one_half = scm_divide (SCM_INUM1, SCM_I_MAKINUM (2));
+
+  {
+    /* Set scm_i_divide2double_lo2b to (2 b^p - 1) */
+    mpz_init_set_ui (scm_i_divide2double_lo2b, 1);
+    mpz_mul_2exp (scm_i_divide2double_lo2b,
+                  scm_i_divide2double_lo2b,
+                  DBL_MANT_DIG + 1); /* 2 b^p */
+    mpz_sub_ui (scm_i_divide2double_lo2b, scm_i_divide2double_lo2b, 1);
+  }
+
+  {
+    /* Set dbl_minimum_normal_mantissa to b^{p-1} */
+    mpz_init_set_ui (dbl_minimum_normal_mantissa, 1);
+    mpz_mul_2exp (dbl_minimum_normal_mantissa,
+                  dbl_minimum_normal_mantissa,
+                  DBL_MANT_DIG - 1);
+  }
+
 #include "libguile/numbers.x"
 }
 

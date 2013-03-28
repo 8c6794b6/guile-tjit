@@ -1,5 +1,5 @@
 # DO NOT EDIT! GENERATED AUTOMATICALLY!
-# Copyright (C) 2002-2012 Free Software Foundation, Inc.
+# Copyright (C) 2002-2013 Free Software Foundation, Inc.
 #
 # This file is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -41,6 +41,7 @@ AC_DEFUN([gl_EARLY],
   AC_REQUIRE([AM_PROG_CC_C_O])
   # Code from module accept:
   # Code from module alignof:
+  # Code from module alloca:
   # Code from module alloca-opt:
   # Code from module announce-gen:
   # Code from module arpa_inet:
@@ -65,6 +66,7 @@ AC_DEFUN([gl_EARLY],
   # Code from module dirname-lgpl:
   # Code from module dosname:
   # Code from module double-slash-root:
+  # Code from module dup2:
   # Code from module duplocale:
   # Code from module environ:
   # Code from module errno:
@@ -85,6 +87,7 @@ AC_DEFUN([gl_EARLY],
   # Code from module func:
   # Code from module gendocs:
   # Code from module getaddrinfo:
+  # Code from module getlogin:
   # Code from module getpeername:
   # Code from module getsockname:
   # Code from module getsockopt:
@@ -144,7 +147,10 @@ AC_DEFUN([gl_EARLY],
   # Code from module nproc:
   # Code from module open:
   # Code from module pathmax:
+  # Code from module pipe-posix:
   # Code from module pipe2:
+  # Code from module poll:
+  # Code from module poll-h:
   # Code from module putenv:
   # Code from module raise:
   # Code from module read:
@@ -158,6 +164,7 @@ AC_DEFUN([gl_EARLY],
   # Code from module safe-read:
   # Code from module safe-write:
   # Code from module same-inode:
+  # Code from module select:
   # Code from module send:
   # Code from module sendto:
   # Code from module servent:
@@ -190,13 +197,16 @@ AC_DEFUN([gl_EARLY],
   # Code from module striconveh:
   # Code from module string:
   # Code from module sys_file:
+  # Code from module sys_select:
   # Code from module sys_socket:
   # Code from module sys_stat:
   # Code from module sys_time:
+  # Code from module sys_times:
   # Code from module sys_types:
   # Code from module sys_uio:
   # Code from module time:
   # Code from module time_r:
+  # Code from module times:
   # Code from module trunc:
   # Code from module unistd:
   # Code from module unistr/base:
@@ -238,6 +248,10 @@ AC_DEFUN([gl_INIT],
     AC_LIBOBJ([accept])
   fi
   gl_SYS_SOCKET_MODULE_INDICATOR([accept])
+changequote(,)dnl
+LTALLOCA=`echo "$ALLOCA" | sed -e 's/\.[^.]* /.lo /g;s/\.[^.]*$/.lo/'`
+changequote([, ])dnl
+AC_SUBST([LTALLOCA])
   gl_FUNC_ALLOCA
   gl_HEADER_ARPA_INET
   AC_PROG_MKDIR_P
@@ -287,6 +301,12 @@ AC_DEFUN([gl_INIT],
   gl_DIRENT_MODULE_INDICATOR([dirfd])
   gl_DIRNAME_LGPL
   gl_DOUBLE_SLASH_ROOT
+  gl_FUNC_DUP2
+  if test $HAVE_DUP2 = 0 || test $REPLACE_DUP2 = 1; then
+    AC_LIBOBJ([dup2])
+    gl_PREREQ_DUP2
+  fi
+  gl_UNISTD_MODULE_INDICATOR([dup2])
   gl_FUNC_DUPLOCALE
   if test $REPLACE_DUPLOCALE = 1; then
     AC_LIBOBJ([duplocale])
@@ -336,6 +356,11 @@ AC_DEFUN([gl_INIT],
     AC_LIBOBJ([gai_strerror])
   fi
   gl_NETDB_MODULE_INDICATOR([getaddrinfo])
+  gl_FUNC_GETLOGIN
+  if test $HAVE_GETLOGIN = 0; then
+    AC_LIBOBJ([getlogin])
+  fi
+  gl_UNISTD_MODULE_INDICATOR([getlogin])
   AC_REQUIRE([gl_HEADER_SYS_SOCKET])
   if test "$ac_cv_header_winsock2_h" = yes; then
     AC_LIBOBJ([getpeername])
@@ -529,11 +554,24 @@ AC_DEFUN([gl_INIT],
   fi
   gl_FCNTL_MODULE_INDICATOR([open])
   gl_PATHMAX
+  gl_FUNC_PIPE
+  if test $HAVE_PIPE = 0; then
+    AC_LIBOBJ([pipe])
+  fi
+  gl_UNISTD_MODULE_INDICATOR([pipe])
   gl_FUNC_PIPE2
   gl_UNISTD_MODULE_INDICATOR([pipe2])
+  gl_FUNC_POLL
+  if test $HAVE_POLL = 0 || test $REPLACE_POLL = 1; then
+    AC_LIBOBJ([poll])
+    gl_PREREQ_POLL
+  fi
+  gl_POLL_MODULE_INDICATOR([poll])
+  gl_POLL_H
   gl_FUNC_PUTENV
   if test $REPLACE_PUTENV = 1; then
     AC_LIBOBJ([putenv])
+    gl_PREREQ_PUTENV
   fi
   gl_STDLIB_MODULE_INDICATOR([putenv])
   gl_FUNC_RAISE
@@ -586,6 +624,11 @@ AC_DEFUN([gl_INIT],
   gl_MATH_MODULE_INDICATOR([round])
   gl_PREREQ_SAFE_READ
   gl_PREREQ_SAFE_WRITE
+  gl_FUNC_SELECT
+  if test $REPLACE_SELECT = 1; then
+    AC_LIBOBJ([select])
+  fi
+  gl_SYS_SELECT_MODULE_INDICATOR([select])
   AC_REQUIRE([gl_HEADER_SYS_SOCKET])
   if test "$ac_cv_header_winsock2_h" = yes; then
     AC_LIBOBJ([send])
@@ -657,11 +700,15 @@ AC_DEFUN([gl_INIT],
   gl_HEADER_STRING_H
   gl_HEADER_SYS_FILE_H
   AC_PROG_MKDIR_P
+  gl_HEADER_SYS_SELECT
+  AC_PROG_MKDIR_P
   gl_HEADER_SYS_SOCKET
   AC_PROG_MKDIR_P
   gl_HEADER_SYS_STAT_H
   AC_PROG_MKDIR_P
   gl_HEADER_SYS_TIME_H
+  AC_PROG_MKDIR_P
+  gl_SYS_TIMES_H
   AC_PROG_MKDIR_P
   gl_SYS_TYPES_H
   AC_PROG_MKDIR_P
@@ -674,6 +721,11 @@ AC_DEFUN([gl_INIT],
     gl_PREREQ_TIME_R
   fi
   gl_TIME_MODULE_INDICATOR([time_r])
+  gl_FUNC_TIMES
+  if test $HAVE_TIMES = 0; then
+    AC_LIBOBJ([times])
+  fi
+  gl_SYS_TIMES_MODULE_INDICATOR([times])
   gl_FUNC_TRUNC
   if test $HAVE_DECL_TRUNC = 0 || test $REPLACE_TRUNC = 1; then
     AC_LIBOBJ([trunc])
@@ -862,6 +914,7 @@ AC_DEFUN([gl_FILE_LIST], [
   doc/gendocs_template
   lib/accept.c
   lib/alignof.h
+  lib/alloca.c
   lib/alloca.in.h
   lib/arpa_inet.in.h
   lib/asnprintf.c
@@ -887,6 +940,7 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/dirname-lgpl.c
   lib/dirname.h
   lib/dosname.h
+  lib/dup2.c
   lib/duplocale.c
   lib/errno.in.h
   lib/fcntl.in.h
@@ -905,6 +959,7 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/full-write.h
   lib/gai_strerror.c
   lib/getaddrinfo.c
+  lib/getlogin.c
   lib/getpeername.c
   lib/getsockname.c
   lib/getsockopt.c
@@ -942,6 +997,7 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/malloca.c
   lib/malloca.h
   lib/malloca.valgrind
+  lib/math.c
   lib/math.in.h
   lib/mbrtowc.c
   lib/mbsinit.c
@@ -960,7 +1016,10 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/nproc.h
   lib/open.c
   lib/pathmax.h
+  lib/pipe.c
   lib/pipe2.c
+  lib/poll.c
+  lib/poll.in.h
   lib/printf-args.c
   lib/printf-args.h
   lib/printf-parse.c
@@ -987,6 +1046,7 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/safe-write.c
   lib/safe-write.h
   lib/same-inode.h
+  lib/select.c
   lib/send.c
   lib/sendto.c
   lib/setenv.c
@@ -1015,14 +1075,19 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/string.in.h
   lib/stripslash.c
   lib/sys_file.in.h
+  lib/sys_select.in.h
+  lib/sys_socket.c
   lib/sys_socket.in.h
   lib/sys_stat.in.h
   lib/sys_time.in.h
+  lib/sys_times.in.h
   lib/sys_types.in.h
   lib/sys_uio.in.h
   lib/time.in.h
   lib/time_r.c
+  lib/times.c
   lib/trunc.c
+  lib/unistd.c
   lib/unistd.in.h
   lib/unistr.in.h
   lib/unistr/u8-mbtouc-aux.c
@@ -1041,6 +1106,7 @@ AC_DEFUN([gl_FILE_LIST], [
   lib/w32sock.h
   lib/wchar.in.h
   lib/wcrtomb.c
+  lib/wctype-h.c
   lib/wctype.in.h
   lib/write.c
   lib/xsize.c
@@ -1063,6 +1129,7 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/dirfd.m4
   m4/dirname.m4
   m4/double-slash-root.m4
+  m4/dup2.m4
   m4/duplocale.m4
   m4/eealloc.m4
   m4/environ.m4
@@ -1082,6 +1149,7 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/fstat.m4
   m4/func.m4
   m4/getaddrinfo.m4
+  m4/getlogin.m4
   m4/glibc21.m4
   m4/gnulib-common.m4
   m4/hostent.m4
@@ -1141,7 +1209,10 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/off_t.m4
   m4/open.m4
   m4/pathmax.m4
+  m4/pipe.m4
   m4/pipe2.m4
+  m4/poll.m4
+  m4/poll_h.m4
   m4/printf.m4
   m4/putenv.m4
   m4/raise.m4
@@ -1153,6 +1224,7 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/round.m4
   m4/safe-read.m4
   m4/safe-write.m4
+  m4/select.m4
   m4/servent.m4
   m4/setenv.m4
   m4/signal_h.m4
@@ -1175,13 +1247,16 @@ AC_DEFUN([gl_FILE_LIST], [
   m4/strftime.m4
   m4/string_h.m4
   m4/sys_file_h.m4
+  m4/sys_select_h.m4
   m4/sys_socket_h.m4
   m4/sys_stat_h.m4
   m4/sys_time_h.m4
+  m4/sys_times_h.m4
   m4/sys_types_h.m4
   m4/sys_uio_h.m4
   m4/time_h.m4
   m4/time_r.m4
+  m4/times.m4
   m4/tm_gmtoff.m4
   m4/trunc.m4
   m4/unistd_h.m4

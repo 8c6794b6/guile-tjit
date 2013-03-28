@@ -1,5 +1,5 @@
 /* Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2004, 2006,
- *   2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -45,7 +45,6 @@
 #include "libguile/feature.h"
 #include "libguile/fports.h"
 #include "libguile/private-gc.h"  /* for SCM_MAX */
-#include "libguile/iselect.h"
 #include "libguile/strings.h"
 #include "libguile/vectors.h"
 #include "libguile/dynwind.h"
@@ -81,9 +80,7 @@
 #include <libc.h>
 #endif
 
-#ifdef HAVE_SYS_SELECT_H
 #include <sys/select.h>
-#endif
 
 #ifdef HAVE_STRING_H
 #include <string.h>
@@ -100,6 +97,18 @@
 #include <dirent.h>
 
 #define NAMLEN(dirent)  strlen ((dirent)->d_name)
+
+#ifdef HAVE_SYS_SENDFILE_H
+# include <sys/sendfile.h>
+#endif
+
+/* Glibc's `sendfile' function.  */
+#define sendfile_or_sendfile64			\
+  CHOOSE_LARGEFILE (sendfile, sendfile64)
+
+#include <full-read.h>
+#include <full-write.h>
+
 
 /* Some more definitions for the native Windows port. */
 #ifdef __MINGW32__
@@ -435,30 +444,17 @@ scm_stat2scm (struct stat_or_stat64 *stat_temp)
   return ans;
 }
 
-#ifdef __MINGW32__
-/*
- * Try getting the appropiate stat buffer for a given file descriptor
- * under Windows. It differentiates between file, pipe and socket 
- * descriptors.
- */
-static int fstat_Win32 (int fdes, struct stat *buf)
+static int
+is_file_name_separator (SCM c)
 {
-  int error, optlen = sizeof (int);
-
-  memset (buf, 0, sizeof (struct stat));
-
-  /* Is this a socket ? */
-  if (getsockopt (fdes, SOL_SOCKET, SO_ERROR, (void *) &error, &optlen) >= 0)
-    {
-      buf->st_mode = _S_IREAD | _S_IWRITE | _S_IEXEC;
-      buf->st_nlink = 1;
-      buf->st_atime = buf->st_ctime = buf->st_mtime = time (NULL);
-      return 0;
-    }
-  /* Maybe a regular file or pipe ? */
-  return fstat (fdes, buf);
+  if (scm_is_eq (c, SCM_MAKE_CHAR ('/')))
+    return 1;
+#ifdef __MINGW32__
+  if (scm_is_eq (c, SCM_MAKE_CHAR ('\\')))
+    return 1;
+#endif
+  return 0;
 }
-#endif /* __MINGW32__ */
 
 SCM_DEFINE (scm_stat, "stat", 1, 1, 0, 
             (SCM object, SCM exception_on_error),
@@ -532,21 +528,11 @@ SCM_DEFINE (scm_stat, "stat", 1, 1, 0,
 
   if (scm_is_integer (object))
     {
-#ifdef __MINGW32__
-      SCM_SYSCALL (rv = fstat_Win32 (scm_to_int (object), &stat_temp));
-#else
       SCM_SYSCALL (rv = fstat_or_fstat64 (scm_to_int (object), &stat_temp));
-#endif
     }
   else if (scm_is_string (object))
     {
       char *file = scm_to_locale_string (object);
-#ifdef __MINGW32__
-      char *p;
-      p = file + strlen (file) - 1;
-      while (p > file && (*p == '/' || *p == '\\'))
-	*p-- = '\0';
-#endif
       SCM_SYSCALL (rv = stat_or_stat64 (file, &stat_temp));
       free (file);
     }
@@ -555,11 +541,7 @@ SCM_DEFINE (scm_stat, "stat", 1, 1, 0,
       object = SCM_COERCE_OUTPORT (object);
       SCM_VALIDATE_OPFPORT (1, object);
       fdes = SCM_FPORT_FDES (object);
-#ifdef __MINGW32__
-      SCM_SYSCALL (rv = fstat_Win32 (fdes, &stat_temp));
-#else
       SCM_SYSCALL (rv = fstat_or_fstat64 (fdes, &stat_temp));
-#endif
     }
 
   if (rv == -1)
@@ -653,15 +635,13 @@ SCM_DEFINE (scm_chdir, "chdir", 1, 0, 0,
 
 
 
-#ifdef HAVE_SELECT
-
 /* check that element is a port or file descriptor.  if it's a port
    and its buffer is ready for use, add it to the ports_ready list.
    otherwise add its file descriptor to *set.  the type of list can be
    determined from pos: SCM_ARG1 for reads, SCM_ARG2 for writes,
    SCM_ARG3 for excepts.  */
 static int
-set_element (SELECT_TYPE *set, SCM *ports_ready, SCM element, int pos)
+set_element (fd_set *set, SCM *ports_ready, SCM element, int pos)
 {
   int fd;
 
@@ -707,7 +687,7 @@ set_element (SELECT_TYPE *set, SCM *ports_ready, SCM element, int pos)
    determined from pos: SCM_ARG1 for reads, SCM_ARG2 for writes,
    SCM_ARG3 for excepts.  */
 static int
-fill_select_type (SELECT_TYPE *set, SCM *ports_ready, SCM list_or_vec, int pos)
+fill_select_type (fd_set *set, SCM *ports_ready, SCM list_or_vec, int pos)
 {
   int max_fd = 0;
 
@@ -742,7 +722,7 @@ fill_select_type (SELECT_TYPE *set, SCM *ports_ready, SCM list_or_vec, int pos)
 /* if element (a file descriptor or port) appears in *set, cons it to
    list.  return list.  */
 static SCM
-get_element (SELECT_TYPE *set, SCM element, SCM list)
+get_element (fd_set *set, SCM element, SCM list)
 {
   int fd;
 
@@ -768,7 +748,7 @@ get_element (SELECT_TYPE *set, SCM element, SCM list)
    *set and appending them to ports_ready.  result is converted to a
    vector if list_or_vec is a vector.  */
 static SCM 
-retrieve_select_type (SELECT_TYPE *set, SCM ports_ready, SCM list_or_vec)
+retrieve_select_type (fd_set *set, SCM ports_ready, SCM list_or_vec)
 {
   SCM answer_list = ports_ready;
 
@@ -829,9 +809,9 @@ SCM_DEFINE (scm_select, "select", 3, 2, 0,
 {
   struct timeval timeout;
   struct timeval * time_ptr;
-  SELECT_TYPE read_set;
-  SELECT_TYPE write_set;
-  SELECT_TYPE except_set;
+  fd_set read_set;
+  fd_set write_set;
+  fd_set except_set;
   int read_count;
   int write_count;
   int except_count;
@@ -922,9 +902,9 @@ SCM_DEFINE (scm_select, "select", 3, 2, 0,
     }
 
   {
-    int rv = scm_std_select (max_fd + 1,
-			     &read_set, &write_set, &except_set,
-			     time_ptr);
+    int rv = select (max_fd + 1,
+                     &read_set, &write_set, &except_set,
+                     time_ptr);
     if (rv < 0)
       SCM_SYSERROR;
   }
@@ -933,7 +913,6 @@ SCM_DEFINE (scm_select, "select", 3, 2, 0,
 		     retrieve_select_type (&except_set, SCM_EOL, excepts));
 }
 #undef FUNC_NAME
-#endif /* HAVE_SELECT */
 
 
 
@@ -1095,15 +1074,11 @@ SCM_DEFINE (scm_copy_file, "copy-file", 2, 0, 0,
   c_newfile = scm_to_locale_string (newfile);
   scm_dynwind_free (c_newfile);
 
-  oldfd = open_or_open64 (c_oldfile, O_RDONLY);
+  oldfd = open_or_open64 (c_oldfile, O_RDONLY | O_BINARY);
   if (oldfd == -1)
     SCM_SYSERROR;
 
-#ifdef __MINGW32__
-  SCM_SYSCALL (rv = fstat_Win32 (oldfd, &oldstat));
-#else
   SCM_SYSCALL (rv = fstat_or_fstat64 (oldfd, &oldstat));
-#endif
   if (rv == -1)
     goto err_close_oldfd;
 
@@ -1130,6 +1105,90 @@ SCM_DEFINE (scm_copy_file, "copy-file", 2, 0, 0,
 
   scm_dynwind_end ();
   return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_sendfile, "sendfile", 3, 1, 0,
+	    (SCM out, SCM in, SCM count, SCM offset),
+	    "Send @var{count} bytes from @var{in} to @var{out}, both of which "
+	    "are either open file ports or file descriptors.  When "
+	    "@var{offset} is omitted, start reading from @var{in}'s current "
+	    "position; otherwise, start reading at @var{offset}.")
+#define FUNC_NAME s_scm_sendfile
+{
+#define VALIDATE_FD_OR_PORT(cvar, svar, pos)	\
+  if (scm_is_integer (svar))			\
+    cvar = scm_to_int (svar);			\
+  else						\
+    {						\
+      SCM_VALIDATE_OPFPORT (pos, svar);		\
+      scm_flush (svar);				\
+      cvar = SCM_FPORT_FDES (svar);		\
+    }
+
+  size_t c_count;
+  scm_t_off c_offset;
+  ssize_t result;
+  int in_fd, out_fd;
+
+  VALIDATE_FD_OR_PORT (out_fd, out, 1);
+  VALIDATE_FD_OR_PORT (in_fd, in, 2);
+  c_count = scm_to_size_t (count);
+  c_offset = SCM_UNBNDP (offset) ? 0 : scm_to_off_t (offset);
+
+#if defined HAVE_SYS_SENDFILE_H && defined HAVE_SENDFILE
+  /* The Linux-style sendfile(2), which is different from the BSD-style.  */
+
+  result = sendfile_or_sendfile64 (out_fd, in_fd,
+				   SCM_UNBNDP (offset) ? NULL : &c_offset,
+				   c_count);
+
+  /* Quoting the Linux man page: "In Linux kernels before 2.6.33, out_fd
+     must refer to a socket.  Since Linux 2.6.33 it can be any file."
+     Fall back to read(2) and write(2) when such an error occurs.  */
+  if (result < 0 && errno != EINVAL && errno != ENOSYS)
+    SCM_SYSERROR;
+  else if (result < 0)
+#endif
+  {
+    char buf[8192];
+    size_t result, left;
+
+    if (!SCM_UNBNDP (offset))
+      {
+	if (SCM_PORTP (in))
+	  scm_seek (in, offset, scm_from_int (SEEK_SET));
+	else
+	  {
+	    if (lseek_or_lseek64 (in_fd, c_offset, SEEK_SET) < 0)
+	      SCM_SYSERROR;
+	  }
+      }
+
+    for (result = 0, left = c_count; result < c_count; )
+      {
+	size_t asked, obtained;
+
+	asked = SCM_MIN (sizeof buf, left);
+	obtained = full_read (in_fd, buf, asked);
+	if (obtained < asked)
+	  SCM_SYSERROR;
+
+	left -= obtained;
+
+	obtained = full_write (out_fd, buf, asked);
+	if (obtained < asked)
+	  SCM_SYSERROR;
+
+	result += obtained;
+      }
+
+    return scm_from_size_t (result);
+  }
+
+  return scm_from_ssize_t (result);
+
+#undef VALIDATE_FD_OR_PORT
 }
 #undef FUNC_NAME
 
@@ -1434,6 +1493,24 @@ SCM_DEFINE (scm_mkstemp, "mkstemp!", 1, 0, 0,
 
 SCM scm_dot_string;
 
+#ifdef __MINGW32__
+SCM_SYMBOL (sym_file_name_convention, "windows");
+#else
+SCM_SYMBOL (sym_file_name_convention, "posix");
+#endif
+
+SCM_INTERNAL SCM scm_system_file_name_convention (void);
+
+SCM_DEFINE (scm_system_file_name_convention,
+            "system-file-name-convention", 0, 0, 0, (void),
+	    "Return either @code{posix} or @code{windows}, depending on\n"
+            "what kind of system this Guile is running on.")
+#define FUNC_NAME s_scm_system_file_name_convention
+{
+  return sym_file_name_convention;
+}
+#undef FUNC_NAME
+
 SCM_DEFINE (scm_dirname, "dirname", 1, 0, 0, 
             (SCM filename),
 	    "Return the directory name component of the file name\n"
@@ -1449,32 +1526,17 @@ SCM_DEFINE (scm_dirname, "dirname", 1, 0, 0,
   len = scm_i_string_length (filename);
 
   i = len - 1;
-#ifdef __MINGW32__
-  while (i >= 0 && (scm_i_string_ref (filename, i) == '/'
-		    || scm_i_string_ref (filename, i) == '\\')) 
+
+  while (i >= 0 && is_file_name_separator (scm_c_string_ref (filename, i)))
     --i;
-  while (i >= 0 && (scm_i_string_ref (filename, i) != '/'
-		    && scm_i_string_ref (filename, i) != '\\')) 
+  while (i >= 0 && !is_file_name_separator (scm_c_string_ref (filename, i)))
     --i;
-  while (i >= 0 && (scm_i_string_ref (filename, i) == '/'
-		    || scm_i_string_ref (filename, i) == '\\')) 
+  while (i >= 0 && is_file_name_separator (scm_c_string_ref (filename, i)))
     --i;
-#else
-  while (i >= 0 && scm_i_string_ref (filename, i) == '/') 
-    --i;
-  while (i >= 0 && scm_i_string_ref (filename, i) != '/') 
-    --i;
-  while (i >= 0 && scm_i_string_ref (filename, i) == '/') 
-    --i;
-#endif /* ndef __MINGW32__ */
+
   if (i < 0)
     {
-#ifdef __MINGW32__
-      if (len > 0 && (scm_i_string_ref (filename, 0) == '/'
-		      || scm_i_string_ref (filename, 0) == '\\'))
-#else
-      if (len > 0 && scm_i_string_ref (filename, 0) == '/')
-#endif /* ndef __MINGW32__ */
+      if (len > 0 && is_file_name_separator (scm_c_string_ref (filename, 0)))
 	return scm_c_substring (filename, 0, 1);
       else
 	return scm_dot_string;
@@ -1505,14 +1567,8 @@ SCM_DEFINE (scm_basename, "basename", 1, 1, 0,
       j = scm_i_string_length (suffix) - 1;
     }
   i = len - 1;
-#ifdef __MINGW32__
-  while (i >= 0 && (scm_i_string_ref (filename, i) == '/'
-		    || scm_i_string_ref (filename, i) ==  '\\'))
+  while (i >= 0 && is_file_name_separator (scm_c_string_ref (filename, i)))
     --i;
-#else
-  while (i >= 0 && scm_i_string_ref (filename, i) == '/')
-    --i;
-#endif /* ndef __MINGW32__ */
   end = i;
   while (i >= 0 && j >= 0 
 	 && (scm_i_string_ref (filename, i)
@@ -1523,22 +1579,11 @@ SCM_DEFINE (scm_basename, "basename", 1, 1, 0,
     }
   if (j == -1)
     end = i;
-#ifdef __MINGW32__
-  while (i >= 0 && (scm_i_string_ref (filename, i) != '/'
-		    && scm_i_string_ref (filename, i) != '\\'))
+  while (i >= 0 && !is_file_name_separator (scm_c_string_ref (filename, i)))
     --i;
-#else
-  while (i >= 0 && scm_i_string_ref (filename, i) != '/')
-    --i;
-#endif /* ndef __MINGW32__ */
   if (i == end)
     {
-#ifdef __MINGW32__
-      if (len > 0 && (scm_i_string_ref (filename, 0) ==  '/'
-		      || scm_i_string_ref (filename, 0) ==  '\\'))
-#else
-      if (len > 0 && scm_i_string_ref (filename, 0) == '/')
-#endif /* ndef __MINGW32__ */
+      if (len > 0 && is_file_name_separator (scm_c_string_ref (filename, 0)))
         return scm_c_substring (filename, 0, 1);
       else
 	return scm_dot_string;
@@ -1605,14 +1650,7 @@ scm_i_relativize_path (SCM path, SCM in_path)
 	     will be delimited by single delimiters.  When DIR does not
 	     have a trailing delimiter, add one to the length to strip
 	     off the delimiter within SCANON.  */
-	  if (
-#ifdef __MINGW32__
-	      (scm_i_string_ref (dir, len - 1) != '/'
-	       && scm_i_string_ref (dir, len - 1) != '\\')
-#else
-	      scm_i_string_ref (dir, len - 1) != '/'
-#endif
-	      )
+	  if (!is_file_name_separator (scm_c_string_ref (dir, len - 1)))
 	    len++;
 
 	  if (scm_c_string_length (scanon) > len)

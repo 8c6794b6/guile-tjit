@@ -93,7 +93,7 @@ guile_filter_doc_snarfage_SOURCES = c-tokenize.c
 c-tokenize.$(OBJEXT): c-tokenize.c
 	$(AM_V_GEN) \
 	if [ "$(cross_compiling)" = "yes" ]; then \
-		$(CC_FOR_BUILD) -c -o $@ $<; \
+		$(CC_FOR_BUILD) -I$(top_builddir) -c -o $@ $<; \
 	else \
 		$(COMPILE) -c -o $@ $<; \
 	fi
@@ -436,12 +436,16 @@ BUILT_SOURCES = cpp-E.c cpp-SIG.c libpath.h \
     scmconfig.h \
     $(DOT_I_FILES) $(DOT_X_FILES) $(EXTRA_DOT_X_FILES)
 
+# Force the generation of `guile-procedures.texi' because the top-level
+# Makefile expects it to be built.
+all-local: guile-procedures.texi
+
 EXTRA_libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES = _scm.h		\
     memmove.c strerror.c			\
     dynl.c regex-posix.c			\
     posix.c net_db.c socket.c			\
     debug-malloc.c mkstemp.c			\
-    win32-uname.c win32-socket.c		\
+    win32-uname.c				\
     locale-categories.h
 
 ## delete guile-snarf.awk from the installation bindir, in case it's
@@ -458,7 +462,7 @@ noinst_HEADERS = conv-integer.i.c conv-uinteger.i.c		\
                  elf.h						\
                  srfi-14.i.c					\
                  quicksort.i.c                                  \
-                 win32-uname.h win32-socket.h			\
+                 win32-uname.h					\
 		 private-gc.h private-options.h
 
 # vm instructions
@@ -723,24 +727,8 @@ guile.texi: $(alldotdocfiles) guile$(EXEEXT)
 guile-procedures.texi: $(alldotdocfiles) guile$(EXEEXT)
 	$(AM_V_GEN)$(dotdoc2texi)          > $@ || { rm $@; false; }
 
-if HAVE_MAKEINFO
-
-guile-procedures.txt: guile-procedures.texi
-	rm -f $@
-	makeinfo --force -o $@ guile-procedures.texi || test -f $@
-
-else
-
-guile-procedures.txt: guile-procedures.texi
-	cp guile-procedures.texi $@
-
-endif
-
 c-tokenize.c: c-tokenize.lex
 	flex -t $(srcdir)/c-tokenize.lex > $@ || { rm $@; false; }
-
-schemelibdir = $(pkgdatadir)/$(GUILE_EFFECTIVE_VERSION)
-schemelib_DATA = guile-procedures.txt
 
 ## Add -MG to make the .x magic work with auto-dep code.
 MKDEP = gcc -M -MG $(DEFS) $(AM_CPPFLAGS) $(CPPFLAGS) $(CFLAGS)

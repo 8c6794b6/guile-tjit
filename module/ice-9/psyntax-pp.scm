@@ -1776,11 +1776,9 @@
     'case-lambda
     (lambda (e r w s mod)
       (let* ((tmp e)
-             (tmp ($sc-dispatch
-                    tmp
-                    '(_ (any any . each-any) . #(each (any any . each-any))))))
+             (tmp ($sc-dispatch tmp '(_ . #(each (any any . each-any))))))
         (if tmp
-          (apply (lambda (args e1 e2 args* e1* e2*)
+          (apply (lambda (args e1 e2)
                    (call-with-values
                      (lambda ()
                        (expand-lambda-case
@@ -1790,11 +1788,10 @@
                          s
                          mod
                          lambda-formals
-                         (cons (cons args (cons e1 e2))
-                               (map (lambda (tmp-2 tmp-1 tmp) (cons tmp (cons tmp-1 tmp-2)))
-                                    e2*
-                                    e1*
-                                    args*))))
+                         (map (lambda (tmp-2 tmp-1 tmp) (cons tmp (cons tmp-1 tmp-2)))
+                              e2
+                              e1
+                              args)))
                      (lambda (meta lcase) (build-case-lambda s meta lcase))))
                  tmp)
           (syntax-violation 'case-lambda "bad case-lambda" e)))))
@@ -1803,11 +1800,9 @@
     'case-lambda*
     (lambda (e r w s mod)
       (let* ((tmp e)
-             (tmp ($sc-dispatch
-                    tmp
-                    '(_ (any any . each-any) . #(each (any any . each-any))))))
+             (tmp ($sc-dispatch tmp '(_ . #(each (any any . each-any))))))
         (if tmp
-          (apply (lambda (args e1 e2 args* e1* e2*)
+          (apply (lambda (args e1 e2)
                    (call-with-values
                      (lambda ()
                        (expand-lambda-case
@@ -1817,11 +1812,10 @@
                          s
                          mod
                          lambda*-formals
-                         (cons (cons args (cons e1 e2))
-                               (map (lambda (tmp-2 tmp-1 tmp) (cons tmp (cons tmp-1 tmp-2)))
-                                    e2*
-                                    e1*
-                                    args*))))
+                         (map (lambda (tmp-2 tmp-1 tmp) (cons tmp (cons tmp-1 tmp-2)))
+                              e2
+                              e1
+                              args)))
                      (lambda (meta lcase) (build-case-lambda s meta lcase))))
                  tmp)
           (syntax-violation 'case-lambda "bad case-lambda*" e)))))
@@ -3029,10 +3023,10 @@
     'macro
     (lambda (x)
       (letrec*
-        ((absolute-path? (lambda (path) (string-prefix? "/" path)))
-         (read-file
+        ((read-file
            (lambda (fn dir k)
-             (let ((p (open-input-file (if (absolute-path? fn) fn (in-vicinity dir fn)))))
+             (let ((p (open-input-file
+                        (if (absolute-file-name? fn) fn (in-vicinity dir fn)))))
                (let f ((x (read p)) (result '()))
                  (if (eof-object? x)
                    (begin (close-input-port p) (reverse result))

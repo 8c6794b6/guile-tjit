@@ -1,4 +1,5 @@
-/* Copyright (C) 1996,1997,2000,2001, 2004, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1996,1997,2000,2001, 2004, 2006, 2007, 2008, 2009, 2010,
+ *    2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -304,22 +305,24 @@ apply_thunk (void *thunk)
 size_t
 scm_prepare_fluids (size_t n, SCM *fluids, SCM *values)
 {
-  size_t j = n;
+  size_t j;
 
   /* Ensure that there are no duplicates in the fluids set -- an N^2 operation,
      but N will usually be small, so perhaps that's OK. */
-  while (j--)
+  for (j = n; j--;)
     {
       size_t i;
 
       if (SCM_UNLIKELY (!IS_FLUID (fluids[j])))
         scm_wrong_type_arg ("with-fluids", 0, fluids[j]);
 
-      for (i = 0; i < j; i++)
+      for (i = j; i--;)
         if (scm_is_eq (fluids[i], fluids[j]))
           {
             values[i] = values[j]; /* later bindings win */
             n--;
+            fluids[j] = fluids[n];
+            values[j] = values[n];
             break;
           }
     }

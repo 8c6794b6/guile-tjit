@@ -1,6 +1,6 @@
 ;;; Effects analysis on Tree-IL
 
-;; Copyright (C) 2011, 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2011, 2012, 2013 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -311,7 +311,12 @@ of an expression."
                                   (cause &type-check))))
                      (($ <lambda-case>)
                       (logior (compute-effects body)
-                              (cause &type-check))))))
+                              (cause &type-check)))
+                     (#f
+                      ;; Calling a case-lambda with no clauses
+                      ;; definitely causes bailout.
+                      (logior (cause &definite-bailout)
+                              (cause &possible-bailout))))))
         
           ;; Bailout primitives.
           (($ <primcall> _ (? bailout-primitive? name) args)

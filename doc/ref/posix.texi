@@ -803,6 +803,29 @@ Copy the file specified by @var{oldfile} to @var{newfile}.
 The return value is unspecified.
 @end deffn
 
+@deffn {Scheme Procedure} sendfile out in count [offset]
+@deffnx {C Function} scm_sendfile (out, in, count, offset)
+Send @var{count} bytes from @var{in} to @var{out}, both of which
+are either open file ports or file descriptors.  When
+@var{offset} is omitted, start reading from @var{in}'s current
+position; otherwise, start reading at @var{offset}.
+
+When @var{in} is a port, it is often preferable to specify @var{offset},
+because @var{in}'s offset as a port may be different from the offset of
+its underlying file descriptor.
+
+On systems that support it, such as GNU/Linux, this procedure uses the
+@code{sendfile} libc function, which usually corresponds to a system
+call.  This is faster than doing a series of @code{read} and
+@code{write} system calls.  A typical application is to send a file over
+a socket.
+
+In some cases, the @code{sendfile} libc function may return
+@code{EINVAL} or @code{ENOSYS}.  In that case, Guile's @code{sendfile}
+procedure automatically falls back to doing a series of @code{read} and
+@code{write} calls.
+@end deffn
+
 @findex rename
 @deffn {Scheme Procedure} rename-file oldname newname
 @deffnx {C Function} scm_rename (oldname, newname)
@@ -1718,6 +1741,18 @@ interpretation is not required.
 Example: (system* "echo" "foo" "bar")
 @end deffn
 
+@deffn {Scheme Procedure} quit [status]
+@deffnx {Scheme Procedure} exit [status]
+Terminate the current process with proper unwinding of the Scheme stack.
+The exit status zero if @var{status} is not supplied.  If @var{status}
+is supplied, and it is an integer, that integer is used as the exit
+status.  If @var{status} is @code{#t} or @code{#f}, the exit status is 0
+or 1, respectively.
+
+The procedure @code{exit} is an alias of @code{quit}.  They have the
+same functionality.
+@end deffn
+
 @deffn {Scheme Procedure} primitive-exit [status]
 @deffnx {Scheme Procedure} primitive-_exit [status]
 @deffnx {C Function} scm_primitive_exit (status)
@@ -2528,8 +2563,11 @@ code should be prepared to handle it when it is defined.
 @var{hint_socktype} was not recognized.
 
 @item EAI_SYSTEM
-A system error occurred; the error code can be found in
-@code{errno}.
+A system error occurred.  In C, the error code can be found in
+@code{errno}; this value is not accessible from Scheme, but in
+practice it provides little information about the actual error
+cause.
+@c See <http://bugs.gnu.org/13958>.
 @end table
 
 Users are encouraged to read the
@@ -3052,6 +3090,7 @@ Manual}, or @command{man 7 socket}.
 @defvarx SO_OOBINLINE
 @defvarx SO_NO_CHECK
 @defvarx SO_PRIORITY
+@defvarx SO_REUSEPORT
 The @var{value} taken or returned is an integer.
 @end defvar
 

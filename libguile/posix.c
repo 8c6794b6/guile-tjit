@@ -32,23 +32,6 @@
 # include <sched.h>
 #endif
 
-#include "libguile/_scm.h"
-#include "libguile/dynwind.h"
-#include "libguile/fports.h"
-#include "libguile/scmsigs.h"
-#include "libguile/feature.h"
-#include "libguile/strings.h"
-#include "libguile/srfi-13.h"
-#include "libguile/srfi-14.h"
-#include "libguile/vectors.h"
-#include "libguile/values.h"
-
-#include "libguile/validate.h"
-#include "libguile/posix.h"
-#include "libguile/gettext.h"
-#include "libguile/threads.h"
-
-
 #ifdef HAVE_STRING_H
 #include <string.h>
 #endif
@@ -65,10 +48,6 @@
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
-#else
-#ifndef ttyname
-extern char *ttyname();
-#endif
 #endif
 
 #ifdef LIBC_H_WITH_UNISTD_H
@@ -85,15 +64,23 @@ extern char *ttyname();
 #ifdef HAVE_IO_H
 #include <io.h>
 #endif
-#ifdef HAVE_WINSOCK2_H
-#include <winsock2.h>
-#endif
 
-#ifdef __MINGW32__
-/* Some defines for Windows here. */
-# include <process.h>
-# define pipe(fd) _pipe (fd, 256, O_BINARY)
-#endif /* __MINGW32__ */
+#include "libguile/_scm.h"
+#include "libguile/dynwind.h"
+#include "libguile/fports.h"
+#include "libguile/scmsigs.h"
+#include "libguile/feature.h"
+#include "libguile/strings.h"
+#include "libguile/srfi-13.h"
+#include "libguile/srfi-14.h"
+#include "libguile/vectors.h"
+#include "libguile/values.h"
+
+#include "libguile/validate.h"
+#include "libguile/posix.h"
+#include "libguile/gettext.h"
+#include "libguile/threads.h"
+
 
 #if HAVE_SYS_WAIT_H
 # include <sys/wait.h>
@@ -166,6 +153,13 @@ extern char *ttyname();
    <unistd.h> ... but it lies. */
 #if ! HAVE_DECL_SETHOSTNAME
 int sethostname (char *name, size_t namelen);
+#endif
+
+#if defined HAVE_GETLOGIN && !HAVE_DECL_GETLOGIN
+/* MinGW doesn't supply this decl; see
+   http://lists.gnu.org/archive/html/bug-gnulib/2013-03/msg00030.html for more
+   details.  */
+char *getlogin (void);
 #endif
 
 /* On NextStep, <utime.h> doesn't define struct utime, unless we
@@ -1148,12 +1142,7 @@ SCM_DEFINE (scm_execl, "execl", 1, 0, 1,
 
   exec_argv = scm_i_allocate_string_pointers (args);
 
-  execv (exec_file,
-#ifdef __MINGW32__
-         /* extra "const" in mingw formals, provokes warning from gcc */
-         (const char * const *)
-#endif
-         exec_argv);
+  execv (exec_file, exec_argv);
   SCM_SYSERROR;
 
   /* not reached.  */
@@ -1182,12 +1171,7 @@ SCM_DEFINE (scm_execlp, "execlp", 1, 0, 1,
 
   exec_argv = scm_i_allocate_string_pointers (args);
 
-  execvp (exec_file,
-#ifdef __MINGW32__
-          /* extra "const" in mingw formals, provokes warning from gcc */
-          (const char * const *)
-#endif
-          exec_argv);
+  execvp (exec_file, exec_argv);
   SCM_SYSERROR;
 
   /* not reached.  */
@@ -1221,17 +1205,7 @@ SCM_DEFINE (scm_execle, "execle", 2, 0, 1,
   exec_argv = scm_i_allocate_string_pointers (args);
   exec_env = scm_i_allocate_string_pointers (env);
 
-  execve (exec_file,
-#ifdef __MINGW32__
-          /* extra "const" in mingw formals, provokes warning from gcc */
-          (const char * const *)
-#endif
-          exec_argv,
-#ifdef __MINGW32__
-          /* extra "const" in mingw formals, provokes warning from gcc */
-          (const char * const *)
-#endif
-          exec_env);
+  execve (exec_file, exec_argv, exec_env);
   SCM_SYSERROR;
 
   /* not reached.  */
@@ -1432,12 +1406,7 @@ scm_open_process (SCM mode, SCM prog, SCM args)
       close (err);
     }
 
-  execvp (exec_file,
-#ifdef __MINGW32__
-          /* extra "const" in mingw formals, provokes warning from gcc */
-          (const char * const *)
-#endif
-          exec_argv);
+  execvp (exec_file, exec_argv);
 
   /* The exec failed!  There is nothing sensible to do.  */
   if (err > 0)
@@ -1638,6 +1607,12 @@ SCM_DEFINE (scm_utime, "utime", 1, 5, 0,
     struct utimbuf utm;
     utm.actime = atim_sec;
     utm.modtime = mtim_sec;
+    /* Silence warnings.  */
+    (void) atim_nsec;
+    (void) mtim_nsec;
+
+    if (f != 0)
+      scm_out_of_range(FUNC_NAME, flags);
 
     STRING_SYSCALL (pathname, c_pathname,
                     rv = utime (c_pathname, &utm));
@@ -1922,22 +1897,6 @@ SCM_DEFINE (scm_chroot, "chroot", 1, 0, 0,
 #undef FUNC_NAME
 #endif /* HAVE_CHROOT */
 
-
-#ifdef __MINGW32__
-/* Wrapper function to supplying `getlogin()' under Windows.  */
-static char * getlogin (void)
-{
-  static char user[256];
-  static unsigned long len = 256;
-
-  if (!GetUserName (user, &len))
-    return NULL;
-  return user;
-}
-#endif /* __MINGW32__ */
-
-
-#if defined (HAVE_GETLOGIN) || defined (__MINGW32__)
 SCM_DEFINE (scm_getlogin, "getlogin", 0, 0, 0, 
             (void),
 	    "Return a string containing the name of the user logged in on\n"
@@ -1953,7 +1912,6 @@ SCM_DEFINE (scm_getlogin, "getlogin", 0, 0, 0,
   return scm_from_locale_string (p);
 }
 #undef FUNC_NAME
-#endif /* HAVE_GETLOGIN */
 
 #if HAVE_GETPRIORITY
 SCM_DEFINE (scm_getpriority, "getpriority", 2, 0, 0, 

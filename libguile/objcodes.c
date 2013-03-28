@@ -1,4 +1,5 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012
+ *    2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -576,7 +577,7 @@ SCM_DEFINE (scm_load_thunk_from_file, "load-thunk-from-file", 1, 0, 0,
   SCM_VALIDATE_STRING (1, filename);
 
   c_filename = scm_to_locale_string (filename);
-  fd = open (c_filename, O_RDONLY | O_CLOEXEC);
+  fd = open (c_filename, O_RDONLY | O_BINARY | O_CLOEXEC);
   free (c_filename);
   if (fd < 0) SCM_SYSERROR;
 

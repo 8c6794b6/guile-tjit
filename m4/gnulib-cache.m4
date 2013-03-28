@@ -1,4 +1,4 @@
-# Copyright (C) 2002-2012 Free Software Foundation, Inc.
+# Copyright (C) 2002-2013 Free Software Foundation, Inc.
 #
 # This file is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 
 
 # Specification in the form of a command-line invocation:
-#   gnulib-tool --import --dir=. --local-dir=gnulib-local --lib=libgnu --source-base=lib --m4-base=m4 --doc-base=doc --tests-base=tests --aux-dir=build-aux --lgpl=3 --no-conditional-dependencies --libtool --macro-prefix=gl --no-vc-files accept alignof alloca-opt announce-gen autobuild bind byteswap canonicalize-lgpl ceil clock-time close connect dirfd duplocale environ extensions flock floor fpieee frexp full-read full-write func gendocs getaddrinfo getpeername getsockname getsockopt git-version-gen gitlog-to-changelog gnu-web-doc-update gnupload havelib iconv_open-utf inet_ntop inet_pton isinf isnan ldexp lib-symbol-versions lib-symbol-visibility libunistring listen localcharset locale log1p maintainer-makefile malloc-gnu malloca nl_langinfo nproc open pipe2 putenv recv recvfrom regex rename send sendto setenv setsockopt shutdown socket stat-time stdlib strftime striconveh string sys_stat trunc verify vsnprintf warnings wchar
+#   gnulib-tool --import --dir=. --local-dir=gnulib-local --lib=libgnu --source-base=lib --m4-base=m4 --doc-base=doc --tests-base=tests --aux-dir=build-aux --lgpl=3 --no-conditional-dependencies --libtool --macro-prefix=gl --no-vc-files accept alignof alloca-opt announce-gen autobuild bind byteswap canonicalize-lgpl ceil clock-time close connect dirfd duplocale environ extensions flock floor fpieee frexp fstat full-read full-write func gendocs getaddrinfo getlogin getpeername getsockname getsockopt git-version-gen gitlog-to-changelog gnu-web-doc-update gnupload havelib iconv_open-utf inet_ntop inet_pton isinf isnan ldexp lib-symbol-versions lib-symbol-visibility libunistring listen localcharset locale log1p maintainer-makefile malloc-gnu malloca nl_langinfo nproc open pipe-posix pipe2 poll putenv recv recvfrom regex rename select send sendto setenv setsockopt shutdown socket stat-time stdlib strftime striconveh string sys_stat times trunc verify vsnprintf warnings wchar
 
 # Specification in the form of a few gnulib-tool.m4 macro invocations:
 gl_LOCAL_DIR([gnulib-local])
@@ -52,11 +52,13 @@ gl_MODULES([
   floor
   fpieee
   frexp
+  fstat
   full-read
   full-write
   func
   gendocs
   getaddrinfo
+  getlogin
   getpeername
   getsockname
   getsockopt
@@ -85,12 +87,15 @@ gl_MODULES([
   nl_langinfo
   nproc
   open
+  pipe-posix
   pipe2
+  poll
   putenv
   recv
   recvfrom
   regex
   rename
+  select
   send
   sendto
   setenv
@@ -103,6 +108,7 @@ gl_MODULES([
   striconveh
   string
   sys_stat
+  times
   trunc
   verify
   vsnprintf
