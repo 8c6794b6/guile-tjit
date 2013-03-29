@@ -49,9 +49,9 @@ removed on those plaforms (basically only MinGW).
 
 ** Gnulib update.
 
-Guile's copy of Gnulib was updated to XXX.  The following modules were
-imported from Gnulib: select, times, pipe-posix, fstat, getlogin, and
-poll.
+Guile's copy of Gnulib was updated to v0.0-7865-ga828bb2.  The following
+modules were imported from Gnulib: select, times, pipe-posix, fstat,
+getlogin, and poll.
 
 ** New optimizations.
 
@@ -92,6 +92,11 @@ of space the prefix will take.  See the documentation for ",trace" for
 more information.
 
 ** Update predefined character sets to Unicode 6.2.
+
+** GMP 4.2 or later required
+
+Guile used to require GMP at least version 4.1 (released in May 2002),
+and now requires at least version 4.2 (released in March 2006).
 
 * Manual updates
 
