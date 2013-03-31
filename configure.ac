@@ -761,7 +761,8 @@ AC_CHECK_FUNCS([DINFINITY DQNAN cexp chsize clog clog10 ctermid		\
   strcoll strcoll_l newlocale utimensat sched_getaffinity		\
   sched_setaffinity sendfile])
 
-AM_CONDITIONAL([HAVE_FORK], [test "x$ac_cv_func_fork" = "xyes"])
+AM_CONDITIONAL([BUILD_ICE_9_POPEN],
+  [test "x$enable_posix" = "xyes" && test "x$ac_cv_func_fork" = "xyes"])
 
 # Reasons for testing:
 #   netdb.h - not in mingw
@@ -1300,24 +1301,6 @@ if test $scm_cv_struct_linger = yes; then
 	AC_DEFINE([HAVE_STRUCT_LINGER], 1,
           [Define this if your system defines struct linger, for use with the
            getsockopt and setsockopt system calls.])
-fi
-
-
-# On mingw, struct timespec is in <pthread.h>.
-#
-AC_MSG_CHECKING(for struct timespec)
-AC_CACHE_VAL(scm_cv_struct_timespec,
-	AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
-#include <time.h>
-#if HAVE_PTHREAD_H
-#include <pthread.h>
-#endif]], [[struct timespec t;  t.tv_nsec = 100]])],
-          [scm_cv_struct_timespec="yes"],
-          [scm_cv_struct_timespec="no"]))
-AC_MSG_RESULT($scm_cv_struct_timespec)
-if test $scm_cv_struct_timespec = yes; then
-  AC_DEFINE([HAVE_STRUCT_TIMESPEC], 1,
-    [Define this if your system defines struct timespec via either <time.h> or <pthread.h>.])
 fi
 
 #--------------------------------------------------------------------
