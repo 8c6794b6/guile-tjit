@@ -480,16 +480,11 @@ SCM_DEFINE (scm_get_bytevector_n, "get-bytevector-n", 2, 0, 0,
     /* Don't invoke `scm_c_read ()' since it may block.  */
     c_read = 0;
 
-  if ((c_read == 0) && (c_count > 0))
+  if (c_read < c_count)
     {
-      if (scm_peek_byte_or_eof (port) == EOF)
-	result = SCM_EOF_VAL;
+      if (c_read == 0)
+        result = SCM_EOF_VAL;
       else
-	result = scm_null_bytevector;
-    }
-  else
-    {
-      if (c_read < c_count)
 	result = scm_c_shrink_bytevector (result, c_read);
     }
 
@@ -527,13 +522,8 @@ SCM_DEFINE (scm_get_bytevector_n_x, "get-bytevector-n!", 4, 0, 0,
     /* Don't invoke `scm_c_read ()' since it may block.  */
     c_read = 0;
 
-  if ((c_read == 0) && (c_count > 0))
-    {
-      if (scm_peek_byte_or_eof (port) == EOF)
-	result = SCM_EOF_VAL;
-      else
-	result = SCM_I_MAKINUM (0);
-    }
+  if (c_read == 0 && c_count > 0)
+    result = SCM_EOF_VAL;
   else
     result = scm_from_size_t (c_read);
 
@@ -583,11 +573,12 @@ SCM_DEFINE (scm_get_bytevector_some, "get-bytevector-some", 1, 0, 0,
 	  c_bv[c_total] = (char) c_chr;
 	  c_total++;
 	}
+      else
+        break;
     }
   /* XXX: We want to check for the availability of a byte, but that's
      what `scm_char_ready_p' actually does.  */
-  while (scm_is_true (scm_char_ready_p (port))
-	 && (scm_peek_byte_or_eof_unlocked (port) != EOF));
+  while (scm_is_true (scm_char_ready_p (port)));
 
   if (c_total == 0)
     {
@@ -647,7 +638,7 @@ SCM_DEFINE (scm_get_bytevector_all, "get-bytevector-all", 1, 0, 0,
       c_read = scm_c_read_unlocked (port, c_bv + c_total, c_count);
       c_total += c_read, c_count -= c_read;
     }
-  while (scm_peek_byte_or_eof (port) != EOF);
+  while (c_count == 0);
 
   if (c_total == 0)
     {
