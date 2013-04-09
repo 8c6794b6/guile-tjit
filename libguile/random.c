@@ -582,13 +582,13 @@ SCM_DEFINE (scm_random_solid_sphere_x, "random:solid-sphere!", 1, 1, 0,
   scm_random_normal_vector_x (v, state);
   vector_scale_x (v,
 		  pow (scm_c_uniform01 (SCM_RSTATE (state)),
-		       1.0 / scm_c_generalized_vector_length (v))
+		       1.0 / scm_c_array_length (v))
 		  / sqrt (vector_sum_squares (v)));
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_random_hollow_sphere_x, "random:hollow-sphere!", 1, 1, 0, 
+SCM_DEFINE (scm_random_hollow_sphere_x, "random:hollow-sphere!", 1, 1, 0,
             (SCM v, SCM state),
             "Fills vect with inexact real random numbers\n"
             "the sum of whose squares is equal to 1.0.\n"
