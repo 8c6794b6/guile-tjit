@@ -195,8 +195,9 @@ SCM_DEFINE (scm_make_typed_array, "make-typed-array", 2, 0, 1,
     scm_make_generalized_vector (type, scm_from_size_t (rlen), fill);
 
   if (1 == SCM_I_ARRAY_NDIM (ra) && 0 == SCM_I_ARRAY_BASE (ra))
-    if (s->ubnd < s->lbnd || (0 == s->lbnd && 1 == s->inc))
+    if (0 == s->lbnd)
       return SCM_I_ARRAY_V (ra);
+
   return ra;
 }
 #undef FUNC_NAME
@@ -254,7 +255,7 @@ scm_from_contiguous_typed_array (SCM type, SCM bounds, const void *bytes,
   memcpy (elts, bytes, byte_len);
 
   if (1 == SCM_I_ARRAY_NDIM (ra) && 0 == SCM_I_ARRAY_BASE (ra))
-    if (s->ubnd < s->lbnd || (0 == s->lbnd && 1 == s->inc))
+    if (0 == s->lbnd)
       return SCM_I_ARRAY_V (ra);
   return ra;
 }
@@ -289,7 +290,7 @@ scm_from_contiguous_array (SCM bounds, const SCM *elts, size_t len)
   scm_array_handle_release (&h);
 
   if (1 == SCM_I_ARRAY_NDIM (ra) && 0 == SCM_I_ARRAY_BASE (ra))
-    if (s->ubnd < s->lbnd || (0 == s->lbnd && 1 == s->inc))
+    if (0 == s->lbnd)
       return SCM_I_ARRAY_V (ra);
   return ra;
 }
