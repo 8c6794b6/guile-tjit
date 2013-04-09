@@ -379,7 +379,7 @@ SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
     {
       SCM_I_ARRAY_V (ra) = oldra;
       old_base = old_min = 0;
-      old_max = scm_c_generalized_vector_length (oldra) - 1;
+      old_max = scm_c_array_length (oldra) - 1;
     }
 
   inds = SCM_EOL;
@@ -431,7 +431,7 @@ SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
   if (1 == SCM_I_ARRAY_NDIM (ra) && 0 == SCM_I_ARRAY_BASE (ra))
     {
       SCM v = SCM_I_ARRAY_V (ra);
-      size_t length = scm_c_generalized_vector_length (v);
+      size_t length = scm_c_array_length (v);
       if (1 == s->inc && 0 == s->lbnd && length == 1 + s->ubnd)
 	return v;
       if (s->ubnd < s->lbnd)
@@ -584,14 +584,14 @@ SCM_DEFINE (scm_array_contents, "array-contents", 1, 1, 0,
 		return SCM_BOOL_F;
 	    }
 	}
-      
+
       {
 	SCM v = SCM_I_ARRAY_V (ra);
-	size_t length = scm_c_generalized_vector_length (v);
+	size_t length = scm_c_array_length (v);
 	if ((len == length) && 0 == SCM_I_ARRAY_BASE (ra) && SCM_I_ARRAY_DIMS (ra)->inc)
 	  return v;
       }
-      
+
       sra = scm_i_make_array (1);
       SCM_I_ARRAY_DIMS (sra)->lbnd = 0;
       SCM_I_ARRAY_DIMS (sra)->ubnd = len - 1;
