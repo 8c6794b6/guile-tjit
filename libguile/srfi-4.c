@@ -31,7 +31,6 @@
 #include "libguile/eval.h"
 #include "libguile/extensions.h"
 #include "libguile/uniform.h"
-#include "libguile/generalized-vectors.h"
 #include "libguile/validate.h"
 
 
