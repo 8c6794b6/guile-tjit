@@ -574,6 +574,35 @@
 	   (eqv? 8 (array-ref s2 2))))))
 
 ;;;
+;;; shared-array-root
+;;;
+
+(with-test-prefix "shared-array-root"
+
+  (define amap1 (lambda (i) (list (* 2 i))))
+  (define amap2 (lambda (i j) (list (+ 1 (* 2 i)) (+ 1 (* 2 j)))))
+
+  (pass-if "plain vector"
+    (let* ((a (make-vector 4 0))
+           (b (make-shared-array a amap1 2)))
+      (eq? (shared-array-root a) (shared-array-root b) (array-contents a))))
+
+  (pass-if "plain array rank 2"
+    (let* ((a (make-array 0 4 4))
+           (b (make-shared-array a amap2 2 2)))
+      (eq? (shared-array-root a) (shared-array-root b) (array-contents a))))
+
+  (pass-if "uniform array rank 2"
+    (let* ((a (make-typed-array 'c64 0 4 4))
+           (b (make-shared-array a amap2 2 2)))
+      (eq? (shared-array-root a) (shared-array-root b) (array-contents a))))
+
+  (pass-if "bit array rank 2"
+    (let* ((a (make-typed-array 'b #f 4 4))
+           (b (make-shared-array a amap2 2 2)))
+      (eq? (shared-array-root a) (shared-array-root b) (array-contents a)))))
+
+;;;
 ;;; uniform-vector
 ;;;
 
