@@ -60,21 +60,22 @@
   (SCM_SET_CELL_WORD_0 ((x), SCM_CELL_WORD_0 (x) & ~(SCM_I_ARRAY_FLAG_CONTIGUOUS << 16)))
 
 
-SCM_DEFINE (scm_shared_array_root, "shared-array-root", 1, 0, 0, 
+SCM_DEFINE (scm_shared_array_root, "shared-array-root", 1, 0, 0,
            (SCM ra),
 	    "Return the root vector of a shared array.")
 #define FUNC_NAME s_scm_shared_array_root
 {
-  if (SCM_I_ARRAYP (ra))
+  if (!scm_is_array (ra))
+    scm_wrong_type_arg_msg (FUNC_NAME, SCM_ARG1, ra, "array");
+  else if (SCM_I_ARRAYP (ra))
     return SCM_I_ARRAY_V (ra);
-  else if (scm_is_generalized_vector (ra))
+  else
     return ra;
-  scm_wrong_type_arg_msg (FUNC_NAME, SCM_ARG1, ra, "array");
 }
 #undef FUNC_NAME
 
 
-SCM_DEFINE (scm_shared_array_offset, "shared-array-offset", 1, 0, 0, 
+SCM_DEFINE (scm_shared_array_offset, "shared-array-offset", 1, 0, 0,
            (SCM ra),
 	    "Return the root vector index of the first element in the array.")
 #define FUNC_NAME s_scm_shared_array_offset
