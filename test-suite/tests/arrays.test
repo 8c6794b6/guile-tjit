@@ -6,12 +6,12 @@
 ;;;; modify it under the terms of the GNU Lesser General Public
 ;;;; License as published by the Free Software Foundation; either
 ;;;; version 3 of the License, or (at your option) any later version.
-;;;; 
+;;;;
 ;;;; This library is distributed in the hope that it will be useful,
 ;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 ;;;; Lesser General Public License for more details.
-;;;; 
+;;;;
 ;;;; You should have received a copy of the GNU Lesser General Public
 ;;;; License along with this library; if not, write to the Free Software
 ;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
@@ -207,6 +207,154 @@
     (array-equal? #s16(1 2 3) #s16(1 2 3))))
 
 ;;;
+;;; make-shared-array
+;;;
+
+(define exception:mapping-out-of-range
+  (cons 'misc-error "^mapping out of range"))  ;; per scm_make_shared_array
+
+(with-test-prefix "make-shared-array"
+
+  ;; this failed in guile 1.8.0
+  (pass-if "vector unchanged"
+    (let* ((a (make-array #f '(0 7)))
+	   (s (make-shared-array a list '(0 7))))
+      (array-equal? a s)))
+
+  (pass-if-exception "vector, high too big" exception:mapping-out-of-range
+    (let* ((a (make-array #f '(0 7))))
+      (make-shared-array a list '(0 8))))
+
+  (pass-if-exception "vector, low too big" exception:out-of-range
+    (let* ((a (make-array #f '(0 7))))
+      (make-shared-array a list '(-1 7))))
+
+  (pass-if "truncate columns"
+    (array-equal? (make-shared-array #2((a b c) (d e f) (g h i)) list 3 2)
+		  #2((a b) (d e) (g h))))
+
+  (pass-if "pick one column"
+    (array-equal? (make-shared-array #2((a b c) (d e f) (g h i))
+				     (lambda (i) (list i 2))
+				     '(0 2))
+		  #(c f i)))
+
+  (pass-if "diagonal"
+    (array-equal? (make-shared-array #2((a b c) (d e f) (g h i))
+				     (lambda (i) (list i i))
+				     '(0 2))
+		  #(a e i)))
+
+  ;; this failed in guile 1.8.0
+  (pass-if "2 dims from 1 dim"
+    (array-equal? (make-shared-array #1(a b c d e f g h i j k l)
+				     (lambda (i j) (list (+ (* i 3) j)))
+				     4 3)
+		  #2((a b c) (d e f) (g h i) (j k l))))
+
+  (pass-if "reverse columns"
+    (array-equal? (make-shared-array #2((a b c) (d e f) (g h i))
+				     (lambda (i j) (list i (- 2 j)))
+				     3 3)
+		  #2((c b a) (f e d) (i h g))))
+
+  (pass-if "fixed offset, 0 based becomes 1 based"
+    (let* ((x #2((a b c) (d e f) (g h i)))
+	   (y (make-shared-array x
+				 (lambda (i j) (list (1- i) (1- j)))
+				 '(1 3) '(1 3))))
+      (and (eq? (array-ref x 0 0) 'a)
+	   (eq? (array-ref y 1 1) 'a))))
+
+  ;; this failed in guile 1.8.0
+  (pass-if "stride every third element"
+    (array-equal? (make-shared-array #1(a b c d e f g h i j k l)
+				     (lambda (i) (list (* i 3)))
+				     4)
+		  #1(a d g j)))
+
+  (pass-if "shared of shared"
+    (let* ((a  #2((1 2 3) (4 5 6) (7 8 9)))
+	   (s1 (make-shared-array a (lambda (i) (list i 1)) 3))
+	   (s2 (make-shared-array s1 list '(1 2))))
+      (and (eqv? 5 (array-ref s2 1))
+	   (eqv? 8 (array-ref s2 2))))))
+
+;;;
+;;; shared-array-root
+;;;
+
+(with-test-prefix "shared-array-root"
+
+  (define amap1 (lambda (i) (list (* 2 i))))
+  (define amap2 (lambda (i j) (list (+ 1 (* 2 i)) (+ 1 (* 2 j)))))
+
+  (pass-if "plain vector"
+    (let* ((a (make-vector 4 0))
+           (b (make-shared-array a amap1 2)))
+      (eq? (shared-array-root a) (shared-array-root b) (array-contents a))))
+
+  (pass-if "plain array rank 2"
+    (let* ((a (make-array 0 4 4))
+           (b (make-shared-array a amap2 2 2)))
+      (eq? (shared-array-root a) (shared-array-root b) (array-contents a))))
+
+  (pass-if "uniform array rank 2"
+    (let* ((a (make-typed-array 'c64 0 4 4))
+           (b (make-shared-array a amap2 2 2)))
+      (eq? (shared-array-root a) (shared-array-root b) (array-contents a))))
+
+  (pass-if "bit array rank 2"
+    (let* ((a (make-typed-array 'b #f 4 4))
+           (b (make-shared-array a amap2 2 2)))
+      (eq? (shared-array-root a) (shared-array-root b) (array-contents a)))))
+
+;;;
+;;; transpose-array
+;;;
+
+; see strings.test.
+(define exception:wrong-type-arg
+  (cons #t "Wrong type"))
+
+(with-test-prefix "transpose-array"
+
+  (pass-if-exception "non array argument" exception:wrong-type-arg
+    (transpose-array 99))
+
+  (pass-if "rank 0"
+    (let* ((a #0(99))
+           (b (transpose-array a)))
+      (and (array-equal? a b)
+           (eq? (shared-array-root a) (shared-array-root b)))))
+
+  (pass-if "rank 1"
+    (let* ((a #(1 2 3))
+           (b (transpose-array a 0)))
+      (and (array-equal? a b)
+           (eq? (shared-array-root a) (shared-array-root b)))))
+
+  (pass-if "rank 2"
+    (let* ((a #2((1 2 3) (4 5 6)))
+           (b (transpose-array a 1 0))
+           (c (transpose-array a 0 1)))
+      (and (array-equal? b #2((1 4) (2 5) (3 6)))
+           (array-equal? c a)
+           (eq? (shared-array-root a)
+                (shared-array-root b)
+                (shared-array-root c)))))
+
+  ; rank > 2 is needed to check against the inverted axis index logic.
+  (pass-if "rank 3"
+    (let* ((a #3(((0 1 2 3) (4 5 6 7) (8 9 10 11))
+                 ((12 13 14 15) (16 17 18 19) (20 21 22 23))))
+           (b (transpose-array a 1 2 0)))
+      (and (array-equal? b #3(((0 4 8) (12 16 20)) ((1 5 9) (13 17 21))
+                              ((2 6 10) (14 18 22)) ((3 7 11) (15 19 23))))
+           (eq? (shared-array-root a)
+                (shared-array-root b))))))
+
+;;;
 ;;; array->list
 ;;;
 
@@ -397,8 +545,8 @@
       (for-each (lambda (type)
 		  (pass-if (symbol->string type)
 		     (eq? type
-			  (array-type (make-typed-array type 
-							*unspecified* 
+			  (array-type (make-typed-array type
+							*unspecified*
 							'(5 6))))))
 		types))))
 
@@ -498,154 +646,6 @@
 	(array-set! a 'y 4))
       (pass-if-exception "three indexes" exception:wrong-num-indices
 	(array-set! a 'y 4 8 0)))))
-
-;;;
-;;; make-shared-array
-;;;
-
-(define exception:mapping-out-of-range
-  (cons 'misc-error "^mapping out of range"))  ;; per scm_make_shared_array
-
-(with-test-prefix "make-shared-array"
-
-  ;; this failed in guile 1.8.0
-  (pass-if "vector unchanged"
-    (let* ((a (make-array #f '(0 7)))
-	   (s (make-shared-array a list '(0 7))))
-      (array-equal? a s)))
-
-  (pass-if-exception "vector, high too big" exception:mapping-out-of-range
-    (let* ((a (make-array #f '(0 7))))
-      (make-shared-array a list '(0 8))))
-
-  (pass-if-exception "vector, low too big" exception:out-of-range
-    (let* ((a (make-array #f '(0 7))))
-      (make-shared-array a list '(-1 7))))
-
-  (pass-if "truncate columns"
-    (array-equal? (make-shared-array #2((a b c) (d e f) (g h i)) list 3 2)
-		  #2((a b) (d e) (g h))))
-
-  (pass-if "pick one column"
-    (array-equal? (make-shared-array #2((a b c) (d e f) (g h i))
-				     (lambda (i) (list i 2))
-				     '(0 2))
-		  #(c f i)))
-
-  (pass-if "diagonal"
-    (array-equal? (make-shared-array #2((a b c) (d e f) (g h i))
-				     (lambda (i) (list i i))
-				     '(0 2))
-		  #(a e i)))
-
-  ;; this failed in guile 1.8.0
-  (pass-if "2 dims from 1 dim"
-    (array-equal? (make-shared-array #1(a b c d e f g h i j k l)
-				     (lambda (i j) (list (+ (* i 3) j)))
-				     4 3)
-		  #2((a b c) (d e f) (g h i) (j k l))))
-
-  (pass-if "reverse columns"
-    (array-equal? (make-shared-array #2((a b c) (d e f) (g h i))
-				     (lambda (i j) (list i (- 2 j)))
-				     3 3)
-		  #2((c b a) (f e d) (i h g))))
-
-  (pass-if "fixed offset, 0 based becomes 1 based"
-    (let* ((x #2((a b c) (d e f) (g h i)))
-	   (y (make-shared-array x
-				 (lambda (i j) (list (1- i) (1- j)))
-				 '(1 3) '(1 3))))
-      (and (eq? (array-ref x 0 0) 'a)
-	   (eq? (array-ref y 1 1) 'a))))
-
-  ;; this failed in guile 1.8.0
-  (pass-if "stride every third element"
-    (array-equal? (make-shared-array #1(a b c d e f g h i j k l)
-				     (lambda (i) (list (* i 3)))
-				     4)
-		  #1(a d g j)))
-
-  (pass-if "shared of shared"
-    (let* ((a  #2((1 2 3) (4 5 6) (7 8 9)))
-	   (s1 (make-shared-array a (lambda (i) (list i 1)) 3))
-	   (s2 (make-shared-array s1 list '(1 2))))
-      (and (eqv? 5 (array-ref s2 1))
-	   (eqv? 8 (array-ref s2 2))))))
-
-;;;
-;;; shared-array-root
-;;;
-
-(with-test-prefix "shared-array-root"
-
-  (define amap1 (lambda (i) (list (* 2 i))))
-  (define amap2 (lambda (i j) (list (+ 1 (* 2 i)) (+ 1 (* 2 j)))))
-
-  (pass-if "plain vector"
-    (let* ((a (make-vector 4 0))
-           (b (make-shared-array a amap1 2)))
-      (eq? (shared-array-root a) (shared-array-root b) (array-contents a))))
-
-  (pass-if "plain array rank 2"
-    (let* ((a (make-array 0 4 4))
-           (b (make-shared-array a amap2 2 2)))
-      (eq? (shared-array-root a) (shared-array-root b) (array-contents a))))
-
-  (pass-if "uniform array rank 2"
-    (let* ((a (make-typed-array 'c64 0 4 4))
-           (b (make-shared-array a amap2 2 2)))
-      (eq? (shared-array-root a) (shared-array-root b) (array-contents a))))
-
-  (pass-if "bit array rank 2"
-    (let* ((a (make-typed-array 'b #f 4 4))
-           (b (make-shared-array a amap2 2 2)))
-      (eq? (shared-array-root a) (shared-array-root b) (array-contents a)))))
-
-;;;
-;;; transpose-array
-;;;
-
-; see strings.test.
-(define exception:wrong-type-arg
-  (cons #t "Wrong type"))
-
-(with-test-prefix "transpose-array"
-
-  (pass-if-exception "non array argument" exception:wrong-type-arg
-    (transpose-array 99))
-
-  (pass-if "rank 0"
-    (let* ((a #0(99))
-           (b (transpose-array a)))
-      (and (array-equal? a b)
-           (eq? (shared-array-root a) (shared-array-root b)))))
-
-  (pass-if "rank 1"
-    (let* ((a #(1 2 3))
-           (b (transpose-array a 0)))
-      (and (array-equal? a b)
-           (eq? (shared-array-root a) (shared-array-root b)))))
-
-  (pass-if "rank 2"
-    (let* ((a #2((1 2 3) (4 5 6)))
-           (b (transpose-array a 1 0))
-           (c (transpose-array a 0 1)))
-      (and (array-equal? b #2((1 4) (2 5) (3 6)))
-           (array-equal? c a)
-           (eq? (shared-array-root a)
-                (shared-array-root b)
-                (shared-array-root c)))))
-
-  ; rank > 2 is needed to check against the inverted axis index logic.
-  (pass-if "rank 3"
-    (let* ((a #3(((0 1 2 3) (4 5 6 7) (8 9 10 11))
-                 ((12 13 14 15) (16 17 18 19) (20 21 22 23))))
-           (b (transpose-array a 1 2 0)))
-      (and (array-equal? b #3(((0 4 8) (12 16 20)) ((1 5 9) (13 17 21))
-                              ((2 6 10) (14 18 22)) ((3 7 11) (15 19 23))))
-           (eq? (shared-array-root a)
-                (shared-array-root b))))))
 
 ;;;
 ;;; uniform-vector
