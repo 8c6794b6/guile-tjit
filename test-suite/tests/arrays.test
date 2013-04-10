@@ -606,7 +606,20 @@
 ;;; transpose-array
 ;;;
 
+; see strings.test.
+(define exception:wrong-type-arg
+  (cons #t "Wrong type"))
+
 (with-test-prefix "transpose-array"
+
+  (pass-if-exception "non array argument" exception:wrong-type-arg
+    (transpose-array 99))
+
+  (pass-if "rank 0"
+    (let* ((a #0(99))
+           (b (transpose-array a)))
+      (and (array-equal? a b)
+           (eq? (shared-array-root a) (shared-array-root b)))))
 
   (pass-if "rank 1"
     (let* ((a #(1 2 3))

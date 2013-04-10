@@ -477,20 +477,22 @@ SCM_DEFINE (scm_transpose_array, "transpose-array", 1, 0, 1,
   SCM_VALIDATE_REST_ARGUMENT (args);
   SCM_ASSERT (SCM_HEAP_OBJECT_P (ra), ra, SCM_ARG1, FUNC_NAME);
 
-  if (scm_is_generalized_vector (ra))
+  switch (scm_c_array_rank (ra))
     {
+    case 0:
+      if (!scm_is_null (args))
+	SCM_WRONG_NUM_ARGS ();
+      return ra;
+    case 1:
       /* Make sure that we are called with a single zero as
-	 arguments. 
+	 arguments.
       */
       if (scm_is_null (args) || !scm_is_null (SCM_CDR (args)))
 	SCM_WRONG_NUM_ARGS ();
       SCM_VALIDATE_INT_COPY (SCM_ARG2, SCM_CAR (args), i);
       SCM_ASSERT_RANGE (SCM_ARG2, SCM_CAR (args), i == 0);
       return ra;
-    }
-
-  if (SCM_I_ARRAYP (ra))
-    {
+    default:
       vargs = scm_vector (args);
       if (SCM_SIMPLE_VECTOR_LENGTH (vargs) != SCM_I_ARRAY_NDIM (ra))
 	SCM_WRONG_NUM_ARGS ();
@@ -540,8 +542,6 @@ SCM_DEFINE (scm_transpose_array, "transpose-array", 1, 0, 1,
       scm_i_ra_set_contp (res);
       return res;
     }
-
-  scm_wrong_type_arg_msg (NULL, 0, ra, "array");
 }
 #undef FUNC_NAME
 
