@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <assert.h>
 
 #include "libguile/_scm.h"
 #include "libguile/__scm.h"
@@ -836,6 +837,7 @@ array_get_handle (SCM array, scm_t_array_handle *h)
 {
   scm_t_array_handle vh;
   scm_array_get_handle (SCM_I_ARRAY_V (array), &vh);
+  assert (vh.dims[0].inc == 1 && vh.dims[0].lbnd == 0 && vh.base == 0);
   h->element_type = vh.element_type;
   h->elements = vh.elements;
   h->writable_elements = vh.writable_elements;

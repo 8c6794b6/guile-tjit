@@ -183,9 +183,8 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
   SCM lvra, *plvra;
   long *vinds;
   int k, kmax;
-  int (*cproc) ();
+  int (*cproc) () = cproc_ptr;
 
-  cproc = cproc_ptr;
   switch (scm_ra_matchp (ra0, lra))
     {
     default:
@@ -333,8 +332,8 @@ rafill (SCM dst, SCM fill)
   size_t i;
   ssize_t inc;
   scm_array_get_handle (SCM_I_ARRAY_V (dst), &h);
-  i = h.base + h.dims[0].lbnd + SCM_I_ARRAY_BASE (dst)*h.dims[0].inc;
-  inc = SCM_I_ARRAY_DIMS (dst)->inc * h.dims[0].inc;
+  i = SCM_I_ARRAY_BASE (dst);
+  inc = SCM_I_ARRAY_DIMS (dst)->inc;
 
   for (; n-- > 0; i += inc)
     h.impl->vset (&h, i, fill);
@@ -367,10 +366,10 @@ racp (SCM src, SCM dst)
   scm_array_get_handle (SCM_I_ARRAY_V (src), &h_s);
   scm_array_get_handle (SCM_I_ARRAY_V (dst), &h_d);
 
-  i_s = h_s.base + h_s.dims[0].lbnd + SCM_I_ARRAY_BASE (src) * h_s.dims[0].inc;
-  i_d = h_d.base + h_d.dims[0].lbnd + SCM_I_ARRAY_BASE (dst) * h_d.dims[0].inc;
-  inc_s = SCM_I_ARRAY_DIMS (src)->inc * h_s.dims[0].inc;
-  inc_d = SCM_I_ARRAY_DIMS (dst)->inc * h_d.dims[0].inc;
+  i_s = SCM_I_ARRAY_BASE (src);
+  i_d = SCM_I_ARRAY_BASE (dst);
+  inc_s = SCM_I_ARRAY_DIMS (src)->inc;
+  inc_d = SCM_I_ARRAY_DIMS (dst)->inc;
 
   for (; n-- > 0; i_s += inc_s, i_d += inc_d)
     h_d.impl->vset (&h_d, i_d, h_s.impl->vref (&h_s, i_s));
@@ -670,8 +669,8 @@ ramap (SCM ra0, SCM proc, SCM ras)
   size_t i0, i0end;
   ssize_t inc0;
   scm_array_get_handle (SCM_I_ARRAY_V (ra0), &h0);
-  i0 = h0.base + h0.dims[0].lbnd + SCM_I_ARRAY_BASE (ra0)*h0.dims[0].inc;
-  inc0 = SCM_I_ARRAY_DIMS (ra0)->inc * h0.dims[0].inc;
+  i0 = SCM_I_ARRAY_BASE (ra0);
+  inc0 = SCM_I_ARRAY_DIMS (ra0)->inc;
   i0end = i0 + n*inc0;
   if (scm_is_null (ras))
     for (; i0 < i0end; i0 += inc0)
@@ -683,8 +682,8 @@ ramap (SCM ra0, SCM proc, SCM ras)
       size_t i1;
       ssize_t inc1;
       scm_array_get_handle (SCM_I_ARRAY_V (ra1), &h1);
-      i1 = h1.base + h1.dims[0].lbnd + SCM_I_ARRAY_BASE (ra1)*h1.dims[0].inc;
-      inc1 = SCM_I_ARRAY_DIMS (ra1)->inc * h1.dims[0].inc;
+      i1 = SCM_I_ARRAY_BASE (ra1);
+      inc1 = SCM_I_ARRAY_DIMS (ra1)->inc;
       ras = SCM_CDR (ras);
       if (scm_is_null (ras))
           for (; i0 < i0end; i0 += inc0, i1 += inc1)
@@ -743,8 +742,8 @@ rafe (SCM ra0, SCM proc, SCM ras)
   size_t i0, i0end;
   ssize_t inc0;
   scm_array_get_handle (SCM_I_ARRAY_V (ra0), &h0);
-  i0 = h0.base + h0.dims[0].lbnd + SCM_I_ARRAY_BASE (ra0)*h0.dims[0].inc;
-  inc0 = SCM_I_ARRAY_DIMS (ra0)->inc * h0.dims[0].inc;
+  i0 = SCM_I_ARRAY_BASE (ra0);
+  inc0 = SCM_I_ARRAY_DIMS (ra0)->inc;
   i0end = i0 + n*inc0;
   if (scm_is_null (ras))
     for (; i0 < i0end; i0 += inc0)

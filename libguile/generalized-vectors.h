@@ -32,8 +32,8 @@
 
 SCM_API int scm_is_generalized_vector (SCM obj);
 SCM_API size_t scm_c_generalized_vector_length (SCM v);
-SCM_API SCM scm_c_generalized_vector_ref (SCM v, size_t idx);
-SCM_API void scm_c_generalized_vector_set_x (SCM v, size_t idx, SCM val);
+SCM_API SCM scm_c_generalized_vector_ref (SCM v, ssize_t idx);
+SCM_API void scm_c_generalized_vector_set_x (SCM v, ssize_t idx, SCM val);
 SCM_API void scm_generalized_vector_get_handle (SCM vec,
 						scm_t_array_handle *h);
 
