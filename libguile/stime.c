@@ -506,7 +506,7 @@ SCM_DEFINE (scm_gmtime, "gmtime", 1, 0, 0,
 static void
 bdtime2c (SCM sbd_time, struct tm *lt, int pos, const char *subr)
 {
-  SCM_ASSERT (scm_is_simple_vector (sbd_time)
+  SCM_ASSERT (scm_is_vector (sbd_time)
 	      && SCM_SIMPLE_VECTOR_LENGTH (sbd_time) == 11,
 	      sbd_time, pos, subr);
 

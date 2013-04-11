@@ -694,7 +694,7 @@ fill_select_type (fd_set *set, SCM *ports_ready, SCM list_or_vec, int pos)
 {
   int max_fd = 0;
 
-  if (scm_is_simple_vector (list_or_vec))
+  if (scm_is_vector (list_or_vec))
     {
       int i = SCM_SIMPLE_VECTOR_LENGTH (list_or_vec);
       
@@ -755,7 +755,7 @@ retrieve_select_type (fd_set *set, SCM ports_ready, SCM list_or_vec)
 {
   SCM answer_list = ports_ready;
 
-  if (scm_is_simple_vector (list_or_vec))
+  if (scm_is_vector (list_or_vec))
     {
       int i = SCM_SIMPLE_VECTOR_LENGTH (list_or_vec);
 
@@ -824,7 +824,7 @@ SCM_DEFINE (scm_select, "select", 3, 2, 0,
   SCM write_ports_ready = SCM_EOL;
   int max_fd;
 
-  if (scm_is_simple_vector (reads))
+  if (scm_is_vector (reads))
     {
       read_count = SCM_SIMPLE_VECTOR_LENGTH (reads);
     }
@@ -833,7 +833,7 @@ SCM_DEFINE (scm_select, "select", 3, 2, 0,
       read_count = scm_ilength (reads);
       SCM_ASSERT (read_count >= 0, reads, SCM_ARG1, FUNC_NAME);
     }
-  if (scm_is_simple_vector (writes))
+  if (scm_is_vector (writes))
     {
       write_count = SCM_SIMPLE_VECTOR_LENGTH (writes);
     }
@@ -842,7 +842,7 @@ SCM_DEFINE (scm_select, "select", 3, 2, 0,
       write_count = scm_ilength (writes);
       SCM_ASSERT (write_count >= 0, writes, SCM_ARG2, FUNC_NAME);
     }
-  if (scm_is_simple_vector (excepts))
+  if (scm_is_vector (excepts))
     {
       except_count = SCM_SIMPLE_VECTOR_LENGTH (excepts);
     }

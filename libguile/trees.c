@@ -99,7 +99,7 @@ copy_tree (struct t_trace *const hare,
            unsigned int tortoise_delay)
 #define FUNC_NAME s_scm_copy_tree
 {
-  if (!scm_is_pair (hare->obj) && !scm_is_simple_vector (hare->obj))
+  if (!scm_is_pair (hare->obj) && !scm_is_vector (hare->obj))
     {
       return hare->obj;
     }
@@ -128,7 +128,7 @@ copy_tree (struct t_trace *const hare,
           --tortoise_delay;
         }
 
-      if (scm_is_simple_vector (hare->obj))
+      if (scm_is_vector (hare->obj))
         {
           size_t length = SCM_SIMPLE_VECTOR_LENGTH (hare->obj);
           SCM new_vector = scm_c_make_vector (length, SCM_UNSPECIFIED);

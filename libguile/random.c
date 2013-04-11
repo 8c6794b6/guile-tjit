@@ -504,7 +504,7 @@ static void
 vector_scale_x (SCM v, double c)
 {
   size_t n;
-  if (scm_is_simple_vector (v))
+  if (scm_is_vector (v))
     {
       n = SCM_SIMPLE_VECTOR_LENGTH (v);
       while (n-- > 0)
@@ -532,7 +532,7 @@ vector_sum_squares (SCM v)
 {
   double x, sum = 0.0;
   size_t n;
-  if (scm_is_simple_vector (v))
+  if (scm_is_vector (v))
     {
       n = SCM_SIMPLE_VECTOR_LENGTH (v);
       while (n-- > 0)
@@ -626,7 +626,7 @@ SCM_DEFINE (scm_random_normal_vector_x, "random:normal-vector!", 1, 1, 0,
   scm_generalized_vector_get_handle (v, &handle);
   dim = scm_array_handle_dims (&handle);
 
-  if (scm_is_vector (v))
+  if (handle.element_type == SCM_ARRAY_ELEMENT_TYPE_SCM)
     {
       SCM *elts = scm_array_handle_writable_elements (&handle);
       for (i = dim->lbnd; i <= dim->ubnd; i++, elts += dim->inc)

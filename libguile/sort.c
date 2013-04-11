@@ -377,8 +377,7 @@ SCM_DEFINE (scm_sort_x, "sort!", 2, 0, 0,
       SCM_VALIDATE_LIST_COPYLEN (1, items, len);
       return scm_merge_list_step (&items, less, len);
     }
-  else if (scm_is_simple_vector (items)
-           || (scm_is_array (items) && scm_c_array_rank (items) == 1))
+  else if (scm_is_array (items) && scm_c_array_rank (items) == 1)
     {
       scm_restricted_vector_sort_x (items,
 				    less,
@@ -404,8 +403,7 @@ SCM_DEFINE (scm_sort, "sort", 2, 0, 0,
 
   if (scm_is_pair (items))
     return scm_sort_x (scm_list_copy (items), less);
-  else if (scm_is_simple_vector (items)
-           || (scm_is_array (items) && scm_c_array_rank (items) == 1))
+  else if (scm_is_array (items) && scm_c_array_rank (items) == 1)
     return scm_sort_x (scm_vector_copy (items), less);
   else
     SCM_WRONG_TYPE_ARG (1, items);
@@ -491,8 +489,7 @@ SCM_DEFINE (scm_stable_sort_x, "stable-sort!", 2, 0, 0,
       SCM_VALIDATE_LIST_COPYLEN (1, items, len);
       return scm_merge_list_step (&items, less, len);
     }
-  else if (scm_is_simple_vector (items)
-           || (scm_is_array (items) && scm_c_array_rank (items) == 1))
+  else if (scm_is_array (items) && 1 == scm_c_array_rank (items))
     {
       scm_t_array_handle temp_handle, vec_handle;
       SCM temp, *temp_elts, *vec_elts;
@@ -535,16 +532,13 @@ SCM_DEFINE (scm_stable_sort, "stable-sort", 2, 0, 0,
 
   if (scm_is_pair (items))
     return scm_stable_sort_x (scm_list_copy (items), less);
-  else if (scm_is_simple_vector (items)
-           || (scm_is_array (items) && scm_c_array_rank (items) == 1))
-    return scm_stable_sort_x (scm_vector_copy (items), less);
   else
-    SCM_WRONG_TYPE_ARG (1, items);
+    return scm_stable_sort_x (scm_vector_copy (items), less);
 }
 #undef FUNC_NAME
 
 
-SCM_DEFINE (scm_sort_list_x, "sort-list!", 2, 0, 0, 
+SCM_DEFINE (scm_sort_list_x, "sort-list!", 2, 0, 0,
             (SCM items, SCM less),
 	    "Sort the list @var{items}, using @var{less} for comparing the\n"
 	    "list elements. The sorting is destructive, that means that the\n"

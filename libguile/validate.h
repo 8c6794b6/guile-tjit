@@ -4,7 +4,7 @@
 #define SCM_VALIDATE_H
 
 /* Copyright (C) 1999, 2000, 2001, 2002, 2004, 2006, 2007, 2009,
- *   2011, 2012, 2013 Free Software Foundation, Inc.
+ *   2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -358,13 +358,12 @@
 
 #define SCM_VALIDATE_VECTOR(pos, v) \
   do { \
-    SCM_ASSERT (scm_is_simple_vector (v), v, pos, FUNC_NAME); \
+    SCM_ASSERT (scm_is_vector (v), v, pos, FUNC_NAME); \
   } while (0)
 
 #define SCM_VALIDATE_VECTOR_OR_DVECTOR(pos, v) \
   do { \
-    SCM_ASSERT ((scm_is_simple_vector (v) \
-                || (scm_is_true (scm_f64vector_p (v)))), \
+    SCM_ASSERT (scm_is_vector (v) || scm_is_true (scm_f64vector_p (v)), \
                 v, pos, FUNC_NAME); \
   } while (0)
 

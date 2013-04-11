@@ -111,6 +111,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/r6rs-unicode.test		\
 	    tests/rnrs-libraries.test		\
 	    tests/ramap.test			\
+	    tests/random.test			\
 	    tests/rdelim.test			\
 	    tests/reader.test			\
 	    tests/receive.test			\

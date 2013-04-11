@@ -1,4 +1,4 @@
-;;;; unif.test --- tests guile's uniform arrays     -*- scheme -*-
+;;;; arrays.test --- tests guile's uniform arrays     -*- scheme -*-
 ;;;;
 ;;;; Copyright 2004, 2006, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 ;;;;
