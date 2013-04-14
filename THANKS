@@ -1,7 +1,9 @@
 Contributors since the last release:
 
+           Greg Benison
         Tristan Colgate-McFarlane
         Ludovic Courtès
+          Jason Earl
           Brian Gough
          Volker Grabsch
          Julian Graham
@@ -10,8 +12,11 @@ Contributors since the last release:
              No Itisnt
            Neil Jerram
         Chris K Jester-Young
+          David Kastrup
          Daniel Kraft
+         Daniel Krueger
            Noah Lavine
+         Daniel Llorens
         Gregory Marton
       Thien-Thi Nguyen
         Han-Wen Nienhuys
@@ -22,11 +27,14 @@ Contributors since the last release:
             Ken Raeburn
         Andreas Rottmann
           Kevin Ryde
+       Stefan I Tampe
              BT Templeton
+           Bake Timmons
          Mark H Weaver
           Göran Weinholt
            Ralf Wildenhues
            Andy Wingo
+            Eli Zaretskii
 
 Authors of free software libraries that have been included into Guile
 since the last release:
@@ -42,6 +50,7 @@ For fixes or providing information which led to a fix:
            Hans Åberg
           David Allouche
          Andrew Bagdanov
+          Lluís Batlle i Rossell
 	 Martin Baulig
         Fabrice Bauzac
         Sylvain Beucler
@@ -95,6 +104,7 @@ For fixes or providing information which led to a fix:
           David Jaquay
            Paul Jarc
           Steve Juranich
+         Nikita Karetnikov
           David Kastrup
         Richard Kim
           Bruce Korb
@@ -138,17 +148,20 @@ For fixes or providing information which led to a fix:
            Hugh Sasse
          Werner Scheinast
 	   Bill Schottstaedt
+            Jan Schukat
 	  Frank Schwidom
     John Steele Scott
          Thiemo Seufer
            Ivan Shcherbakov
           Scott Shedden
            Alex Shinn
+          Peter Simons
          Daniel Skarda
            Dale Smith
           Cesar Strauss
 	  Klaus Stehle
          Rainer Tammer
+	 Samuel Thibault
         Richard Todd
           Issac Trotts
            Greg Troxel
@@ -166,6 +179,7 @@ For fixes or providing information which led to a fix:
          Thomas Wawrzinek
         Mark H. Weaver
           Göran Weinholt
+       David A. Wheeler
            Ralf Wildenhues
             Jon Wilson
            Andy Wingo

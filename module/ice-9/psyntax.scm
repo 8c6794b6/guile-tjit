@@ -2172,28 +2172,42 @@
 
     (global-extend 'core 'case-lambda
                    (lambda (e r w s mod)
+                     (define (build-it meta clauses)
+                       (call-with-values
+                           (lambda ()
+                             (expand-lambda-case e r w s mod
+                                                 lambda-formals
+                                                 clauses))
+                         (lambda (meta* lcase)
+                           (build-case-lambda s (append meta meta*) lcase))))
                      (syntax-case e ()
                        ((_ (args e1 e2 ...) ...)
-                        (call-with-values
-                            (lambda ()
-                              (expand-lambda-case e r w s mod
-                                                  lambda-formals
-                                                  #'((args e1 e2 ...) ...)))
-                          (lambda (meta lcase)
-                            (build-case-lambda s meta lcase))))
+                        (build-it '() #'((args e1 e2 ...) ...)))
+                       ((_ docstring (args e1 e2 ...) ...)
+                        (string? (syntax->datum #'docstring))
+                        (build-it `((documentation
+                                     . ,(syntax->datum #'docstring)))
+                                  #'((args e1 e2 ...) ...)))
                        (_ (syntax-violation 'case-lambda "bad case-lambda" e)))))
 
     (global-extend 'core 'case-lambda*
                    (lambda (e r w s mod)
+                     (define (build-it meta clauses)
+                       (call-with-values
+                           (lambda ()
+                             (expand-lambda-case e r w s mod
+                                                 lambda*-formals
+                                                 clauses))
+                         (lambda (meta* lcase)
+                           (build-case-lambda s (append meta meta*) lcase))))
                      (syntax-case e ()
                        ((_ (args e1 e2 ...) ...)
-                        (call-with-values
-                            (lambda ()
-                              (expand-lambda-case e r w s mod
-                                                  lambda*-formals
-                                                  #'((args e1 e2 ...) ...)))
-                          (lambda (meta lcase)
-                            (build-case-lambda s meta lcase))))
+                        (build-it '() #'((args e1 e2 ...) ...)))
+                       ((_ docstring (args e1 e2 ...) ...)
+                        (string? (syntax->datum #'docstring))
+                        (build-it `((documentation
+                                     . ,(syntax->datum #'docstring)))
+                                  #'((args e1 e2 ...) ...)))
                        (_ (syntax-violation 'case-lambda "bad case-lambda*" e)))))
 
     (global-extend 'core 'let
@@ -3022,10 +3036,15 @@
   (lambda (x)
     (define read-file
       (lambda (fn dir k)
-        (let ((p (open-input-file
-                  (if (absolute-file-name? fn)
-                      fn
-                      (in-vicinity dir fn)))))
+        (let* ((p (open-input-file
+                   (if (absolute-file-name? fn)
+                       fn
+                       (in-vicinity dir fn))))
+               (enc (file-encoding p)))
+
+          ;; Choose the input encoding deterministically.
+          (set-port-encoding! p (or enc "UTF-8"))
+
           (let f ((x (read p))
                   (result '()))
             (if (eof-object? x)

@@ -28,6 +28,8 @@
 #include "libguile/_scm.h"
 #include "libguile/eval.h"
 #include "libguile/chars.h"
+#include "libguile/ports.h"
+#include "libguile/ports-internal.h"
 #include "libguile/fports.h"
 #include "libguile/root.h"
 #include "libguile/strings.h"
@@ -86,15 +88,15 @@ sf_fill_input (SCM port)
 {
   SCM p = SCM_PACK (SCM_STREAM (port));
   SCM ans;
-  scm_t_port *pt;
+  scm_t_port_internal *pti;
 
   ans = scm_call_0 (SCM_SIMPLE_VECTOR_REF (p, 3)); /* get char.  */
   if (scm_is_false (ans) || SCM_EOF_OBJECT_P (ans))
     return EOF;
   SCM_ASSERT (SCM_CHARP (ans), ans, SCM_ARG1, "sf_fill_input");
-  pt = SCM_PTAB_ENTRY (port);    
+  pti = SCM_PORT_GET_INTERNAL (port);
 
-  if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
+  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
     {
       scm_t_port *pt = SCM_PTAB_ENTRY (port);    
       

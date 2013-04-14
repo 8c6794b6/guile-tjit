@@ -534,72 +534,41 @@ SCM_DEFINE (scm_get_bytevector_n_x, "get-bytevector-n!", 4, 0, 0,
 
 SCM_DEFINE (scm_get_bytevector_some, "get-bytevector-some", 1, 0, 0,
 	    (SCM port),
-	    "Read from @var{port}, blocking as necessary, until data "
-	    "are available or and end-of-file is reached.  Return either "
-	    "a new bytevector containing the data read or the "
-	    "end-of-file object.")
+            "Read from @var{port}, blocking as necessary, until bytes "
+            "are available or an end-of-file is reached.  Return either "
+            "the end-of-file object or a new bytevector containing some "
+            "of the available bytes (at least one), and update the port "
+            "position to point just past these bytes.")
 #define FUNC_NAME s_scm_get_bytevector_some
 {
-  /* Read at least one byte, unless the end-of-file is already reached, and
-     read while characters are available (buffered).  */
-
-  SCM result;
-  char *c_bv;
-  unsigned c_len;
-  size_t c_total;
+  scm_t_port *pt;
+  size_t size;
+  SCM bv;
 
   SCM_VALIDATE_BINARY_INPUT_PORT (1, port);
+  pt = SCM_PTAB_ENTRY (port);
 
-  c_len = 4096;
-  c_bv = (char *) scm_gc_malloc_pointerless (c_len, SCM_GC_BYTEVECTOR);
-  c_total = 0;
+  if (pt->rw_active == SCM_PORT_WRITE)
+    scm_flush_unlocked (port);
 
-  do
+  if (pt->rw_random)
+    pt->rw_active = SCM_PORT_READ;
+
+  if (pt->read_pos >= pt->read_end)
     {
-      int c_chr;
-
-      if (c_total + 1 > c_len)
-	{
-	  /* Grow the bytevector.  */
-	  c_bv = (char *) scm_gc_realloc (c_bv, c_len, c_len * 2,
-					  SCM_GC_BYTEVECTOR);
-	  c_len *= 2;
-	}
-
-      /* We can't use `scm_c_read ()' since it blocks.  */
-      c_chr = scm_get_byte_or_eof_unlocked (port);
-      if (c_chr != EOF)
-	{
-	  c_bv[c_total] = (char) c_chr;
-	  c_total++;
-	}
-      else
-        break;
-    }
-  /* XXX: We want to check for the availability of a byte, but that's
-     what `scm_char_ready_p' actually does.  */
-  while (scm_is_true (scm_char_ready_p (port)));
-
-  if (c_total == 0)
-    {
-      result = SCM_EOF_VAL;
-      scm_gc_free (c_bv, c_len, SCM_GC_BYTEVECTOR);
-    }
-  else
-    {
-      if (c_len > c_total)
-	{
-	  /* Shrink the bytevector.  */
-	  c_bv = (char *) scm_gc_realloc (c_bv, c_len, c_total,
-					  SCM_GC_BYTEVECTOR);
-	  c_len = (unsigned) c_total;
-	}
-
-      result = scm_c_take_gc_bytevector ((signed char *) c_bv, c_len,
-                                         SCM_BOOL_F);
+      if (scm_fill_input_unlocked (port) == EOF)
+	return SCM_EOF_VAL;
     }
 
-  return result;
+  size = pt->read_end - pt->read_pos;
+  if (pt->read_buf == pt->putback_buf)
+    size += pt->saved_read_end - pt->saved_read_pos;
+
+  bv = scm_c_make_bytevector (size);
+  scm_take_from_input_buffers
+    (port, (char *) SCM_BYTEVECTOR_CONTENTS (bv), size);
+
+  return bv;
 }
 #undef FUNC_NAME
 
@@ -725,6 +694,49 @@ SCM_DEFINE (scm_put_bytevector, "put-bytevector", 2, 2, 0,
     c_start = 0, c_count = c_len;
 
   scm_c_write_unlocked (port, c_bv + c_start, c_count);
+
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_unget_bytevector, "unget-bytevector", 2, 2, 0,
+	    (SCM port, SCM bv, SCM start, SCM count),
+	    "Unget the contents of @var{bv} to @var{port}, optionally "
+	    "starting at index @var{start} and limiting to @var{count} "
+	    "octets.")
+#define FUNC_NAME s_scm_unget_bytevector
+{
+  unsigned char *c_bv;
+  size_t c_start, c_count, c_len;
+
+  SCM_VALIDATE_BINARY_INPUT_PORT (1, port);
+  SCM_VALIDATE_BYTEVECTOR (2, bv);
+
+  c_len = SCM_BYTEVECTOR_LENGTH (bv);
+  c_bv = (unsigned char *) SCM_BYTEVECTOR_CONTENTS (bv);
+
+  if (!scm_is_eq (start, SCM_UNDEFINED))
+    {
+      c_start = scm_to_size_t (start);
+
+      if (!scm_is_eq (count, SCM_UNDEFINED))
+	{
+	  c_count = scm_to_size_t (count);
+	  if (SCM_UNLIKELY (c_start + c_count > c_len))
+	    scm_out_of_range (FUNC_NAME, count);
+	}
+      else
+	{
+	  if (SCM_UNLIKELY (c_start >= c_len))
+	    scm_out_of_range (FUNC_NAME, start);
+	  else
+	    c_count = c_len - c_start;
+	}
+    }
+  else
+    c_start = 0, c_count = c_len;
+
+  scm_unget_bytes (c_bv + c_start, c_count, port);
 
   return SCM_UNSPECIFIED;
 }

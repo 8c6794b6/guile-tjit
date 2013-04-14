@@ -24,7 +24,12 @@
   #:use-module (ice-9 popen)
   #:use-module (ice-9 rdelim)
   #:use-module (rnrs bytevectors)
-  #:use-module ((rnrs io ports) #:select (open-bytevector-input-port)))
+  #:use-module ((ice-9 binary-ports) #:select (open-bytevector-input-port
+                                               open-bytevector-output-port
+                                               put-bytevector
+                                               get-bytevector-n
+                                               get-bytevector-all
+                                               unget-bytevector)))
 
 (define (display-line . args)
   (for-each display args)
@@ -269,13 +274,12 @@
                    (delete-file filename)
                    (string=? line2 binary-test-string)))))
 
-;; open-file honors file coding declarations
-(pass-if "file: open-file honors coding declarations"
+;; open-file ignores file coding declaration by default
+(pass-if "file: open-file ignores coding declaration by default"
   (with-fluids ((%default-port-encoding "UTF-8"))
                (let* ((filename (test-file))
                       (port (open-output-file filename))
                       (test-string "€100"))
-                 (set-port-encoding! port "ISO-8859-15")
                  (write-line ";; coding: iso-8859-15" port)
                  (write-line test-string port)
                  (close-port port)
@@ -285,6 +289,287 @@
                    (close-port in-port)
                    (delete-file filename)
                    (string=? line2 test-string)))))
+
+;; open-input-file with guess-encoding honors coding declaration
+(pass-if "file: open-input-file with guess-encoding honors coding declaration"
+  (with-fluids ((%default-port-encoding "UTF-8"))
+               (let* ((filename (test-file))
+                      (port (open-output-file filename))
+                      (test-string "€100"))
+                 (set-port-encoding! port "iso-8859-15")
+                 (write-line ";; coding: iso-8859-15" port)
+                 (write-line test-string port)
+                 (close-port port)
+                 (let* ((in-port (open-input-file filename
+                                                  #:guess-encoding #t))
+                        (line1 (read-line in-port))
+                        (line2 (read-line in-port)))
+                   (close-port in-port)
+                   (delete-file filename)
+                   (string=? line2 test-string)))))
+
+(with-test-prefix "keyword arguments for file openers"
+  (with-fluids ((%default-port-encoding "UTF-8"))
+    (let ((filename (test-file)))
+
+      (with-test-prefix "write #:encoding"
+
+        (pass-if-equal "open-file"
+            #vu8(116 0 101 0 115 0 116 0)
+            (let ((port (open-file filename "w"
+                                   #:encoding "UTF-16LE")))
+              (display "test" port)
+              (close-port port))
+            (let* ((port (open-file filename "rb"))
+                   (bv (get-bytevector-all port)))
+              (close-port port)
+              bv))
+
+        (pass-if-equal "open-output-file"
+            #vu8(116 0 101 0 115 0 116 0)
+            (let ((port (open-output-file filename
+                                          #:encoding "UTF-16LE")))
+              (display "test" port)
+              (close-port port))
+            (let* ((port (open-file filename "rb"))
+                   (bv (get-bytevector-all port)))
+              (close-port port)
+              bv))
+
+        (pass-if-equal "call-with-output-file"
+            #vu8(116 0 101 0 115 0 116 0)
+            (call-with-output-file filename
+              (lambda (port)
+                (display "test" port))
+              #:encoding "UTF-16LE")
+            (let* ((port (open-file filename "rb"))
+                   (bv (get-bytevector-all port)))
+              (close-port port)
+              bv))
+
+        (pass-if-equal "with-output-to-file"
+            #vu8(116 0 101 0 115 0 116 0)
+            (with-output-to-file filename
+              (lambda ()
+                (display "test"))
+              #:encoding "UTF-16LE")
+            (let* ((port (open-file filename "rb"))
+                   (bv (get-bytevector-all port)))
+              (close-port port)
+              bv))
+
+        (pass-if-equal "with-error-to-file"
+            #vu8(116 0 101 0 115 0 116 0)
+            (with-error-to-file
+             filename
+             (lambda ()
+               (display "test" (current-error-port)))
+             #:encoding "UTF-16LE")
+            (let* ((port (open-file filename "rb"))
+                   (bv (get-bytevector-all port)))
+              (close-port port)
+              bv)))
+
+      (with-test-prefix "write #:binary"
+
+        (pass-if-equal "open-output-file"
+            "ISO-8859-1"
+          (let* ((port (open-output-file filename #:binary #t))
+                 (enc (port-encoding port)))
+            (close-port port)
+            enc))
+
+        (pass-if-equal "call-with-output-file"
+            "ISO-8859-1"
+          (call-with-output-file filename port-encoding #:binary #t))
+
+        (pass-if-equal "with-output-to-file"
+            "ISO-8859-1"
+          (with-output-to-file filename
+            (lambda () (port-encoding (current-output-port)))
+            #:binary #t))
+
+        (pass-if-equal "with-error-to-file"
+            "ISO-8859-1"
+          (with-error-to-file
+           filename
+           (lambda () (port-encoding (current-error-port)))
+           #:binary #t)))
+
+      (with-test-prefix "read #:encoding"
+
+        (pass-if-equal "open-file read #:encoding"
+            "test"
+          (call-with-output-file filename
+            (lambda (port)
+              (put-bytevector port #vu8(116 0 101 0 115 0 116 0))))
+          (let* ((port (open-file filename "r" #:encoding "UTF-16LE"))
+                 (str  (read-string port)))
+            (close-port port)
+            str))
+
+        (pass-if-equal "open-input-file #:encoding"
+            "test"
+          (call-with-output-file filename
+            (lambda (port)
+              (put-bytevector port #vu8(116 0 101 0 115 0 116 0))))
+          (let* ((port (open-input-file filename #:encoding "UTF-16LE"))
+                 (str  (read-string port)))
+            (close-port port)
+            str))
+
+        (pass-if-equal "call-with-input-file #:encoding"
+            "test"
+          (call-with-output-file filename
+            (lambda (port)
+              (put-bytevector port #vu8(116 0 101 0 115 0 116 0))))
+          (call-with-input-file filename
+            read-string
+            #:encoding "UTF-16LE"))
+
+        (pass-if-equal "with-input-from-file #:encoding"
+            "test"
+          (call-with-output-file filename
+            (lambda (port)
+              (put-bytevector port #vu8(116 0 101 0 115 0 116 0))))
+          (with-input-from-file filename
+            read-string
+            #:encoding "UTF-16LE")))
+
+      (with-test-prefix "read #:binary"
+
+        (pass-if-equal "open-input-file"
+            "ISO-8859-1"
+          (let* ((port (open-input-file filename #:binary #t))
+                 (enc (port-encoding port)))
+            (close-port port)
+            enc))
+
+        (pass-if-equal "call-with-input-file"
+            "ISO-8859-1"
+          (call-with-input-file filename port-encoding #:binary #t))
+
+        (pass-if-equal "with-input-from-file"
+            "ISO-8859-1"
+          (with-input-from-file filename
+            (lambda () (port-encoding (current-input-port)))
+            #:binary #t)))
+
+      (with-test-prefix "#:guess-encoding with coding declaration"
+
+        (pass-if-equal "open-file"
+            "€100"
+          (with-output-to-file filename
+            (lambda ()
+              (write-line "test")
+              (write-line "; coding: ISO-8859-15")
+              (write-line "€100"))
+            #:encoding "ISO-8859-15")
+          (let* ((port (open-file filename "r"
+                                  #:guess-encoding #t
+                                  #:encoding "UTF-16LE"))
+                 (str (begin (read-line port)
+                             (read-line port)
+                             (read-line port))))
+            (close-port port)
+            str))
+
+        (pass-if-equal "open-input-file"
+            "€100"
+          (with-output-to-file filename
+            (lambda ()
+              (write-line "test")
+              (write-line "; coding: ISO-8859-15")
+              (write-line "€100"))
+            #:encoding "ISO-8859-15")
+          (let* ((port (open-input-file filename
+                                        #:guess-encoding #t
+                                        #:encoding "UTF-16LE"))
+                 (str (begin (read-line port)
+                             (read-line port)
+                             (read-line port))))
+            (close-port port)
+            str))
+
+        (pass-if-equal "call-with-input-file"
+            "€100"
+          (with-output-to-file filename
+            (lambda ()
+              (write-line "test")
+              (write-line "; coding: ISO-8859-15")
+              (write-line "€100"))
+            #:encoding "ISO-8859-15")
+          (call-with-input-file filename
+            (lambda (port)
+              (read-line port)
+              (read-line port)
+              (read-line port))
+            #:guess-encoding #t
+            #:encoding "UTF-16LE"))
+
+        (pass-if-equal "with-input-from-file"
+            "€100"
+          (with-output-to-file filename
+            (lambda ()
+              (write-line "test")
+              (write-line "; coding: ISO-8859-15")
+              (write-line "€100"))
+            #:encoding "ISO-8859-15")
+          (with-input-from-file filename
+            (lambda ()
+              (read-line)
+              (read-line)
+              (read-line))
+            #:guess-encoding #t
+            #:encoding "UTF-16LE")))
+
+      (with-test-prefix "#:guess-encoding without coding declaration"
+
+        (pass-if-equal "open-file"
+            "€100"
+          (with-output-to-file filename
+            (lambda () (write-line "€100"))
+            #:encoding "ISO-8859-15")
+          (let* ((port (open-file filename "r"
+                                  #:guess-encoding #t
+                                  #:encoding "ISO-8859-15"))
+                 (str (read-line port)))
+            (close-port port)
+            str))
+
+        (pass-if-equal "open-input-file"
+            "€100"
+          (with-output-to-file filename
+            (lambda () (write-line "€100"))
+            #:encoding "ISO-8859-15")
+          (let* ((port (open-input-file filename
+                                        #:guess-encoding #t
+                                        #:encoding "ISO-8859-15"))
+                 (str (read-line port)))
+            (close-port port)
+            str))
+
+        (pass-if-equal "call-with-input-file"
+            "€100"
+          (with-output-to-file filename
+            (lambda () (write-line "€100"))
+            #:encoding "ISO-8859-15")
+          (call-with-input-file filename
+            read-line
+            #:guess-encoding #t
+            #:encoding "ISO-8859-15"))
+
+        (pass-if-equal "with-input-from-file"
+            "€100"
+          (with-output-to-file filename
+            (lambda () (write-line "€100"))
+            #:encoding "ISO-8859-15")
+          (with-input-from-file filename
+            read-line
+            #:guess-encoding #t
+            #:encoding "ISO-8859-15")))
+
+      (delete-file filename))))
 
 ;;; ungetting characters and strings.
 (with-input-from-string "walk on the moon\nmoon"
@@ -918,7 +1203,9 @@
 
   (pass-if-exception "set-port-encoding!, wrong encoding"
     exception:miscellaneous-error
-    (set-port-encoding! (open-input-string "") "does-not-exist"))
+    (let ((p (open-input-string "")))
+      (set-port-encoding! p "does-not-exist")
+      (read p)))
 
   (pass-if-exception "%default-port-encoding, wrong encoding"
     exception:miscellaneous-error
@@ -1110,6 +1397,90 @@
 		(char-ready?))))))
 
 
+;;;; pending-eof behavior
+
+(with-test-prefix "pending EOF behavior"
+  ;; Make a test port that will produce the given sequence.  Each
+  ;; element of 'lst' may be either a character or #f (which means EOF).
+  (define (test-soft-port . lst)
+    (make-soft-port
+     (vector (lambda (c) #f)            ; write char
+             (lambda (s) #f)            ; write string
+             (lambda () #f)             ; flush
+             (lambda ()                 ; read char
+               (let ((c (car lst)))
+                 (set! lst (cdr lst))
+                 c))
+             (lambda () #f))            ; close
+     "rw"))
+
+  (define (call-with-port p proc)
+    (dynamic-wind
+      (lambda () #f)
+      (lambda () (proc p))
+      (lambda () (close-port p))))
+
+  (define (call-with-test-file str proc)
+    (let ((filename (test-file)))
+      (dynamic-wind
+        (lambda () (call-with-output-file filename
+                     (lambda (p) (display str p))))
+        (lambda () (call-with-input-file filename proc))
+        (lambda () (delete-file (test-file))))))
+
+  (pass-if "peek-char does not swallow EOF (soft port)"
+    (call-with-port (test-soft-port #\a #f #\b)
+      (lambda (p)
+        (and (char=? #\a  (peek-char p))
+             (char=? #\a  (read-char p))
+             (eof-object? (peek-char p))
+             (eof-object? (read-char p))
+             (char=? #\b  (peek-char p))
+             (char=? #\b  (read-char p))))))
+
+  (pass-if "unread clears pending EOF (soft port)"
+    (call-with-port (test-soft-port #\a #f #\b)
+      (lambda (p)
+        (and (char=? #\a  (read-char p))
+             (eof-object? (peek-char p))
+             (begin (unread-char #\u p)
+                    (char=? #\u  (read-char p)))))))
+
+  (pass-if "unread clears pending EOF (string port)"
+    (call-with-input-string "a"
+      (lambda (p)
+        (and (char=? #\a  (read-char p))
+             (eof-object? (peek-char p))
+             (begin (unread-char #\u p)
+                    (char=? #\u  (read-char p)))))))
+
+  (pass-if "unread clears pending EOF (file port)"
+    (call-with-test-file
+     "a"
+     (lambda (p)
+       (and (char=? #\a  (read-char p))
+            (eof-object? (peek-char p))
+            (begin (unread-char #\u p)
+                   (char=? #\u  (read-char p)))))))
+
+  (pass-if "seek clears pending EOF (string port)"
+    (call-with-input-string "a"
+      (lambda (p)
+        (and (char=? #\a  (read-char p))
+             (eof-object? (peek-char p))
+             (begin (seek p 0 SEEK_SET)
+                    (char=? #\a (read-char p)))))))
+
+  (pass-if "seek clears pending EOF (file port)"
+    (call-with-test-file
+     "a"
+     (lambda (p)
+       (and (char=? #\a  (read-char p))
+            (eof-object? (peek-char p))
+            (begin (seek p 0 SEEK_SET)
+                   (char=? #\a (read-char p))))))))
+
+
 ;;;; Close current-input-port, and make sure everyone can handle it.
 
 (with-test-prefix "closing current-input-port"
@@ -1146,6 +1517,286 @@
                             (col*  (port-column p)))
                         (and (= line line*)
                              (= col col*)))))))))))
+
+
+
+(pass-if-equal "unget-bytevector"
+    #vu8(10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 200 201 202 203
+            1 2 3 4 251 253 254 255)
+  (let ((port (open-bytevector-input-port #vu8(1 2 3 4 251 253 254 255))))
+    (unget-bytevector port #vu8(200 201 202 203))
+    (unget-bytevector port #vu8(20 21 22 23 24))
+    (unget-bytevector port #vu8(10 11 12 13 14 15 16 17 18 19) 4)
+    (unget-bytevector port #vu8(10 11 12 13 14 15 16 17 18 19) 2 2)
+    (unget-bytevector port #vu8(10 11))
+    (get-bytevector-all port)))
+
+
+
+(with-test-prefix "unicode byte-order marks (BOMs)"
+
+  (define (bv-read-test* encoding bv proc)
+    (let ((port (open-bytevector-input-port bv)))
+      (set-port-encoding! port encoding)
+      (proc port)))
+
+  (define (bv-read-test encoding bv)
+    (bv-read-test* encoding bv read-string))
+
+  (define (bv-write-test* encoding proc)
+    (call-with-values
+        (lambda () (open-bytevector-output-port))
+      (lambda (port get-bytevector)
+        (set-port-encoding! port encoding)
+        (proc port)
+        (get-bytevector))))
+
+  (define (bv-write-test encoding str)
+    (bv-write-test* encoding
+                    (lambda (p)
+                      (display str p))))
+
+  (pass-if-equal "BOM not discarded from Latin-1 stream"
+      "\xEF\xBB\xBF\x61"
+    (bv-read-test "ISO-8859-1" #vu8(#xEF #xBB #xBF #x61)))
+
+  (pass-if-equal "BOM not discarded from Latin-2 stream"
+      "\u010F\u0165\u017C\x61"
+    (bv-read-test "ISO-8859-2" #vu8(#xEF #xBB #xBF #x61)))
+
+  (pass-if-equal "BOM not discarded from UTF-16BE stream"
+      "\uFEFF\x61"
+    (bv-read-test "UTF-16BE" #vu8(#xFE #xFF #x00 #x61)))
+
+  (pass-if-equal "BOM not discarded from UTF-16LE stream"
+      "\uFEFF\x61"
+    (bv-read-test "UTF-16LE" #vu8(#xFF #xFE #x61 #x00)))
+
+  (pass-if-equal "BOM not discarded from UTF-32BE stream"
+      "\uFEFF\x61"
+    (bv-read-test "UTF-32BE" #vu8(#x00 #x00 #xFE #xFF
+                                       #x00 #x00 #x00 #x61)))
+
+  (pass-if-equal "BOM not discarded from UTF-32LE stream"
+      "\uFEFF\x61"
+    (bv-read-test "UTF-32LE" #vu8(#xFF #xFE #x00 #x00
+                                       #x61 #x00 #x00 #x00)))
+
+  (pass-if-equal "BOM not written to UTF-8 stream"
+      #vu8(#x61)
+    (bv-write-test "UTF-8" "a"))
+
+  (pass-if-equal "BOM not written to UTF-16BE stream"
+      #vu8(#x00 #x61)
+    (bv-write-test "UTF-16BE" "a"))
+
+  (pass-if-equal "BOM not written to UTF-16LE stream"
+      #vu8(#x61 #x00)
+    (bv-write-test "UTF-16LE" "a"))
+
+  (pass-if-equal "BOM not written to UTF-32BE stream"
+      #vu8(#x00 #x00 #x00 #x61)
+    (bv-write-test "UTF-32BE" "a"))
+
+  (pass-if-equal "BOM not written to UTF-32LE stream"
+      #vu8(#x61 #x00 #x00 #x00)
+    (bv-write-test "UTF-32LE" "a"))
+
+  (pass-if "Don't read from the port unless user asks to"
+    (let* ((p (make-soft-port
+               (vector
+                (lambda (c) #f)           ; write char
+                (lambda (s) #f)           ; write string
+                (lambda () #f)            ; flush
+                (lambda () (throw 'fail)) ; read char
+                (lambda () #f))
+               "rw")))
+      (set-port-encoding! p "UTF-16")
+      (display "abc" p)
+      (set-port-encoding! p "UTF-32")
+      (display "def" p)
+      #t))
+
+  ;; TODO: test that input and output streams are independent when
+  ;; appropriate, and linked when appropriate.
+
+  (pass-if-equal "BOM discarded from start of UTF-8 stream"
+      "a"
+    (bv-read-test "Utf-8" #vu8(#xEF #xBB #xBF #x61)))
+
+  (pass-if-equal "BOM discarded from start of UTF-8 stream after seek to 0"
+      '(#\a "a")
+    (bv-read-test* "uTf-8" #vu8(#xEF #xBB #xBF #x61)
+                   (lambda (p)
+                     (let ((c (read-char p)))
+                       (seek p 0 SEEK_SET)
+                       (let ((s (read-string p)))
+                         (list c s))))))
+
+  (pass-if-equal "Only one BOM discarded from start of UTF-8 stream"
+      "\uFEFFa"
+    (bv-read-test "UTF-8" #vu8(#xEF #xBB #xBF #xEF #xBB #xBF #x61)))
+
+  (pass-if-equal "BOM not discarded from UTF-8 stream after seek to > 0"
+      "\uFEFFb"
+    (bv-read-test* "UTF-8" #vu8(#x61 #xEF #xBB #xBF #x62)
+                   (lambda (p)
+                     (seek p 1 SEEK_SET)
+                     (read-string p))))
+
+  (pass-if-equal "BOM not discarded unless at start of UTF-8 stream"
+      "a\uFEFFb"
+    (bv-read-test "UTF-8" #vu8(#x61 #xEF #xBB #xBF #x62)))
+
+  (pass-if-equal "BOM (BE) written to start of UTF-16 stream"
+      #vu8(#xFE #xFF #x00 #x61 #x00 #x62)
+    (bv-write-test "UTF-16" "ab"))
+
+  (pass-if-equal "BOM (BE) written to UTF-16 stream after set-port-encoding!"
+      #vu8(#xFE #xFF #x00 #x61 #x00 #x62 #xFE #xFF #x00 #x63 #x00 #x64)
+    (bv-write-test* "UTF-16"
+                    (lambda (p)
+                      (display "ab" p)
+                      (set-port-encoding! p "UTF-16")
+                      (display "cd" p))))
+
+  (pass-if-equal "BOM discarded from start of UTF-16 stream (BE)"
+      "a"
+    (bv-read-test "UTF-16" #vu8(#xFE #xFF #x00 #x61)))
+
+  (pass-if-equal "BOM discarded from start of UTF-16 stream (BE) after seek to 0"
+      '(#\a "a")
+    (bv-read-test* "utf-16" #vu8(#xFE #xFF #x00 #x61)
+                   (lambda (p)
+                     (let ((c (read-char p)))
+                       (seek p 0 SEEK_SET)
+                       (let ((s (read-string p)))
+                         (list c s))))))
+
+  (pass-if-equal "Only one BOM discarded from start of UTF-16 stream (BE)"
+      "\uFEFFa"
+    (bv-read-test "Utf-16" #vu8(#xFE #xFF #xFE #xFF #x00 #x61)))
+
+  (pass-if-equal "BOM not discarded from UTF-16 stream (BE) after seek to > 0"
+      "\uFEFFa"
+    (bv-read-test* "uTf-16" #vu8(#xFE #xFF #xFE #xFF #x00 #x61)
+                   (lambda (p)
+                     (seek p 2 SEEK_SET)
+                     (read-string p))))
+
+  (pass-if-equal "BOM not discarded unless at start of UTF-16 stream"
+      "a\uFEFFb"
+    (bv-read-test "utf-16" #vu8(#x00 #x61 #xFE #xFF #x00 #x62)))
+
+  (pass-if-equal "BOM discarded from start of UTF-16 stream (LE)"
+      "a"
+    (bv-read-test "UTF-16" #vu8(#xFF #xFE #x61 #x00)))
+
+  (pass-if-equal "BOM discarded from start of UTF-16 stream (LE) after seek to 0"
+      '(#\a "a")
+    (bv-read-test* "Utf-16" #vu8(#xFF #xFE #x61 #x00)
+                   (lambda (p)
+                     (let ((c (read-char p)))
+                       (seek p 0 SEEK_SET)
+                       (let ((s (read-string p)))
+                         (list c s))))))
+
+  (pass-if-equal "Only one BOM discarded from start of UTF-16 stream (LE)"
+      "\uFEFFa"
+    (bv-read-test "UTf-16" #vu8(#xFF #xFE #xFF #xFE #x61 #x00)))
+
+  (pass-if-equal "BOM discarded from start of UTF-32 stream (BE)"
+      "a"
+    (bv-read-test "UTF-32" #vu8(#x00 #x00 #xFE #xFF
+                                     #x00 #x00 #x00 #x61)))
+
+  (pass-if-equal "BOM discarded from start of UTF-32 stream (BE) after seek to 0"
+      '(#\a "a")
+    (bv-read-test* "utF-32" #vu8(#x00 #x00 #xFE #xFF
+                                      #x00 #x00 #x00 #x61)
+                   (lambda (p)
+                     (let ((c (read-char p)))
+                       (seek p 0 SEEK_SET)
+                       (let ((s (read-string p)))
+                         (list c s))))))
+
+  (pass-if-equal "Only one BOM discarded from start of UTF-32 stream (BE)"
+      "\uFEFFa"
+    (bv-read-test "UTF-32" #vu8(#x00 #x00 #xFE #xFF
+                                     #x00 #x00 #xFE #xFF
+                                     #x00 #x00 #x00 #x61)))
+
+  (pass-if-equal "BOM not discarded from UTF-32 stream (BE) after seek to > 0"
+      "\uFEFFa"
+    (bv-read-test* "UtF-32" #vu8(#x00 #x00 #xFE #xFF
+                                      #x00 #x00 #xFE #xFF
+                                      #x00 #x00 #x00 #x61)
+                   (lambda (p)
+                     (seek p 4 SEEK_SET)
+                     (read-string p))))
+
+  (pass-if-equal "BOM discarded within UTF-16 stream (BE) after set-port-encoding!"
+      "ab"
+    (bv-read-test* "UTF-16" #vu8(#x00 #x61 #xFE #xFF #x00 #x62)
+                   (lambda (p)
+                     (let ((a (read-char p)))
+                       (set-port-encoding! p "UTF-16")
+                       (string a (read-char p))))))
+
+  (pass-if-equal "BOM discarded within UTF-16 stream (LE,BE) after set-port-encoding!"
+      "ab"
+    (bv-read-test* "utf-16" #vu8(#x00 #x61 #xFF #xFE #x62 #x00)
+                   (lambda (p)
+                     (let ((a (read-char p)))
+                       (set-port-encoding! p "UTF-16")
+                       (string a (read-char p))))))
+
+  (pass-if-equal "BOM discarded within UTF-32 stream (BE) after set-port-encoding!"
+      "ab"
+    (bv-read-test* "UTF-32" #vu8(#x00 #x00 #x00 #x61
+                                      #x00 #x00 #xFE #xFF
+                                      #x00 #x00 #x00 #x62)
+                   (lambda (p)
+                     (let ((a (read-char p)))
+                       (set-port-encoding! p "UTF-32")
+                       (string a (read-char p))))))
+
+  (pass-if-equal "BOM discarded within UTF-32 stream (LE,BE) after set-port-encoding!"
+      "ab"
+    (bv-read-test* "UTF-32" #vu8(#x00 #x00 #x00 #x61
+                                      #xFF #xFE #x00 #x00
+                                      #x62 #x00 #x00 #x00)
+                   (lambda (p)
+                     (let ((a (read-char p)))
+                       (set-port-encoding! p "UTF-32")
+                       (string a (read-char p))))))
+
+  (pass-if-equal "BOM not discarded unless at start of UTF-32 stream"
+      "a\uFEFFb"
+    (bv-read-test "UTF-32" #vu8(#x00 #x00 #x00 #x61
+                                     #x00 #x00 #xFE #xFF
+                                     #x00 #x00 #x00 #x62)))
+
+  (pass-if-equal "BOM discarded from start of UTF-32 stream (LE)"
+      "a"
+    (bv-read-test "UTF-32" #vu8(#xFF #xFE #x00 #x00
+                                     #x61 #x00 #x00 #x00)))
+
+  (pass-if-equal "BOM discarded from start of UTF-32 stream (LE) after seek to 0"
+      '(#\a "a")
+    (bv-read-test* "UTf-32" #vu8(#xFF #xFE #x00 #x00
+                                      #x61 #x00 #x00 #x00)
+                   (lambda (p)
+                     (let ((c (read-char p)))
+                       (seek p 0 SEEK_SET)
+                       (let ((s (read-string p)))
+                         (list c s))))))
+
+  (pass-if-equal "Only one BOM discarded from start of UTF-32 stream (LE)"
+      "\uFEFFa"
+    (bv-read-test "UTF-32" #vu8(#xFF #xFE #x00 #x00
+                                     #xFF #xFE #x00 #x00
+                                     #x61 #x00 #x00 #x00))))
 
 
 

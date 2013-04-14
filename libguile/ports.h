@@ -4,7 +4,7 @@
 #define SCM_PORTS_H
 
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004,
- *   2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -48,20 +48,8 @@ typedef enum scm_t_port_rw_active {
   SCM_PORT_WRITE = 2
 } scm_t_port_rw_active;
 
-typedef enum scm_t_port_encoding_mode {
-  SCM_PORT_ENCODING_MODE_UTF8,
-  SCM_PORT_ENCODING_MODE_LATIN1,
-  SCM_PORT_ENCODING_MODE_ICONV
-} scm_t_port_encoding_mode;
-
-/* This is a separate object so that only those ports that use iconv
-   cause finalizers to be registered.  */
-typedef struct scm_t_iconv_descriptors
-{
-  /* input/output iconv conversion descriptors */
-  void *input_cd;
-  void *output_cd;
-} scm_t_iconv_descriptors;
+/* An internal-only structure defined in ports-internal.h. */
+struct scm_port_internal;
 
 /* C representation of a Scheme port.  */
 
@@ -69,6 +57,9 @@ typedef struct
 {
   SCM port;			/* Link back to the port object.  */
   scm_i_pthread_mutex_t *lock;  /* A recursive lock for this port.  */
+
+  /* pointer to internal-only port structure */
+  struct scm_port_internal *internal;
 
   /* data for the underlying port implementation as a raw C value. */
   scm_t_bits stream;
@@ -129,13 +120,7 @@ typedef struct
 
   /* Character encoding support  */
   char *encoding;
-  scm_t_port_encoding_mode encoding_mode;
   scm_t_string_failed_conversion_handler ilseq_handler;
-  scm_t_iconv_descriptors *iconv_descriptors;
-
-  /* an alist for storing additional information
-     (e.g. used to store per-port read options) */
-  SCM alist;
 } scm_t_port;
 
 
@@ -305,7 +290,6 @@ SCM_INTERNAL scm_t_string_failed_conversion_handler
 scm_i_default_port_conversion_handler (void);
 SCM_INTERNAL void
 scm_i_set_default_port_conversion_handler (scm_t_string_failed_conversion_handler);
-SCM_INTERNAL scm_t_iconv_descriptors *scm_i_port_iconv_descriptors (SCM port);
 SCM_INTERNAL void scm_i_set_port_encoding_x (SCM port, const char *str);
 SCM_API SCM scm_port_encoding (SCM port);
 SCM_API SCM scm_set_port_encoding_x (SCM port, SCM encoding);
@@ -320,8 +304,10 @@ SCM_INLINE int scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock);
 /* Input.  */
 SCM_API int scm_get_byte_or_eof (SCM port);
 SCM_INLINE int scm_get_byte_or_eof_unlocked (SCM port);
+SCM_API int scm_slow_get_byte_or_eof_unlocked (SCM port);
 SCM_API int scm_peek_byte_or_eof (SCM port);
 SCM_INLINE int scm_peek_byte_or_eof_unlocked (SCM port);
+SCM_API int scm_slow_peek_byte_or_eof_unlocked (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
 SCM_API size_t scm_c_read_unlocked (SCM port, void *buffer, size_t size);
 SCM_API scm_t_wchar scm_getc (SCM port);
@@ -329,6 +315,8 @@ SCM_API scm_t_wchar scm_getc_unlocked (SCM port);
 SCM_API SCM scm_read_char (SCM port);
 
 /* Pushback.  */
+SCM_API void scm_unget_bytes (const unsigned char *buf, size_t len, SCM port);
+SCM_API void scm_unget_bytes_unlocked (const unsigned char *buf, size_t len, SCM port);
 SCM_API void scm_unget_byte (int c, SCM port);
 SCM_API void scm_unget_byte_unlocked (int c, SCM port);
 SCM_API void scm_ungetc (scm_t_wchar c, SCM port);
@@ -373,6 +361,10 @@ SCM_API SCM scm_port_column (SCM port);
 SCM_API SCM scm_set_port_column_x (SCM port, SCM line);
 SCM_API SCM scm_port_filename (SCM port);
 SCM_API SCM scm_set_port_filename_x (SCM port, SCM filename);
+
+/* Port alist.  */
+SCM_INTERNAL SCM scm_i_port_alist (SCM port);
+SCM_INTERNAL void scm_i_set_port_alist_x (SCM port, SCM alist);
 
 /* Implementation helpers for port printing functions.  */
 SCM_API int scm_port_print (SCM exp, SCM port, scm_print_state *);
@@ -423,50 +415,26 @@ scm_c_try_lock_port (SCM port, scm_i_pthread_mutex_t **lock)
 SCM_INLINE_IMPLEMENTATION int
 scm_get_byte_or_eof_unlocked (SCM port)
 {
-  int c;
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
-  if (pt->rw_active == SCM_PORT_WRITE)
-    /* may be marginally faster than calling scm_flush.  */
-    SCM_PORT_DESCRIPTOR (port)->flush (port);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_READ;
-
-  if (pt->read_pos >= pt->read_end)
-    {
-      if (SCM_UNLIKELY (scm_fill_input_unlocked (port) == EOF))
-	return EOF;
-    }
-
-  c = *(pt->read_pos++);
-
-  return c;
+  if (SCM_LIKELY ((pt->rw_active == SCM_PORT_READ || !pt->rw_random)
+                  && pt->read_pos < pt->read_end))
+    return *pt->read_pos++;
+  else
+    return scm_slow_get_byte_or_eof_unlocked (port);
 }
 
 /* Like `scm_get_byte_or_eof' but does not change PORT's `read_pos'.  */
 SCM_INLINE_IMPLEMENTATION int
 scm_peek_byte_or_eof_unlocked (SCM port)
 {
-  int c;
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
 
-  if (pt->rw_active == SCM_PORT_WRITE)
-    /* may be marginally faster than calling scm_flush.  */
-    SCM_PORT_DESCRIPTOR (port)->flush (port);
-
-  if (pt->rw_random)
-    pt->rw_active = SCM_PORT_READ;
-
-  if (pt->read_pos >= pt->read_end)
-    {
-      if (SCM_UNLIKELY (scm_fill_input_unlocked (port) == EOF))
-	return EOF;
-    }
-
-  c = *pt->read_pos;
-
-  return c;
+  if (SCM_LIKELY ((pt->rw_active == SCM_PORT_READ || !pt->rw_random)
+                  && pt->read_pos < pt->read_end))
+    return *pt->read_pos;
+  else
+    return scm_slow_peek_byte_or_eof_unlocked (port);
 }
 
 SCM_INLINE_IMPLEMENTATION void

@@ -1,7 +1,7 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
 @c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2007, 2009,
-@c   2010, 2011  Free Software Foundation, Inc.
+@c   2010, 2011, 2013  Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
 @node Input and Output
@@ -19,6 +19,7 @@
 * Port Types::                  Types of port and how to make them.
 * R6RS I/O Ports::              The R6RS port API.
 * I/O Extensions::              Using and extending ports in C.
+* BOM Handling::                Handling of Unicode byte order marks.
 @end menu
 
 
@@ -842,7 +843,10 @@ Most systems have limits on how many files can be open, so it's
 strongly recommended that file ports be closed explicitly when no
 longer required (@pxref{Ports}).
 
-@deffn {Scheme Procedure} open-file filename mode
+@deffn {Scheme Procedure} open-file filename mode @
+                          [#:guess-encoding=#f] [#:encoding=#f]
+@deffnx {C Function} scm_open_file_with_encoding @
+                     (filename, mode, guess_encoding, encoding)
 @deffnx {C Function} scm_open_file (filename, mode)
 Open the file whose name is @var{filename}, and return a port
 representing that file.  The attributes of the port are
@@ -884,8 +888,8 @@ Use binary mode, ensuring that each byte in the file will be read as one
 Scheme character.
 
 To provide this property, the file will be opened with the 8-bit
-character encoding "ISO-8859-1", ignoring any coding declaration or port
-encoding.  @xref{Ports}, for more information on port encodings.
+character encoding "ISO-8859-1", ignoring the default port encoding.
+@xref{Ports}, for more information on port encodings.
 
 Note that while it is possible to read and write binary data as
 characters or strings, it is usually better to treat bytes as octets,
@@ -899,15 +903,33 @@ to the underlying @code{open} call.  Still, the flag is generally useful
 because of its port encoding ramifications.
 @end table
 
-If a file cannot be opened with the access
-requested, @code{open-file} throws an exception.
+Unless binary mode is requested, the character encoding of the new port
+is determined as follows: First, if @var{guess-encoding} is true, the
+@code{file-encoding} procedure is used to guess the encoding of the file
+(@pxref{Character Encoding of Source Files}).  If @var{guess-encoding}
+is false or if @code{file-encoding} fails, @var{encoding} is used unless
+it is also false.  As a last resort, the default port encoding is used.
+@xref{Ports}, for more information on port encodings.  It is an error to
+pass a non-false @var{guess-encoding} or @var{encoding} if binary mode
+is requested.
 
-When the file is opened, this procedure will scan for a coding
-declaration (@pxref{Character Encoding of Source Files}). If a coding
-declaration is found, it will be used to interpret the file.  Otherwise,
-the port's encoding will be used.  To suppress this behavior, open the
-file in binary mode and then set the port encoding explicitly using
-@code{set-port-encoding!}.
+If a file cannot be opened with the access requested, @code{open-file}
+throws an exception.
+
+When the file is opened, its encoding is set to the current
+@code{%default-port-encoding}, unless the @code{b} flag was supplied.
+Sometimes it is desirable to honor Emacs-style coding declarations in
+files@footnote{Guile 2.0.0 to 2.0.7 would do this by default.  This
+behavior was deemed inappropriate and disabled starting from Guile
+2.0.8.}.  When that is the case, the @code{file-encoding} procedure can
+be used as follows (@pxref{Character Encoding of Source Files,
+@code{file-encoding}}):
+
+@example
+(let* ((port     (open-input-file file))
+       (encoding (file-encoding port)))
+  (set-port-encoding! port (or encoding (port-encoding port))))
+@end example
 
 In theory we could create read/write ports which were buffered
 in one direction only.  However this isn't included in the
@@ -915,23 +937,40 @@ current interfaces.
 @end deffn
 
 @rnindex open-input-file
-@deffn {Scheme Procedure} open-input-file filename
-Open @var{filename} for input.  Equivalent to
+@deffn {Scheme Procedure} open-input-file filename @
+       [#:guess-encoding=#f] [#:encoding=#f] [#:binary=#f]
+
+Open @var{filename} for input.  If @var{binary} is true, open the port
+in binary mode, otherwise use text mode.  @var{encoding} and
+@var{guess-encoding} determine the character encoding as described above
+for @code{open-file}.  Equivalent to
 @lisp
-(open-file @var{filename} "r")
+(open-file @var{filename}
+           (if @var{binary} "rb" "r")
+           #:guess-encoding @var{guess-encoding}
+           #:encoding @var{encoding})
 @end lisp
 @end deffn
 
 @rnindex open-output-file
-@deffn {Scheme Procedure} open-output-file filename
-Open @var{filename} for output.  Equivalent to
+@deffn {Scheme Procedure} open-output-file filename @
+       [#:encoding=#f] [#:binary=#f]
+
+Open @var{filename} for output.  If @var{binary} is true, open the port
+in binary mode, otherwise use text mode.  @var{encoding} specifies the
+character encoding as described above for @code{open-file}.  Equivalent
+to
 @lisp
-(open-file @var{filename} "w")
+(open-file @var{filename}
+           (if @var{binary} "wb" "w")
+           #:encoding @var{encoding})
 @end lisp
 @end deffn
 
-@deffn {Scheme Procedure} call-with-input-file filename proc
-@deffnx {Scheme Procedure} call-with-output-file filename proc
+@deffn {Scheme Procedure} call-with-input-file filename proc @
+        [#:guess-encoding=#f] [#:encoding=#f] [#:binary=#f]
+@deffnx {Scheme Procedure} call-with-output-file filename proc @
+        [#:encoding=#f] [#:binary=#f]
 @rnindex call-with-input-file
 @rnindex call-with-output-file
 Open @var{filename} for input or output, and call @code{(@var{proc}
@@ -946,9 +985,12 @@ closed automatically, though it will be garbage collected in the usual
 way if not otherwise referenced.
 @end deffn
 
-@deffn {Scheme Procedure} with-input-from-file filename thunk
-@deffnx {Scheme Procedure} with-output-to-file filename thunk
-@deffnx {Scheme Procedure} with-error-to-file filename thunk
+@deffn {Scheme Procedure} with-input-from-file filename thunk @
+        [#:guess-encoding=#f] [#:encoding=#f] [#:binary=#f]
+@deffnx {Scheme Procedure} with-output-to-file filename thunk @
+        [#:encoding=#f] [#:binary=#f]
+@deffnx {Scheme Procedure} with-error-to-file filename thunk @
+        [#:encoding=#f] [#:binary=#f]
 @rnindex with-input-from-file
 @rnindex with-output-to-file
 Open @var{filename} and call @code{(@var{thunk})} with the new port
@@ -1214,9 +1256,10 @@ possible.
 * R6RS Textual Output::         Textual output.
 @end menu
 
-A subset of the @code{(rnrs io ports)} module is provided by the
-@code{(ice-9 binary-ports)} module.  It contains binary input/output
-procedures and does not rely on R6RS support.
+A subset of the @code{(rnrs io ports)} module, plus one non-standard
+procedure @code{unget-bytevector} (@pxref{R6RS Binary Input}), is
+provided by the @code{(ice-9 binary-ports)} module.  It contains binary
+input/output procedures and does not rely on R6RS support.
 
 @node R6RS File Names
 @subsubsection File Names
@@ -1833,9 +1876,10 @@ actually read or the end-of-file object.
 
 @deffn {Scheme Procedure} get-bytevector-some port
 @deffnx {C Function} scm_get_bytevector_some (port)
-Read from @var{port}, blocking as necessary, until data are available or
-and end-of-file is reached.  Return either a new bytevector containing
-the data read or the end-of-file object.
+Read from @var{port}, blocking as necessary, until bytes are available
+or an end-of-file is reached.  Return either the end-of-file object or a
+new bytevector containing some of the available bytes (at least one),
+and update the port position to point just past these bytes.
 @end deffn
 
 @deffn {Scheme Procedure} get-bytevector-all port
@@ -1843,6 +1887,18 @@ the data read or the end-of-file object.
 Read from @var{port}, blocking as necessary, until the end-of-file is
 reached.  Return either a new bytevector containing the data read or the
 end-of-file object (if no data were available).
+@end deffn
+
+The @code{(ice-9 binary-ports)} module provides the following procedure
+as an extension to @code{(rnrs io ports)}:
+
+@deffn {Scheme Procedure} unget-bytevector port bv [start [count]]
+@deffnx {C Function} scm_unget_bytevector (port, bv, start, count)
+Place the contents of @var{bv} in @var{port}, optionally starting at
+index @var{start} and limiting to @var{count} octets, so that its bytes
+will be read from left-to-right as the next bytes from @var{port} during
+subsequent read operations.  If called multiple times, the unread bytes
+will be read again in last-in first-out order.
 @end deffn
 
 @node R6RS Textual Input
@@ -2371,6 +2427,84 @@ Set using
 @end deftypefun
 
 @end table
+
+@node BOM Handling
+@subsection Handling of Unicode byte order marks.
+@cindex BOM
+@cindex byte order mark
+
+This section documents the finer points of Guile's handling of Unicode
+byte order marks (BOMs).  A byte order mark (U+FEFF) is typically found
+at the start of a UTF-16 or UTF-32 stream, to allow readers to reliably
+determine the byte order.  Occasionally, a BOM is found at the start of
+a UTF-8 stream, but this is much less common and not generally
+recommended.
+
+Guile attempts to handle BOMs automatically, and in accordance with the
+recommendations of the Unicode Standard, when the port encoding is set
+to @code{UTF-8}, @code{UTF-16}, or @code{UTF-32}.  In brief, Guile
+automatically writes a BOM at the start of a UTF-16 or UTF-32 stream,
+and automatically consumes one from the start of a UTF-8, UTF-16, or
+UTF-32 stream.
+
+As specified in the Unicode Standard, a BOM is only handled specially at
+the start of a stream, and only if the port encoding is set to
+@code{UTF-8}, @code{UTF-16} or @code{UTF-32}.  If the port encoding is
+set to @code{UTF-16BE}, @code{UTF-16LE}, @code{UTF-32BE}, or
+@code{UTF-32LE}, then BOMs are @emph{not} handled specially, and none of
+the special handling described in this section applies.
+
+@itemize @bullet
+@item
+To ensure that Guile will properly detect the byte order of a UTF-16 or
+UTF-32 stream, you must perform a textual read before any writes, seeks,
+or binary I/O.  Guile will not attempt to read a BOM unless a read is
+explicitly requested at the start of the stream.
+
+@item
+If a textual write is performed before the first read, then an arbitrary
+byte order will be chosen.  Currently, big endian is the default on all
+platforms, but that may change in the future.  If you wish to explicitly
+control the byte order of an output stream, set the port encoding to
+@code{UTF-16BE}, @code{UTF-16LE}, @code{UTF-32BE}, or @code{UTF-32LE},
+and explicitly write a BOM (@code{#\xFEFF}) if desired.
+
+@item
+If @code{set-port-encoding!} is called in the middle of a stream, Guile
+treats this as a new logical ``start of stream'' for purposes of BOM
+handling, and will forget about any BOMs that had previously been seen.
+Therefore, it may choose a different byte order than had been used
+previously.  This is intended to support multiple logical text streams
+embedded within a larger binary stream.
+
+@item
+Binary I/O operations are not guaranteed to update Guile's notion of
+whether the port is at the ``start of the stream'', nor are they
+guaranteed to produce or consume BOMs.
+
+@item
+For ports that support seeking (e.g. normal files), the input and output
+streams are considered linked: if the user reads first, then a BOM will
+be consumed (if appropriate), but later writes will @emph{not} produce a
+BOM.  Similarly, if the user writes first, then later reads will
+@emph{not} consume a BOM.
+
+@item
+For ports that do not support seeking (e.g. pipes, sockets, and
+terminals), the input and output streams are considered
+@emph{independent} for purposes of BOM handling: the first read will
+consume a BOM (if appropriate), and the first write will @emph{also}
+produce a BOM (if appropriate).  However, the input and output streams
+will always use the same byte order.
+
+@item
+Seeks to the beginning of a file will set the ``start of stream'' flags.
+Therefore, a subsequent textual read or write will consume or produce a
+BOM.  However, unlike @code{set-port-encoding!}, if a byte order had
+already been chosen for the port, it will remain in effect after a seek,
+and cannot be changed by the presence of a BOM.  Seeks anywhere other
+than the beginning of a file clear the ``start of stream'' flags.
+@end itemize
 
 @c Local Variables:
 @c TeX-master: "guile.texi"

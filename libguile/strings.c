@@ -29,6 +29,7 @@
 #include <uninorm.h>
 #include <unistr.h>
 #include <uniconv.h>
+#include <c-strcase.h>
 
 #include "striconveh.h"
 
@@ -36,6 +37,8 @@
 #include "libguile/chars.h"
 #include "libguile/root.h"
 #include "libguile/strings.h"
+#include "libguile/ports.h"
+#include "libguile/ports-internal.h"
 #include "libguile/error.h"
 #include "libguile/generalized-vectors.h"
 #include "libguile/deprecation.h"
@@ -1534,9 +1537,9 @@ scm_from_stringn (const char *str, size_t len, const char *encoding,
   if (len == (size_t) -1)
     len = strlen (str);
 
-  if (strcmp (encoding, "ISO-8859-1") == 0 || len == 0)
+  if (c_strcasecmp (encoding, "ISO-8859-1") == 0 || len == 0)
     return scm_from_latin1_stringn (str, len);
-  else if (strcmp (encoding, "UTF-8") == 0
+  else if (c_strcasecmp (encoding, "UTF-8") == 0
            && handler == SCM_FAILED_CONVERSION_ERROR)
     return scm_from_utf8_stringn (str, len);
 
@@ -1732,10 +1735,11 @@ SCM
 scm_from_port_stringn (const char *str, size_t len, SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
 
-  if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
+  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
     return scm_from_latin1_stringn (str, len);
-  else if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8
+  else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8
            && pt->ilseq_handler == SCM_FAILED_CONVERSION_ERROR)
     return scm_from_utf8_stringn (str, len);
   else
@@ -2137,11 +2141,12 @@ char *
 scm_to_port_stringn (SCM str, size_t *lenp, SCM port)
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
 
-  if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1
+  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1
       && pt->ilseq_handler == SCM_FAILED_CONVERSION_ERROR)
     return scm_to_latin1_stringn (str, lenp);
-  else if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
+  else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
     return scm_to_utf8_stringn (str, lenp);
   else
     return scm_to_stringn (str, lenp, pt->encoding, pt->ilseq_handler);
@@ -2180,7 +2185,8 @@ scm_to_stringn (SCM str, size_t *lenp, const char *encoding,
                         "string contains #\\nul character: ~S",
                         scm_list_1 (str));
 
-  if (scm_i_is_narrow_string (str) && strcmp (encoding, "ISO-8859-1") == 0)
+  if (scm_i_is_narrow_string (str)
+      && c_strcasecmp (encoding, "ISO-8859-1") == 0)
     {
       /* If using native Latin-1 encoding, just copy the string
          contents.  */

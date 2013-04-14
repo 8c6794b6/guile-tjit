@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <unicase.h>
 #include <unictype.h>
+#include <c-strcase.h>
 
 #include "libguile/_scm.h"
 #include "libguile/bytevectors.h"
@@ -42,6 +43,7 @@
 #include "libguile/hashtab.h"
 #include "libguile/hash.h"
 #include "libguile/ports.h"
+#include "libguile/ports-internal.h"
 #include "libguile/fports.h"
 #include "libguile/root.h"
 #include "libguile/strings.h"
@@ -968,7 +970,7 @@ scm_read_character (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   size_t charname_len, bytes_read;
   scm_t_wchar cp;
   int overflow;
-  scm_t_port *pt;
+  scm_t_port_internal *pti;
 
   overflow = read_token (port, opts, buffer, READER_CHAR_NAME_MAX_SIZE,
                          &bytes_read);
@@ -986,14 +988,14 @@ scm_read_character (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
       return (SCM_MAKE_CHAR (chr));
     }
 
-  pt = SCM_PTAB_ENTRY (port);
+  pti = SCM_PORT_GET_INTERNAL (port);
 
   /* Simple ASCII characters can be processed immediately.  Also, simple
      ISO-8859-1 characters can be processed immediately if the encoding for this
      port is ISO-8859-1.  */
   if (bytes_read == 1 &&
       ((unsigned char) buffer[0] <= 127
-       || pt->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1))
+       || pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1))
     {
       SCM_COL (port) += 1;
       return SCM_MAKE_CHAR (buffer[0]);
@@ -1969,7 +1971,6 @@ scm_i_scan_for_encoding (SCM port)
   char header[SCM_ENCODING_SEARCH_SIZE+1];
   size_t bytes_read, encoding_length, i;
   char *encoding = NULL;
-  int utf8_bom = 0;
   char *pos, *encoding_start;
   int in_comment;
 
@@ -2013,10 +2014,6 @@ scm_i_scan_for_encoding (SCM port)
       header[bytes_read] = '\0';
       scm_seek (port, scm_from_int (0), scm_from_int (SEEK_SET));
     }
-
-  if (bytes_read > 3 
-      && header[0] == '\xef' && header[1] == '\xbb' && header[2] == '\xbf')
-    utf8_bom = 1;
 
   /* search past "coding[:=]" */
   pos = header;
@@ -2083,11 +2080,6 @@ scm_i_scan_for_encoding (SCM port)
     /* This wasn't in a comment */
     return NULL;
 
-  if (utf8_bom && strcasecmp (encoding, "UTF-8"))
-    scm_misc_error (NULL,
-		    "the port input declares the encoding ~s but is encoded as UTF-8",
-		    scm_list_1 (scm_from_locale_string (encoding)));
-
   return encoding;
 }
 
@@ -2112,7 +2104,7 @@ SCM_DEFINE (scm_file_encoding, "file-encoding", 1, 0, 0,
     return SCM_BOOL_F;
   else
     {
-      s_enc = scm_from_locale_string (enc);
+      s_enc = scm_string_upcase (scm_from_locale_string (enc));
       return s_enc;
     }
 
@@ -2124,8 +2116,9 @@ SCM_DEFINE (scm_file_encoding, "file-encoding", 1, 0, 0,
 /* Per-port read options.
 
    We store per-port read options in the 'port-read-options' key of the
-   port's alist.  The value stored in the alist is a single integer that
-   contains a two-bit field for each read option.
+   port's alist, which is stored in the internal port structure.  The
+   value stored in the alist is a single integer that contains a two-bit
+   field for each read option.
 
    If a bit field contains READ_OPTION_INHERIT (3), that indicates that
    the applicable value should be inherited from the corresponding
@@ -2160,12 +2153,12 @@ SCM_SYMBOL (sym_port_read_options, "port-read-options");
 static void
 set_port_read_option (SCM port, int option, int new_value)
 {
-  SCM scm_read_options;
+  SCM alist, scm_read_options;
   unsigned int read_options;
 
   new_value &= READ_OPTION_MASK;
-  scm_read_options = scm_assq_ref (SCM_PTAB_ENTRY(port)->alist,
-                                   sym_port_read_options);
+  alist = scm_i_port_alist (port);
+  scm_read_options = scm_assq_ref (alist, sym_port_read_options);
   if (scm_is_unsigned_integer (scm_read_options, 0, READ_OPTIONS_MAX_VALUE))
     read_options = scm_to_uint (scm_read_options);
   else
@@ -2173,9 +2166,8 @@ set_port_read_option (SCM port, int option, int new_value)
   read_options &= ~(READ_OPTION_MASK << option);
   read_options |= new_value << option;
   scm_read_options = scm_from_uint (read_options);
-  SCM_PTAB_ENTRY(port)->alist = scm_assq_set_x (SCM_PTAB_ENTRY(port)->alist,
-                                                sym_port_read_options,
-                                                scm_read_options);
+  alist = scm_assq_set_x (alist, sym_port_read_options, scm_read_options);
+  scm_i_set_port_alist_x (port, alist);
 }
 
 /* Set OPTS and PORT's case-insensitivity according to VALUE. */
@@ -2210,11 +2202,11 @@ set_port_curly_infix_p (SCM port, scm_t_read_opts *opts, int value)
 static void
 init_read_options (SCM port, scm_t_read_opts *opts)
 {
-  SCM val, scm_read_options;
+  SCM alist, val, scm_read_options;
   unsigned int read_options, x;
 
-  scm_read_options = scm_assq_ref (SCM_PTAB_ENTRY(port)->alist,
-                                   sym_port_read_options);
+  alist = scm_i_port_alist (port);
+  scm_read_options = scm_assq_ref (alist, sym_port_read_options);
 
   if (scm_is_unsigned_integer (scm_read_options, 0, READ_OPTIONS_MAX_VALUE))
     read_options = scm_to_uint (scm_read_options);

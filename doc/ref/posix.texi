@@ -806,9 +806,10 @@ The return value is unspecified.
 @deffn {Scheme Procedure} sendfile out in count [offset]
 @deffnx {C Function} scm_sendfile (out, in, count, offset)
 Send @var{count} bytes from @var{in} to @var{out}, both of which
-are either open file ports or file descriptors.  When
+must be either open file ports or file descriptors.  When
 @var{offset} is omitted, start reading from @var{in}'s current
-position; otherwise, start reading at @var{offset}.
+position; otherwise, start reading at @var{offset}.  Return
+the number of bytes actually sent.
 
 When @var{in} is a port, it is often preferable to specify @var{offset},
 because @var{in}'s offset as a port may be different from the offset of
@@ -824,6 +825,12 @@ In some cases, the @code{sendfile} libc function may return
 @code{EINVAL} or @code{ENOSYS}.  In that case, Guile's @code{sendfile}
 procedure automatically falls back to doing a series of @code{read} and
 @code{write} calls.
+
+In other cases, the libc function may send fewer bytes than
+@var{count}---for instance because @var{out} is a slow or limited
+device, such as a pipe.  When that happens, Guile's @code{sendfile}
+automatically retries until exactly @var{count} bytes were sent or an
+error occurs.
 @end deffn
 
 @findex rename
@@ -1008,6 +1015,43 @@ If @var{suffix} is provided, and is equal to the end of
 Return @code{#t} if the file named @var{filename} exists, @code{#f} if
 not.
 @end deffn
+
+@cindex file name separator
+@cindex absolute file name
+
+Many operating systems, such as GNU, use @code{/} (forward slash) to
+separate the components of a file name; any file name starting with
+@code{/} is considered an @dfn{absolute file name}.  These conventions
+are specified by the POSIX Base Definitions, which refer to conforming
+file names as ``pathnames''.  Some operating systems use a different
+convention; in particular, Windows uses @code{\} (backslash) as the file
+name separator, and also has the notion of @dfn{volume names} like
+@code{C:\} for absolute file names.  The following procedures and
+variables provide support for portable file name manipulations.
+
+@deffn {Scheme Procedure} system-file-name-convention
+Return either @code{posix} or @code{windows}, depending on
+what kind of system this Guile is running on.
+@end deffn
+
+@deffn {Scheme Procedure} file-name-separator? c
+Return true if character @var{c} is a file name separator on the host
+platform.
+@end deffn
+
+@deffn {Scheme Procedure} absolute-file-name? file-name
+Return true if @var{file-name} denotes an absolute file name on the host
+platform.
+@end deffn
+
+@defvr {Scheme Variable} file-name-separator-string
+The preferred file name separator.
+
+Note that on MinGW builds for Windows, both @code{/} and @code{\} are
+valid separators.  Thus, programs should not assume that
+@code{file-name-separator-string} is the @emph{only} file name
+separator---e.g., when extracting the components of a file name.
+@end defvr
 
 
 @node User Information

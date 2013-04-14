@@ -1775,50 +1775,72 @@
     'core
     'case-lambda
     (lambda (e r w s mod)
-      (let* ((tmp e)
-             (tmp ($sc-dispatch tmp '(_ . #(each (any any . each-any))))))
-        (if tmp
-          (apply (lambda (args e1 e2)
-                   (call-with-values
-                     (lambda ()
-                       (expand-lambda-case
-                         e
-                         r
-                         w
-                         s
-                         mod
-                         lambda-formals
-                         (map (lambda (tmp-2 tmp-1 tmp) (cons tmp (cons tmp-1 tmp-2)))
-                              e2
-                              e1
-                              args)))
-                     (lambda (meta lcase) (build-case-lambda s meta lcase))))
-                 tmp)
-          (syntax-violation 'case-lambda "bad case-lambda" e)))))
+      (letrec*
+        ((build-it
+           (lambda (meta clauses)
+             (call-with-values
+               (lambda () (expand-lambda-case e r w s mod lambda-formals clauses))
+               (lambda (meta* lcase)
+                 (build-case-lambda s (append meta meta*) lcase))))))
+        (let* ((tmp-1 e)
+               (tmp ($sc-dispatch tmp-1 '(_ . #(each (any any . each-any))))))
+          (if tmp
+            (apply (lambda (args e1 e2)
+                     (build-it
+                       '()
+                       (map (lambda (tmp-2 tmp-1 tmp) (cons tmp (cons tmp-1 tmp-2)))
+                            e2
+                            e1
+                            args)))
+                   tmp)
+            (let ((tmp ($sc-dispatch tmp-1 '(_ any . #(each (any any . each-any))))))
+              (if (and tmp
+                       (apply (lambda (docstring args e1 e2) (string? (syntax->datum docstring)))
+                              tmp))
+                (apply (lambda (docstring args e1 e2)
+                         (build-it
+                           (list (cons 'documentation (syntax->datum docstring)))
+                           (map (lambda (tmp-2 tmp-1 tmp) (cons tmp (cons tmp-1 tmp-2)))
+                                e2
+                                e1
+                                args)))
+                       tmp)
+                (syntax-violation 'case-lambda "bad case-lambda" e))))))))
   (global-extend
     'core
     'case-lambda*
     (lambda (e r w s mod)
-      (let* ((tmp e)
-             (tmp ($sc-dispatch tmp '(_ . #(each (any any . each-any))))))
-        (if tmp
-          (apply (lambda (args e1 e2)
-                   (call-with-values
-                     (lambda ()
-                       (expand-lambda-case
-                         e
-                         r
-                         w
-                         s
-                         mod
-                         lambda*-formals
-                         (map (lambda (tmp-2 tmp-1 tmp) (cons tmp (cons tmp-1 tmp-2)))
-                              e2
-                              e1
-                              args)))
-                     (lambda (meta lcase) (build-case-lambda s meta lcase))))
-                 tmp)
-          (syntax-violation 'case-lambda "bad case-lambda*" e)))))
+      (letrec*
+        ((build-it
+           (lambda (meta clauses)
+             (call-with-values
+               (lambda () (expand-lambda-case e r w s mod lambda*-formals clauses))
+               (lambda (meta* lcase)
+                 (build-case-lambda s (append meta meta*) lcase))))))
+        (let* ((tmp-1 e)
+               (tmp ($sc-dispatch tmp-1 '(_ . #(each (any any . each-any))))))
+          (if tmp
+            (apply (lambda (args e1 e2)
+                     (build-it
+                       '()
+                       (map (lambda (tmp-2 tmp-1 tmp) (cons tmp (cons tmp-1 tmp-2)))
+                            e2
+                            e1
+                            args)))
+                   tmp)
+            (let ((tmp ($sc-dispatch tmp-1 '(_ any . #(each (any any . each-any))))))
+              (if (and tmp
+                       (apply (lambda (docstring args e1 e2) (string? (syntax->datum docstring)))
+                              tmp))
+                (apply (lambda (docstring args e1 e2)
+                         (build-it
+                           (list (cons 'documentation (syntax->datum docstring)))
+                           (map (lambda (tmp-2 tmp-1 tmp) (cons tmp (cons tmp-1 tmp-2)))
+                                e2
+                                e1
+                                args)))
+                       tmp)
+                (syntax-violation 'case-lambda "bad case-lambda*" e))))))))
   (global-extend
     'core
     'let
@@ -3027,10 +3049,12 @@
            (lambda (fn dir k)
              (let ((p (open-input-file
                         (if (absolute-file-name? fn) fn (in-vicinity dir fn)))))
-               (let f ((x (read p)) (result '()))
-                 (if (eof-object? x)
-                   (begin (close-input-port p) (reverse result))
-                   (f (read p) (cons (datum->syntax k x) result))))))))
+               (let ((enc (file-encoding p)))
+                 (set-port-encoding! p (let ((t enc)) (if t t "UTF-8")))
+                 (let f ((x (read p)) (result '()))
+                   (if (eof-object? x)
+                     (begin (close-input-port p) (reverse result))
+                     (f (read p) (cons (datum->syntax k x) result)))))))))
         (let ((src (syntax-source x)))
           (let ((file (if src (assq-ref src 'filename) #f)))
             (let ((dir (if (string? file) (dirname file) #f)))

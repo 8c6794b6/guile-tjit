@@ -1,5 +1,5 @@
 /* Copyright (C) 1995-1999, 2000, 2001, 2002, 2003, 2004, 2006, 2008,
- *   2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -44,6 +44,7 @@
 #include "libguile/alist.h"
 #include "libguile/struct.h"
 #include "libguile/ports.h"
+#include "libguile/ports-internal.h"
 #include "libguile/root.h"
 #include "libguile/strings.h"
 #include "libguile/strports.h"
@@ -947,8 +948,24 @@ display_string_using_iconv (const void *str, int narrow_p, size_t len,
 {
   size_t printed;
   scm_t_iconv_descriptors *id;
+  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
 
-  id = scm_i_port_iconv_descriptors (port);
+  id = scm_i_port_iconv_descriptors (port, SCM_PORT_WRITE);
+
+  if (SCM_UNLIKELY (pti->at_stream_start_for_bom_write && len > 0))
+    {
+      scm_t_port *pt = SCM_PTAB_ENTRY (port);
+
+      /* Record that we're no longer at stream start.  */
+      pti->at_stream_start_for_bom_write = 0;
+      if (pt->rw_random)
+        pti->at_stream_start_for_bom_read = 0;
+
+      /* Write a BOM if appropriate.  */
+      if (SCM_UNLIKELY (strcmp(pt->encoding, "UTF-16") == 0
+                        || strcmp(pt->encoding, "UTF-32") == 0))
+        display_character (SCM_UNICODE_BOM, port, iconveh_error);
+    }
 
   printed = 0;
 
@@ -1046,13 +1063,13 @@ display_string (const void *str, int narrow_p,
 		size_t len, SCM port,
 		scm_t_string_failed_conversion_handler strategy)
 {
-  scm_t_port *pt;
+  scm_t_port_internal *pti;
 
-  pt = SCM_PTAB_ENTRY (port);
+  pti = SCM_PORT_GET_INTERNAL (port);
 
-  if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
+  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
     return display_string_as_utf8 (str, narrow_p, len, port);
-  else if (pt->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
+  else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
     return display_string_as_latin1 (str, narrow_p, len, port, strategy);
   else
     return display_string_using_iconv (str, narrow_p, len, port, strategy);

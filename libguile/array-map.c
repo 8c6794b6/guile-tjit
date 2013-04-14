@@ -1,4 +1,5 @@
-/* Copyright (C) 1996,1998,2000,2001,2004,2005, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1996, 1998, 2000, 2001, 2004, 2005, 2006, 2008, 2009,
+ *   2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -317,6 +318,23 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
     }
 }
 
+static int
+rafill (SCM dst, SCM fill)
+{
+  long n = (SCM_I_ARRAY_DIMS (dst)->ubnd - SCM_I_ARRAY_DIMS (dst)->lbnd + 1);
+  scm_t_array_handle h;
+  size_t i;
+  ssize_t inc;
+  scm_array_get_handle (SCM_I_ARRAY_V (dst), &h);
+  i = h.base + h.dims[0].lbnd + SCM_I_ARRAY_BASE (dst)*h.dims[0].inc;
+  inc = SCM_I_ARRAY_DIMS (dst)->inc * h.dims[0].inc;
+
+  for (; n-- > 0; i += inc)
+    h.impl->vset (&h, i, fill);
+
+  scm_array_handle_release (&h);
+  return 1;
+}
 
 SCM_DEFINE (scm_array_fill_x, "array-fill!", 2, 0, 0,
 	    (SCM ra, SCM fill),
@@ -324,47 +342,35 @@ SCM_DEFINE (scm_array_fill_x, "array-fill!", 2, 0, 0,
 	    "returned is unspecified.")
 #define FUNC_NAME s_scm_array_fill_x
 {
-  scm_ramapc (scm_array_fill_int, fill, ra, SCM_EOL, FUNC_NAME);
+  scm_ramapc (rafill, fill, ra, SCM_EOL, FUNC_NAME);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
-/* to be used as cproc in scm_ramapc to fill an array dimension with
-   "fill". */
-int 
-scm_array_fill_int (SCM ra, SCM fill, SCM ignore SCM_UNUSED)
-#define FUNC_NAME s_scm_array_fill_x
-{
-  unsigned long i;
-  unsigned long n = SCM_I_ARRAY_DIMS (ra)->ubnd - SCM_I_ARRAY_DIMS (ra)->lbnd + 1;
-  long inc = SCM_I_ARRAY_DIMS (ra)->inc;
-  unsigned long base = SCM_I_ARRAY_BASE (ra);
 
-  ra = SCM_I_ARRAY_V (ra);
-
-  for (i = base; n--; i += inc)
-    GVSET (ra, i, fill);
-
-  return 1;
-}
-#undef FUNC_NAME
-
-
-
-static int 
+static int
 racp (SCM src, SCM dst)
 {
   long n = (SCM_I_ARRAY_DIMS (src)->ubnd - SCM_I_ARRAY_DIMS (src)->lbnd + 1);
-  long inc_d, inc_s = SCM_I_ARRAY_DIMS (src)->inc;
-  unsigned long i_d, i_s = SCM_I_ARRAY_BASE (src);
+  scm_t_array_handle h_s, h_d;
+  size_t i_s, i_d;
+  ssize_t inc_s, inc_d;
+
   dst = SCM_CAR (dst);
-  inc_d = SCM_I_ARRAY_DIMS (dst)->inc;
-  i_d = SCM_I_ARRAY_BASE (dst);
-  src = SCM_I_ARRAY_V (src);
-  dst = SCM_I_ARRAY_V (dst);
+  scm_array_get_handle (SCM_I_ARRAY_V (src), &h_s);
+  scm_array_get_handle (SCM_I_ARRAY_V (dst), &h_d);
+
+  i_s = h_s.base + h_s.dims[0].lbnd + SCM_I_ARRAY_BASE (src) * h_s.dims[0].inc;
+  i_d = h_d.base + h_d.dims[0].lbnd + SCM_I_ARRAY_BASE (dst) * h_d.dims[0].inc;
+  inc_s = SCM_I_ARRAY_DIMS (src)->inc * h_s.dims[0].inc;
+  inc_d = SCM_I_ARRAY_DIMS (dst)->inc * h_d.dims[0].inc;
 
   for (; n-- > 0; i_s += inc_s, i_d += inc_d)
-    GVSET (dst, i_d, GVREF (src, i_s));
+    h_d.impl->vset (&h_d, i_d, h_s.impl->vref (&h_s, i_s));
+
+  scm_array_handle_release (&h_d);
+  scm_array_handle_release (&h_s);
+
   return 1;
 }
 
@@ -385,8 +391,28 @@ SCM_DEFINE (scm_array_copy_x, "array-copy!", 2, 0, 0,
 }
 #undef FUNC_NAME
 
-/* Functions callable by ARRAY-MAP! */
 
+#if SCM_ENABLE_DEPRECATED == 1
+
+/* to be used as cproc in scm_ramapc to fill an array dimension with
+   "fill". */
+int
+scm_array_fill_int (SCM ra, SCM fill, SCM ignore SCM_UNUSED)
+{
+  unsigned long i;
+  unsigned long n = SCM_I_ARRAY_DIMS (ra)->ubnd - SCM_I_ARRAY_DIMS (ra)->lbnd + 1;
+  long inc = SCM_I_ARRAY_DIMS (ra)->inc;
+  unsigned long base = SCM_I_ARRAY_BASE (ra);
+
+  ra = SCM_I_ARRAY_V (ra);
+
+  for (i = base; n--; i += inc)
+    GVSET (ra, i, fill);
+
+  return 1;
+}
+
+/* Functions callable by ARRAY-MAP! */
 
 int
 scm_ra_eqp (SCM ra0, SCM ras)
@@ -628,37 +654,52 @@ scm_array_identity (SCM dst, SCM src)
   return racp (SCM_CAR (src), scm_cons (dst, SCM_EOL));
 }
 
+#endif /* SCM_ENABLE_DEPRECATED */
 
-
-static int 
+static int
 ramap (SCM ra0, SCM proc, SCM ras)
 {
-  long i = SCM_I_ARRAY_DIMS (ra0)->lbnd;
-  long inc = SCM_I_ARRAY_DIMS (ra0)->inc;
-  long n = SCM_I_ARRAY_DIMS (ra0)->ubnd;
-  long base = SCM_I_ARRAY_BASE (ra0) - i * inc;
-  ra0 = SCM_I_ARRAY_V (ra0);
+  ssize_t i = SCM_I_ARRAY_DIMS (ra0)->lbnd;
+  size_t n = SCM_I_ARRAY_DIMS (ra0)->ubnd - i + 1;
+
+  scm_t_array_handle h0;
+  size_t i0, i0end;
+  ssize_t inc0;
+  scm_array_get_handle (SCM_I_ARRAY_V (ra0), &h0);
+  i0 = h0.base + h0.dims[0].lbnd + SCM_I_ARRAY_BASE (ra0)*h0.dims[0].inc;
+  inc0 = SCM_I_ARRAY_DIMS (ra0)->inc * h0.dims[0].inc;
+  i0end = i0 + n*inc0;
   if (scm_is_null (ras))
-    for (; i <= n; i++)
-      GVSET (ra0, i*inc+base, scm_call_0 (proc));
+    for (; i0 < i0end; i0 += inc0)
+      h0.impl->vset (&h0, i0, scm_call_0 (proc));
   else
     {
       SCM ra1 = SCM_CAR (ras);
-      SCM args;
-      unsigned long k, i1 = SCM_I_ARRAY_BASE (ra1);
-      long inc1 = SCM_I_ARRAY_DIMS (ra1)->inc;
-      ra1 = SCM_I_ARRAY_V (ra1);
-      ras = scm_vector (SCM_CDR (ras));
-      
-      for (; i <= n; i++, i1 += inc1)
-	{
-	  args = SCM_EOL;
-	  for (k = scm_c_vector_length (ras); k--;)
-	    args = scm_cons (GVREF (scm_c_vector_ref (ras, k), i), args);
-	  args = scm_cons (GVREF (ra1, i1), args);
-	  GVSET (ra0, i*inc+base, scm_apply_0 (proc, args));
-	}
+      scm_t_array_handle h1;
+      size_t i1;
+      ssize_t inc1;
+      scm_array_get_handle (SCM_I_ARRAY_V (ra1), &h1);
+      i1 = h1.base + h1.dims[0].lbnd + SCM_I_ARRAY_BASE (ra1)*h1.dims[0].inc;
+      inc1 = SCM_I_ARRAY_DIMS (ra1)->inc * h1.dims[0].inc;
+      ras = SCM_CDR (ras);
+      if (scm_is_null (ras))
+          for (; i0 < i0end; i0 += inc0, i1 += inc1)
+            h0.impl->vset (&h0, i0, scm_call_1 (proc, h1.impl->vref (&h1, i1)));
+      else
+        {
+          ras = scm_vector (ras);
+          for (; i0 < i0end; i0 += inc0, i1 += inc1, ++i)
+            {
+              SCM args = SCM_EOL;
+              unsigned long k;
+              for (k = scm_c_vector_length (ras); k--;)
+                args = scm_cons (GVREF (scm_c_vector_ref (ras, k), i), args);
+              h0.impl->vset (&h0, i0, scm_apply_1 (proc, h1.impl->vref (&h1, i1), args));
+            }
+        }
+      scm_array_handle_release (&h1);
     }
+  scm_array_handle_release (&h0);
   return 1;
 }
 
@@ -691,35 +732,34 @@ SCM_DEFINE (scm_array_map_x, "array-map!", 2, 0, 1,
 static int
 rafe (SCM ra0, SCM proc, SCM ras)
 {
-  long i = SCM_I_ARRAY_DIMS (ra0)->lbnd;
-  unsigned long i0 = SCM_I_ARRAY_BASE (ra0);
-  long inc0 = SCM_I_ARRAY_DIMS (ra0)->inc;
-  long n = SCM_I_ARRAY_DIMS (ra0)->ubnd;
-  ra0 = SCM_I_ARRAY_V (ra0);
+  ssize_t i = SCM_I_ARRAY_DIMS (ra0)->lbnd;
+  size_t n = SCM_I_ARRAY_DIMS (ra0)->ubnd - i + 1;
+
+  scm_t_array_handle h0;
+  size_t i0, i0end;
+  ssize_t inc0;
+  scm_array_get_handle (SCM_I_ARRAY_V (ra0), &h0);
+  i0 = h0.base + h0.dims[0].lbnd + SCM_I_ARRAY_BASE (ra0)*h0.dims[0].inc;
+  inc0 = SCM_I_ARRAY_DIMS (ra0)->inc * h0.dims[0].inc;
+  i0end = i0 + n*inc0;
   if (scm_is_null (ras))
-    for (; i <= n; i++, i0 += inc0)
-      scm_call_1 (proc, GVREF (ra0, i0));
+    for (; i0 < i0end; i0 += inc0)
+      scm_call_1 (proc, h0.impl->vref (&h0, i0));
   else
     {
-      SCM ra1 = SCM_CAR (ras);
-      SCM args;
-      unsigned long k, i1 = SCM_I_ARRAY_BASE (ra1);
-      long inc1 = SCM_I_ARRAY_DIMS (ra1)->inc;
-      ra1 = SCM_I_ARRAY_V (ra1);
-      ras = scm_vector (SCM_CDR (ras));
-
-      for (; i <= n; i++, i0 += inc0, i1 += inc1)
-	{
-	  args = SCM_EOL;
-	  for (k = scm_c_vector_length (ras); k--;)
-	    args = scm_cons (GVREF (scm_c_vector_ref (ras, k), i), args);
-	  args = scm_cons2 (GVREF (ra0, i0), GVREF (ra1, i1), args);
-	  scm_apply_0 (proc, args);
-	}
+      ras = scm_vector (ras);
+      for (; i0 < i0end; i0 += inc0, ++i)
+        {
+          SCM args = SCM_EOL;
+          unsigned long k;
+          for (k = scm_c_vector_length (ras); k--;)
+            args = scm_cons (GVREF (scm_c_vector_ref (ras, k), i), args);
+          scm_apply_1 (proc, h0.impl->vref (&h0, i0), args);
+        }
     }
+  scm_array_handle_release (&h0);
   return 1;
 }
-
 
 SCM_DEFINE (scm_array_for_each, "array-for-each", 2, 0, 1,
 	    (SCM proc, SCM ra0, SCM lra),

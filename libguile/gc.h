@@ -4,7 +4,7 @@
 #define SCM_GC_H
 
 /* Copyright (C) 1995, 1996, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2006,
- *   2007, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -181,6 +181,7 @@ SCM_API char *scm_gc_strdup (const char *str, const char *what)
 SCM_API char *scm_gc_strndup (const char *str, size_t n, const char *what)
   SCM_MALLOC;
 
+#define scm_gc_typed_calloc(t) ((t *) scm_gc_calloc (sizeof (t), #t))
 
 #ifdef BUILDING_LIBGUILE
 #include "libguile/bdw-gc.h"
