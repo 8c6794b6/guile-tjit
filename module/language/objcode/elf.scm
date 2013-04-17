@@ -1,6 +1,6 @@
 ;;; Embedding bytecode in ELF
 
-;; Copyright (C) 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2012, 2013 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -30,24 +30,25 @@
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 binary-ports)
   #:use-module (system vm elf)
+  #:use-module (system vm linker)
   #:export (write-objcode))
 
 (define (bytecode->elf bv)
-  (let ((string-table (make-elf-string-table)))
+  (let ((string-table (make-string-table)))
     (define (intern-string! string)
       (call-with-values
-          (lambda () (elf-string-table-intern string-table string))
+          (lambda () (string-table-intern string-table string))
         (lambda (table idx)
           (set! string-table table)
           idx)))
     (define (make-object name bv relocs . kwargs)
       (let ((name-idx (intern-string! (symbol->string name))))
-        (make-elf-object (apply make-elf-section
-                                #:name name-idx
-                                #:size (bytevector-length bv)
-                                kwargs)
-                         bv relocs
-                         (list (make-elf-symbol name 0)))))
+        (make-linker-object (apply make-elf-section
+                                   #:name name-idx
+                                   #:size (bytevector-length bv)
+                                   kwargs)
+                            bv relocs
+                            (list (make-linker-symbol name 0)))))
     (define (make-dynamic-section word-size endianness)
       (define (make-dynamic-section/32)
         (let ((bv (make-bytevector 24 0)))
@@ -57,7 +58,7 @@
           (bytevector-u32-set! bv 12 0 endianness)
           (bytevector-u32-set! bv 16 DT_NULL endianness)
           (bytevector-u32-set! bv 20 0 endianness)
-          (values bv (make-elf-reloc 'abs32/1 12 0 '.rtl-text))))
+          (values bv (make-linker-reloc 'abs32/1 12 0 '.rtl-text))))
       (define (make-dynamic-section/64)
         (let ((bv (make-bytevector 48 0)))
           (bytevector-u64-set! bv 0 DT_GUILE_RTL_VERSION endianness)
@@ -66,7 +67,7 @@
           (bytevector-u64-set! bv 24 0 endianness)
           (bytevector-u64-set! bv 32 DT_NULL endianness)
           (bytevector-u64-set! bv 40 0 endianness)
-          (values bv (make-elf-reloc 'abs64/1 24 0 '.rtl-text))))
+          (values bv (make-linker-reloc 'abs64/1 24 0 '.rtl-text))))
       (call-with-values (lambda ()
                           (case word-size
                             ((4) (make-dynamic-section/32))
@@ -75,9 +76,9 @@
         (lambda (bv reloc)
           (make-object '.dynamic bv (list reloc)
                        #:type SHT_DYNAMIC #:flags SHF_ALLOC))))
-    (define (link-string-table)
+    (define (make-string-table)
       (intern-string! ".shstrtab")
-      (make-object '.shstrtab (link-elf-string-table string-table) '()
+      (make-object '.shstrtab (link-string-table string-table) '()
                    #:type SHT_STRTAB #:flags 0))
     (let* ((word-size (target-word-size))
            (endianness (target-endianness))
@@ -85,7 +86,7 @@
            (dt (make-dynamic-section word-size endianness))
            ;; This needs to be linked last, because linking other
            ;; sections adds entries to the string table.
-           (shstrtab (link-string-table)))
+           (shstrtab (make-string-table)))
       (link-elf (list text dt shstrtab)
                 #:endianness endianness #:word-size word-size))))
 

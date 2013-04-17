@@ -1,0 +1,86 @@
+;;;; linker.test                               -*- scheme -*-
+;;;;
+;;;; Copyright 2013 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;;
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;;
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (test-suite test-linker)
+  #:use-module (test-suite lib)
+  #:use-module (rnrs bytevectors)
+  #:use-module (system base target)
+  #:use-module (system vm elf)
+  #:use-module (system vm linker))
+
+(define (link-elf-with-one-main-section name bytes)
+  (let ((string-table (make-string-table)))
+    (define (intern-string! string)
+      (call-with-values
+          (lambda () (string-table-intern string-table string))
+        (lambda (table idx)
+          (set! string-table table)
+          idx)))
+    (define (make-object name bv relocs . kwargs)
+      (let ((name-idx (intern-string! (symbol->string name))))
+        (make-linker-object (apply make-elf-section
+                                   #:name name-idx
+                                   #:size (bytevector-length bv)
+                                   kwargs)
+                            bv relocs
+                            (list (make-linker-symbol name 0)))))
+    (define (make-string-table)
+      (intern-string! ".shstrtab")
+      (make-object '.shstrtab (link-string-table string-table) '()
+                   #:type SHT_STRTAB #:flags 0))
+    (let* ((word-size (target-word-size))
+           (endianness (target-endianness))
+           (sec (make-object name bytes '()))
+           ;; This needs to be linked last, because linking other
+           ;; sections adds entries to the string table.
+           (shstrtab (make-string-table)))
+      (link-elf (list sec shstrtab)
+                #:endianness endianness #:word-size word-size))))
+
+(with-test-prefix "simple"
+  (define foo-bytes #vu8(0 1 2 3 4 5))
+  (define bytes #f)
+  (define elf #f)
+
+  (define (bytevectors-equal? bv-a bv-b start-a start-b size)
+    (or (zero? size)
+        (and (equal? (bytevector-u8-ref bv-a start-a)
+                     (bytevector-u8-ref bv-b start-b))
+             (bytevectors-equal? bv-a bv-b (1+ start-a) (1+ start-b)
+                                 (1- size)))))
+
+  (pass-if "linking succeeds"
+    (begin
+      (set! bytes (link-elf-with-one-main-section '.foo foo-bytes))
+      #t))
+
+  (pass-if "parsing succeeds"
+    (begin
+      (set! elf (parse-elf bytes))
+      (elf? elf)))
+
+  ;; 3 sections: the initial NULL section, .foo, and .shstrtab.
+  (pass-if-equal 3 (elf-shnum elf))
+
+  (pass-if ".foo section checks out"
+    (let ((sec (assoc-ref (elf-sections-by-name elf) ".foo")))
+      (and sec
+           (= (elf-section-size sec) (bytevector-length foo-bytes))
+           (bytevectors-equal? bytes foo-bytes
+                               (elf-section-offset sec) 0
+                               (bytevector-length foo-bytes))))))
