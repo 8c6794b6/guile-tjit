@@ -188,7 +188,13 @@
       (pass-if (eq? #f (typed-array? float    #t)))
       (pass-if (eq? #f (typed-array? double   #t)))
       (pass-if (eq? #f (typed-array? complex  #t)))
-      (pass-if (eq? #t (typed-array? scm      #t))))))
+      (pass-if (eq? #t (typed-array? scm      #t))))
+
+    (with-test-prefix "typed-array? returns #f"
+      (pass-if (eq? #f (typed-array? '(1 2 3) 'c64)))
+      (pass-if (eq? #f (typed-array? '(1 2 3) #t)))
+      (pass-if (eq? #f (typed-array? 99 'c64)))
+      (pass-if (eq? #f (typed-array? 99 #t))))))
 
 ;;;
 ;;; array-equal?
