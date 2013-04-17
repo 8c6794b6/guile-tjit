@@ -169,7 +169,8 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
       if (kmax < 0)
 	goto gencase;
       vra0 = scm_array_contents (ra0, SCM_UNDEFINED);
-      if (SCM_IMP (vra0)) goto gencase;
+      if (scm_is_false (vra0))
+        goto gencase;
       if (!SCM_I_ARRAYP (vra0))
 	{
 	  size_t length = scm_c_array_length (vra0);
