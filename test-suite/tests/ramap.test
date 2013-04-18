@@ -34,10 +34,22 @@
 (with-test-prefix "array-index-map!"
 
   (pass-if (let ((nlst '()))
-	     (array-index-map! (make-array #f '(1 1))
-			       (lambda (n)
-				 (set! nlst (cons n nlst))))
-	     (equal? nlst '(1)))))
+             (array-index-map! (make-array #f '(1 1))
+                               (lambda (n)
+                                 (set! nlst (cons n nlst))))
+             (equal? nlst '(1)))))
+
+;;;
+;;; array-copy!
+;;;
+
+(with-test-prefix "array-copy!"
+
+  (pass-if "empty arrays"
+    (let* ((b (make-array 0 2 2))
+           (c (make-shared-array b (lambda (i j) (list i j)) 0 2)))
+      (array-copy! #2:0:2() c)
+      (array-equal? #2:0:2() c))))
 
 ;;;
 ;;; array-map!
@@ -94,7 +106,7 @@
 
     (pass-if-exception "closure 0" exception:wrong-num-args
       (array-map! (make-array #f 5) (lambda () #f)
-		  (make-array #f 5)))
+                  (make-array #f 5)))
 
     (pass-if "closure 1"
       (let ((a (make-array #f 5)))
@@ -103,16 +115,16 @@
 
     (pass-if-exception "closure 2" exception:wrong-num-args
       (array-map! (make-array #f 5) (lambda (x y) #f)
-		  (make-array #f 5)))
+            (make-array #f 5)))
 
     (pass-if "subr_1"
       (let ((a (make-array #f 5)))
-	(array-map! a length (make-array '(x y z) 5))
-	(equal? a (make-array 3 5))))
+        (array-map! a length (make-array '(x y z) 5))
+        (equal? a (make-array 3 5))))
 
     (pass-if-exception "subr_2" exception:wrong-num-args
       (array-map! (make-array #f 5) logtest
-		  (make-array 999 5)))
+                  (make-array 999 5)))
 
     (pass-if "subr_2o"
       (let ((a (make-array #f 5)))
@@ -144,17 +156,17 @@
 
     (pass-if-exception "closure 0" exception:wrong-num-args
       (array-map! (make-array #f 5) (lambda () #f)
-		  (make-array #f 5) (make-array #f 5)))
+                  (make-array #f 5) (make-array #f 5)))
 
     (pass-if-exception "closure 1" exception:wrong-num-args
       (array-map! (make-array #f 5) (lambda (x) #f)
-		  (make-array #f 5) (make-array #f 5)))
+                  (make-array #f 5) (make-array #f 5)))
 
     (pass-if "closure 2"
       (let ((a (make-array #f 5)))
-	(array-map! a (lambda (x y) 'foo)
-		    (make-array #f 5) (make-array #f 5))
-	(equal? a (make-array 'foo 5))))
+        (array-map! a (lambda (x y) 'foo)
+                    (make-array #f 5) (make-array #f 5))
+        (equal? a (make-array 'foo 5))))
 
     (pass-if-exception "subr_1" exception:wrong-num-args
       (array-map! (make-array #f 5) length
@@ -192,31 +204,31 @@
       (let ((a (make-array #f 4)))
 	(array-map! a + #(1 2 3 4) #(5 6 7 8))
 	(equal? a #(6 8 10 12))))
-        
+
     (pass-if "noncompact arrays 1"
       (let ((a #2((0 1) (2 3)))
-            (c #(0 0)))
+            (c (make-array 0 2)))
         (begin
           (array-map! c + (array-row a 1) (array-row a 1))
           (array-equal? c #(4 6)))))
-          
+
     (pass-if "noncompact arrays 2"
       (let ((a #2((0 1) (2 3)))
-            (c #(0 0)))
+            (c (make-array 0 2)))
         (begin
           (array-map! c + (array-col a 1) (array-col a 1))
           (array-equal? c #(2 6)))))
-          
+
     (pass-if "noncompact arrays 3"
       (let ((a #2((0 1) (2 3)))
-            (c #(0 0)))
+            (c (make-array 0 2)))
         (begin
           (array-map! c + (array-col a 1) (array-row a 1))
           (array-equal? c #(3 6)))))
-          
+
     (pass-if "noncompact arrays 4"
       (let ((a #2((0 1) (2 3)))
-            (c #(0 0)))
+            (c (make-array 0 2)))
         (begin
           (array-map! c + (array-col a 1) (array-row a 1))
           (array-equal? c #(3 6)))))))
