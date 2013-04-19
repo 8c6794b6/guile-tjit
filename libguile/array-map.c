@@ -783,9 +783,7 @@ array_index_map_1 (SCM ra, SCM proc)
   scm_t_array_handle h;
   ssize_t i, inc;
   size_t p;
-  SCM v;
   scm_array_get_handle (ra, &h);
-  v = h.array;
   inc = h.dims[0].inc;
   for (i = h.dims[0].lbnd, p = h.base; i <= h.dims[0].ubnd; ++i, p += inc)
     h.vset (&h, p, scm_call_1 (proc, scm_from_ulong (i)));
@@ -806,7 +804,11 @@ array_index_map_n (SCM ra, SCM proc)
                                      indices_gc_hint);
 
   for (k = 0; k <= kmax; k++)
-    vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd;
+    {
+      vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd;
+      if (vinds[k] > SCM_I_ARRAY_DIMS (ra)[k].ubnd)
+        return;
+    }
   k = kmax;
   do
     {
@@ -822,16 +824,17 @@ array_index_map_n (SCM ra, SCM proc)
               i += SCM_I_ARRAY_DIMS (ra)[k].inc;
             }
           k--;
-          continue;
         }
-      if (vinds[k] < SCM_I_ARRAY_DIMS (ra)[k].ubnd)
+      else if (vinds[k] < SCM_I_ARRAY_DIMS (ra)[k].ubnd)
         {
           vinds[k]++;
           k++;
-          continue;
         }
-      vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd - 1;
-      k--;
+      else
+        {
+          vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd - 1;
+          k--;
+        }
     }
   while (k >= 0);
 }

@@ -33,11 +33,29 @@
 
 (with-test-prefix "array-index-map!"
 
-  (pass-if (let ((nlst '()))
-             (array-index-map! (make-array #f '(1 1))
-                               (lambda (n)
-                                 (set! nlst (cons n nlst))))
-             (equal? nlst '(1)))))
+  (pass-if "basic test"
+    (let ((nlst '()))
+      (array-index-map! (make-array #f '(1 1))
+                        (lambda (n)
+                          (set! nlst (cons n nlst))))
+      (equal? nlst '(1))))
+
+  (with-test-prefix "empty arrays"
+
+    (pass-if "all axes empty"
+      (array-index-map! (make-typed-array 'f64 0 0 0) (const 0))
+      (array-index-map! (make-typed-array 'b #t 0 0) (const #t))
+      (array-index-map! (make-typed-array #t 0 0 0) (const 0)))
+
+    (pass-if "last axis empty"
+      (array-index-map! (make-typed-array 'f64 0 2 0) (const 0))
+      (array-index-map! (make-typed-array 'b #t 2 0) (const #t))
+      (array-index-map! (make-typed-array #t 0 2 0) (const 0)))
+
+    (pass-if "axis empty, other than last"
+      (array-index-map! (make-typed-array 'f64 0 0 2) (const 0))
+      (array-index-map! (make-typed-array 'b #t 0 2) (const #t))
+      (array-index-map! (make-typed-array #t 0 0 2) (const 0)))))
 
 ;;;
 ;;; array-copy!
