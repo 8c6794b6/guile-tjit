@@ -563,15 +563,13 @@ SCM_DEFINE (scm_array_contents, "array-contents", 1, 1, 0,
 	    "contiguous in memory.")
 #define FUNC_NAME s_scm_array_contents
 {
-  SCM sra;
-
-  if (scm_is_generalized_vector (ra))
-    return ra;
-
-  if (SCM_I_ARRAYP (ra))
+  if (!scm_is_array (ra))
+    scm_wrong_type_arg_msg (NULL, 0, ra, "array");
+  else if (SCM_I_ARRAYP (ra))
     {
+      SCM v;
       size_t k, ndim = SCM_I_ARRAY_NDIM (ra), len = 1;
-      if (!SCM_I_ARRAYP (ra) || !SCM_I_ARRAY_CONTP (ra))
+      if (!SCM_I_ARRAY_CONTP (ra))
 	return SCM_BOOL_F;
       for (k = 0; k < ndim; k++)
 	len *= SCM_I_ARRAY_DIMS (ra)[k].ubnd - SCM_I_ARRAY_DIMS (ra)[k].lbnd + 1;
@@ -588,23 +586,23 @@ SCM_DEFINE (scm_array_contents, "array-contents", 1, 1, 0,
 	    }
 	}
 
-      {
-	SCM v = SCM_I_ARRAY_V (ra);
-	size_t length = scm_c_array_length (v);
-	if ((len == length) && 0 == SCM_I_ARRAY_BASE (ra) && SCM_I_ARRAY_DIMS (ra)->inc)
-	  return v;
-      }
-
-      sra = scm_i_make_array (1);
-      SCM_I_ARRAY_DIMS (sra)->lbnd = 0;
-      SCM_I_ARRAY_DIMS (sra)->ubnd = len - 1;
-      SCM_I_ARRAY_V (sra) = SCM_I_ARRAY_V (ra);
-      SCM_I_ARRAY_BASE (sra) = SCM_I_ARRAY_BASE (ra);
-      SCM_I_ARRAY_DIMS (sra)->inc = (ndim ? SCM_I_ARRAY_DIMS (ra)[ndim - 1].inc : 1);
-      return sra;
+      v = SCM_I_ARRAY_V (ra);
+      if ((len == scm_c_array_length (v)) && (0 == SCM_I_ARRAY_BASE (ra))
+          && SCM_I_ARRAY_DIMS (ra)->inc)
+        return v;
+      else
+        {
+          SCM sra = scm_i_make_array (1);
+          SCM_I_ARRAY_DIMS (sra)->lbnd = 0;
+          SCM_I_ARRAY_DIMS (sra)->ubnd = len - 1;
+          SCM_I_ARRAY_V (sra) = v;
+          SCM_I_ARRAY_BASE (sra) = SCM_I_ARRAY_BASE (ra);
+          SCM_I_ARRAY_DIMS (sra)->inc = (ndim ? SCM_I_ARRAY_DIMS (ra)[ndim - 1].inc : 1);
+          return sra;
+        }
     }
   else
-    scm_wrong_type_arg_msg (NULL, 0, ra, "array");
+    return ra;
 }
 #undef FUNC_NAME
 

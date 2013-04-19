@@ -280,6 +280,71 @@
 	   (eqv? 8 (array-ref s2 2))))))
 
 ;;;
+;;; array-contents
+;;;
+
+(with-test-prefix "array-contents"
+
+  (define (every-two x) (make-shared-array x (lambda (i) (list (* i 2))) 2))
+
+  (pass-if "simple vector"
+    (let* ((a (make-array 0 4)))
+      (eq? a (array-contents a))))
+
+  (pass-if "offset vector"
+    (let* ((a (make-array 0 '(1 4))))
+      (array-copy! #(1 2 3 4) (array-contents a))
+      (array-equal? #1@1(1 2 3 4) a)))
+
+  (pass-if "offset vector, strict"
+    (let* ((a (make-array 0 '(1 4))))
+      (array-copy! #(1 2 3 4) (array-contents a #t))
+      (array-equal? #1@1(1 2 3 4) a)))
+
+  (pass-if "stepped vector"
+    (let* ((a (make-array 0 4)))
+      (array-copy! #(99 66) (array-contents (every-two a)))
+      (array-equal? #(99 0 66 0) a)))
+
+  ;; this failed in 2.0.9.
+  (pass-if "stepped vector, strict"
+    (let* ((a (make-array 0 4)))
+      (not (array-contents (every-two a) #t))))
+
+  (pass-if "plain rank 2 array"
+    (let* ((a (make-array 0 2 2)))
+      (array-copy! #(1 2 3 4) (array-contents a #t))
+      (array-equal? #2((1 2) (3 4)) a)))
+
+  (pass-if "offset rank 2 array"
+    (let* ((a (make-array 0 '(1 2) '(1 2))))
+      (array-copy! #(1 2 3 4) (array-contents a #t))
+      (array-equal? #2@1@1((1 2) (3 4)) a)))
+
+  (pass-if "transposed rank 2 array"
+    (let* ((a (make-array 0 4 4)))
+      (not (array-contents (transpose-array a 1 0) #t))))
+
+  (pass-if "broadcast vector I"
+    (let* ((a (make-array 0 4))
+           (b (make-shared-array a (lambda (i j k) (list k)) 1 1 4)))
+      (array-copy! #(1 2 3 4) (array-contents b #t))
+      (array-equal? #(1 2 3 4) a)))
+
+  (pass-if "broadcast vector II"
+    (let* ((a (make-array 0 4))
+           (b (make-shared-array a (lambda (i j k) (list k)) 2 1 4)))
+      (not (array-contents b))))
+
+  ;; FIXME maybe this should be allowed.
+  #;
+  (pass-if "broadcast vector -> empty"
+    (let* ((a (make-array 0 4))
+           (b (make-shared-array a (lambda (i j k) (list k)) 0 1 4)))
+      (if #f #f)))
+  )
+
+;;;
 ;;; shared-array-root
 ;;;
 
