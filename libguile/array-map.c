@@ -74,108 +74,80 @@ cind (SCM ra, long *ve)
 
 
 /* Checker for scm_array mapping functions:
-   return values: 4 --> shapes, increments, and bases are the same;
+   return values:
+   5 --> empty axes;
+   4 --> shapes, increments, and bases are the same;
    3 --> shapes and increments are the same;
    2 --> shapes are the same;
    1 --> ras are at least as big as ra0;
    0 --> no match.
    */
 
-int 
+int
 scm_ra_matchp (SCM ra0, SCM ras)
 {
-  SCM ra1;
-  scm_t_array_dim dims;
-  scm_t_array_dim *s0 = &dims;
-  scm_t_array_dim *s1;
-  unsigned long bas0 = 0;
-  int i, ndim = 1;
-  int exact = 2	  /* 4 */ ;  /* Don't care about values >2 (yet?) */
+  int i, exact = 4, empty = 0;
+  scm_t_array_handle h0;
 
-  if (SCM_I_ARRAYP (ra0))
+  scm_array_get_handle (ra0, &h0);
+  for (i = 0; i < h0.ndims; ++i)
     {
-      ndim = SCM_I_ARRAY_NDIM (ra0);
-      s0 = SCM_I_ARRAY_DIMS (ra0);
-      bas0 = SCM_I_ARRAY_BASE (ra0);
+      empty = empty || (h0.dims[i].lbnd > h0.dims[i].ubnd);
     }
-  else if (scm_is_array (ra0))
-    {
-      s0->lbnd = 0;
-      s0->inc = 1;
-      s0->ubnd = scm_c_array_length (ra0) - 1;
-    }
-  else
-    return 0;
 
   while (scm_is_pair (ras))
     {
-      ra1 = SCM_CAR (ras);
+      scm_t_array_handle h1;
 
-      if (!SCM_I_ARRAYP (ra1))
-	{
-	  size_t length;
+      scm_array_get_handle (SCM_CAR (ras), &h1);
 
-	  if (1 != ndim)
-	    return 0;
+      if (h0.ndims != h1.ndims)
+        {
+          scm_array_handle_release (&h0);
+          scm_array_handle_release (&h1);
+          return 0;
+        }
+      if (h0.base != h1.base)
+        exact = min(3, exact);
 
-	  length = scm_c_array_length (ra1);
-
-	  switch (exact)
-	    {
-	    case 4:
-	      if (0 != bas0)
-		exact = 3;
-	    case 3:
-	      if (1 != s0->inc)
-		exact = 2;
-	    case 2:
-	      if ((0 == s0->lbnd) && (s0->ubnd == length - 1))
-		break;
-	      exact = 1;
-	    case 1:
-	      if (s0->lbnd < 0 || s0->ubnd >= length)
-		return 0;
-	    }
-	}
-      else if (ndim == SCM_I_ARRAY_NDIM (ra1))
-	{
-	  s1 = SCM_I_ARRAY_DIMS (ra1);
-	  if (bas0 != SCM_I_ARRAY_BASE (ra1))
-	    exact = 3;
-	  for (i = 0; i < ndim; i++)
-	    switch (exact)
-	      {
-	      case 4:
-	      case 3:
-		if (s0[i].inc != s1[i].inc)
-		  exact = 2;
-	      case 2:
-		if (s0[i].lbnd == s1[i].lbnd && s0[i].ubnd == s1[i].ubnd)
-		  break;
-		exact = 1;
-	      default:
-		if (s0[i].lbnd < s1[i].lbnd || s0[i].ubnd > s1[i].ubnd)
-		  return (s0[i].lbnd <= s0[i].ubnd ? 0 : 1);
-	      }
-	}
-      else
-	return 0;
-
+      for (i = 0; i < h0.ndims; ++i)
+        {
+          empty = empty || (h1.dims[i].lbnd > h1.dims[i].ubnd);
+          switch (exact)
+            {
+            case 4:
+            case 3:
+              if (h0.dims[i].inc != h1.dims[i].inc)
+                exact = 2;
+            case 2:
+              if (h0.dims[i].lbnd == h1.dims[i].lbnd && h0.dims[i].ubnd == h1.dims[i].ubnd)
+                break;
+              exact = 1;
+            default:
+              if (h0.dims[i].lbnd < h1.dims[i].lbnd || h0.dims[i].ubnd > h1.dims[i].ubnd)
+                {
+                  scm_array_handle_release (&h0);
+                  scm_array_handle_release (&h1);
+                  return 0;
+                }
+            }
+        }
+      scm_array_handle_release (&h1);
       ras = SCM_CDR (ras);
     }
-
-  return exact;
+  scm_array_handle_release (&h0);
+  return empty ? 5 : exact;
 }
 
-/* array mapper: apply cproc to each dimension of the given arrays?. 
+/* array mapper: apply cproc to each dimension of the given arrays?.
      int (*cproc) ();   procedure to call on unrolled arrays?
 			   cproc (dest, source list) or
-			   cproc (dest, data, source list).  
-     SCM data;          data to give to cproc or unbound. 
+			   cproc (dest, data, source list).
+     SCM data;          data to give to cproc or unbound.
      SCM ra0;           destination array.
      SCM lra;           list of source arrays.
      const char *what;  caller, for error reporting. */
-int 
+int
 scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
 {
   SCM z;
@@ -320,6 +292,7 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
       }
     while (k >= 0);
 
+    case 5:
     return 1;
     }
 }

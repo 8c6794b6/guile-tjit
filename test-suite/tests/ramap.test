@@ -19,6 +19,9 @@
 (define-module (test-suite test-ramap)
   #:use-module (test-suite lib))
 
+(define exception:shape-mismatch
+  (cons 'misc-error ".*shape mismatch.*"))
+
 (define (array-row a i)
   (make-shared-array a (lambda (j) (list i j))
                        (cadr (array-dimensions a))))
@@ -45,17 +48,21 @@
     (pass-if "all axes empty"
       (array-index-map! (make-typed-array 'f64 0 0 0) (const 0))
       (array-index-map! (make-typed-array 'b #t 0 0) (const #t))
-      (array-index-map! (make-typed-array #t 0 0 0) (const 0)))
+      (array-index-map! (make-typed-array #t 0 0 0) (const 0))
+      #t)
 
     (pass-if "last axis empty"
       (array-index-map! (make-typed-array 'f64 0 2 0) (const 0))
       (array-index-map! (make-typed-array 'b #t 2 0) (const #t))
-      (array-index-map! (make-typed-array #t 0 2 0) (const 0)))
+      (array-index-map! (make-typed-array #t 0 2 0) (const 0))
+      #t)
 
+    ; the 'f64 cases fail in 2.0.9 with out-of-range.
     (pass-if "axis empty, other than last"
       (array-index-map! (make-typed-array 'f64 0 0 2) (const 0))
       (array-index-map! (make-typed-array 'b #t 0 2) (const #t))
-      (array-index-map! (make-typed-array #t 0 0 2) (const 0)))))
+      (array-index-map! (make-typed-array #t 0 0 2) (const 0))
+      #t)))
 
 ;;;
 ;;; array-copy!
@@ -63,11 +70,23 @@
 
 (with-test-prefix "array-copy!"
 
-  (pass-if "empty arrays"
-    (let* ((b (make-array 0 2 2))
-           (c (make-shared-array b (lambda (i j) (list i j)) 0 2)))
-      (array-copy! #2:0:2() c)
-      (array-equal? #2:0:2() c))))
+  (with-test-prefix "empty arrays"
+
+    (pass-if "empty other than last, #t"
+      (let* ((b (make-array 0 2 2))
+             (c (make-shared-array b (lambda (i j) (list i j)) 0 2)))
+        (array-copy! #2:0:2() c)
+        (array-equal? #2:0:2() c)))
+
+    (pass-if "empty other than last, 'f64"
+      (let* ((b (make-typed-array 'f64 0 2 2))
+             (c (make-shared-array b (lambda (i j) (list i j)) 0 2)))
+        (array-copy! #2:0:2() c)
+        (array-equal? #2f64:0:2() c)))
+
+    ;; FIXME add type 'b cases.
+
+    ))
 
 ;;;
 ;;; array-map!
@@ -318,4 +337,28 @@
              (l '())
              (rec (lambda args (set! l (cons args l)))))
         (array-for-each rec (array-col a 1) (array-col a 0) (array-row a 1))
-        l))))
+        l)))
+
+  (with-test-prefix "empty arrays"
+
+    (pass-if "empty other than last, #t" ; fails in 2.0.9 with bad a.
+      (let* ((a (list))
+             (b (make-array 0 2 2))
+             (c (make-shared-array b (lambda (i j) (list i j)) 0 2)))
+        (array-for-each (lambda (c) (set! a (cons c a))) c)
+        (equal? a '())))
+
+    (pass-if "empty other than last, f64" ; fails in 2.0.9 with out of range.
+      (let* ((a (list))
+             (b (make-typed-array 'f64 0 2 2))
+             (c (make-shared-array b (lambda (i j) (list i j)) 0 2)))
+        (array-for-each (lambda (c) (set! a (cons c a))) c)
+        (equal? a '())))
+
+    ;; FIXME add type 'b cases.
+
+    (pass-if-exception "empty arrays shape check" exception:shape-mismatch
+      (let* ((a (list))
+             (b (make-typed-array 'f64 0 0 2))
+             (c (make-typed-array 'f64 0 2 0)))
+        (array-for-each (lambda (b c) (set! a (cons* b c a))) b c)))))
