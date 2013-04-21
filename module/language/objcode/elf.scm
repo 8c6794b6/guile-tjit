@@ -41,15 +41,16 @@
         (lambda (table idx)
           (set! string-table table)
           idx)))
-    (define (make-object name bv relocs . kwargs)
+    (define (make-object index name bv relocs . kwargs)
       (let ((name-idx (intern-string! (symbol->string name))))
         (make-linker-object (apply make-elf-section
+                                   #:index index
                                    #:name name-idx
                                    #:size (bytevector-length bv)
                                    kwargs)
                             bv relocs
                             (list (make-linker-symbol name 0)))))
-    (define (make-dynamic-section word-size endianness)
+    (define (make-dynamic-section index word-size endianness)
       (define (make-dynamic-section/32)
         (let ((bv (make-bytevector 24 0)))
           (bytevector-u32-set! bv 0 DT_GUILE_RTL_VERSION endianness)
@@ -74,19 +75,19 @@
                             ((8) (make-dynamic-section/64))
                             (else (error "unexpected word size" word-size))))
         (lambda (bv reloc)
-          (make-object '.dynamic bv (list reloc)
+          (make-object index '.dynamic bv (list reloc)
                        #:type SHT_DYNAMIC #:flags SHF_ALLOC))))
-    (define (make-string-table)
+    (define (make-string-table index)
       (intern-string! ".shstrtab")
-      (make-object '.shstrtab (link-string-table string-table) '()
+      (make-object index '.shstrtab (link-string-table string-table) '()
                    #:type SHT_STRTAB #:flags 0))
     (let* ((word-size (target-word-size))
            (endianness (target-endianness))
-           (text (make-object '.rtl-text bv '()))
-           (dt (make-dynamic-section word-size endianness))
+           (text (make-object 1 '.rtl-text bv '()))
+           (dt (make-dynamic-section 2 word-size endianness))
            ;; This needs to be linked last, because linking other
            ;; sections adds entries to the string table.
-           (shstrtab (make-string-table)))
+           (shstrtab (make-string-table 3)))
       (link-elf (list text dt shstrtab)
                 #:endianness endianness #:word-size word-size))))
 

@@ -31,9 +31,10 @@
         (lambda (table idx)
           (set! string-table table)
           idx)))
-    (define (make-object name bv relocs . kwargs)
+    (define (make-object index name bv relocs . kwargs)
       (let ((name-idx (intern-string! (symbol->string name))))
         (make-linker-object (apply make-elf-section
+                                   #:index index
                                    #:name name-idx
                                    #:size (bytevector-length bv)
                                    kwargs)
@@ -41,11 +42,11 @@
                             (list (make-linker-symbol name 0)))))
     (define (make-string-table)
       (intern-string! ".shstrtab")
-      (make-object '.shstrtab (link-string-table string-table) '()
+      (make-object 2 '.shstrtab (link-string-table string-table) '()
                    #:type SHT_STRTAB #:flags 0))
     (let* ((word-size (target-word-size))
            (endianness (target-endianness))
-           (sec (make-object name bytes '()))
+           (sec (make-object 1 name bytes '()))
            ;; This needs to be linked last, because linking other
            ;; sections adds entries to the string table.
            (shstrtab (make-string-table)))

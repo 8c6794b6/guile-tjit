@@ -16,6 +16,19 @@
 ;;;; License along with this library; if not, write to the Free Software
 ;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
+;;; Commentary:
+;;;
+;;; A module to read and write Executable and Linking Format (ELF)
+;;; files.
+;;;
+;;; This module exports a number of record types that represent the
+;;; various parts that make up ELF files.  Fundamentally this is the
+;;; main header, the segment headers (program headers), and the section
+;;; headers.  It also exports bindings for symbolic constants and
+;;; utilities to parse and write special kinds of ELF sections.
+;;;
+;;; See elf(5) for more information on ELF.
+;;;
 ;;; Code:
 
 (define-module (system vm elf)
@@ -27,7 +40,8 @@
   #:use-module (ice-9 vlist)
   #:export (has-elf-header?
 
-            make-elf elf?
+            (make-elf* . make-elf)
+            elf?
             elf-bytes elf-word-size elf-byte-order
             elf-abi elf-type elf-machine-type
             elf-entry elf-phoff elf-shoff elf-flags elf-ehsize
@@ -37,6 +51,7 @@
 
             (make-elf-segment* . make-elf-segment)
             elf-segment?
+            elf-segment-index
             elf-segment-type elf-segment-offset elf-segment-vaddr
             elf-segment-paddr elf-segment-filesz elf-segment-memsz
             elf-segment-flags elf-segment-align
@@ -51,6 +66,7 @@
 
             (make-elf-section* . make-elf-section)
             elf-section?
+            elf-section-index
             elf-section-name elf-section-type elf-section-flags
             elf-section-addr elf-section-offset elf-section-size
             elf-section-link elf-section-info elf-section-addralign
@@ -242,6 +258,26 @@
   (shnum elf-shnum)
   (shstrndx elf-shstrndx))
 
+(define* (make-elf* #:key (bytes #f)
+                    (byte-order (target-endianness))
+                    (word-size (target-word-size))
+                    (abi ELFOSABI_STANDALONE)
+                    (type ET_DYN)
+                    (machine-type EM_NONE)
+                    (entry 0)
+                    (phoff (elf-header-len word-size))
+                    (shoff -1)
+                    (flags 0)
+                    (ehsize (elf-header-len word-size))
+                    (phentsize (elf-program-header-len word-size))
+                    (phnum 0)
+                    (shentsize (elf-section-header-len word-size))
+                    (shnum 0)
+                    (shstrndx SHN_UNDEF))
+  (make-elf bytes word-size byte-order abi type machine-type
+            entry phoff shoff flags ehsize
+            phentsize phnum shentsize shnum shstrndx))
+
 (define (parse-elf32 bv byte-order)
   (make-elf bv 4 byte-order
             (bytevector-u8-ref bv 7)
@@ -276,28 +312,27 @@
   (bytevector-u8-set! bv 14 0)
   (bytevector-u8-set! bv 15 0))
 
-(define (write-elf32 bv byte-order abi type machine-type
-                     entry phoff shoff flags ehsize phentsize phnum
-                     shentsize shnum shstrndx)
-  (write-elf-ident bv ELFCLASS32
-                   (case byte-order
-                     ((little) ELFDATA2LSB)
-                     ((big) ELFDATA2MSB)
-                     (else (error "unknown endianness" byte-order)))
-                   abi)
-  (bytevector-u16-set! bv 16 type byte-order)
-  (bytevector-u16-set! bv 18 machine-type byte-order)
-  (bytevector-u32-set! bv 20 EV_CURRENT byte-order)
-  (bytevector-u32-set! bv 24 entry byte-order)
-  (bytevector-u32-set! bv 28 phoff byte-order)
-  (bytevector-u32-set! bv 32 shoff byte-order)
-  (bytevector-u32-set! bv 36 flags byte-order)
-  (bytevector-u16-set! bv 40 ehsize byte-order)
-  (bytevector-u16-set! bv 42 phentsize byte-order)
-  (bytevector-u16-set! bv 44 phnum byte-order)
-  (bytevector-u16-set! bv 46 shentsize byte-order)
-  (bytevector-u16-set! bv 48 shnum byte-order)
-  (bytevector-u16-set! bv 50 shstrndx byte-order))
+(define (write-elf32-header bv elf)
+  (let ((byte-order (elf-byte-order elf)))
+    (write-elf-ident bv ELFCLASS32
+                     (case byte-order
+                       ((little) ELFDATA2LSB)
+                       ((big) ELFDATA2MSB)
+                       (else (error "unknown endianness" byte-order)))
+                     (elf-abi elf))
+    (bytevector-u16-set! bv 16 (elf-type elf) byte-order)
+    (bytevector-u16-set! bv 18 (elf-machine-type elf) byte-order)
+    (bytevector-u32-set! bv 20 EV_CURRENT byte-order)
+    (bytevector-u32-set! bv 24 (elf-entry elf) byte-order)
+    (bytevector-u32-set! bv 28 (elf-phoff elf) byte-order)
+    (bytevector-u32-set! bv 32 (elf-shoff elf) byte-order)
+    (bytevector-u32-set! bv 36 (elf-flags elf) byte-order)
+    (bytevector-u16-set! bv 40 (elf-ehsize elf) byte-order)
+    (bytevector-u16-set! bv 42 (elf-phentsize elf) byte-order)
+    (bytevector-u16-set! bv 44 (elf-phnum elf) byte-order)
+    (bytevector-u16-set! bv 46 (elf-shentsize elf) byte-order)
+    (bytevector-u16-set! bv 48 (elf-shnum elf) byte-order)
+    (bytevector-u16-set! bv 50 (elf-shstrndx elf) byte-order)))
 
 (define (parse-elf64 bv byte-order)
   (make-elf bv 8 byte-order
@@ -315,28 +350,27 @@
             (bytevector-u16-ref bv 60 byte-order)
             (bytevector-u16-ref bv 62 byte-order)))
 
-(define (write-elf64 bv byte-order abi type machine-type
-                     entry phoff shoff flags ehsize phentsize phnum
-                     shentsize shnum shstrndx)
-  (write-elf-ident bv ELFCLASS64
-                   (case byte-order
-                     ((little) ELFDATA2LSB)
-                     ((big) ELFDATA2MSB)
-                     (else (error "unknown endianness" byte-order)))
-                   abi)
-  (bytevector-u16-set! bv 16 type byte-order)
-  (bytevector-u16-set! bv 18 machine-type byte-order)
-  (bytevector-u32-set! bv 20 EV_CURRENT byte-order)
-  (bytevector-u64-set! bv 24 entry byte-order)
-  (bytevector-u64-set! bv 32 phoff byte-order)
-  (bytevector-u64-set! bv 40 shoff byte-order)
-  (bytevector-u32-set! bv 48 flags byte-order)
-  (bytevector-u16-set! bv 52 ehsize byte-order)
-  (bytevector-u16-set! bv 54 phentsize byte-order)
-  (bytevector-u16-set! bv 56 phnum byte-order)
-  (bytevector-u16-set! bv 58 shentsize byte-order)
-  (bytevector-u16-set! bv 60 shnum byte-order)
-  (bytevector-u16-set! bv 62 shstrndx byte-order))
+(define (write-elf64-header bv elf)
+  (let ((byte-order (elf-byte-order elf)))
+    (write-elf-ident bv ELFCLASS64
+                     (case byte-order
+                       ((little) ELFDATA2LSB)
+                       ((big) ELFDATA2MSB)
+                       (else (error "unknown endianness" byte-order)))
+                     (elf-abi elf))
+    (bytevector-u16-set! bv 16 (elf-type elf) byte-order)
+    (bytevector-u16-set! bv 18 (elf-machine-type elf) byte-order)
+    (bytevector-u32-set! bv 20 EV_CURRENT byte-order)
+    (bytevector-u64-set! bv 24 (elf-entry elf) byte-order)
+    (bytevector-u64-set! bv 32 (elf-phoff elf) byte-order)
+    (bytevector-u64-set! bv 40 (elf-shoff elf) byte-order)
+    (bytevector-u32-set! bv 48 (elf-flags elf) byte-order)
+    (bytevector-u16-set! bv 52 (elf-ehsize elf) byte-order)
+    (bytevector-u16-set! bv 54 (elf-phentsize elf) byte-order)
+    (bytevector-u16-set! bv 56 (elf-phnum elf) byte-order)
+    (bytevector-u16-set! bv 58 (elf-shentsize elf) byte-order)
+    (bytevector-u16-set! bv 60 (elf-shnum elf) byte-order)
+    (bytevector-u16-set! bv 62 (elf-shstrndx elf) byte-order)))
 
 (define (parse-elf bv)
   (cond
@@ -354,28 +388,12 @@
    (else
     (error "Invalid ELF" bv))))
 
-(define* (write-elf-header bv #:key
-                           (byte-order (target-endianness))
-                           (word-size (target-word-size))
-                           (abi ELFOSABI_STANDALONE)
-                           (type ET_DYN)
-                           (machine-type EM_NONE)
-                           (entry 0)
-                           (phoff (elf-header-len word-size))
-                           (shoff -1)
-                           (flags 0)
-                           (ehsize (elf-header-len word-size))
-                           (phentsize (elf-program-header-len word-size))
-                           (phnum 0)
-                           (shentsize (elf-section-header-len word-size))
-                           (shnum 0)
-                           (shstrndx SHN_UNDEF))
-  ((case word-size
-     ((4) write-elf32)
-     ((8) write-elf64)
-     (else (error "unknown word size" word-size)))
-   bv byte-order abi type machine-type entry phoff shoff
-   flags ehsize phentsize phnum shentsize shnum shstrndx))
+(define* (write-elf-header bv elf)
+  ((case (elf-word-size elf)
+     ((4) write-elf32-header)
+     ((8) write-elf64-header)
+     (else (error "unknown word size" (elf-word-size elf))))
+   bv elf))
 
 ;;
 ;; Segment types
@@ -402,8 +420,9 @@
 (define PF_R            (ash 1 2))      ; Segment is readable
 
 (define-record-type <elf-segment>
-  (make-elf-segment type offset vaddr paddr filesz memsz flags align)
+  (make-elf-segment index type offset vaddr paddr filesz memsz flags align)
   elf-segment?
+  (index elf-segment-index)
   (type elf-segment-type)
   (offset elf-segment-offset)
   (vaddr elf-segment-vaddr)
@@ -413,11 +432,11 @@
   (flags elf-segment-flags)
   (align elf-segment-align))
 
-(define* (make-elf-segment* #:key (type PT_LOAD) (offset 0) (vaddr 0)
+(define* (make-elf-segment* #:key (index -1) (type PT_LOAD) (offset 0) (vaddr 0)
                             (paddr 0) (filesz 0) (memsz filesz)
                             (flags (logior PF_W PF_R))
                             (align 8))
-  (make-elf-segment type offset vaddr paddr filesz memsz flags align))
+  (make-elf-segment index type offset vaddr paddr filesz memsz flags align))
 
 ;; typedef struct {
 ;;     uint32_t   p_type;
@@ -430,9 +449,10 @@
 ;;     uint32_t   p_align;
 ;; } Elf32_Phdr;
 
-(define (parse-elf32-program-header bv offset byte-order)
+(define (parse-elf32-program-header index bv offset byte-order)
   (if (<= (+ offset 32) (bytevector-length bv))
-      (make-elf-segment (bytevector-u32-ref bv offset byte-order)
+      (make-elf-segment index
+                        (bytevector-u32-ref bv offset byte-order)
                         (bytevector-u32-ref bv (+ offset 4) byte-order)
                         (bytevector-u32-ref bv (+ offset 8) byte-order)
                         (bytevector-u32-ref bv (+ offset 12) byte-order)
@@ -466,9 +486,10 @@
 
 ;; NB: position of `flags' is different!
 
-(define (parse-elf64-program-header bv offset byte-order)
+(define (parse-elf64-program-header index bv offset byte-order)
   (if (<= (+ offset 56) (bytevector-length bv))
-      (make-elf-segment (bytevector-u32-ref bv offset byte-order)
+      (make-elf-segment index
+                        (bytevector-u32-ref bv offset byte-order)
                         (bytevector-u64-ref bv (+ offset 8) byte-order)
                         (bytevector-u64-ref bv (+ offset 16) byte-order)
                         (bytevector-u64-ref bv (+ offset 24) byte-order)
@@ -519,8 +540,10 @@
         (lp (1- n) (cons (elf-segment elf (1- n)) out)))))
 
 (define-record-type <elf-section>
-  (make-elf-section name type flags addr offset size link info addralign entsize)
+  (make-elf-section index name type flags
+                    addr offset size link info addralign entsize)
   elf-section?
+  (index elf-section-index)
   (name elf-section-name)
   (type elf-section-type)
   (flags elf-section-flags)
@@ -532,10 +555,10 @@
   (addralign elf-section-addralign)
   (entsize elf-section-entsize))
 
-(define* (make-elf-section* #:key (name 0) (type SHT_PROGBITS)
+(define* (make-elf-section* #:key (index SHN_UNDEF) (name 0) (type SHT_PROGBITS)
                             (flags SHF_ALLOC) (addr 0) (offset 0) (size 0)
                             (link 0) (info 0) (addralign 8) (entsize 0))
-  (make-elf-section name type flags addr offset size link info addralign
+  (make-elf-section index name type flags addr offset size link info addralign
                     entsize))
 
 ;; typedef struct {
@@ -551,9 +574,10 @@
 ;;     uint32_t   sh_entsize;
 ;; } Elf32_Shdr;
 
-(define (parse-elf32-section-header bv offset byte-order)
+(define (parse-elf32-section-header index bv offset byte-order)
   (if (<= (+ offset 40) (bytevector-length bv))
-      (make-elf-section (bytevector-u32-ref bv offset byte-order)
+      (make-elf-section index
+                        (bytevector-u32-ref bv offset byte-order)
                         (bytevector-u32-ref bv (+ offset 4) byte-order)
                         (bytevector-u32-ref bv (+ offset 8) byte-order)
                         (bytevector-u32-ref bv (+ offset 12) byte-order)
@@ -597,9 +621,10 @@
     ((8) 64)
     (else (error "bad word size" word-size))))
 
-(define (parse-elf64-section-header bv offset byte-order)
+(define (parse-elf64-section-header index bv offset byte-order)
   (if (<= (+ offset 64) (bytevector-length bv))
-      (make-elf-section (bytevector-u32-ref bv offset byte-order)
+      (make-elf-section index
+                        (bytevector-u32-ref bv offset byte-order)
                         (bytevector-u32-ref bv (+ offset 4) byte-order)
                         (bytevector-u64-ref bv (+ offset 8) byte-order)
                         (bytevector-u64-ref bv (+ offset 16) byte-order)
@@ -630,6 +655,7 @@
      ((4) parse-elf32-section-header)
      ((8) parse-elf64-section-header)
      (else (error "unhandled pointer size")))
+   n
    (elf-bytes elf)
    (+ (elf-shoff elf) (* n (elf-shentsize elf)))
    (elf-byte-order elf)))
