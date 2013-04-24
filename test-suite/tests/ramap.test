@@ -316,7 +316,14 @@
             (c (make-array 0 2)))
         (begin
           (array-map! c + (array-col a 1) (array-row a 1))
-          (array-equal? c #(3 6))))))
+          (array-equal? c #(3 6)))))
+
+    (pass-if "offset arrays 1"
+      (let ((a #2@1@-3((0 1) (2 3)))
+            (c (make-array 0 '(1 2) '(-3 -2))))
+        (begin
+          (array-map! c + a a)
+          (array-equal? c #2@1@-3((0 2) (4 6)))))))
 
   ;; note that array-copy! has the opposite behavior.
 
