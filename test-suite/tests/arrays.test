@@ -342,7 +342,16 @@
     (let* ((a (make-array 0 4))
            (b (make-shared-array a (lambda (i j k) (list k)) 0 1 4)))
       (if #f #f)))
-  )
+
+  (pass-if "broadcast 2-rank I"
+    (let* ((a #2((1 2 3) (4 5 6)))
+           (b (make-shared-array a (lambda (i j) (list 0 j)) 2 3)))
+      (not (array-contents b))))
+
+  (pass-if "broadcast 2-rank I"
+    (let* ((a #2((1 2 3) (4 5 6)))
+           (b (make-shared-array a (lambda (i j) (list i 0)) 2 3)))
+      (not (array-contents b)))))
 
 ;;;
 ;;; shared-array-root

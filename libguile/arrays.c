@@ -548,8 +548,8 @@ SCM_DEFINE (scm_transpose_array, "transpose-array", 1, 0, 1,
 
 /* attempts to unroll an array into a one-dimensional array.
    returns the unrolled array or #f if it can't be done.  */
-  /* if strict is not SCM_UNDEFINED, return #f if returned array
-		     wouldn't have contiguous elements.  */
+/* if strict is true, return #f if returned array
+   wouldn't have contiguous elements.  */
 SCM_DEFINE (scm_array_contents, "array-contents", 1, 1, 0,
            (SCM ra, SCM strict),
 	    "If @var{ra} may be @dfn{unrolled} into a one dimensional shared\n"
