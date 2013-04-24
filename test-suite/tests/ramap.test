@@ -84,9 +84,57 @@
         (array-copy! #2:0:2() c)
         (array-equal? #2f64:0:2() c)))
 
-    ;; FIXME add type 'b cases.
+  ;; FIXME add empty, type 'b cases.
 
-    ))
+    )
+
+  ;; note that it is the opposite of array-map!. This is, unfortunately,
+  ;; documented in the manual.
+
+  (pass-if "matching behavior I"
+    (let ((a #(1 2))
+          (b (make-array 0 3)))
+      (array-copy! a b)
+      (equal? b #(1 2 0))))
+
+  (pass-if-exception "matching behavior II" exception:shape-mismatch
+    (let ((a #(1 2 3))
+          (b (make-array 0 2)))
+      (array-copy! a b)
+      (equal? b #(1 2))))
+
+  (pass-if "rank 2"
+    (let ((a #2((1 2) (3 4)))
+          (b (make-array 0 2 2))
+          (c (make-array 0 2 2))
+          (d (make-array 0 2 2))
+          (e (make-array 0 2 2)))
+      (array-copy! a b)
+      (array-copy! a (transpose-array c 1 0))
+      (array-copy! (transpose-array a 1 0) d)
+      (array-copy! (transpose-array a 1 0) (transpose-array e 1 0))
+      (and (equal? a #2((1 2) (3 4)))
+           (equal? b #2((1 2) (3 4)))
+           (equal? c #2((1 3) (2 4)))
+           (equal? d #2((1 3) (2 4)))
+           (equal? e #2((1 2) (3 4))))))
+
+  (pass-if "rank 1"
+    (let* ((a #2((1 2) (3 4)))
+           (b (make-shared-array a (lambda (j) (list 1 j)) 2))
+           (c (make-shared-array a (lambda (i) (list (- 1 i) 1)) 2))
+           (d (make-array 0 2))
+           (e (make-array 0 2)))
+      (array-copy! b d)
+      (array-copy! c e)
+      (and (equal? d #(3 4))
+           (equal? e #(4 2)))))
+
+  (pass-if "rank 0"
+    (let ((a #0(99))
+          (b (make-array 0)))
+      (array-copy! a b)
+      (equal? b #0(99)))))
 
 ;;;
 ;;; array-map!
@@ -152,7 +200,7 @@
 
     (pass-if-exception "closure 2" exception:wrong-num-args
       (array-map! (make-array #f 5) (lambda (x y) #f)
-            (make-array #f 5)))
+                  (make-array #f 5)))
 
     (pass-if "subr_1"
       (let ((a (make-array #f 5)))
@@ -268,7 +316,21 @@
             (c (make-array 0 2)))
         (begin
           (array-map! c + (array-col a 1) (array-row a 1))
-          (array-equal? c #(3 6)))))))
+          (array-equal? c #(3 6))))))
+
+  ;; note that array-copy! has the opposite behavior.
+
+  (pass-if-exception "matching behavior I" exception:shape-mismatch
+    (let ((a #(1 2))
+          (b (make-array 0 3)))
+      (array-map! b values a)
+      (equal? b #(1 2 0))))
+
+  (pass-if "matching behavior II"
+    (let ((a #(1 2 3))
+          (b (make-array 0 2)))
+      (array-map! b values a)
+      (equal? b #(1 2)))))
 
 ;;;
 ;;; array-for-each
