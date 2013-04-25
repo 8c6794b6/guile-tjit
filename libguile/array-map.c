@@ -59,72 +59,6 @@ ASET (SCM v, size_t pos, SCM val)
   scm_c_array_set_1_x (v, val, pos);
 }
 
-/* Checker for scm_array mapping functions, returns:
-
-   5 --> empty axes;
-   4 --> shapes, increments, and bases are the same;
-   3 --> shapes and increments are the same;
-   2 --> shapes are the same;
-   1 --> ras are at least as big as ra0;
-   0 --> no match.
-   */
-
-int
-scm_ra_matchp (SCM ra0, SCM ras)
-{
-  int i, exact = 4, empty = 0;
-  scm_t_array_handle h0;
-
-  scm_array_get_handle (ra0, &h0);
-  for (i = 0; i < h0.ndims; ++i)
-    {
-      empty = empty || (h0.dims[i].lbnd > h0.dims[i].ubnd);
-    }
-
-  while (scm_is_pair (ras))
-    {
-      scm_t_array_handle h1;
-
-      scm_array_get_handle (SCM_CAR (ras), &h1);
-
-      if (h0.ndims != h1.ndims)
-        {
-          scm_array_handle_release (&h0);
-          scm_array_handle_release (&h1);
-          return 0;
-        }
-      if (h0.base != h1.base)
-        exact = min(3, exact);
-
-      for (i = 0; i < h0.ndims; ++i)
-        {
-          empty = empty || (h1.dims[i].lbnd > h1.dims[i].ubnd);
-          switch (exact)
-            {
-            case 4:
-            case 3:
-              if (h0.dims[i].inc != h1.dims[i].inc)
-                exact = 2;
-            case 2:
-              if (h0.dims[i].lbnd == h1.dims[i].lbnd && h0.dims[i].ubnd == h1.dims[i].ubnd)
-                break;
-              exact = 1;
-            default:
-              if (h0.dims[i].lbnd < h1.dims[i].lbnd || h0.dims[i].ubnd > h1.dims[i].ubnd)
-                {
-                  scm_array_handle_release (&h0);
-                  scm_array_handle_release (&h1);
-                  return 0;
-                }
-            }
-        }
-      scm_array_handle_release (&h1);
-      ras = SCM_CDR (ras);
-    }
-  scm_array_handle_release (&h0);
-  return empty ? 5 : exact;
-}
-
 static SCM
 make1array (SCM v, ssize_t inc)
 {
@@ -137,46 +71,11 @@ make1array (SCM v, ssize_t inc)
   return a;
 }
 
-/* Find down to which rank the array is unrollable. 0 means fully
-   unrollable, which all rank-0 and rank-1 arrays are. */
-static int
-find_unrollk (SCM ra, int k)
-{
-  if (k <= 0)
-    return 0;
-  else
-    {
-      ssize_t inc;
-      inc = SCM_I_ARRAY_DIMS (ra)[k].inc;
-      do {
-        size_t lenk = (SCM_I_ARRAY_DIMS (ra)[k].ubnd
-                       - SCM_I_ARRAY_DIMS (ra)[k].lbnd + 1);
-        inc *= lenk;
-        --k;
-      } while (k >= 0 && inc == SCM_I_ARRAY_DIMS (ra)[k].inc);
-      return k+1;
-    }
-}
-
-/* Length of the unrolled index set. */
-static size_t
-klen (SCM ra, int kbegin, int kend)
-{
-  size_t len = 1;
-  int k;
-  for (k = kbegin; k < kend; ++k)
-    len *= (SCM_I_ARRAY_DIMS (ra)[k].ubnd
-            - SCM_I_ARRAY_DIMS (ra)[k].lbnd + 1);
-  return len;
-}
-
-/* Linear index of the NOT unrolled index set. */
+/* Linear index of not-unrolled index set. */
 static size_t
 cindk (SCM ra, ssize_t *ve, int kend)
 {
-  if (!SCM_I_ARRAYP (ra))
-    return 0; /* this is BASE */
-  else
+  if (SCM_I_ARRAYP (ra))
     {
       int k;
       size_t i = SCM_I_ARRAY_BASE (ra);
@@ -184,6 +83,8 @@ cindk (SCM ra, ssize_t *ve, int kend)
         i += (ve[k] - SCM_I_ARRAY_DIMS (ra)[k].lbnd) * SCM_I_ARRAY_DIMS (ra)[k].inc;
       return i;
     }
+  else
+    return 0; /* this is BASE */
 }
 
 /* array mapper: apply cproc to each dimension of the given arrays?.
@@ -194,118 +95,162 @@ cindk (SCM ra, ssize_t *ve, int kend)
      SCM ra0;           destination array.
      SCM lra;           list of source arrays.
      const char *what;  caller, for error reporting. */
+
+#define LBND(ra, k) SCM_I_ARRAY_DIMS (ra)[k].lbnd
+#define UBND(ra, k) SCM_I_ARRAY_DIMS (ra)[k].ubnd
+
 int
 scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
 {
-  SCM z;
-  SCM vra0;
-  SCM lvra, *plvra;
+  SCM z, vra0, lvra, *plvra;
   ssize_t *vi;
-  int k, kmax, unrollk;
+  int k, kmax, kroll;
   int (*cproc) () = cproc_ptr;
-  size_t unrolled_len;
+  int empty = 0;
 
-  switch (scm_ra_matchp (ra0, lra))
+  /* Prepare reference argument. */
+  if (SCM_I_ARRAYP (ra0))
     {
-    default:
-    case 0:
-      scm_misc_error (what, "array shape mismatch: ~S", scm_list_1 (ra0));
-    case 1:
-    case 2:
-    case 3:
-    case 4:
+      k = kmax = SCM_I_ARRAY_NDIM (ra0)-1;
+      vra0 = make1array (SCM_I_ARRAY_V (ra0), SCM_I_ARRAY_DIMS (ra0)[kmax].inc);
 
-      /* Prepare reference argument */
-      if (SCM_I_ARRAYP (ra0))
+      /* Find unroll depth */
+      if (k > 0)
         {
-          kmax = SCM_I_ARRAY_NDIM (ra0)-1;
-          vra0 = make1array (SCM_I_ARRAY_V (ra0), SCM_I_ARRAY_DIMS (ra0)[kmax].inc);
+          ssize_t inc = SCM_I_ARRAY_DIMS (ra0)[k].inc;
+          do {
+            ssize_t dim = (UBND (ra0, k) - LBND (ra0, k) + 1);
+            empty = empty || (0 == dim);
+            inc *= dim;
+            --k;
+          } while (k >= 0 && inc == SCM_I_ARRAY_DIMS (ra0)[k].inc);
+          kroll = k+1;
+        }
+      else
+        kroll = 0;
+
+      /* Check emptiness of not-unrolled axes. */
+      for (; k>=0; --k)
+        empty = empty || (0 == (UBND (ra0, k) - LBND (ra0, k) + 1));
+    }
+  else
+    {
+      kroll = kmax = 0;
+      vra0 = ra0 = make1array (ra0, 1);
+      empty = (0 == (UBND (ra0, 0) - LBND (ra0, 0) + 1));
+    }
+
+  /* Prepare rest arguments. */
+  lvra = SCM_EOL;
+  plvra = &lvra;
+  for (z = lra; !scm_is_null (z); z = SCM_CDR (z))
+    {
+      SCM ra1 = SCM_CAR (z);
+      SCM vra1;
+      if (SCM_I_ARRAYP (ra1))
+        {
+          if (kmax != SCM_I_ARRAY_NDIM (ra1) - 1)
+            scm_misc_error (what, "array shape mismatch: ~S", scm_list_1 (ra0));
+          vra1 = make1array (SCM_I_ARRAY_V (ra1), SCM_I_ARRAY_DIMS (ra1)[kmax].inc);
+
+          /* Check unroll depth. */
+          k = kmax;
+          if (k > kroll)
+            {
+              ssize_t inc = SCM_I_ARRAY_DIMS (ra1)[k].inc;
+              do {
+                ssize_t l0 = LBND (ra0, k), u0 = UBND (ra0, k);
+                ssize_t l1 = LBND (ra1, k), u1 = UBND (ra1, k);
+                --k;
+                if (l0 == l1 && u0 == u1)
+                  inc *= (u1 - l1 + 1);
+                else if (l0 >= l1 && u0 <= u1)
+                  break;
+                else
+                  scm_misc_error (what, "array shape mismatch: ~S", scm_list_1 (ra0));
+              } while (k >= kroll && inc == SCM_I_ARRAY_DIMS (ra1)[k].inc);
+              kroll = k + 1;
+            }
+
+          /* Check matching of not-unrolled axes. */
+          for (; k>=0; --k)
+            if (LBND (ra0, k) < LBND (ra1, k) || UBND (ra0, k) > UBND (ra1, k))
+              scm_misc_error (what, "array shape mismatch: ~S", scm_list_1 (ra0));
         }
       else
         {
-          kmax = 0;
-          vra0 = ra0 = make1array(ra0, 1);
+          if (kmax != 0)
+            scm_misc_error (what, "array shape mismatch: ~S", scm_list_1 (ra0));
+          vra1 = make1array (ra1, 1);
+
+          if (LBND (ra0, 0) < LBND (vra1, 0) || UBND (ra0, 0) > UBND (vra1, 0))
+            scm_misc_error (what, "array shape mismatch: ~S", scm_list_1 (ra0));
         }
-
-      /* Linear addressing for rest arguments */
-      lvra = SCM_EOL;
-      plvra = &lvra;
-      for (z = lra; !scm_is_null (z); z = SCM_CDR (z))
-        {
-          SCM ra1 = SCM_CAR (z);
-          SCM vra1;
-          if (SCM_I_ARRAYP (ra1))
-            vra1 = make1array (SCM_I_ARRAY_V (ra1), SCM_I_ARRAY_DIMS (ra1)[kmax].inc);
-          else
-            vra1 = make1array (ra1, 1);
-          *plvra = scm_cons (vra1, SCM_EOL);
-          plvra = SCM_CDRLOC (*plvra);
-        }
-
-      /* Find common unroll depth */
-      unrollk = find_unrollk (ra0, kmax);
-      for (z = lra; !scm_is_null (z); z = SCM_CDR (z))
-	{
-          SCM ra1 = SCM_CAR (z);
-          unrollk = max(unrollk, find_unrollk (ra1, kmax));
-	}
-      unrolled_len = klen (ra0, unrollk, kmax+1);
-
-      /* Set inner loop size */
-      SCM_I_ARRAY_DIMS (vra0)->lbnd = 0;
-      SCM_I_ARRAY_DIMS (vra0)->ubnd = unrolled_len - 1;
-      for (z = lvra; !scm_is_null (z); z = SCM_CDR (z))
-        {
-          SCM_I_ARRAY_DIMS (SCM_CAR (z))->lbnd = 0;
-          SCM_I_ARRAY_DIMS (SCM_CAR (z))->ubnd = unrolled_len - 1;
-        }
-
-      /* Set starting indices and go */
-      vi = scm_gc_malloc_pointerless (sizeof(ssize_t) * unrollk, vi_gc_hint);
-      for (k = 0; k < unrollk; ++k)
-        vi[k] = SCM_I_ARRAY_DIMS (ra0)[k].lbnd;
-      do
-        {
-          if (k == unrollk)
-            {
-              SCM y = lra;
-              SCM_I_ARRAY_BASE (vra0) = cindk (ra0, vi, unrollk);
-              for (z = lvra; !scm_is_null (z); z = SCM_CDR (z), y = SCM_CDR (y))
-                SCM_I_ARRAY_BASE (SCM_CAR (z)) = cindk (SCM_CAR (y), vi, unrollk);
-              if (SCM_UNBNDP (data))
-                cproc (vra0, lvra);
-              else
-                cproc (vra0, data, lvra);
-              k--;
-            }
-          else if (vi[k] < SCM_I_ARRAY_DIMS (ra0)[k].ubnd)
-            {
-              vi[k]++;
-              k++;
-            }
-          else
-            {
-              vi[k] = SCM_I_ARRAY_DIMS (ra0)[k].lbnd - 1;
-              k--;
-            }
-        }
-      while (k >= 0);
-
-    case 5:
-      return 1;
+      *plvra = scm_cons (vra1, SCM_EOL);
+      plvra = SCM_CDRLOC (*plvra);
     }
+
+  /* Set unrolled size. */
+  if (empty)
+    return 1;
+  else
+    {
+      size_t len = 1;
+      for (k = kroll; k <= kmax; ++k)
+        len *= (UBND (ra0, k) - LBND (ra0, k) + 1);
+      UBND (vra0, 0) = len - 1;
+      for (z = lvra; !scm_is_null (z); z = SCM_CDR (z))
+        UBND (SCM_CAR (z), 0) = len - 1;
+    }
+
+  /* Set starting indices and go. */
+  vi = scm_gc_malloc_pointerless (sizeof(ssize_t) * kroll, vi_gc_hint);
+  for (k = 0; k < kroll; ++k)
+    vi[k] = LBND (ra0, k);
+  do
+    {
+      if (k == kroll)
+        {
+          SCM y = lra;
+          SCM_I_ARRAY_BASE (vra0) = cindk (ra0, vi, kroll);
+          for (z = lvra; !scm_is_null (z); z = SCM_CDR (z), y = SCM_CDR (y))
+            SCM_I_ARRAY_BASE (SCM_CAR (z)) = cindk (SCM_CAR (y), vi, kroll);
+          if (SCM_UNBNDP (data))
+            cproc (vra0, lvra);
+          else
+            cproc (vra0, data, lvra);
+          k--;
+        }
+      else if (vi[k] < SCM_I_ARRAY_DIMS (ra0)[k].ubnd)
+        {
+          vi[k]++;
+          k++;
+        }
+      else
+        {
+          vi[k] = SCM_I_ARRAY_DIMS (ra0)[k].lbnd - 1;
+          k--;
+        }
+    }
+  while (k >= 0);
+
+  return 1;
 }
+
+#undef UBND
+#undef LBND
 
 static int
 rafill (SCM dst, SCM fill)
 {
-  long n = (SCM_I_ARRAY_DIMS (dst)->ubnd - SCM_I_ARRAY_DIMS (dst)->lbnd + 1);
   scm_t_array_handle h;
-  size_t i;
+  size_t n, i;
   ssize_t inc;
   scm_array_get_handle (SCM_I_ARRAY_V (dst), &h);
   i = SCM_I_ARRAY_BASE (dst);
   inc = SCM_I_ARRAY_DIMS (dst)->inc;
+  n = (SCM_I_ARRAY_DIMS (dst)->ubnd - SCM_I_ARRAY_DIMS (dst)->lbnd + 1);
+  dst = SCM_I_ARRAY_V (dst);
 
   for (; n-- > 0; i += inc)
     h.vset (h.vector, i, fill);
@@ -329,9 +274,8 @@ SCM_DEFINE (scm_array_fill_x, "array-fill!", 2, 0, 0,
 static int
 racp (SCM src, SCM dst)
 {
-  ssize_t n = (SCM_I_ARRAY_DIMS (src)->ubnd - SCM_I_ARRAY_DIMS (src)->lbnd + 1);
   scm_t_array_handle h_s, h_d;
-  size_t i_s, i_d;
+  size_t n, i_s, i_d;
   ssize_t inc_s, inc_d;
 
   dst = SCM_CAR (dst);
@@ -339,9 +283,12 @@ racp (SCM src, SCM dst)
   i_d = SCM_I_ARRAY_BASE (dst);
   inc_s = SCM_I_ARRAY_DIMS (src)->inc;
   inc_d = SCM_I_ARRAY_DIMS (dst)->inc;
+  n = (SCM_I_ARRAY_DIMS (src)->ubnd - SCM_I_ARRAY_DIMS (src)->lbnd + 1);
+  src = SCM_I_ARRAY_V (src);
+  dst = SCM_I_ARRAY_V (dst);
 
-  scm_array_get_handle (SCM_I_ARRAY_V (src), &h_s);
-  scm_array_get_handle (SCM_I_ARRAY_V (dst), &h_d);
+  scm_array_get_handle (src, &h_s);
+  scm_array_get_handle (dst, &h_d);
 
   if (h_s.element_type == SCM_ARRAY_ELEMENT_TYPE_SCM
       && h_d.element_type == SCM_ARRAY_ELEMENT_TYPE_SCM)
@@ -643,18 +590,17 @@ scm_array_identity (SCM dst, SCM src)
 static int
 ramap (SCM ra0, SCM proc, SCM ras)
 {
-  ssize_t i = SCM_I_ARRAY_DIMS (ra0)->lbnd;
-  size_t n = SCM_I_ARRAY_DIMS (ra0)->ubnd - i + 1;
-
   scm_t_array_handle h0;
-  size_t i0, i0end;
-  ssize_t inc0;
+  size_t n, i0;
+  ssize_t i, inc0;
   scm_array_get_handle (SCM_I_ARRAY_V (ra0), &h0);
   i0 = SCM_I_ARRAY_BASE (ra0);
   inc0 = SCM_I_ARRAY_DIMS (ra0)->inc;
-  i0end = i0 + n*inc0;
+  i = SCM_I_ARRAY_DIMS (ra0)->lbnd;
+  n = SCM_I_ARRAY_DIMS (ra0)->ubnd - i + 1;
+  ra0 = SCM_I_ARRAY_V (ra0);
   if (scm_is_null (ras))
-    for (; i0 < i0end; i0 += inc0)
+    for (; n--; i0 += inc0)
       h0.vset (h0.vector, i0, scm_call_0 (proc));
   else
     {
@@ -666,13 +612,14 @@ ramap (SCM ra0, SCM proc, SCM ras)
       i1 = SCM_I_ARRAY_BASE (ra1);
       inc1 = SCM_I_ARRAY_DIMS (ra1)->inc;
       ras = SCM_CDR (ras);
+      ra1 = SCM_I_ARRAY_V (ra1);
       if (scm_is_null (ras))
-          for (; i0 < i0end; i0 += inc0, i1 += inc1)
-            h0.vset (h0.vector, i0, scm_call_1 (proc, h1.vref (h1.vector, i1)));
+        for (; n--; i0 += inc0, i1 += inc1)
+          h0.vset (h0.vector, i0, scm_call_1 (proc, h1.vref (h1.vector, i1)));
       else
         {
           ras = scm_vector (ras);
-          for (; i0 < i0end; i0 += inc0, i1 += inc1, ++i)
+          for (; n--; i0 += inc0, i1 += inc1, ++i)
             {
               SCM args = SCM_EOL;
               unsigned long k;
@@ -721,19 +668,18 @@ rafe (SCM ra0, SCM proc, SCM ras)
   size_t n = SCM_I_ARRAY_DIMS (ra0)->ubnd - i + 1;
 
   scm_t_array_handle h0;
-  size_t i0, i0end;
+  size_t i0;
   ssize_t inc0;
   scm_array_get_handle (SCM_I_ARRAY_V (ra0), &h0);
   i0 = SCM_I_ARRAY_BASE (ra0);
   inc0 = SCM_I_ARRAY_DIMS (ra0)->inc;
-  i0end = i0 + n*inc0;
   if (scm_is_null (ras))
-    for (; i0 < i0end; i0 += inc0)
+    for (; n--; i0 += inc0)
       scm_call_1 (proc, h0.vref (h0.vector, i0));
   else
     {
       ras = scm_vector (ras);
-      for (; i0 < i0end; i0 += inc0, ++i)
+      for (; n--; i0 += inc0, ++i)
         {
           SCM args = SCM_EOL;
           unsigned long k;
