@@ -704,6 +704,7 @@ array_index_map_1 (SCM ra, SCM proc)
 static void
 array_index_map_n (SCM ra, SCM proc)
 {
+  scm_t_array_handle h;
   size_t i;
   int j, k, kmax = SCM_I_ARRAY_NDIM (ra) - 1;
   ssize_t *vi;
@@ -717,6 +718,7 @@ array_index_map_n (SCM ra, SCM proc)
         return;
     }
 
+  scm_array_get_handle (ra, &h);
   k = kmax;
   do
     {
@@ -735,7 +737,7 @@ array_index_map_n (SCM ra, SCM proc)
           for (; vi[kmax] <= SCM_I_ARRAY_DIMS (ra)[kmax].ubnd;
                *q = scm_from_ssize_t (++vi[kmax]))
             {
-              ASET (SCM_I_ARRAY_V (ra), i, scm_apply_0 (proc, args));
+              h.vset (h.vector, i, scm_apply_0 (proc, args));
               i += SCM_I_ARRAY_DIMS (ra)[kmax].inc;
             }
           k--;
@@ -752,6 +754,7 @@ array_index_map_n (SCM ra, SCM proc)
         }
     }
   while (k >= 0);
+  scm_array_handle_release (&h);
 }
 
 SCM_DEFINE (scm_array_index_map_x, "array-index-map!", 2, 0, 0,
