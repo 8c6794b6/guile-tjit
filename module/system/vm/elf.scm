@@ -47,7 +47,8 @@
             elf-entry elf-phoff elf-shoff elf-flags elf-ehsize
             elf-phentsize elf-phnum elf-shentsize elf-shnum elf-shstrndx
 
-            elf-header-len write-elf-header
+            elf-header-len elf-header-shoff-offset
+            write-elf-header
 
             (make-elf-segment* . make-elf-segment)
             elf-segment?
@@ -72,7 +73,9 @@
             elf-section-link elf-section-info elf-section-addralign
             elf-section-entsize
 
-            elf-section-header-len write-elf-section-header
+            elf-section-header-len elf-section-header-addr-offset
+            elf-section-header-offset-offset
+            write-elf-section-header
 
             make-elf-symbol elf-symbol?
             elf-symbol-name elf-symbol-value elf-symbol-size
@@ -149,6 +152,11 @@
     ((4) elf32-header-len)
     ((8) elf64-header-len)
     (else (error "invalid word size" word-size))))
+(define (elf-header-shoff-offset word-size)
+  (case word-size
+    ((4) 32)
+    ((8) 40)
+    (else (error "bad word size" word-size))))
 
 (define ELFCLASS32      1)              ; 32-bit objects
 (define ELFCLASS64      2)              ; 64-bit objects
@@ -619,6 +627,18 @@
   (case word-size
     ((4) 40)
     ((8) 64)
+    (else (error "bad word size" word-size))))
+
+(define (elf-section-header-addr-offset word-size)
+  (case word-size
+    ((4) 12)
+    ((8) 16)
+    (else (error "bad word size" word-size))))
+
+(define (elf-section-header-offset-offset word-size)
+  (case word-size
+    ((4) 16)
+    ((8) 24)
     (else (error "bad word size" word-size))))
 
 (define (parse-elf64-section-header index bv offset byte-order)
