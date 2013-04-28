@@ -82,13 +82,26 @@
             linker-object-section
             linker-object-bv
             linker-object-relocs
-            linker-object-symbols
+            (linker-object-symbols* . linker-object-symbols)
 
             make-string-table
             string-table-intern
             link-string-table
 
             link-elf))
+
+(define-syntax fold-values
+  (lambda (x)
+    (syntax-case x ()
+      ((_ proc list seed ...)
+       (with-syntax (((s ...) (generate-temporaries #'(seed ...))))
+         #'(let ((p proc))
+             (let lp ((l list) (s seed) ...)
+               (match l
+                 (() (values s ...))
+                 ((elt . l)
+                  (call-with-values (lambda () (p elt s ...))
+                    (lambda (s ...) (lp l s ...))))))))))))
 
 ;; A relocation records a reference to a symbol.  When the symbol is
 ;; resolved to an address, the reloc location will be updated to point
@@ -120,22 +133,43 @@
   (address linker-symbol-address))
 
 (define-record-type <linker-object>
-  (make-linker-object section bv relocs symbols)
+  (%make-linker-object section bv relocs symbols)
   linker-object?
   (section linker-object-section)
   (bv linker-object-bv)
   (relocs linker-object-relocs)
   (symbols linker-object-symbols))
 
+(define (make-linker-object section bv relocs symbols)
+  "Create a linker object with the @code{<elf-section>} header
+@var{section}, bytevector contents @var{bv}, list of linker relocations
+@var{relocs}, and list of linker symbols @var{symbols}."
+  (%make-linker-object section bv relocs
+                       ;; Hide a symbol to the beginning of the section
+                       ;; in the symbols.
+                       (cons (make-linker-symbol (gensym "*section*") 0)
+                             symbols)))
+(define (linker-object-section-symbol object)
+  "Return the linker symbol corresponding to the start of this section."
+  (car (linker-object-symbols object)))
+(define (linker-object-symbols* object)
+  "Return the linker symbols defined by the user for this this section."
+  (cdr (linker-object-symbols object)))
+
 (define (make-string-table)
+  "Return a functional string table with one entry: the empty string."
   '(("" 0 #vu8())))
 
 (define (string-table-length table)
+  "Return the number of bytes needed for the string table @var{table}."
   (let ((last (car table)))
     ;; The + 1 is for the trailing NUL byte.
     (+ (cadr last) (bytevector-length (caddr last)) 1)))
 
 (define (string-table-intern table str)
+  "Add @var{str} to the string table @var{table}.  Yields two values:  a
+possibly newly allocated string table, and the byte index of the string
+in that table."
   (cond
    ((assoc str table)
     => (lambda (ent)
@@ -147,6 +181,8 @@
               next)))))
 
 (define (link-string-table table)
+  "Link the functional string table @var{table} into a sequence of
+bytes, suitable for use as the contents of an ELF string table section."
   (let ((out (make-bytevector (string-table-length table) 0)))
     (for-each
      (lambda (ent)
@@ -156,10 +192,15 @@
     out))
 
 (define (segment-kind section)
+  "Return the type of segment needed to store @var{section}, as a pair.
+The car is the @code{PT_} segment type, or @code{#f} if the section
+doesn't need to be present in a loadable segment.  The cdr is a bitfield
+of associated @code{PF_} permissions."
   (let ((flags (elf-section-flags section)))
     (cons (cond
            ((= (elf-section-type section) SHT_DYNAMIC) PT_DYNAMIC)
-           ((zero? (logand SHF_ALLOC flags)) PT_NOTE)
+           ;; Sections without SHF_ALLOC don't go in segments.
+           ((zero? flags) #f)
            (else PT_LOAD))
           (logior (if (zero? (logand SHF_ALLOC flags))
                       0
@@ -171,38 +212,65 @@
                       0
                       PF_W)))))
 
+(define (count-segments objects)
+  "Return the total number of segments needed to represent the linker
+objects in @var{objects}, including the segment needed for the ELF
+header and segment table."
+  (length
+   (fold-values (lambda (object kinds)
+                  (let ((kind (segment-kind (linker-object-section object))))
+                    (if (and (car kind) (not (member kind kinds)))
+                        (cons kind kinds)
+                        kinds)))
+                objects
+                ;; We know there will be at least one segment,
+                ;; containing at least the header and segment table.
+                (list (cons PT_LOAD PF_R)))))
+
 (define (group-by-cars ls)
-  (let lp ((in ls) (k #f) (group #f) (out '()))
-    (cond
-     ((null? in)
-      (reverse!
-       (if group
-           (cons (cons k (reverse! group)) out)
-           out)))
-     ((and group (equal? k (caar in)))
-      (lp (cdr in) k (cons (cdar in) group) out))
-     (else
-      (lp (cdr in) (caar in) (list (cdar in))
-          (if group
-              (cons (cons k (reverse! group)) out)
-              out))))))
+  (let lp ((ls ls) (k #f) (group #f) (out '()))
+    (match ls
+      (()
+       (reverse!
+        (if group
+            (cons (cons k (reverse! group)) out)
+            out)))
+      (((k* . v) . ls)
+       (if (and group (equal? k k*))
+           (lp ls k (cons v group) out)
+           (lp ls k* (list v)
+               (if group
+                   (cons (cons k (reverse! group)) out)
+                   out)))))))
 
 (define (collate-objects-into-segments objects)
+  "Given the list of linker objects @var{objects}, group them into
+contiguous ELF segments of the same type and flags.  The result is an
+alist that maps segment types to lists of linker objects.  See
+@code{segment-type} for a description of segment types.  Within a
+segment, the order of the linker objects is preserved."
   (group-by-cars
    (stable-sort!
     (map (lambda (o)
            (cons (segment-kind (linker-object-section o)) o))
          objects)
     (lambda (x y)
-      (let ((x-type (caar x)) (y-type (caar y))
-            (x-flags (cdar x)) (y-flags (cdar y))
-            (x-section (linker-object-section (cdr x)))
-            (y-section (linker-object-section (cdr y))))
+      (let* ((x-kind (car x)) (y-kind (car y))
+             (x-type (car x-kind)) (y-type (car y-kind))
+             (x-flags (cdr x-kind)) (y-flags (cdr y-kind))
+             (x-section (linker-object-section (cdr x)))
+             (y-section (linker-object-section (cdr y))))
         (cond
-         ((not (equal? x-flags y-flags))
-          (< x-flags y-flags))
-         ((not (equal? x-type y-type))
-          (< x-type y-type))
+         ((not (equal? x-kind y-kind))
+          (cond
+           ((and x-type y-type)
+            (cond
+             ((not (equal? x-flags y-flags))
+              (< x-flags y-flags))
+             (else
+              (< x-type y-type))))
+           (else
+            (not y-type))))
          ((not (equal? (elf-section-type x-section)
                        (elf-section-type y-section)))
           (cond
@@ -211,33 +279,25 @@
            (else (< (elf-section-type x-section)
                     (elf-section-type y-section)))))
          (else
-          (< (elf-section-size x-section)
-             (elf-section-size y-section)))))))))
+          ;; Leave them in the initial order.  This allows us to ensure
+          ;; that the ELF header is written first.
+          #f)))))))
 
 (define (align address alignment)
-  (+ address
-     (modulo (- alignment (modulo address alignment)) alignment)))
+  (if (zero? alignment)
+      address
+      (+ address
+         (modulo (- alignment (modulo address alignment)) alignment))))
 
-(define-syntax fold-values
-  (lambda (x)
-    (syntax-case x ()
-      ((_ proc list seed ...)
-       (with-syntax (((s ...) (generate-temporaries #'(seed ...))))
-         #'(let ((p proc))
-             (let lp ((l list) (s seed) ...)
-               (match l
-                 (() (values s ...))
-                 ((elt . l)
-                  (call-with-values (lambda () (p elt s ...))
-                    (lambda (s ...) (lp l s ...))))))))))))
-
-(define (relocate-section-header sec fileaddr memaddr)
+(define (relocate-section-header sec addr)
+  "Return a new section header, just like @var{sec} but with its
+@code{addr} and @code{offset} set to @var{addr}."
   (make-elf-section #:index (elf-section-index sec)
                     #:name (elf-section-name sec)
                     #:type (elf-section-type sec)
                     #:flags (elf-section-flags sec)
-                    #:addr memaddr
-                    #:offset fileaddr
+                    #:addr addr
+                    #:offset addr
                     #:size (elf-section-size sec)
                     #:link (elf-section-link sec)
                     #:info (elf-section-info sec)
@@ -246,9 +306,10 @@
 
 (define *page-size* 4096)
 
-;; Adds object symbols to global table, relocating them from object
-;; address space to memory address space.
 (define (add-symbols symbols offset symtab)
+  "Add @var{symbols} to the symbol table @var{symtab}, relocating them
+from object address space to memory address space.  Returns a new symbol
+table."
   (fold-values
    (lambda (symbol symtab)
      (let ((name (linker-symbol-name symbol))
@@ -259,90 +320,105 @@
    symbols
    symtab))
 
-(define (alloc-segment phidx type flags objects
-                       fileaddr memaddr symtab alignment)
-  (let* ((loadable? (not (zero? flags)))
-         (alignment (fold-values (lambda (o alignment)
+(define (allocate-segment write-segment-header!
+                          phidx type flags objects addr symtab alignment)
+  "Given a list of linker objects that should go in a segment, the type
+and flags that the segment should have, and the address at which the
+segment should start, compute the positions that each object should have
+in the segment.
+
+Returns three values: the address of the next byte after the segment, a
+list of relocated objects, and the symbol table.  The symbol table is
+the same as @var{symtab}, augmented with the symbols defined in
+@var{objects}, relocated to their positions in the image.
+
+In what is something of a quirky interface, this routine also patches up
+the segment table using @code{write-segment-header!}."
+  (let* ((alignment (fold-values (lambda (o alignment)
                                    (lcm (elf-section-addralign
                                          (linker-object-section o))
                                         alignment))
                                  objects
                                  alignment))
-         (fileaddr (align fileaddr alignment))
-         (memaddr (align memaddr alignment)))
-    (receive (objects fileend memend symtab)
+         (addr (align addr alignment)))
+    (receive (objects endaddr symtab)
         (fold-values
-         (lambda (o out fileaddr memaddr symtab)
+         (lambda (o out addr symtab)
            (let* ((section (linker-object-section o))
-                  (fileaddr
-                   (if (= (elf-section-type section) SHT_NOBITS)
-                       fileaddr
-                       (align fileaddr (elf-section-addralign section))))
-                  (memaddr
-                   (align memaddr (elf-section-addralign section))))
+                  (addr (align addr (elf-section-addralign section))))
              (values
               (cons (make-linker-object
-                     (relocate-section-header section fileaddr
-                                              memaddr)
+                     (relocate-section-header section addr)
                      (linker-object-bv o)
                      (linker-object-relocs o)
                      (linker-object-symbols o))
                     out)
-              (if (= (elf-section-type section) SHT_NOBITS)
-                  fileaddr
-                  (+ fileaddr (elf-section-size section)))
-              (+ memaddr (elf-section-size section))
-              (add-symbols (linker-object-symbols o) memaddr symtab))))
-         objects '() fileaddr memaddr symtab)
-      (values
-       (make-elf-segment #:index phidx
-                         #:type type #:offset fileaddr
-                         #:vaddr (if loadable? memaddr 0)
-                         #:filesz (- fileend fileaddr)
-                         #:memsz (if loadable? (- memend memaddr) 0)
-                         #:flags flags #:align alignment)
-       (reverse objects)
-       symtab))))
+              (+ addr (elf-section-size section))
+              (add-symbols (linker-object-symbols o) addr symtab))))
+         objects
+         '() addr symtab)
+      (when type
+        (write-segment-header!
+         (make-elf-segment #:index phidx #:type type
+                           #:offset addr #:vaddr addr
+                           #:filesz (- endaddr addr) #:memsz (- endaddr addr)
+                           #:flags flags #:align alignment)))
+      (values endaddr
+              (reverse objects)
+              symtab))))
 
-(define (process-reloc reloc bv file-offset mem-offset symtab endianness)
-  (let ((ent (vhash-assq (linker-reloc-symbol reloc) symtab)))
-    (unless ent
-      (error "Undefined symbol" (linker-reloc-symbol reloc)))
-    (let* ((file-loc (+ (linker-reloc-loc reloc) file-offset))
-           (mem-loc (+ (linker-reloc-loc reloc) mem-offset))
-           (addr (linker-symbol-address (cdr ent))))
-      (case (linker-reloc-type reloc)
-        ((rel32/4)
-         (let ((diff (- addr mem-loc)))
-           (unless (zero? (modulo diff 4))
-             (error "Bad offset" reloc symbol mem-offset))
-           (bytevector-s32-set! bv file-loc
-                                (+ (/ diff 4) (linker-reloc-addend reloc))
-                                endianness)))
-        ((abs32/1)
-         (bytevector-u32-set! bv file-loc addr endianness))
-        ((abs64/1)
-         (bytevector-u64-set! bv file-loc addr endianness))
-        (else
-         (error "bad reloc type" reloc))))))
+(define (process-reloc reloc bv section-offset symtab endianness)
+  "Process a relocation.  Given that a section containing @var{reloc}
+was just written into the image @var{bv} at offset @var{section-offset},
+fix it up so that its reference points to the correct position of its
+symbol, as present in @var{symtab}."
+  (match (vhash-assq (linker-reloc-symbol reloc) symtab)
+    (#f
+     (error "Undefined symbol" (linker-reloc-symbol reloc)))
+    ((name . symbol)
+     ;; The reloc was written at LOC bytes after SECTION-OFFSET.
+     (let* ((offset (+ (linker-reloc-loc reloc) section-offset))
+            (target (linker-symbol-address symbol)))
+       (case (linker-reloc-type reloc)
+         ((rel32/4)
+          (let ((diff (- target offset)))
+            (unless (zero? (modulo diff 4))
+              (error "Bad offset" reloc symbol offset))
+            (bytevector-s32-set! bv offset
+                                 (+ (/ diff 4) (linker-reloc-addend reloc))
+                                 endianness)))
+         ((abs32/1)
+          (bytevector-u32-set! bv offset target endianness))
+         ((abs64/1)
+          (bytevector-u64-set! bv offset target endianness))
+         (else
+          (error "bad reloc type" reloc)))))))
 
 (define (write-linker-object bv o symtab endianness)
+  "Write the bytevector for the section wrapped by the linker object
+@var{o} into the image @var{bv}.  The section header in @var{o} should
+already be relocated its final position in the image.  Any relocations
+in the section will be processed to point to the correct symbol
+locations, as given in @var{symtab}."
   (let* ((section (linker-object-section o))
          (offset (elf-section-offset section))
-         (addr (elf-section-addr section))
          (len (elf-section-size section))
          (bytes (linker-object-bv o))
          (relocs (linker-object-relocs o)))
+    (unless (= offset (elf-section-addr section))
+      (error "offset != addr" section))
     (if (not (= (elf-section-type section) SHT_NOBITS))
         (begin
           (if (not (= len (bytevector-length bytes)))
               (error "unexpected length" section bytes))
           (bytevector-copy! bytes 0 bv offset len)
           (for-each (lambda (reloc)
-                      (process-reloc reloc bv offset addr symtab endianness))
+                      (process-reloc reloc bv offset symtab endianness))
                     relocs)))))
 
 (define (find-shstrndx objects)
+  "Find the section name string table in @var{objects}, and return its
+section index."
   (or-map (lambda (object)
             (let* ((section (linker-object-section object))
                    (bv (linker-object-bv object))
@@ -353,81 +429,177 @@
                    (elf-section-index section))))
           objects))
 
-;; objects ::= list of <linker-object>
-;; => 3 values: ELF header, program headers, objects
+(define (add-elf-objects objects endianness word-size)
+  "Given the list of linker objects supplied by the user, add linker
+objects corresponding to parts of the ELF file: the null object, the ELF
+header, and the section table.
+
+Both of these internal objects include relocs, allowing their
+inter-object references to be patched up when the final image allocation
+is known.  There is special support for patching up the segment table,
+however.  Because the segment table needs to know the segment sizes,
+which is the difference between two symbols in image space, and there is
+no reloc kind that is the difference between two symbols, we make a hack
+and return a closure that patches up segment table entries.  It seems to
+work.
+
+Returns two values: the procedure to patch the segment table, and the
+list of objects, augmented with objects for the special ELF sections."
+  (define phoff (elf-header-len word-size))
+  (define phentsize (elf-program-header-len word-size))
+  (define shentsize (elf-section-header-len word-size))
+  (define shnum (+ (length objects) 3))
+  (define reloc-kind
+    (case word-size
+      ((4) 'abs32/1)
+      ((8) 'abs64/1)
+      (else (error "bad word size" word-size))))
+
+  ;; ELF requires that the first entry in the section table be of type
+  ;; SHT_NULL.
+  ;;
+  (define (make-null-section)
+    (make-linker-object (make-elf-section #:index 0 #:type SHT_NULL
+                                          #:flags 0 #:addralign 0)
+                        #vu8() '() '()))
+
+  ;; The ELF header and the segment table.
+  ;;
+  (define (make-header phnum index shoff-label)
+    (let* ((header (make-elf #:byte-order endianness #:word-size word-size
+                             #:phoff phoff #:phnum phnum #:phentsize phentsize
+                             #:shoff 0 #:shnum shnum #:shentsize shentsize
+                             #:shstrndx (or (find-shstrndx objects) SHN_UNDEF)))
+           (shoff-reloc (make-linker-reloc reloc-kind
+                                           (elf-header-shoff-offset word-size)
+                                           0
+                                           shoff-label))
+           (size (+ phoff (* phnum phentsize)))
+           (bv (make-bytevector size 0)))
+      (write-elf-header bv header)
+      ;; Leave the segment table uninitialized; it will be filled in
+      ;; later by calls to the write-segment-header! closure.
+      (make-linker-object (make-elf-section #:index index #:type SHT_PROGBITS
+                                            #:flags SHF_ALLOC #:size size)
+                          bv
+                          (list shoff-reloc)
+                          '())))
+
+  ;; The section table.
+  ;;
+  (define (make-footer objects shoff-label)
+    (let* ((size (* shentsize shnum))
+           (bv (make-bytevector size 0))
+           (section-table (make-elf-section #:index (length objects)
+                                            #:type SHT_PROGBITS
+                                            #:flags 0
+                                            #:size size)))
+      (define (write-and-reloc section-label section relocs)
+        (let ((offset (* shentsize (elf-section-index section))))
+          (write-elf-section-header bv offset endianness word-size section)
+          (if (= (elf-section-type section) SHT_NULL)
+              relocs
+              (cons* (make-linker-reloc
+                      reloc-kind
+                      (+ offset (elf-section-header-addr-offset word-size))
+                      0
+                      section-label)
+                     (make-linker-reloc
+                      reloc-kind
+                      (+ offset (elf-section-header-offset-offset word-size))
+                      0
+                      section-label)
+                     relocs))))
+      (let ((relocs (fold-values
+                     (lambda (object relocs)
+                       (write-and-reloc
+                        (linker-symbol-name
+                         (linker-object-section-symbol object))
+                        (linker-object-section object)
+                        relocs))
+                     objects
+                     (write-and-reloc shoff-label section-table '()))))
+        (%make-linker-object section-table bv relocs
+                             (list (make-linker-symbol shoff-label 0))))))
+
+  (let* ((null-section (make-null-section))
+         (objects (cons null-section objects))
+
+         (shoff (gensym "*section-table*"))
+         (header (make-header (count-segments objects) (length objects) shoff))
+         (objects (cons header objects))
+
+         (footer (make-footer objects shoff))
+         (objects (cons footer objects)))
+
+    ;; The header includes the segment table, which needs offsets and
+    ;; sizes of the segments.  Normally we would use relocs to rewrite
+    ;; these values, but there is no reloc type that would allow us to
+    ;; compute size.  Such a reloc would need to take the difference
+    ;; between two symbols, and it's probably a bad idea architecturally
+    ;; to create one.
+    ;;
+    ;; So instead we return a closure to patch up the segment table.
+    ;; Normally we'd shy away from such destructive interfaces, but it's
+    ;; OK as we create the header section ourselves.
+    ;;
+    (define (write-segment-header! segment)
+      (let ((bv (linker-object-bv header))
+            (offset (+ phoff (* (elf-segment-index segment) phentsize))))
+        (write-elf-program-header bv offset endianness word-size segment)))
+
+    (values write-segment-header! objects)))
+
 (define (allocate-elf objects page-aligned? endianness word-size)
-  (let* ((seglists (collate-objects-into-segments objects))
-         (nsegments (length seglists))
-         (nsections (1+ (length objects))) ;; 1+ for the first reserved entry.
-         (program-headers-offset (elf-header-len word-size))
-         (fileaddr (+ program-headers-offset
-                      (* nsegments (elf-program-header-len word-size))))
-         (memaddr 0))
-    (let lp ((seglists seglists)
-             (segments '())
+  "Lay out @var{objects} into an ELF image, computing the size of the
+file, the positions of the objects, and the global symbol table.
+
+If @var{page-aligned?} is true, read-only and writable data are
+separated so that only those writable parts of the image need be mapped
+with writable permissions.  This makes the resulting image larger.  It
+is more suitable to situations where you would write a file out to disk
+and read it in with mmap.  Otherwise if @var{page-aligned?} is false,
+sections default to 8-byte alignment.
+
+Returns three values: the total image size, a list of objects with
+relocated headers, and the global symbol table."
+  (receive (write-segment-header! objects)
+      (add-elf-objects objects endianness word-size)
+    (let lp ((seglists (collate-objects-into-segments objects))
              (objects '())
              (phidx 0)
-             (fileaddr fileaddr)
-             (memaddr memaddr)
+             (addr 0)
              (symtab vlist-null)
              (prev-flags 0))
       (match seglists
         ((((type . flags) objs-in ...) seglists ...)
-         (receive (segment objs-out symtab)
-             (alloc-segment phidx type flags objs-in fileaddr memaddr symtab
-                            (if (and page-aligned?
-                                     (not (= flags prev-flags)))
-                                *page-size*
-                                8))
+         (receive (addr objs-out symtab)
+             (allocate-segment
+              write-segment-header!
+              phidx type flags objs-in addr symtab
+              (if (and page-aligned?
+                       (not (= flags prev-flags))
+                       ;; Allow sections that are not in
+                       ;; loadable segments to share pages
+                       ;; with PF_R segments.
+                       (not (and (not type) (= PF_R prev-flags))))
+                  *page-size*
+                  8))
            (lp seglists
-               (cons segment segments)
                (fold-values cons objs-out objects)
-               (1+ phidx)
-               (+ (elf-segment-offset segment) (elf-segment-filesz segment))
-               (if (zero? (elf-segment-memsz segment))
-                   memaddr
-                   (+ (elf-segment-vaddr segment)
-                      (elf-segment-memsz segment)))
+               (if type (1+ phidx) phidx)
+               addr
                symtab
                flags)))
         (()
-         (let ((section-table-offset (+ (align fileaddr word-size))))
-           (values
-            (make-elf #:byte-order endianness #:word-size word-size
-                      #:phoff program-headers-offset #:phnum nsegments
-                      #:shoff section-table-offset #:shnum nsections
-                      #:shstrndx (or (find-shstrndx objects) SHN_UNDEF))
-            (reverse segments)
-            (let ((null-section (make-elf-section #:index 0 #:type SHT_NULL
-                                                  #:flags 0 #:addralign 0)))
-              (cons (make-linker-object null-section #vu8() '() '())
-                    (reverse objects)))
-            symtab)))))))
-
-(define (write-elf header segments objects symtab)
-  (define (phoff n)
-    (+ (elf-phoff header) (* n (elf-phentsize header))))
-  (define (shoff n)
-    (+ (elf-shoff header) (* n (elf-shentsize header))))
-  (let ((endianness (elf-byte-order header))
-        (word-size (elf-word-size header))
-        (bv (make-bytevector (shoff (elf-shnum header)) 0)))
-    (write-elf-header bv header)
-    (for-each
-     (lambda (segment)
-       (write-elf-program-header bv (phoff (elf-segment-index segment))
-                                 endianness word-size segment))
-     segments)
-    (for-each
-     (lambda (object)
-       (let ((section (linker-object-section object)))
-         (write-elf-section-header bv (shoff (elf-section-index section))
-                                   endianness word-size section))
-       (write-linker-object bv object symtab endianness))
-     objects)
-    bv))
+         (values addr
+                 (reverse objects)
+                 symtab))))))
 
 (define (check-section-numbers objects)
+  "Verify that taken as a whole, that all objects have distinct,
+contiguous section numbers, starting from 1.  (Section 0 is the null
+section.)"
   (let* ((nsections (1+ (length objects))) ; 1+ for initial NULL section.
          (sections (make-vector nsections #f)))
     (for-each (lambda (object)
@@ -443,15 +615,30 @@
                     (vector-set! sections n object)))))
               objects)))
 
-;; Given a list of section-header/bytevector pairs, collate the sections
-;; into segments, allocate the segments, allocate the ELF bytevector,
-;; and write the segments into the bytevector, relocating as we go.
+;; Given a list of linker objects, collate the objects into segments,
+;; allocate the segments, allocate the ELF bytevector, and write the
+;; segments into the bytevector, relocating as we go.
 ;;
 (define* (link-elf objects #:key
                    (page-aligned? #t)
                    (endianness (target-endianness))
                    (word-size (target-word-size)))
+  "Create an ELF image from the linker objects, @var{objects}.
+
+If @var{page-aligned?} is true, read-only and writable data are
+separated so that only those writable parts of the image need be mapped
+with writable permissions.  This is suitable for situations where you
+would write a file out to disk and read it in with @code{mmap}.
+Otherwise if @var{page-aligned?} is false, sections default to 8-byte
+alignment.
+
+Returns a bytevector."
   (check-section-numbers objects)
-  (receive (header segments objects symtab)
+  (receive (size objects symtab)
       (allocate-elf objects page-aligned? endianness word-size)
-    (write-elf header segments objects symtab)))
+    (let ((bv (make-bytevector size 0)))
+      (for-each
+       (lambda (object)
+         (write-linker-object bv object symtab endianness))
+       objects)
+      bv)))

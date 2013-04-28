@@ -75,8 +75,9 @@
       (set! elf (parse-elf bytes))
       (elf? elf)))
 
-  ;; 3 sections: the initial NULL section, .foo, and .shstrtab.
-  (pass-if-equal 3 (elf-shnum elf))
+  ;; 5 sections: the initial NULL section, .foo, .shstrtab, the initial
+  ;; header with segment table, and the section table.
+  (pass-if-equal 5 (elf-shnum elf))
 
   (pass-if ".foo section checks out"
     (let ((sec (assoc-ref (elf-sections-by-name elf) ".foo")))
