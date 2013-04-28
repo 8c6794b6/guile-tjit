@@ -156,11 +156,95 @@ check_elf_header (const Elf_Ehdr *header)
   return NULL;
 }
 
+#define IS_ALIGNED(offset, alignment) \
+  (!((offset) & ((alignment) - 1)))
+#define ALIGN(offset, alignment) \
+  ((offset + (alignment - 1)) & ~(alignment - 1))
+
+/* Return the alignment required by the ELF at DATA, of LEN bytes.  */
+static size_t
+elf_alignment (const char *data, size_t len)
+{
+  Elf_Ehdr *header;
+  int i;
+  size_t alignment = 8;
+
+  if (len < sizeof(Elf_Ehdr))
+    return alignment;
+  header = (Elf_Ehdr *) data;
+  if (header->e_phoff + header->e_phnum * header->e_phentsize >= len)
+    return alignment;
+  for (i = 0; i < header->e_phnum; i++)
+    {
+      Elf_Phdr *phdr;
+      const char *phdr_addr = data + header->e_phoff + i * header->e_phentsize;
+
+      if (!IS_ALIGNED ((scm_t_uintptr) phdr_addr, alignof_type (Elf_Phdr)))
+        return alignment;
+      phdr = (Elf_Phdr *) phdr_addr;
+
+      if (phdr->p_align & (phdr->p_align - 1))
+        return alignment;
+
+      if (phdr->p_align > alignment)
+        alignment = phdr->p_align;
+    }
+
+  return alignment;
+}
+
+/* This function leaks the memory that it allocates.  */
+static char*
+alloc_aligned (size_t len, unsigned alignment)
+{
+  char *ret;
+
+  if (alignment == 8)
+    {
+      /* FIXME: Assert that we actually have an 8-byte-aligned malloc.  */
+      ret = malloc (len);
+    }
+#if defined(HAVE_SYS_MMAN_H) && defined(MMAP_ANONYMOUS)
+  else if (alignment == SCM_PAGE_SIZE)
+    {
+      ret = mmap (NULL, len, PROT_READ | PROT_WRITE, -1, 0);
+      if (ret == MAP_FAILED)
+        SCM_SYSERROR;
+    }
+#endif
+  else
+    {
+      if (len + alignment < len)
+        abort ();
+
+      ret = malloc (len + alignment - 1);
+      if (!ret)
+        abort ();
+      ret = (char *) ALIGN ((scm_t_uintptr) ret, alignment);
+    }
+
+  return ret;
+}
+
+static char*
+copy_and_align_elf_data (const char *data, size_t len)
+{
+  size_t alignment;
+  char *copy;
+
+  alignment = elf_alignment (data, len);
+  copy = alloc_aligned (len, alignment);
+  memcpy(copy, data, len);
+
+  return copy;
+}
+
+#ifdef HAVE_SYS_MMAN_H
 static int
 segment_flags_to_prot (Elf_Word flags)
 {
   int prot = 0;
-          
+
   if (flags & PF_X)
     prot |= PROT_EXEC;
   if (flags & PF_W)
@@ -170,34 +254,7 @@ segment_flags_to_prot (Elf_Word flags)
 
   return prot;
 }
-
-static int
-map_segments (int fd, char **base,
-              const Elf_Phdr *from, const Elf_Phdr *to)
-{
-  int prot = segment_flags_to_prot (from->p_flags);
-  char *ret;
-
-  ret = mmap (*base + from->p_vaddr,
-              to->p_offset + to->p_filesz - from->p_offset,
-              prot, MAP_PRIVATE, fd, from->p_offset);
-
-  if (ret == (char *) -1)
-    return 1;
-
-  if (!*base)
-    *base = ret;
-
-  return 0;
-}
-
-static int
-mprotect_segments (char *base, const Elf_Phdr *from, const Elf_Phdr *to)
-{
-  return mprotect (base + from->p_vaddr,
-                   to->p_vaddr + to->p_memsz - from->p_vaddr,
-                   segment_flags_to_prot (from->p_flags));
-}
+#endif
 
 static char*
 process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
@@ -272,152 +329,38 @@ process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
 
 #define ABORT(msg) do { err_msg = msg; goto cleanup; } while (0)
 
-#ifdef HAVE_SYS_MMAN_H
 static SCM
-load_thunk_from_fd_using_mmap (int fd)
-#define FUNC_NAME "load-thunk-from-disk"
-{
-  Elf_Ehdr header;
-  Elf_Phdr *ph;
-  const char *err_msg = 0;
-  char *base = 0;
-  size_t n;
-  int i;
-  int start_segment = -1;
-  int prev_segment = -1;
-  int dynamic_segment = -1;
-  SCM init = SCM_BOOL_F, entry = SCM_BOOL_F;
-
-  if (full_read (fd, &header, sizeof header) != sizeof header)
-    ABORT ("object file too small");
-
-  if ((err_msg = check_elf_header (&header)))
-    goto cleanup;
-
-  if (lseek (fd, header.e_phoff, SEEK_SET) == (off_t) -1)
-    goto cleanup;
-  
-  n = header.e_phnum;
-  ph = scm_gc_malloc_pointerless (n * sizeof (Elf_Phdr), "segment headers");
-
-  if (full_read (fd, ph, n * sizeof (Elf_Phdr)) != n * sizeof (Elf_Phdr))
-    ABORT ("failed to read program headers");
-      
-  for (i = 0; i < n; i++)
-    {
-      if (!ph[i].p_memsz)
-        continue;
-
-      if (ph[i].p_filesz != ph[i].p_memsz)
-        ABORT ("expected p_filesz == p_memsz");
-      
-      if (!ph[i].p_flags)
-        ABORT ("expected nonzero segment flags");
-
-      if (ph[i].p_type == PT_DYNAMIC)
-        {
-          if (dynamic_segment >= 0)
-            ABORT ("expected only one PT_DYNAMIC segment");
-          dynamic_segment = i;
-        }
-
-      if (start_segment < 0)
-        {
-          if (!base && ph[i].p_vaddr)
-            ABORT ("first loadable vaddr is not 0");
-            
-          start_segment = prev_segment = i;
-          continue;
-        }
-
-      if (ph[i].p_flags == ph[start_segment].p_flags)
-        {
-          if (ph[i].p_vaddr - ph[prev_segment].p_vaddr 
-              != ph[i].p_offset - ph[prev_segment].p_offset)
-            ABORT ("coalesced segments not contiguous");
-
-          prev_segment = i;
-          continue;
-        }
-
-      /* Otherwise we have a new kind of segment.  Map previous
-         segments.  */
-      if (map_segments (fd, &base, &ph[start_segment], &ph[prev_segment]))
-        goto cleanup;
-
-      /* Open a new set of segments.  */
-      start_segment = prev_segment = i;
-    }
-
-  /* Map last segments.  */
-  if (start_segment < 0)
-    ABORT ("no loadable segments");
-
-  if (map_segments (fd, &base, &ph[start_segment], &ph[prev_segment]))
-    goto cleanup;
-
-  if (dynamic_segment < 0)
-    ABORT ("no PT_DYNAMIC segment");
-
-  if ((err_msg = process_dynamic_segment (base, &ph[dynamic_segment],
-                                          &init, &entry)))
-    goto cleanup;
-
-  if (scm_is_true (init))
-    scm_call_0 (init);
-
-  /* Finally!  Return the thunk.  */
-  return entry;
-
-  /* FIXME: munmap on error? */
- cleanup:
-  {
-    int errno_save = errno;
-    (void) close (fd);
-    errno = errno_save;
-    if (errno)
-      SCM_SYSERROR;
-    scm_misc_error (FUNC_NAME, err_msg ? err_msg : "error loading ELF file",
-                    SCM_EOL);
-  }
-}
-#undef FUNC_NAME
-#endif /* HAVE_SYS_MMAN_H */
-
-static SCM
-load_thunk_from_memory (char *data, size_t len)
+load_thunk_from_memory (char *data, size_t len, int is_read_only)
 #define FUNC_NAME "load-thunk-from-memory"
 {
-  Elf_Ehdr header;
+  Elf_Ehdr *header;
   Elf_Phdr *ph;
   const char *err_msg = 0;
-  char *base = 0;
-  size_t n, memsz = 0, alignment = 8;
+  size_t n, alignment = 8;
   int i;
-  int first_loadable = -1;
-  int start_segment = -1;
-  int prev_segment = -1;
   int dynamic_segment = -1;
   SCM init = SCM_BOOL_F, entry = SCM_BOOL_F;
 
-  if (len < sizeof header)
+  if (len < sizeof *header)
     ABORT ("object file too small");
 
-  memcpy (&header, data, sizeof header);
-
-  if ((err_msg = check_elf_header (&header)))
+  header = (Elf_Ehdr*) data;
+  
+  if ((err_msg = check_elf_header (header)))
     goto cleanup;
 
-  n = header.e_phnum;
-  if (len < header.e_phoff + n * sizeof (Elf_Phdr))
-    goto cleanup;
-  ph = (Elf_Phdr*) (data + header.e_phoff);
+  if (header->e_phnum == 0)
+    ABORT ("no loadable segments");
+  n = header->e_phnum;
 
+  if (len < header->e_phoff + n * sizeof (Elf_Phdr))
+    ABORT ("object file too small");
+
+  ph = (Elf_Phdr*) (data + header->e_phoff);
+
+  /* Check that the segment table is sane.  */
   for (i = 0; i < n; i++)
     {
-      if (!ph[i].p_memsz)
-        continue;
-
       if (ph[i].p_filesz != ph[i].p_memsz)
         ABORT ("expected p_filesz == p_memsz");
 
@@ -438,84 +381,49 @@ load_thunk_from_memory (char *data, size_t len)
           dynamic_segment = i;
         }
 
-      if (first_loadable < 0)
+      if (i == 0)
         {
-          if (ph[i].p_vaddr)
+          if (ph[i].p_vaddr != 0)
             ABORT ("first loadable vaddr is not 0");
-
-          first_loadable = i;
         }
+      else
+        {
+          if (ph[i].p_vaddr < ph[i-1].p_vaddr + ph[i-1].p_memsz)
+            ABORT ("overlapping segments");
 
-      if (ph[i].p_vaddr < memsz)
-        ABORT ("overlapping segments");
-
-      if (ph[i].p_offset + ph[i].p_filesz > len)
-        ABORT ("segment beyond end of byte array");
-
-      memsz = ph[i].p_vaddr + ph[i].p_memsz;
+          if (ph[i].p_offset + ph[i].p_filesz > len)
+            ABORT ("segment beyond end of byte array");
+        }
     }
-
-  if (first_loadable < 0)
-    ABORT ("no loadable segments");
 
   if (dynamic_segment < 0)
     ABORT ("no PT_DYNAMIC segment");
 
-  /* Now copy segments.  */
+  if (!IS_ALIGNED ((scm_t_uintptr) data, alignment))
+    ABORT ("incorrectly aligned base");
 
-  /* We leak this memory, as we leak the memory mappings in
-     load_thunk_from_fd_using_mmap.
-
-     If the file is has an alignment of 8, use the standard malloc.
-     (FIXME to ensure alignment on non-GNU malloc.)  Otherwise use
-     posix_memalign.  We only use mprotect if the aligment is 4096.  */
-  if (alignment == 8)
+  /* Allow writes to writable pages.  */
+  if (is_read_only)
     {
-      base = malloc (memsz);
-      if (!base)
-        goto cleanup;
-    }
-  else
-    if ((errno = posix_memalign ((void **) &base, alignment, memsz)))
-      goto cleanup;
-
-  memset (base, 0, memsz);
-
-  for (i = 0; i < n; i++)
-    {
-      if (!ph[i].p_memsz)
-        continue;
-
-      memcpy (base + ph[i].p_vaddr,
-              data + ph[i].p_offset,
-              ph[i].p_memsz);
-
-      if (start_segment < 0)
+#ifdef HAVE_SYS_MMAN_H
+      for (i = 0; i < n; i++)
         {
-          start_segment = prev_segment = i;
-          continue;
+          if (ph[i].p_flags == PF_R)
+            continue;
+          if (ph[i].p_align != 4096)
+            continue;
+
+          if (mprotect (data + ph[i].p_vaddr,
+                        ph[i].p_memsz,
+                        segment_flags_to_prot (ph[i].p_flags)))
+            goto cleanup;
         }
-
-      if (ph[i].p_flags == ph[start_segment].p_flags)
-        {
-          prev_segment = i;
-          continue;
-        }
-
-      if (alignment == 4096)
-        if (mprotect_segments (base, &ph[start_segment], &ph[prev_segment]))
-          goto cleanup;
-
-      /* Open a new set of segments.  */
-      start_segment = prev_segment = i;
+#else
+      ABORT ("expected writable pages");
+#endif
     }
 
-  /* Mprotect the last segments.  */
-  if (alignment == 4096)
-    if (mprotect_segments (base, &ph[start_segment], &ph[prev_segment]))
-      goto cleanup;
-
-  if ((err_msg = process_dynamic_segment (base, &ph[dynamic_segment],
+  if ((err_msg = process_dynamic_segment (data, &ph[dynamic_segment],
                                           &init, &entry)))
     goto cleanup;
 
@@ -535,22 +443,40 @@ load_thunk_from_memory (char *data, size_t len)
 }
 #undef FUNC_NAME
 
-#ifndef HAVE_SYS_MMAN_H
-static SCM
-load_thunk_from_fd_using_read (int fd)
-#define FUNC_NAME "load-thunk-from-disk"
+#define SCM_PAGE_SIZE 4096
+
+static char*
+map_file_contents (int fd, size_t len, int *is_read_only)
+#define FUNC_NAME "load-thunk-from-file"
 {
   char *data;
-  size_t len;
-  struct stat st;
-  int ret;
 
-  ret = fstat (fd, &st);
-  if (ret < 0)
+#ifdef HAVE_SYS_MMAN_H
+  data = mmap (NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
+  if (data == MAP_FAILED)
     SCM_SYSERROR;
-  len = st.st_size;
-  data = scm_gc_malloc_pointerless (len, "objcode");
-  if (full_read (fd, data, len) != len)
+  *is_read_only = 1;
+#else
+  if (lseek (fd, 0, SEEK_START) < 0)
+    {
+      int errno_save = errno;
+      (void) close (fd);
+      errno = errno_save;
+      SCM_SYSERROR;
+    }
+
+  /* Given that we are using the read fallback, optimistically assume
+     that the .go files were made with 8-byte alignment.
+     alignment.  */
+  data = malloc (end);
+  if (!data)
+    {
+      (void) close (fd);
+      scm_misc_error (FUNC_NAME, "failed to allocate ~A bytes",
+                      scm_list_1 (scm_from_size_t (end)));
+    }
+
+  if (full_read (fd, data, end) != end)
     {
       int errno_save = errno;
       (void) close (fd);
@@ -560,11 +486,25 @@ load_thunk_from_fd_using_read (int fd)
       scm_misc_error (FUNC_NAME, "short read while loading objcode",
                       SCM_EOL);
     }
-  (void) close (fd);
-  return load_thunk_from_memory (data, len);
+
+  /* If our optimism failed, fall back.  */
+  {
+    unsigned alignment = sniff_elf_alignment (data, end);
+
+    if (alignment != 8)
+      {
+        char *copy = copy_and_align_elf_data (data, end, alignment);
+        free (data);
+        data = copy;
+      }
+  }
+
+  *is_read_only = 0;
+#endif
+
+  return data;
 }
 #undef FUNC_NAME
-#endif /* ! HAVE_SYS_MMAN_H */
 
 SCM_DEFINE (scm_load_thunk_from_file, "load-thunk-from-file", 1, 0, 0,
 	    (SCM filename),
@@ -572,7 +512,9 @@ SCM_DEFINE (scm_load_thunk_from_file, "load-thunk-from-file", 1, 0, 0,
 #define FUNC_NAME s_scm_load_thunk_from_file
 {
   char *c_filename;
-  int fd;
+  int fd, is_read_only;
+  off_t end;
+  char *data;
 
   SCM_VALIDATE_STRING (1, filename);
 
@@ -581,11 +523,15 @@ SCM_DEFINE (scm_load_thunk_from_file, "load-thunk-from-file", 1, 0, 0,
   free (c_filename);
   if (fd < 0) SCM_SYSERROR;
 
-#ifdef HAVE_SYS_MMAN_H
-  return load_thunk_from_fd_using_mmap (fd);
-#else
-  return load_thunk_from_fd_using_read (fd);
-#endif
+  end = lseek (fd, 0, SEEK_END);
+  if (end < 0)
+    SCM_SYSERROR;
+
+  data = map_file_contents (fd, end, &is_read_only);
+
+  (void) close (fd);
+
+  return load_thunk_from_memory (data, end, is_read_only);
 }
 #undef FUNC_NAME
 
@@ -594,10 +540,20 @@ SCM_DEFINE (scm_load_thunk_from_memory, "load-thunk-from-memory", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_load_thunk_from_memory
 {
+  char *data;
+  size_t len;
+
   SCM_VALIDATE_BYTEVECTOR (1, bv);
 
-  return load_thunk_from_memory ((char *) SCM_BYTEVECTOR_CONTENTS (bv),
-                                 SCM_BYTEVECTOR_LENGTH (bv));
+  data = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
+  len = SCM_BYTEVECTOR_LENGTH (bv);
+
+  /* Copy data in order to align it, to trace its GC roots and
+     writable sections, and to keep it in memory.  */
+
+  data = copy_and_align_elf_data (data, len);
+
+  return load_thunk_from_memory (data, len, 0);
 }
 #undef FUNC_NAME
 
