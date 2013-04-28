@@ -89,6 +89,8 @@
 #define ELFDATA ELFDATA2LSB
 #endif
 
+static void register_elf (char *data, size_t len);
+
 enum bytecode_kind
   {
     BYTECODE_KIND_NONE,
@@ -430,6 +432,8 @@ load_thunk_from_memory (char *data, size_t len, int is_read_only)
   if (scm_is_true (init))
     scm_call_0 (init);
 
+  register_elf (data, len);
+
   /* Finally!  Return the thunk.  */
   return entry;
 
@@ -608,6 +612,107 @@ scm_c_make_objcode_slice (SCM parent, const scm_t_uint8 *ptr)
 }
 #undef FUNC_NAME
 
+struct mapped_elf_image
+{
+  char *start;
+  char *end;
+};
+
+static struct mapped_elf_image *mapped_elf_images = NULL;
+static size_t mapped_elf_images_count = 0;
+static size_t mapped_elf_images_allocated = 0;
+
+static size_t
+find_mapped_elf_insertion_index (char *ptr)
+{
+  /* "mapped_elf_images_count" must never be dereferenced.  */
+  size_t start = 0, end = mapped_elf_images_count;
+
+  while (start < end)
+    {
+      size_t n = start + (end - start) / 2;
+
+      if (ptr < mapped_elf_images[n].end)
+        end = n;
+      else
+        start = n + 1;
+    }
+
+  return start;
+}
+
+static void
+register_elf (char *data, size_t len)
+{
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
+  {
+    /* My kingdom for a generic growable sorted vector library.  */
+    if (mapped_elf_images_count == mapped_elf_images_allocated)
+      {
+        struct mapped_elf_image *prev;
+        size_t n;
+
+        if (mapped_elf_images_allocated)
+          mapped_elf_images_allocated *= 2;
+        else
+          mapped_elf_images_allocated = 16;
+
+        prev = mapped_elf_images;
+        mapped_elf_images =
+          scm_gc_malloc_pointerless (sizeof (*mapped_elf_images)
+                                     * mapped_elf_images_allocated,
+                                     "mapped elf images");
+
+        for (n = 0; n < mapped_elf_images_count; n++)
+          {
+            mapped_elf_images[n].start = prev[n].start;
+            mapped_elf_images[n].end = prev[n].end;
+          }
+      }
+
+    {
+      size_t end;
+      size_t n = find_mapped_elf_insertion_index (data);
+
+      for (end = mapped_elf_images_count; n < end; end--)
+        {
+          mapped_elf_images[end].start = mapped_elf_images[end - 1].start;
+          mapped_elf_images[end].end = mapped_elf_images[end - 1].end;
+        }
+      mapped_elf_images_count++;
+
+      mapped_elf_images[n].start = data;
+      mapped_elf_images[n].end = data + len;
+    }
+  }
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
+}
+
+static SCM
+scm_find_mapped_elf_image (SCM ip)
+{
+  char *ptr = (char *) scm_to_uintptr_t (ip);
+  SCM result;
+
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
+  {
+    size_t n = find_mapped_elf_insertion_index ((char *) ptr);
+    if (n < mapped_elf_images_count
+        && mapped_elf_images[n].start <= ptr
+        && ptr < mapped_elf_images[n].end)
+      {
+        signed char *data = (signed char *) mapped_elf_images[n].start;
+        size_t len = mapped_elf_images[n].end - mapped_elf_images[n].start;
+        result = scm_c_take_gc_bytevector (data, len, SCM_BOOL_F);
+      }
+    else
+      result = SCM_BOOL_F;
+  }
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
+
+  return result;
+}
+
 
 /*
  * Scheme interface
@@ -745,6 +850,9 @@ scm_init_objcodes (void)
 #ifndef SCM_MAGIC_SNARFER
 #include "libguile/objcodes.x"
 #endif
+
+  scm_c_define_gsubr ("find-mapped-elf-image", 1, 0, 0,
+                      (scm_t_subr) scm_find_mapped_elf_image);
 
   scm_c_define ("word-size", scm_from_size_t (sizeof(SCM)));
   scm_c_define ("byte-order", scm_from_uint16 (SCM_BYTE_ORDER));
