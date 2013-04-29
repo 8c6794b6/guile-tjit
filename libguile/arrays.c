@@ -66,10 +66,10 @@ SCM_DEFINE (scm_shared_array_root, "shared-array-root", 1, 0, 0,
 	    "Return the root vector of a shared array.")
 #define FUNC_NAME s_scm_shared_array_root
 {
-  if (!scm_is_array (ra))
-    scm_wrong_type_arg_msg (FUNC_NAME, SCM_ARG1, ra, "array");
-  else if (SCM_I_ARRAYP (ra))
+  if (SCM_I_ARRAYP (ra))
     return SCM_I_ARRAY_V (ra);
+  else if (!scm_is_array (ra))
+    scm_wrong_type_arg_msg (FUNC_NAME, SCM_ARG1, ra, "array");
   else
     return ra;
 }
@@ -129,11 +129,11 @@ static char s_bad_spec[] = "Bad scm_array dimension";
 
 /* Increments will still need to be set. */
 
-static SCM 
+static SCM
 scm_i_shap2ra (SCM args)
 {
   scm_t_array_dim *s;
-  SCM ra, spec, sp;
+  SCM ra, spec;
   int ndim = scm_ilength (args);
   if (ndim < 0)
     scm_misc_error (NULL, s_bad_spec, SCM_EOL);
@@ -146,25 +146,27 @@ scm_i_shap2ra (SCM args)
       spec = SCM_CAR (args);
       if (scm_is_integer (spec))
 	{
-	  if (scm_to_long (spec) < 0)
-	    scm_misc_error (NULL, s_bad_spec, SCM_EOL);
 	  s->lbnd = 0;
-	  s->ubnd = scm_to_long (spec) - 1;
-	  s->inc = 1;
+	  s->ubnd = scm_to_ssize_t (spec);
+          if (s->ubnd < 0)
+            scm_misc_error (NULL, s_bad_spec, SCM_EOL);
+          --s->ubnd;
 	}
       else
 	{
 	  if (!scm_is_pair (spec) || !scm_is_integer (SCM_CAR (spec)))
 	    scm_misc_error (NULL, s_bad_spec, SCM_EOL);
-	  s->lbnd = scm_to_long (SCM_CAR (spec));
-	  sp = SCM_CDR (spec);
-	  if (!scm_is_pair (sp) 
-	      || !scm_is_integer (SCM_CAR (sp))
-	      || !scm_is_null (SCM_CDR (sp)))
+	  s->lbnd = scm_to_ssize_t (SCM_CAR (spec));
+	  spec = SCM_CDR (spec);
+	  if (!scm_is_pair (spec)
+	      || !scm_is_integer (SCM_CAR (spec))
+	      || !scm_is_null (SCM_CDR (spec)))
 	    scm_misc_error (NULL, s_bad_spec, SCM_EOL);
-	  s->ubnd = scm_to_long (SCM_CAR (sp));
-	  s->inc = 1;
+	  s->ubnd = scm_to_ssize_t (SCM_CAR (spec));
+          if (s->ubnd - s->lbnd < -1)
+            scm_misc_error (NULL, s_bad_spec, SCM_EOL);
 	}
+      s->inc = 1;
     }
   return ra;
 }
@@ -307,13 +309,13 @@ SCM_DEFINE (scm_make_array, "make-array", 1, 0, 1,
 }
 #undef FUNC_NAME
 
-static void 
+static void
 scm_i_ra_set_contp (SCM ra)
 {
   size_t k = SCM_I_ARRAY_NDIM (ra);
   if (k)
     {
-      long inc = SCM_I_ARRAY_DIMS (ra)[k - 1].inc;
+      ssize_t inc = SCM_I_ARRAY_DIMS (ra)[k - 1].inc;
       while (k--)
 	{
 	  if (inc != SCM_I_ARRAY_DIMS (ra)[k].inc)
@@ -389,7 +391,7 @@ SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
   s = SCM_I_ARRAY_DIMS (ra);
   for (k = 0; k < SCM_I_ARRAY_NDIM (ra); k++)
     {
-      inds = scm_cons (scm_from_long (s[k].lbnd), inds);
+      inds = scm_cons (scm_from_ssize_t (s[k].lbnd), inds);
       if (s[k].ubnd < s[k].lbnd)
 	{
 	  if (1 == SCM_I_ARRAY_NDIM (ra))
@@ -632,11 +634,11 @@ list_to_array (SCM lst, scm_t_array_handle *handle, ssize_t pos, size_t k)
       if (!scm_is_null (lst))
 	errmsg = "too many elements for array dimension ~a, want ~a";
       if (errmsg)
-	scm_misc_error (NULL, errmsg, scm_list_2 (scm_from_ulong (k),
+	scm_misc_error (NULL, errmsg, scm_list_2 (scm_from_size_t (k),
 						  scm_from_size_t (len)));
     }
 }
-  
+
 
 SCM_DEFINE (scm_list_to_typed_array, "list->typed-array", 3, 0, 0,
            (SCM type, SCM shape, SCM lst),
@@ -749,7 +751,7 @@ int
 scm_i_print_array (SCM array, SCM port, scm_print_state *pstate)
 {
   scm_t_array_handle h;
-  long i;
+  size_t i;
   int print_lbnds = 0, zero_size = 0, print_lens = 0;
 
   scm_array_get_handle (array, &h);
