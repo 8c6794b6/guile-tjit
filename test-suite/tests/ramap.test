@@ -62,7 +62,15 @@
       (array-index-map! (make-typed-array 'f64 0 0 2) (const 0))
       (array-index-map! (make-typed-array 'b #t 0 2) (const #t))
       (array-index-map! (make-typed-array #t 0 0 2) (const 0))
-      #t)))
+      #t))
+
+  (pass-if "rank 2"
+    (let ((a (make-array 0 2 2))
+          (b (make-array 0 2 2)))
+      (array-index-map! a (lambda (i j) i))
+      (array-index-map! b (lambda (i j) j))
+      (and (array-equal? a #2((0 0) (1 1)))
+           (array-equal? b #2((0 1) (0 1)))))))
 
 ;;;
 ;;; array-copy!
