@@ -32,6 +32,7 @@
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-9)
   #:export (debug-context-image
+            debug-context-base
 
             program-debug-info-name
             program-debug-info-context

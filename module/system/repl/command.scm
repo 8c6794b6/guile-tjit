@@ -484,14 +484,21 @@ Run the optimizer on a piece of code and print the result."
 (define (guile:disassemble x)
   ((@ (language assembly disassemble) disassemble) x))
 
+(define (disassemble-program x)
+  ((@ (system vm disassembler) disassemble-program) x))
+
 (define-meta-command (disassemble repl (form))
   "disassemble EXP
 Disassemble a compiled procedure."
   (let ((obj (repl-eval repl (repl-parse repl form))))
-    (if (or (program? obj) (objcode? obj))
-        (guile:disassemble obj)
-        (format #t "Argument to ,disassemble not a procedure or objcode: ~a~%"
-                obj))))
+    (cond
+     ((rtl-program? obj)
+      (disassemble-program obj))
+     ((or (program? obj) (objcode? obj))
+      (guile:disassemble obj))
+     (else
+      (format #t "Argument to ,disassemble not a procedure or objcode: ~a~%"
+              obj)))))
 
 (define-meta-command (disassemble-file repl file)
   "disassemble-file FILE
