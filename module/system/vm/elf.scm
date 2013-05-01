@@ -123,8 +123,8 @@
 
             parse-elf
             elf-segment elf-segments
-            elf-section elf-sections elf-sections-by-name
-            elf-symbol-table-ref
+            elf-section elf-sections elf-section-by-name elf-sections-by-name
+            elf-symbol-table-len elf-symbol-table-ref
 
             parse-elf-note
             elf-note-name elf-note-desc elf-note-type))
@@ -796,6 +796,17 @@
           (utf8->string out))
         (lp (1+ end)))))
 
+(define (elf-section-by-name elf name)
+  (let ((off (elf-section-offset (elf-section elf (elf-shstrndx elf)))))
+    (let lp ((n (elf-shnum elf)))
+      (and (> n 0)
+           (let ((section (elf-section elf (1- n))))
+             (if (equal? (string-table-ref (elf-bytes elf)
+                                           (+ off (elf-section-name section)))
+                         name)
+                 section
+                 (lp (1- n))))))))
+
 (define (elf-sections-by-name elf)
   (let* ((sections (elf-sections elf))
          (off (elf-section-offset (list-ref sections (elf-shstrndx elf)))))
@@ -894,6 +905,13 @@
      ((8) write-elf64-symbol)
      (else (error "invalid word size" word-size)))
    bv offset byte-order sym))
+
+(define (elf-symbol-table-len section)
+  (let ((len (elf-section-size section))
+        (entsize (elf-section-entsize section)))
+    (unless (and (not (zero? entsize)) (zero? (modulo len entsize)))
+      (error "bad symbol table" section))
+    (/ len entsize)))
 
 (define* (elf-symbol-table-ref elf section n #:optional strtab)
   (let ((bv (elf-bytes elf))

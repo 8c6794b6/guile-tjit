@@ -357,6 +357,7 @@ SYSTEM_SOURCES =				\
   system/vm/traps.scm				\
   system/vm/trap-state.scm			\
   system/vm/assembler.scm			\
+  system/vm/debug.scm				\
   system/vm/vm.scm				\
   system/foreign.scm				\
   system/xref.scm				\
