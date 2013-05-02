@@ -751,7 +751,15 @@
      (with-input-from-string "'#1:-3(#t #t)" read))
 
   (pass-if "bitvector is self-evaluating"
-     (equal? (compile (bitvector)) (bitvector))))
+     (equal? (compile (bitvector)) (bitvector)))
+
+  ; this failed in 2.0.9.
+  (pass-if "typed arrays that are not uniform arrays"
+    (let ((a #2b((#t #f) (#f #t)))
+          (b (make-typed-array 'b #f 2 2)))
+      (array-set! b #t 0 0)
+      (array-set! b #t 1 1)
+      (array-equal? a b))))
 
 ;;;
 ;;; equal? with vector and one-dimensional array
