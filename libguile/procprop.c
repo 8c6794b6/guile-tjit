@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1998,2000,2001,2003,2004, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000,2001,2003,2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -212,8 +212,51 @@ SCM_DEFINE (scm_set_procedure_property_x, "set-procedure-property!", 3, 0, 0,
 }
 #undef FUNC_NAME
 
+
 
 
+SCM_SYMBOL (scm_sym_source, "source");
+
+
+SCM_DEFINE (scm_procedure_name, "procedure-name", 1, 0, 0,
+            (SCM proc),
+	    "Return the name of the procedure @var{proc}")
+#define FUNC_NAME s_scm_procedure_name
+{
+  SCM_VALIDATE_PROC (1, proc);
+  while (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
+    proc = SCM_STRUCT_PROCEDURE (proc);
+  return scm_procedure_property (proc, scm_sym_name);
+}
+#undef FUNC_NAME
+
+
+SCM_DEFINE (scm_procedure_source, "procedure-source", 1, 0, 0,
+            (SCM proc),
+	    "Return the source of the procedure @var{proc}.")
+#define FUNC_NAME s_scm_procedure_source
+{
+  SCM src;
+  SCM_VALIDATE_PROC (1, proc);
+
+  do
+    {
+      src = scm_procedure_property (proc, scm_sym_source);
+      if (scm_is_true (src))
+        return src;
+
+      if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc)
+          && SCM_HEAP_OBJECT_P ((proc = SCM_STRUCT_PROCEDURE (proc))))
+        continue;
+    }
+  while (0);
+
+  return SCM_BOOL_F;
+}
+#undef FUNC_NAME
+
+
+
 
 void
 scm_init_procprop ()
