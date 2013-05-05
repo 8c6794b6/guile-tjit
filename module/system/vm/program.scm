@@ -22,6 +22,7 @@
   #:use-module (system base pmatch)
   #:use-module (system vm instruction)
   #:use-module (system vm objcode)
+  #:use-module (system vm debug)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
@@ -52,6 +53,13 @@
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_programs")
+
+;; This procedure is called by programs.c.
+(define (rtl-program-name program)
+  (unless (rtl-program? program)
+    (error "shouldn't get here"))
+  (and=> (find-program-debug-info (rtl-program-code program))
+         program-debug-info-name))
 
 (define (make-binding name boxed? index start end)
   (list name boxed? index start end))
@@ -271,7 +279,7 @@
 (define (write-program prog port)
   (format port "#<procedure ~a~a>"
           (or (procedure-name prog)
-              (and=> (program-source prog 0)
+              (and=> (and (program? prog) (program-source prog 0))
                      (lambda (s)
                        (format #f "~a at ~a:~a:~a"
                                (number->string (object-address prog) 16)
@@ -279,7 +287,7 @@
                                    (if s "<current input>" "<unknown port>"))
                                (source:line-for-user s) (source:column s))))
               (number->string (object-address prog) 16))
-          (let ((arities (program-arities prog)))
+          (let ((arities (and (program? prog) (program-arities prog))))
             (if (or (not arities) (null? arities))
                 ""
                 (string-append

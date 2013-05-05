@@ -223,10 +223,25 @@ SCM_DEFINE (scm_procedure_name, "procedure-name", 1, 0, 0,
 	    "Return the name of the procedure @var{proc}")
 #define FUNC_NAME s_scm_procedure_name
 {
+  SCM props, ret;
+
   SCM_VALIDATE_PROC (1, proc);
+
   while (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
     proc = SCM_STRUCT_PROCEDURE (proc);
-  return scm_procedure_property (proc, scm_sym_name);
+
+  props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
+
+  if (scm_is_pair (props))
+    ret = scm_assq_ref (props, scm_sym_name);
+  else if (SCM_RTL_PROGRAM_P (proc))
+    ret = scm_i_rtl_program_name (proc);
+  else if (SCM_PROGRAM_P (proc))
+    ret = scm_assq_ref (scm_i_program_properties (proc), scm_sym_name);
+  else
+    ret = SCM_BOOL_F;
+  
+  return ret;
 }
 #undef FUNC_NAME
 

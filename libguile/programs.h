@@ -44,8 +44,7 @@ SCM_INTERNAL SCM scm_make_rtl_program (SCM bytevector, SCM byte_offset, SCM free
 SCM_INTERNAL SCM scm_rtl_program_p (SCM obj);
 SCM_INTERNAL SCM scm_rtl_program_code (SCM program);
 
-SCM_INTERNAL void scm_i_rtl_program_print (SCM program, SCM port,
-                                           scm_print_state *pstate);
+SCM_INTERNAL SCM scm_i_rtl_program_name (SCM program);
 
 /*
  * Programs

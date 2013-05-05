@@ -268,3 +268,13 @@
              (lambda (pdi)
                (equal? (program-debug-info-addr pdi)
                        (rtl-program-code return-3)))))))
+
+(with-test-prefix "procedure name"
+  (pass-if-equal 'foo
+      (procedure-name
+       (assemble-program
+        '((begin-program foo)
+          (assert-nargs-ee/locals 0 1)
+          (load-constant 0 42)
+          (return 0)
+          (end-program))))))
