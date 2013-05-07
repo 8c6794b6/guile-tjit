@@ -39,7 +39,6 @@
 #include "libguile/bitvectors.h"
 #include "libguile/srfi-4.h"
 #include "libguile/generalized-arrays.h"
-#include "libguile/generalized-vectors.h"
 
 #include "libguile/validate.h"
 #include "libguile/array-map.h"
@@ -93,34 +92,34 @@ scm_ra_matchp (SCM ra0, SCM ras)
   int i, ndim = 1;
   int exact = 2	  /* 4 */ ;  /* Don't care about values >2 (yet?) */
 
-  if (scm_is_generalized_vector (ra0))
+  if (!scm_is_array (ra0))
+    return 0;
+  else if (!SCM_I_ARRAYP (ra0))
     {
       s0->lbnd = 0;
       s0->inc = 1;
-      s0->ubnd = scm_c_generalized_vector_length (ra0) - 1;
+      s0->ubnd = scm_c_array_length (ra0) - 1;
     }
-  else if (SCM_I_ARRAYP (ra0))
+  else
     {
       ndim = SCM_I_ARRAY_NDIM (ra0);
       s0 = SCM_I_ARRAY_DIMS (ra0);
       bas0 = SCM_I_ARRAY_BASE (ra0);
     }
-  else
-    return 0;
 
   while (scm_is_pair (ras))
     {
       ra1 = SCM_CAR (ras);
-      
-      if (scm_is_generalized_vector (ra1))
+
+      if (!SCM_I_ARRAYP (ra1))
 	{
 	  size_t length;
-	  
+
 	  if (1 != ndim)
 	    return 0;
-	  
-	  length = scm_c_generalized_vector_length (ra1);
-	  
+
+	  length = scm_c_array_length (ra1);
+
 	  switch (exact)
 	    {
 	    case 4:
@@ -138,7 +137,7 @@ scm_ra_matchp (SCM ra0, SCM ras)
 		return 0;
 	    }
 	}
-      else if (SCM_I_ARRAYP (ra1) && ndim == SCM_I_ARRAY_NDIM (ra1))
+      else if (ndim == SCM_I_ARRAY_NDIM (ra1))
 	{
 	  s1 = SCM_I_ARRAY_DIMS (ra1);
 	  if (bas0 != SCM_I_ARRAY_BASE (ra1))
@@ -202,7 +201,7 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
       if (SCM_IMP (vra0)) goto gencase;
       if (!SCM_I_ARRAYP (vra0))
 	{
-	  size_t length = scm_c_generalized_vector_length (vra0);
+	  size_t length = scm_c_array_length (vra0);
 	  vra1 = scm_i_make_array (1);
 	  SCM_I_ARRAY_BASE (vra1) = 0;
 	  SCM_I_ARRAY_DIMS (vra1)->lbnd = 0;
@@ -260,7 +259,7 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
       }
     else
       {
-	size_t length = scm_c_generalized_vector_length (ra0);
+	size_t length = scm_c_array_length (ra0);
 	kmax = 0;
 	SCM_I_ARRAY_DIMS (vra0)->lbnd = 0;
 	SCM_I_ARRAY_DIMS (vra0)->ubnd = length - 1;
@@ -803,7 +802,16 @@ SCM_DEFINE (scm_array_index_map_x, "array-index-map!", 2, 0, 0,
   unsigned long i;
   SCM_VALIDATE_PROC (2, proc);
 
-  if (SCM_I_ARRAYP (ra))
+  if (!scm_is_array (ra))
+    scm_wrong_type_arg_msg (NULL, 0, ra, "array");
+  else if (!SCM_I_ARRAYP (ra))
+    {
+      size_t length = scm_c_array_length (ra);
+      for (i = 0; i < length; ++i)
+	ASET (ra, i, scm_call_1 (proc, scm_from_ulong (i)));
+      return SCM_UNSPECIFIED;
+    }
+  else
     {
       SCM args = SCM_EOL;
       int j, k, kmax = SCM_I_ARRAY_NDIM (ra) - 1;
@@ -847,15 +855,6 @@ SCM_DEFINE (scm_array_index_map_x, "array-index-map!", 2, 0, 0,
 
       return SCM_UNSPECIFIED;
     }
-  else if (scm_is_generalized_vector (ra))
-    {
-      size_t length = scm_c_generalized_vector_length (ra);
-      for (i = 0; i < length; i++)
-	ASET (ra, i, scm_call_1 (proc, scm_from_ulong (i)));
-      return SCM_UNSPECIFIED;
-    }
-  else
-    scm_wrong_type_arg_msg (NULL, 0, ra, "array");
 }
 #undef FUNC_NAME
 
