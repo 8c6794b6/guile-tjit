@@ -325,6 +325,11 @@
     (let* ((a (make-array 0 4 4)))
       (not (array-contents (transpose-array a 1 0) #t))))
 
+  ;; This is a consequence of (array-contents? a #t) => #t.
+  (pass-if "empty array"
+    (let ((a (make-typed-array 'f64 2 0 0)))
+      (f64vector? (array-contents a))))
+
   (pass-if "broadcast vector I"
     (let* ((a (make-array 0 4))
            (b (make-shared-array a (lambda (i j k) (list k)) 1 1 4)))

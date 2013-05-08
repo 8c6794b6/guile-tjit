@@ -589,9 +589,8 @@ SCM_DEFINE (scm_array_contents, "array-contents", 1, 1, 0,
 	}
 
       v = SCM_I_ARRAY_V (ra);
-      if ((len == scm_c_array_length (v)) && (0 == SCM_I_ARRAY_BASE (ra))
-          && SCM_I_ARRAY_DIMS (ra)->inc)
-        return v;
+      if ((len == scm_c_array_length (v)) && (0 == SCM_I_ARRAY_BASE (ra)))
+          return v;
       else
         {
           SCM sra = scm_i_make_array (1);
