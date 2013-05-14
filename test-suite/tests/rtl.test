@@ -27,7 +27,8 @@
     (pass-if (object->string x) (equal? expr x))))
 
 (define (return-constant val)
-  (assemble-program `((begin-program foo)
+  (assemble-program `((begin-program foo
+                                     ((name . foo)))
                       (assert-nargs-ee/locals 0 1)
                       (load-constant 0 ,val)
                       (return 0)
@@ -63,12 +64,14 @@
 
 (with-test-prefix "static procedure"
   (assert-equal 42
-                (((assemble-program `((begin-program foo)
+                (((assemble-program `((begin-program foo
+                                                     ((name . foo)))
                                       (assert-nargs-ee/locals 0 1)
                                       (load-static-procedure 0 bar)
                                       (return 0)
                                       (end-program)
-                                      (begin-program bar)
+                                      (begin-program bar
+                                                     ((name . bar)))
                                       (assert-nargs-ee/locals 0 1)
                                       (load-constant 0 42)
                                       (return 0)
@@ -81,7 +84,8 @@
                         ;; 0: limit
                         ;; 1: n
                         ;; 2: accum
-                        '((begin-program countdown)
+                        '((begin-program countdown
+                                         ((name . countdown)))
                           (assert-nargs-ee/locals 1 2)
                           (br fix-body)
                           (label loop-head)
@@ -105,14 +109,16 @@
                         ;; 0: elt
                         ;; 1: tail
                         ;; 2: head
-                        '((begin-program make-accum)
+                        '((begin-program make-accum
+                                         ((name . make-accum)))
                           (assert-nargs-ee/locals 0 2)
                           (load-constant 0 0)
                           (box 0 0)
                           (make-closure 1 accum (0))
                           (return 1)
                           (end-program)
-                          (begin-program accum)
+                          (begin-program accum
+                                         ((name . accum)))
                           (assert-nargs-ee/locals 1 2)
                           (free-ref 1 0)
                           (box-ref 2 1)
@@ -129,7 +135,8 @@
   (assert-equal 42
                 (let ((call ;; (lambda (x) (x))
                        (assemble-program
-                        '((begin-program call)
+                        '((begin-program call
+                                         ((name . call)))
                           (assert-nargs-ee/locals 1 0)
                           (call 1 0 ())
                           (return 1) ;; MVRA from call
@@ -140,7 +147,8 @@
   (assert-equal 6
                 (let ((call-with-3 ;; (lambda (x) (x 3))
                        (assemble-program
-                        '((begin-program call-with-3)
+                        '((begin-program call-with-3
+                                         ((name . call-with-3)))
                           (assert-nargs-ee/locals 1 1)
                           (load-constant 1 3)
                           (call 2 0 (1))
@@ -153,7 +161,8 @@
   (assert-equal 3
                 (let ((call ;; (lambda (x) (x))
                        (assemble-program
-                        '((begin-program call)
+                        '((begin-program call
+                                         ((name . call)))
                           (assert-nargs-ee/locals 1 0)
                           (tail-call 0 0)
                           (end-program)))))
@@ -162,7 +171,8 @@
   (assert-equal 6
                 (let ((call-with-3 ;; (lambda (x) (x 3))
                        (assemble-program
-                        '((begin-program call-with-3)
+                        '((begin-program call-with-3
+                                         ((name . call-with-3)))
                           (assert-nargs-ee/locals 1 1)
                           (mov 1 0) ;; R1 <- R0
                           (load-constant 0 3) ;; R0 <- 3
@@ -174,14 +184,16 @@
   (assert-equal 5.0
                 (let ((get-sqrt-trampoline
                        (assemble-program
-                        '((begin-program get-sqrt-trampoline)
+                        '((begin-program get-sqrt-trampoline
+                                         ((name . get-sqrt-trampoline)))
                           (assert-nargs-ee/locals 0 1)
                           (cache-current-module! 0 sqrt-scope)
                           (load-static-procedure 0 sqrt-trampoline)
                           (return 0)
                           (end-program)
 
-                          (begin-program sqrt-trampoline)
+                          (begin-program sqrt-trampoline
+                                         ((name . sqrt-trampoline)))
                           (assert-nargs-ee/locals 1 1)
                           (cached-toplevel-ref 1 sqrt-scope sqrt)
                           (tail-call 1 1)
@@ -195,14 +207,16 @@
     (assert-equal (1+ prev)
                   (let ((make-top-incrementor
                          (assemble-program
-                          '((begin-program make-top-incrementor)
+                          '((begin-program make-top-incrementor
+                                           ((name . make-top-incrementor)))
                             (assert-nargs-ee/locals 0 1)
                             (cache-current-module! 0 top-incrementor)
                             (load-static-procedure 0 top-incrementor)
                             (return 0)
                             (end-program)
 
-                            (begin-program top-incrementor)
+                            (begin-program top-incrementor
+                                           ((name . top-incrementor)))
                             (assert-nargs-ee/locals 0 1)
                             (cached-toplevel-ref 0 top-incrementor *top-val*)
                             (add1 0 0)
@@ -216,13 +230,15 @@
   (assert-equal 5.0
                 (let ((get-sqrt-trampoline
                        (assemble-program
-                        '((begin-program get-sqrt-trampoline)
+                        '((begin-program get-sqrt-trampoline
+                                         ((name . get-sqrt-trampoline)))
                           (assert-nargs-ee/locals 0 1)
                           (load-static-procedure 0 sqrt-trampoline)
                           (return 0)
                           (end-program)
 
-                          (begin-program sqrt-trampoline)
+                          (begin-program sqrt-trampoline
+                                         ((name . sqrt-trampoline)))
                           (assert-nargs-ee/locals 1 1)
                           (cached-module-ref 1 (guile) #t sqrt)
                           (tail-call 1 1)
@@ -234,13 +250,15 @@
     (assert-equal (1+ prev)
                   (let ((make-top-incrementor
                          (assemble-program
-                          '((begin-program make-top-incrementor)
+                          '((begin-program make-top-incrementor
+                                           ((name . make-top-incrementor)))
                             (assert-nargs-ee/locals 0 1)
                             (load-static-procedure 0 top-incrementor)
                             (return 0)
                             (end-program)
 
-                            (begin-program top-incrementor)
+                            (begin-program top-incrementor
+                                           ((name . top-incrementor)))
                             (assert-nargs-ee/locals 0 1)
                             (cached-module-ref 0 (tests rtl) #f *top-val*)
                             (add1 0 0)
@@ -252,7 +270,7 @@
 
 (with-test-prefix "debug contexts"
   (let ((return-3 (assemble-program
-                   '((begin-program return-3)
+                   '((begin-program return-3 ((name . return-3)))
                      (assert-nargs-ee/locals 0 1)
                      (load-constant 0 3)
                      (return 0)
@@ -273,7 +291,7 @@
   (pass-if-equal 'foo
       (procedure-name
        (assemble-program
-        '((begin-program foo)
+        '((begin-program foo ((name . foo)))
           (assert-nargs-ee/locals 0 1)
           (load-constant 0 42)
           (return 0)

@@ -110,12 +110,26 @@
 ;;; A <meta> entry collects metadata for one procedure.  Procedures are
 ;;; written as contiguous ranges of RTL code.
 ;;;
+(define-syntax-rule (assert-match arg pattern kind)
+  (let ((x arg))
+    (unless (match x (pattern #t) (_ #f))
+      (error (string-append "expected " kind) x))))
+
 (define-record-type <meta>
-  (make-meta name low-pc high-pc)
+  (%make-meta label properties low-pc high-pc)
   meta?
-  (name meta-name)
+  (label meta-label)
+  (properties meta-properties set-meta-properties!)
   (low-pc meta-low-pc)
   (high-pc meta-high-pc set-meta-high-pc!))
+
+(define (make-meta label properties low-pc)
+  (assert-match label (? symbol?) "symbol")
+  (assert-match properties (((? symbol?) . _) ...) "alist with symbolic keys")
+  (%make-meta label properties low-pc #f))
+
+(define (meta-name meta)
+  (assq-ref (meta-properties meta) 'name))
 
 (define-syntax *block-size* (identifier-syntax 32))
 
@@ -597,13 +611,14 @@ returned instead."
   (let ((loc (intern-constant asm (make-static-procedure label))))
     (emit-make-non-immediate asm dst loc)))
 
-(define-macro-assembler (begin-program asm label)
+(define-macro-assembler (begin-program asm label properties)
   (emit-label asm label)
-  (let ((meta (make-meta label (asm-start asm) #f)))
+  (let ((meta (make-meta label properties (asm-start asm))))
     (set-asm-meta! asm (cons meta (asm-meta asm)))))
 
 (define-macro-assembler (end-program asm)
-  (set-meta-high-pc! (car (asm-meta asm)) (asm-start asm)))
+  (let ((meta (car (asm-meta asm))))
+    (set-meta-high-pc! meta (asm-start asm))))
 
 (define-macro-assembler (label asm sym)
   (set-asm-labels! asm (acons sym (asm-start asm) (asm-labels asm))))
@@ -686,7 +701,7 @@ a procedure to do that and return its label.  Otherwise return
     (and (not (null? inits))
          (let ((label (gensym "init-constants")))
            (emit-text asm
-                      `((begin-program ,label)
+                      `((begin-program ,label ())
                         (assert-nargs-ee/locals 0 1)
                         ,@(reverse inits)
                         (load-constant 0 ,*unspecified*)
@@ -1025,7 +1040,7 @@ it will be added to the GC roots at runtime."
          (strtab (make-string-table))
          (bv (make-bytevector (* n size) 0)))
     (define (intern-string! name)
-      (string-table-intern! strtab (symbol->string name)))
+      (string-table-intern! strtab (if name (symbol->string name) "")))
     (for-each
      (lambda (meta n)
        (let ((name (intern-string! (meta-name meta))))
