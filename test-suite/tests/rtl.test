@@ -29,9 +29,10 @@
 (define (return-constant val)
   (assemble-program `((begin-program foo
                                      ((name . foo)))
-                      (standard-prelude 0 1 #f)
+                      (begin-standard-arity () 1 #f)
                       (load-constant 0 ,val)
                       (return 0)
+                      (end-arity)
                       (end-program))))
 
 (define-syntax-rule (assert-constants val ...)
@@ -66,15 +67,17 @@
   (assert-equal 42
                 (((assemble-program `((begin-program foo
                                                      ((name . foo)))
-                                      (standard-prelude 0 1 #f)
+                                      (begin-standard-arity () 1 #f)
                                       (load-static-procedure 0 bar)
                                       (return 0)
+                                      (end-arity)
                                       (end-program)
                                       (begin-program bar
                                                      ((name . bar)))
-                                      (standard-prelude 0 1 #f)
+                                      (begin-standard-arity () 1 #f)
                                       (load-constant 0 42)
                                       (return 0)
+                                      (end-arity)
                                       (end-program)))))))
 
 (with-test-prefix "loop"
@@ -86,7 +89,7 @@
                         ;; 2: accum
                         '((begin-program countdown
                                          ((name . countdown)))
-                          (standard-prelude 1 3 #f)
+                          (begin-standard-arity (x) 3 #f)
                           (br fix-body)
                           (label loop-head)
                           (br-if-= 1 0 out)
@@ -99,6 +102,7 @@
                           (br loop-head)
                           (label out)
                           (return 2)
+                          (end-arity)
                           (end-program)))))
                   (sumto 1000))))
 
@@ -111,20 +115,22 @@
                         ;; 2: head
                         '((begin-program make-accum
                                          ((name . make-accum)))
-                          (standard-prelude 0 2 #f)
+                          (begin-standard-arity () 2 #f)
                           (load-constant 0 0)
                           (box 0 0)
                           (make-closure 1 accum (0))
                           (return 1)
+                          (end-arity)
                           (end-program)
                           (begin-program accum
                                          ((name . accum)))
-                          (standard-prelude 1 3 #f)
+                          (begin-standard-arity (x) 3 #f)
                           (free-ref 1 0)
                           (box-ref 2 1)
                           (add 2 2 0)
                           (box-set! 1 2)
                           (return 2)
+                          (end-arity)
                           (end-program)))))
                   (let ((accum (make-accum)))
                     (accum 1)
@@ -137,10 +143,11 @@
                        (assemble-program
                         '((begin-program call
                                          ((name . call)))
-                          (standard-prelude 1 1 #f)
+                          (begin-standard-arity (f) 1 #f)
                           (call 1 0 ())
                           (return 1) ;; MVRA from call
                           (return 1) ;; RA from call
+                          (end-arity)
                           (end-program)))))
                   (call (lambda () 42))))
 
@@ -149,11 +156,12 @@
                        (assemble-program
                         '((begin-program call-with-3
                                          ((name . call-with-3)))
-                          (standard-prelude 1 2 #f)
+                          (begin-standard-arity (f) 2 #f)
                           (load-constant 1 3)
                           (call 2 0 (1))
                           (return 2) ;; MVRA from call
                           (return 2) ;; RA from call
+                          (end-arity)
                           (end-program)))))
                   (call-with-3 (lambda (x) (* x 2))))))
 
@@ -163,8 +171,9 @@
                        (assemble-program
                         '((begin-program call
                                          ((name . call)))
-                          (standard-prelude 1 1 #f)
+                          (begin-standard-arity (f) 1 #f)
                           (tail-call 0 0)
+                          (end-arity)
                           (end-program)))))
                   (call (lambda () 3))))
 
@@ -173,10 +182,11 @@
                        (assemble-program
                         '((begin-program call-with-3
                                          ((name . call-with-3)))
-                          (standard-prelude 1 2 #f)
+                          (begin-standard-arity (f) 2 #f)
                           (mov 1 0) ;; R1 <- R0
                           (load-constant 0 3) ;; R0 <- 3
                           (tail-call 1 1)
+                          (end-arity)
                           (end-program)))))
                   (call-with-3 (lambda (x) (* x 2))))))
 
@@ -186,17 +196,19 @@
                        (assemble-program
                         '((begin-program get-sqrt-trampoline
                                          ((name . get-sqrt-trampoline)))
-                          (standard-prelude 0 1 #f)
+                          (begin-standard-arity () 1 #f)
                           (cache-current-module! 0 sqrt-scope)
                           (load-static-procedure 0 sqrt-trampoline)
                           (return 0)
+                          (end-arity)
                           (end-program)
 
                           (begin-program sqrt-trampoline
                                          ((name . sqrt-trampoline)))
-                          (standard-prelude 1 2 #f)
+                          (begin-standard-arity (x) 2 #f)
                           (cached-toplevel-ref 1 sqrt-scope sqrt)
                           (tail-call 1 1)
+                          (end-arity)
                           (end-program)))))
                   ((get-sqrt-trampoline) 25.0))))
 
@@ -209,19 +221,21 @@
                          (assemble-program
                           '((begin-program make-top-incrementor
                                            ((name . make-top-incrementor)))
-                            (standard-prelude 0 1 #f)
+                            (begin-standard-arity () 1 #f)
                             (cache-current-module! 0 top-incrementor)
                             (load-static-procedure 0 top-incrementor)
                             (return 0)
+                            (end-arity)
                             (end-program)
 
                             (begin-program top-incrementor
                                            ((name . top-incrementor)))
-                            (standard-prelude 0 1 #f)
+                            (begin-standard-arity () 1 #f)
                             (cached-toplevel-ref 0 top-incrementor *top-val*)
                             (add1 0 0)
                             (cached-toplevel-set! 0 top-incrementor *top-val*)
                             (return/values 0)
+                            (end-arity)
                             (end-program)))))
                     ((make-top-incrementor))
                     *top-val*))))
@@ -232,16 +246,18 @@
                        (assemble-program
                         '((begin-program get-sqrt-trampoline
                                          ((name . get-sqrt-trampoline)))
-                          (standard-prelude 0 1 #f)
+                          (begin-standard-arity () 1 #f)
                           (load-static-procedure 0 sqrt-trampoline)
                           (return 0)
+                          (end-arity)
                           (end-program)
 
                           (begin-program sqrt-trampoline
                                          ((name . sqrt-trampoline)))
-                          (standard-prelude 1 2 #f)
+                          (begin-standard-arity (x) 2 #f)
                           (cached-module-ref 1 (guile) #t sqrt)
                           (tail-call 1 1)
+                          (end-arity)
                           (end-program)))))
                   ((get-sqrt-trampoline) 25.0))))
 
@@ -252,18 +268,20 @@
                          (assemble-program
                           '((begin-program make-top-incrementor
                                            ((name . make-top-incrementor)))
-                            (standard-prelude 0 1 #f)
+                            (begin-standard-arity () 1 #f)
                             (load-static-procedure 0 top-incrementor)
                             (return 0)
+                            (end-arity)
                             (end-program)
 
                             (begin-program top-incrementor
                                            ((name . top-incrementor)))
-                            (standard-prelude 0 1 #f)
+                            (begin-standard-arity () 1 #f)
                             (cached-module-ref 0 (tests rtl) #f *top-val*)
                             (add1 0 0)
                             (cached-module-set! 0 (tests rtl) #f *top-val*)
                             (return 0)
+                            (end-arity)
                             (end-program)))))
                     ((make-top-incrementor))
                     *top-val*))))
@@ -271,9 +289,10 @@
 (with-test-prefix "debug contexts"
   (let ((return-3 (assemble-program
                    '((begin-program return-3 ((name . return-3)))
-                     (standard-prelude 0 1 #f)
+                     (begin-standard-arity () 1 #f)
                      (load-constant 0 3)
                      (return 0)
+                     (end-arity)
                      (end-program)))))
     (pass-if "program name"
       (and=> (find-program-debug-info (rtl-program-code return-3))
@@ -292,7 +311,8 @@
       (procedure-name
        (assemble-program
         '((begin-program foo ((name . foo)))
-          (standard-prelude 0 1 #f)
+          (begin-standard-arity () 1 #f)
           (load-constant 0 42)
           (return 0)
+          (end-arity)
           (end-program))))))

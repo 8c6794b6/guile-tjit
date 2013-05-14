@@ -122,20 +122,34 @@
       (error (string-append "expected " kind) x))))
 
 (define-record-type <meta>
-  (%make-meta label properties low-pc high-pc)
+  (%make-meta label properties low-pc high-pc arities)
   meta?
   (label meta-label)
   (properties meta-properties set-meta-properties!)
   (low-pc meta-low-pc)
-  (high-pc meta-high-pc set-meta-high-pc!))
+  (high-pc meta-high-pc set-meta-high-pc!)
+  (arities meta-arities set-meta-arities!))
 
 (define (make-meta label properties low-pc)
   (assert-match label (? symbol?) "symbol")
   (assert-match properties (((? symbol?) . _) ...) "alist with symbolic keys")
-  (%make-meta label properties low-pc #f))
+  (%make-meta label properties low-pc #f '()))
 
 (define (meta-name meta)
   (assq-ref (meta-properties meta) 'name))
+
+;; Metadata for one <lambda-case>.
+(define-record-type <arity>
+  (make-arity req opt rest kw-indices allow-other-keys?
+              low-pc high-pc)
+  arity?
+  (req arity-req)
+  (opt arity-opt)
+  (rest arity-rest)
+  (kw-indices arity-kw-indices)
+  (allow-other-keys? arity-allow-other-keys?)
+  (low-pc arity-low-pc)
+  (high-pc arity-high-pc set-arity-high-pc!))
 
 (define-syntax *block-size* (identifier-syntax 32))
 
@@ -624,7 +638,44 @@ returned instead."
 
 (define-macro-assembler (end-program asm)
   (let ((meta (car (asm-meta asm))))
-    (set-meta-high-pc! meta (asm-start asm))))
+    (set-meta-high-pc! meta (asm-start asm))
+    (set-meta-arities! meta (reverse (meta-arities meta)))))
+
+(define-macro-assembler (begin-standard-arity asm req nlocals alternate)
+  (emit-begin-opt-arity asm req '() #f nlocals alternate))
+
+(define-macro-assembler (begin-opt-arity asm req opt rest nlocals alternate)
+  (emit-begin-kw-arity asm req opt rest '() #f nlocals alternate))
+
+(define-macro-assembler (begin-kw-arity asm req opt rest kw-indices
+                                        allow-other-keys? nlocals alternate)
+  (assert-match req ((? symbol?) ...) "list of symbols")
+  (assert-match opt ((? symbol?) ...) "list of symbols")
+  (assert-match rest (or #f (? symbol?)) "#f or symbol")
+  (assert-match kw-indices (((? symbol?) . (? integer?)) ...)
+                "alist of symbol -> integer")
+  (assert-match allow-other-keys? (? boolean?) "boolean")
+  (assert-match nlocals (? integer?) "integer")
+  (assert-match alternate (or #f (? symbol?)) "#f or symbol")
+  (let* ((meta (car (asm-meta asm)))
+         (arity (make-arity req opt rest kw-indices allow-other-keys?
+                            (asm-start asm) #f))
+         (nreq (length req))
+         (nopt (length opt))
+         (rest? (->bool rest)))
+    (set-meta-arities! meta (cons arity (meta-arities meta)))
+    (cond
+     ((or allow-other-keys? (pair? kw-indices))
+      (emit-kw-prelude asm nreq nopt rest? kw-indices allow-other-keys?
+                       nlocals alternate))
+     ((or rest? (pair? opt))
+      (emit-opt-prelude asm nreq nopt rest? nlocals alternate))
+     (else
+      (emit-standard-prelude asm nreq nlocals alternate)))))
+
+(define-macro-assembler (end-arity asm)
+  (let ((arity (car (meta-arities (car (asm-meta asm))))))
+    (set-arity-high-pc! arity (asm-start asm))))
 
 (define-macro-assembler (standard-prelude asm nreq nlocals alternate)
   (cond
