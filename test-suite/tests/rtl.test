@@ -29,7 +29,7 @@
 (define (return-constant val)
   (assemble-program `((begin-program foo
                                      ((name . foo)))
-                      (assert-nargs-ee/locals 0 1)
+                      (standard-prelude 0 1 #f)
                       (load-constant 0 ,val)
                       (return 0)
                       (end-program))))
@@ -66,13 +66,13 @@
   (assert-equal 42
                 (((assemble-program `((begin-program foo
                                                      ((name . foo)))
-                                      (assert-nargs-ee/locals 0 1)
+                                      (standard-prelude 0 1 #f)
                                       (load-static-procedure 0 bar)
                                       (return 0)
                                       (end-program)
                                       (begin-program bar
                                                      ((name . bar)))
-                                      (assert-nargs-ee/locals 0 1)
+                                      (standard-prelude 0 1 #f)
                                       (load-constant 0 42)
                                       (return 0)
                                       (end-program)))))))
@@ -86,7 +86,7 @@
                         ;; 2: accum
                         '((begin-program countdown
                                          ((name . countdown)))
-                          (assert-nargs-ee/locals 1 2)
+                          (standard-prelude 1 3 #f)
                           (br fix-body)
                           (label loop-head)
                           (br-if-= 1 0 out)
@@ -111,7 +111,7 @@
                         ;; 2: head
                         '((begin-program make-accum
                                          ((name . make-accum)))
-                          (assert-nargs-ee/locals 0 2)
+                          (standard-prelude 0 2 #f)
                           (load-constant 0 0)
                           (box 0 0)
                           (make-closure 1 accum (0))
@@ -119,7 +119,7 @@
                           (end-program)
                           (begin-program accum
                                          ((name . accum)))
-                          (assert-nargs-ee/locals 1 2)
+                          (standard-prelude 1 3 #f)
                           (free-ref 1 0)
                           (box-ref 2 1)
                           (add 2 2 0)
@@ -137,7 +137,7 @@
                        (assemble-program
                         '((begin-program call
                                          ((name . call)))
-                          (assert-nargs-ee/locals 1 0)
+                          (standard-prelude 1 1 #f)
                           (call 1 0 ())
                           (return 1) ;; MVRA from call
                           (return 1) ;; RA from call
@@ -149,7 +149,7 @@
                        (assemble-program
                         '((begin-program call-with-3
                                          ((name . call-with-3)))
-                          (assert-nargs-ee/locals 1 1)
+                          (standard-prelude 1 2 #f)
                           (load-constant 1 3)
                           (call 2 0 (1))
                           (return 2) ;; MVRA from call
@@ -163,7 +163,7 @@
                        (assemble-program
                         '((begin-program call
                                          ((name . call)))
-                          (assert-nargs-ee/locals 1 0)
+                          (standard-prelude 1 1 #f)
                           (tail-call 0 0)
                           (end-program)))))
                   (call (lambda () 3))))
@@ -173,7 +173,7 @@
                        (assemble-program
                         '((begin-program call-with-3
                                          ((name . call-with-3)))
-                          (assert-nargs-ee/locals 1 1)
+                          (standard-prelude 1 2 #f)
                           (mov 1 0) ;; R1 <- R0
                           (load-constant 0 3) ;; R0 <- 3
                           (tail-call 1 1)
@@ -186,7 +186,7 @@
                        (assemble-program
                         '((begin-program get-sqrt-trampoline
                                          ((name . get-sqrt-trampoline)))
-                          (assert-nargs-ee/locals 0 1)
+                          (standard-prelude 0 1 #f)
                           (cache-current-module! 0 sqrt-scope)
                           (load-static-procedure 0 sqrt-trampoline)
                           (return 0)
@@ -194,7 +194,7 @@
 
                           (begin-program sqrt-trampoline
                                          ((name . sqrt-trampoline)))
-                          (assert-nargs-ee/locals 1 1)
+                          (standard-prelude 1 2 #f)
                           (cached-toplevel-ref 1 sqrt-scope sqrt)
                           (tail-call 1 1)
                           (end-program)))))
@@ -209,7 +209,7 @@
                          (assemble-program
                           '((begin-program make-top-incrementor
                                            ((name . make-top-incrementor)))
-                            (assert-nargs-ee/locals 0 1)
+                            (standard-prelude 0 1 #f)
                             (cache-current-module! 0 top-incrementor)
                             (load-static-procedure 0 top-incrementor)
                             (return 0)
@@ -217,7 +217,7 @@
 
                             (begin-program top-incrementor
                                            ((name . top-incrementor)))
-                            (assert-nargs-ee/locals 0 1)
+                            (standard-prelude 0 1 #f)
                             (cached-toplevel-ref 0 top-incrementor *top-val*)
                             (add1 0 0)
                             (cached-toplevel-set! 0 top-incrementor *top-val*)
@@ -232,14 +232,14 @@
                        (assemble-program
                         '((begin-program get-sqrt-trampoline
                                          ((name . get-sqrt-trampoline)))
-                          (assert-nargs-ee/locals 0 1)
+                          (standard-prelude 0 1 #f)
                           (load-static-procedure 0 sqrt-trampoline)
                           (return 0)
                           (end-program)
 
                           (begin-program sqrt-trampoline
                                          ((name . sqrt-trampoline)))
-                          (assert-nargs-ee/locals 1 1)
+                          (standard-prelude 1 2 #f)
                           (cached-module-ref 1 (guile) #t sqrt)
                           (tail-call 1 1)
                           (end-program)))))
@@ -252,14 +252,14 @@
                          (assemble-program
                           '((begin-program make-top-incrementor
                                            ((name . make-top-incrementor)))
-                            (assert-nargs-ee/locals 0 1)
+                            (standard-prelude 0 1 #f)
                             (load-static-procedure 0 top-incrementor)
                             (return 0)
                             (end-program)
 
                             (begin-program top-incrementor
                                            ((name . top-incrementor)))
-                            (assert-nargs-ee/locals 0 1)
+                            (standard-prelude 0 1 #f)
                             (cached-module-ref 0 (tests rtl) #f *top-val*)
                             (add1 0 0)
                             (cached-module-set! 0 (tests rtl) #f *top-val*)
@@ -271,7 +271,7 @@
 (with-test-prefix "debug contexts"
   (let ((return-3 (assemble-program
                    '((begin-program return-3 ((name . return-3)))
-                     (assert-nargs-ee/locals 0 1)
+                     (standard-prelude 0 1 #f)
                      (load-constant 0 3)
                      (return 0)
                      (end-program)))))
@@ -292,7 +292,7 @@
       (procedure-name
        (assemble-program
         '((begin-program foo ((name . foo)))
-          (assert-nargs-ee/locals 0 1)
+          (standard-prelude 0 1 #f)
           (load-constant 0 42)
           (return 0)
           (end-program))))))

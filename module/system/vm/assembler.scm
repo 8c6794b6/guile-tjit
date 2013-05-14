@@ -90,6 +90,12 @@
 (define-syntax-rule (pack-u8-u8-u8-u8 x y z w)
   (logior x (ash y 8) (ash z 16) (ash w 24)))
 
+(define-syntax pack-flags
+  (syntax-rules ()
+    ;; Add clauses as needed.
+    ((pack-flags f1 f2) (logior (if f1 (ash 1 0) 0)
+                                (if f2 (ash 2 0) 0)))))
+
 ;;; Helpers to read and write 32-bit units in a buffer.
 
 (define-syntax-rule (u32-ref buf n)
@@ -619,6 +625,48 @@ returned instead."
 (define-macro-assembler (end-program asm)
   (let ((meta (car (asm-meta asm))))
     (set-meta-high-pc! meta (asm-start asm))))
+
+(define-macro-assembler (standard-prelude asm nreq nlocals alternate)
+  (cond
+   (alternate
+    (emit-br-if-nargs-ne asm nreq alternate)
+    (emit-reserve-locals asm nlocals))
+   ((and (< nreq (ash 1 12)) (< (- nlocals nreq) (ash 1 12)))
+    (emit-assert-nargs-ee/locals asm nreq (- nlocals nreq)))
+   (else
+    (emit-assert-nargs-ee asm nreq)
+    (emit-reserve-locals asm nlocals))))
+
+(define-macro-assembler (opt-prelude asm nreq nopt rest? nlocals alternate)
+  (if alternate
+      (emit-br-if-nargs-lt asm nreq alternate)
+      (emit-assert-nargs-ge asm nreq))
+  (cond
+   (rest?
+    (emit-bind-rest asm (+ nreq nopt)))
+   (alternate
+    (emit-br-if-nargs-gt asm (+ nreq nopt) alternate))
+   (else
+    (emit-assert-nargs-le asm (+ nreq nopt))))
+  (emit-reserve-locals asm nlocals))
+
+(define-macro-assembler (kw-prelude asm nreq nopt rest? kw-indices
+                                    allow-other-keys? nlocals alternate)
+  (if alternate
+      (emit-br-if-nargs-lt asm nreq alternate)
+      (emit-assert-nargs-ge asm nreq))
+  (let ((ntotal (fold (lambda (kw ntotal)
+                        (match kw
+                          (((? keyword?) . idx)
+                           (max (1+ idx) ntotal))))
+                      (+ nreq nopt) kw-indices)))
+    ;; FIXME: port 581f410f
+    (emit-bind-kwargs asm nreq
+                      (pack-flags allow-other-keys? rest?)
+                      (+ nreq nopt)
+                      ntotal
+                      kw-indices)
+    (emit-reserve-locals asm nlocals)))
 
 (define-macro-assembler (label asm sym)
   (set-asm-labels! asm (acons sym (asm-start asm) (asm-labels asm))))
