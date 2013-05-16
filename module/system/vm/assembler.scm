@@ -1167,6 +1167,200 @@ it will be added to the GC roots at runtime."
                                    (linker-object-section strtab)))
               strtab))))
 
+;;; The .guile.arities section describes the arities that a function can
+;;; have.  It is in two parts: a sorted array of headers describing
+;;; basic arities, and an array of links out to a string table (and in
+;;; the case of keyword arguments, to the data section) for argument
+;;; names.  The whole thing is prefixed by a uint32 indicating the
+;;; offset of the end of the headers array.
+;;;
+;;; The arity headers array is a packed array of structures of the form:
+;;;
+;;;   struct arity_header {
+;;;     uint32_t low_pc;
+;;;     uint32_t high_pc;
+;;;     uint32_t offset;
+;;;     uint32_t flags;
+;;;     uint32_t nreq;
+;;;     uint32_t nopt;
+;;;   }
+;;;
+;;; All of the offsets and addresses are 32 bits.  We can expand in the
+;;; future to use 64-bit offsets if appropriate, but there are other
+;;; aspects of RTL that constrain us to a total image that fits in 32
+;;; bits, so for the moment we'll simplify the problem space.
+;;;
+;;; The following flags values are defined:
+;;;
+;;;    #x1: has-rest?
+;;;    #x2: allow-other-keys?
+;;;    #x4: has-keyword-args?
+;;;    #x8: is-case-lambda?
+;;;
+;;; Functions with a single arity specify their number of required and
+;;; optional arguments in nreq and nopt, and do not have the
+;;; is-case-lambda? flag set.  Their "offset" member links to an array
+;;; of pointers into the associated .guile.arities.strtab string table,
+;;; identifying the argument names.  This offset is relative to the
+;;; start of the .guile.arities section.  Links for required arguments
+;;; are first, in order, as uint32 values.  Next follow the optionals,
+;;; then the rest link if has-rest? is set, then a link to the "keyword
+;;; indices" literal if has-keyword-args? is set.  Unlike the other
+;;; links, the kw-indices link points into the data section, and is
+;;; relative to the ELF image as a whole.
+;;;
+;;; Functions with no arities have no arities information present in the
+;;; .guile.arities section.
+;;;
+;;; Functions with multiple arities are preceded by a header with
+;;; is-case-lambda? set.  All other fields are 0, except low-pc and
+;;; high-pc which should be the bounds of the whole function.  Headers
+;;; for the individual arities follow.  In this way the whole headers
+;;; array is sorted in increasing low-pc order, and case-lambda clauses
+;;; are contained within the [low-pc, high-pc] of the case-lambda
+;;; header.
+
+;; Length of the prefix to the arities section, in bytes.
+(define arities-prefix-len 4)
+
+;; Length of an arity header, in bytes.
+(define arity-header-len (* 6 4))
+
+;; The offset of "offset" within arity header, in bytes.
+(define arity-header-offset-offset (* 2 4))
+
+(define-syntax-rule (pack-arity-flags has-rest? allow-other-keys?
+                                      has-keyword-args? is-case-lambda?)
+  (logior (if has-rest? (ash 1 0) 0)
+          (if allow-other-keys? (ash 1 1) 0)
+          (if has-keyword-args? (ash 1 2) 0)
+          (if is-case-lambda? (ash 1 3) 0)))
+
+(define (meta-arities-size meta)
+  (define (lambda-size arity)
+    (+ arity-header-len
+       (* 4    ;; name pointers
+          (+ (length (arity-req arity))
+             (length (arity-opt arity))
+             (if (arity-rest arity) 1 0)
+             (if (pair? (arity-kw-indices arity)) 1 0)))))
+  (define (case-lambda-size arities)
+    (fold +
+          arity-header-len ;; case-lambda header
+          (map lambda-size arities))) ;; the cases
+  (match (meta-arities meta)
+    (() 0)
+    ((arity) (lambda-size arity))
+    (arities (case-lambda-size arities))))
+
+(define (write-arity-headers metas bv endianness)
+  (define (write-arity-header* pos low-pc high-pc flags nreq nopt)
+    (bytevector-u32-set! bv pos low-pc endianness)
+    (bytevector-u32-set! bv (+ pos 4) high-pc endianness)
+    (bytevector-u32-set! bv (+ pos 8) 0 endianness) ; offset
+    (bytevector-u32-set! bv (+ pos 12) flags endianness)
+    (bytevector-u32-set! bv (+ pos 16) nreq endianness)
+    (bytevector-u32-set! bv (+ pos 20) nopt endianness))
+  (define (write-arity-header pos arity)
+    (write-arity-header* pos (arity-low-pc arity)
+                         (arity-high-pc arity)
+                         (pack-arity-flags (arity-rest arity)
+                                           (arity-allow-other-keys? arity)
+                                           (pair? (arity-kw-indices arity))
+                                           #f)
+                         (length (arity-req arity))
+                         (length (arity-opt arity))))
+  (let lp ((metas metas) (pos arities-prefix-len) (offsets '()))
+    (match metas
+      (()
+       ;; Fill in the prefix.
+       (bytevector-u32-set! bv 0 pos endianness)
+       (values pos (reverse offsets)))
+      ((meta . metas)
+       (match (meta-arities meta)
+         (() (lp metas pos offsets))
+         ((arity)
+          (write-arity-header pos arity)
+          (lp metas
+              (+ pos arity-header-len)
+              (acons arity (+ pos arity-header-offset-offset) offsets)))
+         (arities
+          ;; Write a case-lambda header, then individual arities.
+          ;; The case-lambda header's offset link is 0.
+          (write-arity-header* pos (meta-low-pc meta) (meta-high-pc meta)
+                               (pack-arity-flags #f #f #f #t) 0 0)
+          (let lp* ((arities arities) (pos (+ pos arity-header-len))
+                    (offsets offsets))
+            (match arities
+              (() (lp metas pos offsets))
+              ((arity . arities)
+               (write-arity-header pos arity)
+               (lp* arities
+                    (+ pos arity-header-len)
+                    (acons arity
+                           (+ pos arity-header-offset-offset)
+                           offsets)))))))))))
+
+(define (write-arity-links asm bv pos arity-offset-pairs strtab)
+  (define (write-symbol sym pos)
+    (bytevector-u32-set! bv pos
+                         (string-table-intern! strtab (symbol->string sym))
+                         (asm-endianness asm))
+    (+ pos 4))
+  (define (write-kw-indices pos kw-indices)
+    ;; FIXME: Assert that kw-indices is already interned.
+    (make-linker-reloc 'abs32/1 pos 0
+                       (intern-constant asm kw-indices)))
+  (let lp ((pos pos) (pairs arity-offset-pairs) (relocs '()))
+    (match pairs
+      (()
+       (unless (= pos (bytevector-length bv))
+         (error "expected to fully fill the bytevector"
+                pos (bytevector-length bv)))
+       relocs)
+      (((arity . offset) . pairs)
+       (bytevector-u32-set! bv offset pos (asm-endianness asm))
+       (let ((pos (fold write-symbol
+                        pos
+                        (append (arity-req arity)
+                                (arity-opt arity)
+                                (cond
+                                 ((arity-rest arity) => list)
+                                 (else '()))))))
+         (match (arity-kw-indices arity)
+           (() (lp pos pairs relocs))
+           (kw-indices
+            (lp (+ pos 4)
+                pairs
+                (cons (write-kw-indices pos kw-indices) relocs)))))))))
+
+(define (link-arities asm)
+  (let* ((endianness (asm-endianness asm))
+         (metas (reverse (asm-meta asm)))
+         (size (fold (lambda (meta size)
+                       (+ size (meta-arities-size meta)))
+                     arities-prefix-len
+                     metas))
+         (strtab (make-string-table))
+         (bv (make-bytevector size 0)))
+    (let ((kw-indices-relocs
+           (call-with-values
+               (lambda ()
+                 (write-arity-headers metas bv endianness))
+             (lambda (pos arity-offset-pairs)
+               (write-arity-links asm bv pos arity-offset-pairs strtab)))))
+      (let ((strtab (make-object asm '.guile.arities.strtab
+                                 (link-string-table! strtab)
+                                 '() '()
+                                 #:type SHT_STRTAB #:flags 0)))
+        (values (make-object asm '.guile.arities
+                             bv
+                             kw-indices-relocs '()
+                             #:type SHT_PROGBITS #:flags 0
+                             #:link (elf-section-index
+                                     (linker-object-section strtab)))
+                strtab)))))
+
 (define (link-objects asm)
   (let*-values (((ro rw rw-init) (link-constants asm))
                 ;; Link text object after constants, so that the
@@ -1174,10 +1368,13 @@ it will be added to the GC roots at runtime."
                 ((text) (link-text-object asm))
                 ((dt) (link-dynamic-section asm text rw rw-init))
                 ((symtab strtab) (link-symtab (linker-object-section text) asm))
+                ((arities arities-strtab) (link-arities asm))
                 ;; This needs to be linked last, because linking other
                 ;; sections adds entries to the string table.
                 ((shstrtab) (link-shstrtab asm)))
-    (filter identity (list text ro rw dt symtab strtab shstrtab))))
+    (filter identity
+            (list text ro rw dt symtab strtab arities arities-strtab
+                  shstrtab))))
 
 
 
