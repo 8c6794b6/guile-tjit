@@ -1361,6 +1361,56 @@ it will be added to the GC roots at runtime."
                                      (linker-object-section strtab)))
                 strtab)))))
 
+;;;
+;;; The .guile.docstrs section is a packed, sorted array of (pc, str)
+;;; values.  Pc and str are both 32 bits wide.  (Either could change to
+;;; 64 bits if appropriate in the future.)  Pc is the address of the
+;;; entry to a program, relative to the start of the text section, and
+;;; str is an index into the associated .guile.docstrs.strtab string
+;;; table section.
+;;;
+
+;; The size of a docstrs entry, in bytes.
+(define docstr-size 8)
+
+(define (link-docstrs asm)
+  (define (find-docstrings)
+    (filter-map (lambda (meta)
+                  (define (is-documentation? pair)
+                    (eq? (car pair) 'documentation))
+                  (let* ((props (meta-properties meta))
+                         (tail (find-tail is-documentation? props)))
+                    (and tail
+                         (not (find-tail is-documentation? (cdr tail)))
+                         (string? (cdar tail))
+                         (cons (meta-low-pc meta) (cdar tail)))))
+                (reverse (asm-meta asm))))
+  (let* ((endianness (asm-endianness asm))
+         (docstrings (find-docstrings))
+         (strtab (make-string-table))
+         (bv (make-bytevector (* (length docstrings) docstr-size) 0)))
+    (fold (lambda (pair pos)
+            (match pair
+              ((pc . string)
+               (bytevector-u32-set! bv pos pc endianness)
+               (bytevector-u32-set! bv (+ pos 4)
+                                    (string-table-intern! strtab string)
+                                    endianness)
+               (+ pos docstr-size))))
+          0
+          docstrings)
+    (let ((strtab (make-object asm '.guile.docstrs.strtab
+                               (link-string-table! strtab)
+                               '() '()
+                               #:type SHT_STRTAB #:flags 0)))
+      (values (make-object asm '.guile.docstrs
+                           bv
+                           '() '()
+                           #:type SHT_PROGBITS #:flags 0
+                           #:link (elf-section-index
+                                   (linker-object-section strtab)))
+              strtab))))
+
 (define (link-objects asm)
   (let*-values (((ro rw rw-init) (link-constants asm))
                 ;; Link text object after constants, so that the
@@ -1369,12 +1419,13 @@ it will be added to the GC roots at runtime."
                 ((dt) (link-dynamic-section asm text rw rw-init))
                 ((symtab strtab) (link-symtab (linker-object-section text) asm))
                 ((arities arities-strtab) (link-arities asm))
+                ((docstrs docstrs-strtab) (link-docstrs asm))
                 ;; This needs to be linked last, because linking other
                 ;; sections adds entries to the string table.
                 ((shstrtab) (link-shstrtab asm)))
     (filter identity
             (list text ro rw dt symtab strtab arities arities-strtab
-                  shstrtab))))
+                  docstrs docstrs-strtab shstrtab))))
 
 
 
