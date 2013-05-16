@@ -42,8 +42,20 @@
             program-debug-info-u32-offset
             program-debug-info-u32-offset-end
 
+            arity?
+            arity-low-pc
+            arity-high-pc
+            arity-nreq
+            arity-nopt
+            arity-has-rest?
+            arity-allow-other-keys?
+            arity-has-keyword-args?
+            arity-is-case-lambda?
+
             find-debug-context
-            find-program-debug-info))
+            find-program-debug-info
+            arity-arguments-alist
+            find-program-arities))
 
 ;;; A compiled procedure comes from a specific loaded ELF image.  A
 ;;; debug context identifies that image.
@@ -159,3 +171,163 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
                                   (elf-symbol-value sym)
                                   (elf-symbol-size sym))))
    (else #f)))
+
+(define-record-type <arity>
+  (make-arity context base header-offset)
+  arity?
+  (context arity-context)
+  (base arity-base)
+  (header-offset arity-header-offset))
+
+(define arities-prefix-len 4)
+(define arity-header-len (* 6 4))
+
+;;;   struct arity_header {
+;;;     uint32_t low_pc;
+;;;     uint32_t high_pc;
+;;;     uint32_t offset;
+;;;     uint32_t flags;
+;;;     uint32_t nreq;
+;;;     uint32_t nopt;
+;;;   }
+
+(define (arity-low-pc* bv header-pos)
+  (bytevector-u32-native-ref bv (+ header-pos (* 0 4))))
+(define (arity-high-pc* bv header-pos)
+  (bytevector-u32-native-ref bv (+ header-pos (* 1 4))))
+(define (arity-offset* bv header-pos)
+  (bytevector-u32-native-ref bv (+ header-pos (* 2 4))))
+(define (arity-flags* bv header-pos)
+  (bytevector-u32-native-ref bv (+ header-pos (* 3 4))))
+(define (arity-nreq* bv header-pos)
+  (bytevector-u32-native-ref bv (+ header-pos (* 4 4))))
+(define (arity-nopt* bv header-pos)
+  (bytevector-u32-native-ref bv (+ header-pos (* 5 4))))
+
+;;;    #x1: has-rest?
+;;;    #x2: allow-other-keys?
+;;;    #x4: has-keyword-args?
+;;;    #x8: is-case-lambda?
+
+(define (has-rest? flags)         (not (zero? (logand flags (ash 1 0)))))
+(define (allow-other-keys? flags) (not (zero? (logand flags (ash 1 1)))))
+(define (has-keyword-args? flags) (not (zero? (logand flags (ash 1 2)))))
+(define (is-case-lambda? flags)   (not (zero? (logand flags (ash 1 3)))))
+
+(define (arity-nreq arity)
+  (arity-nreq* (elf-bytes (debug-context-elf (arity-context arity)))
+               (arity-header-offset arity)))
+
+(define (arity-nopt arity)
+  (arity-nopt* (elf-bytes (debug-context-elf (arity-context arity)))
+               (arity-header-offset arity)))
+
+(define (arity-flags arity)
+  (arity-flags* (elf-bytes (debug-context-elf (arity-context arity)))
+                (arity-header-offset arity)))
+
+(define (arity-has-rest? arity) (has-rest? (arity-flags arity)))
+(define (arity-allow-other-keys? arity) (allow-other-keys? (arity-flags arity)))
+(define (arity-has-keyword-args? arity) (has-keyword-args? (arity-flags arity)))
+(define (arity-is-case-lambda? arity) (is-case-lambda? (arity-flags arity)))
+
+(define (arity-load-symbol arity)
+  (let ((elf (debug-context-elf (arity-context arity))))
+    (cond
+     ((elf-section-by-name elf ".guile.arities")
+      =>
+      (lambda (sec)
+        (let* ((strtab (elf-section elf (elf-section-link sec)))
+               (bv (elf-bytes elf))
+               (strtab-offset (elf-section-offset strtab)))
+          (lambda (n)
+            (string->symbol (string-table-ref bv (+ strtab-offset n)))))))
+     (else (error "couldn't find arities section")))))
+
+(define (arity-arguments-alist arity)
+  (let* ((bv (elf-bytes (debug-context-elf (arity-context arity))))
+         (%load-symbol (arity-load-symbol arity))
+         (header (arity-header-offset arity))
+         (link-offset (arity-offset* bv header))
+         (link (+ (arity-base arity) link-offset))
+         (flags (arity-flags* bv header))
+         (nreq (arity-nreq* bv header))
+         (nopt (arity-nopt* bv header)))
+    (define (load-symbol idx)
+      (%load-symbol (bytevector-u32-native-ref bv (+ link (* idx 4)))))
+    (define (load-symbols skip n)
+      (let lp ((n n) (out '()))
+        (if (zero? n)
+            out
+            (lp (1- n)
+                (cons (load-symbol (+ skip (1- n))) out)))))
+    (define (unpack-scm n)
+      (pointer->scm (make-pointer n)))
+    (define (load-non-immediate idx)
+      (let ((offset (bytevector-u32-native-ref bv (+ link (* idx 4)))))
+        (unpack-scm (+ (debug-context-base (arity-context arity)) offset))))
+    (and (not (is-case-lambda? flags))
+         `((required . ,(load-symbols 0 nreq))
+           (optional . ,(load-symbols nreq nopt))
+           (rest . ,(and (has-rest? flags) (load-symbol (+ nreq nopt))))
+           (keyword . ,(if (has-keyword-args? flags)
+                           (load-non-immediate
+                            (+ nreq nopt (if (has-rest? flags) 1 0)))
+                           '()))
+           (allow-other-keys? . ,(allow-other-keys? flags))))))
+
+(define (find-first-arity context base addr)
+  (let* ((bv (elf-bytes (debug-context-elf context)))
+         (text-offset (- addr
+                         (debug-context-text-base context)
+                         (debug-context-base context)))
+         (headers-start (+ base arities-prefix-len))
+         (headers-end (+ base (bytevector-u32-native-ref bv base))))
+    ;; FIXME: This is linear search.  Change to binary search.
+    (let lp ((pos headers-start))
+      (cond
+       ((>= pos headers-end) #f)
+       ((< text-offset (arity-low-pc* bv pos))
+        (lp (+ pos arity-header-len)))
+       ((< (arity-high-pc* bv pos) text-offset)
+        #f)
+       (else
+        (make-arity context base pos))))))
+
+(define (read-sub-arities context base outer-header-offset)
+  (let* ((bv (elf-bytes (debug-context-elf context)))
+         (headers-end (+ base (bytevector-u32-native-ref bv base)))
+         (low-pc (arity-low-pc* bv outer-header-offset))
+         (high-pc (arity-high-pc* bv outer-header-offset)))
+    (let lp ((pos (+ outer-header-offset arity-header-len)) (out '()))
+      (if (and (< pos headers-end) (<= (arity-high-pc* bv pos) high-pc))
+          (lp (+ pos arity-header-len)
+              (cons (make-arity context base pos) out))
+          (reverse out)))))
+
+(define* (find-program-arities addr #:optional
+                               (context (find-debug-context addr)))
+  (and=>
+   (elf-section-by-name (debug-context-elf context) ".guile.arities")
+   (lambda (sec)
+     (let* ((base (elf-section-offset sec))
+            (first (find-first-arity context base addr)))
+       ;; FIXME: Handle case-lambda arities.
+       (cond
+        ((not first) '())
+        ((arity-is-case-lambda? first)
+         (read-sub-arities context base (arity-header-offset first)))
+        (else (list first)))))))
+
+(define* (program-minimum-arity addr #:optional
+                                (context (find-debug-context addr)))
+  (and=>
+   (elf-section-by-name (debug-context-elf context) ".guile.arities")
+   (lambda (sec)
+     (let* ((base (elf-section-offset sec))
+            (first (find-first-arity context base addr)))
+       (if (arity-is-case-lambda? first)
+           (list 0 0 #t) ;; FIXME: be more precise.
+           (list (arity-nreq first)
+                 (arity-nopt first)
+                 (arity-has-rest? first)))))))
