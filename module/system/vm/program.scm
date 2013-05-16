@@ -62,6 +62,12 @@
          program-debug-info-name))
 
 ;; This procedure is called by programs.c.
+(define (rtl-program-documentation program)
+  (unless (rtl-program? program)
+    (error "shouldn't get here"))
+  (find-program-docstring (rtl-program-code program)))
+
+;; This procedure is called by programs.c.
 (define (rtl-program-minimum-arity program)
   (unless (rtl-program? program)
     (error "shouldn't get here"))

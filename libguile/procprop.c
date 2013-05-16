@@ -238,6 +238,39 @@ SCM_DEFINE (scm_procedure_name, "procedure-name", 1, 0, 0,
 #undef FUNC_NAME
 
 
+SCM_GLOBAL_SYMBOL (scm_sym_documentation, "documentation");
+
+SCM_DEFINE (scm_procedure_documentation, "procedure-documentation", 1, 0, 0,
+           (SCM proc),
+	    "Return the documentation string associated with @code{proc}.  By\n"
+	    "convention, if a procedure contains more than one expression and the\n"
+	    "first expression is a string constant, that string is assumed to contain\n"
+	    "documentation for that procedure.")
+#define FUNC_NAME s_scm_procedure_documentation
+{
+  SCM props, ret;
+
+  SCM_VALIDATE_PROC (1, proc);
+
+  while (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
+    proc = SCM_STRUCT_PROCEDURE (proc);
+
+  props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
+
+  if (scm_is_pair (props))
+    ret = scm_assq_ref (props, scm_sym_documentation);
+  else if (SCM_RTL_PROGRAM_P (proc))
+    ret = scm_i_rtl_program_documentation (proc);
+  else if (SCM_PROGRAM_P (proc))
+    ret = scm_assq_ref (scm_i_program_properties (proc), scm_sym_documentation);
+  else
+    ret = SCM_BOOL_F;
+
+  return ret;
+}
+#undef FUNC_NAME
+
+
 SCM_DEFINE (scm_procedure_source, "procedure-source", 1, 0, 0,
             (SCM proc),
 	    "Return the source of the procedure @var{proc}.")

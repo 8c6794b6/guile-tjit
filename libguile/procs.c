@@ -66,21 +66,6 @@ SCM_DEFINE (scm_thunk_p, "thunk?", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_GLOBAL_SYMBOL (scm_sym_documentation, "documentation");
-
-SCM_DEFINE (scm_procedure_documentation, "procedure-documentation", 1, 0, 0, 
-           (SCM proc),
-	    "Return the documentation string associated with @code{proc}.  By\n"
-	    "convention, if a procedure contains more than one expression and the\n"
-	    "first expression is a string constant, that string is assumed to contain\n"
-	    "documentation for that procedure.")
-#define FUNC_NAME s_scm_procedure_documentation
-{
-  SCM_VALIDATE_PROC (SCM_ARG1, proc);
-  return scm_procedure_property (proc, scm_sym_documentation);
-}
-#undef FUNC_NAME
-
 
 /* Procedure-with-setter
  */

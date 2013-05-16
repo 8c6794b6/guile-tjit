@@ -29,6 +29,7 @@
 
 SCM_API SCM scm_sym_name;
 SCM_API SCM scm_sym_system_procedure;
+SCM_INTERNAL SCM scm_sym_documentation;
 
 
 
@@ -42,6 +43,7 @@ SCM_API SCM scm_procedure_property (SCM proc, SCM key);
 SCM_API SCM scm_set_procedure_property_x (SCM proc, SCM key, SCM val);
 SCM_API SCM scm_procedure_source (SCM proc);
 SCM_API SCM scm_procedure_name (SCM proc);
+SCM_API SCM scm_procedure_documentation (SCM proc);
 SCM_INTERNAL void scm_init_procprop (void);
 
 #endif  /* SCM_PROCPROP_H */

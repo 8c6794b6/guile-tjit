@@ -346,3 +346,14 @@
           (return 0)
           (end-arity)
           (end-program))))))
+
+(with-test-prefix "procedure docstrings"
+  (pass-if-equal "qux qux"
+      (procedure-documentation
+       (assemble-program
+        '((begin-program foo ((name . foo) (documentation . "qux qux")))
+          (begin-standard-arity () 1 #f)
+          (load-constant 0 42)
+          (return 0)
+          (end-arity)
+          (end-program))))))
