@@ -61,6 +61,12 @@
   (and=> (find-program-debug-info (rtl-program-code program))
          program-debug-info-name))
 
+;; This procedure is called by programs.c.
+(define (rtl-program-minimum-arity program)
+  (unless (rtl-program? program)
+    (error "shouldn't get here"))
+  (program-minimum-arity (rtl-program-code program)))
+
 (define (make-binding name boxed? index start end)
   (list name boxed? index start end))
 (define (binding:name b) (list-ref b 0))
@@ -276,25 +282,38 @@
             1+
             0)))
 
-(define (write-program prog port)
-  (format port "#<procedure ~a~a>"
-          (or (procedure-name prog)
-              (and=> (and (program? prog) (program-source prog 0))
-                     (lambda (s)
-                       (format #f "~a at ~a:~a:~a"
-                               (number->string (object-address prog) 16)
-                               (or (source:file s)
-                                   (if s "<current input>" "<unknown port>"))
-                               (source:line-for-user s) (source:column s))))
-              (number->string (object-address prog) 16))
-          (let ((arities (and (program? prog) (program-arities prog))))
-            (if (or (not arities) (null? arities))
-                ""
-                (string-append
-                 " " (string-join (map (lambda (a)
-                                         (object->string
-                                          (arguments-alist->lambda-list
-                                           (arity->arguments-alist prog a))))
-                                       arities)
-                                  " | "))))))
+(define (program-arguments-alists prog)
+  (cond
+   ((rtl-program? prog)
+    (map arity-arguments-alist
+         (find-program-arities (rtl-program-code prog))))
+   ((program? prog)
+    (map (lambda (arity) (arity->arguments-alist prog arity))
+         (or (program-arities prog) '())))
+   (else (error "expected a program" prog))))
 
+(define (write-program prog port)
+  (define (program-identity-string)
+    (or (procedure-name prog)
+        (and=> (and (program? prog) (program-source prog 0))
+               (lambda (s)
+                 (format #f "~a at ~a:~a:~a"
+                         (number->string (object-address prog) 16)
+                         (or (source:file s)
+                             (if s "<current input>" "<unknown port>"))
+                         (source:line-for-user s) (source:column s))))
+        (number->string (object-address prog) 16)))
+
+  (define (program-formals-string)
+    (let ((arguments (program-arguments-alists prog)))
+      (if (null? arguments)
+          ""
+          (string-append
+           " " (string-join (map (lambda (a)
+                                   (object->string
+                                    (arguments-alist->lambda-list a)))
+                                 arguments)
+                            " | ")))))
+
+  (format port "#<procedure ~a~a>"
+          (program-identity-string) (program-formals-string)))

@@ -60,7 +60,7 @@ scm_i_procedure_arity (SCM proc, int *req, int *opt, int *rest)
       return 1;
     }
 
-  while (!SCM_PROGRAM_P (proc))
+  while (!SCM_PROGRAM_P (proc) && !SCM_RTL_PROGRAM_P (proc))
     {
       if (SCM_STRUCTP (proc))
         {
@@ -79,14 +79,6 @@ scm_i_procedure_arity (SCM proc, int *req, int *opt, int *rest)
           /* The trampoline gets the smob too, which users don't
              see.  */
           *req -= 1;
-
-          return 1;
-        }
-      else if (SCM_RTL_PROGRAM_P (proc))
-        {
-          *req = 0;
-          *opt = 0;
-          *rest = 1;
 
           return 1;
         }

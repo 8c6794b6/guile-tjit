@@ -316,3 +316,33 @@
           (return 0)
           (end-arity)
           (end-program))))))
+
+(with-test-prefix "simply procedure arity"
+  (pass-if-equal "#<procedure foo ()>"
+      (object->string
+       (assemble-program
+        '((begin-program foo ((name . foo)))
+          (begin-standard-arity () 1 #f)
+          (load-constant 0 42)
+          (return 0)
+          (end-arity)
+          (end-program)))))
+  (pass-if-equal "#<procedure foo (x y)>"
+      (object->string
+       (assemble-program
+        '((begin-program foo ((name . foo)))
+          (begin-standard-arity (x y) 2 #f)
+          (load-constant 0 42)
+          (return 0)
+          (end-arity)
+          (end-program)))))
+
+  (pass-if-equal "#<procedure foo (x #:optional y . z)>"
+      (object->string
+       (assemble-program
+        '((begin-program foo ((name . foo)))
+          (begin-opt-arity (x) (y) z 3 #f)
+          (load-constant 0 42)
+          (return 0)
+          (end-arity)
+          (end-program))))))

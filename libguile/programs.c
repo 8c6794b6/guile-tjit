@@ -129,9 +129,8 @@ scm_i_program_print (SCM program, SCM port, scm_print_state *pstate)
   static int print_error = 0;
 
   if (scm_is_false (write_program) && scm_module_system_booted_p)
-    write_program = scm_module_local_variable
-      (scm_c_resolve_module ("system vm program"),
-       scm_from_latin1_symbol ("write-program"));
+    write_program = scm_c_private_variable ("system vm program",
+                                            "write-program");
   
   if (SCM_PROGRAM_IS_CONTINUATION (program))
     {
@@ -450,11 +449,36 @@ parse_arity (SCM arity, int *req, int *opt, int *rest)
     *req = *opt = *rest = 0;
 }
   
+static int
+scm_i_rtl_program_minimum_arity (SCM program, int *req, int *opt, int *rest)
+{
+  static SCM rtl_program_minimum_arity = SCM_BOOL_F;
+  SCM l;
+
+  if (scm_is_false (rtl_program_minimum_arity) && scm_module_system_booted_p)
+    rtl_program_minimum_arity =
+        scm_c_private_variable ("system vm debug",
+                                "rtl-program-minimum-arity");
+
+  l = scm_call_1 (scm_variable_ref (rtl_program_minimum_arity), program);
+  if (scm_is_false (l))
+    return 0;
+
+  *req = scm_to_int (scm_car (l));
+  *opt = scm_to_int (scm_cadr (l));
+  *rest = scm_is_true (scm_caddr (l));
+
+  return 1;
+}
+
 int
 scm_i_program_arity (SCM program, int *req, int *opt, int *rest)
 {
   SCM arities;
   
+  if (SCM_RTL_PROGRAM_P (program))
+    return scm_i_rtl_program_minimum_arity (program, req, opt, rest);
+
   arities = scm_program_arities (program);
   if (!scm_is_pair (arities))
     return 0;

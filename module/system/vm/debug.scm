@@ -55,7 +55,8 @@
             find-debug-context
             find-program-debug-info
             arity-arguments-alist
-            find-program-arities))
+            find-program-arities
+            program-minimum-arity))
 
 ;;; A compiled procedure comes from a specific loaded ELF image.  A
 ;;; debug context identifies that image.
