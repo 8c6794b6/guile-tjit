@@ -1411,8 +1411,69 @@ it will be added to the GC roots at runtime."
                                    (linker-object-section strtab)))
               strtab))))
 
+;;;
+;;; The .guile.procprops section is a packed, sorted array of (pc, addr)
+;;; values.  Pc and addr are both 32 bits wide.  (Either could change to
+;;; 64 bits if appropriate in the future.)  Pc is the address of the
+;;; entry to a program, relative to the start of the text section, and
+;;; addr is the address of the associated properties alist, relative to
+;;; the start of the ELF image.
+;;;
+;;; Since procedure properties are stored in the data sections, we need
+;;; to link the procedures property section first.  (Note that this
+;;; constraint does not apply to the arities section, which may
+;;; reference the data sections via the kw-indices literal, because
+;;; assembling the text section already makes sure that the kw-indices
+;;; are interned.)
+;;;
+
+;; The size of a procprops entry, in bytes.
+(define procprops-size 8)
+
+(define (link-procprops asm)
+  (define (assoc-remove-one alist key value-pred)
+    (match alist
+      (() '())
+      ((((? (lambda (x) (eq? x key))) . value) . alist)
+       (if (value-pred value)
+           alist
+           (acons key value alist)))
+      (((k . v) . alist)
+       (acons k v (assoc-remove-one alist key value-pred)))))
+  (define (props-without-name-or-docstring meta)
+    (assoc-remove-one
+     (assoc-remove-one (meta-properties meta) 'name (lambda (x) #t))
+     'documentation
+     string?))
+  (define (find-procprops)
+    (filter-map (lambda (meta)
+                  (let ((props (props-without-name-or-docstring meta)))
+                    (and (pair? props)
+                         (cons (meta-low-pc meta) props))))
+                (reverse (asm-meta asm))))
+  (let* ((endianness (asm-endianness asm))
+         (procprops (find-procprops))
+         (bv (make-bytevector (* (length procprops) procprops-size) 0)))
+    (let lp ((procprops procprops) (pos 0) (relocs '()))
+      (match procprops
+        (()
+         (make-object asm '.guile.procprops
+                      bv
+                      relocs '()
+                      #:type SHT_PROGBITS #:flags 0))
+        (((pc . props) . procprops)
+         (bytevector-u32-set! bv pos pc endianness)
+         (lp procprops
+             (+ pos procprops-size)
+             (cons (make-linker-reloc 'abs32/1 (+ pos 4) 0
+                                      (intern-constant asm props))
+                   relocs)))))))
+
 (define (link-objects asm)
-  (let*-values (((ro rw rw-init) (link-constants asm))
+  (let*-values (;; Link procprops before constants, because it probably
+                ;; interns more constants.
+                ((procprops) (link-procprops asm))
+                ((ro rw rw-init) (link-constants asm))
                 ;; Link text object after constants, so that the
                 ;; constants initializer gets included.
                 ((text) (link-text-object asm))
@@ -1425,7 +1486,7 @@ it will be added to the GC roots at runtime."
                 ((shstrtab) (link-shstrtab asm)))
     (filter identity
             (list text ro rw dt symtab strtab arities arities-strtab
-                  docstrs docstrs-strtab shstrtab))))
+                  docstrs docstrs-strtab procprops shstrtab))))
 
 
 

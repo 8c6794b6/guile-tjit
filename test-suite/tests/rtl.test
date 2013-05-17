@@ -357,3 +357,55 @@
           (return 0)
           (end-arity)
           (end-program))))))
+
+(with-test-prefix "procedure properties"
+  ;; No properties.
+  (pass-if-equal '()
+      (procedure-properties
+       (assemble-program
+        '((begin-program foo ())
+          (begin-standard-arity () 1 #f)
+          (load-constant 0 42)
+          (return 0)
+          (end-arity)
+          (end-program)))))
+
+  ;; Name and docstring (which actually don't go out to procprops).
+  (pass-if-equal '((name . foo)
+                   (documentation . "qux qux"))
+      (procedure-properties
+       (assemble-program
+        '((begin-program foo ((name . foo) (documentation . "qux qux")))
+          (begin-standard-arity () 1 #f)
+          (load-constant 0 42)
+          (return 0)
+          (end-arity)
+          (end-program)))))
+
+  ;; A property that actually needs serialization.
+  (pass-if-equal '((name . foo)
+                   (documentation . "qux qux")
+                   (moo . "mooooooooooooo"))
+      (procedure-properties
+       (assemble-program
+        '((begin-program foo ((name . foo)
+                              (documentation . "qux qux")
+                              (moo . "mooooooooooooo")))
+          (begin-standard-arity () 1 #f)
+          (load-constant 0 42)
+          (return 0)
+          (end-arity)
+          (end-program)))))
+
+  ;; Procedure-name still works in this case.
+  (pass-if-equal 'foo
+      (procedure-name
+       (assemble-program
+        '((begin-program foo ((name . foo)
+                              (documentation . "qux qux")
+                              (moo . "mooooooooooooo")))
+          (begin-standard-arity () 1 #f)
+          (load-constant 0 42)
+          (return 0)
+          (end-arity)
+          (end-program))))))

@@ -46,6 +46,7 @@ SCM_INTERNAL SCM scm_rtl_program_code (SCM program);
 
 SCM_INTERNAL SCM scm_i_rtl_program_name (SCM program);
 SCM_INTERNAL SCM scm_i_rtl_program_documentation (SCM program);
+SCM_INTERNAL SCM scm_i_rtl_program_properties (SCM program);
 
 /*
  * Programs

@@ -136,6 +136,18 @@ scm_i_rtl_program_documentation (SCM program)
   return scm_call_1 (scm_variable_ref (rtl_program_documentation), program);
 }
 
+SCM
+scm_i_rtl_program_properties (SCM program)
+{
+  static SCM rtl_program_properties = SCM_BOOL_F;
+
+  if (scm_is_false (rtl_program_properties) && scm_module_system_booted_p)
+    rtl_program_properties =
+      scm_c_private_variable ("system vm program", "rtl-program-properties");
+
+  return scm_call_1 (scm_variable_ref (rtl_program_properties), program);
+}
+
 void
 scm_i_program_print (SCM program, SCM port, scm_print_state *pstate)
 {

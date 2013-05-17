@@ -58,7 +58,9 @@
             find-program-arities
             program-minimum-arity
 
-            find-program-docstring))
+            find-program-docstring
+
+            find-program-properties))
 
 ;;; A compiled procedure comes from a specific loaded ELF image.  A
 ;;; debug context identifies that image.
@@ -364,3 +366,44 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
                                       (elf-section-link sec)))
                  (idx (bytevector-u32-native-ref bv (+ pos 4))))
              (string-table-ref bv (+ (elf-section-offset strtab) idx))))))))))
+
+(define* (find-program-properties addr #:optional
+                                  (context (find-debug-context addr)))
+  (define (add-name-and-docstring props)
+    (define (maybe-acons k v tail)
+      (if v (acons k v tail) tail))
+    (let ((name (and=> (find-program-debug-info addr context)
+                       program-debug-info-name))
+          (docstring (find-program-docstring addr context)))
+      (maybe-acons 'name name
+                   (maybe-acons 'documentation docstring props))))
+  (add-name-and-docstring
+   (cond
+    ((elf-section-by-name (debug-context-elf context) ".guile.procprops")
+     => (lambda (sec)
+          ;; struct procprop {
+          ;;   uint32_t pc;
+          ;;   uint32_t offset;
+          ;; }
+          (define procprop-len 8)
+          (let* ((start (elf-section-offset sec))
+                 (end (+ start (elf-section-size sec)))
+                 (bv (elf-bytes (debug-context-elf context)))
+                 (text-offset (- addr
+                                 (debug-context-text-base context)
+                                 (debug-context-base context))))
+            (define (unpack-scm addr)
+              (pointer->scm (make-pointer addr)))
+            (define (load-non-immediate offset)
+              (unpack-scm (+ (debug-context-base context) offset)))
+            ;; FIXME: This is linear search.  Change to binary search.
+            (let lp ((pos start))
+              (cond
+               ((>= pos end) '())
+               ((< text-offset (bytevector-u32-native-ref bv pos))
+                (lp (+ pos procprop-len)))
+               ((> text-offset (bytevector-u32-native-ref bv pos))
+                '())
+               (else
+                (load-non-immediate
+                 (bytevector-u32-native-ref bv (+ pos 4))))))))))))

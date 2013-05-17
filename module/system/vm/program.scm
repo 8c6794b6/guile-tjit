@@ -54,24 +54,24 @@
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_programs")
 
-;; This procedure is called by programs.c.
+;; These procedures are called by programs.c.
 (define (rtl-program-name program)
   (unless (rtl-program? program)
     (error "shouldn't get here"))
   (and=> (find-program-debug-info (rtl-program-code program))
          program-debug-info-name))
-
-;; This procedure is called by programs.c.
 (define (rtl-program-documentation program)
   (unless (rtl-program? program)
     (error "shouldn't get here"))
   (find-program-docstring (rtl-program-code program)))
-
-;; This procedure is called by programs.c.
 (define (rtl-program-minimum-arity program)
   (unless (rtl-program? program)
     (error "shouldn't get here"))
   (program-minimum-arity (rtl-program-code program)))
+(define (rtl-program-properties program)
+  (unless (rtl-program? program)
+    (error "shouldn't get here"))
+  (find-program-properties (rtl-program-code program)))
 
 (define (make-binding name boxed? index start end)
   (list name boxed? index start end))
