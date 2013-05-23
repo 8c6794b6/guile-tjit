@@ -65,16 +65,6 @@ SCM_SYMBOL (sym_null_pointer_error, "null-pointer-error");
 /* The cell representing the null pointer.  */
 static SCM null_pointer;
 
-#if SIZEOF_VOID_P == 4
-# define scm_to_uintptr   scm_to_uint32
-# define scm_from_uintptr scm_from_uint32
-#elif SIZEOF_VOID_P == 8
-# define scm_to_uintptr   scm_to_uint64
-# define scm_from_uintptr scm_from_uint64
-#else
-# error unsupported pointer size
-#endif
-
 
 /* Raise a null pointer dereference error.  */
 static void
@@ -125,7 +115,7 @@ SCM_DEFINE (scm_make_pointer, "make-pointer", 1, 1, 0,
   void *c_finalizer;
   scm_t_uintptr c_address;
 
-  c_address = scm_to_uintptr (address);
+  c_address = scm_to_uintptr_t (address);
   if (SCM_UNBNDP (finalizer))
     c_finalizer = NULL;
   else
@@ -173,7 +163,7 @@ SCM_DEFINE (scm_pointer_address, "pointer-address", 1, 0, 0,
 {
   SCM_VALIDATE_POINTER (1, pointer);
 
-  return scm_from_uintptr ((scm_t_uintptr) SCM_POINTER_VALUE (pointer));
+  return scm_from_uintptr_t ((scm_t_uintptr) SCM_POINTER_VALUE (pointer));
 }
 #undef FUNC_NAME
 
@@ -324,7 +314,7 @@ void
 scm_i_pointer_print (SCM pointer, SCM port, scm_print_state *pstate)
 {
   scm_puts_unlocked ("#<pointer 0x", port);
-  scm_uintprint (scm_to_uintptr (scm_pointer_address (pointer)), 16, port);
+  scm_uintprint (scm_to_uintptr_t (scm_pointer_address (pointer)), 16, port);
   scm_putc_unlocked ('>', port);
 }
 

@@ -514,6 +514,34 @@ SCM_API SCM  scm_from_mpz (mpz_t rop);
 #endif
 #endif
 
+#if SCM_SIZEOF_INTPTR_T == 0
+/* No intptr_t; use size_t functions. */
+#define scm_to_intptr_t   scm_to_ssize_t
+#define scm_from_intptr_t scm_from_ssize_t
+#elif SCM_SIZEOF_INTPTR_T == 4
+#define scm_to_intptr_t   scm_to_int32
+#define scm_from_intptr_t scm_from_int32
+#elif SCM_SIZEOF_INTPTR_T == 8
+#define scm_to_intptr_t   scm_to_int64
+#define scm_from_intptr_t scm_from_int64
+#else
+#error sizeof(intptr_t) is not 4 or 8.
+#endif
+
+#if SCM_SIZEOF_UINTPTR_T == 0
+/* No uintptr_t; use size_t functions. */
+#define scm_to_uintptr_t   scm_to_size_t
+#define scm_from_uintptr_t scm_from_size_t
+#elif SCM_SIZEOF_UINTPTR_T == 4
+#define scm_to_uintptr_t   scm_to_uint32
+#define scm_from_uintptr_t scm_from_uint32
+#elif SCM_SIZEOF_UINTPTR_T == 8
+#define scm_to_uintptr_t   scm_to_uint64
+#define scm_from_uintptr_t scm_from_uint64
+#else
+#error sizeof(uintptr_t) is not 4 or 8.
+#endif
+
 /* conversion functions for double */
 
 SCM_API int scm_is_real (SCM val);
