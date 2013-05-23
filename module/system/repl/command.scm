@@ -29,7 +29,6 @@
   #:use-module (system vm program)
   #:use-module (system vm trap-state)
   #:use-module (system vm vm)
-  #:use-module ((system vm frame) #:select (frame-return-values))
   #:autoload (system base language) (lookup-language language-reader)
   #:autoload (system vm trace) (call-with-trace)
   #:use-module (ice-9 format)
@@ -688,8 +687,8 @@ Note that the given source location must be inside a procedure."
       (format #t "Trap ~a: ~a.~%" idx (trap-name idx)))))
 
 (define (repl-pop-continuation-resumer repl msg)
-  ;; Capture the dynamic environment with this prompt thing. The
-  ;; result is a procedure that takes a frame.
+  ;; Capture the dynamic environment with this prompt thing. The result
+  ;; is a procedure that takes a frame and number of values returned.
   (% (call-with-values
          (lambda ()
            (abort
@@ -697,18 +696,18 @@ Note that the given source location must be inside a procedure."
               ;; Call frame->stack-vector before reinstating the
               ;; continuation, so that we catch the %stacks fluid at
               ;; the time of capture.
-              (lambda (frame)
+              (lambda (frame . values)
                 (k frame
                    (frame->stack-vector
-                    (frame-previous frame)))))))
-       (lambda (from stack)
+                    (frame-previous frame))
+                   values)))))
+       (lambda (from stack values)
          (format #t "~a~%" msg)
-         (let ((vals (frame-return-values from)))
-           (if (null? vals)
-               (format #t "No return values.~%")
-               (begin
-                 (format #t "Return values:~%")
-                 (for-each (lambda (x) (repl-print repl x)) vals))))
+         (if (null? values)
+             (format #t "No return values.~%")
+             (begin
+               (format #t "Return values:~%")
+               (for-each (lambda (x) (repl-print repl x)) values)))
          ((module-ref (resolve-interface '(system repl repl)) 'start-repl)
           #:debug (make-debug stack 0 msg #t))))))
 

@@ -202,14 +202,16 @@ scm_i_capture_current_stack (void)
                                  0);
 }
 
+static void vm_dispatch_hook (SCM vm, int hook_num,
+                              SCM *argv, int n) SCM_NOINLINE;
+
 static void
-vm_dispatch_hook (SCM vm, int hook_num)
+vm_dispatch_hook (SCM vm, int hook_num, SCM *argv, int n)
 {
   struct scm_vm *vp;
   SCM hook;
   struct scm_frame c_frame;
   scm_t_cell *frame;
-  SCM args[1];
   int saved_trace_level;
 
   vp = SCM_VM_DATA (vm);
@@ -242,9 +244,30 @@ vm_dispatch_hook (SCM vm, int hook_num)
 
   frame->word_0 = SCM_PACK (scm_tc7_frame);
   frame->word_1 = SCM_PACK_POINTER (&c_frame);
-  args[0] = SCM_PACK_POINTER (frame);
 
-  scm_c_run_hookn (hook, args, 1);
+  if (n == 0)
+    {
+      SCM args[1];
+
+      args[0] = SCM_PACK_POINTER (frame);
+      scm_c_run_hookn (hook, args, 1);
+    }
+  else if (n == 1)
+    {
+      SCM args[2];
+
+      args[0] = SCM_PACK_POINTER (frame);
+      args[1] = argv[0];
+      scm_c_run_hookn (hook, args, 2);
+    }
+  else
+    {
+      SCM args = SCM_EOL;
+
+      while (n--)
+        args = scm_cons (argv[n], args);
+      scm_c_run_hook (hook, scm_cons (SCM_PACK_POINTER (frame), args));
+    }
 
   vp->trace_level = saved_trace_level;
 }

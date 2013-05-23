@@ -1,6 +1,6 @@
 ;;; Guile VM tracer
 
-;; Copyright (C) 2001, 2009, 2010, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
 
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -53,34 +53,33 @@
             width
             (frame-call-representation frame))))
 
-(define* (print-return frame depth width prefix max-indent)
+(define* (print-return frame depth width prefix max-indent values)
   (let* ((len (frame-num-locals frame))
-         (nvalues (frame-local-ref frame (1- len)))
          (prefix (build-prefix prefix depth "|  " "~d< "max-indent)))
-    (case nvalues
+    (case (length values)
       ((0)
        (format (current-error-port) "~ano values\n" prefix))
       ((1)
        (format (current-error-port) "~a~v:@y\n"
                prefix
                width
-               (frame-local-ref frame (- len 2))))
+               (car values)))
       (else
        ;; this should work, but there appears to be a bug
        ;; "~a~d values:~:{ ~v:@y~}\n"
        (format (current-error-port) "~a~d values:~{ ~a~}\n"
-               prefix nvalues
+               prefix (length values)
                (map (lambda (val)
                       (format #f "~v:@y" width val))
-                    (frame-return-values frame)))))))
-  
+                    values))))))
+
 (define* (trace-calls-to-procedure proc #:key (width 80) (vm (the-vm))
                                    (prefix "trace: ")
                                    (max-indent (- width 40)))
   (define (apply-handler frame depth)
     (print-application frame depth width prefix max-indent))
-  (define (return-handler frame depth)
-    (print-return frame depth width prefix max-indent))
+  (define (return-handler frame depth . values)
+    (print-return frame depth width prefix max-indent values))
   (trap-calls-to-procedure proc apply-handler return-handler
                            #:vm vm))
 
@@ -89,8 +88,8 @@
                                    (max-indent (- width 40)))
   (define (apply-handler frame depth)
     (print-application frame depth width prefix max-indent))
-  (define (return-handler frame depth)
-    (print-return frame depth width prefix max-indent))
+  (define (return-handler frame depth . values)
+    (print-return frame depth width prefix max-indent values))
   (trap-calls-in-dynamic-extent proc apply-handler return-handler
                                 #:vm vm))
 

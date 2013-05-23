@@ -28,8 +28,7 @@
             frame-binding-ref frame-binding-set!
             frame-next-source frame-call-representation
             frame-environment
-            frame-object-binding frame-object-name
-            frame-return-values))
+            frame-object-binding frame-object-name))
 
 (define (frame-bindings frame)
   (let ((p (frame-procedure frame)))
@@ -158,12 +157,3 @@
 (define (frame-object-name frame obj)
   (cond ((frame-object-binding frame obj) => binding:name)
 	(else #f)))
-
-;; Nota bene, only if frame is in a return context (i.e. in a
-;; pop-continuation hook dispatch).
-(define (frame-return-values frame)
-  (let* ((len (frame-num-locals frame))
-         (nvalues (frame-local-ref frame (1- len))))
-    (map (lambda (i)
-           (frame-local-ref frame (+ (- len nvalues 1) i)))
-         (iota nvalues))))

@@ -799,10 +799,11 @@ To digress, Guile's VM has 6 different hooks (@pxref{Hooks}) that can be
 fired at different times, which may be accessed with the following
 procedures.
 
-All hooks are called with one argument, the frame in
-question. @xref{Frames}.  Since these hooks may be fired very
-frequently, Guile does a terrible thing: it allocates the frames on the
-C stack instead of the garbage-collected heap.
+The first argument of calls to these hooks is the frame in question.
+@xref{Frames}.  Some hooks may call their procedures with more
+arguments.  Since these hooks may be fired very frequently, Guile does a
+terrible thing: it allocates the frames on the C stack instead of the
+garbage-collected heap.
 
 The upshot here is that the frames are only valid within the dynamic
 extent of the call to the hook. If a hook procedure keeps a reference to
@@ -832,11 +833,8 @@ corresponding apply-hook.
 @deffn {Scheme Procedure} vm-pop-continuation-hook vm
 The hook that will be fired before returning from a frame.
 
-This hook is a bit trickier than the rest, in that there is a particular
-interpretation of the values on the stack. Specifically, the top value
-on the stack is the number of values being returned, and the next
-@var{n} values are the actual values being returned, with the last value
-highest on the stack.
+This hook fires with a variable number of arguments, corresponding to
+the values that the frame returns to its continuation.
 @end deffn
 
 @deffn {Scheme Procedure} vm-apply-hook vm
@@ -852,8 +850,11 @@ hook.
 
 @deffn {Scheme Procedure} vm-abort-continuation-hook vm
 The hook that will be called after aborting to a
-prompt. @xref{Prompts}. The stack will be in the same state as for
-@code{vm-pop-continuation-hook}.
+prompt.  @xref{Prompts}.
+
+Like the pop-continuation hook, this hook fires with a variable number
+of arguments, corresponding to the values that returned to the
+continuation.
 @end deffn
 
 @deffn {Scheme Procedure} vm-restore-continuation-hook vm

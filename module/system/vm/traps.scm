@@ -1,6 +1,6 @@
 ;;; Traps: stepping, breakpoints, and such.
 
-;; Copyright (C)  2010 Free Software Foundation, Inc.
+;; Copyright (C)  2010, 2012 Free Software Foundation, Inc.
 
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -184,13 +184,13 @@
       (if in-proc?
           (exit-proc frame)))
     
-    (define (pop-cont-hook frame)
+    (define (pop-cont-hook frame . values)
       (if in-proc?
           (exit-proc frame))
       (if (our-frame? (frame-previous frame))
           (enter-proc (frame-previous frame))))
 
-    (define (abort-hook frame)
+    (define (abort-hook frame . values)
       (if in-proc?
           (exit-proc frame))
       (if (our-frame? frame)
@@ -409,17 +409,17 @@
   (arg-check return-handler procedure?)
   (arg-check abort-handler procedure?)
   (let ((fp (frame-address frame)))
-    (define (pop-cont-hook frame)
+    (define (pop-cont-hook frame . values)
       (if (and fp (eq? (frame-address frame) fp))
           (begin
             (set! fp #f)
-            (return-handler frame))))
+            (apply return-handler frame values))))
     
-    (define (abort-hook frame)
+    (define (abort-hook frame . values)
       (if (and fp (< (frame-address frame) fp))
           (begin
             (set! fp #f)
-            (abort-handler frame))))
+            (apply abort-handler frame values))))
     
     (new-enabled-trap
      vm frame
@@ -447,12 +447,12 @@
   (arg-check return-handler procedure?)
   (arg-check abort-handler procedure?)
   (let ((exit-trap #f))
-    (define (return-hook frame)
+    (define (return-hook frame . values)
       (exit-trap frame) ; disable the return/abort trap.
       (set! exit-trap #f)
       (return-handler frame))
     
-    (define (abort-hook frame)
+    (define (abort-hook frame . values)
       (exit-trap frame) ; disable the return/abort trap.
       (set! exit-trap #f)
       (abort-handler frame))
@@ -490,8 +490,8 @@
     (define (trace-push frame)
       (set! *call-depth* (1+ *call-depth*)))
   
-    (define (trace-pop frame)
-      (return-handler frame *call-depth*)
+    (define (trace-pop frame . values)
+      (apply return-handler frame *call-depth* values)
       (set! *call-depth* (1- *call-depth*)))
   
     (define (trace-apply frame)
@@ -570,12 +570,12 @@
                       (delq finish-trap pending-finish-traps))
                 (set! finish-trap #f))
               
-              (define (return-hook frame)
+              (define (return-hook frame . values)
                 (frame-finished frame)
-                (return-handler frame depth))
+                (apply return-handler frame depth values))
         
               ;; FIXME: abort handler?
-              (define (abort-hook frame)
+              (define (abort-hook frame . values)
                 (frame-finished frame))
         
               (set! finish-trap
