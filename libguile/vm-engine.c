@@ -356,8 +356,19 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
       NEXT;
     }
 
-  /* Initial frame */
   CACHE_REGISTER ();
+
+  /* Since it's possible to receive the arguments on the stack itself,
+     and indeed the RTL VM invokes us that way, shuffle up the
+     arguments first.  */
+  VM_ASSERT (sp + 8 + nargs < stack_limit, vm_error_too_many_args (nargs));
+  {
+    int i;
+    for (i = nargs - 1; i >= 0; i--)
+      sp[9 + i] = argv[i];
+  }
+
+  /* Initial frame */
   PUSH (SCM_PACK (fp)); /* dynamic link */
   PUSH (SCM_PACK (0)); /* mvra */
   PUSH (SCM_PACK (ip)); /* ra */
@@ -371,9 +382,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   PUSH (SCM_PACK (ip)); /* ra */
   PUSH (program);
   fp = sp + 1;
-  VM_ASSERT (sp + nargs < stack_limit, vm_error_too_many_args (nargs));
-  while (nargs--)
-    PUSH (*argv++);
+  sp += nargs;
 
   PUSH_CONTINUATION_HOOK ();
 
