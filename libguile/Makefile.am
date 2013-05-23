@@ -433,9 +433,18 @@ DOT_I_FILES = vm-i-system.i vm-i-scheme.i vm-i-loader.i
 .c.i:
 	$(AM_V_GEN)$(GREP) '^VM_DEFINE' $< > $@
 
+vm-operations.h: vm-engine.c
+	@echo '/* This file was generated automatically from $<; do not' > $@
+	@echo '   edit.  See the source file for copyright information.  */' >> $@
+	@echo '' >> $@
+	@echo "#define FOR_EACH_VM_OPERATION(M) \\" >> $@
+	$(AM_V_GEN)$(GREP) '^ *VM_DEFINE_OP' $< \
+	| sed -e 's,VM_DEFINE_OP (\(.*\)).*,  M (\1) \\,' >> $@
+	@echo '' >> $@
+
 BUILT_SOURCES = cpp-E.c cpp-SIG.c libpath.h \
     scmconfig.h \
-    $(DOT_I_FILES) $(DOT_X_FILES) $(EXTRA_DOT_X_FILES)
+    $(DOT_I_FILES) vm-operations.h $(DOT_X_FILES) $(EXTRA_DOT_X_FILES)
 
 # Force the generation of `guile-procedures.texi' because the top-level
 # Makefile expects it to be built.

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -97,6 +97,37 @@ struct scm_vm_frame
   (SCM_FRAME_STRUCT (fp)->stack[i])
 #define SCM_FRAME_PROGRAM(fp)                   \
   (SCM_FRAME_STRUCT (fp)->program)
+
+
+/*
+ * RTL frames
+ */
+
+/* The frame format for the new RTL programs is almost like that for the
+   stack-vm programs.  They differ in their handling of MV returns,
+   however.  For RTL, every call is an MV call: every call has an MVRA.
+   Unlike the stack-vm programs, the MVRA for RTL programs is computable
+   from the RA -- it's always one word (4 bytes) before the RA.
+
+   Until we completely migrate to the RTL VM, we will also write the
+   MVRA to the stack.
+
+   When an RTL program returns multiple values, it will shuffle them
+   down to start contiguously from slot 0, as for a tail call.  This
+   means that when the caller goes to access them, there are 2 or 3
+   empty words between the top of the caller stack and the bottom of the
+   values, corresponding to the frame that was just popped.
+*/
+
+#define SCM_FRAME_RTL_RETURN_ADDRESS(fp)                \
+  ((scm_t_uint32 *) SCM_FRAME_RETURN_ADDRESS (fp))
+#define SCM_FRAME_SET_RTL_RETURN_ADDRESS(fp, ip)        \
+  SCM_FRAME_SET_RETURN_ADDRESS (fp, (scm_t_uint8 *) (ip))
+
+#define SCM_FRAME_RTL_MV_RETURN_ADDRESS(fp)             \
+  ((scm_t_uint32 *) SCM_FRAME_MV_RETURN_ADDRESS (fp))
+#define SCM_FRAME_SET_RTL_MV_RETURN_ADDRESS(fp, ip)     \
+  SCM_FRAME_SET_MV_RETURN_ADDRESS (fp, (scm_t_uint8 *) (ip))
 
 
 /*

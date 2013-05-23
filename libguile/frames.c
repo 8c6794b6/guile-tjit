@@ -129,10 +129,20 @@ SCM_DEFINE (scm_frame_num_locals, "frame-num-locals", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_frame_num_locals
 {
-  SCM *sp, *p;
+  SCM *fp, *sp, *p;
   unsigned int n = 0;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
+
+  fp = SCM_VM_FRAME_FP (frame);
+  sp = SCM_VM_FRAME_SP (frame);
+  p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));
+
+  if (SCM_RTL_PROGRAM_P (fp[-1]))
+    /* The frame size of an RTL program is fixed, except in the case of
+       passing a wrong number of arguments to the program.  So we do
+       need to use an SP for determining the number of locals.  */
+    return scm_from_uint32 (sp + 1 - p);
 
   sp = SCM_VM_FRAME_SP (frame);
   p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));

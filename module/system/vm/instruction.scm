@@ -1,6 +1,6 @@
 ;;; Guile VM instructions
 
-;; Copyright (C) 2001, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2010, 2012 Free Software Foundation, Inc.
 
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -19,7 +19,8 @@
 ;;; Code:
 
 (define-module (system vm instruction)
-  #:export (instruction-list
+  #:export (rtl-instruction-list
+            instruction-list
            instruction? instruction-length
            instruction-pops instruction-pushes
            instruction->opcode opcode->instruction))

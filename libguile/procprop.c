@@ -82,6 +82,14 @@ scm_i_procedure_arity (SCM proc, int *req, int *opt, int *rest)
 
           return 1;
         }
+      else if (SCM_RTL_PROGRAM_P (proc))
+        {
+          *req = 0;
+          *opt = 0;
+          *rest = 1;
+
+          return 1;
+        }
       else
         return 0;
     }

@@ -1,4 +1,4 @@
-/* Copyright (C) 1998,1999,2000,2001,2002,2003, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1998,1999,2000,2001,2002,2003, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -87,6 +87,7 @@ SCM_DEFINE (scm_self_evaluating_p, "self-evaluating?", 1, 0, 0,
 	case scm_tc7_number:
 	case scm_tc7_string:
 	case scm_tc7_smob:
+	case scm_tc7_rtl_program:
 	case scm_tc7_program:
 	case scm_tc7_bytevector:
 	case scm_tc7_array:

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -40,6 +40,83 @@ struct scm_instruction {
   SCM symname;                  /* filled in later */
 };
 
+
+#define OP_HAS_ARITY (1U << 0)
+
+#define FOR_EACH_INSTRUCTION_WORD_TYPE(M)       \
+    M(X32)                                      \
+    M(U8_X24)                                   \
+    M(U8_U24)                                   \
+    M(U8_L24)                                   \
+    M(U8_R24)                                   \
+    M(U8_U8_I16)                                \
+    M(U8_U8_U8_U8)                              \
+    M(U8_U12_U12)                               \
+    M(U32) /* Unsigned. */                      \
+    M(I32) /* Immediate. */                     \
+    M(A32) /* Immediate, high bits. */          \
+    M(B32) /* Immediate, low bits. */           \
+    M(N32) /* Non-immediate. */                 \
+    M(S32) /* Scheme value (indirected). */     \
+    M(L32) /* Label. */                         \
+    M(LO32) /* Label with offset. */            \
+    M(X8_U24)                                   \
+    M(X8_U12_U12)                               \
+    M(X8_R24)                                   \
+    M(X8_L24)                                   \
+    M(B1_X7_L24)                                \
+    M(B1_U7_L24)
+
+#define TYPE_WIDTH 5
+
+enum word_type
+  {
+#define ENUM(type) type,
+    FOR_EACH_INSTRUCTION_WORD_TYPE (ENUM)
+#undef ENUM
+  };
+
+static SCM word_type_symbols[] =
+  {
+#define FALSE(type) SCM_BOOL_F,
+    FOR_EACH_INSTRUCTION_WORD_TYPE (FALSE)
+#undef FALSE
+  };
+
+#define OP(n,type) ((type) << (n*TYPE_WIDTH))
+
+/* The VM_DEFINE_OP macro uses a CPP-based DSL to describe what kinds of
+   arguments each RTL instruction takes.  This piece of code is the only
+   bit that actually interprets that language.  These macro definitions
+   encode the operand types into bits in a 32-bit integer.
+
+   (rtl-instruction-list) parses those encoded values into lists of
+   symbols, one for each 32-bit word that the operator takes.  (system
+   vm rtl) uses those word types to generate assemblers and
+   disassemblers for the instructions.  */
+
+#define OP1(type0) \
+  (OP (0, type0))
+#define OP2(type0, type1) \
+  (OP (0, type0) | OP (1, type1))
+#define OP3(type0, type1, type2) \
+  (OP (0, type0) | OP (1, type1) | OP (2, type2))
+#define OP4(type0, type1, type2, type3) \
+  (OP (0, type0) | OP (1, type1) | OP (2, type2) | OP (3, type3))
+
+#define OP_DST (1 << (TYPE_WIDTH * 5))
+
+#define WORD_TYPE(n, word) \
+  (((word) >> ((n) * TYPE_WIDTH)) & ((1 << TYPE_WIDTH) - 1))
+
+struct scm_rtl_instruction {
+  enum scm_rtl_opcode opcode;	/* opcode */
+  const char *name;		/* instruction name */
+  scm_t_uint32 meta;
+  SCM symname;                  /* filled in later */
+};
+
+
 #define SCM_VALIDATE_LOOKUP_INSTRUCTION(pos, var, cvar)               \
   do {                                                                \
     cvar = scm_lookup_instruction_by_name (var);                      \
@@ -68,6 +145,37 @@ fetch_instruction_table ()
 #include <libguile/vm-i-scheme.i>
 #include <libguile/vm-i-loader.i>
 #undef VM_INSTRUCTION_TO_TABLE
+      for (i = 0; i < SCM_VM_NUM_INSTRUCTIONS; i++)
+        {
+          table[i].opcode = i;
+          if (table[i].name)
+            table[i].symname = scm_from_utf8_symbol (table[i].name);
+          else
+            table[i].symname = SCM_BOOL_F;
+        }
+    }
+  scm_i_pthread_mutex_unlock (&itable_lock);
+
+  return table;
+}
+
+static struct scm_rtl_instruction*
+fetch_rtl_instruction_table ()
+{
+  static struct scm_rtl_instruction *table = NULL;
+
+  scm_i_pthread_mutex_lock (&itable_lock);
+  if (SCM_UNLIKELY (!table))
+    {
+      size_t bytes = SCM_VM_NUM_INSTRUCTIONS * sizeof(struct scm_rtl_instruction);
+      int i;
+      table = malloc (bytes);
+      memset (table, 0, bytes);
+
+#define INIT(opcode, tag, name_, meta_) table[opcode].name = name_; table[opcode].meta = meta_;
+      FOR_EACH_VM_OPERATION (INIT);
+#undef INIT
+
       for (i = 0; i < SCM_VM_NUM_INSTRUCTIONS; i++)
         {
           table[i].opcode = i;
@@ -123,6 +231,57 @@ SCM_DEFINE (scm_instruction_list, "instruction-list", 0, 0, 0,
   for (i = 0; i < SCM_VM_NUM_INSTRUCTIONS; i++)
     if (ip[i].name)
       list = scm_cons (ip[i].symname, list);
+  return scm_reverse_x (list, SCM_EOL);
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_rtl_instruction_list, "rtl-instruction-list", 0, 0, 0,
+	    (void),
+	    "")
+#define FUNC_NAME s_scm_rtl_instruction_list
+{
+  SCM list = SCM_EOL;
+  int i;
+  struct scm_rtl_instruction *ip = fetch_rtl_instruction_table ();
+  for (i = 0; i < SCM_VM_NUM_INSTRUCTIONS; i++)
+    if (ip[i].name)
+      {
+        scm_t_uint32 meta = ip[i].meta;
+        SCM tail = SCM_EOL;
+        int len;
+
+        /* Format: (name opcode len rest? out br in) */
+
+        if (WORD_TYPE (3, meta))
+          len = 4;
+        else if (WORD_TYPE (2, meta))
+          len = 3;
+        else if (WORD_TYPE (1, meta))
+          len = 2;
+        else if (WORD_TYPE (0, meta))
+          len = 1;
+        else
+          abort ();
+
+        switch (len)
+          {
+          case 4:
+            tail = scm_cons (word_type_symbols[WORD_TYPE (3, meta)], tail);
+          case 3:
+            tail = scm_cons (word_type_symbols[WORD_TYPE (2, meta)], tail);
+          case 2:
+            tail = scm_cons (word_type_symbols[WORD_TYPE (1, meta)], tail);
+          case 1:
+            tail = scm_cons (word_type_symbols[WORD_TYPE (0, meta)], tail);
+          default:
+            tail = scm_cons (scm_from_int (ip[i].opcode), tail);
+            tail = scm_cons (ip[i].symname, tail);
+            break;
+          }
+
+        list = scm_cons (tail, list);
+      }
+
   return scm_reverse_x (list, SCM_EOL);
 }
 #undef FUNC_NAME
@@ -208,6 +367,11 @@ scm_bootstrap_instructions (void)
                             "scm_init_instructions",
                             (scm_t_extension_init_func)scm_init_instructions,
                             NULL);
+
+#define INIT(type) \
+  word_type_symbols[type] = scm_from_utf8_symbol (#type);
+    FOR_EACH_INSTRUCTION_WORD_TYPE (INIT)
+#undef INIT
 }
 
 void

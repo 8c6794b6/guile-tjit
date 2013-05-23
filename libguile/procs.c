@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1999, 2000, 2001, 2006, 2008, 2009,
- *   2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -48,6 +48,7 @@ SCM_DEFINE (scm_procedure_p, "procedure?", 1, 0, 0,
 #define FUNC_NAME s_scm_procedure_p
 {
   return scm_from_bool (SCM_PROGRAM_P (obj)
+                        || SCM_RTL_PROGRAM_P (obj)
                         || (SCM_STRUCTP (obj) && SCM_STRUCT_APPLICABLE_P (obj))
                         || (SCM_HAS_TYP7 (obj, scm_tc7_smob)
                             && SCM_SMOB_APPLICABLE_P (obj)));

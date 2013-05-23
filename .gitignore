@@ -156,3 +156,4 @@ INSTALL
 /test-suite/standalone/test-smob-mark
 /test-suite/standalone/test-scm-values
 /test-suite/standalone/test-scm-to-latin1-string
+/libguile/vm-operations.h

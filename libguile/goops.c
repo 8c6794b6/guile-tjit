@@ -301,6 +301,9 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	  else
 	    return scm_class_procedure;
 
+	case scm_tc7_rtl_program:
+          return scm_class_procedure;
+
 	case scm_tc7_smob:
 	  {
 	    scm_t_bits type = SCM_TYP16 (x);

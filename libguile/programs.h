@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -21,6 +21,31 @@
 
 #include <libguile.h>
 #include <libguile/objcodes.h>
+
+/*
+ * The new RTL programs.
+ */
+
+#define SCM_RTL_PROGRAM_P(x) (SCM_HAS_TYP7 (x, scm_tc7_rtl_program))
+#define SCM_RTL_PROGRAM_CODE(x) ((scm_t_uint32 *) SCM_CELL_WORD_1 (x))
+#define SCM_RTL_PROGRAM_FREE_VARIABLES(x) (SCM_CELL_OBJECT_LOC (x, 2))
+#define SCM_RTL_PROGRAM_FREE_VARIABLE_REF(x,i) (SCM_RTL_PROGRAM_FREE_VARIABLES (x)[i])
+#define SCM_RTL_PROGRAM_FREE_VARIABLE_SET(x,i,v) (SCM_RTL_PROGRAM_FREE_VARIABLES (x)[i]=(v))
+#define SCM_RTL_PROGRAM_NUM_FREE_VARIABLES(x) (SCM_CELL_WORD_0 (x) >> 16)
+#define SCM_VALIDATE_RTL_PROGRAM(p,x) SCM_MAKE_VALIDATE (p, x, RTL_PROGRAM_P)
+
+static inline SCM
+scm_i_make_rtl_program (const scm_t_uint32 *code)
+{
+  return scm_cell (scm_tc7_rtl_program, (scm_t_bits)code);
+}
+
+SCM_INTERNAL SCM scm_make_rtl_program (SCM bytevector, SCM byte_offset, SCM free_variables);
+SCM_INTERNAL SCM scm_rtl_program_p (SCM obj);
+SCM_INTERNAL SCM scm_rtl_program_code (SCM program);
+
+SCM_INTERNAL void scm_i_rtl_program_print (SCM program, SCM port,
+                                           scm_print_state *pstate);
 
 /*
  * Programs

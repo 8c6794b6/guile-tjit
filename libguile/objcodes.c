@@ -94,7 +94,8 @@ static void register_elf (char *data, size_t len);
 enum bytecode_kind
   {
     BYTECODE_KIND_NONE,
-    BYTECODE_KIND_GUILE_2_0
+    BYTECODE_KIND_GUILE_2_0,
+    BYTECODE_KIND_GUILE_2_2
   };
 
 static SCM
@@ -109,6 +110,10 @@ pointer_to_procedure (enum bytecode_kind bytecode_kind, char *ptr)
 
         objcode = scm_double_cell (tag, (scm_t_bits) ptr, SCM_BOOL_F_BITS, 0);
         return scm_make_program (objcode, SCM_BOOL_F, SCM_UNDEFINED);
+      }
+    case BYTECODE_KIND_GUILE_2_2:
+      {
+        return scm_i_make_rtl_program ((scm_t_uint32 *) ptr);
       }
     case BYTECODE_KIND_NONE:
     default:
@@ -302,29 +307,52 @@ process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
           {
             scm_t_uint16 major = dyn[i].d_un.d_val >> 16;
             scm_t_uint16 minor = dyn[i].d_un.d_val & 0xffff;
-            if (major != 0x0200)
-              return "incompatible bytecode kind";
-            if (minor > SCM_OBJCODE_MINOR_VERSION)
-              return "incompatible bytecode version";
-            bytecode_kind = BYTECODE_KIND_GUILE_2_0;
+            switch (major)
+              {
+              case 0x0200:
+                bytecode_kind = BYTECODE_KIND_GUILE_2_0;
+                if (minor > SCM_OBJCODE_MINOR_VERSION)
+                  return "incompatible bytecode version";
+                break;
+              case 0x0202:
+                bytecode_kind = BYTECODE_KIND_GUILE_2_2;
+                if (minor)
+                  return "incompatible bytecode version";
+                break;
+              default:
+                return "incompatible bytecode kind";
+              }
             break;
           }
         }
     }
 
-  if (bytecode_kind != BYTECODE_KIND_GUILE_2_0)
-    return "missing DT_GUILE_RTL_VERSION";
-  if (init)
-    return "unexpected DT_INIT";
-  if ((scm_t_uintptr) entry % 8)
-    return "unaligned DT_GUILE_ENTRY";
   if (!entry)
     return "missing DT_GUILE_ENTRY";
+
+  switch (bytecode_kind)
+    {
+    case BYTECODE_KIND_GUILE_2_0:
+      if (init)
+        return "unexpected DT_INIT";
+      if ((scm_t_uintptr) entry % 8)
+        return "unaligned DT_GUILE_ENTRY";
+      break;
+    case BYTECODE_KIND_GUILE_2_2:
+      if ((scm_t_uintptr) init % 4)
+        return "unaligned DT_INIT";
+      if ((scm_t_uintptr) entry % 4)
+        return "unaligned DT_GUILE_ENTRY";
+      break;
+    case BYTECODE_KIND_NONE:
+    default:
+      return "missing DT_GUILE_RTL_VERSION";
+    }
 
   if (gc_root)
     GC_add_roots (gc_root, gc_root + gc_root_size);
 
-  *init_out = SCM_BOOL_F;
+  *init_out = init ? pointer_to_procedure (bytecode_kind, init) : SCM_BOOL_F;
   *entry_out = pointer_to_procedure (bytecode_kind, entry);
   return NULL;
 }

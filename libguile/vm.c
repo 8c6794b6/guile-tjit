@@ -594,6 +594,30 @@ vm_error_bad_wide_string_length (size_t len)
 
 static SCM boot_continuation;
 
+static SCM rtl_boot_continuation;
+static SCM rtl_apply;
+static SCM rtl_values;
+
+static const scm_t_uint32 rtl_boot_continuation_code[] = {
+  SCM_PACK_RTL_24 (scm_rtl_op_halt_values, 0), /* empty stack frame in r0-r2, results from r3 */
+  SCM_PACK_RTL_24 (scm_rtl_op_halt, 0) /* result in r0 */
+};
+
+static scm_t_uint32* rtl_boot_multiple_value_continuation_code =
+  (scm_t_uint32 *) rtl_boot_continuation_code;
+
+static scm_t_uint32* rtl_boot_single_value_continuation_code =
+  (scm_t_uint32 *) rtl_boot_continuation_code + 1;
+
+static const scm_t_uint32 rtl_apply_code[] = {
+  SCM_PACK_RTL_24 (scm_rtl_op_apply, 0) /* proc in r0, args from r1, nargs set */
+};
+
+static const scm_t_uint32 rtl_values_code[] = {
+  SCM_PACK_RTL_24 (scm_rtl_op_values, 0) /* vals from r0 */
+};
+
+
 
 /*
  * VM
@@ -637,18 +661,22 @@ initialize_default_stack_size (void)
 }
 
 #define VM_NAME   vm_regular_engine
+#define RTL_VM_NAME   rtl_vm_regular_engine
 #define FUNC_NAME "vm-regular-engine"
 #define VM_ENGINE SCM_VM_REGULAR_ENGINE
 #include "vm-engine.c"
 #undef VM_NAME
+#undef RTL_VM_NAME
 #undef FUNC_NAME
 #undef VM_ENGINE
 
 #define VM_NAME	  vm_debug_engine
+#define RTL_VM_NAME   rtl_vm_debug_engine
 #define FUNC_NAME "vm-debug-engine"
 #define VM_ENGINE SCM_VM_DEBUG_ENGINE
 #include "vm-engine.c"
 #undef VM_NAME
+#undef RTL_VM_NAME
 #undef FUNC_NAME
 #undef VM_ENGINE
 
@@ -1110,6 +1138,10 @@ scm_init_vm (void)
 #ifndef SCM_MAGIC_SNARFER
 #include "libguile/vm.x"
 #endif
+
+  rtl_boot_continuation = scm_i_make_rtl_program (rtl_boot_continuation_code);
+  rtl_apply = scm_i_make_rtl_program (rtl_apply_code);
+  rtl_values = scm_i_make_rtl_program (rtl_values_code);
 }
 
 /*
