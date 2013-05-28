@@ -27,8 +27,6 @@
 (define (tree-il-any proc exp)
   (tree-il-fold (lambda (exp res)
                   (or res (proc exp)))
-                (lambda (exp res)
-                  (or res (proc exp)))
                 (lambda (exp res) res)
                 #f exp))
 

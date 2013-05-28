@@ -131,8 +131,6 @@
 (define* (build-assigned-var-table exp #:optional (table vlist-null))
   (tree-il-fold
    (lambda (exp res)
-     res)
-   (lambda (exp res)
      (match exp
        (($ <lexical-set> src name gensym exp)
         (vhash-consq gensym #t res))

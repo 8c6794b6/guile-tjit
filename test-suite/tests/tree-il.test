@@ -722,24 +722,19 @@
 
 (with-test-prefix "tree-il-fold"
 
-  (pass-if "empty tree"
-    (let ((leaf? #f) (up? #f) (down? #f) (mark (list 'mark)))
+  (pass-if "void"
+    (let ((up 0) (down 0) (mark (list 'mark)))
       (and (eq? mark
-                (tree-il-fold (lambda (x y) (set! leaf? #t) y)
-                              (lambda (x y) (set! down? #t) y)
-                              (lambda (x y) (set! up? #t) y)
+                (tree-il-fold (lambda (x y) (set! down (1+ down)) y)
+                              (lambda (x y) (set! up (1+ up)) y)
                               mark
-                              '()))
-           (not leaf?)
-           (not up?)
-           (not down?))))
+                              (make-void #f)))
+           (= up 1)
+           (= down 1))))
 
   (pass-if "lambda and application"
-    (let* ((leaves '()) (ups '()) (downs '())
+    (let* ((ups '()) (downs '())
            (result (tree-il-fold (lambda (x y)
-                                   (set! leaves (cons x leaves))
-                                   (1+ y))
-                                 (lambda (x y)
                                    (set! downs (cons x downs))
                                    (1+ y))
                                  (lambda (x y)
@@ -754,13 +749,15 @@
                                              (lexical x x1)
                                              (lexical y y1)))
                                       #f))))))
-      (and (equal? (map strip-source leaves)
-                   (list (make-lexical-ref #f 'y 'y1)
+      (and (= result 12)
+           (equal? (map strip-source (list-head (reverse ups) 3))
+                   (list (make-toplevel-ref #f '+)
                          (make-lexical-ref #f 'x 'x1)
-                         (make-toplevel-ref #f '+)))
-           (= (length downs) 3)
-           (equal? (reverse (map strip-source ups))
-                   (map strip-source downs))))))
+                         (make-lexical-ref #f 'y 'y1)))
+           (equal? (map strip-source (reverse (list-head downs 3)))
+                   (list (make-toplevel-ref #f '+)
+                         (make-lexical-ref #f 'x 'x1)
+                         (make-lexical-ref #f 'y 'y1)))))))
 
 
 ;;;

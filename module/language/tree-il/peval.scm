@@ -79,9 +79,6 @@
     (tree-il-fold (lambda (exp res)
                     (let ((res (proc exp)))
                       (if res (k res) #f)))
-                  (lambda (exp res)
-                    (let ((res (proc exp)))
-                      (if res (k res) #f)))
                   (lambda (exp res) #f)
                   #f exp)))
 
@@ -132,9 +129,6 @@
         (let ((var (cdr (vhash-assq gensym res))))
           (set-var-refcount! var (1+ (var-refcount var)))
           res))
-       (_ res)))
-   (lambda (exp res)
-     (match exp
        (($ <lambda-case> src req opt rest kw init gensyms body alt)
         (fold (lambda (name sym res)
                 (vhash-consq sym (make-var name sym 0 #f) res))
@@ -666,8 +660,6 @@ top-level bindings from ENV and return the resulting expression."
   (define (small-expression? x limit)
     (let/ec k
       (tree-il-fold
-       (lambda (x res)                  ; leaf
-         (1+ res))
        (lambda (x res)                  ; down
          (1+ res))
        (lambda (x res)                  ; up

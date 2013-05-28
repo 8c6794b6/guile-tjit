@@ -368,87 +368,6 @@
            e env opts)))
 
 
-(define (tree-il-fold leaf down up seed tree)
-  "Traverse TREE, calling LEAF on each leaf encountered, DOWN upon descent
-into a sub-tree, and UP when leaving a sub-tree.  Each of these procedures is
-invoked as `(PROC TREE SEED)', where TREE is the sub-tree or leaf considered
-and SEED is the current result, intially seeded with SEED.
-
-This is an implementation of `foldts' as described by Andy Wingo in
-``Calls of fold to XML transformation''."
-  (let loop ((tree   tree)
-             (result seed))
-    (if (or (null? tree) (pair? tree))
-        (fold loop result tree)
-        (record-case tree
-          ((<lexical-set> exp)
-           (up tree (loop exp (down tree result))))
-          ((<module-set> exp)
-           (up tree (loop exp (down tree result))))
-          ((<toplevel-set> exp)
-           (up tree (loop exp (down tree result))))
-          ((<toplevel-define> exp)
-           (up tree (loop exp (down tree result))))
-          ((<conditional> test consequent alternate)
-           (up tree (loop alternate
-                          (loop consequent
-                                (loop test (down tree result))))))
-          ((<call> proc args)
-           (up tree (loop (cons proc args) (down tree result))))
-          ((<primcall> name args)
-           (up tree (loop args (down tree result))))
-          ((<seq> head tail)
-           (up tree (loop tail (loop head (down tree result)))))
-          ((<lambda> body)
-           (let ((result (down tree result)))
-             (up tree
-                 (if body
-                     (loop body result)
-                     result))))
-          ((<lambda-case> inits body alternate)
-           (up tree (if alternate
-                        (loop alternate
-                              (loop body (loop inits (down tree result))))
-                        (loop body (loop inits (down tree result))))))
-          ((<let> vals body)
-           (up tree (loop body
-                          (loop vals
-                                (down tree result)))))
-          ((<letrec> vals body)
-           (up tree (loop body
-                          (loop vals
-                                (down tree result)))))
-          ((<fix> vals body)
-           (up tree (loop body
-                          (loop vals
-                                (down tree result)))))
-          ((<let-values> exp body)
-           (up tree (loop body (loop exp (down tree result)))))
-          ((<dynwind> winder pre body post unwinder)
-           (up tree (loop unwinder
-                      (loop post
-                        (loop body
-                          (loop pre
-                            (loop winder
-                              (down tree result))))))))
-          ((<dynlet> fluids vals body)
-           (up tree (loop body
-                          (loop vals
-                                (loop fluids (down tree result))))))
-          ((<dynref> fluid)
-           (up tree (loop fluid (down tree result))))
-          ((<dynset> fluid exp)
-           (up tree (loop exp (loop fluid (down tree result)))))
-          ((<prompt> tag body handler)
-           (up tree
-               (loop tag (loop body (loop handler
-                                          (down tree result))))))
-          ((<abort> tag args tail)
-           (up tree (loop tail (loop args (loop tag (down tree result))))))
-          (else
-           (leaf tree result))))))
-
-
 (define-syntax-rule (make-tree-il-folder seed ...)
   (lambda (tree down up seed ...)
     (define (fold-values proc exps seed ...)
@@ -529,6 +448,19 @@ This is an implementation of `foldts' as described by Andy Wingo in
               (else
                (values seed ...)))))
         (up tree seed ...)))))
+
+(define (tree-il-fold down up seed tree)
+  "Traverse TREE, calling DOWN before visiting a sub-tree, and UP when
+after visiting it.  Each of these procedures is invoked as `(PROC TREE
+SEED)', where TREE is the sub-tree considered and SEED is the current
+result, intially seeded with SEED.
+
+This is an implementation of `foldts' as described by Andy Wingo in
+``Applications of fold to XML transformation''."
+  ;; Multi-valued fold naturally puts the seeds at the end, whereas
+  ;; normal fold puts the traversable at the end.  Adapt to the expected
+  ;; argument order.
+  ((make-tree-il-folder tree) tree down up seed))
 
 (define (pre-post-order pre post x)
   (let lp ((x x))

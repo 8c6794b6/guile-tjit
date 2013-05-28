@@ -1,6 +1,6 @@
 ;;; TREE-IL -> GLIL compiler
 
-;; Copyright (C) 2001, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -551,9 +551,8 @@
 ;;;
 
 (define-record-type <tree-analysis>
-  (make-tree-analysis leaf down up post init)
+  (make-tree-analysis down up post init)
   tree-analysis?
-  (leaf tree-analysis-leaf)  ;; (lambda (x result env locs) ...)
   (down tree-analysis-down)  ;; (lambda (x result env locs) ...)
   (up   tree-analysis-up)    ;; (lambda (x result env locs) ...)
   (post tree-analysis-post)  ;; (lambda (result env) ...)
@@ -561,10 +560,11 @@
 
 (define (analyze-tree analyses tree env)
   "Run all tree analyses listed in ANALYSES on TREE for ENV, using
-`tree-il-fold'.  Return TREE.  The leaf/down/up procedures of each analysis are
-passed a ``location stack', which is the stack of `tree-il-src' values for each
-parent tree (a list); it can be used to approximate source location when
-accurate information is missing from a given `tree-il' element."
+`tree-il-fold'.  Return TREE.  The down and up procedures of each
+analysis are passed a ``location stack', which is the stack of
+`tree-il-src' values for each parent tree (a list); it can be used to
+approximate source location when accurate information is missing from a
+given `tree-il' element."
 
   (define (traverse proc update-locs)
     ;; Return a tree traversing procedure that returns a list of analysis
@@ -577,14 +577,12 @@ accurate information is missing from a given `tree-il' element."
                    analyses
                    (cdr results))))))
 
-  ;; Keeping/extending/shrinking the location stack.
-  (define (keep-locs x locs)   locs)
+  ;; Extending and shrinking the location stack.
   (define (extend-locs x locs) (cons (tree-il-src x) locs))
   (define (shrink-locs x locs) (cdr locs))
 
   (let ((results
-         (tree-il-fold (traverse tree-analysis-leaf keep-locs)
-                       (traverse tree-analysis-down extend-locs)
+         (tree-il-fold (traverse tree-analysis-down extend-locs)
                        (traverse tree-analysis-up   shrink-locs)
                        (cons '() ;; empty location stack
                              (map tree-analysis-init analyses))
@@ -619,15 +617,6 @@ accurate information is missing from a given `tree-il' element."
   ;; Report unused variables in the given tree.
   (make-tree-analysis
    (lambda (x info env locs)
-     ;; X is a leaf: extend INFO's refs accordingly.
-     (let ((refs (binding-info-refs info))
-           (vars (binding-info-vars info)))
-       (record-case x
-         ((<lexical-ref> gensym)
-          (make-binding-info vars (vhash-consq gensym #t refs)))
-         (else info))))
-
-   (lambda (x info env locs)
      ;; Going down into X: extend INFO's variable list
      ;; accordingly.
      (let ((refs (binding-info-refs info))
@@ -641,6 +630,8 @@ accurate information is missing from a given `tree-il' element."
                inner-names))
 
        (record-case x
+         ((<lexical-ref> gensym)
+          (make-binding-info vars (vhash-consq gensym #t refs)))
          ((<lexical-set> gensym)
           (make-binding-info vars (vhash-consq gensym #t refs)))
          ((<lambda-case> req opt inits rest kw gensyms)
@@ -790,19 +781,13 @@ accurate information is missing from a given `tree-il' element."
 
     (make-tree-analysis
      (lambda (x graph env locs)
-       ;; X is a leaf.
-       (let ((ctx (reference-graph-toplevel-context graph)))
-         (record-case x
-           ((<toplevel-ref> name src)
-            (add-ref-from-context graph name))
-           (else graph))))
-
-     (lambda (x graph env locs)
        ;; Going down into X.
        (let ((ctx  (reference-graph-toplevel-context graph))
              (refs (reference-graph-refs graph))
              (defs (reference-graph-defs graph)))
          (record-case x
+           ((<toplevel-ref> name src)
+            (add-ref-from-context graph name))
            ((<toplevel-define> name src)
             (let ((refs refs)
                   (defs (vhash-consq name (or src (find pair? locs))
@@ -895,9 +880,10 @@ accurate information is missing from a given `tree-il' element."
   ;; Report possibly unbound variables in the given tree.
   (make-tree-analysis
    (lambda (x info env locs)
-     ;; X is a leaf: extend INFO's refs accordingly.
-     (let ((refs (toplevel-info-refs info))
-           (defs (toplevel-info-defs info)))
+     ;; Going down into X.
+     (let* ((refs (toplevel-info-refs info))
+            (defs (toplevel-info-defs info))
+            (src  (tree-il-src x)))
        (define (bound? name)
          (or (and (module? env)
                   (module-variable env name))
@@ -910,19 +896,6 @@ accurate information is missing from a given `tree-il' element."
               (let ((src (or src (find pair? locs))))
                 (make-toplevel-info (vhash-consq name src refs)
                                     defs))))
-         (else info))))
-
-   (lambda (x info env locs)
-     ;; Going down into X.
-     (let* ((refs (toplevel-info-refs info))
-            (defs (toplevel-info-defs info))
-            (src  (tree-il-src x)))
-       (define (bound? name)
-         (or (and (module? env)
-                  (module-variable env name))
-             (vhash-assq name defs)))
-
-       (record-case x
          ((<toplevel-set> name src)
           (if (bound? name)
               (make-toplevel-info refs defs)
@@ -1069,9 +1042,6 @@ accurate information is missing from a given `tree-il' element."
 (define arity-analysis
   ;; Report arity mismatches in the given tree.
   (make-tree-analysis
-   (lambda (x info env locs)
-     ;; X is a leaf.
-     info)
    (lambda (x info env locs)
      ;; Down into X.
      (define (extend lexical-name val info)
@@ -1417,10 +1387,6 @@ resort, return #t when EXP refers to the global variable SPECIAL-NAME."
 (define format-analysis
   ;; Report arity mismatches in the given tree.
   (make-tree-analysis
-   (lambda (x _ env locs)
-     ;; X is a leaf.
-     #t)
-
    (lambda (x _ env locs)
      ;; Down into X.
      (define (check-format-args args loc)
