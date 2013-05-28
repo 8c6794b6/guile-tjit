@@ -979,6 +979,10 @@ top-level bindings from ENV and return the resulting expression."
        ;; reconstruct the let-values, pevaling the consumer.
        (let ((producer (for-values producer)))
          (or (match consumer
+               (($ <lambda-case> src (req-name) #f #f #f () (req-sym) body #f)
+                (for-tail
+                 (make-let src (list req-name) (list req-sym) (list producer)
+                           body)))
                (($ <lambda-case> src req opt rest #f inits gensyms body #f)
                 (let* ((nmin (length req))
                        (nmax (and (not rest) (+ nmin (if opt (length opt) 0)))))
