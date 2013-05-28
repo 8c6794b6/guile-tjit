@@ -1,6 +1,6 @@
 ;;; open-coding primitive procedures
 
-;; Copyright (C) 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -25,7 +25,7 @@
   #:use-module (language tree-il)
   #:use-module (srfi srfi-4)
   #:use-module (srfi srfi-16)
-  #:export (resolve-primitives! add-interesting-primitive!
+  #:export (resolve-primitives add-interesting-primitive!
             expand-primitives!
             effect-free-primitive? effect+exception-free-primitive?
             constructor-primitive? accessor-primitive?
@@ -248,7 +248,7 @@
 (define (negate-primitive prim)
   (hashq-ref *negatable-primitive-table* prim))
 
-(define (resolve-primitives! x mod)
+(define (resolve-primitives x mod)
   (define local-definitions
     (make-hash-table))
 
@@ -261,30 +261,32 @@
        (collect-local-definitions tail))
       (else #f)))
   
-  (post-order!
+  (post-order
    (lambda (x)
-     (record-case x
-       ((<toplevel-ref> src name)
-        (and=> (and (not (hashq-ref local-definitions name))
-                    (hashq-ref *interesting-primitive-vars*
-                               (module-variable mod name)))
-               (lambda (name) (make-primitive-ref src name))))
-       ((<module-ref> src mod name public?)
-        ;; for the moment, we're disabling primitive resolution for
-        ;; public refs because resolve-interface can raise errors.
-        (and=> (and=> (resolve-module mod)
-                      (if public?
-                          module-public-interface
-                          identity))
-               (lambda (m)
-                 (and=> (hashq-ref *interesting-primitive-vars*
-                                   (module-variable m name))
-                        (lambda (name)
-                          (make-primitive-ref src name))))))
-       ((<call> src proc args)
-        (and (primitive-ref? proc)
-             (make-primcall src (primitive-ref-name proc) args)))
-       (else #f)))
+     (or
+      (record-case x
+        ((<toplevel-ref> src name)
+         (and=> (and (not (hashq-ref local-definitions name))
+                     (hashq-ref *interesting-primitive-vars*
+                                (module-variable mod name)))
+                (lambda (name) (make-primitive-ref src name))))
+        ((<module-ref> src mod name public?)
+         ;; for the moment, we're disabling primitive resolution for
+         ;; public refs because resolve-interface can raise errors.
+         (and=> (and=> (resolve-module mod)
+                       (if public?
+                           module-public-interface
+                           identity))
+                (lambda (m)
+                  (and=> (hashq-ref *interesting-primitive-vars*
+                                    (module-variable m name))
+                         (lambda (name)
+                           (make-primitive-ref src name))))))
+        ((<call> src proc args)
+         (and (primitive-ref? proc)
+              (make-primcall src (primitive-ref-name proc) args)))
+        (else #f))
+      x))
    x))
 
 

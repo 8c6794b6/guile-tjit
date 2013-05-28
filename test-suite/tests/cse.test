@@ -1,7 +1,7 @@
 ;;;; tree-il.test --- test suite for compiling tree-il   -*- scheme -*-
 ;;;; Andy Wingo <wingo@pobox.com> --- May 2009
 ;;;;
-;;;; 	Copyright (C) 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -36,12 +36,12 @@
     ((_ in pat)
      (pass-if 'in
        (let ((evaled (unparse-tree-il
-                      (canonicalize!
-                       (fix-letrec!
+                      (canonicalize
+                       (fix-letrec
                         (cse
                          (peval
                           (expand-primitives!
-                           (resolve-primitives!
+                           (resolve-primitives
                             (compile 'in #:from 'scheme #:to 'tree-il)
                             (current-module))))))))))
          (pmatch evaled

@@ -32,8 +32,10 @@
 ;; information from the incoming tree-il.
 
 (define (strip-source x)
-  (post-order! (lambda (x) (set! (tree-il-src x) #f))
-               x))
+  (post-order (lambda (x)
+                (set! (tree-il-src x) #f)
+                x)
+              x))
 
 (define-syntax assert-tree-il->glil
   (syntax-rules (with-partial-evaluation without-partial-evaluation
@@ -64,7 +66,7 @@
                        (beautify-user-module! m)
                        m))
            (orig     (parse-tree-il 'in))
-           (resolved (expand-primitives! (resolve-primitives! orig module))))
+           (resolved (expand-primitives! (resolve-primitives orig module))))
       (or (equal? (unparse-tree-il resolved) 'expected)
           (begin
             (format (current-error-port)

@@ -61,7 +61,7 @@
 
             tree-il-fold
             make-tree-il-folder
-            post-order!
+            post-order
             pre-order!
 
             tree-il=?
@@ -529,95 +529,92 @@ This is an implementation of `foldts' as described by Andy Wingo in
                (values seed ...)))))
         (up tree seed ...)))))
 
-(define (post-order! f x)
+(define (pre-post-order pre post x)
   (let lp ((x x))
-    (record-case x
-      ((<call> proc args)
-       (set! (call-proc x) (lp proc))
-       (set! (call-args x) (map lp args)))
+    (post
+     (record-case (pre x)
+       ((<void> src)
+        (make-void src))
 
-      ((<primcall> name args)
-       (set! (primcall-args x) (map lp args)))
+       ((<const> src exp)
+        (make-const src exp))
 
-      ((<conditional> test consequent alternate)
-       (set! (conditional-test x) (lp test))
-       (set! (conditional-consequent x) (lp consequent))
-       (set! (conditional-alternate x) (lp alternate)))
+       ((<primitive-ref> src name)
+        (make-primitive-ref src name))
 
-      ((<lexical-set> name gensym exp)
-       (set! (lexical-set-exp x) (lp exp)))
+       ((<lexical-ref> src name gensym)
+        (make-lexical-ref src name gensym))
 
-      ((<module-set> mod name public? exp)
-       (set! (module-set-exp x) (lp exp)))
+       ((<lexical-set> src name gensym exp)
+        (make-lexical-set src name gensym (lp exp)))
 
-      ((<toplevel-set> name exp)
-       (set! (toplevel-set-exp x) (lp exp)))
+       ((<module-ref> src mod name public?)
+        (make-module-ref src mod name public?))
 
-      ((<toplevel-define> name exp)
-       (set! (toplevel-define-exp x) (lp exp)))
+       ((<module-set> src mod name public? exp)
+        (make-module-set src mod name public? (lp exp)))
 
-      ((<lambda> body)
-       (if body
-           (set! (lambda-body x) (lp body))))
+       ((<toplevel-ref> src name)
+        (make-toplevel-ref src name))
 
-      ((<lambda-case> inits body alternate)
-       (set! inits (map lp inits))
-       (set! (lambda-case-body x) (lp body))
-       (if alternate
-           (set! (lambda-case-alternate x) (lp alternate))))
+       ((<toplevel-set> src name exp)
+        (make-toplevel-set src name (lp exp)))
 
-      ((<seq> head tail)
-       (set! (seq-head x) (lp head))
-       (set! (seq-tail x) (lp tail)))
+       ((<toplevel-define> src name exp)
+        (make-toplevel-define src name (lp exp)))
+
+       ((<conditional> src test consequent alternate)
+        (make-conditional src (lp test) (lp consequent) (lp alternate)))
+
+       ((<call> src proc args)
+        (make-call src (lp proc) (map lp args)))
+
+       ((<primcall> src name args)
+        (make-primcall src name (map lp args)))
+
+       ((<seq> src head tail)
+        (make-seq src (lp head) (lp tail)))
       
-      ((<let> gensyms vals body)
-       (set! (let-vals x) (map lp vals))
-       (set! (let-body x) (lp body)))
+       ((<lambda> src meta body)
+        (make-lambda src meta (and body (lp body))))
 
-      ((<letrec> gensyms vals body)
-       (set! (letrec-vals x) (map lp vals))
-       (set! (letrec-body x) (lp body)))
+       ((<lambda-case> src req opt rest kw inits gensyms body alternate)
+        (make-lambda-case src req opt rest kw (map lp inits) gensyms (lp body)
+                          (and alternate (lp alternate))))
 
-      ((<fix> gensyms vals body)
-       (set! (fix-vals x) (map lp vals))
-       (set! (fix-body x) (lp body)))
+       ((<let> src names gensyms vals body)
+        (make-let src names gensyms (map lp vals) (lp body)))
 
-      ((<let-values> exp body)
-       (set! (let-values-exp x) (lp exp))
-       (set! (let-values-body x) (lp body)))
+       ((<letrec> src in-order? names gensyms vals body)
+        (make-letrec src in-order? names gensyms (map lp vals) (lp body)))
 
-      ((<dynwind> winder pre body post unwinder)
-       (set! (dynwind-winder x) (lp winder))
-       (set! (dynwind-pre x) (lp pre))
-       (set! (dynwind-body x) (lp body))
-       (set! (dynwind-post x) (lp post))
-       (set! (dynwind-unwinder x) (lp unwinder)))
+       ((<fix> src names gensyms vals body)
+        (make-fix src names gensyms (map lp vals) (lp body)))
 
-      ((<dynlet> fluids vals body)
-       (set! (dynlet-fluids x) (map lp fluids))
-       (set! (dynlet-vals x) (map lp vals))
-       (set! (dynlet-body x) (lp body)))
+       ((<let-values> src exp body)
+        (make-let-values src (lp exp) (lp body)))
 
-      ((<dynref> fluid)
-       (set! (dynref-fluid x) (lp fluid)))
+       ((<dynwind> src winder pre body post unwinder)
+        (make-dynwind src
+                      (lp winder) (lp pre) (lp body) (lp post) (lp unwinder)))
 
-      ((<dynset> fluid exp)
-       (set! (dynset-fluid x) (lp fluid))
-       (set! (dynset-exp x) (lp exp)))
+       ((<dynlet> src fluids vals body)
+        (make-dynlet src (map lp fluids) (map lp vals) (lp body)))
 
-      ((<prompt> tag body handler)
-       (set! (prompt-tag x) (lp tag))
-       (set! (prompt-body x) (lp body))
-       (set! (prompt-handler x) (lp handler)))
+       ((<dynref> src fluid)
+        (make-dynref src (lp fluid)))
 
-      ((<abort> tag args tail)
-       (set! (abort-tag x) (lp tag))
-       (set! (abort-args x) (map lp args))
-       (set! (abort-tail x) (lp tail)))
+       ((<dynset> src fluid exp)
+        (make-dynset src (lp fluid) (lp exp)))
 
-      (else #f))
+       ((<prompt> src tag body handler)
+        (make-prompt src (lp tag) (lp body) (lp handler)))
 
-    (or (f x) x)))
+       ((<abort> src tag args tail)
+        (make-abort src (lp tag) (map lp args) (lp tail)))))))
+
+(define (post-order f x)
+  (pre-post-order (lambda (x) x) f x))
 
 (define (pre-order! f x)
   (let lp ((x x))

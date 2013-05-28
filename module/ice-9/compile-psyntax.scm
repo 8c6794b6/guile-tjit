@@ -1,6 +1,6 @@
 ;;; -*- mode: scheme; coding: utf-8; -*-
 ;;;
-;;; Copyright (C) 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;;; Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -73,13 +73,13 @@
          x)
         (else x)))
 
-(define (squeeze-tree-il! x)
-  (post-order! (lambda (x)
-                 (if (const? x)
-                     (set! (const-exp x)
-                           (squeeze-constant! (const-exp x))))
-                 #f)
-               x))
+(define (squeeze-tree-il x)
+  (post-order (lambda (x)
+                (if (const? x)
+                    (make-const (const-src x)
+                                (squeeze-constant! (const-exp x)))
+                    x))
+              x))
 
 ;; Avoid gratuitous churn in psyntax-pp.scm due to the marks and labels
 ;; changing session identifiers.
@@ -99,9 +99,9 @@
             (close-port in))
           (begin
             (pretty-print (tree-il->scheme
-                           (squeeze-tree-il!
-                            (canonicalize!
-                             (resolve-primitives!
+                           (squeeze-tree-il
+                            (canonicalize
+                             (resolve-primitives
                               (macroexpand x 'c '(compile load eval))
                               (current-module))))
                            (current-module)

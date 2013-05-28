@@ -1,6 +1,6 @@
 ;;; Tree-il optimizer
 
-;; Copyright (C) 2009, 2011, 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2011, 2012, 2013 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -39,9 +39,9 @@
                 ;; Disable CSE.
                 (lambda (x) x))
                (_ cse))))
-    (fix-letrec!
+    (fix-letrec
      (verify-tree-il
       (cse
        (verify-tree-il
-        (peval (expand-primitives! (resolve-primitives! x env))
+        (peval (expand-primitives! (resolve-primitives x env))
                env)))))))

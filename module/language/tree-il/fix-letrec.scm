@@ -1,6 +1,6 @@
 ;;; transformation of letrec into simpler forms
 
-;; Copyright (C) 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -22,7 +22,7 @@
   #:use-module (srfi srfi-11)
   #:use-module (language tree-il)
   #:use-module (language tree-il effects)
-  #:export (fix-letrec!))
+  #:export (fix-letrec))
 
 ;; For a detailed discussion, see "Fixing Letrec: A Faithful Yet
 ;; Efficient Implementation of Scheme's Recursive Binding Construct", by
@@ -210,9 +210,9 @@
                        (car exps))
             (lp (cdr exps) (cons (car exps) effects))))))
 
-(define (fix-letrec! x)
+(define (fix-letrec x)
   (let-values (((unref simple lambda* complex) (partition-vars x)))
-    (post-order!
+    (post-order
      (lambda (x)
        (record-case x
 

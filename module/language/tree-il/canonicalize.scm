@@ -22,7 +22,7 @@
   #:use-module (language tree-il)
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
-  #:export (canonicalize!))
+  #:export (canonicalize))
 
 (define (tree-il-any proc exp)
   (tree-il-fold (lambda (exp res)
@@ -32,8 +32,8 @@
                 (lambda (exp res) res)
                 #f exp))
 
-(define (canonicalize! x)
-  (post-order!
+(define (canonicalize x)
+  (post-order
    (lambda (x)
      (match x
        (($ <let> src () () () body)
@@ -85,7 +85,7 @@
         ;; thunk.  Sad but true.
         (if (or (escape-only? handler)
                 (thunk-application? body))
-            #f
+            x
             (make-prompt src tag (make-thunk-application body) handler)))
-       (_ #f)))
+       (_ x)))
    x))

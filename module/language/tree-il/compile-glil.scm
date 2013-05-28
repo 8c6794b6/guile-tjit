@@ -65,7 +65,7 @@
   (let* ((x (make-lambda (tree-il-src x) '()
                          (make-lambda-case #f '() #f #f #f '() '() x #f)))
          (x (optimize! x e opts))
-         (x (canonicalize! x))
+         (x (canonicalize x))
          (allocation (analyze-lexicals x)))
 
     (with-fluids ((*comp-module* e))
