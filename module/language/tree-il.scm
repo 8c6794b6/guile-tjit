@@ -273,91 +273,95 @@
       (error "unrecognized tree-il" exp)))))
 
 (define (unparse-tree-il tree-il)
-  (record-case tree-il
-    ((<void>)
+  (match tree-il
+    (($ <void> src)
      '(void))
 
-    ((<call> proc args)
+    (($ <call> src proc args)
      `(call ,(unparse-tree-il proc) ,@(map unparse-tree-il args)))
 
-    ((<primcall> name args)
+    (($ <primcall> src name args)
      `(primcall ,name ,@(map unparse-tree-il args)))
 
-    ((<conditional> test consequent alternate)
-     `(if ,(unparse-tree-il test) ,(unparse-tree-il consequent) ,(unparse-tree-il alternate)))
+    (($ <conditional> src test consequent alternate)
+     `(if ,(unparse-tree-il test)
+          ,(unparse-tree-il consequent)
+          ,(unparse-tree-il alternate)))
 
-    ((<primitive-ref> name)
+    (($ <primitive-ref> src name)
      `(primitive ,name))
 
-    ((<lexical-ref> name gensym)
+    (($ <lexical-ref> src name gensym)
      `(lexical ,name ,gensym))
 
-    ((<lexical-set> name gensym exp)
+    (($ <lexical-set> src name gensym exp)
      `(set! (lexical ,name ,gensym) ,(unparse-tree-il exp)))
 
-    ((<module-ref> mod name public?)
+    (($ <module-ref> src mod name public?)
      `(,(if public? '@ '@@) ,mod ,name))
 
-    ((<module-set> mod name public? exp)
+    (($ <module-set> src mod name public? exp)
      `(set! (,(if public? '@ '@@) ,mod ,name) ,(unparse-tree-il exp)))
 
-    ((<toplevel-ref> name)
+    (($ <toplevel-ref> src name)
      `(toplevel ,name))
 
-    ((<toplevel-set> name exp)
+    (($ <toplevel-set> src name exp)
      `(set! (toplevel ,name) ,(unparse-tree-il exp)))
 
-    ((<toplevel-define> name exp)
+    (($ <toplevel-define> src name exp)
      `(define ,name ,(unparse-tree-il exp)))
 
-    ((<lambda> meta body)
+    (($ <lambda> src meta body)
      (if body
          `(lambda ,meta ,(unparse-tree-il body))
          `(lambda ,meta (lambda-case))))
 
-    ((<lambda-case> req opt rest kw inits gensyms body alternate)
+    (($ <lambda-case> src req opt rest kw inits gensyms body alternate)
      `(lambda-case ((,req ,opt ,rest ,kw ,(map unparse-tree-il inits) ,gensyms)
                     ,(unparse-tree-il body))
                    . ,(if alternate (list (unparse-tree-il alternate)) '())))
 
-    ((<const> exp)
+    (($ <const> src exp)
      `(const ,exp))
 
-    ((<seq> head tail)
+    (($ <seq> src head tail)
      `(seq ,(unparse-tree-il head) ,(unparse-tree-il tail)))
     
-    ((<let> names gensyms vals body)
+    (($ <let> src names gensyms vals body)
      `(let ,names ,gensyms ,(map unparse-tree-il vals) ,(unparse-tree-il body)))
 
-    ((<letrec> in-order? names gensyms vals body)
+    (($ <letrec> src in-order? names gensyms vals body)
      `(,(if in-order? 'letrec* 'letrec) ,names ,gensyms
        ,(map unparse-tree-il vals) ,(unparse-tree-il body)))
 
-    ((<fix> names gensyms vals body)
+    (($ <fix> src names gensyms vals body)
      `(fix ,names ,gensyms ,(map unparse-tree-il vals) ,(unparse-tree-il body)))
 
-    ((<let-values> exp body)
+    (($ <let-values> src exp body)
      `(let-values ,(unparse-tree-il exp) ,(unparse-tree-il body)))
 
-    ((<dynwind> winder pre body post unwinder)
+    (($ <dynwind> src winder pre body post unwinder)
      `(dynwind ,(unparse-tree-il winder) ,(unparse-tree-il pre)
                ,(unparse-tree-il body)
                ,(unparse-tree-il post) ,(unparse-tree-il unwinder)))
 
-    ((<dynlet> fluids vals body)
+    (($ <dynlet> src fluids vals body)
      `(dynlet ,(map unparse-tree-il fluids) ,(map unparse-tree-il vals)
               ,(unparse-tree-il body)))
 
-    ((<dynref> fluid)
+    (($ <dynref> src fluid)
      `(dynref ,(unparse-tree-il fluid)))
 
-    ((<dynset> fluid exp)
+    (($ <dynset> src fluid exp)
      `(dynset ,(unparse-tree-il fluid) ,(unparse-tree-il exp)))
 
-    ((<prompt> tag body handler)
-     `(prompt ,(unparse-tree-il tag) ,(unparse-tree-il body) ,(unparse-tree-il handler)))
+    (($ <prompt> src tag body handler)
+     `(prompt ,(unparse-tree-il tag)
+              ,(unparse-tree-il body)
+              ,(unparse-tree-il handler)))
 
-    ((<abort> tag args tail)
+    (($ <abort> src tag args tail)
      `(abort ,(unparse-tree-il tag) ,(map unparse-tree-il args)
              ,(unparse-tree-il tail)))))
 
