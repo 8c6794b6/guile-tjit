@@ -20,7 +20,6 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-11)
   #:use-module (ice-9 match)
-  #:use-module (system base pmatch)
   #:use-module (system base syntax)
   #:export (tree-il-src
 
@@ -161,113 +160,113 @@
 (define (parse-tree-il exp)
   (let ((loc (location exp))
         (retrans (lambda (x) (parse-tree-il x))))
-    (pmatch exp
-     ((void)
+    (match exp
+     (('void)
       (make-void loc))
 
-     ((call ,proc . ,args)
+     (('call proc . args)
       (make-call loc (retrans proc) (map retrans args)))
 
-     ((primcall ,name . ,args)
+     (('primcall name . args)
       (make-primcall loc name (map retrans args)))
 
-     ((if ,test ,consequent ,alternate)
+     (('if test consequent alternate)
       (make-conditional loc (retrans test) (retrans consequent) (retrans alternate)))
 
-     ((primitive ,name) (guard (symbol? name))
+     (('primitive (and name (? symbol?)))
       (make-primitive-ref loc name))
 
-     ((lexical ,name) (guard (symbol? name))
+     (('lexical (and name (? symbol?)))
       (make-lexical-ref loc name name))
 
-     ((lexical ,name ,sym) (guard (symbol? name) (symbol? sym))
+     (('lexical (and name (? symbol?)) (and sym (? symbol?)))
       (make-lexical-ref loc name sym))
 
-     ((set! (lexical ,name) ,exp) (guard (symbol? name))
+     (('set! ('lexical (and name (? symbol?))) exp)
       (make-lexical-set loc name name (retrans exp)))
 
-     ((set! (lexical ,name ,sym) ,exp) (guard (symbol? name) (symbol? sym))
+     (('set! ('lexical (and name (? symbol?)) (and sym (? symbol?))) exp)
       (make-lexical-set loc name sym (retrans exp)))
 
-     ((@ ,mod ,name) (guard (and-map symbol? mod) (symbol? name))
+     (('@ ((and mod (? symbol?)) ...) (and name (? symbol?)))
       (make-module-ref loc mod name #t))
 
-     ((set! (@ ,mod ,name) ,exp) (guard (and-map symbol? mod) (symbol? name))
+     (('set! ('@ ((and mod (? symbol?)) ...) (and name (? symbol?))) exp)
       (make-module-set loc mod name #t (retrans exp)))
 
-     ((@@ ,mod ,name) (guard (and-map symbol? mod) (symbol? name))
+     (('@@ ((and mod (? symbol?)) ...) (and name (? symbol?)))
       (make-module-ref loc mod name #f))
 
-     ((set! (@@ ,mod ,name) ,exp) (guard (and-map symbol? mod) (symbol? name))
+     (('set! ('@@ ((and mod (? symbol?)) ...) (and name (? symbol?))) exp)
       (make-module-set loc mod name #f (retrans exp)))
 
-     ((toplevel ,name) (guard (symbol? name))
+     (('toplevel (and name (? symbol?)))
       (make-toplevel-ref loc name))
 
-     ((set! (toplevel ,name) ,exp) (guard (symbol? name))
+     (('set! ('toplevel (and name (? symbol?))) exp)
       (make-toplevel-set loc name (retrans exp)))
 
-     ((define ,name ,exp) (guard (symbol? name))
+     (('define (and name (? symbol?)) exp)
       (make-toplevel-define loc name (retrans exp)))
 
-     ((lambda ,meta ,body)
+     (('lambda meta body)
       (make-lambda loc meta (retrans body)))
 
-     ((lambda-case ((,req ,opt ,rest ,kw ,inits ,gensyms) ,body) ,alternate)
+     (('lambda-case ((req opt rest kw inits gensyms) body) alternate)
       (make-lambda-case loc req opt rest kw
                         (map retrans inits) gensyms
                         (retrans body)
                         (and=> alternate retrans)))
 
-     ((lambda-case ((,req ,opt ,rest ,kw ,inits ,gensyms) ,body))
+     (('lambda-case ((req opt rest kw inits gensyms) body))
       (make-lambda-case loc req opt rest kw
                         (map retrans inits) gensyms
                         (retrans body)
                         #f))
 
-     ((const ,exp)
+     (('const exp)
       (make-const loc exp))
 
-     ((seq ,head ,tail)
+     (('seq head tail)
       (make-seq loc (retrans head) (retrans tail)))
 
      ;; Convenience.
-     ((begin . ,exps)
+     (('begin . exps)
       (list->seq loc (map retrans exps)))
 
-     ((let ,names ,gensyms ,vals ,body)
+     (('let names gensyms vals body)
       (make-let loc names gensyms (map retrans vals) (retrans body)))
 
-     ((letrec ,names ,gensyms ,vals ,body)
+     (('letrec names gensyms vals body)
       (make-letrec loc #f names gensyms (map retrans vals) (retrans body)))
 
-     ((letrec* ,names ,gensyms ,vals ,body)
+     (('letrec* names gensyms vals body)
       (make-letrec loc #t names gensyms (map retrans vals) (retrans body)))
 
-     ((fix ,names ,gensyms ,vals ,body)
+     (('fix names gensyms vals body)
       (make-fix loc names gensyms (map retrans vals) (retrans body)))
 
-     ((let-values ,exp ,body)
+     (('let-values exp body)
       (make-let-values loc (retrans exp) (retrans body)))
 
-     ((dynwind ,winder ,pre ,body ,post ,unwinder)
+     (('dynwind winder pre body post unwinder)
       (make-dynwind loc (retrans winder) (retrans pre)
                     (retrans body)
                     (retrans post) (retrans unwinder)))
 
-     ((dynlet ,fluids ,vals ,body)
+     (('dynlet fluids vals body)
       (make-dynlet loc (map retrans fluids) (map retrans vals) (retrans body)))
 
-     ((dynref ,fluid)
+     (('dynref fluid)
       (make-dynref loc (retrans fluid)))
 
-     ((dynset ,fluid ,exp)
+     (('dynset fluid exp)
       (make-dynset loc (retrans fluid) (retrans exp)))
 
-     ((prompt ,tag ,body ,handler)
+     (('prompt tag body handler)
       (make-prompt loc (retrans tag) (retrans body) (retrans handler)))
-
-     ((abort ,tag ,args ,tail)
+     
+     (('abort tag args tail)
       (make-abort loc (retrans tag) (map retrans args) (retrans tail)))
 
      (else
