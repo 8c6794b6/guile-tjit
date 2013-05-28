@@ -19,6 +19,7 @@
 (define-module (language tree-il)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-11)
+  #:use-module (ice-9 match)
   #:use-module (system base pmatch)
   #:use-module (system base syntax)
   #:export (tree-il-src
@@ -532,85 +533,85 @@ This is an implementation of `foldts' as described by Andy Wingo in
 (define (pre-post-order pre post x)
   (let lp ((x x))
     (post
-     (record-case (pre x)
-       ((<void> src)
+     (match (pre x)
+       (($ <void> src)
         (make-void src))
 
-       ((<const> src exp)
+       (($ <const> src exp)
         (make-const src exp))
 
-       ((<primitive-ref> src name)
+       (($ <primitive-ref> src name)
         (make-primitive-ref src name))
 
-       ((<lexical-ref> src name gensym)
+       (($ <lexical-ref> src name gensym)
         (make-lexical-ref src name gensym))
 
-       ((<lexical-set> src name gensym exp)
+       (($ <lexical-set> src name gensym exp)
         (make-lexical-set src name gensym (lp exp)))
 
-       ((<module-ref> src mod name public?)
+       (($ <module-ref> src mod name public?)
         (make-module-ref src mod name public?))
 
-       ((<module-set> src mod name public? exp)
+       (($ <module-set> src mod name public? exp)
         (make-module-set src mod name public? (lp exp)))
 
-       ((<toplevel-ref> src name)
+       (($ <toplevel-ref> src name)
         (make-toplevel-ref src name))
 
-       ((<toplevel-set> src name exp)
+       (($ <toplevel-set> src name exp)
         (make-toplevel-set src name (lp exp)))
 
-       ((<toplevel-define> src name exp)
+       (($ <toplevel-define> src name exp)
         (make-toplevel-define src name (lp exp)))
 
-       ((<conditional> src test consequent alternate)
+       (($ <conditional> src test consequent alternate)
         (make-conditional src (lp test) (lp consequent) (lp alternate)))
 
-       ((<call> src proc args)
+       (($ <call> src proc args)
         (make-call src (lp proc) (map lp args)))
 
-       ((<primcall> src name args)
+       (($ <primcall> src name args)
         (make-primcall src name (map lp args)))
 
-       ((<seq> src head tail)
+       (($ <seq> src head tail)
         (make-seq src (lp head) (lp tail)))
       
-       ((<lambda> src meta body)
+       (($ <lambda> src meta body)
         (make-lambda src meta (and body (lp body))))
 
-       ((<lambda-case> src req opt rest kw inits gensyms body alternate)
+       (($ <lambda-case> src req opt rest kw inits gensyms body alternate)
         (make-lambda-case src req opt rest kw (map lp inits) gensyms (lp body)
                           (and alternate (lp alternate))))
 
-       ((<let> src names gensyms vals body)
+       (($ <let> src names gensyms vals body)
         (make-let src names gensyms (map lp vals) (lp body)))
 
-       ((<letrec> src in-order? names gensyms vals body)
+       (($ <letrec> src in-order? names gensyms vals body)
         (make-letrec src in-order? names gensyms (map lp vals) (lp body)))
 
-       ((<fix> src names gensyms vals body)
+       (($ <fix> src names gensyms vals body)
         (make-fix src names gensyms (map lp vals) (lp body)))
 
-       ((<let-values> src exp body)
+       (($ <let-values> src exp body)
         (make-let-values src (lp exp) (lp body)))
 
-       ((<dynwind> src winder pre body post unwinder)
+       (($ <dynwind> src winder pre body post unwinder)
         (make-dynwind src
                       (lp winder) (lp pre) (lp body) (lp post) (lp unwinder)))
 
-       ((<dynlet> src fluids vals body)
+       (($ <dynlet> src fluids vals body)
         (make-dynlet src (map lp fluids) (map lp vals) (lp body)))
 
-       ((<dynref> src fluid)
+       (($ <dynref> src fluid)
         (make-dynref src (lp fluid)))
 
-       ((<dynset> src fluid exp)
+       (($ <dynset> src fluid exp)
         (make-dynset src (lp fluid) (lp exp)))
 
-       ((<prompt> src tag body handler)
+       (($ <prompt> src tag body handler)
         (make-prompt src (lp tag) (lp body) (lp handler)))
 
-       ((<abort> src tag args tail)
+       (($ <abort> src tag args tail)
         (make-abort src (lp tag) (map lp args) (lp tail)))))))
 
 (define (post-order f x)
