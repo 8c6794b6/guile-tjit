@@ -36,7 +36,7 @@
   (syntax-rules ()
     ((_ in pat)
      (pass-if-peval in pat
-                    (expand-primitives!
+                    (expand-primitives
                      (resolve-primitives
                       (compile 'in #:from 'scheme #:to 'tree-il)
                       (current-module)))))
@@ -488,7 +488,7 @@
     ;; <https://lists.gnu.org/archive/html/bug-guile/2011-09/msg00019.html> and
     ;; <https://lists.gnu.org/archive/html/bug-guile/2011-09/msg00029.html>.
     (pmatch (unparse-tree-il
-             (peval (expand-primitives!
+             (peval (expand-primitives
                      (resolve-primitives
                       (compile
                        '(let ((make-adder

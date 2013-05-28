@@ -62,7 +62,7 @@
             tree-il-fold
             make-tree-il-folder
             post-order
-            pre-order!
+            pre-order
 
             tree-il=?
             tree-il-hash))
@@ -616,94 +616,8 @@ This is an implementation of `foldts' as described by Andy Wingo in
 (define (post-order f x)
   (pre-post-order (lambda (x) x) f x))
 
-(define (pre-order! f x)
-  (let lp ((x x))
-    (let ((x (or (f x) x)))
-      (record-case x
-        ((<call> proc args)
-         (set! (call-proc x) (lp proc))
-         (set! (call-args x) (map lp args)))
-
-        ((<primcall> name args)
-         (set! (primcall-args x) (map lp args)))
-
-        ((<conditional> test consequent alternate)
-         (set! (conditional-test x) (lp test))
-         (set! (conditional-consequent x) (lp consequent))
-         (set! (conditional-alternate x) (lp alternate)))
-
-        ((<lexical-set> exp)
-         (set! (lexical-set-exp x) (lp exp)))
-
-        ((<module-set> exp)
-         (set! (module-set-exp x) (lp exp)))
-
-        ((<toplevel-set> exp)
-         (set! (toplevel-set-exp x) (lp exp)))
-
-        ((<toplevel-define> exp)
-         (set! (toplevel-define-exp x) (lp exp)))
-
-        ((<lambda> body)
-         (if body
-             (set! (lambda-body x) (lp body))))
-
-        ((<lambda-case> inits body alternate)
-         (set! inits (map lp inits))
-         (set! (lambda-case-body x) (lp body))
-         (if alternate (set! (lambda-case-alternate x) (lp alternate))))
-
-        ((<seq> head tail)
-         (set! (seq-head x) (lp head))
-         (set! (seq-tail x) (lp tail)))
-        
-        ((<let> vals body)
-         (set! (let-vals x) (map lp vals))
-         (set! (let-body x) (lp body)))
-
-        ((<letrec> vals body)
-         (set! (letrec-vals x) (map lp vals))
-         (set! (letrec-body x) (lp body)))
-
-        ((<fix> vals body)
-         (set! (fix-vals x) (map lp vals))
-         (set! (fix-body x) (lp body)))
-
-        ((<let-values> exp body)
-         (set! (let-values-exp x) (lp exp))
-         (set! (let-values-body x) (lp body)))
-
-        ((<dynwind> winder pre body post unwinder)
-         (set! (dynwind-winder x) (lp winder))
-         (set! (dynwind-pre x) (lp pre))
-         (set! (dynwind-body x) (lp body))
-         (set! (dynwind-post x) (lp post))
-         (set! (dynwind-unwinder x) (lp unwinder)))
-
-        ((<dynlet> fluids vals body)
-         (set! (dynlet-fluids x) (map lp fluids))
-         (set! (dynlet-vals x) (map lp vals))
-         (set! (dynlet-body x) (lp body)))
-
-        ((<dynref> fluid)
-         (set! (dynref-fluid x) (lp fluid)))
-
-        ((<dynset> fluid exp)
-         (set! (dynset-fluid x) (lp fluid))
-         (set! (dynset-exp x) (lp exp)))
-
-        ((<prompt> tag body handler)
-         (set! (prompt-tag x) (lp tag))
-         (set! (prompt-body x) (lp body))
-         (set! (prompt-handler x) (lp handler)))
-
-        ((<abort> tag args tail)
-         (set! (abort-tag x) (lp tag))
-         (set! (abort-args x) (map lp args))
-         (set! (abort-tail x) (lp tail)))
-
-        (else #f))
-      x)))
+(define (pre-order f x)
+  (pre-post-order f (lambda (x) x) x))
 
 ;; FIXME: We should have a better primitive than this.
 (define (struct-nfields x)

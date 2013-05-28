@@ -26,7 +26,7 @@
   #:use-module (srfi srfi-4)
   #:use-module (srfi srfi-16)
   #:export (resolve-primitives add-interesting-primitive!
-            expand-primitives!
+            expand-primitives
             effect-free-primitive? effect+exception-free-primitive?
             constructor-primitive? accessor-primitive?
             singly-valued-primitive? equality-primitive?
@@ -160,7 +160,7 @@
     integer->char char->integer number->string string->number
     struct-vtable
     string-length vector-length
-    ;; These all should get expanded out by expand-primitives!.
+    ;; These all should get expanded out by expand-primitives.
     caar cadr cdar cddr
     caaar caadr cadar caddr cdaar cdadr cddar cdddr
     caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
@@ -293,14 +293,15 @@
 
 (define *primitive-expand-table* (make-hash-table))
 
-(define (expand-primitives! x)
-  (pre-order!
+(define (expand-primitives x)
+  (pre-order
    (lambda (x)
      (record-case x
        ((<primcall> src name args)
         (let ((expand (hashq-ref *primitive-expand-table* name)))
-          (and expand (apply expand src args))))
-       (else #f)))
+          (or (and expand (apply expand src args))
+              x)))
+       (else x)))
    x))
 
 ;;; I actually did spend about 10 minutes trying to redo this with

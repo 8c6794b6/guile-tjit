@@ -25,7 +25,7 @@
   #:use-module (system base language)
   #:use-module (system base message)
   #:use-module (system vm program)
-  #:autoload (language tree-il optimize) (optimize!)
+  #:autoload (language tree-il optimize) (optimize)
   #:use-module (ice-9 control)
   #:use-module (ice-9 history)
   #:export (<repl> make-repl repl-language repl-options
@@ -189,10 +189,10 @@ See <http://www.gnu.org/licenses/lgpl.html>, for more details.")
 (define (repl-optimize repl form)
   (let ((from (repl-language repl))
         (opts (repl-compile-options repl)))
-    (decompile (optimize! (compile form #:from from #:to 'tree-il #:opts opts
-                                   #:env (current-module))
-                          (current-module)
-                          opts)
+    (decompile (optimize (compile form #:from from #:to 'tree-il #:opts opts
+                                  #:env (current-module))
+                         (current-module)
+                         opts)
                #:from 'tree-il #:to from)))
 
 (define (repl-parse repl form)

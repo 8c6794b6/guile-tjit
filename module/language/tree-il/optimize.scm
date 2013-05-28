@@ -26,9 +26,9 @@
   #:use-module (language tree-il fix-letrec)
   #:use-module (language tree-il debug)
   #:use-module (ice-9 match)
-  #:export (optimize!))
+  #:export (optimize))
 
-(define (optimize! x env opts)
+(define (optimize x env opts)
   (let ((peval (match (memq #:partial-eval? opts)
                  ((#:partial-eval? #f _ ...)
                   ;; Disable partial evaluation.
@@ -43,5 +43,5 @@
      (verify-tree-il
       (cse
        (verify-tree-il
-        (peval (expand-primitives! (resolve-primitives x env))
+        (peval (expand-primitives (resolve-primitives x env))
                env)))))))

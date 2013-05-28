@@ -40,7 +40,7 @@
                        (fix-letrec
                         (cse
                          (peval
-                          (expand-primitives!
+                          (expand-primitives
                            (resolve-primitives
                             (compile 'in #:from 'scheme #:to 'tree-il)
                             (current-module))))))))))
