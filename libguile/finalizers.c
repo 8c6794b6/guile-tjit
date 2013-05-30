@@ -185,6 +185,7 @@ static int finalization_pipe[2];
 static scm_i_pthread_mutex_t finalization_thread_lock =
   SCM_I_PTHREAD_MUTEX_INITIALIZER;
 static pthread_t finalization_thread;
+static int finalization_thread_is_running = 0;
 
 static void
 notify_finalizers_to_run (void)
@@ -256,14 +257,18 @@ static void
 start_finalization_thread (void)
 {
   scm_i_pthread_mutex_lock (&finalization_thread_lock);
-  if (!finalization_thread)
-    /* Use the raw pthread API and scm_with_guile, because we don't want
-       to block on any lock that scm_spawn_thread might want to take,
-       and we don't want to inherit the dynamic state (fluids) of the
-       caller.  */
-    if (pthread_create (&finalization_thread, NULL,
-                        run_finalization_thread, NULL))
-      perror ("error creating finalization thread");
+  if (!finalization_thread_is_running)
+    {
+      /* Use the raw pthread API and scm_with_guile, because we don't want
+	 to block on any lock that scm_spawn_thread might want to take,
+	 and we don't want to inherit the dynamic state (fluids) of the
+	 caller.  */
+      if (pthread_create (&finalization_thread, NULL,
+			  run_finalization_thread, NULL))
+	perror ("error creating finalization thread");
+      else
+	finalization_thread_is_running = 1;
+    }
   scm_i_pthread_mutex_unlock (&finalization_thread_lock);
 }
 
@@ -271,12 +276,12 @@ static void
 stop_finalization_thread (void)
 {
   scm_i_pthread_mutex_lock (&finalization_thread_lock);
-  if (finalization_thread)
+  if (finalization_thread_is_running)
     {
       notify_about_to_fork ();
       if (pthread_join (finalization_thread, NULL))
         perror ("joining finalization thread");
-      finalization_thread = 0;
+      finalization_thread_is_running = 0;
     }
   scm_i_pthread_mutex_unlock (&finalization_thread_lock);
 }
