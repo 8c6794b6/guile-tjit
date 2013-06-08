@@ -127,7 +127,7 @@ struct scm_rtl_instruction {
 static scm_i_pthread_mutex_t itable_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 
-static struct scm_instruction*
+static const struct scm_instruction*
 fetch_instruction_table ()
 {
   static struct scm_instruction *table = NULL;
@@ -159,7 +159,7 @@ fetch_instruction_table ()
   return table;
 }
 
-static struct scm_rtl_instruction*
+static const struct scm_rtl_instruction*
 fetch_rtl_instruction_table ()
 {
   static struct scm_rtl_instruction *table = NULL;
@@ -190,11 +190,11 @@ fetch_rtl_instruction_table ()
   return table;
 }
 
-static struct scm_instruction *
+static const struct scm_instruction *
 scm_lookup_instruction_by_name (SCM name)
 {
   static SCM instructions_by_name = SCM_BOOL_F;
-  struct scm_instruction *table = fetch_instruction_table ();
+  const struct scm_instruction *table = fetch_instruction_table ();
   SCM op;
 
   if (SCM_UNLIKELY (scm_is_false (instructions_by_name)))
@@ -227,7 +227,7 @@ SCM_DEFINE (scm_instruction_list, "instruction-list", 0, 0, 0,
 {
   SCM list = SCM_EOL;
   int i;
-  struct scm_instruction *ip = fetch_instruction_table ();
+  const struct scm_instruction *ip = fetch_instruction_table ();
   for (i = 0; i < SCM_VM_NUM_INSTRUCTIONS; i++)
     if (ip[i].name)
       list = scm_cons (ip[i].symname, list);
@@ -242,7 +242,7 @@ SCM_DEFINE (scm_rtl_instruction_list, "rtl-instruction-list", 0, 0, 0,
 {
   SCM list = SCM_EOL;
   int i;
-  struct scm_rtl_instruction *ip = fetch_rtl_instruction_table ();
+  const struct scm_rtl_instruction *ip = fetch_rtl_instruction_table ();
   for (i = 0; i < SCM_VM_NUM_INSTRUCTIONS; i++)
     if (ip[i].name)
       {
@@ -250,7 +250,7 @@ SCM_DEFINE (scm_rtl_instruction_list, "rtl-instruction-list", 0, 0, 0,
         SCM tail = SCM_EOL;
         int len;
 
-        /* Format: (name opcode len rest? out br in) */
+        /* Format: (name opcode word0 word1 ...) */
 
         if (WORD_TYPE (3, meta))
           len = 4;
@@ -300,7 +300,7 @@ SCM_DEFINE (scm_instruction_length, "instruction-length", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_instruction_length
 {
-  struct scm_instruction *ip;
+  const struct scm_instruction *ip;
   SCM_VALIDATE_LOOKUP_INSTRUCTION (1, inst, ip);
   return SCM_I_MAKINUM (ip->len);
 }
@@ -311,7 +311,7 @@ SCM_DEFINE (scm_instruction_pops, "instruction-pops", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_instruction_pops
 {
-  struct scm_instruction *ip;
+  const struct scm_instruction *ip;
   SCM_VALIDATE_LOOKUP_INSTRUCTION (1, inst, ip);
   return SCM_I_MAKINUM (ip->npop);
 }
@@ -322,7 +322,7 @@ SCM_DEFINE (scm_instruction_pushes, "instruction-pushes", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_instruction_pushes
 {
-  struct scm_instruction *ip;
+  const struct scm_instruction *ip;
   SCM_VALIDATE_LOOKUP_INSTRUCTION (1, inst, ip);
   return SCM_I_MAKINUM (ip->npush);
 }
@@ -333,7 +333,7 @@ SCM_DEFINE (scm_instruction_to_opcode, "instruction->opcode", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_instruction_to_opcode
 {
-  struct scm_instruction *ip;
+  const struct scm_instruction *ip;
   SCM_VALIDATE_LOOKUP_INSTRUCTION (1, inst, ip);
   return SCM_I_MAKINUM (ip->opcode);
 }
