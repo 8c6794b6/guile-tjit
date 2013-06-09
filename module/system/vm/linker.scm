@@ -85,8 +85,8 @@
             (linker-object-symbols* . linker-object-symbols)
 
             make-string-table
-            string-table-intern
-            link-string-table
+            string-table-intern!
+            link-string-table!
 
             link-elf))
 
@@ -156,40 +156,52 @@
   "Return the linker symbols defined by the user for this this section."
   (cdr (linker-object-symbols object)))
 
+(define-record-type <string-table>
+  (%make-string-table strings linked?)
+  string-table?
+  (strings string-table-strings set-string-table-strings!)
+  (linked? string-table-linked? set-string-table-linked?!))
+
 (define (make-string-table)
-  "Return a functional string table with one entry: the empty string."
-  '(("" 0 #vu8())))
+  "Return a string table with one entry: the empty string."
+  (%make-string-table '(("" 0 #vu8())) #f))
 
-(define (string-table-length table)
-  "Return the number of bytes needed for the string table @var{table}."
-  (let ((last (car table)))
-    ;; The + 1 is for the trailing NUL byte.
-    (+ (cadr last) (bytevector-length (caddr last)) 1)))
+(define (string-table-length strings)
+  "Return the number of bytes needed for the @var{strings}."
+  (match strings
+    (((str pos bytes) . _)
+     ;; The + 1 is for the trailing NUL byte.
+     (+ pos (bytevector-length bytes) 1))))
 
-(define (string-table-intern table str)
-  "Add @var{str} to the string table @var{table}.  Yields two values:  a
-possibly newly allocated string table, and the byte index of the string
-in that table."
-  (cond
-   ((assoc str table)
-    => (lambda (ent)
-         (values table (cadr ent))))
-   (else
-    (let* ((next (string-table-length table)))
-      (values (cons (list str next (string->utf8 str))
-                    table)
-              next)))))
+(define (string-table-intern! table str)
+  "Ensure that @var{str} is present in the string table @var{table}.
+Returns the byte index of the string in that table."
+  (match table
+    (($ <string-table> strings linked?)
+     (match (assoc str strings)
+       ((_ pos _) pos)
+       (#f
+        (let ((next (string-table-length strings)))
+          (when linked?
+            (error "string table already linked, can't intern" table str))
+          (set-string-table-strings! table
+                                     (cons (list str next (string->utf8 str))
+                                           strings))
+          next))))))
 
-(define (link-string-table table)
+(define (link-string-table! table)
   "Link the functional string table @var{table} into a sequence of
 bytes, suitable for use as the contents of an ELF string table section."
-  (let ((out (make-bytevector (string-table-length table) 0)))
-    (for-each
-     (lambda (ent)
-       (let ((bytes (caddr ent)))
-         (bytevector-copy! bytes 0 out (cadr ent) (bytevector-length bytes))))
-     table)
-    out))
+  (match table
+    (($ <string-table> strings #f)
+     (let ((out (make-bytevector (string-table-length strings) 0)))
+       (for-each
+        (match-lambda
+         ((_ pos bytes)
+          (bytevector-copy! bytes 0 out pos (bytevector-length bytes))))
+        strings)
+       (set-string-table-linked?! table #t)
+       out))))
 
 (define (segment-kind section)
   "Return the type of segment needed to store @var{section}, as a pair.

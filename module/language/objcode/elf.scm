@@ -36,11 +36,7 @@
 (define (bytecode->elf bv)
   (let ((string-table (make-string-table)))
     (define (intern-string! string)
-      (call-with-values
-          (lambda () (string-table-intern string-table string))
-        (lambda (table idx)
-          (set! string-table table)
-          idx)))
+      (string-table-intern! string-table string))
     (define (make-object index name bv relocs . kwargs)
       (let ((name-idx (intern-string! (symbol->string name))))
         (make-linker-object (apply make-elf-section
@@ -79,7 +75,7 @@
                        #:type SHT_DYNAMIC #:flags SHF_ALLOC))))
     (define (make-string-table index)
       (intern-string! ".shstrtab")
-      (make-object index '.shstrtab (link-string-table string-table) '()
+      (make-object index '.shstrtab (link-string-table! string-table) '()
                    #:type SHT_STRTAB #:flags 0))
     (let* ((word-size (target-word-size))
            (endianness (target-endianness))
