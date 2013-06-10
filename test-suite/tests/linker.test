@@ -24,15 +24,9 @@
   #:use-module (system vm linker))
 
 (define (link-elf-with-one-main-section name bytes)
-  (let ((string-table (make-string-table)))
-    (define (intern-string! string)
-      (call-with-values
-          (lambda () (string-table-intern string-table string))
-        (lambda (table idx)
-          (set! string-table table)
-          idx)))
+  (let ((strtab (make-string-table)))
     (define (make-object index name bv relocs . kwargs)
-      (let ((name-idx (intern-string! (symbol->string name))))
+      (let ((name-idx (string-table-intern! strtab (symbol->string name))))
         (make-linker-object (apply make-elf-section
                                    #:index index
                                    #:name name-idx
@@ -40,16 +34,16 @@
                                    kwargs)
                             bv relocs
                             (list (make-linker-symbol name 0)))))
-    (define (make-string-table)
-      (intern-string! ".shstrtab")
-      (make-object 2 '.shstrtab (link-string-table string-table) '()
+    (define (make-shstrtab)
+      (string-table-intern! strtab ".shstrtab")
+      (make-object 2 '.shstrtab (link-string-table! strtab) '()
                    #:type SHT_STRTAB #:flags 0))
     (let* ((word-size (target-word-size))
            (endianness (target-endianness))
            (sec (make-object 1 name bytes '()))
            ;; This needs to be linked last, because linking other
            ;; sections adds entries to the string table.
-           (shstrtab (make-string-table)))
+           (shstrtab (make-shstrtab)))
       (link-elf (list sec shstrtab)
                 #:endianness endianness #:word-size word-size))))
 
