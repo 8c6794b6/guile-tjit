@@ -984,6 +984,15 @@
     (primcall list (const 1) (const 2)))
 
   (pass-if-peval
+    ;; When we can't inline let-values but can prove that the producer
+    ;; has just one value, reduce to "let" (which can then fold
+    ;; further).
+    (call-with-values (lambda () (if foo 1 2))
+      (lambda args
+        (apply values args)))
+    (if (toplevel foo) (const 1) (const 2)))
+
+  (pass-if-peval
    ;; Constant folding: cons of #nil does not make list
    (cons 1 #nil)
    (primcall cons (const 1) (const '#nil)))

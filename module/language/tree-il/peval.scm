@@ -101,6 +101,9 @@
     (($ <primcall> _ (? singly-valued-primitive?)) #t)
     (($ <primcall> _ 'values (val)) #t)
     (($ <lambda>) #t)
+    (($ <conditional> _ test consequent alternate)
+     (and (singly-valued-expression? consequent)
+          (singly-valued-expression? alternate)))
     (else #f)))
 
 (define (truncate-values x)
@@ -538,6 +541,10 @@ top-level bindings from ENV and return the resulting expression."
         (($ <prompt>) #f)
         (($ <abort>) #f)
         
+        ;; Bail on dynwinds, as that would cause the consumer to run in
+        ;; the wrong dynamic context.
+        (($ <dynwind>) #f)
+
         ;; Propagate to tail positions.
         (($ <let> src names gensyms vals body)
          (let ((body (loop body)))
@@ -558,10 +565,6 @@ top-level bindings from ENV and return the resulting expression."
                 (make-let-values src exp
                                  (make-lambda-case src2 req opt rest kw
                                                    inits gensyms body #f)))))
-        (($ <dynwind> src winder pre body post unwinder)
-         (let ((body (loop body)))
-           (and body
-                (make-dynwind src winder pre body post unwinder))))
         (($ <dynlet> src fluids vals body)
          (let ((body (loop body)))
            (and body
@@ -975,6 +978,19 @@ top-level bindings from ENV and return the resulting expression."
                 (for-tail
                  (make-let src (list req-name) (list req-sym) (list producer)
                            body)))
+               ((and ($ <lambda-case> src () #f rest #f () (rest-sym) body #f)
+                     (? (lambda _ (singly-valued-expression? producer))))
+                (let ((tmp (gensym "tmp ")))
+                  (record-new-temporary! 'tmp tmp 1)
+                  (for-tail
+                   (make-let
+                    src (list 'tmp) (list tmp) (list producer)
+                    (make-let
+                     src (list rest) (list rest-sym)
+                     (list
+                      (make-primcall #f 'list
+                                     (list (make-lexical-ref #f 'tmp tmp))))
+                     body)))))
                (($ <lambda-case> src req opt rest #f inits gensyms body #f)
                 (let* ((nmin (length req))
                        (nmax (and (not rest) (+ nmin (if opt (length opt) 0)))))
