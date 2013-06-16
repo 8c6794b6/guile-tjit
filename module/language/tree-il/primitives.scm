@@ -544,20 +544,33 @@
             '@dynamic-wind
             (case-lambda
               ((src pre expr post)
-               (let ((PRE (gensym "pre-"))
-                     (POST (gensym "post-")))
-                 (make-let
-                  src
-                  '(pre post)
-                  (list PRE POST)
-                  (list pre post)
-                  (make-dynwind
-                   src
-                   (make-lexical-ref #f 'pre PRE)
-                   (make-call #f (make-lexical-ref #f 'pre PRE) '())
-                   expr
-                   (make-call #f (make-lexical-ref #f 'post POST) '())
-                   (make-lexical-ref #f 'post POST)))))))
+               (let* ((PRE (gensym "pre-"))
+                      (POST (gensym "post-"))
+                      (winder (make-lexical-ref #f 'winder PRE))
+                      (unwinder (make-lexical-ref #f 'unwinder POST)))
+                 (define (make-begin0 src first second)
+                   (make-let-values
+                    src
+                    first
+                    (let ((vals (gensym "vals ")))
+                      (make-lambda-case
+                       #f
+                       '() #f 'vals #f '() (list vals)
+                       (make-seq
+                        src
+                        second
+                        (make-primcall #f 'apply
+                                       (list
+                                        (make-primitive-ref #f 'values)
+                                        (make-lexical-ref #f 'vals vals))))
+                       #f))))
+                 (make-let src '(pre post) (list PRE POST) (list pre post)
+                           (make-seq src
+                                     (make-call src winder '())
+                                     (make-begin0
+                                      src
+                                      (make-dynwind src winder expr unwinder)
+                                      (make-call src unwinder '()))))))))
 
 (hashq-set! *primitive-expand-table*
             'fluid-ref

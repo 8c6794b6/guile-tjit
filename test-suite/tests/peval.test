@@ -1063,28 +1063,50 @@
    (seq (call (toplevel random)) (const #t)))
   
   (pass-if-peval
-   ;; Non-constant guards get lexical bindings.
+   ;; Non-constant guards get lexical bindings, invocation of winder and
+   ;; unwinder lifted out.  Unfortunately both have the generic variable
+   ;; name "tmp", so we can't distinguish them in this test, and they
+   ;; also collide in generic names with the single-value result from
+   ;; the dynwind; alack.
    (dynamic-wind foo (lambda () bar) baz)
-   (let (w u) (_ _) ((toplevel foo) (toplevel baz))
-        (dynwind (lexical w _)
-                 (call (lexical w _))
-                 (toplevel bar)
-                 (call (lexical u _))
-                 (lexical u _))))
+   (let (tmp tmp) (_ _) ((toplevel foo) (toplevel baz))
+        (seq (call (lexical tmp _))
+             (let (tmp) (_) ((dynwind (lexical tmp _)
+                                      (toplevel bar)
+                                      (lexical tmp _)))
+                  (seq (call (lexical tmp _))
+                       (lexical tmp _))))))
   
   (pass-if-peval
    ;; Constant guards don't need lexical bindings.
    (dynamic-wind (lambda () foo) (lambda () bar) (lambda () baz))
-   (dynwind
-    (lambda ()
-      (lambda-case
-       ((() #f #f #f () ()) (toplevel foo))))
-    (toplevel foo)
-    (toplevel bar)
-    (toplevel baz)
-    (lambda ()
-      (lambda-case
-       ((() #f #f #f () ()) (toplevel baz))))))
+   (seq (toplevel foo)
+        (let (tmp) (_) ((dynwind (lambda ()
+                                   (lambda-case
+                                    ((() #f #f #f () ()) (toplevel foo))))
+                                 (toplevel bar)
+                                 (lambda ()
+                                   (lambda-case
+                                    ((() #f #f #f () ()) (toplevel baz))))))
+             (seq (toplevel baz)
+                  (lexical tmp _)))))
+  
+  (pass-if-peval
+   ;; Dynwind bodies that return an unknown number of values need a
+   ;; let-values.
+   (dynamic-wind (lambda () foo) (lambda () (bar)) (lambda () baz))
+   (seq (toplevel foo)
+        (let-values (dynwind (lambda ()
+                               (lambda-case
+                                ((() #f #f #f () ()) (toplevel foo))))
+                             (call (toplevel bar))
+                             (lambda ()
+                               (lambda-case
+                                ((() #f #f #f () ()) (toplevel baz)))))
+          (lambda-case
+           ((() #f vals #f () (_))
+            (seq (toplevel baz)
+                 (primcall @apply (primitive values) (lexical vals _))))))))
   
   (pass-if-peval
    ;; Prompt is removed if tag is unreferenced

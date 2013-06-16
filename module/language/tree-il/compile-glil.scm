@@ -934,11 +934,7 @@
             (clear-stack-slots context gensyms)
             (emit-code #f (make-glil-unbind))))))
 
-      ;; much trickier than i thought this would be, at first, due to the need
-      ;; to have body's return value(s) on the stack while the unwinder runs,
-      ;; then proceed with returning or dropping or what-have-you, interacting
-      ;; with RA and MVRA. What have you, I say.
-      ((<dynwind> src winder pre body post unwinder)
+      ((<dynwind> src winder body unwinder)
        (define (thunk? x)
          (and (lambda? x)
               (null? (lambda-case-gensyms (lambda-body x)))))
@@ -957,60 +953,52 @@
                      (make-void #f)
                      (make-wrong-type-arg x))))
 
-       ;; We know at this point that `winder' and `unwinder' are
-       ;; constant expressions and can be duplicated.
+       ;; The `winder' and `unwinder' of a dynwind are constant
+       ;; expressions and can be duplicated.
        (if (not (thunk? winder))
            (emit-thunk-check winder))
        (comp-push winder)
        (if (not (thunk? unwinder))
            (emit-thunk-check unwinder))
        (comp-push unwinder)
-       (comp-drop pre)
        (emit-code #f (make-glil-call 'wind 2))
 
        (case context
          ((tail)
           (let ((MV (make-label)))
             (comp-vals body MV)
-            ;; one value: unwind...
+            ;; One value.  Unwind and return the value.
             (emit-code #f (make-glil-call 'unwind 0))
-            (comp-drop post)
-            ;; ...and return the val
             (emit-code #f (make-glil-call 'return 1))
             
             (emit-label MV)
-            ;; multiple values: unwind...
+            ;; Multiple values.  Unwind and return the values.
             (emit-code #f (make-glil-call 'unwind 0))
-            (comp-drop post)
-            ;; and return the values.
             (emit-code #f (make-glil-call 'return/nvalues 1))))
          
          ((push)
-          ;; we only want one value. so ask for one value
+          ;; We only want one value, so ask for one value and then
+          ;; unwind, leaving the value on the stack.
           (comp-push body)
-          ;; and unwind, leaving the val on the stack
-          (emit-code #f (make-glil-call 'unwind 0))
-          (comp-drop post))
+          (emit-code #f (make-glil-call 'unwind 0)))
          
          ((vals)
           (let ((MV (make-label)))
             (comp-vals body MV)
-            ;; one value: push 1 and fall through to MV case
+            ;; Transform a singly-valued return to a multiple-value
+            ;; return and fall through to MV case.
             (emit-code #f (make-glil-const 1))
             
             (emit-label MV)
-            ;; multiple values: unwind...
+            ;; Multiple values: unwind and go to the MVRA.
             (emit-code #f (make-glil-call 'unwind 0))
-            (comp-drop post)
-            ;; and goto the MVRA.
             (emit-branch #f 'br MVRA)))
          
          ((drop)
-          ;; compile body, discarding values. then unwind...
+          ;; Compile body, discarding values.  Then unwind and fall
+          ;; through, or goto RA if there is one.
           (comp-drop body)
           (emit-code #f (make-glil-call 'unwind 0))
-          (comp-drop post)
-          ;; and fall through, or goto RA if there is one.
           (if RA
               (emit-branch #f 'br RA)))))
 

@@ -104,6 +104,8 @@
     (($ <conditional> _ test consequent alternate)
      (and (singly-valued-expression? consequent)
           (singly-valued-expression? alternate)))
+    (($ <dynwind> _ winder body unwinder)
+     (singly-valued-expression? body))
     (else #f)))
 
 (define (truncate-values x)
@@ -1000,10 +1002,11 @@ top-level bindings from ENV and return the resulting expression."
                    (else #f))))
                (_ #f))
              (make-let-values lv-src producer (for-tail consumer)))))
-      (($ <dynwind> src winder pre body post unwinder)
-       (make-dynwind src (for-value winder) (for-effect pre)
+      (($ <dynwind> src winder body unwinder)
+       (make-dynwind src
+                     (for-value winder)
                      (for-tail body)
-                     (for-effect post) (for-value unwinder)))
+                     (for-value unwinder)))
       (($ <dynlet> src fluids vals body)
        (make-dynlet src (map for-value fluids) (map for-value vals)
                     (for-tail body)))
@@ -1122,47 +1125,57 @@ top-level bindings from ENV and return the resulting expression."
        (for-tail (make-let-values src (make-call src producer '())
                                   consumer)))
       (($ <primcall> src 'dynamic-wind (w thunk u))
+       (define (with-temporaries exps refcount k)
+         (let* ((pairs (map (match-lambda
+                             ((and exp (? constant-expression?))
+                              (cons #f exp))
+                             (exp
+                              (let ((sym (gensym "tmp ")))
+                                (record-new-temporary! 'tmp sym refcount)
+                                (cons sym exp))))
+                            exps))
+                (tmps (filter car pairs)))
+           (match tmps
+             (() (k exps))
+             (tmps
+              (make-let src
+                        (make-list (length tmps) 'tmp)
+                        (map car tmps)
+                        (map cdr tmps)
+                        (k (map (match-lambda
+                                 ((#f . val) val)
+                                 ((sym . _)
+                                  (make-lexical-ref #f 'tmp sym)))
+                                pairs)))))))
+       (define (make-begin0 src first second)
+         (make-let-values
+          src
+          first
+          (let ((vals (gensym "vals ")))
+            (record-new-temporary! 'vals vals 1)
+            (make-lambda-case
+             #f
+             '() #f 'vals #f '() (list vals)
+             (make-seq
+              src
+              second
+              (make-primcall #f 'apply
+                             (list
+                              (make-primitive-ref #f 'values)
+                              (make-lexical-ref #f 'vals vals))))
+             #f))))
        (for-tail
-        (cond
-         ((not (constant-expression? w))
-          (cond
-           ((not (constant-expression? u))
-            (let ((w-sym (gensym "w ")) (u-sym (gensym "u ")))
-              (record-new-temporary! 'w w-sym 2)
-              (record-new-temporary! 'u u-sym 2)
-              (make-let src '(w u) (list w-sym u-sym) (list w u)
-                        (make-dynwind
-                         src
-                         (make-lexical-ref #f 'w w-sym)
-                         (make-call #f (make-lexical-ref #f 'w w-sym) '())
-                         (make-call #f thunk '())
-                         (make-call #f (make-lexical-ref #f 'u u-sym) '())
-                         (make-lexical-ref #f 'u u-sym)))))
-           (else
-            (let ((w-sym (gensym "w ")))
-              (record-new-temporary! 'w w-sym 2)
-              (make-let src '(w) (list w-sym) (list w)
-                        (make-dynwind
-                         src
-                         (make-lexical-ref #f 'w w-sym)
-                         (make-call #f (make-lexical-ref #f 'w w-sym) '())
-                         (make-call #f thunk '())
-                         (make-call #f u '())
-                         u))))))
-         ((not (constant-expression? u))
-          (let ((u-sym (gensym "u ")))
-            (record-new-temporary! 'u u-sym 2)
-            (make-let src '(u) (list u-sym) (list u)
-                      (make-dynwind
-                       src
-                       w
-                       (make-call #f w '())
-                       (make-call #f thunk '())
-                       (make-call #f (make-lexical-ref #f 'u u-sym) '())
-                       (make-lexical-ref #f 'u u-sym)))))
-         (else
-          (make-dynwind src w (make-call #f w '()) (make-call #f thunk '())
-                        (make-call #f u '()) u)))))
+        (with-temporaries
+         (list w u) 2
+         (match-lambda
+          ((w u)
+           (make-seq src
+                     (make-call src w '())
+                     (make-begin0 src
+                                  (make-dynwind src w
+                                                (make-call src thunk '())
+                                                u)
+                                  (make-call src u '()))))))))
 
       (($ <primcall> src 'values exps)
        (cond
