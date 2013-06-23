@@ -22,6 +22,7 @@
 (define-module (test-suite test-syncase)
   #:use-module (test-suite lib)
   #:use-module (system base compile)
+  #:use-module (ice-9 regex)
   #:use-module ((srfi srfi-1) :select (member)))
 
 (define-syntax plus
@@ -274,3 +275,35 @@
 
   (pass-if "syntax-parameters (unresolved)"
     (equal? (syntax-type foo #f) 'syntax-parameter)))
+
+;; (put 'pass-if-syntax-error 'scheme-indent-function 1)
+(define-syntax pass-if-syntax-error
+  (syntax-rules ()
+    ((_ name pat exp)
+     (pass-if name
+       (catch 'syntax-error
+         (lambda () exp (error "expected syntax-error exception"))
+         (lambda (k who what where form . maybe-subform)
+           (if (if (pair? pat)
+                   (and (eq? who (car pat))
+                        (string-match (cdr pat) what))
+                   (string-match pat what))
+               #t
+               (error "unexpected syntax-error exception" what pat))))))))
+
+(with-test-prefix "primitives"
+  (pass-if-syntax-error "primref in default module"
+    "failed to match"
+    (macroexpand '(@@ primitive cons)))
+
+  (pass-if-syntax-error "primcall in default module"
+    "failed to match"
+    (macroexpand '((@@ primitive cons) 1 2)))
+
+  (pass-if-equal "primcall in (guile)"
+      '(1 . 2)
+      (@@ @@ (guile) ((@@ primitive cons) 1 2)))
+
+  (pass-if-syntax-error "primref in (guile)"
+    "not in operator position"
+    (macroexpand '(@@ @@ (guile) (@@ primitive cons)))))

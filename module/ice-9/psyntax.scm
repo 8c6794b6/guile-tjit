@@ -289,15 +289,16 @@
         (lambda (symbol module)
           (if (and (not module) (current-module))
               (warn "module system is booted, we should have a module" symbol))
-          (let ((v (module-variable (if module
-                                        (resolve-module (cdr module))
-                                        (current-module))
-                                    symbol)))
-            (and v (variable-bound? v)
-                 (let ((val (variable-ref v)))
-                   (and (macro? val) (macro-type val)
-                        (cons (macro-type val)
-                              (macro-binding val)))))))))
+          (and (not (equal? module '(primitive)))
+               (let ((v (module-variable (if module
+                                             (resolve-module (cdr module))
+                                             (current-module))
+                                         symbol)))
+                 (and v (variable-bound? v)
+                      (let ((val (variable-ref v)))
+                        (and (macro? val) (macro-type val)
+                             (cons (macro-type val)
+                                   (macro-binding val))))))))))
 
 
     (define (decorate-source e s)
@@ -352,6 +353,8 @@
                                   (module-variable (resolve-module mod) var))
                              (modref-cont mod var #f)
                              (bare-cont var)))
+              ((primitive)
+               (syntax-violation #f "primitive not in operator position" var))
               (else (syntax-violation #f "bad module kind" var mod))))))
 
     (define build-global-reference
@@ -1222,6 +1225,7 @@
     ;;    displaced-lexical      none          displaced lexical identifier
     ;;    lexical-call           name          call to lexical variable
     ;;    global-call            name          call to global variable
+    ;;    primitive-call         name          call to primitive
     ;;    call                   none          any other call
     ;;    begin-form             none          begin expression
     ;;    define-form            id            variable definition
@@ -1268,16 +1272,19 @@
                   ((lexical)
                    (values 'lexical-call fval e e w s mod))
                   ((global)
-                   ;; If we got here via an (@@ ...) expansion, we need to
-                   ;; make sure the fmod information is propagated back
-                   ;; correctly -- hence this consing.
-                   (values 'global-call (make-syntax-object fval w fmod)
-                           e e w s mod))
+                   (if (equal? fmod '(primitive))
+                       (values 'primitive-call fval e e w s mod)
+                       ;; If we got here via an (@@ ...) expansion, we
+                       ;; need to make sure the fmod information is
+                       ;; propagated back correctly -- hence this
+                       ;; consing.
+                       (values 'global-call (make-syntax-object fval w fmod)
+                               e e w s mod)))
                   ((macro)
                    (syntax-type (expand-macro fval e r w s rib mod)
                                 r empty-wrap s rib mod for-car?))
                   ((module-ref)
-                   (call-with-values (lambda () (fval e r w))
+                   (call-with-values (lambda () (fval e r w mod))
                      (lambda (e r w s mod)
                        (syntax-type e r w s rib mod for-car?))))
                   ((core)
@@ -1346,7 +1353,7 @@
            ;; apply transformer
            (value e r w s mod))
           ((module-ref)
-           (call-with-values (lambda () (value e r w))
+           (call-with-values (lambda () (value e r w mod))
              (lambda (e r w s mod)
                (expand e r w mod))))
           ((lexical-call)
@@ -1368,6 +1375,13 @@
                                         (syntax-object-module value)
                                         mod))
             e r w s mod))
+          ((primitive-call)
+           (syntax-case e ()
+             ((_ e ...)
+              (build-primcall s
+                              value
+                              (map (lambda (e) (expand e r w mod))
+                                   #'(e ...))))))
           ((constant) (build-data s (strip (source-wrap e w s mod) empty-wrap)))
           ((global) (build-global-reference s value mod))
           ((call) (expand-call (expand (car e) r w mod) e r w s mod))
@@ -2321,7 +2335,7 @@
               (case type
                 ((module-ref)
                  (let ((val (expand #'val r w mod)))
-                   (call-with-values (lambda () (value #'(head tail ...) r w))
+                   (call-with-values (lambda () (value #'(head tail ...) r w mod))
                      (lambda (e r w s* mod)
                        (syntax-case e ()
                          (e (id? #'e)
@@ -2335,7 +2349,7 @@
          (_ (syntax-violation 'set! "bad set!" (source-wrap e w s mod))))))
 
     (global-extend 'module-ref '@
-                   (lambda (e r w)
+                   (lambda (e r w mod)
                      (syntax-case e ()
                        ((_ (mod ...) id)
                         (and (and-map id? #'(mod ...)) (id? #'id))
@@ -2346,7 +2360,7 @@
                                  #'(public mod ...)))))))
 
     (global-extend 'module-ref '@@
-                   (lambda (e r w)
+                   (lambda (e r w mod)
                      (define remodulate
                        (lambda (x mod)
                          (cond ((pair? x)
@@ -2364,7 +2378,16 @@
                                       ((fx= i n) v)
                                     (vector-set! v i (remodulate (vector-ref x i) mod)))))
                                (else x))))
-                     (syntax-case e (@@)
+                     (syntax-case e (@@ primitive)
+                       ((_ primitive id)
+                        (and (id? #'id)
+                             (equal? (cdr (if (syntax-object? #'id)
+                                              (syntax-object-module #'id)
+                                              mod))
+                                     '(guile)))
+                        ;; Strip the wrap from the identifier and return top-wrap
+                        ;; so that the identifier will not be captured by lexicals.
+                        (values (syntax->datum #'id) r top-wrap #f '(primitive)))
                        ((_ (mod ...) id)
                         (and (and-map id? #'(mod ...)) (id? #'id))
                         ;; Strip the wrap from the identifier and return top-wrap
@@ -2660,7 +2683,9 @@
     (let ()
       (define (syntax-module id)
         (arg-check nonsymbol-id? id 'syntax-module)
-        (cdr (syntax-object-module id)))
+        (let ((mod (syntax-object-module id)))
+          (and (not (equal? mod '(primitive)))
+               (cdr mod))))
 
       (define* (syntax-local-binding id #:key (resolve-syntax-parameters? #t))
         (arg-check nonsymbol-id? id 'syntax-local-binding)
@@ -2687,7 +2712,10 @@
                  ((syntax-parameter) (values 'syntax-parameter (car value)))
                  ((syntax) (values 'pattern-variable value))
                  ((displaced-lexical) (values 'displaced-lexical #f))
-                 ((global) (values 'global (cons value (cdr mod))))
+                 ((global)
+                  (if (equal? mod '(primitive))
+                      (values 'primitive value)
+                      (values 'global (cons value (cdr mod)))))
                  (else (values 'other #f))))))))
 
       (define (syntax-locally-bound-identifiers id)

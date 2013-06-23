@@ -124,15 +124,16 @@
      (lambda (symbol module)
        (if (and (not module) (current-module))
          (warn "module system is booted, we should have a module" symbol))
-       (let ((v (module-variable
-                  (if module (resolve-module (cdr module)) (current-module))
-                  symbol)))
-         (and v
-              (variable-bound? v)
-              (let ((val (variable-ref v)))
-                (and (macro? val)
-                     (macro-type val)
-                     (cons (macro-type val) (macro-binding val))))))))
+       (and (not (equal? module '(primitive)))
+            (let ((v (module-variable
+                       (if module (resolve-module (cdr module)) (current-module))
+                       symbol)))
+              (and v
+                   (variable-bound? v)
+                   (let ((val (variable-ref v)))
+                     (and (macro? val)
+                          (macro-type val)
+                          (cons (macro-type val) (macro-binding val)))))))))
    (decorate-source
      (lambda (e s)
        (if (and s (supports-source-properties? e))
@@ -177,6 +178,8 @@
                              (module-variable (resolve-module mod) var))
                       (modref-cont mod var #f)
                       (bare-cont var)))
+                   ((memv key '(primitive))
+                    (syntax-violation #f "primitive not in operator position" var))
                    (else (syntax-violation #f "bad module kind" var mod))))))))
    (build-global-reference
      (lambda (source var mod)
@@ -736,7 +739,9 @@
                     (let ((key ftype))
                       (cond ((memv key '(lexical)) (values 'lexical-call fval e e w s mod))
                             ((memv key '(global))
-                             (values 'global-call (make-syntax-object fval w fmod) e e w s mod))
+                             (if (equal? fmod '(primitive))
+                               (values 'primitive-call fval e e w s mod)
+                               (values 'global-call (make-syntax-object fval w fmod) e e w s mod)))
                             ((memv key '(macro))
                              (syntax-type
                                (expand-macro fval e r w s rib mod)
@@ -748,7 +753,7 @@
                                for-car?))
                             ((memv key '(module-ref))
                              (call-with-values
-                               (lambda () (fval e r w))
+                               (lambda () (fval e r w mod))
                                (lambda (e r w s mod) (syntax-type e r w s rib mod for-car?))))
                             ((memv key '(core)) (values 'core-form fval e e w s mod))
                             ((memv key '(local-syntax))
@@ -838,7 +843,7 @@
                ((memv key '(core core-form)) (value e r w s mod))
                ((memv key '(module-ref))
                 (call-with-values
-                  (lambda () (value e r w))
+                  (lambda () (value e r w mod))
                   (lambda (e r w s mod) (expand e r w mod))))
                ((memv key '(lexical-call))
                 (expand-call
@@ -864,6 +869,16 @@
                   w
                   s
                   mod))
+               ((memv key '(primitive-call))
+                (let* ((tmp-1 e) (tmp ($sc-dispatch tmp-1 '(_ . each-any))))
+                  (if tmp
+                    (apply (lambda (e)
+                             (build-primcall s value (map (lambda (e) (expand e r w mod)) e)))
+                           tmp)
+                    (syntax-violation
+                      #f
+                      "source expression failed to match any pattern"
+                      tmp-1))))
                ((memv key '(constant))
                 (build-data s (strip (source-wrap e w s mod) '(()))))
                ((memv key '(global)) (build-global-reference s value mod))
@@ -1959,7 +1974,7 @@
                              (if (memv key '(module-ref))
                                (let ((val (expand val r w mod)))
                                  (call-with-values
-                                   (lambda () (value (cons head tail) r w))
+                                   (lambda () (value (cons head tail) r w mod))
                                    (lambda (e r w s* mod)
                                      (let* ((tmp-1 e) (tmp (list tmp-1)))
                                        (if (and tmp (apply (lambda (e) (id? e)) tmp))
@@ -1982,7 +1997,7 @@
   (global-extend
     'module-ref
     '@
-    (lambda (e r w)
+    (lambda (e r w mod)
       (let* ((tmp-1 e) (tmp ($sc-dispatch tmp-1 '(_ each-any any))))
         (if (and tmp
                  (apply (lambda (mod id) (and (and-map id? mod) (id? id))) tmp))
@@ -2002,7 +2017,7 @@
   (global-extend
     'module-ref
     '@@
-    (lambda (e r w)
+    (lambda (e r w mod)
       (letrec*
         ((remodulate
            (lambda (x mod)
@@ -2021,33 +2036,46 @@
                             (vector-set! v i (remodulate (vector-ref x i) mod))
                             (loop (+ i 1)))))))
                    (else x)))))
-        (let* ((tmp-1 e) (tmp ($sc-dispatch tmp-1 '(_ each-any any))))
-          (if (and tmp
-                   (apply (lambda (mod id) (and (and-map id? mod) (id? id))) tmp))
-            (apply (lambda (mod id)
-                     (values
-                       (syntax->datum id)
-                       r
-                       '((top))
-                       #f
-                       (syntax->datum
-                         (cons '#(syntax-object private ((top)) (hygiene guile)) mod))))
-                   tmp)
-            (let ((tmp ($sc-dispatch
-                         tmp-1
-                         '(_ #(free-id #(syntax-object @@ ((top)) (hygiene guile)))
-                             each-any
-                             any))))
-              (if (and tmp (apply (lambda (mod exp) (and-map id? mod)) tmp))
-                (apply (lambda (mod exp)
-                         (let ((mod (syntax->datum
-                                      (cons '#(syntax-object private ((top)) (hygiene guile)) mod))))
-                           (values (remodulate exp mod) r w (source-annotation exp) mod)))
-                       tmp)
-                (syntax-violation
-                  #f
-                  "source expression failed to match any pattern"
-                  tmp-1))))))))
+        (let* ((tmp e)
+               (tmp-1 ($sc-dispatch
+                        tmp
+                        '(_ #(free-id #(syntax-object primitive ((top)) (hygiene guile))) any))))
+          (if (and tmp-1
+                   (apply (lambda (id)
+                            (and (id? id)
+                                 (equal?
+                                   (cdr (if (syntax-object? id) (syntax-object-module id) mod))
+                                   '(guile))))
+                          tmp-1))
+            (apply (lambda (id) (values (syntax->datum id) r '((top)) #f '(primitive)))
+                   tmp-1)
+            (let ((tmp-1 ($sc-dispatch tmp '(_ each-any any))))
+              (if (and tmp-1
+                       (apply (lambda (mod id) (and (and-map id? mod) (id? id))) tmp-1))
+                (apply (lambda (mod id)
+                         (values
+                           (syntax->datum id)
+                           r
+                           '((top))
+                           #f
+                           (syntax->datum
+                             (cons '#(syntax-object private ((top)) (hygiene guile)) mod))))
+                       tmp-1)
+                (let ((tmp-1 ($sc-dispatch
+                               tmp
+                               '(_ #(free-id #(syntax-object @@ ((top)) (hygiene guile)))
+                                   each-any
+                                   any))))
+                  (if (and tmp-1 (apply (lambda (mod exp) (and-map id? mod)) tmp-1))
+                    (apply (lambda (mod exp)
+                             (let ((mod (syntax->datum
+                                          (cons '#(syntax-object private ((top)) (hygiene guile)) mod))))
+                               (values (remodulate exp mod) r w (source-annotation exp) mod)))
+                           tmp-1)
+                    (syntax-violation
+                      #f
+                      "source expression failed to match any pattern"
+                      tmp))))))))))
   (global-extend
     'core
     'if
@@ -2359,7 +2387,8 @@
          (let ((x id))
            (if (not (nonsymbol-id? x))
              (syntax-violation 'syntax-module "invalid argument" x)))
-         (cdr (syntax-object-module id))))
+         (let ((mod (syntax-object-module id)))
+           (and (not (equal? mod '(primitive))) (cdr mod)))))
      (syntax-local-binding
        (lambda* (id
                  #:key
@@ -2392,7 +2421,10 @@
                             (values 'syntax-parameter (car value)))
                            ((memv key '(syntax)) (values 'pattern-variable value))
                            ((memv key '(displaced-lexical)) (values 'displaced-lexical #f))
-                           ((memv key '(global)) (values 'global (cons value (cdr mod))))
+                           ((memv key '(global))
+                            (if (equal? mod '(primitive))
+                              (values 'primitive value)
+                              (values 'global (cons value (cdr mod)))))
                            (else (values 'other #f)))))))))))
      (syntax-locally-bound-identifiers
        (lambda (id)
