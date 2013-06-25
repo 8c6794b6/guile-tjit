@@ -77,7 +77,7 @@
 
     fluid-ref fluid-set!
 
-    @prompt call-with-prompt
+    call-with-prompt
     abort-to-prompt* abort-to-prompt
     make-prompt-tag
 
@@ -187,7 +187,7 @@
     dynamic-wind
     @dynamic-wind
     values
-    @prompt call-with-prompt
+    call-with-prompt
     @abort abort-to-prompt))
 
 ;; Procedures that cause a nonlocal, non-resumable abort.
@@ -584,23 +584,6 @@
             'fluid-set!
             (case-lambda
               ((src fluid exp) (make-dynset src fluid exp))
-              (else #f)))
-
-(hashq-set! *primitive-expand-table*
-            '@prompt
-            (case-lambda
-              ((src tag exp handler)
-               (let ((args-sym (gensym)))
-                 (make-prompt
-                  src tag exp
-                  ;; If handler itself is a lambda, the inliner can do some
-                  ;; trickery here.
-                  (make-lambda-case
-                   (tree-il-src handler) '() #f 'args #f '() (list args-sym)
-                   (make-primcall #f 'apply
-                                  (list handler
-                                        (make-lexical-ref #f 'args args-sym)))
-                   #f))))
               (else #f)))
 
 (hashq-set! *primitive-expand-table*

@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013
  * Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
@@ -56,8 +56,8 @@ static const char** exp_field_names[SCM_NUM_EXPANDED_TYPES];
   SCM_MAKE_EXPANDED_VOID(src)
 #define CONST_(src, exp) \
   SCM_MAKE_EXPANDED_CONST(src, exp)
-#define PRIMITIVE_REF_TYPE(src, name) \
-  SCM_MAKE_EXPANDED_PRIMITIVE_REF_TYPE(src, name)
+#define PRIMITIVE_REF(src, name) \
+  SCM_MAKE_EXPANDED_PRIMITIVE_REF(src, name)
 #define LEXICAL_REF(src, name, gensym) \
   SCM_MAKE_EXPANDED_LEXICAL_REF(src, name, gensym)
 #define LEXICAL_SET(src, name, gensym, exp) \
@@ -74,6 +74,8 @@ static const char** exp_field_names[SCM_NUM_EXPANDED_TYPES];
   SCM_MAKE_EXPANDED_TOPLEVEL_DEFINE(src, name, exp)
 #define CONDITIONAL(src, test, consequent, alternate) \
   SCM_MAKE_EXPANDED_CONDITIONAL(src, test, consequent, alternate)
+#define PRIMCALL(src, name, exps) \
+  SCM_MAKE_EXPANDED_PRIMCALL(src, name, exps)
 #define CALL(src, proc, exps) \
   SCM_MAKE_EXPANDED_CALL(src, proc, exps)
 #define SEQ(src, head, tail) \
@@ -195,12 +197,13 @@ SCM_GLOBAL_SYMBOL (scm_sym_let, "let");
 SCM_GLOBAL_SYMBOL (scm_sym_letrec, "letrec");
 SCM_GLOBAL_SYMBOL (scm_sym_letstar, "let*");
 SCM_GLOBAL_SYMBOL (scm_sym_or, "or");
-SCM_GLOBAL_SYMBOL (scm_sym_at_prompt, "@prompt");
+SCM_SYMBOL (sym_call_with_prompt, "call-with-prompt");
 SCM_GLOBAL_SYMBOL (scm_sym_quote, "quote");
 SCM_GLOBAL_SYMBOL (scm_sym_set_x, "set!");
 SCM_SYMBOL (sym_lambda_star, "lambda*");
 SCM_SYMBOL (sym_eval, "eval");
 SCM_SYMBOL (sym_load, "load");
+SCM_SYMBOL (sym_primitive, "primitive");
 
 SCM_GLOBAL_SYMBOL (scm_sym_unquote, "unquote");
 SCM_GLOBAL_SYMBOL (scm_sym_quasiquote, "quasiquote");
@@ -356,17 +359,22 @@ expand (SCM exp, SCM env)
         {
           SCM arg_exps = SCM_EOL;
           SCM args = SCM_EOL;
-          SCM proc = CAR (exp);
+          SCM proc = expand (CAR (exp), env);
           
           for (arg_exps = CDR (exp); scm_is_pair (arg_exps);
                arg_exps = CDR (arg_exps))
             args = scm_cons (expand (CAR (arg_exps), env), args);
-          if (scm_is_null (arg_exps))
-            return CALL (scm_source_properties (exp),
-                         expand (proc, env),
-                         scm_reverse_x (args, SCM_UNDEFINED));
-          else
+          args = scm_reverse_x (args, SCM_UNDEFINED);
+
+          if (!scm_is_null (arg_exps))
             syntax_error ("expected a proper list", exp, SCM_UNDEFINED);
+
+          if (SCM_EXPANDED_TYPE (proc) == SCM_EXPANDED_PRIMITIVE_REF)
+            return PRIMCALL (scm_source_properties (exp),
+                             SCM_EXPANDED_REF (proc, PRIMITIVE_REF, NAME),
+                             args);
+          else
+            return CALL (scm_source_properties (exp), proc, args);
         }
     }
   else if (scm_is_symbol (exp))
@@ -423,9 +431,12 @@ static SCM
 expand_atat (SCM expr, SCM env SCM_UNUSED)
 {
   ASSERT_SYNTAX (scm_ilength (expr) == 3, s_bad_expression, expr);
-  ASSERT_SYNTAX (scm_ilength (CADR (expr)) > 0, s_bad_expression, expr);
   ASSERT_SYNTAX (scm_is_symbol (CADDR (expr)), s_bad_expression, expr);
 
+  if (scm_is_eq (CADR (expr), sym_primitive))
+    return PRIMITIVE_REF (scm_source_properties (expr), CADDR (expr));
+
+  ASSERT_SYNTAX (scm_ilength (CADR (expr)) > 0, s_bad_expression, expr);
   return MODULE_REF (scm_source_properties (expr),
                      CADR (expr), CADDR (expr), SCM_BOOL_F);
 }

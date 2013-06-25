@@ -436,7 +436,7 @@ eval (SCM x, SCM env)
           return SCM_UNSPECIFIED;
         }
 
-    case SCM_M_PROMPT:
+    case SCM_M_CALL_WITH_PROMPT:
       {
         SCM vm, k, res;
         scm_i_jmp_buf registers;
@@ -465,7 +465,7 @@ eval (SCM x, SCM env)
             goto apply_proc;
           }
         
-        res = eval (CADR (mx), env);
+        res = scm_call_0 (eval (CADR (mx), env));
         scm_dynstack_pop (&SCM_I_CURRENT_THREAD->dynstack);
         return res;
       }

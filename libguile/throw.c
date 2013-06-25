@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2003, 2004, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2003, 2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -510,7 +510,7 @@ static SCM
 pre_init_throw (SCM k, SCM args)
 {
   if (find_pre_init_catch ())
-    return scm_at_abort (sym_pre_init_catch_tag, scm_cons (k, args));
+    return scm_abort_to_prompt_star (sym_pre_init_catch_tag, scm_cons (k, args));
   else
     { 
       static int error_printing_error = 0;

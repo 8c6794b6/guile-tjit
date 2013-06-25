@@ -477,10 +477,11 @@
                  (with-fluids (((car fluids) (car vals)))
                    (lp (cdr fluids) (cdr vals)))))))
         
-        (('prompt (tag exp . handler))
-         (@prompt (eval tag env)
-                  (eval exp env)
-                  (eval handler env)))
+        (('call-with-prompt (tag thunk . handler))
+         (call-with-prompt
+          (eval tag env)
+          (eval thunk env)
+          (eval handler env)))
         
         (('call/cc proc)
          (call/cc (eval proc env)))

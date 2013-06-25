@@ -62,7 +62,7 @@
       %default-prompt-tag)))
 
 (define (call-with-prompt tag thunk handler)
-  (@prompt tag (thunk) handler))
+  ((@@ primitive call-with-prompt) tag thunk handler))
 (define (abort-to-prompt tag . args)
   (abort-to-prompt* tag args))
 

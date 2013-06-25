@@ -112,8 +112,8 @@ scm_t_bits scm_tc16_memoized;
   MAKMEMO (SCM_M_MODULE_REF, scm_cons (mod, scm_cons (var, public)))
 #define MAKMEMO_MOD_SET(val, mod, var, public) \
   MAKMEMO (SCM_M_MODULE_SET, scm_cons (val, scm_cons (mod, scm_cons (var, public))))
-#define MAKMEMO_PROMPT(tag, exp, handler) \
-  MAKMEMO (SCM_M_PROMPT, scm_cons (tag, scm_cons (exp, handler)))
+#define MAKMEMO_CALL_WITH_PROMPT(tag, thunk, handler) \
+  MAKMEMO (SCM_M_CALL_WITH_PROMPT, scm_cons (tag, scm_cons (thunk, handler)))
 
 
 /* Primitives for the evaluator */
@@ -144,7 +144,7 @@ static const char *const memoized_tags[] =
   "toplevel-set!",
   "module-ref",
   "module-set!",
-  "prompt",
+  "call-with-prompt",
 };
 
 static int
@@ -267,16 +267,25 @@ memoize (SCM exp, SCM env)
 
     case SCM_EXPANDED_PRIMCALL:
       {
-        SCM proc, args;
+        SCM name, args;
+        int nargs;
 
-        if (scm_is_eq (scm_current_module (), scm_the_root_module ()))
-          proc = MAKMEMO_TOP_REF (REF (exp, PRIMCALL, NAME));
-        else
-          proc = MAKMEMO_MOD_REF (list_of_guile, REF (exp, PRIMCALL, NAME),
-                                  SCM_BOOL_F);
+        name = REF (exp, PRIMCALL, NAME);
         args = memoize_exps (REF (exp, PRIMCALL, ARGS), env);
+        nargs = scm_ilength (args);
 
-        return MAKMEMO_CALL (proc, scm_ilength (args), args);
+        if (nargs == 3
+            && scm_is_eq (name, scm_from_latin1_symbol ("call-with-prompt")))
+          return MAKMEMO_CALL_WITH_PROMPT (CAR (args),
+                                           CADR (args),
+                                           CADDR (args));
+        else if (scm_is_eq (scm_current_module (), scm_the_root_module ()))
+          return MAKMEMO_CALL (MAKMEMO_TOP_REF (name), nargs, args);
+        else
+          return MAKMEMO_CALL (MAKMEMO_MOD_REF (list_of_guile, name,
+                                                SCM_BOOL_F),
+                               nargs,
+                               args);
       }
 
     case SCM_EXPANDED_SEQ:
@@ -525,13 +534,11 @@ static SCM m_apply (SCM proc, SCM arg, SCM rest);
 static SCM m_call_cc (SCM proc);
 static SCM m_call_values (SCM prod, SCM cons);
 static SCM m_dynamic_wind (SCM pre, SCM exp, SCM post);
-static SCM m_prompt (SCM tag, SCM exp, SCM handler);
 
 SCM_DEFINE_REST_MEMOIZER ("@apply", m_apply, 2);
 SCM_DEFINE_MEMOIZER ("@call-with-current-continuation", m_call_cc, 1);
 SCM_DEFINE_MEMOIZER ("@call-with-values", m_call_values, 2);
 SCM_DEFINE_MEMOIZER ("@dynamic-wind", m_dynamic_wind, 3);
-SCM_DEFINE_MEMOIZER ("@prompt", m_prompt, 3);
 
 
 
@@ -595,16 +602,6 @@ static SCM m_dynamic_wind (SCM in, SCM expr, SCM out)
   SCM_VALIDATE_MEMOIZED (2, expr);
   SCM_VALIDATE_MEMOIZED (3, out);
   return MAKMEMO_DYNWIND (in, expr, out);
-}
-#undef FUNC_NAME
-
-static SCM m_prompt (SCM tag, SCM exp, SCM handler)
-#define FUNC_NAME "@prompt"
-{
-  SCM_VALIDATE_MEMOIZED (1, tag);
-  SCM_VALIDATE_MEMOIZED (2, exp);
-  SCM_VALIDATE_MEMOIZED (3, handler);
-  return MAKMEMO_PROMPT (tag, exp, handler);
 }
 #undef FUNC_NAME
 
@@ -768,8 +765,8 @@ unmemoize (const SCM expr)
                                        scm_i_finite_list_copy (CADR (args)),
                                        CADDR (args)),
                          unmemoize (CAR (args)));
-    case SCM_M_PROMPT:
-      return scm_list_4 (scm_sym_at_prompt,
+    case SCM_M_CALL_WITH_PROMPT:
+      return scm_list_4 (scm_from_latin1_symbol ("call-with-prompt"),
                          unmemoize (CAR (args)),
                          unmemoize (CADR (args)),
                          unmemoize (CDDR (args)));
