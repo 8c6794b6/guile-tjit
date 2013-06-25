@@ -77,7 +77,8 @@
 
     fluid-ref fluid-set!
 
-    @prompt call-with-prompt @abort abort-to-prompt
+    @prompt call-with-prompt
+    abort-to-prompt* abort-to-prompt
     make-prompt-tag
 
     throw error scm-error
@@ -186,7 +187,8 @@
     dynamic-wind
     @dynamic-wind
     values
-    @prompt call-with-prompt @abort abort-to-prompt))
+    @prompt call-with-prompt
+    @abort abort-to-prompt))
 
 ;; Procedures that cause a nonlocal, non-resumable abort.
 (define *bailout-primitives*
@@ -623,7 +625,7 @@
               (else #f)))
 
 (hashq-set! *primitive-expand-table*
-            '@abort
+            'abort-to-prompt*
             (case-lambda
               ((src tag tail-args)
                (make-abort src tag '() tail-args))

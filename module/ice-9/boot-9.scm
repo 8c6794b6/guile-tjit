@@ -64,7 +64,7 @@
 (define (call-with-prompt tag thunk handler)
   (@prompt tag (thunk) handler))
 (define (abort-to-prompt tag . args)
-  (@abort tag args))
+  (abort-to-prompt* tag args))
 
 
 ;; Define catch and with-throw-handler, using some common helper routines and a

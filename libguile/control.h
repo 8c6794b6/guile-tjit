@@ -1,4 +1,4 @@
-/* Copyright (C) 2010, 2011, 2012  Free Software Foundation, Inc.
+/* Copyright (C) 2010, 2011, 2012, 2013  Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -24,7 +24,7 @@ SCM_INTERNAL SCM scm_i_prompt_pop_abort_args_x (SCM vm);
 
 SCM_INTERNAL void scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv,
                                scm_i_jmp_buf *registers) SCM_NORETURN;
-SCM_INTERNAL SCM scm_at_abort (SCM tag, SCM args) SCM_NORETURN;
+SCM_INTERNAL SCM scm_abort_to_prompt_star (SCM tag, SCM args) SCM_NORETURN;
 
 
 SCM_INTERNAL void scm_init_control (void);

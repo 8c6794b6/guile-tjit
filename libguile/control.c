@@ -1,4 +1,4 @@
-/* Copyright (C) 2010, 2011, 2012  Free Software Foundation, Inc.
+/* Copyright (C) 2010, 2011, 2012, 2013  Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -223,9 +223,11 @@ scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv,
   abort ();
 }
 
-SCM_DEFINE (scm_at_abort, "@abort", 2, 0, 0, (SCM tag, SCM args),
-            "Abort to the nearest prompt with tag @var{tag}.")
-#define FUNC_NAME s_scm_at_abort
+SCM_DEFINE (scm_abort_to_prompt_star, "abort-to-prompt*", 2, 0, 0,
+            (SCM tag, SCM args),
+            "Abort to the nearest prompt with tag @var{tag}, yielding the\n"
+            "values in the list, @var{args}.")
+#define FUNC_NAME s_scm_abort_to_prompt_star
 {
   SCM *argv;
   size_t i;
