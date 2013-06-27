@@ -38,7 +38,7 @@
 (define *interesting-primitive-names* 
   '(apply
     call-with-values @call-with-values
-    call-with-current-continuation @call-with-current-continuation
+    call-with-current-continuation
     call/cc
     dynamic-wind
     @dynamic-wind
@@ -182,7 +182,7 @@
 (define *multiply-valued-primitives* 
   '(apply
     call-with-values @call-with-values
-    call-with-current-continuation @call-with-current-continuation
+    call-with-current-continuation
     call/cc
     dynamic-wind
     @dynamic-wind
@@ -451,11 +451,8 @@
 (define-primitive-expander call-with-values (producer consumer)
   (@call-with-values producer consumer))
 
-(define-primitive-expander call-with-current-continuation (proc)
-  (@call-with-current-continuation proc))
-
 (define-primitive-expander call/cc (proc)
-  (@call-with-current-continuation proc))
+  (call-with-current-continuation proc))
 
 (define-primitive-expander make-struct (vtable tail-size . args)
   (if (and (const? tail-size)

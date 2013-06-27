@@ -213,7 +213,7 @@ If there is no handler at all, Guile prints an error and then exits."
                                (cons tail (append* tail*)))))))
        (apply fun (cons arg1 (append* args)))))))
 (define (call-with-current-continuation proc)
-  (@call-with-current-continuation proc))
+  ((@@ primitive call-with-current-continuation) proc))
 (define (call-with-values producer consumer)
   (@call-with-values producer consumer))
 (define (dynamic-wind in thunk out)

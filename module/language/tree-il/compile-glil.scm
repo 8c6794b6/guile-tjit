@@ -465,14 +465,16 @@
                              (emit-code #f (make-glil-call 'drop 1)))
                          (maybe-emit-return)))))))
 
-         ((@call-with-current-continuation ,proc)
+         ((call-with-current-continuation ,proc)
           (case context
             ((tail)
              (comp-push proc)
              (emit-code src (make-glil-call 'tail-call/cc 1)))
             ((vals)
              (comp-vals
-              (make-primcall src 'call-with-current-continuation args)
+              (make-call src
+                         (make-primitive-ref #f 'call-with-current-continuation)
+                         args)
               MVRA)
              (maybe-emit-return))
             ((push)
@@ -482,7 +484,9 @@
             ((drop)
              ;; Fall back.
              (comp-tail
-              (make-primcall src 'call-with-current-continuation args)))))
+              (make-call src
+                         (make-primitive-ref #f 'call-with-current-continuation)
+                         args)))))
          
         ;; A hack for variable-set, the opcode for which takes its args
         ;; reversed, relative to the variable-set! function

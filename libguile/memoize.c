@@ -282,6 +282,11 @@ memoize (SCM exp, SCM env)
         else if (nargs == 2
                  && scm_is_eq (name, scm_from_latin1_symbol ("apply")))
           return MAKMEMO_APPLY (CAR (args), CADR (args));
+        else if (nargs == 1
+                 && scm_is_eq (name,
+                               scm_from_latin1_symbol
+                               ("call-with-current-continuation")))
+          return MAKMEMO_CONT (CAR (args));
         else if (scm_is_eq (scm_current_module (), scm_the_root_module ()))
           return MAKMEMO_CALL (MAKMEMO_TOP_REF (name), nargs, args);
         else
@@ -527,24 +532,14 @@ SCM_DEFINE (scm_memoize_expression, "memoize-expression", 1, 0, 0,
 #define SCM_DEFINE_MEMOIZER(STR, MEMOIZER, N)                           \
 SCM_SNARF_INIT(scm_c_define (STR, SCM_MAKE_MEMOIZER (STR, MEMOIZER, N)))
 
-static SCM m_call_cc (SCM proc);
 static SCM m_call_values (SCM prod, SCM cons);
 static SCM m_dynamic_wind (SCM pre, SCM exp, SCM post);
 
-SCM_DEFINE_MEMOIZER ("@call-with-current-continuation", m_call_cc, 1);
 SCM_DEFINE_MEMOIZER ("@call-with-values", m_call_values, 2);
 SCM_DEFINE_MEMOIZER ("@dynamic-wind", m_dynamic_wind, 3);
 
 
 
-
-static SCM m_call_cc (SCM proc)
-#define FUNC_NAME "@call-with-current-continuation"
-{
-  SCM_VALIDATE_MEMOIZED (1, proc);
-  return MAKMEMO_CONT (proc);
-}
-#undef FUNC_NAME
 
 static SCM m_call_values (SCM prod, SCM cons)
 #define FUNC_NAME "@call-with-values"
@@ -634,7 +629,9 @@ unmemoize (const SCM expr)
     case SCM_M_CALL:
       return scm_cons (unmemoize (CAR (args)), unmemoize_exprs (CDDR (args)));
     case SCM_M_CONT:
-      return scm_list_2 (scm_sym_atcall_cc, unmemoize (args));
+      return scm_list_2 (scm_from_latin1_symbol
+                         ("call-with-current_continuation"),
+                         unmemoize (args));
     case SCM_M_CALL_WITH_VALUES:
       return scm_list_3 (scm_sym_at_call_with_values,
                          unmemoize (CAR (args)), unmemoize (CDR (args)));
