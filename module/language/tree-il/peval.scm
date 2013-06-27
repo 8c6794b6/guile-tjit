@@ -861,7 +861,7 @@ top-level bindings from ENV and return the resulting expression."
           (names ... rest)
           (gensyms ... rest-sym)
           (vals ... ($ <primcall> _ 'list rest-args))
-          ($ <primcall> asrc (or 'apply '@apply)
+          ($ <primcall> asrc 'apply
              (proc args ...
                    ($ <lexical-ref> _
                       (? (cut eq? <> rest))
@@ -1192,7 +1192,7 @@ top-level bindings from ENV and return the resulting expression."
                (for-tail (list->seq src (append (cdr vals) (list (car vals)))))
                (make-primcall src 'values vals))))))
 
-      (($ <primcall> src (or 'apply '@apply) (proc args ... tail))
+      (($ <primcall> src 'apply (proc args ... tail))
        (let lp ((tail* (find-definition tail 1)) (speculative? #t))
          (define (copyable? x)
            ;; Inlining a result from find-definition effectively copies it,
@@ -1205,7 +1205,7 @@ top-level bindings from ENV and return the resulting expression."
               (for-tail (make-call src proc (append args args*)))))
            (($ <primcall> _ 'cons
                ((and head (? copyable?)) (and tail (? copyable?))))
-            (for-tail (make-primcall src '@apply
+            (for-tail (make-primcall src 'apply
                                      (cons proc
                                            (append args (list head tail))))))
            (($ <primcall> _ 'list
@@ -1215,7 +1215,7 @@ top-level bindings from ENV and return the resulting expression."
             (if speculative?
                 (lp (for-value tail) #f)
                 (let ((args (append (map for-value args) (list tail*))))
-                  (make-primcall src '@apply
+                  (make-primcall src 'apply
                                  (cons (for-value proc) args))))))))
 
       (($ <primcall> src (? constructor-primitive? name) args)
@@ -1461,7 +1461,7 @@ top-level bindings from ENV and return the resulting expression."
        (define (lift-applied-lambda body gensyms)
          (and (not opt) rest (not kw)
               (match body
-                (($ <primcall> _ '@apply
+                (($ <primcall> _ 'apply
                     (($ <lambda> _ _ (and lcase ($ <lambda-case>)))
                      ($ <lexical-ref> _ _ sym)
                      ...))

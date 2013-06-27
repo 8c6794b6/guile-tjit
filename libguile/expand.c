@@ -181,7 +181,6 @@ SCM_GLOBAL_SYMBOL (scm_sym_arrow, "=>");
 SCM_GLOBAL_SYMBOL (scm_sym_at, "@");
 SCM_GLOBAL_SYMBOL (scm_sym_atat, "@@");
 SCM_GLOBAL_SYMBOL (scm_sym_at_call_with_values, "@call-with-values");
-SCM_GLOBAL_SYMBOL (scm_sym_atapply, "@apply");
 SCM_GLOBAL_SYMBOL (scm_sym_atcall_cc, "@call-with-current-continuation");
 SCM_GLOBAL_SYMBOL (scm_sym_begin, "begin");
 SCM_GLOBAL_SYMBOL (scm_sym_case, "case");

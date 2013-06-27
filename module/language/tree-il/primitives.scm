@@ -36,7 +36,7 @@
 ;; When adding to this, be sure to update *multiply-valued-primitives*
 ;; if appropriate.
 (define *interesting-primitive-names* 
-  '(apply @apply
+  '(apply
     call-with-values @call-with-values
     call-with-current-continuation @call-with-current-continuation
     call/cc
@@ -180,7 +180,7 @@
 
 ;; Primitives that don't always return one value.
 (define *multiply-valued-primitives* 
-  '(apply @apply
+  '(apply
     call-with-values @call-with-values
     call-with-current-continuation @call-with-current-continuation
     call/cc
@@ -447,9 +447,6 @@
 
 (define-primitive-expander acons (x y z)
   (cons (cons x y) z))
-
-(define-primitive-expander apply (f a0 . args)
-  (@apply f a0 . args))
 
 (define-primitive-expander call-with-values (producer consumer)
   (@call-with-values producer consumer))

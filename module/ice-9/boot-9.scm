@@ -192,7 +192,7 @@ If there is no handler at all, Guile prints an error and then exits."
 ;;;
 
 ;; These are are the procedural wrappers around the primitives of
-;; Guile's language: @apply, @call-with-current-continuation, etc.
+;; Guile's language: apply, call-with-current-continuation, etc.
 ;;
 ;; Usually, a call to a primitive is compiled specially.  The compiler
 ;; knows about all these kinds of expressions.  But the primitives may
@@ -200,8 +200,18 @@ If there is no handler at all, Guile prints an error and then exits."
 ;; stub procedures are the "values" of apply, dynamic-wind, and other
 ;; such primitives.
 ;;
-(define (apply fun . args)
-  (@apply fun (apply:nconc2last args)))
+(define apply
+  (case-lambda
+    ((fun args)
+     ((@@ primitive apply) fun args))
+    ((fun arg1 . args)
+     (letrec ((append* (lambda (tail)
+                         (let ((tail (car tail))
+                               (tail* (cdr tail)))
+                           (if (null? tail*)
+                               tail
+                               (cons tail (append* tail*)))))))
+       (apply fun (cons arg1 (append* args)))))))
 (define (call-with-current-continuation proc)
   (@call-with-current-continuation proc))
 (define (call-with-values producer consumer)

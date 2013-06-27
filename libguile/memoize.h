@@ -3,7 +3,7 @@
 #ifndef SCM_MEMOIZE_H
 #define SCM_MEMOIZE_H
 
-/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002,2004,2008,2009,2010,2011
+/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002,2004,2008,2009,2010,2011,2013
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -48,7 +48,6 @@ SCM_API SCM scm_sym_with_fluids;
 
 SCM_API SCM scm_sym_at;
 SCM_API SCM scm_sym_atat;
-SCM_API SCM scm_sym_atapply;
 SCM_API SCM scm_sym_atcall_cc;
 SCM_API SCM scm_sym_at_call_with_values;
 SCM_API SCM scm_sym_delay;

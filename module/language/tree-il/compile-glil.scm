@@ -372,7 +372,7 @@
 
       ((<primcall> src name args)
        (pmatch (cons name args)
-         ((@apply ,proc . ,args)
+         ((apply ,proc . ,args)
           (cond
            ((and (primitive-ref? proc) (eq? (primitive-ref-name proc) 'values)
                  (not (eq? context 'push)) (not (eq? context 'vals)))
@@ -398,7 +398,8 @@
                (emit-code src (make-glil-call 'apply (1+ (length args))))
                (maybe-emit-return))
               (else
-               (comp-tail (make-primcall src 'apply (cons proc args))))))))
+               (comp-tail (make-call src (make-primitive-ref #f 'apply)
+                                     (cons proc args))))))))
 
          ((values . _)
           ;; tail: (lambda () (values '(1 2)))

@@ -874,7 +874,7 @@
     (let (args) (_) ((primcall list (const 2) (const 3)))
          (seq
           (call (toplevel foo!) (lexical args _))
-          (primcall @apply
+          (primcall apply
                     (lambda ()
                       (lambda-case
                        (((x y z w) #f #f #f () (_ _ _ _))
@@ -898,7 +898,7 @@
                 bv
                 (+ offset 4))))
         (let ((args (list x y)))
-          (@apply
+          (apply
            (lambda (bv offset x y)
              (bytevector-ieee-single-native-set!
               bv
@@ -938,7 +938,7 @@
     ;; Here we ensure that non-constant expressions are not copied.
     (lambda ()
       (let ((args (list (foo!))))
-        (@apply
+        (apply
          (lambda (z x)
            (list z x))
          ;; This toplevel ref might raise an unbound variable exception.
@@ -959,7 +959,7 @@
     (lambda ()
       (let ((args (list 'foo)))
         (set-car! args 'bar)
-        (@apply
+        (apply
          (lambda (z x)
            (list z x))
          z
@@ -971,7 +971,7 @@
              ((primcall list (const foo)))
              (seq
               (primcall set-car! (lexical args _) (const bar))
-              (primcall @apply
+              (primcall apply
                         (lambda . _)
                         (toplevel z)
                         (lexical args _))))))))
@@ -1106,7 +1106,7 @@
           (lambda-case
            ((() #f vals #f () (_))
             (seq (toplevel baz)
-                 (primcall @apply (primitive values) (lexical vals _))))))))
+                 (primcall apply (primitive values) (lexical vals _))))))))
   
   (pass-if-peval
    ;; Prompt is removed if tag is unreferenced
@@ -1145,7 +1145,7 @@
                 (const 1)
                 (lambda-case
                  ((() #f args #f () (_))
-                  (primcall @apply
+                  (primcall apply
                             (lexical handler _)
                             (lexical args _)))))))
 
