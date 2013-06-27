@@ -48,7 +48,6 @@ SCM_API SCM scm_sym_with_fluids;
 
 SCM_API SCM scm_sym_at;
 SCM_API SCM scm_sym_atat;
-SCM_API SCM scm_sym_at_call_with_values;
 SCM_API SCM scm_sym_delay;
 SCM_API SCM scm_sym_at_dynamic_wind;
 SCM_API SCM scm_sym_eval_when;

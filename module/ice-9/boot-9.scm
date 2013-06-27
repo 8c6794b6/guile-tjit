@@ -215,7 +215,7 @@ If there is no handler at all, Guile prints an error and then exits."
 (define (call-with-current-continuation proc)
   ((@@ primitive call-with-current-continuation) proc))
 (define (call-with-values producer consumer)
-  (@call-with-values producer consumer))
+  ((@@ primitive call-with-values) producer consumer))
 (define (dynamic-wind in thunk out)
   "All three arguments must be 0-argument procedures.
 Guard @var{in} is called, then @var{thunk}, then

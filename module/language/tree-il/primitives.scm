@@ -37,7 +37,7 @@
 ;; if appropriate.
 (define *interesting-primitive-names* 
   '(apply
-    call-with-values @call-with-values
+    call-with-values
     call-with-current-continuation
     call/cc
     dynamic-wind
@@ -181,7 +181,7 @@
 ;; Primitives that don't always return one value.
 (define *multiply-valued-primitives* 
   '(apply
-    call-with-values @call-with-values
+    call-with-values
     call-with-current-continuation
     call/cc
     dynamic-wind
@@ -447,9 +447,6 @@
 
 (define-primitive-expander acons (x y z)
   (cons (cons x y) z))
-
-(define-primitive-expander call-with-values (producer consumer)
-  (@call-with-values producer consumer))
 
 (define-primitive-expander call/cc (proc)
   (call-with-current-continuation proc))

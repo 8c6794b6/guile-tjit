@@ -432,7 +432,7 @@
                                   (make-glil-call 'return 1)
                                   (make-glil-call 'return/values len)))))))
         
-         ((@call-with-values ,producer ,consumer)
+         ((call-with-values ,producer ,consumer)
           ;; CONSUMER
           ;; PRODUCER
           ;; (mv-call MV)
@@ -443,7 +443,8 @@
           (case context
             ((vals)
              ;; Fall back.
-             (comp-tail (make-primcall src 'call-with-values args)))
+             (comp-tail
+              (make-call src (make-toplevel-ref #f 'call-with-values) args)))
             (else
              (let ((MV (make-label)) (POST (make-label)))
                (if (not (eq? context 'tail))
