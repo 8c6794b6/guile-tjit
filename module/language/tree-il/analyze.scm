@@ -340,9 +340,6 @@
       ((<dynlet> fluids vals body)
        (apply lset-union eq? (step body) (map step (append fluids vals))))
       
-      ((<dynref> fluid)
-       (step fluid))
-      
       ((<dynset> fluid exp)
        (lset-union eq? (step fluid) (step exp)))
       
@@ -510,9 +507,6 @@
       
       ((<dynlet> fluids vals body)
        (apply max (recur body) (map recur (append fluids vals))))
-      
-      ((<dynref> fluid)
-       (recur fluid))
       
       ((<dynset> fluid exp)
        (max (recur fluid) (recur exp)))

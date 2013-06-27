@@ -47,7 +47,6 @@
             <fix> fix? make-fix fix-src fix-names fix-gensyms fix-vals fix-body
             <let-values> let-values? make-let-values let-values-src let-values-exp let-values-body
             <dynlet> dynlet? make-dynlet dynlet-src dynlet-fluids dynlet-vals dynlet-body
-            <dynref> dynref? make-dynref dynref-src dynref-fluid
             <dynset> dynset? make-dynset dynset-src dynset-fluid dynset-exp
             <prompt> prompt? make-prompt prompt-src prompt-tag prompt-body prompt-handler
             <abort> abort? make-abort abort-src abort-tag abort-args abort-tail
@@ -135,7 +134,6 @@
 (define-type (<tree-il> #:common-slots (src) #:printer print-tree-il)
   (<fix> names gensyms vals body)
   (<let-values> exp body)
-  (<dynref> fluid)
   (<dynset> fluid exp)
   (<prompt> tag body handler)
   (<abort> tag args tail))
@@ -250,9 +248,6 @@
      (('dynlet fluids vals body)
       (make-dynlet loc (map retrans fluids) (map retrans vals) (retrans body)))
 
-     (('dynref fluid)
-      (make-dynref loc (retrans fluid)))
-
      (('dynset fluid exp)
       (make-dynset loc (retrans fluid) (retrans exp)))
 
@@ -338,9 +333,6 @@
      `(dynlet ,(map unparse-tree-il fluids) ,(map unparse-tree-il vals)
               ,(unparse-tree-il body)))
 
-    (($ <dynref> src fluid)
-     `(dynref ,(unparse-tree-il fluid)))
-
     (($ <dynset> src fluid exp)
      `(dynset ,(unparse-tree-il fluid) ,(unparse-tree-il exp)))
 
@@ -418,8 +410,6 @@
                (let*-values (((seed ...) (fold-values foldts fluids seed ...))
                              ((seed ...) (fold-values foldts vals seed ...)))
                  (foldts body seed ...)))
-              (($ <dynref> src fluid)
-               (foldts fluid seed ...))
               (($ <dynset> src fluid exp)
                (let*-values (((seed ...) (foldts fluid seed ...)))
                  (foldts exp seed ...)))
@@ -515,9 +505,6 @@ This is an implementation of `foldts' as described by Andy Wingo in
 
        (($ <dynlet> src fluids vals body)
         (make-dynlet src (map lp fluids) (map lp vals) (lp body)))
-
-       (($ <dynref> src fluid)
-        (make-dynref src (lp fluid)))
 
        (($ <dynset> src fluid exp)
         (make-dynset src (lp fluid) (lp exp)))

@@ -515,7 +515,6 @@ top-level bindings from ENV and return the resulting expression."
              ($ <toplevel-ref>)
              ($ <module-ref>)
              ($ <primitive-ref>)
-             ($ <dynref>)
              ($ <lexical-set>)          ; FIXME: these set! expressions
              ($ <toplevel-set>)         ; could return zero values in
              ($ <toplevel-define>)      ; the future
@@ -999,8 +998,6 @@ top-level bindings from ENV and return the resulting expression."
       (($ <dynlet> src fluids vals body)
        (make-dynlet src (map for-value fluids) (map for-value vals)
                     (for-tail body)))
-      (($ <dynref> src fluid)
-       (make-dynref src (for-value fluid)))
       (($ <dynset> src fluid exp)
        (make-dynset src (for-value fluid) (for-value exp)))
       (($ <toplevel-ref> src (? effect-free-primitive? name))

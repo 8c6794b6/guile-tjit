@@ -216,8 +216,6 @@
          (for-each (cut visit <> env) fluids)
          (for-each (cut visit <> env) vals)
          (visit body env))))
-      (($ <dynref> src fluid)
-       (visit fluid env))
       (($ <dynset> src fluid exp)
        (visit fluid env)
        (visit exp env))

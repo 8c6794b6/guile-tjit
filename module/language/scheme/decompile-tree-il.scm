@@ -438,9 +438,6 @@
                              (map recurse vals))
             ,@(recurse-body body)))
 
-        ((<dynref> fluid)
-         `(fluid-ref ,(recurse fluid)))
-
         ((<dynset> fluid exp)
          `(fluid-set! ,(recurse fluid) ,(recurse exp)))
 
@@ -762,7 +759,6 @@
              (for-each recurse vals)
              (recurse body))
 
-            ((<dynref> fluid) (primitive 'fluid-ref) (recurse fluid))
             ((<dynset> fluid exp)
              (primitive 'fluid-set!) (recurse fluid) (recurse exp))
 

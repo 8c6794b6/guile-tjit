@@ -114,6 +114,7 @@
    (list . list)
    (vector . vector)
    ((class-of . 1) . class-of)
+   ((fluid-ref . 1) . fluid-ref)
    ((@slot-ref . 2) . slot-ref)
    ((@slot-set! . 3) . slot-set)
    ((string-length . 1) . string-length)
@@ -989,15 +990,6 @@
           (if RA
               (emit-branch #f 'br RA)))))
 
-      ((<dynref> src fluid)
-       (case context
-         ((drop)
-          (comp-drop fluid))
-         ((push vals tail)
-          (comp-push fluid)
-          (emit-code #f (make-glil-call 'fluid-ref 1))))
-       (maybe-emit-return))
-      
       ((<dynset> src fluid exp)
        (comp-push fluid)
        (comp-push exp)

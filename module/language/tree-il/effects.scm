@@ -217,10 +217,6 @@ of an expression."
                    (cause &type-check)
                    (cause &fluid)
                    (compute-effects body)))
-          (($ <dynref> _ fluid)
-           (logior (compute-effects fluid)
-                   (cause &type-check)
-                   &fluid))
           (($ <dynset> _ fluid exp)
            (logior (compute-effects fluid)
                    (compute-effects exp)
@@ -281,6 +277,9 @@ of an expression."
 
           (($ <primcall> _ 'make-prompt-tag (arg))
            (logior (compute-effects arg) &allocation))
+
+          (($ <primcall> _ 'fluid-ref (fluid))
+           (logior (compute-effects fluid) &fluid))
 
           ;; Primitives that are normally effect-free, but which might
           ;; cause type checks, allocate memory, or access mutable
