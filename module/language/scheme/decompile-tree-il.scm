@@ -438,9 +438,6 @@
                              (map recurse vals))
             ,@(recurse-body body)))
 
-        ((<dynset> fluid exp)
-         `(fluid-set! ,(recurse fluid) ,(recurse exp)))
-
         ((<prompt> tag body handler)
          `(call-with-prompt
            ,(recurse tag)
@@ -758,9 +755,6 @@
              (for-each recurse fluids)
              (for-each recurse vals)
              (recurse body))
-
-            ((<dynset> fluid exp)
-             (primitive 'fluid-set!) (recurse fluid) (recurse exp))
 
             ((<prompt> tag body handler)
              (primitive 'call-with-prompt)

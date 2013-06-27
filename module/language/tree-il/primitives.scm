@@ -535,12 +535,6 @@
 (hashq-set! *primitive-expand-table* 'equal? maybe-simplify-to-eq)
 
 (hashq-set! *primitive-expand-table*
-            'fluid-set!
-            (case-lambda
-              ((src fluid exp) (make-dynset src fluid exp))
-              (else #f)))
-
-(hashq-set! *primitive-expand-table*
             'call-with-prompt
             (case-lambda
               ((src tag thunk handler)

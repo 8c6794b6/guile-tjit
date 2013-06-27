@@ -47,7 +47,6 @@
             <fix> fix? make-fix fix-src fix-names fix-gensyms fix-vals fix-body
             <let-values> let-values? make-let-values let-values-src let-values-exp let-values-body
             <dynlet> dynlet? make-dynlet dynlet-src dynlet-fluids dynlet-vals dynlet-body
-            <dynset> dynset? make-dynset dynset-src dynset-fluid dynset-exp
             <prompt> prompt? make-prompt prompt-src prompt-tag prompt-body prompt-handler
             <abort> abort? make-abort abort-src abort-tag abort-args abort-tail
 
@@ -134,7 +133,6 @@
 (define-type (<tree-il> #:common-slots (src) #:printer print-tree-il)
   (<fix> names gensyms vals body)
   (<let-values> exp body)
-  (<dynset> fluid exp)
   (<prompt> tag body handler)
   (<abort> tag args tail))
 
@@ -248,9 +246,6 @@
      (('dynlet fluids vals body)
       (make-dynlet loc (map retrans fluids) (map retrans vals) (retrans body)))
 
-     (('dynset fluid exp)
-      (make-dynset loc (retrans fluid) (retrans exp)))
-
      (('prompt tag body handler)
       (make-prompt loc (retrans tag) (retrans body) (retrans handler)))
      
@@ -333,9 +328,6 @@
      `(dynlet ,(map unparse-tree-il fluids) ,(map unparse-tree-il vals)
               ,(unparse-tree-il body)))
 
-    (($ <dynset> src fluid exp)
-     `(dynset ,(unparse-tree-il fluid) ,(unparse-tree-il exp)))
-
     (($ <prompt> src tag body handler)
      `(prompt ,(unparse-tree-il tag)
               ,(unparse-tree-il body)
@@ -410,9 +402,6 @@
                (let*-values (((seed ...) (fold-values foldts fluids seed ...))
                              ((seed ...) (fold-values foldts vals seed ...)))
                  (foldts body seed ...)))
-              (($ <dynset> src fluid exp)
-               (let*-values (((seed ...) (foldts fluid seed ...)))
-                 (foldts exp seed ...)))
               (($ <prompt> src tag body handler)
                (let*-values (((seed ...) (foldts tag seed ...))
                              ((seed ...) (foldts body seed ...)))
@@ -505,9 +494,6 @@ This is an implementation of `foldts' as described by Andy Wingo in
 
        (($ <dynlet> src fluids vals body)
         (make-dynlet src (map lp fluids) (map lp vals) (lp body)))
-
-       (($ <dynset> src fluid exp)
-        (make-dynset src (lp fluid) (lp exp)))
 
        (($ <prompt> src tag body handler)
         (make-prompt src (lp tag) (lp body) (lp handler)))

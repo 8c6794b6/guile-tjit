@@ -340,9 +340,6 @@
       ((<dynlet> fluids vals body)
        (apply lset-union eq? (step body) (map step (append fluids vals))))
       
-      ((<dynset> fluid exp)
-       (lset-union eq? (step fluid) (step exp)))
-      
       ((<prompt> tag body handler)
        (lset-union eq? (step tag) (step body) (step-tail handler)))
       
@@ -507,9 +504,6 @@
       
       ((<dynlet> fluids vals body)
        (apply max (recur body) (map recur (append fluids vals))))
-      
-      ((<dynset> fluid exp)
-       (max (recur fluid) (recur exp)))
       
       ((<prompt> tag body handler)
        (let ((cont-var (and (lambda-case? handler)

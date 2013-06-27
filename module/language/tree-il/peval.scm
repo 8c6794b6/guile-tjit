@@ -519,7 +519,6 @@ top-level bindings from ENV and return the resulting expression."
              ($ <toplevel-set>)         ; could return zero values in
              ($ <toplevel-define>)      ; the future
              ($ <module-set>)           ;
-             ($ <dynset>)               ;
              ($ <primcall> src (? singly-valued-primitive?)))
          (and (<= nmin 1) (or (not nmax) (>= nmax 1))
               (make-call src (make-lambda #f '() consumer) (list exp))))
@@ -998,8 +997,6 @@ top-level bindings from ENV and return the resulting expression."
       (($ <dynlet> src fluids vals body)
        (make-dynlet src (map for-value fluids) (map for-value vals)
                     (for-tail body)))
-      (($ <dynset> src fluid exp)
-       (make-dynset src (for-value fluid) (for-value exp)))
       (($ <toplevel-ref> src (? effect-free-primitive? name))
        exp)
       (($ <toplevel-ref>)
