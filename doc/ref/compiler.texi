@@ -476,16 +476,6 @@ expression evaluating to a fluid.
 A dynamic variable set. @var{fluid}, a Tree-IL expression evaluating
 to a fluid, will be set to the result of evaluating @var{exp}.
 @end deftp
-@deftp {Scheme Variable} <dynwind> winder pre body post unwinder
-@deftpx {External Representation} (dynwind @var{winder} @var{pre} @var{body} @var{post} @var{unwinder})
-A @code{dynamic-wind}. @var{winder} and @var{unwinder} should both
-evaluate to thunks.  Ensure that the winder and the unwinder are called
-before entering and after leaving @var{body}.  Note that @var{body} is
-an expression, without a thunk wrapper.  Guile actually inlines the
-bodies of @var{winder} and @var{unwinder} for the case of normal control
-flow, compiling the expressions in @var{pre} and @var{post},
-respectively.
-@end deftp
 @deftp {Scheme Variable} <prompt> tag body handler
 @deftpx {External Representation} (prompt @var{tag} @var{body} @var{handler})
 A dynamic prompt. Instates a prompt named @var{tag}, an expression,

@@ -41,7 +41,6 @@
     call-with-current-continuation
     call/cc
     dynamic-wind
-    @dynamic-wind
     values
     eq? eqv? equal?
     memq memv
@@ -50,6 +49,8 @@
     ash logand logior logxor lognot
     not
     pair? null? list? symbol? vector? string? struct? number? char? nil?
+
+    procedure? thunk?
 
     complex? real? rational? inf? nan? integer? exact? inexact? even? odd?
 
@@ -176,6 +177,7 @@
     eq? eqv? equal?
     not
     pair? null? list? symbol? vector? struct? string? number? char?
+    procedure? thunk?
     acons cons cons* list vector))
 
 ;; Primitives that don't always return one value.
@@ -185,7 +187,6 @@
     call-with-current-continuation
     call/cc
     dynamic-wind
-    @dynamic-wind
     values
     call-with-prompt
     @abort abort-to-prompt))
@@ -532,38 +533,6 @@
 
 (hashq-set! *primitive-expand-table* 'eqv?   maybe-simplify-to-eq)
 (hashq-set! *primitive-expand-table* 'equal? maybe-simplify-to-eq)
-
-(hashq-set! *primitive-expand-table*
-            '@dynamic-wind
-            (case-lambda
-              ((src pre expr post)
-               (let* ((PRE (gensym "pre-"))
-                      (POST (gensym "post-"))
-                      (winder (make-lexical-ref #f 'winder PRE))
-                      (unwinder (make-lexical-ref #f 'unwinder POST)))
-                 (define (make-begin0 src first second)
-                   (make-let-values
-                    src
-                    first
-                    (let ((vals (gensym "vals ")))
-                      (make-lambda-case
-                       #f
-                       '() #f 'vals #f '() (list vals)
-                       (make-seq
-                        src
-                        second
-                        (make-primcall #f 'apply
-                                       (list
-                                        (make-primitive-ref #f 'values)
-                                        (make-lexical-ref #f 'vals vals))))
-                       #f))))
-                 (make-let src '(pre post) (list PRE POST) (list pre post)
-                           (make-seq src
-                                     (make-call src winder '())
-                                     (make-begin0
-                                      src
-                                      (make-dynwind src winder expr unwinder)
-                                      (make-call src unwinder '()))))))))
 
 (hashq-set! *primitive-expand-table*
             'fluid-ref

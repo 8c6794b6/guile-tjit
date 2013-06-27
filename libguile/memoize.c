@@ -60,6 +60,27 @@ SCM_SYMBOL (sym_case_lambda_star, "case-lambda*");
 
 
 
+/* Primitives not exposed to general Scheme. */
+static SCM wind;
+static SCM unwind;
+
+static SCM
+do_wind (SCM in, SCM out)
+{
+  scm_dynstack_push_dynwind (&SCM_I_CURRENT_THREAD->dynstack, in, out);
+  return SCM_UNSPECIFIED;
+}
+
+static SCM
+do_unwind (void)
+{
+  scm_dynstack_pop (&SCM_I_CURRENT_THREAD->dynstack);
+  return SCM_UNSPECIFIED;
+}
+
+
+
+
 /* {Evaluator memoized expressions}
  */
 
@@ -88,8 +109,6 @@ scm_t_bits scm_tc16_memoized;
   MAKMEMO (SCM_M_QUOTE, exp)
 #define MAKMEMO_DEFINE(var, val) \
   MAKMEMO (SCM_M_DEFINE, scm_cons (var, val))
-#define MAKMEMO_DYNWIND(in, expr, out) \
-  MAKMEMO (SCM_M_DYNWIND, scm_cons (in, scm_cons (expr, out)))
 #define MAKMEMO_WITH_FLUIDS(fluids, vals, expr) \
   MAKMEMO (SCM_M_WITH_FLUIDS, scm_cons (fluids, scm_cons (vals, expr)))
 #define MAKMEMO_APPLY(proc, args)\
@@ -116,11 +135,6 @@ scm_t_bits scm_tc16_memoized;
   MAKMEMO (SCM_M_CALL_WITH_PROMPT, scm_cons (tag, scm_cons (thunk, handler)))
 
 
-/* Primitives for the evaluator */
-scm_t_bits scm_tc16_memoizer;
-#define SCM_MEMOIZER_P(x) (SCM_SMOB_PREDICATE (scm_tc16_memoizer, (x)))
-#define SCM_MEMOIZER(M) (SCM_SMOB_OBJECT_1 (M))
-
 
 
 /* This table must agree with the list of M_ constants in memoize.h */
@@ -132,7 +146,6 @@ static const char *const memoized_tags[] =
   "let",
   "quote",
   "define",
-  "dynwind",
   "with-fluids",
   "apply",
   "call/cc",
@@ -250,18 +263,6 @@ memoize (SCM exp, SCM env)
         proc = REF (exp, CALL, PROC);
         args = memoize_exps (REF (exp, CALL, ARGS), env);
 
-        if (SCM_EXPANDED_TYPE (proc) == SCM_EXPANDED_TOPLEVEL_REF)
-          {
-            SCM var = scm_module_variable (scm_current_module (),
-                                           REF (proc, TOPLEVEL_REF, NAME));
-            if (SCM_VARIABLEP (var))
-              {
-                SCM val = SCM_VARIABLE_REF (var);
-                if (SCM_MEMOIZER_P (val))
-                  return scm_apply (SCM_SMOB_OBJECT_1 (val), args, SCM_EOL);
-              }
-          }
-        /* otherwise we all fall down here */
         return MAKMEMO_CALL (memoize (proc, env), scm_ilength (args), args);
       }
 
@@ -291,6 +292,12 @@ memoize (SCM exp, SCM env)
                  && scm_is_eq (name,
                                scm_from_latin1_symbol ("call-with-values")))
           return MAKMEMO_CALL_WITH_VALUES (CAR (args), CADR (args));
+        else if (nargs == 2
+                 && scm_is_eq (name, scm_from_latin1_symbol ("wind")))
+          return MAKMEMO_CALL (MAKMEMO_QUOTE (wind), 2, args);
+        else if (nargs == 0
+                 && scm_is_eq (name, scm_from_latin1_symbol ("unwind")))
+          return MAKMEMO_CALL (MAKMEMO_QUOTE (unwind), 0, SCM_EOL);
         else if (scm_is_eq (scm_current_module (), scm_the_root_module ()))
           return MAKMEMO_CALL (MAKMEMO_TOP_REF (name), nargs, args);
         else
@@ -530,32 +537,6 @@ SCM_DEFINE (scm_memoize_expression, "memoize-expression", 1, 0, 0,
 
 
 
-#define SCM_MAKE_MEMOIZER(STR, MEMOIZER, N)                             \
-  (scm_cell (scm_tc16_memoizer,                                         \
-             SCM_UNPACK (scm_c_make_gsubr (STR, N, 0, 0, MEMOIZER))))
-#define SCM_DEFINE_MEMOIZER(STR, MEMOIZER, N)                           \
-SCM_SNARF_INIT(scm_c_define (STR, SCM_MAKE_MEMOIZER (STR, MEMOIZER, N)))
-
-static SCM m_dynamic_wind (SCM pre, SCM exp, SCM post);
-
-SCM_DEFINE_MEMOIZER ("@dynamic-wind", m_dynamic_wind, 3);
-
-
-
-
-static SCM m_dynamic_wind (SCM in, SCM expr, SCM out)
-#define FUNC_NAME "memoize-dynwind"
-{
-  SCM_VALIDATE_MEMOIZED (1, in);
-  SCM_VALIDATE_MEMOIZED (2, expr);
-  SCM_VALIDATE_MEMOIZED (3, out);
-  return MAKMEMO_DYNWIND (in, expr, out);
-}
-#undef FUNC_NAME
-
-
-
-
 SCM_SYMBOL (sym_placeholder, "_");
 
 static SCM unmemoize (SCM expr);
@@ -630,11 +611,6 @@ unmemoize (const SCM expr)
                          unmemoize (CAR (args)), unmemoize (CDR (args)));
     case SCM_M_DEFINE:
       return scm_list_3 (scm_sym_define, CAR (args), unmemoize (CDR (args)));
-    case SCM_M_DYNWIND:
-      return scm_list_4 (scm_sym_at_dynamic_wind,
-                         unmemoize (CAR (args)),
-                         unmemoize (CADR (args)),
-                         unmemoize (CDDR (args)));
     case SCM_M_WITH_FLUIDS:
       {
         SCM binds = SCM_EOL, fluids, vals;
@@ -879,9 +855,10 @@ scm_init_memoize ()
   scm_tc16_memoized = scm_make_smob_type ("%memoized", 0);
   scm_set_smob_print (scm_tc16_memoized, scm_print_memoized);
 
-  scm_tc16_memoizer = scm_make_smob_type ("memoizer", 0);
-
 #include "libguile/memoize.x"
+
+  wind = scm_c_make_gsubr ("wind", 2, 0, 0, do_wind);
+  unwind = scm_c_make_gsubr ("unwind", 0, 0, 0, do_unwind);
 
   list_of_guile = scm_list_1 (scm_from_latin1_symbol ("guile"));
 }

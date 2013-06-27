@@ -135,6 +135,9 @@
    ;; hack for lua
    (return/values . return/values)
 
+   ((wind . 2) . wind)
+   ((unwind . 0) . unwind)
+
    ((bytevector-u8-ref . 2) . bv-u8-ref)
    ((bytevector-u8-set! . 3) . bv-u8-set)
    ((bytevector-s8-ref . 2) . bv-s8-ref)
@@ -939,74 +942,6 @@
             (comp-tail body)
             (clear-stack-slots context gensyms)
             (emit-code #f (make-glil-unbind))))))
-
-      ((<dynwind> src winder body unwinder)
-       (define (thunk? x)
-         (and (lambda? x)
-              (null? (lambda-case-gensyms (lambda-body x)))))
-       (define (make-wrong-type-arg x)
-         (make-primcall src 'scm-error
-                        (list
-                         (make-const #f 'wrong-type-arg)
-                         (make-const #f "dynamic-wind")
-                         (make-const #f "Wrong type (expecting thunk): ~S")
-                         (make-primcall #f 'list (list x))
-                         (make-primcall #f 'list (list x)))))
-       (define (emit-thunk-check x)
-         (comp-drop (make-conditional
-                     src
-                     (make-primcall src 'thunk? (list x))
-                     (make-void #f)
-                     (make-wrong-type-arg x))))
-
-       ;; The `winder' and `unwinder' of a dynwind are constant
-       ;; expressions and can be duplicated.
-       (if (not (thunk? winder))
-           (emit-thunk-check winder))
-       (comp-push winder)
-       (if (not (thunk? unwinder))
-           (emit-thunk-check unwinder))
-       (comp-push unwinder)
-       (emit-code #f (make-glil-call 'wind 2))
-
-       (case context
-         ((tail)
-          (let ((MV (make-label)))
-            (comp-vals body MV)
-            ;; One value.  Unwind and return the value.
-            (emit-code #f (make-glil-call 'unwind 0))
-            (emit-code #f (make-glil-call 'return 1))
-            
-            (emit-label MV)
-            ;; Multiple values.  Unwind and return the values.
-            (emit-code #f (make-glil-call 'unwind 0))
-            (emit-code #f (make-glil-call 'return/nvalues 1))))
-         
-         ((push)
-          ;; We only want one value, so ask for one value and then
-          ;; unwind, leaving the value on the stack.
-          (comp-push body)
-          (emit-code #f (make-glil-call 'unwind 0)))
-         
-         ((vals)
-          (let ((MV (make-label)))
-            (comp-vals body MV)
-            ;; Transform a singly-valued return to a multiple-value
-            ;; return and fall through to MV case.
-            (emit-code #f (make-glil-const 1))
-            
-            (emit-label MV)
-            ;; Multiple values: unwind and go to the MVRA.
-            (emit-code #f (make-glil-call 'unwind 0))
-            (emit-branch #f 'br MVRA)))
-         
-         ((drop)
-          ;; Compile body, discarding values.  Then unwind and fall
-          ;; through, or goto RA if there is one.
-          (comp-drop body)
-          (emit-code #f (make-glil-call 'unwind 0))
-          (if RA
-              (emit-branch #f 'br RA)))))
 
       ((<dynlet> src fluids vals body)
        (for-each comp-push fluids)

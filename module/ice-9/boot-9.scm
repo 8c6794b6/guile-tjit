@@ -266,7 +266,16 @@ x
 a-cont
 @result{} special-binding
 @end lisp"
-  (@dynamic-wind in (thunk) out))
+  (if (thunk? out)
+      (in)
+      (scm-error 'wrong-type-arg "dynamic-wind" "Not a thunk: ~S"
+                 (list out) #f))
+  ((@@ primitive wind) in out)
+  (call-with-values thunk
+    (lambda vals
+      ((@@ primitive unwind))
+      (out)
+      (apply values vals))))
 
 
 

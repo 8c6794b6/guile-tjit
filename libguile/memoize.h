@@ -49,7 +49,6 @@ SCM_API SCM scm_sym_with_fluids;
 SCM_API SCM scm_sym_at;
 SCM_API SCM scm_sym_atat;
 SCM_API SCM scm_sym_delay;
-SCM_API SCM scm_sym_at_dynamic_wind;
 SCM_API SCM scm_sym_eval_when;
 SCM_API SCM scm_sym_arrow;
 SCM_API SCM scm_sym_else;
@@ -74,7 +73,6 @@ enum
     SCM_M_LET,
     SCM_M_QUOTE,
     SCM_M_DEFINE,
-    SCM_M_DYNWIND,
     SCM_M_WITH_FLUIDS,
     SCM_M_APPLY,
     SCM_M_CONT,

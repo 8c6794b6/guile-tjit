@@ -337,9 +337,6 @@
       ((<let-values> exp body)
        (lset-union eq? (step exp) (step body)))
       
-      ((<dynwind> winder body unwinder)
-       (lset-union eq? (step winder) (step body) (step unwinder)))
-      
       ((<dynlet> fluids vals body)
        (apply lset-union eq? (step body) (map step (append fluids vals))))
       
@@ -510,9 +507,6 @@
 
       ((<let-values> exp body)
        (max (recur exp) (recur body)))
-      
-      ((<dynwind> winder body unwinder)
-       (max (recur winder) (recur body) (recur unwinder)))
       
       ((<dynlet> fluids vals body)
        (apply max (recur body) (map recur (append fluids vals))))

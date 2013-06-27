@@ -1070,42 +1070,48 @@
    ;; the dynwind; alack.
    (dynamic-wind foo (lambda () bar) baz)
    (let (tmp tmp) (_ _) ((toplevel foo) (toplevel baz))
-        (seq (call (lexical tmp _))
-             (let (tmp) (_) ((dynwind (lexical tmp _)
-                                      (toplevel bar)
-                                      (lexical tmp _)))
-                  (seq (call (lexical tmp _))
+        (seq (seq (if (primcall thunk? (lexical tmp _))
+                      (call (lexical tmp _))
+                      (primcall scm-error . _))
+                  (primcall wind (lexical tmp _) (lexical tmp _)))
+             (let (tmp) (_) ((toplevel bar))
+                  (seq (seq (primcall unwind)
+                            (call (lexical tmp _)))
                        (lexical tmp _))))))
   
   (pass-if-peval
-   ;; Constant guards don't need lexical bindings.
+   ;; Constant guards don't need lexical bindings or thunk? checks.
    (dynamic-wind (lambda () foo) (lambda () bar) (lambda () baz))
-   (seq (toplevel foo)
-        (let (tmp) (_) ((dynwind (lambda ()
-                                   (lambda-case
-                                    ((() #f #f #f () ()) (toplevel foo))))
-                                 (toplevel bar)
-                                 (lambda ()
-                                   (lambda-case
-                                    ((() #f #f #f () ()) (toplevel baz))))))
-             (seq (toplevel baz)
+   (seq (seq (toplevel foo)
+             (primcall wind
+                       (lambda ()
+                         (lambda-case
+                          ((() #f #f #f () ()) (toplevel foo))))
+                       (lambda ()
+                         (lambda-case
+                          ((() #f #f #f () ()) (toplevel baz))))))
+        (let (tmp) (_) ((toplevel bar))
+             (seq (seq (primcall unwind)
+                       (toplevel baz))
                   (lexical tmp _)))))
   
   (pass-if-peval
    ;; Dynwind bodies that return an unknown number of values need a
    ;; let-values.
    (dynamic-wind (lambda () foo) (lambda () (bar)) (lambda () baz))
-   (seq (toplevel foo)
-        (let-values (dynwind (lambda ()
-                               (lambda-case
-                                ((() #f #f #f () ()) (toplevel foo))))
-                             (call (toplevel bar))
-                             (lambda ()
-                               (lambda-case
-                                ((() #f #f #f () ()) (toplevel baz)))))
+   (seq (seq (toplevel foo)
+             (primcall wind
+                       (lambda ()
+                         (lambda-case
+                          ((() #f #f #f () ()) (toplevel foo))))
+                       (lambda ()
+                         (lambda-case
+                          ((() #f #f #f () ()) (toplevel baz))))))
+        (let-values (call (toplevel bar))
           (lambda-case
            ((() #f vals #f () (_))
-            (seq (toplevel baz)
+            (seq (seq (primcall unwind)
+                      (toplevel baz))
                  (primcall apply (primitive values) (lexical vals _))))))))
   
   (pass-if-peval

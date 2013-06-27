@@ -203,7 +203,6 @@
 ;;;       module-ref: 14468
 ;;;           define: 1259
 ;;;     toplevel-set: 328
-;;;          dynwind: 162
 ;;;      with-fluids: 0
 ;;;          call/cc: 0
 ;;;       module-set: 0
@@ -463,11 +462,6 @@
                                                          env))))
           (eval x env)))
       
-        (('dynwind (in exp . out))
-         (dynamic-wind (eval in env)
-                       (lambda () (eval exp env))
-                       (eval out env)))
-        
         (('with-fluids (fluids vals . exp))
          (let* ((fluids (map (lambda (x) (eval x env)) fluids))
                 (vals (map (lambda (x) (eval x env)) vals)))

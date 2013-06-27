@@ -265,20 +265,6 @@ eval (SCM x, SCM env)
       scm_define (CAR (mx), EVAL1 (CDR (mx), env));
       return SCM_UNSPECIFIED;
 
-    case SCM_M_DYNWIND:
-      {
-        SCM in, out, res;
-        scm_i_thread *t = SCM_I_CURRENT_THREAD;
-        in = EVAL1 (CAR (mx), env);
-        out = EVAL1 (CDDR (mx), env);
-        scm_call_0 (in);
-        scm_dynstack_push_dynwind (&t->dynstack, in, out);
-        res = eval (CADR (mx), env);
-        scm_dynstack_pop (&t->dynstack);
-        scm_call_0 (out);
-        return res;
-      }
-
     case SCM_M_WITH_FLUIDS:
       {
         long i, len;

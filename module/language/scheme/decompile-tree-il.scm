@@ -432,11 +432,6 @@
          `(call-with-values (lambda () ,@(recurse-body exp))
             ,(recurse (make-lambda #f '() body))))
 
-        ((<dynwind> body winder unwinder)
-         `(dynamic-wind ,(recurse winder)
-                        (lambda () ,@(recurse-body body))
-                        ,(recurse unwinder)))
-
         ((<dynlet> fluids vals body)
          `(with-fluids ,(map list
                              (map recurse fluids)
@@ -760,10 +755,6 @@
             ((<let-values> exp body)
              (primitive 'call-with-values)
              (recurse exp) (recurse body))
-
-            ((<dynwind> winder body unwinder)
-             (primitive 'dynamic-wind)
-             (recurse winder) (recurse body) (recurse unwinder))
 
             ((<dynlet> fluids vals body)
              (primitive 'with-fluids)

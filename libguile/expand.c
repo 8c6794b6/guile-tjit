@@ -184,7 +184,6 @@ SCM_GLOBAL_SYMBOL (scm_sym_begin, "begin");
 SCM_GLOBAL_SYMBOL (scm_sym_case, "case");
 SCM_GLOBAL_SYMBOL (scm_sym_cond, "cond");
 SCM_GLOBAL_SYMBOL (scm_sym_define, "define");
-SCM_GLOBAL_SYMBOL (scm_sym_at_dynamic_wind, "@dynamic-wind");
 SCM_GLOBAL_SYMBOL (scm_sym_with_fluids, "with-fluids");
 SCM_GLOBAL_SYMBOL (scm_sym_else, "else");
 SCM_GLOBAL_SYMBOL (scm_sym_eval_when, "eval-when");

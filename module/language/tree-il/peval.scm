@@ -104,8 +104,6 @@
     (($ <conditional> _ test consequent alternate)
      (and (singly-valued-expression? consequent)
           (singly-valued-expression? alternate)))
-    (($ <dynwind> _ winder body unwinder)
-     (singly-valued-expression? body))
     (else #f)))
 
 (define (truncate-values x)
@@ -543,10 +541,6 @@ top-level bindings from ENV and return the resulting expression."
         (($ <prompt>) #f)
         (($ <abort>) #f)
         
-        ;; Bail on dynwinds, as that would cause the consumer to run in
-        ;; the wrong dynamic context.
-        (($ <dynwind>) #f)
-
         ;; Propagate to tail positions.
         (($ <let> src names gensyms vals body)
          (let ((body (loop body)))
@@ -1002,11 +996,6 @@ top-level bindings from ENV and return the resulting expression."
                    (else #f))))
                (_ #f))
              (make-let-values lv-src producer (for-tail consumer)))))
-      (($ <dynwind> src winder body unwinder)
-       (make-dynwind src
-                     (for-value winder)
-                     (for-tail body)
-                     (for-value unwinder)))
       (($ <dynlet> src fluids vals body)
        (make-dynlet src (map for-value fluids) (map for-value vals)
                     (for-tail body)))
@@ -1169,13 +1158,29 @@ top-level bindings from ENV and return the resulting expression."
          (list w u) 2
          (match-lambda
           ((w u)
-           (make-seq src
-                     (make-call src w '())
-                     (make-begin0 src
-                                  (make-dynwind src w
-                                                (make-call src thunk '())
-                                                u)
-                                  (make-call src u '()))))))))
+           (make-seq
+            src
+            (make-seq
+             src
+             (make-conditional
+              src
+              ;; fixme: introduce logic to fold thunk?
+              (make-primcall src 'thunk? (list u))
+              (make-call src w '())
+              (make-primcall
+               src 'scm-error
+               (list
+                (make-const #f 'wrong-type-arg)
+                (make-const #f "dynamic-wind")
+                (make-const #f "Wrong type (expecting thunk): ~S")
+                (make-primcall #f 'list (list u))
+                (make-primcall #f 'list (list u)))))
+             (make-primcall src 'wind (list w u)))
+            (make-begin0 src
+                         (make-call src thunk '())
+                         (make-seq src
+                                   (make-primcall src 'unwind '())
+                                   (make-call src u '())))))))))
 
       (($ <primcall> src 'values exps)
        (cond
@@ -1243,6 +1248,15 @@ top-level bindings from ENV and return the resulting expression."
             (make-primcall src 'list (cons x elts)))
            ((name . args)
             (make-primcall src name args))))))
+
+      (($ <primcall> src 'thunk? (proc))
+       (match (for-value proc)
+         (($ <lambda> _ _ ($ <lambda-case> _ req))
+          (for-tail (make-const src (null? req))))
+         (proc
+          (case ctx
+            ((effect) (make-void src))
+            (else (make-primcall src 'thunk? (list proc)))))))
 
       (($ <primcall> src (? accessor-primitive? name) args)
        (match (cons name (map for-value args))
