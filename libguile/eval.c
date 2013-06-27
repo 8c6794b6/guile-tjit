@@ -607,47 +607,6 @@ scm_apply_3 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM args)
 		    SCM_EOL);
 }
 
-/* This code processes the arguments to apply:
-
-   (apply PROC ARG1 ... ARGS)
-
-   Given a list (ARG1 ... ARGS), this function conses the ARG1
-   ... arguments onto the front of ARGS, and returns the resulting
-   list.  Note that ARGS is a list; thus, the argument to this
-   function is a list whose last element is a list.
-
-   Apply calls this function, and applies PROC to the elements of the
-   result.  apply:nconc2last takes care of building the list of
-   arguments, given (ARG1 ... ARGS).
-
-   Rather than do new consing, apply:nconc2last destroys its argument.
-   On that topic, this code came into my care with the following
-   beautifully cryptic comment on that topic: "This will only screw
-   you if you do (scm_apply scm_apply '( ... ))"  If you know what
-   they're referring to, send me a patch to this comment.  */
-
-SCM_DEFINE (scm_nconc2last, "apply:nconc2last", 1, 0, 0, 
-	    (SCM lst),
-	    "Given a list (@var{arg1} @dots{} @var{args}), this function\n"
-	    "conses the @var{arg1} @dots{} arguments onto the front of\n"
-	    "@var{args}, and returns the resulting list. Note that\n"
-	    "@var{args} is a list; thus, the argument to this function is\n"
-	    "a list whose last element is a list.\n"
-	    "Note: Rather than do new consing, @code{apply:nconc2last}\n"
-	    "destroys its argument, so use with care.")
-#define FUNC_NAME s_scm_nconc2last
-{
-  SCM *lloc;
-  SCM_VALIDATE_NONEMPTYLIST (1, lst);
-  lloc = &lst;
-  while (!scm_is_null (SCM_CDR (*lloc)))
-    lloc = SCM_CDRLOC (*lloc);
-  SCM_ASSERT (scm_ilength (SCM_CAR (*lloc)) >= 0, lst, SCM_ARG1, FUNC_NAME);
-  *lloc = SCM_CAR (*lloc);
-  return lst;
-}
-#undef FUNC_NAME
-
 
 SCM 
 scm_map (SCM proc, SCM arg1, SCM args)

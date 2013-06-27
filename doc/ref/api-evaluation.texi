@@ -573,18 +573,6 @@ Call @var{proc} with the array of arguments @var{argv}, as a
 @var{nargs}, as a @code{size_t}.
 @end deffn
 
-@deffn {Scheme Procedure} apply:nconc2last lst
-@deffnx {C Function} scm_nconc2last (lst)
-@var{lst} should be a list (@var{arg1} @dots{} @var{argN}
-@var{arglst}), with @var{arglst} being a list.  This function returns
-a list comprising @var{arg1} to @var{argN} plus the elements of
-@var{arglst}.  @var{lst} is modified to form the return.  @var{arglst}
-is not modified, though the return does share structure with it.
-
-This operation collects up the arguments from a list which is
-@code{apply} style parameters.
-@end deffn
-
 @deffn {Scheme Procedure} primitive-eval exp
 @deffnx {C Function} scm_primitive_eval (exp)
 Evaluate @var{exp} in the top-level environment specified by
