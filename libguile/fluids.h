@@ -3,7 +3,7 @@
 #ifndef SCM_FLUIDS_H
 #define SCM_FLUIDS_H
 
-/* Copyright (C) 1996,2000,2001, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1996,2000,2001, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -59,9 +59,7 @@ SCM_API SCM scm_fluid_set_x (SCM fluid, SCM value);
 SCM_API SCM scm_fluid_unset_x (SCM fluid);
 SCM_API SCM scm_fluid_bound_p (SCM fluid);
 
-SCM_INTERNAL size_t scm_prepare_fluids (size_t n, SCM *fluids, SCM *vals);
-SCM_INTERNAL void scm_swap_fluids (size_t n, SCM *fluids, SCM *vals,
-                                   SCM dynamic_state);
+SCM_INTERNAL void scm_swap_fluid (SCM fluid, SCM value_box, SCM dynamic_state);
 
 SCM_API SCM scm_c_with_fluids (SCM fluids, SCM vals,
 			       SCM (*cproc)(void *), void *cdata);

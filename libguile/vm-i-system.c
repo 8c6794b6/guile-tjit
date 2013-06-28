@@ -1495,16 +1495,16 @@ VM_DEFINE_INSTRUCTION (91, push_fluid, "push-fluid", 0, 2, 0)
   SCM fluid, val;
   POP2 (val, fluid);
   SYNC_REGISTER ();
-  scm_dynstack_push_fluids (&current_thread->dynstack, 1, &fluid, &val,
-                            current_thread->dynamic_state);
+  scm_dynstack_push_fluid (&current_thread->dynstack, fluid, val,
+                           current_thread->dynamic_state);
   NEXT;
 }
 
 VM_DEFINE_INSTRUCTION (92, pop_fluid, "pop-fluid", 0, 0, 0)
 {
   /* This function must not allocate.  */
-  scm_dynstack_unwind_fluids (&current_thread->dynstack,
-                              current_thread->dynamic_state);
+  scm_dynstack_unwind_fluid (&current_thread->dynstack,
+                             current_thread->dynamic_state);
   NEXT;
 }
 

@@ -84,8 +84,8 @@ static SCM
 do_push_fluid (SCM fluid, SCM val)
 {
   scm_i_thread *thread = SCM_I_CURRENT_THREAD;
-  scm_dynstack_push_fluids (&thread->dynstack, 1, &fluid, &val,
-                            thread->dynamic_state);
+  scm_dynstack_push_fluid (&thread->dynstack, fluid, val,
+                           thread->dynamic_state);
   return SCM_UNSPECIFIED;
 }
 
@@ -93,7 +93,7 @@ static SCM
 do_pop_fluid (void)
 {
   scm_i_thread *thread = SCM_I_CURRENT_THREAD;
-  scm_dynstack_unwind_fluids (&thread->dynstack, thread->dynamic_state);
+  scm_dynstack_unwind_fluid (&thread->dynstack, thread->dynamic_state);
   return SCM_UNSPECIFIED;
 }
 

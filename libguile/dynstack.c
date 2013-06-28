@@ -1,4 +1,4 @@
-/* Copyright (C) 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -49,23 +49,15 @@
 #define DYNWIND_ENTER(top) (SCM_PACK ((top)[0]))
 #define DYNWIND_LEAVE(top) (SCM_PACK ((top)[1]))
 
-#define WITH_FLUIDS_FLUIDS(top) ((SCM*)((top) + 1))
-#define WITH_FLUIDS_VALUES(top) ((SCM*)((top)[0]))
+#define WITH_FLUID_WORDS 2
+#define WITH_FLUID_FLUID(top) (SCM_PACK ((top)[0]))
+#define WITH_FLUID_VALUE_BOX(top) (SCM_PACK ((top)[1]))
 
 
 
 
 static void
 copy_scm_t_bits (scm_t_bits *dst, scm_t_bits *src, size_t n)
-{
-  size_t i;
-
-  for (i = 0; i < n; i++)
-    dst[i] = src[i];
-}
-
-static void
-copy_scm (SCM *dst, SCM *src, size_t n)
 {
   size_t i;
 
@@ -147,7 +139,8 @@ scm_dynstack_push_rewinder (scm_t_dynstack *dynstack,
 {
   scm_t_bits *words;
 
-  words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_REWINDER, flags, 2);
+  words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_REWINDER, flags,
+                               WINDER_WORDS);
   words[0] = (scm_t_bits) proc;
   words[1] = (scm_t_bits) data;
 }
@@ -159,33 +152,34 @@ scm_dynstack_push_unwinder (scm_t_dynstack *dynstack,
 {
   scm_t_bits *words;
 
-  words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_UNWINDER, flags, 2);
+  words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_UNWINDER, flags,
+                               WINDER_WORDS);
   words[0] = (scm_t_bits) proc;
   words[1] = (scm_t_bits) data;
 }
 
-/* The fluids are stored on the stack.  However, the values have to be
-   stored on the heap, so that all continuations that capture this
-   dynamic scope capture the same bindings.  */
+/* The fluid is stored on the stack, but the value has to be stored on the heap,
+   so that all continuations that capture this dynamic scope capture the same
+   binding.  */
 void
-scm_dynstack_push_fluids (scm_t_dynstack *dynstack, size_t n,
-                          SCM *fluids, SCM *values, SCM dynamic_state)
+scm_dynstack_push_fluid (scm_t_dynstack *dynstack, SCM fluid, SCM value,
+                         SCM dynamic_state)
 {
   scm_t_bits *words;
-  SCM *heap_values;
+  SCM value_box;
 
-  n = scm_prepare_fluids (n, fluids, values);
-  heap_values = scm_gc_malloc (n * sizeof (scm_t_bits), "with-fluids");
-  copy_scm (heap_values, values, n);
+  if (SCM_UNLIKELY (!SCM_FLUID_P (fluid)))
+    scm_wrong_type_arg ("with-fluid*", 0, fluid);
 
-  words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_WITH_FLUIDS,
-                               0, n + 1);
-  words[0] = (scm_t_bits) heap_values;
-  copy_scm (WITH_FLUIDS_FLUIDS (words), fluids, n);
+  value_box = scm_make_variable (value);
+
+  words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_WITH_FLUID, 0,
+                               WITH_FLUID_WORDS);
+  words[0] = SCM_UNPACK (fluid);
+  words[1] = SCM_UNPACK (value_box);
 
   /* Go ahead and swap them.  */
-  scm_swap_fluids (n, WITH_FLUIDS_FLUIDS (words), WITH_FLUIDS_VALUES (words),
-                   dynamic_state);
+  scm_swap_fluid (fluid, value_box, dynamic_state);
 }
 
 void
@@ -211,7 +205,8 @@ scm_dynstack_push_dynwind (scm_t_dynstack *dynstack, SCM enter, SCM leave)
 {
   scm_t_bits *words;
 
-  words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_DYNWIND, 0, 2);
+  words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_DYNWIND, 0,
+                               DYNWIND_WORDS);
   words[0] = SCM_UNPACK (enter);
   words[1] = SCM_UNPACK (leave);
 }
@@ -296,10 +291,10 @@ scm_dynstack_wind_1 (scm_t_dynstack *dynstack, scm_t_bits *item)
       WINDER_PROC (item) (WINDER_DATA (item));
       break;
 
-    case SCM_DYNSTACK_TYPE_WITH_FLUIDS:
-      scm_swap_fluids (len - 1,  WITH_FLUIDS_FLUIDS (item),
-                       WITH_FLUIDS_VALUES (item),
-                       SCM_I_CURRENT_THREAD->dynamic_state);
+    case SCM_DYNSTACK_TYPE_WITH_FLUID:
+      scm_swap_fluid (WITH_FLUID_FLUID (item),
+                      WITH_FLUID_VALUE_BOX (item),
+                      SCM_I_CURRENT_THREAD->dynamic_state);
       break;
 
     case SCM_DYNSTACK_TYPE_PROMPT:
@@ -328,12 +323,10 @@ scm_dynstack_unwind_1 (scm_t_dynstack *dynstack)
   scm_t_bits tag;
   scm_t_bits *words;
   scm_t_dynstack_item_type type;
-  size_t len;
 
   tag = dynstack_pop (dynstack, &words);
   
   type = SCM_DYNSTACK_TAG_TYPE (tag);
-  len = SCM_DYNSTACK_TAG_LEN (tag);
   
   switch (type)
     {
@@ -349,11 +342,11 @@ scm_dynstack_unwind_1 (scm_t_dynstack *dynstack)
       clear_scm_t_bits (words, WINDER_WORDS);
       break;
 
-    case SCM_DYNSTACK_TYPE_WITH_FLUIDS:
-      scm_swap_fluids (len - 1,  WITH_FLUIDS_FLUIDS (words),
-                       WITH_FLUIDS_VALUES (words),
-                       SCM_I_CURRENT_THREAD->dynamic_state);
-      clear_scm_t_bits (words, len);
+    case SCM_DYNSTACK_TYPE_WITH_FLUID:
+      scm_swap_fluid (WITH_FLUID_FLUID (words),
+                      WITH_FLUID_VALUE_BOX (words),
+                      SCM_I_CURRENT_THREAD->dynamic_state);
+      clear_scm_t_bits (words, WITH_FLUID_WORDS);
       break;
 
     case SCM_DYNSTACK_TYPE_PROMPT:
@@ -532,7 +525,7 @@ scm_dynstack_unwind_frame (scm_t_dynstack *dynstack)
 
 /* This function must not allocate.  */
 void
-scm_dynstack_unwind_fluids (scm_t_dynstack *dynstack, SCM dynamic_state)
+scm_dynstack_unwind_fluid (scm_t_dynstack *dynstack, SCM dynamic_state)
 {
   scm_t_bits tag, *words;
   size_t len;
@@ -540,11 +533,11 @@ scm_dynstack_unwind_fluids (scm_t_dynstack *dynstack, SCM dynamic_state)
   tag = dynstack_pop (dynstack, &words);
   len = SCM_DYNSTACK_TAG_LEN (tag);
 
-  assert (SCM_DYNSTACK_TAG_TYPE (tag) == SCM_DYNSTACK_TYPE_WITH_FLUIDS);
-  assert (len >= 1);
+  assert (SCM_DYNSTACK_TAG_TYPE (tag) == SCM_DYNSTACK_TYPE_WITH_FLUID);
+  assert (len == WITH_FLUID_WORDS);
 
-  scm_swap_fluids (len - 1, WITH_FLUIDS_FLUIDS (words),
-                   WITH_FLUIDS_VALUES (words), dynamic_state);
+  scm_swap_fluid (WITH_FLUID_FLUID (words), WITH_FLUID_VALUE_BOX (words),
+                  dynamic_state);
   clear_scm_t_bits (words, len);
 }
 

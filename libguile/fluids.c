@@ -302,52 +302,17 @@ apply_thunk (void *thunk)
   return scm_call_0 (SCM_PACK (thunk));
 }
 
-size_t
-scm_prepare_fluids (size_t n, SCM *fluids, SCM *values)
-{
-  size_t j;
-
-  /* Ensure that there are no duplicates in the fluids set -- an N^2 operation,
-     but N will usually be small, so perhaps that's OK. */
-  for (j = n; j--;)
-    {
-      size_t i;
-
-      if (SCM_UNLIKELY (!IS_FLUID (fluids[j])))
-        scm_wrong_type_arg ("with-fluids", 0, fluids[j]);
-
-      for (i = j; i--;)
-        if (scm_is_eq (fluids[i], fluids[j]))
-          {
-            values[i] = values[j]; /* later bindings win */
-            n--;
-            fluids[j] = fluids[n];
-            values[j] = values[n];
-            break;
-          }
-    }
-
-  return n;
-}
-  
 void
-scm_swap_fluids (size_t n, SCM *fluids, SCM *values, SCM dynstate)
+scm_swap_fluid (SCM fluid, SCM value_box, SCM dynstate)
 {
-  SCM fluid_vector;
-  size_t i, max = 0;
+  SCM fluid_vector, tmp;
+  size_t fluid_num;
+
+  fluid_num = FLUID_NUM (fluid);
 
   fluid_vector = DYNAMIC_STATE_FLUIDS (dynstate);
 
-  /* We could cache the max in the with-fluids, but that would take more mem,
-     and we're touching all the fluids anyway, so this per-swap traversal should
-     be OK. */
-  for (i = 0; i < n; i++)
-    {
-      size_t num = FLUID_NUM (fluids[i]);
-      max = (max > num) ? max : num;
-    }
-
-  if (SCM_UNLIKELY (max >= SCM_SIMPLE_VECTOR_LENGTH (fluid_vector)))
+  if (SCM_UNLIKELY (fluid_num >= SCM_SIMPLE_VECTOR_LENGTH (fluid_vector)))
     {
       /* Lazily grow the current thread's dynamic state.  */
       grow_dynamic_state (dynstate);
@@ -355,17 +320,9 @@ scm_swap_fluids (size_t n, SCM *fluids, SCM *values, SCM dynstate)
       fluid_vector = DYNAMIC_STATE_FLUIDS (dynstate);
     }
 
-  /* Bind the fluids. Order doesn't matter, as all fluids are distinct. */
-  for (i = 0; i < n; i++)
-    {
-      size_t fluid_num;
-      SCM x;
-      
-      fluid_num = FLUID_NUM (fluids[i]);
-      x = SCM_SIMPLE_VECTOR_REF (fluid_vector, fluid_num);
-      SCM_SIMPLE_VECTOR_SET (fluid_vector, fluid_num, values[i]);
-      values[i] = x;
-    }
+  tmp = SCM_SIMPLE_VECTOR_REF (fluid_vector, fluid_num);
+  SCM_SIMPLE_VECTOR_SET (fluid_vector, fluid_num, SCM_VARIABLE_REF (value_box));
+  SCM_VARIABLE_SET (value_box, tmp);
 }
   
 SCM_DEFINE (scm_with_fluids, "with-fluids*", 3, 0, 0, 
@@ -387,7 +344,6 @@ scm_c_with_fluids (SCM fluids, SCM values, SCM (*cproc) (), void *cdata)
 {
   SCM ans;
   long flen, vlen, i;
-  SCM *fluidsv, *valuesv;
   scm_i_thread *thread = SCM_I_CURRENT_THREAD;
 
   SCM_VALIDATE_LIST_COPYLEN (1, fluids, flen);
@@ -395,24 +351,19 @@ scm_c_with_fluids (SCM fluids, SCM values, SCM (*cproc) (), void *cdata)
   if (flen != vlen)
     scm_out_of_range (s_scm_with_fluids, values);
 
-  if (SCM_UNLIKELY (flen == 0))
-    return cproc (cdata);
-
-  fluidsv = alloca (sizeof(SCM)*flen);
-  valuesv = alloca (sizeof(SCM)*flen);
-  
   for (i = 0; i < flen; i++)
     {
-      fluidsv[i] = SCM_CAR (fluids);
+      scm_dynstack_push_fluid (&thread->dynstack,
+                               SCM_CAR (fluids), SCM_CAR (values),
+                               thread->dynamic_state);
       fluids = SCM_CDR (fluids);
-      valuesv[i] = SCM_CAR (values);
       values = SCM_CDR (values);
     }
 
-  scm_dynstack_push_fluids (&thread->dynstack, flen, fluidsv, valuesv,
-                            thread->dynamic_state);
   ans = cproc (cdata);
-  scm_dynstack_unwind_fluids (&thread->dynstack, thread->dynamic_state);
+
+  for (i = 0; i < flen; i++)
+    scm_dynstack_unwind_fluid (&thread->dynstack, thread->dynamic_state);
 
   return ans;
 }
@@ -432,10 +383,10 @@ scm_c_with_fluid (SCM fluid, SCM value, SCM (*cproc) (), void *cdata)
   SCM ans;
   scm_i_thread *thread = SCM_I_CURRENT_THREAD;
 
-  scm_dynstack_push_fluids (&thread->dynstack, 1, &fluid, &value,
-                            thread->dynamic_state);
+  scm_dynstack_push_fluid (&thread->dynstack, fluid, value,
+                           thread->dynamic_state);
   ans = cproc (cdata);
-  scm_dynstack_unwind_fluids (&thread->dynstack, thread->dynamic_state);
+  scm_dynstack_unwind_fluid (&thread->dynstack, thread->dynamic_state);
 
   return ans;
 }

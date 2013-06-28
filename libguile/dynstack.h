@@ -3,7 +3,7 @@
 #ifndef SCM_DYNSTACK_H
 #define SCM_DYNSTACK_H
 
-/* Copyright (C) 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -79,7 +79,7 @@ typedef enum {
   SCM_DYNSTACK_TYPE_FRAME,
   SCM_DYNSTACK_TYPE_UNWINDER,
   SCM_DYNSTACK_TYPE_REWINDER,
-  SCM_DYNSTACK_TYPE_WITH_FLUIDS,
+  SCM_DYNSTACK_TYPE_WITH_FLUID,
   SCM_DYNSTACK_TYPE_PROMPT,
   SCM_DYNSTACK_TYPE_DYNWIND,
 } scm_t_dynstack_item_type;
@@ -148,11 +148,9 @@ SCM_INTERNAL void scm_dynstack_push_rewinder (scm_t_dynstack *,
 SCM_INTERNAL void scm_dynstack_push_unwinder (scm_t_dynstack *,
                                               scm_t_dynstack_winder_flags,
                                               scm_t_guard, void *);
-SCM_INTERNAL void scm_dynstack_push_fluids (scm_t_dynstack *,
-                                            size_t,
-                                            SCM *fluids,
-                                            SCM *values,
-                                            SCM dynamic_state);
+SCM_INTERNAL void scm_dynstack_push_fluid (scm_t_dynstack *,
+                                           SCM fluid, SCM value,
+                                           SCM dynamic_state);
 SCM_INTERNAL void scm_dynstack_push_prompt (scm_t_dynstack *,
                                             scm_t_dynstack_prompt_flags,
                                             SCM key,
@@ -187,8 +185,8 @@ SCM_INTERNAL scm_t_bits* scm_dynstack_unwind_fork (scm_t_dynstack *,
                                                    scm_t_dynstack *);
 
 SCM_INTERNAL void scm_dynstack_unwind_frame (scm_t_dynstack *);
-SCM_INTERNAL void scm_dynstack_unwind_fluids (scm_t_dynstack *dynstack,
-                                              SCM dynamic_state);
+SCM_INTERNAL void scm_dynstack_unwind_fluid (scm_t_dynstack *dynstack,
+                                             SCM dynamic_state);
 
 SCM_INTERNAL scm_t_bits* scm_dynstack_find_prompt (scm_t_dynstack *, SCM,
                                                    scm_t_dynstack_prompt_flags *,

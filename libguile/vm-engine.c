@@ -2519,39 +2519,34 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       NEXT (1);
     }
 
-  /* wind-fluids fluid-base:24 _:8 n:24 value0:24 0:8 ...
+  /* push-fluid fluid:12 value:12
    *
    * Dynamically bind N fluids to values.  The fluids are expected to be
    * allocated in a continguous range on the stack, starting from
    * FLUID-BASE.  The values do not have this restriction.
    */
-  VM_DEFINE_OP (69, wind_fluids, "wind-fluids", OP2 (U8_U24, X8_R24))
-#if 0
+  VM_DEFINE_OP (69, push_fluid, "push-fluid", OP1 (U8_U12_U12))
     {
-      scm_t_uint32 fluid_base, n;
+      scm_t_uint32 fluid, value;
 
-      SCM_UNPACK_RTL_24 (op, fluid_base);
-      SCM_UNPACK_RTL_24 (ip[1], n);
+      SCM_UNPACK_RTL_12_12 (op, fluid, value);
 
-      scm_dynstack_push_fluids_shuffled (&current_thread->dynstack, n,
-                                         &fp[fluid_base], fp, &ip[2],
-                                         current_thread->dynamic_state);
-      NEXT (n + 2);
+      scm_dynstack_push_fluid (&current_thread->dynstack,
+                               fp[fluid], fp[value],
+                               current_thread->dynamic_state);
+      NEXT (1);
     }
-#else
-  abort();
-#endif
 
-  /* unwind-fluids _:24
+  /* pop-fluid _:24
    *
    * Leave the dynamic extent of a with-fluids expression, restoring the
    * fluids to their previous values.
    */
-  VM_DEFINE_OP (70, unwind_fluids, "unwind-fluids", OP1 (U8_X24))
+  VM_DEFINE_OP (70, pop_fluid, "pop-fluid", OP1 (U8_X24))
     {
       /* This function must not allocate.  */
-      scm_dynstack_unwind_fluids (&current_thread->dynstack,
-                                  current_thread->dynamic_state);
+      scm_dynstack_unwind_fluid (&current_thread->dynstack,
+                                 current_thread->dynamic_state);
       NEXT (1);
     }
 
