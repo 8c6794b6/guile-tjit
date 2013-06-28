@@ -76,7 +76,7 @@
     variable-ref variable-set!
     variable-bound?
 
-    fluid-ref fluid-set!
+    fluid-ref fluid-set! with-fluid*
 
     call-with-prompt
     abort-to-prompt* abort-to-prompt

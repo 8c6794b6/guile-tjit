@@ -88,8 +88,6 @@ static const char** exp_field_names[SCM_NUM_EXPANDED_TYPES];
   SCM_MAKE_EXPANDED_LET(src, names, gensyms, vals, body)
 #define LETREC(src, in_order_p, names, gensyms, vals, body) \
   SCM_MAKE_EXPANDED_LETREC(src, in_order_p, names, gensyms, vals, body)
-#define DYNLET(src, fluids, vals, body) \
-  SCM_MAKE_EXPANDED_DYNLET(src, fluids, vals, body)
 
 #define CAR(x)   SCM_CAR(x)
 #define CDR(x)   SCM_CDR(x)
@@ -155,7 +153,6 @@ SCM_SYNTAX ("@", expand_at);
 SCM_SYNTAX ("@@", expand_atat);
 SCM_SYNTAX ("begin", expand_begin);
 SCM_SYNTAX ("define", expand_define);
-SCM_SYNTAX ("with-fluids", expand_with_fluids);
 SCM_SYNTAX ("eval-when", expand_eval_when);
 SCM_SYNTAX ("if", expand_if);
 SCM_SYNTAX ("lambda", expand_lambda);
@@ -184,7 +181,6 @@ SCM_GLOBAL_SYMBOL (scm_sym_begin, "begin");
 SCM_GLOBAL_SYMBOL (scm_sym_case, "case");
 SCM_GLOBAL_SYMBOL (scm_sym_cond, "cond");
 SCM_GLOBAL_SYMBOL (scm_sym_define, "define");
-SCM_GLOBAL_SYMBOL (scm_sym_with_fluids, "with-fluids");
 SCM_GLOBAL_SYMBOL (scm_sym_else, "else");
 SCM_GLOBAL_SYMBOL (scm_sym_eval_when, "eval-when");
 SCM_GLOBAL_SYMBOL (scm_sym_if, "if");
@@ -562,30 +558,6 @@ expand_define (SCM expr, SCM env)
   ASSERT_SYNTAX (scm_ilength (body) == 1, s_expression, expr);
   return TOPLEVEL_DEFINE (scm_source_properties (expr), variable,
                           expand (CAR (body), env));
-}
-
-static SCM
-expand_with_fluids (SCM expr, SCM env)
-{
-  SCM binds, fluids, vals;
-  ASSERT_SYNTAX (scm_ilength (expr) >= 3, s_bad_expression, expr);
-  binds = CADR (expr);
-  ASSERT_SYNTAX_2 (scm_ilength (binds) >= 0, s_bad_bindings, binds, expr);
-  for (fluids = SCM_EOL, vals = SCM_EOL;
-       scm_is_pair (binds);
-       binds = CDR (binds))
-    {
-      SCM binding = CAR (binds);
-      ASSERT_SYNTAX_2 (scm_ilength (CAR (binds)) == 2, s_bad_binding,
-                       binding, expr);
-      fluids = scm_cons (expand (CAR (binding), env), fluids);
-      vals = scm_cons (expand (CADR (binding), env), vals);
-    }
-
-  return DYNLET (scm_source_properties (expr),
-                 scm_reverse_x (fluids, SCM_UNDEFINED),
-                 scm_reverse_x (vals, SCM_UNDEFINED),
-                 expand_sequence (CDDR (expr), env));
 }
 
 static SCM
@@ -1262,7 +1234,6 @@ scm_init_expand ()
   DEFINE_NAMES (LAMBDA_CASE);
   DEFINE_NAMES (LET);
   DEFINE_NAMES (LETREC);
-  DEFINE_NAMES (DYNLET);
 
   scm_exp_vtable_vtable =
     scm_make_vtable (scm_from_locale_string (SCM_VTABLE_BASE_LAYOUT "pwuwpw"),

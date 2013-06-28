@@ -204,18 +204,6 @@
          (error "name should be symbol" exp))
         (else
          (visit exp env))))
-      (($ <dynlet> src fluids vals body)
-       (cond
-        ((not (list? fluids))
-         (error "fluids should be list" exp))
-        ((not (list? vals))
-         (error "vals should be list" exp))
-        ((not (= (length fluids) (length vals)))
-         (error "mismatch in fluids/vals" exp))
-        (else
-         (for-each (cut visit <> env) fluids)
-         (for-each (cut visit <> env) vals)
-         (visit body env))))
       (($ <conditional> src condition subsequent alternate)
        (visit condition env)
        (visit subsequent env)

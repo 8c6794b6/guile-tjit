@@ -40,7 +40,6 @@
 #include "libguile/eq.h"
 #include "libguile/expand.h"
 #include "libguile/feature.h"
-#include "libguile/fluids.h"
 #include "libguile/goops.h"
 #include "libguile/hash.h"
 #include "libguile/hashtab.h"
@@ -264,28 +263,6 @@ eval (SCM x, SCM env)
     case SCM_M_DEFINE:
       scm_define (CAR (mx), EVAL1 (CDR (mx), env));
       return SCM_UNSPECIFIED;
-
-    case SCM_M_WITH_FLUIDS:
-      {
-        long i, len;
-        SCM *fluidv, *valuesv, walk, res;
-        scm_i_thread *thread = SCM_I_CURRENT_THREAD;
-
-        len = scm_ilength (CAR (mx));
-        fluidv = alloca (sizeof (SCM)*len);
-        for (i = 0, walk = CAR (mx); i < len; i++, walk = CDR (walk))
-          fluidv[i] = EVAL1 (CAR (walk), env);
-        valuesv = alloca (sizeof (SCM)*len);
-        for (i = 0, walk = CADR (mx); i < len; i++, walk = CDR (walk))
-          valuesv[i] = EVAL1 (CAR (walk), env);
-        
-        scm_dynstack_push_fluids (&thread->dynstack, len, fluidv, valuesv,
-                                  thread->dynamic_state);
-        res = eval (CDDR (mx), env);
-        scm_dynstack_unwind_fluids (&thread->dynstack, thread->dynamic_state);
-        
-        return res;
-      }
 
     case SCM_M_APPLY:
       /* Evaluate the procedure to be applied.  */

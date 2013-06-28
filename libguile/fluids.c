@@ -418,16 +418,12 @@ scm_c_with_fluids (SCM fluids, SCM values, SCM (*cproc) (), void *cdata)
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_with_fluid, "with-fluid*", 3, 0, 0, 
-	    (SCM fluid, SCM value, SCM thunk),
-	    "Set @var{fluid} to @var{value} temporarily, and call @var{thunk}.\n"
-	    "@var{thunk} must be a procedure with no argument.")
-#define FUNC_NAME s_scm_with_fluid
+SCM
+scm_with_fluid (SCM fluid, SCM value, SCM thunk)
 {
   return scm_c_with_fluid (fluid, value,
 			   apply_thunk, (void *) SCM_UNPACK (thunk));
 }
-#undef FUNC_NAME
 
 SCM
 scm_c_with_fluid (SCM fluid, SCM value, SCM (*cproc) (), void *cdata)

@@ -1,6 +1,6 @@
 ;;; Guile Emacs Lisp
 
-;; Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -296,6 +296,25 @@
   (make-lambda loc
                meta
                (make-lambda-case #f req opt rest #f init vars body #f)))
+
+(define (make-dynlet src fluids vals body)
+  (let ((f (map (lambda (x) (gensym "fluid ")) fluids))
+        (v (map (lambda (x) (gensym "valud ")) vals)))
+    (make-let src (map (lambda (_) 'fluid) fluids) f fluids
+              (make-let src (map (lambda (_) 'val) vals) v vals
+                        (let lp ((f f) (v v))
+                          (if (null? f)
+                              body
+                              (make-primcall
+                               src 'with-fluid*
+                               (list (make-lexical-ref #f 'fluid (car f))
+                                     (make-lexical-ref #f 'val (car v))
+                                     (make-lambda
+                                      src '()
+                                      (make-lambda-case
+                                       src '() #f #f #f '() '()
+                                       (lp (cdr f) (cdr v))
+                                       #f))))))))))
 
 (define (compile-lambda loc meta args body)
   (receive (valid? req-ids opt-ids rest-id)

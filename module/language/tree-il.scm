@@ -46,7 +46,6 @@
             <letrec> letrec? make-letrec letrec-src letrec-in-order? letrec-names letrec-gensyms letrec-vals letrec-body
             <fix> fix? make-fix fix-src fix-names fix-gensyms fix-vals fix-body
             <let-values> let-values? make-let-values let-values-src let-values-exp let-values-body
-            <dynlet> dynlet? make-dynlet dynlet-src dynlet-fluids dynlet-vals dynlet-body
             <prompt> prompt? make-prompt prompt-src prompt-tag prompt-body prompt-handler
             <abort> abort? make-abort abort-src abort-tag abort-args abort-tail
 
@@ -128,7 +127,6 @@
   ;; (<lambda-case> req opt rest kw inits gensyms body alternate)
   ;; (<let> names gensyms vals body)
   ;; (<letrec> in-order? names gensyms vals body)
-  ;; (<dynlet> fluids vals body)
 
 (define-type (<tree-il> #:common-slots (src) #:printer print-tree-il)
   (<fix> names gensyms vals body)
@@ -243,9 +241,6 @@
      (('let-values exp body)
       (make-let-values loc (retrans exp) (retrans body)))
 
-     (('dynlet fluids vals body)
-      (make-dynlet loc (map retrans fluids) (map retrans vals) (retrans body)))
-
      (('prompt tag body handler)
       (make-prompt loc (retrans tag) (retrans body) (retrans handler)))
      
@@ -324,10 +319,6 @@
     (($ <let-values> src exp body)
      `(let-values ,(unparse-tree-il exp) ,(unparse-tree-il body)))
 
-    (($ <dynlet> src fluids vals body)
-     `(dynlet ,(map unparse-tree-il fluids) ,(map unparse-tree-il vals)
-              ,(unparse-tree-il body)))
-
     (($ <prompt> src tag body handler)
      `(prompt ,(unparse-tree-il tag)
               ,(unparse-tree-il body)
@@ -397,10 +388,6 @@
                  (foldts body seed ...)))
               (($ <let-values> src exp body)
                (let*-values (((seed ...) (foldts exp seed ...)))
-                 (foldts body seed ...)))
-              (($ <dynlet> src fluids vals body)
-               (let*-values (((seed ...) (fold-values foldts fluids seed ...))
-                             ((seed ...) (fold-values foldts vals seed ...)))
                  (foldts body seed ...)))
               (($ <prompt> src tag body handler)
                (let*-values (((seed ...) (foldts tag seed ...))
@@ -491,9 +478,6 @@ This is an implementation of `foldts' as described by Andy Wingo in
 
        (($ <let-values> src exp body)
         (make-let-values src (lp exp) (lp body)))
-
-       (($ <dynlet> src fluids vals body)
-        (make-dynlet src (map lp fluids) (map lp vals) (lp body)))
 
        (($ <prompt> src tag body handler)
         (make-prompt src (lp tag) (lp body) (lp handler)))

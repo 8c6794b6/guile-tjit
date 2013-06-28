@@ -203,7 +203,6 @@
 ;;;       module-ref: 14468
 ;;;           define: 1259
 ;;;     toplevel-set: 328
-;;;      with-fluids: 0
 ;;;          call/cc: 0
 ;;;       module-set: 0
 ;;;
@@ -462,15 +461,6 @@
                                                          env))))
           (eval x env)))
       
-        (('with-fluids (fluids vals . exp))
-         (let* ((fluids (map (lambda (x) (eval x env)) fluids))
-                (vals (map (lambda (x) (eval x env)) vals)))
-           (let lp ((fluids fluids) (vals vals))
-             (if (null? fluids)
-                 (eval exp env)
-                 (with-fluids (((car fluids) (car vals)))
-                   (lp (cdr fluids) (cdr vals)))))))
-        
         (('call-with-prompt (tag thunk . handler))
          (call-with-prompt
           (eval tag env)

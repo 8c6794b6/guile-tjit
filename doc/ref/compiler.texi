@@ -458,14 +458,6 @@ original binding names, @var{gensyms} are gensyms corresponding to the
 A version of @code{<let>} that creates recursive bindings, like
 Scheme's @code{letrec}, or @code{letrec*} if @var{in-order?} is true.
 @end deftp
-@deftp {Scheme Variable} <dynlet> fluids vals body
-@deftpx {External Representation} (dynlet @var{fluids} @var{vals} @var{body})
-Dynamic binding; the equivalent of Scheme's @code{with-fluids}.
-@var{fluids} should be a list of Tree-IL expressions that will
-evaluate to fluids, and @var{vals} a corresponding list of expressions
-to bind to the fluids during the dynamic extent of the evaluation of
-@var{body}.
-@end deftp
 @deftp {Scheme Variable} <prompt> tag body handler
 @deftpx {External Representation} (prompt @var{tag} @var{body} @var{handler})
 A dynamic prompt. Instates a prompt named @var{tag}, an expression,

@@ -432,12 +432,6 @@
          `(call-with-values (lambda () ,@(recurse-body exp))
             ,(recurse (make-lambda #f '() body))))
 
-        ((<dynlet> fluids vals body)
-         `(with-fluids ,(map list
-                             (map recurse fluids)
-                             (map recurse vals))
-            ,@(recurse-body body)))
-
         ((<prompt> tag body handler)
          `(call-with-prompt
            ,(recurse tag)
@@ -749,12 +743,6 @@
             ((<let-values> exp body)
              (primitive 'call-with-values)
              (recurse exp) (recurse body))
-
-            ((<dynlet> fluids vals body)
-             (primitive 'with-fluids)
-             (for-each recurse fluids)
-             (for-each recurse vals)
-             (recurse body))
 
             ((<prompt> tag body handler)
              (primitive 'call-with-prompt)

@@ -1120,18 +1120,17 @@ wind/unwind thunk pair. @code{unwind} instructions should be properly
 paired with their winding instructions, like @code{wind}.
 @end deffn
 
-@deffn Instruction wind-fluids n
-Pop off @var{n} values and @var{n} fluids from the stack, in that order.
-Set the fluids to the values by creating a with-fluids object and
-pushing that object on the dynamic stack. @xref{Fluids and Dynamic
-States}.
+@deffn Instruction push-fluid
+Pop a value and a fluid from the stack, in that order.  Set the fluid
+to the value by creating a with-fluids object and pushing that object
+on the dynamic stack. @xref{Fluids and Dynamic States}.
 @end deffn
 
-@deffn Instruction unwind-fluids
+@deffn Instruction pop-fluid
 Pop a with-fluids object from the dynamic stack, and swap the current
 values of its fluids with the saved values of its fluids. In this way,
 the dynamic environment is left as it was before the corresponding
-@code{wind-fluids} instruction was processed.
+@code{wind-fluid} instruction was processed.
 @end deffn
 
 @deffn Instruction fluid-ref

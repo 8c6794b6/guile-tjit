@@ -1490,20 +1490,17 @@ VM_DEFINE_INSTRUCTION (90, unwind, "unwind", 0, 0, 0)
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (91, wind_fluids, "wind-fluids", 1, -1, 0)
+VM_DEFINE_INSTRUCTION (91, push_fluid, "push-fluid", 0, 2, 0)
 {
-  unsigned n = FETCH ();
-  
+  SCM fluid, val;
+  POP2 (val, fluid);
   SYNC_REGISTER ();
-  sp -= 2 * n;
-  CHECK_UNDERFLOW ();
-  scm_dynstack_push_fluids (&current_thread->dynstack, n, sp + 1, sp + 1 + n,
+  scm_dynstack_push_fluids (&current_thread->dynstack, 1, &fluid, &val,
                             current_thread->dynamic_state);
-  NULLSTACK (2 * n);
   NEXT;
 }
 
-VM_DEFINE_INSTRUCTION (92, unwind_fluids, "unwind-fluids", 0, 0, 0)
+VM_DEFINE_INSTRUCTION (92, pop_fluid, "pop-fluid", 0, 0, 0)
 {
   /* This function must not allocate.  */
   scm_dynstack_unwind_fluids (&current_thread->dynstack,

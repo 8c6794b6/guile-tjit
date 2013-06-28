@@ -3,7 +3,7 @@
 #ifndef SCM_EXPAND_H
 #define SCM_EXPAND_H
 
-/* Copyright (C) 2010, 2011
+/* Copyright (C) 2010, 2011, 2013
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -54,7 +54,6 @@ typedef enum
     SCM_EXPANDED_LAMBDA_CASE,
     SCM_EXPANDED_LET,
     SCM_EXPANDED_LETREC,
-    SCM_EXPANDED_DYNLET,
     SCM_NUM_EXPANDED_TYPES,
   } scm_t_expanded_type;
 
@@ -330,20 +329,6 @@ enum
   };
 #define SCM_MAKE_EXPANDED_LETREC(src, in_order_p, names, gensyms, vals, body) \
   scm_c_make_struct (exp_vtables[SCM_EXPANDED_LETREC], 0, SCM_NUM_EXPANDED_LETREC_FIELDS, SCM_UNPACK (src), SCM_UNPACK (in_order_p), SCM_UNPACK (names), SCM_UNPACK (gensyms), SCM_UNPACK (vals), SCM_UNPACK (body))
-
-#define SCM_EXPANDED_DYNLET_TYPE_NAME "dynlet"
-#define SCM_EXPANDED_DYNLET_FIELD_NAMES         \
-  { "src", "fluids", "vals", "body", }
-enum
-  {
-    SCM_EXPANDED_DYNLET_SRC,
-    SCM_EXPANDED_DYNLET_FLUIDS,
-    SCM_EXPANDED_DYNLET_VALS,
-    SCM_EXPANDED_DYNLET_BODY,
-    SCM_NUM_EXPANDED_DYNLET_FIELDS,
-  };
-#define SCM_MAKE_EXPANDED_DYNLET(src, fluids, vals, body) \
-  scm_c_make_struct (exp_vtables[SCM_EXPANDED_DYNLET], 0, SCM_NUM_EXPANDED_DYNLET_FIELDS, SCM_UNPACK (src), SCM_UNPACK (fluids), SCM_UNPACK (vals), SCM_UNPACK (body))
 
 #endif /* BUILDING_LIBGUILE */
 

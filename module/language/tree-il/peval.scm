@@ -433,6 +433,47 @@ top-level bindings from ENV and return the resulting expression."
   (define (lexical-refcount sym)
     (var-refcount (lookup-var sym)))
 
+  (define (with-temporaries src exps refcount can-copy? k)
+    (let* ((pairs (map (match-lambda
+                        ((and exp (? can-copy?))
+                         (cons #f exp))
+                        (exp
+                         (let ((sym (gensym "tmp ")))
+                           (record-new-temporary! 'tmp sym refcount)
+                           (cons sym exp))))
+                       exps))
+           (tmps (filter car pairs)))
+      (match tmps
+        (() (k exps))
+        (tmps
+         (make-let src
+                   (make-list (length tmps) 'tmp)
+                   (map car tmps)
+                   (map cdr tmps)
+                   (k (map (match-lambda
+                            ((#f . val) val)
+                            ((sym . _)
+                             (make-lexical-ref #f 'tmp sym)))
+                           pairs)))))))
+
+  (define (make-begin0 src first second)
+    (make-let-values
+     src
+     first
+     (let ((vals (gensym "vals ")))
+       (record-new-temporary! 'vals vals 1)
+       (make-lambda-case
+        #f
+        '() #f 'vals #f '() (list vals)
+        (make-seq
+         src
+         second
+         (make-primcall #f 'apply
+                        (list
+                         (make-primitive-ref #f 'values)
+                         (make-lexical-ref #f 'vals vals))))
+        #f))))
+
   ;; ORIG has been alpha-renamed to NEW.  Analyze NEW and record a link
   ;; from it to ORIG.
   ;;
@@ -559,10 +600,6 @@ top-level bindings from ENV and return the resulting expression."
                 (make-let-values src exp
                                  (make-lambda-case src2 req opt rest kw
                                                    inits gensyms body #f)))))
-        (($ <dynlet> src fluids vals body)
-         (let ((body (loop body)))
-           (and body
-                (make-dynlet src fluids vals body))))
         (($ <seq> src head tail)
          (let ((tail (loop tail)))
            (and tail (make-seq src head tail)))))))
@@ -994,9 +1031,6 @@ top-level bindings from ENV and return the resulting expression."
                    (else #f))))
                (_ #f))
              (make-let-values lv-src producer (for-tail consumer)))))
-      (($ <dynlet> src fluids vals body)
-       (make-dynlet src (map for-value fluids) (map for-value vals)
-                    (for-tail body)))
       (($ <toplevel-ref> src (? effect-free-primitive? name))
        exp)
       (($ <toplevel-ref>)
@@ -1108,48 +1142,9 @@ top-level bindings from ENV and return the resulting expression."
        (for-tail (make-let-values src (make-call src producer '())
                                   consumer)))
       (($ <primcall> src 'dynamic-wind (w thunk u))
-       (define (with-temporaries exps refcount k)
-         (let* ((pairs (map (match-lambda
-                             ((and exp (? constant-expression?))
-                              (cons #f exp))
-                             (exp
-                              (let ((sym (gensym "tmp ")))
-                                (record-new-temporary! 'tmp sym refcount)
-                                (cons sym exp))))
-                            exps))
-                (tmps (filter car pairs)))
-           (match tmps
-             (() (k exps))
-             (tmps
-              (make-let src
-                        (make-list (length tmps) 'tmp)
-                        (map car tmps)
-                        (map cdr tmps)
-                        (k (map (match-lambda
-                                 ((#f . val) val)
-                                 ((sym . _)
-                                  (make-lexical-ref #f 'tmp sym)))
-                                pairs)))))))
-       (define (make-begin0 src first second)
-         (make-let-values
-          src
-          first
-          (let ((vals (gensym "vals ")))
-            (record-new-temporary! 'vals vals 1)
-            (make-lambda-case
-             #f
-             '() #f 'vals #f '() (list vals)
-             (make-seq
-              src
-              second
-              (make-primcall #f 'apply
-                             (list
-                              (make-primitive-ref #f 'values)
-                              (make-lexical-ref #f 'vals vals))))
-             #f))))
        (for-tail
         (with-temporaries
-         (list w u) 2
+         src (list w u) 2 constant-expression?
          (match-lambda
           ((w u)
            (make-seq
@@ -1175,6 +1170,18 @@ top-level bindings from ENV and return the resulting expression."
                          (make-seq src
                                    (make-primcall src 'unwind '())
                                    (make-call src u '())))))))))
+
+      (($ <primcall> src 'with-fluid* (f v thunk))
+       (for-tail
+        (with-temporaries
+         src (list f v thunk) 1 constant-expression?
+         (match-lambda
+          ((f v thunk)
+           (make-seq src
+                     (make-primcall src 'push-fluid (list f v))
+                     (make-begin0 src
+                                  (make-call src thunk '())
+                                  (make-primcall src 'pop-fluid '()))))))))
 
       (($ <primcall> src 'values exps)
        (cond

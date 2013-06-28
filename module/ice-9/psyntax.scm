@@ -325,10 +325,6 @@
       (lambda (source test-exp then-exp else-exp)
         (make-conditional source test-exp then-exp else-exp)))
   
-    (define build-dynlet
-      (lambda (source fluids vals body)
-        (make-dynlet source fluids vals body)))
-  
     (define build-lexical-reference
       (lambda (type source name var)
         (make-lexical-ref source name var)))
@@ -2422,17 +2418,6 @@
                          (expand #'then r w mod)
                          (expand #'else r w mod))))))
 
-    (global-extend 'core 'with-fluids
-                   (lambda (e r w s mod)
-                     (syntax-case e ()
-                       ((_ ((fluid val) ...) b b* ...)
-                        (build-dynlet
-                         s
-                         (map (lambda (x) (expand x r w mod)) #'(fluid ...))
-                         (map (lambda (x) (expand x r w mod)) #'(val ...))
-                         (expand-body #'(b b* ...)
-                                      (source-wrap e w s mod) r w mod))))))
-  
     (global-extend 'begin 'begin '())
 
     (global-extend 'define 'define '())

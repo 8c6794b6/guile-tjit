@@ -66,6 +66,14 @@
 (define (abort-to-prompt tag . args)
   (abort-to-prompt* tag args))
 
+(define (with-fluid* fluid val thunk)
+  "Set @var{fluid} to @var{value} temporarily, and call @var{thunk}.
+@var{thunk} must be a procedure of no arguments."
+  ((@@ primitive push-fluid) fluid val)
+  (call-with-values thunk
+    (lambda vals
+      ((@@ primitive pop-fluid))
+      (apply values vals))))
 
 ;; Define catch and with-throw-handler, using some common helper routines and a
 ;; shared fluid. Hide the helpers in a lexical contour.
@@ -99,13 +107,14 @@
       (lambda (thrown-k . args)
         (if (or (eq? thrown-k catch-k) (eqv? catch-k #t))
             (let ((running (fluid-ref %running-exception-handlers)))
-              (with-fluids ((%running-exception-handlers (cons pre running)))
-                (if (not (memq pre running))
-                    (apply pre thrown-k args))
-                ;; fall through
-                (if prompt-tag
-                    (apply abort-to-prompt prompt-tag thrown-k args)
-                    (apply prev thrown-k args))))
+              (with-fluid* %running-exception-handlers (cons pre running)
+                (lambda ()
+                  (if (not (memq pre running))
+                      (apply pre thrown-k args))
+                  ;; fall through
+                  (if prompt-tag
+                      (apply abort-to-prompt prompt-tag thrown-k args)
+                      (apply prev thrown-k args)))))
             (apply prev thrown-k args)))))
 
   (set! catch
@@ -151,12 +160,11 @@ non-locally, that exit determines the continuation."
             (call-with-prompt
              tag
              (lambda ()
-               (with-fluids
-                   ((%exception-handler
-                     (if pre-unwind-handler
-                         (custom-throw-handler tag k pre-unwind-handler)
-                         (default-throw-handler tag k))))
-                 (thunk)))
+               (with-fluid* %exception-handler
+                   (if pre-unwind-handler
+                       (custom-throw-handler tag k pre-unwind-handler)
+                       (default-throw-handler tag k))
+                 thunk))
              (lambda (cont k . args)
                (apply handler k args))))))
 
@@ -168,9 +176,9 @@ for key @var{k}, then invoke @var{thunk}."
               (scm-error 'wrong-type-arg "with-throw-handler"
                          "Wrong type argument in position ~a: ~a"
                          (list 1 k) (list k)))
-          (with-fluids ((%exception-handler
-                         (custom-throw-handler #f k pre-unwind-handler)))
-            (thunk))))
+          (with-fluid* %exception-handler
+              (custom-throw-handler #f k pre-unwind-handler)
+            thunk)))
 
   (set! throw
         (lambda (key . args)
@@ -701,6 +709,25 @@ file with the given name already exists, the effect is unspecified."
 
 (define-syntax-rule (delay exp)
   (make-promise (lambda () exp)))
+
+(define-syntax with-fluids
+  (lambda (stx)
+    (define (emit-with-fluids bindings body)
+      (syntax-case bindings ()
+        (()
+         body)
+        (((f v) . bindings)
+         #`(with-fluid* f v
+             (lambda ()
+               #,(emit-with-fluids #'bindings body))))))
+    (syntax-case stx ()
+      ((_ ((fluid val) ...) exp exp* ...)
+       (with-syntax (((fluid-tmp ...) (generate-temporaries #'(fluid ...)))
+                     ((val-tmp ...) (generate-temporaries #'(val ...))))
+         #`(let ((fluid-tmp fluid) ...)
+             (let ((val-tmp val) ...)
+               #,(emit-with-fluids #'((fluid-tmp val-tmp) ...)
+                                   #'(begin exp exp* ...)))))))))
 
 (define-syntax current-source-location
   (lambda (x)

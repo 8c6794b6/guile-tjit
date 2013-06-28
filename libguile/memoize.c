@@ -63,6 +63,8 @@ SCM_SYMBOL (sym_case_lambda_star, "case-lambda*");
 /* Primitives not exposed to general Scheme. */
 static SCM wind;
 static SCM unwind;
+static SCM push_fluid;
+static SCM pop_fluid;
 
 static SCM
 do_wind (SCM in, SCM out)
@@ -75,6 +77,23 @@ static SCM
 do_unwind (void)
 {
   scm_dynstack_pop (&SCM_I_CURRENT_THREAD->dynstack);
+  return SCM_UNSPECIFIED;
+}
+
+static SCM
+do_push_fluid (SCM fluid, SCM val)
+{
+  scm_i_thread *thread = SCM_I_CURRENT_THREAD;
+  scm_dynstack_push_fluids (&thread->dynstack, 1, &fluid, &val,
+                            thread->dynamic_state);
+  return SCM_UNSPECIFIED;
+}
+
+static SCM
+do_pop_fluid (void)
+{
+  scm_i_thread *thread = SCM_I_CURRENT_THREAD;
+  scm_dynstack_unwind_fluids (&thread->dynstack, thread->dynamic_state);
   return SCM_UNSPECIFIED;
 }
 
@@ -109,8 +128,6 @@ scm_t_bits scm_tc16_memoized;
   MAKMEMO (SCM_M_QUOTE, exp)
 #define MAKMEMO_DEFINE(var, val) \
   MAKMEMO (SCM_M_DEFINE, scm_cons (var, val))
-#define MAKMEMO_WITH_FLUIDS(fluids, vals, expr) \
-  MAKMEMO (SCM_M_WITH_FLUIDS, scm_cons (fluids, scm_cons (vals, expr)))
 #define MAKMEMO_APPLY(proc, args)\
   MAKMEMO (SCM_M_APPLY, scm_list_2 (proc, args))
 #define MAKMEMO_CONT(proc) \
@@ -146,7 +163,6 @@ static const char *const memoized_tags[] =
   "let",
   "quote",
   "define",
-  "with-fluids",
   "apply",
   "call/cc",
   "call-with-values",
@@ -298,6 +314,12 @@ memoize (SCM exp, SCM env)
         else if (nargs == 0
                  && scm_is_eq (name, scm_from_latin1_symbol ("unwind")))
           return MAKMEMO_CALL (MAKMEMO_QUOTE (unwind), 0, SCM_EOL);
+        else if (nargs == 2
+                 && scm_is_eq (name, scm_from_latin1_symbol ("push-fluid")))
+          return MAKMEMO_CALL (MAKMEMO_QUOTE (push_fluid), 2, args);
+        else if (nargs == 0
+                 && scm_is_eq (name, scm_from_latin1_symbol ("pop-fluid")))
+          return MAKMEMO_CALL (MAKMEMO_QUOTE (pop_fluid), 0, SCM_EOL);
         else if (scm_is_eq (scm_current_module (), scm_the_root_module ()))
           return MAKMEMO_CALL (MAKMEMO_TOP_REF (name), nargs, args);
         else
@@ -511,11 +533,6 @@ memoize (SCM exp, SCM env)
           }
       }
 
-    case SCM_EXPANDED_DYNLET:
-      return MAKMEMO_WITH_FLUIDS (memoize_exps (REF (exp, DYNLET, FLUIDS), env),
-                                  memoize_exps (REF (exp, DYNLET, VALS), env),
-                                  memoize (REF (exp, DYNLET, BODY), env));
-
     default:
       abort ();
     }
@@ -611,18 +628,6 @@ unmemoize (const SCM expr)
                          unmemoize (CAR (args)), unmemoize (CDR (args)));
     case SCM_M_DEFINE:
       return scm_list_3 (scm_sym_define, CAR (args), unmemoize (CDR (args)));
-    case SCM_M_WITH_FLUIDS:
-      {
-        SCM binds = SCM_EOL, fluids, vals;
-        for (fluids = CAR (args), vals = CADR (args); scm_is_pair (fluids);
-             fluids = CDR (fluids), vals = CDR (vals))
-          binds = scm_cons (scm_list_2 (unmemoize (CAR (fluids)),
-                                        unmemoize (CAR (vals))),
-                            binds);
-        return scm_list_3 (scm_sym_with_fluids,
-                           scm_reverse_x (binds, SCM_UNDEFINED),
-                           unmemoize (CDDR (args)));
-      }
     case SCM_M_IF:
       return scm_list_4 (scm_sym_if, unmemoize (scm_car (args)),
                          unmemoize (scm_cadr (args)), unmemoize (scm_cddr (args)));
@@ -859,6 +864,8 @@ scm_init_memoize ()
 
   wind = scm_c_make_gsubr ("wind", 2, 0, 0, do_wind);
   unwind = scm_c_make_gsubr ("unwind", 0, 0, 0, do_unwind);
+  push_fluid = scm_c_make_gsubr ("push-fluid", 2, 0, 0, do_push_fluid);
+  pop_fluid = scm_c_make_gsubr ("pop-fluid", 0, 0, 0, do_pop_fluid);
 
   list_of_guile = scm_list_1 (scm_from_latin1_symbol ("guile"));
 }

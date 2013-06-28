@@ -94,15 +94,6 @@
          gensyms
          vals
          body)))
-   (make-dynlet
-     (lambda (src fluids vals body)
-       (make-struct
-         (vector-ref %expanded-vtables 18)
-         0
-         src
-         fluids
-         vals
-         body)))
    (lambda?
      (lambda (x)
        (and (struct? x)
@@ -152,9 +143,6 @@
    (build-conditional
      (lambda (source test-exp then-exp else-exp)
        (make-conditional source test-exp then-exp else-exp)))
-   (build-dynlet
-     (lambda (source fluids vals body)
-       (make-dynlet source fluids vals body)))
    (build-lexical-reference
      (lambda (type source name var) (make-lexical-ref source name var)))
    (build-lexical-assignment
@@ -983,11 +971,14 @@
                        (source-wrap e w (cdr w) mod)
                        x))
                     (else (decorate-source x s))))))
-         (with-fluids
-           ((transformer-environment (lambda (k) (k e r w s rib mod))))
-           (rebuild-macro-output
-             (p (source-wrap e (anti-mark w) s mod))
-             (gensym (string-append "m-" (session-id) "-")))))))
+         (let* ((t-1 transformer-environment) (t (lambda (k) (k e r w s rib mod))))
+           (with-fluid*
+             t-1
+             t
+             (lambda ()
+               (rebuild-macro-output
+                 (p (source-wrap e (anti-mark w) s mod))
+                 (gensym (string-append "m-" (session-id) "-")))))))))
    (expand-body
      (lambda (body outer-form r w mod)
        (let* ((r (cons '("placeholder" placeholder) r))
@@ -2102,24 +2093,6 @@
                 #f
                 "source expression failed to match any pattern"
                 tmp)))))))
-  (global-extend
-    'core
-    'with-fluids
-    (lambda (e r w s mod)
-      (let* ((tmp-1 e)
-             (tmp ($sc-dispatch tmp-1 '(_ #(each (any any)) any . each-any))))
-        (if tmp
-          (apply (lambda (fluid val b b*)
-                   (build-dynlet
-                     s
-                     (map (lambda (x) (expand x r w mod)) fluid)
-                     (map (lambda (x) (expand x r w mod)) val)
-                     (expand-body (cons b b*) (source-wrap e w s mod) r w mod)))
-                 tmp)
-          (syntax-violation
-            #f
-            "source expression failed to match any pattern"
-            tmp-1)))))
   (global-extend 'begin 'begin '())
   (global-extend 'define 'define '())
   (global-extend 'define-syntax 'define-syntax '())

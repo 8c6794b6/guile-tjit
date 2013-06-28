@@ -40,8 +40,6 @@
         body)
        (($ <fix> src () () () body)
         body)
-       (($ <dynlet> src () () body)
-        body)
        (($ <lambda> src meta #f)
         ;; Give a body to case-lambda with no clauses.
         (make-lambda
