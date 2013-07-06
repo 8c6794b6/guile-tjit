@@ -361,7 +361,7 @@ of an expression."
                              (cause &zero-values))
             (compute-effects tail)))
 
-          (($ <prompt> _ tag body handler)
+          (($ <prompt> _ escape-only? tag body handler)
            (logior (compute-effects tag)
                    (compute-effects body)
                    (compute-effects handler)))

@@ -55,33 +55,48 @@
                  (make-const #f '())
                  (make-const #f #f)))
           #f)))
-       (($ <prompt> src tag body handler)
-        (define (escape-only? handler)
-          (match handler
-            (($ <lambda-case> _ (_ . _) _ _ _ _ (cont . _) body #f)
-             (not (tree-il-any (lambda (x)
-                                 (and (lexical-ref? x)
-                                      (eq? (lexical-ref-gensym x) cont)))
-                               body)))
-            (else #f)))
-        (define (thunk-application? x)
-          (match x
-            (($ <call> _
-                ($ <lambda> _ _ ($ <lambda-case> _ () #f #f #f))
-                ()) #t)
-            (_ #f)))
-        (define (make-thunk-application body)
-          (define thunk
-            (make-lambda #f '()
-                         (make-lambda-case #f '() #f #f #f '() '() body #f)))
-          (make-call #f thunk '()))
-
-        ;; This code has a nasty job to do: to ensure that either the
-        ;; handler is escape-only, or the body is the application of a
-        ;; thunk.  Sad but true.
-        (if (or (escape-only? handler)
-                (thunk-application? body))
-            x
-            (make-prompt src tag (make-thunk-application body) handler)))
+       (($ <prompt> src)
+        (define (ensure-lambda-body prompt)
+          ;; If the prompt is escape-only, the body should be a thunk.
+          (match prompt
+            (($ <prompt> _ escape-only? tag body handler)
+             (match body
+               ((or ($ <lambda> _ _ ($ <lambda-case> _ () #f #f #f))
+                    (? (lambda _ (not escape-only?))))
+                prompt)
+               (else
+                (make-prompt
+                 src escape-only? tag
+                 (make-lambda #f '()
+                              (make-lambda-case #f '() #f #f #f '() '()
+                                                (make-call #f body '())
+                                                #f))
+                 handler))))))
+        (define (ensure-lambda-handler prompt)
+          (match prompt
+            (($ <prompt> _ escape-only? tag body handler)
+             ;; The prompt handler should be a simple lambda, so that we
+             ;; can inline it.
+             (match handler
+               (($ <lambda> _ _
+                   ($ <lambda-case> _ req #f rest #f () syms body #f))
+                prompt)
+               (else
+                (let ((handler-sym (gensym))
+                      (args-sym (gensym)))
+                  (make-let
+                   #f (list 'handler) (list handler-sym) (list handler)
+                   (make-prompt
+                    src escape-only? tag body
+                    (make-lambda
+                     #f '()
+                     (make-lambda-case
+                      #f '() #f 'args #f '() (list args-sym)
+                      (make-primcall
+                       #f 'apply
+                       (list (make-lexical-ref #f 'handler handler-sym)
+                             (make-lexical-ref #f 'args args-sym)))
+                      #f))))))))))
+        (ensure-lambda-handler (ensure-lambda-body x)))
        (_ x)))
    x))

@@ -1135,25 +1135,29 @@
    (call-with-prompt tag
                      (lambda () 1)
                      (lambda (k x) x))
-   (prompt (toplevel tag)
-           (const 1)
-           (lambda-case
-            (((k x) #f #f #f () (_ _))
-             (lexical x _)))))
+   (prompt #t
+           (toplevel tag)
+           (lambda _
+             (lambda-case
+              ((() #f #f #f () ())
+               (const 1))))
+           (lambda _
+             (lambda-case
+              (((k x) #f #f #f () (_ _))
+               (lexical x _))))))
 
   ;; Handler toplevel not inlined
   (pass-if-peval
-   (call-with-prompt tag
-                     (lambda () 1)
-                     handler)
-   (let (handler) (_) ((toplevel handler))
-        (prompt (toplevel tag)
-                (const 1)
-                (lambda-case
-                 ((() #f args #f () (_))
-                  (primcall apply
-                            (lexical handler _)
-                            (lexical args _)))))))
+      (call-with-prompt tag
+                        (lambda () 1)
+                        handler)
+    (prompt #f
+            (toplevel tag)
+            (lambda _
+              (lambda-case
+               ((() #f #f #f () ())
+                (const 1))))
+            (toplevel handler)))
 
   (pass-if-peval
    ;; `while' without `break' or `continue' has no prompts and gets its

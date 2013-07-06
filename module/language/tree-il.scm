@@ -39,6 +39,7 @@
             <seq> seq? make-seq seq-src seq-head seq-tail
             <lambda> lambda? make-lambda lambda-src lambda-meta lambda-body
             <lambda-case> lambda-case? make-lambda-case lambda-case-src
+            ;; idea: arity
                           lambda-case-req lambda-case-opt lambda-case-rest lambda-case-kw
                           lambda-case-inits lambda-case-gensyms
                           lambda-case-body lambda-case-alternate
@@ -46,7 +47,7 @@
             <letrec> letrec? make-letrec letrec-src letrec-in-order? letrec-names letrec-gensyms letrec-vals letrec-body
             <fix> fix? make-fix fix-src fix-names fix-gensyms fix-vals fix-body
             <let-values> let-values? make-let-values let-values-src let-values-exp let-values-body
-            <prompt> prompt? make-prompt prompt-src prompt-tag prompt-body prompt-handler
+            <prompt> prompt? make-prompt prompt-src prompt-escape-only? prompt-tag prompt-body prompt-handler
             <abort> abort? make-abort abort-src abort-tag abort-args abort-tail
 
             list->seq
@@ -131,7 +132,7 @@
 (define-type (<tree-il> #:common-slots (src) #:printer print-tree-il)
   (<fix> names gensyms vals body)
   (<let-values> exp body)
-  (<prompt> tag body handler)
+  (<prompt> escape-only? tag body handler)
   (<abort> tag args tail))
 
 
@@ -241,8 +242,9 @@
      (('let-values exp body)
       (make-let-values loc (retrans exp) (retrans body)))
 
-     (('prompt tag body handler)
-      (make-prompt loc (retrans tag) (retrans body) (retrans handler)))
+     (('prompt escape-only? tag body handler)
+      (make-prompt loc escape-only?
+                   (retrans tag) (retrans body) (retrans handler)))
      
      (('abort tag args tail)
       (make-abort loc (retrans tag) (map retrans args) (retrans tail)))
@@ -319,8 +321,9 @@
     (($ <let-values> src exp body)
      `(let-values ,(unparse-tree-il exp) ,(unparse-tree-il body)))
 
-    (($ <prompt> src tag body handler)
-     `(prompt ,(unparse-tree-il tag)
+    (($ <prompt> src escape-only? tag body handler)
+     `(prompt ,escape-only?
+              ,(unparse-tree-il tag)
               ,(unparse-tree-il body)
               ,(unparse-tree-il handler)))
 
@@ -389,7 +392,7 @@
               (($ <let-values> src exp body)
                (let*-values (((seed ...) (foldts exp seed ...)))
                  (foldts body seed ...)))
-              (($ <prompt> src tag body handler)
+              (($ <prompt> src escape-only? tag body handler)
                (let*-values (((seed ...) (foldts tag seed ...))
                              ((seed ...) (foldts body seed ...)))
                  (foldts handler seed ...)))
@@ -479,8 +482,8 @@ This is an implementation of `foldts' as described by Andy Wingo in
        (($ <let-values> src exp body)
         (make-let-values src (lp exp) (lp body)))
 
-       (($ <prompt> src tag body handler)
-        (make-prompt src (lp tag) (lp body) (lp handler)))
+       (($ <prompt> src escape-only? tag body handler)
+        (make-prompt src escape-only? (lp tag) (lp body) (lp handler)))
 
        (($ <abort> src tag args tail)
         (make-abort src (lp tag) (map lp args) (lp tail)))))))

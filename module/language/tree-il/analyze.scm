@@ -337,8 +337,17 @@
       ((<let-values> exp body)
        (lset-union eq? (step exp) (step body)))
       
-      ((<prompt> tag body handler)
-       (lset-union eq? (step tag) (step body) (step-tail handler)))
+      ((<prompt> escape-only? tag body handler)
+       (match x
+         ;; Escape-only: the body is inlined.
+         (($ <prompt> _ #t tag
+             ($ <lambda> _ _
+                ($ <lambda-case> _ () #f #f #f () () body #f))
+             ($ <lambda> _ _ handler))
+          (lset-union eq? (step tag) (step body) (step-tail handler)))
+         ;; Full: we make a closure.
+         (($ <prompt> _ #f tag body ($ <lambda> _ _ handler))
+          (lset-union eq? (step tag) (step body) (step-tail handler)))))
       
       ((<abort> tag args tail)
        (apply lset-union eq? (step tag) (step tail) (map step args)))
@@ -499,14 +508,18 @@
       ((<let-values> exp body)
        (max (recur exp) (recur body)))
       
-      ((<prompt> tag body handler)
-       (let ((cont-var (and (lambda-case? handler)
-                            (pair? (lambda-case-gensyms handler))
-                            (car (lambda-case-gensyms handler)))))
-         (hashq-set! allocation x
-                     (and cont-var (zero? (hashq-ref refcounts cont-var 0))))
-         (max (recur tag) (recur body) (recur handler))))
-      
+      ((<prompt> escape-only? tag body handler)
+       (match x
+         ;; Escape-only: the body is inlined.
+         (($ <prompt> _ #t tag
+             ($ <lambda> _ _
+                ($ <lambda-case> _ () #f #f #f () () body #f))
+             ($ <lambda> _ _ handler))
+          (max (recur tag) (recur body) (recur handler)))
+         ;; Full: we make a closure.
+         (($ <prompt> _ #f tag body ($ <lambda> _ _ handler))
+          (max (recur tag) (recur body) (recur handler)))))
+
       ((<abort> tag args tail)
        (apply max (recur tag) (recur tail) (map recur args)))
       

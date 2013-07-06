@@ -1514,7 +1514,7 @@ top-level bindings from ENV and return the resulting expression."
                            (seq-head head)
                            head)
                        tail))))
-      (($ <prompt> src tag body handler)
+      (($ <prompt> src escape-only? tag body handler)
        (define (make-prompt-tag? x)
          (match x
            (($ <primcall> _ 'make-prompt-tag (or () ((? constant-expression?))))
@@ -1522,7 +1522,7 @@ top-level bindings from ENV and return the resulting expression."
            (_ #f)))
 
        (let ((tag (for-value tag))
-             (body (for-tail body)))
+             (body (for-value body)))
          (cond
           ((find-definition tag 1)
            (lambda (val op)
@@ -1532,31 +1532,56 @@ top-level bindings from ENV and return the resulting expression."
                 ;; for this <prompt>, so we can elide the <prompt>
                 ;; entirely.
                 (unrecord-operand-uses op 1)
-                body))
+                (for-tail (make-call src body '()))))
           ((find-definition tag 2)
            (lambda (val op)
              (and (make-prompt-tag? val)
-                  (abort? body)
-                  (tree-il=? (abort-tag body) tag)))
+                  (match body
+                    (($ <lambda> _ _
+                        ($ <lambda-case> _ () #f #f #f () ()
+                           ($ <abort> _ (? (cut tree-il=? <> tag)))))
+                     #t)
+                    (else #f))))
            => (lambda (val op)
                 ;; (let ((t (make-prompt-tag)))
                 ;;   (call-with-prompt t
                 ;;     (lambda () (abort-to-prompt t val ...))
                 ;;     (lambda (k arg ...) e ...)))
-                ;; => (let-values (((k arg ...) (values values val ...)))
-                ;;      e ...)
+                ;; => (call-with-values (lambda () (values values val ...))
+                ;;      (lambda (k arg ...) e ...))
                 (unrecord-operand-uses op 2)
-                (for-tail
-                 (make-let-values
-                  src
-                  (make-primcall #f 'apply
-                                 `(,(make-primitive-ref #f 'values)
-                                   ,(make-primitive-ref #f 'values)
-                                   ,@(abort-args body)
-                                   ,(abort-tail body)))
-                  (for-value handler)))))
+                (match body
+                  (($ <lambda> _ _
+                      ($ <lambda-case> _ () #f #f #f () ()
+                         ($ <abort> _ _ args tail)))
+                   (for-tail
+                    (make-primcall
+                     src 'call-with-values
+                     (list (make-lambda
+                            #f '()
+                            (make-lambda-case
+                             #f '() #f #f #f '() '()
+                             (make-primcall #f 'apply
+                                            `(,(make-primitive-ref #f 'values)
+                                              ,(make-primitive-ref #f 'values)
+                                              ,@args
+                                              ,tail))
+                             #f))
+                           handler)))))))
           (else
-           (make-prompt src tag body (for-value handler))))))
+           (let ((handler (for-value handler)))
+             (define (escape-only-handler? handler)
+               (match handler
+                 (($ <lambda> _ _
+                     ($ <lambda-case> _ (_ . _) _ _ _ _ (k . _) body #f))
+                  (not (tree-il-any
+                        (match-lambda
+                         (($ <lexical-ref> _ _ (? (cut eq? <> k))) #t)
+                         (_ #f))
+                        body)))
+                 (else #f)))
+             (make-prompt src (or escape-only? (escape-only-handler? handler))
+                          tag body (for-value handler)))))))
       (($ <abort> src tag args tail)
        (make-abort src (for-value tag) (map for-value args)
                    (for-value tail))))))

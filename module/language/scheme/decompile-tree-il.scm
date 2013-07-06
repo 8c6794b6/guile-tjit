@@ -435,7 +435,7 @@
         ((<prompt> tag body handler)
          `(call-with-prompt
            ,(recurse tag)
-           (lambda () ,@(recurse-body body))
+           ,(recurse body)
            ,(recurse handler)))
 
 
@@ -746,7 +746,6 @@
 
             ((<prompt> tag body handler)
              (primitive 'call-with-prompt)
-             (primitive 'lambda)
              (recurse tag) (recurse body) (recurse handler))
 
             ((<abort> tag args tail)

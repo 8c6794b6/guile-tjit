@@ -23,6 +23,7 @@
   #:use-module (system base pmatch)
   #:use-module (system base message)
   #:use-module (ice-9 receive)
+  #:use-module (ice-9 match)
   #:use-module (language glil)
   #:use-module (system vm instruction)
   #:use-module (language tree-il)
@@ -954,10 +955,16 @@
       ;; if the continuation isn't referenced, we don't reify it. This makes it
       ;; possible to implement catch and throw with delimited continuations,
       ;; without any overhead.
-      ((<prompt> src tag body handler)
+      ((<prompt> src escape-only? tag body handler)
        (let ((H (make-label))
              (POST (make-label))
-             (escape-only? (hashq-ref allocation x)))
+             (body (if escape-only?
+                       (match body
+                         (($ <lambda> _ _
+                             ($ <lambda-case> _ () #f #f #f () () body #f))
+                          body))
+                       (make-call #f body '()))))
+
          ;; First, set up the prompt.
          (comp-push tag)
          (emit-code src (make-glil-prompt H escape-only?))
@@ -1003,15 +1010,15 @@
          ;; Now the handler. The stack is now made up of the continuation, and
          ;; then the args to the continuation (pushed separately), and then the
          ;; number of args, including the continuation.
-         (record-case handler
-           ((<lambda-case> req opt kw rest gensyms body alternate)
-            (if (or opt kw alternate)
-                (error "unexpected lambda-case in prompt" x))
-            (emit-code src (make-glil-mv-bind
-                            (vars->bind-list
-                             (append req (if rest (list rest) '()))
-                             gensyms allocation self)
-                            (and rest #t)))
+         (match handler
+           (($ <lambda> src meta
+               ($ <lambda-case> lsrc req #f rest #f () gensyms body #f))
+            (emit-code (or lsrc src)
+                       (make-glil-mv-bind
+                        (vars->bind-list
+                         (append req (if rest (list rest) '()))
+                         gensyms allocation self)
+                        (and rest #t)))
             (for-each (lambda (v)
                         (pmatch (hashq-ref (hashq-ref allocation v) self)
                           ((#t #f . ,n)
