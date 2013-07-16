@@ -349,7 +349,7 @@
                                          (scm-error
                                           'keyword-argument-error
                                           "eval" "Unrecognized keyword"
-                                          '() #f)))
+                                          '() (list (car args)))))
                                  (lp (cddr args)))
                                (if (pair? args)
                                    (if rest?
@@ -357,7 +357,7 @@
                                        (lp (cdr args))
                                        (scm-error 'keyword-argument-error
                                                   "eval" "Invalid keyword"
-                                                  '() #f))
+                                                  '() (list (car args))))
                                    ;; Finished parsing keywords. Fill in
                                    ;; uninitialized kwargs by evalling init
                                    ;; expressions in their appropriate

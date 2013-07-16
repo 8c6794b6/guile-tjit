@@ -33,7 +33,10 @@
   (not (not (object-documentation object))))
 
 (define fixnum-bit
-  (inexact->exact (+ (/ (log (+ most-positive-fixnum 1)) (log 2)) 1)))
+  (do ((i 0 (+ 1 i))
+       (n 1 (* 2 n)))
+      ((> n most-positive-fixnum)
+       (+ 1 i))))
 
 (define fixnum-min most-negative-fixnum)
 (define fixnum-max most-positive-fixnum)
@@ -2034,7 +2037,28 @@
   (pass-if (not (= (ash-flo 1.0 58) (1- (ash 1 58)))))
   (pass-if (= (ash 1 58) (ash-flo 1.0 58)))
   (pass-if (not (= (1+ (ash 1 58)) (ash-flo 1.0 58))))
-  (pass-if (not (= (1- (ash 1 58)) (ash-flo 1.0 58)))))
+  (pass-if (not (= (1- (ash 1 58)) (ash-flo 1.0 58))))
+
+  ;; prior to guile 2.0.10, inum/complex comparisons were done just by
+  ;; converting the inum to a double, which on a 64-bit would round making
+  ;; say inexact 2^58 appear equal to exact 2^58+1
+  (pass-if (= (+ +0.0i (ash-flo 1.0 58)) (ash 1 58)))
+  (pass-if (not (= (+ +0.0i (ash-flo 1.0 58)) (1+ (ash 1 58)))))
+  (pass-if (not (= (+ +0.0i (ash-flo 1.0 58)) (1- (ash 1 58)))))
+  (pass-if (= (ash 1 58) (+ +0.0i (ash-flo 1.0 58))))
+  (pass-if (not (= (1+ (ash 1 58)) (+ +0.0i (ash-flo 1.0 58)))))
+  (pass-if (not (= (1- (ash 1 58)) (+ +0.0i (ash-flo 1.0 58)))))
+
+  ;; prior to guile 2.0.10, fraction/flonum and fraction/complex
+  ;; comparisons mishandled infinities.
+  (pass-if (not (= 1/2 +inf.0)))
+  (pass-if (not (= 1/2 -inf.0)))
+  (pass-if (not (= +inf.0 1/2)))
+  (pass-if (not (= -inf.0 1/2)))
+  (pass-if (not (= 1/2 +inf.0+0.0i)))
+  (pass-if (not (= 1/2 -inf.0+0.0i)))
+  (pass-if (not (= +inf.0+0.0i 1/2)))
+  (pass-if (not (= -inf.0+0.0i 1/2))))
 
 ;;;
 ;;; <
@@ -2085,6 +2109,9 @@
     (pass-if "n = 0.0"
       (not (< 0.0 0.0)))
     
+    (pass-if "n = -0.0"
+      (not (< 0.0 -0.0)))
+    
     (pass-if "n = 1"
       (< 0.0 1))
     
@@ -2108,6 +2135,9 @@
 
     (pass-if "n = fixnum-min - 1"
       (not (< 0.0 (- fixnum-min 1)))))
+
+  (pass-if (not (< -0.0 0.0)))
+  (pass-if (not (< -0.0 -0.0)))
   
   (with-test-prefix "(< 1 n)"
     
@@ -2432,6 +2462,42 @@
       (pass-if (eq? #f (< x (* -2/3 x))))
       (pass-if (eq? #f (< x (* -4/3 x))))
       (pass-if (eq? #f (< (- x) (* -4/3 x))))))
+
+  (with-test-prefix "inum/flonum"
+    (pass-if (< 4 4.5))
+    (pass-if (< 4.5 5))
+    (pass-if (< -5 -4.5))
+    (pass-if (< -4.5 4))
+    (pass-if (not (< 4.5 4)))
+    (pass-if (not (< 5 4.5)))
+    (pass-if (not (< -4.5 -5)))
+    (pass-if (not (< 4 -4.5)))
+
+    (pass-if (< 4 +inf.0))
+    (pass-if (< -4 +inf.0))
+    (pass-if (< -inf.0 4))
+    (pass-if (< -inf.0 -4))
+    (pass-if (not (< +inf.0 4)))
+    (pass-if (not (< +inf.0 -4)))
+    (pass-if (not (< 4 -inf.0)))
+    (pass-if (not (< -4 -inf.0)))
+
+    (pass-if (not (< +nan.0 4)))
+    (pass-if (not (< +nan.0 -4)))
+    (pass-if (not (< 4 +nan.0)))
+    (pass-if (not (< -4 +nan.0)))
+
+    (pass-if (< most-positive-fixnum (expt 2.0 fixnum-bit)))
+    (pass-if (not (< (expt 2.0 fixnum-bit) most-positive-fixnum)))
+
+    (pass-if (< (- (expt 2.0 fixnum-bit)) most-negative-fixnum))
+    (pass-if (not (< most-negative-fixnum (- (expt 2.0 fixnum-bit)))))
+
+    ;; Prior to guile 2.0.10, we would unconditionally convert the inum
+    ;; to a double, which on a 64-bit system could result in a
+    ;; significant change in its value, thus corrupting the comparison.
+    (pass-if (< most-positive-fixnum (exact->inexact most-positive-fixnum)))
+    (pass-if (< (exact->inexact (- most-positive-fixnum)) (- most-positive-fixnum))))
 
   (with-test-prefix "flonum/frac"
     (pass-if (< 0.75 4/3))
@@ -4020,6 +4086,19 @@
   (pass-if "frac big/big, exceeding double"
     (let ((big (ash 1 4096)))
       (= 1.0 (exact->inexact (/ (1+ big) big)))))
+
+  ;; In guile 2.0.9, 'exact->inexact' guaranteed proper rounding when
+  ;; applied to non-negative fractions, but on 64-bit systems would
+  ;; sometimes double-round when applied to negative fractions,
+  ;; specifically when the numerator was a fixnum not exactly
+  ;; representable as a double.
+  (with-test-prefix "frac inum/inum, numerator not exactly representable as a double"
+    (let ((n (+ 1 (expt 2 dbl-mant-dig))))
+      (for-each (lambda (d)
+                  (test (/ n d)
+                        (/ n d)
+                        (exact->inexact (/ n d))))
+                '(3 5 6 7 9 11 13 17 19 23 0.0 -0.0 +nan.0 +inf.0 -inf.0))))
 
   (test "round up to odd"
         ;; =====================================================

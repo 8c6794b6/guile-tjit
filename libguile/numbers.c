@@ -100,6 +100,13 @@ typedef scm_t_signed_bits scm_t_inum;
 #define DOUBLE_IS_POSITIVE_INFINITY(x) (isinf(x) && ((x) > 0))
 #define DOUBLE_IS_NEGATIVE_INFINITY(x) (isinf(x) && ((x) < 0))
 
+/* Test an inum to see if it can be converted to a double without loss
+   of precision.  Note that this will sometimes return 0 even when 1
+   could have been returned, e.g. for large powers of 2.  It is designed
+   to be a fast check to optimize common cases. */
+#define INUM_LOSSLESSLY_CONVERTIBLE_TO_DOUBLE(n)                        \
+  (SCM_I_FIXNUM_BIT-1 <= DBL_MANT_DIG                                   \
+   || ((n) ^ ((n) >> (SCM_I_FIXNUM_BIT-1))) < (1L << DBL_MANT_DIG))
 
 #if ! HAVE_DECL_MPZ_INITS
 
@@ -506,10 +513,10 @@ scm_i_divide2double (SCM n, SCM d)
 
   if (SCM_LIKELY (SCM_I_INUMP (d)))
     {
-      if (SCM_LIKELY (SCM_I_INUMP (n)
-                      && (SCM_I_FIXNUM_BIT-1 <= DBL_MANT_DIG
-                          || (SCM_I_INUM (n) < (1L << DBL_MANT_DIG)
-                              && SCM_I_INUM (d) < (1L << DBL_MANT_DIG)))))
+      if (SCM_LIKELY
+          (SCM_I_INUMP (n)
+           && INUM_LOSSLESSLY_CONVERTIBLE_TO_DOUBLE (SCM_I_INUM (n))
+           && INUM_LOSSLESSLY_CONVERTIBLE_TO_DOUBLE (SCM_I_INUM (d))))
         /* If both N and D can be losslessly converted to doubles, then
            we can rely on IEEE floating point to do proper rounding much
            faster than we can. */
@@ -6535,9 +6542,11 @@ scm_num_eq_p (SCM x, SCM y)
              to a double and compare.
 
              But on a 64-bit system an inum is bigger than a double and
-             casting it to a double (call that dxx) will round.  dxx is at
-             worst 1 bigger or smaller than xx, so if dxx==yy we know yy is
-             an integer and fits a long.  So we cast yy to a long and
+             casting it to a double (call that dxx) will round.
+             Although dxx will not in general be equal to xx, dxx will
+             always be an integer and within a factor of 2 of xx, so if
+             dxx==yy, we know that yy is an integer and fits in
+             scm_t_signed_bits.  So we cast yy to scm_t_signed_bits and
              compare with plain xx.
 
              An alternative (for any size system actually) would be to check
@@ -6552,8 +6561,14 @@ scm_num_eq_p (SCM x, SCM y)
 				    || xx == (scm_t_signed_bits) yy));
         }
       else if (SCM_COMPLEXP (y))
-	return scm_from_bool (((double) xx == SCM_COMPLEX_REAL (y))
-			 && (0.0 == SCM_COMPLEX_IMAG (y)));
+        {
+          /* see comments with inum/real above */
+          double ry = SCM_COMPLEX_REAL (y);
+          return scm_from_bool ((double) xx == ry
+                                && 0.0 == SCM_COMPLEX_IMAG (y)
+                                && (DBL_MANT_DIG >= SCM_I_FIXNUM_BIT-1
+                                    || xx == (scm_t_signed_bits) ry));
+        }
       else if (SCM_FRACTIONP (y))
 	return SCM_BOOL_F;
       else
@@ -6610,24 +6625,21 @@ scm_num_eq_p (SCM x, SCM y)
       else if (SCM_BIGP (y))
 	{
 	  int cmp;
-	  if (isnan (SCM_REAL_VALUE (x)))
+	  if (isnan (xx))
 	    return SCM_BOOL_F;
-	  cmp = xmpz_cmp_d (SCM_I_BIG_MPZ (y), SCM_REAL_VALUE (x));
+	  cmp = xmpz_cmp_d (SCM_I_BIG_MPZ (y), xx);
 	  scm_remember_upto_here_1 (y);
 	  return scm_from_bool (0 == cmp);
 	}
       else if (SCM_REALP (y))
-	return scm_from_bool (SCM_REAL_VALUE (x) == SCM_REAL_VALUE (y));
+	return scm_from_bool (xx == SCM_REAL_VALUE (y));
       else if (SCM_COMPLEXP (y))
-	return scm_from_bool ((SCM_REAL_VALUE (x) == SCM_COMPLEX_REAL (y))
-			 && (0.0 == SCM_COMPLEX_IMAG (y)));
+	return scm_from_bool ((xx == SCM_COMPLEX_REAL (y))
+                              && (0.0 == SCM_COMPLEX_IMAG (y)));
       else if (SCM_FRACTIONP (y))
         {
-          double  xx = SCM_REAL_VALUE (x);
-          if (isnan (xx))
+          if (isnan (xx) || isinf (xx))
             return SCM_BOOL_F;
-          if (isinf (xx))
-            return scm_from_bool (xx < 0.0);
           x = scm_inexact_to_exact (x);  /* with x as frac or int */
           goto again;
         }
@@ -6638,8 +6650,15 @@ scm_num_eq_p (SCM x, SCM y)
   else if (SCM_COMPLEXP (x))
     {
       if (SCM_I_INUMP (y))
-	return scm_from_bool ((SCM_COMPLEX_REAL (x) == (double) SCM_I_INUM (y))
-			 && (SCM_COMPLEX_IMAG (x) == 0.0));
+        {
+          /* see comments with inum/real above */
+          double rx = SCM_COMPLEX_REAL (x);
+          scm_t_signed_bits yy = SCM_I_INUM (y);
+          return scm_from_bool (rx == (double) yy
+                                && 0.0 == SCM_COMPLEX_IMAG (x)
+                                && (DBL_MANT_DIG >= SCM_I_FIXNUM_BIT-1
+                                    || (scm_t_signed_bits) rx == yy));
+        }
       else if (SCM_BIGP (y))
 	{
 	  int cmp;
@@ -6653,20 +6672,18 @@ scm_num_eq_p (SCM x, SCM y)
 	}
       else if (SCM_REALP (y))
 	return scm_from_bool ((SCM_COMPLEX_REAL (x) == SCM_REAL_VALUE (y))
-			 && (SCM_COMPLEX_IMAG (x) == 0.0));
+                              && (SCM_COMPLEX_IMAG (x) == 0.0));
       else if (SCM_COMPLEXP (y))
 	return scm_from_bool ((SCM_COMPLEX_REAL (x) == SCM_COMPLEX_REAL (y))
-			 && (SCM_COMPLEX_IMAG (x) == SCM_COMPLEX_IMAG (y)));
+                              && (SCM_COMPLEX_IMAG (x) == SCM_COMPLEX_IMAG (y)));
       else if (SCM_FRACTIONP (y))
         {
           double  xx;
           if (SCM_COMPLEX_IMAG (x) != 0.0)
             return SCM_BOOL_F;
           xx = SCM_COMPLEX_REAL (x);
-          if (isnan (xx))
+          if (isnan (xx) || isinf (xx))
             return SCM_BOOL_F;
-          if (isinf (xx))
-            return scm_from_bool (xx < 0.0);
           x = scm_inexact_to_exact (x);  /* with x as frac or int */
           goto again;
         }
@@ -6683,10 +6700,8 @@ scm_num_eq_p (SCM x, SCM y)
       else if (SCM_REALP (y))
         {
           double yy = SCM_REAL_VALUE (y);
-          if (isnan (yy))
+          if (isnan (yy) || isinf (yy))
             return SCM_BOOL_F;
-          if (isinf (yy))
-            return scm_from_bool (0.0 < yy);
           y = scm_inexact_to_exact (y);  /* with y as frac or int */
           goto again;
         }
@@ -6696,10 +6711,8 @@ scm_num_eq_p (SCM x, SCM y)
           if (SCM_COMPLEX_IMAG (y) != 0.0)
             return SCM_BOOL_F;
           yy = SCM_COMPLEX_REAL (y);
-          if (isnan (yy))
+          if (isnan (yy) || isinf(yy))
             return SCM_BOOL_F;
-          if (isinf (yy))
-            return scm_from_bool (0.0 < yy);
           y = scm_inexact_to_exact (y);  /* with y as frac or int */
           goto again;
         }
@@ -6760,7 +6773,25 @@ scm_less_p (SCM x, SCM y)
 	  return scm_from_bool (sgn > 0);
 	}
       else if (SCM_REALP (y))
-	return scm_from_bool ((double) xx < SCM_REAL_VALUE (y));
+        {
+          /* We can safely take the ceiling of y without changing the
+             result of x<y, given that x is an integer. */
+          double yy = ceil (SCM_REAL_VALUE (y));
+
+          /* In the following comparisons, it's important that the right
+             hand side always be a power of 2, so that it can be
+             losslessly converted to a double even on 64-bit
+             machines. */
+          if (yy >= (double) (SCM_MOST_POSITIVE_FIXNUM+1))
+            return SCM_BOOL_T;
+          else if (!(yy > (double) SCM_MOST_NEGATIVE_FIXNUM))
+            /* The condition above is carefully written to include the
+               case where yy==NaN. */
+            return SCM_BOOL_F;
+          else
+            /* yy is a finite integer that fits in an inum. */
+            return scm_from_bool (xx < (scm_t_inum) yy);
+        }
       else if (SCM_FRACTIONP (y))
         {
           /* "x < a/b" becomes "x*b < a" */
@@ -6805,7 +6836,25 @@ scm_less_p (SCM x, SCM y)
   else if (SCM_REALP (x))
     {
       if (SCM_I_INUMP (y))
-	return scm_from_bool (SCM_REAL_VALUE (x) < (double) SCM_I_INUM (y));
+        {
+          /* We can safely take the floor of x without changing the
+             result of x<y, given that y is an integer. */
+          double xx = floor (SCM_REAL_VALUE (x));
+
+          /* In the following comparisons, it's important that the right
+             hand side always be a power of 2, so that it can be
+             losslessly converted to a double even on 64-bit
+             machines. */
+          if (xx < (double) SCM_MOST_NEGATIVE_FIXNUM)
+            return SCM_BOOL_T;
+          else if (!(xx < (double) (SCM_MOST_POSITIVE_FIXNUM+1)))
+            /* The condition above is carefully written to include the
+               case where xx==NaN. */
+            return SCM_BOOL_F;
+          else
+            /* xx is a finite integer that fits in an inum. */
+            return scm_from_bool ((scm_t_inum) xx < SCM_I_INUM (y));
+        }
       else if (SCM_BIGP (y))
 	{
 	  int cmp;

@@ -326,7 +326,7 @@ remqueue (SCM q, SCM c)
       if (scm_is_eq (p, c))
 	{
 	  if (scm_is_eq (c, SCM_CAR (q)))
-	    SCM_SETCAR (q, SCM_CDR (c));
+            SCM_SETCAR (q, scm_is_eq (prev, q) ? SCM_EOL : prev);
 	  SCM_SETCDR (prev, SCM_CDR (c));
 
 	  /* GC-robust */
@@ -1712,7 +1712,7 @@ SCM_DEFINE (scm_unlock_mutex_timed, "unlock-mutex", 1, 2, 0,
     {
       SCM_VALIDATE_CONDVAR (2, cond);
 
-      if (! (SCM_UNBNDP (timeout)))
+      if (! SCM_UNBNDP (timeout) && ! scm_is_false (timeout))
 	{
 	  to_timespec (timeout, &cwaittime);
 	  waittime = &cwaittime;

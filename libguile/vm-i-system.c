@@ -697,12 +697,12 @@ VM_DEFINE_INSTRUCTION (50, bind_kwargs, "bind-kwargs", 5, 0, 0)
 	    }
           VM_ASSERT (scm_is_pair (walk)
                      || (kw_and_rest_flags & F_ALLOW_OTHER_KEYS),
-                     vm_error_kwargs_unrecognized_keyword (program));
+                     vm_error_kwargs_unrecognized_keyword (program, sp[nkw]));
 	  nkw++;
 	}
       else
         VM_ASSERT (kw_and_rest_flags & F_REST,
-                   vm_error_kwargs_invalid_keyword (program));
+                   vm_error_kwargs_invalid_keyword (program, sp[nkw]));
     }
 
   NEXT;

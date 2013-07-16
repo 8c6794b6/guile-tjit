@@ -1555,11 +1555,13 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
                   break;
                 }
             VM_ASSERT (scm_is_pair (walk) || allow_other_keys,
-                       vm_error_kwargs_unrecognized_keyword (SCM_FRAME_PROGRAM (fp)));
+                       vm_error_kwargs_unrecognized_keyword (SCM_FRAME_PROGRAM (fp),
+                                                             LOCAL_REF (ntotal + n)));
             n++;
           }
         else
-          VM_ASSERT (has_rest, vm_error_kwargs_invalid_keyword (SCM_FRAME_PROGRAM (fp)));
+          VM_ASSERT (has_rest, vm_error_kwargs_invalid_keyword (SCM_FRAME_PROGRAM (fp),
+                                                                LOCAL_REF (ntotal + n)));
 
       if (has_rest)
         {
