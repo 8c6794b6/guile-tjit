@@ -4144,6 +4144,8 @@ scm_gcd (SCM x, SCM y)
           SCM_SWAP (x, y);
           goto big_inum;
         }
+      else if (SCM_REALP (y) && scm_is_integer (y))
+        goto handle_inexacts;
       else
         return scm_wta_dispatch_2 (g_gcd, x, y, SCM_ARG2, s_gcd);
     }
@@ -4174,6 +4176,20 @@ scm_gcd (SCM x, SCM y)
           scm_remember_upto_here_2 (x, y);
           return scm_i_normbig (result);
         }
+      else if (SCM_REALP (y) && scm_is_integer (y))
+        goto handle_inexacts;
+      else
+        SCM_WTA_DISPATCH_2 (g_gcd, x, y, SCM_ARG2, s_gcd);
+    }
+  else if (SCM_REALP (x) && scm_is_integer (x))
+    {
+      if (SCM_I_INUMP (y) || SCM_BIGP (y)
+          || (SCM_REALP (y) && scm_is_integer (y)))
+        {
+        handle_inexacts:
+          return scm_exact_to_inexact (scm_gcd (scm_inexact_to_exact (x),
+                                                scm_inexact_to_exact (y)));
+        }
       else
         return scm_wta_dispatch_2 (g_gcd, x, y, SCM_ARG2, s_gcd);
     }
@@ -4202,22 +4218,12 @@ SCM_PRIMITIVE_GENERIC (scm_i_lcm, "lcm", 0, 2, 1,
 SCM
 scm_lcm (SCM n1, SCM n2)
 {
-  if (SCM_UNBNDP (n2))
-    {
-      if (SCM_UNBNDP (n1))
-        return SCM_I_MAKINUM (1L);
-      n2 = SCM_I_MAKINUM (1L);
-    }
+  if (SCM_UNLIKELY (SCM_UNBNDP (n2)))
+    return SCM_UNBNDP (n1) ? SCM_INUM1 : scm_abs (n1);
 
-  if (SCM_UNLIKELY (!(SCM_I_INUMP (n1) || SCM_BIGP (n1))))
-    return scm_wta_dispatch_2 (g_lcm, n1, n2, SCM_ARG1, s_lcm);
-  
-  if (SCM_UNLIKELY (!(SCM_I_INUMP (n2) || SCM_BIGP (n2))))
-    return scm_wta_dispatch_2 (g_lcm, n1, n2, SCM_ARG2, s_lcm);
-
-  if (SCM_I_INUMP (n1))
+  if (SCM_LIKELY (SCM_I_INUMP (n1)))
     {
-      if (SCM_I_INUMP (n2))
+      if (SCM_LIKELY (SCM_I_INUMP (n2)))
         {
           SCM d = scm_gcd (n1, n2);
           if (scm_is_eq (d, SCM_INUM0))
@@ -4225,7 +4231,7 @@ scm_lcm (SCM n1, SCM n2)
           else
             return scm_abs (scm_product (n1, scm_quotient (n2, d)));
         }
-      else
+      else if (SCM_LIKELY (SCM_BIGP (n2)))
         {
           /* inum n1, big n2 */
         inumbig:
@@ -4239,8 +4245,12 @@ scm_lcm (SCM n1, SCM n2)
             return result;
           }
         }
+      else if (SCM_REALP (n2) && scm_is_integer (n2))
+        goto handle_inexacts;
+      else
+        return scm_wta_dispatch_2 (g_lcm, n1, n2, SCM_ARG2, s_lcm);
     }
-  else
+  else if (SCM_LIKELY (SCM_BIGP (n1)))
     {
       /* big n1 */
       if (SCM_I_INUMP (n2))
@@ -4248,7 +4258,7 @@ scm_lcm (SCM n1, SCM n2)
           SCM_SWAP (n1, n2);
           goto inumbig;
         }
-      else
+      else if (SCM_LIKELY (SCM_BIGP (n2)))
         {
           SCM result = scm_i_mkbig ();
           mpz_lcm(SCM_I_BIG_MPZ (result),
@@ -4258,7 +4268,25 @@ scm_lcm (SCM n1, SCM n2)
           /* shouldn't need to normalize b/c lcm of 2 bigs should be big */
           return result;
         }
+      else if (SCM_REALP (n2) && scm_is_integer (n2))
+        goto handle_inexacts;
+      else
+        return scm_wta_dispatch_2 (g_lcm, n1, n2, SCM_ARG2, s_lcm);
     }
+  else if (SCM_REALP (n1) && scm_is_integer (n1))
+    {
+      if (SCM_I_INUMP (n2) || SCM_BIGP (n2)
+          || (SCM_REALP (n2) && scm_is_integer (n2)))
+        {
+        handle_inexacts:
+          return scm_exact_to_inexact (scm_lcm (scm_inexact_to_exact (n1),
+                                                scm_inexact_to_exact (n2)));
+        }
+      else
+        return scm_wta_dispatch_2 (g_lcm, n1, n2, SCM_ARG2, s_lcm);
+    }
+  else
+    return scm_wta_dispatch_2 (g_lcm, n1, n2, SCM_ARG1, s_lcm);
 }
 
 /* Emulating 2's complement bignums with sign magnitude arithmetic:
@@ -7230,17 +7258,16 @@ scm_max (SCM x, SCM y)
 	  double xx = SCM_REAL_VALUE (x);
 	  double yy = SCM_REAL_VALUE (y);
 
-	  /* For purposes of max: +inf.0 > nan > everything else, per R6RS */
+	  /* For purposes of max: nan > +inf.0 > everything else,
+             per the R6RS errata */
 	  if (xx > yy)
 	    return x;
 	  else if (SCM_LIKELY (xx < yy))
 	    return y;
 	  /* If neither (xx > yy) nor (xx < yy), then
 	     either they're equal or one is a NaN */
-	  else if (SCM_UNLIKELY (isnan (xx)))
-	    return DOUBLE_IS_POSITIVE_INFINITY (yy) ? y : x;
-	  else if (SCM_UNLIKELY (isnan (yy)))
-	    return DOUBLE_IS_POSITIVE_INFINITY (xx) ? x : y;
+	  else if (SCM_UNLIKELY (xx != yy))
+	    return (xx != xx) ? x : y;  /* Return the NaN */
 	  /* xx == yy, but handle signed zeroes properly */
 	  else if (double_is_non_negative_zero (yy))
 	    return y;
@@ -7390,17 +7417,16 @@ scm_min (SCM x, SCM y)
 	  double xx = SCM_REAL_VALUE (x);
 	  double yy = SCM_REAL_VALUE (y);
 
-	  /* For purposes of min: -inf.0 < nan < everything else, per R6RS */
+	  /* For purposes of min: nan < -inf.0 < everything else,
+             per the R6RS errata */
 	  if (xx < yy)
 	    return x;
 	  else if (SCM_LIKELY (xx > yy))
 	    return y;
 	  /* If neither (xx < yy) nor (xx > yy), then
 	     either they're equal or one is a NaN */
-	  else if (SCM_UNLIKELY (isnan (xx)))
-	    return DOUBLE_IS_NEGATIVE_INFINITY (yy) ? y : x;
-	  else if (SCM_UNLIKELY (isnan (yy)))
-	    return DOUBLE_IS_NEGATIVE_INFINITY (xx) ? x : y;
+	  else if (SCM_UNLIKELY (xx != yy))
+	    return (xx != xx) ? x : y;  /* Return the NaN */
 	  /* xx == yy, but handle signed zeroes properly */
 	  else if (double_is_non_negative_zero (xx))
 	    return y;
