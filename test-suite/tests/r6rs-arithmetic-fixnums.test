@@ -1,6 +1,6 @@
 ;;; arithmetic-fixnums.test --- Test suite for R6RS (rnrs arithmetic bitwise)
 
-;;      Copyright (C) 2010, 2011 Free Software Foundation, Inc.
+;;      Copyright (C) 2010, 2011, 2013 Free Software Foundation, Inc.
 ;;
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -22,6 +22,14 @@
   :use-module ((rnrs conditions) :version (6))
   :use-module ((rnrs exceptions) :version (6))
   :use-module (test-suite lib))
+
+(with-test-prefix "fixnum-width"
+  (pass-if-equal "consistent with least-fixnum"
+      (- (expt 2 (- (fixnum-width) 1)))
+    (least-fixnum))
+  (pass-if-equal "consistent with greatest-fixnum"
+      (- (expt 2 (- (fixnum-width) 1)) 1)
+    (greatest-fixnum)))
 
 (with-test-prefix "fixnum?"
   (pass-if "fixnum? is #t for fixnums" (fixnum? 0))
@@ -157,7 +165,9 @@
 
 (with-test-prefix "fxif" (pass-if "simple" (fx=? (fxif 5 3 4) 1)))
 
-(with-test-prefix "fxbit-count" (pass-if "simple" (fx=? (fxbit-count 5) 2)))
+(with-test-prefix "fxbit-count"
+  (pass-if "simple" (fx=? (fxbit-count 5) 2))
+  (pass-if "negative" (fx=? (fxbit-count -5) -2)))
 
 (with-test-prefix "fxlength" (pass-if "simple" (fx=? (fxlength 5) 3)))
 

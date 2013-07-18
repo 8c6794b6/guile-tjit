@@ -1,6 +1,6 @@
 ;;; fixnums.scm --- The R6RS fixnums arithmetic library
 
-;;      Copyright (C) 2010, 2011 Free Software Foundation, Inc.
+;;      Copyright (C) 2010, 2011, 2013 Free Software Foundation, Inc.
 ;;
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -95,8 +95,11 @@
 	  (rnrs exceptions (6))
 	  (rnrs lists (6)))
 
-  (define fixnum-width 
-    (let ((w (inexact->exact (round (/ (log (+ most-positive-fixnum 1)) (log 2))))))
+  (define fixnum-width
+    (let ((w (do ((i 0 (+ 1 i))
+                  (n 1 (* 2 n)))
+                 ((> n most-positive-fixnum)
+                  (+ 1 i)))))
       (lambda () w)))
 
   (define (greatest-fixnum) most-positive-fixnum)
@@ -227,7 +230,12 @@
     (assert-fixnum fx1 fx2 fx3) 
     (bitwise-if fx1 fx2 fx3))
 
-  (define (fxbit-count fx) (assert-fixnum fx) (logcount fx))
+  (define (fxbit-count fx)
+    (assert-fixnum fx)
+    (if (negative? fx)
+        (bitwise-not (logcount fx))
+        (logcount fx)))
+
   (define (fxlength fx) (assert-fixnum fx) (bitwise-length fx))
   (define (fxfirst-bit-set fx) (assert-fixnum fx) (bitwise-first-bit-set fx))
   (define (fxbit-set? fx1 fx2) (assert-fixnum fx1 fx2) (logbit? fx2 fx1))
