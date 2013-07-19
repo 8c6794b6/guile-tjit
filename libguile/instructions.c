@@ -41,6 +41,10 @@ struct scm_instruction {
 };
 
 
+SCM_SYMBOL (sym_left_arrow, "<-");
+SCM_SYMBOL (sym_bang, "!");
+
+
 #define OP_HAS_ARITY (1U << 0)
 
 #define FOR_EACH_INSTRUCTION_WORD_TYPE(M)       \
@@ -274,6 +278,7 @@ SCM_DEFINE (scm_rtl_instruction_list, "rtl-instruction-list", 0, 0, 0,
           case 1:
             tail = scm_cons (word_type_symbols[WORD_TYPE (0, meta)], tail);
           default:
+            tail = scm_cons ((meta & OP_DST) ? sym_left_arrow : sym_bang, tail);
             tail = scm_cons (scm_from_int (ip[i].opcode), tail);
             tail = scm_cons (ip[i].symname, tail);
             break;

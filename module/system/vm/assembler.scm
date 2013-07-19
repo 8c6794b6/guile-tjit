@@ -443,7 +443,7 @@ later by the linker."
 (define-syntax define-assembler
   (lambda (x)
     (syntax-case x ()
-      ((_ name opcode arg ...)
+      ((_ name opcode kind arg ...)
        (with-syntax ((emit (id-append #'name #'emit- #'name)))
          #'(define emit
              (let ((emit (assembler name opcode arg ...)))

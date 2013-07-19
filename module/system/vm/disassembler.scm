@@ -181,7 +181,7 @@
 (define-syntax define-disassembler
   (lambda (x)
     (syntax-case x ()
-      ((_ name opcode arg ...)
+      ((_ name opcode kind arg ...)
        (with-syntax ((parse (id-append #'name #'parse- #'name)))
          #'(let ((parse (disassembler name opcode arg ...)))
              (vector-set! disassemblers opcode parse)))))))
