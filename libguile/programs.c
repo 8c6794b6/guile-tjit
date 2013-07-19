@@ -403,6 +403,10 @@ SCM_DEFINE (scm_program_num_free_variables, "program-num-free-variables", 1, 0, 
 	    "")
 #define FUNC_NAME s_scm_program_num_free_variables
 {
+  if (SCM_RTL_PROGRAM_P (program)) {
+    return scm_from_ulong (SCM_RTL_PROGRAM_NUM_FREE_VARIABLES (program));
+  }
+
   SCM_VALIDATE_PROGRAM (1, program);
   return scm_from_ulong (SCM_PROGRAM_NUM_FREE_VARIABLES (program));
 }
@@ -414,6 +418,14 @@ SCM_DEFINE (scm_program_free_variable_ref, "program-free-variable-ref", 2, 0, 0,
 #define FUNC_NAME s_scm_program_free_variable_ref
 {
   unsigned long idx;
+
+  if (SCM_RTL_PROGRAM_P (program)) {
+    SCM_VALIDATE_ULONG_COPY (2, i, idx);
+    if (idx >= SCM_RTL_PROGRAM_NUM_FREE_VARIABLES (program))
+      SCM_OUT_OF_RANGE (2, i);
+    return SCM_RTL_PROGRAM_FREE_VARIABLE_REF (program, idx);
+  }
+
   SCM_VALIDATE_PROGRAM (1, program);
   SCM_VALIDATE_ULONG_COPY (2, i, idx);
   if (idx >= SCM_PROGRAM_NUM_FREE_VARIABLES (program))
@@ -428,6 +440,15 @@ SCM_DEFINE (scm_program_free_variable_set_x, "program-free-variable-set!", 3, 0,
 #define FUNC_NAME s_scm_program_free_variable_set_x
 {
   unsigned long idx;
+
+  if (SCM_RTL_PROGRAM_P (program)) {
+    SCM_VALIDATE_ULONG_COPY (2, i, idx);
+    if (idx >= SCM_RTL_PROGRAM_NUM_FREE_VARIABLES (program))
+      SCM_OUT_OF_RANGE (2, i);
+    SCM_RTL_PROGRAM_FREE_VARIABLE_SET (program, idx, x);
+    return SCM_UNSPECIFIED;
+  }
+
   SCM_VALIDATE_PROGRAM (1, program);
   SCM_VALIDATE_ULONG_COPY (2, i, idx);
   if (idx >= SCM_PROGRAM_NUM_FREE_VARIABLES (program))
