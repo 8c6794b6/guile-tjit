@@ -482,7 +482,7 @@ scm_i_rtl_program_minimum_arity (SCM program, int *req, int *opt, int *rest)
 
   if (scm_is_false (rtl_program_minimum_arity) && scm_module_system_booted_p)
     rtl_program_minimum_arity =
-        scm_c_private_variable ("system vm debug",
+        scm_c_private_variable ("system vm program",
                                 "rtl-program-minimum-arity");
 
   l = scm_call_1 (scm_variable_ref (rtl_program_minimum_arity), program);

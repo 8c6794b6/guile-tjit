@@ -292,10 +292,10 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
     (let lp ((pos headers-start))
       (cond
        ((>= pos headers-end) #f)
-       ((< text-offset (arity-low-pc* bv pos))
-        (lp (+ pos arity-header-len)))
-       ((< (arity-high-pc* bv pos) text-offset)
+       ((< text-offset (* (arity-low-pc* bv pos) 4))
         #f)
+       ((<= (* (arity-high-pc* bv pos) 4) text-offset)
+        (lp (+ pos arity-header-len)))
        (else
         (make-arity context base pos))))))
 
