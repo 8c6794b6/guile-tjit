@@ -145,7 +145,9 @@
                         '((begin-program call
                                          ((name . call)))
                           (begin-standard-arity (f) 2 #f)
-                          (call 2 1 ())
+                          (push-frame 2 1)
+                          (mov 5 1)
+                          (call 2)
                           (return 2) ;; MVRA from call
                           (return 2) ;; RA from call
                           (end-arity)
@@ -158,10 +160,12 @@
                         '((begin-program call-with-3
                                          ((name . call-with-3)))
                           (begin-standard-arity (f) 3 #f)
-                          (load-constant 2 3)
-                          (call 3 1 (2))
-                          (return 3) ;; MVRA from call
-                          (return 3) ;; RA from call
+                          (push-frame 2 2)
+                          (mov 5 1)
+                          (load-constant 6 3)
+                          (call 2)
+                          (return 2) ;; MVRA from call
+                          (return 2) ;; RA from call
                           (end-arity)
                           (end-program)))))
                   (call-with-3 (lambda (x) (* x 2))))))
