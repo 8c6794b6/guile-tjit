@@ -486,7 +486,6 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
 #undef ALIGNED_P
 #undef CACHE_REGISTER
 #undef CHECK_OVERFLOW
-#undef FREE_VARIABLE_REF
 #undef FUNC2
 #undef INIT
 #undef INUM_MAX
@@ -519,6 +518,9 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
    relative to the current virtual machine.  At some point it will
    become "the" virtual machine, and we'll delete this paragraph.  As
    such, the rest of the comments speak as if there's only one VM.
+   In difference from the old VM, local 0 is the procedure, and the
+   first argument is local 1.  At some point in the future we should
+   change the fp to point to the procedure and not to local 1.
 
    <more overview here>
  */
@@ -554,12 +556,12 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   } while (0)
 
 /* Reserve stack space for a frame.  Will check that there is sufficient
-   stack space for N locals, not including the procedure, in addition to
-   4 words to set up the next frame.  Invoke after preparing the new
+   stack space for N locals, including the procedure, in addition to
+   3 words to set up the next frame.  Invoke after preparing the new
    frame and setting the fp and ip.  */
 #define ALLOC_FRAME(n)                                              \
   do {                                                              \
-    SCM *new_sp = vp->sp = fp - 1 + n;                              \
+    SCM *new_sp = vp->sp = fp - 1 + n - 1;                          \
     CHECK_OVERFLOW (new_sp + 4);                                    \
   } while (0)
 
@@ -567,13 +569,14 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
    stack expansion is needed.  */
 #define RESET_FRAME(n)                                              \
   do {                                                              \
-    vp->sp = fp - 1 + n;                                            \
+    vp->sp = fp - 2 + n;                                            \
   } while (0)
 
 /* Compute the number of locals in the frame.  This is equal to the
-   number of actual arguments when a function is first called.  */
+   number of actual arguments when a function is first called, plus
+   one for the function.  */
 #define FRAME_LOCALS_COUNT()                                        \
-  (vp->sp + 1 - fp)
+  (vp->sp + 1 - (fp - 1))
 
 /* Restore registers after returning from a frame.  */
 #define RESTORE_FRAME()                                             \
@@ -624,13 +627,12 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   case opcode:
 #endif
 
-#define LOCAL_REF(i)		SCM_FRAME_VARIABLE (fp, i)
-#define LOCAL_SET(i,o)		SCM_FRAME_VARIABLE (fp, i) = o
+#define LOCAL_REF(i)		SCM_FRAME_VARIABLE (fp, (i) - 1)
+#define LOCAL_SET(i,o)		SCM_FRAME_VARIABLE (fp, (i) - 1) = o
 
 #define VARIABLE_REF(v)		SCM_VARIABLE_REF (v)
 #define VARIABLE_SET(v,o)	SCM_VARIABLE_SET (v, o)
 #define VARIABLE_BOUNDP(v)      (!scm_is_eq (VARIABLE_REF (v), SCM_UNDEFINED))
-#define FREE_VARIABLE_REF(i)	SCM_RTL_PROGRAM_FREE_VARIABLE_REF (SCM_FRAME_PROGRAM (fp), i)
 
 #define RETURN_ONE_VALUE(ret)                           \
   do {                                                  \
@@ -654,7 +656,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
     fp[-1] = rtl_apply;                                 \
     fp[0] = rtl_values;                                 \
     fp[1] = vals;                                       \
-    RESET_FRAME (2);                                    \
+    RESET_FRAME (3);                                    \
     ip = (scm_t_uint32 *) rtl_apply_code;               \
     goto op_apply;                                      \
   } while (0)
@@ -879,7 +881,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     base[6] = SCM_PACK (ip); /* ra */
     base[7] = program;
     fp = vp->fp = &base[8];
-    RESET_FRAME (nargs_);
+    RESET_FRAME (nargs_ + 1);
   }
 
  apply:
@@ -902,7 +904,6 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
           vp->sp++;
           while (n--)
             LOCAL_SET (n + 1, LOCAL_REF (n));
-          LOCAL_SET (0, proc);
 
           fp[-1] = SCM_SMOB_DESCRIPTOR (proc).apply_trampoline;
           continue;
@@ -914,7 +915,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM ret;
       SYNC_ALL ();
 
-      ret = VM_NAME (vm, fp[-1], fp, FRAME_LOCALS_COUNT ());
+      ret = VM_NAME (vm, fp[-1], fp, FRAME_LOCALS_COUNT () - 1);
 
       if (SCM_UNLIKELY (SCM_VALUESP (ret)))
         RETURN_VALUE_LIST (scm_struct_ref (ret, SCM_INUM0));
@@ -938,11 +939,11 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
   /* halt _:24
    *
-   * Bring the VM to a halt, returning the single value from r0.
+   * Bring the VM to a halt, returning the single value from slot 1.
    */
   VM_DEFINE_OP (0, halt, "halt", OP1 (U8_X24))
     {
-      SCM ret = LOCAL_REF (0);
+      SCM ret = LOCAL_REF (1);
 
       vp->ip = SCM_FRAME_RETURN_ADDRESS (fp);
       vp->sp = SCM_FRAME_LOWER_ADDRESS (fp) - 1;
@@ -953,20 +954,18 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
   /* halt/values _:24
    *
-   * Bring the VM to a halt, returning all the values on the stack.
+   * Bring the VM to a halt, returning all the values from the MV stack.
    */
   VM_DEFINE_OP (1, halt_values, "halt/values", OP1 (U8_X24))
     {
       scm_t_ptrdiff n;
-      SCM *base;
       SCM ret = SCM_EOL;
 
       SYNC_BEFORE_GC();
 
-      base = fp + 4;
-      n = FRAME_LOCALS_COUNT ();
-      while (n--)
-        ret = scm_cons (base[n], ret);
+      /* Boot closure in r0, empty stack from r1 to r4, values from r5.  */
+      for (n = FRAME_LOCALS_COUNT () - 1; n >= 5; n--)
+        ret = scm_cons (LOCAL_REF (n), ret);
 
       vp->ip = SCM_FRAME_RETURN_ADDRESS (fp);
       vp->sp = SCM_FRAME_LOWER_ADDRESS (fp) - 1;
@@ -998,15 +997,15 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       VM_HANDLE_INTERRUPTS;
 
-      fp = vp->fp = old_fp + from + 4;
+      fp = vp->fp = old_fp + from + 3;
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
       SCM_FRAME_SET_RTL_MV_RETURN_ADDRESS (fp, ip + 3 + nargs);
       SCM_FRAME_SET_RTL_RETURN_ADDRESS (fp, ip + 4 + nargs);
-      fp[-1] = old_fp[proc];
-      ALLOC_FRAME (nargs);
+      fp[-1] = old_fp[proc - 1];
+      ALLOC_FRAME (nargs + 1);
 
       for (n = 0; n < nargs; n++)
-        LOCAL_SET (n, old_fp[ip[3 + n]]);
+        LOCAL_SET (n + 1, old_fp[ip[3 + n] - 1]);
 
       PUSH_CONTINUATION_HOOK ();
       APPLY_HOOK ();
@@ -1041,7 +1040,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
       SCM_FRAME_SET_RTL_MV_RETURN_ADDRESS (fp, ip + 2);
       SCM_FRAME_SET_RTL_RETURN_ADDRESS (fp, ip + 3);
-      fp[-1] = old_fp[proc];
+      fp[-1] = old_fp[proc - 1];
 
       PUSH_CONTINUATION_HOOK ();
       APPLY_HOOK ();
@@ -1070,7 +1069,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       fp[-1] = LOCAL_REF (proc);
       /* No need to check for overflow, as the compiler has already
          ensured that this frame has enough space.  */
-      RESET_FRAME (nargs);
+      RESET_FRAME (nargs + 1);
 
       APPLY_HOOK ();
 
@@ -1103,7 +1102,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint32 nargs;
       SCM_UNPACK_RTL_24 (op, nargs);
-      RESET_FRAME (nargs);
+      RESET_FRAME (nargs + 1);
       fp[-1] = rtl_values;
       goto op_values;
     }
@@ -1130,7 +1129,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       SCM_UNPACK_RTL_24 (op, ptr_idx);
 
-      pointer = FREE_VARIABLE_REF (ptr_idx);
+      pointer = SCM_RTL_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), ptr_idx);
       subr = SCM_POINTER_VALUE (pointer);
 
       VM_HANDLE_INTERRUPTS;
@@ -1195,12 +1194,13 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (8, foreign_call, "foreign-call", OP1 (U8_U12_U12))
     {
       scm_t_uint16 cif_idx, ptr_idx;
-      SCM cif, pointer, ret;
+      SCM closure, cif, pointer, ret;
 
       SCM_UNPACK_RTL_12_12 (op, cif_idx, ptr_idx);
 
-      cif = FREE_VARIABLE_REF (cif_idx);
-      pointer = FREE_VARIABLE_REF (ptr_idx);
+      closure = LOCAL_REF (0);
+      cif = SCM_RTL_PROGRAM_FREE_VARIABLE_REF (closure, cif_idx);
+      pointer = SCM_RTL_PROGRAM_FREE_VARIABLE_REF (closure, ptr_idx);
 
       SYNC_IP ();
       VM_HANDLE_INTERRUPTS;
@@ -1232,7 +1232,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       SCM_UNPACK_RTL_24 (op, contregs_idx);
 
-      contregs = FREE_VARIABLE_REF (contregs_idx);
+      contregs =
+        SCM_RTL_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), contregs_idx);
 
       SYNC_IP ();
       scm_i_check_continuation (contregs);
@@ -1296,15 +1297,15 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       ALLOC_FRAME (nargs);
 
       for (i = 0; i < list_idx; i++)
-        fp[i - 1] = fp[i];
+        LOCAL_SET(i - 1, LOCAL_REF (i));
 
       /* Null out these slots, just in case there are less than 2 elements
          in the list. */
-      fp[list_idx - 1] = SCM_UNDEFINED;
-      fp[list_idx] = SCM_UNDEFINED;
+      LOCAL_SET (list_idx - 1, SCM_UNDEFINED);
+      LOCAL_SET (list_idx, SCM_UNDEFINED);
 
       for (i = 0; i < list_len; i++, list = SCM_CDR (list))
-        fp[list_idx - 1 + i] = SCM_CAR (list);
+        LOCAL_SET (list_idx - 1 + i, SCM_CAR (list));
 
       APPLY_HOOK ();
 
@@ -1342,7 +1343,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       fp[-1] = fp[0];
       fp[0] = cont;
-      RESET_FRAME (1);
+      RESET_FRAME (2);
 
       APPLY_HOOK ();
 
@@ -1366,7 +1367,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       SCM *base = fp;
 #if VM_USE_HOOKS
-      int nargs = FRAME_LOCALS_COUNT ();
+      int nargs = FRAME_LOCALS_COUNT () - 1;
 #endif
 
       /* We don't do much; it's the caller that's responsible for
@@ -1451,7 +1452,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Ensure that there is space on the stack for NLOCALS local variables,
    * setting them all to SCM_UNDEFINED, except those nargs values that
-   * were passed as arguments.
+   * were passed as arguments and procedure.
    */
   VM_DEFINE_OP (20, reserve_locals, "reserve-locals", OP1 (U8_U24))
     {
@@ -1898,27 +1899,14 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       NEXT (1);
     }
 
-  /* free-ref dst:12 src:12
-   *
-   * Load free variable SRC into local slot DST.
-   */
-  VM_DEFINE_OP (47, free_ref, "free-ref", OP1 (U8_U12_U12) | OP_DST)
-    {
-      scm_t_uint16 dst, src;
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
-      CHECK_FREE_VARIABLE (src);
-      LOCAL_SET (dst, FREE_VARIABLE_REF (src));
-      NEXT (1);
-    }
-
-  /* make-closure dst:24 offset:32 _:8 nfree:24 free0:24 0:8 ...
+  /* make-closure dst:24 offset:32 _:8 nfree:24
    *
    * Make a new closure, and write it to DST.  The code for the closure
    * will be found at OFFSET words from the current IP.  OFFSET is a
-   * signed 32-bit integer.  The registers for the NFREE free variables
-   * follow.
+   * signed 32-bit integer.  Space for NFREE free variables will be
+   * allocated.
    */
-  VM_DEFINE_OP (48, make_closure, "make-closure", OP3 (U8_U24, L32, X8_R24) | OP_DST)
+  VM_DEFINE_OP (47, make_closure, "make-closure", OP3 (U8_U24, L32, X8_U24) | OP_DST)
     {
       scm_t_uint32 dst, nfree, n;
       scm_t_int32 offset;
@@ -1931,31 +1919,41 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       // FIXME: Assert range of nfree?
       closure = scm_words (scm_tc7_rtl_program | (nfree << 16), nfree + 2);
       SCM_SET_CELL_WORD_1 (closure, ip + offset);
+      // FIXME: Elide these initializations?
       for (n = 0; n < nfree; n++)
-        SCM_RTL_PROGRAM_FREE_VARIABLE_SET (closure, n, LOCAL_REF (ip[n + 3]));
+        SCM_RTL_PROGRAM_FREE_VARIABLE_SET (closure, n, SCM_BOOL_F);
       LOCAL_SET (dst, closure);
-      NEXT (nfree + 3);
+      NEXT (3);
     }
 
-  /* fix-closure dst:24 _:8 nfree:24 free0:24 0:8 ...
+  /* free-ref dst:12 src:12 _:8 idx:24
    *
-   * "Fix" a closure.  This is used for lambda expressions bound in a
-   * <fix>, but which are not always called in tail position.  In that
-   * case we allocate the closures first, then destructively update their
-   * free variables to point to each other.  NFREE and the locals FREE0...
-   * are as in make-closure.
+   * Load free variable IDX from the closure SRC into local slot DST.
    */
-  VM_DEFINE_OP (49, fix_closure, "fix-closure", OP2 (U8_U24, X8_R24))
+  VM_DEFINE_OP (48, free_ref, "free-ref", OP2 (U8_U12_U12, X8_U24) | OP_DST)
     {
-      scm_t_uint32 dst, nfree, n;
-      SCM closure;
+      scm_t_uint16 dst, src;
+      scm_t_uint32 idx;
+      SCM_UNPACK_RTL_12_12 (op, dst, src);
+      SCM_UNPACK_RTL_24 (ip[1], idx);
+      /* CHECK_FREE_VARIABLE (src); */
+      LOCAL_SET (dst, SCM_RTL_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (src), idx));
+      NEXT (2);
+    }
 
-      SCM_UNPACK_RTL_24 (op, dst);
-      SCM_UNPACK_RTL_24 (ip[1], nfree);
-      closure = LOCAL_REF (dst);
-      for (n = 0; n < nfree; n++)
-        SCM_RTL_PROGRAM_FREE_VARIABLE_SET (closure, n, LOCAL_REF (ip[n + 2]));
-      NEXT (nfree + 2);
+  /* free-set! dst:12 src:12 _8 idx:24
+   *
+   * Set free variable IDX from the closure DST to SRC.
+   */
+  VM_DEFINE_OP (49, free_set, "free-set!", OP2 (U8_U12_U12, X8_U24))
+    {
+      scm_t_uint16 dst, src;
+      scm_t_uint32 idx;
+      SCM_UNPACK_RTL_12_12 (op, dst, src);
+      SCM_UNPACK_RTL_24 (ip[1], idx);
+      /* CHECK_FREE_VARIABLE (src); */
+      SCM_RTL_PROGRAM_FREE_VARIABLE_SET (LOCAL_REF (dst), idx, LOCAL_REF (src));
+      NEXT (2);
     }
 
 

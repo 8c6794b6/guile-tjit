@@ -236,17 +236,19 @@ address of that offset."
     (('make-long-long-immediate _ high low)
      (list "~S" (unpack-scm (logior (ash high 32) low))))
     (('assert-nargs-ee/locals nargs locals)
-     (list "~a arg~:p, ~a local~:p" nargs locals))
+     ;; The nargs includes the procedure.
+     (list "~a arg~:p, ~a local~:p" (1- nargs) locals))
     (('tail-call nargs proc)
      (list "~a arg~:p" nargs))
-    (('make-closure dst target free ...)
+    (('make-closure dst target nfree)
      (let* ((addr (u32-offset->addr (+ offset target) context))
             (pdi (find-program-debug-info addr context)))
        ;; FIXME: Disassemble embedded closures as well.
-       (list "~A at 0x~X"
+       (list "~A at 0x~X (~A free var~:p)"
              (or (and pdi (program-debug-info-name pdi))
                  "(anonymous procedure)")
-             addr)))
+             addr
+             nfree)))
     (('make-non-immediate dst target)
      (list "~@Y" (reference-scm target)))
     (((or 'static-ref 'static-set!) _ target)
