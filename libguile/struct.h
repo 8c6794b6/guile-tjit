@@ -174,6 +174,7 @@ SCM_API SCM scm_applicable_struct_with_setter_vtable_vtable;
 SCM_API SCM scm_make_struct_layout (SCM fields);
 SCM_API SCM scm_struct_p (SCM x);
 SCM_API SCM scm_struct_vtable_p (SCM x);
+SCM_INTERNAL SCM scm_allocate_struct (SCM vtable, SCM n_words);
 SCM_API SCM scm_make_struct (SCM vtable, SCM tail_array_size, SCM init);
 SCM_API SCM scm_c_make_struct (SCM vtable, size_t n_tail, size_t n_inits,
                                scm_t_bits init, ...);

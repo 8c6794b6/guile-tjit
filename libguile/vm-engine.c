@@ -3090,50 +3090,25 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       RETURN (SCM_STRUCT_VTABLE (obj));
     }
 
-  /* make-struct dst:12 vtable:12 _:8 n-init:24 init0:24 0:8 ...
+  /* allocate-struct dst:8 vtable:8 nfields:8
    *
-   * Make a new struct with VTABLE, and place it in DST.  The struct
-   * will be constructed with N-INIT initializers, which are located in
-   * the locals given by INIT0....  The format of INIT0... is as in the
-   * "call" opcode: unsigned 24-bit values, with 0 in the high byte.
+   * Allocate a new struct with VTABLE, and place it in DST.  The struct
+   * will be constructed with space for NFIELDS fields, which should
+   * correspond to the field count of the VTABLE.
    */
-  VM_DEFINE_OP (102, make_struct, "make-struct", OP2 (U8_U12_U12, X8_R24))
-#if 0
+  VM_DEFINE_OP (102, allocate_struct, "allocate-struct", OP1 (U8_U8_U8_U8) | OP_DST)
     {
-      scm_t_uint16 dst, vtable_r;
-      scm_t_uint32 n_init, n;
-      SCM vtable, ret;
+      scm_t_uint8 dst, vtable, nfields;
+      SCM ret;
 
-      SCM_UNPACK_RTL_12_12 (op, dst, vtable_r);
-      vtable = LOCAL_REF (vtable_r);
-      SCM_UNPACK_RTL_24 (ip[1], n_init);
+      SCM_UNPACK_RTL_8_8_8 (op, dst, vtable, nfields);
 
       SYNC_IP ();
-
-      if (SCM_LIKELY (SCM_STRUCTP (vtable)
-                      && SCM_VTABLE_FLAG_IS_SET (vtable, SCM_VTABLE_FLAG_SIMPLE)
-                      && (SCM_STRUCT_DATA_REF (vtable, scm_vtable_index_size)
-                          == n_init)
-                      && !SCM_VTABLE_INSTANCE_FINALIZER (vtable)))
-        {
-          /* Verily, we are making a simple struct with the right number of
-             initializers, and no finalizer. */
-          ret = scm_words ((scm_t_bits)SCM_STRUCT_DATA (vtable) | scm_tc3_struct,
-                           n_init + 2);
-          SCM_SET_CELL_WORD_1 (ret, (scm_t_bits)SCM_CELL_OBJECT_LOC (ret, 2));
-          
-          for (n = 0; n < n_init; n++)
-            SCM_STRUCT_DATA (ret)[n] = SCM_UNPACK (LOCAL_REF (ip[n + 1]));
-        }
-      else
-        ret = scm_c_make_structvs (vtable, fp, &ip[1], n_init);
-
+      ret = scm_allocate_struct (LOCAL_REF (vtable), SCM_I_MAKINUM (nfields));
       LOCAL_SET (dst, ret);
-      NEXT (n_init + 1);
+
+      NEXT (1);
     }
-#else
-  abort ();
-#endif
 
   /* struct-ref dst:8 src:8 idx:8
    *

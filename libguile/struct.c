@@ -517,6 +517,42 @@ scm_c_make_struct (SCM vtable, size_t n_tail, size_t n_init, scm_t_bits init, ..
   return scm_c_make_structv (vtable, n_tail, n_init, v);
 }
 
+SCM_DEFINE (scm_allocate_struct, "allocate-struct", 2, 0, 0,
+            (SCM vtable, SCM nfields),
+	    "Allocate a new structure with space for @var{nfields} fields.\n\n"
+	    "@var{vtable} must be a vtable structure (@pxref{Vtables}).\n\n"
+	    "@var{nfields} must be a non-negative integer.  Strictly speaking\n"
+	    "@var{nfields} is redundant, as the vtable carries the size\n"
+            "for its instances.  However passing it is useful as a sanity\n"
+            "check, given that one module can inline a constructor in\n"
+            "another.\n\n"
+	    "Fields will be initialized with their default values.")
+#define FUNC_NAME s_scm_allocate_struct
+{
+  SCM ret;
+  size_t c_nfields;
+
+  SCM_VALIDATE_VTABLE (1, vtable);
+  c_nfields = scm_to_size_t (nfields);
+
+  SCM_ASSERT (SCM_STRUCT_DATA_REF (vtable, scm_vtable_index_size) == c_nfields,
+              nfields, 2, FUNC_NAME);
+
+  ret = scm_i_alloc_struct (SCM_STRUCT_DATA (vtable), c_nfields);
+
+  if (SCM_LIKELY (SCM_VTABLE_FLAG_IS_SET (vtable, SCM_VTABLE_FLAG_SIMPLE)))
+    {
+      size_t n;
+      for (n = 0; n < c_nfields; n++)
+        SCM_STRUCT_DATA_SET (ret, n, SCM_UNPACK (SCM_BOOL_F));
+    }
+  else
+    scm_struct_init (ret, SCM_VTABLE_LAYOUT (vtable), 0, 0, NULL);
+
+  return ret;
+}
+#undef FUNC_NAME
+
 SCM_DEFINE (scm_make_struct, "make-struct", 2, 0, 1, 
             (SCM vtable, SCM tail_array_size, SCM init),
 	    "Create a new structure.\n\n"
