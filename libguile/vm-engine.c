@@ -2497,22 +2497,24 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       NEXT (1);
     }
 
-  /* abort tag:24 _:8 nvalues:24 val0:24 0:8 val1:24 0:8 ...
+  /* abort tag:24 _:8 from:24
    *
-   * Return a number of values to a prompt handler.  The values VAL0,
-   * VAL1, etc are 24-bit values, in the lower 24 bits of their words.
-   * The upper 8 bits are 0.
+   * Return a number of values to a prompt handler.  The values are
+   * expected in a frame pushed on at FROM.
    */
-  VM_DEFINE_OP (68, abort, "abort", OP2 (U8_U24, X8_R24))
+  VM_DEFINE_OP (68, abort, "abort", OP2 (U8_U24, X8_U24))
 #if 0
     {
-      scm_t_uint32 tag, nvalues;
+      scm_t_uint32 tag, from, nvalues;
+      SCM *base;
 
       SCM_UNPACK_RTL_24 (op, tag);
-      SCM_UNPACK_RTL_24 (ip[1], nvalues);
+      SCM_UNPACK_RTL_24 (ip[1], from);
+      base = (fp - 1) + from + 3;
+      nvalues = FRAME_LOCALS_COUNT () - from - 3;
 
       SYNC_IP ();
-      vm_abort (vm, LOCAL_REF (tag), nvalues, &ip[2], &registers);
+      vm_abort (vm, LOCAL_REF (tag), base, nvalues, &registers);
 
       /* vm_abort should not return */
       abort ();
