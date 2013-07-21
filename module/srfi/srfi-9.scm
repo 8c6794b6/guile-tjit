@@ -1,6 +1,6 @@
 ;;; srfi-9.scm --- define-record-type
 
-;; 	Copyright (C) 2001, 2002, 2006, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;; 	Copyright (C) 2001, 2002, 2006, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 ;;
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -156,7 +156,8 @@
       ((_ type-name (getter-id ...) check? s (getter expr) ...)
        (every identifier? #'(getter ...))
        (let ((copier-name (syntax->datum (make-copier-id #'type-name)))
-             (getter+exprs #'((getter expr) ...)))
+             (getter+exprs #'((getter expr) ...))
+             (nfields (length #'(getter-id ...))))
          (define (lookup id default-expr)
            (let ((results
                   (filter (lambda (g+e)
@@ -175,12 +176,16 @@
                           copier-name "unknown getter" x id)))
                    #'(getter ...))
          (with-syntax ((unsafe-expr
-                        #`(make-struct
-                           type-name 0
-                           #,@(map (lambda (getter index)
-                                     (lookup getter #`(struct-ref s #,index)))
-                                   #'(getter-id ...)
-                                   (iota (length #'(getter-id ...)))))))
+                        #`(let ((new (allocate-struct type-name #,nfields)))
+                            #,@(map (lambda (getter index)
+                                      #`(struct-set!
+                                         new
+                                         #,index
+                                         #,(lookup getter
+                                                   #`(struct-ref s #,index))))
+                                    #'(getter-id ...)
+                                    (iota nfields))
+                            new)))
            (if (syntax->datum #'check?)
                #`(if (eq? (struct-vtable s) type-name)
                      unsafe-expr
@@ -204,26 +209,27 @@
                ((name getter setter) #'getter)))
            field-specs))
 
-    (define (constructor form type-name constructor-spec field-names)
+    (define (constructor form type-name constructor-spec field-ids)
       (syntax-case constructor-spec ()
         ((ctor field ...)
          (every identifier? #'(field ...))
-         (let ((ctor-args (map (lambda (field)
-                                 (let ((name (syntax->datum field)))
-                                   (or (memq name field-names)
-                                       (syntax-violation
-                                        (syntax-case form ()
-                                          ((macro . args)
-                                           (syntax->datum #'macro)))
-                                        "unknown field in constructor spec"
-                                        form field))
-                                   (cons name field)))
-                               #'(field ...))))
+         (let ((slots (map (lambda (field)
+                             (or (list-index (lambda (x)
+                                               (free-identifier=? x field))
+                                             field-ids)
+                                 (syntax-violation
+                                  (syntax-case form ()
+                                    ((macro . args)
+                                     (syntax->datum #'macro)))
+                                  "unknown field in constructor spec"
+                                  form field)))
+                           #'(field ...))))
            #`(define-inlinable #,constructor-spec
-               (make-struct #,type-name 0
-                            #,@(map (lambda (name)
-                                      (assq-ref ctor-args name))
-                                    field-names)))))))
+               (let ((s (allocate-struct #,type-name #,(length field-ids))))
+                 #,@(map (lambda (arg slot)
+                           #`(struct-set! s #,slot #,arg))
+                         #'(field ...) slots)
+                 s))))))
 
     (define (getters type-name getter-ids copier-id)
       (map (lambda (getter index)
@@ -267,8 +273,9 @@
                   (iota (length field-specs))))
 
     (define (record-layout immutable? count)
-      (let ((desc (if immutable? "pr" "pw")))
-        (string-concatenate (make-list count desc))))
+      ;; Mutability is expressed on the record level; all structs in the
+      ;; future will be mutable.
+      (string-concatenate (make-list count "pw")))
 
     (syntax-case x ()
       ((_ immutable? form type-name constructor-spec predicate-name
@@ -300,12 +307,11 @@
               (field-count (length field-ids))
               (immutable?  (syntax->datum #'immutable?))
               (layout      (record-layout immutable? field-count))
-              (field-names (map syntax->datum field-ids))
               (ctor-name   (syntax-case #'constructor-spec ()
                              ((ctor args ...) #'ctor)))
               (copier-id   (make-copier-id #'type-name)))
          #`(begin
-             #,(constructor #'form #'type-name #'constructor-spec field-names)
+             #,(constructor #'form #'type-name #'constructor-spec field-ids)
 
              (define type-name
                (let ((rtd (make-struct/no-tail

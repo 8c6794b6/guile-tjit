@@ -1189,6 +1189,16 @@ VALUE."
 
 
 
+;;; {IOTA functions: generating lists of numbers}
+;;;
+
+(define (iota n)
+  (let loop ((count (1- n)) (result '()))
+    (if (< count 0) result
+        (loop (1- count) (cons count result)))))
+
+
+
 ;;; {Structs}
 ;;;
 
@@ -1253,10 +1263,14 @@ VALUE."
              #,@(let lp ((n 0))
                   (if (< n *max-static-argument-count*)
                       (cons (with-syntax (((formal ...) (make-formals n))
+                                          ((idx ...) (iota n))
                                           (n n))
                               #'((n)
                                  (lambda (formal ...)
-                                   (make-struct rtd 0 formal ...))))
+                                   (let ((s (allocate-struct rtd n)))
+                                     (struct-set! s idx formal)
+                                     ...
+                                     s))))
                             (lp (1+ n)))
                       '()))
              (else
@@ -2211,14 +2225,21 @@ written into the port is returned."
               (cons #'f (field-list #'rest)))))
 
          (define (constructor rtd type-name fields exp)
-           (let ((ctor (make-id rtd type-name '-constructor))
-                 (args (field-list fields)))
+           (let* ((ctor (make-id rtd type-name '-constructor))
+                  (args (field-list fields))
+                  (n (length fields))
+                  (slots (iota n)))
              (predicate rtd type-name fields
                         #`(begin #,exp
                                  (define #,ctor
                                    (let ((rtd #,rtd))
                                      (lambda #,args
-                                       (make-struct rtd 0 #,@args))))
+                                       (let ((s (allocate-struct rtd #,n)))
+                                         #,@(map
+                                             (lambda (arg slot)
+                                               #`(struct-set! s #,slot #,arg))
+                                             args slots)
+                                         s))))
                                  (struct-set! #,rtd (+ vtable-offset-user 2)
                                               #,ctor)))))
 
@@ -3493,16 +3514,6 @@ but it fails to load."
     (run-hook before-read-hook)
     ((or reader read) (current-input-port))))
 
-
-
-
-;;; {IOTA functions: generating lists of numbers}
-;;;
-
-(define (iota n)
-  (let loop ((count (1- n)) (result '()))
-    (if (< count 0) result
-        (loop (1- count) (cons count result)))))
 
 
 
