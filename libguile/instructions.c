@@ -52,7 +52,6 @@ SCM_SYMBOL (sym_bang, "!");
     M(U8_X24)                                   \
     M(U8_U24)                                   \
     M(U8_L24)                                   \
-    M(U8_R24)                                   \
     M(U8_U8_I16)                                \
     M(U8_U8_U8_U8)                              \
     M(U8_U12_U12)                               \
@@ -66,7 +65,6 @@ SCM_SYMBOL (sym_bang, "!");
     M(LO32) /* Label with offset. */            \
     M(X8_U24)                                   \
     M(X8_U12_U12)                               \
-    M(X8_R24)                                   \
     M(X8_L24)                                   \
     M(B1_X7_L24)                                \
     M(B1_U7_L24)

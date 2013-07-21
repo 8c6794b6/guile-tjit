@@ -78,8 +78,6 @@
            #'((ash word -8)))
           ((U8_L24)
            #'((unpack-s24 (ash word -8))))
-          ((U8_R24)
-           #'(#:rest (ash word -8)))
           ((U8_U8_I16)
            #'((logand (ash word -8) #xff)
               (ash word -16)))
@@ -104,9 +102,6 @@
           ((U8_L24)
            #'((logand word #xff)
               (unpack-s24 (ash word -8))))
-          ((U8_R24)
-           #'((logand word #xff)
-              #:rest (ash word -8)))
           ((U8_U8_I16)
            #'((logand word #xff)
               (logand (ash word -8) #xff)
@@ -141,8 +136,6 @@
           ((X8_U12_U12)
            #'((logand (ash word -8) #xfff)
               (ash word -20)))
-          ((X8_R24)
-           #'(#:rest (ash word -8)))
           ((X8_L24)
            #'((unpack-s24 (ash word -8))))
           ((B1_X7_L24)
@@ -191,18 +184,7 @@
 ;; -> len list
 (define (disassemble-one buf offset)
   (let ((first (u32-ref buf offset)))
-    (call-with-values
-        (lambda ()
-          ((vector-ref disassemblers (logand first #xff)) buf offset first))
-      (lambda (len list)
-        (match list
-          ((head ... #:rest rest)
-           (let lp ((n 0) (rhead (reverse head)))
-             (if (= n rest)
-                 (values (+ len n) (reverse rhead))
-                 (lp (1+ n)
-                     (cons (u32-ref buf (+ offset len n)) rhead)))))
-          (_ (values len list)))))))
+    ((vector-ref disassemblers (logand first #xff)) buf offset first)))
 
 (define (u32-offset->addr offset context)
   "Given an offset into an image in 32-bit units, return the absolute
