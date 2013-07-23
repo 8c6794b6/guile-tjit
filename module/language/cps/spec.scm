@@ -1,6 +1,6 @@
-;;; Tree Intermediate Language
+;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -18,33 +18,19 @@
 
 ;;; Code:
 
-(define-module (language tree-il spec)
+(define-module (language cps spec)
   #:use-module (system base language)
-  #:use-module (system base pmatch)
-  #:use-module (language glil)
-  #:use-module (language tree-il)
-  #:use-module (language tree-il compile-cps)
-  #:use-module (language tree-il compile-glil)
-  #:export (tree-il))
+  #:use-module (language cps)
+  #:export (cps))
 
-(define (write-tree-il exp . port)
-  (apply write (unparse-tree-il exp) port))
+(define* (write-cps exp #:optional (port (current-output-port)))
+  (write (unparse-cps exp) port))
 
-(define (join exps env)
-  (pmatch exps
-    (() (make-void #f))
-    ((,x) x)
-    ((,x . ,rest)
-     (make-seq #f x (join rest env)))
-    (else (error "what!" exps env))))
-
-(define-language tree-il
-  #:title	"Tree Intermediate Language"
+(define-language cps
+  #:title	"CPS Intermediate Language"
   #:reader	(lambda (port env) (read port))
-  #:printer	write-tree-il
-  #:parser      parse-tree-il
-  #:joiner      join
-  #:compilers   `((glil . ,compile-glil)
-                  (cps . ,compile-cps))
+  #:printer	write-cps
+  #:parser      parse-cps
+  #:compilers   '()
   #:for-humans? #f
   )

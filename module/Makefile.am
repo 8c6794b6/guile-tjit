@@ -112,12 +112,14 @@ TREE_IL_LANG_SOURCES =						\
   language/tree-il/canonicalize.scm                             \
   language/tree-il/analyze.scm					\
   language/tree-il/inline.scm 					\
+  language/tree-il/compile-cps.scm 				\
   language/tree-il/compile-glil.scm 				\
   language/tree-il/debug.scm 					\
   language/tree-il/spec.scm
 
 CPS_LANG_SOURCES =						\
   language/cps.scm						\
+  language/cps/spec.scm						\
   language/cps/verify.scm
 
 GLIL_LANG_SOURCES =						\
