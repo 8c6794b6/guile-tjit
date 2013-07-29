@@ -958,12 +958,7 @@
       ((<prompt> src escape-only? tag body handler)
        (let ((H (make-label))
              (POST (make-label))
-             (body (if escape-only?
-                       (match body
-                         (($ <lambda> _ _
-                             ($ <lambda-case> _ () #f #f #f () () body #f))
-                          body))
-                       (make-call #f body '()))))
+             (body (if escape-only? body (make-call #f body '()))))
 
          ;; First, set up the prompt.
          (comp-push tag)

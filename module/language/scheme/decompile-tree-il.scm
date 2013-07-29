@@ -432,10 +432,12 @@
          `(call-with-values (lambda () ,@(recurse-body exp))
             ,(recurse (make-lambda #f '() body))))
 
-        ((<prompt> tag body handler)
+        ((<prompt> escape-only? tag body handler)
          `(call-with-prompt
            ,(recurse tag)
-           ,(recurse body)
+           ,(if escape-only?
+                `(lambda () ,(recurse body))
+                (recurse body))
            ,(recurse handler)))
 
 

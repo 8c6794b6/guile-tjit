@@ -533,8 +533,9 @@
                      (concat db** db*)))))))
       (($ <prompt> src escape-only? tag body handler)
        (let*-values (((tag db*) (visit tag db env 'value))
-                     ((body _) (visit body (concat db* db) env ctx))
-                     ((handler _) (visit handler (concat db* db) env ctx)))
+                     ((body _) (visit body (concat db* db) env
+                                      (if escape-only? ctx 'value)))
+                     ((handler _) (visit handler (concat db* db) env 'value)))
          (return (make-prompt src escape-only? tag body handler)
                  db*)))
       (($ <abort> src tag args tail)

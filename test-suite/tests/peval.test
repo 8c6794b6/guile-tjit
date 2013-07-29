@@ -1137,10 +1137,7 @@
                      (lambda (k x) x))
    (prompt #t
            (toplevel tag)
-           (lambda _
-             (lambda-case
-              ((() #f #f #f () ())
-               (const 1))))
+           (const 1)
            (lambda _
              (lambda-case
               (((k x) #f #f #f () (_ _))

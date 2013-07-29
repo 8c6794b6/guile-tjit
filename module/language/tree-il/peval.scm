@@ -1522,7 +1522,7 @@ top-level bindings from ENV and return the resulting expression."
            (_ #f)))
 
        (let ((tag (for-value tag))
-             (body (for-value body)))
+             (body (if escape-only? (for-tail body) (for-value body))))
          (cond
           ((find-definition tag 1)
            (lambda (val op)
@@ -1532,7 +1532,7 @@ top-level bindings from ENV and return the resulting expression."
                 ;; for this <prompt>, so we can elide the <prompt>
                 ;; entirely.
                 (unrecord-operand-uses op 1)
-                (for-tail (make-call src body '()))))
+                (for-tail (if escape-only? body (make-call src body '())))))
           (else
            (let ((handler (for-value handler)))
              (define (escape-only-handler? handler)
@@ -1545,8 +1545,13 @@ top-level bindings from ENV and return the resulting expression."
                          (_ #f))
                         body)))
                  (else #f)))
-             (make-prompt src (or escape-only? (escape-only-handler? handler))
-                          tag body (for-value handler)))))))
+             (if (and (not escape-only?) (escape-only-handler? handler))
+                 ;; Prompt transitioning to escape-only; transition body
+                 ;; to be an expression.
+                 (for-tail
+                  (make-prompt src #t tag (make-call #f body '()) handler))
+                 (make-prompt src escape-only? tag body handler)))))))
+
       (($ <abort> src tag args tail)
        (make-abort src (for-value tag) (map for-value args)
                    (for-value tail))))))

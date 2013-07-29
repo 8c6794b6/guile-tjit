@@ -338,15 +338,8 @@
        (lset-union eq? (step exp) (step body)))
       
       ((<prompt> escape-only? tag body handler)
-       (match x
-         ;; Escape-only: the body is inlined.
-         (($ <prompt> _ #t tag
-             ($ <lambda> _ _
-                ($ <lambda-case> _ () #f #f #f () () body #f))
-             ($ <lambda> _ _ handler))
-          (lset-union eq? (step tag) (step body) (step-tail handler)))
-         ;; Full: we make a closure.
-         (($ <prompt> _ #f tag body ($ <lambda> _ _ handler))
+       (match handler
+         (($ <lambda> _ _ handler)
           (lset-union eq? (step tag) (step body) (step-tail handler)))))
       
       ((<abort> tag args tail)
@@ -509,15 +502,8 @@
        (max (recur exp) (recur body)))
       
       ((<prompt> escape-only? tag body handler)
-       (match x
-         ;; Escape-only: the body is inlined.
-         (($ <prompt> _ #t tag
-             ($ <lambda> _ _
-                ($ <lambda-case> _ () #f #f #f () () body #f))
-             ($ <lambda> _ _ handler))
-          (max (recur tag) (recur body) (recur handler)))
-         ;; Full: we make a closure.
-         (($ <prompt> _ #f tag body ($ <lambda> _ _ handler))
+       (match handler
+         (($ <lambda> _ _ handler)
           (max (recur tag) (recur body) (recur handler)))))
 
       ((<abort> tag args tail)
