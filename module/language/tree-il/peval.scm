@@ -1533,41 +1533,6 @@ top-level bindings from ENV and return the resulting expression."
                 ;; entirely.
                 (unrecord-operand-uses op 1)
                 (for-tail (make-call src body '()))))
-          ((find-definition tag 2)
-           (lambda (val op)
-             (and (make-prompt-tag? val)
-                  (match body
-                    (($ <lambda> _ _
-                        ($ <lambda-case> _ () #f #f #f () ()
-                           ($ <abort> _ (? (cut tree-il=? <> tag)))))
-                     #t)
-                    (else #f))))
-           => (lambda (val op)
-                ;; (let ((t (make-prompt-tag)))
-                ;;   (call-with-prompt t
-                ;;     (lambda () (abort-to-prompt t val ...))
-                ;;     (lambda (k arg ...) e ...)))
-                ;; => (call-with-values (lambda () (values values val ...))
-                ;;      (lambda (k arg ...) e ...))
-                (unrecord-operand-uses op 2)
-                (match body
-                  (($ <lambda> _ _
-                      ($ <lambda-case> _ () #f #f #f () ()
-                         ($ <abort> _ _ args tail)))
-                   (for-tail
-                    (make-primcall
-                     src 'call-with-values
-                     (list (make-lambda
-                            #f '()
-                            (make-lambda-case
-                             #f '() #f #f #f '() '()
-                             (make-primcall #f 'apply
-                                            `(,(make-primitive-ref #f 'values)
-                                              ,(make-primitive-ref #f 'values)
-                                              ,@args
-                                              ,tail))
-                             #f))
-                           handler)))))))
           (else
            (let ((handler (for-value handler)))
              (define (escape-only-handler? handler)

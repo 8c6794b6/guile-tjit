@@ -1272,6 +1272,9 @@
     (apply (lambda (x y) (cons x y)) (list 1 2))
     (primcall cons (const 1) (const 2)))
 
+  ;; Disable after removal of abort-in-tail-position optimization, in
+  ;; hopes that CPS does a uniformly better job.
+  #;
   (pass-if-peval
     (let ((t (make-prompt-tag)))
       (call-with-prompt t
