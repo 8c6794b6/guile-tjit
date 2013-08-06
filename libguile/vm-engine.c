@@ -490,6 +490,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
 #undef INIT
 #undef INUM_MAX
 #undef INUM_MIN
+#undef INUM_STEP
 #undef jump_table
 #undef LOCAL_REF
 #undef LOCAL_SET
@@ -754,8 +755,13 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   do { LOCAL_SET (dst, x); NEXT (1); } while (0)
 
 /* The maximum/minimum tagged integers.  */
-#define INUM_MAX (INTPTR_MAX - 1)
-#define INUM_MIN (INTPTR_MIN + scm_tc2_int)
+#define INUM_MAX  \
+  ((scm_t_signed_bits) SCM_UNPACK (SCM_I_MAKINUM (SCM_MOST_POSITIVE_FIXNUM)))
+#define INUM_MIN  \
+  ((scm_t_signed_bits) SCM_UNPACK (SCM_I_MAKINUM (SCM_MOST_NEGATIVE_FIXNUM)))
+#define INUM_STEP                                \
+  ((scm_t_signed_bits) SCM_UNPACK (SCM_INUM1)    \
+   - (scm_t_signed_bits) SCM_UNPACK (SCM_INUM0))
 
 #define BINARY_INTEGER_OP(CFUNC,SFUNC)                                      \
   {                                                             \
@@ -2807,15 +2813,14 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       ARGS1 (x);
 
-      /* Check for overflow.  */
-      if (SCM_LIKELY ((scm_t_intptr) SCM_UNPACK (x) < INUM_MAX))
+      /* Check for overflow.  We must avoid overflow in the signed
+         addition below, even if X is not an inum.  */
+      if (SCM_LIKELY ((scm_t_signed_bits) SCM_UNPACK (x) <= INUM_MAX - INUM_STEP))
         {
           SCM result;
 
-          /* Add the integers without untagging.  */
-          result = SCM_PACK ((scm_t_intptr) SCM_UNPACK (x)
-                             + (scm_t_intptr) SCM_UNPACK (SCM_I_MAKINUM (1))
-                             - scm_tc2_int);
+          /* Add 1 to the integer without untagging.  */
+          result = SCM_PACK ((scm_t_signed_bits) SCM_UNPACK (x) + INUM_STEP);
 
           if (SCM_LIKELY (SCM_I_INUMP (result)))
             RETURN (result);
@@ -2842,15 +2847,14 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       ARGS1 (x);
 
-      /* Check for underflow.  */
-      if (SCM_LIKELY ((scm_t_intptr) SCM_UNPACK (x) > INUM_MIN))
+      /* Check for overflow.  We must avoid overflow in the signed
+         subtraction below, even if X is not an inum.  */
+      if (SCM_LIKELY ((scm_t_signed_bits) SCM_UNPACK (x) >= INUM_MIN + INUM_STEP))
         {
           SCM result;
 
-          /* Substract the integers without untagging.  */
-          result = SCM_PACK ((scm_t_intptr) SCM_UNPACK (x)
-                             - (scm_t_intptr) SCM_UNPACK (SCM_I_MAKINUM (1))
-                             + scm_tc2_int);
+          /* Substract 1 from the integer without untagging.  */
+          result = SCM_PACK ((scm_t_signed_bits) SCM_UNPACK (x) - INUM_STEP);
 
           if (SCM_LIKELY (SCM_I_INUMP (result)))
             RETURN (result);
