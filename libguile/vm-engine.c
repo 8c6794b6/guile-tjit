@@ -2963,7 +2963,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
-        RETURN (SCM_I_MAKINUM (SCM_I_INUM (x) & SCM_I_INUM (y)));
+        /* Compute bitwise AND without untagging */
+        RETURN (SCM_PACK (SCM_UNPACK (x) & SCM_UNPACK (y)));
       SYNC_IP ();
       RETURN (scm_logand (x, y));
     }
@@ -2976,7 +2977,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
-        RETURN (SCM_I_MAKINUM (SCM_I_INUM (x) | SCM_I_INUM (y)));
+        /* Compute bitwise OR without untagging */
+        RETURN (SCM_PACK (SCM_UNPACK (x) | SCM_UNPACK (y)));
       SYNC_IP ();
       RETURN (scm_logior (x, y));
     }
