@@ -2926,7 +2926,10 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
         {
           if (SCM_I_INUM (y) < 0)
             /* Right shift, will be a fixnum. */
-            RETURN (SCM_I_MAKINUM (SCM_I_INUM (x) >> -SCM_I_INUM (y)));
+            RETURN (SCM_I_MAKINUM
+                    (SCM_SRS (SCM_I_INUM (x),
+                              (-SCM_I_INUM (y) <= SCM_I_FIXNUM_BIT-1)
+                              ? -SCM_I_INUM (y) : SCM_I_FIXNUM_BIT-1)));
           else
             /* Left shift. See comments in scm_ash. */
             {
