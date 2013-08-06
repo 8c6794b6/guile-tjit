@@ -91,15 +91,6 @@ verify (FLT_RADIX == 2);
 typedef scm_t_signed_bits scm_t_inum;
 #define scm_from_inum(x) (scm_from_signed_integer (x))
 
-/* Tests to see if a C double is neither infinite nor a NaN.
-   TODO: if it's available, use C99's isfinite(x) instead */
-#define DOUBLE_IS_FINITE(x) (!isinf(x) && !isnan(x))
-
-/* On some platforms, isinf(x) returns 0, 1 or -1, indicating the sign
-   of the infinity, but other platforms return a boolean only. */
-#define DOUBLE_IS_POSITIVE_INFINITY(x) (isinf(x) && ((x) > 0))
-#define DOUBLE_IS_NEGATIVE_INFINITY(x) (isinf(x) && ((x) < 0))
-
 /* Test an inum to see if it can be converted to a double without loss
    of precision.  Note that this will sometimes return 0 even when 1
    could have been returned, e.g. for large powers of 2.  It is designed
@@ -654,12 +645,17 @@ scm_i_fraction2double (SCM z)
                               SCM_FRACTION_DENOMINATOR (z));
 }
 
-static int
-double_is_non_negative_zero (double x)
+static SCM
+scm_i_from_double (double val)
 {
-  static double zero = 0.0;
+  SCM z;
 
-  return !memcmp (&x, &zero, sizeof(double));
+  z = SCM_PACK_POINTER (scm_gc_malloc_pointerless (sizeof (scm_t_double), "real"));
+
+  SCM_SET_CELL_TYPE (z, scm_tc16_real);
+  SCM_REAL_VALUE (z) = val;
+
+  return z;
 }
 
 SCM_PRIMITIVE_GENERIC (scm_exact_p, "exact?", 1, 0, 0, 
@@ -724,7 +720,7 @@ SCM_PRIMITIVE_GENERIC (scm_odd_p, "odd?", 1, 0, 0,
   else if (SCM_REALP (n))
     {
       double val = SCM_REAL_VALUE (n);
-      if (DOUBLE_IS_FINITE (val))
+      if (isfinite (val))
 	{
 	  double rem = fabs (fmod (val, 2.0));
 	  if (rem == 1.0)
@@ -758,7 +754,7 @@ SCM_PRIMITIVE_GENERIC (scm_even_p, "even?", 1, 0, 0,
   else if (SCM_REALP (n))
     {
       double val = SCM_REAL_VALUE (n);
-      if (DOUBLE_IS_FINITE (val))
+      if (isfinite (val))
 	{
 	  double rem = fabs (fmod (val, 2.0));
 	  if (rem == 1.0)
@@ -778,7 +774,7 @@ SCM_PRIMITIVE_GENERIC (scm_finite_p, "finite?", 1, 0, 0,
 #define FUNC_NAME s_scm_finite_p
 {
   if (SCM_REALP (x))
-    return scm_from_bool (DOUBLE_IS_FINITE (SCM_REAL_VALUE (x)));
+    return scm_from_bool (isfinite (SCM_REAL_VALUE (x)));
   else if (scm_is_real (x))
     return SCM_BOOL_T;
   else
@@ -876,7 +872,7 @@ SCM_DEFINE (scm_inf, "inf", 0, 0, 0,
       guile_ieee_init ();
       initialized = 1;
     }
-  return scm_from_double (guile_Inf);
+  return scm_i_from_double (guile_Inf);
 }
 #undef FUNC_NAME
 
@@ -891,7 +887,7 @@ SCM_DEFINE (scm_nan, "nan", 0, 0, 0,
       guile_ieee_init ();
       initialized = 1;
     }
-  return scm_from_double (guile_NaN);
+  return scm_i_from_double (guile_NaN);
 }
 #undef FUNC_NAME
 
@@ -916,7 +912,7 @@ SCM_PRIMITIVE_GENERIC (scm_abs, "abs", 1, 0, 0,
       double xx = SCM_REAL_VALUE (x);
       /* If x is a NaN then xx<0 is false so we return x unchanged */
       if (xx < 0.0)
-        return scm_from_double (-xx);
+        return scm_i_from_double (-xx);
       /* Handle signed zeroes properly */
       else if (SCM_UNLIKELY (xx == 0.0))
 	return flo0;
@@ -1311,7 +1307,7 @@ scm_i_inexact_floor_quotient (double x, double y)
   if (SCM_UNLIKELY (y == 0))
     scm_num_overflow (s_scm_floor_quotient);  /* or return a NaN? */
   else
-    return scm_from_double (floor (x / y));
+    return scm_i_from_double (floor (x / y));
 }
 
 static SCM
@@ -1474,7 +1470,7 @@ scm_i_inexact_floor_remainder (double x, double y)
   if (SCM_UNLIKELY (y == 0))
     scm_num_overflow (s_scm_floor_remainder);  /* or return a NaN? */
   else
-    return scm_from_double (x - y * floor (x / y));
+    return scm_i_from_double (x - y * floor (x / y));
 }
 
 static SCM
@@ -1678,8 +1674,8 @@ scm_i_inexact_floor_divide (double x, double y, SCM *qp, SCM *rp)
     {
       double q = floor (x / y);
       double r = x - q * y;
-      *qp = scm_from_double (q);
-      *rp = scm_from_double (r);
+      *qp = scm_i_from_double (q);
+      *rp = scm_i_from_double (r);
     }
 }
 
@@ -1844,7 +1840,7 @@ scm_i_inexact_ceiling_quotient (double x, double y)
   if (SCM_UNLIKELY (y == 0))
     scm_num_overflow (s_scm_ceiling_quotient);  /* or return a NaN? */
   else
-    return scm_from_double (ceil (x / y));
+    return scm_i_from_double (ceil (x / y));
 }
 
 static SCM
@@ -2017,7 +2013,7 @@ scm_i_inexact_ceiling_remainder (double x, double y)
   if (SCM_UNLIKELY (y == 0))
     scm_num_overflow (s_scm_ceiling_remainder);  /* or return a NaN? */
   else
-    return scm_from_double (x - y * ceil (x / y));
+    return scm_i_from_double (x - y * ceil (x / y));
 }
 
 static SCM
@@ -2230,8 +2226,8 @@ scm_i_inexact_ceiling_divide (double x, double y, SCM *qp, SCM *rp)
     {
       double q = ceil (x / y);
       double r = x - q * y;
-      *qp = scm_from_double (q);
-      *rp = scm_from_double (r);
+      *qp = scm_i_from_double (q);
+      *rp = scm_i_from_double (r);
     }
 }
 
@@ -2376,7 +2372,7 @@ scm_i_inexact_truncate_quotient (double x, double y)
   if (SCM_UNLIKELY (y == 0))
     scm_num_overflow (s_scm_truncate_quotient);  /* or return a NaN? */
   else
-    return scm_from_double (trunc (x / y));
+    return scm_i_from_double (trunc (x / y));
 }
 
 static SCM
@@ -2511,7 +2507,7 @@ scm_i_inexact_truncate_remainder (double x, double y)
   if (SCM_UNLIKELY (y == 0))
     scm_num_overflow (s_scm_truncate_remainder);  /* or return a NaN? */
   else
-    return scm_from_double (x - y * trunc (x / y));
+    return scm_i_from_double (x - y * trunc (x / y));
 }
 
 static SCM
@@ -2689,8 +2685,8 @@ scm_i_inexact_truncate_divide (double x, double y, SCM *qp, SCM *rp)
     {
       double q = trunc (x / y);
       double r = x - q * y;
-      *qp = scm_from_double (q);
-      *rp = scm_from_double (r);
+      *qp = scm_i_from_double (q);
+      *rp = scm_i_from_double (r);
     }
 }
 
@@ -2864,9 +2860,9 @@ static SCM
 scm_i_inexact_centered_quotient (double x, double y)
 {
   if (SCM_LIKELY (y > 0))
-    return scm_from_double (floor (x/y + 0.5));
+    return scm_i_from_double (floor (x/y + 0.5));
   else if (SCM_LIKELY (y < 0))
-    return scm_from_double (ceil (x/y - 0.5));
+    return scm_i_from_double (ceil (x/y - 0.5));
   else if (y == 0)
     scm_num_overflow (s_scm_centered_quotient);  /* or return a NaN? */
   else
@@ -3086,7 +3082,7 @@ scm_i_inexact_centered_remainder (double x, double y)
     scm_num_overflow (s_scm_centered_remainder);  /* or return a NaN? */
   else
     return scm_nan ();
-  return scm_from_double (x - q * y);
+  return scm_i_from_double (x - q * y);
 }
 
 /* Assumes that both x and y are bigints, though
@@ -3335,8 +3331,8 @@ scm_i_inexact_centered_divide (double x, double y, SCM *qp, SCM *rp)
   else
     q = guile_NaN;
   r = x - q * y;
-  *qp = scm_from_double (q);
-  *rp = scm_from_double (r);
+  *qp = scm_i_from_double (q);
+  *rp = scm_i_from_double (r);
 }
 
 /* Assumes that both x and y are bigints, though
@@ -3564,7 +3560,7 @@ scm_i_inexact_round_quotient (double x, double y)
   if (SCM_UNLIKELY (y == 0))
     scm_num_overflow (s_scm_round_quotient);  /* or return a NaN? */
   else
-    return scm_from_double (scm_c_round (x / y));
+    return scm_i_from_double (scm_c_round (x / y));
 }
 
 /* Assumes that both x and y are bigints, though
@@ -3775,7 +3771,7 @@ scm_i_inexact_round_remainder (double x, double y)
   else
     {
       double q = scm_c_round (x / y);
-      return scm_from_double (x - q * y);
+      return scm_i_from_double (x - q * y);
     }
 }
 
@@ -4006,8 +4002,8 @@ scm_i_inexact_round_divide (double x, double y, SCM *qp, SCM *rp)
     {
       double q = scm_c_round (x / y);
       double r = x - q * y;
-      *qp = scm_from_double (q);
-      *rp = scm_from_double (r);
+      *qp = scm_i_from_double (q);
+      *rp = scm_i_from_double (r);
     }
 }
 
@@ -5354,7 +5350,7 @@ idbl2str (double dbl, char *a, int radix)
     }
   else if (dbl == 0.0)
     {
-      if (!double_is_non_negative_zero (dbl))
+      if (copysign (1.0, dbl) < 0.0)
         a[ch++] = '-';
       strcpy (a + ch, "0.0");
       return ch + 3;
@@ -5566,7 +5562,7 @@ icmplx2str (double real, double imag, char *str, int radix)
 #endif
   /* Don't output a '+' for negative numbers or for Inf and
      NaN.  They will provide their own sign. */
-  if (sgn >= 0 && DOUBLE_IS_FINITE (imag))
+  if (sgn >= 0 && isfinite (imag))
     str[i++] = '+';
   i += idbl2str (imag, &str[i], radix);
   str[i++] = 'i';
@@ -6506,7 +6502,7 @@ SCM_DEFINE (scm_rational_p, "rational?", 1, 0, 0,
   else if (SCM_REALP (x))
     /* due to their limited precision, finite floating point numbers are
        rational as well. (finite means neither infinity nor a NaN) */
-    return scm_from_bool (DOUBLE_IS_FINITE (SCM_REAL_VALUE (x)));
+    return scm_from_bool (isfinite (SCM_REAL_VALUE (x)));
   else
     return SCM_BOOL_F;
 }
@@ -7181,7 +7177,7 @@ scm_max (SCM x, SCM y)
 	  double yyd = SCM_REAL_VALUE (y);
 
 	  if (xxd > yyd)
-	    return scm_from_double (xxd);
+	    return scm_i_from_double (xxd);
 	  /* If y is a NaN, then "==" is false and we return the NaN */
 	  else if (SCM_LIKELY (!(xxd == yyd)))
 	    return y;
@@ -7220,7 +7216,7 @@ scm_max (SCM x, SCM y)
         big_real:
           xx = scm_i_big2dbl (x);
           yy = SCM_REAL_VALUE (y);
-	  return (xx > yy ? scm_from_double (xx) : y);
+	  return (xx > yy ? scm_i_from_double (xx) : y);
 	}
       else if (SCM_FRACTIONP (y))
 	{
@@ -7238,7 +7234,7 @@ scm_max (SCM x, SCM y)
 	  double yyd = yy;
 
 	  if (yyd > xxd)
-	    return scm_from_double (yyd);
+	    return scm_i_from_double (yyd);
 	  /* If x is a NaN, then "==" is false and we return the NaN */
 	  else if (SCM_LIKELY (!(xxd == yyd)))
 	    return x;
@@ -7269,16 +7265,16 @@ scm_max (SCM x, SCM y)
 	  else if (SCM_UNLIKELY (xx != yy))
 	    return (xx != xx) ? x : y;  /* Return the NaN */
 	  /* xx == yy, but handle signed zeroes properly */
-	  else if (double_is_non_negative_zero (yy))
-	    return y;
-	  else
+	  else if (copysign (1.0, yy) < 0.0)
 	    return x;
+	  else
+	    return y;
 	}
       else if (SCM_FRACTIONP (y))
 	{
 	  double yy = scm_i_fraction2double (y);
 	  double xx = SCM_REAL_VALUE (x);
-	  return (xx < yy) ? scm_from_double (yy) : x;
+	  return (xx < yy) ? scm_i_from_double (yy) : x;
 	}
       else
 	return scm_wta_dispatch_2 (g_max, x, y, SCM_ARGn, s_max);
@@ -7297,7 +7293,7 @@ scm_max (SCM x, SCM y)
 	{
 	  double xx = scm_i_fraction2double (x);
 	  /* if y==NaN then ">" is false, so we return the NaN y */
-	  return (xx > SCM_REAL_VALUE (y)) ? scm_from_double (xx) : y;
+	  return (xx > SCM_REAL_VALUE (y)) ? scm_i_from_double (xx) : y;
 	}
       else if (SCM_FRACTIONP (y))
 	{
@@ -7359,7 +7355,7 @@ scm_min (SCM x, SCM y)
 	{
 	  double z = xx;
 	  /* if y==NaN then "<" is false and we return NaN */
-	  return (z < SCM_REAL_VALUE (y)) ? scm_from_double (z) : y;
+	  return (z < SCM_REAL_VALUE (y)) ? scm_i_from_double (z) : y;
 	}
       else if (SCM_FRACTIONP (y))
 	{
@@ -7390,7 +7386,7 @@ scm_min (SCM x, SCM y)
         big_real:
           xx = scm_i_big2dbl (x);
           yy = SCM_REAL_VALUE (y);
-	  return (xx < yy ? scm_from_double (xx) : y);
+	  return (xx < yy ? scm_i_from_double (xx) : y);
 	}
       else if (SCM_FRACTIONP (y))
 	{
@@ -7405,7 +7401,7 @@ scm_min (SCM x, SCM y)
 	{
 	  double z = SCM_I_INUM (y);
 	  /* if x==NaN then "<" is false and we return NaN */
-	  return (z < SCM_REAL_VALUE (x)) ? scm_from_double (z) : x;
+	  return (z < SCM_REAL_VALUE (x)) ? scm_i_from_double (z) : x;
 	}
       else if (SCM_BIGP (y))
 	{
@@ -7428,16 +7424,16 @@ scm_min (SCM x, SCM y)
 	  else if (SCM_UNLIKELY (xx != yy))
 	    return (xx != xx) ? x : y;  /* Return the NaN */
 	  /* xx == yy, but handle signed zeroes properly */
-	  else if (double_is_non_negative_zero (xx))
-	    return y;
-	  else
+	  else if (copysign (1.0, xx) < 0.0)
 	    return x;
+	  else
+	    return y;
 	}
       else if (SCM_FRACTIONP (y))
 	{
 	  double yy = scm_i_fraction2double (y);
 	  double xx = SCM_REAL_VALUE (x);
-	  return (yy < xx) ? scm_from_double (yy) : x;
+	  return (yy < xx) ? scm_i_from_double (yy) : x;
 	}
       else
 	return scm_wta_dispatch_2 (g_min, x, y, SCM_ARGn, s_min);
@@ -7456,7 +7452,7 @@ scm_min (SCM x, SCM y)
 	{
 	  double xx = scm_i_fraction2double (x);
 	  /* if y==NaN then "<" is false, so we return the NaN y */
-	  return (xx < SCM_REAL_VALUE (y)) ? scm_from_double (xx) : y;
+	  return (xx < SCM_REAL_VALUE (y)) ? scm_i_from_double (xx) : y;
 	}
       else if (SCM_FRACTIONP (y))
 	{
@@ -7515,7 +7511,7 @@ scm_sum (SCM x, SCM y)
       else if (SCM_REALP (y))
         {
           scm_t_inum xx = SCM_I_INUM (x);
-          return scm_from_double (xx + SCM_REAL_VALUE (y));
+          return scm_i_from_double (xx + SCM_REAL_VALUE (y));
         }
       else if (SCM_COMPLEXP (y))
         {
@@ -7579,7 +7575,7 @@ scm_sum (SCM x, SCM y)
 	  {
 	    double result = mpz_get_d (SCM_I_BIG_MPZ (x)) + SCM_REAL_VALUE (y);
 	    scm_remember_upto_here_1 (x);
-	    return scm_from_double (result);
+	    return scm_i_from_double (result);
 	  }
 	else if (SCM_COMPLEXP (y))
 	  {
@@ -7598,20 +7594,20 @@ scm_sum (SCM x, SCM y)
   else if (SCM_REALP (x))
     {
       if (SCM_I_INUMP (y))
-	return scm_from_double (SCM_REAL_VALUE (x) + SCM_I_INUM (y));
+	return scm_i_from_double (SCM_REAL_VALUE (x) + SCM_I_INUM (y));
       else if (SCM_BIGP (y))
 	{
 	  double result = mpz_get_d (SCM_I_BIG_MPZ (y)) + SCM_REAL_VALUE (x);
 	  scm_remember_upto_here_1 (y);
-	  return scm_from_double (result);
+	  return scm_i_from_double (result);
 	}
       else if (SCM_REALP (y))
-	return scm_from_double (SCM_REAL_VALUE (x) + SCM_REAL_VALUE (y));
+	return scm_i_from_double (SCM_REAL_VALUE (x) + SCM_REAL_VALUE (y));
       else if (SCM_COMPLEXP (y))
 	return scm_c_make_rectangular (SCM_REAL_VALUE (x) + SCM_COMPLEX_REAL (y),
 				 SCM_COMPLEX_IMAG (y));
       else if (SCM_FRACTIONP (y))
-	return scm_from_double (SCM_REAL_VALUE (x) + scm_i_fraction2double (y));
+	return scm_i_from_double (SCM_REAL_VALUE (x) + scm_i_fraction2double (y));
       else
 	return scm_wta_dispatch_2 (g_sum, x, y, SCM_ARGn, s_sum);
     }
@@ -7650,7 +7646,7 @@ scm_sum (SCM x, SCM y)
 					scm_product (y, SCM_FRACTION_DENOMINATOR (x))),
 			       SCM_FRACTION_DENOMINATOR (x));
       else if (SCM_REALP (y))
-	return scm_from_double (SCM_REAL_VALUE (y) + scm_i_fraction2double (x));
+	return scm_i_from_double (SCM_REAL_VALUE (y) + scm_i_fraction2double (x));
       else if (SCM_COMPLEXP (y))
 	return scm_c_make_rectangular (SCM_COMPLEX_REAL (y) + scm_i_fraction2double (x),
 				 SCM_COMPLEX_IMAG (y));
@@ -7718,7 +7714,7 @@ scm_difference (SCM x, SCM y)
              bignum, but negating that gives a fixnum.  */
           return scm_i_normbig (scm_i_clonebig (x, 0));
         else if (SCM_REALP (x))
-          return scm_from_double (-SCM_REAL_VALUE (x));
+          return scm_i_from_double (-SCM_REAL_VALUE (x));
         else if (SCM_COMPLEXP (x))
           return scm_c_make_rectangular (-SCM_COMPLEX_REAL (x),
                                    -SCM_COMPLEX_IMAG (x));
@@ -7791,9 +7787,9 @@ scm_difference (SCM x, SCM y)
 	   * (0.0 - 0.0) ==> 0.0, but (- 0.0) ==> -0.0.
 	   */
 	  if (xx == 0)
-	    return scm_from_double (- SCM_REAL_VALUE (y));
+	    return scm_i_from_double (- SCM_REAL_VALUE (y));
 	  else
-	    return scm_from_double (xx - SCM_REAL_VALUE (y));
+	    return scm_i_from_double (xx - SCM_REAL_VALUE (y));
 	}
       else if (SCM_COMPLEXP (y))
 	{
@@ -7865,7 +7861,7 @@ scm_difference (SCM x, SCM y)
 	{
 	  double result = mpz_get_d (SCM_I_BIG_MPZ (x)) - SCM_REAL_VALUE (y);
 	  scm_remember_upto_here_1 (x);
-	  return scm_from_double (result);
+	  return scm_i_from_double (result);
 	}
       else if (SCM_COMPLEXP (y))
 	{
@@ -7884,20 +7880,20 @@ scm_difference (SCM x, SCM y)
   else if (SCM_REALP (x))
     {
       if (SCM_I_INUMP (y))
-	return scm_from_double (SCM_REAL_VALUE (x) - SCM_I_INUM (y));
+	return scm_i_from_double (SCM_REAL_VALUE (x) - SCM_I_INUM (y));
       else if (SCM_BIGP (y))
 	{
 	  double result = SCM_REAL_VALUE (x) - mpz_get_d (SCM_I_BIG_MPZ (y));
 	  scm_remember_upto_here_1 (x);
-	  return scm_from_double (result);      
+	  return scm_i_from_double (result);
 	}
       else if (SCM_REALP (y))
-	return scm_from_double (SCM_REAL_VALUE (x) - SCM_REAL_VALUE (y));
+	return scm_i_from_double (SCM_REAL_VALUE (x) - SCM_REAL_VALUE (y));
       else if (SCM_COMPLEXP (y))
 	return scm_c_make_rectangular (SCM_REAL_VALUE (x) - SCM_COMPLEX_REAL (y),
 				 -SCM_COMPLEX_IMAG (y));
       else if (SCM_FRACTIONP (y))
-	return scm_from_double (SCM_REAL_VALUE (x) - scm_i_fraction2double (y));
+	return scm_i_from_double (SCM_REAL_VALUE (x) - scm_i_fraction2double (y));
       else
 	return scm_wta_dispatch_2 (g_difference, x, y, SCM_ARGn, s_difference);
     }
@@ -7937,7 +7933,7 @@ scm_difference (SCM x, SCM y)
 					       scm_product(y, SCM_FRACTION_DENOMINATOR (x))),
 			       SCM_FRACTION_DENOMINATOR (x));
       else if (SCM_REALP (y))
-	return scm_from_double (scm_i_fraction2double (x) - SCM_REAL_VALUE (y));
+	return scm_i_from_double (scm_i_fraction2double (x) - SCM_REAL_VALUE (y));
       else if (SCM_COMPLEXP (y))
 	return scm_c_make_rectangular (scm_i_fraction2double (x) - SCM_COMPLEX_REAL (y),
 				 -SCM_COMPLEX_IMAG (y));
@@ -8017,7 +8013,7 @@ scm_product (SCM x, SCM y)
 	     and we must do the multiplication in order to handle
 	     infinities and NaNs properly. */
 	  else if (SCM_REALP (y))
-	    return scm_from_double (0.0 * SCM_REAL_VALUE (y));
+	    return scm_i_from_double (0.0 * SCM_REAL_VALUE (y));
 	  else if (SCM_COMPLEXP (y))
 	    return scm_c_make_rectangular (0.0 * SCM_COMPLEX_REAL (y),
 					   0.0 * SCM_COMPLEX_IMAG (y));
@@ -8069,7 +8065,7 @@ scm_product (SCM x, SCM y)
 	  return result;
 	}
       else if (SCM_REALP (y))
-	return scm_from_double (xx * SCM_REAL_VALUE (y));
+	return scm_i_from_double (xx * SCM_REAL_VALUE (y));
       else if (SCM_COMPLEXP (y))
 	return scm_c_make_rectangular (xx * SCM_COMPLEX_REAL (y),
 				 xx * SCM_COMPLEX_IMAG (y));
@@ -8099,7 +8095,7 @@ scm_product (SCM x, SCM y)
 	{
 	  double result = mpz_get_d (SCM_I_BIG_MPZ (x)) * SCM_REAL_VALUE (y);
 	  scm_remember_upto_here_1 (x);
-	  return scm_from_double (result);
+	  return scm_i_from_double (result);
 	}
       else if (SCM_COMPLEXP (y))
 	{
@@ -8125,15 +8121,15 @@ scm_product (SCM x, SCM y)
 	{
 	  double result = mpz_get_d (SCM_I_BIG_MPZ (y)) * SCM_REAL_VALUE (x);
 	  scm_remember_upto_here_1 (y);
-	  return scm_from_double (result);
+	  return scm_i_from_double (result);
 	}
       else if (SCM_REALP (y))
-	return scm_from_double (SCM_REAL_VALUE (x) * SCM_REAL_VALUE (y));
+	return scm_i_from_double (SCM_REAL_VALUE (x) * SCM_REAL_VALUE (y));
       else if (SCM_COMPLEXP (y))
 	return scm_c_make_rectangular (SCM_REAL_VALUE (x) * SCM_COMPLEX_REAL (y),
 				 SCM_REAL_VALUE (x) * SCM_COMPLEX_IMAG (y));
       else if (SCM_FRACTIONP (y))
-	return scm_from_double (SCM_REAL_VALUE (x) * scm_i_fraction2double (y));
+	return scm_i_from_double (SCM_REAL_VALUE (x) * scm_i_fraction2double (y));
       else
 	return scm_wta_dispatch_2 (g_product, x, y, SCM_ARGn, s_product);
     }
@@ -8179,7 +8175,7 @@ scm_product (SCM x, SCM y)
 	return scm_i_make_ratio (scm_product (y, SCM_FRACTION_NUMERATOR (x)),
 			       SCM_FRACTION_DENOMINATOR (x));
       else if (SCM_REALP (y))
-	return scm_from_double (scm_i_fraction2double (x) * SCM_REAL_VALUE (y));
+	return scm_i_from_double (scm_i_fraction2double (x) * SCM_REAL_VALUE (y));
       else if (SCM_COMPLEXP (y))
 	{
 	  double xx = scm_i_fraction2double (x);
@@ -8283,7 +8279,7 @@ scm_divide (SCM x, SCM y)
 	    scm_num_overflow (s_divide);
 	  else
 #endif
-	    return scm_from_double (1.0 / xx);
+	    return scm_i_from_double (1.0 / xx);
 	}
       else if (SCM_COMPLEXP (x))
 	{
@@ -8320,7 +8316,7 @@ scm_divide (SCM x, SCM y)
 #ifndef ALLOW_DIVIDE_BY_EXACT_ZERO
 	      scm_num_overflow (s_divide);
 #else
-	      return scm_from_double ((double) xx / (double) yy);
+	      return scm_i_from_double ((double) xx / (double) yy);
 #endif
 	    }
 	  else if (xx % yy != 0)
@@ -8347,7 +8343,7 @@ scm_divide (SCM x, SCM y)
             /* FIXME: Precision may be lost here due to:
                (1) The cast from 'scm_t_inum' to 'double'
                (2) Double rounding */
-	    return scm_from_double ((double) xx / yy);
+	    return scm_i_from_double ((double) xx / yy);
 	}
       else if (SCM_COMPLEXP (y))
 	{
@@ -8446,7 +8442,7 @@ scm_divide (SCM x, SCM y)
 #endif
             /* FIXME: Precision may be lost here due to:
                (1) scm_i_big2dbl (2) Double rounding */
-	    return scm_from_double (scm_i_big2dbl (x) / yy);
+	    return scm_i_from_double (scm_i_big2dbl (x) / yy);
 	}
       else if (SCM_COMPLEXP (y))
 	{
@@ -8473,7 +8469,7 @@ scm_divide (SCM x, SCM y)
             /* FIXME: Precision may be lost here due to:
                (1) The cast from 'scm_t_inum' to 'double'
                (2) Double rounding */
-	    return scm_from_double (rx / (double) yy);
+	    return scm_i_from_double (rx / (double) yy);
 	}
       else if (SCM_BIGP (y))
 	{
@@ -8482,7 +8478,7 @@ scm_divide (SCM x, SCM y)
              (2) Double rounding */
 	  double dby = mpz_get_d (SCM_I_BIG_MPZ (y));
 	  scm_remember_upto_here_1 (y);
-	  return scm_from_double (rx / dby);
+	  return scm_i_from_double (rx / dby);
 	}
       else if (SCM_REALP (y))
 	{
@@ -8492,7 +8488,7 @@ scm_divide (SCM x, SCM y)
 	    scm_num_overflow (s_divide);
 	  else
 #endif
-	    return scm_from_double (rx / yy);
+	    return scm_i_from_double (rx / yy);
 	}
       else if (SCM_COMPLEXP (y))
 	{
@@ -8500,7 +8496,7 @@ scm_divide (SCM x, SCM y)
 	  goto complex_div;
 	}
       else if (SCM_FRACTIONP (y))
-	return scm_from_double (rx / scm_i_fraction2double (y));
+	return scm_i_from_double (rx / scm_i_fraction2double (y));
       else
 	return scm_wta_dispatch_2 (g_divide, x, y, SCM_ARGn, s_divide);
     }
@@ -8600,7 +8596,7 @@ scm_divide (SCM x, SCM y)
             /* FIXME: Precision may be lost here due to:
                (1) The conversion from fraction to double
                (2) Double rounding */
-	    return scm_from_double (scm_i_fraction2double (x) / yy);
+	    return scm_i_from_double (scm_i_fraction2double (x) / yy);
 	}
       else if (SCM_COMPLEXP (y)) 
 	{
@@ -8678,7 +8674,7 @@ SCM_PRIMITIVE_GENERIC (scm_truncate_number, "truncate", 1, 0, 0,
   if (SCM_I_INUMP (x) || SCM_BIGP (x))
     return x;
   else if (SCM_REALP (x))
-    return scm_from_double (trunc (SCM_REAL_VALUE (x)));
+    return scm_i_from_double (trunc (SCM_REAL_VALUE (x)));
   else if (SCM_FRACTIONP (x))
     return scm_truncate_quotient (SCM_FRACTION_NUMERATOR (x),
 				  SCM_FRACTION_DENOMINATOR (x));
@@ -8698,7 +8694,7 @@ SCM_PRIMITIVE_GENERIC (scm_round_number, "round", 1, 0, 0,
   if (SCM_I_INUMP (x) || SCM_BIGP (x))
     return x;
   else if (SCM_REALP (x))
-    return scm_from_double (scm_c_round (SCM_REAL_VALUE (x)));
+    return scm_i_from_double (scm_c_round (SCM_REAL_VALUE (x)));
   else if (SCM_FRACTIONP (x))
     return scm_round_quotient (SCM_FRACTION_NUMERATOR (x),
 			       SCM_FRACTION_DENOMINATOR (x));
@@ -8716,7 +8712,7 @@ SCM_PRIMITIVE_GENERIC (scm_floor, "floor", 1, 0, 0,
   if (SCM_I_INUMP (x) || SCM_BIGP (x))
     return x;
   else if (SCM_REALP (x))
-    return scm_from_double (floor (SCM_REAL_VALUE (x)));
+    return scm_i_from_double (floor (SCM_REAL_VALUE (x)));
   else if (SCM_FRACTIONP (x))
     return scm_floor_quotient (SCM_FRACTION_NUMERATOR (x),
 			       SCM_FRACTION_DENOMINATOR (x));
@@ -8733,7 +8729,7 @@ SCM_PRIMITIVE_GENERIC (scm_ceiling, "ceiling", 1, 0, 0,
   if (SCM_I_INUMP (x) || SCM_BIGP (x))
     return x;
   else if (SCM_REALP (x))
-    return scm_from_double (ceil (SCM_REAL_VALUE (x)));
+    return scm_i_from_double (ceil (SCM_REAL_VALUE (x)));
   else if (SCM_FRACTIONP (x))
     return scm_ceiling_quotient (SCM_FRACTION_NUMERATOR (x),
 				 SCM_FRACTION_DENOMINATOR (x));
@@ -8772,7 +8768,7 @@ SCM_PRIMITIVE_GENERIC (scm_expt, "expt", 2, 0, 0,
     }
   else if (scm_is_real (x) && scm_is_real (y) && scm_to_double (x) >= 0.0)
     {
-      return scm_from_double (pow (scm_to_double (x), scm_to_double (y)));
+      return scm_i_from_double (pow (scm_to_double (x), scm_to_double (y)));
     }
   else if (scm_is_complex (x) && scm_is_complex (y))
     return scm_exp (scm_product (scm_log (x), y));
@@ -8797,7 +8793,7 @@ SCM_PRIMITIVE_GENERIC (scm_sin, "sin", 1, 0, 0,
   if (SCM_UNLIKELY (scm_is_eq (z, SCM_INUM0)))
     return z;  /* sin(exact0) = exact0 */
   else if (scm_is_real (z))
-    return scm_from_double (sin (scm_to_double (z)));
+    return scm_i_from_double (sin (scm_to_double (z)));
   else if (SCM_COMPLEXP (z))
     { double x, y;
       x = SCM_COMPLEX_REAL (z);
@@ -8818,7 +8814,7 @@ SCM_PRIMITIVE_GENERIC (scm_cos, "cos", 1, 0, 0,
   if (SCM_UNLIKELY (scm_is_eq (z, SCM_INUM0)))
     return SCM_INUM1;  /* cos(exact0) = exact1 */
   else if (scm_is_real (z))
-    return scm_from_double (cos (scm_to_double (z)));
+    return scm_i_from_double (cos (scm_to_double (z)));
   else if (SCM_COMPLEXP (z))
     { double x, y;
       x = SCM_COMPLEX_REAL (z);
@@ -8839,7 +8835,7 @@ SCM_PRIMITIVE_GENERIC (scm_tan, "tan", 1, 0, 0,
   if (SCM_UNLIKELY (scm_is_eq (z, SCM_INUM0)))
     return z;  /* tan(exact0) = exact0 */
   else if (scm_is_real (z))
-    return scm_from_double (tan (scm_to_double (z)));
+    return scm_i_from_double (tan (scm_to_double (z)));
   else if (SCM_COMPLEXP (z))
     { double x, y, w;
       x = 2.0 * SCM_COMPLEX_REAL (z);
@@ -8864,7 +8860,7 @@ SCM_PRIMITIVE_GENERIC (scm_sinh, "sinh", 1, 0, 0,
   if (SCM_UNLIKELY (scm_is_eq (z, SCM_INUM0)))
     return z;  /* sinh(exact0) = exact0 */
   else if (scm_is_real (z))
-    return scm_from_double (sinh (scm_to_double (z)));
+    return scm_i_from_double (sinh (scm_to_double (z)));
   else if (SCM_COMPLEXP (z))
     { double x, y;
       x = SCM_COMPLEX_REAL (z);
@@ -8885,7 +8881,7 @@ SCM_PRIMITIVE_GENERIC (scm_cosh, "cosh", 1, 0, 0,
   if (SCM_UNLIKELY (scm_is_eq (z, SCM_INUM0)))
     return SCM_INUM1;  /* cosh(exact0) = exact1 */
   else if (scm_is_real (z))
-    return scm_from_double (cosh (scm_to_double (z)));
+    return scm_i_from_double (cosh (scm_to_double (z)));
   else if (SCM_COMPLEXP (z))
     { double x, y;
       x = SCM_COMPLEX_REAL (z);
@@ -8906,7 +8902,7 @@ SCM_PRIMITIVE_GENERIC (scm_tanh, "tanh", 1, 0, 0,
   if (SCM_UNLIKELY (scm_is_eq (z, SCM_INUM0)))
     return z;  /* tanh(exact0) = exact0 */
   else if (scm_is_real (z))
-    return scm_from_double (tanh (scm_to_double (z)));
+    return scm_i_from_double (tanh (scm_to_double (z)));
   else if (SCM_COMPLEXP (z))
     { double x, y, w;
       x = 2.0 * SCM_COMPLEX_REAL (z);
@@ -8934,7 +8930,7 @@ SCM_PRIMITIVE_GENERIC (scm_asin, "asin", 1, 0, 0,
     {
       double w = scm_to_double (z);
       if (w >= -1.0 && w <= 1.0)
-        return scm_from_double (asin (w));
+        return scm_i_from_double (asin (w));
       else
         return scm_product (scm_c_make_rectangular (0, -1),
                             scm_sys_asinh (scm_c_make_rectangular (0, w)));
@@ -8962,9 +8958,9 @@ SCM_PRIMITIVE_GENERIC (scm_acos, "acos", 1, 0, 0,
     {
       double w = scm_to_double (z);
       if (w >= -1.0 && w <= 1.0)
-        return scm_from_double (acos (w));
+        return scm_i_from_double (acos (w));
       else
-        return scm_sum (scm_from_double (acos (0.0)),
+        return scm_sum (scm_i_from_double (acos (0.0)),
                         scm_product (scm_c_make_rectangular (0, 1),
                                      scm_sys_asinh (scm_c_make_rectangular (0, w))));
     }
@@ -8972,7 +8968,7 @@ SCM_PRIMITIVE_GENERIC (scm_acos, "acos", 1, 0, 0,
     { double x, y;
       x = SCM_COMPLEX_REAL (z);
       y = SCM_COMPLEX_IMAG (z);
-      return scm_sum (scm_from_double (acos (0.0)),
+      return scm_sum (scm_i_from_double (acos (0.0)),
                       scm_product (scm_c_make_rectangular (0, 1),
                                    scm_sys_asinh (scm_c_make_rectangular (-y, x))));
     }
@@ -8993,7 +8989,7 @@ SCM_PRIMITIVE_GENERIC (scm_atan, "atan", 1, 1, 0,
       if (SCM_UNLIKELY (scm_is_eq (z, SCM_INUM0)))
 	return z;  /* atan(exact0) = exact0 */
       else if (scm_is_real (z))
-        return scm_from_double (atan (scm_to_double (z)));
+        return scm_i_from_double (atan (scm_to_double (z)));
       else if (SCM_COMPLEXP (z))
         {
           double v, w;
@@ -9009,7 +9005,7 @@ SCM_PRIMITIVE_GENERIC (scm_atan, "atan", 1, 1, 0,
   else if (scm_is_real (z))
     {
       if (scm_is_real (y))
-        return scm_from_double (atan2 (scm_to_double (z), scm_to_double (y)));
+        return scm_i_from_double (atan2 (scm_to_double (z), scm_to_double (y)));
       else
         return scm_wta_dispatch_2 (g_scm_atan, z, y, SCM_ARG2, s_scm_atan);
     }
@@ -9026,7 +9022,7 @@ SCM_PRIMITIVE_GENERIC (scm_sys_asinh, "asinh", 1, 0, 0,
   if (SCM_UNLIKELY (scm_is_eq (z, SCM_INUM0)))
     return z;  /* asinh(exact0) = exact0 */
   else if (scm_is_real (z))
-    return scm_from_double (asinh (scm_to_double (z)));
+    return scm_i_from_double (asinh (scm_to_double (z)));
   else if (scm_is_number (z))
     return scm_log (scm_sum (z,
                              scm_sqrt (scm_sum (scm_product (z, z),
@@ -9044,7 +9040,7 @@ SCM_PRIMITIVE_GENERIC (scm_sys_acosh, "acosh", 1, 0, 0,
   if (SCM_UNLIKELY (scm_is_eq (z, SCM_INUM1)))
     return SCM_INUM0;  /* acosh(exact1) = exact0 */
   else if (scm_is_real (z) && scm_to_double (z) >= 1.0)
-    return scm_from_double (acosh (scm_to_double (z)));
+    return scm_i_from_double (acosh (scm_to_double (z)));
   else if (scm_is_number (z))
     return scm_log (scm_sum (z,
                              scm_sqrt (scm_difference (scm_product (z, z),
@@ -9062,7 +9058,7 @@ SCM_PRIMITIVE_GENERIC (scm_sys_atanh, "atanh", 1, 0, 0,
   if (SCM_UNLIKELY (scm_is_eq (z, SCM_INUM0)))
     return z;  /* atanh(exact0) = exact0 */
   else if (scm_is_real (z) && scm_to_double (z) >= -1.0 && scm_to_double (z) <= 1.0)
-    return scm_from_double (atanh (scm_to_double (z)));
+    return scm_i_from_double (atanh (scm_to_double (z)));
   else if (scm_is_number (z))
     return scm_divide (scm_log (scm_divide (scm_sum (SCM_INUM1, z),
                                             scm_difference (SCM_INUM1, z))),
@@ -9165,7 +9161,7 @@ SCM_PRIMITIVE_GENERIC (scm_real_part, "real-part", 1, 0, 0,
 #define FUNC_NAME s_scm_real_part
 {
   if (SCM_COMPLEXP (z))
-    return scm_from_double (SCM_COMPLEX_REAL (z));
+    return scm_i_from_double (SCM_COMPLEX_REAL (z));
   else if (SCM_I_INUMP (z) || SCM_BIGP (z) || SCM_REALP (z) || SCM_FRACTIONP (z))
     return z;
   else
@@ -9180,7 +9176,7 @@ SCM_PRIMITIVE_GENERIC (scm_imag_part, "imag-part", 1, 0, 0,
 #define FUNC_NAME s_scm_imag_part
 {
   if (SCM_COMPLEXP (z))
-    return scm_from_double (SCM_COMPLEX_IMAG (z));
+    return scm_i_from_double (SCM_COMPLEX_IMAG (z));
   else if (SCM_I_INUMP (z) || SCM_REALP (z) || SCM_BIGP (z) || SCM_FRACTIONP (z))
     return SCM_INUM0;
   else
@@ -9249,9 +9245,9 @@ SCM_PRIMITIVE_GENERIC (scm_magnitude, "magnitude", 1, 0, 0,
 	return z;
     }
   else if (SCM_REALP (z))
-    return scm_from_double (fabs (SCM_REAL_VALUE (z)));
+    return scm_i_from_double (fabs (SCM_REAL_VALUE (z)));
   else if (SCM_COMPLEXP (z))
-    return scm_from_double (hypot (SCM_COMPLEX_REAL (z), SCM_COMPLEX_IMAG (z)));
+    return scm_i_from_double (hypot (SCM_COMPLEX_REAL (z), SCM_COMPLEX_IMAG (z)));
   else if (SCM_FRACTIONP (z))
     {
       if (scm_is_false (scm_negative_p (SCM_FRACTION_NUMERATOR (z))))
@@ -9273,7 +9269,7 @@ SCM_PRIMITIVE_GENERIC (scm_angle, "angle", 1, 0, 0,
 #define FUNC_NAME s_scm_angle
 {
   /* atan(0,-1) is pi and it'd be possible to have that as a constant like
-     flo0 to save allocating a new flonum with scm_from_double each time.
+     flo0 to save allocating a new flonum with scm_i_from_double each time.
      But if atan2 follows the floating point rounding mode, then the value
      is not a constant.  Maybe it'd be close enough though.  */
   if (SCM_I_INUMP (z))
@@ -9281,32 +9277,32 @@ SCM_PRIMITIVE_GENERIC (scm_angle, "angle", 1, 0, 0,
       if (SCM_I_INUM (z) >= 0)
         return flo0;
       else
-	return scm_from_double (atan2 (0.0, -1.0));
+	return scm_i_from_double (atan2 (0.0, -1.0));
     }
   else if (SCM_BIGP (z))
     {
       int sgn = mpz_sgn (SCM_I_BIG_MPZ (z));
       scm_remember_upto_here_1 (z);
       if (sgn < 0)
-	return scm_from_double (atan2 (0.0, -1.0));
+	return scm_i_from_double (atan2 (0.0, -1.0));
       else
         return flo0;
     }
   else if (SCM_REALP (z))
     {
       double x = SCM_REAL_VALUE (z);
-      if (x > 0.0 || double_is_non_negative_zero (x))
+      if (copysign (1.0, x) > 0.0)
         return flo0;
       else
-        return scm_from_double (atan2 (0.0, -1.0));
+        return scm_i_from_double (atan2 (0.0, -1.0));
     }
   else if (SCM_COMPLEXP (z))
-    return scm_from_double (atan2 (SCM_COMPLEX_IMAG (z), SCM_COMPLEX_REAL (z)));
+    return scm_i_from_double (atan2 (SCM_COMPLEX_IMAG (z), SCM_COMPLEX_REAL (z)));
   else if (SCM_FRACTIONP (z))
     {
       if (scm_is_false (scm_negative_p (SCM_FRACTION_NUMERATOR (z))))
 	return flo0;
-      else return scm_from_double (atan2 (0.0, -1.0));
+      else return scm_i_from_double (atan2 (0.0, -1.0));
     }
   else
     return scm_wta_dispatch_1 (g_scm_angle, z, SCM_ARG1, s_scm_angle);
@@ -9320,11 +9316,11 @@ SCM_PRIMITIVE_GENERIC (scm_exact_to_inexact, "exact->inexact", 1, 0, 0,
 #define FUNC_NAME s_scm_exact_to_inexact
 {
   if (SCM_I_INUMP (z))
-    return scm_from_double ((double) SCM_I_INUM (z));
+    return scm_i_from_double ((double) SCM_I_INUM (z));
   else if (SCM_BIGP (z))
-    return scm_from_double (scm_i_big2dbl (z));
+    return scm_i_from_double (scm_i_big2dbl (z));
   else if (SCM_FRACTIONP (z))
-    return scm_from_double (scm_i_fraction2double (z));
+    return scm_i_from_double (scm_i_fraction2double (z));
   else if (SCM_INEXACTP (z))
     return z;
   else
@@ -9353,7 +9349,7 @@ SCM_PRIMITIVE_GENERIC (scm_inexact_to_exact, "inexact->exact", 1, 0, 0,
 	return scm_wta_dispatch_1 (g_scm_inexact_to_exact, z, 1,
                                    s_scm_inexact_to_exact);
 
-      if (!SCM_LIKELY (DOUBLE_IS_FINITE (val)))
+      if (!SCM_LIKELY (isfinite (val)))
 	SCM_OUT_OF_RANGE (1, z);
       else if (val == 0.0)
         return SCM_INUM0;
@@ -9406,89 +9402,190 @@ SCM_DEFINE (scm_rationalize, "rationalize", 2, 0, 0,
 {
   SCM_ASSERT_TYPE (scm_is_real (x), x, SCM_ARG1, FUNC_NAME, "real");
   SCM_ASSERT_TYPE (scm_is_real (eps), eps, SCM_ARG2, FUNC_NAME, "real");
-  eps = scm_abs (eps);
-  if (scm_is_false (scm_positive_p (eps)))
+
+  if (SCM_UNLIKELY (!scm_is_exact (eps) || !scm_is_exact (x)))
     {
-      /* eps is either zero or a NaN */
-      if (scm_is_true (scm_nan_p (eps)))
-	return scm_nan ();
-      else if (SCM_INEXACTP (eps))
-	return scm_exact_to_inexact (x);
+      if (SCM_UNLIKELY (scm_is_false (scm_finite_p (eps))))
+        {
+          if (scm_is_false (scm_nan_p (eps)) && scm_is_true (scm_finite_p (x)))
+            return flo0;
+          else
+            return scm_nan ();
+        }
+      else if (SCM_UNLIKELY (scm_is_false (scm_finite_p (x))))
+        return x;
       else
-	return x;
-    }
-  else if (scm_is_false (scm_finite_p (eps)))
-    {
-      if (scm_is_true (scm_finite_p (x)))
-	return flo0;
-      else
-	return scm_nan ();
-    }
-  else if (scm_is_false (scm_finite_p (x))) /* checks for both inf and nan */
-    return x;
-  else if (scm_is_false (scm_less_p (scm_floor (scm_sum (x, eps)),
-				     scm_ceiling (scm_difference (x, eps)))))
-    {
-      /* There's an integer within range; we want the one closest to zero */
-      if (scm_is_false (scm_less_p (eps, scm_abs (x))))
-	{
-	  /* zero is within range */
-	  if (SCM_INEXACTP (x) || SCM_INEXACTP (eps))
-	    return flo0;
-	  else
-	    return SCM_INUM0;
-	}
-      else if (scm_is_true (scm_positive_p (x)))
-	return scm_ceiling (scm_difference (x, eps));
-      else
-	return scm_floor (scm_sum (x, eps));
+        return scm_exact_to_inexact
+          (scm_rationalize (scm_inexact_to_exact (x),
+                            scm_inexact_to_exact (eps)));
     }
   else
     {
-      /* Use continued fractions to find closest ratio.  All
-	 arithmetic is done with exact numbers.
+      /* X and EPS are exact rationals.
+
+         The code that follows is equivalent to the following Scheme code:
+
+         (define (exact-rationalize x eps)
+           (let ((n1  (if (negative? x) -1 1))
+                 (x   (abs x))
+                 (eps (abs eps)))
+             (let ((lo (- x eps))
+                   (hi (+ x eps)))
+               (if (<= lo 0)
+                   0
+                   (let loop ((nlo (numerator lo)) (dlo (denominator lo))
+                              (nhi (numerator hi)) (dhi (denominator hi))
+                              (n1 n1) (d1 0) (n2 0) (d2 1))
+                     (let-values (((qlo rlo) (floor/ nlo dlo))
+                                  ((qhi rhi) (floor/ nhi dhi)))
+                       (let ((n0 (+ n2 (* n1 qlo)))
+                             (d0 (+ d2 (* d1 qlo))))
+                         (cond ((zero? rlo) (/ n0 d0))
+                               ((< qlo qhi) (/ (+ n0 n1) (+ d0 d1)))
+                               (else (loop dhi rhi dlo rlo n0 d0 n1 d1))))))))))
       */
 
-      SCM ex = scm_inexact_to_exact (x);
-      SCM int_part = scm_floor (ex);
-      SCM tt = SCM_INUM1;
-      SCM a1 = SCM_INUM0, a2 = SCM_INUM1, a = SCM_INUM0;
-      SCM b1 = SCM_INUM1, b2 = SCM_INUM0, b = SCM_INUM0;
-      SCM rx;
-      int i = 0;
+      int n1_init = 1;
+      SCM lo, hi;
 
-      ex = scm_difference (ex, int_part);            /* x = x-int_part */
-      rx = scm_divide (ex, SCM_UNDEFINED); 	       /* rx = 1/x */
+      eps = scm_abs (eps);
+      if (scm_is_true (scm_negative_p (x)))
+        {
+          n1_init = -1;
+          x = scm_difference (x, SCM_UNDEFINED);
+        }
 
-      /* We stop after a million iterations just to be absolutely sure
-	 that we don't go into an infinite loop.  The process normally
-	 converges after less than a dozen iterations.
-      */
+      /* X and EPS are non-negative exact rationals. */
 
-      while (++i < 1000000)
-	{
-	  a = scm_sum (scm_product (a1, tt), a2);    /* a = a1*tt + a2 */
-	  b = scm_sum (scm_product (b1, tt), b2);    /* b = b1*tt + b2 */
-	  if (scm_is_false (scm_zero_p (b)) &&         /* b != 0 */
-	      scm_is_false 
-	      (scm_gr_p (scm_abs (scm_difference (ex, scm_divide (a, b))),
-			 eps)))                      /* abs(x-a/b) <= eps */
-	    {
-	      SCM res = scm_sum (int_part, scm_divide (a, b));
-	      if (SCM_INEXACTP (x) || SCM_INEXACTP (eps))
-		return scm_exact_to_inexact (res);
-	      else
-		return res;
-	    }
-	  rx = scm_divide (scm_difference (rx, tt),  /* rx = 1/(rx - tt) */
-			   SCM_UNDEFINED);
-	  tt = scm_floor (rx);                       /* tt = floor (rx) */
-	  a2 = a1;
-	  b2 = b1;
-	  a1 = a;
-	  b1 = b;
-	}
-      scm_num_overflow (s_scm_rationalize);
+      lo = scm_difference (x, eps);
+      hi = scm_sum (x, eps);
+
+      if (scm_is_false (scm_positive_p (lo)))
+        /* If zero is included in the interval, return it.
+           It is the simplest rational of all. */
+        return SCM_INUM0;
+      else
+        {
+          SCM result;
+          mpz_t n0, d0, n1, d1, n2, d2;
+          mpz_t nlo, dlo, nhi, dhi;
+          mpz_t qlo, rlo, qhi, rhi;
+
+          /* LO and HI are positive exact rationals. */
+
+          /* Our approach here follows the method described by Alan
+             Bawden in a message entitled "(rationalize x y)" on the
+             rrrs-authors mailing list, dated 16 Feb 1988 14:08:28 EST:
+
+             http://groups.csail.mit.edu/mac/ftpdir/scheme-mail/HTML/rrrs-1988/msg00063.html
+
+             In brief, we compute the continued fractions of the two
+             endpoints of the interval (LO and HI).  The continued
+             fraction of the result consists of the common prefix of the
+             continued fractions of LO and HI, plus one final term.  The
+             final term of the result is the smallest integer contained
+             in the interval between the remainders of LO and HI after
+             the common prefix has been removed.
+
+             The following code lazily computes the continued fraction
+             representations of LO and HI, and simultaneously converts
+             the continued fraction of the result into a rational
+             number.  We use MPZ functions directly to avoid type
+             dispatch and GC allocation during the loop. */
+
+          mpz_inits (n0, d0, n1, d1, n2, d2,
+                     nlo, dlo, nhi, dhi,
+                     qlo, rlo, qhi, rhi,
+                     NULL);
+
+          /* The variables N1, D1, N2 and D2 are used to compute the
+             resulting rational from its continued fraction.  At each
+             step, N2/D2 and N1/D1 are the last two convergents.  They
+             are normally initialized to 0/1 and 1/0, respectively.
+             However, if we negated X then we must negate the result as
+             well, and we do that by initializing N1/D1 to -1/0. */
+          mpz_set_si (n1, n1_init);
+          mpz_set_ui (d1, 0);
+          mpz_set_ui (n2, 0);
+          mpz_set_ui (d2, 1);
+
+          /* The variables NLO, DLO, NHI, and DHI are used to lazily
+             compute the continued fraction representations of LO and HI
+             using Euclid's algorithm.  Initially, NLO/DLO == LO and
+             NHI/DHI == HI. */
+          scm_to_mpz (scm_numerator   (lo), nlo);
+          scm_to_mpz (scm_denominator (lo), dlo);
+          scm_to_mpz (scm_numerator   (hi), nhi);
+          scm_to_mpz (scm_denominator (hi), dhi);
+
+          /* As long as we're using exact arithmetic, the following loop
+             is guaranteed to terminate. */
+          for (;;)
+            {
+              /* Compute the next terms (QLO and QHI) of the continued
+                 fractions of LO and HI. */
+              mpz_fdiv_qr (qlo, rlo, nlo, dlo);  /* QLO <-- floor (NLO/DLO), RLO <-- NLO - QLO * DLO */
+              mpz_fdiv_qr (qhi, rhi, nhi, dhi);  /* QHI <-- floor (NHI/DHI), RHI <-- NHI - QHI * DHI */
+
+              /* The next term of the result will be either QLO or
+                 QLO+1.  Here we compute the next convergent of the
+                 result based on the assumption that QLO is the next
+                 term.  If that turns out to be wrong, we'll adjust
+                 these later by adding N1 to N0 and D1 to D0. */
+              mpz_set (n0, n2); mpz_addmul (n0, n1, qlo);  /* N0 <-- N2 + (QLO * N1) */
+              mpz_set (d0, d2); mpz_addmul (d0, d1, qlo);  /* D0 <-- D2 + (QLO * D1) */
+
+              /* We stop iterating when an integer is contained in the
+                 interval between the remainders NLO/DLO and NHI/DHI.
+                 There are two cases to consider: either NLO/DLO == QLO
+                 is an integer (indicated by RLO == 0), or QLO < QHI. */
+              if (mpz_sgn (rlo) == 0 || mpz_cmp (qlo, qhi) != 0)
+                break;
+
+              /* Efficiently shuffle variables around for the next
+                 iteration.  First we shift the recent convergents. */
+              mpz_swap (n2, n1); mpz_swap (n1, n0);      /* N2 <-- N1 <-- N0 */
+              mpz_swap (d2, d1); mpz_swap (d1, d0);      /* D2 <-- D1 <-- D0 */
+
+              /* The following shuffling is a bit confusing, so some
+                 explanation is in order.  Conceptually, we're doing a
+                 couple of things here.  After substracting the floor of
+                 NLO/DLO, the remainder is RLO/DLO.  The rest of the
+                 continued fraction will represent the remainder's
+                 reciprocal DLO/RLO.  Similarly for the HI endpoint.
+                 So in the next iteration, the new endpoints will be
+                 DLO/RLO and DHI/RHI.  However, when we take the
+                 reciprocals of these endpoints, their order is
+                 switched.  So in summary, we want NLO/DLO <-- DHI/RHI
+                 and NHI/DHI <-- DLO/RLO. */
+              mpz_swap (nlo, dhi); mpz_swap (dhi, rlo); /* NLO <-- DHI <-- RLO */
+              mpz_swap (nhi, dlo); mpz_swap (dlo, rhi); /* NHI <-- DLO <-- RHI */
+            }
+
+          /* There is now an integer in the interval [NLO/DLO NHI/DHI].
+             The last term of the result will be the smallest integer in
+             that interval, which is ceiling(NLO/DLO).  We have already
+             computed floor(NLO/DLO) in QLO, so now we adjust QLO to be
+             equal to the ceiling.  */
+          if (mpz_sgn (rlo) != 0)
+            {
+              /* If RLO is non-zero, then NLO/DLO is not an integer and
+                 the next term will be QLO+1.  QLO was used in the
+                 computation of N0 and D0 above.  Here we adjust N0 and
+                 D0 to be based on QLO+1 instead of QLO.  */
+              mpz_add (n0, n0, n1);  /* N0 <-- N0 + N1 */
+              mpz_add (d0, d0, d1);  /* D0 <-- D0 + D1 */
+            }
+
+          /* The simplest rational in the interval is N0/D0 */
+          result = scm_i_make_ratio_already_reduced (scm_from_mpz (n0),
+                                                     scm_from_mpz (d0));
+          mpz_clears (n0, d0, n1, d1, n2, d2,
+                      nlo, dlo, nhi, dhi,
+                      qlo, rlo, qhi, rhi,
+                      NULL);
+          return result;
+        }
     }
 }
 #undef FUNC_NAME
@@ -9743,14 +9840,7 @@ scm_to_double (SCM val)
 SCM
 scm_from_double (double val)
 {
-  SCM z;
-
-  z = SCM_PACK_POINTER (scm_gc_malloc_pointerless (sizeof (scm_t_double), "real"));
-
-  SCM_SET_CELL_TYPE (z, scm_tc16_real);
-  SCM_REAL_VALUE (z) = val;
-
-  return z;
+  return scm_i_from_double (val);
 }
 
 int
@@ -9813,8 +9903,8 @@ log_of_shifted_double (double x, long shift)
 {
   double ans = log (fabs (x)) + shift * M_LN2;
 
-  if (x > 0.0 || double_is_non_negative_zero (x))
-    return scm_from_double (ans);
+  if (copysign (1.0, x) > 0.0)
+    return scm_i_from_double (ans);
   else
     return scm_c_make_rectangular (ans, M_PI);
 }
@@ -9846,7 +9936,7 @@ log_of_fraction (SCM n, SCM d)
     return (scm_difference (log_of_exact_integer (n),
 			    log_of_exact_integer (d)));
   else if (scm_is_false (scm_negative_p (n)))
-    return scm_from_double
+    return scm_i_from_double
       (log1p (scm_i_divide2double (scm_difference (n, d), d)));
   else
     return scm_c_make_rectangular
@@ -9929,8 +10019,8 @@ SCM_PRIMITIVE_GENERIC (scm_log10, "log10", 1, 0, 0,
       {
 	double re = scm_to_double (z);
 	double l = log10 (fabs (re));
-	if (re > 0.0 || double_is_non_negative_zero (re))
-	  return scm_from_double (l);
+	if (copysign (1.0, re) > 0.0)
+	  return scm_i_from_double (l);
 	else
 	  return scm_c_make_rectangular (l, M_LOG10E * M_PI);
       }
@@ -9967,7 +10057,7 @@ SCM_PRIMITIVE_GENERIC (scm_exp, "exp", 1, 0, 0,
     {
       /* When z is a negative bignum the conversion to double overflows,
          giving -infinity, but that's ok, the exp is still 0.0.  */
-      return scm_from_double (exp (scm_to_double (z)));
+      return scm_i_from_double (exp (scm_to_double (z)));
     }
   else
     return scm_wta_dispatch_1 (g_scm_exp, z, 1, s_scm_exp);
@@ -10126,7 +10216,7 @@ SCM_PRIMITIVE_GENERIC (scm_sqrt, "sqrt", 1, 0, 0,
                   if (root == floor (root))
                     return SCM_I_MAKINUM ((scm_t_inum) root);
                   else
-                    return scm_from_double (root);
+                    return scm_i_from_double (root);
                 }
               else
                 {
@@ -10170,7 +10260,7 @@ SCM_PRIMITIVE_GENERIC (scm_sqrt, "sqrt", 1, 0, 0,
                 return scm_c_make_rectangular
                   (0.0, ldexp (sqrt (-signif), expon / 2));
               else
-                return scm_from_double (ldexp (sqrt (signif), expon / 2));
+                return scm_i_from_double (ldexp (sqrt (signif), expon / 2));
             }
         }
       else if (SCM_FRACTIONP (z))
@@ -10203,7 +10293,7 @@ SCM_PRIMITIVE_GENERIC (scm_sqrt, "sqrt", 1, 0, 0,
               if (xx < 0)
                 return scm_c_make_rectangular (0.0, ldexp (sqrt (-xx), shift));
               else
-                return scm_from_double (ldexp (sqrt (xx), shift));
+                return scm_i_from_double (ldexp (sqrt (xx), shift));
             }
         }
 
@@ -10213,7 +10303,7 @@ SCM_PRIMITIVE_GENERIC (scm_sqrt, "sqrt", 1, 0, 0,
         if (xx < 0)
           return scm_c_make_rectangular (0.0, sqrt (-xx));
         else
-          return scm_from_double (sqrt (xx));
+          return scm_i_from_double (sqrt (xx));
       }
     }
   else
@@ -10244,8 +10334,8 @@ scm_init_numbers ()
 
   scm_add_feature ("complex");
   scm_add_feature ("inexact");
-  flo0 = scm_from_double (0.0);
-  flo_log10e = scm_from_double (M_LOG10E);
+  flo0 = scm_i_from_double (0.0);
+  flo_log10e = scm_i_from_double (M_LOG10E);
 
   exactly_one_half = scm_divide (SCM_INUM1, SCM_I_MAKINUM (2));
 

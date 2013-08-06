@@ -219,8 +219,13 @@ VM_DEFINE_FUNCTION (151, ge, "ge?", 2)
  */
 
 /* The maximum/minimum tagged integers.  */
-#define INUM_MAX (INTPTR_MAX - 1)
-#define INUM_MIN (INTPTR_MIN + scm_tc2_int)
+#define INUM_MAX  \
+  ((scm_t_signed_bits) SCM_UNPACK (SCM_I_MAKINUM (SCM_MOST_POSITIVE_FIXNUM)))
+#define INUM_MIN  \
+  ((scm_t_signed_bits) SCM_UNPACK (SCM_I_MAKINUM (SCM_MOST_NEGATIVE_FIXNUM)))
+#define INUM_STEP                                \
+  ((scm_t_signed_bits) SCM_UNPACK (SCM_INUM1)    \
+   - (scm_t_signed_bits) SCM_UNPACK (SCM_INUM0))
 
 #define FUNC2(CFUNC,SFUNC)				\
 {							\
@@ -238,28 +243,36 @@ VM_DEFINE_FUNCTION (151, ge, "ge?", 2)
 /* Assembly tagged integer arithmetic routines.  This code uses the
    `asm goto' feature introduced in GCC 4.5.  */
 
-#if defined __x86_64__ && SCM_GNUC_PREREQ (4, 5)
+#if SCM_GNUC_PREREQ (4, 5) && (defined __x86_64__ || defined __i386__)
+
+# undef _CX
+# ifdef __x86_64__
+#  define _CX "rcx"
+# else
+#  define _CX "ecx"
+# endif
 
 /* The macros below check the CPU's overflow flag to improve fixnum
-   arithmetic.  The %rcx register is explicitly clobbered because `asm
-   goto' can't have outputs, in which case the `r' constraint could be
-   used to let the register allocator choose a register.
+   arithmetic.  The _CX register (%rcx or %ecx) is explicitly
+   clobbered because `asm goto' can't have outputs, in which case the
+   `r' constraint could be used to let the register allocator choose a
+   register.
 
    TODO: Use `cold' label attribute in GCC 4.6.
    http://gcc.gnu.org/ml/gcc-patches/2010-10/msg01777.html  */
 
 # define ASM_ADD(x, y)							\
     {									\
-      asm volatile goto ("mov %1, %%rcx; "				\
-			 "test %[tag], %%cl; je %l[slow_add]; "		\
-			 "test %[tag], %0;   je %l[slow_add]; "		\
-			 "add %0, %%rcx;     jo %l[slow_add]; "		\
-			 "sub %[tag], %%rcx; "				\
-			 "mov %%rcx, (%[vsp])\n"			\
+      asm volatile goto ("mov %1, %%"_CX"; "				\
+			 "test %[tag], %%cl;   je %l[slow_add]; "	\
+			 "test %[tag], %0;     je %l[slow_add]; "	\
+			 "sub %[tag], %%"_CX"; "			\
+			 "add %0, %%"_CX";     jo %l[slow_add]; "	\
+			 "mov %%"_CX", (%[vsp])\n"			\
 			 : /* no outputs */				\
 			 : "r" (x), "r" (y),				\
 			   [vsp] "r" (sp), [tag] "i" (scm_tc2_int)	\
-			 : "rcx", "memory"				\
+			 : _CX, "memory", "cc"                          \
 			 : slow_add);					\
       NEXT;								\
     }									\
@@ -268,24 +281,106 @@ VM_DEFINE_FUNCTION (151, ge, "ge?", 2)
 
 # define ASM_SUB(x, y)							\
     {									\
-      asm volatile goto ("mov %0, %%rcx; "				\
-			 "test %[tag], %%cl; je %l[slow_sub]; "		\
-			 "test %[tag], %1;   je %l[slow_sub]; "		\
-			 "sub %1, %%rcx;     jo %l[slow_sub]; "		\
-			 "add %[tag], %%rcx; "				\
-			 "mov %%rcx, (%[vsp])\n"			\
+      asm volatile goto ("mov %0, %%"_CX"; "				\
+			 "test %[tag], %%cl;   je %l[slow_sub]; "	\
+			 "test %[tag], %1;     je %l[slow_sub]; "	\
+			 "sub %1, %%"_CX";     jo %l[slow_sub]; "	\
+			 "add %[tag], %%"_CX"; "			\
+			 "mov %%"_CX", (%[vsp])\n"			\
 			 : /* no outputs */				\
 			 : "r" (x), "r" (y),				\
 			   [vsp] "r" (sp), [tag] "i" (scm_tc2_int)	\
-			 : "rcx", "memory"				\
+			 : _CX, "memory", "cc"                          \
 			 : slow_sub);					\
       NEXT;								\
     }									\
   slow_sub:								\
     do { } while (0)
 
+# define ASM_MUL(x, y)							\
+    {									\
+      scm_t_signed_bits xx = SCM_I_INUM (x);				\
+      asm volatile goto ("mov %1, %%"_CX"; "				\
+			 "test %[tag], %%cl;   je %l[slow_mul]; "	\
+			 "sub %[tag], %%"_CX"; "			\
+			 "test %[tag], %0;     je %l[slow_mul]; "	\
+			 "imul %2, %%"_CX";    jo %l[slow_mul]; "	\
+			 "add %[tag], %%"_CX"; "			\
+			 "mov %%"_CX", (%[vsp])\n"			\
+			 : /* no outputs */				\
+			 : "r" (x), "r" (y), "r" (xx),			\
+			   [vsp] "r" (sp), [tag] "i" (scm_tc2_int)	\
+			 : _CX, "memory", "cc"				\
+			 : slow_mul);					\
+      NEXT;								\
+    }									\
+  slow_mul:								\
+    do { } while (0)
+
 #endif
 
+#if SCM_GNUC_PREREQ (4, 5) && defined __arm__
+
+# define ASM_ADD(x, y)							\
+    if (SCM_LIKELY (SCM_I_INUMP (x) && SCM_I_INUMP (y)))		\
+      {									\
+	asm volatile goto ("adds r0, %0, %1; bvs %l[slow_add]; "	\
+			   "str r0, [%[vsp]]\n"				\
+			   : /* no outputs */				\
+			   : "r" (x), "r" (y - scm_tc2_int),		\
+			     [vsp] "r" (sp)				\
+			   : "r0", "memory", "cc"			\
+			   : slow_add);					\
+	NEXT;								\
+      }									\
+  slow_add:								\
+    do { } while (0)
+
+# define ASM_SUB(x, y)							\
+    if (SCM_LIKELY (SCM_I_INUMP (x) && SCM_I_INUMP (y)))		\
+      {									\
+	asm volatile goto ("subs r0, %0, %1; bvs %l[slow_sub]; "	\
+			   "str r0, [%[vsp]]\n"				\
+			   : /* no outputs */				\
+			   : "r" (x), "r" (y - scm_tc2_int),		\
+			     [vsp] "r" (sp)				\
+			   : "r0", "memory", "cc"			\
+			   : slow_sub);					\
+	NEXT;								\
+      }									\
+  slow_sub:								\
+    do { } while (0)
+
+# if defined (__ARM_ARCH_3M__)  || defined (__ARM_ARCH_4__)		\
+  || defined (__ARM_ARCH_4T__)  || defined (__ARM_ARCH_5__)		\
+  || defined (__ARM_ARCH_5T__)  || defined (__ARM_ARCH_5E__)		\
+  || defined (__ARM_ARCH_5TE__) || defined (__ARM_ARCH_5TEJ__)		\
+  || defined (__ARM_ARCH_6__)   || defined (__ARM_ARCH_6J__)		\
+  || defined (__ARM_ARCH_6K__)  || defined (__ARM_ARCH_6Z__)		\
+  || defined (__ARM_ARCH_6ZK__) || defined (__ARM_ARCH_6T2__)		\
+  || defined (__ARM_ARCH_6M__)  || defined (__ARM_ARCH_7__)		\
+  || defined (__ARM_ARCH_7A__)  || defined (__ARM_ARCH_7R__)		\
+  || defined (__ARM_ARCH_7M__)  || defined (__ARM_ARCH_7EM__)		\
+  || defined (__ARM_ARCH_8A__)
+
+/* The ARM architectures listed above support the SMULL instruction */
+
+#  define ASM_MUL(x, y)							\
+    if (SCM_LIKELY (SCM_I_INUMP (x) && SCM_I_INUMP (y)))		\
+      {									\
+	scm_t_signed_bits rlo, rhi;					\
+	asm ("smull %0, %1, %2, %3\n"					\
+	     : "=r" (rlo), "=r" (rhi)					\
+	     : "r" (SCM_UNPACK (x) - scm_tc2_int),			\
+	       "r" (SCM_I_INUM (y)));					\
+	if (SCM_LIKELY (SCM_SRS (rlo, 31) == rhi))			\
+	  RETURN (SCM_PACK (rlo + scm_tc2_int));			\
+      }									\
+    do { } while (0)
+
+# endif
+
+#endif
 
 VM_DEFINE_FUNCTION (152, add, "add", 2)
 {
@@ -303,15 +398,14 @@ VM_DEFINE_FUNCTION (153, add1, "add1", 1)
 {
   ARGS1 (x);
 
-  /* Check for overflow.  */
-  if (SCM_LIKELY ((scm_t_intptr) SCM_UNPACK (x) < INUM_MAX))
+  /* Check for overflow.  We must avoid overflow in the signed
+     addition below, even if X is not an inum.  */
+  if (SCM_LIKELY ((scm_t_signed_bits) SCM_UNPACK (x) <= INUM_MAX - INUM_STEP))
     {
       SCM result;
 
-      /* Add the integers without untagging.  */
-      result = SCM_PACK ((scm_t_intptr) SCM_UNPACK (x)
-			 + (scm_t_intptr) SCM_UNPACK (SCM_I_MAKINUM (1))
-			 - scm_tc2_int);
+      /* Add 1 to the integer without untagging.  */
+      result = SCM_PACK ((scm_t_signed_bits) SCM_UNPACK (x) + INUM_STEP);
 
       if (SCM_LIKELY (SCM_I_INUMP (result)))
 	RETURN (result);
@@ -337,15 +431,14 @@ VM_DEFINE_FUNCTION (155, sub1, "sub1", 1)
 {
   ARGS1 (x);
 
-  /* Check for underflow.  */
-  if (SCM_LIKELY ((scm_t_intptr) SCM_UNPACK (x) > INUM_MIN))
+  /* Check for overflow.  We must avoid overflow in the signed
+     subtraction below, even if X is not an inum.  */
+  if (SCM_LIKELY ((scm_t_signed_bits) SCM_UNPACK (x) >= INUM_MIN + INUM_STEP))
     {
       SCM result;
 
-      /* Substract the integers without untagging.  */
-      result = SCM_PACK ((scm_t_intptr) SCM_UNPACK (x)
-			 - (scm_t_intptr) SCM_UNPACK (SCM_I_MAKINUM (1))
-			 + scm_tc2_int);
+      /* Substract 1 from the integer without untagging.  */
+      result = SCM_PACK ((scm_t_signed_bits) SCM_UNPACK (x) - INUM_STEP);
 
       if (SCM_LIKELY (SCM_I_INUMP (result)))
 	RETURN (result);
@@ -355,18 +448,23 @@ VM_DEFINE_FUNCTION (155, sub1, "sub1", 1)
   RETURN (scm_difference (x, SCM_I_MAKINUM (1)));
 }
 
-#undef ASM_ADD
-#undef ASM_SUB
-#undef FUNC2
-#undef INUM_MAX
-#undef INUM_MIN
-
 VM_DEFINE_FUNCTION (156, mul, "mul", 2)
 {
   ARGS2 (x, y);
+#ifdef ASM_MUL
+  ASM_MUL (x, y);
+#endif
   SYNC_REGISTER ();
   RETURN (scm_product (x, y));
 }
+
+#undef ASM_ADD
+#undef ASM_SUB
+#undef ASM_MUL
+#undef FUNC2
+#undef INUM_MAX
+#undef INUM_MIN
+#undef INUM_STEP
 
 VM_DEFINE_FUNCTION (157, div, "div", 2)
 {
@@ -402,12 +500,11 @@ VM_DEFINE_FUNCTION (161, ash, "ash", 2)
   if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
     {
       if (SCM_I_INUM (y) < 0)
-        {
-          /* Right shift, will be a fixnum. */
-          if (SCM_I_INUM (y) > -SCM_I_FIXNUM_BIT)
-            RETURN (SCM_I_MAKINUM (SCM_I_INUM (x) >> -SCM_I_INUM (y)));
-          /* fall through */
-        }
+        /* Right shift, will be a fixnum. */
+        RETURN (SCM_I_MAKINUM
+                (SCM_SRS (SCM_I_INUM (x),
+                          (-SCM_I_INUM (y) <= SCM_I_FIXNUM_BIT-1)
+                          ? -SCM_I_INUM (y) : SCM_I_FIXNUM_BIT-1)));
       else
         /* Left shift. See comments in scm_ash. */
         {
@@ -433,7 +530,8 @@ VM_DEFINE_FUNCTION (162, logand, "logand", 2)
 {
   ARGS2 (x, y);
   if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
-    RETURN (SCM_I_MAKINUM (SCM_I_INUM (x) & SCM_I_INUM (y)));
+    /* Compute bitwise AND without untagging */
+    RETURN (SCM_PACK (SCM_UNPACK (x) & SCM_UNPACK (y)));
   SYNC_REGISTER ();
   RETURN (scm_logand (x, y));
 }
@@ -442,7 +540,8 @@ VM_DEFINE_FUNCTION (163, logior, "logior", 2)
 {
   ARGS2 (x, y);
   if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
-    RETURN (SCM_I_MAKINUM (SCM_I_INUM (x) | SCM_I_INUM (y)));
+    /* Compute bitwise OR without untagging */
+    RETURN (SCM_PACK (SCM_UNPACK (x) | SCM_UNPACK (y)));
   SYNC_REGISTER ();
   RETURN (scm_logior (x, y));
 }
