@@ -428,18 +428,15 @@
 
 ;;;; Turn a test name into a nice human-readable string.
 (define (format-test-name name)
-  ;; Choose a Unicode-capable encoding so that the string port can contain any
-  ;; valid Unicode character.
-  (with-fluids ((%default-port-encoding "UTF-8"))
-    (call-with-output-string
-     (lambda (port)
-       (let loop ((name name)
-                  (separator ""))
-         (if (pair? name)
-             (begin
-               (display separator port)
-               (display (car name) port)
-               (loop (cdr name) ": "))))))))
+  (call-with-output-string
+   (lambda (port)
+     (let loop ((name name)
+                (separator ""))
+       (if (pair? name)
+           (begin
+             (display separator port)
+             (display (car name) port)
+             (loop (cdr name) ": ")))))))
 
 ;;;; For a given test-name, deliver the full name including all prefixes.
 (define (full-name name)

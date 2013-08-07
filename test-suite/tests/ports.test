@@ -698,32 +698,15 @@
     (pass-if "output check"
 	     (string=? text result)))
 
-  (pass-if "encoding failure leads to exception"
-    ;; Prior to 2.0.6, this would trigger a deadlock in `scm_mkstrport'.
-    ;; See the discussion at <http://bugs.gnu.org/11197>, for details.
-    (catch 'encoding-error
-      (lambda ()
-        (with-fluids ((%default-port-encoding "ISO-8859-1"))
-          (let ((p (open-input-string "λ")))      ; raise an exception
-            #f)))
-      (lambda (key . rest)
-        #t)
-      (lambda (key . rest)
-        ;; At this point, the port-table mutex used to be still held,
-        ;; hence the deadlock.  This situation would occur when trying
-        ;; to print a backtrace, for instance.
-        (input-port? (open-input-string "foo")))))
-
-  (pass-if "%default-port-encoding is honored"
-    (let ((encodings '("UTF-8" "UTF-16" "ISO-8859-1" "ISO-8859-3")))
-      (equal? (map (lambda (e)
-                     (with-fluids ((%default-port-encoding e))
-                       (call-with-output-string
-                         (lambda (p)
-                           (and (string=? e (port-encoding p))
-                                (display (port-encoding p) p))))))
-                   encodings)
-              encodings)))
+  (pass-if "%default-port-encoding is ignored"
+    (let ((str "ĉu bone?"))
+      ;; Latin-1 cannot represent ‘ĉ’.
+      (with-fluids ((%default-port-encoding "ISO-8859-1"))
+        (string=? (call-with-output-string
+                   (lambda (p)
+                     (set-port-conversion-strategy! p 'substitute)
+                     (display str p)))
+                  "ĉu bone?"))))
 
   (pass-if "%default-port-conversion-strategy is honored"
     (let ((strategies '(error substitute escape)))
@@ -740,77 +723,58 @@
               (map symbol->string strategies))))
 
   (pass-if "suitable encoding [latin-1]"
-    (let ((str "hello, world"))
-      (with-fluids ((%default-port-encoding "ISO-8859-1"))
-        (equal? str
-                (with-output-to-string
-                  (lambda ()
-                    (display str)))))))
+    (let ((str "hello, world")
+          (encoding "ISO-8859-1"))
+      (equal? str
+              (call-with-output-string
+               (lambda (p)
+                 (set-port-encoding! p encoding)
+                 (display str p))))))
 
   (pass-if "suitable encoding [latin-3]"
-    (let ((str "ĉu bone?"))
-      (with-fluids ((%default-port-encoding "ISO-8859-3"))
-        (equal? str
-                (with-output-to-string
-                  (lambda ()
-                    (display str)))))))
+    (let ((str "ĉu bone?")
+          (encoding "ISO-8859-3"))
+      (equal? str
+              (call-with-output-string
+               (lambda (p)
+                 (set-port-encoding! p encoding)
+                 (display str p))))))
 
   (pass-if "wrong encoding, error"
     (let ((str "ĉu bone?"))
       (catch 'encoding-error
         (lambda ()
-          ;; Latin-1 cannot represent ‘ĉ’.
-          (with-fluids ((%default-port-encoding "ISO-8859-1")
-                        (%default-port-conversion-strategy 'error))
-            (with-output-to-string
-              (lambda ()
-                (display str))))
-          #f)                            ; so the test really fails here
+          (with-fluids ((%default-port-conversion-strategy 'error))
+            (call-with-output-string
+             (lambda (p)
+               ;; Latin-1 cannot represent ‘ĉ’.
+               (set-port-encoding! p "ISO-8859-1")
+               (display str p))))
+          #f)                           ; so the test really fails here
         (lambda (key subr message errno port chr)
           (and (eqv? chr #\ĉ)
                (string? (strerror errno)))))))
 
   (pass-if "wrong encoding, substitute"
     (let ((str "ĉu bone?"))
-      (with-fluids ((%default-port-encoding "ISO-8859-1"))
-        (string=? (with-output-to-string
-                    (lambda ()
-                      (set-port-conversion-strategy! (current-output-port)
-                                                     'substitute)
-                      (display str)))
-                  "?u bone?"))))
+      (string=? (call-with-output-string
+                 (lambda (p)
+                   (set-port-encoding! p "ISO-8859-1")
+                   (set-port-conversion-strategy! p 'substitute)
+                   (display str p)))
+                "?u bone?")))
 
   (pass-if "wrong encoding, escape"
     (let ((str "ĉu bone?"))
-      (with-fluids ((%default-port-encoding "ISO-8859-1"))
-        (string=? (with-output-to-string
-                    (lambda ()
-                      (set-port-conversion-strategy! (current-output-port)
-                                                     'escape)
-                      (display str)))
-                  "\\u0109u bone?"))))
+      (string=? (call-with-output-string
+                 (lambda (p)
+                   (set-port-encoding! p "ISO-8859-1")
+                   (set-port-conversion-strategy! p 'escape)
+                   (display str p)))
+                "\\u0109u bone?")))
 
-  (pass-if "peek-char [latin-1]"
-    (let ((p (with-fluids ((%default-port-encoding #f))
-               (open-input-string "hello, world"))))
-      (and (char=? (peek-char p) #\h)
-           (char=? (peek-char p) #\h)
-           (char=? (peek-char p) #\h)
-           (= (port-line p) 0)
-           (= (port-column p) 0))))
-
-  (pass-if "peek-char [utf-8]"
-    (let ((p (with-fluids ((%default-port-encoding "UTF-8"))
-               (open-input-string "안녕하세요"))))
-      (and (char=? (peek-char p) #\안)
-           (char=? (peek-char p) #\안)
-           (char=? (peek-char p) #\안)
-           (= (port-line p) 0)
-           (= (port-column p) 0))))
-
-  (pass-if "peek-char [utf-16]"
-    (let ((p (with-fluids ((%default-port-encoding "UTF-16BE"))
-               (open-input-string "안녕하세요"))))
+  (pass-if "peek-char"
+    (let ((p (open-input-string "안녕하세요")))
       (and (char=? (peek-char p) #\안)
            (char=? (peek-char p) #\안)
            (char=? (peek-char p) #\안)
@@ -1207,10 +1171,15 @@
       (set-port-encoding! p "does-not-exist")
       (read p)))
 
-  (pass-if-exception "%default-port-encoding, wrong encoding"
-    exception:miscellaneous-error
-    (read (with-fluids ((%default-port-encoding "does-not-exist"))
-            (open-input-string "")))))
+  (let ((filename (test-file)))
+    (with-output-to-file filename (lambda () (write 'test)))
+
+    (pass-if-exception "%default-port-encoding, wrong encoding"
+        exception:miscellaneous-error
+      (read (with-fluids ((%default-port-encoding "does-not-exist"))
+              (open-input-file filename))))
+
+    (delete-file filename)))
 
 ;;;
 ;;; port-for-each

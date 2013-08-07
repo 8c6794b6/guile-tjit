@@ -4196,9 +4196,7 @@ when none is available, reading FILE-NAME with READER."
     r5rs
     srfi-0   ;; cond-expand itself
     srfi-4   ;; homogeneous numeric vectors
-    ;; We omit srfi-6 because the 'open-input-string' etc in Guile
-    ;; core are not conformant with SRFI-6; they expose details
-    ;; of the binary I/O model and may fail to support some characters.
+    srfi-6   ;; string ports
     srfi-13  ;; string library
     srfi-14  ;; character sets
     srfi-23  ;; `error` procedure

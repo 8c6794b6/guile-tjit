@@ -1,5 +1,5 @@
 ;;;; "format.scm" Common LISP text output formatter for SLIB
-;;; 	Copyright (C) 2010, 2011, 2012 Free Software Foundation, Inc.
+;;; 	Copyright (C) 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -42,10 +42,7 @@
 
   (let* ((port
           (cond
-           ((not destination)
-            ;; Use a Unicode-capable output string port.
-            (with-fluids ((%default-port-encoding "UTF-8"))
-              (open-output-string)))
+           ((not destination) (open-output-string))
            ((boolean? destination) (current-output-port)) ; boolean but not false
            ((output-port? destination) destination)
            ((number? destination)

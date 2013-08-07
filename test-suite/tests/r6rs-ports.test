@@ -1,6 +1,6 @@
 ;;;; r6rs-ports.test --- R6RS I/O port tests.   -*- coding: utf-8; -*-
 ;;;;
-;;;; Copyright (C) 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;;;; Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 ;;;; Ludovic Courtès
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -98,8 +98,7 @@
            (eof-object? (get-u8 port)))))
 
   (pass-if "lookahead-u8 non-ASCII"
-    (let ((port (with-fluids ((%default-port-encoding "UTF-8"))
-                  (open-input-string "λ"))))
+    (let ((port (open-input-string "λ")))
       (and (= 206 (lookahead-u8 port))
            (= 206 (lookahead-u8 port))
            (= 206 (get-u8 port))
@@ -272,21 +271,21 @@
     (let* ((str "hello, world")
            (bv  (string->utf16 str)))
       (equal? str
-              (with-fluids ((%default-port-encoding "UTF-16BE"))
-                (call-with-output-string
-                  (lambda (port)
-                    (put-bytevector port bv)))))))
+              (call-with-output-string
+               (lambda (port)
+                 (set-port-encoding! port "UTF-16BE")
+                 (put-bytevector port bv))))))
 
   (pass-if "put-bytevector with wrong-encoding string port"
     (let* ((str "hello, world")
            (bv  (string->utf16 str)))
       (catch 'decoding-error
         (lambda ()
-          (with-fluids ((%default-port-encoding "UTF-32")
-                        (%default-port-conversion-strategy 'error))
+          (with-fluids ((%default-port-conversion-strategy 'error))
             (call-with-output-string
-              (lambda (port)
-                (put-bytevector port bv)))
+             (lambda (port)
+               (set-port-encoding! port "UTF-32")
+               (put-bytevector port bv)))
             #f))                           ; fail if we reach this point
         (lambda (key subr message errno port)
           (string? (strerror errno)))))))

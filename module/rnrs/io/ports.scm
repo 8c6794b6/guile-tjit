@@ -303,8 +303,7 @@ read from/written to in @var{port}."
 
 (define (open-string-input-port str)
   "Open an input port that will read from @var{str}."
-  (with-fluids ((%default-port-encoding "UTF-8"))
-    (open-input-string str)))
+  (open-input-string str))
 
 (define (r6rs-open filename mode buffer-mode transcoder)
   (let ((port (with-i/o-filename-conditions filename
@@ -349,8 +348,7 @@ read from/written to in @var{port}."
 (define (open-string-output-port)
   "Return two values: an output port that will collect characters written to it
 as a string, and a thunk to retrieve the characters associated with that port."
-  (let ((port (with-fluids ((%default-port-encoding "UTF-8"))
-                (open-output-string))))
+  (let ((port (open-output-string)))
     (values port
             (lambda () (get-output-string port)))))
 

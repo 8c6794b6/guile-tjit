@@ -23,11 +23,9 @@
 
 
 (define (eread str)
-  (with-fluids ((%default-port-encoding "utf-8"))
-    (call-with-input-string str read-ecmascript)))
+  (call-with-input-string str read-ecmascript))
 (define (eread/1 str)
-  (with-fluids ((%default-port-encoding "utf-8"))
-    (call-with-input-string str read-ecmascript/1)))
+  (call-with-input-string str read-ecmascript/1))
 
 (define-syntax parse
   (syntax-rules ()

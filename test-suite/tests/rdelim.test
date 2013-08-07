@@ -22,227 +22,225 @@
   #:use-module ((rnrs io ports) #:select (open-bytevector-input-port))
   #:use-module (test-suite lib))
 
-(with-fluids ((%default-port-encoding "UTF-8"))
+(with-test-prefix "read-line"
 
-  (with-test-prefix "read-line"
+  (pass-if "one line"
+    (let* ((s "hello, world")
+           (p (open-input-string s)))
+      (and (string=? s (read-line p))
+           (eof-object? (read-line p)))))
 
-    (pass-if "one line"
-      (let* ((s "hello, world")
-             (p (open-input-string s)))
-        (and (string=? s (read-line p))
-             (eof-object? (read-line p)))))
+  (pass-if "two lines, trim"
+    (let* ((s "foo\nbar\n")
+           (p (open-input-string s)))
+      (and (equal? (string-tokenize s)
+                   (list (read-line p) (read-line p)))
+           (eof-object? (read-line p)))))
 
-    (pass-if "two lines, trim"
-      (let* ((s "foo\nbar\n")
-             (p (open-input-string s)))
-        (and (equal? (string-tokenize s)
-                     (list (read-line p) (read-line p)))
-             (eof-object? (read-line p)))))
+  (pass-if "two lines, concat"
+    (let* ((s "foo\nbar\n")
+           (p (open-input-string s)))
+      (and (equal? '("foo\n" "bar\n")
+                   (list (read-line p 'concat)
+                         (read-line p 'concat)))
+           (eof-object? (read-line p)))))
 
-    (pass-if "two lines, concat"
-      (let* ((s "foo\nbar\n")
-             (p (open-input-string s)))
-        (and (equal? '("foo\n" "bar\n")
-                     (list (read-line p 'concat)
-                           (read-line p 'concat)))
-             (eof-object? (read-line p)))))
+  (pass-if "two lines, peek"
+    (let* ((s "foo\nbar\n")
+           (p (open-input-string s)))
+      (and (equal? '("foo" #\newline "bar" #\newline)
+                   (list (read-line p 'peek) (read-char p)
+                         (read-line p 'peek) (read-char p)))
+           (eof-object? (read-line p)))))
 
-    (pass-if "two lines, peek"
-      (let* ((s "foo\nbar\n")
-             (p (open-input-string s)))
-        (and (equal? '("foo" #\newline "bar" #\newline)
-                     (list (read-line p 'peek) (read-char p)
-                           (read-line p 'peek) (read-char p)))
-             (eof-object? (read-line p)))))
+  (pass-if "two lines, split"
+    (let* ((s "foo\nbar\n")
+           (p (open-input-string s)))
+      (and (equal? '(("foo" . #\newline)
+                     ("bar" . #\newline))
+                   (list (read-line p 'split)
+                         (read-line p 'split)))
+           (eof-object? (read-line p)))))
 
-    (pass-if "two lines, split"
-      (let* ((s "foo\nbar\n")
-             (p (open-input-string s)))
-        (and (equal? '(("foo" . #\newline)
-                       ("bar" . #\newline))
-                     (list (read-line p 'split)
-                           (read-line p 'split)))
-             (eof-object? (read-line p)))))
+  (pass-if "two Greek lines, trim"
+    (let* ((s "λαμβδα\nμυ\n")
+           (p (open-input-string s)))
+      (and (equal? (string-tokenize s)
+                   (list (read-line p) (read-line p)))
+           (eof-object? (read-line p)))))
 
-    (pass-if "two Greek lines, trim"
-      (let* ((s "λαμβδα\nμυ\n")
-             (p (open-input-string s)))
-        (and (equal? (string-tokenize s)
-                     (list (read-line p) (read-line p)))
-             (eof-object? (read-line p)))))
+  (pass-if "decoding error"
+    (let ((p (open-bytevector-input-port #vu8(65 255 66 67 68))))
+      (set-port-encoding! p "UTF-8")
+      (set-port-conversion-strategy! p 'error)
+      (catch 'decoding-error
+        (lambda ()
+          (read-line p)
+          #f)
+        (lambda (key subr message err port)
+          (and (eq? port p)
 
-    (pass-if "decoding error"
-      (let ((p (open-bytevector-input-port #vu8(65 255 66 67 68))))
-        (set-port-encoding! p "UTF-8")
-        (set-port-conversion-strategy! p 'error)
-        (catch 'decoding-error
-          (lambda ()
-            (read-line p)
-            #f)
-          (lambda (key subr message err port)
-            (and (eq? port p)
+               ;; PORT should now point past the error.
+               (string=? (read-line p) "BCD")
+               (eof-object? (read-line p)))))))
 
-                 ;; PORT should now point past the error.
-                 (string=? (read-line p) "BCD")
-                 (eof-object? (read-line p)))))))
-
-    (pass-if "decoding error, substitute"
-      (let ((p (open-bytevector-input-port #vu8(65 255 66 67 68))))
-        (set-port-encoding! p "UTF-8")
-        (set-port-conversion-strategy! p 'substitute)
-        (and (string=? (read-line p) "A?BCD")
-             (eof-object? (read-line p))))))
+  (pass-if "decoding error, substitute"
+    (let ((p (open-bytevector-input-port #vu8(65 255 66 67 68))))
+      (set-port-encoding! p "UTF-8")
+      (set-port-conversion-strategy! p 'substitute)
+      (and (string=? (read-line p) "A?BCD")
+           (eof-object? (read-line p))))))
 
 
-  (with-test-prefix "read-delimited"
+(with-test-prefix "read-delimited"
 
-    (pass-if "delimiter hit"
-      (let ((p (open-input-string "hello, world!")))
-        (and (string=? "hello" (read-delimited ",.;" p))
-             (string=? " world!" (read-delimited ",.;" p))
-             (eof-object? (read-delimited ",.;" p)))))
+  (pass-if "delimiter hit"
+    (let ((p (open-input-string "hello, world!")))
+      (and (string=? "hello" (read-delimited ",.;" p))
+           (string=? " world!" (read-delimited ",.;" p))
+           (eof-object? (read-delimited ",.;" p)))))
 
-    (pass-if "delimiter hit, split"
-      (equal? '("hello" . #\,)
-              (read-delimited ",.;"
-                              (open-input-string "hello, world!")
-                              'split)))
+  (pass-if "delimiter hit, split"
+    (equal? '("hello" . #\,)
+            (read-delimited ",.;"
+                            (open-input-string "hello, world!")
+                            'split)))
 
-    (pass-if "delimiter hit, concat"
-      (equal? '"hello,"
-              (read-delimited ",.;" (open-input-string "hello, world!")
-                              'concat)))
+  (pass-if "delimiter hit, concat"
+    (equal? '"hello,"
+            (read-delimited ",.;" (open-input-string "hello, world!")
+                            'concat)))
 
-    (pass-if "delimiter hit, peek"
-      (let ((p (open-input-string "hello, world!")))
-        (and (string=? "hello" (read-delimited ",.;" p 'peek))
-             (char=? #\, (peek-char p)))))
+  (pass-if "delimiter hit, peek"
+    (let ((p (open-input-string "hello, world!")))
+      (and (string=? "hello" (read-delimited ",.;" p 'peek))
+           (char=? #\, (peek-char p)))))
 
-    (pass-if "eof"
-      (eof-object? (read-delimited "}{" (open-input-string "")))))
+  (pass-if "eof"
+    (eof-object? (read-delimited "}{" (open-input-string "")))))
 
 
-  (with-test-prefix "read-delimited!"
+(with-test-prefix "read-delimited!"
 
-    (pass-if "delimiter hit"
-      (let ((s (make-string 123))
-            (p (open-input-string "hello, world!")))
-        (and (= 5 (read-delimited! ",.;" s p))
-             (string=? (substring s 0 5) "hello")
-             (= 7 (read-delimited! ",.;" s p))
-             (string=? (substring s 0 7) " world!")
-             (eof-object? (read-delimited! ",.;" s p)))))
+  (pass-if "delimiter hit"
+    (let ((s (make-string 123))
+          (p (open-input-string "hello, world!")))
+      (and (= 5 (read-delimited! ",.;" s p))
+           (string=? (substring s 0 5) "hello")
+           (= 7 (read-delimited! ",.;" s p))
+           (string=? (substring s 0 7) " world!")
+           (eof-object? (read-delimited! ",.;" s p)))))
 
-    (pass-if "delimiter hit, start+end"
-      (let ((s (make-string 123))
-            (p (open-input-string "hello, world!")))
-        (and (= 5 (read-delimited! ",.;" s p 'trim 10 30))
-             (string=? (substring s 10 15) "hello"))))
+  (pass-if "delimiter hit, start+end"
+    (let ((s (make-string 123))
+          (p (open-input-string "hello, world!")))
+      (and (= 5 (read-delimited! ",.;" s p 'trim 10 30))
+           (string=? (substring s 10 15) "hello"))))
 
-    (pass-if "delimiter hit, split"
-      (let ((s (make-string 123)))
-        (and (equal? '(5 . #\,)
-                     (read-delimited! ",.;" s
-                                      (open-input-string "hello, world!")
-                                      'split))
-             (string=? (substring s 0 5) "hello"))))
+  (pass-if "delimiter hit, split"
+    (let ((s (make-string 123)))
+      (and (equal? '(5 . #\,)
+                   (read-delimited! ",.;" s
+                                    (open-input-string "hello, world!")
+                                    'split))
+           (string=? (substring s 0 5) "hello"))))
 
-    (pass-if "delimiter hit, concat"
-      (let ((s (make-string 123)))
-        (and (= 6 (read-delimited! ",.;" s
-                                   (open-input-string "hello, world!")
-                                   'concat))
-             (string=? (substring s 0 6) "hello,"))))
+  (pass-if "delimiter hit, concat"
+    (let ((s (make-string 123)))
+      (and (= 6 (read-delimited! ",.;" s
+                                 (open-input-string "hello, world!")
+                                 'concat))
+           (string=? (substring s 0 6) "hello,"))))
 
-    (pass-if "delimiter hit, peek"
-      (let ((s (make-string 123))
-            (p (open-input-string "hello, world!")))
-        (and (= 5 (read-delimited! ",.;" s p 'peek))
-             (string=? (substring s 0 5) "hello")
-             (char=? #\, (peek-char p)))))
+  (pass-if "delimiter hit, peek"
+    (let ((s (make-string 123))
+          (p (open-input-string "hello, world!")))
+      (and (= 5 (read-delimited! ",.;" s p 'peek))
+           (string=? (substring s 0 5) "hello")
+           (char=? #\, (peek-char p)))))
 
-    (pass-if "string too small"
-      (let ((s (make-string 7)))
-        (and (= 7 (read-delimited! "}{" s
-                                   (open-input-string "hello, world!")))
-             (string=? s "hello, "))))
+  (pass-if "string too small"
+    (let ((s (make-string 7)))
+      (and (= 7 (read-delimited! "}{" s
+                                 (open-input-string "hello, world!")))
+           (string=? s "hello, "))))
 
-    (pass-if "string too small, start+end"
-      (let ((s (make-string 123)))
-        (and (= 7 (read-delimited! "}{" s
-                                   (open-input-string "hello, world!")
-                                   'trim
-                                   70 77))
-             (string=? (substring s 70 77) "hello, "))))
+  (pass-if "string too small, start+end"
+    (let ((s (make-string 123)))
+      (and (= 7 (read-delimited! "}{" s
+                                 (open-input-string "hello, world!")
+                                 'trim
+                                 70 77))
+           (string=? (substring s 70 77) "hello, "))))
 
-    (pass-if "string too small, split"
-      (let ((s (make-string 7)))
-        (and (equal? '(7 . #f)
-                     (read-delimited! "}{" s
-                                      (open-input-string "hello, world!")
-                                      'split))
-             (string=? s "hello, "))))
+  (pass-if "string too small, split"
+    (let ((s (make-string 7)))
+      (and (equal? '(7 . #f)
+                   (read-delimited! "}{" s
+                                    (open-input-string "hello, world!")
+                                    'split))
+           (string=? s "hello, "))))
 
-    (pass-if "eof"
-      (eof-object? (read-delimited! ":" (make-string 7)
-                                    (open-input-string ""))))
+  (pass-if "eof"
+    (eof-object? (read-delimited! ":" (make-string 7)
+                                  (open-input-string ""))))
 
-    (pass-if "eof, split"
-      (eof-object? (read-delimited! ":" (make-string 7)
-                                    (open-input-string "")))))
+  (pass-if "eof, split"
+    (eof-object? (read-delimited! ":" (make-string 7)
+                                  (open-input-string "")))))
 
-  (with-test-prefix "read-string"
+(with-test-prefix "read-string"
 
-    (pass-if "short string"
-      (let* ((s "hello, world!")
-             (p (open-input-string s)))
-        (and (string=? (read-string p) s)
-             (string=? (read-string p) ""))))
+  (pass-if "short string"
+    (let* ((s "hello, world!")
+           (p (open-input-string s)))
+      (and (string=? (read-string p) s)
+           (string=? (read-string p) ""))))
 
-    (pass-if "100 chars"
-      (let* ((s (make-string 100 #\space))
-             (p (open-input-string s)))
-        (and (string=? (read-string p) s)
-             (string=? (read-string p) ""))))
+  (pass-if "100 chars"
+    (let* ((s (make-string 100 #\space))
+           (p (open-input-string s)))
+      (and (string=? (read-string p) s)
+           (string=? (read-string p) ""))))
 
-    (pass-if "longer than 100 chars"
-      (let* ((s (string-concatenate (make-list 20 "hello, world!")))
-             (p (open-input-string s)))
-        (and (string=? (read-string p) s)
-             (string=? (read-string p) "")))))
+  (pass-if "longer than 100 chars"
+    (let* ((s (string-concatenate (make-list 20 "hello, world!")))
+           (p (open-input-string s)))
+      (and (string=? (read-string p) s)
+           (string=? (read-string p) "")))))
 
-  (with-test-prefix "read-string!"
+(with-test-prefix "read-string!"
 
-    (pass-if "buf smaller"
-      (let* ((s "hello, world!")
-             (len (1- (string-length s)))
-             (buf (make-string len #\.))
-             (p (open-input-string s)))
-        (and (= (read-string! buf p) len)
-             (string=? buf (substring s 0 len))
-             (= (read-string! buf p) 1)
-             (string=? (substring buf 0 1) (substring s len)))))
+  (pass-if "buf smaller"
+    (let* ((s "hello, world!")
+           (len (1- (string-length s)))
+           (buf (make-string len #\.))
+           (p (open-input-string s)))
+      (and (= (read-string! buf p) len)
+           (string=? buf (substring s 0 len))
+           (= (read-string! buf p) 1)
+           (string=? (substring buf 0 1) (substring s len)))))
 
-    (pass-if "buf right size"
-      (let* ((s "hello, world!")
-             (len (string-length s))
-             (buf (make-string len #\.))
-             (p (open-input-string s)))
-        (and (= (read-string! buf p) len)
-             (string=? buf (substring s 0 len))
-             (= (read-string! buf p) 0)
-             (string=? buf (substring s 0 len)))))
+  (pass-if "buf right size"
+    (let* ((s "hello, world!")
+           (len (string-length s))
+           (buf (make-string len #\.))
+           (p (open-input-string s)))
+      (and (= (read-string! buf p) len)
+           (string=? buf (substring s 0 len))
+           (= (read-string! buf p) 0)
+           (string=? buf (substring s 0 len)))))
 
-    (pass-if "buf bigger"
-      (let* ((s "hello, world!")
-             (len (string-length s))
-             (buf (make-string (1+ len) #\.))
-             (p (open-input-string s)))
-        (and (= (read-string! buf p) len)
-             (string=? (substring buf 0 len) s)
-             (= (read-string! buf p) 0)
-             (string=? (substring buf 0 len) s)
-             (string=? (substring buf len) "."))))))
+  (pass-if "buf bigger"
+    (let* ((s "hello, world!")
+           (len (string-length s))
+           (buf (make-string (1+ len) #\.))
+           (p (open-input-string s)))
+      (and (= (read-string! buf p) len)
+           (string=? (substring buf 0 len) s)
+           (= (read-string! buf p) 0)
+           (string=? (substring buf 0 len) s)
+           (string=? (substring buf len) ".")))))
 
 ;;; Local Variables:
 ;;; eval: (put 'with-test-prefix 'scheme-indent-function 1)

@@ -1,6 +1,6 @@
 ;;;; srfi-105.test --- Test suite for Guile's SRFI-105 reader. -*- scheme -*-
 ;;;;
-;;;; Copyright (C) 2012 Free Software Foundation, Inc.
+;;;; Copyright (C) 2012, 2013 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -21,8 +21,7 @@
   #:use-module (srfi srfi-1))
 
 (define (read-string s)
-  (with-fluids ((%default-port-encoding #f))
-    (with-input-from-string s read)))
+  (with-input-from-string s read))
 
 (define (with-read-options opts thunk)
   (let ((saved-options (read-options)))

@@ -146,6 +146,7 @@ guile-2  ;; starting from Guile 2.x
 r5rs
 srfi-0
 srfi-4
+srfi-6
 srfi-13
 srfi-14
 srfi-23
@@ -1851,19 +1852,11 @@ uniform numeric vector, it is returned unchanged.
 @cindex SRFI-6
 
 SRFI-6 defines the procedures @code{open-input-string},
-@code{open-output-string} and @code{get-output-string}.
-
-Note that although versions of these procedures are included in the
-Guile core, the core versions are not fully conformant with SRFI-6:
-attempts to read or write characters that are not supported by the
-current @code{%default-port-encoding} will fail.
-
-We therefore recommend that you import this module, which supports all
-characters:
-
-@example
-(use-modules (srfi srfi-6))
-@end example
+@code{open-output-string} and @code{get-output-string}.  These
+procedures are included in the Guile core, so using this module does not
+make any difference at the moment.  But it is possible that support for
+SRFI-6 will be factored out of the core library in the future, so using
+this module does not hurt, after all.
 
 @node SRFI-8
 @subsection SRFI-8 - receive

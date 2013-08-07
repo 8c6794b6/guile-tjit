@@ -251,57 +251,60 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
 {
   SCM z, buf;
   scm_t_port *pt;
-  const char *encoding;
-  size_t read_buf_size, str_len, c_pos;
+  size_t read_buf_size, num_bytes, c_byte_pos;
   char *c_buf;
 
   if (!((modes & SCM_WRTNG) || (modes & SCM_RDNG)))
     scm_misc_error ("scm_mkstrport", "port must read or write", SCM_EOL);
 
-  encoding = scm_i_default_port_encoding ();
-
   if (scm_is_false (str))
     {
       /* Allocate a new buffer to write to.  */
-      str_len = INITIAL_BUFFER_SIZE;
-      buf = scm_c_make_bytevector (str_len);
+      num_bytes = INITIAL_BUFFER_SIZE;
+      buf = scm_c_make_bytevector (num_bytes);
       c_buf = (char *) SCM_BYTEVECTOR_CONTENTS (buf);
 
       /* Reset `read_buf_size'.  It will contain the actual number of
 	 bytes written to the port.  */
       read_buf_size = 0;
-      c_pos = 0;
+      c_byte_pos = 0;
     }
   else
     {
-      /* STR is a string.  */
       char *copy;
 
       SCM_ASSERT (scm_is_string (str), str, SCM_ARG1, caller);
 
-      /* Create a copy of STR in ENCODING.  */
-      copy = scm_to_stringn (str, &str_len, encoding,
-			     SCM_FAILED_CONVERSION_ERROR);
-      buf = scm_c_make_bytevector (str_len);
+      /* STR is a string.  */
+      /* Create a copy of STR in UTF-8.  */
+      copy = scm_to_utf8_stringn (str, &num_bytes);
+      buf = scm_c_make_bytevector (num_bytes);
       c_buf = (char *) SCM_BYTEVECTOR_CONTENTS (buf);
-      memcpy (c_buf, copy, str_len);
+      memcpy (c_buf, copy, num_bytes);
       free (copy);
 
-      c_pos = scm_to_unsigned_integer (pos, 0, str_len);
-      read_buf_size = str_len;
+      read_buf_size = num_bytes;
+
+      if (scm_is_eq (pos, SCM_INUM0))
+        c_byte_pos = 0;
+      else
+        /* Inefficient but simple way to convert the character position
+           POS into a byte position C_BYTE_POS.  */
+        free (scm_to_utf8_stringn (scm_substring (str, SCM_INUM0, pos),
+                                   &c_byte_pos));
     }
 
   z = scm_c_make_port_with_encoding (scm_tc16_strport, modes,
-                                     encoding,
+                                     "UTF-8",
                                      scm_i_default_port_conversion_handler (),
                                      (scm_t_bits)buf);
 
   pt = SCM_PTAB_ENTRY (z);
 
   pt->write_buf = pt->read_buf = (unsigned char *) c_buf;
-  pt->read_pos = pt->write_pos = pt->read_buf + c_pos;
+  pt->read_pos = pt->write_pos = pt->read_buf + c_byte_pos;
   pt->read_buf_size = read_buf_size;
-  pt->write_buf_size = str_len;
+  pt->write_buf_size = num_bytes;
   pt->write_end = pt->read_end = pt->read_buf + pt->read_buf_size;
   pt->rw_random = 1;
 
