@@ -83,12 +83,17 @@
                     (-> (lexical 'return tag))))
       (-> (let '(return) (list tag)
                (list (-> (primcall 'make-prompt-tag)))
-               (-> (prompt (current-return-tag)
-                           (body-thunk)
+               (-> (prompt #t
+                           (current-return-tag)
+                           (-> (lambda '()
+                                 (-> (lambda-case
+                                      `((() #f #f #f () ())
+                                        ,(body-thunk))))))
                            (let ((val (gensym "val")))
-                             (-> (lambda-case
-                                  `(((k val) #f #f #f () (,(gensym) ,val))
-                                    ,(-> (lexical 'val val)))))))))))))
+                             (-> (lambda '()
+                                   (-> (lambda-case
+                                        `(((k val) #f #f #f () (,(gensym) ,val))
+                                          ,(-> (lexical 'val val)))))))))))))))
 
 (define (comp x e)
   (let ((l (location x)))
