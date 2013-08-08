@@ -4175,7 +4175,7 @@ scm_gcd (SCM x, SCM y)
       else if (SCM_REALP (y) && scm_is_integer (y))
         goto handle_inexacts;
       else
-        SCM_WTA_DISPATCH_2 (g_gcd, x, y, SCM_ARG2, s_gcd);
+        return scm_wta_dispatch_2 (g_gcd, x, y, SCM_ARG2, s_gcd);
     }
   else if (SCM_REALP (x) && scm_is_integer (x))
     {
