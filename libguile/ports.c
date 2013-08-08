@@ -1353,13 +1353,13 @@ SCM_DEFINE (scm_set_port_conversion_strategy_x, "set-port-conversion-strategy!",
 static void
 lock_port (void *mutex)
 {
-  scm_i_pthread_mutex_lock (mutex);
+  scm_i_pthread_mutex_lock ((scm_i_pthread_mutex_t *) mutex);
 }
 
 static void
 unlock_port (void *mutex)
 {
-  scm_i_pthread_mutex_unlock (mutex);
+  scm_i_pthread_mutex_unlock ((scm_i_pthread_mutex_t *) mutex);
 }
 
 void

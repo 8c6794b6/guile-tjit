@@ -297,7 +297,7 @@ scm_mkstrport (SCM pos, SCM str, long modes, const char *caller)
   z = scm_c_make_port_with_encoding (scm_tc16_strport, modes,
                                      "UTF-8",
                                      scm_i_default_port_conversion_handler (),
-                                     (scm_t_bits)buf);
+                                     SCM_UNPACK (buf));
 
   pt = SCM_PTAB_ENTRY (z);
 

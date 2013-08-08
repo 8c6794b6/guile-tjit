@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1998, 1999, 2000, 2001, 2003, 2004, 2006,
- *   2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -524,7 +524,8 @@ SCM_DEFINE (scm_hashv_ref, "hashv-ref", 2, 1, 0,
 
   if (SCM_WEAK_TABLE_P (table))
     return scm_c_weak_table_ref (table, scm_ihashv (key, -1),
-                                 assv_predicate, SCM_PACK (key), dflt);
+                                 assv_predicate,
+                                 (void *) SCM_UNPACK (key), dflt);
 
   return scm_hash_fn_ref (table, key, dflt,
 			  (scm_t_hash_fn) scm_ihashv,
@@ -544,7 +545,7 @@ SCM_DEFINE (scm_hashv_set_x, "hashv-set!", 3, 0, 0,
   if (SCM_WEAK_TABLE_P (table))
     {
       scm_c_weak_table_put_x (table, scm_ihashv (key, -1),
-                              assv_predicate, SCM_PACK (key),
+                              assv_predicate, (void *) SCM_UNPACK (key),
                               key, val);
       return val;
     }
@@ -566,7 +567,7 @@ SCM_DEFINE (scm_hashv_remove_x, "hashv-remove!", 2, 0, 0,
   if (SCM_WEAK_TABLE_P (table))
     {
       scm_c_weak_table_remove_x (table, scm_ihashv (key, -1),
-                                 assv_predicate, SCM_PACK (key));
+                                 assv_predicate, (void *) SCM_UNPACK (key));
       /* See note in hashq-remove!.  */
       return SCM_BOOL_F;
     }
@@ -630,7 +631,8 @@ SCM_DEFINE (scm_hash_ref, "hash-ref", 2, 1, 0,
 
   if (SCM_WEAK_TABLE_P (table))
     return scm_c_weak_table_ref (table, scm_ihash (key, -1),
-                                 assoc_predicate, SCM_PACK (key), dflt);
+                                 assoc_predicate,
+                                 (void *) SCM_UNPACK (key), dflt);
 
   return scm_hash_fn_ref (table, key, dflt,
 			  (scm_t_hash_fn) scm_ihash,
@@ -651,7 +653,7 @@ SCM_DEFINE (scm_hash_set_x, "hash-set!", 3, 0, 0,
   if (SCM_WEAK_TABLE_P (table))
     {
       scm_c_weak_table_put_x (table, scm_ihash (key, -1),
-                              assoc_predicate, SCM_PACK (key),
+                              assoc_predicate, (void *) SCM_UNPACK (key),
                               key, val);
       return val;
     }
@@ -674,7 +676,7 @@ SCM_DEFINE (scm_hash_remove_x, "hash-remove!", 2, 0, 0,
   if (SCM_WEAK_TABLE_P (table))
     {
       scm_c_weak_table_remove_x (table, scm_ihash (key, -1),
-                                 assoc_predicate, SCM_PACK (key));
+                                 assoc_predicate, (void *) SCM_UNPACK (key));
       /* See note in hashq-remove!.  */
       return SCM_BOOL_F;
     }
