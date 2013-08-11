@@ -85,10 +85,7 @@
                (list (-> (primcall 'make-prompt-tag)))
                (-> (prompt #t
                            (current-return-tag)
-                           (-> (lambda '()
-                                 (-> (lambda-case
-                                      `((() #f #f #f () ())
-                                        ,(body-thunk))))))
+                           (body-thunk)
                            (let ((val (gensym "val")))
                              (-> (lambda '()
                                    (-> (lambda-case
