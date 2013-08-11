@@ -67,7 +67,9 @@ SCM_SYMBOL (sym_bang, "!");
     M(X8_U12_U12)                               \
     M(X8_L24)                                   \
     M(B1_X7_L24)                                \
-    M(B1_U7_L24)
+    M(B1_U7_L24)                                \
+    M(B1_X7_U24)                                \
+    M(B1_X31)
 
 #define TYPE_WIDTH 5
 
@@ -105,6 +107,8 @@ static SCM word_type_symbols[] =
   (OP (0, type0) | OP (1, type1) | OP (2, type2))
 #define OP4(type0, type1, type2, type3) \
   (OP (0, type0) | OP (1, type1) | OP (2, type2) | OP (3, type3))
+#define OP5(type0, type1, type2, type3, type4) \
+  (OP (0, type0) | OP (1, type1) | OP (2, type2) | OP (3, type3) | OP (4, type4))
 
 #define OP_DST (1 << (TYPE_WIDTH * 5))
 
@@ -254,7 +258,9 @@ SCM_DEFINE (scm_rtl_instruction_list, "rtl-instruction-list", 0, 0, 0,
 
         /* Format: (name opcode word0 word1 ...) */
 
-        if (WORD_TYPE (3, meta))
+        if (WORD_TYPE (4, meta))
+          len = 5;
+        else if (WORD_TYPE (3, meta))
           len = 4;
         else if (WORD_TYPE (2, meta))
           len = 3;
@@ -267,6 +273,8 @@ SCM_DEFINE (scm_rtl_instruction_list, "rtl-instruction-list", 0, 0, 0,
 
         switch (len)
           {
+          case 5:
+            tail = scm_cons (word_type_symbols[WORD_TYPE (4, meta)], tail);
           case 4:
             tail = scm_cons (word_type_symbols[WORD_TYPE (3, meta)], tail);
           case 3:

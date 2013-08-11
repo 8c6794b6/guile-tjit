@@ -32,6 +32,9 @@ nobase_ccache_DATA += ice-9/eval.go
 EXTRA_DIST += ice-9/eval.scm
 ETAGS_ARGS += ice-9/eval.scm
 
+VM_TARGETS := system/vm/assembler.go system/vm/disassembler.go
+$(VM_TARGETS): $(top_builddir)/libguile/vm-operations.h
+
 ice-9/boot-9.go: ice-9/boot-9.scm ice-9/quasisyntax.scm ice-9/r6rs-libraries.scm
 
 # We can compile these in any order, but it's fastest if we compile

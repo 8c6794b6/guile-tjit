@@ -599,22 +599,15 @@ static SCM rtl_apply;
 static SCM rtl_values;
 
 static const scm_t_uint32 rtl_boot_continuation_code[] = {
-  SCM_PACK_RTL_24 (scm_rtl_op_halt_values, 0),
   SCM_PACK_RTL_24 (scm_rtl_op_halt, 0)
 };
-
-static scm_t_uint32* rtl_boot_multiple_value_continuation_code =
-  (scm_t_uint32 *) rtl_boot_continuation_code;
-
-static scm_t_uint32* rtl_boot_single_value_continuation_code =
-  (scm_t_uint32 *) rtl_boot_continuation_code + 1;
 
 static const scm_t_uint32 rtl_apply_code[] = {
   SCM_PACK_RTL_24 (scm_rtl_op_apply, 0) /* proc in r1, args from r2, nargs set */
 };
 
 static const scm_t_uint32 rtl_values_code[] = {
-  SCM_PACK_RTL_24 (scm_rtl_op_values, 0) /* vals from r1 */
+  SCM_PACK_RTL_24 (scm_rtl_op_return_values, 0) /* vals from r1 */
 };
 
 

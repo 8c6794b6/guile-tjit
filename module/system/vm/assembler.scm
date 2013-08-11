@@ -410,7 +410,11 @@ later by the linker."
         (emit asm (pack-u1-u7-u24 (if a 1 0) 0 0)))
        ((B1_U7_L24 a b label)
         (record-label-reference asm label)
-        (emit asm (pack-u1-u7-u24 (if a 1 0) b 0)))))
+        (emit asm (pack-u1-u7-u24 (if a 1 0) b 0)))
+       ((B1_X31 a)
+        (emit asm (pack-u1-u7-u24 (if a 1 0) 0 0)))
+       ((B1_X7_U24 a b)
+        (emit asm (pack-u1-u7-u24 (if a 1 0) 0 b)))))
 
     (syntax-case x ()
       ((_ name opcode word0 word* ...)
@@ -675,12 +679,12 @@ returned instead."
   (cond
    (alternate
     (emit-br-if-nargs-ne asm nreq alternate)
-    (emit-reserve-locals asm nlocals))
+    (emit-alloc-frame asm nlocals))
    ((and (< nreq (ash 1 12)) (< (- nlocals nreq) (ash 1 12)))
     (emit-assert-nargs-ee/locals asm nreq (- nlocals nreq)))
    (else
     (emit-assert-nargs-ee asm nreq)
-    (emit-reserve-locals asm nlocals))))
+    (emit-alloc-frame asm nlocals))))
 
 (define-macro-assembler (opt-prelude asm nreq nopt rest? nlocals alternate)
   (if alternate
@@ -693,7 +697,7 @@ returned instead."
     (emit-br-if-nargs-gt asm (+ nreq nopt) alternate))
    (else
     (emit-assert-nargs-le asm (+ nreq nopt))))
-  (emit-reserve-locals asm nlocals))
+  (emit-alloc-frame asm nlocals))
 
 (define-macro-assembler (kw-prelude asm nreq nopt rest? kw-indices
                                     allow-other-keys? nlocals alternate)
@@ -711,41 +715,27 @@ returned instead."
                       (+ nreq nopt)
                       ntotal
                       kw-indices)
-    (emit-reserve-locals asm nlocals)))
+    (emit-alloc-frame asm nlocals)))
 
 (define-macro-assembler (label asm sym)
   (set-asm-labels! asm (acons sym (asm-start asm) (asm-labels asm))))
 
-(define-macro-assembler (cache-current-module! asm tmp scope)
+(define-macro-assembler (cache-current-module! asm module scope)
   (let ((mod-label (intern-module-cache-cell asm scope)))
-    (emit-current-module asm tmp)
-    (emit-static-set! asm tmp mod-label 0)))
+    (emit-static-set! asm module mod-label 0)))
 
-(define-macro-assembler (cached-toplevel-ref asm dst scope sym)
+(define-macro-assembler (cached-toplevel-box asm dst scope sym bound?)
   (let ((sym-label (intern-non-immediate asm sym))
         (mod-label (intern-module-cache-cell asm scope))
         (cell-label (intern-cache-cell asm scope sym)))
-    (emit-toplevel-ref asm dst cell-label mod-label sym-label)))
+    (emit-toplevel-box asm dst cell-label mod-label sym-label bound?)))
 
-(define-macro-assembler (cached-toplevel-set! asm src scope sym)
-  (let ((sym-label (intern-non-immediate asm sym))
-        (mod-label (intern-module-cache-cell asm scope))
-        (cell-label (intern-cache-cell asm scope sym)))
-    (emit-toplevel-set! asm src cell-label mod-label sym-label)))
-
-(define-macro-assembler (cached-module-ref asm dst module-name public? sym)
+(define-macro-assembler (cached-module-box asm dst module-name sym public? bound?)
   (let* ((sym-label (intern-non-immediate asm sym))
          (key (cons public? module-name))
          (mod-name-label (intern-constant asm key))
          (cell-label (intern-cache-cell asm key sym)))
-    (emit-module-ref asm dst cell-label mod-name-label sym-label)))
-
-(define-macro-assembler (cached-module-set! asm src module-name public? sym)
-  (let* ((sym-label (intern-non-immediate asm sym))
-         (key (cons public? module-name))
-         (mod-name-label (intern-non-immediate asm key))
-         (cell-label (intern-cache-cell asm key sym)))
-    (emit-module-set! asm src cell-label mod-name-label sym-label)))
+    (emit-module-box asm dst cell-label mod-name-label sym-label bound?)))
 
 
 
