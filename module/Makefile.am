@@ -54,6 +54,7 @@ SOURCES =					\
   language/assembly.scm				\
   $(TREE_IL_LANG_SOURCES)			\
   $(CPS_LANG_SOURCES)				\
+  $(RTL_LANG_SOURCES)				\
   $(GLIL_LANG_SOURCES)				\
   $(ASSEMBLY_LANG_SOURCES)			\
   $(BYTECODE_LANG_SOURCES)			\
@@ -122,6 +123,10 @@ CPS_LANG_SOURCES =						\
   language/cps/closure-conversion.scm				\
   language/cps/spec.scm						\
   language/cps/verify.scm
+
+RTL_LANG_SOURCES =						\
+  language/rtl.scm						\
+  language/rtl/spec.scm
 
 GLIL_LANG_SOURCES =						\
   language/glil/spec.scm language/glil/compile-assembly.scm
