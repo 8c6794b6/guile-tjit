@@ -1,0 +1,200 @@
+;;;; rtl-compilation.test --- test suite for compiling via rtl   -*- scheme -*-
+;;;;
+;;;; 	Copyright (C) 2013 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;;
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;;
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (test-suite rtl-compilation)
+  #:use-module (test-suite lib)
+  #:use-module (system base compile)
+  #:use-module (system vm objcode))
+
+(define* (compile-via-rtl exp #:key peval? cse? (env (make-fresh-user-module)))
+  (load-thunk-from-memory
+   (compile exp #:env env #:to 'rtl
+            #:opts `(#:partial-eval? ,peval? #:cse? ,cse?))))
+
+(define* (run-rtl exp #:key (env (make-fresh-user-module)))
+  (let ((thunk (compile-via-rtl exp #:env env)))
+    (save-module-excursion
+     (lambda ()
+       (set-current-module env)
+       (thunk)))))
+
+(with-test-prefix "tail context"
+  (pass-if-equal 1
+      (run-rtl '(let ((x 1)) x)))
+
+  (pass-if-equal 1
+      (run-rtl 1))
+
+  (pass-if-equal (if #f #f)
+      (run-rtl '(if #f #f)))
+
+  (pass-if-equal "top-level define"
+      (list (if #f #f) 1)
+    (let ((mod (make-fresh-user-module)))
+      (let ((result (run-rtl '(define v 1) #:env mod)))
+        (list result (module-ref mod 'v)))))
+
+  (pass-if-equal "top-level set!"
+      (list (if #f #f) 1)
+    (let ((mod (make-fresh-user-module)))
+      (module-define! mod 'v #f)
+      (let ((result (run-rtl '(set! v 1) #:env mod)))
+        (list result (module-ref mod 'v)))))
+
+  (pass-if-equal "top-level apply [single value]"
+      8
+    (let ((mod (make-fresh-user-module)))
+      (module-define! mod 'args '(2 3))
+      (run-rtl '(apply expt args) #:env mod)))
+
+  (pass-if-equal "top-level apply [zero values]"
+      '()
+    (let ((mod (make-fresh-user-module)))
+      (module-define! mod 'proc (lambda () (values)))
+      (module-define! mod 'args '())
+      (call-with-values
+          (lambda () (run-rtl '(apply proc args) #:env mod))
+        list)))
+
+  (pass-if-equal "top-level apply [two values]"
+      '(1 2)
+    (let ((mod (make-fresh-user-module)))
+      (module-define! mod 'proc (lambda (n d) (floor/ n d)))
+      (module-define! mod 'args '(5 3))
+      (call-with-values
+          (lambda () (run-rtl '(apply proc args) #:env mod))
+        list)))
+
+  (pass-if-equal "call-with-values"
+      '(1 2 3)
+    ((run-rtl '(lambda (n d)
+                 (call-with-values (lambda () (floor/ n d))
+                   (lambda (q r) (list q r (+ q r))))))
+     5 3))
+
+  (pass-if-equal cons
+      (run-rtl 'cons))
+
+  (pass-if-equal 1
+      ((run-rtl '(lambda () 1))))
+
+  (pass-if-equal 1
+      ((run-rtl '(lambda (x) 1)) 2))
+
+  (pass-if-equal 1
+      ((run-rtl '(lambda (x) x)) 1))
+
+  (pass-if-equal 6
+      ((((run-rtl '(lambda (x)
+                     (lambda (y)
+                       (lambda (z)
+                         (+ x y z))))) 1) 2) 3))
+
+  (pass-if-equal 1
+      (run-rtl '(identity 1)))
+
+  (pass-if-equal '(1 . 2)
+      (run-rtl '(cons 1 2)))
+
+  (pass-if-equal '(1 2)
+      (call-with-values (lambda () (run-rtl '(values 1 2))) list))
+
+  (pass-if-equal 28
+      ((run-rtl '(lambda (x y z rest) (apply + x y z rest)))
+       2 3 5 '(7 11)))
+
+  ;; prompts
+  )
+
+(with-test-prefix "value context"
+  1
+  )
+
+(with-test-prefix "drop context"
+  1
+  )
+
+(with-test-prefix "test context"
+  1
+  )
+
+(with-test-prefix "values context"
+  (pass-if-equal '(3 . 1)
+      (run-rtl
+       '(let ((rat (lambda (n d)
+                     (call-with-values
+                         (lambda () (floor/ n d))
+                       (lambda (q r)
+                         (cons q r))))))
+          (rat 10 3)))))
+
+(with-test-prefix "contification"
+  (pass-if ((run-rtl '(lambda (x)
+                        (define (even? x)
+                          (if (null? x) #t (odd? (cdr x))))
+                        (define (odd? x)
+                          (if (null? x) #f (even? (cdr x))))
+                        (even? x)))
+            '(1 2 3 4)))
+
+  (pass-if (not ((run-rtl '(lambda (x)
+                             (define (even? x)
+                               (if (null? x) #t (odd? (cdr x))))
+                             (define (odd? x)
+                               (if (null? x) #f (even? (cdr x))))
+                             (even? x)))
+                 '(1 2 3)))))
+
+(with-test-prefix "case-lambda"
+  (pass-if-equal "simple"
+      '(0 3 9 28)
+    (let ((proc (run-rtl '(case-lambda
+                            (() 0)
+                            ((x) x)
+                            ((x y) (+ x y))
+                            ((x y z . rest) (apply + x y z rest))))))
+      (map (lambda (args) (apply proc args))
+           '(() (3) (2 7) (2 3 5 7 11)))))
+
+  (pass-if-exception "no match"
+      exception:wrong-num-args
+    ((run-rtl '(case-lambda ((x) x) ((x y) (+ x y))))
+     1 2 3))
+
+  (pass-if-exception "zero clauses called with no args"
+      exception:wrong-num-args
+    ((run-rtl '(case-lambda))))
+
+  (pass-if-exception "zero clauses called with args"
+      exception:wrong-num-args
+    ((run-rtl '(case-lambda)) 1)))
+
+(with-test-prefix "mixed contexts"
+  (pass-if-equal "sequences" '(3 4 5)
+    (let* ((pair (cons 1 2))
+           (result ((run-rtl '(lambda (pair)
+                                (set-car! pair 3)
+                                (set-cdr! pair 4)
+                                5))
+                    pair)))
+      (list (car pair)
+            (cdr pair)
+            result)))
+
+  (pass-if-equal "mutable lexicals" 2
+    (run-rtl '(let ((n 1)) (set! n 2) n))))

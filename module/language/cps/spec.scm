@@ -21,6 +21,7 @@
 (define-module (language cps spec)
   #:use-module (system base language)
   #:use-module (language cps)
+  #:use-module (language cps compile-rtl)
   #:export (cps))
 
 (define* (write-cps exp #:optional (port (current-output-port)))
@@ -31,6 +32,6 @@
   #:reader	(lambda (port env) (read port))
   #:printer	write-cps
   #:parser      parse-cps
-  #:compilers   '()
+  #:compilers   `((rtl . ,compile-rtl))
   #:for-humans? #f
   )
