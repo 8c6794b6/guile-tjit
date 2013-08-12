@@ -48,6 +48,7 @@
 #endif
 
 #include <verify.h>
+#include <assert.h>
 
 #include <math.h>
 #include <string.h>
@@ -5004,7 +5005,7 @@ left_shift_exact_integer (SCM n, long count)
       return result;
     }
   else
-    scm_syserror ("left_shift_exact_integer");
+    assert (0);
 }
 
 /* Efficiently compute floor (N / 2^COUNT),
@@ -5030,7 +5031,7 @@ floor_right_shift_exact_integer (SCM n, long count)
       return scm_i_normbig (result);
     }
   else
-    scm_syserror ("floor_right_shift_exact_integer");
+    assert (0);
 }
 
 /* Efficiently compute round (N / 2^COUNT),
@@ -5068,7 +5069,7 @@ round_right_shift_exact_integer (SCM n, long count)
       return scm_i_normbig (q);
     }
   else
-    scm_syserror ("round_right_shift_exact_integer");
+    assert (0);
 }
 
 SCM_DEFINE (scm_ash, "ash", 2, 0, 0,
@@ -6199,7 +6200,7 @@ mem2ureal (SCM mem, unsigned int *p_idx,
     }
 
   /* We should never get here */
-  scm_syserror ("mem2ureal");
+  assert (0);
 }
 
 
@@ -9194,7 +9195,15 @@ SCM_PRIMITIVE_GENERIC (scm_numerator, "numerator", 1, 0, 0,
   else if (SCM_FRACTIONP (z))
     return SCM_FRACTION_NUMERATOR (z);
   else if (SCM_REALP (z))
-    return scm_exact_to_inexact (scm_numerator (scm_inexact_to_exact (z)));
+    {
+      double zz = SCM_REAL_VALUE (z);
+      if (zz == floor (zz))
+        /* Handle -0.0 and infinities in accordance with R6RS
+           flnumerator, and optimize handling of integers. */
+        return z;
+      else
+        return scm_exact_to_inexact (scm_numerator (scm_inexact_to_exact (z)));
+    }
   else
     return scm_wta_dispatch_1 (g_scm_numerator, z, SCM_ARG1, s_scm_numerator);
 }
@@ -9211,7 +9220,15 @@ SCM_PRIMITIVE_GENERIC (scm_denominator, "denominator", 1, 0, 0,
   else if (SCM_FRACTIONP (z))
     return SCM_FRACTION_DENOMINATOR (z);
   else if (SCM_REALP (z))
-    return scm_exact_to_inexact (scm_denominator (scm_inexact_to_exact (z)));
+    {
+      double zz = SCM_REAL_VALUE (z);
+      if (zz == floor (zz))
+        /* Handle infinities in accordance with R6RS fldenominator, and
+           optimize handling of integers. */
+        return scm_i_from_double (1.0);
+      else
+        return scm_exact_to_inexact (scm_denominator (scm_inexact_to_exact (z)));
+    }
   else
     return scm_wta_dispatch_1 (g_scm_denominator, z, SCM_ARG1,
                                s_scm_denominator);
