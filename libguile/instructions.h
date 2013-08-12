@@ -29,9 +29,9 @@ enum scm_rtl_opcode
 #undef ENUM
   };
 
-#define SCM_PACK_RTL_8_8_8(op,a,b,c) ((op) | ((a) << 8) | ((b) << 16) | ((d) << 24))
+#define SCM_PACK_RTL_8_8_8(op,a,b,c) ((op) | ((a) << 8) | ((b) << 16) | ((c) << 24))
 #define SCM_PACK_RTL_8_16(op,a,b) ((op) | ((a) << 8) | ((b) << 16))
-#define SCM_PACK_RTL_16_8(op,a,b) ((op) | ((a) << 16) | ((b) << 24))
+#define SCM_PACK_RTL_16_8(op,a,b) ((op) | ((a) << 8) | ((b) << 24))
 #define SCM_PACK_RTL_24(op,a) ((op) | ((a) << 8))
 
 #define SCM_UNPACK_RTL_8_8_8(op,a,b,c)    \
