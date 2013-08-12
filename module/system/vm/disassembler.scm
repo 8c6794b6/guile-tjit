@@ -286,12 +286,7 @@ address of that offset."
                  ((prompt)
                   (match arg
                     ((_ ... target)
-                     (add-label! (+ offset target) "H"))))
-                 ((call call/values)
-                  (let* ((MVRA (+ offset len))
-                         (RA (+ MVRA 1)))
-                    (add-label! MVRA "MVRA")
-                    (add-label! RA "RA"))))))
+                     (add-label! (+ offset target) "H")))))))
             (lp (+ offset len))))))
     (let lp ((offset start) (n 1))
       (when (< offset end)
