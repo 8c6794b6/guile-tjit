@@ -509,8 +509,10 @@
   (bytevector-ieee-double-native-set! vec (* i 8) x))
 
 ;; Appropriate for use with either 'eqv?' or 'equal?'.
-(define maybe-simplify-to-eq
+(define (maybe-simplify-to-eq prim)
   (case-lambda
+    ((src) (make-const src #t))
+    ((src a) (make-const src #t))
     ((src a b)
      ;; Simplify cases where either A or B is constant.
      (define (maybe-simplify a b)
@@ -524,10 +526,30 @@
                             (>= v most-negative-fixnum)))
                    (make-primcall src 'eq? (list a b))))))
      (or (maybe-simplify a b) (maybe-simplify b a)))
+    ((src a b . rest)
+     (make-conditional src (make-primcall src prim (list a b))
+                       (make-primcall src prim (cons b rest))
+                       (make-const src #f)))
     (else #f)))
 
-(hashq-set! *primitive-expand-table* 'eqv?   maybe-simplify-to-eq)
-(hashq-set! *primitive-expand-table* 'equal? maybe-simplify-to-eq)
+(hashq-set! *primitive-expand-table* 'eqv?   (maybe-simplify-to-eq 'eqv?))
+(hashq-set! *primitive-expand-table* 'equal? (maybe-simplify-to-eq 'equal?))
+
+(define (expand-chained-comparisons prim)
+  (case-lambda
+    ((src) (make-const src #t))
+    ((src a) (make-const src #t))
+    ((src a b) #f)
+    ((src a b . rest)
+     (make-conditional src (make-primcall src prim (list a b))
+                       (make-primcall src prim (cons b rest))
+                       (make-const src #f)))
+    (else #f)))
+
+(for-each (lambda (prim)
+            (hashq-set! *primitive-expand-table* prim
+                        (expand-chained-comparisons prim)))
+ '(< <= = >= > eq?))
 
 (hashq-set! *primitive-expand-table*
             'call-with-prompt
