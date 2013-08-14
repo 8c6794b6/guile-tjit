@@ -347,20 +347,17 @@
         (f z y)))
    (primcall
     +
-    (const -1)                          ; (f -1 0)
     (primcall
      +
-     (const 0)                          ; (f 1 0)
      (primcall
       +
-      (seq (toplevel y) (const -1))     ; (f -1 y)
-      (primcall
-       +
-       (toplevel y)                                 ; (f 2 y)
-       (let (x y) (_ _) ((toplevel z) (toplevel y)) ; (f z y)
-            (if (primcall > (lexical x _) (const 0))
-                (lexical y _)
-                (lexical x _))))))))
+      (const -1)                      ; (f -1 0)
+      (seq (toplevel y) (const -1)))  ; (f -1 y)
+     (toplevel y))                    ; (f 2 y)
+    (let (x y) (_ _) ((toplevel z) (toplevel y))  ; (f z y)
+         (if (primcall > (lexical x _) (const 0))
+             (lexical y _)
+             (lexical x _)))))
 
   (pass-if-peval
     ;; First order, conditional.
@@ -614,8 +611,8 @@
                       (call (toplevel display) (const chbouib))))
          (let (y) (_) ((primcall * (lexical x _) (const 2)))
               (primcall +
-                        (lexical x _)
-                        (primcall + (lexical x _) (lexical y _))))))
+                        (primcall + (lexical x _) (lexical x _))
+                        (lexical y _)))))
 
   (pass-if-peval
     ;; Non-constant arguments not propagated to lambdas.
