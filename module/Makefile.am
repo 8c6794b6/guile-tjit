@@ -36,6 +36,7 @@ VM_TARGETS := system/vm/assembler.go system/vm/disassembler.go
 $(VM_TARGETS): $(top_builddir)/libguile/vm-operations.h
 
 ice-9/boot-9.go: ice-9/boot-9.scm ice-9/quasisyntax.scm ice-9/r6rs-libraries.scm
+ice-9/match.go: ice-9/match.scm ice-9/match.upstream.scm
 
 # We can compile these in any order, but it's fastest if we compile
 # psyntax and boot-9 first, then the compiler itself, then the rest of
