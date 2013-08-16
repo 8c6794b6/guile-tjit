@@ -967,7 +967,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
           ret = SCM_EOL;
           SYNC_BEFORE_GC();
           for (n = nvals; n > 0; n--)
-            ret = scm_cons (LOCAL_REF (5 + n), ret);
+            ret = scm_cons (LOCAL_REF (5 + n - 1), ret);
           ret = scm_values (ret);
         }
 
