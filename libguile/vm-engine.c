@@ -1087,21 +1087,18 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       RETURN_ONE_VALUE (LOCAL_REF (src));
     }
 
-  /* return-values nvalues:24
+  /* return-values _:24
    *
    * Return a number of values from a call frame.  This opcode
    * corresponds to an application of `values' in tail position.  As
    * with tail calls, we expect that the values have already been
    * shuffled down to a contiguous array starting at slot 1.
+   * We also expect the frame has already been reset.
    */
-  VM_DEFINE_OP (6, return_values, "return-values", OP1 (U8_U24))
+  VM_DEFINE_OP (6, return_values, "return-values", OP1 (U8_X24))
     {
-      scm_t_uint32 nvalues;
+      scm_t_uint32 nvalues _GL_UNUSED = FRAME_LOCALS_COUNT();
       SCM *base = fp;
-
-      SCM_UNPACK_RTL_24 (op, nvalues);
-
-      RESET_FRAME (nvalues + 1);
 
       VM_HANDLE_INTERRUPTS;
       ip = SCM_FRAME_RTL_MV_RETURN_ADDRESS (fp);
