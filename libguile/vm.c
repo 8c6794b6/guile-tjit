@@ -603,7 +603,7 @@ static const scm_t_uint32 rtl_boot_continuation_code[] = {
 };
 
 static const scm_t_uint32 rtl_apply_code[] = {
-  SCM_PACK_RTL_24 (scm_rtl_op_apply, 0) /* proc in r1, args from r2, nargs set */
+  SCM_PACK_RTL_24 (scm_rtl_op_tail_apply, 0) /* proc in r1, args from r2, nargs set */
 };
 
 static const scm_t_uint32 rtl_values_code[] = {
