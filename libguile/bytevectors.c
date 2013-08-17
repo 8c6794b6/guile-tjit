@@ -1119,7 +1119,11 @@ SCM_DEFINE (scm_bytevector_sint_set_x, "bytevector-sint-set!", 5, 0, 0,
   c_size = scm_to_unsigned_integer (size, 1, (size_t) -1);		\
 									\
   c_len = SCM_BYTEVECTOR_LENGTH (bv);					\
-  if (SCM_UNLIKELY (c_len < c_size))					\
+  if (SCM_UNLIKELY (c_len % c_size != 0))				\
+    scm_wrong_type_arg_msg						\
+      (FUNC_NAME, 0, size,						\
+       "an exact positive integer that divides the bytevector length");	\
+  else if (SCM_UNLIKELY (c_len == 0))					\
     lst = SCM_EOL;							\
   else									\
     {									\
