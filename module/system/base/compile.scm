@@ -150,7 +150,8 @@
       (call-with-output-file/atomic comp
         (lambda (port)
           ((language-printer (ensure-language to))
-           (read-and-compile in #:env env #:from from #:to to #:opts opts)
+           (read-and-compile in #:env env #:from from #:to to #:opts
+                             (cons* #:to-file? #t opts))
            port))
         file)
       comp)))

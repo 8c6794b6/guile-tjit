@@ -792,7 +792,7 @@
           (let ((key (car opt))
                 (value (cadr opt)))
             (case key
-              ((#:warnings)             ; ignore
+              ((#:warnings #:to-file?)  ; ignore
                #f)
               (else (report-error #f
                                   "Invalid compiler option"
