@@ -801,8 +801,13 @@ should be .data or .rodata), and return the resulting linker object.
        (modulo (- alignment (modulo address alignment)) alignment)))
 
   (define tc7-vector 13)
-  (define tc7-narrow-stringbuf 39)
-  (define tc7-wide-stringbuf (+ 39 #x400))
+  (define stringbuf-shared-flag #x100)
+  (define stringbuf-wide-flag #x400)
+  (define tc7-stringbuf 39)
+  (define tc7-narrow-stringbuf
+    (+ tc7-stringbuf stringbuf-shared-flag))
+  (define tc7-wide-stringbuf
+    (+ tc7-stringbuf stringbuf-shared-flag stringbuf-wide-flag))
   (define tc7-ro-string (+ 21 #x200))
   (define tc7-rtl-program 69)
 
@@ -941,7 +946,10 @@ should be .data or .rodata), and return the resulting linker object.
                 (lp (1+ i)
                     (align (+ (byte-length obj) pos) 8)
                     (cons (make-linker-symbol obj-label pos) labels)))
-              (make-object asm name buf '() labels))))))))
+              (make-object asm name buf '() labels
+                           #:flags (match name
+                                     ('.data (logior SHF_ALLOC SHF_WRITE))
+                                     ('.rodata SHF_ALLOC))))))))))
 
 (define (link-constants asm)
   "Link sections to hold constants needed by the program text emitted
