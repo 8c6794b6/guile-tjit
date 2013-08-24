@@ -29,6 +29,7 @@
   #:use-module (language cps)
   #:use-module (language cps arities)
   #:use-module (language cps closure-conversion)
+  #:use-module (language cps contification)
   #:use-module (language cps dfg)
   #:use-module (language cps primitives)
   #:use-module (language cps reify-primitives)
@@ -51,11 +52,9 @@
         exp))
 
   ;; Calls to source-to-source optimization passes go here.
-  (let* ()
+  (let* ((exp (run-pass exp contify #:contify? #t)))
     ;; Passes that are needed:
     ;; 
-    ;;  * Contification: turning $letrec-bound $funs into $letk-bound $conts.
-    ;;
     ;;  * Abort contification: turning abort primcalls into continuation
     ;;    calls, and eliding prompts if possible.
     ;;
