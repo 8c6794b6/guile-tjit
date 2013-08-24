@@ -440,10 +440,12 @@ later by the linker."
     (syntax-case x ()
       ((_ name opcode kind arg ...)
        (with-syntax ((emit (id-append #'name #'emit- #'name)))
-         #'(define emit
-             (let ((emit (assembler name opcode arg ...)))
-               (hashq-set! assemblers 'name emit)
-               emit)))))))
+         #'(begin
+             (define emit
+               (let ((emit (assembler name opcode arg ...)))
+                 (hashq-set! assemblers 'name emit)
+                 emit))
+             (export emit)))))))
 
 (define-syntax visit-opcodes
   (lambda (x)
@@ -601,10 +603,12 @@ returned instead."
     (syntax-case x ()
       ((_ (name arg ...) body body* ...)
        (with-syntax ((emit (id-append #'name #'emit- #'name)))
-         #'(define emit
-             (let ((emit (lambda (arg ...) body body* ...)))
-               (hashq-set! assemblers 'name emit)
-               emit)))))))
+         #'(begin
+             (define emit
+               (let ((emit (lambda (arg ...) body body* ...)))
+                 (hashq-set! assemblers 'name emit)
+                 emit))
+             (export emit)))))))
 
 (define-macro-assembler (load-constant asm dst obj)
   (cond
