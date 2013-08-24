@@ -121,6 +121,7 @@ TREE_IL_LANG_SOURCES =						\
 CPS_LANG_SOURCES =						\
   language/cps.scm						\
   language/cps/closure-conversion.scm				\
+  language/cps/primitives.scm					\
   language/cps/spec.scm						\
   language/cps/verify.scm
 
