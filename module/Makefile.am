@@ -123,6 +123,7 @@ CPS_LANG_SOURCES =						\
   language/cps/arities.scm					\
   language/cps/closure-conversion.scm				\
   language/cps/primitives.scm					\
+  language/cps/reify-primitives.scm				\
   language/cps/spec.scm						\
   language/cps/verify.scm
 
