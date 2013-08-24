@@ -1823,7 +1823,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Set the contents of the variable at DST to SET.
    */
-  VM_DEFINE_OP (42, box_set, "box-set!", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (42, box_set, "box-set!", OP1 (U8_U12_U12))
     {
       scm_t_uint16 dst, src;
       SCM var;
