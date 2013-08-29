@@ -27,20 +27,12 @@
 ;;; Code:
 
 (define-module (scripts disassemble)
-  #:use-module (system vm objcode)
-  #:use-module (system vm program)
   #:use-module (system vm disassembler)
-  #:use-module ((language assembly disassemble)
-                #:renamer (symbol-prefix-proc 'asm:))
   #:export (disassemble))
 
 (define %summary "Disassemble a compiled .go file.")
 
 (define (disassemble . files)
-  (for-each (lambda (file)
-              (let* ((thunk (load-thunk-from-file file))
-                     (elf (find-mapped-elf-image (rtl-program-code thunk))))
-                (disassemble-image elf)))
-            files))
+  (for-each disassemble-file files))
 
 (define main disassemble)

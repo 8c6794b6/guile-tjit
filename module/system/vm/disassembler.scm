@@ -32,7 +32,8 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-4)
   #:export (disassemble-program
-            disassemble-image))
+            disassemble-image
+            disassemble-file))
 
 (define-syntax-rule (u32-ref buf n)
   (bytevector-u32-native-ref buf (* n 4)))
@@ -357,3 +358,8 @@ address of that offset."
                              ctx)
          (display "\n\n" port)))))
   (values))
+
+(define (disassemble-file file)
+  (let* ((thunk (load-thunk-from-file file))
+         (elf (find-mapped-elf-image (rtl-program-code thunk))))
+    (disassemble-image elf)))

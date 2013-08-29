@@ -487,6 +487,9 @@ Run the optimizer on a piece of code and print the result."
 (define (disassemble-program x)
   ((@ (system vm disassembler) disassemble-program) x))
 
+(define (disassemble-file x)
+  ((@ (system vm disassembler) disassemble-file) x))
+
 (define-meta-command (disassemble repl (form))
   "disassemble EXP
 Disassemble a compiled procedure."
@@ -503,7 +506,7 @@ Disassemble a compiled procedure."
 (define-meta-command (disassemble-file repl file)
   "disassemble-file FILE
 Disassemble a file."
-  (guile:disassemble (load-thunk-from-file (->string file))))
+  (disassemble-file (->string file)))
 
 
 ;;;
