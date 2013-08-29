@@ -33,6 +33,7 @@
   #:use-module (srfi srfi-9)
   #:export (debug-context-image
             debug-context-base
+            debug-context-text-base
 
             program-debug-info-name
             program-debug-info-context
@@ -52,6 +53,8 @@
             arity-has-keyword-args?
             arity-is-case-lambda?
 
+            debug-context-from-image
+            for-each-elf-symbol
             find-debug-context
             find-program-debug-info
             arity-arguments-alist
@@ -78,6 +81,19 @@
   "Return the bytevector aliasing the mapped ELF image corresponding to
 @var{context}."
   (elf-bytes (debug-context-elf context)))
+
+(define (for-each-elf-symbol context proc)
+  "Call @var{proc} on each symbol in the symbol table of @var{context}."
+  (let ((elf (debug-context-elf context)))
+    (cond
+     ((elf-section-by-name elf ".symtab")
+      => (lambda (symtab)
+           (let ((len (elf-symbol-table-len symtab))
+                 (strtab (elf-section elf (elf-section-link symtab))))
+             (let lp ((n 0))
+               (when (< n len)
+                 (proc (elf-symbol-table-ref elf symtab n strtab))
+                 (lp (1+ n))))))))))
 
 ;;; A program debug info (PDI) is a handle on debugging meta-data for a
 ;;; particular program.
@@ -117,16 +133,19 @@ offset from the beginning of the ELF image in 32-bit units."
         (debug-context-text-base (program-debug-info-context pdi)))
      4))
 
-(define (find-debug-context addr)
-  "Find and return the debugging context corresponding to the ELF image
-containing the address @var{addr}.  @var{addr} is an integer."
-  (let* ((bv (find-mapped-elf-image addr))
-         (elf (parse-elf bv))
+(define (debug-context-from-image bv)
+  "Build a debugging context corresponding to a given ELF image."
+  (let* ((elf (parse-elf bv))
          (base (pointer-address (bytevector->pointer (elf-bytes elf))))
          (text-base (elf-section-offset
                      (or (elf-section-by-name elf ".rtl-text")
                          (error "ELF object has no text section")))))
     (make-debug-context elf base text-base)))
+
+(define (find-debug-context addr)
+  "Find and return the debugging context corresponding to the ELF image
+containing the address @var{addr}.  @var{addr} is an integer."
+  (debug-context-from-image (find-mapped-elf-image addr)))
 
 (define (find-elf-symbol elf text-offset)
   "Search the symbol table of @var{elf} for the ELF symbol containing

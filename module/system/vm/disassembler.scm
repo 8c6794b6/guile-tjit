@@ -31,7 +31,8 @@
   #:use-module (ice-9 vlist)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-4)
-  #:export (disassemble-program))
+  #:export (disassemble-program
+            disassemble-image))
 
 (define-syntax-rule (u32-ref buf n)
   (bytevector-u32-native-ref buf (* n 4)))
@@ -333,4 +334,26 @@ address of that offset."
                              (program-debug-info-context pdi))))
    (else
     (format port "Debugging information unavailable.~%")))
+  (values))
+
+(define* (disassemble-image bv #:optional (port (current-output-port)))
+  (let* ((ctx (debug-context-from-image bv))
+         (base (debug-context-text-base ctx)))
+    (for-each-elf-symbol
+     ctx
+     (lambda (sym)
+       (let ((name (elf-symbol-name sym))
+             (value (elf-symbol-value sym))
+             (size (elf-symbol-size sym)))
+         (format port "Disassembly of ~A at #x~X:\n\n"
+                 (if (and (string? name) (not (string-null? name)))
+                     name
+                     "<unnamed function>")
+                 (+ base value))
+         (disassemble-buffer port
+                             bv
+                             (/ (+ base value) 4)
+                             (/ (+ base value size) 4)
+                             ctx)
+         (display "\n\n" port)))))
   (values))
