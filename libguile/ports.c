@@ -2105,15 +2105,36 @@ scm_ungetc_unlocked (scm_t_wchar c, SCM port)
 #define FUNC_NAME "scm_ungetc"
 {
   scm_t_port *pt = SCM_PTAB_ENTRY (port);
+  scm_t_port_internal *pti = SCM_PORT_GET_INTERNAL (port);
   char *result;
   char result_buf[10];
   size_t len;
 
   len = sizeof (result_buf);
-  result = u32_conv_to_encoding (pt->encoding,
-				 (enum iconv_ilseq_handler) pt->ilseq_handler,
-				 (uint32_t *) &c, 1, NULL,
-				 result_buf, &len);
+
+  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
+    {
+      if (c < 0xf0)
+        {
+          result_buf[0] = (char) c;
+          result = result_buf;
+          len = 1;
+        }
+      else
+        result =
+          (char *) u32_to_u8 ((uint32_t *) &c, 1, (uint8_t *) result_buf, &len);
+    }
+  else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1 && c <= 0xff)
+    {
+      result_buf[0] = (char) c;
+      result = result_buf;
+      len = 1;
+    }
+  else
+    result = u32_conv_to_encoding (pt->encoding,
+                                   (enum iconv_ilseq_handler) pt->ilseq_handler,
+                                   (uint32_t *) &c, 1, NULL,
+                                   result_buf, &len);
 
   if (SCM_UNLIKELY (result == NULL || len == 0))
     scm_encoding_error (FUNC_NAME, errno,
