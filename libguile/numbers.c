@@ -5798,20 +5798,25 @@ enum t_exactness {NO_EXACTNESS, INEXACT, EXACT};
 static unsigned int
 char_decimal_value (scm_t_uint32 c)
 {
-  /* uc_decimal_value returns -1 on error. When cast to an unsigned int,
-     that's certainly above any valid decimal, so we take advantage of
-     that to elide some tests. */
-  unsigned int d = (unsigned int) uc_decimal_value (c);
-
-  /* If that failed, try extended hexadecimals, then. Only accept ascii
-     hexadecimals. */
-  if (d >= 10U)
+  if (c >= (scm_t_uint32) '0' && c <= (scm_t_uint32) '9')
+    return c - (scm_t_uint32) '0';
+  else
     {
-      c = uc_tolower (c);
-      if (c >= (scm_t_uint32) 'a')
-        d = c - (scm_t_uint32)'a' + 10U;
+      /* uc_decimal_value returns -1 on error. When cast to an unsigned int,
+         that's certainly above any valid decimal, so we take advantage of
+         that to elide some tests. */
+      unsigned int d = (unsigned int) uc_decimal_value (c);
+
+      /* If that failed, try extended hexadecimals, then. Only accept ascii
+         hexadecimals. */
+      if (d >= 10U)
+        {
+          c = uc_tolower (c);
+          if (c >= (scm_t_uint32) 'a')
+            d = c - (scm_t_uint32)'a' + 10U;
+        }
+      return d;
     }
-  return d;
 }
 
 /* Parse the substring of MEM starting at *P_IDX for an unsigned integer
