@@ -1740,7 +1740,8 @@ scm_from_port_stringn (const char *str, size_t len, SCM port)
   if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
     return scm_from_latin1_stringn (str, len);
   else if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8
-           && pt->ilseq_handler == SCM_FAILED_CONVERSION_ERROR)
+           && (pt->ilseq_handler == SCM_FAILED_CONVERSION_ERROR
+               || (u8_check ((uint8_t *) str, len) == NULL)))
     return scm_from_utf8_stringn (str, len);
   else
     return scm_from_stringn (str, len, pt->encoding, pt->ilseq_handler);
