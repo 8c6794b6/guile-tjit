@@ -74,6 +74,7 @@
 
 (define-module (web server)
   #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-9 gnu)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 binary-ports)
   #:use-module (web request)
@@ -167,11 +168,8 @@ values."
   (define (extend-alist alist k v)
     (let ((pair (assq k alist)))
       (acons k v (if pair (delq pair alist) alist))))
-  (let ((r (build-response #:version (response-version r)
-                           #:code (response-code r)
-                           #:headers
-                           (extend-alist (response-headers r) k v)
-                           #:port (response-port r))))
+  (let ((r (set-field r (response-headers)
+                      (extend-alist (response-headers r) k v))))
     (if (null? additional)
         r
         (apply extend-response r additional))))
@@ -234,6 +232,7 @@ on the procedure being called at any particular time."
     (error "unexpected body type"))
    ((and (response-must-not-include-body? response)
          body
+         ;; FIXME make this stricter: even an empty body should be prohibited.
          (not (zero? (bytevector-length body))))
     (error "response with this status code must not include body" response))
    (else
@@ -244,7 +243,6 @@ on the procedure being called at any particular time."
                (rlen (if (= rlen blen)
                          response
                          (error "bad content-length" rlen blen)))
-               ((zero? blen) response)
                (else (extend-response response 'content-length blen))))
             (if (eq? (request-method request) 'HEAD)
                 ;; Responses to HEAD requests must not include bodies.
