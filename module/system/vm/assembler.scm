@@ -1564,7 +1564,7 @@ it will be added to the GC roots at runtime."
 
     (define (choose-form attr val code)
       (cond
-       ((string? val) 'sec-offset)
+       ((string? val) 'strp)
        ((exact-integer? code)
         (cond
          ((< code 0) 'sleb128)
@@ -1597,7 +1597,7 @@ it will be added to the GC roots at runtime."
            (8
             (add-die-relocation! 'abs64/1 code)
             (put-u64 die-port 0))))
-        ('sec-offset (put-u32 die-port code))))
+        ('strp (put-u32 die-port code))))
 
     (define (write-die die)
       (match die
