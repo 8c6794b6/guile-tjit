@@ -45,10 +45,12 @@
 (define-module (system vm assembler)
   #:use-module (system base target)
   #:use-module (system vm instruction)
+  #:use-module (system vm dwarf)
   #:use-module (system vm elf)
   #:use-module (system vm linker)
   #:use-module (system vm objcode)
   #:use-module (rnrs bytevectors)
+  #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 vlist)
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
@@ -1465,6 +1467,175 @@ it will be added to the GC roots at runtime."
                                       (intern-constant asm props))
                    relocs)))))))
 
+;;;
+;;; The DWARF .debug_info, .debug_abbrev, .debug_str, and .debug_loc
+;;; sections provide line number and local variable liveness
+;;; information.  Their format is defined by the DWARF
+;;; specifications.
+;;;
+
+(define (asm-language asm)
+  ;; FIXME: Plumb language through to the assembler.
+  'scheme)
+
+;; -> 4 values: .debug_info, .debug_abbrev, .debug_str, and .debug_loc
+(define (link-debug asm)
+  (define (put-u16 port val)
+    (let ((bv (make-bytevector 2)))
+      (bytevector-u16-set! bv 0 val (asm-endianness asm))
+      (put-bytevector port bv)))
+
+  (define (put-u32 port val)
+    (let ((bv (make-bytevector 4)))
+      (bytevector-u32-set! bv 0 val (asm-endianness asm))
+      (put-bytevector port bv)))
+
+  (define (put-u64 port val)
+    (let ((bv (make-bytevector 8)))
+      (bytevector-u64-set! bv 0 val (asm-endianness asm))
+      (put-bytevector port bv)))
+
+  (define (put-uleb128 port val)
+    (let lp ((val val))
+      (let ((next (ash val -7)))
+        (if (zero? next)
+            (put-u8 port val)
+            (begin
+              (put-u8 port (logior #x80 (logand val #x7f)))
+              (lp next))))))
+
+  (define (meta->subprogram-die meta)
+    `(subprogram
+      (@ ,@(cond
+            ((meta-name meta)
+             => (lambda (name) `((name ,(symbol->string name)))))
+            (else
+             '()))
+         (low-pc ,(meta-label meta))
+         (high-pc ,(* 4 (- (meta-high-pc meta) (meta-low-pc meta)))))))
+
+  (define (make-compile-unit-die asm)
+    `(compile-unit
+      (@ (producer ,(string-append "Guile " (version)))
+         (language ,(asm-language asm))
+         (low-pc .rtl-text)
+         (high-pc ,(* 4 (asm-pos asm))))
+      ,@(map meta->subprogram-die (reverse (asm-meta asm)))))
+
+  (let-values (((die-port get-die-bv) (open-bytevector-output-port))
+               ((die-relocs) '())
+               ((abbrev-port get-abbrev-bv) (open-bytevector-output-port))
+               ;; (tag has-kids? attrs forms) -> code
+               ((abbrevs) vlist-null)
+               ((next-abbrev-code) 1)
+               ((strtab) (make-string-table)))
+
+    (define (write-abbrev code tag has-children? attrs forms)
+      (put-uleb128 abbrev-port code)
+      (put-uleb128 abbrev-port (tag-name->code tag))
+      (put-u8 abbrev-port (children-name->code (if has-children? 'yes 'no)))
+      (for-each (lambda (attr form)
+                  (put-uleb128 abbrev-port (attribute-name->code attr))
+                  (put-uleb128 abbrev-port (form-name->code form)))
+                attrs forms)
+      (put-uleb128 abbrev-port 0)
+      (put-uleb128 abbrev-port 0))
+
+    (define (intern-abbrev tag has-children? attrs forms)
+      (let ((key (list tag has-children? attrs forms)))
+        (match (vhash-assoc key abbrevs)
+          ((_ . code) code)
+          (#f (let ((code next-abbrev-code))
+                (set! next-abbrev-code (1+ next-abbrev-code))
+                (set! abbrevs (vhash-cons key code abbrevs))
+                (write-abbrev code tag has-children? attrs forms)
+                code)))))
+
+    (define (compute-code attr val)
+      (match attr
+        ('name (string-table-intern! strtab val))
+        ('low-pc val)
+        ('high-pc val)
+        ('producer (string-table-intern! strtab val))
+        ('language (language-name->code val))))
+
+    (define (exact-integer? val)
+      (and (number? val) (integer? val) (exact? val)))
+
+    (define (choose-form attr val code)
+      (cond
+       ((string? val) 'sec-offset)
+       ((exact-integer? code)
+        (cond
+         ((< code 0) 'sleb128)
+         ((<= code #xff) 'data1)
+         ((<= code #xffff) 'data2)
+         ((<= code #xffffffff) 'data4)
+         ((<= code #xffffffffffffffff) 'data8)
+         (else 'uleb128)))
+       ((symbol? val) 'addr)
+       (else (error "unhandled case" attr val code))))
+
+    (define (add-die-relocation! kind sym)
+      (set! die-relocs
+            (cons (make-linker-reloc kind (seek die-port 0 SEEK_CUR) 0 sym)
+                  die-relocs)))
+
+    (define (write-value code form)
+      (match form
+        ('data1 (put-u8 die-port code))
+        ('data2 (put-u16 die-port code))
+        ('data4 (put-u32 die-port code))
+        ('data8 (put-u64 die-port code))
+        ('uleb128 (put-uleb128 die-port code))
+        ('sleb128 (error "not yet implemented"))
+        ('addr
+         (match (asm-word-size asm)
+           (4
+            (add-die-relocation! 'abs32/1 code)
+            (put-u32 die-port 0))
+           (8
+            (add-die-relocation! 'abs64/1 code)
+            (put-u64 die-port 0))))
+        ('sec-offset (put-u32 die-port code))))
+
+    (define (write-die die)
+      (match die
+        ((tag ('@ (attrs vals) ...) children ...)
+         (let* ((codes (map compute-code attrs vals))
+                (forms (map choose-form attrs vals codes))
+                (has-children? (not (null? children)))
+                (abbrev-code (intern-abbrev tag has-children? attrs forms)))
+           (put-uleb128 die-port abbrev-code)
+           (for-each write-value codes forms)
+           (when has-children?
+             (for-each write-die children)
+             (put-uleb128 die-port 0))))))
+
+    ;; Compilation unit header.
+    (put-u32 die-port 0) ; Length; will patch later.
+    (put-u16 die-port 4) ; DWARF 4.
+    (put-u32 die-port 0) ; Abbrevs offset.
+    (put-u8 die-port (asm-word-size asm)) ; Address size.
+
+    (write-die (make-compile-unit-die asm))
+
+    ;; Terminate the abbrevs list.
+    (put-uleb128 abbrev-port 0)
+
+    (values (let ((bv (get-die-bv)))
+              ;; Patch DWARF32 length.
+              (bytevector-u32-set! bv 0 (- (bytevector-length bv) 4)
+                                   (asm-endianness asm))
+              (make-object asm '.debug_info bv die-relocs '()
+                           #:type SHT_PROGBITS #:flags 0))
+            (make-object asm '.debug_abbrev (get-abbrev-bv) '() '()
+                         #:type SHT_PROGBITS #:flags 0)
+            (make-object asm '.debug_str (link-string-table! strtab) '() '()
+                         #:type SHT_PROGBITS #:flags 0)
+            (make-object asm '.debug_loc #vu8() '() '()
+                         #:type SHT_PROGBITS #:flags 0))))
+
 (define (link-objects asm)
   (let*-values (;; Link procprops before constants, because it probably
                 ;; interns more constants.
@@ -1477,12 +1648,15 @@ it will be added to the GC roots at runtime."
                 ((symtab strtab) (link-symtab (linker-object-section text) asm))
                 ((arities arities-strtab) (link-arities asm))
                 ((docstrs docstrs-strtab) (link-docstrs asm))
+                ((dinfo dabbrev dstrtab dloc) (link-debug asm))
                 ;; This needs to be linked last, because linking other
                 ;; sections adds entries to the string table.
                 ((shstrtab) (link-shstrtab asm)))
     (filter identity
             (list text ro rw dt symtab strtab arities arities-strtab
-                  docstrs docstrs-strtab procprops shstrtab))))
+                  docstrs docstrs-strtab procprops
+                  dinfo dabbrev dstrtab dloc
+                  shstrtab))))
 
 
 
