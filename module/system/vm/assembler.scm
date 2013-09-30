@@ -169,7 +169,7 @@
             word-size endianness
             constants inits
             shstrtab next-section-number
-            meta)
+            meta sources)
   asm?
 
   ;; We write RTL code into what is logically a growable vector,
@@ -239,7 +239,13 @@
 
   ;; A list of <meta>, corresponding to procedure metadata.
   ;;
-  (meta asm-meta set-asm-meta!))
+  (meta asm-meta set-asm-meta!)
+
+  ;; A list of (pos . source) pairs, indicating source information.  POS
+  ;; is relative to the beginning of the text section, and SOURCE is in
+  ;; the same format that source-properties returns.
+  ;;
+  (sources asm-sources set-asm-sources!))
 
 (define-inlinable (fresh-block)
   (make-u32vector *block-size*))
@@ -254,7 +260,7 @@ target."
             word-size endianness
             vlist-null '()
             (make-string-table) 1
-            '()))
+            '() '()))
 
 (define (intern-section-name! asm string)
   "Add a string to the section name table (shstrtab)."
@@ -725,6 +731,9 @@ returned instead."
 
 (define-macro-assembler (label asm sym)
   (set-asm-labels! asm (acons sym (asm-start asm) (asm-labels asm))))
+
+(define-macro-assembler (source asm source)
+  (set-asm-sources! asm (acons (asm-start asm) source (asm-sources asm))))
 
 (define-macro-assembler (cache-current-module! asm module scope)
   (let ((mod-label (intern-module-cache-cell asm scope)))

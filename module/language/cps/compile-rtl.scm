@@ -316,6 +316,8 @@
                            (((k . _) . _) k)
                            (() #f))))
          (emit-label asm k)
+         (when src
+           (emit-source asm src))
          (emit-rtl k exp-k exp next-label)
          (lp exps))))))
 
@@ -335,6 +337,8 @@
                                 kw))
                (nlocals (lookup-nlocals k allocation)))
            (emit-label asm k)
+           (when src
+             (emit-source asm src))
            (emit-begin-kw-arity asm req opt rest kw-indices allow-other-keys?
                                 nlocals alternate)
            (emit-rtl-sequence asm body allocation nlocals cont-table)
@@ -353,6 +357,8 @@
     (match f
       (($ $fun meta free ($ $cont k src ($ $kentry self tail clauses)))
        (emit-begin-program asm k (or meta '()))
+       (when src
+         (emit-source asm src))
        (emit-fun-clauses clauses)
        (emit-end-program asm)))))
 
