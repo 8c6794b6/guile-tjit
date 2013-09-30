@@ -1487,8 +1487,13 @@ it will be added to the GC roots at runtime."
   ;; FIXME: Plumb language through to the assembler.
   'scheme)
 
-;; -> 4 values: .debug_info, .debug_abbrev, .debug_str, and .debug_loc
+;; -> 5 values: .debug_info, .debug_abbrev, .debug_str, .debug_loc, .debug_lines
 (define (link-debug asm)
+  (define (put-s8 port val)
+    (let ((bv (make-bytevector 1)))
+      (bytevector-s8-set! bv 0 val)
+      (put-bytevector port bv)))
+
   (define (put-u16 port val)
     (let ((bv (make-bytevector 2)))
       (bytevector-u16-set! bv 0 val (asm-endianness asm))
@@ -1513,6 +1518,9 @@ it will be added to the GC roots at runtime."
               (put-u8 port (logior #x80 (logand val #x7f)))
               (lp next))))))
 
+  (define (port-position port)
+    (seek port 0 SEEK_CUR))
+
   (define (meta->subprogram-die meta)
     `(subprogram
       (@ ,@(cond
@@ -1528,7 +1536,8 @@ it will be added to the GC roots at runtime."
       (@ (producer ,(string-append "Guile " (version)))
          (language ,(asm-language asm))
          (low-pc .rtl-text)
-         (high-pc ,(* 4 (asm-pos asm))))
+         (high-pc ,(* 4 (asm-pos asm)))
+         (stmt-list 0))
       ,@(map meta->subprogram-die (reverse (asm-meta asm)))))
 
   (let-values (((die-port get-die-bv) (open-bytevector-output-port))
@@ -1536,8 +1545,11 @@ it will be added to the GC roots at runtime."
                ((abbrev-port get-abbrev-bv) (open-bytevector-output-port))
                ;; (tag has-kids? attrs forms) -> code
                ((abbrevs) vlist-null)
-               ((next-abbrev-code) 1)
-               ((strtab) (make-string-table)))
+               ((strtab) (make-string-table))
+               ((line-port get-line-bv) (open-bytevector-output-port))
+               ((line-relocs) '())
+               ;; file -> code
+               ((files) vlist-null))
 
     (define (write-abbrev code tag has-children? attrs forms)
       (put-uleb128 abbrev-port code)
@@ -1554,11 +1566,87 @@ it will be added to the GC roots at runtime."
       (let ((key (list tag has-children? attrs forms)))
         (match (vhash-assoc key abbrevs)
           ((_ . code) code)
-          (#f (let ((code next-abbrev-code))
-                (set! next-abbrev-code (1+ next-abbrev-code))
+          (#f (let ((code (1+ (vlist-length abbrevs))))
                 (set! abbrevs (vhash-cons key code abbrevs))
                 (write-abbrev code tag has-children? attrs forms)
                 code)))))
+
+    (define (intern-file file)
+      (match (vhash-assoc file files)
+        ((_ . code) code)
+        (#f (let ((code (1+ (vlist-length files))))
+              (set! files (vhash-cons file code files))
+              code))))
+
+    (define (write-sources)
+      (let lp ((sources (asm-sources asm)) (out '()))
+        (match sources
+          (((pos . s) . sources)
+           (let ((file (assq-ref s 'filename))
+                 (line (assq-ref s 'line))
+                 (col (assq-ref s 'column)))
+             (lp sources (cons (list pos (intern-file file) line col) out))))
+          (()
+           ;; Compilation unit header for .debug_line.  We write in
+           ;; DWARF 2 format because more tools understand it than DWARF
+           ;; 4, which incompatibly adds another field to this header.
+
+           (put-u32 line-port 0) ; Length; will patch later.
+           (put-u16 line-port 2) ; DWARF 2 format.
+           (put-u32 line-port 0) ; Prologue length; will patch later.
+           (put-u8 line-port 4) ; Minimum instruction length: 4 bytes.
+           (put-u8 line-port 1) ; Default is-stmt: true.
+
+           (put-s8 line-port 0) ; Line base.  See the DWARF standard.
+           (put-u8 line-port 0) ; Line range.  See the DWARF standard.
+           (put-u8 line-port 10) ; Opcode base: the first "special" opcode.
+
+           ;; A table of the number of uleb128 arguments taken by each
+           ;; of the standard opcodes.
+           (put-u8 line-port 0) ; 1: copy
+           (put-u8 line-port 1) ; 2: advance-pc
+           (put-u8 line-port 1) ; 3: advance-line
+           (put-u8 line-port 1) ; 4: set-file
+           (put-u8 line-port 1) ; 5: set-column
+           (put-u8 line-port 0) ; 6: negate-stmt
+           (put-u8 line-port 0) ; 7: set-basic-block
+           (put-u8 line-port 0) ; 8: const-add-pc
+           (put-u8 line-port 1) ; 9: fixed-advance-pc
+
+           ;; Include directories, as a zero-terminated sequence of
+           ;; nul-terminated strings.  Nothing, for the moment.
+           (put-u8 line-port 0)
+
+           ;; File table.  For each file that contributes to this
+           ;; compilation unit, a nul-terminated file name string, and a
+           ;; uleb128 for each of directory the file was found in, the
+           ;; modification time, and the file's size in bytes.  We pass
+           ;; zero for the latter three fields.
+           (vlist-for-each (match-lambda
+                            ((file . code)
+                             (put-bytevector line-port (string->utf8 file))
+                             (put-u8 line-port 0)
+                             (put-uleb128 line-port 0) ; directory
+                             (put-uleb128 line-port 0) ; mtime
+                             (put-uleb128 line-port 0) ; size
+                             ))
+                           files)
+           (put-u8 line-port 0) ; 0 byte terminating file list.
+
+           ;; Patch prologue length.
+           (let ((offset (port-position line-port)))
+             (seek line-port 6 SEEK_SET)
+             (put-u32 line-port (- offset 10))
+             (seek line-port offset SEEK_SET))
+
+           ;; Now write sources.
+           ;; ...
+
+           ;; End sequence.
+           (put-u8 line-port 0) ; extended opcode:
+           (put-uleb128 line-port 1) ; one byte
+           (put-u8 line-port 1) ; end sequence.
+           ))))
 
     (define (compute-code attr val)
       (match attr
@@ -1566,7 +1654,8 @@ it will be added to the GC roots at runtime."
         ('low-pc val)
         ('high-pc val)
         ('producer (string-table-intern! strtab val))
-        ('language (language-name->code val))))
+        ('language (language-name->code val))
+        ('stmt-list val)))
 
     (define (exact-integer? val)
       (and (number? val) (integer? val) (exact? val)))
@@ -1574,6 +1663,7 @@ it will be added to the GC roots at runtime."
     (define (choose-form attr val code)
       (cond
        ((string? val) 'strp)
+       ((eq? attr 'stmt-list) 'sec-offset)
        ((exact-integer? code)
         (cond
          ((< code 0) 'sleb128)
@@ -1587,7 +1677,7 @@ it will be added to the GC roots at runtime."
 
     (define (add-die-relocation! kind sym)
       (set! die-relocs
-            (cons (make-linker-reloc kind (seek die-port 0 SEEK_CUR) 0 sym)
+            (cons (make-linker-reloc kind (port-position die-port) 0 sym)
                   die-relocs)))
 
     (define (write-value code form)
@@ -1606,6 +1696,7 @@ it will be added to the GC roots at runtime."
            (8
             (add-die-relocation! 'abs64/1 code)
             (put-u64 die-port 0))))
+        ('sec-offset (put-u32 die-port code))
         ('strp (put-u32 die-port code))))
 
     (define (write-die die)
@@ -1632,6 +1723,8 @@ it will be added to the GC roots at runtime."
     ;; Terminate the abbrevs list.
     (put-uleb128 abbrev-port 0)
 
+    (write-sources)
+
     (values (let ((bv (get-die-bv)))
               ;; Patch DWARF32 length.
               (bytevector-u32-set! bv 0 (- (bytevector-length bv) 4)
@@ -1643,7 +1736,13 @@ it will be added to the GC roots at runtime."
             (make-object asm '.debug_str (link-string-table! strtab) '() '()
                          #:type SHT_PROGBITS #:flags 0)
             (make-object asm '.debug_loc #vu8() '() '()
-                         #:type SHT_PROGBITS #:flags 0))))
+                         #:type SHT_PROGBITS #:flags 0)
+            (let ((bv (get-line-bv)))
+              ;; Patch DWARF32 length.
+              (bytevector-u32-set! bv 0 (- (bytevector-length bv) 4)
+                                   (asm-endianness asm))
+              (make-object asm '.debug_line bv line-relocs '()
+                           #:type SHT_PROGBITS #:flags 0)))))
 
 (define (link-objects asm)
   (let*-values (;; Link procprops before constants, because it probably
@@ -1657,14 +1756,14 @@ it will be added to the GC roots at runtime."
                 ((symtab strtab) (link-symtab (linker-object-section text) asm))
                 ((arities arities-strtab) (link-arities asm))
                 ((docstrs docstrs-strtab) (link-docstrs asm))
-                ((dinfo dabbrev dstrtab dloc) (link-debug asm))
+                ((dinfo dabbrev dstrtab dloc dline) (link-debug asm))
                 ;; This needs to be linked last, because linking other
                 ;; sections adds entries to the string table.
                 ((shstrtab) (link-shstrtab asm)))
     (filter identity
             (list text ro rw dt symtab strtab arities arities-strtab
                   docstrs docstrs-strtab procprops
-                  dinfo dabbrev dstrtab dloc
+                  dinfo dabbrev dstrtab dloc dline
                   shstrtab))))
 
 
