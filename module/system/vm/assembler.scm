@@ -1518,6 +1518,14 @@ it will be added to the GC roots at runtime."
               (put-u8 port (logior #x80 (logand val #x7f)))
               (lp next))))))
 
+  (define (put-sleb128 port val)
+    (let lp ((val val))
+      (if (<= 0 (+ val 64) 128)
+          (put-u8 port (logand val #x7f))
+          (begin
+            (put-u8 port (logior #x80 (logand val #x7f)))
+            (lp (ash val -7))))))
+
   (define (port-position port)
     (seek port 0 SEEK_CUR))
 
@@ -1579,13 +1587,26 @@ it will be added to the GC roots at runtime."
               code))))
 
     (define (write-sources)
+      ;; Choose line base and line range values that will allow for an
+      ;; address advance range of 16 words.  The special opcode range is
+      ;; from 10 to 255, so 246 values.
+      (define base -4)
+      (define range 15)
+
       (let lp ((sources (asm-sources asm)) (out '()))
         (match sources
-          (((pos . s) . sources)
+          (((pc . s) . sources)
            (let ((file (assq-ref s 'filename))
                  (line (assq-ref s 'line))
                  (col (assq-ref s 'column)))
-             (lp sources (cons (list pos (intern-file file) line col) out))))
+             (lp sources
+                 ;; Guile line and column numbers are 0-indexed, but
+                 ;; they are 1-indexed for DWARF.
+                 (cons (list pc
+                             (if file (intern-file file) 0)
+                             (if line (1+ line))
+                             (if col (1+ col)))
+                       out))))
           (()
            ;; Compilation unit header for .debug_line.  We write in
            ;; DWARF 2 format because more tools understand it than DWARF
@@ -1597,8 +1618,8 @@ it will be added to the GC roots at runtime."
            (put-u8 line-port 4) ; Minimum instruction length: 4 bytes.
            (put-u8 line-port 1) ; Default is-stmt: true.
 
-           (put-s8 line-port 0) ; Line base.  See the DWARF standard.
-           (put-u8 line-port 0) ; Line range.  See the DWARF standard.
+           (put-s8 line-port base) ; Line base.  See the DWARF standard.
+           (put-u8 line-port range) ; Line range.  See the DWARF standard.
            (put-u8 line-port 10) ; Opcode base: the first "special" opcode.
 
            ;; A table of the number of uleb128 arguments taken by each
@@ -1639,14 +1660,76 @@ it will be added to the GC roots at runtime."
              (put-u32 line-port (- offset 10))
              (seek line-port offset SEEK_SET))
 
-           ;; Now write sources.
-           ;; ...
+           ;; Now write the statement program.
+           (let ()
+             (define (extended-op opcode payload-len)
+               (put-u8 line-port 0) ; extended op
+               (put-uleb128 line-port (1+ payload-len)) ; payload-len + opcode
+               (put-uleb128 line-port opcode))
+             (define (set-address sym)
+               (define (add-reloc! kind)
+                 (set! line-relocs
+                       (cons (make-linker-reloc kind
+                                                (port-position line-port)
+                                                0
+                                                sym)
+                             line-relocs)))
+               (match (asm-word-size asm)
+                 (4
+                  (extended-op 2 4)
+                  (add-reloc! 'abs32/1)
+                  (put-u32 line-port 0))
+                 (8
+                  (extended-op 2 8)
+                  (add-reloc! 'abs64/1)
+                  (put-u64 line-port 0))))
+             (define (end-sequence pc)
+               (let ((pc-inc (- (asm-pos asm) pc)))
+                 (put-u8 line-port 2) ; advance-pc
+                 (put-uleb128 line-port pc-inc))
+               (extended-op 1 0))
+             (define (advance-pc pc-inc line-inc)
+               (let ((spec (+ (- line-inc base) (* pc-inc range) 10)))
+                 (cond
+                  ((or (< line-inc base) (>= line-inc (+ base range)))
+                   (advance-line line-inc)
+                   (advance-pc pc-inc 0))
+                  ((<= spec 255)
+                   (put-u8 line-port spec))
+                  ((< spec 500)
+                   (put-u8 line-port 8) ; const-advance-pc
+                   (advance-pc (- pc-inc (floor/ (- 255 10) range))
+                               line-inc))
+                  (else
+                   (put-u8 line-port 2) ; advance-pc
+                   (put-uleb128 line-port pc-inc)
+                   (advance-pc 0 line-inc)))))
+             (define (advance-line inc)
+               (put-u8 line-port 3)
+               (put-sleb128 line-port inc))
+             (define (set-file file)
+               (put-u8 line-port 4)
+               (put-uleb128 line-port file))
+             (define (set-column col)
+               (put-u8 line-port 5)
+               (put-uleb128 line-port col))
 
-           ;; End sequence.
-           (put-u8 line-port 0) ; extended opcode:
-           (put-uleb128 line-port 1) ; one byte
-           (put-u8 line-port 1) ; end sequence.
-           ))))
+             (set-address '.rtl-text)
+
+             (let lp ((in out) (pc 0) (file 1) (line 1) (col 0))
+               (match in
+                 (() (end-sequence pc))
+                 (((pc* file* line* col*) . in*)
+                  (cond
+                   ((and (eqv? file file*) (eqv? line line*) (eqv? col col*))
+                    (lp in* pc file line col))
+                   (else
+                    (unless (eqv? col col*)
+                      (set-column col*))
+                    (unless (eqv? file file*)
+                      (set-file file*))
+                    (advance-pc (- pc* pc) (- line* line))
+                    (lp in* pc* file* line* col*)))))))))))
 
     (define (compute-code attr val)
       (match attr
@@ -1687,7 +1770,7 @@ it will be added to the GC roots at runtime."
         ('data4 (put-u32 die-port code))
         ('data8 (put-u64 die-port code))
         ('uleb128 (put-uleb128 die-port code))
-        ('sleb128 (error "not yet implemented"))
+        ('sleb128 (put-sleb128 die-port code))
         ('addr
          (match (asm-word-size asm)
            (4
