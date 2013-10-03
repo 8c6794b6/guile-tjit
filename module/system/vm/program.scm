@@ -19,7 +19,7 @@
 ;;; Code:
 
 (define-module (system vm program)
-  #:use-module (system base pmatch)
+  #:use-module (ice-9 match)
   #:use-module (system vm instruction)
   #:use-module (system vm objcode)
   #:use-module (system vm debug)
@@ -119,6 +119,27 @@
           ;; fixed length
           (instruction-length inst))))))
 
+(define (program-sources proc)
+  (cond
+   ((rtl-program? proc)
+    (map (lambda (source)
+           (cons* (source-post-pc source)
+                  (source-file source)
+                  (source-line source)
+                  (source-column source)))
+         (find-program-sources (rtl-program-code proc))))
+   (else
+    (%program-sources proc))))
+
+(define* (program-source proc ip #:optional (sources (program-sources proc)))
+  (let lp ((source #f) (sources sources))
+    (match sources
+      (() source)
+      (((and s (pc . _)) . sources)
+       (if (<= pc ip)
+           (lp s sources)
+           source)))))
+
 ;; Source information could in theory be correlated with the ip of the
 ;; instruction, or the ip just after the instruction is retired. Guile
 ;; does the latter, to make backtraces easy -- an error produced while
@@ -130,25 +151,34 @@
 ;; pre-retire addresses.
 ;;
 (define (program-sources-pre-retire proc)
-  (let ((bv (objcode->bytecode (program-objcode proc))))
-    (let lp ((in (program-sources proc))
-             (out '())
-             (ip 0))
-      (cond
-       ((null? in)
-        (reverse out))
-       (else
-        (pmatch (car in)
-          ((,post-ip . ,source)
-           (let lp2 ((ip ip)
-                     (next ip))
-             (if (< next post-ip)
-                 (lp2 next (+ next (bytecode-instruction-length bv next)))
-                 (lp (cdr in)
-                     (acons ip source out)
-                     next))))
-          (else
-           (error "unexpected"))))))))
+  (cond
+   ((rtl-program? proc)
+    (map (lambda (source)
+           (cons* (source-pre-pc source)
+                  (source-file source)
+                  (source-line source)
+                  (source-column source)))
+         (find-program-sources (rtl-program-code proc))))
+   (else
+    (let ((bv (objcode->bytecode (program-objcode proc))))
+      (let lp ((in (program-sources proc))
+               (out '())
+               (ip 0))
+        (cond
+         ((null? in)
+          (reverse out))
+         (else
+          (match (car in)
+            ((post-ip . source)
+             (let lp2 ((ip ip)
+                       (next ip))
+               (if (< next post-ip)
+                   (lp2 next (+ next (bytecode-instruction-length bv next)))
+                   (lp (cdr in)
+                       (acons ip source out)
+                       next))))
+            (_
+             (error "unexpected"))))))))))
 
 (define (collapse-locals locs)
   (let lp ((ret '()) (locs locs))
@@ -185,19 +215,19 @@
                     (else (inner (cdr binds)))))))))
 
 (define (arity:start a)
-  (pmatch a ((,start ,end . _) start) (else (error "bad arity" a))))
+  (match a ((start end . _) start) (_ (error "bad arity" a))))
 (define (arity:end a)
-  (pmatch a ((,start ,end . _) end) (else (error "bad arity" a))))
+  (match a ((start end . _) end) (_ (error "bad arity" a))))
 (define (arity:nreq a)
-  (pmatch a ((_ _ ,nreq . _) nreq) (else 0)))
+  (match a ((_ _ nreq . _) nreq) (_ 0)))
 (define (arity:nopt a)
-  (pmatch a ((_ _ ,nreq ,nopt . _) nopt) (else 0)))
+  (match a ((_ _ nreq nopt . _) nopt) (_ 0)))
 (define (arity:rest? a)
-  (pmatch a ((_ _ ,nreq ,nopt ,rest? . _) rest?) (else #f)))
+  (match a ((_ _ nreq nopt rest? . _) rest?) (_ #f)))
 (define (arity:kw a)
-  (pmatch a ((_ _ ,nreq ,nopt ,rest? (_ . ,kw)) kw) (else '())))
+  (match a ((_ _ nreq nopt rest? (_ . kw)) kw) (_ '())))
 (define (arity:allow-other-keys? a)
-  (pmatch a ((_ _ ,nreq ,nopt ,rest? (,aok . ,kw)) aok) (else #f)))
+  (match a ((_ _ nreq nopt rest? (aok . kw)) aok) (_ #f)))
 
 (define (program-arity prog ip)
   (let ((arities (program-arities prog)))
@@ -211,15 +241,15 @@
                  (else (lp (cdr arities))))))))
 
 (define (arglist->arguments-alist arglist)
-  (pmatch arglist
-    ((,req ,opt ,keyword ,allow-other-keys? ,rest . ,extents)
+  (match arglist
+    ((req opt keyword allow-other-keys? rest . extents)
      `((required . ,req)
        (optional . ,opt)
        (keyword . ,keyword)
        (allow-other-keys? . ,allow-other-keys?)
        (rest . ,rest)
        (extents . ,extents)))
-    (else #f)))
+    (_ #f)))
 
 (define* (arity->arguments-alist prog arity
                                  #:optional

@@ -297,7 +297,7 @@ SCM_DEFINE (scm_program_bindings, "program-bindings", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_program_sources, "program-sources", 1, 0, 0,
+SCM_DEFINE (scm_program_sources, "%program-sources", 1, 0, 0,
 	    (SCM program),
 	    "")
 #define FUNC_NAME s_scm_program_sources
@@ -365,32 +365,24 @@ scm_i_program_properties (SCM program)
 }
 #undef FUNC_NAME
 
-static SCM
-program_source (SCM program, size_t ip, SCM sources)
+SCM
+scm_program_source (SCM program, SCM ip, SCM sources)
 {
-  SCM source = SCM_BOOL_F;
+  static SCM program_source = SCM_BOOL_F;
 
-  while (!scm_is_null (sources)
-         && scm_to_size_t (scm_caar (sources)) <= ip)
-    {
-      source = scm_car (sources);
-      sources = scm_cdr (sources);
-    }
-  
-  return source; /* (addr . (filename . (line . column))) */
-}
+  if (scm_is_false (program_source)) {
+    if (!scm_module_system_booted_p)
+      return SCM_BOOL_F;
 
-SCM_DEFINE (scm_program_source, "program-source", 2, 1, 0,
-	    (SCM program, SCM ip, SCM sources),
-	    "")
-#define FUNC_NAME s_scm_program_source
-{
-  SCM_VALIDATE_PROGRAM (1, program);
+    program_source =
+      scm_c_private_variable ("system vm program", "program-source");
+  }
+
   if (SCM_UNBNDP (sources))
-    sources = scm_program_sources (program);
-  return program_source (program, scm_to_size_t (ip), sources);
+    return scm_call_2 (scm_variable_ref (program_source), program, ip);
+  else
+    return scm_call_3 (scm_variable_ref (program_source), program, ip, sources);
 }
-#undef FUNC_NAME
     
 SCM_DEFINE (scm_program_num_free_variables, "program-num-free-variables", 1, 0, 0,
 	    (SCM program),
