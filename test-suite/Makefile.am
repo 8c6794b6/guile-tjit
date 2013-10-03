@@ -42,6 +42,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/coverage.test			\
 	    tests/cse.test			\
 	    tests/curried-definitions.test	\
+	    tests/dwarf.test			\
 	    tests/ecmascript.test		\
 	    tests/elisp.test			\
 	    tests/elisp-compiler.test		\
