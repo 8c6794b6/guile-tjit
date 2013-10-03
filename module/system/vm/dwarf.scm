@@ -104,9 +104,11 @@
 
             die? die-ctx die-offset die-abbrev die-vals die-children
             die-tag die-attrs die-forms die-ref
-            die-name die-specification die-qname
+            die-name die-specification die-qname die-low-pc die-high-pc
 
             ctx-parent ctx-die ctx-start ctx-end ctx-children ctx-language
+
+            die-line-prog line-prog-advance line-prog-scan-to-pc
 
             find-die-context find-die-by-offset find-die find-die-by-pc
             read-die fold-die-list
@@ -712,6 +714,7 @@
                    abbrevs-start abbrevs-end
                    strtab-start strtab-end
                    loc-start loc-end
+                   line-start line-end
                    pubnames-start pubnames-end
                    aranges-start aranges-end)
   dwarf-meta?
@@ -728,6 +731,8 @@
   (strtab-end meta-strtab-end)
   (loc-start meta-loc-start)
   (loc-end meta-loc-end)
+  (line-start meta-line-start)
+  (line-end meta-line-end)
   (pubnames-start meta-pubnames-start)
   (pubnames-end meta-pubnames-end)
   (aranges-start meta-aranges-start)
@@ -768,6 +773,9 @@
 
 (define (read-u8 ctx pos)
   (values (bytevector-u8-ref (ctx-bv ctx) pos)
+          (1+ pos)))
+(define (read-s8 ctx pos)
+  (values (bytevector-s8-ref (ctx-bv ctx) pos)
           (1+ pos)))
 (define (skip-8 ctx pos)
   (+ pos 1))
@@ -885,6 +893,14 @@
       (if (zero? (bytevector-u8-ref bv end))
           (1+ end)
           (lp (1+ end))))))
+
+(define (read-string-seq ctx pos)
+  (let ((bv (ctx-bv ctx)))
+    (let lp ((pos pos) (strs '()))
+      (if (zero? (bytevector-u8-ref bv pos))
+          (values (list->vector (reverse strs)) (1+ pos))
+          (let-values (((str pos) (read-string ctx pos)))
+            (lp pos (cons str strs)))))))
 
 (define-record-type <abbrev>
   (make-abbrev code tag has-children? attrs forms)
@@ -1185,6 +1201,213 @@
    (else
     (parse-location-list ctx loc))))
 
+;; Statement programs.
+(define-record-type <lregs>
+  (make-lregs pos pc file line column)
+  lregs?
+  (pos lregs-pos set-lregs-pos!)
+  (pc lregs-pc set-lregs-pc!)
+  (file lregs-file set-lregs-file!)
+  (line lregs-line set-lregs-line!)
+  (column lregs-column set-lregs-column!))
+
+(define-record-type <line-prog>
+  (%make-line-prog ctx version
+                   header-offset program-offset end
+                   min-insn-length max-insn-ops default-stmt?
+                   line-base line-range opcode-base
+                   standard-opcode-lengths
+                   include-directories file-names
+                   regs)
+  line-prog?
+  (ctx line-prog-ctx)
+  (version line-prog-version)
+  (header-offset line-prog-header-offset)
+  (program-offset line-prog-program-offset)
+  (end line-prog-end)
+  (min-insn-length line-prog-min-insn-length)
+  (max-insn-ops line-prog-max-insn-ops)
+  (default-stmt? line-prog-default-stmt?)
+  (line-base line-prog-line-base)
+  (line-range line-prog-line-range)
+  (opcode-base line-prog-opcode-base)
+  (standard-opcode-lengths line-prog-standard-opcode-lengths)
+  (include-directories line-prog-include-directories)
+  (file-names line-prog-file-names)
+  (regs line-prog-regs))
+
+(define (make-line-prog ctx header-pos end)
+  (unless (> end (+ header-pos 12))
+    (error "statement program header too short"))
+  (let-values (((len pos offset-size) (read-initial-length ctx header-pos)))
+    (unless (<= (+ pos len) end)
+      (error (".debug_line too short")))
+    (let*-values (((version pos) (read-u16 ctx pos))
+                  ((prologue-len prologue-pos) (read-u32 ctx pos))
+                  ((min-insn-len pos) (read-u8 ctx prologue-pos))
+                  ;; The maximum_operations_per_instruction field is
+                  ;; only present in DWARFv4.
+                  ((max-insn-ops pos) (if (< version 4)
+                                          (values 1 pos)
+                                          (read-u8 ctx pos)))
+                  ((default-stmt pos) (read-u8 ctx pos))
+                  ((line-base pos) (read-s8 ctx pos))
+                  ((line-range pos) (read-u8 ctx pos))
+                  ((opcode-base pos) (read-u8 ctx pos))
+                  ((opcode-lens pos) (read-block ctx pos (1- opcode-base)))
+                  ((include-directories pos) (read-string-seq ctx pos))
+                  ((file-names pos)
+                   (let lp ((pos pos) (strs '()))
+                     (if (zero? (bytevector-u8-ref (ctx-bv ctx) pos))
+                         (values (reverse strs) (1+ pos))
+                         (let-values (((str pos) (read-string ctx pos)))
+                           (let* ((pos (skip-leb128 ctx pos)) ; skip dir
+                                  (pos (skip-leb128 ctx pos)) ; skip mtime
+                                  (pos (skip-leb128 ctx pos))) ; skip len
+                             (lp pos (cons str strs))))))))
+      (unless (= pos (+ prologue-pos prologue-len))
+        (error "unexpected prologue length"))
+      (%make-line-prog ctx version header-pos pos end
+                       min-insn-len max-insn-ops (not (zero? default-stmt))
+                       line-base line-range opcode-base opcode-lens
+                       include-directories file-names
+                       ;; Initial state: file=1, line=1, col=0
+                       (make-lregs pos 0 1 1 0)))))
+
+(define (line-prog-next-row prog pos pc file line col)
+  (let ((ctx (line-prog-ctx prog))
+        (end (line-prog-end prog))
+        (min-insn-len (line-prog-min-insn-length prog))
+        (line-base (line-prog-line-base prog))
+        (line-range (line-prog-line-range prog))
+        (opcode-base (line-prog-opcode-base prog))
+        (opcode-lens (line-prog-standard-opcode-lengths prog)))
+
+    (let lp ((pos pos) (pc pc) (file file) (line line) (col col))
+      (cond
+       ((>= pos end)
+        (values #f #f #f #f #f))
+       (else
+        (let-values (((op pos) (read-u8 ctx pos)))
+          (cond
+           ((zero? op)                  ; extended opcodes
+            (let*-values (((len pos*) (read-uleb128 ctx pos))
+                          ((op pos) (read-u8 ctx pos*)))
+              (case op
+                ((1)                    ; end-sequence
+                 (values pos pc file line col))
+                ((2)                    ; set-address
+                 (let-values (((addr pos) (read-addr ctx pos)))
+                   (unless (>= addr pc)
+                     (error "pc not advancing"))
+                   (lp pos addr file line col)))
+                ((3)                    ; define-file
+                 (warn "define-file unimplemented")
+                 (lp (+ pos* len) pc file line col))
+                ((4)                    ; set-discriminator; ignore.
+                 (lp (+ pos* len) pc file line col))
+                (else
+                 (warn "unknown extended op" op)
+                 (lp (+ pos* len) pc file line col)))))
+
+           ((< op opcode-base)          ; standard opcodes
+            (case op
+              ((1)                      ; copy
+               (values pos pc file line col))
+              ((2)                      ; advance-pc
+               (let-values (((advance pos) (read-uleb128 ctx pos)))
+                 (lp pos (+ pc (* advance min-insn-len)) file line col)))
+              ((3)                      ; advance-line
+               (let-values (((diff pos) (read-sleb128 ctx pos)))
+                 (lp pos pc file (+ line diff) col)))
+              ((4)                      ; set-file
+               (let-values (((file pos) (read-uleb128 ctx pos)))
+                 (lp pos pc file line col)))
+              ((5)                      ; set-column
+               (let-values (((col pos) (read-uleb128 ctx pos)))
+                 (lp pos pc file line col)))
+              ((6)                      ; negate-line
+               (lp pos pc file line col))
+              ((7)                      ; set-basic-block
+               (lp pos pc file line col))
+              ((8)                      ; const-add-pc
+               (let ((advance (floor/ (- 255 opcode-base) line-range)))
+                 (lp pos (+ pc (* advance min-insn-len)) file line col)))
+              ((9)                      ; fixed-advance-pc
+               (let-values (((advance pos) (read-u16 ctx pos)))
+                 (lp pos (+ pc (* advance min-insn-len)) file line col)))
+              (else
+               ;; fixme: read args and move on
+               (error "unknown extended op" op))))
+           (else                        ; special opcodes
+            (let-values (((quo rem) (floor/ (- op opcode-base) line-range)))
+              (values pos (+ pc (* quo min-insn-len))
+                      file (+ line (+ rem line-base)) col))))))))))
+
+(define (line-prog-advance prog)
+  (let ((regs (line-prog-regs prog)))
+    (call-with-values (lambda ()
+                        (line-prog-next-row prog
+                                            (lregs-pos regs)
+                                            (lregs-pc regs)
+                                            (lregs-file regs)
+                                            (lregs-line regs)
+                                            (lregs-column regs)))
+      (lambda (pos pc file line col)
+        (cond
+         ((not pos)
+          (values #f #f #f #f))
+         (else
+          (set-lregs-pos! regs pos)
+          (set-lregs-pc! regs pc)
+          (set-lregs-file! regs file)
+          (set-lregs-line! regs line)
+          (set-lregs-column! regs col)
+          ;; Return DWARF-numbered lines and columns (1-based).
+          (values pc
+                  (if (zero? file)
+                      #f
+                      (list-ref (line-prog-file-names prog) (1- file)))
+                  (if (zero? line) #f line)
+                  (if (zero? col) #f col))))))))
+
+(define (line-prog-scan-to-pc prog target-pc)
+  (let ((regs (line-prog-regs prog)))
+    (define (finish pos pc file line col)
+      (set-lregs-pos! regs pos)
+      (set-lregs-pc! regs pc)
+      (set-lregs-file! regs file)
+      (set-lregs-line! regs line)
+      (set-lregs-column! regs col)
+      ;; Return DWARF-numbered lines and columns (1-based).
+      (values pc
+              (if (zero? file)
+                  #f
+                  (list-ref (line-prog-file-names prog) (1- file)))
+              (if (zero? line) #f line)
+              (if (zero? col) #f col)))
+    (define (scan pos pc file line col)
+      (call-with-values (lambda ()
+                          (line-prog-next-row prog pos pc file line col))
+        (lambda (pos* pc* file* line* col*)
+          (cond
+           ((not pos*)
+            (values #f #f #f #f))
+           ((< pc* target-pc)
+            (scan pos* pc* file* line* col*))
+           ((= pc* target-pc)
+            (finish pos* pc* file* line* col*))
+           (else
+            (finish pos pc file line col))))))
+    (let ((pos (lregs-pos regs))
+          (pc (lregs-pc regs))
+          (file (lregs-file regs))
+          (line (lregs-line regs))
+          (col (lregs-column regs)))
+      (if (< pc target-pc)
+          (scan pos pc file line col)
+          (scan (line-prog-program-offset prog) 0 1 1 0)))))
+
 (define-syntax-rule (define-attribute-parsers parse (name parser) ...)
   (define parse
     (let ((parsers (make-hash-table)))
@@ -1265,6 +1488,15 @@
    ((die-specification die)
     => die-qname)
    (else #f)))
+
+(define (die-line-prog die)
+  (let ((stmt-list (die-ref die 'stmt-list)))
+    (and stmt-list
+         (let* ((ctx (die-ctx die))
+                (meta (ctx-meta ctx)))
+           (make-line-prog ctx
+                           (+ (meta-line-start meta) stmt-list)
+                           (meta-line-end meta))))))
 
 (define (read-values ctx offset abbrev)
   (let lp ((attrs (abbrev-attrs abbrev))
@@ -1377,6 +1609,16 @@
     (for-each visit-die roots)
     #f))
 
+(define (die-low-pc die)
+  (die-ref die 'low-pc))
+(define (die-high-pc die)
+  (let ((val (die-ref die 'high-pc)))
+    (and val
+         (let ((idx (list-index (die-attrs die) 'high-pc)))
+           (case (list-ref (die-forms die) idx)
+             ((addr) val)
+             (else (+ val (die-low-pc die))))))))
+
 (define (find-die-by-pc roots pc)
   ;; The result will be a subprogram.
   (define (skip? ctx offset abbrev)
@@ -1386,15 +1628,15 @@
   (define (recurse? die)
     (case (die-tag die)
       ((compile-unit)
-       (not (or (and=> (die-ref die 'low-pc)
+       (not (or (and=> (die-low-pc die)
                        (lambda (low) (< pc low)))
-                (and=> (die-ref die 'high-pc)
+                (and=> (die-high-pc die)
                        (lambda (high) (<= high pc))))))
       (else #f)))
   (find-die roots
             (lambda (die)
               (and (eq? (die-tag die) 'subprogram)
-                   (equal? (die-ref die 'low-pc) pc)))
+                   (equal? (die-low-pc die) pc)))
             #:skip? skip? #:recurse? recurse?))
 
 (define (fold-die-list ctx offset skip? proc seed)
@@ -1555,6 +1797,7 @@
          (abbrevs (assoc-ref sections ".debug_abbrev"))
          (strtab (assoc-ref sections ".debug_str"))
          (loc (assoc-ref sections ".debug_loc"))
+         (line (assoc-ref sections ".debug_line"))
          (pubnames (assoc-ref sections ".debug_pubnames"))
          (aranges (assoc-ref sections ".debug_aranges")))
     (make-dwarf-context (elf-bytes elf)
@@ -1576,6 +1819,11 @@
                          (elf-section-offset loc)
                          (+ (elf-section-offset loc)
                             (elf-section-size loc))
+                         (and line
+                              (elf-section-offset line))
+                         (and line
+                              (+ (elf-section-offset line)
+                                 (elf-section-size line)))
                          (and pubnames
                               (elf-section-offset pubnames))
                          (and pubnames
