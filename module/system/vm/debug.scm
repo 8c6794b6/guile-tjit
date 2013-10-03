@@ -26,6 +26,7 @@
 
 (define-module (system vm debug)
   #:use-module (system vm elf)
+  #:use-module (system vm dwarf)
   #:use-module (system vm objcode)
   #:use-module (system foreign)
   #:use-module (rnrs bytevectors)
@@ -63,7 +64,17 @@
 
             find-program-docstring
 
-            find-program-properties))
+            find-program-properties
+
+            source?
+            source-pre-pc
+            source-post-pc
+            source-file
+            source-line
+            source-line-for-user
+            source-column
+            find-source-for-addr
+            find-program-sources))
 
 ;;; A compiled procedure comes from a specific loaded ELF image.  A
 ;;; debug context identifies that image.
@@ -425,4 +436,82 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
                 '())
                (else
                 (load-non-immediate
-                 (bytevector-u32-native-ref bv (+ pos 4))))))))))))
+                 (bytevector-u32-native-ref bv (+ pos 4)))))))))
+    (else '()))))
+
+(define-record-type <source>
+  (make-source pre-pc file line column)
+  source?
+  (pre-pc source-pre-pc)
+  (file source-file)
+  (line source-line)
+  (column source-column))
+
+(define (make-source/dwarf pc file line column)
+  (make-source pc file
+               ;; Convert DWARF-numbered (1-based) lines and
+               ;; columns to Guile conventions (0-based).
+               (and line (1- line)) (and column (1- column))))
+
+;; FIXME
+(define (source-post-pc source)
+  (source-pre-pc source))
+
+;; Lines are zero-indexed inside Guile, but users expect them to be
+;; one-indexed. Columns, on the other hand, are zero-indexed to both. Go
+;; figure.
+(define (source-line-for-user source)
+  (1+ (source-line source)))
+
+(define* (find-source-for-addr addr #:optional
+                               (context (find-debug-context addr))
+                               #:key exact?)
+  (let* ((base (debug-context-base context))
+         (pc (- addr base)))
+    (and=>
+     (false-if-exception
+      (elf->dwarf-context (debug-context-elf context)))
+     (lambda (dwarf-ctx)
+       (or-map (lambda (die)
+                 (and=>
+                  (die-line-prog die)
+                  (lambda (prog)
+                    (call-with-values
+                        (lambda () (line-prog-scan-to-pc prog pc))
+                      (lambda (pc* file line col)
+                        (and pc* (or (= pc pc*) (not exact?))
+                             (make-source/dwarf (+ pc* base)
+                                                file line col)))))))
+               (read-die-roots dwarf-ctx))))))
+
+(define* (find-program-die addr #:optional
+                           (context (find-debug-context addr)))
+  (and=> (false-if-exception
+          (elf->dwarf-context (debug-context-elf context)))
+         (lambda (dwarf-ctx)
+           (find-die-by-pc (read-die-roots dwarf-ctx)
+                           (- addr (debug-context-base context))))))
+
+(define* (find-program-sources addr #:optional
+                               (context (find-debug-context addr)))
+  (and=>
+   (find-program-die addr context)
+   (lambda (die)
+     (let* ((base (debug-context-base context))
+            (low-pc (die-ref die 'low-pc))
+            (high-pc (die-high-pc die))
+            (prog (let line-prog ((die die))
+                    (and die
+                         (or (die-line-prog die)
+                             (line-prog (ctx-die (die-ctx die))))))))
+       (cond
+        ((and low-pc high-pc prog)
+         (line-prog-scan-to-pc prog (1- low-pc))
+         (let lp ((sources '()))
+           (call-with-values (lambda () (line-prog-advance prog))
+             (lambda (pc file line col)
+               (if (and pc (< pc high-pc))
+                   (lp (cons (make-source/dwarf (+ pc base) file line col)
+                             sources))
+                   (reverse sources))))))
+        (else '()))))))
