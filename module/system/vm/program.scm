@@ -123,7 +123,7 @@
   (cond
    ((rtl-program? proc)
     (map (lambda (source)
-           (cons* (source-post-pc source)
+           (cons* (- (source-post-pc source) (rtl-program-code proc))
                   (source-file source)
                   (source-line source)
                   (source-column source)))
@@ -154,7 +154,7 @@
   (cond
    ((rtl-program? proc)
     (map (lambda (source)
-           (cons* (source-pre-pc source)
+           (cons* (- (source-pre-pc source) (rtl-program-code proc))
                   (source-file source)
                   (source-line source)
                   (source-column source)))
@@ -331,7 +331,7 @@
 (define (write-program prog port)
   (define (program-identity-string)
     (or (procedure-name prog)
-        (and=> (and (program? prog) (program-source prog 0))
+        (and=> (program-source prog 0)
                (lambda (s)
                  (format #f "~a at ~a:~a:~a"
                          (number->string (object-address prog) 16)

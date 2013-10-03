@@ -506,9 +506,11 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
                              (line-prog (ctx-die (die-ctx die))))))))
        (cond
         ((and low-pc high-pc prog)
-         (line-prog-scan-to-pc prog (1- low-pc))
          (let lp ((sources '()))
-           (call-with-values (lambda () (line-prog-advance prog))
+           (call-with-values (lambda ()
+                               (if (null? sources)
+                                   (line-prog-scan-to-pc prog low-pc)
+                                   (line-prog-advance prog)))
              (lambda (pc file line col)
                (if (and pc (< pc high-pc))
                    (lp (cons (make-source/dwarf (+ pc base) file line col)
