@@ -1,6 +1,6 @@
 ;;; Guile VM frame functions
 
-;;; Copyright (C) 2001, 2005, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2005, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -73,7 +73,7 @@
 
 (define (frame-next-source frame)
   (let ((proc (frame-procedure frame)))
-    (if (program? proc)
+    (if (or (program? proc) (rtl-program? proc))
         (program-source proc
                         (frame-instruction-pointer frame)
                         (program-sources-pre-retire proc))
@@ -100,7 +100,7 @@
     (cons
      (or (false-if-exception (procedure-name p)) p)
      (cond
-      ((and (program? p)
+      ((and (or (program? p) (rtl-program? p))
             (program-arguments-alist p (frame-instruction-pointer frame)))
        ;; case 1
        => (lambda (arguments)

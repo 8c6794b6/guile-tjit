@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -110,7 +110,7 @@ SCM_DEFINE (scm_frame_source, "frame-source", 1, 0, 0,
 
   proc = scm_frame_procedure (frame);
 
-  if (SCM_PROGRAM_P (proc))
+  if (SCM_PROGRAM_P (proc) || SCM_RTL_PROGRAM_P (proc))
     return scm_program_source (scm_frame_procedure (frame),
                                scm_frame_instruction_pointer (frame),
                                SCM_UNDEFINED);
@@ -259,6 +259,10 @@ SCM_DEFINE (scm_frame_instruction_pointer, "frame-instruction-pointer", 1, 0, 0,
 
   SCM_VALIDATE_VM_FRAME (1, frame);
   program = scm_frame_procedure (frame);
+
+  if (SCM_RTL_PROGRAM_P (program))
+    return scm_from_ptrdiff_t (SCM_VM_FRAME_IP (frame) -
+                               (scm_t_uint8 *) SCM_RTL_PROGRAM_CODE (program));
 
   if (!SCM_PROGRAM_P (program))
     return SCM_INUM0;

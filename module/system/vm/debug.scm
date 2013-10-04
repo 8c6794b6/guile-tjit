@@ -155,8 +155,11 @@ offset from the beginning of the ELF image in 32-bit units."
 
 (define (find-debug-context addr)
   "Find and return the debugging context corresponding to the ELF image
-containing the address @var{addr}.  @var{addr} is an integer."
-  (debug-context-from-image (find-mapped-elf-image addr)))
+containing the address @var{addr}.  @var{addr} is an integer.  If no ELF
+image is found, return @code{#f}.  It's possible for an RTL program not
+to have an ELF image if the program was defined in as a stub in C."
+  (and=> (find-mapped-elf-image addr)
+         debug-context-from-image))
 
 (define (find-elf-symbol elf text-offset)
   "Search the symbol table of @var{elf} for the ELF symbol containing
@@ -189,10 +192,11 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
   "Find and return the @code{<program-debug-info>} containing
 @var{addr}, or @code{#f}."
   (cond
-   ((find-elf-symbol (debug-context-elf context)
-                     (- addr
-                        (debug-context-base context)
-                        (debug-context-text-base context)))
+   ((and context
+         (find-elf-symbol (debug-context-elf context)
+                          (- addr
+                             (debug-context-base context)
+                             (debug-context-text-base context))))
     => (lambda (sym)
          (make-program-debug-info context
                                   (and=> (elf-symbol-name sym)
@@ -343,7 +347,8 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 (define* (find-program-arities addr #:optional
                                (context (find-debug-context addr)))
   (and=>
-   (elf-section-by-name (debug-context-elf context) ".guile.arities")
+   (and context
+        (elf-section-by-name (debug-context-elf context) ".guile.arities"))
    (lambda (sec)
      (let* ((base (elf-section-offset sec))
             (first (find-first-arity context base addr)))
@@ -357,7 +362,8 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 (define* (program-minimum-arity addr #:optional
                                 (context (find-debug-context addr)))
   (and=>
-   (elf-section-by-name (debug-context-elf context) ".guile.arities")
+   (and context
+        (elf-section-by-name (debug-context-elf context) ".guile.arities"))
    (lambda (sec)
      (let* ((base (elf-section-offset sec))
             (first (find-first-arity context base addr)))
@@ -370,7 +376,8 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 (define* (find-program-docstring addr #:optional
                                  (context (find-debug-context addr)))
   (and=>
-   (elf-section-by-name (debug-context-elf context) ".guile.docstrs")
+   (and context
+        (elf-section-by-name (debug-context-elf context) ".guile.docstrs"))
    (lambda (sec)
      ;; struct docstr {
      ;;   uint32_t pc;
@@ -409,7 +416,8 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
                    (maybe-acons 'documentation docstring props))))
   (add-name-and-docstring
    (cond
-    ((elf-section-by-name (debug-context-elf context) ".guile.procprops")
+    ((and context
+          (elf-section-by-name (debug-context-elf context) ".guile.procprops"))
      => (lambda (sec)
           ;; struct procprop {
           ;;   uint32_t pc;
@@ -466,12 +474,13 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 (define* (find-source-for-addr addr #:optional
                                (context (find-debug-context addr))
                                #:key exact?)
-  (let* ((base (debug-context-base context))
-         (pc (- addr base)))
-    (and=>
-     (false-if-exception
-      (elf->dwarf-context (debug-context-elf context)))
-     (lambda (dwarf-ctx)
+  (and=>
+   (and context
+        (false-if-exception
+         (elf->dwarf-context (debug-context-elf context))))
+   (lambda (dwarf-ctx)
+     (let* ((base (debug-context-base context))
+            (pc (- addr base)))
        (or-map (lambda (die)
                  (and=>
                   (die-line-prog die)
@@ -486,34 +495,36 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 
 (define* (find-program-die addr #:optional
                            (context (find-debug-context addr)))
-  (and=> (false-if-exception
-          (elf->dwarf-context (debug-context-elf context)))
+  (and=> (and context
+              (false-if-exception
+               (elf->dwarf-context (debug-context-elf context))))
          (lambda (dwarf-ctx)
            (find-die-by-pc (read-die-roots dwarf-ctx)
                            (- addr (debug-context-base context))))))
 
 (define* (find-program-sources addr #:optional
                                (context (find-debug-context addr)))
-  (and=>
-   (find-program-die addr context)
-   (lambda (die)
-     (let* ((base (debug-context-base context))
-            (low-pc (die-ref die 'low-pc))
-            (high-pc (die-high-pc die))
-            (prog (let line-prog ((die die))
-                    (and die
-                         (or (die-line-prog die)
-                             (line-prog (ctx-die (die-ctx die))))))))
-       (cond
-        ((and low-pc high-pc prog)
-         (let lp ((sources '()))
-           (call-with-values (lambda ()
-                               (if (null? sources)
-                                   (line-prog-scan-to-pc prog low-pc)
-                                   (line-prog-advance prog)))
-             (lambda (pc file line col)
-               (if (and pc (< pc high-pc))
-                   (lp (cons (make-source/dwarf (+ pc base) file line col)
-                             sources))
-                   (reverse sources))))))
-        (else '()))))))
+  (cond
+   ((find-program-die addr context)
+    => (lambda (die)
+         (let* ((base (debug-context-base context))
+                (low-pc (die-ref die 'low-pc))
+                (high-pc (die-high-pc die))
+                (prog (let line-prog ((die die))
+                        (and die
+                             (or (die-line-prog die)
+                                 (line-prog (ctx-die (die-ctx die))))))))
+           (cond
+            ((and low-pc high-pc prog)
+             (let lp ((sources '()))
+               (call-with-values (lambda ()
+                                   (if (null? sources)
+                                       (line-prog-scan-to-pc prog low-pc)
+                                       (line-prog-advance prog)))
+                 (lambda (pc file line col)
+                   (if (and pc (< pc high-pc))
+                       (lp (cons (make-source/dwarf (+ pc base) file line col)
+                                 sources))
+                       (reverse sources))))))
+            (else '())))))
+   (else '())))
