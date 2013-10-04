@@ -124,7 +124,7 @@
       (($ $prim (? symbol? name))
        #t)
       (($ $fun)
-       (visit-fun fun k-env v-env))
+       (visit-fun exp k-env v-env))
       (($ $call (? symbol? proc) ((? symbol? arg) ...))
        (check-var proc v-env)
        (for-each (cut check-var <> v-env) arg))
