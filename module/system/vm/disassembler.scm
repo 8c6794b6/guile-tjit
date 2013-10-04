@@ -311,15 +311,33 @@ address of that offset."
           addr info extra src))
 
 (define (disassemble-buffer port bv start end context)
-  (let ((labels (compute-labels bv start end)))
+  (let ((labels (compute-labels bv start end))
+        (sources (find-program-sources (u32-offset->addr start context)
+                                       context)))
+    (define (lookup-source addr)
+      (let lp ((sources sources))
+        (match sources
+          (() #f)
+          ((source . sources)
+           (let ((pc (source-pre-pc source)))
+             (cond
+              ((< pc addr) (lp sources))
+              ((= pc addr)
+               (format #f "~a:~a:~a"
+                       (source-file source)
+                       (source-line-for-user source)
+                       (source-column source)))
+              (else #f)))))))
     (let lp ((offset start))
       (when (< offset end)
         (call-with-values (lambda () (disassemble-one bv offset))
           (lambda (len elt)
             (let ((pos (- offset start))
+                  (addr (u32-offset->addr offset context))
                   (annotation (code-annotation elt len offset start labels
                                                context)))
-              (print-info port pos (vector-ref labels pos) elt annotation #f)
+              (print-info port pos (vector-ref labels pos) elt annotation
+                          (lookup-source addr))
               (lp (+ offset len)))))))))
 
 (define* (disassemble-program program #:optional (port (current-output-port)))
