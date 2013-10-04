@@ -54,7 +54,8 @@
             find-defining-expression
             find-constant-value
             lift-definition!
-            variable-used-in?
+            variable-bound-in?
+            variable-free-in?
             constant-needs-allocation?
             dead-after-def?
             dead-after-use?
@@ -341,11 +342,18 @@
              (lp body))
             (_ #t))))))))
 
-(define (variable-used-in? var parent-k dfg)
+(define (variable-bound-in? var k dfg)
+  (match dfg
+    (($ $dfg conts use-maps uplinks)
+     (match (lookup-use-map k use-maps)
+       (($ $use-map sym def uses)
+        (continuation-scope-contains? def k uplinks))))))
+
+(define (variable-free-in? var k dfg)
   (match dfg
     (($ $dfg conts use-maps uplinks)
      (or-map (lambda (use)
-               (continuation-scope-contains? parent-k use uplinks))
+               (continuation-scope-contains? k use uplinks))
              (match (lookup-use-map var use-maps)
                (($ $use-map sym def uses)
                 uses))))))

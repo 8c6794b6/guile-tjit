@@ -80,6 +80,12 @@
                     (list sym) (list self) (list tail)
                     (list arities) (list bodies)))
 
+    ;; Given a set of mutually recursive functions bound to local
+    ;; variables SYMS, with self symbols SELFS, tail continuations
+    ;; TAILS, arities ARITIES, and bodies BODIES, all bound in TERM-K,
+    ;; contify them if we can prove that they all return to the same
+    ;; continuation.  If successful, return that common continuation.
+    ;; Otherwise return #f.
     (define (contify-funs term-k syms selfs tails arities bodies)
       ;; Are the given args compatible with any of the arities?
       (define (applicable? proc args)
@@ -162,7 +168,7 @@
            ;; components, and lump everything else in the remaining
            ;; component.
            (define (recursive? k)
-             (or-map (cut variable-used-in? <> k dfg) syms))
+             (or-map (cut variable-free-in? <> k dfg) syms))
            (let lp ((nsf nsf) (rec '()))
              (match nsf
                (()
