@@ -158,7 +158,16 @@
                              (define (odd? x)
                                (if (null? x) #f (even? (cdr x))))
                              (even? x)))
-                 '(1 2 3)))))
+                 '(1 2 3))))
+
+  (pass-if-equal '(#t)
+      ((run-rtl '(lambda (x)
+                   (define (even? x)
+                     (if (null? x) #t (odd? (cdr x))))
+                   (define (odd? x)
+                     (if (null? x) #f (even? (cdr x))))
+                   (list (even? x))))
+       '(1 2 3 4))))
 
 (with-test-prefix "case-lambda"
   (pass-if-equal "simple"
