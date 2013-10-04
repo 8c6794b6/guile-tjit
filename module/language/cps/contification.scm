@@ -42,13 +42,32 @@
   (let* ((dfg (compute-dfg fun))
          (cont-table (dfg-cont-table dfg))
          (call-substs '())
-         (cont-substs '()))
+         (cont-substs '())
+         (pending-contifications (make-hash-table)))
     (define (subst-call! sym arities body-ks)
       (set! call-substs (acons sym (map cons arities body-ks) call-substs)))
     (define (subst-return! old-tail new-tail)
       (set! cont-substs (acons old-tail new-tail cont-substs)))
     (define (lookup-return-cont k)
       (or (assq-ref cont-substs k) k))
+
+    (define (add-pending-contifications! scope conts)
+      (for-each (match-lambda
+                 (($ $cont k)
+                  (lift-definition! k scope dfg)))
+                conts)
+      (hashq-set! pending-contifications scope
+                  (append conts
+                          (hashq-ref pending-contifications scope '()))))
+    (define (finish-pending-contifications call term-k)
+      (match (hashq-ref pending-contifications term-k)
+        (#f call)
+        ((cont ...)
+         ;; Catch any possible double-contification bug.
+         (hashq-set! pending-contifications term-k 'poison)
+         (build-cps-term
+           ($letk ,(map visit-cont cont)
+             ,call)))))
 
     (define (contify-call proc args)
       (and=> (assq-ref call-substs proc)
@@ -84,8 +103,8 @@
     ;; variables SYMS, with self symbols SELFS, tail continuations
     ;; TAILS, arities ARITIES, and bodies BODIES, all bound in TERM-K,
     ;; contify them if we can prove that they all return to the same
-    ;; continuation.  If successful, return that common continuation.
-    ;; Otherwise return #f.
+    ;; continuation.  Returns a true value on success, and false
+    ;; otherwise.
     (define (contify-funs term-k syms selfs tails arities bodies)
       ;; Are the given args compatible with any of the arities?
       (define (applicable? proc args)
@@ -123,19 +142,26 @@
                                   ((eq? k k*) (visit-uses uses k))
                                   (else #f))))))))))
               (lambda (k)
-                ;; We have a common continuation, so we contify: mark
-                ;; all SYMs for replacement in calls, and mark the tail
-                ;; continuations for replacement by K.
-                (for-each (lambda (sym tail arities bodies)
-                            (for-each (cut lift-definition! <> term-k dfg)
-                                      bodies)
-                            (subst-call! sym arities bodies)
-                            (subst-return! tail k))
-                          syms tails arities bodies)
-                k))))
+                ;; We have a common continuation.  High fives!
+                ;;
+                ;; (1) Find the scope at which to contify.
+                (let ((scope (if (variable-bound-in? k term-k dfg)
+                                 term-k
+                                 (lookup-def k dfg))))
+                  ;; (2) Mark all SYMs for replacement in calls, and
+                  ;; mark the tail continuations for replacement by K.
+                  (for-each (lambda (sym tail arities bodies)
+                              (match bodies
+                                ((($ $cont body-k) ...)
+                                 (subst-call! sym arities body-k)))
+                              (subst-return! tail k))
+                            syms tails arities bodies)
+                  ;; (3) Mutate the DFG to reflect the new scope of the
+                  ;; continuations, and arrange for the continuations to
+                  ;; be spliced into their new scope.
+                  (add-pending-contifications! scope (concatenate bodies))
+                  k)))))
 
-    ;; This is a first cut at a contification algorithm.  It contifies
-    ;; non-recursive functions that only have positional arguments.
     (define (visit-fun term)
       (rewrite-cps-exp term
         (($ $fun meta free body)
@@ -158,9 +184,21 @@
       (match term
         (($ $letk conts body)
          ;; Visit the body first, so we visit depth-first.
-         (let ((body (visit-term body term-k)))
-           (build-cps-term
-             ($letk ,(map visit-cont conts) ,body))))
+         (let lp ((body (visit-term body term-k)))
+           ;; Because we attach contified functions on a particular
+           ;; term-k, and one term-k can correspond to an arbitrarily
+           ;; nested sequence of $letrec and $letk instances, normalize
+           ;; so that all continuations are bound by one $letk --
+           ;; guaranteeing that they are in the same scope.
+           (rewrite-cps-term body
+             (($ $letrec names syms funs body)
+              ($letrec names syms funs ,(lp body)))
+             (($ $letk conts* body)
+              ($letk ,(append conts* (map visit-cont conts))
+                ,body))
+             (body
+              ($letk ,(map visit-cont conts)
+                ,body)))))
         (($ $letrec names syms funs body)
          (define (split-components nsf)
            ;; FIXME: Compute strongly-connected components.  Currently
@@ -189,19 +227,14 @@
                      ($ $cont fun-k _
                         ($ $kentry self
                            ($ $cont tail-k _ ($ $ktail))
-                           (($ $cont _ _ ($ $kclause arity
-                                            (and body ($ $cont body-k))))
+                           (($ $cont _ _ ($ $kclause arity body))
                             ...))))
                   ...)
-                 (if (contify-funs term-k sym self tail-k arity body-k)
-                     (let ((body* (visit-components components)))
-                       (build-cps-term
-                         ($letk ,(map visit-cont (concatenate body))
-                           ,body*)))
-                     (let-gensyms (k)
-                       (build-cps-term
-                         ($letrec name sym (map visit-fun fun)
-                                  ,(visit-components components))))))))))
+                 (if (contify-funs term-k sym self tail-k arity body)
+                     (visit-components components)
+                     (build-cps-term
+                       ($letrec name sym (map visit-fun fun)
+                                ,(visit-components components)))))))))
          (visit-components (split-components (map list names syms funs))))
         (($ $continue k exp)
          (let ((k* (lookup-return-cont k)))
@@ -217,25 +250,24 @@
                      (build-cps-term ($continue k* ,exp))
                      (build-cps-term ($continue k* ($values vals)))))
                (_ ($continue k* ,exp))))
-           (match exp
-             (($ $fun meta free
-                 ($ $cont fun-k _
-                    ($ $kentry self
-                       ($ $cont tail-k _ ($ $ktail))
-                       (($ $cont _ _ ($ $kclause arity
-                                        (and body ($ $cont body-k))))
-                        ...))))
-              (if (and=> (bound-symbol k*)
-                         (lambda (sym)
-                           (contify-fun term-k sym self tail-k arity body-k)))
-                  (build-cps-term
-                    ($letk ,(map visit-cont body)
-                      ($continue k* ($values ()))))
-                  (default)))
-             (($ $call proc args)
-              (or (contify-call proc args)
-                  (default)))
-             (_ (default)))))))
+           (finish-pending-contifications
+            (match exp
+              (($ $fun meta free
+                  ($ $cont fun-k _
+                     ($ $kentry self
+                        ($ $cont tail-k _ ($ $ktail))
+                        (($ $cont _ _ ($ $kclause arity body)) ...))))
+               (if (and=> (bound-symbol k*)
+                          (lambda (sym)
+                            (contify-fun term-k sym self tail-k arity body)))
+                   (build-cps-term
+                     ($continue k* ($values ())))
+                   (default)))
+              (($ $call proc args)
+               (or (contify-call proc args)
+                   (default)))
+              (_ (default)))
+            term-k)))))
 
     (let ((fun (visit-fun fun)))
       (if (null? call-substs)
