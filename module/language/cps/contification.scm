@@ -49,7 +49,9 @@
     (define (subst-return! old-tail new-tail)
       (set! cont-substs (acons old-tail new-tail cont-substs)))
     (define (lookup-return-cont k)
-      (or (assq-ref cont-substs k) k))
+      (match (assq-ref cont-substs k)
+        (#f k)
+        (k (lookup-return-cont k))))
 
     (define (add-pending-contifications! scope conts)
       (for-each (match-lambda
@@ -78,7 +80,8 @@
                    (((($ $arity req () #f () #f) . k) . clauses)
                     (if (= (length req) (length args))
                         (build-cps-term
-                          ($continue k ($values args)))
+                          ($continue (lookup-return-cont k)
+                            ($values args)))
                         (lp clauses)))
                    ((_ . clauses) (lp clauses)))))))
 
@@ -121,7 +124,7 @@
         (match (find-call (lookup-cont use cont-table))
           (($ $continue k ($ $call proc* args))
            (and (eq? proc proc*) (not (memq proc args)) (applicable? proc args)
-                k))
+                (lookup-return-cont k)))
           (_ #f)))
 
       (and
