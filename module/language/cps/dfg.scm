@@ -345,7 +345,7 @@
 (define (variable-bound-in? var k dfg)
   (match dfg
     (($ $dfg conts use-maps uplinks)
-     (match (lookup-use-map k use-maps)
+     (match (lookup-use-map var use-maps)
        (($ $use-map sym def uses)
         (continuation-scope-contains? def k uplinks))))))
 
