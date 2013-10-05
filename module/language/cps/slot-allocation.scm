@@ -340,8 +340,9 @@ are comparable with eqv?.  A tmp slot may be used."
 
     (define (visit-exp exp label k live-set)
       (define (use sym live-set)
-        (if (and (lookup-slot sym allocation) (dead-after-use? sym k dfg))
-            (dead sym k live-set)
+        (if (and (and=> (lookup-slot sym allocation) (cut > <> nargs))
+                 (dead-after-use? sym label dfg))
+            (dead sym label live-set)
             live-set))
 
       (match exp
