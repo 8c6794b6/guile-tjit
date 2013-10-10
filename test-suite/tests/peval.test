@@ -1279,4 +1279,12 @@
   (pass-if-peval
       (call-with-values foo (lambda (x) (bar x)))
     (let (x) (_) ((call (toplevel foo)))
-         (call (toplevel bar) (lexical x _)))))
+         (call (toplevel bar) (lexical x _))))
+
+  (pass-if-peval
+      ((lambda (foo)
+         (define* (bar a #:optional (b (1+ a)))
+           (list a b))
+         (bar 1))
+       1)
+    (primcall list (const 1) (const 2))))

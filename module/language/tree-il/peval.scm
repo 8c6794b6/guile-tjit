@@ -1350,26 +1350,48 @@ top-level bindings from ENV and return the resulting expression."
             ;; todo: handle the more complex cases
             (let* ((nargs (length orig-args))
                    (nreq (length req))
-                   (nopt (if opt (length opt) 0))
+                   (opt (or opt '()))
+                   (rest (if rest (list rest) '()))
+                   (nopt (length opt))
                    (key (source-expression proc)))
               (define (inlined-call)
-                (make-let src
-                          (append req
-                                  (or opt '())
-                                  (if rest (list rest) '()))
-                          gensyms
-                          (if (> nargs (+ nreq nopt))
-                              (append (list-head orig-args (+ nreq nopt))
-                                      (list
-                                       (make-primcall
-                                        #f 'list
-                                        (drop orig-args (+ nreq nopt)))))
-                              (append orig-args
-                                      (drop inits (- nargs nreq))
-                                      (if rest
-                                          (list (make-const #f '()))
-                                          '())))
-                          body))
+                (let ((req-vals (list-head orig-args nreq))
+                      (opt-vals (let lp ((args (drop orig-args nreq))
+                                         (inits inits)
+                                         (out '()))
+                                  (match inits
+                                    (() (reverse out))
+                                    ((init . inits)
+                                     (match args
+                                       (()
+                                        (lp '() inits (cons init out)))
+                                       ((arg . args)
+                                        (lp args inits (cons arg out))))))))
+                      (rest-vals (cond
+                                  ((> nargs (+ nreq nopt))
+                                   (list (make-primcall
+                                          #f 'list
+                                          (drop orig-args (+ nreq nopt)))))
+                                  (rest (list (make-const #f '())))
+                                  (else '()))))
+                  (if (>= nargs (+ nreq nopt))
+                      (make-let src
+                                (append req opt rest)
+                                gensyms
+                                (append req-vals opt-vals rest-vals)
+                                body)
+                      ;; The required argument values are in the scope
+                      ;; of the optional argument initializers.
+                      (make-let src
+                                (append req rest)
+                                (append (list-head gensyms nreq)
+                                        (last-pair gensyms))
+                                (append req-vals rest-vals)
+                                (make-let src
+                                          opt
+                                          (list-head (drop gensyms nreq) nopt)
+                                          opt-vals
+                                          body)))))
 
               (cond
                ((or (< nargs nreq) (and (not rest) (> nargs (+ nreq nopt))))
