@@ -90,7 +90,7 @@
     (define (bound-symbol k)
       (match (lookup-cont k cont-table)
         (($ $kargs (_) (sym))
-         (match (lookup-uses k dfg)
+         (match (lookup-predecessors k dfg)
            ((_)
             ;; K has one predecessor, the one that defined SYM.
             sym)
@@ -148,7 +148,7 @@
                 ;; We have a common continuation.  High fives!
                 ;;
                 ;; (1) Find the scope at which to contify.
-                (let ((scope (if (variable-bound-in? k term-k dfg)
+                (let ((scope (if (continuation-bound-in? k term-k dfg)
                                  term-k
                                  (lookup-def k dfg))))
                   ;; (2) Mark all SYMs for replacement in calls, and
