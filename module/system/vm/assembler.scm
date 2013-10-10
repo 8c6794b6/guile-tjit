@@ -1663,7 +1663,7 @@ it will be added to the GC roots at runtime."
            ;; Now write the statement program.
            (let ()
              (define (extended-op opcode payload-len)
-               (put-u8 line-port 0) ; extended op
+               (put-u8 line-port 0)                     ; extended op
                (put-uleb128 line-port (1+ payload-len)) ; payload-len + opcode
                (put-uleb128 line-port opcode))
              (define (set-address sym)
@@ -1685,7 +1685,7 @@ it will be added to the GC roots at runtime."
                   (put-u64 line-port 0))))
              (define (end-sequence pc)
                (let ((pc-inc (- (asm-pos asm) pc)))
-                 (put-u8 line-port 2) ; advance-pc
+                 (put-u8 line-port 2)   ; advance-pc
                  (put-uleb128 line-port pc-inc))
                (extended-op 1 0))
              (define (advance-pc pc-inc line-inc)
@@ -1718,7 +1718,12 @@ it will be added to the GC roots at runtime."
 
              (let lp ((in out) (pc 0) (file 1) (line 1) (col 0))
                (match in
-                 (() (end-sequence pc))
+                 (()
+                  (when (null? out)
+                    ;; There was no source info in the first place.  Set
+                    ;; file register to 0 before adding final row.
+                    (set-file 0))
+                  (end-sequence pc))
                  (((pc* file* line* col*) . in*)
                   (cond
                    ((and (eqv? file file*) (eqv? line line*) (eqv? col col*))

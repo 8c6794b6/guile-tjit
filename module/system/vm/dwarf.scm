@@ -1397,6 +1397,9 @@
             (scan pos* pc* file* line* col*))
            ((= pc* target-pc)
             (finish pos* pc* file* line* col*))
+           ((zero? pc)
+            ;; We scanned from the beginning didn't find any info.
+            (values #f #f #f #f))
            (else
             (finish pos pc file line col))))))
     (let ((pos (lregs-pos regs))
