@@ -486,15 +486,15 @@
                 uses))))))
 
 ;; Does k1 dominate k2?
-;;
-;; Note that this is a conservative predicate: a false return value does
-;; not indicate that k1 _doesn't_ dominate k2.  The reason for this is
-;; that we are using the scope tree as an approximation of the dominator
-;; relationship.  See
-;; http://mlton.org/pipermail/mlton/2003-January/023054.html for a
-;; deeper discussion.
-(define (conservatively-dominates? k1 k2 blocks)
-  (continuation-scope-contains? k1 k2 blocks))
+(define (dominates? k1 k2 blocks)
+  (match (lookup-block k1 blocks)
+    (($ $block _ _ _ _ k1-idom k1-dom-level)
+     (match (lookup-block k2 blocks)
+       (($ $block _ _ _ _ k2-idom k2-dom-level)
+        (cond
+         ((> k1-dom-level k2-dom-level) #f)
+         ((< k1-dom-level k2-dom-level) (dominates? k1 k2-idom blocks))
+         ((= k1-dom-level k2-dom-level) (eqv? k1 k2))))))))
 
 (define (dead-after-def? sym dfg)
   (match dfg
@@ -512,7 +512,7 @@
         ;; are other ways for it to be dead, but this is an
         ;; approximation.  A better check would be if the successor
         ;; post-dominates all uses.
-        (and-map (cut conservatively-dominates? <> use-k blocks)
+        (and-map (cut dominates? <> use-k blocks)
                  uses))))))
 
 ;; A continuation is a "branch" if all of its predecessors are $kif
@@ -546,10 +546,10 @@
            ;; A symbol is dead after a branch if at least one of the
            ;; other branches dominates a use of the symbol, and all
            ;; other uses of the symbol dominate the test.
-           (if (or-map (cut conservatively-dominates? <> use-k blocks)
+           (if (or-map (cut dominates? <> use-k blocks)
                        other-branches)
-               (not (conservatively-dominates? branch use-k blocks))
-               (conservatively-dominates? use-k branch blocks)))
+               (not (dominates? branch use-k blocks))
+               (dominates? use-k branch blocks)))
          uses))))))
 
 (define (lookup-bound-syms k dfg)
