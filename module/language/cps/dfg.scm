@@ -118,6 +118,101 @@
 (define (make-block scope scope-level)
   (%make-block scope scope-level '() '() #f #f #f))
 
+(define (reverse-post-order k0 blocks)
+  (let ((order '())
+        (visited? (make-hash-table)))
+    (let visit ((k k0))
+      (hashq-set! visited? k #t)
+      (match (lookup-block k blocks)
+        ((and block ($ $block _ _ preds succs))
+         (for-each (lambda (k)
+                     (unless (hashq-ref visited? k)
+                       (visit k)))
+                   succs)
+         (set! order (cons k order)))))
+    order))
+
+(define-inlinable (for-each/enumerate f l)
+  (fold (lambda (x n) (f x n) (1+ n)) 0 l))
+
+(define (convert-predecessors order blocks)
+  (let* ((len (length order))
+         (mapping (make-hash-table))
+         (preds-vec (make-vector len #f)))
+    (for-each/enumerate
+     (cut hashq-set! mapping <> <>)
+     order)
+    (for-each/enumerate
+     (lambda (k n)
+       (match (lookup-block k blocks)
+         (($ $block _ _ preds)
+          (vector-set! preds-vec n
+                       ;; It's possible for a predecessor to not be in
+                       ;; the mapping, if the predecessor is not
+                       ;; reachable from the entry node.
+                       (filter-map (cut hashq-ref mapping <>) preds)))))
+     order)
+    preds-vec))
+
+(define (finish-idoms order idoms blocks)
+  (let ((order (list->vector order))
+        (dom-levels (make-vector (vector-length idoms) #f)))
+    (define (compute-dom-level n)
+      (or (vector-ref dom-levels n)
+          (let ((dom-level (1+ (compute-dom-level (vector-ref idoms n)))))
+            (vector-set! dom-levels n dom-level)
+            dom-level)))
+    (vector-set! dom-levels 0 0)
+    (let lp ((n 0))
+      (when (< n (vector-length order))
+        (let* ((k (vector-ref order n))
+               (idom (vector-ref idoms n))
+               (b (lookup-block k blocks)))
+          (set-block-idom! b (vector-ref order idom))
+          (set-block-dom-level! b (compute-dom-level n))
+          (lp (1+ n)))))))
+
+(define (compute-dominator-tree k blocks)
+  (let* ((order (reverse-post-order k blocks))
+         (preds (convert-predecessors order blocks))
+         (idoms (make-vector (vector-length preds) 0)))
+    (define (common-idom d0 d1)
+      ;; We exploit the fact that a reverse post-order is a topological
+      ;; sort, and so the idom of a node is always numerically less than
+      ;; the node itself.
+      (cond
+       ((= d0 d1) d0)
+       ((< d0 d1) (common-idom d0 (vector-ref idoms d1)))
+       (else (common-idom (vector-ref idoms d0) d1))))
+    (define (compute-idom preds)
+      (match preds
+        (() 0)
+        ((pred . preds)
+         (let lp ((idom pred) (preds preds))
+           (match preds
+             (() idom)
+             ((pred . preds)
+              (lp (common-idom idom pred) preds)))))))
+    ;; This is the iterative O(n^2) fixpoint algorithm, originally from
+    ;; Allen and Cocke ("Graph-theoretic constructs for program flow
+    ;; analysis", 1972).  See the discussion in Cooper, Harvey, and
+    ;; Kennedy's "A Simple, Fast Dominance Algorithm", 2001.
+    (let iterate ((n 0) (changed? #f))
+      (cond
+       ((< n (vector-length preds))
+        (let ((idom (vector-ref idoms n))
+              (idom* (compute-idom (vector-ref preds n))))
+          (cond
+           ((eqv? idom idom*)
+            (iterate (1+ n) changed?))
+           (else
+            (vector-set! idoms n idom*)
+            (iterate (1+ n) #t)))))
+       (changed?
+        (iterate 0 #f))
+       (else
+        (finish-idoms order idoms blocks))))))
+
 (define (visit-fun fun conts blocks use-maps global?)
   (define (add-def! sym def-k)
     (unless def-k
@@ -149,8 +244,8 @@
       (add-def! sym exp-k))
     (define (use! sym)
       (add-use! sym exp-k))
-    (define (use-k! sym)
-      (link-blocks! exp-k sym))
+    (define (use-k! k)
+      (link-blocks! exp-k k))
     (define (recur exp)
       (visit exp exp-k))
     (match exp
@@ -227,11 +322,9 @@
         (link-blocks! kclause kbody)
 
         (visit body kbody)))
+      clauses)
 
-      #;
-      (compute-dominator-tree kentry use-maps dnodes)
-
-      clauses))))
+     (compute-dominator-tree kentry blocks))))
 
 (define* (compute-dfg fun #:key (global? #t))
   (let* ((conts (make-hash-table))
