@@ -105,7 +105,7 @@
   (uses use-map-uses set-use-map-uses!))
 
 (define-record-type $block
-  (%make-block scope scope-level preds succs idom dom-level loop-header)
+  (%make-block scope scope-level preds succs idom dom-level loop-header irreducible)
   block?
   (scope block-scope set-block-scope!)
   (scope-level block-scope-level set-block-scope-level!)
@@ -113,10 +113,17 @@
   (succs block-succs set-block-succs!)
   (idom block-idom set-block-idom!)
   (dom-level block-dom-level set-block-dom-level!)
-  (loop-header block-loop-header set-block-loop-header!))
+
+  ;; The loop header of this block, if this block is part of a reducible
+  ;; loop.  Otherwise #f.
+  (loop-header block-loop-header set-block-loop-header!)
+
+  ;; Some sort of marker that this block is part of an irreducible
+  ;; (multi-entry) loop.  Otherwise #f.
+  (irreducible block-irreducible set-block-irreducible!))
 
 (define (make-block scope scope-level)
-  (%make-block scope scope-level '() '() #f #f #f))
+  (%make-block scope scope-level '() '() #f #f #f #f))
 
 (define (reverse-post-order k0 blocks)
   (let ((order '())
@@ -130,33 +137,29 @@
                        (visit k)))
                    succs)
          (set! order (cons k order)))))
-    order))
-
-(define-inlinable (for-each/enumerate f l)
-  (fold (lambda (x n) (f x n) (1+ n)) 0 l))
+    (list->vector order)))
 
 (define (convert-predecessors order blocks)
-  (let* ((len (length order))
-         (mapping (make-hash-table))
-         (preds-vec (make-vector len #f)))
-    (for-each/enumerate
-     (cut hashq-set! mapping <> <>)
-     order)
-    (for-each/enumerate
-     (lambda (k n)
-       (match (lookup-block k blocks)
-         (($ $block _ _ preds)
-          (vector-set! preds-vec n
-                       ;; It's possible for a predecessor to not be in
-                       ;; the mapping, if the predecessor is not
-                       ;; reachable from the entry node.
-                       (filter-map (cut hashq-ref mapping <>) preds)))))
-     order)
+  (let* ((mapping (make-hash-table))
+         (preds-vec (make-vector (vector-length order) #f)))
+    (let lp ((n 0))
+      (when (< n (vector-length order))
+        (hashq-set! mapping (vector-ref order n) n)
+        (lp (1+ n))))
+    (let lp ((n 0))
+      (when (< n (vector-length order))
+        (match (lookup-block (vector-ref order n) blocks)
+          (($ $block _ _ preds)
+           (vector-set! preds-vec n
+                        ;; It's possible for a predecessor to not be in
+                        ;; the mapping, if the predecessor is not
+                        ;; reachable from the entry node.
+                        (filter-map (cut hashq-ref mapping <>) preds))
+           (lp (1+ n))))))
     preds-vec))
 
-(define (finish-idoms order idoms blocks)
-  (let ((order (list->vector order))
-        (dom-levels (make-vector (vector-length idoms) #f)))
+(define (compute-dom-levels idoms)
+  (let ((dom-levels (make-vector (vector-length idoms) #f)))
     (define (compute-dom-level n)
       (or (vector-ref dom-levels n)
           (let ((dom-level (1+ (compute-dom-level (vector-ref idoms n)))))
@@ -164,18 +167,13 @@
             dom-level)))
     (vector-set! dom-levels 0 0)
     (let lp ((n 0))
-      (when (< n (vector-length order))
-        (let* ((k (vector-ref order n))
-               (idom (vector-ref idoms n))
-               (b (lookup-block k blocks)))
-          (set-block-idom! b (vector-ref order idom))
-          (set-block-dom-level! b (compute-dom-level n))
-          (lp (1+ n)))))))
+      (when (< n (vector-length idoms))
+        (compute-dom-level n)
+        (lp (1+ n))))
+    dom-levels))
 
-(define (compute-dominator-tree k blocks)
-  (let* ((order (reverse-post-order k blocks))
-         (preds (convert-predecessors order blocks))
-         (idoms (make-vector (vector-length preds) 0)))
+(define (compute-idoms preds)
+  (let ((idoms (make-vector (vector-length preds) 0)))
     (define (common-idom d0 d1)
       ;; We exploit the fact that a reverse post-order is a topological
       ;; sort, and so the idom of a node is always numerically less than
@@ -210,8 +208,35 @@
             (iterate (1+ n) #t)))))
        (changed?
         (iterate 0 #f))
-       (else
-        (finish-idoms order idoms blocks))))))
+       (else idoms)))))
+
+;; "Identifying Loops Using DJ Graphs" by Sreedhar, Gao, and Lee, ACAPS
+;; Technical Memo 98, 1995.
+(define (identify-loops preds idoms dom-levels)
+  (define (dominates? n1 n2)
+    (or (= n1 n2)
+        (and (< n1 n2)
+             (dominates? n1 (vector-ref idoms n2)))))
+  (make-vector (vector-length preds) '()))
+
+(define (analyze-control-flow! k blocks)
+  (let* ((order (reverse-post-order k blocks))
+         (preds (convert-predecessors order blocks))
+         (idoms (compute-idoms preds))
+         (dom-levels (compute-dom-levels idoms))
+         (loop-headers (identify-loops preds idoms dom-levels)))
+    (let lp ((n 0))
+      (when (< n (vector-length order))
+        (let* ((k (vector-ref order n))
+               (idom (vector-ref idoms n))
+               (dom-level (vector-ref idoms n))
+               (loop-header (vector-ref loop-headers n))
+               (b (lookup-block k blocks)))
+          (set-block-idom! b (vector-ref order idom))
+          (set-block-dom-level! b dom-level)
+          (set-block-loop-header! b (and loop-header
+                                         (vector-ref order loop-header)))
+          (lp (1+ n)))))))
 
 (define (visit-fun fun conts blocks use-maps global?)
   (define (add-def! sym def-k)
@@ -324,7 +349,7 @@
         (visit body kbody)))
       clauses)
 
-     (compute-dominator-tree kentry blocks))))
+     (analyze-control-flow! kentry blocks))))
 
 (define* (compute-dfg fun #:key (global? #t))
   (let* ((conts (make-hash-table))
@@ -510,8 +535,8 @@
        (($ $use-map sym def uses)
         ;; If all other uses dominate this use, it is now dead.  There
         ;; are other ways for it to be dead, but this is an
-        ;; approximation.  A better check would be if the successor
-        ;; post-dominates all uses.
+        ;; approximation.  A better check would be if all successors
+        ;; post-dominate all uses.
         (and-map (cut dominates? <> use-k blocks)
                  uses))))))
 
