@@ -708,17 +708,22 @@
        (($ $use-map sym def uses)
         (null? uses))))))
 
+(define (lookup-loop-header k blocks)
+  (block-loop-header (lookup-block k blocks)))
+
 (define (dead-after-use? sym use-k dfg)
   (match dfg
     (($ $dfg conts blocks use-maps)
      (match (lookup-use-map sym use-maps)
        (($ $use-map sym def uses)
-        ;; If all other uses dominate this use, it is now dead.  There
-        ;; are other ways for it to be dead, but this is an
-        ;; approximation.  A better check would be if all successors
-        ;; post-dominate all uses.
-        (and-map (cut dominates? <> use-k blocks)
-                 uses))))))
+        ;; If all other uses dominate this use, and the variable was not
+        ;; defined outside the current loop, it is now dead.  There are
+        ;; other ways for it to be dead, but this is an approximation.
+        ;; A better check would be if all successors post-dominate all
+        ;; uses.
+        (and (eqv? (lookup-loop-header use-k blocks)
+                   (lookup-loop-header def blocks))
+             (and-map (cut dominates? <> use-k blocks) uses)))))))
 
 ;; A continuation is a "branch" if all of its predecessors are $kif
 ;; continuations.
@@ -746,16 +751,20 @@
     (($ $dfg conts blocks use-maps)
      (match (lookup-use-map sym use-maps)
        (($ $use-map sym def uses)
-        (and-map
-         (lambda (use-k)
-           ;; A symbol is dead after a branch if at least one of the
-           ;; other branches dominates a use of the symbol, and all
-           ;; other uses of the symbol dominate the test.
-           (if (or-map (cut dominates? <> use-k blocks)
-                       other-branches)
-               (not (dominates? branch use-k blocks))
-               (dominates? use-k branch blocks)))
-         uses))))))
+        ;; As in dead-after-use?, we don't kill the variable if it was
+        ;; defined outside the current loop.
+        (and (eqv? (lookup-loop-header branch blocks)
+                   (lookup-loop-header def blocks))
+             (and-map
+              (lambda (use-k)
+                ;; A symbol is dead after a branch if at least one of the
+                ;; other branches dominates a use of the symbol, and all
+                ;; other uses of the symbol dominate the test.
+                (if (or-map (cut dominates? <> use-k blocks)
+                            other-branches)
+                    (not (dominates? branch use-k blocks))
+                    (dominates? use-k branch blocks)))
+              uses)))))))
 
 (define (lookup-bound-syms k dfg)
   (match dfg
