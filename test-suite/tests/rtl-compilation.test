@@ -167,7 +167,18 @@
                    (define (odd? x)
                      (if (null? x) #f (even? (cdr x))))
                    (list (even? x))))
-       '(1 2 3 4))))
+       '(1 2 3 4)))
+
+  ;; An irreducible loop between even? and odd?.
+  (pass-if-equal '#t
+      ((run-rtl '(lambda (x do-even?)
+                   (define (even? x)
+                     (if (null? x) #t (odd? (cdr x))))
+                   (define (odd? x)
+                     (if (null? x) #f (even? (cdr x))))
+                   (if do-even? (even? x) (odd? x))))
+       '(1 2 3 4)
+       #t)))
 
 (with-test-prefix "case-lambda"
   (pass-if-equal "simple"
