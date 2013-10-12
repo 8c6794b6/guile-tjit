@@ -105,7 +105,10 @@
   (uses use-map-uses set-use-map-uses!))
 
 (define-record-type $block
-  (%make-block scope scope-level preds succs idom dom-level loop-header irreducible)
+  (%make-block scope scope-level preds succs
+               idom dom-level
+               pdom pdom-level
+               loop-header irreducible)
   block?
   (scope block-scope set-block-scope!)
   (scope-level block-scope-level set-block-scope-level!)
@@ -113,6 +116,9 @@
   (succs block-succs set-block-succs!)
   (idom block-idom set-block-idom!)
   (dom-level block-dom-level set-block-dom-level!)
+
+  (pdom block-pdom set-block-pdom!)
+  (pdom-level block-pdom-level set-block-pdom-level!)
 
   ;; The loop header of this block, if this block is part of a reducible
   ;; loop.  Otherwise #f.
@@ -123,23 +129,21 @@
   (irreducible block-irreducible set-block-irreducible!))
 
 (define (make-block scope scope-level)
-  (%make-block scope scope-level '() '() #f #f #f #f))
+  (%make-block scope scope-level '() '() #f #f #f #f #f #f))
 
-(define (reverse-post-order k0 blocks)
+(define (reverse-post-order k0 blocks accessor)
   (let ((order '())
         (visited? (make-hash-table)))
     (let visit ((k k0))
       (hashq-set! visited? k #t)
-      (match (lookup-block k blocks)
-        ((and block ($ $block _ _ preds succs))
-         (for-each (lambda (k)
-                     (unless (hashq-ref visited? k)
-                       (visit k)))
-                   succs)
-         (set! order (cons k order)))))
+      (for-each (lambda (k)
+                  (unless (hashq-ref visited? k)
+                    (visit k)))
+                (accessor (lookup-block k blocks)))
+      (set! order (cons k order)))
     (list->vector order)))
 
-(define (convert-predecessors order blocks)
+(define (convert-predecessors order blocks accessor)
   (let* ((mapping (make-hash-table))
          (preds-vec (make-vector (vector-length order) #f)))
     (let lp ((n 0))
@@ -148,14 +152,13 @@
         (lp (1+ n))))
     (let lp ((n 0))
       (when (< n (vector-length order))
-        (match (lookup-block (vector-ref order n) blocks)
-          (($ $block _ _ preds)
-           (vector-set! preds-vec n
-                        ;; It's possible for a predecessor to not be in
-                        ;; the mapping, if the predecessor is not
-                        ;; reachable from the entry node.
-                        (filter-map (cut hashq-ref mapping <>) preds))
-           (lp (1+ n))))))
+        (let ((preds (accessor (lookup-block (vector-ref order n) blocks))))
+          (vector-set! preds-vec n
+                       ;; It's possible for a predecessor to not be in
+                       ;; the mapping, if the predecessor is not
+                       ;; reachable from the entry node.
+                       (filter-map (cut hashq-ref mapping <>) preds))
+          (lp (1+ n)))))
     preds-vec))
 
 (define (compute-dom-levels idoms)
@@ -369,9 +372,11 @@
         (lp (1- level))))
     loop-headers))
 
-(define (analyze-control-flow! k blocks)
-  (let* ((order (reverse-post-order k blocks))
-         (preds (convert-predecessors order blocks))
+(define (analyze-control-flow! kentry kexit blocks)
+  ;; First go forward in the graph, computing dominators and loop
+  ;; information.
+  (let* ((order (reverse-post-order kentry blocks block-succs))
+         (preds (convert-predecessors order blocks block-preds))
          (idoms (compute-idoms preds))
          (dom-levels (compute-dom-levels idoms))
          (loop-headers (identify-loops preds idoms dom-levels)))
@@ -379,13 +384,27 @@
       (when (< n (vector-length order))
         (let* ((k (vector-ref order n))
                (idom (vector-ref idoms n))
-               (dom-level (vector-ref idoms n))
+               (dom-level (vector-ref dom-levels n))
                (loop-header (vector-ref loop-headers n))
                (b (lookup-block k blocks)))
           (set-block-idom! b (vector-ref order idom))
           (set-block-dom-level! b dom-level)
           (set-block-loop-header! b (and loop-header
                                          (vector-ref order loop-header)))
+          (lp (1+ n))))))
+  ;; Then go backwards, computing post-dominators.
+  (let* ((order (reverse-post-order kexit blocks block-preds))
+         (preds (convert-predecessors order blocks block-succs))
+         (idoms (compute-idoms preds))
+         (dom-levels (compute-dom-levels idoms)))
+    (let lp ((n 0))
+      (when (< n (vector-length order))
+        (let* ((k (vector-ref order n))
+               (pdom (vector-ref idoms n))
+               (pdom-level (vector-ref dom-levels n))
+               (b (lookup-block k blocks)))
+          (set-block-pdom! b (vector-ref order pdom))
+          (set-block-pdom-level! b pdom-level)
           (lp (1+ n)))))))
 
 (define (visit-fun fun conts blocks use-maps global?)
@@ -499,7 +518,7 @@
         (visit body kbody)))
       clauses)
 
-     (analyze-control-flow! kentry blocks))))
+     (analyze-control-flow! kentry ktail blocks))))
 
 (define* (compute-dfg fun #:key (global? #t))
   (let* ((conts (make-hash-table))
@@ -662,14 +681,25 @@
 
 ;; Does k1 dominate k2?
 (define (dominates? k1 k2 blocks)
-  (match (lookup-block k1 blocks)
-    (($ $block _ _ _ _ k1-idom k1-dom-level)
-     (match (lookup-block k2 blocks)
-       (($ $block _ _ _ _ k2-idom k2-dom-level)
-        (cond
-         ((> k1-dom-level k2-dom-level) #f)
-         ((< k1-dom-level k2-dom-level) (dominates? k1 k2-idom blocks))
-         ((= k1-dom-level k2-dom-level) (eqv? k1 k2))))))))
+  (let ((b1 (lookup-block k1 blocks))
+        (b2 (lookup-block k2 blocks)))
+    (let ((k1-level (block-dom-level b1))
+          (k2-level (block-dom-level b2)))
+      (cond
+       ((> k1-level k2-level) #f)
+       ((< k1-level k2-level) (dominates? k1 (block-idom b2) blocks))
+       ((= k1-level k2-level) (eqv? k1 k2))))))
+
+;; Does k1 post-dominate k2?
+(define (post-dominates? k1 k2 blocks)
+  (let ((b1 (lookup-block k1 blocks))
+        (b2 (lookup-block k2 blocks)))
+    (let ((k1-level (block-pdom-level b1))
+          (k2-level (block-pdom-level b2)))
+      (cond
+       ((> k1-level k2-level) #f)
+       ((< k1-level k2-level) (post-dominates? k1 (block-pdom b2) blocks))
+       ((= k1-level k2-level) (eqv? k1 k2))))))
 
 (define (dead-after-def? sym dfg)
   (match dfg
