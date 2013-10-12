@@ -721,8 +721,9 @@
         ;; other ways for it to be dead, but this is an approximation.
         ;; A better check would be if all successors post-dominate all
         ;; uses.
-        (and (eqv? (lookup-loop-header use-k blocks)
-                   (lookup-loop-header def blocks))
+        (and (let ((loop (lookup-loop-header use-k blocks)))
+               (or (eqv? def loop)
+                   (eqv? (lookup-loop-header def blocks) loop)))
              (and-map (cut dominates? <> use-k blocks) uses)))))))
 
 ;; A continuation is a "branch" if all of its predecessors are $kif
@@ -753,8 +754,9 @@
        (($ $use-map sym def uses)
         ;; As in dead-after-use?, we don't kill the variable if it was
         ;; defined outside the current loop.
-        (and (eqv? (lookup-loop-header branch blocks)
-                   (lookup-loop-header def blocks))
+        (and (let ((loop (lookup-loop-header branch blocks)))
+               (or (eqv? def loop)
+                   (eqv? (lookup-loop-header def blocks) loop)))
              (and-map
               (lambda (use-k)
                 ;; A symbol is dead after a branch if at least one of the
