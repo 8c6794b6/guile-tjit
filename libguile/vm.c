@@ -429,6 +429,7 @@ static void vm_error_not_a_bytevector (const char *subr, SCM x) SCM_NORETURN SCM
 static void vm_error_not_a_struct (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_no_values (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_enough_values (void) SCM_NORETURN SCM_NOINLINE;
+static void vm_error_wrong_number_of_values (scm_t_uint32 expected) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_continuation_not_rewindable (SCM cont) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_bad_wide_string_length (size_t len) SCM_NORETURN SCM_NOINLINE;
 
@@ -575,6 +576,13 @@ static void
 vm_error_not_enough_values (void)
 {
   vm_error ("Too few values returned to continuation", SCM_UNDEFINED);
+}
+
+static void
+vm_error_wrong_number_of_values (scm_t_uint32 expected)
+{
+  vm_error ("Wrong number of values returned to continuation (expected ~a)",
+            scm_from_uint32 (expected));
 }
 
 static void

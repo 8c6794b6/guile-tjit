@@ -273,7 +273,10 @@
              (match args
                (()
                 (emit-call asm proc-slot (+ nargs 1))
-                (emit-receive-values asm proc-slot nreq)
+                ;; FIXME: Only allow more values if there is a rest arg.
+                ;; Express values truncation by the presence of an
+                ;; unused rest arg instead of implicitly.
+                (emit-receive-values asm proc-slot #t nreq)
                 (when rest?
                   (emit-bind-rest asm (+ proc-slot 1 nreq)))
                 (for-each (match-lambda

@@ -1059,20 +1059,25 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       NEXT (2);
     }
 
-  /* receive-values proc:24 _:8 nvalues:24
+  /* receive-values proc:24 allow-extra?:1 _:7 nvalues:24
    *
    * Receive a return of multiple values from a call whose procedure was
    * in PROC.  If fewer than NVALUES values were returned, signal an
-   * error.  After receive-values has run, the values can be copied down
-   * via `mov'.
+   * error.  Unless ALLOW-EXTRA? is true, require that the number of
+   * return values equals NVALUES exactly.  After receive-values has
+   * run, the values can be copied down via `mov'.
    */
-  VM_DEFINE_OP (4, receive_values, "receive-values", OP2 (U8_U24, X8_U24))
+  VM_DEFINE_OP (4, receive_values, "receive-values", OP2 (U8_U24, B1_X7_U24))
     {
       scm_t_uint32 proc, nvalues;
       SCM_UNPACK_RTL_24 (op, proc);
       SCM_UNPACK_RTL_24 (ip[1], nvalues);
-      VM_ASSERT (FRAME_LOCALS_COUNT () > proc + nvalues,
-                 vm_error_not_enough_values ());
+      if (ip[1] & 0x1)
+        VM_ASSERT (FRAME_LOCALS_COUNT () > proc + nvalues,
+                   vm_error_not_enough_values ());
+      else
+        VM_ASSERT (FRAME_LOCALS_COUNT () == proc + nvalues,
+                   vm_error_wrong_number_of_values (nvalues));
       NEXT (2);
     }
 
