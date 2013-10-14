@@ -1586,15 +1586,24 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM_UNPACK_RTL_24 (op, dst);
       nargs = FRAME_LOCALS_COUNT ();
 
-      while (nargs-- > dst)
+      if (nargs <= dst)
         {
-          rest = scm_cons (LOCAL_REF (nargs), rest);
-          LOCAL_SET (nargs, SCM_UNDEFINED);
+          ALLOC_FRAME (dst + 1);
+          while (nargs < dst)
+            LOCAL_SET (nargs++, SCM_UNDEFINED);
+        }
+      else
+        {
+          while (nargs-- > dst)
+            {
+              rest = scm_cons (LOCAL_REF (nargs), rest);
+              LOCAL_SET (nargs, SCM_UNDEFINED);
+            }
+
+          RESET_FRAME (dst + 1);
         }
 
       LOCAL_SET (dst, rest);
-
-      RESET_FRAME (dst + 1);
 
       NEXT (1);
     }
