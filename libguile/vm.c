@@ -273,33 +273,32 @@ vm_dispatch_hook (SCM vm, int hook_num, SCM *argv, int n)
 }
 
 static void
-vm_abort (SCM vm, size_t n, scm_i_jmp_buf *current_registers) SCM_NORETURN;
+vm_abort (SCM vm, SCM tag, size_t nstack, SCM *stack_args, SCM tail, SCM *sp,
+          scm_i_jmp_buf *current_registers) SCM_NORETURN;
 
 static void
-vm_abort (SCM vm, size_t n, scm_i_jmp_buf *current_registers)
+vm_abort (SCM vm, SCM tag, size_t nstack, SCM *stack_args, SCM tail, SCM *sp,
+          scm_i_jmp_buf *current_registers)
 {
   size_t i;
   ssize_t tail_len;
-  SCM tag, tail, *argv;
+  SCM *argv;
   
-  /* FIXME: VM_ENABLE_STACK_NULLING */
-  tail = *(SCM_VM_DATA (vm)->sp--);
-  /* NULLSTACK (1) */
   tail_len = scm_ilength (tail);
   if (tail_len < 0)
     scm_misc_error ("vm-engine", "tail values to abort should be a list",
                     scm_list_1 (tail));
 
-  tag = SCM_VM_DATA (vm)->sp[-n];
-  argv = alloca ((n + tail_len) * sizeof (SCM));
-  for (i = 0; i < n; i++)
-    argv[i] = SCM_VM_DATA (vm)->sp[-(n-1-i)];
-  for (; i < n + tail_len; i++, tail = scm_cdr (tail))
+  argv = alloca ((nstack + tail_len) * sizeof (SCM));
+  for (i = 0; i < nstack; i++)
+    argv[i] = stack_args[i];
+  for (; i < nstack + tail_len; i++, tail = scm_cdr (tail))
     argv[i] = scm_car (tail);
-  /* NULLSTACK (n + 1) */
-  SCM_VM_DATA (vm)->sp -= n + 1;
 
-  scm_c_abort (vm, tag, n + tail_len, argv, current_registers);
+  /* FIXME: NULLSTACK (SCM_VM_DATA (vp)->sp - sp) */
+  SCM_VM_DATA (vm)->sp = sp;
+
+  scm_c_abort (vm, tag, nstack + tail_len, argv, current_registers);
 }
 
 static void

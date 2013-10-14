@@ -1475,10 +1475,14 @@ VM_DEFINE_INSTRUCTION (88, wind, "wind", 0, 2, 0)
 
 VM_DEFINE_INSTRUCTION (89, abort, "abort", 1, -1, -1)
 {
-  unsigned n = FETCH ();
-  SYNC_REGISTER ();
+  ptrdiff_t n = FETCH ();
+  SCM tag, *stack_args, tail;
   PRE_CHECK_UNDERFLOW (n + 2);
-  vm_abort (vm, n, &registers);
+  SYNC_REGISTER ();
+  tail = sp[0];
+  stack_args = sp - n;
+  tag = sp[-(n + 1)];
+  vm_abort (vm, tag, n, stack_args, tail, sp - (n + 2), &registers);
   /* vm_abort should not return */
   abort ();
 }
