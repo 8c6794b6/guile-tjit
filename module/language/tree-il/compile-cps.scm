@@ -58,21 +58,7 @@
   #:use-module (language cps primitives)
   #:use-module (language tree-il analyze)
   #:use-module (language tree-il optimize)
-  #:use-module ((language tree-il)
-                #:select
-                (<void>
-                 <const> <primitive-ref> <lexical-ref> <lexical-set>
-                 <module-ref> <module-set>
-                 <toplevel-ref> <toplevel-set> <toplevel-define>
-                 <conditional>
-                 <call> <primcall>
-                 <seq>
-                 <lambda> <lambda-case>
-                 <let> <letrec> <fix> <let-values>
-                 <prompt> <abort>
-                 make-conditional make-const make-primcall
-                 tree-il-src
-                 tree-il-fold))
+  #:use-module ((language tree-il) #:hide (let-gensyms))
   #:export (compile-cps))
 
 ;;; Guile's semantics are that a toplevel lambda captures a reference on
@@ -426,10 +412,37 @@
 
     ;; Eta-convert prompts without inline handlers.
     (($ <prompt> src escape-only? tag body handler)
-     (convert-args (list tag body handler)
-       (lambda (args)
-         (build-cps-term
-           ($continue k ($primcall 'call-with-prompt args))))))
+     (let-gensyms (h args)
+       (convert
+        (make-let
+         src (list 'h) (list h) (list handler)
+         (make-seq
+          src
+          (make-conditional
+           src
+           (make-primcall src 'procedure? (list (make-lexical-ref #f 'h h)))
+           (make-void src)
+           (make-primcall
+            src 'scm-error
+            (list
+             (make-const #f 'wrong-type-arg)
+             (make-const #f "call-with-prompt")
+             (make-const #f "Wrong type (expecting procedure): ~S")
+             (make-primcall #f 'list (list (make-lexical-ref #f 'h h)))
+             (make-primcall #f 'list (list (make-lexical-ref #f 'h h))))))
+          (make-prompt
+           src escape-only? tag body
+           (make-lambda
+            src '()
+            (make-lambda-case
+             src '() #f 'args #f '() (list args)
+             (make-primcall
+              src 'apply
+              (list (make-lexical-ref #f 'h h)
+                    (make-lexical-ref #f 'args args)))
+             #f)))))
+        k
+        subst)))
 
     (($ <abort> src tag args tail)
      (convert-args (append (list tag) args (list tail))
