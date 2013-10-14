@@ -101,6 +101,9 @@
                (_ (build-cps-term ($continue k ($void))))))
             (($ $fun)
              (build-cps-term ($continue k ,(visit-fun exp))))
+            (($ $primcall 'call-thunk/no-inline (proc))
+             (build-cps-term
+               ($continue k ($call proc ()))))
             (($ $primcall name args)
              (cond
               ((or (prim-rtl-instruction name) (branching-primitive? name))
