@@ -11,9 +11,7 @@ GUILE_EFFECTIVE_VERSION=2.2
 # All of the shared lib versioning info.  Right now, for this to work
 # properly, you'll also need to add AC_SUBST calls to the right place
 # in configure.in, add the right -version-info statement to your
-# Makefile.am The only library not handled here is
-# guile-readline/libguile-readline.  It is handled in
-# ./guile-readline/LIBGUILEREADLINE-VERSION.
+# Makefile.am.
 
 # See libtool info pages for more information on how and when to
 # change these.

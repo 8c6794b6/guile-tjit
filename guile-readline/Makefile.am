@@ -1,7 +1,7 @@
 ## Process this file with Automake to create Makefile.in
 ##
 ##   Copyright (C) 1998, 1999, 2000, 2001, 2004, 2006, 2007, 2008,
-##     2009, 2010, 2012 Free Software Foundation, Inc.
+##     2009, 2010, 2012, 2013 Free Software Foundation, Inc.
 ##
 ##   This file is part of guile-readline.
 ##
@@ -42,17 +42,16 @@ AM_CPPFLAGS = -I. -I.. -I$(srcdir)/..			\
 
 AM_CFLAGS = $(GCC_CFLAGS)
 
-lib_LTLIBRARIES = libguilereadline-v-@LIBGUILEREADLINE_MAJOR@.la
+extensionsdir=$(pkglibdir)/$(GUILE_EFFECTIVE_VERSION)/extensions
 
-libguilereadline_v_@LIBGUILEREADLINE_MAJOR@_la_SOURCES = readline.c
-libguilereadline_v_@LIBGUILEREADLINE_MAJOR@_la_LIBADD =	\
+extensions_LTLIBRARIES = guile-readline.la
+
+guile_readline_la_SOURCES = readline.c
+guile_readline_la_LIBADD =				\
   $(READLINE_LIBS)					\
   ../libguile/libguile-@GUILE_EFFECTIVE_VERSION@.la ../lib/libgnu.la
 
-libguilereadline_v_@LIBGUILEREADLINE_MAJOR@_la_LDFLAGS =	\
-  -version-info @LIBGUILEREADLINE_INTERFACE@ -export-dynamic	\
-  -no-undefined
-
+guile_readline_la_LDFLAGS = -export-dynamic -no-undefined -module
 
 BUILT_SOURCES = readline.x
 
@@ -64,10 +63,9 @@ SUFFIXES += .x
 .c.x:
 	$(AM_V_SNARF)$(GUILE_SNARF) -o $@ $< $(snarfcppopts)
 
-EXTRA_DIST += LIBGUILEREADLINE-VERSION ChangeLog-2008
+EXTRA_DIST += ChangeLog-2008
 
-ETAGS_ARGS +=							\
-  $(libguilereadline_v_@LIBGUILEREADLINE_MAJOR@_la_SOURCES)
+ETAGS_ARGS += $(guile_readline_la_SOURCES)
 
 CLEANFILES += *.x *.go
 

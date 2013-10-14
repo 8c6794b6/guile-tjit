@@ -1,6 +1,6 @@
 ;;;; readline.scm --- support functions for command-line editing
 ;;;;
-;;;; 	Copyright (C) 1997, 1999, 2000, 2001, 2002, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 1997, 1999, 2000, 2001, 2002, 2006, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
 ;;;; 
 ;;;; This program is free software; you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -40,7 +40,7 @@
 ;;; but only when it isn't already present.
 
 (if (not (provided? 'readline))
-    (load-extension "libguilereadline-v-18" "scm_init_readline"))
+    (load-extension "guile-readline" "scm_init_readline"))
 
 (if (not (provided? 'readline))
     (scm-error 'misc-error
