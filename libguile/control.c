@@ -214,7 +214,8 @@ scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv,
   *(++(SCM_VM_DATA (vm)->sp)) = cont;
   for (i = 0; i < n; i++)
     *(++(SCM_VM_DATA (vm)->sp)) = argv[i];
-  *(++(SCM_VM_DATA (vm)->sp)) = scm_from_size_t (n+1); /* +1 for continuation */
+  if (flags & SCM_F_DYNSTACK_PROMPT_PUSH_NARGS)
+    *(++(SCM_VM_DATA (vm)->sp)) = scm_from_size_t (n+1); /* +1 for continuation */
 
   /* Jump! */
   SCM_I_LONGJMP (*registers, 1);

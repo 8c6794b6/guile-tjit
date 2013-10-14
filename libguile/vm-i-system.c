@@ -1453,6 +1453,7 @@ VM_DEFINE_INSTRUCTION (87, prompt, "prompt", 4, 2, 0)
   SYNC_REGISTER ();
   /* Push the prompt onto the dynamic stack. */
   flags = escape_only_p ? SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY : 0;
+  flags |= SCM_F_DYNSTACK_PROMPT_PUSH_NARGS;
   scm_dynstack_push_prompt (&current_thread->dynstack, flags, k,
                             fp, sp, ip + offset, &registers);
   NEXT;

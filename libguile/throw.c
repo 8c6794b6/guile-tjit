@@ -474,7 +474,8 @@ pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
 
   /* Push the prompt onto the dynamic stack. */
   scm_dynstack_push_prompt (dynstack,
-                            SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY,
+                            SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY
+                            | SCM_F_DYNSTACK_PROMPT_PUSH_NARGS,
                             sym_pre_init_catch_tag,
                             SCM_VM_DATA (vm)->fp,
                             SCM_VM_DATA (vm)->sp,
