@@ -2266,35 +2266,36 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * The dynamic environment
    */
 
-  /* prompt tag:24 flags:8 handler-offset:24
+  /* prompt tag:24 escape-only?:1 _:7 proc-slot:24 _:8 handler-offset:24
    *
    * Push a new prompt on the dynamic stack, with a tag from TAG and a
    * handler at HANDLER-OFFSET words from the current IP.  The handler
-   * will expect a multiple-value return.
+   * will expect a multiple-value return as if from a call with the
+   * procedure at PROC-SLOT.
    */
-  VM_DEFINE_OP (58, prompt, "prompt", OP2 (U8_U24, U8_L24))
-#if 0
+  VM_DEFINE_OP (58, prompt, "prompt", OP3 (U8_U24, B1_X7_U24, X8_L24))
     {
-      scm_t_uint32 tag;
+      scm_t_uint32 tag, proc_slot;
       scm_t_int32 offset;
       scm_t_uint8 escape_only_p;
       scm_t_dynstack_prompt_flags flags;
 
       SCM_UNPACK_RTL_24 (op, tag);
-      escape_only_p = ip[1] & 0xff;
-      offset = ip[1];
+      escape_only_p = ip[1] & 0x1;
+      SCM_UNPACK_RTL_24 (ip[1], proc_slot);
+      offset = ip[2];
       offset >>= 8; /* Sign extension */
   
       /* Push the prompt onto the dynamic stack. */
       flags = escape_only_p ? SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY : 0;
       scm_dynstack_push_prompt (&current_thread->dynstack, flags,
                                 LOCAL_REF (tag),
-                                fp, vp->sp, ip + offset, &registers);
-      NEXT (2);
+                                fp,
+                                &LOCAL_REF (proc_slot),
+                                (scm_t_uint8 *)(ip + offset),
+                                &registers);
+      NEXT (3);
     }
-#else
-  abort();
-#endif
 
   /* wind winder:12 unwinder:12
    *

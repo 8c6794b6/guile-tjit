@@ -217,7 +217,7 @@ address of that offset."
           'br-if-char 'br-if-tc7 'br-if-eq 'br-if-eqv 'br-if-equal
           'br-if-= 'br-if-< 'br-if-<= 'br-if-> 'br-if->=) _ ... target)
      (list "-> ~A" (vector-ref labels (- (+ offset target) start))))
-    (('prompt tag flags handler)
+    (('prompt tag escape-only? proc-slot handler)
      ;; The H is for handler.
      (list "H -> ~A" (vector-ref labels (- (+ offset handler) start))))
     (((or 'make-short-immediate 'make-long-immediate) _ imm)

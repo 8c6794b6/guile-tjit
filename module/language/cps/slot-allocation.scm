@@ -73,6 +73,10 @@
   ;; Currently calls are allocated in the caller frame, above all locals
   ;; that are live at the time of the call.  Therefore there is no
   ;; parallel move problem.  We could be more clever here.
+  ;;
+  ;; $prompt expressions also use this call slot to indicate where the
+  ;; handler's arguments are expected, but without reserving space for a
+  ;; frame or for the procedure slot.
   (call-proc-slot cont-call-proc-slot)
 
   ;; Tail calls, multiple-value returns, and jumps to continuations with
@@ -223,6 +227,9 @@ are comparable with eqv?.  A tmp slot may be used."
   (define (compute-call-proc-slot live-set nlocals)
     (+ 3 (find-first-trailing-zero (car live-set) nlocals)))
 
+  (define (compute-prompt-handler-proc-slot live-set nlocals)
+    (1- (find-first-trailing-zero (car live-set) nlocals)))
+
   (define dfg (compute-dfg fun #:global? #f))
   (define allocation (make-hash-table))
              
@@ -261,6 +268,16 @@ are comparable with eqv?.  A tmp slot may be used."
         ((and allocation ($ $allocation def slot dead has-const? const))
          (set-allocation-dead! allocation (cons k dead))
          (remove-live-variable sym slot live-set))))
+
+    (define (allocate-prompt-handler! k live-set)
+      (let ((proc-slot (compute-prompt-handler-proc-slot live-set nlocals)))
+        (hashq-set! allocation k
+                    (make-cont-allocation
+                     proc-slot
+                     (match (hashq-ref allocation k)
+                       (($ $cont-allocation #f moves) moves)
+                       (#f #f))))
+        live-set))
 
     (define (allocate-frame! k nargs live-set)
       (let ((proc-slot (compute-call-proc-slot live-set nlocals)))
@@ -403,6 +420,18 @@ are comparable with eqv?.  A tmp slot may be used."
                            (compute-dst-slots))))
 
         (($ $prompt escape? tag handler)
+         (match (lookup-cont handler (dfg-cont-table dfg))
+           (($ $ktrunc arity kargs)
+            (let* ((live-set (allocate-prompt-handler! label live-set))
+                   (proc-slot (lookup-call-proc-slot label allocation))
+                   (dst-syms (lookup-bound-syms kargs dfg))
+                   (nvals (length dst-syms))
+                   (src-slots (map (cut + proc-slot 1 <>) (iota nvals)))
+                   (live-set* (fold (cut allocate! <> kargs <> <>)
+                                    live-set dst-syms src-slots))
+                   (dst-slots (map (cut lookup-slot <> allocation)
+                                   dst-syms)))
+              (parallel-move! handler src-slots live-set live-set* dst-slots))))
          (use tag live-set))
 
         (_ live-set)))

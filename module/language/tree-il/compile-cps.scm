@@ -391,7 +391,7 @@
                                              ($continue kprim
                                                ($prim 'values))))))
                                   ($continue kret
-                                    ($primcall 'pop-prompt ())))))
+                                    ($primcall 'unwind ())))))
                         (krest src ($ktrunc '() 'rest kpop)))
                  ,(if escape-only?
                       (build-cps-term
