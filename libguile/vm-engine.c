@@ -1292,24 +1292,25 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (11, tail_apply, "tail-apply", OP1 (U8_X24))
     {
-      int i, list_idx, list_len, nargs;
+      int i, list_idx, list_len, nlocals;
       SCM list;
 
       VM_HANDLE_INTERRUPTS;
 
-      VM_ASSERT (FRAME_LOCALS_COUNT () >= 2, abort ());
-      nargs = FRAME_LOCALS_COUNT ();
-      list_idx = nargs - 1;
+      nlocals = FRAME_LOCALS_COUNT ();
+      // At a minimum, there should be apply, f, and the list.
+      VM_ASSERT (nlocals >= 3, abort ());
+      list_idx = nlocals - 1;
       list = LOCAL_REF (list_idx);
       list_len = scm_ilength (list);
 
       VM_ASSERT (list_len >= 0, vm_error_apply_to_non_list (list));
 
-      nargs = nargs - 2 + list_len;
-      ALLOC_FRAME (nargs);
+      nlocals = nlocals - 2 + list_len;
+      ALLOC_FRAME (nlocals);
 
-      for (i = 0; i < list_idx; i++)
-        LOCAL_SET(i - 1, LOCAL_REF (i));
+      for (i = 1; i < list_idx; i++)
+        LOCAL_SET (i - 1, LOCAL_REF (i));
 
       /* Null out these slots, just in case there are less than 2 elements
          in the list. */
