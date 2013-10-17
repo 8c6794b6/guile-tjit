@@ -1,4 +1,4 @@
-;;;; 	Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2009, 2010, 2013 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -205,7 +205,8 @@ pair of the form (module-name . variable-name), "
 ;; ((ip file line . col) ...)
 (define (procedure-sources proc)
   (cond
-   ((program? proc) (program-sources proc))
+   ((or (rtl-program? proc) (program? proc))
+    (program-sources proc))
    (else '())))
 
 ;; file -> line -> (proc ...)
