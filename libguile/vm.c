@@ -683,6 +683,11 @@ initialize_default_stack_size (void)
 static const scm_t_vm_engine vm_engines[] = 
   { vm_regular_engine, vm_debug_engine };
 
+typedef SCM (*scm_t_rtl_vm_engine) (SCM vm, SCM program, SCM *argv, size_t nargs);
+
+static const scm_t_rtl_vm_engine rtl_vm_engines[] =
+  { rtl_vm_regular_engine, rtl_vm_debug_engine };
+
 #ifdef VM_ENABLE_PRECISE_STACK_GC_SCAN
 
 /* The GC "kind" for the VM stack.  */
@@ -766,7 +771,10 @@ scm_c_vm_run (SCM vm, SCM program, SCM *argv, int nargs)
 {
   struct scm_vm *vp = SCM_VM_DATA (vm);
   SCM_CHECK_STACK;
-  return vm_engines[vp->engine](vm, program, argv, nargs);
+  if (SCM_RTL_PROGRAM_P (program))
+    return rtl_vm_engines[vp->engine](vm, program, argv, nargs);
+  else
+    return vm_engines[vp->engine](vm, program, argv, nargs);
 }
 
 /* Scheme interface */
@@ -1123,6 +1131,13 @@ scm_bootstrap_vm (void)
 
   boot_continuation = make_boot_program ();
 
+  rtl_boot_continuation = scm_i_make_rtl_program (rtl_boot_continuation_code);
+  SCM_SET_CELL_WORD_0 (rtl_boot_continuation,
+                       (SCM_CELL_WORD_0 (rtl_boot_continuation)
+                        | SCM_F_PROGRAM_IS_BOOT));
+  rtl_apply = scm_i_make_rtl_program (rtl_apply_code);
+  rtl_values = scm_i_make_rtl_program (rtl_values_code);
+
 #ifdef VM_ENABLE_PRECISE_STACK_GC_SCAN
   vm_stack_gc_kind =
     GC_new_kind (GC_new_free_list (),
@@ -1138,10 +1153,6 @@ scm_init_vm (void)
 #ifndef SCM_MAGIC_SNARFER
 #include "libguile/vm.x"
 #endif
-
-  rtl_boot_continuation = scm_i_make_rtl_program (rtl_boot_continuation_code);
-  rtl_apply = scm_i_make_rtl_program (rtl_apply_code);
-  rtl_values = scm_i_make_rtl_program (rtl_values_code);
 }
 
 /*
