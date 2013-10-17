@@ -1,6 +1,6 @@
 ;;; -*- mode: scheme; coding: utf-8; -*-
 ;;;
-;;; Copyright (C) 2010 Free Software Foundation, Inc.
+;;; Copyright (C) 2010, 2013 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -48,17 +48,28 @@
 
 (define (hashq-proc proc n)
   ;; Return the hash of PROC's objcode.
-  (hashq (program-objcode proc) n))
+  (if (rtl-program? proc)
+      (hashq (rtl-program-code proc) n)
+      (hashq (program-objcode proc) n)))
 
 (define (assq-proc proc alist)
   ;; Instead of really looking for PROC in ALIST, look for the objcode of PROC.
   ;; IOW the alist is indexed by procedures, not objcodes, but those procedures
   ;; are taken as an arbitrary representative of all the procedures (closures)
   ;; sharing that objcode.  This can significantly reduce memory consumption.
-  (let ((code (program-objcode proc)))
-    (find (lambda (pair)
-            (eq? code (program-objcode (car pair))))
-          alist)))
+  (if (rtl-program? proc)
+      (let ((code (rtl-program-code proc)))
+        (find (lambda (pair)
+                (let ((proc (car pair)))
+                  (and (rtl-program? proc)
+                       (eqv? code (rtl-program-code proc)))))
+              alist))
+      (let ((code (program-objcode proc)))
+        (find (lambda (pair)
+                (let ((proc (car pair)))
+                  (and (program? proc)
+                       (eq? code (program-objcode proc)))))
+              alist))))
 
 (define (with-code-coverage vm thunk)
   "Run THUNK, a zero-argument procedure, using VM; instrument VM to collect code
@@ -211,7 +222,7 @@ particular closure was executed."
 (define (program-sources* data proc)
   ;; A memoizing version of `program-sources'.
   (or (hashq-ref (data-procedure->sources data) proc)
-      (and (program? proc)
+      (and (or (program? proc) (rtl-program? proc))
            (let ((sources (program-sources proc))
                  (p->s    (data-procedure->sources data))
                  (f->p    (data-file->procedures data)))
@@ -310,9 +321,13 @@ was loaded at the time DATA was collected."
   ;; Return the list of procedures PROC closes over, PROC included.
   (let loop ((proc   proc)
              (result '()))
-    (if (and (program? proc) (not (memq proc result)))
+    (if (and (or (program? proc) (rtl-program? proc)) (not (memq proc result)))
         (fold loop (cons proc result)
-              (append (vector->list (or (program-objects proc) #()))
+              ;; FIXME: Include statically nested procedures for RTL
+              ;; programs.
+              (append (if (program? proc)
+                          (vector->list (or (program-objects proc) #()))
+                          '())
                       (program-free-variables proc)))
         result)))
 
@@ -329,7 +344,7 @@ gathered, even if their code was not executed."
 
   (define (dump-function proc)
     ;; Dump source location and basic coverage data for PROC.
-    (and (program? proc)
+    (and (or (program? proc) (rtl-program? proc))
          (let ((sources (program-sources* data proc)))
            (and (pair? sources)
                 (let* ((line (source:line-for-user (car sources)))
