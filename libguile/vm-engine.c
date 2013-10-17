@@ -1147,7 +1147,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       VM_HANDLE_INTERRUPTS;
       SYNC_IP ();
 
-      switch (FRAME_LOCALS_COUNT ())
+      switch (FRAME_LOCALS_COUNT () - 1)
         {
         case 0:
           ret = subr ();
