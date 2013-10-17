@@ -1,7 +1,7 @@
 ;;;; (statprof) -- a statistical profiler for Guile
 ;;;; -*-scheme-*-
 ;;;;
-;;;; 	Copyright (C) 2009, 2010, 2011  Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2009, 2010, 2011, 2013  Free Software Foundation, Inc.
 ;;;;    Copyright (C) 2004, 2009 Andy Wingo <wingo at pobox dot com>
 ;;;;    Copyright (C) 2001 Rob Browning <rlb at defaultvalue dot org>
 ;;;; 
@@ -216,13 +216,13 @@
          (+ accumulated-time 0.0 (- ,stop-time last-start-time))))
 
 (define (get-call-data proc)
-  (let ((k (if (or (not (program? proc))
-                   (zero? (program-num-free-variables proc)))
-               proc
-               (program-objcode proc))))
-    (or (hashq-ref procedure-data k)
+  (let ((k (cond
+            ((program? proc) (program-objcode proc))
+            ((rtl-program? proc) (rtl-program-code proc))
+            (else proc))))
+    (or (hashv-ref procedure-data k)
         (let ((call-data (make-call-data proc 0 0 0)))
-          (hashq-set! procedure-data k call-data)
+          (hashv-set! procedure-data k call-data)
           call-data))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -583,6 +583,8 @@ to @code{statprof-reset} is true."
      ((eq? a b))
      ((and (program? a) (program? b))
       (eq? (program-objcode a) (program-objcode b)))
+     ((and (rtl-program? a) (rtl-program? b))
+      (eq? (rtl-program-code a) (rtl-program-code b)))
      (else
       #f))))
 
