@@ -898,7 +898,6 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
  apply:
   while (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp)))
     {
-#if 0
       SCM proc = SCM_FRAME_PROGRAM (fp);
 
       if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
@@ -910,28 +909,30 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
         {
           scm_t_uint32 n = FRAME_LOCALS_COUNT();
 
-          /* Shuffle args up, place smob in local 0. */
-          CHECK_OVERFLOW (vp->sp + 1);
-          vp->sp++;
+          /* Shuffle args up. */
+          RESET_FRAME (n + 1);
           while (n--)
             LOCAL_SET (n + 1, LOCAL_REF (n));
 
-          fp[-1] = SCM_SMOB_DESCRIPTOR (proc).apply_trampoline;
+          LOCAL_SET (0, SCM_SMOB_DESCRIPTOR (proc).apply_trampoline);
           continue;
         }
 
+#if 0
       SYNC_IP();
       vm_error_wrong_type_apply (proc);
 #else
-      SCM ret;
-      SYNC_ALL ();
+      {
+        SCM ret;
+        SYNC_ALL ();
 
-      ret = VM_NAME (vm, fp[-1], fp, FRAME_LOCALS_COUNT () - 1);
+        ret = VM_NAME (vm, fp[-1], fp, FRAME_LOCALS_COUNT () - 1);
 
-      if (SCM_UNLIKELY (SCM_VALUESP (ret)))
-        RETURN_VALUE_LIST (scm_struct_ref (ret, SCM_INUM0));
-      else
-        RETURN_ONE_VALUE (ret);
+        if (SCM_UNLIKELY (SCM_VALUESP (ret)))
+          RETURN_VALUE_LIST (scm_struct_ref (ret, SCM_INUM0));
+        else
+          RETURN_ONE_VALUE (ret);
+      }
 #endif
     }
 
