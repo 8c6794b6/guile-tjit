@@ -334,7 +334,8 @@ SCM_DEFINE (scm_frame_previous, "frame-previous", 1, 0, 0,
                                 SCM_VM_FRAME_OFFSET (frame));
       proc = scm_frame_procedure (frame);
 
-      if (SCM_PROGRAM_P (proc) && SCM_PROGRAM_IS_BOOT (proc))
+      if ((SCM_PROGRAM_P (proc) || SCM_RTL_PROGRAM_P (proc))
+          && SCM_PROGRAM_IS_BOOT (proc))
         goto again;
       else
         return frame;
