@@ -1,6 +1,6 @@
 ;;; Traps: stepping, breakpoints, and such.
 
-;; Copyright (C)  2010, 2012 Free Software Foundation, Inc.
+;; Copyright (C)  2010, 2012, 2013 Free Software Foundation, Inc.
 
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -110,12 +110,22 @@
 
 (define (frame-matcher proc match-objcode?)
   (if match-objcode?
-      (lambda (frame)
-        (let ((frame-proc (frame-procedure frame)))
-          (or (eq? frame-proc proc)
-              (and (program? frame-proc)
-                   (eq? (program-objcode frame-proc)
-                        (program-objcode proc))))))
+      (cond
+       ((program? proc)
+        (lambda (frame)
+          (let ((frame-proc (frame-procedure frame)))
+            (or (eq? frame-proc proc)
+                (and (program? frame-proc)
+                     (eq? (program-objcode frame-proc)
+                          (program-objcode proc)))))))
+       ((rtl-program? proc)
+        (lambda (frame)
+          (let ((frame-proc (frame-procedure frame)))
+            (or (eq? frame-proc proc)
+                (and (rtl-program? frame-proc)
+                     (eqv? (rtl-program-code frame-proc)
+                           (rtl-program-code proc)))))))
+       (else (lambda (frame) #f)))
       (lambda (frame)
         (eq? (frame-procedure frame) proc))))
 
