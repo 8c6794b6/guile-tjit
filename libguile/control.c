@@ -24,7 +24,7 @@
 
 #include "libguile/_scm.h"
 #include "libguile/control.h"
-#include "libguile/objcodes.h"
+#include "libguile/programs.h"
 #include "libguile/instructions.h"
 #include "libguile/vm.h"
 
@@ -57,69 +57,25 @@ scm_i_prompt_pop_abort_args_x (SCM vm)
 }
 
 
-#ifdef WORDS_BIGENDIAN
-#define OBJCODE_HEADER(main,meta) 0, 0, 0, main, 0, 0, 0, meta+8
-#define META_HEADER(meta)         0, 0, 0, meta, 0, 0, 0, 0
-#else
-#define OBJCODE_HEADER(main,meta) main, 0, 0, 0, meta+8, 0, 0, 0
-#define META_HEADER(meta)         meta, 0, 0, 0, 0,      0, 0, 0
-#endif
-
-#define OBJCODE_TAG SCM_MAKE_OBJCODE_TAG (SCM_OBJCODE_TYPE_STATIC, 0)
-
-#if defined (SCM_ALIGNED)
-#define SCM_DECLARE_STATIC_ALIGNED_ARRAY(type, sym)     \
-static const type sym[]
-#define SCM_STATIC_ALIGNED_ARRAY(alignment, type, sym)  \
-static SCM_ALIGNED (alignment) const type sym[]
-#define SCM_STATIC_OBJCODE(sym)                                         \
-  SCM_DECLARE_STATIC_ALIGNED_ARRAY (scm_t_uint8, sym##__bytecode);      \
-  SCM_STATIC_ALIGNED_ARRAY (8, scm_t_cell, sym##__cells) = {            \
-    { SCM_PACK (OBJCODE_TAG), SCM_PACK (sym##__bytecode) },             \
-    { SCM_BOOL_F, SCM_PACK (0) }                                        \
-  };                                                                    \
-  static const SCM sym = SCM_PACK (sym##__cells);                       \
-  SCM_STATIC_ALIGNED_ARRAY (8, scm_t_uint8, sym##__bytecode)
-#else
-#define SCM_STATIC_OBJCODE(sym)                                         \
-static SCM sym;                                                         \
-static scm_t_uint8 *sym##_bytecode;                                     \
-SCM_SNARF_INIT(sym##_bytecode = scm_gc_malloc_pointerless (sizeof(sym##_bytecode__unaligned), "partial continuation stub"); \
-               memcpy (sym##_bytecode, sym##_bytecode__unaligned, sizeof(sym##_bytecode__unaligned));) \
-SCM_SNARF_INIT(sym = scm_double_cell (OBJCODE_TAG,                      \
-                                      (scm_t_bits)sym##_bytecode,       \
-                                      SCM_UNPACK (SCM_BOOL_F),          \
-                                      0);)                              \
-static const scm_t_uint8 sym##_bytecode__unaligned[]
-#endif
+static const scm_t_uint32 compose_continuation_code[] =
+  {
+    SCM_PACK_RTL_24 (scm_rtl_op_compose_continuation, 0)
+  };
 
 
-SCM_STATIC_OBJCODE (cont_objcode) = {
-  /* Like in continuations.c, but with partial-cont-call. */
-  OBJCODE_HEADER (8, 19),
-  /* leave args on the stack */
-  /* 0 */ scm_op_object_ref, 0, /* push scm_vm_cont object */
-  /* 2 */ scm_op_partial_cont_call, /* and go! */
-  /* 3 */ scm_op_nop,
-  /* 4 */ scm_op_nop, scm_op_nop, scm_op_nop, scm_op_nop, /* pad to 8 bytes */
-  /* 8 */
+static SCM
+make_partial_continuation (SCM vm_cont)
+{
+  scm_t_bits nfree = 1;
+  scm_t_bits flags = SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION;
+  SCM ret;
 
-  /* We could put some meta-info to say that this proc is a continuation. Not sure
-     how to do that, though. */
-  META_HEADER (19),
-  /* 0 */ scm_op_make_eol, /* bindings */
-  /* 1 */ scm_op_make_eol, /* sources */
-  /* 2 */ scm_op_make_int8, 0, scm_op_make_int8, 3, /* arity: from ip 0 to ip 3 */
-  /* 6 */ scm_op_make_int8_0, /* the arity is 0 required args */
-  /* 7 */ scm_op_make_int8_0, /* 0 optionals */
-  /* 8 */ scm_op_make_true, /* and a rest arg */
-  /* 9 */ scm_op_list, 0, 5, /* make a list of those 5 vals */
-  /* 12 */ scm_op_list, 0, 1, /* and the arities will be a list of that one list */
-  /* 15 */ scm_op_list, 0, 3, /* pack bindings, sources, and arities into list */
-  /* 18 */ scm_op_return /* and return */
-  /* 19 */
-};
+  ret = scm_words (scm_tc7_rtl_program | (nfree << 16) | flags, nfree + 2);
+  SCM_SET_CELL_WORD_1 (ret, compose_continuation_code);
+  SCM_RTL_PROGRAM_FREE_VARIABLE_SET (ret, 0, vm_cont);
 
+  return ret;
+}
 
 static SCM
 reify_partial_continuation (SCM vm,
@@ -128,7 +84,7 @@ reify_partial_continuation (SCM vm,
                             scm_t_dynstack *dynstack,
                             scm_i_jmp_buf *current_registers)
 {
-  SCM vm_cont, ret;
+  SCM vm_cont;
   scm_t_uint32 flags;
 
   flags = SCM_F_VM_CONT_PARTIAL;
@@ -155,12 +111,7 @@ reify_partial_continuation (SCM vm,
                                     dynstack,
                                     flags);
 
-  ret = scm_make_program (cont_objcode,
-                          scm_c_make_vector (1, vm_cont),
-                          SCM_BOOL_F);
-  SCM_SET_CELL_WORD_0 (ret,
-                       SCM_CELL_WORD_0 (ret) | SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION);
-  return ret;
+  return make_partial_continuation (vm_cont);
 }
 
 void

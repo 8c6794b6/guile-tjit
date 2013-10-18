@@ -1482,7 +1482,9 @@ VM_DEFINE_INSTRUCTION (89, abort, "abort", 1, -1, -1)
   tail = sp[0];
   stack_args = sp - n;
   tag = sp[-(n + 1)];
-  vm_abort (vm, tag, n, stack_args, tail, sp - (n + 2), &registers);
+  /* Partial continuations are now RTL programs, and therefore not
+     resumable.  Pass NULL as registers to indicate that fact.  */
+  vm_abort (vm, tag, n, stack_args, tail, sp - (n + 2), NULL);
   /* vm_abort should not return */
   abort ();
 }

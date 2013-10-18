@@ -1273,7 +1273,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32 cont_idx;
 
       SCM_UNPACK_RTL_24 (op, cont_idx);
-      vmcont = LOCAL_REF (cont_idx);
+      vmcont = SCM_RTL_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), cont_idx);
 
       SYNC_IP ();
       VM_ASSERT (SCM_VM_CONT_REWINDABLE_P (vmcont),

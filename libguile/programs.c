@@ -527,7 +527,8 @@ scm_i_rtl_program_minimum_arity (SCM program, int *req, int *opt, int *rest)
   if (SCM_PROGRAM_IS_FOREIGN (program))
     return scm_i_foreign_arity (program, req, opt, rest);
 
-  if (SCM_PROGRAM_IS_CONTINUATION (program))
+  if (SCM_PROGRAM_IS_CONTINUATION (program)
+      || SCM_PROGRAM_IS_PARTIAL_CONTINUATION (program))
     {
       *req = *opt = 0;
       *rest = 1;
