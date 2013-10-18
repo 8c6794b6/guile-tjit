@@ -426,7 +426,7 @@ none is available."
   (if (positive? profile-level)
       (error "Can't call statprof-fold-called while profiler is running."))
 
-  (hashq-ref procedure-data proc))
+  (get-call-data proc))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Stats
