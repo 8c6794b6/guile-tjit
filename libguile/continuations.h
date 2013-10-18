@@ -3,7 +3,7 @@
 #ifndef SCM_CONTINUATIONS_H
 #define SCM_CONTINUATIONS_H
 
-/* Copyright (C) 1995,1996,2000,2001, 2006, 2008, 2009, 2010, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,2000,2001, 2006, 2008, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -32,7 +32,7 @@
 
 
 #define SCM_CONTINUATIONP(x) \
-  (SCM_PROGRAM_P (x) && SCM_PROGRAM_IS_CONTINUATION (x))
+  (SCM_RTL_PROGRAM_P (x) && SCM_PROGRAM_IS_CONTINUATION (x))
 
 /* a continuation SCM is a non-immediate pointing to a heap cell with:
    word 0: bits 0-15: smob type tag: scm_tc16_continuation.

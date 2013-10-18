@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1998,2000,2001,2004, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000,2001,2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -58,107 +58,35 @@ static scm_t_bits tc16_continuation;
 
 
 
-/* scm_i_make_continuation will return a procedure whose objcode contains an
-   instruction to reinstate the continuation. Here, as in gsubr.c and smob.c, we
-   define the form of that trampoline function.
+/* scm_i_make_continuation will return a procedure whose code will
+   reinstate the continuation. Here, as in gsubr.c, we define the form
+   of that trampoline function.
  */
 
-#ifdef WORDS_BIGENDIAN
-#define OBJCODE_HEADER(main,meta) 0, 0, 0, main, 0, 0, 0, meta+8
-#define META_HEADER(meta)         0, 0, 0, meta, 0, 0, 0, 0
-#else
-#define OBJCODE_HEADER(main,meta) main, 0, 0, 0, meta+8, 0, 0, 0
-#define META_HEADER(meta)         meta, 0, 0, 0, 0,      0, 0, 0
-#endif
+static const scm_t_uint32 continuation_stub_code[] =
+  {
+    SCM_PACK_RTL_24 (scm_rtl_op_continuation_call, 0)
+  };
 
-#define OBJCODE_TAG SCM_MAKE_OBJCODE_TAG (SCM_OBJCODE_TYPE_STATIC, 0)
+/* Before Scheme's call/cc is compiled, eval.c will use this hand-coded
+   call/cc. */
 
-#if defined (SCM_ALIGNED) && 0
-#define SCM_DECLARE_STATIC_ALIGNED_ARRAY(type, sym)     \
-static const type sym[]
-#define SCM_STATIC_ALIGNED_ARRAY(alignment, type, sym)  \
-static SCM_ALIGNED (alignment) const type sym[]
-#define SCM_STATIC_OBJCODE(sym)                                         \
-  SCM_DECLARE_STATIC_ALIGNED_ARRAY (scm_t_uint8, sym##__bytecode);      \
-  SCM_STATIC_ALIGNED_ARRAY (8, scm_t_cell, sym##__cells) = {            \
-    { SCM_PACK (OBJCODE_TAG), SCM_PACK (sym##__bytecode) },             \
-    { SCM_BOOL_F, SCM_PACK (0) }                                        \
-  };                                                                    \
-  static const SCM sym = SCM_PACK (sym##__cells);                       \
-  SCM_STATIC_ALIGNED_ARRAY (8, scm_t_uint8, sym##__bytecode)
-#else
-#define SCM_STATIC_OBJCODE(sym)                                         \
-static SCM sym;                                                         \
-static scm_t_uint8 *sym##_bytecode;                                     \
-SCM_SNARF_INIT(sym##_bytecode = scm_gc_malloc_pointerless (sizeof(sym##_bytecode__unaligned), "partial continuation stub"); \
-               memcpy (sym##_bytecode, sym##_bytecode__unaligned, sizeof(sym##_bytecode__unaligned));) \
-SCM_SNARF_INIT(sym = scm_double_cell (OBJCODE_TAG,                      \
-                                      (scm_t_bits)sym##_bytecode,       \
-                                      SCM_UNPACK (SCM_BOOL_F),          \
-                                      0);)                              \
-static const scm_t_uint8 sym##_bytecode__unaligned[]
-#endif
-
-
-SCM_STATIC_OBJCODE (cont_objcode) = {
-  /* This code is the same as in gsubr.c, except we use continuation_call
-     instead of subr_call. */
-  OBJCODE_HEADER (8, 19),
-  /* leave args on the stack */
-  /* 0 */ scm_op_object_ref, 0, /* push scm_t_contregs smob */
-  /* 2 */ scm_op_continuation_call, /* and longjmp (whee) */
-  /* 3 */ scm_op_nop, /* pad to 8 bytes */
-  /* 4 */ scm_op_nop, scm_op_nop, scm_op_nop, scm_op_nop,
-  /* 8 */
-
-  /* We could put some meta-info to say that this proc is a continuation. Not sure
-     how to do that, though. */
-  META_HEADER (19),
-  /* 0 */ scm_op_make_eol, /* bindings */
-  /* 1 */ scm_op_make_eol, /* sources */
-  /* 2 */ scm_op_make_int8, 0, scm_op_make_int8, 3, /* arity: from ip 0 to ip 3 */
-  /* 6 */ scm_op_make_int8_0, /* the arity is 0 required args */
-  /* 7 */ scm_op_make_int8_0, /* 0 optionals */
-  /* 8 */ scm_op_make_true, /* and a rest arg */
-  /* 9 */ scm_op_list, 0, 5, /* make a list of those 5 vals */
-  /* 12 */ scm_op_list, 0, 1, /* and the arities will be a list of that one list */
-  /* 15 */ scm_op_list, 0, 3, /* pack bindings, sources, and arities into list */
-  /* 18 */ scm_op_return /* and return */
-  /* 19 */
-};
-
-
-SCM_STATIC_OBJCODE (call_cc_objcode) = {
-  /* Before Scheme's call/cc is compiled, eval.c will use this hand-coded
-     call/cc. */
-  OBJCODE_HEADER (8, 17),
-  /* 0 */ scm_op_assert_nargs_ee, 0, 1, /* assert that nargs==1 */
-  /* 3 */ scm_op_local_ref, 0, /* push the proc */
-  /* 5 */ scm_op_tail_call_cc, /* and call/cc */
-  /* 6 */ scm_op_nop, scm_op_nop, /* pad to 8 bytes */
-  /* 8 */
-
-  META_HEADER (17),
-  /* 0 */ scm_op_make_eol, /* bindings */
-  /* 1 */ scm_op_make_eol, /* sources */
-  /* 2 */ scm_op_make_int8, 3, scm_op_make_int8, 6, /* arity: from ip 0 to ip 6 */
-  /* 6 */ scm_op_make_int8_1, /* the arity is 0 required args */
-  /* 7 */ scm_op_list, 0, 3, /* make a list of those 5 vals */
-  /* 10 */ scm_op_list, 0, 1, /* and the arities will be a list of that one list */
-  /* 13 */ scm_op_list, 0, 3, /* pack bindings, sources, and arities into list */
-  /* 16 */ scm_op_return /* and return */
-  /* 17 */
-};
-
+static const scm_t_uint32 call_cc_code[] =
+  {
+    SCM_PACK_RTL_24 (scm_rtl_op_assert_nargs_ee, 2),
+    SCM_PACK_RTL_24 (scm_rtl_op_call_cc, 0)
+  };
 
 static SCM
 make_continuation_trampoline (SCM contregs)
 {
-  SCM ret = scm_make_program (cont_objcode,
-                              scm_c_make_vector (1, contregs),
-                              SCM_BOOL_F);
-  SCM_SET_CELL_WORD_0 (ret,
-                       SCM_CELL_WORD_0 (ret) | SCM_F_PROGRAM_IS_CONTINUATION);
+  SCM ret;
+  scm_t_bits nfree = 1;
+  scm_t_bits flags = SCM_F_PROGRAM_IS_CONTINUATION;
+
+  ret = scm_words (scm_tc7_rtl_program | (nfree << 16) | flags, nfree + 2);
+  SCM_SET_CELL_WORD_1 (ret, continuation_stub_code);
+  SCM_RTL_PROGRAM_FREE_VARIABLE_SET (ret, 0, contregs);
 
   return ret;
 }
@@ -252,7 +180,7 @@ scm_i_call_with_current_continuation (SCM proc)
   static SCM call_cc = SCM_BOOL_F;
 
   if (scm_is_false (call_cc))
-    call_cc = scm_make_program (call_cc_objcode, SCM_BOOL_F, SCM_BOOL_F);
+    call_cc = scm_i_make_rtl_program (call_cc_code);
   
   return scm_call_1 (call_cc, proc);
 }
@@ -263,7 +191,7 @@ scm_i_continuation_to_frame (SCM continuation)
   SCM contregs;
   scm_t_contregs *cont;
 
-  contregs = scm_c_vector_ref (scm_program_objects (continuation), 0);
+  contregs = SCM_RTL_PROGRAM_FREE_VARIABLE_REF (continuation, 0);
   cont = SCM_CONTREGS (contregs);
 
   if (scm_is_true (cont->vm_cont))
