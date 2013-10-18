@@ -41,7 +41,8 @@
 
             arity:nreq arity:nopt arity:rest? arity:kw arity:allow-other-keys?
 
-            program-arguments-alist program-lambda-list
+            program-arguments-alist program-arguments-alists
+            program-lambda-list
 
             program-meta
             program-objcode program? program-objects
@@ -340,8 +341,9 @@
             0)))
 
 (define (program-arguments-alists prog)
-  (cond
-   ((primitive? prog)
+  "Returns all arities of the given procedure, as a list of association
+lists."
+  (define (fallback)
     (match (procedure-minimum-arity prog)
       (#f '())
       ((nreq nopt rest?)
@@ -349,9 +351,13 @@
         (arity->arguments-alist
          prog
          (list 0 0 nreq nopt rest? '(#f . ())))))))
+  (cond
+   ((primitive? prog) (fallback))
    ((rtl-program? prog)
-    (map arity-arguments-alist
-         (or (find-program-arities (rtl-program-code prog)) '())))
+    (let ((arities (find-program-arities (rtl-program-code prog))))
+      (if arities
+          (map arity-arguments-alist arities)
+          (fallback))))
    ((program? prog)
     (map (lambda (arity) (arity->arguments-alist prog arity))
          (or (program-arities prog) '())))
