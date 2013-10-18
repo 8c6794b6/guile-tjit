@@ -1,4 +1,4 @@
-/* Copyright (C) 1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012
+/* Copyright (C) 1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012,2013
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -295,14 +295,17 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	    return scm_class_fraction;
           }
 	case scm_tc7_program:
+	case scm_tc7_rtl_program:
+          /* Although SCM_SUBR_GENERIC is specific to stack programs
+             currently, in practice only stack programs pass
+             SCM_PROGRAM_IS_PRIMITIVE_GENERIC.  In the future this will
+             change to be the other way around, when subrs become RTL
+             programs.  */
 	  if (SCM_PROGRAM_IS_PRIMITIVE_GENERIC (x)
               && SCM_UNPACK (*SCM_SUBR_GENERIC (x)))
 	    return scm_class_primitive_generic;
 	  else
 	    return scm_class_procedure;
-
-	case scm_tc7_rtl_program:
-          return scm_class_procedure;
 
 	case scm_tc7_smob:
 	  {
