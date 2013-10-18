@@ -524,6 +524,9 @@ scm_i_rtl_program_minimum_arity (SCM program, int *req, int *opt, int *rest)
   if (SCM_PRIMITIVE_P (program))
     return scm_i_primitive_arity (program, req, opt, rest);
 
+  if (SCM_PROGRAM_IS_FOREIGN (program))
+    return scm_i_foreign_arity (program, req, opt, rest);
+
   if (scm_is_false (rtl_program_minimum_arity) && scm_module_system_booted_p)
     rtl_program_minimum_arity =
         scm_c_private_variable ("system vm program",

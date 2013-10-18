@@ -333,6 +333,11 @@
           (gc) (gc) (gc)
           (every (cut = <> 9)
                  (map (lambda (f) (f 2)) procs)))
+        (throw 'unresolved)))
+
+  (pass-if "arity"
+    (if (and qsort (defined? 'procedure->pointer))
+        (equal? '(4 0 #f) (procedure-minimum-arity qsort))
         (throw 'unresolved))))
 
 

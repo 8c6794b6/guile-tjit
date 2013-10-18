@@ -1,7 +1,7 @@
 #ifndef SCM_FOREIGN_H
 #define SCM_FOREIGN_H
 
-/* Copyright (C) 2010, 2011, 2012  Free Software Foundation, Inc.
+/* Copyright (C) 2010, 2011, 2012, 2013  Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -60,6 +60,8 @@ SCM_API SCM scm_from_pointer (void *, scm_t_pointer_finalizer);
 SCM_API SCM scm_alignof (SCM type);
 SCM_API SCM scm_sizeof (SCM type);
 SCM_API SCM scm_pointer_address (SCM pointer);
+SCM_API SCM scm_pointer_to_scm (SCM pointer);
+SCM_API SCM scm_scm_to_pointer (SCM scm);
 SCM_API SCM scm_pointer_to_bytevector (SCM pointer, SCM type,
                                        SCM offset, SCM len);
 SCM_API SCM scm_set_pointer_finalizer_x (SCM pointer, SCM finalizer);
@@ -96,6 +98,8 @@ SCM_API SCM scm_pointer_to_procedure (SCM return_type, SCM func_ptr,
 SCM_API SCM scm_procedure_to_pointer (SCM return_type, SCM func_ptr,
 				      SCM arg_types);
 SCM_INTERNAL SCM scm_i_foreign_call (SCM foreign, const SCM *argv);
+SCM_INTERNAL int scm_i_foreign_arity (SCM foreign,
+                                      int *req, int *opt, int *rest);
 
 
 

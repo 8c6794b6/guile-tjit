@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -32,6 +32,7 @@ enum scm_rtl_opcode
 #define SCM_PACK_RTL_8_8_8(op,a,b,c) ((op) | ((a) << 8) | ((b) << 16) | ((c) << 24))
 #define SCM_PACK_RTL_8_16(op,a,b) ((op) | ((a) << 8) | ((b) << 16))
 #define SCM_PACK_RTL_16_8(op,a,b) ((op) | ((a) << 8) | ((b) << 24))
+#define SCM_PACK_RTL_12_12(op,a,b) ((op) | ((a) << 8) | ((b) << 20))
 #define SCM_PACK_RTL_24(op,a) ((op) | ((a) << 8))
 
 #define SCM_UNPACK_RTL_8_8_8(op,a,b,c)    \

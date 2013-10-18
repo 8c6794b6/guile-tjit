@@ -763,182 +763,68 @@ SCM_DEFINE (scm_pointer_to_procedure, "pointer->procedure", 3, 0, 0,
 
 
 
-/* Pre-generate trampolines for less than 10 arguments. */
+/* We support calling foreign functions with up to 100 arguments. */
 
-#ifdef WORDS_BIGENDIAN
-#define OBJCODE_HEADER(M) M (0), M (0), M (0), M (8), M (0), M (0), M (0), M (40)
-#define META_HEADER(M)    M (0), M (0), M (0), M (32), M (0), M (0), M (0), M (0)
-#else
-#define OBJCODE_HEADER(M) M (8), M (0), M (0), M (0), M (40), M (0), M (0), M (0)
-#define META_HEADER(M)    M (32), M (0), M (0), M (0), M (0), M (0), M (0), M (0)
-#endif
+#define CODE(nreq)                                                  \
+  SCM_PACK_RTL_24 (scm_rtl_op_assert_nargs_ee, nreq + 1),           \
+  SCM_PACK_RTL_12_12 (scm_rtl_op_foreign_call, 0, 1)
 
-#define GEN_CODE(M, nreq)                                               \
-  OBJCODE_HEADER (M),                                                   \
-  /* 0 */ M (scm_op_assert_nargs_ee), M (0), M (nreq), /* assert number of args */ \
-  /* 3 */ M (scm_op_object_ref), M (0), /* push the pair with the cif and the function pointer */ \
-  /* 5 */ M (scm_op_foreign_call), M (nreq), /* and call (will return value as well) */ \
-  /* 7 */ M (scm_op_nop),                                               \
-  /* 8 */ META (M, 3, 7, nreq)
+#define CODE_10(n)                                               \
+  CODE (n + 0), CODE (n + 1), CODE (n + 2), CODE (n + 3), CODE (n + 4), \
+  CODE (n + 5), CODE (n + 6), CODE (n + 7), CODE (n + 8), CODE (n + 9)
 
-#define META(M, start, end, nreq)                                       \
-  META_HEADER (M),                                                      \
-  /* 0 */ M (scm_op_make_eol), /* bindings */                           \
-  /* 1 */ M (scm_op_make_eol), /* sources */                            \
-  /* 2 */ M (scm_op_make_int8), M (start), M (scm_op_make_int8), M (end), /* arity: from ip N to ip N */ \
-  /* 6 */ M (scm_op_make_int8), M (nreq), /* the arity is N required args */ \
-  /* 8 */ M (scm_op_list), M (0), M (3), /* make a list of those 3 vals */ \
-  /* 11 */ M (scm_op_list), M (0), M (1), /* and the arities will be a list of that one list */ \
-  /* 14 */ M (scm_op_load_symbol), M (0), M (0), M (4), M ('n'), M ('a'), M ('M'), M ('e'), /* `name' */ \
-  /* 22 */ M (scm_op_object_ref), M (1), /* the name from the object table */ \
-  /* 24 */ M (scm_op_cons), /* make a pair for the properties */        \
-  /* 25 */ M (scm_op_list), M (0), M (4), /* pack bindings, sources, and arities into list */ \
-  /* 28 */ M (scm_op_return), /* and return */                          \
-  /* 29 */ M (scm_op_nop), M (scm_op_nop), M (scm_op_nop)               \
-  /* 32 */
-
-#define M_STATIC(x) (x)
-#define CODE(nreq) GEN_CODE (M_STATIC, nreq)
-
-static const struct
-{
-  scm_t_uint64 dummy; /* ensure 8-byte alignment; perhaps there's a better way */
-  const scm_t_uint8 bytes[10 * (sizeof (struct scm_objcode) + 8
-                                + sizeof (struct scm_objcode) + 32)];
-} raw_bytecode = {
-  0,
+static const scm_t_uint32 foreign_stub_code[] =
   {
-    CODE (0), CODE (1), CODE (2), CODE (3), CODE (4),
-    CODE (5), CODE (6), CODE (7), CODE (8), CODE (9)
-  }
-};
+    CODE_10 (0), CODE_10 (10), CODE_10 (20), CODE_10 (30), CODE_10 (40),
+    CODE_10 (50), CODE_10 (60), CODE_10 (70), CODE_10 (80), CODE_10 (90)
+  };
 
-static SCM
-make_objcode_trampoline (unsigned int nargs)
-{
-  const int size = sizeof (struct scm_objcode) + 8
-    + sizeof (struct scm_objcode) + 32;
-  SCM bytecode = scm_c_make_bytevector (size);
-  scm_t_uint8 *bytes = (scm_t_uint8 *) SCM_BYTEVECTOR_CONTENTS (bytecode);
-  int i = 0;
-
-#define M_DYNAMIC(x) (bytes[i++] = (x))
-  GEN_CODE (M_DYNAMIC, nargs);
-#undef M_DYNAMIC
-
-  if (i != size)
-    scm_syserror ("make_objcode_trampoline");
-  return scm_bytecode_to_objcode (bytecode, SCM_UNDEFINED);
-}
-
-#undef GEN_CODE
-#undef META
-#undef M_STATIC
 #undef CODE
-#undef OBJCODE_HEADER
-#undef META_HEADER
+#undef CODE_10
 
-/*
- (defun generate-objcode-cells (n)
-   "Generate objcode cells for up to N arguments"
-   (interactive "p")
-   (let ((i 0))
-     (while (< i n)
-       (insert
-        (format "    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + %d) },\n"
-                (* (+ 4 4 8 4 4 32) i)))
-       (insert "    { SCM_BOOL_F, SCM_PACK (0) },\n")
-       (setq i (1+ i)))))
-*/
-#define STATIC_OBJCODE_TAG                                      \
-  SCM_PACK (SCM_MAKE_OBJCODE_TAG (SCM_OBJCODE_TYPE_STATIC, 0))
-
-static const struct
+static const scm_t_uint32 *
+get_foreign_stub_code (unsigned int nargs)
 {
-  scm_t_uint64 dummy; /* alignment */
-  scm_t_cell cells[10 * 2]; /* 10 double cells */
-} objcode_cells = {
-  0,
-  /* C-u 1 0 M-x generate-objcode-cells RET */
-  {
-    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + 0) },
-    { SCM_BOOL_F, SCM_PACK (0) },
-    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + 56) },
-    { SCM_BOOL_F, SCM_PACK (0) },
-    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + 112) },
-    { SCM_BOOL_F, SCM_PACK (0) },
-    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + 168) },
-    { SCM_BOOL_F, SCM_PACK (0) },
-    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + 224) },
-    { SCM_BOOL_F, SCM_PACK (0) },
-    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + 280) },
-    { SCM_BOOL_F, SCM_PACK (0) },
-    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + 336) },
-    { SCM_BOOL_F, SCM_PACK (0) },
-    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + 392) },
-    { SCM_BOOL_F, SCM_PACK (0) },
-    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + 448) },
-    { SCM_BOOL_F, SCM_PACK (0) },
-    { STATIC_OBJCODE_TAG, SCM_PACK (raw_bytecode.bytes + 504) },
-    { SCM_BOOL_F, SCM_PACK (0) }
-  }
-};
-
-static const SCM objcode_trampolines[10] = {
-  SCM_PACK (objcode_cells.cells+0),
-  SCM_PACK (objcode_cells.cells+2),
-  SCM_PACK (objcode_cells.cells+4),
-  SCM_PACK (objcode_cells.cells+6),
-  SCM_PACK (objcode_cells.cells+8),
-  SCM_PACK (objcode_cells.cells+10),
-  SCM_PACK (objcode_cells.cells+12),
-  SCM_PACK (objcode_cells.cells+14),
-  SCM_PACK (objcode_cells.cells+16),
-  SCM_PACK (objcode_cells.cells+18),
-};
-
-static SCM large_objcode_trampolines = SCM_UNDEFINED;
-static scm_i_pthread_mutex_t large_objcode_trampolines_mutex =
-  SCM_I_PTHREAD_MUTEX_INITIALIZER;
-
-static SCM
-get_objcode_trampoline (unsigned int nargs)
-{
-  SCM objcode;
-
-  if (nargs < 10)
-    objcode = objcode_trampolines[nargs];
-  else if (nargs < 128)
-    {
-      scm_i_scm_pthread_mutex_lock (&large_objcode_trampolines_mutex);
-      if (SCM_UNBNDP (large_objcode_trampolines))
-        large_objcode_trampolines = scm_c_make_vector (128, SCM_UNDEFINED);
-      objcode = scm_c_vector_ref (large_objcode_trampolines, nargs);
-      if (SCM_UNBNDP (objcode))
-        scm_c_vector_set_x (large_objcode_trampolines, nargs,
-                            objcode = make_objcode_trampoline (nargs));
-      scm_i_pthread_mutex_unlock (&large_objcode_trampolines_mutex);
-    }
-  else
-    scm_misc_error ("make-foreign-function", "args >= 128 currently unimplemented",
+  if (nargs >= 100)
+    scm_misc_error ("make-foreign-function", "args >= 100 currently unimplemented",
                     SCM_EOL);
 
-  return objcode;
+  return &foreign_stub_code[nargs * 2];
+}
+
+/* Given a foreign procedure, determine its minimum arity. */
+int
+scm_i_foreign_arity (SCM foreign, int *req, int *opt, int *rest)
+{
+  const scm_t_uint32 *code = SCM_RTL_PROGRAM_CODE (foreign);
+
+  if (code < foreign_stub_code)
+    return 0;
+  if (code > (foreign_stub_code
+              + (sizeof(foreign_stub_code) / sizeof(scm_t_uint32))))
+    return 0;
+
+  *req = (code - foreign_stub_code) / 2;
+  *opt = 0;
+  *rest = 0;
+
+  return 1;
 }
 
 static SCM
 cif_to_procedure (SCM cif, SCM func_ptr)
 {
   ffi_cif *c_cif;
-  SCM objcode, table, ret;
+  SCM ret;
+  scm_t_bits nfree = 2;
+  scm_t_bits flags = SCM_F_PROGRAM_IS_FOREIGN;
 
   c_cif = (ffi_cif *) SCM_POINTER_VALUE (cif);
-  objcode = get_objcode_trampoline (c_cif->nargs);
-  
-  table = scm_c_make_vector (2, SCM_UNDEFINED);
-  SCM_SIMPLE_VECTOR_SET (table, 0, scm_cons (cif, func_ptr));
-  SCM_SIMPLE_VECTOR_SET (table, 1, SCM_BOOL_F); /* name */
-  ret = scm_make_program (objcode, table, SCM_BOOL_F);
+
+  ret = scm_words (scm_tc7_rtl_program | (nfree << 16) | flags, nfree + 2);
+  SCM_SET_CELL_WORD_1 (ret, get_foreign_stub_code (c_cif->nargs));
+  SCM_RTL_PROGRAM_FREE_VARIABLE_SET (ret, 0, cif);
+  SCM_RTL_PROGRAM_FREE_VARIABLE_SET (ret, 1, func_ptr);
   
   return ret;
 }
