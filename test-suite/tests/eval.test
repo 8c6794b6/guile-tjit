@@ -1,5 +1,5 @@
 ;;;; eval.test --- tests guile's evaluator     -*- scheme -*-
-;;;; Copyright (C) 2000, 2001, 2006, 2007, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;;;; Copyright (C) 2000, 2001, 2006, 2007, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -349,7 +349,9 @@
 (define tag (make-prompt-tag "foo"))
 
 (with-test-prefix "stacks"
-  (pass-if "stack involving a primitive"
+  ;; FIXME: Until we get one VM, a call to an RTL primitive from the
+  ;; stack VM will result in the primitive being on the stack twice.
+  (expect-fail "stack involving a primitive"
     ;; The primitive involving the error must appear exactly once on the
     ;; stack.
     (let* ((stack (make-tagged-trimmed-stack tag '(#t)))

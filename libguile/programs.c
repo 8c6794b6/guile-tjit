@@ -116,6 +116,9 @@ scm_i_rtl_program_name (SCM program)
 {
   static SCM rtl_program_name = SCM_BOOL_F;
 
+  if (SCM_PRIMITIVE_P (program))
+    return SCM_SUBR_NAME (program);
+
   if (scm_is_false (rtl_program_name) && scm_module_system_booted_p)
     rtl_program_name =
         scm_c_private_variable ("system vm program", "rtl-program-name");
@@ -127,6 +130,9 @@ SCM
 scm_i_rtl_program_documentation (SCM program)
 {
   static SCM rtl_program_documentation = SCM_BOOL_F;
+
+  if (SCM_PRIMITIVE_P (program))
+    return SCM_BOOL_F;
 
   if (scm_is_false (rtl_program_documentation) && scm_module_system_booted_p)
     rtl_program_documentation =
@@ -140,6 +146,14 @@ SCM
 scm_i_rtl_program_properties (SCM program)
 {
   static SCM rtl_program_properties = SCM_BOOL_F;
+
+  if (SCM_PRIMITIVE_P (program))
+    {
+      SCM name = scm_i_rtl_program_name (program);
+      if (scm_is_false (name))
+        return SCM_EOL;
+      return scm_acons (scm_sym_name, name, SCM_EOL);
+    }
 
   if (scm_is_false (rtl_program_properties) && scm_module_system_booted_p)
     rtl_program_properties =
@@ -216,6 +230,26 @@ SCM_DEFINE (scm_rtl_program_p, "rtl-program?", 1, 0, 0,
 #define FUNC_NAME s_scm_rtl_program_p
 {
   return scm_from_bool (SCM_RTL_PROGRAM_P (obj));
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_primitive_p, "primitive?", 1, 0, 0,
+	    (SCM obj),
+	    "")
+#define FUNC_NAME s_scm_primitive_p
+{
+  return scm_from_bool (SCM_PRIMITIVE_P (obj));
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_primitive_call_ip, "primitive-call-ip", 1, 0, 0,
+	    (SCM prim),
+	    "")
+#define FUNC_NAME s_scm_primitive_p
+{
+  SCM_MAKE_VALIDATE (1, prim, PRIMITIVE_P);
+
+  return scm_from_int (scm_i_primitive_call_ip (prim));
 }
 #undef FUNC_NAME
 
@@ -486,6 +520,9 @@ scm_i_rtl_program_minimum_arity (SCM program, int *req, int *opt, int *rest)
 {
   static SCM rtl_program_minimum_arity = SCM_BOOL_F;
   SCM l;
+
+  if (SCM_PRIMITIVE_P (program))
+    return scm_i_primitive_arity (program, req, opt, rest);
 
   if (scm_is_false (rtl_program_minimum_arity) && scm_module_system_booted_p)
     rtl_program_minimum_arity =

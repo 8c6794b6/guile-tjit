@@ -44,6 +44,9 @@ SCM_INTERNAL SCM scm_make_rtl_program (SCM bytevector, SCM byte_offset, SCM free
 SCM_INTERNAL SCM scm_rtl_program_p (SCM obj);
 SCM_INTERNAL SCM scm_rtl_program_code (SCM program);
 
+SCM_INTERNAL SCM scm_primitive_p (SCM obj);
+SCM_INTERNAL SCM scm_primitive_call_ip (SCM prim);
+
 SCM_INTERNAL SCM scm_i_rtl_program_name (SCM program);
 SCM_INTERNAL SCM scm_i_rtl_program_documentation (SCM program);
 SCM_INTERNAL SCM scm_i_rtl_program_properties (SCM program);

@@ -4,7 +4,7 @@
 #define SCM_SNARF_H
 
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
- *   2004, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
+ *   2004, 2006, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -96,47 +96,8 @@ scm_c_define_gsubr (s_ ## FNAME, REQ, OPT, VAR, \
 )\
 SCM_SNARF_DOCS(primitive, FNAME, PRIMNAME, ARGLIST, REQ, OPT, VAR, DOCSTRING)
 
-#ifdef SCM_SUPPORT_STATIC_ALLOCATION
-
-/* Static subr allocation.  */
-/* FIXME: how to verify that req + opt + rest < 11, all are positive, etc? */
-#define SCM_DEFINE(FNAME, PRIMNAME, REQ, OPT, VAR, ARGLIST, DOCSTRING)	\
-SCM_SYMBOL (scm_i_paste (FNAME, __name), PRIMNAME);			\
-SCM_SNARF_HERE(							        \
-  static const char scm_i_paste (s_, FNAME) [] = PRIMNAME;		\
-  SCM_API SCM FNAME ARGLIST;						\
-  SCM_IMMUTABLE_POINTER (scm_i_paste (FNAME, __subr_foreign),           \
-                         (scm_t_bits) &FNAME); /* the subr */           \
-  SCM_STATIC_SUBR_OBJVECT (scm_i_paste (FNAME, __raw_objtable),         \
-                           /* FIXME: directly be the foreign */         \
-                           SCM_BOOL_F);                                 \
-  /* FIXME: be immutable. grr */                                        \
-  SCM_STATIC_PROGRAM (scm_i_paste (FNAME, __subr),			\
-                      SCM_BOOL_F,                                       \
-                      SCM_PACK (&scm_i_paste (FNAME, __raw_objtable)),  \
-                      SCM_BOOL_F);                                      \
-  SCM FNAME ARGLIST							\
-)									\
-SCM_SNARF_INIT(							\
-  /* Initialize the foreign.  */                                        \
-  scm_i_paste (FNAME, __raw_objtable)[1] = scm_i_paste (FNAME, __subr_foreign); \
-  /* Initialize the procedure name (an interned symbol).  */		\
-  scm_i_paste (FNAME, __raw_objtable)[2] = scm_i_paste (FNAME, __name); \
-  /* Initialize the objcode trampoline.  */                             \
-  SCM_SET_CELL_OBJECT (scm_i_paste (FNAME, __subr), 1,                  \
-                       scm_subr_objcode_trampoline (REQ, OPT, VAR));    \
-									\
-  /* Define the subr.  */						\
-  scm_define (scm_i_paste (FNAME, __name), scm_i_paste (FNAME, __subr)); \
-)									\
-SCM_SNARF_DOCS(primitive, FNAME, PRIMNAME, ARGLIST, REQ, OPT, VAR, DOCSTRING)
-
-#else /* !SCM_SUPPORT_STATIC_ALLOCATION */
-
 /* Always use the generic subr case.  */
 #define SCM_DEFINE SCM_DEFINE_GSUBR
-
-#endif /* !SCM_SUPPORT_STATIC_ALLOCATION */
 
 
 #define SCM_PRIMITIVE_GENERIC(FNAME, PRIMNAME, REQ, OPT, VAR, ARGLIST, DOCSTRING) \
