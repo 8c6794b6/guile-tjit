@@ -211,6 +211,8 @@
                   (emit-constant-vector-ref asm dst (slot vector) index)))
             (else
              (emit-vector-ref asm dst (slot vector) (slot index)))))
+          (($ $primcall 'builtin-ref (name))
+           (emit-builtin-ref asm dst (constant name)))
           (($ $primcall name args)
            ;; FIXME: Inline all the cases.
            (let ((inst (prim-rtl-instruction name)))

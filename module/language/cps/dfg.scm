@@ -810,6 +810,8 @@
               (not (and (eq? sym i) (immediate-u8? val))))
              (($ $primcall 'vector-set! (v i x))
               (not (and (eq? sym i) (immediate-u8? val))))
+             (($ $primcall 'builtin-ref (idx))
+              #f)
              (_ #t)))
          uses))))))
 

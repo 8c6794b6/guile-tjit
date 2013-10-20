@@ -68,15 +68,6 @@ static const scm_t_uint32 continuation_stub_code[] =
     SCM_PACK_RTL_24 (scm_rtl_op_continuation_call, 0)
   };
 
-/* Before Scheme's call/cc is compiled, eval.c will use this hand-coded
-   call/cc. */
-
-static const scm_t_uint32 call_cc_code[] =
-  {
-    SCM_PACK_RTL_24 (scm_rtl_op_assert_nargs_ee, 2),
-    SCM_PACK_RTL_24 (scm_rtl_op_call_cc, 0)
-  };
-
 static SCM
 make_continuation_trampoline (SCM contregs)
 {
@@ -173,17 +164,6 @@ scm_i_make_continuation (int *first, SCM vm, SCM vm_cont)
     return SCM_UNDEFINED;
 }
 #undef FUNC_NAME
-
-SCM
-scm_i_call_with_current_continuation (SCM proc)
-{
-  static SCM call_cc = SCM_BOOL_F;
-
-  if (scm_is_false (call_cc))
-    call_cc = scm_i_make_rtl_program (call_cc_code);
-  
-  return scm_call_1 (call_cc, proc);
-}
 
 SCM
 scm_i_continuation_to_frame (SCM continuation)

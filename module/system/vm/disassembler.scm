@@ -19,7 +19,7 @@
 ;;; Code:
 
 (define-module (system vm disassembler)
-  #:use-module (system vm instruction)
+  #:use-module (language rtl)
   #:use-module (system vm elf)
   #:use-module (system vm debug)
   #:use-module (system vm program)
@@ -250,6 +250,8 @@ address of that offset."
              nfree)))
     (('make-non-immediate dst target)
      (list "~@Y" (reference-scm target)))
+    (('builtin-ref dst idx)
+     (list "~A" (builtin-index->name idx)))
     (((or 'static-ref 'static-set!) _ target)
      (list "~@Y" (dereference-scm target)))
     (('link-procedure! src target)

@@ -50,6 +50,13 @@
                 (build-cps-term
                   ($continue k ($primcall 'box-ref (box)))))))
 
+(define (builtin-ref idx k)
+  (let-gensyms (idx-sym)
+    (build-cps-term
+      ($letconst (('idx idx-sym idx))
+        ($continue k
+          ($primcall 'builtin-ref (idx-sym)))))))
+
 (define (reify-clause ktail)
   (let-gensyms (kclause kbody wna false str eol kthrow throw)
     (build-cps-cont
@@ -97,7 +104,12 @@
          ,(match exp
             (($ $prim name)
              (match (lookup-cont k conts)
-               (($ $kargs (_)) (primitive-ref name k))
+               (($ $kargs (_))
+                (cond
+                 ((builtin-name->index name)
+                  => (lambda (idx)
+                       (builtin-ref idx k)))
+                 (else (primitive-ref name k))))
                (_ (build-cps-term ($continue k ($void))))))
             (($ $fun)
              (build-cps-term ($continue k ,(visit-fun exp))))
@@ -114,7 +126,11 @@
                  (build-cps-term
                    ($letk ((k* #f ($kargs (v) (v)
                                     ($continue k ($call v args)))))
-                     ,(primitive-ref name k*)))))))
+                     ,(cond
+                       ((builtin-name->index name)
+                        => (lambda (idx)
+                             (builtin-ref idx k*)))
+                       (else (primitive-ref name k*)))))))))
             (_ term)))))
 
     (visit-fun fun)))

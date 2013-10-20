@@ -74,8 +74,6 @@ SCM_INTERNAL SCM scm_i_make_continuation (int *first, SCM vm, SCM vm_cont);
 SCM_INTERNAL void scm_i_check_continuation (SCM cont);
 SCM_INTERNAL void scm_i_reinstate_continuation (SCM cont);
 
-SCM_INTERNAL SCM scm_i_call_with_current_continuation (SCM proc);
-
 SCM_INTERNAL SCM scm_i_continuation_to_frame (SCM cont);
 SCM_INTERNAL SCM scm_i_contregs_vm (SCM contregs);
 SCM_INTERNAL SCM scm_i_contregs_vm_cont (SCM contregs);

@@ -433,10 +433,20 @@
         k
         subst)))
 
-    (($ <abort> src tag args tail)
-     (convert-args (append (list tag) args (list tail))
+    (($ <abort> src tag args ($ <const> _ ()))
+     (convert-args (cons tag args)
        (lambda (args*)
-         (build-cps-term ($continue k ($primcall 'abort args*))))))
+         (build-cps-term
+           ($continue k ($primcall 'abort-to-prompt args*))))))
+
+    (($ <abort> src tag args tail)
+     (convert-args (append (list (make-primitive-ref #f 'abort-to-prompt)
+                                 tag)
+                           args
+                           (list tail))
+       (lambda (args*)
+         (build-cps-term
+           ($continue k ($primcall 'apply args*))))))
 
     (($ <conditional> src test consequent alternate)
      (let-gensyms (kif kt kf)

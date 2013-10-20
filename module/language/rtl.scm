@@ -23,7 +23,12 @@
   #:use-module ((srfi srfi-1) #:select (fold))
   #:use-module (system vm instruction)
   #:re-export (rtl-instruction-list)
-  #:export (rtl-instruction-arity))
+  #:export (rtl-instruction-arity
+            builtin-name->index
+            builtin-index->name))
+
+(load-extension (string-append "libguile-" (effective-version))
+                "scm_init_vm_builtins")
 
 (define (compute-rtl-instruction-arity name args)
   (define (first-word-arity word)
