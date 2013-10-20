@@ -1111,7 +1111,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
         VM_ASSERT (FRAME_LOCALS_COUNT () > proc + nvalues,
                    vm_error_not_enough_values ());
       else
-        VM_ASSERT (FRAME_LOCALS_COUNT () == proc + nvalues,
+        VM_ASSERT (FRAME_LOCALS_COUNT () == proc + 1 + nvalues,
                    vm_error_wrong_number_of_values (nvalues));
       NEXT (2);
     }
@@ -1427,9 +1427,13 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32 nlocals = FRAME_LOCALS_COUNT ();
 
       ASSERT (nlocals >= 2);
+      /* FIXME: Really we should capture the caller's registers.  Until
+         then, manually advance the IP so that when the prompt resumes,
+         it continues with the next instruction.  */
+      ip++;
       SYNC_IP ();
       vm_abort (vm, LOCAL_REF (1), nlocals - 2, &LOCAL_REF (2),
-                SCM_EOL, &LOCAL_REF (1), &registers);
+                SCM_EOL, &LOCAL_REF (0), &registers);
 
       /* vm_abort should not return */
       abort ();

@@ -350,8 +350,11 @@ vm_reinstate_partial_continuation (SCM vm, SCM cont, size_t n, SCM *argv,
       vp->sp++;
       *vp->sp = argv_copy[i];
     }
+#if 0
+  /* The number-of-values marker, only used by the stack VM.  */
   vp->sp++;
   *vp->sp = scm_from_size_t (n);
+#endif
 
   /* The prompt captured a slice of the dynamic stack.  Here we wind
      those entries onto the current thread's stack.  We also have to
