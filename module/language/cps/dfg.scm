@@ -61,9 +61,7 @@
             constant-needs-allocation?
             dead-after-def?
             dead-after-use?
-            branch?
-            find-other-branches
-            dead-after-branch?
+            control-point?
             lookup-bound-syms
 
             ;; Data flow analysis.
@@ -875,72 +873,18 @@
        ((< k1-level k2-level) (post-dominates? k1 (block-pdom b2) blocks))
        ((= k1-level k2-level) (eqv? k1 k2))))))
 
-(define (dead-after-def? sym dfg)
-  (match dfg
-    (($ $dfg conts blocks use-maps)
-     (match (lookup-use-map sym use-maps)
-       (($ $use-map name sym def uses)
-        (null? uses))))))
-
 (define (lookup-loop-header k blocks)
   (block-loop-header (lookup-block k blocks)))
 
-(define (dead-after-use? sym use-k dfg)
-  (match dfg
-    (($ $dfg conts blocks use-maps)
-     (match (lookup-use-map sym use-maps)
-       (($ $use-map name sym def uses)
-        ;; If all other uses dominate this use, and the variable was not
-        ;; defined outside the current loop, it is now dead.  There are
-        ;; other ways for it to be dead, but this is an approximation.
-        ;; A better check would be if all successors post-dominate all
-        ;; uses.
-        (and (let ((loop (lookup-loop-header use-k blocks)))
-               (or (eqv? def loop)
-                   (eqv? (lookup-loop-header def blocks) loop)))
-             (and-map (cut dominates? <> use-k blocks) uses)))))))
-
-;; A continuation is a "branch" if all of its predecessors are $kif
-;; continuations.
-(define (branch? k dfg)
-  (let ((preds (lookup-predecessors k dfg)))
-    (and (not (null? preds))
-         (and-map (lambda (k)
-                    (match (lookup-cont k (dfg-cont-table dfg))
-                      (($ $kif) #t)
-                      (_ #f)))
-                  preds))))
-
-(define (find-other-branches k dfg)
-  (map (lambda (kif)
-         (match (lookup-cont kif (dfg-cont-table dfg))
-           (($ $kif (? (cut eq? <> k)) kf)
-            kf)
-           (($ $kif kt (? (cut eq? <> k)))
-            kt)
-           (_ (error "Not all predecessors are branches"))))
-       (lookup-predecessors k dfg)))
-
-(define (dead-after-branch? sym branch other-branches dfg)
-  (match dfg
-    (($ $dfg conts blocks use-maps)
-     (match (lookup-use-map sym use-maps)
-       (($ $use-map name sym def uses)
-        ;; As in dead-after-use?, we don't kill the variable if it was
-        ;; defined outside the current loop.
-        (and (let ((loop (lookup-loop-header branch blocks)))
-               (or (eqv? def loop)
-                   (eqv? (lookup-loop-header def blocks) loop)))
-             (and-map
-              (lambda (use-k)
-                ;; A symbol is dead after a branch if at least one of the
-                ;; other branches dominates a use of the symbol, and all
-                ;; other uses of the symbol dominate the test.
-                (if (or-map (cut dominates? <> use-k blocks)
-                            other-branches)
-                    (not (dominates? branch use-k blocks))
-                    (dominates? use-k branch blocks)))
-              uses)))))))
+;; A continuation is a control point if it has multiple predecessors, or
+;; if its single predecessor has multiple successors.
+(define (control-point? k dfg)
+  (match (lookup-predecessors k dfg)
+    ((pred)
+     (match (lookup-successors pred dfg)
+       ((_) #f)
+       (_ #t)))
+    (_ #t)))
 
 (define (lookup-bound-syms k dfg)
   (match dfg

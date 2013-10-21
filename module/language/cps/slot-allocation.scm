@@ -48,15 +48,10 @@
 ;; constant value is set to the CONST slot and HAS-CONST? is set to a
 ;; true value.
 ;;
-;; DEF holds the label of the continuation that defines the variable,
-;; and DEAD is a list of continuations at which the variable becomes
-;; dead.
 (define-record-type $allocation
-  (make-allocation def slot dead has-const? const)
+  (make-allocation slot has-const? const)
   allocation?
-  (def allocation-def)
   (slot allocation-slot)
-  (dead allocation-dead set-allocation-dead!)
   (has-const? allocation-has-const?)
   (const allocation-const))
 
@@ -109,17 +104,17 @@
 
 (define (lookup-slot sym allocation)
   (match (lookup-allocation sym allocation)
-    (($ $allocation def slot dead has-const? const) slot)))
+    (($ $allocation slot has-const? const) slot)))
 
 (define (lookup-constant-value sym allocation)
   (match (lookup-allocation sym allocation)
-    (($ $allocation def slot dead #t const) const)
+    (($ $allocation slot #t const) const)
     (_
      (error "Variable does not have constant value" sym))))
 
 (define (lookup-maybe-constant-value sym allocation)
   (match (lookup-allocation sym allocation)
-    (($ $allocation def slot dead has-const? const)
+    (($ $allocation slot has-const? const)
      (values has-const? const))))
 
 (define (lookup-call-proc-slot k allocation)
@@ -195,92 +190,90 @@ are comparable with eqv?.  A tmp slot may be used."
                             tmp)
                       (loop to-move b (cons s+d moved) last-source))))))))))
 
+(define (dead-after-def? def-k v-idx dfa)
+  (let ((l (dfa-k-idx dfa def-k)))
+    (not (bitvector-ref (dfa-k-in dfa l) v-idx))))
+
+(define (dead-after-use? use-k v-idx dfa)
+  (let ((l (dfa-k-idx dfa use-k)))
+    (not (bitvector-ref (dfa-k-out dfa l) v-idx))))
+
 (define (allocate-slots fun)
-  (define (empty-live-set)
-    (cons #b0 '()))
+  (define (empty-live-slots)
+    #b0)
 
-  (define (add-live-variable sym slot live-set)
-    (cons (logior (car live-set) (ash 1 slot))
-          (acons sym slot (cdr live-set))))
+  (define (add-live-slot slot live-slots)
+    (logior live-slots (ash 1 slot)))
 
-  (define (remove-live-variable sym slot live-set)
-    (cons (logand (car live-set) (lognot (ash 1 slot)))
-          (acons sym #f (cdr live-set))))
+  (define (kill-dead-slot slot live-slots)
+    (logand live-slots (lognot (ash 1 slot))))
 
-  (define (fold-live-set proc seed live-set)
-    (let lp ((bits (car live-set)) (clauses (cdr live-set)) (seed seed))
-      (if (zero? bits)
-          seed
-          (match clauses
-            (((sym . slot) . clauses)
-             (if (and slot (logbit? slot bits))
-                 (lp (logand bits (lognot (ash 1 slot)))
-                     clauses
-                     (proc sym slot seed))
-                 (lp bits clauses seed)))))))
-
-  (define (compute-slot live-set hint)
-    (if (and hint (not (logbit? hint (car live-set))))
+  (define (compute-slot live-slots hint)
+    (if (and hint (not (logbit? hint live-slots)))
         hint
-        (find-first-zero (car live-set))))
+        (find-first-zero live-slots)))
 
-  (define (compute-call-proc-slot live-set nlocals)
-    (+ 3 (find-first-trailing-zero (car live-set) nlocals)))
+  (define (compute-call-proc-slot live-slots nlocals)
+    (+ 3 (find-first-trailing-zero live-slots nlocals)))
 
-  (define (compute-prompt-handler-proc-slot live-set nlocals)
-    (1- (find-first-trailing-zero (car live-set) nlocals)))
+  (define (compute-prompt-handler-proc-slot live-slots nlocals)
+    (1- (find-first-trailing-zero live-slots nlocals)))
 
-  (define dfg (compute-dfg fun #:global? #f))
-  (define allocation (make-hash-table))
-             
-  (define (visit-clause clause live-set)
-    (define nlocals (compute-slot live-set #f))
+  (define (recompute-live-slots k slots nargs dfa)
+    (let ((in (dfa-k-in dfa (dfa-k-idx dfa k))))
+      (let lp ((v 0) (live-slots (1- (ash 1 (1+ nargs)))))
+        (let ((v (bit-position #t in v)))
+          (if v
+              (let ((slot (vector-ref slots v)))
+                (lp (1+ v)
+                    (if slot
+                        (add-live-slot slot live-slots)
+                        live-slots)))
+              live-slots)))))
+
+  (define (visit-clause clause dfg dfa allocation slots live-slots)
+    (define nlocals (compute-slot live-slots #f))
     (define nargs
       (match clause
         (($ $cont _ _ ($ $kclause _ ($ $cont _ _ ($ $kargs names syms))))
          (length syms))))
 
-    (define (allocate! sym k hint live-set)
+    (define (allocate! sym k hint live-slots)
       (match (hashq-ref allocation sym)
-        (($ $allocation def slot dead has-const)
+        (($ $allocation slot)
          ;; Parallel move already allocated this one.
          (if slot
-             (add-live-variable sym slot live-set)
-             live-set))
+             (add-live-slot slot live-slots)
+             live-slots))
         (_
          (call-with-values (lambda () (find-constant-value sym dfg))
            (lambda (has-const? const)
              (cond
               ((and has-const? (not (constant-needs-allocation? sym const dfg)))
                (hashq-set! allocation sym
-                           (make-allocation k #f '() has-const? const))
-               live-set)
+                           (make-allocation #f has-const? const))
+               live-slots)
               (else
-               (let ((slot (compute-slot live-set hint)))
+               (let ((slot (compute-slot live-slots hint)))
                  (when (>= slot nlocals)
                    (set! nlocals (+ slot 1)))
+                 (vector-set! slots (dfa-var-idx dfa sym) slot)
                  (hashq-set! allocation sym
-                             (make-allocation k slot '() has-const? const))
-                 (add-live-variable sym slot live-set)))))))))
+                             (make-allocation slot has-const? const))
+                 (add-live-slot slot live-slots)))))))))
 
-    (define (dead sym k live-set)
-      (match (lookup-allocation sym allocation)
-        ((and allocation ($ $allocation def slot dead has-const? const))
-         (set-allocation-dead! allocation (cons k dead))
-         (remove-live-variable sym slot live-set))))
-
-    (define (allocate-prompt-handler! k live-set)
-      (let ((proc-slot (compute-prompt-handler-proc-slot live-set nlocals)))
+    (define (allocate-prompt-handler! k live-slots)
+      (let ((proc-slot (compute-prompt-handler-proc-slot live-slots nlocals)))
         (hashq-set! allocation k
                     (make-cont-allocation
                      proc-slot
                      (match (hashq-ref allocation k)
                        (($ $cont-allocation #f moves) moves)
                        (#f #f))))
-        live-set))
+        live-slots))
 
-    (define (allocate-frame! k nargs live-set)
-      (let ((proc-slot (compute-call-proc-slot live-set nlocals)))
+    (define (allocate-frame! k nargs live-slots)
+      (let ((proc-slot (compute-call-proc-slot live-slots nlocals)))
         (set! nlocals (max nlocals (+ proc-slot 1 nargs)))
         (hashq-set! allocation k
                     (make-cont-allocation
@@ -288,11 +281,10 @@ are comparable with eqv?.  A tmp slot may be used."
                      (match (hashq-ref allocation k)
                        (($ $cont-allocation #f moves) moves)
                        (#f #f))))
-        live-set))
+        live-slots))
 
-    (define (parallel-move! src-k src-slots pre-live-set post-live-set dst-slots)
-      (let* ((tmp-slot (find-first-zero (logior (car pre-live-set)
-                                                (car post-live-set))))
+    (define (parallel-move! src-k src-slots pre-live-slots post-live-slots dst-slots)
+      (let* ((tmp-slot (find-first-zero (logior pre-live-slots post-live-slots)))
              (moves (solve-parallel-move src-slots dst-slots tmp-slot)))
         (when (and (>= tmp-slot nlocals) (assv tmp-slot moves))
           (set! nlocals (+ tmp-slot 1)))
@@ -302,69 +294,60 @@ are comparable with eqv?.  A tmp slot may be used."
                        (($ $cont-allocation proc-slot #f) proc-slot)
                        (#f #f))
                      moves))
-        post-live-set))
+        post-live-slots))
 
-    (define (visit-cont cont label live-set)
-      (define (maybe-kill-definition sym live-set)
-        (if (and (lookup-slot sym allocation) (dead-after-def? sym dfg))
-            (dead sym label live-set)
-            live-set))
+    (define (visit-cont cont label live-slots)
+      (define (maybe-kill-definition sym live-slots)
+        (let* ((v (dfa-var-idx dfa sym))
+               (slot (vector-ref slots v)))
+          (if (and slot (> slot nargs) (dead-after-def? label v dfa))
+              (kill-dead-slot slot live-slots)
+              live-slots)))
 
-      (define (kill-conditionally-dead live-set)
-        (if (branch? label dfg)
-            (let ((branches (find-other-branches label dfg)))
-              (fold-live-set
-               (lambda (sym slot live-set)
-                 (if (and (> slot nargs)
-                          (dead-after-branch? sym label branches dfg))
-                     (dead sym label live-set)
-                     live-set))
-               live-set
-               live-set))
-            live-set))
+      (define (maybe-recompute-live-slots live-slots)
+        (if (control-point? label dfg)
+            (recompute-live-slots label slots nargs dfa)
+            live-slots))
 
       (match cont
-        (($ $kentry self tail clauses)
-         (let ((live-set (allocate! self label 0 live-set)))
-           (for-each (cut visit-cont <> label live-set) clauses))
-         live-set)
-
         (($ $kclause arity ($ $cont k src body))
-         (visit-cont body k live-set))
+         (visit-cont body k live-slots))
 
         (($ $kargs names syms body)
          (visit-term body label
-                     (kill-conditionally-dead
+                     (maybe-recompute-live-slots
                       (fold maybe-kill-definition
-                            (fold (cut allocate! <> label #f <>) live-set syms)
+                            (fold (cut allocate! <> label #f <>) live-slots syms)
                             syms))))
 
-        (($ $ktrunc) live-set)
-        (($ $kif) live-set)))
+        (($ $ktrunc) live-slots)
+        (($ $kif) live-slots)))
 
-    (define (visit-term term label live-set)
+    (define (visit-term term label live-slots)
       (match term
         (($ $letk conts body)
-         (let ((live-set (visit-term body label live-set)))
+         (let ((live-slots (visit-term body label live-slots)))
            (for-each (match-lambda
                       (($ $cont k src cont)
-                       (visit-cont cont k live-set)))
+                       (visit-cont cont k live-slots)))
                      conts))
-         live-set)
+         live-slots)
 
         (($ $continue k exp)
-         (visit-exp exp label k live-set))))
+         (visit-exp exp label k live-slots))))
 
-    (define (visit-exp exp label k live-set)
-      (define (use sym live-set)
-        (if (and (and=> (lookup-slot sym allocation) (cut > <> nargs))
-                 (dead-after-use? sym label dfg))
-            (dead sym label live-set)
-            live-set))
+    (define (visit-exp exp label k live-slots)
+      (define (use sym live-slots)
+        (let* ((v (dfa-var-idx dfa sym))
+               (l (dfa-k-idx dfa label))
+               (slot (vector-ref slots v)))
+          (if (and slot (> slot nargs) (dead-after-use? label v dfa))
+              (kill-dead-slot slot live-slots)
+              live-slots)))
 
       (match exp
         (($ $var sym)
-         (use sym live-set))
+         (use sym live-slots))
 
         (($ $call proc args)
          (match (lookup-cont k (dfg-cont-table dfg))
@@ -374,33 +357,33 @@ are comparable with eqv?.  A tmp slot may be used."
               (parallel-move! label
                               (map (cut lookup-slot <> allocation)
                                    (cons proc args))
-                              live-set (fold use live-set (cons proc args))
+                              live-slots (fold use live-slots (cons proc args))
                               (iota tail-nlocals))))
            (($ $ktrunc arity kargs)
-            (let* ((live-set
+            (let* ((live-slots
                     (fold use
                           (use proc
-                               (allocate-frame! label (length args) live-set))
+                               (allocate-frame! label (length args) live-slots))
                           args))
                    (proc-slot (lookup-call-proc-slot label allocation))
                    (dst-syms (lookup-bound-syms kargs dfg))
                    (nvals (length dst-syms))
                    (src-slots (map (cut + proc-slot 1 <>) (iota nvals)))
-                   (live-set* (fold (cut allocate! <> kargs <> <>)
-                                    live-set dst-syms src-slots))
+                   (live-slots* (fold (cut allocate! <> kargs <> <>)
+                                      live-slots dst-syms src-slots))
                    (dst-slots (map (cut lookup-slot <> allocation)
                                    dst-syms)))
-              (parallel-move! label src-slots live-set live-set* dst-slots)))
+              (parallel-move! label src-slots live-slots live-slots* dst-slots)))
            (else
             (fold use
-                  (use proc (allocate-frame! label (length args) live-set))
+                  (use proc (allocate-frame! label (length args) live-slots))
                   args))))
 
         (($ $primcall name args)
-         (fold use live-set args))
+         (fold use live-slots args))
 
         (($ $values args)
-         (let ((live-set* (fold use live-set args)))
+         (let ((live-slots* (fold use live-slots args)))
            (define (compute-dst-slots)
              (match (lookup-cont k (dfg-cont-table dfg))
                (($ $ktail)
@@ -410,40 +393,48 @@ are comparable with eqv?.  A tmp slot may be used."
                (_
                 (let* ((src-slots (map (cut lookup-slot <> allocation) args))
                        (dst-syms (lookup-bound-syms k dfg))
-                       (dst-live-set (fold (cut allocate! <> k <> <>)
-                                           live-set* dst-syms src-slots)))
+                       (dst-live-slots (fold (cut allocate! <> k <> <>)
+                                             live-slots* dst-syms src-slots)))
                   (map (cut lookup-slot <> allocation) dst-syms)))))
 
            (parallel-move! label
                            (map (cut lookup-slot <> allocation) args)
-                           live-set live-set*
+                           live-slots live-slots*
                            (compute-dst-slots))))
 
         (($ $prompt escape? tag handler)
          (match (lookup-cont handler (dfg-cont-table dfg))
            (($ $ktrunc arity kargs)
-            (let* ((live-set (allocate-prompt-handler! label live-set))
+            (let* ((live-slots (allocate-prompt-handler! label live-slots))
                    (proc-slot (lookup-call-proc-slot label allocation))
                    (dst-syms (lookup-bound-syms kargs dfg))
                    (nvals (length dst-syms))
                    (src-slots (map (cut + proc-slot 1 <>) (iota nvals)))
-                   (live-set* (fold (cut allocate! <> kargs <> <>)
-                                    live-set dst-syms src-slots))
+                   (live-slots* (fold (cut allocate! <> kargs <> <>)
+                                      live-slots dst-syms src-slots))
                    (dst-slots (map (cut lookup-slot <> allocation)
                                    dst-syms)))
-              (parallel-move! handler src-slots live-set live-set* dst-slots))))
-         (use tag live-set))
+              (parallel-move! handler src-slots live-slots live-slots* dst-slots))))
+         (use tag live-slots))
 
-        (_ live-set)))
+        (_ live-slots)))
 
     (match clause
       (($ $cont k _ body)
-       (visit-cont body k live-set)
+       (visit-cont body k live-slots)
        (hashq-set! allocation k nlocals))))
 
   (match fun
-    (($ $fun meta free ($ $cont k _ ($ $kentry self tail clauses)))
-     (let ((live-set (add-live-variable self 0 (empty-live-set))))
-       (hashq-set! allocation self (make-allocation k 0 '() #f #f))
-       (for-each (cut visit-clause <> live-set) clauses)
+    (($ $fun meta free ($ $cont k _ ($ $kentry self
+                                       ($ $cont ktail _ ($ $ktail))
+                                       clauses)))
+     (let* ((dfg (compute-dfg fun #:global? #f))
+            (dfa (compute-live-variables ktail dfg))
+            (allocation (make-hash-table))
+            (slots (make-vector (dfa-var-count dfa) #f))
+            (live-slots (add-live-slot 0 (empty-live-slots))))
+       (vector-set! slots (dfa-var-idx dfa self) 0)
+       (hashq-set! allocation self (make-allocation 0 #f #f))
+       (for-each (cut visit-clause <> dfg dfa allocation slots live-slots)
+                 clauses)
        allocation))))
