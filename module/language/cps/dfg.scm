@@ -64,7 +64,13 @@
             branch?
             find-other-branches
             dead-after-branch?
-            lookup-bound-syms))
+            lookup-bound-syms
+
+            ;; Data flow analysis.
+            compute-live-variables
+            dfa-k-idx dfa-k-sym dfa-k-count dfa-k-in dfa-k-out
+            dfa-var-idx dfa-var-name dfa-var-sym dfa-var-count
+            print-dfa))
 
 (define (build-cont-table fun)
   (fold-conts (lambda (k src cont table)
@@ -407,6 +413,173 @@
           (set-block-pdom! b (vector-ref order pdom))
           (set-block-pdom-level! b pdom-level)
           (lp (1+ n)))))))
+
+
+;; Compute the maximum fixed point of the data-flow constraint problem.
+;;
+;; This always completes, as the graph is finite and the in and out sets
+;; are complete semi-lattices.  If the graph is reducible and the blocks
+;; are sorted in reverse post-order, this completes in a maximum of LC +
+;; 2 iterations, where LC is the loop connectedness number.  See Hecht
+;; and Ullman, "Analysis of a simple algorithm for global flow
+;; problems", POPL 1973, or the recent summary in "Notes on graph
+;; algorithms used in optimizing compilers", Offner 2013.
+(define (compute-maximum-fixed-point preds inv outv killv genv union?)
+  (define (bitvector-copy! dst src)
+    (bitvector-fill! dst #f)
+    (bit-set*! dst src #t))
+  (define (bitvector-meet! accum src)
+    (bit-set*! accum src union?))
+  (let lp ((n 0) (changed? #f))
+    (cond
+     ((< n (vector-length preds))
+      (let ((in (vector-ref inv n))
+            (out (vector-ref outv n))
+            (kill (vector-ref killv n))
+            (gen (vector-ref genv n)))
+        (let ((out-count (or changed? (bit-count #t out))))
+          (for-each
+           (lambda (pred)
+             (bitvector-meet! in (vector-ref outv pred)))
+           (vector-ref preds n))
+          (bitvector-copy! out in)
+          (for-each (cut bitvector-set! out <> #f) kill)
+          (for-each (cut bitvector-set! out <> #t) gen)
+          (lp (1+ n)
+              (or changed? (not (eqv? out-count (bit-count #t out))))))))
+     (changed?
+      (lp 0 #f)))))
+
+;; Data-flow analysis.
+(define-record-type $dfa
+  (make-dfa k->idx order var->idx names syms in out)
+  dfa?
+  ;; Function mapping k-sym -> k-idx
+  (k->idx dfa-k->idx)
+  ;; Vector of k-idx -> k-sym
+  (order dfa-order)
+  ;; Function mapping var-sym -> var-idx
+  (var->idx dfa-var->idx)
+  ;; Vector of var-idx -> name
+  (names dfa-names)
+  ;; Vector of var-idx -> var-sym
+  (syms dfa-syms)
+  ;; Vector of k-idx -> bitvector
+  (in dfa-in)
+  ;; Vector of k-idx -> bitvector
+  (out dfa-out))
+
+(define (dfa-k-idx dfa k)
+  ((dfa-k->idx dfa) k))
+
+(define (dfa-k-sym dfa idx)
+  (vector-ref (dfa-order dfa) idx))
+
+(define (dfa-k-count dfa)
+  (vector-length (dfa-order dfa)))
+
+(define (dfa-var-idx dfa var)
+  ((dfa-var->idx dfa) var))
+
+(define (dfa-var-name dfa idx)
+  (vector-ref (dfa-names dfa) idx))
+
+(define (dfa-var-sym dfa idx)
+  (vector-ref (dfa-syms dfa) idx))
+
+(define (dfa-var-count dfa)
+  (vector-length (dfa-syms dfa)))
+
+(define (dfa-k-in dfa idx)
+  (vector-ref (dfa-in dfa) idx))
+
+(define (dfa-k-out dfa idx)
+  (vector-ref (dfa-out dfa) idx))
+
+(define (compute-live-variables ktail dfg)
+  (define (make-variable-mapper use-maps)
+    (let ((mapping (make-hash-table))
+          (n 0))
+      (hash-for-each (lambda (sym use-map)
+                       (hashq-set! mapping sym n)
+                       (set! n (1+ n)))
+                     use-maps)
+      (values (lambda (sym)
+                (or (hashq-ref mapping sym)
+                    (error "unknown sym" sym)))
+              n)))
+  (define (make-block-mapper order)
+    (let ((mapping (make-hash-table)))
+      (let lp ((n 0))
+        (when (< n (vector-length order))
+          (hashq-set! mapping (vector-ref order n) n)
+          (lp (1+ n))))
+      (lambda (k)
+        (or (hashq-ref mapping k)
+            (error "unknown k" k)))))
+
+  (call-with-values (lambda () (make-variable-mapper (dfg-use-maps dfg)))
+    (lambda (var->idx nvars)
+      (let* ((blocks (dfg-blocks dfg))
+             (order (reverse-post-order ktail blocks block-preds))
+             (succs (convert-predecessors order blocks block-succs))
+             (k->idx (make-block-mapper order))
+             (syms (make-vector nvars #f))
+             (names (make-vector nvars #f))
+             (usev (make-vector (vector-length order) '()))
+             (defv (make-vector (vector-length order) '()))
+             (live-in (make-vector (vector-length order) #f))
+             (live-out (make-vector (vector-length order) #f)))
+        ;; Initialize syms, names, defv, and usev.
+        (hash-for-each
+         (lambda (sym use-map)
+           (match use-map
+             (($ $use-map name sym def uses)
+              (let ((v (var->idx sym)))
+                (vector-set! syms v sym)
+                (vector-set! names v name)
+                (for-each (lambda (def)
+                            (vector-push! defv (k->idx def) v))
+                          (block-preds (lookup-block def blocks)))
+                (for-each (lambda (use)
+                            (vector-push! usev (k->idx use) v))
+                          uses)))))
+         (dfg-use-maps dfg))
+
+        ;; Initialize live-in and live-out sets.
+        (let lp ((n 0))
+          (when (< n (vector-length live-out))
+            (vector-set! live-in n (make-bitvector nvars #f))
+            (vector-set! live-out n (make-bitvector nvars #f))
+            (lp (1+ n))))
+
+        ;; Liveness is a reverse data-flow problem, so we give
+        ;; compute-maximum-fixed-point a reversed graph, swapping in and
+        ;; out, usev and defv, using successors instead of predecessors,
+        ;; and starting with ktail instead of the entry.
+        (compute-maximum-fixed-point succs live-out live-in defv usev #t)
+
+        (make-dfa k->idx order var->idx names syms live-in live-out)))))
+
+(define (print-dfa dfa)
+  (match dfa
+    (($ $dfa k->idx order var->idx names syms in out)
+     (define (print-var-set bv)
+       (let lp ((n 0))
+         (let ((n (bit-position #t bv n)))
+           (when n
+             (format #t " ~A" (vector-ref syms n))
+             (lp (1+ n))))))
+     (let lp ((n 0))
+       (when (< n (vector-length order))
+         (format #t "~A:\n" (vector-ref order n))
+         (format #t "  in:")
+         (print-var-set (vector-ref in n))
+         (newline)
+         (format #t "  out:")
+         (print-var-set (vector-ref out n))
+         (newline)
+         (lp (1+ n)))))))
 
 (define (visit-fun fun conts blocks use-maps global?)
   (define (add-def! name sym def-k)
