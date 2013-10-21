@@ -56,7 +56,6 @@
             find-expression
             find-defining-expression
             find-constant-value
-            lift-definition!
             continuation-bound-in?
             variable-free-in?
             constant-needs-allocation?
@@ -813,29 +812,6 @@
             (($ $block scope level)
              (and (< scope-level level)
                   (lp scope))))))))
-
-;; FIXME: Splice preds, succs, dom tree.
-(define (lift-definition! k scope-k dfg)
-  (match dfg
-    (($ $dfg conts blocks use-maps)
-     (let ((scope-level (1+ (lookup-scope-level scope-k blocks))))
-       ;; Fix parent scope link of K.
-       (match (lookup-block k blocks)
-         ((and block ($ $block))
-          (set-block-scope! block scope-k)))
-       ;; Fix up scope levels of K and all contained scopes.
-       (let update-levels! ((k k) (level scope-level))
-         (match (lookup-block k blocks)
-           ((and block ($ $block))
-            (set-block-scope-level! block scope-level)))
-         (let lp ((cont (lookup-cont k conts)))
-           (match cont
-             (($ $letk (($ $cont kid) ...) body)
-              (for-each (cut update-levels! <> (1+ scope-level)) kid)
-              (lp body))
-             (($ $letrec names syms funs body)
-              (lp body))
-             (_ #t))))))))
 
 (define (continuation-bound-in? k use-k dfg)
   (match dfg
