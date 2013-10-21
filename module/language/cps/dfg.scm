@@ -98,8 +98,9 @@
   (use-maps dfg-use-maps))
 
 (define-record-type $use-map
-  (make-use-map sym def uses)
+  (make-use-map name sym def uses)
   use-map?
+  (name use-map-name)
   (sym use-map-sym)
   (def use-map-def)
   (uses use-map-uses set-use-map-uses!))
@@ -408,15 +409,15 @@
           (lp (1+ n)))))))
 
 (define (visit-fun fun conts blocks use-maps global?)
-  (define (add-def! sym def-k)
+  (define (add-def! name sym def-k)
     (unless def-k
       (error "Term outside labelled continuation?"))
-    (hashq-set! use-maps sym (make-use-map sym def-k '())))
+    (hashq-set! use-maps sym (make-use-map name sym def-k '())))
 
   (define (add-use! sym use-k)
     (match (hashq-ref use-maps sym)
       (#f (error "Symbol out of scope?" sym))
-      ((and use-map ($ $use-map sym def uses))
+      ((and use-map ($ $use-map name sym def uses))
        (set-use-map-uses! use-map (cons use-k uses)))))
 
   (define* (declare-block! label cont parent
@@ -434,8 +435,8 @@
       (set-block-preds! succ-block (cons pred (block-preds succ-block)))))
 
   (define (visit exp exp-k)
-    (define (def! sym)
-      (add-def! sym exp-k))
+    (define (def! name sym)
+      (add-def! name sym exp-k))
     (define (use! sym)
       (add-use! sym exp-k))
     (define (use-k! k)
@@ -452,7 +453,7 @@
        (recur body))
 
       (($ $kargs names syms body)
-       (for-each def! syms)
+       (for-each def! names syms)
        (recur body))
 
       (($ $kif kt kf)
@@ -465,7 +466,7 @@
       (($ $letrec names syms funs body)
        (unless global?
          (error "$letrec should not be present when building a local DFG"))
-       (for-each def! syms)
+       (for-each def! names syms)
        (for-each (cut visit-fun <> conts blocks use-maps global?) funs)
        (visit body exp-k))
 
@@ -501,7 +502,7 @@
            (and entry
                 ($ $kentry self ($ $cont ktail _ tail) clauses))))
      (declare-block! kentry entry #f 0)
-     (add-def! self kentry)
+     (add-def! #f self kentry)
 
      (declare-block! ktail tail kentry)
 
@@ -547,14 +548,14 @@
   (match dfg
     (($ $dfg conts blocks use-maps)
      (match (lookup-use-map sym use-maps)
-       (($ $use-map sym def uses)
+       (($ $use-map name sym def uses)
         def)))))
 
 (define (lookup-uses sym dfg)
   (match dfg
     (($ $dfg conts blocks use-maps)
      (match (lookup-use-map sym use-maps)
-       (($ $use-map sym def uses)
+       (($ $use-map name sym def uses)
         uses)))))
 
 (define (lookup-predecessors k dfg)
@@ -610,7 +611,7 @@
   (match dfg
     (($ $dfg conts blocks use-maps)
      (match (lookup-use-map sym use-maps)
-       (($ $use-map _ def uses)
+       (($ $use-map _ _ def uses)
         (or-map
          (lambda (use)
            (match (find-expression (lookup-cont use conts))
@@ -676,7 +677,7 @@
      (or-map (lambda (use)
                (continuation-scope-contains? k use blocks))
              (match (lookup-use-map var use-maps)
-               (($ $use-map sym def uses)
+               (($ $use-map name sym def uses)
                 uses))))))
 
 ;; Does k1 dominate k2?
@@ -705,7 +706,7 @@
   (match dfg
     (($ $dfg conts blocks use-maps)
      (match (lookup-use-map sym use-maps)
-       (($ $use-map sym def uses)
+       (($ $use-map name sym def uses)
         (null? uses))))))
 
 (define (lookup-loop-header k blocks)
@@ -715,7 +716,7 @@
   (match dfg
     (($ $dfg conts blocks use-maps)
      (match (lookup-use-map sym use-maps)
-       (($ $use-map sym def uses)
+       (($ $use-map name sym def uses)
         ;; If all other uses dominate this use, and the variable was not
         ;; defined outside the current loop, it is now dead.  There are
         ;; other ways for it to be dead, but this is an approximation.
@@ -751,7 +752,7 @@
   (match dfg
     (($ $dfg conts blocks use-maps)
      (match (lookup-use-map sym use-maps)
-       (($ $use-map sym def uses)
+       (($ $use-map name sym def uses)
         ;; As in dead-after-use?, we don't kill the variable if it was
         ;; defined outside the current loop.
         (and (let ((loop (lookup-loop-header branch blocks)))
