@@ -50,6 +50,7 @@
             lookup-uses
             lookup-predecessors
             lookup-successors
+            lookup-block-scope
             find-call
             call-expression
             find-expression
@@ -599,7 +600,7 @@
     (let ((pred-block (hashq-ref blocks pred))
           (succ-block (hashq-ref blocks succ)))
       (unless (and pred-block succ-block)
-        (error "internal error"))
+        (error "internal error" pred-block succ-block))
       (set-block-succs! pred-block (cons succ (block-succs pred-block)))
       (set-block-preds! succ-block (cons pred (block-preds succ-block)))))
 
@@ -726,6 +727,9 @@
      (match (lookup-use-map sym use-maps)
        (($ $use-map name sym def uses)
         uses)))))
+
+(define (lookup-block-scope k dfg)
+  (block-scope (lookup-block k (dfg-blocks dfg))))
 
 (define (lookup-predecessors k dfg)
   (match (lookup-block k (dfg-blocks dfg))
