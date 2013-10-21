@@ -59,8 +59,6 @@
             continuation-bound-in?
             variable-free-in?
             constant-needs-allocation?
-            dead-after-def?
-            dead-after-use?
             control-point?
             lookup-bound-syms
 
