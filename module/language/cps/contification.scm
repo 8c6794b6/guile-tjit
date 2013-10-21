@@ -59,17 +59,31 @@
                   (lift-definition! k scope dfg)))
                 conts)
       (hashq-set! pending-contifications scope
-                  (append conts
-                          (hashq-ref pending-contifications scope '()))))
-    (define (finish-pending-contifications call term-k)
+                  (append conts (hashq-ref pending-contifications scope '()))))
+    (define (flush-pending-contifications term-k term)
       (match (hashq-ref pending-contifications term-k)
-        (#f call)
+        (#f term)
         ((cont ...)
-         ;; Catch any possible double-contification bug.
-         (hashq-set! pending-contifications term-k 'poison)
-         (build-cps-term
-           ($letk ,(map visit-cont cont)
-             ,call)))))
+         (hashq-remove! pending-contifications term-k)
+         ;; Visiting the pending continuations can enqueue more
+         ;; contifications in this same scope, so iterate until there
+         ;; are none left.
+         (flush-pending-contifications
+          term-k
+          (let lp ((term term))
+            (rewrite-cps-term term
+              (($ $letrec names syms funs body)
+               ($letrec names syms funs ,(lp body)))
+              (($ $letk conts* body)
+               ($letk ,(append conts* (map visit-cont cont))
+                 ,body))
+              (body
+               ($letk ,(map visit-cont cont)
+                 ,body))))))))
+    (define (report-pending-contifications)
+      (hash-for-each (lambda (sym pending)
+                       (error 'pending-contification sym pending))
+                     pending-contifications))
 
     (define (contify-call proc args)
       (and=> (assq-ref call-substs proc)
@@ -150,7 +164,7 @@
                 ;; (1) Find the scope at which to contify.
                 (let ((scope (if (continuation-bound-in? k term-k dfg)
                                  term-k
-                                 (lookup-def k dfg))))
+                                 (pk 'contify-from term-k 'at k (lookup-block-scope k dfg)))))
                   ;; (2) Mark all SYMs for replacement in calls, and
                   ;; mark the tail continuations for replacement by K.
                   (for-each (lambda (sym tail arities bodies)
@@ -184,76 +198,77 @@
         (($ $cont)
          ,cont)))
     (define (visit-term term term-k)
-      (match term
-        (($ $letk conts body)
-         ;; Visit the body first, so we visit depth-first.
-         (let lp ((body (visit-term body term-k)))
-           ;; Because we attach contified functions on a particular
-           ;; term-k, and one term-k can correspond to an arbitrarily
-           ;; nested sequence of $letrec and $letk instances, normalize
-           ;; so that all continuations are bound by one $letk --
-           ;; guaranteeing that they are in the same scope.
-           (rewrite-cps-term body
-             (($ $letrec names syms funs body)
-              ($letrec names syms funs ,(lp body)))
-             (($ $letk conts* body)
-              ($letk ,(append conts* (map visit-cont conts))
-                ,body))
-             (body
-              ($letk ,(map visit-cont conts)
-                ,body)))))
-        (($ $letrec names syms funs body)
-         (define (split-components nsf)
-           ;; FIXME: Compute strongly-connected components.  Currently
-           ;; we just put non-recursive functions in their own
-           ;; components, and lump everything else in the remaining
-           ;; component.
-           (define (recursive? k)
-             (or-map (cut variable-free-in? <> k dfg) syms))
-           (let lp ((nsf nsf) (rec '()))
-             (match nsf
-               (()
-                (if (null? rec)
-                    '()
-                    (list rec)))
-               (((and elt (n s ($ $fun meta free ($ $cont kentry))))
-                 . nsf)
-                (if (recursive? kentry)
-                    (lp nsf (cons elt rec))
-                    (cons (list elt) (lp nsf rec)))))))
-         (define (visit-components components)
-           (match components
-             (() (visit-term body term-k))
-             ((((name sym fun) ...) . components)
-              (match fun
-                ((($ $fun meta free
-                     ($ $cont fun-k _
-                        ($ $kentry self
-                           ($ $cont tail-k _ ($ $ktail))
-                           (($ $cont _ _ ($ $kclause arity body))
-                            ...))))
-                  ...)
-                 (if (contify-funs term-k sym self tail-k arity body)
-                     (visit-components components)
-                     (build-cps-term
-                       ($letrec name sym (map visit-fun fun)
-                                ,(visit-components components)))))))))
-         (visit-components (split-components (map list names syms funs))))
-        (($ $continue k exp)
-         (let ((k* (lookup-return-cont k)))
-           (define (default)
-             (rewrite-cps-term exp
-               (($ $fun) ($continue k* ,(visit-fun exp)))
-               (($ $primcall 'return (val))
-                ,(if (eq? k k*)
-                     (build-cps-term ($continue k* ,exp))
-                     (build-cps-term ($continue k* ($values (val))))))
-               (($ $primcall 'return-values vals)
-                ,(if (eq? k k*)
-                     (build-cps-term ($continue k* ,exp))
-                     (build-cps-term ($continue k* ($values vals)))))
-               (_ ($continue k* ,exp))))
-           (finish-pending-contifications
+      (flush-pending-contifications
+       term-k
+       (match term
+         (($ $letk conts body)
+          ;; Visit the body first, so we visit depth-first.
+          (let lp ((body (visit-term body term-k)))
+            ;; Because we attach contified functions on a particular
+            ;; term-k, and one term-k can correspond to an arbitrarily
+            ;; nested sequence of $letrec and $letk instances, normalize
+            ;; so that all continuations are bound by one $letk --
+            ;; guaranteeing that they are in the same scope.
+            (rewrite-cps-term body
+              (($ $letrec names syms funs body)
+               ($letrec names syms funs ,(lp body)))
+              (($ $letk conts* body)
+               ($letk ,(append conts* (map visit-cont conts))
+                 ,body))
+              (body
+               ($letk ,(map visit-cont conts)
+                 ,body)))))
+         (($ $letrec names syms funs body)
+          (define (split-components nsf)
+            ;; FIXME: Compute strongly-connected components.  Currently
+            ;; we just put non-recursive functions in their own
+            ;; components, and lump everything else in the remaining
+            ;; component.
+            (define (recursive? k)
+              (or-map (cut variable-free-in? <> k dfg) syms))
+            (let lp ((nsf nsf) (rec '()))
+              (match nsf
+                (()
+                 (if (null? rec)
+                     '()
+                     (list rec)))
+                (((and elt (n s ($ $fun meta free ($ $cont kentry))))
+                  . nsf)
+                 (if (recursive? kentry)
+                     (lp nsf (cons elt rec))
+                     (cons (list elt) (lp nsf rec)))))))
+          (define (visit-components components)
+            (match components
+              (() (visit-term body term-k))
+              ((((name sym fun) ...) . components)
+               (match fun
+                 ((($ $fun meta free
+                      ($ $cont fun-k _
+                         ($ $kentry self
+                            ($ $cont tail-k _ ($ $ktail))
+                            (($ $cont _ _ ($ $kclause arity body))
+                             ...))))
+                   ...)
+                  (if (contify-funs term-k sym self tail-k arity body)
+                      (visit-components components)
+                      (build-cps-term
+                        ($letrec name sym (map visit-fun fun)
+                                 ,(visit-components components)))))))))
+          (visit-components (split-components (map list names syms funs))))
+         (($ $continue k exp)
+          (let ((k* (lookup-return-cont k)))
+            (define (default)
+              (rewrite-cps-term exp
+                (($ $fun) ($continue k* ,(visit-fun exp)))
+                (($ $primcall 'return (val))
+                 ,(if (eq? k k*)
+                      (build-cps-term ($continue k* ,exp))
+                      (build-cps-term ($continue k* ($values (val))))))
+                (($ $primcall 'return-values vals)
+                 ,(if (eq? k k*)
+                      (build-cps-term ($continue k* ,exp))
+                      (build-cps-term ($continue k* ($values vals)))))
+                (_ ($continue k* ,exp))))
             (match exp
               (($ $fun meta free
                   ($ $cont fun-k _
@@ -269,10 +284,10 @@
               (($ $call proc args)
                (or (contify-call proc args)
                    (default)))
-              (_ (default)))
-            term-k)))))
+              (_ (default))))))))
 
     (let ((fun (visit-fun fun)))
+      (report-pending-contifications)
       (if (null? call-substs)
           fun
           ;; Iterate to fixed point.
