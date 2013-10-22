@@ -79,6 +79,9 @@
     ;; continuation.  Returns a true value on success, and false
     ;; otherwise.
     (define (contify-funs term-k syms selfs tails arities bodies)
+      (define (unused? sym)
+        (null? (lookup-uses sym dfg)))
+
       ;; Are the given args compatible with any of the arities?
       (define (applicable? proc args)
         (or-map (match-lambda
@@ -97,62 +100,71 @@
                 k))
           (_ #f)))
 
-      (and
-       (and-map null? (map (cut lookup-uses <> dfg) selfs))
-       (and=> (let visit-syms ((syms syms) (k #f))
-                (match syms
-                  (() k)
-                  ((sym . syms)
-                   (let visit-uses ((uses (lookup-uses sym dfg)) (k k))
-                     (match uses
-                       (() (visit-syms syms k))
-                       ((use . uses)
-                        (and=> (call-target use sym)
-                               (lambda (k*)
-                                 (cond
-                                  ((memq k* tails) (visit-uses uses k))
-                                  ((not k) (visit-uses uses k*))
-                                  ((eq? k k*) (visit-uses uses k))
-                                  (else #f))))))))))
-              (lambda (k)
-                ;; We have a common continuation.  High fives!
-                ;;
-                ;; (1) Find the scope at which to contify.
-                (and=> 
-                 (if (continuation-bound-in? k term-k dfg)
-                     ;; The common continuation is in scope at the
-                     ;; function definition; yay.
-                     term-k
-                     ;; The common continuation is not in scope at the
-                     ;; function definition.  Boo.
-                     (let ((scope (lookup-block-scope k dfg)))
-                       (match (lookup-cont scope cont-table)
-                         ;; The common continuation was the tail of some
-                         ;; function inside the letrec body.
-                         (($ $kentry self tail clauses)
-                          (match clauses
-                            ;; If that function has just one clause,
-                            ;; contify into that clause.  Otherwise
-                            ;; bail.
-                            ((($ $cont _ _ ($ $kclause arity ($ $cont kargs))))
-                             kargs)
-                            (_ #f)))
-                         ;; Otherwise the common continuation is in some
-                         ;; scope we can add to via $letk.
-                         (cont scope))))
-                 (lambda (scope)
-                   ;; (2) Mark all SYMs for replacement in calls, and
-                   ;; mark the tail continuations for replacement by K.
-                   (for-each (lambda (sym tail arities bodies)
-                               (match bodies
-                                 ((($ $cont body-k) ...)
-                                  (subst-call! sym arities body-k)))
-                               (subst-return! tail k))
-                             syms tails arities bodies)
-                   ;; (3) Arrange for the continuations to be spliced
-                   ;; into their new scope.
-                   (splice-conts! scope (concatenate bodies))
-                   k))))))
+      ;; If this set of functions is always called with one
+      ;; continuation, not counting tail calls between the functions,
+      ;; return that continuation.
+      (define (find-common-continuation)
+        (let visit-syms ((syms syms) (k #f))
+          (match syms
+            (() k)
+            ((sym . syms)
+             (let visit-uses ((uses (lookup-uses sym dfg)) (k k))
+               (match uses
+                 (() (visit-syms syms k))
+                 ((use . uses)
+                  (and=> (call-target use sym)
+                         (lambda (k*)
+                           (cond
+                            ((memq k* tails) (visit-uses uses k))
+                            ((not k) (visit-uses uses k*))
+                            ((eq? k k*) (visit-uses uses k))
+                            (else #f)))))))))))
+
+      ;; Given that the functions are called with the common
+      ;; continuation K, determine the scope at which to contify the
+      ;; functions.  If K is in scope in the term, we go ahead and
+      ;; contify them there.  Otherwise the scope is inside the letrec
+      ;; body, and so choose the scope in which the continuation is
+      ;; defined, whose free variables are a superset of the free
+      ;; variables of the functions.
+      ;;
+      ;; FIXME: Does this choose the right scope for contified let-bound
+      ;; functions?
+      (define (find-contification-scope k)
+        (if (continuation-bound-in? k term-k dfg)
+            term-k
+            (let ((scope (lookup-block-scope k dfg)))
+              (match (lookup-cont scope cont-table)
+                ;; The common continuation was the tail of some function
+                ;; inside the letrec body.  If that function has just
+                ;; one clause, contify into that clause.  Otherwise
+                ;; bail.
+                (($ $kentry self tail clauses)
+                 (match clauses
+                   ((($ $cont _ _ ($ $kclause arity ($ $cont kargs))))
+                    kargs)
+                   (_ #f)))
+                (_ scope)))))
+
+      ;; We are going to contify.  Mark all SYMs for replacement in
+      ;; calls, and mark the tail continuations for replacement by K.
+      ;; Arrange for the continuations to be spliced into SCOPE.
+      (define (enqueue-contification! k scope)
+        (for-each (lambda (sym tail arities bodies)
+                    (match bodies
+                      ((($ $cont body-k) ...)
+                       (subst-call! sym arities body-k)))
+                    (subst-return! tail k))
+                  syms tails arities bodies)
+        (splice-conts! scope (concatenate bodies))
+        #t)
+
+      ;; "Call me maybe"
+      (and (and-map unused? selfs)
+           (and=> (find-common-continuation)
+                  (lambda (k)
+                    (and=> (find-contification-scope k)
+                           (cut enqueue-contification! k <>))))))
 
     (define (visit-fun term)
       (match term
@@ -235,14 +247,26 @@
                  (((($ $arity req () #f () #f) . k) . clauses)
                   (if (= (length req) (length args))
                       (build-cps-term
-                        ($continue (lookup-return-cont k)
+                        ($continue k
                           ($values args)))
                       (lp clauses)))
                  ((_ . clauses) (lp clauses)))))))
-  (define (lookup-return-cont k)
-    (match (assq-ref cont-substs k)
-      (#f k)
-      (k (lookup-return-cont k))))
+  (define (continue k exp)
+    (define (lookup-return-cont k)
+      (match (assq-ref cont-substs k)
+        (#f k)
+        (k (lookup-return-cont k))))
+    (let ((k* (lookup-return-cont k)))
+      ;; We are contifying this return.  It must be a call or a
+      ;; primcall to values, return, or return-values.
+      (if (eq? k k*)
+          (build-cps-term ($continue k ,exp))
+          (rewrite-cps-term exp
+            (($ $primcall 'return (val))
+             ($continue k* ($primcall 'values (val))))
+            (($ $values vals)
+             ($continue k* ($primcall 'values vals)))
+            (_ ($continue k* ,exp))))))
   (define (splice-continuations term-k term)
     (match (hashq-ref cont-splices term-k)
       (#f term)
@@ -263,10 +287,9 @@
        ($fun meta free ,(visit-cont body)))))
   (define (visit-cont cont)
     (rewrite-cps-cont cont
-      (($ $cont sym src
-          ($ $kargs (name) (and sym (? (cut assq <> call-substs)))
-             body))
-       (sym src ($kargs () () ,(visit-term body sym))))
+      (($ $cont (and k (? (cut memq <> fun-elisions))) src
+          ($ $kargs (_) (_) body))
+       (k src ($kargs () () ,(visit-term body k))))
       (($ $cont sym src ($ $kargs names syms body))
        (sym src ($kargs names syms ,(visit-term body sym))))
       (($ $cont sym src ($ $kentry self tail clauses))
@@ -304,29 +327,16 @@
       (($ $continue k exp)
        (splice-continuations
         term-k
-        (let ((k* (lookup-return-cont k)))
-          (define (default)
-            (rewrite-cps-term exp
-              (($ $fun) ($continue k* ,(visit-fun exp)))
-              (($ $primcall 'return (val))
-               ,(if (eq? k k*)
-                    (build-cps-term ($continue k* ,exp))
-                    (build-cps-term ($continue k* ($values (val))))))
-              (($ $primcall 'return-values vals)
-               ,(if (eq? k k*)
-                    (build-cps-term ($continue k* ,exp))
-                    (build-cps-term ($continue k* ($values vals)))))
-              (_ ($continue k* ,exp))))
-          (match exp
-            (($ $fun)
-             (if (memq k fun-elisions)
-                 (build-cps-term
-                   ($continue k* ($values ())))
-                 (default)))
-            (($ $call proc args)
-             (or (contify-call proc args)
-                 (default)))
-            (_ (default))))))))
+        (match exp
+          (($ $fun)
+           (if (memq k fun-elisions)
+               (build-cps-term
+                 ($continue k ($values ())))
+               (continue k (visit-fun exp))))
+          (($ $call proc args)
+           (or (contify-call proc args)
+               (continue k exp)))
+          (_ (continue k exp)))))))
   (visit-fun fun))
 
 (define (contify fun)
