@@ -347,9 +347,7 @@
                      k subst)
             (convert-args args
               (lambda (args)
-                (if (eq? name 'values)
-                    (build-cps-term ($continue k ($values args)))
-                    (build-cps-term ($continue k ($primcall name args))))))))))
+                (build-cps-term ($continue k ($primcall name args)))))))))
 
     ;; Prompts with inline handlers.
     (($ <prompt> src escape-only? tag body
