@@ -659,8 +659,8 @@ returned instead."
   (assert-match req ((? symbol?) ...) "list of symbols")
   (assert-match opt ((? symbol?) ...) "list of symbols")
   (assert-match rest (or #f (? symbol?)) "#f or symbol")
-  (assert-match kw-indices (((? symbol?) . (? integer?)) ...)
-                "alist of symbol -> integer")
+  (assert-match kw-indices (((? keyword?) . (? integer?)) ...)
+                "alist of keyword -> integer")
   (assert-match allow-other-keys? (? boolean?) "boolean")
   (assert-match nlocals (? integer?) "integer")
   (assert-match alternate (or #f (? symbol?)) "#f or symbol")
@@ -726,7 +726,7 @@ returned instead."
                       (pack-flags allow-other-keys? rest?)
                       (+ nreq nopt)
                       ntotal
-                      kw-indices)
+                      (intern-constant asm kw-indices))
     (emit-alloc-frame asm nlocals)))
 
 (define-macro-assembler (label asm sym)
