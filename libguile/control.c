@@ -86,6 +86,7 @@ reify_partial_continuation (SCM vm,
 {
   SCM vm_cont;
   scm_t_uint32 flags;
+  SCM *bottom_fp;
 
   flags = SCM_F_VM_CONT_PARTIAL;
   /* If we are aborting to a prompt that has the same registers as those
@@ -95,15 +96,21 @@ reify_partial_continuation (SCM vm,
   if (saved_registers && saved_registers == current_registers)
     flags |= SCM_F_VM_CONT_REWINDABLE;
 
-  /* Since non-escape continuations should begin with a thunk application, the
-     first bit of the stack should be a frame, with the saved fp equal to the fp
-     that was current when the prompt was made. */
-  if ((SCM*)SCM_UNPACK (saved_sp[1]) != saved_fp)
-    abort ();
+  /* Walk the stack down until we find the first frame after saved_fp.
+     We will save the stack down to that frame.  It used to be that we
+     could determine the stack bottom in O(1) time, but that's no longer
+     the case, since the thunk application doesn't occur where the
+     prompt is saved.  */
+  for (bottom_fp = SCM_VM_DATA (vm)->fp;
+       SCM_FRAME_DYNAMIC_LINK (bottom_fp) > saved_fp;
+       bottom_fp = SCM_FRAME_DYNAMIC_LINK (bottom_fp));
+
+  if (SCM_FRAME_DYNAMIC_LINK (bottom_fp) != saved_fp)
+    abort();
 
   /* Capture from the top of the thunk application frame up to the end. Set an
      MVRA only, as the post-abort code is in an MV context. */
-  vm_cont = scm_i_vm_capture_stack (saved_sp + 4,
+  vm_cont = scm_i_vm_capture_stack (bottom_fp - 1,
                                     SCM_VM_DATA (vm)->fp,
                                     SCM_VM_DATA (vm)->sp,
                                     NULL,
