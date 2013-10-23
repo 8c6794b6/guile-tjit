@@ -2402,7 +2402,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM_UNPACK_RTL_12_12 (op, fluid, value);
 
       scm_dynstack_push_fluid (&current_thread->dynstack,
-                               fp[fluid], fp[value],
+                               LOCAL_REF (fluid), LOCAL_REF (value),
                                current_thread->dynamic_state);
       NEXT (1);
     }
