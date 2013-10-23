@@ -1251,13 +1251,19 @@ top-level bindings from ENV and return the resulting expression."
             (make-primcall src name args))))))
 
       (($ <primcall> src 'thunk? (proc))
-       (match (for-value proc)
-         (($ <lambda> _ _ ($ <lambda-case> _ req))
-          (for-tail (make-const src (null? req))))
-         (proc
-          (case ctx
-            ((effect) (make-void src))
-            (else (make-primcall src 'thunk? (list proc)))))))
+       (case ctx
+         ((effect)
+          (for-tail (make-seq src proc (make-void src))))
+         (else
+          (match (for-value proc)
+            (($ <lambda> _ _ ($ <lambda-case> _ req))
+             (for-tail (make-const src (null? req))))
+            (proc
+             (match (find-definition proc 2)
+               (($ <lambda> _ _ ($ <lambda-case> _ req))
+                (for-tail (make-const src (null? req))))
+               (_
+                (make-primcall src 'thunk? (list proc)))))))))
 
       (($ <primcall> src (? accessor-primitive? name) args)
        (match (cons name (map for-value args))
