@@ -226,6 +226,8 @@
          (emit-push-fluid asm (slot fluid) (slot val)))
         (($ $primcall 'pop-fluid ())
          (emit-pop-fluid asm))
+        (($ $primcall 'wind (winder unwinder))
+         (emit-wind asm (slot winder) (slot unwinder)))
         (($ $primcall 'unwind ())
          (emit-unwind asm))
         (($ $primcall name args)
