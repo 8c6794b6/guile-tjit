@@ -2220,6 +2220,11 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
           mod = *((SCM *) mod_loc);
           sym = *((SCM *) sym_loc);
 
+          /* If the toplevel scope was captured before modules were
+             booted, use the root module.  */
+          if (scm_is_false (mod))
+            mod = scm_the_root_module ();
+
           var = scm_module_lookup (mod, sym);
           if (ip[4] & 0x1)
             VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (fp[-1], sym));
@@ -2267,7 +2272,18 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
           modname = SCM_PACK ((scm_t_bits) modname_words);
           sym = *((SCM *) sym_loc);
 
-          if (scm_is_true (SCM_CAR (modname)))
+          if (!scm_module_system_booted_p)
+            {
+#ifdef VM_ENABLE_PARANOID_ASSERTIONS
+              ASSERT
+                (scm_is_true
+                 scm_equal_p (modname,
+                              scm_list_2 (SCM_BOOL_T,
+                                          scm_from_utf8_symbol ("guile"))));
+#endif
+              var = scm_lookup (sym);
+            }
+          else if (scm_is_true (SCM_CAR (modname)))
             var = scm_public_lookup (SCM_CDR (modname), sym);
           else
             var = scm_private_lookup (SCM_CDR (modname), sym);
