@@ -58,8 +58,20 @@
                           (kvoid #f ($kargs () ()
                                       ($continue kunspec ($void)))))
                    ($continue kvoid ,exp)))))
-           (($ $ktrunc ($ $arity () () #f () #f) kseq)
-            ($continue kseq ,exp))
+           (($ $ktrunc arity kargs)
+            ,(rewrite-cps-term arity
+               (($ $arity () () #f () #f)
+                ($continue kargs ,exp))
+               (_
+                ,(let-gensyms (kvoid kvalues void)
+                   (build-cps-term
+                     ($letk* ((kvalues #f ($kargs ('void) (void)
+                                            ($continue k
+                                              ($primcall 'values (void)))))
+                              (kvoid #f ($kargs () ()
+                                          ($continue kvalues
+                                            ($void)))))
+                       ($continue kvoid ,exp)))))))
            (($ $kargs () () _)
             ($continue k ,exp))
            (_
@@ -68,31 +80,37 @@
                  ($letk ((k* #f ($kargs () () ($continue k ($void)))))
                    ($continue k* ,exp)))))))
         (1
-         (let ((drop-result
-                (lambda (kseq)
-                  (let-gensyms (k* drop)
-                    (build-cps-term
-                      ($letk ((k* #f ($kargs ('drop) (drop)
-                                       ($continue kseq ($values ())))))
-                        ($continue k* ,exp)))))))
-           (rewrite-cps-term (lookup-cont k conts)
-             (($ $ktail)
-              ,(rewrite-cps-term exp
-                 (($var sym)
-                  ($continue ktail ($primcall 'return (sym))))
-                 (_
-                  ,(let-gensyms (k* v)
-                     (build-cps-term
-                       ($letk ((k* #f ($kargs (v) (v)
-                                        ($continue k
-                                          ($primcall 'return (v))))))
-                         ($continue k* ,exp)))))))
-             (($ $ktrunc ($ $arity () () #f () #f) kseq)
-              ,(drop-result kseq))
-             (($ $kargs () () _)
-              ,(drop-result k))
-             (_
-              ($continue k ,exp)))))))
+         (rewrite-cps-term (lookup-cont k conts)
+           (($ $ktail)
+            ,(rewrite-cps-term exp
+               (($var sym)
+                ($continue ktail ($primcall 'return (sym))))
+               (_
+                ,(let-gensyms (k* v)
+                   (build-cps-term
+                     ($letk ((k* #f ($kargs (v) (v)
+                                      ($continue k
+                                        ($primcall 'return (v))))))
+                       ($continue k* ,exp)))))))
+           (($ $ktrunc arity kargs)
+            ,(rewrite-cps-term arity
+               (($ $arity (_) () #f () #f)
+                ($continue kargs ,exp))
+               (_
+                ,(let-gensyms (kvalues value)
+                   (build-cps-term
+                     ($letk ((kvalues #f ($kargs ('value) (value)
+                                           ($continue k
+                                             ($primcall 'values (value))))))
+                       ($continue kvalues ,exp)))))))
+           (($ $kargs () () _)
+            ,(let-gensyms (k* drop)
+               (build-cps-term
+                 ($letk ((k* #f ($kargs ('drop) (drop)
+                                  ($continue k ($values ())))))
+                   ($continue k* ,exp)))))
+           (_
+            ($continue k ,exp))))))
 
     (define (visit-exp k exp)
       (rewrite-cps-term exp
