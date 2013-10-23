@@ -102,6 +102,46 @@
                                     (1- nreq)
                                     (cdr args)))))))))))))
 
+  ;; Fast case for procedures with fixed arities and a rest argument.
+  (define-syntax make-rest-closure
+    (lambda (x)
+      (define *max-static-argument-count* 3)
+      (define (make-formals n)
+        (map (lambda (i)
+               (datum->syntax
+                x
+                (string->symbol
+                 (string (integer->char (+ (char->integer #\a) i))))))
+             (iota n)))
+      (syntax-case x ()
+        ((_ eval nreq body env) (not (identifier? #'env))
+         #'(let ((e env))
+             (make-rest-closure eval nreq body e)))
+        ((_ eval nreq body env)
+         #`(case nreq
+             #,@(map (lambda (nreq)
+                       (let ((formals (make-formals nreq)))
+                         #`((#,nreq)
+                            (lambda (#,@formals . rest)
+                              (eval body
+                                    (cons* rest #,@(reverse formals) env))))))
+                     (iota *max-static-argument-count*))
+             (else
+              #,(let ((formals (make-formals *max-static-argument-count*)))
+                  #`(lambda (#,@formals . more)
+                      (let lp ((new-env (cons* #,@(reverse formals) env))
+                               (nreq (- nreq #,*max-static-argument-count*))
+                               (args more))
+                        (if (zero? nreq)
+                            (eval body (cons args new-env))
+                            (if (null? args)
+                                (scm-error 'wrong-number-of-args
+                                           "eval" "Wrong number of arguments"
+                                           '() #f)
+                                (lp (cons (car args) new-env)
+                                    (1- nreq)
+                                    (cdr args)))))))))))))
+
   (define-syntax call
     (lambda (x)
       (define *max-static-call-count* 4)
@@ -212,8 +252,9 @@
 
 (define primitive-eval
   (let ()
-    ;; We pre-generate procedures with fixed arities, up to some number of
-    ;; arguments; see make-fixed-closure above.
+    ;; We pre-generate procedures with fixed arities, up to some number
+    ;; of arguments, and some rest arities; see make-fixed-closure and
+    ;; make-rest-closure above.
 
     ;; A unique marker for unbound keywords.
     (define unbound-arg (list 'unbound-arg))
@@ -222,7 +263,7 @@
     ;; multiple arities, as with case-lambda.
     (define (make-general-closure env body nreq rest? nopt kw inits alt)
       (define alt-proc
-        (and alt                             ; (body docstring nreq ...)
+        (and alt                        ; (body docstring nreq ...)
              (let* ((body (car alt))
                     (spec (cddr alt))
                     (nreq (car spec))
@@ -413,9 +454,7 @@
                 (if (null? tail)
                     (make-fixed-closure eval nreq body (capture-env env))
                     (if (null? (cdr tail))
-                        (make-general-closure (capture-env env) body
-                                              nreq (car tail)
-                                              0 #f '() #f)
+                        (make-rest-closure eval nreq body (capture-env env))
                         (apply make-general-closure (capture-env env)
                                body nreq tail)))))
            (when docstring
