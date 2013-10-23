@@ -628,8 +628,8 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   case opcode:
 #endif
 
-#define LOCAL_REF(i)		SCM_FRAME_VARIABLE (fp, (i) - 1)
-#define LOCAL_SET(i,o)		SCM_FRAME_VARIABLE (fp, (i) - 1) = o
+#define LOCAL_REF(i)		SCM_FRAME_VARIABLE ((fp - 1), i)
+#define LOCAL_SET(i,o)		SCM_FRAME_VARIABLE ((fp - 1), i) = o
 
 #define VARIABLE_REF(v)		SCM_VARIABLE_REF (v)
 #define VARIABLE_SET(v,o)	SCM_VARIABLE_SET (v, o)
