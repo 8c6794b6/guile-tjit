@@ -179,6 +179,8 @@ SCM_API SCM scm_makfromstrs (int argc, char **argv);
 #define SCM_I_STRINGBUF_F_SHARED      0x100
 #define SCM_I_STRINGBUF_F_WIDE        0x400
 
+SCM_INTERNAL void scm_i_print_stringbuf (SCM exp, SCM port,
+                                         scm_print_state *pstate);
 
 /* internal accessor functions.  Arguments must be valid. */
 

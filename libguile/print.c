@@ -609,6 +609,9 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
             break;
           }
 	  break;
+        case scm_tc7_stringbuf:
+          scm_i_print_stringbuf (exp, port, pstate);
+          break;
         case scm_tc7_string:
           if (SCM_WRITINGP (pstate))
             {

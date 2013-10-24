@@ -261,6 +261,23 @@ scm_i_pthread_mutex_t stringbuf_write_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 #define IS_SH_STRING(str)   (SCM_CELL_TYPE(str)==SH_STRING_TAG)
 
+void
+scm_i_print_stringbuf (SCM exp, SCM port, scm_print_state *pstate) 
+{
+  SCM str;
+
+  scm_i_pthread_mutex_lock (&stringbuf_write_mutex);
+  SET_STRINGBUF_SHARED (exp);
+  scm_i_pthread_mutex_unlock (&stringbuf_write_mutex);
+
+  str =  scm_double_cell (RO_STRING_TAG, SCM_UNPACK(exp),
+                          0, STRINGBUF_LENGTH (exp));
+
+  scm_puts ("#<stringbuf ", port);
+  scm_iprin1 (str, port, pstate);
+  scm_puts (">", port);
+}
+
 SCM scm_nullstr;
 
 /* Create a scheme string with space for LEN 8-bit Latin-1-encoded
