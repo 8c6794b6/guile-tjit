@@ -54,6 +54,9 @@
 #define CDDDR(x) SCM_CDDDR(x)
 #define CADDDR(x) SCM_CADDDR(x)
 
+#define VECTOR_REF(v, i) (SCM_SIMPLE_VECTOR_REF (v, i))
+#define VECTOR_SET(v, i, x) (SCM_SIMPLE_VECTOR_SET (v, i, x))
+#define VECTOR_LENGTH(v) (SCM_SIMPLE_VECTOR_LENGTH (v))
 
 SCM_SYMBOL (sym_case_lambda_star, "case-lambda*");
 
@@ -136,10 +139,10 @@ scm_t_bits scm_tc16_memoized;
   MAKMEMO (SCM_M_CALL_WITH_VALUES, scm_cons (prod, cons))
 #define MAKMEMO_CALL(proc, nargs, args) \
   MAKMEMO (SCM_M_CALL, scm_cons (proc, scm_cons (SCM_I_MAKINUM (nargs), args)))
-#define MAKMEMO_LEX_REF(n) \
-  MAKMEMO (SCM_M_LEXICAL_REF, SCM_I_MAKINUM (n))
-#define MAKMEMO_LEX_SET(n, val) \
-  MAKMEMO (SCM_M_LEXICAL_SET, scm_cons (SCM_I_MAKINUM (n), val))
+#define MAKMEMO_LEX_REF(pos) \
+  MAKMEMO (SCM_M_LEXICAL_REF, pos)
+#define MAKMEMO_LEX_SET(pos, val)                                      \
+  MAKMEMO (SCM_M_LEXICAL_SET, scm_cons (pos, val))
 #define MAKMEMO_TOP_REF(var) \
   MAKMEMO (SCM_M_TOPLEVEL_REF, var)
 #define MAKMEMO_TOP_SET(var, val) \
@@ -190,15 +193,43 @@ scm_print_memoized (SCM memoized, SCM port, scm_print_state *pstate)
 
 
 static int
-lookup (SCM x, SCM env)
+try_lookup_rib (SCM x, SCM rib)
 {
-  int i = 0;
-  for (; scm_is_pair (env); env = CDR (env), i++)
-    if (scm_is_eq (x, CAR (env)))
-      return i; /* bound */
-  abort ();
+  int idx = 0;
+  for (; idx < VECTOR_LENGTH (rib); idx++)
+    if (scm_is_eq (x, VECTOR_REF (rib, idx)))
+      return idx; /* bound */
+  return -1;
 }
 
+static int
+lookup_rib (SCM x, SCM rib)
+{
+  int idx = try_lookup_rib (x, rib);
+  if (idx < 0)
+    abort ();
+  return idx;
+}
+
+static SCM
+make_pos (int depth, int width)
+{
+  return scm_cons (SCM_I_MAKINUM (depth), SCM_I_MAKINUM (width));
+}
+
+static SCM
+lookup (SCM x, SCM env)
+{
+  int d = 0;
+  for (; scm_is_pair (env); env = CDR (env), d++)
+    {
+      int w = try_lookup_rib (x, CAR (env));
+      if (w < 0)
+        continue;
+      return make_pos (d, w);
+    }
+  abort ();
+}
 
 /* Abbreviate SCM_EXPANDED_REF. Copied because I'm not sure about symbol pasting */
 #define REF(x,type,field) \
@@ -373,8 +404,8 @@ memoize (SCM exp, SCM env)
     case SCM_EXPANDED_LAMBDA_CASE:
       {
         SCM req, rest, opt, kw, inits, vars, body, alt;
-        SCM walk, minits, arity, new_env;
-        int nreq, nopt, ntotal;
+        SCM walk, minits, arity, rib, new_env;
+        int nreq, nopt;
 
         req = REF (exp, LAMBDA_CASE, REQ);
         rest = scm_not (scm_not (REF (exp, LAMBDA_CASE, REST)));
@@ -387,38 +418,16 @@ memoize (SCM exp, SCM env)
 
         nreq = scm_ilength (req);
         nopt = scm_is_pair (opt) ? scm_ilength (opt) : 0;
-        ntotal = scm_ilength (vars);
 
         /* The vars are the gensyms, according to the divine plan. But we need
            to memoize the inits within their appropriate environment,
            complicating things. */
-        new_env = env;
-        for (walk = req; scm_is_pair (walk);
-             walk = CDR (walk), vars = CDR (vars))
-          new_env = scm_cons (CAR (vars), new_env);
+        rib = scm_vector (vars);
+        new_env = scm_cons (rib, env);
 
         minits = SCM_EOL;
-        for (walk = opt; scm_is_pair (walk);
-             walk = CDR (walk), vars = CDR (vars), inits = CDR (inits))
-          {
-            minits = scm_cons (memoize (CAR (inits), new_env), minits);
-            new_env = scm_cons (CAR (vars), new_env);
-          }
-
-        if (scm_is_true (rest))
-          {
-            new_env = scm_cons (CAR (vars), new_env);
-            vars = CDR (vars);
-          }
-
-        for (; scm_is_pair (inits); vars = CDR (vars), inits = CDR (inits))
-          {
-            minits = scm_cons (memoize (CAR (inits), new_env), minits);
-            new_env = scm_cons (CAR (vars), new_env);
-          }
-        if (!scm_is_null (vars))
-          abort ();
-
+        for (walk = inits; scm_is_pair (walk); walk = CDR (walk))
+          minits = scm_cons (memoize (CAR (walk), new_env), minits);
         minits = scm_reverse_x (minits, SCM_UNDEFINED);
 
         if (scm_is_true (kw))
@@ -431,7 +440,7 @@ memoize (SCM exp, SCM env)
                 int idx;
 
                 k = CAR (CAR (kw));
-                idx = ntotal - 1 - lookup (CADDR (CAR (kw)), new_env);
+                idx = lookup_rib (CADDR (CAR (kw)), rib);
                 indices = scm_acons (k, SCM_I_MAKINUM (idx), indices);
               }
             kw = scm_cons (aok, scm_reverse_x (indices, SCM_UNDEFINED));
@@ -456,79 +465,74 @@ memoize (SCM exp, SCM env)
 
     case SCM_EXPANDED_LET:
       {
-        SCM vars, exps, body, inits, new_env;
+        SCM vars, exps, body, varsv, inits, new_env;
+        int i;
         
         vars = REF (exp, LET, GENSYMS);
         exps = REF (exp, LET, VALS);
         body = REF (exp, LET, BODY);
         
-        inits = SCM_EOL;
-        new_env = env;
-        for (; scm_is_pair (vars); vars = CDR (vars), exps = CDR (exps))
-          {
-            new_env = scm_cons (CAR (vars), new_env);
-            inits = scm_cons (memoize (CAR (exps), env), inits);
-          }
+        varsv = scm_vector (vars);
+        inits = scm_c_make_vector (VECTOR_LENGTH (varsv),
+                                   SCM_BOOL_F);
+        new_env = scm_cons (varsv, env);
+        for (i = 0; scm_is_pair (exps); exps = CDR (exps), i++)
+          VECTOR_SET (inits, i, memoize (CAR (exps), env));
 
-        return MAKMEMO_LET (scm_reverse_x (inits, SCM_UNDEFINED),
-                            memoize (body, new_env));
+        return MAKMEMO_LET (inits, memoize (body, new_env));
       }
 
     case SCM_EXPANDED_LETREC:
       {
-        SCM vars, exps, body, undefs, new_env;
+        SCM vars, varsv, exps, expsv, body, undefs, new_env;
         int i, nvars, in_order_p;
         
         vars = REF (exp, LETREC, GENSYMS);
         exps = REF (exp, LETREC, VALS);
         body = REF (exp, LETREC, BODY);
         in_order_p = scm_is_true (REF (exp, LETREC, IN_ORDER_P));
-        nvars = i = scm_ilength (vars);
-        undefs = SCM_EOL;
-        new_env = env;
 
-        for (; scm_is_pair (vars); vars = CDR (vars))
-          {
-            new_env = scm_cons (CAR (vars), new_env);
-            undefs = scm_cons (MAKMEMO_QUOTE (SCM_UNDEFINED), undefs);
-          }
+        varsv = scm_vector (vars);
+        nvars = VECTOR_LENGTH (varsv);
+        expsv = scm_vector (exps);
+
+        undefs = scm_c_make_vector (nvars, MAKMEMO_QUOTE (SCM_UNDEFINED));
+        new_env = scm_cons (varsv, env);
 
         if (in_order_p)
           {
-            SCM body_exps = SCM_EOL, seq;
-            for (; scm_is_pair (exps); exps = CDR (exps), i--)
-              body_exps = scm_cons (MAKMEMO_LEX_SET (i-1,
-                                                     memoize (CAR (exps), new_env)),
-                                    body_exps);
-
-            seq = memoize (body, new_env);
-            for (; scm_is_pair (body_exps); body_exps = CDR (body_exps))
-              seq = MAKMEMO_SEQ (CAR (body_exps), seq);
-
-            return MAKMEMO_LET (undefs, seq);
+            SCM body_exps = memoize (body, new_env);
+            for (i = nvars - 1; i >= 0; i--)
+              {
+                SCM init = memoize (VECTOR_REF (expsv, i), new_env);
+                body_exps = MAKMEMO_SEQ (MAKMEMO_LEX_SET (make_pos (0, i), init),
+                                         body_exps);
+              }
+            return MAKMEMO_LET (undefs, body_exps);
           }
         else
           {
-            SCM sets = SCM_EOL, inits = SCM_EOL, set_seq;
-            for (; scm_is_pair (exps); exps = CDR (exps), i--)
+            SCM sets = SCM_BOOL_F, inits = scm_c_make_vector (nvars, SCM_BOOL_F);
+            for (i = nvars - 1; i >= 0; i--)
               {
-                sets = scm_cons (MAKMEMO_LEX_SET ((i-1) + nvars,
-                                                  MAKMEMO_LEX_REF (i-1)),
-                                 sets);
-                inits = scm_cons (memoize (CAR (exps), new_env), inits);
-              }
-            inits = scm_reverse_x (inits, SCM_UNDEFINED);
+                SCM init, set;
 
-            sets = scm_reverse_x (sets, SCM_UNDEFINED);
-            if (scm_is_null (sets))
+                init = memoize (VECTOR_REF (expsv, i), new_env);
+                VECTOR_SET (inits, i, init);
+
+                set = MAKMEMO_LEX_SET (make_pos (1, i),
+                                       MAKMEMO_LEX_REF (make_pos (0, i)));
+                if (scm_is_false (sets))
+                  sets = set;
+                else
+                  sets = MAKMEMO_SEQ (set, sets);
+              }
+
+            if (scm_is_false (sets))
               return memoize (body, env);
 
-            for (set_seq = CAR (sets), sets = CDR (sets); scm_is_pair (sets);
-                 sets = CDR (sets))
-              set_seq = MAKMEMO_SEQ (CAR (sets), set_seq);
-            
             return MAKMEMO_LET (undefs,
-                                MAKMEMO_SEQ (MAKMEMO_LET (inits, set_seq),
+                                MAKMEMO_SEQ (MAKMEMO_LET (inits, sets),
                                              memoize (body, new_env)));
           }
       }
@@ -577,26 +581,22 @@ unmemoize_exprs (SCM exprs)
 static SCM
 unmemoize_bindings (SCM inits)
 {
-  SCM ret, tail;
-  if (scm_is_null (inits))
-    return SCM_EOL;
-  ret = scm_list_1 (scm_list_2 (sym_placeholder, unmemoize (CAR (inits))));
-  tail = ret;
-  for (inits = CDR (inits); !scm_is_null (inits); inits = CDR (inits))
-    {
-      SCM_SETCDR (tail, scm_list_1 (scm_list_2 (sym_placeholder,
-                                                unmemoize (CAR (inits)))));
-      tail = CDR (tail);
-    }
+  SCM ret = SCM_EOL;
+  int n = scm_c_vector_length (inits);
+
+  while (n--)
+    ret = scm_cons (unmemoize (scm_c_vector_ref (inits, n)), ret);
+
   return ret;
 }
 
 static SCM
 unmemoize_lexical (SCM n)
 {
-  char buf[16];
-  buf[15] = 0;
-  snprintf (buf, 15, "<%u>", scm_to_uint32 (n));
+  char buf[32];
+  buf[31] = 0;
+  snprintf (buf, 31, "<%u,%u>", scm_to_uint32 (CAR (n)),
+            scm_to_uint32 (CDR (n)));
   return scm_from_utf8_symbol (buf);
 }
 

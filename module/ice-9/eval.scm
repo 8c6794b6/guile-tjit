@@ -57,6 +57,42 @@
                (and (current-module) the-root-module)
                env)))))
 
+  (define-syntax env-toplevel
+    (syntax-rules ()
+      ((_ env)
+       (let lp ((e env))
+         (if (vector? e)
+             (lp (vector-ref e 0))
+             e)))))
+
+  (define-syntax make-env
+    (syntax-rules ()
+      ((_ n init next)
+       (let ((v (make-vector (1+ n) init)))
+         (vector-set! v 0 next)
+         v))))
+
+  (define-syntax make-env*
+    (syntax-rules ()
+      ((_ next init ...)
+       (vector next init ...))))
+
+  (define-syntax env-ref
+    (syntax-rules ()
+      ((_ env depth width)
+       (let lp ((e env) (d depth))
+         (if (zero? d)
+             (vector-ref e (1+ width))
+             (lp (vector-ref e 0) (1- d)))))))
+
+  (define-syntax env-set!
+    (syntax-rules ()
+      ((_ env depth width val)
+       (let lp ((e env) (d depth))
+         (if (zero? d)
+             (vector-set! e (1+ width) val)
+             (lp (vector-ref e 0) (1- d)))))))
+
   ;; Fast case for procedures with fixed arities.
   (define-syntax make-fixed-closure
     (lambda (x)
@@ -79,28 +115,32 @@
                          #`((#,nreq)
                             (lambda (#,@formals)
                               (eval body
-                                    (cons* #,@(reverse formals) env))))))
+                                    (make-env* env #,@formals))))))
                      (iota *max-static-argument-count*))
              (else
               #,(let ((formals (make-formals *max-static-argument-count*)))
                   #`(lambda (#,@formals . more)
-                      (let lp ((new-env (cons* #,@(reverse formals) env))
-                               (nreq (- nreq #,*max-static-argument-count*))
-                               (args more))
-                        (if (zero? nreq)
+                      (let ((env (make-env nreq #f env)))
+                        #,@(map (lambda (formal n)
+                                  #`(env-set! env 0 #,n #,formal))
+                                formals (iota (length formals)))
+                        (let lp ((i #,*max-static-argument-count*)
+                                 (args more))
+                          (cond
+                           ((= i nreq)
                             (eval body
                                   (if (null? args)
-                                      new-env
+                                      env
                                       (scm-error 'wrong-number-of-args
                                                  "eval" "Wrong number of arguments"
-                                                 '() #f)))
-                            (if (null? args)
-                                (scm-error 'wrong-number-of-args
-                                           "eval" "Wrong number of arguments"
-                                           '() #f)
-                                (lp (cons (car args) new-env)
-                                    (1- nreq)
-                                    (cdr args)))))))))))))
+                                                 '() #f))))
+                           ((null? args)
+                            (scm-error 'wrong-number-of-args
+                                       "eval" "Wrong number of arguments"
+                                       '() #f))
+                           (else
+                            (env-set! env 0 i (car args))
+                            (lp (1+ i) (cdr args))))))))))))))
 
   ;; Fast case for procedures with fixed arities and a rest argument.
   (define-syntax make-rest-closure
@@ -124,23 +164,28 @@
                          #`((#,nreq)
                             (lambda (#,@formals . rest)
                               (eval body
-                                    (cons* rest #,@(reverse formals) env))))))
+                                    (make-env* env #,@formals rest))))))
                      (iota *max-static-argument-count*))
              (else
               #,(let ((formals (make-formals *max-static-argument-count*)))
                   #`(lambda (#,@formals . more)
-                      (let lp ((new-env (cons* #,@(reverse formals) env))
-                               (nreq (- nreq #,*max-static-argument-count*))
-                               (args more))
-                        (if (zero? nreq)
-                            (eval body (cons args new-env))
-                            (if (null? args)
-                                (scm-error 'wrong-number-of-args
-                                           "eval" "Wrong number of arguments"
-                                           '() #f)
-                                (lp (cons (car args) new-env)
-                                    (1- nreq)
-                                    (cdr args)))))))))))))
+                      (let ((env (make-env (1+ nreq) #f env)))
+                        #,@(map (lambda (formal n)
+                                  #`(env-set! env 0 #,n #,formal))
+                                formals (iota (length formals)))
+                        (let lp ((i #,*max-static-argument-count*)
+                                 (args more))
+                          (cond
+                           ((= i nreq)
+                            (env-set! env 0 nreq args)
+                            (eval body env))
+                           ((null? args)
+                            (scm-error 'wrong-number-of-args
+                                       "eval" "Wrong number of arguments"
+                                       '() #f))
+                           (else
+                            (env-set! env 0 i (car args))
+                            (lp (1+ i) (cdr args))))))))))))))
 
   (define-syntax call
     (lambda (x)
@@ -301,125 +346,110 @@
         proc)
       (set-procedure-arity!
        (lambda %args
-         (let lp ((env env)
-                  (nreq* nreq)
-                  (args %args))
-           (if (> nreq* 0)
-               ;; First, bind required arguments.
-               (if (null? args)
-                   (if alt
-                       (apply alt-proc %args)
-                       (scm-error 'wrong-number-of-args
-                                  "eval" "Wrong number of arguments"
-                                  '() #f))
-                   (lp (cons (car args) env)
-                       (1- nreq*)
-                       (cdr args)))
-               ;; Move on to optional arguments.
-               (if (not kw)
-                   ;; Without keywords, bind optionals from arguments.
-                   (let lp ((env env)
-                            (nopt nopt)
-                            (args args)
-                            (inits inits))
-                     (if (zero? nopt)
-                         (if rest?
-                             (eval body (cons args env))
-                             (if (null? args)
-                                 (eval body env)
-                                 (if alt
-                                     (apply alt-proc %args)
-                                     (scm-error 'wrong-number-of-args
-                                                "eval" "Wrong number of arguments"
-                                                '() #f))))
-                         (if (null? args)
-                             (lp (cons (eval (car inits) env) env)
-                                 (1- nopt) args (cdr inits))
-                             (lp (cons (car args) env)
-                                 (1- nopt) (cdr args) (cdr inits)))))
-                   (let lp ((env env)
-                            (nopt* nopt)
-                            (args args)
-                            (inits inits))
+         (define (npositional args)
+           (let lp ((n 0) (args args))
+             (if (or (null? args)
+                     (and (>= n nreq) (keyword? (car args))))
+                 n
+                 (lp (1+ n) (cdr args)))))
+         (let ((nargs (length %args)))
+           (cond
+            ((or (< nargs nreq)
+                 (and (not kw) (not rest?) (> nargs (+ nreq nopt)))
+                 (and kw (not rest?) (> (npositional %args) (+ nreq nopt))))
+             (if alt
+                 (apply alt-proc %args)
+                 ((scm-error 'wrong-number-of-args
+                             "eval" "Wrong number of arguments"
+                             '() #f))))
+            (else
+             (let* ((nvals (+ nreq (if rest? 1 0) (length inits)))
+                    (env (make-env nvals unbound-arg env)))
+               (let lp ((i 0) (args %args))
+                 (cond
+                  ((< i nreq)
+                   ;; Bind required arguments.
+                   (env-set! env 0 i (car args))
+                   (lp (1+ i) (cdr args)))
+                  ((not kw)
+                   ;; Optional args (possibly), but no keyword args.
+                   (let lp ((i i) (args args) (inits inits))
                      (cond
-                      ;; With keywords, we stop binding optionals at the
-                      ;; first keyword.
-                      ((> nopt* 0)
-                       (if (or (null? args) (keyword? (car args)))
-                           (lp (cons (eval (car inits) env) env)
-                               (1- nopt*) args (cdr inits))
-                           (lp (cons (car args) env)
-                               (1- nopt*) (cdr args) (cdr inits))))
-                      ;; Finished with optionals.
-                      ((and alt (pair? args) (not (keyword? (car args)))
-                            (not rest?))
-                       ;; Too many positional args, no #:rest arg,
-                       ;; and we have an alternate.
-                       (apply alt-proc %args))
+                      ((< i (+ nreq nopt))
+                       (cond
+                        ((< i nargs)
+                         (env-set! env 0 i (car args))
+                         (lp (1+ i) (cdr args) (cdr inits)))
+                        (else
+                         (env-set! env 0 i (eval (car inits) env))
+                         (lp (1+ i) args (cdr inits)))))
                       (else
-                       (let* ((aok (car kw))
-                              (kw (cdr kw))
-                              (kw-base (+ nopt nreq (if rest? 1 0)))
-                              (imax (let lp ((imax (1- kw-base)) (kw kw))
-                                      (if (null? kw)
-                                          imax
-                                          (lp (max (cdar kw) imax)
-                                              (cdr kw)))))
-                              ;; Fill in kwargs  with "undefined" vals.
-                              (env (let lp ((i kw-base)
-                                            ;; Also, here we bind the rest
-                                            ;; arg, if any.
-                                            (env (if rest?
-                                                     (cons args env)
-                                                     env)))
-                                     (if (<= i imax)
-                                         (lp (1+ i) (cons unbound-arg env))
-                                         env))))
+                       (when rest?
+                         (env-set! env 0 i args))
+                       (eval body env)))))
+                  (else
+                   ;; Optional args.  As before, but stop at the first
+                   ;; keyword.
+                   (let lp ((i i) (args args) (inits inits))
+                     (cond
+                      ((< i (+ nreq nopt))
+                       (cond
+                        ((and (< i nargs) (not (keyword? (car args))))
+                         (env-set! env 0 i (car args))
+                         (lp (1+ i) (cdr args) (cdr inits)))
+                        (else
+                         (env-set! env 0 i (eval (car inits) env))
+                         (lp (1+ i) args (cdr inits)))))
+                      (else
+                       (when rest?
+                         (env-set! env 0 i args))
+                       (let ((aok (car kw))
+                             (kw (cdr kw))
+                             (kw-base (if rest? (1+ i) i)))
                          ;; Now scan args for keywords.
                          (let lp ((args args))
-                           (if (and (pair? args) (pair? (cdr args))
-                                    (keyword? (car args)))
-                               (let ((kw-pair (assq (car args) kw))
-                                     (v (cadr args)))
-                                 (if kw-pair
-                                     ;; Found a known keyword; set its value.
-                                     (list-set! env
-                                                (- imax (cdr kw-pair)) v)
-                                     ;; Unknown keyword.
-                                     (if (not aok)
-                                         (scm-error
-                                          'keyword-argument-error
-                                          "eval" "Unrecognized keyword"
-                                          '() (list (car args)))))
-                                 (lp (cddr args)))
-                               (if (pair? args)
-                                   (if rest?
-                                       ;; Be lenient parsing rest args.
-                                       (lp (cdr args))
-                                       (scm-error 'keyword-argument-error
-                                                  "eval" "Invalid keyword"
-                                                  '() (list (car args))))
-                                   ;; Finished parsing keywords. Fill in
-                                   ;; uninitialized kwargs by evalling init
-                                   ;; expressions in their appropriate
-                                   ;; environment.
-                                   (let lp ((i (- imax kw-base))
-                                            (inits inits))
-                                     (if (pair? inits)
-                                         (let ((tail (list-tail env i)))
-                                           (if (eq? (car tail) unbound-arg)
-                                               (set-car! tail
-                                                         (eval (car inits)
-                                                               (cdr tail))))
-                                           (lp (1- i) (cdr inits)))
-                                         ;; Finally, eval the body.
-                                         (eval body env))))))))))))))))
+                           (cond
+                            ((and (pair? args) (pair? (cdr args))
+                                  (keyword? (car args)))
+                             (let ((kw-pair (assq (car args) kw))
+                                   (v (cadr args)))
+                               (if kw-pair
+                                   ;; Found a known keyword; set its value.
+                                   (env-set! env 0 (cdr kw-pair) v)
+                                   ;; Unknown keyword.
+                                   (if (not aok)
+                                       ((scm-error
+                                         'keyword-argument-error
+                                         "eval" "Unrecognized keyword"
+                                         '() (list (car args))))))
+                               (lp (cddr args))))
+                            ((pair? args)
+                             (if rest?
+                                 ;; Be lenient parsing rest args.
+                                 (lp (cdr args))
+                                 ((scm-error 'keyword-argument-error
+                                             "eval" "Invalid keyword"
+                                             '() (list (car args))))))
+                            (else
+                             ;; Finished parsing keywords. Fill in
+                             ;; uninitialized kwargs by evalling init
+                             ;; expressions in their appropriate
+                             ;; environment.
+                             (let lp ((i kw-base) (inits inits))
+                               (cond
+                                ((pair? inits)
+                                 (when (eq? (env-ref env 0 i) unbound-arg)
+                                   (env-set! env 0 i (eval (car inits) env)))
+                                 (lp (1+ i) (cdr inits)))
+                                (else
+                                 ;; Finally, eval the body.
+                                 (eval body env)))))))))))))))))))))
 
     ;; The "engine". EXP is a memoized expression.
     (define (eval exp env)
       (memoized-expression-case exp
-        (('lexical-ref n)
-         (list-ref env n))
+        (('lexical-ref (depth . width))
+         (env-ref env depth width))
         
         (('call (f nargs . args))
          (let ((proc (eval f env)))
@@ -430,9 +460,7 @@
           (if (variable? var-or-sym)
               var-or-sym
               (memoize-variable-access! exp
-                                        (capture-env (if (pair? env)
-                                                         (cdr (last-pair env))
-                                                         env))))))
+                                        (capture-env (env-toplevel env))))))
 
         (('if (test consequent . alternate))
          (if (eval test env)
@@ -443,11 +471,13 @@
          x)
 
         (('let (inits . body))
-         (let lp ((inits inits) (new-env (capture-env env)))
-           (if (null? inits)
-               (eval body new-env)
-               (lp (cdr inits)
-                   (cons (eval (car inits) env) new-env)))))
+         (let* ((width (vector-length inits))
+                (new-env (make-env width #f (capture-env env))))
+           (let lp ((i 0))
+             (when (< i width)
+               (env-set! new-env 0 i (eval (vector-ref inits i) env))
+               (lp (1+ i))))
+           (eval body new-env)))
 
         (('lambda (body docstring nreq . tail))
          (let ((proc
@@ -466,9 +496,8 @@
            (eval head env)
            (eval tail env)))
         
-        (('lexical-set! (n . x))
-         (let ((val (eval x env)))
-           (list-set! env n val)))
+        (('lexical-set! ((depth . width) . x))
+         (env-set! env depth width (eval x env)))
         
         (('call-with-values (producer . consumer))
          (call-with-values (eval producer env)
@@ -495,9 +524,7 @@
           (if (variable? var-or-sym)
               var-or-sym
               (memoize-variable-access! exp
-                                        (capture-env (if (pair? env)
-                                                         (cdr (last-pair env))
-                                                         env))))
+                                        (capture-env (env-toplevel env))))
           (eval x env)))
       
         (('call-with-prompt (tag thunk . handler))
