@@ -136,22 +136,28 @@ SCM_DEFINE (scm_procedure_properties, "procedure-properties", 1, 0, 0,
 	    "Return @var{proc}'s property list.")
 #define FUNC_NAME s_scm_procedure_properties
 {
-  SCM ret;
+  SCM ret, user_props;
   
   SCM_VALIDATE_PROC (1, proc);
 
-  ret = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
+  user_props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
 
-  if (scm_is_false (ret))
-    {
-      if (SCM_PROGRAM_P (proc))
-        ret = scm_i_program_properties (proc);
-      else if (SCM_RTL_PROGRAM_P (proc))
-        ret = scm_i_rtl_program_properties (proc);
-      else
-        ret = SCM_EOL;
-    }
-  
+  if (scm_is_pair (user_props) && scm_is_true (scm_car (user_props)))
+    return scm_cdr (user_props);
+
+  if (SCM_PROGRAM_P (proc))
+    ret = scm_i_program_properties (proc);
+  else if (SCM_RTL_PROGRAM_P (proc))
+    ret = scm_i_rtl_program_properties (proc);
+  else
+    ret = SCM_EOL;
+
+  if (scm_is_pair (user_props))
+    for (user_props = scm_cdr (user_props);
+         scm_is_pair (user_props);
+         user_props = scm_cdr (user_props))
+      ret = scm_assq_set_x (ret, scm_caar (user_props), scm_cdar (user_props));
+
   return ret;
 }
 #undef FUNC_NAME
@@ -163,7 +169,7 @@ SCM_DEFINE (scm_set_procedure_properties_x, "set-procedure-properties!", 2, 0, 0
 {
   SCM_VALIDATE_PROC (1, proc);
 
-  scm_weak_table_putq_x (overrides, proc, alist);
+  scm_weak_table_putq_x (overrides, proc, scm_cons (SCM_BOOL_T, alist));
 
   return SCM_UNSPECIFIED;
 }
@@ -174,7 +180,24 @@ SCM_DEFINE (scm_procedure_property, "procedure-property", 2, 0, 0,
 	    "Return the property of @var{proc} with name @var{key}.")
 #define FUNC_NAME s_scm_procedure_property
 {
+  SCM user_props;
+
   SCM_VALIDATE_PROC (1, proc);
+
+  if (scm_is_eq (key, scm_sym_name))
+    return scm_procedure_name (proc);
+  if (scm_is_eq (key, scm_sym_documentation))
+    return scm_procedure_documentation (proc);
+
+  user_props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
+  if (scm_is_true (user_props)) 
+    {
+      SCM pair = scm_assq (key, scm_cdr (user_props));
+      if (scm_is_pair (pair))
+        return scm_cdr (pair);
+      if (scm_is_true (scm_car (user_props)))
+        return SCM_BOOL_F;
+    }
 
   return scm_assq_ref (scm_procedure_properties (proc), key);
 }
@@ -186,20 +209,25 @@ SCM_DEFINE (scm_set_procedure_property_x, "set-procedure-property!", 3, 0, 0,
 	    "@var{val}.")
 #define FUNC_NAME s_scm_set_procedure_property_x
 {
-  SCM props;
+  SCM user_props, override_p;
 
   SCM_VALIDATE_PROC (1, proc);
 
   scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
-  props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
-  if (scm_is_false (props))
+  user_props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
+  if (scm_is_false (user_props))
     {
-      if (SCM_PROGRAM_P (proc))
-        props = scm_i_program_properties (proc);
-      else
-        props = SCM_EOL;
+      override_p = SCM_BOOL_F;
+      user_props = SCM_EOL;
     }
-  scm_weak_table_putq_x (overrides, proc, scm_assq_set_x (props, key, val));
+  else
+    {
+      override_p = scm_car (user_props);
+      user_props = scm_cdr (user_props);
+    }
+  scm_weak_table_putq_x (overrides, proc,
+                         scm_cons (override_p,
+                                   scm_assq_set_x (user_props, key, val)));
   scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
 
   return SCM_UNSPECIFIED;
@@ -217,25 +245,29 @@ SCM_DEFINE (scm_procedure_name, "procedure-name", 1, 0, 0,
 	    "Return the name of the procedure @var{proc}")
 #define FUNC_NAME s_scm_procedure_name
 {
-  SCM props, ret;
+  SCM user_props;
 
   SCM_VALIDATE_PROC (1, proc);
 
   while (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
     proc = SCM_STRUCT_PROCEDURE (proc);
 
-  props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
+  user_props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
+  if (scm_is_true (user_props)) 
+    {
+      SCM pair = scm_assq (scm_sym_name, scm_cdr (user_props));
+      if (scm_is_pair (pair))
+        return scm_cdr (pair);
+      if (scm_is_true (scm_car (user_props)))
+        return SCM_BOOL_F;
+    }
 
-  if (scm_is_pair (props))
-    ret = scm_assq_ref (props, scm_sym_name);
-  else if (SCM_RTL_PROGRAM_P (proc))
-    ret = scm_i_rtl_program_name (proc);
+  if (SCM_RTL_PROGRAM_P (proc))
+    return scm_i_rtl_program_name (proc);
   else if (SCM_PROGRAM_P (proc))
-    ret = scm_assq_ref (scm_i_program_properties (proc), scm_sym_name);
+    return scm_assq_ref (scm_i_program_properties (proc), scm_sym_name);
   else
-    ret = SCM_BOOL_F;
-  
-  return ret;
+    return SCM_BOOL_F;
 }
 #undef FUNC_NAME
 
@@ -250,25 +282,30 @@ SCM_DEFINE (scm_procedure_documentation, "procedure-documentation", 1, 0, 0,
 	    "documentation for that procedure.")
 #define FUNC_NAME s_scm_procedure_documentation
 {
-  SCM props, ret;
+  SCM user_props;
 
   SCM_VALIDATE_PROC (1, proc);
 
   while (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
     proc = SCM_STRUCT_PROCEDURE (proc);
 
-  props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
+  user_props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
+  if (scm_is_true (user_props)) 
+    {
+      SCM pair = scm_assq (scm_sym_documentation, scm_cdr (user_props));
+      if (scm_is_pair (pair))
+        return scm_cdr (pair);
+      if (scm_is_true (scm_car (user_props)))
+        return SCM_BOOL_F;
+    }
 
-  if (scm_is_pair (props))
-    ret = scm_assq_ref (props, scm_sym_documentation);
-  else if (SCM_RTL_PROGRAM_P (proc))
-    ret = scm_i_rtl_program_documentation (proc);
+  if (SCM_RTL_PROGRAM_P (proc))
+    return scm_i_rtl_program_documentation (proc);
   else if (SCM_PROGRAM_P (proc))
-    ret = scm_assq_ref (scm_i_program_properties (proc), scm_sym_documentation);
+    return scm_assq_ref (scm_i_program_properties (proc),
+                         scm_sym_documentation);
   else
-    ret = SCM_BOOL_F;
-
-  return ret;
+    return SCM_BOOL_F;
 }
 #undef FUNC_NAME
 
