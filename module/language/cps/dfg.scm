@@ -801,6 +801,12 @@
               #f)
              (($ $primcall 'resolve (name bound?))
               (eq? sym name))
+             (($ $primcall 'vector-ref (v i))
+              (not (and (eq? sym i)
+                        (integer? val) (exact? val) (<= 0 val 255))))
+             (($ $primcall 'vector-set! (v i x))
+              (not (and (eq? sym i)
+                        (integer? val) (exact? val) (<= 0 val 255))))
              (_ #t)))
          uses))))))
 
