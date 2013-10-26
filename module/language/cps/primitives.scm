@@ -39,7 +39,8 @@
     (quotient . quo) (remainder . rem)
     (modulo . mod)
     (define! . define)
-    (vector-set! . vector-set)))
+    (variable-ref . box-ref)
+    (variable-set! . box-set!)))
 
 (define *macro-instruction-arities*
   '((cache-current-module! . (0 . 2))

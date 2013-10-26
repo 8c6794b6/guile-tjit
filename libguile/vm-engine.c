@@ -1839,7 +1839,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM var;
       SCM_UNPACK_RTL_12_12 (op, dst, src);
       var = LOCAL_REF (src);
-      VM_ASSERT (SCM_VARIABLEP (var), abort ());
+      VM_ASSERT (SCM_VARIABLEP (var),
+                 vm_error_not_a_variable ("variable-ref", var));
       VM_ASSERT (VARIABLE_BOUNDP (var),
                  vm_error_unbound (SCM_FRAME_PROGRAM (fp), var));
       LOCAL_SET (dst, VARIABLE_REF (var));
@@ -1856,7 +1857,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM var;
       SCM_UNPACK_RTL_12_12 (op, dst, src);
       var = LOCAL_REF (dst);
-      VM_ASSERT (SCM_VARIABLEP (var), abort ());
+      VM_ASSERT (SCM_VARIABLEP (var),
+                 vm_error_not_a_variable ("variable-set!", var));
       VARIABLE_SET (var, LOCAL_REF (src));
       NEXT (1);
     }
@@ -2906,7 +2908,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Store SRC into the vector DST at index IDX.
    */
-  VM_DEFINE_OP (92, vector_set, "vector-set", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (92, vector_set, "vector-set!", OP1 (U8_U8_U8_U8))
     {
       scm_t_uint8 dst, idx_var, src;
       SCM vect, idx, val;
