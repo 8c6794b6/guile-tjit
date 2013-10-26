@@ -308,7 +308,7 @@
     ;; multiple arities, as with case-lambda.
     (define (make-general-closure env body nreq rest? nopt kw inits alt)
       (define alt-proc
-        (and alt                        ; (body docstring nreq ...)
+        (and alt                        ; (body meta nreq ...)
              (let* ((body (car alt))
                     (spec (cddr alt))
                     (nreq (car spec))
@@ -479,7 +479,7 @@
                (lp (1+ i))))
            (eval body new-env)))
 
-        (('lambda (body docstring nreq . tail))
+        (('lambda (body meta nreq . tail))
          (let ((proc
                 (if (null? tail)
                     (make-fixed-closure eval nreq body (capture-env env))
@@ -487,8 +487,10 @@
                         (make-rest-closure eval nreq body (capture-env env))
                         (apply make-general-closure (capture-env env)
                                body nreq tail)))))
-           (when docstring
-             (set-procedure-property! proc 'documentation docstring))
+           (let lp ((meta meta))
+             (unless (null? meta)
+               (set-procedure-property! proc (caar meta) (cdar meta))
+               (lp (cdr meta))))
            proc))
 
         (('seq (head . tail))
@@ -513,10 +515,8 @@
               (memoize-variable-access! exp #f))))
 
         (('define (name . x))
-         (let ((x (eval x env)))
-           (if (and (procedure? x) (not (procedure-property x 'name)))
-               (set-procedure-property! x 'name name))
-           (define! name x)
+         (begin
+           (define! name (eval x env))
            (if #f #f)))
       
         (('toplevel-set! (var-or-sym . x))

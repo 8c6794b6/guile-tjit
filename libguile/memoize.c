@@ -122,9 +122,9 @@ scm_t_bits scm_tc16_memoized;
 #define FULL_ARITY(nreq, rest, nopt, kw, inits, alt) \
   scm_list_n (SCM_I_MAKINUM (nreq), rest, SCM_I_MAKINUM (nopt), kw, inits, \
               alt, SCM_UNDEFINED)
-#define MAKMEMO_LAMBDA(body, arity, docstring)			\
+#define MAKMEMO_LAMBDA(body, arity, meta)			\
   MAKMEMO (SCM_M_LAMBDA,					\
-	   scm_cons (body, scm_cons (docstring, arity)))
+	   scm_cons (body, scm_cons (meta, arity)))
 #define MAKMEMO_LET(inits, body) \
   MAKMEMO (SCM_M_LET, scm_cons (inits, body))
 #define MAKMEMO_QUOTE(exp) \
@@ -367,10 +367,9 @@ memoize (SCM exp, SCM env)
     case SCM_EXPANDED_LAMBDA:
       /* The body will be a lambda-case or #f. */
       {
-	SCM meta, docstring, body, proc;
+	SCM meta, body, proc;
 
 	meta = REF (exp, LAMBDA, META);
-	docstring = scm_assoc_ref (meta, scm_sym_documentation);
 
         body = REF (exp, LAMBDA, BODY);
         if (scm_is_false (body))
@@ -388,15 +387,12 @@ memoize (SCM exp, SCM env)
                           MAKMEMO_QUOTE (SCM_EOL),
                           MAKMEMO_QUOTE (SCM_BOOL_F))),
              FIXED_ARITY (0),
-             SCM_BOOL_F /* docstring */);
+             meta);
         else
-          proc = memoize (body, env);
-
-	if (scm_is_string (docstring))
-	  {
-	    SCM args = SCM_MEMOIZED_ARGS (proc);
-	    SCM_SETCAR (SCM_CDR (args), docstring);
-	  }
+          {
+            proc = memoize (body, env);
+            SCM_SETCAR (SCM_CDR (SCM_MEMOIZED_ARGS (proc)), meta);
+          }
 
 	return proc;
       }
@@ -460,7 +456,7 @@ memoize (SCM exp, SCM env)
           arity = FULL_ARITY (nreq, rest, nopt, kw, minits, SCM_BOOL_F);
 
         return MAKMEMO_LAMBDA (memoize (body, new_env), arity,
-			       SCM_BOOL_F /* docstring */);
+			       SCM_BOOL_F /* meta, filled in later */);
       }
 
     case SCM_EXPANDED_LET:
