@@ -77,6 +77,8 @@
     variable? variable-ref variable-set!
     variable-bound?
 
+    current-module
+
     fluid-ref fluid-set! with-fluid*
 
     call-with-prompt
