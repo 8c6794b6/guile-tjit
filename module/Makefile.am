@@ -123,6 +123,7 @@ CPS_LANG_SOURCES =						\
   language/cps/arities.scm					\
   language/cps/closure-conversion.scm				\
   language/cps/compile-rtl.scm					\
+  language/cps/constructors.scm					\
   language/cps/contification.scm				\
   language/cps/dfg.scm						\
   language/cps/primitives.scm					\

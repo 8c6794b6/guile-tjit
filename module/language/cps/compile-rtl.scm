@@ -30,6 +30,7 @@
   #:use-module (language cps arities)
   #:use-module (language cps closure-conversion)
   #:use-module (language cps contification)
+  #:use-module (language cps constructors)
   #:use-module (language cps dfg)
   #:use-module (language cps primitives)
   #:use-module (language cps reify-primitives)
@@ -52,7 +53,8 @@
         exp))
 
   ;; Calls to source-to-source optimization passes go here.
-  (let* ((exp (run-pass exp contify #:contify? #t)))
+  (let* ((exp (run-pass exp contify #:contify? #t))
+         (exp (run-pass exp inline-constructors #:inline-constructors? #t)))
     ;; Passes that are needed:
     ;; 
     ;;  * Abort contification: turning abort primcalls into continuation

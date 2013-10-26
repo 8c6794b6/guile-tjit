@@ -332,22 +332,13 @@
          (build-cps-term ($continue k ($call proc args)))))))
 
     (($ <primcall> src name args)
-     (case name
-       ((list)
-        (convert (fold-right (lambda (elem tail)
-                               (make-primcall src 'cons
-                                              (list elem tail)))
-                             (make-const src '())
-                             args)
-                 k subst))
-       (else
-        (if (branching-primitive? name)
-            (convert (make-conditional src exp (make-const #f #t)
-                                       (make-const #f #f))
-                     k subst)
-            (convert-args args
-              (lambda (args)
-                (build-cps-term ($continue k ($primcall name args)))))))))
+     (if (branching-primitive? name)
+         (convert (make-conditional src exp (make-const #f #t)
+                                    (make-const #f #f))
+                  k subst)
+         (convert-args args
+           (lambda (args)
+             (build-cps-term ($continue k ($primcall name args)))))))
 
     ;; Prompts with inline handlers.
     (($ <prompt> src escape-only? tag body
