@@ -74,7 +74,7 @@
     cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
 
     vector-length vector-ref vector-set!
-    variable-ref variable-set!
+    variable? variable-ref variable-set!
     variable-bound?
 
     fluid-ref fluid-set! with-fluid*
@@ -157,7 +157,8 @@
     ash logand logior logxor lognot
     + * - / 1- 1+ quotient remainder modulo
     not
-    pair? null? list? symbol? vector? struct? string? number? char? nil
+    pair? null? nil? list?
+    symbol? variable? vector? struct? string? number? char?
     complex? real? rational? inf? nan? integer? exact? inexact? even? odd?
     char<? char<=? char>=? char>?
     integer->char char->integer number->string string->number
@@ -177,7 +178,8 @@
   '(values
     eq? eqv? equal?
     not
-    pair? null? list? symbol? vector? struct? string? number? char?
+    pair? null? nil? list?
+    symbol? variable? vector? struct? string? number? char?
     procedure? thunk?
     acons cons cons* list vector))
 
