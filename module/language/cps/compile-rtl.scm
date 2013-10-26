@@ -32,6 +32,7 @@
   #:use-module (language cps contification)
   #:use-module (language cps constructors)
   #:use-module (language cps dfg)
+  #:use-module (language cps elide-values)
   #:use-module (language cps primitives)
   #:use-module (language cps reify-primitives)
   #:use-module (language cps slot-allocation)
@@ -54,7 +55,8 @@
 
   ;; Calls to source-to-source optimization passes go here.
   (let* ((exp (run-pass exp contify #:contify? #t))
-         (exp (run-pass exp inline-constructors #:inline-constructors? #t)))
+         (exp (run-pass exp inline-constructors #:inline-constructors? #t))
+         (exp (run-pass exp elide-values #:elide-values? #t)))
     ;; Passes that are needed:
     ;; 
     ;;  * Abort contification: turning abort primcalls into continuation
