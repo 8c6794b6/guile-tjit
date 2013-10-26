@@ -775,6 +775,9 @@
      (values #f #f))))
 
 (define (constant-needs-allocation? sym val dfg)
+  (define (immediate-u8? val)
+    (and (integer? val) (exact? val) (<= 0 val 255)))
+
   (define (find-exp term)
     (match term
       (($ $kargs names syms body) (find-exp body))
@@ -801,12 +804,12 @@
               #f)
              (($ $primcall 'resolve (name bound?))
               (eq? sym name))
+             (($ $primcall 'make-vector (len init))
+              (not (and (eq? sym len) (immediate-u8? val))))
              (($ $primcall 'vector-ref (v i))
-              (not (and (eq? sym i)
-                        (integer? val) (exact? val) (<= 0 val 255))))
+              (not (and (eq? sym i) (immediate-u8? val))))
              (($ $primcall 'vector-set! (v i x))
-              (not (and (eq? sym i)
-                        (integer? val) (exact? val) (<= 0 val 255))))
+              (not (and (eq? sym i) (immediate-u8? val))))
              (_ #t)))
          uses))))))
 

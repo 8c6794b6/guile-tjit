@@ -73,7 +73,7 @@
     caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
     cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
 
-    vector-length vector-ref vector-set!
+    make-vector vector-length vector-ref vector-set!
     variable? variable-ref variable-set!
     variable-bound?
 
@@ -129,7 +129,7 @@
 
 (define *primitive-constructors*
   ;; Primitives that return a fresh object.
-  '(acons cons cons* list vector make-struct make-struct/no-tail
+  '(acons cons cons* list vector make-vector make-struct make-struct/no-tail
     make-prompt-tag))
 
 (define *primitive-accessors*

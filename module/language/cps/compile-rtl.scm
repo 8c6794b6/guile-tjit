@@ -99,6 +99,15 @@
     (_ (values))))
 
 (define (emit-rtl-sequence asm exp allocation nlocals cont-table)
+  (define (immediate-u8? val)
+    (and (integer? val) (exact? val) (<= 0 val 255)))
+
+  (define (maybe-immediate-u8 sym)
+    (call-with-values (lambda ()
+                        (lookup-maybe-constant-value sym allocation))
+      (lambda (has-const? val)
+        (and has-const? (immediate-u8? val) val))))
+
   (define (slot sym)
     (lookup-slot sym allocation))
 
@@ -186,14 +195,20 @@
            (emit-resolve asm dst (constant bound?) (slot name)))
           (($ $primcall 'free-ref (closure idx))
            (emit-free-ref asm dst (slot closure) (constant idx)))
+          (($ $primcall 'make-vector (length init))
+           (cond
+            ((maybe-immediate-u8 length)
+             => (lambda (length)
+                  (emit-constant-make-vector asm dst length (slot init))))
+            (else
+             (emit-make-vector asm dst (slot length) (slot init)))))
           (($ $primcall 'vector-ref (vector index))
-           (call-with-values (lambda ()
-                               (lookup-maybe-constant-value index allocation))
-             (lambda (has-const? index-val)
-               (if (and has-const? (integer? index-val) (exact? index-val)
-                        (<= 0 index-val 255))
-                   (emit-constant-vector-ref asm dst (slot vector) index-val)
-                   (emit-vector-ref asm dst (slot vector) (slot index))))))
+           (cond
+            ((maybe-immediate-u8 index)
+             => (lambda (index)
+                  (emit-constant-vector-ref asm dst (slot vector) index)))
+            (else
+             (emit-vector-ref asm dst (slot vector) (slot index)))))
           (($ $primcall name args)
            ;; FIXME: Inline all the cases.
            (let ((inst (prim-rtl-instruction name)))
