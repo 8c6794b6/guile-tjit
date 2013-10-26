@@ -3,7 +3,7 @@
 #ifndef SCM_TAGS_H
 #define SCM_TAGS_H
 
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012,2013
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -401,6 +401,9 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
   (SCM_NIMP (x) && type (x) == (tag))
 #define SCM_HAS_TYP7(x, tag)    (SCM_HAS_HEAP_TYPE (x, SCM_TYP7, tag))
 #define SCM_HAS_TYP7S(x, tag)   (SCM_HAS_HEAP_TYPE (x, SCM_TYP7S, tag))
+
+/* If you change these numbers, change them also in (system vm
+   assembler).  */
 
 #define scm_tc7_symbol		5
 #define scm_tc7_variable        7

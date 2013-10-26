@@ -274,8 +274,13 @@
         (($ $primcall 'pair? (a)) (unary emit-br-if-pair a))
         (($ $primcall 'struct? (a)) (unary emit-br-if-struct a))
         (($ $primcall 'char? (a)) (unary emit-br-if-char a))
-        ;; Add TC7 tests here
-        (($ $primcall 'eq? (a b)) (binary emit-br-if-eq a b))
+        (($ $primcall 'symbol? (a)) (unary emit-br-if-symbol a))
+        (($ $primcall 'variable? (a)) (unary emit-br-if-variable a))
+        (($ $primcall 'vector? (a)) (unary emit-br-if-vector a))
+        (($ $primcall 'string? (a)) (unary emit-br-if-string a))
+        ;; Add more TC7 tests here.  Keep in sync with
+        ;; *branching-primcall-arities* in (language cps primitives) and
+        ;; the set of macro-instructions in assembly.scm.
         (($ $primcall 'eq? (a b)) (binary emit-br-if-eq a b))
         (($ $primcall 'eqv? (a b)) (binary emit-br-if-eqv a b))
         (($ $primcall 'equal? (a b)) (binary emit-br-if-equal a b))

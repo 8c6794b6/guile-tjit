@@ -214,9 +214,19 @@ address of that offset."
     (((or 'br
           'br-if-nargs-ne 'br-if-nargs-lt 'br-if-nargs-gt
           'br-if-true 'br-if-null 'br-if-nil 'br-if-pair 'br-if-struct
-          'br-if-char 'br-if-tc7 'br-if-eq 'br-if-eqv 'br-if-equal
+          'br-if-char 'br-if-eq 'br-if-eqv 'br-if-equal
           'br-if-= 'br-if-< 'br-if-<= 'br-if-> 'br-if->=) _ ... target)
      (list "-> ~A" (vector-ref labels (- (+ offset target) start))))
+    (('br-if-tc7 slot invert? tc7 target)
+     (list "~A -> ~A"
+           (let ((tag (case tc7
+                        ((5) "symbol?")
+                        ((7) "variable?")
+                        ((13) "vector?")
+                        ((15) "string?")
+                        (else (number->string tc7)))))
+             (if invert? (string-append "not " tag) tag))
+           (vector-ref labels (- (+ offset target) start))))
     (('prompt tag escape-only? proc-slot handler)
      ;; The H is for handler.
      (list "H -> ~A" (vector-ref labels (- (+ offset handler) start))))
