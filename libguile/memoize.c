@@ -109,7 +109,7 @@ do_pop_fluid (void)
 scm_t_bits scm_tc16_memoized;
 
 #define MAKMEMO(n, args)                                                \
-  (scm_cell (scm_tc16_memoized | ((n) << 16), SCM_UNPACK (args)))
+  (scm_cons (SCM_I_MAKINUM (n), args))
 
 #define MAKMEMO_SEQ(head,tail) \
   MAKMEMO (SCM_M_SEQ, scm_cons (head, tail))
@@ -178,15 +178,6 @@ static const char *const memoized_tags[] =
   "module-set!",
   "call-with-prompt",
 };
-
-static int
-scm_print_memoized (SCM memoized, SCM port, scm_print_state *pstate)
-{
-  scm_puts_unlocked ("#<memoized ", port);
-  scm_write (scm_unmemoize_expression (memoized), port);
-  scm_puts_unlocked (">", port);
-  return 1;
-}
 
 
 
@@ -601,9 +592,6 @@ unmemoize (const SCM expr)
 {
   SCM args;
   
-  if (!SCM_MEMOIZED_P (expr))
-    abort ();
-
   args = SCM_MEMOIZED_ARGS (expr);
   switch (SCM_MEMOIZED_TAG (expr))
     {
@@ -706,44 +694,12 @@ unmemoize (const SCM expr)
 
 
 
-SCM_DEFINE (scm_memoized_p, "memoized?", 1, 0, 0, 
-            (SCM obj),
-	    "Return @code{#t} if @var{obj} is memoized.")
-#define FUNC_NAME s_scm_memoized_p
-{
-  return scm_from_bool (SCM_MEMOIZED_P (obj));
-}
-#undef FUNC_NAME
-
 SCM_DEFINE (scm_unmemoize_expression, "unmemoize-expression", 1, 0, 0, 
             (SCM m),
 	    "Unmemoize the memoized expression @var{m}.")
 #define FUNC_NAME s_scm_unmemoize_expression
 {
-  SCM_VALIDATE_MEMOIZED (1, m);
   return unmemoize (m);
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_memoized_expression_typecode, "memoized-expression-typecode", 1, 0, 0, 
-            (SCM m),
-	    "Return the typecode from the memoized expression @var{m}.")
-#define FUNC_NAME s_scm_memoized_expression_typecode
-{
-  SCM_VALIDATE_MEMOIZED (1, m);
-
-  /* The tag is a 16-bit integer so it fits in an inum.  */
-  return SCM_I_MAKINUM (SCM_MEMOIZED_TAG (m));
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_memoized_expression_data, "memoized-expression-data", 1, 0, 0, 
-            (SCM m),
-	    "Return the data from the memoized expression @var{m}.")
-#define FUNC_NAME s_scm_memoized_expression_data
-{
-  SCM_VALIDATE_MEMOIZED (1, m);
-  return SCM_MEMOIZED_ARGS (m);
 }
 #undef FUNC_NAME
 
@@ -777,9 +733,8 @@ SCM_DEFINE (scm_memoize_variable_access_x, "memoize-variable-access!", 2, 0, 0,
 	    "Look up and cache the variable that @var{m} will access, returning the variable.")
 #define FUNC_NAME s_scm_memoize_variable_access_x
 {
-  SCM mx;
-  SCM_VALIDATE_MEMOIZED (1, m);
-  mx = SCM_MEMOIZED_ARGS (m);
+  SCM mx = SCM_MEMOIZED_ARGS (m);
+
   switch (SCM_MEMOIZED_TAG (m))
     {
     case SCM_M_TOPLEVEL_REF:
@@ -790,7 +745,7 @@ SCM_DEFINE (scm_memoize_variable_access_x, "memoize-variable-access!", 2, 0, 0,
           SCM var = scm_module_variable (mod, mx);
           if (scm_is_false (var) || scm_is_false (scm_variable_bound_p (var)))
             error_unbound_variable (mx);
-          SCM_SET_SMOB_OBJECT (m, var);
+          SCM_SETCDR (m, var);
           return var;
         }
 
@@ -821,7 +776,7 @@ SCM_DEFINE (scm_memoize_variable_access_x, "memoize-variable-access!", 2, 0, 0,
           var = scm_module_lookup (mod, CADR (mx));
           if (scm_is_false (scm_variable_bound_p (var)))
             error_unbound_variable (CADR (mx));
-          SCM_SET_SMOB_OBJECT (m, var);
+          SCM_SETCDR (m, var);
           return var;
         }
 
@@ -853,9 +808,6 @@ SCM_DEFINE (scm_memoize_variable_access_x, "memoize-variable-access!", 2, 0, 0,
 void
 scm_init_memoize ()
 {
-  scm_tc16_memoized = scm_make_smob_type ("%memoized", 0);
-  scm_set_smob_print (scm_tc16_memoized, scm_print_memoized);
-
 #include "libguile/memoize.x"
 
   wind = scm_c_make_gsubr ("wind", 2, 0, 0, do_wind);

@@ -58,11 +58,8 @@ SCM_API SCM scm_sym_args;
 /* {Memoized Source}
  */
 
-SCM_INTERNAL scm_t_bits scm_tc16_memoized;
-
-#define SCM_MEMOIZED_P(x) 	(SCM_SMOB_PREDICATE (scm_tc16_memoized, (x)))
-#define SCM_MEMOIZED_TAG(x) 	(SCM_SMOB_FLAGS (x))
-#define SCM_MEMOIZED_ARGS(x) 	(SCM_SMOB_OBJECT (x))
+#define SCM_MEMOIZED_TAG(x) 	(scm_to_uint16 (scm_car (x)))
+#define SCM_MEMOIZED_ARGS(x) 	(scm_cdr (x))
 
 enum
   {
@@ -90,11 +87,8 @@ enum
 
 SCM_INTERNAL SCM scm_memoize_expression (SCM exp);
 SCM_INTERNAL SCM scm_unmemoize_expression (SCM memoized);
-SCM_INTERNAL SCM scm_memoized_expression_typecode (SCM memoized);
-SCM_INTERNAL SCM scm_memoized_expression_data (SCM memoized);
 SCM_INTERNAL SCM scm_memoized_typecode (SCM sym);
 SCM_INTERNAL SCM scm_memoize_variable_access_x (SCM memoized, SCM module);
-SCM_API SCM scm_memoized_p (SCM obj);
 
 SCM_INTERNAL void scm_init_memoize (void);
 

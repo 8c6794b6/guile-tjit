@@ -264,8 +264,8 @@
     (lambda (x)
       (syntax-case x ()
         ((_ mx c ...)
-         #'(let ((tag (memoized-expression-typecode mx))
-                 (data (memoized-expression-data mx)))
+         #'(let ((tag (car mx))
+                 (data (cdr mx)))
              (mx-match mx data tag c ...)))))))
 
 

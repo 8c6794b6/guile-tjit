@@ -266,11 +266,9 @@ eval (SCM x, SCM env)
 
  loop:
   SCM_TICK;
-  if (!SCM_MEMOIZED_P (x))
-    abort ();
   
   mx = SCM_MEMOIZED_ARGS (x);
-  switch (SCM_MEMOIZED_TAG (x))
+  switch (SCM_I_INUM (SCM_CAR (x)))
     {
     case SCM_M_SEQ:
       eval (CAR (mx), env);

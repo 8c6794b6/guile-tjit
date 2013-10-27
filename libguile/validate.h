@@ -4,7 +4,7 @@
 #define SCM_VALIDATE_H
 
 /* Copyright (C) 1999, 2000, 2001, 2002, 2004, 2006, 2007, 2009,
- *   2011, 2012 Free Software Foundation, Inc.
+ *   2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -292,8 +292,6 @@
   } while (0)
 
 #define SCM_VALIDATE_VARIABLE(pos, var) SCM_MAKE_VALIDATE_MSG (pos, var, VARIABLEP, "variable")
-
-#define SCM_VALIDATE_MEMOIZED(pos, obj) SCM_MAKE_VALIDATE_MSG (pos, obj, MEMOIZED_P, "memoized code")
 
 #define SCM_VALIDATE_PROC(pos, proc) \
   do { \
