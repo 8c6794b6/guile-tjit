@@ -274,10 +274,20 @@ x
 a-cont
 @result{} special-binding
 @end lisp"
-  (if (thunk? out)
-      (in)
-      (scm-error 'wrong-type-arg "dynamic-wind" "Not a thunk: ~S"
-                 (list out) #f))
+  ;; FIXME: Here we don't check that the out procedure is a thunk before
+  ;; calling the in-guard, as dynamic-wind is called as part of loading
+  ;; modules, but thunk? requires loading (system vm debug).  This is in
+  ;; contrast to the open-coded version of dynamic-wind, which does
+  ;; currently insert an eager thunk? check (but often optimizes it
+  ;; out).  Not sure what the right thing to do is here -- make thunk?
+  ;; callable before modules are loaded, live with this inconsistency,
+  ;; or remove the thunk? check from the compiler?  Questions,
+  ;; questions.
+  #;
+  (unless (thunk? out)
+    (scm-error 'wrong-type-arg "dynamic-wind" "Not a thunk: ~S"
+               (list out) #f))
+  (in)
   ((@@ primitive wind) in out)
   (call-with-values thunk
     (lambda vals
