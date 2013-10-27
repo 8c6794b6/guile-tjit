@@ -595,8 +595,7 @@
       
       ((<primitive-ref> src name)
        (cond
-        ((eq? (module-variable (fluid-ref *comp-module*) name)
-              (module-variable the-root-module name))
+        ((eq? (fluid-ref *comp-module*) the-root-module)
          (case context
            ((tail push vals)
             (emit-code src (make-glil-toplevel 'ref name))))
