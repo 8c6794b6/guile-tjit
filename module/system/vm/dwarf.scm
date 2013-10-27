@@ -1525,8 +1525,7 @@
     (values (cond ((zero? code) #f)
                   ((vector-ref (ctx-abbrevs ctx) code))
                   (else (error "unknown abbrev" ctx code)))
-            pos
-            #f pos)))
+            pos)))
 
 (define (read-die ctx offset)
   (let*-values (((abbrev pos) (read-die-abbrev ctx offset)))
@@ -1725,7 +1724,7 @@
                 ((addrsize pos) (read-u8 ctx pos))
                 ((ctx) (make-compilation-unit-context ctx offset-size addrsize
                                                       av start len))
-                ((die) (read-die ctx pos)))
+                ((die pos) (read-die ctx pos)))
     (populate-context-tree! die)
     (values die (ctx-end ctx))))
 
