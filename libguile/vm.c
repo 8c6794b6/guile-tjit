@@ -641,7 +641,17 @@ resolve_variable (SCM what, SCM module)
       sym = SCM_CADR (what);
       public = SCM_CADDR (what);
 
-      if (scm_is_true (public))
+      if (!scm_module_system_booted_p)
+        {
+#ifdef VM_ENABLE_PARANOID_ASSERTIONS
+          ASSERT (scm_is_false (public));
+          ASSERT (scm_is_true
+                  (scm_equal_p (modname,
+                                scm_list_1 (scm_from_utf8_symbol ("guile")))));
+#endif
+          return scm_lookup (sym);
+        }
+      else if (scm_is_true (public))
         return scm_public_lookup (modname, sym);
       else
         return scm_private_lookup (modname, sym);
