@@ -345,5 +345,7 @@
       (if (null? call-substs)
           fun
           ;; Iterate to fixed point.
-          (contify
-           (apply-contification fun call-substs cont-substs fun-elisions cont-splices))))))
+          (begin
+            (pk 'CONTIFIED (length call-substs))
+            (contify
+             (apply-contification fun call-substs cont-substs fun-elisions cont-splices)))))))
