@@ -655,9 +655,20 @@
          (($ $values args)
           (for-each use! args))
 
-         (($ $prompt escape? tag handler)
+         (($ $prompt escape? tag handler pop)
           (use! tag)
-          (use-k! handler))
+          (use-k! handler)
+          ;; Any continuation in the prompt body could cause an abort to
+          ;; the handler, so in theory we could register the handler as
+          ;; a successor of any block in the prompt body.  That would be
+          ;; inefficient, though, besides being a hack.  Instead we take
+          ;; advantage of the fact that pop continuation post-dominates
+          ;; the prompt body, so we add a link from there to the
+          ;; handler.  This creates a primcall node with multiple
+          ;; successors, which is not quite correct, but it does reflect
+          ;; control flow.  It is necessary to ensure that the live
+          ;; variables in the handler are seen as live in the body.
+          (link-blocks! pop handler))
 
          (($ $fun)
           (when global?

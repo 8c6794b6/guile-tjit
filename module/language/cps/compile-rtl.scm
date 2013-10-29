@@ -272,7 +272,7 @@
         (($ $primcall name args)
          (error "unhandled primcall in seq context" name))
         (($ $values ()) #f)
-        (($ $prompt escape? tag handler)
+        (($ $prompt escape? tag handler pop)
          (match (lookup-cont handler cont-table)
            (($ $ktrunc ($ $arity req () rest () #f) khandler-body)
             (let ((receive-args (gensym "handler"))

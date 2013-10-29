@@ -132,10 +132,11 @@
        (for-each (cut check-var <> v-env) arg))
       (($ $values ((? symbol? arg) ...))
        (for-each (cut check-var <> v-env) arg))
-      (($ $prompt escape? tag handler)
+      (($ $prompt escape? tag handler pop)
        (unless (boolean? escape?) (error "escape? should be boolean" escape?))
        (check-var tag v-env)
-       (check-var handler k-env))
+       (check-var handler k-env)
+       (check-var pop k-env))
       (_
        (error "unexpected expression" exp))))
 

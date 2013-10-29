@@ -387,7 +387,7 @@
                         ($letk ((kbody (tree-il-src body) 
                                        ($kargs () ()
                                          ,(convert body krest subst))))
-                          ($continue kbody ($prompt #t tag khargs))))
+                          ($continue kbody ($prompt #t tag khargs kpop))))
                       (convert-arg body
                         (lambda (thunk)
                           (build-cps-term
@@ -397,7 +397,7 @@
                                                ($primcall 'call-thunk/no-inline
                                                           (thunk))))))
                               ($continue kbody
-                                ($prompt #f tag khargs))))))))))))))
+                                ($prompt #f tag khargs kpop))))))))))))))
 
     ;; Eta-convert prompts without inline handlers.
     (($ <prompt> src escape-only? tag body handler)

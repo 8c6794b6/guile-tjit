@@ -402,7 +402,7 @@ are comparable with eqv?.  A tmp slot may be used."
                            live-slots live-slots*
                            (compute-dst-slots))))
 
-        (($ $prompt escape? tag handler)
+        (($ $prompt escape? tag handler pop)
          (match (lookup-cont handler (dfg-cont-table dfg))
            (($ $ktrunc arity kargs)
             (let* ((live-slots (allocate-prompt-handler! label live-slots))

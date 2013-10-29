@@ -217,12 +217,12 @@ convert functions to flat closures."
                                     ($continue k ($values args)))
                                   '()))))
 
-    (($ $continue k ($ $prompt escape? tag handler))
+    (($ $continue k ($ $prompt escape? tag handler pop))
      (convert-free-var
       tag self bound
       (lambda (tag)
         (values (build-cps-term
-                  ($continue k ($prompt escape? tag handler)))
+                  ($continue k ($prompt escape? tag handler pop)))
                 '()))))
 
     (_ (error "what" exp))))
