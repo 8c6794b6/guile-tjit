@@ -699,6 +699,9 @@
         (visit body kbody)))
       clauses)
 
+     ;; Currently we don't need to build dominator trees.  When we do,
+     ;; probably we should require the user to do so herself.
+     #;
      (analyze-control-flow! kentry ktail blocks))))
 
 (define* (compute-dfg fun #:key (global? #t))
