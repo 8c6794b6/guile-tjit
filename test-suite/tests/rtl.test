@@ -60,7 +60,11 @@
    '(1 2 3 4)
    #(1 2 3)
    #("foo" "bar" 'baz)
-   ;; FIXME: Add tests for arrays (uniform and otherwise)
+   #vu8()
+   #vu8(1 2 3 4 128 129 130)
+   #u32()
+   #u32(1 2 3 4 128 129 130 255 1000)
+   ;; FIXME: Add more tests for arrays (uniform and otherwise)
    ))
 
 (with-test-prefix "static procedure"

@@ -508,17 +508,31 @@ list of lists.  This procedure can be called many times before calling
   static-procedure?
   (code static-procedure-code))
 
+(define-record-type <uniform-vector-backing-store>
+  (make-uniform-vector-backing-store bytes)
+  uniform-vector-backing-store?
+  (bytes uniform-vector-backing-store-bytes))
+
 (define-record-type <cache-cell>
   (make-cache-cell scope key)
   cache-cell?
   (scope cache-cell-scope)
   (key cache-cell-key))
 
+(define (simple-vector? obj)
+  (and (vector? obj)
+       (equal? (array-shape obj) (list (list 0 (1- (vector-length obj)))))))
+
+(define (simple-uniform-vector? obj)
+  (and (array? obj)
+       (symbol? (array-type obj))
+       (equal? (array-shape obj) (list (list 0 (1- (array-length obj)))))))
+
 (define (statically-allocatable? x)
   "Return @code{#t} if a non-immediate constant can be allocated
 statically, and @code{#f} if it would need some kind of runtime
 allocation."
-  (or (pair? x) (vector? x) (string? x) (stringbuf? x) (static-procedure? x)))
+  (or (pair? x) (string? x) (stringbuf? x) (static-procedure? x) (array? x)))
 
 (define (intern-constant asm obj)
   "Add an object to the constant table, and return a label that can be
@@ -539,7 +553,7 @@ table, its existing label is used directly."
      ((pair? obj)
       (append (field label 0 (car obj))
               (field label 1 (cdr obj))))
-     ((vector? obj)
+     ((simple-vector? obj)
       (let lp ((i 0) (inits '()))
         (if (< i (vector-length obj))
             (lp (1+ i)
@@ -564,6 +578,10 @@ table, its existing label is used directly."
       `((make-non-immediate 1 ,(recur (number->string obj)))
         (string->number 1 1)
         (static-set! 1 ,label 0)))
+     ((uniform-vector-backing-store? obj) '())
+     ((simple-uniform-vector? obj)
+      `((static-patch! ,label 2
+                       ,(recur (make-uniform-vector-backing-store obj)))))
      (else
       (error "don't know how to intern" obj))))
   (cond
@@ -854,6 +872,7 @@ should be .data or .rodata), and return the resulting linker object.
     (+ tc7-stringbuf stringbuf-shared-flag stringbuf-wide-flag))
   (define tc7-ro-string (+ 21 #x200))
   (define tc7-rtl-program 69)
+  (define tc7-bytevector 77)
 
   (let ((word-size (asm-word-size asm))
         (endianness (asm-endianness asm)))
@@ -872,8 +891,12 @@ should be .data or .rodata), and return the resulting linker object.
         (* 4 word-size))
        ((pair? x)
         (* 2 word-size))
-       ((vector? x)
+       ((simple-vector? x)
         (* (1+ (vector-length x)) word-size))
+       ((simple-uniform-vector? x)
+        (* 4 word-size))
+       ((uniform-vector-backing-store? x)
+        (bytevector-length (uniform-vector-backing-store-bytes x)))
        (else
         word-size)))
 
@@ -948,7 +971,7 @@ should be .data or .rodata), and return the resulting linker object.
         (write-constant-reference buf pos (car obj))
         (write-constant-reference buf (+ pos word-size) (cdr obj)))
 
-       ((vector? obj)
+       ((simple-vector? obj)
         (let* ((len (vector-length obj))
                (tag (logior tc7-vector (ash len 8))))
           (case word-size
@@ -970,6 +993,32 @@ should be .data or .rodata), and return the resulting linker object.
 
        ((number? obj)
         (write-immediate asm buf pos #f))
+
+       ((simple-uniform-vector? obj)
+        (let ((tag (logior tc7-bytevector
+                           (ash (uniform-vector-element-type-code obj) 7))))
+          (case word-size
+            ((4)
+             (bytevector-u32-set! buf pos tag endianness)
+             (bytevector-u32-set! buf (+ pos 4) (bytevector-length obj)
+                                  endianness)                 ; length
+             (bytevector-u32-set! buf (+ pos 8) 0 endianness) ; pointer
+             (write-immediate asm buf (+ pos 12) #f))         ; owner
+            ((8)
+             (bytevector-u64-set! buf pos tag endianness)
+             (bytevector-u64-set! buf (+ pos 8) (bytevector-length obj)
+                                  endianness)                  ; length
+             (bytevector-u64-set! buf (+ pos 16) 0 endianness) ; pointer
+             (write-immediate asm buf (+ pos 24) #f))          ; owner
+            (else (error "bad word size")))))
+
+       ((uniform-vector-backing-store? obj)
+        (let ((bv (uniform-vector-backing-store-bytes obj)))
+          (bytevector-copy! bv 0 buf pos (bytevector-length bv))
+          (unless (or (= 1 (uniform-vector-element-size bv))
+                      (eq? endianness (native-endianness)))
+            ;; Need to swap units of element-size bytes
+            (error "FIXME: Implement byte order swap"))))
 
        (else
         (error "unrecognized object" obj))))
@@ -1007,11 +1056,12 @@ these may be @code{#f}."
      ((stringbuf? x) #t)
      ((pair? x)
       (and (immediate? (car x)) (immediate? (cdr x))))
-     ((vector? x)
+     ((simple-vector? x)
       (let lp ((i 0))
         (or (= i (vector-length x))
             (and (immediate? (vector-ref x i))
                  (lp (1+ i))))))
+     ((uniform-vector-backing-store? x) #t)
      (else #f)))
   (let* ((constants (asm-constants asm))
          (len (vlist-length constants)))

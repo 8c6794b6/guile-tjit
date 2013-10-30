@@ -132,6 +132,25 @@ SCM_DEFINE (scm_uniform_vector_element_type, "uniform-vector-element-type", 1, 0
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_uniform_vector_element_type_code,
+            "uniform-vector-element-type-code", 1, 0, 0,
+	    (SCM v),
+	    "Return the type of the elements in the uniform vector, @var{v},\n"
+            "as an integer code.")
+#define FUNC_NAME s_scm_uniform_vector_element_type_code
+{
+  scm_t_array_handle h;
+  SCM ret;
+
+  if (!scm_is_uniform_vector (v))
+    scm_wrong_type_arg_msg (FUNC_NAME, SCM_ARG1, v, "uniform vector");
+  scm_array_get_handle (v, &h);
+  ret = scm_from_uint16 (h.element_type);
+  scm_array_handle_release (&h);
+  return ret;
+}
+#undef FUNC_NAME
+
 SCM_DEFINE (scm_uniform_vector_element_size, "uniform-vector-element-size", 1, 0, 0,
 	    (SCM v),
 	    "Return the number of bytes allocated to each element in the\n"

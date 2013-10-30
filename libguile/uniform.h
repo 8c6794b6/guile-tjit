@@ -3,7 +3,7 @@
 #ifndef SCM_UNIFORM_H
 #define SCM_UNIFORM_H
 
-/* Copyright (C) 1995,1996,1997,1999,2000,2001, 2004, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1999,2000,2001, 2004, 2006, 2008, 2009, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -47,6 +47,7 @@ SCM_API void *scm_array_handle_uniform_writable_elements (scm_t_array_handle *h)
 SCM_API SCM scm_uniform_vector_p (SCM v);
 SCM_API SCM scm_uniform_vector_length (SCM v);
 SCM_API SCM scm_uniform_vector_element_type (SCM v);
+SCM_API SCM scm_uniform_vector_element_type_code (SCM v);
 SCM_API SCM scm_uniform_vector_element_size (SCM v);
 SCM_API SCM scm_uniform_vector_ref (SCM v, SCM idx);
 SCM_API SCM scm_uniform_vector_set_x (SCM v, SCM idx, SCM val);
