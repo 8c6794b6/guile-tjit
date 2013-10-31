@@ -77,7 +77,7 @@
     variable? variable-ref variable-set!
     variable-bound?
 
-    current-module
+    current-module define!
 
     fluid-ref fluid-set! with-fluid*
 
