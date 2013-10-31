@@ -68,10 +68,14 @@
 ;;; RTL code consists of 32-bit units, often subdivided in some way.
 ;;; These helpers create one 32-bit unit from multiple components.
 
-(define-syntax-rule (pack-u8-u24 x y)
+(define-inlinable (pack-u8-u24 x y)
+  (unless (<= 0 x 255)
+    (error "out of range" x))
   (logior x (ash y 8)))
 
-(define-syntax-rule (pack-u8-s24 x y)
+(define-inlinable (pack-u8-s24 x y)
+  (unless (<= 0 x 255)
+    (error "out of range" x))
   (logior x (ash (cond
                   ((< 0 (- y) #x800000)
                    (+ y #x1000000))
@@ -80,16 +84,34 @@
                   (else (error "out of range" y)))
                  8)))
 
-(define-syntax-rule (pack-u1-u7-u24 x y z)
+(define-inlinable (pack-u1-u7-u24 x y z)
+  (unless (<= 0 x 1)
+    (error "out of range" x))
+  (unless (<= 0 y 127)
+    (error "out of range" y))
   (logior x (ash y 1) (ash z 8)))
 
-(define-syntax-rule (pack-u8-u12-u12 x y z)
+(define-inlinable (pack-u8-u12-u12 x y z)
+  (unless (<= 0 x 255)
+    (error "out of range" x))
+  (unless (<= 0 y 4095)
+    (error "out of range" y))
   (logior x (ash y 8) (ash z 20)))
 
-(define-syntax-rule (pack-u8-u8-u16 x y z)
+(define-inlinable (pack-u8-u8-u16 x y z)
+  (unless (<= 0 x 255)
+    (error "out of range" x))
+  (unless (<= 0 y 255)
+    (error "out of range" y))
   (logior x (ash y 8) (ash z 16)))
 
-(define-syntax-rule (pack-u8-u8-u8-u8 x y z w)
+(define-inlinable (pack-u8-u8-u8-u8 x y z w)
+  (unless (<= 0 x 255)
+    (error "out of range" x))
+  (unless (<= 0 y 255)
+    (error "out of range" y))
+  (unless (<= 0 z 255)
+    (error "out of range" z))
   (logior x (ash y 8) (ash z 16) (ash w 24)))
 
 (define-syntax pack-flags
