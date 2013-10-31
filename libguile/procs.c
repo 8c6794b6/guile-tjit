@@ -89,18 +89,10 @@ SCM_DEFINE (scm_make_procedure_with_setter, "make-procedure-with-setter", 2, 0, 
 	    "with the associated setter @var{setter}.")
 #define FUNC_NAME s_scm_make_procedure_with_setter
 {
-  SCM name, ret;
   SCM_VALIDATE_PROC (1, procedure);
   SCM_VALIDATE_PROC (2, setter);
-  ret = scm_make_struct (pws_vtable, SCM_INUM0,
-                         scm_list_2 (procedure, setter));
-
-  /* don't use procedure_name, because don't care enough to do a reverse
-     lookup */
-  name = scm_procedure_property (procedure, scm_sym_name);
-  if (scm_is_true (name))
-    scm_set_procedure_property_x (ret, scm_sym_name, name);
-  return ret;
+  return scm_make_struct (pws_vtable, SCM_INUM0,
+                          scm_list_2 (procedure, setter));
 }
 #undef FUNC_NAME
 

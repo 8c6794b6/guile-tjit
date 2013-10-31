@@ -249,9 +249,6 @@ SCM_DEFINE (scm_procedure_name, "procedure-name", 1, 0, 0,
 
   SCM_VALIDATE_PROC (1, proc);
 
-  while (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
-    proc = SCM_STRUCT_PROCEDURE (proc);
-
   user_props = scm_weak_table_refq (overrides, proc, SCM_BOOL_F);
   if (scm_is_true (user_props)) 
     {
@@ -266,6 +263,8 @@ SCM_DEFINE (scm_procedure_name, "procedure-name", 1, 0, 0,
     return scm_i_rtl_program_name (proc);
   else if (SCM_PROGRAM_P (proc))
     return scm_assq_ref (scm_i_program_properties (proc), scm_sym_name);
+  else if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
+    return scm_procedure_name (SCM_STRUCT_PROCEDURE (proc));
   else
     return SCM_BOOL_F;
 }
