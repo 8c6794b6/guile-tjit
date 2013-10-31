@@ -25,6 +25,7 @@
   #:use-module (system base language)
   #:use-module (system base message)
   #:use-module (system vm program)
+  #:use-module (system vm objcode)
   #:autoload (language tree-il optimize) (optimize)
   #:use-module (ice-9 control)
   #:use-module (ice-9 history)
@@ -176,7 +177,7 @@ See <http://www.gnu.org/licenses/lgpl.html>, for more details.")
 (define (repl-compile repl form)
   (let ((from (repl-language repl))
         (opts (repl-compile-options repl)))
-    (compile form #:from from #:to 'objcode #:opts opts
+    (compile form #:from from #:to 'rtl #:opts opts
              #:env (current-module))))
 
 (define (repl-expand repl form)
@@ -205,7 +206,7 @@ See <http://www.gnu.org/licenses/lgpl.html>, for more details.")
              (or (null? (language-compilers (repl-language repl)))
                  (repl-option-ref repl 'interp)))
         (lambda () (eval form (current-module)))
-        (make-program (repl-compile repl form)))))
+        (load-thunk-from-memory (repl-compile repl form)))))
 
 (define (repl-eval repl form)
   (let ((thunk (repl-prepare-eval-thunk repl form)))

@@ -1,6 +1,6 @@
 ;;; Compile --- Command-line Guile Scheme compiler  -*- coding: iso-8859-1 -*-
 
-;; Copyright 2005,2008,2009,2010,2011 Free Software Foundation, Inc.
+;; Copyright 2005,2008,2009,2010,2011,2013 Free Software Foundation, Inc.
 ;;
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public License
@@ -139,7 +139,7 @@ There is NO WARRANTY, to the extent permitted by law.~%"))
                                 (cons #:O o)
                                 o)))
          (from            (or (assoc-ref options 'from) 'scheme))
-         (to              (or (assoc-ref options 'to) 'objcode))
+         (to              (or (assoc-ref options 'to) 'rtl))
          (target          (or (assoc-ref options 'target) %host-type))
 	 (input-files     (assoc-ref options 'input-files))
 	 (output-file     (assoc-ref options 'output-file))

@@ -133,7 +133,7 @@
 (define* (compile-file file #:key
                        (output-file #f)
                        (from (current-language))
-                       (to 'objcode)
+                       (to 'rtl)
                        (env (default-environment from))
                        (opts '())
                        (canonicalization 'relative))
@@ -207,7 +207,7 @@
 
 (define* (read-and-compile port #:key
                            (from (current-language))
-                           (to 'objcode)
+                           (to 'rtl)
                            (env (default-environment from))
                            (opts '()))
   (let ((from (ensure-language from))

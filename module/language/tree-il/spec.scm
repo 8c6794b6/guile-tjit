@@ -44,7 +44,7 @@
   #:printer	write-tree-il
   #:parser      parse-tree-il
   #:joiner      join
-  #:compilers   `((glil . ,compile-glil)
-                  (cps . ,compile-cps))
+  #:compilers   `((cps . ,compile-cps)
+                  (glil . ,compile-glil))
   #:for-humans? #f
   )

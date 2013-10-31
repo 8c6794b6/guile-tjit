@@ -22,6 +22,7 @@
   #:use-module (system base compile)
   #:use-module (system base language)
   #:use-module (system vm program)
+  #:use-module (system vm objcode)
   #:replace (eval-string))
 
 (define (ensure-language x)
@@ -84,5 +85,6 @@
               (set-port-column! port line))
 
           (if (or compile? (not (language-evaluator lang)))
-              ((make-program (read-and-compile port #:from lang #:to 'objcode)))
+              ((load-thunk-from-memory
+                (read-and-compile port #:from lang #:to 'rtl)))
               (read-and-eval port #:lang lang))))))))

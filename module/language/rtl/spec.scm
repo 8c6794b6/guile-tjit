@@ -20,12 +20,23 @@
 
 (define-module (language rtl spec)
   #:use-module (system base language)
+  #:use-module (system vm objcode)
   #:use-module (ice-9 binary-ports)
   #:export (rtl))
 
+(define (rtl->value x e opts)
+  (let ((thunk (load-thunk-from-memory x)))
+    (if (eq? e (current-module))
+        ;; save a cons in this case
+        (values (thunk) e e)
+        (save-module-excursion
+         (lambda ()
+           (set-current-module e)
+           (values (thunk) e e))))))
+
 (define-language rtl
   #:title	"Register Transfer Language"
-  #:compilers   '()
+  #:compilers   `((value . ,rtl->value))
   #:printer	(lambda (rtl port) (put-bytevector port rtl))
   #:reader      get-bytevector-all
   #:for-humans? #f)
