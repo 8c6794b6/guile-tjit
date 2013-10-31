@@ -543,10 +543,10 @@ table, its existing label is used directly."
   (define (field dst n obj)
     (let ((src (recur obj)))
       (if src
-          (list (if (statically-allocatable? obj)
-                    `(make-non-immediate 1 ,src)
-                    `(static-ref 1 ,src))
-                `(static-set! 1 ,dst ,n))
+          (if (statically-allocatable? obj)
+              `((static-patch! ,dst ,n ,src))
+              `((static-ref 1 ,src)
+                (static-set! 1 ,dst ,n)))
           '())))
   (define (intern obj label)
     (cond
