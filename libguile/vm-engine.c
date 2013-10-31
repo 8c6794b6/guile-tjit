@@ -3392,7 +3392,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     bv = LOCAL_REF (dst);                                               \
     scm_idx = LOCAL_REF (idx);                                          \
     val = LOCAL_REF (src);                                              \
-    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set");                    \
+    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
     i = SCM_I_INUM (scm_idx);                                           \
     int_ptr = (scm_t_ ## type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);	\
 									\
@@ -3423,7 +3423,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     bv = LOCAL_REF (dst);                                               \
     scm_idx = LOCAL_REF (idx);                                          \
     val = LOCAL_REF (src);                                              \
-    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set");                    \
+    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
     i = SCM_I_INUM (scm_idx);                                           \
     int_ptr = (scm_t_ ## type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);	\
 									\
@@ -3451,7 +3451,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     bv = LOCAL_REF (dst);                                               \
     scm_idx = LOCAL_REF (idx);                                          \
     val = LOCAL_REF (src);                                              \
-    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set");                    \
+    VM_VALIDATE_BYTEVECTOR (bv, "bv-" #stem "-set!");                   \
     i = SCM_I_INUM (scm_idx);                                           \
     float_ptr = (type *) (SCM_BYTEVECTOR_CONTENTS (bv) + i);            \
                                                                         \
