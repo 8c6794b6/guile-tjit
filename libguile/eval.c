@@ -245,18 +245,6 @@ truncate_values (SCM x)
 }
 #define EVAL1(x, env) (truncate_values (eval ((x), (env))))
 
-/* the environment:
-   (VAL ... . MOD)
-   If MOD is #f, it means the environment was captured before modules were
-   booted.
-   If MOD is the literal value '(), we are evaluating at the top level, and so
-   should track changes to the current module. You have to be careful in this
-   case, because further lexical contours should capture the current module.
-*/
-#define CAPTURE_ENV(env)                                        \
-  (scm_is_null (env) ? scm_current_module () :                  \
-   (scm_is_false (env) ? scm_the_root_module () : env))
-
 static SCM
 eval (SCM x, SCM env)
 {
@@ -288,8 +276,7 @@ eval (SCM x, SCM env)
         SCM new_env;
         int i;
 
-        new_env = make_env (VECTOR_LENGTH (inits), SCM_UNDEFINED,
-                            CAPTURE_ENV (env));
+        new_env = make_env (VECTOR_LENGTH (inits), SCM_UNDEFINED, env);
         for (i = 0; i < VECTOR_LENGTH (inits); i++)
           env_set (new_env, 0, i, EVAL1 (VECTOR_REF (inits, i), env));
         env = new_env;
@@ -298,7 +285,7 @@ eval (SCM x, SCM env)
       }
           
     case SCM_M_LAMBDA:
-      RETURN_BOOT_CLOSURE (mx, CAPTURE_ENV (env));
+      RETURN_BOOT_CLOSURE (mx, env);
 
     case SCM_M_QUOTE:
       return mx;
@@ -306,6 +293,9 @@ eval (SCM x, SCM env)
     case SCM_M_DEFINE:
       scm_define (CAR (mx), EVAL1 (CDR (mx), env));
       return SCM_UNSPECIFIED;
+
+    case SCM_M_CAPTURE_MODULE:
+      return eval (mx, scm_current_module ());
 
     case SCM_M_APPLY:
       /* Evaluate the procedure to be applied.  */
@@ -405,8 +395,7 @@ eval (SCM x, SCM env)
       else
         {
           env = env_tail (env);
-          return SCM_VARIABLE_REF
-            (scm_memoize_variable_access_x (x, CAPTURE_ENV (env)));
+          return SCM_VARIABLE_REF (scm_memoize_variable_access_x (x, env));
         }
 
     case SCM_M_TOPLEVEL_SET:
@@ -421,9 +410,7 @@ eval (SCM x, SCM env)
         else
           {
             env = env_tail (env);
-            SCM_VARIABLE_SET
-              (scm_memoize_variable_access_x (x, CAPTURE_ENV (env)),
-               val);
+            SCM_VARIABLE_SET (scm_memoize_variable_access_x (x, env), val);
             return SCM_UNSPECIFIED;
           }
       }
@@ -654,7 +641,7 @@ scm_c_primitive_eval (SCM exp)
 {
   if (!SCM_EXPANDED_P (exp))
     exp = scm_call_1 (scm_current_module_transformer (), exp);
-  return eval (scm_memoize_expression (exp), SCM_EOL);
+  return eval (scm_memoize_expression (exp), SCM_BOOL_F);
 }
 
 static SCM var_primitive_eval;

@@ -131,6 +131,8 @@ scm_t_bits scm_tc16_memoized;
   MAKMEMO (SCM_M_QUOTE, exp)
 #define MAKMEMO_DEFINE(var, val) \
   MAKMEMO (SCM_M_DEFINE, scm_cons (var, val))
+#define MAKMEMO_CAPTURE_MODULE(exp) \
+  MAKMEMO (SCM_M_CAPTURE_MODULE, exp)
 #define MAKMEMO_APPLY(proc, args)\
   MAKMEMO (SCM_M_APPLY, scm_list_2 (proc, args))
 #define MAKMEMO_CONT(proc) \
@@ -166,6 +168,7 @@ static const char *const memoized_tags[] =
   "let",
   "quote",
   "define",
+  "capture-module",
   "apply",
   "call/cc",
   "call-with-values",
@@ -240,6 +243,22 @@ memoize_exps (SCM exps, SCM env)
 }
   
 static SCM
+capture_env (SCM env)
+{
+  if (scm_is_false (env))
+    return SCM_BOOL_T;
+  return env;
+}
+
+static SCM
+maybe_makmemo_capture_module (SCM exp, SCM env)
+{
+  if (scm_is_false (env))
+    return MAKMEMO_CAPTURE_MODULE (exp);
+  return exp;
+}
+
+static SCM
 memoize (SCM exp, SCM env)
 {
   if (!SCM_EXPANDED_P (exp))
@@ -255,7 +274,9 @@ memoize (SCM exp, SCM env)
 
     case SCM_EXPANDED_PRIMITIVE_REF:
       if (scm_is_eq (scm_current_module (), scm_the_root_module ()))
-        return MAKMEMO_TOP_REF (REF (exp, PRIMITIVE_REF, NAME));
+        return maybe_makmemo_capture_module
+          (MAKMEMO_TOP_REF (REF (exp, PRIMITIVE_REF, NAME)),
+           env);
       else
         return MAKMEMO_MOD_REF (list_of_guile, REF (exp, PRIMITIVE_REF, NAME),
                                 SCM_BOOL_F);
@@ -279,11 +300,15 @@ memoize (SCM exp, SCM env)
                               REF (exp, MODULE_SET, PUBLIC));
 
     case SCM_EXPANDED_TOPLEVEL_REF:
-      return MAKMEMO_TOP_REF (REF (exp, TOPLEVEL_REF, NAME));
+      return maybe_makmemo_capture_module
+        (MAKMEMO_TOP_REF (REF (exp, TOPLEVEL_REF, NAME)), env);
 
     case SCM_EXPANDED_TOPLEVEL_SET:
-      return MAKMEMO_TOP_SET (REF (exp, TOPLEVEL_SET, NAME),
-                              memoize (REF (exp, TOPLEVEL_SET, EXP), env));
+      return maybe_makmemo_capture_module
+        (MAKMEMO_TOP_SET (REF (exp, TOPLEVEL_SET, NAME),
+                          memoize (REF (exp, TOPLEVEL_SET, EXP),
+                                   capture_env (env))),
+         env);
 
     case SCM_EXPANDED_TOPLEVEL_DEFINE:
       return MAKMEMO_DEFINE (REF (exp, TOPLEVEL_DEFINE, NAME),
@@ -343,7 +368,9 @@ memoize (SCM exp, SCM env)
                  && scm_is_eq (name, scm_from_latin1_symbol ("pop-fluid")))
           return MAKMEMO_CALL (MAKMEMO_QUOTE (pop_fluid), 0, SCM_EOL);
         else if (scm_is_eq (scm_current_module (), scm_the_root_module ()))
-          return MAKMEMO_CALL (MAKMEMO_TOP_REF (name), nargs, args);
+          return MAKMEMO_CALL (maybe_makmemo_capture_module
+                               (MAKMEMO_TOP_REF (name), env),
+                               nargs, args);
         else
           return MAKMEMO_CALL (MAKMEMO_MOD_REF (list_of_guile, name,
                                                 SCM_BOOL_F),
@@ -381,11 +408,11 @@ memoize (SCM exp, SCM env)
              meta);
         else
           {
-            proc = memoize (body, env);
+            proc = memoize (body, capture_env (env));
             SCM_SETCAR (SCM_CDR (SCM_MEMOIZED_ARGS (proc)), meta);
           }
 
-	return proc;
+	return maybe_makmemo_capture_module (proc, env);
       }
 
     case SCM_EXPANDED_LAMBDA_CASE:
@@ -462,11 +489,12 @@ memoize (SCM exp, SCM env)
         varsv = scm_vector (vars);
         inits = scm_c_make_vector (VECTOR_LENGTH (varsv),
                                    SCM_BOOL_F);
-        new_env = scm_cons (varsv, env);
+        new_env = scm_cons (varsv, capture_env (env));
         for (i = 0; scm_is_pair (exps); exps = CDR (exps), i++)
           VECTOR_SET (inits, i, memoize (CAR (exps), env));
 
-        return MAKMEMO_LET (inits, memoize (body, new_env));
+        return maybe_makmemo_capture_module
+          (MAKMEMO_LET (inits, memoize (body, new_env)), env);
       }
 
     case SCM_EXPANDED_LETREC:
@@ -484,7 +512,7 @@ memoize (SCM exp, SCM env)
         expsv = scm_vector (exps);
 
         undefs = scm_c_make_vector (nvars, MAKMEMO_QUOTE (SCM_UNDEFINED));
-        new_env = scm_cons (varsv, env);
+        new_env = scm_cons (varsv, capture_env (env));
 
         if (in_order_p)
           {
@@ -495,7 +523,8 @@ memoize (SCM exp, SCM env)
                 body_exps = MAKMEMO_SEQ (MAKMEMO_LEX_SET (make_pos (0, i), init),
                                          body_exps);
               }
-            return MAKMEMO_LET (undefs, body_exps);
+            return maybe_makmemo_capture_module
+              (MAKMEMO_LET (undefs, body_exps), env);
           }
         else
           {
@@ -518,9 +547,11 @@ memoize (SCM exp, SCM env)
             if (scm_is_false (sets))
               return memoize (body, env);
 
-            return MAKMEMO_LET (undefs,
-                                MAKMEMO_SEQ (MAKMEMO_LET (inits, sets),
-                                             memoize (body, new_env)));
+            return maybe_makmemo_capture_module
+              (MAKMEMO_LET (undefs,
+                            MAKMEMO_SEQ (MAKMEMO_LET (inits, sets),
+                                         memoize (body, new_env))),
+               env);
           }
       }
 
@@ -538,7 +569,7 @@ SCM_DEFINE (scm_memoize_expression, "memoize-expression", 1, 0, 0,
 #define FUNC_NAME s_scm_memoize_expression
 {
   SCM_ASSERT_TYPE (SCM_EXPANDED_P (exp), exp, 1, FUNC_NAME, "expanded");
-  return memoize (exp, scm_current_module ());
+  return memoize (exp, SCM_BOOL_F);
 }
 #undef FUNC_NAME
 
@@ -612,6 +643,9 @@ unmemoize (const SCM expr)
                          unmemoize (CAR (args)), unmemoize (CDR (args)));
     case SCM_M_DEFINE:
       return scm_list_3 (scm_sym_define, CAR (args), unmemoize (CDR (args)));
+    case SCM_M_CAPTURE_MODULE:
+      return scm_list_2 (scm_from_latin1_symbol ("capture-module"),
+                         unmemoize (args));
     case SCM_M_IF:
       return scm_list_4 (scm_sym_if, unmemoize (scm_car (args)),
                          unmemoize (scm_cadr (args)), unmemoize (scm_cddr (args)));
@@ -734,6 +768,9 @@ SCM_DEFINE (scm_memoize_variable_access_x, "memoize-variable-access!", 2, 0, 0,
 #define FUNC_NAME s_scm_memoize_variable_access_x
 {
   SCM mx = SCM_MEMOIZED_ARGS (m);
+
+  if (scm_is_false (mod))
+    mod = scm_the_root_module ();
 
   switch (SCM_MEMOIZED_TAG (m))
     {

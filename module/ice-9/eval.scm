@@ -43,20 +43,6 @@
 
 
 (eval-when (compile)
-  (define-syntax capture-env
-    (syntax-rules ()
-      ((_ (exp ...))
-       (let ((env (exp ...)))
-         (capture-env env)))
-      ((_ env)
-       (if (null? env)
-           (current-module)
-           (if (not env)
-               ;; the and current-module checks that modules are booted,
-               ;; and thus the-root-module is defined
-               (and (current-module) the-root-module)
-               env)))))
-
   (define-syntax env-toplevel
     (syntax-rules ()
       ((_ env)
@@ -459,8 +445,7 @@
          (variable-ref
           (if (variable? var-or-sym)
               var-or-sym
-              (memoize-variable-access! exp
-                                        (capture-env (env-toplevel env))))))
+              (memoize-variable-access! exp (env-toplevel env)))))
 
         (('if (test consequent . alternate))
          (if (eval test env)
@@ -472,7 +457,7 @@
 
         (('let (inits . body))
          (let* ((width (vector-length inits))
-                (new-env (make-env width #f (capture-env env))))
+                (new-env (make-env width #f env)))
            (let lp ((i 0))
              (when (< i width)
                (env-set! new-env 0 i (eval (vector-ref inits i) env))
@@ -482,11 +467,10 @@
         (('lambda (body meta nreq . tail))
          (let ((proc
                 (if (null? tail)
-                    (make-fixed-closure eval nreq body (capture-env env))
+                    (make-fixed-closure eval nreq body env)
                     (if (null? (cdr tail))
-                        (make-rest-closure eval nreq body (capture-env env))
-                        (apply make-general-closure (capture-env env)
-                               body nreq tail)))))
+                        (make-rest-closure eval nreq body env)
+                        (apply make-general-closure env body nreq tail)))))
            (let lp ((meta meta))
              (unless (null? meta)
                (set-procedure-property! proc (caar meta) (cdar meta))
@@ -518,13 +502,15 @@
          (begin
            (define! name (eval x env))
            (if #f #f)))
-      
+
+        (('capture-module x)
+         (eval x (current-module)))
+
         (('toplevel-set! (var-or-sym . x))
          (variable-set!
           (if (variable? var-or-sym)
               var-or-sym
-              (memoize-variable-access! exp
-                                        (capture-env (env-toplevel env))))
+              (memoize-variable-access! exp (env-toplevel env)))
           (eval x env)))
       
         (('call-with-prompt (tag thunk . handler))
@@ -551,4 +537,4 @@
         (if (macroexpanded? exp)
             exp
             ((module-transformer (current-module)) exp)))
-       '()))))
+       #f))))
