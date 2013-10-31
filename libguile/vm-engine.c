@@ -2232,12 +2232,12 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       NEXT (2);
     }
 
-  /* define sym:12 val:12
+  /* define! sym:12 val:12
    *
    * Look up a binding for SYM in the current module, creating it if
    * necessary.  Set its value to VAL.
    */
-  VM_DEFINE_OP (58, define, "define", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (58, define, "define!", OP1 (U8_U12_U12))
     {
       scm_t_uint16 sym, val;
       SCM_UNPACK_RTL_12_12 (op, sym, val);

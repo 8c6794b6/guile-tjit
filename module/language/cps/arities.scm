@@ -138,7 +138,11 @@
          ,(match (prim-arity name)
             ((out . in)
              (if (= in (length args))
-                 (adapt-exp out k exp)
+                 (adapt-exp out k
+                            (let ((inst (prim-rtl-instruction name)))
+                              (if (and inst (not (eq? inst name)))
+                                  (build-cps-exp ($primcall inst args))
+                                  exp)))
                  (let-gensyms (k* p*)
                    (build-cps-term
                      ($letk ((k* #f ($kargs ('prim) (p*)

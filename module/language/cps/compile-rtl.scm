@@ -280,7 +280,7 @@
         (($ $primcall 'set-cdr! (pair value))
          (emit-set-cdr! asm (slot pair) (slot value)))
         (($ $primcall 'define! (sym value))
-         (emit-define asm (slot sym) (slot value)))
+         (emit-define! asm (slot sym) (slot value)))
         (($ $primcall 'push-fluid (fluid val))
          (emit-push-fluid asm (slot fluid) (slot val)))
         (($ $primcall 'pop-fluid ())
