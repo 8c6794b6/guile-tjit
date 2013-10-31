@@ -659,7 +659,13 @@ returned instead."
     (emit-br-if-tc7 asm slot invert? tc7 label)))
 
 ;; Keep in sync with tags.h.  Part of Guile's ABI.  Currently unused
-;; macro assemblers are commented out.
+;; macro assemblers are commented out.  See also
+;; *branching-primcall-arities* in (language cps primitives), the set of
+;; macro-instructions in assembly.scm, and
+;; disassembler.scm:code-annotation.
+;;
+;; FIXME: Define all tc7 values in Scheme in one place, derived from
+;; tags.h.
 (define-tc7-macro-assembler br-if-symbol 5)
 (define-tc7-macro-assembler br-if-variable 7)
 (define-tc7-macro-assembler br-if-vector 13)
@@ -667,7 +673,7 @@ returned instead."
 (define-tc7-macro-assembler br-if-string 21)
 ;(define-tc7-macro-assembler br-if-heap-number 23)
 ;(define-tc7-macro-assembler br-if-stringbuf 39)
-;(define-tc7-macro-assembler br-if-bytevector 77)
+(define-tc7-macro-assembler br-if-bytevector 77)
 ;(define-tc7-macro-assembler br-if-pointer 31)
 ;(define-tc7-macro-assembler br-if-hashtable 29)
 ;(define-tc7-macro-assembler br-if-fluid 37)

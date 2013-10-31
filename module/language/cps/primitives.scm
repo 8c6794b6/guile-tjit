@@ -56,6 +56,7 @@
     (vector? . (1 . 1))
     (symbol? . (1 . 1))
     (variable? . (1 . 1))
+    (bytevector? . (1 . 1))
     (char? . (1 . 1))
     (eq? . (1 . 2))
     (eqv? . (1 . 2))

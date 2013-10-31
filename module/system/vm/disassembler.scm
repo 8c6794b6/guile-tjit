@@ -224,6 +224,7 @@ address of that offset."
                         ((7) "variable?")
                         ((13) "vector?")
                         ((15) "string?")
+                        ((77) "bytevector?")
                         (else (number->string tc7)))))
              (if invert? (string-append "not " tag) tag))
            (vector-ref labels (- (+ offset target) start))))
