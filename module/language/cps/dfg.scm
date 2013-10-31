@@ -62,6 +62,10 @@
             control-point?
             lookup-bound-syms
 
+            ;; Control flow analysis.
+            analyze-control-flow
+            cfa-k-idx cfa-k-count cfa-k-sym cfa-predecessors
+
             ;; Data flow analysis.
             compute-live-variables
             dfa-k-idx dfa-k-sym dfa-k-count dfa-k-in dfa-k-out
@@ -148,22 +152,69 @@
 
 ;; Control-flow analysis.
 (define-record-type $cfa
-  (make-cfa k-map order preds idoms dom-levels loop-header irreducible)
+  (make-cfa k-map order preds)
   cfa?
   ;; Hash table mapping k-sym -> k-idx
   (k-map cfa-k-map)
   ;; Vector of k-idx -> k-sym, in reverse post order
   (order cfa-order)
   ;; Vector of k-idx -> list of k-idx
-  (preds cfa-preds)
+  (preds cfa-preds))
+
+(define* (cfa-k-idx cfa k
+                    #:key (default (lambda (k)
+                                     (error "unknown k" k))))
+  (or (hashq-ref (cfa-k-map cfa) k)
+      (default k)))
+
+(define (cfa-k-count cfa)
+  (vector-length (cfa-order cfa)))
+
+(define (cfa-k-sym cfa n)
+  (vector-ref (cfa-order cfa) n))
+
+(define (cfa-predecessors cfa n)
+  (vector-ref (cfa-preds cfa) n))
+
+(define* (analyze-control-flow fun dfg #:key reverse?)
+  (define (build-cfa kentry block-succs block-preds)
+    (define (block-accessor accessor)
+      (lambda (k)
+        (accessor (lookup-block k (dfg-blocks dfg)))))
+    (define (reachable-preds mapping accessor)
+      ;; It's possible for a predecessor to not be in the mapping, if
+      ;; the predecessor is not reachable from the entry node.
+      (lambda (k)
+        (filter-map (cut hashq-ref mapping <>)
+                    ((block-accessor accessor) k))))
+    (let* ((order (reverse-post-order kentry (block-accessor block-succs)))
+           (k-map (make-block-mapping order))
+           (preds (convert-predecessors order
+                                        (reachable-preds k-map block-preds))))
+      (make-cfa k-map order preds)))
+  (match fun
+    (($ $fun meta free
+        ($ $cont kentry src
+           (and entry
+                ($ $kentry self ($ $cont ktail _ tail) clauses))))
+     (if reverse?
+         (build-cfa ktail block-preds block-succs)
+         (build-cfa kentry block-succs block-preds)))))
+
+;; Dominator analysis.
+(define-record-type $dominator-analysis
+  (make-dominator-analysis cfa idoms dom-levels loop-header irreducible)
+  dominator-analysis?
+  ;; The corresponding $cfa
+  (cfa dominator-analysis-cfa)
   ;; Vector of k-idx -> k-idx
-  (idoms cfa-idoms)
+  (idoms dominator-analysis-idoms)
   ;; Vector of k-idx -> dom-level
-  (dom-levels cfa-dom-levels)
+  (dom-levels dominator-analysis-dom-levels)
   ;; Vector of k-idx -> k-idx or -1
-  (loop-header cfa-loop-header)
+  (loop-header dominator-analysis-loop-header)
   ;; Vector of k-idx -> true or false value
-  (irreducible cfa-irreducible))
+  (irreducible dominator-analysis-irreducible))
 
 (define (compute-dom-levels idoms)
   (let ((dom-levels (make-vector (vector-length idoms) #f)))
@@ -376,33 +427,13 @@
         (lp (1- level))))
     loop-headers))
 
-(define* (analyze-control-flow fun dfg #:key reverse?)
-  (define (build-cfa kentry block-succs block-preds)
-    (define (block-accessor accessor)
-      (lambda (k)
-        (accessor (lookup-block k blocks))))
-    (define (reachable-preds mapping accessor)
-      ;; It's possible for a predecessor to not be in the mapping, if
-      ;; the predecessor is not reachable from the entry node.
-      (lambda (k)
-        (filter-map (cut hashq-ref mapping <>)
-                    ((block-accessor accessor) k))))
-    (let* ((order (reverse-post-order kentry (block-accessor block-succs)))
-           (k-map (make-block-mapping order))
-           (preds (convert-predecessors order
-                                        (reachable-preds k-map block-preds)))
-           (idoms (compute-idoms preds))
-           (dom-levels (compute-dom-levels idoms))
-           (loop-headers (identify-loops preds idoms dom-levels)))
-      (make-cfa k-map order preds idoms dom-levels loop-headers #f)))
-  (match fun
-    (($ $fun meta free
-        ($ $cont kentry src
-           (and entry
-                ($ $kentry self ($ $cont ktail _ tail) clauses))))
-     (if reverse?
-         (build-cfa ktail block-preds block-succs)
-         (build-cfa kentry block-succs block-preds)))))
+(define (analyze-dominators cfa)
+  (match cfa
+    (($ $cfa k-map order preds)
+     (let* ((idoms (compute-idoms preds))
+            (dom-levels (compute-dom-levels idoms))
+            (loop-headers (identify-loops preds idoms dom-levels)))
+       (make-dominator-analysis cfa idoms dom-levels loop-headers #f)))))
 
 
 ;; Compute the maximum fixed point of the data-flow constraint problem.
@@ -694,12 +725,7 @@
         (link-blocks! kclause kbody)
 
         (visit body kbody)))
-      clauses)
-
-     ;; Currently we don't need to build dominator trees.  When we do,
-     ;; probably we should require the user to do so herself.
-     #;
-     (analyze-control-flow! kentry ktail blocks))))
+      clauses))))
 
 (define* (compute-dfg fun #:key (global? #t))
   (let* ((conts (make-hash-table))
@@ -850,31 +876,6 @@
              (match (lookup-use-map var use-maps)
                (($ $use-map name sym def uses)
                 uses))))))
-
-;; Does k1 dominate k2?
-(define (dominates? k1 k2 blocks)
-  (let ((b1 (lookup-block k1 blocks))
-        (b2 (lookup-block k2 blocks)))
-    (let ((k1-level (block-dom-level b1))
-          (k2-level (block-dom-level b2)))
-      (cond
-       ((> k1-level k2-level) #f)
-       ((< k1-level k2-level) (dominates? k1 (block-idom b2) blocks))
-       ((= k1-level k2-level) (eqv? k1 k2))))))
-
-;; Does k1 post-dominate k2?
-(define (post-dominates? k1 k2 blocks)
-  (let ((b1 (lookup-block k1 blocks))
-        (b2 (lookup-block k2 blocks)))
-    (let ((k1-level (block-pdom-level b1))
-          (k2-level (block-pdom-level b2)))
-      (cond
-       ((> k1-level k2-level) #f)
-       ((< k1-level k2-level) (post-dominates? k1 (block-pdom b2) blocks))
-       ((= k1-level k2-level) (eqv? k1 k2))))))
-
-(define (lookup-loop-header k blocks)
-  (block-loop-header (lookup-block k blocks)))
 
 ;; A continuation is a control point if it has multiple predecessors, or
 ;; if its single predecessor has multiple successors.
