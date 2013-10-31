@@ -108,33 +108,17 @@
   (uses use-map-uses set-use-map-uses!))
 
 (define-record-type $block
-  (%make-block scope scope-level preds succs
-               idom dom-level
-               pdom pdom-level
-               loop-header irreducible)
+  (%make-block scope scope-level preds succs)
   block?
   (scope block-scope set-block-scope!)
   (scope-level block-scope-level set-block-scope-level!)
   (preds block-preds set-block-preds!)
-  (succs block-succs set-block-succs!)
-  (idom block-idom set-block-idom!)
-  (dom-level block-dom-level set-block-dom-level!)
-
-  (pdom block-pdom set-block-pdom!)
-  (pdom-level block-pdom-level set-block-pdom-level!)
-
-  ;; The loop header of this block, if this block is part of a reducible
-  ;; loop.  Otherwise #f.
-  (loop-header block-loop-header set-block-loop-header!)
-
-  ;; Some sort of marker that this block is part of an irreducible
-  ;; (multi-entry) loop.  Otherwise #f.
-  (irreducible block-irreducible set-block-irreducible!))
+  (succs block-succs set-block-succs!))
 
 (define (make-block scope scope-level)
-  (%make-block scope scope-level '() '() #f #f #f #f #f #f))
+  (%make-block scope scope-level '() '()))
 
-(define (reverse-post-order k0 blocks accessor)
+(define (reverse-post-order k0 get-successors)
   (let ((order '())
         (visited? (make-hash-table)))
     (let visit ((k k0))
@@ -142,27 +126,44 @@
       (for-each (lambda (k)
                   (unless (hashq-ref visited? k)
                     (visit k)))
-                (accessor (lookup-block k blocks)))
+                (get-successors k))
       (set! order (cons k order)))
     (list->vector order)))
 
-(define (convert-predecessors order blocks accessor)
-  (let* ((mapping (make-hash-table))
-         (preds-vec (make-vector (vector-length order) #f)))
+(define (make-block-mapping order)
+  (let ((mapping (make-hash-table)))
     (let lp ((n 0))
       (when (< n (vector-length order))
         (hashq-set! mapping (vector-ref order n) n)
         (lp (1+ n))))
+    mapping))
+
+(define (convert-predecessors order get-predecessors)
+  (let ((preds-vec (make-vector (vector-length order) #f)))
     (let lp ((n 0))
       (when (< n (vector-length order))
-        (let ((preds (accessor (lookup-block (vector-ref order n) blocks))))
-          (vector-set! preds-vec n
-                       ;; It's possible for a predecessor to not be in
-                       ;; the mapping, if the predecessor is not
-                       ;; reachable from the entry node.
-                       (filter-map (cut hashq-ref mapping <>) preds))
-          (lp (1+ n)))))
+        (vector-set! preds-vec n (get-predecessors (vector-ref order n)))
+        (lp (1+ n))))
     preds-vec))
+
+;; Control-flow analysis.
+(define-record-type $cfa
+  (make-cfa k-map order preds idoms dom-levels loop-header irreducible)
+  cfa?
+  ;; Hash table mapping k-sym -> k-idx
+  (k-map cfa-k-map)
+  ;; Vector of k-idx -> k-sym, in reverse post order
+  (order cfa-order)
+  ;; Vector of k-idx -> list of k-idx
+  (preds cfa-preds)
+  ;; Vector of k-idx -> k-idx
+  (idoms cfa-idoms)
+  ;; Vector of k-idx -> dom-level
+  (dom-levels cfa-dom-levels)
+  ;; Vector of k-idx -> k-idx or -1
+  (loop-header cfa-loop-header)
+  ;; Vector of k-idx -> true or false value
+  (irreducible cfa-irreducible))
 
 (define (compute-dom-levels idoms)
   (let ((dom-levels (make-vector (vector-length idoms) #f)))
@@ -375,40 +376,33 @@
         (lp (1- level))))
     loop-headers))
 
-(define (analyze-control-flow! kentry kexit blocks)
-  ;; First go forward in the graph, computing dominators and loop
-  ;; information.
-  (let* ((order (reverse-post-order kentry blocks block-succs))
-         (preds (convert-predecessors order blocks block-preds))
-         (idoms (compute-idoms preds))
-         (dom-levels (compute-dom-levels idoms))
-         (loop-headers (identify-loops preds idoms dom-levels)))
-    (let lp ((n 0))
-      (when (< n (vector-length order))
-        (let* ((k (vector-ref order n))
-               (idom (vector-ref idoms n))
-               (dom-level (vector-ref dom-levels n))
-               (loop-header (vector-ref loop-headers n))
-               (b (lookup-block k blocks)))
-          (set-block-idom! b (vector-ref order idom))
-          (set-block-dom-level! b dom-level)
-          (set-block-loop-header! b (and loop-header
-                                         (vector-ref order loop-header)))
-          (lp (1+ n))))))
-  ;; Then go backwards, computing post-dominators.
-  (let* ((order (reverse-post-order kexit blocks block-preds))
-         (preds (convert-predecessors order blocks block-succs))
-         (idoms (compute-idoms preds))
-         (dom-levels (compute-dom-levels idoms)))
-    (let lp ((n 0))
-      (when (< n (vector-length order))
-        (let* ((k (vector-ref order n))
-               (pdom (vector-ref idoms n))
-               (pdom-level (vector-ref dom-levels n))
-               (b (lookup-block k blocks)))
-          (set-block-pdom! b (vector-ref order pdom))
-          (set-block-pdom-level! b pdom-level)
-          (lp (1+ n)))))))
+(define* (analyze-control-flow fun dfg #:key reverse?)
+  (define (build-cfa kentry block-succs block-preds)
+    (define (block-accessor accessor)
+      (lambda (k)
+        (accessor (lookup-block k blocks))))
+    (define (reachable-preds mapping accessor)
+      ;; It's possible for a predecessor to not be in the mapping, if
+      ;; the predecessor is not reachable from the entry node.
+      (lambda (k)
+        (filter-map (cut hashq-ref mapping <>)
+                    ((block-accessor accessor) k))))
+    (let* ((order (reverse-post-order kentry (block-accessor block-succs)))
+           (k-map (make-block-mapping order))
+           (preds (convert-predecessors order
+                                        (reachable-preds k-map block-preds)))
+           (idoms (compute-idoms preds))
+           (dom-levels (compute-dom-levels idoms))
+           (loop-headers (identify-loops preds idoms dom-levels)))
+      (make-cfa k-map order preds idoms dom-levels loop-headers #f)))
+  (match fun
+    (($ $fun meta free
+        ($ $cont kentry src
+           (and entry
+                ($ $kentry self ($ $cont ktail _ tail) clauses))))
+     (if reverse?
+         (build-cfa ktail block-preds block-succs)
+         (build-cfa kentry block-succs block-preds)))))
 
 
 ;; Compute the maximum fixed point of the data-flow constraint problem.
@@ -448,14 +442,14 @@
 
 ;; Data-flow analysis.
 (define-record-type $dfa
-  (make-dfa k->idx order var->idx names syms in out)
+  (make-dfa k-map order var-map names syms in out)
   dfa?
-  ;; Function mapping k-sym -> k-idx
-  (k->idx dfa-k->idx)
+  ;; Hash table mapping k-sym -> k-idx
+  (k-map dfa-k-map)
   ;; Vector of k-idx -> k-sym
   (order dfa-order)
-  ;; Function mapping var-sym -> var-idx
-  (var->idx dfa-var->idx)
+  ;; Hash table mapping var-sym -> var-idx
+  (var-map dfa-var-map)
   ;; Vector of var-idx -> name
   (names dfa-names)
   ;; Vector of var-idx -> var-sym
@@ -466,7 +460,8 @@
   (out dfa-out))
 
 (define (dfa-k-idx dfa k)
-  ((dfa-k->idx dfa) k))
+  (or (hashq-ref (dfa-k-map dfa) k)
+      (error "unknown k" k)))
 
 (define (dfa-k-sym dfa idx)
   (vector-ref (dfa-order dfa) idx))
@@ -475,7 +470,8 @@
   (vector-length (dfa-order dfa)))
 
 (define (dfa-var-idx dfa var)
-  ((dfa-var->idx dfa) var))
+  (or (hashq-ref (dfa-var-map dfa) var)
+      (error "unknown var" var)))
 
 (define (dfa-var-name dfa idx)
   (vector-ref (dfa-names dfa) idx))
@@ -493,50 +489,51 @@
   (vector-ref (dfa-out dfa) idx))
 
 (define (compute-live-variables ktail dfg)
-  (define (make-variable-mapper use-maps)
+  (define (make-variable-mapping use-maps)
     (let ((mapping (make-hash-table))
           (n 0))
       (hash-for-each (lambda (sym use-map)
                        (hashq-set! mapping sym n)
                        (set! n (1+ n)))
                      use-maps)
-      (values (lambda (sym)
-                (or (hashq-ref mapping sym)
-                    (error "unknown sym" sym)))
-              n)))
-  (define (make-block-mapper order)
-    (let ((mapping (make-hash-table)))
-      (let lp ((n 0))
-        (when (< n (vector-length order))
-          (hashq-set! mapping (vector-ref order n) n)
-          (lp (1+ n))))
-      (lambda (k)
-        (or (hashq-ref mapping k)
-            (error "unknown k" k)))))
-
-  (call-with-values (lambda () (make-variable-mapper (dfg-use-maps dfg)))
-    (lambda (var->idx nvars)
+      (values mapping n)))
+  (define (block-accessor blocks accessor)
+    (lambda (k)
+      (accessor (lookup-block k blocks))))
+  (define (reachable-preds mapping blocks accessor)
+    ;; It's possible for a predecessor to not be in the mapping, if
+    ;; the predecessor is not reachable from the entry node.
+    (lambda (k)
+      (filter-map (cut hashq-ref mapping <>)
+                  ((block-accessor blocks accessor) k))))
+  (call-with-values (lambda () (make-variable-mapping (dfg-use-maps dfg)))
+    (lambda (var-map nvars)
       (let* ((blocks (dfg-blocks dfg))
-             (order (reverse-post-order ktail blocks block-preds))
-             (succs (convert-predecessors order blocks block-succs))
-             (k->idx (make-block-mapper order))
+             (order (reverse-post-order ktail
+                                        (block-accessor blocks block-preds)))
+             (k-map (make-block-mapping order))
+             (succs (convert-predecessors
+                     order
+                     (reachable-preds k-map blocks block-succs)))
              (syms (make-vector nvars #f))
              (names (make-vector nvars #f))
              (usev (make-vector (vector-length order) '()))
              (defv (make-vector (vector-length order) '()))
              (live-in (make-vector (vector-length order) #f))
              (live-out (make-vector (vector-length order) #f)))
+        (define (k->idx k)
+          (or (hashq-ref k-map k) (error "unknown k" k)))
         ;; Initialize syms, names, defv, and usev.
         (hash-for-each
          (lambda (sym use-map)
            (match use-map
              (($ $use-map name sym def uses)
-              (let ((v (var->idx sym)))
+              (let ((v (or (hashq-ref var-map sym) (error "unknown var" sym))))
                 (vector-set! syms v sym)
                 (vector-set! names v name)
                 (for-each (lambda (def)
                             (vector-push! defv (k->idx def) v))
-                          (block-preds (lookup-block def blocks)))
+                          ((block-accessor blocks block-preds) def))
                 (for-each (lambda (use)
                             (vector-push! usev (k->idx use) v))
                           uses)))))
@@ -555,11 +552,11 @@
         ;; and starting with ktail instead of the entry.
         (compute-maximum-fixed-point succs live-out live-in defv usev #t)
 
-        (make-dfa k->idx order var->idx names syms live-in live-out)))))
+        (make-dfa k-map order var-map names syms live-in live-out)))))
 
 (define (print-dfa dfa)
   (match dfa
-    (($ $dfa k->idx order var->idx names syms in out)
+    (($ $dfa k-map order var-map names syms in out)
      (define (print-var-set bv)
        (let lp ((n 0))
          (let ((n (bit-position #t bv n)))
