@@ -2132,25 +2132,28 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       NEXT (2);
     }
 
-  /* link-procedure! src:24 offset:32
+  /* static-patch! _:24 dst-offset:32 src-offset:32
    *
-   * Set the code pointer of the procedure in SRC to point OFFSET 32-bit
-   * words away from the current instruction pointer.  OFFSET is a
-   * signed value.
+   * Patch a pointer at DST-OFFSET to point to SRC-OFFSET.  Both offsets
+   * are signed 32-bit values, indicating a memory address as a number
+   * of 32-bit words away from the current instruction pointer.
    */
-  VM_DEFINE_OP (55, link_procedure, "link-procedure!", OP2 (U8_U24, L32))
+  VM_DEFINE_OP (55, static_patch, "static-patch!", OP3 (U8_X24, LO32, L32))
     {
-      scm_t_uint32 src;
-      scm_t_int32 offset;
-      scm_t_uint32* loc;
+      scm_t_int32 dst_offset, src_offset;
+      void *src;
+      void** dst_loc;
 
-      SCM_UNPACK_RTL_24 (op, src);
-      offset = ip[1];
-      loc = ip + offset;
+      dst_offset = ip[1];
+      src_offset = ip[2];
 
-      SCM_SET_CELL_WORD_1 (LOCAL_REF (src), (scm_t_bits) loc);
+      dst_loc = (void **) (ip + dst_offset);
+      src = ip + src_offset;
+      VM_ASSERT (ALIGNED_P (dst_loc, void*), abort());
 
-      NEXT (2);
+      *dst_loc = src;
+
+      NEXT (3);
     }
 
   

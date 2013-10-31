@@ -254,13 +254,6 @@ address of that offset."
      (list "~A" (builtin-index->name idx)))
     (((or 'static-ref 'static-set!) _ target)
      (list "~@Y" (dereference-scm target)))
-    (('link-procedure! src target)
-     (let* ((addr (u32-offset->addr (+ offset target) context))
-            (pdi (find-program-debug-info addr context)))
-       (list "~A at 0x~X"
-             (or (and pdi (program-debug-info-name pdi))
-                 "(anonymous procedure)")
-             addr)))
     (('resolve-module dst name public)
      (list "~a" (if (zero? public) "private" "public")))
     (('toplevel-box _ var-offset mod-offset sym-offset bound?)
