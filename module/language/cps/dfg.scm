@@ -122,7 +122,13 @@
 (define (make-block scope scope-level)
   (%make-block scope scope-level '() '()))
 
-(define (reverse-post-order k0 get-successors)
+;; Some analyses assume that the only relevant set of nodes is the set
+;; that is reachable from some start node.  Others need to include nodes
+;; that are reachable from an end node as well, or all nodes in a
+;; function.  In that case pass an appropriate implementation of
+;; fold-all-conts, as compute-live-variables does.
+(define* (reverse-post-order k0 get-successors #:optional
+                             (fold-all-conts (lambda (f seed) seed)))
   (let ((order '())
         (visited? (make-hash-table)))
     (let visit ((k k0))
@@ -132,7 +138,14 @@
                     (visit k)))
                 (get-successors k))
       (set! order (cons k order)))
-    (list->vector order)))
+    (list->vector (fold-all-conts
+                   (lambda (k seed)
+                     (if (hashq-ref visited? k)
+                         seed
+                         (begin
+                           (hashq-set! visited? k #t)
+                           (cons k seed))))
+                   order))))
 
 (define (make-block-mapping order)
   (let ((mapping (make-hash-table)))
@@ -519,7 +532,7 @@
 (define (dfa-k-out dfa idx)
   (vector-ref (dfa-out dfa) idx))
 
-(define (compute-live-variables ktail dfg)
+(define (compute-live-variables fun dfg)
   (define (make-variable-mapping use-maps)
     (let ((mapping (make-hash-table))
           (n 0))
@@ -531,59 +544,67 @@
   (define (block-accessor blocks accessor)
     (lambda (k)
       (accessor (lookup-block k blocks))))
-  (define (reachable-preds mapping blocks accessor)
-    ;; It's possible for a predecessor to not be in the mapping, if
-    ;; the predecessor is not reachable from the entry node.
+  (define (renumbering-accessor mapping blocks accessor)
     (lambda (k)
-      (filter-map (cut hashq-ref mapping <>)
-                  ((block-accessor blocks accessor) k))))
-  (call-with-values (lambda () (make-variable-mapping (dfg-use-maps dfg)))
-    (lambda (var-map nvars)
-      (let* ((blocks (dfg-blocks dfg))
-             (order (reverse-post-order ktail
-                                        (block-accessor blocks block-preds)))
-             (k-map (make-block-mapping order))
-             (succs (convert-predecessors
-                     order
-                     (reachable-preds k-map blocks block-succs)))
-             (syms (make-vector nvars #f))
-             (names (make-vector nvars #f))
-             (usev (make-vector (vector-length order) '()))
-             (defv (make-vector (vector-length order) '()))
-             (live-in (make-vector (vector-length order) #f))
-             (live-out (make-vector (vector-length order) #f)))
-        (define (k->idx k)
-          (or (hashq-ref k-map k) (error "unknown k" k)))
-        ;; Initialize syms, names, defv, and usev.
-        (hash-for-each
-         (lambda (sym use-map)
-           (match use-map
-             (($ $use-map name sym def uses)
-              (let ((v (or (hashq-ref var-map sym) (error "unknown var" sym))))
-                (vector-set! syms v sym)
-                (vector-set! names v name)
-                (for-each (lambda (def)
-                            (vector-push! defv (k->idx def) v))
-                          ((block-accessor blocks block-preds) def))
-                (for-each (lambda (use)
-                            (vector-push! usev (k->idx use) v))
-                          uses)))))
-         (dfg-use-maps dfg))
+      (map (cut hashq-ref mapping <>)
+           ((block-accessor blocks accessor) k))))
+  (match fun
+    (($ $fun meta free
+        (and entry
+             ($ $cont kentry src ($ $kentry self ($ $cont ktail _ tail)))))
+     (call-with-values (lambda () (make-variable-mapping (dfg-use-maps dfg)))
+       (lambda (var-map nvars)
+         (define (fold-all-conts f seed)
+           (fold-local-conts (lambda (k src cont seed) (f k seed))
+                             seed entry))
+         (let* ((blocks (dfg-blocks dfg))
+                (order (reverse-post-order ktail
+                                           (block-accessor blocks block-preds)
+                                           fold-all-conts))
+                (k-map (make-block-mapping order))
+                (succs (convert-predecessors
+                        order
+                        (renumbering-accessor k-map blocks block-succs)))
+                (syms (make-vector nvars #f))
+                (names (make-vector nvars #f))
+                (usev (make-vector (vector-length order) '()))
+                (defv (make-vector (vector-length order) '()))
+                (live-in (make-vector (vector-length order) #f))
+                (live-out (make-vector (vector-length order) #f)))
+           (define (k->idx k)
+             (or (hashq-ref k-map k) (error "unknown k" k)))
+           ;; Initialize syms, names, defv, and usev.
+           (hash-for-each
+            (lambda (sym use-map)
+              (match use-map
+                (($ $use-map name sym def uses)
+                 (let ((v (or (hashq-ref var-map sym)
+                              (error "unknown var" sym))))
+                   (vector-set! syms v sym)
+                   (vector-set! names v name)
+                   (for-each (lambda (def)
+                               (vector-push! defv (k->idx def) v))
+                             ((block-accessor blocks block-preds) def))
+                   (for-each (lambda (use)
+                               (vector-push! usev (k->idx use) v))
+                             uses)))))
+            (dfg-use-maps dfg))
 
-        ;; Initialize live-in and live-out sets.
-        (let lp ((n 0))
-          (when (< n (vector-length live-out))
-            (vector-set! live-in n (make-bitvector nvars #f))
-            (vector-set! live-out n (make-bitvector nvars #f))
-            (lp (1+ n))))
+           ;; Initialize live-in and live-out sets.
+           (let lp ((n 0))
+             (when (< n (vector-length live-out))
+               (vector-set! live-in n (make-bitvector nvars #f))
+               (vector-set! live-out n (make-bitvector nvars #f))
+               (lp (1+ n))))
 
-        ;; Liveness is a reverse data-flow problem, so we give
-        ;; compute-maximum-fixed-point a reversed graph, swapping in and
-        ;; out, usev and defv, using successors instead of predecessors,
-        ;; and starting with ktail instead of the entry.
-        (compute-maximum-fixed-point succs live-out live-in defv usev #t)
+           ;; Liveness is a reverse data-flow problem, so we give
+           ;; compute-maximum-fixed-point a reversed graph, swapping in
+           ;; and out, usev and defv, using successors instead of
+           ;; predecessors, and starting with ktail instead of the
+           ;; entry.
+           (compute-maximum-fixed-point succs live-out live-in defv usev #t)
 
-        (make-dfa k-map order var-map names syms live-in live-out)))))
+           (make-dfa k-map order var-map names syms live-in live-out)))))))
 
 (define (print-dfa dfa)
   (match dfa

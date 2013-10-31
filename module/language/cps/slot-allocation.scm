@@ -425,11 +425,9 @@ are comparable with eqv?.  A tmp slot may be used."
        (hashq-set! allocation k nlocals))))
 
   (match fun
-    (($ $fun meta free ($ $cont k _ ($ $kentry self
-                                       ($ $cont ktail _ ($ $ktail))
-                                       clauses)))
+    (($ $fun meta free ($ $cont k _ ($ $kentry self tail clauses)))
      (let* ((dfg (compute-dfg fun #:global? #f))
-            (dfa (compute-live-variables ktail dfg))
+            (dfa (compute-live-variables fun dfg))
             (allocation (make-hash-table))
             (slots (make-vector (dfa-var-count dfa) #f))
             (live-slots (add-live-slot 0 (empty-live-slots))))
