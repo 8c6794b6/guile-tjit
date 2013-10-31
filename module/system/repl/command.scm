@@ -25,6 +25,7 @@
   #:use-module (system base compile)
   #:use-module (system repl common)
   #:use-module (system repl debug)
+  #:use-module (system vm disassembler)
   #:use-module (system vm objcode)
   #:use-module (system vm program)
   #:use-module (system vm trap-state)
@@ -39,6 +40,7 @@
   #:use-module (ice-9 control)
   #:use-module ((ice-9 pretty-print) #:select ((pretty-print . pp)))
   #:use-module ((system vm inspect) #:select ((inspect . %inspect)))
+  #:use-module (rnrs bytevectors)
   #:use-module (statprof)
   #:export (meta-command define-meta-command))
 
@@ -455,11 +457,16 @@ Change languages."
 ;;; Compile commands
 ;;;
 
+(define (load-image x)
+  (let ((thunk (load-thunk-from-memory x)))
+    (find-mapped-elf-image (rtl-program-code thunk))))
+
 (define-meta-command (compile repl (form))
   "compile EXP
 Generate compiled code."
   (let ((x (repl-compile repl (repl-parse repl form))))
-    (cond ((objcode? x) (guile:disassemble x))
+    (cond ((bytevector? x) (disassemble-image (load-image x)))
+          ((objcode? x) (guile:disassemble x))
           (else (repl-print repl x)))))
 
 (define-meta-command (compile-file repl file . opts)
@@ -484,12 +491,6 @@ Run the optimizer on a piece of code and print the result."
 (define (guile:disassemble x)
   ((@ (language assembly disassemble) disassemble) x))
 
-(define (disassemble-program x)
-  ((@ (system vm disassembler) disassemble-program) x))
-
-(define (disassemble-file x)
-  ((@ (system vm disassembler) disassemble-file) x))
-
 (define-meta-command (disassemble repl (form))
   "disassemble EXP
 Disassemble a compiled procedure."
@@ -497,6 +498,8 @@ Disassemble a compiled procedure."
     (cond
      ((rtl-program? obj)
       (disassemble-program obj))
+     ((bytevector? obj)
+      (disassemble-image (load-image obj)))
      ((or (program? obj) (objcode? obj))
       (guile:disassemble obj))
      (else
