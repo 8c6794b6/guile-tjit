@@ -49,9 +49,7 @@
 (define (optimize exp opts)
   (define (run-pass exp pass kw default)
     (if (kw-arg-ref opts kw default)
-        (begin
-          (pk 'OPTIMIZING kw)
-          (pass exp))
+        (pass exp)
         exp))
 
   ;; Calls to source-to-source optimization passes go here.
@@ -504,13 +502,11 @@
     (_ (values))))
 
 (define (compile-rtl exp env opts)
-  (pk 'COMPILING)
   (let* ((exp (fix-arities exp))
          (exp (optimize exp opts))
          (exp (convert-closures exp))
          (exp (reify-primitives exp))
          (asm (make-assembler)))
-    (pk 'CODEGEN)
     (visit-funs (lambda (fun)
                   (compile-fun fun asm))
                 exp)
