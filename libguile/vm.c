@@ -150,7 +150,7 @@ vm_return_to_continuation (SCM vm, SCM cont, size_t n, SCM *argv)
     scm_misc_error (NULL, "Too few values returned to continuation",
                     SCM_EOL);
 
-  if (vp->stack_size < cp->stack_size + n + 1)
+  if (vp->stack_size < cp->stack_size + n + 4)
     scm_misc_error ("vm-engine", "not enough space to reinstate continuation",
                     scm_list_2 (vm, cont));
 
@@ -167,24 +167,24 @@ vm_return_to_continuation (SCM vm, SCM cont, size_t n, SCM *argv)
   vp->fp = cp->fp;
   memcpy (vp->stack_base, cp->stack_base, cp->stack_size * sizeof (SCM));
 
-  if (n == 1 || !cp->mvra)
-    {
-      vp->ip = cp->ra;
-      vp->sp++;
-      *vp->sp = argv_copy[0];
-    }
-  else
-    {
-      size_t i;
-      for (i = 0; i < n; i++)
-        {
-          vp->sp++;
-          *vp->sp = argv_copy[i];
-        }
-      vp->sp++;
-      *vp->sp = scm_from_size_t (n);
-      vp->ip = cp->mvra;
-    }
+  {
+    size_t i;
+
+    /* Push on an empty frame, as the continuation expects.  */
+    for (i = 0; i < 4; i++)
+      {
+        vp->sp++;
+        *vp->sp = SCM_BOOL_F;
+      }
+
+    /* Push the return values.  */
+    for (i = 0; i < n; i++)
+      {
+        vp->sp++;
+        *vp->sp = argv_copy[i];
+      }
+    vp->ip = cp->mvra;
+  }
 }
 
 SCM
