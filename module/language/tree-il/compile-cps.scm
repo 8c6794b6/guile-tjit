@@ -332,13 +332,43 @@
          (build-cps-term ($continue k ($call proc args)))))))
 
     (($ <primcall> src name args)
-     (if (branching-primitive? name)
-         (convert (make-conditional src exp (make-const #f #t)
-                                    (make-const #f #f))
-                  k subst)
-         (convert-args args
-           (lambda (args)
-             (build-cps-term ($continue k ($primcall name args)))))))
+     (cond
+      ((branching-primitive? name)
+       (convert (make-conditional src exp (make-const #f #t)
+                                  (make-const #f #f))
+                k subst))
+      ((eq? name 'vector)
+       ;; Some macros generate calls to "vector" with like 300
+       ;; arguments.  Since we eventually compile to make-vector and
+       ;; vector-set!, it reduces live variable pressure to allocate the
+       ;; vector first, then set values as they are produced.  Normally
+       ;; we would do this transformation in the compiler, but it's
+       ;; quite tricky there and quite easy here, so hold your nose
+       ;; while we drop some smelly code.
+       (convert (let ((len (length args)))
+                  (let-gensyms (v)
+                    (make-let src
+                              (list 'v)
+                              (list v)
+                              (list (make-primcall src 'make-vector
+                                                   (list (make-const #f len)
+                                                         (make-const #f #f))))
+                              (fold (lambda (arg n tail)
+                                      (make-seq
+                                       src
+                                       (make-primcall
+                                        src 'vector-set!
+                                        (list (make-lexical-ref src 'v v)
+                                              (make-const #f n)
+                                              arg))
+                                       tail))
+                                    (make-lexical-ref src 'v v)
+                                    (reverse args) (reverse (iota len))))))
+        k subst))
+      (else
+       (convert-args args
+         (lambda (args)
+           (build-cps-term ($continue k ($primcall name args))))))))
 
     ;; Prompts with inline handlers.
     (($ <prompt> src escape-only? tag body
