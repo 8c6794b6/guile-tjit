@@ -198,7 +198,7 @@ are comparable with eqv?.  A tmp slot may be used."
   (let ((l (dfa-k-idx dfa use-k)))
     (not (bitvector-ref (dfa-k-out dfa l) v-idx))))
 
-(define (allocate-slots fun)
+(define (allocate-slots fun dfg)
   (define (empty-live-slots)
     #b0)
 
@@ -231,7 +231,7 @@ are comparable with eqv?.  A tmp slot may be used."
                         live-slots)))
               live-slots)))))
 
-  (define (visit-clause clause dfg dfa allocation slots live-slots)
+  (define (visit-clause clause dfa allocation slots live-slots)
     (define nlocals (compute-slot live-slots #f))
     (define nargs
       (match clause
@@ -426,13 +426,12 @@ are comparable with eqv?.  A tmp slot may be used."
 
   (match fun
     (($ $fun meta free ($ $cont k _ ($ $kentry self tail clauses)))
-     (let* ((dfg (compute-dfg fun #:global? #f))
-            (dfa (compute-live-variables fun dfg))
+     (let* ((dfa (compute-live-variables fun dfg))
             (allocation (make-hash-table))
             (slots (make-vector (dfa-var-count dfa) #f))
             (live-slots (add-live-slot 0 (empty-live-slots))))
        (vector-set! slots (dfa-var-idx dfa self) 0)
        (hashq-set! allocation self (make-allocation 0 #f #f))
-       (for-each (cut visit-clause <> dfg dfa allocation slots live-slots)
+       (for-each (cut visit-clause <> dfa allocation slots live-slots)
                  clauses)
        allocation))))
