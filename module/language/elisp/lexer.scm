@@ -1,6 +1,6 @@
 ;;; Guile Emacs Lisp
 
-;;; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+;;; Copyright (C) 2009, 2010, 2013 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -261,20 +261,20 @@
     (and=> (regexp-exec lexical-binding-regexp string)
            (lambda (match)
              (not (member (match:substring match 2) '("nil" "()"))))))
-  (let ((return (let ((file (if (file-port? port)
-                                (port-filename port)
-                                #f))
-                      (line (1+ (port-line port)))
-                      (column (1+ (port-column port))))
-                  (lambda (token value)
-                    (let ((obj (cons token value)))
-                      (set-source-property! obj 'filename file)
-                      (set-source-property! obj 'line line)
-                      (set-source-property! obj 'column column)
-                      obj))))
-        ;; Read afterwards so the source-properties are correct above
-        ;; and actually point to the very character to be read.
-        (c (read-char port)))
+  (let* ((return (let ((file (if (file-port? port)
+                                 (port-filename port)
+                                 #f))
+                       (line (1+ (port-line port)))
+                       (column (1+ (port-column port))))
+                   (lambda (token value)
+                     (let ((obj (cons token value)))
+                       (set-source-property! obj 'filename file)
+                       (set-source-property! obj 'line line)
+                       (set-source-property! obj 'column column)
+                       obj))))
+         ;; Read afterwards so the source-properties are correct above
+         ;; and actually point to the very character to be read.
+         (c (read-char port)))
     (cond
      ;; End of input must be specially marked to the parser.
      ((eof-object? c) (return 'eof c))
