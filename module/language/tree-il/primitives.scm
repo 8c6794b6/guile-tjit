@@ -73,6 +73,8 @@
     caaaar caaadr caadar caaddr cadaar cadadr caddar cadddr
     cdaaar cdaadr cdadar cdaddr cddaar cddadr cdddar cddddr
 
+    length
+
     make-vector vector-length vector-ref vector-set!
     variable? variable-ref variable-set!
     variable-bound?
@@ -165,7 +167,7 @@
     char<? char<=? char>=? char>?
     integer->char char->integer number->string string->number
     struct-vtable
-    string-length vector-length
+    length string-length vector-length
     ;; These all should get expanded out by expand-primitives.
     caar cadr cdar cddr
     caaar caadr cadar caddr cdaar cdadr cddar cdddr
