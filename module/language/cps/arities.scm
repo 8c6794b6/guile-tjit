@@ -134,6 +134,36 @@
                            (and (not (prim-rtl-instruction name))
                                 (not (branching-primitive? name))))))
          ($continue k ,exp))
+        (($ $primcall 'struct-set! (obj pos val))
+         ;; Unhappily, and undocumentedly, struct-set! returns the value
+         ;; that was set.  There is code that relies on this.  Hackety
+         ;; hack...
+         ,(rewrite-cps-term (lookup-cont k conts)
+            (($ $ktail)
+             ,(let-gensyms (kvoid)
+                (build-cps-term
+                  ($letk* ((kvoid #f ($kargs () ()
+                                       ($continue ktail
+                                         ($primcall 'return (val))))))
+                    ($continue kvoid ,exp)))))
+            (($ $ktrunc arity kargs)
+             ,(rewrite-cps-term arity
+                (($ $arity () () #f () #f)
+                 ($continue kargs ,exp))
+                (_
+                 ,(let-gensyms (kvoid)
+                    (build-cps-term
+                      ($letk* ((kvoid #f ($kargs () ()
+                                           ($continue k
+                                             ($primcall 'values (val))))))
+                        ($continue kvoid ,exp)))))))
+            (($ $kargs () () _)
+             ($continue k ,exp))
+            (_
+             ,(let-gensyms (k*)
+                (build-cps-term
+                  ($letk ((k* #f ($kargs () () ($continue k ($var val)))))
+                    ($continue k* ,exp)))))))
         (($ $primcall name args)
          ,(match (prim-arity name)
             ((out . in)
