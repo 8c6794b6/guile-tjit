@@ -671,15 +671,23 @@
 
   (pass-if "bitvector < 8"
     (let ((bv (uniform-array->bytevector (make-bitvector 4 #t))))
-      (= (bytevector-length bv) 1)))
+      (= (bytevector-length bv) 4)))
 
   (pass-if "bitvector == 8"
     (let ((bv (uniform-array->bytevector (make-bitvector 8 #t))))
-      (= (bytevector-length bv) 1)))
+      (= (bytevector-length bv) 4)))
 
   (pass-if "bitvector > 8"
     (let ((bv (uniform-array->bytevector (make-bitvector 9 #t))))
-      (= (bytevector-length bv) 2))))
+      (= (bytevector-length bv) 4)))
+
+  (pass-if "bitvector == 32"
+    (let ((bv (uniform-array->bytevector (make-bitvector 32 #t))))
+      (= (bytevector-length bv) 4)))
+
+  (pass-if "bitvector > 32"
+    (let ((bv (uniform-array->bytevector (make-bitvector 33 #t))))
+      (= (bytevector-length bv) 8))))
 
 ;;; Local Variables:
 ;;; eval: (put 'with-test-prefix/c&e 'scheme-indent-function 1)
