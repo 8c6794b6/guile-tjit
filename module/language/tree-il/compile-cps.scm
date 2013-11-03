@@ -337,13 +337,24 @@
        (convert (make-conditional src exp (make-const #f #t)
                                   (make-const #f #f))
                 k subst))
-      ((eq? name 'vector)
+      ((and (eq? name 'vector)
+            (and-map (match-lambda
+                      ((or ($ <const>)
+                           ($ <void>)
+                           ($ <lambda>)
+                           ($ <lexical-ref>)) #t)
+                      (_ #f))
+                     args))
        ;; Some macros generate calls to "vector" with like 300
        ;; arguments.  Since we eventually compile to make-vector and
        ;; vector-set!, it reduces live variable pressure to allocate the
-       ;; vector first, then set values as they are produced.  Normally
-       ;; we would do this transformation in the compiler, but it's
-       ;; quite tricky there and quite easy here, so hold your nose
+       ;; vector first, then set values as they are produced, if we can
+       ;; prove that no value can capture the continuation.  (More on
+       ;; that caveat here:
+       ;; http://wingolog.org/archives/2013/11/02/scheme-quiz-time).
+       ;;
+       ;; Normally we would do this transformation in the compiler, but
+       ;; it's quite tricky there and quite easy here, so hold your nose
        ;; while we drop some smelly code.
        (convert (let ((len (length args)))
                   (let-gensyms (v)
