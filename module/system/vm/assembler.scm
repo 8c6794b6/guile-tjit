@@ -531,9 +531,10 @@ list of lists.  This procedure can be called many times before calling
   (code static-procedure-code))
 
 (define-record-type <uniform-vector-backing-store>
-  (make-uniform-vector-backing-store bytes)
+  (make-uniform-vector-backing-store bytes element-size)
   uniform-vector-backing-store?
-  (bytes uniform-vector-backing-store-bytes))
+  (bytes uniform-vector-backing-store-bytes)
+  (element-size uniform-vector-backing-store-element-size))
 
 (define-record-type <cache-cell>
   (make-cache-cell scope key)
@@ -603,7 +604,13 @@ table, its existing label is used directly."
      ((uniform-vector-backing-store? obj) '())
      ((simple-uniform-vector? obj)
       `((static-patch! ,label 2
-                       ,(recur (make-uniform-vector-backing-store obj)))))
+                       ,(recur (make-uniform-vector-backing-store
+                                (uniform-array->bytevector obj)
+                                (if (bitvector? obj)
+                                    ;; Bitvectors are addressed in
+                                    ;; 32-bit units.
+                                    4
+                                    (uniform-vector-element-size obj)))))))
      (else
       (error "don't know how to intern" obj))))
   (cond
@@ -709,7 +716,7 @@ returned instead."
 ;(define-tc7-macro-assembler br-if-weak-set 85)
 ;(define-tc7-macro-assembler br-if-weak-table 87)
 ;(define-tc7-macro-assembler br-if-array 93)
-;(define-tc7-macro-assembler br-if-bitvector 95)
+(define-tc7-macro-assembler br-if-bitvector 95)
 ;(define-tc7-macro-assembler br-if-port 125)
 ;(define-tc7-macro-assembler br-if-smob 127)
 
@@ -901,6 +908,7 @@ should be .data or .rodata), and return the resulting linker object.
   (define tc7-ro-string (+ 21 #x200))
   (define tc7-rtl-program 69)
   (define tc7-bytevector 77)
+  (define tc7-bitvector 95)
 
   (let ((word-size (asm-word-size asm))
         (endianness (asm-endianness asm)))
@@ -1023,18 +1031,26 @@ should be .data or .rodata), and return the resulting linker object.
         (write-immediate asm buf pos #f))
 
        ((simple-uniform-vector? obj)
-        (let ((tag (logior tc7-bytevector
-                           (ash (uniform-vector-element-type-code obj) 7))))
+        (let ((tag (if (bitvector? obj)
+                       tc7-bitvector
+                       (let ((type-code (uniform-vector-element-type-code obj)))
+                         (logior tc7-bytevector (ash type-code 7))))))
           (case word-size
             ((4)
              (bytevector-u32-set! buf pos tag endianness)
-             (bytevector-u32-set! buf (+ pos 4) (bytevector-length obj)
+             (bytevector-u32-set! buf (+ pos 4)
+                                  (if (bitvector? obj)
+                                      (bitvector-length obj)
+                                      (bytevector-length obj))
                                   endianness)                 ; length
              (bytevector-u32-set! buf (+ pos 8) 0 endianness) ; pointer
              (write-immediate asm buf (+ pos 12) #f))         ; owner
             ((8)
              (bytevector-u64-set! buf pos tag endianness)
-             (bytevector-u64-set! buf (+ pos 8) (bytevector-length obj)
+             (bytevector-u64-set! buf (+ pos 8)
+                                  (if (bitvector? obj)
+                                      (bitvector-length obj)
+                                      (bytevector-length obj))
                                   endianness)                  ; length
              (bytevector-u64-set! buf (+ pos 16) 0 endianness) ; pointer
              (write-immediate asm buf (+ pos 24) #f))          ; owner
@@ -1043,7 +1059,7 @@ should be .data or .rodata), and return the resulting linker object.
        ((uniform-vector-backing-store? obj)
         (let ((bv (uniform-vector-backing-store-bytes obj)))
           (bytevector-copy! bv 0 buf pos (bytevector-length bv))
-          (unless (or (= 1 (uniform-vector-element-size bv))
+          (unless (or (= 1 (uniform-vector-backing-store-element-size obj))
                       (eq? endianness (native-endianness)))
             ;; Need to swap units of element-size bytes
             (error "FIXME: Implement byte order swap"))))

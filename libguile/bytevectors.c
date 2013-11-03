@@ -649,8 +649,9 @@ SCM_DEFINE (scm_uniform_array_to_bytevector, "uniform-array->bytevector",
   if (sz >= 8 && ((sz % 8) == 0))
     byte_len = len * (sz / 8);
   else if (sz < 8)
-    /* byte_len = ceil (len * sz / 8) */
-    byte_len = (len * sz + 7) / 8;
+    /* Elements of sub-byte size (bitvectors) are addressed in 32-bit
+       units.  */
+    byte_len = ((len * sz + 31) / 32) * 4;
   else
     /* an internal guile error, really */
     SCM_MISC_ERROR ("uniform elements larger than 8 bits must fill whole bytes", SCM_EOL);

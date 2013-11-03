@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -39,8 +39,8 @@
  */
 
 #define IS_BITVECTOR(obj)       SCM_TYP16_PREDICATE(scm_tc7_bitvector,(obj))
-#define BITVECTOR_BITS(obj)     ((scm_t_uint32 *)SCM_CELL_WORD_1(obj))
-#define BITVECTOR_LENGTH(obj)   ((size_t)SCM_CELL_WORD_2(obj))
+#define BITVECTOR_LENGTH(obj)   ((size_t)SCM_CELL_WORD_1(obj))
+#define BITVECTOR_BITS(obj)     ((scm_t_uint32 *)SCM_CELL_WORD_2(obj))
 
 int
 scm_i_print_bitvector (SCM vec, SCM port, scm_print_state *pstate)
@@ -110,7 +110,7 @@ scm_c_make_bitvector (size_t len, SCM fill)
 
   bits = scm_gc_malloc_pointerless (sizeof (scm_t_uint32) * word_len,
 				    "bitvector");
-  res = scm_double_cell (scm_tc7_bitvector, (scm_t_bits)bits, len, 0);
+  res = scm_double_cell (scm_tc7_bitvector, len, (scm_t_bits)bits, 0);
 
   if (!SCM_UNBNDP (fill))
     scm_bitvector_fill_x (res, fill);

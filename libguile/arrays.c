@@ -1,5 +1,5 @@
 /* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004,2005,
- *   2006, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2006, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -242,8 +242,9 @@ scm_from_contiguous_typed_array (SCM type, SCM bounds, const void *bytes,
     }
   else if (sz < 8)
     {
-      /* byte_len ?= ceil (rlen * sz / 8) */
-      if (byte_len != (rlen * sz + 7) / 8)
+      /* Elements of sub-byte size (bitvectors) are addressed in 32-bit
+         units.  */
+      if (byte_len != ((rlen * sz + 31) / 32) * 4)
         SCM_MISC_ERROR ("byte length and dimensions do not match", SCM_EOL);
     }
   else
