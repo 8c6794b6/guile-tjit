@@ -79,6 +79,48 @@
              (vector-set! e (1+ width) val)
              (lp (vector-ref e 0) (1- d)))))))
 
+  ;; For evaluating the initializers in a "let" expression.  We have to
+  ;; evaluate the initializers before creating the environment rib, to
+  ;; prevent continuation-related shenanigans; see
+  ;; http://wingolog.org/archives/2013/11/02/scheme-quiz-time for a
+  ;; deeper discussion.
+  ;;
+  ;; This macro will inline evaluation of the first N initializers.
+  ;; That number N is indicated by the number of template arguments
+  ;; passed to the macro.  It's a bit nasty but it's flexible and
+  ;; optimizes well.
+  (define-syntax let-env-evaluator
+    (syntax-rules ()
+      ((eval-and-make-env eval env (template ...))
+       (let ()
+         (define-syntax eval-and-make-env
+           (syntax-rules ()
+             ((eval-and-make-env inits width (template ...) k)
+              (let lp ((n (length '(template ...))) (vals '()))
+                (if (eqv? n width)
+                    (let ((env (make-env n #f env)))
+                      (let lp ((n (1- n)) (vals vals))
+                        (if (null? vals)
+                            (k env)
+                            (begin
+                              (env-set! env 0 n (car vals))
+                              (lp (1- n) (cdr vals))))))
+                    (lp (1+ n)
+                        (cons (eval (vector-ref inits n) env) vals)))))
+             ((eval-and-make-env inits width (var (... ...)) k)
+              (let ((n (length '(var (... ...)))))
+                (if (eqv? n width)
+                    (k (make-env n #f env))
+                    (let* ((x (eval (vector-ref inits n) env))
+                           (k (lambda (env)
+                                (env-set! env 0 n x)
+                                (k env))))
+                      (eval-and-make-env inits width (x var (... ...)) k)))))))
+         (lambda (inits)
+           (let ((width (vector-length inits))
+                 (k (lambda (env) env)))
+             (eval-and-make-env inits width () k)))))))
+
   ;; Fast case for procedures with fixed arities.
   (define-syntax make-fixed-closure
     (lambda (x)
@@ -456,13 +498,7 @@
          x)
 
         (('let (inits . body))
-         (let* ((width (vector-length inits))
-                (new-env (make-env width #f env)))
-           (let lp ((i 0))
-             (when (< i width)
-               (env-set! new-env 0 i (eval (vector-ref inits i) env))
-               (lp (1+ i))))
-           (eval body new-env)))
+         (eval body ((let-env-evaluator eval env (_ _ _ _)) inits)))
 
         (('lambda (body meta nreq . tail))
          (let ((proc
