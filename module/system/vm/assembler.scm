@@ -1490,9 +1490,9 @@ it will be added to the GC roots at runtime."
 ;;; The .guile.docstrs section is a packed, sorted array of (pc, str)
 ;;; values.  Pc and str are both 32 bits wide.  (Either could change to
 ;;; 64 bits if appropriate in the future.)  Pc is the address of the
-;;; entry to a program, relative to the start of the text section, and
-;;; str is an index into the associated .guile.docstrs.strtab string
-;;; table section.
+;;; entry to a program, relative to the start of the text section, in
+;;; bytes, and str is an index into the associated .guile.docstrs.strtab
+;;; string table section.
 ;;;
 
 ;; The size of a docstrs entry, in bytes.
@@ -1508,7 +1508,7 @@ it will be added to the GC roots at runtime."
                     (and tail
                          (not (find-tail is-documentation? (cdr tail)))
                          (string? (cdar tail))
-                         (cons (meta-low-pc meta) (cdar tail)))))
+                         (cons (* 4 (meta-low-pc meta)) (cdar tail)))))
                 (reverse (asm-meta asm))))
   (let* ((endianness (asm-endianness asm))
          (docstrings (find-docstrings))

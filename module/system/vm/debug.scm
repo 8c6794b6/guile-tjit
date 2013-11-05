@@ -402,15 +402,14 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
        (let lp ((pos start))
          (cond
           ((>= pos end) #f)
-          ((< text-offset (bytevector-u32-native-ref bv pos))
+          ((< (bytevector-u32-native-ref bv pos) text-offset)
            (lp (+ pos docstr-len)))
-          ((> text-offset (bytevector-u32-native-ref bv pos))
-           #f)
-          (else
+          ((= text-offset (bytevector-u32-native-ref bv pos))
            (let ((strtab (elf-section (debug-context-elf context)
                                       (elf-section-link sec)))
                  (idx (bytevector-u32-native-ref bv (+ pos 4))))
-             (string-table-ref bv (+ (elf-section-offset strtab) idx))))))))))
+             (string-table-ref bv (+ (elf-section-offset strtab) idx))))
+          (else #f)))))))
 
 (define* (find-program-properties addr #:optional
                                   (context (find-debug-context addr)))
