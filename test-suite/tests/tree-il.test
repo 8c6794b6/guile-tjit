@@ -208,7 +208,8 @@
 (with-test-prefix "primitive-ref"
   (assert-tree-il->glil
    (primitive +)
-   (program () (std-prelude 0 0 #f) (label _) (toplevel ref +) (call return 1)))
+   (program () (std-prelude 0 0 #f)
+            (label _) (module private ref (guile) +) (call return 1)))
 
   (assert-tree-il->glil
    (begin (primitive +) (const #f))
@@ -216,7 +217,8 @@
 
   (assert-tree-il->glil
    (primcall null? (primitive +))
-   (program () (std-prelude 0 0 #f) (label _) (toplevel ref +) (call null? 1)
+   (program () (std-prelude 0 0 #f) (label _)
+            (module private ref (guile) +) (call null? 1)
             (call return 1))))
 
 (with-test-prefix "lexical refs"
@@ -658,7 +660,8 @@
   (assert-tree-il->glil
    (begin (primcall apply (toplevel foo) (toplevel bar)) (void))
    (program () (std-prelude 0 0 #f) (label _)
-            (call new-frame 0) (toplevel ref apply) (toplevel ref foo) (toplevel ref bar) (mv-call 2 ,l1)
+            (call new-frame 0) (module private ref (guile) apply)
+            (toplevel ref foo) (toplevel ref bar) (mv-call 2 ,l1)
             (call drop 1) (branch br ,l2) (label ,l3) (mv-bind 0 #f)
             (label ,l4)
             (void) (call return 1))
@@ -677,7 +680,9 @@
   (assert-tree-il->glil
    (begin (primcall call-with-current-continuation (toplevel foo)) (void))
    (program () (std-prelude 0 0 #f) (label _)
-            (call new-frame 0) (toplevel ref call-with-current-continuation) (toplevel ref foo) (mv-call 1 ,l1)
+            (call new-frame 0)
+            (module private ref (guile) call-with-current-continuation)
+            (toplevel ref foo) (mv-call 1 ,l1)
             (call drop 1) (branch br ,l2) (label ,l3) (mv-bind 0 #f)
             (label ,l4)
             (void) (call return 1))
