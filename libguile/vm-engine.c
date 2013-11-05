@@ -2020,7 +2020,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (50, make_long_immediate, "make-long-immediate", OP2 (U8_U24, I32))
     {
-      scm_t_uint8 dst;
+      scm_t_uint32 dst;
       scm_t_bits val;
 
       SCM_UNPACK_RTL_24 (op, dst);
@@ -2035,7 +2035,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (51, make_long_long_immediate, "make-long-long-immediate", OP3 (U8_U24, A32, B32) | OP_DST)
     {
-      scm_t_uint8 dst;
+      scm_t_uint32 dst;
       scm_t_bits val;
 
       SCM_UNPACK_RTL_24 (op, dst);
