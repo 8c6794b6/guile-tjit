@@ -376,6 +376,31 @@
                                     (make-lexical-ref src 'v v)
                                     (reverse args) (reverse (iota len))))))
         k subst))
+      ((and (eq? name 'list)
+            (and-map (match-lambda
+                      ((or ($ <const>)
+                           ($ <void>)
+                           ($ <lambda>)
+                           ($ <lexical-ref>)) #t)
+                      (_ #f))
+                     args))
+       ;; The same situation occurs with "list".
+       (let lp ((args args) (k k))
+         (match args
+           (()
+            (build-cps-term
+              ($continue k ($const '()))))
+           ((arg . args)
+            (let-gensyms (ktail tail)
+              (build-cps-term
+                ($letk ((ktail src
+                               ($kargs ('tail) (tail)
+                                 ,(convert-arg arg
+                                    (lambda (head)
+                                      (build-cps-term
+                                        ($continue k
+                                          ($primcall 'cons (head tail)))))))))
+                  ,(lp args ktail))))))))
       (else
        (convert-args args
          (lambda (args)
