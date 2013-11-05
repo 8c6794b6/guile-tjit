@@ -278,7 +278,7 @@
 @var{endianness}, falling back to appropriate values for the configured
 target."
   (make-asm (fresh-block) 0 0 '() 0
-            '() '()
+            (make-hash-table) '()
             word-size endianness
             vlist-null '()
             (make-string-table) 1
@@ -322,11 +322,6 @@ reference that needs to be fixed up by the linker."
 (define-inlinable (reset-asm-start! asm)
   "Reset the asm-start after writing the words for one instruction."
   (set-asm-start! asm (asm-pos asm)))
-
-(define (emit-exported-label asm label)
-  "Define a linker symbol associating @var{label} with the current
-asm-start."
-  (set-asm-labels! asm (acons label (asm-start asm) (asm-labels asm))))
 
 (define (record-label-reference asm label)
   "Record an x8-s24 local label reference.  This value will get patched
@@ -812,7 +807,7 @@ returned instead."
     (emit-alloc-frame asm nlocals)))
 
 (define-macro-assembler (label asm sym)
-  (set-asm-labels! asm (acons sym (asm-start asm) (asm-labels asm))))
+  (hashq-set! (asm-labels asm) sym (asm-start asm)))
 
 (define-macro-assembler (source asm source)
   (set-asm-sources! asm (acons (asm-start asm) source (asm-sources asm))))
@@ -1074,7 +1069,7 @@ should be .data or .rodata), and return the resulting linker object.
                                      (+ (byte-length k) (align len 8)))
                                    0 data))
              (buf (make-bytevector byte-len 0)))
-        (let lp ((i 0) (pos 0) (labels '()))
+        (let lp ((i 0) (pos 0) (symbols '()))
           (if (< i (vlist-length data))
               (let* ((pair (vlist-ref data i))
                      (obj (car pair))
@@ -1082,8 +1077,8 @@ should be .data or .rodata), and return the resulting linker object.
                 (write buf pos obj)
                 (lp (1+ i)
                     (align (+ (byte-length obj) pos) 8)
-                    (cons (make-linker-symbol obj-label pos) labels)))
-              (make-object asm name buf '() labels
+                    (cons (make-linker-symbol obj-label pos) symbols)))
+              (make-object asm name buf '() symbols
                            #:flags (match name
                                      ('.data (logior SHF_ALLOC SHF_WRITE))
                                      ('.rodata SHF_ALLOC))))))))))
@@ -1135,7 +1130,7 @@ relocations for references to symbols defined outside the text section."
    (lambda (reloc tail)
      (match reloc
        ((type label base word)
-        (let ((abs (assq-ref labels label))
+        (let ((abs (hashq-ref labels label))
               (dst (+ base word)))
           (case type
             ((s32)
@@ -1157,11 +1152,11 @@ relocations for references to symbols defined outside the text section."
    relocs))
 
 (define (process-labels labels)
-  "Define linker symbols for the label-offset pairs in @var{labels}.
+  "Define linker symbols for the label-offset map in @var{labels}.
 The offsets are expected to be expressed in words."
-  (map (lambda (pair)
-         (make-linker-symbol (car pair) (* (cdr pair) 4)))
-       labels))
+  (hash-map->list (lambda (label loc)
+                    (make-linker-symbol label (* loc 4)))
+                  labels))
 
 (define (swap-bytes! buf)
   "Patch up the text buffer @var{buf}, swapping the endianness of each
