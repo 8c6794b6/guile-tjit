@@ -530,8 +530,16 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
                                        (line-prog-advance prog)))
                  (lambda (pc file line col)
                    (if (and pc (< pc high-pc))
-                       (lp (cons (make-source/dwarf (+ pc base) file line col)
-                                 sources))
+                       ;; For the first source, it's probable that the
+                       ;; address of the line program is before the
+                       ;; low-pc, since the line program is for the
+                       ;; entire compilation unit, and there are no
+                       ;; redundant "rows" in the line program.
+                       ;; Therefore in that case use the addr of low-pc
+                       ;; instead of the one we got back.
+                       (let ((addr (+ (if (null? sources) low-pc pc) base)))
+                         (lp (cons (make-source/dwarf addr file line col)
+                                   sources)))
                        (reverse sources))))))
             (else '())))))
    (else '())))
