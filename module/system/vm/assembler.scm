@@ -1638,7 +1638,7 @@ it will be added to the GC roots at runtime."
 
   (define (put-sleb128 port val)
     (let lp ((val val))
-      (if (<= 0 (+ val 64) 128)
+      (if (<= 0 (+ val 64) 127)
           (put-u8 port (logand val #x7f))
           (begin
             (put-u8 port (logior #x80 (logand val #x7f)))
