@@ -62,19 +62,21 @@
     (pass-if-equal 2 (source-column source)))
 
   (match (find-program-sources (rtl-program-code qux))
-    ((s1 s2)
+    ((s1 s2 s3)
      (pass-if-equal "foo.scm" (source-file s1))
      (pass-if-equal 0 (source-line s1))
      (pass-if-equal 1 (source-line-for-user s1))
      (pass-if-equal 0 (source-column s1))
 
-     ;; FIXME: For some reason the source location for the + isn't
-     ;; getting propagated.
-
      (pass-if-equal "foo.scm" (source-file s2))
      (pass-if-equal 1 (source-line s2))
      (pass-if-equal 2 (source-line-for-user s2))
-     (pass-if-equal 8 (source-column s2)))
+     (pass-if-equal 8 (source-column s2))
+
+     (pass-if-equal "foo.scm" (source-file s3))
+     (pass-if-equal 1 (source-line s3))
+     (pass-if-equal 2 (source-line-for-user s3))
+     (pass-if-equal 2 (source-column s3)))
     (sources
      (error "unexpected sources" sources)))
 
