@@ -104,18 +104,9 @@ SCM_DEFINE (scm_frame_source, "frame-source", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_frame_source
 {
-  SCM proc;
-
   SCM_VALIDATE_VM_FRAME (1, frame);
 
-  proc = scm_frame_procedure (frame);
-
-  if (SCM_PROGRAM_P (proc) || SCM_RTL_PROGRAM_P (proc))
-    return scm_program_source (scm_frame_procedure (frame),
-                               scm_frame_instruction_pointer (frame),
-                               SCM_UNDEFINED);
-
-  return SCM_BOOL_F;
+  return scm_find_source_for_addr (scm_frame_instruction_pointer (frame));
 }
 #undef FUNC_NAME
 
@@ -254,22 +245,9 @@ SCM_DEFINE (scm_frame_instruction_pointer, "frame-instruction-pointer", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_frame_instruction_pointer
 {
-  SCM program;
-  const struct scm_objcode *c_objcode;
-
   SCM_VALIDATE_VM_FRAME (1, frame);
-  program = scm_frame_procedure (frame);
 
-  if (SCM_RTL_PROGRAM_P (program))
-    return scm_from_ptrdiff_t (SCM_VM_FRAME_IP (frame) -
-                               (scm_t_uint8 *) SCM_RTL_PROGRAM_CODE (program));
-
-  if (!SCM_PROGRAM_P (program))
-    return SCM_INUM0;
-
-  c_objcode = SCM_PROGRAM_DATA (program);
-  return scm_from_unsigned_integer ((SCM_VM_FRAME_IP (frame)
-                                     - SCM_C_OBJCODE_BASE (c_objcode)));
+  return scm_from_uintptr_t ((scm_t_uintptr) SCM_VM_FRAME_IP (frame));
 }
 #undef FUNC_NAME
 

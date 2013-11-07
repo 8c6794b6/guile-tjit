@@ -35,6 +35,7 @@
   #:use-module (srfi srfi-9)
   #:export (debug-context-image
             debug-context-base
+            debug-context-length
             debug-context-text-base
 
             program-debug-info-name
@@ -95,6 +96,11 @@
   "Return the bytevector aliasing the mapped ELF image corresponding to
 @var{context}."
   (elf-bytes (debug-context-elf context)))
+
+(define (debug-context-length context)
+  "Return the size of the mapped ELF image corresponding to
+@var{context}, in bytes."
+  (bytevector-length (debug-context-image context)))
 
 (define (for-each-elf-symbol context proc)
   "Call @var{proc} on each symbol in the symbol table of @var{context}."

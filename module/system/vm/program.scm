@@ -120,6 +120,15 @@
           ;; fixed length
           (instruction-length inst))))))
 
+(define (source-for-addr addr)
+  (and=> (find-source-for-addr addr)
+         (lambda (source)
+           ;; FIXME: absolute or relative address?
+           (cons* 0
+                  (source-file source)
+                  (source-line source)
+                  (source-column source)))))
+
 (define (program-sources proc)
   (cond
    ((rtl-program? proc)

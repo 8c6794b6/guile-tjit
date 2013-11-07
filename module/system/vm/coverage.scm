@@ -20,10 +20,14 @@
   #:use-module (system vm vm)
   #:use-module (system vm frame)
   #:use-module (system vm program)
+  #:use-module (system vm debug)
+  #:use-module (ice-9 format)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-9 gnu)
   #:use-module (srfi srfi-11)
   #:use-module (srfi srfi-26)
+  #:use-module (ice-9 match)
   #:export (with-code-coverage
             coverage-data?
             instrumented-source-files
@@ -46,54 +50,20 @@
 ;;; Gathering coverage data.
 ;;;
 
-(define (hashq-proc proc n)
-  ;; Return the hash of PROC's objcode.
-  (if (rtl-program? proc)
-      (hashq (rtl-program-code proc) n)
-      (hashq (program-objcode proc) n)))
-
-(define (assq-proc proc alist)
-  ;; Instead of really looking for PROC in ALIST, look for the objcode of PROC.
-  ;; IOW the alist is indexed by procedures, not objcodes, but those procedures
-  ;; are taken as an arbitrary representative of all the procedures (closures)
-  ;; sharing that objcode.  This can significantly reduce memory consumption.
-  (if (rtl-program? proc)
-      (let ((code (rtl-program-code proc)))
-        (find (lambda (pair)
-                (let ((proc (car pair)))
-                  (and (rtl-program? proc)
-                       (eqv? code (rtl-program-code proc)))))
-              alist))
-      (let ((code (program-objcode proc)))
-        (find (lambda (pair)
-                (let ((proc (car pair)))
-                  (and (program? proc)
-                       (eq? code (program-objcode proc)))))
-              alist))))
-
 (define (with-code-coverage vm thunk)
   "Run THUNK, a zero-argument procedure, using VM; instrument VM to collect code
 coverage data.  Return code coverage data and the values returned by THUNK."
 
-  (define procedure->ip-counts
-    ;; Mapping from procedures to hash tables; said hash tables map instruction
-    ;; pointers to the number of times they were executed.
-    (make-hash-table 500))
+  (define ip-counts
+    ;; A table mapping instruction pointers to the number of times they were
+    ;; executed.
+    (make-hash-table 5000))
 
   (define (collect! frame)
-    ;; Update PROCEDURE->IP-COUNTS with info from FRAME.
-    (let* ((proc       (frame-procedure frame))
-           (ip         (frame-instruction-pointer frame))
-           (proc-entry (hashx-create-handle! hashq-proc assq-proc
-                                             procedure->ip-counts proc #f)))
-      (let loop ()
-        (define ip-counts (cdr proc-entry))
-        (if ip-counts
-            (let ((ip-entry (hashv-create-handle! ip-counts ip 0)))
-              (set-cdr! ip-entry (+ (cdr ip-entry) 1)))
-            (begin
-              (set-cdr! proc-entry (make-hash-table))
-              (loop))))))
+    ;; Update IP-COUNTS with info from FRAME.
+    (let* ((ip (frame-instruction-pointer frame))
+           (ip-entry (hashv-create-handle! ip-counts ip 0)))
+      (set-cdr! ip-entry (+ (cdr ip-entry) 1))))
 
   ;; FIXME: It's unclear what the dynamic-wind is for, given that if the
   ;; VM is different from the current one, continuations will not be
@@ -111,7 +81,48 @@ coverage data.  Return code coverage data and the values returned by THUNK."
                             (set-vm-trace-level! vm level)
                             (remove-hook! hook collect!)))))
     (lambda args
-      (apply values (make-coverage-data procedure->ip-counts) args))))
+      (apply values (make-coverage-data ip-counts) args))))
+
+
+
+
+;;;
+;;; Source chunks.
+;;;
+
+(define-record-type <source-chunk>
+  (make-source-chunk base length sources)
+  source-chunk?
+  (base source-chunk-base)
+  (length source-chunk-length)
+  (sources source-chunk-sources))
+
+(set-record-type-printer!
+ <source-chunk>
+ (lambda (obj port)
+   (format port "<source-chunk #x~x-#x~x>"
+           (source-chunk-base obj)
+           (+ (source-chunk-base obj) (source-chunk-length obj)))))
+
+(define (compute-source-chunk ctx)
+  "Build a sorted vector of source information for a given debugging
+context (ELF image).  The return value is a @code{<source-chunk>}, which also
+records the address range to which the source information applies."
+  (make-source-chunk
+   (debug-context-base ctx)
+   (debug-context-length ctx)
+   ;; The source locations are sorted already, but collected in reverse order.
+   (list->vector (reverse! (fold-source-locations cons '() ctx)))))
+
+(define (all-source-information)
+  "Build and return a vector of source information corresponding to all
+loaded code.  The vector will be sorted by ascending address order."
+  (sort! (list->vector (fold-all-debug-contexts
+                        (lambda (ctx seed)
+                          (cons (compute-source-chunk ctx) seed))
+                        '()))
+         (lambda (x y)
+           (< (source-chunk-base x) (source-chunk-base y)))))
 
 
 ;;;
@@ -119,124 +130,137 @@ coverage data.  Return code coverage data and the values returned by THUNK."
 ;;;
 
 (define-record-type <coverage-data>
-  (%make-coverage-data procedure->ip-counts
-                       procedure->sources
+  (%make-coverage-data ip-counts
+                       sources
                        file->procedures
                        file->line-counts)
   coverage-data?
 
-  ;; Mapping from procedures to hash tables; said hash tables map instruction
-  ;; pointers to the number of times they were executed.
-  (procedure->ip-counts data-procedure->ip-counts)
+  ;; Mapping from instruction pointers to the number of times they were
+  ;; executed, as a sorted vector of IP-count pairs.
+  (ip-counts data-ip-counts)
 
-  ;; Mapping from procedures to the result of `program-sources'.
-  (procedure->sources   data-procedure->sources)
+  ;; Complete source census at the time the coverage analysis was run, as a
+  ;; sorted vector of <source-chunk> values.
+  (sources data-sources)
 
   ;; Mapping from source file names to lists of procedures defined in the file.
+  ;; FIXME.
   (file->procedures     data-file->procedures)
 
   ;; Mapping from file names to hash tables, which in turn map from line numbers
   ;; to execution counts.
   (file->line-counts    data-file->line-counts))
 
+(set-record-type-printer!
+ <coverage-data>
+ (lambda (obj port)
+   (format port "<coverage-data ~x>" (object-address obj))))
 
-(define (make-coverage-data procedure->ip-counts)
+(define (make-coverage-data ip-counts)
   ;; Return a `coverage-data' object based on the coverage data available in
-  ;; PROCEDURE->IP-COUNTS.  Precompute the other hash tables that make up
-  ;; `coverage-data' objects.
-  (let* ((procedure->sources (make-hash-table 500))
+  ;; IP-COUNTS.  Precompute the other hash tables that make up `coverage-data'
+  ;; objects.
+  (let* ((all-sources (all-source-information))
+         (all-counts (sort! (list->vector (hash-fold acons '() ip-counts))
+                            (lambda (x y)
+                              (< (car x) (car y)))))
          (file->procedures   (make-hash-table 100))
          (file->line-counts  (make-hash-table 100))
-         (data               (%make-coverage-data procedure->ip-counts
-                                                  procedure->sources
+         (data               (%make-coverage-data all-counts
+                                                  all-sources
                                                   file->procedures
                                                   file->line-counts)))
-    (define (increment-execution-count! file line count)
+
+    (define (observe-execution-count! file line count)
       ;; Make the execution count of FILE:LINE the maximum of its current value
       ;; and COUNT.  This is so that LINE's execution count is correct when
       ;; several instruction pointers map to LINE.
-      (let ((file-entry (hash-create-handle! file->line-counts file #f)))
-        (if (not (cdr file-entry))
-            (set-cdr! file-entry (make-hash-table 500)))
-        (let ((line-entry (hashv-create-handle! (cdr file-entry) line 0)))
-          (set-cdr! line-entry (max (cdr line-entry) count)))))
+      (when file
+        (let ((file-entry (hash-create-handle! file->line-counts file #f)))
+          (if (not (cdr file-entry))
+              (set-cdr! file-entry (make-hash-table 500)))
+          (let ((line-entry (hashv-create-handle! (cdr file-entry) line 0)))
+            (set-cdr! line-entry (max (cdr line-entry) count))))))
 
-    ;; Update execution counts for procs that were executed.
-    (hash-for-each (lambda (proc ip-counts)
-                     (let* ((sources (program-sources* data proc))
-                            (file    (and (pair? sources)
-                                          (source:file (car sources)))))
-                       (and file
-                            (begin
-                              ;; Add a zero count for all IPs in SOURCES and in
-                              ;; the sources of procedures closed over by PROC.
-                              (for-each
-                               (lambda (source)
-                                 (let ((file (source:file source))
-                                       (line (source:line source)))
-                                   (increment-execution-count! file line 0)))
-                               (append-map (cut program-sources* data <>)
-                                           (closed-over-procedures proc)))
+    ;; First, visit every known source location and mark it as instrumented but
+    ;; unvisited.
+    ;;
+    ;; FIXME: This is not always necessary.  It's important to have the ability
+    ;; to know when a source location is not reached, but sometimes all we need
+    ;; to know is that a particular site *was* reached.  In that case we
+    ;; wouldn't need to load up all the DWARF sections.  As it is, though, we
+    ;; use the complete source census as part of the later phase.
+    (let visit-chunk ((chunk-idx 0))
+      (when (< chunk-idx (vector-length all-sources))
+        (match (vector-ref all-sources chunk-idx)
+          (($ <source-chunk> base chunk-length chunk-sources)
+           (let visit-source ((source-idx 0))
+             (when (< source-idx (vector-length chunk-sources))
+               (let ((s (vector-ref chunk-sources source-idx)))
+                 (observe-execution-count! (source-file s) (source-line s) 0)
+                 (visit-source (1+ source-idx)))))))
+        (visit-chunk (1+ chunk-idx))))
 
-                              ;; Add the actual execution count collected.
-                              (hash-for-each
-                               (lambda (ip count)
-                                 (let ((line (closest-source-line sources ip)))
-                                   (increment-execution-count! file line count)))
-                               ip-counts)))))
-                   procedure->ip-counts)
-
-    ;; Set the execution count to zero for procedures loaded and not executed.
-    ;; FIXME: Traversing thousands of procedures here is inefficient.
-    (for-each (lambda (proc)
-                (and (not (hashq-ref procedure->sources proc))
-                     (for-each (lambda (proc)
-                                 (let* ((sources (program-sources* data proc))
-                                        (file    (and (pair? sources)
-                                                      (source:file (car sources)))))
-                                   (and file
-                                        (for-each
-                                         (lambda (ip)
-                                           (let ((line (closest-source-line sources ip)))
-                                             (increment-execution-count! file line 0)))
-                                         (map source:addr sources)))))
-                               (closed-over-procedures proc))))
-              (append-map module-procedures (loaded-modules)))
+    ;; Then, visit the measured execution counts, walking the complete source
+    ;; census at the same time.  This allows us to map observed addresses to
+    ;; source locations.  Record observed execution counts.
+    (let visit-chunk ((chunk-idx 0) (count-idx 0))
+      (when (< chunk-idx (vector-length all-sources))
+        (match (vector-ref all-sources chunk-idx)
+          (($ <source-chunk> base chunk-length chunk-sources)
+           (let visit-count ((count-idx count-idx) (source-idx 0) (source #f))
+             (when (< count-idx (vector-length all-counts))
+               (match (vector-ref all-counts count-idx)
+                 ((ip . count)
+                  (cond
+                   ((< ip base)
+                    ;; Address before chunk base; no corresponding source.
+                    (visit-count (1+ count-idx) source-idx source))
+                   ((< ip (+ base chunk-length))
+                    ;; Address in chunk; count it.
+                    (let visit-source ((source-idx source-idx) (source source))
+                      (define (finish)
+                        (when source
+                          (observe-execution-count! (source-file source)
+                                                    (source-line source)
+                                                    count))
+                        (visit-count (1+ count-idx) source-idx source))
+                      (cond
+                       ((< source-idx (vector-length chunk-sources))
+                        (let ((source* (vector-ref chunk-sources source-idx)))
+                          (if (<= (source-pre-pc source*) ip)
+                              (visit-source (1+ source-idx) source*)
+                              (finish))))
+                       (else
+                        (finish)))))
+                   (else
+                    ;; Address past chunk; fetch the next chunk.
+                    (visit-chunk (1+ chunk-idx) count-idx)))))))))))
 
     data))
 
 (define (procedure-execution-count data proc)
-  "Return the number of times PROC's code was executed, according to DATA, or #f
-if PROC was not executed.  When PROC is a closure, the number of times its code
-was executed is returned, not the number of times this code associated with this
-particular closure was executed."
-  (let ((sources (program-sources* data proc)))
-    (and (pair? sources)
-         (and=> (hashx-ref hashq-proc assq-proc
-                           (data-procedure->ip-counts data) proc)
-                (lambda (ip-counts)
-                  ;; FIXME: broken with lambda*
-                  (let ((entry-ip (source:addr (car sources))))
-                    (hashv-ref ip-counts entry-ip 0)))))))
-
-(define (program-sources* data proc)
-  ;; A memoizing version of `program-sources'.
-  (or (hashq-ref (data-procedure->sources data) proc)
-      (and (or (program? proc) (rtl-program? proc))
-           (let ((sources (program-sources proc))
-                 (p->s    (data-procedure->sources data))
-                 (f->p    (data-file->procedures data)))
-             (if (pair? sources)
-                 (let* ((file  (source:file (car sources)))
-                        (entry (hash-create-handle! f->p file '())))
-                   (hashq-set! p->s proc sources)
-                   (set-cdr! entry (cons proc (cdr entry)))
-                   sources)
-                 sources)))))
-
-(define (file-procedures data file)
-  ;; Return the list of globally bound procedures defined in FILE.
-  (hash-ref (data-file->procedures data) file '()))
+  "Return the number of times PROC's code was executed, according to DATA.  When
+PROC is a closure, the number of times its code was executed is returned, not
+the number of times this code associated with this particular closure was
+executed."
+  (define (binary-search v key val)
+    (let lp ((start 0) (end (vector-length v)))
+      (and (not (eqv? start end))
+           (let* ((idx (floor/ (+ start end) 2))
+                  (elt (vector-ref v idx))
+                  (val* (key elt)))
+             (cond
+              ((< val val*)
+               (lp start idx))
+              ((< val* val)
+               (lp (1+ idx) end))
+              (else elt))))))
+  (and (rtl-program? proc)
+       (match (binary-search (data-ip-counts data) car (rtl-program-code proc))
+         (#f 0)
+         ((ip . code) code))))
 
 (define (instrumented/executed-lines data file)
   "Return the number of instrumented and the number of executed source lines in
@@ -273,66 +297,6 @@ was loaded at the time DATA was collected."
 
 
 ;;;
-;;; Helpers.
-;;;
-
-(define (loaded-modules)
-  ;; Return the list of all the modules currently loaded.
-  (define seen (make-hash-table))
-
-  (let loop ((modules (module-submodules (resolve-module '() #f)))
-             (result  '()))
-    (hash-fold (lambda (name module result)
-                 (if (hashq-ref seen module)
-                     result
-                     (begin
-                       (hashq-set! seen module #t)
-                       (loop (module-submodules module)
-                             (cons module result)))))
-               result
-               modules)))
-
-(define (module-procedures module)
-  ;; Return the list of procedures bound globally in MODULE.
-  (hash-fold (lambda (binding var result)
-               (if (variable-bound? var)
-                   (let ((value (variable-ref var)))
-                     (if (procedure? value)
-                         (cons value result)
-                         result))
-                   result))
-             '()
-             (module-obarray module)))
-
-(define (closest-source-line sources ip)
-  ;; Given SOURCES, as returned by `program-sources' for a given procedure,
-  ;; return the source line of code that is the closest to IP.  This is similar
-  ;; to what `program-source' does.
-  (let loop ((sources sources)
-             (line    (and (pair? sources) (source:line (car sources)))))
-    (if (null? sources)
-        line
-        (let ((source (car sources)))
-          (if (> (source:addr source) ip)
-              line
-              (loop (cdr sources) (source:line source)))))))
-
-(define (closed-over-procedures proc)
-  ;; Return the list of procedures PROC closes over, PROC included.
-  (let loop ((proc   proc)
-             (result '()))
-    (if (and (or (program? proc) (rtl-program? proc)) (not (memq proc result)))
-        (fold loop (cons proc result)
-              ;; FIXME: Include statically nested procedures for RTL
-              ;; programs.
-              (append (if (program? proc)
-                          (vector->list (or (program-objects proc) #()))
-                          '())
-                      (program-free-variables proc)))
-        result)))
-
-
-;;;
 ;;; LCOV output.
 ;;;
 
@@ -342,6 +306,10 @@ was loaded at the time DATA was collected."
 The report will include all the modules loaded at the time coverage data was
 gathered, even if their code was not executed."
 
+  ;; FIXME: Re-enable this code, but using for-each-elf-symbol on each source
+  ;; chunk.  Use that to build a map of file -> proc-addr + line + name.  Then
+  ;; use something like procedure-execution-count to get the execution count.
+  #;
   (define (dump-function proc)
     ;; Dump source location and basic coverage data for PROC.
     (and (or (program? proc) (rtl-program? proc))
@@ -358,11 +326,11 @@ gathered, even if their code was not executed."
   ;; Output per-file coverage data.
   (format port "TN:~%")
   (for-each (lambda (file)
-              (let ((procs (file-procedures data file))
-                    (path  (search-path %load-path file)))
+              (let ((path (search-path %load-path file)))
                 (if (string? path)
                     (begin
                       (format port "SF:~A~%" path)
+                      #;
                       (for-each dump-function procs)
                       (for-each (lambda (line+count)
                                   (let ((line  (car line+count))

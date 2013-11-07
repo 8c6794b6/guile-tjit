@@ -399,6 +399,22 @@ scm_i_program_properties (SCM program)
 #undef FUNC_NAME
 
 SCM
+scm_find_source_for_addr (SCM ip)
+{
+  static SCM source_for_addr = SCM_BOOL_F;
+
+  if (scm_is_false (source_for_addr)) {
+    if (!scm_module_system_booted_p)
+      return SCM_BOOL_F;
+
+    source_for_addr =
+      scm_c_private_variable ("system vm program", "source-for-addr");
+  }
+
+  return scm_call_1 (scm_variable_ref (source_for_addr), ip);
+}
+
+SCM
 scm_program_source (SCM program, SCM ip, SCM sources)
 {
   static SCM program_source = SCM_BOOL_F;
