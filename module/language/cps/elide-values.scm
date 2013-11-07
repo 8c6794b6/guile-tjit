@@ -37,15 +37,15 @@
 
 (define (elide-values fun)
   (let ((conts (build-local-cont-table
-                (match fun (($ $fun meta free body) body)))))
+                (match fun (($ $fun src meta free body) body)))))
     (define (visit-cont cont)
       (rewrite-cps-cont cont
-        (($ $cont sym src ($ $kargs names syms body))
-         (sym src ($kargs names syms ,(visit-term body))))
-        (($ $cont sym src ($ $kentry self tail clauses))
-         (sym src ($kentry self ,tail ,(map visit-cont clauses))))
-        (($ $cont sym src ($ $kclause arity body))
-         (sym src ($kclause ,arity ,(visit-cont body))))
+        (($ $cont sym ($ $kargs names syms body))
+         (sym ($kargs names syms ,(visit-term body))))
+        (($ $cont sym ($ $kentry self tail clauses))
+         (sym ($kentry self ,tail ,(map visit-cont clauses))))
+        (($ $cont sym ($ $kclause arity body))
+         (sym ($kclause ,arity ,(visit-cont body))))
         (($ $cont)
          ,cont)))
     (define (visit-term term)
@@ -56,27 +56,27 @@
         (($ $letrec names syms funs body)
          ($letrec names syms (map elide-values funs)
                   ,(visit-term body)))
-        (($ $continue k ($ $primcall 'values vals))
+        (($ $continue k src ($ $primcall 'values vals))
          ,(rewrite-cps-term (lookup-cont k conts)
             (($ $ktail)
-             ($continue k ($values vals)))
+             ($continue k src ($values vals)))
             (($ $ktrunc ($ $arity req () rest () #f) kargs)
              ,(if (or rest (< (length vals) (length req)))
                   term
                   (let ((vals (list-head vals (length req))))
                     (build-cps-term
-                      ($continue kargs ($values vals))))))
+                      ($continue kargs src ($values vals))))))
             (($ $kargs args)
              ,(if (< (length vals) (length args))
                   term
                   (let ((vals (list-head vals (length args))))
                     (build-cps-term
-                      ($continue k ($values vals))))))))
-        (($ $continue k (and fun ($ $fun)))
-         ($continue k ,(elide-values fun)))
+                      ($continue k src ($values vals))))))))
+        (($ $continue k src (and fun ($ $fun)))
+         ($continue k src ,(elide-values fun)))
         (($ $continue)
          ,term)))
 
     (rewrite-cps-exp fun
-      (($ $fun meta free body)
-       ($fun meta free ,(visit-cont body))))))
+      (($ $fun src meta free body)
+       ($fun src meta free ,(visit-cont body))))))

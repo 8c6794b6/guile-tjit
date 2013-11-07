@@ -73,14 +73,14 @@
             print-dfa))
 
 (define (build-cont-table fun)
-  (fold-conts (lambda (k src cont table)
+  (fold-conts (lambda (k cont table)
                 (hashq-set! table k cont)
                 table)
               (make-hash-table)
               fun))
 
 (define (build-local-cont-table cont)
-  (fold-local-conts (lambda (k src cont table)
+  (fold-local-conts (lambda (k cont table)
                       (hashq-set! table k cont)
                       table)
                     (make-hash-table)
@@ -206,10 +206,10 @@
                                         (reachable-preds k-map block-preds))))
       (make-cfa k-map order preds)))
   (match fun
-    (($ $fun meta free
-        ($ $cont kentry src
+    (($ $fun src meta free
+        ($ $cont kentry
            (and entry
-                ($ $kentry self ($ $cont ktail _ tail) clauses))))
+                ($ $kentry self ($ $cont ktail tail) clauses))))
      (if reverse?
          (build-cfa ktail block-preds block-succs)
          (build-cfa kentry block-succs block-preds)))))
@@ -549,13 +549,13 @@
       (map (cut hashq-ref mapping <>)
            ((block-accessor blocks accessor) k))))
   (match fun
-    (($ $fun meta free
+    (($ $fun src meta free
         (and entry
-             ($ $cont kentry src ($ $kentry self ($ $cont ktail _ tail)))))
+             ($ $cont kentry ($ $kentry self ($ $cont ktail tail)))))
      (call-with-values (lambda () (make-variable-mapping (dfg-use-maps dfg)))
        (lambda (var-map nvars)
          (define (fold-all-conts f seed)
-           (fold-local-conts (lambda (k src cont seed) (f k seed))
+           (fold-local-conts (lambda (k cont seed) (f k seed))
                              seed entry))
          (let* ((blocks (dfg-blocks dfg))
                 (order (reverse-post-order ktail
@@ -662,7 +662,7 @@
     (define (recur exp)
       (visit exp exp-k))
     (match exp
-      (($ $letk (($ $cont k src cont) ...) body)
+      (($ $letk (($ $cont k cont) ...) body)
        ;; Set up recursive environment before visiting cont bodies.
        (for-each (lambda (cont k)
                    (declare-block! k cont exp-k))
@@ -688,7 +688,7 @@
        (for-each (cut visit-fun <> conts blocks use-maps global?) funs)
        (visit body exp-k))
 
-      (($ $continue k exp)
+      (($ $continue k src exp)
        (use-k! k)
        (match exp
          (($ $var sym)
@@ -726,10 +726,10 @@
          (_ #f)))))
 
   (match fun
-    (($ $fun meta free
-        ($ $cont kentry src
+    (($ $fun src meta free
+        ($ $cont kentry
            (and entry
-                ($ $kentry self ($ $cont ktail _ tail) clauses))))
+                ($ $kentry self ($ $cont ktail tail) clauses))))
      (declare-block! kentry entry #f 0)
      (add-def! #f self kentry)
 
@@ -737,8 +737,8 @@
 
      (for-each
       (match-lambda
-       (($ $cont kclause _
-           (and clause ($ $kclause arity ($ $cont kbody _ body))))
+       (($ $cont kclause
+           (and clause ($ $kclause arity ($ $cont kbody body))))
         (declare-block! kclause clause kentry)
         (link-blocks! kentry kclause)
 
@@ -811,7 +811,7 @@
 
 (define (call-expression call)
   (match call
-    (($ $continue k exp) exp)))
+    (($ $continue k src exp) exp)))
 
 (define (find-expression term)
   (call-expression (find-call term)))
@@ -827,7 +827,7 @@
   (match (find-defining-expression sym dfg)
     (($ $const val)
      (values #t val))
-    (($ $continue k ($ $void))
+    (($ $continue k src ($ $void))
      (values #t *unspecified*))
     (else
      (values #f #f))))

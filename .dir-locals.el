@@ -21,7 +21,7 @@
      (eval . (put '$letk               'scheme-indent-function 1))
      (eval . (put '$letk*              'scheme-indent-function 1))
      (eval . (put '$letconst           'scheme-indent-function 1))
-     (eval . (put '$continue           'scheme-indent-function 1))
+     (eval . (put '$continue           'scheme-indent-function 2))
      (eval . (put '$kargs              'scheme-indent-function 2))
      (eval . (put '$kentry             'scheme-indent-function 2))
      (eval . (put '$kclause            'scheme-indent-function 1))

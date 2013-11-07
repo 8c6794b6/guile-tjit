@@ -95,7 +95,7 @@
       ;; target continuation.  Otherwise return #f.
       (define (call-target use proc)
         (match (find-call (lookup-cont use cont-table))
-          (($ $continue k ($ $call proc* args))
+          (($ $continue k src ($ $call proc* args))
            (and (eq? proc proc*) (not (memq proc args)) (applicable? proc args)
                 k))
           (_ #f)))
@@ -141,7 +141,7 @@
                 ;; bail.
                 (($ $kentry self tail clauses)
                  (match clauses
-                   ((($ $cont _ _ ($ $kclause arity ($ $cont kargs))))
+                   ((($ $cont _ ($ $kclause arity ($ $cont kargs))))
                     kargs)
                    (_ #f)))
                 (_ scope)))))
@@ -168,15 +168,15 @@
 
     (define (visit-fun term)
       (match term
-        (($ $fun meta free body)
+        (($ $fun src meta free body)
          (visit-cont body))))
     (define (visit-cont cont)
       (match cont
-        (($ $cont sym src ($ $kargs _ _ body))
+        (($ $cont sym ($ $kargs _ _ body))
          (visit-term body sym))
-        (($ $cont sym src ($ $kentry self tail clauses))
+        (($ $cont sym ($ $kentry self tail clauses))
          (for-each visit-cont clauses))
-        (($ $cont sym src ($ $kclause arity body))
+        (($ $cont sym ($ $kclause arity body))
          (visit-cont body))
         (($ $cont)
          #t)))
@@ -199,7 +199,7 @@
                 (if (null? rec)
                     '()
                     (list rec)))
-               (((and elt (n s ($ $fun meta free ($ $cont kentry))))
+               (((and elt (n s ($ $fun src meta free ($ $cont kentry))))
                  . nsf)
                 (if (recursive? kentry)
                     (lp nsf (cons elt rec))
@@ -208,11 +208,11 @@
            (match component
              (((name sym fun) ...)
               (match fun
-                ((($ $fun meta free
-                     ($ $cont fun-k _
+                ((($ $fun src meta free
+                     ($ $cont fun-k
                         ($ $kentry self
-                           ($ $cont tail-k _ ($ $ktail))
-                           (($ $cont _ _ ($ $kclause arity body))
+                           ($ $cont tail-k ($ $ktail))
+                           (($ $cont _ ($ $kclause arity body))
                             ...))))
                   ...)
                  (unless (contify-funs term-k sym self tail-k arity body)
@@ -220,13 +220,13 @@
          (visit-term body term-k)
          (for-each visit-component
                    (split-components (map list names syms funs))))
-        (($ $continue k exp)
+        (($ $continue k src exp)
          (match exp
-           (($ $fun meta free
-               ($ $cont fun-k _
+           (($ $fun src meta free
+               ($ $cont fun-k
                   ($ $kentry self
-                     ($ $cont tail-k _ ($ $ktail))
-                     (($ $cont _ _ ($ $kclause arity body)) ...))))
+                     ($ $cont tail-k ($ $ktail))
+                     (($ $cont _ ($ $kclause arity body)) ...))))
             (if (and=> (bound-symbol k)
                        (lambda (sym)
                          (contify-fun term-k sym self tail-k arity body)))
@@ -238,7 +238,7 @@
     (values call-substs cont-substs fun-elisions cont-splices)))
 
 (define (apply-contification fun call-substs cont-substs fun-elisions cont-splices)
-  (define (contify-call proc args)
+  (define (contify-call src proc args)
     (and=> (assq-ref call-substs proc)
            (lambda (clauses)
              (let lp ((clauses clauses))
@@ -247,11 +247,11 @@
                  (((($ $arity req () #f () #f) . k) . clauses)
                   (if (= (length req) (length args))
                       (build-cps-term
-                        ($continue k
+                        ($continue k src
                           ($values args)))
                       (lp clauses)))
                  ((_ . clauses) (lp clauses)))))))
-  (define (continue k exp)
+  (define (continue k src exp)
     (define (lookup-return-cont k)
       (match (assq-ref cont-substs k)
         (#f k)
@@ -260,13 +260,13 @@
       ;; We are contifying this return.  It must be a call or a
       ;; primcall to values, return, or return-values.
       (if (eq? k k*)
-          (build-cps-term ($continue k ,exp))
+          (build-cps-term ($continue k src ,exp))
           (rewrite-cps-term exp
             (($ $primcall 'return (val))
-             ($continue k* ($primcall 'values (val))))
+             ($continue k* src ($primcall 'values (val))))
             (($ $values vals)
-             ($continue k* ($primcall 'values vals)))
-            (_ ($continue k* ,exp))))))
+             ($continue k* src ($primcall 'values vals)))
+            (_ ($continue k* src ,exp))))))
   (define (splice-continuations term-k term)
     (match (hashq-ref cont-splices term-k)
       (#f term)
@@ -283,19 +283,19 @@
               ,body)))))))
   (define (visit-fun term)
     (rewrite-cps-exp term
-      (($ $fun meta free body)
-       ($fun meta free ,(visit-cont body)))))
+      (($ $fun src meta free body)
+       ($fun src meta free ,(visit-cont body)))))
   (define (visit-cont cont)
     (rewrite-cps-cont cont
       (($ $cont (? (cut assq <> fun-elisions)))
        ;; This cont gets inlined in place of the $fun.
        ,#f)
-      (($ $cont sym src ($ $kargs names syms body))
-       (sym src ($kargs names syms ,(visit-term body sym))))
-      (($ $cont sym src ($ $kentry self tail clauses))
-       (sym src ($kentry self ,tail ,(map visit-cont clauses))))
-      (($ $cont sym src ($ $kclause arity body))
-       (sym src ($kclause ,arity ,(visit-cont body))))
+      (($ $cont sym ($ $kargs names syms body))
+       (sym ($kargs names syms ,(visit-term body sym))))
+      (($ $cont sym ($ $kentry self tail clauses))
+       (sym ($kentry self ,tail ,(map visit-cont clauses))))
+      (($ $cont sym ($ $kclause arity body))
+       (sym ($kclause ,arity ,(visit-cont body))))
       (($ $cont)
        ,cont)))
   (define (visit-term term term-k)
@@ -324,7 +324,7 @@
          (((names syms funs) ...)
           ($letrec names syms (map visit-fun funs)
                    ,(visit-term body term-k)))))
-      (($ $continue k exp)
+      (($ $continue k src exp)
        (splice-continuations
         term-k
         (match exp
@@ -335,11 +335,11 @@
                  (($ $kargs (_) (_) body)
                   (visit-term body k))))
             (else
-             (continue k (visit-fun exp)))))
+             (continue k src (visit-fun exp)))))
           (($ $call proc args)
-           (or (contify-call proc args)
-               (continue k exp)))
-          (_ (continue k exp)))))))
+           (or (contify-call src proc args)
+               (continue k src exp)))
+          (_ (continue k src exp)))))))
   (visit-fun fun))
 
 (define (contify fun)

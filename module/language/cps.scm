@@ -25,15 +25,15 @@
 ;;; and terms that call continuations.
 ;;;
 ;;; $letk binds a set of mutually recursive continuations, each one an
-;;; instance of $cont.  A $cont declares the name and source of a
-;;; continuation, and then contains as a subterm the particular
-;;; continuation instance: $kif for test continuations, $kargs for
-;;; continuations that bind values, etc.
+;;; instance of $cont.  A $cont declares the name of a continuation, and
+;;; then contains as a subterm the particular continuation instance:
+;;; $kif for test continuations, $kargs for continuations that bind
+;;; values, etc.
 ;;;
 ;;; $continue nodes call continuations.  The expression contained in the
 ;;; $continue node determines the value or values that are passed to the
 ;;; target continuation: $const to pass a constant value, $values to
-;;; pass multiple named values, etc.
+;;; pass multiple named values, etc.  $continue nodes also record the source at which 
 ;;;
 ;;; Additionally there is $letrec, a term that binds mutually recursive
 ;;; functions.  The contification pass will turn $letrec into $letk if
@@ -71,8 +71,8 @@
 ;;;     That's to say that a $fun can be matched like this:
 ;;;
 ;;;     (match f
-;;;       (($ $fun meta free
-;;;           ($ $cont kentry src
+;;;       (($ $fun src meta free
+;;;           ($ $cont kentry
 ;;;              ($ $kentry self ($ $cont ktail _ ($ $ktail))
 ;;;                 (($ $kclause arity
 ;;;                     ($ $cont kbody _ ($ $kargs names syms body)))
@@ -165,11 +165,11 @@
 
 ;; Terms.
 (define-cps-type $letk conts body)
-(define-cps-type $continue k exp)
+(define-cps-type $continue k src exp)
 (define-cps-type $letrec names syms funs body)
 
 ;; Continuations
-(define-cps-type $cont k src cont)
+(define-cps-type $cont k cont)
 (define-cps-type $kif kt kf)
 (define-cps-type $ktrunc arity k)
 (define-cps-type $kargs names syms body)
@@ -182,7 +182,7 @@
 (define-cps-type $void)
 (define-cps-type $const val)
 (define-cps-type $prim name)
-(define-cps-type $fun meta free body)
+(define-cps-type $fun src meta free body)
 (define-cps-type $call proc args)
 (define-cps-type $primcall name args)
 (define-cps-type $values args)
@@ -224,7 +224,7 @@
 (define-syntax build-cps-cont
   (syntax-rules (unquote)
     ((_ (unquote exp)) exp)
-    ((_ (k src cont)) (make-$cont k src (build-cont-body cont)))))
+    ((_ (k cont)) (make-$cont k (build-cont-body cont)))))
 
 (define-syntax build-cps-exp
   (syntax-rules (unquote
@@ -234,7 +234,8 @@
     ((_ ($void)) (make-$void))
     ((_ ($const val)) (make-$const val))
     ((_ ($prim name)) (make-$prim name))
-    ((_ ($fun meta free body)) (make-$fun meta free (build-cps-cont body)))
+    ((_ ($fun src meta free body))
+     (make-$fun src meta free (build-cps-cont body)))
     ((_ ($call proc (arg ...))) (make-$call proc (list arg ...)))
     ((_ ($call proc args)) (make-$call proc args))
     ((_ ($primcall name (arg ...))) (make-$primcall name (list arg ...)))
@@ -262,12 +263,14 @@
     ((_ ($letconst ((name sym val) tail ...) body))
      (let-gensyms (kconst)
        (build-cps-term
-         ($letk ((kconst #f ($kargs (name) (sym) ($letconst (tail ...) body))))
-           ($continue kconst ($const val))))))
+         ($letk ((kconst ($kargs (name) (sym) ($letconst (tail ...) body))))
+           ($continue kconst (let ((props (source-properties val)))
+                               (and (pair? props) props))
+             ($const val))))))
     ((_ ($letrec names gensyms funs body))
      (make-$letrec names gensyms funs (build-cps-term body)))
-    ((_ ($continue k exp))
-     (make-$continue k (build-cps-exp exp)))))
+    ((_ ($continue k src exp))
+     (make-$continue k src (build-cps-exp exp)))))
 
 (define-syntax-rule (rewrite-cps-term x (pat body) ...)
   (match x
@@ -287,20 +290,20 @@
     ;; Continuations.
     (('letconst k (name sym c) body)
      (build-cps-term
-       ($letk ((k (src exp) ($kargs (name) (sym)
-                              ,(parse-cps body))))
-         ($continue k ($const c)))))
+       ($letk ((k ($kargs (name) (sym)
+                    ,(parse-cps body))))
+         ($continue k (src exp) ($const c)))))
     (('let k (name sym val) body)
      (build-cps-term
-      ($letk ((k (src exp) ($kargs (name) (sym)
-                             ,(parse-cps body))))
+      ($letk ((k ($kargs (name) (sym)
+                   ,(parse-cps body))))
         ,(parse-cps val))))
     (('letk (cont ...) body)
      (build-cps-term
        ($letk ,(map parse-cps cont) ,(parse-cps body))))
     (('k sym body)
      (build-cps-cont
-       (sym (src exp) ,(parse-cps body))))
+       (sym ,(parse-cps body))))
     (('kif kt kf)
      (build-cont-body ($kif kt kf)))
     (('ktrunc req rest k)
@@ -322,7 +325,7 @@
 
     ;; Calls.
     (('continue k exp)
-     (build-cps-term ($continue k ,(parse-cps exp))))
+     (build-cps-term ($continue k (src exp) ,(parse-cps exp))))
     (('var sym)
      (build-cps-exp ($var sym)))
     (('void)
@@ -332,7 +335,7 @@
     (('prim name)
      (build-cps-exp ($prim name)))
     (('fun meta free body)
-     (build-cps-exp ($fun meta free ,(parse-cps body))))
+     (build-cps-exp ($fun (src exp) meta free ,(parse-cps body))))
     (('letrec ((name sym fun) ...) body)
      (build-cps-term
        ($letrec name sym (map parse-cps fun) ,(parse-cps body))))
@@ -350,16 +353,16 @@
 (define (unparse-cps exp)
   (match exp
     ;; Continuations.
-    (($ $letk (($ $cont k src ($ $kargs (name) (sym) body)))
-        ($ $continue k ($ $const c)))
+    (($ $letk (($ $cont k ($ $kargs (name) (sym) body)))
+        ($ $continue k src ($ $const c)))
      `(letconst ,k (,name ,sym ,c)
                 ,(unparse-cps body)))
-    (($ $letk (($ $cont k src ($ $kargs (name) (sym) body))) val)
+    (($ $letk (($ $cont k ($ $kargs (name) (sym) body))) val)
      `(let ,k (,name ,sym ,(unparse-cps val))
            ,(unparse-cps body)))
     (($ $letk conts body)
      `(letk ,(map unparse-cps conts) ,(unparse-cps body)))
-    (($ $cont sym src body)
+    (($ $cont sym body)
      `(k ,sym ,(unparse-cps body)))
     (($ $kif kt kf)
      `(kif ,kt ,kf))
@@ -377,7 +380,7 @@
      `(kclause (,req ,opt ,rest ,kw ,allow-other-keys?) ,(unparse-cps body)))
 
     ;; Calls.
-    (($ $continue k exp)
+    (($ $continue k src exp)
      `(continue ,k ,(unparse-cps exp)))
     (($ $var sym)
      `(var ,sym))
@@ -387,7 +390,7 @@
      `(const ,val))
     (($ $prim name)
      `(prim ,name))
-    (($ $fun meta free body)
+    (($ $fun src meta free body)
      `(fun ,meta ,free ,(unparse-cps body)))
     (($ $letrec names syms funs body)
      `(letrec ,(map (lambda (name sym fun)
@@ -408,8 +411,8 @@
 (define (fold-conts proc seed fun)
   (define (cont-folder cont seed)
     (match cont
-      (($ $cont k src cont)
-       (let ((seed (proc k src cont seed)))
+      (($ $cont k cont)
+       (let ((seed (proc k cont seed)))
          (match cont
            (($ $kargs names syms body)
             (term-folder body seed))
@@ -424,7 +427,7 @@
 
   (define (fun-folder fun seed)
     (match fun
-      (($ $fun meta free body)
+      (($ $fun src meta free body)
        (cont-folder body seed))))
 
   (define (term-folder term seed)
@@ -432,7 +435,7 @@
       (($ $letk conts body)
        (fold cont-folder (term-folder body seed) conts))
 
-      (($ $continue k exp)
+      (($ $continue k src exp)
        (match exp
          (($ $fun) (fun-folder exp seed))
          (_ seed)))
@@ -445,8 +448,8 @@
 (define (fold-local-conts proc seed cont)
   (define (cont-folder cont seed)
     (match cont
-      (($ $cont k src cont)
-       (let ((seed (proc k src cont seed)))
+      (($ $cont k cont)
+       (let ((seed (proc k cont seed)))
          (match cont
            (($ $kargs names syms body)
             (term-folder body seed))

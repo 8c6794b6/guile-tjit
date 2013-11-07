@@ -71,7 +71,7 @@
 
   (define (visit-clause clause k-env v-env)
     (match clause
-      (($ $cont kclause src*
+      (($ $cont kclause
           ($ $kclause 
              ($ $arity
                 ((? symbol? req) ...)
@@ -79,9 +79,7 @@
                 (and rest (or #f (? symbol?)))
                 (((? keyword? kw) (? symbol? kwname) (? symbol? kwsym)) ...)
                 (or #f #t))
-             ($ $cont kbody src (and body ($ $kargs names syms _)))))
-       (check-src src*)
-       (check-src src)
+             ($ $cont kbody (and body ($ $kargs names syms _)))))
        (for-each (lambda (sym)
                    (unless (memq sym syms)
                      (error "bad keyword sym" sym)))
@@ -98,9 +96,9 @@
 
   (define (visit-fun fun k-env v-env)
     (match fun
-      (($ $fun meta ((? symbol? free) ...)
-          ($ $cont kbody src
-             ($ $kentry (? symbol? self) ($ $cont ktail _ ($ $ktail)) clauses)))
+      (($ $fun src meta ((? symbol? free) ...)
+          ($ $cont kbody
+             ($ $kentry (? symbol? self) ($ $cont ktail ($ $ktail)) clauses)))
        (when (and meta (not (and (list? meta) (and-map pair? meta))))
          (error "meta should be alist" meta))
        (for-each (cut check-var <> v-env) free)
@@ -142,9 +140,8 @@
 
   (define (visit-term term k-env v-env)
     (match term
-      (($ $letk (($ $cont (? symbol? k) src cont) ...) body)
+      (($ $letk (($ $cont (? symbol? k) cont) ...) body)
        (let ((k-env (add-env k k-env)))
-         (for-each check-src src)
          (for-each (cut visit-cont-body <> k-env v-env) cont)
          (visit-term body k-env v-env)))
 
@@ -155,8 +152,9 @@
          (for-each (cut visit-fun <> k-env v-env) fun)
          (visit-term body k-env v-env)))
 
-      (($ $continue k exp)
+      (($ $continue k src exp)
        (check-var k k-env)
+       (check-src src)
        (visit-expression exp k-env v-env))
 
       (_

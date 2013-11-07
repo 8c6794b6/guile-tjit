@@ -63,8 +63,8 @@ values in the term."
       (let-gensyms (k* sym*)
         (receive (exp free) (k sym*)
           (values (build-cps-term
-                    ($letk ((k* #f ($kargs (sym*) (sym*) ,exp)))
-                      ($continue k* ($primcall 'free-ref (self sym)))))
+                    ($letk ((k* ($kargs (sym*) (sym*) ,exp)))
+                      ($continue k* #f ($primcall 'free-ref (self sym)))))
                   (cons sym free))))))
   
 (define (convert-free-vars syms self bound k)
@@ -88,13 +88,13 @@ performed, and @var{outer-bound} is the list of bound variables there."
   (fold (lambda (free idx body)
           (let-gensyms (k idxsym)
             (build-cps-term
-              ($letk ((k src ($kargs () () ,body)))
+              ($letk ((k ($kargs () () ,body)))
                 ,(convert-free-var
                   free outer-self outer-bound
                   (lambda (free)
                     (values (build-cps-term
                               ($letconst (('idx idxsym idx))
-                                ($continue k
+                                ($continue k src
                                   ($primcall 'free-set! (v idxsym free)))))
                             '())))))))
         body
@@ -123,19 +123,19 @@ convert functions to flat closures."
          (values (build-cps-term ($letk ,conts ,body))
                  (union free free*)))))
 
-    (($ $cont sym src ($ $kargs names syms body))
+    (($ $cont sym ($ $kargs names syms body))
      (receive (body free) (cc body self (append syms bound))
-       (values (build-cps-cont (sym src ($kargs names syms ,body)))
+       (values (build-cps-cont (sym ($kargs names syms ,body)))
                free)))
 
-    (($ $cont sym src ($ $kentry self tail clauses))
+    (($ $cont sym ($ $kentry self tail clauses))
      (receive (clauses free) (cc* clauses self (list self))
-       (values (build-cps-cont (sym src ($kentry self ,tail ,clauses)))
+       (values (build-cps-cont (sym ($kentry self ,tail ,clauses)))
                free)))
 
-    (($ $cont sym src ($ $kclause arity body))
+    (($ $cont sym ($ $kclause arity body))
      (receive (body free) (cc body self bound)
-       (values (build-cps-cont (sym src ($kclause ,arity ,body)))
+       (values (build-cps-cont (sym ($kclause ,arity ,body)))
                free)))
 
     (($ $cont)
@@ -153,76 +153,76 @@ convert functions to flat closures."
                   (free free))
            (match in
              (() (values (bindings body) free))
-             (((name sym ($ $fun meta () fun-body)) . in)
+             (((name sym ($ $fun src meta () fun-body)) . in)
               (receive (fun-body fun-free) (cc fun-body #f '())
                 (lp in
                     (lambda (body)
                       (let-gensyms (k)
                         (build-cps-term
-                          ($letk ((k #f ($kargs (name) (sym) ,(bindings body))))
-                            ($continue k
-                              ($fun meta fun-free ,fun-body))))))
-                    (init-closure #f sym fun-free self bound body)
+                          ($letk ((k ($kargs (name) (sym) ,(bindings body))))
+                            ($continue k src
+                              ($fun src meta fun-free ,fun-body))))))
+                    (init-closure src sym fun-free self bound body)
                     (union free (difference fun-free bound))))))))))
 
-    (($ $continue k ($ $var sym))
+    (($ $continue k src ($ $var sym))
      (convert-free-var sym self bound
                        (lambda (sym)
-                         (values (build-cps-term ($continue k ($var sym)))
+                         (values (build-cps-term ($continue k src ($var sym)))
                                  '()))))
 
-    (($ $continue k
+    (($ $continue k src
         (or ($ $void)
             ($ $const)
             ($ $prim)))
      (values exp '()))
 
-    (($ $continue k ($ $fun meta () body))
+    (($ $continue k src ($ $fun src* meta () body))
      (receive (body free) (cc body #f '())
        (match free
          (()
           (values (build-cps-term
-                    ($continue k ($fun meta free ,body)))
+                    ($continue k src ($fun src* meta free ,body)))
                   free))
          (_
           (values
            (let-gensyms (kinit v)
              (build-cps-term
-               ($letk ((kinit #f ($kargs (v) (v)
-                                   ,(init-closure #f v free self bound
-                                                  (build-cps-term
-                                                    ($continue k ($var v)))))))
-                 ($continue kinit ($fun meta free ,body)))))
+               ($letk ((kinit ($kargs (v) (v)
+                                ,(init-closure src v free self bound
+                                               (build-cps-term
+                                                 ($continue k src ($var v)))))))
+                 ($continue kinit src ($fun src* meta free ,body)))))
            (difference free bound))))))
 
-    (($ $continue k ($ $call proc args))
+    (($ $continue k src ($ $call proc args))
      (convert-free-vars (cons proc args) self bound
                         (match-lambda
                          ((proc . args)
                           (values (build-cps-term
-                                    ($continue k ($call proc args)))
+                                    ($continue k src ($call proc args)))
                                   '())))))
 
-    (($ $continue k ($ $primcall name args))
+    (($ $continue k src ($ $primcall name args))
      (convert-free-vars args self bound
                         (lambda (args)
                           (values (build-cps-term
-                                    ($continue k ($primcall name args)))
+                                    ($continue k src ($primcall name args)))
                                   '()))))
 
-    (($ $continue k ($ $values args))
+    (($ $continue k src ($ $values args))
      (convert-free-vars args self bound
                         (lambda (args)
                           (values (build-cps-term
-                                    ($continue k ($values args)))
+                                    ($continue k src ($values args)))
                                   '()))))
 
-    (($ $continue k ($ $prompt escape? tag handler pop))
+    (($ $continue k src ($ $prompt escape? tag handler pop))
      (convert-free-var
       tag self bound
       (lambda (tag)
         (values (build-cps-term
-                  ($continue k ($prompt escape? tag handler pop)))
+                  ($continue k src ($prompt escape? tag handler pop)))
                 '()))))
 
     (_ (error "what" exp))))
@@ -237,37 +237,38 @@ convert functions to flat closures."
     (rewrite-cps-term term
       (($ $letk conts body)
        ($letk ,(map visit-cont conts) ,(visit-term body)))
-      (($ $continue k ($ $primcall 'free-ref (closure sym)))
+      (($ $continue k src ($ $primcall 'free-ref (closure sym)))
        ,(let-gensyms (idx)
           (build-cps-term
             ($letconst (('idx idx (free-index sym)))
-              ($continue k ($primcall 'free-ref (closure idx)))))))
-      (($ $continue k ($ $fun meta free body))
-       ($continue k ($fun meta free ,(convert-to-indices body free))))
+              ($continue k src ($primcall 'free-ref (closure idx)))))))
+      (($ $continue k src ($ $fun src* meta free body))
+       ($continue k src
+         ($fun src* meta free ,(convert-to-indices body free))))
       (($ $continue)
        ,term)))
   (define (visit-cont cont)
     (rewrite-cps-cont cont
-      (($ $cont sym src ($ $kargs names syms body))
-       (sym src ($kargs names syms ,(visit-term body))))
-      (($ $cont sym src ($ $kclause arity body))
-       (sym src ($kclause ,arity ,(visit-cont body))))
+      (($ $cont sym ($ $kargs names syms body))
+       (sym ($kargs names syms ,(visit-term body))))
+      (($ $cont sym ($ $kclause arity body))
+       (sym ($kclause ,arity ,(visit-cont body))))
       ;; Other kinds of continuations don't bind values and don't have
       ;; bodies.
       (($ $cont)
        ,cont)))
 
   (rewrite-cps-cont body
-    (($ $cont sym src ($ $kentry self tail clauses))
-     (sym src ($kentry self ,tail ,(map visit-cont clauses))))))
+    (($ $cont sym ($ $kentry self tail clauses))
+     (sym ($kentry self ,tail ,(map visit-cont clauses))))))
 
 (define (convert-closures exp)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
 and allocate and initialize flat closures."
   (match exp
-    (($ $fun meta () body)
+    (($ $fun src meta () body)
      (receive (body free) (cc body #f '())
        (unless (null? free)
          (error "Expected no free vars in toplevel thunk" exp body free))
        (build-cps-exp
-         ($fun meta free ,(convert-to-indices body free)))))))
+         ($fun src meta free ,(convert-to-indices body free)))))))

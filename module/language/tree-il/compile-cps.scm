@@ -81,18 +81,18 @@
     (build-cps-term
       ($letconst (('name name-sym name)
                   ('bound? bound?-sym bound?))
-        ($letk ((kbox src ($kargs ('box) (box) ,(val-proc box))))
+        ($letk ((kbox ($kargs ('box) (box) ,(val-proc box))))
           ,(match (current-topbox-scope)
              (#f
               (build-cps-term
-                ($continue kbox
+                ($continue kbox src
                   ($primcall 'resolve
                              (name-sym bound?-sym)))))
              (scope
               (let-gensyms (scope-sym)
                 (build-cps-term
                   ($letconst (('scope scope-sym scope))
-                    ($continue kbox
+                    ($continue kbox src
                       ($primcall 'cached-toplevel-box
                                  (scope-sym name-sym bound?-sym)))))))))))))
 
@@ -103,8 +103,8 @@
                   ('name name-sym name)
                   ('public? public?-sym public?)
                   ('bound? bound?-sym bound?))
-        ($letk ((kbox src ($kargs ('box) (box) ,(val-proc box))))
-          ($continue kbox
+        ($letk ((kbox ($kargs ('box) (box) ,(val-proc box))))
+          ($continue kbox src
             ($primcall 'cached-module-box
                        (module-sym name-sym public?-sym bound?-sym))))))))
 
@@ -112,11 +112,11 @@
   (let-gensyms (module scope-sym kmodule)
     (build-cps-term
       ($letconst (('scope scope-sym scope))
-        ($letk ((kmodule src ($kargs ('module) (module)
-                               ($continue k
-                                 ($primcall 'cache-current-module!
-                                            (module scope-sym))))))
-          ($continue kmodule
+        ($letk ((kmodule ($kargs ('module) (module)
+                           ($continue k src
+                             ($primcall 'cache-current-module!
+                                        (module scope-sym))))))
+          ($continue kmodule src
             ($primcall 'current-module ())))))))
 
 (define (fold-formals proc seed arity gensyms inits)
@@ -162,8 +162,8 @@
   (let-gensyms (unbound ktest)
     (build-cps-term
       ($letconst (('unbound unbound (pointer->scm (make-pointer unbound-bits))))
-        ($letk ((ktest src ($kif kt kf)))
-          ($continue ktest
+        ($letk ((ktest ($kif kt kf)))
+          ($continue ktest src
             ($primcall 'eq? (sym unbound))))))))
 
 (define (init-default-value name sym subst init body)
@@ -174,19 +174,19 @@
          (if box?
              (let-gensyms (kbox phi)
                (build-cps-term
-                 ($letk ((kbox src ($kargs (name) (phi)
-                                     ($continue k ($primcall 'box (phi))))))
+                 ($letk ((kbox ($kargs (name) (phi)
+                                 ($continue k src ($primcall 'box (phi))))))
                    ,(make-body kbox))))
              (make-body k)))
        (let-gensyms (knext kbound kunbound)
          (build-cps-term
-           ($letk ((knext src ($kargs (name) (subst-sym) ,body)))
+           ($letk ((knext ($kargs (name) (subst-sym) ,body)))
              ,(maybe-box
                knext
                (lambda (k)
                  (build-cps-term
-                   ($letk ((kbound src ($kargs () () ($continue k ($var sym))))
-                           (kunbound src ($kargs () () ,(convert init k subst))))
+                   ($letk ((kbound ($kargs () () ($continue k src ($var sym))))
+                           (kunbound ($kargs () () ,(convert init k subst))))
                      ,(unbound? src sym kunbound kbound))))))))))))
 
 ;; exp k-name alist -> term
@@ -199,16 +199,15 @@
          ((box #t)
           (let-gensyms (kunboxed unboxed)
             (build-cps-term
-              ($letk ((kunboxed src ($kargs ('unboxed) (unboxed) ,(k unboxed))))
-                ($continue kunboxed ($primcall 'box-ref (box)))))))
+              ($letk ((kunboxed ($kargs ('unboxed) (unboxed) ,(k unboxed))))
+                ($continue kunboxed src ($primcall 'box-ref (box)))))))
          ((subst #f) (k subst))
          (#f (k sym))))
       (else
-       (let ((src (tree-il-src exp)))
-         (let-gensyms (karg arg)
-           (build-cps-term
-             ($letk ((karg src ($kargs ('arg) (arg) ,(k arg))))
-               ,(convert exp karg subst))))))))
+       (let-gensyms (karg arg)
+         (build-cps-term
+           ($letk ((karg ($kargs ('arg) (arg) ,(k arg))))
+             ,(convert exp karg subst)))))))
   ;; (exp ...) ((v-name ...) -> term) -> term
   (define (convert-args exps k)
     (match exps
@@ -224,25 +223,25 @@
       ((box #t)
        (let-gensyms (k)
          (build-cps-term
-           ($letk ((k #f ($kargs (name) (box) ,body)))
-             ($continue k ($primcall 'box (sym)))))))
+           ($letk ((k ($kargs (name) (box) ,body)))
+             ($continue k #f ($primcall 'box (sym)))))))
       (else body)))
 
   (match exp
     (($ <lexical-ref> src name sym)
      (match (assq-ref subst sym)
-       ((box #t) (build-cps-term ($continue k ($primcall 'box-ref (box)))))
-       ((subst #f) (build-cps-term ($continue k ($var subst))))
-       (#f (build-cps-term ($continue k ($var sym))))))
+       ((box #t) (build-cps-term ($continue k src ($primcall 'box-ref (box)))))
+       ((subst #f) (build-cps-term ($continue k src ($var subst))))
+       (#f (build-cps-term ($continue k src ($var sym))))))
 
     (($ <void> src)
-     (build-cps-term ($continue k ($void))))
+     (build-cps-term ($continue k src ($void))))
 
     (($ <const> src exp)
-     (build-cps-term ($continue k ($const exp))))
+     (build-cps-term ($continue k src ($const exp))))
 
     (($ <primitive-ref> src name)
-     (build-cps-term ($continue k ($prim name))))
+     (build-cps-term ($continue k src ($prim name))))
 
     (($ <lambda> fun-src meta body)
      (let ()
@@ -260,10 +259,8 @@
                (let-gensyms (kclause kargs)
                  (build-cps-cont
                    (kclause
-                    src
                     ($kclause ,arity
                       (kargs
-                       src
                        ($kargs names gensyms
                          ,(fold-formals
                            (lambda (name sym init body)
@@ -276,15 +273,13 @@
        (if (current-topbox-scope)
            (let-gensyms (kentry self ktail)
              (build-cps-term
-               ($continue k
-                 ($fun meta '()
-                   (kentry fun-src
-                           ($kentry self (ktail #f ($ktail))
-                                    ,(convert-clauses body ktail)))))))
+               ($continue k fun-src
+                 ($fun fun-src meta '()
+                       (kentry ($kentry self (ktail ($ktail))
+                                 ,(convert-clauses body ktail)))))))
            (let-gensyms (scope kscope)
              (build-cps-term
-               ($letk ((kscope fun-src
-                               ($kargs () ()
+               ($letk ((kscope ($kargs () ()
                                  ,(parameterize ((current-topbox-scope scope))
                                     (convert exp k subst)))))
                  ,(capture-toplevel-scope fun-src scope kscope)))))))
@@ -293,7 +288,7 @@
      (module-box
       src mod name public? #t
       (lambda (box)
-        (build-cps-term ($continue k ($primcall 'box-ref (box)))))))
+        (build-cps-term ($continue k src ($primcall 'box-ref (box)))))))
 
     (($ <module-set> src mod name public? exp)
      (convert-arg exp
@@ -301,13 +296,14 @@
          (module-box
           src mod name public? #f
           (lambda (box)
-            (build-cps-term ($continue k ($primcall 'box-set! (box val)))))))))
+            (build-cps-term
+              ($continue k src ($primcall 'box-set! (box val)))))))))
 
     (($ <toplevel-ref> src name)
      (toplevel-box
       src name #t
       (lambda (box)
-        (build-cps-term ($continue k ($primcall 'box-ref (box)))))))
+        (build-cps-term ($continue k src ($primcall 'box-ref (box)))))))
 
     (($ <toplevel-set> src name exp)
      (convert-arg exp
@@ -315,7 +311,8 @@
          (toplevel-box
           src name #f
           (lambda (box)
-            (build-cps-term ($continue k ($primcall 'box-set! (box val)))))))))
+            (build-cps-term
+              ($continue k src ($primcall 'box-set! (box val)))))))))
 
     (($ <toplevel-define> src name exp)
      (convert-arg exp
@@ -323,13 +320,13 @@
          (let-gensyms (kname name-sym)
            (build-cps-term
              ($letconst (('name name-sym name))
-               ($continue k ($primcall 'define! (name-sym val)))))))))
+               ($continue k src ($primcall 'define! (name-sym val)))))))))
 
     (($ <call> src proc args)
      (convert-args (cons proc args)
        (match-lambda
         ((proc . args)
-         (build-cps-term ($continue k ($call proc args)))))))
+         (build-cps-term ($continue k src ($call proc args)))))))
 
     (($ <primcall> src name args)
      (cond
@@ -389,22 +386,21 @@
          (match args
            (()
             (build-cps-term
-              ($continue k ($const '()))))
+              ($continue k src ($const '()))))
            ((arg . args)
             (let-gensyms (ktail tail)
               (build-cps-term
-                ($letk ((ktail src
-                               ($kargs ('tail) (tail)
+                ($letk ((ktail ($kargs ('tail) (tail)
                                  ,(convert-arg arg
                                     (lambda (head)
                                       (build-cps-term
-                                        ($continue k
+                                        ($continue k src
                                           ($primcall 'cons (head tail)))))))))
                   ,(lp args ktail))))))))
       (else
        (convert-args args
          (lambda (args)
-           (build-cps-term ($continue k ($primcall name args))))))))
+           (build-cps-term ($continue k src ($primcall name args))))))))
 
     ;; Prompts with inline handlers.
     (($ <prompt> src escape-only? tag body
@@ -427,42 +423,38 @@
          (let ((hnames (append hreq (if hrest (list hrest) '()))))
            (let-gensyms (khargs khbody kret kprim prim kpop krest vals kbody)
              (build-cps-term
-               ($letk* ((khbody hsrc ($kargs hnames hsyms
-                                       ,(fold box-bound-var
-                                              (convert hbody k subst)
-                                              hnames hsyms)))
-                        (khargs hsrc ($ktrunc hreq hrest khbody))
-                        (kpop src
-                              ($kargs ('rest) (vals)
+               ;; FIXME: Attach hsrc to $ktrunc.
+               ($letk* ((khbody ($kargs hnames hsyms
+                                  ,(fold box-bound-var
+                                         (convert hbody k subst)
+                                         hnames hsyms)))
+                        (khargs ($ktrunc hreq hrest khbody))
+                        (kpop ($kargs ('rest) (vals)
                                 ($letk ((kret
-                                         src
                                          ($kargs () ()
                                            ($letk ((kprim
-                                                    src
                                                     ($kargs ('prim) (prim)
-                                                      ($continue k
+                                                      ($continue k src
                                                         ($primcall 'apply
                                                                    (prim vals))))))
-                                             ($continue kprim
+                                             ($continue kprim src
                                                ($prim 'values))))))
-                                  ($continue kret
+                                  ($continue kret src
                                     ($primcall 'unwind ())))))
-                        (krest src ($ktrunc '() 'rest kpop)))
+                        (krest ($ktrunc '() 'rest kpop)))
                  ,(if escape-only?
                       (build-cps-term
-                        ($letk ((kbody (tree-il-src body) 
-                                       ($kargs () ()
+                        ($letk ((kbody ($kargs () ()
                                          ,(convert body krest subst))))
-                          ($continue kbody ($prompt #t tag khargs kpop))))
+                          ($continue kbody src ($prompt #t tag khargs kpop))))
                       (convert-arg body
                         (lambda (thunk)
                           (build-cps-term
-                            ($letk ((kbody (tree-il-src body) 
-                                           ($kargs () ()
-                                             ($continue krest
+                            ($letk ((kbody ($kargs () ()
+                                             ($continue krest (tree-il-src body)
                                                ($primcall 'call-thunk/no-inline
                                                           (thunk))))))
-                              ($continue kbody
+                              ($continue kbody (tree-il-src body)
                                 ($prompt #f tag khargs kpop))))))))))))))
 
     ;; Eta-convert prompts without inline handlers.
@@ -503,7 +495,8 @@
      (convert-args (cons tag args)
        (lambda (args*)
          (build-cps-term
-           ($continue k ($primcall 'abort-to-prompt args*))))))
+           ($continue k src
+             ($primcall 'abort-to-prompt args*))))))
 
     (($ <abort> src tag args tail)
      (convert-args (append (list (make-primitive-ref #f 'abort-to-prompt)
@@ -512,24 +505,24 @@
                            (list tail))
        (lambda (args*)
          (build-cps-term
-           ($continue k ($primcall 'apply args*))))))
+           ($continue k src ($primcall 'apply args*))))))
 
     (($ <conditional> src test consequent alternate)
      (let-gensyms (kif kt kf)
        (build-cps-term
-         ($letk* ((kt (tree-il-src consequent) ($kargs () ()
-                                                 ,(convert consequent k subst)))
-                  (kf (tree-il-src alternate) ($kargs () ()
-                                                ,(convert alternate k subst)))
-                  (kif src ($kif kt kf)))
+         ($letk* ((kt ($kargs () () ,(convert consequent k subst)))
+                  (kf ($kargs () () ,(convert alternate k subst)))
+                  (kif ($kif kt kf)))
            ,(match test
               (($ <primcall> src (? branching-primitive? name) args)
                (convert-args args
                  (lambda (args)
-                   (build-cps-term ($continue kif ($primcall name args))))))
+                   (build-cps-term
+                     ($continue kif src ($primcall name args))))))
               (_ (convert-arg test
                    (lambda (test)
-                     (build-cps-term ($continue kif ($var test)))))))))))
+                     (build-cps-term
+                       ($continue kif src ($var test)))))))))))
 
     (($ <lexical-set> src name gensym exp)
      (convert-arg exp
@@ -537,14 +530,14 @@
          (match (assq-ref subst gensym)
            ((box #t)
             (build-cps-term
-              ($continue k ($primcall 'box-set! (box exp)))))))))
+              ($continue k src ($primcall 'box-set! (box exp)))))))))
 
     (($ <seq> src head tail)
      (let-gensyms (ktrunc kseq)
        (build-cps-term
-         ($letk* ((kseq (tree-il-src tail) ($kargs () ()
-                                             ,(convert tail k subst)))
-                  (ktrunc src ($ktrunc '() #f kseq)))
+         ($letk* ((kseq ($kargs () ()
+                          ,(convert tail k subst)))
+                  (ktrunc ($ktrunc '() #f kseq)))
            ,(convert head ktrunc subst)))))
 
     (($ <let> src names syms vals body)
@@ -554,9 +547,9 @@
          (((name . names) (sym . syms) (val . vals))
           (let-gensyms (klet)
             (build-cps-term
-              ($letk ((klet src ($kargs (name) (sym)
-                                  ,(box-bound-var name sym
-                                                  (lp names syms vals)))))
+              ($letk ((klet ($kargs (name) (sym)
+                              ,(box-bound-var name sym
+                                              (lp names syms vals)))))
                 ,(convert val klet subst))))))))
 
     (($ <fix> src names gensyms funs body)
@@ -568,15 +561,15 @@
                       gensyms
                       (map (lambda (fun)
                              (match (convert fun k subst)
-                               (($ $continue _ (and fun ($ $fun)))
+                               (($ $continue _ _ (and fun ($ $fun)))
                                 fun)))
                            funs)
                       ,(convert body k subst))))
          (let-gensyms (scope kscope)
            (build-cps-term
-             ($letk ((kscope src ($kargs () ()
-                                   ,(parameterize ((current-topbox-scope scope))
-                                      (convert exp k subst)))))
+             ($letk ((kscope ($kargs () ()
+                               ,(parameterize ((current-topbox-scope scope))
+                                  (convert exp k subst)))))
                ,(capture-toplevel-scope src scope kscope))))))
 
     (($ <let-values> src exp
@@ -584,11 +577,11 @@
      (let ((names (append req (if rest (list rest) '()))))
        (let-gensyms (ktrunc kargs)
          (build-cps-term
-           ($letk* ((kargs src ($kargs names syms
-                                 ,(fold box-bound-var
-                                        (convert body k subst)
-                                        names syms)))
-                    (ktrunc src ($ktrunc req rest kargs)))
+           ($letk* ((kargs ($kargs names syms
+                             ,(fold box-bound-var
+                                    (convert body k subst)
+                                    names syms)))
+                    (ktrunc ($ktrunc req rest kargs)))
              ,(convert exp ktrunc subst))))))))
 
 (define (build-subst exp)
@@ -628,16 +621,14 @@ indicates that the replacement variable is in a box."
   (let ((src (tree-il-src exp)))
     (let-gensyms (kinit init ktail kclause kbody)
       (build-cps-exp
-        ($fun '() '()
-          (kinit src
-                 ($kentry init
-                   (ktail #f ($ktail))
-                   ((kclause src
-                            ($kclause ('() '() #f '() #f)
-                              (kbody src
-                                     ($kargs () ()
-                                       ,(convert exp ktail
-                                                 (build-subst exp))))))))))))))
+        ($fun src '() '()
+          (kinit ($kentry init
+                   (ktail ($ktail))
+                   ((kclause
+                     ($kclause ('() '() #f '() #f)
+                       (kbody ($kargs () ()
+                                ,(convert exp ktail
+                                          (build-subst exp))))))))))))))
 
 (define *comp-module* (make-fluid))
 

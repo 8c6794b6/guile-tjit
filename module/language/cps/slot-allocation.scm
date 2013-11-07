@@ -235,7 +235,7 @@ are comparable with eqv?.  A tmp slot may be used."
     (define nlocals (compute-slot live-slots #f))
     (define nargs
       (match clause
-        (($ $cont _ _ ($ $kclause _ ($ $cont _ _ ($ $kargs names syms))))
+        (($ $cont _ ($ $kclause _ ($ $cont _ ($ $kargs names syms))))
          (length syms))))
 
     (define (allocate! sym k hint live-slots)
@@ -310,7 +310,7 @@ are comparable with eqv?.  A tmp slot may be used."
             live-slots))
 
       (match cont
-        (($ $kclause arity ($ $cont k src body))
+        (($ $kclause arity ($ $cont k body))
          (visit-cont body k live-slots))
 
         (($ $kargs names syms body)
@@ -328,12 +328,12 @@ are comparable with eqv?.  A tmp slot may be used."
         (($ $letk conts body)
          (let ((live-slots (visit-term body label live-slots)))
            (for-each (match-lambda
-                      (($ $cont k src cont)
+                      (($ $cont k cont)
                        (visit-cont cont k live-slots)))
                      conts))
          live-slots)
 
-        (($ $continue k exp)
+        (($ $continue k src exp)
          (visit-exp exp label k live-slots))))
 
     (define (visit-exp exp label k live-slots)
@@ -420,12 +420,12 @@ are comparable with eqv?.  A tmp slot may be used."
         (_ live-slots)))
 
     (match clause
-      (($ $cont k _ body)
+      (($ $cont k body)
        (visit-cont body k live-slots)
        (hashq-set! allocation k nlocals))))
 
   (match fun
-    (($ $fun meta free ($ $cont k _ ($ $kentry self tail clauses)))
+    (($ $fun src meta free ($ $cont k ($ $kentry self tail clauses)))
      (let* ((dfa (compute-live-variables fun dfg))
             (allocation (make-hash-table))
             (slots (make-vector (dfa-var-count dfa) #f))
