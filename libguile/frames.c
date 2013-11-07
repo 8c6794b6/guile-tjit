@@ -142,7 +142,7 @@ SCM_DEFINE (scm_frame_num_locals, "frame-num-locals", 1, 0, 0,
     /* The frame size of an RTL program is fixed, except in the case of
        passing a wrong number of arguments to the program.  So we do
        need to use an SP for determining the number of locals.  */
-    return scm_from_uint32 (sp + 1 - p);
+    return scm_from_ptrdiff_t (sp + 1 - p);
 
   sp = SCM_VM_FRAME_SP (frame);
   p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));
@@ -234,7 +234,7 @@ SCM_DEFINE (scm_frame_address, "frame-address", 1, 0, 0,
 #define FUNC_NAME s_scm_frame_address
 {
   SCM_VALIDATE_VM_FRAME (1, frame);
-  return scm_from_unsigned_integer ((scm_t_bits) SCM_VM_FRAME_FP (frame));
+  return scm_from_uintptr_t ((scm_t_uintptr) SCM_VM_FRAME_FP (frame));
 }
 #undef FUNC_NAME
 
@@ -245,7 +245,7 @@ SCM_DEFINE (scm_frame_stack_pointer, "frame-stack-pointer", 1, 0, 0,
 {
   SCM_VALIDATE_VM_FRAME (1, frame);
 
-  return scm_from_unsigned_integer ((scm_t_bits) SCM_VM_FRAME_SP (frame));
+  return scm_from_uintptr_t ((scm_t_uintptr) SCM_VM_FRAME_SP (frame));
 }
 #undef FUNC_NAME
 
@@ -279,9 +279,8 @@ SCM_DEFINE (scm_frame_return_address, "frame-return-address", 1, 0, 0,
 #define FUNC_NAME s_scm_frame_return_address
 {
   SCM_VALIDATE_VM_FRAME (1, frame);
-  return scm_from_unsigned_integer ((scm_t_bits)
-                                    (SCM_FRAME_RETURN_ADDRESS
-                                     (SCM_VM_FRAME_FP (frame))));
+  return scm_from_uintptr_t ((scm_t_uintptr) (SCM_FRAME_RETURN_ADDRESS
+                                              (SCM_VM_FRAME_FP (frame))));
 }
 #undef FUNC_NAME
 
@@ -291,9 +290,9 @@ SCM_DEFINE (scm_frame_mv_return_address, "frame-mv-return-address", 1, 0, 0,
 #define FUNC_NAME s_scm_frame_mv_return_address
 {
   SCM_VALIDATE_VM_FRAME (1, frame);
-  return scm_from_unsigned_integer ((scm_t_bits)
-                                    (SCM_FRAME_MV_RETURN_ADDRESS
-                                     (SCM_VM_FRAME_FP (frame))));
+  return scm_from_uintptr_t ((scm_t_uintptr)
+                             (SCM_FRAME_MV_RETURN_ADDRESS
+                              (SCM_VM_FRAME_FP (frame))));
 }
 #undef FUNC_NAME
 
@@ -304,8 +303,8 @@ SCM_DEFINE (scm_frame_dynamic_link, "frame-dynamic-link", 1, 0, 0,
 {
   SCM_VALIDATE_VM_FRAME (1, frame);
   /* fixme: munge fp if holder is a continuation */
-  return scm_from_ulong
-    ((unsigned long)
+  return scm_from_uintptr_t
+    ((scm_t_uintptr)
      RELOC (frame,
             SCM_FRAME_DYNAMIC_LINK (SCM_VM_FRAME_FP (frame))));
 }

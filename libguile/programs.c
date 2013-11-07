@@ -106,8 +106,7 @@ SCM_DEFINE (scm_rtl_program_code, "rtl-program-code", 1, 0, 0,
 {
   SCM_VALIDATE_RTL_PROGRAM (1, program);
 
-  /* FIXME: we need scm_from_uintptr ().  */
-  return scm_from_size_t ((size_t) SCM_RTL_PROGRAM_CODE (program));
+  return scm_from_uintptr_t ((scm_t_uintptr) SCM_RTL_PROGRAM_CODE (program));
 }
 #undef FUNC_NAME
 
