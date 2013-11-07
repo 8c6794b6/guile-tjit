@@ -1761,15 +1761,18 @@ it will be added to the GC roots at runtime."
            ;; uleb128 for each of directory the file was found in, the
            ;; modification time, and the file's size in bytes.  We pass
            ;; zero for the latter three fields.
-           (vlist-for-each (match-lambda
-                            ((file . code)
-                             (put-bytevector line-port (string->utf8 file))
-                             (put-u8 line-port 0)
-                             (put-uleb128 line-port 0) ; directory
-                             (put-uleb128 line-port 0) ; mtime
-                             (put-uleb128 line-port 0) ; size
-                             ))
-                           files)
+           (vlist-fold-right
+            (lambda (pair seed)
+              (match pair
+                ((file . code)
+                 (put-bytevector line-port (string->utf8 file))
+                 (put-u8 line-port 0)
+                 (put-uleb128 line-port 0) ; directory
+                 (put-uleb128 line-port 0) ; mtime
+                 (put-uleb128 line-port 0))) ; size
+              seed)
+            #f
+            files)
            (put-u8 line-port 0) ; 0 byte terminating file list.
 
            ;; Patch prologue length.
