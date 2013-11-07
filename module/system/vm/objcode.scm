@@ -23,7 +23,7 @@
             bytecode->objcode objcode->bytecode
             load-thunk-from-file load-thunk-from-memory
             word-size byte-order
-            find-mapped-elf-image))
+            find-mapped-elf-image all-mapped-elf-images))
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_objcodes")

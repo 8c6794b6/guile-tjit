@@ -741,6 +741,27 @@ scm_find_mapped_elf_image (SCM ip)
   return result;
 }
 
+static SCM
+scm_all_mapped_elf_images (void)
+{
+  SCM result = SCM_EOL;
+
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
+  {
+    size_t n;
+    for (n = 0; n < mapped_elf_images_count; n++)
+      {
+        signed char *data = (signed char *) mapped_elf_images[n].start;
+        size_t len = mapped_elf_images[n].end - mapped_elf_images[n].start;
+        result = scm_cons (scm_c_take_gc_bytevector (data, len, SCM_BOOL_F),
+                           result);
+      }
+  }
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
+
+  return result;
+}
+
 
 /*
  * Scheme interface
@@ -881,6 +902,8 @@ scm_init_objcodes (void)
 
   scm_c_define_gsubr ("find-mapped-elf-image", 1, 0, 0,
                       (scm_t_subr) scm_find_mapped_elf_image);
+  scm_c_define_gsubr ("all-mapped-elf-images", 0, 0, 0,
+                      (scm_t_subr) scm_all_mapped_elf_images);
 
   scm_c_define ("word-size", scm_from_size_t (sizeof(SCM)));
   scm_c_define ("byte-order", scm_from_uint16 (SCM_BYTE_ORDER));

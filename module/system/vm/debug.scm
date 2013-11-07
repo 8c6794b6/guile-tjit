@@ -31,6 +31,7 @@
   #:use-module (system foreign)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 match)
+  #:use-module ((srfi srfi-1) #:select (fold))
   #:use-module (srfi srfi-9)
   #:export (debug-context-image
             debug-context-base
@@ -55,6 +56,7 @@
             arity-is-case-lambda?
 
             debug-context-from-image
+            fold-all-debug-contexts
             for-each-elf-symbol
             find-debug-context
             find-program-debug-info
@@ -74,7 +76,8 @@
             source-line-for-user
             source-column
             find-source-for-addr
-            find-program-sources))
+            find-program-sources
+            fold-source-locations))
 
 ;;; A compiled procedure comes from a specific loaded ELF image.  A
 ;;; debug context identifies that image.
@@ -152,6 +155,15 @@ offset from the beginning of the ELF image in 32-bit units."
                      (or (elf-section-by-name elf ".rtl-text")
                          (error "ELF object has no text section")))))
     (make-debug-context elf base text-base)))
+
+(define (fold-all-debug-contexts proc seed)
+  "Fold @var{proc} over debug contexts corresponding to all images that
+are mapped at the time this procedure is called.  Any images mapped
+during the fold are omitted."
+  (fold (lambda (image seed)
+          (proc (debug-context-from-image image) seed))
+        seed
+        (all-mapped-elf-images)))
 
 (define (find-debug-context addr)
   "Find and return the debugging context corresponding to the ELF image
@@ -543,3 +555,34 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
                        (reverse sources))))))
             (else '())))))
    (else '())))
+
+(define* (fold-source-locations proc seed context)
+  "Fold @var{proc} over all source locations in @var{context}.
+@var{proc} will be called with two arguments: the source object and the
+seed."
+  (cond
+   ((and context
+         (false-if-exception
+          (elf->dwarf-context (debug-context-elf context))))
+    =>
+    (lambda (dwarf-ctx)
+      (let ((base (debug-context-base context)))
+        (fold
+         (lambda (die seed)
+           (cond
+            ((die-line-prog die)
+             =>
+             (lambda (prog)
+               (let lp ((seed seed))
+                 (call-with-values
+                     (lambda () (line-prog-advance prog))
+                   (lambda (pc* file line col)
+                     (if pc*
+                         (lp
+                          (proc (make-source/dwarf (+ pc* base) file line col)
+                                seed))
+                         seed))))))
+            (else seed)))
+         seed
+         (read-die-roots dwarf-ctx)))))
+   (else seed)))
