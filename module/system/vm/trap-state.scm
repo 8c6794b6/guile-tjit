@@ -1,6 +1,6 @@
 ;;; trap-state.scm: a set of traps
 
-;; Copyright (C)  2010 Free Software Foundation, Inc.
+;; Copyright (C)  2010, 2013 Free Software Foundation, Inc.
 
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -275,13 +275,13 @@
             (and (<= (frame-address f) fp)
                  (predicate f))))))
   
-  (let* ((source (frame-next-source frame))
+  (let* ((source (frame-source frame))
          (idx (next-ephemeral-index! trap-state))
          (trap (trap-matching-instructions
                 (wrap-predicate-according-to-into
                  (if instruction?
                      (lambda (f) #t)
-                     (lambda (f) (not (equal? (frame-next-source f) source)))))
+                     (lambda (f) (not (equal? (frame-source f) source)))))
                 (ephemeral-handler-for-index trap-state idx handler))))
     (add-trap-wrapper!
      trap-state

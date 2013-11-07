@@ -1,6 +1,6 @@
 ;;; Error handling in the REPL
 
-;; Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -72,7 +72,7 @@
              (error-msg (if trap-idx
                             (format #f "Trap ~d: ~a" trap-idx trap-name)
                             trap-name))
-             (debug (make-debug stack 0 error-msg #t)))
+             (debug (make-debug stack 0 error-msg)))
         (with-saved-ports
          (lambda ()
            (if trap-idx
@@ -138,7 +138,7 @@
                               ;; the start-stack thunk has its own frame too.
                               0 (and tag 1)))
                       (error-msg (error-string stack key args))
-                      (debug (make-debug stack 0 error-msg #f)))
+                      (debug (make-debug stack 0 error-msg)))
                  (with-saved-ports
                   (lambda ()
                     (format #t "~a~%" error-msg)

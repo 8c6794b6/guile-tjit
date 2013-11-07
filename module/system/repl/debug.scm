@@ -1,6 +1,6 @@
 ;;; Guile VM debugging facilities
 
-;;; Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -31,7 +31,7 @@
   #:use-module (system vm program)
   #:export (<debug>
             make-debug debug?
-            debug-frames debug-index debug-error-message debug-for-trap?
+            debug-frames debug-index debug-error-message
             terminal-width
             print-registers print-locals print-frame print-frames frame->module
             stack->vector narrow-stack->vector
@@ -55,7 +55,7 @@
 ;;; accessors, and provides some helper functions.
 ;;;
 
-(define-record <debug> frames index error-message for-trap?)
+(define-record <debug> frames index error-message)
 
 
 
@@ -125,7 +125,7 @@
     (if source
         (or (source:file source) "current input")
         "unknown file"))
-  (let* ((source ((if next-source? frame-next-source frame-source) frame))
+  (let* ((source (frame-source frame))
          (file (source:pretty-file source))
          (line (and=> source source:line-for-user))
          (col (and=> source source:column)))
@@ -141,7 +141,7 @@
 (define* (print-frames frames
                        #:optional (port (current-output-port))
                        #:key (width (terminal-width)) (full? #f)
-                       (forward? #f) count for-trap?)
+                       (forward? #f) count)
   (let* ((len (vector-length frames))
          (lower-idx (if (or (not count) (positive? count))
                         0
@@ -155,12 +155,9 @@
       (if (<= lower-idx i upper-idx)
           (let* ((frame (vector-ref frames i)))
             (print-frame frame port #:index i #:width width #:full? full?
-                         #:last-source last-source
-                         #:next-source? (and (zero? i) for-trap?))
+                         #:last-source last-source)
             (lp (+ i inc)
-                (if (and (zero? i) for-trap?)
-                    (frame-next-source frame)
-                    (frame-source frame))))))))
+                (frame-source frame)))))))
 
 ;; Ideally here we would have something much more syntactic, in that a set! to a
 ;; local var that is not settable would raise an error, and export etc forms
