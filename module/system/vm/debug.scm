@@ -272,12 +272,18 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 (define (is-case-lambda? flags)   (not (zero? (logand flags (ash 1 3)))))
 
 (define (arity-low-pc arity)
-  (arity-low-pc* (elf-bytes (debug-context-elf (arity-context arity)))
-                 (arity-header-offset arity)))
+  (let ((ctx (arity-context arity)))
+    (+ (debug-context-base ctx)
+       (debug-context-text-base ctx)
+       (arity-low-pc* (elf-bytes (debug-context-elf ctx))
+                      (arity-header-offset arity)))))
 
 (define (arity-high-pc arity)
-  (arity-high-pc* (elf-bytes (debug-context-elf (arity-context arity)))
-                  (arity-header-offset arity)))
+  (let ((ctx (arity-context arity)))
+    (+ (debug-context-base ctx)
+       (debug-context-text-base ctx)
+       (arity-high-pc* (elf-bytes (debug-context-elf ctx))
+                       (arity-header-offset arity)))))
 
 (define (arity-nreq arity)
   (arity-nreq* (elf-bytes (debug-context-elf (arity-context arity)))
@@ -352,9 +358,9 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
     (let lp ((pos headers-start))
       (cond
        ((>= pos headers-end) #f)
-       ((< text-offset (* (arity-low-pc* bv pos) 4))
+       ((< text-offset (arity-low-pc* bv pos))
         #f)
-       ((<= (* (arity-high-pc* bv pos) 4) text-offset)
+       ((<= (arity-high-pc* bv pos) text-offset)
         (lp (+ pos arity-header-len)))
        (else
         (make-arity context base pos))))))

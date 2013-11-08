@@ -55,7 +55,7 @@
 
 
 SCM_INTERNAL int scm_i_primitive_arity (SCM subr, int *req, int *opt, int *rest);
-SCM_INTERNAL int scm_i_primitive_call_ip (SCM subr);
+SCM_INTERNAL scm_t_uintptr scm_i_primitive_call_ip (SCM subr);
 
 SCM_API SCM scm_c_make_gsubr (const char *name,
 			      int req, int opt, int rst, scm_t_subr fcn);

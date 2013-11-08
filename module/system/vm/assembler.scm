@@ -1380,8 +1380,8 @@ it will be added to the GC roots at runtime."
 
 (define (write-arity-headers metas bv endianness)
   (define (write-arity-header* pos low-pc high-pc flags nreq nopt)
-    (bytevector-u32-set! bv pos low-pc endianness)
-    (bytevector-u32-set! bv (+ pos 4) high-pc endianness)
+    (bytevector-u32-set! bv pos (* low-pc 4) endianness)
+    (bytevector-u32-set! bv (+ pos 4) (* high-pc 4) endianness)
     (bytevector-u32-set! bv (+ pos 8) 0 endianness) ; offset
     (bytevector-u32-set! bv (+ pos 12) flags endianness)
     (bytevector-u32-set! bv (+ pos 16) nreq endianness)

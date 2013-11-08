@@ -248,7 +248,7 @@ SCM_DEFINE (scm_primitive_call_ip, "primitive-call-ip", 1, 0, 0,
 {
   SCM_MAKE_VALIDATE (1, prim, PRIMITIVE_P);
 
-  return scm_from_int (scm_i_primitive_call_ip (prim));
+  return scm_from_uintptr_t (scm_i_primitive_call_ip (prim));
 }
 #undef FUNC_NAME
 

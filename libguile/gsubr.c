@@ -286,7 +286,7 @@ scm_i_primitive_arity (SCM prim, int *req, int *opt, int *rest)
   return 1;
 }
 
-int
+scm_t_uintptr
 scm_i_primitive_call_ip (SCM subr)
 {
   const scm_t_uint32 *code = SCM_RTL_PROGRAM_CODE (subr);
@@ -294,7 +294,7 @@ scm_i_primitive_call_ip (SCM subr)
   /* A stub is 4 32-bit words long, or 16 bytes.  The call will be one
      instruction, in either the fourth, third, or second word.  Return a
      byte offset from the entry.  */
-  return code[3] ? 12 : code[2] ? 8 : 4;
+  return (scm_t_uintptr)(code + (code[3] ? 3 : code[2] ? 2 : 1));
 }
 
 SCM

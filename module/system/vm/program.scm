@@ -314,13 +314,12 @@
                prog
                (list 0 0 nreq nopt rest? '(#f . ()))))))))
    ((rtl-program? prog)
-    (let ((pc (and ip (+ (rtl-program-code prog) ip))))
-      (or-map (lambda (arity)
-                (and (or (not pc)
-                         (and (<= (arity-low-pc arity) pc)
-                              (< pc (arity-high-pc arity))))
-                     (arity-arguments-alist arity)))
-              (or (find-program-arities (rtl-program-code prog)) '()))))
+    (or-map (lambda (arity)
+              (and (or (not ip)
+                       (and (<= (arity-low-pc arity) ip)
+                            (< ip (arity-high-pc arity))))
+                   (arity-arguments-alist arity)))
+            (or (find-program-arities (rtl-program-code prog)) '())))
    (else
     (let ((arity (program-arity prog ip)))
       (and arity
