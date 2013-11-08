@@ -349,9 +349,7 @@
 (define tag (make-prompt-tag "foo"))
 
 (with-test-prefix "stacks"
-  ;; FIXME: Until we get one VM, a call to an RTL primitive from the
-  ;; stack VM will result in the primitive being on the stack twice.
-  (expect-fail "stack involving a primitive"
+  (pass-if "stack involving a primitive"
     ;; The primitive involving the error must appear exactly once on the
     ;; stack.
     (let* ((stack (make-tagged-trimmed-stack tag '(#t)))
