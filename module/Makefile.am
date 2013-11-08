@@ -50,7 +50,6 @@ SOURCES =					\
   language/tree-il/cse.scm                      \
 						\
   language/tree-il.scm				\
-  language/glil.scm				\
   language/assembly.scm				\
   $(TREE_IL_LANG_SOURCES)			\
   $(CPS_LANG_SOURCES)				\
@@ -135,9 +134,6 @@ CPS_LANG_SOURCES =						\
 RTL_LANG_SOURCES =						\
   language/rtl.scm						\
   language/rtl/spec.scm
-
-GLIL_LANG_SOURCES =						\
-  language/glil/spec.scm language/glil/compile-assembly.scm
 
 ASSEMBLY_LANG_SOURCES =				\
   language/assembly/spec.scm			\
