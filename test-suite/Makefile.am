@@ -28,7 +28,6 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/and-let-star.test		\
 	    tests/arbiters.test			\
 	    tests/arrays.test			\
-	    tests/asm-to-bytecode.test		\
 	    tests/bit-operations.test		\
 	    tests/bitvectors.test		\
 	    tests/brainfuck.test		\
@@ -40,6 +39,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/control.test			\
 	    tests/continuations.test		\
 	    tests/coverage.test			\
+	    tests/cross-compilation.test	\
 	    tests/cse.test			\
 	    tests/curried-definitions.test	\
 	    tests/dwarf.test			\
