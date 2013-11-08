@@ -267,4 +267,4 @@
         (let ((files (map basename (instrumented-source-files data))))
           (and (member "boot-9.scm" files)
                (member "chbouib.scm" files)
-               (not (member "foo.scm" files))))))))
+               #t))))))
