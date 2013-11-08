@@ -384,7 +384,7 @@
            (cond
             ((or (< nargs nreq)
                  (and (not kw) (not rest?) (> nargs (+ nreq nopt)))
-                 (and kw (not rest?) (> (npositional %args) (+ nreq nopt))))
+                 (and alt kw (not rest?) (> (npositional %args) (+ nreq nopt))))
              (if alt
                  (apply alt-proc %args)
                  ((scm-error 'wrong-number-of-args
