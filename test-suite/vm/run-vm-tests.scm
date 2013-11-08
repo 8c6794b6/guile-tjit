@@ -1,6 +1,6 @@
 ;;; run-vm-tests.scm -- Run Guile-VM's test suite.
 ;;;
-;;; Copyright 2005, 2009, 2010 Free Software Foundation, Inc.
+;;; Copyright 2005, 2009, 2010, 2013 Free Software Foundation, Inc.
 ;;;
 ;;; This program is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public License
@@ -18,12 +18,11 @@
 
 
 (use-modules (system vm vm)
-             (system vm program)
+             (system vm objcode)
+	     (system vm program)
 	     (system base compile)
 	     (system base language)
-             (language scheme spec)
-             (language objcode spec)
-	     (srfi srfi-1)
+             (srfi srfi-1)
 	     (ice-9 r5rs))
 
 
@@ -38,11 +37,11 @@
 
 (define (compile-to-objcode sexp)
   "Compile the expression @var{sexp} into a VM program and return it."
-  (compile sexp #:from scheme #:to objcode))
+  (compile sexp #:from 'scheme #:to 'rtl))
 
-(define (run-vm-program objcode)
-  "Run VM program contained into @var{objcode}."
-  ((make-program objcode)))
+(define (run-vm-program bv)
+  "Run VM program contained into @var{bv}."
+  ((load-thunk-from-memory bv)))
 
 (define (compile/run-test-from-file file)
   "Run test from source file @var{file} and return a value indicating whether
