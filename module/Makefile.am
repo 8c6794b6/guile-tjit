@@ -53,7 +53,6 @@ SOURCES =					\
   $(TREE_IL_LANG_SOURCES)			\
   $(CPS_LANG_SOURCES)				\
   $(RTL_LANG_SOURCES)				\
-  $(BYTECODE_LANG_SOURCES)			\
   $(OBJCODE_LANG_SOURCES)			\
   $(VALUE_LANG_SOURCES)				\
   $(SCHEME_LANG_SOURCES)			\
@@ -131,9 +130,6 @@ CPS_LANG_SOURCES =						\
 RTL_LANG_SOURCES =						\
   language/rtl.scm						\
   language/rtl/spec.scm
-
-BYTECODE_LANG_SOURCES =				\
-  language/bytecode/spec.scm
 
 OBJCODE_LANG_SOURCES =				\
   language/objcode/spec.scm 			\
