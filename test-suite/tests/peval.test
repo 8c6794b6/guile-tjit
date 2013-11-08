@@ -582,7 +582,7 @@
       (lambda (n)
         (vector-set! v n n)))
     (let (v) (_)
-         ((call (toplevel make-vector) (const 6) (const #f)))
+         ((primcall make-vector (const 6) (const #f)))
          (lambda ()
            (lambda-case
             (((n) #f #f #f () (_))
