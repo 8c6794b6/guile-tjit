@@ -33,6 +33,7 @@
 #include "libguile/vectors.h"
 #include "libguile/weak-table.h"
 #include "libguile/programs.h"
+#include "libguile/vm-builtins.h"
 
 #include "libguile/validate.h"
 #include "libguile/procprop.h"
@@ -342,6 +343,7 @@ scm_init_procprop ()
   overrides = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
   arity_overrides = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
 #include "libguile/procprop.x"
+  scm_init_vm_builtin_properties ();
 }
 
 

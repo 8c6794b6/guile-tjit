@@ -22,17 +22,17 @@
 #ifdef BUILDING_LIBGUILE
 
 #define FOR_EACH_VM_BUILTIN(M) \
-  M(apply, APPLY) \
-  M(values, VALUES) \
-  M(abort_to_prompt, ABORT_TO_PROMPT) \
-  M(call_with_values, CALL_WITH_VALUES) \
-  M(call_with_current_continuation, CALL_WITH_CURRENT_CONTINUATION)
+  M(apply, APPLY, 2, 0, 1) \
+  M(values, VALUES, 0, 0, 1) \
+  M(abort_to_prompt, ABORT_TO_PROMPT, 1, 0, 1) \
+  M(call_with_values, CALL_WITH_VALUES, 2, 0, 0) \
+  M(call_with_current_continuation, CALL_WITH_CURRENT_CONTINUATION, 1, 0, 0)
 
 /* These enumerated values are embedded in RTL code, and as such are
    part of Guile's ABI.  */
 enum scm_vm_builtins
 {
-#define ENUM(builtin, BUILTIN) SCM_VM_BUILTIN_##BUILTIN,
+#define ENUM(builtin, BUILTIN, req, opt, rest) SCM_VM_BUILTIN_##BUILTIN,
   FOR_EACH_VM_BUILTIN(ENUM)
 #undef ENUM
   SCM_VM_BUILTIN_COUNT
@@ -40,6 +40,7 @@ enum scm_vm_builtins
 
 SCM_INTERNAL SCM scm_vm_builtin_name_to_index (SCM name);
 SCM_INTERNAL SCM scm_vm_builtin_index_to_name (SCM idx);
+SCM_INTERNAL void scm_init_vm_builtin_properties (void);
 
 #endif /* BUILDING_LIBGUILE */
 

@@ -173,7 +173,6 @@ SCM_SYNTAX ("case-lambda", expand_case_lambda);
 SCM_SYNTAX ("case-lambda*", expand_case_lambda_star);
 
 
-SCM_GLOBAL_SYMBOL (scm_sym_apply, "apply");
 SCM_GLOBAL_SYMBOL (scm_sym_arrow, "=>");
 SCM_GLOBAL_SYMBOL (scm_sym_at, "@");
 SCM_GLOBAL_SYMBOL (scm_sym_atat, "@@");
