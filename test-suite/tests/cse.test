@@ -28,7 +28,6 @@
   #:use-module (language tree-il fix-letrec)
   #:use-module (language tree-il cse)
   #:use-module (language tree-il peval)
-  #:use-module (language glil)
   #:use-module (srfi srfi-13))
 
 (define-syntax pass-if-cse
@@ -292,8 +291,8 @@
   (pass-if "http://bugs.gnu.org/12883"
     ;; In 2.0.6, compiling this code would trigger an out-of-bounds
     ;; vlist access in CSE's traversal of its "database".
-    (glil-program?
-     (compile '(define (proc v)
+    (procedure?
+     (compile '(lambda (v)
                  (let ((failure (lambda () (bail-out 'match))))
                    (if (and (pair? v)
                             (null? (cdr v)))
@@ -303,5 +302,4 @@
                              #t
                              (failure)))
                        (failure))))
-              #:from 'scheme
-              #:to 'glil))))
+              #:from 'scheme))))

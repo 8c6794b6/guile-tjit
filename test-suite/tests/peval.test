@@ -24,7 +24,6 @@
   #:use-module (system base message)
   #:use-module (language tree-il)
   #:use-module (language tree-il primitives)
-  #:use-module (language glil)
   #:use-module (rnrs bytevectors) ;; for the bytevector primitives
   #:use-module (srfi srfi-13))
 
