@@ -668,7 +668,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   } while (0)
 
 #define BR_NARGS(rel)                           \
-  scm_t_uint16 expected;                        \
+  scm_t_uint32 expected;                        \
   SCM_UNPACK_RTL_24 (op, expected);             \
   if (FRAME_LOCALS_COUNT() rel expected)        \
     {                                           \
