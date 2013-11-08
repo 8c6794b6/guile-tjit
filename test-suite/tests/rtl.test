@@ -20,7 +20,17 @@
   #:use-module (test-suite lib)
   #:use-module (system vm assembler)
   #:use-module (system vm program)
+  #:use-module (system vm objcode)
+  #:use-module (system vm linker)
   #:use-module (system vm debug))
+
+(define (assemble-program instructions)
+  "Take the sequence of instructions @var{instructions}, assemble them
+into RTL code, link an image, and load that image from memory.  Returns
+a procedure."
+  (let ((asm (make-assembler)))
+    (emit-text asm instructions)
+    (load-thunk-from-memory (link-assembly asm #:page-aligned? #f))))
 
 (define-syntax-rule (assert-equal val expr)
   (let ((x val))

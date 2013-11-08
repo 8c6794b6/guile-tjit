@@ -48,7 +48,6 @@
   #:use-module (system vm dwarf)
   #:use-module (system vm elf)
   #:use-module (system vm linker)
-  #:use-module (system vm objcode)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 vlist)
@@ -59,8 +58,7 @@
   #:use-module (srfi srfi-11)
   #:export (make-assembler
             emit-text
-            link-assembly
-            assemble-program))
+            link-assembly))
 
 
 
@@ -1991,11 +1989,3 @@ The result is a bytevector, by default linked so that read-only and
 writable data are on separate pages.  Pass @code{#:page-aligned? #f} to
 disable this behavior."
   (link-elf (link-objects asm) #:page-aligned? page-aligned?))
-
-(define (assemble-program instructions)
-  "Take the sequence of instructions @var{instructions}, assemble them
-into RTL code, link an image, and load that image from memory.  Returns
-a procedure."
-  (let ((asm (make-assembler)))
-    (emit-text asm instructions)
-    (load-thunk-from-memory (link-assembly asm #:page-aligned? #f))))
