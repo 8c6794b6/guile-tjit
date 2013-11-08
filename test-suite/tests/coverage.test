@@ -213,7 +213,7 @@
                       (lambda () (+ 1 2)))))
         (and (coverage-data? data)
              (= 3 result)
-             (not (procedure-execution-count data proc))))))
+             (zero? (procedure-execution-count data proc))))))
 
   (pass-if "applicable struct"
     (let* ((<box> (make-struct <applicable-struct-vtable> 0 'pw))
