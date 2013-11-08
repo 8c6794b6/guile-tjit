@@ -340,12 +340,12 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
     (and (not (is-case-lambda? flags))
          `((required . ,(load-symbols 0 nreq))
            (optional . ,(load-symbols nreq nopt))
-           (rest . ,(and (has-rest? flags) (load-symbol (+ nreq nopt))))
            (keyword . ,(if (has-keyword-args? flags)
                            (load-non-immediate
                             (+ nreq nopt (if (has-rest? flags) 1 0)))
                            '()))
-           (allow-other-keys? . ,(allow-other-keys? flags))))))
+           (allow-other-keys? . ,(allow-other-keys? flags))
+           (rest . ,(and (has-rest? flags) (load-symbol (+ nreq nopt))))))))
 
 (define (find-first-arity context base addr)
   (let* ((bv (elf-bytes (debug-context-elf context)))

@@ -77,17 +77,17 @@
   (pass-if-valid-arguments "lambda* with keywords"
     (lambda* (a b #:key (k 42) l) #f)
     ((required . (a b)) (optional)
-     (keyword . ((#:k . 2) (#:l . 3))) (allow-other-keys? . #f)
+     (keyword . ((#:k . 3) (#:l . 4))) (allow-other-keys? . #f)
      (rest . #f)))
   (pass-if-valid-arguments "lambda* with keywords and a-o-k"
     (lambda* (a b #:key (k 42) #:allow-other-keys) #f)
     ((required . (a b)) (optional)
-     (keyword . ((#:k . 2))) (allow-other-keys? . #t)
+     (keyword . ((#:k . 3))) (allow-other-keys? . #t)
      (rest . #f)))
   (pass-if-valid-arguments "lambda* with optionals, keys, and rest"
     (lambda* (a b #:optional o p #:key k l #:rest r) #f)
     ((required . (a b)) (optional . (o p))
-     (keyword . ((#:k . 5) (#:l . 6))) (allow-other-keys? . #f)
+     (keyword . ((#:k . 6) (#:l . 7))) (allow-other-keys? . #f)
      (rest . r)))
 
   (pass-if "aok? is preserved"

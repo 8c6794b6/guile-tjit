@@ -1,5 +1,5 @@
 ;;;; Copyright (C) 1997, 2000, 2001, 2003, 2006, 2009, 2010, 2011,
-;;;;    2012 Free Software Foundation, Inc.
+;;;;    2012, 2013 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -522,7 +522,8 @@ The alist keys that are currently defined are `required', `optional',
            (rest . ,rest)))))
    ((procedure-source proc)
     => cadr)
-   (((@ (system vm program) program?) proc)
+   ((or ((@ (system vm program) program?) proc)
+        ((@ (system vm program) rtl-program?) proc))
     ((@ (system vm program) program-arguments-alist) proc))
    (else #f)))
 
