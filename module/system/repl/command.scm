@@ -497,7 +497,8 @@ Disassemble a compiled procedure."
      ((bytevector? obj)
       (disassemble-image (load-image obj)))
      (else
-      (format #t "Argument to ,disassemble not a procedure or objcode: ~a~%"
+      (format #t
+              "Argument to ,disassemble not a procedure or a bytevector: ~a~%"
               obj)))))
 
 (define-meta-command (disassemble-file repl file)

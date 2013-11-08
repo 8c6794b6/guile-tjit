@@ -22,7 +22,6 @@
   #:use-module (system base pmatch)
   #:use-module (system vm program)
   #:use-module (system vm instruction)
-  #:use-module (system vm objcode)
   #:export (frame-bindings
             frame-lookup-binding
             frame-binding-ref frame-binding-set!

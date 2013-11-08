@@ -19,10 +19,8 @@
 ;;; Code:
 
 (define-module (system vm objcode)
-  #:export (objcode? objcode-meta
-            bytecode->objcode objcode->bytecode
-            load-thunk-from-file load-thunk-from-memory
-            word-size byte-order
+  #:export (load-thunk-from-file
+            load-thunk-from-memory
             find-mapped-elf-image all-mapped-elf-images))
 
 (load-extension (string-append "libguile-" (effective-version))

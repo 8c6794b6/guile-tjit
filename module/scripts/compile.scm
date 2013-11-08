@@ -158,7 +158,7 @@ Compile each Guile source file FILE into a Guile object.
                        for a list of available warnings
 
   -f, --from=LANG      specify a source language other than `scheme'
-  -t, --to=LANG        specify a target language other than `objcode'
+  -t, --to=LANG        specify a target language other than `rtl'
   -T, --target=TRIPLET produce bytecode for host TRIPLET
 
 Note that auto-compilation will be turned off.
