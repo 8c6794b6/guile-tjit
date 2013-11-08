@@ -84,11 +84,15 @@
 
       ;; Are the given args compatible with any of the arities?
       (define (applicable? proc args)
-        (or-map (match-lambda
-                 (($ $arity req () #f () #f)
-                  (= (length args) (length req)))
-                 (_ #f))
-                (assq-ref (map cons syms arities) proc)))
+        (let lp ((arities (assq-ref (map cons syms arities) proc)))
+          (match arities
+            ((($ $arity req () #f () #f) . arities)
+             (or (= (length args) (length req))
+                 (lp arities)))
+            ;; If we reached the end of the arities, fail.  Also fail if
+            ;; the next arity in the list has optional, keyword, or rest
+            ;; arguments.
+            (_ #f))))
 
       ;; If the use of PROC in continuation USE is a call to PROC that
       ;; is compatible with one of the procedure's arities, return the
