@@ -280,13 +280,6 @@ void scm_ia64_longjmp (scm_i_jmp_buf *, int);
 #define SCM_OBJCODE_MACHINE_VERSION_STRING                              \
   SCM_OBJCODE_ENDIANNESS "-" SCM_OBJCODE_WORD_SIZE "-" SCM_OBJCODE_VERSION_STRING
 
-/* The objcode magic header.  */
-#define SCM_OBJCODE_COOKIE                              \
-  "GOOF----" SCM_OBJCODE_MACHINE_VERSION_STRING
-#define SCM_OBJCODE_ENDIANNESS_OFFSET 8
-#define SCM_OBJCODE_WORD_SIZE_OFFSET 11
-
-
 #endif  /* SCM__SCM_H */
 
 /*

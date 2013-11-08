@@ -423,14 +423,14 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 #define scm_tc7_dynamic_state	45
 
 #define scm_tc7_frame		47
-#define scm_tc7_objcode		53
+#define scm_tc7_unused_53	53
 #define scm_tc7_vm		55
 #define scm_tc7_vm_cont		71
 
 #define scm_tc7_unused_17	61
 #define scm_tc7_unused_21	63
 #define scm_tc7_rtl_program	69
-#define scm_tc7_program		79
+#define scm_tc7_unused_79	79
 #define scm_tc7_weak_set	85
 #define scm_tc7_weak_table	87
 #define scm_tc7_array		93

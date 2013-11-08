@@ -170,7 +170,8 @@
 ;; Patches welcome!
 (define (frame->module frame)
   (let ((proc (frame-procedure frame)))
-    (if (program? proc)
+    (if #f
+        ;; FIXME!
         (let* ((mod (or (program-module proc) (current-module)))
                (mod* (make-module)))
           (module-use! mod* mod)

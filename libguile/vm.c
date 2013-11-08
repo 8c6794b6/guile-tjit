@@ -603,8 +603,6 @@ vm_error_bad_wide_string_length (size_t len)
 
 
 
-static SCM boot_continuation;
-
 static SCM rtl_boot_continuation;
 static SCM vm_builtin_apply;
 static SCM vm_builtin_values;
@@ -768,28 +766,21 @@ initialize_default_stack_size (void)
     vm_stack_size = size;
 }
 
-#define VM_NAME   vm_regular_engine
 #define RTL_VM_NAME   rtl_vm_regular_engine
 #define FUNC_NAME "vm-regular-engine"
 #define VM_ENGINE SCM_VM_REGULAR_ENGINE
 #include "vm-engine.c"
-#undef VM_NAME
 #undef RTL_VM_NAME
 #undef FUNC_NAME
 #undef VM_ENGINE
 
-#define VM_NAME	  vm_debug_engine
 #define RTL_VM_NAME   rtl_vm_debug_engine
 #define FUNC_NAME "vm-debug-engine"
 #define VM_ENGINE SCM_VM_DEBUG_ENGINE
 #include "vm-engine.c"
-#undef VM_NAME
 #undef RTL_VM_NAME
 #undef FUNC_NAME
 #undef VM_ENGINE
-
-static const scm_t_vm_engine vm_engines[] = 
-  { vm_regular_engine, vm_debug_engine };
 
 typedef SCM (*scm_t_rtl_vm_engine) (SCM vm, SCM program, SCM *argv, size_t nargs);
 
@@ -879,10 +870,7 @@ scm_c_vm_run (SCM vm, SCM program, SCM *argv, int nargs)
 {
   struct scm_vm *vp = SCM_VM_DATA (vm);
   SCM_CHECK_STACK;
-  if (SCM_PROGRAM_P (program))
-    return vm_engines[vp->engine](vm, program, argv, nargs);
-  else
-    return rtl_vm_engines[vp->engine](vm, program, argv, nargs);
+  return rtl_vm_engines[vp->engine](vm, program, argv, nargs);
 }
 
 /* Scheme interface */
@@ -1196,32 +1184,6 @@ SCM scm_load_compiled_with_vm (SCM file)
 }
 
   
-static SCM
-make_boot_program (void)
-{
-  struct scm_objcode *bp;
-  size_t bp_size;
-  SCM u8vec, ret;
-    
-  const scm_t_uint8 text[] = { 
-    scm_op_make_int8_1,
-    scm_op_halt
-  };
-
-  bp_size = sizeof (struct scm_objcode) + sizeof (text);
-  bp = scm_gc_malloc_pointerless (bp_size, "boot-program");
-  memcpy (SCM_C_OBJCODE_BASE (bp), text, sizeof (text));
-  bp->len = sizeof(text);
-  bp->metalen = 0;
-
-  u8vec = scm_c_take_gc_bytevector ((scm_t_int8*)bp, bp_size, SCM_BOOL_F);
-  ret = scm_make_program (scm_bytecode_to_objcode (u8vec, SCM_UNDEFINED),
-                          SCM_BOOL_F, SCM_BOOL_F);
-  SCM_SET_CELL_WORD_0 (ret, (SCM_CELL_WORD_0 (ret) | SCM_F_PROGRAM_IS_BOOT));
-
-  return ret;
-}
-
 void
 scm_init_vm_builtin_properties (void)
 {
@@ -1262,8 +1224,6 @@ scm_bootstrap_vm (void)
   sym_keyword_argument_error = scm_from_latin1_symbol ("keyword-argument-error");
   sym_regular = scm_from_latin1_symbol ("regular");
   sym_debug = scm_from_latin1_symbol ("debug");
-
-  boot_continuation = make_boot_program ();
 
   rtl_boot_continuation = scm_i_make_rtl_program (rtl_boot_continuation_code);
   SCM_SET_CELL_WORD_0 (rtl_boot_continuation,

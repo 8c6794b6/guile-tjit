@@ -47,8 +47,7 @@ SCM_DEFINE (scm_procedure_p, "procedure?", 1, 0, 0,
 	    "Return @code{#t} if @var{obj} is a procedure.")
 #define FUNC_NAME s_scm_procedure_p
 {
-  return scm_from_bool (SCM_PROGRAM_P (obj)
-                        || SCM_RTL_PROGRAM_P (obj)
+  return scm_from_bool (SCM_RTL_PROGRAM_P (obj)
                         || (SCM_STRUCTP (obj) && SCM_STRUCT_APPLICABLE_P (obj))
                         || (SCM_HAS_TYP7 (obj, scm_tc7_smob)
                             && SCM_SMOB_APPLICABLE_P (obj)));

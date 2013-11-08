@@ -155,7 +155,6 @@ static SCM class_hashtable;
 static SCM class_fluid;
 static SCM class_dynamic_state;
 static SCM class_frame;
-static SCM class_objcode;
 static SCM class_vm;
 static SCM class_vm_cont;
 static SCM class_bytevector;
@@ -266,8 +265,6 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	  return class_dynamic_state;
         case scm_tc7_frame:
 	  return class_frame;
-        case scm_tc7_objcode:
-	  return class_objcode;
         case scm_tc7_vm:
 	  return class_vm;
         case scm_tc7_vm_cont:
@@ -294,13 +291,7 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	  case scm_tc16_fraction:
 	    return scm_class_fraction;
           }
-	case scm_tc7_program:
 	case scm_tc7_rtl_program:
-          /* Although SCM_SUBR_GENERIC is specific to stack programs
-             currently, in practice only stack programs pass
-             SCM_PROGRAM_IS_PRIMITIVE_GENERIC.  In the future this will
-             change to be the other way around, when subrs become RTL
-             programs.  */
 	  if (SCM_PROGRAM_IS_PRIMITIVE_GENERIC (x)
               && SCM_UNPACK (*SCM_SUBR_GENERIC (x)))
 	    return scm_class_primitive_generic;
@@ -2520,8 +2511,6 @@ create_standard_classes (void)
   make_stdcls (&class_dynamic_state,	   "<dynamic-state>",
 	       scm_class_class, scm_class_top,		   SCM_EOL);
   make_stdcls (&class_frame,		   "<frame>",
-	       scm_class_class, scm_class_top,		   SCM_EOL);
-  make_stdcls (&class_objcode,		   "<objcode>",
 	       scm_class_class, scm_class_top,		   SCM_EOL);
   make_stdcls (&class_vm,		   "<vm>",
 	       scm_class_class, scm_class_top,		   SCM_EOL);

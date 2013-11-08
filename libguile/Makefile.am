@@ -428,11 +428,6 @@ DOT_DOC_FILES = 				\
 
 EXTRA_DOT_DOC_FILES = @EXTRA_DOT_DOC_FILES@
 
-DOT_I_FILES = vm-i-system.i vm-i-scheme.i vm-i-loader.i
-
-.c.i:
-	$(AM_V_GEN)$(GREP) '^VM_DEFINE' $< > $@
-
 vm-operations.h: vm-engine.c
 	@echo '/* This file was generated automatically from $<; do not' > $@
 	@echo '   edit.  See the source file for copyright information.  */' >> $@
@@ -476,7 +471,7 @@ noinst_HEADERS = conv-integer.i.c conv-uinteger.i.c		\
 		 private-gc.h private-options.h ports-internal.h
 
 # vm instructions
-noinst_HEADERS += vm-engine.c vm-i-system.c vm-i-scheme.c vm-i-loader.c
+noinst_HEADERS += vm-engine.c
 
 libguile_@GUILE_EFFECTIVE_VERSION@_la_DEPENDENCIES = @LIBLOBJS@
 
@@ -802,7 +797,6 @@ chknew-E chknew-SIG:						\
 MOSTLYCLEANFILES = \
 	scmconfig.h scmconfig.h.tmp
 
-CLEANFILES = libpath.h *.x *.doc guile-procedures.txt guile-procedures.texi guile.texi \
-	vm-i-*.i
+CLEANFILES = libpath.h *.x *.doc guile-procedures.txt guile-procedures.texi guile.texi
 
 MAINTAINERCLEANFILES = c-tokenize.c

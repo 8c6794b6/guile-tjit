@@ -32,7 +32,6 @@
 #include "libguile/async.h"
 #include "libguile/goops.h"
 #include "libguile/instructions.h"
-#include "libguile/objcodes.h"
 #include "libguile/programs.h"
 
 #include "libguile/smob.h"

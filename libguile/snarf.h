@@ -325,27 +325,6 @@ SCM_SNARF_INIT(scm_set_smob_apply((tag), (c_name), (req), (opt), (rest));)
 #define SCM_IMMUTABLE_POINTER(c_name, ptr)		\
   SCM_IMMUTABLE_CELL (c_name, scm_tc7_pointer, ptr)
 
-/* for primitive-generics, add a foreign to the end */
-#define SCM_STATIC_SUBR_OBJVECT(c_name, foreign)                        \
-  static SCM_ALIGNED (8) SCM c_name[3] =                                \
-  {                                                                     \
-    SCM_PACK (scm_tc7_vector | (2 << 8)),                               \
-    foreign,                                                            \
-    SCM_BOOL_F /* the name */                                           \
-  }
-
-#define SCM_STATIC_PROGRAM(c_name, objcode, objtable, freevars)         \
-  static SCM_ALIGNED (8) SCM_UNUSED SCM                                 \
-       scm_i_paste (c_name, _raw_cell)[] =                              \
-  {                                                                     \
-    SCM_PACK (scm_tc7_program | SCM_F_PROGRAM_IS_PRIMITIVE),            \
-    objcode,                                                            \
-    objtable,                                                           \
-    freevars                                                            \
-  };                                                                    \
-  static SCM_UNUSED const SCM c_name =                                  \
-    SCM_PACK (& scm_i_paste (c_name, _raw_cell))
-
 #endif /* SCM_SUPPORT_STATIC_ALLOCATION */
 
 

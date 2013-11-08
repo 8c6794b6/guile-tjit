@@ -78,24 +78,7 @@ enum scm_rtl_opcode
 #define SCM_VM_NUM_INSTRUCTIONS (1<<8)
 #define SCM_VM_INSTRUCTION_MASK (SCM_VM_NUM_INSTRUCTIONS-1)
 
-enum scm_opcode {
-#define VM_INSTRUCTION_TO_OPCODE 1
-#include <libguile/vm-expand.h>
-#include <libguile/vm-i-system.i>
-#include <libguile/vm-i-scheme.i>
-#include <libguile/vm-i-loader.i>
-#undef VM_INSTRUCTION_TO_OPCODE
-};
-
 SCM_INTERNAL SCM scm_rtl_instruction_list (void);
-
-SCM_API SCM scm_instruction_list (void);
-SCM_API SCM scm_instruction_p (SCM obj);
-SCM_API SCM scm_instruction_length (SCM inst);
-SCM_API SCM scm_instruction_pops (SCM inst);
-SCM_API SCM scm_instruction_pushes (SCM inst);
-SCM_API SCM scm_instruction_to_opcode (SCM inst);
-SCM_API SCM scm_opcode_to_instruction (SCM op);
 
 SCM_INTERNAL void scm_bootstrap_instructions (void);
 SCM_INTERNAL void scm_init_instructions (void);

@@ -522,8 +522,7 @@ The alist keys that are currently defined are `required', `optional',
            (rest . ,rest)))))
    ((procedure-source proc)
     => cadr)
-   ((or ((@ (system vm program) program?) proc)
-        ((@ (system vm program) rtl-program?) proc))
+   (((@ (system vm program) rtl-program?) proc)
     ((@ (system vm program) program-arguments-alist) proc))
    (else #f)))
 

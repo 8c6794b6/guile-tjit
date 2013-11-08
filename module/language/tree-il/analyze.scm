@@ -950,7 +950,7 @@ given `tree-il' element."
       (or (and (or (null? x) (pair? x))
                (length x))
           0))
-    (cond ((or (program? proc) (rtl-program? proc))
+    (cond ((rtl-program? proc)
            (values (procedure-name proc)
                    (map (lambda (a)
                           (list (length (or (assq-ref a 'required) '()))

@@ -61,7 +61,7 @@ scm_i_procedure_arity (SCM proc, int *req, int *opt, int *rest)
       return 1;
     }
 
-  while (!SCM_PROGRAM_P (proc) && !SCM_RTL_PROGRAM_P (proc))
+  while (!SCM_RTL_PROGRAM_P (proc))
     {
       if (SCM_STRUCTP (proc))
         {
@@ -146,9 +146,7 @@ SCM_DEFINE (scm_procedure_properties, "procedure-properties", 1, 0, 0,
   if (scm_is_pair (user_props) && scm_is_true (scm_car (user_props)))
     return scm_cdr (user_props);
 
-  if (SCM_PROGRAM_P (proc))
-    ret = scm_i_program_properties (proc);
-  else if (SCM_RTL_PROGRAM_P (proc))
+  if (SCM_RTL_PROGRAM_P (proc))
     ret = scm_i_rtl_program_properties (proc);
   else
     ret = SCM_EOL;
@@ -262,8 +260,6 @@ SCM_DEFINE (scm_procedure_name, "procedure-name", 1, 0, 0,
 
   if (SCM_RTL_PROGRAM_P (proc))
     return scm_i_rtl_program_name (proc);
-  else if (SCM_PROGRAM_P (proc))
-    return scm_assq_ref (scm_i_program_properties (proc), scm_sym_name);
   else if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
     return scm_procedure_name (SCM_STRUCT_PROCEDURE (proc));
   else
@@ -301,9 +297,6 @@ SCM_DEFINE (scm_procedure_documentation, "procedure-documentation", 1, 0, 0,
 
   if (SCM_RTL_PROGRAM_P (proc))
     return scm_i_rtl_program_documentation (proc);
-  else if (SCM_PROGRAM_P (proc))
-    return scm_assq_ref (scm_i_program_properties (proc),
-                         scm_sym_documentation);
   else
     return SCM_BOOL_F;
 }

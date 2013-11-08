@@ -42,18 +42,6 @@
 #include "programs.h"
 #include "objcodes.h"
 
-/* Before, we used __BYTE_ORDER, but that is not defined on all
-   systems. So punt and use automake, PDP endianness be damned. */
-#define SCM_BYTE_ORDER_BE 4321
-#define SCM_BYTE_ORDER_LE 1234
-
-/* Byte order of the build machine.  */
-#ifdef WORDS_BIGENDIAN
-#define SCM_BYTE_ORDER SCM_BYTE_ORDER_BE
-#else
-#define SCM_BYTE_ORDER SCM_BYTE_ORDER_LE
-#endif
-
 /* This file contains the loader for Guile's on-disk format: ELF with
    some custom tags in the dynamic segment.  */
 
@@ -94,7 +82,6 @@ static void register_elf (char *data, size_t len);
 enum bytecode_kind
   {
     BYTECODE_KIND_NONE,
-    BYTECODE_KIND_GUILE_2_0,
     BYTECODE_KIND_GUILE_2_2
   };
 
@@ -103,14 +90,6 @@ pointer_to_procedure (enum bytecode_kind bytecode_kind, char *ptr)
 {
   switch (bytecode_kind)
     {
-    case BYTECODE_KIND_GUILE_2_0:
-      {
-        SCM objcode;
-        scm_t_bits tag = SCM_MAKE_OBJCODE_TAG (SCM_OBJCODE_TYPE_MMAP, 0);
-
-        objcode = scm_double_cell (tag, (scm_t_bits) ptr, SCM_BOOL_F_BITS, 0);
-        return scm_make_program (objcode, SCM_BOOL_F, SCM_UNDEFINED);
-      }
     case BYTECODE_KIND_GUILE_2_2:
       {
         return scm_i_make_rtl_program ((scm_t_uint32 *) ptr);
@@ -309,11 +288,6 @@ process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
             scm_t_uint16 minor = dyn[i].d_un.d_val & 0xffff;
             switch (major)
               {
-              case 0x0200:
-                bytecode_kind = BYTECODE_KIND_GUILE_2_0;
-                if (minor > SCM_OBJCODE_MINOR_VERSION)
-                  return "incompatible bytecode version";
-                break;
               case 0x0202:
                 bytecode_kind = BYTECODE_KIND_GUILE_2_2;
                 if (minor)
@@ -332,12 +306,6 @@ process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
 
   switch (bytecode_kind)
     {
-    case BYTECODE_KIND_GUILE_2_0:
-      if (init)
-        return "unexpected DT_INIT";
-      if ((scm_t_uintptr) entry % 8)
-        return "unaligned DT_GUILE_ENTRY";
-      break;
     case BYTECODE_KIND_GUILE_2_2:
       if ((scm_t_uintptr) init % 4)
         return "unaligned DT_INIT";
@@ -590,55 +558,6 @@ SCM_DEFINE (scm_load_thunk_from_memory, "load-thunk-from-memory", 1, 0, 0,
 #undef FUNC_NAME
 
 
-/*
- * Objcode type
- */
-
-/* Convert X, which is in byte order BYTE_ORDER, to its native
-   representation.  */
-static inline uint32_t
-to_native_order (uint32_t x, int byte_order)
-{
-  if (byte_order == SCM_BYTE_ORDER)
-    return x;
-  else
-    return bswap_32 (x);
-}
-
-SCM
-scm_c_make_objcode_slice (SCM parent, const scm_t_uint8 *ptr)
-#define FUNC_NAME "make-objcode-slice"
-{
-  const struct scm_objcode *data, *parent_data;
-  const scm_t_uint8 *parent_base;
-
-  SCM_VALIDATE_OBJCODE (1, parent);
-  parent_data = SCM_OBJCODE_DATA (parent);
-  parent_base = SCM_C_OBJCODE_BASE (parent_data);
-
-  if (ptr < parent_base
-      || ptr >= (parent_base + parent_data->len + parent_data->metalen
-                 - sizeof (struct scm_objcode)))
-    scm_misc_error
-      (FUNC_NAME, "offset out of bounds (~a vs ~a + ~a + ~a)",
-       scm_list_4 (scm_from_unsigned_integer ((scm_t_bits) ptr),
-                   scm_from_unsigned_integer ((scm_t_bits) parent_base),
-                   scm_from_uint32 (parent_data->len),
-                   scm_from_uint32 (parent_data->metalen)));
-
-  /* Make sure bytecode for the objcode-meta is suitable aligned.  Failing to
-     do so leads to SIGBUS/SIGSEGV on some arches (e.g., SPARC).  */
-  assert ((((scm_t_bits) ptr) &
-	   (alignof_type (struct scm_objcode) - 1UL)) == 0);
-
-  data = (struct scm_objcode*) ptr;
-  assert (SCM_C_OBJCODE_BASE (data) + data->len + data->metalen
-	  <= parent_base + parent_data->len + parent_data->metalen);
-
-  return scm_double_cell (SCM_MAKE_OBJCODE_TAG (SCM_OBJCODE_TYPE_SLICE, 0),
-                          (scm_t_bits)data, SCM_UNPACK (parent), 0);
-}
-#undef FUNC_NAME
 
 struct mapped_elf_image
 {
@@ -763,128 +682,6 @@ scm_all_mapped_elf_images (void)
 }
 
 
-/*
- * Scheme interface
- */
-
-SCM_DEFINE (scm_objcode_p, "objcode?", 1, 0, 0,
-	    (SCM obj),
-	    "")
-#define FUNC_NAME s_scm_objcode_p
-{
-  return scm_from_bool (SCM_OBJCODE_P (obj));
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_objcode_meta, "objcode-meta", 1, 0, 0,
-	    (SCM objcode),
-	    "")
-#define FUNC_NAME s_scm_objcode_meta
-{
-  SCM_VALIDATE_OBJCODE (1, objcode);
-
-  if (SCM_OBJCODE_META_LEN (objcode) == 0)
-    return SCM_BOOL_F;
-  else
-    return scm_c_make_objcode_slice (objcode, (SCM_OBJCODE_BASE (objcode)
-                                               + SCM_OBJCODE_LEN (objcode)));
-}
-#undef FUNC_NAME
-
-/* Wrap BYTECODE in objcode, interpreting its lengths according to
-   BYTE_ORDER.  */
-static SCM
-bytecode_to_objcode (SCM bytecode, int byte_order)
-#define FUNC_NAME "bytecode->objcode"
-{
-  size_t size, len, metalen;
-  const scm_t_uint8 *c_bytecode;
-  struct scm_objcode *data;
-
-  if (!scm_is_bytevector (bytecode))
-    scm_wrong_type_arg (FUNC_NAME, 1, bytecode);
-
-  size = SCM_BYTEVECTOR_LENGTH (bytecode);
-  c_bytecode = (const scm_t_uint8*)SCM_BYTEVECTOR_CONTENTS (bytecode);
-
-  SCM_ASSERT_RANGE (0, bytecode, size >= sizeof(struct scm_objcode));
-  data = (struct scm_objcode*)c_bytecode;
-
-  len = to_native_order (data->len, byte_order);
-  metalen = to_native_order (data->metalen, byte_order);
-
-  if (len + metalen != (size - sizeof (*data)))
-    scm_misc_error (FUNC_NAME, "bad bytevector size (~a != ~a)",
-		    scm_list_2 (scm_from_size_t (size),
-				scm_from_uint32 (sizeof (*data) + len + metalen)));
-
-  /* foolishly, we assume that as long as bytecode is around, that c_bytecode
-     will be of the same length; perhaps a bad assumption? */
-  return scm_double_cell (SCM_MAKE_OBJCODE_TAG (SCM_OBJCODE_TYPE_BYTEVECTOR, 0),
-                          (scm_t_bits)data, SCM_UNPACK (bytecode), 0);
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_bytecode_to_objcode, "bytecode->objcode", 1, 1, 0,
-	    (SCM bytecode, SCM endianness),
-	    "")
-#define FUNC_NAME s_scm_bytecode_to_objcode
-{
-  int byte_order;
-
-  if (SCM_UNBNDP (endianness))
-    byte_order = SCM_BYTE_ORDER;
-  else if (scm_is_eq (endianness, scm_endianness_big))
-    byte_order = SCM_BYTE_ORDER_BE;
-  else if (scm_is_eq (endianness, scm_endianness_little))
-    byte_order = SCM_BYTE_ORDER_LE;
-  else
-    scm_wrong_type_arg (FUNC_NAME, 2, endianness);
-
-  return bytecode_to_objcode (bytecode, byte_order);
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_objcode_to_bytecode, "objcode->bytecode", 1, 1, 0,
-	    (SCM objcode, SCM endianness),
-	    "")
-#define FUNC_NAME s_scm_objcode_to_bytecode
-{
-  scm_t_uint32 len, meta_len, total_len;
-  int byte_order;
-
-  SCM_VALIDATE_OBJCODE (1, objcode);
-
-  if (SCM_UNBNDP (endianness))
-    byte_order = SCM_BYTE_ORDER;
-  else if (scm_is_eq (endianness, scm_endianness_big))
-    byte_order = SCM_BYTE_ORDER_BE;
-  else if (scm_is_eq (endianness, scm_endianness_little))
-    byte_order = SCM_BYTE_ORDER_LE;
-  else
-    scm_wrong_type_arg (FUNC_NAME, 2, endianness);
-
-  len = SCM_OBJCODE_LEN (objcode);
-  meta_len = SCM_OBJCODE_META_LEN (objcode);
-
-  total_len = sizeof (struct scm_objcode);
-  total_len += to_native_order (len, byte_order);
-  total_len += to_native_order (meta_len, byte_order);
-
-  return scm_c_take_gc_bytevector ((scm_t_int8*)SCM_OBJCODE_DATA (objcode),
-                                   total_len, objcode);
-}
-#undef FUNC_NAME
-
-void
-scm_i_objcode_print (SCM objcode, SCM port, scm_print_state *pstate)
-{
-  scm_puts_unlocked ("#<objcode ", port);
-  scm_uintprint ((scm_t_bits)SCM_OBJCODE_BASE (objcode), 16, port);
-  scm_puts_unlocked (">", port);
-}
-
-
 void
 scm_bootstrap_objcodes (void)
 {
@@ -904,9 +701,6 @@ scm_init_objcodes (void)
                       (scm_t_subr) scm_find_mapped_elf_image);
   scm_c_define_gsubr ("all-mapped-elf-images", 0, 0, 0,
                       (scm_t_subr) scm_all_mapped_elf_images);
-
-  scm_c_define ("word-size", scm_from_size_t (sizeof(SCM)));
-  scm_c_define ("byte-order", scm_from_uint16 (SCM_BYTE_ORDER));
 }
 
 /*

@@ -31,9 +31,7 @@
 
 (define (frame-bindings frame)
   (let ((p (frame-procedure frame)))
-    (if (program? p)
-        (program-bindings-for-ip p (frame-instruction-pointer frame))
-        '())))
+    (program-bindings-for-ip p (frame-instruction-pointer frame))))
 
 (define (frame-lookup-binding frame var)
   (let lp ((bindings (frame-bindings frame)))
@@ -90,7 +88,7 @@
     (cons
      (or (false-if-exception (procedure-name p)) p)
      (cond
-      ((and (or (program? p) (rtl-program? p))
+      ((and (rtl-program? p)
             (program-arguments-alist p (frame-instruction-pointer frame)))
        ;; case 1
        => (lambda (arguments)

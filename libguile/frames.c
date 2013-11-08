@@ -120,35 +120,18 @@ SCM_DEFINE (scm_frame_num_locals, "frame-num-locals", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_frame_num_locals
 {
-  SCM *fp, *sp, *p;
+  SCM *sp, *p;
   unsigned int n = 0;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
 
-  fp = SCM_VM_FRAME_FP (frame);
   sp = SCM_VM_FRAME_SP (frame);
   p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));
 
-  if (SCM_RTL_PROGRAM_P (fp[-1]))
-    /* The frame size of an RTL program is fixed, except in the case of
-       passing a wrong number of arguments to the program.  So we do
-       need to use an SP for determining the number of locals.  */
-    return scm_from_ptrdiff_t (sp + 1 - p);
-
-  sp = SCM_VM_FRAME_SP (frame);
-  p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));
-  while (p <= sp)
-    {
-      if (SCM_UNPACK (p[0]) == 0)
-        /* skip over not-yet-active frame */
-        p += 3;
-      else
-        {
-          p++;
-          n++;
-        }
-    }
-  return scm_from_uint (n);
+  /* The frame size of an RTL program is fixed, except in the case of
+     passing a wrong number of arguments to the program.  So we do
+     need to use an SP for determining the number of locals.  */
+  return scm_from_ptrdiff_t (sp + 1 - p);
 }
 #undef FUNC_NAME
 
@@ -311,8 +294,7 @@ SCM_DEFINE (scm_frame_previous, "frame-previous", 1, 0, 0,
                                 SCM_VM_FRAME_OFFSET (frame));
       proc = scm_frame_procedure (frame);
 
-      if ((SCM_PROGRAM_P (proc) || SCM_RTL_PROGRAM_P (proc))
-          && SCM_PROGRAM_IS_BOOT (proc))
+      if (SCM_RTL_PROGRAM_P (proc) && SCM_PROGRAM_IS_BOOT (proc))
         goto again;
       else
         return frame;

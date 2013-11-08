@@ -25,8 +25,7 @@
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
-  #:export (make-program
-            make-rtl-program
+  #:export (make-rtl-program
 
             make-binding binding:name binding:boxed? binding:index
             binding:start binding:end
@@ -35,7 +34,8 @@
             source:line-for-user
             program-sources program-sources-pre-retire program-source
 
-            program-bindings program-bindings-by-index program-bindings-for-ip
+            program-bindings-for-ip
+
             program-arities program-arity arity:start arity:end
 
             arity:nreq arity:nopt arity:rest? arity:kw arity:allow-other-keys?
@@ -43,10 +43,7 @@
             program-arguments-alist program-arguments-alists
             program-lambda-list
 
-            program-meta
-            program-objcode program? program-objects
             rtl-program? rtl-program-code
-            program-module program-base
             program-free-variables
             program-num-free-variables
             program-free-variable-ref program-free-variable-set!))
@@ -96,29 +93,6 @@
 (define (source:line-for-user source)
   (1+ (source:line source)))
 
-;; FIXME: pull this definition from elsewhere.
-(define *bytecode-header-len* 8)
-
-;; We could decompile the program to get this, but that seems like a
-;; waste.
-(define (bytecode-instruction-length bytecode ip)
-  (let* ((idx (+ ip *bytecode-header-len*))
-         (inst (opcode->instruction (bytevector-u8-ref bytecode idx))))
-    ;; 1+ for the instruction itself.
-    (1+ (cond
-         ((eq? inst 'load-program)
-          (+ (bytevector-u32-native-ref bytecode (+ idx 1))
-             (bytevector-u32-native-ref bytecode (+ idx 5))))
-         ((< (instruction-length inst) 0)
-          ;; variable length instruction -- the length is encoded in the
-          ;; instruction stream.
-          (+ (ash (bytevector-u8-ref bytecode (+ idx 1)) 16)
-             (ash (bytevector-u8-ref bytecode (+ idx 2)) 8)
-             (bytevector-u8-ref bytecode (+ idx 3))))
-         (else
-          ;; fixed length
-          (instruction-length inst))))))
-
 (define (source-for-addr addr)
   (and=> (find-source-for-addr addr)
          (lambda (source)
@@ -129,16 +103,12 @@
                   (source-column source)))))
 
 (define (program-sources proc)
-  (cond
-   ((rtl-program? proc)
-    (map (lambda (source)
-           (cons* (- (source-post-pc source) (rtl-program-code proc))
-                  (source-file source)
-                  (source-line source)
-                  (source-column source)))
-         (find-program-sources (rtl-program-code proc))))
-   (else
-    (%program-sources proc))))
+  (map (lambda (source)
+         (cons* (- (source-post-pc source) (rtl-program-code proc))
+                (source-file source)
+                (source-line source)
+                (source-column source)))
+       (find-program-sources (rtl-program-code proc))))
 
 (define* (program-source proc ip #:optional (sources (program-sources proc)))
   (let lp ((source #f) (sources sources))
@@ -185,9 +155,8 @@
 ;; returns list of list of bindings
 ;; (list-ref ret N) == bindings bound to the Nth local slot
 (define (program-bindings-by-index prog)
-  (cond ((rtl-program? prog) '())
-        ((program-bindings prog) => collapse-locals)
-        (else '())))
+  ;; FIXME!
+  '())
 
 (define (program-bindings-for-ip prog ip)
   (let lp ((in (program-bindings-by-index prog)) (out '()))
@@ -343,9 +312,6 @@ lists."
       (if arities
           (map arity-arguments-alist arities)
           (fallback))))
-   ((program? prog)
-    (map (lambda (arity) (arity->arguments-alist prog arity))
-         (or (program-arities prog) '())))
    (else (error "expected a program" prog))))
 
 (define (write-program prog port)
