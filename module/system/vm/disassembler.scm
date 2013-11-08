@@ -32,6 +32,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-4)
   #:export (disassemble-program
+            fold-program-code
             disassemble-image
             disassemble-file))
 
@@ -361,6 +362,71 @@ address of that offset."
    (else
     (format port "Debugging information unavailable.~%")))
   (values))
+
+(define (fold-code-range proc seed bv start end context raw?)
+  (define (cook code offset)
+    (define (reference-scm target)
+      (unpack-scm (u32-offset->addr (+ offset target) context)))
+
+    (define (dereference-scm target)
+      (let ((addr (u32-offset->addr (+ offset target)
+                                    context)))
+        (pointer->scm
+         (dereference-pointer (make-pointer addr)))))
+    (match code
+      (((or 'make-short-immediate 'make-long-immediate) dst imm)
+       `(,(car code) ,dst ,(unpack-scm imm)))
+      (('make-long-long-immediate dst high low)
+       `(make-long-long-immediate ,dst
+                                  ,(unpack-scm (logior (ash high 32) low))))
+      (('make-closure dst target nfree)
+       `(make-closure ,dst
+                      ,(u32-offset->addr (+ offset target) context)
+                      ,nfree))
+      (('make-non-immediate dst target)
+       `(make-non-immediate ,dst ,(reference-scm target)))
+      (('builtin-ref dst idx)
+       `(builtin-ref ,dst ,(builtin-index->name idx)))
+      (((or 'static-ref 'static-set!) dst target)
+       `(,(car code) ,dst ,(dereference-scm target)))
+      (('toplevel-box dst var-offset mod-offset sym-offset bound?)
+       `(toplevel-box ,dst
+                      ,(dereference-scm var-offset)
+                      ,(dereference-scm mod-offset)
+                      ,(dereference-scm sym-offset)
+                      ,bound?))
+      (('module-box dst var-offset mod-name-offset sym-offset bound?)
+       (let ((mod-name (reference-scm mod-name-offset)))
+         `(module-box ,dst
+                      ,(dereference-scm var-offset)
+                      ,(car mod-name)
+                      ,(cdr mod-name)
+                      ,(dereference-scm sym-offset)
+                      ,bound?)))
+      (_ code)))
+  (let lp ((offset start) (seed seed))
+    (cond
+     ((< offset end)
+      (call-with-values (lambda () (disassemble-one bv offset))
+        (lambda (len elt)
+          (lp (+ offset len)
+              (proc (if raw? elt (cook elt offset))
+                    seed)))))
+     (else seed))))
+
+(define* (fold-program-code proc seed program-or-addr #:key raw?)
+  (cond
+   ((find-program-debug-info (if (rtl-program? program-or-addr)
+                                 (rtl-program-code program-or-addr)
+                                 program-or-addr))
+    => (lambda (pdi)
+         (fold-code-range proc seed
+                          (program-debug-info-image pdi)
+                          (program-debug-info-u32-offset pdi)
+                          (program-debug-info-u32-offset-end pdi)
+                          (program-debug-info-context pdi)
+                          raw?)))
+   (else seed)))
 
 (define* (disassemble-image bv #:optional (port (current-output-port)))
   (let* ((ctx (debug-context-from-image bv))
