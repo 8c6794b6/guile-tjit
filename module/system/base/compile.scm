@@ -271,8 +271,8 @@
 
 (define* (decompile x #:key
                     (env #f)
-                    (from 'value)
-                    (to 'assembly)
+                    (from 'tree-il)
+                    (to 'scheme)
                     (opts '()))
   (decompile-fold (decompile-passes from to opts)
                   x
