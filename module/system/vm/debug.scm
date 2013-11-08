@@ -400,7 +400,17 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
      (let* ((base (elf-section-offset sec))
             (first (find-first-arity context base addr)))
        (if (arity-is-case-lambda? first)
-           (list 0 0 #t) ;; FIXME: be more precise.
+           (let ((arities (read-sub-arities context base
+                                            (arity-header-offset first))))
+             (and (pair? arities)
+                  (list (apply min (map arity-nreq arities))
+                        0
+                        (or-map (lambda (arity)
+                                  (or (positive? (arity-nopt arity))
+                                      (arity-has-rest? arity)
+                                      (arity-has-keyword-args? arity)
+                                      (arity-allow-other-keys? arity)))
+                                arities))))
            (list (arity-nreq first)
                  (arity-nopt first)
                  (arity-has-rest? first)))))))
