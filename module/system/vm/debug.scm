@@ -42,6 +42,7 @@
             program-debug-info-context
             program-debug-info-image
             program-debug-info-offset
+            program-debug-info-size
             program-debug-info-addr
             program-debug-info-u32-offset
             program-debug-info-u32-offset-end
