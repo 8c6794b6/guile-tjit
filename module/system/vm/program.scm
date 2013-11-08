@@ -21,7 +21,6 @@
 (define-module (system vm program)
   #:use-module (ice-9 match)
   #:use-module (system vm instruction)
-  #:use-module (system vm objcode)
   #:use-module (system vm debug)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-1)
@@ -161,34 +160,12 @@
 ;; pre-retire addresses.
 ;;
 (define (program-sources-pre-retire proc)
-  (cond
-   ((rtl-program? proc)
-    (map (lambda (source)
-           (cons* (- (source-pre-pc source) (rtl-program-code proc))
-                  (source-file source)
-                  (source-line source)
-                  (source-column source)))
-         (find-program-sources (rtl-program-code proc))))
-   (else
-    (let ((bv (objcode->bytecode (program-objcode proc))))
-      (let lp ((in (program-sources proc))
-               (out '())
-               (ip 0))
-        (cond
-         ((null? in)
-          (reverse out))
-         (else
-          (match (car in)
-            ((post-ip . source)
-             (let lp2 ((ip ip)
-                       (next ip))
-               (if (< next post-ip)
-                   (lp2 next (+ next (bytecode-instruction-length bv next)))
-                   (lp (cdr in)
-                       (acons ip source out)
-                       next))))
-            (_
-             (error "unexpected"))))))))))
+  (map (lambda (source)
+         (cons* (- (source-pre-pc source) (rtl-program-code proc))
+                (source-file source)
+                (source-line source)
+                (source-column source)))
+       (find-program-sources (rtl-program-code proc))))
 
 (define (collapse-locals locs)
   (let lp ((ret '()) (locs locs))
