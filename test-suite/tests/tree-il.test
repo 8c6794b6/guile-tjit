@@ -294,7 +294,7 @@
                               (let ((_ 'underscore)
                                     (#{gensym name}# 'ignore-me))
                                 #t))
-                           #:to 'assembly
+                           #:to 'cps
                            #:opts %opts-w-unused))))))
 
    (with-test-prefix "unused-toplevel"
@@ -305,7 +305,7 @@
                   (let ((in (open-input-string
                              "(define foo 2) foo")))
                     (read-and-compile in
-                                      #:to 'assembly
+                                      #:to 'cps
                                       #:opts %opts-w-unused-toplevel))))))
 
      (pass-if "used before definition"
@@ -314,7 +314,7 @@
                   (let ((in (open-input-string
                              "(define (bar) foo) (define foo 2) (bar)")))
                     (read-and-compile in
-                                      #:to 'assembly
+                                      #:to 'cps
                                       #:opts %opts-w-unused-toplevel))))))
 
      (pass-if "unused but public"
@@ -324,7 +324,7 @@
          (null? (call-with-warnings
                   (lambda ()
                     (read-and-compile in
-                                      #:to 'assembly
+                                      #:to 'cps
                                       #:opts %opts-w-unused-toplevel))))))
 
      (pass-if "unused but public (more)"
@@ -336,14 +336,14 @@
          (null? (call-with-warnings
                   (lambda ()
                     (read-and-compile in
-                                      #:to 'assembly
+                                      #:to 'cps
                                       #:opts %opts-w-unused-toplevel))))))
 
      (pass-if "unused but define-public"
        (null? (call-with-warnings
                 (lambda ()
                   (compile '(define-public foo 2)
-                           #:to 'assembly
+                           #:to 'cps
                            #:opts %opts-w-unused-toplevel)))))
 
      (pass-if "used by macro"
@@ -357,14 +357,14 @@
                               (define-syntax baz
                                 (syntax-rules () ((_) (bar))))")))
                     (read-and-compile in
-                                      #:to 'assembly
+                                      #:to 'cps
                                       #:opts %opts-w-unused-toplevel))))))
 
      (pass-if "unused"
        (let ((w (call-with-warnings
                   (lambda ()
                     (compile '(define foo 2)
-                             #:to 'assembly
+                             #:to 'cps
                              #:opts %opts-w-unused-toplevel)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
@@ -375,7 +375,7 @@
        (let ((w (call-with-warnings
                   (lambda ()
                     (compile '(define (foo) (foo))
-                             #:to 'assembly
+                             #:to 'cps
                              #:opts %opts-w-unused-toplevel)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
@@ -388,7 +388,7 @@
               (w  (call-with-warnings
                     (lambda ()
                       (read-and-compile in
-                                        #:to 'assembly
+                                        #:to 'cps
                                         #:opts %opts-w-unused-toplevel)))))
          (and (= (length w) 2)
               (number? (string-contains (car w)
@@ -402,7 +402,7 @@
        (null? (call-with-warnings
                 (lambda ()
                   (compile '(define #{gensym name}# 'ignore-me)
-                           #:to 'assembly
+                           #:to 'cps
                            #:opts %opts-w-unused-toplevel))))))
 
    (with-test-prefix "unbound variable"
@@ -417,7 +417,7 @@
               (w (call-with-warnings
                    (lambda ()
                      (compile v
-                              #:to 'assembly
+                              #:to 'cps
                               #:opts %opts-w-unbound)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
@@ -429,7 +429,7 @@
               (w (call-with-warnings
                    (lambda ()
                      (compile `(set! ,v 7)
-                              #:to 'assembly
+                              #:to 'cps
                               #:opts %opts-w-unbound)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
@@ -446,7 +446,7 @@
                   (lambda ()
                     (compile v
                              #:env m
-                             #:to 'assembly
+                             #:to 'cps
                              #:opts %opts-w-unbound))))))
 
      (pass-if "module-local top-level is visible after"
@@ -468,14 +468,14 @@
                 (lambda ()
                   (compile '(lambda* (x #:optional y z) (list x y z))
                            #:opts %opts-w-unbound
-                           #:to 'assembly)))))
+                           #:to 'cps)))))
 
      (pass-if "keyword arguments are visible"
        (null? (call-with-warnings
                 (lambda ()
                   (compile '(lambda* (x #:key y z) (list x y z))
                            #:opts %opts-w-unbound
-                           #:to 'assembly)))))
+                           #:to 'cps)))))
 
      (pass-if "GOOPS definitions are visible"
        (let ((m (make-module))
@@ -504,7 +504,7 @@
                   (lambda ()
                     (compile '((lambda (x y) (or x y)) 1 2 3 4 5)
                              #:opts %opts-w-arity
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -514,7 +514,7 @@
                     (compile '(let ((f (lambda (x y) (+ x y))))
                                 (f 2))
                              #:opts %opts-w-arity
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -524,7 +524,7 @@
                   (lambda ()
                     (compile '(cons 1 2 3 4)
                              #:opts %opts-w-arity
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -534,7 +534,7 @@
                   (lambda ()
                     (compile '(let ((f cons)) (f 1 2 3 4))
                              #:opts %opts-w-arity
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -546,7 +546,7 @@
                                 (let ((g f))
                                   (f 1 2 3 4)))
                              #:opts %opts-w-arity
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -558,7 +558,7 @@
                                 (let ((g f))
                                   (g 1)))
                              #:opts %opts-w-arity
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -572,7 +572,7 @@
                                                     (odd?)))))
                                 (odd? 1))
                              #:opts %opts-w-arity
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -588,7 +588,7 @@
                                     (f 1 2)
                                     (f 1 2 3)))
                            #:opts %opts-w-arity
-                           #:to 'assembly)))))
+                           #:to 'cps)))))
 
      (pass-if "case-lambda with wrong number of arguments"
        (let ((w (call-with-warnings
@@ -598,7 +598,7 @@
                                          ((x y)   2))))
                                 (f 1 2 3))
                              #:opts %opts-w-arity
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -615,7 +615,7 @@
                                     (f #:y 2)
                                     (f 1 2 #:z 3)))
                            #:opts %opts-w-arity
-                           #:to 'assembly)))))
+                           #:to 'cps)))))
 
      (pass-if "case-lambda* with wrong arguments"
        (let ((w (call-with-warnings
@@ -627,7 +627,7 @@
                                 (list (f)
                                       (f 1 #:z 3)))
                              #:opts %opts-w-arity
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 2)
               (null? (filter (lambda (w)
                                (not
@@ -643,7 +643,7 @@
                              (p (+ (p) 1))
                              (p))
                           #:opts %opts-w-arity
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "top-level applicable struct with wrong arguments"
        (let ((w (call-with-warnings
@@ -651,7 +651,7 @@
                    (compile '(let ((p current-warning-port))
                                (p 1 2 3))
                             #:opts %opts-w-arity
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -664,7 +664,7 @@
                                 (define (f) 1)")))
                       (read-and-compile in
                                         #:opts %opts-w-arity
-                                        #:to 'assembly))))))
+                                        #:to 'cps))))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -677,7 +677,7 @@
                                 (define (g) (f))")))
                       (read-and-compile in
                                         #:opts %opts-w-arity
-                                        #:to 'assembly))))))
+                                        #:to 'cps))))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -690,7 +690,7 @@
                               (define (foo x) (cons))")))
                     (read-and-compile in
                                       #:opts %opts-w-arity
-                                      #:to 'assembly))))))
+                                      #:to 'cps))))))
 
      (pass-if "keyword not passed and quiet"
        (null? (call-with-warnings
@@ -698,7 +698,7 @@
                   (compile '(let ((f (lambda* (x #:key y) y)))
                               (f 2))
                            #:opts %opts-w-arity
-                           #:to 'assembly)))))
+                           #:to 'cps)))))
 
      (pass-if "keyword passed and quiet"
        (null? (call-with-warnings
@@ -706,7 +706,7 @@
                   (compile '(let ((f (lambda* (x #:key y) y)))
                               (f 2 #:y 3))
                            #:opts %opts-w-arity
-                           #:to 'assembly)))))
+                           #:to 'cps)))))
 
      (pass-if "keyword passed to global and quiet"
        (null? (call-with-warnings
@@ -716,7 +716,7 @@
                               (compile '(+ 2 3) #:env (current-module))")))
                     (read-and-compile in
                                       #:opts %opts-w-arity
-                                      #:to 'assembly))))))
+                                      #:to 'cps))))))
 
      (pass-if "extra keyword"
        (let ((w (call-with-warnings
@@ -724,7 +724,7 @@
                     (compile '(let ((f (lambda* (x #:key y) y)))
                                 (f 2 #:Z 3))
                              #:opts %opts-w-arity
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments to")))))
@@ -736,7 +736,7 @@
                                        y)))
                               (f 2 #:Z 3))
                            #:opts %opts-w-arity
-                           #:to 'assembly))))))
+                           #:to 'cps))))))
 
    (with-test-prefix "format"
 
@@ -745,28 +745,28 @@
                (lambda ()
                  (compile '(format #t "hey!")
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "quiet (1 arg)"
        (null? (call-with-warnings
                (lambda ()
                  (compile '(format #t "hey ~A!" "you")
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "quiet (2 args)"
        (null? (call-with-warnings
                (lambda ()
                  (compile '(format #t "~A ~A!" "hello" "world")
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "wrong port arg"
        (let ((w (call-with-warnings
                  (lambda ()
                    (compile '(format 10 "foo")
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong port argument")))))
@@ -776,7 +776,7 @@
                  (lambda ()
                    (compile '(format #f fmt)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "non-literal format string")))))
@@ -786,14 +786,14 @@
                (lambda ()
                  (compile '(format #t (gettext "~A ~A!") "hello" "world")
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "non-literal format string using gettext as _"
        (null? (call-with-warnings
                (lambda ()
                  (compile '(format #t (_ "~A ~A!") "hello" "world")
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "non-literal format string using gettext as top-level _"
        (null? (call-with-warnings
@@ -802,14 +802,14 @@
                              (define (_ s) (gettext s "my-domain"))
                              (format #t (_ "~A ~A!") "hello" "world"))
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "non-literal format string using gettext as module-ref _"
        (null? (call-with-warnings
                (lambda ()
                  (compile '(format #t ((@@ (foo) _) "~A ~A!") "hello" "world")
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "non-literal format string using gettext as lexical _"
        (null? (call-with-warnings
@@ -818,7 +818,7 @@
                                       (gettext s "my-domain"))))
                              (format #t (_ "~A ~A!") "hello" "world"))
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "non-literal format string using ngettext"
        (null? (call-with-warnings
@@ -826,14 +826,14 @@
                  (compile '(format #t
                                    (ngettext "~a thing" "~a things" n "dom") n)
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "non-literal format string using ngettext as N_"
        (null? (call-with-warnings
                (lambda ()
                  (compile '(format #t (N_ "~a thing" "~a things" n) n)
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "non-literal format string with (define _ gettext)"
        (null? (call-with-warnings
@@ -843,14 +843,14 @@
                              (define (foo)
                                (format #t (_ "~A ~A!") "hello" "world")))
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "wrong format string"
        (let ((w (call-with-warnings
                  (lambda ()
                    (compile '(format #f 'not-a-string)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong format string")))))
@@ -860,7 +860,7 @@
                  (lambda ()
                    (compile '(format "shbweeb")
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "wrong number of arguments")))))
@@ -871,14 +871,14 @@
                  (compile '((@ (ice-9 format) format) some-port
                             "~&~3_~~ ~\n~12they~% ~!~|~/~q")
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "one missing argument"
        (let ((w (call-with-warnings
                  (lambda ()
                    (compile '(format some-port "foo ~A~%")
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 1, got 0")))))
@@ -888,7 +888,7 @@
                  (lambda ()
                    (compile '(format some-port (gettext "foo ~A~%"))
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 1, got 0")))))
@@ -899,7 +899,7 @@
                    (compile '((@ (ice-9 format) format) #f
                               "foo ~10,2f and bar ~S~%")
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 2, got 0")))))
@@ -909,7 +909,7 @@
                  (lambda ()
                    (compile '(format #t "foo ~A and ~S~%" hey)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 2, got 1")))))
@@ -919,7 +919,7 @@
                  (lambda ()
                    (compile '(format #t "foo ~A~%" 1 2)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 1, got 2")))))
@@ -930,7 +930,7 @@
                    (compile '((@ (ice-9 format) format) #t
                               "foo ~h ~a~%" 123.4 'bar)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
 
      (pass-if "~:h with locale object"
        (null? (call-with-warnings
@@ -938,14 +938,14 @@
                    (compile '((@ (ice-9 format) format) #t
                               "foo ~:h~%" 123.4 %global-locale)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
 
      (pass-if "~:h without locale object"
        (let ((w (call-with-warnings
                  (lambda ()
                    (compile '((@ (ice-9 format) format) #t "foo ~,2:h" 123.4)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 2, got 1")))))
@@ -957,7 +957,7 @@
                   (compile '((@ (ice-9 format) format) #f "~A ~[foo~;bar~;baz~;~] ~10,2f"
                                     'a 1 3.14)
                            #:opts %opts-w-format
-                           #:to 'assembly)))))
+                           #:to 'cps)))))
 
        (pass-if "literals with selector"
          (let ((w (call-with-warnings
@@ -965,7 +965,7 @@
                      (compile '((@ (ice-9 format) format) #f "~2[foo~;bar~;baz~;~] ~A"
                                        1 'dont-ignore-me)
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w)
                                           "expected 1, got 2")))))
@@ -975,7 +975,7 @@
                    (lambda ()
                      (compile '((@ (ice-9 format) format) #f "~[~a~;~a~]")
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w)
                                           "expected 2, got 0")))))
@@ -985,7 +985,7 @@
                    (lambda ()
                      (compile '((@ (ice-9 format) format) #f "~1[chbouib~;~a~]")
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w)
                                           "expected 1, got 0")))))
@@ -995,7 +995,7 @@
                    (lambda ()
                      (compile '((@ (ice-9 format) format) #f "~[chbouib~;~a~;~2*~a~]")
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w)
                                           "expected 1 to 4, got 0")))))
@@ -1005,7 +1005,7 @@
                    (lambda ()
                      (compile '((@ (ice-9 format) format) #f "~@[temperature=~d~]")
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w)
                                           "expected 1, got 0")))))
@@ -1015,7 +1015,7 @@
                    (lambda ()
                      (compile '((@ (ice-9 format) format) #f "~:[~[hey~;~a~;~va~]~;~3*~]")
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w)
                                           "expected 2 to 4, got 0")))))
@@ -1025,7 +1025,7 @@
                    (lambda ()
                      (compile '((@ (ice-9 format) format) #f "~[unterminated")
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w)
                                           "unterminated conditional")))))
@@ -1035,7 +1035,7 @@
                    (lambda ()
                      (compile '((@ (ice-9 format) format) #f "foo~;bar")
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w)
                                           "unexpected")))))
@@ -1045,7 +1045,7 @@
                    (lambda ()
                      (compile '((@ (ice-9 format) format) #f "foo~]")
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w)
                                           "unexpected"))))))
@@ -1057,14 +1057,14 @@
                                    'hello '("ladies" "and")
                                    'gentlemen)
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "~{...~}, too many args"
        (let ((w (call-with-warnings
                  (lambda ()
                    (compile '((@ (ice-9 format) format) #f "~{~S~}" 1 2 3)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 1, got 3")))))
@@ -1074,14 +1074,14 @@
                (lambda ()
                  (compile '((@ (ice-9 format) format) #f "~@{~S~}" 1 2 3)
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "~@{...~}, too few args"
        (let ((w (call-with-warnings
                  (lambda ()
                    (compile '((@ (ice-9 format) format) #f "~A ~@{~S~}")
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected at least 1, got 0")))))
@@ -1091,7 +1091,7 @@
                  (lambda ()
                    (compile '((@ (ice-9 format) format) #f "~{")
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "unterminated")))))
@@ -1101,14 +1101,14 @@
                (lambda ()
                  (compile '((@ (ice-9 format) format) #f "~:@(~A ~A~)" 'foo 'bar)
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "~v"
        (let ((w (call-with-warnings
                  (lambda ()
                    (compile '((@ (ice-9 format) format) #f "~v_foo")
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 1, got 0")))))
@@ -1117,7 +1117,7 @@
                (lambda ()
                  (compile '((@ (ice-9 format) format) #f "~v:@y" 1 123)
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
 
      (pass-if "~*"
@@ -1125,7 +1125,7 @@
                  (lambda ()
                    (compile '((@ (ice-9 format) format) #f "~2*~a" 'a 'b)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 3, got 2")))))
@@ -1135,21 +1135,21 @@
                (lambda ()
                  (compile '((@ (ice-9 format) format) #f "~?" "~d ~d" '(1 2))
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "~^"
        (null? (call-with-warnings
                (lambda ()
                  (compile '((@ (ice-9 format) format) #f "~a ~^ ~a" 0 1)
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "~^, too few args"
        (let ((w (call-with-warnings
                  (lambda ()
                    (compile '((@ (ice-9 format) format) #f "~a ~^ ~a")
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected at least 1, got 0")))))
@@ -1160,7 +1160,7 @@
                  (compile '((@ (ice-9 format) format) some-port
                             "~#~ ~,,-2f ~,,+2f ~'A~" 1234 1234)
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (pass-if "complex 1"
        (let ((w (call-with-warnings
@@ -1169,7 +1169,7 @@
                                      "~4@S    ~32S~@[;; ~1{~@?~}~]~@[~61t at ~a~]\n"
                                      1 2 3 4 5 6)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 4, got 6")))))
@@ -1181,7 +1181,7 @@
                                      "~:(~A~) Commands~:[~; [abbrev]~]:~2%"
                                      1 2 3 4)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 2, got 4")))))
@@ -1191,7 +1191,7 @@
                  (lambda ()
                    (compile '((@ (ice-9 format) format) #f "~9@a~:[~*~3_~;~3d~] ~v:@y~%")
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 5, got 0")))))
@@ -1205,7 +1205,7 @@
                                (i9-format #t \"yo! ~A\" 1 2)")))
                      (read-and-compile in
                                        #:opts %opts-w-format
-                                       #:to 'assembly))))))
+                                       #:to 'cps))))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "expected 1, got 2")))))
@@ -1216,7 +1216,7 @@
                  (compile '(let ((format chbouib))
                              (format #t "not ~A a format string"))
                           #:opts %opts-w-format
-                          #:to 'assembly)))))
+                          #:to 'cps)))))
 
      (with-test-prefix "simple-format"
 
@@ -1225,14 +1225,14 @@
                  (lambda ()
                    (compile '(simple-format #t "foo ~a bar ~s ~%~~" 1 2)
                             #:opts %opts-w-format
-                            #:to 'assembly)))))
+                            #:to 'cps)))))
 
        (pass-if "wrong number of args"
          (let ((w (call-with-warnings
                    (lambda ()
                      (compile '(simple-format #t "foo ~a ~s~%" 'one-missing)
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w) "wrong number")))))
 
@@ -1241,7 +1241,7 @@
                    (lambda ()
                      (compile '(simple-format #t "foo ~x~%" 16)
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w) "unsupported format option")))))
 
@@ -1250,7 +1250,7 @@
                    (lambda ()
                      (compile '(simple-format #t (gettext "foo ~2f~%") 3.14)
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w) "unsupported format option")))))
 
@@ -1259,7 +1259,7 @@
                    (lambda ()
                      (compile '(simple-format #t (ngettext "s ~x" "p ~x" x) x)
                               #:opts %opts-w-format
-                              #:to 'assembly)))))
+                              #:to 'cps)))))
            (and (= (length w) 1)
                 (number? (string-contains (car w) "unsupported format option")))))))
 
@@ -1270,7 +1270,7 @@
                 (lambda ()
                   (compile '(case x ((1) 'one) ((2) 'two))
                            #:opts %opts-w-duplicate-case-datum
-                           #:to 'assembly)))))
+                           #:to 'cps)))))
 
      (pass-if "one duplicate"
        (let ((w (call-with-warnings
@@ -1280,7 +1280,7 @@
                                 ((2) 'two)
                                 ((1) 'one-again))
                              #:opts %opts-w-duplicate-case-datum
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w) "duplicate")))))
 
@@ -1291,7 +1291,7 @@
                                 ((1 2 3) 'a)
                                 ((1)     'one))
                              #:opts %opts-w-duplicate-case-datum
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w) "duplicate"))))))
 
@@ -1302,7 +1302,7 @@
                 (lambda ()
                   (compile '(case x ((1) 'one) ((2) 'two))
                            #:opts %opts-w-bad-case-datum
-                           #:to 'assembly)))))
+                           #:to 'cps)))))
 
      (pass-if "not eqv?"
        (let ((w (call-with-warnings
@@ -1311,7 +1311,7 @@
                                 ((1)     'one)
                                 (("bad") 'bad))
                              #:opts %opts-w-bad-case-datum
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "cannot be meaningfully compared")))))
@@ -1322,7 +1322,7 @@
                     (compile '(case x
                                 ((1 (2) 3) 'a))
                              #:opts %opts-w-duplicate-case-datum
-                             #:to 'assembly)))))
+                             #:to 'cps)))))
          (and (= (length w) 1)
               (number? (string-contains (car w)
                                         "cannot be meaningfully compared")))))))
