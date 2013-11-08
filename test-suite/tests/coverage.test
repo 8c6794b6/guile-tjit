@@ -156,10 +156,9 @@
                         (let ((line  (car line+count))
                               (count (cdr line+count)))
                           (case line
-                            ((0 1)   (= count 1))
-                            ((2 3 4) (= count 0))
-                            ((5)     (= count 1))
-                            (else    #f))))
+                            ((0 1)     (= count 1))
+                            ((2 3 4 5) (= count 0))
+                            (else      #f))))
                       counts))))))
 
   (pass-if "case-lambda"
