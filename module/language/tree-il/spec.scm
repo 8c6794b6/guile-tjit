@@ -21,10 +21,8 @@
 (define-module (language tree-il spec)
   #:use-module (system base language)
   #:use-module (system base pmatch)
-  #:use-module (language glil)
   #:use-module (language tree-il)
   #:use-module (language tree-il compile-cps)
-  #:use-module (language tree-il compile-glil)
   #:export (tree-il))
 
 (define (write-tree-il exp . port)
@@ -44,7 +42,6 @@
   #:printer	write-tree-il
   #:parser      parse-tree-il
   #:joiner      join
-  #:compilers   `((cps . ,compile-cps)
-                  (glil . ,compile-glil))
+  #:compilers   `((cps . ,compile-cps))
   #:for-humans? #f
   )
