@@ -791,7 +791,10 @@ returned instead."
 (define-macro-assembler (kw-prelude asm nreq nopt rest? kw-indices
                                     allow-other-keys? nlocals alternate)
   (if alternate
-      (emit-br-if-nargs-lt asm nreq alternate)
+      (begin
+        (emit-br-if-nargs-lt asm nreq alternate)
+        (unless rest?
+          (emit-br-if-npos-gt asm nreq (+ nreq nopt) alternate)))
       (emit-assert-nargs-ge asm nreq))
   (let ((ntotal (fold (lambda (kw ntotal)
                         (match kw
