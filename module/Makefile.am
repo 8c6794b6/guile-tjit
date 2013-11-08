@@ -50,12 +50,9 @@ SOURCES =					\
   language/tree-il/cse.scm                      \
 						\
   language/tree-il.scm				\
-  language/assembly.scm				\
   $(TREE_IL_LANG_SOURCES)			\
   $(CPS_LANG_SOURCES)				\
   $(RTL_LANG_SOURCES)				\
-  $(GLIL_LANG_SOURCES)				\
-  $(ASSEMBLY_LANG_SOURCES)			\
   $(BYTECODE_LANG_SOURCES)			\
   $(OBJCODE_LANG_SOURCES)			\
   $(VALUE_LANG_SOURCES)				\
@@ -134,12 +131,6 @@ CPS_LANG_SOURCES =						\
 RTL_LANG_SOURCES =						\
   language/rtl.scm						\
   language/rtl/spec.scm
-
-ASSEMBLY_LANG_SOURCES =				\
-  language/assembly/spec.scm			\
-  language/assembly/compile-bytecode.scm	\
-  language/assembly/decompile-bytecode.scm	\
-  language/assembly/disassemble.scm
 
 BYTECODE_LANG_SOURCES =				\
   language/bytecode/spec.scm

@@ -1,6 +1,6 @@
 ;;; Guile VM debugging facilities
 
-;;; Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -23,8 +23,7 @@
   #:use-module (system base syntax)
   #:use-module (system vm vm)
   #:use-module (system vm frame)
-  #:use-module ((language assembly disassemble)
-                #:select ((disassemble . %disassemble)))
+  #:use-module (system vm disassembler)
   #:use-module (ice-9 rdelim)
   #:use-module (ice-9 pretty-print)
   #:use-module (ice-9 format)
@@ -112,10 +111,10 @@
       (display x))
       
     (define-command ((commands disassemble x))
-      "Disassemble the current object, which should be objcode or a procedure."
+      "Disassemble the current object, which should be a procedure."
       (catch #t
         (lambda ()
-          (%disassemble x))
+          (disassemble-program x))
         (lambda args
           (format #t "Error disassembling object: ~a\n" args))))
     
