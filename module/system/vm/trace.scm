@@ -23,7 +23,6 @@
   #:use-module (system vm vm)
   #:use-module (system vm frame)
   #:use-module (system vm program)
-  #:use-module (system vm objcode)
   #:use-module (system vm traps)
   #:use-module (rnrs bytevectors)
   #:use-module (system vm instruction)
@@ -32,9 +31,6 @@
             trace-calls-to-procedure
             trace-instructions-in-procedure
             call-with-trace))
-
-;; FIXME: this constant needs to go in system vm objcode
-(define *objcode-header-len* 8)
 
 (define (build-prefix prefix depth infix numeric-format max-indent)
   (let lp ((indent "") (n 0))
@@ -96,11 +92,9 @@
 (define* (trace-instructions-in-procedure proc #:key (width 80) (vm (the-vm))
                                           (max-indent (- width 40)))
   (define (trace-next frame)
-    (let* ((ip (frame-instruction-pointer frame))
-           (objcode (program-objcode (frame-procedure frame)))
-           (opcode (bytevector-u8-ref (objcode->bytecode objcode)
-                                      (+ ip *objcode-header-len*))))
-      (format #t "~8d: ~a\n" ip (opcode->instruction opcode))))
+    ;; FIXME: We could disassemble this instruction here.
+    (let ((ip (frame-instruction-pointer frame)))
+      (format #t "0x~x\n" ip)))
   
   (trap-instructions-in-dynamic-extent proc trace-next
                                        #:vm vm))
