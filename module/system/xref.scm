@@ -17,9 +17,10 @@
 
 
 (define-module (system xref)
-  #:use-module (system base pmatch)
   #:use-module (system base compile)
   #:use-module (system vm program)
+  #:use-module (system vm disassembler)
+  #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
   #:export (*xref-ignored-modules*
             procedure-callees
@@ -31,59 +32,54 @@
 ;;; The cross-reference database: who calls whom.
 ;;;
 
+(define (nested-procedures prog)
+  (define (cons-uniq x y)
+    (if (memq x y) y (cons x y)))
+  (if (rtl-program? prog)
+      (reverse
+       (fold-program-code (lambda (elt out)
+                            (match elt
+                              (('static-ref dst proc)
+                               (if (rtl-program? proc)
+                                   (fold cons-uniq
+                                         (cons proc out)
+                                         (nested-procedures prog))
+                                   out))
+                              (_ out)))
+                          (list prog)
+                          prog))
+      (list prog)))
+
 (define (program-callee-rev-vars prog)
   (define (cons-uniq x y)
     (if (memq x y) y (cons x y)))
-  (cond
-   ((program-objects prog)
-    => (lambda (objects)
-          (let ((n (vector-length objects))
-                (progv (make-vector (vector-length objects) #f))
-                (asm (decompile (program-objcode prog) #:to 'assembly)))
-            (pmatch asm
-              ((load-program ,labels ,len . ,body)
-               (for-each
-                (lambda (x)
-                  (pmatch x
-                    ((toplevel-ref ,n) (vector-set! progv n #t))
-                    ((toplevel-set ,n) (vector-set! progv n #t))))
-                body)))
-            (let lp ((i 0) (out '()))
-              (cond
-               ((= i n) out)
-               ((program? (vector-ref objects i))
-                (lp (1+ i)
-                    (fold cons-uniq out
-                          (program-callee-rev-vars (vector-ref objects i)))))
-               ((vector-ref progv i)
-                (let ((obj (vector-ref objects i)))
-                  (if (variable? obj)
-                      (lp (1+ i) (cons-uniq obj out))
-                      ;; otherwise it's an unmemoized binding
-                      (pmatch obj
-                        (,sym (guard (symbol? sym))
-                         (let ((v (module-variable (or (program-module prog)
-                                                       the-root-module)
-                                                   sym)))
-                           (lp (1+ i) (if v (cons-uniq v out) out))))
-                        ((,mod ,sym ,public?)
-                         ;; hm, hacky.
-                         (let* ((m (nested-ref-module (resolve-module '() #f)
-                                                      mod))
-                                (v (and m
-                                        (module-variable
-                                         (if public?
-                                             (module-public-interface m)
-                                             m)
-                                         sym))))
-                           (lp (1+ i)
-                               (if v (cons-uniq v out) out))))))))
-               (else (lp (1+ i) out)))))))
-   (else '())))
+  (fold (lambda (prog out)
+          (fold-program-code
+           (lambda (elt out)
+             (match elt
+               (('toplevel-box dst var mod sym bound?)
+                (let ((var (or var (and mod (module-variable mod sym)))))
+                  (if var
+                      (cons-uniq var out)
+                      out)))
+               (('module-box dst var public? mod-name sym bound?)
+                (let ((var (or var
+                               (module-variable (if public?
+                                                    (resolve-interface mod-name)
+                                                    (resolve-module mod-name))
+                                                sym))))
+                  (if var
+                      (cons-uniq var out)
+                      out)))
+               (_ out)))
+           out
+           prog))
+        '()
+        (nested-procedures prog)))
 
 (define (procedure-callee-rev-vars proc)
   (cond
-   ((program? proc) (program-callee-rev-vars proc))
+   ((rtl-program? proc) (program-callee-rev-vars proc))
    (else '())))
 
 (define (procedure-callees prog)
@@ -186,10 +182,10 @@ pair of the form (module-name . variable-name), "
   (let ((v (cond ((variable? var) var)
                  ((symbol? var) (module-variable (current-module) var))
                  (else
-                  (pmatch var
-                    ((,modname . ,sym)
+                  (match var
+                    ((modname . sym)
                      (module-variable (resolve-module modname) sym))
-                    (else
+                    (_
                      (error "expected a variable, symbol, or (modname . sym)" var)))))))
     (untaint-modules)
     (hashq-ref *callers-db* v '())))
@@ -255,39 +251,32 @@ pair of the form (module-name . variable-name), "
                       sources)
           ;; Actually add the source entries.
           (for-each (lambda (source)
-                      (pmatch source
-                        ((,ip ,file ,line . ,col)
+                      (match source
+                        ((ip file line . col)
                          (add-source proc file line db))
-                        (else (error "unexpected source format" source))))
+                        (_ (error "unexpected source format" source))))
                     sources)))
     ;; Add source entries for nested procedures.
     (for-each (lambda (obj)
-                (if (procedure? obj)
-                    (add-sources obj mod-name *closure-sources-db*)))
-              (or (and (program? proc)
-                       (and=> (program-objects proc) vector->list))
-                  '()))))
+                (add-sources obj mod-name *closure-sources-db*))
+              (cdr (nested-procedures proc)))))
 
 (define (forget-sources proc mod-name db)
   (let ((mod-table (hash-ref *module-sources-db* mod-name)))
-    (if mod-table
-        (begin
-          ;; Forget source entries.
-          (for-each (lambda (source)
-                      (pmatch source
-                        ((,ip ,file ,line . ,col)
-                         (forget-source proc file line db))
-                        (else (error "unexpected source format" source))))
-                    (hashq-ref mod-table proc '()))
-          ;; Forget the proc.
-          (hashq-remove! mod-table proc)
-          ;; Forget source entries for nested procedures.
-          (for-each (lambda (obj)
-                (if (procedure? obj)
-                    (forget-sources obj mod-name *closure-sources-db*)))
-              (or (and (program? proc)
-                       (and=> (program-objects proc) vector->list))
-                  '()))))))
+    (when mod-table
+      ;; Forget source entries.
+      (for-each (lambda (source)
+                  (match source
+                    ((ip file line . col)
+                     (forget-source proc file line db))
+                    (_ (error "unexpected source format" source))))
+                (hashq-ref mod-table proc '()))
+      ;; Forget the proc.
+      (hashq-remove! mod-table proc)
+      ;; Forget source entries for nested procedures.
+      (for-each (lambda (obj)
+                  (forget-sources obj mod-name *closure-sources-db*))
+                (cdr (nested-procedures proc))))))
 
 (define (untaint-sources)
   (define (untaint m)
