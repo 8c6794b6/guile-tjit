@@ -1322,6 +1322,7 @@ it will be added to the GC roots at runtime."
 ;;;    #x2: allow-other-keys?
 ;;;    #x4: has-keyword-args?
 ;;;    #x8: is-case-lambda?
+;;;    #x10: is-in-case-lambda?
 ;;;
 ;;; Functions with a single arity specify their number of required and
 ;;; optional arguments in nreq and nopt, and do not have the
@@ -1341,10 +1342,10 @@ it will be added to the GC roots at runtime."
 ;;; Functions with multiple arities are preceded by a header with
 ;;; is-case-lambda? set.  All other fields are 0, except low-pc and
 ;;; high-pc which should be the bounds of the whole function.  Headers
-;;; for the individual arities follow.  In this way the whole headers
-;;; array is sorted in increasing low-pc order, and case-lambda clauses
-;;; are contained within the [low-pc, high-pc] of the case-lambda
-;;; header.
+;;; for the individual arities follow, with the is-in-case-lambda? flag
+;;; set.  In this way the whole headers array is sorted in increasing
+;;; low-pc order, and case-lambda clauses are contained within the
+;;; [low-pc, high-pc] of the case-lambda header.
 
 ;; Length of the prefix to the arities section, in bytes.
 (define arities-prefix-len 4)
@@ -1356,11 +1357,13 @@ it will be added to the GC roots at runtime."
 (define arity-header-offset-offset (* 2 4))
 
 (define-syntax-rule (pack-arity-flags has-rest? allow-other-keys?
-                                      has-keyword-args? is-case-lambda?)
+                                      has-keyword-args? is-case-lambda?
+                                      is-in-case-lambda?)
   (logior (if has-rest? (ash 1 0) 0)
           (if allow-other-keys? (ash 1 1) 0)
           (if has-keyword-args? (ash 1 2) 0)
-          (if is-case-lambda? (ash 1 3) 0)))
+          (if is-case-lambda? (ash 1 3) 0)
+          (if is-in-case-lambda? (ash 1 4) 0)))
 
 (define (meta-arities-size meta)
   (define (lambda-size arity)
@@ -1387,13 +1390,14 @@ it will be added to the GC roots at runtime."
     (bytevector-u32-set! bv (+ pos 12) flags endianness)
     (bytevector-u32-set! bv (+ pos 16) nreq endianness)
     (bytevector-u32-set! bv (+ pos 20) nopt endianness))
-  (define (write-arity-header pos arity)
+  (define (write-arity-header pos arity in-case-lambda?)
     (write-arity-header* pos (arity-low-pc arity)
                          (arity-high-pc arity)
                          (pack-arity-flags (arity-rest arity)
                                            (arity-allow-other-keys? arity)
                                            (pair? (arity-kw-indices arity))
-                                           #f)
+                                           #f
+                                           in-case-lambda?)
                          (length (arity-req arity))
                          (length (arity-opt arity))))
   (let lp ((metas metas) (pos arities-prefix-len) (offsets '()))
@@ -1406,7 +1410,7 @@ it will be added to the GC roots at runtime."
        (match (meta-arities meta)
          (() (lp metas pos offsets))
          ((arity)
-          (write-arity-header pos arity)
+          (write-arity-header pos arity #f)
           (lp metas
               (+ pos arity-header-len)
               (acons arity (+ pos arity-header-offset-offset) offsets)))
@@ -1414,13 +1418,13 @@ it will be added to the GC roots at runtime."
           ;; Write a case-lambda header, then individual arities.
           ;; The case-lambda header's offset link is 0.
           (write-arity-header* pos (meta-low-pc meta) (meta-high-pc meta)
-                               (pack-arity-flags #f #f #f #t) 0 0)
+                               (pack-arity-flags #f #f #f #t #f) 0 0)
           (let lp* ((arities arities) (pos (+ pos arity-header-len))
                     (offsets offsets))
             (match arities
               (() (lp metas pos offsets))
               ((arity . arities)
-               (write-arity-header pos arity)
+               (write-arity-header pos arity #t)
                (lp* arities
                     (+ pos arity-header-len)
                     (acons arity

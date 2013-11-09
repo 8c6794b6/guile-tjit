@@ -272,11 +272,13 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 ;;;    #x2: allow-other-keys?
 ;;;    #x4: has-keyword-args?
 ;;;    #x8: is-case-lambda?
+;;;   #x10: is-in-case-lambda?
 
 (define (has-rest? flags)         (not (zero? (logand flags (ash 1 0)))))
 (define (allow-other-keys? flags) (not (zero? (logand flags (ash 1 1)))))
 (define (has-keyword-args? flags) (not (zero? (logand flags (ash 1 2)))))
 (define (is-case-lambda? flags)   (not (zero? (logand flags (ash 1 3)))))
+(define (is-in-case-lambda? flags) (not (zero? (logand flags (ash 1 4)))))
 
 (define (arity-low-pc arity)
   (let ((ctx (arity-context arity)))
@@ -308,6 +310,7 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 (define (arity-allow-other-keys? arity) (allow-other-keys? (arity-flags arity)))
 (define (arity-has-keyword-args? arity) (has-keyword-args? (arity-flags arity)))
 (define (arity-is-case-lambda? arity) (is-case-lambda? (arity-flags arity)))
+(define (arity-is-in-case-lambda? arity) (is-in-case-lambda? (arity-flags arity)))
 
 (define (arity-load-symbol arity)
   (let ((elf (debug-context-elf (arity-context arity))))
@@ -358,19 +361,24 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
   (let* ((bv (elf-bytes (debug-context-elf context)))
          (text-offset (- addr
                          (debug-context-text-base context)
-                         (debug-context-base context)))
-         (headers-start (+ base arities-prefix-len))
-         (headers-end (+ base (bytevector-u32-native-ref bv base))))
-    ;; FIXME: This is linear search.  Change to binary search.
-    (let lp ((pos headers-start))
-      (cond
-       ((>= pos headers-end) #f)
-       ((< text-offset (arity-low-pc* bv pos))
-        #f)
-       ((<= (arity-high-pc* bv pos) text-offset)
-        (lp (+ pos arity-header-len)))
-       (else
-        (make-arity context base pos))))))
+                         (debug-context-base context))))
+    (binary-search
+     (+ base arities-prefix-len)
+     (+ base (bytevector-u32-native-ref bv base))
+     arity-header-len
+     (lambda (pos continue-before continue-after)
+       (let lp ((pos pos))
+         (cond
+          ((is-in-case-lambda? (arity-flags* bv pos))
+           (lp (- pos arity-header-len)))
+          ((< text-offset (arity-low-pc* bv pos))
+           (continue-before))
+          ((<= (arity-high-pc* bv pos) text-offset)
+           (continue-after))
+          (else
+           (make-arity context base pos)))))
+     (lambda ()
+       #f))))
 
 (define (read-sub-arities context base outer-header-offset)
   (let* ((bv (elf-bytes (debug-context-elf context)))
@@ -391,7 +399,6 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
    (lambda (sec)
      (let* ((base (elf-section-offset sec))
             (first (find-first-arity context base addr)))
-       ;; FIXME: Handle case-lambda arities.
        (cond
         ((not first) '())
         ((arity-is-case-lambda? first)
