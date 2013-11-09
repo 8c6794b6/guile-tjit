@@ -439,25 +439,27 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
      ;;   uint32_t pc;
      ;;   uint32_t str;
      ;; }
-     (define docstr-len 8)
-     (let* ((start (elf-section-offset sec))
-            (end (+ start (elf-section-size sec)))
-            (bv (elf-bytes (debug-context-elf context)))
-            (text-offset (- addr
-                            (debug-context-text-base context)
-                            (debug-context-base context))))
-       ;; FIXME: This is linear search.  Change to binary search.
-       (let lp ((pos start))
-         (cond
-          ((>= pos end) #f)
-          ((< (bytevector-u32-native-ref bv pos) text-offset)
-           (lp (+ pos docstr-len)))
-          ((= text-offset (bytevector-u32-native-ref bv pos))
-           (let ((strtab (elf-section (debug-context-elf context)
-                                      (elf-section-link sec)))
-                 (idx (bytevector-u32-native-ref bv (+ pos 4))))
-             (string-table-ref bv (+ (elf-section-offset strtab) idx))))
-          (else #f)))))))
+     (let ((start (elf-section-offset sec))
+           (bv (elf-bytes (debug-context-elf context)))
+           (text-offset (- addr
+                           (debug-context-text-base context)
+                           (debug-context-base context))))
+       (binary-search
+        start
+        (+ start (elf-section-size sec))
+        8
+        (lambda (pos continue-before continue-after)
+          (let ((pc (bytevector-u32-native-ref bv pos)))
+            (cond
+             ((< text-offset pc) (continue-before))
+             ((< pc text-offset) (continue-after))
+             (else
+              (let ((strtab (elf-section (debug-context-elf context)
+                                         (elf-section-link sec)))
+                    (idx (bytevector-u32-native-ref bv (+ pos 4))))
+                (string-table-ref bv (+ (elf-section-offset strtab) idx)))))))
+        (lambda ()
+          #f))))))
 
 (define* (find-program-properties addr #:optional
                                   (context (find-debug-context addr)))
