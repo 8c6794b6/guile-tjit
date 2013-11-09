@@ -180,6 +180,17 @@ to have an ELF image if the program was defined in as a stub in C."
   (and=> (find-mapped-elf-image addr)
          debug-context-from-image))
 
+(define-inlinable (binary-search start end inc try failure)
+  (let lp ((start start) (end end))
+    (if (eqv? start end)
+        (failure)
+        (let ((mid (+ start (* inc (floor/ (- end start) (* 2 inc))))))
+          (try mid
+               (lambda ()
+                 (lp start mid))
+               (lambda ()
+                 (lp (+ mid inc) end)))))))
+
 (define (find-elf-symbol elf text-offset)
   "Search the symbol table of @var{elf} for the ELF symbol containing
 @var{text-offset}.  @var{text-offset} is a byte offset in the text
@@ -187,24 +198,19 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
   (and=>
    (elf-section-by-name elf ".symtab")
    (lambda (symtab)
-     (let ((len (elf-symbol-table-len symtab))
-           (strtab (elf-section elf (elf-section-link symtab))))
-       ;; The symbols should be sorted, but maybe somehow that fails
-       ;; (for example if multiple objects are relinked together).  So,
-       ;; a modicum of tolerance.
-       (define (bisect)
-         ;; FIXME: Implement.
-         #f)
-       (define (linear-search)
-         (let lp ((n 0))
-           (and (< n len)
-                (let ((sym (elf-symbol-table-ref elf symtab n strtab)))
-                  (if (and (<= (elf-symbol-value sym) text-offset)
-                           (< text-offset (+ (elf-symbol-value sym)
-                                             (elf-symbol-size sym))))
-                      sym
-                      (lp (1+ n)))))))
-       (or (bisect) (linear-search))))))
+     (let ((strtab (elf-section elf (elf-section-link symtab))))
+       (binary-search
+        0 (elf-symbol-table-len symtab) 1
+        (lambda (n continue-before continue-after)
+          (let* ((sym (elf-symbol-table-ref elf symtab n strtab))
+                 (val (elf-symbol-value sym))
+                 (size (elf-symbol-size sym)))
+            (cond
+             ((< text-offset val) (continue-before))
+             ((<= (+ val size) text-offset) (continue-after))
+             (else sym))))
+        (lambda ()
+          #f))))))
 
 (define* (find-program-debug-info addr #:optional
                                   (context (find-debug-context addr)))
