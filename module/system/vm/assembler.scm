@@ -1579,7 +1579,7 @@ it will be added to the GC roots at runtime."
     (filter-map (lambda (meta)
                   (let ((props (props-without-name-or-docstring meta)))
                     (and (pair? props)
-                         (cons (meta-low-pc meta) props))))
+                         (cons (* 4 (meta-low-pc meta)) props))))
                 (reverse (asm-meta asm))))
   (let* ((endianness (asm-endianness asm))
          (procprops (find-procprops))
