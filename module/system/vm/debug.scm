@@ -482,7 +482,6 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
           ;; }
           (define procprop-len 8)
           (let* ((start (elf-section-offset sec))
-                 (end (+ start (elf-section-size sec)))
                  (bv (elf-bytes (debug-context-elf context)))
                  (text-offset (- addr
                                  (debug-context-text-base context)
@@ -491,17 +490,18 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
               (pointer->scm (make-pointer addr)))
             (define (load-non-immediate offset)
               (unpack-scm (+ (debug-context-base context) offset)))
-            ;; FIXME: This is linear search.  Change to binary search.
-            (let lp ((pos start))
-              (cond
-               ((>= pos end) '())
-               ((< text-offset (bytevector-u32-native-ref bv pos))
-                (lp (+ pos procprop-len)))
-               ((> text-offset (bytevector-u32-native-ref bv pos))
-                '())
-               (else
-                (load-non-immediate
-                 (bytevector-u32-native-ref bv (+ pos 4)))))))))
+            (binary-search
+             start (+ start (elf-section-size sec)) 8
+             (lambda (pos continue-before continue-after)
+               (let ((pc (bytevector-u32-native-ref bv pos)))
+                 (cond
+                  ((< text-offset pc) (continue-before))
+                  ((< pc text-offset) (continue-after))
+                  (else
+                   (load-non-immediate
+                    (bytevector-u32-native-ref bv (+ pos 4)))))))
+             (lambda ()
+               '())))))
     (else '()))))
 
 (define-record-type <source>
