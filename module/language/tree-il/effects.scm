@@ -28,7 +28,6 @@
             &possible-bailout
             &zero-values
             &allocation
-            &mutable-data
             &type-check
             &all-effects
             effects-commute?
@@ -55,6 +54,10 @@
 ;;; expression depends on the effect, and the other to indicate that an
 ;;; expression causes the effect.
 ;;;
+;;; Since we have more bits in a fixnum on 64-bit systems, we can be
+;;; more precise without losing efficiency.  On a 32-bit system, some of
+;;; the more precise effects map to fewer bits.
+;;;
 
 (define-syntax define-effects
   (lambda (x)
@@ -65,6 +68,16 @@
              (define-syntax name (identifier-syntax (ash 1 (* n 2))))
              ...
              (define-syntax all (identifier-syntax (logior name ...)))))))))
+
+(define-syntax compile-time-cond
+  (lambda (x)
+    (syntax-case x (else)
+      ((_ (else body ...))
+       #'(begin body ...))
+      ((_ (exp body ...) clause ...)
+       (if (eval (syntax->datum #'exp) (current-module))
+           #'(begin body ...)
+           #'(compile-time-cond clause ...))))))
 
 ;; Here we define the effects, indicating the meaning of the effect.
 ;;
@@ -77,49 +90,109 @@
 ;; analyzer will not associate the "depends-on" sense of these effects
 ;; with any expression.
 ;;
-(define-effects &all-effects
-  ;; Indicates that an expression depends on the value of a mutable
-  ;; lexical variable.
-  &mutable-lexical
+(compile-time-cond
+ ((>= (logcount most-positive-fixnum) 60)
+  (define-effects &all-effects
+    ;; Indicates that an expression depends on the value of a mutable
+    ;; lexical variable.
+    &mutable-lexical
 
-  ;; Indicates that an expression depends on the value of a toplevel
-  ;; variable.
-  &toplevel
+    ;; Indicates that an expression depends on the value of a toplevel
+    ;; variable.
+    &toplevel
 
-  ;; Indicates that an expression depends on the value of a fluid
-  ;; variable.
-  &fluid
+    ;; Indicates that an expression depends on the value of a fluid
+    ;; variable.
+    &fluid
 
-  ;; Indicates that an expression definitely causes a non-local,
-  ;; non-resumable exit -- a bailout.  Only used in the "changes" sense.
-  &definite-bailout
+    ;; Indicates that an expression definitely causes a non-local,
+    ;; non-resumable exit -- a bailout.  Only used in the "changes" sense.
+    &definite-bailout
 
-  ;; Indicates that an expression may cause a bailout.
-  &possible-bailout
+    ;; Indicates that an expression may cause a bailout.
+    &possible-bailout
 
-  ;; Indicates than an expression may return zero values -- a "causes"
-  ;; effect.
-  &zero-values
+    ;; Indicates than an expression may return zero values -- a "causes"
+    ;; effect.
+    &zero-values
 
-  ;; Indicates that an expression may return a fresh object -- a
-  ;; "causes" effect.
-  &allocation
+    ;; Indicates that an expression may return a fresh object -- a
+    ;; "causes" effect.
+    &allocation
 
-  ;; Indicates that an expression depends on the value of a mutable data
-  ;; structure.
-  &mutable-data
+    ;; Indicates that an expression depends on the value of the car of a
+    ;; pair.
+    &car
 
-  ;; Indicates that an expression may cause a type check.  A type check,
-  ;; for the purposes of this analysis, is the possibility of throwing
-  ;; an exception the first time an expression is evaluated.  If the
-  ;; expression did not cause an exception to be thrown, users can
-  ;; assume that evaluating the expression again will not cause an
-  ;; exception to be thrown.
-  ;;
-  ;; For example, (+ x y) might throw if X or Y are not numbers.  But if
-  ;; it doesn't throw, it should be safe to elide a dominated, common
-  ;; subexpression (+ x y).
-  &type-check)
+    ;; Indicates that an expression depends on the value of the cdr of a
+    ;; pair.
+    &cdr
+
+    ;; Indicates that an expression depends on the value of a vector
+    ;; field.  We cannot be more precise, as vectors may alias other
+    ;; vectors.
+    &vector
+
+    ;; Indicates that an expression depends on the value of a variable
+    ;; cell.
+    &variable
+
+    ;; Indicates that an expression depends on the value of a particular
+    ;; struct field.
+    &struct-0 &struct-1 &struct-2 &struct-3 &struct-4 &struct-5 &struct-6+
+
+    ;; Indicates that an expression depends on the contents of a string.
+    &string
+
+    ;; Indicates that an expression depends on the contents of a
+    ;; bytevector.  We cannot be more precise, as bytevectors may alias
+    ;; other bytevectors.
+    &bytevector
+
+    ;; Indicates that an expression may cause a type check.  A type check,
+    ;; for the purposes of this analysis, is the possibility of throwing
+    ;; an exception the first time an expression is evaluated.  If the
+    ;; expression did not cause an exception to be thrown, users can
+    ;; assume that evaluating the expression again will not cause an
+    ;; exception to be thrown.
+    ;;
+    ;; For example, (+ x y) might throw if X or Y are not numbers.  But if
+    ;; it doesn't throw, it should be safe to elide a dominated, common
+    ;; subexpression (+ x y).
+    &type-check)
+
+  ;; Indicates that an expression depends on the contents of an unknown
+  ;; struct field.
+  (define-syntax &struct
+    (identifier-syntax
+     (logior &struct-1 &struct-2 &struct-3 &struct-4 &struct-5 &struct-6+))))
+
+ (else
+  ;; For systems with smaller fixnums, be less precise regarding struct
+  ;; fields.
+  (define-effects &all-effects
+    &mutable-lexical
+    &toplevel
+    &fluid
+    &definite-bailout
+    &possible-bailout
+    &zero-values
+    &allocation
+    &car
+    &cdr
+    &vector
+    &variable
+    &struct
+    &string
+    &bytevector
+    &type-check)
+  (define-syntax &struct-0 (identifier-syntax &struct))
+  (define-syntax &struct-1 (identifier-syntax &struct))
+  (define-syntax &struct-2 (identifier-syntax &struct))
+  (define-syntax &struct-3 (identifier-syntax &struct))
+  (define-syntax &struct-4 (identifier-syntax &struct))
+  (define-syntax &struct-5 (identifier-syntax &struct))
+  (define-syntax &struct-6+ (identifier-syntax &struct))))
 
 (define-syntax &no-effects (identifier-syntax 0))
 
@@ -287,17 +360,136 @@ of an expression."
           (($ <primcall> _ 'pop-fluid ())
            (logior (cause &fluid)))
 
+          (($ <primcall> _ 'car (x))
+           (logior (compute-effects x)
+                   (cause &type-check)
+                   &car))
+          (($ <primcall> _ 'set-car! (x y))
+           (logior (compute-effects x)
+                   (compute-effects y)
+                   (cause &type-check)
+                   (cause &car)))
+
+          (($ <primcall> _ 'cdr (x))
+           (logior (compute-effects x)
+                   (cause &type-check)
+                   &cdr))
+          (($ <primcall> _ 'set-cdr! (x y))
+           (logior (compute-effects x)
+                   (compute-effects y)
+                   (cause &type-check)
+                   (cause &cdr)))
+
+          (($ <primcall> _ (or 'memq 'memv) (x y))
+           (logior (compute-effects x)
+                   (compute-effects y)
+                   (cause &type-check)
+                   &car &cdr))
+
+          (($ <primcall> _ 'vector-ref (v n))
+           (logior (compute-effects v)
+                   (compute-effects n)
+                   (cause &type-check)
+                   &vector))
+          (($ <primcall> _ 'vector-set! (v n x))
+           (logior (compute-effects v)
+                   (compute-effects n)
+                   (compute-effects x)
+                   (cause &type-check)
+                   (cause &vector)))
+
+          (($ <primcall> _ 'variable-ref (v))
+           (logior (compute-effects v)
+                   (cause &type-check)
+                   &variable))
+          (($ <primcall> _ 'variable-set! (v x))
+           (logior (compute-effects v)
+                   (compute-effects x)
+                   (cause &type-check)
+                   (cause &variable)))
+
+          (($ <primcall> _ 'struct-ref (s n))
+           (logior (compute-effects s)
+                   (compute-effects n)
+                   (cause &type-check)
+                   (match n
+                     (($ <const> _ 0) &struct-0)
+                     (($ <const> _ 1) &struct-1)
+                     (($ <const> _ 2) &struct-2)
+                     (($ <const> _ 3) &struct-3)
+                     (($ <const> _ 4) &struct-4)
+                     (($ <const> _ 5) &struct-5)
+                     (($ <const> _ _) &struct-6+)
+                     (_ &struct))))
+          (($ <primcall> _ 'struct-set! (s n x))
+           (logior (compute-effects s)
+                   (compute-effects n)
+                   (compute-effects x)
+                   (cause &type-check)
+                   (match n
+                     (($ <const> _ 0) (cause &struct-0))
+                     (($ <const> _ 1) (cause &struct-1))
+                     (($ <const> _ 2) (cause &struct-2))
+                     (($ <const> _ 3) (cause &struct-3))
+                     (($ <const> _ 4) (cause &struct-4))
+                     (($ <const> _ 5) (cause &struct-5))
+                     (($ <const> _ _) (cause &struct-6+))
+                     (_ (cause &struct)))))
+
+          (($ <primcall> _ 'string-ref (s n))
+           (logior (compute-effects s)
+                   (compute-effects n)
+                   (cause &type-check)
+                   &string))
+          (($ <primcall> _ 'string-set! (s n c))
+           (logior (compute-effects s)
+                   (compute-effects n)
+                   (compute-effects c)
+                   (cause &type-check)
+                   (cause &string)))
+
+          (($ <primcall> _
+              (or 'bytevector-u8-ref 'bytevector-s8-ref
+                  'bytevector-u16-ref 'bytevector-u16-native-ref
+                  'bytevector-s16-ref 'bytevector-s16-native-ref
+                  'bytevector-u32-ref 'bytevector-u32-native-ref
+                  'bytevector-s32-ref 'bytevector-s32-native-ref
+                  'bytevector-u64-ref 'bytevector-u64-native-ref
+                  'bytevector-s64-ref 'bytevector-s64-native-ref
+                  'bytevector-ieee-single-ref 'bytevector-ieee-single-native-ref
+                  'bytevector-ieee-double-ref 'bytevector-ieee-double-native-ref)
+              (bv n))
+           (logior (compute-effects bv)
+                   (compute-effects n)
+                   (cause &type-check)
+                   &bytevector))
+          (($ <primcall> _
+              (or 'bytevector-u8-set! 'bytevector-s8-set!
+                  'bytevector-u16-set! 'bytevector-u16-native-set!
+                  'bytevector-s16-set! 'bytevector-s16-native-set!
+                  'bytevector-u32-set! 'bytevector-u32-native-set!
+                  'bytevector-s32-set! 'bytevector-s32-native-set!
+                  'bytevector-u64-set! 'bytevector-u64-native-set!
+                  'bytevector-s64-set! 'bytevector-s64-native-set!
+                  'bytevector-ieee-single-set! 'bytevector-ieee-single-native-set!
+                  'bytevector-ieee-double-set! 'bytevector-ieee-double-native-set!)
+              (bv n x))
+           (logior (compute-effects bv)
+                   (compute-effects n)
+                   (compute-effects x)
+                   (cause &type-check)
+                   (cause &bytevector)))
+
           ;; Primitives that are normally effect-free, but which might
-          ;; cause type checks, allocate memory, or access mutable
-          ;; memory.  FIXME: expand, to be more precise.
+          ;; cause type checks or allocate memory.  Nota bene,
+          ;; primitives that access mutable memory should be given their
+          ;; own inline cases above!
           (($ <primcall> _ (and name (? effect-free-primitive?)) args)
            (logior (accumulate-effects args)
                    (cause &type-check)
                    (if (constructor-primitive? name)
                        (cause &allocation)
-                       (if (accessor-primitive? name)
-                           &mutable-data
-                           &no-effects))))
+                       &no-effects)))
       
           ;; Lambda applications might throw wrong-number-of-args.
           (($ <call> _ ($ <lambda> _ _ body) args)

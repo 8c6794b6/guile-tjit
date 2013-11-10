@@ -29,7 +29,7 @@
   #:export (resolve-primitives add-interesting-primitive!
             expand-primitives
             effect-free-primitive? effect+exception-free-primitive?
-            constructor-primitive? accessor-primitive?
+            constructor-primitive?
             singly-valued-primitive? equality-primitive?
             bailout-primitive?
             negate-primitive))
@@ -139,6 +139,9 @@
 (define *primitive-accessors*
   ;; Primitives that are pure, but whose result depends on the mutable
   ;; memory pointed to by their operands.
+  ;;
+  ;; Note: if you add an accessor here, be sure to add a corresponding
+  ;; case in (language tree-il effects)!
   '(vector-ref
     car cdr
     memq memv
@@ -242,8 +245,6 @@
 
 (define (constructor-primitive? prim)
   (memq prim *primitive-constructors*))
-(define (accessor-primitive? prim)
-  (memq prim *primitive-accessors*))
 (define (effect-free-primitive? prim)
   (hashq-ref *effect-free-primitive-table* prim))
 (define (effect+exception-free-primitive? prim)

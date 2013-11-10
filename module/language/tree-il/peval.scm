@@ -1265,7 +1265,7 @@ top-level bindings from ENV and return the resulting expression."
                (_
                 (make-primcall src 'thunk? (list proc)))))))))
 
-      (($ <primcall> src (? accessor-primitive? name) args)
+      (($ <primcall> src name args)
        (match (cons name (map for-value args))
          ;; FIXME: these for-tail recursions could take place outside
          ;; an effort counter.
@@ -1324,25 +1324,15 @@ top-level bindings from ENV and return the resulting expression."
                (for-tail (make-seq src k (make-const #f #f))))
               (else
                (make-primcall src name (list k (make-const #f elts))))))))
+         (((? equality-primitive?)
+           ($ <lexical-ref> _ _ sym) ($ <lexical-ref> _ _ sym))
+          (for-tail (make-const #f #t)))
+
+         (((? effect-free-primitive?) . args)
+          (fold-constants src name args ctx))
+
          ((name . args)
-          (fold-constants src name args ctx))))
-
-      (($ <primcall> src (? equality-primitive? name) (a b))
-       (let ((val-a (for-value a))
-             (val-b (for-value b)))
-         (log 'equality-primitive name val-a val-b)
-         (cond ((and (lexical-ref? val-a) (lexical-ref? val-b)
-                     (eq? (lexical-ref-gensym val-a)
-                          (lexical-ref-gensym val-b)))
-                (for-tail (make-const #f #t)))
-               (else
-                (fold-constants src name (list val-a val-b) ctx)))))
-      
-      (($ <primcall> src (? effect-free-primitive? name) args)
-       (fold-constants src name (map for-value args) ctx))
-
-      (($ <primcall> src name args)
-       (make-primcall src name (map for-value args)))
+          (make-primcall src name args))))
 
       (($ <call> src orig-proc orig-args)
        ;; todo: augment the global env with specialized functions
