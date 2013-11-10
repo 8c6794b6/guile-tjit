@@ -290,7 +290,12 @@ process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
               {
               case 0x0202:
                 bytecode_kind = BYTECODE_KIND_GUILE_2_2;
-                if (minor)
+                /* As we get closer to 2.2, we will allow for backwards
+                   compatibility and we can change this test to ">"
+                   instead of "!=".  However until then, to deal with VM
+                   churn it's best to keep these things in
+                   lock-step.  */
+                if (minor != SCM_OBJCODE_MINOR_VERSION)
                   return "incompatible bytecode version";
                 break;
               default:

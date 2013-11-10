@@ -1200,6 +1200,10 @@ needed."
 ;;; the symbol table, etc.
 ;;;
 
+;; FIXME: Define these somewhere central, shared with C.
+(define *bytecode-major-version* #x0202)
+(define *bytecode-minor-version* 2)
+
 (define (link-dynamic-section asm text rw rw-init)
   "Link the dynamic section for an ELF image with RTL text, given the
 writable data section @var{rw} needing fixup from the procedure with
@@ -1219,7 +1223,8 @@ it will be added to the GC roots at runtime."
                                  relocs))
               (%set-uword! bv (* i word-size) 0 endianness))))
       (set-uword! 0 DT_GUILE_RTL_VERSION)
-      (set-uword! 1 #x02020000)
+      (set-uword! 1 (logior (ash *bytecode-major-version* 16)
+                            *bytecode-minor-version*))
       (set-uword! 2 DT_GUILE_ENTRY)
       (set-label! 3 '.rtl-text)
       (cond

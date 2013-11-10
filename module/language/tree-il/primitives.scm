@@ -91,7 +91,7 @@
 
     string-length string-ref string-set!
 
-    struct-vtable make-struct struct-ref struct-set!
+    allocate-struct struct-vtable make-struct struct-ref struct-set!
 
     bytevector-u8-ref bytevector-u8-set!
     bytevector-s8-ref bytevector-s8-set!
@@ -133,7 +133,8 @@
 
 (define *primitive-constructors*
   ;; Primitives that return a fresh object.
-  '(acons cons cons* list vector make-vector make-struct make-struct/no-tail
+  '(acons cons cons* list vector make-vector
+    allocate-struct make-struct make-struct/no-tail
     make-prompt-tag))
 
 (define *primitive-accessors*

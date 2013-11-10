@@ -124,6 +124,7 @@ CPS_LANG_SOURCES =						\
   language/cps/reify-primitives.scm				\
   language/cps/slot-allocation.scm				\
   language/cps/spec.scm						\
+  language/cps/specialize-primcalls.scm				\
   language/cps/verify.scm
 
 RTL_LANG_SOURCES =						\

@@ -270,7 +270,7 @@ void scm_ia64_longjmp (scm_i_jmp_buf *, int);
 
 /* Major and minor versions must be single characters. */
 #define SCM_OBJCODE_MAJOR_VERSION 3
-#define SCM_OBJCODE_MINOR_VERSION 1
+#define SCM_OBJCODE_MINOR_VERSION 2
 #define SCM_OBJCODE_MAJOR_VERSION_STRING        \
   SCM_CPP_STRINGIFY(SCM_OBJCODE_MAJOR_VERSION)
 #define SCM_OBJCODE_MINOR_VERSION_STRING        \

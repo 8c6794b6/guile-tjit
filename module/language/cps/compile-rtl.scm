@@ -36,6 +36,7 @@
   #:use-module (language cps primitives)
   #:use-module (language cps reify-primitives)
   #:use-module (language cps slot-allocation)
+  #:use-module (language cps specialize-primcalls)
   #:use-module (system vm assembler)
   #:export (compile-rtl))
 
@@ -55,6 +56,7 @@
   ;; Calls to source-to-source optimization passes go here.
   (let* ((exp (run-pass exp contify #:contify? #t))
          (exp (run-pass exp inline-constructors #:inline-constructors? #t))
+         (exp (run-pass exp specialize-primcalls #:specialize-primcalls? #t))
          (exp (run-pass exp elide-values #:elide-values? #t)))
     ;; Passes that are needed:
     ;; 
@@ -95,15 +97,6 @@
          (contv (collect-conts f cfa)))
     (define (lookup-cont k)
       (vector-ref contv (cfa-k-idx cfa k)))
-
-    (define (immediate-u8? val)
-      (and (integer? val) (exact? val) (<= 0 val 255)))
-
-    (define (maybe-immediate-u8 sym)
-      (call-with-values (lambda ()
-                          (lookup-maybe-constant-value sym allocation))
-        (lambda (has-const? val)
-          (and has-const? (immediate-u8? val) val))))
 
     (define (slot sym)
       (lookup-slot sym allocation))
@@ -275,20 +268,16 @@
          (emit-resolve asm dst (constant bound?) (slot name)))
         (($ $primcall 'free-ref (closure idx))
          (emit-free-ref asm dst (slot closure) (constant idx)))
-        (($ $primcall 'make-vector (length init))
-         (cond
-          ((maybe-immediate-u8 length)
-           => (lambda (length)
-                (emit-constant-make-vector asm dst length (slot init))))
-          (else
-           (emit-make-vector asm dst (slot length) (slot init)))))
         (($ $primcall 'vector-ref (vector index))
-         (cond
-          ((maybe-immediate-u8 index)
-           => (lambda (index)
-                (emit-constant-vector-ref asm dst (slot vector) index)))
-          (else
-           (emit-vector-ref asm dst (slot vector) (slot index)))))
+         (emit-vector-ref asm dst (slot vector) (slot index)))
+        (($ $primcall 'make-vector/immediate (length init))
+         (emit-make-vector/immediate asm dst (constant length) (slot init)))
+        (($ $primcall 'vector-ref/immediate (vector index))
+         (emit-vector-ref/immediate asm dst (slot vector) (constant index)))
+        (($ $primcall 'allocate-struct/immediate (vtable nfields))
+         (emit-allocate-struct/immediate asm dst (slot vtable) (constant nfields)))
+        (($ $primcall 'struct-ref/immediate (struct n))
+         (emit-struct-ref/immediate asm dst (slot struct) (constant n)))
         (($ $primcall 'builtin-ref (name))
          (emit-builtin-ref asm dst (constant name)))
         (($ $primcall 'bv-u8-ref (bv idx))
@@ -340,18 +329,13 @@
          (emit-free-set! asm (slot closure) (slot value) (constant idx)))
         (($ $primcall 'box-set! (box value))
          (emit-box-set! asm (slot box) (slot value)))
-        (($ $primcall 'struct-set! (struct index value))
-         (emit-struct-set! asm (slot struct) (slot index) (slot value)))
+        (($ $primcall 'struct-set!/immediate (struct index value))
+         (emit-struct-set!/immediate asm (slot struct) (constant index) (slot value)))
         (($ $primcall 'vector-set! (vector index value))
-         (call-with-values (lambda ()
-                             (lookup-maybe-constant-value index allocation))
-           (lambda (has-const? index-val)
-             (if (and has-const? (integer? index-val) (exact? index-val)
-                      (<= 0 index-val 255))
-                 (emit-constant-vector-set! asm (slot vector) index-val
-                                            (slot value))
-                 (emit-vector-set! asm (slot vector) (slot index)
-                                   (slot value))))))
+         (emit-vector-set! asm (slot vector) (slot index) (slot value)))
+        (($ $primcall 'vector-set!/immediate (vector index value))
+         (emit-vector-set!/immediate asm (slot vector) (constant index)
+                                     (slot value)))
         (($ $primcall 'variable-set! (var val))
          (emit-box-set! asm (slot var) (slot val)))
         (($ $primcall 'set-car! (pair value))
