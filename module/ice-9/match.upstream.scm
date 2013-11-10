@@ -281,6 +281,7 @@
 ;; expressions respectively.
 
 (define (match-error v)
+  #((definite-bailout? . #t))
   (error 'match "no matching pattern" v))
 
 (define-syntax match-next

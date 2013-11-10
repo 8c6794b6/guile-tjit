@@ -322,6 +322,22 @@ of an expression."
            (logior (accumulate-effects args)
                    (cause &definite-bailout)
                    (cause &possible-bailout)))
+          (($ <call> _
+              (and proc
+                   ($ <module-ref> _ mod name public?)
+                   (? (lambda (_)
+                        (false-if-exception
+                         (procedure-property
+                          (module-ref (if public?
+                                          (resolve-interface mod)
+                                          (resolve-module mod))
+                                      name)
+                          'definite-bailout?)))))
+              args)
+           (logior (compute-effects proc)
+                   (accumulate-effects args)
+                   (cause &definite-bailout)
+                   (cause &possible-bailout)))
 
           ;; A call to a lexically bound procedure, perhaps labels
           ;; allocated.

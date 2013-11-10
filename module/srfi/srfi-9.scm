@@ -144,6 +144,7 @@
   (display ">" p))
 
 (define (throw-bad-struct s who)
+  #((definite-bailout? . #t))
   (throw 'wrong-type-arg who
          "Wrong type argument: ~S" (list s)
          (list s)))
