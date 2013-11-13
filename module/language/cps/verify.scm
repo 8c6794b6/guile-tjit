@@ -113,8 +113,6 @@
 
   (define (visit-expression exp k-env v-env)
     (match exp
-      (($ $var sym)
-       (check-var sym v-env))
       (($ $void)
        #t)
       (($ $const val)

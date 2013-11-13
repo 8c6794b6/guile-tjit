@@ -691,9 +691,6 @@
       (($ $continue k src exp)
        (use-k! k)
        (match exp
-         (($ $var sym)
-          (use! sym))
-
          (($ $call proc args)
           (use! proc)
           (for-each use! args))
@@ -849,7 +846,7 @@
          (lambda (use)
            (match (find-expression (lookup-cont use conts))
              (($ $call) #f)
-             (($ $values) #f)
+             (($ $values (_ _ . _)) #f)
              (($ $primcall 'free-ref (closure slot))
               (not (eq? sym slot)))
              (($ $primcall 'free-set! (closure slot value))

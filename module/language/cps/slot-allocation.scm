@@ -346,9 +346,6 @@ are comparable with eqv?.  A tmp slot may be used."
               live-slots)))
 
       (match exp
-        (($ $var sym)
-         (use sym live-slots))
-
         (($ $call proc args)
          (match (lookup-cont k (dfg-cont-table dfg))
            (($ $ktail)
@@ -381,6 +378,29 @@ are comparable with eqv?.  A tmp slot may be used."
 
         (($ $primcall name args)
          (fold use live-slots args))
+
+        (($ $values (arg))
+         (use arg live-slots))
+
+        (($ $values args)
+         (let ((live-slots* (fold use live-slots args)))
+           (define (compute-dst-slots)
+             (match (lookup-cont k (dfg-cont-table dfg))
+               (($ $ktail)
+                (let ((tail-nlocals (1+ (length args))))
+                  (set! nlocals (max nlocals tail-nlocals))
+                  (cdr (iota tail-nlocals))))
+               (_
+                (let* ((src-slots (map (cut lookup-slot <> allocation) args))
+                       (dst-syms (lookup-bound-syms k dfg))
+                       (dst-live-slots (fold (cut allocate! <> k <> <>)
+                                             live-slots* dst-syms src-slots)))
+                  (map (cut lookup-slot <> allocation) dst-syms)))))
+
+           (parallel-move! label
+                           (map (cut lookup-slot <> allocation) args)
+                           live-slots live-slots*
+                           (compute-dst-slots))))
 
         (($ $values args)
          (let ((live-slots* (fold use live-slots args)))

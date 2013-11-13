@@ -83,7 +83,7 @@
          (rewrite-cps-term (lookup-cont k conts)
            (($ $ktail)
             ,(rewrite-cps-term exp
-               (($var sym)
+               (($values (sym))
                 ($continue ktail src ($primcall 'return (sym))))
                (_
                 ,(let-gensyms (k* v)
@@ -117,7 +117,7 @@
         ((or ($ $void)
              ($ $const)
              ($ $prim)
-             ($ $var))
+             ($ $values (_)))
          ,(adapt-exp 1 k src exp))
         (($ $fun)
          ,(adapt-exp 1 k src (fix-arities exp)))
@@ -149,8 +149,8 @@
                                    ($continue k src ($call p* args)))))
                        ($continue k* src ($prim name)))))))))
         (($ $values)
-         ;; Values nodes are inserted by CPS optimization passes, so
-         ;; we assume they are correct.
+         ;; Non-unary values nodes are inserted by CPS optimization
+         ;; passes, so we assume they are correct.
          ($continue k src ,exp))
         (($ $prompt)
          ($continue k src ,exp))))

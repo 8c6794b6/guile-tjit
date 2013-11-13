@@ -215,11 +215,17 @@
          (let ((tail-slots (cdr (iota (1+ (length args))))))
            (for-each maybe-load-constant tail-slots args))
          (emit-tail-call asm (1+ (length args))))
+        (($ $values (arg))
+         (if (slot arg)
+             (emit-return asm (slot arg))
+             (begin
+               (emit-load-constant asm 1 (constant arg))
+               (emit-return asm 1))))
         (($ $values args)
+         (for-each (match-lambda
+                    ((src . dst) (emit-mov asm dst src)))
+                   (lookup-parallel-moves label allocation))
          (let ((tail-slots (cdr (iota (1+ (length args))))))
-           (for-each (match-lambda
-                      ((src . dst) (emit-mov asm dst src)))
-                     (lookup-parallel-moves label allocation))
            (for-each maybe-load-constant tail-slots args))
          (emit-reset-frame asm (1+ (length args)))
          (emit-return-values asm))
@@ -228,9 +234,6 @@
 
     (define (compile-value label exp dst nlocals)
       (match exp
-        (($ $var sym)
-         (maybe-mov dst (slot sym)))
-        ;; FIXME: Remove ($var sym), replace with ($values (sym))
         (($ $values (arg))
          (or (maybe-load-constant dst arg)
              (maybe-mov dst (slot arg))))
@@ -397,7 +400,7 @@
           (unless (eq? kf next-label)
             (emit-br asm kf)))))
       (match exp
-        (($ $var sym) (unary emit-br-if-true sym))
+        (($ $values (sym)) (unary emit-br-if-true sym))
         (($ $primcall 'null? (a)) (unary emit-br-if-null a))
         (($ $primcall 'nil? (a)) (unary emit-br-if-nil a))
         (($ $primcall 'pair? (a)) (unary emit-br-if-pair a))

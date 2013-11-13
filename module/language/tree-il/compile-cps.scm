@@ -185,7 +185,8 @@
                knext
                (lambda (k)
                  (build-cps-term
-                   ($letk ((kbound ($kargs () () ($continue k src ($var sym))))
+                   ($letk ((kbound ($kargs () () ($continue k src
+                                                   ($values (sym)))))
                            (kunbound ($kargs () () ,(convert init k subst))))
                      ,(unbound? src sym kunbound kbound))))))))))))
 
@@ -231,8 +232,8 @@
     (($ <lexical-ref> src name sym)
      (match (assq-ref subst sym)
        ((box #t) (build-cps-term ($continue k src ($primcall 'box-ref (box)))))
-       ((subst #f) (build-cps-term ($continue k src ($var subst))))
-       (#f (build-cps-term ($continue k src ($var sym))))))
+       ((subst #f) (build-cps-term ($continue k src ($values (subst)))))
+       (#f (build-cps-term ($continue k src ($values (sym)))))))
 
     (($ <void> src)
      (build-cps-term ($continue k src ($void))))
@@ -522,7 +523,7 @@
               (_ (convert-arg test
                    (lambda (test)
                      (build-cps-term
-                       ($continue kif src ($var test)))))))))))
+                       ($continue kif src ($values (test))))))))))))
 
     (($ <lexical-set> src name gensym exp)
      (convert-arg exp

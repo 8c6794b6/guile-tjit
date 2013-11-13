@@ -165,12 +165,6 @@ convert functions to flat closures."
                     (init-closure src sym fun-free self bound body)
                     (union free (difference fun-free bound))))))))))
 
-    (($ $continue k src ($ $var sym))
-     (convert-free-var sym self bound
-                       (lambda (sym)
-                         (values (build-cps-term ($continue k src ($var sym)))
-                                 '()))))
-
     (($ $continue k src
         (or ($ $void)
             ($ $const)
@@ -189,9 +183,10 @@ convert functions to flat closures."
            (let-gensyms (kinit v)
              (build-cps-term
                ($letk ((kinit ($kargs (v) (v)
-                                ,(init-closure src v free self bound
-                                               (build-cps-term
-                                                 ($continue k src ($var v)))))))
+                                ,(init-closure
+                                  src v free self bound
+                                  (build-cps-term
+                                    ($continue k src ($values (v))))))))
                  ($continue kinit src ($fun src* meta free ,body)))))
            (difference free bound))))))
 

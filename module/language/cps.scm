@@ -122,7 +122,7 @@
             $kif $ktrunc $kargs $kentry $ktail $kclause
 
             ;; Expressions.
-            $var $void $const $prim $fun $call $primcall $values $prompt
+            $void $const $prim $fun $call $primcall $values $prompt
 
             ;; Building macros.
             let-gensyms
@@ -178,7 +178,6 @@
 (define-cps-type $kclause arity cont)
 
 ;; Expressions.
-(define-cps-type $var sym)
 (define-cps-type $void)
 (define-cps-type $const val)
 (define-cps-type $prim name)
@@ -228,9 +227,8 @@
 
 (define-syntax build-cps-exp
   (syntax-rules (unquote
-                 $var $void $const $prim $fun $call $primcall $values $prompt)
+                 $void $const $prim $fun $call $primcall $values $prompt)
     ((_ (unquote exp)) exp)
-    ((_ ($var sym)) (make-$var sym))
     ((_ ($void)) (make-$void))
     ((_ ($const val)) (make-$const val))
     ((_ ($prim name)) (make-$prim name))
@@ -326,8 +324,6 @@
     ;; Calls.
     (('continue k exp)
      (build-cps-term ($continue k (src exp) ,(parse-cps exp))))
-    (('var sym)
-     (build-cps-exp ($var sym)))
     (('void)
      (build-cps-exp ($void)))
     (('const exp)
@@ -382,8 +378,6 @@
     ;; Calls.
     (($ $continue k src exp)
      `(continue ,k ,(unparse-cps exp)))
-    (($ $var sym)
-     `(var ,sym))
     (($ $void)
      `(void))
     (($ $const val)
