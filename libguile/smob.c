@@ -205,11 +205,11 @@ scm_make_smob_type (char const *name, size_t size)
 {
   long new_smob;
 
-  SCM_CRITICAL_SECTION_START;
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
   new_smob = scm_numsmob;
   if (scm_numsmob != MAX_SMOB_COUNT)
     ++scm_numsmob;
-  SCM_CRITICAL_SECTION_END;
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
 
   if (new_smob == MAX_SMOB_COUNT)
     scm_misc_error (FUNC_NAME, "maximum number of smobs exceeded", SCM_EOL);
