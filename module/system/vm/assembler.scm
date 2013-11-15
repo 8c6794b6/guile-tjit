@@ -701,11 +701,9 @@ returned instead."
 ;(define-tc7-macro-assembler br-if-fluid 37)
 ;(define-tc7-macro-assembler br-if-dynamic-state 45)
 ;(define-tc7-macro-assembler br-if-frame 47)
-;(define-tc7-macro-assembler br-if-objcode 53)
 ;(define-tc7-macro-assembler br-if-vm 55)
 ;(define-tc7-macro-assembler br-if-vm-cont 71)
 ;(define-tc7-macro-assembler br-if-rtl-program 69)
-;(define-tc7-macro-assembler br-if-program 79)
 ;(define-tc7-macro-assembler br-if-weak-set 85)
 ;(define-tc7-macro-assembler br-if-weak-table 87)
 ;(define-tc7-macro-assembler br-if-array 93)
@@ -1202,7 +1200,7 @@ needed."
 
 ;; FIXME: Define these somewhere central, shared with C.
 (define *bytecode-major-version* #x0202)
-(define *bytecode-minor-version* 2)
+(define *bytecode-minor-version* 3)
 
 (define (link-dynamic-section asm text rw rw-init)
   "Link the dynamic section for an ELF image with RTL text, given the

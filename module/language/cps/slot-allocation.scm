@@ -258,7 +258,7 @@ are comparable with eqv?.  A tmp slot may be used."
           (find-first-zero live-slots)))
 
     (define (compute-call-proc-slot live-slots)
-      (+ 3 (find-first-trailing-zero live-slots)))
+      (+ 2 (find-first-trailing-zero live-slots)))
 
     (define (compute-prompt-handler-proc-slot live-slots)
       (1- (find-first-trailing-zero live-slots)))

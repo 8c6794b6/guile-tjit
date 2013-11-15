@@ -144,7 +144,7 @@ vm_return_to_continuation (SCM vm, SCM cont, size_t n, SCM *argv)
   vp = SCM_VM_DATA (vm);
   cp = SCM_VM_CONT_DATA (cont);
 
-  if (vp->stack_size < cp->stack_size + n + 4)
+  if (vp->stack_size < cp->stack_size + n + 3)
     scm_misc_error ("vm-engine", "not enough space to reinstate continuation",
                     scm_list_2 (vm, cont));
 
@@ -165,7 +165,7 @@ vm_return_to_continuation (SCM vm, SCM cont, size_t n, SCM *argv)
     size_t i;
 
     /* Push on an empty frame, as the continuation expects.  */
-    for (i = 0; i < 4; i++)
+    for (i = 0; i < 3; i++)
       {
         vp->sp++;
         *vp->sp = SCM_BOOL_F;

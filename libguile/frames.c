@@ -28,7 +28,7 @@
 
 /* Make sure assumptions on the layout of `struct scm_vm_frame' hold.  */
 verify (sizeof (SCM) == sizeof (SCM *));
-verify (sizeof (struct scm_vm_frame) == 5 * sizeof (SCM));
+verify (sizeof (struct scm_vm_frame) == 4 * sizeof (SCM));
 verify (offsetof (struct scm_vm_frame, dynamic_link) == 0);
 
 
@@ -110,39 +110,28 @@ SCM_DEFINE (scm_frame_source, "frame-source", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-/* The number of locals would be a simple thing to compute, if it weren't for
-   the presence of not-yet-active frames on the stack. So we have a cheap
-   heuristic to detect not-yet-active frames, and skip over them. Perhaps we
-   should represent them more usefully.
-*/
 SCM_DEFINE (scm_frame_num_locals, "frame-num-locals", 1, 0, 0,
 	    (SCM frame),
 	    "")
 #define FUNC_NAME s_scm_frame_num_locals
 {
   SCM *sp, *p;
-  unsigned int n = 0;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
 
   sp = SCM_VM_FRAME_SP (frame);
   p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));
 
-  /* The frame size of an RTL program is fixed, except in the case of
-     passing a wrong number of arguments to the program.  So we do
-     need to use an SP for determining the number of locals.  */
   return scm_from_ptrdiff_t (sp + 1 - p);
 }
 #undef FUNC_NAME
 
-/* Need same not-yet-active frame logic here as in frame-num-locals */
 SCM_DEFINE (scm_frame_local_ref, "frame-local-ref", 2, 0, 0,
 	    (SCM frame, SCM index),
 	    "")
 #define FUNC_NAME s_scm_frame_local_ref
 {
   SCM *sp, *p;
-  unsigned int n = 0;
   unsigned int i;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
@@ -150,19 +139,10 @@ SCM_DEFINE (scm_frame_local_ref, "frame-local-ref", 2, 0, 0,
 
   sp = SCM_VM_FRAME_SP (frame);
   p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));
-  while (p <= sp)
-    {
-      if (SCM_UNPACK (p[0]) == 0)
-        /* skip over not-yet-active frame */
-        p += 3;
-      else if (n == i)
-        return *p;
-      else
-        {
-          p++;
-          n++;
-        }
-    }
+
+  if (p + i <= sp)
+    return SCM_FRAME_VARIABLE (SCM_VM_FRAME_FP (frame), i);
+
   SCM_OUT_OF_RANGE (SCM_ARG2, index);
 }
 #undef FUNC_NAME
@@ -174,7 +154,6 @@ SCM_DEFINE (scm_frame_local_set_x, "frame-local-set!", 3, 0, 0,
 #define FUNC_NAME s_scm_frame_local_set_x
 {
   SCM *sp, *p;
-  unsigned int n = 0;
   unsigned int i;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
@@ -182,22 +161,13 @@ SCM_DEFINE (scm_frame_local_set_x, "frame-local-set!", 3, 0, 0,
 
   sp = SCM_VM_FRAME_SP (frame);
   p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));
-  while (p <= sp)
+
+  if (p + i <= sp)
     {
-      if (SCM_UNPACK (p[0]) == 0)
-        /* skip over not-yet-active frame */
-        p += 3;
-      else if (n == i)
-        {
-          *p = val;
-          return SCM_UNSPECIFIED;
-        }
-      else
-        {
-          p++;
-          n++;
-        }
+      SCM_FRAME_VARIABLE (SCM_VM_FRAME_FP (frame), i) = val;
+      return SCM_UNSPECIFIED;
     }
+
   SCM_OUT_OF_RANGE (SCM_ARG2, index);
 }
 #undef FUNC_NAME

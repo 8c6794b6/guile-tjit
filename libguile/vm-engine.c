@@ -142,12 +142,12 @@
 
 /* Reserve stack space for a frame.  Will check that there is sufficient
    stack space for N locals, including the procedure, in addition to
-   3 words to set up the next frame.  Invoke after preparing the new
+   2 words to set up the next frame.  Invoke after preparing the new
    frame and setting the fp and ip.  */
 #define ALLOC_FRAME(n)                                              \
   do {                                                              \
     SCM *new_sp = vp->sp = fp - 1 + n - 1;                          \
-    CHECK_OVERFLOW (new_sp + 4);                                    \
+    CHECK_OVERFLOW (new_sp + 3);                                    \
   } while (0)
 
 /* Reset the current frame to hold N locals.  Used when we know that no
@@ -229,10 +229,9 @@
     /* Clear frame. */                                  \
     sp[0] = SCM_BOOL_F;                                 \
     sp[1] = SCM_BOOL_F;                                 \
-    sp[2] = SCM_BOOL_F;                                 \
     /* Leave proc. */                                   \
-    sp[4] = val;                                        \
-    vp->sp = sp + 4;                                    \
+    sp[3] = val;                                        \
+    vp->sp = sp + 3;                                    \
     POP_CONTINUATION_HOOK (sp, 1);                      \
     NEXT (0);                                           \
   } while (0)
@@ -446,11 +445,11 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   {
     SCM *base;
 
-    /* Check that we have enough space: 4 words for the boot
-       continuation, 4 + nargs for the procedure application, and 4 for
+    /* Check that we have enough space: 3 words for the boot
+       continuation, 3 + nargs for the procedure application, and 3 for
        setting up a new frame.  */
     base = vp->sp + 1;
-    CHECK_OVERFLOW (vp->sp + 4 + 4 + nargs_ + 4);
+    CHECK_OVERFLOW (vp->sp + 3 + 3 + nargs_ + 3);
 
     /* Since it's possible to receive the arguments on the stack itself,
        and indeed the regular VM invokes us that way, shuffle up the
@@ -458,24 +457,22 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       int i;
       for (i = nargs_ - 1; i >= 0; i--)
-        base[8 + i] = argv[i];
+        base[6 + i] = argv[i];
     }
 
     /* Initial frame, saving previous fp and ip, with the boot
        continuation.  */
     base[0] = SCM_PACK (fp); /* dynamic link */
-    base[1] = SCM_PACK (0); /* the boot continuation does not return to scheme */
-    base[2] = SCM_PACK (ip); /* ra */
-    base[3] = rtl_boot_continuation;
-    fp = &base[4];
+    base[1] = SCM_PACK (ip); /* ra */
+    base[2] = rtl_boot_continuation;
+    fp = &base[3];
     ip = (scm_t_uint32 *) rtl_boot_continuation_code;
 
     /* MV-call frame, function & arguments */
-    base[4] = SCM_PACK (fp); /* dynamic link */
-    base[5] = SCM_PACK (ip); /* in RTL programs, MVRA same as RA */
-    base[6] = SCM_PACK (ip); /* ra */
-    base[7] = program;
-    fp = vp->fp = &base[8];
+    base[3] = SCM_PACK (fp); /* dynamic link */
+    base[4] = SCM_PACK (ip); /* ra */
+    base[5] = program;
+    fp = vp->fp = &base[6];
     RESET_FRAME (nargs_ + 1);
   }
 
@@ -525,20 +522,20 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (0, halt, "halt", OP1 (U8_X24))
     {
-      scm_t_uint32 nvals = FRAME_LOCALS_COUNT() - 5;
+      scm_t_uint32 nvals = FRAME_LOCALS_COUNT() - 4;
       SCM ret;
 
-      /* Boot closure in r0, empty frame in r1/r2/r3, proc in r4, values from r5.  */
+      /* Boot closure in r0, empty frame in r1/r2, proc in r3, values from r4.  */
 
       if (nvals == 1)
-        ret = LOCAL_REF (5);
+        ret = LOCAL_REF (4);
       else
         {
           scm_t_uint32 n;
           ret = SCM_EOL;
           SYNC_BEFORE_GC();
           for (n = nvals; n > 0; n--)
-            ret = scm_cons (LOCAL_REF (5 + n - 1), ret);
+            ret = scm_cons (LOCAL_REF (4 + n - 1), ret);
           ret = scm_values (ret);
         }
 
@@ -574,7 +571,6 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       fp = vp->fp = old_fp + proc;
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
-      SCM_FRAME_SET_RTL_MV_RETURN_ADDRESS (fp, 0);
       SCM_FRAME_SET_RTL_RETURN_ADDRESS (fp, ip + 2);
 
       RESET_FRAME (nlocals);
@@ -717,7 +713,6 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       /* Clear stack frame.  */
       base[-2] = SCM_BOOL_F;
       base[-3] = SCM_BOOL_F;
-      base[-4] = SCM_BOOL_F;
 
       POP_CONTINUATION_HOOK (base, nvalues);
 

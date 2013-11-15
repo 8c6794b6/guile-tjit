@@ -50,21 +50,26 @@
    | Program          | <- fp - 1
    +==================+
    | Return address   | <- SCM_FRAME_UPPER_ADDRESS (fp)
-   | MV return address|
-   | Dynamic link     | <- fp - 4 = SCM_FRAME_DATA_ADDRESS (fp) = SCM_FRAME_LOWER_ADDRESS (fp)
+   | Dynamic link     | <- fp - 3 = SCM_FRAME_DATA_ADDRESS (fp) = SCM_FRAME_LOWER_ADDRESS (fp)
    +==================+
    |                  |
 
    As can be inferred from this drawing, it is assumed that
    `sizeof (SCM *) == sizeof (SCM)', since pointers (the `link' parts) are
-   assumed to be as long as SCM objects.  */
+   assumed to be as long as SCM objects.
+
+   When a program returns multiple values, it will shuffle them down to
+   start contiguously from slot 1, as for a tail call.  This means that
+   when the caller goes to access them, there are 2 or 3 empty words
+   between the top of the caller stack and the bottom of the values,
+   corresponding to the frame that was just popped.
+*/
 
 /* This structure maps to the contents of a VM stack frame.  It can
    alias a frame directly.  */
 struct scm_vm_frame
 {
   SCM *dynamic_link;
-  scm_t_uint8 *mv_return_address;
   scm_t_uint8 *return_address;
   SCM program;
   SCM stack[1]; /* Variable-length */
@@ -73,7 +78,7 @@ struct scm_vm_frame
 #define SCM_FRAME_STRUCT(fp)				\
   ((struct scm_vm_frame *) SCM_FRAME_DATA_ADDRESS (fp))
 
-#define SCM_FRAME_DATA_ADDRESS(fp)	(((SCM *) (fp)) - 4)
+#define SCM_FRAME_DATA_ADDRESS(fp)	(((SCM *) (fp)) - 3)
 #define SCM_FRAME_STACK_ADDRESS(fp)	(SCM_FRAME_STRUCT (fp)->stack)
 #define SCM_FRAME_UPPER_ADDRESS(fp)	((SCM*)&SCM_FRAME_STRUCT (fp)->return_address)
 #define SCM_FRAME_LOWER_ADDRESS(fp)	((SCM*)SCM_FRAME_STRUCT (fp))
@@ -85,8 +90,6 @@ struct scm_vm_frame
   (SCM_FRAME_STRUCT (fp)->return_address)
 #define SCM_FRAME_SET_RETURN_ADDRESS(fp, ra)    \
   SCM_FRAME_STRUCT (fp)->return_address = (ra)
-#define SCM_FRAME_SET_MV_RETURN_ADDRESS(fp, mvra)       \
-  SCM_FRAME_STRUCT (fp)->mv_return_address = (mvra)
 #define SCM_FRAME_DYNAMIC_LINK(fp)              \
   (SCM_FRAME_STRUCT (fp)->dynamic_link)
 #define SCM_FRAME_SET_DYNAMIC_LINK(fp, dl)      \
@@ -97,33 +100,12 @@ struct scm_vm_frame
   (SCM_FRAME_STRUCT (fp)->program)
 
 
-/*
- * RTL frames
- */
 
-/* The frame format for the new RTL programs is almost like that for the
-   stack-vm programs.  They differ in their handling of MV returns,
-   however.  For RTL, every call is an MV call: every call has an MVRA.
-   Unlike the stack-vm programs, the MVRA for RTL programs is computable
-   from the RA -- it's always one word (4 bytes) before the RA.
-
-   Until we completely migrate to the RTL VM, we will also write the
-   MVRA to the stack.
-
-   When an RTL program returns multiple values, it will shuffle them
-   down to start contiguously from slot 0, as for a tail call.  This
-   means that when the caller goes to access them, there are 2 or 3
-   empty words between the top of the caller stack and the bottom of the
-   values, corresponding to the frame that was just popped.
-*/
-
+/* FIXME: Replace SCM_FRAME_RETURN_ADDRESS with these.  */
 #define SCM_FRAME_RTL_RETURN_ADDRESS(fp)                \
   ((scm_t_uint32 *) SCM_FRAME_RETURN_ADDRESS (fp))
 #define SCM_FRAME_SET_RTL_RETURN_ADDRESS(fp, ip)        \
   SCM_FRAME_SET_RETURN_ADDRESS (fp, (scm_t_uint8 *) (ip))
-
-#define SCM_FRAME_SET_RTL_MV_RETURN_ADDRESS(fp, ip)     \
-  SCM_FRAME_SET_MV_RETURN_ADDRESS (fp, (scm_t_uint8 *) (ip))
 
 
 /*
