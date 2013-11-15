@@ -31,57 +31,81 @@
   #:use-module (language cps dfg)
   #:export (allocate-slots
             lookup-slot
+            lookup-maybe-slot
             lookup-constant-value
             lookup-maybe-constant-value
             lookup-nlocals
             lookup-call-proc-slot
             lookup-parallel-moves))
 
-;; Continuations can bind variables.  The $allocation structure
-;; represents the slot in which a variable is stored.
-;;
-;; Not all variables have slots allocated.  Variables that are constant
-;; and that are only used by primcalls that can accept constants
-;; directly are not allocated to slots, and their SLOT value is false.
-;; Likewise constants that are only used by calls are not allocated into
-;; slots, to avoid needless copying.  If a variable is constant, its
-;; constant value is set to the CONST slot and HAS-CONST? is set to a
-;; true value.
-;;
 (define-record-type $allocation
-  (make-allocation slot has-const? const)
+  (make-allocation dfa slots
+                   has-constv constant-values
+                   call-allocations
+                   nlocals)
   allocation?
-  (slot allocation-slot)
-  (has-const? allocation-has-const?)
-  (const allocation-const))
 
-;; Continuations can also have associated allocation data.  For example,
-;; when a call happens in a labelled continuation, we need to know what
-;; slot the procedure goes in.  Likewise before branching to the target
-;; continuation, we might need to shuffle values into the right place: a
-;; parallel move.  $cont-allocation stores allocation data keyed on the
-;; continuation label.
-(define-record-type $cont-allocation
-  (make-cont-allocation call-proc-slot parallel-moves)
-  cont-allocation?
-
-  ;; Currently calls are allocated in the caller frame, above all locals
-  ;; that are live at the time of the call.  Therefore there is no
-  ;; parallel move problem.  We could be more clever here.
+  ;; A DFA records all variables bound in a function, and assigns them
+  ;; indices.  The slot in which a variable is stored at runtime can be
+  ;; had by indexing into the SLOTS vector with the variable's index.
   ;;
-  ;; $prompt expressions also use this call slot to indicate where the
-  ;; handler's arguments are expected, but without reserving space for a
-  ;; frame or for the procedure slot.
-  (call-proc-slot cont-call-proc-slot)
+  (dfa allocation-dfa)
+  (slots allocation-slots)
 
-  ;; Tail calls, multiple-value returns, and jumps to continuations with
-  ;; multiple arguments are forms of parallel assignment.  A
-  ;; $parallel-move represents a specific solution to the parallel
-  ;; assignment problem, with an ordered list of (SRC . DST) moves.  This
-  ;; may involve a temporary variable.
+  ;; Not all variables have slots allocated.  Variables that are
+  ;; constant and that are only used by primcalls that can accept
+  ;; constants directly are not allocated to slots, and their SLOT value
+  ;; is false.  Likewise constants that are only used by calls are not
+  ;; allocated into slots, to avoid needless copying.  If a variable is
+  ;; constant, its constant value is set in the CONSTANT-VALUES vector
+  ;; and the corresponding bit in the HAS-CONSTV bitvector is set.
   ;;
-  ;; ((src . dst) ...)
-  (parallel-moves cont-parallel-moves))
+  (has-constv allocation-has-constv)
+  (constant-values allocation-constant-values)
+
+  ;; Some continuations have additional associated information.  This
+  ;; addition information is a /call allocation/.  Call allocations
+  ;; record the way that functions are passed values, and how their
+  ;; return values are rebound to local variables.
+  ;;
+  ;; A call allocation contains two pieces of information: the call's
+  ;; /proc slot/, and a set of /parallel moves/.  The proc slot
+  ;; indicates the slot of a procedure in a procedure call, or where the
+  ;; procedure would be in a multiple-value return.  The parallel moves
+  ;; shuffle locals into position for a call, or shuffle returned values
+  ;; back into place.  Though they use the same slot, moves for a call
+  ;; are called "call moves", and moves to handle a return are "return
+  ;; moves".
+  ;;
+  ;; $ktrunc continuations record a proc slot and a set of return moves
+  ;; to adapt multiple values from the stack to local variables.
+  ;;
+  ;; Tail calls record arg moves, but no proc slot.
+  ;;
+  ;; Non-tail calls record arg moves and a call slot.  Multiple-valued
+  ;; returns will have an associated $ktrunc continuation, which records
+  ;; the same proc slot, but has return moves.
+  ;;
+  ;; $prompt handlers are $ktrunc continuations like any other.
+  ;;
+  ;; $values expressions with more than 1 value record moves but have no
+  ;; proc slot.
+  ;;
+  ;; A set of moves is expressed as an ordered list of (SRC . DST)
+  ;; moves, where SRC and DST are slots.  This may involve a temporary
+  ;; variable.
+  ;;
+  (call-allocations allocation-call-allocations)
+
+  ;; The number of locals for a $kclause.
+  ;;
+  (nlocals allocation-nlocals))
+
+(define-record-type $call-allocation
+  (make-call-allocation proc-slot moves)
+  call-allocation?
+  (proc-slot call-allocation-proc-slot)
+  (moves call-allocation-moves))
 
 (define (find-first-zero n)
   ;; Naive implementation.
@@ -90,56 +114,57 @@
         (lp (1+ slot))
         slot)))
 
-(define (find-first-trailing-zero n count)
-  (let lp ((slot count))
+(define (find-first-trailing-zero n)
+  (let lp ((slot (let lp ((count 2))
+                   (if (< n (ash 1 (1- count)))
+                       count
+                       ;; Grow upper bound slower than factor 2 to avoid
+                       ;; needless bignum allocation on 32-bit systems
+                       ;; when there are more than 16 locals.
+                       (lp (+ count (ash count -1)))))))
     (if (or (zero? slot) (logbit? (1- slot) n))
         slot
         (lp (1- slot)))))
 
-(define (lookup-allocation sym allocation)
-  (let ((res (hashq-ref allocation sym)))
-    (unless res
-      (error "Variable or continuation not defined" sym))
-    res))
+(define (lookup-maybe-slot sym allocation)
+  (match allocation
+    (($ $allocation dfa slots)
+     (vector-ref slots (dfa-var-idx dfa sym)))))
 
 (define (lookup-slot sym allocation)
-  (match (lookup-allocation sym allocation)
-    (($ $allocation slot has-const? const) slot)))
+  (or (lookup-maybe-slot sym allocation)
+      (error "Variable not allocated to a slot" sym)))
 
 (define (lookup-constant-value sym allocation)
-  (match (lookup-allocation sym allocation)
-    (($ $allocation slot #t const) const)
-    (_
-     (error "Variable does not have constant value" sym))))
+  (match allocation
+    (($ $allocation dfa slots has-constv constant-values)
+     (let ((idx (dfa-var-idx dfa sym)))
+       (if (bitvector-ref has-constv idx)
+           (vector-ref constant-values idx)
+           (error "Variable does not have constant value" sym))))))
 
 (define (lookup-maybe-constant-value sym allocation)
-  (match (lookup-allocation sym allocation)
-    (($ $allocation slot has-const? const)
-     (values has-const? const))))
+  (match allocation
+    (($ $allocation dfa slots has-constv constant-values)
+     (let ((idx (dfa-var-idx dfa sym)))
+       (values (bitvector-ref has-constv idx)
+               (vector-ref constant-values idx))))))
+
+(define (lookup-call-allocation k allocation)
+  (or (hashq-ref (allocation-call-allocations allocation) k)
+      (error "Continuation not a call" k)))
 
 (define (lookup-call-proc-slot k allocation)
-  (match (lookup-allocation k allocation)
-    (($ $cont-allocation proc-slot parallel-moves)
-     (unless proc-slot
-       (error "Continuation not a call" k))
-     proc-slot)
-    (_
-     (error "Continuation not a call" k))))
-
-(define (lookup-nlocals k allocation)
-  (match (lookup-allocation k allocation)
-    ((? number? nlocals) nlocals)
-    (_
-     (error "Not a clause continuation" k))))
+  (or (call-allocation-proc-slot (lookup-call-allocation k allocation))
+      (error "Call has no proc slot" k)))
 
 (define (lookup-parallel-moves k allocation)
-  (match (lookup-allocation k allocation)
-    (($ $cont-allocation proc-slot parallel-moves)
-     (unless parallel-moves
-       (error "Continuation does not have parallel moves" k))
-     parallel-moves)
-    (_
-     (error "Continuation not a call" k))))
+  (or (call-allocation-moves (lookup-call-allocation k allocation))
+      (error "Call has no use parallel moves slot" k)))
+
+(define (lookup-nlocals k allocation)
+  (or (hashq-ref (allocation-nlocals allocation) k)
+      (error "Not a clause continuation" k)))
 
 (define (solve-parallel-move src dst tmp)
   "Solve the parallel move problem between src and dst slot lists, which
@@ -199,259 +224,282 @@ are comparable with eqv?.  A tmp slot may be used."
     (not (bitvector-ref (dfa-k-out dfa l) v-idx))))
 
 (define (allocate-slots fun dfg)
-  (define (empty-live-slots)
-    #b0)
+  (let* ((dfa (compute-live-variables fun dfg))
+         (cfa (analyze-control-flow fun dfg))
+         (usev (make-vector (cfa-k-count cfa) '()))
+         (defv (make-vector (cfa-k-count cfa) '()))
+         (cont-table (dfg-cont-table dfg))
+         (slots (make-vector (dfa-var-count dfa) #f))
+         (constant-values (make-vector (dfa-var-count dfa) #f))
+         (has-constv (make-bitvector (dfa-var-count dfa) #f))
+         (has-slotv (make-bitvector (dfa-var-count dfa) #t))
+         (needs-slotv (make-bitvector (dfa-var-count dfa) #t))
+         (call-allocations (make-hash-table))
+         (nlocals 0)                    ; Mutable.  It pains me.
+         (nlocals-table (make-hash-table)))
 
-  (define (add-live-slot slot live-slots)
-    (logior live-slots (ash 1 slot)))
+    (define (bump-nlocals! nlocals*)
+      (when (< nlocals nlocals*)
+        (set! nlocals nlocals*)))
 
-  (define (kill-dead-slot slot live-slots)
-    (logand live-slots (lognot (ash 1 slot))))
+    (define (empty-live-slots)
+      #b0)
 
-  (define (compute-slot live-slots hint)
-    (if (and hint (not (logbit? hint live-slots)))
-        hint
-        (find-first-zero live-slots)))
+    (define (add-live-slot slot live-slots)
+      (logior live-slots (ash 1 slot)))
 
-  (define (compute-call-proc-slot live-slots nlocals)
-    (+ 3 (find-first-trailing-zero live-slots nlocals)))
+    (define (kill-dead-slot slot live-slots)
+      (logand live-slots (lognot (ash 1 slot))))
 
-  (define (compute-prompt-handler-proc-slot live-slots nlocals)
-    (1- (find-first-trailing-zero live-slots nlocals)))
+    (define (compute-slot live-slots hint)
+      (if (and hint (not (logbit? hint live-slots)))
+          hint
+          (find-first-zero live-slots)))
 
-  (define (recompute-live-slots k slots nargs dfa)
-    (let ((in (dfa-k-in dfa (dfa-k-idx dfa k))))
-      (let lp ((v 0) (live-slots (1- (ash 1 (1+ nargs)))))
-        (let ((v (bit-position #t in v)))
-          (if v
-              (let ((slot (vector-ref slots v)))
-                (lp (1+ v)
-                    (if slot
-                        (add-live-slot slot live-slots)
-                        live-slots)))
-              live-slots)))))
+    (define (compute-call-proc-slot live-slots)
+      (+ 3 (find-first-trailing-zero live-slots)))
 
-  (define (visit-clause clause dfa allocation slots live-slots)
-    (define nlocals (compute-slot live-slots #f))
-    (define nargs
-      (match clause
-        (($ $cont _ ($ $kclause _ ($ $cont _ ($ $kargs names syms))))
-         (length syms))))
+    (define (compute-prompt-handler-proc-slot live-slots)
+      (1- (find-first-trailing-zero live-slots)))
 
-    (define (allocate! sym k hint live-slots)
-      (match (hashq-ref allocation sym)
-        (($ $allocation slot)
-         ;; Parallel move already allocated this one.
-         (if slot
-             (add-live-slot slot live-slots)
-             live-slots))
+    (define (recompute-live-slots k nargs)
+      (let ((in (dfa-k-in dfa (dfa-k-idx dfa k))))
+        (let lp ((v 0) (live-slots (1- (ash 1 (1+ nargs)))))
+          (let ((v (bit-position #t in v)))
+            (if v
+                (let ((slot (vector-ref slots v)))
+                  (lp (1+ v)
+                      (if slot
+                          (add-live-slot slot live-slots)
+                          live-slots)))
+                live-slots)))))
+
+    (define* (allocate! var-idx hint live)
+      (cond
+       ((not (bitvector-ref needs-slotv var-idx)) live)
+       ((vector-ref slots var-idx) => (cut add-live-slot <> live))
+       (else
+        (let ((slot (compute-slot live hint)))
+          (bump-nlocals! (1+ slot))
+          (vector-set! slots var-idx slot)
+          (add-live-slot slot live)))))
+
+    ;; Although some parallel moves may proceed without a temporary
+    ;; slot, in general one is needed.  That temporary slot must not be
+    ;; part of the source or destination sets, and that slot should not
+    ;; correspond to a live variable.  Usually the source and
+    ;; destination sets are a subset of the union of the live sets
+    ;; before and after the move.  However for stack slots that don't
+    ;; have names -- those slots that correspond to function arguments
+    ;; or to function return values -- it could be that they are out of
+    ;; the computed live set.  In that case they need to be adjoined to
+    ;; the live set, used when choosing a temporary slot.
+    (define (compute-tmp-slot live stack-slots)
+      (find-first-zero (fold add-live-slot live stack-slots)))
+
+    (define (parallel-move src-slots dst-slots tmp-slot)
+      (let ((moves (solve-parallel-move src-slots dst-slots tmp-slot)))
+        (when (assv tmp-slot moves)
+          (bump-nlocals! (1+ tmp-slot)))
+        moves))
+
+    ;; Find variables that are actually constant, and determine which
+    ;; of those can avoid slot allocation.
+    (define (compute-constants!)
+      (let lp ((n 0))
+        (when (< n (vector-length constant-values))
+          (let ((sym (dfa-var-sym dfa n)))
+            (call-with-values (lambda () (find-constant-value sym dfg))
+              (lambda (has-const? const)
+                (when has-const?
+                  (bitvector-set! has-constv n has-const?)
+                  (vector-set! constant-values n const)
+                  (when (not (constant-needs-allocation? sym const dfg))
+                    (bitvector-set! needs-slotv n #f)))
+                (lp (1+ n))))))))
+
+    ;; Record uses and defs, as lists of variable indexes, indexed by
+    ;; CFA continuation index.
+    (define (compute-uses-and-defs!)
+      (let lp ((n 0))
+        (when (< n (vector-length usev))
+          (match (lookup-cont (cfa-k-sym cfa n) cont-table)
+            (($ $kentry self)
+             (vector-set! defv n (list (dfa-var-idx dfa self))))
+            (($ $kargs names syms body)
+             (vector-set! defv n (map (cut dfa-var-idx dfa <>) syms))
+             (vector-set! usev n
+                          (map (cut dfa-var-idx dfa <>)
+                               (match (find-expression body)
+                                 (($ $call proc args)
+                                  (cons proc args))
+                                 (($ $primcall name args)
+                                  args)
+                                 (($ $values args)
+                                  args)
+                                 (($ $prompt escape? tag handler pop)
+                                  (list tag))
+                                 (_ '())))))
+            (_ #f))
+          (lp (1+ n)))))
+
+    (define (allocate-call label k uses pre-live post-live)
+      (match (lookup-cont k cont-table)
+        (($ $ktail)
+         (let* ((tail-nlocals (length uses))
+                (tail-slots (iota tail-nlocals))
+                (moves (parallel-move (map (cut vector-ref slots <>) uses)
+                                      tail-slots
+                                      (compute-tmp-slot pre-live tail-slots))))
+           (bump-nlocals! tail-nlocals)
+           (hashq-set! call-allocations label
+                       (make-call-allocation #f moves))))
+        (($ $ktrunc arity kargs)
+         (let* ((proc-slot (compute-call-proc-slot post-live))
+                (call-slots (map (cut + proc-slot <>) (iota (length uses))))
+                (arg-moves (parallel-move (map (cut vector-ref slots <>) uses)
+                                          call-slots
+                                          (compute-tmp-slot pre-live
+                                                            call-slots)))
+                (result-vars (vector-ref defv (cfa-k-idx cfa kargs)))
+                (value-slots (map (cut + proc-slot 1 <>)
+                                  (iota (length result-vars))))
+                (result-live (fold allocate!
+                                   post-live result-vars value-slots))
+                (result-slots (map (cut vector-ref slots <>) result-vars))
+                (result-moves (parallel-move value-slots
+                                             result-slots
+                                             (compute-tmp-slot result-live
+                                                               value-slots))))
+           (bump-nlocals! (+ proc-slot (length uses)))
+           (hashq-set! call-allocations label
+                       (make-call-allocation proc-slot arg-moves))
+           (hashq-set! call-allocations k
+                       (make-call-allocation proc-slot result-moves))))
+
         (_
-         (call-with-values (lambda () (find-constant-value sym dfg))
-           (lambda (has-const? const)
-             (cond
-              ((and has-const? (not (constant-needs-allocation? sym const dfg)))
-               (hashq-set! allocation sym
-                           (make-allocation #f has-const? const))
-               live-slots)
-              (else
-               (let ((slot (compute-slot live-slots hint)))
-                 (when (>= slot nlocals)
-                   (set! nlocals (+ slot 1)))
-                 (vector-set! slots (dfa-var-idx dfa sym) slot)
-                 (hashq-set! allocation sym
-                             (make-allocation slot has-const? const))
-                 (add-live-slot slot live-slots)))))))))
+         (let* ((proc-slot (compute-call-proc-slot post-live))
+                (call-slots (map (cut + proc-slot <>) (iota (length uses))))
+                (arg-moves (parallel-move (map (cut vector-ref slots <>) uses)
+                                          call-slots
+                                          (compute-tmp-slot pre-live
+                                                            call-slots))))
+           (bump-nlocals! (+ proc-slot (length uses)))
+           (hashq-set! call-allocations label
+                       (make-call-allocation proc-slot arg-moves))))))
+                         
+    (define (allocate-values label k uses pre-live post-live)
+      (let* ((src-slots (map (cut vector-ref slots <>) uses))
+             (dst-slots (match (lookup-cont k cont-table)
+                          (($ $ktail)
+                           (let ((tail-nlocals (1+ (length uses))))
+                             (bump-nlocals! tail-nlocals)
+                             (cdr (iota tail-nlocals))))
+                          (_
+                           (let ((dst-vars (vector-ref defv (cfa-k-idx cfa k))))
+                             (fold allocate! post-live dst-vars src-slots)
+                             (map (cut vector-ref slots <>) dst-vars)))))
+             (moves (parallel-move src-slots
+                                   dst-slots
+                                   (compute-tmp-slot pre-live dst-slots))))
+        (hashq-set! call-allocations label
+                    (make-call-allocation #f moves))))
 
-    (define (allocate-prompt-handler! k live-slots)
-      (let ((proc-slot (compute-prompt-handler-proc-slot live-slots nlocals)))
-        (hashq-set! allocation k
-                    (make-cont-allocation
-                     proc-slot
-                     (match (hashq-ref allocation k)
-                       (($ $cont-allocation #f moves) moves)
-                       (#f #f))))
-        live-slots))
+    (define (allocate-prompt label k handler nargs)
+      (match (lookup-cont handler cont-table)
+        (($ $ktrunc arity kargs)
+         (let* ((handler-live (recompute-live-slots handler nargs))
+                (proc-slot (compute-prompt-handler-proc-slot handler-live))
+                (result-vars (vector-ref defv (cfa-k-idx cfa kargs)))
+                (value-slots (map (cut + proc-slot 1 <>)
+                                  (iota (length result-vars))))
+                (result-live (fold allocate!
+                                   handler-live result-vars value-slots))
+                (result-slots (map (cut vector-ref slots <>) result-vars))
+                (moves (parallel-move value-slots
+                                      result-slots
+                                      (compute-tmp-slot result-live
+                                                        value-slots))))
+           (bump-nlocals! (+ proc-slot 1 (length result-vars)))
+           (hashq-set! call-allocations handler
+                       (make-call-allocation proc-slot moves))))))
 
-    (define (allocate-frame! k nargs live-slots)
-      (let ((proc-slot (compute-call-proc-slot live-slots nlocals)))
-        (set! nlocals (max nlocals (+ proc-slot 1 nargs)))
-        (hashq-set! allocation k
-                    (make-cont-allocation
-                     proc-slot
-                     (match (hashq-ref allocation k)
-                       (($ $cont-allocation #f moves) moves)
-                       (#f #f))))
-        live-slots))
+    (define (allocate-defs! n live)
+      (fold (cut allocate! <> #f <>) live (vector-ref defv n)))
 
-    (define (parallel-move! src-k src-slots pre-live-slots post-live-slots dst-slots)
-      (let* ((tmp-slot (find-first-zero (logior pre-live-slots post-live-slots)))
-             (moves (solve-parallel-move src-slots dst-slots tmp-slot)))
-        (when (and (>= tmp-slot nlocals) (assv tmp-slot moves))
-          (set! nlocals (+ tmp-slot 1)))
-        (hashq-set! allocation src-k
-                    (make-cont-allocation
-                     (match (hashq-ref allocation src-k)
-                       (($ $cont-allocation proc-slot #f) proc-slot)
-                       (#f #f))
-                     moves))
-        post-live-slots))
+    ;; This traversal will visit definitions before uses, as
+    ;; definitions dominate uses and a block's dominator will appear
+    ;; before it, in reverse post-order.
+    (define (visit-clause n nargs live)
+      (let lp ((n n) (live live))
+        (define (kill-dead live vars-by-cfa-idx pred)
+          (fold (lambda (v live)
+                  (let ((slot (vector-ref slots v)))
+                    (if (and slot
+                             (> slot nargs)
+                             (pred (cfa-k-sym cfa n) v dfa))
+                        (kill-dead-slot slot live)
+                        live)))
+                live
+                (vector-ref vars-by-cfa-idx n)))
+        (define (kill-dead-defs live)
+          (kill-dead live defv dead-after-def?))
+        (define (kill-dead-uses live)
+          (kill-dead live usev dead-after-use?))
+        (if (= n (cfa-k-count cfa))
+            n
+            (let* ((label (cfa-k-sym cfa n))
+                   (live (if (control-point? label dfg)
+                             (recompute-live-slots label nargs)
+                             live))
+                   (live (kill-dead-defs (allocate-defs! n live)))
+                   (post-live (kill-dead-uses live)))
+              ;; LIVE are the live slots coming into the term.
+              ;; POST-LIVE is the subset that is still live after the
+              ;; term uses its inputs.
+              (match (lookup-cont label cont-table)
+                (($ $kclause) n)
+                (($ $kargs names syms body)
+                 (let ((uses (vector-ref usev n)))
+                   (match (find-call body)
+                     (($ $continue k src ($ $call))
+                      (allocate-call label k uses live post-live))
+                     (($ $continue k src ($ $primcall)) #t)
+                     ;; We only need to make a call allocation if there
+                     ;; are two or more values.
+                     (($ $continue k src ($ $values (_ _ . _)))
+                      (allocate-values label k uses live post-live))
+                     (($ $continue k src ($ $values)) #t)
+                     (($ $continue k src ($ $prompt escape? tag handler pop))
+                      (allocate-prompt label k handler nargs))
+                     (_ #f)))
+                 (lp (1+ n) post-live))
+                ((or ($ $ktrunc) ($ $kif) ($ $ktail))
+                 (lp (1+ n) post-live)))))))
 
-    (define (visit-cont cont label live-slots)
-      (define (maybe-kill-definition sym live-slots)
-        (let* ((v (dfa-var-idx dfa sym))
-               (slot (vector-ref slots v)))
-          (if (and slot (> slot nargs) (dead-after-def? label v dfa))
-              (kill-dead-slot slot live-slots)
-              live-slots)))
+    (define (visit-entry)
+      (define (visit-clauses n live)
+        (unless (eqv? live (add-live-slot 0 (empty-live-slots)))
+          (error "Unexpected clause live set"))
+        (set! nlocals 1)
+        (let ((k (cfa-k-sym cfa n)))
+          (match (lookup-cont k cont-table)
+            (($ $kclause arity ($ $cont kbody ($ $kargs names)))
+             (unless (eq? (cfa-k-sym cfa (1+ n)) kbody)
+               (error "Unexpected CFA order"))
+             (let ((next (visit-clause (1+ n) (length names) live)))
+               (hashq-set! nlocals-table k nlocals)
+               (when (< next (cfa-k-count cfa))
+                 (visit-clauses next live)))))))
+      (match (lookup-cont (cfa-k-sym cfa 0) cont-table)
+        (($ $kentry self)
+         (visit-clauses 1 (allocate-defs! 0 (empty-live-slots))))))
 
-      (define (maybe-recompute-live-slots live-slots)
-        (if (control-point? label dfg)
-            (recompute-live-slots label slots nargs dfa)
-            live-slots))
+    (compute-constants!)
+    (compute-uses-and-defs!)
+    (visit-entry)
 
-      (match cont
-        (($ $kclause arity ($ $cont k body))
-         (visit-cont body k live-slots))
-
-        (($ $kargs names syms body)
-         (visit-term body label
-                     (maybe-recompute-live-slots
-                      (fold maybe-kill-definition
-                            (fold (cut allocate! <> label #f <>) live-slots syms)
-                            syms))))
-
-        (($ $ktrunc) live-slots)
-        (($ $kif) live-slots)))
-
-    (define (visit-term term label live-slots)
-      (match term
-        (($ $letk conts body)
-         (let ((live-slots (visit-term body label live-slots)))
-           (for-each (match-lambda
-                      (($ $cont k cont)
-                       (visit-cont cont k live-slots)))
-                     conts))
-         live-slots)
-
-        (($ $continue k src exp)
-         (visit-exp exp label k live-slots))))
-
-    (define (visit-exp exp label k live-slots)
-      (define (use sym live-slots)
-        (let* ((v (dfa-var-idx dfa sym))
-               (l (dfa-k-idx dfa label))
-               (slot (vector-ref slots v)))
-          (if (and slot (> slot nargs) (dead-after-use? label v dfa))
-              (kill-dead-slot slot live-slots)
-              live-slots)))
-
-      (match exp
-        (($ $call proc args)
-         (match (lookup-cont k (dfg-cont-table dfg))
-           (($ $ktail)
-            (let ((tail-nlocals (1+ (length args))))
-              (set! nlocals (max nlocals tail-nlocals))
-              (parallel-move! label
-                              (map (cut lookup-slot <> allocation)
-                                   (cons proc args))
-                              live-slots (fold use live-slots (cons proc args))
-                              (iota tail-nlocals))))
-           (($ $ktrunc arity kargs)
-            (let* ((live-slots
-                    (fold use
-                          (use proc
-                               (allocate-frame! label (length args) live-slots))
-                          args))
-                   (proc-slot (lookup-call-proc-slot label allocation))
-                   (dst-syms (lookup-bound-syms kargs dfg))
-                   (nvals (length dst-syms))
-                   (src-slots (map (cut + proc-slot 1 <>) (iota nvals)))
-                   (live-slots* (fold (cut allocate! <> kargs <> <>)
-                                      live-slots dst-syms src-slots))
-                   (dst-slots (map (cut lookup-slot <> allocation)
-                                   dst-syms)))
-              (parallel-move! label src-slots live-slots live-slots* dst-slots)))
-           (else
-            (fold use
-                  (use proc (allocate-frame! label (length args) live-slots))
-                  args))))
-
-        (($ $primcall name args)
-         (fold use live-slots args))
-
-        (($ $values (arg))
-         (use arg live-slots))
-
-        (($ $values args)
-         (let ((live-slots* (fold use live-slots args)))
-           (define (compute-dst-slots)
-             (match (lookup-cont k (dfg-cont-table dfg))
-               (($ $ktail)
-                (let ((tail-nlocals (1+ (length args))))
-                  (set! nlocals (max nlocals tail-nlocals))
-                  (cdr (iota tail-nlocals))))
-               (_
-                (let* ((src-slots (map (cut lookup-slot <> allocation) args))
-                       (dst-syms (lookup-bound-syms k dfg))
-                       (dst-live-slots (fold (cut allocate! <> k <> <>)
-                                             live-slots* dst-syms src-slots)))
-                  (map (cut lookup-slot <> allocation) dst-syms)))))
-
-           (parallel-move! label
-                           (map (cut lookup-slot <> allocation) args)
-                           live-slots live-slots*
-                           (compute-dst-slots))))
-
-        (($ $values args)
-         (let ((live-slots* (fold use live-slots args)))
-           (define (compute-dst-slots)
-             (match (lookup-cont k (dfg-cont-table dfg))
-               (($ $ktail)
-                (let ((tail-nlocals (1+ (length args))))
-                  (set! nlocals (max nlocals tail-nlocals))
-                  (cdr (iota tail-nlocals))))
-               (_
-                (let* ((src-slots (map (cut lookup-slot <> allocation) args))
-                       (dst-syms (lookup-bound-syms k dfg))
-                       (dst-live-slots (fold (cut allocate! <> k <> <>)
-                                             live-slots* dst-syms src-slots)))
-                  (map (cut lookup-slot <> allocation) dst-syms)))))
-
-           (parallel-move! label
-                           (map (cut lookup-slot <> allocation) args)
-                           live-slots live-slots*
-                           (compute-dst-slots))))
-
-        (($ $prompt escape? tag handler pop)
-         (match (lookup-cont handler (dfg-cont-table dfg))
-           (($ $ktrunc arity kargs)
-            (let* ((live-slots (allocate-prompt-handler! label live-slots))
-                   (proc-slot (lookup-call-proc-slot label allocation))
-                   (dst-syms (lookup-bound-syms kargs dfg))
-                   (nvals (length dst-syms))
-                   (src-slots (map (cut + proc-slot 1 <>) (iota nvals)))
-                   (live-slots* (fold (cut allocate! <> kargs <> <>)
-                                      live-slots dst-syms src-slots))
-                   (dst-slots (map (cut lookup-slot <> allocation)
-                                   dst-syms)))
-              (parallel-move! handler src-slots live-slots live-slots* dst-slots))))
-         (use tag live-slots))
-
-        (_ live-slots)))
-
-    (match clause
-      (($ $cont k body)
-       (visit-cont body k live-slots)
-       (hashq-set! allocation k nlocals))))
-
-  (match fun
-    (($ $fun src meta free ($ $cont k ($ $kentry self tail clauses)))
-     (let* ((dfa (compute-live-variables fun dfg))
-            (allocation (make-hash-table))
-            (slots (make-vector (dfa-var-count dfa) #f))
-            (live-slots (add-live-slot 0 (empty-live-slots))))
-       (vector-set! slots (dfa-var-idx dfa self) 0)
-       (hashq-set! allocation self (make-allocation 0 #f #f))
-       (for-each (cut visit-clause <> dfa allocation slots live-slots)
-                 clauses)
-       allocation))))
+    (make-allocation dfa slots
+                     has-constv constant-values
+                     call-allocations
+                     nlocals-table)))
