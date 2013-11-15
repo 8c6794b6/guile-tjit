@@ -574,7 +574,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       fp = vp->fp = old_fp + proc;
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
-      SCM_FRAME_SET_RTL_MV_RETURN_ADDRESS (fp, ip + 2);
+      SCM_FRAME_SET_RTL_MV_RETURN_ADDRESS (fp, 0);
       SCM_FRAME_SET_RTL_RETURN_ADDRESS (fp, ip + 2);
 
       RESET_FRAME (nlocals);
@@ -711,7 +711,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM *base = fp;
 
       VM_HANDLE_INTERRUPTS;
-      ip = SCM_FRAME_RTL_MV_RETURN_ADDRESS (fp);
+      ip = SCM_FRAME_RTL_RETURN_ADDRESS (fp);
       fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);
 
       /* Clear stack frame.  */
@@ -954,7 +954,6 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
                                         SCM_FRAME_DYNAMIC_LINK (fp),
                                         SCM_FRAME_LOWER_ADDRESS (fp) - 1,
                                         SCM_FRAME_RETURN_ADDRESS (fp),
-                                        SCM_FRAME_MV_RETURN_ADDRESS (fp),
                                         dynstack,
                                         0);
       /* FIXME: Seems silly to capture the registers here, when they are

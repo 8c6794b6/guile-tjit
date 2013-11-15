@@ -104,8 +104,7 @@ scm_i_vm_cont_print (SCM x, SCM port, scm_print_state *pstate)
  */
 SCM
 scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp, scm_t_uint8 *ra,
-                        scm_t_uint8 *mvra, scm_t_dynstack *dynstack,
-                        scm_t_uint32 flags)
+                        scm_t_dynstack *dynstack, scm_t_uint32 flags)
 {
   struct scm_vm_cont *p;
 
@@ -123,7 +122,6 @@ scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp, scm_t_uint8 *ra,
   memset (p->stack_base, 0, p->stack_size * sizeof (SCM));
 #endif
   p->ra = ra;
-  p->mvra = mvra;
   p->sp = sp;
   p->fp = fp;
   memcpy (p->stack_base, stack_base, (sp + 1 - stack_base) * sizeof (SCM));
@@ -145,10 +143,6 @@ vm_return_to_continuation (SCM vm, SCM cont, size_t n, SCM *argv)
 
   vp = SCM_VM_DATA (vm);
   cp = SCM_VM_CONT_DATA (cont);
-
-  if (n == 0 && !cp->mvra)
-    scm_misc_error (NULL, "Too few values returned to continuation",
-                    SCM_EOL);
 
   if (vp->stack_size < cp->stack_size + n + 4)
     scm_misc_error ("vm-engine", "not enough space to reinstate continuation",
@@ -183,7 +177,7 @@ vm_return_to_continuation (SCM vm, SCM cont, size_t n, SCM *argv)
         vp->sp++;
         *vp->sp = argv_copy[i];
       }
-    vp->ip = cp->mvra;
+    vp->ip = cp->ra;
   }
 }
 
@@ -198,7 +192,7 @@ scm_i_capture_current_stack (void)
   vm = scm_the_vm ();
   vp = SCM_VM_DATA (vm);
 
-  return scm_i_vm_capture_stack (vp->stack_base, vp->fp, vp->sp, vp->ip, NULL,
+  return scm_i_vm_capture_stack (vp->stack_base, vp->fp, vp->sp, vp->ip,
                                  scm_dynstack_capture_all (&thread->dynstack),
                                  0);
 }
@@ -342,19 +336,14 @@ vm_reinstate_partial_continuation (SCM vm, SCM cont, size_t n, SCM *argv,
 
   vp->sp = base - 1 + cp->stack_size;
   vp->fp = RELOC (cp->fp);
-  vp->ip = cp->mvra;
+  vp->ip = cp->ra;
 
-  /* now push args. ip is in a MV context. */
+  /* Push the arguments. */
   for (i = 0; i < n; i++)
     {
       vp->sp++;
       *vp->sp = argv_copy[i];
     }
-#if 0
-  /* The number-of-values marker, only used by the stack VM.  */
-  vp->sp++;
-  *vp->sp = scm_from_size_t (n);
-#endif
 
   /* The prompt captured a slice of the dynamic stack.  Here we wind
      those entries onto the current thread's stack.  We also have to

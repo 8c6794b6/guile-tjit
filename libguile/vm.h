@@ -88,7 +88,7 @@ SCM_API void scm_c_set_default_vm_engine_x (int engine);
 struct scm_vm_cont {
   SCM *sp;
   SCM *fp;
-  scm_t_uint8 *ra, *mvra;
+  scm_t_uint8 *ra;
   scm_t_ptrdiff stack_size;
   SCM *stack_base;
   scm_t_ptrdiff reloc;
@@ -110,7 +110,7 @@ SCM_INTERNAL void scm_i_vm_print (SCM x, SCM port,
 SCM_INTERNAL SCM scm_i_call_with_current_continuation (SCM proc);
 SCM_INTERNAL SCM scm_i_capture_current_stack (void);
 SCM_INTERNAL SCM scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp,
-                                         scm_t_uint8 *ra, scm_t_uint8 *mvra,
+                                         scm_t_uint8 *ra,
                                          scm_t_dynstack *dynstack,
                                          scm_t_uint32 flags);
 SCM_INTERNAL void scm_i_vm_cont_print (SCM x, SCM port,

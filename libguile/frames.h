@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -85,8 +85,6 @@ struct scm_vm_frame
   (SCM_FRAME_STRUCT (fp)->return_address)
 #define SCM_FRAME_SET_RETURN_ADDRESS(fp, ra)    \
   SCM_FRAME_STRUCT (fp)->return_address = (ra)
-#define SCM_FRAME_MV_RETURN_ADDRESS(fp)         \
-  (SCM_FRAME_STRUCT (fp)->mv_return_address)
 #define SCM_FRAME_SET_MV_RETURN_ADDRESS(fp, mvra)       \
   SCM_FRAME_STRUCT (fp)->mv_return_address = (mvra)
 #define SCM_FRAME_DYNAMIC_LINK(fp)              \
@@ -124,8 +122,6 @@ struct scm_vm_frame
 #define SCM_FRAME_SET_RTL_RETURN_ADDRESS(fp, ip)        \
   SCM_FRAME_SET_RETURN_ADDRESS (fp, (scm_t_uint8 *) (ip))
 
-#define SCM_FRAME_RTL_MV_RETURN_ADDRESS(fp)             \
-  ((scm_t_uint32 *) SCM_FRAME_MV_RETURN_ADDRESS (fp))
 #define SCM_FRAME_SET_RTL_MV_RETURN_ADDRESS(fp, ip)     \
   SCM_FRAME_SET_MV_RETURN_ADDRESS (fp, (scm_t_uint8 *) (ip))
 
@@ -165,7 +161,6 @@ SCM_API SCM scm_frame_address (SCM frame);
 SCM_API SCM scm_frame_stack_pointer (SCM frame);
 SCM_API SCM scm_frame_instruction_pointer (SCM frame);
 SCM_API SCM scm_frame_return_address (SCM frame);
-SCM_API SCM scm_frame_mv_return_address (SCM frame);
 SCM_API SCM scm_frame_dynamic_link (SCM frame);
 SCM_API SCM scm_frame_previous (SCM frame);
 

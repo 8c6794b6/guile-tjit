@@ -245,18 +245,6 @@ SCM_DEFINE (scm_frame_return_address, "frame-return-address", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_frame_mv_return_address, "frame-mv-return-address", 1, 0, 0,
-	    (SCM frame),
-	    "")
-#define FUNC_NAME s_scm_frame_mv_return_address
-{
-  SCM_VALIDATE_VM_FRAME (1, frame);
-  return scm_from_uintptr_t ((scm_t_uintptr)
-                             (SCM_FRAME_MV_RETURN_ADDRESS
-                              (SCM_VM_FRAME_FP (frame))));
-}
-#undef FUNC_NAME
-
 SCM_DEFINE (scm_frame_dynamic_link, "frame-dynamic-link", 1, 0, 0,
 	    (SCM frame),
 	    "")

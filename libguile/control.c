@@ -108,12 +108,10 @@ reify_partial_continuation (SCM vm,
   if (SCM_FRAME_DYNAMIC_LINK (bottom_fp) != saved_fp)
     abort();
 
-  /* Capture from the top of the thunk application frame up to the end. Set an
-     MVRA only, as the post-abort code is in an MV context. */
+  /* Capture from the top of the thunk application frame up to the end. */
   vm_cont = scm_i_vm_capture_stack (bottom_fp - 1,
                                     SCM_VM_DATA (vm)->fp,
                                     SCM_VM_DATA (vm)->sp,
-                                    NULL,
                                     SCM_VM_DATA (vm)->ip,
                                     dynstack,
                                     flags);
