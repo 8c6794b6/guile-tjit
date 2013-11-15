@@ -228,12 +228,13 @@ are comparable with eqv?.  A tmp slot may be used."
          (cfa (analyze-control-flow fun dfg))
          (usev (make-vector (cfa-k-count cfa) '()))
          (defv (make-vector (cfa-k-count cfa) '()))
-         (cont-table (dfg-cont-table dfg))
+         (contv (make-vector (cfa-k-count cfa) #f))
          (slots (make-vector (dfa-var-count dfa) #f))
          (constant-values (make-vector (dfa-var-count dfa) #f))
          (has-constv (make-bitvector (dfa-var-count dfa) #f))
          (has-slotv (make-bitvector (dfa-var-count dfa) #t))
          (needs-slotv (make-bitvector (dfa-var-count dfa) #t))
+         (needs-hintv (make-bitvector (dfa-var-count dfa) #f))
          (call-allocations (make-hash-table))
          (nlocals 0)                    ; Mutable.  It pains me.
          (nlocals-table (make-hash-table)))
@@ -277,6 +278,7 @@ are comparable with eqv?.  A tmp slot may be used."
     (define* (allocate! var-idx hint live)
       (cond
        ((not (bitvector-ref needs-slotv var-idx)) live)
+       ((and (not hint) (bitvector-ref needs-hintv var-idx)) live)
        ((vector-ref slots var-idx) => (cut add-live-slot <> live))
        (else
         (let ((slot (compute-slot live hint)))
@@ -318,12 +320,21 @@ are comparable with eqv?.  A tmp slot may be used."
                     (bitvector-set! needs-slotv n #f)))
                 (lp (1+ n))))))))
 
+    ;; Transform the DFG's continuation table to a vector, for easy
+    ;; access.
+    (define (compute-conts!)
+      (let ((cont-table (dfg-cont-table dfg)))
+        (let lp ((n 0))
+          (when (< n (vector-length contv))
+            (vector-set! contv n (lookup-cont (cfa-k-sym cfa n) cont-table))
+            (lp (1+ n))))))
+
     ;; Record uses and defs, as lists of variable indexes, indexed by
     ;; CFA continuation index.
     (define (compute-uses-and-defs!)
       (let lp ((n 0))
         (when (< n (vector-length usev))
-          (match (lookup-cont (cfa-k-sym cfa n) cont-table)
+          (match (vector-ref contv n)
             (($ $kentry self)
              (vector-set! defv n (list (dfa-var-idx dfa self))))
             (($ $kargs names syms body)
@@ -343,11 +354,95 @@ are comparable with eqv?.  A tmp slot may be used."
             (_ #f))
           (lp (1+ n)))))
 
+    ;; Compute the set of variables whose allocation should be delayed
+    ;; until a "hint" is known about where to allocate them.  This is
+    ;; the case for some procedure arguments.
+    ;;
+    ;; This algorithm used is a conservative approximation of what
+    ;; really should happen, which would be eager allocation of call
+    ;; frames as soon as it's known that a call will happen.  It would
+    ;; be nice to recast this as a proper data-flow problem.
+    (define (compute-needs-hint!)
+      ;; We traverse the graph using reverse-post-order on a forward
+      ;; control-flow graph, but we did the live variable analysis in
+      ;; the opposite direction -- so the continuation numbers don't
+      ;; correspond.  This helper adapts them.
+      (define (cfa-k-idx->dfa-k-idx n)
+        (dfa-k-idx dfa (cfa-k-sym cfa n)))
+
+      (define (live-before n)
+        (dfa-k-in dfa (cfa-k-idx->dfa-k-idx n)))
+      (define (live-after n)
+        (dfa-k-out dfa (cfa-k-idx->dfa-k-idx n)))
+
+      ;; Walk backwards.  At a call, compute the set of variables that
+      ;; have allocated slots and are live before but not after.  This
+      ;; set contains candidates for needs-hintv.
+      (define (scan-for-call n)
+        (when (<= 0 n)
+          (match (vector-ref contv n)
+            (($ $kargs names syms body)
+             (match (find-expression body)
+               (($ $call)
+                (let ((args (make-bitvector (bitvector-length needs-slotv) #f)))
+                  (bit-set*! args (live-before n) #t)
+                  (bit-set*! args (live-after n) #f)
+                  (bit-set*! args no-slot-needed #f)
+                  (if (bit-position #t args 0)
+                      (scan-for-hints (1- n) args)
+                      (scan-for-call (1- n)))))
+               (_ (scan-for-call (1- n)))))
+            (_ (scan-for-call (1- n))))))
+
+      ;; Walk backwards in the current basic block.  Stop when the block
+      ;; ends, we reach a call, or when an expression kills a value.
+      (define (scan-for-hints n args)
+        (when (< 0 n)
+          (match (vector-ref contv n)
+            (($ $kargs names syms body)
+             (match (cfa-predecessors cfa (1+ n))
+               (((? (cut eqv? <> n)))
+                ;; If we are indeed in the same basic block, then if we
+                ;; are finished with the scan, we kill uses of the
+                ;; terminator, but leave its definitions.
+                (match (find-expression body)
+                  ((or ($ $void) ($ $const) ($ $prim) ($ $fun)
+                       ($ $primcall) ($ $prompt))
+                   (let ((dead (make-bitvector (bitvector-length args) #f)))
+                     (bit-set*! dead (live-before n) #t)
+                     (bit-set*! dead (live-after n) #f)
+                     (bit-set*! dead no-slot-needed #f)
+                     (if (bit-position #t dead 0)
+                         (finish-hints n (live-before n) args)
+                         (scan-for-hints (1- n) args))))
+                  ((or ($ $call) ($ $values))
+                   (finish-hints n (live-before n) args))))
+               ;; Otherwise we kill uses of the block entry.
+               (_ (finish-hints n (live-before (1+ n)) args))))
+            (_ (finish-hints n (live-before (1+ n)) args)))))
+
+      ;; Add definitions ARGS minus KILL to NEED-HINTS, and go back to
+      ;; looking for calls.
+      (define (finish-hints n kill args)
+        (bit-invert! args)
+        (bit-set*! args kill #t)
+        (bit-invert! args)
+        (bit-set*! needs-hintv args #t)
+        (scan-for-call n))
+
+      (define no-slot-needed
+        (make-bitvector (bitvector-length needs-slotv) #f))
+
+      (bit-set*! no-slot-needed needs-slotv #t)
+      (bit-invert! no-slot-needed)
+      (scan-for-call (1- (vector-length contv))))
+
     (define (allocate-call label k uses pre-live post-live)
-      (match (lookup-cont k cont-table)
+      (match (vector-ref contv (cfa-k-idx cfa k))
         (($ $ktail)
          (let* ((tail-nlocals (length uses))
                 (tail-slots (iota tail-nlocals))
+                (pre-live (fold allocate! pre-live uses tail-slots))
                 (moves (parallel-move (map (cut vector-ref slots <>) uses)
                                       tail-slots
                                       (compute-tmp-slot pre-live tail-slots))))
@@ -357,6 +452,7 @@ are comparable with eqv?.  A tmp slot may be used."
         (($ $ktrunc arity kargs)
          (let* ((proc-slot (compute-call-proc-slot post-live))
                 (call-slots (map (cut + proc-slot <>) (iota (length uses))))
+                (pre-live (fold allocate! pre-live uses call-slots))
                 (arg-moves (parallel-move (map (cut vector-ref slots <>) uses)
                                           call-slots
                                           (compute-tmp-slot pre-live
@@ -380,6 +476,7 @@ are comparable with eqv?.  A tmp slot may be used."
         (_
          (let* ((proc-slot (compute-call-proc-slot post-live))
                 (call-slots (map (cut + proc-slot <>) (iota (length uses))))
+                (pre-live (fold allocate! pre-live uses call-slots))
                 (arg-moves (parallel-move (map (cut vector-ref slots <>) uses)
                                           call-slots
                                           (compute-tmp-slot pre-live
@@ -390,7 +487,7 @@ are comparable with eqv?.  A tmp slot may be used."
                          
     (define (allocate-values label k uses pre-live post-live)
       (let* ((src-slots (map (cut vector-ref slots <>) uses))
-             (dst-slots (match (lookup-cont k cont-table)
+             (dst-slots (match (vector-ref contv (cfa-k-idx cfa k))
                           (($ $ktail)
                            (let ((tail-nlocals (1+ (length uses))))
                              (bump-nlocals! tail-nlocals)
@@ -406,7 +503,7 @@ are comparable with eqv?.  A tmp slot may be used."
                     (make-call-allocation #f moves))))
 
     (define (allocate-prompt label k handler nargs)
-      (match (lookup-cont handler cont-table)
+      (match (vector-ref contv (cfa-k-idx cfa handler))
         (($ $ktrunc arity kargs)
          (let* ((handler-live (recompute-live-slots handler nargs))
                 (proc-slot (compute-prompt-handler-proc-slot handler-live))
@@ -457,7 +554,7 @@ are comparable with eqv?.  A tmp slot may be used."
               ;; LIVE are the live slots coming into the term.
               ;; POST-LIVE is the subset that is still live after the
               ;; term uses its inputs.
-              (match (lookup-cont label cont-table)
+              (match (vector-ref contv n)
                 (($ $kclause) n)
                 (($ $kargs names syms body)
                  (let ((uses (vector-ref usev n)))
@@ -482,21 +579,27 @@ are comparable with eqv?.  A tmp slot may be used."
         (unless (eqv? live (add-live-slot 0 (empty-live-slots)))
           (error "Unexpected clause live set"))
         (set! nlocals 1)
-        (let ((k (cfa-k-sym cfa n)))
-          (match (lookup-cont k cont-table)
-            (($ $kclause arity ($ $cont kbody ($ $kargs names)))
-             (unless (eq? (cfa-k-sym cfa (1+ n)) kbody)
-               (error "Unexpected CFA order"))
-             (let ((next (visit-clause (1+ n) (length names) live)))
-               (hashq-set! nlocals-table k nlocals)
-               (when (< next (cfa-k-count cfa))
-                 (visit-clauses next live)))))))
-      (match (lookup-cont (cfa-k-sym cfa 0) cont-table)
+        (match (vector-ref contv n)
+          (($ $kclause arity ($ $cont kbody ($ $kargs names)))
+           (unless (eq? (cfa-k-sym cfa (1+ n)) kbody)
+             (error "Unexpected CFA order"))
+           (let* ((nargs (length names))
+                  (next (visit-clause (1+ n)
+                                      nargs
+                                      (fold allocate! live
+                                            (vector-ref defv (1+ n))
+                                            (cdr (iota (1+ nargs)))))))
+             (hashq-set! nlocals-table (cfa-k-sym cfa n) nlocals)
+             (when (< next (cfa-k-count cfa))
+               (visit-clauses next live))))))
+      (match (vector-ref contv 0)
         (($ $kentry self)
          (visit-clauses 1 (allocate-defs! 0 (empty-live-slots))))))
 
+    (compute-conts!)
     (compute-constants!)
     (compute-uses-and-defs!)
+    (compute-needs-hint!)
     (visit-entry)
 
     (make-allocation dfa slots
