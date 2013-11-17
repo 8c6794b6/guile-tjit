@@ -312,7 +312,7 @@ vm_reinstate_partial_continuation (SCM vm, SCM cont, size_t n, SCM *argv,
 
   vp = SCM_VM_DATA (vm);
   cp = SCM_VM_CONT_DATA (cont);
-  base = SCM_FRAME_UPPER_ADDRESS (vp->fp) + 1;
+  base = SCM_FRAME_LOCALS_ADDRESS (vp->fp);
   reloc = cp->reloc + (base - cp->stack_base);
 
 #define RELOC(scm_p)						\

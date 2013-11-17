@@ -109,7 +109,7 @@ reify_partial_continuation (SCM vm,
     abort();
 
   /* Capture from the top of the thunk application frame up to the end. */
-  vm_cont = scm_i_vm_capture_stack (bottom_fp - 1,
+  vm_cont = scm_i_vm_capture_stack (&SCM_FRAME_LOCAL (bottom_fp, 0),
                                     SCM_VM_DATA (vm)->fp,
                                     SCM_VM_DATA (vm)->sp,
                                     SCM_VM_DATA (vm)->ip,

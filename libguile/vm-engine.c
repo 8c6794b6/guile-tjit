@@ -84,12 +84,16 @@
   RUN_HOOK0 (SCM_VM_APPLY_HOOK)
 #define PUSH_CONTINUATION_HOOK()                \
   RUN_HOOK0 (SCM_VM_PUSH_CONTINUATION_HOOK)
-#define POP_CONTINUATION_HOOK(vals, n)  \
-  RUN_HOOK (SCM_VM_POP_CONTINUATION_HOOK, vals, n)
+#define POP_CONTINUATION_HOOK(old_fp)           \
+  RUN_HOOK (SCM_VM_POP_CONTINUATION_HOOK,       \
+            &SCM_FRAME_LOCAL (old_fp, 1),       \
+            SCM_FRAME_NUM_LOCALS (old_fp, vp->sp) - 1)
 #define NEXT_HOOK()                             \
   RUN_HOOK0 (SCM_VM_NEXT_HOOK)
-#define ABORT_CONTINUATION_HOOK(vals, n)        \
-  RUN_HOOK (SCM_VM_ABORT_CONTINUATION_HOOK, vals, n)
+#define ABORT_CONTINUATION_HOOK()               \
+  RUN_HOOK (SCM_VM_ABORT_CONTINUATION_HOOK,     \
+            LOCAL_ADDRESS (1),                  \
+            FRAME_LOCALS_COUNT () - 1)
 #define RESTORE_CONTINUATION_HOOK()            \
   RUN_HOOK0 (SCM_VM_RESTORE_CONTINUATION_HOOK)
 
@@ -141,27 +145,28 @@
   } while (0)
 
 /* Reserve stack space for a frame.  Will check that there is sufficient
-   stack space for N locals, including the procedure, in addition to
-   2 words to set up the next frame.  Invoke after preparing the new
-   frame and setting the fp and ip.  */
+   stack space for N locals, including the procedure.  Invoke after
+   preparing the new frame and setting the fp and ip.  */
 #define ALLOC_FRAME(n)                                              \
   do {                                                              \
-    SCM *new_sp = vp->sp = fp - 1 + n - 1;                          \
-    CHECK_OVERFLOW (new_sp + 3);                                    \
+    SCM *new_sp = vp->sp = LOCAL_ADDRESS (n - 1);                   \
+    CHECK_OVERFLOW (new_sp);                                        \
   } while (0)
 
 /* Reset the current frame to hold N locals.  Used when we know that no
    stack expansion is needed.  */
 #define RESET_FRAME(n)                                              \
   do {                                                              \
-    vp->sp = fp - 2 + n;                                            \
+    vp->sp = LOCAL_ADDRESS (n - 1);                                 \
   } while (0)
 
-/* Compute the number of locals in the frame.  This is equal to the
-   number of actual arguments when a function is first called, plus
-   one for the function.  */
-#define FRAME_LOCALS_COUNT()                                        \
-  (vp->sp + 1 - (fp - 1))
+/* Compute the number of locals in the frame.  At a call, this is equal
+   to the number of actual arguments when a function is first called,
+   plus one for the function.  */
+#define FRAME_LOCALS_COUNT_FROM(slot)           \
+  (vp->sp + 1 - LOCAL_ADDRESS (slot))
+#define FRAME_LOCALS_COUNT() \
+  FRAME_LOCALS_COUNT_FROM (0)
 
 /* Restore registers after returning from a frame.  */
 #define RESTORE_FRAME()                                             \
@@ -212,8 +217,9 @@
   case opcode:
 #endif
 
-#define LOCAL_REF(i)		SCM_FRAME_VARIABLE ((fp - 1), i)
-#define LOCAL_SET(i,o)		SCM_FRAME_VARIABLE ((fp - 1), i) = o
+#define LOCAL_ADDRESS(i)	(&SCM_FRAME_LOCAL (fp, i))
+#define LOCAL_REF(i)		SCM_FRAME_LOCAL (fp, i)
+#define LOCAL_SET(i,o)		SCM_FRAME_LOCAL (fp, i) = o
 
 #define VARIABLE_REF(v)		SCM_VARIABLE_REF (v)
 #define VARIABLE_SET(v,o)	SCM_VARIABLE_SET (v, o)
@@ -222,17 +228,17 @@
 #define RETURN_ONE_VALUE(ret)                           \
   do {                                                  \
     SCM val = ret;                                      \
-    SCM *sp = SCM_FRAME_LOWER_ADDRESS (fp);             \
+    SCM *old_fp = fp;                                   \
     VM_HANDLE_INTERRUPTS;                               \
     ip = SCM_FRAME_RTL_RETURN_ADDRESS (fp);             \
     fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);          \
     /* Clear frame. */                                  \
-    sp[0] = SCM_BOOL_F;                                 \
-    sp[1] = SCM_BOOL_F;                                 \
+    old_fp[-1] = SCM_BOOL_F;                            \
+    old_fp[-2] = SCM_BOOL_F;                            \
     /* Leave proc. */                                   \
-    sp[3] = val;                                        \
-    vp->sp = sp + 3;                                    \
-    POP_CONTINUATION_HOOK (sp, 1);                      \
+    SCM_FRAME_LOCAL (old_fp, 1) = val;                  \
+    vp->sp = &SCM_FRAME_LOCAL (old_fp, 1);              \
+    POP_CONTINUATION_HOOK (old_fp);                     \
     NEXT (0);                                           \
   } while (0)
 
@@ -242,9 +248,9 @@
   do {                                                  \
     SCM vals = vals_;                                   \
     VM_HANDLE_INTERRUPTS;                               \
-    fp[-1] = vm_builtin_apply;                          \
-    fp[0] = vm_builtin_values;                          \
-    fp[1] = vals;                                       \
+    fp[0] = vm_builtin_apply;                           \
+    fp[1] = vm_builtin_values;                          \
+    fp[2] = vals;                                       \
     RESET_FRAME (3);                                    \
     ip = (scm_t_uint32 *) vm_builtin_apply_code;        \
     goto op_tail_apply;                                 \
@@ -432,7 +438,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
          to pull all our state back from the ip/fp/sp.
       */
       CACHE_REGISTER ();
-      ABORT_CONTINUATION_HOOK (fp, FRAME_LOCALS_COUNT () - 1);
+      ABORT_CONTINUATION_HOOK ();
       NEXT (0);
     }
 
@@ -465,14 +471,14 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     base[0] = SCM_PACK (fp); /* dynamic link */
     base[1] = SCM_PACK (ip); /* ra */
     base[2] = rtl_boot_continuation;
-    fp = &base[3];
+    fp = &base[2];
     ip = (scm_t_uint32 *) rtl_boot_continuation_code;
 
     /* MV-call frame, function & arguments */
     base[3] = SCM_PACK (fp); /* dynamic link */
     base[4] = SCM_PACK (ip); /* ra */
     base[5] = program;
-    fp = vp->fp = &base[6];
+    fp = vp->fp = &base[5];
     RESET_FRAME (nargs_ + 1);
   }
 
@@ -483,7 +489,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
         {
-          fp[-1] = SCM_STRUCT_PROCEDURE (proc);
+          LOCAL_SET (0, SCM_STRUCT_PROCEDURE (proc));
           continue;
         }
       if (SCM_HAS_TYP7 (proc, scm_tc7_smob) && SCM_SMOB_APPLICABLE_P (proc))
@@ -522,10 +528,10 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (0, halt, "halt", OP1 (U8_X24))
     {
-      scm_t_uint32 nvals = FRAME_LOCALS_COUNT() - 4;
-      SCM ret;
-
       /* Boot closure in r0, empty frame in r1/r2, proc in r3, values from r4.  */
+
+      scm_t_uint32 nvals = FRAME_LOCALS_COUNT_FROM (4);
+      SCM ret;
 
       if (nvals == 1)
         ret = LOCAL_REF (4);
@@ -540,7 +546,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
         }
 
       vp->ip = SCM_FRAME_RETURN_ADDRESS (fp);
-      vp->sp = SCM_FRAME_LOWER_ADDRESS (fp) - 1;
+      vp->sp = SCM_FRAME_PREVIOUS_SP (fp);
       vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);
 
       return ret;
@@ -703,18 +709,17 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (7, return_values, "return-values", OP1 (U8_X24))
     {
-      scm_t_uint32 nvalues _GL_UNUSED = FRAME_LOCALS_COUNT();
-      SCM *base = fp;
+      SCM *old_fp = fp;
 
       VM_HANDLE_INTERRUPTS;
       ip = SCM_FRAME_RTL_RETURN_ADDRESS (fp);
       fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);
 
       /* Clear stack frame.  */
-      base[-2] = SCM_BOOL_F;
-      base[-3] = SCM_BOOL_F;
+      old_fp[-1] = SCM_BOOL_F;
+      old_fp[-2] = SCM_BOOL_F;
 
-      POP_CONTINUATION_HOOK (base, nvalues);
+      POP_CONTINUATION_HOOK (old_fp);
 
       NEXT (0);
     }
@@ -747,40 +752,40 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       VM_HANDLE_INTERRUPTS;
       SYNC_IP ();
 
-      switch (FRAME_LOCALS_COUNT () - 1)
+      switch (FRAME_LOCALS_COUNT_FROM (1))
         {
         case 0:
           ret = subr ();
           break;
         case 1:
-          ret = subr (fp[0]);
+          ret = subr (fp[1]);
           break;
         case 2:
-          ret = subr (fp[0], fp[1]);
+          ret = subr (fp[1], fp[2]);
           break;
         case 3:
-          ret = subr (fp[0], fp[1], fp[2]);
+          ret = subr (fp[1], fp[2], fp[3]);
           break;
         case 4:
-          ret = subr (fp[0], fp[1], fp[2], fp[3]);
+          ret = subr (fp[1], fp[2], fp[3], fp[4]);
           break;
         case 5:
-          ret = subr (fp[0], fp[1], fp[2], fp[3], fp[4]);
+          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5]);
           break;
         case 6:
-          ret = subr (fp[0], fp[1], fp[2], fp[3], fp[4], fp[5]);
+          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5], fp[6]);
           break;
         case 7:
-          ret = subr (fp[0], fp[1], fp[2], fp[3], fp[4], fp[5], fp[6]);
+          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7]);
           break;
         case 8:
-          ret = subr (fp[0], fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7]);
+          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7], fp[8]);
           break;
         case 9:
-          ret = subr (fp[0], fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7], fp[8]);
+          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7], fp[8], fp[9]);
           break;
         case 10:
-          ret = subr (fp[0], fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7], fp[8], fp[9]);
+          ret = subr (fp[1], fp[2], fp[3], fp[4], fp[5], fp[6], fp[7], fp[8], fp[9], fp[10]);
           break;
         default:
           abort ();
@@ -818,7 +823,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       VM_HANDLE_INTERRUPTS;
 
       // FIXME: separate args
-      ret = scm_i_foreign_call (scm_cons (cif, pointer), fp);
+      ret = scm_i_foreign_call (scm_cons (cif, pointer), LOCAL_ADDRESS (1));
 
       // NULLSTACK_FOR_NONLOCAL_EXIT ();
 
@@ -851,7 +856,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_i_check_continuation (contregs);
       vm_return_to_continuation (scm_i_contregs_vm (contregs),
                                  scm_i_contregs_vm_cont (contregs),
-                                 FRAME_LOCALS_COUNT () - 1, fp);
+                                 FRAME_LOCALS_COUNT_FROM (1),
+                                 LOCAL_ADDRESS (1));
       scm_i_reinstate_continuation (contregs);
 
       /* no NEXT */
@@ -877,7 +883,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SYNC_IP ();
       VM_ASSERT (SCM_VM_CONT_REWINDABLE_P (vmcont),
                  vm_error_continuation_not_rewindable (vmcont));
-      vm_reinstate_partial_continuation (vm, vmcont, FRAME_LOCALS_COUNT () - 1, fp,
+      vm_reinstate_partial_continuation (vm, vmcont, FRAME_LOCALS_COUNT_FROM (1),
+                                         LOCAL_ADDRESS (1),
                                          &current_thread->dynstack,
                                          &registers);
       CACHE_REGISTER ();
@@ -947,7 +954,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       dynstack = scm_dynstack_capture_all (&current_thread->dynstack);
       vm_cont = scm_i_vm_capture_stack (vp->stack_base,
                                         SCM_FRAME_DYNAMIC_LINK (fp),
-                                        SCM_FRAME_LOWER_ADDRESS (fp) - 1,
+                                        SCM_FRAME_PREVIOUS_SP (fp),
                                         SCM_FRAME_RETURN_ADDRESS (fp),
                                         dynstack,
                                         0);
@@ -975,7 +982,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       else
         {
           CACHE_REGISTER ();
-          ABORT_CONTINUATION_HOOK (fp, FRAME_LOCALS_COUNT () - 1);
+          ABORT_CONTINUATION_HOOK ();
           NEXT (0);
         }
     }
@@ -996,8 +1003,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
          it continues with the next instruction.  */
       ip++;
       SYNC_IP ();
-      vm_abort (vm, LOCAL_REF (1), nlocals - 2, &LOCAL_REF (2),
-                SCM_EOL, &LOCAL_REF (0), &registers);
+      vm_abort (vm, LOCAL_REF (1), nlocals - 2, LOCAL_ADDRESS (2),
+                SCM_EOL, LOCAL_ADDRESS (0), &registers);
 
       /* vm_abort should not return */
       abort ();
@@ -1825,7 +1832,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       var = scm_lookup (LOCAL_REF (sym));
       if (ip[1] & 0x1)
         VM_ASSERT (VARIABLE_BOUNDP (var),
-                   vm_error_unbound (fp[-1], LOCAL_REF (sym)));
+                   vm_error_unbound (fp[0], LOCAL_REF (sym)));
       LOCAL_SET (dst, var);
 
       NEXT (2);
@@ -1902,7 +1909,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
           var = scm_module_lookup (mod, sym);
           if (ip[4] & 0x1)
-            VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (fp[-1], sym));
+            VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (fp[0], sym));
 
           *var_loc = var;
         }
@@ -1964,7 +1971,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
             var = scm_private_lookup (SCM_CDR (modname), sym);
 
           if (ip[4] & 0x1)
-            VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (fp[-1], sym));
+            VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (fp[0], sym));
 
           *var_loc = var;
         }
@@ -2004,7 +2011,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_dynstack_push_prompt (&current_thread->dynstack, flags,
                                 LOCAL_REF (tag),
                                 fp,
-                                &LOCAL_REF (proc_slot),
+                                LOCAL_ADDRESS (proc_slot),
                                 (scm_t_uint8 *)(ip + offset),
                                 &registers);
       NEXT (3);

@@ -50,8 +50,7 @@
             (frame-call-representation frame))))
 
 (define* (print-return frame depth width prefix max-indent values)
-  (let* ((len (frame-num-locals frame))
-         (prefix (build-prefix prefix depth "|  " "~d< "max-indent)))
+  (let ((prefix (build-prefix prefix depth "|  " "~d< "max-indent)))
     (case (length values)
       ((0)
        (format (current-error-port) "~ano values\n" prefix))

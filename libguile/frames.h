@@ -23,47 +23,62 @@
 #include "programs.h"
 
 
-/*
- * VM frames
- */
+/* Stack frames
+   ------------
 
-/*
- * It's a little confusing, but there are two representations of frames in this
- * file: frame pointers and Scheme objects wrapping those frame pointers. The
- * former uses the SCM_FRAME_... macro prefix, the latter SCM_VM_FRAME_..
- * prefix.
- *
- * The confusing thing is that only Scheme frame objects have functions that use
- * them, and they use the scm_frame_.. prefix. Hysterical raisins.
- */
+   It's a little confusing, but there are two representations of frames
+   in this file: frame pointers, and Scheme objects wrapping those frame
+   pointers.  The former uses the SCM_FRAME macro prefix, the latter
+   SCM_VM_FRAME prefix.
 
-/* VM Frame Layout
-   ---------------
+   The confusing thing is that only Scheme frame objects have functions
+   that use them, and they use the lower-case scm_frame prefix.
 
+
+   Stack frame layout
+   ------------------
+
+   /------------------\
+   | Local N-1        | <- sp
    | ...              |
-   | Intermed. val. 0 | <- fp + nargs + nlocs
-   +------------------+    
-   | Local variable 1 |
-   | Local variable 0 | <- fp + nargs
-   | Argument 1       |
-   | Argument 0       | <- fp = SCM_FRAME_STACK_ADDRESS (fp)
-   | Program          | <- fp - 1
+   | Local 1          |
+   | Local 0          | <- fp = SCM_FRAME_LOCALS_ADDRESS (fp)
    +==================+
-   | Return address   | <- SCM_FRAME_UPPER_ADDRESS (fp)
-   | Dynamic link     | <- fp - 3 = SCM_FRAME_DATA_ADDRESS (fp) = SCM_FRAME_LOWER_ADDRESS (fp)
+   | Return address   |
+   | Dynamic link     | <- fp - 2 = SCM_FRAME_LOWER_ADDRESS (fp)
    +==================+
-   |                  |
+   |                  | <- fp - 3 = SCM_FRAME_PREVIOUS_SP (fp)
 
-   As can be inferred from this drawing, it is assumed that
-   `sizeof (SCM *) == sizeof (SCM)', since pointers (the `link' parts) are
-   assumed to be as long as SCM objects.
+   The calling convention is that a caller prepares a stack frame
+   consisting of the saved FP and the return address, followed by the
+   procedure and then the arguments to the call, in order.  Thus in the
+   beginning of a call, the procedure being called is in slot 0, the
+   first argument is in slot 1, and the SP points to the last argument.
+   The number of arguments, including the procedure, is thus SP - FP +
+   1.
 
-   When a program returns multiple values, it will shuffle them down to
-   start contiguously from slot 1, as for a tail call.  This means that
-   when the caller goes to access them, there are 2 or 3 empty words
-   between the top of the caller stack and the bottom of the values,
-   corresponding to the frame that was just popped.
-*/
+   After ensuring that the correct number of arguments have been passed,
+   a function will set the stack pointer to point to the last local
+   slot.  This lets a function allocate the temporary space that it
+   needs once in the beginning of the call, instead of pushing and
+   popping the stack pointer during the call's extent.
+
+   When a program returns, it returns its values in the slots starting
+   from local 1, as if the values were arguments to a tail call.  We
+   start from 1 instead of 0 for the convenience of the "values" builtin
+   function, which can just leave its arguments in place.
+
+   The callee resets the stack pointer to point to the last value.  In
+   this way the caller knows how many values there are: it's the number
+   of words between the stack pointer and the slot at which the caller
+   placed the procedure.
+
+   After checking that the number of values returned is appropriate, the
+   caller shuffles the values around (if needed), and resets the stack
+   pointer back to its original value from before the call.  */
+
+
+
 
 /* This structure maps to the contents of a VM stack frame.  It can
    alias a frame directly.  */
@@ -71,20 +86,15 @@ struct scm_vm_frame
 {
   SCM *dynamic_link;
   scm_t_uint8 *return_address;
-  SCM program;
-  SCM stack[1]; /* Variable-length */
+  SCM locals[1]; /* Variable-length */
 };
 
+#define SCM_FRAME_LOWER_ADDRESS(fp)	(((SCM *) (fp)) - 2)
 #define SCM_FRAME_STRUCT(fp)				\
-  ((struct scm_vm_frame *) SCM_FRAME_DATA_ADDRESS (fp))
+  ((struct scm_vm_frame *) SCM_FRAME_LOWER_ADDRESS (fp))
+#define SCM_FRAME_LOCALS_ADDRESS(fp)	(SCM_FRAME_STRUCT (fp)->locals)
 
-#define SCM_FRAME_DATA_ADDRESS(fp)	(((SCM *) (fp)) - 3)
-#define SCM_FRAME_STACK_ADDRESS(fp)	(SCM_FRAME_STRUCT (fp)->stack)
-#define SCM_FRAME_UPPER_ADDRESS(fp)	((SCM*)&SCM_FRAME_STRUCT (fp)->return_address)
-#define SCM_FRAME_LOWER_ADDRESS(fp)	((SCM*)SCM_FRAME_STRUCT (fp))
-
-#define SCM_FRAME_BYTE_CAST(x)		((scm_t_uint8 *) SCM_UNPACK (x))
-#define SCM_FRAME_STACK_CAST(x)		((SCM *) SCM_UNPACK (x))
+#define SCM_FRAME_PREVIOUS_SP(fp)	(((SCM *) (fp)) - 3)
 
 #define SCM_FRAME_RETURN_ADDRESS(fp)            \
   (SCM_FRAME_STRUCT (fp)->return_address)
@@ -94,10 +104,32 @@ struct scm_vm_frame
   (SCM_FRAME_STRUCT (fp)->dynamic_link)
 #define SCM_FRAME_SET_DYNAMIC_LINK(fp, dl)      \
   SCM_FRAME_DYNAMIC_LINK (fp) = (dl)
-#define SCM_FRAME_VARIABLE(fp,i)                \
-  (SCM_FRAME_STRUCT (fp)->stack[i])
-#define SCM_FRAME_PROGRAM(fp)                   \
-  (SCM_FRAME_STRUCT (fp)->program)
+#define SCM_FRAME_LOCAL(fp,i)                   \
+  (SCM_FRAME_STRUCT (fp)->locals[i])
+
+#define SCM_FRAME_NUM_LOCALS(fp, sp)            \
+  ((sp) + 1 - &SCM_FRAME_LOCAL (fp, 0))
+
+/* Currently (November 2013) we keep the procedure and arguments in
+   their slots for the duration of the procedure call, regardless of
+   whether the values are live or not.  This allows for backtraces that
+   show the closure and arguments.  We may allow the compiler to relax
+   this restriction in the future, if the user so desires.  This would
+   conserve stack space and make GC more precise.  We would need better
+   debugging information to do that, however.
+
+   Even now there is an exception to the rule that slot 0 holds the
+   procedure, which is in the case of tail calls.  The compiler will
+   emit code that shuffles the new procedure and arguments into position
+   before performing the tail call, so there is a window in which
+   SCM_FRAME_PROGRAM does not correspond to the program being executed.
+
+   The moral of the story is to use the IP in a frame to determine what
+   procedure is being called.  It is only appropriate to use
+   SCM_FRAME_PROGRAM in the prologue of a procedure call, when you know
+   it must be there.  */
+
+#define SCM_FRAME_PROGRAM(fp) (SCM_FRAME_LOCAL (fp, 0))
 
 
 

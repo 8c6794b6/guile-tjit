@@ -105,7 +105,7 @@
                      (opt (or (assq-ref arguments 'optional) '()))
                      (key (or (assq-ref arguments 'keyword) '()))
                      (rest (or (assq-ref arguments 'rest) #f))
-                     (i 0))
+                     (i 1))
               (cond
                ((pair? req)
                 (cons (binding-ref (car req) i)
@@ -125,7 +125,8 @@
        ;; case 2
        (map (lambda (i)
               (frame-local-ref frame i))
-            (iota (frame-num-locals frame))))))))
+            ;; Cdr past the 0th local, which is the procedure.
+            (cdr (iota (frame-num-locals frame)))))))))
 
 
 

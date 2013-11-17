@@ -28,7 +28,7 @@
 
 /* Make sure assumptions on the layout of `struct scm_vm_frame' hold.  */
 verify (sizeof (SCM) == sizeof (SCM *));
-verify (sizeof (struct scm_vm_frame) == 4 * sizeof (SCM));
+verify (sizeof (struct scm_vm_frame) == 3 * sizeof (SCM));
 verify (offsetof (struct scm_vm_frame, dynamic_link) == 0);
 
 
@@ -115,14 +115,14 @@ SCM_DEFINE (scm_frame_num_locals, "frame-num-locals", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_frame_num_locals
 {
-  SCM *sp, *p;
+  SCM *fp, *sp;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
 
+  fp = SCM_VM_FRAME_FP (frame);
   sp = SCM_VM_FRAME_SP (frame);
-  p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));
 
-  return scm_from_ptrdiff_t (sp + 1 - p);
+  return scm_from_ptrdiff_t (SCM_FRAME_NUM_LOCALS (fp, sp));
 }
 #undef FUNC_NAME
 
@@ -131,17 +131,17 @@ SCM_DEFINE (scm_frame_local_ref, "frame-local-ref", 2, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_frame_local_ref
 {
-  SCM *sp, *p;
+  SCM *fp, *sp;
   unsigned int i;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
   SCM_VALIDATE_UINT_COPY (2, index, i);
 
+  fp = SCM_VM_FRAME_FP (frame);
   sp = SCM_VM_FRAME_SP (frame);
-  p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));
 
-  if (p + i <= sp)
-    return SCM_FRAME_VARIABLE (SCM_VM_FRAME_FP (frame), i);
+  if (i < SCM_FRAME_NUM_LOCALS (fp, sp))
+    return SCM_FRAME_LOCAL (fp, i);
 
   SCM_OUT_OF_RANGE (SCM_ARG2, index);
 }
@@ -153,18 +153,18 @@ SCM_DEFINE (scm_frame_local_set_x, "frame-local-set!", 3, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_frame_local_set_x
 {
-  SCM *sp, *p;
+  SCM *fp, *sp;
   unsigned int i;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
   SCM_VALIDATE_UINT_COPY (2, index, i);
 
+  fp = SCM_VM_FRAME_FP (frame);
   sp = SCM_VM_FRAME_SP (frame);
-  p = SCM_FRAME_STACK_ADDRESS (SCM_VM_FRAME_FP (frame));
 
-  if (p + i <= sp)
+  if (i < SCM_FRAME_NUM_LOCALS (fp, sp))
     {
-      SCM_FRAME_VARIABLE (SCM_VM_FRAME_FP (frame), i) = val;
+      SCM_FRAME_LOCAL (fp, i) = val;
       return SCM_UNSPECIFIED;
     }
 
@@ -245,7 +245,7 @@ SCM_DEFINE (scm_frame_previous, "frame-previous", 1, 0, 0,
   if (new_fp) 
     {
       new_fp = RELOC (frame, new_fp);
-      new_sp = SCM_FRAME_LOWER_ADDRESS (this_fp) - 1;
+      new_sp = SCM_FRAME_PREVIOUS_SP (this_fp);
       frame = scm_c_make_frame (SCM_VM_FRAME_STACK_HOLDER (frame),
                                 new_fp, new_sp,
                                 SCM_FRAME_RETURN_ADDRESS (this_fp),
