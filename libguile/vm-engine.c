@@ -19,6 +19,47 @@
 /* This file is included in vm.c multiple times.  */
 
 
+#define UNPACK_8_8_8(op,a,b,c)    \
+  do                                      \
+    {                                     \
+      a = (op >> 8) & 0xff;               \
+      b = (op >> 16) & 0xff;              \
+      c = op >> 24;                       \
+    }                                     \
+  while (0)
+
+#define UNPACK_8_16(op,a,b)       \
+  do                                      \
+    {                                     \
+      a = (op >> 8) & 0xff;               \
+      b = op >> 16;                       \
+    }                                     \
+  while (0)
+
+#define UNPACK_16_8(op,a,b)       \
+  do                                      \
+    {                                     \
+      a = (op >> 8) & 0xffff;             \
+      b = op >> 24;                       \
+    }                                     \
+  while (0)
+
+#define UNPACK_12_12(op,a,b)      \
+  do                                      \
+    {                                     \
+      a = (op >> 8) & 0xfff;              \
+      b = op >> 20;                       \
+    }                                     \
+  while (0)
+
+#define UNPACK_24(op,a)           \
+  do                                      \
+    {                                     \
+      a = op >> 8;                        \
+    }                                     \
+  while (0)
+
+
 #if (VM_ENGINE == SCM_VM_REGULAR_ENGINE)
 # define VM_USE_HOOKS		0	/* Various hooks */
 #elif (VM_ENGINE == SCM_VM_DEBUG_ENGINE)
@@ -258,7 +299,7 @@
 
 #define BR_NARGS(rel)                           \
   scm_t_uint32 expected;                        \
-  SCM_UNPACK_RTL_24 (op, expected);             \
+  UNPACK_24 (op, expected);                     \
   if (FRAME_LOCALS_COUNT() rel expected)        \
     {                                           \
       scm_t_int32 offset = ip[1];               \
@@ -270,7 +311,7 @@
 #define BR_UNARY(x, exp)                        \
   scm_t_uint32 test;                            \
   SCM x;                                        \
-  SCM_UNPACK_RTL_24 (op, test);                 \
+  UNPACK_24 (op, test);                         \
   x = LOCAL_REF (test);                         \
   if ((ip[1] & 0x1) ? !(exp) : (exp))           \
     {                                           \
@@ -285,7 +326,7 @@
 #define BR_BINARY(x, y, exp)                    \
   scm_t_uint16 a, b;                            \
   SCM x, y;                                     \
-  SCM_UNPACK_RTL_12_12 (op, a, b);              \
+  UNPACK_12_12 (op, a, b);                      \
   x = LOCAL_REF (a);                            \
   y = LOCAL_REF (b);                            \
   if ((ip[1] & 0x1) ? !(exp) : (exp))           \
@@ -302,7 +343,7 @@
   {                                                                     \
     scm_t_uint16 a, b;                                                  \
     SCM x, y;                                                           \
-    SCM_UNPACK_RTL_12_12 (op, a, b);                                    \
+    UNPACK_12_12 (op, a, b);                                            \
     x = LOCAL_REF (a);                                                  \
     y = LOCAL_REF (b);                                                  \
     if (SCM_I_INUMP (x) && SCM_I_INUMP (y))                             \
@@ -339,12 +380,12 @@
 #define ARGS1(a1)                               \
   scm_t_uint16 dst, src;                        \
   SCM a1;                                       \
-  SCM_UNPACK_RTL_12_12 (op, dst, src);          \
+  UNPACK_12_12 (op, dst, src);                  \
   a1 = LOCAL_REF (src)
 #define ARGS2(a1, a2)                           \
   scm_t_uint8 dst, src1, src2;                  \
   SCM a1, a2;                                   \
-  SCM_UNPACK_RTL_8_8_8 (op, dst, src1, src2);   \
+  UNPACK_8_8_8 (op, dst, src1, src2);           \
   a1 = LOCAL_REF (src1);                        \
   a2 = LOCAL_REF (src2)
 #define RETURN(x)                               \
@@ -570,8 +611,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32 proc, nlocals;
       SCM *old_fp = fp;
 
-      SCM_UNPACK_RTL_24 (op, proc);
-      SCM_UNPACK_RTL_24 (ip[1], nlocals);
+      UNPACK_24 (op, proc);
+      UNPACK_24 (ip[1], nlocals);
 
       VM_HANDLE_INTERRUPTS;
 
@@ -601,7 +642,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint32 nlocals;
       
-      SCM_UNPACK_RTL_24 (op, nlocals);
+      UNPACK_24 (op, nlocals);
 
       VM_HANDLE_INTERRUPTS;
 
@@ -627,7 +668,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint32 n, from, nlocals;
 
-      SCM_UNPACK_RTL_24 (op, from);
+      UNPACK_24 (op, from);
 
       VM_HANDLE_INTERRUPTS;
 
@@ -658,8 +699,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 dst, proc;
       scm_t_uint32 nlocals;
-      SCM_UNPACK_RTL_12_12 (op, dst, proc);
-      SCM_UNPACK_RTL_24 (ip[1], nlocals);
+      UNPACK_12_12 (op, dst, proc);
+      UNPACK_24 (ip[1], nlocals);
       VM_ASSERT (FRAME_LOCALS_COUNT () > proc + 1, vm_error_no_values ());
       LOCAL_SET (dst, LOCAL_REF (proc + 1));
       RESET_FRAME (nlocals);
@@ -677,8 +718,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (5, receive_values, "receive-values", OP2 (U8_U24, B1_X7_U24))
     {
       scm_t_uint32 proc, nvalues;
-      SCM_UNPACK_RTL_24 (op, proc);
-      SCM_UNPACK_RTL_24 (ip[1], nvalues);
+      UNPACK_24 (op, proc);
+      UNPACK_24 (ip[1], nvalues);
       if (ip[1] & 0x1)
         VM_ASSERT (FRAME_LOCALS_COUNT () > proc + nvalues,
                    vm_error_not_enough_values ());
@@ -695,7 +736,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (6, return, "return", OP1 (U8_U24))
     {
       scm_t_uint32 src;
-      SCM_UNPACK_RTL_24 (op, src);
+      UNPACK_24 (op, src);
       RETURN_ONE_VALUE (LOCAL_REF (src));
     }
 
@@ -744,7 +785,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM pointer, ret;
       SCM (*subr)();
 
-      SCM_UNPACK_RTL_24 (op, ptr_idx);
+      UNPACK_24 (op, ptr_idx);
 
       pointer = SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), ptr_idx);
       subr = SCM_POINTER_VALUE (pointer);
@@ -813,7 +854,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint16 cif_idx, ptr_idx;
       SCM closure, cif, pointer, ret;
 
-      SCM_UNPACK_RTL_12_12 (op, cif_idx, ptr_idx);
+      UNPACK_12_12 (op, cif_idx, ptr_idx);
 
       closure = LOCAL_REF (0);
       cif = SCM_PROGRAM_FREE_VARIABLE_REF (closure, cif_idx);
@@ -847,7 +888,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM contregs;
       scm_t_uint32 contregs_idx;
 
-      SCM_UNPACK_RTL_24 (op, contregs_idx);
+      UNPACK_24 (op, contregs_idx);
 
       contregs =
         SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), contregs_idx);
@@ -877,7 +918,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM vmcont;
       scm_t_uint32 cont_idx;
 
-      SCM_UNPACK_RTL_24 (op, cont_idx);
+      UNPACK_24 (op, cont_idx);
       vmcont = SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), cont_idx);
 
       SYNC_IP ();
@@ -1018,7 +1059,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 dst, idx;
 
-      SCM_UNPACK_RTL_12_12 (op, dst, idx);
+      UNPACK_12_12 (op, dst, idx);
       LOCAL_SET (dst, scm_vm_builtin_ref (idx));
 
       NEXT (1);
@@ -1062,7 +1103,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (19, assert_nargs_ee, "assert-nargs-ee", OP1 (U8_U24))
     {
       scm_t_uint32 expected;
-      SCM_UNPACK_RTL_24 (op, expected);
+      UNPACK_24 (op, expected);
       VM_ASSERT (FRAME_LOCALS_COUNT () == expected,
                  vm_error_wrong_num_args (SCM_FRAME_PROGRAM (fp)));
       NEXT (1);
@@ -1070,7 +1111,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (20, assert_nargs_ge, "assert-nargs-ge", OP1 (U8_U24))
     {
       scm_t_uint32 expected;
-      SCM_UNPACK_RTL_24 (op, expected);
+      UNPACK_24 (op, expected);
       VM_ASSERT (FRAME_LOCALS_COUNT () >= expected,
                  vm_error_wrong_num_args (SCM_FRAME_PROGRAM (fp)));
       NEXT (1);
@@ -1078,7 +1119,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (21, assert_nargs_le, "assert-nargs-le", OP1 (U8_U24))
     {
       scm_t_uint32 expected;
-      SCM_UNPACK_RTL_24 (op, expected);
+      UNPACK_24 (op, expected);
       VM_ASSERT (FRAME_LOCALS_COUNT () <= expected,
                  vm_error_wrong_num_args (SCM_FRAME_PROGRAM (fp)));
       NEXT (1);
@@ -1093,7 +1134,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (22, alloc_frame, "alloc-frame", OP1 (U8_U24))
     {
       scm_t_uint32 nlocals, nargs;
-      SCM_UNPACK_RTL_24 (op, nlocals);
+      UNPACK_24 (op, nlocals);
 
       nargs = FRAME_LOCALS_COUNT ();
       ALLOC_FRAME (nlocals);
@@ -1112,7 +1153,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (23, reset_frame, "reset-frame", OP1 (U8_U24))
     {
       scm_t_uint32 nlocals;
-      SCM_UNPACK_RTL_24 (op, nlocals);
+      UNPACK_24 (op, nlocals);
       RESET_FRAME (nlocals);
       NEXT (1);
     }
@@ -1125,7 +1166,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (24, assert_nargs_ee_locals, "assert-nargs-ee/locals", OP1 (U8_U12_U12))
     {
       scm_t_uint16 expected, nlocals;
-      SCM_UNPACK_RTL_12_12 (op, expected, nlocals);
+      UNPACK_12_12 (op, expected, nlocals);
       VM_ASSERT (FRAME_LOCALS_COUNT () == expected,
                  vm_error_wrong_num_args (SCM_FRAME_PROGRAM (fp)));
       ALLOC_FRAME (expected + nlocals);
@@ -1149,8 +1190,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint32 nreq, npos;
 
-      SCM_UNPACK_RTL_24 (op, nreq);
-      SCM_UNPACK_RTL_24 (ip[1], npos);
+      UNPACK_24 (op, nreq);
+      UNPACK_24 (ip[1], npos);
 
       /* We can only have too many positionals if there are more
          arguments than NPOS.  */
@@ -1190,11 +1231,11 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM kw;
       char allow_other_keys, has_rest;
 
-      SCM_UNPACK_RTL_24 (op, nreq);
+      UNPACK_24 (op, nreq);
       allow_other_keys = ip[1] & 0x1;
       has_rest = ip[1] & 0x2;
-      SCM_UNPACK_RTL_24 (ip[1], nreq_and_opt);
-      SCM_UNPACK_RTL_24 (ip[2], ntotal);
+      UNPACK_24 (ip[1], nreq_and_opt);
+      UNPACK_24 (ip[2], ntotal);
       kw_offset = ip[3];
       kw_bits = (scm_t_bits) (ip + kw_offset);
       VM_ASSERT (!(kw_bits & 0x7), abort());
@@ -1273,7 +1314,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32 dst, nargs;
       SCM rest = SCM_EOL;
 
-      SCM_UNPACK_RTL_24 (op, dst);
+      UNPACK_24 (op, dst);
       nargs = FRAME_LOCALS_COUNT ();
 
       if (nargs <= dst)
@@ -1471,7 +1512,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint16 dst;
       scm_t_uint16 src;
 
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
+      UNPACK_12_12 (op, dst, src);
       LOCAL_SET (dst, LOCAL_REF (src));
 
       NEXT (1);
@@ -1486,8 +1527,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32 dst;
       scm_t_uint32 src;
 
-      SCM_UNPACK_RTL_24 (op, dst);
-      SCM_UNPACK_RTL_24 (ip[1], src);
+      UNPACK_24 (op, dst);
+      UNPACK_24 (ip[1], src);
       LOCAL_SET (dst, LOCAL_REF (src));
 
       NEXT (2);
@@ -1500,7 +1541,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (44, box, "box", OP1 (U8_U12_U12) | OP_DST)
     {
       scm_t_uint16 dst, src;
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
+      UNPACK_12_12 (op, dst, src);
       LOCAL_SET (dst, scm_cell (scm_tc7_variable, SCM_UNPACK (LOCAL_REF (src))));
       NEXT (1);
     }
@@ -1514,7 +1555,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 dst, src;
       SCM var;
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
+      UNPACK_12_12 (op, dst, src);
       var = LOCAL_REF (src);
       VM_ASSERT (SCM_VARIABLEP (var),
                  vm_error_not_a_variable ("variable-ref", var));
@@ -1532,7 +1573,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 dst, src;
       SCM var;
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
+      UNPACK_12_12 (op, dst, src);
       var = LOCAL_REF (dst);
       VM_ASSERT (SCM_VARIABLEP (var),
                  vm_error_not_a_variable ("variable-set!", var));
@@ -1553,9 +1594,9 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_int32 offset;
       SCM closure;
 
-      SCM_UNPACK_RTL_24 (op, dst);
+      UNPACK_24 (op, dst);
       offset = ip[1];
-      SCM_UNPACK_RTL_24 (ip[2], nfree);
+      UNPACK_24 (ip[2], nfree);
 
       // FIXME: Assert range of nfree?
       closure = scm_words (scm_tc7_program | (nfree << 16), nfree + 2);
@@ -1575,8 +1616,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 dst, src;
       scm_t_uint32 idx;
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
-      SCM_UNPACK_RTL_24 (ip[1], idx);
+      UNPACK_12_12 (op, dst, src);
+      UNPACK_24 (ip[1], idx);
       /* CHECK_FREE_VARIABLE (src); */
       LOCAL_SET (dst, SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (src), idx));
       NEXT (2);
@@ -1590,8 +1631,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 dst, src;
       scm_t_uint32 idx;
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
-      SCM_UNPACK_RTL_24 (ip[1], idx);
+      UNPACK_12_12 (op, dst, src);
+      UNPACK_24 (ip[1], idx);
       /* CHECK_FREE_VARIABLE (src); */
       SCM_PROGRAM_FREE_VARIABLE_SET (LOCAL_REF (dst), idx, LOCAL_REF (src));
       NEXT (2);
@@ -1614,7 +1655,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint8 dst;
       scm_t_bits val;
 
-      SCM_UNPACK_RTL_8_16 (op, dst, val);
+      UNPACK_8_16 (op, dst, val);
       LOCAL_SET (dst, SCM_PACK (val));
       NEXT (1);
     }
@@ -1629,7 +1670,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32 dst;
       scm_t_bits val;
 
-      SCM_UNPACK_RTL_24 (op, dst);
+      UNPACK_24 (op, dst);
       val = ip[1];
       LOCAL_SET (dst, SCM_PACK (val));
       NEXT (2);
@@ -1644,7 +1685,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32 dst;
       scm_t_bits val;
 
-      SCM_UNPACK_RTL_24 (op, dst);
+      UNPACK_24 (op, dst);
 #if SIZEOF_SCM_T_BITS > 4
       val = ip[1];
       val <<= 32;
@@ -1677,7 +1718,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32* loc;
       scm_t_bits unpacked;
 
-      SCM_UNPACK_RTL_24 (op, dst);
+      UNPACK_24 (op, dst);
       offset = ip[1];
       loc = ip + offset;
       unpacked = (scm_t_bits) loc;
@@ -1706,7 +1747,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32* loc;
       scm_t_uintptr loc_bits;
 
-      SCM_UNPACK_RTL_24 (op, dst);
+      UNPACK_24 (op, dst);
       offset = ip[1];
       loc = ip + offset;
       loc_bits = (scm_t_uintptr) loc;
@@ -1728,7 +1769,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_int32 offset;
       scm_t_uint32* loc;
 
-      SCM_UNPACK_RTL_24 (op, src);
+      UNPACK_24 (op, src);
       offset = ip[1];
       loc = ip + offset;
       VM_ASSERT (ALIGNED_P (loc, SCM), abort());
@@ -1806,7 +1847,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint32 dst;
 
-      SCM_UNPACK_RTL_24 (op, dst);
+      UNPACK_24 (op, dst);
 
       SYNC_IP ();
       LOCAL_SET (dst, scm_current_module ());
@@ -1825,8 +1866,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32 sym;
       SCM var;
 
-      SCM_UNPACK_RTL_24 (op, dst);
-      SCM_UNPACK_RTL_24 (ip[1], sym);
+      UNPACK_24 (op, dst);
+      UNPACK_24 (ip[1], sym);
 
       SYNC_IP ();
       var = scm_lookup (LOCAL_REF (sym));
@@ -1846,7 +1887,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (59, define, "define!", OP1 (U8_U12_U12))
     {
       scm_t_uint16 sym, val;
-      SCM_UNPACK_RTL_12_12 (op, sym, val);
+      UNPACK_12_12 (op, sym, val);
       SYNC_IP ();
       scm_define (LOCAL_REF (sym), LOCAL_REF (val));
       NEXT (1);
@@ -1879,7 +1920,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM *var_loc;
       SCM var;
 
-      SCM_UNPACK_RTL_24 (op, dst);
+      UNPACK_24 (op, dst);
       var_offset = ip[1];
       var_loc_u32 = ip + var_offset;
       VM_ASSERT (ALIGNED_P (var_loc_u32, SCM), abort());
@@ -1931,7 +1972,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM *var_loc;
       SCM var;
 
-      SCM_UNPACK_RTL_24 (op, dst);
+      UNPACK_24 (op, dst);
       var_offset = ip[1];
       var_loc_u32 = ip + var_offset;
       VM_ASSERT (ALIGNED_P (var_loc_u32, SCM), abort());
@@ -2000,9 +2041,9 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint8 escape_only_p;
       scm_t_dynstack_prompt_flags flags;
 
-      SCM_UNPACK_RTL_24 (op, tag);
+      UNPACK_24 (op, tag);
       escape_only_p = ip[1] & 0x1;
-      SCM_UNPACK_RTL_24 (ip[1], proc_slot);
+      UNPACK_24 (ip[1], proc_slot);
       offset = ip[2];
       offset >>= 8; /* Sign extension */
   
@@ -2028,7 +2069,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (63, wind, "wind", OP1 (U8_U12_U12))
     {
       scm_t_uint16 winder, unwinder;
-      SCM_UNPACK_RTL_12_12 (op, winder, unwinder);
+      UNPACK_12_12 (op, winder, unwinder);
       scm_dynstack_push_dynwind (&current_thread->dynstack,
                                  LOCAL_REF (winder), LOCAL_REF (unwinder));
       NEXT (1);
@@ -2055,7 +2096,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint32 fluid, value;
 
-      SCM_UNPACK_RTL_12_12 (op, fluid, value);
+      UNPACK_12_12 (op, fluid, value);
 
       scm_dynstack_push_fluid (&current_thread->dynstack,
                                LOCAL_REF (fluid), LOCAL_REF (value),
@@ -2086,7 +2127,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       size_t num;
       SCM fluid, fluids;
 
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
+      UNPACK_12_12 (op, dst, src);
       fluid = LOCAL_REF (src);
       fluids = SCM_I_DYNAMIC_STATE_FLUIDS (current_thread->dynamic_state);
       if (SCM_UNLIKELY (!SCM_FLUID_P (fluid))
@@ -2119,7 +2160,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       size_t num;
       SCM fluid, fluids;
 
-      SCM_UNPACK_RTL_12_12 (op, a, b);
+      UNPACK_12_12 (op, a, b);
       fluid = LOCAL_REF (a);
       fluids = SCM_I_DYNAMIC_STATE_FLUIDS (current_thread->dynamic_state);
       if (SCM_UNLIKELY (!SCM_FLUID_P (fluid))
@@ -2189,7 +2230,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 dst, src;
 
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
+      UNPACK_12_12 (op, dst, src);
       SYNC_IP ();
       LOCAL_SET (dst,
                  scm_string_to_number (LOCAL_REF (src),
@@ -2205,7 +2246,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 dst, src;
 
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
+      UNPACK_12_12 (op, dst, src);
       SYNC_IP ();
       LOCAL_SET (dst, scm_string_to_symbol (LOCAL_REF (src)));
       NEXT (1);
@@ -2218,7 +2259,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (73, symbol_to_keyword, "symbol->keyword", OP1 (U8_U12_U12) | OP_DST)
     {
       scm_t_uint16 dst, src;
-      SCM_UNPACK_RTL_12_12 (op, dst, src);
+      UNPACK_12_12 (op, dst, src);
       SYNC_IP ();
       LOCAL_SET (dst, scm_symbol_to_keyword (LOCAL_REF (src)));
       NEXT (1);
@@ -2270,7 +2311,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 a, b;
       SCM x, y;
-      SCM_UNPACK_RTL_12_12 (op, a, b);
+      UNPACK_12_12 (op, a, b);
       x = LOCAL_REF (a);
       y = LOCAL_REF (b);
       VM_VALIDATE_PAIR (x, "set-car!");
@@ -2286,7 +2327,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 a, b;
       SCM x, y;
-      SCM_UNPACK_RTL_12_12 (op, a, b);
+      UNPACK_12_12 (op, a, b);
       x = LOCAL_REF (a);
       y = LOCAL_REF (b);
       VM_VALIDATE_PAIR (x, "set-car!");
@@ -2513,7 +2554,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_int32 length, n;
       SCM val, vector;
 
-      SCM_UNPACK_RTL_8_8_8 (op, dst, length, init);
+      UNPACK_8_8_8 (op, dst, length, init);
 
       val = LOCAL_REF (init);
       vector = scm_words (scm_tc7_vector | (length << 8), length + 1);
@@ -2570,7 +2611,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint8 dst, src, idx;
       SCM v;
       
-      SCM_UNPACK_RTL_8_8_8 (op, dst, src, idx);
+      UNPACK_8_8_8 (op, dst, src, idx);
       v = LOCAL_REF (src);
       if (SCM_LIKELY (SCM_I_IS_NONWEAK_VECTOR (v)
                       && idx < SCM_I_VECTOR_LENGTH (v)))
@@ -2590,7 +2631,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM vect, idx, val;
       scm_t_signed_bits i = 0;
 
-      SCM_UNPACK_RTL_8_8_8 (op, dst, idx_var, src);
+      UNPACK_8_8_8 (op, dst, idx_var, src);
       vect = LOCAL_REF (dst);
       idx = LOCAL_REF (idx_var);
       val = LOCAL_REF (src);
@@ -2618,7 +2659,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint8 dst, idx, src;
       SCM vect, val;
 
-      SCM_UNPACK_RTL_8_8_8 (op, dst, idx, src);
+      UNPACK_8_8_8 (op, dst, idx, src);
       vect = LOCAL_REF (dst);
       val = LOCAL_REF (src);
 
@@ -2662,7 +2703,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint8 dst, vtable, nfields;
       SCM ret;
 
-      SCM_UNPACK_RTL_8_8_8 (op, dst, vtable, nfields);
+      UNPACK_8_8_8 (op, dst, vtable, nfields);
 
       SYNC_IP ();
       ret = scm_allocate_struct (LOCAL_REF (vtable), SCM_I_MAKINUM (nfields));
@@ -2681,7 +2722,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint8 dst, src, idx;
       SCM obj;
 
-      SCM_UNPACK_RTL_8_8_8 (op, dst, src, idx);
+      UNPACK_8_8_8 (op, dst, src, idx);
 
       obj = LOCAL_REF (src);
 
@@ -2706,7 +2747,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint8 dst, idx, src;
       SCM obj, val;
 
-      SCM_UNPACK_RTL_8_8_8 (op, dst, idx, src);
+      UNPACK_8_8_8 (op, dst, idx, src);
 
       obj = LOCAL_REF (dst);
       val = LOCAL_REF (src);
@@ -2750,7 +2791,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (103, slot_ref, "slot-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       scm_t_uint8 dst, src, idx;
-      SCM_UNPACK_RTL_8_8_8 (op, dst, src, idx);
+      UNPACK_8_8_8 (op, dst, src, idx);
       LOCAL_SET (dst,
                  SCM_PACK (SCM_STRUCT_DATA (LOCAL_REF (src))[idx]));
       NEXT (1);
@@ -2764,7 +2805,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (104, slot_set, "slot-set!", OP1 (U8_U8_U8_U8))
     {
       scm_t_uint8 dst, idx, src;
-      SCM_UNPACK_RTL_8_8_8 (op, dst, idx, src);
+      UNPACK_8_8_8 (op, dst, idx, src);
       SCM_STRUCT_DATA (LOCAL_REF (dst))[idx] = SCM_UNPACK (LOCAL_REF (src));
       NEXT (1);
     }
@@ -2788,7 +2829,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_int32 offset;
       scm_t_uint32 len;
 
-      SCM_UNPACK_RTL_8_8_8 (op, dst, type, shape);
+      UNPACK_8_8_8 (op, dst, type, shape);
       offset = ip[1];
       len = ip[2];
       SYNC_IP ();
@@ -2805,8 +2846,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (106, make_array, "make-array", OP2 (U8_U12_U12, X8_U12_U12) | OP_DST)
     {
       scm_t_uint16 dst, type, fill, bounds;
-      SCM_UNPACK_RTL_12_12 (op, dst, type);
-      SCM_UNPACK_RTL_12_12 (ip[1], fill, bounds);
+      UNPACK_12_12 (op, dst, type);
+      UNPACK_12_12 (ip[1], fill, bounds);
       SYNC_IP ();
       LOCAL_SET (dst, scm_make_typed_array (LOCAL_REF (type), LOCAL_REF (fill),
                                             LOCAL_REF (bounds)));
@@ -2959,7 +3000,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     SCM bv, scm_idx, val;                                               \
     scm_t_ ## type *int_ptr;						\
 									\
-    SCM_UNPACK_RTL_8_8_8 (op, dst, idx, src);                           \
+    UNPACK_8_8_8 (op, dst, idx, src);                                   \
     bv = LOCAL_REF (dst);                                               \
     scm_idx = LOCAL_REF (idx);                                          \
     val = LOCAL_REF (src);                                              \
@@ -2990,7 +3031,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     SCM bv, scm_idx, val;                                               \
     scm_t_ ## type *int_ptr;						\
 									\
-    SCM_UNPACK_RTL_8_8_8 (op, dst, idx, src);                           \
+    UNPACK_8_8_8 (op, dst, idx, src);                                   \
     bv = LOCAL_REF (dst);                                               \
     scm_idx = LOCAL_REF (idx);                                          \
     val = LOCAL_REF (src);                                              \
@@ -3018,7 +3059,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     SCM bv, scm_idx, val;                                               \
     type *float_ptr;                                                    \
 									\
-    SCM_UNPACK_RTL_8_8_8 (op, dst, idx, src);                           \
+    UNPACK_8_8_8 (op, dst, idx, src);                                   \
     bv = LOCAL_REF (dst);                                               \
     scm_idx = LOCAL_REF (idx);                                          \
     val = LOCAL_REF (src);                                              \
@@ -3127,6 +3168,11 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 #undef SYNC_BEFORE_GC
 #undef SYNC_IP
 #undef SYNC_REGISTER
+#undef UNPACK_8_8_8
+#undef UNPACK_8_16
+#undef UNPACK_16_8
+#undef UNPACK_12_12
+#undef UNPACK_24
 #undef VARIABLE_BOUNDP
 #undef VARIABLE_REF
 #undef VARIABLE_SET

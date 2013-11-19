@@ -38,46 +38,6 @@ enum scm_opcode
 #define SCM_PACK_OP_12_12(op,a,b)   SCM_PACK_OP_24 (op, (a) | (b) << 12)
 #define SCM_PACK_OP_ARG_8_24(a,b)   ((a) | ((b) << 8))
 
-#define SCM_UNPACK_RTL_8_8_8(op,a,b,c)    \
-  do                                      \
-    {                                     \
-      a = (op >> 8) & 0xff;               \
-      b = (op >> 16) & 0xff;              \
-      c = op >> 24;                       \
-    }                                     \
-  while (0)
-
-#define SCM_UNPACK_RTL_8_16(op,a,b)       \
-  do                                      \
-    {                                     \
-      a = (op >> 8) & 0xff;               \
-      b = op >> 16;                       \
-    }                                     \
-  while (0)
-
-#define SCM_UNPACK_RTL_16_8(op,a,b)       \
-  do                                      \
-    {                                     \
-      a = (op >> 8) & 0xffff;             \
-      b = op >> 24;                       \
-    }                                     \
-  while (0)
-
-#define SCM_UNPACK_RTL_12_12(op,a,b)      \
-  do                                      \
-    {                                     \
-      a = (op >> 8) & 0xfff;              \
-      b = op >> 20;                       \
-    }                                     \
-  while (0)
-
-#define SCM_UNPACK_RTL_24(op,a)           \
-  do                                      \
-    {                                     \
-      a = op >> 8;                        \
-    }                                     \
-  while (0)
-
 #define SCM_VM_NUM_INSTRUCTIONS (1<<8)
 #define SCM_VM_INSTRUCTION_MASK (SCM_VM_NUM_INSTRUCTIONS-1)
 
