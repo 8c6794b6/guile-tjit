@@ -116,7 +116,7 @@ scm_i_program_print (SCM program, SCM port, scm_print_state *pstate)
     }
   else if (scm_is_false (write_program) || print_error)
     {
-      scm_puts_unlocked ("#<rtl-program ", port);
+      scm_puts_unlocked ("#<program ", port);
       scm_uintprint (SCM_UNPACK (program), 16, port);
       scm_putc_unlocked (' ', port);
       scm_uintprint ((scm_t_uintptr) SCM_PROGRAM_CODE (program), 16, port);
