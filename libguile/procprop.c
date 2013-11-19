@@ -147,7 +147,7 @@ SCM_DEFINE (scm_procedure_properties, "procedure-properties", 1, 0, 0,
     return scm_cdr (user_props);
 
   if (SCM_PROGRAM_P (proc))
-    ret = scm_i_rtl_program_properties (proc);
+    ret = scm_i_program_properties (proc);
   else
     ret = SCM_EOL;
 
@@ -259,7 +259,7 @@ SCM_DEFINE (scm_procedure_name, "procedure-name", 1, 0, 0,
     }
 
   if (SCM_PROGRAM_P (proc))
-    return scm_i_rtl_program_name (proc);
+    return scm_i_program_name (proc);
   else if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
     return scm_procedure_name (SCM_STRUCT_PROCEDURE (proc));
   else
@@ -296,7 +296,7 @@ SCM_DEFINE (scm_procedure_documentation, "procedure-documentation", 1, 0, 0,
     }
 
   if (SCM_PROGRAM_P (proc))
-    return scm_i_rtl_program_documentation (proc);
+    return scm_i_program_documentation (proc);
   else
     return SCM_BOOL_F;
 }

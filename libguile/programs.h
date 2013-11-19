@@ -35,7 +35,7 @@
 
 #ifdef BUILDING_LIBGUILE
 static inline SCM
-scm_i_make_rtl_program (const scm_t_uint32 *code)
+scm_i_make_program (const scm_t_uint32 *code)
 {
   return scm_cell (scm_tc7_program, (scm_t_bits)code);
 }
@@ -48,9 +48,9 @@ SCM_INTERNAL SCM scm_rtl_program_code (SCM program);
 SCM_INTERNAL SCM scm_primitive_p (SCM obj);
 SCM_INTERNAL SCM scm_primitive_call_ip (SCM prim);
 
-SCM_INTERNAL SCM scm_i_rtl_program_name (SCM program);
-SCM_INTERNAL SCM scm_i_rtl_program_documentation (SCM program);
-SCM_INTERNAL SCM scm_i_rtl_program_properties (SCM program);
+SCM_INTERNAL SCM scm_i_program_name (SCM program);
+SCM_INTERNAL SCM scm_i_program_documentation (SCM program);
+SCM_INTERNAL SCM scm_i_program_properties (SCM program);
 
 SCM_INTERNAL SCM scm_find_source_for_addr (SCM ip);
 

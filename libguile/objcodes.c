@@ -92,7 +92,7 @@ pointer_to_procedure (enum bytecode_kind bytecode_kind, char *ptr)
     {
     case BYTECODE_KIND_GUILE_2_2:
       {
-        return scm_i_make_rtl_program ((scm_t_uint32 *) ptr);
+        return scm_i_make_program ((scm_t_uint32 *) ptr);
       }
     case BYTECODE_KIND_NONE:
     default:

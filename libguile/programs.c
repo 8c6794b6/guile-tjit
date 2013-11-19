@@ -72,7 +72,7 @@ SCM_DEFINE (scm_rtl_program_code, "rtl-program-code", 1, 0, 0,
 #undef FUNC_NAME
 
 SCM
-scm_i_rtl_program_name (SCM program)
+scm_i_program_name (SCM program)
 {
   static SCM rtl_program_name = SCM_BOOL_F;
 
@@ -87,7 +87,7 @@ scm_i_rtl_program_name (SCM program)
 }
 
 SCM
-scm_i_rtl_program_documentation (SCM program)
+scm_i_program_documentation (SCM program)
 {
   static SCM rtl_program_documentation = SCM_BOOL_F;
 
@@ -103,13 +103,13 @@ scm_i_rtl_program_documentation (SCM program)
 }
 
 SCM
-scm_i_rtl_program_properties (SCM program)
+scm_i_program_properties (SCM program)
 {
   static SCM rtl_program_properties = SCM_BOOL_F;
 
   if (SCM_PRIMITIVE_P (program))
     {
-      SCM name = scm_i_rtl_program_name (program);
+      SCM name = scm_i_program_name (program);
       if (scm_is_false (name))
         return SCM_EOL;
       return scm_acons (scm_sym_name, name, SCM_EOL);

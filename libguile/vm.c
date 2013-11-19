@@ -1214,13 +1214,13 @@ scm_bootstrap_vm (void)
   sym_regular = scm_from_latin1_symbol ("regular");
   sym_debug = scm_from_latin1_symbol ("debug");
 
-  rtl_boot_continuation = scm_i_make_rtl_program (rtl_boot_continuation_code);
+  rtl_boot_continuation = scm_i_make_program (rtl_boot_continuation_code);
   SCM_SET_CELL_WORD_0 (rtl_boot_continuation,
                        (SCM_CELL_WORD_0 (rtl_boot_continuation)
                         | SCM_F_PROGRAM_IS_BOOT));
 
 #define DEFINE_BUILTIN(builtin, BUILTIN, req, opt, rest)                \
-  vm_builtin_##builtin = scm_i_make_rtl_program (vm_builtin_##builtin##_code);
+  vm_builtin_##builtin = scm_i_make_program (vm_builtin_##builtin##_code);
   FOR_EACH_VM_BUILTIN (DEFINE_BUILTIN);
 #undef DEFINE_BUILTIN
 
