@@ -67,7 +67,6 @@ SCM_INTERNAL SCM scm_i_program_properties (SCM program);
 
 SCM_INTERNAL SCM scm_find_source_for_addr (SCM ip);
 
-SCM_API SCM scm_program_source (SCM program, SCM ip, SCM sources);
 SCM_API SCM scm_program_num_free_variables (SCM program);
 SCM_API SCM scm_program_free_variable_ref (SCM program, SCM i);
 SCM_API SCM scm_program_free_variable_set_x (SCM program, SCM i, SCM x);

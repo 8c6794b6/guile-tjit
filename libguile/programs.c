@@ -181,25 +181,6 @@ scm_find_source_for_addr (SCM ip)
   return scm_call_1 (scm_variable_ref (source_for_addr), ip);
 }
 
-SCM
-scm_program_source (SCM program, SCM ip, SCM sources)
-{
-  static SCM program_source = SCM_BOOL_F;
-
-  if (scm_is_false (program_source)) {
-    if (!scm_module_system_booted_p)
-      return SCM_BOOL_F;
-
-    program_source =
-      scm_c_private_variable ("system vm program", "program-source");
-  }
-
-  if (SCM_UNBNDP (sources))
-    return scm_call_2 (scm_variable_ref (program_source), program, ip);
-  else
-    return scm_call_3 (scm_variable_ref (program_source), program, ip, sources);
-}
-    
 SCM_DEFINE (scm_program_num_free_variables, "program-num-free-variables", 1, 0, 0,
 	    (SCM program),
 	    "")
