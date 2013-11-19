@@ -470,9 +470,9 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
        continuation.  */
     base[0] = SCM_PACK (fp); /* dynamic link */
     base[1] = SCM_PACK (ip); /* ra */
-    base[2] = rtl_boot_continuation;
+    base[2] = vm_boot_continuation;
     fp = &base[2];
-    ip = (scm_t_uint32 *) rtl_boot_continuation_code;
+    ip = (scm_t_uint32 *) vm_boot_continuation_code;
 
     /* MV-call frame, function & arguments */
     base[3] = SCM_PACK (fp); /* dynamic link */

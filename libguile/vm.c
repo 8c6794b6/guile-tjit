@@ -592,14 +592,14 @@ vm_error_bad_wide_string_length (size_t len)
 
 
 
-static SCM rtl_boot_continuation;
+static SCM vm_boot_continuation;
 static SCM vm_builtin_apply;
 static SCM vm_builtin_values;
 static SCM vm_builtin_abort_to_prompt;
 static SCM vm_builtin_call_with_values;
 static SCM vm_builtin_call_with_current_continuation;
 
-static const scm_t_uint32 rtl_boot_continuation_code[] = {
+static const scm_t_uint32 vm_boot_continuation_code[] = {
   SCM_PACK_RTL_24 (scm_rtl_op_halt, 0)
 };
 
@@ -1214,9 +1214,9 @@ scm_bootstrap_vm (void)
   sym_regular = scm_from_latin1_symbol ("regular");
   sym_debug = scm_from_latin1_symbol ("debug");
 
-  rtl_boot_continuation = scm_i_make_program (rtl_boot_continuation_code);
-  SCM_SET_CELL_WORD_0 (rtl_boot_continuation,
-                       (SCM_CELL_WORD_0 (rtl_boot_continuation)
+  vm_boot_continuation = scm_i_make_program (vm_boot_continuation_code);
+  SCM_SET_CELL_WORD_0 (vm_boot_continuation,
+                       (SCM_CELL_WORD_0 (vm_boot_continuation)
                         | SCM_F_PROGRAM_IS_BOOT));
 
 #define DEFINE_BUILTIN(builtin, BUILTIN, req, opt, rest)                \
