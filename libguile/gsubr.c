@@ -253,9 +253,9 @@ create_subr (int define, const char *name,
   return ret;
 }
 
-/* Given an RTL primitive, determine its minimum arity.  This is
-   possible because each RTL primitive is 4 32-bit words long, and they
-   are laid out contiguously in an ordered pattern.  */
+/* Given a program that is a primitive, determine its minimum arity.
+   This is possible because each primitive's code is 4 32-bit words
+   long, and they are laid out contiguously in an ordered pattern.  */
 int
 scm_i_primitive_arity (SCM prim, int *req, int *opt, int *rest)
 {
