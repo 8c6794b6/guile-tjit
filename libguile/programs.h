@@ -42,7 +42,7 @@ scm_i_make_program (const scm_t_uint32 *code)
 #endif
 
 SCM_INTERNAL SCM scm_program_p (SCM obj);
-SCM_INTERNAL SCM scm_rtl_program_code (SCM program);
+SCM_INTERNAL SCM scm_program_code (SCM program);
 
 SCM_INTERNAL SCM scm_primitive_p (SCM obj);
 SCM_INTERNAL SCM scm_primitive_call_ip (SCM prim);

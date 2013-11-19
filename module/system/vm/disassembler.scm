@@ -350,7 +350,7 @@ address of that offset."
 
 (define* (disassemble-program program #:optional (port (current-output-port)))
   (cond
-   ((find-program-debug-info (rtl-program-code program))
+   ((find-program-debug-info (program-code program))
     => (lambda (pdi)
          (format port "Disassembly of ~S at #x~X:\n\n" program
                  (program-debug-info-addr pdi))
@@ -417,7 +417,7 @@ address of that offset."
 (define* (fold-program-code proc seed program-or-addr #:key raw?)
   (cond
    ((find-program-debug-info (if (program? program-or-addr)
-                                 (rtl-program-code program-or-addr)
+                                 (program-code program-or-addr)
                                  program-or-addr))
     => (lambda (pdi)
          (fold-code-range proc seed
@@ -452,5 +452,5 @@ address of that offset."
 
 (define (disassemble-file file)
   (let* ((thunk (load-thunk-from-file file))
-         (elf (find-mapped-elf-image (rtl-program-code thunk))))
+         (elf (find-mapped-elf-image (program-code thunk))))
     (disassemble-image elf)))

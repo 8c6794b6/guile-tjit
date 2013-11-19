@@ -459,7 +459,7 @@ Change languages."
 
 (define (load-image x)
   (let ((thunk (load-thunk-from-memory x)))
-    (find-mapped-elf-image (rtl-program-code thunk))))
+    (find-mapped-elf-image (program-code thunk))))
 
 (define-meta-command (compile repl (form))
   "compile EXP

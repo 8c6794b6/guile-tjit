@@ -258,7 +258,7 @@ executed."
                (lp (1+ idx) end))
               (else elt))))))
   (and (program? proc)
-       (match (binary-search (data-ip-counts data) car (rtl-program-code proc))
+       (match (binary-search (data-ip-counts data) car (program-code proc))
          (#f 0)
          ((ip . code) code))))
 

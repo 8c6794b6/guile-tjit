@@ -320,16 +320,16 @@ a procedure."
                      (end-arity)
                      (end-program)))))
     (pass-if "program name"
-      (and=> (find-program-debug-info (rtl-program-code return-3))
+      (and=> (find-program-debug-info (program-code return-3))
              (lambda (pdi)
                (equal? (program-debug-info-name pdi)
                        'return-3))))
 
     (pass-if "program address"
-      (and=> (find-program-debug-info (rtl-program-code return-3))
+      (and=> (find-program-debug-info (program-code return-3))
              (lambda (pdi)
                (equal? (program-debug-info-addr pdi)
-                       (rtl-program-code return-3)))))))
+                       (program-code return-3)))))))
 
 (with-test-prefix "procedure name"
   (pass-if-equal 'foo

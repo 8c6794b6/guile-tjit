@@ -30,10 +30,10 @@
 
 static SCM write_program = SCM_BOOL_F;
 
-SCM_DEFINE (scm_rtl_program_code, "rtl-program-code", 1, 0, 0,
+SCM_DEFINE (scm_program_code, "program-code", 1, 0, 0,
             (SCM program),
             "")
-#define FUNC_NAME s_scm_rtl_program_code
+#define FUNC_NAME s_scm_program_code
 {
   SCM_VALIDATE_PROGRAM (1, program);
 

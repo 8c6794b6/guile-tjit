@@ -110,13 +110,13 @@
 
 ;; Returns an absolute IP.
 (define (program-last-ip prog)
-  (let ((pdi (find-program-debug-info (rtl-program-code prog))))
+  (let ((pdi (find-program-debug-info (program-code prog))))
     (and pdi (program-debug-info-size pdi))))
 
 (define (frame-matcher proc match-code?)
   (if match-code?
       (if (program? proc)
-          (let ((start (rtl-program-code proc))
+          (let ((start (program-code proc))
                 (end (program-last-ip proc)))
             (lambda (frame)
               (let ((ip (frame-instruction-pointer frame)))
@@ -318,7 +318,7 @@
 (define (program-sources-by-line proc file)
   (cond
    ((program? proc)
-    (let ((code (rtl-program-code proc)))
+    (let ((code (program-code proc)))
       (let lp ((sources (program-sources proc))
                (out '()))
         (if (pair? sources)

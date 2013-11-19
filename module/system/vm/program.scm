@@ -41,7 +41,7 @@
             program-arguments-alist program-arguments-alists
             program-lambda-list
 
-            program? rtl-program-code
+            program? program-code
             program-free-variables
             program-num-free-variables
             program-free-variable-ref program-free-variable-set!))
@@ -53,20 +53,20 @@
 (define (rtl-program-name program)
   (unless (program? program)
     (error "shouldn't get here"))
-  (and=> (find-program-debug-info (rtl-program-code program))
+  (and=> (find-program-debug-info (program-code program))
          program-debug-info-name))
 (define (rtl-program-documentation program)
   (unless (program? program)
     (error "shouldn't get here"))
-  (find-program-docstring (rtl-program-code program)))
+  (find-program-docstring (program-code program)))
 (define (rtl-program-minimum-arity program)
   (unless (program? program)
     (error "shouldn't get here"))
-  (program-minimum-arity (rtl-program-code program)))
+  (program-minimum-arity (program-code program)))
 (define (rtl-program-properties program)
   (unless (program? program)
     (error "shouldn't get here"))
-  (find-program-properties (rtl-program-code program)))
+  (find-program-properties (program-code program)))
 
 (define (make-binding name boxed? index start end)
   (list name boxed? index start end))
@@ -102,11 +102,11 @@
 
 (define (program-sources proc)
   (map (lambda (source)
-         (cons* (- (source-post-pc source) (rtl-program-code proc))
+         (cons* (- (source-post-pc source) (program-code proc))
                 (source-file source)
                 (source-line source)
                 (source-column source)))
-       (find-program-sources (rtl-program-code proc))))
+       (find-program-sources (program-code proc))))
 
 (define* (program-source proc ip #:optional (sources (program-sources proc)))
   (let lp ((source #f) (sources sources))
@@ -129,11 +129,11 @@
 ;;
 (define (program-sources-pre-retire proc)
   (map (lambda (source)
-         (cons* (- (source-pre-pc source) (rtl-program-code proc))
+         (cons* (- (source-pre-pc source) (program-code proc))
                 (source-file source)
                 (source-line source)
                 (source-column source)))
-       (find-program-sources (rtl-program-code proc))))
+       (find-program-sources (program-code proc))))
 
 (define (collapse-locals locs)
   (let lp ((ret '()) (locs locs))
@@ -263,7 +263,7 @@
                        (and (<= (arity-low-pc arity) ip)
                             (< ip (arity-high-pc arity))))
                    (arity-arguments-alist arity)))
-            (or (find-program-arities (rtl-program-code prog)) '())))
+            (or (find-program-arities (program-code prog)) '())))
    (else
     (let ((arity (program-arity prog ip)))
       (and arity
@@ -306,7 +306,7 @@ lists."
   (cond
    ((primitive? prog) (fallback))
    ((program? prog)
-    (let ((arities (find-program-arities (rtl-program-code prog))))
+    (let ((arities (find-program-arities (program-code prog))))
       (if arities
           (map arity-arguments-alist arities)
           (fallback))))

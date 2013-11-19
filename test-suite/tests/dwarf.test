@@ -49,19 +49,19 @@
 
   (pass-if-equal 13 (bar 10))
 
-  (let ((source (find-source-for-addr (rtl-program-code qux))))
+  (let ((source (find-source-for-addr (program-code qux))))
     (pass-if-equal "foo.scm" (source-file source))
     (pass-if-equal 0 (source-line source))
     (pass-if-equal 1 (source-line-for-user source))
     (pass-if-equal 0 (source-column source)))
 
-  (let ((source (find-source-for-addr (rtl-program-code bar))))
+  (let ((source (find-source-for-addr (program-code bar))))
     (pass-if-equal "foo.scm" (source-file source))
     (pass-if-equal 4 (source-line source))
     (pass-if-equal 5 (source-line-for-user source))
     (pass-if-equal 2 (source-column source)))
 
-  (match (find-program-sources (rtl-program-code qux))
+  (match (find-program-sources (program-code qux))
     ((s1 s2 s3)
      (pass-if-equal "foo.scm" (source-file s1))
      (pass-if-equal 0 (source-line s1))
@@ -80,7 +80,7 @@
     (sources
      (error "unexpected sources" sources)))
 
-  (match (find-program-sources (rtl-program-code bar))
+  (match (find-program-sources (program-code bar))
     ((source)
      (pass-if-equal "foo.scm" (source-file source))
      (pass-if-equal 4 (source-line source))
