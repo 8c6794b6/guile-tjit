@@ -18,10 +18,10 @@
 
 ;;; Code:
 
-(define-module (system vm objcode)
+(define-module (system vm loader)
   #:export (load-thunk-from-file
             load-thunk-from-memory
             find-mapped-elf-image all-mapped-elf-images))
 
 (load-extension (string-append "libguile-" (effective-version))
-                "scm_init_objcodes")
+                "scm_init_loader")

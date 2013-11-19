@@ -169,13 +169,13 @@ libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES =				\
 	keywords.c				\
 	list.c					\
 	load.c					\
+	loader.c				\
 	macros.c				\
 	mallocs.c				\
 	memoize.c				\
 	modules.c				\
 	null-threads.c				\
 	numbers.c				\
-	objcodes.c				\
 	objprop.c				\
 	options.c				\
 	pairs.c					\
@@ -255,6 +255,7 @@ DOT_X_FILES =					\
 	fluids.x				\
 	foreign.x				\
 	fports.x				\
+	frames.x				\
 	gc-malloc.x				\
 	gc.x					\
 	gettext.x				\
@@ -268,10 +269,12 @@ DOT_X_FILES =					\
 	hooks.x					\
 	i18n.x					\
 	init.x					\
+	instructions.x				\
 	ioext.x					\
 	keywords.x				\
 	list.x					\
 	load.x					\
+	loader.x				\
 	macros.x				\
 	mallocs.x				\
 	memoize.x				\
@@ -284,6 +287,7 @@ DOT_X_FILES =					\
 	print.x					\
 	procprop.x				\
 	procs.x					\
+	programs.x				\
 	promises.x				\
 	r6rs-ports.x				\
 	random.x				\
@@ -318,13 +322,11 @@ DOT_X_FILES =					\
 	variable.x				\
 	vectors.x				\
 	version.x				\
+	vm.x					\
 	vports.x				\
 	weak-set.x				\
 	weak-table.x				\
 	weak-vector.x
-
-# vm-related snarfs
-DOT_X_FILES += frames.x instructions.x objcodes.x programs.x vm.x
 
 EXTRA_DOT_X_FILES = @EXTRA_DOT_X_FILES@
 
@@ -577,6 +579,7 @@ modinclude_HEADERS =				\
 	keywords.h				\
 	list.h					\
 	load.h					\
+	loader.h				\
 	macros.h				\
 	mallocs.h				\
 	memoize.h				\
@@ -584,7 +587,6 @@ modinclude_HEADERS =				\
 	net_db.h				\
 	null-threads.h				\
 	numbers.h				\
-	objcodes.h				\
 	objprop.h				\
 	options.h				\
 	pairs.h					\

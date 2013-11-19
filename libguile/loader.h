@@ -16,18 +16,18 @@
  * 02110-1301 USA
  */
 
-#ifndef _SCM_OBJCODES_H_
-#define _SCM_OBJCODES_H_
+#ifndef _SCM_LOADER_H_
+#define _SCM_LOADER_H_
 
 #include <libguile.h>
 
 SCM_API SCM scm_load_thunk_from_file (SCM filename);
 SCM_API SCM scm_load_thunk_from_memory (SCM bv);
 
-SCM_INTERNAL void scm_bootstrap_objcodes (void);
-SCM_INTERNAL void scm_init_objcodes (void);
+SCM_INTERNAL void scm_bootstrap_loader (void);
+SCM_INTERNAL void scm_init_loader (void);
 
-#endif /* _SCM_OBJCODES_H_ */
+#endif /* _SCM_LOADER_H_ */
 
 /*
   Local Variables:

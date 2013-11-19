@@ -28,7 +28,6 @@
 #include "libguile/gsubr.h"
 #include "libguile/foreign.h"
 #include "libguile/instructions.h"
-#include "libguile/objcodes.h"
 #include "libguile/srfi-4.h"
 #include "libguile/programs.h"
 
@@ -43,9 +42,7 @@
 
 
 /* OK here goes nothing: we're going to define VM assembly trampolines for
-   invoking subrs, along with their meta-information, and then wrap them into
-   statically allocated objcode values. Ready? Right!
-*/
+   invoking subrs.  Ready?  Right!  */
 
 /* There's a maximum of 10 args, so the number of possible combinations is:
    (REQ-OPT-REST)

@@ -26,7 +26,7 @@
   #:use-module (system repl common)
   #:use-module (system repl debug)
   #:use-module (system vm disassembler)
-  #:use-module (system vm objcode)
+  #:use-module (system vm loader)
   #:use-module (system vm program)
   #:use-module (system vm trap-state)
   #:use-module (system vm vm)

@@ -33,7 +33,7 @@
 #include "control.h"
 #include "frames.h"
 #include "instructions.h"
-#include "objcodes.h"
+#include "loader.h"
 #include "programs.h"
 #include "vm.h"
 #include "vm-builtins.h"

@@ -19,7 +19,7 @@
 (define-module (test-suite rtl-compilation)
   #:use-module (test-suite lib)
   #:use-module (system base compile)
-  #:use-module (system vm objcode))
+  #:use-module (system vm loader))
 
 (define* (compile-via-rtl exp #:key peval? cse? (env (make-fresh-user-module)))
   (load-thunk-from-memory

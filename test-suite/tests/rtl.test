@@ -20,7 +20,7 @@
   #:use-module (test-suite lib)
   #:use-module (system vm assembler)
   #:use-module (system vm program)
-  #:use-module (system vm objcode)
+  #:use-module (system vm loader)
   #:use-module (system vm linker)
   #:use-module (system vm debug))
 

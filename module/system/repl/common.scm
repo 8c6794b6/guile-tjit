@@ -25,7 +25,7 @@
   #:use-module (system base language)
   #:use-module (system base message)
   #:use-module (system vm program)
-  #:use-module (system vm objcode)
+  #:use-module (system vm loader)
   #:autoload (language tree-il optimize) (optimize)
   #:use-module (ice-9 control)
   #:use-module (ice-9 history)

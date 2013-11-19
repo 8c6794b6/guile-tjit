@@ -35,8 +35,6 @@
 ;;;
 
 (define %native-word-size
-  ;; The native word size.  Note: don't use `word-size' from
-  ;; (system vm objcode) to avoid a circular dependency.
   ((@ (system foreign) sizeof) '*))
 
 (define %target-type (make-fluid %host-type))

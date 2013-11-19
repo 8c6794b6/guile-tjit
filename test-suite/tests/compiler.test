@@ -19,7 +19,7 @@
   #:use-module (test-suite lib)
   #:use-module (test-suite guile-test)
   #:use-module (system base compile)
-  #:use-module ((system vm objcode) #:select (load-thunk-from-memory))
+  #:use-module ((system vm loader) #:select (load-thunk-from-memory))
   #:use-module ((system vm program) #:select (program-sources source:addr)))
 
 (define read-and-compile

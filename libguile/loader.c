@@ -40,7 +40,7 @@
 #include "_scm.h"
 #include "elf.h"
 #include "programs.h"
-#include "objcodes.h"
+#include "loader.h"
 
 /* This file contains the loader for Guile's on-disk format: ELF with
    some custom tags in the dynamic segment.  */
@@ -688,18 +688,18 @@ scm_all_mapped_elf_images (void)
 
 
 void
-scm_bootstrap_objcodes (void)
+scm_bootstrap_loader (void)
 {
   scm_c_register_extension ("libguile-" SCM_EFFECTIVE_VERSION,
-                            "scm_init_objcodes",
-                            (scm_t_extension_init_func)scm_init_objcodes, NULL);
+                            "scm_init_loader",
+                            (scm_t_extension_init_func)scm_init_loader, NULL);
 }
 
 void
-scm_init_objcodes (void)
+scm_init_loader (void)
 {
 #ifndef SCM_MAGIC_SNARFER
-#include "libguile/objcodes.x"
+#include "libguile/loader.x"
 #endif
 
   scm_c_define_gsubr ("find-mapped-elf-image", 1, 0, 0,

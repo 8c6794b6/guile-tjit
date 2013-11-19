@@ -20,7 +20,7 @@
 
 (define-module (language rtl spec)
   #:use-module (system base language)
-  #:use-module (system vm objcode)
+  #:use-module (system vm loader)
   #:use-module (ice-9 binary-ports)
   #:export (rtl))
 

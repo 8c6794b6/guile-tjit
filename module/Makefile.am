@@ -355,7 +355,7 @@ SYSTEM_SOURCES =				\
   system/vm/elf.scm				\
   system/vm/linker.scm				\
   system/vm/frame.scm				\
-  system/vm/objcode.scm				\
+  system/vm/loader.scm				\
   system/vm/program.scm				\
   system/vm/trace.scm				\
   system/vm/traps.scm				\

@@ -85,7 +85,7 @@
 #include "libguile/modules.h"
 #include "libguile/net_db.h"
 #include "libguile/numbers.h"
-#include "libguile/objcodes.h"
+#include "libguile/loader.h"
 #include "libguile/objprop.h"
 #include "libguile/options.h"
 #include "libguile/pairs.h"
@@ -391,7 +391,7 @@ scm_i_init_guile (void *base)
   scm_init_array_handle ();
   scm_bootstrap_bytevectors ();   /* Requires array-handle */
   scm_bootstrap_instructions ();
-  scm_bootstrap_objcodes ();
+  scm_bootstrap_loader ();
   scm_bootstrap_programs ();
   scm_bootstrap_vm ();
   scm_register_r6rs_ports ();
