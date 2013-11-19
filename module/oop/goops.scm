@@ -1,6 +1,6 @@
 ;;; installed-scm-file
 
-;;;; Copyright (C) 1998,1999,2000,2001,2002, 2003, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
+;;;; Copyright (C) 1998,1999,2000,2001,2002, 2003, 2006, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
 ;;;; Copyright (C) 1993-1998 Erick Gallesio - I3S-CNRS/ESSI <eg@unice.fr>
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -57,7 +57,7 @@
             ;; Types with their own allocated typecodes.
             <boolean> <char> <list> <pair> <null> <string> <symbol>
             <vector> <bytevector> <uvec> <foreign> <hashtable>
-            <fluid> <dynamic-state> <frame> <objcode> <vm> <vm-continuation>
+            <fluid> <dynamic-state> <frame> <vm> <vm-continuation>
 
             ;; Numbers.
             <number> <complex> <real> <integer> <fraction>
