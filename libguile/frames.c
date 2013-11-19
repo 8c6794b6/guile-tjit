@@ -37,7 +37,7 @@ verify (offsetof (struct scm_vm_frame, dynamic_link) == 0);
 
 SCM
 scm_c_make_frame (SCM stack_holder, SCM *fp, SCM *sp,
-                  scm_t_uint8 *ip, scm_t_ptrdiff offset)
+                  scm_t_uint32 *ip, scm_t_ptrdiff offset)
 {
   struct scm_frame *p = scm_gc_malloc (sizeof (struct scm_frame),
                                        "vmframe");

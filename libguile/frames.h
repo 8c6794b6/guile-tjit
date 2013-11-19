@@ -85,7 +85,7 @@
 struct scm_vm_frame
 {
   SCM *dynamic_link;
-  scm_t_uint8 *return_address;
+  scm_t_uint32 *return_address;
   SCM locals[1]; /* Variable-length */
 };
 
@@ -132,14 +132,6 @@ struct scm_vm_frame
 #define SCM_FRAME_PROGRAM(fp) (SCM_FRAME_LOCAL (fp, 0))
 
 
-
-/* FIXME: Replace SCM_FRAME_RETURN_ADDRESS with these.  */
-#define SCM_FRAME_RTL_RETURN_ADDRESS(fp)                \
-  ((scm_t_uint32 *) SCM_FRAME_RETURN_ADDRESS (fp))
-#define SCM_FRAME_SET_RTL_RETURN_ADDRESS(fp, ip)        \
-  SCM_FRAME_SET_RETURN_ADDRESS (fp, (scm_t_uint8 *) (ip))
-
-
 /*
  * Heap frames
  */
@@ -149,7 +141,7 @@ struct scm_frame
   SCM stack_holder;
   SCM *fp;
   SCM *sp;
-  scm_t_uint8 *ip;
+  scm_t_uint32 *ip;
   scm_t_ptrdiff offset;
 };
 
@@ -163,7 +155,7 @@ struct scm_frame
 #define SCM_VALIDATE_VM_FRAME(p,x)	SCM_MAKE_VALIDATE (p, x, VM_FRAME_P)
 
 SCM_API SCM scm_c_make_frame (SCM stack_holder, SCM *fp, SCM *sp,
-                              scm_t_uint8 *ip, scm_t_ptrdiff offset);
+                              scm_t_uint32 *ip, scm_t_ptrdiff offset);
 SCM_API SCM scm_frame_p (SCM obj);
 SCM_API SCM scm_frame_procedure (SCM frame);
 SCM_API SCM scm_frame_arguments (SCM frame);

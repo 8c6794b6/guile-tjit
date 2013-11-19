@@ -38,7 +38,7 @@
 #define PROMPT_KEY(top) (SCM_PACK ((top)[0]))
 #define PROMPT_FP(top) ((SCM *) ((top)[1]))
 #define PROMPT_SP(top) ((SCM *) ((top)[2]))
-#define PROMPT_IP(top) ((scm_t_uint8 *) ((top)[3]))
+#define PROMPT_IP(top) ((scm_t_uint32 *) ((top)[3]))
 #define PROMPT_JMPBUF(top) ((scm_i_jmp_buf *) ((top)[4]))
 
 #define WINDER_WORDS 2
@@ -186,7 +186,7 @@ void
 scm_dynstack_push_prompt (scm_t_dynstack *dynstack,
                           scm_t_dynstack_prompt_flags flags,
                           SCM key,
-                          SCM *fp, SCM *sp, scm_t_uint8 *ip,
+                          SCM *fp, SCM *sp, scm_t_uint32 *ip,
                           scm_i_jmp_buf *registers)
 {
   scm_t_bits *words;
@@ -442,7 +442,7 @@ scm_dynstack_unwind_fork (scm_t_dynstack *dynstack, scm_t_dynstack *branch)
 scm_t_bits*
 scm_dynstack_find_prompt (scm_t_dynstack *dynstack, SCM key,
                           scm_t_dynstack_prompt_flags *flags,
-                          SCM **fp, SCM **sp, scm_t_uint8 **ip,
+                          SCM **fp, SCM **sp, scm_t_uint32 **ip,
                           scm_i_jmp_buf **registers)
 {
   scm_t_bits *walk;

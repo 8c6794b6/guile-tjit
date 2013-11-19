@@ -79,7 +79,9 @@ make_partial_continuation (SCM vm_cont)
 
 static SCM
 reify_partial_continuation (SCM vm,
-                            SCM *saved_fp, SCM *saved_sp, scm_t_uint8 *saved_ip,
+                            SCM *saved_fp,
+                            SCM *saved_sp,
+                            scm_t_uint32 *saved_ip,
                             scm_i_jmp_buf *saved_registers,
                             scm_t_dynstack *dynstack,
                             scm_i_jmp_buf *current_registers)
@@ -128,7 +130,7 @@ scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv,
   scm_t_bits *prompt;
   scm_t_dynstack_prompt_flags flags;
   SCM *fp, *sp;
-  scm_t_uint8 *ip;
+  scm_t_uint32 *ip;
   scm_i_jmp_buf *registers;
   size_t i;
 

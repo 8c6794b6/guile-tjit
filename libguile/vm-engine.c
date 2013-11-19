@@ -130,7 +130,7 @@
    exception.  */
 
 #define SYNC_IP() \
-  vp->ip = (scm_t_uint8 *) (ip)
+  vp->ip = (ip)
 
 #define SYNC_REGISTER() \
   SYNC_IP()
@@ -230,7 +230,7 @@
     SCM val = ret;                                      \
     SCM *old_fp = fp;                                   \
     VM_HANDLE_INTERRUPTS;                               \
-    ip = SCM_FRAME_RTL_RETURN_ADDRESS (fp);             \
+    ip = SCM_FRAME_RETURN_ADDRESS (fp);                 \
     fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);          \
     /* Clear frame. */                                  \
     old_fp[-1] = SCM_BOOL_F;                            \
@@ -577,7 +577,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       fp = vp->fp = old_fp + proc;
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
-      SCM_FRAME_SET_RTL_RETURN_ADDRESS (fp, ip + 2);
+      SCM_FRAME_SET_RETURN_ADDRESS (fp, ip + 2);
 
       RESET_FRAME (nlocals);
 
@@ -712,7 +712,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM *old_fp = fp;
 
       VM_HANDLE_INTERRUPTS;
-      ip = SCM_FRAME_RTL_RETURN_ADDRESS (fp);
+      ip = SCM_FRAME_RETURN_ADDRESS (fp);
       fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);
 
       /* Clear stack frame.  */
@@ -2012,7 +2012,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
                                 LOCAL_REF (tag),
                                 fp,
                                 LOCAL_ADDRESS (proc_slot),
-                                (scm_t_uint8 *)(ip + offset),
+                                ip + offset,
                                 &registers);
       NEXT (3);
     }

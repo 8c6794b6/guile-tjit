@@ -103,7 +103,7 @@ scm_i_vm_cont_print (SCM x, SCM port, scm_print_state *pstate)
    call to vm_run; but that's currently not implemented.
  */
 SCM
-scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp, scm_t_uint8 *ra,
+scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp, scm_t_uint32 *ra,
                         scm_t_dynstack *dynstack, scm_t_uint32 flags)
 {
   struct scm_vm_cont *p;
