@@ -60,7 +60,6 @@
   #:use-module (system vm debug)
   #:use-module (system vm frame)
   #:use-module (system vm program)
-  #:use-module (system vm instruction)
   #:use-module (system xref)
   #:use-module (rnrs bytevectors)
   #:export (trap-at-procedure-call

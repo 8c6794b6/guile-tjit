@@ -48,7 +48,7 @@
       ((visit-opcodes macro arg ...)
        (with-syntax (((inst ...)
                       (map (lambda (x) (datum->syntax #'macro x))
-                           (rtl-instruction-list))))
+                           (instruction-list))))
          #'(begin
              (macro arg ... . inst)
              ...))))))

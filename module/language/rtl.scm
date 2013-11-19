@@ -21,12 +21,13 @@
 (define-module (language rtl)
   #:use-module (ice-9 match)
   #:use-module ((srfi srfi-1) #:select (fold))
-  #:use-module (system vm instruction)
-  #:re-export (rtl-instruction-list)
-  #:export (rtl-instruction-arity
+  #:export (instruction-list
+            rtl-instruction-arity
             builtin-name->index
             builtin-index->name))
 
+(load-extension (string-append "libguile-" (effective-version))
+                "scm_init_instructions")
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_builtins")
 
@@ -84,7 +85,7 @@
       ((name op '<- . args)
        (hashq-set! table name
                    (cons 1 (1- (compute-rtl-instruction-arity name args))))))
-     (rtl-instruction-list))
+     (instruction-list))
     (for-each (match-lambda
                ((name . arity)
                 (hashq-set! table name arity)))

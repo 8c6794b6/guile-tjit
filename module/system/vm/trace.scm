@@ -25,7 +25,6 @@
   #:use-module (system vm program)
   #:use-module (system vm traps)
   #:use-module (rnrs bytevectors)
-  #:use-module (system vm instruction)
   #:use-module (ice-9 format)
   #:export (trace-calls-in-procedure
             trace-calls-to-procedure

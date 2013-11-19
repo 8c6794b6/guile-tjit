@@ -76,14 +76,14 @@ static SCM word_type_symbols[] =
 #define OP(n,type) ((type) << (n*TYPE_WIDTH))
 
 /* The VM_DEFINE_OP macro uses a CPP-based DSL to describe what kinds of
-   arguments each RTL instruction takes.  This piece of code is the only
+   arguments each instruction takes.  This piece of code is the only
    bit that actually interprets that language.  These macro definitions
    encode the operand types into bits in a 32-bit integer.
 
-   (rtl-instruction-list) parses those encoded values into lists of
-   symbols, one for each 32-bit word that the operator takes.  (system
-   vm rtl) uses those word types to generate assemblers and
-   disassemblers for the instructions.  */
+   (instruction-list) parses those encoded values into lists of symbols,
+   one for each 32-bit word that the operator takes.  This list is used
+   by Scheme to generate assemblers and disassemblers for the
+   instructions.  */
 
 #define OP1(type0) \
   (OP (0, type0))
@@ -101,7 +101,7 @@ static SCM word_type_symbols[] =
 #define WORD_TYPE(n, word) \
   (((word) >> ((n) * TYPE_WIDTH)) & ((1 << TYPE_WIDTH) - 1))
 
-struct scm_rtl_instruction {
+struct scm_instruction {
   enum scm_rtl_opcode opcode;	/* opcode */
   const char *name;		/* instruction name */
   scm_t_uint32 meta;
@@ -109,25 +109,18 @@ struct scm_rtl_instruction {
 };
 
 
-#define SCM_VALIDATE_LOOKUP_INSTRUCTION(pos, var, cvar)               \
-  do {                                                                \
-    cvar = scm_lookup_instruction_by_name (var);                      \
-    SCM_ASSERT_TYPE (cvar, var, pos, FUNC_NAME, "INSTRUCTION_P");     \
-  } while (0)
-
-
 static scm_i_pthread_mutex_t itable_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 
-static const struct scm_rtl_instruction*
-fetch_rtl_instruction_table ()
+static const struct scm_instruction*
+fetch_instruction_table ()
 {
-  static struct scm_rtl_instruction *table = NULL;
+  static struct scm_instruction *table = NULL;
 
   scm_i_pthread_mutex_lock (&itable_lock);
   if (SCM_UNLIKELY (!table))
     {
-      size_t bytes = SCM_VM_NUM_INSTRUCTIONS * sizeof(struct scm_rtl_instruction);
+      size_t bytes = SCM_VM_NUM_INSTRUCTIONS * sizeof(struct scm_instruction);
       int i;
       table = malloc (bytes);
       memset (table, 0, bytes);
@@ -153,14 +146,14 @@ fetch_rtl_instruction_table ()
 
 /* Scheme interface */
 
-SCM_DEFINE (scm_rtl_instruction_list, "rtl-instruction-list", 0, 0, 0,
+SCM_DEFINE (scm_instruction_list, "instruction-list", 0, 0, 0,
 	    (void),
 	    "")
-#define FUNC_NAME s_scm_rtl_instruction_list
+#define FUNC_NAME s_scm_instruction_list
 {
   SCM list = SCM_EOL;
   int i;
-  const struct scm_rtl_instruction *ip = fetch_rtl_instruction_table ();
+  const struct scm_instruction *ip = fetch_instruction_table ();
   for (i = 0; i < SCM_VM_NUM_INSTRUCTIONS; i++)
     if (ip[i].name)
       {
@@ -216,16 +209,16 @@ scm_bootstrap_instructions (void)
                             "scm_init_instructions",
                             (scm_t_extension_init_func)scm_init_instructions,
                             NULL);
-
-#define INIT(type) \
-  word_type_symbols[type] = scm_from_utf8_symbol (#type);
-    FOR_EACH_INSTRUCTION_WORD_TYPE (INIT)
-#undef INIT
 }
 
 void
 scm_init_instructions (void)
 {
+#define INIT(type) \
+  word_type_symbols[type] = scm_from_utf8_symbol (#type);
+    FOR_EACH_INSTRUCTION_WORD_TYPE (INIT)
+#undef INIT
+
 #ifndef SCM_MAGIC_SNARFER
 #include "libguile/instructions.x"
 #endif

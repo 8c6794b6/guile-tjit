@@ -91,7 +91,7 @@
   (let ((table (make-hash-table)))
     (for-each
      (match-lambda ((inst . _) (hashq-set! table inst inst)))
-     (rtl-instruction-list))
+     (instruction-list))
     (for-each
      (match-lambda ((prim . inst) (hashq-set! table prim inst)))
      *rtl-instruction-aliases*)

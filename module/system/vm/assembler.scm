@@ -26,7 +26,7 @@
 ;;;
 ;;; "Primitive instructions" correspond to RTL VM operations.
 ;;; Assemblers for primitive instructions are generated programmatically
-;;; from (rtl-instruction-list), which itself is derived from the VM
+;;; from (instruction-list), which itself is derived from the VM
 ;;; sources.  There are also "macro-instructions" like "label" or
 ;;; "load-constant" that expand to 0 or more primitive instructions.
 ;;;
@@ -44,10 +44,10 @@
 
 (define-module (system vm assembler)
   #:use-module (system base target)
-  #:use-module (system vm instruction)
   #:use-module (system vm dwarf)
   #:use-module (system vm elf)
   #:use-module (system vm linker)
+  #:use-module (language rtl)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 vlist)
@@ -342,7 +342,7 @@ later by the linker."
 
 ;;;
 ;;; Primitive assemblers are defined by expanding `assembler' for each
-;;; opcode in `(rtl-instruction-list)'.
+;;; opcode in `(instruction-list)'.
 ;;;
 
 (eval-when (expand compile load eval)
@@ -476,7 +476,7 @@ later by the linker."
       ((visit-opcodes macro arg ...)
        (with-syntax (((inst ...)
                       (map (lambda (x) (datum->syntax #'macro x))
-                           (rtl-instruction-list))))
+                           (instruction-list))))
          #'(begin
              (macro arg ... . inst)
              ...))))))

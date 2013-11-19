@@ -78,7 +78,7 @@ enum scm_rtl_opcode
 #define SCM_VM_NUM_INSTRUCTIONS (1<<8)
 #define SCM_VM_INSTRUCTION_MASK (SCM_VM_NUM_INSTRUCTIONS-1)
 
-SCM_INTERNAL SCM scm_rtl_instruction_list (void);
+SCM_INTERNAL SCM scm_instruction_list (void);
 
 SCM_INTERNAL void scm_bootstrap_instructions (void);
 SCM_INTERNAL void scm_init_instructions (void);

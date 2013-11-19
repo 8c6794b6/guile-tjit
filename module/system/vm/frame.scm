@@ -21,7 +21,6 @@
 (define-module (system vm frame)
   #:use-module (system base pmatch)
   #:use-module (system vm program)
-  #:use-module (system vm instruction)
   #:export (frame-bindings
             frame-lookup-binding
             frame-binding-ref frame-binding-set!

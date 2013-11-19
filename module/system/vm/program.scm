@@ -20,7 +20,6 @@
 
 (define-module (system vm program)
   #:use-module (ice-9 match)
-  #:use-module (system vm instruction)
   #:use-module (system vm debug)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-1)
