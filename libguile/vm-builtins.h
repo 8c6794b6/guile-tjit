@@ -28,7 +28,7 @@
   M(call_with_values, CALL_WITH_VALUES, 2, 0, 0) \
   M(call_with_current_continuation, CALL_WITH_CURRENT_CONTINUATION, 1, 0, 0)
 
-/* These enumerated values are embedded in RTL code, and as such are
+/* These enumerated values are embedded in VM code, and as such are
    part of Guile's ABI.  */
 enum scm_vm_builtins
 {
