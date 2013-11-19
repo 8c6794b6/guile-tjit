@@ -77,7 +77,7 @@ make_continuation_trampoline (SCM contregs)
 
   ret = scm_words (scm_tc7_program | (nfree << 16) | flags, nfree + 2);
   SCM_SET_CELL_WORD_1 (ret, continuation_stub_code);
-  SCM_RTL_PROGRAM_FREE_VARIABLE_SET (ret, 0, contregs);
+  SCM_PROGRAM_FREE_VARIABLE_SET (ret, 0, contregs);
 
   return ret;
 }
@@ -171,7 +171,7 @@ scm_i_continuation_to_frame (SCM continuation)
   SCM contregs;
   scm_t_contregs *cont;
 
-  contregs = SCM_RTL_PROGRAM_FREE_VARIABLE_REF (continuation, 0);
+  contregs = SCM_PROGRAM_FREE_VARIABLE_REF (continuation, 0);
   cont = SCM_CONTREGS (contregs);
 
   if (scm_is_true (cont->vm_cont))

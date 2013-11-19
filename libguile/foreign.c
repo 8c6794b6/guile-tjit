@@ -796,7 +796,7 @@ get_foreign_stub_code (unsigned int nargs)
 int
 scm_i_foreign_arity (SCM foreign, int *req, int *opt, int *rest)
 {
-  const scm_t_uint32 *code = SCM_RTL_PROGRAM_CODE (foreign);
+  const scm_t_uint32 *code = SCM_PROGRAM_CODE (foreign);
 
   if (code < foreign_stub_code)
     return 0;
@@ -823,8 +823,8 @@ cif_to_procedure (SCM cif, SCM func_ptr)
 
   ret = scm_words (scm_tc7_program | (nfree << 16) | flags, nfree + 2);
   SCM_SET_CELL_WORD_1 (ret, get_foreign_stub_code (c_cif->nargs));
-  SCM_RTL_PROGRAM_FREE_VARIABLE_SET (ret, 0, cif);
-  SCM_RTL_PROGRAM_FREE_VARIABLE_SET (ret, 1, func_ptr);
+  SCM_PROGRAM_FREE_VARIABLE_SET (ret, 0, cif);
+  SCM_PROGRAM_FREE_VARIABLE_SET (ret, 1, func_ptr);
   
   return ret;
 }

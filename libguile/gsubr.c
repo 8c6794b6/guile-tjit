@@ -241,10 +241,10 @@ create_subr (int define, const char *name,
 
   ret = scm_words (scm_tc7_program | (nfree << 16) | flags, nfree + 2);
   SCM_SET_CELL_WORD_1 (ret, get_subr_stub_code (nreq, nopt, rest));
-  SCM_RTL_PROGRAM_FREE_VARIABLE_SET (ret, 0, scm_from_pointer (fcn, NULL));
-  SCM_RTL_PROGRAM_FREE_VARIABLE_SET (ret, 1, sname);
+  SCM_PROGRAM_FREE_VARIABLE_SET (ret, 0, scm_from_pointer (fcn, NULL));
+  SCM_PROGRAM_FREE_VARIABLE_SET (ret, 1, sname);
   if (generic_loc)
-    SCM_RTL_PROGRAM_FREE_VARIABLE_SET (ret, 2,
+    SCM_PROGRAM_FREE_VARIABLE_SET (ret, 2,
                                        scm_from_pointer (generic_loc, NULL));
 
   if (define)
@@ -259,7 +259,7 @@ create_subr (int define, const char *name,
 int
 scm_i_primitive_arity (SCM prim, int *req, int *opt, int *rest)
 {
-  const scm_t_uint32 *code = SCM_RTL_PROGRAM_CODE (prim);
+  const scm_t_uint32 *code = SCM_PROGRAM_CODE (prim);
   unsigned idx, nargs, base, next;
 
   if (code < subr_stub_code)
@@ -289,7 +289,7 @@ scm_i_primitive_arity (SCM prim, int *req, int *opt, int *rest)
 scm_t_uintptr
 scm_i_primitive_call_ip (SCM subr)
 {
-  const scm_t_uint32 *code = SCM_RTL_PROGRAM_CODE (subr);
+  const scm_t_uint32 *code = SCM_PROGRAM_CODE (subr);
 
   /* A stub is 4 32-bit words long, or 16 bytes.  The call will be one
      instruction, in either the fourth, third, or second word.  Return a

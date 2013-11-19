@@ -32,7 +32,7 @@
 
 
 #define SCM_CONTINUATIONP(x) \
-  (SCM_RTL_PROGRAM_P (x) && SCM_PROGRAM_IS_CONTINUATION (x))
+  (SCM_PROGRAM_P (x) && SCM_PROGRAM_IS_CONTINUATION (x))
 
 /* a continuation SCM is a non-immediate pointing to a heap cell with:
    word 0: bits 0-15: smob type tag: scm_tc16_continuation.

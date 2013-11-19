@@ -36,18 +36,18 @@
 /* Max number of args to the C procedure backing a gsubr */
 #define SCM_GSUBR_MAX 10
 
-#define SCM_PRIMITIVE_P(x) (SCM_RTL_PROGRAM_P (x) && SCM_PROGRAM_IS_PRIMITIVE (x))
+#define SCM_PRIMITIVE_P(x) (SCM_PROGRAM_P (x) && SCM_PROGRAM_IS_PRIMITIVE (x))
 
-#define SCM_PRIMITIVE_GENERIC_P(x) (SCM_RTL_PROGRAM_P (x) && SCM_PROGRAM_IS_PRIMITIVE_GENERIC (x))
+#define SCM_PRIMITIVE_GENERIC_P(x) (SCM_PROGRAM_P (x) && SCM_PROGRAM_IS_PRIMITIVE_GENERIC (x))
 
 #define SCM_SUBRF(x)							\
   ((SCM (*) (void))                                                     \
-   SCM_POINTER_VALUE (SCM_RTL_PROGRAM_FREE_VARIABLE_REF (x, 0)))
+   SCM_POINTER_VALUE (SCM_PROGRAM_FREE_VARIABLE_REF (x, 0)))
 
-#define SCM_SUBR_NAME(x) (SCM_RTL_PROGRAM_FREE_VARIABLE_REF (x, 1))
+#define SCM_SUBR_NAME(x) (SCM_PROGRAM_FREE_VARIABLE_REF (x, 1))
 
 #define SCM_SUBR_GENERIC(x)						\
-  ((SCM *) SCM_POINTER_VALUE (SCM_RTL_PROGRAM_FREE_VARIABLE_REF (x, 2)))
+  ((SCM *) SCM_POINTER_VALUE (SCM_PROGRAM_FREE_VARIABLE_REF (x, 2)))
 
 #define SCM_SET_SUBR_GENERIC(x, g) \
   (*SCM_SUBR_GENERIC (x) = (g))

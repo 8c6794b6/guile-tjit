@@ -25,13 +25,13 @@
  * The new RTL programs.
  */
 
-#define SCM_RTL_PROGRAM_P(x) (SCM_HAS_TYP7 (x, scm_tc7_program))
-#define SCM_RTL_PROGRAM_CODE(x) ((scm_t_uint32 *) SCM_CELL_WORD_1 (x))
-#define SCM_RTL_PROGRAM_FREE_VARIABLES(x) (SCM_CELL_OBJECT_LOC (x, 2))
-#define SCM_RTL_PROGRAM_FREE_VARIABLE_REF(x,i) (SCM_RTL_PROGRAM_FREE_VARIABLES (x)[i])
-#define SCM_RTL_PROGRAM_FREE_VARIABLE_SET(x,i,v) (SCM_RTL_PROGRAM_FREE_VARIABLES (x)[i]=(v))
-#define SCM_RTL_PROGRAM_NUM_FREE_VARIABLES(x) (SCM_CELL_WORD_0 (x) >> 16)
-#define SCM_VALIDATE_RTL_PROGRAM(p,x) SCM_MAKE_VALIDATE (p, x, RTL_PROGRAM_P)
+#define SCM_PROGRAM_P(x) (SCM_HAS_TYP7 (x, scm_tc7_program))
+#define SCM_PROGRAM_CODE(x) ((scm_t_uint32 *) SCM_CELL_WORD_1 (x))
+#define SCM_PROGRAM_FREE_VARIABLES(x) (SCM_CELL_OBJECT_LOC (x, 2))
+#define SCM_PROGRAM_FREE_VARIABLE_REF(x,i) (SCM_PROGRAM_FREE_VARIABLES (x)[i])
+#define SCM_PROGRAM_FREE_VARIABLE_SET(x,i,v) (SCM_PROGRAM_FREE_VARIABLES (x)[i]=(v))
+#define SCM_PROGRAM_NUM_FREE_VARIABLES(x) (SCM_CELL_WORD_0 (x) >> 16)
+#define SCM_VALIDATE_PROGRAM(p,x) SCM_MAKE_VALIDATE (p, x, PROGRAM_P)
 
 static inline SCM
 scm_i_make_rtl_program (const scm_t_uint32 *code)

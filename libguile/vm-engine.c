@@ -483,7 +483,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   }
 
  apply:
-  while (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp)))
+  while (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp)))
     {
       SCM proc = SCM_FRAME_PROGRAM (fp);
 
@@ -510,7 +510,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     }
 
   /* Let's go! */
-  ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+  ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
   NEXT (0);
 
   BEGIN_DISPATCH_SWITCH;
@@ -584,10 +584,10 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       PUSH_CONTINUATION_HOOK ();
       APPLY_HOOK ();
 
-      if (SCM_UNLIKELY (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
         goto apply;
 
-      ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
       NEXT (0);
     }
 
@@ -609,10 +609,10 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       APPLY_HOOK ();
 
-      if (SCM_UNLIKELY (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
         goto apply;
 
-      ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
       NEXT (0);
     }
 
@@ -641,10 +641,10 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       APPLY_HOOK ();
 
-      if (SCM_UNLIKELY (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
         goto apply;
 
-      ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
       NEXT (0);
     }
 
@@ -746,7 +746,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       SCM_UNPACK_RTL_24 (op, ptr_idx);
 
-      pointer = SCM_RTL_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), ptr_idx);
+      pointer = SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), ptr_idx);
       subr = SCM_POINTER_VALUE (pointer);
 
       VM_HANDLE_INTERRUPTS;
@@ -816,8 +816,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM_UNPACK_RTL_12_12 (op, cif_idx, ptr_idx);
 
       closure = LOCAL_REF (0);
-      cif = SCM_RTL_PROGRAM_FREE_VARIABLE_REF (closure, cif_idx);
-      pointer = SCM_RTL_PROGRAM_FREE_VARIABLE_REF (closure, ptr_idx);
+      cif = SCM_PROGRAM_FREE_VARIABLE_REF (closure, cif_idx);
+      pointer = SCM_PROGRAM_FREE_VARIABLE_REF (closure, ptr_idx);
 
       SYNC_IP ();
       VM_HANDLE_INTERRUPTS;
@@ -850,7 +850,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM_UNPACK_RTL_24 (op, contregs_idx);
 
       contregs =
-        SCM_RTL_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), contregs_idx);
+        SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), contregs_idx);
 
       SYNC_IP ();
       scm_i_check_continuation (contregs);
@@ -878,7 +878,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32 cont_idx;
 
       SCM_UNPACK_RTL_24 (op, cont_idx);
-      vmcont = SCM_RTL_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), cont_idx);
+      vmcont = SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), cont_idx);
 
       SYNC_IP ();
       VM_ASSERT (SCM_VM_CONT_REWINDABLE_P (vmcont),
@@ -929,10 +929,10 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       APPLY_HOOK ();
 
-      if (SCM_UNLIKELY (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
         goto apply;
 
-      ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
       NEXT (0);
     }
 
@@ -973,10 +973,10 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
           APPLY_HOOK ();
 
-          if (SCM_UNLIKELY (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
+          if (SCM_UNLIKELY (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
             goto apply;
 
-          ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+          ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
           NEXT (0);
         }
       else
@@ -1562,7 +1562,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM_SET_CELL_WORD_1 (closure, ip + offset);
       // FIXME: Elide these initializations?
       for (n = 0; n < nfree; n++)
-        SCM_RTL_PROGRAM_FREE_VARIABLE_SET (closure, n, SCM_BOOL_F);
+        SCM_PROGRAM_FREE_VARIABLE_SET (closure, n, SCM_BOOL_F);
       LOCAL_SET (dst, closure);
       NEXT (3);
     }
@@ -1578,7 +1578,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM_UNPACK_RTL_12_12 (op, dst, src);
       SCM_UNPACK_RTL_24 (ip[1], idx);
       /* CHECK_FREE_VARIABLE (src); */
-      LOCAL_SET (dst, SCM_RTL_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (src), idx));
+      LOCAL_SET (dst, SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (src), idx));
       NEXT (2);
     }
 
@@ -1593,7 +1593,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM_UNPACK_RTL_12_12 (op, dst, src);
       SCM_UNPACK_RTL_24 (ip[1], idx);
       /* CHECK_FREE_VARIABLE (src); */
-      SCM_RTL_PROGRAM_FREE_VARIABLE_SET (LOCAL_REF (dst), idx, LOCAL_REF (src));
+      SCM_PROGRAM_FREE_VARIABLE_SET (LOCAL_REF (dst), idx, LOCAL_REF (src));
       NEXT (2);
     }
 
