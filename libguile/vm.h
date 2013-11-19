@@ -34,8 +34,6 @@ enum {
 
 struct scm_vm;
 
-typedef SCM (*scm_t_vm_engine) (SCM vm, SCM program, SCM *argv, int nargs);
-
 #define SCM_VM_REGULAR_ENGINE 0
 #define SCM_VM_DEBUG_ENGINE 1
 #define SCM_VM_NUM_ENGINES 2

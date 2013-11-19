@@ -755,26 +755,26 @@ initialize_default_stack_size (void)
     vm_stack_size = size;
 }
 
-#define RTL_VM_NAME   rtl_vm_regular_engine
+#define VM_NAME vm_regular_engine
+#define VM_USE_HOOKS 0
 #define FUNC_NAME "vm-regular-engine"
-#define VM_ENGINE SCM_VM_REGULAR_ENGINE
 #include "vm-engine.c"
-#undef RTL_VM_NAME
 #undef FUNC_NAME
-#undef VM_ENGINE
+#undef VM_USE_HOOKS
+#undef VM_NAME
 
-#define RTL_VM_NAME   rtl_vm_debug_engine
+#define VM_NAME vm_debug_engine
+#define VM_USE_HOOKS 1
 #define FUNC_NAME "vm-debug-engine"
-#define VM_ENGINE SCM_VM_DEBUG_ENGINE
 #include "vm-engine.c"
-#undef RTL_VM_NAME
 #undef FUNC_NAME
-#undef VM_ENGINE
+#undef VM_USE_HOOKS
+#undef VM_NAME
 
-typedef SCM (*scm_t_rtl_vm_engine) (SCM vm, SCM program, SCM *argv, size_t nargs);
+typedef SCM (*scm_t_vm_engine) (SCM vm, SCM program, SCM *argv, size_t nargs);
 
-static const scm_t_rtl_vm_engine rtl_vm_engines[] =
-  { rtl_vm_regular_engine, rtl_vm_debug_engine };
+static const scm_t_vm_engine vm_engines[SCM_VM_NUM_ENGINES] =
+  { vm_regular_engine, vm_debug_engine };
 
 #ifdef VM_ENABLE_PRECISE_STACK_GC_SCAN
 
@@ -859,7 +859,7 @@ scm_c_vm_run (SCM vm, SCM program, SCM *argv, int nargs)
 {
   struct scm_vm *vp = SCM_VM_DATA (vm);
   SCM_CHECK_STACK;
-  return rtl_vm_engines[vp->engine](vm, program, argv, nargs);
+  return vm_engines[vp->engine](vm, program, argv, nargs);
 }
 
 /* Scheme interface */

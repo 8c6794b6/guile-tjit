@@ -60,14 +60,6 @@
   while (0)
 
 
-#if (VM_ENGINE == SCM_VM_REGULAR_ENGINE)
-# define VM_USE_HOOKS		0	/* Various hooks */
-#elif (VM_ENGINE == SCM_VM_DEBUG_ENGINE)
-# define VM_USE_HOOKS		1
-#else
-# error unknown debug engine VM_ENGINE
-#endif
-
 /* Assign some registers by hand.  There used to be a bigger list here,
    but it was never tested, and in the case of x86-32, was a source of
    compilation failures.  It can be revived if it's useful, but my naive
@@ -427,7 +419,7 @@
   ((scm_t_uintptr) (ptr) % alignof_type (type) == 0)
 
 static SCM
-RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
+VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 {
   /* Instruction pointer: A pointer to the opcode that is currently
      running.  */
