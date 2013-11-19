@@ -74,7 +74,7 @@ scm_i_program_documentation (SCM program)
 SCM
 scm_i_program_properties (SCM program)
 {
-  static SCM rtl_program_properties = SCM_BOOL_F;
+  static SCM program_properties = SCM_BOOL_F;
 
   if (SCM_PRIMITIVE_P (program))
     {
@@ -84,11 +84,11 @@ scm_i_program_properties (SCM program)
       return scm_acons (scm_sym_name, name, SCM_EOL);
     }
 
-  if (scm_is_false (rtl_program_properties) && scm_module_system_booted_p)
-    rtl_program_properties =
-      scm_c_private_variable ("system vm program", "rtl-program-properties");
+  if (scm_is_false (program_properties) && scm_module_system_booted_p)
+    program_properties =
+      scm_c_private_variable ("system vm program", "program-properties");
 
-  return scm_call_1 (scm_variable_ref (rtl_program_properties), program);
+  return scm_call_1 (scm_variable_ref (program_properties), program);
 }
 
 void

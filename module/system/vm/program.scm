@@ -57,9 +57,7 @@
   (find-program-docstring (program-code program)))
 (define (program-minimum-arity program)
   (find-program-minimum-arity (program-code program)))
-(define (rtl-program-properties program)
-  (unless (program? program)
-    (error "shouldn't get here"))
+(define (program-properties program)
   (find-program-properties (program-code program)))
 
 (define (make-binding name boxed? index start end)
