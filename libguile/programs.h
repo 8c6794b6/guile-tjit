@@ -41,7 +41,6 @@ scm_i_make_program (const scm_t_uint32 *code)
 }
 #endif
 
-SCM_INTERNAL SCM scm_make_rtl_program (SCM bytevector, SCM byte_offset, SCM free_variables);
 SCM_INTERNAL SCM scm_rtl_program_p (SCM obj);
 SCM_INTERNAL SCM scm_rtl_program_code (SCM program);
 

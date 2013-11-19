@@ -30,36 +30,6 @@
 
 static SCM write_program = SCM_BOOL_F;
 
-SCM_DEFINE (scm_make_rtl_program, "make-rtl-program", 1, 2, 0,
-	    (SCM bytevector, SCM byte_offset, SCM free_variables),
-	    "")
-#define FUNC_NAME s_scm_make_rtl_program
-{
-  scm_t_uint8 *code;
-  scm_t_uint32 offset;
-
-  if (!scm_is_bytevector (bytevector))
-    scm_wrong_type_arg (FUNC_NAME, 1, bytevector);
-  if (SCM_UNBNDP (byte_offset))
-    offset = 0;
-  else
-    {
-      offset = scm_to_uint32 (byte_offset);
-      if (offset > SCM_BYTEVECTOR_LENGTH (bytevector))
-        SCM_OUT_OF_RANGE (2, byte_offset);
-    }
-
-  code = (scm_t_uint8*) SCM_BYTEVECTOR_CONTENTS (bytevector) + offset;
-  if (((scm_t_uintptr) code) % 4)
-    SCM_OUT_OF_RANGE (2, byte_offset);
-
-  if (SCM_UNBNDP (free_variables) || scm_is_false (free_variables))
-    return scm_cell (scm_tc7_program, (scm_t_bits) code);
-  else
-    abort ();
-}
-#undef FUNC_NAME
-
 SCM_DEFINE (scm_rtl_program_code, "rtl-program-code", 1, 0, 0,
             (SCM program),
             "")

@@ -25,9 +25,7 @@
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
-  #:export (make-rtl-program
-
-            make-binding binding:name binding:boxed? binding:index
+  #:export (make-binding binding:name binding:boxed? binding:index
             binding:start binding:end
 
             source:addr source:line source:column source:file
