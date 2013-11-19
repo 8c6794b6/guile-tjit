@@ -54,18 +54,7 @@ static SCM sym_debug;
    necessary, but might be if you think you found a bug in the VM. */
 #define VM_ENABLE_ASSERTIONS
 
-/* We can add a mode that ensures that all stack items above the stack pointer
-   are NULL. This is useful for checking the internal consistency of the VM's
-   assumptions and its operators, but isn't necessary for normal operation. It
-   will ensure that assertions are enabled. Slows down the VM by about 30%. */
-/* NB! If you enable this, search for NULLING in throw.c */
-/* #define VM_ENABLE_STACK_NULLING */
-
 /* #define VM_ENABLE_PARANOID_ASSERTIONS */
-
-#if defined (VM_ENABLE_STACK_NULLING) && !defined (VM_ENABLE_ASSERTIONS)
-#define VM_ENABLE_ASSERTIONS
-#endif
 
 /* When defined, arrange so that the GC doesn't scan the VM stack beyond its
    current SP.  This should help avoid excess data retention.  See
@@ -112,15 +101,6 @@ scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp, scm_t_uint32 *ra,
   p->stack_size = sp - stack_base + 1;
   p->stack_base = scm_gc_malloc (p->stack_size * sizeof (SCM),
 				 "capture_vm_cont");
-#if defined(VM_ENABLE_STACK_NULLING) && 0
-  /* Tail continuations leave their frame on the stack for subsequent
-     application, but don't capture the frame -- so there are some elements on
-     the stack then, and this check doesn't work, so disable it for now. */
-  if (sp >= vp->stack_base)
-    if (!vp->sp[0] || vp->sp[1])
-      abort ();
-  memset (p->stack_base, 0, p->stack_size * sizeof (SCM));
-#endif
   p->ra = ra;
   p->sp = sp;
   p->fp = fp;
@@ -148,15 +128,6 @@ vm_return_to_continuation (SCM vm, SCM cont, size_t n, SCM *argv)
     scm_misc_error ("vm-engine", "not enough space to reinstate continuation",
                     scm_list_2 (vm, cont));
 
-#ifdef VM_ENABLE_STACK_NULLING
-  {
-    scm_t_ptrdiff nzero = (vp->sp - cp->sp);
-    if (nzero > 0)
-      memset (vp->stack_base + cp->stack_size, 0, nzero * sizeof (SCM));
-    /* actually nzero should always be negative, because vm_reset_stack will
-       unwind the stack to some point *below* this continuation */
-  }
-#endif
   vp->sp = cp->sp;
   vp->fp = cp->fp;
   memcpy (vp->stack_base, cp->stack_base, cp->stack_size * sizeof (SCM));
@@ -808,9 +779,6 @@ make_vm (void)
 				   "stack-base");
 #endif
 
-#ifdef VM_ENABLE_STACK_NULLING
-  memset (vp->stack_base, 0, vp->stack_size * sizeof (SCM));
-#endif
   vp->stack_limit = vp->stack_base + vp->stack_size - VM_STACK_RESERVE_SIZE;
   vp->ip    	  = NULL;
   vp->sp    	  = vp->stack_base - 1;
