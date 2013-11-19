@@ -33,11 +33,13 @@
 #define SCM_PROGRAM_NUM_FREE_VARIABLES(x) (SCM_CELL_WORD_0 (x) >> 16)
 #define SCM_VALIDATE_PROGRAM(p,x) SCM_MAKE_VALIDATE (p, x, PROGRAM_P)
 
+#ifdef BUILDING_LIBGUILE
 static inline SCM
 scm_i_make_rtl_program (const scm_t_uint32 *code)
 {
   return scm_cell (scm_tc7_program, (scm_t_bits)code);
 }
+#endif
 
 SCM_INTERNAL SCM scm_make_rtl_program (SCM bytevector, SCM byte_offset, SCM free_variables);
 SCM_INTERNAL SCM scm_rtl_program_p (SCM obj);
