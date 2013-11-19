@@ -1220,7 +1220,7 @@ it will be added to the GC roots at runtime."
                                                     (* i word-size) 0 label)
                                  relocs))
               (%set-uword! bv (* i word-size) 0 endianness))))
-      (set-uword! 0 DT_GUILE_RTL_VERSION)
+      (set-uword! 0 DT_GUILE_VM_VERSION)
       (set-uword! 1 (logior (ash *bytecode-major-version* 16)
                             *bytecode-minor-version*))
       (set-uword! 2 DT_GUILE_ENTRY)

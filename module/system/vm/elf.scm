@@ -105,7 +105,7 @@
             DT_FINI_ARRAYSZ DT_RUNPATH DT_FLAGS DT_ENCODING
             DT_PREINIT_ARRAY DT_PREINIT_ARRAYSZ DT_NUM DT_LOGUILE
             DT_GUILE_GC_ROOT DT_GUILE_GC_ROOT_SZ DT_GUILE_ENTRY
-            DT_GUILE_RTL_VERSION DT_HIGUILE DT_LOOS DT_HIOS DT_LOPROC
+            DT_GUILE_VM_VERSION DT_HIGUILE DT_LOOS DT_HIOS DT_LOPROC
             DT_HIPROC
 
             string-table-ref
@@ -780,7 +780,7 @@
 (define DT_GUILE_GC_ROOT    #x37146000) ; Offset of GC roots
 (define DT_GUILE_GC_ROOT_SZ #x37146001) ; Size in machine words of GC roots
 (define DT_GUILE_ENTRY      #x37146002) ; Address of entry thunk
-(define DT_GUILE_RTL_VERSION #x37146003); Bytecode version
+(define DT_GUILE_VM_VERSION #x37146003) ; Bytecode version
 (define DT_HIGUILE      #x37146fff)     ; End of Guile-specific
 (define DT_LOOS		#x6000000d)	; Start of OS-specific
 (define DT_HIOS		#x6ffff000)	; End of OS-specific

@@ -68,7 +68,7 @@
 #define DT_GUILE_GC_ROOT_SZ 0x37146001  /* Size in machine words of GC
                                            roots */
 #define DT_GUILE_ENTRY      0x37146002  /* Address of entry thunk */
-#define DT_GUILE_RTL_VERSION 0x37146003 /* Bytecode version */
+#define DT_GUILE_VM_VERSION 0x37146003  /* Bytecode version */
 #define DT_HIGUILE          0x37146fff  /* End of Guile-specific */
 
 #ifdef WORDS_BIGENDIAN
@@ -280,9 +280,9 @@ process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
             return "duplicate DT_GUILE_ENTRY";
           entry = base + dyn[i].d_un.d_val;
           break;
-        case DT_GUILE_RTL_VERSION:
+        case DT_GUILE_VM_VERSION:
           if (bytecode_kind != BYTECODE_KIND_NONE)
-            return "duplicate DT_GUILE_RTL_VERSION";
+            return "duplicate DT_GUILE_VM_VERSION";
           {
             scm_t_uint16 major = dyn[i].d_un.d_val >> 16;
             scm_t_uint16 minor = dyn[i].d_un.d_val & 0xffff;
@@ -319,7 +319,7 @@ process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
       break;
     case BYTECODE_KIND_NONE:
     default:
-      return "missing DT_GUILE_RTL_VERSION";
+      return "missing DT_GUILE_VM_VERSION";
     }
 
   if (gc_root)
