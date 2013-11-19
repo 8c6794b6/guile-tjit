@@ -22,6 +22,8 @@
 #include <libguile.h>
 #include <libguile/vm-operations.h>
 
+#ifdef BUILDING_LIBGUILE
+
 enum scm_opcode
   {
 #define ENUM(opcode, tag, name, meta) scm_op_##tag = opcode,
@@ -29,11 +31,12 @@ enum scm_opcode
 #undef ENUM
   };
 
-#define SCM_PACK_RTL_8_8_8(op,a,b,c) ((op) | ((a) << 8) | ((b) << 16) | ((c) << 24))
-#define SCM_PACK_RTL_8_16(op,a,b) ((op) | ((a) << 8) | ((b) << 16))
-#define SCM_PACK_RTL_16_8(op,a,b) ((op) | ((a) << 8) | ((b) << 24))
-#define SCM_PACK_RTL_12_12(op,a,b) ((op) | ((a) << 8) | ((b) << 20))
-#define SCM_PACK_RTL_24(op,a) ((op) | ((a) << 8))
+#define SCM_PACK_OP_24(op,arg)      (scm_op_##op | (arg) << 8)
+#define SCM_PACK_OP_8_8_8(op,a,b,c) SCM_PACK_OP_24 (op, (a) | ((b) << 8) | ((c) << 16))
+#define SCM_PACK_OP_8_16(op,a,b)    SCM_PACK_OP_24 (op, (a) | (b) << 8)
+#define SCM_PACK_OP_16_8(op,a,b)    SCM_PACK_OP_24 (op, (a) | (b) << 16)
+#define SCM_PACK_OP_12_12(op,a,b)   SCM_PACK_OP_24 (op, (a) | (b) << 12)
+#define SCM_PACK_OP_ARG_8_24(a,b)   ((a) | ((b) << 8))
 
 #define SCM_UNPACK_RTL_8_8_8(op,a,b,c)    \
   do                                      \
@@ -77,6 +80,8 @@ enum scm_opcode
 
 #define SCM_VM_NUM_INSTRUCTIONS (1<<8)
 #define SCM_VM_INSTRUCTION_MASK (SCM_VM_NUM_INSTRUCTIONS-1)
+
+#endif /* BUILDING_LIBGUILE  */
 
 SCM_INTERNAL SCM scm_instruction_list (void);
 

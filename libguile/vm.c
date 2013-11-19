@@ -600,37 +600,37 @@ static SCM vm_builtin_call_with_values;
 static SCM vm_builtin_call_with_current_continuation;
 
 static const scm_t_uint32 vm_boot_continuation_code[] = {
-  SCM_PACK_RTL_24 (scm_op_halt, 0)
+  SCM_PACK_OP_24 (halt, 0)
 };
 
 static const scm_t_uint32 vm_builtin_apply_code[] = {
-  SCM_PACK_RTL_24 (scm_op_assert_nargs_ge, 3),
-  SCM_PACK_RTL_24 (scm_op_tail_apply, 0), /* proc in r1, args from r2 */
+  SCM_PACK_OP_24 (assert_nargs_ge, 3),
+  SCM_PACK_OP_24 (tail_apply, 0), /* proc in r1, args from r2 */
 };
 
 static const scm_t_uint32 vm_builtin_values_code[] = {
-  SCM_PACK_RTL_24 (scm_op_return_values, 0) /* vals from r1 */
+  SCM_PACK_OP_24 (return_values, 0) /* vals from r1 */
 };
 
 static const scm_t_uint32 vm_builtin_abort_to_prompt_code[] = {
-  SCM_PACK_RTL_24 (scm_op_assert_nargs_ge, 2),
-  SCM_PACK_RTL_24 (scm_op_abort, 0), /* tag in r1, vals from r2 */
+  SCM_PACK_OP_24 (assert_nargs_ge, 2),
+  SCM_PACK_OP_24 (abort, 0), /* tag in r1, vals from r2 */
   /* FIXME: Partial continuation should capture caller regs.  */
-  SCM_PACK_RTL_24 (scm_op_return_values, 0) /* vals from r1 */
+  SCM_PACK_OP_24 (return_values, 0) /* vals from r1 */
 };
 
 static const scm_t_uint32 vm_builtin_call_with_values_code[] = {
-  SCM_PACK_RTL_24 (scm_op_assert_nargs_ee, 3),
-  SCM_PACK_RTL_24 (scm_op_alloc_frame, 7),
-  SCM_PACK_RTL_12_12 (scm_op_mov, 6, 1),
-  SCM_PACK_RTL_24 (scm_op_call, 6), SCM_PACK_RTL_24 (0, 1),
-  SCM_PACK_RTL_12_12 (scm_op_mov, 0, 2),
-  SCM_PACK_RTL_24 (scm_op_tail_call_shuffle, 7)
+  SCM_PACK_OP_24 (assert_nargs_ee, 3),
+  SCM_PACK_OP_24 (alloc_frame, 7),
+  SCM_PACK_OP_12_12 (mov, 6, 1),
+  SCM_PACK_OP_24 (call, 6), SCM_PACK_OP_ARG_8_24 (0, 1),
+  SCM_PACK_OP_12_12 (mov, 0, 2),
+  SCM_PACK_OP_24 (tail_call_shuffle, 7)
 };
 
 static const scm_t_uint32 vm_builtin_call_with_current_continuation_code[] = {
-  SCM_PACK_RTL_24 (scm_op_assert_nargs_ee, 2),
-  SCM_PACK_RTL_24 (scm_op_call_cc, 0)
+  SCM_PACK_OP_24 (assert_nargs_ee, 2),
+  SCM_PACK_OP_24 (call_cc, 0)
 };
 
 

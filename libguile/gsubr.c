@@ -75,45 +75,45 @@
 
 /* A: req; B: opt; C: rest */
 #define A(nreq)                                                         \
-  SCM_PACK_RTL_24 (scm_op_assert_nargs_ee, nreq + 1),                   \
-  SCM_PACK_RTL_24 (scm_op_subr_call, 0),                                \
+  SCM_PACK_OP_24 (assert_nargs_ee, nreq + 1),                           \
+  SCM_PACK_OP_24 (subr_call, 0),                                        \
   0,                                                                    \
   0
 
 #define B(nopt)                                                         \
-  SCM_PACK_RTL_24 (scm_op_assert_nargs_le, nopt + 1),                   \
-  SCM_PACK_RTL_24 (scm_op_alloc_frame, nopt + 1),                       \
-  SCM_PACK_RTL_24 (scm_op_subr_call, 0),                                \
+  SCM_PACK_OP_24 (assert_nargs_le, nopt + 1),                           \
+  SCM_PACK_OP_24 (alloc_frame, nopt + 1),                               \
+  SCM_PACK_OP_24 (subr_call, 0),                                        \
   0
 
 #define C()                                                             \
-  SCM_PACK_RTL_24 (scm_op_bind_rest, 1),                                \
-  SCM_PACK_RTL_24 (scm_op_subr_call, 0),                                \
+  SCM_PACK_OP_24 (bind_rest, 1),                                        \
+  SCM_PACK_OP_24 (subr_call, 0),                                        \
   0,                                                                    \
   0
 
 #define AB(nreq, nopt)                                                  \
-  SCM_PACK_RTL_24 (scm_op_assert_nargs_ge, nreq + 1),                   \
-  SCM_PACK_RTL_24 (scm_op_assert_nargs_le, nreq + nopt + 1),            \
-  SCM_PACK_RTL_24 (scm_op_alloc_frame, nreq + nopt + 1),                \
-  SCM_PACK_RTL_24 (scm_op_subr_call, 0)
+  SCM_PACK_OP_24 (assert_nargs_ge, nreq + 1),                           \
+  SCM_PACK_OP_24 (assert_nargs_le, nreq + nopt + 1),                    \
+  SCM_PACK_OP_24 (alloc_frame, nreq + nopt + 1),                        \
+  SCM_PACK_OP_24 (subr_call, 0)
 
 #define AC(nreq)                                                        \
-  SCM_PACK_RTL_24 (scm_op_assert_nargs_ge, nreq + 1),                   \
-  SCM_PACK_RTL_24 (scm_op_bind_rest, nreq + 1),                         \
-  SCM_PACK_RTL_24 (scm_op_subr_call, 0),                                \
+  SCM_PACK_OP_24 (assert_nargs_ge, nreq + 1),                           \
+  SCM_PACK_OP_24 (bind_rest, nreq + 1),                                 \
+  SCM_PACK_OP_24 (subr_call, 0),                                        \
   0
 
 #define BC(nopt)                                                        \
-  SCM_PACK_RTL_24 (scm_op_bind_rest, nopt + 1),                         \
-  SCM_PACK_RTL_24 (scm_op_subr_call, 0),                                \
+  SCM_PACK_OP_24 (bind_rest, nopt + 1),                                 \
+  SCM_PACK_OP_24 (subr_call, 0),                                        \
   0,                                                                    \
   0
 
 #define ABC(nreq, nopt)                                                 \
-  SCM_PACK_RTL_24 (scm_op_assert_nargs_ge, nreq + 1),                   \
-  SCM_PACK_RTL_24 (scm_op_bind_rest, nreq + nopt + 1),                  \
-  SCM_PACK_RTL_24 (scm_op_subr_call, 0),                                \
+  SCM_PACK_OP_24 (assert_nargs_ge, nreq + 1),                           \
+  SCM_PACK_OP_24 (bind_rest, nreq + nopt + 1),                          \
+  SCM_PACK_OP_24 (subr_call, 0),                                        \
   0
 
 
