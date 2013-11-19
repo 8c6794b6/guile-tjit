@@ -100,35 +100,32 @@
 #endif
 
 #if VM_USE_HOOKS
-#define RUN_HOOK(h, args, n)                            \
+#define RUN_HOOK(exp)                                   \
   do {                                                  \
     if (SCM_UNLIKELY (vp->trace_level > 0))             \
       {                                                 \
         SYNC_REGISTER ();				\
-        vm_dispatch_hook (vm, h, args, n);              \
+        exp;                                            \
       }                                                 \
   } while (0)
 #else
-#define RUN_HOOK(h, args, n)
+#define RUN_HOOK(exp)
 #endif
-#define RUN_HOOK0(h) RUN_HOOK(h, NULL, 0)
+#define RUN_HOOK0(h)      RUN_HOOK (vm_dispatch_##h##_hook (vm))
+#define RUN_HOOK1(h, arg) RUN_HOOK (vm_dispatch_##h##_hook (vm, arg))
 
 #define APPLY_HOOK()                            \
-  RUN_HOOK0 (SCM_VM_APPLY_HOOK)
+  RUN_HOOK0 (apply)
 #define PUSH_CONTINUATION_HOOK()                \
-  RUN_HOOK0 (SCM_VM_PUSH_CONTINUATION_HOOK)
+  RUN_HOOK0 (push_continuation)
 #define POP_CONTINUATION_HOOK(old_fp)           \
-  RUN_HOOK (SCM_VM_POP_CONTINUATION_HOOK,       \
-            &SCM_FRAME_LOCAL (old_fp, 1),       \
-            SCM_FRAME_NUM_LOCALS (old_fp, vp->sp) - 1)
+  RUN_HOOK1 (pop_continuation, old_fp)
 #define NEXT_HOOK()                             \
-  RUN_HOOK0 (SCM_VM_NEXT_HOOK)
+  RUN_HOOK0 (next)
 #define ABORT_CONTINUATION_HOOK()               \
-  RUN_HOOK (SCM_VM_ABORT_CONTINUATION_HOOK,     \
-            LOCAL_ADDRESS (1),                  \
-            FRAME_LOCALS_COUNT () - 1)
-#define RESTORE_CONTINUATION_HOOK()            \
-  RUN_HOOK0 (SCM_VM_RESTORE_CONTINUATION_HOOK)
+  RUN_HOOK0 (abort)
+#define RESTORE_CONTINUATION_HOOK()             \
+  RUN_HOOK0 (restore_continuation)
 
 #define VM_HANDLE_INTERRUPTS                     \
   SCM_ASYNC_TICK_WITH_CODE (current_thread, SYNC_REGISTER ())
@@ -3156,6 +3153,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 #undef RETURN_VALUE_LIST
 #undef RUN_HOOK
 #undef RUN_HOOK0
+#undef RUN_HOOK1
 #undef SYNC_ALL
 #undef SYNC_BEFORE_GC
 #undef SYNC_IP

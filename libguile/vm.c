@@ -168,8 +168,12 @@ scm_i_capture_current_stack (void)
                                  0);
 }
 
-static void vm_dispatch_hook (SCM vm, int hook_num,
-                              SCM *argv, int n) SCM_NOINLINE;
+static void vm_dispatch_apply_hook (SCM vm) SCM_NOINLINE;
+static void vm_dispatch_push_continuation_hook (SCM vm) SCM_NOINLINE;
+static void vm_dispatch_pop_continuation_hook (SCM vm, SCM *old_fp) SCM_NOINLINE;
+static void vm_dispatch_next_hook (SCM vm) SCM_NOINLINE;
+static void vm_dispatch_abort_hook (SCM vm) SCM_NOINLINE;
+static void vm_dispatch_restore_continuation_hook (SCM vm) SCM_NOINLINE;
 
 static void
 vm_dispatch_hook (SCM vm, int hook_num, SCM *argv, int n)
@@ -236,6 +240,38 @@ vm_dispatch_hook (SCM vm, int hook_num, SCM *argv, int n)
     }
 
   vp->trace_level = saved_trace_level;
+}
+
+static void
+vm_dispatch_apply_hook (SCM vm)
+{
+  return vm_dispatch_hook (vm, SCM_VM_APPLY_HOOK, NULL, 0);
+}
+static void vm_dispatch_push_continuation_hook (SCM vm)
+{
+  return vm_dispatch_hook (vm, SCM_VM_PUSH_CONTINUATION_HOOK, NULL, 0);
+}
+static void vm_dispatch_pop_continuation_hook (SCM vm, SCM *old_fp)
+{
+  struct scm_vm *vp = SCM_VM_DATA (vm);
+  return vm_dispatch_hook (vm, SCM_VM_POP_CONTINUATION_HOOK,
+                           &SCM_FRAME_LOCAL (old_fp, 1),
+                           SCM_FRAME_NUM_LOCALS (old_fp, vp->sp) - 1);
+}
+static void vm_dispatch_next_hook (SCM vm)
+{
+  return vm_dispatch_hook (vm, SCM_VM_NEXT_HOOK, NULL, 0);
+}
+static void vm_dispatch_abort_hook (SCM vm)
+{
+  struct scm_vm *vp = SCM_VM_DATA (vm);
+  return vm_dispatch_hook (vm, SCM_VM_ABORT_CONTINUATION_HOOK,
+                           &SCM_FRAME_LOCAL (vp->fp, 1),
+                           SCM_FRAME_NUM_LOCALS (vp->fp, vp->sp) - 1);
+}
+static void vm_dispatch_restore_continuation_hook (SCM vm)
+{
+  return vm_dispatch_hook (vm, SCM_VM_RESTORE_CONTINUATION_HOOK, NULL, 0);
 }
 
 static void
