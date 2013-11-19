@@ -1558,7 +1558,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM_UNPACK_RTL_24 (ip[2], nfree);
 
       // FIXME: Assert range of nfree?
-      closure = scm_words (scm_tc7_rtl_program | (nfree << 16), nfree + 2);
+      closure = scm_words (scm_tc7_program | (nfree << 16), nfree + 2);
       SCM_SET_CELL_WORD_1 (closure, ip + offset);
       // FIXME: Elide these initializations?
       for (n = 0; n < nfree; n++)

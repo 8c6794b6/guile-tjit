@@ -25,7 +25,7 @@
  * The new RTL programs.
  */
 
-#define SCM_RTL_PROGRAM_P(x) (SCM_HAS_TYP7 (x, scm_tc7_rtl_program))
+#define SCM_RTL_PROGRAM_P(x) (SCM_HAS_TYP7 (x, scm_tc7_program))
 #define SCM_RTL_PROGRAM_CODE(x) ((scm_t_uint32 *) SCM_CELL_WORD_1 (x))
 #define SCM_RTL_PROGRAM_FREE_VARIABLES(x) (SCM_CELL_OBJECT_LOC (x, 2))
 #define SCM_RTL_PROGRAM_FREE_VARIABLE_REF(x,i) (SCM_RTL_PROGRAM_FREE_VARIABLES (x)[i])
@@ -36,7 +36,7 @@
 static inline SCM
 scm_i_make_rtl_program (const scm_t_uint32 *code)
 {
-  return scm_cell (scm_tc7_rtl_program, (scm_t_bits)code);
+  return scm_cell (scm_tc7_program, (scm_t_bits)code);
 }
 
 SCM_INTERNAL SCM scm_make_rtl_program (SCM bytevector, SCM byte_offset, SCM free_variables);

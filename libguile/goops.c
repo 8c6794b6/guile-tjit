@@ -291,7 +291,7 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	  case scm_tc16_fraction:
 	    return scm_class_fraction;
           }
-	case scm_tc7_rtl_program:
+	case scm_tc7_program:
 	  if (SCM_PROGRAM_IS_PRIMITIVE_GENERIC (x)
               && SCM_UNPACK (*SCM_SUBR_GENERIC (x)))
 	    return scm_class_primitive_generic;

@@ -54,7 +54,7 @@ SCM_DEFINE (scm_make_rtl_program, "make-rtl-program", 1, 2, 0,
     SCM_OUT_OF_RANGE (2, byte_offset);
 
   if (SCM_UNBNDP (free_variables) || scm_is_false (free_variables))
-    return scm_cell (scm_tc7_rtl_program, (scm_t_bits) code);
+    return scm_cell (scm_tc7_program, (scm_t_bits) code);
   else
     abort ();
 }

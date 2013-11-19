@@ -900,7 +900,7 @@ should be .data or .rodata), and return the resulting linker object.
   (define tc7-wide-stringbuf
     (+ tc7-stringbuf stringbuf-shared-flag stringbuf-wide-flag))
   (define tc7-ro-string (+ 21 #x200))
-  (define tc7-rtl-program 69)
+  (define tc7-program 69)
   (define tc7-bytevector 77)
   (define tc7-bitvector 95)
 
@@ -972,10 +972,10 @@ should be .data or .rodata), and return the resulting linker object.
        ((static-procedure? obj)
         (case word-size
           ((4)
-           (bytevector-u32-set! buf pos tc7-rtl-program endianness)
+           (bytevector-u32-set! buf pos tc7-program endianness)
            (bytevector-u32-set! buf (+ pos 4) 0 endianness))
           ((8)
-           (bytevector-u64-set! buf pos tc7-rtl-program endianness)
+           (bytevector-u64-set! buf pos tc7-program endianness)
            (bytevector-u64-set! buf (+ pos 8) 0 endianness))
           (else (error "bad word size"))))
 
