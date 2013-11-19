@@ -59,7 +59,7 @@ scm_i_prompt_pop_abort_args_x (SCM vm)
 
 static const scm_t_uint32 compose_continuation_code[] =
   {
-    SCM_PACK_RTL_24 (scm_rtl_op_compose_continuation, 0)
+    SCM_PACK_RTL_24 (scm_op_compose_continuation, 0)
   };
 
 

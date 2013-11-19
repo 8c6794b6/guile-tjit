@@ -65,7 +65,7 @@ static scm_t_bits tc16_continuation;
 
 static const scm_t_uint32 continuation_stub_code[] =
   {
-    SCM_PACK_RTL_24 (scm_rtl_op_continuation_call, 0)
+    SCM_PACK_RTL_24 (scm_op_continuation_call, 0)
   };
 
 static SCM

@@ -766,10 +766,10 @@ SCM_DEFINE (scm_pointer_to_procedure, "pointer->procedure", 3, 0, 0,
 /* We support calling foreign functions with up to 100 arguments. */
 
 #define CODE(nreq)                                                  \
-  SCM_PACK_RTL_24 (scm_rtl_op_assert_nargs_ee, nreq + 1),           \
-  SCM_PACK_RTL_12_12 (scm_rtl_op_foreign_call, 0, 1)
+  SCM_PACK_RTL_24 (scm_op_assert_nargs_ee, nreq + 1),               \
+  SCM_PACK_RTL_12_12 (scm_op_foreign_call, 0, 1)
 
-#define CODE_10(n)                                               \
+#define CODE_10(n)                                                      \
   CODE (n + 0), CODE (n + 1), CODE (n + 2), CODE (n + 3), CODE (n + 4), \
   CODE (n + 5), CODE (n + 6), CODE (n + 7), CODE (n + 8), CODE (n + 9)
 

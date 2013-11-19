@@ -102,7 +102,7 @@ static SCM word_type_symbols[] =
   (((word) >> ((n) * TYPE_WIDTH)) & ((1 << TYPE_WIDTH) - 1))
 
 struct scm_instruction {
-  enum scm_rtl_opcode opcode;	/* opcode */
+  enum scm_opcode opcode;	/* opcode */
   const char *name;		/* instruction name */
   scm_t_uint32 meta;
   SCM symname;                  /* filled in later */

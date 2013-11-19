@@ -22,9 +22,9 @@
 #include <libguile.h>
 #include <libguile/vm-operations.h>
 
-enum scm_rtl_opcode
+enum scm_opcode
   {
-#define ENUM(opcode, tag, name, meta) scm_rtl_op_##tag = opcode,
+#define ENUM(opcode, tag, name, meta) scm_op_##tag = opcode,
     FOR_EACH_VM_OPERATION(ENUM)
 #undef ENUM
   };
