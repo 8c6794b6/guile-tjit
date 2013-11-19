@@ -88,7 +88,7 @@
     (cons
      (or (false-if-exception (procedure-name p)) p)
      (cond
-      ((and (rtl-program? p)
+      ((and (program? p)
             (program-arguments-alist p (frame-instruction-pointer frame)))
        ;; case 1
        => (lambda (arguments)

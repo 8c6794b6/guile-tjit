@@ -416,7 +416,7 @@ address of that offset."
 
 (define* (fold-program-code proc seed program-or-addr #:key raw?)
   (cond
-   ((find-program-debug-info (if (rtl-program? program-or-addr)
+   ((find-program-debug-info (if (program? program-or-addr)
                                  (rtl-program-code program-or-addr)
                                  program-or-addr))
     => (lambda (pdi)

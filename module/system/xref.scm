@@ -35,12 +35,12 @@
 (define (nested-procedures prog)
   (define (cons-uniq x y)
     (if (memq x y) y (cons x y)))
-  (if (rtl-program? prog)
+  (if (program? prog)
       (reverse
        (fold-program-code (lambda (elt out)
                             (match elt
                               (('static-ref dst proc)
-                               (if (rtl-program? proc)
+                               (if (program? proc)
                                    (fold cons-uniq
                                          (cons proc out)
                                          (nested-procedures prog))
@@ -79,7 +79,7 @@
 
 (define (procedure-callee-rev-vars proc)
   (cond
-   ((rtl-program? proc) (program-callee-rev-vars proc))
+   ((program? proc) (program-callee-rev-vars proc))
    (else '())))
 
 (define (procedure-callees prog)
@@ -201,8 +201,7 @@ pair of the form (module-name . variable-name), "
 ;; ((ip file line . col) ...)
 (define (procedure-sources proc)
   (cond
-   ((or (rtl-program? proc) (program? proc))
-    (program-sources proc))
+   ((program? proc) (program-sources proc))
    (else '())))
 
 ;; file -> line -> (proc ...)

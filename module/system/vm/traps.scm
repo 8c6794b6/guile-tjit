@@ -115,7 +115,7 @@
 
 (define (frame-matcher proc match-code?)
   (if match-code?
-      (if (rtl-program? proc)
+      (if (program? proc)
           (let ((start (rtl-program-code proc))
                 (end (program-last-ip proc)))
             (lambda (frame)
@@ -317,7 +317,7 @@
 
 (define (program-sources-by-line proc file)
   (cond
-   ((rtl-program? proc)
+   ((program? proc)
     (let ((code (rtl-program-code proc)))
       (let lp ((sources (program-sources proc))
                (out '()))

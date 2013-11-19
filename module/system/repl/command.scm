@@ -492,7 +492,7 @@ Run the optimizer on a piece of code and print the result."
 Disassemble a compiled procedure."
   (let ((obj (repl-eval repl (repl-parse repl form))))
     (cond
-     ((rtl-program? obj)
+     ((program? obj)
       (disassemble-program obj))
      ((bytevector? obj)
       (disassemble-image (load-image obj)))

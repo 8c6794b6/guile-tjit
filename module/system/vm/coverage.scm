@@ -257,7 +257,7 @@ executed."
               ((< val* val)
                (lp (1+ idx) end))
               (else elt))))))
-  (and (rtl-program? proc)
+  (and (program? proc)
        (match (binary-search (data-ip-counts data) car (rtl-program-code proc))
          (#f 0)
          ((ip . code) code))))
@@ -312,7 +312,7 @@ gathered, even if their code was not executed."
   #;
   (define (dump-function proc)
     ;; Dump source location and basic coverage data for PROC.
-    (and (or (program? proc) (rtl-program? proc))
+    (and (or (program? proc))
          (let ((sources (program-sources* data proc)))
            (and (pair? sources)
                 (let* ((line (source:line-for-user (car sources)))

@@ -136,10 +136,10 @@ scm_i_program_print (SCM program, SCM port, scm_print_state *pstate)
  * Scheme interface
  */
 
-SCM_DEFINE (scm_rtl_program_p, "rtl-program?", 1, 0, 0,
+SCM_DEFINE (scm_program_p, "program?", 1, 0, 0,
 	    (SCM obj),
 	    "")
-#define FUNC_NAME s_scm_rtl_program_p
+#define FUNC_NAME s_scm_program_p
 {
   return scm_from_bool (SCM_PROGRAM_P (obj));
 }

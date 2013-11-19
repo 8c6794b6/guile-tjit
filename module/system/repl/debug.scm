@@ -95,7 +95,7 @@
   
   (format port "~aRegisters:~%" per-line-prefix)
   (print "ip = #x~x" (frame-instruction-pointer frame))
-  (when (rtl-program? (frame-procedure frame))
+  (when (program? (frame-procedure frame))
     (let ((code (rtl-program-code (frame-procedure frame))))
       (format port " (#x~x~@d)" code
               (- (frame-instruction-pointer frame) code))))

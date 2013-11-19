@@ -217,7 +217,7 @@
 
 (define (get-call-data proc)
   (let ((k (cond
-            ((rtl-program? proc) (rtl-program-code proc))
+            ((program? proc) (rtl-program-code proc))
             (else proc))))
     (or (hashv-ref procedure-data k)
         (let ((call-data (make-call-data proc 0 0 0)))
@@ -580,7 +580,7 @@ to @code{statprof-reset} is true."
   (lambda (a b)
     (cond
      ((eq? a b))
-     ((and (rtl-program? a) (rtl-program? b))
+     ((and (program? a) (program? b))
       (eq? (rtl-program-code a) (rtl-program-code b)))
      (else
       #f))))

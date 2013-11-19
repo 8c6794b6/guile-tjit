@@ -41,7 +41,7 @@
             program-arguments-alist program-arguments-alists
             program-lambda-list
 
-            rtl-program? rtl-program-code
+            program? rtl-program-code
             program-free-variables
             program-num-free-variables
             program-free-variable-ref program-free-variable-set!))
@@ -51,20 +51,20 @@
 
 ;; These procedures are called by programs.c.
 (define (rtl-program-name program)
-  (unless (rtl-program? program)
+  (unless (program? program)
     (error "shouldn't get here"))
   (and=> (find-program-debug-info (rtl-program-code program))
          program-debug-info-name))
 (define (rtl-program-documentation program)
-  (unless (rtl-program? program)
+  (unless (program? program)
     (error "shouldn't get here"))
   (find-program-docstring (rtl-program-code program)))
 (define (rtl-program-minimum-arity program)
-  (unless (rtl-program? program)
+  (unless (program? program)
     (error "shouldn't get here"))
   (program-minimum-arity (rtl-program-code program)))
 (define (rtl-program-properties program)
-  (unless (rtl-program? program)
+  (unless (program? program)
     (error "shouldn't get here"))
   (find-program-properties (rtl-program-code program)))
 
@@ -257,7 +257,7 @@
               (arity->arguments-alist
                prog
                (list 0 0 nreq nopt rest? '(#f . ()))))))))
-   ((rtl-program? prog)
+   ((program? prog)
     (or-map (lambda (arity)
               (and (or (not ip)
                        (and (<= (arity-low-pc arity) ip)
@@ -305,7 +305,7 @@ lists."
          (list 0 0 nreq nopt rest? '(#f . ())))))))
   (cond
    ((primitive? prog) (fallback))
-   ((rtl-program? prog)
+   ((program? prog)
     (let ((arities (find-program-arities (rtl-program-code prog))))
       (if arities
           (map arity-arguments-alist arities)
