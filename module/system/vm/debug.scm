@@ -64,7 +64,7 @@
             find-program-debug-info
             arity-arguments-alist
             find-program-arities
-            program-minimum-arity
+            find-program-minimum-arity
 
             find-program-docstring
 
@@ -405,8 +405,8 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
          (read-sub-arities context base (arity-header-offset first)))
         (else (list first)))))))
 
-(define* (program-minimum-arity addr #:optional
-                                (context (find-debug-context addr)))
+(define* (find-program-minimum-arity addr #:optional
+                                     (context (find-debug-context addr)))
   (and=>
    (and context
         (elf-section-by-name (debug-context-elf context) ".guile.arities"))

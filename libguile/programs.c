@@ -225,7 +225,7 @@ SCM_DEFINE (scm_program_free_variable_set_x, "program-free-variable-set!", 3, 0,
 int
 scm_i_program_arity (SCM program, int *req, int *opt, int *rest)
 {
-  static SCM rtl_program_minimum_arity = SCM_BOOL_F;
+  static SCM program_minimum_arity = SCM_BOOL_F;
   SCM l;
 
   if (SCM_PRIMITIVE_P (program))
@@ -242,12 +242,11 @@ scm_i_program_arity (SCM program, int *req, int *opt, int *rest)
       return 1;
     }
 
-  if (scm_is_false (rtl_program_minimum_arity) && scm_module_system_booted_p)
-    rtl_program_minimum_arity =
-        scm_c_private_variable ("system vm program",
-                                "rtl-program-minimum-arity");
+  if (scm_is_false (program_minimum_arity) && scm_module_system_booted_p)
+    program_minimum_arity =
+        scm_c_private_variable ("system vm program", "program-minimum-arity");
 
-  l = scm_call_1 (scm_variable_ref (rtl_program_minimum_arity), program);
+  l = scm_call_1 (scm_variable_ref (program_minimum_arity), program);
   if (scm_is_false (l))
     return 0;
 
