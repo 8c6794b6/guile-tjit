@@ -44,32 +44,31 @@ SCM_DEFINE (scm_program_code, "program-code", 1, 0, 0,
 SCM
 scm_i_program_name (SCM program)
 {
-  static SCM rtl_program_name = SCM_BOOL_F;
+  static SCM program_name = SCM_BOOL_F;
 
   if (SCM_PRIMITIVE_P (program))
     return SCM_SUBR_NAME (program);
 
-  if (scm_is_false (rtl_program_name) && scm_module_system_booted_p)
-    rtl_program_name =
-        scm_c_private_variable ("system vm program", "rtl-program-name");
+  if (scm_is_false (program_name) && scm_module_system_booted_p)
+    program_name =
+        scm_c_private_variable ("system vm program", "program-name");
 
-  return scm_call_1 (scm_variable_ref (rtl_program_name), program);
+  return scm_call_1 (scm_variable_ref (program_name), program);
 }
 
 SCM
 scm_i_program_documentation (SCM program)
 {
-  static SCM rtl_program_documentation = SCM_BOOL_F;
+  static SCM program_documentation = SCM_BOOL_F;
 
   if (SCM_PRIMITIVE_P (program))
     return SCM_BOOL_F;
 
-  if (scm_is_false (rtl_program_documentation) && scm_module_system_booted_p)
-    rtl_program_documentation =
-      scm_c_private_variable ("system vm program",
-                              "rtl-program-documentation");
+  if (scm_is_false (program_documentation) && scm_module_system_booted_p)
+    program_documentation =
+      scm_c_private_variable ("system vm program", "program-documentation");
 
-  return scm_call_1 (scm_variable_ref (rtl_program_documentation), program);
+  return scm_call_1 (scm_variable_ref (program_documentation), program);
 }
 
 SCM

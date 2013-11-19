@@ -50,14 +50,10 @@
                 "scm_init_programs")
 
 ;; These procedures are called by programs.c.
-(define (rtl-program-name program)
-  (unless (program? program)
-    (error "shouldn't get here"))
+(define (program-name program)
   (and=> (find-program-debug-info (program-code program))
          program-debug-info-name))
-(define (rtl-program-documentation program)
-  (unless (program? program)
-    (error "shouldn't get here"))
+(define (program-documentation program)
   (find-program-docstring (program-code program)))
 (define (rtl-program-minimum-arity program)
   (unless (program? program)
