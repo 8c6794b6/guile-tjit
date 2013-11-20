@@ -18,7 +18,7 @@
 
 
 (use-modules (system vm vm)
-             (system vm objcode)
+             (system vm loader)
 	     (system vm program)
 	     (system base compile)
 	     (system base language)
