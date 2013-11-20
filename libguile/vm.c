@@ -715,41 +715,6 @@ scm_i_call_with_current_continuation (SCM proc)
  * VM
  */
 
-static SCM
-resolve_variable (SCM what, SCM module)
-{
-  if (SCM_LIKELY (scm_is_symbol (what)))
-    {
-      if (scm_is_true (module))
-        return scm_module_lookup (module, what);
-      else
-        return scm_module_lookup (scm_the_root_module (), what);
-    }
-  else
-    {
-      SCM modname, sym, public;
-
-      modname = SCM_CAR (what);
-      sym = SCM_CADR (what);
-      public = SCM_CADDR (what);
-
-      if (!scm_module_system_booted_p)
-        {
-#ifdef VM_ENABLE_PARANOID_ASSERTIONS
-          ASSERT (scm_is_false (public));
-          ASSERT (scm_is_true
-                  (scm_equal_p (modname,
-                                scm_list_1 (scm_from_utf8_symbol ("guile")))));
-#endif
-          return scm_lookup (sym);
-        }
-      else if (scm_is_true (public))
-        return scm_public_lookup (modname, sym);
-      else
-        return scm_private_lookup (modname, sym);
-    }
-}
-  
 #define VM_MIN_STACK_SIZE	(1024)
 #define VM_DEFAULT_STACK_SIZE	(256 * 1024)
 static size_t vm_stack_size = VM_DEFAULT_STACK_SIZE;
