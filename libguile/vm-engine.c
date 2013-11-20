@@ -19,7 +19,7 @@
 /* This file is included in vm.c multiple times.  */
 
 
-#define UNPACK_8_8_8(op,a,b,c)    \
+#define UNPACK_8_8_8(op,a,b,c)            \
   do                                      \
     {                                     \
       a = (op >> 8) & 0xff;               \
@@ -28,7 +28,7 @@
     }                                     \
   while (0)
 
-#define UNPACK_8_16(op,a,b)       \
+#define UNPACK_8_16(op,a,b)               \
   do                                      \
     {                                     \
       a = (op >> 8) & 0xff;               \
@@ -36,7 +36,7 @@
     }                                     \
   while (0)
 
-#define UNPACK_16_8(op,a,b)       \
+#define UNPACK_16_8(op,a,b)               \
   do                                      \
     {                                     \
       a = (op >> 8) & 0xffff;             \
@@ -44,7 +44,7 @@
     }                                     \
   while (0)
 
-#define UNPACK_12_12(op,a,b)      \
+#define UNPACK_12_12(op,a,b)              \
   do                                      \
     {                                     \
       a = (op >> 8) & 0xfff;              \
@@ -52,7 +52,7 @@
     }                                     \
   while (0)
 
-#define UNPACK_24(op,a)           \
+#define UNPACK_24(op,a)                   \
   do                                      \
     {                                     \
       a = op >> 8;                        \
@@ -84,13 +84,13 @@
 # define JT_REG
 #endif
 
-#define VM_ASSERT(condition, handler)           \
-  do {                                          \
-    if (SCM_UNLIKELY (!(condition)))            \
-      {                                         \
-        SYNC_ALL();                             \
-        handler;                                \
-      }                                         \
+#define VM_ASSERT(condition, handler)     \
+  do {                                    \
+    if (SCM_UNLIKELY (!(condition)))      \
+      {                                   \
+        SYNC_ALL();                       \
+        handler;                          \
+      }                                   \
   } while (0)
 
 #ifdef VM_ENABLE_ASSERTIONS
