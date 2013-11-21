@@ -211,7 +211,7 @@ vm_dispatch_hook (SCM vm, int hook_num, SCM *argv, int n)
   frame = alloca (sizeof (*frame) + 8);
   frame = (scm_t_cell *) ROUND_UP ((scm_t_uintptr) frame, 8UL);
 
-  frame->word_0 = SCM_PACK (scm_tc7_frame);
+  frame->word_0 = SCM_PACK (scm_tc7_frame | (SCM_VM_FRAME_KIND_VM << 8));
   frame->word_1 = SCM_PACK_POINTER (&c_frame);
 
   if (n == 0)

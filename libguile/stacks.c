@@ -258,7 +258,7 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
       cont = scm_i_capture_current_stack ();
       c = SCM_VM_CONT_DATA (cont);
 
-      frame = scm_c_make_frame (cont,
+      frame = scm_c_make_frame (SCM_VM_FRAME_KIND_CONT, cont,
                                 (c->fp + c->reloc) - c->stack_base,
                                 (c->sp + c->reloc) - c->stack_base,
                                 c->ra);
