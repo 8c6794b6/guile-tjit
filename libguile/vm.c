@@ -150,6 +150,7 @@ vm_return_to_continuation (struct scm_vm *vp, SCM cont, size_t n, SCM *argv)
   }
 }
 
+static struct scm_vm * thread_vm (scm_i_thread *t);
 SCM
 scm_i_capture_current_stack (void)
 {
@@ -157,7 +158,7 @@ scm_i_capture_current_stack (void)
   struct scm_vm *vp;
 
   thread = SCM_I_CURRENT_THREAD;
-  vp = scm_the_vm ();
+  vp = thread_vm (thread);
 
   return scm_i_vm_capture_stack (vp->stack_base, vp->fp, vp->sp, vp->ip,
                                  scm_dynstack_capture_all (&thread->dynstack),
@@ -705,7 +706,7 @@ initialize_default_stack_size (void)
 #undef VM_USE_HOOKS
 #undef VM_NAME
 
-typedef SCM (*scm_t_vm_engine) (struct scm_vm *vp,
+typedef SCM (*scm_t_vm_engine) (scm_i_thread *current_thread, struct scm_vm *vp,
                                 SCM program, SCM *argv, size_t nargs);
 
 static const scm_t_vm_engine vm_engines[SCM_VM_NUM_ENGINES] =
@@ -787,23 +788,32 @@ vm_stack_mark (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
 #endif /* VM_ENABLE_PRECISE_STACK_GC_SCAN */
 
 
-SCM
-scm_call_n (SCM proc, SCM *argv, size_t nargs)
+static struct scm_vm *
+thread_vm (scm_i_thread *t)
 {
-  struct scm_vm *vp = scm_the_vm ();
-  SCM_CHECK_STACK;
-  return vm_engines[vp->engine](vp, proc, argv, nargs);
+  if (SCM_UNLIKELY (!t->vp))
+    t->vp = make_vm ();
+
+  return t->vp;
 }
 
 struct scm_vm *
 scm_the_vm (void)
 {
-  scm_i_thread *t = SCM_I_CURRENT_THREAD;
+  return thread_vm (SCM_I_CURRENT_THREAD);
+}
 
-  if (SCM_UNLIKELY (!t->vp))
-    t->vp = make_vm ();
+SCM
+scm_call_n (SCM proc, SCM *argv, size_t nargs)
+{
+  scm_i_thread *thread;
+  struct scm_vm *vp;
 
-  return t->vp;
+  thread = SCM_I_CURRENT_THREAD;
+  vp = thread_vm (thread);
+
+  SCM_CHECK_STACK;
+  return vm_engines[vp->engine](thread, vp, proc, argv, nargs);
 }
 
 /* Scheme interface */
