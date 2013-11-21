@@ -95,17 +95,17 @@ stack_depth (SCM frame)
  * encountered.
  */
 
-static SCM*
+static scm_t_ptrdiff
 find_prompt (SCM key)
 {
-  SCM *fp;
+  scm_t_ptrdiff fp_offset;
 
   if (!scm_dynstack_find_prompt (&SCM_I_CURRENT_THREAD->dynstack, key,
-                                 NULL, &fp, NULL, NULL, NULL))
+                                 NULL, &fp_offset, NULL, NULL, NULL))
     scm_misc_error ("make-stack", "Prompt tag not found while narrowing stack",
                     scm_list_1 (key));
 
-  return fp;
+  return fp_offset;
 }
 
 static void
@@ -144,9 +144,9 @@ narrow_stack (SCM stack, SCM inner_cut, SCM outer_cut)
   else
     {
       /* Cut until the given prompt tag is seen. */
-      SCM *fp = find_prompt (inner_cut);
+      scm_t_ptrdiff fp_offset = find_prompt (inner_cut);
       for (; len; len--, frame = scm_frame_previous (frame))
-        if (fp == SCM_VM_FRAME_FP (frame) - SCM_VM_FRAME_OFFSET (frame))
+        if (fp_offset == SCM_VM_FRAME_FP_OFFSET (frame))
           break;
     }
 
@@ -178,12 +178,12 @@ narrow_stack (SCM stack, SCM inner_cut, SCM outer_cut)
   else
     {
       /* Cut until the given prompt tag is seen. */
-      SCM *fp = find_prompt (outer_cut);
+      scm_t_ptrdiff fp_offset = find_prompt (outer_cut);
       while (len)
         {
           frame = scm_stack_ref (stack, scm_from_long (len - 1));
           len--;
-          if (fp == SCM_VM_FRAME_FP (frame) - SCM_VM_FRAME_OFFSET (frame))
+          if (fp_offset == SCM_VM_FRAME_FP_OFFSET (frame))
             break;
         }
     }

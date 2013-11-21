@@ -2050,8 +2050,8 @@ VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       flags = escape_only_p ? SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY : 0;
       scm_dynstack_push_prompt (&current_thread->dynstack, flags,
                                 LOCAL_REF (tag),
-                                fp,
-                                LOCAL_ADDRESS (proc_slot),
+                                fp - vp->stack_base,
+                                LOCAL_ADDRESS (proc_slot) - vp->stack_base,
                                 ip + offset,
                                 &registers);
       NEXT (3);

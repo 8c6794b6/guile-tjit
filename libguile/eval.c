@@ -449,14 +449,14 @@ eval (SCM x, SCM env)
         vm = scm_the_vm ();
 
         /* Push the prompt onto the dynamic stack. */
-        scm_dynstack_push_prompt (&SCM_I_CURRENT_THREAD->dynstack,
-                                  SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY
-                                  | SCM_F_DYNSTACK_PROMPT_PUSH_NARGS,
-                                  k,
-                                  SCM_VM_DATA (vm)->fp,
-                                  SCM_VM_DATA (vm)->sp,
-                                  SCM_VM_DATA (vm)->ip,
-                                  &registers);
+        scm_dynstack_push_prompt
+          (&SCM_I_CURRENT_THREAD->dynstack,
+           SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY | SCM_F_DYNSTACK_PROMPT_PUSH_NARGS,
+           k,
+           SCM_VM_DATA (vm)->fp - SCM_VM_DATA (vm)->stack_base,
+           SCM_VM_DATA (vm)->sp - SCM_VM_DATA (vm)->stack_base,
+           SCM_VM_DATA (vm)->ip,
+           &registers);
 
         if (SCM_I_SETJMP (registers))
           {

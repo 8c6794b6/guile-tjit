@@ -148,10 +148,12 @@ struct scm_frame
 
 #define SCM_VM_FRAME_P(x)	(SCM_HAS_TYP7 (x, scm_tc7_frame))
 #define SCM_VM_FRAME_DATA(x)	((struct scm_frame*)SCM_CELL_WORD_1 (x))
-#define SCM_VM_FRAME_STACK_HOLDER(f)	SCM_VM_FRAME_DATA(f)->stack_holder
-#define SCM_VM_FRAME_FP(f)	(SCM_VM_FRAME_DATA(f)->fp_offset + scm_i_frame_stack_base(f))
-#define SCM_VM_FRAME_SP(f)	(SCM_VM_FRAME_DATA(f)->sp_offset + scm_i_frame_stack_base(f))
-#define SCM_VM_FRAME_IP(f)	SCM_VM_FRAME_DATA(f)->ip
+#define SCM_VM_FRAME_STACK_HOLDER(f)	SCM_VM_FRAME_DATA (f)->stack_holder
+#define SCM_VM_FRAME_FP_OFFSET(f)	SCM_VM_FRAME_DATA (f)->fp_offset
+#define SCM_VM_FRAME_SP_OFFSET(f)	SCM_VM_FRAME_DATA (f)->sp_offset
+#define SCM_VM_FRAME_FP(f)	(SCM_VM_FRAME_FP_OFFSET (f) + scm_i_frame_stack_base (f))
+#define SCM_VM_FRAME_SP(f)	(SCM_VM_FRAME_SP_OFFSET (f) + scm_i_frame_stack_base (f))
+#define SCM_VM_FRAME_IP(f)	SCM_VM_FRAME_DATA (f)->ip
 #define SCM_VM_FRAME_OFFSET(f)	scm_i_frame_offset (f)
 #define SCM_VALIDATE_VM_FRAME(p,x)	SCM_MAKE_VALIDATE (p, x, VM_FRAME_P)
 

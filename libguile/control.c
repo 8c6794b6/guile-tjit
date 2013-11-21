@@ -129,16 +129,21 @@ scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv,
   scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
   scm_t_bits *prompt;
   scm_t_dynstack_prompt_flags flags;
+  scm_t_ptrdiff fp_offset, sp_offset;
   SCM *fp, *sp;
   scm_t_uint32 *ip;
   scm_i_jmp_buf *registers;
   size_t i;
 
   prompt = scm_dynstack_find_prompt (dynstack, tag,
-                                     &flags, &fp, &sp, &ip, &registers);
+                                     &flags, &fp_offset, &sp_offset, &ip,
+                                     &registers);
 
   if (!prompt)
     scm_misc_error ("abort", "Abort to unknown prompt", scm_list_1 (tag));
+
+  fp = SCM_VM_DATA (vm)->stack_base + fp_offset;
+  sp = SCM_VM_DATA (vm)->stack_base + sp_offset;
 
   /* Only reify if the continuation referenced in the handler. */
   if (flags & SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY)

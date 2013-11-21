@@ -36,8 +36,8 @@
 
 #define PROMPT_WORDS 5
 #define PROMPT_KEY(top) (SCM_PACK ((top)[0]))
-#define PROMPT_FP(top) ((SCM *) ((top)[1]))
-#define PROMPT_SP(top) ((SCM *) ((top)[2]))
+#define PROMPT_FP(top) ((scm_t_ptrdiff) ((top)[1]))
+#define PROMPT_SP(top) ((scm_t_ptrdiff) ((top)[2]))
 #define PROMPT_IP(top) ((scm_t_uint32 *) ((top)[3]))
 #define PROMPT_JMPBUF(top) ((scm_i_jmp_buf *) ((top)[4]))
 
@@ -186,16 +186,16 @@ void
 scm_dynstack_push_prompt (scm_t_dynstack *dynstack,
                           scm_t_dynstack_prompt_flags flags,
                           SCM key,
-                          SCM *fp, SCM *sp, scm_t_uint32 *ip,
-                          scm_i_jmp_buf *registers)
+                          scm_t_ptrdiff fp_offset, scm_t_ptrdiff sp_offset,
+                          scm_t_uint32 *ip, scm_i_jmp_buf *registers)
 {
   scm_t_bits *words;
 
   words = push_dynstack_entry (dynstack, SCM_DYNSTACK_TYPE_PROMPT, flags,
                                PROMPT_WORDS);
   words[0] = SCM_UNPACK (key);
-  words[1] = (scm_t_bits) fp;
-  words[2] = (scm_t_bits) sp;
+  words[1] = (scm_t_bits) fp_offset;
+  words[2] = (scm_t_bits) sp_offset;
   words[3] = (scm_t_bits) ip;
   words[4] = (scm_t_bits) registers;
 }
@@ -442,8 +442,8 @@ scm_dynstack_unwind_fork (scm_t_dynstack *dynstack, scm_t_dynstack *branch)
 scm_t_bits*
 scm_dynstack_find_prompt (scm_t_dynstack *dynstack, SCM key,
                           scm_t_dynstack_prompt_flags *flags,
-                          SCM **fp, SCM **sp, scm_t_uint32 **ip,
-                          scm_i_jmp_buf **registers)
+                          scm_t_ptrdiff *fp_offset, scm_t_ptrdiff *sp_offset,
+                          scm_t_uint32 **ip, scm_i_jmp_buf **registers)
 {
   scm_t_bits *walk;
 
@@ -457,10 +457,10 @@ scm_dynstack_find_prompt (scm_t_dynstack *dynstack, SCM key,
         {
           if (flags)
             *flags = SCM_DYNSTACK_TAG_FLAGS (tag);
-          if (fp)
-            *fp = PROMPT_FP (walk);
-          if (sp)
-            *sp = PROMPT_SP (walk);
+          if (fp_offset)
+            *fp_offset = PROMPT_FP (walk);
+          if (sp_offset)
+            *sp_offset = PROMPT_SP (walk);
           if (ip)
             *ip = PROMPT_IP (walk);
           if (registers)
