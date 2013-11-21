@@ -173,11 +173,11 @@
       (lambda ()
         ;; Don't enable hooks if the handler is #f.
         (if handler
-            (set-vm-trace-level! (the-vm) (trap-state->trace-level trap-state))))
+            (set-vm-trace-level! (trap-state->trace-level trap-state))))
       thunk
       (lambda ()
         (if handler
-            (set-vm-trace-level! (the-vm) 0))))))
+            (set-vm-trace-level! 0))))))
 
 (define* (list-traps #:optional (trap-state (the-trap-state)))
   (map trap-wrapper-index (trap-state-wrappers trap-state)))

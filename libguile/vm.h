@@ -57,21 +57,21 @@ SCM_API SCM scm_the_vm_fluid;
 #define SCM_VALIDATE_VM(pos,x)	SCM_MAKE_VALIDATE (pos, x, VM_P)
 
 SCM_API SCM scm_the_vm (void);
-SCM_API SCM scm_call_with_vm (SCM vm, SCM proc, SCM args);
+SCM_API SCM scm_call_with_vm (SCM proc, SCM args);
 
 SCM_API SCM scm_vm_p (SCM obj);
-SCM_API SCM scm_vm_apply_hook (SCM vm);
-SCM_API SCM scm_vm_push_continuation_hook (SCM vm);
-SCM_API SCM scm_vm_pop_continuation_hook (SCM vm);
-SCM_API SCM scm_vm_abort_continuation_hook (SCM vm);
-SCM_API SCM scm_vm_restore_continuation_hook (SCM vm);
-SCM_API SCM scm_vm_next_hook (SCM vm);
-SCM_API SCM scm_vm_trace_level (SCM vm);
-SCM_API SCM scm_set_vm_trace_level_x (SCM vm, SCM level);
-SCM_API SCM scm_vm_engine (SCM vm);
-SCM_API SCM scm_set_vm_engine_x (SCM vm, SCM engine);
+SCM_API SCM scm_vm_apply_hook (void);
+SCM_API SCM scm_vm_push_continuation_hook (void);
+SCM_API SCM scm_vm_pop_continuation_hook (void);
+SCM_API SCM scm_vm_abort_continuation_hook (void);
+SCM_API SCM scm_vm_restore_continuation_hook (void);
+SCM_API SCM scm_vm_next_hook (void);
+SCM_API SCM scm_vm_trace_level (void);
+SCM_API SCM scm_set_vm_trace_level_x (SCM level);
+SCM_API SCM scm_vm_engine (void);
+SCM_API SCM scm_set_vm_engine_x (SCM engine);
 SCM_API SCM scm_set_default_vm_engine_x (SCM engine);
-SCM_API void scm_c_set_vm_engine_x (SCM vm, int engine);
+SCM_API void scm_c_set_vm_engine_x (int engine);
 SCM_API void scm_c_set_default_vm_engine_x (int engine);
 
 #define SCM_F_VM_CONT_PARTIAL 0x1

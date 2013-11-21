@@ -422,7 +422,7 @@ If FILE begins with `-' the -s switch is mandatory.
               (and interactive? (not turn-off-debugging?)))
           (begin
             (set-default-vm-engine! 'debug)
-            (set-vm-engine! (the-vm) 'debug)))
+            (set-vm-engine! 'debug)))
       
       ;; Return this value.
       `(;; It would be nice not to load up (ice-9 control), but the

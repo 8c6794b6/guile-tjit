@@ -816,28 +816,28 @@ The interface to hooks is provided by the @code{(system vm vm)} module:
 @end example
 
 @noindent
-The result of calling @code{the-vm} is usually passed as the @var{vm}
-argument to all of these procedures.
+All of these functions implicitly act on the VM for the current thread
+only.
 
-@deffn {Scheme Procedure} vm-next-hook vm
+@deffn {Scheme Procedure} vm-next-hook
 The hook that will be fired before an instruction is retired (and
 executed).
 @end deffn
 
-@deffn {Scheme Procedure} vm-push-continuation-hook vm
+@deffn {Scheme Procedure} vm-push-continuation-hook
 The hook that will be fired after preparing a new frame. Fires just
 before applying a procedure in a non-tail context, just before the
 corresponding apply-hook.
 @end deffn
 
-@deffn {Scheme Procedure} vm-pop-continuation-hook vm
+@deffn {Scheme Procedure} vm-pop-continuation-hook
 The hook that will be fired before returning from a frame.
 
 This hook fires with a variable number of arguments, corresponding to
 the values that the frame returns to its continuation.
 @end deffn
 
-@deffn {Scheme Procedure} vm-apply-hook vm
+@deffn {Scheme Procedure} vm-apply-hook
 The hook that will be fired before a procedure is applied. The frame's
 procedure will have already been set to the new procedure.
 
@@ -848,7 +848,7 @@ whereas a tail call will run without having fired a push-continuation
 hook.
 @end deffn
 
-@deffn {Scheme Procedure} vm-abort-continuation-hook vm
+@deffn {Scheme Procedure} vm-abort-continuation-hook
 The hook that will be called after aborting to a
 prompt.  @xref{Prompts}.
 
@@ -857,7 +857,7 @@ of arguments, corresponding to the values that returned to the
 continuation.
 @end deffn
 
-@deffn {Scheme Procedure} vm-restore-continuation-hook vm
+@deffn {Scheme Procedure} vm-restore-continuation-hook
 The hook that will be called after restoring an undelimited
 continuation. Unfortunately it's not currently possible to introspect on
 the values that were given to the continuation.
@@ -875,12 +875,12 @@ level temporarily set to 0.  That way the hooks don't fire while you're
 handling a hook.  The trace level is restored to whatever it was once the hook
 procedure finishes.
 
-@deffn {Scheme Procedure} vm-trace-level vm
+@deffn {Scheme Procedure} vm-trace-level
 Retrieve the ``trace level'' of the VM. If positive, the trace hooks
 associated with @var{vm} will be run. The initial trace level is 0.
 @end deffn
 
-@deffn {Scheme Procedure} set-vm-trace-level! vm level
+@deffn {Scheme Procedure} set-vm-trace-level! level
 Set the ``trace level'' of the VM.
 @end deffn
 

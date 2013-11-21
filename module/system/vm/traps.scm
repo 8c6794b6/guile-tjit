@@ -139,9 +139,9 @@
     (new-enabled-trap
      vm #f
      (lambda (frame)
-       (add-hook! (vm-apply-hook vm) apply-hook))
+       (add-hook! (vm-apply-hook) apply-hook))
      (lambda (frame)
-       (remove-hook! (vm-apply-hook vm) apply-hook)))))
+       (remove-hook! (vm-apply-hook) apply-hook)))))
 
 ;; A more complicated trap, traps when control enters a procedure.
 ;;
@@ -210,21 +210,21 @@
     (new-enabled-trap
      vm current-frame
      (lambda (frame)
-       (add-hook! (vm-apply-hook vm) apply-hook)
-       (add-hook! (vm-push-continuation-hook vm) push-cont-hook)
-       (add-hook! (vm-pop-continuation-hook vm) pop-cont-hook)
-       (add-hook! (vm-abort-continuation-hook vm) abort-hook)
-       (add-hook! (vm-restore-continuation-hook vm) restore-hook)
+       (add-hook! (vm-apply-hook) apply-hook)
+       (add-hook! (vm-push-continuation-hook) push-cont-hook)
+       (add-hook! (vm-pop-continuation-hook) pop-cont-hook)
+       (add-hook! (vm-abort-continuation-hook) abort-hook)
+       (add-hook! (vm-restore-continuation-hook) restore-hook)
        (if (and frame (our-frame? frame))
            (enter-proc frame)))
      (lambda (frame)
        (if in-proc?
            (exit-proc frame))
-       (remove-hook! (vm-apply-hook vm) apply-hook)
-       (remove-hook! (vm-push-continuation-hook vm) push-cont-hook)
-       (remove-hook! (vm-pop-continuation-hook vm) pop-cont-hook)
-       (remove-hook! (vm-abort-continuation-hook vm) abort-hook)
-       (remove-hook! (vm-restore-continuation-hook vm) restore-hook)))))
+       (remove-hook! (vm-apply-hook) apply-hook)
+       (remove-hook! (vm-push-continuation-hook) push-cont-hook)
+       (remove-hook! (vm-pop-continuation-hook) pop-cont-hook)
+       (remove-hook! (vm-abort-continuation-hook) abort-hook)
+       (remove-hook! (vm-restore-continuation-hook) restore-hook)))))
 
 ;; Building on trap-in-procedure, we have trap-instructions-in-procedure
 ;;
@@ -242,12 +242,12 @@
           (next-handler frame)))
     
     (define (enter frame)
-      (add-hook! (vm-next-hook vm) next-hook)
+      (add-hook! (vm-next-hook) next-hook)
       (if frame (next-hook frame)))
 
     (define (exit frame)
       (exit-handler frame)
-      (remove-hook! (vm-next-hook vm) next-hook))
+      (remove-hook! (vm-next-hook) next-hook))
 
     (trap-in-procedure proc enter exit
                        #:current-frame current-frame #:vm vm
@@ -431,14 +431,14 @@
      (lambda (frame)
        (if (not fp)
            (error "return-or-abort traps may only be enabled once"))
-       (add-hook! (vm-pop-continuation-hook vm) pop-cont-hook)
-       (add-hook! (vm-abort-continuation-hook vm) abort-hook)
-       (add-hook! (vm-restore-continuation-hook vm) abort-hook))
+       (add-hook! (vm-pop-continuation-hook) pop-cont-hook)
+       (add-hook! (vm-abort-continuation-hook) abort-hook)
+       (add-hook! (vm-restore-continuation-hook) abort-hook))
      (lambda (frame)
        (set! fp #f)
-       (remove-hook! (vm-pop-continuation-hook vm) pop-cont-hook)
-       (remove-hook! (vm-abort-continuation-hook vm) abort-hook)
-       (remove-hook! (vm-restore-continuation-hook vm) abort-hook)))))
+       (remove-hook! (vm-pop-continuation-hook) pop-cont-hook)
+       (remove-hook! (vm-abort-continuation-hook) abort-hook)
+       (remove-hook! (vm-restore-continuation-hook) abort-hook)))))
 
 ;; A more traditional dynamic-wind trap. Perhaps this should not be
 ;; based on the above trap-frame-finish?
@@ -473,12 +473,12 @@
     (new-enabled-trap
      vm current-frame
      (lambda (frame)
-       (add-hook! (vm-apply-hook vm) apply-hook))
+       (add-hook! (vm-apply-hook) apply-hook))
      (lambda (frame)
        (if exit-trap
            (abort-hook frame))
        (set! exit-trap #f)
-       (remove-hook! (vm-apply-hook vm) apply-hook)))))
+       (remove-hook! (vm-apply-hook) apply-hook)))))
 
 ;; Trapping all procedure calls within a dynamic extent, recording the
 ;; depth of the call stack relative to the original procedure.
@@ -505,14 +505,14 @@
     ;; FIXME: recalc depth on abort
 
     (define (enter frame)
-      (add-hook! (vm-push-continuation-hook vm) trace-push)
-      (add-hook! (vm-pop-continuation-hook vm) trace-pop)
-      (add-hook! (vm-apply-hook vm) trace-apply))
+      (add-hook! (vm-push-continuation-hook) trace-push)
+      (add-hook! (vm-pop-continuation-hook) trace-pop)
+      (add-hook! (vm-apply-hook) trace-apply))
   
     (define (leave frame)
-      (remove-hook! (vm-push-continuation-hook vm) trace-push)
-      (remove-hook! (vm-pop-continuation-hook vm) trace-pop)
-      (remove-hook! (vm-apply-hook vm) trace-apply))
+      (remove-hook! (vm-push-continuation-hook) trace-push)
+      (remove-hook! (vm-pop-continuation-hook) trace-pop)
+      (remove-hook! (vm-apply-hook) trace-apply))
   
     (define (return frame)
       (leave frame))
@@ -538,10 +538,10 @@
       (next-handler frame))
   
     (define (enter frame)
-      (add-hook! (vm-next-hook vm) trace-next))
+      (add-hook! (vm-next-hook) trace-next))
   
     (define (leave frame)
-      (remove-hook! (vm-next-hook vm) trace-next))
+      (remove-hook! (vm-next-hook) trace-next))
   
     (define (return frame)
       (leave frame))
@@ -629,6 +629,6 @@
     (new-enabled-trap
      vm #f
      (lambda (frame)
-       (add-hook! (vm-next-hook vm) next-hook))
+       (add-hook! (vm-next-hook) next-hook))
      (lambda (frame)
-       (remove-hook! (vm-next-hook vm) next-hook)))))
+       (remove-hook! (vm-next-hook) next-hook)))))

@@ -295,8 +295,7 @@
               ;; confuse guile wrt re-enabling the trap when
               ;; count-call finishes.
               (if %count-calls?
-                  (set-vm-trace-level! (the-vm)
-                                       (1- (vm-trace-level (the-vm)))))
+                  (set-vm-trace-level! (1- (vm-trace-level))))
               (accumulate-time stop-time)))
         
         (setitimer ITIMER_PROF
@@ -308,8 +307,7 @@
             (begin
               (set! last-start-time (get-internal-run-time))
               (if %count-calls?
-                  (set-vm-trace-level! (the-vm)
-                                       (1+ (vm-trace-level (the-vm)))))))))
+                  (set-vm-trace-level! (1+ (vm-trace-level))))))))
   
   (set! inside-profiler? #f))
 
@@ -357,8 +355,8 @@ than @code{statprof-stop}, @code{#f} otherwise."
                        (car sampling-frequency)
                        (cdr sampling-frequency)))
         (if %count-calls?
-            (add-hook! (vm-apply-hook (the-vm)) count-call))
-        (set-vm-trace-level! (the-vm) (1+ (vm-trace-level (the-vm))))
+            (add-hook! (vm-apply-hook) count-call))
+        (set-vm-trace-level! (1+ (vm-trace-level)))
         #t)))
   
 ;; Do not call this from statprof internal functions -- user only.
@@ -371,9 +369,9 @@ than @code{statprof-stop}, @code{#f} otherwise."
       (begin
         (set! gc-time-taken
               (- (cdr (assq 'gc-time-taken (gc-stats))) gc-time-taken))
-        (set-vm-trace-level! (the-vm) (1- (vm-trace-level (the-vm))))
+        (set-vm-trace-level! (1- (vm-trace-level)))
         (if %count-calls?
-            (remove-hook! (vm-apply-hook (the-vm)) count-call))
+            (remove-hook! (vm-apply-hook) count-call))
         ;; I believe that we need to do this before getting the time
         ;; (unless we want to make things even more complicated).
         (set! remaining-prof-time (setitimer ITIMER_PROF 0 0 0 0))
@@ -754,7 +752,7 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
           (set! last-start-time (get-internal-run-time))
           (set! gc-time-taken (cdr (assq 'gc-time-taken (gc-stats))))
           (add-hook! after-gc-hook gc-callback)
-          (set-vm-trace-level! (the-vm) (1+ (vm-trace-level (the-vm))))
+          (set-vm-trace-level! (1+ (vm-trace-level)))
           #t)))
 
   (define (stop)

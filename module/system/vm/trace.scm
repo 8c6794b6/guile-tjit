@@ -114,10 +114,10 @@
             (set! inst-trap
                   (trace-instructions-in-procedure thunk #:vm vm #:width width 
                                                    #:max-indent max-indent)))
-        (set-vm-trace-level! vm (1+ (vm-trace-level vm))))
+        (set-vm-trace-level! (1+ (vm-trace-level))))
       thunk
       (lambda ()
-        (set-vm-trace-level! vm (1- (vm-trace-level vm)))
+        (set-vm-trace-level! (1- (vm-trace-level)))
         (if call-trap (call-trap))
         (if inst-trap (inst-trap))
         (set! call-trap #f)

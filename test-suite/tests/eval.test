@@ -437,9 +437,8 @@
   ;; FIXME: this test does not test what it is intending to test
   (pass-if-exception "exception raised"
     exception:vm-error
-    (let ((vm    (the-vm))
-          (thunk (let loop () (cons 's (loop)))))
-      (call-with-vm vm thunk))))
+    (let ((thunk (let loop () (cons 's (loop)))))
+      (call-with-vm thunk))))
 
 ;;;
 ;;; docstrings

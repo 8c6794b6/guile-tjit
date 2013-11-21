@@ -859,15 +859,14 @@ SCM_DEFINE (scm_vm_p, "vm?", 1, 0, 0,
 #define VM_DEFINE_HOOK(n)				\
 {							\
   struct scm_vm *vp;					\
-  SCM_VALIDATE_VM (1, vm);				\
-  vp = SCM_VM_DATA (vm);				\
+  vp = SCM_VM_DATA (scm_the_vm ());                     \
   if (scm_is_false (vp->hooks[n]))			\
     vp->hooks[n] = scm_make_hook (SCM_I_MAKINUM (1));	\
   return vp->hooks[n];					\
 }
 
-SCM_DEFINE (scm_vm_apply_hook, "vm-apply-hook", 1, 0, 0,
-	    (SCM vm),
+SCM_DEFINE (scm_vm_apply_hook, "vm-apply-hook", 0, 0, 0,
+	    (void),
 	    "")
 #define FUNC_NAME s_scm_vm_apply_hook
 {
@@ -875,8 +874,8 @@ SCM_DEFINE (scm_vm_apply_hook, "vm-apply-hook", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_vm_push_continuation_hook, "vm-push-continuation-hook", 1, 0, 0,
-	    (SCM vm),
+SCM_DEFINE (scm_vm_push_continuation_hook, "vm-push-continuation-hook", 0, 0, 0,
+	    (void),
 	    "")
 #define FUNC_NAME s_scm_vm_push_continuation_hook
 {
@@ -884,8 +883,8 @@ SCM_DEFINE (scm_vm_push_continuation_hook, "vm-push-continuation-hook", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_vm_pop_continuation_hook, "vm-pop-continuation-hook", 1, 0, 0,
-	    (SCM vm),
+SCM_DEFINE (scm_vm_pop_continuation_hook, "vm-pop-continuation-hook", 0, 0, 0,
+	    (void),
 	    "")
 #define FUNC_NAME s_scm_vm_pop_continuation_hook
 {
@@ -893,8 +892,8 @@ SCM_DEFINE (scm_vm_pop_continuation_hook, "vm-pop-continuation-hook", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_vm_next_hook, "vm-next-hook", 1, 0, 0,
-	    (SCM vm),
+SCM_DEFINE (scm_vm_next_hook, "vm-next-hook", 0, 0, 0,
+	    (void),
 	    "")
 #define FUNC_NAME s_scm_vm_next_hook
 {
@@ -902,8 +901,8 @@ SCM_DEFINE (scm_vm_next_hook, "vm-next-hook", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_vm_abort_continuation_hook, "vm-abort-continuation-hook", 1, 0, 0,
-	    (SCM vm),
+SCM_DEFINE (scm_vm_abort_continuation_hook, "vm-abort-continuation-hook", 0, 0, 0,
+	    (void),
 	    "")
 #define FUNC_NAME s_scm_vm_abort_continuation_hook
 {
@@ -911,8 +910,8 @@ SCM_DEFINE (scm_vm_abort_continuation_hook, "vm-abort-continuation-hook", 1, 0, 
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_vm_restore_continuation_hook, "vm-restore-continuation-hook", 1, 0, 0,
-	    (SCM vm),
+SCM_DEFINE (scm_vm_restore_continuation_hook, "vm-restore-continuation-hook", 0, 0, 0,
+	    (void),
 	    "")
 #define FUNC_NAME s_scm_vm_restore_continuation_hook
 {
@@ -920,23 +919,21 @@ SCM_DEFINE (scm_vm_restore_continuation_hook, "vm-restore-continuation-hook", 1,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_vm_trace_level, "vm-trace-level", 1, 0, 0,
-	    (SCM vm),
+SCM_DEFINE (scm_vm_trace_level, "vm-trace-level", 0, 0, 0,
+	    (void),
 	    "")
 #define FUNC_NAME s_scm_vm_trace_level
 {
-  SCM_VALIDATE_VM (1, vm);
-  return scm_from_int (SCM_VM_DATA (vm)->trace_level);
+  return scm_from_int (SCM_VM_DATA (scm_the_vm ())->trace_level);
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_set_vm_trace_level_x, "set-vm-trace-level!", 2, 0, 0,
-	    (SCM vm, SCM level),
+SCM_DEFINE (scm_set_vm_trace_level_x, "set-vm-trace-level!", 1, 0, 0,
+	    (SCM level),
 	    "")
 #define FUNC_NAME s_scm_set_vm_trace_level_x
 {
-  SCM_VALIDATE_VM (1, vm);
-  SCM_VM_DATA (vm)->trace_level = scm_to_int (level);
+  SCM_VM_DATA (scm_the_vm ())->trace_level = scm_to_int (level);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -973,36 +970,33 @@ vm_engine_to_symbol (int engine, const char *FUNC_NAME)
     }
 }
   
-SCM_DEFINE (scm_vm_engine, "vm-engine", 1, 0, 0,
-	    (SCM vm),
+SCM_DEFINE (scm_vm_engine, "vm-engine", 0, 0, 0,
+	    (void),
 	    "")
 #define FUNC_NAME s_scm_vm_engine
 {
-  SCM_VALIDATE_VM (1, vm);
-  return vm_engine_to_symbol (SCM_VM_DATA (vm)->engine, FUNC_NAME);
+  return vm_engine_to_symbol (SCM_VM_DATA (scm_the_vm ())->engine, FUNC_NAME);
 }
 #undef FUNC_NAME
 
 void
-scm_c_set_vm_engine_x (SCM vm, int engine)
+scm_c_set_vm_engine_x (int engine)
 #define FUNC_NAME "set-vm-engine!"
 {
-  SCM_VALIDATE_VM (1, vm);
-
   if (engine < 0 || engine >= SCM_VM_NUM_ENGINES)
     SCM_MISC_ERROR ("Unknown VM engine: ~a",
                     scm_list_1 (scm_from_int (engine)));
     
-  SCM_VM_DATA (vm)->engine = engine;
+  SCM_VM_DATA (scm_the_vm ())->engine = engine;
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_set_vm_engine_x, "set-vm-engine!", 2, 0, 0,
-	    (SCM vm, SCM engine),
+SCM_DEFINE (scm_set_vm_engine_x, "set-vm-engine!", 1, 0, 0,
+	    (SCM engine),
 	    "")
 #define FUNC_NAME s_scm_set_vm_engine_x
 {
-  scm_c_set_vm_engine_x (vm, symbol_to_vm_engine (engine, FUNC_NAME));
+  scm_c_set_vm_engine_x (symbol_to_vm_engine (engine, FUNC_NAME));
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -1029,63 +1023,15 @@ SCM_DEFINE (scm_set_default_vm_engine_x, "set-default-vm-engine!", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-static void reinstate_vm (SCM vm)
-{
-  scm_i_thread *t = SCM_I_CURRENT_THREAD;
-  t->vm = vm;
-}
-
-SCM_DEFINE (scm_call_with_vm, "call-with-vm", 2, 0, 1,
-	    (SCM vm, SCM proc, SCM args),
+/* FIXME: This function makes no sense, but we keep it to make sure we
+   have a way of switching to the debug or regular VM.  */
+SCM_DEFINE (scm_call_with_vm, "call-with-vm", 1, 0, 1,
+	    (SCM proc, SCM args),
 	    "Apply @var{proc} to @var{args} in a dynamic extent in which\n"
-            "@var{vm} is the current VM.\n\n"
-            "As an implementation restriction, if @var{vm} is not the same\n"
-            "as the current thread's VM, continuations captured within the\n"
-            "call to @var{proc} may not be reinstated once control leaves\n"
-            "@var{proc}.")
+            "@var{vm} is the current VM.")
 #define FUNC_NAME s_scm_call_with_vm
 {
-  SCM prev_vm, ret;
-  SCM *argv;
-  int i, nargs;
-  scm_t_wind_flags flags;
-  scm_i_thread *t = SCM_I_CURRENT_THREAD;
-
-  SCM_VALIDATE_VM (1, vm);
-  SCM_VALIDATE_PROC (2, proc);
-
-  nargs = scm_ilength (args);
-  if (SCM_UNLIKELY (nargs < 0))
-    scm_wrong_type_arg_msg (FUNC_NAME, 3, args, "list");
-  
-  argv = alloca (nargs * sizeof(SCM));
-  for (i = 0; i < nargs; i++)
-    {
-      argv[i] = SCM_CAR (args);
-      args = SCM_CDR (args);
-    }
-
-  prev_vm = t->vm;
-
-  /* Reentry can happen via invokation of a saved continuation, but
-     continuations only save the state of the VM that they are in at
-     capture-time, which might be different from this one.  So, in the
-     case that the VMs are different, set up a non-rewindable frame to
-     prevent reinstating an incomplete continuation.  */
-  flags = scm_is_eq (prev_vm, vm) ? 0 : SCM_F_WIND_EXPLICITLY;
-  if (flags)
-    {
-      scm_dynwind_begin (0);
-      scm_dynwind_unwind_handler_with_scm (reinstate_vm, prev_vm, flags);
-      t->vm = vm;
-    }
-
-  ret = scm_c_vm_run (vm, proc, argv, nargs);
-
-  if (flags)
-    scm_dynwind_end ();
-  
-  return ret;
+  return scm_apply_0 (proc, args);
 }
 #undef FUNC_NAME
 

@@ -369,7 +369,7 @@
                      (p x y))))
       (catch 'foo
         (lambda ()
-          (call-with-vm (the-vm) (lambda () (throw 'foo (the-vm)))))
+          (call-with-vm (lambda () (throw 'foo (the-vm)))))
         (lambda (key vm)
           (and (eq? key 'foo)
                (eq? vm (the-vm))))))))

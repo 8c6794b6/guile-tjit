@@ -69,16 +69,16 @@ coverage data.  Return code coverage data and the values returned by THUNK."
   ;; VM is different from the current one, continuations will not be
   ;; resumable.
   (call-with-values (lambda ()
-                      (let ((level   (vm-trace-level vm))
-                            (hook    (vm-next-hook vm)))
+                      (let ((level   (vm-trace-level))
+                            (hook    (vm-next-hook)))
                         (dynamic-wind
                           (lambda ()
-                            (set-vm-trace-level! vm (+ level 1))
+                            (set-vm-trace-level! (+ level 1))
                             (add-hook! hook collect!))
                           (lambda ()
-                            (call-with-vm vm thunk))
+                            (call-with-vm thunk))
                           (lambda ()
-                            (set-vm-trace-level! vm level)
+                            (set-vm-trace-level! level)
                             (remove-hook! hook collect!)))))
     (lambda args
       (apply values (make-coverage-data ip-counts) args))))
