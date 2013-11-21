@@ -856,15 +856,6 @@ SCM_DEFINE (scm_vm_p, "vm?", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_make_vm, "make-vm", 0, 0, 0,
-	    (void),
-	    "")
-#define FUNC_NAME s_scm_make_vm,
-{
-  return make_vm ();
-}
-#undef FUNC_NAME
-
 SCM_DEFINE (scm_vm_ip, "vm:ip", 1, 0, 0,
 	    (SCM vm),
 	    "")

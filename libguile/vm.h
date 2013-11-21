@@ -57,9 +57,6 @@ SCM_API SCM scm_the_vm_fluid;
 #define SCM_VALIDATE_VM(pos,x)	SCM_MAKE_VALIDATE (pos, x, VM_P)
 
 SCM_API SCM scm_the_vm (void);
-SCM_API SCM scm_make_vm (void);
-
-SCM_API SCM scm_the_vm (void);
 SCM_API SCM scm_call_with_vm (SCM vm, SCM proc, SCM args);
 
 SCM_API SCM scm_vm_p (SCM obj);

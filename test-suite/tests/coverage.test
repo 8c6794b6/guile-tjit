@@ -33,7 +33,7 @@
        (read-enable 'positions)
        (compile (read input))))))
 
-(define %test-vm (make-vm))
+(define %test-vm (the-vm))
 
 (define test-procedure
   (compile '(lambda (x)

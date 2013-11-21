@@ -362,20 +362,17 @@
 
 (with-test-prefix/c&e "the-vm"
 
-  (pass-if "unwind changes VMs"
-    (let ((new-vm  (make-vm))
-          (prev-vm (the-vm))
-          (proc    (lambda (x y)
+  (pass-if "unwind through call-with-vm"
+    (let ((proc    (lambda (x y)
                      (expt x y)))
           (call    (lambda (p x y)
                      (p x y))))
       (catch 'foo
         (lambda ()
-          (call-with-vm new-vm (lambda () (throw 'foo (the-vm)))))
+          (call-with-vm (the-vm) (lambda () (throw 'foo (the-vm)))))
         (lambda (key vm)
           (and (eq? key 'foo)
-               (eq? vm new-vm)
-               (eq? (the-vm) prev-vm)))))))
+               (eq? vm (the-vm))))))))
 
 ;; These tests from Oleg Kiselyov's delim-control-n.scm, available at
 ;; http://okmij.org/ftp/Scheme/delim-control-n.scm.  Public domain.

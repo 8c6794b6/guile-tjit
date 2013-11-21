@@ -18,7 +18,7 @@
 (define-module (test-suite test-eval)
   :use-module (test-suite lib)
   :use-module ((srfi srfi-1) :select (unfold count))
-  :use-module ((system vm vm) :select (make-vm call-with-vm))
+  :use-module ((system vm vm) :select (the-vm call-with-vm))
   :use-module (ice-9 documentation)
   :use-module (ice-9 local-eval))
 
@@ -437,7 +437,7 @@
   ;; FIXME: this test does not test what it is intending to test
   (pass-if-exception "exception raised"
     exception:vm-error
-    (let ((vm    (make-vm))
+    (let ((vm    (the-vm))
           (thunk (let loop () (cons 's (loop)))))
       (call-with-vm vm thunk))))
 
