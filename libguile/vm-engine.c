@@ -424,7 +424,7 @@
   ((scm_t_uintptr) (ptr) % alignof_type (type) == 0)
 
 static SCM
-VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
+VM_NAME (struct scm_vm *vp, SCM program, SCM *argv, size_t nargs_)
 {
   /* Instruction pointer: A pointer to the opcode that is currently
      running.  */
@@ -439,7 +439,6 @@ VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   register scm_t_uint32 op;
 
   /* Cached variables. */
-  struct scm_vm *vp = SCM_VM_DATA (vm);
   scm_i_thread *current_thread = SCM_I_CURRENT_THREAD;
   scm_i_jmp_buf registers;              /* used for prompts */
 

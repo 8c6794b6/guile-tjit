@@ -737,7 +737,8 @@ initialize_default_stack_size (void)
 #undef VM_USE_HOOKS
 #undef VM_NAME
 
-typedef SCM (*scm_t_vm_engine) (SCM vm, SCM program, SCM *argv, size_t nargs);
+typedef SCM (*scm_t_vm_engine) (struct scm_vm *vp,
+                                SCM program, SCM *argv, size_t nargs);
 
 static const scm_t_vm_engine vm_engines[SCM_VM_NUM_ENGINES] =
   { vm_regular_engine, vm_debug_engine };
@@ -822,7 +823,7 @@ scm_c_vm_run (SCM vm, SCM program, SCM *argv, int nargs)
 {
   struct scm_vm *vp = SCM_VM_DATA (vm);
   SCM_CHECK_STACK;
-  return vm_engines[vp->engine](vm, program, argv, nargs);
+  return vm_engines[vp->engine](vp, program, argv, nargs);
 }
 
 SCM
