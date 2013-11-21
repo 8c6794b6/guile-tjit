@@ -157,7 +157,7 @@ scm_i_capture_current_stack (void)
   struct scm_vm *vp;
 
   thread = SCM_I_CURRENT_THREAD;
-  vp = SCM_VM_DATA (scm_the_vm ());
+  vp = scm_the_vm ();
 
   return scm_i_vm_capture_stack (vp->stack_base, vp->fp, vp->sp, vp->ip,
                                  scm_dynstack_capture_all (&thread->dynstack),
@@ -817,20 +817,14 @@ vm_stack_mark (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
 
 
 SCM
-scm_c_vm_run (SCM vm, SCM program, SCM *argv, int nargs)
-{
-  struct scm_vm *vp = SCM_VM_DATA (vm);
-  SCM_CHECK_STACK;
-  return vm_engines[vp->engine](vp, program, argv, nargs);
-}
-
-SCM
 scm_call_n (SCM proc, SCM *argv, size_t nargs)
 {
-  return scm_c_vm_run (scm_the_vm (), proc, argv, nargs);
+  struct scm_vm *vp = scm_the_vm ();
+  SCM_CHECK_STACK;
+  return vm_engines[vp->engine](vp, proc, argv, nargs);
 }
 
-SCM
+struct scm_vm *
 scm_the_vm (void)
 {
   scm_i_thread *t = SCM_I_CURRENT_THREAD;
@@ -838,7 +832,7 @@ scm_the_vm (void)
   if (SCM_UNLIKELY (scm_is_false (t->vm)))
     t->vm = make_vm ();
 
-  return t->vm;
+  return SCM_VM_DATA (t->vm);
 }
 
 /* Scheme interface */
@@ -846,7 +840,7 @@ scm_the_vm (void)
 #define VM_DEFINE_HOOK(n)				\
 {							\
   struct scm_vm *vp;					\
-  vp = SCM_VM_DATA (scm_the_vm ());                     \
+  vp = scm_the_vm ();                                   \
   if (scm_is_false (vp->hooks[n]))			\
     vp->hooks[n] = scm_make_hook (SCM_I_MAKINUM (1));	\
   return vp->hooks[n];					\
@@ -911,7 +905,7 @@ SCM_DEFINE (scm_vm_trace_level, "vm-trace-level", 0, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_vm_trace_level
 {
-  return scm_from_int (SCM_VM_DATA (scm_the_vm ())->trace_level);
+  return scm_from_int (scm_the_vm ()->trace_level);
 }
 #undef FUNC_NAME
 
@@ -920,7 +914,7 @@ SCM_DEFINE (scm_set_vm_trace_level_x, "set-vm-trace-level!", 1, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_set_vm_trace_level_x
 {
-  SCM_VM_DATA (scm_the_vm ())->trace_level = scm_to_int (level);
+  scm_the_vm ()->trace_level = scm_to_int (level);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -962,7 +956,7 @@ SCM_DEFINE (scm_vm_engine, "vm-engine", 0, 0, 0,
 	    "")
 #define FUNC_NAME s_scm_vm_engine
 {
-  return vm_engine_to_symbol (SCM_VM_DATA (scm_the_vm ())->engine, FUNC_NAME);
+  return vm_engine_to_symbol (scm_the_vm ()->engine, FUNC_NAME);
 }
 #undef FUNC_NAME
 
@@ -974,7 +968,7 @@ scm_c_set_vm_engine_x (int engine)
     SCM_MISC_ERROR ("Unknown VM engine: ~a",
                     scm_list_1 (scm_from_int (engine)));
     
-  SCM_VM_DATA (scm_the_vm ())->engine = engine;
+  scm_the_vm ()->engine = engine;
 }
 #undef FUNC_NAME
 

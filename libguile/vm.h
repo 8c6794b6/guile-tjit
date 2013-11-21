@@ -56,7 +56,7 @@ SCM_API SCM scm_the_vm_fluid;
 #define SCM_VM_DATA(vm)		((struct scm_vm *) SCM_CELL_WORD_1 (vm))
 #define SCM_VALIDATE_VM(pos,x)	SCM_MAKE_VALIDATE (pos, x, VM_P)
 
-SCM_API SCM scm_the_vm (void);
+SCM_INTERNAL struct scm_vm *scm_the_vm (void);
 SCM_API SCM scm_call_with_vm (SCM proc, SCM args);
 
 SCM_API SCM scm_vm_apply_hook (void);
@@ -93,8 +93,6 @@ struct scm_vm_cont {
 #define SCM_VM_CONT_REWINDABLE_P(CONT) (SCM_VM_CONT_DATA (CONT)->flags & SCM_F_VM_CONT_REWINDABLE)
 
 SCM_API SCM scm_load_compiled_with_vm (SCM file);
-
-SCM_INTERNAL SCM scm_c_vm_run (SCM vm, SCM program, SCM *argv, int nargs);
 
 SCM_INTERNAL void scm_i_vm_print (SCM x, SCM port,
                                   scm_print_state *pstate);

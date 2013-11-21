@@ -447,7 +447,7 @@ eval (SCM x, SCM env)
 
         k = EVAL1 (CAR (mx), env);
         handler = EVAL1 (CDDR (mx), env);
-        vp = SCM_VM_DATA (scm_the_vm ());
+        vp = scm_the_vm ();
 
         /* Push the prompt onto the dynamic stack. */
         scm_dynstack_push_prompt (&SCM_I_CURRENT_THREAD->dynstack,
@@ -463,7 +463,7 @@ eval (SCM x, SCM env)
           {
             /* The prompt exited nonlocally. */
             proc = handler;
-            vp = SCM_VM_DATA (scm_the_vm ());
+            vp = scm_the_vm ();
             args = scm_i_prompt_pop_abort_args_x (vp);
             goto apply_proc;
           }

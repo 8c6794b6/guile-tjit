@@ -198,7 +198,7 @@ SCM_DEFINE (scm_abort_to_prompt_star, "abort-to-prompt*", 2, 0, 0,
   for (i = 0; i < n; i++, args = scm_cdr (args))
     argv[i] = scm_car (args);
 
-  scm_c_abort (SCM_VM_DATA (scm_the_vm ()), tag, n, argv, NULL);
+  scm_c_abort (scm_the_vm (), tag, n, argv, NULL);
 
   /* Oh, what, you're still here? The abort must have been reinstated. Actually,
      that's quite impossible, given that we're already in C-land here, so...
