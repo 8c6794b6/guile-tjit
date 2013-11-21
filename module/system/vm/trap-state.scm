@@ -146,19 +146,19 @@
 
 
 ;;;
-;;; VM-local trap states
+;;; Per-thread trap states
 ;;;
 
-(define *trap-states* (make-weak-key-hash-table))
+;; FIXME: This should be thread-local -- not something you can inherit
+;; from a dynamic state.
 
-(define (trap-state-for-vm vm)
-  (or (hashq-ref *trap-states* vm)
-      (let ((ts (make-trap-state)))
-        (hashq-set! *trap-states* vm ts)
-        (trap-state-for-vm vm))))
+(define %trap-state (make-parameter #f))
 
 (define (the-trap-state)
-  (trap-state-for-vm (the-vm)))
+  (or (%trap-state)
+      (let ((ts (make-trap-state)))
+        (%trap-state ts)
+        ts)))
 
 
 

@@ -32,7 +32,7 @@
 ;;;
 
 (define-module (ice-9 command-line)
-  #:autoload (system vm vm) (set-default-vm-engine! set-vm-engine! the-vm)
+  #:autoload (system vm vm) (set-default-vm-engine! set-vm-engine!)
   #:export (compile-shell-switches
             version-etc
             *GPLv3+*

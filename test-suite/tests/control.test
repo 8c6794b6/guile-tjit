@@ -360,7 +360,7 @@
   (pass-if-exception "foo" '(misc-error . "^Abort to unknown prompt")
                      (abort-to-prompt 'does-not-exist)))
 
-(with-test-prefix/c&e "the-vm"
+(with-test-prefix/c&e "unwind"
 
   (pass-if "unwind through call-with-vm"
     (let ((proc    (lambda (x y)
@@ -369,10 +369,9 @@
                      (p x y))))
       (catch 'foo
         (lambda ()
-          (call-with-vm (lambda () (throw 'foo (the-vm)))))
-        (lambda (key vm)
-          (and (eq? key 'foo)
-               (eq? vm (the-vm))))))))
+          (call-with-vm (lambda () (throw 'foo))))
+        (lambda (key)
+          (eq? key 'foo))))))
 
 ;; These tests from Oleg Kiselyov's delim-control-n.scm, available at
 ;; http://okmij.org/ftp/Scheme/delim-control-n.scm.  Public domain.

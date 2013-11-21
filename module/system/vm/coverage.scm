@@ -50,9 +50,10 @@
 ;;; Gathering coverage data.
 ;;;
 
-(define (with-code-coverage vm thunk)
-  "Run THUNK, a zero-argument procedure, using VM; instrument VM to collect code
-coverage data.  Return code coverage data and the values returned by THUNK."
+(define (with-code-coverage thunk)
+  "Run THUNK, a zero-argument procedure, while instrumenting Guile's VM to
+collect code coverage data.  Return code coverage data and the values returned
+by THUNK."
 
   (define ip-counts
     ;; A table mapping instruction pointers to the number of times they were

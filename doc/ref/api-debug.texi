@@ -716,7 +716,7 @@ a thunk, gives us the following:
 @lisp
 scheme@@(guile-user)> (use-modules (system vm vm))
 scheme@@(guile-user)> (debug-set! stack 10000)
-scheme@@(guile-user)> (let lp () (call-with-vm (the-vm) lp))
+scheme@@(guile-user)> (let lp () (call-with-vm lp))
 ERROR: In procedure call-with-vm:
 ERROR: Stack overflow
 @end lisp
@@ -1178,7 +1178,7 @@ procedure calls and returns within the thunk.
 
 @deffn {Scheme Procedure} call-with-trace thunk [#:calls?=#t] @
                           [#:instructions?=#f] @
-                          [#:width=80] [#:vm=(the-vm)]
+                          [#:width=80]
 Call @var{thunk}, tracing all execution within its dynamic extent.
 
 If @var{calls?} is true, Guile will print a brief report at each

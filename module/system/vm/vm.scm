@@ -19,8 +19,7 @@
 ;;; Code:
 
 (define-module (system vm vm)
-  #:export (vm?
-            the-vm call-with-vm
+  #:export (call-with-vm
             vm-trace-level set-vm-trace-level!
             vm-engine set-vm-engine! set-default-vm-engine!
             vm-push-continuation-hook vm-pop-continuation-hook

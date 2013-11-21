@@ -33,8 +33,6 @@
        (read-enable 'positions)
        (compile (read input))))))
 
-(define %test-vm (the-vm))
-
 (define test-procedure
   (compile '(lambda (x)
               (if (> x 2)
@@ -48,7 +46,7 @@
     (let ((proc (code "foo.scm" "(lambda (x y)  ;; 0
                                    (+ x y))     ;; 1")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda () (proc 1 2)))))
         (and (coverage-data? data)
              (= 3 result)
@@ -63,7 +61,7 @@
                                          (display x) ;; 3
                                          (+ x y))))  ;; 4")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda () (proc 1 2)))))
         (and (coverage-data? data)
              (let-values (((instr exec)
@@ -78,7 +76,7 @@
                                    (+ (/ x y)    ;; 1
                                       (* x y)))  ;; 2")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda () (proc 1 2)))))
         (let ((counts (line-execution-counts data "bar.scm")))
           (and (pair? counts)
@@ -101,7 +99,7 @@
                                             ((= x 0) #t)        ;; 7
                                             ((< x 0) 'never))))")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda () (proc 77)))))
         (let ((counts (line-execution-counts data "fooz.scm")))
           (and (pair? counts)
@@ -125,7 +123,7 @@
                                          (+ x y))    ;; 4
                                        (+ x y)))     ;; 5")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda () (proc 1 2)))))
         (let ((counts (line-execution-counts data "baz.scm")))
           (and (pair? counts)
@@ -148,7 +146,7 @@
                                                    (not (even? (1- x)))))) ;; 4
                                    even?)")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda () (proc 0)))))
         (let ((counts (line-execution-counts data "baz.scm")))
           (and (pair? counts)
@@ -166,7 +164,7 @@
                                    ((x)   (+ x 3))  ;; 1
                                    ((x y) (+ x y))) ;; 2")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda ()
                         (+ (proc 1) (proc 2 3))))))
         (let ((counts (line-execution-counts data "cl.scm")))
@@ -179,7 +177,7 @@
     (let ((proc (code "one-liner.scm"
             "(lambda (x y) (+ x y (* x y) (if (> x y) 1 2) (quotient y x)))")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda () (proc 451 1884)))))
         (let ((counts (line-execution-counts data "one-liner.scm")))
           (equal? counts '((0 . 1))))))))
@@ -190,7 +188,7 @@
   (pass-if "several times"
     (let ((proc (code "foo.scm" "(lambda (x y) x)")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda () (+ (proc 1 2) (proc 2 3))))))
         (and (coverage-data? data)
              (= 3 result)
@@ -199,7 +197,7 @@
   (pass-if "case-lambda"
     (let ((proc (code "foo.scm" "(case-lambda ((x) x) ((x y) (+ x y)))")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda ()
                         (+ (proc 1) (proc 2 3))))))
         (and (coverage-data? data)
@@ -209,7 +207,7 @@
   (pass-if "never"
     (let ((proc (code "foo.scm" "(lambda (x y) x)")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda () (+ 1 2)))))
         (and (coverage-data? data)
              (= 3 result)
@@ -220,14 +218,14 @@
            (proc  (lambda args (length args)))
            (b     (make-struct <box> 0 proc)))
       (let-values (((data result)
-                    (with-code-coverage %test-vm b)))
+                    (with-code-coverage b)))
         (and (coverage-data? data)
              (= 0 result)
              (= (procedure-execution-count data proc) 1)))))
 
   (pass-if "called from C"
     ;; The `scm_call_N' functions use the VM returned by `the-vm'.  This
-    ;; test makes sure that they get to use %TEST-VM.
+    ;; test makes sure that their calls are traced.
     (let ((proc (code "foo.scm" "(lambda (x y) (+ x y))"))
           (call (false-if-exception       ; can we resolve `scm_call_2'?
                  (pointer->procedure '*
@@ -236,7 +234,7 @@
                                      '(* * *)))))
       (if call
           (let-values (((data result)
-                        (with-code-coverage %test-vm
+                        (with-code-coverage
                           (lambda ()
                             (call (make-pointer (object-address proc))
                                   (make-pointer (object-address 1))
@@ -248,7 +246,7 @@
 
   (pass-if "called from eval"
     (let-values (((data result)
-                  (with-code-coverage %test-vm
+                  (with-code-coverage
                     (lambda ()
                       (eval '(test-procedure 123) (current-module))))))
       (and (coverage-data? data)
@@ -261,7 +259,7 @@
   (pass-if "source files are listed as expected"
     (let ((proc (code "chbouib.scm" "(lambda (x y) x)")))
       (let-values (((data result)
-                    (with-code-coverage %test-vm
+                    (with-code-coverage
                       (lambda () (proc 1 2)))))
 
         (let ((files (map basename (instrumented-source-files data))))

@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C) 2010  Free Software Foundation, Inc.
+@c Copyright (C) 2010, 2013  Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
 
@@ -14,10 +14,10 @@ part of the code is @dfn{covered} by the test suite.  The @code{(system vm
 coverage)} module provides tools to gather code coverage data and to present
 them, as detailed below.
 
-@deffn {Scheme Procedure} with-code-coverage vm thunk
-Run @var{thunk}, a zero-argument procedure, using @var{vm}; instrument @var{vm}
-to collect code coverage data.  Return code coverage data and the values
-returned by @var{thunk}.
+@deffn {Scheme Procedure} with-code-coverage thunk
+Run @var{thunk}, a zero-argument procedure, while instrumenting Guile's
+virtual machine to collect code coverage data.  Return code coverage
+data and the values returned by @var{thunk}.
 @end deffn
 
 @deffn {Scheme Procedure} coverage-data? obj
@@ -43,7 +43,7 @@ Here's an example use:
              (system vm vm))
 
 (call-with-values (lambda ()
-                    (with-code-coverage (the-vm)
+                    (with-code-coverage
                       (lambda ()
                         (do-something-tricky))))
   (lambda (data result)

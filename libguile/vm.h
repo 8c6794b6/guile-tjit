@@ -59,7 +59,6 @@ SCM_API SCM scm_the_vm_fluid;
 SCM_API SCM scm_the_vm (void);
 SCM_API SCM scm_call_with_vm (SCM proc, SCM args);
 
-SCM_API SCM scm_vm_p (SCM obj);
 SCM_API SCM scm_vm_apply_hook (void);
 SCM_API SCM scm_vm_push_continuation_hook (void);
 SCM_API SCM scm_vm_pop_continuation_hook (void);

@@ -67,52 +67,49 @@
                       (format #f "~v:@y" width val))
                     values))))))
 
-(define* (trace-calls-to-procedure proc #:key (width 80) (vm (the-vm))
+(define* (trace-calls-to-procedure proc #:key (width 80)
                                    (prefix "trace: ")
                                    (max-indent (- width 40)))
   (define (apply-handler frame depth)
     (print-application frame depth width prefix max-indent))
   (define (return-handler frame depth . values)
     (print-return frame depth width prefix max-indent values))
-  (trap-calls-to-procedure proc apply-handler return-handler
-                           #:vm vm))
+  (trap-calls-to-procedure proc apply-handler return-handler))
 
-(define* (trace-calls-in-procedure proc #:key (width 80) (vm (the-vm))
+(define* (trace-calls-in-procedure proc #:key (width 80)
                                    (prefix "trace: ")
                                    (max-indent (- width 40)))
   (define (apply-handler frame depth)
     (print-application frame depth width prefix max-indent))
   (define (return-handler frame depth . values)
     (print-return frame depth width prefix max-indent values))
-  (trap-calls-in-dynamic-extent proc apply-handler return-handler
-                                #:vm vm))
+  (trap-calls-in-dynamic-extent proc apply-handler return-handler))
 
-(define* (trace-instructions-in-procedure proc #:key (width 80) (vm (the-vm))
+(define* (trace-instructions-in-procedure proc #:key (width 80)
                                           (max-indent (- width 40)))
   (define (trace-next frame)
     ;; FIXME: We could disassemble this instruction here.
     (let ((ip (frame-instruction-pointer frame)))
       (format #t "0x~x\n" ip)))
   
-  (trap-instructions-in-dynamic-extent proc trace-next
-                                       #:vm vm))
+  (trap-instructions-in-dynamic-extent proc trace-next))
 
 ;; Note that because this procedure manipulates the VM trace level
 ;; directly, it doesn't compose well with traps at the REPL.
 ;;
 (define* (call-with-trace thunk #:key (calls? #t) (instructions? #f) 
-                          (width 80) (vm (the-vm)) (max-indent (- width 40)))
+                          (width 80) (max-indent (- width 40)))
   (let ((call-trap #f)
         (inst-trap #f))
     (dynamic-wind
       (lambda ()
         (if calls?
             (set! call-trap
-                  (trace-calls-in-procedure thunk #:vm vm #:width width
+                  (trace-calls-in-procedure thunk #:width width
                                             #:max-indent max-indent)))
         (if instructions?
             (set! inst-trap
-                  (trace-instructions-in-procedure thunk #:vm vm #:width width 
+                  (trace-instructions-in-procedure thunk #:width width 
                                                    #:max-indent max-indent)))
         (set-vm-trace-level! (1+ (vm-trace-level))))
       thunk

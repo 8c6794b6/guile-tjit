@@ -830,12 +830,8 @@ scm_c_vm_run (SCM vm, SCM program, SCM *argv, int nargs)
   return vm_engines[vp->engine](vm, program, argv, nargs);
 }
 
-/* Scheme interface */
-
-SCM_DEFINE (scm_the_vm, "the-vm", 0, 0, 0,
-	    (void),
-	    "Return the current thread's VM.")
-#define FUNC_NAME s_scm_the_vm
+SCM
+scm_the_vm (void)
 {
   scm_i_thread *t = SCM_I_CURRENT_THREAD;
 
@@ -844,17 +840,8 @@ SCM_DEFINE (scm_the_vm, "the-vm", 0, 0, 0,
 
   return t->vm;
 }
-#undef FUNC_NAME
 
-
-SCM_DEFINE (scm_vm_p, "vm?", 1, 0, 0,
-	    (SCM obj),
-	    "")
-#define FUNC_NAME s_scm_vm_p
-{
-  return scm_from_bool (SCM_VM_P (obj));
-}
-#undef FUNC_NAME
+/* Scheme interface */
 
 #define VM_DEFINE_HOOK(n)				\
 {							\
