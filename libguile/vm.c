@@ -706,8 +706,7 @@ initialize_default_stack_size (void)
 #undef VM_USE_HOOKS
 #undef VM_NAME
 
-typedef SCM (*scm_t_vm_engine) (scm_i_thread *current_thread, struct scm_vm *vp,
-                                SCM program, SCM *argv, size_t nargs);
+typedef SCM (*scm_t_vm_engine) (scm_i_thread *current_thread, struct scm_vm *vp);
 
 static const scm_t_vm_engine vm_engines[SCM_VM_NUM_ENGINES] =
   { vm_regular_engine, vm_debug_engine };
@@ -808,12 +807,45 @@ scm_call_n (SCM proc, SCM *argv, size_t nargs)
 {
   scm_i_thread *thread;
   struct scm_vm *vp;
+  SCM *base;
+  ptrdiff_t base_frame_size;
+  size_t i;
 
   thread = SCM_I_CURRENT_THREAD;
   vp = thread_vm (thread);
 
   SCM_CHECK_STACK;
-  return vm_engines[vp->engine](thread, vp, proc, argv, nargs);
+
+  /* Check that we have enough space: 3 words for the boot
+     continuation, 3 + nargs for the procedure application, and 3 for
+     setting up a new frame.  */
+  base_frame_size = 3 + 3 + nargs + 3;
+  vp->sp += base_frame_size;
+  if (vp->sp >= vp->stack_limit)
+    vm_error_stack_overflow (vp);
+  base = vp->sp + 1 - base_frame_size;
+
+  /* Since it's possible to receive the arguments on the stack itself,
+     shuffle up the arguments first.  */
+  for (i = nargs; i > 0; i--)
+    base[6 + i - 1] = argv[i - 1];
+
+  /* Push the boot continuation, which calls PROC and returns its
+     result(s).  */
+  base[0] = SCM_PACK (vp->fp); /* dynamic link */
+  base[1] = SCM_PACK (vp->ip); /* ra */
+  base[2] = vm_boot_continuation;
+  vp->fp = &base[2];
+  vp->ip = (scm_t_uint32 *) vm_boot_continuation_code;
+
+  /* The pending call to PROC. */
+  base[3] = SCM_PACK (vp->fp); /* dynamic link */
+  base[4] = SCM_PACK (vp->ip); /* ra */
+  base[5] = proc;
+  vp->fp = &base[5];
+  vp->sp = &SCM_FRAME_LOCAL (vp->fp, nargs);
+
+  return vm_engines[vp->engine](thread, vp);
 }
 
 /* Scheme interface */

@@ -424,8 +424,7 @@
   ((scm_t_uintptr) (ptr) % alignof_type (type) == 0)
 
 static SCM
-VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
-         SCM program, SCM *argv, size_t nargs_)
+VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp)
 {
   /* Instruction pointer: A pointer to the opcode that is currently
      running.  */
@@ -478,48 +477,10 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       NEXT (0);
     }
 
-  /* Load previous VM registers. */
+  /* Load VM registers. */
   CACHE_REGISTER ();
 
   VM_HANDLE_INTERRUPTS;
-
-  /* Initialization */
-  {
-    SCM *base;
-    ptrdiff_t base_frame_size;
-
-    /* Check that we have enough space: 3 words for the boot
-       continuation, 3 + nargs for the procedure application, and 3 for
-       setting up a new frame.  */
-    base_frame_size = 3 + 3 + nargs_ + 3;
-    vp->sp += base_frame_size;
-    CHECK_OVERFLOW ();
-    base = vp->sp + 1 - base_frame_size;
-
-    /* Since it's possible to receive the arguments on the stack itself,
-       and indeed the regular VM invokes us that way, shuffle up the
-       arguments first.  */
-    {
-      int i;
-      for (i = nargs_ - 1; i >= 0; i--)
-        base[6 + i] = argv[i];
-    }
-
-    /* Initial frame, saving previous fp and ip, with the boot
-       continuation.  */
-    base[0] = SCM_PACK (fp); /* dynamic link */
-    base[1] = SCM_PACK (ip); /* ra */
-    base[2] = vm_boot_continuation;
-    fp = &base[2];
-    ip = (scm_t_uint32 *) vm_boot_continuation_code;
-
-    /* MV-call frame, function & arguments */
-    base[3] = SCM_PACK (fp); /* dynamic link */
-    base[4] = SCM_PACK (ip); /* ra */
-    base[5] = program;
-    fp = vp->fp = &base[5];
-    RESET_FRAME (nargs_ + 1);
-  }
 
  apply:
   while (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp)))
@@ -2141,7 +2102,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
           if (scm_is_eq (val, SCM_UNDEFINED))
             val = SCM_I_FLUID_DEFAULT (fluid);
           VM_ASSERT (!scm_is_eq (val, SCM_UNDEFINED),
-                     vm_error_unbound_fluid (program, fluid));
+                     vm_error_unbound_fluid (SCM_FRAME_PROGRAM (fp), fluid));
           LOCAL_SET (dst, val);
         }
 
