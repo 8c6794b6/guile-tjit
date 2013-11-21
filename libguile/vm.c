@@ -154,12 +154,10 @@ SCM
 scm_i_capture_current_stack (void)
 {
   scm_i_thread *thread;
-  SCM vm;
   struct scm_vm *vp;
 
   thread = SCM_I_CURRENT_THREAD;
-  vm = scm_the_vm ();
-  vp = SCM_VM_DATA (vm);
+  vp = SCM_VM_DATA (scm_the_vm ());
 
   return scm_i_vm_capture_stack (vp->stack_base, vp->fp, vp->sp, vp->ip,
                                  scm_dynstack_capture_all (&thread->dynstack),
@@ -827,6 +825,12 @@ scm_c_vm_run (SCM vm, SCM program, SCM *argv, int nargs)
 }
 
 SCM
+scm_call_n (SCM proc, SCM *argv, size_t nargs)
+{
+  return scm_c_vm_run (scm_the_vm (), proc, argv, nargs);
+}
+
+SCM
 scm_the_vm (void)
 {
   scm_i_thread *t = SCM_I_CURRENT_THREAD;
@@ -1023,11 +1027,10 @@ SCM_DEFINE (scm_call_with_vm, "call-with-vm", 1, 0, 1,
  * Initialize
  */
 
-SCM scm_load_compiled_with_vm (SCM file)
+SCM
+scm_load_compiled_with_vm (SCM file)
 {
-  SCM program = scm_load_thunk_from_file (file);
-
-  return scm_c_vm_run (scm_the_vm (), program, NULL, 0);
+  return scm_call_0 (scm_load_thunk_from_file (file));
 }
 
   

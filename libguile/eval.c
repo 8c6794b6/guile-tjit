@@ -334,7 +334,7 @@ eval (SCM x, SCM env)
 	  for (i = 0; i < argc; i++, mx = CDR (mx))
 	    argv[i] = EVAL1 (CAR (mx), env);
 
-	  return scm_c_vm_run (scm_the_vm (), proc, argv, argc);
+	  return scm_call_n (proc, argv, argc);
         }
 
     case SCM_M_CONT:
@@ -486,41 +486,41 @@ eval (SCM x, SCM env)
 SCM
 scm_call_0 (SCM proc)
 {
-  return scm_c_vm_run (scm_the_vm (), proc, NULL, 0);
+  return scm_call_n (proc, NULL, 0);
 }
 
 SCM
 scm_call_1 (SCM proc, SCM arg1)
 {
-  return scm_c_vm_run (scm_the_vm (), proc, &arg1, 1);
+  return scm_call_n (proc, &arg1, 1);
 }
 
 SCM
 scm_call_2 (SCM proc, SCM arg1, SCM arg2)
 {
   SCM args[] = { arg1, arg2 };
-  return scm_c_vm_run (scm_the_vm (), proc, args, 2);
+  return scm_call_n (proc, args, 2);
 }
 
 SCM
 scm_call_3 (SCM proc, SCM arg1, SCM arg2, SCM arg3)
 {
   SCM args[] = { arg1, arg2, arg3 };
-  return scm_c_vm_run (scm_the_vm (), proc, args, 3);
+  return scm_call_n (proc, args, 3);
 }
 
 SCM
 scm_call_4 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4)
 {
   SCM args[] = { arg1, arg2, arg3, arg4 };
-  return scm_c_vm_run (scm_the_vm (), proc, args, 4);
+  return scm_call_n (proc, args, 4);
 }
 
 SCM
 scm_call_5 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4, SCM arg5)
 {
   SCM args[] = { arg1, arg2, arg3, arg4, arg5 };
-  return scm_c_vm_run (scm_the_vm (), proc, args, 5);
+  return scm_call_n (proc, args, 5);
 }
 
 SCM
@@ -528,7 +528,7 @@ scm_call_6 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4, SCM arg5,
             SCM arg6)
 {
   SCM args[] = { arg1, arg2, arg3, arg4, arg5, arg6 };
-  return scm_c_vm_run (scm_the_vm (), proc, args, 6);
+  return scm_call_n (proc, args, 6);
 }
 
 SCM
@@ -536,7 +536,7 @@ scm_call_7 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4, SCM arg5,
             SCM arg6, SCM arg7)
 {
   SCM args[] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
-  return scm_c_vm_run (scm_the_vm (), proc, args, 7);
+  return scm_call_n (proc, args, 7);
 }
 
 SCM
@@ -544,7 +544,7 @@ scm_call_8 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4, SCM arg5,
             SCM arg6, SCM arg7, SCM arg8)
 {
   SCM args[] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
-  return scm_c_vm_run (scm_the_vm (), proc, args, 8);
+  return scm_call_n (proc, args, 8);
 }
 
 SCM
@@ -552,14 +552,10 @@ scm_call_9 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4, SCM arg5,
             SCM arg6, SCM arg7, SCM arg8, SCM arg9)
 {
   SCM args[] = { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 };
-  return scm_c_vm_run (scm_the_vm (), proc, args, 9);
+  return scm_call_n (proc, args, 9);
 }
 
-SCM
-scm_call_n (SCM proc, SCM *argv, size_t nargs)
-{
-  return scm_c_vm_run (scm_the_vm (), proc, argv, nargs);
-}
+/* scm_call_n defined in vm.c */
 
 SCM
 scm_call (SCM proc, ...)
@@ -579,7 +575,7 @@ scm_call (SCM proc, ...)
     argv[i] = va_arg (argp, SCM);
   va_end (argp);
 
-  return scm_c_vm_run (scm_the_vm (), proc, argv, nargs);
+  return scm_call_n (proc, argv, nargs);
 }
 
 /* Simple procedure applies
@@ -603,7 +599,7 @@ scm_apply_0 (SCM proc, SCM args)
       args = SCM_CDR (args);
     }
 
-  return scm_c_vm_run (scm_the_vm (), proc, argv, nargs);
+  return scm_call_n (proc, argv, nargs);
 }
 
 SCM
@@ -664,8 +660,8 @@ static SCM var_primitive_eval;
 SCM
 scm_primitive_eval (SCM exp)
 {
-  return scm_c_vm_run (scm_the_vm (), scm_variable_ref (var_primitive_eval),
-                       &exp, 1);
+  return scm_call_n (scm_variable_ref (var_primitive_eval),
+                     &exp, 1);
 }
 
 
