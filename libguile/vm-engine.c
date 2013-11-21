@@ -923,7 +923,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SYNC_IP ();
       VM_ASSERT (SCM_VM_CONT_REWINDABLE_P (vmcont),
                  vm_error_continuation_not_rewindable (vmcont));
-      vm_reinstate_partial_continuation (vm, vmcont, FRAME_LOCALS_COUNT_FROM (1),
+      vm_reinstate_partial_continuation (vp, vmcont, FRAME_LOCALS_COUNT_FROM (1),
                                          LOCAL_ADDRESS (1),
                                          &current_thread->dynstack,
                                          &registers);

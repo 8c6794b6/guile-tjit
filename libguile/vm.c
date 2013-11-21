@@ -299,11 +299,11 @@ vm_abort (SCM vm, SCM tag, size_t nstack, SCM *stack_args, SCM tail, SCM *sp,
 }
 
 static void
-vm_reinstate_partial_continuation (SCM vm, SCM cont, size_t n, SCM *argv,
+vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
+                                   size_t n, SCM *argv,
                                    scm_t_dynstack *dynstack,
                                    scm_i_jmp_buf *registers)
 {
-  struct scm_vm *vp;
   struct scm_vm_cont *cp;
   SCM *argv_copy, *base;
   scm_t_ptrdiff reloc;
@@ -312,7 +312,6 @@ vm_reinstate_partial_continuation (SCM vm, SCM cont, size_t n, SCM *argv,
   argv_copy = alloca (n * sizeof(SCM));
   memcpy (argv_copy, argv, n * sizeof(SCM));
 
-  vp = SCM_VM_DATA (vm);
   cp = SCM_VM_CONT_DATA (cont);
   base = SCM_FRAME_LOCALS_ADDRESS (vp->fp);
   reloc = cp->reloc + (base - cp->stack_base);
@@ -323,7 +322,7 @@ vm_reinstate_partial_continuation (SCM vm, SCM cont, size_t n, SCM *argv,
   if ((base - vp->stack_base) + cp->stack_size + n + 1 > vp->stack_size)
     scm_misc_error ("vm-engine",
                     "not enough space to instate partial continuation",
-                    scm_list_2 (vm, cont));
+                    scm_list_1 (cont));
 
   memcpy (base, cp->stack_base, cp->stack_size * sizeof (SCM));
 
