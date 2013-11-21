@@ -312,7 +312,7 @@ eval (SCM x, SCM env)
           goto loop;
         }
       else
-        return scm_call_with_vm (scm_the_vm (), proc, args);
+        return scm_apply_0 (proc, args);
 
     case SCM_M_CALL:
       /* Evaluate the procedure to be applied.  */
@@ -348,7 +348,7 @@ eval (SCM x, SCM env)
         producer = EVAL1 (CAR (mx), env);
         /* `proc' is the consumer.  */
         proc = EVAL1 (CDR (mx), env);
-        v = scm_call_with_vm (scm_the_vm (), producer, SCM_EOL);
+        v = scm_call_0 (producer);
         if (SCM_VALUESP (v))
           args = scm_struct_ref (v, SCM_INUM0);
         else
@@ -586,26 +586,40 @@ scm_call (SCM proc, ...)
 SCM
 scm_apply_0 (SCM proc, SCM args)
 {
-  return scm_apply (proc, args, SCM_EOL);
+  SCM *argv;
+  int i, nargs;
+
+  nargs = scm_ilength (args);
+  if (SCM_UNLIKELY (nargs < 0))
+    scm_wrong_type_arg_msg ("apply", 2, args, "list");
+  
+  /* FIXME: Use vm_builtin_apply instead of alloca.  */
+  argv = alloca (nargs * sizeof(SCM));
+  for (i = 0; i < nargs; i++)
+    {
+      argv[i] = SCM_CAR (args);
+      args = SCM_CDR (args);
+    }
+
+  return scm_c_vm_run (scm_the_vm (), proc, argv, nargs);
 }
 
 SCM
 scm_apply_1 (SCM proc, SCM arg1, SCM args)
 {
-  return scm_apply (proc, scm_cons (arg1, args), SCM_EOL);
+  return scm_apply_0 (proc, scm_cons (arg1, args));
 }
 
 SCM
 scm_apply_2 (SCM proc, SCM arg1, SCM arg2, SCM args)
 {
-  return scm_apply (proc, scm_cons2 (arg1, arg2, args), SCM_EOL);
+  return scm_apply_0 (proc, scm_cons2 (arg1, arg2, args));
 }
 
 SCM
 scm_apply_3 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM args)
 {
-  return scm_apply (proc, scm_cons (arg1, scm_cons2 (arg2, arg3, args)),
-		    SCM_EOL);
+  return scm_apply_0 (proc, scm_cons (arg1, scm_cons2 (arg2, arg3, args)));
 }
 
 
@@ -618,8 +632,8 @@ scm_map (SCM proc, SCM arg1, SCM args)
     var = scm_private_variable (scm_the_root_module (),
                                 scm_from_latin1_symbol ("map"));
 
-  return scm_apply (scm_variable_ref (var),
-                    scm_cons (proc, scm_cons (arg1, args)), SCM_EOL);
+  return scm_apply_0 (scm_variable_ref (var),
+                      scm_cons (proc, scm_cons (arg1, args)));
 }
 
 SCM 
@@ -631,8 +645,8 @@ scm_for_each (SCM proc, SCM arg1, SCM args)
     var = scm_private_variable (scm_the_root_module (),
                                 scm_from_latin1_symbol ("for-each"));
 
-  return scm_apply (scm_variable_ref (var),
-                    scm_cons (proc, scm_cons (arg1, args)), SCM_EOL);
+  return scm_apply_0 (scm_variable_ref (var),
+                      scm_cons (proc, scm_cons (arg1, args)));
 }
 
 
@@ -694,24 +708,18 @@ static SCM f_apply;
 
 /* Apply a function to a list of arguments.
 
-   This function is exported to the Scheme level as taking two
-   required arguments and a tail argument, as if it were:
+   This function's interface is a bit wonly.  It takes two required
+   arguments and a tail argument, as if it were:
+
 	(lambda (proc arg1 . args) ...)
-   Thus, if you just have a list of arguments to pass to a procedure,
-   pass the list as ARG1, and '() for ARGS.  If you have some fixed
-   args, pass the first as ARG1, then cons any remaining fixed args
-   onto the front of your argument list, and pass that as ARGS.  */
+
+   Usually you want to use scm_apply_0 or one of its cousins.  */
 
 SCM 
 scm_apply (SCM proc, SCM arg1, SCM args)
 {
-  /* Fix things up so that args contains all args. */
-  if (scm_is_null (args))
-    args = arg1;
-  else
-    args = scm_cons_star (arg1, args);
-
-  return scm_call_with_vm (scm_the_vm (), proc, args);
+  return scm_apply_0 (proc,
+                      scm_is_null (args) ? arg1 : scm_cons_star (arg1, args));
 }
 
 static void

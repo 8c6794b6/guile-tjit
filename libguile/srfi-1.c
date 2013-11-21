@@ -1,7 +1,7 @@
 /* srfi-1.c --- SRFI-1 procedures for Guile
  *
  * Copyright (C) 1995, 1996, 1997, 2000, 2001, 2002, 2003, 2005, 2006,
- *   2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+ *   2008, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -258,7 +258,7 @@ SCM_DEFINE (scm_srfi1_count, "count", 2, 0, 1,
               SCM_SIMPLE_VECTOR_SET (vec, i, SCM_CDR (lst));  /* rest of lst */
             }
 
-          count += scm_is_true (scm_apply (pred, args, SCM_EOL));
+          count += scm_is_true (scm_apply_0 (pred, args));
         }
     }
 
