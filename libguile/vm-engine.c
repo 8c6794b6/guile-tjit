@@ -170,7 +170,7 @@
 
 #define CHECK_OVERFLOW(sp)                      \
   do {                                          \
-    if (SCM_UNLIKELY ((sp) >= stack_limit))     \
+    if (SCM_UNLIKELY ((sp) >= vp->stack_limit)) \
       vm_error_stack_overflow (vp);             \
   } while (0)
 
@@ -432,7 +432,6 @@ VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
   /* Cached variables. */
   struct scm_vm *vp = SCM_VM_DATA (vm);
-  SCM *stack_limit = vp->stack_limit;	/* stack limit address */
   scm_i_thread *current_thread = SCM_I_CURRENT_THREAD;
   scm_i_jmp_buf registers;              /* used for prompts */
 
