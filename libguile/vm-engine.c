@@ -240,8 +240,6 @@
   switch (op & 0xff)                            \
     {
 # define END_DISPATCH_SWITCH                    \
-  default:                                      \
-    goto vm_error_bad_instruction;              \
     }
 # define NEXT(n)                                \
   do                                            \
@@ -440,23 +438,15 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   register scm_t_uint32 op;
 
 #ifdef HAVE_LABELS_AS_VALUES
-  static const void **jump_table_pointer = NULL;
+  static const void *jump_table_[256] = {
+#define LABEL_ADDR(opcode, tag, name, meta) &&op_##tag,
+      FOR_EACH_VM_OPERATION(LABEL_ADDR)
+#undef LABEL_ADDR
+  };
   register const void **jump_table JT_REG;
-
-  if (SCM_UNLIKELY (!jump_table_pointer))
-    {
-      int i;
-      jump_table_pointer = malloc (SCM_VM_NUM_INSTRUCTIONS * sizeof (void*));
-      for (i = 0; i < SCM_VM_NUM_INSTRUCTIONS; i++)
-        jump_table_pointer[i] = &&vm_error_bad_instruction;
-#define INIT(opcode, tag, name, meta) jump_table_pointer[opcode] = &&op_##tag;
-      FOR_EACH_VM_OPERATION(INIT);
-#undef INIT
-    }
-
   /* Attempt to keep JUMP_TABLE_POINTER in a register.  This saves one
      load instruction at each instruction dispatch.  */
-  jump_table = jump_table_pointer;
+  jump_table = jump_table_;
 #endif
 
   /* Load VM registers. */
@@ -3066,12 +3056,141 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   VM_DEFINE_OP (126, bv_f64_set, "bv-f64-set!", OP1 (U8_U8_U8_U8))
     BV_FLOAT_SET (f64, ieee_double, double, 8);
 
+  VM_DEFINE_OP (127, unused_127, NULL, NOP)
+  VM_DEFINE_OP (128, unused_128, NULL, NOP)
+  VM_DEFINE_OP (129, unused_129, NULL, NOP)
+  VM_DEFINE_OP (130, unused_130, NULL, NOP)
+  VM_DEFINE_OP (131, unused_131, NULL, NOP)
+  VM_DEFINE_OP (132, unused_132, NULL, NOP)
+  VM_DEFINE_OP (133, unused_133, NULL, NOP)
+  VM_DEFINE_OP (134, unused_134, NULL, NOP)
+  VM_DEFINE_OP (135, unused_135, NULL, NOP)
+  VM_DEFINE_OP (136, unused_136, NULL, NOP)
+  VM_DEFINE_OP (137, unused_137, NULL, NOP)
+  VM_DEFINE_OP (138, unused_138, NULL, NOP)
+  VM_DEFINE_OP (139, unused_139, NULL, NOP)
+  VM_DEFINE_OP (140, unused_140, NULL, NOP)
+  VM_DEFINE_OP (141, unused_141, NULL, NOP)
+  VM_DEFINE_OP (142, unused_142, NULL, NOP)
+  VM_DEFINE_OP (143, unused_143, NULL, NOP)
+  VM_DEFINE_OP (144, unused_144, NULL, NOP)
+  VM_DEFINE_OP (145, unused_145, NULL, NOP)
+  VM_DEFINE_OP (146, unused_146, NULL, NOP)
+  VM_DEFINE_OP (147, unused_147, NULL, NOP)
+  VM_DEFINE_OP (148, unused_148, NULL, NOP)
+  VM_DEFINE_OP (149, unused_149, NULL, NOP)
+  VM_DEFINE_OP (150, unused_150, NULL, NOP)
+  VM_DEFINE_OP (151, unused_151, NULL, NOP)
+  VM_DEFINE_OP (152, unused_152, NULL, NOP)
+  VM_DEFINE_OP (153, unused_153, NULL, NOP)
+  VM_DEFINE_OP (154, unused_154, NULL, NOP)
+  VM_DEFINE_OP (155, unused_155, NULL, NOP)
+  VM_DEFINE_OP (156, unused_156, NULL, NOP)
+  VM_DEFINE_OP (157, unused_157, NULL, NOP)
+  VM_DEFINE_OP (158, unused_158, NULL, NOP)
+  VM_DEFINE_OP (159, unused_159, NULL, NOP)
+  VM_DEFINE_OP (160, unused_160, NULL, NOP)
+  VM_DEFINE_OP (161, unused_161, NULL, NOP)
+  VM_DEFINE_OP (162, unused_162, NULL, NOP)
+  VM_DEFINE_OP (163, unused_163, NULL, NOP)
+  VM_DEFINE_OP (164, unused_164, NULL, NOP)
+  VM_DEFINE_OP (165, unused_165, NULL, NOP)
+  VM_DEFINE_OP (166, unused_166, NULL, NOP)
+  VM_DEFINE_OP (167, unused_167, NULL, NOP)
+  VM_DEFINE_OP (168, unused_168, NULL, NOP)
+  VM_DEFINE_OP (169, unused_169, NULL, NOP)
+  VM_DEFINE_OP (170, unused_170, NULL, NOP)
+  VM_DEFINE_OP (171, unused_171, NULL, NOP)
+  VM_DEFINE_OP (172, unused_172, NULL, NOP)
+  VM_DEFINE_OP (173, unused_173, NULL, NOP)
+  VM_DEFINE_OP (174, unused_174, NULL, NOP)
+  VM_DEFINE_OP (175, unused_175, NULL, NOP)
+  VM_DEFINE_OP (176, unused_176, NULL, NOP)
+  VM_DEFINE_OP (177, unused_177, NULL, NOP)
+  VM_DEFINE_OP (178, unused_178, NULL, NOP)
+  VM_DEFINE_OP (179, unused_179, NULL, NOP)
+  VM_DEFINE_OP (180, unused_180, NULL, NOP)
+  VM_DEFINE_OP (181, unused_181, NULL, NOP)
+  VM_DEFINE_OP (182, unused_182, NULL, NOP)
+  VM_DEFINE_OP (183, unused_183, NULL, NOP)
+  VM_DEFINE_OP (184, unused_184, NULL, NOP)
+  VM_DEFINE_OP (185, unused_185, NULL, NOP)
+  VM_DEFINE_OP (186, unused_186, NULL, NOP)
+  VM_DEFINE_OP (187, unused_187, NULL, NOP)
+  VM_DEFINE_OP (188, unused_188, NULL, NOP)
+  VM_DEFINE_OP (189, unused_189, NULL, NOP)
+  VM_DEFINE_OP (190, unused_190, NULL, NOP)
+  VM_DEFINE_OP (191, unused_191, NULL, NOP)
+  VM_DEFINE_OP (192, unused_192, NULL, NOP)
+  VM_DEFINE_OP (193, unused_193, NULL, NOP)
+  VM_DEFINE_OP (194, unused_194, NULL, NOP)
+  VM_DEFINE_OP (195, unused_195, NULL, NOP)
+  VM_DEFINE_OP (196, unused_196, NULL, NOP)
+  VM_DEFINE_OP (197, unused_197, NULL, NOP)
+  VM_DEFINE_OP (198, unused_198, NULL, NOP)
+  VM_DEFINE_OP (199, unused_199, NULL, NOP)
+  VM_DEFINE_OP (200, unused_200, NULL, NOP)
+  VM_DEFINE_OP (201, unused_201, NULL, NOP)
+  VM_DEFINE_OP (202, unused_202, NULL, NOP)
+  VM_DEFINE_OP (203, unused_203, NULL, NOP)
+  VM_DEFINE_OP (204, unused_204, NULL, NOP)
+  VM_DEFINE_OP (205, unused_205, NULL, NOP)
+  VM_DEFINE_OP (206, unused_206, NULL, NOP)
+  VM_DEFINE_OP (207, unused_207, NULL, NOP)
+  VM_DEFINE_OP (208, unused_208, NULL, NOP)
+  VM_DEFINE_OP (209, unused_209, NULL, NOP)
+  VM_DEFINE_OP (210, unused_210, NULL, NOP)
+  VM_DEFINE_OP (211, unused_211, NULL, NOP)
+  VM_DEFINE_OP (212, unused_212, NULL, NOP)
+  VM_DEFINE_OP (213, unused_213, NULL, NOP)
+  VM_DEFINE_OP (214, unused_214, NULL, NOP)
+  VM_DEFINE_OP (215, unused_215, NULL, NOP)
+  VM_DEFINE_OP (216, unused_216, NULL, NOP)
+  VM_DEFINE_OP (217, unused_217, NULL, NOP)
+  VM_DEFINE_OP (218, unused_218, NULL, NOP)
+  VM_DEFINE_OP (219, unused_219, NULL, NOP)
+  VM_DEFINE_OP (220, unused_220, NULL, NOP)
+  VM_DEFINE_OP (221, unused_221, NULL, NOP)
+  VM_DEFINE_OP (222, unused_222, NULL, NOP)
+  VM_DEFINE_OP (223, unused_223, NULL, NOP)
+  VM_DEFINE_OP (224, unused_224, NULL, NOP)
+  VM_DEFINE_OP (225, unused_225, NULL, NOP)
+  VM_DEFINE_OP (226, unused_226, NULL, NOP)
+  VM_DEFINE_OP (227, unused_227, NULL, NOP)
+  VM_DEFINE_OP (228, unused_228, NULL, NOP)
+  VM_DEFINE_OP (229, unused_229, NULL, NOP)
+  VM_DEFINE_OP (230, unused_230, NULL, NOP)
+  VM_DEFINE_OP (231, unused_231, NULL, NOP)
+  VM_DEFINE_OP (232, unused_232, NULL, NOP)
+  VM_DEFINE_OP (233, unused_233, NULL, NOP)
+  VM_DEFINE_OP (234, unused_234, NULL, NOP)
+  VM_DEFINE_OP (235, unused_235, NULL, NOP)
+  VM_DEFINE_OP (236, unused_236, NULL, NOP)
+  VM_DEFINE_OP (237, unused_237, NULL, NOP)
+  VM_DEFINE_OP (238, unused_238, NULL, NOP)
+  VM_DEFINE_OP (239, unused_239, NULL, NOP)
+  VM_DEFINE_OP (240, unused_240, NULL, NOP)
+  VM_DEFINE_OP (241, unused_241, NULL, NOP)
+  VM_DEFINE_OP (242, unused_242, NULL, NOP)
+  VM_DEFINE_OP (243, unused_243, NULL, NOP)
+  VM_DEFINE_OP (244, unused_244, NULL, NOP)
+  VM_DEFINE_OP (245, unused_245, NULL, NOP)
+  VM_DEFINE_OP (246, unused_246, NULL, NOP)
+  VM_DEFINE_OP (247, unused_247, NULL, NOP)
+  VM_DEFINE_OP (248, unused_248, NULL, NOP)
+  VM_DEFINE_OP (249, unused_249, NULL, NOP)
+  VM_DEFINE_OP (250, unused_250, NULL, NOP)
+  VM_DEFINE_OP (251, unused_251, NULL, NOP)
+  VM_DEFINE_OP (252, unused_252, NULL, NOP)
+  VM_DEFINE_OP (253, unused_253, NULL, NOP)
+  VM_DEFINE_OP (254, unused_254, NULL, NOP)
+  VM_DEFINE_OP (255, unused_255, NULL, NOP)
+    {
+      vm_error_bad_instruction (op);
+      abort (); /* never reached */
+    }
+
   END_DISPATCH_SWITCH;
-
- vm_error_bad_instruction:
-  vm_error_bad_instruction (op);
-
-  abort (); /* never reached */
 }
 
 

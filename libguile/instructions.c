@@ -85,6 +85,7 @@ static SCM word_type_symbols[] =
    by Scheme to generate assemblers and disassemblers for the
    instructions.  */
 
+#define NOP SCM_T_UINT32_MAX
 #define OP1(type0) \
   (OP (0, type0))
 #define OP2(type0, type1) \
@@ -101,50 +102,48 @@ static SCM word_type_symbols[] =
 #define WORD_TYPE(n, word) \
   (((word) >> ((n) * TYPE_WIDTH)) & ((1 << TYPE_WIDTH) - 1))
 
-struct scm_instruction {
-  enum scm_opcode opcode;	/* opcode */
-  const char *name;		/* instruction name */
-  scm_t_uint32 meta;
-  SCM symname;                  /* filled in later */
-};
-
-
-static scm_i_pthread_mutex_t itable_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
-
-
-static const struct scm_instruction*
-fetch_instruction_table ()
-{
-  static struct scm_instruction *table = NULL;
-
-  scm_i_pthread_mutex_lock (&itable_lock);
-  if (SCM_UNLIKELY (!table))
-    {
-      size_t bytes = SCM_VM_NUM_INSTRUCTIONS * sizeof(struct scm_instruction);
-      int i;
-      table = malloc (bytes);
-      memset (table, 0, bytes);
-
-#define INIT(opcode, tag, name_, meta_) table[opcode].name = name_; table[opcode].meta = meta_;
-      FOR_EACH_VM_OPERATION (INIT);
-#undef INIT
-
-      for (i = 0; i < SCM_VM_NUM_INSTRUCTIONS; i++)
-        {
-          table[i].opcode = i;
-          if (table[i].name)
-            table[i].symname = scm_from_utf8_symbol (table[i].name);
-          else
-            table[i].symname = SCM_BOOL_F;
-        }
-    }
-  scm_i_pthread_mutex_unlock (&itable_lock);
-
-  return table;
-}
-
-
 /* Scheme interface */
+
+static SCM
+parse_instruction (scm_t_uint8 opcode, const char *name, scm_t_uint32 meta)
+{
+  SCM tail = SCM_EOL;
+  int len;
+
+  /* Format: (name opcode word0 word1 ...) */
+
+  if (WORD_TYPE (4, meta))
+    len = 5;
+  else if (WORD_TYPE (3, meta))
+    len = 4;
+  else if (WORD_TYPE (2, meta))
+    len = 3;
+  else if (WORD_TYPE (1, meta))
+    len = 2;
+  else if (WORD_TYPE (0, meta))
+    len = 1;
+  else
+    abort ();
+
+  switch (len)
+    {
+    case 5:
+      tail = scm_cons (word_type_symbols[WORD_TYPE (4, meta)], tail);
+    case 4:
+      tail = scm_cons (word_type_symbols[WORD_TYPE (3, meta)], tail);
+    case 3:
+      tail = scm_cons (word_type_symbols[WORD_TYPE (2, meta)], tail);
+    case 2:
+      tail = scm_cons (word_type_symbols[WORD_TYPE (1, meta)], tail);
+    case 1:
+      tail = scm_cons (word_type_symbols[WORD_TYPE (0, meta)], tail);
+    default:
+      tail = scm_cons ((meta & OP_DST) ? sym_left_arrow : sym_bang, tail);
+      tail = scm_cons (scm_from_int (opcode), tail);
+      tail = scm_cons (scm_from_utf8_symbol (name), tail);
+      return tail;
+    }
+}
 
 SCM_DEFINE (scm_instruction_list, "instruction-list", 0, 0, 0,
 	    (void),
@@ -152,51 +151,11 @@ SCM_DEFINE (scm_instruction_list, "instruction-list", 0, 0, 0,
 #define FUNC_NAME s_scm_instruction_list
 {
   SCM list = SCM_EOL;
-  int i;
-  const struct scm_instruction *ip = fetch_instruction_table ();
-  for (i = 0; i < SCM_VM_NUM_INSTRUCTIONS; i++)
-    if (ip[i].name)
-      {
-        scm_t_uint32 meta = ip[i].meta;
-        SCM tail = SCM_EOL;
-        int len;
 
-        /* Format: (name opcode word0 word1 ...) */
-
-        if (WORD_TYPE (4, meta))
-          len = 5;
-        else if (WORD_TYPE (3, meta))
-          len = 4;
-        else if (WORD_TYPE (2, meta))
-          len = 3;
-        else if (WORD_TYPE (1, meta))
-          len = 2;
-        else if (WORD_TYPE (0, meta))
-          len = 1;
-        else
-          abort ();
-
-        switch (len)
-          {
-          case 5:
-            tail = scm_cons (word_type_symbols[WORD_TYPE (4, meta)], tail);
-          case 4:
-            tail = scm_cons (word_type_symbols[WORD_TYPE (3, meta)], tail);
-          case 3:
-            tail = scm_cons (word_type_symbols[WORD_TYPE (2, meta)], tail);
-          case 2:
-            tail = scm_cons (word_type_symbols[WORD_TYPE (1, meta)], tail);
-          case 1:
-            tail = scm_cons (word_type_symbols[WORD_TYPE (0, meta)], tail);
-          default:
-            tail = scm_cons ((meta & OP_DST) ? sym_left_arrow : sym_bang, tail);
-            tail = scm_cons (scm_from_int (ip[i].opcode), tail);
-            tail = scm_cons (ip[i].symname, tail);
-            break;
-          }
-
-        list = scm_cons (tail, list);
-      }
+#define INIT(opcode, tag, name, meta) \
+  if (name) list = scm_cons (parse_instruction (opcode, name, meta), list);
+  FOR_EACH_VM_OPERATION (INIT);
+#undef INIT
 
   return scm_reverse_x (list, SCM_EOL);
 }
