@@ -203,10 +203,9 @@ vm_dispatch_hook (SCM vm, int hook_num, SCM *argv, int n)
      seems reasonable to limit the lifetime of frame objects.  */
 
   c_frame.stack_holder = vm;
-  c_frame.fp = vp->fp;
-  c_frame.sp = vp->sp;
+  c_frame.fp_offset = vp->fp - vp->stack_base;
+  c_frame.sp_offset = vp->sp - vp->stack_base;
   c_frame.ip = vp->ip;
-  c_frame.offset = 0;
 
   /* Arrange for FRAME to be 8-byte aligned, like any other cell.  */
   frame = alloca (sizeof (*frame) + 8);

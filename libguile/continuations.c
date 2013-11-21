@@ -178,10 +178,9 @@ scm_i_continuation_to_frame (SCM continuation)
     {
       struct scm_vm_cont *data = SCM_VM_CONT_DATA (cont->vm_cont);
       return scm_c_make_frame (cont->vm_cont,
-                               data->fp + data->reloc,
-                               data->sp + data->reloc,
-                               data->ra,
-                               data->reloc);
+                               (data->fp + data->reloc) - data->stack_base,
+                               (data->sp + data->reloc) - data->stack_base,
+                               data->ra);
     }
   else
     return SCM_BOOL_F;

@@ -136,26 +136,33 @@ struct scm_vm_frame
  * Heap frames
  */
 
+#ifdef BUILDING_LIBGUILE
+
 struct scm_frame 
 {
   SCM stack_holder;
-  SCM *fp;
-  SCM *sp;
+  scm_t_ptrdiff fp_offset;
+  scm_t_ptrdiff sp_offset;
   scm_t_uint32 *ip;
-  scm_t_ptrdiff offset;
 };
 
 #define SCM_VM_FRAME_P(x)	(SCM_HAS_TYP7 (x, scm_tc7_frame))
 #define SCM_VM_FRAME_DATA(x)	((struct scm_frame*)SCM_CELL_WORD_1 (x))
 #define SCM_VM_FRAME_STACK_HOLDER(f)	SCM_VM_FRAME_DATA(f)->stack_holder
-#define SCM_VM_FRAME_FP(f)	SCM_VM_FRAME_DATA(f)->fp
-#define SCM_VM_FRAME_SP(f)	SCM_VM_FRAME_DATA(f)->sp
+#define SCM_VM_FRAME_FP(f)	(SCM_VM_FRAME_DATA(f)->fp_offset + scm_i_frame_stack_base(f))
+#define SCM_VM_FRAME_SP(f)	(SCM_VM_FRAME_DATA(f)->sp_offset + scm_i_frame_stack_base(f))
 #define SCM_VM_FRAME_IP(f)	SCM_VM_FRAME_DATA(f)->ip
-#define SCM_VM_FRAME_OFFSET(f)	SCM_VM_FRAME_DATA(f)->offset
+#define SCM_VM_FRAME_OFFSET(f)	scm_i_frame_offset (f)
 #define SCM_VALIDATE_VM_FRAME(p,x)	SCM_MAKE_VALIDATE (p, x, VM_FRAME_P)
 
-SCM_API SCM scm_c_make_frame (SCM stack_holder, SCM *fp, SCM *sp,
-                              scm_t_uint32 *ip, scm_t_ptrdiff offset);
+SCM_INTERNAL SCM* scm_i_frame_stack_base (SCM frame);
+SCM_INTERNAL scm_t_ptrdiff scm_i_frame_offset (SCM frame);
+
+SCM_INTERNAL SCM scm_c_make_frame (SCM stack_holder, scm_t_ptrdiff fp_offset,
+                                   scm_t_ptrdiff sp_offset, scm_t_uint32 *ip);
+
+#endif
+
 SCM_API SCM scm_frame_p (SCM obj);
 SCM_API SCM scm_frame_procedure (SCM frame);
 SCM_API SCM scm_frame_arguments (SCM frame);

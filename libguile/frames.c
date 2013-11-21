@@ -24,6 +24,7 @@
 #include <string.h>
 #include "_scm.h"
 #include "frames.h"
+#include "vm.h"
 #include <verify.h>
 
 /* Make sure assumptions on the layout of `struct scm_vm_frame' hold.  */
@@ -36,16 +37,15 @@ verify (offsetof (struct scm_vm_frame, dynamic_link) == 0);
   (((SCM *) (val)) + SCM_VM_FRAME_OFFSET (frame))
 
 SCM
-scm_c_make_frame (SCM stack_holder, SCM *fp, SCM *sp,
-                  scm_t_uint32 *ip, scm_t_ptrdiff offset)
+scm_c_make_frame (SCM stack_holder, scm_t_ptrdiff fp_offset,
+                  scm_t_ptrdiff sp_offset, scm_t_uint32 *ip)
 {
   struct scm_frame *p = scm_gc_malloc (sizeof (struct scm_frame),
                                        "vmframe");
   p->stack_holder = stack_holder;
-  p->fp = fp;
-  p->sp = sp;
+  p->fp_offset = fp_offset;
+  p->sp_offset = sp_offset;
   p->ip = ip;
-  p->offset = offset;
   return scm_cell (scm_tc7_frame, (scm_t_bits)p);
 }
 
@@ -59,6 +59,41 @@ scm_i_frame_print (SCM frame, SCM port, scm_print_state *pstate)
   /* don't write args, they can get us into trouble. */
   scm_puts_unlocked (">", port);
 }
+
+SCM*
+scm_i_frame_stack_base (SCM frame)
+#define FUNC_NAME "frame-stack-base"
+{
+  SCM stack_holder;
+
+  SCM_VALIDATE_VM_FRAME (1, frame);
+
+  stack_holder = SCM_VM_FRAME_STACK_HOLDER (frame);
+
+  if (SCM_VM_CONT_P (stack_holder))
+    return SCM_VM_CONT_DATA (stack_holder)->stack_base;
+
+  return SCM_VM_DATA (stack_holder)->stack_base;
+}
+#undef FUNC_NAME
+
+
+scm_t_ptrdiff
+scm_i_frame_offset (SCM frame)
+#define FUNC_NAME "frame-offset"
+{
+  SCM stack_holder;
+
+  SCM_VALIDATE_VM_FRAME (1, frame);
+
+  stack_holder = SCM_VM_FRAME_STACK_HOLDER (frame);
+
+  if (SCM_VM_CONT_P (stack_holder))
+    return SCM_VM_CONT_DATA (stack_holder)->reloc;
+
+  return 0;
+}
+#undef FUNC_NAME
 
 
 /* Scheme interface */
@@ -244,12 +279,12 @@ SCM_DEFINE (scm_frame_previous, "frame-previous", 1, 0, 0,
   new_fp = SCM_FRAME_DYNAMIC_LINK (this_fp);
   if (new_fp) 
     {
+      SCM *stack_base = scm_i_frame_stack_base (frame);
       new_fp = RELOC (frame, new_fp);
       new_sp = SCM_FRAME_PREVIOUS_SP (this_fp);
       frame = scm_c_make_frame (SCM_VM_FRAME_STACK_HOLDER (frame),
-                                new_fp, new_sp,
-                                SCM_FRAME_RETURN_ADDRESS (this_fp),
-                                SCM_VM_FRAME_OFFSET (frame));
+                                new_fp - stack_base, new_sp - stack_base,
+                                SCM_FRAME_RETURN_ADDRESS (this_fp));
       proc = scm_frame_procedure (frame);
 
       if (SCM_PROGRAM_P (proc) && SCM_PROGRAM_IS_BOOT (proc))
