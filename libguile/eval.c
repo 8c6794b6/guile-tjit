@@ -438,7 +438,8 @@ eval (SCM x, SCM env)
 
     case SCM_M_CALL_WITH_PROMPT:
       {
-        SCM vm, k, res;
+        struct scm_vm *vp;
+        SCM k, res;
         scm_i_jmp_buf registers;
         /* We need the handler after nonlocal return to the setjmp, so
            make sure it is volatile.  */
@@ -446,23 +447,24 @@ eval (SCM x, SCM env)
 
         k = EVAL1 (CAR (mx), env);
         handler = EVAL1 (CDDR (mx), env);
-        vm = scm_the_vm ();
+        vp = SCM_VM_DATA (scm_the_vm ());
 
         /* Push the prompt onto the dynamic stack. */
-        scm_dynstack_push_prompt
-          (&SCM_I_CURRENT_THREAD->dynstack,
-           SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY | SCM_F_DYNSTACK_PROMPT_PUSH_NARGS,
-           k,
-           SCM_VM_DATA (vm)->fp - SCM_VM_DATA (vm)->stack_base,
-           SCM_VM_DATA (vm)->sp - SCM_VM_DATA (vm)->stack_base,
-           SCM_VM_DATA (vm)->ip,
-           &registers);
+        scm_dynstack_push_prompt (&SCM_I_CURRENT_THREAD->dynstack,
+                                  SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY
+                                  | SCM_F_DYNSTACK_PROMPT_PUSH_NARGS,
+                                  k,
+                                  vp->fp - vp->stack_base,
+                                  vp->sp - vp->stack_base,
+                                  vp->ip,
+                                  &registers);
 
         if (SCM_I_SETJMP (registers))
           {
             /* The prompt exited nonlocally. */
             proc = handler;
-            args = scm_i_prompt_pop_abort_args_x (scm_the_vm ());
+            vp = SCM_VM_DATA (scm_the_vm ());
+            args = scm_i_prompt_pop_abort_args_x (vp);
             goto apply_proc;
           }
         

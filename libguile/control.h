@@ -22,7 +22,7 @@
 #include "libguile/vm.h"
 
 
-SCM_INTERNAL SCM scm_i_prompt_pop_abort_args_x (SCM vm);
+SCM_INTERNAL SCM scm_i_prompt_pop_abort_args_x (struct scm_vm *vp);
 
 SCM_INTERNAL void scm_c_abort (struct scm_vm *vp, SCM tag, size_t n, SCM *argv,
                                scm_i_jmp_buf *registers) SCM_NORETURN;

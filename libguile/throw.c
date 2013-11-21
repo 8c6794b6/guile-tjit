@@ -456,7 +456,8 @@ SCM_SYMBOL (sym_pre_init_catch_tag, "%pre-init-catch-tag");
 static SCM
 pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
 {
-  volatile SCM vm, v_handler;
+  struct scm_vm *vp;
+  volatile SCM v_handler;
   SCM res;
   scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
   scm_i_jmp_buf registers;
@@ -469,7 +470,7 @@ pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
 
   /* These two are volatile, so we know we can access them after a
      nonlocal return to the setjmp.  */
-  vm = scm_the_vm ();
+  vp = SCM_VM_DATA (scm_the_vm ());
   v_handler = handler;
 
   /* Push the prompt onto the dynamic stack. */
@@ -477,15 +478,18 @@ pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
                             SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY
                             | SCM_F_DYNSTACK_PROMPT_PUSH_NARGS,
                             sym_pre_init_catch_tag,
-                            SCM_VM_DATA (vm)->fp - SCM_VM_DATA (vm)->stack_base,
-                            SCM_VM_DATA (vm)->sp - SCM_VM_DATA (vm)->stack_base,
-                            SCM_VM_DATA (vm)->ip,
+                            vp->fp - vp->stack_base,
+                            vp->sp - vp->stack_base,
+                            vp->ip,
                             &registers);
 
   if (SCM_I_SETJMP (registers))
     {
       /* nonlocal exit */
-      SCM args = scm_i_prompt_pop_abort_args_x (vm);
+      SCM args;
+      /* vp is not volatile */
+      vp = SCM_VM_DATA (scm_the_vm ());
+      args = scm_i_prompt_pop_abort_args_x (vp);
       /* cdr past the continuation */
       return scm_apply_0 (v_handler, scm_cdr (args));
     }

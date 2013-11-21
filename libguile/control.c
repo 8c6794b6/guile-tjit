@@ -39,18 +39,18 @@
 
 /* Only to be called if the SCM_I_SETJMP returns 1 */
 SCM
-scm_i_prompt_pop_abort_args_x (SCM vm)
+scm_i_prompt_pop_abort_args_x (struct scm_vm *vp)
 {
   size_t i, n;
   SCM vals = SCM_EOL;
 
-  n = scm_to_size_t (SCM_VM_DATA (vm)->sp[0]);
+  n = scm_to_size_t (vp->sp[0]);
   for (i = 0; i < n; i++)
-    vals = scm_cons (SCM_VM_DATA (vm)->sp[-(i + 1)], vals);
+    vals = scm_cons (vp->sp[-(i + 1)], vals);
 
   /* The abort did reset the VM's registers, but then these values
      were pushed on; so we need to pop them ourselves. */
-  SCM_VM_DATA (vm)->sp -= n + 1;
+  vp->sp -= n + 1;
   /* FIXME NULLSTACK */
 
   return vals;
