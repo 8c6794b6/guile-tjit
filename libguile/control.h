@@ -19,10 +19,12 @@
 #ifndef SCM_CONTROL_H
 #define SCM_CONTROL_H
 
+#include "libguile/vm.h"
+
 
 SCM_INTERNAL SCM scm_i_prompt_pop_abort_args_x (SCM vm);
 
-SCM_INTERNAL void scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv,
+SCM_INTERNAL void scm_c_abort (struct scm_vm *vp, SCM tag, size_t n, SCM *argv,
                                scm_i_jmp_buf *registers) SCM_NORETURN;
 SCM_INTERNAL SCM scm_abort_to_prompt_star (SCM tag, SCM args) SCM_NORETURN;
 

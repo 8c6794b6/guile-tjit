@@ -270,11 +270,13 @@ static void vm_dispatch_restore_continuation_hook (struct scm_vm *vp)
 }
 
 static void
-vm_abort (SCM vm, SCM tag, size_t nstack, SCM *stack_args, SCM tail, SCM *sp,
+vm_abort (struct scm_vm *vp, SCM tag,
+          size_t nstack, SCM *stack_args, SCM tail, SCM *sp,
           scm_i_jmp_buf *current_registers) SCM_NORETURN;
 
 static void
-vm_abort (SCM vm, SCM tag, size_t nstack, SCM *stack_args, SCM tail, SCM *sp,
+vm_abort (struct scm_vm *vp, SCM tag,
+          size_t nstack, SCM *stack_args, SCM tail, SCM *sp,
           scm_i_jmp_buf *current_registers)
 {
   size_t i;
@@ -293,9 +295,9 @@ vm_abort (SCM vm, SCM tag, size_t nstack, SCM *stack_args, SCM tail, SCM *sp,
     argv[i] = scm_car (tail);
 
   /* FIXME: NULLSTACK (SCM_VM_DATA (vp)->sp - sp) */
-  SCM_VM_DATA (vm)->sp = sp;
+  vp->sp = sp;
 
-  scm_c_abort (vm, tag, nstack + tail_len, argv, current_registers);
+  scm_c_abort (vp, tag, nstack + tail_len, argv, current_registers);
 }
 
 static void

@@ -78,7 +78,7 @@ make_partial_continuation (SCM vm_cont)
 }
 
 static SCM
-reify_partial_continuation (SCM vm,
+reify_partial_continuation (struct scm_vm *vp,
                             SCM *saved_fp,
                             SCM *saved_sp,
                             scm_t_uint32 *saved_ip,
@@ -103,7 +103,7 @@ reify_partial_continuation (SCM vm,
      could determine the stack bottom in O(1) time, but that's no longer
      the case, since the thunk application doesn't occur where the
      prompt is saved.  */
-  for (bottom_fp = SCM_VM_DATA (vm)->fp;
+  for (bottom_fp = vp->fp;
        SCM_FRAME_DYNAMIC_LINK (bottom_fp) > saved_fp;
        bottom_fp = SCM_FRAME_DYNAMIC_LINK (bottom_fp));
 
@@ -112,9 +112,9 @@ reify_partial_continuation (SCM vm,
 
   /* Capture from the top of the thunk application frame up to the end. */
   vm_cont = scm_i_vm_capture_stack (&SCM_FRAME_LOCAL (bottom_fp, 0),
-                                    SCM_VM_DATA (vm)->fp,
-                                    SCM_VM_DATA (vm)->sp,
-                                    SCM_VM_DATA (vm)->ip,
+                                    vp->fp,
+                                    vp->sp,
+                                    vp->ip,
                                     dynstack,
                                     flags);
 
@@ -122,7 +122,7 @@ reify_partial_continuation (SCM vm,
 }
 
 void
-scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv,
+scm_c_abort (struct scm_vm *vp, SCM tag, size_t n, SCM *argv,
              scm_i_jmp_buf *current_registers)
 {
   SCM cont;
@@ -142,8 +142,8 @@ scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv,
   if (!prompt)
     scm_misc_error ("abort", "Abort to unknown prompt", scm_list_1 (tag));
 
-  fp = SCM_VM_DATA (vm)->stack_base + fp_offset;
-  sp = SCM_VM_DATA (vm)->stack_base + sp_offset;
+  fp = vp->stack_base + fp_offset;
+  sp = vp->stack_base + sp_offset;
 
   /* Only reify if the continuation referenced in the handler. */
   if (flags & SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY)
@@ -153,32 +153,28 @@ scm_c_abort (SCM vm, SCM tag, size_t n, SCM *argv,
       scm_t_dynstack *captured;
 
       captured = scm_dynstack_capture (dynstack, SCM_DYNSTACK_NEXT (prompt));
-      cont = reify_partial_continuation (vm, fp, sp, ip, registers, captured,
+      cont = reify_partial_continuation (vp, fp, sp, ip, registers, captured,
                                          current_registers);
     }
 
   /* Unwind.  */
   scm_dynstack_unwind (dynstack, prompt);
 
-  /* Unwinding may have changed the current thread's VM, so use the
-     new one.  */
-  vm = scm_the_vm ();
-
   /* Restore VM regs */
-  SCM_VM_DATA (vm)->fp = fp;
-  SCM_VM_DATA (vm)->sp = sp;
-  SCM_VM_DATA (vm)->ip = ip;
+  vp->fp = fp;
+  vp->sp = sp;
+  vp->ip = ip;
 
   /* Since we're jumping down, we should always have enough space.  */
-  if (SCM_VM_DATA (vm)->sp + n + 1 >= SCM_VM_DATA (vm)->stack_limit)
+  if (vp->sp + n + 1 >= vp->stack_limit)
     abort ();
 
   /* Push vals */
-  *(++(SCM_VM_DATA (vm)->sp)) = cont;
+  *(++(vp->sp)) = cont;
   for (i = 0; i < n; i++)
-    *(++(SCM_VM_DATA (vm)->sp)) = argv[i];
+    *(++(vp->sp)) = argv[i];
   if (flags & SCM_F_DYNSTACK_PROMPT_PUSH_NARGS)
-    *(++(SCM_VM_DATA (vm)->sp)) = scm_from_size_t (n+1); /* +1 for continuation */
+    *(++(vp->sp)) = scm_from_size_t (n+1); /* +1 for continuation */
 
   /* Jump! */
   SCM_I_LONGJMP (*registers, 1);
@@ -202,7 +198,7 @@ SCM_DEFINE (scm_abort_to_prompt_star, "abort-to-prompt*", 2, 0, 0,
   for (i = 0; i < n; i++, args = scm_cdr (args))
     argv[i] = scm_car (args);
 
-  scm_c_abort (scm_the_vm (), tag, n, argv, NULL);
+  scm_c_abort (SCM_VM_DATA (scm_the_vm ()), tag, n, argv, NULL);
 
   /* Oh, what, you're still here? The abort must have been reinstated. Actually,
      that's quite impossible, given that we're already in C-land here, so...

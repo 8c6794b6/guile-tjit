@@ -1043,7 +1043,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
          it continues with the next instruction.  */
       ip++;
       SYNC_IP ();
-      vm_abort (vm, LOCAL_REF (1), nlocals - 2, LOCAL_ADDRESS (2),
+      vm_abort (vp, LOCAL_REF (1), nlocals - 2, LOCAL_ADDRESS (2),
                 SCM_EOL, LOCAL_ADDRESS (0), &registers);
 
       /* vm_abort should not return */

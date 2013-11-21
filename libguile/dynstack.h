@@ -24,7 +24,6 @@
 
 
 #include "libguile/__scm.h"
-#include "libguile/control.h"
 
 
 
