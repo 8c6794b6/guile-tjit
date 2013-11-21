@@ -748,7 +748,7 @@ static int vm_stack_gc_kind;
 
 #endif
 
-static SCM
+static struct scm_vm *
 make_vm (void)
 #define FUNC_NAME "make_vm"
 {
@@ -781,7 +781,8 @@ make_vm (void)
   vp->trace_level = 0;
   for (i = 0; i < SCM_VM_NUM_HOOKS; i++)
     vp->hooks[i] = SCM_BOOL_F;
-  return scm_cell (scm_tc7_vm, (scm_t_bits)vp);
+
+  return vp;
 }
 #undef FUNC_NAME
 
@@ -829,10 +830,10 @@ scm_the_vm (void)
 {
   scm_i_thread *t = SCM_I_CURRENT_THREAD;
 
-  if (SCM_UNLIKELY (scm_is_false (t->vm)))
-    t->vm = make_vm ();
+  if (SCM_UNLIKELY (!t->vp))
+    t->vp = make_vm ();
 
-  return SCM_VM_DATA (t->vm);
+  return t->vp;
 }
 
 /* Scheme interface */

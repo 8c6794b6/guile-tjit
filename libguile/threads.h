@@ -110,7 +110,7 @@ typedef struct scm_i_thread {
   SCM_STACKITEM *continuation_base;
 
   /* For keeping track of the stack and registers. */
-  SCM vm;
+  struct scm_vm *vp;
   SCM_STACKITEM *base;
   scm_i_jmp_buf regs;
 #ifdef __ia64__
