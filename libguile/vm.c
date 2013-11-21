@@ -856,36 +856,6 @@ SCM_DEFINE (scm_vm_p, "vm?", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_vm_ip, "vm:ip", 1, 0, 0,
-	    (SCM vm),
-	    "")
-#define FUNC_NAME s_scm_vm_ip
-{
-  SCM_VALIDATE_VM (1, vm);
-  return scm_from_unsigned_integer ((scm_t_bits) SCM_VM_DATA (vm)->ip);
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_vm_sp, "vm:sp", 1, 0, 0,
-	    (SCM vm),
-	    "")
-#define FUNC_NAME s_scm_vm_sp
-{
-  SCM_VALIDATE_VM (1, vm);
-  return scm_from_unsigned_integer ((scm_t_bits) SCM_VM_DATA (vm)->sp);
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_vm_fp, "vm:fp", 1, 0, 0,
-	    (SCM vm),
-	    "")
-#define FUNC_NAME s_scm_vm_fp
-{
-  SCM_VALIDATE_VM (1, vm);
-  return scm_from_unsigned_integer ((scm_t_bits) SCM_VM_DATA (vm)->fp);
-}
-#undef FUNC_NAME
-
 #define VM_DEFINE_HOOK(n)				\
 {							\
   struct scm_vm *vp;					\
