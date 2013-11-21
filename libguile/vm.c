@@ -706,7 +706,8 @@ initialize_default_stack_size (void)
 #undef VM_USE_HOOKS
 #undef VM_NAME
 
-typedef SCM (*scm_t_vm_engine) (scm_i_thread *current_thread, struct scm_vm *vp);
+typedef SCM (*scm_t_vm_engine) (scm_i_thread *current_thread, struct scm_vm *vp,
+                                scm_i_jmp_buf *registers, int resume);
 
 static const scm_t_vm_engine vm_engines[SCM_VM_NUM_ENGINES] =
   { vm_regular_engine, vm_debug_engine };
@@ -809,6 +810,8 @@ scm_call_n (SCM proc, SCM *argv, size_t nargs)
   struct scm_vm *vp;
   SCM *base;
   ptrdiff_t base_frame_size;
+  /* Cached variables. */
+  scm_i_jmp_buf registers;              /* used for prompts */
   size_t i;
 
   thread = SCM_I_CURRENT_THREAD;
@@ -845,7 +848,15 @@ scm_call_n (SCM proc, SCM *argv, size_t nargs)
   vp->fp = &base[5];
   vp->sp = &SCM_FRAME_LOCAL (vp->fp, nargs);
 
-  return vm_engines[vp->engine](thread, vp);
+  {
+    int resume = SCM_I_SETJMP (registers);
+      
+    if (SCM_UNLIKELY (resume))
+      /* Non-local return.  */
+      vm_dispatch_abort_hook (vp);
+
+    return vm_engines[vp->engine](thread, vp, &registers, resume);
+  }
 }
 
 /* Scheme interface */

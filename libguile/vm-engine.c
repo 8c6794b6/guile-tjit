@@ -214,7 +214,7 @@
 
 #define CACHE_REGISTER()                        \
   do {                                          \
-    ip = (scm_t_uint32 *) vp->ip;               \
+    ip = vp->ip;                                \
     fp = vp->fp;                                \
   } while (0)
 
@@ -424,7 +424,8 @@
   ((scm_t_uintptr) (ptr) % alignof_type (type) == 0)
 
 static SCM
-VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp)
+VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
+         scm_i_jmp_buf *registers, int resume)
 {
   /* Instruction pointer: A pointer to the opcode that is currently
      running.  */
@@ -437,9 +438,6 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp)
 
   /* Current opcode: A cache of *ip.  */
   register scm_t_uint32 op;
-
-  /* Cached variables. */
-  scm_i_jmp_buf registers;              /* used for prompts */
 
 #ifdef HAVE_LABELS_AS_VALUES
   static const void **jump_table_pointer = NULL;
@@ -461,26 +459,17 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp)
   jump_table = jump_table_pointer;
 #endif
 
-  if (SCM_I_SETJMP (registers))
-    {
-      /* Non-local return.  The values are on the stack, on a new frame
-         set up to call `values' to return the values to the handler.
-         Cache the VM registers back from the vp, and dispatch to the
-         body of `values'.
-
-         Note, at this point, we must assume that any variable local to
-         vm_engine that can be assigned *has* been assigned. So we need
-         to pull all our state back from the ip/fp/sp.
-      */
-      CACHE_REGISTER ();
-      ABORT_CONTINUATION_HOOK ();
-      NEXT (0);
-    }
-
   /* Load VM registers. */
   CACHE_REGISTER ();
 
   VM_HANDLE_INTERRUPTS;
+
+  /* Usually a call to the VM happens on application, with the boot
+     continuation on the next frame.  Sometimes it happens after a
+     non-local exit however; in that case the VM state is all set up,
+     and we have but to jump to the next opcode.  */
+  if (SCM_UNLIKELY (resume))
+    NEXT (0);
 
  apply:
   while (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp)))
@@ -886,7 +875,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp)
       vm_reinstate_partial_continuation (vp, vmcont, FRAME_LOCALS_COUNT_FROM (1),
                                          LOCAL_ADDRESS (1),
                                          &current_thread->dynstack,
-                                         &registers);
+                                         registers);
       CACHE_REGISTER ();
       NEXT (0);
     }
@@ -1004,7 +993,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp)
       ip++;
       SYNC_IP ();
       vm_abort (vp, LOCAL_REF (1), nlocals - 2, LOCAL_ADDRESS (2),
-                SCM_EOL, LOCAL_ADDRESS (0), &registers);
+                SCM_EOL, LOCAL_ADDRESS (0), registers);
 
       /* vm_abort should not return */
       abort ();
@@ -2013,7 +2002,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp)
                                 fp - vp->stack_base,
                                 LOCAL_ADDRESS (proc_slot) - vp->stack_base,
                                 ip + offset,
-                                &registers);
+                                registers);
       NEXT (3);
     }
 
