@@ -155,7 +155,6 @@ static SCM class_hashtable;
 static SCM class_fluid;
 static SCM class_dynamic_state;
 static SCM class_frame;
-static SCM class_vm;
 static SCM class_vm_cont;
 static SCM class_bytevector;
 static SCM class_uvec;
@@ -265,8 +264,6 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	  return class_dynamic_state;
         case scm_tc7_frame:
 	  return class_frame;
-        case scm_tc7_vm:
-	  return class_vm;
         case scm_tc7_vm_cont:
 	  return class_vm_cont;
 	case scm_tc7_bytevector:
@@ -2511,8 +2508,6 @@ create_standard_classes (void)
   make_stdcls (&class_dynamic_state,	   "<dynamic-state>",
 	       scm_class_class, scm_class_top,		   SCM_EOL);
   make_stdcls (&class_frame,		   "<frame>",
-	       scm_class_class, scm_class_top,		   SCM_EOL);
-  make_stdcls (&class_vm,		   "<vm>",
 	       scm_class_class, scm_class_top,		   SCM_EOL);
   make_stdcls (&class_vm_cont,		   "<vm-continuation>",
 	       scm_class_class, scm_class_top,		   SCM_EOL);

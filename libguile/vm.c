@@ -367,36 +367,6 @@ vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
 
 
 /*
- * VM Internal functions
- */
-
-void
-scm_i_vm_print (SCM x, SCM port, scm_print_state *pstate)
-{
-  const struct scm_vm *vm;
-
-  vm = SCM_VM_DATA (x);
-
-  scm_puts_unlocked ("#<vm ", port);
-  switch (vm->engine)
-    {
-    case SCM_VM_REGULAR_ENGINE:
-      scm_puts_unlocked ("regular-engine ", port);
-      break;
-
-    case SCM_VM_DEBUG_ENGINE:
-      scm_puts_unlocked ("debug-engine ", port);
-      break;
-
-    default:
-      scm_puts_unlocked ("unknown-engine ", port);
-    }
-  scm_uintprint (SCM_UNPACK (x), 16, port);
-  scm_puts_unlocked (">", port);
-}
-
-
-/*
  * VM Error Handling
  */
 

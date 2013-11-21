@@ -944,8 +944,6 @@ scm_i_tag_name (scm_t_bits tag)
       return "dynamic state";
     case scm_tc7_frame:
       return "frame";
-    case scm_tc7_vm:
-      return "vm";
     case scm_tc7_vm_cont:
       return "vm continuation";
     case scm_tc7_wvect:

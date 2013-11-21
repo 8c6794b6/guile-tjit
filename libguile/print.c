@@ -684,9 +684,6 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	case scm_tc7_frame:
 	  scm_i_frame_print (exp, port, pstate);
 	  break;
-	case scm_tc7_vm:
-	  scm_i_vm_print (exp, port, pstate);
-	  break;
 	case scm_tc7_vm_cont:
 	  scm_i_vm_cont_print (exp, port, pstate);
 	  break;

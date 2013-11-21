@@ -32,8 +32,6 @@ enum {
   SCM_VM_NUM_HOOKS,
 };
 
-struct scm_vm;
-
 #define SCM_VM_REGULAR_ENGINE 0
 #define SCM_VM_DEBUG_ENGINE 1
 #define SCM_VM_NUM_ENGINES 2
@@ -49,12 +47,6 @@ struct scm_vm {
   SCM hooks[SCM_VM_NUM_HOOKS];	/* hooks */
   int engine;                   /* which vm engine we're using */
 };
-
-SCM_API SCM scm_the_vm_fluid;
-
-#define SCM_VM_P(x)		(SCM_HAS_TYP7 (x, scm_tc7_vm))
-#define SCM_VM_DATA(vm)		((struct scm_vm *) SCM_CELL_WORD_1 (vm))
-#define SCM_VALIDATE_VM(pos,x)	SCM_MAKE_VALIDATE (pos, x, VM_P)
 
 SCM_INTERNAL struct scm_vm *scm_the_vm (void);
 SCM_API SCM scm_call_with_vm (SCM proc, SCM args);
@@ -94,8 +86,6 @@ struct scm_vm_cont {
 
 SCM_API SCM scm_load_compiled_with_vm (SCM file);
 
-SCM_INTERNAL void scm_i_vm_print (SCM x, SCM port,
-                                  scm_print_state *pstate);
 SCM_INTERNAL SCM scm_i_call_with_current_continuation (SCM proc);
 SCM_INTERNAL SCM scm_i_capture_current_stack (void);
 SCM_INTERNAL SCM scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp,
