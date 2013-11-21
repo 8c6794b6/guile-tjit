@@ -168,10 +168,18 @@
 #define SYNC_ALL() /* FP already saved */ \
   SYNC_IP()
 
-#define CHECK_OVERFLOW(sp)                      \
-  do {                                          \
-    if (SCM_UNLIKELY ((sp) >= vp->stack_limit)) \
-      vm_error_stack_overflow (vp);             \
+/* After advancing vp->sp, but before writing any stack slots, check
+   that it is actually in bounds.  If it is not in bounds, currently we
+   signal an error.  In the future we may expand the stack instead,
+   possibly by moving it elsewhere, therefore no pointer into the stack
+   besides FP is valid across a CHECK_OVERFLOW call.  Be careful!  */
+#define CHECK_OVERFLOW()                                            \
+  do {                                                              \
+    if (SCM_UNLIKELY (vp->sp >= vp->stack_limit))                   \
+      {                                                             \
+        vm_error_stack_overflow (vp);                               \
+        CACHE_REGISTER();                                           \
+      }                                                             \
   } while (0)
 
 /* Reserve stack space for a frame.  Will check that there is sufficient
@@ -179,8 +187,8 @@
    preparing the new frame and setting the fp and ip.  */
 #define ALLOC_FRAME(n)                                              \
   do {                                                              \
-    SCM *new_sp = vp->sp = LOCAL_ADDRESS (n - 1);                   \
-    CHECK_OVERFLOW (new_sp);                                        \
+    vp->sp = LOCAL_ADDRESS (n - 1);                                 \
+    CHECK_OVERFLOW ();                                              \
   } while (0)
 
 /* Reset the current frame to hold N locals.  Used when we know that no
@@ -479,12 +487,15 @@ VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   /* Initialization */
   {
     SCM *base;
+    ptrdiff_t base_frame_size;
 
     /* Check that we have enough space: 3 words for the boot
        continuation, 3 + nargs for the procedure application, and 3 for
        setting up a new frame.  */
-    base = vp->sp + 1;
-    CHECK_OVERFLOW (vp->sp + 3 + 3 + nargs_ + 3);
+    base_frame_size = 3 + 3 + nargs_ + 3;
+    vp->sp += base_frame_size;
+    CHECK_OVERFLOW ();
+    base = vp->sp + 1 - base_frame_size;
 
     /* Since it's possible to receive the arguments on the stack itself,
        and indeed the regular VM invokes us that way, shuffle up the
