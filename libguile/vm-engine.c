@@ -894,7 +894,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       SYNC_IP ();
       scm_i_check_continuation (contregs);
-      vm_return_to_continuation (scm_i_contregs_vm (contregs),
+      vm_return_to_continuation (scm_i_contregs_vp (contregs),
                                  scm_i_contregs_vm_cont (contregs),
                                  FRAME_LOCALS_COUNT_FROM (1),
                                  LOCAL_ADDRESS (1));
@@ -1003,7 +1003,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
          copying out to the heap; and likewise, the setjmp(&registers)
          code already has the non-local return handler.  But oh
          well!  */
-      cont = scm_i_make_continuation (&first, vm, vm_cont);
+      cont = scm_i_make_continuation (&first, vp, vm_cont);
 
       if (first)
         {

@@ -112,21 +112,19 @@ scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp, scm_t_uint32 *ra,
 }
 
 static void
-vm_return_to_continuation (SCM vm, SCM cont, size_t n, SCM *argv)
+vm_return_to_continuation (struct scm_vm *vp, SCM cont, size_t n, SCM *argv)
 {
-  struct scm_vm *vp;
   struct scm_vm_cont *cp;
   SCM *argv_copy;
 
   argv_copy = alloca (n * sizeof(SCM));
   memcpy (argv_copy, argv, n * sizeof(SCM));
 
-  vp = SCM_VM_DATA (vm);
   cp = SCM_VM_CONT_DATA (cont);
 
   if (vp->stack_size < cp->stack_size + n + 3)
     scm_misc_error ("vm-engine", "not enough space to reinstate continuation",
-                    scm_list_2 (vm, cont));
+                    scm_list_1 (cont));
 
   vp->sp = cp->sp;
   vp->fp = cp->fp;

@@ -116,7 +116,7 @@ continuation_print (SCM obj, SCM port, scm_print_state *state SCM_UNUSED)
    placed on the VM stack). */
 #define FUNC_NAME "scm_i_make_continuation"
 SCM 
-scm_i_make_continuation (int *first, SCM vm, SCM vm_cont)
+scm_i_make_continuation (int *first, struct scm_vm *vp, SCM vm_cont)
 {
   scm_i_thread *thread = SCM_I_CURRENT_THREAD;
   SCM cont;
@@ -137,7 +137,7 @@ scm_i_make_continuation (int *first, SCM vm, SCM vm_cont)
 #endif
   continuation->offset = continuation->stack - src;
   memcpy (continuation->stack, src, sizeof (SCM_STACKITEM) * stack_size);
-  continuation->vm = vm;
+  continuation->vp = vp;
   continuation->vm_cont = vm_cont;
 
   SCM_NEWSMOB (cont, tc16_continuation, continuation);
@@ -186,10 +186,10 @@ scm_i_continuation_to_frame (SCM continuation)
     return SCM_BOOL_F;
 }
 
-SCM
-scm_i_contregs_vm (SCM contregs)
+struct scm_vm *
+scm_i_contregs_vp (SCM contregs)
 {
-  return SCM_CONTREGS (contregs)->vm;
+  return SCM_CONTREGS (contregs)->vp;
 }
 
 SCM

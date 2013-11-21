@@ -51,7 +51,7 @@ typedef struct
 #endif /* __ia64__ */
   size_t num_stack_items;   /* size of the saved stack.  */
   SCM root;                 /* continuation root identifier.  */
-  SCM vm;                   /* vm */
+  struct scm_vm *vp;        /* vm */
   SCM vm_cont;              /* vm's stack and regs */
 
   /* The offset from the live stack location to this copy.  This is
@@ -70,12 +70,14 @@ typedef struct
 
 
 
-SCM_INTERNAL SCM scm_i_make_continuation (int *first, SCM vm, SCM vm_cont);
+SCM_INTERNAL SCM scm_i_make_continuation (int *first,
+                                          struct scm_vm *vp,
+                                          SCM vm_cont);
 SCM_INTERNAL void scm_i_check_continuation (SCM cont);
 SCM_INTERNAL void scm_i_reinstate_continuation (SCM cont);
 
 SCM_INTERNAL SCM scm_i_continuation_to_frame (SCM cont);
-SCM_INTERNAL SCM scm_i_contregs_vm (SCM contregs);
+SCM_INTERNAL struct scm_vm* scm_i_contregs_vp (SCM contregs);
 SCM_INTERNAL SCM scm_i_contregs_vm_cont (SCM contregs);
 
 SCM_API void *scm_c_with_continuation_barrier (void *(*func)(void*), void *);
