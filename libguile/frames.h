@@ -140,7 +140,7 @@ struct scm_vm_frame
 
 struct scm_frame 
 {
-  SCM stack_holder;
+  void *stack_holder;
   scm_t_ptrdiff fp_offset;
   scm_t_ptrdiff sp_offset;
   scm_t_uint32 *ip;
@@ -154,7 +154,7 @@ enum scm_vm_frame_kind
 
 #define SCM_VM_FRAME_P(x)	(SCM_HAS_TYP7 (x, scm_tc7_frame))
 #define SCM_VM_FRAME_KIND(x)	((enum scm_vm_frame_kind) (SCM_CELL_WORD_0 (x) >> 8))
-#define SCM_VM_FRAME_DATA(x)	((struct scm_frame*)SCM_CELL_WORD_1 (x))
+#define SCM_VM_FRAME_DATA(x)	((struct scm_frame *)SCM_CELL_WORD_1 (x))
 #define SCM_VM_FRAME_STACK_HOLDER(f)	SCM_VM_FRAME_DATA (f)->stack_holder
 #define SCM_VM_FRAME_FP_OFFSET(f)	SCM_VM_FRAME_DATA (f)->fp_offset
 #define SCM_VM_FRAME_SP_OFFSET(f)	SCM_VM_FRAME_DATA (f)->sp_offset
@@ -168,7 +168,7 @@ SCM_INTERNAL SCM* scm_i_frame_stack_base (SCM frame);
 SCM_INTERNAL scm_t_ptrdiff scm_i_frame_offset (SCM frame);
 
 SCM_INTERNAL SCM scm_c_make_frame (enum scm_vm_frame_kind vm_frame_kind,
-                                   SCM stack_holder, scm_t_ptrdiff fp_offset,
+                                   void *stack_holder, scm_t_ptrdiff fp_offset,
                                    scm_t_ptrdiff sp_offset, scm_t_uint32 *ip);
 
 #endif

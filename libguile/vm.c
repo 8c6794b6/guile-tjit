@@ -202,7 +202,7 @@ vm_dispatch_hook (SCM vm, int hook_num, SCM *argv, int n)
      while the stack frame represented by the frame object is visible, so it
      seems reasonable to limit the lifetime of frame objects.  */
 
-  c_frame.stack_holder = vm;
+  c_frame.stack_holder = vp;
   c_frame.fp_offset = vp->fp - vp->stack_base;
   c_frame.sp_offset = vp->sp - vp->stack_base;
   c_frame.ip = vp->ip;

@@ -37,7 +37,7 @@ verify (offsetof (struct scm_vm_frame, dynamic_link) == 0);
   (((SCM *) (val)) + SCM_VM_FRAME_OFFSET (frame))
 
 SCM
-scm_c_make_frame (enum scm_vm_frame_kind frame_kind, SCM stack_holder,
+scm_c_make_frame (enum scm_vm_frame_kind frame_kind, void *stack_holder,
                   scm_t_ptrdiff fp_offset, scm_t_ptrdiff sp_offset,
                   scm_t_uint32 *ip)
 {
@@ -65,34 +65,47 @@ SCM*
 scm_i_frame_stack_base (SCM frame)
 #define FUNC_NAME "frame-stack-base"
 {
-  SCM stack_holder;
+  void *stack_holder;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
 
   stack_holder = SCM_VM_FRAME_STACK_HOLDER (frame);
 
-  if (SCM_VM_CONT_P (stack_holder))
-    return SCM_VM_CONT_DATA (stack_holder)->stack_base;
+  switch (SCM_VM_FRAME_KIND (frame))
+    {
+      case SCM_VM_FRAME_KIND_CONT:
+        return ((struct scm_vm_cont *) stack_holder)->stack_base;
 
-  return SCM_VM_DATA (stack_holder)->stack_base;
+      case SCM_VM_FRAME_KIND_VM:
+        return ((struct scm_vm *) stack_holder)->stack_base;
+
+      default:
+        abort ();
+    }
 }
 #undef FUNC_NAME
-
 
 scm_t_ptrdiff
 scm_i_frame_offset (SCM frame)
 #define FUNC_NAME "frame-offset"
 {
-  SCM stack_holder;
+  void *stack_holder;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
 
   stack_holder = SCM_VM_FRAME_STACK_HOLDER (frame);
 
-  if (SCM_VM_CONT_P (stack_holder))
-    return SCM_VM_CONT_DATA (stack_holder)->reloc;
+  switch (SCM_VM_FRAME_KIND (frame))
+    {
+      case SCM_VM_FRAME_KIND_CONT:
+        return ((struct scm_vm_cont *) stack_holder)->reloc;
 
-  return 0;
+      case SCM_VM_FRAME_KIND_VM:
+        return 0;
+
+      default:
+        abort ();
+    }
 }
 #undef FUNC_NAME
 
