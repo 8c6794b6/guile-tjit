@@ -106,6 +106,7 @@
       {                                                 \
         SYNC_IP ();                                     \
         exp;                                            \
+        CACHE_FP ();                                    \
       }                                                 \
   } while (0)
 #else
@@ -128,7 +129,7 @@
   RUN_HOOK0 (restore_continuation)
 
 #define VM_HANDLE_INTERRUPTS                     \
-  SCM_ASYNC_TICK_WITH_CODE (current_thread, SYNC_IP ())
+  SCM_ASYNC_TICK_WITH_GUARD_CODE (current_thread, SYNC_IP (), CACHE_FP ())
 
 
 /* Virtual Machine
@@ -157,9 +158,22 @@
    whenever we would need to know the IP of the top frame.  In practice,
    we need to SYNC_IP whenever we call out of the VM to a function that
    would like to walk the stack, perhaps as the result of an
-   exception.  */
+   exception.
+
+   One more thing.  We allow the stack to move, when it expands.
+   Therefore if you call out to a C procedure that could call Scheme
+   code, or otherwise push anything on the stack, you will need to
+   CACHE_FP afterwards to restore the possibly-changed FP. */
 
 #define SYNC_IP() vp->ip = (ip)
+
+#define CACHE_FP() fp = (vp->fp)
+#define CACHE_REGISTER()                        \
+  do {                                          \
+    ip = vp->ip;                                \
+    fp = vp->fp;                                \
+  } while (0)
+
 
 
 /* After advancing vp->sp, but before writing any stack slots, check
@@ -173,7 +187,7 @@
       {                                                             \
         SYNC_IP ();                                                 \
         vm_expand_stack (vp);                                       \
-        CACHE_REGISTER ();                                          \
+        CACHE_FP ();                                                \
       }                                                             \
   } while (0)
 
@@ -206,12 +220,6 @@
   do {                                                              \
   } while (0)
 
-
-#define CACHE_REGISTER()                        \
-  do {                                          \
-    ip = vp->ip;                                \
-    fp = vp->fp;                                \
-  } while (0)
 
 #ifdef HAVE_LABELS_AS_VALUES
 # define BEGIN_DISPATCH_SWITCH /* */
@@ -259,8 +267,9 @@
 #define RETURN_ONE_VALUE(ret)                           \
   do {                                                  \
     SCM val = ret;                                      \
-    SCM *old_fp = fp;                                   \
+    SCM *old_fp;                                        \
     VM_HANDLE_INTERRUPTS;                               \
+    old_fp = fp;                                        \
     ip = SCM_FRAME_RETURN_ADDRESS (fp);                 \
     fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);          \
     /* Clear frame. */                                  \
@@ -355,6 +364,7 @@
         SCM res;                                                        \
         SYNC_IP ();                                                     \
         res = srel (x, y);                                              \
+        CACHE_FP ();                                                    \
         if ((ip[1] & 0x1) ? scm_is_false (res) : scm_is_true (res))     \
           {                                                             \
             scm_t_int32 offset = ip[1];                                 \
@@ -380,6 +390,8 @@
   a2 = LOCAL_REF (src2)
 #define RETURN(x)                               \
   do { LOCAL_SET (dst, x); NEXT (1); } while (0)
+#define RETURN_EXP(exp)                         \
+  do { SCM __x; SYNC_IP (); __x = exp; CACHE_FP (); RETURN (__x); } while (0)
 
 /* The maximum/minimum tagged integers.  */
 #define INUM_MAX  \
@@ -399,8 +411,7 @@
         if (SCM_FIXABLE (n))                                    \
           RETURN (SCM_I_MAKINUM (n));                           \
       }                                                         \
-    SYNC_IP ();                                                 \
-    RETURN (SFUNC (x, y));                                      \
+    RETURN_EXP (SFUNC (x, y));                                  \
   }
 
 #define VM_VALIDATE_PAIR(x, proc)		\
@@ -541,13 +552,14 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   VM_DEFINE_OP (1, call, "call", OP2 (U8_U24, X8_U24))
     {
       scm_t_uint32 proc, nlocals;
-      SCM *old_fp = fp;
+      SCM *old_fp;
 
       UNPACK_24 (op, proc);
       UNPACK_24 (ip[1], nlocals);
 
       VM_HANDLE_INTERRUPTS;
 
+      old_fp = fp;
       fp = vp->fp = old_fp + proc;
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
       SCM_FRAME_SET_RETURN_ADDRESS (fp, ip + 2);
@@ -682,9 +694,11 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (7, return_values, "return-values", OP1 (U8_X24))
     {
-      SCM *old_fp = fp;
+      SCM *old_fp;
 
       VM_HANDLE_INTERRUPTS;
+
+      old_fp = fp;
       ip = SCM_FRAME_RETURN_ADDRESS (fp);
       fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);
 
@@ -764,7 +778,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
           abort ();
         }
 
-      // NULLSTACK_FOR_NONLOCAL_EXIT ();
+      CACHE_FP ();
 
       if (SCM_UNLIKELY (SCM_VALUESP (ret)))
         /* multiple values returned to continuation */
@@ -798,7 +812,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       // FIXME: separate args
       ret = scm_i_foreign_call (scm_cons (cif, pointer), LOCAL_ADDRESS (1));
 
-      // NULLSTACK_FOR_NONLOCAL_EXIT ();
+      CACHE_FP ();
 
       if (SCM_UNLIKELY (SCM_VALUESP (ret)))
         /* multiple values returned to continuation */
@@ -1389,7 +1403,8 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
    * If the value in A is equal? to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
    */
-  // FIXME: should sync_ip before calling out?
+  // FIXME: Should sync_ip before calling out and cache_fp before coming
+  // back!  Another reason to remove this opcode!
   VM_DEFINE_OP (38, br_if_equal, "br-if-equal", OP2 (U8_U12_U12, B1_X7_L24))
     {
       BR_BINARY (x, y,
@@ -1803,6 +1818,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
 
       SYNC_IP ();
       var = scm_lookup (LOCAL_REF (sym));
+      CACHE_FP ();
       if (ip[1] & 0x1)
         VM_ASSERT (VARIABLE_BOUNDP (var),
                    vm_error_unbound (fp[0], LOCAL_REF (sym)));
@@ -1822,6 +1838,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       UNPACK_12_12 (op, sym, val);
       SYNC_IP ();
       scm_define (LOCAL_REF (sym), LOCAL_REF (val));
+      CACHE_FP ();
       NEXT (1);
     }
 
@@ -1881,6 +1898,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
             mod = scm_the_root_module ();
 
           var = scm_module_lookup (mod, sym);
+          CACHE_FP ();
           if (ip[4] & 0x1)
             VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (fp[0], sym));
 
@@ -1942,6 +1960,8 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
             var = scm_public_lookup (SCM_CDR (modname), sym);
           else
             var = scm_private_lookup (SCM_CDR (modname), sym);
+
+          CACHE_FP ();
 
           if (ip[4] & 0x1)
             VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (fp[0], sym));
@@ -2304,8 +2324,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
             RETURN (result);
         }
 
-      SYNC_IP ();
-      RETURN (scm_sum (x, SCM_I_MAKINUM (1)));
+      RETURN_EXP (scm_sum (x, SCM_I_MAKINUM (1)));
     }
 
   /* sub dst:8 a:8 b:8
@@ -2338,8 +2357,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
             RETURN (result);
         }
 
-      SYNC_IP ();
-      RETURN (scm_difference (x, SCM_I_MAKINUM (1)));
+      RETURN_EXP (scm_difference (x, SCM_I_MAKINUM (1)));
     }
 
   /* mul dst:8 a:8 b:8
@@ -2349,8 +2367,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   VM_DEFINE_OP (83, mul, "mul", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
-      SYNC_IP ();
-      RETURN (scm_product (x, y));
+      RETURN_EXP (scm_product (x, y));
     }
 
   /* div dst:8 a:8 b:8
@@ -2360,8 +2377,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   VM_DEFINE_OP (84, div, "div", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
-      SYNC_IP ();
-      RETURN (scm_divide (x, y));
+      RETURN_EXP (scm_divide (x, y));
     }
 
   /* quo dst:8 a:8 b:8
@@ -2371,8 +2387,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   VM_DEFINE_OP (85, quo, "quo", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
-      SYNC_IP ();
-      RETURN (scm_quotient (x, y));
+      RETURN_EXP (scm_quotient (x, y));
     }
 
   /* rem dst:8 a:8 b:8
@@ -2382,8 +2397,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   VM_DEFINE_OP (86, rem, "rem", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
-      SYNC_IP ();
-      RETURN (scm_remainder (x, y));
+      RETURN_EXP (scm_remainder (x, y));
     }
 
   /* mod dst:8 a:8 b:8
@@ -2393,8 +2407,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   VM_DEFINE_OP (87, mod, "mod", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
-      SYNC_IP ();
-      RETURN (scm_modulo (x, y));
+      RETURN_EXP (scm_modulo (x, y));
     }
 
   /* ash dst:8 a:8 b:8
@@ -2429,8 +2442,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
             }
           /* fall through */
         }
-      SYNC_IP ();
-      RETURN (scm_ash (x, y));
+      RETURN_EXP (scm_ash (x, y));
     }
 
   /* logand dst:8 a:8 b:8
@@ -2443,8 +2455,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
         /* Compute bitwise AND without untagging */
         RETURN (SCM_PACK (SCM_UNPACK (x) & SCM_UNPACK (y)));
-      SYNC_IP ();
-      RETURN (scm_logand (x, y));
+      RETURN_EXP (scm_logand (x, y));
     }
 
   /* logior dst:8 a:8 b:8
@@ -2457,8 +2468,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
         /* Compute bitwise OR without untagging */
         RETURN (SCM_PACK (SCM_UNPACK (x) | SCM_UNPACK (y)));
-      SYNC_IP ();
-      RETURN (scm_logior (x, y));
+      RETURN_EXP (scm_logior (x, y));
     }
 
   /* logxor dst:8 a:8 b:8
@@ -2470,8 +2480,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
         RETURN (SCM_I_MAKINUM (SCM_I_INUM (x) ^ SCM_I_INUM (y)));
-      SYNC_IP ();
-      RETURN (scm_logxor (x, y));
+      RETURN_EXP (scm_logxor (x, y));
     }
 
   /* make-vector/immediate dst:8 length:8 init:8

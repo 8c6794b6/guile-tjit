@@ -225,24 +225,22 @@ void scm_ia64_longjmp (scm_i_jmp_buf *, int);
 
 
 
-#define SCM_ASYNC_TICK                                                  \
-  do                                                                    \
-    {                                                                   \
-      if (SCM_UNLIKELY (SCM_I_CURRENT_THREAD->pending_asyncs))          \
-        scm_async_tick ();                                              \
-    }                                                                   \
-  while (0)
-
-#define SCM_ASYNC_TICK_WITH_CODE(thr, stmt)                             \
+#define SCM_ASYNC_TICK_WITH_GUARD_CODE(thr, pre, post)                  \
   do                                                                    \
     {                                                                   \
       if (SCM_UNLIKELY (thr->pending_asyncs))                           \
         {                                                               \
-          stmt;                                                         \
+          pre;                                                          \
           scm_async_tick ();                                            \
+          post;                                                         \
         }                                                               \
     }                                                                   \
   while (0)
+
+#define SCM_ASYNC_TICK_WITH_CODE(thr, stmt) \
+  SCM_ASYNC_TICK_WITH_GUARD_CODE (thr, stmt, (void) 0)
+#define SCM_ASYNC_TICK \
+  SCM_ASYNC_TICK_WITH_CODE (SCM_I_CURRENT_THREAD, (void) 0)
 
 
 
