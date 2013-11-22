@@ -282,13 +282,7 @@ SCM_DEFINE (scm_gc_stats, "gc-stats", 0, 0, 0,
 
   GC_get_heap_usage_safe (&heap_size, &free_bytes, &unmapped_bytes,
                           &bytes_since_gc, &total_bytes);
-#ifdef HAVE_GC_GET_GC_NO
-  /* This function was added in 7.2alpha2 (June 2009).  */
   gc_times = GC_get_gc_no ();
-#else
-  /* This symbol is deprecated as of 7.3.  */
-  gc_times = GC_gc_no;
-#endif
 
   answer =
     scm_list_n (scm_cons (sym_gc_time_taken, scm_from_long (gc_time_taken)),
@@ -589,13 +583,7 @@ scm_getenv_int (const char *var, int def)
 void
 scm_storage_prehistory ()
 {
-#ifdef HAVE_GC_SET_ALL_INTERIOR_POINTERS
-  /* This function was added in 7.2alpha2 (June 2009).  */
   GC_set_all_interior_pointers (0);
-#else
-  /* This symbol is deprecated in 7.3.  */
-  GC_all_interior_pointers = 0;
-#endif
 
   free_space_divisor = scm_getenv_int ("GC_FREE_SPACE_DIVISOR", 3);
   minimum_free_space_divisor = free_space_divisor;

@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
- *   2004, 2006, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -134,11 +134,7 @@ scm_realloc (void *mem, size_t size)
     return ptr;
 
   /* Time is hard: trigger a full, ``stop-the-world'' GC, and try again.  */
-#ifdef HAVE_GC_GCOLLECT_AND_UNMAP
   GC_gcollect_and_unmap ();
-#else
-  GC_gcollect ();
-#endif
 
   ptr = do_realloc (mem, size);
   if (ptr)

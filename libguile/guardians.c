@@ -355,13 +355,7 @@ void
 scm_init_guardians ()
 {
   /* We use unordered finalization `a la Java.  */
-#ifdef HAVE_GC_SET_JAVA_FINALIZATION
-  /* This function was added in 7.2alpha2 (June 2009).  */
   GC_set_java_finalization (1);
-#else
-  /* This symbol is deprecated as of 7.3.  */
-  GC_java_finalization = 1;
-#endif
 
   tc16_guardian = scm_make_smob_type ("guardian", 0);
 

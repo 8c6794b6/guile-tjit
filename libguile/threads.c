@@ -70,196 +70,6 @@
 
 
 
-
-/* First some libgc shims. */
-
-/* Make sure GC_fn_type is defined; it is missing from the public
-   headers of GC 7.1 and earlier.  */
-#ifndef HAVE_GC_FN_TYPE
-typedef void * (* GC_fn_type) (void *);
-#endif
-
-
-#ifndef GC_SUCCESS
-#define GC_SUCCESS 0
-#endif
-
-#ifndef GC_UNIMPLEMENTED
-#define GC_UNIMPLEMENTED 3
-#endif
-
-/* Likewise struct GC_stack_base is missing before 7.1.  */
-#ifndef HAVE_GC_STACK_BASE
-struct GC_stack_base {
-  void * mem_base; /* Base of memory stack. */
-#ifdef __ia64__
-  void * reg_base; /* Base of separate register stack. */
-#endif
-};
-
-static int
-GC_register_my_thread (struct GC_stack_base *stack_base)
-{
-  return GC_UNIMPLEMENTED;
-}
-
-static void
-GC_unregister_my_thread ()
-{
-}
-
-#if !SCM_USE_PTHREAD_THREADS
-/* No threads; we can just use GC_stackbottom.  */
-static void *
-get_thread_stack_base ()
-{
-  return GC_stackbottom;
-}
-
-#elif defined HAVE_PTHREAD_ATTR_GETSTACK && defined HAVE_PTHREAD_GETATTR_NP \
-  && defined PTHREAD_ATTR_GETSTACK_WORKS
-/* This method for GNU/Linux and perhaps some other systems.
-   It's not for MacOS X or Solaris 10, since pthread_getattr_np is not
-   available on them.  */
-static void *
-get_thread_stack_base ()
-{
-  pthread_attr_t attr;
-  void *start, *end;
-  size_t size;
-
-  pthread_getattr_np (pthread_self (), &attr);
-  pthread_attr_getstack (&attr, &start, &size);
-  end = (char *)start + size;
-
-#if SCM_STACK_GROWS_UP
-  return start;
-#else
-  return end;
-#endif
-}
-
-#elif defined HAVE_PTHREAD_GET_STACKADDR_NP
-/* This method for MacOS X.
-   It'd be nice if there was some documentation on pthread_get_stackaddr_np,
-   but as of 2006 there's nothing obvious at apple.com.  */
-static void *
-get_thread_stack_base ()
-{
-  return pthread_get_stackaddr_np (pthread_self ());
-}
-
-#elif HAVE_PTHREAD_ATTR_GET_NP
-/* This one is for FreeBSD 9.  */
-static void *
-get_thread_stack_base ()
-{
-  pthread_attr_t attr;
-  void *start, *end;
-  size_t size;
-
-  pthread_attr_init (&attr);
-  pthread_attr_get_np (pthread_self (), &attr);
-  pthread_attr_getstack (&attr, &start, &size);
-  pthread_attr_destroy (&attr);
-
-  end = (char *)start + size;
-
-#if SCM_STACK_GROWS_UP
-  return start;
-#else
-  return end;
-#endif
-}
-
-#else 
-#error Threads enabled with old BDW-GC, but missing get_thread_stack_base impl.  Please upgrade to libgc >= 7.1.
-#endif
-
-static int
-GC_get_stack_base (struct GC_stack_base *stack_base)
-{
-  stack_base->mem_base = get_thread_stack_base ();
-#ifdef __ia64__
-  /* Calculate and store off the base of this thread's register
-     backing store (RBS).  Unfortunately our implementation(s) of
-     scm_ia64_register_backing_store_base are only reliable for the
-     main thread.  For other threads, therefore, find out the current
-     top of the RBS, and use that as a maximum. */
-  stack_base->reg_base = scm_ia64_register_backing_store_base ();
-  {
-    ucontext_t ctx;
-    void *bsp;
-    getcontext (&ctx);
-    bsp = scm_ia64_ar_bsp (&ctx);
-    if (stack_base->reg_base > bsp)
-      stack_base->reg_base = bsp;
-  }
-#endif
-  return GC_SUCCESS;
-}
-
-static void *
-GC_call_with_stack_base(void * (*fn) (struct GC_stack_base*, void*), void *arg)
-{
-  struct GC_stack_base stack_base;
-
-  stack_base.mem_base = (void*)&stack_base;
-#ifdef __ia64__
-  /* FIXME: Untested.  */
-  {
-    ucontext_t ctx;
-    getcontext (&ctx);
-    stack_base.reg_base = scm_ia64_ar_bsp (&ctx);
-  }
-#endif
-
-  return fn (&stack_base, arg);
-}
-#endif /* HAVE_GC_STACK_BASE */
-
-
-/* Now define with_gc_active and with_gc_inactive.  */
-
-#if (defined(HAVE_GC_DO_BLOCKING) && defined (HAVE_DECL_GC_DO_BLOCKING) && defined (HAVE_GC_CALL_WITH_GC_ACTIVE))
-
-/* We have a sufficiently new libgc (7.2 or newer).  */
-
-static void*
-with_gc_inactive (GC_fn_type func, void *data)
-{
-  return GC_do_blocking (func, data);
-}
-
-static void*
-with_gc_active (GC_fn_type func, void *data)
-{
-  return GC_call_with_gc_active (func, data);
-}
-
-#else
-
-/* libgc not new enough, so never actually deactivate GC.
-
-   Note that though GC 7.1 does have a GC_do_blocking, it doesn't have
-   GC_call_with_gc_active.  */
-
-static void*
-with_gc_inactive (GC_fn_type func, void *data)
-{
-  return func (data);
-}
-
-static void*
-with_gc_active (GC_fn_type func, void *data)
-{
-  return func (data);
-}
-
-#endif /* HAVE_GC_DO_BLOCKING */
-
-
-
 static void
 to_timespec (SCM t, scm_t_timespec *waittime)
 {
@@ -835,7 +645,7 @@ scm_i_init_thread_for_guile (struct GC_stack_base *base, SCM parent)
 	  */
 	  scm_i_init_guile (base);
 
-#if defined (HAVE_GC_ALLOW_REGISTER_THREADS) && SCM_USE_PTHREAD_THREADS
+#if SCM_USE_PTHREAD_THREADS
           /* Allow other threads to come in later.  */
           GC_allow_register_threads ();
 #endif
@@ -934,7 +744,7 @@ with_guile_and_parent (struct GC_stack_base *base, void *data)
 #endif
 
       t->guile_mode = 1;
-      res = with_gc_active (with_guile_trampoline, args);
+      res = GC_call_with_gc_active (with_guile_trampoline, args);
       t->guile_mode = 0;
     }
   return res;
@@ -968,7 +778,7 @@ scm_without_guile (void *(*func)(void *), void *data)
   if (t->guile_mode)
     {
       SCM_I_CURRENT_THREAD->guile_mode = 0;
-      result = with_gc_inactive (func, data);
+      result = GC_do_blocking (func, data);
       SCM_I_CURRENT_THREAD->guile_mode = 1;
     }
   else

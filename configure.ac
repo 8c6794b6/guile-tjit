@@ -1246,36 +1246,11 @@ save_LIBS="$LIBS"
 LIBS="$BDW_GC_LIBS $LIBS"
 CFLAGS="$BDW_GC_CFLAGS $CFLAGS"
 
-AC_CHECK_FUNCS([GC_do_blocking GC_call_with_gc_active GC_pthread_exit	\
-  GC_pthread_cancel GC_allow_register_threads GC_pthread_sigmask	\
-  GC_set_start_callback GC_get_suspend_signal GC_move_disappearing_link	\
-  GC_get_heap_usage_safe GC_get_free_space_divisor			\
-  GC_gcollect_and_unmap GC_get_unmapped_bytes GC_set_finalizer_notifier	\
-  GC_set_finalize_on_demand GC_set_all_interior_pointers GC_get_gc_no	\
-  GC_set_java_finalization])
+# Functions that might not be defined, depending on configuration.
+AC_CHECK_FUNCS([GC_pthread_exit GC_pthread_cancel GC_pthread_sigmask])
 
-# Though the `GC_do_blocking ()' symbol is present in GC 7.1, it is not
-# declared, and has a different type (returning void instead of
-# void*).
-AC_CHECK_DECL([GC_do_blocking],
-  [AC_DEFINE([HAVE_DECL_GC_DO_BLOCKING], [1],
-    [Define this if the `GC_do_blocking ()' function is declared])],
-  [],
-  [#include <gc/gc.h>])
-
-# `GC_fn_type' is not available in GC 7.1 and earlier.
-AC_CHECK_TYPE([GC_fn_type],
-  [AC_DEFINE([HAVE_GC_FN_TYPE], [1],
-    [Define this if the `GC_fn_type' type is available.])],
-  [],
-  [#include <gc/gc.h>])
-
-# `GC_stack_base' is not available in GC 7.1 and earlier.
-AC_CHECK_TYPE([struct GC_stack_base],
-  [AC_DEFINE([HAVE_GC_STACK_BASE], [1],
-    [Define this if the `GC_stack_base' type is available.])],
-  [],
-  [#include <gc/gc.h>])
+# Functions from GC 7.3.
+AC_CHECK_FUNCS([GC_move_disappearing_link])
 
 LIBS="$save_LIBS"
 

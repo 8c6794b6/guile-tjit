@@ -43,17 +43,6 @@ static size_t finalization_count;
 
 
 
-#ifndef HAVE_GC_SET_FINALIZER_NOTIFIER
-static void
-GC_set_finalizer_notifier (void (*notifier) (void))
-{
-  GC_finalizer_notifier = notifier;
-}
-#endif
-
-
-
-
 void
 scm_i_set_finalizer (void *obj, scm_t_finalizer_proc proc, void *data)
 {

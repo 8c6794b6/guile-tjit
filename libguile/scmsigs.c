@@ -142,28 +142,6 @@ struct signal_pipe_data
   int err;
 };
 
-#ifndef HAVE_GC_GET_SUSPEND_SIGNAL
-static int
-GC_get_suspend_signal (void)
-{
-#if defined SIG_SUSPEND
-  return SIG_SUSPEND;
-#elif defined SIGPWR
-  return SIGPWR;
-#elif defined SIGLOST
-  return SIGLOST;
-#elif defined _SIGRTMIN
-  return _SIGRTMIN + 6;
-#elif defined SIGRTMIN
-  return SIGRTMIN + 6;
-#elif defined __GLIBC__
-  return 32+6;
-#else
-  return SIGUSR1;
-#endif
-}
-#endif /* HAVE_GC_GET_SUSPEND_SIGNAL */
-
 static void*
 read_signal_pipe_data (void * data)
 {
