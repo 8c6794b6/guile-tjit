@@ -88,7 +88,7 @@
   do {                                    \
     if (SCM_UNLIKELY (!(condition)))      \
       {                                   \
-        SYNC_ALL();                       \
+        SYNC_IP();                        \
         handler;                          \
       }                                   \
   } while (0)
@@ -104,7 +104,7 @@
   do {                                                  \
     if (SCM_UNLIKELY (vp->trace_level > 0))             \
       {                                                 \
-        SYNC_REGISTER ();				\
+        SYNC_IP ();                                     \
         exp;                                            \
       }                                                 \
   } while (0)
@@ -128,7 +128,7 @@
   RUN_HOOK0 (restore_continuation)
 
 #define VM_HANDLE_INTERRUPTS                     \
-  SCM_ASYNC_TICK_WITH_CODE (current_thread, SYNC_REGISTER ())
+  SCM_ASYNC_TICK_WITH_CODE (current_thread, SYNC_IP ())
 
 
 /* Virtual Machine
@@ -159,14 +159,8 @@
    would like to walk the stack, perhaps as the result of an
    exception.  */
 
-#define SYNC_IP() \
-  vp->ip = (ip)
+#define SYNC_IP() vp->ip = (ip)
 
-#define SYNC_REGISTER() \
-  SYNC_IP()
-#define SYNC_BEFORE_GC() /* Only SP and FP needed to trace GC */
-#define SYNC_ALL() /* FP already saved */ \
-  SYNC_IP()
 
 /* After advancing vp->sp, but before writing any stack slots, check
    that it is actually in bounds.  If it is not in bounds, currently we
@@ -177,8 +171,9 @@
   do {                                                              \
     if (SCM_UNLIKELY (vp->sp >= vp->stack_limit))                   \
       {                                                             \
-        vm_error_stack_overflow (vp);                               \
-        CACHE_REGISTER();                                           \
+        SYNC_IP ();                                                 \
+        vm_expand_stack (vp);                                       \
+        CACHE_REGISTER ();                                          \
       }                                                             \
   } while (0)
 
@@ -518,7 +513,6 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
         {
           scm_t_uint32 n;
           ret = SCM_EOL;
-          SYNC_BEFORE_GC();
           for (n = nvals; n > 0; n--)
             ret = scm_cons (LOCAL_REF (4 + n - 1), ret);
           ret = scm_values (ret);
@@ -3232,10 +3226,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
 #undef RUN_HOOK
 #undef RUN_HOOK0
 #undef RUN_HOOK1
-#undef SYNC_ALL
-#undef SYNC_BEFORE_GC
 #undef SYNC_IP
-#undef SYNC_REGISTER
 #undef UNPACK_8_8_8
 #undef UNPACK_8_16
 #undef UNPACK_16_8
