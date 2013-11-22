@@ -66,6 +66,7 @@
 #include "libguile/init.h"
 #include "libguile/scmsigs.h"
 #include "libguile/strings.h"
+#include "libguile/vm.h"
 
 #include <full-read.h>
 
@@ -88,11 +89,15 @@ thread_mark (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
        gc_mark.h.)  */
     return mark_stack_ptr;
 
-  /* Mark T.  We could be more precise, but it doesn't matte.  */
+  /* Mark T.  We could be more precise, but it doesn't matter.  */
   for (word = 0; word * sizeof (*addr) < sizeof (*t); word++)
     mark_stack_ptr = GC_MARK_AND_PUSH ((void *) addr[word],
 				       mark_stack_ptr, mark_stack_limit,
 				       NULL);
+
+  if (t->vp)
+    mark_stack_ptr = scm_i_vm_mark_stack (t->vp, mark_stack_ptr,
+                                          mark_stack_limit);
 
   return mark_stack_ptr;
 }
@@ -618,6 +623,12 @@ on_thread_exit (void *v)
   scm_i_pthread_mutex_unlock (&thread_admin_mutex);
 
   scm_i_pthread_setspecific (scm_i_thread_key, NULL);
+
+  if (t->vp)
+    {
+      scm_i_vm_free_stack (t->vp);
+      t->vp = NULL;
+    }
 
 #if SCM_USE_PTHREAD_THREADS
   GC_unregister_my_thread ();

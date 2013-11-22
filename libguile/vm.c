@@ -26,6 +26,10 @@
 #include <string.h>
 #include <stdint.h>
 
+#ifdef HAVE_SYS_MMAN_H
+#include <sys/mman.h>
+#endif
+
 #include "libguile/bdw-gc.h"
 #include <gc/gc_mark.h>
 
@@ -55,12 +59,6 @@ static SCM sym_debug;
 #define VM_ENABLE_ASSERTIONS
 
 /* #define VM_ENABLE_PARANOID_ASSERTIONS */
-
-/* When defined, arrange so that the GC doesn't scan the VM stack beyond its
-   current SP.  This should help avoid excess data retention.  See
-   http://thread.gmane.org/gmane.comp.programming.garbage-collection.boehmgc/3001
-   for a discussion.  */
-#define VM_ENABLE_PRECISE_STACK_GC_SCAN
 
 /* Size in SCM objects of the stack reserve.  The reserve is used to run
    exception handling code in case of a VM stack overflow.  */
@@ -712,12 +710,43 @@ typedef SCM (*scm_t_vm_engine) (scm_i_thread *current_thread, struct scm_vm *vp,
 static const scm_t_vm_engine vm_engines[SCM_VM_NUM_ENGINES] =
   { vm_regular_engine, vm_debug_engine };
 
-#ifdef VM_ENABLE_PRECISE_STACK_GC_SCAN
+static SCM*
+allocate_stack (size_t size)
+#define FUNC_NAME "make_vm"
+{
+  void *ret;
 
-/* The GC "kind" for the VM stack.  */
-static int vm_stack_gc_kind;
+  if (size >= ((size_t) -1) / sizeof (SCM))
+    abort ();
 
+  size *= sizeof (SCM);
+
+#if HAVE_SYS_MMAN_H
+  ret = mmap (NULL, size, PROT_READ | PROT_WRITE,
+              MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (ret == MAP_FAILED)
+    SCM_SYSERROR;
+#else
+  ret = malloc (size);
+  if (!ret)
+    SCM_SYSERROR;
 #endif
+
+  return (SCM *) ret;
+}
+#undef FUNC_NAME
+
+static void
+free_stack (SCM *stack, size_t size)
+{
+  size *= sizeof (SCM);
+
+#if HAVE_SYS_MMAN_H
+  munmap (stack, size);
+#else
+  free (stack);
+#endif
+}
 
 static struct scm_vm *
 make_vm (void)
@@ -729,21 +758,7 @@ make_vm (void)
   vp = scm_gc_malloc (sizeof (struct scm_vm), "vm");
 
   vp->stack_size= vm_stack_size;
-
-#ifdef VM_ENABLE_PRECISE_STACK_GC_SCAN
-  vp->stack_base = (SCM *)
-    GC_generic_malloc (vp->stack_size * sizeof (SCM), vm_stack_gc_kind);
-
-  /* Keep a pointer to VP so that `vm_stack_mark ()' can know what the stack
-     top is.  */
-  *vp->stack_base = SCM_PACK_POINTER (vp);
-  vp->stack_base++;
-  vp->stack_size--;
-#else
-  vp->stack_base  = scm_gc_malloc (vp->stack_size * sizeof (SCM),
-				   "stack-base");
-#endif
-
+  vp->stack_base = allocate_stack (vp->stack_size);
   vp->stack_limit = vp->stack_base + vp->stack_size - VM_STACK_RESERVE_SIZE;
   vp->ip    	  = NULL;
   vp->sp    	  = vp->stack_base - 1;
@@ -757,27 +772,14 @@ make_vm (void)
 }
 #undef FUNC_NAME
 
-#ifdef VM_ENABLE_PRECISE_STACK_GC_SCAN
-
 /* Mark the VM stack region between its base and its current top.  */
-static struct GC_ms_entry *
-vm_stack_mark (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
-	       struct GC_ms_entry *mark_stack_limit, GC_word env)
+struct GC_ms_entry *
+scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
+                     struct GC_ms_entry *mark_stack_limit)
 {
   GC_word *word;
-  const struct scm_vm *vm;
 
-  /* The first word of the VM stack should contain a pointer to the
-     corresponding VM.  */
-  vm = * ((struct scm_vm **) addr);
-
-  if (vm == NULL
-      || (SCM *) addr != vm->stack_base - 1)
-    /* ADDR must be a pointer to a free-list element, which we must ignore
-       (see warning in <gc/gc_mark.h>).  */
-    return mark_stack_ptr;
-
-  for (word = (GC_word *) vm->stack_base; word <= (GC_word *) vm->sp; word++)
+  for (word = (GC_word *) vp->stack_base; word <= (GC_word *) vp->sp; word++)
     mark_stack_ptr = GC_MARK_AND_PUSH ((* (GC_word **) word),
 				       mark_stack_ptr, mark_stack_limit,
 				       NULL);
@@ -785,8 +787,14 @@ vm_stack_mark (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
   return mark_stack_ptr;
 }
 
-#endif /* VM_ENABLE_PRECISE_STACK_GC_SCAN */
-
+/* Free the VM stack, as this thread is exiting.  */
+void
+scm_i_vm_free_stack (struct scm_vm *vp)
+{
+  free_stack (vp->stack_base, vp->stack_size);
+  vp->stack_base = vp->stack_limit = NULL;
+  vp->stack_size = 0;
+}
 
 static struct scm_vm *
 thread_vm (scm_i_thread *t)
@@ -1102,14 +1110,6 @@ scm_bootstrap_vm (void)
   vm_builtin_##builtin = scm_i_make_program (vm_builtin_##builtin##_code);
   FOR_EACH_VM_BUILTIN (DEFINE_BUILTIN);
 #undef DEFINE_BUILTIN
-
-#ifdef VM_ENABLE_PRECISE_STACK_GC_SCAN
-  vm_stack_gc_kind =
-    GC_new_kind (GC_new_free_list (),
-		 GC_MAKE_PROC (GC_new_proc (vm_stack_mark), 0),
-		 0, 1);
-
-#endif
 }
 
 void

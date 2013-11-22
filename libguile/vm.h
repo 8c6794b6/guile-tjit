@@ -65,6 +65,12 @@ SCM_API SCM scm_set_default_vm_engine_x (SCM engine);
 SCM_API void scm_c_set_vm_engine_x (int engine);
 SCM_API void scm_c_set_default_vm_engine_x (int engine);
 
+struct GC_ms_entry;
+SCM_INTERNAL struct GC_ms_entry * scm_i_vm_mark_stack (struct scm_vm *,
+                                                       struct GC_ms_entry *,
+                                                       struct GC_ms_entry *);
+SCM_INTERNAL void scm_i_vm_free_stack (struct scm_vm *vp);
+
 #define SCM_F_VM_CONT_PARTIAL 0x1
 #define SCM_F_VM_CONT_REWINDABLE 0x2
 
