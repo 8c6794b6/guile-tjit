@@ -777,12 +777,20 @@ struct GC_ms_entry *
 scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
                      struct GC_ms_entry *mark_stack_limit)
 {
-  GC_word *word;
+  SCM *sp, *fp;
 
-  for (word = (GC_word *) vp->stack_base; word <= (GC_word *) vp->sp; word++)
-    mark_stack_ptr = GC_MARK_AND_PUSH ((* (GC_word **) word),
-				       mark_stack_ptr, mark_stack_limit,
-				       NULL);
+  for (fp = vp->fp, sp = vp->sp; fp; fp = SCM_FRAME_DYNAMIC_LINK (fp))
+    {
+      for (; sp >= &SCM_FRAME_LOCAL (fp, 0); sp--)
+        {
+          SCM elt = *sp;
+          if (SCM_NIMP (elt))
+            mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word *) elt,
+                                               mark_stack_ptr, mark_stack_limit,
+                                               NULL);
+        }
+      sp = SCM_FRAME_PREVIOUS_SP (fp);
+    }
 
   return mark_stack_ptr;
 }
