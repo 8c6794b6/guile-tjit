@@ -25,6 +25,7 @@
 #endif
 
 #include "libguile/bdw-gc.h"
+#include <gc/gc_mark.h>
 #include "libguile/_scm.h"
 
 #include <stdlib.h>
@@ -70,6 +71,34 @@
 
 
 
+
+/* The GC "kind" for threads that allow them to mark their VM
+   stacks.  */
+static int thread_gc_kind;
+
+static struct GC_ms_entry *
+thread_mark (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
+             struct GC_ms_entry *mark_stack_limit, GC_word env)
+{
+  int word;
+  const struct scm_i_thread *t = (struct scm_i_thread *) addr;
+
+  if (SCM_UNPACK (t->handle) == 0)
+    /* T must be on the free-list; ignore.  (See warning in
+       gc_mark.h.)  */
+    return mark_stack_ptr;
+
+  /* Mark T.  We could be more precise, but it doesn't matte.  */
+  for (word = 0; word * sizeof (*addr) < sizeof (*t); word++)
+    mark_stack_ptr = GC_MARK_AND_PUSH ((void *) addr[word],
+				       mark_stack_ptr, mark_stack_limit,
+				       NULL);
+
+  return mark_stack_ptr;
+}
+
+
+
 static void
 to_timespec (SCM t, scm_t_timespec *waittime)
 {
@@ -87,6 +116,7 @@ to_timespec (SCM t, scm_t_timespec *waittime)
       waittime->tv_nsec = (long) ((time - sec) * 1000000000);
     }
 }
+
 
 
 /*** Queues */
@@ -372,6 +402,7 @@ guilify_self_1 (struct GC_stack_base *base)
   t.sleep_mutex = NULL;
   t.sleep_object = SCM_BOOL_F;
   t.sleep_fd = -1;
+  t.vp = NULL;
 
   if (pipe2 (t.sleep_pipe, O_CLOEXEC) != 0)
     /* FIXME: Error conditions during the initialization phase are handled
@@ -389,7 +420,7 @@ guilify_self_1 (struct GC_stack_base *base)
     scm_i_thread *t_ptr = &t;
     
     GC_disable ();
-    t_ptr = GC_malloc (sizeof (scm_i_thread));
+    t_ptr = GC_generic_malloc (sizeof (*t_ptr), thread_gc_kind);
     memcpy (t_ptr, &t, sizeof t);
 
     scm_i_pthread_setspecific (scm_i_thread_key, t_ptr);
@@ -422,7 +453,6 @@ guilify_self_2 (SCM parent)
 
   t->continuation_root = scm_cons (t->handle, SCM_EOL);
   t->continuation_base = t->base;
-  t->vp = NULL;
 
   if (scm_is_true (parent))
     t->dynamic_state = scm_make_dynamic_state (parent);
@@ -1996,6 +2026,11 @@ scm_threads_prehistory (void *base)
 			    scm_i_pthread_mutexattr_recursive);
   scm_i_pthread_mutex_init (&scm_i_misc_mutex, NULL);
   scm_i_pthread_cond_init (&wake_up_cond, NULL);
+
+  thread_gc_kind =
+    GC_new_kind (GC_new_free_list (),
+		 GC_MAKE_PROC (GC_new_proc (thread_mark), 0),
+		 0, 1);
 
   guilify_self_1 ((struct GC_stack_base *) base);
 }
