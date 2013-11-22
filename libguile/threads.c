@@ -380,8 +380,6 @@ guilify_self_1 (struct GC_stack_base *base)
     abort ();
 
   scm_i_pthread_mutex_init (&t.admin_mutex, NULL);
-  t.current_mark_stack_ptr = NULL;
-  t.current_mark_stack_limit = NULL;
   t.canceled = 0;
   t.exited = 0;
   t.guile_mode = 0;

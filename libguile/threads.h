@@ -72,11 +72,6 @@ typedef struct scm_i_thread {
   scm_i_pthread_cond_t sleep_cond;
   int sleep_fd, sleep_pipe[2];
 
-  /* XXX: These two fields used to hold information about the BDW-GC
-     mark stack during the mark phase.  They are no longer used.  */
-  void *current_mark_stack_ptr;
-  void *current_mark_stack_limit;
-
   /* Other thread local things.
    */
   SCM dynamic_state;
