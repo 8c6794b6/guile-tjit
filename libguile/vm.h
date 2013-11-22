@@ -44,6 +44,7 @@ struct scm_vm {
   SCM *stack_base;		/* stack base address */
   SCM *stack_limit;		/* stack limit address */
   int trace_level;              /* traces enabled if trace_level > 0 */
+  size_t max_stack_size;
   SCM hooks[SCM_VM_NUM_HOOKS];	/* hooks */
   int engine;                   /* which vm engine we're using */
 };

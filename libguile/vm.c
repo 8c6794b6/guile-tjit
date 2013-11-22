@@ -16,6 +16,9 @@
  * 02110-1301 USA
  */
 
+/* For mremap(2) on GNU/Linux systems.  */
+#define _GNU_SOURCE
+
 #if HAVE_CONFIG_H
 #  include <config.h>
 #endif
@@ -59,10 +62,6 @@ static SCM sym_debug;
 #define VM_ENABLE_ASSERTIONS
 
 /* #define VM_ENABLE_PARANOID_ASSERTIONS */
-
-/* Size in SCM objects of the stack reserve.  The reserve is used to run
-   exception handling code in case of a VM stack overflow.  */
-#define VM_STACK_RESERVE_SIZE  512
 
 
 
@@ -381,7 +380,6 @@ static void vm_error_kwargs_unrecognized_keyword (SCM proc, SCM kw) SCM_NORETURN
 static void vm_error_too_many_args (int nargs) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_wrong_num_args (SCM proc) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_wrong_type_apply (SCM proc) SCM_NORETURN SCM_NOINLINE;
-static void vm_error_stack_overflow (struct scm_vm *vp) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_stack_underflow (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_improper_list (SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_pair (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
@@ -479,20 +477,6 @@ vm_error_wrong_type_apply (SCM proc)
 {
   scm_error (scm_arg_type_key, NULL, "Wrong type to apply: ~S",
              scm_list_1 (proc), scm_list_1 (proc));
-}
-
-static void
-vm_error_stack_overflow (struct scm_vm *vp)
-{
-  if (vp->stack_limit < vp->stack_base + vp->stack_size)
-    /* There are VM_STACK_RESERVE_SIZE bytes left.  Make them available so
-       that `throw' below can run on this VM.  */
-    vp->stack_limit = vp->stack_base + vp->stack_size;
-  else
-    /* There is no space left on the stack.  FIXME: Do something more
-       sensible here! */
-    abort ();
-  vm_error ("VM: Stack overflow", SCM_UNDEFINED);
 }
 
 static void
@@ -676,18 +660,25 @@ scm_i_call_with_current_continuation (SCM proc)
  * VM
  */
 
-#define VM_MIN_STACK_SIZE	(1024)
-#define VM_DEFAULT_STACK_SIZE	(256 * 1024)
-static size_t vm_stack_size = VM_DEFAULT_STACK_SIZE;
+/* Hard stack limit is 512M words: 2 gigabytes on 32-bit machines, 4 on
+   64-bit machines.  */
+static const size_t hard_max_stack_size = 512 * 1024 * 1024;
+
+/* Initial stack size: 4 or 8 kB.  */
+static const size_t initial_stack_size = 1024;
+
+/* Default soft stack limit is 1M words (4 or 8 megabytes).  */
+static size_t default_max_stack_size = 1024 * 1024;
 
 static void
 initialize_default_stack_size (void)
 {
-  int size = scm_getenv_int ("GUILE_STACK_SIZE", vm_stack_size);
-  if (size >= VM_MIN_STACK_SIZE)
-    vm_stack_size = size;
+  int size = scm_getenv_int ("GUILE_STACK_SIZE", (int) default_max_stack_size);
+  if (size >= initial_stack_size && (size_t) size < ((size_t) -1) / sizeof(SCM))
+    default_max_stack_size = size;
 }
 
+static void vm_expand_stack (struct scm_vm *vp) SCM_NOINLINE;
 #define VM_NAME vm_regular_engine
 #define VM_USE_HOOKS 0
 #define FUNC_NAME "vm-regular-engine"
@@ -748,6 +739,36 @@ free_stack (SCM *stack, size_t size)
 #endif
 }
 
+static SCM*
+expand_stack (SCM *old_stack, size_t old_size, size_t new_size)
+#define FUNC_NAME "expand_stack"
+{
+#if defined MREMAP_MAYMOVE
+  void *new_stack;
+
+  if (new_size >= ((size_t) -1) / sizeof (SCM))
+    abort ();
+
+  old_size *= sizeof (SCM);
+  new_size *= sizeof (SCM);
+
+  new_stack = mremap (old_stack, old_size, new_size, MREMAP_MAYMOVE);
+  if (new_stack == MAP_FAILED)
+    SCM_SYSERROR;
+
+  return (SCM *) new_stack;
+#else
+  SCM *new_stack;
+
+  new_stack = allocate_stack (new_size);
+  memcpy (new_stack, old_stack, old_size * sizeof (SCM));
+  free_stack (old_stack, old_size);
+
+  return new_stack;
+#endif
+}
+#undef FUNC_NAME
+
 static struct scm_vm *
 make_vm (void)
 #define FUNC_NAME "make_vm"
@@ -757,9 +778,10 @@ make_vm (void)
 
   vp = scm_gc_malloc (sizeof (struct scm_vm), "vm");
 
-  vp->stack_size= vm_stack_size;
+  vp->stack_size = initial_stack_size;
   vp->stack_base = allocate_stack (vp->stack_size);
-  vp->stack_limit = vp->stack_base + vp->stack_size - VM_STACK_RESERVE_SIZE;
+  vp->stack_limit = vp->stack_base + vp->stack_size;
+  vp->max_stack_size = default_max_stack_size;
   vp->ip    	  = NULL;
   vp->sp    	  = vp->stack_base - 1;
   vp->fp    	  = NULL;
@@ -804,6 +826,78 @@ scm_i_vm_free_stack (struct scm_vm *vp)
   vp->stack_size = 0;
 }
 
+static void
+vm_expand_stack (struct scm_vm *vp)
+{
+  scm_t_ptrdiff stack_size = vp->sp + 1 - vp->stack_base;
+
+  if (stack_size > hard_max_stack_size)
+    {
+      /* We have expanded the soft limit to the point that we reached a
+         hard limit.  There is nothing sensible to do.  */
+      fprintf (stderr, "Hard stack size limit (%zu words) reached; aborting.\n",
+               hard_max_stack_size);
+      abort ();
+    }
+
+  if (stack_size > vp->stack_size)
+    {
+      SCM *old_stack;
+      size_t new_size;
+      scm_t_ptrdiff reloc;
+
+      new_size = vp->stack_size;
+      while (new_size < stack_size)
+        new_size *= 2;
+      old_stack = vp->stack_base;
+      vp->stack_base = expand_stack (old_stack, vp->stack_size, new_size);
+      vp->stack_size = new_size;
+      vp->stack_limit = vp->stack_base + new_size;
+      reloc = vp->stack_base - old_stack;
+
+      if (reloc)
+        {
+          SCM *fp;
+          vp->fp += reloc;
+          vp->sp += reloc;
+          fp = vp->fp;
+          while (fp)
+            {
+              SCM *next_fp = SCM_FRAME_DYNAMIC_LINK (fp);
+              if (next_fp)
+                {
+                  next_fp += reloc;
+                  SCM_FRAME_SET_DYNAMIC_LINK (fp, next_fp);
+                }
+              fp = next_fp;
+            }
+        }
+    }
+
+  if (stack_size >= vp->max_stack_size)
+    {
+      /* Expand the soft limit by 256K entries to give us space to
+         handle the error.  */
+      vp->max_stack_size += 256 * 1024;
+
+      /* If it's still not big enough... it's quite improbable, but go
+         ahead and set to the full available stack size.  */
+      if (vp->max_stack_size < stack_size)
+        vp->max_stack_size = vp->stack_size;
+
+      /* But don't exceed the hard maximum.  */
+      if (vp->max_stack_size > hard_max_stack_size)
+        vp->max_stack_size = hard_max_stack_size;
+
+      /* Finally, reset the limit, to catch further overflows.  */
+      vp->stack_limit = vp->stack_base + vp->max_stack_size;
+
+      vm_error ("VM: Stack overflow", SCM_UNDEFINED);
+    }
+
+  /* Otherwise continue, with the new enlarged stack.  */
+}
+
 static struct scm_vm *
 thread_vm (scm_i_thread *t)
 {
@@ -841,7 +935,7 @@ scm_call_n (SCM proc, SCM *argv, size_t nargs)
   base_frame_size = 3 + 3 + nargs + 3;
   vp->sp += base_frame_size;
   if (vp->sp >= vp->stack_limit)
-    vm_error_stack_overflow (vp);
+    vm_expand_stack (vp);
   base = vp->sp + 1 - base_frame_size;
 
   /* Since it's possible to receive the arguments on the stack itself,
