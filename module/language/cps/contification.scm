@@ -219,8 +219,9 @@
                            (($ $cont _ ($ $kclause arity body))
                             ...))))
                   ...)
-                 (unless (contify-funs term-k sym self tail-k arity body)
-                   (for-each visit-fun fun)))))))
+                 (if (contify-funs term-k sym self tail-k arity body)
+                     (for-each (cut for-each visit-cont <>) body)
+                     (for-each visit-fun fun)))))))
          (visit-term body term-k)
          (for-each visit-component
                    (split-components (map list names syms funs))))
@@ -234,7 +235,9 @@
             (if (and=> (bound-symbol k)
                        (lambda (sym)
                          (contify-fun term-k sym self tail-k arity body)))
-                (elide-function! k (lookup-cont k cont-table))
+                (begin
+                  (elide-function! k (lookup-cont k cont-table))
+                  (for-each visit-cont body))
                 (visit-fun exp)))
            (_ #t)))))
 
