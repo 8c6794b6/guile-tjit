@@ -41,6 +41,7 @@
 (define (compute-contification fun)
   (let* ((dfg (compute-dfg fun))
          (cont-table (dfg-cont-table dfg))
+         (scope-table (make-hash-table))
          (call-substs '())
          (cont-substs '())
          (fun-elisions '())
@@ -52,8 +53,16 @@
     (define (elide-function! k cont)
       (set! fun-elisions (acons k cont fun-elisions)))
     (define (splice-conts! scope conts)
+      (for-each (match-lambda
+                 (($ $cont k) (hashq-set! scope-table k scope)))
+                conts)
       (hashq-set! cont-splices scope
                   (append conts (hashq-ref cont-splices scope '()))))
+
+    (define (lookup-return-cont k)
+      (match (assq-ref cont-substs k)
+        (#f k)
+        (k (lookup-return-cont k))))
 
     ;; If K is a continuation that binds one variable, and it has only
     ;; one predecessor, return that variable.
@@ -101,7 +110,9 @@
         (match (find-call (lookup-cont use cont-table))
           (($ $continue k src ($ $call proc* args))
            (and (eq? proc proc*) (not (memq proc args)) (applicable? proc args)
-                k))
+                ;; Converge more quickly by resolving already-contified
+                ;; call targets.
+                (lookup-return-cont k)))
           (_ #f)))
 
       ;; If this set of functions is always called with one
@@ -132,23 +143,49 @@
       ;; defined, whose free variables are a superset of the free
       ;; variables of the functions.
       ;;
+      ;; There is some slight trickiness here.  Call-target already uses
+      ;; the information we compute within this pass.  Previous
+      ;; contifications may cause functions to be contified not at their
+      ;; point of definition but at their point of non-recursive use.
+      ;; That will cause the scope nesting to change.  (It may
+      ;; effectively push a function deeper down the tree -- the second
+      ;; case above, a call within the letrec body.)  What if we contify
+      ;; to the tail of a previously contified function?  We have to
+      ;; track what the new scope tree will be when asking whether K
+      ;; will be bound in TERM-K's scope, not the scope tree that
+      ;; existed when we started the pass.
+      ;;
       ;; FIXME: Does this choose the right scope for contified let-bound
       ;; functions?
       (define (find-contification-scope k)
-        (if (continuation-bound-in? k term-k dfg)
-            term-k
-            (let ((scope (lookup-block-scope k dfg)))
-              (match (lookup-cont scope cont-table)
-                ;; The common continuation was the tail of some function
-                ;; inside the letrec body.  If that function has just
-                ;; one clause, contify into that clause.  Otherwise
-                ;; bail.
+        (define (scope-contains? scope k)
+          (let ((k-scope (or (hashq-ref scope-table k)
+                             (let ((k-scope (lookup-block-scope k dfg)))
+                               (hashq-set! scope-table k k-scope)
+                               k-scope))))
+            (or (eq? scope k-scope)
+                (and k-scope (scope-contains? scope k-scope)))))
+
+        ;; Find the scope of K.
+        (define (continuation-scope k)
+          (or (hashq-ref scope-table k)
+              (let ((scope (lookup-block-scope k dfg)))
+                (hashq-set! scope-table k scope)
+                scope)))
+
+        (let ((k-scope (continuation-scope k)))
+          (if (scope-contains? k-scope term-k)
+              term-k
+              (match (lookup-cont k-scope cont-table)
                 (($ $kentry self tail clauses)
+                 ;; K is the tail of some function.  If that function
+                 ;; has just one clause, return that clause.  Otherwise
+                 ;; bail.
                  (match clauses
                    ((($ $cont _ ($ $kclause arity ($ $cont kargs))))
                     kargs)
                    (_ #f)))
-                (_ scope)))))
+                (_ k-scope)))))
 
       ;; We are going to contify.  Mark all SYMs for replacement in
       ;; calls, and mark the tail continuations for replacement by K.
