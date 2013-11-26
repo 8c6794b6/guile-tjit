@@ -24,13 +24,16 @@ include $(top_srcdir)/am/guilec
 # We're at the root of the module hierarchy.
 modpath =
 
-# Build eval.go first.
-$(GOBJECTS): ice-9/eval.go
-CLEANFILES += ice-9/eval.go
-nobase_mod_DATA += ice-9/eval.scm
-nobase_ccache_DATA += ice-9/eval.go
-EXTRA_DIST += ice-9/eval.scm
-ETAGS_ARGS += ice-9/eval.scm
+# Build eval.go first.  Then build psyntax-pp.go, as the expander has to
+# run on every loaded scheme file.  It doesn't pay off at compile-time
+# to interpret the expander in parallel!
+$(GOBJECTS): ice-9/psyntax-pp.go
+ice-9/psyntax-pp.go: ice-9/eval.go
+CLEANFILES += ice-9/eval.go ice-9/psyntax-pp.go
+nobase_mod_DATA += ice-9/eval.scm ice-9/psyntax-pp.scm
+nobase_ccache_DATA += ice-9/eval.go ice-9/psyntax-pp.go
+EXTRA_DIST += ice-9/eval.scm ice-9/psyntax-pp.scm
+ETAGS_ARGS += ice-9/eval.scm ice-9/psyntax-pp.scm
 
 VM_TARGETS := system/vm/assembler.go system/vm/disassembler.go
 $(VM_TARGETS): $(top_builddir)/libguile/vm-operations.h
@@ -39,15 +42,17 @@ ice-9/boot-9.go: ice-9/boot-9.scm ice-9/quasisyntax.scm ice-9/r6rs-libraries.scm
 ice-9/match.go: ice-9/match.scm ice-9/match.upstream.scm
 
 # We can compile these in any order, but it's fastest if we compile
-# psyntax and boot-9 first, then the compiler itself, then the rest of
-# the code.
+# boot-9 first, then the compiler itself, then the rest of the code.
 SOURCES =					\
-  ice-9/psyntax-pp.scm				\
   ice-9/boot-9.scm				\
-  ice-9/vlist.scm                               \
-  srfi/srfi-1.scm                               \
   language/tree-il/peval.scm                    \
   language/tree-il/cse.scm                      \
+  system/vm/elf.scm				\
+  ice-9/vlist.scm                               \
+  srfi/srfi-1.scm                               \
+  system/vm/linker.scm				\
+  system/vm/dwarf.scm				\
+  system/vm/assembler.scm			\
 						\
   language/tree-il.scm				\
   $(TREE_IL_LANG_SOURCES)			\
@@ -58,10 +63,10 @@ SOURCES =					\
   $(SYSTEM_BASE_SOURCES)			\
 						\
   $(ICE_9_SOURCES)				\
+  $(SYSTEM_SOURCES)				\
   $(SRFI_SOURCES)				\
   $(RNRS_SOURCES)				\
   $(OOP_SOURCES)				\
-  $(SYSTEM_SOURCES)				\
   $(SCRIPTS_SOURCES)				\
   $(ECMASCRIPT_LANG_SOURCES)			\
   $(ELISP_LANG_SOURCES)				\
@@ -351,16 +356,12 @@ OOP_SOURCES = \
 SYSTEM_SOURCES =				\
   system/vm/inspect.scm				\
   system/vm/coverage.scm			\
-  system/vm/dwarf.scm				\
-  system/vm/elf.scm				\
-  system/vm/linker.scm				\
   system/vm/frame.scm				\
   system/vm/loader.scm				\
   system/vm/program.scm				\
   system/vm/trace.scm				\
   system/vm/traps.scm				\
   system/vm/trap-state.scm			\
-  system/vm/assembler.scm			\
   system/vm/debug.scm				\
   system/vm/disassembler.scm			\
   system/vm/vm.scm				\
