@@ -199,12 +199,6 @@
       (if (our-frame? frame)
           (enter-proc frame)))
 
-    (define (restore-hook frame)
-      (if in-proc?
-          (exit-proc frame))
-      (if (our-frame? frame)
-          (enter-proc frame)))
-
     (new-enabled-trap
      current-frame
      (lambda (frame)
@@ -212,7 +206,6 @@
        (add-hook! (vm-push-continuation-hook) push-cont-hook)
        (add-hook! (vm-pop-continuation-hook) pop-cont-hook)
        (add-hook! (vm-abort-continuation-hook) abort-hook)
-       (add-hook! (vm-restore-continuation-hook) restore-hook)
        (if (and frame (our-frame? frame))
            (enter-proc frame)))
      (lambda (frame)
@@ -221,8 +214,7 @@
        (remove-hook! (vm-apply-hook) apply-hook)
        (remove-hook! (vm-push-continuation-hook) push-cont-hook)
        (remove-hook! (vm-pop-continuation-hook) pop-cont-hook)
-       (remove-hook! (vm-abort-continuation-hook) abort-hook)
-       (remove-hook! (vm-restore-continuation-hook) restore-hook)))))
+       (remove-hook! (vm-abort-continuation-hook) abort-hook)))))
 
 ;; Building on trap-in-procedure, we have trap-instructions-in-procedure
 ;;
@@ -425,13 +417,11 @@
        (if (not fp)
            (error "return-or-abort traps may only be enabled once"))
        (add-hook! (vm-pop-continuation-hook) pop-cont-hook)
-       (add-hook! (vm-abort-continuation-hook) abort-hook)
-       (add-hook! (vm-restore-continuation-hook) abort-hook))
+       (add-hook! (vm-abort-continuation-hook) abort-hook))
      (lambda (frame)
        (set! fp #f)
        (remove-hook! (vm-pop-continuation-hook) pop-cont-hook)
-       (remove-hook! (vm-abort-continuation-hook) abort-hook)
-       (remove-hook! (vm-restore-continuation-hook) abort-hook)))))
+       (remove-hook! (vm-abort-continuation-hook) abort-hook)))))
 
 ;; A more traditional dynamic-wind trap. Perhaps this should not be
 ;; based on the above trap-frame-finish?

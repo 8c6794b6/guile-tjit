@@ -28,7 +28,6 @@ enum {
   SCM_VM_POP_CONTINUATION_HOOK,
   SCM_VM_NEXT_HOOK,
   SCM_VM_ABORT_CONTINUATION_HOOK,
-  SCM_VM_RESTORE_CONTINUATION_HOOK,
   SCM_VM_NUM_HOOKS,
 };
 
@@ -56,7 +55,6 @@ SCM_API SCM scm_vm_apply_hook (void);
 SCM_API SCM scm_vm_push_continuation_hook (void);
 SCM_API SCM scm_vm_pop_continuation_hook (void);
 SCM_API SCM scm_vm_abort_continuation_hook (void);
-SCM_API SCM scm_vm_restore_continuation_hook (void);
 SCM_API SCM scm_vm_next_hook (void);
 SCM_API SCM scm_vm_trace_level (void);
 SCM_API SCM scm_set_vm_trace_level_x (SCM level);

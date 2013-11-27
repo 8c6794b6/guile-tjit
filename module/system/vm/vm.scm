@@ -25,7 +25,7 @@
             vm-push-continuation-hook vm-pop-continuation-hook
             vm-apply-hook
             vm-next-hook
-            vm-abort-continuation-hook vm-restore-continuation-hook))
+            vm-abort-continuation-hook))
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm")

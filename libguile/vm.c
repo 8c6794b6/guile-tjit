@@ -167,7 +167,6 @@ static void vm_dispatch_push_continuation_hook (struct scm_vm *vp) SCM_NOINLINE;
 static void vm_dispatch_pop_continuation_hook (struct scm_vm *vp, SCM *old_fp) SCM_NOINLINE;
 static void vm_dispatch_next_hook (struct scm_vm *vp) SCM_NOINLINE;
 static void vm_dispatch_abort_hook (struct scm_vm *vp) SCM_NOINLINE;
-static void vm_dispatch_restore_continuation_hook (struct scm_vm *vp) SCM_NOINLINE;
 
 static void
 vm_dispatch_hook (struct scm_vm *vp, int hook_num, SCM *argv, int n)
@@ -257,10 +256,6 @@ static void vm_dispatch_abort_hook (struct scm_vm *vp)
   return vm_dispatch_hook (vp, SCM_VM_ABORT_CONTINUATION_HOOK,
                            &SCM_FRAME_LOCAL (vp->fp, 1),
                            SCM_FRAME_NUM_LOCALS (vp->fp, vp->sp) - 1);
-}
-static void vm_dispatch_restore_continuation_hook (struct scm_vm *vp)
-{
-  return vm_dispatch_hook (vp, SCM_VM_RESTORE_CONTINUATION_HOOK, NULL, 0);
 }
 
 static void
@@ -1022,15 +1017,6 @@ SCM_DEFINE (scm_vm_abort_continuation_hook, "vm-abort-continuation-hook", 0, 0, 
 #define FUNC_NAME s_scm_vm_abort_continuation_hook
 {
   VM_DEFINE_HOOK (SCM_VM_ABORT_CONTINUATION_HOOK);
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_vm_restore_continuation_hook, "vm-restore-continuation-hook", 0, 0, 0,
-	    (void),
-	    "")
-#define FUNC_NAME s_scm_vm_restore_continuation_hook
-{
-  VM_DEFINE_HOOK (SCM_VM_RESTORE_CONTINUATION_HOOK);
 }
 #undef FUNC_NAME
 

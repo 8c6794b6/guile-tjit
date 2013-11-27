@@ -125,8 +125,6 @@
   RUN_HOOK0 (next)
 #define ABORT_CONTINUATION_HOOK()               \
   RUN_HOOK0 (abort)
-#define RESTORE_CONTINUATION_HOOK()             \
-  RUN_HOOK0 (restore_continuation)
 
 #define VM_HANDLE_INTERRUPTS                     \
   SCM_ASYNC_TICK_WITH_GUARD_CODE (current_thread, SYNC_IP (), CACHE_FP ())
@@ -3228,7 +3226,6 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
 #undef NEXT_JUMP
 #undef POP_CONTINUATION_HOOK
 #undef PUSH_CONTINUATION_HOOK
-#undef RESTORE_CONTINUATION_HOOK
 #undef RETURN
 #undef RETURN_ONE_VALUE
 #undef RETURN_VALUE_LIST
