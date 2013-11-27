@@ -2221,7 +2221,7 @@ SCM_DEFINE (scm_peek_char, "peek-char", 0, 1, 0,
   scm_t_wchar c;
   char bytes[SCM_MBCHAR_BUF_SIZE];
   long column, line;
-  size_t len;
+  size_t len = 0;
 
   if (SCM_UNBNDP (port))
     port = scm_current_input_port ();
