@@ -470,6 +470,8 @@ scm_open_file (SCM filename, SCM mode)
 static SCM k_guess_encoding = SCM_UNDEFINED;
 static SCM k_encoding       = SCM_UNDEFINED;
 
+SCM_INTERNAL SCM scm_i_open_file (SCM, SCM, SCM);
+
 SCM_DEFINE (scm_i_open_file, "open-file", 2, 0, 1,
 	    (SCM filename, SCM mode, SCM keyword_args),
 	    "Open the file whose name is @var{filename}, and return a port\n"
