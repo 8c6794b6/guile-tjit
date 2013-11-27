@@ -151,7 +151,6 @@ libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES =				\
 	frames.c				\
 	gc-malloc.c				\
 	gc.c					\
-	gdbint.c				\
 	gettext.c				\
 	generalized-arrays.c			\
 	generalized-vectors.c			\
@@ -559,8 +558,6 @@ modinclude_HEADERS =				\
 	fports.h				\
 	frames.h				\
 	gc.h					\
-	gdb_interface.h				\
-	gdbint.h				\
 	gettext.h				\
 	generalized-arrays.h			\
 	generalized-vectors.h			\

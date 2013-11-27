@@ -64,7 +64,6 @@
 #include "libguile/fports.h"
 #include "libguile/frames.h"
 #include "libguile/gc.h"
-#include "libguile/gdbint.h"
 #include "libguile/generalized-arrays.h"
 #include "libguile/generalized-vectors.h"
 #include "libguile/goops.h"
@@ -438,7 +437,6 @@ scm_i_init_guile (void *base)
   scm_init_stime ();
   scm_init_gc ();		/* Requires hooks and `get_internal_run_time' */
   scm_init_gc_protect_object ();  /* requires threads_prehistory */
-  scm_init_gdbint ();           /* Requires strports, gc_protect_object */
   scm_init_gettext ();
   scm_init_ioext ();
   scm_init_keywords ();    /* Requires smob_prehistory */
