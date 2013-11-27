@@ -1181,6 +1181,8 @@ initialize_transcoded_ports (void)
   scm_set_port_close (transcoded_port_type, tp_close);
 }
 
+SCM_INTERNAL SCM scm_i_make_transcoded_port (SCM);
+
 SCM_DEFINE (scm_i_make_transcoded_port,
 	    "%make-transcoded-port", 1, 0, 0,
 	    (SCM port),
