@@ -743,7 +743,7 @@ get_image_size (void)
 }
 
 /* These are discussed later.  */
-static size_t bytes_until_gc;
+static size_t bytes_until_gc = DEFAULT_INITIAL_HEAP_SIZE;
 static scm_i_pthread_mutex_t bytes_until_gc_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 /* Make GC run more frequently when the process image size is growing,
