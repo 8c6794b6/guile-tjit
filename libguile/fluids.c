@@ -116,7 +116,7 @@ new_fluid (SCM init)
 	if (allocated_fluids[n] == NULL)
 	  break;
 
-      if (trial == 0 && n >= allocated_fluids_len)
+      if (trial == 0 && n >= allocated_fluids_len && allocated_fluids_len)
 	/* All fluid numbers are in use.  Run a GC and retry.  Explicitly
 	   running the GC is costly and bad-style.  We only do this because
 	   dynamic state fluid vectors would grow unreasonably if fluid numbers

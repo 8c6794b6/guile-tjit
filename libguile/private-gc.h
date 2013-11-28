@@ -1,7 +1,7 @@
 /*
  * private-gc.h - private declarations for garbage collection.
  * 
- * Copyright (C) 2002, 03, 04, 05, 06, 07, 08, 09, 11 Free Software Foundation, Inc.
+ * Copyright (C) 2002, 03, 04, 05, 06, 07, 08, 09, 11, 13 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -24,18 +24,6 @@
 
 #include  "_scm.h"
 
-/* {heap tuning parameters}
- *
- * These are parameters for controlling memory allocation.  The heap
- * is the area out of which scm_cons, and object headers are allocated.
- *
- * Each heap cell is 8 bytes on a 32 bit machine and 16 bytes on a
- * 64 bit machine.  The units of the _SIZE parameters are bytes.
- * Cons pairs and object headers occupy one heap cell.
- */
-
-
-#define SCM_DEFAULT_INIT_HEAP_SIZE_2 32*1024
 
 #define SCM_DOUBLECELL_ALIGNED_P(x)  (((2 * sizeof (scm_t_cell) - 1) & SCM_UNPACK (x)) == 0)
 

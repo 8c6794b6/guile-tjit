@@ -70,6 +70,12 @@ extern unsigned long * __libc_ia64_register_backing_store_base;
 #include <unistd.h>
 #endif
 
+/* Size in bytes of the initial heap.  This should be about the size of
+   result of 'guile -c "(display (assq-ref (gc-stats)
+   'heap-total-allocated))"'.  */
+
+#define DEFAULT_INITIAL_HEAP_SIZE (128 * 1024 * SIZEOF_SCM_T_BITS)
+
 /* Set this to != 0 if every cell that is accessed shall be checked:
  */
 int scm_debug_cell_accesses_p = 0;
@@ -593,7 +599,7 @@ scm_storage_prehistory ()
 
   GC_INIT ();
 
-  GC_expand_hp (SCM_DEFAULT_INIT_HEAP_SIZE_2);
+  GC_expand_hp (DEFAULT_INITIAL_HEAP_SIZE);
 
   /* We only need to register a displacement for those types for which the
      higher bits of the type tag are used to store a pointer (that is, a
