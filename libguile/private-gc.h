@@ -27,6 +27,4 @@
 
 SCM_INTERNAL int scm_getenv_int (const char *var, int def);
 
-SCM_INTERNAL char const *scm_i_tag_name (scm_t_bits tag); /* MOVEME */
-
 #endif

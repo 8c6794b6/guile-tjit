@@ -237,6 +237,7 @@ SCM_SYMBOL (sym_times, "gc-times");
 
 /* {Scheme Interface to GC}
  */
+static char const * scm_i_tag_name (scm_t_bits tag);
 static SCM
 tag_table_to_type_alist (void *closure, SCM key, SCM val, SCM acc)
 {
@@ -906,7 +907,7 @@ scm_gc_register_allocation (size_t size)
 
 
 
-char const *
+static char const *
 scm_i_tag_name (scm_t_bits tag)
 {
   switch (tag & 0x7f) /* 7 bits */
