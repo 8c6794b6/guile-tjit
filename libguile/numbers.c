@@ -4998,7 +4998,7 @@ left_shift_exact_integer (SCM n, long count)
           mpz_mul_2exp (SCM_I_BIG_MPZ (result), SCM_I_BIG_MPZ (result),
                         count);
           return scm_i_normbig (result);
-       }
+        }
     }
   else if (SCM_BIGP (n))
     {
