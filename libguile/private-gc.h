@@ -25,14 +25,7 @@
 #include  "_scm.h"
 
 
-#define SCM_DOUBLECELL_ALIGNED_P(x)  (((2 * sizeof (scm_t_cell) - 1) & SCM_UNPACK (x)) == 0)
-
-
 SCM_INTERNAL int scm_getenv_int (const char *var, int def);
-
-
-#define SCM_MAX(A, B) ((A) > (B) ? (A) : (B))
-#define SCM_MIN(A, B) ((A) < (B) ? (A) : (B))
 
 SCM_INTERNAL char const *scm_i_tag_name (scm_t_bits tag); /* MOVEME */
 

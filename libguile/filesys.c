@@ -44,7 +44,6 @@
 #include "libguile/smob.h"
 #include "libguile/feature.h"
 #include "libguile/fports.h"
-#include "libguile/private-gc.h"  /* for SCM_MAX */
 #include "libguile/strings.h"
 #include "libguile/vectors.h"
 #include "libguile/dynwind.h"
@@ -140,6 +139,10 @@
     SCM_SYSCALL (code);                              \
     eno = errno; scm_dynwind_end (); errno = eno;      \
   } while (0)
+
+
+#define MAX(A, B) ((A) > (B) ? (A) : (B))
+#define MIN(A, B) ((A) < (B) ? (A) : (B))
 
 
 
@@ -1192,7 +1195,7 @@ SCM_DEFINE (scm_sendfile, "sendfile", 3, 1, 0,
       {
 	size_t asked, obtained, written;
 
-	asked = SCM_MIN (sizeof buf, left);
+	asked = MIN (sizeof buf, left);
 	obtained = full_read (in_fd, buf, asked);
 	if (obtained < asked)
           {
@@ -1743,11 +1746,11 @@ SCM_DEFINE (scm_readdir, "readdir", 1, 0, 0,
     SCM_MISC_ERROR ("Directory ~S is not open.", scm_list_1 (port));
 
 #if HAVE_READDIR_R
-  /* As noted in the glibc manual, on various systems (such as Solaris) the
-     d_name[] field is only 1 char and you're expected to size the dirent
-     buffer for readdir_r based on NAME_MAX.  The SCM_MAX expressions below
-     effectively give either sizeof(d_name) or NAME_MAX+1, whichever is
-     bigger.
+  /* As noted in the glibc manual, on various systems (such as Solaris)
+     the d_name[] field is only 1 char and you're expected to size the
+     dirent buffer for readdir_r based on NAME_MAX.  The MAX expressions
+     below effectively give either sizeof(d_name) or NAME_MAX+1,
+     whichever is bigger.
 
      On solaris 10 there's no NAME_MAX constant, it's necessary to use
      pathconf().  We prefer NAME_MAX though, since it should be a constant
@@ -1761,15 +1764,15 @@ SCM_DEFINE (scm_readdir, "readdir", 1, 0, 0,
     struct dirent_or_dirent64 de; /* just for sizeof */
     DIR    *ds = (DIR *) SCM_SMOB_DATA_1 (port);
 #ifdef NAME_MAX
-    char   buf [SCM_MAX (sizeof (de),
-			 sizeof (de) - sizeof (de.d_name) + NAME_MAX + 1)];
+    char   buf [MAX (sizeof (de),
+                     sizeof (de) - sizeof (de.d_name) + NAME_MAX + 1)];
 #else
     char   *buf;
     long   name_max = fpathconf (dirfd (ds), _PC_NAME_MAX);
     if (name_max == -1)
       SCM_SYSERROR;
-    buf = alloca (SCM_MAX (sizeof (de),
-			   sizeof (de) - sizeof (de.d_name) + name_max + 1));
+    buf = alloca (MAX (sizeof (de),
+                       sizeof (de) - sizeof (de.d_name) + name_max + 1));
 #endif
 
     errno = 0;
