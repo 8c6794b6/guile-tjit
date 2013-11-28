@@ -362,9 +362,9 @@ SCM_API SCM scm_set_port_column_x (SCM port, SCM line);
 SCM_API SCM scm_port_filename (SCM port);
 SCM_API SCM scm_set_port_filename_x (SCM port, SCM filename);
 
-/* Port alist.  */
-SCM_INTERNAL SCM scm_i_port_alist (SCM port);
-SCM_INTERNAL void scm_i_set_port_alist_x (SCM port, SCM alist);
+/* Port properties.  */
+SCM_INTERNAL SCM scm_i_port_property (SCM port, SCM key);
+SCM_INTERNAL SCM scm_i_set_port_property_x (SCM port, SCM key, SCM value);
 
 /* Implementation helpers for port printing functions.  */
 SCM_API int scm_port_print (SCM exp, SCM port, scm_print_state *);
