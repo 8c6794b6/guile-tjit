@@ -42,10 +42,9 @@
 #include "instructions.h"
 #include "loader.h"
 #include "programs.h"
+#include "simpos.h"
 #include "vm.h"
 #include "vm-builtins.h"
-
-#include "private-gc.h" /* scm_getenv_int */
 
 static int vm_default_engine = SCM_VM_REGULAR_ENGINE;
 

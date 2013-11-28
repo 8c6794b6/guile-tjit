@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 2000, 2001, 2003, 2004, 2009,
- *   2010, 2012 Free Software Foundation, Inc.
+ *   2010, 2012, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -189,6 +189,21 @@ SCM_DEFINE (scm_getenv, "getenv", 1, 0, 0,
   return val ? scm_from_locale_string (val) : SCM_BOOL_F;
 }
 #undef FUNC_NAME
+
+/* Get an integer from an environment variable.  */
+int
+scm_getenv_int (const char *var, int def)
+{
+  char *end = 0;
+  char *val = getenv (var);
+  long res = def;
+  if (!val)
+    return def;
+  res = strtol (val, &end, 10);
+  if (end == val)
+    return def;
+  return res;
+}
 
 /* simple exit, without unwinding the scheme stack or flushing ports.  */
 SCM_DEFINE (scm_primitive_exit, "primitive-exit", 0, 1, 0, 

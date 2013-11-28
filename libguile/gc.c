@@ -46,12 +46,12 @@ extern unsigned long * __libc_ia64_register_backing_store_base;
 #include "libguile/async.h"
 #include "libguile/ports.h"
 #include "libguile/root.h"
+#include "libguile/simpos.h"
 #include "libguile/strings.h"
 #include "libguile/vectors.h"
 #include "libguile/hashtab.h"
 #include "libguile/tags.h"
 
-#include "libguile/private-gc.h"
 #include "libguile/validate.h"
 #include "libguile/deprecation.h"
 #include "libguile/gc.h"
@@ -567,25 +567,6 @@ scm_gc_unregister_roots (SCM *b, unsigned long n)
 
 
 
-
-/*
-  MOVE THIS FUNCTION. IT DOES NOT HAVE ANYTHING TODO WITH GC.
- */
-
-/* Get an integer from an environment variable.  */
-int
-scm_getenv_int (const char *var, int def)
-{
-  char *end = 0;
-  char *val = getenv (var);
-  long res = def;
-  if (!val)
-    return def;
-  res = strtol (val, &end, 10);
-  if (end == val)
-    return def;
-  return res;
-}
 
 void
 scm_storage_prehistory ()

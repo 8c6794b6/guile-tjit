@@ -3,7 +3,7 @@
 #ifndef SCM_SIMPOS_H
 #define SCM_SIMPOS_H
 
-/* Copyright (C) 1995,1996,1997,1998,2000, 2006, 2008 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000, 2006, 2008, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -32,6 +32,7 @@ SCM_API SCM scm_system_star (SCM cmds);
 SCM_API SCM scm_getenv (SCM nam);
 SCM_API SCM scm_primitive_exit (SCM status);
 SCM_API SCM scm_primitive__exit (SCM status);
+SCM_INTERNAL int scm_getenv_int (const char *var, int def);
 SCM_INTERNAL void scm_init_simpos (void);
 
 #endif  /* SCM_SIMPOS_H */

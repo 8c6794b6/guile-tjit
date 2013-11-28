@@ -52,8 +52,6 @@ extern unsigned long * __libc_ia64_register_backing_store_base;
 #include "libguile/deprecation.h"
 #include "libguile/gc.h"
 
-#include "libguile/private-gc.h"
-
 #ifdef GUILE_DEBUG_MALLOC
 #include "libguile/debug-malloc.h"
 #endif

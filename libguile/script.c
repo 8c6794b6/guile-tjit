@@ -1,4 +1,4 @@
-/* Copyright (C) 1994-1998, 2000-2011 Free Software Foundation, Inc.
+/* Copyright (C) 1994-1998, 2000-2011, 2013 Free Software Foundation, Inc.
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
  * as published by the Free Software Foundation; either version 3 of
@@ -33,7 +33,6 @@
 #include "libguile/eval.h"
 #include "libguile/feature.h"
 #include "libguile/load.h"
-#include "libguile/private-gc.h" /* scm_getenv_int */
 #include "libguile/read.h"
 #include "libguile/script.h"
 #include "libguile/strings.h"

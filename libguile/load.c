@@ -28,7 +28,6 @@
 #include <stdio.h>
 
 #include "libguile/_scm.h"
-#include "libguile/private-gc.h" /* scm_getenv_int */
 #include "libguile/libpath.h"
 #include "libguile/fports.h"
 #include "libguile/read.h"
