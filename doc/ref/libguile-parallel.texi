@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2005, 2010, 2011
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2005, 2010, 2011, 2013
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -11,10 +11,10 @@
 @cindex effective version
 
 Guile provides strong API and ABI stability guarantees during stable
-series, so that if a user writes a program against Guile version 2.0.3,
-it will be compatible with some future version 2.0.7.  We say in this
-case that 2.0 is the @dfn{effective version}, composed of the major and
-minor versions, in this case 2 and 0.
+series, so that if a user writes a program against Guile version 2.2.3,
+it will be compatible with some future version 2.2.7.  We say in this
+case that 2.2 is the @dfn{effective version}, composed of the major and
+minor versions, in this case 2 and 2.
 
 Users may install multiple effective versions of Guile, with each
 version's headers, libraries, and Scheme files under their own

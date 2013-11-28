@@ -924,8 +924,8 @@ When @code{primitive-load-path} searches the @code{%load-compiled-path}
 for a corresponding compiled file for a relative path it does so by
 appending @code{.go} to the relative path.  For example, searching for
 @code{ice-9/popen} could find
-@code{/usr/lib/guile/2.0/ccache/ice-9/popen.go}, and use it instead of
-@code{/usr/share/guile/2.0/ice-9/popen.scm}.
+@code{/usr/lib/guile/2.2/ccache/ice-9/popen.go}, and use it instead of
+@code{/usr/share/guile/2.2/ice-9/popen.scm}.
 
 If @code{primitive-load-path} does not find a corresponding @code{.go}
 file in the @code{%load-compiled-path}, or the @code{.go} file is out of

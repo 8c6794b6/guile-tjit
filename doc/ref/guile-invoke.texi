@@ -365,7 +365,7 @@ Here is an example using the Bash shell that adds the current directory,
 @example
 $ export GUILE_LOAD_COMPILED_PATH=".:../my-library"
 $ guile -c '(display %load-compiled-path) (newline)'
-(. ../my-library /usr/local/lib/guile/2.0/ccache)
+(. ../my-library /usr/local/lib/guile/2.2/ccache)
 @end example
 
 @item GUILE_LOAD_PATH
@@ -384,8 +384,8 @@ directory to @code{%load-path}, and adds the relative directory
 @example
 $ env GUILE_LOAD_PATH=".:...:../srfi" \
 guile -c '(display %load-path) (newline)'
-(. /usr/local/share/guile/2.0 \
-/usr/local/share/guile/site/2.0 \
+(. /usr/local/share/guile/2.2 \
+/usr/local/share/guile/site/2.2 \
 /usr/local/share/guile/site \
 /usr/local/share/guile \
 ../srfi)

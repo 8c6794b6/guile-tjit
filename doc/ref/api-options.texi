@@ -60,14 +60,14 @@ The @code{effective-version} function returns the version name that
 should remain unchanged during a stable series.  Currently that means
 that it omits the micro version.  The effective version should be used
 for items like the versioned share directory name
-i.e.@: @file{/usr/share/guile/2.0/}
+i.e.@: @file{/usr/share/guile/2.2/}
 
 @lisp
-(version) @result{} "2.0.4"
-(effective-version) @result{} "2.0"
+(version) @result{} "2.2.0"
+(effective-version) @result{} "2.2"
 (major-version) @result{} "2"
-(minor-version) @result{} "0"
-(micro-version) @result{} "4"
+(minor-version) @result{} "2"
+(micro-version) @result{} "0"
 @end lisp
 @end deffn
 
@@ -87,7 +87,7 @@ party package) are installed.  On Unix-like systems this is usually
 @file{/usr/share/guile/@var{GUILE_EFFECTIVE_VERSION}};
 
 @noindent
-for example @file{/usr/local/share/guile/2.0}.
+for example @file{/usr/local/share/guile/2.2}.
 @end deffn
 
 @deffn {Scheme Procedure} %site-dir
