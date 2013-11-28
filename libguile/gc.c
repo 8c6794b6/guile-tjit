@@ -593,13 +593,6 @@ scm_storage_prehistory ()
 
   GC_INIT ();
 
-#if (! ((defined GC_VERSION_MAJOR) && (GC_VERSION_MAJOR >= 7))) \
-    && (defined SCM_I_GSC_USE_PTHREAD_THREADS)
-  /* When using GC 6.8, this call is required to initialize thread-local
-     freelists (shouldn't be necessary with GC 7.0).  */
-  GC_init ();
-#endif
-
   GC_expand_hp (SCM_DEFAULT_INIT_HEAP_SIZE_2);
 
   /* We only need to register a displacement for those types for which the
