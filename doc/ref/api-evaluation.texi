@@ -1167,7 +1167,7 @@ it contains, splicing them into the location of the @code{include},
 within a @code{begin}.
 
 If @var{file-name} is a relative path, it is searched for relative to
-the path that contains the file that the @code{include} for appears in.
+the path that contains the file that the @code{include} form appears in.
 @end deffn
 
 If you are a C programmer, if @code{load} in Scheme is like
