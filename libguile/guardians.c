@@ -50,7 +50,6 @@
 #endif
 
 #include "libguile/_scm.h"
-#include "libguile/async.h"
 #include "libguile/ports.h"
 #include "libguile/print.h"
 #include "libguile/smob.h"
@@ -147,7 +146,7 @@ finalize_guarded (void *ptr, void *finalizer_data)
 
       g = GUARDIAN_DATA (guardian);
 
-      scm_i_pthread_mutex_lock_block_asyncs (&g->mutex);
+      scm_i_pthread_mutex_lock (&g->mutex);
 
       if (g->live == 0)
 	abort ();
@@ -163,7 +162,7 @@ finalize_guarded (void *ptr, void *finalizer_data)
 
       g->live--;
 
-      scm_i_pthread_mutex_unlock_unblock_asyncs (&g->mutex);
+      scm_i_pthread_mutex_unlock (&g->mutex);
     }
 
   if (scm_is_true (proxied_finalizer))
@@ -214,7 +213,7 @@ scm_i_guard (SCM guardian, SCM obj)
       void *prev_data;
       SCM guardians_for_obj, finalizer_data;
 
-      scm_i_pthread_mutex_lock_block_asyncs (&g->mutex);
+      scm_i_pthread_mutex_lock (&g->mutex);
 
       g->live++;
 
@@ -260,7 +259,7 @@ scm_i_guard (SCM guardian, SCM obj)
 	  SCM_SETCAR (finalizer_data, proxied_finalizer);
 	}
 
-      scm_i_pthread_mutex_unlock_unblock_asyncs (&g->mutex);
+      scm_i_pthread_mutex_unlock (&g->mutex);
     }
 }
 
@@ -270,7 +269,7 @@ scm_i_get_one_zombie (SCM guardian)
   t_guardian *g = GUARDIAN_DATA (guardian);
   SCM res = SCM_BOOL_F;
 
-  scm_i_pthread_mutex_lock_block_asyncs (&g->mutex);
+  scm_i_pthread_mutex_lock (&g->mutex);
 
   if (!scm_is_null (g->zombies))
     {
@@ -279,7 +278,7 @@ scm_i_get_one_zombie (SCM guardian)
       g->zombies = SCM_CDR (g->zombies);
     }
 
-  scm_i_pthread_mutex_unlock_unblock_asyncs (&g->mutex);
+  scm_i_pthread_mutex_unlock (&g->mutex);
 
   return res;
 }
