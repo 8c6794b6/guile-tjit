@@ -31,9 +31,6 @@
 SCM_INTERNAL int scm_getenv_int (const char *var, int def);
 
 
-typedef enum { return_on_error, abort_on_error } policy_on_error;
-
-
 #define SCM_MAX(A, B) ((A) > (B) ? (A) : (B))
 #define SCM_MIN(A, B) ((A) < (B) ? (A) : (B))
 
