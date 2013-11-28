@@ -664,13 +664,13 @@ Use @var{lang} as the source language of @var{file}.  If this option is omitted,
 @item -t @var{lang}
 @itemx --to=@var{lang}
 Use @var{lang} as the target language of @var{file}.  If this option is omitted,
-@code{objcode} is assumed.
+@code{rtl} is assumed.
 
 @item -T @var{target}
 @itemx --target=@var{target}
-Produce bytecode for @var{target} instead of @var{%host-type}
-(@pxref{Build Config, %host-type}).  Target must be a valid GNU triplet,
-such as @code{armv5tel-unknown-linux-gnueabi} (@pxref{Specifying Target
+Produce code for @var{target} instead of @var{%host-type} (@pxref{Build
+Config, %host-type}).  Target must be a valid GNU triplet, such as
+@code{armv5tel-unknown-linux-gnueabi} (@pxref{Specifying Target
 Triplets,,, autoconf, GNU Autoconf Manual}).
 
 @end table
@@ -695,7 +695,7 @@ the Virtual Machine}.
 @end deffn
 
 @deffn {Scheme Procedure} compile-file file [#:output-file=#f] @
-                          [#:from=(current-language)] [#:to='objcode] @
+                          [#:from=(current-language)] [#:to='rtl] @
                           [#:env=(default-environment from)] @
                           [#:opts='()] @
                           [#:canonicalization='relative]
