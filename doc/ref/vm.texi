@@ -79,9 +79,11 @@ but it is not normally used at runtime.)
 
 The upside of implementing the interpreter in Scheme is that we preserve
 tail calls and multiple-value handling between interpreted and compiled
-code. The downside is that the interpreter in Guile 2.@var{x} is slower
+code. The downside is that the interpreter in Guile 2.2 is still slower
 than the interpreter in 1.8. We hope the that the compiler's speed makes
-up for the loss!
+up for the loss.  In any case, once we have native compilation for
+Scheme code, we expect the new self-hosted interpreter to beat the old
+hand-tuned C implementation.
 
 Also note that this decision to implement a bytecode compiler does not
 preclude native compilation. We can compile from bytecode to native
@@ -91,23 +93,24 @@ possibilities are discussed in @ref{Extending the Compiler}.
 @node VM Concepts
 @subsection VM Concepts
 
-Compiled code is run by a virtual machine (VM). Each thread has its own
-VM. When a compiled procedure is run, Guile looks up the virtual machine
-for the current thread and executes the procedure using that VM.
+Compiled code is run by a virtual machine (VM).  Each thread has its own
+VM.  The virtual machine executes the sequence of instructions in a
+procedure.
 
-Guile's virtual machine is a stack machine---that is, it has few
-registers, and the instructions defined in the VM operate by pushing
-and popping values from a stack.
+Each VM instruction starts by indicating which operation it is, and then
+follows by encoding its source and destination operands.  Each procedure
+declares that it has some number of local variables, including the
+function arguments.  These local variables form the available operands
+of the procedure, and are accessed by index.
 
-Stack memory is exclusive to the virtual machine that owns it. In
-addition to their stacks, virtual machines also have access to the
-global memory (modules, global bindings, etc) that is shared among
-other parts of Guile, including other VMs.
+The local variables for a procedure are stored on a stack.  Calling a
+procedure typically enlarges the stack, and returning from a procedure
+shrinks it.  Stack memory is exclusive to the virtual machine that owns
+it.
 
-A VM has generic instructions, such as those to reference local
-variables, and instructions designed to support Guile's languages --
-mathematical instructions that support the entire numerical tower, an
-inlined implementation of @code{cons}, etc.
+In addition to their stacks, virtual machines also have access to the
+global memory (modules, global bindings, etc) that is shared among other
+parts of Guile, including other VMs.
 
 The registers that a VM has are as follows:
 
@@ -117,110 +120,59 @@ The registers that a VM has are as follows:
 @item fp - Frame pointer
 @end itemize
 
-In other architectures, the instruction pointer is sometimes called
-the ``program counter'' (pc). This set of registers is pretty typical
-for stack machines; their exact meanings in the context of Guile's VM
-are described in the next section.
-
-@c wingo: The following is true, but I don't know in what context to
-@c describe it. A documentation FIXME.
-
-@c A VM may have one of three engines: reckless, regular, or debugging.
-@c Reckless engine is fastest but dangerous.  Regular engine is normally
-@c fail-safe and reasonably fast.  Debugging engine is safest and
-@c functional but very slow.
-
-@c (Actually we have just a regular and a debugging engine; normally
-@c we use the latter, it's almost as fast as the ``regular'' engine.)
+In other architectures, the instruction pointer is sometimes called the
+``program counter'' (pc). This set of registers is pretty typical for
+virtual machines; their exact meanings in the context of Guile's VM are
+described in the next section.
 
 @node Stack Layout
 @subsection Stack Layout
 
-While not strictly necessary to understand how to work with the VM, it
-is instructive and sometimes entertaining to consider the structure of
-the VM stack.
-
-Logically speaking, a VM stack is composed of ``frames''. Each frame
-corresponds to the application of one compiled procedure, and contains
-storage space for arguments, local variables, intermediate values, and
-some bookkeeping information (such as what to do after the frame
-computes its value).
+The stack of Guile's virtual machine is composed of @dfn{frames}. Each
+frame corresponds to the application of one compiled procedure, and
+contains storage space for arguments, local variables, and some
+bookkeeping information (such as what to do after the frame is
+finished).
 
 While the compiler is free to do whatever it wants to, as long as the
 semantics of a computation are preserved, in practice every time you
 call a function, a new frame is created. (The notable exception of
 course is the tail call case, @pxref{Tail Calls}.)
 
-Within a frame, you have the data associated with the function
-application itself, which is of a fixed size, and the stack space for
-intermediate values. Sometimes only the former is referred to as the
-``frame'', and the latter is the ``stack'', although all pending
-application frames can have some intermediate computations interleaved
-on the stack.
-
-The structure of the fixed part of an application frame is as follows:
+The structure of the top stack frame is as follows:
 
 @example
-             Stack
+   /------------------\ <- top of stack
+   | Local N-1        | <- sp
    | ...              |
-   | Intermed. val. 0 | <- fp + bp->nargs + bp->nlocs = SCM_FRAME_UPPER_ADDRESS (fp)
+   | Local 1          |
+   | Local 0          | <- fp = SCM_FRAME_LOCALS_ADDRESS (fp)
    +==================+
-   | Local variable 1 |
-   | Local variable 0 | <- fp + bp->nargs
-   | Argument 1       |
-   | Argument 0       | <- fp
-   | Program          | <- fp - 1
-   +------------------+    
    | Return address   |
-   | MV return address|
-   | Dynamic link     | <- fp - 4 = SCM_FRAME_DATA_ADDRESS (fp) = SCM_FRAME_LOWER_ADDRESS (fp)
+   | Dynamic link     | <- fp - 2 = SCM_FRAME_LOWER_ADDRESS (fp)
    +==================+
-   |                  |
+   |                  | <- fp - 3 = SCM_FRAME_PREVIOUS_SP (fp)
 @end example
 
-In the above drawing, the stack grows upward. The intermediate values
-stored in the application of this frame are stored above
-@code{SCM_FRAME_UPPER_ADDRESS (fp)}. @code{bp} refers to the
-@code{struct scm_objcode} data associated with the program at
-@code{fp - 1}. @code{nargs} and @code{nlocs} are properties of the
-compiled procedure, which will be discussed later.
+In the above drawing, the stack grows upward.  Usually the procedure
+being applied is in local 0, followed by the arguments from local 1.
+After that are enough slots to store the various lexically-bound and
+temporary values that are needed in the function's application.
 
-The individual fields of the frame are as follows:
+The @dfn{return address} is the @code{ip} that was in effect before this
+program was applied.  When we return from this activation frame, we will
+jump back to this @code{ip}.  Likewise, the @dfn{dynamic link} is the
+@code{fp} in effect before this program was applied.
 
-@table @asis
-@item Return address
-The @code{ip} that was in effect before this program was applied. When
-we return from this activation frame, we will jump back to this
-@code{ip}.
+To prepare for a non-tail application, Guile's VM will emit code that
+shuffles the function to apply and its arguments into appropriate stack
+slots, with two free slots below them.  The call then initializes those
+free slots with the current @code{ip} and @code{fp}, and updates
+@code{ip} to point to the function entry, and @code{fp} to point to the
+new call frame.
 
-@item MV return address
-The @code{ip} to return to if this application returns multiple
-values. For continuations that only accept one value, this value will
-be @code{NULL}; for others, it will be an @code{ip} that points to a
-multiple-value return address in the calling code. That code will
-expect the top value on the stack to be an integer---the number of
-values being returned---and that below that integer there are the
-values being returned.
-
-@item Dynamic link
-This is the @code{fp} in effect before this program was applied. In
-effect, this and the return address are the registers that are always
-``saved''. The dynamic link links the current frame to the previous
-frame; computing a stack trace involves traversing these frames.
-
-@item Local variable @var{n}
-Lambda-local variables that are all allocated as part of the frame.
-This makes access to variables very cheap.
-
-@item Argument @var{n}
-The calling convention of the VM requires arguments of a function
-application to be pushed on the stack, and here they are. References
-to arguments dispatch to these locations on the stack.
-
-@item Program
-This is the program being applied. For more information on how
-programs are implemented, @xref{VM Programs}.
-@end table
+In this way, the dynamic link links the current frame to the previous
+frame.  Computing a stack trace involves traversing these frames.
 
 @node Variables and the VM
 @subsection Variables and the VM
@@ -232,16 +184,18 @@ Consider the following Scheme code as an example:
     (lambda (b) (list foo a b)))
 @end example
 
-Within the lambda expression, @code{foo} is a top-level variable, @code{a} is a
-lexically captured variable, and @code{b} is a local variable.
+Within the lambda expression, @code{foo} is a top-level variable,
+@code{a} is a lexically captured variable, and @code{b} is a local
+variable.
 
-Another way to refer to @code{a} and @code{b} is to say that @code{a}
-is a ``free'' variable, since it is not defined within the lambda, and
+Another way to refer to @code{a} and @code{b} is to say that @code{a} is
+a ``free'' variable, since it is not defined within the lambda, and
 @code{b} is a ``bound'' variable. These are the terms used in the
-@dfn{lambda calculus}, a mathematical notation for describing
-functions. The lambda calculus is useful because it allows one to
-prove statements about functions. It is especially good at describing
-scope relations, and it is for that reason that we mention it here.
+@dfn{lambda calculus}, a mathematical notation for describing functions.
+The lambda calculus is useful because it is a language in which to
+reason precisely about functions and variables.  It is especially good
+at describing scope relations, and it is for that reason that we mention
+it here.
 
 Guile allocates all variables on the stack. When a lexically enclosed
 procedure with free variables---a @dfn{closure}---is created, it copies
@@ -275,33 +229,30 @@ lexically bound in this example.
 @subsection Compiled Procedures are VM Programs
 
 By default, when you enter in expressions at Guile's REPL, they are
-first compiled to VM object code, then that VM object code is executed
-to produce a value. If the expression evaluates to a procedure, the
-result of this process is a compiled procedure.
+first compiled to bytecode.  Then that bytecode is executed to produce a
+value.  If the expression evaluates to a procedure, the result of this
+process is a compiled procedure.
 
-A compiled procedure is a compound object, consisting of its bytecode,
-a reference to any captured lexical variables, an object array, and
-some metadata such as the procedure's arity, name, and documentation.
-You can pick apart these pieces with the accessors in @code{(system vm
-program)}. @xref{Compiled Procedures}, for a full API reference.
+A compiled procedure is a compound object consisting of its bytecode and
+a reference to any captured lexical variables.  In addition, when a
+procedure is compiled, it has associated metadata written to side
+tables, for instance a line number mapping, or its docstring.  You can
+pick apart these pieces with the accessors in @code{(system vm
+program)}.  @xref{Compiled Procedures}, for a full API reference.
 
-@cindex object table
-@cindex object array
-The object array of a compiled procedure, also known as the
-@dfn{object table}, holds all Scheme objects whose values are known
-not to change across invocations of the procedure: constant strings,
-symbols, etc. The object table of a program is initialized right
-before a program is loaded with @code{load-program}.
-@xref{Loading Instructions}, for more information.
+A procedure may reference data that was statically allocated when the
+procedure was compiled.  For example, a pair of immediate objects
+(@pxref{Immediate objects}) can be allocated directly in the memory
+segment that contains the compiled bytecode, and accessed directly by
+the bytecode.
 
-Variable objects are one such type of constant object: when a global
-binding is defined, a variable object is associated to it and that
-object will remain constant over time, even if the value bound to it
-changes. Therefore, toplevel bindings only need to be looked up once.
-Thereafter, references to the corresponding toplevel variables from
-within the program are then performed via the @code{toplevel-ref}
-instruction, which uses the object vector, and are almost as fast as
-local variable references.
+Another use for statically allocated data is to serve as a cache for a
+bytecode.  Top-level variable lookups are handled in this way.  If the
+@code{toplevel-box} instruction finds that it does not have a cached
+variable for a top-level reference, it accesses other static data to
+resolve the reference, and fills in the cache slot.  Thereafter all
+access to the variable goes through the cache cell.  The variable's
+value may change in the future, but the variable itself will not.
 
 We can see how these concepts tie together by disassembling the
 @code{foo} function we defined earlier to see what is going on:
@@ -309,53 +260,124 @@ We can see how these concepts tie together by disassembling the
 @smallexample
 scheme@@(guile-user)> (define (foo a) (lambda (b) (list foo a b)))
 scheme@@(guile-user)> ,x foo
-   0    (assert-nargs-ee/locals 1)      
-   2    (object-ref 1)                  ;; #<procedure 8ebec20 at <current input>:0:17 (b)>
-   4    (local-ref 0)                   ;; `a'
-   6    (make-closure 0 1)              
-   9    (return)                        
+Disassembly of #<procedure foo (a)> at #x203be34:
+
+   0    (assert-nargs-ee/locals 2 1)    ;; 1 arg, 1 local     at (unknown file):1:0
+   1    (make-closure 2 6 1)            ;; anonymous procedure at #x203be50 (1 free var)
+   4    (free-set! 2 1 0)               ;; free var 0
+   6    (return 2)
 
 ----------------------------------------
-Disassembly of #<procedure 8ebec20 at <current input>:0:17 (b)>:
+Disassembly of anonymous procedure at #x203be50:
 
-   0    (assert-nargs-ee/locals 1)      
-   2    (toplevel-ref 1)                ;; `foo'
-   4    (free-ref 0)                    ;; (closure variable)
-   6    (local-ref 0)                   ;; `b'
-   8    (list 0 3)                      ;; 3 elements         at (unknown file):0:29
-  11    (return)                        
+   0    (assert-nargs-ee/locals 2 3)    ;; 1 arg, 3 locals    at (unknown file):1:0
+   1    (toplevel-box 2 73 57 71 #t)    ;; `foo'
+   6    (box-ref 2 2)
+   7    (make-short-immediate 3 772)    ;; ()
+   8    (cons 3 1 3)
+   9    (free-ref 4 0 0)                ;; free var 0
+  11    (cons 3 4 3)
+  12    (cons 2 2 3)
+  13    (return 2)
 @end smallexample
 
-First there's some prelude, where @code{foo} checks that it was called with only
-1 argument. Then at @code{ip} 2, we load up the compiled lambda. @code{Ip} 4
-loads up `a', so that it can be captured into a closure by at @code{ip}
-6---binding code (from the compiled lambda) with data (the free-variable
-vector). Finally we return the closure.
+First there's some prelude, where @code{foo} checks that it was called
+with only 1 argument.  Then at @code{ip} 1, we allocate a new closure
+and store it in slot 2.  The `6' in the @code{(make-closure 2 6 1)} is a
+relative offset from the instruction pointer of the code for the
+closure.
 
-The second stanza disassembles the compiled lambda. After the prelude, we note
-that toplevel variables are resolved relative to the module that was current
-when the procedure was created. This lookup occurs lazily, at the first time the
-variable is actually referenced, and the location of the lookup is cached so
-that future references are very cheap. @xref{Top-Level Environment Instructions},
-for more details.
+A closure is code with data.  We already have the code part initialized;
+what remains is to set the data.  @code{Ip} 4 initializes free variable
+0 in the new closure with the value from local variable 1, which
+corresponds to the first argument of @code{foo}: `a'.  Finally we return
+the closure.
 
-Then we see a reference to a free variable, corresponding to @code{a}. The
-disassembler doesn't have enough information to give a name to that variable, so
-it just marks it as being a ``closure variable''. Finally we see the reference
-to @code{b}, then the @code{list} opcode, an inline implementation of the
-@code{list} scheme routine.
+The second stanza disassembles the code for the closure.  After the
+prelude, we load the variable for the toplevel variable @code{foo} into
+local variable 2.  This lookup occurs lazily, the first time the
+variable is actually referenced, and the location of the lookup is
+cached so that future references are very cheap.  @xref{Top-Level
+Environment Instructions}, for more details.  The @code{box-ref}
+dereferences the variable cell, replacing the contents of local 2.
+
+What follows is a sequence of conses to build up the result list.
+@code{Ip} 7 makes the tail of the list.  @code{Ip} 8 conses on the value
+in local 1, corresponding to the first argument to the closure: `b'.
+@code{Ip} 9 loads free variable 0 of local 0 -- the procedure being
+called -- into slot 4, then @code{ip} 11 conses it onto the list.
+Finally we cons local 2, containing the @code{foo} toplevel, onto the
+front of the list, and we return it.
 
 @node Instruction Set
 @subsection Instruction Set
 
-There are about 180 instructions in Guile's virtual machine. These
-instructions represent atomic units of a program's execution. Ideally,
-they perform one task without conditional branches, then dispatch to
-the next instruction in the stream.
+There are currently about 130 instructions in Guile's virtual machine.
+These instructions represent atomic units of a program's execution.
+Ideally, they perform one task without conditional branches, then
+dispatch to the next instruction in the stream.
 
-Instructions themselves are one byte long. Some instructions take
-parameters, which follow the instruction byte in the instruction
-stream.
+Instructions themselves are composed of 1 or more 32-bit units.  The low
+8 bits of the first word indicate the opcode, and the rest of
+instruction describe the operands.  There are a number of different ways
+operands can be encoded.
+
+@table @code
+@item u@var{n}
+An unsigned @var{n}-bit integer.  Usually indicates the index of a local
+variable, but some instructions interpret these operands as immediate
+values.
+@item l24
+An offset from the current @code{ip}, in 32-bit units, as a signed
+24-bit value.  Indicates a bytecode address, for a relative jump.
+@item i16
+@itemx i32
+An immediate Scheme value (@pxref{Immediate objects}), encoded directly
+in 16 or 32 bits.
+@item a32
+@itemx b32
+An immediate Scheme value, encoded as a pair of 32-bit words.
+@code{a32} and @code{b32} values always go together on the same opcode,
+and indicate the high and low bits, respectively.  Normally only used on
+64-bit systems.
+@item n32
+A statically allocated non-immediate.  The address of the non-immediate
+is encoded as a signed 32-bit integer, and indicates a relative offset
+in 32-bit units.  Think of it as @code{SCM x = ip + offset}.
+@item s32
+Indirect scheme value, like @code{n32} but indirected.  Think of it as
+@code{SCM *x = ip + offset}.
+@item l32
+@item lo32
+An ip-relative address, as a signed 32-bit integer.  Could indicate a
+bytecode address, as in @code{make-closure}, or a non-immediate address,
+as with @code{static-patch!}.
+
+@code{l32} and @code{lo32} are the same from the perspective of the
+virtual machine.  The difference is that an assembler might want to
+allow an @code{lo32} address to be specified as a label and then some
+number of words offset from that label, for example when patching a
+field of a statically allocated object.
+@item b1
+A boolean value: 1 for true, otherwise 0.
+@item x@var{n}
+An ignored sequence of @var{n} bits.
+@end table
+
+An instruction is specified by giving its name, then describing its
+operands.  The operands are packed by 32-bit words, with earlier
+operands occupying the lower bits.
+
+For example, consider the following instruction specification:
+
+@deftypefn Instruction {} free-set! u12:@var{dst} u12:@var{src} x8:@var{_} u24:@var{idx}
+Set free variable @var{idx} from the closure @var{dst} to @var{src}.
+@end deftypefn
+
+The first word in the instruction will start with the 8-bit value
+corresponding to the @var{free-set!} opcode in the low bits, followed by
+@var{dst} and @var{src} as 12-bit values.  The second word starts with 8
+dead bits, followed by the index as a 24-bit immediate value.
 
 Sometimes the compiler can figure out that it is compiling a special
 case that can be run more efficiently. So, for example, while Guile
@@ -371,13 +393,13 @@ their own test-and-branch instructions:
 @end example
 
 In addition, some Scheme primitives have their own inline
-implementations, e.g.@: @code{cons}, and @code{list}, as we saw in the
-previous section.
+implementations.  For example, in the previous section we saw
+@code{cons}.
 
-So Guile's instruction set is a @emph{complete} instruction set, in
-that it provides the instructions that are suited to the problem, and
-is not concerned with making a minimal, orthogonal set of
-instructions. More instructions may be added over time.
+Guile's instruction set is a @emph{complete} instruction set, in that it
+provides the instructions that are suited to the problem, and is not
+concerned with making a minimal, orthogonal set of instructions. More
+instructions may be added over time.
 
 @menu
 * Lexical Environment Instructions::  
