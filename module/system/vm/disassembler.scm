@@ -199,7 +199,7 @@
 address of that offset."
   (+ (debug-context-base context) (* offset 4)))
 
-(define (code-annotation code len offset start labels context)
+(define (code-annotation code len offset start labels context push-addr!)
   ;; FIXME: Print names for register loads and stores that correspond to
   ;; access to named locals.
   (define (reference-scm target)
@@ -244,19 +244,22 @@ address of that offset."
      (list "~a arg~:p" nargs))
     (('make-closure dst target nfree)
      (let* ((addr (u32-offset->addr (+ offset target) context))
-            (pdi (find-program-debug-info addr context)))
-       ;; FIXME: Disassemble embedded closures as well.
-       (list "~A at 0x~X (~A free var~:p)"
-             (or (and pdi (program-debug-info-name pdi))
-                 "(anonymous procedure)")
-             addr
-             nfree)))
+            (pdi (find-program-debug-info addr context))
+            (name (or (and pdi (program-debug-info-name pdi))
+                      "anonymous procedure")))
+       (push-addr! addr name)
+       (list "~A at #x~X (~A free var~:p)" name addr nfree)))
     (('make-non-immediate dst target)
-     (list "~@Y" (reference-scm target)))
+     (let ((val (reference-scm target)))
+       (when (program? val)
+         (push-addr! (program-code val) val))
+       (list "~@Y" val)))
     (('builtin-ref dst idx)
      (list "~A" (builtin-index->name idx)))
     (((or 'static-ref 'static-set!) _ target)
      (list "~@Y" (dereference-scm target)))
+    (((or 'free-ref 'free-set!) _ _ index)
+     (list "free var ~a" index))
     (('resolve-module dst name public)
      (list "~a" (if (zero? public) "private" "public")))
     (('toplevel-box _ var-offset mod-offset sym-offset bound?)
@@ -318,7 +321,7 @@ address of that offset."
   (format port "~4@S    ~32S~@[;; ~1{~@?~}~]~@[~61t at ~a~]\n"
           addr info extra src))
 
-(define (disassemble-buffer port bv start end context)
+(define (disassemble-buffer port bv start end context push-addr!)
   (let ((labels (compute-labels bv start end))
         (sources (find-program-sources (u32-offset->addr start context)
                                        context)))
@@ -343,25 +346,38 @@ address of that offset."
             (let ((pos (- offset start))
                   (addr (u32-offset->addr offset context))
                   (annotation (code-annotation elt len offset start labels
-                                               context)))
+                                               context push-addr!)))
               (print-info port pos (vector-ref labels pos) elt annotation
                           (lookup-source addr))
               (lp (+ offset len)))))))))
 
-(define* (disassemble-program program #:optional (port (current-output-port)))
+(define (disassemble-addr addr label port)
+  (format port "Disassembly of ~A at #x~X:\n\n" label addr)
   (cond
-   ((find-program-debug-info (program-code program))
+   ((find-program-debug-info addr)
     => (lambda (pdi)
-         (format port "Disassembly of ~S at #x~X:\n\n" program
-                 (program-debug-info-addr pdi))
-         (disassemble-buffer port
-                             (program-debug-info-image pdi)
-                             (program-debug-info-u32-offset pdi)
-                             (program-debug-info-u32-offset-end pdi)
-                             (program-debug-info-context pdi))))
+         (let ((worklist '()))
+           (define (push-addr! addr label)
+             (unless (assv addr worklist)
+               (set! worklist (acons addr label worklist))))
+           (disassemble-buffer port
+                               (program-debug-info-image pdi)
+                               (program-debug-info-u32-offset pdi)
+                               (program-debug-info-u32-offset-end pdi)
+                               (program-debug-info-context pdi)
+                               push-addr!)
+           (for-each (match-lambda
+                      ((addr . label)
+                       (display "\n----------------------------------------\n"
+                                port)
+                       (disassemble-addr addr label port)))
+                     worklist))))
    (else
     (format port "Debugging information unavailable.~%")))
   (values))
+
+(define* (disassemble-program program #:optional (port (current-output-port)))
+  (disassemble-addr (program-code program) program port))
 
 (define (fold-code-range proc seed bv start end context raw?)
   (define (cook code offset)
@@ -446,7 +462,8 @@ address of that offset."
                              bv
                              (/ (+ base value) 4)
                              (/ (+ base value size) 4)
-                             ctx)
+                             ctx
+                             (lambda (addr name) #t))
          (display "\n\n" port)))))
   (values))
 
