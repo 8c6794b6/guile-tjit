@@ -1155,8 +1155,9 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       NEXT (3);
     }
 
-  /* bind-kwargs nreq:24 allow-other-keys:1 has-rest:1 _:6 nreq-and-opt:24
-   * _:8 ntotal:24 kw-offset:32
+  /* bind-kwargs nreq:24 flags:8 nreq-and-opt:24 _:8 ntotal:24 kw-offset:32
+   *
+   * flags := allow-other-keys:1 has-rest:1 _:6
    *
    * Find the last positional argument, and shuffle all the rest above
    * NTOTAL.  Initialize the intervening locals to SCM_UNDEFINED.  Then
@@ -1421,7 +1422,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       BR_ARITHMETIC (==, scm_num_eq_p);
     }
 
-  /* br-if-< a:12 b:12 _:8 offset:24
+  /* br-if-< a:12 b:12 invert:1 _:7 offset:24
    *
    * If the value in A is < to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
@@ -1431,7 +1432,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       BR_ARITHMETIC (<, scm_less_p);
     }
 
-  /* br-if-<= a:12 b:12 _:8 offset:24
+  /* br-if-<= a:12 b:12 invert:1 _:7 offset:24
    *
    * If the value in A is <= to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
@@ -1568,7 +1569,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       NEXT (2);
     }
 
-  /* free-set! dst:12 src:12 _8 idx:24
+  /* free-set! dst:12 src:12 _:8 idx:24
    *
    * Set free variable IDX from the closure DST to SRC.
    */
