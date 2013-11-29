@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  2008, 2010, 2011
+@c Copyright (C)  2008, 2010, 2011, 2013
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -211,6 +211,13 @@ via Geiser. Guile caught up to features found in a number of other
 Schemes: SRFI-18 threads, module-hygienic macros, a profiler, tracer,
 and debugger, SSAX XML integration, bytevectors, a dynamic FFI,
 delimited continuations, module versions, and partial support for R6RS.
+
+@item 2.2 --- mid-2014
+The virtual machine and introduced in 2.0 was completely rewritten,
+along with much of the compiler and toolchain.  This speeds up many
+Guile programs as well as reducing startup time and memory usage.  A PEG
+parser toolkit was added, making it easier to write other language
+frontends.
 @end table
 
 @node Status
@@ -250,19 +257,13 @@ than in other languages.
 These days it is possible to write extensible applications almost
 entirely from high-level languages, through byte-code and native
 compilation, speed gains in the underlying hardware, and foreign call
-interfaces in the high-level language. Smalltalk systems are like
-this, as are Common Lisp-based systems. While there already are a
-number of pure-Guile applications out there, users still need to drop
-down to C for some tasks: interfacing to system libraries that don't
-have prebuilt Guile interfaces, and for some tasks requiring high
-performance.
-
-The addition of the virtual machine in Guile 2.0, together with the
-compiler infrastructure, should go a long way to addressing the speed
-issues. But there is much optimization to be done. Interested
-contributors will find lots of delightful low-hanging fruit, from
-simple profile-driven optimization to hacking a just-in-time compiler
-from VM bytecode to native code.
+interfaces in the high-level language.  Smalltalk systems are like this,
+as are Common Lisp-based systems.  While there already are a number of
+pure-Guile applications out there, users still need to drop down to C
+for some tasks: interfacing to system libraries that don't have prebuilt
+Guile interfaces, and for some tasks requiring high performance.  Native
+ahead-of-time compilation, planned for Guile 3.0, should help with
+this.
 
 Still, even with an all-Guile application, sometimes you want to
 provide an opportunity for users to extend your program from a
@@ -270,19 +271,17 @@ language with a syntax that is closer to C, or to Python. Another
 interesting idea to consider is compiling e.g.@: Python to Guile. It's
 not that far-fetched of an idea: see for example IronPython or JRuby.
 
-And then there's Emacs itself. Though there is a somewhat-working Emacs
-Lisp language frontend for Guile, it cannot yet execute all of Emacs
-Lisp. A serious integration of Guile with Emacs would replace the Elisp
-virtual machine with Guile, and provide the necessary C shims so that
-Guile could emulate Emacs' C API. This would give lots of exciting
-things to Emacs: native threads, a real object system, more
-sophisticated types, cleaner syntax, and access to all of the Guile
-extensions.
+And then there's Emacs itself.  Guile's Emacs Lisp support has reached
+an excellent level of correctness, robustness, and speed.  However there
+is still work to do to finish its integration into Emacs itself.  This
+will give lots of exciting things to Emacs: native threads, a real
+object system, more sophisticated types, cleaner syntax, and access to
+all of the Guile extensions.
 
 Finally, there is another axis of crystallization, the axis between
-different Scheme implementations. Guile does not yet support the
-latest Scheme standard, R6RS, and should do so. Like all standards,
-R6RS is imperfect, but supporting it will allow more code to run on
-Guile without modification, and will allow Guile hackers to produce
-code compatible with other schemes. Help in this regard would be much
+different Scheme implementations. Guile does not yet support the latest
+Scheme standard, R7RS, and should do so. Like all standards, R7RS is
+imperfect, but supporting it will allow more code to run on Guile
+without modification, and will allow Guile hackers to produce code
+compatible with other schemes. Help in this regard would be much
 appreciated.
