@@ -335,7 +335,7 @@ address of that offset."
               ((< pc addr) (lp sources))
               ((= pc addr)
                (format #f "~a:~a:~a"
-                       (source-file source)
+                       (or (source-file source) "(unknown file)")
                        (source-line-for-user source)
                        (source-column source)))
               (else #f)))))))
