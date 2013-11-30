@@ -38,7 +38,7 @@ operated directly on the S-expression representation of Scheme source
 code.
 
 But while the interpreter was highly optimized and hand-tuned, it still
-performs many needless computations during the course of evaluating an
+performed many needless computations during the course of evaluating an
 expression. For example, application of a function to arguments
 needlessly consed up the arguments in a list. Evaluation of an
 expression always had to figure out what the car of the expression is --
