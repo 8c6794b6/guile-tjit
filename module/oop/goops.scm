@@ -140,13 +140,7 @@
 
 (eval-when (eval load compile)
   (use-modules ((language tree-il primitives) :select (add-interesting-primitive!)))
-  (add-interesting-primitive! 'class-of)
-  (define (@slot-ref o n)
-    (struct-ref o n))
-  (define (@slot-set! o n v)
-    (struct-set! o n v))
-  (add-interesting-primitive! '@slot-ref)
-  (add-interesting-primitive! '@slot-set!))
+  (add-interesting-primitive! 'class-of))
 
 ;; Then load the rest of GOOPS
 (use-modules (oop goops util)
@@ -1193,44 +1187,34 @@
 (define (make-generic-bound-check-getter proc)
   (lambda (o) (assert-bound (proc o) o)))
 
-;; the idea is to compile the index into the procedure, for fastest
-;; lookup. Also, @slot-ref and @slot-set! have their own bytecodes.
-
-(eval-when (eval load compile)
-  (define num-standard-pre-cache 20))
-
-(define-macro (define-standard-accessor-method form . body)
-  (let ((name (caar form))
-        (n-var (cadar form))
-        (args (cdr form)))
-    (define (make-one x)
-      (define (body-trans form)
-        (cond ((not (pair? form)) form)
-              ((eq? (car form) '@slot-ref)
-               `(,(car form) ,(cadr form) ,x))
-              ((eq? (car form) '@slot-set!)
-               `(,(car form) ,(cadr form) ,x ,(cadddr form)))
-              (else
-               (map body-trans form))))
-      `(lambda ,args ,@(map body-trans body)))
-    `(define ,name
-       (let ((cache (vector ,@(map make-one (iota num-standard-pre-cache)))))
-         (lambda (n)
-           (if (< n ,num-standard-pre-cache)
-               (vector-ref cache n)
-               ((lambda (,n-var) (lambda ,args ,@body)) n)))))))
+;;; Pre-generate getters and setters for the first 20 slots.
+(define-syntax define-standard-accessor-method
+  (lambda (stx)
+    (define num-standard-pre-cache 20)
+    (syntax-case stx ()
+      ((_ ((proc n) arg ...) body)
+       #`(define proc
+           (let ((cache (vector #,@(map (lambda (n*)
+                                          #`(lambda (arg ...)
+                                              (let ((n #,n*))
+                                                body)))
+                                        (iota num-standard-pre-cache)))))
+             (lambda (n)
+               (if (< n #,num-standard-pre-cache)
+                   (vector-ref cache n)
+                   (lambda (arg ...) body)))))))))
 
 (define-standard-accessor-method ((bound-check-get n) o)
-  (let ((x (@slot-ref o n)))
+  (let ((x (struct-ref o n)))
     (if (unbound? x)
         (slot-unbound o)
         x)))
 
 (define-standard-accessor-method ((standard-get n) o)
-  (@slot-ref o n))
+  (struct-ref o n))
 
 (define-standard-accessor-method ((standard-set n) o v)
-  (@slot-set! o n v))
+  (struct-set! o n v))
 
 ;;; compute-getters-n-setters
 ;;;

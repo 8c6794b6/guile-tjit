@@ -69,7 +69,7 @@
       bytevector-ieee-double-ref bytevector-ieee-double-set!
       bytevector-ieee-double-native-ref bytevector-ieee-double-native-set!)
      '(rnrs bytevectors))
-    ((class-of @slot-ref @slot-set!) '(oop goops))
+    ((class-of) '(oop goops))
     (else '(guile))))
 
 (define (primitive-ref name k src)
