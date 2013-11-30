@@ -537,7 +537,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   /* call proc:24 _:8 nlocals:24
    *
    * Call a procedure.  PROC is the local corresponding to a procedure.
-   * The three values below PROC will be overwritten by the saved call
+   * The two values below PROC will be overwritten by the saved call
    * frame data.  The new frame will have space for NLOCALS locals: one
    * for the procedure, and the rest for the arguments which should
    * already have been pushed on.
@@ -2039,9 +2039,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
 
   /* push-fluid fluid:12 value:12
    *
-   * Dynamically bind N fluids to values.  The fluids are expected to be
-   * allocated in a continguous range on the stack, starting from
-   * FLUID-BASE.  The values do not have this restriction.
+   * Dynamically bind VALUE to FLUID.
    */
   VM_DEFINE_OP (65, push_fluid, "push-fluid", OP1 (U8_U12_U12))
     {
@@ -2057,8 +2055,8 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
 
   /* pop-fluid _:24
    *
-   * Leave the dynamic extent of a with-fluids expression, restoring the
-   * fluids to their previous values.
+   * Leave the dynamic extent of a with-fluid* expression, restoring the
+   * fluid to its previous value.
    */
   VM_DEFINE_OP (66, pop_fluid, "pop-fluid", OP1 (U8_X24))
     {
@@ -2173,7 +2171,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
 
   /* No string-set! instruction, as there is no good fast path there.  */
 
-  /* string-to-number dst:12 src:12
+  /* string->number dst:12 src:12
    *
    * Parse a string in SRC to a number, and store in DST.
    */
@@ -2189,7 +2187,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       NEXT (1);
     }
 
-  /* string-to-symbol dst:12 src:12
+  /* string->symbol dst:12 src:12
    *
    * Parse a string in SRC to a symbol, and store in DST.
    */
