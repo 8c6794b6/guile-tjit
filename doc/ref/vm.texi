@@ -402,19 +402,18 @@ concerned with making a minimal, orthogonal set of instructions. More
 instructions may be added over time.
 
 @menu
-* Lexical Environment Instructions::  
-* Top-Level Environment Instructions::  
-* Procedure Call and Return Instructions::  
-* Function Prologue Instructions::  
-* Trampoline Instructions::  
-* Branch Instructions::         
-* Data Constructor Instructions::   
-* Loading Instructions::  
-* Dynamic Environment Instructions::  
-* Miscellaneous Instructions::  
-* Inlined Scheme Instructions::  
-* Inlined Mathematical Instructions::  
-* Inlined Bytevector Instructions::  
+* Lexical Environment Instructions::
+* Top-Level Environment Instructions::
+* Procedure Call and Return Instructions::
+* Function Prologue Instructions::
+* Trampoline Instructions::
+* Branch Instructions::
+* Constant Instructions::
+* Dynamic Environment Instructions::
+* Miscellaneous Instructions::
+* Inlined Scheme Instructions::
+* Inlined Mathematical Instructions::
+* Inlined Bytevector Instructions::
 @end menu
 
 
@@ -422,101 +421,61 @@ instructions may be added over time.
 @subsubsection Lexical Environment Instructions
 
 These instructions access and mutate the lexical environment of a
-compiled procedure---its free and bound variables.
+compiled procedure---its free and bound variables.  @xref{Stack Layout},
+for more information on the format of stack frames.
 
-Some of these instructions have @code{long-} variants, the difference
-being that they take 16-bit arguments, encoded in big-endianness,
-instead of the normal 8-bit range.
+@deftypefn Instruction {} mov u12:@var{dst} u12:@var{src}
+@deftypefnx Instruction {} long-mov u24:@var{dst} x8:@var{_} u24:@var{src}
+Copy a value from one local slot to another.
 
-@xref{Stack Layout}, for more information on the format of stack frames.
+As discussed previously, procedure arguments and local variables are
+allocated to local slots.  Guile's compiler tries to avoid shuffling
+variables around to different slots, which often makes @code{mov}
+instructions redundant.  However there are some cases in which shuffling
+is necessary, and in those cases, @code{mov} is the thing to use.
+@end deftypefn
 
-@deffn Instruction local-ref index
-@deffnx Instruction long-local-ref index
-Push onto the stack the value of the local variable located at
-@var{index} within the current stack frame.
+@deftypefn Instruction {} make-closure u24:@var{dst} l32:@var{offset} x8:@var{_} u24:@var{nfree}
+Make a new closure, and write it to @var{dst}.  The code for the closure
+will be found at @var{offset} words from the current @code{ip}.
+@var{offset} is a signed 32-bit integer.  Space for @var{nfree} free
+variables will be allocated.
 
-Note that arguments and local variables are all in one block. Thus the
-first argument, if any, is at index 0, and local bindings follow the
-arguments.
-@end deffn
+The size of a closure is currently two words, plus one word per free
+variable.
+@end deftypefn
 
-@deffn Instruction local-set index
-@deffnx Instruction long-local-set index
-Pop the Scheme object located on top of the stack and make it the new
-value of the local variable located at @var{index} within the current
-stack frame.
-@end deffn
+@deftypefn Instruction {} free-ref u12:@var{dst} u12:@var{src} x8:@var{_} u24:@var{idx}
+Load free variable @var{idx} from the closure @var{src} into local slot
+@var{dst}.
+@end deftypefn
 
-@deffn Instruction box index
-Pop a value off the stack, and set the @var{index}nth local variable
-to a box containing that value. A shortcut for @code{make-variable}
-then @code{local-set}, used when binding boxed variables.
-@end deffn
+@deftypefn Instruction {} free-set! u12:@var{dst} u12:@var{src} x8:@var{_} u24:@var{idx}
+Set free variable @var{idx} from the closure @var{dst} to @var{src}.
 
-@deffn Instruction empty-box index
-Set the @var{index}th local variable to a box containing a variable
-whose value is unbound. Used when compiling some @code{letrec}
-expressions.
-@end deffn
+This instruction is usually used when initializing a closure's free
+variables, but not to mutate free variables, as variables that are
+assigned are boxed.
+@end deftypefn
 
-@deffn Instruction local-boxed-ref index
-@deffnx Instruction local-boxed-set index
-Get or set the value of the variable located at @var{index} within the
-current stack frame. A shortcut for @code{local-ref} then
-@code{variable-ref} or @code{variable-set}, respectively.
-@end deffn
+Recall that variables that are assigned are usually allocated in boxes,
+so that continuations and closures can capture their identity and not
+their value at one point in time.  Variables are also used in the
+implementation of top-level bindings; see the next section for more
+information.
 
-@deffn Instruction free-ref index
-Push the value of the captured variable located at position
-@var{index} within the program's vector of captured variables.
-@end deffn
+@deftypefn Instruction {} box u12:@var{dst} u12:@var{src}
+Create a new variable holding @var{src}, and place it in @var{dst}.
+@end deftypefn
 
-@deffn Instruction free-boxed-ref index
-@deffnx Instruction free-boxed-set index
-Get or set a boxed free variable. A shortcut for @code{free-ref} then
-@code{variable-ref} or @code{variable-set}, respectively.
+@deftypefn Instruction {} box-ref u12:@var{dst} u12:@var{src}
+Unpack the variable at @var{src} into @var{dst}, asserting that the
+variable is actually bound.
+@end deftypefn
 
-Note that there is no @code{free-set} instruction, as variables that are
-@code{set!} must be boxed.
-@end deffn
-
-@deffn Instruction make-closure num-free-vars
-Pop @var{num-free-vars} values and a program object off the stack in
-that order, and push a new program object closing over the given free
-variables. @var{num-free-vars} is encoded as a two-byte big-endian
-value.
-
-The free variables are stored in an array, inline to the new program
-object, in the order that they were on the stack (not the order they are
-popped off). The new closure shares state with the original program. At
-the time of this writing, the space overhead of closures is 3 words,
-plus one word for each free variable.
-@end deffn
-
-@deffn Instruction fix-closure index
-Fix up the free variables array of the closure stored in the
-@var{index}th local variable. @var{index} is a two-byte big-endian
-integer.
-
-This instruction will pop as many values from the stack as are in the
-corresponding closure's free variables array. The topmost value on the
-stack will be stored as the closure's last free variable, with other
-values filling in free variable slots in order.
-
-@code{fix-closure} is part of a hack for allocating mutually recursive
-procedures. The hack is to store the procedures in their corresponding
-local variable slots, with space already allocated for free variables.
-Then once they are all in place, this instruction fixes up their
-procedures' free variable bindings in place. This allows most
-@code{letrec}-bound procedures to be allocated unboxed on the stack.
-@end deffn
-
-@deffn Instruction local-bound? index
-@deffnx Instruction long-local-bound? index
-Push @code{#t} on the stack if the @code{index}th local variable has
-been assigned, or @code{#f} otherwise. Mostly useful for handling
-optional arguments in procedure prologues.
-@end deffn
+@deftypefn Instruction {} box-set! u12:@var{dst} u12:@var{src}
+Set the contents of the variable at @var{dst} to @var{set}.
+@end deftypefn
 
 
 @node Top-Level Environment Instructions
@@ -530,210 +489,133 @@ The location in which a toplevel binding is stored can be looked up once
 and cached for later. The binding itself may change over time, but its
 location will stay constant.
 
-Currently only toplevel references within procedures are cached, as only
-procedures have a place to cache them, in their object tables.
+@deftypefn Instruction {} current-module u24:@var{dst}
+Store the current module in @var{dst}.
+@end deftypefn
 
-@deffn Instruction toplevel-ref index
-@deffnx Instruction long-toplevel-ref index
-Push the value of the toplevel binding whose location is stored in at
-position @var{index} in the current procedure's object table. The
-@code{long-} variant encodes the index over two bytes.
+@deftypefn Instruction {} resolve u24:@var{dst} b1:@var{bound?} x7:@var{_} u24:@var{sym}
+Resolve @var{sym} in the current module, and place the resulting
+variable in @var{dst}.  An error will be signalled if no variable is
+found.  If @var{bound?} is true, an error will be signalled if the
+variable is unbound.
+@end deftypefn
 
-Initially, a cell in a procedure's object table that is used by
-@code{toplevel-ref} is initialized to one of two forms. The normal case
-is that the cell holds a symbol, whose binding will be looked up
-relative to the module that was current when the current program was
-created.
+@deftypefn Instruction {} define! u12:@var{sym} u12:@var{val}
+Look up a binding for @var{sym} in the current module, creating it if
+necessary.  Set its value to @var{val}.
+@end deftypefn
 
-Alternately, the lookup may be performed relative to a particular
-module, determined at compile-time (e.g.@: via @code{@@} or
-@code{@@@@}). In that case, the cell in the object table holds a list:
-@code{(@var{modname} @var{sym} @var{public?})}. The symbol @var{sym}
-will be looked up in the module named @var{modname} (a list of
-symbols). The lookup will be performed against the module's public
-interface, unless @var{public?} is @code{#f}, which it is for example
-when compiling @code{@@@@}.
+@deftypefn Instruction {} toplevel-box u24:@var{dst} s32:@var{var-offset} s32:@var{mod-offset} n32:@var{sym-offset} b1:@var{bound?} x31:@var{_}
+Load a value.  The value will be fetched from memory, @var{var-offset}
+32-bit words away from the current instruction pointer.
+@var{var-offset} is a signed value.  Up to here, @code{toplevel-box} is
+like @code{static-ref}.
 
-In any case, if the symbol is unbound, an error is signalled.
-Otherwise the initial form is replaced with the looked-up variable, an
-in-place mutation of the object table. This mechanism provides for
-lazy variable resolution, and an important cached fast-path once the
-variable has been successfully resolved.
+Then, if the loaded value is a variable, it is placed in @var{dst}, and
+control flow continues.
 
-This instruction pushes the value of the variable onto the stack.
-@end deffn
+Otherwise, we have to resolve the variable.  In that case we load the
+module from @var{mod-offset}, just as we loaded the variable.  Usually
+the module gets set when the closure is created.  @var{sym-offset}
+specifies the name, as an offset to a symbol.
 
-@deffn Instruction toplevel-set index
-@deffnx Instruction long-toplevel-set index
-Pop a value off the stack, and set it as the value of the toplevel
-variable stored at @var{index} in the object table. If the variable
-has not yet been looked up, we do the lookup as in
-@code{toplevel-ref}.
-@end deffn
+We use the module and the symbol to resolve the variable, placing it in
+@var{dst}, and caching the resolved variable so that we will hit the
+cache next time.  If @var{bound?} is true, an error will be signalled if
+the variable is unbound.
+@end deftypefn
 
-@deffn Instruction define
-Pop a symbol and a value from the stack, in that order. Look up its
-binding in the current toplevel environment, creating the binding if
-necessary. Set the variable to the value.
-@end deffn
-
-@deffn Instruction link-now
-Pop a value, @var{x}, from the stack. Look up the binding for @var{x},
-according to the rules for @code{toplevel-ref}, and push that variable
-on the stack. If the lookup fails, an error will be signalled.
-
-This instruction is mostly used when loading programs, because it can
-do toplevel variable lookups without an object table.
-@end deffn
-
-@deffn Instruction variable-ref
-Dereference the variable object which is on top of the stack and
-replace it by the value of the variable it represents.
-@end deffn
-
-@deffn Instruction variable-set
-Pop off two objects from the stack, a variable and a value, and set
-the variable to the value.
-@end deffn
-
-@deffn Instruction variable-bound?
-Pop off the variable object from top of the stack and push @code{#t} if
-it is bound, or @code{#f} otherwise. Mostly useful in procedure
-prologues for defining default values for boxed optional variables.
-@end deffn
-
-@deffn Instruction make-variable
-Replace the top object on the stack with a variable containing it.
-Used in some circumstances when compiling @code{letrec} expressions.
-@end deffn
+@deftypefn Instruction {} module-box u24:@var{dst} s32:@var{var-offset} n32:@var{mod-offset} n32:@var{sym-offset} b1:@var{bound?} x31:@var{_}
+Like @code{toplevel-box}, except @var{mod-offset} points at a module
+identifier instead of the module itself.  A module identifier is a
+module name, as a list, prefixed by a boolean.  If the prefix is true,
+then the variable is resolved relative to the module's public interface
+instead of its private interface.
+@end deftypefn
 
 
 @node Procedure Call and Return Instructions
 @subsubsection Procedure Call and Return Instructions
 
-@c something about the calling convention here?
+As described earlier (@pxref{Stack Layout}), Guile's calling convention
+is that arguments are passed and values returned on the stack.
 
-@deffn Instruction new-frame
-Push a new frame on the stack, reserving space for the dynamic link,
-return address, and the multiple-values return address. The frame
-pointer is not yet updated, because the frame is not yet active -- it
-has to be patched by a @code{call} instruction to get the return
-address.
-@end deffn
+For calls, both in tail position and in non-tail position, we require
+that the procedure and the arguments already be shuffled into place
+befor the call instruction.  ``Into place'' for a tail call means that
+the procedure should be in slot 0, and the arguments should follow.  For
+a non-tail call, if the procedure is in slot @var{n}, the arguments
+should follow from slot @var{n}+1, and there should be two free slots at
+@var{n}-1 and @var{n}-2 in which to save the @code{ip} and @code{fp}.
 
-@deffn Instruction call nargs
-Call the procedure located at @code{sp[-nargs]} with the @var{nargs}
-arguments located from @code{sp[-nargs + 1]} to @code{sp[0]}.
+Returning values is similar.  Multiple-value returns should have values
+already shuffled down to start from slot 1 before emitting
+@code{return-values}.  There is a short-cut in the single-value case, in
+that @code{return} handles the trivial shuffling itself.  We start from
+slot 1 instead of slot 0 to make tail calls to @code{values} trivial.
 
-This instruction requires that a new frame be pushed on the stack before
-the procedure, via @code{new-frame}. @xref{Stack Layout}, for more
-information. It patches up that frame with the current @code{ip} as the
-return address, then dispatches to the first instruction in the called
-procedure, relying on the called procedure to return one value to the
-newly-created continuation. Because the new frame pointer will point to
-@code{sp[-nargs + 1]}, the arguments don't have to be shuffled around --
-they are already in place.
-@end deffn
+In both calls and returns, the @code{sp} is used to indicate to the
+callee or caller the number of arguments or return values, respectively.
+After receiving return values, it is the caller's responsibility to
+@dfn{restore the frame} by resetting the @code{sp} to its former value.
 
-@deffn Instruction tail-call nargs
-Transfer control to the procedure located at @code{sp[-nargs]} with the
-@var{nargs} arguments located from @code{sp[-nargs + 1]} to
-@code{sp[0]}.
+@deftypefn Instruction {} call u24:@var{proc} x8:@var{_} u24:@var{nlocals}
+Call a procedure.  @var{proc} is the local corresponding to a procedure.
+The two values below @var{proc} will be overwritten by the saved call
+frame data.  The new frame will have space for @var{nlocals} locals: one
+for the procedure, and the rest for the arguments which should already
+have been pushed on.
 
-Unlike @code{call}, which requires a new frame to be pushed onto the
-stack, @code{tail-call} simply shuffles down the procedure and arguments
-to the current stack frame. This instruction implements tail calls as
-required by RnRS.
-@end deffn
+When the call returns, execution proceeds with the next instruction.
+There may be any number of values on the return stack; the precise
+number can be had by subtracting the address of @var{proc} from the
+post-call @code{sp}.
+@end deftypefn
 
-@deffn Instruction apply nargs
-@deffnx Instruction tail-apply nargs
-Like @code{call} and @code{tail-call}, except that the top item on the
-stack must be a list. The elements of that list are then pushed on the
-stack and treated as additional arguments, replacing the list itself,
-then the procedure is invoked as usual.
-@end deffn
+@deftypefn Instruction {} tail-call u24:@var{nlocals}
+Tail-call a procedure.  Requires that the procedure and all of the
+arguments have already been shuffled into position.  Will reset the
+frame to @var{nlocals}.
+@end deftypefn
 
-@deffn Instruction call/nargs
-@deffnx Instruction tail-call/nargs
-These are like @code{call} and @code{tail-call}, except they take the
-number of arguments from the stack instead of the instruction stream.
-These instructions are used in the implementation of multiple value
-returns, where the actual number of values is pushed on the stack.
-@end deffn
+@deftypefn Instruction {} tail-call/shuffle u24:@var{from}
+Tail-call a procedure.  The procedure should already be set to slot 0.
+The rest of the args are taken from the frame, starting at @var{from},
+shuffled down to start at slot 0.  This is part of the implementation of
+the @code{call-with-values} builtin.
+@end deftypefn
 
-@deffn Instruction mv-call nargs offset
-Like @code{call}, except that a multiple-value continuation is created
-in addition to a single-value continuation.
+@deftypefn Instruction {} receive u12:@var{dst} u12:@var{proc} x8:@var{_} u24:@var{nlocals}
+Receive a single return value from a call whose procedure was in
+@var{proc}, asserting that the call actually returned at least one
+value.  Afterwards, resets the frame to @var{nlocals} locals.
+@end deftypefn
 
-The offset (a three-byte value) is an offset within the instruction
-stream; the multiple-value return address in the new frame (@pxref{Stack
-Layout}) will be set to the normal return address plus this offset.
-Instructions at that offset will expect the top value of the stack to be
-the number of values, and below that values themselves, pushed
-separately.
-@end deffn
+@deftypefn Instruction {} receive-values u24:@var{proc} b1:@var{allow-extra?} x7:@var{_} u24:@var{nvalues}
+Receive a return of multiple values from a call whose procedure was in
+@var{proc}.  If fewer than @var{nvalues} values were returned, signal an
+error.  Unless @var{allow-extra?} is true, require that the number of
+return values equals @var{nvalues} exactly.  After @code{receive-values}
+has run, the values can be copied down via @code{mov}, or used in place.
+@end deftypefn
 
-@deffn Instruction return
-Free the program's frame, returning the top value from the stack to
-the current continuation. (The stack should have exactly one value on
-it.)
+@deftypefn Instruction {} return u24:@var{src}
+Return a value.
+@end deftypefn
 
-Specifically, the @code{sp} is decremented to one below the current
-@code{fp}, the @code{ip} is reset to the current return address, the
-@code{fp} is reset to the value of the current dynamic link, and then
-the returned value is pushed on the stack.
-@end deffn
+@deftypefn Instruction {} return-values x24:@var{_}
+Return a number of values from a call frame.  This opcode corresponds to
+an application of @code{values} in tail position.  As with tail calls,
+we expect that the values have already been shuffled down to a
+contiguous array starting at slot 1.  We also expect the frame has
+already been reset.
+@end deftypefn
 
-@deffn Instruction return/values nvalues
-@deffnx Instruction return/nvalues
-Return the top @var{nvalues} to the current continuation. In the case of
-@code{return/nvalues}, @var{nvalues} itself is first popped from the top
-of the stack.
-
-If the current continuation is a multiple-value continuation,
-@code{return/values} pushes the number of values on the stack, then
-returns as in @code{return}, but to the multiple-value return address.
-
-Otherwise if the current continuation accepts only one value, i.e.@: the
-multiple-value return address is @code{NULL}, then we assume the user
-only wants one value, and we give them the first one. If there are no
-values, an error is signaled.
-@end deffn
-
-@deffn Instruction return/values* nvalues
-Like a combination of @code{apply} and @code{return/values}, in which
-the top value on the stack is interpreted as a list of additional
-values. This is an optimization for the common @code{(apply values
-...)} case.
-@end deffn
-
-@deffn Instruction truncate-values nbinds nrest
-Used in multiple-value continuations, this instruction takes the
-values that are on the stack (including the number-of-values marker)
-and truncates them for a binding construct.
-
-For example, a call to @code{(receive (x y . z) (foo) ...)} would,
-logically speaking, pop off the values returned from @code{(foo)} and
-push them as three values, corresponding to @code{x}, @code{y}, and
-@code{z}. In that case, @var{nbinds} would be 3, and @var{nrest} would
-be 1 (to indicate that one of the bindings was a rest argument).
-
-Signals an error if there is an insufficient number of values.
-@end deffn
-
-@deffn Instruction call/cc
-@deffnx Instruction tail-call/cc
-Capture the current continuation, and then call (or tail-call) the
-procedure on the top of the stack, with the continuation as the
-argument.
-
-@code{call/cc} does not require a @code{new-frame} to be pushed on the
-stack, as @code{call} does, because it needs to capture the stack
-before the frame is pushed.
-
-Both the VM continuation and the C continuation are captured.
-@end deffn
+@deftypefn Instruction {} call/cc x24:@var{_}
+Capture the current continuation, and tail-apply the procedure in local
+slot 1 to it.  This instruction is part of the implementation of
+@code{call/cc}, and is not generated by the compiler.
+@end deftypefn
 
 
 @node Function Prologue Instructions
@@ -750,374 +632,297 @@ cost of parsing keyword arguments. (At the time of this writing, calling
 procedures with keyword arguments is typically two to four times as
 costly as calling procedures with a fixed set of arguments.)
 
-@deffn Instruction assert-nargs-ee n
-@deffnx Instruction assert-nargs-ge n
-Assert that the current procedure has been passed exactly @var{n}
-arguments, for the @code{-ee} case, or @var{n} or more arguments, for
-the @code{-ge} case. @var{n} is encoded over two bytes.
+@deftypefn Instruction {} assert-nargs-ee u24:@var{expected}
+@deftypefnx Instruction {} assert-nargs-ge u24:@var{expected}
+@deftypefnx Instruction {} assert-nargs-le u24:@var{expected}
+If the number of actual arguments is not @code{==}, @code{>=}, or
+@code{<=} @var{expected}, respectively, signal an error.
 
 The number of arguments is determined by subtracting the frame pointer
-from the stack pointer (@code{sp - (fp -1)}). @xref{Stack Layout}, for
-more details on stack frames.
-@end deffn
+from the stack pointer (@code{sp + 1 - fp}). @xref{Stack Layout}, for
+more details on stack frames.  Note that @var{expected} includes the
+procedure itself.
+@end deftypefn
 
-@deffn Instruction br-if-nargs-ne n offset
-@deffnx Instruction br-if-nargs-gt n offset
-@deffnx Instruction br-if-nargs-lt n offset
-Jump to @var{offset} if the number of arguments is not equal to, greater
-than, or less than @var{n}. @var{n} is encoded over two bytes, and
-@var{offset} has the normal three-byte encoding.
+@deftypefn Instruction {} br-if-nargs-ne u24:@var{expected} x8:@var{_} l24:@var{offset}
+@deftypefnx Instruction {} br-if-nargs-lt u24:@var{expected} x8:@var{_} l24:@var{offset}
+@deftypefnx Instruction {} br-if-nargs-gt u24:@var{expected} x8:@var{_} l24:@var{offset}
+If the number of actual arguments is not equal, less than, or greater
+than @var{expected}, respectively, add @var{offset}, a signed 24-bit
+number, to the current instruction pointer.  Note that @var{expected}
+includes the procedure itself.
 
 These instructions are used to implement multiple arities, as in
 @code{case-lambda}. @xref{Case-lambda}, for more information.
-@end deffn
+@end deftypefn
 
-@deffn Instruction bind-optionals n
-If the procedure has been called with fewer than @var{n} arguments, fill
-in the remaining arguments with an unbound value (@code{SCM_UNDEFINED}).
-@var{n} is encoded over two bytes.
+@deftypefn Instruction {} alloc-frame u24:@var{nlocals}
+Ensure that there is space on the stack for @var{nlocals} local
+variables, setting them all to @code{SCM_UNDEFINED}, except those values
+that are already on the stack.
+@end deftypefn
 
-The optionals can be later initialized conditionally via the
-@code{local-bound?} instruction.
-@end deffn
+@deftypefn Instruction {} reset-frame u24:@var{nlocals}
+Like @code{alloc-frame}, but doesn't check that the stack is big enough,
+and doesn't initialize values to @code{SCM_UNDEFINED}.  Used to reset
+the frame size to something less than the size that was previously set
+via alloc-frame.
+@end deftypefn
 
-@deffn Instruction push-rest n
-Pop off excess arguments (more than @var{n}), collecting them into a
-list, and push that list. Used to bind a rest argument, if the procedure
-has no keyword arguments. Procedures with keyword arguments use
-@code{bind-rest} instead.
-@end deffn
+@deftypefn Instruction {} assert-nargs-ee/locals u12:@var{expected} u12:@var{nlocals}
+Equivalent to a sequence of @code{assert-nargs-ee} and
+@code{reserve-locals}.  The number of locals reserved is @var{expected}
++ @var{nlocals}.
+@end deftypefn
 
-@deffn Instruction bind-rest n idx
-Pop off excess arguments (more than @var{n}), collecting them into a
-list. The list is then assigned to the @var{idx}th local variable.
-@end deffn
+@deftypefn Instruction {} br-if-npos-gt u24:@var{nreq} x8:@var{_} u24:@var{npos} x8:@var{_} l24:@var{offset}
+Find the first positional argument after @var{nreq}.  If it is greater
+than @var{npos}, jump to @var{offset}.
 
-@deffn Instruction bind-optionals/shuffle nreq nreq-and-opt ntotal
-@deffnx Instruction bind-optionals/shuffle-or-br nreq nreq-and-opt ntotal offset
-Shuffle keyword arguments to the top of the stack, filling in the holes
-with @code{SCM_UNDEFINED}. Each argument is encoded over two bytes.
+This instruction is only emitted for functions with multiple clauses,
+and an earlier clause has keywords and no rest arguments.
+@xref{Case-lambda}, for more on how @code{case-lambda} chooses the
+clause to apply.
+@end deftypefn
 
-This instruction is used by procedures with keyword arguments.
-@var{nreq} is the number of required arguments to the procedure, and
-@var{nreq-and-opt} is the total number of positional arguments (required
-plus optional). @code{bind-optionals/shuffle} will scan the stack from
-the @var{nreq}th argument up to the @var{nreq-and-opt}th, and start
-shuffling when it sees the first keyword argument or runs out of
-positional arguments.
+@deftypefn Instruction {} bind-kwargs u24:@var{nreq} u8:@var{flags} u24:@var{nreq-and-opt} x8:@var{_} u24:@var{ntotal} n32:@var{kw-offset}
+@var{flags} is a bitfield, whose lowest bit is @var{allow-other-keys},
+second bit is @var{has-rest}, and whose following six bits are unused.
 
-@code{bind-optionals/shuffle-or-br} does the same, except that it checks
-if there are too many positional arguments before shuffling.  If this is
-the case, it jumps to @var{offset}, encoded using the normal three-byte
-encoding.
-
-Shuffling simply moves the keyword arguments past the total number of
-arguments, @var{ntotal}, which includes keyword and rest arguments. The
-free slots created by the shuffle are filled in with
-@code{SCM_UNDEFINED}, so they may be conditionally initialized later in
-the function's prologue.
-@end deffn
-
-@deffn Instruction bind-kwargs idx ntotal flags
-Parse keyword arguments, assigning their values to the corresponding
-local variables. The keyword arguments should already have been shuffled
-above the @var{ntotal}th stack slot by @code{bind-optionals/shuffle}.
+Find the last positional argument, and shuffle all the rest above
+@var{ntotal}.  Initialize the intervening locals to
+@code{SCM_UNDEFINED}.  Then load the constant at @var{kw-offset} words
+from the current @var{ip}, and use it and the @var{allow-other-keys}
+flag to bind keyword arguments.  If @var{has-rest}, collect all shuffled
+arguments into a list, and store it in @var{nreq-and-opt}.  Finally,
+clear the arguments that we shuffled up.
 
 The parsing is driven by a keyword arguments association list, looked up
-from the @var{idx}th element of the procedures object array. The alist
-is a list of pairs of the form @code{(@var{kw} . @var{index})}, mapping
-keyword arguments to their local variable indices.
+using @var{kw-offset}.  The alist is a list of pairs of the form
+@code{(@var{kw} . @var{index})}, mapping keyword arguments to their
+local slot indices.  Unless @code{allow-other-keys} is set, the parser
+will signal an error if an unknown key is found.
 
-There are two bitflags that affect the parser, @code{allow-other-keys?}
-(@code{0x1}) and @code{rest?} (@code{0x2}). Unless
-@code{allow-other-keys?} is set, the parser will signal an error if an
-unknown key is found. If @code{rest?} is set, errors parsing the
-keyword arguments will be ignored, as a later @code{bind-rest}
-instruction will collect all of the tail arguments, including the
-keywords, into a list. Otherwise if the keyword arguments are invalid,
-an error is signalled.
+A macro-mega-instruction.
+@end deftypefn
 
-@var{idx} and @var{ntotal} are encoded over two bytes each, and
-@var{flags} is encoded over one byte.
-@end deffn
-
-@deffn Instruction reserve-locals n
-Resets the stack pointer to have space for @var{n} local variables,
-including the arguments. If this operation increments the stack pointer,
-as in a push, the new slots are filled with @code{SCM_UNBOUND}. If this
-operation decrements the stack pointer, any excess values are dropped.
-
-@code{reserve-locals} is typically used after argument parsing to
-reserve space for local variables.
-@end deffn
-
-@deffn Instruction assert-nargs-ee/locals n
-@deffnx Instruction assert-nargs-ge/locals n
-A combination of @code{assert-nargs-ee} and @code{reserve-locals}. The
-number of arguments is encoded in the lower three bits of @var{n}, a
-one-byte value. The number of additional local variables is take from
-the upper 5 bits of @var{n}.
-@end deffn
+@deftypefn Instruction {} bind-rest u24:@var{dst}
+Collect any arguments at or above @var{dst} into a list, and store that
+list at @var{dst}.
+@end deftypefn
 
 
 @node Trampoline Instructions
 @subsubsection Trampoline Instructions
 
-Though most applicable objects in Guile are procedures implemented
-in bytecode, not all are. There are primitives, continuations, and other
-procedure-like objects that have their own calling convention. Instead
+Though most applicable objects in Guile are procedures implemented in
+bytecode, not all are.  There are primitives, continuations, and other
+procedure-like objects that have their own calling convention.  Instead
 of adding special cases to the @code{call} instruction, Guile wraps
 these other applicable objects in VM trampoline procedures, then
 provides special support for these objects in bytecode.
 
 Trampoline procedures are typically generated by Guile at runtime, for
-example in response to a call to @code{scm_c_make_gsubr}. As such, a
-compiler probably shouldn't emit code with these instructions. However,
+example in response to a call to @code{scm_c_make_gsubr}.  As such, a
+compiler probably shouldn't emit code with these instructions.  However,
 it's still interesting to know how these things work, so we document
 these trampoline instructions here.
 
-@deffn Instruction subr-call nargs
-Pop off a foreign pointer (which should have been pushed on by the
-trampoline), and call it directly, with the @var{nargs} arguments from
-the stack. Return the resulting value or values to the calling
-procedure.
-@end deffn
+@deftypefn Instruction {} subr-call u24:@var{ptr-idx}
+Call a subr, passing all locals in this frame as arguments.  Fetch the
+foreign pointer from @var{ptr-idx}, a free variable.  Return from the
+calling frame.
+@end deftypefn
 
-@deffn Instruction foreign-call nargs
-Pop off an internal foreign object (which should have been pushed on by
-the trampoline), and call that foreign function with the @var{nargs}
-arguments from the stack. Return the resulting value to the calling
-procedure.
-@end deffn
+@deftypefn Instruction {} foreign-call u12:@var{cif-idx} u12:@var{ptr-idx}
+Call a foreign function.  Fetch the @var{cif} and foreign pointer from
+@var{cif-idx} and @var{ptr-idx}, both free variables.  Return from the calling
+frame.  Arguments are taken from the stack.
+@end deftypefn
 
-@deffn Instruction continuation-call
-Pop off an internal continuation object (which should have been pushed
-on by the trampoline), and reinstate that continuation. All of the
-procedure's arguments are passed to the continuation. Does not return.
-@end deffn
+@deftypefn Instruction {} continuation-call u24:@var{contregs}
+Return to a continuation, nonlocally.  The arguments to the continuation
+are taken from the stack.  @var{contregs} is a free variable containing
+the reified continuation.
+@end deftypefn
 
-@deffn Instruction partial-cont-call
-Pop off two objects from the stack: the dynamic winds associated with
-the partial continuation, and the VM continuation object. Unroll the
-continuation onto the stack, rewinding the dynamic environment and
-overwriting the current frame, and pass all arguments to the
-continuation. Control flow proceeds where the continuation was captured.
-@end deffn
+@deftypefn Instruction {} compose-continuation u24:@var{cont}
+Compose a partial continution with the current continuation.  The
+arguments to the continuation are taken from the stack.  @var{cont} is a
+free variable containing the reified continuation.
+@end deftypefn
+
+@deftypefn Instruction {} tail-apply x24:@var{_}
+Tail-apply the procedure in local slot 0 to the rest of the arguments.
+This instruction is part of the implementation of @code{apply}, and is
+not generated by the compiler.
+@end deftypefn
+
+@deftypefn Instruction {} builtin-ref u12:@var{dst} u12:@var{idx}
+Load a builtin stub by index into @var{dst}.
+@end deftypefn
 
 
 @node Branch Instructions
 @subsubsection Branch Instructions
 
-All the conditional branch instructions described below work in the
-same way:
+All offsets to branch instructions are 24-bit signed numbers, which
+count 32-bit units.  This gives Guile effectively a 26-bit address range
+for relative jumps.
 
-@itemize
-@item They pop off Scheme object(s) located on the stack for use in the
-branch condition
-@item If the condition is true, then the instruction pointer is
-increased by the offset passed as an argument to the branch
-instruction;
-@item Program execution proceeds with the next instruction (that is,
-the one to which the instruction pointer points).
-@end itemize
+@deftypefn Instruction {} br l24:@var{offset}
+Add @var{offset} to the current instruction pointer.
+@end deftypefn
 
-Note that the offset passed to the instruction is encoded as three 8-bit
-integers, in big-endian order, effectively giving Guile a 24-bit
-relative address space.
+All the conditional branch instructions described below have an
+@var{invert} parameter, which if true reverses the test:
+@code{br-if-true} becomes @code{br-if-false}, and so on.
 
-@deffn Instruction br offset
-Jump to @var{offset}. No values are popped.
-@end deffn
+@deftypefn Instruction {} br-if-true u24:@var{test} b1:@var{invert} x7:@var{_} l24:@var{offset}
+If the value in @var{test} is true for the purposes of Scheme, add
+@var{offset} to the current instruction pointer.
+@end deftypefn
 
-@deffn Instruction br-if offset
-Jump to @var{offset} if the object on the stack is not false.
-@end deffn
+@deftypefn Instruction {} br-if-null u24:@var{test} b1:@var{invert} x7:@var{_} l24:@var{offset}
+If the value in @var{test} is the end-of-list or Lisp nil, add
+@var{offset} to the current instruction pointer.
+@end deftypefn
 
-@deffn Instruction br-if-not offset
-Jump to @var{offset} if the object on the stack is false.
-@end deffn
+@deftypefn Instruction {} br-if-nil u24:@var{test} b1:@var{invert} x7:@var{_} l24:@var{offset}
+If the value in @var{test} is false to Lisp, add @var{offset} to the
+current instruction pointer.
+@end deftypefn
 
-@deffn Instruction br-if-eq offset
-Jump to @var{offset} if the two objects located on the stack are
-equal in the sense of @code{eq?}.  Note that, for this instruction, the
-stack pointer is decremented by two Scheme objects instead of only
-one.
-@end deffn
+@deftypefn Instruction {} br-if-pair u24:@var{test} b1:@var{invert} x7:@var{_} l24:@var{offset}
+If the value in @var{test} is a pair, add @var{offset} to the current
+instruction pointer.
+@end deftypefn
 
-@deffn Instruction br-if-not-eq offset
-Same as @code{br-if-eq} for non-@code{eq?} objects.
-@end deffn
+@deftypefn Instruction {} br-if-struct u24:@var{test} b1:@var{invert} x7:@var{_} l24:@var{offset}
+If the value in @var{test} is a struct, add @var{offset} number to the
+current instruction pointer.
+@end deftypefn
 
-@deffn Instruction br-if-null offset
-Jump to @var{offset} if the object on the stack is @code{'()}.
-@end deffn
+@deftypefn Instruction {} br-if-char u24:@var{test} b1:@var{invert} x7:@var{_} l24:@var{offset}
+If the value in @var{test} is a char, add @var{offset} to the current
+instruction pointer.
+@end deftypefn
 
-@deffn Instruction br-if-not-null offset
-Jump to @var{offset} if the object on the stack is not @code{'()}.
-@end deffn
+@deftypefn Instruction {} br-if-tc7 u24:@var{test} b1:@var{invert} u7:@var{tc7} l24:@var{offset}
+If the value in @var{test} has the TC7 given in the second word, add
+@var{offset} to the current instruction pointer.  TC7 codes are part of
+the way Guile represents non-immediate objects, and are deep wizardry.
+See @code{libguile/tags.h} for all the details.
+@end deftypefn
 
+@deftypefn Instruction {} br-if-eq u12:@var{a} u12:@var{b} b1:@var{invert} x7:@var{_} l24:@var{offset}
+@deftypefnx Instruction {} br-if-eqv u12:@var{a} u12:@var{b} b1:@var{invert} x7:@var{_} l24:@var{offset}
+@deftypefnx Instruction {} br-if-equal u12:@var{a} u12:@var{b} b1:@var{invert} x7:@var{_} l24:@var{offset}
+If the value in @var{a} is @code{eq?}, @code{eqv?}, or @code{equal?} to
+the value in @var{b}, respectively, add @var{offset} to the current
+instruction pointer.
+@end deftypefn
 
-@node Data Constructor Instructions
-@subsubsection Data Constructor Instructions
-
-These instructions push simple immediate values onto the stack,
-or construct compound data structures from values on the stack.
-
-@deffn Instruction make-int8 value
-Push @var{value}, an 8-bit integer, onto the stack.
-@end deffn
-
-@deffn Instruction make-int8:0
-Push the immediate value @code{0} onto the stack.
-@end deffn
-
-@deffn Instruction make-int8:1
-Push the immediate value @code{1} onto the stack.
-@end deffn
-
-@deffn Instruction make-int16 value
-Push @var{value}, a 16-bit integer, onto the stack.
-@end deffn
-
-@deffn Instruction make-uint64 value
-Push @var{value}, an unsigned 64-bit integer, onto the stack. The
-value is encoded in 8 bytes, most significant byte first (big-endian).
-@end deffn
-
-@deffn Instruction make-int64 value
-Push @var{value}, a signed 64-bit integer, onto the stack. The value
-is encoded in 8 bytes, most significant byte first (big-endian), in
-twos-complement arithmetic.
-@end deffn
-
-@deffn Instruction make-false
-Push @code{#f} onto the stack.
-@end deffn
-
-@deffn Instruction make-true
-Push @code{#t} onto the stack.
-@end deffn
-
-@deffn Instruction make-nil
-Push @code{#nil} onto the stack.
-@end deffn
-
-@deffn Instruction make-eol
-Push @code{'()} onto the stack.
-@end deffn
-
-@deffn Instruction make-char8 value
-Push @var{value}, an 8-bit character, onto the stack.
-@end deffn
-
-@deffn Instruction make-char32 value
-Push @var{value}, an 32-bit character, onto the stack. The value is
-encoded in big-endian order.
-@end deffn
-
-@deffn Instruction make-symbol
-Pops a string off the stack, and pushes a symbol.
-@end deffn
-
-@deffn Instruction make-keyword value
-Pops a symbol off the stack, and pushes a keyword.
-@end deffn
-
-@deffn Instruction list n
-Pops off the top @var{n} values off of the stack, consing them up into
-a list, then pushes that list on the stack. What was the topmost value
-will be the last element in the list. @var{n} is a two-byte value,
-most significant byte first.
-@end deffn
-
-@deffn Instruction vector n
-Create and fill a vector with the top @var{n} values from the stack,
-popping off those values and pushing on the resulting vector. @var{n}
-is a two-byte value, like in @code{vector}.
-@end deffn
-
-@deffn Instruction make-struct n
-Make a new struct from the top @var{n} values on the stack. The values
-are popped, and the new struct is pushed.
-
-The deepest value is used as the vtable for the struct, and the rest are
-used in order as the field initializers. Tail arrays are not supported
-by this instruction.
-@end deffn
-
-@deffn Instruction make-array n
-Pop an array shape from the stack, then pop the remaining @var{n}
-values, pushing a new array. @var{n} is encoded over three bytes.
-
-The array shape should be appropriate to store @var{n} values.
-@xref{Array Procedures}, for more information on array shapes.
-@end deffn
-
-Many of these data structures are constant, never changing over the
-course of the different invocations of the procedure. In that case it is
-often advantageous to make them once when the procedure is created, and
-just reference them from the object table thereafter. @xref{Variables
-and the VM}, for more information on the object table.
-
-@deffn Instruction object-ref n
-@deffnx Instruction long-object-ref n
-Push @var{n}th value from the current program's object vector. The
-``long'' variant has a 16-bit index instead of an 8-bit index.
-@end deffn
+@deftypefn Instruction {} br-if-= u12:@var{a} u12:@var{b} b1:@var{invert} x7:@var{_} l24:@var{offset}
+@deftypefnx Instruction {} br-if-< u12:@var{a} u12:@var{b} b1:@var{invert} x7:@var{_} l24:@var{offset}
+@deftypefnx Instruction {} br-if-<= u12:@var{a} u12:@var{b} b1:@var{invert} x7:@var{_} l24:@var{offset}
+If the value in @var{a} is @code{=}, @code{<}, or @code{<=} to the value
+in @var{b}, respectively, add @var{offset} to the current instruction
+pointer.
+@end deftypefn
 
 
-@node Loading Instructions
-@subsubsection Loading Instructions
+@node Constant Instructions
+@subsubsection Constant Instructions
 
-In addition to VM instructions, an instruction stream may contain
-variable-length data embedded within it. This data is always preceded
-by special loading instructions, which interpret the data and advance
-the instruction pointer to the next VM instruction.
+The following instructions load literal data into a program.  There are
+two kinds.
 
-All of these loading instructions have a @code{length} parameter,
-indicating the size of the embedded data, in bytes. The length itself
-is encoded in 3 bytes.
+The first set of instructions loads immediate values.  These
+instructions encode the immediate directly into the instruction stream.
 
-@deffn Instruction load-number length
-Load an arbitrary number from the instruction stream. The number is
-embedded in the stream as a string.
-@end deffn
-@deffn Instruction load-string length
-Load a string from the instruction stream. The string is assumed to be
-encoded in the ``latin1'' locale.
-@end deffn
-@deffn Instruction load-wide-string length
-Load a UTF-32 string from the instruction stream. @var{length} is the
-length in bytes, not in codepoints.
-@end deffn
-@deffn Instruction load-symbol length
-Load a symbol from the instruction stream. The symbol is assumed to be
-encoded in the ``latin1'' locale. Symbols backed by wide strings may
-be loaded via @code{load-wide-string} then @code{make-symbol}.
-@end deffn
-@deffn Instruction load-array length
-Load a uniform array from the instruction stream. The shape and type
-of the array are popped off the stack, in that order.
-@end deffn
+@deftypefn Instruction {} make-short-immediate u8:@var{dst} i16:@var{low-bits}
+Make an immediate whose low bits are @var{low-bits}, and whose top bits are
+0.
+@end deftypefn
 
-@deffn Instruction load-program
-Load bytecode from the instruction stream, and push a compiled
-procedure.
+@deftypefn Instruction {} make-long-immediate u24:@var{dst} i32:@var{low-bits}
+Make an immediate whose low bits are @var{low-bits}, and whose top bits are
+0.
+@end deftypefn
 
-This instruction pops one value from the stack: the program's object
-table, as a vector, or @code{#f} in the case that the program has no
-object table. A program that does not reference toplevel bindings and
-does not use @code{object-ref} does not need an object table.
+@deftypefn Instruction {} make-long-long-immediate u24:@var{dst} a32:@var{high-bits} b32:@var{low-bits}
+Make an immediate with @var{high-bits} and @var{low-bits}.
+@end deftypefn
 
-This instruction is unlike the rest of the loading instructions,
-because instead of parsing its data, it directly maps the instruction
-stream onto a C structure, @code{struct scm_objcode}. @xref{Bytecode
-and Objcode}, for more information.
+Non-immediate constant literals are referenced either directly or
+indirectly.  For example, Guile knows at compile-time what the layout of
+a string will be like, and arranges to embed that object directly in the
+compiled image.  A reference to a string will use
+@code{make-non-immediate} to treat a pointer into the compilation unit
+as a @code{SCM} value directly.
 
-The resulting compiled procedure will not have any free variables
-captured, so it may be loaded only once but used many times to create
-closures.
-@end deffn
+@deftypefn Instruction {} make-non-immediate u24:@var{dst} n32:@var{offset}
+Load a pointer to statically allocated memory into @var{dst}.  The
+object's memory is will be found @var{offset} 32-bit words away from the
+current instruction pointer.  Whether the object is mutable or immutable
+depends on where it was allocated by the compiler, and loaded by the
+loader.
+@end deftypefn
+
+Some objects must be unique across the whole system.  This is the case
+for symbols and keywords.  For these objects, Guile arranges to
+initialize them when the compilation unit is loaded, storing them into a
+slot in the image.  References go indirectly through that slot.
+@code{static-ref} is used in this case.
+
+@deftypefn Instruction {} static-ref u24:@var{dst} s32:@var{offset}
+Load a @var{scm} value into @var{dst}.  The @var{scm} value will be fetched from
+memory, @var{offset} 32-bit words away from the current instruction
+pointer.  @var{offset} is a signed value.
+@end deftypefn
+
+Fields of non-immediates may need to be fixed up at load time, because
+we do not know in advance at what address they will be loaded.  This is
+the case, for example, for a pair containing a non-immediate in one of
+its fields.  @code{static-ref} and @code{static-patch!} are used in
+these situations.
+
+@deftypefn Instruction {} static-set! u24:@var{src} lo32:@var{offset}
+Store a @var{scm} value into memory, @var{offset} 32-bit words away from the
+current instruction pointer.  @var{offset} is a signed value.
+@end deftypefn
+
+@deftypefn Instruction {} static-patch! x24:@var{_} lo32:@var{dst-offset} l32:@var{src-offset}
+Patch a pointer at @var{dst-offset} to point to @var{src-offset}.  Both offsets
+are signed 32-bit values, indicating a memory address as a number
+of 32-bit words away from the current instruction pointer.
+@end deftypefn
+
+Many kinds of literals can be loaded with the above instructions, once
+the compiler has prepared the statically allocated data.  This is the
+case for vectors, strings, uniform vectors, pairs, and procedures with
+no free variables.  Other kinds of data might need special initializers;
+those instructions follow.
+
+@deftypefn Instruction {} string->number u12:@var{dst} u12:@var{src}
+Parse a string in @var{src} to a number, and store in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} string->symbol u12:@var{dst} u12:@var{src}
+Parse a string in @var{src} to a symbol, and store in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} symbol->keyword u12:@var{dst} u12:@var{src}
+Make a keyword from the symbol in @var{src}, and store it in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} load-typed-array u8:@var{dst} u8:@var{type} u8:@var{shape} n32:@var{offset} u32:@var{len}
+Load the contiguous typed array located at @var{offset} 32-bit words away
+from the instruction pointer, and store into @var{dst}.  @var{len} is a byte
+length.  @var{offset} is signed.
+@end deftypefn
+
 
 @node Dynamic Environment Instructions
 @subsubsection Dynamic Environment Instructions
@@ -1125,167 +930,184 @@ closures.
 Guile's virtual machine has low-level support for @code{dynamic-wind},
 dynamic binding, and composable prompts and aborts.
 
-@deffn Instruction wind
-Pop an unwind thunk and a wind thunk from the stack, in that order, and
-push them onto the ``dynamic stack''. The unwind thunk will be called on
-nonlocal exits, and the wind thunk on reentries. Used to implement
-@code{dynamic-wind}.
+@deftypefn Instruction {} abort x24:@var{_}
+Abort to a prompt handler.  The tag is expected in slot 1, and the rest
+of the values in the frame are returned to the prompt handler.  This
+corresponds to a tail application of abort-to-prompt.
 
-Note that neither thunk is actually called; the compiler should emit
-calls to wind and unwind for the normal dynamic-wind control flow.
-@xref{Dynamic Wind}.
-@end deffn
+If no prompt can be found in the dynamic environment with the given tag,
+an error is signalled.  Otherwise all arguments are passed to the
+prompt's handler, along with the captured continuation, if necessary.
 
-@deffn Instruction unwind
-Pop off the top entry from the ``dynamic stack'', for example, a
-wind/unwind thunk pair. @code{unwind} instructions should be properly
-paired with their winding instructions, like @code{wind}.
-@end deffn
+If the prompt's handler can be proven to not reference the captured
+continuation, no continuation is allocated.  This decision happens
+dynamically, at run-time; the general case is that the continuation may
+be captured, and thus resumed.  A reinstated continuation will have its
+arguments pushed on the stack from slot 1, as if from a multiple-value
+return, and control resumes in the caller.  Thus to the calling
+function, a call to @code{abort-to-prompt} looks like any other function
+call.
+@end deftypefn
 
-@deffn Instruction push-fluid
-Pop a value and a fluid from the stack, in that order.  Set the fluid
-to the value by creating a with-fluids object and pushing that object
-on the dynamic stack. @xref{Fluids and Dynamic States}.
-@end deffn
+@deftypefn Instruction {} prompt u24:@var{tag} b1:@var{escape-only?} x7:@var{_} u24:@var{proc-slot} x8:@var{_} l24:@var{handler-offset}
+Push a new prompt on the dynamic stack, with a tag from @var{tag} and a
+handler at @var{handler-offset} words from the current @var{ip}.
 
-@deffn Instruction pop-fluid
-Pop a with-fluids object from the dynamic stack, and swap the current
-values of its fluids with the saved values of its fluids. In this way,
-the dynamic environment is left as it was before the corresponding
-@code{wind-fluid} instruction was processed.
-@end deffn
-
-@deffn Instruction fluid-ref
-Pop a fluid from the stack, and push its current value.
-@end deffn
-
-@deffn Instruction fluid-set
-Pop a value and a fluid from the stack, in that order, and set the fluid
-to the value.
-@end deffn
-
-@deffn Instruction prompt escape-only? offset
-Establish a dynamic prompt. @xref{Prompts}, for more information on
-prompts.
-
-The prompt will be pushed on the dynamic stack. The normal control flow
-should ensure that the prompt is popped off at the end, via
-@code{unwind}.
-
-If an abort is made to this prompt, control will jump to @var{offset}, a
-three-byte relative address. The continuation and all arguments to the
-abort will be pushed on the stack, along with the total number of
-arguments (including the continuation. If control returns to the
-handler, the prompt is already popped off by the abort mechanism.
-(Guile's @code{prompt} implements Felleisen's @dfn{--F--} operator.)
+If an abort is made to this prompt, control will jump to the handler.
+The handler will expect a multiple-value return as if from a call with
+the procedure at @var{proc-slot}, with the reified partial continuation
+as the first argument, followed by the values returned to the handler.
+If control returns to the handler, the prompt is already popped off by
+the abort mechanism.  (Guile's @code{prompt} implements Felleisen's
+@dfn{--F--} operator.)
 
 If @var{escape-only?} is nonzero, the prompt will be marked as
 escape-only, which allows an abort to this prompt to avoid reifying the
 continuation.
-@end deffn
 
-@deffn Instruction abort n
-Abort to a dynamic prompt.
+@xref{Prompts}, for more information on prompts.
+@end deftypefn
 
-This instruction pops one tail argument list, @var{n} arguments, and a
-prompt tag from the stack. The dynamic environment is then searched for
-a prompt having the given tag. If none is found, an error is signalled.
-Otherwise all arguments are passed to the prompt's handler, along with
-the captured continuation, if necessary.
+@deftypefn Instruction {} wind u12:@var{winder} u12:@var{unwinder}
+Push wind and unwind procedures onto the dynamic stack. Note that
+neither are actually called; the compiler should emit calls to wind and
+unwind for the normal dynamic-wind control flow.  Also note that the
+compiler should have inserted checks that they wind and unwind procs are
+thunks, if it could not prove that to be the case.  @xref{Dynamic Wind}.
+@end deftypefn
 
-If the prompt's handler can be proven to not reference the captured
-continuation, no continuation is allocated. This decision happens
-dynamically, at run-time; the general case is that the continuation may
-be captured, and thus resumed. A reinstated continuation will have its
-arguments pushed on the stack, along with the number of arguments, as in
-the multiple-value return convention. Therefore an @code{abort}
-instruction should be followed by code ready to handle the equivalent of
-a multiply-valued return.
-@end deffn
+@deftypefn Instruction {} unwind x24:@var{_}
+@var{a} normal exit from the dynamic extent of an expression. Pop the top
+entry off of the dynamic stack.
+@end deftypefn
+
+@deftypefn Instruction {} push-fluid u12:@var{fluid} u12:@var{value}
+Dynamically bind @var{value} to @var{fluid} by creating a with-fluids
+object and pushing that object on the dynamic stack.  @xref{Fluids and
+Dynamic States}.
+@end deftypefn
+
+@deftypefn Instruction {} pop-fluid x24:@var{_}
+Leave the dynamic extent of a @code{with-fluid*} expression, restoring
+the fluid to its previous value.  @code{push-fluid} should always be
+balanced with @code{pop-fluid}.
+@end deftypefn
+
+@deftypefn Instruction {} fluid-ref u12:@var{dst} u12:@var{src}
+Reference the fluid in @var{src}, and place the value in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} fluid-set u12:@var{fluid} u12:@var{val}
+Set the value of the fluid in @var{dst} to the value in @var{src}.
+@end deftypefn
+
 
 @node Miscellaneous Instructions
 @subsubsection Miscellaneous Instructions
 
-@deffn Instruction nop
-Does nothing! Used for padding other instructions to certain
-alignments.
-@end deffn
+@deftypefn Instruction {} halt x24:@var{_}
+Bring the VM to a halt, returning all the values from the stack.  Used
+in the ``boot continuation'', which is used when entering the VM from C.
+@end deftypefn
 
-@deffn Instruction halt
-Exits the VM, returning a SCM value. Normally, this instruction is
-only part of the ``bootstrap program'', a program run when a virtual
-machine is first entered; compiled Scheme procedures will not contain
-this instruction.
-
-If multiple values have been returned, the SCM value will be a
-multiple-values object (@pxref{Multiple Values}).
-@end deffn
-
-@deffn Instruction break
-Does nothing, but invokes the break hook.
-@end deffn
-
-@deffn Instruction drop
-Pops off the top value from the stack, throwing it away.
-@end deffn
-
-@deffn Instruction dup
-Re-pushes the top value onto the stack.
-@end deffn
-
-@deffn Instruction void
-Pushes ``the unspecified value'' onto the stack.
-@end deffn
 
 @node Inlined Scheme Instructions
 @subsubsection Inlined Scheme Instructions
 
 The Scheme compiler can recognize the application of standard Scheme
-procedures. It tries to inline these small operations to avoid the
-overhead of creating new stack frames.
+procedures.  It tries to inline these small operations to avoid the
+overhead of creating new stack frames.  This allows the compiler to
+optimize better.
 
-Since most of these operations are historically implemented as C
-primitives, not inlining them would entail constantly calling out from
-the VM to the interpreter, which has some costs---registers must be
-saved, the interpreter has to dispatch, called procedures have to do
-much type checking, etc. It's much more efficient to inline these
-operations in the virtual machine itself.
+@deftypefn Instruction {} make-vector/immediate u8:@var{dst} u8:@var{length} u8:@var{init}
+Make a short vector of known size and write it to @var{dst}.  The vector
+will have space for @var{length} slots, an immediate value.  They will
+be filled with the value in slot @var{init}.
+@end deftypefn
 
-All of these instructions pop their arguments from the stack and push
-their results, and take no parameters from the instruction stream.
-Thus, unlike in the previous sections, these instruction definitions
-show stack parameters instead of parameters from the instruction
-stream.
+@deftypefn Instruction {} vector-length u12:@var{dst} u12:@var{src}
+Store the length of the vector in @var{src} in @var{dst}.
+@end deftypefn
 
-@deffn Instruction not x
-@deffnx Instruction not-not x
-@deffnx Instruction eq? x y
-@deffnx Instruction not-eq? x y
-@deffnx Instruction null?
-@deffnx Instruction not-null?
-@deffnx Instruction eqv? x y
-@deffnx Instruction equal? x y
-@deffnx Instruction pair? x y
-@deffnx Instruction list? x
-@deffnx Instruction set-car! pair x
-@deffnx Instruction set-cdr! pair x
-@deffnx Instruction cons x y
-@deffnx Instruction car x
-@deffnx Instruction cdr x
-@deffnx Instruction vector-ref x y
-@deffnx Instruction vector-set x n y
-@deffnx Instruction struct? x
-@deffnx Instruction struct-ref x n
-@deffnx Instruction struct-set x n v
-@deffnx Instruction struct-vtable x
-@deffnx Instruction class-of x
-@deffnx Instruction slot-ref struct n
-@deffnx Instruction slot-set struct n x
-Inlined implementations of their Scheme equivalents.
-@end deffn
+@deftypefn Instruction {} vector-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+Fetch the item at position @var{idx} in the vector in @var{src}, and
+store it in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} vector-ref/immediate u8:@var{dst} u8:@var{src} u8:@var{idx}
+Fill @var{dst} with the item @var{idx} elements into the vector at
+@var{src}.  Useful for building data types using vectors.
+@end deftypefn
+
+@deftypefn Instruction {} vector-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+Store @var{src} into the vector @var{dst} at index @var{idx}.
+@end deftypefn
+
+@deftypefn Instruction {} vector-set!/immediate u8:@var{dst} u8:@var{idx} u8:@var{src}
+Store @var{src} into the vector @var{dst} at index @var{idx}.  Here
+@var{idx} is an immediate value.
+@end deftypefn
+
+@deftypefn Instruction {} struct-vtable u12:@var{dst} u12:@var{src}
+Store the vtable of @var{src} into @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} allocate-struct/immediate u8:@var{dst} u8:@var{vtable} u8:@var{nfields}
+Allocate a new struct with @var{vtable}, and place it in @var{dst}.  The
+struct will be constructed with space for @var{nfields} fields, which
+should correspond to the field count of the @var{vtable}.
+@end deftypefn
+
+@deftypefn Instruction {} struct-ref/immediate u8:@var{dst} u8:@var{src} u8:@var{idx}
+Fetch the item at slot @var{idx} in the struct in @var{src}, and store
+it in @var{dst}.  @var{idx} is an immediate unsigned 8-bit value.
+@end deftypefn
+
+@deftypefn Instruction {} struct-set!/immediate u8:@var{dst} u8:@var{idx} u8:@var{src}
+Store @var{src} into the struct @var{dst} at slot @var{idx}.  @var{idx}
+is an immediate unsigned 8-bit value.
+@end deftypefn
+
+@deftypefn Instruction {} class-of u12:@var{dst} u12:@var{type}
+Store the vtable of @var{src} into @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} make-array u12:@var{dst} u12:@var{type} x8:@var{_} u12:@var{fill} u12:@var{bounds}
+Make a new array with @var{type}, @var{fill}, and @var{bounds}, storing it in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} string-length u12:@var{dst} u12:@var{src}
+Store the length of the string in @var{src} in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} string-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+Fetch the character at position @var{idx} in the string in @var{src}, and store
+it in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} cons u8:@var{dst} u8:@var{car} u8:@var{cdr}
+Cons @var{car} and @var{cdr}, and store the result in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} car u12:@var{dst} u12:@var{src}
+Place the car of @var{src} in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} cdr u12:@var{dst} u12:@var{src}
+Place the cdr of @var{src} in @var{dst}.
+@end deftypefn
+
+@deftypefn Instruction {} set-car! u12:@var{pair} u12:@var{car}
+Set the car of @var{dst} to @var{src}.
+@end deftypefn
+
+@deftypefn Instruction {} set-cdr! u12:@var{pair} u12:@var{cdr}
+Set the cdr of @var{dst} to @var{src}.
+@end deftypefn
 
 Note that @code{caddr} and friends compile to a series of @code{car}
 and @code{cdr} instructions.
+
 
 @node Inlined Mathematical Instructions
 @subsubsection Inlined Mathematical Instructions
@@ -1297,29 +1119,61 @@ might be a couple bugs here.
 
 More instructions could be added here over time.
 
-As in the previous section, the definitions below show stack
-parameters instead of instruction stream parameters.
+All of these operations place their result in their first operand,
+@var{dst}.
 
-@deffn Instruction add x y
-@deffnx Instruction add1 x
-@deffnx Instruction sub x y
-@deffnx Instruction sub1 x
-@deffnx Instruction mul x y
-@deffnx Instruction div x y
-@deffnx Instruction quo x y
-@deffnx Instruction rem x y
-@deffnx Instruction mod x y
-@deffnx Instruction ee? x y
-@deffnx Instruction lt? x y
-@deffnx Instruction gt? x y
-@deffnx Instruction le? x y
-@deffnx Instruction ge? x y
-@deffnx Instruction ash x n
-@deffnx Instruction logand x y
-@deffnx Instruction logior x y
-@deffnx Instruction logxor x y
-Inlined implementations of the corresponding mathematical operations.
-@end deffn
+@deftypefn Instruction {} add u8:@var{dst} u8:@var{a} u8:@var{b}
+Add @var{a} to @var{b}.
+@end deftypefn
+
+@deftypefn Instruction {} add1 u12:@var{dst} u12:@var{src}
+Add 1 to the value in @var{src}.
+@end deftypefn
+
+@deftypefn Instruction {} sub u8:@var{dst} u8:@var{a} u8:@var{b}
+Subtract @var{b} from @var{a}.
+@end deftypefn
+
+@deftypefn Instruction {} sub1 u12:@var{dst} u12:@var{src}
+Subtract 1 from @var{src}.
+@end deftypefn
+
+@deftypefn Instruction {} mul u8:@var{dst} u8:@var{a} u8:@var{b}
+Multiply @var{a} and @var{b}.
+@end deftypefn
+
+@deftypefn Instruction {} div u8:@var{dst} u8:@var{a} u8:@var{b}
+Divide @var{a} by @var{b}.
+@end deftypefn
+
+@deftypefn Instruction {} quo u8:@var{dst} u8:@var{a} u8:@var{b}
+Divide @var{a} by @var{b}.
+@end deftypefn
+
+@deftypefn Instruction {} rem u8:@var{dst} u8:@var{a} u8:@var{b}
+Divide @var{a} by @var{b}.
+@end deftypefn
+
+@deftypefn Instruction {} mod u8:@var{dst} u8:@var{a} u8:@var{b}
+Compute the modulo of @var{a} by @var{b}.
+@end deftypefn
+
+@deftypefn Instruction {} ash u8:@var{dst} u8:@var{a} u8:@var{b}
+Shift @var{a} arithmetically by @var{b} bits.
+@end deftypefn
+
+@deftypefn Instruction {} logand u8:@var{dst} u8:@var{a} u8:@var{b}
+Compute the bitwise @code{and} of @var{a} and @var{b}.
+@end deftypefn
+
+@deftypefn Instruction {} logior u8:@var{dst} u8:@var{a} u8:@var{b}
+Compute the bitwise inclusive @code{or} of @var{a} with @var{b}.
+@end deftypefn
+
+@deftypefn Instruction {} logxor u8:@var{dst} u8:@var{a} u8:@var{b}
+Compute the bitwise exclusive @code{or} of @var{a} with @var{b}.
+@end deftypefn
+
 
 @node Inlined Bytevector Instructions
 @subsubsection Inlined Bytevector Instructions
@@ -1330,48 +1184,32 @@ a clear path for eventual native compilation. Without this, Scheme
 programs would need other primitives for accessing raw bytes -- but
 these primitives are as good as any.
 
-As in the previous section, the definitions below show stack
-parameters instead of instruction stream parameters.
+@deftypefn Instruction {} bv-u8-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefnx Instruction {} bv-s8-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefnx Instruction {} bv-u16-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefnx Instruction {} bv-s16-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefnx Instruction {} bv-u32-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefnx Instruction {} bv-s32-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefnx Instruction {} bv-u64-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefnx Instruction {} bv-s64-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefnx Instruction {} bv-f32-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefnx Instruction {} bv-f64-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
 
-The multibyte formats (@code{u16}, @code{f64}, etc) take an extra
-endianness argument. Only aligned native accesses are currently
-fast-pathed in Guile's VM.
+Fetch the item at byte offset @var{idx} in the bytevector @var{src}, and
+store it in @var{dst}.  All accesses use native endianness.
+@end deftypefn
 
-@deffn Instruction bv-u8-ref bv n
-@deffnx Instruction bv-s8-ref bv n
-@deffnx Instruction bv-u16-native-ref bv n
-@deffnx Instruction bv-s16-native-ref bv n
-@deffnx Instruction bv-u32-native-ref bv n
-@deffnx Instruction bv-s32-native-ref bv n
-@deffnx Instruction bv-u64-native-ref bv n
-@deffnx Instruction bv-s64-native-ref bv n
-@deffnx Instruction bv-f32-native-ref bv n
-@deffnx Instruction bv-f64-native-ref bv n
-@deffnx Instruction bv-u16-ref bv n endianness
-@deffnx Instruction bv-s16-ref bv n endianness
-@deffnx Instruction bv-u32-ref bv n endianness
-@deffnx Instruction bv-s32-ref bv n endianness
-@deffnx Instruction bv-u64-ref bv n endianness
-@deffnx Instruction bv-s64-ref bv n endianness
-@deffnx Instruction bv-f32-ref bv n endianness
-@deffnx Instruction bv-f64-ref bv n endianness
-@deffnx Instruction bv-u8-set bv n val
-@deffnx Instruction bv-s8-set bv n val
-@deffnx Instruction bv-u16-native-set bv n val
-@deffnx Instruction bv-s16-native-set bv n val
-@deffnx Instruction bv-u32-native-set bv n val
-@deffnx Instruction bv-s32-native-set bv n val
-@deffnx Instruction bv-u64-native-set bv n val
-@deffnx Instruction bv-s64-native-set bv n val
-@deffnx Instruction bv-f32-native-set bv n val
-@deffnx Instruction bv-f64-native-set bv n val
-@deffnx Instruction bv-u16-set bv n val endianness
-@deffnx Instruction bv-s16-set bv n val endianness
-@deffnx Instruction bv-u32-set bv n val endianness
-@deffnx Instruction bv-s32-set bv n val endianness
-@deffnx Instruction bv-u64-set bv n val endianness
-@deffnx Instruction bv-s64-set bv n val endianness
-@deffnx Instruction bv-f32-set bv n val endianness
-@deffnx Instruction bv-f64-set bv n val endianness
-Inlined implementations of the corresponding bytevector operations.
-@end deffn
+@deftypefn Instruction {} bv-u8-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+@deftypefnx Instruction {} bv-s8-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+@deftypefnx Instruction {} bv-u16-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+@deftypefnx Instruction {} bv-s16-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+@deftypefnx Instruction {} bv-u32-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+@deftypefnx Instruction {} bv-s32-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+@deftypefnx Instruction {} bv-u64-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+@deftypefnx Instruction {} bv-s64-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+@deftypefnx Instruction {} bv-f32-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+@deftypefnx Instruction {} bv-f64-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+
+Store @var{src} into the bytevector @var{dst} at byte offset @var{idx}.
+Multibyte values are written using native endianness.
+@end deftypefn
