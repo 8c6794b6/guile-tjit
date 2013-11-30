@@ -2722,34 +2722,9 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       RETURN (scm_class_of (obj));
     }
 
-  /* slot-ref dst:8 src:8 idx:8
-   *
-   * Fetch the item at slot IDX in the struct in SRC, and store it in
-   * DST.  Unlike struct-ref, IDX is an 8-bit immediate value, not an
-   * index into the stack.
-   */
-  VM_DEFINE_OP (103, slot_ref, "slot-ref", OP1 (U8_U8_U8_U8) | OP_DST)
-    {
-      scm_t_uint8 dst, src, idx;
-      UNPACK_8_8_8 (op, dst, src, idx);
-      LOCAL_SET (dst,
-                 SCM_PACK (SCM_STRUCT_DATA (LOCAL_REF (src))[idx]));
-      NEXT (1);
-    }
-
-  /* slot-set! dst:8 idx:8 src:8
-   *
-   * Store SRC into slot IDX of the struct in DST.  Unlike struct-set!,
-   * IDX is an 8-bit immediate value, not an index into the stack.
-   */
-  VM_DEFINE_OP (104, slot_set, "slot-set!", OP1 (U8_U8_U8_U8))
-    {
-      scm_t_uint8 dst, idx, src;
-      UNPACK_8_8_8 (op, dst, idx, src);
-      SCM_STRUCT_DATA (LOCAL_REF (dst))[idx] = SCM_UNPACK (LOCAL_REF (src));
-      NEXT (1);
-    }
-
+  VM_DEFINE_OP (103, unused_103, NULL, NOP)
+  VM_DEFINE_OP (104, unused_104, NULL, NOP)
+    goto op_unused_255;
 
   
 
