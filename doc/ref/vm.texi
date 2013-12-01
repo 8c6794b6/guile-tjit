@@ -26,6 +26,7 @@ machine.
 * Stack Layout::                
 * Variables and the VM::                   
 * VM Programs::         
+* Object File Format::
 * Instruction Set::
 @end menu
 
@@ -308,6 +309,111 @@ in local 1, corresponding to the first argument to the closure: `b'.
 called -- into slot 4, then @code{ip} 11 conses it onto the list.
 Finally we cons local 2, containing the @code{foo} toplevel, onto the
 front of the list, and we return it.
+
+
+@node Object File Format
+@subsection Object File Format
+
+To compile a file to disk, we need a format in which to write the
+compiled code to disk, and later load it into Guile.  A good @dfn{object
+file format} has a number of characteristics:
+
+@itemize
+@item Above all else, it should be very cheap to load a compiled file.
+@item It should be possible to statically allocate constants in the
+file.  For example, a bytevector literal in source code can be emitted
+directly into the object file.
+@item The compiled file should enable maximum code and data sharing
+between different processes.
+@item The compiled file should contain debugging information, such as
+line numbers, but that information should be separated from the code
+itself.  It should be possible to strip debugging information if space
+is tight.
+@end itemize
+
+These characteristics are not specific to Scheme.  Indeed, mainstream
+languages like C and C++ have solved this issue many times in the past.
+Guile builds on their work by adopting ELF, the object file format of
+GNU and other Unix-like systems, as its object file format.  Although
+Guile uses ELF on all platforms, we do not use platform support for ELF.
+Guile implements its own linker and loader.  The advantage of using ELF
+is not sharing code, but sharing ideas.  ELF is simply a well-designed
+object file format.
+
+An ELF file has two meta-tables describing its contents.  The first
+meta-table is for the loader, and is called the @dfn{program table} or
+sometimes the @dfn{segment table}.  The program table divides the file
+into big chunks that should be treated differently by the loader.
+Mostly the difference between these @dfn{segments} is their
+permissions.
+
+Typically all segments of an ELF file are marked as read-only, except
+that part that represents modifiable static data or static data that
+needs load-time initialization.  Loading an ELF file is as simple as
+mmapping the thing into memory with read-only permissions, then using
+the segment table to mark a small sub-region of the file as writable.
+This writable section is typically added to the root set of the garbage
+collector as well.
+
+One ELF segment is marked as ``dynamic'', meaning that it has data of
+interest to the loader.  Guile uses this segment to record the Guile
+version corresponding to this file.  There is also an entry in the
+dynamic segment that points to the address of an initialization thunk
+that is run to perform any needed link-time initialization.  (This is
+like dynamic relocations for normal ELF shared objects, except that we
+compile the relocations as a procedure instead of having the loader
+interpret a table of relocations.)  Finally, the dynamic segment marks
+the location of the ``entry thunk'' of the object file.  This thunk is
+returned to the caller of @code{load-thunk-from-memory} or
+@code{load-thunk-from-file}.  When called, it will execute the ``body''
+of the compiled expression.
+
+The other meta-table in an ELF file is the @dfn{section table}.  Whereas
+the program table divides an ELF file into big chunks for the loader,
+the section table specifies small sections for use by introspective
+tools like debuggers or the like.  One segment (program table entry)
+typically contains many sections.  There may be sections outside of any
+segment, as well.
+
+Typical sections in a Guile @code{.go} file include:
+
+@table @code
+@item .rtl-text
+Bytecode.
+@item .data
+Data that needs initialization, or which may be modified at runtime.
+@item .rodata
+Statically allocated data that needs no run-time initialization, and
+which therefore can be shared between processes.
+@item .dynamic
+The dynamic section, discussed above.
+@item .symtab
+@itemx .strtab
+A table mapping addresses in the @code{.rtl-text} to procedure names.
+@code{.strtab} is used by @code{.symtab}.
+@item .guile.procprops
+@itemx .guile.arities
+@itemx .guile.arities.strtab
+@itemx .guile.docstrs
+@itemx .guile.docstrs.strtab
+Side tables of procedure properties, arities, and docstrings.
+@item .debug_info
+@itemx .debug_abbrev
+@itemx .debug_str
+@itemx .debug_loc
+@itemx .debug_line
+Debugging information, in DWARF format.  See the DWARF specification,
+for more information.
+@item .shstrtab
+Section name string table.
+@end table
+
+For more information, see @uref{http://linux.die.net/man/5/elf,,the
+elf(5) man page}.  See @uref{http://dwarfstd.org/,the DWARF
+specification} for more on the DWARF debugging format.  Or if you are an
+adventurous explorer, try running @code{readelf} or @code{objdump} on
+compiled @code{.go} files.  It's good times!
+
 
 @node Instruction Set
 @subsection Instruction Set
