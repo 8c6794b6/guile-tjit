@@ -2157,6 +2157,10 @@ set_port_read_option (SCM port, int option, int new_value)
   unsigned int read_options;
 
   new_value &= READ_OPTION_MASK;
+
+  scm_dynwind_begin (0);
+  scm_dynwind_lock_port (port);
+
   scm_read_options = scm_i_port_property (port, sym_port_read_options);
   if (scm_is_unsigned_integer (scm_read_options, 0, READ_OPTIONS_MAX_VALUE))
     read_options = scm_to_uint (scm_read_options);
@@ -2166,6 +2170,8 @@ set_port_read_option (SCM port, int option, int new_value)
   read_options |= new_value << option;
   scm_read_options = scm_from_uint (read_options);
   scm_i_set_port_property_x (port, sym_port_read_options, scm_read_options);
+
+  scm_dynwind_end ();
 }
 
 /* Set OPTS and PORT's case-insensitivity according to VALUE. */
