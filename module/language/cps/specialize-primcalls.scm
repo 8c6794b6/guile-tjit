@@ -18,9 +18,9 @@
 
 ;;; Commentary:
 ;;;
-;;; Some RTL operations can encode an immediate as an operand.  This
-;;; pass tranforms generic primcalls to these specialized primcalls, if
-;;; possible.
+;;; Some bytecode operations can encode an immediate as an operand.
+;;; This pass tranforms generic primcalls to these specialized
+;;; primcalls, if possible.
 ;;;
 ;;; Code:
 
@@ -61,7 +61,7 @@
         (($ $continue)
          ,term)))
     (define (visit-primcall k src name args)
-      ;; If we introduce an RTL op from a primcall without an RTL op, we
+      ;; If we introduce a VM op from a primcall without a VM op, we
       ;; will need to ensure that the return arity matches.  Rely on the
       ;; elide-values pass to clean up.
       (define-syntax-rule (adapt-void exp)

@@ -86,5 +86,5 @@
 
           (if (or compile? (not (language-evaluator lang)))
               ((load-thunk-from-memory
-                (read-and-compile port #:from lang #:to 'rtl)))
+                (read-and-compile port #:from lang #:to 'bytecode)))
               (read-and-eval port #:lang lang))))))))

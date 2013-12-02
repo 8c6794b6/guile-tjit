@@ -22,7 +22,7 @@
 ;;; they are calls, and indeed the later reify-primitives pass turns
 ;;; them into calls.  Because no return arity checking is done for these
 ;;; primitives, if a later optimization pass simplifies the primcall to
-;;; an RTL operation, the tail of the simplification has to be a
+;;; a VM operation, the tail of the simplification has to be a
 ;;; primcall to 'values.  Most of these primcalls can be elided, and
 ;;; that is the job of this pass.
 ;;;

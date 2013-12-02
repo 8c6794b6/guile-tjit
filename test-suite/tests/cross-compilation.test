@@ -56,7 +56,7 @@
                         (string=? (native-os) (target-os)))
                    (native-word-size)
                    word-size))
-              (bv (compile '(hello-world) #:to 'rtl)))
+              (bv (compile '(hello-world) #:to 'bytecode)))
           (and=> (parse-elf bv)
                  (lambda (elf)
                    (and (equal? (elf-byte-order elf) endian)
@@ -83,7 +83,7 @@
   (pass-if-exception "unknown target" exception:miscellaneous-error
     (with-target "fcpu-unknown-gnu1.0"
       (lambda ()
-        (compile '(ohai) #:to 'rtl)))))
+        (compile '(ohai) #:to 'bytecode)))))
 
 ;; Local Variables:
 ;; eval: (put 'with-target 'scheme-indent-function 1)

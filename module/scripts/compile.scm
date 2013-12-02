@@ -139,7 +139,7 @@ There is NO WARRANTY, to the extent permitted by law.~%"))
                                 (cons #:O o)
                                 o)))
          (from            (or (assoc-ref options 'from) 'scheme))
-         (to              (or (assoc-ref options 'to) 'rtl))
+         (to              (or (assoc-ref options 'to) 'bytecode))
          (target          (or (assoc-ref options 'target) %host-type))
 	 (input-files     (assoc-ref options 'input-files))
 	 (output-file     (assoc-ref options 'output-file))
@@ -158,7 +158,7 @@ Compile each Guile source file FILE into a Guile object.
                        for a list of available warnings
 
   -f, --from=LANG      specify a source language other than `scheme'
-  -t, --to=LANG        specify a target language other than `rtl'
+  -t, --to=LANG        specify a target language other than `bytecode'
   -T, --target=TRIPLET produce bytecode for host TRIPLET
 
 Note that auto-compilation will be turned off.

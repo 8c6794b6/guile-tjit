@@ -29,7 +29,7 @@
   #:use-module (language cps)
   #:use-module (language cps dfg)
   #:use-module (language cps primitives)
-  #:use-module (language rtl)
+  #:use-module (language bytecode)
   #:export (reify-primitives))
 
 (define (module-box src module name public? bound? val-proc)
@@ -144,7 +144,7 @@
                ($continue k src ($call proc ()))))
             (($ $primcall name args)
              (cond
-              ((or (prim-rtl-instruction name) (branching-primitive? name))
+              ((or (prim-instruction name) (branching-primitive? name))
                ;; Assume arities are correct.
                term)
               (else

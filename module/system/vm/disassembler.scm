@@ -1,4 +1,4 @@
-;;; Guile RTL disassembler
+;;; Guile bytecode disassembler
 
 ;;; Copyright (C) 2001, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
 ;;;
@@ -19,7 +19,7 @@
 ;;; Code:
 
 (define-module (system vm disassembler)
-  #:use-module (language rtl)
+  #:use-module (language bytecode)
   #:use-module (system vm elf)
   #:use-module (system vm debug)
   #:use-module (system vm program)

@@ -1,4 +1,4 @@
-;;; Guile RTL assembler
+;;; Guile bytecode assembler
 
 ;;; Copyright (C) 2001, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
 ;;;
@@ -19,16 +19,16 @@
 ;;; Commentary:
 ;;;
 ;;; This module implements an assembler that creates an ELF image from
-;;; RTL assembly and macro-assembly.  The input can be given in
+;;; bytecode assembly and macro-assembly.  The input can be given in
 ;;; s-expression form, like ((OP ARG ...) ...).  Internally there is a
 ;;; procedural interface, the emit-OP procedures, but that is not
 ;;; currently exported.
 ;;;
-;;; "Primitive instructions" correspond to RTL VM operations.
-;;; Assemblers for primitive instructions are generated programmatically
-;;; from (instruction-list), which itself is derived from the VM
-;;; sources.  There are also "macro-instructions" like "label" or
-;;; "load-constant" that expand to 0 or more primitive instructions.
+;;; "Primitive instructions" correspond to VM operations.  Assemblers
+;;; for primitive instructions are generated programmatically from
+;;; (instruction-list), which itself is derived from the VM sources.
+;;; There are also "macro-instructions" like "label" or "load-constant"
+;;; that expand to 0 or more primitive instructions.
 ;;;
 ;;; The assembler also handles some higher-level tasks, like creating
 ;;; the symbol table, other metadata sections, creating a constant table
@@ -47,7 +47,7 @@
   #:use-module (system vm dwarf)
   #:use-module (system vm elf)
   #:use-module (system vm linker)
-  #:use-module (language rtl)
+  #:use-module (language bytecode)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 vlist)
@@ -63,7 +63,7 @@
 
 
 
-;;; RTL code consists of 32-bit units, often subdivided in some way.
+;;; Bytecode consists of 32-bit units, often subdivided in some way.
 ;;; These helpers create one 32-bit unit from multiple components.
 
 (define-inlinable (pack-u8-u24 x y)
@@ -136,7 +136,7 @@
 
 
 ;;; A <meta> entry collects metadata for one procedure.  Procedures are
-;;; written as contiguous ranges of RTL code.
+;;; written as contiguous ranges of bytecode.
 ;;;
 (define-syntax-rule (assert-match arg pattern kind)
   (let ((x arg))
@@ -179,7 +179,7 @@
 ;;; also maintains ancillary information such as the constant table, a
 ;;; relocation list, and so on.
 ;;;
-;;; RTL code consists of 32-bit units.  We emit RTL code using native
+;;; Bytecode consists of 32-bit units.  We emit bytecode using native
 ;;; endianness.  If we're targeting a foreign endianness, we byte-swap
 ;;; the bytevector as a whole instead of conditionalizing each access.
 ;;;
@@ -192,7 +192,7 @@
             meta sources)
   asm?
 
-  ;; We write RTL code into what is logically a growable vector,
+  ;; We write bytecode into what is logically a growable vector,
   ;; implemented as a list of blocks.  asm-cur is the current block, and
   ;; asm-idx is the current index into that block, in 32-bit units.
   ;;
@@ -203,9 +203,9 @@
   ;; beginning of an instruction (in u32 units).  It is updated after
   ;; writing all the words for one primitive instruction.  It models the
   ;; position of the instruction pointer during execution, given that
-  ;; the RTL VM updates the IP only at the end of executing the
-  ;; instruction, and is thus useful for computing offsets between two
-  ;; points in a program.
+  ;; the VM updates the IP only at the end of executing the instruction,
+  ;; and is thus useful for computing offsets between two points in a
+  ;; program.
   ;;
   (start asm-start set-asm-start!)
 
@@ -244,8 +244,8 @@
   ;;
   (constants asm-constants set-asm-constants!)
 
-  ;; A list of RTL instructions needed to initialize the constants.
-  ;; Will run in a thunk with 2 local variables.
+  ;; A list of instructions needed to initialize the constants.  Will
+  ;; run in a thunk with 2 local variables.
   ;;
   (inits asm-inits set-asm-inits!)
 
@@ -485,8 +485,8 @@ later by the linker."
 
 (define (emit-text asm instructions)
   "Assemble @var{instructions} using the assembler @var{asm}.
-@var{instructions} is a sequence of RTL instructions, expressed as a
-list of lists.  This procedure can be called many times before calling
+@var{instructions} is a sequence of instructions, expressed as a list of
+lists.  This procedure can be called many times before calling
 @code{link-assembly}."
   (for-each (lambda (inst)
               (apply (or (hashq-ref assemblers (car inst))
@@ -1203,10 +1203,10 @@ needed."
 (define *bytecode-minor-version* 3)
 
 (define (link-dynamic-section asm text rw rw-init)
-  "Link the dynamic section for an ELF image with RTL text, given the
-writable data section @var{rw} needing fixup from the procedure with
-label @var{rw-init}.  @var{rw-init} may be false.  If @var{rw} is true,
-it will be added to the GC roots at runtime."
+  "Link the dynamic section for an ELF image with bytecode @var{text},
+given the writable data section @var{rw} needing fixup from the
+procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
+@var{rw} is true, it will be added to the GC roots at runtime."
   (define-syntax-rule (emit-dynamic-section word-size %set-uword! reloc-type)
     (let* ((endianness (asm-endianness asm))
            (bv (make-bytevector (* word-size (if rw (if rw-init 12 10) 6)) 0))
@@ -1316,8 +1316,8 @@ it will be added to the GC roots at runtime."
 ;;;
 ;;; All of the offsets and addresses are 32 bits.  We can expand in the
 ;;; future to use 64-bit offsets if appropriate, but there are other
-;;; aspects of RTL that constrain us to a total image that fits in 32
-;;; bits, so for the moment we'll simplify the problem space.
+;;; aspects of bytecode that constrain us to a total image that fits in
+;;; 32 bits, so for the moment we'll simplify the problem space.
 ;;;
 ;;; The following flags values are defined:
 ;;;

@@ -18,8 +18,8 @@
 
 ;;; Commentary:
 ;;;
-;;; Guile's RTL compiler and linker serialize debugging information into
-;;; separate sections of the ELF image.  This module reads those
+;;; Guile's bytecode compiler and linker serialize debugging information
+;;; into separate sections of the ELF image.  This module reads those
 ;;; sections.
 ;;;
 ;;; Code:
@@ -175,8 +175,8 @@ during the fold are omitted."
 (define (find-debug-context addr)
   "Find and return the debugging context corresponding to the ELF image
 containing the address @var{addr}.  @var{addr} is an integer.  If no ELF
-image is found, return @code{#f}.  It's possible for an RTL program not
-to have an ELF image if the program was defined in as a stub in C."
+image is found, return @code{#f}.  It's possible for an bytecode program
+not to have an ELF image if the program was defined in as a stub in C."
   (and=> (find-mapped-elf-image addr)
          debug-context-from-image))
 

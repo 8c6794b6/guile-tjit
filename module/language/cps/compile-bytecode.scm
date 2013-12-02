@@ -18,12 +18,12 @@
 
 ;;; Commentary:
 ;;;
-;;; Compiling CPS to RTL.  The result is in the RTL language, which
-;;; happens to be an ELF image as a bytecode.
+;;; Compiling CPS to bytecode.  The result is in the bytecode language,
+;;; which happens to be an ELF image as a bytecode.
 ;;;
 ;;; Code:
 
-(define-module (language cps compile-rtl)
+(define-module (language cps compile-bytecode)
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
   #:use-module (language cps)
@@ -38,7 +38,7 @@
   #:use-module (language cps slot-allocation)
   #:use-module (language cps specialize-primcalls)
   #:use-module (system vm assembler)
-  #:export (compile-rtl))
+  #:export (compile-bytecode))
 
 ;; TODO: Local var names.
 
@@ -305,7 +305,7 @@
          (emit-bv-f64-ref asm dst (slot bv) (slot idx)))
         (($ $primcall name args)
          ;; FIXME: Inline all the cases.
-         (let ((inst (prim-rtl-instruction name)))
+         (let ((inst (prim-instruction name)))
            (emit-text asm `((,inst ,dst ,@(map slot args))))))))
 
     (define (compile-effect label exp k nlocals)
@@ -478,7 +478,7 @@
 
     (_ (values))))
 
-(define (compile-rtl exp env opts)
+(define (compile-bytecode exp env opts)
   (let* ((exp (fix-arities exp))
          (exp (optimize exp opts))
          (exp (convert-closures exp))

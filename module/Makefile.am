@@ -57,7 +57,7 @@ SOURCES =					\
   language/tree-il.scm				\
   $(TREE_IL_LANG_SOURCES)			\
   $(CPS_LANG_SOURCES)				\
-  $(RTL_LANG_SOURCES)				\
+  $(BYTECODE_LANG_SOURCES)			\
   $(VALUE_LANG_SOURCES)				\
   $(SCHEME_LANG_SOURCES)			\
   $(SYSTEM_BASE_SOURCES)			\
@@ -120,7 +120,7 @@ CPS_LANG_SOURCES =						\
   language/cps.scm						\
   language/cps/arities.scm					\
   language/cps/closure-conversion.scm				\
-  language/cps/compile-rtl.scm					\
+  language/cps/compile-bytecode.scm				\
   language/cps/constructors.scm					\
   language/cps/contification.scm				\
   language/cps/dfg.scm						\
@@ -132,9 +132,9 @@ CPS_LANG_SOURCES =						\
   language/cps/specialize-primcalls.scm				\
   language/cps/verify.scm
 
-RTL_LANG_SOURCES =						\
-  language/rtl.scm						\
-  language/rtl/spec.scm
+BYTECODE_LANG_SOURCES =						\
+  language/bytecode.scm						\
+  language/bytecode/spec.scm
 
 VALUE_LANG_SOURCES =				\
   language/value/spec.scm

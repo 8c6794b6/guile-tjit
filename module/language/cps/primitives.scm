@@ -26,13 +26,13 @@
   #:use-module (ice-9 match)
   #:use-module ((srfi srfi-1) #:select (fold))
   #:use-module (srfi srfi-26)
-  #:use-module (language rtl)
-  #:export (prim-rtl-instruction
+  #:use-module (language bytecode)
+  #:export (prim-instruction
             branching-primitive?
             prim-arity
             ))
 
-(define *rtl-instruction-aliases*
+(define *instruction-aliases*
   '((+ . add) (1+ . add1)
     (- . sub) (1- . sub1)
     (* . mul) (/ . div)
@@ -87,24 +87,24 @@
     (<= . (1 . 2))
     (>= . (1 . 2))))
 
-(define (compute-prim-rtl-instructions)
+(define (compute-prim-instructions)
   (let ((table (make-hash-table)))
     (for-each
      (match-lambda ((inst . _) (hashq-set! table inst inst)))
      (instruction-list))
     (for-each
      (match-lambda ((prim . inst) (hashq-set! table prim inst)))
-     *rtl-instruction-aliases*)
+     *instruction-aliases*)
     (for-each
      (match-lambda ((inst . arity) (hashq-set! table inst inst)))
      *macro-instruction-arities*)
     table))
 
-(define *prim-rtl-instructions* (delay (compute-prim-rtl-instructions)))
+(define *prim-instructions* (delay (compute-prim-instructions)))
 
-;; prim -> rtl-instruction | #f
-(define (prim-rtl-instruction name)
-  (hashq-ref (force *prim-rtl-instructions*) name))
+;; prim -> instruction | #f
+(define (prim-instruction name)
+  (hashq-ref (force *prim-instructions*) name))
 
 (define (branching-primitive? name)
   (and (assq name *branching-primcall-arities*) #t))
@@ -114,7 +114,7 @@
 (define (prim-arity name)
   (or (hashq-ref *prim-arities* name)
       (let ((arity (cond
-                    ((prim-rtl-instruction name) => rtl-instruction-arity)
+                    ((prim-instruction name) => instruction-arity)
                     ((assq name *branching-primcall-arities*) => cdr)
                     (else
                      (error "Primitive of unknown arity" name)))))

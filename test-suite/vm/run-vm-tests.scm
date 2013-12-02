@@ -37,7 +37,7 @@
 
 (define (compile-to-objcode sexp)
   "Compile the expression @var{sexp} into a VM program and return it."
-  (compile sexp #:from 'scheme #:to 'rtl))
+  (compile sexp #:from 'scheme #:to 'bytecode))
 
 (define (run-vm-program bv)
   "Run VM program contained into @var{bv}."

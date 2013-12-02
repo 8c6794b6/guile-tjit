@@ -1,4 +1,4 @@
-;;; Register Transfer Language (RTL)
+;;; Bytecode
 
 ;; Copyright (C) 2013 Free Software Foundation, Inc.
 
@@ -18,13 +18,13 @@
 
 ;;; Code:
 
-(define-module (language rtl spec)
+(define-module (language bytecode spec)
   #:use-module (system base language)
   #:use-module (system vm loader)
   #:use-module (ice-9 binary-ports)
-  #:export (rtl))
+  #:export (bytecode))
 
-(define (rtl->value x e opts)
+(define (bytecode->value x e opts)
   (let ((thunk (load-thunk-from-memory x)))
     (if (eq? e (current-module))
         ;; save a cons in this case
@@ -34,9 +34,9 @@
            (set-current-module e)
            (values (thunk) e e))))))
 
-(define-language rtl
-  #:title	"Register Transfer Language"
-  #:compilers   `((value . ,rtl->value))
-  #:printer	(lambda (rtl port) (put-bytevector port rtl))
+(define-language bytecode
+  #:title	"Bytecode"
+  #:compilers   `((value . ,bytecode->value))
+  #:printer	(lambda (bytecode port) (put-bytevector port bytecode))
   #:reader      get-bytevector-all
   #:for-humans? #f)

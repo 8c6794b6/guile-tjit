@@ -131,7 +131,7 @@
          ;; Primcalls to return are in tail position.
          ($continue ktail src ,exp))
         (($ $primcall (? (lambda (name)
-                           (and (not (prim-rtl-instruction name))
+                           (and (not (prim-instruction name))
                                 (not (branching-primitive? name))))))
          ($continue k src ,exp))
         (($ $primcall name args)
@@ -139,7 +139,7 @@
             ((out . in)
              (if (= in (length args))
                  (adapt-exp out k src
-                            (let ((inst (prim-rtl-instruction name)))
+                            (let ((inst (prim-instruction name)))
                               (if (and inst (not (eq? inst name)))
                                   (build-cps-exp ($primcall inst args))
                                   exp)))

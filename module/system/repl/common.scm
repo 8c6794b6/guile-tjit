@@ -177,7 +177,7 @@ See <http://www.gnu.org/licenses/lgpl.html>, for more details.")
 (define (repl-compile repl form)
   (let ((from (repl-language repl))
         (opts (repl-compile-options repl)))
-    (compile form #:from from #:to 'rtl #:opts opts
+    (compile form #:from from #:to 'bytecode #:opts opts
              #:env (current-module))))
 
 (define (repl-expand repl form)

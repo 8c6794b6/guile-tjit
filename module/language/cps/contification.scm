@@ -35,7 +35,7 @@
   #:use-module (language cps)
   #:use-module (language cps dfg)
   #:use-module (language cps primitives)
-  #:use-module (language rtl)
+  #:use-module (language bytecode)
   #:export (contify))
 
 (define (compute-contification fun)

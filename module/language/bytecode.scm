@@ -1,4 +1,4 @@
-;;; Register Transfer Language (RTL)
+;;; Bytecode
 
 ;; Copyright (C) 2013 Free Software Foundation, Inc.
 
@@ -18,11 +18,11 @@
 
 ;;; Code:
 
-(define-module (language rtl)
+(define-module (language bytecode)
   #:use-module (ice-9 match)
   #:use-module ((srfi srfi-1) #:select (fold))
   #:export (instruction-list
-            rtl-instruction-arity
+            instruction-arity
             builtin-name->index
             builtin-index->name))
 
@@ -31,7 +31,7 @@
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_builtins")
 
-(define (compute-rtl-instruction-arity name args)
+(define (compute-instruction-arity name args)
   (define (first-word-arity word)
     (case word
       ((U8_X24) 0)
@@ -74,17 +74,17 @@
     (cached-toplevel-box . (1 . 3))
     (cached-module-box . (1 . 4))))
 
-(define (compute-rtl-instruction-arities)
+(define (compute-instruction-arities)
   (let ((table (make-hash-table)))
     (for-each
      (match-lambda
       ;; Put special cases here.
       ((name op '! . args)
        (hashq-set! table name
-                   (cons 0 (compute-rtl-instruction-arity name args))))
+                   (cons 0 (compute-instruction-arity name args))))
       ((name op '<- . args)
        (hashq-set! table name
-                   (cons 1 (1- (compute-rtl-instruction-arity name args))))))
+                   (cons 1 (1- (compute-instruction-arity name args))))))
      (instruction-list))
     (for-each (match-lambda
                ((name . arity)
@@ -92,7 +92,7 @@
               *macro-instruction-arities*)
     table))
 
-(define *rtl-instruction-arities* (delay (compute-rtl-instruction-arities)))
+(define *instruction-arities* (delay (compute-instruction-arities)))
 
-(define (rtl-instruction-arity name)
-  (hashq-ref (force *rtl-instruction-arities*) name))
+(define (instruction-arity name)
+  (hashq-ref (force *instruction-arities*) name))

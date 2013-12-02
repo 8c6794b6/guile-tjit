@@ -1,4 +1,4 @@
-;;;; Low-level tests of the RTL assembler -*- mode: scheme; coding: utf-8; -*-
+;;;; Low-level tests of the bytecode assembler -*- mode: scheme; coding: utf-8; -*-
 ;;;;
 ;;;; 	Copyright (C) 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 ;;;;
@@ -16,7 +16,7 @@
 ;;;; License along with this library; if not, write to the Free Software
 ;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
-(define-module (tests rtl)
+(define-module (tests bytecode)
   #:use-module (test-suite lib)
   #:use-module (system vm assembler)
   #:use-module (system vm program)
@@ -26,7 +26,7 @@
 
 (define (assemble-program instructions)
   "Take the sequence of instructions @var{instructions}, assemble them
-into RTL code, link an image, and load that image from memory.  Returns
+into bytecode, link an image, and load that image from memory.  Returns
 a procedure."
   (let ((asm (make-assembler)))
     (emit-text asm instructions)
@@ -301,7 +301,7 @@ a procedure."
                             (begin-program top-incrementor
                                            ((name . top-incrementor)))
                             (begin-standard-arity () 3 #f)
-                            (cached-module-box 1 (tests rtl) *top-val* #f #t)
+                            (cached-module-box 1 (tests bytecode) *top-val* #f #t)
                             (box-ref 2 1)
                             (add1 2 2)
                             (box-set! 1 2)

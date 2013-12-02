@@ -38,7 +38,7 @@
 ;;
 ;; The DIE nodes are contained in the .debug_info section of an ELF
 ;; file.  Attributes within the DIE nodes link them to mapped ranges of
-;; the ELF file (.rtl_text, .data, etc.).
+;; the ELF file (.rtl-text, .data, etc.).
 ;;
 ;; A .debug_info section logically contains a series of debugging
 ;; "contributions", one for each compilation unit.  Each contribution is

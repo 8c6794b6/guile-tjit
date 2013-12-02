@@ -43,7 +43,7 @@
 (let* ((port (open-input-string prog))
        (bv (begin
              (set-port-filename! port "foo.scm")
-             (read-and-compile port #:to 'rtl))))
+             (read-and-compile port #:to 'bytecode))))
   (pass-if-equal 'success
       ((load-thunk-from-memory bv)))
 
