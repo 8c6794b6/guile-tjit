@@ -43,6 +43,7 @@ languages}, or EDSLs.}.
 * Identifier Macros::           Identifier macros.
 * Syntax Parameters::           Syntax Parameters.
 * Eval When::                   Affecting the expand-time environment.
+* Macro Expansion::             Procedurally expanding macros.
 * Internal Macros::             Macros as first-class values.
 @end menu
 
@@ -1121,6 +1122,72 @@ Evaluate @var{exp...} under the given @var{conditions}. Valid conditions include
 @code{eval-when}, use it with all three conditions, as in the above example.
 Other uses of @code{eval-when} may void your warranty or poison your cat.
 @end deffn
+
+@node Macro Expansion
+@subsection Macro Expansion
+
+Usually, macros are expanded on behalf of the user as needed.  Macro
+expansion is an integral part of @code{eval} and @code{compile}.  Users
+can also expand macros at the REPL prompt via the @code{expand} REPL
+command; @xref{Compile Commands}.
+
+Macros can also be expanded programmatically, via @code{macroexpand},
+but the details get a bit hairy for two reasons.
+
+The first complication is that the result of macro-expansion isn't
+Scheme: it's Tree-IL, Guile's high-level intermediate language.
+@xref{Tree-IL}.  As ``hygienic macros'' can produce identifiers that are
+distinct but have the same name, the output format needs to be able to
+represent distinctions between variable identities and names.  Again,
+see @xref{Tree-IL} for all the details.  The easiest thing is to just
+run @code{tree-il->scheme} on the result of macro-expansion:
+
+@lisp
+(macroexpand '(+ 1 2))
+@result{}
+#<tree-il (call (toplevel +) (const 1) (const 2))>
+
+(use-modules (language tree-il))
+(tree-il->scheme (macroexpand '(+ 1 2)))
+@result{}
+(+ 1 2)
+@end lisp
+
+The second complication involves @code{eval-when}.  As an example, what
+would it mean to macro-expand the definition of a macro?
+
+@lisp
+(macroexpand '(define-syntax qux (identifier-syntax 'bar)))
+@result{}
+?
+@end lisp
+
+The answer is that it depends who is macro-expanding, and why.  Do you
+define the macro in the current environment?  Residualize a macro
+definition?  Both?  Neither?  The default is to expand in ``eval'' mode,
+which means an @code{eval-when} clauses will only proceed when
+@code{eval} (or @code{expand}) is in its condition set.  Top-level
+macros will be @code{eval}'d in the top-level environment.
+
+In this way @code{(macroexpand @var{foo})} is equivalent to
+@code{(macroexpand @var{foo} 'e '(eval))}.  The second argument is the
+mode (@code{'e} for ``eval'') and the second is the
+eval-syntax-expanders-when parameter (only @code{eval} in this default
+setting).
+
+But if you are compiling the macro definition, probably you want to
+reify the macro definition itself.  In that case you pass @code{'c} as
+the second argument to @code{macroexpand}.  But probably you want the
+macro definition to be present at compile time as well, so you pass
+@code{'(compile load eval)} as the @var{esew} parameter.  In fact
+@code{(compile @var{foo} #:to 'tree-il)} is entirely equivalent to
+@code{(macroexpand @var{foo} 'c '(compile load eval))}; @xref{The Scheme
+Compiler}.
+
+It's a terrible interface; we know.  The macroexpander is somewhat
+tricksy regarding modes, so unless you are building a macro-expanding
+tool, we suggest to avoid invoking it directly.
+
 
 @node Internal Macros
 @subsection Internal Macros

@@ -161,48 +161,30 @@ Returns @code{#t} if @var{obj} is a compiled procedure, or @code{#f}
 otherwise.
 @end deffn
 
-@deffn {Scheme Procedure} program-objcode program
-@deffnx {C Function} scm_program_objcode (program)
-Returns the object code associated with this program. @xref{Bytecode
-and Objcode}, for more information.
+@deffn {Scheme Procedure} program-code program
+@deffnx {C Function} scm_program_code (program)
+Returns the address of the program's entry, as an integer.  This address
+is mostly useful to procedures in @code{(system vm debug)}.
 @end deffn
 
-@deffn {Scheme Procedure} program-objects program
-@deffnx {C Function} scm_program_objects (program)
-Returns the ``object table'' associated with this program, as a
-vector. @xref{VM Programs}, for more information.
+@deffn {Scheme Procedure} program-num-free-variable program
+@deffnx {C Function} scm_program_num_free_variables (program)
+Return the number of free variables captured by this program.
 @end deffn
 
-@deffn {Scheme Procedure} program-module program
-@deffnx {C Function} scm_program_module (program)
-Returns the module that was current when this program was created. Can
-return @code{#f} if the compiler could determine that this information
-was unnecessary.
-@end deffn
-
-@deffn {Scheme Procedure} program-free-variables program
-@deffnx {C Function} scm_program_free_variables (program)
-Returns the set of free variables that this program captures in its
-closure, as a vector. If a closure is code with data, you can get the
-code from @code{program-objcode}, and the data via
-@code{program-free-variables}.
-
-Some of the values captured are actually in variable ``boxes''.
-@xref{Variables and the VM}, for more information.
+@deffn {Scheme Procedure} program-free-variable-ref program n
+@deffnx {C Function} scm_program_free_variable-ref (program, n)
+@deffnx {Scheme Procedure} program-free-variable-set! program n val
+@deffnx {C Function} scm_program_free_variable_set_x (program, n, val)
+Accessors for a program's free variables.  Some of the values captured
+are actually in variable ``boxes''.  @xref{Variables and the VM}, for
+more information.
 
 Users must not modify the returned value unless they think they're
 really clever.
 @end deffn
 
-@deffn {Scheme Procedure} program-meta program
-@deffnx {C Function} scm_program_meta (program)
-Return the metadata thunk of @var{program}, or @code{#f} if it has no
-metadata.
-
-When called, a metadata thunk returns a list of the following form:
-@code{(@var{bindings} @var{sources} @var{arities} . @var{properties})}. The format
-of each of these elements is discussed below.
-@end deffn
+@c FIXME
 
 @deffn {Scheme Procedure} program-bindings program
 @deffnx {Scheme Procedure} make-binding name boxed? index start end
