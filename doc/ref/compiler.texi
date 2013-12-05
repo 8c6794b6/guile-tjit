@@ -29,10 +29,10 @@ know how to compile your @code{.scm} file.
 @node Compiler Tower
 @subsection Compiler Tower
 
-Guile's compiler is quite simple, actually -- its @emph{compilers}, to
-put it more accurately.  Guile defines a tower of languages, starting at
-Scheme and progressively simplifying down to languages that resemble the
-VM instruction set (@pxref{Instruction Set}).
+Guile's compiler is quite simple -- its @emph{compilers}, to put it more
+accurately.  Guile defines a tower of languages, starting at Scheme and
+progressively simplifying down to languages that resemble the VM
+instruction set (@pxref{Instruction Set}).
 
 Each language knows how to compile to the next, so each step is simple
 and understandable.  Furthermore, this set of languages is not hardcoded
@@ -135,11 +135,11 @@ fake language at the bottom of the tower:
 @item Value
 @end itemize
 
-Compiling to @code{value} loads the bytecode into a procedure, and wakes
-the sleeping giant.
+Compiling to @code{value} loads the bytecode into a procedure, turning
+cold bytes into warm code.
 
 Perhaps this strangeness can be explained by example:
-@code{compile-file} defaults to compiling to object code, because it
+@code{compile-file} defaults to compiling to bytecode, because it
 produces object code that has to live in the barren world outside the
 Guile runtime; but @code{compile} defaults to compiling to @code{value},
 as its product re-enters the Guile world.
@@ -302,10 +302,12 @@ take care of the rest.
 An empty expression.  In practice, equivalent to Scheme's @code{(if #f
 #f)}.
 @end deftp
+
 @deftp {Scheme Variable} <const> src exp
 @deftpx {External Representation} (const @var{exp})
 A constant.
 @end deftp
+
 @deftp {Scheme Variable} <primitive-ref> src name
 @deftpx {External Representation} (primitive @var{name})
 A reference to a ``primitive''.  A primitive is a procedure that, when
@@ -319,16 +321,19 @@ Compilation of Tree-IL usually begins with a pass that resolves some
 special cases for calls to certain primitives, like @code{apply} or
 @code{cons}.
 @end deftp
+
 @deftp {Scheme Variable} <lexical-ref> src name gensym
 @deftpx {External Representation} (lexical @var{name} @var{gensym})
 A reference to a lexically-bound variable.  The @var{name} is the
 original name of the variable in the source program. @var{gensym} is a
 unique identifier for this variable.
 @end deftp
+
 @deftp {Scheme Variable} <lexical-set> src name gensym exp
 @deftpx {External Representation} (set! (lexical @var{name} @var{gensym}) @var{exp})
 Sets a lexically-bound variable.
 @end deftp
+
 @deftp {Scheme Variable} <module-ref> src mod name public?
 @deftpx {External Representation} (@@ @var{mod} @var{name})
 @deftpx {External Representation} (@@@@ @var{mod} @var{name})
@@ -340,31 +345,38 @@ up in @var{mod}'s public interface, and serialized with @code{@@};
 otherwise it will be looked up among the module's private bindings,
 and is serialized with @code{@@@@}.
 @end deftp
+
 @deftp {Scheme Variable} <module-set> src mod name public? exp
 @deftpx {External Representation} (set! (@@ @var{mod} @var{name}) @var{exp})
 @deftpx {External Representation} (set! (@@@@ @var{mod} @var{name}) @var{exp})
 Sets a variable in a specific module.
 @end deftp
+
 @deftp {Scheme Variable} <toplevel-ref> src name
 @deftpx {External Representation} (toplevel @var{name})
 References a variable from the current procedure's module.
 @end deftp
+
 @deftp {Scheme Variable} <toplevel-set> src name exp
 @deftpx {External Representation} (set! (toplevel @var{name}) @var{exp})
 Sets a variable in the current procedure's module.
 @end deftp
+
 @deftp {Scheme Variable} <toplevel-define> src name exp
 @deftpx {External Representation} (define (toplevel @var{name}) @var{exp})
 Defines a new top-level variable in the current procedure's module.
 @end deftp
+
 @deftp {Scheme Variable} <conditional> src test then else
 @deftpx {External Representation} (if @var{test} @var{then} @var{else})
 A conditional. Note that @var{else} is not optional.
 @end deftp
+
 @deftp {Scheme Variable} <call> src proc args
 @deftpx {External Representation} (call @var{proc} . @var{args})
 A procedure call.
 @end deftp
+
 @deftp {Scheme Variable} <primcall> src name args
 @deftpx {External Representation} (primcall @var{name} . @var{args})
 A call to a primitive.  Equivalent to @code{(call (primitive @var{name})
@@ -374,12 +386,14 @@ analyze than @code{<call>}.
 As part of the compilation process, instances of @code{(call (primitive
 @var{name}) . @var{args})} are transformed into primcalls.
 @end deftp
+
 @deftp {Scheme Variable} <seq> src head tail
 @deftpx {External Representation} (seq @var{head} @var{tail})
 A sequence.  The semantics is that @var{head} is evaluated first, and
 any resulting values are ignored.  Then @var{tail} is evaluated, in tail
 position.
 @end deftp
+
 @deftp {Scheme Variable} <lambda> src meta body
 @deftpx {External Representation} (lambda @var{meta} @var{body})
 A closure.  @var{meta} is an association list of properties for the
@@ -388,6 +402,7 @@ procedure.  @var{body} is a single Tree-IL expression of type
 an alternate clause, this makes Tree-IL's @code{<lambda>} have the
 expressiveness of Scheme's @code{case-lambda}.
 @end deftp
+
 @deftp {Scheme Variable} <lambda-case> req opt rest kw inits gensyms body alternate
 @deftpx {External Representation} @
   (lambda-case ((@var{req} @var{opt} @var{rest} @var{kw} @var{inits} @var{gensyms})@
@@ -421,6 +436,7 @@ position.  Otherwise, if there is an @var{alternate}, it should be a
 If there is no @var{alternate}, a wrong-number-of-arguments error is
 signaled.
 @end deftp
+
 @deftp {Scheme Variable} <let> src names gensyms vals exp
 @deftpx {External Representation} (let @var{names} @var{gensyms} @var{vals} @var{exp})
 Lexical binding, like Scheme's @code{let}.  @var{names} are the original
@@ -428,12 +444,14 @@ binding names, @var{gensyms} are gensyms corresponding to the
 @var{names}, and @var{vals} are Tree-IL expressions for the values.
 @var{exp} is a single Tree-IL expression.
 @end deftp
+
 @deftp {Scheme Variable} <letrec> in-order? src names gensyms vals exp
 @deftpx {External Representation} (letrec @var{names} @var{gensyms} @var{vals} @var{exp})
 @deftpx {External Representation} (letrec* @var{names} @var{gensyms} @var{vals} @var{exp})
 A version of @code{<let>} that creates recursive bindings, like
 Scheme's @code{letrec}, or @code{letrec*} if @var{in-order?} is true.
 @end deftp
+
 @deftp {Scheme Variable} <prompt> escape-only? tag body handler
 @deftpx {External Representation} (prompt @var{escape-only?} @var{tag} @var{body} @var{handler})
 A dynamic prompt.  Instates a prompt named @var{tag}, an expression,
@@ -447,6 +465,7 @@ a single @code{<lambda-case>} body expression with no optional or
 keyword arguments, and no alternate, and whose first argument is
 unreferenced.  @xref{Prompts}, for more information.
 @end deftp
+
 @deftp {Scheme Variable} <abort> tag args tail
 @deftpx {External Representation} (abort @var{tag} @var{args} @var{tail})
 An abort to the nearest prompt with the name @var{tag}, an expression.
@@ -473,6 +492,7 @@ evaluating @code{exp} to the @code{lambda}-like bindings described by
 @code{<let-values>} is an optimization of a @code{<call>} to the
 primitive, @code{call-with-values}.
 @end deftp
+
 @deftp {Scheme Variable} <fix> src names gensyms vals body
 @deftpx {External Representation} (fix @var{names} @var{gensyms} @var{vals} @var{body})
 Like @code{<letrec>}, but only for @var{vals} that are unset
