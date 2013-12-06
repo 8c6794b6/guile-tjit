@@ -201,7 +201,11 @@
                               (< (+ n 2) (cfa-k-count cfa))
                               (cfa-k-sym cfa (+ n 2)))))
           (($ $ktrunc ($ $arity req () rest () #f) kargs)
-           (compile-trunc label k exp (length req) (and rest #t) nlocals)
+           (compile-trunc label k exp (length req)
+                          (and rest
+                               (match (vector-ref contv (cfa-k-idx cfa kargs))
+                                 (($ $kargs names (_ ... rest)) rest)))
+                          nlocals)
            (unless (and (= k-idx (1+ n))
                         (< (+ n 2) (cfa-k-count cfa))
                         (eq? (cfa-k-sym cfa (+ n 2)) kargs))
@@ -260,7 +264,15 @@
                      (lookup-parallel-moves label allocation))
            (for-each maybe-load-constant arg-slots (cons proc args))
            (emit-call asm proc-slot nargs)
-           (emit-receive asm dst proc-slot nlocals)))
+           (cond
+            (dst
+             (emit-receive asm dst proc-slot nlocals))
+            (else
+             ;; FIXME: Only allow more values if there is a rest arg.
+             ;; Express values truncation by the presence of an
+             ;; unused rest arg instead of implicitly.
+             (emit-receive-values asm proc-slot #t 1)
+             (emit-reset-frame asm nlocals)))))
         (($ $primcall 'current-module)
          (emit-current-module asm dst))
         (($ $primcall 'cached-toplevel-box (scope name bound?))
@@ -321,7 +333,10 @@
               (emit-br asm k)
               (emit-label asm receive-args)
               (emit-receive-values asm proc-slot (->bool rest) nreq)
-              (when rest
+              (when (and rest
+                         (match (vector-ref contv (cfa-k-idx cfa khandler-body))
+                           (($ $kargs names (_ ... rest))
+                            (maybe-slot rest))))
                 (emit-bind-rest asm (+ proc-slot 1 nreq)))
               (for-each (match-lambda
                          ((src . dst) (emit-mov asm dst src)))
@@ -425,7 +440,7 @@
         (($ $primcall '>= (a b)) (binary emit-br-if-<= b a))
         (($ $primcall '> (a b)) (binary emit-br-if-< b a))))
 
-    (define (compile-trunc label k exp nreq rest? nlocals)
+    (define (compile-trunc label k exp nreq rest-var nlocals)
       (match exp
         (($ $call proc args)
          (let* ((proc-slot (lookup-call-proc-slot label allocation))
@@ -440,7 +455,7 @@
            ;; Express values truncation by the presence of an
            ;; unused rest arg instead of implicitly.
            (emit-receive-values asm proc-slot #t nreq)
-           (when rest?
+           (when (and rest-var (maybe-slot rest-var))
              (emit-bind-rest asm (+ proc-slot 1 nreq)))
            (for-each (match-lambda
                       ((src . dst) (emit-mov asm dst src)))

@@ -354,6 +354,38 @@ are comparable with eqv?.  A tmp slot may be used."
             (_ #f))
           (lp (1+ n)))))
 
+    ;; Results of function calls that are not used don't need to be
+    ;; allocated to slots.
+    (define (compute-unused-results!)
+      (define (ktrunc-get-kargs n)
+        (match (vector-ref contv n)
+          (($ $ktrunc arity kargs) (cfa-k-idx cfa kargs))
+          (_ #f)))
+      (let ((candidates (make-bitvector (vector-length contv) #f)))
+        ;; Find all $kargs that are the successors of $ktrunc nodes.
+        (let lp ((n 0))
+          (when (< n (vector-length contv))
+            (and=> (ktrunc-get-kargs n)
+                   (lambda (kargs)
+                     (bitvector-set! candidates kargs #t)))
+            (lp (1+ n))))
+        ;; For $kargs that only have $ktrunc predecessors, remove unused
+        ;; variables from the needs-slotv set.
+        (let lp ((n 0))
+          (let ((n (bit-position #t candidates n)))
+            (when n
+              (match (cfa-predecessors cfa n)
+                ;; At least one ktrunc is in the predecessor set, so we
+                ;; only need to do the check for nodes with >1
+                ;; predecessor.
+                ((or (_) ((? ktrunc-get-kargs) ...))
+                 (for-each (lambda (var)
+                             (when (dead-after-def? (cfa-k-sym cfa n) var dfa)
+                               (bitvector-set! needs-slotv var #f)))
+                           (vector-ref defv n)))
+                (_ #f))
+              (lp (1+ n)))))))
+
     ;; Compute the set of variables whose allocation should be delayed
     ;; until a "hint" is known about where to allocate them.  This is
     ;; the case for some procedure arguments.
@@ -463,6 +495,10 @@ are comparable with eqv?.  A tmp slot may be used."
                 (result-live (fold allocate!
                                    post-live result-vars value-slots))
                 (result-slots (map (cut vector-ref slots <>) result-vars))
+                ;; Filter out unused results.
+                (value-slots (filter-map (lambda (val result) (and result val))
+                                         value-slots result-slots))
+                (result-slots (filter (lambda (x) x) result-slots))
                 (result-moves (parallel-move value-slots
                                              result-slots
                                              (compute-tmp-slot result-live
@@ -513,6 +549,10 @@ are comparable with eqv?.  A tmp slot may be used."
                 (result-live (fold allocate!
                                    handler-live result-vars value-slots))
                 (result-slots (map (cut vector-ref slots <>) result-vars))
+                ;; Filter out unused results.
+                (value-slots (filter-map (lambda (val result) (and result val))
+                                         value-slots result-slots))
+                (result-slots (filter (lambda (x) x) result-slots))
                 (moves (parallel-move value-slots
                                       result-slots
                                       (compute-tmp-slot result-live
@@ -599,6 +639,7 @@ are comparable with eqv?.  A tmp slot may be used."
     (compute-conts!)
     (compute-constants!)
     (compute-uses-and-defs!)
+    (compute-unused-results!)
     (compute-needs-hint!)
     (visit-entry)
 
