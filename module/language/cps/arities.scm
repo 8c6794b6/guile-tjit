@@ -59,19 +59,26 @@
                                    ($continue kunspec src ($void)))))
                    ($continue kvoid src ,exp)))))
            (($ $ktrunc arity kargs)
-            ,(rewrite-cps-term arity
-               (($ $arity () () #f () #f)
-                ($continue kargs src ,exp))
+            ,(match arity
+               (($ $arity () () rest () #f)
+                (if rest
+                    (let-gensyms (knil)
+                      (build-cps-term
+                        ($letk ((knil ($kargs () ()
+                                        ($continue kargs src ($const '())))))
+                          ($continue knil src ,exp))))
+                    (build-cps-term
+                      ($continue kargs src ,exp))))
                (_
-                ,(let-gensyms (kvoid kvalues void)
-                   (build-cps-term
-                     ($letk* ((kvalues ($kargs ('void) (void)
-                                         ($continue k src
-                                           ($primcall 'values (void)))))
-                              (kvoid ($kargs () ()
-                                       ($continue kvalues src
-                                         ($void)))))
-                       ($continue kvoid src ,exp)))))))
+                (let-gensyms (kvoid kvalues void)
+                  (build-cps-term
+                    ($letk* ((kvalues ($kargs ('void) (void)
+                                        ($continue k src
+                                          ($primcall 'values (void)))))
+                             (kvoid ($kargs () ()
+                                      ($continue kvalues src
+                                        ($void)))))
+                      ($continue kvoid src ,exp)))))))
            (($ $kargs () () _)
             ($continue k src ,exp))
            (_
@@ -93,16 +100,24 @@
                                      ($primcall 'return (v))))))
                        ($continue k* src ,exp)))))))
            (($ $ktrunc arity kargs)
-            ,(rewrite-cps-term arity
-               (($ $arity (_) () #f () #f)
-                ($continue kargs src ,exp))
+            ,(match arity
+               (($ $arity (_) () rest () #f)
+                (if rest
+                    (let-gensyms (kval val nil)
+                      (build-cps-term
+                        ($letk ((kval ($kargs ('val) (val)
+                                        ($letconst (('nil nil '()))
+                                          ($continue kargs src
+                                            ($values (val nil)))))))
+                          ($continue kval src ,exp))))
+                    (build-cps-term ($continue kargs src ,exp))))
                (_
-                ,(let-gensyms (kvalues value)
-                   (build-cps-term
-                     ($letk ((kvalues ($kargs ('value) (value)
-                                        ($continue k src
-                                          ($primcall 'values (value))))))
-                       ($continue kvalues src ,exp)))))))
+                (let-gensyms (kvalues value)
+                  (build-cps-term
+                    ($letk ((kvalues ($kargs ('value) (value)
+                                       ($continue k src
+                                         ($primcall 'values (value))))))
+                      ($continue kvalues src ,exp)))))))
            (($ $kargs () () _)
             ,(let-gensyms (k* drop)
                (build-cps-term
