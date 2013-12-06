@@ -61,11 +61,33 @@
             (($ $ktail)
              ($continue k src ($values vals)))
             (($ $ktrunc ($ $arity req () rest () #f) kargs)
-             ,(if (or rest (< (length vals) (length req)))
-                  term
-                  (let ((vals (list-head vals (length req))))
+             ,(cond
+               ((and (not rest) (= (length vals) (length req)))
+                (build-cps-term
+                 ($continue kargs src ($values vals))))
+               ((and rest (>= (length vals) (length req)))
+                (let-gensyms (krest rest)
+                  (let ((vals* (append (list-head vals (length req))
+                                       (list rest))))
                     (build-cps-term
-                      ($continue kargs src ($values vals))))))
+                      ($letk ((krest ($kargs ('rest) (rest)
+                                       ($continue kargs src
+                                         ($values vals*)))))
+                        ,(let lp ((tail (list-tail vals (length req)))
+                                  (k krest))
+                           (match tail
+                             (()
+                              (build-cps-term ($continue k src
+                                                ($const '()))))
+                             ((v . tail)
+                              (let-gensyms (krest rest)
+                                (build-cps-term
+                                  ($letk ((krest ($kargs ('rest) (rest)
+                                                   ($continue k src
+                                                     ($primcall 'cons
+                                                                (v rest))))))
+                                    ,(lp tail krest))))))))))))
+               (else term)))
             (($ $kargs args)
              ,(if (< (length vals) (length args))
                   term
