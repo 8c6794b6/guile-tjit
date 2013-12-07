@@ -1139,8 +1139,8 @@ Scheme: it's Tree-IL, Guile's high-level intermediate language.
 @xref{Tree-IL}.  As ``hygienic macros'' can produce identifiers that are
 distinct but have the same name, the output format needs to be able to
 represent distinctions between variable identities and names.  Again,
-see @xref{Tree-IL} for all the details.  The easiest thing is to just
-run @code{tree-il->scheme} on the result of macro-expansion:
+@xref{Tree-IL}, for all the details.  The easiest thing is to just run
+@code{tree-il->scheme} on the result of macro-expansion:
 
 @lisp
 (macroexpand '(+ 1 2))
