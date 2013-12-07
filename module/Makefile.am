@@ -124,6 +124,7 @@ CPS_LANG_SOURCES =						\
   language/cps/constructors.scm					\
   language/cps/contification.scm				\
   language/cps/dfg.scm						\
+  language/cps/effects-analysis.scm				\
   language/cps/elide-values.scm					\
   language/cps/primitives.scm					\
   language/cps/reify-primitives.scm				\
