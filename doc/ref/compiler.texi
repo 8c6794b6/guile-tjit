@@ -523,7 +523,229 @@ CPS language.
 @subsection Continuation-Passing Style
 
 @cindex CPS
-Continuation-passing style (CPS) is ...
+Continuation-passing style (CPS) is Guile's principal intermediate
+language, bridging the gap between languages for people and languages
+for machines.  CPS gives a name to every part of a program: every
+control point, and every intermediate value.  This makes it an excellent
+medium for reasoning about programs, which is the principal job of a
+compiler.
+
+@menu
+* An Introduction to CPS::
+* CPS in Guile::
+* Compiling CPS::
+@end menu
+
+@node An Introduction to CPS
+@subsubsection An Introduction to CPS
+
+As an example, consider the following Scheme expression:
+
+@lisp
+(begin
+  (display "The sum of 32 and 10 is: ")
+  (display 42)
+  (newline))
+@end lisp
+
+Let us identify all of the sub-expressions in this expression.  We give
+them unique labels, like @var{k1}, and annotate the original source
+code:
+
+@lisp
+(begin
+  (display "The sum of 32 and 10 is: ")
+  |k1      k2
+  k0
+  (display 42)
+  |k4      k5
+  k3
+  (newline))
+  |k7
+  k6
+@end lisp
+
+These labels also identify continuations.  For example, the continuation
+of @code{k7} is @code{k6}.  This is because after evaluating the value
+of @code{newline}, performed by the expression labelled @code{k7}, we
+continue to apply it in @var{k6}.
+
+Which label has @code{k0} as its continuation?  It is either @code{k1}
+or @code{k2}.  Scheme does not have a fixed order of evaluation of
+arguments, although it does guarantee that they are evaluated in some
+order.  However, continuation-passing style makes evaluation order
+explicit.  In Guile, this choice is made by the higher-level language
+compilers.
+
+Let us assume a left-to-right evaluation order.  In that case the
+continuation of @code{k1} is @code{k2}, and the continuation of
+@code{k2} is @code{k0}.
+
+With this example established, we are ready to give an example of CPS in
+Scheme:
+
+@lisp
+(lambda (ktail)
+  (let ((k1 (lambda ()
+              (let ((k2 (lambda (proc)
+                          (let ((k0 (lambda (arg0)
+                                      (proc k4 arg0))))
+                            (k0 "The sum of 32 and 10 is: ")))))
+                (k2 display))))
+        (k4 (lambda _
+              (let ((k5 (lambda (proc)
+                          (let ((k3 (lambda (arg0)
+                                      (proc k7 arg0))))
+                            (k3 42)))))
+                (k5 display))))
+        (k7 (lambda _
+              (let ((k6 (lambda (proc)
+                          (proc ktail))))
+                (k6 newline)))))
+    (k1))
+@end lisp
+
+Holy code explosion, Batman!  What's with all the lambdas?  Indeed, CPS
+is by nature much more verbose than ``direct-style'' intermediate
+languages like Tree-IL.  At the same time, CPS is more simple than full
+Scheme, in the same way that a Turing machine is more simple than
+Scheme, although they are semantically equivalent.
+
+In the original program, the expression labelled @code{k0} is in effect
+context.  Any values it returns are ignored.  This is reflected in CPS
+by noting that its continuation, @code{k4}, takes any number of values
+and ignores them.  Compare this to @code{k2}, which takes a single
+value; in this way we can say that @code{k1} is in a ``value'' context.
+Likewise @code{k6} is in tail context with respect to the expression as
+a whole, because its continuation is the tail continuation,
+@code{ktail}.  CPS makes these details manifest, and gives them names.
+
+@node CPS in Guile
+@subsubsection CPS in Guile
+
+Like Tree-IL, CPS is also a structured language, implemented with
+records not S-expressions.
+
+@deftp {Scheme Variable} <prompt> escape-only? tag body handler
+@deftpx {External Representation} (prompt @var{escape-only?} @var{tag} @var{body} @var{handler})
+@end deftp
+
+@deftp {Scheme Variable} $arity req opt rest kw allow-other-keys?
+@end deftp
+
+
+@deftp {Scheme Variable} $letk conts body
+@deftpx {External Representation} (letk @var{conts} @var{body})
+@end deftp
+@deftp {Scheme Variable} $continue k src exp
+@deftpx {External Representation} (continue @var{k} @var{src} @var{exp})
+@end deftp
+@deftp {Scheme Variable} $letrec names syms funs body
+@deftpx {External Representation} (letrec @var{names} @var{syms} @var{funs} @var{body})
+@end deftp
+
+;; Continuations
+@deftp {Scheme Variable} $cont k cont
+@deftpx {External Representation} (cont k cont)
+@end deftp
+@deftp {Scheme Variable} $kif kt kf
+@deftpx {External Representation} (kif kt kf)
+@end deftp
+@deftp {Scheme Variable} $ktrunc arity k
+@deftpx {External Representation} (ktrunc arity k)
+@end deftp
+@deftp {Scheme Variable} $kargs names syms body
+@deftpx {External Representation} (kargs names syms body)
+@end deftp
+@deftp {Scheme Variable} $kentry self tail clauses
+@deftpx {External Representation} (kentry self tail clauses)
+@end deftp
+@deftp {Scheme Variable} $ktail
+@deftpx {External Representation} (ktail)
+@end deftp
+@deftp {Scheme Variable} $kclause arity cont
+@deftpx {External Representation} (kclause arity cont)
+@end deftp
+
+;; Expressions.
+@deftp {Scheme Variable} $void
+@deftpx {External Representation} (void)
+@end deftp
+@deftp {Scheme Variable} $const val
+@deftpx {External Representation} (const val)
+@end deftp
+@deftp {Scheme Variable} $prim name
+@deftpx {External Representation} (prim name)
+@end deftp
+@deftp {Scheme Variable} $fun src meta free body
+@deftpx {External Representation} (fun src meta free body)
+@end deftp
+@deftp {Scheme Variable} $call proc args
+@deftpx {External Representation} (call proc args)
+@end deftp
+@deftp {Scheme Variable} $primcall name args
+@deftpx {External Representation} (primcall name args)
+@end deftp
+@deftp {Scheme Variable} $values args
+@deftpx {External Representation} (values args)
+@end deftp
+@deftp {Scheme Variable} $prompt escape? tag handler pop
+@deftpx {External Representation} (prompt escape? tag handler pop)
+@end deftp
+
+;; Helper.
+            $arity
+            make-$arity
+
+            ;; Terms.
+            $letk $continue $letrec
+
+            ;; Continuations.
+            $cont
+
+            ;; Continuation bodies.
+            $kif $ktrunc $kargs $kentry $ktail $kclause
+
+            ;; Expressions.
+            $void $const $prim $fun $call $primcall $values $prompt
+
+            ;; Building macros.
+            let-gensyms
+            build-cps-term build-cps-cont build-cps-exp
+            rewrite-cps-term rewrite-cps-cont rewrite-cps-exp
+
+            ;; Misc.
+            parse-cps unparse-cps
+            fold-conts fold-local-conts
+
+cwcc
+
+records, unlike early cps (rabbit, orbit)
+
+@node Compiling CPS
+@subsubsection Compiling CPS
+
+In CPS, there are no nested expressions.  Indeed, CPS even removes the
+concept of a stack.  All applications in CPS are in tail context.  For
+that reason, applications in CPS are jumps, not calls.  The @code{(k1)}
+above is nothing more than a @code{goto}.  @code{(k3 42)} is a
+@code{goto} with a value.  In this way, CPS bridges the gap between the
+lambda calculus and machine instruction sequences.
+
+On the side of machine instructions, Guile does still have a stack, and
+the @code{lambda} forms shown above do not actually result in one
+closure being allocated per subexpression at run-time.  Lambda
+expressions introduced by a CPS transformation can always be allocated
+as labels or basic blocks within a function.  In fact, we make a
+syntactic distinction between closures and continuations in the CPS
+language, and attempt to transform closures to continuations (basic
+blocks) where possible, via the @dfn{contification} optimization pass.
+
+Values bound by continuations are allocated to stack slots in a
+function's frame.  The compiler from CPS only allocates slots to values
+that are actually live; it's possible to have a value in scope but not
+allocated to a slot.
+
 
 @node Bytecode
 @subsection Bytecode
