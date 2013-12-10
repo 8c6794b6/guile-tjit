@@ -750,11 +750,9 @@ allocated to a slot.
 @node Bytecode
 @subsection Bytecode
 
-Blah blah ...
+@xref{Object File Format}.
 
-@xref{Object File Format}
-
-(system vm loader)
+TODO: document (system vm loader)
 
 @deffn {Scheme Variable} load-thunk-from-file file
 @deffnx {C Function} scm_load_thunk_from_file (file)
@@ -766,7 +764,7 @@ created for use in UNIX systems.  Guile has its own ELF linker and
 loader, so it uses the ELF format on all systems.
 @end deffn
 
-likewise load-thunk-from-memory
+TODO: document load-thunk-from-memory
 
 Compiling object code to the fake language, @code{value}, is performed
 via loading objcode into a program, then executing that thunk with
