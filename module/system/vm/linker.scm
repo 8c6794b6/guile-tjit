@@ -517,17 +517,23 @@ list of objects, augmented with objects for the special ELF sections."
           (write-elf-section-header bv offset endianness word-size section)
           (if (= (elf-section-type section) SHT_NULL)
               relocs
-              (cons* (make-linker-reloc
-                      reloc-kind
-                      (+ offset (elf-section-header-addr-offset word-size))
-                      0
-                      section-label)
-                     (make-linker-reloc
-                      reloc-kind
-                      (+ offset (elf-section-header-offset-offset word-size))
-                      0
-                      section-label)
-                     relocs))))
+              (let ((relocs
+                     (cons (make-linker-reloc
+                            reloc-kind
+                            (+ offset
+                               (elf-section-header-offset-offset word-size))
+                            0
+                            section-label)
+                           relocs)))
+                (if (zero? (logand SHF_ALLOC (elf-section-flags section)))
+                    relocs
+                    (cons (make-linker-reloc
+                            reloc-kind
+                            (+ offset
+                               (elf-section-header-addr-offset word-size))
+                            0
+                            section-label)
+                          relocs))))))
       (let ((relocs (fold-values
                      (lambda (object relocs)
                        (write-and-reloc
