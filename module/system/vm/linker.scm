@@ -301,15 +301,18 @@ segment, the order of the linker objects is preserved."
       (+ address
          (modulo (- alignment (modulo address alignment)) alignment))))
 
-(define (relocate-section-header sec addr)
+(define (relocate-section-header sec offset)
   "Return a new section header, just like @var{sec} but with its
-@code{addr} and @code{offset} set to @var{addr}."
+@code{offset} (and @code{addr} if it is loadable) set to @var{offset}."
   (make-elf-section #:index (elf-section-index sec)
                     #:name (elf-section-name sec)
                     #:type (elf-section-type sec)
                     #:flags (elf-section-flags sec)
-                    #:addr addr
-                    #:offset addr
+                    #:addr (if (zero? (logand SHF_ALLOC
+                                              (elf-section-flags sec)))
+                               0
+                               offset)
+                    #:offset offset
                     #:size (elf-section-size sec)
                     #:link (elf-section-link sec)
                     #:info (elf-section-info sec)
@@ -417,8 +420,11 @@ locations, as given in @var{symtab}."
          (len (elf-section-size section))
          (bytes (linker-object-bv o))
          (relocs (linker-object-relocs o)))
-    (unless (= offset (elf-section-addr section))
-      (error "offset != addr" section))
+    (if (zero? (logand SHF_ALLOC (elf-section-flags section)))
+        (unless (zero? (elf-section-addr section))
+          (error "non-loadable section has non-zero addr" section))
+        (unless (= offset (elf-section-addr section))
+          (error "loadable section has offset != addr" section)))
     (if (not (= (elf-section-type section) SHT_NOBITS))
         (begin
           (if (not (= len (bytevector-length bytes)))
