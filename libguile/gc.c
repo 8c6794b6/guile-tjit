@@ -848,84 +848,6 @@ scm_gc_register_allocation (size_t size)
 
 
 
-
-static char const *
-scm_i_tag_name (scm_t_bits tag)
-{
-  switch (tag & 0x7f) /* 7 bits */
-    {
-    case scm_tcs_struct:
-      return "struct";
-    case scm_tcs_cons_imcar:
-      return "cons (immediate car)";
-    case scm_tcs_cons_nimcar:
-      return "cons (non-immediate car)";
-    case scm_tc7_pointer:
-      return "foreign";
-    case scm_tc7_hashtable:
-      return "hashtable";
-    case scm_tc7_weak_set:
-      return "weak-set";
-    case scm_tc7_weak_table:
-      return "weak-table";
-    case scm_tc7_fluid:
-      return "fluid";
-    case scm_tc7_dynamic_state:
-      return "dynamic state";
-    case scm_tc7_frame:
-      return "frame";
-    case scm_tc7_vm_cont:
-      return "vm continuation";
-    case scm_tc7_wvect:
-      return "weak vector";
-    case scm_tc7_vector:
-      return "vector";
-    case scm_tc7_number:
-      switch (tag)
-	{
-	case scm_tc16_real:
-	  return "real";
-	  break;
-	case scm_tc16_big:
-	  return "bignum";
-	  break;
-	case scm_tc16_complex:
-	  return "complex number";
-	  break;
-	case scm_tc16_fraction:
-	  return "fraction";
-	  break;
-	}
-      break;
-    case scm_tc7_string:
-      return "string";
-      break;
-    case scm_tc7_stringbuf:
-      return "string buffer";
-      break;
-    case scm_tc7_symbol:
-      return "symbol";
-      break;
-    case scm_tc7_variable:
-      return "variable";
-      break;
-    case scm_tc7_port:
-      return "port";
-      break;
-    case scm_tc7_smob:
-      {
-        int k = 0xff & (tag >> 8);
-        return (scm_smobs[k].name);
-      }
-      break; 
-    }
-
-  return NULL;
-}
-
-
-
-
 void
 scm_init_gc ()
 {
