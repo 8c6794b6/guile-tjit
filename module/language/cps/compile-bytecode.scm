@@ -31,6 +31,7 @@
   #:use-module (language cps closure-conversion)
   #:use-module (language cps contification)
   #:use-module (language cps constructors)
+  #:use-module (language cps dce)
   #:use-module (language cps dfg)
   #:use-module (language cps elide-values)
   #:use-module (language cps primitives)
@@ -53,11 +54,16 @@
         (pass exp)
         exp))
 
-  ;; Calls to source-to-source optimization passes go here.
-  (let* ((exp (run-pass exp contify #:contify? #t))
+  ;; The first DCE pass is mainly to eliminate functions that aren't
+  ;; called.  The last is mainly to eliminate rest parameters that
+  ;; aren't used, and thus shouldn't be consed.
+
+  (let* ((exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
+         (exp (run-pass exp contify #:contify? #t))
          (exp (run-pass exp inline-constructors #:inline-constructors? #t))
          (exp (run-pass exp specialize-primcalls #:specialize-primcalls? #t))
-         (exp (run-pass exp elide-values #:elide-values? #t)))
+         (exp (run-pass exp elide-values #:elide-values? #t))
+         (exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t)))
     ;; Passes that are needed:
     ;; 
     ;;  * Abort contification: turning abort primcalls into continuation
