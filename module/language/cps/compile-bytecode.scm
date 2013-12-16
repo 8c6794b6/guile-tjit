@@ -421,7 +421,17 @@
           (unless (eq? kf next-label)
             (emit-br asm kf)))))
       (match exp
-        (($ $values (sym)) (unary emit-br-if-true sym))
+        (($ $values (sym))
+         (call-with-values (lambda ()
+                             (lookup-maybe-constant-value sym allocation))
+           (lambda (has-const? val)
+             (if has-const?
+                 (if val
+                     (unless (eq? kt next-label)
+                       (emit-br asm kt))
+                     (unless (eq? kf next-label)
+                       (emit-br asm kf)))
+                 (unary emit-br-if-true sym)))))
         (($ $primcall 'null? (a)) (unary emit-br-if-null a))
         (($ $primcall 'nil? (a)) (unary emit-br-if-nil a))
         (($ $primcall 'pair? (a)) (unary emit-br-if-pair a))

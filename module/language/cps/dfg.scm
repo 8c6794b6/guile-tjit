@@ -846,7 +846,7 @@
          (lambda (use)
            (match (find-expression (lookup-cont use conts))
              (($ $call) #f)
-             (($ $values (_ _ . _)) #f)
+             (($ $values) #f)
              (($ $primcall 'free-ref (closure slot))
               (not (eq? sym slot)))
              (($ $primcall 'free-set! (closure slot value))
