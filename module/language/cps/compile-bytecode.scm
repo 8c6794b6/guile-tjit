@@ -334,7 +334,8 @@
               (emit-prompt asm (slot tag) escape? proc-slot receive-args)
               (emit-br asm k)
               (emit-label asm receive-args)
-              (emit-receive-values asm proc-slot (->bool rest) nreq)
+              (unless (and rest (zero? nreq))
+                (emit-receive-values asm proc-slot (->bool rest) nreq))
               (when (and rest
                          (match (vector-ref contv (cfa-k-idx cfa khandler-body))
                            (($ $kargs names (_ ... rest))
@@ -468,7 +469,8 @@
            ;; FIXME: Only allow more values if there is a rest arg.
            ;; Express values truncation by the presence of an
            ;; unused rest arg instead of implicitly.
-           (emit-receive-values asm proc-slot #t nreq)
+           (unless (zero? nreq)
+             (emit-receive-values asm proc-slot #t nreq))
            (when (and rest-var (maybe-slot rest-var))
              (emit-bind-rest asm (+ proc-slot 1 nreq)))
            (for-each (match-lambda
