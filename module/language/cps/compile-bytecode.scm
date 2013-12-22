@@ -466,17 +466,28 @@
                      (lookup-parallel-moves label allocation))
            (for-each maybe-load-constant arg-slots (cons proc args))
            (emit-call asm proc-slot nargs)
-           ;; FIXME: Only allow more values if there is a rest arg.
-           ;; Express values truncation by the presence of an
-           ;; unused rest arg instead of implicitly.
-           (unless (zero? nreq)
-             (emit-receive-values asm proc-slot #t nreq))
-           (when (and rest-var (maybe-slot rest-var))
-             (emit-bind-rest asm (+ proc-slot 1 nreq)))
-           (for-each (match-lambda
-                      ((src . dst) (emit-mov asm dst src)))
-                     (lookup-parallel-moves k allocation))
-           (emit-reset-frame asm nlocals)))))
+           (cond
+            ((and (= 1 nreq) (and rest-var) (not (maybe-slot rest-var))
+                  (match (lookup-parallel-moves k allocation)
+                    ((((? (lambda (src) (= src (1+ proc-slot))) src)
+                       . dst)) dst)
+                    (_ #f)))
+             ;; The usual case: one required live return value, ignoring
+             ;; any additional values.
+             => (lambda (dst)
+                  (emit-receive asm dst proc-slot nlocals)))
+            (else
+             ;; FIXME: Only allow more values if there is a rest arg.
+             ;; Express values truncation by the presence of an unused
+             ;; rest arg instead of implicitly.
+             (unless (zero? nreq)
+               (emit-receive-values asm proc-slot #t nreq))
+             (when (and rest-var (maybe-slot rest-var))
+               (emit-bind-rest asm (+ proc-slot 1 nreq)))
+             (for-each (match-lambda
+                        ((src . dst) (emit-mov asm dst src)))
+                       (lookup-parallel-moves k allocation))
+             (emit-reset-frame asm nlocals)))))))
 
     (match f
       (($ $fun src meta free ($ $cont k ($ $kentry self tail clauses)))
