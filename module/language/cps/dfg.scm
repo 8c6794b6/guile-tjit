@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -126,9 +126,8 @@
 ;; that is reachable from some start node.  Others need to include nodes
 ;; that are reachable from an end node as well, or all nodes in a
 ;; function.  In that case pass an appropriate implementation of
-;; fold-all-conts, as compute-live-variables does.
-(define* (reverse-post-order k0 get-successors #:optional
-                             (fold-all-conts (lambda (f seed) seed)))
+;; fold-all-conts, as analyze-control-flow does.
+(define (reverse-post-order k0 get-successors fold-all-conts)
   (let ((order '())
         (visited? (make-hash-table)))
     (let visit ((k k0))
@@ -190,7 +189,7 @@
   (vector-ref (cfa-preds cfa) n))
 
 (define* (analyze-control-flow fun dfg #:key reverse?)
-  (define (build-cfa kentry block-succs block-preds)
+  (define (build-cfa kentry block-succs block-preds fold-all-conts)
     (define (block-accessor accessor)
       (lambda (k)
         (accessor (lookup-block k (dfg-blocks dfg)))))
@@ -200,7 +199,9 @@
       (lambda (k)
         (filter-map (cut hashq-ref mapping <>)
                     ((block-accessor accessor) k))))
-    (let* ((order (reverse-post-order kentry (block-accessor block-succs)))
+    (let* ((order (reverse-post-order kentry
+                                      (block-accessor block-succs)
+                                      fold-all-conts))
            (k-map (make-block-mapping order))
            (preds (convert-predecessors order
                                         (reachable-preds k-map block-preds))))
@@ -211,8 +212,16 @@
            (and entry
                 ($ $kentry self ($ $cont ktail tail) clauses))))
      (if reverse?
-         (build-cfa ktail block-preds block-succs)
-         (build-cfa kentry block-succs block-preds)))))
+         (build-cfa ktail block-preds block-succs
+                    (let ((cfa (analyze-control-flow fun dfg)))
+                      (lambda (f seed)
+                        (let lp ((n (cfa-k-count cfa)) (seed seed))
+                          (if (zero? n)
+                              seed
+                              (lp (1- n)
+                                  (f (cfa-k-sym cfa (1- n)) seed)))))))
+         (build-cfa kentry block-succs block-preds
+                    (lambda (f seed) seed))))))
 
 ;; Dominator analysis.
 (define-record-type $dominator-analysis
