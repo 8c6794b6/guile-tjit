@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -447,7 +447,7 @@
                       (build-cps-term
                         ($letk ((kbody ($kargs () ()
                                          ,(convert body krest subst))))
-                          ($continue kbody src ($prompt #t tag khargs kpop))))
+                          ($continue kbody src ($prompt #t tag khargs))))
                       (convert-arg body
                         (lambda (thunk)
                           (build-cps-term
@@ -456,7 +456,7 @@
                                                ($primcall 'call-thunk/no-inline
                                                           (thunk))))))
                               ($continue kbody (tree-il-src body)
-                                ($prompt #f tag khargs kpop))))))))))))))
+                                ($prompt #f tag khargs))))))))))))))
 
     ;; Eta-convert prompts without inline handlers.
     (($ <prompt> src escape-only? tag body handler)

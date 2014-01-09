@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -348,7 +348,7 @@ are comparable with eqv?.  A tmp slot may be used."
                                   args)
                                  (($ $values args)
                                   args)
-                                 (($ $prompt escape? tag handler pop)
+                                 (($ $prompt escape? tag handler)
                                   (list tag))
                                  (_ '())))))
             (_ #f))
@@ -607,7 +607,7 @@ are comparable with eqv?.  A tmp slot may be used."
                      (($ $continue k src ($ $values (_ _ . _)))
                       (allocate-values label k uses live post-live))
                      (($ $continue k src ($ $values)) #t)
-                     (($ $continue k src ($ $prompt escape? tag handler pop))
+                     (($ $continue k src ($ $prompt escape? tag handler))
                       (allocate-prompt label k handler nargs))
                      (_ #f)))
                  (lp (1+ n) post-live))

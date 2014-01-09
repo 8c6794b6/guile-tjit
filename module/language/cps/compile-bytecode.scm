@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -325,7 +325,7 @@
     (define (compile-effect label exp k nlocals)
       (match exp
         (($ $values ()) #f)
-        (($ $prompt escape? tag handler pop)
+        (($ $prompt escape? tag handler)
          (match (lookup-cont handler)
            (($ $ktrunc ($ $arity req () rest () #f) khandler-body)
             (let ((receive-args (gensym "handler"))

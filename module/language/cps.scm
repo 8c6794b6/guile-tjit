@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -85,8 +85,7 @@
 ;;;   - $prompt continues to the body of the prompt, having pushed on a
 ;;;     prompt whose handler will continue at its "handler"
 ;;;     continuation.  The continuation of the prompt is responsible for
-;;;     popping the prompt.  A $prompt also records the continuation
-;;;     that pops the prompt, to make various static analyses easier.
+;;;     popping the prompt.
 ;;;
 ;;; In summary:
 ;;;
@@ -185,7 +184,7 @@
 (define-cps-type $call proc args)
 (define-cps-type $primcall name args)
 (define-cps-type $values args)
-(define-cps-type $prompt escape? tag handler pop)
+(define-cps-type $prompt escape? tag handler)
 
 (define-syntax let-gensyms
   (syntax-rules ()
@@ -240,8 +239,8 @@
     ((_ ($primcall name args)) (make-$primcall name args))
     ((_ ($values (arg ...))) (make-$values (list arg ...)))
     ((_ ($values args)) (make-$values args))
-    ((_ ($prompt escape? tag handler pop))
-     (make-$prompt escape? tag handler pop))))
+    ((_ ($prompt escape? tag handler))
+     (make-$prompt escape? tag handler))))
 
 (define-syntax build-cps-term
   (syntax-rules (unquote $letk $letk* $letconst $letrec $continue)
@@ -341,8 +340,8 @@
      (build-cps-exp ($primcall name arg)))
     (('values arg ...)
      (build-cps-exp ($values arg)))
-    (('prompt escape? tag handler pop)
-     (build-cps-exp ($prompt escape? tag handler pop)))
+    (('prompt escape? tag handler)
+     (build-cps-exp ($prompt escape? tag handler)))
     (_
      (error "unexpected cps" exp))))
 
@@ -397,8 +396,8 @@
      `(primcall ,name ,@args))
     (($ $values args)
      `(values ,@args))
-    (($ $prompt escape? tag handler pop)
-     `(prompt ,escape? ,tag ,handler ,pop))
+    (($ $prompt escape? tag handler)
+     `(prompt ,escape? ,tag ,handler))
     (_
      (error "unexpected cps" exp))))
 

@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -212,12 +212,12 @@ convert functions to flat closures."
                                     ($continue k src ($values args)))
                                   '()))))
 
-    (($ $continue k src ($ $prompt escape? tag handler pop))
+    (($ $continue k src ($ $prompt escape? tag handler))
      (convert-free-var
       tag self bound
       (lambda (tag)
         (values (build-cps-term
-                  ($continue k src ($prompt escape? tag handler pop)))
+                  ($continue k src ($prompt escape? tag handler)))
                 '()))))
 
     (_ (error "what" exp))))

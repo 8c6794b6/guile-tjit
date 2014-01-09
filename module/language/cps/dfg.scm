@@ -845,7 +845,7 @@ BODY for each body continuation in the prompt."
          (($ $values args)
           (for-each use! args))
 
-         (($ $prompt escape? tag handler pop)
+         (($ $prompt escape? tag handler)
           (use! tag)
           (use-k! handler))
 

@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -128,11 +128,10 @@
        (for-each (cut check-var <> v-env) arg))
       (($ $values ((? symbol? arg) ...))
        (for-each (cut check-var <> v-env) arg))
-      (($ $prompt escape? tag handler pop)
+      (($ $prompt escape? tag handler)
        (unless (boolean? escape?) (error "escape? should be boolean" escape?))
        (check-var tag v-env)
-       (check-var handler k-env)
-       (check-var pop k-env))
+       (check-var handler k-env))
       (_
        (error "unexpected expression" exp))))
 
