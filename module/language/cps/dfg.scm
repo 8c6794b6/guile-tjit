@@ -495,12 +495,10 @@
 
 ;; Data-flow analysis.
 (define-record-type $dfa
-  (make-dfa k-map order var-map names syms in out)
+  (make-dfa cfa var-map names syms in out)
   dfa?
-  ;; Hash table mapping k-sym -> k-idx
-  (k-map dfa-k-map)
-  ;; Vector of k-idx -> k-sym
-  (order dfa-order)
+  ;; CFA, for its reverse-post-order numbering
+  (cfa dfa-cfa)
   ;; Hash table mapping var-sym -> var-idx
   (var-map dfa-var-map)
   ;; Vector of var-idx -> name
@@ -513,14 +511,13 @@
   (out dfa-out))
 
 (define (dfa-k-idx dfa k)
-  (or (hashq-ref (dfa-k-map dfa) k)
-      (error "unknown k" k)))
+  (cfa-k-idx (dfa-cfa dfa) k))
 
 (define (dfa-k-sym dfa idx)
-  (vector-ref (dfa-order dfa) idx))
+  (cfa-k-sym (dfa-cfa dfa) idx))
 
 (define (dfa-k-count dfa)
-  (vector-length (dfa-order dfa)))
+  (cfa-k-count (dfa-cfa dfa)))
 
 (define (dfa-var-idx dfa var)
   (or (hashq-ref (dfa-var-map dfa) var)
@@ -550,74 +547,52 @@
                        (set! n (1+ n)))
                      use-maps)
       (values mapping n)))
-  (define (block-accessor blocks accessor)
-    (lambda (k)
-      (accessor (lookup-block k blocks))))
-  (define (renumbering-accessor mapping blocks accessor)
-    (lambda (k)
-      (map (cut hashq-ref mapping <>)
-           ((block-accessor blocks accessor) k))))
-  (match fun
-    (($ $fun src meta free
-        (and entry
-             ($ $cont kentry ($ $kentry self ($ $cont ktail tail)))))
-     (call-with-values (lambda () (make-variable-mapping (dfg-use-maps dfg)))
-       (lambda (var-map nvars)
-         (define (fold-all-conts f seed)
-           (fold-local-conts (lambda (k cont seed) (f k seed))
-                             seed entry))
-         (let* ((blocks (dfg-blocks dfg))
-                (order (reverse-post-order ktail
-                                           (block-accessor blocks block-preds)
-                                           fold-all-conts))
-                (k-map (make-block-mapping order))
-                (succs (convert-predecessors
-                        order
-                        (renumbering-accessor k-map blocks block-succs)))
-                (syms (make-vector nvars #f))
-                (names (make-vector nvars #f))
-                (usev (make-vector (vector-length order) '()))
-                (defv (make-vector (vector-length order) '()))
-                (live-in (make-vector (vector-length order) #f))
-                (live-out (make-vector (vector-length order) #f)))
-           (define (k->idx k)
-             (or (hashq-ref k-map k) (error "unknown k" k)))
-           ;; Initialize syms, names, defv, and usev.
-           (hash-for-each
-            (lambda (sym use-map)
-              (match use-map
-                (($ $use-map name sym def uses)
-                 (let ((v (or (hashq-ref var-map sym)
-                              (error "unknown var" sym))))
-                   (vector-set! syms v sym)
-                   (vector-set! names v name)
-                   (for-each (lambda (def)
-                               (vector-push! defv (k->idx def) v))
-                             ((block-accessor blocks block-preds) def))
-                   (for-each (lambda (use)
-                               (vector-push! usev (k->idx use) v))
-                             uses)))))
-            (dfg-use-maps dfg))
+  (call-with-values (lambda () (make-variable-mapping (dfg-use-maps dfg)))
+    (lambda (var-map nvars)
+      (let* ((cfa (analyze-control-flow fun dfg #:reverse? #t))
+             (syms (make-vector nvars #f))
+             (names (make-vector nvars #f))
+             (usev (make-vector (cfa-k-count cfa) '()))
+             (defv (make-vector (cfa-k-count cfa) '()))
+             (live-in (make-vector (cfa-k-count cfa) #f))
+             (live-out (make-vector (cfa-k-count cfa) #f)))
+        ;; Initialize syms, names, defv, and usev.
+        (hash-for-each
+         (lambda (sym use-map)
+           (match use-map
+             (($ $use-map name sym def uses)
+              (let ((v (or (hashq-ref var-map sym)
+                           (error "unknown var" sym))))
+                (vector-set! syms v sym)
+                (vector-set! names v name)
+                (for-each (lambda (def)
+                            (vector-push! defv (cfa-k-idx cfa def) v))
+                          (block-preds (lookup-block def (dfg-blocks dfg))))
+                (for-each (lambda (use)
+                            (vector-push! usev (cfa-k-idx cfa use) v))
+                          uses)))))
+         (dfg-use-maps dfg))
 
-           ;; Initialize live-in and live-out sets.
-           (let lp ((n 0))
-             (when (< n (vector-length live-out))
-               (vector-set! live-in n (make-bitvector nvars #f))
-               (vector-set! live-out n (make-bitvector nvars #f))
-               (lp (1+ n))))
+        ;; Initialize live-in and live-out sets.
+        (let lp ((n 0))
+          (when (< n (vector-length live-out))
+            (vector-set! live-in n (make-bitvector nvars #f))
+            (vector-set! live-out n (make-bitvector nvars #f))
+            (lp (1+ n))))
 
-           ;; Liveness is a reverse data-flow problem, so we give
-           ;; compute-maximum-fixed-point a reversed graph, swapping in
-           ;; and out, usev and defv, using successors instead of
-           ;; predecessors, and starting with ktail instead of the
-           ;; entry.
-           (compute-maximum-fixed-point succs live-out live-in defv usev #t)
+        ;; Liveness is a reverse data-flow problem, so we give
+        ;; compute-maximum-fixed-point a reversed graph, swapping in
+        ;; for out, and usev for defv.  Note that since we are using
+        ;; a reverse CFA, cfa-preds are actually successors, and
+        ;; continuation 0 is ktail.
+        (compute-maximum-fixed-point (cfa-preds cfa)
+                                     live-out live-in defv usev #t)
 
-           (make-dfa k-map order var-map names syms live-in live-out)))))))
+        (make-dfa cfa var-map names syms live-in live-out)))))
 
 (define (print-dfa dfa)
   (match dfa
-    (($ $dfa k-map order var-map names syms in out)
+    (($ $dfa cfa var-map names syms in out)
      (define (print-var-set bv)
        (let lp ((n 0))
          (let ((n (bit-position #t bv n)))
@@ -625,8 +600,8 @@
              (format #t " ~A" (vector-ref syms n))
              (lp (1+ n))))))
      (let lp ((n 0))
-       (when (< n (vector-length order))
-         (format #t "~A:\n" (vector-ref order n))
+       (when (< n (cfa-k-count cfa))
+         (format #t "~A:\n" (cfa-k-sym cfa n))
          (format #t "  in:")
          (print-var-set (vector-ref in n))
          (newline)
