@@ -188,8 +188,149 @@
 (define (cfa-predecessors cfa n)
   (vector-ref (cfa-preds cfa) n))
 
-(define* (analyze-control-flow fun dfg #:key reverse?)
-  (define (build-cfa kentry block-succs block-preds fold-all-conts)
+(define-inlinable (vector-push! vec idx val)
+  (let ((v vec) (i idx))
+    (vector-set! v i (cons val (vector-ref v i)))))
+
+(define (compute-reachable cfa dfg)
+  "Given the forward control-flow analysis in CFA, compute and return
+the continuations that may be reached if flow reaches a continuation N.
+Returns a vector of bitvectors.  The given CFA should be a forward CFA,
+for quickest convergence."
+  (let* ((k-count (cfa-k-count cfa))
+         ;; Vector of bitvectors, indicating that continuation N can
+         ;; reach a set M...
+         (reachable (make-vector k-count #f))
+         ;; Vector of lists, indicating that continuation N can directly
+         ;; reach continuations M...
+         (succs (make-vector k-count '())))
+
+    ;; All continuations are reachable from themselves.
+    (let lp ((n 0))
+      (when (< n k-count)
+        (let ((bv (make-bitvector k-count #f)))
+          (bitvector-set! bv n #t)
+          (vector-set! reachable n bv)
+          (lp (1+ n)))))
+
+    ;; Initialize successor lists.
+    (let lp ((n 0))
+      (when (< n k-count)
+        (for-each (lambda (succ)
+                    (vector-push! succs n (cfa-k-idx cfa succ)))
+                  (block-succs (lookup-block (cfa-k-sym cfa n)
+                                             (dfg-blocks dfg))))
+        (lp (1+ n))))
+
+    ;; Iterate cfa backwards, to converge quickly.
+    (let ((tmp (make-bitvector k-count #f)))
+      (let lp ((n k-count) (changed? #f))
+        (cond
+         ((zero? n)
+          (if changed?
+              (lp 0 #f)
+              reachable))
+         (else
+          (let ((n (1- n)))
+            (bitvector-fill! tmp #f)
+            (for-each (lambda (succ)
+                        (bit-set*! tmp (vector-ref reachable succ) #t))
+                      (vector-ref succs n))
+            (bitvector-set! tmp n #t)
+            (bit-set*! tmp (vector-ref reachable n) #f)
+            (cond
+             ((bit-position #t tmp 0)
+              (bit-set*! (vector-ref reachable n) tmp #t)
+              (lp n #t))
+             (else
+              (lp n changed?))))))))))
+
+(define (find-prompts cfa dfg)
+  "Find the prompts in CFA, and return them as a list of PROMPT-INDEX,
+HANDLER-INDEX pairs."
+  (let lp ((n 0) (prompts '()))
+    (cond
+     ((= n (cfa-k-count cfa))
+      (reverse prompts))
+     (else
+      (match (lookup-cont (cfa-k-sym cfa n) (dfg-cont-table dfg))
+        (($ $kargs names syms body)
+         (match (find-expression body)
+           (($ $prompt escape? tag handler)
+            (lp (1+ n) (acons n (cfa-k-idx cfa handler) prompts)))
+           (_ (lp (1+ n) prompts))))
+        (_ (lp (1+ n) prompts)))))))
+
+(define (compute-interval cfa dfg reachable start end)
+  "Compute and return the set of continuations that may be reached from
+START, inclusive, but not reached by END, exclusive.  Returns a
+bitvector."
+  (let ((body (make-bitvector (cfa-k-count cfa) #f)))
+    (bit-set*! body (vector-ref reachable start) #t)
+    (bit-set*! body (vector-ref reachable end) #f)
+    body))
+
+(define (find-prompt-bodies cfa dfg)
+  "Find all the prompts in CFA, and compute the set of continuations
+that is reachable from the prompt bodies but not from the corresponding
+handler.  Returns a list of PROMPT, HANDLER, BODY lists, where the BODY
+is a bitvector."
+  (match (find-prompts cfa dfg)
+    (() '())
+    (((prompt . handler) ...)
+     (let ((reachable (compute-reachable cfa dfg)))
+       (map (lambda (prompt handler)
+              ;; FIXME: It isn't correct to use all continuations
+              ;; reachable from the prompt, because that includes
+              ;; continuations outside the prompt body.  This point is
+              ;; moot if the handler's control flow joins with the the
+              ;; body, as is usually but not always the case.
+              ;;
+              ;; One counter-example is when the handler contifies an
+              ;; infinite loop; in that case we compute a too-large
+              ;; prompt body.  This error is currently innocuous, but
+              ;; we should fix it at some point.
+              ;;
+              ;; The fix is to end the body at the corresponding "pop"
+              ;; primcall, if any.
+              (let ((body (compute-interval cfa dfg reachable prompt handler)))
+                (list prompt handler body)))
+            prompt handler)))))
+
+(define* (visit-prompt-control-flow cfa dfg f #:key complete?)
+  "For all prompts in CFA, invoke F with arguments PROMPT, HANDLER, and
+BODY for each body continuation in the prompt."
+  (for-each
+   (match-lambda
+    ((prompt handler body)
+     (define (out-or-back-edge? n)
+       ;; Most uses of visit-prompt-control-flow don't need every body
+       ;; continuation, and would be happy getting called only for
+       ;; continuations that postdominate the rest of the body.  Unless
+       ;; you pass #:complete? #t, we only invoke F on continuations
+       ;; that can leave the body, or on back-edges in loops.
+       ;;
+       ;; You would think that looking for the final "pop" primcall
+       ;; would be sufficient, but that is incorrect; it's possible for
+       ;; a loop in the prompt body to be contified, and that loop need
+       ;; not continue to the pop if it never terminates.  The pop could
+       ;; even be removed by DCE, in that case.
+       (or-map (lambda (succ)
+                 (let ((succ (cfa-k-idx cfa succ)))
+                   (or (not (bitvector-ref body succ))
+                       (<= succ n))))
+               (block-succs (lookup-block (cfa-k-sym cfa n)
+                                          (dfg-blocks dfg)))))
+     (let lp ((n 0))
+       (let ((n (bit-position #t body n)))
+         (when n
+           (when (or complete? (out-or-back-edge? n))
+             (f prompt handler n))
+           (lp (1+ n)))))))
+   (find-prompt-bodies cfa dfg)))
+
+(define* (analyze-control-flow fun dfg #:key reverse? add-handler-preds?)
+  (define (build-cfa kentry block-succs block-preds forward-cfa)
     (define (block-accessor accessor)
       (lambda (k)
         (accessor (lookup-block k (dfg-blocks dfg)))))
@@ -199,13 +340,41 @@
       (lambda (k)
         (filter-map (cut hashq-ref mapping <>)
                     ((block-accessor accessor) k))))
-    (let* ((order (reverse-post-order kentry
-                                      (block-accessor block-succs)
-                                      fold-all-conts))
+    (let* ((order (reverse-post-order
+                   kentry
+                   (block-accessor block-succs)
+                   (if forward-cfa
+                       (lambda (f seed)
+                         (let lp ((n (cfa-k-count forward-cfa)) (seed seed))
+                           (if (zero? n)
+                               seed
+                               (lp (1- n)
+                                   (f (cfa-k-sym forward-cfa (1- n)) seed)))))
+                       (lambda (f seed) seed))))
            (k-map (make-block-mapping order))
            (preds (convert-predecessors order
-                                        (reachable-preds k-map block-preds))))
-      (make-cfa k-map order preds)))
+                                        (reachable-preds k-map block-preds)))
+           (cfa (make-cfa k-map order preds)))
+      (when add-handler-preds?
+        ;; Any expression in the prompt body could cause an abort to the
+        ;; handler.  This code adds links from every block in the prompt
+        ;; body to the handler.  This causes all values used by the
+        ;; handler to be seen as live in the prompt body, as indeed they
+        ;; are.
+        (let ((forward-cfa (or forward-cfa cfa)))
+          (visit-prompt-control-flow
+           forward-cfa dfg
+           (lambda (prompt handler body)
+             (define (renumber n)
+               (if (eq? forward-cfa cfa)
+                   n
+                   (cfa-k-idx cfa (cfa-k-sym forward-cfa n))))
+             (let ((handler (renumber handler))
+                   (body (renumber body)))
+               (if reverse?
+                   (vector-push! preds body handler)
+                   (vector-push! preds handler body)))))))
+      cfa))
   (match fun
     (($ $fun src meta free
         ($ $cont kentry
@@ -213,15 +382,9 @@
                 ($ $kentry self ($ $cont ktail tail) clauses))))
      (if reverse?
          (build-cfa ktail block-preds block-succs
-                    (let ((cfa (analyze-control-flow fun dfg)))
-                      (lambda (f seed)
-                        (let lp ((n (cfa-k-count cfa)) (seed seed))
-                          (if (zero? n)
-                              seed
-                              (lp (1- n)
-                                  (f (cfa-k-sym cfa (1- n)) seed)))))))
-         (build-cfa kentry block-succs block-preds
-                    (lambda (f seed) seed))))))
+                    (analyze-control-flow fun dfg #:reverse? #f
+                                          #:add-handler-preds? #f))
+         (build-cfa kentry block-succs block-preds #f)))))
 
 ;; Dominator analysis.
 (define-record-type $dominator-analysis
@@ -289,10 +452,6 @@
        (changed?
         (iterate 0 #f))
        (else idoms)))))
-
-(define-inlinable (vector-push! vec idx val)
-  (let ((v vec) (i idx))
-    (vector-set! v i (cons val (vector-ref v i)))))
 
 ;; Compute a vector containing, for each node, a list of the nodes that
 ;; it immediately dominates.  These are the "D" edges in the DJ tree.
