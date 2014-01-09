@@ -1286,4 +1286,18 @@
            (list a b))
          (bar 1))
        1)
-    (primcall list (const 1) (const 2))))
+    (primcall list (const 1) (const 2)))
+
+  (pass-if-peval
+      ;; Should not inline tail list to apply if it is mutable.
+      ;; <http://debbugs.gnu.org/15533>
+      (let ((l '()))
+        (if (pair? arg)
+            (set! l arg))
+        (apply f l))
+    (let (l) (_) ((const ()))
+         (seq
+           (if (primcall pair? (toplevel arg))
+               (set! (lexical l _) (toplevel arg))
+               (void))
+           (primcall apply (toplevel f) (lexical l _))))))

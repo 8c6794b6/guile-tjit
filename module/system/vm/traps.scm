@@ -113,16 +113,19 @@
     (and pdi (program-debug-info-size pdi))))
 
 (define (frame-matcher proc match-code?)
-  (if match-code?
-      (if (program? proc)
-          (let ((start (program-code proc))
-                (end (program-last-ip proc)))
-            (lambda (frame)
-              (let ((ip (frame-instruction-pointer frame)))
-                (and (<= start ip) (< ip end)))))
-          (lambda (frame) #f))
-      (lambda (frame)
-        (eq? (frame-procedure frame) proc))))
+  (let ((proc (if (struct? proc)
+                  (procedure proc)
+                  proc)))
+    (if match-code?
+        (if (program? proc)
+            (let ((start (program-code proc))
+                  (end (program-last-ip proc)))
+              (lambda (frame)
+                (let ((ip (frame-instruction-pointer frame)))
+                  (and (<= start ip) (< ip end)))))
+            (lambda (frame) #f))
+        (lambda (frame)
+          (eq? (frame-procedure frame) proc)))))
 
 ;; A basic trap, fires when a procedure is called.
 ;;
