@@ -497,8 +497,17 @@ are comparable with eqv?.  A tmp slot may be used."
                 (result-vars (vector-ref defv (cfa-k-idx cfa kargs)))
                 (value-slots (map (cut + proc-slot 1 <>)
                                   (iota (length result-vars))))
-                (result-live (fold allocate!
-                                   post-live result-vars value-slots))
+                ;; Shuffle the first result down to the lowest slot, and
+                ;; leave any remaining results where they are.  This
+                ;; strikes a balance between avoiding shuffling,
+                ;; especially for unused extra values, and avoiding
+                ;; frame size growth due to sparse locals.
+                (result-live (match (cons result-vars value-slots)
+                               ((() . ()) post-live)
+                               (((var . vars) . (slot . slots))
+                                (fold allocate!
+                                      (allocate! var #f post-live)
+                                      vars slots))))
                 (result-slots (map (cut vector-ref slots <>) result-vars))
                 ;; Filter out unused results.
                 (value-slots (filter-map (lambda (val result) (and result val))
