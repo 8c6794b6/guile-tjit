@@ -278,8 +278,8 @@ are comparable with eqv?.  A tmp slot may be used."
     (define* (allocate! var-idx hint live)
       (cond
        ((not (bitvector-ref needs-slotv var-idx)) live)
-       ((and (not hint) (bitvector-ref needs-hintv var-idx)) live)
        ((vector-ref slots var-idx) => (cut add-live-slot <> live))
+       ((and (not hint) (bitvector-ref needs-hintv var-idx)) live)
        (else
         (let ((slot (compute-slot live hint)))
           (bump-nlocals! (1+ slot))
