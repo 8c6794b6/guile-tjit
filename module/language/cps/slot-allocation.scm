@@ -527,21 +527,38 @@ are comparable with eqv?.  A tmp slot may be used."
                        (make-call-allocation proc-slot arg-moves))))))
                          
     (define (allocate-values label k uses pre-live post-live)
-      (let* ((src-slots (map (cut vector-ref slots <>) uses))
-             (dst-slots (match (vector-ref contv (cfa-k-idx cfa k))
-                          (($ $ktail)
-                           (let ((tail-nlocals (1+ (length uses))))
-                             (bump-nlocals! tail-nlocals)
-                             (cdr (iota tail-nlocals))))
-                          (_
-                           (let ((dst-vars (vector-ref defv (cfa-k-idx cfa k))))
-                             (fold allocate! post-live dst-vars src-slots)
-                             (map (cut vector-ref slots <>) dst-vars)))))
-             (moves (parallel-move src-slots
-                                   dst-slots
-                                   (compute-tmp-slot pre-live dst-slots))))
-        (hashq-set! call-allocations label
-                    (make-call-allocation #f moves))))
+      (match (vector-ref contv (cfa-k-idx cfa k))
+        (($ $ktail)
+         (let* ((src-slots (map (cut vector-ref slots <>) uses))
+                (tail-nlocals (1+ (length uses)))
+                (dst-slots (cdr (iota tail-nlocals)))
+                (moves (parallel-move src-slots dst-slots
+                                      (compute-tmp-slot pre-live dst-slots))))
+           (bump-nlocals! tail-nlocals)
+           (hashq-set! call-allocations label
+                       (make-call-allocation #f moves))))
+        (($ $kargs (_) (_))
+         ;; When there is only one value in play, we allow the dst to be
+         ;; hinted (see scan-for-hints).  If the src doesn't have a
+         ;; slot, then the actual slot for the dst would end up being
+         ;; decided by the call that uses it.  Because we don't know the
+         ;; slot, we can't really compute the parallel moves in that
+         ;; case, so just bail and rely on the bytecode emitter to
+         ;; handle the one-value case specially.
+         (match (cons uses (vector-ref defv (cfa-k-idx cfa k)))
+           (((src) . (dst))
+            (allocate! dst (vector-ref slots src) post-live))))
+        (($ $kargs)
+         (let* ((src-slots (map (cut vector-ref slots <>) uses))
+                (dst-vars (vector-ref defv (cfa-k-idx cfa k)))
+                (result-live (fold allocate! post-live dst-vars src-slots))
+                (dst-slots (map (cut vector-ref slots <>) dst-vars))
+                (moves (parallel-move src-slots dst-slots
+                                      (compute-tmp-slot (logior pre-live result-live)
+                                                        '()))))
+           (hashq-set! call-allocations label
+                       (make-call-allocation #f moves))))
+        (($ $kif) #f)))
 
     (define (allocate-prompt label k handler nargs)
       (match (vector-ref contv (cfa-k-idx cfa handler))
@@ -607,11 +624,8 @@ are comparable with eqv?.  A tmp slot may be used."
                      (($ $continue k src ($ $call))
                       (allocate-call label k uses live post-live))
                      (($ $continue k src ($ $primcall)) #t)
-                     ;; We only need to make a call allocation if there
-                     ;; are two or more values.
-                     (($ $continue k src ($ $values (_ _ . _)))
+                     (($ $continue k src ($ $values))
                       (allocate-values label k uses live post-live))
-                     (($ $continue k src ($ $values)) #t)
                      (($ $continue k src ($ $prompt escape? tag handler))
                       (allocate-prompt label k handler nargs))
                      (_ #f)))
