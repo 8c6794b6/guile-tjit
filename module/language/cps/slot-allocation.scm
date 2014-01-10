@@ -439,7 +439,12 @@ are comparable with eqv?.  A tmp slot may be used."
                 ;; terminator, but leave its definitions.
                 (match (find-expression body)
                   ((or ($ $void) ($ $const) ($ $prim) ($ $fun)
-                       ($ $primcall) ($ $prompt))
+                       ($ $primcall) ($ $prompt)
+                       ;; If $values has more than one argument, it may
+                       ;; use a temporary, which would invalidate our
+                       ;; assumptions that slots not allocated are not
+                       ;; used.
+                       ($ $values (or () (_))))
                    (let ((dead (make-bitvector (bitvector-length args) #f)))
                      (bit-set*! dead (live-before n) #t)
                      (bit-set*! dead (live-after n) #f)
