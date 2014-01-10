@@ -36,6 +36,7 @@
   #:use-module (language cps elide-values)
   #:use-module (language cps primitives)
   #:use-module (language cps reify-primitives)
+  #:use-module (language cps simplify)
   #:use-module (language cps slot-allocation)
   #:use-module (language cps specialize-primcalls)
   #:use-module (system vm assembler)
@@ -59,27 +60,24 @@
   ;; aren't used, and thus shouldn't be consed.
 
   (let* ((exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
+         (exp (run-pass exp simplify #:simplify? #t))
          (exp (run-pass exp contify #:contify? #t))
          (exp (run-pass exp inline-constructors #:inline-constructors? #t))
          (exp (run-pass exp specialize-primcalls #:specialize-primcalls? #t))
          (exp (run-pass exp elide-values #:elide-values? #t))
-         (exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t)))
+         (exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
+         (exp (run-pass exp simplify #:simplify? #t)))
     ;; Passes that are needed:
     ;; 
     ;;  * Abort contification: turning abort primcalls into continuation
     ;;    calls, and eliding prompts if possible.
     ;;
-    ;;  * Common subexpression elimination.  Desperately needed.  Requires
-    ;;    effects analysis.
+    ;;  * Common subexpression elimination.  Desperately needed.
     ;;
     ;;  * Loop peeling.  Unrolls the first round through a loop if the
     ;;    loop has effects that CSE can work on.  Requires effects
     ;;    analysis.  When run before CSE, loop peeling is the equivalent
     ;;    of loop-invariant code motion (LICM).
-    ;;
-    ;;  * Generic simplification pass, to be run as needed.  Used to
-    ;;    "clean up", both on the original raw input and after specific
-    ;;    optimization passes.
 
     exp))
 

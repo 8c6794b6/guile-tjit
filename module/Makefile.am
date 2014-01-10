@@ -1,6 +1,6 @@
 ## Process this file with automake to produce Makefile.in.
 ##
-##  	Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+##  	Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 ##
 ##   This file is part of GUILE.
 ##
@@ -130,6 +130,7 @@ CPS_LANG_SOURCES =						\
   language/cps/primitives.scm					\
   language/cps/reify-primitives.scm				\
   language/cps/slot-allocation.scm				\
+  language/cps/simplify.scm					\
   language/cps/spec.scm						\
   language/cps/specialize-primcalls.scm				\
   language/cps/verify.scm
