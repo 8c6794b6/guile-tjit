@@ -259,24 +259,6 @@
          (emit-load-static-procedure asm dst k))
         (($ $fun src meta free ($ $cont k))
          (emit-make-closure asm dst k (length free)))
-        (($ $call proc args)
-         (let* ((proc-slot (lookup-call-proc-slot label allocation))
-                (nargs (1+ (length args)))
-                (arg-slots (map (lambda (x) (+ x proc-slot)) (iota nargs))))
-           (for-each (match-lambda
-                      ((src . dst) (emit-mov asm dst src)))
-                     (lookup-parallel-moves label allocation))
-           (for-each maybe-load-constant arg-slots (cons proc args))
-           (emit-call asm proc-slot nargs)
-           (cond
-            (dst
-             (emit-receive asm dst proc-slot nlocals))
-            (else
-             ;; FIXME: Only allow more values if there is a rest arg.
-             ;; Express values truncation by the presence of an
-             ;; unused rest arg instead of implicitly.
-             (emit-receive-values asm proc-slot #t 1)
-             (emit-reset-frame asm nlocals)))))
         (($ $primcall 'current-module)
          (emit-current-module asm dst))
         (($ $primcall 'cached-toplevel-box (scope name bound?))
@@ -481,11 +463,8 @@
              => (lambda (dst)
                   (emit-receive asm dst proc-slot nlocals)))
             (else
-             ;; FIXME: Only allow more values if there is a rest arg.
-             ;; Express values truncation by the presence of an unused
-             ;; rest arg instead of implicitly.
-             (unless (zero? nreq)
-               (emit-receive-values asm proc-slot #t nreq))
+             (unless (and (zero? nreq) rest-var)
+               (emit-receive-values asm proc-slot (->bool rest-var) nreq))
              (when (and rest-var (maybe-slot rest-var))
                (emit-bind-rest asm (+ proc-slot 1 nreq)))
              (for-each (match-lambda
