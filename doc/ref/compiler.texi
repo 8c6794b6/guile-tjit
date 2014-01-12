@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  2008, 2009, 2010, 2011, 2012, 2013
+@c Copyright (C)  2008, 2009, 2010, 2011, 2012, 2013, 2014
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -533,7 +533,7 @@ compiler.
 @menu
 * An Introduction to CPS::
 * CPS in Guile::
-* Compiling CPS::
+* Building CPS::
 @end menu
 
 @node An Introduction to CPS
@@ -568,7 +568,7 @@ code:
 These labels also identify continuations.  For example, the continuation
 of @code{k7} is @code{k6}.  This is because after evaluating the value
 of @code{newline}, performed by the expression labelled @code{k7}, we
-continue to apply it in @var{k6}.
+continue to apply it in @code{k6}.
 
 Which label has @code{k0} as its continuation?  It is either @code{k1}
 or @code{k2}.  Scheme does not have a fixed order of evaluation of
@@ -620,110 +620,7 @@ Likewise @code{k6} is in tail context with respect to the expression as
 a whole, because its continuation is the tail continuation,
 @code{ktail}.  CPS makes these details manifest, and gives them names.
 
-@node CPS in Guile
-@subsubsection CPS in Guile
-
-Like Tree-IL, CPS is also a structured language, implemented with
-records not S-expressions.
-
-@deftp {Scheme Variable} <prompt> escape-only? tag body handler
-@deftpx {External Representation} (prompt @var{escape-only?} @var{tag} @var{body} @var{handler})
-@end deftp
-
-@deftp {Scheme Variable} $arity req opt rest kw allow-other-keys?
-@end deftp
-
-
-@deftp {Scheme Variable} $letk conts body
-@deftpx {External Representation} (letk @var{conts} @var{body})
-@end deftp
-@deftp {Scheme Variable} $continue k src exp
-@deftpx {External Representation} (continue @var{k} @var{src} @var{exp})
-@end deftp
-@deftp {Scheme Variable} $letrec names syms funs body
-@deftpx {External Representation} (letrec @var{names} @var{syms} @var{funs} @var{body})
-@end deftp
-
-;; Continuations
-@deftp {Scheme Variable} $cont k cont
-@deftpx {External Representation} (cont k cont)
-@end deftp
-@deftp {Scheme Variable} $kif kt kf
-@deftpx {External Representation} (kif kt kf)
-@end deftp
-@deftp {Scheme Variable} $ktrunc arity k
-@deftpx {External Representation} (ktrunc arity k)
-@end deftp
-@deftp {Scheme Variable} $kargs names syms body
-@deftpx {External Representation} (kargs names syms body)
-@end deftp
-@deftp {Scheme Variable} $kentry self tail clauses
-@deftpx {External Representation} (kentry self tail clauses)
-@end deftp
-@deftp {Scheme Variable} $ktail
-@deftpx {External Representation} (ktail)
-@end deftp
-@deftp {Scheme Variable} $kclause arity cont
-@deftpx {External Representation} (kclause arity cont)
-@end deftp
-
-;; Expressions.
-@deftp {Scheme Variable} $void
-@deftpx {External Representation} (void)
-@end deftp
-@deftp {Scheme Variable} $const val
-@deftpx {External Representation} (const val)
-@end deftp
-@deftp {Scheme Variable} $prim name
-@deftpx {External Representation} (prim name)
-@end deftp
-@deftp {Scheme Variable} $fun src meta free body
-@deftpx {External Representation} (fun src meta free body)
-@end deftp
-@deftp {Scheme Variable} $call proc args
-@deftpx {External Representation} (call proc args)
-@end deftp
-@deftp {Scheme Variable} $primcall name args
-@deftpx {External Representation} (primcall name args)
-@end deftp
-@deftp {Scheme Variable} $values args
-@deftpx {External Representation} (values args)
-@end deftp
-@deftp {Scheme Variable} $prompt escape? tag handler pop
-@deftpx {External Representation} (prompt escape? tag handler pop)
-@end deftp
-
-;; Helper.
-            $arity
-            make-$arity
-
-            ;; Terms.
-            $letk $continue $letrec
-
-            ;; Continuations.
-            $cont
-
-            ;; Continuation bodies.
-            $kif $ktrunc $kargs $kentry $ktail $kclause
-
-            ;; Expressions.
-            $void $const $prim $fun $call $primcall $values $prompt
-
-            ;; Building macros.
-            let-gensyms
-            build-cps-term build-cps-cont build-cps-exp
-            rewrite-cps-term rewrite-cps-cont rewrite-cps-exp
-
-            ;; Misc.
-            parse-cps unparse-cps
-            fold-conts fold-local-conts
-
-cwcc
-
-records, unlike early cps (rabbit, orbit)
-
-@node Compiling CPS
-@subsubsection Compiling CPS
+@subsubheading Compiling CPS
 
 In CPS, there are no nested expressions.  Indeed, CPS even removes the
 concept of a stack.  All applications in CPS are in tail context.  For
@@ -746,6 +643,256 @@ function's frame.  The compiler from CPS only allocates slots to values
 that are actually live; it's possible to have a value in scope but not
 allocated to a slot.
 
+@node CPS in Guile
+@subsubsection CPS in Guile
+
+Guile's CPS language is composed of @dfn{terms}, @dfn{expressions},
+and @dfn{continuations}.
+
+A term can either evaluate an expression and pass the resulting values
+to some continuation, or it can declare local continuations and contain
+a sub-term in the scope of those continuations.
+
+@deftp {CPS Term} $continue k src exp
+Evaluate the expression @var{exp} and pass the resulting values (if any)
+to the continuation labelled @var{k}.  The source information associated
+with the expression may be found in @var{src}, which is either an alist
+as in @code{source-properties} or is @code{#f} if there is no associated
+source.
+@end deftp
+
+@deftp {CPS Term} $letk conts body
+Bind @var{conts}, a list of continuations (@code{$cont} instances), in
+the scope of the sub-term @var{body}.  The continuations are mutually
+recursive.
+@end deftp
+
+Additionally, the early stages of CPS allow for a set of mutually
+recursive functions to be declared as a term.  This @code{$letrec} type
+is like Tree-IL's @code{<fix>}.  The contification pass will attempt to
+transform the functions declared in a @code{$letrec} into local
+continuations.  Any remaining functions are later lowered to @code{$fun}
+expressions.
+
+@deftp {CPS Term} $letrec names syms funs body
+Declare the mutually recursive set of functions denoted by @var{names},
+@var{syms}, and @var{funs} within the sub-term @var{body}.  @var{names}
+and @var{syms} are lists of symbols, and @var{funs} is a list of
+@var{$fun} values.  @var{syms} are globally unique.
+@end deftp
+
+Here is an inventory of the kinds of expressions in Guile's CPS
+language.  Recall that all expressions are wrapped in a @code{$continue}
+term which specifies their continuation.
+
+@deftp {CPS Expression} $void
+Continue with the unspecified value.
+@end deftp
+
+@deftp {CPS Expression} $const val
+Continue with the constant value @var{val}.
+@end deftp
+
+@deftp {CPS Expression} $prim name
+Continue with the procedure that implements the primitive operation
+named by @var{name}.
+@end deftp
+
+@deftp {CPS Expression} $fun src meta free body
+Continue with a procedure.  @var{src} identifies the source information
+for the procedure declaration, and @var{meta} is the metadata alist as
+described above in Tree-IL's @code{<lambda>}.  @var{free} is a list of
+free variables accessed by the procedure.  Early CPS uses an empty list
+for @var{free}; only after closure conversion is it correctly populated.
+Finally, @var{body} is the @code{$kentry} @code{$cont} of the procedure
+entry.
+@end deftp
+
+@deftp {CPS Expression} $call proc args
+Call @var{proc} with the arguments @var{args}, and pass all values to
+the continuation.  @var{proc} and the elements of the @var{args} list
+should all be variable names.  The continuation identified by the term's
+@var{k} should be a @code{$kreceive} or a @code{$ktail} instance.
+@end deftp
+
+@deftp {CPS Expression} $primcall name args
+Perform the primitive operation identified by @code{name}, a well-known
+symbol, passing it the arguments @var{args}, and pass all resulting
+values to the continuation.  The set of available primitives includes
+all primitives known to Tree-IL and then some more; see the source code
+for details.
+@end deftp
+
+@deftp {CPS Expression} $values args
+Pass the values named by the list @var{args} to the continuation.
+@end deftp
+
+@deftp {CPS Expression} $prompt escape? tag handler
+Push a prompt on the stack identified by the variable name @var{tag},
+which may be escape-only if @var{escape?} is true, and continue with
+zero values.  If the body aborts to this prompt, control will proceed at
+the continuation labelled @var{handler}, which should be a
+@code{$kreceive} continuation.  Prompts are later popped by
+@code{pop-prompt} primcalls.
+@end deftp
+
+The remaining element of the CPS language in Guile is the continuation.
+In CPS, all continuations have unique labels.  Since this aspect is
+common to all continuation types, all continuations are contained in a
+@code{$cont} instance:
+
+@deftp {CPS Continuation Wrapper} $cont k cont
+Declare a continuation labelled @var{k}.  All references to the
+continuation will use this label.
+@end deftp
+
+The most common kind of continuation binds some number of values, and
+then evaluates a sub-term.  @code{$kargs} is this kind of simple
+@code{lambda}.
+
+@deftp {CPS Continuation} $kargs names syms body
+Bind the incoming values to the variables @var{syms}, with original
+names @var{names}, and then evaluate the sub-term @var{body}.
+@end deftp
+
+Variable names (the names in the @var{syms} of a @code{$kargs}) should
+be globally unique, and also disjoint from continuation labels.  To bind
+a value to a variable and then evaluate some term, you would continue
+with the value to a @code{$kargs} that declares one variable.  The bound
+value would then be available for use within the body of the
+@code{$kargs}.
+
+@deftp {CPS Continuation} $kif kt kf
+Receive one value.  If it is true for the purposes of Scheme, branch to
+the continuation labelled @var{kt}, passing no values; otherwise, branch
+to @var{kf}.
+@end deftp
+
+For internal reasons, only certain terms may continue to a @code{$kif}.
+Compiling @code{$kif} avoids allocating space for the test variable, so
+it needs to be preceded by expressions that can test-and-branch without
+temporary values.  In practice this condition is true for
+@code{$primcall}s to @code{null?}, @code{=}, and similar primitives that
+have corresponding @code{br-if-@var{foo}} VM operations; see the source
+code for full details.  When in doubt, bind the test expression to a
+variable, and continue to the @code{$kif} with a @code{$values}
+expression.  The optimizer should elide the @code{$values} if it is not
+needed.
+
+Calls out to other functions need to be wrapped in a @code{$kreceive}
+continuation in order to adapt the returned values to their uses in the
+calling function, if any.
+
+@deftp {CPS Continuation} $kreceive arity k
+Receive values on the stack.  Parse them according to @var{arity}, and
+then proceed with the parsed values to the @var{$kargs} continuation
+labelled @var{k}.  As a limitation specific to @code{$kreceive},
+@var{arity} may only contain required and rest arguments.
+@end deftp
+
+@code{$arity} is a helper data structure used by @code{$kreceive} and
+also by @code{$kclause}, described below.
+
+@deftp {CPS Data} $arity req opt rest kw allow-other-keys?
+A data type declaring an arity.  @var{req} and @var{opt} are lists of
+source names of required and optional arguments, respectively.
+@var{rest} is either the source name of the rest variable, or @code{#f}
+if this arity does not accept additional values.  @var{kw} is a list of
+the form @code{((@var{keyword} @var{name} @var{var}) ...)}, describing
+the keyword arguments.  @var{allow-other-keys?} is true if other keyword
+arguments are allowed and false otherwise.
+
+Note that all of these names with the exception of the @var{var}s in the
+@var{kw} list are source names, not unique variable names.
+@end deftp
+
+Additionally, there are three specific kinds of continuations that can
+only be declared at function entries.
+
+@deftp {CPS Continuation} $kentry self tail clauses
+Declare a function entry.  @var{self} is a variable bound to the
+procedure being called, and which may be used for self-references.
+@var{tail} declares the @code{$cont} wrapping the @code{$ktail} for this
+function, corresponding to the function's tail continuation.
+@var{clauses} is a list of @code{$kclause} @code{$cont} instances.
+@end deftp
+
+@deftp {CPS Continuation} $ktail
+A tail continuation.
+@end deftp
+
+@deftp {CPS Continuation} $kclause arity cont
+A clause of a function with a given arity.  Applications of a function
+with a compatible set of actual arguments will continue to @var{cont}, a
+@code{$kargs} @code{$cont} instance representing the clause body.
+@end deftp
+
+
+@node Building CPS
+@subsubsection Building CPS
+
+Unlike Tree-IL, the CPS language is built to be constructed and
+deconstructed with abstract macros instead of via procedural
+constructors or accessors, or instead of S-expression matching.
+
+Deconstruction and matching is handled adequately by the @code{match}
+form from @code{(ice-9 match)}.  @xref{Pattern Matching}.  Construction
+is handled by a set of mutually recursive builder macros:
+@code{build-cps-term}, @code{build-cps-cont}, and @code{build-cps-exp}.
+
+In the following interface definitions, consider variables containing
+@code{cont} to be recursively build by @code{build-cps-cont}, and
+likewise for @code{term} and @code{exp}.  Consider any other name to be
+evaluated as a Scheme expression.  Many of these forms recognize
+@code{unquote} in some contexts, to splice in a previously-built value;
+see the specifications below for full details.
+
+@deffn {Scheme Syntax} build-cps-term ,val
+@deffnx {Scheme Syntax} build-cps-term ($letk (cont ...) term)
+@deffnx {Scheme Syntax} build-cps-term ($letrec names syms funs term)
+@deffnx {Scheme Syntax} build-cps-term ($continue k src exp)
+@deffnx {Scheme Syntax} build-cps-exp ,val
+@deffnx {Scheme Syntax} build-cps-exp ($void)
+@deffnx {Scheme Syntax} build-cps-exp ($const val)
+@deffnx {Scheme Syntax} build-cps-exp ($prim name)
+@deffnx {Scheme Syntax} build-cps-exp ($fun src meta free body)
+@deffnx {Scheme Syntax} build-cps-exp ($call proc (arg ...))
+@deffnx {Scheme Syntax} build-cps-exp ($call proc args)
+@deffnx {Scheme Syntax} build-cps-exp ($primcall name (arg ...))
+@deffnx {Scheme Syntax} build-cps-exp ($primcall name args)
+@deffnx {Scheme Syntax} build-cps-exp ($values (arg ...))
+@deffnx {Scheme Syntax} build-cps-exp ($values args)
+@deffnx {Scheme Syntax} build-cps-exp ($prompt escape? tag handler)
+@deffnx {Scheme Syntax} build-cps-cont ,val
+@deffnx {Scheme Syntax} build-cps-cont (k ($kargs (name ...) (sym ...) term))
+@deffnx {Scheme Syntax} build-cps-cont (k ($kargs names syms term))
+@deffnx {Scheme Syntax} build-cps-cont (k ($kif kt kf))
+@deffnx {Scheme Syntax} build-cps-cont (k ($kreceive req rest kargs))
+@deffnx {Scheme Syntax} build-cps-cont (k ($kentry self tail-cont ,clauses))
+@deffnx {Scheme Syntax} build-cps-cont (k ($kentry self tail-cont (cont ...)))
+@deffnx {Scheme Syntax} build-cps-cont (k ($kclause ,arity cont))
+@deffnx {Scheme Syntax} build-cps-cont (k ($kclause (req opt rest kw aok?) cont))
+Construct a CPS term, expression, or continuation.
+@end deffn
+
+There are a few more miscellaneous interfaces as well.
+
+@deffn {Scheme Procedure} make-arity req opt rest kw allow-other-keywords?
+A procedural constructor for @code{$arity} objects.
+@end deffn
+
+@deffn {Scheme Syntax} let-gensyms (sym ...) body ...
+Bind @var{sym...} to fresh names, and evaluate @var{body...}.
+@end deffn
+
+@deffn {Scheme Syntax} rewrite-cps-term val (pat term) ...
+@deffnx {Scheme Syntax} rewrite-cps-exp val (pat exp) ...
+@deffnx {Scheme Syntax} rewrite-cps-cont val (pat cont) ...
+Match @var{val} against the series of patterns @var{pat...}, using
+@code{match}.  The body of the matching clause should be a template in
+the syntax of @code{build-cps-term}, @code{build-cps-exp}, or
+@code{build-cps-cont}, respectively.
+@end deffn
 
 @node Bytecode
 @subsection Bytecode
