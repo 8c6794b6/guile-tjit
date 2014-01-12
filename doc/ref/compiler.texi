@@ -678,7 +678,7 @@ expressions.
 Declare the mutually recursive set of functions denoted by @var{names},
 @var{syms}, and @var{funs} within the sub-term @var{body}.  @var{names}
 and @var{syms} are lists of symbols, and @var{funs} is a list of
-@var{$fun} values.  @var{syms} are globally unique.
+@code{$fun} values.  @var{syms} are globally unique.
 @end deftp
 
 Here is an inventory of the kinds of expressions in Guile's CPS
@@ -785,7 +785,7 @@ calling function, if any.
 
 @deftp {CPS Continuation} $kreceive arity k
 Receive values on the stack.  Parse them according to @var{arity}, and
-then proceed with the parsed values to the @var{$kargs} continuation
+then proceed with the parsed values to the @code{$kargs} continuation
 labelled @var{k}.  As a limitation specific to @code{$kreceive},
 @var{arity} may only contain required and rest arguments.
 @end deftp
