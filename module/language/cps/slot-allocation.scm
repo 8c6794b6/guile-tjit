@@ -77,16 +77,16 @@
   ;; are called "call moves", and moves to handle a return are "return
   ;; moves".
   ;;
-  ;; $ktrunc continuations record a proc slot and a set of return moves
+  ;; $kreceive continuations record a proc slot and a set of return moves
   ;; to adapt multiple values from the stack to local variables.
   ;;
   ;; Tail calls record arg moves, but no proc slot.
   ;;
   ;; Non-tail calls record arg moves and a call slot.  Multiple-valued
-  ;; returns will have an associated $ktrunc continuation, which records
+  ;; returns will have an associated $kreceive continuation, which records
   ;; the same proc slot, but has return moves.
   ;;
-  ;; $prompt handlers are $ktrunc continuations like any other.
+  ;; $prompt handlers are $kreceive continuations like any other.
   ;;
   ;; $values expressions with more than 1 value record moves but have no
   ;; proc slot.
@@ -357,28 +357,28 @@ are comparable with eqv?.  A tmp slot may be used."
     ;; Results of function calls that are not used don't need to be
     ;; allocated to slots.
     (define (compute-unused-results!)
-      (define (ktrunc-get-kargs n)
+      (define (kreceive-get-kargs n)
         (match (vector-ref contv n)
-          (($ $ktrunc arity kargs) (cfa-k-idx cfa kargs))
+          (($ $kreceive arity kargs) (cfa-k-idx cfa kargs))
           (_ #f)))
       (let ((candidates (make-bitvector (vector-length contv) #f)))
-        ;; Find all $kargs that are the successors of $ktrunc nodes.
+        ;; Find all $kargs that are the successors of $kreceive nodes.
         (let lp ((n 0))
           (when (< n (vector-length contv))
-            (and=> (ktrunc-get-kargs n)
+            (and=> (kreceive-get-kargs n)
                    (lambda (kargs)
                      (bitvector-set! candidates kargs #t)))
             (lp (1+ n))))
-        ;; For $kargs that only have $ktrunc predecessors, remove unused
+        ;; For $kargs that only have $kreceive predecessors, remove unused
         ;; variables from the needs-slotv set.
         (let lp ((n 0))
           (let ((n (bit-position #t candidates n)))
             (when n
               (match (cfa-predecessors cfa n)
-                ;; At least one ktrunc is in the predecessor set, so we
+                ;; At least one kreceive is in the predecessor set, so we
                 ;; only need to do the check for nodes with >1
                 ;; predecessor.
-                ((or (_) ((? ktrunc-get-kargs) ...))
+                ((or (_) ((? kreceive-get-kargs) ...))
                  (for-each (lambda (var)
                              (when (dead-after-def? (cfa-k-sym cfa n) var dfa)
                                (bitvector-set! needs-slotv var #f)))
@@ -486,7 +486,7 @@ are comparable with eqv?.  A tmp slot may be used."
            (bump-nlocals! tail-nlocals)
            (hashq-set! call-allocations label
                        (make-call-allocation #f moves))))
-        (($ $ktrunc arity kargs)
+        (($ $kreceive arity kargs)
          (let* ((proc-slot (compute-call-proc-slot post-live))
                 (call-slots (map (cut + proc-slot <>) (iota (length uses))))
                 (pre-live (fold allocate! pre-live uses call-slots))
@@ -571,7 +571,7 @@ are comparable with eqv?.  A tmp slot may be used."
 
     (define (allocate-prompt label k handler nargs)
       (match (vector-ref contv (cfa-k-idx cfa handler))
-        (($ $ktrunc arity kargs)
+        (($ $kreceive arity kargs)
          (let* ((handler-live (recompute-live-slots handler nargs))
                 (proc-slot (compute-prompt-handler-proc-slot handler-live))
                 (result-vars (vector-ref defv (cfa-k-idx cfa kargs)))
@@ -639,7 +639,7 @@ are comparable with eqv?.  A tmp slot may be used."
                       (allocate-prompt label k handler nargs))
                      (_ #f)))
                  (lp (1+ n) post-live))
-                ((or ($ $ktrunc) ($ $kif) ($ $ktail))
+                ((or ($ $kreceive) ($ $kif) ($ $ktail))
                  (lp (1+ n) post-live)))))))
 
     (define (visit-entry)

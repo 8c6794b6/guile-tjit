@@ -178,7 +178,7 @@
                                  ($continue k src ($primcall 'box (phi))))))
                    ,(make-body kbox))))
              (make-body k)))
-       (let-gensyms (knext kbound kunbound ktrunc krest val rest)
+       (let-gensyms (knext kbound kunbound kreceive krest val rest)
          (build-cps-term
            ($letk ((knext ($kargs (name) (subst-sym) ,body)))
              ,(maybe-box
@@ -189,9 +189,9 @@
                                                    ($values (sym)))))
                            (krest ($kargs (name 'rest) (val rest)
                                     ($continue k src ($values (val)))))
-                           (ktrunc ($ktrunc (list name) 'rest krest))
+                           (kreceive ($kreceive (list name) 'rest krest))
                            (kunbound ($kargs () ()
-                                       ,(convert init ktrunc subst))))
+                                       ,(convert init kreceive subst))))
                      ,(unbound? src sym kunbound kbound))))))))))))
 
 ;; exp k-name alist -> term
@@ -209,11 +209,11 @@
          ((subst #f) (k subst))
          (#f (k sym))))
       (else
-       (let-gensyms (ktrunc karg arg rest)
+       (let-gensyms (kreceive karg arg rest)
          (build-cps-term
            ($letk ((karg ($kargs ('arg 'rest) (arg rest) ,(k arg)))
-                   (ktrunc ($ktrunc '(arg) 'rest karg)))
-             ,(convert exp ktrunc subst)))))))
+                   (kreceive ($kreceive '(arg) 'rest karg)))
+             ,(convert exp kreceive subst)))))))
   ;; (exp ...) ((v-name ...) -> term) -> term
   (define (convert-args exps k)
     (match exps
@@ -429,12 +429,12 @@
          (let ((hnames (append hreq (if hrest (list hrest) '()))))
            (let-gensyms (khargs khbody kret kprim prim kpop krest vals kbody)
              (build-cps-term
-               ;; FIXME: Attach hsrc to $ktrunc.
+               ;; FIXME: Attach hsrc to $kreceive.
                ($letk* ((khbody ($kargs hnames hsyms
                                   ,(fold box-bound-var
                                          (convert hbody k subst)
                                          hnames hsyms)))
-                        (khargs ($ktrunc hreq hrest khbody))
+                        (khargs ($kreceive hreq hrest khbody))
                         (kpop ($kargs ('rest) (vals)
                                 ($letk ((kret
                                          ($kargs () ()
@@ -447,7 +447,7 @@
                                                ($prim 'values))))))
                                   ($continue kret src
                                     ($primcall 'unwind ())))))
-                        (krest ($ktrunc '() 'rest kpop)))
+                        (krest ($kreceive '() 'rest kpop)))
                  ,(if escape-only?
                       (build-cps-term
                         ($letk ((kbody ($kargs () ()
@@ -539,25 +539,25 @@
               ($continue k src ($primcall 'box-set! (box exp)))))))))
 
     (($ <seq> src head tail)
-     (let-gensyms (ktrunc kseq vals)
+     (let-gensyms (kreceive kseq vals)
        (build-cps-term
          ($letk* ((kseq ($kargs ('vals) (vals)
                           ,(convert tail k subst)))
-                  (ktrunc ($ktrunc '() 'vals kseq)))
-           ,(convert head ktrunc subst)))))
+                  (kreceive ($kreceive '() 'vals kseq)))
+           ,(convert head kreceive subst)))))
 
     (($ <let> src names syms vals body)
      (let lp ((names names) (syms syms) (vals vals))
        (match (list names syms vals)
          ((() () ()) (convert body k subst))
          (((name . names) (sym . syms) (val . vals))
-          (let-gensyms (ktrunc klet rest)
+          (let-gensyms (kreceive klet rest)
             (build-cps-term
               ($letk* ((klet ($kargs (name 'rest) (sym rest)
                                ,(box-bound-var name sym
                                                (lp names syms vals))))
-                       (ktrunc ($ktrunc (list name) 'rest klet)))
-                ,(convert val ktrunc subst))))))))
+                       (kreceive ($kreceive (list name) 'rest klet)))
+                ,(convert val kreceive subst))))))))
 
     (($ <fix> src names gensyms funs body)
      ;; Some letrecs can be contified; that happens later.
@@ -582,14 +582,14 @@
     (($ <let-values> src exp
         ($ <lambda-case> lsrc req #f rest #f () syms body #f))
      (let ((names (append req (if rest (list rest) '()))))
-       (let-gensyms (ktrunc kargs)
+       (let-gensyms (kreceive kargs)
          (build-cps-term
            ($letk* ((kargs ($kargs names syms
                              ,(fold box-bound-var
                                     (convert body k subst)
                                     names syms)))
-                    (ktrunc ($ktrunc req rest kargs)))
-             ,(convert exp ktrunc subst))))))))
+                    (kreceive ($kreceive req rest kargs)))
+             ,(convert exp kreceive subst))))))))
 
 (define (build-subst exp)
   "Compute a mapping from lexical gensyms to substituted gensyms.  The

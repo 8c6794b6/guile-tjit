@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -58,7 +58,7 @@
                           (kvoid ($kargs () ()
                                    ($continue kunspec src ($void)))))
                    ($continue kvoid src ,exp)))))
-           (($ $ktrunc arity kargs)
+           (($ $kreceive arity kargs)
             ,(match arity
                (($ $arity () () rest () #f)
                 (if rest
@@ -99,7 +99,7 @@
                                    ($continue k src
                                      ($primcall 'return (v))))))
                        ($continue k* src ,exp)))))))
-           (($ $ktrunc arity kargs)
+           (($ $kreceive arity kargs)
             ,(match arity
                (($ $arity (_) () rest () #f)
                 (if rest

@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -60,7 +60,7 @@
          ,(rewrite-cps-term (lookup-cont k conts)
             (($ $ktail)
              ($continue k src ($values vals)))
-            (($ $ktrunc ($ $arity req () rest () #f) kargs)
+            (($ $kreceive ($ $arity req () rest () #f) kargs)
              ,(cond
                ((and (not rest) (= (length vals) (length req)))
                 (build-cps-term

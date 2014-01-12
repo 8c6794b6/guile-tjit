@@ -204,7 +204,7 @@
                          (and (= k-idx (1+ n))
                               (< (+ n 2) (cfa-k-count cfa))
                               (cfa-k-sym cfa (+ n 2)))))
-          (($ $ktrunc ($ $arity req () rest () #f) kargs)
+          (($ $kreceive ($ $arity req () rest () #f) kargs)
            (compile-trunc label k exp (length req)
                           (and rest
                                (match (vector-ref contv (cfa-k-idx cfa kargs))
@@ -313,7 +313,7 @@
         (($ $values ()) #f)
         (($ $prompt escape? tag handler)
          (match (lookup-cont handler)
-           (($ $ktrunc ($ $arity req () rest () #f) khandler-body)
+           (($ $kreceive ($ $arity req () rest () #f) khandler-body)
             (let ((receive-args (gensym "handler"))
                   (nreq (length req))
                   (proc-slot (lookup-call-proc-slot handler allocation)))

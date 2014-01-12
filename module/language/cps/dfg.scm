@@ -822,7 +822,7 @@ BODY for each body continuation in the prompt."
        (use-k! kt)
        (use-k! kf))
 
-      (($ $ktrunc arity k)
+      (($ $kreceive arity k)
        (use-k! k))
 
       (($ $letrec names syms funs body)
@@ -949,7 +949,7 @@ BODY for each body continuation in the prompt."
 (define (find-defining-expression sym dfg)
   (match (find-defining-term sym dfg)
     (#f #f)
-    (($ $ktrunc) #f)
+    (($ $kreceive) #f)
     (($ $kclause) #f)
     (term (find-expression term))))
 

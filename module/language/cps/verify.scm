@@ -59,7 +59,7 @@
       (($ $kif kt kf)
        (check-var kt k-env)
        (check-var kf k-env))
-      (($ $ktrunc ($ $arity ((? symbol?) ...) () (or #f (? symbol?)) () #f) k)
+      (($ $kreceive ($ $arity ((? symbol?) ...) () (or #f (? symbol?)) () #f) k)
        (check-var k k-env))
       (($ $kargs ((? symbol? name) ...) ((? symbol? sym) ...) body)
        (unless (= (length name) (length sym))

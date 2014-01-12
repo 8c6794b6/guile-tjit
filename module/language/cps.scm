@@ -53,7 +53,7 @@
 ;;;
 ;;; There are some Guile-specific quirks as well:
 ;;;
-;;;   - $ktrunc represents a continuation that receives multiple values,
+;;;   - $kreceive represents a continuation that receives multiple values,
 ;;;     but which truncates them to some number of required values,
 ;;;     possibly with a rest list.
 ;;;
@@ -118,7 +118,7 @@
             $cont
 
             ;; Continuation bodies.
-            $kif $ktrunc $kargs $kentry $ktail $kclause
+            $kif $kreceive $kargs $kentry $ktail $kclause
 
             ;; Expressions.
             $void $const $prim $fun $call $primcall $values $prompt
@@ -170,7 +170,7 @@
 ;; Continuations
 (define-cps-type $cont k cont)
 (define-cps-type $kif kt kf)
-(define-cps-type $ktrunc arity k)
+(define-cps-type $kreceive arity k)
 (define-cps-type $kargs names syms body)
 (define-cps-type $kentry self tail clauses)
 (define-cps-type $ktail)
@@ -199,13 +199,13 @@
      (make-$arity req opt rest kw allow-other-keys?))))
 
 (define-syntax build-cont-body
-  (syntax-rules (unquote $kif $ktrunc $kargs $kentry $ktail $kclause)
+  (syntax-rules (unquote $kif $kreceive $kargs $kentry $ktail $kclause)
     ((_ (unquote exp))
      exp)
     ((_ ($kif kt kf))
      (make-$kif kt kf))
-    ((_ ($ktrunc req rest kargs))
-     (make-$ktrunc (make-$arity req '() rest '() #f) kargs))
+    ((_ ($kreceive req rest kargs))
+     (make-$kreceive (make-$arity req '() rest '() #f) kargs))
     ((_ ($kargs (name ...) (sym ...) body))
      (make-$kargs (list name ...) (list sym ...) (build-cps-term body)))
     ((_ ($kargs names syms body))
@@ -303,8 +303,8 @@
        (sym ,(parse-cps body))))
     (('kif kt kf)
      (build-cont-body ($kif kt kf)))
-    (('ktrunc req rest k)
-     (build-cont-body ($ktrunc req rest k)))
+    (('kreceive req rest k)
+     (build-cont-body ($kreceive req rest k)))
     (('kargs names syms body)
      (build-cont-body ($kargs names syms ,(parse-cps body))))
     (('kentry self tail clauses)
@@ -361,8 +361,8 @@
      `(k ,sym ,(unparse-cps body)))
     (($ $kif kt kf)
      `(kif ,kt ,kf))
-    (($ $ktrunc ($ $arity req () rest '() #f) k)
-     `(ktrunc ,req ,rest ,k))
+    (($ $kreceive ($ $arity req () rest '() #f) k)
+     `(kreceive ,req ,rest ,k))
     (($ $kargs () () body)
      `(kseq ,(unparse-cps body)))
     (($ $kargs names syms body)
