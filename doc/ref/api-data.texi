@@ -56,6 +56,7 @@ For the documentation of such @dfn{compound} data types, see
 @tpindex Booleans
 
 The two boolean values are @code{#t} for true and @code{#f} for false.
+They can also be written as @code{#true} and @code{#false}, as per R7RS.
 
 Boolean values are returned by predicate procedures, such as the general
 equality predicates @code{eq?}, @code{eqv?} and @code{equal?}
@@ -2065,6 +2066,9 @@ name for each character.
 The short name for the ``delete'' character (code point U+007F) is
 @code{#\del}.
 
+The R7RS name for the ``escape'' character (code point U+001B) is
+@code{#\escape}.
+
 There are also a few alternative names left over for compatibility with
 previous versions of Guile.
 
@@ -2937,9 +2941,10 @@ The read syntax for strings is an arbitrarily long sequence of
 characters enclosed in double quotes (@nicode{"}).
 
 Backslash is an escape character and can be used to insert the following
-special characters.  @nicode{\"} and @nicode{\\} are R5RS standard, the
-next seven are R6RS standard --- notice they follow C syntax --- and the
-remaining four are Guile extensions.
+special characters.  @nicode{\"} and @nicode{\\} are R5RS standard,
+@nicode{\|} is R7RS standard, the next seven are R6RS standard ---
+notice they follow C syntax --- and the remaining four are Guile
+extensions.
 
 @table @asis
 @item @nicode{\\}
@@ -2948,6 +2953,9 @@ Backslash character.
 @item @nicode{\"}
 Double quote character (an unescaped @nicode{"} is otherwise the end
 of the string).
+
+@item @nicode{\|}
+Vertical bar character.
 
 @item @nicode{\a}
 Bell character (ASCII 7).
