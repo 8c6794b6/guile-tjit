@@ -534,12 +534,13 @@ compiler.
 * An Introduction to CPS::
 * CPS in Guile::
 * Building CPS::
+* Compiling CPS::
 @end menu
 
 @node An Introduction to CPS
 @subsubsection An Introduction to CPS
 
-As an example, consider the following Scheme expression:
+Consider the following Scheme expression:
 
 @lisp
 (begin
@@ -548,9 +549,8 @@ As an example, consider the following Scheme expression:
   (newline))
 @end lisp
 
-Let us identify all of the sub-expressions in this expression.  We give
-them unique labels, like @var{k1}, and annotate the original source
-code:
+Let us identify all of the sub-expressions in this expression,
+annotating them with unique labels:
 
 @lisp
 (begin
@@ -565,17 +565,18 @@ code:
   k6
 @end lisp
 
-These labels also identify continuations.  For example, the continuation
-of @code{k7} is @code{k6}.  This is because after evaluating the value
-of @code{newline}, performed by the expression labelled @code{k7}, we
+Each of these labels identifies a point in a program.  One label may be
+the continuation of another label.  For example, the continuation of
+@code{k7} is @code{k6}.  This is because after evaluating the value of
+@code{newline}, performed by the expression labelled @code{k7}, we
 continue to apply it in @code{k6}.
 
-Which label has @code{k0} as its continuation?  It is either @code{k1}
-or @code{k2}.  Scheme does not have a fixed order of evaluation of
-arguments, although it does guarantee that they are evaluated in some
-order.  However, continuation-passing style makes evaluation order
-explicit.  In Guile, this choice is made by the higher-level language
-compilers.
+Which expression has @code{k0} as its continuation?  It is either the
+expression labelled @code{k1} or the expression labelled @code{k2}.
+Scheme does not have a fixed order of evaluation of arguments, though it
+does guarantee that they are evaluated in some order.  Unlike general
+Scheme, continuation-passing style makes evaluation order explicit.  In
+Guile, this choice is made by the higher-level language compilers.
 
 Let us assume a left-to-right evaluation order.  In that case the
 continuation of @code{k1} is @code{k2}, and the continuation of
@@ -584,7 +585,7 @@ continuation of @code{k1} is @code{k2}, and the continuation of
 With this example established, we are ready to give an example of CPS in
 Scheme:
 
-@lisp
+@smalllisp
 (lambda (ktail)
   (let ((k1 (lambda ()
               (let ((k2 (lambda (proc)
@@ -603,45 +604,22 @@ Scheme:
                           (proc ktail))))
                 (k6 newline)))))
     (k1))
-@end lisp
+@end smalllisp
 
 Holy code explosion, Batman!  What's with all the lambdas?  Indeed, CPS
 is by nature much more verbose than ``direct-style'' intermediate
-languages like Tree-IL.  At the same time, CPS is more simple than full
-Scheme, in the same way that a Turing machine is more simple than
-Scheme, although they are semantically equivalent.
+languages like Tree-IL.  At the same time, CPS is simpler than full
+Scheme, because it makes things more explicit.
 
 In the original program, the expression labelled @code{k0} is in effect
-context.  Any values it returns are ignored.  This is reflected in CPS
-by noting that its continuation, @code{k4}, takes any number of values
-and ignores them.  Compare this to @code{k2}, which takes a single
-value; in this way we can say that @code{k1} is in a ``value'' context.
-Likewise @code{k6} is in tail context with respect to the expression as
-a whole, because its continuation is the tail continuation,
-@code{ktail}.  CPS makes these details manifest, and gives them names.
-
-@subsubheading Compiling CPS
-
-In CPS, there are no nested expressions.  Indeed, CPS even removes the
-concept of a stack.  All applications in CPS are in tail context.  For
-that reason, applications in CPS are jumps, not calls.  The @code{(k1)}
-above is nothing more than a @code{goto}.  @code{(k3 42)} is a
-@code{goto} with a value.  In this way, CPS bridges the gap between the
-lambda calculus and machine instruction sequences.
-
-On the side of machine instructions, Guile does still have a stack, and
-the @code{lambda} forms shown above do not actually result in one
-closure being allocated per subexpression at run-time.  Lambda
-expressions introduced by a CPS transformation can always be allocated
-as labels or basic blocks within a function.  In fact, we make a
-syntactic distinction between closures and continuations in the CPS
-language, and attempt to transform closures to continuations (basic
-blocks) where possible, via the @dfn{contification} optimization pass.
-
-Values bound by continuations are allocated to stack slots in a
-function's frame.  The compiler from CPS only allocates slots to values
-that are actually live; it's possible to have a value in scope but not
-allocated to a slot.
+context.  Any values it returns are ignored.  In Scheme, this fact is
+implicit.  In CPS, we can see it explicitly by noting that its
+continuation, @code{k4}, takes any number of values and ignores them.
+Compare this to @code{k2}, which takes a single value; in this way we
+can say that @code{k1} is in a ``value'' context.  Likewise @code{k6} is
+in tail context with respect to the expression as a whole, because its
+continuation is the tail continuation, @code{ktail}.  CPS makes these
+details manifest, and gives them names.
 
 @node CPS in Guile
 @subsubsection CPS in Guile
@@ -894,30 +872,203 @@ the syntax of @code{build-cps-term}, @code{build-cps-exp}, or
 @code{build-cps-cont}, respectively.
 @end deffn
 
+@node Compiling CPS
+@subsubsection Compiling CPS
+
+Compiling CPS in Guile has three phases: conversion, optimization, and
+code generation.
+
+CPS conversion is the process of taking a higher-level language and
+compiling it to CPS.  Source languages can do this directly, or they can
+convert to Tree-IL (which is probably easier) and let Tree-IL convert to
+CPS later.  Going through Tree-IL has the advantage of running Tree-IL
+optimization passes, like partial evaluation.  Also, the compiler from
+Tree-IL to CPS handles assignment conversion, in which assigned local
+variables (in Tree-IL, locals that are @code{<lexical-set>}) are
+converted to being boxed values on the heap.  @xref{Variables and the
+VM}.
+
+After CPS conversion, Guile runs some optimization passes.  The major
+optimization performed on CPS is contification, in which functions that
+are always called with the same continuation are incorporated directly
+into a function's body.  This opens up space for more optimizations, and
+turns procedure calls into @code{goto}.  It can also make loops out of
+recursive function nests.
+
+At the time of this writing (2014), most high-level optimization in
+Guile is done on Tree-IL.  We would like to rewrite many of these passes
+to operate on CPS instead, as it is easier to reason about CPS.
+
+The rest of the optimization passes are really cleanups and
+canonicalizations.  CPS spans the gap between high-level languages and
+low-level bytecodes, which allows much of the compilation process to be
+expressed as source-to-source transformations.  Such is the case for
+closure conversion, in which references to variables that are free in a
+function are converted to closure references, and in which functions are
+converted to closures.  There are a few more passes to ensure that the
+only primcalls left in the term are those that have a corresponding
+instruction in the virtual machine, and that their continuations expect
+the right number of values.
+
+Finally, the backend of the CPS compiler emits bytecode for each
+function, one by one.  To do so, it determines the set of live variables
+at all points in the function.  Using this liveness information, it
+allocates stack slots to each variable, such that a variable can live in
+one slot for the duration of its lifetime, without shuffling.  (Of
+course, variables with disjoint lifetimes can share a slot.)  Finally
+the backend emits code, typically just one VM instruction, for each
+continuation in the function.
+
+
 @node Bytecode
 @subsection Bytecode
 
-@xref{Object File Format}.
+As mentioned before, Guile compiles all code to bytecode, and that
+bytecode is contained in ELF images.  @xref{Object File Format}, for
+more on Guile's use of ELF.
 
-TODO: document (system vm loader)
+To produce a bytecode image, Guile provides an assembler and a linker.
+
+The assembler, defined in the @code{(system vm assembler)} module, has a
+relatively straightforward imperative interface.  It provides a
+@code{make-assembler} function to instantiate an assembler and a set of
+@code{emit-@var{inst}} procedures to emit instructions of each kind.
+
+The @code{emit-@var{inst}} procedures are actually generated at
+compile-time from a machine-readable description of the VM.  With a few
+exceptions for certain operand types, each operand of an emit procedure
+corresponds to an operand of the corresponding instruction.
+
+Consider @code{vector-length}, from @pxref{Miscellaneous Instructions}.
+It is documented as:
+
+@deftypefn Instruction {} vector-length u12:@var{dst} u12:@var{src}
+@end deftypefn
+
+Therefore the emit procedure has the form:
+
+@deffn {Scheme Procedure} emit-vector-length asm dst src
+@end deffn
+
+All emit procedure take the assembler as their first argument, and
+return no useful values.
+
+The argument types depend on the operand types.  @xref{Instruction Set}.
+Most are integers within a restricted range, though labels are generally
+expressed as opaque symbols.
+
+There are a few macro-instructions as well.
+
+@deffn {Scheme Procedure} emit-label asm label
+Define a label at the current program point.
+@end deffn
+
+@deffn {Scheme Procedure} emit-source asm source
+Associate @var{source} with the current program point.
+@end deffn
+
+@deffn {Scheme Procedure} emit-cache-current-module! asm module scope
+@deffnx {Scheme Procedure} emit-cached-toplevel-box asm dst scope sym bound?
+@deffnx {Scheme Procedure} emit-cached-module-box asm dst module-name sym public? bound?
+Macro-instructions to implement caching of top-level variables.  The
+first takes the current module, in the slot @var{module}, and associates
+it with a cache location identified by @var{scope}.  The second takes a
+@var{scope}, and resolves the variable.  @xref{Top-Level Environment
+Instructions}.  The last does not need a cached module, rather taking
+the module name directly.
+@end deffn
+
+@deffn {Scheme Procedure} emit-load-constant asm dst constant
+Load the Scheme datum @var{constant} into @var{dst}.
+@end deffn
+
+@deffn {Scheme Procedure} emit-begin-program asm label properties
+@deffnx {Scheme Procedure} emit-end-program asm
+Delimit the bounds of a procedure, with the given @var{label} and the
+metadata @var{properties}.
+@end deffn
+
+@deffn {Scheme Procedure} emit-load-static-procedure asm dst label
+Load a procedure with the given @var{label} into local @var{dst}.  This
+macro-instruction should only be used with procedures without free
+variables -- procedures that are not closures.
+@end deffn
+
+@deffn {Scheme Procedure} emit-begin-standard-arity asm req nlocals alternate
+@deffnx {Scheme Procedure} emit-begin-opt-arity asm req opt rest nlocals alternate
+@deffnx {Scheme Procedure} emit-begin-kw-arity asm req opt rest kw-indices allow-other-keys? nlocals alternate
+@deffnx {Scheme Procedure} emit-end-arity asm
+Delimit a clause of a procedure.
+@end deffn
+
+@deffn {Scheme Procedure} emit-br-if-symbol asm slot invert? label
+@deffnx {Scheme Procedure} emit-br-if-variable asm slot invert? label
+@deffnx {Scheme Procedure} emit-br-if-vector asm slot invert? label
+@deffnx {Scheme Procedure} emit-br-if-string asm slot invert? label
+@deffnx {Scheme Procedure} emit-br-if-bytevector asm slot invert? label
+@deffnx {Scheme Procedure} emit-br-if-bitvector asm slot invert? label
+TC7-specific test-and-branch instructions.  The TC7 is a 7-bit code that
+is part of a heap object's type.  @xref{The SCM Type in Guile}.  Also,
+@xref{Branch Instructions}.
+@end deffn
+
+The linker is a complicated beast.  Hackers interested in how it works
+would do well do read Ian Lance Taylor's series of articles on linkers.
+Searching the internet should find them easily.  From the user's
+perspective, there is only one knob to control: whether the resulting
+image will be written out to a file or not.  If the user passes
+@code{#:to-file? #t} as part of the compiler options (@pxref{The Scheme
+Compiler}), the linker will align the resulting segments on page
+boundaries, and otherwise not.
+
+@deffn {Scheme Procedure} link-assembly asm #:page-aligned?=#t
+Link an ELF image, and return the bytevector.  If @var{page-aligned?} is
+true, Guile will align the segments with different permissions on
+page-sized boundaries, in order to maximize code sharing between
+different processes.  Otherwise, padding is minimized, to minimize
+address space consumption.
+@end deffn
+
+To write an image to disk, just use @code{put-bytevector} from
+@code{(ice-9 binary-ports)}.
+
+Compiling object code to the fake language, @code{value}, is performed
+via loading objcode into a program, then executing that thunk with
+respect to the compilation environment. Normally the environment
+propagates through the compiler transparently, but users may specify the
+compilation environment manually as well, as a module.  Procedures to
+load images can be found in the @code{(system vm loader)} module:
+
+@lisp
+(use-modules (system vm loader))
+@end lisp
 
 @deffn {Scheme Variable} load-thunk-from-file file
 @deffnx {C Function} scm_load_thunk_from_file (file)
 Load object code from a file named @var{file}. The file will be mapped
 into memory via @code{mmap}, so this is a very fast operation.
-
-On disk, object code is embedded in ELF, a flexible container format
-created for use in UNIX systems.  Guile has its own ELF linker and
-loader, so it uses the ELF format on all systems.
 @end deffn
 
-TODO: document load-thunk-from-memory
+@deffn {Scheme Variable} load-thunk-from-memory bv
+@deffnx {C Function} scm_load_thunk_from_memory (bv)
+Load object code from a bytevector.  The data will be copied out of the
+bytevector in order to ensure proper alignment of embedded Scheme
+values.
+@end deffn
 
-Compiling object code to the fake language, @code{value}, is performed
-via loading objcode into a program, then executing that thunk with
-respect to the compilation environment. Normally the environment
-propagates through the compiler transparently, but users may specify
-the compilation environment manually as well, as a module.
+Additionally there are procedures to find the ELF image for a given
+pointer, or to list all mapped ELF images:
+
+@deffn {Scheme Variable} find-mapped-elf-image ptr
+Given the integer value @var{ptr}, find and return the ELF image that
+contains that pointer, as a bytevector.  If no image is found, return
+@code{#f}.  This routine is mostly used by debuggers and other
+introspective tools.
+@end deffn
+
+@deffn {Scheme Variable} all-mapped-elf-images
+Return all mapped ELF images, as a list of bytevectors.
+@end deffn
 
 
 @node Writing New High-Level Languages
