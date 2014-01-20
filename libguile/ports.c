@@ -1298,8 +1298,6 @@ SCM_DEFINE (scm_port_conversion_strategy, "port-conversion-strategy",
 {
   scm_t_string_failed_conversion_handler h;
 
-  SCM_VALIDATE_OPPORT (1, port);
-
   if (scm_is_false (port))
     h = scm_i_default_port_conversion_handler ();
   else
