@@ -4218,9 +4218,11 @@ when none is available, reading FILE-NAME with READER."
     srfi-23  ;; `error` procedure
     srfi-30  ;; nested multi-line comments
     srfi-39  ;; parameterize
+    srfi-46  ;; basic syntax-rules extensions
     srfi-55  ;; require-extension
     srfi-61  ;; general cond clause
     srfi-62  ;; s-expression comments
+    srfi-87  ;; => in case clauses
     srfi-105 ;; curly infix expressions
     ))
 

@@ -48,12 +48,14 @@ get the relevant SRFI documents from the SRFI home page
 * SRFI-41::                     Streams.
 * SRFI-42::                     Eager comprehensions
 * SRFI-45::                     Primitives for expressing iterative lazy algorithms
+* SRFI-46::                     Basic syntax-rules Extensions.
 * SRFI-55::                     Requiring Features.
 * SRFI-60::                     Integers as bits.
 * SRFI-61::                     A more general `cond' clause
 * SRFI-62::                     S-expression comments.
 * SRFI-67::                     Compare procedures
 * SRFI-69::                     Basic hash tables.
+* SRFI-87::                     => in case clauses.
 * SRFI-88::                     Keyword objects.
 * SRFI-98::                     Accessing environment variables.
 * SRFI-105::                    Curly-infix expressions.
@@ -154,9 +156,11 @@ srfi-16
 srfi-23
 srfi-30
 srfi-39
+srfi-46
 srfi-55
 srfi-61
 srfi-62
+srfi-87
 srfi-105
 @end example
 
@@ -4649,6 +4653,15 @@ apply @code{force} to arguments of deconstructors (e.g., @code{car},
 wrap procedure bodies with @code{(lazy ...)}.
 @end itemize
 
+@node SRFI-46
+@subsection SRFI-46 Basic syntax-rules Extensions
+@cindex SRFI-46
+
+Guile's core @code{syntax-rules} supports the extensions specified by
+SRFI-46/R7RS.  Tail patterns have been supported since at least Guile
+2.0, and custom ellipsis identifiers have been supported since Guile
+2.0.10.  @xref{Syntax Rules}.
+
 @node SRFI-55
 @subsection SRFI-55 - Requiring Features
 @cindex SRFI-55
@@ -5032,6 +5045,14 @@ Answer a hash value appropriate for equality predicate @code{equal?},
 
 @code{hash} is a backwards-compatible replacement for Guile's built-in
 @code{hash}.
+
+@node SRFI-87
+@subsection SRFI-87 => in case clauses
+@cindex SRFI-87
+
+Starting from version 2.0.6, Guile's core @code{case} syntax supports
+@code{=>} in clauses, as specified by SRFI-87/R7RS.
+@xref{Conditionals}.
 
 @node SRFI-88
 @subsection SRFI-88 Keyword Objects
