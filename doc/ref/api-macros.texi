@@ -44,6 +44,7 @@ languages}, or EDSLs.}.
 * Syntax Parameters::           Syntax Parameters.
 * Eval When::                   Affecting the expand-time environment.
 * Macro Expansion::             Procedurally expanding macros.
+* Hygiene and the Top-Level::   A hack you might want to know about.
 * Internal Macros::             Macros as first-class values.
 @end menu
 
@@ -1270,6 +1271,108 @@ Compiler}.
 It's a terrible interface; we know.  The macroexpander is somewhat
 tricksy regarding modes, so unless you are building a macro-expanding
 tool, we suggest to avoid invoking it directly.
+
+
+@node Hygiene and the Top-Level
+@subsection Hygiene and the Top-Level
+
+Consider the following macro.
+
+@lisp
+(define-syntax-rule (defconst name val)
+  (begin
+    (define t val)
+    (define-syntax-rule (name) t)))
+@end lisp
+
+If we use it to make a couple of bindings:
+
+@lisp
+(defconst foo 42)
+(defconst bar 37)
+@end lisp
+
+The expansion would look something like this:
+
+@lisp
+(begin
+  (define t 42)
+  (define-syntax-rule (foo) t))
+(begin
+  (define t 37)
+  (define-syntax-rule (bar) t))
+@end lisp
+
+As the two @code{t} bindings were introduced by the macro, they should
+be introduced hygienically -- and indeed they are, inside a lexical
+contour (a @code{let} or some other lexical scope).  The @code{t}
+reference in @code{foo} is distinct to the reference in @code{bar}.
+
+At the top-level things are more complicated.  Before Guile 2.2, a use
+of @code{defconst} at the top-level would not introduce a fresh binding
+for @code{t}.  This was consistent with a weaselly interpretation of the
+Scheme standard, in which all possible bindings may be assumed to exist,
+at the top-level, and in which we merely take advantage of toplevel
+@code{define} of an existing binding being equivalent to @code{set!}.
+But it's not a good reason.
+
+The solution is to create fresh names for all bindings introduced by
+macros -- not just bindings in lexical contours, but also bindings
+introduced at the top-level.
+
+However, the obvious strategy of just giving random names to introduced
+toplevel identifiers poses a problem for separate compilation.  Consider
+without loss of generality a @code{defconst} of @code{foo} in module
+@code{a} that introduces the fresh top-level name @code{t-1}.  If we
+then compile a module @code{b} that uses @code{foo}, there is now a
+reference to @code{t-1} in module @code{b}.  If module @code{a} is then
+expanded again, for whatever reason, for example in a simple
+recompilation, the introduced @code{t} gets a fresh name; say,
+@code{t-2}.  Now module @code{b} has broken because module @code{a} no
+longer has a binding for @code{t-1}.
+
+If introduced top-level identifiers ``escape'' a module, in whatever
+way, they then form part of the binary interface (ABI) of a module.  It
+is unacceptable from an engineering point of view to allow the ABI to
+change randomly.  (It also poses practical problems in meeting the
+recompilation conditions of the Lesser GPL license, for such modules.)
+For this reason many people prefer to never use identifier-introducing
+macros at the top-level, instead making those macros receive the names
+for their introduced identifiers as part of their arguments, or to
+construct them programmatically and use @code{datum->syntax}.  But this
+approach requires omniscience as to the implementation of all macros one
+might use, and also limits the expressive power of Scheme macros.
+
+There is no perfect solution to this issue.  Guile does a terrible thing
+here.  When it goes to introduce a top-level identifier, Guile gives the
+identifier a pseudo-fresh name: a name that depends on the hash of the
+source expression in which the name occurs.  The result in this case is
+that the introduced definitions expand as:
+
+@lisp
+(begin
+  (define t-1dc5e42de7c1050c 42)
+  (define-syntax-rule (foo) t-1dc5e42de7c1050c))
+(begin
+  (define t-10cb8ce9fdddd6e9 37)
+  (define-syntax-rule (bar) t-10cb8ce9fdddd6e9))
+@end lisp
+
+However, note that as the hash depends solely on the expression
+introducing the definition, we also have:
+
+@lisp
+(defconst baz 42)
+@result{} (begin
+    (define t-1dc5e42de7c1050c 42)
+    (define-syntax-rule (baz) t-1dc5e42de7c1050c))
+@end lisp
+
+Note that the introduced binding has the same name!  This is because the
+source expression, @code{(define t 42)}, was the same.  Probably you
+will never see an error in this area, but it is important to understand
+the components of the interface of a module, and that interface may
+include macro-introduced identifiers.
 
 
 @node Internal Macros
