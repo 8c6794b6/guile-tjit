@@ -1,10 +1,383 @@
 Guile NEWS --- history of user-visible changes.
-Copyright (C) 1996-2013 Free Software Foundation, Inc.
+Copyright (C) 1996-2014 Free Software Foundation, Inc.
 See the end for copying conditions.
 
 Please send Guile bug reports to bug-guile@gnu.org.
 
 
+
+Changes in 2.1.1 (changes since the 2.0.x series):
+
+* Notable changes
+
+** Speed
+
+The biggest change in Guile 2.2 is a complete rewrite of its virtual
+machine and compiler internals.  The result is faster startup time,
+better memory usage, and faster execution of user code.  See the
+"Performance improvements" section below for more details.
+
+** Better thread-safety
+
+This new release series takes the ABI-break opportunity to fix some
+interfaces that were difficult to use correctly from multiple threads.
+Notably, weak hash tables are now transparently thread-safe.  Ports are
+also thread-safe; see "New interfaces" below for details on the changes
+to the C interface.
+
+** Off-main-thread finalization
+
+Following Guile 2.0.6's change to invoke finalizers via asyncs, Guile
+2.2 takes the additional step of invoking finalizers from a dedicated
+finalizer thread, if threads are enabled.  This avoids concurrency
+issues between finalizers and application code, and also speeds up
+finalization.
+
+** Better locale support in Guile scripts
+
+When Guile is invoked directly, either from the command line or via a
+hash-bang line (e.g. "#!/usr/bin/guile"), it now installs the current
+locale via a call to `(setlocale LC_ALL "")'.  For users with a unicode
+locale, this makes all ports unicode-capable by default, without the
+need to call `setlocale' in your program.  This behavior may be
+controlled via the GUILE_INSTALL_LOCALE environment variable; see the
+manual for more.
+
+** Complete Emacs-compatible Elisp implementation
+
+Thanks to the work of BT Templeton, Guile's Elisp implementation is now
+fully Emacs-compatible, implementing all of Elisp's features and quirks
+in the same way as the editor we know and love.
+
+** Dynamically expandable stacks
+
+Instead of allocating fixed stack sizes for running Scheme code, Guile
+now starts off each thread with only one or two pages of stack, and
+expands it dynamically as needed.  Guile will throw an exception for
+stack overflows at some user-defined limit.  See the manual for
+documentation on the GUILE_STACK_SIZE environment variable.
+
+This allows users to write programs that use the stack as a data
+structure for pending computations, as it was meant to be, without
+reifying that data out to the heap.  Where you would previously make a
+loop that collect its results in reverse order only to re-reverse them
+at the end, now you can just recurse without worrying about stack
+overflows.
+
+* Performance improvements
+
+** Faster programs via new virtual machine
+
+Guile's new virtual machine compiles programs to instructions for a new
+virtual machine.  The new virtual machine's instructions can address
+their source and destination operands by "name" (slot).  This makes
+access to named temporary values much faster, and removes a lot of
+value-shuffling that the old virtual machine had to do.  The end result
+is that loop-heavy code can be two or three times as fast with Guile 2.2
+as in 2.0.  Your mileage may vary, of course; see "A Virtual Machine for
+Guile" in the manual for the nitties and the gritties.
+
+** Better startup time, memory usage with ELF object file format
+
+Guile now uses the standard ELF format for its compiled code.  (Guile
+has its own loader and linker, so this does not imply a dependency on
+any particular platform's ELF toolchain.)  The benefit is that Guile is
+now able to statically allocate more data in the object files.  ELF also
+enables more sharing of data between processes, and decreases startup
+time (about 40% faster than the already fast startup of the Guile 2.0
+series).  Guile also uses DWARF for some of its debugging information.
+Much of the debugging information can be stripped from the object files
+as well.  See "Object File Format" in the manual, for full details.
+
+** Better optimizations via compiler rewrite
+
+Guile's compiler now uses a Continuation-Passing Style (CPS)
+intermediate language, allowing it to reason easily about temporary
+values and control flow.  Examples of optimizations that this permits
+are optimal contification, dead code elimination, parallel moves with at
+most one temporary, and allocation of stack slots using precise liveness
+information.  For more, see "Continuation-Passing Style" in the manual.
+
+** Faster interpreter
+
+Combined with a number of optimizations to the interpreter itself,
+simply compiling `eval.scm' with the new compiler yields an interpreter
+that is consistently two or three times faster than the one in Guile
+2.0.
+
+** Allocation-free dynamic stack
+
+Guile now implements the dynamic stack with an actual stack instead of a
+list of heap objects, avoiding most allocation.  This speeds up prompts,
+the `scm_dynwind_*' family of functions, fluids, and `dynamic-wind'.
+
+** Optimized UTF-8 and Latin-1 ports, symbols, and strings
+
+Guile 2.2 is faster at reading and writing UTF-8 and Latin-1 strings
+from ports, and at converting symbols and strings to and from these
+encodings.
+
+** Optimized hash functions
+
+Guile 2.2 now uses Bob Jenkins' `hashword2' (from his `lookup3.c') for
+its string hash, and Thomas Wang's integer hash function for `hashq' and
+`hashv'.  These functions produce much better hash values across all
+available fixnum bits.
+
+* New interfaces
+
+** New `cond-expand' feature: `guile-2.2'
+
+Use this feature if you need to check for Guile 2.2 from Scheme code.
+
+** New predicate: `nil?'
+
+See "Nil" in the manual.
+
+** New compiler modules
+
+Since the compiler was rewritten, there are new modules for the back-end
+of the compiler and the low-level loader and introspection interfaces.
+See the "Guile Implementation" chapter in the manual for all details.
+
+** New functions: `scm_to_intptr_t', `scm_from_intptr_t'
+** New functions: `scm_to_uintptr_t', `scm_from_uintptr_t'
+
+See XXX in the manual.
+
+** New thread-safe port API
+
+For details on `scm_c_make_port', `scm_c_make_port_with_encoding',
+`scm_c_lock_port', `scm_c_try_lock_port', `scm_c_unlock_port',
+`scm_c_port_type_ref', `scm_c_port_type_add_x', `SCM_PORT_DESCRIPTOR',
+and `scm_dynwind_lock_port', see XXX.
+
+There is now a routine to atomically adjust port "revealed counts".  See
+XXX for more on `scm_adjust_port_revealed_x' and
+`adjust-port-revealed!',
+
+All other port API now takes the lock on the port if needed.  There are
+some C interfaces if you know that you don't need to take a lock; see
+XXX for details on `scm_get_byte_or_eof_unlocked',
+`scm_peek_byte_or_eof_unlocked' `scm_c_read_unlocked',
+`scm_getc_unlocked' `scm_unget_byte_unlocked', `scm_ungetc_unlocked',
+`scm_ungets_unlocked', `scm_fill_input_unlocked' `scm_putc_unlocked',
+`scm_puts_unlocked', and `scm_lfwrite_unlocked'.
+
+** New inline functions: `scm_new_smob', `scm_new_double_smob'
+
+These can replace many uses of SCM_NEWSMOB, SCM_RETURN_NEWSMOB2, and the
+like.  See XXX in the manual, for more.
+
+** New low-level type accessors
+
+For more on `SCM_HAS_TYP7', `SCM_HAS_TYP7S', `SCM_HAS_TYP16', see XXX.
+
+`SCM_HEAP_OBJECT_P' is now an alias for the inscrutable `SCM_NIMP'.
+
+`SCM_UNPACK_POINTER' and `SCM_PACK_POINTER' are better-named versions of
+the old `SCM2PTR' and `PTR2SCM'.  Also, `SCM_UNPACK_POINTER' yields a
+void*.
+
+** `scm_c_weak_vector_ref', `scm_c_weak_vector_set_x'
+
+Weak vectors can now be accessed from C using these accessors.
+
+** <standard-vtable>, standard-vtable-fields
+
+See "Structures" in the manual for more on these
+
+** Convenience utilities for ports and strings.
+
+See XXX for more on `scm_from_port_string', `scm_from_port_stringn',
+`scm_to_port_string', and `scm_to_port_stringn'.
+
+** New expressive PEG parser
+
+See "PEG Parsing" in the manual for more.  Thanks to Michael Lucy for
+originally writing these, and to Noah Lavine for integration work.
+
+* Incompatible changes
+
+** ASCII is not ISO-8859-1
+
+In Guile 2.0, if a user set "ASCII" or "ANSI_X3.4-1968" as the encoding
+of a port, Guile would treat it as ISO-8859-1.  While these encodings
+are the same for codepoints 0 to 127, ASCII does not extend past that
+range, whereas ISO-8859-1 goes up to 255.  Guile 2.2 no longer treats
+ASCII as ISO-8859-1.  This is likely to be a problem only if the user's
+locale is set to ASCII, and the user or a program writes non-ASCII
+codepoints to a port.
+
+** String ports default to UTF-8
+
+Guile 2.0 would use the `%default-port-encoding' when creating string
+ports.  This resulted in ports that could only accept a subset of valid
+characters, which was surprising to users.  Now string ports default to
+the UTF-8 encoding.  Sneaky users can still play encoding conversion
+games with string ports by explicitly setting the encoding of a port
+after it is open.  See "Ports" in the manual for more.
+
+** `scm_from_stringn' and `scm_to_stringn' encoding arguments are never NULL
+
+These functions now require a valid `encoding' argument, and will abort
+if given `NULL'.
+
+** All r6rs ports are both textual and binary
+    
+Because R6RS ports are a thin layer on top of Guile's ports, and Guile's
+ports are both textual and binary, Guile's R6RS ports are also both
+textual and binary, and thus both kinds have port transcoders.  This is
+an incompatibility with respect to R6RS.
+
+** Vtable hierarchy changes
+
+In an attempt to make Guile's structure and record types integrate
+better with GOOPS by unifying the vtable hierarchy, `make-vtable-vtable'
+is now deprecated.  Instead, users should just use `make-vtable' with
+appropriate arguments.  See "Structures" in the manual for all of the
+details.  As such, `record-type-vtable' and `%condition-type-vtable' now
+have a parent vtable and are no longer roots of the vtable hierarchy.
+    
+** Syntax parameters are a distinct type
+
+Guile 2.0's transitional implementation of `syntax-parameterize' was
+based on the `fluid-let-syntax' interface inherited from the psyntax
+expander.  This interface allowed any binding to be dynamically rebound
+-- even bindings like `lambda'.  This is no longer the case in Guile
+2.2.  Syntax parameters must be defined via `define-syntax-parameter',
+and only such bindings may be parameterized.  See "Syntax Parameters" in
+the manual for more.
+
+** Defined identifiers scoped in the current module
+    
+Sometimes Guile's expander would attach incorrect module scoping
+information for top-level bindings made by an expansion.  For example,
+given the following R6RS library:
+
+    (library (defconst)
+      (export defconst)
+      (import (guile))
+      (define-syntax-rule (defconst name val)
+        (begin
+          (define t val)
+          (define-syntax-rule (name) t))))
+
+Attempting to use it would produce an error:
+
+    (import (defconst))
+    (defconst foo 42)
+    (foo)
+    =| Unbound variable: t
+
+It wasn't clear that we could fix this in Guile 2.0 without breaking
+someone's delicate macros, so the fix is only coming out now.
+
+** Pseudo-hygienically rename macro-introduced bindings
+    
+Bindings introduced by macros, like `t' in the `defconst' example above,
+are now given pseudo-fresh names.  This allows
+
+   (defconst foo 42)
+   (defconst bar 37)
+
+to introduce different bindings for `t'.  These pseudo-fresh names are
+made in such a way that if the macro is expanded again, for example as
+part of a simple recompilation, the introduced identifiers get the same
+pseudo-fresh names.  See "Hygiene and the Top-Level" in the manual, for
+details.
+
+** Fix literal matching for module-bound literals
+    
+`syntax-rules' and `syntax-case' macros can take a set of "literals":
+bound or unbound keywords that the syntax matcher treats specially.
+Before, literals were always matched symbolically (by name).  Now they
+are matched by binding.  This allows literals to be reliably bound to
+values, renamed by imports or exports, et cetera.  See "Syntax-rules
+Macros" in the manual for more on literals.
+
+** `dynamic-wind' doesn't check that guards are thunks
+
+Checking that the dynamic-wind out-guard procedure was actually a thunk
+before doing the wind was slow, unreliable, and not strictly needed.
+
+** All deprecated code removed
+
+All code deprecated in Guile 2.0 has been removed.  See older NEWS, and
+check that your programs can compile without linker warnings and run
+without runtime warnings.  See "Deprecation" in the manual.
+
+** Remove miscellaneous unused interfaces
+
+We have removed accidentally public, undocumented interfaces that we
+think are not used, and not useful.  This includes `scm_markstream',
+`SCM_FLUSH_REGISTER_WINDOWS', `SCM_THREAD_SWITCHING_CODE', `SCM_FENCE',
+`scm_call_generic_0', `scm_call_generic_1', `scm_call_generic_2'
+`scm_call_generic_3', `scm_apply_generic', and `scm_program_source'.
+`scm_async_click' was renamed to `scm_async_tick', and `SCM_ASYNC_TICK'
+was made private (use `SCM_TICK' instead).
+
+** Many internal compiler / VM changes
+
+As the compiler and virtual machine were re-written, there are many
+changes in the back-end of Guile to interfaces that were introduced in
+Guile 2.0.  These changes are only only of interest if you wrote a
+language on Guile 2.0 or a tool using Guile 2.0 internals.  If this is
+the case, drop by the IRC channel to discuss the changes.
+
+** Defining a SMOB or port type no longer mucks exports of `(oop goops)'
+
+It used to be that defining a SMOB or port type added an export to
+GOOPS, for the wrapper class of the smob type.  This violated
+modularity, though, so we have removed this behavior.
+
+** Bytecode replaces objcode as a target language
+
+One way in which people may have used details of Guile's runtime in
+Guile 2.0 is in compiling code to thunks for later invocation.  Instead
+of compiling to objcode and then calling `make-program', now the way to
+do it is to compile to `bytecode' and then call `load-thunk-from-memory'
+from `(system vm loader)'.
+
+** Remove weak pairs.
+
+Weak pairs were not safe to access with `car' and `cdr', and so were
+removed.
+
+** Remove weak alist vectors.
+
+Use weak hash tables instead.
+
+* New deprecations
+
+** SCM_WTA_DISPATCH_0, SCM_WTA_DISPATCH_1, SCM_WTA_DISPATCH_2, SCM_WTA_DISPATCH_N
+** SCM_GASSERT0, SCM_GASSERT1, SCM_GASSERT2, SCM_GASSERTn
+** SCM_WTA_DISPATCH_1_SUBR
+
+These macros were used in dispatching primitive generics.  They can be
+replaced by using C functions (the same name but in lower case), if
+needed, but this is a hairy part of Guile that perhaps you shouldn't be
+using.
+
+* Changes to the distribution
+
+** New minor version
+
+The "effective version" of Guile is now 2.2, which allows parallel
+installation with other effective versions (for example, the older Guile
+2.0).  See "Parallel Installations" in the manual for full details.
+Notably, the `pkg-config' file is now `guile-2.2'.
+
+** Bump required libgc version to 7.2, released March 2012.
+
+** The readline extension is now installed in the extensionsdir
+
+The shared library that implements Guile's readline extension is no
+longer installed to the libdir.  This change should be transparent to
+users, but packagers may be interested.
+
+
+
 Changes in 2.0.9 (since 2.0.7):
 
 Note: 2.0.8 was a brown paper bag release that was never announced, but
