@@ -1,5 +1,5 @@
 /* Copyright (C) 2001, 2009, 2010, 2011, 2012
- *    2013 Free Software Foundation, Inc.
+ *    2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -34,6 +34,7 @@
 #include <assert.h>
 #include <alignof.h>
 #include <byteswap.h>
+#include <verify.h>
 
 #include <full-read.h>
 
@@ -69,6 +70,7 @@
                                            roots */
 #define DT_GUILE_ENTRY      0x37146002  /* Address of entry thunk */
 #define DT_GUILE_VM_VERSION 0x37146003  /* Bytecode version */
+#define DT_GUILE_FRAME_MAPS 0x37146004  /* Frame maps */
 #define DT_HIGUILE          0x37146fff  /* End of Guile-specific */
 
 #ifdef WORDS_BIGENDIAN
@@ -77,7 +79,7 @@
 #define ELFDATA ELFDATA2LSB
 #endif
 
-static void register_elf (char *data, size_t len);
+static void register_elf (char *data, size_t len, char *frame_maps);
 
 enum bytecode_kind
   {
@@ -244,12 +246,12 @@ segment_flags_to_prot (Elf_Word flags)
 
 static char*
 process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
-                         SCM *init_out, SCM *entry_out)
+                         SCM *init_out, SCM *entry_out, char **frame_maps_out)
 {
   char *dyn_addr = base + dyn_phdr->p_vaddr;
   Elf_Dyn *dyn = (Elf_Dyn *) dyn_addr;
   size_t i, dyn_size = dyn_phdr->p_memsz / sizeof (Elf_Dyn);
-  char *init = 0, *gc_root = 0, *entry = 0;
+  char *init = 0, *gc_root = 0, *entry = 0, *frame_maps = 0;
   scm_t_ptrdiff gc_root_size = 0;
   enum bytecode_kind bytecode_kind = BYTECODE_KIND_NONE;
 
@@ -303,6 +305,11 @@ process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
               }
             break;
           }
+        case DT_GUILE_FRAME_MAPS:
+          if (frame_maps)
+            return "duplicate DT_GUILE_FRAME_MAPS";
+          frame_maps = base + dyn[i].d_un.d_val;
+          break;
         }
     }
 
@@ -327,6 +334,8 @@ process_dynamic_segment (char *base, Elf_Phdr *dyn_phdr,
 
   *init_out = init ? pointer_to_procedure (bytecode_kind, init) : SCM_BOOL_F;
   *entry_out = pointer_to_procedure (bytecode_kind, entry);
+  *frame_maps_out = frame_maps;
+
   return NULL;
 }
 
@@ -343,6 +352,7 @@ load_thunk_from_memory (char *data, size_t len, int is_read_only)
   int i;
   int dynamic_segment = -1;
   SCM init = SCM_BOOL_F, entry = SCM_BOOL_F;
+  char *frame_maps = 0;
 
   if (len < sizeof *header)
     ABORT ("object file too small");
@@ -427,13 +437,13 @@ load_thunk_from_memory (char *data, size_t len, int is_read_only)
     }
 
   if ((err_msg = process_dynamic_segment (data, &ph[dynamic_segment],
-                                          &init, &entry)))
+                                          &init, &entry, &frame_maps)))
     goto cleanup;
 
   if (scm_is_true (init))
     scm_call_0 (init);
 
-  register_elf (data, len);
+  register_elf (data, len, frame_maps);
 
   /* Finally!  Return the thunk.  */
   return entry;
@@ -568,6 +578,7 @@ struct mapped_elf_image
 {
   char *start;
   char *end;
+  char *frame_maps;
 };
 
 static struct mapped_elf_image *mapped_elf_images = NULL;
@@ -594,7 +605,7 @@ find_mapped_elf_insertion_index (char *ptr)
 }
 
 static void
-register_elf (char *data, size_t len)
+register_elf (char *data, size_t len, char *frame_maps)
 {
   scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
   {
@@ -619,6 +630,7 @@ register_elf (char *data, size_t len)
           {
             mapped_elf_images[n].start = prev[n].start;
             mapped_elf_images[n].end = prev[n].end;
+            mapped_elf_images[n].frame_maps = prev[n].frame_maps;
           }
       }
 
@@ -628,41 +640,69 @@ register_elf (char *data, size_t len)
 
       for (end = mapped_elf_images_count; n < end; end--)
         {
-          mapped_elf_images[end].start = mapped_elf_images[end - 1].start;
-          mapped_elf_images[end].end = mapped_elf_images[end - 1].end;
+          const struct mapped_elf_image *prev = &mapped_elf_images[end - 1];
+          mapped_elf_images[end].start = prev->start;
+          mapped_elf_images[end].end = prev->end;
+          mapped_elf_images[end].frame_maps = prev->frame_maps;
         }
       mapped_elf_images_count++;
 
       mapped_elf_images[n].start = data;
       mapped_elf_images[n].end = data + len;
+      mapped_elf_images[n].frame_maps = frame_maps;
     }
   }
   scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
 }
 
-static SCM
-scm_find_mapped_elf_image (SCM ip)
+static struct mapped_elf_image *
+find_mapped_elf_image_unlocked (char *ptr)
 {
-  char *ptr = (char *) scm_to_uintptr_t (ip);
-  SCM result;
+  size_t n = find_mapped_elf_insertion_index ((char *) ptr);
+
+  if (n < mapped_elf_images_count
+      && mapped_elf_images[n].start <= ptr
+      && ptr < mapped_elf_images[n].end)
+    return &mapped_elf_images[n];
+
+  return NULL;
+}
+
+static int
+find_mapped_elf_image (char *ptr, struct mapped_elf_image *image)
+{
+  int result;
 
   scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
   {
-    size_t n = find_mapped_elf_insertion_index ((char *) ptr);
-    if (n < mapped_elf_images_count
-        && mapped_elf_images[n].start <= ptr
-        && ptr < mapped_elf_images[n].end)
+    struct mapped_elf_image *img = find_mapped_elf_image_unlocked (ptr);
+    if (img)
       {
-        signed char *data = (signed char *) mapped_elf_images[n].start;
-        size_t len = mapped_elf_images[n].end - mapped_elf_images[n].start;
-        result = scm_c_take_gc_bytevector (data, len, SCM_BOOL_F);
+        memcpy (image, img, sizeof (*image));
+        result = 1;
       }
     else
-      result = SCM_BOOL_F;
+      result = 0;
   }
   scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
 
   return result;
+}
+
+static SCM
+scm_find_mapped_elf_image (SCM ip)
+{
+  struct mapped_elf_image image;
+
+  if (find_mapped_elf_image ((char *) scm_to_uintptr_t (ip), &image))
+    {
+      signed char *data = (signed char *) image.start;
+      size_t len = image.end - image.start;
+
+      return scm_c_take_gc_bytevector (data, len, SCM_BOOL_F);
+    }
+
+  return SCM_BOOL_F;
 }
 
 static SCM
@@ -684,6 +724,64 @@ scm_all_mapped_elf_images (void)
   scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
 
   return result;
+}
+
+struct frame_map_prefix
+{
+  scm_t_uint32 text_offset;
+  scm_t_uint32 maps_offset;
+};
+
+struct frame_map_header
+{
+  scm_t_uint32 addr;
+  scm_t_uint32 map_offset;
+};
+
+verify (sizeof (struct frame_map_prefix) == 8);
+verify (sizeof (struct frame_map_header) == 8);
+
+const scm_t_uint8 *
+scm_find_dead_slot_map_unlocked (const scm_t_uint32 *ip)
+{
+  struct mapped_elf_image *image;
+  char *base;
+  struct frame_map_prefix *prefix;
+  struct frame_map_header *headers;
+  scm_t_uintptr addr = (scm_t_uintptr) ip;
+  size_t start, end;
+
+  image = find_mapped_elf_image_unlocked ((char *) ip);
+  if (!image || !image->frame_maps)
+    return NULL;
+
+  base = image->frame_maps;
+  prefix = (struct frame_map_prefix *) base;
+  headers = (struct frame_map_header *) (base + sizeof (*prefix));
+
+  if (addr < ((scm_t_uintptr) image->start) + prefix->text_offset)
+    return NULL;
+  addr -= ((scm_t_uintptr) image->start) + prefix->text_offset;
+
+  start = 0;
+  end = (prefix->maps_offset - sizeof (*prefix)) / sizeof (*headers);
+
+  if (end == 0 || addr > headers[end - 1].addr)
+    return NULL;
+
+  while (start < end)
+    {
+      size_t n = start + (end - start) / 2;
+
+      if (addr == headers[n].addr)
+        return (const scm_t_uint8*) (base + headers[n].map_offset);
+      else if (addr < headers[n].addr)
+        end = n;
+      else
+        start = n + 1;
+    }
+
+  return NULL;
 }
 
 

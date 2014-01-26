@@ -452,6 +452,8 @@
                      (lookup-parallel-moves label allocation))
            (for-each maybe-load-constant arg-slots (cons proc args))
            (emit-call asm proc-slot nargs)
+           (emit-dead-slot-map asm proc-slot
+                               (lookup-dead-slot-map label allocation))
            (cond
             ((and (= 1 nreq) (and rest-var) (not (maybe-slot rest-var))
                   (match (lookup-parallel-moves k allocation)

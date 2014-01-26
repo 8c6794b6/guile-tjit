@@ -1,6 +1,6 @@
 ;;; Guile bytecode assembler
 
-;;; Copyright (C) 2001, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2012, 2013, 2014 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -189,7 +189,8 @@
             word-size endianness
             constants inits
             shstrtab next-section-number
-            meta sources)
+            meta sources
+            dead-slot-maps)
   asm?
 
   ;; We write bytecode into what is logically a growable vector,
@@ -265,7 +266,14 @@
   ;; is relative to the beginning of the text section, and SOURCE is in
   ;; the same format that source-properties returns.
   ;;
-  (sources asm-sources set-asm-sources!))
+  (sources asm-sources set-asm-sources!)
+
+  ;; A list of (pos . dead-slot-map) pairs, indicating dead slot maps.
+  ;; POS is relative to the beginning of the text section.
+  ;; DEAD-SLOT-MAP is a bitfield of slots that are dead at call sites,
+  ;; as an integer.
+  ;;
+  (dead-slot-maps asm-dead-slot-maps set-asm-dead-slot-maps!))
 
 (define-inlinable (fresh-block)
   (make-u32vector *block-size*))
@@ -280,7 +288,7 @@ target."
             word-size endianness
             vlist-null '()
             (make-string-table) 1
-            '() '()))
+            '() '() '()))
 
 (define (intern-section-name! asm string)
   "Add a string to the section name table (shstrtab)."
@@ -828,6 +836,12 @@ returned instead."
          (cell-label (intern-cache-cell asm key sym)))
     (emit-module-box asm dst cell-label mod-name-label sym-label bound?)))
 
+(define-macro-assembler (dead-slot-map asm proc-slot dead-slot-map)
+  (unless (zero? dead-slot-map)
+    (set-asm-dead-slot-maps! asm
+                             (cons
+                              (cons* (asm-start asm) proc-slot dead-slot-map)
+                              (asm-dead-slot-maps asm)))))
 
 
 
@@ -1194,6 +1208,67 @@ needed."
 
 
 ;;;
+;;; Create the frame maps.  These maps are used by GC to identify dead
+;;; slots in pending call frames, to avoid marking them.  We only do
+;;; this when frame makes a non-tail call, as that is the common case.
+;;; Only the topmost frame will see a GC at any other point, but we mark
+;;; top frames conservatively as serializing live slot maps at every
+;;; instruction would take up too much space in the object file.
+;;;
+
+;; The .guile.frame-maps section starts with two packed u32 values: one
+;; indicating the offset of the first byte of the .rtl-text section, and
+;; another indicating the relative offset in bytes of the slots data.
+(define frame-maps-prefix-len 8)
+
+;; Each header is 8 bytes: 4 for the offset from .rtl_text, and 4 for
+;; the offset of the slot map from the beginning of the
+;; .guile.frame-maps section.  The length of a frame map depends on the
+;; frame size at the call site, and is not encoded into this section as
+;; it is available at run-time.
+(define frame-map-header-len 8)
+
+(define (link-frame-maps asm)
+  (define (map-byte-length proc-slot)
+    (ceiling-quotient (- proc-slot 2) 8))
+  (define (make-frame-maps maps count map-len)
+    (let* ((endianness (asm-endianness asm))
+           (header-pos frame-maps-prefix-len)
+           (map-pos (+ header-pos (* count frame-map-header-len)))
+           (bv (make-bytevector (+ map-pos map-len) 0)))
+      (bytevector-u32-set! bv 4 map-pos endianness)
+      (let lp ((maps maps) (header-pos header-pos) (map-pos map-pos))
+        (match maps
+          (()
+           (make-object asm '.guile.frame-maps bv
+                        (list (make-linker-reloc 'abs32/1 0 0 '.rtl-text))
+                        '() #:type SHT_PROGBITS #:flags SHF_ALLOC))
+          (((pos proc-slot . map) . maps)
+           (bytevector-u32-set! bv header-pos (* pos 4) endianness)
+           (bytevector-u32-set! bv (+ header-pos 4) map-pos endianness)
+           (let write-bytes ((map-pos map-pos)
+                             (map map)
+                             (byte-length (map-byte-length proc-slot)))
+             (if (zero? byte-length)
+                 (lp maps (+ header-pos frame-map-header-len) map-pos)
+                 (begin
+                   (bytevector-u8-set! bv map-pos (logand map #xff))
+                   (write-bytes (1+ map-pos) (ash map -8)
+                                (1- byte-length))))))))))
+  (match (asm-dead-slot-maps asm)
+    (() #f)
+    (in
+     (let lp ((in in) (out '()) (count 0) (map-len 0))
+       (match in
+         (() (make-frame-maps out count map-len))
+         (((and head (pos proc-slot . map)) . in)
+          (lp in (cons head out)
+              (1+ count)
+              (+ (map-byte-length proc-slot) map-len))))))))
+
+
+
+;;;
 ;;; Linking other sections of the ELF file, like the dynamic segment,
 ;;; the symbol table, etc.
 ;;;
@@ -1202,14 +1277,18 @@ needed."
 (define *bytecode-major-version* #x0202)
 (define *bytecode-minor-version* 3)
 
-(define (link-dynamic-section asm text rw rw-init)
+(define (link-dynamic-section asm text rw rw-init frame-maps)
   "Link the dynamic section for an ELF image with bytecode @var{text},
 given the writable data section @var{rw} needing fixup from the
 procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
 @var{rw} is true, it will be added to the GC roots at runtime."
   (define-syntax-rule (emit-dynamic-section word-size %set-uword! reloc-type)
     (let* ((endianness (asm-endianness asm))
-           (bv (make-bytevector (* word-size (if rw (if rw-init 12 10) 6)) 0))
+           (words 6)
+           (words (if rw (+ words 4) words))
+           (words (if rw-init (+ words 2) words))
+           (words (if frame-maps (+ words 2) words))
+           (bv (make-bytevector (* word-size words) 0))
            (set-uword!
             (lambda (i uword)
               (%set-uword! bv (* i word-size) uword endianness)))
@@ -1225,25 +1304,20 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                             *bytecode-minor-version*))
       (set-uword! 2 DT_GUILE_ENTRY)
       (set-label! 3 '.rtl-text)
-      (cond
-       (rw
+      (when rw
         ;; Add roots to GC.
         (set-uword! 4 DT_GUILE_GC_ROOT)
         (set-label! 5 '.data)
         (set-uword! 6 DT_GUILE_GC_ROOT_SZ)
         (set-uword! 7 (bytevector-length (linker-object-bv rw)))
-        (cond
-         (rw-init
+        (when rw-init
           (set-uword! 8 DT_INIT)        ; constants
-          (set-label! 9 rw-init)
-          (set-uword! 10 DT_NULL)
-          (set-uword! 11 0))
-         (else
-          (set-uword! 8 DT_NULL)
-          (set-uword! 9 0))))
-       (else
-        (set-uword! 4 DT_NULL)
-        (set-uword! 5 0)))
+          (set-label! 9 rw-init)))
+      (when frame-maps
+        (set-uword! (- words 4) DT_GUILE_FRAME_MAPS)
+        (set-label! (- words 3) '.guile.frame-maps))
+      (set-uword! (- words 2) DT_NULL)
+      (set-uword! (- words 1) 0)
       (make-object asm '.dynamic bv relocs '()
                    #:type SHT_DYNAMIC #:flags SHF_ALLOC)))
   (case (asm-word-size asm)
@@ -1969,7 +2043,8 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                 ;; Link text object after constants, so that the
                 ;; constants initializer gets included.
                 ((text) (link-text-object asm))
-                ((dt) (link-dynamic-section asm text rw rw-init))
+                ((frame-maps) (link-frame-maps asm))
+                ((dt) (link-dynamic-section asm text rw rw-init frame-maps))
                 ((symtab strtab) (link-symtab (linker-object-section text) asm))
                 ((arities arities-strtab) (link-arities asm))
                 ((docstrs docstrs-strtab) (link-docstrs asm))
@@ -1978,7 +2053,8 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                 ;; sections adds entries to the string table.
                 ((shstrtab) (link-shstrtab asm)))
     (filter identity
-            (list text ro rw dt symtab strtab arities arities-strtab
+            (list text ro frame-maps rw dt symtab strtab
+                  arities arities-strtab
                   docstrs docstrs-strtab procprops
                   dinfo dabbrev dstrtab dloc dline
                   shstrtab))))

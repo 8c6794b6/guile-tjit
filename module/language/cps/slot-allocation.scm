@@ -36,7 +36,8 @@
             lookup-maybe-constant-value
             lookup-nlocals
             lookup-call-proc-slot
-            lookup-parallel-moves))
+            lookup-parallel-moves
+            lookup-dead-slot-map))
 
 (define-record-type $allocation
   (make-allocation dfa slots
@@ -68,32 +69,34 @@
   ;; record the way that functions are passed values, and how their
   ;; return values are rebound to local variables.
   ;;
-  ;; A call allocation contains two pieces of information: the call's
-  ;; /proc slot/, and a set of /parallel moves/.  The proc slot
-  ;; indicates the slot of a procedure in a procedure call, or where the
-  ;; procedure would be in a multiple-value return.  The parallel moves
-  ;; shuffle locals into position for a call, or shuffle returned values
-  ;; back into place.  Though they use the same slot, moves for a call
-  ;; are called "call moves", and moves to handle a return are "return
-  ;; moves".
+  ;; A call allocation contains three pieces of information: the call's
+  ;; /proc slot/, a set of /parallel moves/, and a /dead slot map/.  The
+  ;; proc slot indicates the slot of a procedure in a procedure call, or
+  ;; where the procedure would be in a multiple-value return.  The
+  ;; parallel moves shuffle locals into position for a call, or shuffle
+  ;; returned values back into place.  Though they use the same slot,
+  ;; moves for a call are called "call moves", and moves to handle a
+  ;; return are "return moves".  The dead slot map indicates, for a
+  ;; call, what slots should be ignored by GC when marking the frame.
   ;;
   ;; $kreceive continuations record a proc slot and a set of return moves
   ;; to adapt multiple values from the stack to local variables.
   ;;
   ;; Tail calls record arg moves, but no proc slot.
   ;;
-  ;; Non-tail calls record arg moves and a call slot.  Multiple-valued
-  ;; returns will have an associated $kreceive continuation, which records
-  ;; the same proc slot, but has return moves.
+  ;; Non-tail calls record arg moves, a call slot, and a dead slot map.
+  ;; Multiple-valued returns will have an associated $kreceive
+  ;; continuation, which records the same proc slot, but has return
+  ;; moves and no dead slot map.
   ;;
   ;; $prompt handlers are $kreceive continuations like any other.
   ;;
   ;; $values expressions with more than 1 value record moves but have no
-  ;; proc slot.
+  ;; proc slot or dead slot map.
   ;;
   ;; A set of moves is expressed as an ordered list of (SRC . DST)
   ;; moves, where SRC and DST are slots.  This may involve a temporary
-  ;; variable.
+  ;; variable.  A dead slot map is a bitfield, as an integer.
   ;;
   (call-allocations allocation-call-allocations)
 
@@ -102,10 +105,11 @@
   (nlocals allocation-nlocals))
 
 (define-record-type $call-allocation
-  (make-call-allocation proc-slot moves)
+  (make-call-allocation proc-slot moves dead-slot-map)
   call-allocation?
   (proc-slot call-allocation-proc-slot)
-  (moves call-allocation-moves))
+  (moves call-allocation-moves)
+  (dead-slot-map call-allocation-dead-slot-map))
 
 (define (find-first-zero n)
   ;; Naive implementation.
@@ -161,6 +165,10 @@
 (define (lookup-parallel-moves k allocation)
   (or (call-allocation-moves (lookup-call-allocation k allocation))
       (error "Call has no use parallel moves slot" k)))
+
+(define (lookup-dead-slot-map k allocation)
+  (or (call-allocation-dead-slot-map (lookup-call-allocation k allocation))
+      (error "Call has no dead slot map" k)))
 
 (define (lookup-nlocals k allocation)
   (or (hashq-ref (allocation-nlocals allocation) k)
@@ -485,7 +493,7 @@ are comparable with eqv?.  A tmp slot may be used."
                                       (compute-tmp-slot pre-live tail-slots))))
            (bump-nlocals! tail-nlocals)
            (hashq-set! call-allocations label
-                       (make-call-allocation #f moves))))
+                       (make-call-allocation #f moves #f))))
         (($ $kreceive arity kargs)
          (let* ((proc-slot (compute-call-proc-slot post-live))
                 (call-slots (map (cut + proc-slot <>) (iota (length uses))))
@@ -516,12 +524,14 @@ are comparable with eqv?.  A tmp slot may be used."
                 (result-moves (parallel-move value-slots
                                              result-slots
                                              (compute-tmp-slot result-live
-                                                               value-slots))))
+                                                               value-slots)))
+                (dead-slot-map (logand (1- (ash 1 (- proc-slot 2)))
+                                       (lognot post-live))))
            (bump-nlocals! (+ proc-slot (length uses)))
            (hashq-set! call-allocations label
-                       (make-call-allocation proc-slot arg-moves))
+                       (make-call-allocation proc-slot arg-moves dead-slot-map))
            (hashq-set! call-allocations k
-                       (make-call-allocation proc-slot result-moves))))
+                       (make-call-allocation proc-slot result-moves #f))))
 
         (_
          (let* ((proc-slot (compute-call-proc-slot post-live))
@@ -533,7 +543,7 @@ are comparable with eqv?.  A tmp slot may be used."
                                                             call-slots))))
            (bump-nlocals! (+ proc-slot (length uses)))
            (hashq-set! call-allocations label
-                       (make-call-allocation proc-slot arg-moves))))))
+                       (make-call-allocation proc-slot arg-moves #f))))))
                          
     (define (allocate-values label k uses pre-live post-live)
       (match (vector-ref contv (cfa-k-idx cfa k))
@@ -545,7 +555,7 @@ are comparable with eqv?.  A tmp slot may be used."
                                       (compute-tmp-slot pre-live dst-slots))))
            (bump-nlocals! tail-nlocals)
            (hashq-set! call-allocations label
-                       (make-call-allocation #f moves))))
+                       (make-call-allocation #f moves #f))))
         (($ $kargs (_) (_))
          ;; When there is only one value in play, we allow the dst to be
          ;; hinted (see scan-for-hints).  If the src doesn't have a
@@ -566,7 +576,7 @@ are comparable with eqv?.  A tmp slot may be used."
                                       (compute-tmp-slot (logior pre-live result-live)
                                                         '()))))
            (hashq-set! call-allocations label
-                       (make-call-allocation #f moves))))
+                       (make-call-allocation #f moves #f))))
         (($ $kif) #f)))
 
     (define (allocate-prompt label k handler nargs)
@@ -590,7 +600,7 @@ are comparable with eqv?.  A tmp slot may be used."
                                                         value-slots))))
            (bump-nlocals! (+ proc-slot 1 (length result-vars)))
            (hashq-set! call-allocations handler
-                       (make-call-allocation proc-slot moves))))))
+                       (make-call-allocation proc-slot moves #f))))))
 
     (define (allocate-defs! n live)
       (fold (cut allocate! <> #f <>) live (vector-ref defv n)))

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -794,6 +794,12 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
                      struct GC_ms_entry *mark_stack_limit)
 {
   SCM *sp, *fp;
+  /* The first frame will be marked conservatively (without a dead
+     slot map).  This is because GC can happen at any point within the
+     hottest activation, due to multiple threads or per-instruction
+     hooks, and providing dead slot maps for all points in a program
+     would take a prohibitive amount of space.  */
+  const scm_t_uint8 *dead_slots = NULL;
 
   for (fp = vp->fp, sp = vp->sp; fp; fp = SCM_FRAME_DYNAMIC_LINK (fp))
     {
@@ -801,11 +807,32 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
         {
           SCM elt = *sp;
           if (SCM_NIMP (elt))
-            mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word *) elt,
-                                               mark_stack_ptr, mark_stack_limit,
-                                               NULL);
+            {
+              if (dead_slots)
+                {
+                  size_t slot = sp - &SCM_FRAME_LOCAL (fp, 0);
+                  if (dead_slots[slot / 8U] & (1U << (slot % 8U)))
+                    {
+                      /* This value may become dead as a result of GC,
+                         so we can't just leave it on the stack.  */
+                      *sp = SCM_UNBOUND;
+                      continue;
+                    }
+                }
+
+              mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word *) elt,
+                                                 mark_stack_ptr,
+                                                 mark_stack_limit,
+                                                 NULL);
+            }
         }
       sp = SCM_FRAME_PREVIOUS_SP (fp);
+      /* Inner frames may have a dead slots map for precise marking.
+         Note that there may be other reasons to not have a dead slots
+         map, e.g. if all of the frame's slots below the callee frame
+         are live.  */
+      dead_slots =
+        scm_find_dead_slot_map_unlocked (SCM_FRAME_RETURN_ADDRESS (fp));
     }
 
   return mark_stack_ptr;
