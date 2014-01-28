@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -734,7 +734,6 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       pointer = SCM_PROGRAM_FREE_VARIABLE_REF (LOCAL_REF (0), ptr_idx);
       subr = SCM_POINTER_VALUE (pointer);
 
-      VM_HANDLE_INTERRUPTS;
       SYNC_IP ();
 
       switch (FRAME_LOCALS_COUNT_FROM (1))
@@ -805,7 +804,6 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       pointer = SCM_PROGRAM_FREE_VARIABLE_REF (closure, ptr_idx);
 
       SYNC_IP ();
-      VM_HANDLE_INTERRUPTS;
 
       // FIXME: separate args
       ret = scm_i_foreign_call (scm_cons (cif, pointer), LOCAL_ADDRESS (1));
