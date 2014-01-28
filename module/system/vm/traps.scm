@@ -1,6 +1,6 @@
 ;;; Traps: stepping, breakpoints, and such.
 
-;; Copyright (C)  2010, 2012, 2013 Free Software Foundation, Inc.
+;; Copyright (C)  2010, 2012, 2013, 2014 Free Software Foundation, Inc.
 
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -193,8 +193,8 @@
     (define (pop-cont-hook frame . values)
       (if in-proc?
           (exit-proc frame))
-      (if (our-frame? (frame-previous frame))
-          (enter-proc (frame-previous frame))))
+      (if (our-frame? frame)
+          (enter-proc frame)))
 
     (define (abort-hook frame . values)
       (if in-proc?
@@ -403,7 +403,7 @@
   (arg-check abort-handler procedure?)
   (let ((fp (frame-address frame)))
     (define (pop-cont-hook frame . values)
-      (if (and fp (eq? (frame-address frame) fp))
+      (if (and fp (< (frame-address frame) fp))
           (begin
             (set! fp #f)
             (apply return-handler frame values))))
@@ -548,7 +548,7 @@
 
         (apply-handler frame depth)
 
-        (if (not (eq? (frame-address frame) last-fp))
+        (if (not (eqv? (frame-address frame) last-fp))
             (let ((finish-trap #f))
               (define (frame-finished frame)
                 (finish-trap frame) ;; disables the trap.

@@ -1,6 +1,6 @@
 ;;; Guile VM tracer
 
-;; Copyright (C) 2001, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2009, 2010, 2012, 2013, 2014 Free Software Foundation, Inc.
 
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -48,7 +48,7 @@
             width
             (frame-call-representation frame))))
 
-(define* (print-return frame depth width prefix max-indent values)
+(define (print-return depth width prefix max-indent values)
   (let ((prefix (build-prefix prefix depth "|  " "~d< "max-indent)))
     (case (length values)
       ((0)
@@ -73,7 +73,7 @@
   (define (apply-handler frame depth)
     (print-application frame depth width prefix max-indent))
   (define (return-handler frame depth . values)
-    (print-return frame depth width prefix max-indent values))
+    (print-return depth width prefix max-indent values))
   (trap-calls-to-procedure proc apply-handler return-handler))
 
 (define* (trace-calls-in-procedure proc #:key (width 80)
@@ -82,7 +82,7 @@
   (define (apply-handler frame depth)
     (print-application frame depth width prefix max-indent))
   (define (return-handler frame depth . values)
-    (print-return frame depth width prefix max-indent values))
+    (print-return depth width prefix max-indent values))
   (trap-calls-in-dynamic-extent proc apply-handler return-handler))
 
 (define* (trace-instructions-in-procedure proc #:key (width 80)
