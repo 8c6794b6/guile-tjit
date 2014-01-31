@@ -800,13 +800,16 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
      hooks, and providing dead slot maps for all points in a program
      would take a prohibitive amount of space.  */
   const scm_t_uint8 *dead_slots = NULL;
+  scm_t_uintptr upper = (scm_t_uintptr) GC_greatest_plausible_heap_addr;
+  scm_t_uintptr lower = (scm_t_uintptr) GC_least_plausible_heap_addr;
 
   for (fp = vp->fp, sp = vp->sp; fp; fp = SCM_FRAME_DYNAMIC_LINK (fp))
     {
       for (; sp >= &SCM_FRAME_LOCAL (fp, 0); sp--)
         {
           SCM elt = *sp;
-          if (SCM_NIMP (elt))
+          if (SCM_NIMP (elt)
+              && SCM_UNPACK (elt) >= lower && SCM_UNPACK (elt) <= upper)
             {
               if (dead_slots)
                 {
@@ -820,7 +823,7 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
                     }
                 }
 
-              mark_stack_ptr = GC_MARK_AND_PUSH ((GC_word *) elt,
+              mark_stack_ptr = GC_mark_and_push ((void *) elt,
                                                  mark_stack_ptr,
                                                  mark_stack_limit,
                                                  NULL);
