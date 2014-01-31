@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -39,10 +39,11 @@ struct scm_vm {
   scm_t_uint32 *ip;		/* instruction pointer */
   SCM *sp;			/* stack pointer */
   SCM *fp;			/* frame pointer */
-  size_t stack_size;		/* stack size */
-  SCM *stack_base;		/* stack base address */
   SCM *stack_limit;		/* stack limit address */
   int trace_level;              /* traces enabled if trace_level > 0 */
+  SCM *sp_max_since_gc;         /* highest sp since last gc */
+  size_t stack_size;		/* stack size */
+  SCM *stack_base;		/* stack base address */
   size_t max_stack_size;
   SCM hooks[SCM_VM_NUM_HOOKS];	/* hooks */
   int engine;                   /* which vm engine we're using */

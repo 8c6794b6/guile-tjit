@@ -196,6 +196,8 @@
   do {                                                              \
     vp->sp = LOCAL_ADDRESS (n - 1);                                 \
     CHECK_OVERFLOW ();                                              \
+    if (vp->sp > vp->sp_max_since_gc)                               \
+      vp->sp_max_since_gc = vp->sp;                                 \
   } while (0)
 
 /* Reset the current frame to hold N locals.  Used when we know that no
@@ -203,6 +205,8 @@
 #define RESET_FRAME(n)                                              \
   do {                                                              \
     vp->sp = LOCAL_ADDRESS (n - 1);                                 \
+    if (vp->sp > vp->sp_max_since_gc)                               \
+      vp->sp_max_since_gc = vp->sp;                                 \
   } while (0)
 
 /* Compute the number of locals in the frame.  At a call, this is equal

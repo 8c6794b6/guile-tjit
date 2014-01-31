@@ -28,6 +28,7 @@
 #include <alignof.h>
 #include <string.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
@@ -142,6 +143,8 @@ vm_return_to_continuation (struct scm_vm *vp, SCM cont, size_t n, SCM *argv)
         vp->sp++;
         *vp->sp = argv_copy[i];
       }
+    if (vp->sp > vp->sp_max_since_gc)
+      vp->sp_max_since_gc = vp->sp;
     vp->ip = cp->ra;
   }
 }
@@ -288,6 +291,8 @@ vm_abort (struct scm_vm *vp, SCM tag,
   scm_c_abort (vp, tag, nstack + tail_len, argv, current_registers);
 }
 
+static void vm_expand_stack (struct scm_vm *vp) SCM_NOINLINE;
+
 static void
 vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
                                    size_t n, SCM *argv,
@@ -303,16 +308,24 @@ vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
   memcpy (argv_copy, argv, n * sizeof(SCM));
 
   cp = SCM_VM_CONT_DATA (cont);
-  base = SCM_FRAME_LOCALS_ADDRESS (vp->fp);
-  reloc = cp->reloc + (base - cp->stack_base);
+
+  while (1)
+    {
+      scm_t_ptrdiff saved_stack_height = vp->sp - vp->stack_base;
+
+      base = SCM_FRAME_LOCALS_ADDRESS (vp->fp);
+      reloc = cp->reloc + (base - cp->stack_base);
+
+      vp->sp = base + cp->stack_size + n + 1;
+      if (vp->sp < vp->stack_limit)
+        break;
+
+      vm_expand_stack (vp);
+      vp->sp = vp->stack_base + saved_stack_height;
+    }
 
 #define RELOC(scm_p)						\
   (((SCM *) (scm_p)) + reloc)
-
-  if ((base - vp->stack_base) + cp->stack_size + n + 1 > vp->stack_size)
-    scm_misc_error ("vm-engine",
-                    "not enough space to instate partial continuation",
-                    scm_list_1 (cont));
 
   memcpy (base, cp->stack_base, cp->stack_size * sizeof (SCM));
 
@@ -335,6 +348,9 @@ vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
       vp->sp++;
       *vp->sp = argv_copy[i];
     }
+
+  if (vp->sp > vp->sp_max_since_gc)
+      vp->sp_max_since_gc = vp->sp;
 
   /* The prompt captured a slice of the dynamic stack.  Here we wind
      those entries onto the current thread's stack.  We also have to
@@ -672,7 +688,6 @@ initialize_default_stack_size (void)
     default_max_stack_size = size;
 }
 
-static void vm_expand_stack (struct scm_vm *vp) SCM_NOINLINE;
 #define VM_NAME vm_regular_engine
 #define VM_USE_HOOKS 0
 #define FUNC_NAME "vm-regular-engine"
@@ -788,6 +803,27 @@ make_vm (void)
 }
 #undef FUNC_NAME
 
+static size_t page_size;
+
+static void
+return_unused_stack_to_os (struct scm_vm *vp)
+{
+#if HAVE_SYS_MMAN_H
+  scm_t_uintptr start = (scm_t_uintptr) vp->sp;
+  scm_t_uintptr end = (scm_t_uintptr) vp->sp_max_since_gc;
+
+  start = ((start - 1U) | (page_size - 1U)) + 1U; /* round up */
+  end = ((end - 1U) | (page_size - 1U)) + 1U; /* round up */
+
+  /* Return these pages to the OS.  The next time they are paged in,
+     they will be zeroed.  */
+  if (start < end)
+    madvise ((void *) start, end - start, MADV_DONTNEED);
+
+  vp->sp_max_since_gc = vp->sp;
+#endif
+}
+
 /* Mark the VM stack region between its base and its current top.  */
 struct GC_ms_entry *
 scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
@@ -838,6 +874,8 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
         scm_find_dead_slot_map_unlocked (SCM_FRAME_RETURN_ADDRESS (fp));
     }
 
+  return_unused_stack_to_os (vp);
+
   return mark_stack_ptr;
 }
 
@@ -884,6 +922,7 @@ vm_expand_stack (struct scm_vm *vp)
           SCM *fp;
           vp->fp += reloc;
           vp->sp += reloc;
+          vp->sp_max_since_gc += reloc;
           fp = vp->fp;
           while (fp)
             {
@@ -981,6 +1020,9 @@ scm_call_n (SCM proc, SCM *argv, size_t nargs)
   base[5] = proc;
   vp->fp = &base[5];
   vp->sp = &SCM_FRAME_LOCAL (vp->fp, nargs);
+
+  if (vp->sp > vp->sp_max_since_gc)
+    vp->sp_max_since_gc = vp->sp;
 
   {
     int resume = SCM_I_SETJMP (registers);
@@ -1209,6 +1251,11 @@ scm_bootstrap_vm (void)
                             "scm_init_vm_builtins",
                             (scm_t_extension_init_func)scm_init_vm_builtins,
                             NULL);
+
+  page_size = getpagesize ();
+  /* page_size should be a power of two.  */
+  if (page_size & (page_size - 1))
+    abort ();
 
   initialize_default_stack_size ();
 
