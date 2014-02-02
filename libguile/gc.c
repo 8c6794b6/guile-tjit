@@ -1,5 +1,5 @@
 /* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2006,
- *   2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ *   2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -684,150 +684,8 @@ accumulate_gc_timer (void * hook_data SCM_UNUSED,
   return NULL;
 }
 
-/* Return some idea of the memory footprint of a process, in bytes.
-   Currently only works on Linux systems.  */
-static size_t
-get_image_size (void)
-{
-  unsigned long size, resident, share;
-  size_t ret = 0;
-
-  FILE *fp = fopen ("/proc/self/statm", "r");
-
-  if (fp && fscanf (fp, "%lu %lu %lu", &size, &resident, &share) == 3)
-    ret = resident * 4096;
-
-  if (fp)
-    fclose (fp);
-
-  return ret;
-}
-
-/* These are discussed later.  */
 static size_t bytes_until_gc = DEFAULT_INITIAL_HEAP_SIZE;
 static scm_i_pthread_mutex_t bytes_until_gc_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
-
-/* Make GC run more frequently when the process image size is growing,
-   measured against the number of bytes allocated through the GC.
-
-   If Guile is allocating at a GC-managed heap size H, libgc will tend
-   to limit the process image size to H*N.  But if at the same time the
-   user program is mallocating at a rate M bytes per GC-allocated byte,
-   then the process stabilizes at H*N*M -- assuming that collecting data
-   will result in malloc'd data being freed.  It doesn't take a very
-   large M for this to be a bad situation.  To limit the image size,
-   Guile should GC more often -- the bigger the M, the more often.
-
-   Numeric functions that produce bigger and bigger integers are
-   pessimal, because M is an increasing function of time.  Here is an
-   example of such a function:
-
-      (define (factorial n)
-        (define (fac n acc)
-          (if (<= n 1)
-            acc
-            (fac (1- n) (* n acc))))
-        (fac n 1))
-
-   It is possible for a process to grow for reasons that will not be
-   solved by faster GC.  In that case M will be estimated as
-   artificially high for a while, and so GC will happen more often on
-   the Guile side.  But when it stabilizes, Guile can ease back the GC
-   frequency.
-
-   The key is to measure process image growth, not mallocation rate.
-   For maximum effectiveness, Guile reacts quickly to process growth,
-   and exponentially backs down when the process stops growing.
-
-   See http://thread.gmane.org/gmane.lisp.guile.devel/12552/focus=12936
-   for further discussion.
- */
-static void *
-adjust_gc_frequency (void * hook_data SCM_UNUSED,
-                     void *fn_data SCM_UNUSED,
-                     void *data SCM_UNUSED)
-{
-  static size_t prev_image_size = 0;
-  static size_t prev_bytes_alloced = 0;
-  size_t image_size;
-  size_t bytes_alloced;
-  
-  scm_i_pthread_mutex_lock (&bytes_until_gc_lock);
-  bytes_until_gc = GC_get_heap_size ();
-  scm_i_pthread_mutex_unlock (&bytes_until_gc_lock);
-
-  image_size = get_image_size ();
-  bytes_alloced = GC_get_total_bytes ();
-
-#define HEURISTICS_DEBUG 0
-
-#if HEURISTICS_DEBUG
-  fprintf (stderr, "prev image / alloced: %lu / %lu\n", prev_image_size, prev_bytes_alloced);
-  fprintf (stderr, "     image / alloced: %lu / %lu\n", image_size, bytes_alloced);
-  fprintf (stderr, "divisor %lu / %f\n", free_space_divisor, target_free_space_divisor);
-#endif
-
-  if (prev_image_size && bytes_alloced != prev_bytes_alloced)
-    {
-      double growth_rate, new_target_free_space_divisor;
-      double decay_factor = 0.5;
-      double hysteresis = 0.1;
-
-      growth_rate = ((double) image_size - prev_image_size)
-        / ((double)bytes_alloced - prev_bytes_alloced);
-      
-#if HEURISTICS_DEBUG
-      fprintf (stderr, "growth rate %f\n", growth_rate);
-#endif
-
-      new_target_free_space_divisor = minimum_free_space_divisor;
-
-      if (growth_rate > 0)
-        new_target_free_space_divisor *= 1.0 + growth_rate;
-
-#if HEURISTICS_DEBUG
-      fprintf (stderr, "new divisor %f\n", new_target_free_space_divisor);
-#endif
-
-      if (new_target_free_space_divisor < target_free_space_divisor)
-        /* Decay down.  */
-        target_free_space_divisor =
-          (decay_factor * target_free_space_divisor
-           + (1.0 - decay_factor) * new_target_free_space_divisor);
-      else
-        /* Jump up.  */
-        target_free_space_divisor = new_target_free_space_divisor;
-
-#if HEURISTICS_DEBUG
-      fprintf (stderr, "new target divisor %f\n", target_free_space_divisor);
-#endif
-
-      if (free_space_divisor + 0.5 + hysteresis < target_free_space_divisor
-          || free_space_divisor - 0.5 - hysteresis > target_free_space_divisor)
-        {
-          free_space_divisor = lround (target_free_space_divisor);
-#if HEURISTICS_DEBUG
-          fprintf (stderr, "new divisor %lu\n", free_space_divisor);
-#endif
-          GC_set_free_space_divisor (free_space_divisor);
-        }
-    }
-
-  prev_image_size = image_size;
-  prev_bytes_alloced = bytes_alloced;
-
-  return NULL;
-}
-
-/* The adjust_gc_frequency routine handles transients in the process
-   image size.  It can't handle instense non-GC-managed steady-state
-   allocation though, as it decays the FSD at steady-state down to its
-   minimum value.
-
-   The only real way to handle continuous, high non-GC allocation is to
-   let the GC know about it.  This routine can handle non-GC allocation
-   rates that are similar in size to the GC-managed heap size.
- */
 
 void
 scm_gc_register_allocation (size_t size)
@@ -865,10 +723,6 @@ scm_init_gc ()
   scm_c_hook_add (&scm_before_gc_c_hook, queue_after_gc_hook, NULL, 0);
   scm_c_hook_add (&scm_before_gc_c_hook, start_gc_timer, NULL, 0);
   scm_c_hook_add (&scm_after_gc_c_hook, accumulate_gc_timer, NULL, 0);
-
-  /* GC_get_heap_usage does not take a lock, and so can run in the GC
-     start hook.  */
-  scm_c_hook_add (&scm_before_gc_c_hook, adjust_gc_frequency, NULL, 0);
 
   GC_set_start_callback (run_before_gc_c_hook);
 
