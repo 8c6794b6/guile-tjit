@@ -127,7 +127,7 @@
   RUN_HOOK0 (abort)
 
 #define VM_HANDLE_INTERRUPTS                     \
-  SCM_ASYNC_TICK_WITH_GUARD_CODE (current_thread, SYNC_IP (), CACHE_FP ())
+  SCM_ASYNC_TICK_WITH_GUARD_CODE (thread, SYNC_IP (), CACHE_FP ())
 
 
 /* Virtual Machine
@@ -430,7 +430,7 @@
   ((scm_t_uintptr) (ptr) % alignof_type (type) == 0)
 
 static SCM
-VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
+VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
          scm_i_jmp_buf *registers, int resume)
 {
   /* Instruction pointer: A pointer to the opcode that is currently
@@ -527,7 +527,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
           scm_t_uint32 n;
           ret = SCM_EOL;
           for (n = nvals; n > 0; n--)
-            ret = scm_cons (LOCAL_REF (4 + n - 1), ret);
+            ret = scm_inline_cons (thread, LOCAL_REF (4 + n - 1), ret);
           ret = scm_values (ret);
         }
 
@@ -810,7 +810,8 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       SYNC_IP ();
 
       // FIXME: separate args
-      ret = scm_i_foreign_call (scm_cons (cif, pointer), LOCAL_ADDRESS (1));
+      ret = scm_i_foreign_call (scm_inline_cons (thread, cif, pointer),
+                                LOCAL_ADDRESS (1));
 
       CACHE_FP ();
 
@@ -872,7 +873,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
                  vm_error_continuation_not_rewindable (vmcont));
       vm_reinstate_partial_continuation (vp, vmcont, FRAME_LOCALS_COUNT_FROM (1),
                                          LOCAL_ADDRESS (1),
-                                         &current_thread->dynstack,
+                                         &thread->dynstack,
                                          registers);
       CACHE_REGISTER ();
       NEXT (0);
@@ -938,7 +939,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       VM_HANDLE_INTERRUPTS;
 
       SYNC_IP ();
-      dynstack = scm_dynstack_capture_all (&current_thread->dynstack);
+      dynstack = scm_dynstack_capture_all (&thread->dynstack);
       vm_cont = scm_i_vm_capture_stack (vp->stack_base,
                                         SCM_FRAME_DYNAMIC_LINK (fp),
                                         SCM_FRAME_PREVIOUS_SP (fp),
@@ -1242,7 +1243,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
           SCM rest = SCM_EOL;
           n = nkw;
           while (n--)
-            rest = scm_cons (LOCAL_REF (ntotal + n), rest);
+            rest = scm_inline_cons (thread, LOCAL_REF (ntotal + n), rest);
           LOCAL_SET (nreq_and_opt, rest);
         }
 
@@ -1274,7 +1275,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
         {
           while (nargs-- > dst)
             {
-              rest = scm_cons (LOCAL_REF (nargs), rest);
+              rest = scm_inline_cons (thread, LOCAL_REF (nargs), rest);
               LOCAL_SET (nargs, SCM_UNDEFINED);
             }
 
@@ -1490,7 +1491,8 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
     {
       scm_t_uint16 dst, src;
       UNPACK_12_12 (op, dst, src);
-      LOCAL_SET (dst, scm_cell (scm_tc7_variable, SCM_UNPACK (LOCAL_REF (src))));
+      LOCAL_SET (dst, scm_inline_cell (thread, scm_tc7_variable,
+                                       SCM_UNPACK (LOCAL_REF (src))));
       NEXT (1);
     }
 
@@ -1547,7 +1549,8 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       UNPACK_24 (ip[2], nfree);
 
       // FIXME: Assert range of nfree?
-      closure = scm_words (scm_tc7_program | (nfree << 16), nfree + 2);
+      closure = scm_inline_words (thread, scm_tc7_program | (nfree << 16),
+                                  nfree + 2);
       SCM_SET_CELL_WORD_1 (closure, ip + offset);
       // FIXME: Elide these initializations?
       for (n = 0; n < nfree; n++)
@@ -2002,7 +2005,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   
       /* Push the prompt onto the dynamic stack. */
       flags = escape_only_p ? SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY : 0;
-      scm_dynstack_push_prompt (&current_thread->dynstack, flags,
+      scm_dynstack_push_prompt (&thread->dynstack, flags,
                                 LOCAL_REF (tag),
                                 fp - vp->stack_base,
                                 LOCAL_ADDRESS (proc_slot) - vp->stack_base,
@@ -2023,7 +2026,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
     {
       scm_t_uint16 winder, unwinder;
       UNPACK_12_12 (op, winder, unwinder);
-      scm_dynstack_push_dynwind (&current_thread->dynstack,
+      scm_dynstack_push_dynwind (&thread->dynstack,
                                  LOCAL_REF (winder), LOCAL_REF (unwinder));
       NEXT (1);
     }
@@ -2035,7 +2038,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
    */
   VM_DEFINE_OP (64, unwind, "unwind", OP1 (U8_X24))
     {
-      scm_dynstack_pop (&current_thread->dynstack);
+      scm_dynstack_pop (&thread->dynstack);
       NEXT (1);
     }
 
@@ -2049,9 +2052,9 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
 
       UNPACK_12_12 (op, fluid, value);
 
-      scm_dynstack_push_fluid (&current_thread->dynstack,
+      scm_dynstack_push_fluid (&thread->dynstack,
                                LOCAL_REF (fluid), LOCAL_REF (value),
-                               current_thread->dynamic_state);
+                               thread->dynamic_state);
       NEXT (1);
     }
 
@@ -2063,8 +2066,8 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   VM_DEFINE_OP (66, pop_fluid, "pop-fluid", OP1 (U8_X24))
     {
       /* This function must not allocate.  */
-      scm_dynstack_unwind_fluid (&current_thread->dynstack,
-                                 current_thread->dynamic_state);
+      scm_dynstack_unwind_fluid (&thread->dynstack,
+                                 thread->dynamic_state);
       NEXT (1);
     }
 
@@ -2080,7 +2083,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
 
       UNPACK_12_12 (op, dst, src);
       fluid = LOCAL_REF (src);
-      fluids = SCM_I_DYNAMIC_STATE_FLUIDS (current_thread->dynamic_state);
+      fluids = SCM_I_DYNAMIC_STATE_FLUIDS (thread->dynamic_state);
       if (SCM_UNLIKELY (!SCM_FLUID_P (fluid))
           || ((num = SCM_I_FLUID_NUM (fluid)) >= SCM_SIMPLE_VECTOR_LENGTH (fluids)))
         {
@@ -2113,7 +2116,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
 
       UNPACK_12_12 (op, a, b);
       fluid = LOCAL_REF (a);
-      fluids = SCM_I_DYNAMIC_STATE_FLUIDS (current_thread->dynamic_state);
+      fluids = SCM_I_DYNAMIC_STATE_FLUIDS (thread->dynamic_state);
       if (SCM_UNLIKELY (!SCM_FLUID_P (fluid))
           || ((num = SCM_I_FLUID_NUM (fluid)) >= SCM_SIMPLE_VECTOR_LENGTH (fluids)))
         {
@@ -2229,7 +2232,7 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
   VM_DEFINE_OP (74, cons, "cons", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
-      RETURN (scm_cons (x, y));
+      RETURN (scm_inline_cons (thread, x, y));
     }
 
   /* car dst:12 src:12
@@ -2497,7 +2500,8 @@ VM_NAME (scm_i_thread *current_thread, struct scm_vm *vp,
       UNPACK_8_8_8 (op, dst, length, init);
 
       val = LOCAL_REF (init);
-      vector = scm_words (scm_tc7_vector | (length << 8), length + 1);
+      vector = scm_inline_words (thread, scm_tc7_vector | (length << 8),
+                                 length + 1);
       for (n = 0; n < length; n++)
         SCM_SIMPLE_VECTOR_SET (vector, n, val);
       LOCAL_SET (dst, vector);

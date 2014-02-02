@@ -40,6 +40,7 @@
 #include "_scm.h"
 #include "control.h"
 #include "frames.h"
+#include "gc-inline.h"
 #include "instructions.h"
 #include "loader.h"
 #include "programs.h"

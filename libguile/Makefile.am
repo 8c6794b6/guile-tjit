@@ -1,7 +1,7 @@
 ## Process this file with Automake to create Makefile.in
 ##
 ##   Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2006, 2007,
-##     2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+##     2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 ##
 ##   This file is part of GUILE.
 ##
@@ -558,6 +558,7 @@ modinclude_HEADERS =				\
 	fports.h				\
 	frames.h				\
 	gc.h					\
+	gc-inline.h				\
 	gettext.h				\
 	generalized-arrays.h			\
 	generalized-vectors.h			\

@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 2000, 2001, 2002, 2003, 2004,
- *   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
+ *   2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
  *   Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -63,6 +63,7 @@
 #include "libguile/fluids.h"
 #include "libguile/continuations.h"
 #include "libguile/gc.h"
+#include "libguile/gc-inline.h"
 #include "libguile/init.h"
 #include "libguile/scmsigs.h"
 #include "libguile/strings.h"
@@ -94,6 +95,26 @@ thread_mark (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
     mark_stack_ptr = GC_MARK_AND_PUSH ((void *) addr[word],
 				       mark_stack_ptr, mark_stack_limit,
 				       NULL);
+
+  /* The pointerless freelists are threaded through their first word,
+     but GC doesn't know to trace them (as they are pointerless), so we
+     need to do that here.  See the comments at the top of libgc's
+     gc_inline.h.  */
+  {
+    size_t n;
+    for (n = 0; n < SCM_INLINE_GC_FREELIST_COUNT; n++)
+      {
+        void *chain = t->pointerless_freelists[n];
+        if (chain)
+          {
+            /* The first link is already marked by the freelist vector,
+               so we just have to mark the tail.  */
+            while ((chain = *(void **)chain))
+              mark_stack_ptr = GC_mark_and_push (chain, mark_stack_ptr,
+                                                 mark_stack_limit, NULL);
+          }
+      }
+  }
 
   if (t->vp)
     mark_stack_ptr = scm_i_vm_mark_stack (t->vp, mark_stack_ptr,
@@ -389,6 +410,8 @@ guilify_self_1 (struct GC_stack_base *base)
   t.mutexes = SCM_EOL;
   t.held_mutex = NULL;
   t.join_queue = SCM_EOL;
+  t.freelists = NULL;
+  t.pointerless_freelists = NULL;
   t.dynamic_state = SCM_BOOL_F;
   t.dynstack.base = NULL;
   t.dynstack.top = NULL;
@@ -458,6 +481,12 @@ guilify_self_2 (SCM parent)
 
   t->continuation_root = scm_cons (t->handle, SCM_EOL);
   t->continuation_base = t->base;
+
+  {
+    size_t size = SCM_INLINE_GC_FREELIST_COUNT * sizeof (void *);
+    t->freelists = scm_gc_malloc (size, "freelists");
+    t->pointerless_freelists = scm_gc_malloc (size, "atomic freelists");
+  }
 
   if (scm_is_true (parent))
     t->dynamic_state = scm_make_dynamic_state (parent);
