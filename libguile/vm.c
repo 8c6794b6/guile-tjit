@@ -824,6 +824,38 @@ return_unused_stack_to_os (struct scm_vm *vp)
 #endif
 }
 
+#define DEAD_SLOT_MAP_CACHE_SIZE 32U
+struct dead_slot_map_cache_entry
+{
+  scm_t_uint32 *ip;
+  const scm_t_uint8 *map;
+};
+
+struct dead_slot_map_cache
+{
+  struct dead_slot_map_cache_entry entries[DEAD_SLOT_MAP_CACHE_SIZE];
+};
+
+static const scm_t_uint8 *
+find_dead_slot_map (scm_t_uint32 *ip, struct dead_slot_map_cache *cache)
+{
+  /* The lower two bits should be zero.  FIXME: Use a better hash
+     function; we don't expose scm_raw_hashq currently.  */
+  size_t slot = (((scm_t_uintptr) ip) >> 2) % DEAD_SLOT_MAP_CACHE_SIZE;
+  const scm_t_uint8 *map;
+
+  if (cache->entries[slot].ip == ip)
+    map = cache->entries[slot].map;
+  else
+    {
+      map = scm_find_dead_slot_map_unlocked (ip);
+      cache->entries[slot].ip = ip;
+      cache->entries[slot].map = map;
+    }
+
+  return map;
+}
+
 /* Mark the VM stack region between its base and its current top.  */
 struct GC_ms_entry *
 scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
@@ -838,6 +870,9 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
   const scm_t_uint8 *dead_slots = NULL;
   scm_t_uintptr upper = (scm_t_uintptr) GC_greatest_plausible_heap_addr;
   scm_t_uintptr lower = (scm_t_uintptr) GC_least_plausible_heap_addr;
+  struct dead_slot_map_cache cache;
+
+  memset (&cache, 0, sizeof (cache));
 
   for (fp = vp->fp, sp = vp->sp; fp; fp = SCM_FRAME_DYNAMIC_LINK (fp))
     {
@@ -870,8 +905,7 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
          Note that there may be other reasons to not have a dead slots
          map, e.g. if all of the frame's slots below the callee frame
          are live.  */
-      dead_slots =
-        scm_find_dead_slot_map_unlocked (SCM_FRAME_RETURN_ADDRESS (fp));
+      dead_slots = find_dead_slot_map (SCM_FRAME_RETURN_ADDRESS (fp), &cache);
     }
 
   return_unused_stack_to_os (vp);
