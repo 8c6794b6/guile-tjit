@@ -839,6 +839,10 @@ BODY for each body continuation in the prompt."
           (use! proc)
           (for-each use! args))
 
+         (($ $callk k proc args)
+          (use! proc)
+          (for-each use! args))
+
          (($ $primcall name args)
           (for-each use! args))
 
@@ -979,6 +983,7 @@ BODY for each body continuation in the prompt."
          (lambda (use)
            (match (find-expression (lookup-cont use conts))
              (($ $call) #f)
+             (($ $callk) #f)
              (($ $values) #f)
              (($ $primcall 'free-ref (closure slot))
               (not (eq? sym slot)))

@@ -451,7 +451,7 @@
      (cause &allocation))
     (($ $prompt)
      (cause &prompt))
-    (($ $call)
+    ((or ($ $call) ($ $callk))
      (logior &all-effects-but-bailout (cause &all-effects-but-bailout)))
     (($ $primcall name args)
      (primitive-effects dfg name args))))

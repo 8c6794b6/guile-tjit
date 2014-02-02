@@ -226,6 +226,13 @@
          (let ((tail-slots (cdr (iota (1+ (length args))))))
            (for-each maybe-load-constant tail-slots args))
          (emit-tail-call asm (1+ (length args))))
+        (($ $callk k proc args)
+         (for-each (match-lambda
+                    ((src . dst) (emit-mov asm dst src)))
+                   (lookup-parallel-moves label allocation))
+         (let ((tail-slots (cdr (iota (1+ (length args))))))
+           (for-each maybe-load-constant tail-slots args))
+         (emit-tail-call-label asm (1+ (length args)) k))
         (($ $values ())
          (emit-reset-frame asm 1)
          (emit-return-values asm))
@@ -442,37 +449,45 @@
         (($ $primcall '> (a b)) (binary emit-br-if-< b a))))
 
     (define (compile-trunc label k exp nreq rest-var nlocals)
+      (define (do-call proc args emit-call)
+        (let* ((proc-slot (lookup-call-proc-slot label allocation))
+               (nargs (1+ (length args)))
+               (arg-slots (map (lambda (x) (+ x proc-slot)) (iota nargs))))
+          (for-each (match-lambda
+                     ((src . dst) (emit-mov asm dst src)))
+                    (lookup-parallel-moves label allocation))
+          (for-each maybe-load-constant arg-slots (cons proc args))
+          (emit-call asm proc-slot nargs)
+          (emit-dead-slot-map asm proc-slot
+                              (lookup-dead-slot-map label allocation))
+          (cond
+           ((and (= 1 nreq) (and rest-var) (not (maybe-slot rest-var))
+                 (match (lookup-parallel-moves k allocation)
+                   ((((? (lambda (src) (= src (1+ proc-slot))) src)
+                      . dst)) dst)
+                   (_ #f)))
+            ;; The usual case: one required live return value, ignoring
+            ;; any additional values.
+            => (lambda (dst)
+                 (emit-receive asm dst proc-slot nlocals)))
+           (else
+            (unless (and (zero? nreq) rest-var)
+              (emit-receive-values asm proc-slot (->bool rest-var) nreq))
+            (when (and rest-var (maybe-slot rest-var))
+              (emit-bind-rest asm (+ proc-slot 1 nreq)))
+            (for-each (match-lambda
+                       ((src . dst) (emit-mov asm dst src)))
+                      (lookup-parallel-moves k allocation))
+            (emit-reset-frame asm nlocals)))))
       (match exp
         (($ $call proc args)
-         (let* ((proc-slot (lookup-call-proc-slot label allocation))
-                (nargs (1+ (length args)))
-                (arg-slots (map (lambda (x) (+ x proc-slot)) (iota nargs))))
-           (for-each (match-lambda
-                      ((src . dst) (emit-mov asm dst src)))
-                     (lookup-parallel-moves label allocation))
-           (for-each maybe-load-constant arg-slots (cons proc args))
-           (emit-call asm proc-slot nargs)
-           (emit-dead-slot-map asm proc-slot
-                               (lookup-dead-slot-map label allocation))
-           (cond
-            ((and (= 1 nreq) (and rest-var) (not (maybe-slot rest-var))
-                  (match (lookup-parallel-moves k allocation)
-                    ((((? (lambda (src) (= src (1+ proc-slot))) src)
-                       . dst)) dst)
-                    (_ #f)))
-             ;; The usual case: one required live return value, ignoring
-             ;; any additional values.
-             => (lambda (dst)
-                  (emit-receive asm dst proc-slot nlocals)))
-            (else
-             (unless (and (zero? nreq) rest-var)
-               (emit-receive-values asm proc-slot (->bool rest-var) nreq))
-             (when (and rest-var (maybe-slot rest-var))
-               (emit-bind-rest asm (+ proc-slot 1 nreq)))
-             (for-each (match-lambda
-                        ((src . dst) (emit-mov asm dst src)))
-                       (lookup-parallel-moves k allocation))
-             (emit-reset-frame asm nlocals)))))))
+         (do-call proc args
+                  (lambda (asm proc-slot nargs)
+                    (emit-call asm proc-slot nargs))))
+        (($ $callk k proc args)
+         (do-call proc args
+                  (lambda (asm proc-slot nargs)
+                    (emit-call-label asm proc-slot nargs k))))))
 
     (match f
       (($ $fun src meta free ($ $cont k ($ $kentry self tail clauses)))

@@ -687,10 +687,17 @@ entry.
 @end deftp
 
 @deftp {CPS Expression} $call proc args
+@deftpx {CPS Expression} $callk label proc args
 Call @var{proc} with the arguments @var{args}, and pass all values to
 the continuation.  @var{proc} and the elements of the @var{args} list
 should all be variable names.  The continuation identified by the term's
 @var{k} should be a @code{$kreceive} or a @code{$ktail} instance.
+
+@code{$callk} is for the case where the call target is known to be in
+the same compilation unit.  @var{label} should be some continuation
+label, though it need not be in scope.  In this case the @var{proc} is
+simply an additional argument, since it is not used to determine the
+call target at run-time.
 @end deftp
 
 @deftp {CPS Expression} $primcall name args

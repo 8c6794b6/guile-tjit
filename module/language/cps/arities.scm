@@ -136,11 +136,11 @@
          ,(adapt-exp 1 k src exp))
         (($ $fun)
          ,(adapt-exp 1 k src (fix-arities exp)))
-        (($ $call)
+        ((or ($ $call) ($ $callk))
          ;; In general, calls have unknown return arity.  For that
-         ;; reason every non-tail call has an implicit adaptor
-         ;; continuation to adapt the return to the target
-         ;; continuation, and we don't need to do any adapting here.
+         ;; reason every non-tail call has a $kreceive continuation to
+         ;; adapt the return to the target continuation, and we don't
+         ;; need to do any adapting here.
          ($continue k src ,exp))
         (($ $primcall 'return (arg))
          ;; Primcalls to return are in tail position.

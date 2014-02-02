@@ -124,6 +124,13 @@
       (($ $call (? symbol? proc) ((? symbol? arg) ...))
        (check-var proc v-env)
        (for-each (cut check-var <> v-env) arg))
+      (($ $callk (? symbol? k*) (? symbol? proc) ((? symbol? arg) ...))
+       ;; We don't check that k* is in scope; it's actually inside some
+       ;; other function, probably.  We rely on the transformation that
+       ;; introduces the $callk to be correct, and the linker to resolve
+       ;; the reference.
+       (check-var proc v-env)
+       (for-each (cut check-var <> v-env) arg))
       (($ $primcall (? symbol? name) ((? symbol? arg) ...))
        (for-each (cut check-var <> v-env) arg))
       (($ $values ((? symbol? arg) ...))

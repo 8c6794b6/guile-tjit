@@ -121,7 +121,7 @@
             $kif $kreceive $kargs $kentry $ktail $kclause
 
             ;; Expressions.
-            $void $const $prim $fun $call $primcall $values $prompt
+            $void $const $prim $fun $call $callk $primcall $values $prompt
 
             ;; Building macros.
             let-gensyms
@@ -182,6 +182,7 @@
 (define-cps-type $prim name)
 (define-cps-type $fun src meta free body)
 (define-cps-type $call proc args)
+(define-cps-type $callk k proc args)
 (define-cps-type $primcall name args)
 (define-cps-type $values args)
 (define-cps-type $prompt escape? tag handler)
@@ -226,7 +227,7 @@
 
 (define-syntax build-cps-exp
   (syntax-rules (unquote
-                 $void $const $prim $fun $call $primcall $values $prompt)
+                 $void $const $prim $fun $call $callk $primcall $values $prompt)
     ((_ (unquote exp)) exp)
     ((_ ($void)) (make-$void))
     ((_ ($const val)) (make-$const val))
@@ -235,6 +236,8 @@
      (make-$fun src meta free (build-cps-cont body)))
     ((_ ($call proc (arg ...))) (make-$call proc (list arg ...)))
     ((_ ($call proc args)) (make-$call proc args))
+    ((_ ($callk k proc (arg ...))) (make-$callk k proc (list arg ...)))
+    ((_ ($callk k proc args)) (make-$callk k proc args))
     ((_ ($primcall name (arg ...))) (make-$primcall name (list arg ...)))
     ((_ ($primcall name args)) (make-$primcall name args))
     ((_ ($values (arg ...))) (make-$values (list arg ...)))
@@ -336,6 +339,8 @@
        ($letrec name sym (map parse-cps fun) ,(parse-cps body))))
     (('call proc arg ...)
      (build-cps-exp ($call proc arg)))
+    (('callk k proc arg ...)
+     (build-cps-exp ($callk k proc arg)))
     (('primcall name arg ...)
      (build-cps-exp ($primcall name arg)))
     (('values arg ...)
@@ -392,6 +397,8 @@
         ,(unparse-cps body)))
     (($ $call proc args)
      `(call ,proc ,@args))
+    (($ $callk k proc args)
+     `(callk ,k ,proc ,@args))
     (($ $primcall name args)
      `(primcall ,name ,@args))
     (($ $values args)

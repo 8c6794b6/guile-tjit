@@ -4,7 +4,7 @@
 #define SCM__SCM_H
 
 /* Copyright (C) 1995, 1996, 2000, 2001, 2002, 2006, 2008, 2009, 2010,
- *   2011, 2013 Free Software Foundation, Inc.
+ *   2011, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -268,7 +268,7 @@ void scm_ia64_longjmp (scm_i_jmp_buf *, int);
 
 /* Major and minor versions must be single characters. */
 #define SCM_OBJCODE_MAJOR_VERSION 3
-#define SCM_OBJCODE_MINOR_VERSION 3
+#define SCM_OBJCODE_MINOR_VERSION 4
 #define SCM_OBJCODE_MAJOR_VERSION_STRING        \
   SCM_CPP_STRINGIFY(SCM_OBJCODE_MAJOR_VERSION)
 #define SCM_OBJCODE_MINOR_VERSION_STRING        \

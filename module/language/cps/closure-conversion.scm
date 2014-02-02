@@ -198,6 +198,14 @@ convert functions to flat closures."
                                     ($continue k src ($call proc args)))
                                   '())))))
 
+    (($ $continue k src ($ $callk k* proc args))
+     (convert-free-vars (cons proc args) self bound
+                        (match-lambda
+                         ((proc . args)
+                          (values (build-cps-term
+                                    ($continue k src ($callk k* proc args)))
+                                  '())))))
+
     (($ $continue k src ($ $primcall name args))
      (convert-free-vars args self bound
                         (lambda (args)
