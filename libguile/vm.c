@@ -64,6 +64,36 @@ static SCM sym_debug;
 
 /* #define VM_ENABLE_PARANOID_ASSERTIONS */
 
+static void vm_expand_stack (struct scm_vm *vp) SCM_NOINLINE;
+
+/* RESTORE is for the case where we know we have done a PUSH of equal or
+   greater stack size in the past.  Otherwise PUSH is the thing, which
+   may expand the stack.  */
+enum vm_increase_sp_kind { VM_SP_PUSH, VM_SP_RESTORE };
+
+static inline void
+vm_increase_sp (struct scm_vm *vp, SCM *new_sp, enum vm_increase_sp_kind kind)
+{
+  vp->sp = new_sp;
+  if (new_sp > vp->sp_max_since_gc)
+    {
+      vp->sp_max_since_gc = new_sp;
+      if (kind == VM_SP_PUSH && new_sp >= vp->stack_limit)
+        vm_expand_stack (vp);
+    }
+}
+
+static inline void
+vm_push_sp (struct scm_vm *vp, SCM *new_sp)
+{
+  vm_increase_sp (vp, new_sp, VM_SP_PUSH);
+}
+
+static inline void
+vm_restore_sp (struct scm_vm *vp, SCM *new_sp)
+{
+  vm_increase_sp (vp, new_sp, VM_SP_RESTORE);
+}
 
 
 /*
@@ -114,40 +144,60 @@ vm_return_to_continuation (struct scm_vm *vp, SCM cont, size_t n, SCM *argv)
 {
   struct scm_vm_cont *cp;
   SCM *argv_copy;
+  scm_t_ptrdiff reloc;
 
   argv_copy = alloca (n * sizeof(SCM));
   memcpy (argv_copy, argv, n * sizeof(SCM));
 
   cp = SCM_VM_CONT_DATA (cont);
 
-  if (vp->stack_size < cp->stack_size + n + 3)
-    scm_misc_error ("vm-engine", "not enough space to reinstate continuation",
-                    scm_list_1 (cont));
+  /* FIXME: Need to prevent GC while futzing with the stack; otherwise,
+     another thread causing GC may initiate a mark of a stack in an
+     inconsistent state.  */
 
-  vp->sp = cp->sp;
-  vp->fp = cp->fp;
+  /* We know that there is enough space for the continuation, because we
+     captured it in the past.  However there may have been an expansion
+     since the capture, so we may have to re-link the frame
+     pointers.  */
+  reloc = (vp->stack_base - (cp->stack_base - cp->reloc));
+  vp->fp = cp->fp + reloc;
   memcpy (vp->stack_base, cp->stack_base, cp->stack_size * sizeof (SCM));
+  vm_restore_sp (vp, cp->sp + reloc);
 
+  if (reloc)
+    {
+      SCM *fp = vp->fp;
+      while (fp)
+        {
+          SCM *next_fp = SCM_FRAME_DYNAMIC_LINK (fp);
+          if (next_fp)
+            {
+              next_fp += reloc;
+              SCM_FRAME_SET_DYNAMIC_LINK (fp, next_fp);
+            }
+          fp = next_fp;
+        }
+    }
+
+  /* Now we have the continuation properly copied over.  We just need to
+     copy the arguments.  It is not guaranteed that there is actually
+     space for the arguments, though, so we have to bump the SP first.  */
+  vm_push_sp (vp, vp->sp + 3 + n);
+
+  /* Now copy on an empty frame and the return values, as the
+     continuation expects.  */
   {
+    SCM *base = vp->sp + 1 - 3 - n;
     size_t i;
 
-    /* Push on an empty frame, as the continuation expects.  */
     for (i = 0; i < 3; i++)
-      {
-        vp->sp++;
-        *vp->sp = SCM_BOOL_F;
-      }
+      base[i] = SCM_BOOL_F;
 
-    /* Push the return values.  */
     for (i = 0; i < n; i++)
-      {
-        vp->sp++;
-        *vp->sp = argv_copy[i];
-      }
-    if (vp->sp > vp->sp_max_since_gc)
-      vp->sp_max_since_gc = vp->sp;
-    vp->ip = cp->ra;
+      base[i + 3] = argv_copy[i];
   }
+
+  vp->ip = cp->ra;
 }
 
 static struct scm_vm * thread_vm (scm_i_thread *t);
@@ -292,8 +342,6 @@ vm_abort (struct scm_vm *vp, SCM tag,
   scm_c_abort (vp, tag, nstack + tail_len, argv, current_registers);
 }
 
-static void vm_expand_stack (struct scm_vm *vp) SCM_NOINLINE;
-
 static void
 vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
                                    size_t n, SCM *argv,
@@ -310,48 +358,28 @@ vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
 
   cp = SCM_VM_CONT_DATA (cont);
 
-  while (1)
-    {
-      scm_t_ptrdiff saved_stack_height = vp->sp - vp->stack_base;
+  vm_push_sp (vp, SCM_FRAME_LOCALS_ADDRESS (vp->fp) + cp->stack_size + n - 1);
 
-      base = SCM_FRAME_LOCALS_ADDRESS (vp->fp);
-      reloc = cp->reloc + (base - cp->stack_base);
-
-      vp->sp = base + cp->stack_size + n + 1;
-      if (vp->sp < vp->stack_limit)
-        break;
-
-      vm_expand_stack (vp);
-      vp->sp = vp->stack_base + saved_stack_height;
-    }
-
-#define RELOC(scm_p)						\
-  (((SCM *) (scm_p)) + reloc)
+  base = SCM_FRAME_LOCALS_ADDRESS (vp->fp);
+  reloc = cp->reloc + (base - cp->stack_base);
 
   memcpy (base, cp->stack_base, cp->stack_size * sizeof (SCM));
+
+  vp->fp = cp->fp + reloc;
+  vp->ip = cp->ra;
 
   /* now relocate frame pointers */
   {
     SCM *fp;
-    for (fp = RELOC (cp->fp);
+    for (fp = vp->fp;
          SCM_FRAME_LOWER_ADDRESS (fp) > base;
          fp = SCM_FRAME_DYNAMIC_LINK (fp))
-      SCM_FRAME_SET_DYNAMIC_LINK (fp, RELOC (SCM_FRAME_DYNAMIC_LINK (fp)));
+      SCM_FRAME_SET_DYNAMIC_LINK (fp, SCM_FRAME_DYNAMIC_LINK (fp) + reloc);
   }
-
-  vp->sp = base - 1 + cp->stack_size;
-  vp->fp = RELOC (cp->fp);
-  vp->ip = cp->ra;
 
   /* Push the arguments. */
   for (i = 0; i < n; i++)
-    {
-      vp->sp++;
-      *vp->sp = argv_copy[i];
-    }
-
-  if (vp->sp > vp->sp_max_since_gc)
-      vp->sp_max_since_gc = vp->sp;
+    vp->sp[i + 1 - n] = argv_copy[i];
 
   /* The prompt captured a slice of the dynamic stack.  Here we wind
      those entries onto the current thread's stack.  We also have to
@@ -371,7 +399,6 @@ vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
           scm_dynstack_wind_1 (dynstack, walk);
       }
   }
-#undef RELOC
 }
 
 
@@ -810,8 +837,11 @@ static void
 return_unused_stack_to_os (struct scm_vm *vp)
 {
 #if HAVE_SYS_MMAN_H
-  scm_t_uintptr start = (scm_t_uintptr) vp->sp;
-  scm_t_uintptr end = (scm_t_uintptr) vp->sp_max_since_gc;
+  scm_t_uintptr start = (scm_t_uintptr) (vp->sp + 1);
+  scm_t_uintptr end = (scm_t_uintptr) vp->stack_limit;
+  /* The second condition is needed to protect against wrap-around.  */
+  if (vp->sp_max_since_gc < vp->stack_limit && vp->sp < vp->sp_max_since_gc)
+    end = (scm_t_uintptr) (vp->sp_max_since_gc + 1);
 
   start = ((start - 1U) | (page_size - 1U)) + 1U; /* round up */
   end = ((end - 1U) | (page_size - 1U)) + 1U; /* round up */
@@ -937,6 +967,8 @@ vm_expand_stack (struct scm_vm *vp)
       abort ();
     }
 
+  /* FIXME: Prevent GC while we expand the stack, to ensure that a
+     stack marker can trace the stack.  */
   if (stack_size > vp->stack_size)
     {
       SCM *old_stack;
@@ -955,7 +987,8 @@ vm_expand_stack (struct scm_vm *vp)
       if (reloc)
         {
           SCM *fp;
-          vp->fp += reloc;
+          if (vp->fp)
+            vp->fp += reloc;
           vp->sp += reloc;
           vp->sp_max_since_gc += reloc;
           fp = vp->fp;
@@ -1027,13 +1060,10 @@ scm_call_n (SCM proc, SCM *argv, size_t nargs)
 
   SCM_CHECK_STACK;
 
-  /* Check that we have enough space: 3 words for the boot
-     continuation, 3 + nargs for the procedure application, and 3 for
-     setting up a new frame.  */
-  base_frame_size = 3 + 3 + nargs + 3;
-  vp->sp += base_frame_size;
-  if (vp->sp >= vp->stack_limit)
-    vm_expand_stack (vp);
+  /* Check that we have enough space: 3 words for the boot continuation,
+     and 3 + nargs for the procedure application.  */
+  base_frame_size = 3 + 3 + nargs;
+  vm_push_sp (vp, vp->sp + base_frame_size);
   base = vp->sp + 1 - base_frame_size;
 
   /* Since it's possible to receive the arguments on the stack itself,
@@ -1054,10 +1084,6 @@ scm_call_n (SCM proc, SCM *argv, size_t nargs)
   base[4] = SCM_PACK (vp->ip); /* ra */
   base[5] = proc;
   vp->fp = &base[5];
-  vp->sp = &SCM_FRAME_LOCAL (vp->fp, nargs);
-
-  if (vp->sp > vp->sp_max_since_gc)
-    vp->sp_max_since_gc = vp->sp;
 
   {
     int resume = SCM_I_SETJMP (registers);

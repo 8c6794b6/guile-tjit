@@ -195,9 +195,11 @@
 #define ALLOC_FRAME(n)                                              \
   do {                                                              \
     vp->sp = LOCAL_ADDRESS (n - 1);                                 \
-    CHECK_OVERFLOW ();                                              \
     if (vp->sp > vp->sp_max_since_gc)                               \
-      vp->sp_max_since_gc = vp->sp;                                 \
+      {                                                             \
+        vp->sp_max_since_gc = vp->sp;                               \
+        CHECK_OVERFLOW ();                                          \
+      }                                                             \
   } while (0)
 
 /* Reset the current frame to hold N locals.  Used when we know that no
