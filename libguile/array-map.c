@@ -778,24 +778,29 @@ SCM_DEFINE (scm_array_for_each, "array-for-each", 2, 0, 1,
 }
 #undef FUNC_NAME
 
-static SCM
+static void
 array_index_map_1 (SCM ra, SCM proc)
 {
-  unsigned long i;
-  size_t length = scm_c_array_length (ra);
-  for (i = 0; i < length; ++i)
-    ASET (ra, i, scm_call_1 (proc, scm_from_ulong (i)));
-  return SCM_UNSPECIFIED;
+  scm_t_array_handle h;
+  ssize_t i, inc;
+  size_t p;
+  SCM v;
+  scm_array_get_handle (ra, &h);
+  v = h.array;
+  inc = h.dims[0].inc;
+  for (i = h.dims[0].lbnd, p = h.base; i <= h.dims[0].ubnd; ++i, p += inc)
+    h.impl->vset (&h, p, scm_call_1 (proc, scm_from_ulong (i)));
+  scm_array_handle_release (&h);
 }
 
 /* Here we assume that the array is a scm_tc7_array, as that is the only
    kind of array in Guile that supports rank > 1.  */
-static SCM
+static void
 array_index_map_n (SCM ra, SCM proc)
 {
+  size_t i;
   SCM args = SCM_EOL;
   int j, k, kmax = SCM_I_ARRAY_NDIM (ra) - 1;
-  unsigned long i;
   long *vinds;
 
   vinds = scm_gc_malloc_pointerless (sizeof(long) * SCM_I_ARRAY_NDIM (ra),
@@ -830,8 +835,6 @@ array_index_map_n (SCM ra, SCM proc)
       k--;
     }
   while (k >= 0);
-
-  return SCM_UNSPECIFIED;
 }
 
 SCM_DEFINE (scm_array_index_map_x, "array-index-map!", 2, 0, 0,
