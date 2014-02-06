@@ -92,20 +92,20 @@ scm_ra_matchp (SCM ra0, SCM ras)
   int i, ndim = 1;
   int exact = 2	  /* 4 */ ;  /* Don't care about values >2 (yet?) */
 
-  if (!scm_is_array (ra0))
-    return 0;
-  else if (!SCM_I_ARRAYP (ra0))
+  if (SCM_I_ARRAYP (ra0))
+    {
+      ndim = SCM_I_ARRAY_NDIM (ra0);
+      s0 = SCM_I_ARRAY_DIMS (ra0);
+      bas0 = SCM_I_ARRAY_BASE (ra0);
+    }
+  else if (scm_is_array (ra0))
     {
       s0->lbnd = 0;
       s0->inc = 1;
       s0->ubnd = scm_c_array_length (ra0) - 1;
     }
   else
-    {
-      ndim = SCM_I_ARRAY_NDIM (ra0);
-      s0 = SCM_I_ARRAY_DIMS (ra0);
-      bas0 = SCM_I_ARRAY_BASE (ra0);
-    }
+    return 0;
 
   while (scm_is_pair (ras))
     {
@@ -778,6 +778,62 @@ SCM_DEFINE (scm_array_for_each, "array-for-each", 2, 0, 1,
 }
 #undef FUNC_NAME
 
+static SCM
+array_index_map_1 (SCM ra, SCM proc)
+{
+  unsigned long i;
+  size_t length = scm_c_array_length (ra);
+  for (i = 0; i < length; ++i)
+    ASET (ra, i, scm_call_1 (proc, scm_from_ulong (i)));
+  return SCM_UNSPECIFIED;
+}
+
+/* Here we assume that the array is a scm_tc7_array, as that is the only
+   kind of array in Guile that supports rank > 1.  */
+static SCM
+array_index_map_n (SCM ra, SCM proc)
+{
+  SCM args = SCM_EOL;
+  int j, k, kmax = SCM_I_ARRAY_NDIM (ra) - 1;
+  unsigned long i;
+  long *vinds;
+
+  vinds = scm_gc_malloc_pointerless (sizeof(long) * SCM_I_ARRAY_NDIM (ra),
+                                     indices_gc_hint);
+
+  for (k = 0; k <= kmax; k++)
+    vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd;
+  k = kmax;
+  do
+    {
+      if (k == kmax)
+        {
+          vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd;
+          i = cind (ra, vinds);
+          for (; vinds[k] <= SCM_I_ARRAY_DIMS (ra)[k].ubnd; vinds[k]++)
+            {
+              for (j = kmax + 1, args = SCM_EOL; j--;)
+                args = scm_cons (scm_from_long (vinds[j]), args);
+              ASET (SCM_I_ARRAY_V (ra), i, scm_apply_0 (proc, args));
+              i += SCM_I_ARRAY_DIMS (ra)[k].inc;
+            }
+          k--;
+          continue;
+        }
+      if (vinds[k] < SCM_I_ARRAY_DIMS (ra)[k].ubnd)
+        {
+          vinds[k]++;
+          k++;
+          continue;
+        }
+      vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd - 1;
+      k--;
+    }
+  while (k >= 0);
+
+  return SCM_UNSPECIFIED;
+}
+
 SCM_DEFINE (scm_array_index_map_x, "array-index-map!", 2, 0, 0,
 	    (SCM ra, SCM proc),
 	    "Apply @var{proc} to the indices of each element of @var{ra} in\n"
@@ -799,62 +855,22 @@ SCM_DEFINE (scm_array_index_map_x, "array-index-map!", 2, 0, 0,
 	    "@end lisp")
 #define FUNC_NAME s_scm_array_index_map_x
 {
-  unsigned long i;
   SCM_VALIDATE_PROC (2, proc);
 
-  if (!scm_is_array (ra))
-    scm_wrong_type_arg_msg (NULL, 0, ra, "array");
-  else if (!SCM_I_ARRAYP (ra))
+  switch (scm_c_array_rank (ra))
     {
-      size_t length = scm_c_array_length (ra);
-      for (i = 0; i < length; ++i)
-	ASET (ra, i, scm_call_1 (proc, scm_from_ulong (i)));
-      return SCM_UNSPECIFIED;
+    case 0:
+      scm_array_set_x (ra, scm_call_0 (proc), SCM_EOL);
+      break;
+    case 1:
+      array_index_map_1 (ra, proc);
+      break;
+    default:
+      array_index_map_n (ra, proc);
+      break;
     }
-  else
-    {
-      SCM args = SCM_EOL;
-      int j, k, kmax = SCM_I_ARRAY_NDIM (ra) - 1;
-      long *vinds;
 
-      if (kmax < 0)
-	return scm_array_set_x (ra, scm_call_0 (proc), SCM_EOL);
-
-      vinds = scm_gc_malloc_pointerless (sizeof(long) * SCM_I_ARRAY_NDIM (ra),
-					 indices_gc_hint);
-
-      for (k = 0; k <= kmax; k++)
-	vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd;
-      k = kmax;
-      do
-	{
-	  if (k == kmax)
-	    {
-	      vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd;
-	      i = cind (ra, vinds);
-	      for (; vinds[k] <= SCM_I_ARRAY_DIMS (ra)[k].ubnd; vinds[k]++)
-		{
-		  for (j = kmax + 1, args = SCM_EOL; j--;)
-		    args = scm_cons (scm_from_long (vinds[j]), args);
-		  ASET (SCM_I_ARRAY_V (ra), i, scm_apply_0 (proc, args));
-		  i += SCM_I_ARRAY_DIMS (ra)[k].inc;
-		}
-	      k--;
-	      continue;
-	    }
-	  if (vinds[k] < SCM_I_ARRAY_DIMS (ra)[k].ubnd)
-	    {
-	      vinds[k]++;
-	      k++;
-	      continue;
-	    }
-	  vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd - 1;
-	  k--;
-	}
-      while (k >= 0);
-
-      return SCM_UNSPECIFIED;
-    }
+  return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
