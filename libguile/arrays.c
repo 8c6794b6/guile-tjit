@@ -1,5 +1,5 @@
 /* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004,2005,
- *   2006, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ *   2006, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -817,15 +817,15 @@ scm_i_print_array (SCM array, SCM port, scm_print_state *pstate)
 }
 
 static SCM
-array_handle_ref (scm_t_array_handle *h, size_t pos)
+array_handle_ref (scm_t_array_handle *hh, size_t pos)
 {
-  return scm_c_generalized_vector_ref (SCM_I_ARRAY_V (h->array), pos);
+  return scm_c_array_ref_1 (SCM_I_ARRAY_V (hh->array), pos);
 }
 
 static void
-array_handle_set (scm_t_array_handle *h, size_t pos, SCM val)
+array_handle_set (scm_t_array_handle *hh, size_t pos, SCM val)
 {
-  scm_c_generalized_vector_set_x (SCM_I_ARRAY_V (h->array), pos, val);
+  scm_c_array_set_1_x (SCM_I_ARRAY_V (hh->array), val, pos);
 }
 
 /* FIXME: should be handle for vect? maybe not, because of dims */
