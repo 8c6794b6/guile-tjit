@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -87,10 +87,11 @@ scm_is_uniform_vector (SCM obj)
   scm_t_array_handle h;
   int ret = 0;
 
-  if (scm_is_generalized_vector (obj))
+  if (scm_is_array (obj))
     {
-      scm_generalized_vector_get_handle (obj, &h);
-      ret = SCM_ARRAY_ELEMENT_TYPE_IS_UNBOXED (h.element_type);
+      scm_array_get_handle (obj, &h);
+      ret = (scm_array_handle_rank (&h) == 1
+             && SCM_ARRAY_ELEMENT_TYPE_IS_UNBOXED (h.element_type));
       scm_array_handle_release (&h);
     }
   return ret;
@@ -102,8 +103,7 @@ scm_c_uniform_vector_length (SCM uvec)
   if (!scm_is_uniform_vector (uvec))
     scm_wrong_type_arg_msg ("uniform-vector-length", 1, uvec,
                             "uniform vector");
-
-  return scm_c_generalized_vector_length (uvec);
+  return scm_c_array_length (uvec);
 }
 
 SCM_DEFINE (scm_uniform_vector_p, "uniform-vector?", 1, 0, 0,
@@ -169,11 +169,11 @@ SCM_DEFINE (scm_uniform_vector_element_size, "uniform-vector-element-size", 1, 0
 #undef FUNC_NAME
 
 SCM
-scm_c_uniform_vector_ref (SCM v, size_t idx)
+scm_c_uniform_vector_ref (SCM v, size_t pos)
 {
   if (!scm_is_uniform_vector (v))
     scm_wrong_type_arg_msg (NULL, 0, v, "uniform vector");
-  return scm_c_generalized_vector_ref (v, idx);
+  return scm_c_array_ref_1 (v, pos);
 }
 
 SCM_DEFINE (scm_uniform_vector_ref, "uniform-vector-ref", 2, 0, 0,
@@ -187,11 +187,11 @@ SCM_DEFINE (scm_uniform_vector_ref, "uniform-vector-ref", 2, 0, 0,
 #undef FUNC_NAME
 
 void
-scm_c_uniform_vector_set_x (SCM v, size_t idx, SCM val)
+scm_c_uniform_vector_set_x (SCM v, size_t pos, SCM val)
 {
   if (!scm_is_uniform_vector (v))
     scm_wrong_type_arg_msg (NULL, 0, v, "uniform vector");
-  scm_c_generalized_vector_set_x (v, idx, val);
+  scm_c_array_set_1_x (v, val, pos);
 }
 
 SCM_DEFINE (scm_uniform_vector_set_x, "uniform-vector-set!", 3, 0, 0,
@@ -225,13 +225,14 @@ scm_uniform_vector_elements (SCM uvec,
 }
 
 void *
-scm_uniform_vector_writable_elements (SCM uvec, 
+scm_uniform_vector_writable_elements (SCM uvec,
 				      scm_t_array_handle *h,
 				      size_t *lenp, ssize_t *incp)
 {
   void *ret;
-  scm_generalized_vector_get_handle (uvec, h);
-  /* FIXME nonlocal exit */
+  scm_array_get_handle (uvec, h);
+  if (scm_array_handle_rank (h) != 1)
+    scm_wrong_type_arg_msg (0, SCM_ARG1, uvec, "uniform vector");
   ret = scm_array_handle_uniform_writable_elements (h);
   if (lenp)
     {

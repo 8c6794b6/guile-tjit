@@ -574,12 +574,12 @@
 	   (eqv? 8 (array-ref s2 2))))))
 
 ;;;
-;;; uniform-vector-ref
+;;; uniform-vector
 ;;;
 
-(with-test-prefix "uniform-vector-ref"
+(with-test-prefix "uniform-vector"
 
-  (with-test-prefix "byte"
+  (with-test-prefix "uniform-vector-ref byte"
 
     (let ((a (make-s8vector 1)))
 
@@ -594,7 +594,23 @@
       (pass-if "-128"
 	(begin
 	  (array-set! a -128 0)
-	  (= -128 (uniform-vector-ref a 0)))))))
+	  (= -128 (uniform-vector-ref a 0))))))
+
+  (with-test-prefix "shared with rank 1 remain uniform vectors"
+
+    (let ((a #f64(1 2 3 4)))
+
+      (pass-if "change offset"
+        (let ((b (make-shared-array a (lambda (i) (list (+ i 1))) 3)))
+          (and (uniform-vector? b)
+               (= 3 (uniform-vector-length b))
+               (array-equal? b #f64(2 3 4)))))
+
+      (pass-if "change stride"
+        (let ((c (make-shared-array a (lambda (i) (list (* i 2))) 2)))
+          (and (uniform-vector? c)
+               (= 2 (uniform-vector-length c))
+               (array-equal? c #f64(1 3))))))))
 
 ;;;
 ;;; syntax
