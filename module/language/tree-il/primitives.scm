@@ -1,6 +1,6 @@
 ;;; open-coding primitive procedures
 
-;; Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -45,7 +45,7 @@
     values
     eq? eqv? equal?
     memq memv
-    = < > <= >= zero?
+    = < > <= >= zero? positive? negative?
     + * - / 1- 1+ quotient remainder modulo
     ash logand logior logxor lognot
     not
@@ -161,7 +161,7 @@
 (define *effect-free-primitives*
   `(values
     eq? eqv? equal?
-    = < > <= >= zero?
+    = < > <= >= zero? positive? negative?
     ash logand logior logxor lognot
     + * - / 1- 1+ quotient remainder modulo
     not
@@ -373,6 +373,12 @@
 
 (define-primitive-expander zero? (x)
   (= x 0))
+
+(define-primitive-expander positive? (x)
+  (> x 0))
+
+(define-primitive-expander negative? (x)
+  (< x 0))
 
 ;; FIXME: All the code that uses `const?' is redundant with `peval'.
 
