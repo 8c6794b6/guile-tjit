@@ -1,5 +1,5 @@
 /* Copyright (C) 1995,1996,1998,1999,2000,2001, 2006, 2008, 2009, 2010,
- *   2011, 2012 Free Software Foundation, Inc.
+ *   2011, 2012, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -35,7 +35,6 @@
 #include "libguile/strings.h"
 #include "libguile/srfi-13.h"
 #include "libguile/dynwind.h"
-#include "libguile/deprecation.h"
 
 #include "libguile/bdw-gc.h"
 
@@ -112,7 +111,7 @@ SCM_GPROC (s_vector_length, "vector-length", 1, 0, 0, scm_vector_length, g_vecto
 SCM
 scm_vector_length (SCM v)
 {
-  if (SCM_I_IS_VECTOR (v))
+  if (SCM_I_IS_NONWEAK_VECTOR (v))
     return scm_from_size_t (SCM_I_VECTOR_LENGTH (v));
   else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
     {
@@ -126,7 +125,7 @@ scm_vector_length (SCM v)
 size_t
 scm_c_vector_length (SCM v)
 {
-  if (SCM_I_IS_VECTOR (v))
+  if (SCM_I_IS_NONWEAK_VECTOR (v))
     return SCM_I_VECTOR_LENGTH (v);
   else
     return scm_to_size_t (scm_vector_length (v));
@@ -208,8 +207,6 @@ scm_c_vector_ref (SCM v, size_t k)
 	scm_out_of_range (NULL, scm_from_size_t (k));
       return SCM_SIMPLE_VECTOR_REF (v, k);
     }
-  else if (SCM_I_WVECTP (v))
-    return scm_c_weak_vector_ref (v, k);
   else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
     {
       scm_t_array_dim *dim = SCM_I_ARRAY_DIMS (v);
@@ -221,8 +218,6 @@ scm_c_vector_ref (SCM v, size_t k)
 
       if (SCM_I_IS_NONWEAK_VECTOR (vv))
         return SCM_SIMPLE_VECTOR_REF (vv, k);
-      else if (SCM_I_WVECTP (vv))
-        return scm_c_weak_vector_ref (vv, k);
       else
         scm_wrong_type_arg_msg (NULL, 0, v, "non-uniform vector");
     }
@@ -262,8 +257,6 @@ scm_c_vector_set_x (SCM v, size_t k, SCM obj)
         scm_out_of_range (NULL, scm_from_size_t (k)); 
       SCM_SIMPLE_VECTOR_SET (v, k, obj);
     }
-  else if (SCM_I_WVECTP (v))
-    scm_c_weak_vector_set_x (v, k, obj);
   else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
     {
       scm_t_array_dim *dim = SCM_I_ARRAY_DIMS (v);
@@ -275,8 +268,6 @@ scm_c_vector_set_x (SCM v, size_t k, SCM obj)
 
       if (SCM_I_IS_NONWEAK_VECTOR (vv))
         SCM_SIMPLE_VECTOR_SET (vv, k, obj);
-      else if (SCM_I_WVECTP (vv))
-        scm_c_weak_vector_set_x (vv, k, obj);
       else
 	scm_wrong_type_arg_msg (NULL, 0, v, "non-uniform vector");
     }
