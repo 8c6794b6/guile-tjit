@@ -137,8 +137,10 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/srfi-39.test			\
 	    tests/srfi-41.test			\
 	    tests/srfi-42.test			\
+	    tests/srfi-43.test			\
 	    tests/srfi-45.test			\
 	    tests/srfi-60.test			\
+	    tests/srfi-64.test			\
 	    tests/srfi-67.test			\
 	    tests/srfi-69.test			\
 	    tests/srfi-88.test			\
@@ -177,7 +179,8 @@ EXTRA_DIST = \
 	guile-test \
 	test-suite/lib.scm \
 	$(SCM_TESTS) \
-	tests/rnrs-test-a.scm
+	tests/rnrs-test-a.scm \
+	tests/srfi-64-test.scm \
 	ChangeLog-2008
 
 
