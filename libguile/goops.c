@@ -1,4 +1,4 @@
-/* Copyright (C) 1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012,2013
+/* Copyright (C) 1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012,2013,2014
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -1711,16 +1711,24 @@ SCM_KEYWORD (k_name, "name");
 
 SCM_GLOBAL_SYMBOL (scm_sym_args, "args");
 
-
 SCM_SYMBOL (sym_delayed_compile, "delayed-compile");
+
+static SCM delayed_compile_var;
+
+static void
+init_delayed_compile_var (void)
+{
+  delayed_compile_var
+    = scm_c_private_lookup ("oop goops dispatch", "delayed-compile");
+}
+
 static SCM
 make_dispatch_procedure (SCM gf)
 {
-  static SCM var = SCM_BOOL_F;
-  if (scm_is_false (var))
-    var = scm_module_variable (scm_c_resolve_module ("oop goops dispatch"),
-                               sym_delayed_compile);
-  return scm_call_1 (SCM_VARIABLE_REF (var), gf);
+  static scm_i_pthread_once_t once = SCM_I_PTHREAD_ONCE_INIT;
+  scm_i_pthread_once (&once, init_delayed_compile_var);
+
+  return scm_call_1 (scm_variable_ref (delayed_compile_var), gf);
 }
 
 static void
