@@ -2030,7 +2030,7 @@ written into the port is returned."
 
 (define-syntax-rule (add-to-load-path elt)
   "Add ELT to Guile's load path, at compile-time and at run-time."
-  (eval-when (compile load eval)
+  (eval-when (expand load eval)
     (set! %load-path (cons elt %load-path))))
 
 (define %load-verbosely #f)
@@ -3420,7 +3420,7 @@ but it fails to load."
            (interface options)
            (interface)))
        (define-syntax-rule (option-set! opt val)
-         (eval-when (eval load compile expand)
+         (eval-when (expand load eval)
            (options (append (options) (list 'opt val)))))))))
 
 (define-option-interface
@@ -3586,7 +3586,7 @@ but it fails to load."
 ;; Return a list of expressions that evaluate to the appropriate
 ;; arguments for resolve-interface according to SPEC.
 
-(eval-when (compile)
+(eval-when (expand)
   (if (memq 'prefix (read-options))
       (error "boot-9 must be compiled with #:kw, not :kw")))
 
@@ -3691,7 +3691,7 @@ but it fails to load."
                      (filename (let ((f (assq-ref (or (syntax-source x) '())
                                                   'filename)))
                                  (and (string? f) f))))
-         #'(eval-when (eval load compile expand)
+         #'(eval-when (expand load eval)
              (let ((m (define-module* '(name name* ...)
                         #:filename filename quoted-arg ...)))
                (set-current-module m)
@@ -3751,7 +3751,7 @@ but it fails to load."
     (syntax-case x ()
       ((_ spec ...)
        (with-syntax (((quoted-args ...) (quotify #'(spec ...))))
-         #'(eval-when (eval load compile expand)
+         #'(eval-when (expand load eval)
              (process-use-modules (list quoted-args ...))
              *unspecified*))))))
 
@@ -3838,19 +3838,19 @@ but it fails to load."
               names)))
 
 (define-syntax-rule (export name ...)
-  (eval-when (eval load compile expand)
+  (eval-when (expand load eval)
     (call-with-deferred-observers
      (lambda ()
        (module-export! (current-module) '(name ...))))))
 
 (define-syntax-rule (re-export name ...)
-  (eval-when (eval load compile expand)
+  (eval-when (expand load eval)
     (call-with-deferred-observers
      (lambda ()
        (module-re-export! (current-module) '(name ...))))))
 
 (define-syntax-rule (export! name ...)
-  (eval-when (eval load compile expand)
+  (eval-when (expand load eval)
     (call-with-deferred-observers
      (lambda ()
        (module-replace! (current-module) '(name ...))))))

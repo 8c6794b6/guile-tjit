@@ -1,6 +1,6 @@
 ;;; installed-scm-file
 
-;;;; Copyright (C) 1998,1999,2000,2001,2002, 2003, 2006, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
+;;;; Copyright (C) 1998,1999,2000,2001,2002, 2003, 2006, 2009, 2010, 2011, 2013, 2014 Free Software Foundation, Inc.
 ;;;; Copyright (C) 1993-1998 Erick Gallesio - I3S-CNRS/ESSI <eg@unice.fr>
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -135,10 +135,10 @@
 (define *goops-module* (current-module))
 
 ;; First initialize the builtin part of GOOPS
-(eval-when (eval load compile)
+(eval-when (expand load eval)
   (%init-goops-builtins))
 
-(eval-when (eval load compile)
+(eval-when (expand load eval)
   (use-modules ((language tree-il primitives) :select (add-interesting-primitive!)))
   (add-interesting-primitive! 'class-of))
 
@@ -149,7 +149,7 @@
 
 
 ;; FIXME: deprecate.
-(eval-when (eval load compile)
+(eval-when (expand load eval)
   (define min-fixnum (- (expt 2 29)))
   (define max-fixnum (- (expt 2 29) 1)))
 
