@@ -1,5 +1,5 @@
-/* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004,
- *   2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2006,
+ *   2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -331,6 +331,12 @@ scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM))
   scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->input_waiting = input_waiting;
 }
 
+void
+scm_set_port_setvbuf (scm_t_bits tc, void (*setvbuf) (SCM, long, long))
+{
+  scm_c_port_type_ref (SCM_TC2PTOBNUM (tc))->setvbuf = setvbuf;
+}
+
 static void
 scm_i_set_pending_eof (SCM port)
 {
@@ -621,7 +627,6 @@ SCM_DEFINE (scm_port_mode, "port-mode", 1, 0, 0,
   return scm_from_latin1_string (modes);
 }
 #undef FUNC_NAME
-
 
 
 

@@ -4,7 +4,7 @@
 #define SCM_PORTS_H
 
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004,
- *   2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ *   2006, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -200,6 +200,13 @@ typedef struct scm_t_ptob_descriptor
   scm_t_off (*seek) (SCM port, scm_t_off OFFSET, int WHENCE);
   void (*truncate) (SCM port, scm_t_off length);
 
+  /* When non-NULL, this is the method called by 'setvbuf' for this port.
+     It must create read and write buffers for PORT with the specified
+     sizes (a size of 0 is for unbuffered ports, which should use the
+     'shortbuf' field.)  Size -1 means to use the port's preferred buffer
+     size.  */
+  void (*setvbuf) (SCM port, long read_size, long write_size);
+
   unsigned flags;
 } scm_t_ptob_descriptor;
 
@@ -238,6 +245,8 @@ SCM_API void scm_set_port_truncate (scm_t_bits tc,
 				    void (*truncate) (SCM port,
 						      scm_t_off length));
 SCM_API void scm_set_port_input_waiting (scm_t_bits tc, int (*input_waiting) (SCM));
+SCM_API void scm_set_port_setvbuf (scm_t_bits tc,
+                                   void (*setvbuf) (SCM, long, long));
 
 /* The input, output, error, and load ports.  */
 SCM_API SCM scm_current_input_port (void);
