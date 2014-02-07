@@ -1,6 +1,6 @@
 ;;; Repl server
 
-;; Copyright (C)  2003, 2010, 2011 Free Software Foundation, Inc.
+;; Copyright (C)  2003, 2010, 2011, 2014 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -76,10 +76,6 @@
          ((port-closed? server-socket)
           ;; Shutting down.
           #f)
-         ((eq? k 'interrupt)
-          ;; Interrupt.
-          (close-socket! server-socket)
-          #f)
          (else
           (warn "Error accepting client" k args)
           ;; Retry after a timeout.
@@ -104,12 +100,10 @@
 (define (serve-client client addr)
   (with-continuation-barrier
    (lambda ()
-     (with-input-from-port client
-       (lambda ()
-         (with-output-to-port client
-           (lambda ()
-             (with-error-to-port client
-               (lambda ()
-                 (with-fluids ((*repl-stack* '()))
-                   (start-repl))))))))))
+     (parameterize ((current-input-port client)
+                    (current-output-port client)
+                    (current-error-port client)
+                    (current-warning-port client))
+       (with-fluids ((*repl-stack* '()))
+         (start-repl)))))
   (close-socket! client))
