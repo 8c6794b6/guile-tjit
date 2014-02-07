@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1998, 2000, 2001, 2003, 2006, 2008, 2009,
- *   2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ *   2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -37,8 +37,8 @@
 
 #define VECTOR_MAX_LENGTH (SCM_T_BITS_MAX >> 8)
 
-static SCM
-make_weak_vector (size_t len, SCM fill)
+SCM
+scm_c_make_weak_vector (size_t len, SCM fill)
 #define FUNC_NAME "make-weak-vector"
 {
   SCM wv;
@@ -76,7 +76,7 @@ SCM_DEFINE (scm_make_weak_vector, "make-weak-vector", 1, 1, 0,
 	    "empty list.")
 #define FUNC_NAME s_scm_make_weak_vector
 {
-  return make_weak_vector (scm_to_size_t (size), fill);
+  return scm_c_make_weak_vector (scm_to_size_t (size), fill);
 }
 #undef FUNC_NAME
 
@@ -98,7 +98,7 @@ SCM_DEFINE (scm_weak_vector, "weak-vector", 0, 0, 1,
 
   SCM_VALIDATE_LIST_COPYLEN (SCM_ARG1, lst, c_size);
 
-  wv = make_weak_vector ((size_t) c_size, SCM_BOOL_F);
+  wv = scm_c_make_weak_vector ((size_t) c_size, SCM_BOOL_F);
 
   for (i = 0; scm_is_pair (lst); lst = SCM_CDR (lst), i++)
     scm_c_weak_vector_set_x (wv, i, SCM_CAR (lst));
@@ -114,7 +114,50 @@ SCM_DEFINE (scm_weak_vector_p, "weak-vector?", 1, 0, 0,
 	    "weak hashes are also weak vectors.")
 #define FUNC_NAME s_scm_weak_vector_p
 {
-  return scm_from_bool (SCM_I_WVECTP (obj));
+  return scm_from_bool (scm_is_weak_vector (obj));
+}
+#undef FUNC_NAME
+
+
+int
+scm_is_weak_vector (SCM obj)
+#define FUNC_NAME s_scm_weak_vector_p
+{
+  return SCM_I_WVECTP (obj);
+}
+#undef FUNC_NAME
+
+
+#define SCM_VALIDATE_WEAK_VECTOR(pos, var) \
+  SCM_I_MAKE_VALIDATE_MSG2 (pos, var, SCM_I_WVECTP, "weak vector")
+
+
+SCM_DEFINE (scm_weak_vector_length, "weak-vector-length", 1, 0, 0, 
+	    (SCM wvect),
+	    "Like @code{vector-length}, but for weak vectors.")
+#define FUNC_NAME s_scm_weak_vector_length
+{
+  return scm_from_size_t (scm_c_weak_vector_length (wvect));
+}
+#undef FUNC_NAME
+
+
+size_t
+scm_c_weak_vector_length (SCM wvect)
+#define FUNC_NAME s_scm_weak_vector_length
+{
+  SCM_VALIDATE_WEAK_VECTOR (1, wvect);
+  return SCM_I_VECTOR_LENGTH (wvect);
+}
+#undef FUNC_NAME
+
+
+SCM_DEFINE (scm_weak_vector_ref, "weak-vector-ref", 2, 0, 0, 
+	    (SCM wvect, SCM k),
+	    "Like @code{vector-ref}, but for weak vectors.")
+#define FUNC_NAME s_scm_weak_vector_ref
+{
+  return scm_c_weak_vector_ref (wvect, scm_to_size_t (k));
 }
 #undef FUNC_NAME
 
@@ -135,9 +178,12 @@ weak_vector_ref (void *data)
 
 SCM
 scm_c_weak_vector_ref (SCM wv, size_t k)
+#define FUNC_NAME s_scm_weak_vector_ref
 {
   struct weak_vector_ref_data d;
   void *ret;
+
+  SCM_VALIDATE_WEAK_VECTOR (1, wv);
 
   d.wv = wv;
   d.k = k;
@@ -152,14 +198,30 @@ scm_c_weak_vector_ref (SCM wv, size_t k)
   else
     return SCM_BOOL_F;
 }
+#undef FUNC_NAME
+
+
+SCM_DEFINE (scm_weak_vector_set_x, "weak-vector-set!", 3, 0, 0, 
+	    (SCM wvect, SCM k, SCM obj),
+	    "Like @code{vector-set!}, but for weak vectors.")
+#define FUNC_NAME s_scm_weak_vector_set_x
+{
+  scm_c_weak_vector_set_x (wvect, scm_to_size_t (k), obj);
+
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
 
 
 void
 scm_c_weak_vector_set_x (SCM wv, size_t k, SCM x)
+#define FUNC_NAME s_scm_weak_vector_set_x
 {
   SCM *elts;
   struct weak_vector_ref_data d;
   void *prev;
+
+  SCM_VALIDATE_WEAK_VECTOR (1, wv);
 
   d.wv = wv;
   d.k = k;
@@ -180,6 +242,7 @@ scm_c_weak_vector_set_x (SCM wv, size_t k, SCM x)
     SCM_I_REGISTER_DISAPPEARING_LINK ((void **) &elts[k],
                                       SCM2PTR (x));
 }
+#undef FUNC_NAME
 
 
 
