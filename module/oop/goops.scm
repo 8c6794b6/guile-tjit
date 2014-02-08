@@ -134,11 +134,16 @@
 
 (define *goops-module* (current-module))
 
+;; XXX FIXME: figure out why the 'eval-when's in this file must use
+;; 'compile' and must avoid 'expand', but only in 2.2, and only when
+;; compiling something that imports goops, e.g. (ice-9 occam-channel),
+;; before (oop goops) itself has been compiled.
+
 ;; First initialize the builtin part of GOOPS
-(eval-when (expand load eval)
+(eval-when (compile load eval)
   (%init-goops-builtins))
 
-(eval-when (expand load eval)
+(eval-when (compile load eval)
   (use-modules ((language tree-il primitives) :select (add-interesting-primitive!)))
   (add-interesting-primitive! 'class-of))
 
@@ -149,7 +154,7 @@
 
 
 ;; FIXME: deprecate.
-(eval-when (expand load eval)
+(eval-when (compile load eval)
   (define min-fixnum (- (expt 2 29)))
   (define max-fixnum (- (expt 2 29) 1)))
 
