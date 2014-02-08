@@ -4,7 +4,7 @@
 #define SCM_ARRAY_HANDLE_H
 
 /* Copyright (C) 1995, 1996, 1997, 1999, 2000, 2001, 2004, 2006,
- *   2008, 2009, 2011, 2013 Free Software Foundation, Inc.
+ *   2008, 2009, 2011, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -32,15 +32,15 @@
 
 struct scm_t_array_handle;
 
-typedef SCM (*scm_i_t_array_ref) (struct scm_t_array_handle *, size_t);
-typedef void (*scm_i_t_array_set) (struct scm_t_array_handle *, size_t, SCM);
+typedef SCM (*scm_t_array_ref) (struct scm_t_array_handle *, size_t);
+typedef void (*scm_t_array_set) (struct scm_t_array_handle *, size_t, SCM);
 
 typedef struct
 {
   scm_t_bits tag;
   scm_t_bits mask;
-  scm_i_t_array_ref vref;
-  scm_i_t_array_set vset;
+  scm_t_array_ref vref;
+  scm_t_array_set vset;
   void (*get_handle)(SCM, struct scm_t_array_handle*);
 } scm_t_array_implementation;
   
@@ -107,6 +107,8 @@ typedef struct scm_t_array_handle {
   scm_t_array_element_type element_type;
   const void *elements;
   void *writable_elements;
+  scm_t_array_ref vref;
+  scm_t_array_set vset;
 } scm_t_array_handle;
 
 #define scm_array_handle_rank(h) ((h)->ndims)
@@ -135,7 +137,7 @@ scm_array_handle_ref (scm_t_array_handle *h, ssize_t p)
     /* catch overflow */
     scm_out_of_range (NULL, scm_from_ssize_t (p));
   /* perhaps should catch overflow here too */
-  return h->impl->vref (h, h->base + p);
+  return h->vref (h, h->base + p);
 }
 
 SCM_INLINE_IMPLEMENTATION void
@@ -145,7 +147,7 @@ scm_array_handle_set (scm_t_array_handle *h, ssize_t p, SCM v)
     /* catch overflow */
     scm_out_of_range (NULL, scm_from_ssize_t (p));
   /* perhaps should catch overflow here too */
-  h->impl->vset (h, h->base + p, v);
+  h->vset (h, h->base + p, v);
 }
 
 #endif

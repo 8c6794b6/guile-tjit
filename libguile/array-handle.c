@@ -1,5 +1,5 @@
 /* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005,
- * 2006, 2009, 2011, 2013 Free Software Foundation, Inc.
+ * 2006, 2009, 2011, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -74,6 +74,8 @@ scm_array_get_handle (SCM array, scm_t_array_handle *h)
                                                    something... */
   h->elements = NULL;
   h->writable_elements = NULL;
+  h->vref = h->impl->vref;
+  h->vset = h->impl->vset;
   h->impl->get_handle (array, h);
 }
 
