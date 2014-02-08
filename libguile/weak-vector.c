@@ -189,7 +189,7 @@ scm_c_weak_vector_ref (SCM wv, size_t k)
   d.k = k;
   
   if (k >= SCM_I_VECTOR_LENGTH (wv))
-    scm_out_of_range (NULL, scm_from_size_t (k)); 
+    scm_out_of_range ("weak-vector-ref", scm_from_size_t (k)); 
 
   ret = GC_call_with_alloc_lock (weak_vector_ref, &d);
   
@@ -227,7 +227,7 @@ scm_c_weak_vector_set_x (SCM wv, size_t k, SCM x)
   d.k = k;
 
   if (k >= SCM_I_VECTOR_LENGTH (wv))
-    scm_out_of_range (NULL, scm_from_size_t (k)); 
+    scm_out_of_range ("weak-vector-set!", scm_from_size_t (k)); 
   
   prev = GC_call_with_alloc_lock (weak_vector_ref, &d);
 
