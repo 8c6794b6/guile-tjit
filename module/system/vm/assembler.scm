@@ -604,14 +604,20 @@ table, its existing label is used directly."
         (static-set! 1 ,label 0)))
      ((uniform-vector-backing-store? obj) '())
      ((simple-uniform-vector? obj)
-      `((static-patch! ,label 2
-                       ,(recur (make-uniform-vector-backing-store
-                                (uniform-array->bytevector obj)
-                                (if (bitvector? obj)
-                                    ;; Bitvectors are addressed in
-                                    ;; 32-bit units.
-                                    4
-                                    (uniform-vector-element-size obj)))))))
+      (let ((width (case (array-type obj)
+                     ((vu8 u8 s8) 1)
+                     ((u16 s16) 2)
+                     ;; Bitvectors are addressed in 32-bit units.
+                     ;; Although a complex number is 8 or 16 bytes wide,
+                     ;; it should be byteswapped in 4 or 8 byte units.
+                     ((u32 s32 f32 c32 b) 4)
+                     ((u64 s64 f64 c64) 8)
+                     (else
+                      (error "unhandled array type" obj)))))
+        `((static-patch! ,label 2
+                         ,(recur (make-uniform-vector-backing-store
+                                  (uniform-array->bytevector obj)
+                                  width))))))
      (else
       (error "don't know how to intern" obj))))
   (cond
@@ -1041,7 +1047,7 @@ should be .data or .rodata), and return the resulting linker object.
        ((simple-uniform-vector? obj)
         (let ((tag (if (bitvector? obj)
                        tc7-bitvector
-                       (let ((type-code (uniform-vector-element-type-code obj)))
+                       (let ((type-code (array-type-code obj)))
                          (logior tc7-bytevector (ash type-code 7))))))
           (case word-size
             ((4)

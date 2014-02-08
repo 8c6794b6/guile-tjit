@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -186,6 +186,24 @@ SCM_DEFINE (scm_array_type, "array-type", 1, 0, 0,
   scm_array_handle_release (&h);
   
   return type;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_array_type_code,
+            "array-type-code", 1, 0, 0,
+	    (SCM array),
+	    "Return the type of the elements in @var{array},\n"
+            "as an integer code.")
+#define FUNC_NAME s_scm_array_type_code
+{
+  scm_t_array_handle h;
+  scm_t_array_element_type element_type;
+
+  scm_array_get_handle (array, &h);
+  element_type = h.element_type;
+  scm_array_handle_release (&h);
+
+  return scm_from_uint16 (element_type);
 }
 #undef FUNC_NAME
 
