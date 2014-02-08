@@ -75,6 +75,7 @@ scm_array_get_handle (SCM array, scm_t_array_handle *h)
   h->writable_elements = NULL;
   h->vref = impl->vref;
   h->vset = impl->vset;
+  h->vector = SCM_I_ARRAYP (array) ? SCM_I_ARRAY_V (array) : array;
   impl->get_handle (array, h);
 }
 

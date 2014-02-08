@@ -106,6 +106,9 @@ typedef struct scm_t_array_handle {
   scm_t_array_element_type element_type;
   const void *elements;
   void *writable_elements;
+
+  /* The backing store for the array, and its accessors.  */
+  SCM vector;
   scm_t_array_ref vref;
   scm_t_array_set vset;
 } scm_t_array_handle;
