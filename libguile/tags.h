@@ -3,7 +3,7 @@
 #ifndef SCM_TAGS_H
 #define SCM_TAGS_H
 
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012,2013
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012,2013,2014
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -335,14 +335,9 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
  *   111:  the cell belongs to some other heap object.
  *
  * tc7 (for tc3==1x1):
- *   See below for the list of types.  Note the special case of scm_tc7_vector
- *   and scm_tc7_wvect:  vectors and weak vectors are treated the same in many
- *   cases.  Thus, their tc7-codes are chosen to only differ in one bit.  This
- *   makes it possible to check an object at the same time for being a vector
- *   or a weak vector by comparing its tc7 code with that bit masked (using
- *   the TYP7S macro).  Three more special tc7-codes are of interest:
- *   numbers, ports and smobs in fact each represent collections of types,
- *   which are subdivided using tc16-codes.
+ *   See below for the list of types.  Three special tc7-codes are of
+ *   interest: numbers, ports and smobs in fact each represent
+ *   collections of types, which are subdivided using tc16-codes.
  *
  * tc16 (for tc7==scm_tc7_smob):
  *   The largest part of the space of smob types is not subdivided in a
@@ -396,11 +391,9 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 
 #define SCM_ITAG7(x) 		(127 & SCM_UNPACK (x))
 #define SCM_TYP7(x) 		(0x7f &        SCM_CELL_TYPE (x))
-#define SCM_TYP7S(x) 		((0x7f & ~2) & SCM_CELL_TYPE (x))
 #define SCM_HAS_HEAP_TYPE(x, type, tag)                         \
   (SCM_NIMP (x) && type (x) == (tag))
 #define SCM_HAS_TYP7(x, tag)    (SCM_HAS_HEAP_TYPE (x, SCM_TYP7, tag))
-#define SCM_HAS_TYP7S(x, tag)   (SCM_HAS_HEAP_TYPE (x, SCM_TYP7S, tag))
 
 /* If you change these numbers, change them also in (system vm
    assembler).  */

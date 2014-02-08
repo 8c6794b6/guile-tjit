@@ -2574,13 +2574,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (95, vector_length, "vector-length", OP1 (U8_U12_U12) | OP_DST)
     {
       ARGS1 (vect);
-      if (SCM_LIKELY (SCM_I_IS_VECTOR (vect)))
-        RETURN (SCM_I_MAKINUM (SCM_I_VECTOR_LENGTH (vect)));
-      else
-        {
-          SYNC_IP ();
-          RETURN (scm_vector_length (vect));
-        }
+      VM_ASSERT (SCM_I_IS_VECTOR (vect),
+                 vm_error_not_a_vector ("vector-ref", vect));
+      RETURN (SCM_I_MAKINUM (SCM_I_VECTOR_LENGTH (vect)));
     }
 
   /* vector-ref dst:8 src:8 idx:8
@@ -2592,16 +2588,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     {
       scm_t_signed_bits i = 0;
       ARGS2 (vect, idx);
-      if (SCM_LIKELY (SCM_I_IS_NONWEAK_VECTOR (vect)
-                      && SCM_I_INUMP (idx)
-                      && ((i = SCM_I_INUM (idx)) >= 0)
-                      && i < SCM_I_VECTOR_LENGTH (vect)))
-        RETURN (SCM_I_VECTOR_ELTS (vect)[i]);
-      else
-        {
-          SYNC_IP ();
-          RETURN (scm_vector_ref (vect, idx));
-        }
+      VM_ASSERT (SCM_I_IS_VECTOR (vect),
+                 vm_error_not_a_vector ("vector-ref", vect));
+      VM_ASSERT ((SCM_I_INUMP (idx)
+                  && ((i = SCM_I_INUM (idx)) >= 0)
+                  && i < SCM_I_VECTOR_LENGTH (vect)),
+                 vm_error_out_of_range ("vector-ref", idx));
+      RETURN (SCM_I_VECTOR_ELTS (vect)[i]);
     }
 
   /* vector-ref/immediate dst:8 src:8 idx:8
@@ -2616,11 +2609,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       
       UNPACK_8_8_8 (op, dst, src, idx);
       v = LOCAL_REF (src);
-      if (SCM_LIKELY (SCM_I_IS_NONWEAK_VECTOR (v)
-                      && idx < SCM_I_VECTOR_LENGTH (v)))
-        LOCAL_SET (dst, SCM_I_VECTOR_ELTS (LOCAL_REF (src))[idx]);
-      else
-        LOCAL_SET (dst, scm_c_vector_ref (v, idx));
+      VM_ASSERT (SCM_I_IS_VECTOR (v),
+                 vm_error_not_a_vector ("vector-ref", v));
+      VM_ASSERT (idx < SCM_I_VECTOR_LENGTH (v),
+                 vm_error_out_of_range ("vector-ref", scm_from_size_t (idx)));
+      LOCAL_SET (dst, SCM_I_VECTOR_ELTS (LOCAL_REF (src))[idx]);
       NEXT (1);
     }
 
@@ -2639,16 +2632,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       idx = LOCAL_REF (idx_var);
       val = LOCAL_REF (src);
 
-      if (SCM_LIKELY (SCM_I_IS_NONWEAK_VECTOR (vect)
-                      && SCM_I_INUMP (idx)
-                      && ((i = SCM_I_INUM (idx)) >= 0)
-                      && i < SCM_I_VECTOR_LENGTH (vect)))
-        SCM_I_VECTOR_WELTS (vect)[i] = val;
-      else
-        {
-          SYNC_IP ();
-          scm_vector_set_x (vect, idx, val);
-        }
+      VM_ASSERT (SCM_I_IS_VECTOR (vect),
+                 vm_error_not_a_vector ("vector-ref", vect));
+      VM_ASSERT ((SCM_I_INUMP (idx)
+                  && ((i = SCM_I_INUM (idx)) >= 0)
+                  && i < SCM_I_VECTOR_LENGTH (vect)),
+                 vm_error_out_of_range ("vector-ref", idx));
+      SCM_I_VECTOR_WELTS (vect)[i] = val;
       NEXT (1);
     }
 
@@ -2666,14 +2656,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       vect = LOCAL_REF (dst);
       val = LOCAL_REF (src);
 
-      if (SCM_LIKELY (SCM_I_IS_NONWEAK_VECTOR (vect)
-                      && idx < SCM_I_VECTOR_LENGTH (vect)))
-        SCM_I_VECTOR_WELTS (vect)[idx] = val;
-      else
-        {
-          SYNC_IP ();
-          scm_vector_set_x (vect, scm_from_uint8 (idx), val);
-        }
+      VM_ASSERT (SCM_I_IS_VECTOR (vect),
+                 vm_error_not_a_vector ("vector-ref", vect));
+      VM_ASSERT (idx < SCM_I_VECTOR_LENGTH (vect),
+                 vm_error_out_of_range ("vector-ref", scm_from_size_t (idx)));
+      SCM_I_VECTOR_WELTS (vect)[idx] = val;
       NEXT (1);
     }
 

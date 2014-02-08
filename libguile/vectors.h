@@ -3,7 +3,7 @@
 #ifndef SCM_VECTORS_H
 #define SCM_VECTORS_H
 
-/* Copyright (C) 1995,1996,1998,2000,2001,2002,2004,2005, 2006, 2008, 2009, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000,2001,2002,2004,2005, 2006, 2008, 2009, 2011, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -63,8 +63,7 @@ SCM_API SCM *scm_vector_writable_elements (SCM vec,
 
 /* Internals */
 
-#define SCM_I_IS_VECTOR(x)     (SCM_HAS_TYP7S (x, scm_tc7_vector))
-#define SCM_I_IS_NONWEAK_VECTOR(x) (SCM_HAS_TYP7 (x, scm_tc7_vector))
+#define SCM_I_IS_VECTOR(x)     (SCM_HAS_TYP7 (x, scm_tc7_vector))
 #define SCM_I_VECTOR_ELTS(x)   ((const SCM *) SCM_I_VECTOR_WELTS (x))
 #define SCM_I_VECTOR_WELTS(x)  (SCM_CELL_OBJECT_LOC (x, 1))
 #define SCM_I_VECTOR_LENGTH(x) (((size_t) SCM_CELL_WORD_0 (x)) >> 8)

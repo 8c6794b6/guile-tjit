@@ -46,13 +46,13 @@
 int
 scm_is_vector (SCM obj)
 {
-  return SCM_I_IS_NONWEAK_VECTOR (obj);
+  return SCM_I_IS_VECTOR (obj);
 }
 
 int
 scm_is_simple_vector (SCM obj)
 {
-  return SCM_I_IS_NONWEAK_VECTOR (obj);
+  return SCM_I_IS_VECTOR (obj);
 }
 
 const SCM *

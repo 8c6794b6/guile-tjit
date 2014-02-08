@@ -423,6 +423,8 @@ static void vm_error_improper_list (SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_pair (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_bytevector (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_a_struct (const char *subr, SCM x) SCM_NORETURN SCM_NOINLINE;
+static void vm_error_not_a_vector (const char *subr, SCM v) SCM_NORETURN SCM_NOINLINE;
+static void vm_error_out_of_range (const char *subr, SCM k) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_no_values (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_not_enough_values (void) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_wrong_number_of_values (scm_t_uint32 expected) SCM_NORETURN SCM_NOINLINE;
@@ -545,6 +547,19 @@ static void
 vm_error_not_a_struct (const char *subr, SCM x)
 {
   scm_wrong_type_arg_msg (subr, 1, x, "struct");
+}
+
+static void
+vm_error_not_a_vector (const char *subr, SCM x)
+{
+  scm_wrong_type_arg_msg (subr, 1, x, "vector");
+}
+
+static void
+vm_error_out_of_range (const char *subr, SCM k)
+{
+  scm_to_size_t (k);
+  scm_out_of_range (subr, k);
 }
 
 static void
