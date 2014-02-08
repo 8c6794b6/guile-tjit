@@ -66,7 +66,6 @@ scm_array_get_handle (SCM array, scm_t_array_handle *h)
   if (!impl)
     scm_wrong_type_arg_msg (NULL, 0, array, "array");
   h->array = array;
-  h->impl = impl;
   h->base = 0;
   h->ndims = 0;
   h->dims = NULL;
@@ -74,9 +73,9 @@ scm_array_get_handle (SCM array, scm_t_array_handle *h)
                                                    something... */
   h->elements = NULL;
   h->writable_elements = NULL;
-  h->vref = h->impl->vref;
-  h->vset = h->impl->vset;
-  h->impl->get_handle (array, h);
+  h->vref = impl->vref;
+  h->vset = impl->vset;
+  impl->get_handle (array, h);
 }
 
 ssize_t

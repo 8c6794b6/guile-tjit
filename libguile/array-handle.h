@@ -93,7 +93,6 @@ SCM_INTERNAL SCM scm_i_array_element_types[];
 
 typedef struct scm_t_array_handle {
   SCM array;
-  scm_t_array_implementation *impl;
   /* `Base' is an offset into elements or writable_elements, corresponding to
      the first element in the array. It would be nicer just to adjust the
      elements/writable_elements pointer, but we can't because that element might
