@@ -46,20 +46,13 @@
 int
 scm_is_vector (SCM obj)
 {
-  if (SCM_I_IS_VECTOR (obj))
-    return 1;
-  if  (SCM_I_ARRAYP (obj) && SCM_I_ARRAY_NDIM (obj) == 1)
-    {
-      SCM v = SCM_I_ARRAY_V (obj);
-      return SCM_I_IS_VECTOR (v);
-    }
-  return 0;
+  return SCM_I_IS_NONWEAK_VECTOR (obj);
 }
 
 int
 scm_is_simple_vector (SCM obj)
 {
-  return SCM_I_IS_VECTOR (obj);
+  return SCM_I_IS_NONWEAK_VECTOR (obj);
 }
 
 const SCM *
@@ -111,29 +104,19 @@ SCM_DEFINE (scm_vector_length, "vector-length", 1, 0, 0,
             "Returns the number of elements in @var{vector} as an exact integer.")
 #define FUNC_NAME s_scm_vector_length
 {
-  if (SCM_I_IS_NONWEAK_VECTOR (v))
-    return scm_from_size_t (SCM_I_VECTOR_LENGTH (v));
-  else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
-    {
-      scm_t_array_dim *dim = SCM_I_ARRAY_DIMS (v);
-      return scm_from_size_t (dim->ubnd - dim->lbnd + 1);
-    }
-  else
-    {
-      scm_wrong_type_arg_msg ("vector-length", 1, v, "vector");
-      return SCM_UNDEFINED;  /* not reached */
-    }
+  return scm_from_size_t (scm_c_vector_length (v));
 }
 #undef FUNC_NAME
 
 size_t
 scm_c_vector_length (SCM v)
+#define FUNC_NAME s_scm_vector_length
 {
-  if (SCM_I_IS_NONWEAK_VECTOR (v))
-    return SCM_I_VECTOR_LENGTH (v);
-  else
-    return scm_to_size_t (scm_vector_length (v));
+  SCM_VALIDATE_VECTOR (1, v);
+
+  return SCM_I_VECTOR_LENGTH (v);
 }
+#undef FUNC_NAME
 
 SCM_REGISTER_PROC (s_list_to_vector, "list->vector", 1, 0, 0, scm_vector);
 /*
@@ -199,33 +182,16 @@ SCM_DEFINE (scm_vector_ref, "vector-ref", 2, 0, 0,
 
 SCM
 scm_c_vector_ref (SCM v, size_t k)
+#define FUNC_NAME s_scm_vector_ref
 {
-  if (SCM_I_IS_NONWEAK_VECTOR (v))
-    {
-      if (k >= SCM_I_VECTOR_LENGTH (v))
-	scm_out_of_range (NULL, scm_from_size_t (k));
-      return SCM_SIMPLE_VECTOR_REF (v, k);
-    }
-  else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
-    {
-      scm_t_array_dim *dim = SCM_I_ARRAY_DIMS (v);
-      SCM vv = SCM_I_ARRAY_V (v);
+  SCM_VALIDATE_VECTOR (1, v);
 
-      k = SCM_I_ARRAY_BASE (v) + k*dim->inc;
-      if (k >= dim->ubnd - dim->lbnd + 1)
-        scm_out_of_range (NULL, scm_from_size_t (k));
+  if (k >= SCM_I_VECTOR_LENGTH (v))
+    scm_out_of_range (NULL, scm_from_size_t (k));
 
-      if (SCM_I_IS_NONWEAK_VECTOR (vv))
-        return SCM_SIMPLE_VECTOR_REF (vv, k);
-      else
-        scm_wrong_type_arg_msg (NULL, 0, v, "non-uniform vector");
-    }
-  else
-    {
-      scm_wrong_type_arg_msg ("vector-ref", 1, v, "vector");
-      return SCM_UNDEFINED;  /* not reached */
-    }
+  return SCM_SIMPLE_VECTOR_REF (v, k);
 }
+#undef FUNC_NAME
 
 SCM_DEFINE (scm_vector_set_x, "vector-set!", 3, 0, 0, 
 	    (SCM vector, SCM k, SCM obj),
@@ -247,30 +213,16 @@ SCM_DEFINE (scm_vector_set_x, "vector-set!", 3, 0, 0,
 
 void
 scm_c_vector_set_x (SCM v, size_t k, SCM obj)
+#define FUNC_NAME s_scm_vector_set_x
 {
-  if (SCM_I_IS_NONWEAK_VECTOR (v))
-    {
-      if (k >= SCM_I_VECTOR_LENGTH (v))
-        scm_out_of_range (NULL, scm_from_size_t (k)); 
-      SCM_SIMPLE_VECTOR_SET (v, k, obj);
-    }
-  else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
-    {
-      scm_t_array_dim *dim = SCM_I_ARRAY_DIMS (v);
-      SCM vv = SCM_I_ARRAY_V (v);
+  SCM_VALIDATE_VECTOR (1, v);
 
-      k = SCM_I_ARRAY_BASE (v) + k*dim->inc;
-      if (k >= dim->ubnd - dim->lbnd + 1)
-        scm_out_of_range (NULL, scm_from_size_t (k));
+  if (k >= SCM_I_VECTOR_LENGTH (v))
+    scm_out_of_range (NULL, scm_from_size_t (k)); 
 
-      if (SCM_I_IS_NONWEAK_VECTOR (vv))
-        SCM_SIMPLE_VECTOR_SET (vv, k, obj);
-      else
-	scm_wrong_type_arg_msg (NULL, 0, v, "non-uniform vector");
-    }
-  else
-    scm_wrong_type_arg_msg ("vector-set!", 1, v, "vector");
+  SCM_SIMPLE_VECTOR_SET (v, k, obj);
 }
+#undef FUNC_NAME
 
 SCM_DEFINE (scm_make_vector, "make-vector", 1, 1, 0,
             (SCM k, SCM fill),
