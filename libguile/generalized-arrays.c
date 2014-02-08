@@ -42,7 +42,20 @@ SCM_INTERNAL SCM scm_i_array_set_x (SCM v, SCM obj,
 int
 scm_is_array (SCM obj)
 {
-  return scm_i_array_implementation_for_obj (obj) ? 1 : 0;
+  if (!SCM_HEAP_OBJECT_P (obj))
+    return 0;
+
+  switch (SCM_TYP7 (obj))
+    {
+    case scm_tc7_string:
+    case scm_tc7_vector:
+    case scm_tc7_bitvector:
+    case scm_tc7_bytevector:
+    case scm_tc7_array:
+      return 1;
+    default:
+      return 0;
+    }
 }
 
 SCM_DEFINE (scm_array_p_2, "array?", 1, 0, 0,
@@ -69,7 +82,7 @@ int
 scm_is_typed_array (SCM obj, SCM type)
 {
   int ret = 0;
-  if (scm_i_array_implementation_for_obj (obj))
+  if (scm_is_array (obj))
     {
       scm_t_array_handle h;
 
