@@ -211,90 +211,90 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
     case 1:
     gencase:			/* Have to loop over all dimensions. */
       vra0 = scm_i_make_array (1);
-    if (SCM_I_ARRAYP (ra0))
-      {
-	kmax = SCM_I_ARRAY_NDIM (ra0) - 1;
-	if (kmax < 0)
-	  {
-	    SCM_I_ARRAY_DIMS (vra0)->lbnd = 0;
-	    SCM_I_ARRAY_DIMS (vra0)->ubnd = 0;
-	    SCM_I_ARRAY_DIMS (vra0)->inc = 1;
-	  }
-	else
-	  {
-	    SCM_I_ARRAY_DIMS (vra0)->lbnd = SCM_I_ARRAY_DIMS (ra0)[kmax].lbnd;
-	    SCM_I_ARRAY_DIMS (vra0)->ubnd = SCM_I_ARRAY_DIMS (ra0)[kmax].ubnd;
-	    SCM_I_ARRAY_DIMS (vra0)->inc = SCM_I_ARRAY_DIMS (ra0)[kmax].inc;
-	  }
-	SCM_I_ARRAY_BASE (vra0) = SCM_I_ARRAY_BASE (ra0);
-	SCM_I_ARRAY_V (vra0) = SCM_I_ARRAY_V (ra0);
-      }
-    else
-      {
-	size_t length = scm_c_array_length (ra0);
-	kmax = 0;
-	SCM_I_ARRAY_DIMS (vra0)->lbnd = 0;
-	SCM_I_ARRAY_DIMS (vra0)->ubnd = length - 1;
-	SCM_I_ARRAY_DIMS (vra0)->inc = 1;
-	SCM_I_ARRAY_BASE (vra0) = 0;
-	SCM_I_ARRAY_V (vra0) = ra0;
-	ra0 = vra0;
-      }
-    lvra = SCM_EOL;
-    plvra = &lvra;
-    for (z = lra; scm_is_pair (z); z = SCM_CDR (z))
-      {
-	ra1 = SCM_CAR (z);
-	vra1 = scm_i_make_array (1);
-	SCM_I_ARRAY_DIMS (vra1)->lbnd = SCM_I_ARRAY_DIMS (vra0)->lbnd;
-	SCM_I_ARRAY_DIMS (vra1)->ubnd = SCM_I_ARRAY_DIMS (vra0)->ubnd;
-	if (SCM_I_ARRAYP (ra1))
-	  {
-	    if (kmax >= 0)
-	      SCM_I_ARRAY_DIMS (vra1)->inc = SCM_I_ARRAY_DIMS (ra1)[kmax].inc;
-	    SCM_I_ARRAY_V (vra1) = SCM_I_ARRAY_V (ra1);
-	  }
-	else
-	  {
-	    SCM_I_ARRAY_DIMS (vra1)->inc = 1;
-	    SCM_I_ARRAY_V (vra1) = ra1;
-	  }
-	*plvra = scm_cons (vra1, SCM_EOL);
-	plvra = SCM_CDRLOC (*plvra);
-      }
+      if (SCM_I_ARRAYP (ra0))
+        {
+          kmax = SCM_I_ARRAY_NDIM (ra0) - 1;
+          if (kmax < 0)
+            {
+              SCM_I_ARRAY_DIMS (vra0)->lbnd = 0;
+              SCM_I_ARRAY_DIMS (vra0)->ubnd = 0;
+              SCM_I_ARRAY_DIMS (vra0)->inc = 1;
+            }
+          else
+            {
+              SCM_I_ARRAY_DIMS (vra0)->lbnd = SCM_I_ARRAY_DIMS (ra0)[kmax].lbnd;
+              SCM_I_ARRAY_DIMS (vra0)->ubnd = SCM_I_ARRAY_DIMS (ra0)[kmax].ubnd;
+              SCM_I_ARRAY_DIMS (vra0)->inc = SCM_I_ARRAY_DIMS (ra0)[kmax].inc;
+            }
+          SCM_I_ARRAY_BASE (vra0) = SCM_I_ARRAY_BASE (ra0);
+          SCM_I_ARRAY_V (vra0) = SCM_I_ARRAY_V (ra0);
+        }
+      else
+        {
+          size_t length = scm_c_array_length (ra0);
+          kmax = 0;
+          SCM_I_ARRAY_DIMS (vra0)->lbnd = 0;
+          SCM_I_ARRAY_DIMS (vra0)->ubnd = length - 1;
+          SCM_I_ARRAY_DIMS (vra0)->inc = 1;
+          SCM_I_ARRAY_BASE (vra0) = 0;
+          SCM_I_ARRAY_V (vra0) = ra0;
+          ra0 = vra0;
+        }
+      lvra = SCM_EOL;
+      plvra = &lvra;
+      for (z = lra; scm_is_pair (z); z = SCM_CDR (z))
+        {
+          ra1 = SCM_CAR (z);
+          vra1 = scm_i_make_array (1);
+          SCM_I_ARRAY_DIMS (vra1)->lbnd = SCM_I_ARRAY_DIMS (vra0)->lbnd;
+          SCM_I_ARRAY_DIMS (vra1)->ubnd = SCM_I_ARRAY_DIMS (vra0)->ubnd;
+          if (SCM_I_ARRAYP (ra1))
+            {
+              if (kmax >= 0)
+                SCM_I_ARRAY_DIMS (vra1)->inc = SCM_I_ARRAY_DIMS (ra1)[kmax].inc;
+              SCM_I_ARRAY_V (vra1) = SCM_I_ARRAY_V (ra1);
+            }
+          else
+            {
+              SCM_I_ARRAY_DIMS (vra1)->inc = 1;
+              SCM_I_ARRAY_V (vra1) = ra1;
+            }
+          *plvra = scm_cons (vra1, SCM_EOL);
+          plvra = SCM_CDRLOC (*plvra);
+        }
 
-    vinds = scm_gc_malloc_pointerless (sizeof(long) * SCM_I_ARRAY_NDIM (ra0),
-				       indices_gc_hint);
+      vinds = scm_gc_malloc_pointerless (sizeof(long) * SCM_I_ARRAY_NDIM (ra0),
+                                         indices_gc_hint);
 
-    for (k = 0; k <= kmax; k++)
-      vinds[k] = SCM_I_ARRAY_DIMS (ra0)[k].lbnd;
-    k = kmax;
-    do
-      {
-	if (k == kmax)
-	  {
-	    SCM y = lra;
-	    SCM_I_ARRAY_BASE (vra0) = cind (ra0, vinds);
-	    for (z = lvra; scm_is_pair (z); z = SCM_CDR (z), y = SCM_CDR (y))
-	      SCM_I_ARRAY_BASE (SCM_CAR (z)) = cind (SCM_CAR (y), vinds);
-	    if (0 == (SCM_UNBNDP (data) ? cproc(vra0, lvra) : cproc(vra0, data, lvra)))
-	      return 0;
-	    k--;
-	    continue;
-	  }
-	if (vinds[k] < SCM_I_ARRAY_DIMS (ra0)[k].ubnd)
-	  {
-	    vinds[k]++;
-	    k++;
-	    continue;
-	  }
-	vinds[k] = SCM_I_ARRAY_DIMS (ra0)[k].lbnd - 1;
-	k--;
-      }
-    while (k >= 0);
+      for (k = 0; k <= kmax; k++)
+        vinds[k] = SCM_I_ARRAY_DIMS (ra0)[k].lbnd;
+      k = kmax;
+      do
+        {
+          if (k == kmax)
+            {
+              SCM y = lra;
+              SCM_I_ARRAY_BASE (vra0) = cind (ra0, vinds);
+              for (z = lvra; scm_is_pair (z); z = SCM_CDR (z), y = SCM_CDR (y))
+                SCM_I_ARRAY_BASE (SCM_CAR (z)) = cind (SCM_CAR (y), vinds);
+              if (0 == (SCM_UNBNDP (data) ? cproc(vra0, lvra) : cproc(vra0, data, lvra)))
+                return 0;
+              k--;
+              continue;
+            }
+          if (vinds[k] < SCM_I_ARRAY_DIMS (ra0)[k].ubnd)
+            {
+              vinds[k]++;
+              k++;
+              continue;
+            }
+          vinds[k] = SCM_I_ARRAY_DIMS (ra0)[k].lbnd - 1;
+          k--;
+        }
+      while (k >= 0);
 
     case 5:
-    return 1;
+      return 1;
     }
 }
 
