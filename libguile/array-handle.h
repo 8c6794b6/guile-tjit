@@ -30,35 +30,8 @@
 
 
 
-struct scm_t_array_handle;
-
-typedef SCM (*scm_t_array_ref) (struct scm_t_array_handle *, size_t);
-typedef void (*scm_t_array_set) (struct scm_t_array_handle *, size_t, SCM);
-
-typedef struct
-{
-  scm_t_bits tag;
-  scm_t_bits mask;
-  scm_t_array_ref vref;
-  scm_t_array_set vset;
-  void (*get_handle)(SCM, struct scm_t_array_handle*);
-} scm_t_array_implementation;
-  
-#define SCM_ARRAY_IMPLEMENTATION(tag_,mask_,vref_,vset_,handle_) \
-  SCM_SNARF_INIT ({                                                     \
-      scm_t_array_implementation impl;                                  \
-      impl.tag = tag_; impl.mask = mask_;                               \
-      impl.vref = vref_; impl.vset = vset_;                             \
-      impl.get_handle = handle_;                                        \
-      scm_i_register_array_implementation (&impl);                      \
-  })
-  
-
-SCM_INTERNAL void scm_i_register_array_implementation (scm_t_array_implementation *impl);
-SCM_INTERNAL scm_t_array_implementation* scm_i_array_implementation_for_obj (SCM obj);
-
-
-
+typedef SCM (*scm_t_vector_ref) (SCM, size_t);
+typedef void (*scm_t_vector_set) (SCM, size_t, SCM);
 
 typedef struct scm_t_array_dim
 {
@@ -93,6 +66,7 @@ SCM_INTERNAL SCM scm_i_array_element_types[];
 
 typedef struct scm_t_array_handle {
   SCM array;
+
   /* `Base' is an offset into elements or writable_elements, corresponding to
      the first element in the array. It would be nicer just to adjust the
      elements/writable_elements pointer, but we can't because that element might
@@ -109,8 +83,8 @@ typedef struct scm_t_array_handle {
 
   /* The backing store for the array, and its accessors.  */
   SCM vector;
-  scm_t_array_ref vref;
-  scm_t_array_set vset;
+  scm_t_vector_ref vref;
+  scm_t_vector_set vset;
 } scm_t_array_handle;
 
 #define scm_array_handle_rank(h) ((h)->ndims)
@@ -139,7 +113,7 @@ scm_array_handle_ref (scm_t_array_handle *h, ssize_t p)
     /* catch overflow */
     scm_out_of_range (NULL, scm_from_ssize_t (p));
   /* perhaps should catch overflow here too */
-  return h->vref (h, h->base + p);
+  return h->vref (h->vector, h->base + p);
 }
 
 SCM_INLINE_IMPLEMENTATION void
@@ -149,7 +123,7 @@ scm_array_handle_set (scm_t_array_handle *h, ssize_t p, SCM v)
     /* catch overflow */
     scm_out_of_range (NULL, scm_from_ssize_t (p));
   /* perhaps should catch overflow here too */
-  h->vset (h, h->base + p, v);
+  h->vset (h->vector, h->base + p, v);
 }
 
 #endif

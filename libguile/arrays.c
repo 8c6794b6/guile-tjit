@@ -819,40 +819,6 @@ scm_i_print_array (SCM array, SCM port, scm_print_state *pstate)
     return scm_i_print_array_dimension (&h, 0, 0, port, pstate);
 }
 
-static SCM
-array_handle_ref (scm_t_array_handle *hh, size_t pos)
-{
-  return scm_c_array_ref_1 (SCM_I_ARRAY_V (hh->array), pos);
-}
-
-static void
-array_handle_set (scm_t_array_handle *hh, size_t pos, SCM val)
-{
-  scm_c_array_set_1_x (SCM_I_ARRAY_V (hh->array), val, pos);
-}
-
-/* FIXME: should be handle for vect? maybe not, because of dims */
-static void
-array_get_handle (SCM array, scm_t_array_handle *h)
-{
-  scm_t_array_handle vh;
-  scm_array_get_handle (SCM_I_ARRAY_V (array), &vh);
-  assert (vh.dims[0].inc == 1 && vh.dims[0].lbnd == 0 && vh.base == 0);
-  h->element_type = vh.element_type;
-  h->elements = vh.elements;
-  h->writable_elements = vh.writable_elements;
-  scm_array_handle_release (&vh);
-
-  h->dims = SCM_I_ARRAY_DIMS (array);
-  h->ndims = SCM_I_ARRAY_NDIM (array);
-  h->base = SCM_I_ARRAY_BASE (array);
-}
-
-SCM_ARRAY_IMPLEMENTATION (scm_tc7_array,
-                          0x7f,
-                          array_handle_ref, array_handle_set,
-                          array_get_handle)
-
 void
 scm_init_arrays ()
 {

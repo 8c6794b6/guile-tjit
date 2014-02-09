@@ -274,11 +274,6 @@ SCM_API double *scm_c64vector_writable_elements (SCM uvec,
 						 size_t *lenp,
 						 ssize_t *incp);
 
-SCM_INTERNAL SCM scm_i_generalized_vector_type (SCM vec);
-SCM_INTERNAL const char *scm_i_uniform_vector_tag (SCM uvec);
-SCM_INTERNAL scm_t_array_ref scm_i_uniform_vector_ref_proc (SCM uvec);
-SCM_INTERNAL scm_t_array_set scm_i_uniform_vector_set_proc (SCM uvec);
-
 SCM_INTERNAL void scm_init_srfi_4 (void);
 
 #endif /* SCM_SRFI_4_H */

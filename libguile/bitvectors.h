@@ -3,7 +3,7 @@
 #ifndef SCM_BITVECTORS_H
 #define SCM_BITVECTORS_H
 
-/* Copyright (C) 1995,1996,1997,1999,2000,2001, 2004, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1999,2000,2001, 2004, 2006, 2008, 2009, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -70,6 +70,7 @@ SCM_API scm_t_uint32 *scm_bitvector_writable_elements (SCM vec,
 						       size_t *lenp,
 						       ssize_t *incp);
 
+SCM_INTERNAL scm_t_uint32 *scm_i_bitvector_bits (SCM vec);
 SCM_INTERNAL int scm_i_print_bitvector (SCM vec, SCM port, scm_print_state *pstate);
 SCM_INTERNAL SCM scm_i_bitvector_equal_p (SCM vec1, SCM vec2);
 SCM_INTERNAL void scm_init_bitvectors (void);

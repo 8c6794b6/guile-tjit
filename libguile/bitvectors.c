@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -41,6 +41,13 @@
 #define IS_BITVECTOR(obj)       SCM_TYP16_PREDICATE(scm_tc7_bitvector,(obj))
 #define BITVECTOR_LENGTH(obj)   ((size_t)SCM_CELL_WORD_1(obj))
 #define BITVECTOR_BITS(obj)     ((scm_t_uint32 *)SCM_CELL_WORD_2(obj))
+
+scm_t_uint32 *scm_i_bitvector_bits (SCM vec)
+{
+  if (!IS_BITVECTOR (vec))
+    abort ();
+  return BITVECTOR_BITS (vec);
+}
 
 int
 scm_i_print_bitvector (SCM vec, SCM port, scm_print_state *pstate)
@@ -852,36 +859,6 @@ scm_istr2bve (SCM str)
   return res;
 }
 
-/* FIXME: h->array should be h->vector */
-static SCM
-bitvector_handle_ref (scm_t_array_handle *h, size_t pos)
-{
-  return scm_c_bitvector_ref (h->array, pos);
-}
-
-static void
-bitvector_handle_set (scm_t_array_handle *h, size_t pos, SCM val)
-{
-  scm_c_bitvector_set_x (h->array, pos, val);
-}
-
-static void
-bitvector_get_handle (SCM bv, scm_t_array_handle *h)
-{
-  h->array = bv;
-  h->ndims = 1;
-  h->dims = &h->dim0;
-  h->dim0.lbnd = 0;
-  h->dim0.ubnd = BITVECTOR_LENGTH (bv) - 1;
-  h->dim0.inc = 1;
-  h->element_type = SCM_ARRAY_ELEMENT_TYPE_BIT;
-  h->elements = h->writable_elements = BITVECTOR_BITS (bv);
-}
-
-SCM_ARRAY_IMPLEMENTATION (scm_tc7_bitvector,
-                          0x7f,
-                          bitvector_handle_ref, bitvector_handle_set,
-                          bitvector_get_handle)
 SCM_VECTOR_IMPLEMENTATION (SCM_ARRAY_ELEMENT_TYPE_BIT, scm_make_bitvector)
 
 void

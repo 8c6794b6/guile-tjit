@@ -309,7 +309,7 @@ rafill (SCM dst, SCM fill)
   inc = SCM_I_ARRAY_DIMS (dst)->inc;
 
   for (; n-- > 0; i += inc)
-    h.vset (&h, i, fill);
+    h.vset (h.vector, i, fill);
 
   scm_array_handle_release (&h);
   return 1;
@@ -345,7 +345,7 @@ racp (SCM src, SCM dst)
   inc_d = SCM_I_ARRAY_DIMS (dst)->inc;
 
   for (; n-- > 0; i_s += inc_s, i_d += inc_d)
-    h_d.vset (&h_d, i_d, h_s.vref (&h_s, i_s));
+    h_d.vset (h_d.vector, i_d, h_s.vref (h_s.vector, i_s));
 
   scm_array_handle_release (&h_d);
   scm_array_handle_release (&h_s);
@@ -647,7 +647,7 @@ ramap (SCM ra0, SCM proc, SCM ras)
   i0end = i0 + n*inc0;
   if (scm_is_null (ras))
     for (; i0 < i0end; i0 += inc0)
-      h0.vset (&h0, i0, scm_call_0 (proc));
+      h0.vset (h0.vector, i0, scm_call_0 (proc));
   else
     {
       SCM ra1 = SCM_CAR (ras);
@@ -660,7 +660,7 @@ ramap (SCM ra0, SCM proc, SCM ras)
       ras = SCM_CDR (ras);
       if (scm_is_null (ras))
           for (; i0 < i0end; i0 += inc0, i1 += inc1)
-            h0.vset (&h0, i0, scm_call_1 (proc, h1.vref (&h1, i1)));
+            h0.vset (h0.vector, i0, scm_call_1 (proc, h1.vref (h1.vector, i1)));
       else
         {
           ras = scm_vector (ras);
@@ -670,7 +670,8 @@ ramap (SCM ra0, SCM proc, SCM ras)
               unsigned long k;
               for (k = scm_c_vector_length (ras); k--;)
                 args = scm_cons (AREF (scm_c_vector_ref (ras, k), i), args);
-              h0.vset (&h0, i0, scm_apply_1 (proc, h1.vref (&h1, i1), args));
+              h0.vset (h0.vector, i0,
+                       scm_apply_1 (proc, h1.vref (h1.vector, i1), args));
             }
         }
       scm_array_handle_release (&h1);
@@ -720,7 +721,7 @@ rafe (SCM ra0, SCM proc, SCM ras)
   i0end = i0 + n*inc0;
   if (scm_is_null (ras))
     for (; i0 < i0end; i0 += inc0)
-      scm_call_1 (proc, h0.vref (&h0, i0));
+      scm_call_1 (proc, h0.vref (h0.vector, i0));
   else
     {
       ras = scm_vector (ras);
@@ -730,7 +731,7 @@ rafe (SCM ra0, SCM proc, SCM ras)
           unsigned long k;
           for (k = scm_c_vector_length (ras); k--;)
             args = scm_cons (AREF (scm_c_vector_ref (ras, k), i), args);
-          scm_apply_1 (proc, h0.vref (&h0, i0), args);
+          scm_apply_1 (proc, h0.vref (h0.vector, i0), args);
         }
     }
   scm_array_handle_release (&h0);
@@ -759,7 +760,7 @@ array_index_map_1 (SCM ra, SCM proc)
   scm_array_get_handle (ra, &h);
   inc = h.dims[0].inc;
   for (i = h.dims[0].lbnd, p = h.base; i <= h.dims[0].ubnd; ++i, p += inc)
-    h.vset (&h, p, scm_call_1 (proc, scm_from_ulong (i)));
+    h.vset (h.vector, p, scm_call_1 (proc, scm_from_ulong (i)));
   scm_array_handle_release (&h);
 }
 

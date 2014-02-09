@@ -33,50 +33,223 @@
 SCM scm_i_array_element_types[SCM_ARRAY_ELEMENT_TYPE_LAST + 1];
 
 
-#define ARRAY_IMPLS_N_STATIC_ALLOC 7
-static scm_t_array_implementation array_impls[ARRAY_IMPLS_N_STATIC_ALLOC];
-static int num_array_impls_registered = 0;
+/* Bytevectors as generalized vectors & arrays.  */
 
+#define DEFINE_BYTEVECTOR_ACCESSORS(type, tag, infix)           \
+  static SCM                                                    \
+  bytevector_##tag##_ref (SCM bv, size_t pos)                   \
+  {                                                             \
+    SCM idx = scm_from_size_t (pos * sizeof (type));            \
+    return scm_bytevector_##infix##_ref (bv, idx);              \
+  }                                                             \
+  static void                                                   \
+  bytevector_##tag##_set (SCM bv, size_t pos, SCM val)          \
+  {                                                             \
+    SCM idx = scm_from_size_t (pos * sizeof (type));            \
+    scm_bytevector_##infix##_set_x (bv, idx, val);              \
+  }
 
-void
-scm_i_register_array_implementation (scm_t_array_implementation *impl)
+DEFINE_BYTEVECTOR_ACCESSORS (uint8_t, u8, u8);
+DEFINE_BYTEVECTOR_ACCESSORS (int8_t, s8, s8);
+DEFINE_BYTEVECTOR_ACCESSORS (uint16_t, u16, u16_native);
+DEFINE_BYTEVECTOR_ACCESSORS (int16_t, s16, s16_native);
+DEFINE_BYTEVECTOR_ACCESSORS (uint32_t, u32, u32_native);
+DEFINE_BYTEVECTOR_ACCESSORS (int32_t, s32, s32_native);
+DEFINE_BYTEVECTOR_ACCESSORS (uint64_t, u64, u64_native);
+DEFINE_BYTEVECTOR_ACCESSORS (int64_t, s64, s64_native);
+DEFINE_BYTEVECTOR_ACCESSORS (float, f32, ieee_single_native);
+DEFINE_BYTEVECTOR_ACCESSORS (double, f64, ieee_double_native);
+
+/* Since these functions are only called by Guile's C code, we can abort
+   instead of throwing if there is an error.  */
+static SCM
+bytevector_c32_ref (SCM bv, size_t pos)
 {
-  if (num_array_impls_registered >= ARRAY_IMPLS_N_STATIC_ALLOC)
-    /* need to increase ARRAY_IMPLS_N_STATIC_ALLOC, buster */
+  char *c_bv;
+  float real, imag;
+
+  if (!SCM_BYTEVECTOR_P (bv))
     abort ();
-  else
-    array_impls[num_array_impls_registered++] = *impl;
+  c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
+  pos *= 2 * sizeof (float);
+  if (pos + 2 * sizeof (float) - 1 >= SCM_BYTEVECTOR_LENGTH (bv))
+    abort ();
+
+  memcpy (&real, &c_bv[pos], sizeof (float));
+  memcpy (&imag, &c_bv[pos + sizeof (float)], sizeof (float));
+  return scm_c_make_rectangular (real, imag);
 }
 
-scm_t_array_implementation*
-scm_i_array_implementation_for_obj (SCM obj)
+static SCM
+bytevector_c64_ref (SCM bv, size_t pos)
 {
-  int i;
-  for (i = 0; i < num_array_impls_registered; i++)
-    if (SCM_NIMP (obj)
-        && (SCM_CELL_TYPE (obj) & array_impls[i].mask) == array_impls[i].tag)
-      return &array_impls[i];
-  return NULL;
+  char *c_bv;
+  double real, imag;
+
+  if (!SCM_BYTEVECTOR_P (bv))
+    abort ();
+  c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
+  pos *= 2 * sizeof (double);
+  if (pos + 2 * sizeof (double) - 1 >= SCM_BYTEVECTOR_LENGTH (bv))
+    abort ();
+
+  memcpy (&real, &c_bv[pos], sizeof (double));
+  memcpy (&imag, &c_bv[pos + sizeof (double)], sizeof (double));
+  return scm_c_make_rectangular (real, imag);
+}
+
+static void
+bytevector_c32_set (SCM bv, size_t pos, SCM val)
+{
+  char *c_bv;
+  float real, imag;
+
+  if (!SCM_BYTEVECTOR_P (bv))
+    abort ();
+  c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
+  pos *= 2 * sizeof (float);
+  if (pos + 2 * sizeof (float) - 1 >= SCM_BYTEVECTOR_LENGTH (bv))
+    abort ();
+
+  real = scm_c_real_part (val);
+  imag = scm_c_imag_part (val);
+  memcpy (&c_bv[pos], &real, sizeof (float));
+  memcpy (&c_bv[pos + sizeof (float)], &imag, sizeof (float));
+}
+
+static void
+bytevector_c64_set (SCM bv, size_t pos, SCM val)
+{
+  char *c_bv;
+  double real, imag;
+
+  if (!SCM_BYTEVECTOR_P (bv))
+    abort ();
+  c_bv = (char *) SCM_BYTEVECTOR_CONTENTS (bv);
+  pos *= 2 * sizeof (double);
+  if (pos + 2 * sizeof (double) - 1 >= SCM_BYTEVECTOR_LENGTH (bv))
+    abort ();
+
+  real = scm_c_real_part (val);
+  imag = scm_c_imag_part (val);
+  memcpy (&c_bv[pos], &real, sizeof (double));
+  memcpy (&c_bv[pos + sizeof (double)], &imag, sizeof (double));
+}
+
+static void
+initialize_vector_handle (scm_t_array_handle *h, size_t len,
+                          scm_t_array_element_type element_type,
+                          scm_t_vector_ref vref, scm_t_vector_set vset,
+                          void *writable_elements)
+{
+  h->base = 0;
+  h->ndims = 1;
+  h->dims = &h->dim0;
+  h->dim0.lbnd = 0;
+  h->dim0.ubnd = (ssize_t) (len - 1U);
+  h->dim0.inc = 1;
+  h->element_type = element_type;
+  h->elements = h->writable_elements = writable_elements;
+  h->vector = h->array;
+  h->vref = vref;
+  h->vset = vset;
 }
 
 void
 scm_array_get_handle (SCM array, scm_t_array_handle *h)
 {
-  scm_t_array_implementation *impl = scm_i_array_implementation_for_obj (array);
-  if (!impl)
+  if (!SCM_HEAP_OBJECT_P (array))
     scm_wrong_type_arg_msg (NULL, 0, array, "array");
+
   h->array = array;
-  h->base = 0;
-  h->ndims = 0;
-  h->dims = NULL;
-  h->element_type = SCM_ARRAY_ELEMENT_TYPE_SCM; /* have to default to
-                                                   something... */
-  h->elements = NULL;
-  h->writable_elements = NULL;
-  h->vref = impl->vref;
-  h->vset = impl->vset;
-  h->vector = SCM_I_ARRAYP (array) ? SCM_I_ARRAY_V (array) : array;
-  impl->get_handle (array, h);
+
+  switch (SCM_TYP7 (array))
+    {
+    case scm_tc7_string:
+      initialize_vector_handle (h, scm_c_string_length (array),
+                                SCM_ARRAY_ELEMENT_TYPE_CHAR,
+                                scm_c_string_ref, scm_c_string_set_x,
+                                NULL);
+      break;
+    case scm_tc7_vector:
+      initialize_vector_handle (h, scm_c_vector_length (array),
+                                SCM_ARRAY_ELEMENT_TYPE_SCM,
+                                scm_c_vector_ref, scm_c_vector_set_x,
+                                SCM_I_VECTOR_WELTS (array));
+      break;
+    case scm_tc7_bitvector:
+      initialize_vector_handle (h, scm_c_bitvector_length (array),
+                                SCM_ARRAY_ELEMENT_TYPE_BIT,
+                                scm_c_bitvector_ref, scm_c_bitvector_set_x,
+                                scm_i_bitvector_bits (array));
+      break;
+    case scm_tc7_bytevector:
+      {
+        size_t byte_length, length, element_byte_size;
+        scm_t_array_element_type element_type;
+        scm_t_vector_ref vref;
+        scm_t_vector_set vset;
+
+        byte_length = scm_c_bytevector_length (array);
+        element_type = SCM_BYTEVECTOR_ELEMENT_TYPE (array);
+        element_byte_size = scm_i_array_element_type_sizes[element_type] / 8;
+        length = byte_length / element_byte_size;
+
+        switch (element_type)
+          {
+#define ACCESSOR_CASE(tag, TAG)                 \
+          case SCM_ARRAY_ELEMENT_TYPE_##TAG:    \
+            vref = bytevector_##tag##_ref;      \
+            vset = bytevector_##tag##_set;      \
+            break
+
+          case SCM_ARRAY_ELEMENT_TYPE_VU8:
+          ACCESSOR_CASE(u8, U8);
+          ACCESSOR_CASE(s8, S8);
+          ACCESSOR_CASE(u16, U16);
+          ACCESSOR_CASE(s16, S16);
+          ACCESSOR_CASE(u32, U32);
+          ACCESSOR_CASE(s32, S32);
+          ACCESSOR_CASE(u64, U64);
+          ACCESSOR_CASE(s64, S64);
+          ACCESSOR_CASE(f32, F32);
+          ACCESSOR_CASE(f64, F64);
+          ACCESSOR_CASE(c32, C32);
+          ACCESSOR_CASE(c64, C64);
+
+          case SCM_ARRAY_ELEMENT_TYPE_SCM:
+          case SCM_ARRAY_ELEMENT_TYPE_BIT:
+          case SCM_ARRAY_ELEMENT_TYPE_CHAR:
+          default:
+            abort ();
+
+#undef ACCESSOR_CASE
+          }
+
+        initialize_vector_handle (h, length, element_type, vref, vset,
+                                  SCM_BYTEVECTOR_CONTENTS (array));
+      }
+      break;
+    case scm_tc7_array:
+      h->base = SCM_I_ARRAY_BASE (array);
+      h->ndims = SCM_I_ARRAY_NDIM (array);
+      h->dims = SCM_I_ARRAY_DIMS (array);
+      {
+        scm_t_array_handle vh;
+
+        scm_array_get_handle (SCM_I_ARRAY_V (array), &vh);
+        h->element_type = vh.element_type;
+        h->elements = vh.elements;
+        h->writable_elements = vh.writable_elements;
+        h->vector = vh.vector;
+        h->vref = vh.vref;
+        h->vset = vh.vset;
+        scm_array_handle_release (&vh);
+      }
+      break;
+    default:
+      scm_wrong_type_arg_msg (NULL, 0, array, "array");
+    }
 }
 
 ssize_t
