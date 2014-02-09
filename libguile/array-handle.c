@@ -231,21 +231,11 @@ scm_array_get_handle (SCM array, scm_t_array_handle *h)
       }
       break;
     case scm_tc7_array:
+      scm_array_get_handle (SCM_I_ARRAY_V (array), h);
+      h->array = array;
       h->base = SCM_I_ARRAY_BASE (array);
       h->ndims = SCM_I_ARRAY_NDIM (array);
       h->dims = SCM_I_ARRAY_DIMS (array);
-      {
-        scm_t_array_handle vh;
-
-        scm_array_get_handle (SCM_I_ARRAY_V (array), &vh);
-        h->element_type = vh.element_type;
-        h->elements = vh.elements;
-        h->writable_elements = vh.writable_elements;
-        h->vector = vh.vector;
-        h->vref = vh.vref;
-        h->vset = vh.vset;
-        scm_array_handle_release (&vh);
-      }
       break;
     default:
       scm_wrong_type_arg_msg (NULL, 0, array, "array");
