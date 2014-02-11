@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -48,8 +48,8 @@
     (bytevector-s16-native-ref . bv-s16-ref)
     (bytevector-s32-native-ref . bv-s32-ref)
     (bytevector-s64-native-ref . bv-s64-ref)
-    (bytevector-f32-native-ref . bv-f32-ref)
-    (bytevector-f64-native-ref . bv-f64-ref)
+    (bytevector-ieee-single-native-ref . bv-f32-ref)
+    (bytevector-ieee-double-native-ref . bv-f64-ref)
     (bytevector-u8-set! . bv-u8-set!)
     (bytevector-u16-native-set! . bv-u16-set!)
     (bytevector-u32-native-set! . bv-u32-set!)
@@ -58,8 +58,8 @@
     (bytevector-s16-native-set! . bv-s16-set!)
     (bytevector-s32-native-set! . bv-s32-set!)
     (bytevector-s64-native-set! . bv-s64-set!)
-    (bytevector-f32-native-set! . bv-f32-set!)
-    (bytevector-f64-native-set! . bv-f64-set!)))
+    (bytevector-ieee-single-native-set! . bv-f32-set!)
+    (bytevector-ieee-double-native-set! . bv-f64-set!)))
 
 (define *macro-instruction-arities*
   '((cache-current-module! . (0 . 2))
