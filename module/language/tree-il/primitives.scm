@@ -94,6 +94,8 @@
 
     allocate-struct struct-vtable make-struct struct-ref struct-set!
 
+    bytevector-length
+
     bytevector-u8-ref bytevector-u8-set!
     bytevector-s8-ref bytevector-s8-set!
     u8vector-ref u8vector-set! s8vector-ref s8vector-set!
@@ -172,7 +174,7 @@
     char<? char<=? char>=? char>?
     integer->char char->integer number->string string->number
     struct-vtable
-    length string-length vector-length
+    length string-length vector-length bytevector-length
     ;; These all should get expanded out by expand-primitives.
     caar cadr cdar cddr
     caaar caadr cadar caddr cdaar cdadr cddar cdddr

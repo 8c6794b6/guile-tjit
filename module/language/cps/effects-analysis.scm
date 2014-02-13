@@ -364,6 +364,8 @@
 
 ;; Bytevectors.
 (define-primitive-effects
+  ((bytevector-length _) (cause &type-check))
+
   ((bv-u8-ref bv n) (logior (cause &type-check) &bytevector))
   ((bv-s8-ref bv n) (logior (cause &type-check) &bytevector))
   ((bv-u16-ref bv n) (logior (cause &type-check) &bytevector))
