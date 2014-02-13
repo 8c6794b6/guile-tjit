@@ -417,7 +417,9 @@
   ((logand . _) (cause &type-check))
   ((logior . _) (cause &type-check))
   ((logior . _) (cause &type-check))
-  ((lognot . _) (cause &type-check)))
+  ((lognot . _) (cause &type-check))
+  ((sqrt _) (cause &type-check))
+  ((abs _) (cause &type-check)))
 
 ;; Characters.
 (define-primitive-effects

@@ -48,6 +48,7 @@
     = < > <= >= zero? positive? negative?
     + * - / 1- 1+ quotient remainder modulo
     ash logand logior logxor lognot
+    sqrt abs
     not
     pair? null? list? symbol? vector? string? struct? number? char? nil?
 
@@ -163,7 +164,7 @@
     eq? eqv? equal?
     = < > <= >= zero? positive? negative?
     ash logand logior logxor lognot
-    + * - / 1- 1+ quotient remainder modulo
+    + * - / 1- 1+ sqrt abs quotient remainder modulo
     not
     pair? null? nil? list?
     symbol? variable? vector? struct? string? number? char?
