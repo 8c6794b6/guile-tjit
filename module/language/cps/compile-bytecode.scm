@@ -35,6 +35,7 @@
   #:use-module (language cps dfg)
   #:use-module (language cps elide-values)
   #:use-module (language cps primitives)
+  #:use-module (language cps prune-top-level-scopes)
   #:use-module (language cps reify-primitives)
   #:use-module (language cps simplify)
   #:use-module (language cps slot-allocation)
@@ -60,6 +61,7 @@
   ;; aren't used, and thus shouldn't be consed.
 
   (let* ((exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
+         (exp (run-pass exp prune-top-level-scopes #:prune-top-level-scopes? #t))
          (exp (run-pass exp simplify #:simplify? #t))
          (exp (run-pass exp contify #:contify? #t))
          (exp (run-pass exp inline-constructors #:inline-constructors? #t))

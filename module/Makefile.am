@@ -129,6 +129,7 @@ CPS_LANG_SOURCES =						\
   language/cps/effects-analysis.scm				\
   language/cps/elide-values.scm					\
   language/cps/primitives.scm					\
+  language/cps/prune-top-level-scopes.scm			\
   language/cps/reify-primitives.scm				\
   language/cps/slot-allocation.scm				\
   language/cps/simplify.scm					\
