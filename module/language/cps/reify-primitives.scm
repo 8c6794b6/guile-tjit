@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -46,7 +46,9 @@
 
 (define (primitive-module name)
   (case name
-    ((bytevector-u8-ref bytevector-u8-set!
+    ((bytevector-length
+
+      bytevector-u8-ref bytevector-u8-set!
       bytevector-s8-ref bytevector-s8-set!
 
       bytevector-u16-ref bytevector-u16-set!
