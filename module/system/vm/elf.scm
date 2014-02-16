@@ -47,6 +47,16 @@
             elf-entry elf-phoff elf-shoff elf-flags elf-ehsize
             elf-phentsize elf-phnum elf-shentsize elf-shnum elf-shstrndx
 
+            ELFOSABI_NONE ELFOSABI_HPUX ELFOSABI_NETBSD ELFOSABI_GNU
+            ELFOSABI_SOLARIS ELFOSABI_AIX ELFOSABI_IRIX ELFOSABI_FREEBSD
+            ELFOSABI_TRU64 ELFOSABI_MODESTO ELFOSABI_OPENBSD
+            ELFOSABI_ARM_AEABI ELFOSABI_ARM ELFOSABI_STANDALONE
+
+            ET_NONE ET_REL ET_EXEC ET_DYN ET_CORE
+
+            EM_NONE EM_SPARC EM_386 EM_MIPS EM_PPC EM_PPC64 EM_ARM EM_SH
+            EM_SPARCV9 EM_IA_64 EM_X86_64
+
             elf-header-len elf-header-shoff-offset
             write-elf-header
 
@@ -169,9 +179,26 @@
 
 (define EV_CURRENT      1)              ; Current version
 
+(define ELFOSABI_NONE		0)	; UNIX System V ABI */
+(define ELFOSABI_HPUX		1)	; HP-UX
+(define ELFOSABI_NETBSD		2)	; NetBSD.
+(define ELFOSABI_GNU		3)	; Object uses GNU ELF extensions.
+(define ELFOSABI_SOLARIS	6)	; Sun Solaris.
+(define ELFOSABI_AIX		7)	; IBM AIX.
+(define ELFOSABI_IRIX		8)	; SGI Irix.
+(define ELFOSABI_FREEBSD	9)	; FreeBSD.
+(define ELFOSABI_TRU64		10)	; Compaq TRU64 UNIX.
+(define ELFOSABI_MODESTO	11)	; Novell Modesto.
+(define ELFOSABI_OPENBSD	12)	; OpenBSD.
+(define ELFOSABI_ARM_AEABI	64)	; ARM EABI
+(define ELFOSABI_ARM		97)	; ARM
 (define ELFOSABI_STANDALONE     255)    ; Standalone (embedded) application
 
-(define ET_DYN          3)              ; Shared object file
+(define ET_NONE		0)		; No file type
+(define ET_REL		1)		; Relocatable file
+(define ET_EXEC		2)		; Executable file
+(define ET_DYN		3)		; Shared object file
+(define ET_CORE		4)		; Core file
 
 ;;
 ;; Machine types

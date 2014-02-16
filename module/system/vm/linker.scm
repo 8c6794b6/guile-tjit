@@ -1,6 +1,6 @@
 ;;; Guile ELF linker
 
-;; Copyright (C)  2011, 2012, 2013 Free Software Foundation, Inc.
+;; Copyright (C)  2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -108,13 +108,13 @@
 ;; to the address.
 ;;
 ;; Two types.  Abs32/1 and Abs64/1 are absolute offsets in bytes.
-;; Rel32/4 is a relative signed offset in 32-bit units.  Either can have
-;; an arbitrary addend as well.
+;; Rel32/1 and Rel32/1 are relative signed offsets, in 8-bit or 32-bit
+;; units, respectively.  Either can have an arbitrary addend as well.
 ;;
 (define-record-type <linker-reloc>
   (make-linker-reloc type loc addend symbol)
   linker-reloc?
-  (type linker-reloc-type) ;; rel32/4, abs32/1, abs64/1
+  (type linker-reloc-type) ;; rel32/1, rel32/4, abs32/1, abs64/1
   (loc linker-reloc-loc)
   (addend linker-reloc-addend)
   (symbol linker-reloc-symbol))
@@ -402,6 +402,11 @@ symbol, as present in @var{symtab}."
             (bytevector-s32-set! bv offset
                                  (+ (/ diff 4) (linker-reloc-addend reloc))
                                  endianness)))
+         ((rel32/1)
+          (let ((diff (- target offset)))
+            (bytevector-s32-set! bv offset
+                                 (+ diff (linker-reloc-addend reloc))
+                                 endianness)))
          ((abs32/1)
           (bytevector-u32-set! bv offset target endianness))
          ((abs64/1)
@@ -447,7 +452,7 @@ section index."
                    (elf-section-index section))))
           objects))
 
-(define (add-elf-objects objects endianness word-size)
+(define (add-elf-objects objects endianness word-size abi type machine-type)
   "Given the list of linker objects supplied by the user, add linker
 objects corresponding to parts of the ELF file: the null object, the ELF
 header, and the section table.
@@ -485,6 +490,7 @@ list of objects, augmented with objects for the special ELF sections."
   ;;
   (define (make-header phnum index shoff-label)
     (let* ((header (make-elf #:byte-order endianness #:word-size word-size
+                             #:abi abi #:type type #:machine-type machine-type
                              #:phoff phoff #:phnum phnum #:phentsize phentsize
                              #:shoff 0 #:shnum shnum #:shentsize shentsize
                              #:shstrndx (or (find-shstrndx objects) SHN_UNDEF)))
@@ -574,7 +580,8 @@ list of objects, augmented with objects for the special ELF sections."
 
     (values write-segment-header! objects)))
 
-(define (allocate-elf objects page-aligned? endianness word-size)
+(define (allocate-elf objects page-aligned? endianness word-size
+                      abi type machine-type)
   "Lay out @var{objects} into an ELF image, computing the size of the
 file, the positions of the objects, and the global symbol table.
 
@@ -588,7 +595,7 @@ sections default to 8-byte alignment.
 Returns three values: the total image size, a list of objects with
 relocated headers, and the global symbol table."
   (receive (write-segment-header! objects)
-      (add-elf-objects objects endianness word-size)
+      (add-elf-objects objects endianness word-size abi type machine-type)
     (let lp ((seglists (collate-objects-into-segments objects))
              (objects '())
              (phidx 0)
@@ -646,7 +653,10 @@ section.)"
 (define* (link-elf objects #:key
                    (page-aligned? #t)
                    (endianness (target-endianness))
-                   (word-size (target-word-size)))
+                   (word-size (target-word-size))
+                   (abi ELFOSABI_STANDALONE)
+                   (type ET_DYN)
+                   (machine-type EM_NONE))
   "Create an ELF image from the linker objects, @var{objects}.
 
 If @var{page-aligned?} is true, read-only and writable data are
@@ -659,7 +669,8 @@ alignment.
 Returns a bytevector."
   (check-section-numbers objects)
   (receive (size objects symtab)
-      (allocate-elf objects page-aligned? endianness word-size)
+      (allocate-elf objects page-aligned? endianness word-size
+                    abi type machine-type)
     (let ((bv (make-bytevector size 0)))
       (for-each
        (lambda (object)
