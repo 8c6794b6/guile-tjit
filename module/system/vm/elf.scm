@@ -93,7 +93,7 @@
             elf-symbol-info elf-symbol-other elf-symbol-shndx
             elf-symbol-binding elf-symbol-type elf-symbol-visibility
 
-            elf-symbol-len write-elf-symbol
+            elf-symbol-len elf-symbol-value-offset write-elf-symbol
 
             SHN_UNDEF
 
@@ -874,6 +874,12 @@
   (case word-size
     ((4) 16)
     ((8) 24)
+    (else (error "bad word size" word-size))))
+
+(define (elf-symbol-value-offset word-size)
+  (case word-size
+    ((4) 4)
+    ((8) 8)
     (else (error "bad word size" word-size))))
 
 (define (parse-elf32-symbol bv offset stroff byte-order)
