@@ -1,6 +1,6 @@
 ;;; Tree-IL partial evaluator
 
-;; Copyright (C) 2011, 2012, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -1352,6 +1352,15 @@ top-level bindings from ENV and return the resulting expression."
                    (rest (if rest (list rest) '()))
                    (nopt (length opt))
                    (key (source-expression proc)))
+              (define (singly-referenced-lambda? orig-proc)
+                (match orig-proc
+                  (($ <lambda>) #t)
+                  (($ <lexical-ref> _ _ sym)
+                   (and (not (assigned-lexical? sym))
+                        (= (lexical-refcount sym) 1)
+                        (singly-referenced-lambda?
+                         (operand-source (lookup sym)))))
+                  (_ #f)))
               (define (inlined-call)
                 (let ((req-vals (list-head orig-args nreq))
                       (opt-vals (let lp ((args (drop orig-args nreq))
@@ -1396,7 +1405,7 @@ top-level bindings from ENV and return the resulting expression."
                 ;; An error, or effecting arguments.
                 (make-call src (for-call orig-proc) (map for-value orig-args)))
                ((or (and=> (find-counter key counter) counter-recursive?)
-                    (lambda? orig-proc))
+                    (singly-referenced-lambda? orig-proc))
                 ;; A recursive call, or a lambda in the operator
                 ;; position of the source expression.  Process again in
                 ;; tail context.

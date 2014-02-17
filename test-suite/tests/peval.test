@@ -1,7 +1,7 @@
 ;;;; tree-il.test --- test suite for compiling tree-il   -*- scheme -*-
 ;;;; Andy Wingo <wingo@pobox.com> --- May 2009
 ;;;;
-;;;; 	Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -797,23 +797,16 @@
    ;; "b c a" is the current order that we get with unordered letrec,
    ;; but it's not important to this test, so if it changes, just adapt
    ;; the test.
-   (letrec (b c a) (_ _ _)
-     ((lambda _
-        (lambda-case
-         ((() #f #f #f () ())
-          (call (lexical a _)))))
-      (lambda _
-        (lambda-case
-         (((x) #f #f #f () (_))
-          (lexical x _))))
-      (lambda _
-        (lambda-case
-         ((() #f #f #f () ())
-          (call (lexical a _))))))
-     (let (d)
-       (_)
-       ((call (toplevel foo) (lexical b _)))
-       (call (lexical c _) (lexical d _)))))
+   (letrec (b a) (_ _)
+           ((lambda _
+              (lambda-case
+               ((() #f #f #f () ())
+                (call (lexical a _)))))
+            (lambda _
+              (lambda-case
+               ((() #f #f #f () ())
+                (call (lexical a _))))))
+     (call (toplevel foo) (lexical b _))))
 
   (pass-if-peval
    ;; In this case, we can prune the bindings.  `a' ends up being copied
