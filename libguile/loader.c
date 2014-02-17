@@ -392,7 +392,11 @@ load_thunk_from_memory (char *data, size_t len, int is_read_only)
           if (dynamic_segment >= 0)
             ABORT ("expected only one PT_DYNAMIC segment");
           dynamic_segment = i;
+          continue;
         }
+
+      if (ph[i].p_type != PT_LOAD)
+        ABORT ("unknown segment type");
 
       if (i == 0)
         {
@@ -421,6 +425,8 @@ load_thunk_from_memory (char *data, size_t len, int is_read_only)
 #ifdef HAVE_SYS_MMAN_H
       for (i = 0; i < n; i++)
         {
+          if (ph[i].p_type != PT_LOAD)
+            continue;
           if (ph[i].p_flags == PF_R)
             continue;
           if (ph[i].p_align != 4096)

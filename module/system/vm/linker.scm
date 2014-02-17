@@ -209,31 +209,29 @@ The car is the @code{PT_} segment type, or @code{#f} if the section
 doesn't need to be present in a loadable segment.  The cdr is a bitfield
 of associated @code{PF_} permissions."
   (let ((flags (elf-section-flags section)))
-    (cons (cond
-           ((= (elf-section-type section) SHT_DYNAMIC) PT_DYNAMIC)
-           ;; Sections without SHF_ALLOC don't go in segments.
-           ((zero? flags) #f)
-           (else PT_LOAD))
-          (logior (if (zero? (logand SHF_ALLOC flags))
-                      0
-                      PF_R)
-                  (if (zero? (logand SHF_EXECINSTR flags))
-                      0
-                      PF_X)
-                  (if (zero? (logand SHF_WRITE flags))
-                      0
-                      PF_W)))))
+    ;; Sections without SHF_ALLOC don't go in segments.
+    (cons (if (zero? flags) #f PT_LOAD)
+          (logior (if (logtest SHF_ALLOC flags) PF_R 0)
+                  (if (logtest SHF_EXECINSTR flags) PF_X 0)
+                  (if (logtest SHF_WRITE flags) PF_W 0)))))
 
 (define (count-segments objects)
   "Return the total number of segments needed to represent the linker
 objects in @var{objects}, including the segment needed for the ELF
 header and segment table."
+  (define (adjoin x xs)
+    (if (member x xs) xs (cons x xs)))
   (length
    (fold-values (lambda (object kinds)
                   (let ((kind (segment-kind (linker-object-section object))))
-                    (if (and (car kind) (not (member kind kinds)))
-                        (cons kind kinds)
-                        kinds)))
+                    (if (= (elf-section-type (linker-object-section object))
+                           SHT_DYNAMIC)
+                        ;; The dynamic section is part of a loadable
+                        ;; segment, and also gets the additional
+                        ;; PT_DYNAMIC segment header.
+                        (cons (cons PT_DYNAMIC (cdr kind))
+                              (adjoin kind kinds))
+                        (if (car kind) (adjoin kind kinds) kinds))))
                 objects
                 ;; We know there will be at least one segment,
                 ;; containing at least the header and segment table.
@@ -375,7 +373,7 @@ the segment table using @code{write-segment-header!}."
       (when type
         (write-segment-header!
          (make-elf-segment #:index phidx #:type type
-                           #:offset addr #:vaddr addr
+                           #:offset addr #:vaddr addr #:paddr addr
                            #:filesz (- endaddr addr) #:memsz (- endaddr addr)
                            #:flags flags #:align alignment)))
       (values endaddr
@@ -580,6 +578,27 @@ list of objects, augmented with objects for the special ELF sections."
 
     (values write-segment-header! objects)))
 
+(define (record-special-segments write-segment-header! phidx all-objects)
+  (let lp ((phidx phidx) (objects all-objects))
+    (match objects
+      (() #t)
+      ((object . objects)
+       (let ((section (linker-object-section object)))
+         (cond
+          ((eqv? (elf-section-type section) SHT_DYNAMIC)
+           (let ((addr (elf-section-offset section))
+                 (size (elf-section-size section))
+                 (align (elf-section-addralign section))
+                 (flags (cdr (segment-kind section))))
+             (write-segment-header!
+              (make-elf-segment #:index phidx #:type PT_DYNAMIC
+                                #:offset addr #:vaddr addr #:paddr addr
+                                #:filesz size #:memsz size
+                                #:flags flags #:align align))
+             (lp (1+ phidx) objects)))
+          (else
+           (lp phidx objects))))))))
+
 (define (allocate-elf objects page-aligned? endianness word-size
                       abi type machine-type)
   "Lay out @var{objects} into an ELF image, computing the size of the
@@ -623,6 +642,7 @@ relocated headers, and the global symbol table."
                symtab
                flags)))
         (()
+         (record-special-segments write-segment-header! phidx objects)
          (values addr
                  (reverse objects)
                  symtab))))))
