@@ -706,10 +706,9 @@ information is unavailable."
 ;; shared fluid. Hide the helpers in a lexical contour.
 
 (define with-throw-handler #f)
-(let ()
-  (define %exception-handler (make-fluid #f))
+(let ((%eh (module-ref (current-module) '%exception-handler)))
   (define (make-exception-handler catch-key prompt-tag pre-unwind)
-    (vector (fluid-ref %exception-handler) catch-key prompt-tag pre-unwind))
+    (vector (fluid-ref %eh) catch-key prompt-tag pre-unwind))
   (define (exception-handler-prev handler) (vector-ref handler 0))
   (define (exception-handler-catch-key handler) (vector-ref handler 1))
   (define (exception-handler-prompt-tag handler) (vector-ref handler 2))
@@ -762,7 +761,7 @@ If there is no handler at all, Guile prints an error and then exits."
     (unless (symbol? key)
       (throw 'wrong-type-arg "throw" "Wrong type argument in position ~a: ~a"
              (list 1 key) (list key)))
-    (dispatch-exception (fluid-ref %exception-handler) key args))
+    (dispatch-exception (fluid-ref %eh) key args))
 
   (define* (catch k thunk handler #:optional pre-unwind-handler)
     "Invoke @var{thunk} in the dynamic context of @var{handler} for
@@ -806,8 +805,7 @@ non-locally, that exit determines the continuation."
       (call-with-prompt
        tag
        (lambda ()
-         (with-fluid* %exception-handler
-             (make-exception-handler k tag pre-unwind-handler)
+         (with-fluid* %eh (make-exception-handler k tag pre-unwind-handler)
            thunk))
        (lambda (cont k . args)
          (apply handler k args)))))
@@ -819,10 +817,10 @@ for key @var{k}, then invoke @var{thunk}."
         (scm-error 'wrong-type-arg "with-throw-handler"
                    "Wrong type argument in position ~a: ~a"
                    (list 1 k) (list k)))
-    (with-fluid* %exception-handler
-        (make-exception-handler k #f pre-unwind-handler)
+    (with-fluid* %eh (make-exception-handler k #f pre-unwind-handler)
       thunk))
 
+  (hashq-remove! (%get-pre-modules-obarray) '%exception-handler)
   (define! 'catch catch)
   (define! 'with-throw-handler with-throw-handler)
   (define! 'throw throw))

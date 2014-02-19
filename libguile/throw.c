@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2003, 2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2003, 2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -56,6 +56,8 @@
 
 
 static SCM catch_var, throw_var, with_throw_handler_var;
+
+static SCM exception_handler_fluid;
 
 SCM
 scm_catch (SCM key, SCM thunk, SCM handler)
@@ -545,6 +547,11 @@ scm_init_throw ()
 {
   tc16_catch_closure = scm_make_smob_type ("catch-closure", 0);
   scm_set_smob_apply (tc16_catch_closure, apply_catch_closure, 0, 0, 1);
+
+  exception_handler_fluid = scm_make_fluid_with_default (SCM_BOOL_F);
+  /* This binding is later removed when the Scheme definitions of catch,
+     throw, and with-throw-handler are created in boot-9.scm.  */
+  scm_c_define ("%exception-handler", exception_handler_fluid);
 
   catch_var = scm_c_define ("catch", scm_c_make_gsubr ("catch", 3, 1, 0,
                                                        pre_init_catch));
