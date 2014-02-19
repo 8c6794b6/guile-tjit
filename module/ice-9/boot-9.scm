@@ -43,159 +43,6 @@
 
 
 
-;;; {Error handling}
-;;;
-
-;; Define delimited continuation operators, and implement catch and throw in
-;; terms of them.
-
-(define make-prompt-tag
-  (lambda* (#:optional (stem "prompt"))
-    ;; The only property that prompt tags need have is uniqueness in the
-    ;; sense of eq?.  A one-element list will serve nicely.
-    (list stem)))
-
-(define default-prompt-tag
-  ;; Redefined later to be a parameter.
-  (let ((%default-prompt-tag (make-prompt-tag)))
-    (lambda ()
-      %default-prompt-tag)))
-
-(define (call-with-prompt tag thunk handler)
-  ((@@ primitive call-with-prompt) tag thunk handler))
-(define (abort-to-prompt tag . args)
-  (abort-to-prompt* tag args))
-
-(define (with-fluid* fluid val thunk)
-  "Set @var{fluid} to @var{value} temporarily, and call @var{thunk}.
-@var{thunk} must be a procedure of no arguments."
-  ((@@ primitive push-fluid) fluid val)
-  (call-with-values thunk
-    (lambda vals
-      ((@@ primitive pop-fluid))
-      (apply values vals))))
-
-;; Define catch and with-throw-handler, using some common helper routines and a
-;; shared fluid. Hide the helpers in a lexical contour.
-
-(define with-throw-handler #f)
-(let ()
-  (define (default-exception-handler k . args)
-    (cond
-     ((eq? k 'quit)
-      (primitive-exit (cond
-                       ((not (pair? args)) 0)
-                       ((integer? (car args)) (car args))
-                       ((not (car args)) 1)
-                       (else 0))))
-     (else
-      (format (current-error-port) "guile: uncaught throw to ~a: ~a\n" k args)
-      (primitive-exit 1))))
-
-  (define %running-exception-handlers (make-fluid '()))
-  (define %exception-handler (make-fluid default-exception-handler))
-
-  (define (default-throw-handler prompt-tag catch-k)
-    (let ((prev (fluid-ref %exception-handler)))
-      (lambda (thrown-k . args)
-        (if (or (eq? thrown-k catch-k) (eqv? catch-k #t))
-            (apply abort-to-prompt prompt-tag thrown-k args)
-            (apply prev thrown-k args)))))
-
-  (define (custom-throw-handler prompt-tag catch-k pre)
-    (let ((prev (fluid-ref %exception-handler)))
-      (lambda (thrown-k . args)
-        (if (or (eq? thrown-k catch-k) (eqv? catch-k #t))
-            (let ((running (fluid-ref %running-exception-handlers)))
-              (with-fluid* %running-exception-handlers (cons pre running)
-                (lambda ()
-                  (if (not (memq pre running))
-                      (apply pre thrown-k args))
-                  ;; fall through
-                  (if prompt-tag
-                      (apply abort-to-prompt prompt-tag thrown-k args)
-                      (apply prev thrown-k args)))))
-            (apply prev thrown-k args)))))
-
-  (set! catch
-        (lambda* (k thunk handler #:optional pre-unwind-handler)
-          "Invoke @var{thunk} in the dynamic context of @var{handler} for
-exceptions matching @var{key}.  If thunk throws to the symbol
-@var{key}, then @var{handler} is invoked this way:
-@lisp
- (handler key args ...)
-@end lisp
-
-@var{key} is a symbol or @code{#t}.
-
-@var{thunk} takes no arguments.  If @var{thunk} returns
-normally, that is the return value of @code{catch}.
-
-Handler is invoked outside the scope of its own @code{catch}.
-If @var{handler} again throws to the same key, a new handler
-from further up the call chain is invoked.
-
-If the key is @code{#t}, then a throw to @emph{any} symbol will
-match this call to @code{catch}.
-
-If a @var{pre-unwind-handler} is given and @var{thunk} throws
-an exception that matches @var{key}, Guile calls the
-@var{pre-unwind-handler} before unwinding the dynamic state and
-invoking the main @var{handler}.  @var{pre-unwind-handler} should
-be a procedure with the same signature as @var{handler}, that
-is @code{(lambda (key . args))}.  It is typically used to save
-the stack at the point where the exception occurred, but can also
-query other parts of the dynamic state at that point, such as
-fluid values.
-
-A @var{pre-unwind-handler} can exit either normally or non-locally.
-If it exits normally, Guile unwinds the stack and dynamic context
-and then calls the normal (third argument) handler.  If it exits
-non-locally, that exit determines the continuation."
-          (if (not (or (symbol? k) (eqv? k #t)))
-              (scm-error 'wrong-type-arg "catch"
-                         "Wrong type argument in position ~a: ~a"
-                         (list 1 k) (list k)))
-          (let ((tag (make-prompt-tag "catch")))
-            (call-with-prompt
-             tag
-             (lambda ()
-               (with-fluid* %exception-handler
-                   (if pre-unwind-handler
-                       (custom-throw-handler tag k pre-unwind-handler)
-                       (default-throw-handler tag k))
-                 thunk))
-             (lambda (cont k . args)
-               (apply handler k args))))))
-
-  (set! with-throw-handler
-        (lambda (k thunk pre-unwind-handler)
-          "Add @var{handler} to the dynamic context as a throw handler
-for key @var{k}, then invoke @var{thunk}."
-          (if (not (or (symbol? k) (eqv? k #t)))
-              (scm-error 'wrong-type-arg "with-throw-handler"
-                         "Wrong type argument in position ~a: ~a"
-                         (list 1 k) (list k)))
-          (with-fluid* %exception-handler
-              (custom-throw-handler #f k pre-unwind-handler)
-            thunk)))
-
-  (set! throw
-        (lambda (key . args)
-          "Invoke the catch form matching @var{key}, passing @var{args} to the
-@var{handler}.
-
-@var{key} is a symbol. It will match catches of the same symbol or of @code{#t}.
-
-If there is no handler at all, Guile prints an error and then exits."
-          (if (not (symbol? key))
-              ((fluid-ref %exception-handler) 'wrong-type-arg "throw"
-               "Wrong type argument in position ~a: ~a" (list 1 key) (list key))
-              (apply (fluid-ref %exception-handler) key args)))))
-
-
-
-
 ;;; {Language primitives}
 ;;;
 
@@ -293,6 +140,15 @@ a-cont
     (lambda vals
       ((@@ primitive unwind))
       (out)
+      (apply values vals))))
+
+(define (with-fluid* fluid val thunk)
+  "Set @var{fluid} to @var{value} temporarily, and call @var{thunk}.
+@var{thunk} must be a procedure of no arguments."
+  ((@@ primitive push-fluid) fluid val)
+  (call-with-values thunk
+    (lambda vals
+      ((@@ primitive pop-fluid))
       (apply values vals))))
 
 
@@ -819,6 +675,153 @@ information is unavailable."
 (define-syntax-rule (define-once sym val)
   (define sym
     (if (module-locally-bound? (current-module) 'sym) sym val)))
+
+
+
+
+;;; {Error handling}
+;;;
+
+;; Define delimited continuation operators, and implement catch and throw in
+;; terms of them.
+
+(define make-prompt-tag
+  (lambda* (#:optional (stem "prompt"))
+    ;; The only property that prompt tags need have is uniqueness in the
+    ;; sense of eq?.  A one-element list will serve nicely.
+    (list stem)))
+
+(define default-prompt-tag
+  ;; Redefined later to be a parameter.
+  (let ((%default-prompt-tag (make-prompt-tag)))
+    (lambda ()
+      %default-prompt-tag)))
+
+(define (call-with-prompt tag thunk handler)
+  ((@@ primitive call-with-prompt) tag thunk handler))
+(define (abort-to-prompt tag . args)
+  (abort-to-prompt* tag args))
+
+;; Define catch and with-throw-handler, using some common helper routines and a
+;; shared fluid. Hide the helpers in a lexical contour.
+
+(define with-throw-handler #f)
+(let ()
+  (define (default-exception-handler k . args)
+    (cond
+     ((eq? k 'quit)
+      (primitive-exit (cond
+                       ((not (pair? args)) 0)
+                       ((integer? (car args)) (car args))
+                       ((not (car args)) 1)
+                       (else 0))))
+     (else
+      (format (current-error-port) "guile: uncaught throw to ~a: ~a\n" k args)
+      (primitive-exit 1))))
+
+  (define %running-exception-handlers (make-fluid '()))
+  (define %exception-handler (make-fluid default-exception-handler))
+
+  (define (default-throw-handler prompt-tag catch-k)
+    (let ((prev (fluid-ref %exception-handler)))
+      (lambda (thrown-k . args)
+        (if (or (eq? thrown-k catch-k) (eqv? catch-k #t))
+            (apply abort-to-prompt prompt-tag thrown-k args)
+            (apply prev thrown-k args)))))
+
+  (define (custom-throw-handler prompt-tag catch-k pre)
+    (let ((prev (fluid-ref %exception-handler)))
+      (lambda (thrown-k . args)
+        (if (or (eq? thrown-k catch-k) (eqv? catch-k #t))
+            (let ((running (fluid-ref %running-exception-handlers)))
+              (with-fluid* %running-exception-handlers (cons pre running)
+                (lambda ()
+                  (if (not (memq pre running))
+                      (apply pre thrown-k args))
+                  ;; fall through
+                  (if prompt-tag
+                      (apply abort-to-prompt prompt-tag thrown-k args)
+                      (apply prev thrown-k args)))))
+            (apply prev thrown-k args)))))
+
+  (set! catch
+        (lambda* (k thunk handler #:optional pre-unwind-handler)
+          "Invoke @var{thunk} in the dynamic context of @var{handler} for
+exceptions matching @var{key}.  If thunk throws to the symbol
+@var{key}, then @var{handler} is invoked this way:
+@lisp
+ (handler key args ...)
+@end lisp
+
+@var{key} is a symbol or @code{#t}.
+
+@var{thunk} takes no arguments.  If @var{thunk} returns
+normally, that is the return value of @code{catch}.
+
+Handler is invoked outside the scope of its own @code{catch}.
+If @var{handler} again throws to the same key, a new handler
+from further up the call chain is invoked.
+
+If the key is @code{#t}, then a throw to @emph{any} symbol will
+match this call to @code{catch}.
+
+If a @var{pre-unwind-handler} is given and @var{thunk} throws
+an exception that matches @var{key}, Guile calls the
+@var{pre-unwind-handler} before unwinding the dynamic state and
+invoking the main @var{handler}.  @var{pre-unwind-handler} should
+be a procedure with the same signature as @var{handler}, that
+is @code{(lambda (key . args))}.  It is typically used to save
+the stack at the point where the exception occurred, but can also
+query other parts of the dynamic state at that point, such as
+fluid values.
+
+A @var{pre-unwind-handler} can exit either normally or non-locally.
+If it exits normally, Guile unwinds the stack and dynamic context
+and then calls the normal (third argument) handler.  If it exits
+non-locally, that exit determines the continuation."
+          (if (not (or (symbol? k) (eqv? k #t)))
+              (scm-error 'wrong-type-arg "catch"
+                         "Wrong type argument in position ~a: ~a"
+                         (list 1 k) (list k)))
+          (let ((tag (make-prompt-tag "catch")))
+            (call-with-prompt
+             tag
+             (lambda ()
+               (with-fluid* %exception-handler
+                   (if pre-unwind-handler
+                       (custom-throw-handler tag k pre-unwind-handler)
+                       (default-throw-handler tag k))
+                 thunk))
+             (lambda (cont k . args)
+               (apply handler k args))))))
+
+  (set! with-throw-handler
+        (lambda (k thunk pre-unwind-handler)
+          "Add @var{handler} to the dynamic context as a throw handler
+for key @var{k}, then invoke @var{thunk}."
+          (if (not (or (symbol? k) (eqv? k #t)))
+              (scm-error 'wrong-type-arg "with-throw-handler"
+                         "Wrong type argument in position ~a: ~a"
+                         (list 1 k) (list k)))
+          (with-fluid* %exception-handler
+              (custom-throw-handler #f k pre-unwind-handler)
+            thunk)))
+
+  (set! throw
+        (lambda (key . args)
+          "Invoke the catch form matching @var{key}, passing @var{args} to the
+@var{handler}.
+
+@var{key} is a symbol. It will match catches of the same symbol or of @code{#t}.
+
+If there is no handler at all, Guile prints an error and then exits."
+          (if (not (symbol? key))
+              ((fluid-ref %exception-handler) 'wrong-type-arg "throw"
+               "Wrong type argument in position ~a: ~a" (list 1 key) (list key))
+              (apply (fluid-ref %exception-handler) key args)))))
+
+
+
 
 ;;; The real versions of `map' and `for-each', with cycle detection, and
 ;;; that use reverse! instead of recursion in the case of `map'.
