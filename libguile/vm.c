@@ -768,12 +768,16 @@ allocate_stack (size_t size)
   ret = mmap (NULL, size, PROT_READ | PROT_WRITE,
               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (ret == MAP_FAILED)
-    SCM_SYSERROR;
+    ret = NULL;
 #else
   ret = malloc (size);
-  if (!ret)
-    SCM_SYSERROR;
 #endif
+
+  if (!ret)
+    {
+      perror ("allocate_stack failed");
+      return NULL;
+    }
 
   return (SCM *) ret;
 }
@@ -806,13 +810,16 @@ expand_stack (SCM *old_stack, size_t old_size, size_t new_size)
 
   new_stack = mremap (old_stack, old_size, new_size, MREMAP_MAYMOVE);
   if (new_stack == MAP_FAILED)
-    SCM_SYSERROR;
+    return NULL;
 
   return (SCM *) new_stack;
 #else
   SCM *new_stack;
 
   new_stack = allocate_stack (new_size);
+  if (!new_stack)
+    return NULL;
+
   memcpy (new_stack, old_stack, old_size * sizeof (SCM));
   free_stack (old_stack, old_size);
 
@@ -832,6 +839,11 @@ make_vm (void)
 
   vp->stack_size = initial_stack_size;
   vp->stack_base = allocate_stack (vp->stack_size);
+  if (!vp->stack_base)
+    /* As in expand_stack, we don't have any way to throw an exception
+       if we can't allocate one measely page -- there's no stack to
+       handle it.  For now, abort.  */
+    abort ();
   vp->stack_limit = vp->stack_base + vp->stack_size;
   vp->max_stack_size = default_max_stack_size;
   vp->ip    	  = NULL;
@@ -864,7 +876,16 @@ return_unused_stack_to_os (struct scm_vm *vp)
   /* Return these pages to the OS.  The next time they are paged in,
      they will be zeroed.  */
   if (start < end)
-    madvise ((void *) start, end - start, MADV_DONTNEED);
+    {
+      int ret = 0;
+
+      do
+        ret = madvise ((void *) start, end - start, MADV_DONTNEED);
+      while (ret && errno == -EAGAIN);
+
+      if (ret)
+        perror ("madvise failed");
+    }
 
   vp->sp_max_since_gc = vp->sp;
 #endif
@@ -986,7 +1007,7 @@ vm_expand_stack (struct scm_vm *vp)
      stack marker can trace the stack.  */
   if (stack_size > vp->stack_size)
     {
-      SCM *old_stack;
+      SCM *old_stack, *new_stack;
       size_t new_size;
       scm_t_ptrdiff reloc;
 
@@ -994,7 +1015,17 @@ vm_expand_stack (struct scm_vm *vp)
       while (new_size < stack_size)
         new_size *= 2;
       old_stack = vp->stack_base;
-      vp->stack_base = expand_stack (old_stack, vp->stack_size, new_size);
+      new_stack = expand_stack (vp->stack_base, vp->stack_size, new_size);
+      if (!new_stack)
+        /* It would be nice to throw an exception here, but that is
+           extraordinarily hard.  Exceptionally hard, you might say!
+           "throw" is implemented in Scheme, and there may be arbitrary
+           pre-unwind handlers that push on more frames.  We will
+           endeavor to do so in the future, but for now we just
+           abort.  */
+        abort ();
+
+      vp->stack_base = new_stack;
       vp->stack_size = new_size;
       vp->stack_limit = vp->stack_base + new_size;
       reloc = vp->stack_base - old_stack;
