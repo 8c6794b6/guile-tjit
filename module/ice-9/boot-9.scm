@@ -707,46 +707,65 @@ information is unavailable."
 
 (define with-throw-handler #f)
 (let ()
-  (define (default-exception-handler k . args)
-    (cond
-     ((eq? k 'quit)
-      (primitive-exit (cond
-                       ((not (pair? args)) 0)
-                       ((integer? (car args)) (car args))
-                       ((not (car args)) 1)
-                       (else 0))))
-     (else
-      (format (current-error-port) "guile: uncaught throw to ~a: ~a\n" k args)
-      (primitive-exit 1))))
+  (define %exception-handler (make-fluid #f))
+  (define (make-exception-handler catch-key prompt-tag pre-unwind)
+    (vector (fluid-ref %exception-handler) catch-key prompt-tag pre-unwind))
+  (define (exception-handler-prev handler) (vector-ref handler 0))
+  (define (exception-handler-catch-key handler) (vector-ref handler 1))
+  (define (exception-handler-prompt-tag handler) (vector-ref handler 2))
+  (define (exception-handler-pre-unwind handler) (vector-ref handler 3))
 
-  (define %running-exception-handlers (make-fluid '()))
-  (define %exception-handler (make-fluid default-exception-handler))
+  (define %running-pre-unwind (make-fluid '()))
 
-  (define (default-throw-handler prompt-tag catch-k)
-    (let ((prev (fluid-ref %exception-handler)))
-      (lambda (thrown-k . args)
-        (if (or (eq? thrown-k catch-k) (eqv? catch-k #t))
-            (apply abort-to-prompt prompt-tag thrown-k args)
-            (apply prev thrown-k args)))))
+  (define (dispatch-exception handler key args)
+    (unless handler
+      (when (eq? key 'quit)
+        (primitive-exit (cond
+                         ((not (pair? args)) 0)
+                         ((integer? (car args)) (car args))
+                         ((not (car args)) 1)
+                         (else 0))))
+      (format (current-error-port) "guile: uncaught throw to ~a: ~a\n" key args)
+      (primitive-exit 1))
 
-  (define (custom-throw-handler prompt-tag catch-k pre)
-    (let ((prev (fluid-ref %exception-handler)))
-      (lambda (thrown-k . args)
-        (if (or (eq? thrown-k catch-k) (eqv? catch-k #t))
-            (let ((running (fluid-ref %running-exception-handlers)))
-              (with-fluid* %running-exception-handlers (cons pre running)
-                (lambda ()
-                  (if (not (memq pre running))
-                      (apply pre thrown-k args))
-                  ;; fall through
-                  (if prompt-tag
-                      (apply abort-to-prompt prompt-tag thrown-k args)
-                      (apply prev thrown-k args)))))
-            (apply prev thrown-k args)))))
+    (let ((catch-key (exception-handler-catch-key handler))
+          (prev (exception-handler-prev handler)))
+      (if (or (eqv? catch-key #t) (eq? catch-key key))
+          (let ((prompt-tag (exception-handler-prompt-tag handler))
+                (pre-unwind (exception-handler-pre-unwind handler)))
+            (if pre-unwind
+                ;; Instead of using a "running" set, it would be a lot
+                ;; cleaner semantically to roll back the exception
+                ;; handler binding to the one that was in place when the
+                ;; pre-unwind handler was installed, and keep it like
+                ;; that for the rest of the dispatch.  Unfortunately
+                ;; that is incompatible with existing semantics.  We'll
+                ;; see if we can change that later on.
+                (let ((running (fluid-ref %running-pre-unwind)))
+                  (with-fluid* %running-pre-unwind (cons handler running)
+                    (lambda ()
+                      (unless (memq handler running)
+                        (apply pre-unwind key args))
+                      (if prompt-tag
+                          (apply abort-to-prompt prompt-tag key args)
+                          (dispatch-exception prev key args)))))
+                (apply abort-to-prompt prompt-tag key args)))
+          (dispatch-exception prev key args))))
 
-  (set! catch
-        (lambda* (k thunk handler #:optional pre-unwind-handler)
-          "Invoke @var{thunk} in the dynamic context of @var{handler} for
+  (define (throw key . args)
+    "Invoke the catch form matching @var{key}, passing @var{args} to the
+@var{handler}.
+
+@var{key} is a symbol. It will match catches of the same symbol or of @code{#t}.
+
+If there is no handler at all, Guile prints an error and then exits."
+    (unless (symbol? key)
+      (throw 'wrong-type-arg "throw" "Wrong type argument in position ~a: ~a"
+             (list 1 key) (list key)))
+    (dispatch-exception (fluid-ref %exception-handler) key args))
+
+  (define* (catch k thunk handler #:optional pre-unwind-handler)
+    "Invoke @var{thunk} in the dynamic context of @var{handler} for
 exceptions matching @var{key}.  If thunk throws to the symbol
 @var{key}, then @var{handler} is invoked this way:
 @lisp
@@ -779,46 +798,34 @@ A @var{pre-unwind-handler} can exit either normally or non-locally.
 If it exits normally, Guile unwinds the stack and dynamic context
 and then calls the normal (third argument) handler.  If it exits
 non-locally, that exit determines the continuation."
-          (if (not (or (symbol? k) (eqv? k #t)))
-              (scm-error 'wrong-type-arg "catch"
-                         "Wrong type argument in position ~a: ~a"
-                         (list 1 k) (list k)))
-          (let ((tag (make-prompt-tag "catch")))
-            (call-with-prompt
-             tag
-             (lambda ()
-               (with-fluid* %exception-handler
-                   (if pre-unwind-handler
-                       (custom-throw-handler tag k pre-unwind-handler)
-                       (default-throw-handler tag k))
-                 thunk))
-             (lambda (cont k . args)
-               (apply handler k args))))))
+    (if (not (or (symbol? k) (eqv? k #t)))
+        (scm-error 'wrong-type-arg "catch"
+                   "Wrong type argument in position ~a: ~a"
+                   (list 1 k) (list k)))
+    (let ((tag (make-prompt-tag "catch")))
+      (call-with-prompt
+       tag
+       (lambda ()
+         (with-fluid* %exception-handler
+             (make-exception-handler k tag pre-unwind-handler)
+           thunk))
+       (lambda (cont k . args)
+         (apply handler k args)))))
 
-  (set! with-throw-handler
-        (lambda (k thunk pre-unwind-handler)
-          "Add @var{handler} to the dynamic context as a throw handler
+  (define (with-throw-handler k thunk pre-unwind-handler)
+    "Add @var{handler} to the dynamic context as a throw handler
 for key @var{k}, then invoke @var{thunk}."
-          (if (not (or (symbol? k) (eqv? k #t)))
-              (scm-error 'wrong-type-arg "with-throw-handler"
-                         "Wrong type argument in position ~a: ~a"
-                         (list 1 k) (list k)))
-          (with-fluid* %exception-handler
-              (custom-throw-handler #f k pre-unwind-handler)
-            thunk)))
+    (if (not (or (symbol? k) (eqv? k #t)))
+        (scm-error 'wrong-type-arg "with-throw-handler"
+                   "Wrong type argument in position ~a: ~a"
+                   (list 1 k) (list k)))
+    (with-fluid* %exception-handler
+        (make-exception-handler k #f pre-unwind-handler)
+      thunk))
 
-  (set! throw
-        (lambda (key . args)
-          "Invoke the catch form matching @var{key}, passing @var{args} to the
-@var{handler}.
-
-@var{key} is a symbol. It will match catches of the same symbol or of @code{#t}.
-
-If there is no handler at all, Guile prints an error and then exits."
-          (if (not (symbol? key))
-              ((fluid-ref %exception-handler) 'wrong-type-arg "throw"
-               "Wrong type argument in position ~a: ~a" (list 1 key) (list key))
-              (apply (fluid-ref %exception-handler) key args)))))
+  (define! 'catch catch)
+  (define! 'with-throw-handler with-throw-handler)
+  (define! 'throw throw))
 
 
 
