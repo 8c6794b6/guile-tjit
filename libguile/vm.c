@@ -713,12 +713,15 @@ scm_i_call_with_current_continuation (SCM proc)
  * VM
  */
 
+/* The page size.  */
+static size_t page_size;
+
 /* Hard stack limit is 512M words: 2 gigabytes on 32-bit machines, 4 on
    64-bit machines.  */
 static const size_t hard_max_stack_size = 512 * 1024 * 1024;
 
-/* Initial stack size: 4 or 8 kB.  */
-static const size_t initial_stack_size = 1024;
+/* Initial stack size.  Defaults to one page.  */
+static size_t initial_stack_size;
 
 /* Default soft stack limit is 1M words (4 or 8 megabytes).  */
 static size_t default_max_stack_size = 1024 * 1024;
@@ -726,9 +729,15 @@ static size_t default_max_stack_size = 1024 * 1024;
 static void
 initialize_default_stack_size (void)
 {
-  int size = scm_getenv_int ("GUILE_STACK_SIZE", (int) default_max_stack_size);
-  if (size >= initial_stack_size && (size_t) size < ((size_t) -1) / sizeof(SCM))
-    default_max_stack_size = size;
+  initial_stack_size = page_size / sizeof (SCM);
+
+  {
+    int size;
+    size = scm_getenv_int ("GUILE_STACK_SIZE", (int) default_max_stack_size);
+    if (size >= initial_stack_size
+        && (size_t) size < ((size_t) -1) / sizeof(SCM))
+      default_max_stack_size = size;
+  }
 }
 
 #define VM_NAME vm_regular_engine
@@ -857,8 +866,6 @@ make_vm (void)
   return vp;
 }
 #undef FUNC_NAME
-
-static size_t page_size;
 
 static void
 return_unused_stack_to_os (struct scm_vm *vp)
