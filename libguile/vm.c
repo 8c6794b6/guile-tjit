@@ -108,17 +108,9 @@ scm_i_vm_cont_print (SCM x, SCM port, scm_print_state *pstate)
   scm_puts_unlocked (">", port);
 }
 
-/* In theory, a number of vm instances can be active in the call trace, and we
-   only want to reify the continuations of those in the current continuation
-   root. I don't see a nice way to do this -- ideally it would involve dynwinds,
-   and previous values of the *the-vm* fluid within the current continuation
-   root. But we don't have access to continuation roots in the dynwind stack.
-   So, just punt for now, we just capture the continuation for the current VM.
-
-   While I'm on the topic, ideally we could avoid copying the C stack if the
-   continuation root is inside VM code, and call/cc was invoked within that same
-   call to vm_run; but that's currently not implemented.
- */
+/* Ideally we could avoid copying the C stack if the continuation root
+   is inside VM code, and call/cc was invoked within that same call to
+   vm_run.  That's currently not implemented.  */
 SCM
 scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp, scm_t_uint32 *ra,
                         scm_t_dynstack *dynstack, scm_t_uint32 flags)
