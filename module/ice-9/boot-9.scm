@@ -797,10 +797,16 @@ A @var{pre-unwind-handler} can exit either normally or non-locally.
 If it exits normally, Guile unwinds the stack and dynamic context
 and then calls the normal (third argument) handler.  If it exits
 non-locally, that exit determines the continuation."
-    (if (not (or (symbol? k) (eqv? k #t)))
-        (scm-error 'wrong-type-arg "catch"
-                   "Wrong type argument in position ~a: ~a"
-                   (list 1 k) (list k)))
+    (define (wrong-type-arg n val)
+      (scm-error 'wrong-type-arg "catch"
+                 "Wrong type argument in position ~a: ~a"
+                 (list n val) (list val)))
+    (unless (or (symbol? k) (eqv? k #t))
+      (wrong-type-arg 1 k))
+    (unless (procedure? handler)
+      (wrong-type-arg 3 handler))
+    (unless (or (not pre-unwind-handler) (procedure? pre-unwind-handler))
+      (wrong-type-arg 4 pre-unwind-handler))
     (let ((tag (make-prompt-tag "catch")))
       (call-with-prompt
        tag

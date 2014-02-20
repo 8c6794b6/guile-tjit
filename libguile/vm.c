@@ -1016,13 +1016,7 @@ vm_expand_stack (struct scm_vm *vp)
       old_stack = vp->stack_base;
       new_stack = expand_stack (vp->stack_base, vp->stack_size, new_size);
       if (!new_stack)
-        /* It would be nice to throw an exception here, but that is
-           extraordinarily hard.  Exceptionally hard, you might say!
-           "throw" is implemented in Scheme, and there may be arbitrary
-           pre-unwind handlers that push on more frames.  We will
-           endeavor to do so in the future, but for now we just
-           abort.  */
-        abort ();
+        scm_report_stack_overflow ();
 
       vp->stack_base = new_stack;
       vp->stack_size = new_size;
@@ -1068,6 +1062,8 @@ vm_expand_stack (struct scm_vm *vp)
       /* Finally, reset the limit, to catch further overflows.  */
       vp->stack_limit = vp->stack_base + vp->max_stack_size;
 
+      /* FIXME: Use scm_report_stack_overflow, but in a mode that allows
+         pre-unwind handlers to run.  */
       vm_error ("VM: Stack overflow", SCM_UNDEFINED);
     }
 

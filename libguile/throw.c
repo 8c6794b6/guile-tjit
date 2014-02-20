@@ -45,9 +45,18 @@
 #include "libguile/private-options.h"
 
 
-/* Pleasantly enough, the guts of catch are defined in Scheme, in terms of
-   prompt, abort, and the %exception-handler fluid. This file just provides
-   shims so that it's easy to have catch functionality from C.
+/* Pleasantly enough, the guts of catch are defined in Scheme, in terms
+   of prompt, abort, and the %exception-handler fluid.  Check boot-9 for
+   the definitions.
+
+   Still, it's useful to be able to throw unwind-only exceptions from C,
+   for example so that we can recover from stack overflow.  We also need
+   to have an implementation of catch and throw handy before boot time.
+   For that reason we have a parallel implementation of "catch" that
+   uses the same fluids here.  Throws from C still call out to Scheme
+   though, so that pre-unwind handlers can be run.  Getting the dynamic
+   environment right for pre-unwind handlers is tricky, and it's
+   important to have all of the implementation in one place.
 
    All of these function names and prototypes carry a fair bit of historical
    baggage. */
@@ -55,43 +64,155 @@
 
 
 
-static SCM catch_var, throw_var, with_throw_handler_var;
+static SCM throw_var;
 
 static SCM exception_handler_fluid;
+
+static SCM
+catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
+{
+  struct scm_vm *vp;
+  SCM eh, prompt_tag;
+  SCM res;
+  scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
+  SCM dynamic_state = SCM_I_CURRENT_THREAD->dynamic_state;
+  scm_i_jmp_buf registers;
+  scm_t_ptrdiff saved_stack_depth;
+
+  if (!scm_is_eq (tag, SCM_BOOL_T) && !scm_is_symbol (tag))
+    scm_wrong_type_arg ("catch", 1, tag);
+
+  if (SCM_UNBNDP (handler))
+    handler = SCM_BOOL_F;
+  else if (!scm_is_true (scm_procedure_p (handler)))
+    scm_wrong_type_arg ("catch", 3, handler);
+
+  if (SCM_UNBNDP (pre_unwind_handler))
+    pre_unwind_handler = SCM_BOOL_F;
+  else if (!scm_is_true (scm_procedure_p (pre_unwind_handler)))
+    scm_wrong_type_arg ("catch", 4, pre_unwind_handler);
+
+  prompt_tag = scm_cons (SCM_INUM0, SCM_EOL);
+
+  eh = scm_c_make_vector (4, SCM_BOOL_F);
+  scm_c_vector_set_x (eh, 0, scm_fluid_ref (exception_handler_fluid));
+  scm_c_vector_set_x (eh, 1, tag);
+  scm_c_vector_set_x (eh, 2, prompt_tag);
+  scm_c_vector_set_x (eh, 3, pre_unwind_handler);
+
+  vp = scm_the_vm ();
+  saved_stack_depth = vp->sp - vp->stack_base;
+
+  /* Push the prompt and exception handler onto the dynamic stack. */
+  scm_dynstack_push_prompt (dynstack,
+                            SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY
+                            | SCM_F_DYNSTACK_PROMPT_PUSH_NARGS,
+                            prompt_tag,
+                            vp->fp - vp->stack_base,
+                            saved_stack_depth,
+                            vp->ip,
+                            &registers);
+  scm_dynstack_push_fluid (dynstack, exception_handler_fluid, eh,
+                           dynamic_state);
+
+  if (SCM_I_SETJMP (registers))
+    {
+      /* A non-local return.  */
+
+      /* FIXME: We know where the args will be on the stack; we could
+         avoid consing them.  */
+      SCM args = scm_i_prompt_pop_abort_args_x (vp);
+
+      /* Cdr past the continuation. */
+      args = scm_cdr (args);
+
+      return scm_apply_0 (handler, args);
+    }
+
+  res = scm_call_0 (thunk);
+
+  scm_dynstack_unwind_fluid (dynstack, dynamic_state);
+  scm_dynstack_pop (dynstack);
+
+  return res;
+}
+
+static void
+default_exception_handler (SCM k, SCM args)
+{
+  static int error_printing_error = 0;
+  static int error_printing_fallback = 0;
+
+  if (error_printing_fallback)
+    fprintf (stderr, "\nFailed to print exception.\n");
+  else if (error_printing_error)
+    {
+      fprintf (stderr, "\nError while printing exception:\n");
+      error_printing_fallback = 1;
+      fprintf (stderr, "Key: ");
+      scm_write (k, scm_current_error_port ());
+      fprintf (stderr, ", args: ");
+      scm_write (args, scm_current_error_port ());
+      scm_newline (scm_current_error_port ());
+   }
+  else
+    {
+      fprintf (stderr, "Uncaught exception:\n");
+      error_printing_error = 1;
+      scm_handle_by_message (NULL, k, args);
+    }
+
+  /* Normally we don't get here, because scm_handle_by_message will
+     exit.  */
+  fprintf (stderr, "Aborting.\n");
+  abort ();
+}
+
+static SCM
+throw_without_pre_unwind (SCM tag, SCM args)
+{
+  SCM eh;
+
+  for (eh = scm_fluid_ref (exception_handler_fluid);
+       scm_is_true (eh);
+       eh = scm_c_vector_ref (eh, 0))
+    {
+      SCM catch_key, prompt_tag;
+
+      catch_key = scm_c_vector_ref (eh, 1);
+      if (!scm_is_eq (catch_key, SCM_BOOL_T) && !scm_is_eq (catch_key, tag))
+        continue;
+
+      if (scm_is_true (scm_c_vector_ref (eh, 3)))
+        fprintf (stderr, "\nWarning: unwind-only exception, perhaps due to "
+                 "stack overflow; not running pre-unwind handlers.");
+
+      prompt_tag = scm_c_vector_ref (eh, 2);
+      if (scm_is_true (prompt_tag))
+        scm_abort_to_prompt_star (prompt_tag, scm_cons (tag, args));
+    }
+
+  default_exception_handler (tag, args);
+  return SCM_UNSPECIFIED;
+}
 
 SCM
 scm_catch (SCM key, SCM thunk, SCM handler)
 {
-  return scm_call_3 (scm_variable_ref (catch_var), key, thunk, handler);
+  return catch (key, thunk, handler, SCM_UNDEFINED);
 }
 
 SCM
 scm_catch_with_pre_unwind_handler (SCM key, SCM thunk, SCM handler,
                                    SCM pre_unwind_handler)
 {
-  if (SCM_UNBNDP (pre_unwind_handler))
-    return scm_catch (key, thunk, handler);
-  else
-    return scm_call_4 (scm_variable_ref (catch_var), key, thunk, handler,
-                       pre_unwind_handler);
-}
-
-static void
-init_with_throw_handler_var (void)
-{
-  with_throw_handler_var
-    = scm_module_variable (scm_the_root_module (),
-                           scm_from_latin1_symbol ("with-throw-handler"));
+  return catch (key, thunk, handler, pre_unwind_handler);
 }
 
 SCM
 scm_with_throw_handler (SCM key, SCM thunk, SCM handler)
 {
-  static scm_i_pthread_once_t once = SCM_I_PTHREAD_ONCE_INIT;
-  scm_i_pthread_once (&once, init_with_throw_handler_var);
-
-  return scm_call_3 (scm_variable_ref (with_throw_handler_var),
-                     key, thunk, handler);
+  return catch (key, thunk, SCM_UNDEFINED, handler);
 }
 
 SCM
@@ -443,103 +564,26 @@ scm_ithrow (SCM key, SCM args, int no_return SCM_UNUSED)
   return scm_throw (key, args);
 }
 
-/* Unfortunately we have to support catch and throw before boot-9 has, um,
-   booted. So here are lame versions, which will get replaced with their scheme
-   equivalents. */
+SCM_SYMBOL (scm_stack_overflow_key, "stack-overflow");
 
-SCM_SYMBOL (sym_pre_init_catch_tag, "%pre-init-catch-tag");
-
-static SCM
-pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
+void
+scm_report_stack_overflow (void)
 {
-  struct scm_vm *vp;
-  volatile SCM v_handler;
-  SCM res;
-  scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
-  scm_i_jmp_buf registers;
+  /* Arguments as if from:
 
-  /* Only handle catch-alls without pre-unwind handlers */
-  if (!SCM_UNBNDP (pre_unwind_handler))
-    abort ();
-  if (scm_is_false (scm_eqv_p (tag, SCM_BOOL_T)))
-    abort ();
+       scm_error (stack-overflow, NULL, "Stack overflow", #f, #f);
 
-  /* These two are volatile, so we know we can access them after a
-     nonlocal return to the setjmp.  */
-  vp = scm_the_vm ();
-  v_handler = handler;
+     We build the arguments manually because we throw without running
+     pre-unwind handlers.  (Pre-unwind handlers could rewind the
+     stack.)  */
+  SCM args = scm_list_4 (SCM_BOOL_F,
+                         scm_from_latin1_string ("Stack overflow"),
+                         SCM_BOOL_F,
+                         SCM_BOOL_F);
+  throw_without_pre_unwind (scm_stack_overflow_key, args);
 
-  /* Push the prompt onto the dynamic stack. */
-  scm_dynstack_push_prompt (dynstack,
-                            SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY
-                            | SCM_F_DYNSTACK_PROMPT_PUSH_NARGS,
-                            sym_pre_init_catch_tag,
-                            vp->fp - vp->stack_base,
-                            vp->sp - vp->stack_base,
-                            vp->ip,
-                            &registers);
-
-  if (SCM_I_SETJMP (registers))
-    {
-      /* nonlocal exit */
-      SCM args;
-      /* vp is not volatile */
-      vp = scm_the_vm ();
-      args = scm_i_prompt_pop_abort_args_x (vp);
-      /* cdr past the continuation */
-      return scm_apply_0 (v_handler, scm_cdr (args));
-    }
-
-  res = scm_call_0 (thunk);
-  scm_dynstack_pop (dynstack);
-
-  return res;
-}
-
-static int
-find_pre_init_catch (void)
-{
-  if (scm_dynstack_find_prompt (&SCM_I_CURRENT_THREAD->dynstack,
-                                sym_pre_init_catch_tag,
-                                NULL, NULL, NULL, NULL, NULL))
-    return 1;
-
-  return 0;
-}
-
-static SCM
-pre_init_throw (SCM k, SCM args)
-{
-  if (find_pre_init_catch ())
-    return scm_abort_to_prompt_star (sym_pre_init_catch_tag, scm_cons (k, args));
-  else
-    { 
-      static int error_printing_error = 0;
-      static int error_printing_fallback = 0;
-      
-      if (error_printing_fallback)
-        fprintf (stderr, "\nFailed to print exception.\n");
-      else if (error_printing_error)
-        {
-          fprintf (stderr, "\nError while printing exception:\n");
-          error_printing_fallback = 1;
-          fprintf (stderr, "Key: ");
-          scm_write (k, scm_current_error_port ());
-          fprintf (stderr, ", args: ");
-          scm_write (args, scm_current_error_port ());
-          scm_newline (scm_current_error_port ());
-        }
-      else
-        {
-          fprintf (stderr, "Throw without catch before boot:\n");
-          error_printing_error = 1;
-          scm_handle_by_message_noexit (NULL, k, args);
-        }
-
-      fprintf (stderr, "Aborting.\n");
-      abort ();
-      return SCM_BOOL_F; /* not reached */
-    }
+  /* Not reached.  */
+  abort ();
 }
 
 void
@@ -553,10 +597,9 @@ scm_init_throw ()
      throw, and with-throw-handler are created in boot-9.scm.  */
   scm_c_define ("%exception-handler", exception_handler_fluid);
 
-  catch_var = scm_c_define ("catch", scm_c_make_gsubr ("catch", 3, 1, 0,
-                                                       pre_init_catch));
+  scm_c_define ("catch", scm_c_make_gsubr ("catch", 3, 1, 0, catch));
   throw_var = scm_c_define ("throw", scm_c_make_gsubr ("throw", 1, 0, 1,
-                                                       pre_init_throw));
+                                                       throw_without_pre_unwind));
 
 #include "libguile/throw.x"
 }
