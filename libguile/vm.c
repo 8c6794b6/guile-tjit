@@ -711,10 +711,6 @@ scm_i_call_with_current_continuation (SCM proc)
 /* The page size.  */
 static size_t page_size;
 
-/* Hard stack limit is 512M words: 2 gigabytes on 32-bit machines, 4 on
-   64-bit machines.  */
-static const size_t hard_max_stack_size = 512 * 1024 * 1024;
-
 /* Initial stack size.  Defaults to one page.  */
 static size_t initial_stack_size;
 
@@ -996,15 +992,6 @@ vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
 {
   scm_t_ptrdiff stack_size = new_sp + 1 - vp->stack_base;
 
-  if (stack_size > hard_max_stack_size)
-    {
-      /* We have expanded the soft limit to the point that we reached a
-         hard limit.  There is nothing sensible to do.  */
-      fprintf (stderr, "Hard stack size limit (%zu words) reached; aborting.\n",
-               hard_max_stack_size);
-      abort ();
-    }
-
   /* FIXME: Prevent GC while we expand the stack, to ensure that a
      stack marker can trace the stack.  */
   if (stack_size > vp->stack_size)
@@ -1058,10 +1045,6 @@ vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
          ahead and set to the full available stack size.  */
       if (vp->max_stack_size < stack_size)
         vp->max_stack_size = vp->stack_size;
-
-      /* But don't exceed the hard maximum.  */
-      if (vp->max_stack_size > hard_max_stack_size)
-        vp->max_stack_size = hard_max_stack_size;
 
       /* Finally, reset the limit, to catch further overflows.  */
       vp->stack_limit = vp->stack_base + vp->max_stack_size;
