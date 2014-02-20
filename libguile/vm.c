@@ -132,21 +132,21 @@ scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp, scm_t_uint32 *ra,
   return scm_cell (scm_tc7_vm_cont, (scm_t_bits)p);
 }
 
-static void
-vm_return_to_continuation (struct scm_vm *vp, SCM cont, size_t n, SCM *argv)
+struct return_to_continuation_data
 {
   struct scm_vm_cont *cp;
-  SCM *argv_copy;
+  struct scm_vm *vp;
+};
+
+/* Called with the GC lock to prevent the stack marker from traversing a
+   stack in an inconsistent state.  */
+static void *
+vm_return_to_continuation_inner (void *data_ptr)
+{
+  struct return_to_continuation_data *data = data_ptr;
+  struct scm_vm *vp = data->vp;
+  struct scm_vm_cont *cp = data->cp;
   scm_t_ptrdiff reloc;
-
-  argv_copy = alloca (n * sizeof(SCM));
-  memcpy (argv_copy, argv, n * sizeof(SCM));
-
-  cp = SCM_VM_CONT_DATA (cont);
-
-  /* FIXME: Need to prevent GC while futzing with the stack; otherwise,
-     another thread causing GC may initiate a mark of a stack in an
-     inconsistent state.  */
 
   /* We know that there is enough space for the continuation, because we
      captured it in the past.  However there may have been an expansion
@@ -171,6 +171,25 @@ vm_return_to_continuation (struct scm_vm *vp, SCM cont, size_t n, SCM *argv)
           fp = next_fp;
         }
     }
+
+  return NULL;
+}
+
+static void
+vm_return_to_continuation (struct scm_vm *vp, SCM cont, size_t n, SCM *argv)
+{
+  struct scm_vm_cont *cp;
+  SCM *argv_copy;
+  struct return_to_continuation_data data;
+
+  argv_copy = alloca (n * sizeof(SCM));
+  memcpy (argv_copy, argv, n * sizeof(SCM));
+
+  cp = SCM_VM_CONT_DATA (cont);
+
+  data.cp = cp;
+  data.vp = vp;
+  GC_call_with_alloc_lock (vm_return_to_continuation_inner, &data);
 
   /* Now we have the continuation properly copied over.  We just need to
      copy the arguments.  It is not guaranteed that there is actually
@@ -329,29 +348,26 @@ vm_abort (struct scm_vm *vp, SCM tag,
   for (; i < nstack + tail_len; i++, tail = scm_cdr (tail))
     argv[i] = scm_car (tail);
 
-  /* FIXME: NULLSTACK (SCM_VM_DATA (vp)->sp - sp) */
   vp->sp = sp;
 
   scm_c_abort (vp, tag, nstack + tail_len, argv, current_registers);
 }
 
-static void
-vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
-                                   size_t n, SCM *argv,
-                                   scm_t_dynstack *dynstack,
-                                   scm_i_jmp_buf *registers)
+struct vm_reinstate_partial_continuation_data
 {
+  struct scm_vm *vp;
   struct scm_vm_cont *cp;
-  SCM *argv_copy, *base;
   scm_t_ptrdiff reloc;
-  size_t i;
+};
 
-  argv_copy = alloca (n * sizeof(SCM));
-  memcpy (argv_copy, argv, n * sizeof(SCM));
-
-  cp = SCM_VM_CONT_DATA (cont);
-
-  vm_push_sp (vp, SCM_FRAME_LOCALS_ADDRESS (vp->fp) + cp->stack_size + n - 1);
+static void *
+vm_reinstate_partial_continuation_inner (void *data_ptr)
+{
+  struct vm_reinstate_partial_continuation_data *data = data_ptr;
+  struct scm_vm *vp = data->vp;
+  struct scm_vm_cont *cp = data->cp;
+  SCM *base;
+  scm_t_ptrdiff reloc;
 
   base = SCM_FRAME_LOCALS_ADDRESS (vp->fp);
   reloc = cp->reloc + (base - cp->stack_base);
@@ -369,6 +385,35 @@ vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
          fp = SCM_FRAME_DYNAMIC_LINK (fp))
       SCM_FRAME_SET_DYNAMIC_LINK (fp, SCM_FRAME_DYNAMIC_LINK (fp) + reloc);
   }
+
+  data->reloc = reloc;
+
+  return NULL;
+}
+
+static void
+vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
+                                   size_t n, SCM *argv,
+                                   scm_t_dynstack *dynstack,
+                                   scm_i_jmp_buf *registers)
+{
+  struct vm_reinstate_partial_continuation_data data;
+  struct scm_vm_cont *cp;
+  SCM *argv_copy;
+  scm_t_ptrdiff reloc;
+  size_t i;
+
+  argv_copy = alloca (n * sizeof(SCM));
+  memcpy (argv_copy, argv, n * sizeof(SCM));
+
+  cp = SCM_VM_CONT_DATA (cont);
+
+  vm_push_sp (vp, SCM_FRAME_LOCALS_ADDRESS (vp->fp) + cp->stack_size + n - 1);
+
+  data.vp = vp;
+  data.cp = cp;
+  GC_call_with_alloc_lock (vm_reinstate_partial_continuation_inner, &data);
+  reloc = data.reloc;
 
   /* Push the arguments. */
   for (i = 0; i < n; i++)
@@ -985,50 +1030,76 @@ scm_i_vm_free_stack (struct scm_vm *vp)
   vp->stack_size = 0;
 }
 
+struct vm_expand_stack_data
+{
+  struct scm_vm *vp;
+  size_t stack_size;
+  SCM *new_sp;
+};
+
+static void *
+vm_expand_stack_inner (void *data_ptr)
+{
+  struct vm_expand_stack_data *data = data_ptr;
+
+  struct scm_vm *vp = data->vp;
+  SCM *old_stack, *new_stack;
+  size_t new_size;
+  scm_t_ptrdiff reloc;
+
+  new_size = vp->stack_size;
+  while (new_size < data->stack_size)
+    new_size *= 2;
+  old_stack = vp->stack_base;
+
+  new_stack = expand_stack (vp->stack_base, vp->stack_size, new_size);
+  if (!new_stack)
+    return NULL;
+
+  vp->stack_base = new_stack;
+  vp->stack_size = new_size;
+  vp->stack_limit = vp->stack_base + new_size;
+  reloc = vp->stack_base - old_stack;
+
+  if (reloc)
+    {
+      SCM *fp;
+      if (vp->fp)
+        vp->fp += reloc;
+      data->new_sp += reloc;
+      fp = vp->fp;
+      while (fp)
+        {
+          SCM *next_fp = SCM_FRAME_DYNAMIC_LINK (fp);
+          if (next_fp)
+            {
+              next_fp += reloc;
+              SCM_FRAME_SET_DYNAMIC_LINK (fp, next_fp);
+            }
+          fp = next_fp;
+        }
+    }
+
+  return new_stack;
+}
+
 static void
 vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
 {
   scm_t_ptrdiff stack_size = new_sp + 1 - vp->stack_base;
 
-  /* FIXME: Prevent GC while we expand the stack, to ensure that a
-     stack marker can trace the stack.  */
   if (stack_size > vp->stack_size)
     {
-      SCM *old_stack, *new_stack;
-      size_t new_size;
-      scm_t_ptrdiff reloc;
+      struct vm_expand_stack_data data;
 
-      new_size = vp->stack_size;
-      while (new_size < stack_size)
-        new_size *= 2;
-      old_stack = vp->stack_base;
-      new_stack = expand_stack (vp->stack_base, vp->stack_size, new_size);
-      if (!new_stack)
+      data.vp = vp;
+      data.stack_size = stack_size;
+      data.new_sp = new_sp;
+      
+      if (!GC_call_with_alloc_lock (vm_expand_stack_inner, &data))
         scm_report_stack_overflow ();
 
-      vp->stack_base = new_stack;
-      vp->stack_size = new_size;
-      vp->stack_limit = vp->stack_base + new_size;
-      reloc = vp->stack_base - old_stack;
-
-      if (reloc)
-        {
-          SCM *fp;
-          if (vp->fp)
-            vp->fp += reloc;
-          new_sp += reloc;
-          fp = vp->fp;
-          while (fp)
-            {
-              SCM *next_fp = SCM_FRAME_DYNAMIC_LINK (fp);
-              if (next_fp)
-                {
-                  next_fp += reloc;
-                  SCM_FRAME_SET_DYNAMIC_LINK (fp, next_fp);
-                }
-              fp = next_fp;
-            }
-        }
+      new_sp = data.new_sp;
     }
 
   vp->sp_max_since_gc = vp->sp = new_sp;
