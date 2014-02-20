@@ -1018,7 +1018,7 @@ vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
           SCM *fp;
           if (vp->fp)
             vp->fp += reloc;
-          vp->sp_max_since_gc += reloc;
+          new_sp += reloc;
           fp = vp->fp;
           while (fp)
             {
@@ -1031,9 +1031,9 @@ vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
               fp = next_fp;
             }
         }
-
-      new_sp += reloc;
     }
+
+  vp->sp_max_since_gc = vp->sp = new_sp;
 
   if (stack_size >= vp->max_stack_size)
     {
@@ -1055,7 +1055,6 @@ vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
     }
 
   /* Otherwise continue, with the new enlarged stack.  */
-  vp->sp_max_since_gc = vp->sp = new_sp;
 }
 
 static struct scm_vm *
