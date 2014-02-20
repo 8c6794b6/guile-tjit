@@ -60,9 +60,7 @@ static SCM sym_debug;
 
 /* The VM has a number of internal assertions that shouldn't normally be
    necessary, but might be if you think you found a bug in the VM. */
-#define VM_ENABLE_ASSERTIONS
-
-/* #define VM_ENABLE_PARANOID_ASSERTIONS */
+/* #define VM_ENABLE_ASSERTIONS */
 
 static void vm_expand_stack (struct scm_vm *vp, SCM *new_sp) SCM_NOINLINE;
 

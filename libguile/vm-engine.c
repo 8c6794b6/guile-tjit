@@ -1995,13 +1995,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
           if (!scm_module_system_booted_p)
             {
-#ifdef VM_ENABLE_PARANOID_ASSERTIONS
-              ASSERT
-                (scm_is_true
-                 scm_equal_p (modname,
-                              scm_list_2 (SCM_BOOL_T,
-                                          scm_from_utf8_symbol ("guile"))));
-#endif
+              ASSERT (scm_is_true
+                      scm_equal_p (modname,
+                                   scm_list_2
+                                   (SCM_BOOL_T,
+                                    scm_from_utf8_symbol ("guile"))));
               var = scm_lookup (sym);
             }
           else if (scm_is_true (SCM_CAR (modname)))
