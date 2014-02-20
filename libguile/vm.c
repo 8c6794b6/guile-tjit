@@ -64,7 +64,7 @@ static SCM sym_debug;
 
 /* #define VM_ENABLE_PARANOID_ASSERTIONS */
 
-static void vm_expand_stack (struct scm_vm *vp) SCM_NOINLINE;
+static void vm_expand_stack (struct scm_vm *vp, SCM *new_sp) SCM_NOINLINE;
 
 /* RESTORE is for the case where we know we have done a PUSH of equal or
    greater stack size in the past.  Otherwise PUSH is the thing, which
@@ -74,13 +74,16 @@ enum vm_increase_sp_kind { VM_SP_PUSH, VM_SP_RESTORE };
 static inline void
 vm_increase_sp (struct scm_vm *vp, SCM *new_sp, enum vm_increase_sp_kind kind)
 {
-  vp->sp = new_sp;
-  if (new_sp > vp->sp_max_since_gc)
+  if (new_sp <= vp->sp_max_since_gc)
     {
-      vp->sp_max_since_gc = new_sp;
-      if (kind == VM_SP_PUSH && new_sp >= vp->stack_limit)
-        vm_expand_stack (vp);
+      vp->sp = new_sp;
+      return;
     }
+
+  if (kind == VM_SP_PUSH && new_sp >= vp->stack_limit)
+    vm_expand_stack (vp, new_sp);
+  else
+    vp->sp_max_since_gc = vp->sp = new_sp;
 }
 
 static inline void
@@ -989,9 +992,9 @@ scm_i_vm_free_stack (struct scm_vm *vp)
 }
 
 static void
-vm_expand_stack (struct scm_vm *vp)
+vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
 {
-  scm_t_ptrdiff stack_size = vp->sp + 1 - vp->stack_base;
+  scm_t_ptrdiff stack_size = new_sp + 1 - vp->stack_base;
 
   if (stack_size > hard_max_stack_size)
     {
@@ -1028,7 +1031,6 @@ vm_expand_stack (struct scm_vm *vp)
           SCM *fp;
           if (vp->fp)
             vp->fp += reloc;
-          vp->sp += reloc;
           vp->sp_max_since_gc += reloc;
           fp = vp->fp;
           while (fp)
@@ -1042,6 +1044,8 @@ vm_expand_stack (struct scm_vm *vp)
               fp = next_fp;
             }
         }
+
+      new_sp += reloc;
     }
 
   if (stack_size >= vp->max_stack_size)
@@ -1068,6 +1072,7 @@ vm_expand_stack (struct scm_vm *vp)
     }
 
   /* Otherwise continue, with the new enlarged stack.  */
+  vp->sp_max_since_gc = vp->sp = new_sp;
 }
 
 static struct scm_vm *

@@ -132,19 +132,7 @@
 
 /* Virtual Machine
 
-   This is Guile's new virtual machine.  When I say "new", I mean
-   relative to the current virtual machine.  At some point it will
-   become "the" virtual machine, and we'll delete this paragraph.  As
-   such, the rest of the comments speak as if there's only one VM.
-   In difference from the old VM, local 0 is the procedure, and the
-   first argument is local 1.  At some point in the future we should
-   change the fp to point to the procedure and not to local 1.
-
-   <more overview here>
- */
-
-
-/* The VM has three state bits: the instruction pointer (IP), the frame
+   The VM has three state bits: the instruction pointer (IP), the frame
    pointer (FP), and the top-of-stack pointer (SP).  We cache the first
    two of these in machine registers, local to the VM, because they are
    used extensively by the VM.  As the SP is used more by code outside
@@ -173,33 +161,30 @@
   } while (0)
 
 
-
-/* After advancing vp->sp, but before writing any stack slots, check
-   that it is actually in bounds.  If it is not in bounds, currently we
-   signal an error.  In the future we may expand the stack instead,
-   possibly by moving it elsewhere, therefore no pointer into the stack
-   besides FP is valid across a CHECK_OVERFLOW call.  Be careful!  */
-#define CHECK_OVERFLOW()                                            \
-  do {                                                              \
-    if (SCM_UNLIKELY (vp->sp >= vp->stack_limit))                   \
-      {                                                             \
-        SYNC_IP ();                                                 \
-        vm_expand_stack (vp);                                       \
-        CACHE_FP ();                                                \
-      }                                                             \
-  } while (0)
-
 /* Reserve stack space for a frame.  Will check that there is sufficient
    stack space for N locals, including the procedure.  Invoke after
-   preparing the new frame and setting the fp and ip.  */
+   preparing the new frame and setting the fp and ip.
+
+   If there is not enough space for this frame, we try to expand the
+   stack, possibly relocating it somewhere else in the address space.
+   Because of the possible relocation, no pointer into the stack besides
+   FP is valid across an ALLOC_FRAME call.  Be careful!  */
 #define ALLOC_FRAME(n)                                              \
   do {                                                              \
-    vp->sp = LOCAL_ADDRESS (n - 1);                                 \
-    if (vp->sp > vp->sp_max_since_gc)                               \
+    SCM *new_sp = LOCAL_ADDRESS (n - 1);                            \
+    if (new_sp > vp->sp_max_since_gc)                               \
       {                                                             \
-        vp->sp_max_since_gc = vp->sp;                               \
-        CHECK_OVERFLOW ();                                          \
+        if (SCM_UNLIKELY (new_sp >= vp->stack_limit))               \
+          {                                                         \
+            SYNC_IP ();                                             \
+            vm_expand_stack (vp, new_sp);                           \
+            CACHE_FP ();                                            \
+          }                                                         \
+        else                                                        \
+          vp->sp_max_since_gc = vp->sp = new_sp;                    \
       }                                                             \
+    else                                                            \
+      vp->sp = new_sp;                                              \
   } while (0)
 
 /* Reset the current frame to hold N locals.  Used when we know that no
@@ -3235,7 +3220,6 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 #undef BV_INT_REF
 #undef BV_INT_SET
 #undef CACHE_REGISTER
-#undef CHECK_OVERFLOW
 #undef END_DISPATCH_SWITCH
 #undef FREE_VARIABLE_REF
 #undef INIT
