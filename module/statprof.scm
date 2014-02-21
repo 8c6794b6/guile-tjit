@@ -248,6 +248,11 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; SIGPROF handler
 
+;; FIXME: Instead of this messing about with hash tables and
+;; frame-procedure, just record the stack of return addresses into a
+;; growable vector, and resolve them to procedures when analyzing
+;; instead of at collection time.
+;;
 (define (sample-stack-procs stack)
   (let ((stacklen (stack-length stack))
         (hit-count-call? #f)
