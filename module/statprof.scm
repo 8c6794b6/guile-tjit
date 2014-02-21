@@ -163,7 +163,7 @@
   (make-state accumulated-time last-start-time sample-count
               sampling-frequency remaining-prof-time profile-level
               count-calls? gc-time-taken record-full-stacks?
-              stacks procedure-data)
+              stacks procedure-data inside-profiler?)
   state?
   ;; Total time so far.
   (accumulated-time accumulated-time set-accumulated-time!)
@@ -188,13 +188,15 @@
   ;; A hash where the key is the function object itself and the value is
   ;; the data. The data will be a vector like this:
   ;;   #(name call-count cum-sample-count self-sample-count)
-  (procedure-data procedure-data set-procedure-data!))
+  (procedure-data procedure-data set-procedure-data!)
+  ;; True if we are inside the profiler.
+  (inside-profiler? inside-profiler? set-inside-profiler?!))
 
 (define profiler-state (make-parameter #f))
 
 (define (ensure-profiler-state)
   (or (profiler-state)
-      (let ((state (make-state #f #f #f #f #f 0 #t 0 #f '() #f)))
+      (let ((state (make-state #f #f #f #f #f 0 #t 0 #f '() #f #f)))
         (profiler-state state)
         state)))
 
@@ -278,12 +280,10 @@
         (loop (frame-previous frame) procs-seen self))))
     hit-count-call?))
 
-(define inside-profiler? #f)
-
 (define (profile-signal-handler sig)
   (define state (ensure-profiler-state))
 
-  (set! inside-profiler? #t)
+  (set-inside-profiler?! state #t)
 
   ;; FIXME: with-statprof should be able to set an outer frame for the
   ;; stack cut
@@ -322,7 +322,7 @@
               (if (count-calls? state)
                   (set-vm-trace-level! (1+ (vm-trace-level))))))))
   
-  (set! inside-profiler? #f))
+  (set-inside-profiler?! state #f))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Count total calls.
@@ -330,7 +330,7 @@
 (define (count-call frame)
   (define state (ensure-profiler-state))
 
-  (if (not inside-profiler?)
+  (if (not (inside-profiler? state))
       (begin
         (accumulate-time state (get-internal-run-time))
 
@@ -762,9 +762,9 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
 
   (define (gc-callback)
     (cond
-     (inside-profiler?)
+     ((inside-profiler? state))
      (else
-      (set! inside-profiler? #t)
+      (set-inside-profiler?! state #t)
 
       ;; FIXME: should be able to set an outer frame for the stack cut
       (let ((stop-time (get-internal-run-time))
@@ -777,7 +777,7 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
         (accumulate-time state stop-time)
         (set-last-start-time! state (get-internal-run-time)))
       
-      (set! inside-profiler? #f))))
+      (set-inside-profiler?! state #f))))
 
   (define (start)
     (set-profile-level! state (+ (profile-level state) 1))
