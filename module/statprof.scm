@@ -194,9 +194,15 @@
 
 (define profiler-state (make-parameter #f))
 
+(define* (fresh-profiler-state #:key (count-calls? #f)
+                               (sampling-frequency '(0 . 10000))
+                               (full-stacks? #f))
+  (make-state 0.0 #f 0 sampling-frequency #f 0 count-calls? 0.0 #f '()
+              (make-hash-table) #f))
+
 (define (ensure-profiler-state)
   (or (profiler-state)
-      (let ((state (make-state #f #f #f #f #f 0 #t 0 #f '() #f #f)))
+      (let ((state (fresh-profiler-state)))
         (profiler-state state)
         state)))
 
@@ -227,7 +233,6 @@
 (define (accumulate-time state stop-time)
   (set-accumulated-time! state
                          (+ (accumulated-time state)
-                            0.0
                             (- stop-time (last-start-time state)))))
 
 (define (get-call-data proc)
@@ -410,20 +415,15 @@ data. If @var{full-stacks?} is true, collect all sampled stacks into a
 list for later analysis.
 
 Enables traps and debugging as necessary."
-  (define state (ensure-profiler-state))
-  (if (positive? (profile-level state))
-      (error "Can't reset profiler while profiler is running."))
-  (set-count-calls?! state count-calls?)
-  (set-accumulated-time! state 0)
-  (set-last-start-time! state #f)
-  (set-sample-count! state 0)
-  (set-sampling-frequency! state (cons sample-seconds sample-microseconds))
-  (set-remaining-prof-time! state #f)
-  (set-procedure-data! state (make-hash-table 131))
-  (set-record-full-stacks?! state full-stacks?)
-  (set-stacks! state '())
-  (sigaction SIGPROF profile-signal-handler)
-  #t)
+  (when (and (profiler-state) (positive? (profile-level (profiler-state))))
+    (error "Can't reset profiler while profiler is running."))
+  (let ((state (fresh-profiler-state #:count-calls? count-calls?
+                                     #:sampling-frequency
+                                     (cons sample-seconds sample-microseconds)
+                                     #:full-stacks? full-stacks?)))
+    (profiler-state state)
+    (sigaction SIGPROF profile-signal-handler)
+    #t))
 
 (define (statprof-fold-call-data proc init)
   "Fold @var{proc} over the call-data accumulated by statprof. Cannot be
