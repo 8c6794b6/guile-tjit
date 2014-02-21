@@ -415,7 +415,7 @@ data. If @var{full-stacks?} is true, collect all sampled stacks into a
 list for later analysis.
 
 Enables traps and debugging as necessary."
-  (when (and (profiler-state) (positive? (profile-level (profiler-state))))
+  (when (statprof-active?)
     (error "Can't reset profiler while profiler is running."))
   (let ((state (fresh-profiler-state #:count-calls? count-calls?
                                      #:sampling-frequency
@@ -432,24 +432,19 @@ called while statprof is active. @var{proc} should take two arguments,
 
 Note that a given proc-name may appear multiple times, but if it does,
 it represents different functions with the same name."
-  (define state (existing-profiler-state))
-  (if (positive? (profile-level state))
-      (error "Can't call statprof-fold-called while profiler is running."))
-
+  (when (statprof-active?)
+    (error "Can't call statprof-fold-call-data while profiler is running."))
   (hash-fold
    (lambda (key value prior-result)
      (proc value prior-result))
    init
-   (procedure-data state)))
+   (procedure-data (existing-profiler-state))))
 
 (define (statprof-proc-call-data proc)
   "Returns the call-data associated with @var{proc}, or @code{#f} if
 none is available."
-  (define state (existing-profiler-state))
-
-  (if (positive? (profile-level state))
-      (error "Can't call statprof-fold-called while profiler is running."))
-
+  (when (statprof-active?)
+    (error "Can't call statprof-proc-call-data while profiler is running."))
   (get-call-data proc))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -582,17 +577,15 @@ statistics.@code{}"
 
 (define (statprof-accumulated-time)
   "Returns the time accumulated during the last statprof run.@code{}"
-  (define state (existing-profiler-state))
-  (if (positive? (profile-level state))
-      (error "Can't get accumulated time while profiler is running."))
-  (/ (accumulated-time state) internal-time-units-per-second))
+  (when (statprof-active?)
+    (error "Can't get accumulated time while profiler is running."))
+  (/ (accumulated-time (existing-profiler-state)) internal-time-units-per-second))
 
 (define (statprof-sample-count)
   "Returns the number of samples taken during the last statprof run.@code{}"
-  (define state (existing-profiler-state))
-  (if (positive? (profile-level state))
-      (error "Can't get accumulated time while profiler is running."))
-  (sample-count state))
+  (when (statprof-active?)
+    (error "Can't get sample count while profiler is running."))
+  (sample-count (existing-profiler-state)))
 
 (define statprof-call-data-name call-data-name)
 (define statprof-call-data-calls call-data-call-count)
