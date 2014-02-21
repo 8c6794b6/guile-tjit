@@ -100,21 +100,22 @@ thread_mark (GC_word *addr, struct GC_ms_entry *mark_stack_ptr,
      but GC doesn't know to trace them (as they are pointerless), so we
      need to do that here.  See the comments at the top of libgc's
      gc_inline.h.  */
-  {
-    size_t n;
-    for (n = 0; n < SCM_INLINE_GC_FREELIST_COUNT; n++)
-      {
-        void *chain = t->pointerless_freelists[n];
-        if (chain)
-          {
-            /* The first link is already marked by the freelist vector,
-               so we just have to mark the tail.  */
-            while ((chain = *(void **)chain))
-              mark_stack_ptr = GC_mark_and_push (chain, mark_stack_ptr,
-                                                 mark_stack_limit, NULL);
-          }
-      }
-  }
+  if (t->pointerless_freelists)
+    {
+      size_t n;
+      for (n = 0; n < SCM_INLINE_GC_FREELIST_COUNT; n++)
+        {
+          void *chain = t->pointerless_freelists[n];
+          if (chain)
+            {
+              /* The first link is already marked by the freelist vector,
+                 so we just have to mark the tail.  */
+              while ((chain = *(void **)chain))
+                mark_stack_ptr = GC_mark_and_push (chain, mark_stack_ptr,
+                                                   mark_stack_limit, NULL);
+            }
+        }
+    }
 
   if (t->vp)
     mark_stack_ptr = scm_i_vm_mark_stack (t->vp, mark_stack_ptr,
