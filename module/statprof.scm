@@ -1,7 +1,7 @@
 ;;;; (statprof) -- a statistical profiler for Guile
 ;;;; -*-scheme-*-
 ;;;;
-;;;; 	Copyright (C) 2009, 2010, 2011, 2013  Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2009, 2010, 2011, 2013, 2014  Free Software Foundation, Inc.
 ;;;;    Copyright (C) 2004, 2009 Andy Wingo <wingo at pobox dot com>
 ;;;;    Copyright (C) 2001 Rob Browning <rlb at defaultvalue dot org>
 ;;;; 
@@ -22,106 +22,95 @@
 
 
 ;;; Commentary:
-;;
-;;@code{(statprof)} is intended to be a fairly simple
-;;statistical profiler for guile. It is in the early stages yet, so
-;;consider its output still suspect, and please report any bugs to
-;;@email{guile-devel at gnu.org}, or to me directly at @email{rlb at
-;;defaultvalue.org}.
-;;
-;;A simple use of statprof would look like this:
-;;
-;;@example
-;;  (statprof-reset 0 50000 #t)
-;;  (statprof-start)
-;;  (do-something)
-;;  (statprof-stop)
-;;  (statprof-display)
-;;@end example
-;;
-;;This would reset statprof, clearing all accumulated statistics, then
-;;start profiling, run some code, stop profiling, and finally display a
-;;gprof flat-style table of statistics which will look something like
-;;this:
-;;
-;;@example
-;;  %   cumulative      self              self    total
-;; time    seconds   seconds    calls  ms/call  ms/call  name
-;; 35.29      0.23      0.23     2002     0.11     0.11  -
-;; 23.53      0.15      0.15     2001     0.08     0.08  positive?
-;; 23.53      0.15      0.15     2000     0.08     0.08  +
-;; 11.76      0.23      0.08     2000     0.04     0.11  do-nothing
-;;  5.88      0.64      0.04     2001     0.02     0.32  loop
-;;  0.00      0.15      0.00        1     0.00   150.59  do-something
-;; ...
-;;@end example
-;;
-;;All of the numerical data with the exception of the calls column is
-;;statistically approximate. In the following column descriptions, and
-;;in all of statprof, "time" refers to execution time (both user and
-;;system), not wall clock time.
-;;
-;;@table @asis
-;;@item % time
-;;The percent of the time spent inside the procedure itself
-;;(not counting children).
-;;@item cumulative seconds
-;;The total number of seconds spent in the procedure, including
-;;children.
-;;@item self seconds
-;;The total number of seconds spent in the procedure itself (not counting
-;;children).
-;;@item calls
-;;The total number of times the procedure was called.
-;;@item self ms/call
-;;The average time taken by the procedure itself on each call, in ms.
-;;@item total ms/call
-;;The average time taken by each call to the procedure, including time
-;;spent in child functions.
-;;@item name
-;;The name of the procedure.
-;;@end table
-;;
-;;The profiler uses @code{eq?} and the procedure object itself to
-;;identify the procedures, so it won't confuse different procedures with
-;;the same name. They will show up as two different rows in the output.
-;;
-;;Right now the profiler is quite simplistic.  I cannot provide
-;;call-graphs or other higher level information.  What you see in the
-;;table is pretty much all there is. Patches are welcome :-)
-;;
-;;@section Implementation notes
-;;
-;;The profiler works by setting the unix profiling signal
-;;@code{ITIMER_PROF} to go off after the interval you define in the call
-;;to @code{statprof-reset}. When the signal fires, a sampling routine is
-;;run which looks at the current procedure that's executing, and then
-;;crawls up the stack, and for each procedure encountered, increments
-;;that procedure's sample count. Note that if a procedure is encountered
-;;multiple times on a given stack, it is only counted once. After the
-;;sampling is complete, the profiler resets profiling timer to fire
-;;again after the appropriate interval.
-;;
-;;Meanwhile, the profiler keeps track, via @code{get-internal-run-time},
-;;how much CPU time (system and user -- which is also what
-;;@code{ITIMER_PROF} tracks), has elapsed while code has been executing
-;;within a statprof-start/stop block.
-;;
-;;The profiler also tries to avoid counting or timing its own code as
-;;much as possible.
-;;
+;;;
+;;; @code{(statprof)} is intended to be a fairly simple
+;;; statistical profiler for guile. It is in the early stages yet, so
+;;; consider its output still suspect, and please report any bugs to
+;;; @email{guile-devel at gnu.org}, or to me directly at @email{rlb at
+;;; defaultvalue.org}.
+;;;
+;;; A simple use of statprof would look like this:
+;;;
+;;; @example
+;;;   (statprof-reset 0 50000 #t)
+;;;   (statprof-start)
+;;;   (do-something)
+;;;   (statprof-stop)
+;;;   (statprof-display)
+;;; @end example
+;;;
+;;; This would reset statprof, clearing all accumulated statistics, then
+;;; start profiling, run some code, stop profiling, and finally display a
+;;; gprof flat-style table of statistics which will look something like
+;;; this:
+;;;
+;;; @example
+;;;   %   cumulative      self              self    total
+;;;  time    seconds   seconds    calls  ms/call  ms/call  name
+;;;  35.29      0.23      0.23     2002     0.11     0.11  -
+;;;  23.53      0.15      0.15     2001     0.08     0.08  positive?
+;;;  23.53      0.15      0.15     2000     0.08     0.08  +
+;;;  11.76      0.23      0.08     2000     0.04     0.11  do-nothing
+;;;   5.88      0.64      0.04     2001     0.02     0.32  loop
+;;;   0.00      0.15      0.00        1     0.00   150.59  do-something
+;;;  ...
+;;; @end example
+;;;
+;;; All of the numerical data with the exception of the calls column is
+;;; statistically approximate. In the following column descriptions, and
+;;; in all of statprof, "time" refers to execution time (both user and
+;;; system), not wall clock time.
+;;;
+;;; @table @asis
+;;; @item % time
+;;; The percent of the time spent inside the procedure itself
+;;; (not counting children).
+;;; @item cumulative seconds
+;;; The total number of seconds spent in the procedure, including
+;;; children.
+;;; @item self seconds
+;;; The total number of seconds spent in the procedure itself (not counting
+;;; children).
+;;; @item calls
+;;; The total number of times the procedure was called.
+;;; @item self ms/call
+;;; The average time taken by the procedure itself on each call, in ms.
+;;; @item total ms/call
+;;; The average time taken by each call to the procedure, including time
+;;; spent in child functions.
+;;; @item name
+;;; The name of the procedure.
+;;; @end table
+;;;
+;;; The profiler uses @code{eq?} and the procedure object itself to
+;;; identify the procedures, so it won't confuse different procedures with
+;;; the same name. They will show up as two different rows in the output.
+;;;
+;;; Right now the profiler is quite simplistic.  I cannot provide
+;;; call-graphs or other higher level information.  What you see in the
+;;; table is pretty much all there is. Patches are welcome :-)
+;;;
+;;; @section Implementation notes
+;;;
+;;; The profiler works by setting the unix profiling signal
+;;; @code{ITIMER_PROF} to go off after the interval you define in the call
+;;; to @code{statprof-reset}. When the signal fires, a sampling routine is
+;;; run which looks at the current procedure that's executing, and then
+;;; crawls up the stack, and for each procedure encountered, increments
+;;; that procedure's sample count. Note that if a procedure is encountered
+;;; multiple times on a given stack, it is only counted once. After the
+;;; sampling is complete, the profiler resets profiling timer to fire
+;;; again after the appropriate interval.
+;;;
+;;; Meanwhile, the profiler keeps track, via @code{get-internal-run-time},
+;;; how much CPU time (system and user -- which is also what
+;;; @code{ITIMER_PROF} tracks), has elapsed while code has been executing
+;;; within a statprof-start/stop block.
+;;;
+;;; The profiler also tries to avoid counting or timing its own code as
+;;; much as possible.
+;;;
 ;;; Code:
-
-;; When you add new features, please also add tests to ./tests/ if you
-;; have time, and then add the new files to ./run-tests.  Also, if
-;; anyone's bored, there are a lot of existing API bits that don't
-;; have tests yet.
-
-;; TODO
-;;
-;; Check about profiling C functions -- does profiling primitives work?
-;; Also look into stealing code from qprof so we can sample the C stack
-;; Call graphs?
 
 (define-module (statprof)
   #:use-module (srfi srfi-1)
