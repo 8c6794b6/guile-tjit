@@ -200,6 +200,10 @@
         (profiler-state state)
         state)))
 
+(define (existing-profiler-state)
+  (or (profiler-state)
+      (error "expected there to be a profiler state")))
+
 ;; If you change the call-data data structure, you need to also change
 ;; sample-uncount-frame.
 (define (make-call-data proc call-count cum-sample-count self-sample-count)
@@ -242,7 +246,7 @@
 (define (sample-stack-procs stack)
   (let ((stacklen (stack-length stack))
         (hit-count-call? #f)
-        (state (ensure-profiler-state)))
+        (state (existing-profiler-state)))
 
     (if (record-full-stacks? state)
         (set-stacks! state (cons stack (stacks state))))
@@ -281,7 +285,7 @@
     hit-count-call?))
 
 (define (profile-signal-handler sig)
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
 
   (set-inside-profiler?! state #t)
 
@@ -328,7 +332,7 @@
 ;; Count total calls.
 
 (define (count-call frame)
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
 
   (if (not (inside-profiler? state))
       (begin
@@ -346,8 +350,8 @@
 (define (statprof-active?)
   "Returns @code{#t} if @code{statprof-start} has been called more times
 than @code{statprof-stop}, @code{#f} otherwise."
-  (define state (ensure-profiler-state))
-  (positive? (profile-level state)))
+  (define state (profiler-state))
+  (and state (positive? (profile-level state))))
 
 ;; Do not call this from statprof internal functions -- user only.
 (define (statprof-start)
@@ -428,7 +432,7 @@ called while statprof is active. @var{proc} should take two arguments,
 
 Note that a given proc-name may appear multiple times, but if it does,
 it represents different functions with the same name."
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
   (if (positive? (profile-level state))
       (error "Can't call statprof-fold-called while profiler is running."))
 
@@ -441,7 +445,7 @@ it represents different functions with the same name."
 (define (statprof-proc-call-data proc)
   "Returns the call-data associated with @var{proc}, or @code{#f} if
 none is available."
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
 
   (if (positive? (profile-level state))
       (error "Can't call statprof-fold-called while profiler is running."))
@@ -461,7 +465,7 @@ none is available."
   ;;                 self-secs-per-call
   ;;                 total-secs-per-call)
 
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
 
   (let* ((proc-name (call-data-printable call-data))
          (self-samples (call-data-self-sample-count call-data))
@@ -508,7 +512,7 @@ none is available."
 (define* (statprof-display #:optional (port (current-output-port)))
   "Displays a gprof-like summary of the statistics collected. Unless an
 optional @var{port} argument is passed, uses the current output port."
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
   
   (cond
    ((zero? (statprof-sample-count))
@@ -560,7 +564,7 @@ optional @var{port} argument is passed, uses the current output port."
 (define (statprof-display-anomolies)
   "A sanity check that attempts to detect anomolies in statprof's
 statistics.@code{}"
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
 
   (statprof-fold-call-data
    (lambda (data prior-value)
@@ -578,14 +582,14 @@ statistics.@code{}"
 
 (define (statprof-accumulated-time)
   "Returns the time accumulated during the last statprof run.@code{}"
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
   (if (positive? (profile-level state))
       (error "Can't get accumulated time while profiler is running."))
   (/ (accumulated-time state) internal-time-units-per-second))
 
 (define (statprof-sample-count)
   "Returns the number of samples taken during the last statprof run.@code{}"
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
   (if (positive? (profile-level state))
       (error "Can't get accumulated time while profiler is running."))
   (sample-count state))
@@ -601,7 +605,7 @@ to @code{statprof-reset}.
 
 Note that stacks are only collected if the @var{full-stacks?} argument
 to @code{statprof-reset} is true."
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
   (stacks state))
 
 (define procedure=?
@@ -655,7 +659,7 @@ The return value is a list of nodes, each of which is of the type:
 @code
  node ::= (@var{proc} @var{count} . @var{nodes})
 @end code"
-  (define state (ensure-profiler-state))
+  (define state (existing-profiler-state))
   (cons #t (lists->trees (map stack->procedures (stacks state)) procedure=?)))
 
 (define* (statprof thunk #:key (loop 1) (hz 100) (count-calls? #f)
