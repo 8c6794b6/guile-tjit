@@ -305,7 +305,7 @@
     {                                           \
       scm_t_int32 offset = ip[1];               \
       offset >>= 8; /* Sign-extending shift. */ \
-      if (offset < 0)                           \
+      if (offset <= 0)                          \
         VM_HANDLE_INTERRUPTS;                   \
       NEXT (offset);                            \
     }                                           \
@@ -321,7 +321,7 @@
     {                                           \
       scm_t_int32 offset = ip[1];               \
       offset >>= 8; /* Sign-extending shift. */ \
-      if (offset < 0)                           \
+      if (offset <= 0)                          \
         VM_HANDLE_INTERRUPTS;                   \
       NEXT (offset);                            \
     }                                           \
@@ -342,7 +342,7 @@
           {                                                             \
             scm_t_int32 offset = ip[1];                                 \
             offset >>= 8; /* Sign-extending shift. */                   \
-            if (offset < 0)                                             \
+            if (offset <= 0)                                            \
               VM_HANDLE_INTERRUPTS;                                     \
             NEXT (offset);                                              \
           }                                                             \
@@ -358,7 +358,7 @@
           {                                                             \
             scm_t_int32 offset = ip[1];                                 \
             offset >>= 8; /* Sign-extending shift. */                   \
-            if (offset < 0)                                             \
+            if (offset <= 0)                                            \
               VM_HANDLE_INTERRUPTS;                                     \
             NEXT (offset);                                              \
           }                                                             \
@@ -1347,6 +1347,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     {
       scm_t_int32 offset = op;
       offset >>= 8; /* Sign-extending shift. */
+      if (offset <= 0)
+        VM_HANDLE_INTERRUPTS;
       NEXT (offset);
     }
 
