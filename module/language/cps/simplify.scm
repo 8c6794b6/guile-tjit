@@ -60,7 +60,7 @@
          (for-each visit-fun funs)
          (visit-term body term-k term-args))
         (($ $continue k src ($ $values args))
-         (when (equal? term-args args)
+         (when (and (equal? term-args args) (not (eq? k term-k)))
            (hashq-set! table term-k k)))
         (($ $continue k src (and fun ($ $fun)))
          (visit-fun fun))
