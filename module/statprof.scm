@@ -310,29 +310,16 @@
            ;; tail-calls eval. perhaps we should always compile the
            ;; signal handler instead...
            (stack (or (make-stack #t profile-signal-handler)
-                      (pk 'what! (make-stack #t))))
-           (inside-apply-trap? (sample-stack-procs state stack)))
+                      (pk 'what! (make-stack #t)))))
 
-      (unless inside-apply-trap?
-        ;; disabling here is just a little more efficient, but
-        ;; not necessary given inside-profiler?.  We can't just
-        ;; disable unconditionally at the top of this function
-        ;; and eliminate inside-profiler? because it seems to
-        ;; confuse guile wrt re-enabling the trap when
-        ;; count-call finishes.
-        (when (count-calls? state)
-          (set-vm-trace-level! (1- (vm-trace-level))))
-        (accumulate-time state stop-time))
-        
+      (sample-stack-procs state stack)
+      (accumulate-time state stop-time)
+      (set-last-start-time! state (get-internal-run-time))
+
       (setitimer ITIMER_PROF
                  0 0
                  (car (sampling-frequency state))
-                 (cdr (sampling-frequency state)))
-        
-      (unless inside-apply-trap?
-        (set-last-start-time! state (get-internal-run-time))
-        (when (count-calls? state)
-          (set-vm-trace-level! (1+ (vm-trace-level)))))))
+                 (cdr (sampling-frequency state)))))
   
   (set-inside-profiler?! state #f))
 
