@@ -210,25 +210,25 @@
   (or (profiler-state)
       (error "expected there to be a profiler state")))
 
-;; If you change the call-data data structure, you need to also change
-;; sample-uncount-frame.
-(define (make-call-data proc call-count cum-sample-count self-sample-count)
-  (vector proc call-count cum-sample-count self-sample-count))
-(define (call-data-proc cd) (vector-ref cd 0))
+(define-record-type call-data
+  (make-call-data proc call-count cum-sample-count self-sample-count)
+  call-data?
+  (proc call-data-proc)
+  (call-count call-data-call-count set-call-data-call-count!)
+  (cum-sample-count call-data-cum-sample-count set-call-data-cum-sample-count!)
+  (self-sample-count call-data-self-sample-count set-call-data-self-sample-count!))
+
 (define (call-data-name cd) (procedure-name (call-data-proc cd)))
 (define (call-data-printable cd)
   (or (call-data-name cd)
       (with-output-to-string (lambda () (write (call-data-proc cd))))))
-(define (call-data-call-count cd) (vector-ref cd 1))
-(define (call-data-cum-sample-count cd) (vector-ref cd 2))
-(define (call-data-self-sample-count cd) (vector-ref cd 3))
 
 (define (inc-call-data-call-count! cd)
-  (vector-set! cd 1 (1+ (vector-ref cd 1))))
+  (set-call-data-call-count! cd (1+ (call-data-call-count cd))))
 (define (inc-call-data-cum-sample-count! cd)
-  (vector-set! cd 2 (1+ (vector-ref cd 2))))
+  (set-call-data-cum-sample-count! cd (1+ (call-data-cum-sample-count cd))))
 (define (inc-call-data-self-sample-count! cd)
-  (vector-set! cd 3 (1+ (vector-ref cd 3))))
+  (set-call-data-self-sample-count! cd (1+ (call-data-self-sample-count cd))))
 
 (define (accumulate-time state stop-time)
   (set-accumulated-time! state
