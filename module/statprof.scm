@@ -258,8 +258,8 @@
         (hit-count-call? #f)
         (state (existing-profiler-state)))
 
-    (if (record-full-stacks? state)
-        (set-stacks! state (cons stack (stacks state))))
+    (when (record-full-stacks? state)
+      (set-stacks! state (cons stack (stacks state))))
 
     (set-sample-count! state (+ (sample-count state) 1))
     ;; Now accumulate stats for the whole stack.
@@ -301,40 +301,38 @@
 
   ;; FIXME: with-statprof should be able to set an outer frame for the
   ;; stack cut
-  (if (positive? (profile-level state))
-      (let* ((stop-time (get-internal-run-time))
-             ;; cut down to the signal handler. note that this will only
-             ;; work if statprof.scm is compiled; otherwise we get
-             ;; `eval' on the stack instead, because if it's not
-             ;; compiled, profile-signal-handler is a thunk that
-             ;; tail-calls eval. perhaps we should always compile the
-             ;; signal handler instead...
-             (stack (or (make-stack #t profile-signal-handler)
-                        (pk 'what! (make-stack #t))))
-             (inside-apply-trap? (sample-stack-procs stack)))
+  (when (positive? (profile-level state))
+    (let* ((stop-time (get-internal-run-time))
+           ;; cut down to the signal handler. note that this will only
+           ;; work if statprof.scm is compiled; otherwise we get
+           ;; `eval' on the stack instead, because if it's not
+           ;; compiled, profile-signal-handler is a thunk that
+           ;; tail-calls eval. perhaps we should always compile the
+           ;; signal handler instead...
+           (stack (or (make-stack #t profile-signal-handler)
+                      (pk 'what! (make-stack #t))))
+           (inside-apply-trap? (sample-stack-procs stack)))
 
-        (if (not inside-apply-trap?)
-            (begin
-              ;; disabling here is just a little more efficient, but
-              ;; not necessary given inside-profiler?.  We can't just
-              ;; disable unconditionally at the top of this function
-              ;; and eliminate inside-profiler? because it seems to
-              ;; confuse guile wrt re-enabling the trap when
-              ;; count-call finishes.
-              (if (count-calls? state)
-                  (set-vm-trace-level! (1- (vm-trace-level))))
-              (accumulate-time state stop-time)))
+      (unless inside-apply-trap?
+        ;; disabling here is just a little more efficient, but
+        ;; not necessary given inside-profiler?.  We can't just
+        ;; disable unconditionally at the top of this function
+        ;; and eliminate inside-profiler? because it seems to
+        ;; confuse guile wrt re-enabling the trap when
+        ;; count-call finishes.
+        (when (count-calls? state)
+          (set-vm-trace-level! (1- (vm-trace-level))))
+        (accumulate-time state stop-time))
         
-        (setitimer ITIMER_PROF
-                   0 0
-                   (car (sampling-frequency state))
-                   (cdr (sampling-frequency state)))
+      (setitimer ITIMER_PROF
+                 0 0
+                 (car (sampling-frequency state))
+                 (cdr (sampling-frequency state)))
         
-        (if (not inside-apply-trap?)
-            (begin
-              (set-last-start-time! state (get-internal-run-time))
-              (if (count-calls? state)
-                  (set-vm-trace-level! (1+ (vm-trace-level))))))))
+      (unless inside-apply-trap?
+        (set-last-start-time! state (get-internal-run-time))
+        (when (count-calls? state)
+          (set-vm-trace-level! (1+ (vm-trace-level)))))))
   
   (set-inside-profiler?! state #f))
 
@@ -344,16 +342,15 @@
 (define (count-call frame)
   (define state (existing-profiler-state))
 
-  (if (not (inside-profiler? state))
-      (begin
-        (accumulate-time state (get-internal-run-time))
+  (unless (inside-profiler? state)
+    (accumulate-time state (get-internal-run-time))
 
-        (and=> (frame-procedure frame)
-               (lambda (proc)
-                 (inc-call-data-call-count!
-                  (get-call-data proc))))
+    (and=> (frame-procedure frame)
+           (lambda (proc)
+             (inc-call-data-call-count!
+              (get-call-data proc))))
         
-        (set-last-start-time! state (get-internal-run-time)))))
+    (set-last-start-time! state (get-internal-run-time))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -370,25 +367,26 @@ than @code{statprof-stop}, @code{#f} otherwise."
   ;; signals here, but if I'm wrong, please let me know.
   (define state (ensure-profiler-state))
   (set-profile-level! state (+ (profile-level state) 1))
-  (if (= (profile-level state) 1)
-      (let* ((rpt (remaining-prof-time state))
-             (use-rpt? (and rpt
-                            (or (positive? (car rpt))
-                                (positive? (cdr rpt))))))
-        (set-remaining-prof-time! state #f)
-        (set-last-start-time! state (get-internal-run-time))
-        (set-gc-time-taken! state
-                            (cdr (assq 'gc-time-taken (gc-stats))))
-        (if use-rpt?
-            (setitimer ITIMER_PROF 0 0 (car rpt) (cdr rpt))
-            (setitimer ITIMER_PROF
-                       0 0
-                       (car (sampling-frequency state))
-                       (cdr (sampling-frequency state))))
-        (if (count-calls? state)
-            (add-hook! (vm-apply-hook) count-call))
-        (set-vm-trace-level! (1+ (vm-trace-level)))
-        #t)))
+  (when (= (profile-level state) 1)
+    (let* ((rpt (remaining-prof-time state))
+           (use-rpt? (and rpt
+                          (or (positive? (car rpt))
+                              (positive? (cdr rpt))))))
+      (set-remaining-prof-time! state #f)
+      ;; FIXME: Use per-thread run time.
+      (set-last-start-time! state (get-internal-run-time))
+      (set-gc-time-taken! state
+                          (cdr (assq 'gc-time-taken (gc-stats))))
+      (if use-rpt?
+          (setitimer ITIMER_PROF 0 0 (car rpt) (cdr rpt))
+          (setitimer ITIMER_PROF
+                     0 0
+                     (car (sampling-frequency state))
+                     (cdr (sampling-frequency state))))
+      (when (count-calls? state)
+        (add-hook! (vm-apply-hook) count-call))
+      (set-vm-trace-level! (1+ (vm-trace-level)))
+      #t)))
   
 ;; Do not call this from statprof internal functions -- user only.
 (define (statprof-stop)
@@ -397,19 +395,18 @@ than @code{statprof-stop}, @code{#f} otherwise."
   ;; signals here, but if I'm wrong, please let me know.
   (define state (ensure-profiler-state))
   (set-profile-level! state (- (profile-level state) 1))
-  (if (zero? (profile-level state))
-      (begin
-        (set-gc-time-taken! state
-                            (- (cdr (assq 'gc-time-taken (gc-stats)))
-                               (gc-time-taken state)))
-        (set-vm-trace-level! (1- (vm-trace-level)))
-        (if (count-calls? state)
-            (remove-hook! (vm-apply-hook) count-call))
-        ;; I believe that we need to do this before getting the time
-        ;; (unless we want to make things even more complicated).
-        (set-remaining-prof-time! state (setitimer ITIMER_PROF 0 0 0 0))
-        (accumulate-time state (get-internal-run-time))
-        (set-last-start-time! state #f))))
+  (when (zero? (profile-level state))
+    (set-gc-time-taken! state
+                        (- (cdr (assq 'gc-time-taken (gc-stats)))
+                           (gc-time-taken state)))
+    (set-vm-trace-level! (1- (vm-trace-level)))
+    (when (count-calls? state)
+      (remove-hook! (vm-apply-hook) count-call))
+    ;; I believe that we need to do this before getting the time
+    ;; (unless we want to make things even more complicated).
+    (set-remaining-prof-time! state (setitimer ITIMER_PROF 0 0 0 0))
+    (accumulate-time state (get-internal-run-time))
+    (set-last-start-time! state #f)))
 
 (define* (statprof-reset sample-seconds sample-microseconds count-calls?
                          #:optional full-stacks?)
@@ -568,14 +565,14 @@ statistics.@code{}"
 
   (statprof-fold-call-data
    (lambda (data prior-value)
-     (if (and (count-calls? state)
-              (zero? (call-data-call-count data))
-              (positive? (call-data-cum-sample-count data)))
-         (simple-format #t
-                        "==[~A ~A ~A]\n"
-                        (call-data-name data)
-                        (call-data-call-count data)
-                        (call-data-cum-sample-count data))))
+     (when (and (count-calls? state)
+                (zero? (call-data-call-count data))
+                (positive? (call-data-cum-sample-count data)))
+       (simple-format #t
+                      "==[~A ~A ~A]\n"
+                      (call-data-name data)
+                      (call-data-call-count data)
+                      (call-data-cum-sample-count data))))
    #f)
   (simple-format #t "Total time: ~A\n" (statprof-accumulated-time))
   (simple-format #t "Sample count: ~A\n" (statprof-sample-count)))
@@ -686,10 +683,9 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
       (statprof-start))
     (lambda ()
       (let lp ((i loop))
-        (if (not (zero? i))
-            (begin
-              (thunk)
-              (lp (1- i))))))
+        (unless (zero? i)
+          (thunk)
+          (lp (1- i)))))
     (lambda ()
       (statprof-stop)
       (statprof-display)
@@ -752,8 +748,8 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
   (define state (ensure-profiler-state))
 
   (define (reset)
-    (if (positive? (profile-level state))
-        (error "Can't reset profiler while profiler is running."))
+    (when (positive? (profile-level state))
+      (error "Can't reset profiler while profiler is running."))
     (set-accumulated-time! state 0)
     (set-last-start-time! state #f)
     (set-sample-count! state 0)
@@ -783,25 +779,23 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
 
   (define (start)
     (set-profile-level! state (+ (profile-level state) 1))
-    (if (= (profile-level state) 1)
-        (begin
-          (set-remaining-prof-time! state #f)
-          (set-last-start-time! state (get-internal-run-time))
-          (set-gc-time-taken! state (cdr (assq 'gc-time-taken (gc-stats))))
-          (add-hook! after-gc-hook gc-callback)
-          (set-vm-trace-level! (1+ (vm-trace-level)))
-          #t)))
+    (when (= (profile-level state) 1)
+      (set-remaining-prof-time! state #f)
+      (set-last-start-time! state (get-internal-run-time))
+      (set-gc-time-taken! state (cdr (assq 'gc-time-taken (gc-stats))))
+      (add-hook! after-gc-hook gc-callback)
+      (set-vm-trace-level! (1+ (vm-trace-level)))
+      #t))
 
   (define (stop)
     (set-profile-level! state (- (profile-level state) 1))
-    (if (zero? (profile-level state))
-        (begin
-          (set-gc-time-taken! state
-                              (- (cdr (assq 'gc-time-taken (gc-stats)))
-                                 (gc-time-taken state)))
-          (remove-hook! after-gc-hook gc-callback)
-          (accumulate-time state (get-internal-run-time))
-          (set-last-start-time! state #f))))
+    (when (zero? (profile-level state))
+      (set-gc-time-taken! state
+                          (- (cdr (assq 'gc-time-taken (gc-stats)))
+                             (gc-time-taken state)))
+      (remove-hook! after-gc-hook gc-callback)
+      (accumulate-time state (get-internal-run-time))
+      (set-last-start-time! state #f)))
 
   (dynamic-wind
     (lambda ()
@@ -809,10 +803,9 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
       (start))
     (lambda ()
       (let lp ((i loop))
-        (if (not (zero? i))
-            (begin
-              (thunk)
-              (lp (1- i))))))
+        (unless (zero? i)
+          (thunk)
+          (lp (1- i)))))
     (lambda ()
       (stop)
       (statprof-display)
