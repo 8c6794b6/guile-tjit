@@ -111,6 +111,7 @@
 (define-module (statprof)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-9 gnu)
   #:autoload   (ice-9 format) (format)
   #:use-module (system vm vm)
   #:use-module (system vm frame)
@@ -235,8 +236,7 @@
                          (+ (accumulated-time state)
                             (- stop-time (last-start-time state)))))
 
-(define (get-call-data proc)
-  (define state (ensure-profiler-state))
+(define (get-call-data state proc)
   (let ((k (cond
             ((program? proc) (program-code proc))
             (else proc))))
@@ -253,10 +253,9 @@
 ;; growable vector, and resolve them to procedures when analyzing
 ;; instead of at collection time.
 ;;
-(define (sample-stack-procs stack)
+(define (sample-stack-procs state stack)
   (let ((stacklen (stack-length stack))
-        (hit-count-call? #f)
-        (state (existing-profiler-state)))
+        (hit-count-call? #f))
 
     (when (record-full-stacks? state)
       (set-stacks! state (cons stack (stacks state))))
@@ -271,10 +270,11 @@
         (hash-fold
          (lambda (proc val accum)
            (inc-call-data-cum-sample-count!
-            (get-call-data proc)))
+            (get-call-data state proc)))
          #f
          procs-seen)
-        (and=> (and=> self get-call-data)
+        (and=> (and=> self (lambda (proc)
+                             (get-call-data state proc)))
                inc-call-data-self-sample-count!))
        ((frame-procedure frame)
         => (lambda (proc)
@@ -311,7 +311,7 @@
            ;; signal handler instead...
            (stack (or (make-stack #t profile-signal-handler)
                       (pk 'what! (make-stack #t))))
-           (inside-apply-trap? (sample-stack-procs stack)))
+           (inside-apply-trap? (sample-stack-procs state stack)))
 
       (unless inside-apply-trap?
         ;; disabling here is just a little more efficient, but
@@ -348,7 +348,7 @@
     (and=> (frame-procedure frame)
            (lambda (proc)
              (inc-call-data-call-count!
-              (get-call-data proc))))
+              (get-call-data state proc))))
         
     (set-last-start-time! state (get-internal-run-time))))
 
@@ -447,7 +447,7 @@ it represents different functions with the same name."
 none is available."
   (when (statprof-active?)
     (error "Can't call statprof-proc-call-data while profiler is running."))
-  (get-call-data proc))
+  (get-call-data (existing-profiler-state) proc))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Stats
@@ -771,7 +771,7 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
             ;; also.
             (stack (or (make-stack #t gc-callback 0 1)
                        (pk 'what! (make-stack #t)))))
-        (sample-stack-procs stack)
+        (sample-stack-procs state stack)
         (accumulate-time state stop-time)
         (set-last-start-time! state (get-internal-run-time)))
       
