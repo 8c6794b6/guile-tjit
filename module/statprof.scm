@@ -198,7 +198,7 @@
 (define* (fresh-profiler-state #:key (count-calls? #f)
                                (sampling-frequency '(0 . 10000))
                                (full-stacks? #f))
-  (make-state 0.0 #f 0 sampling-frequency #f 0 count-calls? 0.0 #f '()
+  (make-state 0 #f 0 sampling-frequency #f 0 count-calls? 0 #f '()
               (make-hash-table) #f))
 
 (define (ensure-profiler-state)
@@ -375,8 +375,7 @@ than @code{statprof-stop}, @code{#f} otherwise."
       (set-remaining-prof-time! state #f)
       ;; FIXME: Use per-thread run time.
       (set-last-start-time! state (get-internal-run-time))
-      (set-gc-time-taken! state
-                          (cdr (assq 'gc-time-taken (gc-stats))))
+      (set-gc-time-taken! state (assq-ref (gc-stats) 'gc-time-taken))
       (if use-rpt?
           (setitimer ITIMER_PROF 0 0 (car rpt) (cdr rpt))
           (setitimer ITIMER_PROF
@@ -397,7 +396,7 @@ than @code{statprof-stop}, @code{#f} otherwise."
   (set-profile-level! state (- (profile-level state) 1))
   (when (zero? (profile-level state))
     (set-gc-time-taken! state
-                        (- (cdr (assq 'gc-time-taken (gc-stats)))
+                        (- (assq-ref (gc-stats) 'gc-time-taken)
                            (gc-time-taken state)))
     (set-vm-trace-level! (1- (vm-trace-level)))
     (when (count-calls? state)
@@ -556,7 +555,8 @@ optional @var{port} argument is passed, uses the current output port."
       (simple-format #t "Sample count: ~A\n" (statprof-sample-count))
       (simple-format #t "Total time: ~A seconds (~A seconds in GC)\n"
                      (statprof-accumulated-time)
-                     (/ (gc-time-taken state) 1.0 internal-time-units-per-second))))))
+                     (/ (gc-time-taken state)
+                        1.0 internal-time-units-per-second))))))
 
 (define (statprof-display-anomolies)
   "A sanity check that attempts to detect anomolies in statprof's
@@ -581,7 +581,7 @@ statistics.@code{}"
   "Returns the time accumulated during the last statprof run.@code{}"
   (when (statprof-active?)
     (error "Can't get accumulated time while profiler is running."))
-  (/ (accumulated-time (existing-profiler-state)) internal-time-units-per-second))
+  (/ (accumulated-time (existing-profiler-state)) 1.0 internal-time-units-per-second))
 
 (define (statprof-sample-count)
   "Returns the number of samples taken during the last statprof run.@code{}"
@@ -782,7 +782,7 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
     (when (= (profile-level state) 1)
       (set-remaining-prof-time! state #f)
       (set-last-start-time! state (get-internal-run-time))
-      (set-gc-time-taken! state (cdr (assq 'gc-time-taken (gc-stats))))
+      (set-gc-time-taken! state (assq-ref (gc-stats) 'gc-time-taken))
       (add-hook! after-gc-hook gc-callback)
       (set-vm-trace-level! (1+ (vm-trace-level)))
       #t))
@@ -791,7 +791,7 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
     (set-profile-level! state (- (profile-level state) 1))
     (when (zero? (profile-level state))
       (set-gc-time-taken! state
-                          (- (cdr (assq 'gc-time-taken (gc-stats)))
+                          (- (assq-ref (gc-stats) 'gc-time-taken)
                              (gc-time-taken state)))
       (remove-hook! after-gc-hook gc-callback)
       (accumulate-time state (get-internal-run-time))
