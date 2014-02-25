@@ -728,20 +728,8 @@ If @var{full-stacks?} is true, at each sample, statprof will store away the
 whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
 @code{statprof-fetch-call-tree} to retrieve the last-stored stacks."
   
-  (let ((state (fresh-profiler-state)))
+  (let ((state (fresh-profiler-state #:full-stacks? full-stacks?)))
     (parameterize ((profiler-state state))
-
-      (define (reset)
-        (when (positive? (profile-level state))
-          (error "Can't reset profiler while profiler is running."))
-        (set-accumulated-time! state 0)
-        (set-last-start-time! state #f)
-        (set-sample-count! state 0)
-        (set-count-calls?! state #f)
-        (set-procedure-data! state (make-hash-table 131))
-        (set-record-full-stacks?! state full-stacks?)
-        (set-stacks! state '()))
-
       (define (gc-callback)
         (cond
          ((inside-profiler? state))
@@ -768,7 +756,6 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
           (set-last-start-time! state (get-internal-run-time))
           (set-gc-time-taken! state (assq-ref (gc-stats) 'gc-time-taken))
           (add-hook! after-gc-hook gc-callback)
-          (set-vm-trace-level! (1+ (vm-trace-level)))
           #t))
 
       (define (stop)
@@ -783,7 +770,6 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
 
       (dynamic-wind
         (lambda ()
-          (reset)
           (start))
         (lambda ()
           (let lp ((i loop))
