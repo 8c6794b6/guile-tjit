@@ -658,25 +658,24 @@ If @var{full-stacks?} is true, at each sample, statprof will store away the
 whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
 @code{statprof-fetch-call-tree} to retrieve the last-stored stacks."
   
-  (define state (ensure-profiler-state))
-
-  (dynamic-wind
-    (lambda ()
-      (statprof-reset (inexact->exact (floor (/ 1 hz)))
-                      (inexact->exact (* 1e6 (- (/ 1 hz)
-                                                (floor (/ 1 hz)))))
-                      count-calls?
-                      full-stacks?)
-      (statprof-start))
-    (lambda ()
-      (let lp ((i loop))
-        (unless (zero? i)
-          (thunk)
-          (lp (1- i)))))
-    (lambda ()
-      (statprof-stop)
-      (statprof-display)
-      (set-procedure-data! state #f))))
+  (let ((state (fresh-profiler-state)))
+    (parameterize ((profiler-state state))
+      (dynamic-wind
+        (lambda ()
+          (statprof-reset (inexact->exact (floor (/ 1 hz)))
+                          (inexact->exact (* 1e6 (- (/ 1 hz)
+                                                    (floor (/ 1 hz)))))
+                          count-calls?
+                          full-stacks?)
+          (statprof-start))
+        (lambda ()
+          (let lp ((i loop))
+            (unless (zero? i)
+              (thunk)
+              (lp (1- i)))))
+        (lambda ()
+          (statprof-stop)
+          (statprof-display))))))
 
 (define-macro (with-statprof . args)
   "Profiles the expressions in its body.
@@ -732,68 +731,68 @@ If @var{full-stacks?} is true, at each sample, statprof will store away the
 whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
 @code{statprof-fetch-call-tree} to retrieve the last-stored stacks."
   
-  (define state (ensure-profiler-state))
+  (let ((state (fresh-profiler-state)))
+    (parameterize ((profiler-state state))
 
-  (define (reset)
-    (when (positive? (profile-level state))
-      (error "Can't reset profiler while profiler is running."))
-    (set-accumulated-time! state 0)
-    (set-last-start-time! state #f)
-    (set-sample-count! state 0)
-    (set-count-calls?! state #f)
-    (set-procedure-data! state (make-hash-table 131))
-    (set-record-full-stacks?! state full-stacks?)
-    (set-stacks! state '()))
+      (define (reset)
+        (when (positive? (profile-level state))
+          (error "Can't reset profiler while profiler is running."))
+        (set-accumulated-time! state 0)
+        (set-last-start-time! state #f)
+        (set-sample-count! state 0)
+        (set-count-calls?! state #f)
+        (set-procedure-data! state (make-hash-table 131))
+        (set-record-full-stacks?! state full-stacks?)
+        (set-stacks! state '()))
 
-  (define (gc-callback)
-    (cond
-     ((inside-profiler? state))
-     (else
-      (set-inside-profiler?! state #t)
+      (define (gc-callback)
+        (cond
+         ((inside-profiler? state))
+         (else
+          (set-inside-profiler?! state #t)
 
-      ;; FIXME: should be able to set an outer frame for the stack cut
-      (let ((stop-time (get-internal-run-time))
-            ;; Cut down to gc-callback, and then one before (the
-            ;; after-gc async).  See the note in profile-signal-handler
-            ;; also.
-            (stack (or (make-stack #t gc-callback 0 1)
-                       (pk 'what! (make-stack #t)))))
-        (sample-stack-procs state stack)
-        (accumulate-time state stop-time)
-        (set-last-start-time! state (get-internal-run-time)))
+          ;; FIXME: should be able to set an outer frame for the stack cut
+          (let ((stop-time (get-internal-run-time))
+                ;; Cut down to gc-callback, and then one before (the
+                ;; after-gc async).  See the note in profile-signal-handler
+                ;; also.
+                (stack (or (make-stack #t gc-callback 0 1)
+                           (pk 'what! (make-stack #t)))))
+            (sample-stack-procs state stack)
+            (accumulate-time state stop-time)
+            (set-last-start-time! state (get-internal-run-time)))
       
-      (set-inside-profiler?! state #f))))
+          (set-inside-profiler?! state #f))))
 
-  (define (start)
-    (set-profile-level! state (+ (profile-level state) 1))
-    (when (= (profile-level state) 1)
-      (set-remaining-prof-time! state #f)
-      (set-last-start-time! state (get-internal-run-time))
-      (set-gc-time-taken! state (assq-ref (gc-stats) 'gc-time-taken))
-      (add-hook! after-gc-hook gc-callback)
-      (set-vm-trace-level! (1+ (vm-trace-level)))
-      #t))
+      (define (start)
+        (set-profile-level! state (+ (profile-level state) 1))
+        (when (= (profile-level state) 1)
+          (set-remaining-prof-time! state #f)
+          (set-last-start-time! state (get-internal-run-time))
+          (set-gc-time-taken! state (assq-ref (gc-stats) 'gc-time-taken))
+          (add-hook! after-gc-hook gc-callback)
+          (set-vm-trace-level! (1+ (vm-trace-level)))
+          #t))
 
-  (define (stop)
-    (set-profile-level! state (- (profile-level state) 1))
-    (when (zero? (profile-level state))
-      (set-gc-time-taken! state
-                          (- (assq-ref (gc-stats) 'gc-time-taken)
-                             (gc-time-taken state)))
-      (remove-hook! after-gc-hook gc-callback)
-      (accumulate-time state (get-internal-run-time))
-      (set-last-start-time! state #f)))
+      (define (stop)
+        (set-profile-level! state (- (profile-level state) 1))
+        (when (zero? (profile-level state))
+          (set-gc-time-taken! state
+                              (- (assq-ref (gc-stats) 'gc-time-taken)
+                                 (gc-time-taken state)))
+          (remove-hook! after-gc-hook gc-callback)
+          (accumulate-time state (get-internal-run-time))
+          (set-last-start-time! state #f)))
 
-  (dynamic-wind
-    (lambda ()
-      (reset)
-      (start))
-    (lambda ()
-      (let lp ((i loop))
-        (unless (zero? i)
-          (thunk)
-          (lp (1- i)))))
-    (lambda ()
-      (stop)
-      (statprof-display)
-      (set-procedure-data! state #f))))
+      (dynamic-wind
+        (lambda ()
+          (reset)
+          (start))
+        (lambda ()
+          (let lp ((i loop))
+            (unless (zero? i)
+              (thunk)
+              (lp (1- i)))))
+        (lambda ()
+          (stop)
+          (statprof-display))))))
