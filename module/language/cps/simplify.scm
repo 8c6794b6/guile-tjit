@@ -40,6 +40,46 @@
 ;; aren't used), making it useful for this pass to include its own
 ;; little pruner.
 
+(define* (prune-continuations fun #:optional (dfg (compute-dfg fun)))
+  (let ((cfa (analyze-control-flow fun dfg)))
+    (define (must-visit-cont cont)
+      (or (visit-cont cont)
+          (error "cont must be reachable" cont)))
+    (define (visit-cont cont)
+      (match cont
+        (($ $cont sym cont)
+         (and (cfa-k-idx cfa sym #:default (lambda (k) #f))
+              (rewrite-cps-cont cont
+                (($ $kargs names syms body)
+                 (sym ($kargs names syms ,(visit-term body))))
+                (($ $kentry self tail clauses)
+                 (sym ($kentry self ,tail ,(visit-conts clauses))))
+                (($ $kclause arity body)
+                 (sym ($kclause ,arity ,(must-visit-cont body))))
+                ((or ($ $kreceive) ($ $kif))
+                 (sym ,cont)))))))
+    (define (visit-conts conts)
+      (filter-map visit-cont conts))
+    (define (visit-term term)
+      (match term
+        (($ $letk conts body)
+         (let ((body (visit-term body)))
+           (match (visit-conts conts)
+             (() body)
+             (conts (build-cps-term ($letk ,conts ,body))))))
+        (($ $letrec names syms funs body)
+         (build-cps-term
+           ($letrec names syms (map (cut prune-continuations <> dfg) funs)
+                    ,(visit-term body))))
+        (($ $continue k src (and fun ($ $fun)))
+         (build-cps-term
+           ($continue k src ,(prune-continuations fun dfg))))
+        (($ $continue k src exp)
+         term)))
+    (rewrite-cps-exp fun
+      (($ $fun src meta free body)
+       ($fun src meta free ,(must-visit-cont body))))))
+
 (define (compute-eta-reductions fun)
   (let ((table (make-hash-table)))
     (define (visit-cont cont)
@@ -72,42 +112,6 @@
          (visit-cont body))))
     (visit-fun fun)
     table))
-
-(define (locally-prune-continuations fun dfg)
-  (let ((cfa (analyze-control-flow fun dfg)))
-    (define (must-visit-cont cont)
-      (or (visit-cont cont)
-          (error "cont must be reachable" cont)))
-    (define (visit-cont cont)
-      (match cont
-        (($ $cont sym cont)
-         (and (cfa-k-idx cfa sym #:default (lambda (k) #f))
-              (rewrite-cps-cont cont
-                (($ $kargs names syms body)
-                 (sym ($kargs names syms ,(visit-term body))))
-                (($ $kentry self tail clauses)
-                 (sym ($kentry self ,tail ,(visit-conts clauses))))
-                (($ $kclause arity body)
-                 (sym ($kclause ,arity ,(must-visit-cont body))))
-                ((or ($ $kreceive) ($ $kif))
-                 (sym ,cont)))))))
-    (define (visit-conts conts)
-      (filter-map visit-cont conts))
-    (define (visit-term term)
-      (match term
-        (($ $letk conts body)
-         (let ((body (visit-term body)))
-           (match (visit-conts conts)
-             (() body)
-             (conts (build-cps-term ($letk ,conts ,body))))))
-        (($ $letrec names syms funs body)
-         (build-cps-term
-           ($letrec names syms funs ,(visit-term body))))
-        (($ $continue k src exp)
-         term)))
-    (rewrite-cps-exp fun
-      (($ $fun src meta free body)
-       ($fun src meta free ,(must-visit-cont body))))))
 
 (define (eta-reduce fun)
   (let ((table (compute-eta-reductions fun))
@@ -154,11 +158,9 @@
         (($ $continue k src exp)
          ($continue (reduce k scope) src ,exp))))
     (define (visit-fun fun)
-      (locally-prune-continuations
-       (rewrite-cps-exp fun
-         (($ $fun src meta free body)
-          ($fun src meta free ,(visit-cont body #f))))
-       dfg))
+      (rewrite-cps-exp fun
+        (($ $fun src meta free body)
+         ($fun src meta free ,(visit-cont body #f)))))
     (visit-fun fun)))
 
 (define (compute-beta-reductions fun)
@@ -273,4 +275,4 @@
     (visit-fun fun)))
 
 (define (simplify fun)
-  (eta-reduce (beta-reduce fun)))
+  (prune-continuations (eta-reduce (beta-reduce fun))))
