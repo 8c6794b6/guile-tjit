@@ -162,7 +162,7 @@
 
 (define-record-type <state>
   (make-state accumulated-time last-start-time sample-count
-              sampling-frequency remaining-prof-time profile-level
+              sampling-period remaining-prof-time profile-level
               count-calls? gc-time-taken record-full-stacks?
               stacks procedure-data inside-profiler?)
   state?
@@ -172,8 +172,8 @@
   (last-start-time last-start-time set-last-start-time!)
   ;; Total count of sampler calls.
   (sample-count sample-count set-sample-count!)
-  ;; (seconds . microseconds)
-  (sampling-frequency sampling-frequency set-sampling-frequency!)
+  ;; Microseconds.
+  (sampling-period sampling-period set-sampling-period!)
   ;; Time remaining when prof suspended.
   (remaining-prof-time remaining-prof-time set-remaining-prof-time!)
   ;; For user start/stop nesting.
@@ -196,9 +196,9 @@
 (define profiler-state (make-parameter #f))
 
 (define* (fresh-profiler-state #:key (count-calls? #f)
-                               (sampling-frequency '(0 . 10000))
+                               (sampling-period 10000)
                                (full-stacks? #f))
-  (make-state 0 #f 0 sampling-frequency #f 0 count-calls? 0 #f '()
+  (make-state 0 #f 0 sampling-period 0 0 count-calls? 0 #f '()
               (make-hash-table) #f))
 
 (define (ensure-profiler-state)
@@ -294,6 +294,13 @@
         (loop (frame-previous frame) procs-seen self))))
     hit-count-call?))
 
+(define (reset-sigprof-timer usecs)
+  (let ((secs (quotient usecs #e1e6))
+        (usecs (remainder usecs #e1e6)))
+    ;; Guile's setitimer binding is terrible.
+    (let ((prev (setitimer ITIMER_PROF 0 0 secs usecs)))
+      (+ (* (caadr prev) #e1e6) (cdadr prev)))))
+
 (define (profile-signal-handler sig)
   (define state (existing-profiler-state))
 
@@ -316,10 +323,7 @@
       (accumulate-time state stop-time)
       (set-last-start-time! state (get-internal-run-time))
 
-      (setitimer ITIMER_PROF
-                 0 0
-                 (car (sampling-frequency state))
-                 (cdr (sampling-frequency state)))))
+      (reset-sigprof-timer (sampling-period state))))
   
   (set-inside-profiler?! state #f))
 
@@ -355,20 +359,12 @@ than @code{statprof-stop}, @code{#f} otherwise."
   (define state (ensure-profiler-state))
   (set-profile-level! state (+ (profile-level state) 1))
   (when (= (profile-level state) 1)
-    (let* ((rpt (remaining-prof-time state))
-           (use-rpt? (and rpt
-                          (or (positive? (car rpt))
-                              (positive? (cdr rpt))))))
-      (set-remaining-prof-time! state #f)
+    (let ((rpt (remaining-prof-time state)))
+      (set-remaining-prof-time! state 0)
       ;; FIXME: Use per-thread run time.
       (set-last-start-time! state (get-internal-run-time))
       (set-gc-time-taken! state (assq-ref (gc-stats) 'gc-time-taken))
-      (if use-rpt?
-          (setitimer ITIMER_PROF 0 0 (car rpt) (cdr rpt))
-          (setitimer ITIMER_PROF
-                     0 0
-                     (car (sampling-frequency state))
-                     (cdr (sampling-frequency state))))
+      (reset-sigprof-timer (if (zero? rpt) (sampling-period state) rpt))
       (when (count-calls? state)
         (add-hook! (vm-apply-hook) count-call))
       (set-vm-trace-level! (1+ (vm-trace-level)))
@@ -390,7 +386,7 @@ than @code{statprof-stop}, @code{#f} otherwise."
       (remove-hook! (vm-apply-hook) count-call))
     ;; I believe that we need to do this before getting the time
     ;; (unless we want to make things even more complicated).
-    (set-remaining-prof-time! state (setitimer ITIMER_PROF 0 0 0 0))
+    (set-remaining-prof-time! state (reset-sigprof-timer 0))
     (accumulate-time state (get-internal-run-time))
     (set-last-start-time! state #f)))
 
@@ -406,8 +402,9 @@ Enables traps and debugging as necessary."
   (when (statprof-active?)
     (error "Can't reset profiler while profiler is running."))
   (let ((state (fresh-profiler-state #:count-calls? count-calls?
-                                     #:sampling-frequency
-                                     (cons sample-seconds sample-microseconds)
+                                     #:sampling-period
+                                     (+ (* sample-seconds #e1e6)
+                                        sample-microseconds)
                                      #:full-stacks? full-stacks?)))
     (profiler-state state)
     (sigaction SIGPROF profile-signal-handler)
@@ -767,7 +764,7 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
       (define (start)
         (set-profile-level! state (+ (profile-level state) 1))
         (when (= (profile-level state) 1)
-          (set-remaining-prof-time! state #f)
+          (set-remaining-prof-time! state 0)
           (set-last-start-time! state (get-internal-run-time))
           (set-gc-time-taken! state (assq-ref (gc-stats) 'gc-time-taken))
           (add-hook! after-gc-hook gc-callback)
