@@ -295,11 +295,9 @@
     hit-count-call?))
 
 (define (reset-sigprof-timer usecs)
-  (let ((secs (quotient usecs #e1e6))
-        (usecs (remainder usecs #e1e6)))
-    ;; Guile's setitimer binding is terrible.
-    (let ((prev (setitimer ITIMER_PROF 0 0 secs usecs)))
-      (+ (* (caadr prev) #e1e6) (cdadr prev)))))
+  ;; Guile's setitimer binding is terrible.
+  (let ((prev (setitimer ITIMER_PROF 0 0 0 usecs)))
+    (+ (* (caadr prev) #e1e6) (cdadr prev))))
 
 (define (profile-signal-handler sig)
   (define state (existing-profiler-state))
