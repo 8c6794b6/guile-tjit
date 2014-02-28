@@ -140,7 +140,8 @@
             statprof-stats-cum-secs-per-call
 
             statprof-display
-            statprof-display-anomolies
+            statprof-display-anomalies
+            statprof-display-anomolies ; Deprecated spelling.
 
             statprof-fetch-stacks
             statprof-fetch-call-tree
@@ -487,11 +488,10 @@ none is available."
             (statprof-stats-cum-secs-in-proc y))
          diff))))
 
-(define* (statprof-display #:optional (port (current-output-port)))
+(define* (statprof-display #:optional (port (current-output-port))
+                           (state (existing-profiler-state)))
   "Displays a gprof-like summary of the statistics collected. Unless an
 optional @var{port} argument is passed, uses the current output port."
-  (define state (existing-profiler-state))
-  
   (cond
    ((zero? (statprof-sample-count))
     (format port "No samples recorded.\n"))
@@ -540,11 +540,10 @@ optional @var{port} argument is passed, uses the current output port."
                      (/ (gc-time-taken state)
                         1.0 internal-time-units-per-second))))))
 
-(define (statprof-display-anomolies)
-  "A sanity check that attempts to detect anomolies in statprof's
+(define* (statprof-display-anomalies #:optional (state
+                                                 (existing-profiler-state)))
+  "A sanity check that attempts to detect anomalies in statprof's
 statistics.@code{}"
-  (define state (existing-profiler-state))
-
   (statprof-fold-call-data
    (lambda (data prior-value)
      (when (and (count-calls? state)
@@ -559,30 +558,31 @@ statistics.@code{}"
   (simple-format #t "Total time: ~A\n" (statprof-accumulated-time))
   (simple-format #t "Sample count: ~A\n" (statprof-sample-count)))
 
-(define (statprof-accumulated-time)
-  "Returns the time accumulated during the last statprof run.@code{}"
-  (when (statprof-active?)
-    (error "Can't get accumulated time while profiler is running."))
-  (/ (accumulated-time (existing-profiler-state)) 1.0 internal-time-units-per-second))
+(define (statprof-display-anomolies)
+  (issue-deprecation-warning "statprof-display-anomolies is a misspelling. "
+                             "Use statprof-display-anomalies instead.")
+  (statprof-display-anomalies))
 
-(define (statprof-sample-count)
+(define* (statprof-accumulated-time #:optional (state
+                                                (existing-profiler-state)))
+  "Returns the time accumulated during the last statprof run.@code{}"
+  (/ (accumulated-time state) 1.0 internal-time-units-per-second))
+
+(define* (statprof-sample-count #:optional (state (existing-profiler-state)))
   "Returns the number of samples taken during the last statprof run.@code{}"
-  (when (statprof-active?)
-    (error "Can't get sample count while profiler is running."))
-  (sample-count (existing-profiler-state)))
+  (sample-count state))
 
 (define statprof-call-data-name call-data-name)
 (define statprof-call-data-calls call-data-call-count)
 (define statprof-call-data-cum-samples call-data-cum-sample-count)
 (define statprof-call-data-self-samples call-data-self-sample-count)
 
-(define (statprof-fetch-stacks)
+(define* (statprof-fetch-stacks #:optional (state (existing-profiler-state)))
   "Returns a list of stacks, as they were captured since the last call
 to @code{statprof-reset}.
 
 Note that stacks are only collected if the @var{full-stacks?} argument
 to @code{statprof-reset} is true."
-  (define state (existing-profiler-state))
   (stacks state))
 
 (define procedure=?
@@ -629,14 +629,13 @@ to @code{statprof-reset} is true."
                         frame-previous
                         (stack-ref stack 0))))
 
-(define (statprof-fetch-call-tree)
+(define* (statprof-fetch-call-tree #:optional (state (existing-profiler-state)))
   "Return a call tree for the previous statprof run.
 
 The return value is a list of nodes, each of which is of the type:
 @code
  node ::= (@var{proc} @var{count} . @var{nodes})
 @end code"
-  (define state (existing-profiler-state))
   (cons #t (lists->trees (map stack->procedures (stacks state)) procedure=?)))
 
 (define* (statprof thunk #:key (loop 1) (hz 100) (count-calls? #f)
@@ -657,9 +656,8 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
     (parameterize ((profiler-state state))
       (dynamic-wind
         (lambda ()
-          (statprof-reset (inexact->exact (floor (/ 1 hz)))
-                          (inexact->exact (* 1e6 (- (/ 1 hz)
-                                                    (floor (/ 1 hz)))))
+          (statprof-reset 0
+                          (inexact->exact (round (/ 1e6 hz)))
                           count-calls?
                           full-stacks?)
           (statprof-start))
