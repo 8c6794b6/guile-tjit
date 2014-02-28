@@ -371,9 +371,11 @@ always collects full stacks.)"
   (values))
 
 (define-record-type call-data
-  (make-call-data name printable call-count cum-sample-count self-sample-count)
+  (make-call-data name source printable
+                  call-count cum-sample-count self-sample-count)
   call-data?
   (name call-data-name)
+  (source call-data-source)
   (printable call-data-printable)
   (call-count call-data-call-count set-call-data-call-count!)
   (cum-sample-count call-data-cum-sample-count set-call-data-cum-sample-count!)
@@ -423,6 +425,7 @@ always collects full stacks.)"
              (entry (if pdi (program-debug-info-addr pdi) addr)))
         (or (hashv-ref table entry)
             (let ((data (make-call-data (and=> pdi program-debug-info-name)
+                                        (find-source-for-addr entry)
                                         (addr->printable entry pdi)
                                         (and call-counts
                                              (hashv-ref call-counts entry))
@@ -441,6 +444,7 @@ always collects full stacks.)"
                            ;; a primitive
                            ((symbol? callee) callee)
                            (else #f))
+                     #f
                      (with-output-to-string (lambda () (write callee)))
                      (and call-counts (hashv-ref call-counts callee))
                      0
@@ -518,16 +522,20 @@ none is available."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Stats
 
+(define-record-type stats
+  (make-stats proc-name %-time-in-proc cum-secs-in-proc self-secs-in-proc
+              calls self-secs-per-call cum-secs-per-call)
+  stats?
+  (proc-name statprof-stats-proc-name)
+  (%-time-in-proc statprof-stats-%-time-in-proc)
+  (cum-secs-in-proc statprof-stats-cum-secs-in-proc)
+  (self-secs-in-proc statprof-stats-self-secs-in-proc)
+  (calls statprof-stats-calls)
+  (self-secs-per-call statprof-stats-self-secs-per-call)
+  (cum-secs-per-call statprof-stats-cum-secs-per-call))
+
 (define (statprof-call-data->stats call-data)
   "Returns an object of type @code{statprof-stats}."
-  ;; returns (vector proc-name
-  ;;                 %-time-in-proc
-  ;;                 cum-seconds-in-proc
-  ;;                 self-seconds-in-proc
-  ;;                 num-calls
-  ;;                 self-secs-per-call
-  ;;                 total-secs-per-call)
-
   (define state (existing-profiler-state))
 
   (let* ((proc-name (call-data-printable call-data))
@@ -539,28 +547,20 @@ none is available."
          (num-calls (and (call-counts state)
                          (statprof-call-data-calls call-data))))
 
-    (vector proc-name
-            (* (/ self-samples all-samples) 100.0)
-            (* cum-samples secs-per-sample 1.0)
-            (* self-samples secs-per-sample 1.0)
-            num-calls
-            (and num-calls ;; maybe we only sampled in children
-                 (if (zero? self-samples) 0.0
-                     (/ (* self-samples secs-per-sample) 1.0 num-calls)))
-            (and num-calls ;; cum-samples must be positive
-                 (/ (* cum-samples secs-per-sample)
-                    1.0
-                    ;; num-calls might be 0 if we entered statprof during the
-                    ;; dynamic extent of the call
-                    (max num-calls 1))))))
-
-(define (statprof-stats-proc-name stats) (vector-ref stats 0))
-(define (statprof-stats-%-time-in-proc stats) (vector-ref stats 1))
-(define (statprof-stats-cum-secs-in-proc stats) (vector-ref stats 2))
-(define (statprof-stats-self-secs-in-proc stats) (vector-ref stats 3))
-(define (statprof-stats-calls stats) (vector-ref stats 4))
-(define (statprof-stats-self-secs-per-call stats) (vector-ref stats 5))
-(define (statprof-stats-cum-secs-per-call stats) (vector-ref stats 6))
+    (make-stats proc-name
+                (* (/ self-samples all-samples) 100.0)
+                (* cum-samples secs-per-sample 1.0)
+                (* self-samples secs-per-sample 1.0)
+                num-calls
+                (and num-calls ;; maybe we only sampled in children
+                     (if (zero? self-samples) 0.0
+                         (/ (* self-samples secs-per-sample) 1.0 num-calls)))
+                (and num-calls ;; cum-samples must be positive
+                     (/ (* cum-samples secs-per-sample)
+                        1.0
+                        ;; num-calls might be 0 if we entered statprof during the
+                        ;; dynamic extent of the call
+                        (max num-calls 1))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
