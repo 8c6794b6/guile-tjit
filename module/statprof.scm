@@ -729,9 +729,7 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
   (let ((state (fresh-profiler-state #:full-stacks? full-stacks?)))
     (parameterize ((profiler-state state))
       (define (gc-callback)
-        (cond
-         ((inside-profiler? state))
-         (else
+        (unless (inside-profiler? state)
           (set-inside-profiler?! state #t)
 
           ;; FIXME: should be able to set an outer frame for the stack cut
@@ -745,35 +743,24 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
             (accumulate-time state stop-time)
             (set-last-start-time! state (get-internal-run-time)))
       
-          (set-inside-profiler?! state #f))))
-
-      (define (start)
-        (set-profile-level! state (+ (profile-level state) 1))
-        (when (= (profile-level state) 1)
-          (set-remaining-prof-time! state 0)
-          (set-last-start-time! state (get-internal-run-time))
-          (set-gc-time-taken! state (assq-ref (gc-stats) 'gc-time-taken))
-          (add-hook! after-gc-hook gc-callback)
-          #t))
-
-      (define (stop)
-        (set-profile-level! state (- (profile-level state) 1))
-        (when (zero? (profile-level state))
-          (set-gc-time-taken! state
-                              (- (assq-ref (gc-stats) 'gc-time-taken)
-                                 (gc-time-taken state)))
-          (remove-hook! after-gc-hook gc-callback)
-          (accumulate-time state (get-internal-run-time))
-          (set-last-start-time! state #f)))
+          (set-inside-profiler?! state #f)))
 
       (dynamic-wind
         (lambda ()
-          (start))
+          (set-profile-level! state 1)
+          (set-last-start-time! state (get-internal-run-time))
+          (set-gc-time-taken! state (assq-ref (gc-stats) 'gc-time-taken))
+          (add-hook! after-gc-hook gc-callback))
         (lambda ()
           (let lp ((i loop))
             (unless (zero? i)
               (thunk)
               (lp (1- i)))))
         (lambda ()
-          (stop)
+          (remove-hook! after-gc-hook gc-callback)
+          (set-gc-time-taken! state
+                              (- (assq-ref (gc-stats) 'gc-time-taken)
+                                 (gc-time-taken state)))
+          (accumulate-time state (get-internal-run-time))
+          (set-profile-level! state 0)
           (statprof-display))))))
