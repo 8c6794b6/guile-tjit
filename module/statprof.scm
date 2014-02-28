@@ -162,8 +162,7 @@
 (define-record-type <state>
   (make-state accumulated-time last-start-time sample-count
               sampling-period remaining-prof-time profile-level
-              call-counts gc-time-taken record-full-stacks?
-              stacks inside-profiler?
+              call-counts gc-time-taken inside-profiler?
               prev-sigprof-handler buffer buffer-pos)
   state?
   ;; Total time so far.
@@ -182,10 +181,6 @@
   (call-counts call-counts set-call-counts!)
   ;; GC time between statprof-start and statprof-stop.
   (gc-time-taken gc-time-taken set-gc-time-taken!)
-  ;; If #t, stash away the stacks for future analysis.
-  (record-full-stacks? record-full-stacks? set-record-full-stacks?!)
-  ;; If record-full-stacks?, the stashed full stacks.
-  (stacks stacks set-stacks!)
   ;; True if we are inside the profiler.
   (inside-profiler? inside-profiler? set-inside-profiler?!)
   ;; True if we are inside the profiler.
@@ -206,11 +201,11 @@
     new))
 
 (define* (fresh-profiler-state #:key (count-calls? #f)
-                               (sampling-period 10000)
-                               (full-stacks? #f))
-  (make-state 0 #f 0 sampling-period 0 0
-              (and count-calls? (make-hash-table))
-              0 #f '() #f #f (fresh-buffer) 0))
+                               (sampling-period 10000))
+  (make-state 0 #f 0
+              sampling-period 0 0
+              (and count-calls? (make-hash-table)) 0 #f
+              #f (fresh-buffer) 0))
 
 (define (ensure-profiler-state)
   (or (profiler-state)
@@ -231,9 +226,6 @@
 ;; SIGPROF handler
 
 (define (sample-stack-procs state stack)
-  (when (record-full-stacks? state)
-    (set-stacks! state (cons stack (stacks state))))
-
   (set-sample-count! state (+ (sample-count state) 1))
 
   (let lp ((frame (stack-ref stack 0))
@@ -368,17 +360,14 @@ than @code{statprof-stop}, @code{#f} otherwise."
   "Reset the statprof sampler interval to @var{sample-seconds} and
 @var{sample-microseconds}. If @var{count-calls?} is true, arrange to
 instrument procedure calls as well as collecting statistical profiling
-data. If @var{full-stacks?} is true, collect all sampled stacks into a
-list for later analysis.
-
-Enables traps and debugging as necessary."
+data.  (The optional @var{full-stacks?} argument is deprecated; statprof
+always collects full stacks.)"
   (when (statprof-active?)
     (error "Can't reset profiler while profiler is running."))
   (profiler-state
    (fresh-profiler-state #:count-calls? count-calls?
                          #:sampling-period (+ (* sample-seconds #e1e6)
-                                              sample-microseconds)
-                         #:full-stacks? full-stacks?))
+                                              sample-microseconds)))
   (values))
 
 (define-record-type call-data
@@ -473,15 +462,32 @@ Enables traps and debugging as necessary."
         (inc-call-data-self-sample-count!
          (callee->call-data (vector-ref buffer pos)))
         (let visit-stack ((pos pos))
-          (let ((callee (vector-ref buffer pos)))
-            (cond
-             ((vector-ref buffer pos)
-              => (lambda (callee)
-                   (inc-call-data-cum-sample-count! (callee->call-data callee))
-                   (visit-stack (1+ pos))))
-             (else
-              (visit-stacks (1+ pos)))))))
+          (cond
+           ((vector-ref buffer pos)
+            => (lambda (callee)
+                 (inc-call-data-cum-sample-count! (callee->call-data callee))
+                 (visit-stack (1+ pos))))
+           (else
+            (visit-stacks (1+ pos))))))
        (else table)))))
+
+(define (stack-samples->callee-lists state)
+  (let ((buffer (buffer state))
+        (len (buffer-pos state)))
+    (let visit-stacks ((pos 0) (out '()))
+      (cond
+       ((< pos len)
+        ;; FIXME: if we are counting all procedure calls, and
+        ;; count-call is on the stack, we need to not count the part
+        ;; of the stack that is within count-call.
+        (let visit-stack ((pos pos) (stack '()))
+          (cond
+           ((vector-ref buffer pos)
+            => (lambda (callee)
+                 (visit-stack (1+ pos) (cons callee stack))))
+           (else
+            (visit-stacks (1+ pos) (cons (reverse stack) out))))))
+       (else (reverse out))))))
 
 (define (statprof-fold-call-data proc init)
   "Fold @var{proc} over the call-data accumulated by statprof. Cannot be
@@ -658,11 +664,8 @@ statistics.@code{}"
 
 (define* (statprof-fetch-stacks #:optional (state (existing-profiler-state)))
   "Returns a list of stacks, as they were captured since the last call
-to @code{statprof-reset}.
-
-Note that stacks are only collected if the @var{full-stacks?} argument
-to @code{statprof-reset} is true."
-  (stacks state))
+to @code{statprof-reset}."
+  (stack-samples->callee-lists state))
 
 (define procedure=?
   (lambda (a b)
@@ -701,13 +704,6 @@ to @code{statprof-reset} is true."
           n-terminal
           (acons (caar in) (list (cdar in)) tails))))))
 
-(define (stack->procedures stack)
-  (filter identity
-          (unfold-right (lambda (x) (not x))
-                        frame-procedure
-                        frame-previous
-                        (stack-ref stack 0))))
-
 (define* (statprof-fetch-call-tree #:optional (state (existing-profiler-state)))
   "Return a call tree for the previous statprof run.
 
@@ -715,26 +711,39 @@ The return value is a list of nodes, each of which is of the type:
 @code
  node ::= (@var{proc} @var{count} . @var{nodes})
 @end code"
-  (cons #t (lists->trees (map stack->procedures (stacks state)) procedure=?)))
+  (define (callee->printable callee)
+    (cond
+     ((number? callee)
+      (addr->printable callee (find-program-debug-info callee)))
+     (else
+      (with-output-to-string (lambda () (write callee))))))
+  (define (memoizev/1 proc table)
+    (lambda (x)
+      (cond
+       ((hashv-get-handle table x) => cdr)
+       (else
+        (let ((res (proc x)))
+          (hashv-set! table x res)
+          res)))))
+  (let ((callee->printable (memoizev/1 callee->printable (make-hash-table))))
+    (cons #t (lists->trees (map (lambda (callee-list)
+                                  (map callee->printable callee-list))
+                                (stack-samples->callee-lists state))
+                           equal?))))
 
 (define* (statprof thunk #:key (loop 1) (hz 100) (count-calls? #f)
-                   (full-stacks? #f) (port (current-output-port)))
+                   (port (current-output-port)) full-stacks?)
   "Profiles the execution of @var{thunk}.
 
 The stack will be sampled @var{hz} times per second, and the thunk itself will
 be called @var{loop} times.
 
 If @var{count-calls?} is true, all procedure calls will be recorded. This
-operation is somewhat expensive.
-
-If @var{full-stacks?} is true, at each sample, statprof will store away the
-whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
-@code{statprof-fetch-call-tree} to retrieve the last-stored stacks."
+operation is somewhat expensive."
   
   (let ((state (fresh-profiler-state #:count-calls? count-calls?
                                      #:sampling-period
-                                     (inexact->exact (round (/ 1e6 hz)))
-                                     #:full-stacks? full-stacks?)))
+                                     (inexact->exact (round (/ 1e6 hz))))))
     (parameterize ((profiler-state state))
       (dynamic-wind
         (lambda ()
@@ -766,10 +775,6 @@ default: @code{20}
 Whether to instrument each function call (expensive)
 
 default: @code{#f}
-@item #:full-stacks?
-Whether to collect away all sampled stacks into a list
-
-default: @code{#f}
 @end table"
   (define (kw-arg-ref kw args def)
     (cond
@@ -788,7 +793,7 @@ default: @code{#f}
     #:count-calls? ,(kw-arg-ref #:count-calls? args #f)
     #:full-stacks? ,(kw-arg-ref #:full-stacks? args #f)))
 
-(define* (gcprof thunk #:key (loop 1) (full-stacks? #f))
+(define* (gcprof thunk #:key (loop 1) full-stacks?)
   "Do an allocation profile of the execution of @var{thunk}.
 
 The stack will be sampled soon after every garbage collection, yielding
@@ -796,13 +801,9 @@ an approximate idea of what is causing allocation in your program.
 
 Since GC does not occur very frequently, you may need to use the
 @var{loop} parameter, to cause @var{thunk} to be called @var{loop}
-times.
-
-If @var{full-stacks?} is true, at each sample, statprof will store away the
-whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
-@code{statprof-fetch-call-tree} to retrieve the last-stored stacks."
+times."
   
-  (let ((state (fresh-profiler-state #:full-stacks? full-stacks?)))
+  (let ((state (fresh-profiler-state)))
     (parameterize ((profiler-state state))
       (define (gc-callback)
         (unless (inside-profiler? state)
@@ -818,7 +819,7 @@ whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
             (sample-stack-procs state stack)
             (accumulate-time state stop-time)
             (set-last-start-time! state (get-internal-run-time)))
-      
+
           (set-inside-profiler?! state #f)))
 
       (dynamic-wind
