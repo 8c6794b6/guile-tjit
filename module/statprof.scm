@@ -28,17 +28,14 @@
 ;;; A simple use of statprof would look like this:
 ;;;
 ;;; @example
-;;;   (statprof-reset 0 50000 #t)
-;;;   (statprof-start)
-;;;   (do-something)
-;;;   (statprof-stop)
-;;;   (statprof-display)
+;;;   (statprof (lambda () (do-something))
+;;;             #:hz 100
+;;;             #:count-calls? #t)
 ;;; @end example
 ;;;
-;;; This would reset statprof, clearing all accumulated statistics, then
-;;; start profiling, run some code, stop profiling, and finally display a
-;;; gprof flat-style table of statistics which will look something like
-;;; this:
+;;; This would run the thunk with statistical profiling, finally
+;;; displaying a gprof flat-style table of statistics which could
+;;; something like this:
 ;;;
 ;;; @example
 ;;;   %   cumulative      self              self    total
