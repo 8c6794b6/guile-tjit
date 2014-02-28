@@ -112,6 +112,7 @@
   #:autoload   (ice-9 format) (format)
   #:use-module (system vm vm)
   #:use-module (system vm frame)
+  #:use-module (system vm debug)
   #:use-module (system vm program)
   #:export (statprof-active?
             statprof-start
@@ -161,9 +162,9 @@
 (define-record-type <state>
   (make-state accumulated-time last-start-time sample-count
               sampling-period remaining-prof-time profile-level
-              count-calls? gc-time-taken record-full-stacks?
-              stacks procedure-data inside-profiler?
-              prev-sigprof-handler)
+              call-counts gc-time-taken record-full-stacks?
+              stacks inside-profiler?
+              prev-sigprof-handler buffer buffer-pos)
   state?
   ;; Total time so far.
   (accumulated-time accumulated-time set-accumulated-time!)
@@ -177,30 +178,39 @@
   (remaining-prof-time remaining-prof-time set-remaining-prof-time!)
   ;; For user start/stop nesting.
   (profile-level profile-level set-profile-level!)
-  ;; Whether to catch apply-frame.
-  (count-calls? count-calls? set-count-calls?!)
+  ;; Hash table mapping ip -> call count, or #f if not counting calls.
+  (call-counts call-counts set-call-counts!)
   ;; GC time between statprof-start and statprof-stop.
   (gc-time-taken gc-time-taken set-gc-time-taken!)
   ;; If #t, stash away the stacks for future analysis.
   (record-full-stacks? record-full-stacks? set-record-full-stacks?!)
   ;; If record-full-stacks?, the stashed full stacks.
   (stacks stacks set-stacks!)
-  ;; A hash where the key is the function object itself and the value is
-  ;; the data. The data will be a vector like this:
-  ;;   #(name call-count cum-sample-count self-sample-count)
-  (procedure-data procedure-data set-procedure-data!)
   ;; True if we are inside the profiler.
   (inside-profiler? inside-profiler? set-inside-profiler?!)
   ;; True if we are inside the profiler.
-  (prev-sigprof-handler prev-sigprof-handler set-prev-sigprof-handler!))
+  (prev-sigprof-handler prev-sigprof-handler set-prev-sigprof-handler!)
+  ;; Stack samples.
+  (buffer buffer set-buffer!)
+  (buffer-pos buffer-pos set-buffer-pos!))
 
 (define profiler-state (make-parameter #f))
+
+(define (fresh-buffer)
+  (make-vector 1024 #f))
+
+(define (expand-buffer buf)
+  (let* ((size (vector-length buf))
+         (new (make-vector (* size 2) #f)))
+    (vector-move-left! buf 0 (vector-length buf) new 0)
+    new))
 
 (define* (fresh-profiler-state #:key (count-calls? #f)
                                (sampling-period 10000)
                                (full-stacks? #f))
-  (make-state 0 #f 0 sampling-period 0 0 count-calls? 0 #f '()
-              (make-hash-table) #f #f))
+  (make-state 0 #f 0 sampling-period 0 0
+              (and count-calls? (make-hash-table))
+              0 #f '() #f #f (fresh-buffer) 0))
 
 (define (ensure-profiler-state)
   (or (profiler-state)
@@ -212,88 +222,48 @@
   (or (profiler-state)
       (error "expected there to be a profiler state")))
 
-(define-record-type call-data
-  (make-call-data proc call-count cum-sample-count self-sample-count)
-  call-data?
-  (proc call-data-proc)
-  (call-count call-data-call-count set-call-data-call-count!)
-  (cum-sample-count call-data-cum-sample-count set-call-data-cum-sample-count!)
-  (self-sample-count call-data-self-sample-count set-call-data-self-sample-count!))
-
-(define (call-data-name cd) (procedure-name (call-data-proc cd)))
-(define (call-data-printable cd)
-  (or (call-data-name cd)
-      (with-output-to-string (lambda () (write (call-data-proc cd))))))
-
-(define (inc-call-data-call-count! cd)
-  (set-call-data-call-count! cd (1+ (call-data-call-count cd))))
-(define (inc-call-data-cum-sample-count! cd)
-  (set-call-data-cum-sample-count! cd (1+ (call-data-cum-sample-count cd))))
-(define (inc-call-data-self-sample-count! cd)
-  (set-call-data-self-sample-count! cd (1+ (call-data-self-sample-count cd))))
-
 (define (accumulate-time state stop-time)
   (set-accumulated-time! state
                          (+ (accumulated-time state)
                             (- stop-time (last-start-time state)))))
 
-(define (get-call-data state proc)
-  (let ((k (cond
-            ((program? proc) (program-code proc))
-            (else proc))))
-    (or (hashv-ref (procedure-data state) k)
-        (let ((call-data (make-call-data proc 0 0 0)))
-          (hashv-set! (procedure-data state) k call-data)
-          call-data))))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; SIGPROF handler
 
-;; FIXME: Instead of this messing about with hash tables and
-;; frame-procedure, just record the stack of return addresses into a
-;; growable vector, and resolve them to procedures when analyzing
-;; instead of at collection time.
-;;
 (define (sample-stack-procs state stack)
-  (let ((stacklen (stack-length stack))
-        (hit-count-call? #f))
+  (when (record-full-stacks? state)
+    (set-stacks! state (cons stack (stacks state))))
 
-    (when (record-full-stacks? state)
-      (set-stacks! state (cons stack (stacks state))))
+  (set-sample-count! state (+ (sample-count state) 1))
 
-    (set-sample-count! state (+ (sample-count state) 1))
-    ;; Now accumulate stats for the whole stack.
-    (let loop ((frame (stack-ref stack 0))
-               (procs-seen (make-hash-table 13))
-               (self #f))
-      (cond
-       ((not frame)
-        (hash-fold
-         (lambda (proc val accum)
-           (inc-call-data-cum-sample-count!
-            (get-call-data state proc)))
-         #f
-         procs-seen)
-        (and=> (and=> self (lambda (proc)
-                             (get-call-data state proc)))
-               inc-call-data-self-sample-count!))
-       ((frame-procedure frame)
-        => (lambda (proc)
-             (cond
-              ((eq? proc count-call)
-               ;; We're not supposed to be sampling count-call and
-               ;; its sub-functions, so loop again with a clean
-               ;; slate.
-               (set! hit-count-call? #t)
-               (loop (frame-previous frame) (make-hash-table 13) #f))
-              (else
-               (hashq-set! procs-seen proc #t)
-               (loop (frame-previous frame)
-                     procs-seen
-                     (or self proc))))))
-       (else
-        (loop (frame-previous frame) procs-seen self))))
-    hit-count-call?))
+  (let lp ((frame (stack-ref stack 0))
+           (buffer (buffer state))
+           (pos (buffer-pos state)))
+    (define (write-sample sample)
+      (vector-set! buffer pos sample))
+    (define (continue pos)
+      (lp (frame-previous frame) buffer pos))
+    (define (write-sample-and-continue sample)
+      (write-sample sample)
+      (continue (1+ pos)))
+    (cond
+     ((= pos (vector-length buffer))
+      (lp frame (expand-buffer buffer) pos))
+     ((not frame)
+      (write-sample #f)
+      (set-buffer! state buffer)
+      (set-buffer-pos! state (1+ pos)))
+     (else
+      (let ((proc (frame-procedure frame)))
+        (cond
+         ((primitive? proc)
+          (write-sample-and-continue (procedure-name proc)))
+         ((program? proc)
+          (write-sample-and-continue (frame-instruction-pointer frame)))
+         (proc (write-sample-and-continue proc))
+         ;; If proc is false, that would confuse our stack walker.
+         ;; Ignore it.
+         (else (continue pos))))))))
 
 (define (reset-sigprof-timer usecs)
   ;; Guile's setitimer binding is terrible.
@@ -330,17 +300,19 @@
 ;; Count total calls.
 
 (define (count-call frame)
-  (define state (existing-profiler-state))
+  (let ((state (existing-profiler-state)))
+    (unless (inside-profiler? state)
+      (accumulate-time state (get-internal-run-time))
 
-  (unless (inside-profiler? state)
-    (accumulate-time state (get-internal-run-time))
+      (let* ((key (let ((proc (frame-procedure frame)))
+                    (cond
+                     ((primitive? proc) (procedure-name proc))
+                     ((program? proc) (program-code proc))
+                     (else proc))))
+             (handle (hashv-create-handle! (call-counts state) key 0)))
+        (set-cdr! handle (1+ (cdr handle))))
 
-    (and=> (frame-procedure frame)
-           (lambda (proc)
-             (inc-call-data-call-count!
-              (get-call-data state proc))))
-        
-    (set-last-start-time! state (get-internal-run-time))))
+      (set-last-start-time! state (get-internal-run-time)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -365,7 +337,7 @@ than @code{statprof-stop}, @code{#f} otherwise."
       (let ((prev (sigaction SIGPROF profile-signal-handler)))
         (set-prev-sigprof-handler! state (car prev)))
       (reset-sigprof-timer (if (zero? rpt) (sampling-period state) rpt))
-      (when (count-calls? state)
+      (when (call-counts state)
         (add-hook! (vm-apply-hook) count-call))
       (set-vm-trace-level! (1+ (vm-trace-level)))
       #t)))
@@ -381,7 +353,7 @@ than @code{statprof-stop}, @code{#f} otherwise."
                         (- (assq-ref (gc-stats) 'gc-time-taken)
                            (gc-time-taken state)))
     (set-vm-trace-level! (1- (vm-trace-level)))
-    (when (count-calls? state)
+    (when (call-counts state)
       (remove-hook! (vm-apply-hook) count-call))
     ;; I believe that we need to do this before getting the time
     ;; (unless we want to make things even more complicated).
@@ -409,6 +381,108 @@ Enables traps and debugging as necessary."
                          #:full-stacks? full-stacks?))
   (values))
 
+(define-record-type call-data
+  (make-call-data name printable call-count cum-sample-count self-sample-count)
+  call-data?
+  (name call-data-name)
+  (printable call-data-printable)
+  (call-count call-data-call-count set-call-data-call-count!)
+  (cum-sample-count call-data-cum-sample-count set-call-data-cum-sample-count!)
+  (self-sample-count call-data-self-sample-count set-call-data-self-sample-count!))
+
+(define (source->string source)
+  (format #f "~a:~a:~a"
+          (or (source-file source) "<current input>")
+          (source-line-for-user source)
+          (source-column source)))
+
+(define (program-debug-info-printable pdi)
+  (let* ((addr (program-debug-info-addr pdi))
+         (name (or (and=> (program-debug-info-name pdi) symbol->string)
+                   (string-append "#x" (number->string addr 16))))
+         (loc (and=> (find-source-for-addr addr) source->string)))
+    (if loc
+        (string-append name " at " loc)
+        name)))
+
+(define (addr->pdi addr cache)
+  (cond
+   ((hashv-get-handle cache addr) => cdr)
+   (else
+    (let ((data (find-program-debug-info addr)))
+      (hashv-set! cache addr data)
+      data))))
+
+(define (addr->printable addr pdi)
+  (if pdi
+      (program-debug-info-printable pdi)
+      (string-append "#x" (number->string addr 16))))
+
+(define (inc-call-data-cum-sample-count! cd)
+  (set-call-data-cum-sample-count! cd (1+ (call-data-cum-sample-count cd))))
+(define (inc-call-data-self-sample-count! cd)
+  (set-call-data-self-sample-count! cd (1+ (call-data-self-sample-count cd))))
+
+(define (stack-samples->procedure-data state)
+  (let ((table (make-hash-table))
+        (addr-cache (make-hash-table))
+        (call-counts (call-counts state))
+        (buffer (buffer state))
+        (len (buffer-pos state)))
+    (define (addr->call-data addr)
+      (let* ((pdi (addr->pdi addr addr-cache))
+             (entry (if pdi (program-debug-info-addr pdi) addr)))
+        (or (hashv-ref table entry)
+            (let ((data (make-call-data (and=> pdi program-debug-info-name)
+                                        (addr->printable entry pdi)
+                                        (and call-counts
+                                             (hashv-ref call-counts entry))
+                                        0
+                                        0)))
+              (hashv-set! table entry data)
+              data))))
+
+    (define (callee->call-data callee)
+      (cond
+       ((number? callee) (addr->call-data callee))
+       ((hashv-ref table callee))
+       (else
+        (let ((data (make-call-data
+                     (cond ((procedure? callee) (procedure-name callee))
+                           ;; a primitive
+                           ((symbol? callee) callee)
+                           (else #f))
+                     (with-output-to-string (lambda () (write callee)))
+                     (and call-counts (hashv-ref call-counts callee))
+                     0
+                     0)))
+          (hashv-set! table callee data)
+          data))))
+
+    (when call-counts
+      (hash-for-each (lambda (callee count)
+                       (callee->call-data callee))
+                     call-counts))
+
+    (let visit-stacks ((pos 0))
+      (cond
+       ((< pos len)
+        ;; FIXME: if we are counting all procedure calls, and
+        ;; count-call is on the stack, we need to not count the part
+        ;; of the stack that is within count-call.
+        (inc-call-data-self-sample-count!
+         (callee->call-data (vector-ref buffer pos)))
+        (let visit-stack ((pos pos))
+          (let ((callee (vector-ref buffer pos)))
+            (cond
+             ((vector-ref buffer pos)
+              => (lambda (callee)
+                   (inc-call-data-cum-sample-count! (callee->call-data callee))
+                   (visit-stack (1+ pos))))
+             (else
+              (visit-stacks (1+ pos)))))))
+       (else table)))))
+
 (define (statprof-fold-call-data proc init)
   "Fold @var{proc} over the call-data accumulated by statprof. Cannot be
 called while statprof is active. @var{proc} should take two arguments,
@@ -422,14 +496,18 @@ it represents different functions with the same name."
    (lambda (key value prior-result)
      (proc value prior-result))
    init
-   (procedure-data (existing-profiler-state))))
+   (stack-samples->procedure-data (existing-profiler-state))))
 
 (define (statprof-proc-call-data proc)
   "Returns the call-data associated with @var{proc}, or @code{#f} if
 none is available."
   (when (statprof-active?)
     (error "Can't call statprof-proc-call-data while profiler is running."))
-  (get-call-data (existing-profiler-state) proc))
+  (hashv-ref (stack-samples->procedure-data (existing-profiler-state))
+             (cond
+              ((primitive? proc) (procedure-name proc))
+              ((program? proc) (program-code proc))
+              (else (program-code proc)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Stats
@@ -452,7 +530,8 @@ none is available."
          (all-samples (statprof-sample-count))
          (secs-per-sample (/ (statprof-accumulated-time)
                              (statprof-sample-count)))
-         (num-calls (and (count-calls? state) (statprof-call-data-calls call-data))))
+         (num-calls (and (call-counts state)
+                         (statprof-call-data-calls call-data))))
 
     (vector proc-name
             (* (/ self-samples all-samples) 100.0)
@@ -504,22 +583,22 @@ optional @var{port} argument is passed, uses the current output port."
            (sorted-stats (sort stats-list stats-sorter)))
 
       (define (display-stats-line stats)
-        (if (count-calls? state)
-            (format  port "~6,2f ~9,2f ~9,2f ~7d ~8,2f ~8,2f  "
-                     (statprof-stats-%-time-in-proc stats)
-                     (statprof-stats-cum-secs-in-proc stats)
-                     (statprof-stats-self-secs-in-proc stats)
-                     (statprof-stats-calls stats)
-                     (* 1000 (statprof-stats-self-secs-per-call stats))
-                     (* 1000 (statprof-stats-cum-secs-per-call stats)))
-            (format  port "~6,2f ~9,2f ~9,2f  "
-                     (statprof-stats-%-time-in-proc stats)
-                     (statprof-stats-cum-secs-in-proc stats)
-                     (statprof-stats-self-secs-in-proc stats)))
+        (format port "~6,2f ~9,2f ~9,2f"
+                (statprof-stats-%-time-in-proc stats)
+                (statprof-stats-cum-secs-in-proc stats)
+                (statprof-stats-self-secs-in-proc stats))
+        (if (call-counts state)
+            (if (statprof-stats-calls stats)
+                (format port " ~7d ~8,2f ~8,2f  "
+                        (statprof-stats-calls stats)
+                        (* 1000 (statprof-stats-self-secs-per-call stats))
+                        (* 1000 (statprof-stats-cum-secs-per-call stats)))
+                (format port "                            "))
+            (display "  " port))
         (display (statprof-stats-proc-name stats) port)
         (newline port))
     
-      (if (count-calls? state)
+      (if (call-counts state)
           (begin
             (format  port "~5a ~10a   ~7a ~8a ~8a ~8a  ~8@a\n"
                      "%  " "cumulative" "self" "" "self" "total" "")
@@ -546,7 +625,7 @@ optional @var{port} argument is passed, uses the current output port."
 statistics.@code{}"
   (statprof-fold-call-data
    (lambda (data prior-value)
-     (when (and (count-calls? state)
+     (when (and (call-counts state)
                 (zero? (call-data-call-count data))
                 (positive? (call-data-cum-sample-count data)))
        (simple-format #t
