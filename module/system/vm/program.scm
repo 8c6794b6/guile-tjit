@@ -1,6 +1,6 @@
 ;;; Guile VM program functions
 
-;;; Copyright (C) 2001, 2009, 2010, 2013 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2013, 2014 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -43,7 +43,9 @@
             program? program-code
             program-free-variables
             program-num-free-variables
-            program-free-variable-ref program-free-variable-set!))
+            program-free-variable-ref program-free-variable-set!
+
+            primitive?))
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_programs")
