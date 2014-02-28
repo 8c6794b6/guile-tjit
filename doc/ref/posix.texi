@@ -2130,14 +2130,17 @@ the C level (@pxref{Blocking}).
 @end deffn
 
 @deffn {Scheme Procedure} getitimer which_timer
-@deffnx {Scheme Procedure} setitimer which_timer interval_seconds interval_microseconds periodic_seconds periodic_microseconds
+@deffnx {Scheme Procedure} setitimer which_timer interval_seconds interval_microseconds value_seconds value_microseconds
 @deffnx {C Function} scm_getitimer (which_timer)
-@deffnx {C Function} scm_setitimer (which_timer, interval_seconds, interval_microseconds, periodic_seconds, periodic_microseconds)
-Get or set the periods programmed in certain system timers.  These
-timers have a current interval value which counts down and on reaching
-zero raises a signal.  An optional periodic value can be set to
-restart from there each time, for periodic operation.
-@var{which_timer} is one of the following values
+@deffnx {C Function} scm_setitimer (which_timer, interval_seconds, interval_microseconds, value_seconds, value_microseconds)
+Get or set the periods programmed in certain system timers.
+
+These timers have two settings.  The first setting, the interval, is the
+value at which the timer will be reset when the current timer expires.
+The second is the current value of the timer, indicating when the next
+expiry will be signalled.
+
+@var{which_timer} is one of the following values:
 
 @defvar ITIMER_REAL
 A real-time timer, counting down elapsed real time.  At zero it raises
@@ -2159,21 +2162,20 @@ This timer is intended for profiling where a program is spending its
 time (by looking where it is when the timer goes off).
 @end defvar 
 
-@code{getitimer} returns the current timer value and its programmed
-restart value, as a list containing two pairs.  Each pair is a time in
-seconds and microseconds: @code{((@var{interval_secs}
-. @var{interval_usecs}) (@var{periodic_secs}
-. @var{periodic_usecs}))}.
+@code{getitimer} returns the restart timer value and its current value,
+as a list containing two pairs.  Each pair is a time in seconds and
+microseconds: @code{((@var{interval_secs} . @var{interval_usecs})
+(@var{value_secs} . @var{value_usecs}))}.
 
 @code{setitimer} sets the timer values similarly, in seconds and
-microseconds (which must be integers).  The periodic value can be zero
+microseconds (which must be integers).  The interval value can be zero
 to have the timer run down just once.  The return value is the timer's
 previous setting, in the same form as @code{getitimer} returns.
 
 @example
 (setitimer ITIMER_REAL
-           5 500000     ;; first SIGALRM in 5.5 seconds time
-           2 0)         ;; then repeat every 2 seconds
+           5 500000     ;; Raise SIGALRM every 5.5 seconds
+           2 0)         ;; with the first SIGALRM in 2 seconds
 @end example
 
 Although the timers are programmed in microseconds, the actual

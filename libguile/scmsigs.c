@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2004, 2006, 2007, 2008, 2009, 2011, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2004, 2006, 2007, 2008, 2009, 2011, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -514,6 +514,23 @@ SCM_DEFINE (scm_alarm, "alarm", 1, 0, 0,
 #undef FUNC_NAME
 #endif /* HAVE_ALARM */
 
+static void
+pack_tv (struct timeval *tv, SCM seconds, SCM microseconds)
+{
+  tv->tv_sec = scm_to_long (seconds);
+  tv->tv_usec = scm_to_long (microseconds);
+
+  /* Allow usec to be outside the range [0, 999999).  */
+  tv->tv_sec += tv->tv_usec / (1000 * 1000);
+  tv->tv_usec %= 1000 * 1000;
+}
+
+static SCM
+unpack_tv (const struct timeval *tv)
+{
+  return scm_cons (scm_from_long (tv->tv_sec), scm_from_long (tv->tv_usec));
+}
+
 #ifdef HAVE_SETITIMER
 SCM_DEFINE (scm_setitimer, "setitimer", 5, 0, 0,
            (SCM which_timer,
@@ -543,20 +560,16 @@ SCM_DEFINE (scm_setitimer, "setitimer", 5, 0, 0,
   struct itimerval old_timer;
 
   c_which_timer = SCM_NUM2INT(1, which_timer);
-  new_timer.it_interval.tv_sec = SCM_NUM2LONG(2, interval_seconds);
-  new_timer.it_interval.tv_usec = SCM_NUM2LONG(3, interval_microseconds);
-  new_timer.it_value.tv_sec = SCM_NUM2LONG(4, value_seconds);
-  new_timer.it_value.tv_usec = SCM_NUM2LONG(5, value_microseconds);
+  pack_tv (&new_timer.it_interval, interval_seconds, interval_microseconds);
+  pack_tv (&new_timer.it_value, value_seconds, value_microseconds);
 
   SCM_SYSCALL(rv = setitimer(c_which_timer, &new_timer, &old_timer));
   
   if(rv != 0)
     SCM_SYSERROR;
 
-  return scm_list_2 (scm_cons (scm_from_long (old_timer.it_interval.tv_sec),
-			       scm_from_long (old_timer.it_interval.tv_usec)),
-		     scm_cons (scm_from_long (old_timer.it_value.tv_sec),
-			       scm_from_long (old_timer.it_value.tv_usec)));
+  return scm_list_2 (unpack_tv (&old_timer.it_interval),
+                     unpack_tv (&old_timer.it_value));
 }
 #undef FUNC_NAME
 #endif /* HAVE_SETITIMER */

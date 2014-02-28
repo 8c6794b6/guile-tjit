@@ -1,6 +1,6 @@
 ;;;; signals.test --- test suite for Guile's signal functions       -*- scheme -*-
 ;;;; 
-;;;; Copyright (C) 2009 Free Software Foundation, Inc.
+;;;; Copyright (C) 2009, 2014 Free Software Foundation, Inc.
 ;;;; 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -18,6 +18,7 @@
 ;;;; Boston, MA 02110-1301 USA
 
 (define-module (test-suite test-signals)
+  #:use-module (ice-9 match)
   #:use-module (test-suite lib))
 
 (with-test-prefix "sigaction"
@@ -27,3 +28,43 @@
     (sigaction SIGINT 51))
 
   )
+
+(when (defined? 'setitimer)
+  (with-test-prefix "setitimer"
+    (with-test-prefix "current itimers are 0"
+      (pass-if "ITIMER_REAL"
+        (equal? (setitimer ITIMER_REAL 0 0 0 0)
+                '((0 . 0) (0 . 0))))
+      (pass-if "ITIMER_VIRTUAL"
+        (equal? (setitimer ITIMER_VIRTUAL 0 0 0 0)
+                '((0 . 0) (0 . 0))))
+      (pass-if "ITIMER_PROF"
+        (equal? (setitimer ITIMER_PROF 0 0 0 0)
+                '((0 . 0) (0 . 0)))))
+
+    (with-test-prefix "setting values correctly"
+      (pass-if "initial setting"
+        (equal? (setitimer ITIMER_PROF 1 0 3 0)
+                '((0 . 0) (0 . 0))))
+      (pass-if "reset to zero"
+        (match (setitimer ITIMER_PROF 0 0 0 0)
+          (((1 . 0) (val-secs . val-usecs))
+           ;; We don't presume that the timer is strictly lower than the
+           ;; value at which we set it, given its limited internal
+           ;; precision.  Assert instead that the timer is between 2 and
+           ;; 3.5 seconds.
+           (<= #e2e6 (+ (* val-secs #e1e6) val-usecs) #e3.5e6)))))
+
+    (with-test-prefix "usecs > 1e6"
+      (pass-if "initial setting"
+        (equal? (setitimer ITIMER_PROF 1 0 0 #e3e6)
+                '((0 . 0) (0 . 0))))
+      (pass-if "reset to zero"
+        (match (setitimer ITIMER_PROF 0 0 0 0)
+          (((1 . 0) (val-secs . val-usecs))
+           ;; We don't presume that the timer is strictly lower than the
+           ;; value at which we set it, given its limited internal
+           ;; precision.  Assert instead that the timer is between 2 and
+           ;; 3.5 seconds.
+           (and (<= #e2e6 (+ (* val-secs #e1e6) val-usecs) #e3.5e6)
+                (<= 0 val-usecs 999999))))))))
