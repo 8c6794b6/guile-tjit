@@ -1,5 +1,5 @@
 ;; guile-lib                    -*- scheme -*-
-;; Copyright (C) 2004, 2009, 2010 Andy Wingo <wingo at pobox dot com>
+;; Copyright (C) 2004, 2009, 2010, 2014 Andy Wingo <wingo at pobox dot com>
 ;; Copyright (C) 2001 Rob Browning <rlb at defaultvalue dot org>
 
 ;; This library is free software; you can redistribute it and/or
@@ -67,7 +67,7 @@
 		      ((car funcs) x)
 		      (loop (- x 1) (cdr funcs))))))))
 
-    (let ((num-calls 80000)
+    (let ((num-calls 200000)
 	  (funcs (circular-list (make-func) (make-func) (make-func))))
 
       ;; Run test. 20000 us == 200 Hz.
@@ -82,17 +82,19 @@
 	(if (and a-data b-data c-data)
 	    (let* ((samples (map statprof-call-data-cum-samples
 				 (list a-data b-data c-data)))
-		   (average (/ (apply + samples) 3))
-		   (max-allowed-drift 0.30)     ; 30%
-                   (diffs (map (lambda (x) (abs (- x average)))
+		   (expected (/ (apply + samples) 3.0))
+                   (diffs (map (lambda (x) (abs (- x expected)))
                                samples))
                    (max-diff (apply max diffs)))
 
-	      (let ((drift-fraction (/ max-diff average)))
-		(or (< drift-fraction max-allowed-drift)
-		    ;; don't stop the test suite for what statistically is
-		    ;; bound to happen.
-		    (throw 'unresolved (pk average drift-fraction)))))
+	      (or (< max-diff (sqrt expected))
+                  ;; don't stop the test suite for what statistically is
+                  ;; bound to happen.
+                  (begin
+                    (format (current-warning-port)
+                            ";;; warning: max diff ~a > (sqrt ~a)\n"
+                            max-diff expected)
+                    (throw 'unresolved))))
 
             ;; Samples were not collected for at least one of the
             ;; functions, possibly because NUM-CALLS is too low compared
