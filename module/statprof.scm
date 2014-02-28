@@ -165,7 +165,8 @@
   (make-state accumulated-time last-start-time sample-count
               sampling-period remaining-prof-time profile-level
               count-calls? gc-time-taken record-full-stacks?
-              stacks procedure-data inside-profiler?)
+              stacks procedure-data inside-profiler?
+              prev-sigprof-handler)
   state?
   ;; Total time so far.
   (accumulated-time accumulated-time set-accumulated-time!)
@@ -192,7 +193,9 @@
   ;;   #(name call-count cum-sample-count self-sample-count)
   (procedure-data procedure-data set-procedure-data!)
   ;; True if we are inside the profiler.
-  (inside-profiler? inside-profiler? set-inside-profiler?!))
+  (inside-profiler? inside-profiler? set-inside-profiler?!)
+  ;; True if we are inside the profiler.
+  (prev-sigprof-handler prev-sigprof-handler set-prev-sigprof-handler!))
 
 (define profiler-state (make-parameter #f))
 
@@ -200,7 +203,7 @@
                                (sampling-period 10000)
                                (full-stacks? #f))
   (make-state 0 #f 0 sampling-period 0 0 count-calls? 0 #f '()
-              (make-hash-table) #f))
+              (make-hash-table) #f #f))
 
 (define (ensure-profiler-state)
   (or (profiler-state)
@@ -363,6 +366,8 @@ than @code{statprof-stop}, @code{#f} otherwise."
       ;; FIXME: Use per-thread run time.
       (set-last-start-time! state (get-internal-run-time))
       (set-gc-time-taken! state (assq-ref (gc-stats) 'gc-time-taken))
+      (let ((prev (sigaction SIGPROF profile-signal-handler)))
+        (set-prev-sigprof-handler! state (car prev)))
       (reset-sigprof-timer (if (zero? rpt) (sampling-period state) rpt))
       (when (count-calls? state)
         (add-hook! (vm-apply-hook) count-call))
@@ -387,6 +392,8 @@ than @code{statprof-stop}, @code{#f} otherwise."
     ;; (unless we want to make things even more complicated).
     (set-remaining-prof-time! state (reset-sigprof-timer 0))
     (accumulate-time state (get-internal-run-time))
+    (sigaction SIGPROF (prev-sigprof-handler state))
+    (set-prev-sigprof-handler! state #f)
     (set-last-start-time! state #f)))
 
 (define* (statprof-reset sample-seconds sample-microseconds count-calls?
@@ -400,14 +407,11 @@ list for later analysis.
 Enables traps and debugging as necessary."
   (when (statprof-active?)
     (error "Can't reset profiler while profiler is running."))
-  (let ((state (fresh-profiler-state #:count-calls? count-calls?
-                                     #:sampling-period
-                                     (+ (* sample-seconds #e1e6)
-                                        sample-microseconds)
-                                     #:full-stacks? full-stacks?)))
-    (profiler-state state)
-    (sigaction SIGPROF profile-signal-handler)
-    #t))
+  (profiler-state
+   (fresh-profiler-state #:count-calls? count-calls?
+                         #:sampling-period (+ (* sample-seconds #e1e6)
+                                              sample-microseconds)
+                         #:full-stacks? full-stacks?)))
 
 (define (statprof-fold-call-data proc init)
   "Fold @var{proc} over the call-data accumulated by statprof. Cannot be
