@@ -354,11 +354,10 @@ than @code{statprof-stop}, @code{#f} otherwise."
   (and state (positive? (profile-level state))))
 
 ;; Do not call this from statprof internal functions -- user only.
-(define (statprof-start)
+(define* (statprof-start #:optional (state (ensure-profiler-state)))
   "Start the profiler.@code{}"
   ;; After some head-scratching, I don't *think* I need to mask/unmask
   ;; signals here, but if I'm wrong, please let me know.
-  (define state (ensure-profiler-state))
   (set-profile-level! state (+ (profile-level state) 1))
   (when (= (profile-level state) 1)
     (let ((rpt (remaining-prof-time state)))
@@ -375,11 +374,10 @@ than @code{statprof-stop}, @code{#f} otherwise."
       #t)))
   
 ;; Do not call this from statprof internal functions -- user only.
-(define (statprof-stop)
+(define* (statprof-stop #:optional (state (ensure-profiler-state)))
   "Stop the profiler.@code{}"
   ;; After some head-scratching, I don't *think* I need to mask/unmask
   ;; signals here, but if I'm wrong, please let me know.
-  (define state (ensure-profiler-state))
   (set-profile-level! state (- (profile-level state) 1))
   (when (zero? (profile-level state))
     (set-gc-time-taken! state
@@ -411,7 +409,8 @@ Enables traps and debugging as necessary."
    (fresh-profiler-state #:count-calls? count-calls?
                          #:sampling-period (+ (* sample-seconds #e1e6)
                                               sample-microseconds)
-                         #:full-stacks? full-stacks?)))
+                         #:full-stacks? full-stacks?))
+  (values))
 
 (define (statprof-fold-call-data proc init)
   "Fold @var{proc} over the call-data accumulated by statprof. Cannot be
@@ -643,7 +642,7 @@ The return value is a list of nodes, each of which is of the type:
   (cons #t (lists->trees (map stack->procedures (stacks state)) procedure=?)))
 
 (define* (statprof thunk #:key (loop 1) (hz 100) (count-calls? #f)
-                   (full-stacks? #f))
+                   (full-stacks? #f) (port (current-output-port)))
   "Profiles the execution of @var{thunk}.
 
 The stack will be sampled @var{hz} times per second, and the thunk itself will
@@ -656,23 +655,22 @@ If @var{full-stacks?} is true, at each sample, statprof will store away the
 whole call tree, for later analysis. Use @code{statprof-fetch-stacks} or
 @code{statprof-fetch-call-tree} to retrieve the last-stored stacks."
   
-  (let ((state (fresh-profiler-state)))
+  (let ((state (fresh-profiler-state #:count-calls? count-calls?
+                                     #:sampling-period
+                                     (inexact->exact (round (/ 1e6 hz)))
+                                     #:full-stacks? full-stacks?)))
     (parameterize ((profiler-state state))
       (dynamic-wind
         (lambda ()
-          (statprof-reset 0
-                          (inexact->exact (round (/ 1e6 hz)))
-                          count-calls?
-                          full-stacks?)
-          (statprof-start))
+          (statprof-start state))
         (lambda ()
           (let lp ((i loop))
             (unless (zero? i)
               (thunk)
               (lp (1- i)))))
         (lambda ()
-          (statprof-stop)
-          (statprof-display))))))
+          (statprof-stop state)
+          (statprof-display port state))))))
 
 (define-macro (with-statprof . args)
   "Profiles the expressions in its body.
