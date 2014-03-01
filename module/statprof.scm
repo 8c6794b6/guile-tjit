@@ -151,14 +151,90 @@
             gcprof))
 
 
-;; This profiler tracks two numbers for every function called while
-;; it's active.  It tracks the total number of calls, and the number
-;; of times the function was active when the sampler fired.
-;;
-;; Globally the profiler tracks the total time elapsed and the number
-;; of times the sampler was fired.
-;;
-;; Right now, this profiler is not per-thread and is not thread safe.
+;;; ~ Implementation notes ~
+;;;
+;;; Statprof can be divided into two pieces: data collection and data
+;;; analysis.
+;;;
+;;; The data collection runs concurrently with the program, and is
+;;; designed to be as cheap as possible.  The main data collection
+;;; instrument is the stack sampler, driven by SIGPROF signals that are
+;;; scheduled with periodic setitimer calls.  The stack sampler simply
+;;; looks at every frame on the stack, and writes a representation of
+;;; the frame's procedure into a growable buffer.
+;;;
+;;; For most frames, this representation is the instruction pointer of
+;;; that frame, because it's cheap to get and you can map from
+;;; instruction pointer to procedure fairly cheaply.  This won't
+;;; distinguish between different closures which share the same code,
+;;; but that is usually what we want anyway.
+;;;
+;;; One case in which we do want to distinguish closures is the case of
+;;; primitive procedures.  If slot 0 in the frame is a primitive
+;;; procedure, we record the procedure's name into the buffer instead of
+;;; the IP.  It's fairly cheap to check whether a value is a primitive
+;;; procedure, and then get its name, as its name is stored in the
+;;; closure data.  Calling procedure-name in the stack sampler isn't
+;;; something you want to do for other kinds of procedures, though, as
+;;; that involves grovelling the debug information.
+;;;
+;;; The other part of data collection is the exact call counter, which
+;;; uses the VM's "apply" hook to record each procedure call.
+;;; Naturally, this is quite expensive, and it is off by default.
+;;; Running code at every procedure call effectively penalizes procedure
+;;; calls.  Still, it's useful sometimes.  If the profiler state has a
+;;; call-counts table, then calls will be counted.  As with the stack
+;;; counter, usually the key in the hash table is the code pointer of
+;;; the procedure being called, except for primitive procedures, in
+;;; which case it is the name of the primitive.  The call counter can
+;;; also see calls of non-programs, for example in the case of
+;;; applicable structs.  In that case the key is the procedure itself.
+;;;
+;;; After collection is finished, the data can be analyzed.  The first
+;;; step is usually to run over the stack traces, tabulating sample
+;;; counts by procedure; the stack-samples->procedure-data does that.
+;;; The result of stack-samples->procedure-data is a hash table mapping
+;;; procedures to "call data" records.  The call data values are exposed
+;;; to users via the statprof-fold-call-data procedure.
+;;;
+;;; Usually all the analysis is triggered by calling statprof-display,
+;;; or having the statprof procedure call it for you.
+;;;
+;;; The other thing we can do is to look at the stacks themselves, for
+;;; example via statprof-fetch-call-tree.
+;;;
+
+;;; ~ Threads and state ~
+;;;
+;;; The state of the profiler is contained in a <state> record, which is
+;;; bound to a thread-local parameter.  The accurate call counter uses
+;;; the VM apply hook, which is also local to the current thread, so all
+;;; is good there.
+;;;
+;;; The problem comes in the statistical stack sampler's use of
+;;; `setitimer' and SIGPROF.  The timer manipulated by setitimer is a
+;;; whole-process timer, so it decrements as other threads execute,
+;;; which is the wrong thing if you want to profile just one thread.  On
+;;; the other hand, SIGPROF is delivered to the process as a whole,
+;;; which is fine given Guile's signal-handling thread, but then only
+;;; delivered to the thread running statprof, which isn't the right
+;;; thing if you want to profile the whole system.
+;;;
+;;; The summary is that statprof works more or less well as a per-thread
+;;; profiler if no other threads are running on their own when
+;;; profiling.  If the other threads are running on behalf of the thread
+;;; being profiled (as via futures or parallel marking) things still
+;;; mostly work as expected.  You can run statprof in one thread,
+;;; finish, and then run statprof in another thread, and the profile
+;;; runs won't affect each other.  But if you want true per-thread
+;;; profiles when other things are happening in the process, including
+;;; other statprof runs, or whole-process profiles with per-thread
+;;; breakdowns, the use of setitimer currently prevents that.
+;;;
+;;; The solution would be to switch to POSIX.1-2001's timer_create(2),
+;;; and to add some more threading-related API to statprof.  Some other
+;;; day.
+;;;
 
 (define-record-type <state>
   (make-state accumulated-time last-start-time sample-count
@@ -248,15 +324,9 @@
       (set-buffer-pos! state (1+ pos)))
      (else
       (let ((proc (frame-procedure frame)))
-        (cond
-         ((primitive? proc)
-          (write-sample-and-continue (procedure-name proc)))
-         ((program? proc)
-          (write-sample-and-continue (frame-instruction-pointer frame)))
-         (proc (write-sample-and-continue proc))
-         ;; If proc is false, that would confuse our stack walker.
-         ;; Ignore it.
-         (else (continue pos))))))))
+        (write-sample-and-continue (if (primitive? proc)
+                                       (procedure-name proc)
+                                       (frame-instruction-pointer frame))))))))
 
 (define (reset-sigprof-timer usecs)
   ;; Guile's setitimer binding is terrible.
