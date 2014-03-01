@@ -240,7 +240,7 @@
   (make-state accumulated-time last-start-time sample-count
               sampling-period remaining-prof-time profile-level
               call-counts gc-time-taken inside-profiler?
-              prev-sigprof-handler buffer buffer-pos)
+              prev-sigprof-handler outer-cut buffer buffer-pos)
   state?
   ;; Total time so far.
   (accumulated-time accumulated-time set-accumulated-time!)
@@ -260,8 +260,10 @@
   (gc-time-taken gc-time-taken set-gc-time-taken!)
   ;; True if we are inside the profiler.
   (inside-profiler? inside-profiler? set-inside-profiler?!)
-  ;; True if we are inside the profiler.
+  ;; Previous sigprof handler.
   (prev-sigprof-handler prev-sigprof-handler set-prev-sigprof-handler!)
+  ;; Outer stack cut, or 0.
+  (outer-cut outer-cut)
   ;; Stack samples.
   (buffer buffer set-buffer!)
   (buffer-pos buffer-pos set-buffer-pos!))
@@ -278,11 +280,12 @@
     new))
 
 (define* (fresh-profiler-state #:key (count-calls? #f)
-                               (sampling-period 10000))
+                               (sampling-period 10000)
+                               (outer-cut 0))
   (make-state 0 #f 0
               sampling-period 0 0
               (and count-calls? (make-hash-table)) 0 #f
-              #f (fresh-buffer) 0))
+              #f outer-cut (fresh-buffer) 0))
 
 (define (ensure-profiler-state)
   (or (profiler-state)
@@ -306,19 +309,20 @@
   (set-sample-count! state (+ (sample-count state) 1))
 
   (let lp ((frame (stack-ref stack 0))
+           (len (stack-length stack))
            (buffer (buffer state))
            (pos (buffer-pos state)))
     (define (write-sample sample)
       (vector-set! buffer pos sample))
     (define (continue pos)
-      (lp (frame-previous frame) buffer pos))
+      (lp (frame-previous frame) (1- len) buffer pos))
     (define (write-sample-and-continue sample)
       (write-sample sample)
       (continue (1+ pos)))
     (cond
      ((= pos (vector-length buffer))
-      (lp frame (expand-buffer buffer) pos))
-     ((not frame)
+      (lp frame len (expand-buffer buffer) pos))
+     ((or (zero? len) (not frame))
       (write-sample #f)
       (set-buffer! state buffer)
       (set-buffer-pos! state (1+ pos)))
@@ -338,17 +342,15 @@
 
   (set-inside-profiler?! state #t)
 
-  ;; FIXME: with-statprof should be able to set an outer frame for the
-  ;; stack cut
   (when (positive? (profile-level state))
     (let* ((stop-time (get-internal-run-time))
-           ;; cut down to the signal handler. note that this will only
-           ;; work if statprof.scm is compiled; otherwise we get
-           ;; `eval' on the stack instead, because if it's not
-           ;; compiled, profile-signal-handler is a thunk that
-           ;; tail-calls eval. perhaps we should always compile the
-           ;; signal handler instead...
-           (stack (or (make-stack #t profile-signal-handler)
+           ;; Cut down to the signal handler.  Note that this will only
+           ;; work if statprof.scm is compiled; otherwise we get `eval'
+           ;; on the stack instead, because if it's not compiled,
+           ;; profile-signal-handler is a thunk that tail-calls eval.
+           ;; Perhaps we should always compile the signal handler
+           ;; instead.
+           (stack (or (make-stack #t profile-signal-handler (outer-cut state))
                       (pk 'what! (make-stack #t)))))
 
       (sample-stack-procs state stack)
@@ -815,6 +817,10 @@ The return value is a list of nodes, each of which is of the type:
                                 (stack-samples->callee-lists state))
                            equal?))))
 
+(define (call-thunk thunk)
+  (thunk)
+  (values))
+
 (define* (statprof thunk #:key (loop 1) (hz 100) (count-calls? #f)
                    (port (current-output-port)) full-stacks?)
   "Profiles the execution of @var{thunk}.
@@ -827,7 +833,8 @@ operation is somewhat expensive."
   
   (let ((state (fresh-profiler-state #:count-calls? count-calls?
                                      #:sampling-period
-                                     (inexact->exact (round (/ 1e6 hz))))))
+                                     (inexact->exact (round (/ 1e6 hz)))
+                                     #:outer-cut call-thunk)))
     (parameterize ((profiler-state state))
       (dynamic-wind
         (lambda ()
@@ -835,7 +842,7 @@ operation is somewhat expensive."
         (lambda ()
           (let lp ((i loop))
             (unless (zero? i)
-              (thunk)
+              (call-thunk thunk)
               (lp (1- i)))))
         (lambda ()
           (statprof-stop state)
@@ -887,18 +894,17 @@ Since GC does not occur very frequently, you may need to use the
 @var{loop} parameter, to cause @var{thunk} to be called @var{loop}
 times."
   
-  (let ((state (fresh-profiler-state)))
+  (let ((state (fresh-profiler-state #:outer-cut call-thunk)))
     (parameterize ((profiler-state state))
       (define (gc-callback)
         (unless (inside-profiler? state)
           (set-inside-profiler?! state #t)
 
-          ;; FIXME: should be able to set an outer frame for the stack cut
           (let ((stop-time (get-internal-run-time))
                 ;; Cut down to gc-callback, and then one before (the
                 ;; after-gc async).  See the note in profile-signal-handler
                 ;; also.
-                (stack (or (make-stack #t gc-callback 0 1)
+                (stack (or (make-stack #t gc-callback (outer-cut state) 1)
                            (pk 'what! (make-stack #t)))))
             (sample-stack-procs state stack)
             (accumulate-time state stop-time)
@@ -915,7 +921,7 @@ times."
         (lambda ()
           (let lp ((i loop))
             (unless (zero? i)
-              (thunk)
+              (call-thunk thunk)
               (lp (1- i)))))
         (lambda ()
           (remove-hook! after-gc-hook gc-callback)
