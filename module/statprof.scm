@@ -130,6 +130,7 @@
             statprof-call-data->stats
            
             statprof-stats-proc-name
+            statprof-stats-proc-source
             statprof-stats-%-time-in-proc
             statprof-stats-cum-secs-in-proc
             statprof-stats-self-secs-in-proc
@@ -371,12 +372,12 @@ always collects full stacks.)"
   (values))
 
 (define-record-type call-data
-  (make-call-data name source printable
+  (make-call-data name printable source
                   call-count cum-sample-count self-sample-count)
   call-data?
   (name call-data-name)
-  (source call-data-source)
   (printable call-data-printable)
+  (source call-data-source)
   (call-count call-data-call-count set-call-data-call-count!)
   (cum-sample-count call-data-cum-sample-count set-call-data-cum-sample-count!)
   (self-sample-count call-data-self-sample-count set-call-data-self-sample-count!))
@@ -405,9 +406,8 @@ always collects full stacks.)"
       data))))
 
 (define (addr->printable addr pdi)
-  (if pdi
-      (program-debug-info-printable pdi)
-      (string-append "#x" (number->string addr 16))))
+  (or (and=> (and=> pdi program-debug-info-name) symbol->string)
+      (string-append "anon #x" (number->string addr 16))))
 
 (define (inc-call-data-cum-sample-count! cd)
   (set-call-data-cum-sample-count! cd (1+ (call-data-cum-sample-count cd))))
@@ -425,8 +425,8 @@ always collects full stacks.)"
              (entry (if pdi (program-debug-info-addr pdi) addr)))
         (or (hashv-ref table entry)
             (let ((data (make-call-data (and=> pdi program-debug-info-name)
-                                        (find-source-for-addr entry)
                                         (addr->printable entry pdi)
+                                        (find-source-for-addr entry)
                                         (and call-counts
                                              (hashv-ref call-counts entry))
                                         0
@@ -444,8 +444,8 @@ always collects full stacks.)"
                            ;; a primitive
                            ((symbol? callee) callee)
                            (else #f))
-                     #f
                      (with-output-to-string (lambda () (write callee)))
+                     #f
                      (and call-counts (hashv-ref call-counts callee))
                      0
                      0)))
@@ -523,10 +523,12 @@ none is available."
 ;; Stats
 
 (define-record-type stats
-  (make-stats proc-name %-time-in-proc cum-secs-in-proc self-secs-in-proc
+  (make-stats proc-name proc-source
+              %-time-in-proc cum-secs-in-proc self-secs-in-proc
               calls self-secs-per-call cum-secs-per-call)
   stats?
   (proc-name statprof-stats-proc-name)
+  (proc-source statprof-stats-proc-source)
   (%-time-in-proc statprof-stats-%-time-in-proc)
   (cum-secs-in-proc statprof-stats-cum-secs-in-proc)
   (self-secs-in-proc statprof-stats-self-secs-in-proc)
@@ -538,7 +540,8 @@ none is available."
   "Returns an object of type @code{statprof-stats}."
   (define state (existing-profiler-state))
 
-  (let* ((proc-name (call-data-printable call-data))
+  (let* ((proc-name (call-data-name call-data))
+         (proc-source (and=> (call-data-source call-data) source->string))
          (self-samples (call-data-self-sample-count call-data))
          (cum-samples (call-data-cum-sample-count call-data))
          (all-samples (statprof-sample-count))
@@ -547,7 +550,11 @@ none is available."
          (num-calls (and (call-counts state)
                          (statprof-call-data-calls call-data))))
 
-    (make-stats proc-name
+    (make-stats (or proc-name
+                    ;; If there is no name and no source, fall back to
+                    ;; printable.
+                    (and (not proc-source) (call-data-printable call-data)))
+                proc-source
                 (* (/ self-samples all-samples) 100.0)
                 (* cum-samples secs-per-sample 1.0)
                 (* self-samples secs-per-sample 1.0)
@@ -601,20 +608,27 @@ optional @var{port} argument is passed, uses the current output port."
                         (* 1000 (statprof-stats-cum-secs-per-call stats)))
                 (format port "                            "))
             (display "  " port))
-        (display (statprof-stats-proc-name stats) port)
-        (newline port))
+        (let ((source (statprof-stats-proc-source stats))
+              (name (statprof-stats-proc-name stats)))
+          (when source
+            (display source port)
+            (when name
+              (display ":" port)))
+          (when name
+            (display name port))
+          (newline port)))
     
       (if (call-counts state)
           (begin
             (format  port "~5a ~10a   ~7a ~8a ~8a ~8a  ~8@a\n"
                      "%  " "cumulative" "self" "" "self" "total" "")
-            (format  port "~5a  ~9a  ~8a ~8a ~8a ~8a  ~8@a\n"
-                     "time" "seconds" "seconds" "calls" "ms/call" "ms/call" "name"))
+            (format  port "~5a  ~9a  ~8a ~8a ~8a ~8a  ~a\n"
+                     "time" "seconds" "seconds" "calls" "ms/call" "ms/call" "procedure"))
           (begin
-            (format  port "~5a ~10a   ~7a  ~8@a\n"
+            (format  port "~5a ~10a   ~7a  ~8a\n"
                      "%" "cumulative" "self" "")
-            (format  port "~5a  ~10a  ~7a  ~8@a\n"
-                     "time" "seconds" "seconds" "name")))
+            (format  port "~5a  ~10a  ~7a  ~a\n"
+                     "time" "seconds" "seconds" "procedure")))
 
       (for-each display-stats-line sorted-stats)
 
