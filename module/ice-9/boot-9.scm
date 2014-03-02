@@ -923,7 +923,8 @@ for key @var{k}, then invoke @var{thunk}."
                        (scm-error 'wrong-type-arg "for-each" "Circular list: ~S"
                                   (list l) #f))
                      (f (car hare))
-                     (for-each1 (cdr hare) (cdr tortoise))))))
+                     (for-each1 (cdr hare) (cdr tortoise)))
+                   (for-each1 hare tortoise))))
            (if (not (null? hare))
                (scm-error 'wrong-type-arg "for-each" "Not a list: ~S"
                           (list l) #f)))))

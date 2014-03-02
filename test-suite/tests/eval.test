@@ -1,5 +1,5 @@
 ;;;; eval.test --- tests guile's evaluator     -*- scheme -*-
-;;;; Copyright (C) 2000, 2001, 2006, 2007, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+;;;; Copyright (C) 2000, 2001, 2006, 2007, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -217,6 +217,16 @@
 	exception:wrong-length
 	(map + '(1 2) '(3)))
     )))
+
+(with-test-prefix "for-each"
+
+  (pass-if-exception "1 arg, non-list, even number of elements"
+      exception:not-a-list
+    (for-each values '(1 2 3 4 . 5)))
+
+  (pass-if-exception "1 arg, non-list, odd number of elements"
+      exception:not-a-list
+    (for-each values '(1 2 3 . 4))))
 
 ;;;
 ;;; define with procedure-name
