@@ -1,6 +1,6 @@
 ;;; srfi-1.scm --- List Library
 
-;; 	Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
+;; 	Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2009, 2010, 2011, 2014 Free Software Foundation, Inc.
 ;;
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -606,22 +606,23 @@ has just one element then that's the return value."
   (case-lambda
     ((f l)
      (check-arg procedure? f for-each)
-     (let for-each1 ((hare l) (tortoise l) (move? #f))
+     (let for-each1 ((hare l) (tortoise l))
        (if (pair? hare)
-           (if move?
-               (if (eq? tortoise hare)
-                   (scm-error 'wrong-type-arg "for-each" "Circular list: ~S"
-                              (list l) #f)
+           (begin
+             (f (car hare))
+             (let ((hare (cdr hare)))
+               (if (pair? hare)
                    (begin
+                     (when (eq? tortoise hare)
+                       (scm-error 'wrong-type-arg "for-each" "Circular list: ~S"
+                                  (list l) #f))
                      (f (car hare))
-                     (for-each1 (cdr hare) (cdr tortoise) #f)))
-               (begin
-                 (f (car hare))
-                 (for-each1 (cdr hare) tortoise #t)))
-           
+                     (for-each1 (cdr hare) (cdr tortoise)))
+                   (for-each1 hare tortoise))))
            (if (not (null? hare))
                (scm-error 'wrong-type-arg "for-each" "Not a list: ~S"
                           (list l) #f)))))
+
     
     ((f l1 . rest)
      (check-arg procedure? f for-each)
