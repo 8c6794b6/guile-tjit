@@ -606,24 +606,12 @@ has just one element then that's the return value."
   (case-lambda
     ((f l)
      (check-arg procedure? f for-each)
-     (let for-each1 ((hare l) (tortoise l))
-       (if (pair? hare)
-           (begin
-             (f (car hare))
-             (let ((hare (cdr hare)))
-               (if (pair? hare)
-                   (begin
-                     (when (eq? tortoise hare)
-                       (scm-error 'wrong-type-arg "for-each" "Circular list: ~S"
-                                  (list l) #f))
-                     (f (car hare))
-                     (for-each1 (cdr hare) (cdr tortoise)))
-                   (for-each1 hare tortoise))))
-           (if (not (null? hare))
-               (scm-error 'wrong-type-arg "for-each" "Not a list: ~S"
-                          (list l) #f)))))
+     (check-arg list? l for-each)
+     (let for-each1 ((l l))
+       (unless (null? l)
+         (f (car l))
+         (for-each1 (cdr l)))))
 
-    
     ((f l1 . rest)
      (check-arg procedure? f for-each)
      (let ((len (fold (lambda (ls len)
