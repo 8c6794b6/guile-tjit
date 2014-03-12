@@ -58,6 +58,9 @@ static SCM sym_keyword_argument_error;
 static SCM sym_regular;
 static SCM sym_debug;
 
+/* The page size.  */
+static size_t page_size;
+
 /* The VM has a number of internal assertions that shouldn't normally be
    necessary, but might be if you think you found a bug in the VM. */
 /* #define VM_ENABLE_ASSERTIONS */
@@ -751,29 +754,6 @@ scm_i_call_with_current_continuation (SCM proc)
  * VM
  */
 
-/* The page size.  */
-static size_t page_size;
-
-/* Initial stack size.  Defaults to one page.  */
-static size_t initial_stack_size;
-
-/* Default soft stack limit is 1M words (4 or 8 megabytes).  */
-static size_t default_max_stack_size = 1024 * 1024;
-
-static void
-initialize_default_stack_size (void)
-{
-  initial_stack_size = page_size / sizeof (SCM);
-
-  {
-    int size;
-    size = scm_getenv_int ("GUILE_STACK_SIZE", (int) default_max_stack_size);
-    if (size >= initial_stack_size
-        && (size_t) size < ((size_t) -1) / sizeof(SCM))
-      default_max_stack_size = size;
-  }
-}
-
 #define VM_NAME vm_regular_engine
 #define VM_USE_HOOKS 0
 #define FUNC_NAME "vm-regular-engine"
@@ -880,7 +860,7 @@ make_vm (void)
 
   vp = scm_gc_malloc (sizeof (struct scm_vm), "vm");
 
-  vp->stack_size = initial_stack_size;
+  vp->stack_size = page_size / sizeof (SCM);
   vp->stack_base = allocate_stack (vp->stack_size);
   if (!vp->stack_base)
     /* As in expand_stack, we don't have any way to throw an exception
@@ -888,7 +868,7 @@ make_vm (void)
        handle it.  For now, abort.  */
     abort ();
   vp->stack_limit = vp->stack_base + vp->stack_size;
-  vp->max_stack_size = default_max_stack_size;
+  vp->overflow_handler_stack = SCM_EOL;
   vp->ip    	  = NULL;
   vp->sp    	  = vp->stack_base - 1;
   vp->fp    	  = NULL;
@@ -1083,6 +1063,56 @@ vm_expand_stack_inner (void *data_ptr)
   return new_stack;
 }
 
+static scm_t_ptrdiff
+current_overflow_size (struct scm_vm *vp)
+{
+  if (scm_is_pair (vp->overflow_handler_stack))
+    return scm_to_ptrdiff_t (scm_caar (vp->overflow_handler_stack));
+  return -1;
+}
+
+static int
+should_handle_stack_overflow (struct scm_vm *vp, scm_t_ptrdiff stack_size)
+{
+  scm_t_ptrdiff overflow_size = current_overflow_size (vp);
+  return overflow_size >= 0 && stack_size >= overflow_size;
+}
+
+static void
+reset_stack_limit (struct scm_vm *vp)
+{
+  if (should_handle_stack_overflow (vp, vp->stack_size))
+    vp->stack_limit = vp->stack_base + current_overflow_size (vp);
+  else
+    vp->stack_limit = vp->stack_base + vp->stack_size;
+}
+
+struct overflow_handler_data
+{
+  struct scm_vm *vp;
+  SCM overflow_handler_stack;
+};
+
+static void
+wind_overflow_handler (void *ptr)
+{
+  struct overflow_handler_data *data = ptr;
+
+  data->vp->overflow_handler_stack = data->overflow_handler_stack;
+
+  reset_stack_limit (data->vp);
+}
+
+static void
+unwind_overflow_handler (void *ptr)
+{
+  struct overflow_handler_data *data = ptr;
+
+  data->vp->overflow_handler_stack = scm_cdr (data->overflow_handler_stack);
+
+  reset_stack_limit (data->vp);
+}
+
 static void
 vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
 {
@@ -1097,6 +1127,7 @@ vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
       data.new_sp = new_sp;
       
       if (!GC_call_with_alloc_lock (vm_expand_stack_inner, &data))
+        /* Throw an unwind-only exception.  */
         scm_report_stack_overflow ();
 
       new_sp = data.new_sp;
@@ -1104,26 +1135,45 @@ vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
 
   vp->sp_max_since_gc = vp->sp = new_sp;
 
-  if (stack_size >= vp->max_stack_size)
+  if (should_handle_stack_overflow (vp, stack_size))
     {
-      /* Expand the soft limit by 256K entries to give us space to
-         handle the error.  */
-      vp->max_stack_size += 256 * 1024;
+      SCM more_stack, new_limit;
 
-      /* If it's still not big enough... it's quite improbable, but go
-         ahead and set to the full available stack size.  */
-      if (vp->max_stack_size < stack_size)
-        vp->max_stack_size = vp->stack_size;
+      struct overflow_handler_data data;
+      data.vp = vp;
+      data.overflow_handler_stack = vp->overflow_handler_stack;
 
-      /* Finally, reset the limit, to catch further overflows.  */
-      vp->stack_limit = vp->stack_base + vp->max_stack_size;
+      scm_dynwind_begin (SCM_F_DYNWIND_REWINDABLE);
 
-      /* FIXME: Use scm_report_stack_overflow, but in a mode that allows
-         pre-unwind handlers to run.  */
-      vm_error ("VM: Stack overflow", SCM_UNDEFINED);
+      scm_dynwind_rewind_handler (unwind_overflow_handler, &data,
+                                  SCM_F_WIND_EXPLICITLY);
+      scm_dynwind_unwind_handler (wind_overflow_handler, &data,
+                                  SCM_F_WIND_EXPLICITLY);
+
+      /* Call the overflow handler.  */
+      more_stack = scm_call_0 (scm_cdar (data.overflow_handler_stack));
+
+      /* If the overflow handler returns, its return value should be an
+         integral number of words from the outer stack limit to transfer
+         to the inner limit.  */
+      if (scm_to_ptrdiff_t (more_stack) <= 0)
+        scm_out_of_range (NULL, more_stack);
+      new_limit = scm_sum (scm_caar (data.overflow_handler_stack), more_stack);
+      if (scm_is_pair (scm_cdr (data.overflow_handler_stack)))
+        new_limit = scm_min (new_limit,
+                             scm_caadr (data.overflow_handler_stack));
+
+      /* Ensure the new limit is in range.  */
+      scm_to_ptrdiff_t (new_limit);
+
+      /* Increase the limit that we will restore.  */
+      scm_set_car_x (scm_car (data.overflow_handler_stack), new_limit);
+
+      scm_dynwind_end ();
+
+      /* Recurse  */
+      return vm_expand_stack (vp, new_sp);
     }
-
-  /* Otherwise continue, with the new enlarged stack.  */
 }
 
 static struct scm_vm *
@@ -1365,6 +1415,61 @@ SCM_DEFINE (scm_call_with_vm, "call-with-vm", 1, 0, 1,
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_call_with_stack_overflow_handler,
+            "call-with-stack-overflow-handler", 3, 0, 0,
+	    (SCM limit, SCM thunk, SCM handler),
+	    "Call @var{thunk} in an environment in which the stack limit has\n"
+            "been reduced to @var{limit} additional words.  If the limit is\n"
+            "reached, @var{handler} (a thunk) will be invoked in the dynamic\n"
+            "environment of the error.  For the extent of the call to\n"
+            "@var{handler}, the stack limit and handler are restored to the\n"
+            "values that were in place when\n"
+            "@code{call-with-stack-overflow-handler} was called.")
+#define FUNC_NAME s_scm_call_with_stack_overflow_handler
+{
+  struct scm_vm *vp;
+  scm_t_ptrdiff c_limit, stack_size;
+  struct overflow_handler_data data;
+  SCM new_limit, ret;
+
+  vp = scm_the_vm ();
+  stack_size = vp->sp - vp->stack_base;
+
+  c_limit = scm_to_ptrdiff_t (limit);
+  if (c_limit <= 0)
+    scm_out_of_range (FUNC_NAME, limit);
+
+  new_limit = scm_sum (scm_from_ptrdiff_t (stack_size), limit);
+  if (scm_is_pair (vp->overflow_handler_stack))
+    new_limit = scm_min (new_limit, scm_caar (vp->overflow_handler_stack));
+
+  /* Hacky check that the current stack depth plus the limit is within
+     the range of a ptrdiff_t.  */
+  scm_to_ptrdiff_t (new_limit);
+
+  data.vp = vp;
+  data.overflow_handler_stack =
+    scm_acons (limit, handler, vp->overflow_handler_stack);
+
+  scm_dynwind_begin (SCM_F_DYNWIND_REWINDABLE);
+
+  scm_dynwind_rewind_handler (wind_overflow_handler, &data,
+                              SCM_F_WIND_EXPLICITLY);
+  scm_dynwind_unwind_handler (unwind_overflow_handler, &data,
+                              SCM_F_WIND_EXPLICITLY);
+
+  /* Reset vp->sp_max_since_gc so that the VM checks actually
+     trigger.  */
+  return_unused_stack_to_os (vp);
+
+  ret = scm_call_0 (thunk);
+
+  scm_dynwind_end ();
+
+  return ret;
+}
+#undef FUNC_NAME
+
 
 /*
  * Initialize
@@ -1414,8 +1519,6 @@ scm_bootstrap_vm (void)
   /* page_size should be a power of two.  */
   if (page_size & (page_size - 1))
     abort ();
-
-  initialize_default_stack_size ();
 
   sym_vm_run = scm_from_latin1_symbol ("vm-run");
   sym_vm_error = scm_from_latin1_symbol ("vm-error");

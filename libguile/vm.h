@@ -44,13 +44,16 @@ struct scm_vm {
   SCM *sp_max_since_gc;         /* highest sp since last gc */
   size_t stack_size;		/* stack size */
   SCM *stack_base;		/* stack base address */
-  size_t max_stack_size;
+  SCM overflow_handler_stack;   /* alist of max-stack-size -> thunk */
   SCM hooks[SCM_VM_NUM_HOOKS];	/* hooks */
   int engine;                   /* which vm engine we're using */
 };
 
 SCM_INTERNAL struct scm_vm *scm_the_vm (void);
 SCM_API SCM scm_call_with_vm (SCM proc, SCM args);
+
+SCM_API SCM scm_call_with_stack_overflow_handler (SCM limit, SCM thunk,
+                                                  SCM handler);
 
 SCM_API SCM scm_vm_apply_hook (void);
 SCM_API SCM scm_vm_push_continuation_hook (void);
