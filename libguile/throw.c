@@ -185,7 +185,7 @@ throw_without_pre_unwind (SCM tag, SCM args)
 
       if (scm_is_true (scm_c_vector_ref (eh, 3)))
         fprintf (stderr, "\nWarning: unwind-only exception, perhaps due to "
-                 "stack overflow; not running pre-unwind handlers.");
+                 "stack overflow; not running pre-unwind handlers.\n");
 
       prompt_tag = scm_c_vector_ref (eh, 2);
       if (scm_is_true (prompt_tag))

@@ -1,0 +1,38 @@
+#!/bin/sh
+exec guile -q -s "$0" "$@"
+!#
+
+(unless (defined? 'setrlimit)
+  ;; Without an rlimit, this test can take down your system, as it
+  ;; consumes all of your memory in stack space.  That doesn't seem like
+  ;; something we should run as part of an automated test suite.
+  (exit 0))
+
+;; 100 MB.
+(define *limit* (* 100 1024 1024))
+
+(call-with-values (lambda () (getrlimit 'as))
+  (lambda (soft hard)
+    (unless (and soft (< soft *limit*))
+      (setrlimit 'as (if hard (min *limit* hard) *limit*) hard))))
+
+(define (test)
+  (catch 'stack-overflow
+    (lambda ()
+      (let lp ()
+        (lp)
+        (error "should not be reached")))
+    (lambda _
+      #t)))
+
+;; Run the test a few times.  The stack will only be enlarged and
+;; relocated on the first one.
+(test)
+(test)
+(test)
+(test)
+(test)
+
+;; Local Variables:
+;; mode: scheme
+;; End:
