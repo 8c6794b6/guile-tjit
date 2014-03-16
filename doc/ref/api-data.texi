@@ -445,6 +445,8 @@ function will always succeed and will always return an exact number.
 @deftypefnx {C Function} scm_t_uint64 scm_to_uint64 (SCM x)
 @deftypefnx {C Function} scm_t_intmax scm_to_intmax (SCM x)
 @deftypefnx {C Function} scm_t_uintmax scm_to_uintmax (SCM x)
+@deftypefnx {C Function} scm_t_intptr scm_to_intptr_t (SCM x)
+@deftypefnx {C Function} scm_t_uintptr scm_to_uintptr_t (SCM x)
 When @var{x} represents an exact integer that fits into the indicated
 C type, return that integer.  Else signal an error, either a
 `wrong-type' error when @var{x} is not an exact integer, or an
@@ -479,6 +481,8 @@ the corresponding types are.
 @deftypefnx {C Function} SCM scm_from_uint64 (scm_t_uint64 x)
 @deftypefnx {C Function} SCM scm_from_intmax (scm_t_intmax x)
 @deftypefnx {C Function} SCM scm_from_uintmax (scm_t_uintmax x)
+@deftypefnx {C Function} SCM scm_from_intptr_t (scm_t_intptr x)
+@deftypefnx {C Function} SCM scm_from_uintptr_t (scm_t_uintptr x)
 Return the @code{SCM} value that represents the integer @var{x}.
 These functions will always succeed and will always return an exact
 number.

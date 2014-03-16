@@ -52,12 +52,13 @@ in the same way as the editor we know and love.
 ** Dynamically expandable stacks
 
 Instead of allocating fixed stack sizes for running Scheme code, Guile
-now starts off each thread with only one or two pages of stack, and
-expands it dynamically as needed.  Guile will throw an exception for
-stack overflows at some user-defined limit.  See the manual for
-documentation on the GUILE_STACK_SIZE environment variable.
+now starts off each thread with only one page of stack, and expands and
+shrinks it dynamically as needed.  Guile will throw an exception for
+stack overflows if growing the stack fails.  It is also possible to
+impose a stack limit during the extent of a function call.  See "Stack
+Overflow" in the manual, for more.
 
-This allows users to write programs that use the stack as a data
+This change allows users to write programs that use the stack as a data
 structure for pending computations, as it was meant to be, without
 reifying that data out to the heap.  Where you would previously make a
 loop that collect its results in reverse order only to re-reverse them
@@ -143,7 +144,7 @@ See the "Guile Implementation" chapter in the manual for all details.
 ** New functions: `scm_to_intptr_t', `scm_from_intptr_t'
 ** New functions: `scm_to_uintptr_t', `scm_from_uintptr_t'
 
-See XXX in the manual.
+See "Integers" in the manual, for more.
 
 ** New thread-safe port API
 
