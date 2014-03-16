@@ -612,6 +612,22 @@ has just one element then that's the return value."
          (f (car l))
          (for-each1 (cdr l)))))
 
+    ((f l1 l2)
+     (check-arg procedure? f for-each)
+     (let* ((len1 (length+ l1))
+            (len2 (length+ l2))
+            (len (if (and len1 len2)
+                     (min len1 len2)
+                     (or len1 len2))))
+       (unless len
+         (scm-error 'wrong-type-arg "for-each"
+                    "Args do not contain a proper (finite) list: ~S"
+                    (list (list l1 l2)) #f))
+       (let for-each2 ((l1 l1) (l2 l2) (len len))
+         (unless (zero? len)
+           (f (car l1) (car l2))
+           (for-each2 (cdr l1) (cdr l2) (1- len))))))
+
     ((f l1 . rest)
      (check-arg procedure? f for-each)
      (let ((len (fold (lambda (ls len)
