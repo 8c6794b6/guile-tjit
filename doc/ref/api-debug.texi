@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2007, 2010, 2011, 2012, 2013
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2007, 2010, 2011, 2012, 2013, 2014
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -341,6 +341,7 @@ library, or from Guile itself.
 * Catching Exceptions::    Handling errors after the stack is unwound.
 * Capturing Stacks::       Capturing the stack at the time of error.
 * Pre-Unwind Debugging::   Debugging before the exception is thrown.
+* Stack Overflow::         Detecting and handling runaway recursion.
 * Debug Options::          A historical interface to debugging.
 @end menu
 
@@ -599,10 +600,12 @@ These procedures are available for use by user programs, in the
 
 @deffn {Scheme Procedure} call-with-error-handling thunk @
        [#:on-error on-error='debug] [#:post-error post-error='catch] @
-       [#:pass-keys pass-keys='(quit)] [#:trap-handler trap-handler='debug]
+       [#:pass-keys pass-keys='(quit)] @
+       [#:report-keys report-keys='(stack-overflow)] @
+       [#:trap-handler trap-handler='debug]
 Call a thunk in a context in which errors are handled.
 
-There are four keyword arguments:
+There are five keyword arguments:
 
 @table @var
 @item on-error
@@ -629,8 +632,184 @@ traps entirely.  @xref{Traps}, for more information.
 
 @item pass-keys
 A set of keys to ignore, as a list.
+
+@item report-keys
+A set of keys to always report even if the post-error handler is
+@code{catch}, as a list.
 @end table
 @end deffn
+
+@node Stack Overflow
+@subsubsection Stack Overflow
+
+@cindex overflow, stack
+@cindex stack overflow
+Every time a Scheme program makes a call that is not in tail position,
+it pushes a new frame onto the stack.  Returning a value from a function
+pops the top frame off the stack.  Stack frames take up memory, and as
+nobody has an infinite amount of memory, deep recursion could cause
+Guile to run out of memory.  Running out of stack memory is called
+@dfn{stack overflow}.
+
+@subsubheading Stack Limits
+
+Most languages have a terrible stack overflow story.  For example, in C,
+if you use too much stack, your program will exhibit ``undefined
+behavior'', which if you are lucky means that it will crash.  It's
+especially bad in C, as you neither know ahead of time how much stack
+your functions use, nor the stack limit imposed by the user's system,
+and the stack limit is often quite small relative to the total memory
+size.
+
+Managed languages like Python have a better error story, as they are
+defined to raise an exception on stack overflow -- but like C, Python
+and most dynamic languages still have a fixed stack size limit that is
+usually much smaller than the heap.
+
+Arbitrary stack limits would have an unfortunate effect on Guile
+programs.  For example, the following implementation of the inner loop
+of @code{map} is clean and elegant:
+
+@example
+(define (map f l)
+  (if (pair? l)
+      (cons (f (car l))
+            (map f (cdr l)))
+      '()))
+@end example
+
+However, if there were a stack limit, that would limit the size of lists
+that can be processed with this @code{map}.  Eventually, you would have
+to rewrite it to use iteration with an accumulator:
+
+@example
+(define (map f l)
+  (let lp ((l l) (out '()))
+    (if (pair? l)
+        (lp (cdr l) (cons (f (car l)) out))
+        (reverse out))))
+@end example
+
+This second version is sadly not as clear, and it also allocates more
+heap memory (once to build the list in reverse, and then again to
+reverse the list).  You would be tempted to use the destructive
+@code{reverse!} to save memory and time, but then your code would not be
+continuation-safe -- if @var{f} returned again after the map had
+finished, it would see an @var{out} list that had already been
+reversed.  The recursive @code{map} has none of these problems.
+
+Guile has no stack limit for Scheme code.  When a thread makes its first
+Guile call, a small stack is allocated -- just one page of memory.
+Whenever that memory limit would be reached, Guile arranges to grow the
+stack by a factor of two.  When garbage collection happens, Guile
+arranges to return the unused part of the stack to the operating system,
+but without causing the stack to shrink.  In this way, the stack can
+grow to consume up to all memory available to the Guile process, and
+when the recursive computation eventually finishes, that stack memory is
+returned to the system.
+
+@subsubheading Exceptional Situations
+
+Of course, it's still possible to run out of stack memory.  The most
+common cause of this is program bugs that cause unbounded recursion, as
+in:
+
+@example
+(define (faulty-map f l)
+  (if (pair? l)
+      (cons (f (car l)) (faulty-map f l))
+      '()))
+@end example
+
+Did you spot the bug?  The recursive call to @code{faulty-map} recursed
+on @var{l}, not @code{(cdr @var{l})}.  Running this program would cause
+Guile to use up all memory in your system, and eventually Guile would
+fail to grow the stack.  At that point you have a problem: Guile needs
+to raise an exception to unwind the stack and return memory to the
+system, but the user might have throw handlers in place (@pxref{Throw
+Handlers}) that want to run before the stack is unwound, and we don't
+have any stack in which to run them.
+
+Therefore in this case, Guile throws an unwind-only exception that does
+not run pre-unwind handlers.  Because this is such an odd case, Guile
+prints out a message on the console, in case the user was expecting to
+be able to get a backtrace from any pre-unwind handler.
+
+@subsubheading Runaway Recursion
+
+Still, this failure mode is not so nice.  If you are running an
+environment in which you are interactively building a program while it
+is running, such as at a REPL, you might want to impose an artificial
+stack limit on the part of your program that you are building to detect
+accidental runaway recursion.  For that purpose, there is
+@code{call-with-stack-overflow-handler}, from @code{(system vm vm)}.
+
+@example
+(use-module (system vm vm))
+@end example
+
+@deffn {Scheme Procedure} call-with-stack-overflow-handler limit thunk handler
+Call @var{thunk} in an environment in which the stack limit has been
+reduced to @var{limit} additional words.  If the limit is reached,
+@var{handler} (a thunk) will be invoked in the dynamic environment of
+the error.  For the extent of the call to @var{handler}, the stack limit
+and handler are restored to the values that were in place when
+@code{call-with-stack-overflow-handler} was called.
+
+Usually, @var{handler} should raise an exception or abort to an outer
+prompt.  However if @var{handler} does return, it should return a number
+of additional words of stack space to allow to the inner environment.
+@end deffn
+
+A stack overflow handler may only ever ``credit'' the inner thunk with
+stack space that was available when the handler was instated.  When
+Guile first starts, there is no stack limit in place, so the outer
+handler may allow the inner thunk an arbitrary amount of space, but any
+nested stack overflow handler will not be able to consume more than its
+limit.
+
+Unlike the unwind-only exception that is thrown if Guile is unable to
+grow its stack, any exception thrown by a stack overflow handler might
+invoke pre-unwind handlers.  Indeed, the stack overflow handler is
+itself a pre-unwind handler of sorts.  If the code imposing the stack
+limit wants to protect itself against malicious pre-unwind handlers from
+the inner thunk, it should abort to a prompt of its own making instead
+of throwing an exception that might be caught by the inner thunk.
+
+@subsubheading C Stack Usage
+
+It is also possible for Guile to run out of space on the C stack.  If
+you call a primitive procedure which then calls a Scheme procedure in a
+loop, you will consume C stack space.  Guile tries to detect excessive
+consumption of C stack space, throwing an error when you have hit 80% of
+the process' available stack (as allocated by the operating system), or
+160 kilowords in the absence of a strict limit.
+
+For example, looping through @code{call-with-vm}, a primitive that calls
+a thunk, gives us the following:
+
+@lisp
+scheme@@(guile-user)> (use-modules (system vm vm))
+scheme@@(guile-user)> (let lp () (call-with-vm lp))
+ERROR: Stack overflow
+@end lisp
+
+Unfortunately, that's all the information we get.  Overrunning the C
+stack will throw an unwind-only exception, because it's not safe to
+do very much when you are close to the C stack limit.
+
+If you get an error like this, you can either try rewriting your code to
+use less stack space, or increase the maximum stack size.  To increase
+the maximum stack size, use @code{debug-set!}, for example:
+
+@lisp
+(debug-set! stack 200000)
+@end lisp
+
+The next section describes @code{debug-set!} more thoroughly.  Of course
+the best thing is to have your code operate without so much resource
+consumption by avoiding loops through C trampolines.
+
 
 @node Debug Options
 @subsubsection Debug options
@@ -678,59 +857,6 @@ options and switches them on, @code{debug-disable} switches them off.
 to historical oddities, it is a macro that expects an unquoted option
 name.
 @end deffn
-
-@subsubheading Stack overflow
-
-@cindex overflow, stack
-@cindex stack overflow
-Stack overflow errors are caused by a computation trying to use more
-stack space than has been enabled by the @code{stack} option.  There are
-actually two kinds of stack that can overflow, the C stack and the
-Scheme stack.
-
-Scheme stack overflows can occur if Scheme procedures recurse too far
-deeply. An example would be the following recursive loop:
-
-@lisp
-scheme@@(guile-user)> (let lp () (+ 1 (lp)))
-<unnamed port>:8:17: In procedure vm-run:
-<unnamed port>:8:17: VM: Stack overflow
-@end lisp
-
-The default stack size should allow for about 10000 frames or so, so one
-usually doesn't hit this level of recursion. Unfortunately there is no
-way currently to make a VM with a bigger stack. If you are in this
-unfortunate situation, please file a bug, and in the meantime, rewrite
-your code to be tail-recursive (@pxref{Tail Calls}).
-
-The other limit you might hit would be C stack overflows. If you call a
-primitive procedure which then calls a Scheme procedure in a loop, you
-will consume C stack space. Guile tries to detect excessive consumption
-of C stack space, throwing an error when you have hit 80% of the
-process' available stack (as allocated by the operating system), or 160
-kilowords in the absence of a strict limit.
-
-For example, looping through @code{call-with-vm}, a primitive that calls
-a thunk, gives us the following:
-
-@lisp
-scheme@@(guile-user)> (use-modules (system vm vm))
-scheme@@(guile-user)> (debug-set! stack 10000)
-scheme@@(guile-user)> (let lp () (call-with-vm lp))
-ERROR: In procedure call-with-vm:
-ERROR: Stack overflow
-@end lisp
-
-If you get an error like this, you can either try rewriting your code to
-use less stack space, or increase the maximum stack size.  To increase
-the maximum stack size, use @code{debug-set!}, for example:
-
-@lisp
-(debug-set! stack 200000)
-@end lisp
-
-But of course it's better to have your code operate without so much
-resource consumption, avoiding loops through C trampolines.
 
 
 @node Traps

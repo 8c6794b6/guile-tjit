@@ -1,6 +1,6 @@
 ;;; Error handling in the REPL
 
-;; Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -42,7 +42,8 @@
                   
 (define* (call-with-error-handling thunk #:key
                                    (on-error 'debug) (post-error 'catch)
-                                   (pass-keys '(quit)) (trap-handler 'debug))
+                                   (pass-keys '(quit)) (trap-handler 'debug)
+                                   (report-keys '(stack-overflow)))
   (let ((in (current-input-port))
         (out (current-output-port))
         (err (current-error-port)))
@@ -92,6 +93,14 @@
         ((disabled) #f)
         (else (error "Unknown trap-handler strategy" trap-handler))))
 
+    (define (report-error key args)
+      (with-saved-ports
+       (lambda ()
+         (run-hook before-error-hook)
+         (print-exception err #f key args)
+         (run-hook after-error-hook)
+         (force-output err))))
+
     (catch #t
       (lambda () 
         (with-default-trap-handler le-trap-handler
@@ -103,17 +112,15 @@
            (if (memq key pass-keys)
                (apply throw key args)
                (begin
-                 (with-saved-ports
-                   (lambda ()
-                     (run-hook before-error-hook)
-                     (print-exception err #f key args)
-                     (run-hook after-error-hook)
-                     (force-output err)))
+                 (report-error key args)
                  (if #f #f)))))
         ((catch)
          (lambda (key . args)
-           (if (memq key pass-keys)
-               (apply throw key args))))
+           (when (memq key pass-keys)
+             (apply throw key args))
+           (when (memq key report-keys)
+             (report-error key args))
+           (if #f #f)))
         (else
          (if (procedure? post-error)
              (lambda (k . args)
@@ -147,15 +154,9 @@
                     ((@ (system repl repl) start-repl) #:debug debug)))))))
         ((report)
          (lambda (key . args)
-           (if (not (memq key pass-keys))
-               (begin
-                 (with-saved-ports
-                  (lambda ()
-                    (run-hook before-error-hook)
-                    (print-exception err #f key args)
-                    (run-hook after-error-hook)
-                    (force-output err)))
-                 (if #f #f)))))
+           (unless (memq key pass-keys)
+             (report-error key args))
+           (if #f #f)))
         ((backtrace)
          (lambda (key . args)
            (if (not (memq key pass-keys))
@@ -165,13 +166,8 @@
                                (make-stack #t)
                                ;; Narrow as above, for the debugging case.
                                3 tag 0 (and tag 1))))
-                 (with-saved-ports
-                  (lambda ()
-                    (print-frames frames)
-                    (run-hook before-error-hook)
-                    (print-exception err #f key args)
-                    (run-hook after-error-hook)
-                    (force-output err)))
+                 (with-saved-ports (lambda () (print-frames frames)))
+                 (report-error key args)
                  (if #f #f)))))
         ((pass)
          (lambda (key . args)
