@@ -920,34 +920,13 @@ for key @var{k}, then invoke @var{thunk}."
          (for-each1 (cdr l)))))
 
     ((f l1 l2)
-     (let for-each2 ((h1 l1) (h2 l2) (t1 l1) (t2 l2) (move? #f))
-       (cond
-        ((and (pair? h1) (pair? h2))
-         (cond
-          ((not move?)
-           (f (car h1) (car h2))
-           (for-each2 (cdr h1) (cdr h2) t1 t2 #t))
-          ((eq? t1 h1)
-           (scm-error 'wrong-type-arg "for-each" "Circular list: ~S"
-                      (list l1) #f))
-          ((eq? t2 h2)
-           (scm-error 'wrong-type-arg "for-each" "Circular list: ~S"
-                      (list l2) #f))
-          (else
-           (f (car h1) (car h2))
-           (for-each2 (cdr h1) (cdr h2) (cdr t1) (cdr t2) #f))))
-
-        ((if (null? h1)
-             (or (null? h2) (pair? h2))
-             (and (pair? h1) (null? h2)))
-         (if #f #f))
-        
-        ((list? h1)
-         (scm-error 'wrong-type-arg "for-each" "Unexpected tail: ~S"
-                    (list h2) #f))
-        (else
-         (scm-error 'wrong-type-arg "for-each" "Unexpected tail: ~S"
-                    (list h1) #f)))))
+     (unless (= (length l1) (length l2))
+       (scm-error 'wrong-type-arg "for-each" "List of wrong length: ~S"
+                  (list l2) #f))
+     (let for-each2 ((l1 l1) (l2 l2))
+       (unless (null? l1)
+         (f (car l1) (car l2))
+         (for-each2 (cdr l1) (cdr l2)))))
 
     ((f l1 . rest)
      (let ((len (length l1)))
