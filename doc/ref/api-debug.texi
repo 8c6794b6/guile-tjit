@@ -844,8 +844,8 @@ warn-deprecated no      Warn when deprecated features are used.
 @end smallexample
 
 The boolean options may be toggled with @code{debug-enable} and
-@code{debug-disable}. The non-boolean @code{keywords} option must be set
-using @code{debug-set!}.
+@code{debug-disable}. The non-boolean options must be set using
+@code{debug-set!}.
 
 @deffn {Scheme Procedure} debug-enable option-name
 @deffnx {Scheme Procedure} debug-disable option-name
