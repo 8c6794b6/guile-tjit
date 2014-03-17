@@ -72,6 +72,25 @@
             dfa-var-idx dfa-var-name dfa-var-sym dfa-var-count
             print-dfa))
 
+;; These definitions are here because currently we don't do cross-module
+;; inlining.  They can be removed once that restriction is gone.
+(define-inlinable (for-each f l)
+  (unless (list? l)
+    (scm-error 'wrong-type-arg "for-each" "Not a list: ~S" (list l) #f))
+  (let for-each1 ((l l))
+    (unless (null? l)
+      (f (car l))
+      (for-each1 (cdr l)))))
+
+(define-inlinable (for-each/2 f l1 l2)
+  (unless (= (length l1) (length l2))
+    (scm-error 'wrong-type-arg "for-each" "List of wrong length: ~S"
+               (list l2) #f))
+  (let for-each2 ((l1 l1) (l2 l2))
+    (unless (null? l1)
+      (f (car l1) (car l2))
+      (for-each2 (cdr l1) (cdr l2)))))
+
 (define (build-cont-table fun)
   (fold-conts (lambda (k cont table)
                 (hashq-set! table k cont)
@@ -808,14 +827,14 @@ BODY for each body continuation in the prompt."
     (match exp
       (($ $letk (($ $cont k cont) ...) body)
        ;; Set up recursive environment before visiting cont bodies.
-       (for-each (lambda (cont k)
-                   (declare-block! k cont exp-k))
-                 cont k)
-       (for-each visit cont k)
+       (for-each/2 (lambda (cont k)
+                     (declare-block! k cont exp-k))
+                   cont k)
+       (for-each/2 visit cont k)
        (recur body))
 
       (($ $kargs names syms body)
-       (for-each def! names syms)
+       (for-each/2 def! names syms)
        (recur body))
 
       (($ $kif kt kf)
@@ -828,7 +847,7 @@ BODY for each body continuation in the prompt."
       (($ $letrec names syms funs body)
        (unless global?
          (error "$letrec should not be present when building a local DFG"))
-       (for-each def! names syms)
+       (for-each/2 def! names syms)
        (for-each (cut visit-fun <> conts blocks use-maps global?) funs)
        (visit body exp-k))
 
