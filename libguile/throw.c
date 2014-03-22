@@ -119,12 +119,13 @@ catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
   if (SCM_I_SETJMP (registers))
     {
       /* A non-local return.  */
+      SCM args;
 
       scm_gc_after_nonlocal_exit ();
 
       /* FIXME: We know where the args will be on the stack; we could
          avoid consing them.  */
-      SCM args = scm_i_prompt_pop_abort_args_x (vp);
+      args = scm_i_prompt_pop_abort_args_x (vp);
 
       /* Cdr past the continuation. */
       args = scm_cdr (args);

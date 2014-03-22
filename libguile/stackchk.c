@@ -36,12 +36,6 @@
 
 int scm_stack_checking_enabled_p;
 
-static void
-reset_scm_stack_checking_enabled_p (void *arg)
-{
-  scm_stack_checking_enabled_p = (int)(scm_t_bits)arg;
-}
-
 long
 scm_stack_size (SCM_STACKITEM *start)
 {
