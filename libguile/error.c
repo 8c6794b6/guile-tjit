@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 2000, 2001, 2004, 2006, 2010,
- *   2012, 2013 Free Software Foundation, Inc.
+ *   2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -290,14 +290,6 @@ scm_wrong_type_arg_msg (const char *subr, int pos, SCM bad_value, const char *sz
     }
 }
 
-
-SCM_GLOBAL_SYMBOL (scm_memory_alloc_key, "memory-allocation-error");
-void
-scm_memory_error (const char *subr)
-{
-  fprintf (stderr, "FATAL: memory error in %s\n", subr);
-  abort ();
-}
 
 SCM_GLOBAL_SYMBOL (scm_misc_error_key, "misc-error");
 void

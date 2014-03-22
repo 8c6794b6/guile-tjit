@@ -267,4 +267,7 @@ TESTS += test-smob-mark
 check_SCRIPTS += test-stack-overflow
 TESTS += test-stack-overflow
 
+check_SCRIPTS += test-out-of-memory
+TESTS += test-out-of-memory
+
 EXTRA_DIST += ${check_SCRIPTS}

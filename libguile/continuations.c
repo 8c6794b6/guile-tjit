@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1998,2000,2001,2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000,2001,2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -161,7 +161,10 @@ scm_i_make_continuation (int *first, struct scm_vm *vp, SCM vm_cont)
       return make_continuation_trampoline (cont);
     }
   else
-    return SCM_UNDEFINED;
+    {
+      scm_gc_after_nonlocal_exit ();
+      return SCM_UNDEFINED;
+    }
 }
 #undef FUNC_NAME
 

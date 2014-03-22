@@ -43,7 +43,7 @@
 (define* (call-with-error-handling thunk #:key
                                    (on-error 'debug) (post-error 'catch)
                                    (pass-keys '(quit)) (trap-handler 'debug)
-                                   (report-keys '(stack-overflow)))
+                                   (report-keys '(stack-overflow out-of-memory)))
   (let ((in (current-input-port))
         (out (current-output-port))
         (err (current-error-port)))

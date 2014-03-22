@@ -462,6 +462,7 @@ eval (SCM x, SCM env)
         if (SCM_I_SETJMP (registers))
           {
             /* The prompt exited nonlocally. */
+            scm_gc_after_nonlocal_exit ();
             proc = handler;
             vp = scm_the_vm ();
             args = scm_i_prompt_pop_abort_args_x (vp);

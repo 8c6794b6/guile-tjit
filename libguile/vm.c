@@ -1236,8 +1236,11 @@ scm_call_n (SCM proc, SCM *argv, size_t nargs)
     int resume = SCM_I_SETJMP (registers);
       
     if (SCM_UNLIKELY (resume))
-      /* Non-local return.  */
-      vm_dispatch_abort_hook (vp);
+      {
+        scm_gc_after_nonlocal_exit ();
+        /* Non-local return.  */
+        vm_dispatch_abort_hook (vp);
+      }
 
     return vm_engines[vp->engine](thread, vp, &registers, resume);
   }

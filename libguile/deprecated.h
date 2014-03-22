@@ -5,7 +5,7 @@
 #ifndef SCM_DEPRECATED_H
 #define SCM_DEPRECATED_H
 
-/* Copyright (C) 2003,2004, 2005, 2006, 2007, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2003,2004, 2005, 2006, 2007, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -140,9 +140,14 @@ typedef scm_i_t_array scm_i_t_array__GONE__REPLACE_WITH__scm_t_array;
 
 /* Deprecated 26-05-2011, as the GC_STUBBORN API doesn't do anything any
    more.  */
-SCM_API SCM scm_immutable_cell (scm_t_bits car, scm_t_bits cdr);
-SCM_API SCM scm_immutable_double_cell (scm_t_bits car, scm_t_bits cbr,
-				       scm_t_bits ccr, scm_t_bits cdr);
+SCM_DEPRECATED SCM scm_immutable_cell (scm_t_bits car, scm_t_bits cdr);
+SCM_DEPRECATED SCM scm_immutable_double_cell (scm_t_bits car, scm_t_bits cbr,
+                                              scm_t_bits ccr, scm_t_bits cdr);
+
+
+
+SCM_DEPRECATED SCM scm_memory_alloc_key;
+SCM_DEPRECATED void scm_memory_error (const char *subr) SCM_NORETURN;
 
 
 

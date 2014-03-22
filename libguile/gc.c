@@ -192,6 +192,68 @@ SCM_DEFINE (scm_set_debug_cell_accesses_x, "set-debug-cell-accesses!", 1, 0, 0,
 
 #endif  /* SCM_DEBUG_CELL_ACCESSES == 1 */
 
+
+
+
+static int needs_gc_after_nonlocal_exit = 0;
+
+/* Arrange to throw an exception on failed allocations.  */
+static void*
+scm_oom_fn (size_t nbytes)
+{
+  needs_gc_after_nonlocal_exit = 1;
+  scm_report_out_of_memory ();
+  return NULL;
+}
+
+/* Called within GC -- cannot allocate GC memory.  */
+static void
+scm_gc_warn_proc (char *fmt, GC_word arg)
+{
+  SCM port;
+  FILE *stream = NULL;
+
+  port = scm_current_warning_port ();
+  if (!SCM_OPPORTP (port))
+    return;
+
+  if (SCM_FPORTP (port))
+    {
+      int fd;
+      scm_force_output (port);
+      if (!SCM_OPPORTP (port))
+        return;
+      fd = dup (SCM_FPORT_FDES (port));
+      if (fd == -1)
+        perror ("Failed to dup warning port fd");
+      else
+        {
+          stream = fdopen (fd, "a");
+          if (!stream)
+            {
+              perror ("Failed to open stream for warning port");
+              close (fd);
+            }
+        }
+    }
+
+  fprintf (stream ? stream : stderr, fmt, arg);
+
+  if (stream)
+    fclose (stream);
+}
+
+void
+scm_gc_after_nonlocal_exit (void)
+{
+  if (needs_gc_after_nonlocal_exit)
+    {
+      needs_gc_after_nonlocal_exit = 0;
+      GC_gcollect_and_unmap ();
+    }
+}
+
+
 
 
 /* Hooks.  */
@@ -724,6 +786,8 @@ scm_init_gc ()
   scm_c_hook_add (&scm_before_gc_c_hook, start_gc_timer, NULL, 0);
   scm_c_hook_add (&scm_after_gc_c_hook, accumulate_gc_timer, NULL, 0);
 
+  GC_set_oom_fn (scm_oom_fn);
+  GC_set_warn_proc (scm_gc_warn_proc);
   GC_set_start_callback (run_before_gc_c_hook);
 
 #include "libguile/gc.x"

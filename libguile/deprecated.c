@@ -2,7 +2,7 @@
    deprecate something, move it here when that is feasible.
 */
 
-/* Copyright (C) 2003, 2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2003, 2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -73,6 +73,21 @@ scm_immutable_double_cell (scm_t_bits car, scm_t_bits cbr,
     ("scm_immutable_double_cell is deprecated.  Use scm_double_cell instead.");
 
   return scm_double_cell (car, cbr, ccr, cdr);
+}
+
+
+
+
+SCM_GLOBAL_SYMBOL (scm_memory_alloc_key, "memory-allocation-error");
+void
+scm_memory_error (const char *subr)
+{
+  scm_c_issue_deprecation_warning
+    ("scm_memory_error is deprecated.  Use scm_report_out_of_memory to raise "
+     "an exception, or abort() to cause the program to exit.");
+
+  fprintf (stderr, "FATAL: memory error in %s\n", subr);
+  abort ();
 }
 
 

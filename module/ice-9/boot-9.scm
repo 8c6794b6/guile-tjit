@@ -1040,6 +1040,7 @@ for key @var{k}, then invoke @var{thunk}."
   (set-exception-printer! 'no-data scm-error-printer)
   (set-exception-printer! 'no-recovery scm-error-printer)
   (set-exception-printer! 'null-pointer-error scm-error-printer)
+  (set-exception-printer! 'out-of-memory scm-error-printer)
   (set-exception-printer! 'out-of-range scm-error-printer)
   (set-exception-printer! 'program-error scm-error-printer)
   (set-exception-printer! 'read-error scm-error-printer)

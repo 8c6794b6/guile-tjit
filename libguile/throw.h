@@ -85,6 +85,10 @@ SCM_API SCM scm_ithrow (SCM key, SCM args, int no_return);
    handlers.  */
 SCM_API void scm_report_stack_overflow (void);
 
+/* This throws to the `out-of-memory' key, without running pre-unwind
+   handlers.  */
+SCM_API void scm_report_out_of_memory (void);
+
 SCM_API SCM scm_throw (SCM key, SCM args);
 SCM_INTERNAL void scm_init_throw (void);
 

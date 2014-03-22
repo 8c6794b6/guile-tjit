@@ -22,6 +22,7 @@
 # include <config.h>
 #endif
 
+#include <alloca.h>
 #include <stdio.h>
 #include <unistdio.h>
 #include "libguile/_scm.h"
@@ -119,6 +120,8 @@ catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
     {
       /* A non-local return.  */
 
+      scm_gc_after_nonlocal_exit ();
+
       /* FIXME: We know where the args will be on the stack; we could
          avoid consing them.  */
       SCM args = scm_i_prompt_pop_abort_args_x (vp);
@@ -168,11 +171,39 @@ default_exception_handler (SCM k, SCM args)
   abort ();
 }
 
+/* A version of scm_abort_to_prompt_star that avoids the need to cons
+   "tag" to "args", because we might be out of memory.  */
+static void
+abort_to_prompt (SCM prompt_tag, SCM tag, SCM args)
+{
+  SCM *argv;
+  size_t i;
+  long n;
+
+  n = scm_ilength (args) + 1;
+  argv = alloca (sizeof (SCM)*n);
+  argv[0] = tag;
+  for (i = 1; i < n; i++, args = scm_cdr (args))
+    argv[i] = scm_car (args);
+
+  scm_c_abort (scm_the_vm (), prompt_tag, n, argv, NULL);
+
+  /* Oh, what, you're still here? The abort must have been reinstated. Actually,
+     that's quite impossible, given that we're already in C-land here, so...
+     abort! */
+
+  abort ();
+}
+
 static SCM
 throw_without_pre_unwind (SCM tag, SCM args)
 {
   SCM eh;
 
+  /* This function is not only the boot implementation of "throw", it is
+     also called in response to resource allocation failures such as
+     stack-overflow or out-of-memory.  For that reason we need to be
+     careful to avoid allocating memory.  */
   for (eh = scm_fluid_ref (exception_handler_fluid);
        scm_is_true (eh);
        eh = scm_c_vector_ref (eh, 0))
@@ -185,17 +216,20 @@ throw_without_pre_unwind (SCM tag, SCM args)
 
       if (scm_is_true (scm_c_vector_ref (eh, 3)))
         {
-          char *key_chars;
+          const char *key_chars;
 
-          key_chars = scm_to_locale_string (scm_symbol_to_string (tag));
+          if (scm_i_is_narrow_symbol (tag))
+            key_chars = scm_i_symbol_chars (tag);
+          else
+            key_chars = "(wide symbol)";
+
           fprintf (stderr, "Warning: Unwind-only `%s' exception; "
                    "skipping pre-unwind handler.\n", key_chars);
-          free (key_chars);
         }
 
       prompt_tag = scm_c_vector_ref (eh, 2);
       if (scm_is_true (prompt_tag))
-        scm_abort_to_prompt_star (prompt_tag, scm_cons (tag, args));
+        abort_to_prompt (prompt_tag, tag, args);
     }
 
   default_exception_handler (tag, args);
@@ -571,22 +605,31 @@ scm_ithrow (SCM key, SCM args, int no_return SCM_UNUSED)
 }
 
 SCM_SYMBOL (scm_stack_overflow_key, "stack-overflow");
+SCM_SYMBOL (scm_out_of_memory_key, "out-of-memory");
+
+static SCM stack_overflow_args = SCM_BOOL_F;
+static SCM out_of_memory_args = SCM_BOOL_F;
+
+/* Since these two functions may be called in response to resource
+   exhaustion, we have to avoid allocating memory.  */
 
 void
 scm_report_stack_overflow (void)
 {
-  /* Arguments as if from:
+  if (scm_is_false (stack_overflow_args))
+    abort ();
+  throw_without_pre_unwind (scm_stack_overflow_key, stack_overflow_args);
 
-       scm_error (stack-overflow, NULL, "Stack overflow", #f, #f);
+  /* Not reached.  */
+  abort ();
+}
 
-     We build the arguments manually because we throw without running
-     pre-unwind handlers.  (Pre-unwind handlers could rewind the
-     stack.)  */
-  SCM args = scm_list_4 (SCM_BOOL_F,
-                         scm_from_latin1_string ("Stack overflow"),
-                         SCM_BOOL_F,
-                         SCM_BOOL_F);
-  throw_without_pre_unwind (scm_stack_overflow_key, args);
+void
+scm_report_out_of_memory (void)
+{
+  if (scm_is_false (out_of_memory_args))
+    abort ();
+  throw_without_pre_unwind (scm_out_of_memory_key, out_of_memory_args);
 
   /* Not reached.  */
   abort ();
@@ -606,6 +649,22 @@ scm_init_throw ()
   scm_c_define ("catch", scm_c_make_gsubr ("catch", 3, 1, 0, catch));
   throw_var = scm_c_define ("throw", scm_c_make_gsubr ("throw", 1, 0, 1,
                                                        throw_without_pre_unwind));
+
+  /* Arguments as if from:
+
+       scm_error (stack-overflow, NULL, "Stack overflow", #f, #f);
+
+     We build the arguments manually because we throw without running
+     pre-unwind handlers.  (Pre-unwind handlers could rewind the
+     stack.)  */
+  stack_overflow_args = scm_list_4 (SCM_BOOL_F,
+                                    scm_from_latin1_string ("Stack overflow"),
+                                    SCM_BOOL_F,
+                                    SCM_BOOL_F);
+  out_of_memory_args = scm_list_4 (SCM_BOOL_F,
+                                   scm_from_latin1_string ("Out of memory"),
+                                   SCM_BOOL_F,
+                                   SCM_BOOL_F);
 
 #include "libguile/throw.x"
 }

@@ -1,0 +1,60 @@
+#!/bin/sh
+exec guile -q -s "$0" "$@"
+!#
+
+(unless (defined? 'setrlimit)
+  ;; Without an rlimit, this test can take down your system, as it
+  ;; consumes all of your memory.  That doesn't seem like something we
+  ;; should run as part of an automated test suite.
+  (exit 0))
+
+(catch #t
+  ;; Silence GC warnings.
+  (lambda ()
+    (current-warning-port (open-output-file "/dev/null")))
+  (lambda (k . args)
+    (print-exception (current-error-port) #f k args)
+    (write "Skipping test.\n" (current-error-port))
+    (exit 0)))
+
+;; 100 MB.
+(define *limit* (* 100 1024 1024))
+
+(call-with-values (lambda () (getrlimit 'as))
+  (lambda (soft hard)
+    (unless (and soft (< soft *limit*))
+      (setrlimit 'as (if hard (min *limit* hard) *limit*) hard))))
+
+(define (test thunk)
+  (catch 'out-of-memory
+    (lambda ()
+      (thunk)
+      (error "should not be reached"))
+    (lambda _
+      #t)))
+
+(use-modules (rnrs bytevectors))
+
+(test (lambda ()
+        ;; A vector with a billion elements doesn't fit into 100 MB.
+        (make-vector #e1e9)))
+(test (lambda ()
+        ;; Likewise for a bytevector.  This is different from the above,
+        ;; as the elements of a bytevector are not traced by GC.
+        (make-bytevector #e1e9)))
+(test (lambda ()
+        ;; This one is the kicker -- we allocate pairs until the heap
+        ;; can't expand.  This is the hardest test to deal with because
+        ;; the error-handling machinery has no memory in which to work.
+        (iota #e1e8)))
+(test (lambda ()
+        ;; The same, but also causing allocating during the unwind
+        ;; (ouch!)
+        (dynamic-wind
+          (lambda () #t)
+          (lambda () (iota #e1e8))
+          (lambda () (iota #e1e8)))))
+
+;; Local Variables:
+;; mode: scheme
+;; End:
