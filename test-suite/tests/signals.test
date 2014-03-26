@@ -29,6 +29,11 @@
 
   )
 
+(define (time-pair->secs secs-usecs-pair)
+  (match secs-usecs-pair
+    ((secs . usecs)
+     (+ secs (/ usecs 1e6)))))
+
 (when (defined? 'setitimer)
   (with-test-prefix "setitimer"
     (with-test-prefix "current itimers are 0"
@@ -48,12 +53,13 @@
                 '((0 . 0) (0 . 0))))
       (pass-if "reset to zero"
         (match (setitimer ITIMER_PROF 0 0 0 0)
-          (((1 . 0) (val-secs . val-usecs))
+          ((interval value)
            ;; We don't presume that the timer is strictly lower than the
            ;; value at which we set it, given its limited internal
            ;; precision.  Assert instead that the timer is between 2 and
            ;; 3.5 seconds.
-           (<= #e2e6 (+ (* val-secs #e1e6) val-usecs) #e3.5e6)))))
+           (and (<= 0.9 (time-pair->secs interval) 1.1)
+                (<= 2.0 (time-pair->secs value) 3.5))))))
 
     (with-test-prefix "usecs > 1e6"
       (pass-if "initial setting"
@@ -61,10 +67,13 @@
                 '((0 . 0) (0 . 0))))
       (pass-if "reset to zero"
         (match (setitimer ITIMER_PROF 0 0 0 0)
-          (((1 . 0) (val-secs . val-usecs))
+          ((interval value)
            ;; We don't presume that the timer is strictly lower than the
            ;; value at which we set it, given its limited internal
            ;; precision.  Assert instead that the timer is between 2 and
            ;; 3.5 seconds.
-           (and (<= #e2e6 (+ (* val-secs #e1e6) val-usecs) #e3.5e6)
-                (<= 0 val-usecs 999999))))))))
+           (and (<= 0.9 (time-pair->secs interval) 1.1)
+                (<= 2.0 (time-pair->secs value) 3.5)
+                (match value
+                  ((secs . usecs)
+                   (<= 0 usecs 999999))))))))))
