@@ -28,26 +28,43 @@
   #:export (verify-cps))
 
 (define (verify-cps fun)
-  (define seen-gensyms (make-hash-table))
+  (define seen-labels (make-hash-table))
+  (define seen-vars (make-hash-table))
 
-  (define (add sym env)
-    (if (hashq-ref seen-gensyms sym)
-        (error "duplicate gensym" sym)
-        (begin
-          (hashq-set! seen-gensyms sym #t)
-          (cons sym env))))
+  (define (add sym seen env)
+    (when (hashq-ref seen sym)
+      (error "duplicate gensym" sym))
+    (hashq-set! seen sym #t)
+    (cons sym env))
 
-  (define (add-env new env)
+  (define (add-env new seen env)
     (if (null? new)
         env
-        (add-env (cdr new) (add (car new) env))))
+        (add-env (cdr new) (add (car new) seen env))))
 
-  (define (check-var sym env)
+  (define (add-vars new env)
+    (unless (and-map (lambda (v) (or (symbol? v) (exact-integer? v)))
+                     new)
+      (error "bad vars" new))
+    (add-env new seen-vars env))
+
+  (define (add-labels new env)
+    (unless (and-map exact-integer? new)
+      (error "bad labels" new))
+    (add-env new seen-labels env))
+
+  (define (check-ref sym seen env)
     (cond
-     ((not (hashq-ref seen-gensyms sym))
+     ((not (hashq-ref seen sym))
       (error "unbound lexical" sym))
      ((not (memq sym env))
       (error "displaced lexical" sym))))
+
+  (define (check-label sym env)
+    (check-ref sym seen-labels env))
+
+  (define (check-var sym env)
+    (check-ref sym seen-vars env))
 
   (define (check-src src)
     (if (and src (not (and (list? src) (and-map pair? src)
@@ -57,14 +74,14 @@
   (define (visit-cont-body cont k-env v-env)
     (match cont
       (($ $kif kt kf)
-       (check-var kt k-env)
-       (check-var kf k-env))
+       (check-label kt k-env)
+       (check-label kf k-env))
       (($ $kreceive ($ $arity ((? symbol?) ...) () (or #f (? symbol?)) () #f) k)
-       (check-var k k-env))
-      (($ $kargs ((? symbol? name) ...) ((? symbol? sym) ...) body)
+       (check-label k k-env))
+      (($ $kargs ((? symbol? name) ...) (sym ...) body)
        (unless (= (length name) (length sym))
          (error "name and sym lengths don't match" name sym))
-       (visit-term body k-env (add-env sym v-env)))
+       (visit-term body k-env (add-vars sym v-env)))
       (_ 
        ;; $kclause, $kentry, and $ktail are only ever seen in $fun.
        (error "unexpected cont body" cont))))
@@ -89,24 +106,24 @@
        (unless (equal? (append req opt (if rest (list rest) '()) kwname)
                        names)
          (error "clause body names do not match arity names" exp))
-       (let ((k-env (add-env (list kclause kbody) k-env)))
+       (let ((k-env (add-labels (list kclause kbody) k-env)))
          (visit-cont-body body k-env v-env)))
       (_
        (error "unexpected clause" clause))))
 
   (define (visit-fun fun k-env v-env)
     (match fun
-      (($ $fun src meta ((? symbol? free) ...)
+      (($ $fun src meta (free ...)
           ($ $cont kbody
-             ($ $kentry (? symbol? self) ($ $cont ktail ($ $ktail)) clauses)))
+             ($ $kentry self ($ $cont ktail ($ $ktail)) clauses)))
        (when (and meta (not (and (list? meta) (and-map pair? meta))))
          (error "meta should be alist" meta))
        (for-each (cut check-var <> v-env) free)
        (check-src src)
        ;; Reset the continuation environment, because Guile's
        ;; continuations are local.
-       (let ((v-env (add-env (list self) v-env))
-             (k-env (add-env (list ktail) '())))
+       (let ((v-env (add-vars (list self) v-env))
+             (k-env (add-labels (list ktail) '())))
          (for-each (cut visit-clause <> k-env v-env) clauses)))
       (_
        (error "unexpected $fun" fun))))
@@ -121,43 +138,43 @@
        #t)
       (($ $fun)
        (visit-fun exp k-env v-env))
-      (($ $call (? symbol? proc) ((? symbol? arg) ...))
+      (($ $call (? symbol? proc) (arg ...))
        (check-var proc v-env)
        (for-each (cut check-var <> v-env) arg))
-      (($ $callk (? symbol? k*) (? symbol? proc) ((? symbol? arg) ...))
+      (($ $callk k* proc (arg ...))
        ;; We don't check that k* is in scope; it's actually inside some
        ;; other function, probably.  We rely on the transformation that
        ;; introduces the $callk to be correct, and the linker to resolve
        ;; the reference.
        (check-var proc v-env)
        (for-each (cut check-var <> v-env) arg))
-      (($ $primcall (? symbol? name) ((? symbol? arg) ...))
+      (($ $primcall (? symbol? name) (arg ...))
        (for-each (cut check-var <> v-env) arg))
-      (($ $values ((? symbol? arg) ...))
+      (($ $values (arg ...))
        (for-each (cut check-var <> v-env) arg))
       (($ $prompt escape? tag handler)
        (unless (boolean? escape?) (error "escape? should be boolean" escape?))
        (check-var tag v-env)
-       (check-var handler k-env))
+       (check-label handler k-env))
       (_
        (error "unexpected expression" exp))))
 
   (define (visit-term term k-env v-env)
     (match term
-      (($ $letk (($ $cont (? symbol? k) cont) ...) body)
-       (let ((k-env (add-env k k-env)))
+      (($ $letk (($ $cont k cont) ...) body)
+       (let ((k-env (add-labels k k-env)))
          (for-each (cut visit-cont-body <> k-env v-env) cont)
          (visit-term body k-env v-env)))
 
-      (($ $letrec ((? symbol? name) ...) ((? symbol? sym) ...) (fun ...) body)
+      (($ $letrec ((? symbol? name) ...) (sym ...) (fun ...) body)
        (unless (= (length name) (length sym) (length fun))
          (error "letrec syms, names, and funs not same length" term))
-       (let ((v-env (add-env sym v-env)))
+       (let ((v-env (add-vars sym v-env)))
          (for-each (cut visit-fun <> k-env v-env) fun)
          (visit-term body k-env v-env)))
 
       (($ $continue k src exp)
-       (check-var k k-env)
+       (check-label k k-env)
        (check-src src)
        (visit-expression exp k-env v-env))
 
