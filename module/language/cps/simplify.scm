@@ -26,6 +26,7 @@
 (define-module (language cps simplify)
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-11)
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
   #:use-module (language cps dfg)
@@ -167,7 +168,8 @@
   ;; A continuation's body can be inlined in place of a $values
   ;; expression if the continuation is a $kargs.  It should only be
   ;; inlined if it is used only once, and not recursively.
-  (let ((table (make-hash-table))
+  (let ((var-table (make-hash-table))
+        (k-table (make-hash-table))
         (dfg (compute-dfg fun)))
     (define (visit-cont cont)
       (match cont
@@ -198,8 +200,8 @@
                ;; -> body mapping in the table.  Also store the
                ;; substitutions for the variables bound by the inlined
                ;; continuation.
-               (for-each (cut hashq-set! table <> <>) syms args)
-               (hashq-set! table k body))
+               (for-each (cut hashq-set! var-table <> <>) syms args)
+               (hashq-set! k-table k body))
               (_ #f)))
            (_ #f)))
         (($ $continue k src (and fun ($ $fun)))
@@ -211,12 +213,12 @@
         (($ $fun src meta free body)
          (visit-cont body))))
     (visit-fun fun)
-    table))
+    (values var-table k-table)))
 
 (define (beta-reduce fun)
-  (let ((table (compute-beta-reductions fun)))
+  (let-values (((var-table k-table) (compute-beta-reductions fun)))
     (define (subst var)
-      (cond ((hashq-ref table var) => subst)
+      (cond ((hashq-ref var-table var) => subst)
             (else var)))
     (define (must-visit-cont cont)
       (or (visit-cont cont)
@@ -224,7 +226,7 @@
     (define (visit-cont cont)
       (match cont
         (($ $cont sym cont)
-         (and (not (hashq-ref table sym))
+         (and (not (hashq-ref k-table sym))
               (rewrite-cps-cont cont
                 (($ $kargs names syms body)
                  (sym ($kargs names syms ,(visit-term body))))
@@ -247,7 +249,7 @@
                     ,(visit-term body))))
         (($ $continue k src exp)
          (cond
-          ((hashq-ref table k) => visit-term)
+          ((hashq-ref k-table k) => visit-term)
           (else
            (build-cps-term
              ($continue k src
