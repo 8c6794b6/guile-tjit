@@ -149,13 +149,15 @@
               (error "too many inits"))
             seed)
            (((key name var) . kw)
-            (unless (eq? var (car gensyms))
-              (error "unexpected keyword arg order"))
-            (proc name var (car inits)
+            ;; Could be that var is not a gensym any more.
+            (when (symbol? var)
+              (unless (eq? var (car gensyms))
+                (error "unexpected keyword arg order")))
+            (proc name (car gensyms) (car inits)
                   (fold-kw kw (cdr gensyms) (cdr inits) seed)))))
        (fold-req req gensyms seed)))))
 
-(define (unbound? src sym kt kf)
+(define (unbound? src var kt kf)
   (define tc8-iflag 4)
   (define unbound-val 9)
   (define unbound-bits (logior (ash unbound-val 8) tc8-iflag))
@@ -165,11 +167,11 @@
                             (pointer->scm (make-pointer unbound-bits))))
         ($letk ((ktest ($kif kt kf)))
           ($continue ktest src
-            ($primcall 'eq? (sym unbound))))))))
+            ($primcall 'eq? (var unbound))))))))
 
 (define (init-default-value name sym subst init body)
-  (match (assq-ref subst sym)
-    ((subst-sym box?)
+  (match (hashq-ref subst sym)
+    ((orig-var subst-var box?)
      (let ((src (tree-il-src init)))
        (define (maybe-box k make-body)
          (if box?
@@ -181,19 +183,19 @@
              (make-body k)))
        (let-fresh (knext kbound kunbound kreceive krest) (val rest)
          (build-cps-term
-           ($letk ((knext ($kargs (name) (subst-sym) ,body)))
+           ($letk ((knext ($kargs (name) (subst-var) ,body)))
              ,(maybe-box
                knext
                (lambda (k)
                  (build-cps-term
                    ($letk ((kbound ($kargs () () ($continue k src
-                                                   ($values (sym)))))
+                                                   ($values (orig-var)))))
                            (krest ($kargs (name 'rest) (val rest)
                                     ($continue k src ($values (val)))))
                            (kreceive ($kreceive (list name) 'rest krest))
                            (kunbound ($kargs () ()
                                        ,(convert init kreceive subst))))
-                     ,(unbound? src sym kunbound kbound))))))))))))
+                     ,(unbound? src orig-var kunbound kbound))))))))))))
 
 ;; exp k-name alist -> term
 (define (convert exp k subst)
@@ -201,14 +203,14 @@
   (define (convert-arg exp k)
     (match exp
       (($ <lexical-ref> src name sym)
-       (match (assq-ref subst sym)
-         ((box #t)
+       (match (hashq-ref subst sym)
+         ((orig-var box #t)
           (let-fresh (kunboxed) (unboxed)
             (build-cps-term
               ($letk ((kunboxed ($kargs ('unboxed) (unboxed) ,(k unboxed))))
                 ($continue kunboxed src ($primcall 'box-ref (box)))))))
-         ((subst #f) (k subst))
-         (#f (k sym))))
+         ((orig-var subst-var #f) (k subst-var))
+         (var (k var))))
       (else
        (let-fresh (kreceive karg) (arg rest)
          (build-cps-term
@@ -226,20 +228,24 @@
              (lambda (names)
                (k (cons name names)))))))))
   (define (box-bound-var name sym body)
-    (match (assq-ref subst sym)
-      ((box #t)
+    (match (hashq-ref subst sym)
+      ((orig-var subst-var #t)
        (let-fresh (k) ()
          (build-cps-term
-           ($letk ((k ($kargs (name) (box) ,body)))
-             ($continue k #f ($primcall 'box (sym)))))))
+           ($letk ((k ($kargs (name) (subst-var) ,body)))
+             ($continue k #f ($primcall 'box (orig-var)))))))
       (else body)))
+  (define (bound-var sym)
+    (match (hashq-ref subst sym)
+      ((var . _) var)
+      ((? exact-integer? var) var)))
 
   (match exp
     (($ <lexical-ref> src name sym)
-     (match (assq-ref subst sym)
-       ((box #t) (build-cps-term ($continue k src ($primcall 'box-ref (box)))))
-       ((subst #f) (build-cps-term ($continue k src ($values (subst)))))
-       (#f (build-cps-term ($continue k src ($values (sym)))))))
+     (rewrite-cps-term (hashq-ref subst sym)
+       ((orig-var box #t) ($continue k src ($primcall 'box-ref (box))))
+       ((orig-var subst-var #f) ($continue k src ($values (subst-var))))
+       (var ($continue k src ($values (var))))))
 
     (($ <void> src)
      (build-cps-term ($continue k src ($void))))
@@ -257,25 +263,30 @@
            (#f '())
            (($ <lambda-case> src req opt rest kw inits gensyms body alternate)
             (let* ((arity (make-$arity req (or opt '()) rest
-                                       (if kw (cdr kw) '()) (and kw (car kw))))
+                                       (map (match-lambda
+                                             ((kw name sym) 
+                                              (list kw name (bound-var sym))))
+                                            (if kw (cdr kw) '()))
+                                       (and kw (car kw))))
                    (names (fold-formals (lambda (name sym init names)
                                           (cons name names))
                                         '()
                                         arity gensyms inits)))
               (cons
-               (let-fresh (kclause kargs) ()
-                 (build-cps-cont
-                   (kclause
-                    ($kclause ,arity
-                      (kargs
-                       ($kargs names gensyms
-                         ,(fold-formals
-                           (lambda (name sym init body)
-                             (if init
-                                 (init-default-value name sym subst init body)
-                                 (box-bound-var name sym body)))
-                           (convert body ktail subst)
-                           arity gensyms inits)))))))
+               (let ((bound-vars (map bound-var gensyms)))
+                 (let-fresh (kclause kargs) ()
+                   (build-cps-cont
+                     (kclause
+                      ($kclause ,arity
+                        (kargs
+                         ($kargs names bound-vars
+                           ,(fold-formals
+                             (lambda (name sym init body)
+                               (if init
+                                   (init-default-value name sym subst init body)
+                                   (box-bound-var name sym body)))
+                             (convert body ktail subst)
+                             arity gensyms inits))))))))
                (convert-clauses alternate ktail))))))
        (if (current-topbox-scope)
            (let-fresh (kentry ktail) (self)
@@ -338,48 +349,14 @@
     (($ <primcall> src name args)
      (cond
       ((branching-primitive? name)
-       (convert (make-conditional src exp (make-const #f #t)
-                                  (make-const #f #f))
-                k subst))
-      ((and (eq? name 'vector)
-            (and-map (match-lambda
-                      ((or ($ <const>)
-                           ($ <void>)
-                           ($ <lambda>)
-                           ($ <lexical-ref>)) #t)
-                      (_ #f))
-                     args))
-       ;; Some macros generate calls to "vector" with like 300
-       ;; arguments.  Since we eventually compile to make-vector and
-       ;; vector-set!, it reduces live variable pressure to allocate the
-       ;; vector first, then set values as they are produced, if we can
-       ;; prove that no value can capture the continuation.  (More on
-       ;; that caveat here:
-       ;; http://wingolog.org/archives/2013/11/02/scheme-quiz-time).
-       ;;
-       ;; Normally we would do this transformation in the compiler, but
-       ;; it's quite tricky there and quite easy here, so hold your nose
-       ;; while we drop some smelly code.
-       (convert (let ((len (length args)))
-                  (let-fresh () (v)
-                    (make-let src
-                              (list 'v)
-                              (list v)
-                              (list (make-primcall src 'make-vector
-                                                   (list (make-const #f len)
-                                                         (make-const #f #f))))
-                              (fold (lambda (arg n tail)
-                                      (make-seq
-                                       src
-                                       (make-primcall
-                                        src 'vector-set!
-                                        (list (make-lexical-ref src 'v v)
-                                              (make-const #f n)
-                                              arg))
-                                       tail))
-                                    (make-lexical-ref src 'v v)
-                                    (reverse args) (reverse (iota len))))))
-        k subst))
+       (convert-args args
+         (lambda (args)
+           (let-fresh (kt kf kif) ()
+             (build-cps-term
+               ($letk ((kt ($kargs () () ($continue k src ($const #t))))
+                       (kf ($kargs () () ($continue k src ($const #f))))
+                       (kif ($kif kt kf)))
+                 ($continue kif src ($primcall name args))))))))
       ((and (eq? name 'list)
             (and-map (match-lambda
                       ((or ($ <const>)
@@ -388,7 +365,8 @@
                            ($ <lexical-ref>)) #t)
                       (_ #f))
                      args))
-       ;; The same situation occurs with "list".
+       ;; See note below in `canonicalize' about `vector'.  The same
+       ;; thing applies to `list'.
        (let lp ((args args) (k k))
          (match args
            (()
@@ -427,11 +405,12 @@
      ;; Otherwise we do a no-inline call to body, continuing to krest.
      (convert-arg tag
        (lambda (tag)
-         (let ((hnames (append hreq (if hrest (list hrest) '()))))
+         (let ((hnames (append hreq (if hrest (list hrest) '())))
+               (bound-vars (map bound-var hsyms)))
            (let-fresh (khargs khbody kret kprim kpop krest kbody) (prim vals)
              (build-cps-term
                ;; FIXME: Attach hsrc to $kreceive.
-               ($letk* ((khbody ($kargs hnames hsyms
+               ($letk* ((khbody ($kargs hnames bound-vars
                                   ,(fold box-bound-var
                                          (convert hbody k subst)
                                          hnames hsyms)))
@@ -500,8 +479,8 @@
     (($ <lexical-set> src name gensym exp)
      (convert-arg exp
        (lambda (exp)
-         (match (assq-ref subst gensym)
-           ((box #t)
+         (match (hashq-ref subst gensym)
+           ((orig-var box #t)
             (build-cps-term
               ($continue k src ($primcall 'box-set! (box exp)))))))))
 
@@ -520,7 +499,7 @@
          (((name . names) (sym . syms) (val . vals))
           (let-fresh (kreceive klet) (rest)
             (build-cps-term
-              ($letk* ((klet ($kargs (name 'rest) (sym rest)
+              ($letk* ((klet ($kargs (name 'rest) ((bound-var sym) rest)
                                ,(box-bound-var name sym
                                                (lp names syms vals))))
                        (kreceive ($kreceive (list name) 'rest klet)))
@@ -532,7 +511,7 @@
          (let-fresh () (self)
            (build-cps-term
              ($letrec names
-                      gensyms
+                      (map bound-var gensyms)
                       (map (lambda (fun)
                              (match (convert fun k subst)
                                (($ $continue _ _ (and fun ($ $fun)))
@@ -548,10 +527,11 @@
 
     (($ <let-values> src exp
         ($ <lambda-case> lsrc req #f rest #f () syms body #f))
-     (let ((names (append req (if rest (list rest) '()))))
+     (let ((names (append req (if rest (list rest) '())))
+           (bound-vars (map bound-var syms)))
        (let-fresh (kreceive kargs) ()
          (build-cps-term
-           ($letk* ((kargs ($kargs names syms
+           ($letk* ((kargs ($kargs names bound-vars
                              ,(fold box-bound-var
                                     (convert body k subst)
                                     names syms)))
@@ -559,37 +539,54 @@
              ,(convert exp kreceive subst))))))))
 
 (define (build-subst exp)
-  "Compute a mapping from lexical gensyms to substituted gensyms.  The
-usual reason to replace one variable by another is assignment
-conversion.  Default argument values is the other reason.
+  "Compute a mapping from lexical gensyms to CPS variable indexes.  CPS
+uses small integers to identify variables, instead of gensyms.
 
-Returns a list of (ORIG-SYM SUBST-SYM BOXED?).  A true value for BOXED?
-indicates that the replacement variable is in a box."
-  (define (box-set-vars exp subst)
-    (match exp
-      (($ <lexical-set> src name sym exp)
-       (if (assq sym subst)
-           subst
-           (cons (list sym (gensym "b") #t) subst)))
-      (_ subst)))
-  (define (default-args exp subst)
-    (match exp
-      (($ <lambda-case> src req opt rest kw inits gensyms body alternate)
-       (fold-formals (lambda (name sym init subst)
-                       (if init
-                           (let ((box? (match (assq-ref subst sym)
-                                         ((box #t) #t)
-                                         (#f #f)))
-                                 (subst-sym (gensym (symbol->string name))))
-                             (cons (list sym subst-sym box?) subst))
-                           subst))
-                     subst
-                     (make-$arity req (or opt '()) rest
-                                  (if kw (cdr kw) '()) (and kw (car kw)))
-                     gensyms
-                     inits))
-      (_ subst)))
-  (tree-il-fold box-set-vars default-args '() exp))
+This subst table serves an additional purpose of mapping variables to
+replacements.  The usual reason to replace one variable by another is
+assignment conversion.  Default argument values is the other reason.
+
+The result is a hash table mapping symbols to substitutions (in the case
+that a variable is substituted) or to indexes.  A substitution is a list
+of the form:
+
+  (ORIG-INDEX SUBST-INDEX BOXED?)
+
+A true value for BOXED?  indicates that the replacement variable is in a
+box.  If a variable is not substituted, the mapped value is a small
+integer."
+  (let ((table (make-hash-table)))
+    (define (down exp)
+      (match exp
+        (($ <lexical-set> src name sym exp)
+         (match (hashq-ref table sym)
+           ((orig subst #t) #t)
+           ((orig subst #f) (hashq-set! table sym (list orig subst #t)))
+           ((? number? idx) (hashq-set! table sym (list idx (fresh-var) #t)))))
+        (($ <lambda-case> src req opt rest kw inits gensyms body alternate)
+         (fold-formals (lambda (name sym init seed)
+                         (hashq-set! table sym
+                                     (if init
+                                         (list (fresh-var) (fresh-var) #f)
+                                         (fresh-var))))
+                       #f
+                       (make-$arity req (or opt '()) rest
+                                    (if kw (cdr kw) '()) (and kw (car kw)))
+                       gensyms
+                       inits))
+        (($ <let> src names gensyms vals body)
+         (for-each (lambda (sym)
+                     (hashq-set! table sym (fresh-var)))
+                   gensyms))
+        (($ <fix> src names gensyms vals body)
+         (for-each (lambda (sym)
+                     (hashq-set! table sym (fresh-var)))
+                   gensyms))
+        (_ #t))
+      (values))
+    (define (up exp) (values))
+    ((make-tree-il-folder) exp down up)
+    table))
 
 (define (cps-convert/thunk exp)
   (parameterize ((label-counter 0)
@@ -628,10 +625,45 @@ indicates that the replacement variable is in a box."
 
   (optimize x e opts))
 
-(define (fix-prompts exp)
+(define (canonicalize exp)
   (post-order
    (lambda (exp)
      (match exp
+       (($ <primcall> src 'vector
+           (and args
+                ((or ($ <const>) ($ <void>) ($ <lambda>) ($ <lexical-ref>))
+                 ...)))
+        ;; Some macros generate calls to "vector" with like 300
+        ;; arguments.  Since we eventually compile to make-vector and
+        ;; vector-set!, it reduces live variable pressure to allocate the
+        ;; vector first, then set values as they are produced, if we can
+        ;; prove that no value can capture the continuation.  (More on
+        ;; that caveat here:
+        ;; http://wingolog.org/archives/2013/11/02/scheme-quiz-time).
+        ;;
+        ;; Normally we would do this transformation in the compiler, but
+        ;; it's quite tricky there and quite easy here, so hold your nose
+        ;; while we drop some smelly code.
+        (let ((len (length args))
+              (v (gensym "v ")))
+          (make-let src
+                    (list 'v)
+                    (list v)
+                    (list (make-primcall src 'make-vector
+                                         (list (make-const #f len)
+                                               (make-const #f #f))))
+                    (fold (lambda (arg n tail)
+                            (make-seq
+                             src
+                             (make-primcall
+                              src 'vector-set!
+                              (list (make-lexical-ref src 'v v)
+                                    (make-const #f n)
+                                    arg))
+                             tail))
+                          (make-lexical-ref src 'v v)
+                          (reverse args) (reverse (iota len))))))
+
        (($ <prompt> src escape-only? tag body
            ($ <lambda> hsrc hmeta
               ($ <lambda-case> _ hreq #f hrest #f () hsyms hbody #f)))
@@ -673,7 +705,7 @@ indicates that the replacement variable is in a box."
 
 (define (compile-cps exp env opts)
   (values (cps-convert/thunk
-           (fix-prompts (optimize-tree-il exp env opts)))
+           (canonicalize (optimize-tree-il exp env opts)))
           env
           env))
 
