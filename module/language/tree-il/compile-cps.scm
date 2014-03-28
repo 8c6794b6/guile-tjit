@@ -464,41 +464,6 @@
                               ($continue kbody (tree-il-src body)
                                 ($prompt #f tag khargs))))))))))))))
 
-    ;; Eta-convert prompts without inline handlers.
-    (($ <prompt> src escape-only? tag body handler)
-     (let ((h (gensym "h "))
-           (args (gensym "args ")))
-       (convert
-        (make-let
-         src (list 'h) (list h) (list handler)
-         (make-seq
-          src
-          (make-conditional
-           src
-           (make-primcall src 'procedure? (list (make-lexical-ref #f 'h h)))
-           (make-void src)
-           (make-primcall
-            src 'scm-error
-            (list
-             (make-const #f 'wrong-type-arg)
-             (make-const #f "call-with-prompt")
-             (make-const #f "Wrong type (expecting procedure): ~S")
-             (make-primcall #f 'list (list (make-lexical-ref #f 'h h)))
-             (make-primcall #f 'list (list (make-lexical-ref #f 'h h))))))
-          (make-prompt
-           src escape-only? tag body
-           (make-lambda
-            src '()
-            (make-lambda-case
-             src '() #f 'args #f '() (list args)
-             (make-primcall
-              src 'apply
-              (list (make-lexical-ref #f 'h h)
-                    (make-lexical-ref #f 'args args)))
-             #f)))))
-        k
-        subst)))
-
     (($ <abort> src tag args ($ <const> _ ()))
      (convert-args (cons tag args)
        (lambda (args*)
@@ -663,8 +628,52 @@ indicates that the replacement variable is in a box."
 
   (optimize x e opts))
 
+(define (fix-prompts exp)
+  (post-order
+   (lambda (exp)
+     (match exp
+       (($ <prompt> src escape-only? tag body
+           ($ <lambda> hsrc hmeta
+              ($ <lambda-case> _ hreq #f hrest #f () hsyms hbody #f)))
+        exp)
+
+       ;; Eta-convert prompts without inline handlers.
+       (($ <prompt> src escape-only? tag body handler)
+        (let ((h (gensym "h "))
+              (args (gensym "args ")))
+          (make-let
+           src (list 'h) (list h) (list handler)
+           (make-seq
+            src
+            (make-conditional
+             src
+             (make-primcall src 'procedure? (list (make-lexical-ref #f 'h h)))
+             (make-void src)
+             (make-primcall
+              src 'scm-error
+              (list
+               (make-const #f 'wrong-type-arg)
+               (make-const #f "call-with-prompt")
+               (make-const #f "Wrong type (expecting procedure): ~S")
+               (make-primcall #f 'list (list (make-lexical-ref #f 'h h)))
+               (make-primcall #f 'list (list (make-lexical-ref #f 'h h))))))
+            (make-prompt
+             src escape-only? tag body
+             (make-lambda
+              src '()
+              (make-lambda-case
+               src '() #f 'args #f '() (list args)
+               (make-primcall
+                src 'apply
+                (list (make-lexical-ref #f 'h h)
+                      (make-lexical-ref #f 'args args)))
+               #f)))))))
+       (_ exp)))
+   exp))
+
 (define (compile-cps exp env opts)
-  (values (cps-convert/thunk (optimize-tree-il exp env opts))
+  (values (cps-convert/thunk
+           (fix-prompts (optimize-tree-il exp env opts)))
           env
           env))
 
