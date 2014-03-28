@@ -43,8 +43,7 @@
         (add-env (cdr new) (add (car new) seen env))))
 
   (define (add-vars new env)
-    (unless (and-map (lambda (v) (or (symbol? v) (exact-integer? v)))
-                     new)
+    (unless (and-map exact-integer? new)
       (error "bad vars" new))
     (add-env new seen-vars env))
 
