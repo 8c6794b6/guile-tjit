@@ -58,7 +58,7 @@
   #:use-module (language cps primitives)
   #:use-module (language tree-il analyze)
   #:use-module (language tree-il optimize)
-  #:use-module ((language tree-il) #:hide (let-gensyms))
+  #:use-module (language tree-il)
   #:export (compile-cps))
 
 ;;; Guile's semantics are that a toplevel lambda captures a reference on

@@ -35,7 +35,7 @@
   #:use-module (language cps dfg)
   #:export (elide-values))
 
-(define (elide-values fun)
+(define (elide-values* fun)
   (let ((conts (build-local-cont-table
                 (match fun (($ $fun src meta free body) body)))))
     (define (visit-cont cont)
@@ -54,7 +54,7 @@
          ($letk ,(map visit-cont conts)
            ,(visit-term body)))
         (($ $letrec names syms funs body)
-         ($letrec names syms (map elide-values funs)
+         ($letrec names syms (map elide-values* funs)
                   ,(visit-term body)))
         (($ $continue k src ($ $primcall 'values vals))
          ,(rewrite-cps-term (lookup-cont k conts)
@@ -64,9 +64,9 @@
              ,(cond
                ((and (not rest) (= (length vals) (length req)))
                 (build-cps-term
-                 ($continue kargs src ($values vals))))
+                  ($continue kargs src ($values vals))))
                ((and rest (>= (length vals) (length req)))
-                (let-gensyms (krest rest)
+                (let-fresh (krest) (rest)
                   (let ((vals* (append (list-head vals (length req))
                                        (list rest))))
                     (build-cps-term
@@ -80,7 +80,7 @@
                               (build-cps-term ($continue k src
                                                 ($const '()))))
                              ((v . tail)
-                              (let-gensyms (krest rest)
+                              (let-fresh (krest) (rest)
                                 (build-cps-term
                                   ($letk ((krest ($kargs ('rest) (rest)
                                                    ($continue k src
@@ -95,10 +95,14 @@
                     (build-cps-term
                       ($continue k src ($values vals))))))))
         (($ $continue k src (and fun ($ $fun)))
-         ($continue k src ,(elide-values fun)))
+         ($continue k src ,(elide-values* fun)))
         (($ $continue)
          ,term)))
 
     (rewrite-cps-exp fun
       (($ $fun src meta free body)
        ($fun src meta free ,(visit-cont body))))))
+
+(define (elide-values fun)
+  (with-fresh-name-state fun
+    (elide-values* fun)))

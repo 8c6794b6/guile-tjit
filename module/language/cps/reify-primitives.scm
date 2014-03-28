@@ -33,7 +33,7 @@
   #:export (reify-primitives))
 
 (define (module-box src module name public? bound? val-proc)
-  (let-gensyms (module-sym name-sym public?-sym bound?-sym kbox box)
+  (let-fresh (kbox) (module-sym name-sym public?-sym bound?-sym box)
     (build-cps-term
       ($letconst (('module module-sym module)
                   ('name name-sym name)
@@ -81,14 +81,14 @@
                   ($continue k src ($primcall 'box-ref (box)))))))
 
 (define (builtin-ref idx k src)
-  (let-gensyms (idx-sym)
+  (let-fresh () (idx-sym)
     (build-cps-term
       ($letconst (('idx idx-sym idx))
         ($continue k src
           ($primcall 'builtin-ref (idx-sym)))))))
 
 (define (reify-clause ktail)
-  (let-gensyms (kclause kbody wna false str eol kthrow throw)
+  (let-fresh (kclause kbody kthrow) (wna false str eol throw)
     (build-cps-cont
       (kclause ($kclause ('() '() #f '() #f)
                  (kbody
@@ -106,59 +106,60 @@
 
 ;; FIXME: Operate on one function at a time, for efficiency.
 (define (reify-primitives fun)
-  (let ((conts (build-cont-table fun)))
-    (define (visit-fun term)
-      (rewrite-cps-exp term
-        (($ $fun src meta free body)
-         ($fun src meta free ,(visit-cont body)))))
-    (define (visit-cont cont)
-      (rewrite-cps-cont cont
-        (($ $cont sym ($ $kargs names syms body))
-         (sym ($kargs names syms ,(visit-term body))))
-        (($ $cont sym ($ $kentry self (and tail ($ $cont ktail)) ()))
-         ;; A case-lambda with no clauses.  Reify a clause.
-         (sym ($kentry self ,tail (,(reify-clause ktail)))))
-        (($ $cont sym ($ $kentry self tail clauses))
-         (sym ($kentry self ,tail ,(map visit-cont clauses))))
-        (($ $cont sym ($ $kclause arity body))
-         (sym ($kclause ,arity ,(visit-cont body))))
-        (($ $cont)
-         ,cont)))
-    (define (visit-term term)
-      (rewrite-cps-term term
-        (($ $letk conts body)
-         ($letk ,(map visit-cont conts) ,(visit-term body)))
-        (($ $continue k src exp)
-         ,(match exp
-            (($ $prim name)
-             (match (lookup-cont k conts)
-               (($ $kargs (_))
-                (cond
-                 ((builtin-name->index name)
-                  => (lambda (idx)
-                       (builtin-ref idx k src)))
-                 (else (primitive-ref name k src))))
-               (_ (build-cps-term ($continue k src ($void))))))
-            (($ $fun)
-             (build-cps-term ($continue k src ,(visit-fun exp))))
-            (($ $primcall 'call-thunk/no-inline (proc))
-             (build-cps-term
-               ($continue k src ($call proc ()))))
-            (($ $primcall name args)
-             (cond
-              ((or (prim-instruction name) (branching-primitive? name))
-               ;; Assume arities are correct.
-               term)
-              (else
-               (let-gensyms (k* v)
-                 (build-cps-term
-                   ($letk ((k* ($kargs (v) (v)
-                                 ($continue k src ($call v args)))))
-                     ,(cond
-                       ((builtin-name->index name)
-                        => (lambda (idx)
-                             (builtin-ref idx k* src)))
-                       (else (primitive-ref name k* src)))))))))
-            (_ term)))))
+  (with-fresh-name-state fun
+    (let ((conts (build-cont-table fun)))
+      (define (visit-fun term)
+        (rewrite-cps-exp term
+          (($ $fun src meta free body)
+           ($fun src meta free ,(visit-cont body)))))
+      (define (visit-cont cont)
+        (rewrite-cps-cont cont
+          (($ $cont sym ($ $kargs names syms body))
+           (sym ($kargs names syms ,(visit-term body))))
+          (($ $cont sym ($ $kentry self (and tail ($ $cont ktail)) ()))
+           ;; A case-lambda with no clauses.  Reify a clause.
+           (sym ($kentry self ,tail (,(reify-clause ktail)))))
+          (($ $cont sym ($ $kentry self tail clauses))
+           (sym ($kentry self ,tail ,(map visit-cont clauses))))
+          (($ $cont sym ($ $kclause arity body))
+           (sym ($kclause ,arity ,(visit-cont body))))
+          (($ $cont)
+           ,cont)))
+      (define (visit-term term)
+        (rewrite-cps-term term
+          (($ $letk conts body)
+           ($letk ,(map visit-cont conts) ,(visit-term body)))
+          (($ $continue k src exp)
+           ,(match exp
+              (($ $prim name)
+               (match (lookup-cont k conts)
+                 (($ $kargs (_))
+                  (cond
+                   ((builtin-name->index name)
+                    => (lambda (idx)
+                         (builtin-ref idx k src)))
+                   (else (primitive-ref name k src))))
+                 (_ (build-cps-term ($continue k src ($void))))))
+              (($ $fun)
+               (build-cps-term ($continue k src ,(visit-fun exp))))
+              (($ $primcall 'call-thunk/no-inline (proc))
+               (build-cps-term
+                 ($continue k src ($call proc ()))))
+              (($ $primcall name args)
+               (cond
+                ((or (prim-instruction name) (branching-primitive? name))
+                 ;; Assume arities are correct.
+                 term)
+                (else
+                 (let-fresh (k*) (v)
+                   (build-cps-term
+                     ($letk ((k* ($kargs (v) (v)
+                                   ($continue k src ($call v args)))))
+                       ,(cond
+                         ((builtin-name->index name)
+                          => (lambda (idx)
+                               (builtin-ref idx k* src)))
+                         (else (primitive-ref name k* src)))))))))
+              (_ term)))))
 
-    (visit-fun fun)))
+      (visit-fun fun))))

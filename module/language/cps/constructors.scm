@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -29,7 +29,7 @@
   #:use-module (language cps)
   #:export (inline-constructors))
 
-(define (inline-constructors fun)
+(define (inline-constructors* fun)
   (define (visit-cont cont)
     (rewrite-cps-cont cont
       (($ $cont sym ($ $kargs names syms body))
@@ -46,10 +46,10 @@
        ($letk ,(map visit-cont conts)
          ,(visit-term body)))
       (($ $letrec names syms funs body)
-       ($letrec names syms (map inline-constructors funs)
+       ($letrec names syms (map inline-constructors* funs)
                 ,(visit-term body)))
       (($ $continue k src ($ $primcall 'list args))
-       ,(let-gensyms (kvalues val)
+       ,(let-fresh (kvalues) (val)
           (build-cps-term
             ($letk ((kvalues ($kargs ('val) (val)
                                ($continue k src
@@ -60,21 +60,21 @@
                     (build-cps-term
                       ($continue k src ($const '()))))
                    ((arg . args)
-                    (let-gensyms (ktail tail)
+                    (let-fresh (ktail) (tail)
                       (build-cps-term
                         ($letk ((ktail ($kargs ('tail) (tail)
                                          ($continue k src
                                            ($primcall 'cons (arg tail))))))
                           ,(lp args ktail)))))))))))
       (($ $continue k src ($ $primcall 'vector args))
-       ,(let-gensyms (kalloc vec len init)
+       ,(let-fresh (kalloc) (vec len init)
           (define (initialize args n)
             (match args
               (()
                (build-cps-term
                  ($continue k src ($primcall 'values (vec)))))
               ((arg . args)
-               (let-gensyms (knext idx)
+               (let-fresh (knext) (idx)
                  (build-cps-term
                    ($letk ((knext ($kargs () ()
                                     ,(initialize args (1+ n)))))
@@ -89,10 +89,14 @@
                 ($continue kalloc src
                   ($primcall 'make-vector (len init))))))))
       (($ $continue k src (and fun ($ $fun)))
-       ($continue k src ,(inline-constructors fun)))
+       ($continue k src ,(inline-constructors* fun)))
       (($ $continue)
        ,term)))
 
   (rewrite-cps-exp fun
     (($ $fun src meta free body)
      ($fun src meta free ,(visit-cont body)))))
+
+(define (inline-constructors fun)
+  (with-fresh-name-state fun
+    (inline-constructors* fun)))

@@ -60,7 +60,7 @@ called with @var{sym}.
 values in the term."
   (if (memq sym bound)
       (k sym)
-      (let-gensyms (k* sym*)
+      (let-fresh (k*) (sym*)
         (receive (exp free) (k sym*)
           (values (build-cps-term
                     ($letk ((k* ($kargs (sym*) (sym*) ,exp)))
@@ -86,7 +86,7 @@ values: the term and a list of additional free variables in the term."
 label of the outer procedure, where the initialization will be
 performed, and @var{outer-bound} is the list of bound variables there."
   (fold (lambda (free idx body)
-          (let-gensyms (k idxsym)
+          (let-fresh (k) (idxsym)
             (build-cps-term
               ($letk ((k ($kargs () () ,body)))
                 ,(convert-free-var
@@ -157,7 +157,7 @@ convert functions to flat closures."
               (receive (fun-body fun-free) (cc fun-body #f '())
                 (lp in
                     (lambda (body)
-                      (let-gensyms (k)
+                      (let-fresh (k) ()
                         (build-cps-term
                           ($letk ((k ($kargs (name) (sym) ,(bindings body))))
                             ($continue k src
@@ -180,7 +180,7 @@ convert functions to flat closures."
                   free))
          (_
           (values
-           (let-gensyms (kinit v)
+           (let-fresh (kinit) (v)
              (build-cps-term
                ($letk ((kinit ($kargs (v) (v)
                                 ,(init-closure
@@ -241,7 +241,7 @@ convert functions to flat closures."
       (($ $letk conts body)
        ($letk ,(map visit-cont conts) ,(visit-term body)))
       (($ $continue k src ($ $primcall 'free-ref (closure sym)))
-       ,(let-gensyms (idx)
+       ,(let-fresh () (idx)
           (build-cps-term
             ($letconst (('idx idx (free-index sym)))
               ($continue k src ($primcall 'free-ref (closure idx)))))))
@@ -268,10 +268,11 @@ convert functions to flat closures."
 (define (convert-closures exp)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
 and allocate and initialize flat closures."
-  (match exp
-    (($ $fun src meta () body)
-     (receive (body free) (cc body #f '())
-       (unless (null? free)
-         (error "Expected no free vars in toplevel thunk" exp body free))
-       (build-cps-exp
-         ($fun src meta free ,(convert-to-indices body free)))))))
+  (with-fresh-name-state exp
+    (match exp
+      (($ $fun src meta () body)
+       (receive (body free) (cc body #f '())
+         (unless (null? free)
+           (error "Expected no free vars in toplevel thunk" exp body free))
+         (build-cps-exp
+           ($fun src meta free ,(convert-to-indices body free))))))))

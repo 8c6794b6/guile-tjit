@@ -41,7 +41,7 @@
         (($ $letk conts body)
          ($letk ,(map visit-cont conts) ,(visit-term body)))
         (($ $letrec names syms funs body)
-         ($letrec names syms (map fix-arities funs) ,(visit-term body)))
+         ($letrec names syms (map fix-arities* funs) ,(visit-term body)))
         (($ $continue k src exp)
          ,(visit-exp k src exp))))
 
@@ -50,7 +50,7 @@
         (0
          (rewrite-cps-term (lookup-cont k conts)
            (($ $ktail)
-            ,(let-gensyms (kvoid kunspec unspec)
+            ,(let-fresh (kvoid kunspec) (unspec)
                (build-cps-term
                  ($letk* ((kunspec ($kargs (unspec) (unspec)
                                      ($continue k src
@@ -62,7 +62,7 @@
             ,(match arity
                (($ $arity () () rest () #f)
                 (if rest
-                    (let-gensyms (knil)
+                    (let-fresh (knil) ()
                       (build-cps-term
                         ($letk ((knil ($kargs () ()
                                         ($continue kargs src ($const '())))))
@@ -70,7 +70,7 @@
                     (build-cps-term
                       ($continue kargs src ,exp))))
                (_
-                (let-gensyms (kvoid kvalues void)
+                (let-fresh (kvoid kvalues) (void)
                   (build-cps-term
                     ($letk* ((kvalues ($kargs ('void) (void)
                                         ($continue k src
@@ -82,7 +82,7 @@
            (($ $kargs () () _)
             ($continue k src ,exp))
            (_
-            ,(let-gensyms (k*)
+            ,(let-fresh (k*) ()
                (build-cps-term
                  ($letk ((k* ($kargs () () ($continue k src ($void)))))
                    ($continue k* src ,exp)))))))
@@ -93,7 +93,7 @@
                (($values (sym))
                 ($continue ktail src ($primcall 'return (sym))))
                (_
-                ,(let-gensyms (k* v)
+                ,(let-fresh (k*) (v)
                    (build-cps-term
                      ($letk ((k* ($kargs (v) (v)
                                    ($continue k src
@@ -103,7 +103,7 @@
             ,(match arity
                (($ $arity (_) () rest () #f)
                 (if rest
-                    (let-gensyms (kval val nil)
+                    (let-fresh (kval) (val nil)
                       (build-cps-term
                         ($letk ((kval ($kargs ('val) (val)
                                         ($letconst (('nil nil '()))
@@ -112,14 +112,14 @@
                           ($continue kval src ,exp))))
                     (build-cps-term ($continue kargs src ,exp))))
                (_
-                (let-gensyms (kvalues value)
+                (let-fresh (kvalues) (value)
                   (build-cps-term
                     ($letk ((kvalues ($kargs ('value) (value)
                                        ($continue k src
                                          ($primcall 'values (value))))))
                       ($continue kvalues src ,exp)))))))
            (($ $kargs () () _)
-            ,(let-gensyms (k* drop)
+            ,(let-fresh (k*) (drop)
                (build-cps-term
                  ($letk ((k* ($kargs ('drop) (drop)
                                ($continue k src ($values ())))))
@@ -135,7 +135,7 @@
              ($ $values (_)))
          ,(adapt-exp 1 k src exp))
         (($ $fun)
-         ,(adapt-exp 1 k src (fix-arities exp)))
+         ,(adapt-exp 1 k src (fix-arities* exp)))
         ((or ($ $call) ($ $callk))
          ;; In general, calls have unknown return arity.  For that
          ;; reason every non-tail call has a $kreceive continuation to
@@ -158,7 +158,7 @@
                               (if (and inst (not (eq? inst name)))
                                   (build-cps-exp ($primcall inst args))
                                   exp)))
-                 (let-gensyms (k* p*)
+                 (let-fresh (k*) (p*)
                    (build-cps-term
                      ($letk ((k* ($kargs ('prim) (p*)
                                    ($continue k src ($call p* args)))))
@@ -183,7 +183,11 @@
       (($ $cont sym ($ $kentry self tail clauses))
        (sym ($kentry self ,tail ,(map visit-cont clauses)))))))
 
-(define (fix-arities fun)
+(define (fix-arities* fun)
   (rewrite-cps-exp fun
     (($ $fun src meta free body)
      ($fun src meta free ,(fix-clause-arities body)))))
+
+(define (fix-arities fun)
+  (with-fresh-name-state fun
+    (fix-arities* fun)))

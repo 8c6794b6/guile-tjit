@@ -174,108 +174,109 @@
     (values fun-data-table live-vars)))
 
 (define (eliminate-dead-code fun)
-  (call-with-values (lambda () (compute-live-code fun))
-    (lambda (fun-data-table live-vars)
-      (define (value-live? sym)
-        (hashq-ref live-vars sym))
-      (define (make-adaptor name k defs)
-        (let* ((names (map (lambda (_) 'tmp) defs))
-               (syms (map (lambda (_) (gensym "tmp")) defs))
-               (live (filter-map (lambda (def sym)
-                                   (and (value-live? def)
-                                        sym))
-                                 defs syms)))
-          (build-cps-cont
-            (name ($kargs names syms
-                    ($continue k #f ($values live)))))))
-      (define (visit-fun fun)
-        (match (hashq-ref fun-data-table fun)
-          (($ $fun-data cfa effects contv live-conts defs)
-           (define (must-visit-cont cont)
-             (match (visit-cont cont)
-               ((cont) cont)
-               (conts (error "cont must be reachable" cont conts))))
-           (define (visit-cont cont)
-             (match cont
-               (($ $cont sym cont)
-                (match (cfa-k-idx cfa sym #:default (lambda (k) #f))
-                  (#f '())
-                  (n
-                   (match cont
-                     (($ $kargs names syms body)
-                      (match (filter-map (lambda (name sym)
-                                           (and (value-live? sym)
-                                                (cons name sym)))
-                                         names syms)
-                        (((names . syms) ...)
-                         (list
-                          (build-cps-cont
-                            (sym ($kargs names syms
-                                   ,(visit-term body n))))))))
-                     (($ $kentry self tail clauses)
-                      (list
-                       (build-cps-cont
-                         (sym ($kentry self ,tail
-                                ,(visit-conts clauses))))))
-                     (($ $kclause arity body)
-                      (list
-                       (build-cps-cont
-                         (sym ($kclause ,arity
-                                ,(must-visit-cont body))))))
-                     (($ $kreceive ($ $arity req () rest () #f) kargs)
-                      (let ((defs (vector-ref defs n)))
-                        (if (and-map value-live? defs)
-                            (list (build-cps-cont (sym ,cont)))
-                            (let-gensyms (adapt)
-                              (list (make-adaptor adapt kargs defs)
-                                    (build-cps-cont
-                                      (sym ($kreceive req rest adapt))))))))
-                     (_ (list (build-cps-cont (sym ,cont))))))))))
-           (define (visit-conts conts)
-             (append-map visit-cont conts))
-           (define (visit-term term term-k-idx)
-             (match term
-               (($ $letk conts body)
-                (let ((body (visit-term body term-k-idx)))
-                  (match (visit-conts conts)
-                    (() body)
-                    (conts (build-cps-term ($letk ,conts ,body))))))
-               (($ $letrec names syms funs body)
-                (let ((body (visit-term body term-k-idx)))
-                  (match (filter-map
-                          (lambda (name sym fun)
-                            (and (value-live? sym)
-                                 (list name sym (visit-fun fun))))
-                          names syms funs)
-                    (() body)
-                    (((names syms funs) ...)
-                     (build-cps-term
-                       ($letrec names syms funs ,body))))))
-               (($ $continue k src ($ $values args))
-                (match (vector-ref defs term-k-idx)
-                  (#f term)
-                  (defs
-                    (let ((args (filter-map (lambda (use def)
-                                              (and (value-live? def) use))
-                                            args defs)))
-                      (build-cps-term
-                        ($continue k src ($values args)))))))
-               (($ $continue k src exp)
-                (if (bitvector-ref live-conts term-k-idx)
-                    (rewrite-cps-term exp
-                      (($ $fun) ($continue k src ,(visit-fun exp)))
-                      (_
-                       ,(match (vector-ref defs term-k-idx)
-                          ((or #f ((? value-live?) ...))
-                           (build-cps-term
-                             ($continue k src ,exp)))
-                          (syms
-                           (let-gensyms (adapt)
+  (with-fresh-name-state fun
+    (call-with-values (lambda () (compute-live-code fun))
+      (lambda (fun-data-table live-vars)
+        (define (value-live? sym)
+          (hashq-ref live-vars sym))
+        (define (make-adaptor name k defs)
+          (let* ((names (map (lambda (_) 'tmp) defs))
+                 (syms (map (lambda (_) (gensym "tmp")) defs))
+                 (live (filter-map (lambda (def sym)
+                                     (and (value-live? def)
+                                          sym))
+                                   defs syms)))
+            (build-cps-cont
+              (name ($kargs names syms
+                      ($continue k #f ($values live)))))))
+        (define (visit-fun fun)
+          (match (hashq-ref fun-data-table fun)
+            (($ $fun-data cfa effects contv live-conts defs)
+             (define (must-visit-cont cont)
+               (match (visit-cont cont)
+                 ((cont) cont)
+                 (conts (error "cont must be reachable" cont conts))))
+             (define (visit-cont cont)
+               (match cont
+                 (($ $cont sym cont)
+                  (match (cfa-k-idx cfa sym #:default (lambda (k) #f))
+                    (#f '())
+                    (n
+                     (match cont
+                       (($ $kargs names syms body)
+                        (match (filter-map (lambda (name sym)
+                                             (and (value-live? sym)
+                                                  (cons name sym)))
+                                           names syms)
+                          (((names . syms) ...)
+                           (list
+                            (build-cps-cont
+                              (sym ($kargs names syms
+                                     ,(visit-term body n))))))))
+                       (($ $kentry self tail clauses)
+                        (list
+                         (build-cps-cont
+                           (sym ($kentry self ,tail
+                                  ,(visit-conts clauses))))))
+                       (($ $kclause arity body)
+                        (list
+                         (build-cps-cont
+                           (sym ($kclause ,arity
+                                  ,(must-visit-cont body))))))
+                       (($ $kreceive ($ $arity req () rest () #f) kargs)
+                        (let ((defs (vector-ref defs n)))
+                          (if (and-map value-live? defs)
+                              (list (build-cps-cont (sym ,cont)))
+                              (let-fresh (adapt) ()
+                                (list (make-adaptor adapt kargs defs)
+                                      (build-cps-cont
+                                        (sym ($kreceive req rest adapt))))))))
+                       (_ (list (build-cps-cont (sym ,cont))))))))))
+             (define (visit-conts conts)
+               (append-map visit-cont conts))
+             (define (visit-term term term-k-idx)
+               (match term
+                 (($ $letk conts body)
+                  (let ((body (visit-term body term-k-idx)))
+                    (match (visit-conts conts)
+                      (() body)
+                      (conts (build-cps-term ($letk ,conts ,body))))))
+                 (($ $letrec names syms funs body)
+                  (let ((body (visit-term body term-k-idx)))
+                    (match (filter-map
+                            (lambda (name sym fun)
+                              (and (value-live? sym)
+                                   (list name sym (visit-fun fun))))
+                            names syms funs)
+                      (() body)
+                      (((names syms funs) ...)
+                       (build-cps-term
+                         ($letrec names syms funs ,body))))))
+                 (($ $continue k src ($ $values args))
+                  (match (vector-ref defs term-k-idx)
+                    (#f term)
+                    (defs
+                      (let ((args (filter-map (lambda (use def)
+                                                (and (value-live? def) use))
+                                              args defs)))
+                        (build-cps-term
+                          ($continue k src ($values args)))))))
+                 (($ $continue k src exp)
+                  (if (bitvector-ref live-conts term-k-idx)
+                      (rewrite-cps-term exp
+                        (($ $fun) ($continue k src ,(visit-fun exp)))
+                        (_
+                         ,(match (vector-ref defs term-k-idx)
+                            ((or #f ((? value-live?) ...))
                              (build-cps-term
-                               ($letk (,(make-adaptor adapt k syms))
-                                 ($continue adapt src ,exp))))))))
-                    (build-cps-term ($continue k src ($values ())))))))
-           (rewrite-cps-exp fun
-             (($ $fun src meta free body)
-              ($fun src meta free ,(must-visit-cont body)))))))
-      (visit-fun fun))))
+                               ($continue k src ,exp)))
+                            (syms
+                             (let-fresh (adapt) ()
+                               (build-cps-term
+                                 ($letk (,(make-adaptor adapt k syms))
+                                   ($continue adapt src ,exp))))))))
+                      (build-cps-term ($continue k src ($values ())))))))
+             (rewrite-cps-exp fun
+               (($ $fun src meta free body)
+                ($fun src meta free ,(must-visit-cont body)))))))
+        (visit-fun fun)))))

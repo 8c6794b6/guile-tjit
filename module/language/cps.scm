@@ -107,6 +107,7 @@
   #:use-module ((srfi srfi-1) #:select (fold))
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-9 gnu)
+  #:use-module (srfi srfi-11)
   #:export (;; Helper.
             $arity
             make-$arity
@@ -126,7 +127,8 @@
             ;; Fresh names.
             label-counter var-counter
             fresh-label fresh-var
-            let-fresh let-gensyms
+            with-fresh-name-state compute-max-label-and-var
+            let-fresh
 
             ;; Building macros.
             build-cps-term build-cps-cont build-cps-exp
@@ -195,14 +197,16 @@
 (define var-counter (make-parameter #f))
 
 (define (fresh-label)
-  (let ((count (label-counter)))
+  (let ((count (or (label-counter)
+                   (error "fresh-label outside with-fresh-name-state"))))
     (label-counter (1+ count))
     count))
 
 ;; FIXME: Currently vars and labels need to be unique, so we use the
 ;; label counter.
 (define (fresh-var)
-  (let ((count (label-counter)))
+  (let ((count (or (label-counter)
+                   (error "fresh-var outside with-fresh-name-state"))))
     (label-counter (1+ count))
     count))
 
@@ -211,11 +215,17 @@
         (var (fresh-var)) ...)
     body ...))
 
-(define-syntax let-gensyms
-  (syntax-rules ()
-    ((_ (sym ...) body body* ...)
-     (let ((sym (gensym (symbol->string 'sym))) ...)
-       body body* ...))))
+;; FIXME: Same FIXME as above.
+(define-syntax-rule (with-fresh-name-state fun body ...)
+  (begin
+    (when (or (label-counter) (var-counter))
+      (error "with-fresh-name-state should not be called recursively"))
+    (call-with-values (lambda ()
+                        (compute-max-label-and-var fun))
+      (lambda (max-label max-var)
+        (parameterize ((label-counter (1+ (max max-label max-var)))
+                       (var-counter (1+ (max max-label max-var))))
+          body ...)))))
 
 (define-syntax build-arity
   (syntax-rules (unquote)
@@ -432,42 +442,73 @@
     (_
      (error "unexpected cps" exp))))
 
+(define-syntax-rule (make-cont-folder seed ...)
+  (lambda (proc fun seed ...)
+    (define (fold-values proc in seed ...)
+      (if (null? in)
+          (values seed ...)
+          (let-values (((seed ...) (proc (car in) seed ...)))
+            (fold-values proc (cdr in) seed ...))))
+
+    (define (cont-folder cont seed ...)
+      (match cont
+        (($ $cont k cont)
+         (let-values (((seed ...) (proc k cont seed ...)))
+           (match cont
+             (($ $kargs names syms body)
+              (term-folder body seed ...))
+
+             (($ $kentry self tail clauses)
+              (let-values (((seed ...) (cont-folder tail seed ...)))
+                (fold-values cont-folder clauses seed ...)))
+
+             (($ $kclause arity body)
+              (cont-folder body seed ...))
+
+             (_ (values seed ...)))))))
+
+    (define (fun-folder fun seed ...)
+      (match fun
+        (($ $fun src meta free body)
+         (cont-folder body seed ...))))
+
+    (define (term-folder term seed ...)
+      (match term
+        (($ $letk conts body)
+         (let-values (((seed ...) (term-folder body seed ...)))
+           (fold-values cont-folder conts seed ...)))
+
+        (($ $continue k src exp)
+         (match exp
+           (($ $fun) (fun-folder exp seed ...))
+           (_ (values seed ...))))
+
+        (($ $letrec names syms funs body)
+         (let-values (((seed ...) (term-folder body seed ...)))
+           (fold-values fun-folder funs seed ...)))))
+
+    (fun-folder fun seed ...)))
+
+(define (compute-max-label-and-var fun)
+  (define (max* var max-var)
+    (if (number? var)
+        (max var max-var)
+        max-var))
+  ((make-cont-folder max-label max-var)
+   (lambda (label cont max-label max-var)
+     (values (max label max-label)
+             (match cont
+               (($ $kargs names vars)
+                (fold max* max-var vars))
+               (($ $kentry self)
+                (max* self max-var))
+               (_ max-var))))
+   fun
+   -1
+   -1))
+
 (define (fold-conts proc seed fun)
-  (define (cont-folder cont seed)
-    (match cont
-      (($ $cont k cont)
-       (let ((seed (proc k cont seed)))
-         (match cont
-           (($ $kargs names syms body)
-            (term-folder body seed))
-
-           (($ $kentry self tail clauses)
-            (fold cont-folder (cont-folder tail seed) clauses))
-
-           (($ $kclause arity body)
-            (cont-folder body seed))
-
-           (_ seed))))))
-
-  (define (fun-folder fun seed)
-    (match fun
-      (($ $fun src meta free body)
-       (cont-folder body seed))))
-
-  (define (term-folder term seed)
-    (match term
-      (($ $letk conts body)
-       (fold cont-folder (term-folder body seed) conts))
-
-      (($ $continue k src exp)
-       (match exp
-         (($ $fun) (fun-folder exp seed))
-         (_ seed)))
-
-      (($ $letrec names syms funs body)
-       (fold fun-folder (term-folder body seed) funs))))
-
-  (fun-folder fun seed))
+  ((make-cont-folder seed) proc fun seed))
 
 (define (fold-local-conts proc seed cont)
   (define (cont-folder cont seed)
