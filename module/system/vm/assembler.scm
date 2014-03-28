@@ -1954,9 +1954,6 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
         ('language (language-name->code val))
         ('stmt-list val)))
 
-    (define (exact-integer? val)
-      (and (number? val) (integer? val) (exact? val)))
-
     (define (choose-form attr val code)
       (cond
        ((string? val) 'strp)
