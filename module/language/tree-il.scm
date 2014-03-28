@@ -1,4 +1,4 @@
-;;;; 	Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -418,75 +418,146 @@ This is an implementation of `foldts' as described by Andy Wingo in
   ((make-tree-il-folder tree) tree down up seed))
 
 (define (pre-post-order pre post x)
+  (define (elts-eq? a b)
+    (or (null? a)
+        (and (eq? (car a) (car b))
+             (elts-eq? (cdr a) (cdr b)))))
   (let lp ((x x))
     (post
-     (match (pre x)
-       (($ <void> src)
-        (make-void src))
+     (let ((x (pre x)))
+       (match x
+         ((or ($ <void>)
+              ($ <const>)
+              ($ <primitive-ref>)
+              ($ <lexical-ref>)
+              ($ <module-ref>)
+              ($ <toplevel-ref>))
+          x)
 
-       (($ <const> src exp)
-        (make-const src exp))
+         (($ <lexical-set> src name gensym exp)
+          (let ((exp* (lp exp)))
+            (if (eq? exp exp*)
+                x
+                (make-lexical-set src name gensym exp*))))
 
-       (($ <primitive-ref> src name)
-        (make-primitive-ref src name))
+         (($ <module-set> src mod name public? exp)
+          (let ((exp* (lp exp)))
+            (if (eq? exp exp*)
+                x
+                (make-module-set src mod name public? exp*))))
 
-       (($ <lexical-ref> src name gensym)
-        (make-lexical-ref src name gensym))
+         (($ <toplevel-set> src name exp)
+          (let ((exp* (lp exp)))
+            (if (eq? exp exp*)
+                x
+                (make-toplevel-set src name exp*))))
 
-       (($ <lexical-set> src name gensym exp)
-        (make-lexical-set src name gensym (lp exp)))
+         (($ <toplevel-define> src name exp)
+          (let ((exp* (lp exp)))
+            (if (eq? exp exp*)
+                x
+                (make-toplevel-define src name exp*))))
 
-       (($ <module-ref> src mod name public?)
-        (make-module-ref src mod name public?))
+         (($ <conditional> src test consequent alternate)
+          (let ((test* (lp test))
+                (consequent* (lp consequent))
+                (alternate* (lp alternate)))
+            (if (and (eq? test test*)
+                     (eq? consequent consequent*)
+                     (eq? alternate alternate*))
+                x
+                (make-conditional src test* consequent* alternate*))))
 
-       (($ <module-set> src mod name public? exp)
-        (make-module-set src mod name public? (lp exp)))
+         (($ <call> src proc args)
+          (let ((proc* (lp proc))
+                (args* (map lp args)))
+            (if (and (eq? proc proc*)
+                     (elts-eq? args args*))
+                x
+                (make-call src proc* args*))))
 
-       (($ <toplevel-ref> src name)
-        (make-toplevel-ref src name))
+         (($ <primcall> src name args)
+          (let ((args* (map lp args)))
+            (if (elts-eq? args args*)
+                x
+                (make-primcall src name args*))))
 
-       (($ <toplevel-set> src name exp)
-        (make-toplevel-set src name (lp exp)))
-
-       (($ <toplevel-define> src name exp)
-        (make-toplevel-define src name (lp exp)))
-
-       (($ <conditional> src test consequent alternate)
-        (make-conditional src (lp test) (lp consequent) (lp alternate)))
-
-       (($ <call> src proc args)
-        (make-call src (lp proc) (map lp args)))
-
-       (($ <primcall> src name args)
-        (make-primcall src name (map lp args)))
-
-       (($ <seq> src head tail)
-        (make-seq src (lp head) (lp tail)))
+         (($ <seq> src head tail)
+          (let ((head* (lp head))
+                (tail* (lp tail)))
+            (if (and (eq? head head*)
+                     (eq? tail tail*))
+                x
+                (make-seq src head* tail*))))
       
-       (($ <lambda> src meta body)
-        (make-lambda src meta (and body (lp body))))
+         (($ <lambda> src meta body)
+          (let ((body* (and body (lp body))))
+            (if (eq? body body*)
+                x
+                (make-lambda src meta body*))))
 
-       (($ <lambda-case> src req opt rest kw inits gensyms body alternate)
-        (make-lambda-case src req opt rest kw (map lp inits) gensyms (lp body)
-                          (and alternate (lp alternate))))
+         (($ <lambda-case> src req opt rest kw inits gensyms body alternate)
+          (let ((inits* (map lp inits))
+                (body* (lp body))
+                (alternate* (and alternate (lp alternate))))
+            (if (and (elts-eq? inits inits*)
+                     (eq? body body*)
+                     (eq? alternate alternate*))
+                x
+                (make-lambda-case src req opt rest kw inits* gensyms body*
+                                  alternate*))))
 
-       (($ <let> src names gensyms vals body)
-        (make-let src names gensyms (map lp vals) (lp body)))
+         (($ <let> src names gensyms vals body)
+          (let ((vals* (map lp vals))
+                (body* (lp body)))
+            (if (and (elts-eq? vals vals*)
+                     (eq? body body*))
+                x
+                (make-let src names gensyms vals* body*))))
 
-       (($ <letrec> src in-order? names gensyms vals body)
-        (make-letrec src in-order? names gensyms (map lp vals) (lp body)))
+         (($ <letrec> src in-order? names gensyms vals body)
+          (let ((vals* (map lp vals))
+                (body* (lp body)))
+            (if (and (elts-eq? vals vals*)
+                     (eq? body body*))
+                x
+                (make-letrec src in-order? names gensyms vals* body*))))
 
-       (($ <fix> src names gensyms vals body)
-        (make-fix src names gensyms (map lp vals) (lp body)))
+         (($ <fix> src names gensyms vals body)
+          (let ((vals* (map lp vals))
+                (body* (lp body)))
+            (if (and (elts-eq? vals vals*)
+                     (eq? body body*))
+                x
+                (make-fix src names gensyms vals* body*))))
 
-       (($ <let-values> src exp body)
-        (make-let-values src (lp exp) (lp body)))
+         (($ <let-values> src exp body)
+          (let ((exp* (lp exp))
+                (body* (lp body)))
+            (if (and (eq? exp exp*)
+                     (eq? body body*))
+                x
+                (make-let-values src exp* body*))))
 
-       (($ <prompt> src escape-only? tag body handler)
-        (make-prompt src escape-only? (lp tag) (lp body) (lp handler)))
+         (($ <prompt> src escape-only? tag body handler)
+          (let ((tag* (lp tag))
+                (body* (lp body))
+                (handler* (lp handler)))
+            (if (and (eq? tag tag*)
+                     (eq? body body*)
+                     (eq? handler handler*))
+                x
+                (make-prompt src escape-only? tag* body* handler*))))
 
-       (($ <abort> src tag args tail)
-        (make-abort src (lp tag) (map lp args) (lp tail)))))))
+         (($ <abort> src tag args tail)
+          (let ((tag* (lp tag))
+                (args* (map lp args))
+                (tail* (lp tail)))
+            (if (and (eq? tag tag*)
+                     (elts-eq? args args*)
+                     (eq? tail tail*))
+                x
+                (make-abort src tag* args* tail*)))))))))
 
 (define (post-order f x)
   (pre-post-order (lambda (x) x) f x))
