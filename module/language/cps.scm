@@ -202,12 +202,10 @@
     (label-counter (1+ count))
     count))
 
-;; FIXME: Currently vars and labels need to be unique, so we use the
-;; label counter.
 (define (fresh-var)
-  (let ((count (or (label-counter)
+  (let ((count (or (var-counter)
                    (error "fresh-var outside with-fresh-name-state"))))
-    (label-counter (1+ count))
+    (var-counter (1+ count))
     count))
 
 (define-syntax-rule (let-fresh (label ...) (var ...) body ...)
@@ -215,7 +213,6 @@
         (var (fresh-var)) ...)
     body ...))
 
-;; FIXME: Same FIXME as above.
 (define-syntax-rule (with-fresh-name-state fun body ...)
   (begin
     (when (or (label-counter) (var-counter))
@@ -223,8 +220,8 @@
     (call-with-values (lambda ()
                         (compute-max-label-and-var fun))
       (lambda (max-label max-var)
-        (parameterize ((label-counter (1+ (max max-label max-var)))
-                       (var-counter (1+ (max max-label max-var))))
+        (parameterize ((label-counter (1+ max-label))
+                       (var-counter (1+ max-var)))
           body ...)))))
 
 (define-syntax build-arity
@@ -490,18 +487,14 @@
     (fun-folder fun seed ...)))
 
 (define (compute-max-label-and-var fun)
-  (define (max* var max-var)
-    (if (number? var)
-        (max var max-var)
-        max-var))
   ((make-cont-folder max-label max-var)
    (lambda (label cont max-label max-var)
      (values (max label max-label)
              (match cont
                (($ $kargs names vars)
-                (fold max* max-var vars))
+                (fold max max-var vars))
                (($ $kentry self)
-                (max* self max-var))
+                (max self max-var))
                (_ max-var))))
    fun
    -1
