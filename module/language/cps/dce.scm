@@ -181,7 +181,7 @@
           (hashq-ref live-vars sym))
         (define (make-adaptor name k defs)
           (let* ((names (map (lambda (_) 'tmp) defs))
-                 (syms (map (lambda (_) (gensym "tmp")) defs))
+                 (syms (map (lambda (_) (fresh-var)) defs))
                  (live (filter-map (lambda (def sym)
                                      (and (value-live? def)
                                           sym))
