@@ -77,7 +77,7 @@
 (define current-topbox-scope (make-parameter #f))
 
 (define (toplevel-box src name bound? val-proc)
-  (let-gensyms (name-sym bound?-sym kbox box)
+  (let-fresh (kbox) (name-sym bound?-sym box)
     (build-cps-term
       ($letconst (('name name-sym name)
                   ('bound? bound?-sym bound?))
@@ -89,7 +89,7 @@
                   ($primcall 'resolve
                              (name-sym bound?-sym)))))
              (scope
-              (let-gensyms (scope-sym)
+              (let-fresh () (scope-sym)
                 (build-cps-term
                   ($letconst (('scope scope-sym scope))
                     ($continue kbox src
@@ -97,7 +97,7 @@
                                  (scope-sym name-sym bound?-sym)))))))))))))
 
 (define (module-box src module name public? bound? val-proc)
-  (let-gensyms (module-sym name-sym public?-sym bound?-sym kbox box)
+  (let-fresh (kbox) (module-sym name-sym public?-sym bound?-sym box)
     (build-cps-term
       ($letconst (('module module-sym module)
                   ('name name-sym name)
@@ -109,7 +109,7 @@
                        (module-sym name-sym public?-sym bound?-sym))))))))
 
 (define (capture-toplevel-scope src scope k)
-  (let-gensyms (module scope-sym kmodule)
+  (let-fresh (kmodule) (module scope-sym)
     (build-cps-term
       ($letconst (('scope scope-sym scope))
         ($letk ((kmodule ($kargs ('module) (module)
@@ -159,9 +159,10 @@
   (define tc8-iflag 4)
   (define unbound-val 9)
   (define unbound-bits (logior (ash unbound-val 8) tc8-iflag))
-  (let-gensyms (unbound ktest)
+  (let-fresh (ktest) (unbound)
     (build-cps-term
-      ($letconst (('unbound unbound (pointer->scm (make-pointer unbound-bits))))
+      ($letconst (('unbound unbound
+                            (pointer->scm (make-pointer unbound-bits))))
         ($letk ((ktest ($kif kt kf)))
           ($continue ktest src
             ($primcall 'eq? (sym unbound))))))))
@@ -172,13 +173,13 @@
      (let ((src (tree-il-src init)))
        (define (maybe-box k make-body)
          (if box?
-             (let-gensyms (kbox phi)
+             (let-fresh (kbox) (phi)
                (build-cps-term
                  ($letk ((kbox ($kargs (name) (phi)
                                  ($continue k src ($primcall 'box (phi))))))
                    ,(make-body kbox))))
              (make-body k)))
-       (let-gensyms (knext kbound kunbound kreceive krest val rest)
+       (let-fresh (knext kbound kunbound kreceive krest) (val rest)
          (build-cps-term
            ($letk ((knext ($kargs (name) (subst-sym) ,body)))
              ,(maybe-box
@@ -202,14 +203,14 @@
       (($ <lexical-ref> src name sym)
        (match (assq-ref subst sym)
          ((box #t)
-          (let-gensyms (kunboxed unboxed)
+          (let-fresh (kunboxed) (unboxed)
             (build-cps-term
               ($letk ((kunboxed ($kargs ('unboxed) (unboxed) ,(k unboxed))))
                 ($continue kunboxed src ($primcall 'box-ref (box)))))))
          ((subst #f) (k subst))
          (#f (k sym))))
       (else
-       (let-gensyms (kreceive karg arg rest)
+       (let-fresh (kreceive karg) (arg rest)
          (build-cps-term
            ($letk ((karg ($kargs ('arg 'rest) (arg rest) ,(k arg)))
                    (kreceive ($kreceive '(arg) 'rest karg)))
@@ -227,7 +228,7 @@
   (define (box-bound-var name sym body)
     (match (assq-ref subst sym)
       ((box #t)
-       (let-gensyms (k)
+       (let-fresh (k) ()
          (build-cps-term
            ($letk ((k ($kargs (name) (box) ,body)))
              ($continue k #f ($primcall 'box (sym)))))))
@@ -262,7 +263,7 @@
                                         '()
                                         arity gensyms inits)))
               (cons
-               (let-gensyms (kclause kargs)
+               (let-fresh (kclause kargs) ()
                  (build-cps-cont
                    (kclause
                     ($kclause ,arity
@@ -277,13 +278,13 @@
                            arity gensyms inits)))))))
                (convert-clauses alternate ktail))))))
        (if (current-topbox-scope)
-           (let-gensyms (kentry self ktail)
+           (let-fresh (kentry ktail) (self)
              (build-cps-term
                ($continue k fun-src
                  ($fun fun-src meta '()
                        (kentry ($kentry self (ktail ($ktail))
                                  ,(convert-clauses body ktail)))))))
-           (let-gensyms (scope kscope)
+           (let-fresh (kscope) (scope)
              (build-cps-term
                ($letk ((kscope ($kargs () ()
                                  ,(parameterize ((current-topbox-scope scope))
@@ -323,7 +324,7 @@
     (($ <toplevel-define> src name exp)
      (convert-arg exp
        (lambda (val)
-         (let-gensyms (kname name-sym)
+         (let-fresh (kname) (name-sym)
            (build-cps-term
              ($letconst (('name name-sym name))
                ($continue k src ($primcall 'define! (name-sym val)))))))))
@@ -360,7 +361,7 @@
        ;; it's quite tricky there and quite easy here, so hold your nose
        ;; while we drop some smelly code.
        (convert (let ((len (length args)))
-                  (let-gensyms (v)
+                  (let-fresh () (v)
                     (make-let src
                               (list 'v)
                               (list v)
@@ -394,7 +395,7 @@
             (build-cps-term
               ($continue k src ($const '()))))
            ((arg . args)
-            (let-gensyms (ktail tail)
+            (let-fresh (ktail) (tail)
               (build-cps-term
                 ($letk ((ktail ($kargs ('tail) (tail)
                                  ,(convert-arg arg
@@ -427,7 +428,7 @@
      (convert-arg tag
        (lambda (tag)
          (let ((hnames (append hreq (if hrest (list hrest) '()))))
-           (let-gensyms (khargs khbody kret kprim prim kpop krest vals kbody)
+           (let-fresh (khargs khbody kret kprim kpop krest kbody) (prim vals)
              (build-cps-term
                ;; FIXME: Attach hsrc to $kreceive.
                ($letk* ((khbody ($kargs hnames hsyms
@@ -465,7 +466,8 @@
 
     ;; Eta-convert prompts without inline handlers.
     (($ <prompt> src escape-only? tag body handler)
-     (let-gensyms (h args)
+     (let ((h (gensym "h "))
+           (args (gensym "args ")))
        (convert
         (make-let
          src (list 'h) (list h) (list handler)
@@ -514,7 +516,7 @@
            ($continue k src ($primcall 'apply args*))))))
 
     (($ <conditional> src test consequent alternate)
-     (let-gensyms (kif kt kf)
+     (let-fresh (kif kt kf) ()
        (build-cps-term
          ($letk* ((kt ($kargs () () ,(convert consequent k subst)))
                   (kf ($kargs () () ,(convert alternate k subst)))
@@ -539,7 +541,7 @@
               ($continue k src ($primcall 'box-set! (box exp)))))))))
 
     (($ <seq> src head tail)
-     (let-gensyms (kreceive kseq vals)
+     (let-fresh (kreceive kseq) (vals)
        (build-cps-term
          ($letk* ((kseq ($kargs ('vals) (vals)
                           ,(convert tail k subst)))
@@ -551,7 +553,7 @@
        (match (list names syms vals)
          ((() () ()) (convert body k subst))
          (((name . names) (sym . syms) (val . vals))
-          (let-gensyms (kreceive klet rest)
+          (let-fresh (kreceive klet) (rest)
             (build-cps-term
               ($letk* ((klet ($kargs (name 'rest) (sym rest)
                                ,(box-bound-var name sym
@@ -562,7 +564,7 @@
     (($ <fix> src names gensyms funs body)
      ;; Some letrecs can be contified; that happens later.
      (if (current-topbox-scope)
-         (let-gensyms (self)
+         (let-fresh () (self)
            (build-cps-term
              ($letrec names
                       gensyms
@@ -572,7 +574,7 @@
                                 fun)))
                            funs)
                       ,(convert body k subst))))
-         (let-gensyms (scope kscope)
+         (let-fresh (kscope) (scope)
            (build-cps-term
              ($letk ((kscope ($kargs () ()
                                ,(parameterize ((current-topbox-scope scope))
@@ -582,7 +584,7 @@
     (($ <let-values> src exp
         ($ <lambda-case> lsrc req #f rest #f () syms body #f))
      (let ((names (append req (if rest (list rest) '()))))
-       (let-gensyms (kreceive kargs)
+       (let-fresh (kreceive kargs) ()
          (build-cps-term
            ($letk* ((kargs ($kargs names syms
                              ,(fold box-bound-var
@@ -625,17 +627,19 @@ indicates that the replacement variable is in a box."
   (tree-il-fold box-set-vars default-args '() exp))
 
 (define (cps-convert/thunk exp)
-  (let ((src (tree-il-src exp)))
-    (let-gensyms (kinit init ktail kclause kbody)
-      (build-cps-exp
-        ($fun src '() '()
-          (kinit ($kentry init
-                   (ktail ($ktail))
-                   ((kclause
-                     ($kclause ('() '() #f '() #f)
-                       (kbody ($kargs () ()
-                                ,(convert exp ktail
-                                          (build-subst exp))))))))))))))
+  (parameterize ((label-counter 0)
+                 (var-counter 0))
+    (let ((src (tree-il-src exp)))
+      (let-fresh (kinit ktail kclause kbody) (init)
+        (build-cps-exp
+          ($fun src '() '()
+                (kinit ($kentry init
+                           (ktail ($ktail))
+                         ((kclause
+                           ($kclause ('() '() #f '() #f)
+                             (kbody ($kargs () ()
+                                      ,(convert exp ktail
+                                                (build-subst exp)))))))))))))))
 
 (define *comp-module* (make-fluid))
 

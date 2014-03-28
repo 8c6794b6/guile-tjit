@@ -153,7 +153,7 @@
   (arities meta-arities set-meta-arities!))
 
 (define (make-meta label properties low-pc)
-  (assert-match label (? symbol?) "symbol")
+  (assert-match label (or (? exact-integer?) (? symbol?)) "symbol")
   (assert-match properties (((? symbol?) . _) ...) "alist with symbolic keys")
   (%make-meta label properties low-pc #f '()))
 
@@ -750,7 +750,7 @@ returned instead."
                 "alist of keyword -> integer")
   (assert-match allow-other-keys? (? boolean?) "boolean")
   (assert-match nlocals (? integer?) "integer")
-  (assert-match alternate (or #f (? symbol?)) "#f or symbol")
+  (assert-match alternate (or #f (? exact-integer?) (? symbol?)) "#f or symbol")
   (let* ((meta (car (asm-meta asm)))
          (arity (make-arity req opt rest kw-indices allow-other-keys?
                             (asm-start asm) #f))
@@ -1961,6 +1961,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
       (cond
        ((string? val) 'strp)
        ((eq? attr 'stmt-list) 'sec-offset)
+       ((eq? attr 'low-pc) 'addr)
        ((exact-integer? code)
         (cond
          ((< code 0) 'sleb128)
@@ -1969,7 +1970,6 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
          ((<= code #xffffffff) 'data4)
          ((<= code #xffffffffffffffff) 'data8)
          (else 'uleb128)))
-       ((symbol? val) 'addr)
        (else (error "unhandled case" attr val code))))
 
     (define (add-die-relocation! kind sym)

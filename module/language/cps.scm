@@ -123,8 +123,12 @@
             ;; Expressions.
             $void $const $prim $fun $call $callk $primcall $values $prompt
 
+            ;; Fresh names.
+            label-counter var-counter
+            fresh-label fresh-var
+            let-fresh let-gensyms
+
             ;; Building macros.
-            let-gensyms
             build-cps-term build-cps-cont build-cps-exp
             rewrite-cps-term rewrite-cps-cont rewrite-cps-exp
 
@@ -186,6 +190,26 @@
 (define-cps-type $primcall name args)
 (define-cps-type $values args)
 (define-cps-type $prompt escape? tag handler)
+
+(define label-counter (make-parameter #f))
+(define var-counter (make-parameter #f))
+
+(define (fresh-label)
+  (let ((count (label-counter)))
+    (label-counter (1+ count))
+    count))
+
+;; FIXME: Currently vars and labels need to be unique, so we use the
+;; label counter.
+(define (fresh-var)
+  (let ((count (label-counter)))
+    (label-counter (1+ count))
+    count))
+
+(define-syntax-rule (let-fresh (label ...) (var ...) body ...)
+  (let ((label (fresh-label)) ...
+        (var (fresh-var)) ...)
+    body ...))
 
 (define-syntax let-gensyms
   (syntax-rules ()
@@ -261,7 +285,7 @@
     ((_ ($letconst () body))
      (build-cps-term body))
     ((_ ($letconst ((name sym val) tail ...) body))
-     (let-gensyms (kconst)
+     (let-fresh (kconst) ()
        (build-cps-term
          ($letk ((kconst ($kargs (name) (sym) ($letconst (tail ...) body))))
            ($continue kconst (let ((props (source-properties val)))

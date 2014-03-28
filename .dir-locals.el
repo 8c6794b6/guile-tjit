@@ -12,6 +12,7 @@
      (eval . (put 'with-code-coverage  'scheme-indent-function 1))
      (eval . (put 'with-statprof       'scheme-indent-function 1))
      (eval . (put 'let-gensyms         'scheme-indent-function 1))
+     (eval . (put 'let-fresh           'scheme-indent-function 2))
      (eval . (put 'build-cps-term      'scheme-indent-function 0))
      (eval . (put 'build-cps-exp       'scheme-indent-function 0))
      (eval . (put 'build-cps-cont      'scheme-indent-function 0))
