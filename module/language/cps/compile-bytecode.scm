@@ -91,9 +91,7 @@
          (when idx
            (vector-set! contv idx cont))))
      '()
-     (match f
-       (($ $fun src meta free entry)
-        entry)))
+     f)
     contv))
 
 (define (compile-fun f asm)

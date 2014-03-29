@@ -36,8 +36,7 @@
   #:export (elide-values))
 
 (define (elide-values* fun)
-  (let ((conts (build-local-cont-table
-                (match fun (($ $fun src meta free body) body)))))
+  (let ((conts (build-local-cont-table fun)))
     (define (visit-cont cont)
       (rewrite-cps-cont cont
         (($ $cont sym ($ $kargs names syms body))

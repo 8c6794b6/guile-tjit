@@ -32,9 +32,8 @@
   #:use-module (language cps primitives)
   #:export (fix-arities))
 
-(define (fix-clause-arities clause)
-  (let ((conts (build-local-cont-table clause))
-        (ktail (match clause
+(define (fix-clause-arities clause conts)
+  (let ((ktail (match clause
                  (($ $cont _ ($ $kentry _ ($ $cont ktail) _)) ktail))))
     (define (visit-term term)
       (rewrite-cps-term term
@@ -184,9 +183,10 @@
        (sym ($kentry self ,tail ,(map visit-cont clauses)))))))
 
 (define (fix-arities* fun)
-  (rewrite-cps-exp fun
-    (($ $fun src meta free body)
-     ($fun src meta free ,(fix-clause-arities body)))))
+  (let ((conts (build-local-cont-table fun)))
+    (rewrite-cps-exp fun
+      (($ $fun src meta free body)
+       ($fun src meta free ,(fix-clause-arities body conts))))))
 
 (define (fix-arities fun)
   (with-fresh-name-state fun

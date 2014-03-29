@@ -136,7 +136,7 @@
 
             ;; Misc.
             parse-cps unparse-cps
-            fold-conts fold-local-conts))
+            make-cont-folder fold-conts fold-local-conts))
 
 ;; FIXME: Use SRFI-99, when Guile adds it.
 (define-syntax define-record-type*
@@ -439,7 +439,7 @@
     (_
      (error "unexpected cps" exp))))
 
-(define-syntax-rule (make-cont-folder seed ...)
+(define-syntax-rule (make-cont-folder global? seed ...)
   (lambda (proc fun seed ...)
     (define (fold-values proc in seed ...)
       (if (null? in)
@@ -477,17 +477,22 @@
 
         (($ $continue k src exp)
          (match exp
-           (($ $fun) (fun-folder exp seed ...))
+           (($ $fun)
+            (if global?
+                (fun-folder exp seed ...)
+                (values seed ...)))
            (_ (values seed ...))))
 
         (($ $letrec names syms funs body)
          (let-values (((seed ...) (term-folder body seed ...)))
-           (fold-values fun-folder funs seed ...)))))
+           (if global?
+               (fold-values fun-folder funs seed ...)
+               (values seed ...))))))
 
     (fun-folder fun seed ...)))
 
 (define (compute-max-label-and-var fun)
-  ((make-cont-folder max-label max-var)
+  ((make-cont-folder #t max-label max-var)
    (lambda (label cont max-label max-var)
      (values (max label max-label)
              (match cont
@@ -501,32 +506,7 @@
    -1))
 
 (define (fold-conts proc seed fun)
-  ((make-cont-folder seed) proc fun seed))
+  ((make-cont-folder #t seed) proc fun seed))
 
-(define (fold-local-conts proc seed cont)
-  (define (cont-folder cont seed)
-    (match cont
-      (($ $cont k cont)
-       (let ((seed (proc k cont seed)))
-         (match cont
-           (($ $kargs names syms body)
-            (term-folder body seed))
-
-           (($ $kentry self tail clauses)
-            (fold cont-folder (cont-folder tail seed) clauses))
-
-           (($ $kclause arity body)
-            (cont-folder body seed))
-
-           (_ seed))))))
-
-  (define (term-folder term seed)
-    (match term
-      (($ $letk conts body)
-       (fold cont-folder (term-folder body seed) conts))
-
-      (($ $continue) seed)
-
-      (($ $letrec names syms funs body) (term-folder body seed))))
-
-  (cont-folder cont seed))
+(define (fold-local-conts proc seed fun)
+  ((make-cont-folder #f seed) proc fun seed))
