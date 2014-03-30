@@ -883,10 +883,10 @@ BODY for each body continuation in the prompt."
        (match cont
          (($ $kargs names vars)
           (values min-label max-label (1+ label-count)
-                  (cond (min-var (apply min min-var vars))
-                        ((pair? vars) (apply min vars))
+                  (cond (min-var (fold min min-var vars))
+                        ((pair? vars) (fold min (car vars) (cdr vars)))
                         (else min-var))
-                  (apply max max-var vars)
+                  (fold max max-var vars)
                   (+ var-count (length vars))))
          (($ $kentry self)
           (values min-label max-label (1+ label-count)
