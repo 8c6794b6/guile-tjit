@@ -101,12 +101,14 @@
 
 ;; Data-flow graph for CPS: both for values and continuations.
 (define-record-type $dfg
-  (make-dfg conts blocks defs uses min-label nlabels min-var nvars)
+  (make-dfg conts blocks preds succs defs uses min-label nlabels min-var nvars)
   dfg?
   ;; vector of label -> $kif, $kargs, etc
   (conts dfg-cont-table)
   ;; vector of label -> $block
   (blocks dfg-blocks)
+  (preds dfg-preds)
+  (succs dfg-succs)
   ;; vector of var -> def label
   (defs dfg-defs)
   ;; vector of var -> (use label ...)
@@ -118,15 +120,10 @@
   (nvars dfg-nvars))
 
 (define-record-type $block
-  (%make-block scope scope-level preds succs)
+  (make-block scope scope-level)
   block?
-  (scope block-scope set-block-scope!)
-  (scope-level block-scope-level set-block-scope-level!)
-  (preds block-preds set-block-preds!)
-  (succs block-succs set-block-succs!))
-
-(define (make-block scope scope-level)
-  (%make-block scope scope-level '() '()))
+  (scope block-scope)
+  (scope-level block-scope-level))
 
 ;; Some analyses assume that the only relevant set of nodes is the set
 ;; that is reachable from some start node.  Others need to include nodes
@@ -224,7 +221,7 @@ for quickest convergence."
       (when (< n k-count)
         (for-each (lambda (succ)
                     (vector-push! succs n (cfa-k-idx cfa succ)))
-                  (block-succs (lookup-block (cfa-k-sym cfa n) dfg)))
+                  (lookup-successors (cfa-k-sym cfa n) dfg))
         (lp (1+ n))))
 
     ;; Iterate cfa backwards, to converge quickly.
@@ -324,7 +321,7 @@ BODY for each body continuation in the prompt."
                  (let ((succ (cfa-k-idx cfa succ)))
                    (or (not (bitvector-ref body succ))
                        (<= succ n))))
-               (block-succs (lookup-block (cfa-k-sym cfa n) dfg))))
+               (lookup-successors (cfa-k-sym cfa n) dfg)))
      (let lp ((n 0))
        (let ((n (bit-position #t body n)))
          (when n
@@ -334,19 +331,15 @@ BODY for each body continuation in the prompt."
    (find-prompt-bodies cfa dfg)))
 
 (define* (analyze-control-flow fun dfg #:key reverse? add-handler-preds?)
-  (define (build-cfa kentry block-succs block-preds forward-cfa)
-    (define (block-accessor accessor)
-      (lambda (k)
-        (accessor (lookup-block k dfg))))
-    (define (reachable-preds mapping accessor)
+  (define (build-cfa kentry lookup-succs lookup-preds forward-cfa)
+    (define (reachable-preds mapping)
       ;; It's possible for a predecessor to not be in the mapping, if
       ;; the predecessor is not reachable from the entry node.
       (lambda (k)
-        (filter-map (cut hashq-ref mapping <>)
-                    ((block-accessor accessor) k))))
+        (filter-map (cut hashq-ref mapping <>) (lookup-preds k dfg))))
     (let* ((order (reverse-post-order
                    kentry
-                   (block-accessor block-succs)
+                   (lambda (k) (lookup-succs k dfg))
                    (if forward-cfa
                        (lambda (f seed)
                          (let lp ((n (cfa-k-count forward-cfa)) (seed seed))
@@ -356,8 +349,7 @@ BODY for each body continuation in the prompt."
                                    (f (cfa-k-sym forward-cfa (1- n)) seed)))))
                        (lambda (f seed) seed))))
            (k-map (make-block-mapping order))
-           (preds (convert-predecessors order
-                                        (reachable-preds k-map block-preds)))
+           (preds (convert-predecessors order (reachable-preds k-map)))
            (cfa (make-cfa k-map order preds)))
       (when add-handler-preds?
         ;; Any expression in the prompt body could cause an abort to the
@@ -385,10 +377,10 @@ BODY for each body continuation in the prompt."
            (and entry
                 ($ $kentry self ($ $cont ktail tail) clauses))))
      (if reverse?
-         (build-cfa ktail block-preds block-succs
+         (build-cfa ktail lookup-predecessors lookup-successors
                     (analyze-control-flow fun dfg #:reverse? #f
                                           #:add-handler-preds? #f))
-         (build-cfa kentry block-succs block-preds #f)))))
+         (build-cfa kentry lookup-successors lookup-predecessors #f)))))
 
 ;; Dominator analysis.
 (define-record-type $dominator-analysis
@@ -724,7 +716,7 @@ BODY for each body continuation in the prompt."
                 (vector-set! syms v (+ n min-var))
                 (for-each (lambda (def)
                             (vector-push! defv (cfa-k-idx cfa def) v))
-                          (block-preds (lookup-block def dfg)))
+                          (lookup-predecessors def dfg))
                 (for-each (lambda (use)
                             (vector-push! usev (cfa-k-idx cfa use) v))
                           (vector-ref uses n)))))
@@ -767,7 +759,7 @@ BODY for each body continuation in the prompt."
          (newline)
          (lp (1+ n)))))))
 
-(define (visit-fun fun conts blocks defs uses min-label min-var global?)
+(define (visit-fun fun conts blocks preds succs defs uses min-label min-var global?)
   (define (add-def! var def-k)
     (vector-set! defs (- var min-var) def-k))
 
@@ -784,12 +776,8 @@ BODY for each body continuation in the prompt."
     (vector-set! blocks (- label min-label) (make-block parent level)))
 
   (define (link-blocks! pred succ)
-    (let ((pred-block (vector-ref blocks (- pred min-label)))
-          (succ-block (vector-ref blocks (- succ min-label))))
-      (unless (and pred-block succ-block)
-        (error "internal error" pred-block succ-block))
-      (set-block-succs! pred-block (cons succ (block-succs pred-block)))
-      (set-block-preds! succ-block (cons pred (block-preds succ-block)))))
+    (vector-push! succs (- pred min-label) succ)
+    (vector-push! preds (- succ min-label) pred))
 
   (define (visit exp exp-k)
     (define (def! sym)
@@ -825,7 +813,7 @@ BODY for each body continuation in the prompt."
          (error "$letrec should not be present when building a local DFG"))
        (for-each def! syms)
        (for-each
-        (cut visit-fun <> conts blocks defs uses min-label min-var global?)
+        (cut visit-fun <> conts blocks preds succs defs uses min-label min-var global?)
         funs)
        (visit body exp-k))
 
@@ -852,7 +840,7 @@ BODY for each body continuation in the prompt."
 
          (($ $fun)
           (when global?
-            (visit-fun exp conts blocks defs uses min-label min-var global?)))
+            (visit-fun exp conts blocks preds succs defs uses min-label min-var global?)))
 
          (_ #f)))))
 
@@ -915,10 +903,12 @@ BODY for each body continuation in the prompt."
              (nvars (- (1+ max-var) min-var))
              (conts (make-vector nlabels #f))
              (blocks (make-vector nlabels #f))
+             (preds (make-vector nlabels '()))
+             (succs (make-vector nlabels '()))
              (defs (make-vector nvars #f))
              (uses (make-vector nvars '())))
-        (visit-fun fun conts blocks defs uses min-label min-var global?)
-        (make-dfg conts blocks defs uses
+        (visit-fun fun conts blocks preds succs defs uses min-label min-var global?)
+        (make-dfg conts blocks preds succs defs uses
                   min-label label-count min-var var-count)))))
 
 (define (lookup-cont label dfg)
@@ -933,26 +923,23 @@ BODY for each body continuation in the prompt."
       (error "Unknown continuation!" k))
     res))
 
-(define (lookup-scope-level k dfg)
-  (match (lookup-block k dfg)
-    (($ $block _ scope-level) scope-level)))
-
 (define (lookup-def var dfg)
   (vector-ref (dfg-defs dfg) (- var (dfg-min-var dfg))))
 
 (define (lookup-uses var dfg)
   (vector-ref (dfg-uses dfg) (- var (dfg-min-var dfg))))
 
+(define (lookup-scope-level k dfg)
+  (block-scope-level (lookup-block k dfg)))
+
 (define (lookup-block-scope k dfg)
   (block-scope (lookup-block k dfg)))
 
 (define (lookup-predecessors k dfg)
-  (match (lookup-block k dfg)
-    (($ $block _ _ preds succs) preds)))
+  (vector-ref (dfg-preds dfg) (- k (dfg-min-label dfg))))
 
 (define (lookup-successors k dfg)
-  (match (lookup-block k dfg)
-    (($ $block _ _ preds succs) succs)))
+  (vector-ref (dfg-succs dfg) (- k (dfg-min-label dfg))))
 
 (define (find-defining-term sym dfg)
   (match (lookup-predecessors (lookup-def sym dfg) dfg)
@@ -1045,9 +1032,7 @@ BODY for each body continuation in the prompt."
                   (lp scope))))))))
 
 (define (continuation-bound-in? k use-k dfg)
-  (match (lookup-block k dfg)
-    (($ $block def-k)
-     (continuation-scope-contains? def-k use-k dfg))))
+  (continuation-scope-contains? (lookup-block-scope k dfg) use-k dfg))
 
 (define (variable-free-in? var k dfg)
   (or-map (lambda (use)
