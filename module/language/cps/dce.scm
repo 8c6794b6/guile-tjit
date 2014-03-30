@@ -50,11 +50,11 @@
   (live-conts fun-data-live-conts)
   (defs fun-data-defs))
 
-(define (compute-cont-vector cfa cont-table)
+(define (compute-cont-vector cfa dfg)
   (let ((v (make-vector (cfa-k-count cfa) #f)))
     (let lp ((n 0))
       (when (< n (vector-length v))
-        (vector-set! v n (lookup-cont (cfa-k-sym cfa n) cont-table))
+        (vector-set! v n (lookup-cont (cfa-k-sym cfa n) dfg))
         (lp (1+ n))))
     v))
 
@@ -98,7 +98,7 @@
       (or (hashq-ref fun-data-table fun)
           (let* ((cfa (analyze-control-flow fun dfg))
                  (effects (compute-effects cfa dfg))
-                 (contv (compute-cont-vector cfa (dfg-cont-table dfg)))
+                 (contv (compute-cont-vector cfa dfg))
                  (live-conts (make-bitvector (cfa-k-count cfa) #f))
                  (defs (compute-defs cfa contv))
                  (fun-data (make-fun-data cfa effects contv live-conts defs)))

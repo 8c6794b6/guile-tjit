@@ -132,7 +132,7 @@
           (($ $continue k src exp)
            ,(match exp
               (($ $prim name)
-               (match (lookup-cont k conts)
+               (match (vector-ref conts k)
                  (($ $kargs (_))
                   (cond
                    ((builtin-name->index name)

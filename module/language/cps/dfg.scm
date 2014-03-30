@@ -41,7 +41,6 @@
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
   #:export (build-cont-table
-            build-local-cont-table
             lookup-cont
 
             compute-dfg
@@ -92,24 +91,21 @@
       (for-each2 (cdr l1) (cdr l2)))))
 
 (define (build-cont-table fun)
-  (fold-conts (lambda (k cont table)
-                (hashq-set! table k cont)
-                table)
-              (make-hash-table)
-              fun))
+  (let ((max-k (fold-conts (lambda (k cont max-k) (max k max-k))
+                           -1 fun)))
+    (fold-conts (lambda (k cont table)
+                  (vector-set! table k cont)
+                  table)
+                (make-vector (1+ max-k) #f)
+                fun)))
 
-(define (build-local-cont-table cont)
-  (fold-local-conts (lambda (k cont table)
-                      (hashq-set! table k cont)
-                      table)
-                    (make-hash-table)
-                    cont))
-
-(define (lookup-cont sym conts)
-  (let ((res (hashq-ref conts sym)))
-    (unless res
-      (error "Unknown continuation!" sym (hash-fold acons '() conts)))
-    res))
+(define (lookup-cont label dfg)
+  (match dfg
+    (($ $dfg conts blocks use-maps)
+     (let ((res (hashq-ref conts label)))
+       (unless res
+         (error "Unknown continuation!" label conts))
+       res))))
 
 ;; Data-flow graph for CPS: both for values and continuations.
 (define-record-type $dfg
@@ -272,7 +268,7 @@ HANDLER-INDEX pairs."
      ((= n (cfa-k-count cfa))
       (reverse prompts))
      (else
-      (match (lookup-cont (cfa-k-sym cfa n) (dfg-cont-table dfg))
+      (match (lookup-cont (cfa-k-sym cfa n) dfg)
         (($ $kargs names syms body)
          (match (find-expression body)
            (($ $prompt escape? tag handler)
@@ -952,7 +948,7 @@ BODY for each body continuation in the prompt."
 (define (find-defining-term sym dfg)
   (match (lookup-predecessors (lookup-def sym dfg) dfg)
     ((def-exp-k)
-     (lookup-cont def-exp-k (dfg-cont-table dfg)))
+     (lookup-cont def-exp-k dfg))
     (else #f)))
 
 (define (find-call term)
@@ -1000,7 +996,7 @@ BODY for each body continuation in the prompt."
        (($ $use-map _ _ def uses)
         (or-map
          (lambda (use)
-           (match (find-expression (lookup-cont use conts))
+           (match (find-expression (lookup-cont use dfg))
              (($ $call) #f)
              (($ $callk) #f)
              (($ $values) #f)
@@ -1069,8 +1065,6 @@ BODY for each body continuation in the prompt."
     (_ #t)))
 
 (define (lookup-bound-syms k dfg)
-  (match dfg
-    (($ $dfg conts blocks use-maps)
-     (match (lookup-cont k conts)
-       (($ $kargs names syms body)
-        syms)))))
+  (match (lookup-cont k dfg)
+    (($ $kargs names syms body)
+     syms)))

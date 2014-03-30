@@ -32,7 +32,7 @@
   #:use-module (language cps primitives)
   #:export (fix-arities))
 
-(define (fix-clause-arities clause conts)
+(define (fix-clause-arities clause dfg)
   (let ((ktail (match clause
                  (($ $cont _ ($ $kentry _ ($ $cont ktail) _)) ktail))))
     (define (visit-term term)
@@ -40,14 +40,15 @@
         (($ $letk conts body)
          ($letk ,(map visit-cont conts) ,(visit-term body)))
         (($ $letrec names syms funs body)
-         ($letrec names syms (map fix-arities* funs) ,(visit-term body)))
+         ($letrec names syms (map (cut fix-arities* <> dfg) funs)
+                  ,(visit-term body)))
         (($ $continue k src exp)
          ,(visit-exp k src exp))))
 
     (define (adapt-exp nvals k src exp)
       (match nvals
         (0
-         (rewrite-cps-term (lookup-cont k conts)
+         (rewrite-cps-term (lookup-cont k dfg)
            (($ $ktail)
             ,(let-fresh (kvoid kunspec) (unspec)
                (build-cps-term
@@ -86,7 +87,7 @@
                  ($letk ((k* ($kargs () () ($continue k src ($void)))))
                    ($continue k* src ,exp)))))))
         (1
-         (rewrite-cps-term (lookup-cont k conts)
+         (rewrite-cps-term (lookup-cont k dfg)
            (($ $ktail)
             ,(rewrite-cps-term exp
                (($values (sym))
@@ -134,7 +135,7 @@
              ($ $values (_)))
          ,(adapt-exp 1 k src exp))
         (($ $fun)
-         ,(adapt-exp 1 k src (fix-arities* exp)))
+         ,(adapt-exp 1 k src (fix-arities* exp dfg)))
         ((or ($ $call) ($ $callk))
          ;; In general, calls have unknown return arity.  For that
          ;; reason every non-tail call has a $kreceive continuation to
@@ -182,12 +183,11 @@
       (($ $cont sym ($ $kentry self tail clauses))
        (sym ($kentry self ,tail ,(map visit-cont clauses)))))))
 
-(define (fix-arities* fun)
-  (let ((conts (build-local-cont-table fun)))
-    (rewrite-cps-exp fun
-      (($ $fun src meta free body)
-       ($fun src meta free ,(fix-clause-arities body conts))))))
+(define (fix-arities* fun dfg)
+  (rewrite-cps-exp fun
+    (($ $fun src meta free body)
+     ($fun src meta free ,(fix-clause-arities body dfg)))))
 
 (define (fix-arities fun)
   (with-fresh-name-state fun
-    (fix-arities* fun)))
+    (fix-arities* fun (compute-dfg fun))))

@@ -467,7 +467,7 @@
         (vector-set!
          effects
          n
-         (match (lookup-cont (cfa-k-sym cfa n) (dfg-cont-table dfg))
+         (match (lookup-cont (cfa-k-sym cfa n) dfg)
            (($ $kargs names syms body)
             (expression-effects (find-expression body) dfg))
            (($ $kreceive arity kargs)

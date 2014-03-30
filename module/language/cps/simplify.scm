@@ -123,7 +123,7 @@
         (k* 
          (if (and (continuation-bound-in? k* scope dfg)
                   (or values?
-                      (match (lookup-cont k* (dfg-cont-table dfg))
+                      (match (lookup-cont k* dfg)
                         (($ $kargs) #t)
                         (_ #f))))
              (reduce* k* scope values?)
@@ -190,7 +190,7 @@
          (for-each visit-fun funs)
          (visit-term body))
         (($ $continue k src ($ $values args))
-         (match (lookup-cont k (dfg-cont-table dfg))
+         (match (lookup-cont k dfg)
            (($ $kargs names syms body)
             (match (lookup-predecessors k dfg)
               ((_)

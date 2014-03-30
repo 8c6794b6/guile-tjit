@@ -331,11 +331,10 @@ are comparable with eqv?.  A tmp slot may be used."
     ;; Transform the DFG's continuation table to a vector, for easy
     ;; access.
     (define (compute-conts!)
-      (let ((cont-table (dfg-cont-table dfg)))
-        (let lp ((n 0))
-          (when (< n (vector-length contv))
-            (vector-set! contv n (lookup-cont (cfa-k-sym cfa n) cont-table))
-            (lp (1+ n))))))
+      (let lp ((n 0))
+        (when (< n (vector-length contv))
+          (vector-set! contv n (lookup-cont (cfa-k-sym cfa n) dfg))
+          (lp (1+ n)))))
 
     ;; Record uses and defs, as lists of variable indexes, indexed by
     ;; CFA continuation index.

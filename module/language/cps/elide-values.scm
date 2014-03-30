@@ -35,73 +35,73 @@
   #:use-module (language cps dfg)
   #:export (elide-values))
 
-(define (elide-values* fun)
-  (let ((conts (build-local-cont-table fun)))
-    (define (visit-cont cont)
-      (rewrite-cps-cont cont
-        (($ $cont sym ($ $kargs names syms body))
-         (sym ($kargs names syms ,(visit-term body))))
-        (($ $cont sym ($ $kentry self tail clauses))
-         (sym ($kentry self ,tail ,(map visit-cont clauses))))
-        (($ $cont sym ($ $kclause arity body))
-         (sym ($kclause ,arity ,(visit-cont body))))
-        (($ $cont)
-         ,cont)))
-    (define (visit-term term)
-      (rewrite-cps-term term
-        (($ $letk conts body)
-         ($letk ,(map visit-cont conts)
-           ,(visit-term body)))
-        (($ $letrec names syms funs body)
-         ($letrec names syms (map elide-values* funs)
-                  ,(visit-term body)))
-        (($ $continue k src ($ $primcall 'values vals))
-         ,(rewrite-cps-term (lookup-cont k conts)
-            (($ $ktail)
-             ($continue k src ($values vals)))
-            (($ $kreceive ($ $arity req () rest () #f) kargs)
-             ,(cond
-               ((and (not rest) (= (length vals) (length req)))
-                (build-cps-term
-                  ($continue kargs src ($values vals))))
-               ((and rest (>= (length vals) (length req)))
-                (let-fresh (krest) (rest)
-                  (let ((vals* (append (list-head vals (length req))
-                                       (list rest))))
-                    (build-cps-term
-                      ($letk ((krest ($kargs ('rest) (rest)
-                                       ($continue kargs src
-                                         ($values vals*)))))
-                        ,(let lp ((tail (list-tail vals (length req)))
-                                  (k krest))
-                           (match tail
-                             (()
-                              (build-cps-term ($continue k src
-                                                ($const '()))))
-                             ((v . tail)
-                              (let-fresh (krest) (rest)
-                                (build-cps-term
-                                  ($letk ((krest ($kargs ('rest) (rest)
-                                                   ($continue k src
-                                                     ($primcall 'cons
-                                                                (v rest))))))
-                                    ,(lp tail krest))))))))))))
-               (else term)))
-            (($ $kargs args)
-             ,(if (< (length vals) (length args))
-                  term
-                  (let ((vals (list-head vals (length args))))
-                    (build-cps-term
-                      ($continue k src ($values vals))))))))
-        (($ $continue k src (and fun ($ $fun)))
-         ($continue k src ,(elide-values* fun)))
-        (($ $continue)
-         ,term)))
+(define (elide-values* fun conts)
+  (define (visit-cont cont)
+    (rewrite-cps-cont cont
+      (($ $cont sym ($ $kargs names syms body))
+       (sym ($kargs names syms ,(visit-term body))))
+      (($ $cont sym ($ $kentry self tail clauses))
+       (sym ($kentry self ,tail ,(map visit-cont clauses))))
+      (($ $cont sym ($ $kclause arity body))
+       (sym ($kclause ,arity ,(visit-cont body))))
+      (($ $cont)
+       ,cont)))
+  (define (visit-term term)
+    (rewrite-cps-term term
+      (($ $letk conts body)
+       ($letk ,(map visit-cont conts)
+         ,(visit-term body)))
+      (($ $letrec names syms funs body)
+       ($letrec names syms (map (cut elide-values* <> conts) funs)
+                ,(visit-term body)))
+      (($ $continue k src ($ $primcall 'values vals))
+       ,(rewrite-cps-term (vector-ref conts k)
+          (($ $ktail)
+           ($continue k src ($values vals)))
+          (($ $kreceive ($ $arity req () rest () #f) kargs)
+           ,(cond
+             ((and (not rest) (= (length vals) (length req)))
+              (build-cps-term
+                ($continue kargs src ($values vals))))
+             ((and rest (>= (length vals) (length req)))
+              (let-fresh (krest) (rest)
+                (let ((vals* (append (list-head vals (length req))
+                                     (list rest))))
+                  (build-cps-term
+                    ($letk ((krest ($kargs ('rest) (rest)
+                                     ($continue kargs src
+                                       ($values vals*)))))
+                      ,(let lp ((tail (list-tail vals (length req)))
+                                (k krest))
+                         (match tail
+                           (()
+                            (build-cps-term ($continue k src
+                                              ($const '()))))
+                           ((v . tail)
+                            (let-fresh (krest) (rest)
+                              (build-cps-term
+                                ($letk ((krest ($kargs ('rest) (rest)
+                                                 ($continue k src
+                                                   ($primcall 'cons
+                                                              (v rest))))))
+                                  ,(lp tail krest))))))))))))
+             (else term)))
+          (($ $kargs args)
+           ,(if (< (length vals) (length args))
+                term
+                (let ((vals (list-head vals (length args))))
+                  (build-cps-term
+                    ($continue k src ($values vals))))))))
+      (($ $continue k src (and fun ($ $fun)))
+       ($continue k src ,(elide-values* fun conts)))
+      (($ $continue)
+       ,term)))
 
-    (rewrite-cps-exp fun
-      (($ $fun src meta free body)
-       ($fun src meta free ,(visit-cont body))))))
+  (rewrite-cps-exp fun
+    (($ $fun src meta free body)
+     ($fun src meta free ,(visit-cont body)))))
 
 (define (elide-values fun)
   (with-fresh-name-state fun
-    (elide-values* fun)))
+    (let ((conts (build-cont-table fun)))
+      (elide-values* fun conts))))

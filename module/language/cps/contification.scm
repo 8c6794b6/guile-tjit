@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -40,7 +40,6 @@
 
 (define (compute-contification fun)
   (let* ((dfg (compute-dfg fun))
-         (cont-table (dfg-cont-table dfg))
          (scope-table (make-hash-table))
          (call-substs '())
          (cont-substs '())
@@ -67,7 +66,7 @@
     ;; If K is a continuation that binds one variable, and it has only
     ;; one predecessor, return that variable.
     (define (bound-symbol k)
-      (match (lookup-cont k cont-table)
+      (match (lookup-cont k dfg)
         (($ $kargs (_) (sym))
          (match (lookup-predecessors k dfg)
            ((_)
@@ -107,7 +106,7 @@
       ;; is compatible with one of the procedure's arities, return the
       ;; target continuation.  Otherwise return #f.
       (define (call-target use proc)
-        (match (find-call (lookup-cont use cont-table))
+        (match (find-call (lookup-cont use dfg))
           (($ $continue k src ($ $call proc* args))
            (and (eq? proc proc*) (not (memq proc args)) (applicable? proc args)
                 ;; Converge more quickly by resolving already-contified
@@ -176,7 +175,7 @@
         (let ((k-scope (continuation-scope k)))
           (if (scope-contains? k-scope term-k)
               term-k
-              (match (lookup-cont k-scope cont-table)
+              (match (lookup-cont k-scope dfg)
                 (($ $kentry self tail clauses)
                  ;; K is the tail of some function.  If that function
                  ;; has just one clause, return that clause.  Otherwise
@@ -273,7 +272,7 @@
                        (lambda (sym)
                          (contify-fun term-k sym self tail-k arity body)))
                 (begin
-                  (elide-function! k (lookup-cont k cont-table))
+                  (elide-function! k (lookup-cont k dfg))
                   (for-each visit-cont body))
                 (visit-fun exp)))
            (_ #t)))))
