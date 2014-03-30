@@ -99,14 +99,6 @@
                 (make-vector (1+ max-k) #f)
                 fun)))
 
-(define (lookup-cont label dfg)
-  (match dfg
-    (($ $dfg conts blocks defs uses min-label nlabels min-var nvars)
-     (let ((res (vector-ref conts (- label min-label))))
-       (unless res
-         (error "Unknown continuation!" label conts))
-       res))))
-
 ;; Data-flow graph for CPS: both for values and continuations.
 (define-record-type $dfg
   (make-dfg conts blocks defs uses min-label nlabels min-var nvars)
@@ -929,27 +921,27 @@ BODY for each body continuation in the prompt."
         (make-dfg conts blocks defs uses
                   min-label label-count min-var var-count)))))
 
+(define (lookup-cont label dfg)
+  (let ((res (vector-ref (dfg-cont-table dfg) (- label (dfg-min-label dfg)))))
+    (unless res
+      (error "Unknown continuation!" label))
+    res))
+
 (define (lookup-block k dfg)
-  (match dfg
-    (($ $dfg conts blocks defs uses min-label nlabels min-var nvars)
-     (let ((res (vector-ref blocks (- k min-label))))
-       (unless res
-         (error "Unknown continuation!" k blocks))
-       res))))
+  (let ((res (vector-ref (dfg-blocks dfg) (- k (dfg-min-label dfg)))))
+    (unless res
+      (error "Unknown continuation!" k))
+    res))
 
 (define (lookup-scope-level k dfg)
   (match (lookup-block k dfg)
     (($ $block _ scope-level) scope-level)))
 
 (define (lookup-def var dfg)
-  (match dfg
-    (($ $dfg conts blocks defs uses min-label nlabels min-var nvars)
-     (vector-ref defs (- var min-var)))))
+  (vector-ref (dfg-defs dfg) (- var (dfg-min-var dfg))))
 
 (define (lookup-uses var dfg)
-  (match dfg
-    (($ $dfg conts blocks defs uses min-label nlabels min-var nvars)
-     (vector-ref uses (- var min-var)))))
+  (vector-ref (dfg-uses dfg) (- var (dfg-min-var dfg))))
 
 (define (lookup-block-scope k dfg)
   (block-scope (lookup-block k dfg)))
@@ -1007,42 +999,41 @@ BODY for each body continuation in the prompt."
       (($ $kargs names syms body) (find-exp body))
       (($ $letk conts body) (find-exp body))
       (else term)))
-  (match dfg
-    (($ $dfg conts blocks defs uses min-label nlabels min-var nvars)
-     (or-map
-      (lambda (use)
-        (match (find-expression (lookup-cont use dfg))
-          (($ $call) #f)
-          (($ $callk) #f)
-          (($ $values) #f)
-          (($ $primcall 'free-ref (closure slot))
-           (not (eq? sym slot)))
-          (($ $primcall 'free-set! (closure slot value))
-           (not (eq? sym slot)))
-          (($ $primcall 'cache-current-module! (mod . _))
-           (eq? sym mod))
-          (($ $primcall 'cached-toplevel-box _)
-           #f)
-          (($ $primcall 'cached-module-box _)
-           #f)
-          (($ $primcall 'resolve (name bound?))
-           (eq? sym name))
-          (($ $primcall 'make-vector/immediate (len init))
-           (not (eq? sym len)))
-          (($ $primcall 'vector-ref/immediate (v i))
-           (not (eq? sym i)))
-          (($ $primcall 'vector-set!/immediate (v i x))
-           (not (eq? sym i)))
-          (($ $primcall 'allocate-struct/immediate (vtable nfields))
-           (not (eq? sym nfields)))
-          (($ $primcall 'struct-ref/immediate (s n))
-           (not (eq? sym n)))
-          (($ $primcall 'struct-set!/immediate (s n x))
-           (not (eq? sym n)))
-          (($ $primcall 'builtin-ref (idx))
-           #f)
-          (_ #t)))
-      (vector-ref uses (- sym min-var))))))
+
+  (or-map
+   (lambda (use)
+     (match (find-expression (lookup-cont use dfg))
+       (($ $call) #f)
+       (($ $callk) #f)
+       (($ $values) #f)
+       (($ $primcall 'free-ref (closure slot))
+        (not (eq? sym slot)))
+       (($ $primcall 'free-set! (closure slot value))
+        (not (eq? sym slot)))
+       (($ $primcall 'cache-current-module! (mod . _))
+        (eq? sym mod))
+       (($ $primcall 'cached-toplevel-box _)
+        #f)
+       (($ $primcall 'cached-module-box _)
+        #f)
+       (($ $primcall 'resolve (name bound?))
+        (eq? sym name))
+       (($ $primcall 'make-vector/immediate (len init))
+        (not (eq? sym len)))
+       (($ $primcall 'vector-ref/immediate (v i))
+        (not (eq? sym i)))
+       (($ $primcall 'vector-set!/immediate (v i x))
+        (not (eq? sym i)))
+       (($ $primcall 'allocate-struct/immediate (vtable nfields))
+        (not (eq? sym nfields)))
+       (($ $primcall 'struct-ref/immediate (s n))
+        (not (eq? sym n)))
+       (($ $primcall 'struct-set!/immediate (s n x))
+        (not (eq? sym n)))
+       (($ $primcall 'builtin-ref (idx))
+        #f)
+       (_ #t)))
+   (vector-ref (dfg-uses dfg) (- sym (dfg-min-var dfg)))))
 
 (define (continuation-scope-contains? scope-k k dfg)
   (let ((scope-level (lookup-scope-level scope-k dfg)))
