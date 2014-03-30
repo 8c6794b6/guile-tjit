@@ -124,9 +124,8 @@
   (nvars dfg-nvars))
 
 (define-record-type $use-map
-  (make-use-map sym def uses)
+  (make-use-map def uses)
   use-map?
-  (sym use-map-sym)
   (def use-map-def)
   (uses use-map-uses set-use-map-uses!))
 
@@ -711,6 +710,7 @@ BODY for each body continuation in the prompt."
 
 (define (compute-live-variables fun dfg)
   (let* ((var-map (make-hash-table))
+         (min-var (dfg-min-var dfg))
          (nvars (dfg-nvars dfg))
          (cfa (analyze-control-flow fun dfg #:reverse? #t
                                     #:add-handler-preds? #t))
@@ -730,10 +730,10 @@ BODY for each body continuation in the prompt."
         (when (< n (vector-length use-maps))
           (match (vector-ref use-maps n)
             (#f (lp (1+ n)))
-            (($ $use-map var def uses)
+            (($ $use-map def uses)
              (let ((v (counter++)))
-               (hashq-set! var-map var v)
-               (vector-set! syms v var)
+               (hashq-set! var-map (+ n min-var) v)
+               (vector-set! syms v (+ n min-var))
                (for-each (lambda (def)
                            (vector-push! defv (cfa-k-idx cfa def) v))
                          (block-preds (lookup-block def dfg)))
@@ -783,13 +783,12 @@ BODY for each body continuation in the prompt."
   (define (add-def! var def-k)
     (unless def-k
       (error "Term outside labelled continuation?"))
-    (vector-set! use-maps (- var min-var)
-                 (make-use-map var def-k '())))
+    (vector-set! use-maps (- var min-var) (make-use-map def-k '())))
 
   (define (add-use! var use-k)
     (match (vector-ref use-maps (- var min-var))
       (#f (error "Variable out of scope?" var))
-      ((and use-map ($ $use-map sym def uses))
+      ((and use-map ($ $use-map def uses))
        (set-use-map-uses! use-map (cons use-k uses)))))
 
   (define* (declare-block! label cont parent
@@ -954,14 +953,14 @@ BODY for each body continuation in the prompt."
   (match dfg
     (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
      (match (vector-ref use-maps (- var min-var))
-       (($ $use-map sym def uses)
+       (($ $use-map def uses)
         def)))))
 
 (define (lookup-uses var dfg)
   (match dfg
     (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
      (match (vector-ref use-maps (- var min-var))
-       (($ $use-map sym def uses)
+       (($ $use-map def uses)
         uses)))))
 
 (define (lookup-block-scope k dfg)
@@ -1023,7 +1022,7 @@ BODY for each body continuation in the prompt."
   (match dfg
     (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
      (match (vector-ref use-maps (- sym min-var))
-       (($ $use-map _ def uses)
+       (($ $use-map def uses)
         (or-map
          (lambda (use)
            (match (find-expression (lookup-cont use dfg))
