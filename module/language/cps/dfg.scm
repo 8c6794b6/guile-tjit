@@ -101,29 +101,28 @@
 
 ;; Data-flow graph for CPS: both for values and continuations.
 (define-record-type $dfg
-  (make-dfg conts blocks preds succs defs uses min-label nlabels min-var nvars)
+  (make-dfg conts preds succs defs uses scopes scope-levels
+            min-label nlabels min-var nvars)
   dfg?
   ;; vector of label -> $kif, $kargs, etc
   (conts dfg-cont-table)
-  ;; vector of label -> $block
-  (blocks dfg-blocks)
+  ;; vector of label -> (pred-label ...)
   (preds dfg-preds)
+  ;; vector of label -> (succ-label ...)
   (succs dfg-succs)
-  ;; vector of var -> def label
+  ;; vector of var -> def-label
   (defs dfg-defs)
-  ;; vector of var -> (use label ...)
+  ;; vector of var -> (use-label ...)
   (uses dfg-uses)
+  ;; vector of label -> label
+  (scopes dfg-scopes)
+  ;; vector of label -> int
+  (scope-levels dfg-scope-levels)
 
   (min-label dfg-min-label)
   (nlabels dfg-nlabels)
   (min-var dfg-min-var)
   (nvars dfg-nvars))
-
-(define-record-type $block
-  (make-block scope scope-level)
-  block?
-  (scope block-scope)
-  (scope-level block-scope-level))
 
 ;; Some analyses assume that the only relevant set of nodes is the set
 ;; that is reachable from some start node.  Others need to include nodes
@@ -759,7 +758,8 @@ BODY for each body continuation in the prompt."
          (newline)
          (lp (1+ n)))))))
 
-(define (visit-fun fun conts blocks preds succs defs uses min-label min-var global?)
+(define (visit-fun fun conts preds succs defs uses scopes scope-levels
+                   min-label min-var global?)
   (define (add-def! var def-k)
     (vector-set! defs (- var min-var) def-k))
 
@@ -768,12 +768,12 @@ BODY for each body continuation in the prompt."
 
   (define* (declare-block! label cont parent
                            #:optional (level
-                                       (1+ (block-scope-level
-                                            (vector-ref
-                                             blocks
-                                             (- parent min-label))))))
+                                       (1+ (vector-ref
+                                            scope-levels
+                                            (- parent min-label)))))
     (vector-set! conts (- label min-label) cont)
-    (vector-set! blocks (- label min-label) (make-block parent level)))
+    (vector-set! scopes (- label min-label) parent)
+    (vector-set! scope-levels (- label min-label) level))
 
   (define (link-blocks! pred succ)
     (vector-push! succs (- pred min-label) succ)
@@ -813,7 +813,8 @@ BODY for each body continuation in the prompt."
          (error "$letrec should not be present when building a local DFG"))
        (for-each def! syms)
        (for-each
-        (cut visit-fun <> conts blocks preds succs defs uses min-label min-var global?)
+        (cut visit-fun <> conts preds succs defs uses scopes scope-levels
+             min-label min-var global?)
         funs)
        (visit body exp-k))
 
@@ -840,7 +841,8 @@ BODY for each body continuation in the prompt."
 
          (($ $fun)
           (when global?
-            (visit-fun exp conts blocks preds succs defs uses min-label min-var global?)))
+            (visit-fun exp conts preds succs defs uses scopes scope-levels
+                       min-label min-var global?)))
 
          (_ #f)))))
 
@@ -902,13 +904,15 @@ BODY for each body continuation in the prompt."
       (let* ((nlabels (- (1+ max-label) min-label))
              (nvars (- (1+ max-var) min-var))
              (conts (make-vector nlabels #f))
-             (blocks (make-vector nlabels #f))
              (preds (make-vector nlabels '()))
              (succs (make-vector nlabels '()))
              (defs (make-vector nvars #f))
-             (uses (make-vector nvars '())))
-        (visit-fun fun conts blocks preds succs defs uses min-label min-var global?)
-        (make-dfg conts blocks preds succs defs uses
+             (uses (make-vector nvars '()))
+             (scopes (make-vector nlabels #f))
+             (scope-levels (make-vector nlabels #f)))
+        (visit-fun fun conts preds succs defs uses scopes scope-levels
+                   min-label min-var global?)
+        (make-dfg conts preds succs defs uses scopes scope-levels
                   min-label label-count min-var var-count)))))
 
 (define (lookup-cont label dfg)
@@ -917,11 +921,11 @@ BODY for each body continuation in the prompt."
       (error "Unknown continuation!" label))
     res))
 
-(define (lookup-block k dfg)
-  (let ((res (vector-ref (dfg-blocks dfg) (- k (dfg-min-label dfg)))))
-    (unless res
-      (error "Unknown continuation!" k))
-    res))
+(define (lookup-predecessors k dfg)
+  (vector-ref (dfg-preds dfg) (- k (dfg-min-label dfg))))
+
+(define (lookup-successors k dfg)
+  (vector-ref (dfg-succs dfg) (- k (dfg-min-label dfg))))
 
 (define (lookup-def var dfg)
   (vector-ref (dfg-defs dfg) (- var (dfg-min-var dfg))))
@@ -929,17 +933,11 @@ BODY for each body continuation in the prompt."
 (define (lookup-uses var dfg)
   (vector-ref (dfg-uses dfg) (- var (dfg-min-var dfg))))
 
-(define (lookup-scope-level k dfg)
-  (block-scope-level (lookup-block k dfg)))
-
 (define (lookup-block-scope k dfg)
-  (block-scope (lookup-block k dfg)))
+  (vector-ref (dfg-scopes dfg) (- k (dfg-min-label dfg))))
 
-(define (lookup-predecessors k dfg)
-  (vector-ref (dfg-preds dfg) (- k (dfg-min-label dfg))))
-
-(define (lookup-successors k dfg)
-  (vector-ref (dfg-succs dfg) (- k (dfg-min-label dfg))))
+(define (lookup-scope-level k dfg)
+  (vector-ref (dfg-scope-levels dfg) (- k (dfg-min-label dfg))))
 
 (define (find-defining-term sym dfg)
   (match (lookup-predecessors (lookup-def sym dfg) dfg)
@@ -1026,10 +1024,8 @@ BODY for each body continuation in the prompt."
   (let ((scope-level (lookup-scope-level scope-k dfg)))
     (let lp ((k k))
       (or (eq? scope-k k)
-          (match (lookup-block k dfg)
-            (($ $block scope level)
-             (and (< scope-level level)
-                  (lp scope))))))))
+          (and (< scope-level (lookup-scope-level k dfg))
+               (lp (lookup-block-scope k dfg)))))))
 
 (define (continuation-bound-in? k use-k dfg)
   (continuation-scope-contains? (lookup-block-scope k dfg) use-k dfg))
