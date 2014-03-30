@@ -101,22 +101,27 @@
 
 (define (lookup-cont label dfg)
   (match dfg
-    (($ $dfg conts blocks use-maps)
-     (let ((res (hashq-ref conts label)))
+    (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
+     (let ((res (vector-ref conts (- label min-label))))
        (unless res
          (error "Unknown continuation!" label conts))
        res))))
 
 ;; Data-flow graph for CPS: both for values and continuations.
 (define-record-type $dfg
-  (make-dfg conts blocks use-maps)
+  (make-dfg conts blocks use-maps min-label nlabels min-var nvars)
   dfg?
-  ;; hash table of sym -> $kif, $kargs, etc
+  ;; vector of label -> $kif, $kargs, etc
   (conts dfg-cont-table)
-  ;; hash table of sym -> $block
+  ;; vector of label -> $block
   (blocks dfg-blocks)
-  ;; hash table of sym -> $use-map
-  (use-maps dfg-use-maps))
+  ;; vector of var -> $use-map
+  (use-maps dfg-use-maps)
+
+  (min-label dfg-min-label)
+  (nlabels dfg-nlabels)
+  (min-var dfg-min-var)
+  (nvars dfg-nvars))
 
 (define-record-type $use-map
   (make-use-map name sym def uses)
@@ -233,8 +238,7 @@ for quickest convergence."
       (when (< n k-count)
         (for-each (lambda (succ)
                     (vector-push! succs n (cfa-k-idx cfa succ)))
-                  (block-succs (lookup-block (cfa-k-sym cfa n)
-                                             (dfg-blocks dfg))))
+                  (block-succs (lookup-block (cfa-k-sym cfa n) dfg)))
         (lp (1+ n))))
 
     ;; Iterate cfa backwards, to converge quickly.
@@ -334,8 +338,7 @@ BODY for each body continuation in the prompt."
                  (let ((succ (cfa-k-idx cfa succ)))
                    (or (not (bitvector-ref body succ))
                        (<= succ n))))
-               (block-succs (lookup-block (cfa-k-sym cfa n)
-                                          (dfg-blocks dfg)))))
+               (block-succs (lookup-block (cfa-k-sym cfa n) dfg))))
      (let lp ((n 0))
        (let ((n (bit-position #t body n)))
          (when n
@@ -348,7 +351,7 @@ BODY for each body continuation in the prompt."
   (define (build-cfa kentry block-succs block-preds forward-cfa)
     (define (block-accessor accessor)
       (lambda (k)
-        (accessor (lookup-block k (dfg-blocks dfg)))))
+        (accessor (lookup-block k dfg))))
     (define (reachable-preds mapping accessor)
       ;; It's possible for a predecessor to not be in the mapping, if
       ;; the predecessor is not reachable from the entry node.
@@ -713,57 +716,56 @@ BODY for each body continuation in the prompt."
   (vector-ref (dfa-out dfa) idx))
 
 (define (compute-live-variables fun dfg)
-  (define (make-variable-mapping use-maps)
-    (let ((mapping (make-hash-table))
-          (n 0))
-      (hash-for-each (lambda (sym use-map)
-                       (hashq-set! mapping sym n)
-                       (set! n (1+ n)))
-                     use-maps)
-      (values mapping n)))
-  (call-with-values (lambda () (make-variable-mapping (dfg-use-maps dfg)))
-    (lambda (var-map nvars)
-      (let* ((cfa (analyze-control-flow fun dfg #:reverse? #t
-                                        #:add-handler-preds? #t))
-             (syms (make-vector nvars #f))
-             (names (make-vector nvars #f))
-             (usev (make-vector (cfa-k-count cfa) '()))
-             (defv (make-vector (cfa-k-count cfa) '()))
-             (live-in (make-vector (cfa-k-count cfa) #f))
-             (live-out (make-vector (cfa-k-count cfa) #f)))
-        ;; Initialize syms, names, defv, and usev.
-        (hash-for-each
-         (lambda (sym use-map)
-           (match use-map
-             (($ $use-map name sym def uses)
-              (let ((v (or (hashq-ref var-map sym)
-                           (error "unknown var" sym))))
-                (vector-set! syms v sym)
-                (vector-set! names v name)
-                (for-each (lambda (def)
-                            (vector-push! defv (cfa-k-idx cfa def) v))
-                          (block-preds (lookup-block def (dfg-blocks dfg))))
-                (for-each (lambda (use)
-                            (vector-push! usev (cfa-k-idx cfa use) v))
-                          uses)))))
-         (dfg-use-maps dfg))
+  (let* ((var-map (make-hash-table))
+         (nvars (dfg-nvars dfg))
+         (cfa (analyze-control-flow fun dfg #:reverse? #t
+                                    #:add-handler-preds? #t))
+         (syms (make-vector nvars #f))
+         (names (make-vector nvars #f))
+         (usev (make-vector (cfa-k-count cfa) '()))
+         (defv (make-vector (cfa-k-count cfa) '()))
+         (live-in (make-vector (cfa-k-count cfa) #f))
+         (live-out (make-vector (cfa-k-count cfa) #f)))
+    ;; Initialize syms, names, defv, and usev.
+    (let ((use-maps (dfg-use-maps dfg))
+          (counter 0))
+      (define (counter++)
+        (let ((res counter))
+          (set! counter (1+ counter))
+          res))
+      (let lp ((n 0))
+        (when (< n (vector-length use-maps))
+          (match (vector-ref use-maps n)
+            (#f (lp (1+ n)))
+            (($ $use-map name var def uses)
+             (let ((v (counter++)))
+               (hashq-set! var-map var v)
+               (vector-set! syms v var)
+               (vector-set! names v name)
+               (for-each (lambda (def)
+                           (vector-push! defv (cfa-k-idx cfa def) v))
+                         (block-preds (lookup-block def dfg)))
+               (for-each (lambda (use)
+                           (vector-push! usev (cfa-k-idx cfa use) v))
+                         uses)
+               (lp (1+ n))))))))
 
-        ;; Initialize live-in and live-out sets.
-        (let lp ((n 0))
-          (when (< n (vector-length live-out))
-            (vector-set! live-in n (make-bitvector nvars #f))
-            (vector-set! live-out n (make-bitvector nvars #f))
-            (lp (1+ n))))
+    ;; Initialize live-in and live-out sets.
+    (let lp ((n 0))
+      (when (< n (vector-length live-out))
+        (vector-set! live-in n (make-bitvector nvars #f))
+        (vector-set! live-out n (make-bitvector nvars #f))
+        (lp (1+ n))))
 
-        ;; Liveness is a reverse data-flow problem, so we give
-        ;; compute-maximum-fixed-point a reversed graph, swapping in
-        ;; for out, and usev for defv.  Note that since we are using
-        ;; a reverse CFA, cfa-preds are actually successors, and
-        ;; continuation 0 is ktail.
-        (compute-maximum-fixed-point (cfa-preds cfa)
-                                     live-out live-in defv usev #t)
+    ;; Liveness is a reverse data-flow problem, so we give
+    ;; compute-maximum-fixed-point a reversed graph, swapping in
+    ;; for out, and usev for defv.  Note that since we are using
+    ;; a reverse CFA, cfa-preds are actually successors, and
+    ;; continuation 0 is ktail.
+    (compute-maximum-fixed-point (cfa-preds cfa)
+                                 live-out live-in defv usev #t)
 
-        (make-dfa cfa var-map names syms live-in live-out)))))
+    (make-dfa cfa var-map names syms live-in live-out)))
 
 (define (print-dfa dfa)
   (match dfa
@@ -785,27 +787,31 @@ BODY for each body continuation in the prompt."
          (newline)
          (lp (1+ n)))))))
 
-(define (visit-fun fun conts blocks use-maps global?)
-  (define (add-def! name sym def-k)
+(define (visit-fun fun conts blocks use-maps min-label min-var global?)
+  (define (add-def! name var def-k)
     (unless def-k
       (error "Term outside labelled continuation?"))
-    (hashq-set! use-maps sym (make-use-map name sym def-k '())))
+    (vector-set! use-maps (- var min-var)
+                 (make-use-map name var def-k '())))
 
-  (define (add-use! sym use-k)
-    (match (hashq-ref use-maps sym)
-      (#f (error "Symbol out of scope?" sym))
+  (define (add-use! var use-k)
+    (match (vector-ref use-maps (- var min-var))
+      (#f (error "Variable out of scope?" var))
       ((and use-map ($ $use-map name sym def uses))
        (set-use-map-uses! use-map (cons use-k uses)))))
 
   (define* (declare-block! label cont parent
                            #:optional (level
-                                       (1+ (lookup-scope-level parent blocks))))
-    (hashq-set! conts label cont)
-    (hashq-set! blocks label (make-block parent level)))
+                                       (1+ (block-scope-level
+                                            (vector-ref
+                                             blocks
+                                             (- parent min-label))))))
+    (vector-set! conts (- label min-label) cont)
+    (vector-set! blocks (- label min-label) (make-block parent level)))
 
   (define (link-blocks! pred succ)
-    (let ((pred-block (hashq-ref blocks pred))
-          (succ-block (hashq-ref blocks succ)))
+    (let ((pred-block (vector-ref blocks (- pred min-label)))
+          (succ-block (vector-ref blocks (- succ min-label))))
       (unless (and pred-block succ-block)
         (error "internal error" pred-block succ-block))
       (set-block-succs! pred-block (cons succ (block-succs pred-block)))
@@ -844,7 +850,9 @@ BODY for each body continuation in the prompt."
        (unless global?
          (error "$letrec should not be present when building a local DFG"))
        (for-each/2 def! names syms)
-       (for-each (cut visit-fun <> conts blocks use-maps global?) funs)
+       (for-each
+        (cut visit-fun <> conts blocks use-maps min-label min-var global?)
+        funs)
        (visit body exp-k))
 
       (($ $continue k src exp)
@@ -870,7 +878,7 @@ BODY for each body continuation in the prompt."
 
          (($ $fun)
           (when global?
-            (visit-fun exp conts blocks use-maps global?)))
+            (visit-fun exp conts blocks use-maps min-label min-var global?)))
 
          (_ #f)))))
 
@@ -897,52 +905,82 @@ BODY for each body continuation in the prompt."
         (visit body kbody)))
       clauses))))
 
+(define (compute-label-and-var-ranges fun global?)
+  (define (min* a b)
+    (if b (min a b) a))
+  ((make-cont-folder global?
+                     min-label max-label label-count
+                     min-var max-var var-count)
+   (lambda (label cont
+                  min-label max-label label-count
+                  min-var max-var var-count)
+     (let ((min-label (min* label min-label))
+           (max-label (max label max-label)))
+       (match cont
+         (($ $kargs names vars)
+          (values min-label max-label (1+ label-count)
+                  (cond (min-var (apply min min-var vars))
+                        ((pair? vars) (apply min vars))
+                        (else min-var))
+                  (apply max max-var vars)
+                  (+ var-count (length vars))))
+         (($ $kentry self)
+          (values min-label max-label (1+ label-count)
+                  (min* self min-var) (max self max-var) (1+ var-count)))
+         (_ (values min-label max-label (1+ label-count)
+                    min-var max-var var-count)))))
+   fun
+   #f -1 0 #f -1 0))
+
 (define* (compute-dfg fun #:key (global? #t))
-  (let* ((conts (make-hash-table))
-         (blocks (make-hash-table))
-         (use-maps (make-hash-table)))
-    (visit-fun fun conts blocks use-maps global?)
-    (make-dfg conts blocks use-maps)))
+  (call-with-values (lambda () (compute-label-and-var-ranges fun global?))
+    (lambda (min-label max-label label-count min-var max-var var-count)
+      (when (or (zero? label-count) (zero? var-count))
+        (error "internal error (no vars or labels for fun?)"))
+      (let* ((nlabels (- (1+ max-label) min-label))
+             (nvars (- (1+ max-var) min-var))
+             (conts (make-vector nlabels #f))
+             (blocks (make-vector nlabels #f))
+             (use-maps (make-vector nvars #f)))
+        (visit-fun fun conts blocks use-maps min-label min-var global?)
+        (make-dfg conts blocks use-maps
+                  min-label label-count min-var var-count)))))
 
-(define (lookup-block k blocks)
-  (let ((res (hashq-ref blocks k)))
-    (unless res
-      (error "Unknown continuation!" k (hash-fold acons '() blocks)))
-    res))
+(define (lookup-block k dfg)
+  (match dfg
+    (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
+     (let ((res (vector-ref blocks (- k min-label))))
+       (unless res
+         (error "Unknown continuation!" k blocks))
+       res))))
 
-(define (lookup-scope-level k blocks)
-  (match (lookup-block k blocks)
+(define (lookup-scope-level k dfg)
+  (match (lookup-block k dfg)
     (($ $block _ scope-level) scope-level)))
 
-(define (lookup-use-map sym use-maps)
-  (let ((res (hashq-ref use-maps sym)))
-    (unless res
-      (error "Unknown lexical!" sym (hash-fold acons '() use-maps)))
-    res))
-
-(define (lookup-def sym dfg)
+(define (lookup-def var dfg)
   (match dfg
-    (($ $dfg conts blocks use-maps)
-     (match (lookup-use-map sym use-maps)
+    (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
+     (match (vector-ref use-maps (- var min-var))
        (($ $use-map name sym def uses)
         def)))))
 
-(define (lookup-uses sym dfg)
+(define (lookup-uses var dfg)
   (match dfg
-    (($ $dfg conts blocks use-maps)
-     (match (lookup-use-map sym use-maps)
+    (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
+     (match (vector-ref use-maps (- var min-var))
        (($ $use-map name sym def uses)
         uses)))))
 
 (define (lookup-block-scope k dfg)
-  (block-scope (lookup-block k (dfg-blocks dfg))))
+  (block-scope (lookup-block k dfg)))
 
 (define (lookup-predecessors k dfg)
-  (match (lookup-block k (dfg-blocks dfg))
+  (match (lookup-block k dfg)
     (($ $block _ _ preds succs) preds)))
 
 (define (lookup-successors k dfg)
-  (match (lookup-block k (dfg-blocks dfg))
+  (match (lookup-block k dfg)
     (($ $block _ _ preds succs) succs)))
 
 (define (find-defining-term sym dfg)
@@ -991,8 +1029,8 @@ BODY for each body continuation in the prompt."
       (($ $letk conts body) (find-exp body))
       (else term)))
   (match dfg
-    (($ $dfg conts blocks use-maps)
-     (match (lookup-use-map sym use-maps)
+    (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
+     (match (vector-ref use-maps (- sym min-var))
        (($ $use-map _ _ def uses)
         (or-map
          (lambda (use)
@@ -1029,30 +1067,24 @@ BODY for each body continuation in the prompt."
              (_ #t)))
          uses))))))
 
-(define (continuation-scope-contains? scope-k k blocks)
-  (let ((scope-level (lookup-scope-level scope-k blocks)))
+(define (continuation-scope-contains? scope-k k dfg)
+  (let ((scope-level (lookup-scope-level scope-k dfg)))
     (let lp ((k k))
       (or (eq? scope-k k)
-          (match (lookup-block k blocks)
+          (match (lookup-block k dfg)
             (($ $block scope level)
              (and (< scope-level level)
                   (lp scope))))))))
 
 (define (continuation-bound-in? k use-k dfg)
-  (match dfg
-    (($ $dfg conts blocks use-maps)
-     (match (lookup-block k blocks)
-       (($ $block def-k)
-        (continuation-scope-contains? def-k use-k blocks))))))
+  (match (lookup-block k dfg)
+    (($ $block def-k)
+     (continuation-scope-contains? def-k use-k dfg))))
 
 (define (variable-free-in? var k dfg)
-  (match dfg
-    (($ $dfg conts blocks use-maps)
-     (or-map (lambda (use)
-               (continuation-scope-contains? k use blocks))
-             (match (lookup-use-map var use-maps)
-               (($ $use-map name sym def uses)
-                uses))))))
+  (or-map (lambda (use)
+            (continuation-scope-contains? k use dfg))
+          (lookup-uses var dfg)))
 
 ;; A continuation is a control point if it has multiple predecessors, or
 ;; if its single predecessor has multiple successors.
