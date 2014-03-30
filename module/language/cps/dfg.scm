@@ -68,7 +68,7 @@
             ;; Data flow analysis.
             compute-live-variables
             dfa-k-idx dfa-k-sym dfa-k-count dfa-k-in dfa-k-out
-            dfa-var-idx dfa-var-name dfa-var-sym dfa-var-count
+            dfa-var-idx dfa-var-sym dfa-var-count
             print-dfa))
 
 ;; These definitions are here because currently we don't do cross-module
@@ -672,14 +672,12 @@ BODY for each body continuation in the prompt."
 
 ;; Data-flow analysis.
 (define-record-type $dfa
-  (make-dfa cfa var-map names syms in out)
+  (make-dfa cfa var-map syms in out)
   dfa?
   ;; CFA, for its reverse-post-order numbering
   (cfa dfa-cfa)
   ;; Hash table mapping var-sym -> var-idx
   (var-map dfa-var-map)
-  ;; Vector of var-idx -> name
-  (names dfa-names)
   ;; Vector of var-idx -> var-sym
   (syms dfa-syms)
   ;; Vector of k-idx -> bitvector
@@ -700,9 +698,6 @@ BODY for each body continuation in the prompt."
   (or (hashq-ref (dfa-var-map dfa) var)
       (error "unknown var" var)))
 
-(define (dfa-var-name dfa idx)
-  (vector-ref (dfa-names dfa) idx))
-
 (define (dfa-var-sym dfa idx)
   (vector-ref (dfa-syms dfa) idx))
 
@@ -721,12 +716,11 @@ BODY for each body continuation in the prompt."
          (cfa (analyze-control-flow fun dfg #:reverse? #t
                                     #:add-handler-preds? #t))
          (syms (make-vector nvars #f))
-         (names (make-vector nvars #f))
          (usev (make-vector (cfa-k-count cfa) '()))
          (defv (make-vector (cfa-k-count cfa) '()))
          (live-in (make-vector (cfa-k-count cfa) #f))
          (live-out (make-vector (cfa-k-count cfa) #f)))
-    ;; Initialize syms, names, defv, and usev.
+    ;; Initialize syms, defv, and usev.
     (let ((use-maps (dfg-use-maps dfg))
           (counter 0))
       (define (counter++)
@@ -741,7 +735,6 @@ BODY for each body continuation in the prompt."
              (let ((v (counter++)))
                (hashq-set! var-map var v)
                (vector-set! syms v var)
-               (vector-set! names v name)
                (for-each (lambda (def)
                            (vector-push! defv (cfa-k-idx cfa def) v))
                          (block-preds (lookup-block def dfg)))
@@ -765,11 +758,11 @@ BODY for each body continuation in the prompt."
     (compute-maximum-fixed-point (cfa-preds cfa)
                                  live-out live-in defv usev #t)
 
-    (make-dfa cfa var-map names syms live-in live-out)))
+    (make-dfa cfa var-map syms live-in live-out)))
 
 (define (print-dfa dfa)
   (match dfa
-    (($ $dfa cfa var-map names syms in out)
+    (($ $dfa cfa var-map syms in out)
      (define (print-var-set bv)
        (let lp ((n 0))
          (let ((n (bit-position #t bv n)))
