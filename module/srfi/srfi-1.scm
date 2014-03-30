@@ -566,20 +566,11 @@ has just one element then that's the return value."
   (case-lambda
     ((f l)
      (check-arg procedure? f map)
-     (let map1 ((hare l) (tortoise l) (move? #f) (out '()))
-       (if (pair? hare)
-           (if move?
-               (if (eq? tortoise hare)
-                   (scm-error 'wrong-type-arg "map" "Circular list: ~S"
-                              (list l) #f)
-                   (map1 (cdr hare) (cdr tortoise) #f
-                       (cons (f (car hare)) out)))
-               (map1 (cdr hare) tortoise #t
-                     (cons (f (car hare)) out)))
-           (if (null? hare)
-               (reverse! out)
-               (scm-error 'wrong-type-arg "map" "Not a list: ~S"
-                          (list l) #f)))))
+     (check-arg list? l map)
+     (let map1 ((in l) (out '()))
+       (if (pair? in)
+           (map1 (cdr in) (cons (f (car in)) out))
+           (reverse! out))))
     
     ((f l1 . rest)
      (check-arg procedure? f map)

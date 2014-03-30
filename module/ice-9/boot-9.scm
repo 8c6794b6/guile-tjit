@@ -837,58 +837,23 @@ for key @var{k}, then invoke @var{thunk}."
 (define map
   (case-lambda
     ((f l)
-     (let map1 ((hare l) (tortoise l) (move? #f) (out '()))
-       (if (pair? hare)
-           (if move?
-               (if (eq? tortoise hare)
-                   (scm-error 'wrong-type-arg "map" "Circular list: ~S"
-                              (list l) #f)
-                   (map1 (cdr hare) (cdr tortoise) #f
-                       (cons (f (car hare)) out)))
-               (map1 (cdr hare) tortoise #t
-                     (cons (f (car hare)) out)))
-           (if (null? hare)
-               (reverse! out)
-               (scm-error 'wrong-type-arg "map" "Not a list: ~S"
-                          (list l) #f)))))
+     (unless (list? l)
+       (scm-error 'wrong-type-arg "map" "Not a list: ~S"
+                  (list l) #f))
+     (let map1 ((l l) (out '()))
+       (if (pair? l)
+           (map1 (cdr l) (cons (f (car l)) out))
+           (reverse! out))))
     
     ((f l1 l2)
-     (let map2 ((h1 l1) (h2 l2) (t1 l1) (t2 l2) (move? #f) (out '()))
-       (cond
-        ((pair? h1)
-         (cond
-          ((not (pair? h2))
-           (scm-error 'wrong-type-arg "map"
-                      (if (list? h2)
-                          "List of wrong length: ~S"
-                          "Not a list: ~S")
-                      (list l2) #f))
-          ((not move?)
-           (map2 (cdr h1) (cdr h2) t1 t2 #t
-                 (cons (f (car h1) (car h2)) out)))
-          ((eq? t1 h1)
-           (scm-error 'wrong-type-arg "map" "Circular list: ~S"
-                      (list l1) #f))
-          ((eq? t2 h2)
-           (scm-error 'wrong-type-arg "map" "Circular list: ~S"
-                      (list l2) #f))
-          (else
-           (map2 (cdr h1) (cdr h2) (cdr t1) (cdr t2) #f
-                 (cons (f (car h1) (car h2)) out)))))
+     (unless (= (length l1) (length l2))
+       (scm-error 'wrong-type-arg "map" "List of wrong length: ~S"
+                  (list l2) #f))
 
-        ((and (null? h1) (null? h2))
-         (reverse! out))
-        
-        ((null? h1)
-         (scm-error 'wrong-type-arg "map"
-                    (if (list? h2)
-                        "List of wrong length: ~S"
-                        "Not a list: ~S")
-                    (list l2) #f))
-        (else
-         (scm-error 'wrong-type-arg "map"
-                    "Not a list: ~S"
-                    (list l1) #f)))))
+     (let map2 ((l1 l1) (l2 l2) (out '()))
+       (if (pair? l1)
+           (map2 (cdr l1) (cdr l2) (cons (f (car l1) (car l2)) out))
+           (reverse! out))))
 
     ((f l1 . rest)
      (let ((len (length l1)))
