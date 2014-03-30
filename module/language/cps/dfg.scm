@@ -124,9 +124,8 @@
   (nvars dfg-nvars))
 
 (define-record-type $use-map
-  (make-use-map name sym def uses)
+  (make-use-map sym def uses)
   use-map?
-  (name use-map-name)
   (sym use-map-sym)
   (def use-map-def)
   (uses use-map-uses set-use-map-uses!))
@@ -731,7 +730,7 @@ BODY for each body continuation in the prompt."
         (when (< n (vector-length use-maps))
           (match (vector-ref use-maps n)
             (#f (lp (1+ n)))
-            (($ $use-map name var def uses)
+            (($ $use-map var def uses)
              (let ((v (counter++)))
                (hashq-set! var-map var v)
                (vector-set! syms v var)
@@ -781,16 +780,16 @@ BODY for each body continuation in the prompt."
          (lp (1+ n)))))))
 
 (define (visit-fun fun conts blocks use-maps min-label min-var global?)
-  (define (add-def! name var def-k)
+  (define (add-def! var def-k)
     (unless def-k
       (error "Term outside labelled continuation?"))
     (vector-set! use-maps (- var min-var)
-                 (make-use-map name var def-k '())))
+                 (make-use-map var def-k '())))
 
   (define (add-use! var use-k)
     (match (vector-ref use-maps (- var min-var))
       (#f (error "Variable out of scope?" var))
-      ((and use-map ($ $use-map name sym def uses))
+      ((and use-map ($ $use-map sym def uses))
        (set-use-map-uses! use-map (cons use-k uses)))))
 
   (define* (declare-block! label cont parent
@@ -811,8 +810,8 @@ BODY for each body continuation in the prompt."
       (set-block-preds! succ-block (cons pred (block-preds succ-block)))))
 
   (define (visit exp exp-k)
-    (define (def! name sym)
-      (add-def! name sym exp-k))
+    (define (def! sym)
+      (add-def! sym exp-k))
     (define (use! sym)
       (add-use! sym exp-k))
     (define (use-k! k)
@@ -829,7 +828,7 @@ BODY for each body continuation in the prompt."
        (recur body))
 
       (($ $kargs names syms body)
-       (for-each/2 def! names syms)
+       (for-each def! syms)
        (recur body))
 
       (($ $kif kt kf)
@@ -842,7 +841,7 @@ BODY for each body continuation in the prompt."
       (($ $letrec names syms funs body)
        (unless global?
          (error "$letrec should not be present when building a local DFG"))
-       (for-each/2 def! names syms)
+       (for-each def! syms)
        (for-each
         (cut visit-fun <> conts blocks use-maps min-label min-var global?)
         funs)
@@ -881,7 +880,7 @@ BODY for each body continuation in the prompt."
            (and entry
                 ($ $kentry self ($ $cont ktail tail) clauses))))
      (declare-block! kentry entry #f 0)
-     (add-def! #f self kentry)
+     (add-def! self kentry)
 
      (declare-block! ktail tail kentry)
 
@@ -955,14 +954,14 @@ BODY for each body continuation in the prompt."
   (match dfg
     (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
      (match (vector-ref use-maps (- var min-var))
-       (($ $use-map name sym def uses)
+       (($ $use-map sym def uses)
         def)))))
 
 (define (lookup-uses var dfg)
   (match dfg
     (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
      (match (vector-ref use-maps (- var min-var))
-       (($ $use-map name sym def uses)
+       (($ $use-map sym def uses)
         uses)))))
 
 (define (lookup-block-scope k dfg)
@@ -1024,7 +1023,7 @@ BODY for each body continuation in the prompt."
   (match dfg
     (($ $dfg conts blocks use-maps min-label nlabels min-var nvars)
      (match (vector-ref use-maps (- sym min-var))
-       (($ $use-map _ _ def uses)
+       (($ $use-map _ def uses)
         (or-map
          (lambda (use)
            (match (find-expression (lookup-cont use dfg))
