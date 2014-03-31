@@ -1053,13 +1053,28 @@ BODY for each body continuation in the prompt."
           (lookup-uses var dfg)))
 
 ;; A continuation is a control point if it has multiple predecessors, or
-;; if its single predecessor has multiple successors.
+;; if its single predecessor does not have a single successor.
 (define (control-point? k dfg)
   (match (lookup-predecessors k dfg)
     ((pred)
-     (match (lookup-successors pred dfg)
-       ((_) #f)
-       (_ #t)))
+     (match (vector-ref (dfg-cont-table dfg) (- pred (dfg-min-label dfg)))
+       (($ $kargs names syms body)
+        (let lp ((body body))
+          (match body
+            (($ $letk conts body) (lp body))
+            (($ $letrec names vars funs body) (lp body))
+            (($ $continue k src exp)
+             (match exp
+               (($ $prompt) #t)
+               (_ #f))))))
+       (($ $kif) #t)
+       (($ $kreceive) #f)
+       (($ $kclause) #f)
+       (($ $kentry self tail clauses)
+        (match clauses
+          ((_) #t)
+          (_ #f)))
+       (($ $ktail) #t)))
     (_ #t)))
 
 (define (lookup-bound-syms k dfg)
