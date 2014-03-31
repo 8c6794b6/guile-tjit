@@ -260,7 +260,7 @@
      (let ()
        (define (convert-clauses body ktail)
          (match body
-           (#f '())
+           (#f #f)
            (($ <lambda-case> src req opt rest kw inits gensyms body alternate)
             (let* ((arity (make-$arity req (or opt '()) rest
                                        (map (match-lambda
@@ -272,22 +272,21 @@
                                           (cons name names))
                                         '()
                                         arity gensyms inits)))
-              (cons
-               (let ((bound-vars (map bound-var gensyms)))
-                 (let-fresh (kclause kargs) ()
-                   (build-cps-cont
-                     (kclause
-                      ($kclause ,arity
-                        (kargs
-                         ($kargs names bound-vars
-                           ,(fold-formals
-                             (lambda (name sym init body)
-                               (if init
-                                   (init-default-value name sym subst init body)
-                                   (box-bound-var name sym body)))
-                             (convert body ktail subst)
-                             arity gensyms inits))))))))
-               (convert-clauses alternate ktail))))))
+              (let ((bound-vars (map bound-var gensyms)))
+                (let-fresh (kclause kargs) ()
+                  (build-cps-cont
+                    (kclause
+                     ($kclause ,arity
+                       (kargs
+                        ($kargs names bound-vars
+                          ,(fold-formals
+                            (lambda (name sym init body)
+                              (if init
+                                  (init-default-value name sym subst init body)
+                                  (box-bound-var name sym body)))
+                            (convert body ktail subst)
+                            arity gensyms inits)))
+                       ,(convert-clauses alternate ktail))))))))))
        (if (current-topbox-scope)
            (let-fresh (kentry ktail) (self)
              (build-cps-term
@@ -595,13 +594,13 @@ integer."
       (let-fresh (kinit ktail kclause kbody) (init)
         (build-cps-exp
           ($fun src '() '()
-                (kinit ($kentry init
-                           (ktail ($ktail))
-                         ((kclause
-                           ($kclause ('() '() #f '() #f)
-                             (kbody ($kargs () ()
-                                      ,(convert exp ktail
-                                                (build-subst exp)))))))))))))))
+                (kinit ($kentry init (ktail ($ktail))
+                         (kclause
+                          ($kclause ('() '() #f '() #f)
+                            (kbody ($kargs () ()
+                                     ,(convert exp ktail
+                                               (build-subst exp))))
+                            ,#f))))))))))
 
 (define *comp-module* (make-fluid))
 

@@ -75,6 +75,17 @@
            (_ #f)))
         (_ #f)))
 
+    (define (extract-arities clause)
+      (match clause
+        (($ $cont _ ($ $kclause arity body alternate))
+         (cons arity (extract-arities alternate)))
+        (#f '())))
+    (define (extract-bodies clause)
+      (match clause
+        (($ $cont _ ($ $kclause arity body alternate))
+         (cons body (extract-bodies alternate)))
+        (#f '())))
+
     (define (contify-fun term-k sym self tail arities bodies)
       (contify-funs term-k
                     (list sym) (list self) (list tail)
@@ -176,12 +187,12 @@
           (if (scope-contains? k-scope term-k)
               term-k
               (match (lookup-cont k-scope dfg)
-                (($ $kentry self tail clauses)
+                (($ $kentry self tail clause)
                  ;; K is the tail of some function.  If that function
                  ;; has just one clause, return that clause.  Otherwise
                  ;; bail.
-                 (match clauses
-                   ((($ $cont _ ($ $kclause arity ($ $cont kargs))))
+                 (match clause
+                   (($ $cont _ ($ $kclause arity ($ $cont kargs) #f))
                     kargs)
                    (_ #f)))
                 (_ k-scope)))))
@@ -214,10 +225,11 @@
       (match cont
         (($ $cont sym ($ $kargs _ _ body))
          (visit-term body sym))
-        (($ $cont sym ($ $kentry self tail clauses))
-         (for-each visit-cont clauses))
-        (($ $cont sym ($ $kclause arity body))
-         (visit-cont body))
+        (($ $cont sym ($ $kentry self tail clause))
+         (when clause (visit-cont clause)))
+        (($ $cont sym ($ $kclause arity body alternate))
+         (visit-cont body)
+         (when alternate (visit-cont alternate)))
         (($ $cont)
          #t)))
     (define (visit-term term term-k)
@@ -244,20 +256,22 @@
                 (if (recursive? kentry)
                     (lp nsf (cons elt rec))
                     (cons (list elt) (lp nsf rec)))))))
+         (define (extract-arities+bodies clauses)
+           (values (map extract-arities clauses)
+                   (map extract-bodies clauses)))
          (define (visit-component component)
            (match component
              (((name sym fun) ...)
               (match fun
                 ((($ $fun src meta free
                      ($ $cont fun-k
-                        ($ $kentry self
-                           ($ $cont tail-k ($ $ktail))
-                           (($ $cont _ ($ $kclause arity body))
-                            ...))))
+                        ($ $kentry self ($ $cont tail-k ($ $ktail)) clause)))
                   ...)
-                 (if (contify-funs term-k sym self tail-k arity body)
-                     (for-each (cut for-each visit-cont <>) body)
-                     (for-each visit-fun fun)))))))
+                 (call-with-values (lambda () (extract-arities+bodies clause))
+                   (lambda (arities bodies)
+                     (if (contify-funs term-k sym self tail-k arities bodies)
+                         (for-each (cut for-each visit-cont <>) bodies)
+                         (for-each visit-fun fun)))))))))
          (visit-term body term-k)
          (for-each visit-component
                    (split-components (map list names syms funs))))
@@ -265,15 +279,15 @@
          (match exp
            (($ $fun src meta free
                ($ $cont fun-k
-                  ($ $kentry self
-                     ($ $cont tail-k ($ $ktail))
-                     (($ $cont _ ($ $kclause arity body)) ...))))
+                  ($ $kentry self ($ $cont tail-k ($ $ktail)) clause)))
             (if (and=> (bound-symbol k)
                        (lambda (sym)
-                         (contify-fun term-k sym self tail-k arity body)))
+                         (contify-fun term-k sym self tail-k
+                                      (extract-arities clause)
+                                      (extract-bodies clause))))
                 (begin
                   (elide-function! k (lookup-cont k dfg))
-                  (for-each visit-cont body))
+                  (for-each visit-cont (extract-bodies clause)))
                 (visit-fun exp)))
            (_ #t)))))
 
@@ -335,10 +349,11 @@
        ,#f)
       (($ $cont sym ($ $kargs names syms body))
        (sym ($kargs names syms ,(visit-term body sym))))
-      (($ $cont sym ($ $kentry self tail clauses))
-       (sym ($kentry self ,tail ,(map visit-cont clauses))))
-      (($ $cont sym ($ $kclause arity body))
-       (sym ($kclause ,arity ,(visit-cont body))))
+      (($ $cont sym ($ $kentry self tail clause))
+       (sym ($kentry self ,tail ,(and clause (visit-cont clause)))))
+      (($ $cont sym ($ $kclause arity body alternate))
+       (sym ($kclause ,arity ,(visit-cont body)
+                      ,(and alternate (visit-cont alternate)))))
       (($ $cont)
        ,cont)))
   (define (visit-term term term-k)

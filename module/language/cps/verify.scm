@@ -40,7 +40,7 @@
   (define (add-env new seen env)
     (if (null? new)
         env
-        (add-env (cdr new) (add (car new) seen env))))
+        (add-env (cdr new) seen (add (car new) seen env))))
 
   (define (add-vars new env)
     (unless (and-map exact-integer? new)
@@ -95,7 +95,8 @@
                 (and rest (or #f (? symbol?)))
                 (((? keyword? kw) (? symbol? kwname) (? symbol? kwsym)) ...)
                 (or #f #t))
-             ($ $cont kbody (and body ($ $kargs names syms _)))))
+             ($ $cont kbody (and body ($ $kargs names syms _)))
+             alternate))
        (for-each (lambda (sym)
                    (unless (memq sym syms)
                      (error "bad keyword sym" sym)))
@@ -106,7 +107,9 @@
                        names)
          (error "clause body names do not match arity names" exp))
        (let ((k-env (add-labels (list kclause kbody) k-env)))
-         (visit-cont-body body k-env v-env)))
+         (visit-cont-body body k-env v-env))
+       (when alternate
+         (visit-clause alternate k-env v-env)))
       (_
        (error "unexpected clause" clause))))
 
@@ -114,7 +117,7 @@
     (match fun
       (($ $fun src meta (free ...)
           ($ $cont kbody
-             ($ $kentry self ($ $cont ktail ($ $ktail)) clauses)))
+             ($ $kentry self ($ $cont ktail ($ $ktail)) clause)))
        (when (and meta (not (and (list? meta) (and-map pair? meta))))
          (error "meta should be alist" meta))
        (for-each (cut check-var <> v-env) free)
@@ -123,7 +126,8 @@
        ;; continuations are local.
        (let ((v-env (add-vars (list self) v-env))
              (k-env (add-labels (list ktail) '())))
-         (for-each (cut visit-clause <> k-env v-env) clauses)))
+         (when clause
+           (visit-clause clause k-env v-env))))
       (_
        (error "unexpected $fun" fun))))
 

@@ -61,12 +61,12 @@
 ;;;     contains a $ktail representing the formal argument which is the
 ;;;     function's continuation.
 ;;;
-;;;   - $kentry also contains $kclause continuations, corresponding to
-;;;     the case-lambda clauses of the function.  $kclause actually
-;;;     contains the clause body.  This is because the $kclause
-;;;     logically matches or doesn't match a given set of actual
-;;;     arguments against a formal arity, then proceeds to a "body"
-;;;     continuation (which is a $kargs).
+;;;   - $kentry also contain a $kclause continuation, corresponding to
+;;;     the first case-lambda clause of the function.  $kclause actually
+;;;     contains the clause body, and the subsequent clause (if any).
+;;;     This is because the $kclause logically matches or doesn't match
+;;;     a given set of actual arguments against a formal arity, then
+;;;     proceeds to a "body" continuation (which is a $kargs).
 ;;;
 ;;;     That's to say that a $fun can be matched like this:
 ;;;
@@ -74,9 +74,9 @@
 ;;;       (($ $fun src meta free
 ;;;           ($ $cont kentry
 ;;;              ($ $kentry self ($ $cont ktail _ ($ $ktail))
-;;;                 (($ $kclause arity
-;;;                     ($ $cont kbody _ ($ $kargs names syms body)))
-;;;                  ...))))
+;;;                 ($ $kclause arity
+;;;                    ($ $cont kbody _ ($ $kargs names syms body))
+;;;                    alternate))))
 ;;;         #t))
 ;;;
 ;;;     A $continue to ktail is in tail position.  $kentry, $kclause,
@@ -178,9 +178,9 @@
 (define-cps-type $kif kt kf)
 (define-cps-type $kreceive arity k)
 (define-cps-type $kargs names syms body)
-(define-cps-type $kentry self tail clauses)
+(define-cps-type $kentry self tail clause)
 (define-cps-type $ktail)
-(define-cps-type $kclause arity cont)
+(define-cps-type $kclause arity cont alternate)
 
 ;; Expressions.
 (define-cps-type $void)
@@ -242,14 +242,13 @@
      (make-$kargs (list name ...) (list sym ...) (build-cps-term body)))
     ((_ ($kargs names syms body))
      (make-$kargs names syms (build-cps-term body)))
-    ((_ ($kentry self tail (unquote clauses)))
-     (make-$kentry self (build-cps-cont tail) clauses))
-    ((_ ($kentry self tail (clause ...)))
-     (make-$kentry self (build-cps-cont tail) (list (build-cps-cont clause) ...)))
+    ((_ ($kentry self tail clause))
+     (make-$kentry self (build-cps-cont tail) (build-cps-cont clause)))
     ((_ ($ktail))
      (make-$ktail))
-    ((_ ($kclause arity cont))
-     (make-$kclause (build-arity arity) (build-cps-cont cont)))))
+    ((_ ($kclause arity cont alternate))
+     (make-$kclause (build-arity arity) (build-cps-cont cont)
+                    (build-cps-cont alternate)))))
 
 (define-syntax build-cps-cont
   (syntax-rules (unquote)
@@ -341,16 +340,22 @@
      (build-cont-body ($kreceive req rest k)))
     (('kargs names syms body)
      (build-cont-body ($kargs names syms ,(parse-cps body))))
-    (('kentry self tail clauses)
+    (('kentry self tail clause)
      (build-cont-body
-      ($kentry self ,(parse-cps tail) ,(map parse-cps clauses))))
+      ($kentry self ,(parse-cps tail) ,(and=> clause parse-cps))))
     (('ktail)
      (build-cont-body
       ($ktail)))
     (('kclause (req opt rest kw allow-other-keys?) body)
      (build-cont-body
       ($kclause (req opt rest kw allow-other-keys?)
-        ,(parse-cps body))))
+        ,(parse-cps body)
+        ,#f)))
+    (('kclause (req opt rest kw allow-other-keys?) body alternate)
+     (build-cont-body
+      ($kclause (req opt rest kw allow-other-keys?)
+        ,(parse-cps body)
+        ,(parse-cps alternate))))
     (('kseq body)
      (build-cont-body ($kargs () () ,(parse-cps body))))
 
@@ -403,12 +408,13 @@
      `(kseq ,(unparse-cps body)))
     (($ $kargs names syms body)
      `(kargs ,names ,syms ,(unparse-cps body)))
-    (($ $kentry self tail clauses)
-     `(kentry ,self ,(unparse-cps tail) ,(map unparse-cps clauses)))
+    (($ $kentry self tail clause)
+     `(kentry ,self ,(unparse-cps tail) ,(unparse-cps clause)))
     (($ $ktail)
      `(ktail))
-    (($ $kclause ($ $arity req opt rest kw allow-other-keys?) body)
-     `(kclause (,req ,opt ,rest ,kw ,allow-other-keys?) ,(unparse-cps body)))
+    (($ $kclause ($ $arity req opt rest kw allow-other-keys?) body alternate)
+     `(kclause (,req ,opt ,rest ,kw ,allow-other-keys?) ,(unparse-cps body)
+               . ,(if alternate (list (unparse-cps alternate)) '())))
 
     ;; Calls.
     (($ $continue k src exp)
@@ -455,12 +461,17 @@
              (($ $kargs names syms body)
               (term-folder body seed ...))
 
-             (($ $kentry self tail clauses)
+             (($ $kentry self tail clause)
               (let-values (((seed ...) (cont-folder tail seed ...)))
-                (fold-values cont-folder clauses seed ...)))
+                (if clause
+                    (cont-folder clause seed ...)
+                    (values seed ...))))
 
-             (($ $kclause arity body)
-              (cont-folder body seed ...))
+             (($ $kclause arity body alternate)
+              (let-values (((seed ...) (cont-folder body seed ...)))
+                (if alternate
+                    (cont-folder alternate seed ...)
+                    (values seed ...))))
 
              (_ (values seed ...)))))))
 

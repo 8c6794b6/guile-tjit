@@ -128,15 +128,20 @@ convert functions to flat closures."
        (values (build-cps-cont (sym ($kargs names syms ,body)))
                free)))
 
-    (($ $cont sym ($ $kentry self tail clauses))
-     (receive (clauses free) (cc* clauses self (list self))
-       (values (build-cps-cont (sym ($kentry self ,tail ,clauses)))
+    (($ $cont sym ($ $kentry self tail clause))
+     (receive (clause free) (if clause
+                                (cc clause self (list self))
+                                (values #f '()))
+       (values (build-cps-cont (sym ($kentry self ,tail ,clause)))
                free)))
 
-    (($ $cont sym ($ $kclause arity body))
+    (($ $cont sym ($ $kclause arity body alternate))
      (receive (body free) (cc body self bound)
-       (values (build-cps-cont (sym ($kclause ,arity ,body)))
-               free)))
+       (receive (alternate free*) (if alternate
+                                      (cc alternate self bound)
+                                      (values #f '()))
+         (values (build-cps-cont (sym ($kclause ,arity ,body ,alternate)))
+                 (union free free*)))))
 
     (($ $cont)
      ;; Other kinds of continuations don't bind values and don't have
@@ -254,16 +259,17 @@ convert functions to flat closures."
     (rewrite-cps-cont cont
       (($ $cont sym ($ $kargs names syms body))
        (sym ($kargs names syms ,(visit-term body))))
-      (($ $cont sym ($ $kclause arity body))
-       (sym ($kclause ,arity ,(visit-cont body))))
+      (($ $cont sym ($ $kclause arity body alternate))
+       (sym ($kclause ,arity ,(visit-cont body)
+                      ,(and alternate (visit-cont alternate)))))
       ;; Other kinds of continuations don't bind values and don't have
       ;; bodies.
       (($ $cont)
        ,cont)))
 
   (rewrite-cps-cont body
-    (($ $cont sym ($ $kentry self tail clauses))
-     (sym ($kentry self ,tail ,(map visit-cont clauses))))))
+    (($ $cont sym ($ $kentry self tail clause))
+     (sym ($kentry self ,tail ,(and clause (visit-cont clause)))))))
 
 (define (convert-closures exp)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},

@@ -371,8 +371,7 @@ BODY for each body continuation in the prompt."
   (match fun
     (($ $fun src meta free
         ($ $cont kentry
-           (and entry
-                ($ $kentry self ($ $cont ktail tail) clauses))))
+           (and entry ($ $kentry self ($ $cont ktail tail)))))
      (if reverse?
          (build-cfa ktail lookup-predecessors lookup-successors
                     (analyze-control-flow fun dfg #:reverse? #f
@@ -847,24 +846,26 @@ BODY for each body continuation in the prompt."
     (($ $fun src meta free
         ($ $cont kentry
            (and entry
-                ($ $kentry self ($ $cont ktail tail) clauses))))
+                ($ $kentry self ($ $cont ktail tail) clause))))
      (declare-block! kentry entry #f 0)
      (add-def! self kentry)
 
      (declare-block! ktail tail kentry)
 
-     (for-each
-      (match-lambda
-       (($ $cont kclause
-           (and clause ($ $kclause arity ($ $cont kbody body))))
-        (declare-block! kclause clause kentry)
-        (link-blocks! kentry kclause)
+     (let lp ((clause clause))
+       (match clause
+         (#f #t)
+         (($ $cont kclause
+             (and clause ($ $kclause arity ($ $cont kbody body)
+                            alternate)))
+          (declare-block! kclause clause kentry)
+          (link-blocks! kentry kclause)
 
-        (declare-block! kbody body kclause)
-        (link-blocks! kclause kbody)
+          (declare-block! kbody body kclause)
+          (link-blocks! kclause kbody)
 
-        (visit body kbody)))
-      clauses))))
+          (visit body kbody)
+          (lp alternate)))))))
 
 (define (compute-label-and-var-ranges fun global?)
   (define (min* a b)
@@ -936,11 +937,13 @@ BODY for each body continuation in the prompt."
 
     (($ $kreceive arity k) (list k))
 
-    (($ $kclause arity ($ $cont kbody)) (list kbody))
+    (($ $kclause arity ($ $cont kbody) #f) (list kbody))
 
-    ;; FIXME: For some reason this list needs to be reversed.  Figure
-    ;; out why.
-    (($ $kentry self tail (($ $cont clauses) ...)) (reverse clauses))
+    (($ $kclause arity ($ $cont kbody) ($ $cont kalt)) (list kalt kbody))
+
+    (($ $kentry self tail ($ $cont clause)) (list clause))
+
+    (($ $kentry self tail #f) '())
 
     (($ $ktail) '())))
 
@@ -1070,10 +1073,7 @@ BODY for each body continuation in the prompt."
        (($ $kif) #t)
        (($ $kreceive) #f)
        (($ $kclause) #f)
-       (($ $kentry self tail clauses)
-        (match clauses
-          ((_) #t)
-          (_ #f)))
+       (($ $kentry) #f)
        (($ $ktail) #t)))
     (_ #t)))
 

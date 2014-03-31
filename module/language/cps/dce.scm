@@ -163,7 +163,7 @@
                  (($ $kif) #f)
                  (($ $kclause arity ($ $cont kargs ($ $kargs names syms body)))
                   (for-each mark-live! syms))
-                 (($ $kentry self tail clauses)
+                 (($ $kentry self)
                   (mark-live! self))
                  (($ $ktail) #f))
                (lp (1- n))))))))
@@ -213,16 +213,18 @@
                             (build-cps-cont
                               (sym ($kargs names syms
                                      ,(visit-term body n))))))))
-                       (($ $kentry self tail clauses)
+                       (($ $kentry self tail clause)
                         (list
                          (build-cps-cont
                            (sym ($kentry self ,tail
-                                  ,(visit-conts clauses))))))
-                       (($ $kclause arity body)
+                                  ,(and clause (must-visit-cont clause)))))))
+                       (($ $kclause arity body alternate)
                         (list
                          (build-cps-cont
                            (sym ($kclause ,arity
-                                  ,(must-visit-cont body))))))
+                                  ,(must-visit-cont body)
+                                  ,(and alternate
+                                        (must-visit-cont alternate)))))))
                        (($ $kreceive ($ $arity req () rest () #f) kargs)
                         (let ((defs (vector-ref defs n)))
                           (if (and-map value-live? defs)

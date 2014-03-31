@@ -102,7 +102,8 @@
                                  ($continue ktail #f
                                    ($call throw
                                           (wna false str eol false))))))
-                        ,(primitive-ref 'throw kthrow #f))))))))))
+                        ,(primitive-ref 'throw kthrow #f)))))
+                 ,#f)))))
 
 ;; FIXME: Operate on one function at a time, for efficiency.
 (define (reify-primitives fun)
@@ -116,13 +117,14 @@
         (rewrite-cps-cont cont
           (($ $cont sym ($ $kargs names syms body))
            (sym ($kargs names syms ,(visit-term body))))
-          (($ $cont sym ($ $kentry self (and tail ($ $cont ktail)) ()))
+          (($ $cont sym ($ $kentry self (and tail ($ $cont ktail)) #f))
            ;; A case-lambda with no clauses.  Reify a clause.
-           (sym ($kentry self ,tail (,(reify-clause ktail)))))
-          (($ $cont sym ($ $kentry self tail clauses))
-           (sym ($kentry self ,tail ,(map visit-cont clauses))))
-          (($ $cont sym ($ $kclause arity body))
-           (sym ($kclause ,arity ,(visit-cont body))))
+           (sym ($kentry self ,tail ,(reify-clause ktail))))
+          (($ $cont sym ($ $kentry self tail clause))
+           (sym ($kentry self ,tail ,(visit-cont clause))))
+          (($ $cont sym ($ $kclause arity body alternate))
+           (sym ($kclause ,arity ,(visit-cont body)
+                          ,(and alternate (visit-cont alternate)))))
           (($ $cont)
            ,cont)))
       (define (visit-term term)

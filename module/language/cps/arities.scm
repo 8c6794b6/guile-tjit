@@ -174,14 +174,15 @@
       (rewrite-cps-cont cont
         (($ $cont sym ($ $kargs names syms body))
          (sym ($kargs names syms ,(visit-term body))))
-        (($ $cont sym ($ $kclause arity body))
-         (sym ($kclause ,arity ,(visit-cont body))))
+        (($ $cont sym ($ $kclause arity body alternate))
+         (sym ($kclause ,arity ,(visit-cont body)
+                        ,(and alternate (visit-cont alternate)))))
         (($ $cont)
          ,cont)))
 
     (rewrite-cps-cont clause
-      (($ $cont sym ($ $kentry self tail clauses))
-       (sym ($kentry self ,tail ,(map visit-cont clauses)))))))
+      (($ $cont sym ($ $kentry self tail clause))
+       (sym ($kentry self ,tail ,(and clause (visit-cont clause))))))))
 
 (define (fix-arities* fun dfg)
   (rewrite-cps-exp fun

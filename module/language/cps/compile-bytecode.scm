@@ -127,24 +127,15 @@
 
     (define (compile-entry meta)
       (match (vector-ref contv 0)
-        (($ $kentry self tail clauses)
+        (($ $kentry self tail clause)
          (emit-begin-program asm (cfa-k-sym cfa 0) meta)
-         (let lp ((n 1)
-                  (ks (map (match-lambda (($ $cont k) k)) clauses)))
-           (match ks
-             (()
-              (unless (= n (vector-length contv))
-                (error "unexpected end of clauses"))
-              (emit-end-program asm))
-             ((k . ks)
-              (unless (eq? (cfa-k-sym cfa n) k)
-                (error "unexpected k" k))
-              (lp (compile-clause n (and (pair? ks) (car ks)))
-                  ks)))))))
+         (compile-clause 1)
+         (emit-end-program asm))))
 
-    (define (compile-clause n alternate)
+    (define (compile-clause n)
       (match (vector-ref contv n)
-        (($ $kclause ($ $arity req opt rest kw allow-other-keys?))
+        (($ $kclause ($ $arity req opt rest kw allow-other-keys?)
+            body alternate)
          (let* ((kw-indices (map (match-lambda
                                   ((key name sym)
                                    (cons key (lookup-slot sym allocation))))
@@ -152,11 +143,19 @@
                 (k (cfa-k-sym cfa n))
                 (nlocals (lookup-nlocals k allocation)))
            (emit-label asm k)
-           (emit-begin-kw-arity asm req opt rest kw-indices
-                                allow-other-keys? nlocals alternate)
+           (emit-begin-kw-arity asm req opt rest kw-indices allow-other-keys?
+                                nlocals
+                                (match alternate (#f #f) (($ $cont alt) alt)))
            (let ((next (compile-body (1+ n) nlocals)))
              (emit-end-arity asm)
-             next)))))
+             (match alternate
+               (($ $cont alt)
+                (unless (eq? (cfa-k-sym cfa next) alt)
+                  (error "unexpected k" alt))
+                (compile-clause next))
+               (#f
+                (unless (= next (vector-length contv))
+                  (error "unexpected end of clauses")))))))))
 
     (define (compile-body n nlocals)
       (let compile-cont ((n n))
@@ -491,7 +490,7 @@
                     (emit-call-label asm proc-slot nargs k))))))
 
     (match f
-      (($ $fun src meta free ($ $cont k ($ $kentry self tail clauses)))
+      (($ $fun src meta free ($ $cont k ($ $kentry self tail clause)))
        ;; FIXME: src on kentry instead?
        (when src
          (emit-source asm src))
@@ -513,11 +512,14 @@
     (($ $cont sym ($ $kargs names syms body))
      (visit-funs proc body))
 
-    (($ $cont sym ($ $kclause arity body))
-     (visit-funs proc body))
+    (($ $cont sym ($ $kclause arity body alternate))
+     (visit-funs proc body)
+     (when alternate
+       (visit-funs proc alternate)))
 
-    (($ $cont sym ($ $kentry self tail clauses))
-     (for-each (lambda (clause) (visit-funs proc clause)) clauses))
+    (($ $cont sym ($ $kentry self tail clause))
+     (when clause
+       (visit-funs proc clause)))
 
     (_ (values))))
 
