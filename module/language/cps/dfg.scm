@@ -336,7 +336,16 @@ BODY for each body continuation in the prompt."
         (filter-map (cut hashq-ref mapping <>) (lookup-preds k dfg))))
     (let* ((order (reverse-post-order
                    kentry
-                   (lambda (k) (lookup-succs k dfg))
+                   (lambda (k)
+                     ;; RPO numbering is going to visit this list of
+                     ;; successors in the order that we give it.  Sort
+                     ;; it so that all things being equal, we preserve
+                     ;; the existing numbering order.  This also has the
+                     ;; effect of preserving clause order.
+                     (let ((succs (lookup-succs k dfg)))
+                       (if (or (null? succs) (null? (cdr succs)))
+                           succs
+                           (sort succs >))))
                    (if forward-cfa
                        (lambda (f seed)
                          (let lp ((n (cfa-k-count forward-cfa)) (seed seed))
@@ -939,7 +948,7 @@ BODY for each body continuation in the prompt."
 
     (($ $kclause arity ($ $cont kbody) #f) (list kbody))
 
-    (($ $kclause arity ($ $cont kbody) ($ $cont kalt)) (list kalt kbody))
+    (($ $kclause arity ($ $cont kbody) ($ $cont kalt)) (list kbody kalt))
 
     (($ $kentry self tail ($ $cont clause)) (list clause))
 
