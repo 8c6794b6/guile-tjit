@@ -101,15 +101,13 @@
 
 ;; Data-flow graph for CPS: both for values and continuations.
 (define-record-type $dfg
-  (make-dfg conts preds succs defs uses scopes scope-levels
+  (make-dfg conts preds defs uses scopes scope-levels
             min-label nlabels min-var nvars)
   dfg?
   ;; vector of label -> $kif, $kargs, etc
   (conts dfg-cont-table)
   ;; vector of label -> (pred-label ...)
   (preds dfg-preds)
-  ;; vector of label -> (succ-label ...)
-  (succs dfg-succs)
   ;; vector of var -> def-label
   (defs dfg-defs)
   ;; vector of var -> (use-label ...)
@@ -758,7 +756,7 @@ BODY for each body continuation in the prompt."
          (newline)
          (lp (1+ n)))))))
 
-(define (visit-fun fun conts preds succs defs uses scopes scope-levels
+(define (visit-fun fun conts preds defs uses scopes scope-levels
                    min-label min-var global?)
   (define (add-def! var def-k)
     (vector-set! defs (- var min-var) def-k))
@@ -776,7 +774,6 @@ BODY for each body continuation in the prompt."
     (vector-set! scope-levels (- label min-label) level))
 
   (define (link-blocks! pred succ)
-    (vector-push! succs (- pred min-label) succ)
     (vector-push! preds (- succ min-label) pred))
 
   (define (visit exp exp-k)
@@ -813,7 +810,7 @@ BODY for each body continuation in the prompt."
          (error "$letrec should not be present when building a local DFG"))
        (for-each def! syms)
        (for-each
-        (cut visit-fun <> conts preds succs defs uses scopes scope-levels
+        (cut visit-fun <> conts preds defs uses scopes scope-levels
              min-label min-var global?)
         funs)
        (visit body exp-k))
@@ -841,7 +838,7 @@ BODY for each body continuation in the prompt."
 
          (($ $fun)
           (when global?
-            (visit-fun exp conts preds succs defs uses scopes scope-levels
+            (visit-fun exp conts preds defs uses scopes scope-levels
                        min-label min-var global?)))
 
          (_ #f)))))
@@ -905,14 +902,13 @@ BODY for each body continuation in the prompt."
              (nvars (- (1+ max-var) min-var))
              (conts (make-vector nlabels #f))
              (preds (make-vector nlabels '()))
-             (succs (make-vector nlabels '()))
              (defs (make-vector nvars #f))
              (uses (make-vector nvars '()))
              (scopes (make-vector nlabels #f))
              (scope-levels (make-vector nlabels #f)))
-        (visit-fun fun conts preds succs defs uses scopes scope-levels
+        (visit-fun fun conts preds defs uses scopes scope-levels
                    min-label min-var global?)
-        (make-dfg conts preds succs defs uses scopes scope-levels
+        (make-dfg conts preds defs uses scopes scope-levels
                   min-label label-count min-var var-count)))))
 
 (define (lookup-cont label dfg)
@@ -925,7 +921,28 @@ BODY for each body continuation in the prompt."
   (vector-ref (dfg-preds dfg) (- k (dfg-min-label dfg))))
 
 (define (lookup-successors k dfg)
-  (vector-ref (dfg-succs dfg) (- k (dfg-min-label dfg))))
+  (match (vector-ref (dfg-cont-table dfg) (- k (dfg-min-label dfg)))
+    (($ $kargs names syms body)
+     (let lp ((body body))
+       (match body
+         (($ $letk conts body) (lp body))
+         (($ $letrec names vars funs body) (lp body))
+         (($ $continue k src exp)
+          (match exp
+            (($ $prompt escape? tag handler) (list k handler))
+            (_ (list k)))))))
+
+    (($ $kif kt kf) (list kt kf))
+
+    (($ $kreceive arity k) (list k))
+
+    (($ $kclause arity ($ $cont kbody)) (list kbody))
+
+    ;; FIXME: For some reason this list needs to be reversed.  Figure
+    ;; out why.
+    (($ $kentry self tail (($ $cont clauses) ...)) (reverse clauses))
+
+    (($ $ktail) '())))
 
 (define (lookup-def var dfg)
   (vector-ref (dfg-defs dfg) (- var (dfg-min-var dfg))))
