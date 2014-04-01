@@ -202,11 +202,11 @@
              (visit-cont entry))))
 
         (visit-funs compute-names-in-fun fun)
-        (values labels vars)))))
+        (values labels vars next-label next-var)))))
 
 (define (renumber fun)
   (call-with-values (lambda () (compute-new-labels-and-vars fun))
-    (lambda (labels vars)
+    (lambda (labels vars nlabels nvars)
       (define (relabel label) (vector-ref labels label))
       (define (rename var) (vector-ref vars var))
       (define (rename-kw-arity arity)
@@ -289,4 +289,4 @@
         (rewrite-cps-exp fun
           (($ $fun src meta free body)
            ($fun src meta (map rename free) ,(must-visit-cont body)))))
-      (visit-fun fun))))
+      (values (visit-fun fun) nlabels nvars))))

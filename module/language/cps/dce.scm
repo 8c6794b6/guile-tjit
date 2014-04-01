@@ -279,8 +279,10 @@
   (visit-fun fun))
 
 (define (eliminate-dead-code fun)
-  (let ((fun (renumber fun)))
-    (with-fresh-name-state fun
-      (call-with-values (lambda () (compute-live-code fun))
-        (lambda (fun-data-table live-vars)
-          (process-eliminations fun fun-data-table live-vars))))))
+  (call-with-values (lambda () (renumber fun))
+    (lambda (fun nlabels nvars)
+      (parameterize ((label-counter nlabels)
+                     (var-counter nvars))
+        (call-with-values (lambda () (compute-live-code fun))
+          (lambda (fun-data-table live-vars)
+            (process-eliminations fun fun-data-table live-vars)))))))
