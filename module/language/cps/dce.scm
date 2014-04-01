@@ -39,37 +39,31 @@
   #:use-module (language cps)
   #:use-module (language cps dfg)
   #:use-module (language cps effects-analysis)
+  #:use-module (language cps renumber)
   #:export (eliminate-dead-code))
 
 (define-record-type $fun-data
-  (make-fun-data cfa effects conts live-conts defs)
+  (make-fun-data min-label effects conts live-conts defs)
   fun-data?
-  (cfa fun-data-cfa)
+  (min-label fun-data-min-label)
   (effects fun-data-effects)
   (conts fun-data-conts)
   (live-conts fun-data-live-conts)
   (defs fun-data-defs))
 
-(define (compute-cont-vector cfa dfg)
-  (let ((v (make-vector (cfa-k-count cfa) #f)))
-    (let lp ((n 0))
-      (when (< n (vector-length v))
-        (vector-set! v n (lookup-cont (cfa-k-sym cfa n) dfg))
-        (lp (1+ n))))
-    v))
-
-(define (compute-defs cfa contv)
+(define (compute-defs dfg min-label label-count)
   (define (cont-defs k)
-    (match (vector-ref contv (cfa-k-idx cfa k))
-      (($ $kargs names syms) syms)
+    (match (lookup-cont k dfg)
+      (($ $kargs names vars) vars)
       (_ #f)))
-  (let ((defs (make-vector (vector-length contv) #f)))
+  (define (idx->label idx) (+ idx min-label))
+  (let ((defs (make-vector label-count #f)))
     (let lp ((n 0))
-      (when (< n (vector-length contv))
+      (when (< n label-count)
         (vector-set!
          defs
          n
-         (match (vector-ref contv n)
+         (match (lookup-cont (idx->label n) dfg)
            (($ $kargs _ _ body)
             (match (find-call body)
               (($ $continue k) (cont-defs k))))
@@ -84,10 +78,10 @@
     defs))
 
 (define (compute-live-code fun)
-  (let ((fun-data-table (make-hash-table))
-        (live-vars (make-hash-table))
-        (dfg (compute-dfg fun #:global? #t))
-        (changed? #f))
+  (let* ((fun-data-table (make-hash-table))
+         (live-vars (make-hash-table))
+         (dfg (compute-dfg fun #:global? #t))
+         (changed? #f))
     (define (mark-live! sym)
       (unless (value-live? sym)
         (set! changed? #t)
@@ -96,18 +90,24 @@
       (hashq-ref live-vars sym))
     (define (ensure-fun-data fun)
       (or (hashq-ref fun-data-table fun)
-          (let* ((cfa (analyze-control-flow fun dfg))
-                 (effects (compute-effects cfa dfg))
-                 (contv (compute-cont-vector cfa dfg))
-                 (live-conts (make-bitvector (cfa-k-count cfa) #f))
-                 (defs (compute-defs cfa contv))
-                 (fun-data (make-fun-data cfa effects contv live-conts defs)))
-            (hashq-set! fun-data-table fun fun-data)
-            (set! changed? #t)
-            fun-data)))
+          (call-with-values (lambda ()
+                              ((make-cont-folder #f label-count max-label)
+                               (lambda (k cont label-count max-label)
+                                 (values (1+ label-count) (max k max-label)))
+                               fun 0 -1))
+            (lambda (label-count max-label)
+              (let* ((min-label (- (1+ max-label) label-count))
+                     (effects (compute-effects dfg min-label label-count))
+                     (live-conts (make-bitvector label-count #f))
+                     (defs (compute-defs dfg min-label label-count))
+                     (fun-data (make-fun-data min-label label-count
+                                              effects live-conts defs)))
+                (hashq-set! fun-data-table fun fun-data)
+                (set! changed? #t)
+                fun-data)))))
     (define (visit-fun fun)
       (match (ensure-fun-data fun)
-        (($ $fun-data cfa effects contv live-conts defs)
+        (($ $fun-data min-label label-count effects live-conts defs)
          (define (visit-grey-exp n)
            (let ((defs (vector-ref defs n)))
              (cond
@@ -117,9 +117,10 @@
                #t)
               (else
                (or-map value-live? defs)))))
-         (let lp ((n (1- (cfa-k-count cfa))))
+         (define (idx->label idx) (+ idx min-label))
+         (let lp ((n (1- label-count)))
            (unless (< n 0)
-             (let ((cont (vector-ref contv n)))
+             (let ((cont (lookup-cont (idx->label n) dfg)))
                (match cont
                  (($ $kargs _ _ body)
                   (let lp ((body body))
@@ -173,112 +174,113 @@
       (when changed? (lp)))
     (values fun-data-table live-vars)))
 
-(define (eliminate-dead-code fun)
-  (with-fresh-name-state fun
-    (call-with-values (lambda () (compute-live-code fun))
-      (lambda (fun-data-table live-vars)
-        (define (value-live? sym)
-          (hashq-ref live-vars sym))
-        (define (make-adaptor name k defs)
-          (let* ((names (map (lambda (_) 'tmp) defs))
-                 (syms (map (lambda (_) (fresh-var)) defs))
-                 (live (filter-map (lambda (def sym)
-                                     (and (value-live? def)
-                                          sym))
-                                   defs syms)))
-            (build-cps-cont
-              (name ($kargs names syms
-                      ($continue k #f ($values live)))))))
-        (define (visit-fun fun)
-          (match (hashq-ref fun-data-table fun)
-            (($ $fun-data cfa effects contv live-conts defs)
-             (define (must-visit-cont cont)
-               (match (visit-cont cont)
-                 ((cont) cont)
-                 (conts (error "cont must be reachable" cont conts))))
-             (define (visit-cont cont)
-               (match cont
-                 (($ $cont sym cont)
-                  (match (cfa-k-idx cfa sym #:default (lambda (k) #f))
-                    (#f '())
-                    (n
-                     (match cont
-                       (($ $kargs names syms body)
-                        (match (filter-map (lambda (name sym)
-                                             (and (value-live? sym)
-                                                  (cons name sym)))
-                                           names syms)
-                          (((names . syms) ...)
-                           (list
-                            (build-cps-cont
-                              (sym ($kargs names syms
-                                     ,(visit-term body n))))))))
-                       (($ $kentry self tail clause)
-                        (list
-                         (build-cps-cont
-                           (sym ($kentry self ,tail
-                                  ,(and clause (must-visit-cont clause)))))))
-                       (($ $kclause arity body alternate)
-                        (list
-                         (build-cps-cont
-                           (sym ($kclause ,arity
-                                  ,(must-visit-cont body)
-                                  ,(and alternate
-                                        (must-visit-cont alternate)))))))
-                       (($ $kreceive ($ $arity req () rest () #f) kargs)
-                        (let ((defs (vector-ref defs n)))
-                          (if (and-map value-live? defs)
-                              (list (build-cps-cont (sym ,cont)))
-                              (let-fresh (adapt) ()
-                                (list (make-adaptor adapt kargs defs)
-                                      (build-cps-cont
-                                        (sym ($kreceive req rest adapt))))))))
-                       (_ (list (build-cps-cont (sym ,cont))))))))))
-             (define (visit-conts conts)
-               (append-map visit-cont conts))
-             (define (visit-term term term-k-idx)
-               (match term
-                 (($ $letk conts body)
-                  (let ((body (visit-term body term-k-idx)))
-                    (match (visit-conts conts)
-                      (() body)
-                      (conts (build-cps-term ($letk ,conts ,body))))))
-                 (($ $letrec names syms funs body)
-                  (let ((body (visit-term body term-k-idx)))
-                    (match (filter-map
-                            (lambda (name sym fun)
-                              (and (value-live? sym)
-                                   (list name sym (visit-fun fun))))
-                            names syms funs)
-                      (() body)
-                      (((names syms funs) ...)
+(define (process-eliminations fun fun-data-table live-vars)
+  (define (value-live? sym)
+    (hashq-ref live-vars sym))
+  (define (make-adaptor name k defs)
+    (let* ((names (map (lambda (_) 'tmp) defs))
+           (syms (map (lambda (_) (fresh-var)) defs))
+           (live (filter-map (lambda (def sym)
+                               (and (value-live? def)
+                                    sym))
+                             defs syms)))
+      (build-cps-cont
+        (name ($kargs names syms
+                ($continue k #f ($values live)))))))
+  (define (visit-fun fun)
+    (match (hashq-ref fun-data-table fun)
+      (($ $fun-data min-label label-count effects live-conts defs)
+       (define (label->idx label) (- label min-label))
+       (define (visit-cont cont)
+         (match (visit-cont* cont)
+           ((cont) cont)))
+       (define (visit-cont* cont)
+         (match cont
+           (($ $cont label cont)
+            (match cont
+              (($ $kargs names syms body)
+               (match (filter-map (lambda (name sym)
+                                    (and (value-live? sym)
+                                         (cons name sym)))
+                                  names syms)
+                 (((names . syms) ...)
+                  (list
+                   (build-cps-cont
+                     (label ($kargs names syms
+                              ,(visit-term body label))))))))
+              (($ $kentry self tail clause)
+               (list
+                (build-cps-cont
+                  (label ($kentry self ,tail
+                           ,(and clause (visit-cont clause)))))))
+              (($ $kclause arity body alternate)
+               (list
+                (build-cps-cont
+                  (label ($kclause ,arity
+                           ,(visit-cont body)
+                           ,(and alternate
+                                 (visit-cont alternate)))))))
+              (($ $kreceive ($ $arity req () rest () #f) kargs)
+               (let ((defs (vector-ref defs (label->idx label))))
+                 (if (and-map value-live? defs)
+                     (list (build-cps-cont (label ,cont)))
+                     (let-fresh (adapt) ()
+                       (list (make-adaptor adapt kargs defs)
+                             (build-cps-cont
+                               (label ($kreceive req rest adapt))))))))
+              (_ (list (build-cps-cont (label ,cont))))))))
+       (define (visit-conts conts)
+         (append-map visit-cont* conts))
+       (define (visit-term term term-k)
+         (match term
+           (($ $letk conts body)
+            (let ((body (visit-term body term-k)))
+              (match (visit-conts conts)
+                (() body)
+                (conts (build-cps-term ($letk ,conts ,body))))))
+           (($ $letrec names syms funs body)
+            (let ((body (visit-term body term-k)))
+              (match (filter-map
+                      (lambda (name sym fun)
+                        (and (value-live? sym)
+                             (list name sym (visit-fun fun))))
+                      names syms funs)
+                (() body)
+                (((names syms funs) ...)
+                 (build-cps-term
+                   ($letrec names syms funs ,body))))))
+           (($ $continue k src ($ $values args))
+            (match (vector-ref defs (label->idx term-k))
+              (#f term)
+              (defs
+                (let ((args (filter-map (lambda (use def)
+                                          (and (value-live? def) use))
+                                        args defs)))
+                  (build-cps-term
+                    ($continue k src ($values args)))))))
+           (($ $continue k src exp)
+            (if (bitvector-ref live-conts (label->idx term-k))
+                (rewrite-cps-term exp
+                  (($ $fun) ($continue k src ,(visit-fun exp)))
+                  (_
+                   ,(match (vector-ref defs (label->idx term-k))
+                      ((or #f ((? value-live?) ...))
                        (build-cps-term
-                         ($letrec names syms funs ,body))))))
-                 (($ $continue k src ($ $values args))
-                  (match (vector-ref defs term-k-idx)
-                    (#f term)
-                    (defs
-                      (let ((args (filter-map (lambda (use def)
-                                                (and (value-live? def) use))
-                                              args defs)))
-                        (build-cps-term
-                          ($continue k src ($values args)))))))
-                 (($ $continue k src exp)
-                  (if (bitvector-ref live-conts term-k-idx)
-                      (rewrite-cps-term exp
-                        (($ $fun) ($continue k src ,(visit-fun exp)))
-                        (_
-                         ,(match (vector-ref defs term-k-idx)
-                            ((or #f ((? value-live?) ...))
-                             (build-cps-term
-                               ($continue k src ,exp)))
-                            (syms
-                             (let-fresh (adapt) ()
-                               (build-cps-term
-                                 ($letk (,(make-adaptor adapt k syms))
-                                   ($continue adapt src ,exp))))))))
-                      (build-cps-term ($continue k src ($values ())))))))
-             (rewrite-cps-exp fun
-               (($ $fun src meta free body)
-                ($fun src meta free ,(must-visit-cont body)))))))
-        (visit-fun fun)))))
+                         ($continue k src ,exp)))
+                      (syms
+                       (let-fresh (adapt) ()
+                         (build-cps-term
+                           ($letk (,(make-adaptor adapt k syms))
+                             ($continue adapt src ,exp))))))))
+                (build-cps-term ($continue k src ($values ())))))))
+       (rewrite-cps-exp fun
+         (($ $fun src meta free body)
+          ($fun src meta free ,(visit-cont body)))))))
+  (visit-fun fun))
+
+(define (eliminate-dead-code fun)
+  (let ((fun (renumber fun)))
+    (with-fresh-name-state fun
+      (call-with-values (lambda () (compute-live-code fun))
+        (lambda (fun-data-table live-vars)
+          (process-eliminations fun fun-data-table live-vars))))))

@@ -460,14 +460,16 @@
     (($ $primcall name args)
      (primitive-effects dfg name args))))
 
-(define (compute-effects cfa dfg)
-  (let ((effects (make-vector (cfa-k-count cfa) &no-effects)))
+(define* (compute-effects dfg #:optional (min-label (dfg-min-label dfg))
+                          (label-count (dfg-label-count dfg)))
+  (let ((effects (make-vector label-count &no-effects)))
+    (define (idx->label idx) (+ idx min-label))
     (let lp ((n 0))
-      (when (< n (vector-length effects))
+      (when (< n label-count)
         (vector-set!
          effects
          n
-         (match (lookup-cont (cfa-k-sym cfa n) dfg)
+         (match (lookup-cont (idx->label n) dfg)
            (($ $kargs names syms body)
             (expression-effects (find-expression body) dfg))
            (($ $kreceive arity kargs)
