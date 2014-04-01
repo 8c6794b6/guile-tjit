@@ -45,6 +45,10 @@
 
             compute-dfg
             dfg-cont-table
+            dfg-min-label
+            dfg-label-count
+            dfg-min-var
+            dfg-var-count
             lookup-def
             lookup-uses
             lookup-predecessors
@@ -102,7 +106,7 @@
 ;; Data-flow graph for CPS: both for values and continuations.
 (define-record-type $dfg
   (make-dfg conts preds defs uses scopes scope-levels
-            min-label nlabels min-var nvars)
+            min-label label-count min-var var-count)
   dfg?
   ;; vector of label -> $kif, $kargs, etc
   (conts dfg-cont-table)
@@ -118,9 +122,9 @@
   (scope-levels dfg-scope-levels)
 
   (min-label dfg-min-label)
-  (nlabels dfg-nlabels)
+  (label-count dfg-label-count)
   (min-var dfg-min-var)
-  (nvars dfg-nvars))
+  (var-count dfg-var-count))
 
 ;; Some analyses assume that the only relevant set of nodes is the set
 ;; that is reachable from some start node.  Others need to include nodes
@@ -696,7 +700,7 @@ BODY for each body continuation in the prompt."
 (define (compute-live-variables fun dfg)
   (let* ((var-map (make-hash-table))
          (min-var (dfg-min-var dfg))
-         (nvars (dfg-nvars dfg))
+         (nvars (dfg-var-count dfg))
          (cfa (analyze-control-flow fun dfg #:reverse? #t
                                     #:add-handler-preds? #t))
          (syms (make-vector nvars #f))

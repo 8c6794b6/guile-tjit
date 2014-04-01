@@ -84,25 +84,9 @@
 
     exp))
 
-(define (collect-conts f cfa)
-  (let ((contv (make-vector (cfa-k-count cfa) #f)))
-    (fold-local-conts
-     (lambda (k cont tail)
-       (let ((idx (cfa-k-idx cfa k #:default (lambda (k) #f))))
-         (when idx
-           (vector-set! contv idx cont))))
-     '()
-     f)
-    contv))
-
 (define (compile-fun f asm)
   (let* ((dfg (compute-dfg f #:global? #f))
-         (cfa (analyze-control-flow f dfg))
-         (allocation (allocate-slots f dfg))
-         (contv (collect-conts f cfa)))
-    (define (lookup-cont k)
-      (vector-ref contv (cfa-k-idx cfa k)))
-
+         (allocation (allocate-slots f dfg)))
     (define (maybe-slot sym)
       (lookup-maybe-slot sym allocation))
 
@@ -126,45 +110,45 @@
                  #t)))))
 
     (define (compile-entry meta)
-      (match (vector-ref contv 0)
-        (($ $kentry self tail clause)
-         (emit-begin-program asm (cfa-k-sym cfa 0) meta)
-         (compile-clause 1)
-         (emit-end-program asm))))
+      (let ((label (dfg-min-label dfg)))
+        (match (lookup-cont label dfg)
+          (($ $kentry self tail clause)
+           (emit-begin-program asm label meta)
+           (compile-clause (1+ label))
+           (emit-end-program asm)))))
 
-    (define (compile-clause n)
-      (match (vector-ref contv n)
+    (define (compile-clause label)
+      (match (lookup-cont label dfg)
         (($ $kclause ($ $arity req opt rest kw allow-other-keys?)
             body alternate)
          (let* ((kw-indices (map (match-lambda
                                   ((key name sym)
                                    (cons key (lookup-slot sym allocation))))
                                  kw))
-                (k (cfa-k-sym cfa n))
-                (nlocals (lookup-nlocals k allocation)))
-           (emit-label asm k)
+                (nlocals (lookup-nlocals label allocation)))
+           (emit-label asm label)
            (emit-begin-kw-arity asm req opt rest kw-indices allow-other-keys?
                                 nlocals
                                 (match alternate (#f #f) (($ $cont alt) alt)))
-           (let ((next (compile-body (1+ n) nlocals)))
+           (let ((next (compile-body (1+ label) nlocals)))
              (emit-end-arity asm)
              (match alternate
                (($ $cont alt)
-                (unless (eq? (cfa-k-sym cfa next) alt)
+                (unless (eq? next alt)
                   (error "unexpected k" alt))
                 (compile-clause next))
                (#f
-                (unless (= next (vector-length contv))
+                (unless (= next (+ (dfg-min-label dfg) (dfg-label-count dfg)))
                   (error "unexpected end of clauses")))))))))
 
-    (define (compile-body n nlocals)
-      (let compile-cont ((n n))
-        (if (= n (vector-length contv))
-            n
-            (match (vector-ref contv n)
-              (($ $kclause) n)
+    (define (compile-body label nlocals)
+      (let compile-cont ((label label))
+        (if (eq? label (+ (dfg-min-label dfg) (dfg-label-count dfg)))
+            label
+            (match (lookup-cont label dfg)
+              (($ $kclause) label)
               (($ $kargs _ _ term)
-               (emit-label asm (cfa-k-sym cfa n))
+               (emit-label asm label)
                (let find-exp ((term term))
                  (match term
                    (($ $letk conts term)
@@ -172,20 +156,18 @@
                    (($ $continue k src exp)
                     (when src
                       (emit-source asm src))
-                    (compile-expression n k exp nlocals)
-                    (compile-cont (1+ n))))))
+                    (compile-expression label k exp nlocals)
+                    (compile-cont (1+ label))))))
               (_
-               (emit-label asm (cfa-k-sym cfa n))
-               (compile-cont (1+ n)))))))
+               (emit-label asm label)
+               (compile-cont (1+ label)))))))
 
-    (define (compile-expression n k exp nlocals)
-      (let* ((label (cfa-k-sym cfa n))
-             (k-idx (cfa-k-idx cfa k))
-             (fallthrough? (= k-idx (1+ n))))
+    (define (compile-expression label k exp nlocals)
+      (let* ((fallthrough? (= k (1+ label))))
         (define (maybe-emit-jump)
-          (unless (= k-idx (1+ n))
+          (unless fallthrough?
             (emit-br asm k)))
-        (match (vector-ref contv k-idx)
+        (match (lookup-cont k dfg)
           (($ $ktail)
            (compile-tail label exp))
           (($ $kargs (name) (sym))
@@ -200,19 +182,14 @@
            (compile-values label exp syms)
            (maybe-emit-jump))
           (($ $kif kt kf)
-           (compile-test label exp kt kf
-                         (and (= k-idx (1+ n))
-                              (< (+ n 2) (cfa-k-count cfa))
-                              (cfa-k-sym cfa (+ n 2)))))
+           (compile-test label exp kt kf (and fallthrough? (1+ k))))
           (($ $kreceive ($ $arity req () rest () #f) kargs)
            (compile-trunc label k exp (length req)
                           (and rest
-                               (match (vector-ref contv (cfa-k-idx cfa kargs))
+                               (match (lookup-cont kargs dfg)
                                  (($ $kargs names (_ ... rest)) rest)))
                           nlocals)
-           (unless (and (= k-idx (1+ n))
-                        (< (+ n 2) (cfa-k-count cfa))
-                        (eq? (cfa-k-sym cfa (+ n 2)) kargs))
+           (unless (and fallthrough? (= kargs (1+ k)))
              (emit-br asm kargs))))))
 
     (define (compile-tail label exp)
@@ -319,7 +296,7 @@
       (match exp
         (($ $values ()) #f)
         (($ $prompt escape? tag handler)
-         (match (lookup-cont handler)
+         (match (lookup-cont handler dfg)
            (($ $kreceive ($ $arity req () rest () #f) khandler-body)
             (let ((receive-args (gensym "handler"))
                   (nreq (length req))
@@ -330,7 +307,7 @@
               (unless (and rest (zero? nreq))
                 (emit-receive-values asm proc-slot (->bool rest) nreq))
               (when (and rest
-                         (match (vector-ref contv (cfa-k-idx cfa khandler-body))
+                         (match (lookup-cont khandler-body dfg)
                            (($ $kargs names (_ ... rest))
                             (maybe-slot rest))))
                 (emit-bind-rest asm (+ proc-slot 1 nreq)))
