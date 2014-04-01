@@ -136,7 +136,8 @@
 
             ;; Misc.
             parse-cps unparse-cps
-            make-cont-folder fold-conts fold-local-conts))
+            make-cont-folder fold-conts fold-local-conts
+            visit-cont-successors))
 
 ;; FIXME: Use SRFI-99, when Guile adds it.
 (define-syntax define-record-type*
@@ -521,3 +522,29 @@
 
 (define (fold-local-conts proc seed fun)
   ((make-cont-folder #f seed) proc fun seed))
+
+(define (visit-cont-successors proc cont)
+  (match cont
+    (($ $kargs names syms body)
+     (let lp ((body body))
+       (match body
+         (($ $letk conts body) (lp body))
+         (($ $letrec names vars funs body) (lp body))
+         (($ $continue k src exp)
+          (match exp
+            (($ $prompt escape? tag handler) (proc k handler))
+            (_ (proc k)))))))
+
+    (($ $kif kt kf) (proc kt kf))
+
+    (($ $kreceive arity k) (proc k))
+
+    (($ $kclause arity ($ $cont kbody) #f) (proc kbody))
+
+    (($ $kclause arity ($ $cont kbody) ($ $cont kalt)) (proc kbody kalt))
+
+    (($ $kentry self tail ($ $cont clause)) (proc clause))
+
+    (($ $kentry self tail #f) (proc))
+
+    (($ $ktail) (proc))))

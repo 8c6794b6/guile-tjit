@@ -931,30 +931,8 @@ BODY for each body continuation in the prompt."
   (vector-ref (dfg-preds dfg) (- k (dfg-min-label dfg))))
 
 (define (lookup-successors k dfg)
-  (match (vector-ref (dfg-cont-table dfg) (- k (dfg-min-label dfg)))
-    (($ $kargs names syms body)
-     (let lp ((body body))
-       (match body
-         (($ $letk conts body) (lp body))
-         (($ $letrec names vars funs body) (lp body))
-         (($ $continue k src exp)
-          (match exp
-            (($ $prompt escape? tag handler) (list k handler))
-            (_ (list k)))))))
-
-    (($ $kif kt kf) (list kt kf))
-
-    (($ $kreceive arity k) (list k))
-
-    (($ $kclause arity ($ $cont kbody) #f) (list kbody))
-
-    (($ $kclause arity ($ $cont kbody) ($ $cont kalt)) (list kbody kalt))
-
-    (($ $kentry self tail ($ $cont clause)) (list clause))
-
-    (($ $kentry self tail #f) '())
-
-    (($ $ktail) '())))
+  (let ((cont (vector-ref (dfg-cont-table dfg) (- k (dfg-min-label dfg)))))
+    (visit-cont-successors list cont)))
 
 (define (lookup-def var dfg)
   (vector-ref (dfg-defs dfg) (- var (dfg-min-var dfg))))
@@ -1069,21 +1047,13 @@ BODY for each body continuation in the prompt."
 (define (control-point? k dfg)
   (match (lookup-predecessors k dfg)
     ((pred)
-     (match (vector-ref (dfg-cont-table dfg) (- pred (dfg-min-label dfg)))
-       (($ $kargs names syms body)
-        (let lp ((body body))
-          (match body
-            (($ $letk conts body) (lp body))
-            (($ $letrec names vars funs body) (lp body))
-            (($ $continue k src exp)
-             (match exp
-               (($ $prompt) #t)
-               (_ #f))))))
-       (($ $kif) #t)
-       (($ $kreceive) #f)
-       (($ $kclause) #f)
-       (($ $kentry) #f)
-       (($ $ktail) #t)))
+     (let ((cont (vector-ref (dfg-cont-table dfg)
+                             (- pred (dfg-min-label dfg)))))
+       (visit-cont-successors (case-lambda
+                                (() #t)
+                                ((succ0) #f)
+                                ((succ1 succ2) #t))
+                              cont)))
     (_ #t)))
 
 (define (lookup-bound-syms k dfg)
