@@ -659,14 +659,14 @@ BODY for each body continuation in the prompt."
 
 ;; Data-flow analysis.
 (define-record-type $dfa
-  (make-dfa cfa var-map syms in out)
+  (make-dfa cfa min-var var-count in out)
   dfa?
   ;; CFA, for its reverse-post-order numbering
   (cfa dfa-cfa)
-  ;; Hash table mapping var-sym -> var-idx
-  (var-map dfa-var-map)
-  ;; Vector of var-idx -> var-sym
-  (syms dfa-syms)
+  ;; Minimum var in this function.
+  (min-var dfa-min-var)
+  ;; Minimum var in this function.
+  (var-count dfa-var-count)
   ;; Vector of k-idx -> bitvector
   (in dfa-in)
   ;; Vector of k-idx -> bitvector
@@ -682,14 +682,15 @@ BODY for each body continuation in the prompt."
   (cfa-k-count (dfa-cfa dfa)))
 
 (define (dfa-var-idx dfa var)
-  (or (hashq-ref (dfa-var-map dfa) var)
-      (error "unknown var" var)))
+  (let ((idx (- var (dfa-min-var dfa))))
+    (unless (< -1 idx (dfa-var-count dfa))
+      (error "var out of range" var))
+    idx))
 
 (define (dfa-var-sym dfa idx)
-  (vector-ref (dfa-syms dfa) idx))
-
-(define (dfa-var-count dfa)
-  (vector-length (dfa-syms dfa)))
+  (unless (< -1 idx (dfa-var-count dfa))
+    (error "idx out of range" idx))
+  (+ idx (dfa-min-var dfa)))
 
 (define (dfa-k-in dfa idx)
   (vector-ref (dfa-in dfa) idx))
@@ -698,38 +699,35 @@ BODY for each body continuation in the prompt."
   (vector-ref (dfa-out dfa) idx))
 
 (define (compute-live-variables fun dfg)
-  (let* ((var-map (make-hash-table))
-         (min-var (dfg-min-var dfg))
+  (unless (and (= (vector-length (dfg-uses dfg)) (dfg-var-count dfg))
+               (= (vector-length (dfg-cont-table dfg)) (dfg-label-count dfg)))
+    (error "function needs renumbering"))
+  (let* ((min-var (dfg-min-var dfg))
          (nvars (dfg-var-count dfg))
          (cfa (analyze-control-flow fun dfg #:reverse? #t
                                     #:add-handler-preds? #t))
-         (syms (make-vector nvars #f))
          (usev (make-vector (cfa-k-count cfa) '()))
          (defv (make-vector (cfa-k-count cfa) '()))
          (live-in (make-vector (cfa-k-count cfa) #f))
          (live-out (make-vector (cfa-k-count cfa) #f)))
-    ;; Initialize syms, defv, and usev.
+    (define (var->idx var) (- var min-var))
+    (define (idx->var idx) (+ idx min-var))
+
+    ;; Initialize defv and usev.
     (let ((defs (dfg-defs dfg))
-          (uses (dfg-uses dfg))
-          (counter 0))
-      (define (counter++)
-        (let ((res counter))
-          (set! counter (1+ counter))
-          res))
+          (uses (dfg-uses dfg)))
       (let lp ((n 0))
         (when (< n (vector-length defs))
           (let ((def (vector-ref defs n)))
-            (when def
-              (let ((v (counter++)))
-                (hashq-set! var-map (+ n min-var) v)
-                (vector-set! syms v (+ n min-var))
-                (for-each (lambda (def)
-                            (vector-push! defv (cfa-k-idx cfa def) v))
-                          (lookup-predecessors def dfg))
-                (for-each (lambda (use)
-                            (vector-push! usev (cfa-k-idx cfa use) v))
-                          (vector-ref uses n)))))
-          (lp (1+ n)))))
+            (unless def
+              (error "internal error -- var array not packed"))
+            (for-each (lambda (def)
+                        (vector-push! defv (cfa-k-idx cfa def) n))
+                      (lookup-predecessors def dfg))
+            (for-each (lambda (use)
+                        (vector-push! usev (cfa-k-idx cfa use) n))
+                      (vector-ref uses n))
+            (lp (1+ n))))))
 
     ;; Initialize live-in and live-out sets.
     (let lp ((n 0))
@@ -746,16 +744,16 @@ BODY for each body continuation in the prompt."
     (compute-maximum-fixed-point (cfa-preds cfa)
                                  live-out live-in defv usev #t)
 
-    (make-dfa cfa var-map syms live-in live-out)))
+    (make-dfa cfa min-var nvars live-in live-out)))
 
 (define (print-dfa dfa)
   (match dfa
-    (($ $dfa cfa var-map syms in out)
+    (($ $dfa cfa min-var in out)
      (define (print-var-set bv)
        (let lp ((n 0))
          (let ((n (bit-position #t bv n)))
            (when n
-             (format #t " ~A" (vector-ref syms n))
+             (format #t " ~A" (+ n min-var))
              (lp (1+ n))))))
      (let lp ((n 0))
        (when (< n (cfa-k-count cfa))
