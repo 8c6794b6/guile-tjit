@@ -30,57 +30,8 @@
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
   #:use-module (language cps dfg)
+  #:use-module (language cps renumber)
   #:export (simplify))
-
-;; Currently we just try to bypass all $values nodes that we can.  This
-;; is eta-reduction on continuations.  Then we prune unused
-;; continuations.  Note that this pruning is just a quick clean-up; for
-;; a real fixed-point pass that can eliminate unused loops, the
-;; dead-code elimination pass is there for you.  But DCE introduces new
-;; nullary $values nodes (as replacements for expressions whose values
-;; aren't used), making it useful for this pass to include its own
-;; little pruner.
-
-(define* (prune-continuations fun #:optional (dfg (compute-dfg fun)))
-  (let ((cfa (analyze-control-flow fun dfg)))
-    (define (must-visit-cont cont)
-      (or (visit-cont cont)
-          (error "cont must be reachable" cont)))
-    (define (visit-cont cont)
-      (match cont
-        (($ $cont sym cont)
-         (and (cfa-k-idx cfa sym #:default (lambda (k) #f))
-              (rewrite-cps-cont cont
-                (($ $kargs names syms body)
-                 (sym ($kargs names syms ,(visit-term body))))
-                (($ $kentry self tail clause)
-                 (sym ($kentry self ,tail ,(and clause (visit-cont clause)))))
-                (($ $kclause arity body alternate)
-                 (sym ($kclause ,arity ,(must-visit-cont body)
-                                ,(and alternate (visit-cont alternate)))))
-                ((or ($ $kreceive) ($ $kif))
-                 (sym ,cont)))))))
-    (define (visit-conts conts)
-      (filter-map visit-cont conts))
-    (define (visit-term term)
-      (match term
-        (($ $letk conts body)
-         (let ((body (visit-term body)))
-           (match (visit-conts conts)
-             (() body)
-             (conts (build-cps-term ($letk ,conts ,body))))))
-        (($ $letrec names syms funs body)
-         (build-cps-term
-           ($letrec names syms (map (cut prune-continuations <> dfg) funs)
-                    ,(visit-term body))))
-        (($ $continue k src (and fun ($ $fun)))
-         (build-cps-term
-           ($continue k src ,(prune-continuations fun dfg))))
-        (($ $continue k src exp)
-         term)))
-    (rewrite-cps-exp fun
-      (($ $fun src meta free body)
-       ($fun src meta free ,(must-visit-cont body))))))
 
 (define (compute-eta-reductions fun)
   (let ((table (make-hash-table)))
@@ -283,4 +234,6 @@
     (visit-fun fun)))
 
 (define (simplify fun)
-  (prune-continuations (eta-reduce (beta-reduce fun))))
+  ;; Renumbering prunes continuations that are made unreachable by
+  ;; eta/beta reductions.
+  (renumber (eta-reduce (beta-reduce fun))))
