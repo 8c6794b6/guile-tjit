@@ -26,43 +26,9 @@
 
 (define-module (language cps renumber)
   #:use-module (ice-9 match)
+  #:use-module (srfi srfi-1)
   #:use-module (language cps)
   #:export (renumber))
-
-(define (visit-funs proc fun)
-  (define (visit-cont cont)
-    (match cont
-      (($ $cont label cont)
-       (match cont
-         (($ $kargs names vars body)
-          (visit-term body))
-         (($ $kentry self tail clause)
-          (when clause
-            (visit-cont clause)))
-         (($ $kclause arity body alternate)
-          (visit-cont body)
-          (when alternate
-            (visit-cont alternate)))
-         ((or ($ $kreceive) ($ $kif))
-          #f)))))
-  (define (visit-term term)
-    (match term
-      (($ $letk conts body)
-       (for-each visit-cont conts)
-       (visit-term body))
-      (($ $letrec names syms funs body)
-       (for-each visit-fun funs)
-       (visit-term body))
-      (($ $continue k src (and fun ($ $fun)))
-       (visit-fun fun))
-      (($ $continue k src _)
-       #f)))
-  (define (visit-fun fun)
-    (proc fun)
-    (match fun
-      (($ $fun src meta free body)
-       (visit-cont body))))
-  (visit-fun fun))
 
 ;; Topologically sort the continuation tree starting at k0, using
 ;; reverse post-order numbering.
@@ -149,6 +115,7 @@
              (visit-cont body))))
 
         (define (compute-names-in-fun fun)
+          (define queue '())
           (define (visit-cont cont)
             (match cont
               (($ $cont label cont)
@@ -165,12 +132,13 @@
                       (for-each rename! vars))
                     (visit-term body reachable?))
                    (($ $kentry self tail clause)
-                    (when reachable?
-                      (rename! self))
+                    (unless reachable? (error "entry should be reachable"))
+                    (rename! self)
                     (visit-cont tail)
                     (when clause
                       (visit-cont clause)))
                    (($ $kclause arity body alternate)
+                    (unless reachable? (error "clause should be reachable"))
                     (visit-cont body)
                     (when alternate
                       (visit-cont alternate)))
@@ -181,7 +149,7 @@
                       ;; sure we mark as reachable.
                       (vector-set! labels label next-label)
                       (set! next-label (1+ next-label))))
-                   ((or ($ $ktail) ($ $kreceive) ($ $kif))
+                   ((or ($ $kreceive) ($ $kif))
                     #f))))))
           (define (visit-term term reachable?)
             (match term
@@ -190,18 +158,22 @@
                (visit-term body reachable?))
               (($ $letrec names syms funs body)
                (when reachable?
-                 (for-each rename! syms))
+                 (for-each rename! syms)
+                 (set! queue (fold cons queue funs)))
                (visit-term body reachable?))
-              (($ $continue k src _)
-               #f)))
+              (($ $continue k src (and fun ($ $fun)))
+               (when reachable?
+                 (set! queue (cons fun queue))))
+              (($ $continue) #f)))
 
           (collect-conts fun)
           (match fun
             (($ $fun src meta free (and entry ($ $cont kentry)))
              (set! next-label (sort-conts kentry labels next-label))
-             (visit-cont entry))))
+             (visit-cont entry)
+             (for-each compute-names-in-fun (reverse queue)))))
 
-        (visit-funs compute-names-in-fun fun)
+        (compute-names-in-fun fun)
         (values labels vars next-label next-var)))))
 
 (define (renumber fun)
@@ -272,16 +244,16 @@
            (visit-fun exp))
           (($ $values args)
            (let ((args (map rename args)))
-              (build-cps-exp ($values args))))
+             (build-cps-exp ($values args))))
           (($ $call proc args)
            (let ((args (map rename args)))
-              (build-cps-exp ($call (rename proc) args))))
+             (build-cps-exp ($call (rename proc) args))))
           (($ $callk k proc args)
            (let ((args (map rename args)))
-              (build-cps-exp ($callk (relabel k) (rename proc) args))))
+             (build-cps-exp ($callk (relabel k) (rename proc) args))))
           (($ $primcall name args)
            (let ((args (map rename args)))
-              (build-cps-exp ($primcall name args))))
+             (build-cps-exp ($primcall name args))))
           (($ $prompt escape? tag handler)
            (build-cps-exp
              ($prompt escape? (rename tag) (relabel handler))))))
