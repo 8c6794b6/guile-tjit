@@ -572,6 +572,23 @@ has just one element then that's the return value."
            (map1 (cdr in) (cons (f (car in)) out))
            (reverse! out))))
     
+    ((f l1 l2)
+     (check-arg procedure? f map)
+     (let* ((len1 (length+ l1))
+            (len2 (length+ l2))
+            (len (if (and len1 len2)
+                     (min len1 len2)
+                     (or len1 len2))))
+       (unless len
+         (scm-error 'wrong-type-arg "map"
+                    "Args do not contain a proper (finite) list: ~S"
+                    (list (list l1 l2)) #f))
+       (let map2 ((l1 l1) (l2 l2) (out '()) (len len))
+         (if (zero? len)
+             (reverse! out)
+             (map2 (cdr l1) (cdr l2)
+                   (cons (f (car l1) (car l2)) out) (1- len))))))
+
     ((f l1 . rest)
      (check-arg procedure? f map)
      (let ((len (fold (lambda (ls len)
