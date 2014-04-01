@@ -233,10 +233,10 @@ are comparable with eqv?.  A tmp slot may be used."
 
 (define (allocate-slots fun dfg)
   (let* ((dfa (compute-live-variables fun dfg))
-         (cfa (analyze-control-flow fun dfg))
-         (usev (make-vector (cfa-k-count cfa) '()))
-         (defv (make-vector (cfa-k-count cfa) '()))
-         (contv (make-vector (cfa-k-count cfa) #f))
+         (min-label (dfg-min-label dfg))
+         (label-count (dfg-label-count dfg))
+         (usev (make-vector label-count '()))
+         (defv (make-vector label-count '()))
          (slots (make-vector (dfa-var-count dfa) #f))
          (constant-values (make-vector (dfa-var-count dfa) #f))
          (has-constv (make-bitvector (dfa-var-count dfa) #f))
@@ -246,6 +246,9 @@ are comparable with eqv?.  A tmp slot may be used."
          (call-allocations (make-hash-table))
          (nlocals 0)                    ; Mutable.  It pains me.
          (nlocals-table (make-hash-table)))
+
+    (define (label->idx label) (- label min-label))
+    (define (idx->label idx) (+ idx min-label))
 
     (define (bump-nlocals! nlocals*)
       (when (< nlocals nlocals*)
@@ -328,20 +331,12 @@ are comparable with eqv?.  A tmp slot may be used."
                     (bitvector-set! needs-slotv n #f)))
                 (lp (1+ n))))))))
 
-    ;; Transform the DFG's continuation table to a vector, for easy
-    ;; access.
-    (define (compute-conts!)
-      (let lp ((n 0))
-        (when (< n (vector-length contv))
-          (vector-set! contv n (lookup-cont (cfa-k-sym cfa n) dfg))
-          (lp (1+ n)))))
-
     ;; Record uses and defs, as lists of variable indexes, indexed by
-    ;; CFA continuation index.
+    ;; label index.
     (define (compute-uses-and-defs!)
       (let lp ((n 0))
         (when (< n (vector-length usev))
-          (match (vector-ref contv n)
+          (match (lookup-cont (idx->label n) dfg)
             (($ $kentry self)
              (vector-set! defv n (list (dfa-var-idx dfa self))))
             (($ $kargs names syms body)
@@ -366,30 +361,30 @@ are comparable with eqv?.  A tmp slot may be used."
     ;; Results of function calls that are not used don't need to be
     ;; allocated to slots.
     (define (compute-unused-results!)
-      (define (kreceive-get-kargs n)
-        (match (vector-ref contv n)
-          (($ $kreceive arity kargs) (cfa-k-idx cfa kargs))
+      (define (kreceive-get-kargs kreceive)
+        (match (lookup-cont kreceive dfg)
+          (($ $kreceive arity kargs) kargs)
           (_ #f)))
-      (let ((candidates (make-bitvector (vector-length contv) #f)))
+      (let ((candidates (make-bitvector label-count #f)))
         ;; Find all $kargs that are the successors of $kreceive nodes.
         (let lp ((n 0))
-          (when (< n (vector-length contv))
-            (and=> (kreceive-get-kargs n)
+          (when (< n label-count)
+            (and=> (kreceive-get-kargs (idx->label n))
                    (lambda (kargs)
-                     (bitvector-set! candidates kargs #t)))
+                     (bitvector-set! candidates (label->idx kargs) #t)))
             (lp (1+ n))))
         ;; For $kargs that only have $kreceive predecessors, remove unused
         ;; variables from the needs-slotv set.
         (let lp ((n 0))
           (let ((n (bit-position #t candidates n)))
             (when n
-              (match (cfa-predecessors cfa n)
+              (match (lookup-predecessors (idx->label n) dfg)
                 ;; At least one kreceive is in the predecessor set, so we
                 ;; only need to do the check for nodes with >1
                 ;; predecessor.
                 ((or (_) ((? kreceive-get-kargs) ...))
                  (for-each (lambda (var)
-                             (when (dead-after-def? (cfa-k-sym cfa n) var dfa)
+                             (when (dead-after-def? (idx->label n) var dfa)
                                (bitvector-set! needs-slotv var #f)))
                            (vector-ref defv n)))
                 (_ #f))
@@ -408,20 +403,20 @@ are comparable with eqv?.  A tmp slot may be used."
       ;; control-flow graph, but we did the live variable analysis in
       ;; the opposite direction -- so the continuation numbers don't
       ;; correspond.  This helper adapts them.
-      (define (cfa-k-idx->dfa-k-idx n)
-        (dfa-k-idx dfa (cfa-k-sym cfa n)))
+      (define (label-idx->dfa-k-idx n)
+        (dfa-k-idx dfa (idx->label n)))
 
       (define (live-before n)
-        (dfa-k-in dfa (cfa-k-idx->dfa-k-idx n)))
+        (dfa-k-in dfa (label-idx->dfa-k-idx n)))
       (define (live-after n)
-        (dfa-k-out dfa (cfa-k-idx->dfa-k-idx n)))
+        (dfa-k-out dfa (label-idx->dfa-k-idx n)))
 
       ;; Walk backwards.  At a call, compute the set of variables that
       ;; have allocated slots and are live before but not after.  This
       ;; set contains candidates for needs-hintv.
       (define (scan-for-call n)
         (when (<= 0 n)
-          (match (vector-ref contv n)
+          (match (lookup-cont (idx->label n) dfg)
             (($ $kargs names syms body)
              (match (find-expression body)
                ((or ($ $call) ($ $callk))
@@ -439,10 +434,10 @@ are comparable with eqv?.  A tmp slot may be used."
       ;; ends, we reach a call, or when an expression kills a value.
       (define (scan-for-hints n args)
         (when (< 0 n)
-          (match (vector-ref contv n)
+          (match (lookup-cont (idx->label n) dfg)
             (($ $kargs names syms body)
-             (match (cfa-predecessors cfa (1+ n))
-               (((? (cut eqv? <> n)))
+             (match (lookup-predecessors (idx->label (1+ n)) dfg)
+               (((? (cut eqv? <> (idx->label n))))
                 ;; If we are indeed in the same basic block, then if we
                 ;; are finished with the scan, we kill uses of the
                 ;; terminator, but leave its definitions.
@@ -481,10 +476,10 @@ are comparable with eqv?.  A tmp slot may be used."
 
       (bit-set*! no-slot-needed needs-slotv #t)
       (bit-invert! no-slot-needed)
-      (scan-for-call (1- (vector-length contv))))
+      (scan-for-call (1- label-count)))
 
     (define (allocate-call label k uses pre-live post-live)
-      (match (vector-ref contv (cfa-k-idx cfa k))
+      (match (lookup-cont k dfg)
         (($ $ktail)
          (let* ((tail-nlocals (length uses))
                 (tail-slots (iota tail-nlocals))
@@ -503,7 +498,7 @@ are comparable with eqv?.  A tmp slot may be used."
                                           call-slots
                                           (compute-tmp-slot pre-live
                                                             call-slots)))
-                (result-vars (vector-ref defv (cfa-k-idx cfa kargs)))
+                (result-vars (vector-ref defv (label->idx kargs)))
                 (value-slots (map (cut + proc-slot 1 <>)
                                   (iota (length result-vars))))
                 ;; Shuffle the first result down to the lowest slot, and
@@ -547,7 +542,7 @@ are comparable with eqv?.  A tmp slot may be used."
                        (make-call-allocation proc-slot arg-moves #f))))))
                          
     (define (allocate-values label k uses pre-live post-live)
-      (match (vector-ref contv (cfa-k-idx cfa k))
+      (match (lookup-cont k dfg)
         (($ $ktail)
          (let* ((src-slots (map (cut vector-ref slots <>) uses))
                 (tail-nlocals (1+ (length uses)))
@@ -565,12 +560,12 @@ are comparable with eqv?.  A tmp slot may be used."
          ;; slot, we can't really compute the parallel moves in that
          ;; case, so just bail and rely on the bytecode emitter to
          ;; handle the one-value case specially.
-         (match (cons uses (vector-ref defv (cfa-k-idx cfa k)))
+         (match (cons uses (vector-ref defv (label->idx k)))
            (((src) . (dst))
             (allocate! dst (vector-ref slots src) post-live))))
         (($ $kargs)
          (let* ((src-slots (map (cut vector-ref slots <>) uses))
-                (dst-vars (vector-ref defv (cfa-k-idx cfa k)))
+                (dst-vars (vector-ref defv (label->idx k)))
                 (result-live (fold allocate! post-live dst-vars src-slots))
                 (dst-slots (map (cut vector-ref slots <>) dst-vars))
                 (moves (parallel-move src-slots dst-slots
@@ -581,11 +576,11 @@ are comparable with eqv?.  A tmp slot may be used."
         (($ $kif) #f)))
 
     (define (allocate-prompt label k handler nargs)
-      (match (vector-ref contv (cfa-k-idx cfa handler))
+      (match (lookup-cont handler dfg)
         (($ $kreceive arity kargs)
          (let* ((handler-live (recompute-live-slots handler nargs))
                 (proc-slot (compute-prompt-handler-proc-slot handler-live))
-                (result-vars (vector-ref defv (cfa-k-idx cfa kargs)))
+                (result-vars (vector-ref defv (label->idx kargs)))
                 (value-slots (map (cut + proc-slot 1 <>)
                                   (iota (length result-vars))))
                 (result-live (fold allocate!
@@ -611,23 +606,23 @@ are comparable with eqv?.  A tmp slot may be used."
     ;; before it, in reverse post-order.
     (define (visit-clause n nargs live)
       (let lp ((n n) (live live))
-        (define (kill-dead live vars-by-cfa-idx pred)
+        (define (kill-dead live vars-by-label-idx pred)
           (fold (lambda (v live)
                   (let ((slot (vector-ref slots v)))
                     (if (and slot
                              (> slot nargs)
-                             (pred (cfa-k-sym cfa n) v dfa))
+                             (pred (idx->label n) v dfa))
                         (kill-dead-slot slot live)
                         live)))
                 live
-                (vector-ref vars-by-cfa-idx n)))
+                (vector-ref vars-by-label-idx n)))
         (define (kill-dead-defs live)
           (kill-dead live defv dead-after-def?))
         (define (kill-dead-uses live)
           (kill-dead live usev dead-after-use?))
-        (if (= n (cfa-k-count cfa))
+        (if (= n label-count)
             n
-            (let* ((label (cfa-k-sym cfa n))
+            (let* ((label (idx->label n))
                    (live (if (control-point? label dfg)
                              (recompute-live-slots label nargs)
                              live))
@@ -636,7 +631,7 @@ are comparable with eqv?.  A tmp slot may be used."
               ;; LIVE are the live slots coming into the term.
               ;; POST-LIVE is the subset that is still live after the
               ;; term uses its inputs.
-              (match (vector-ref contv n)
+              (match (lookup-cont (idx->label n) dfg)
                 (($ $kclause) n)
                 (($ $kargs names syms body)
                  (let ((uses (vector-ref usev n)))
@@ -658,28 +653,27 @@ are comparable with eqv?.  A tmp slot may be used."
         (unless (eqv? live (add-live-slot 0 (empty-live-slots)))
           (error "Unexpected clause live set"))
         (set! nlocals 1)
-        (match (vector-ref contv n)
+        (match (lookup-cont (idx->label n) dfg)
           (($ $kclause arity ($ $cont kbody ($ $kargs names)) alternate)
-           (unless (eq? (cfa-k-sym cfa (1+ n)) kbody)
-             (error "Unexpected CFA order"))
+           (unless (eq? (idx->label (1+ n)) kbody)
+             (error "Unexpected label order"))
            (let* ((nargs (length names))
                   (next (visit-clause (1+ n)
                                       nargs
                                       (fold allocate! live
                                             (vector-ref defv (1+ n))
                                             (cdr (iota (1+ nargs)))))))
-             (hashq-set! nlocals-table (cfa-k-sym cfa n) nlocals)
-             (when (< next (cfa-k-count cfa))
+             (hashq-set! nlocals-table (idx->label n) nlocals)
+             (when (< next label-count)
                (match alternate
                  (($ $cont kalt)
-                  (unless (eq? kalt (cfa-k-sym cfa next))
+                  (unless (eq? kalt (idx->label next))
                     (error "Unexpected clause order"))))
                (visit-clauses next live))))))
-      (match (vector-ref contv 0)
+      (match (lookup-cont (idx->label 0) dfg)
         (($ $kentry self)
          (visit-clauses 1 (allocate-defs! 0 (empty-live-slots))))))
 
-    (compute-conts!)
     (compute-constants!)
     (compute-uses-and-defs!)
     (compute-unused-results!)
