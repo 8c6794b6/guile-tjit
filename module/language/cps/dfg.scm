@@ -231,7 +231,7 @@ for quickest convergence."
         (cond
          ((zero? n)
           (if changed?
-              (lp 0 #f)
+              (lp k-count #f)
               reachable))
          (else
           (let ((n (1- n)))
