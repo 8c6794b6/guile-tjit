@@ -1,6 +1,6 @@
 ;;;; test-suite/lib.scm --- generic support for testing
 ;;;; Copyright (C) 1999, 2000, 2001, 2004, 2006, 2007, 2009, 2010,
-;;;;   2011, 2012, 2013 Free Software Foundation, Inc.
+;;;;   2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This program is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -18,8 +18,8 @@
 ;;;; Street, Fifth Floor, Boston, MA 02110-1301 USA
 
 (define-module (test-suite lib)
-  #:use-module (ice-9 stack-catch)
   #:use-module (ice-9 regex)
+  #:use-module (ice-9 match)
   #:autoload   (srfi srfi-1)  (append-map)
   #:autoload   (system base compile) (compile)
   #:export (
@@ -383,32 +383,26 @@
 
 ;;; A helper function to implement the macros that test for exceptions.
 (define (run-test-exception name exception expect-pass thunk)
-  (run-test name expect-pass
-    (lambda ()
-      (stack-catch (car exception)
-	(lambda () (thunk) #f)
-	(lambda (key proc message . rest)
-	  (cond
-           ;; handle explicit key
-           ((string-match (cdr exception) message)
-            #t)
-           ;; handle `(error ...)' which uses `misc-error' for key and doesn't
-           ;; yet format the message and args (we have to do it here).
-           ((and (eq? 'misc-error (car exception))
-                 (list? rest)
-                 (string-match (cdr exception)
-                               (apply simple-format #f message (car rest))))
-            #t)
-           ;; handle syntax errors which use `syntax-error' for key and don't
-           ;; yet format the message and args (we have to do it here).
-           ((and (eq? 'syntax-error (car exception))
-                 (list? rest)
-                 (string-match (cdr exception)
-                               (apply simple-format #f message (car rest))))
-            #t)
-           ;; unhandled; throw again
-           (else
-            (apply throw key proc message rest))))))))
+  (match exception
+    ((expected-key . expected-pattern)
+     (run-test
+      name
+      expect-pass
+      (lambda ()
+        (catch expected-key
+          (lambda () (thunk) #f)
+          (lambda (key proc message . rest)
+            ;; Match the message against the expected pattern.  If that
+            ;; doesn't work, in the case of `misc-error' and
+            ;; `syntax-error' we treat the message as a format string,
+            ;; and format it.  This is pretty terrible but it's
+            ;; historical.
+            (or (and (string-match expected-pattern message) #t)
+                (and (memq expected-key '(misc-error syntax-error))
+                     (list? rest)
+                     (let ((out (apply simple-format #f message (car rest))))
+                       (and (string-match expected-pattern out) #t)))
+                (apply throw key proc message rest)))))))))
 
 ;;; A short form for tests that expect a certain exception to be thrown.
 (define-syntax pass-if-exception
