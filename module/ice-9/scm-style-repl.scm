@@ -1,4 +1,4 @@
-;;;; Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010
+;;;; Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2014
 ;;;; Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -22,19 +22,17 @@
   #:export (scm-repl-silent
             scm-repl-print-unspecified
             scm-repl-verbose
-            scm-repl-prompt)
-  
-  ;; #:replace, as with deprecated code enabled these will be in the root env
-  #:replace (assert-repl-silence
-             assert-repl-print-unspecified
-             assert-repl-verbosity
+            scm-repl-prompt
+            assert-repl-silence
+            assert-repl-print-unspecified
+            assert-repl-verbosity
 
-             default-pre-unwind-handler
-             bad-throw
-             error-catching-loop
-             error-catching-repl
-             scm-style-repl
-             handle-system-error))
+            default-pre-unwind-handler
+            bad-throw
+            error-catching-loop
+            error-catching-repl
+            scm-style-repl
+            handle-system-error))
 
 (define scm-repl-silent #f)
 (define (assert-repl-silence v) (set! scm-repl-silent v))

@@ -1,6 +1,6 @@
 ;;; -*- mode: scheme; coding: utf-8; -*-
 
-;;;; Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010
+;;;; Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2014
 ;;;; Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -31,9 +31,9 @@
 
 (define-module (ice-9 save-stack)
   ;; Replace deprecated root-module bindings, if present.
-  #:replace (stack-saved?
-             the-last-stack
-             save-stack))
+  #:export (stack-saved?
+            the-last-stack
+            save-stack))
 
 ;; FIXME: stack-saved? is broken in the presence of threads.
 (define stack-saved? #f)
