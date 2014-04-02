@@ -122,31 +122,6 @@
   (min-var dfg-min-var)
   (var-count dfg-var-count))
 
-;; Control-flow analysis.
-(define-record-type $cfa
-  (make-cfa min-label k-map order preds)
-  cfa?
-  ;; Minumum label.
-  (min-label cfa-min-label)
-  ;; Vector of (k - min-label) -> k-idx
-  (k-map cfa-k-map)
-  ;; Vector of k-idx -> k-sym, in reverse post order
-  (order cfa-order)
-  ;; Vector of k-idx -> list of k-idx
-  (preds cfa-preds))
-
-(define (cfa-k-idx cfa k)
-  (vector-ref (cfa-k-map cfa) (- k (cfa-min-label cfa))))
-
-(define (cfa-k-count cfa)
-  (vector-length (cfa-order cfa)))
-
-(define (cfa-k-sym cfa n)
-  (vector-ref (cfa-order cfa) n))
-
-(define (cfa-predecessors cfa n)
-  (vector-ref (cfa-preds cfa) n))
-
 (define-inlinable (vector-push! vec idx val)
   (let ((v vec) (i idx))
     (vector-set! v i (cons val (vector-ref v i)))))
@@ -287,8 +262,8 @@ body continuation in the prompt."
            (lp (1+ n)))))))
    (find-prompt-bodies dfg min-label label-count)))
 
-(define (analyze-reverse-control-flow fun dfg)
-  (define (compute-reverse-control-flow-order ktail dfg min-label label-count)
+(define (analyze-reverse-control-flow fun dfg min-label label-count)
+  (define (compute-reverse-control-flow-order ktail dfg)
     (let ((order (make-vector label-count #f))
           (label-map (make-vector label-count #f))
           (next -1))
@@ -331,7 +306,7 @@ body continuation in the prompt."
 
       (values order label-map)))
 
-  (define (convert-successors k-map min-label)
+  (define (convert-successors k-map)
     (define (idx->label idx) (+ idx min-label))
     (define (renumber label)
       (vector-ref k-map (- label min-label)))
@@ -344,36 +319,27 @@ body continuation in the prompt."
           (lp (1+ n))))
       succs))
 
-  (define (build-cfa ktail min-label label-count order k-map)
-    (let* ((succs (convert-successors k-map min-label))
-           (cfa (make-cfa min-label k-map order succs)))
-      ;; Any expression in the prompt body could cause an abort to the
-      ;; handler.  This code adds links from every block in the prompt
-      ;; body to the handler.  This causes all values used by the
-      ;; handler to be seen as live in the prompt body, as indeed they
-      ;; are.
-      (visit-prompt-control-flow
-       dfg min-label label-count
-       (lambda (prompt handler body)
-         (define (renumber label)
-           (vector-ref k-map (- label min-label)))
-         (vector-push! succs (renumber body) (renumber handler))))
-      cfa))
+  (match fun
+    (($ $fun src meta free
+        ($ $cont kentry ($ $kentry self ($ $cont ktail tail))))
+     (call-with-values
+         (lambda ()
+           (compute-reverse-control-flow-order ktail dfg))
+       (lambda (order k-map)
+         (let ((succs (convert-successors k-map)))
+           ;; Any expression in the prompt body could cause an abort to
+           ;; the handler.  This code adds links from every block in the
+           ;; prompt body to the handler.  This causes all values used
+           ;; by the handler to be seen as live in the prompt body, as
+           ;; indeed they are.
+           (visit-prompt-control-flow
+            dfg min-label label-count
+            (lambda (prompt handler body)
+              (define (renumber label)
+                (vector-ref k-map (- label min-label)))
+              (vector-push! succs (renumber body) (renumber handler))))
 
-  (unless (= (vector-length (dfg-cont-table dfg)) (dfg-label-count dfg))
-    (error "function needs renumbering"))
-
-  (let ((min-label (dfg-min-label dfg))
-        (label-count (dfg-label-count dfg)))
-    (match fun
-      (($ $fun src meta free
-          ($ $cont kentry ($ $kentry self ($ $cont ktail tail))))
-       (call-with-values
-           (lambda ()
-             (compute-reverse-control-flow-order ktail dfg
-                                                 min-label label-count))
-         (lambda (order k-map)
-           (build-cfa ktail min-label label-count order k-map)))))))
+           (values k-map order succs)))))))
 
 ;; Dominator analysis.
 (define-record-type $dominator-analysis
@@ -648,9 +614,11 @@ body continuation in the prompt."
 (define-record-type $dfa
   (make-dfa min-label k-map k-order min-var var-count in out)
   dfa?
-  ;; CFA, for its label sort order
+  ;; Minimum label.
   (min-label dfa-min-label)
+  ;; Vector of (k - min-label) -> k-idx
   (k-map dfa-k-map)
+  ;; Vector of k-idx -> k-sym, in (possibly reversed) control-flow order
   (k-order dfa-k-order)
 
   ;; Minimum var in this function.
@@ -692,48 +660,53 @@ body continuation in the prompt."
   (unless (and (= (vector-length (dfg-uses dfg)) (dfg-var-count dfg))
                (= (vector-length (dfg-cont-table dfg)) (dfg-label-count dfg)))
     (error "function needs renumbering"))
-  (let* ((min-var (dfg-min-var dfg))
+  (let* ((min-label (dfg-min-label dfg))
+         (nlabels (dfg-label-count dfg))
+         (min-var (dfg-min-var dfg))
          (nvars (dfg-var-count dfg))
-         (cfa (analyze-reverse-control-flow fun dfg))
-         (usev (make-vector (cfa-k-count cfa) '()))
-         (defv (make-vector (cfa-k-count cfa) '()))
-         (live-in (make-vector (cfa-k-count cfa) #f))
-         (live-out (make-vector (cfa-k-count cfa) #f)))
-    (define (var->idx var) (- var min-var))
-    (define (idx->var idx) (+ idx min-var))
+         (usev (make-vector nlabels '()))
+         (defv (make-vector nlabels '()))
+         (live-in (make-vector nlabels #f))
+         (live-out (make-vector nlabels #f)))
+    (call-with-values
+        (lambda ()
+          (analyze-reverse-control-flow fun dfg min-label nlabels))
+      (lambda (k-map k-order succs)
+        (define (var->idx var) (- var min-var))
+        (define (idx->var idx) (+ idx min-var))
+        (define (label->idx label)
+          (vector-ref k-map (- label min-label)))
 
-    ;; Initialize defv and usev.
-    (let ((defs (dfg-defs dfg))
-          (uses (dfg-uses dfg)))
-      (let lp ((n 0))
-        (when (< n (vector-length defs))
-          (let ((def (vector-ref defs n)))
-            (unless def
-              (error "internal error -- var array not packed"))
-            (for-each (lambda (def)
-                        (vector-push! defv (cfa-k-idx cfa def) n))
-                      (lookup-predecessors def dfg))
-            (for-each (lambda (use)
-                        (vector-push! usev (cfa-k-idx cfa use) n))
-                      (vector-ref uses n))
-            (lp (1+ n))))))
+        ;; Initialize defv and usev.
+        (let ((defs (dfg-defs dfg))
+              (uses (dfg-uses dfg)))
+          (let lp ((n 0))
+            (when (< n (vector-length defs))
+              (let ((def (vector-ref defs n)))
+                (unless def
+                  (error "internal error -- var array not packed"))
+                (for-each (lambda (def)
+                            (vector-push! defv (label->idx def) n))
+                          (lookup-predecessors def dfg))
+                (for-each (lambda (use)
+                            (vector-push! usev (label->idx use) n))
+                          (vector-ref uses n))
+                (lp (1+ n))))))
 
-    ;; Initialize live-in and live-out sets.
-    (let lp ((n 0))
-      (when (< n (vector-length live-out))
-        (vector-set! live-in n (make-bitvector nvars #f))
-        (vector-set! live-out n (make-bitvector nvars #f))
-        (lp (1+ n))))
+        ;; Initialize live-in and live-out sets.
+        (let lp ((n 0))
+          (when (< n (vector-length live-out))
+            (vector-set! live-in n (make-bitvector nvars #f))
+            (vector-set! live-out n (make-bitvector nvars #f))
+            (lp (1+ n))))
 
-    ;; Liveness is a reverse data-flow problem, so we give
-    ;; compute-maximum-fixed-point a reversed graph, swapping in
-    ;; for out, and usev for defv.  Note that since we are using
-    ;; a reverse CFA, cfa-preds are actually successors, and
-    ;; continuation 0 is ktail.
-    (compute-maximum-fixed-point (cfa-preds cfa)
-                                 live-out live-in defv usev #t)
+        ;; Liveness is a reverse data-flow problem, so we give
+        ;; compute-maximum-fixed-point a reversed graph, swapping in for
+        ;; out, usev for defv, and using successors instead of
+        ;; predecessors.  Continuation 0 is ktail.
+        (compute-maximum-fixed-point succs live-out live-in defv usev #t)
 
-    (make-dfa (cfa-min-label cfa) (cfa-k-map cfa) (cfa-order cfa) min-var nvars live-in live-out)))
+        (make-dfa min-label k-map k-order min-var nvars live-in live-out)))))
 
 (define (print-dfa dfa)
   (match dfa
