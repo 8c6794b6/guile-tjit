@@ -288,12 +288,6 @@ BODY for each body continuation in the prompt."
    (find-prompt-bodies dfg min-label label-count)))
 
 (define (analyze-reverse-control-flow fun dfg)
-  (define (compute-label-ranges ktail)
-    ((make-cont-folder #f min-label label-count)
-     (lambda (label cont min-label label-count)
-       (values (min label min-label) (1+ label-count)))
-     fun ktail 0))
-
   (define (compute-reverse-control-flow-order ktail dfg min-label label-count)
     (let ((order (make-vector label-count #f))
           (label-map (make-vector label-count #f))
@@ -366,17 +360,20 @@ BODY for each body continuation in the prompt."
          (vector-push! succs (renumber body) (renumber handler))))
       cfa))
 
-  (match fun
-    (($ $fun src meta free
-        ($ $cont kentry ($ $kentry self ($ $cont ktail tail))))
-     (call-with-values (lambda () (compute-label-ranges ktail))
-       (lambda (min-label label-count)
-         (call-with-values
-             (lambda ()
-               (compute-reverse-control-flow-order ktail dfg
-                                                   min-label label-count))
-           (lambda (order k-map)
-             (build-cfa ktail min-label label-count order k-map))))))))
+  (unless (= (vector-length (dfg-cont-table dfg)) (dfg-label-count dfg))
+    (error "function needs renumbering"))
+
+  (let ((min-label (dfg-min-label dfg))
+        (label-count (dfg-label-count dfg)))
+    (match fun
+      (($ $fun src meta free
+          ($ $cont kentry ($ $kentry self ($ $cont ktail tail))))
+       (call-with-values
+           (lambda ()
+             (compute-reverse-control-flow-order ktail dfg
+                                                 min-label label-count))
+         (lambda (order k-map)
+           (build-cfa ktail min-label label-count order k-map)))))))
 
 ;; Dominator analysis.
 (define-record-type $dominator-analysis
