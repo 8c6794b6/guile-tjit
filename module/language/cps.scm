@@ -508,8 +508,13 @@
    (lambda (label cont max-label max-var)
      (values (max label max-label)
              (match cont
-               (($ $kargs names vars)
-                (fold max max-var vars))
+               (($ $kargs names vars body)
+                (let lp ((body body) (max-var (fold max max-var vars)))
+                  (match body
+                    (($ $letk conts body) (lp body max-var))
+                    (($ $letrec names vars funs body)
+                     (lp body (fold max max-var vars)))
+                    (_ max-var))))
                (($ $kentry self)
                 (max self max-var))
                (_ max-var))))
