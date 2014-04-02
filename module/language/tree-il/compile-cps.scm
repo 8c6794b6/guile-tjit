@@ -75,6 +75,12 @@
 ;;; doesn't work for files auto-compiled for use with `load'.
 ;;;
 (define current-topbox-scope (make-parameter #f))
+(define scope-counter (make-parameter #f))
+
+(define (fresh-scope-id)
+  (let ((scope-id (scope-counter)))
+    (scope-counter (1+ scope-id))
+    scope-id))
 
 (define (toplevel-box src name bound? val-proc)
   (let-fresh (kbox) (name-sym bound?-sym box)
@@ -88,10 +94,10 @@
                 ($continue kbox src
                   ($primcall 'resolve
                              (name-sym bound?-sym)))))
-             (scope
+             (scope-id
               (let-fresh () (scope-sym)
                 (build-cps-term
-                  ($letconst (('scope scope-sym scope))
+                  ($letconst (('scope scope-sym scope-id))
                     ($continue kbox src
                       ($primcall 'cached-toplevel-box
                                  (scope-sym name-sym bound?-sym)))))))))))))
@@ -108,10 +114,10 @@
             ($primcall 'cached-module-box
                        (module-sym name-sym public?-sym bound?-sym))))))))
 
-(define (capture-toplevel-scope src scope k)
+(define (capture-toplevel-scope src scope-id k)
   (let-fresh (kmodule) (module scope-sym)
     (build-cps-term
-      ($letconst (('scope scope-sym scope))
+      ($letconst (('scope scope-sym scope-id))
         ($letk ((kmodule ($kargs ('module) (module)
                            ($continue k src
                              ($primcall 'cache-current-module!
@@ -294,12 +300,14 @@
                  ($fun fun-src meta '()
                        (kentry ($kentry self (ktail ($ktail))
                                  ,(convert-clauses body ktail)))))))
-           (let-fresh (kscope) (scope)
-             (build-cps-term
-               ($letk ((kscope ($kargs () ()
-                                 ,(parameterize ((current-topbox-scope scope))
-                                    (convert exp k subst)))))
-                 ,(capture-toplevel-scope fun-src scope kscope)))))))
+           (let ((scope-id (fresh-scope-id)))
+             (let-fresh (kscope) ()
+               (build-cps-term
+                 ($letk ((kscope
+                          ($kargs () ()
+                            ,(parameterize ((current-topbox-scope scope-id))
+                               (convert exp k subst)))))
+                   ,(capture-toplevel-scope fun-src scope-id kscope))))))))
 
     (($ <module-ref> src mod name public?)
      (module-box
@@ -517,12 +525,14 @@
                                 fun)))
                            funs)
                       ,(convert body k subst))))
-         (let-fresh (kscope) (scope)
-           (build-cps-term
-             ($letk ((kscope ($kargs () ()
-                               ,(parameterize ((current-topbox-scope scope))
-                                  (convert exp k subst)))))
-               ,(capture-toplevel-scope src scope kscope))))))
+         (let ((scope-id (fresh-scope-id)))
+           (let-fresh (kscope) ()
+             (build-cps-term
+               ($letk ((kscope
+                        ($kargs () ()
+                          ,(parameterize ((current-topbox-scope scope-id))
+                             (convert exp k subst)))))
+                 ,(capture-toplevel-scope src scope-id kscope)))))))
 
     (($ <let-values> src exp
         ($ <lambda-case> lsrc req #f rest #f () syms body #f))
@@ -589,7 +599,8 @@ integer."
 
 (define (cps-convert/thunk exp)
   (parameterize ((label-counter 0)
-                 (var-counter 0))
+                 (var-counter 0)
+                 (scope-counter 0))
     (let ((src (tree-il-src exp)))
       (let-fresh (kinit ktail kclause kbody) (init)
         (build-cps-exp
