@@ -28,13 +28,17 @@
   #:export (prune-top-level-scopes))
 
 (define (compute-referenced-scopes fun)
-  (let ((refs (make-hash-table)))
+  (let ((scope-name->used? (make-hash-table))
+        (scope-var->used? (make-hash-table))
+        (k->scope-var (make-hash-table)))
+    ;; Visit uses before defs.  That way we know when visiting defs
+    ;; whether the scope is used or not.
     (define (visit-cont cont)
       (match cont
-        (($ $cont k ($ $kargs (name) (sym) body))
+        (($ $cont k ($ $kargs (name) (var) body))
          (visit-term body)
-         (when (hashq-get-handle refs sym)
-           (hashq-set! refs k sym)))
+         (when (hashq-get-handle scope-var->used? var)
+           (hashq-set! k->scope-var k var)))
         (($ $cont k ($ $kargs names syms body))
          (visit-term body))
         (($ $cont k ($ $kentry self tail clause))
@@ -56,25 +60,25 @@
          (match exp
            (($ $fun) (visit-fun exp))
            (($ $primcall 'cached-toplevel-box (scope name bound?))
-            (hashq-set! refs scope #t))
+            (hashq-set! scope-var->used? scope #t))
            (($ $primcall 'cache-current-module! (module scope))
-            (hashq-set! refs scope #f))
+            (hashq-set! scope-var->used? scope #f))
            (($ $const val)
             ;; If there is an entry in the table for "k", it means "val"
             ;; is a scope symbol, bound for use by cached-toplevel-box
             ;; or cache-current-module!, or possibly both (though this
             ;; is not currently the case).
-            (and=> (hashq-ref refs k)
-                   (lambda (sym)
-                     (when (hashq-ref refs sym)
+            (and=> (hashq-ref k->scope-var k)
+                   (lambda (scope-var)
+                     (when (hashq-ref scope-var->used? scope-var)
                        ;; We have a use via cached-toplevel-box.  Mark
                        ;; this scope as used.
-                       (hashq-set! refs val #t))
-                     (when (and (hashq-ref refs val)
-                                (not (hashq-ref refs sym)))
+                       (hashq-set! scope-name->used? val #t))
+                     (when (and (hashq-ref scope-name->used? val)
+                                (not (hashq-ref scope-var->used? scope-var)))
                        ;; There is a use, and this sym is used by
                        ;; cache-current-module!.
-                       (hashq-set! refs sym #t)))))
+                       (hashq-set! scope-var->used? scope-var #t)))))
            (_ #t)))))
     (define (visit-fun fun)
       (match fun
@@ -82,10 +86,10 @@
          (visit-cont body))))
 
     (visit-fun fun)
-    refs))
+    scope-var->used?))
 
 (define (prune-top-level-scopes fun)
-  (let ((referenced-scopes (compute-referenced-scopes fun)))
+  (let ((scope-var->used? (compute-referenced-scopes fun)))
     (define (visit-cont cont)
       (rewrite-cps-cont cont
         (($ $cont sym ($ $kargs names syms body))
@@ -106,7 +110,7 @@
         (($ $continue k src
             (and ($ $primcall 'cache-current-module! (module scope))
                  (? (lambda _
-                      (not (hashq-ref referenced-scopes scope))))))
+                      (not (hashq-ref scope-var->used? scope))))))
          ($continue k src ($primcall 'values ())))
         (($ $continue)
          ,term)))
