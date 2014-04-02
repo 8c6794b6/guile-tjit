@@ -646,10 +646,13 @@ body continuation in the prompt."
 
 ;; Data-flow analysis.
 (define-record-type $dfa
-  (make-dfa cfa min-var var-count in out)
+  (make-dfa min-label k-map k-order min-var var-count in out)
   dfa?
-  ;; CFA, for its reverse-post-order numbering
-  (cfa dfa-cfa)
+  ;; CFA, for its label sort order
+  (min-label dfa-min-label)
+  (k-map dfa-k-map)
+  (k-order dfa-k-order)
+
   ;; Minimum var in this function.
   (min-var dfa-min-var)
   ;; Minimum var in this function.
@@ -660,13 +663,13 @@ body continuation in the prompt."
   (out dfa-out))
 
 (define (dfa-k-idx dfa k)
-  (cfa-k-idx (dfa-cfa dfa) k))
+  (vector-ref (dfa-k-map dfa) (- k (dfa-min-label dfa))))
 
 (define (dfa-k-sym dfa idx)
-  (cfa-k-sym (dfa-cfa dfa) idx))
+  (vector-ref (dfa-k-order dfa) idx))
 
 (define (dfa-k-count dfa)
-  (cfa-k-count (dfa-cfa dfa)))
+  (vector-length (dfa-k-map dfa)))
 
 (define (dfa-var-idx dfa var)
   (let ((idx (- var (dfa-min-var dfa))))
@@ -730,11 +733,11 @@ body continuation in the prompt."
     (compute-maximum-fixed-point (cfa-preds cfa)
                                  live-out live-in defv usev #t)
 
-    (make-dfa cfa min-var nvars live-in live-out)))
+    (make-dfa (cfa-min-label cfa) (cfa-k-map cfa) (cfa-order cfa) min-var nvars live-in live-out)))
 
 (define (print-dfa dfa)
   (match dfa
-    (($ $dfa cfa min-var in out)
+    (($ $dfa min-label k-map k-order min-var var-count in out)
      (define (print-var-set bv)
        (let lp ((n 0))
          (let ((n (bit-position #t bv n)))
@@ -742,8 +745,8 @@ body continuation in the prompt."
              (format #t " ~A" (+ n min-var))
              (lp (1+ n))))))
      (let lp ((n 0))
-       (when (< n (cfa-k-count cfa))
-         (format #t "~A:\n" (cfa-k-sym cfa n))
+       (when (< n (vector-length k-order))
+         (format #t "~A:\n" (vector-ref k-order n))
          (format #t "  in:")
          (print-var-set (vector-ref in n))
          (newline)
