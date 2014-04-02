@@ -65,10 +65,6 @@
             control-point?
             lookup-bound-syms
 
-            ;; Control flow analysis.
-            analyze-control-flow
-            cfa-k-idx cfa-k-count cfa-k-sym cfa-predecessors
-
             ;; Data flow analysis.
             compute-live-variables
             dfa-k-idx dfa-k-sym dfa-k-count dfa-k-in dfa-k-out
@@ -126,62 +122,21 @@
   (min-var dfg-min-var)
   (var-count dfg-var-count))
 
-;; Some analyses assume that the only relevant set of nodes is the set
-;; that is reachable from some start node.  Others need to include nodes
-;; that are reachable from an end node as well, or all nodes in a
-;; function.  In that case pass an appropriate implementation of
-;; fold-all-conts, as analyze-control-flow does.
-(define (reverse-post-order k0 get-successors fold-all-conts)
-  (let ((order '())
-        (visited? (make-hash-table)))
-    (let visit ((k k0))
-      (hashq-set! visited? k #t)
-      (for-each (lambda (k)
-                  (unless (hashq-ref visited? k)
-                    (visit k)))
-                (get-successors k))
-      (set! order (cons k order)))
-    (list->vector (fold-all-conts
-                   (lambda (k seed)
-                     (if (hashq-ref visited? k)
-                         seed
-                         (begin
-                           (hashq-set! visited? k #t)
-                           (cons k seed))))
-                   order))))
-
-(define (make-block-mapping order)
-  (let ((mapping (make-hash-table)))
-    (let lp ((n 0))
-      (when (< n (vector-length order))
-        (hashq-set! mapping (vector-ref order n) n)
-        (lp (1+ n))))
-    mapping))
-
-(define (convert-predecessors order get-predecessors)
-  (let ((preds-vec (make-vector (vector-length order) #f)))
-    (let lp ((n 0))
-      (when (< n (vector-length order))
-        (vector-set! preds-vec n (get-predecessors (vector-ref order n)))
-        (lp (1+ n))))
-    preds-vec))
-
 ;; Control-flow analysis.
 (define-record-type $cfa
-  (make-cfa k-map order preds)
+  (make-cfa min-label k-map order preds)
   cfa?
-  ;; Hash table mapping k-sym -> k-idx
+  ;; Minumum label.
+  (min-label cfa-min-label)
+  ;; Vector of (k - min-label) -> k-idx
   (k-map cfa-k-map)
   ;; Vector of k-idx -> k-sym, in reverse post order
   (order cfa-order)
   ;; Vector of k-idx -> list of k-idx
   (preds cfa-preds))
 
-(define* (cfa-k-idx cfa k
-                    #:key (default (lambda (k)
-                                     (error "unknown k" k))))
-  (or (hashq-ref (cfa-k-map cfa) k)
-      (default k)))
+(define (cfa-k-idx cfa k)
+  (vector-ref (cfa-k-map cfa) (- k (cfa-min-label cfa))))
 
 (define (cfa-k-count cfa)
   (vector-length (cfa-order cfa)))
@@ -196,92 +151,90 @@
   (let ((v vec) (i idx))
     (vector-set! v i (cons val (vector-ref v i)))))
 
-(define (compute-reachable cfa dfg)
+(define (compute-reachable dfg min-label label-count)
   "Given the forward control-flow analysis in CFA, compute and return
 the continuations that may be reached if flow reaches a continuation N.
 Returns a vector of bitvectors.  The given CFA should be a forward CFA,
 for quickest convergence."
-  (let* ((k-count (cfa-k-count cfa))
-         ;; Vector of bitvectors, indicating that continuation N can
-         ;; reach a set M...
-         (reachable (make-vector k-count #f))
-         ;; Vector of lists, indicating that continuation N can directly
-         ;; reach continuations M...
-         (succs (make-vector k-count '())))
+  (let (;; Vector of bitvectors, indicating that continuation N can
+        ;; reach a set M...
+        (reachable (make-vector label-count #f)))
+
+    (define (label->idx label) (- label min-label))
 
     ;; All continuations are reachable from themselves.
     (let lp ((n 0))
-      (when (< n k-count)
-        (let ((bv (make-bitvector k-count #f)))
+      (when (< n label-count)
+        (let ((bv (make-bitvector label-count #f)))
           (bitvector-set! bv n #t)
           (vector-set! reachable n bv)
           (lp (1+ n)))))
 
-    ;; Initialize successor lists.
-    (let lp ((n 0))
-      (when (< n k-count)
-        (for-each (lambda (succ)
-                    (vector-push! succs n (cfa-k-idx cfa succ)))
-                  (lookup-successors (cfa-k-sym cfa n) dfg))
-        (lp (1+ n))))
-
     ;; Iterate cfa backwards, to converge quickly.
-    (let ((tmp (make-bitvector k-count #f)))
-      (let lp ((n k-count) (changed? #f))
+    (let ((tmp (make-bitvector label-count #f)))
+      (define (add-reachable! succ)
+        (bit-set*! tmp (vector-ref reachable (label->idx succ)) #t))
+      (let lp ((label (+ min-label label-count)) (changed? #f))
         (cond
-         ((zero? n)
+         ((= label min-label)
           (if changed?
-              (lp k-count #f)
+              (lp (+ min-label label-count) #f)
               reachable))
          (else
-          (let ((n (1- n)))
+          (let* ((label (1- label))
+                 (idx (label->idx label)))
             (bitvector-fill! tmp #f)
-            (for-each (lambda (succ)
-                        (bit-set*! tmp (vector-ref reachable succ) #t))
-                      (vector-ref succs n))
-            (bitvector-set! tmp n #t)
-            (bit-set*! tmp (vector-ref reachable n) #f)
+            (visit-cont-successors
+             (case-lambda
+               (() #t)
+               ((succ0) (add-reachable! succ0))
+               ((succ0 succ1) (add-reachable! succ0) (add-reachable! succ1)))
+             (lookup-cont label dfg))
+            (bitvector-set! tmp idx #t)
+            (bit-set*! tmp (vector-ref reachable idx) #f)
             (cond
              ((bit-position #t tmp 0)
-              (bit-set*! (vector-ref reachable n) tmp #t)
-              (lp n #t))
+              (bit-set*! (vector-ref reachable idx) tmp #t)
+              (lp label #t))
              (else
-              (lp n changed?))))))))))
+              (lp label changed?))))))))))
 
-(define (find-prompts cfa dfg)
-  "Find the prompts in CFA, and return them as a list of PROMPT-INDEX,
-HANDLER-INDEX pairs."
-  (let lp ((n 0) (prompts '()))
+(define (find-prompts dfg min-label label-count)
+  "Find the prompts in DFG between MIN-LABEL and MIN-LABEL +
+LABEL-COUNT, and return them as a list of PROMPT-LABEL, HANDLER-LABEL
+pairs."
+  (let lp ((label min-label) (prompts '()))
     (cond
-     ((= n (cfa-k-count cfa))
+     ((= label (+ min-label label-count))
       (reverse prompts))
      (else
-      (match (lookup-cont (cfa-k-sym cfa n) dfg)
+      (match (lookup-cont label dfg)
         (($ $kargs names syms body)
          (match (find-expression body)
            (($ $prompt escape? tag handler)
-            (lp (1+ n) (acons n (cfa-k-idx cfa handler) prompts)))
-           (_ (lp (1+ n) prompts))))
-        (_ (lp (1+ n) prompts)))))))
+            (lp (1+ label) (acons label handler prompts)))
+           (_ (lp (1+ label) prompts))))
+        (_ (lp (1+ label) prompts)))))))
 
-(define (compute-interval cfa dfg reachable start end)
+(define (compute-interval reachable min-label label-count start end)
   "Compute and return the set of continuations that may be reached from
 START, inclusive, but not reached by END, exclusive.  Returns a
 bitvector."
-  (let ((body (make-bitvector (cfa-k-count cfa) #f)))
-    (bit-set*! body (vector-ref reachable start) #t)
-    (bit-set*! body (vector-ref reachable end) #f)
+  (let ((body (make-bitvector label-count #f)))
+    (bit-set*! body (vector-ref reachable (- start min-label)) #t)
+    (bit-set*! body (vector-ref reachable (- end min-label)) #f)
     body))
 
-(define (find-prompt-bodies cfa dfg)
-  "Find all the prompts in CFA, and compute the set of continuations
-that is reachable from the prompt bodies but not from the corresponding
-handler.  Returns a list of PROMPT, HANDLER, BODY lists, where the BODY
-is a bitvector."
-  (match (find-prompts cfa dfg)
+(define (find-prompt-bodies dfg min-label label-count)
+  "Find all the prompts in DFG from the LABEL-COUNT continuations
+starting at MIN-LABEL, and compute the set of continuations that is
+reachable from the prompt bodies but not from the corresponding handler.
+Returns a list of PROMPT, HANDLER, BODY lists, where the BODY is a
+bitvector."
+  (match (find-prompts dfg min-label label-count)
     (() '())
     (((prompt . handler) ...)
-     (let ((reachable (compute-reachable cfa dfg)))
+     (let ((reachable (compute-reachable dfg min-label label-count)))
        (map (lambda (prompt handler)
               ;; FIXME: It isn't correct to use all continuations
               ;; reachable from the prompt, because that includes
@@ -291,18 +244,21 @@ is a bitvector."
               ;;
               ;; One counter-example is when the handler contifies an
               ;; infinite loop; in that case we compute a too-large
-              ;; prompt body.  This error is currently innocuous, but
-              ;; we should fix it at some point.
+              ;; prompt body.  This error is currently innocuous, but we
+              ;; should fix it at some point.
               ;;
               ;; The fix is to end the body at the corresponding "pop"
               ;; primcall, if any.
-              (let ((body (compute-interval cfa dfg reachable prompt handler)))
+              (let ((body (compute-interval reachable min-label label-count
+                                            prompt handler)))
                 (list prompt handler body)))
             prompt handler)))))
 
-(define* (visit-prompt-control-flow cfa dfg f #:key complete?)
+(define* (visit-prompt-control-flow dfg min-label label-count f #:key complete?)
   "For all prompts in CFA, invoke F with arguments PROMPT, HANDLER, and
 BODY for each body continuation in the prompt."
+  (define (label->idx label) (- label min-label))
+  (define (idx->label idx) (+ idx min-label))
   (for-each
    (match-lambda
     ((prompt handler body)
@@ -319,77 +275,108 @@ BODY for each body continuation in the prompt."
        ;; not continue to the pop if it never terminates.  The pop could
        ;; even be removed by DCE, in that case.
        (or-map (lambda (succ)
-                 (let ((succ (cfa-k-idx cfa succ)))
+                 (let ((succ (label->idx succ)))
                    (or (not (bitvector-ref body succ))
                        (<= succ n))))
-               (lookup-successors (cfa-k-sym cfa n) dfg)))
+               (lookup-successors (idx->label n) dfg)))
      (let lp ((n 0))
        (let ((n (bit-position #t body n)))
          (when n
            (when (or complete? (out-or-back-edge? n))
-             (f prompt handler n))
+             (f prompt handler (idx->label n)))
            (lp (1+ n)))))))
-   (find-prompt-bodies cfa dfg)))
+   (find-prompt-bodies dfg min-label label-count)))
 
-(define* (analyze-control-flow fun dfg #:key reverse? add-handler-preds?)
-  (define (build-cfa kentry lookup-succs lookup-preds forward-cfa)
-    (define (reachable-preds mapping)
-      ;; It's possible for a predecessor to not be in the mapping, if
-      ;; the predecessor is not reachable from the entry node.
-      (lambda (k)
-        (filter-map (cut hashq-ref mapping <>) (lookup-preds k dfg))))
-    (let* ((order (reverse-post-order
-                   kentry
-                   (lambda (k)
-                     ;; RPO numbering is going to visit this list of
-                     ;; successors in the order that we give it.  Sort
-                     ;; it so that all things being equal, we preserve
-                     ;; the existing numbering order.  This also has the
-                     ;; effect of preserving clause order.
-                     (let ((succs (lookup-succs k dfg)))
-                       (if (or (null? succs) (null? (cdr succs)))
-                           succs
-                           (sort succs >))))
-                   (if forward-cfa
-                       (lambda (f seed)
-                         (let lp ((n (cfa-k-count forward-cfa)) (seed seed))
-                           (if (zero? n)
-                               seed
-                               (lp (1- n)
-                                   (f (cfa-k-sym forward-cfa (1- n)) seed)))))
-                       (lambda (f seed) seed))))
-           (k-map (make-block-mapping order))
-           (preds (convert-predecessors order (reachable-preds k-map)))
-           (cfa (make-cfa k-map order preds)))
-      (when add-handler-preds?
-        ;; Any expression in the prompt body could cause an abort to the
-        ;; handler.  This code adds links from every block in the prompt
-        ;; body to the handler.  This causes all values used by the
-        ;; handler to be seen as live in the prompt body, as indeed they
-        ;; are.
-        (let ((forward-cfa (or forward-cfa cfa)))
-          (visit-prompt-control-flow
-           forward-cfa dfg
-           (lambda (prompt handler body)
-             (define (renumber n)
-               (if (eq? forward-cfa cfa)
-                   n
-                   (cfa-k-idx cfa (cfa-k-sym forward-cfa n))))
-             (let ((handler (renumber handler))
-                   (body (renumber body)))
-               (if reverse?
-                   (vector-push! preds body handler)
-                   (vector-push! preds handler body)))))))
+(define (analyze-reverse-control-flow fun dfg)
+  (define (compute-label-ranges ktail)
+    ((make-cont-folder #f min-label label-count)
+     (lambda (label cont min-label label-count)
+       (values (min label min-label) (1+ label-count)))
+     fun ktail 0))
+
+  (define (compute-reverse-control-flow-order ktail dfg min-label label-count)
+    (let ((order (make-vector label-count #f))
+          (label-map (make-vector label-count #f))
+          (next -1))
+      (define (label->idx label) (- label min-label))
+      (define (idx->label idx) (+ idx min-label))
+
+      (let visit ((k ktail))
+        ;; Mark this label as visited.
+        (vector-set! label-map (label->idx k) #t)
+        (for-each (lambda (k)
+                    ;; Visit predecessors unless they are already visited.
+                    (unless (vector-ref label-map (label->idx k))
+                      (visit k)))
+                  (lookup-predecessors k dfg))
+        ;; Add to reverse post-order chain.
+        (vector-set! label-map (label->idx k) next)
+        (set! next k))
+
+      (let lp ((n 0) (head next))
+        (if (< head 0)
+            ;; Add nodes that are not reachable from the tail.
+            (let lp ((n n) (m label-count))
+              (unless (= n label-count)
+                (let find-unvisited ((m (1- m)))
+                  (if (vector-ref label-map m)
+                      (find-unvisited (1- m))
+                      (begin
+                        (vector-set! label-map m n)
+                        (lp (1+ n) m))))))
+            ;; Pop the head off the chain, give it its
+            ;; reverse-post-order numbering, and continue.
+            (let ((next (vector-ref label-map (label->idx head))))
+              (vector-set! label-map (label->idx head) n)
+              (lp (1+ n) next))))
+
+      (let lp ((n 0))
+        (when (< n label-count)
+          (vector-set! order (vector-ref label-map n) (idx->label n))
+          (lp (1+ n))))
+
+      (values order label-map)))
+
+  (define (convert-successors k-map min-label)
+    (define (idx->label idx) (+ idx min-label))
+    (define (renumber label)
+      (vector-ref k-map (- label min-label)))
+    (let ((succs (make-vector (vector-length k-map) #f)))
+      (let lp ((n 0))
+        (when (< n (vector-length succs))
+          (vector-set! succs (vector-ref k-map n)
+                       (map renumber
+                            (lookup-successors (idx->label n) dfg)))
+          (lp (1+ n))))
+      succs))
+
+  (define (build-cfa ktail min-label label-count order k-map)
+    (let* ((succs (convert-successors k-map min-label))
+           (cfa (make-cfa min-label k-map order succs)))
+      ;; Any expression in the prompt body could cause an abort to the
+      ;; handler.  This code adds links from every block in the prompt
+      ;; body to the handler.  This causes all values used by the
+      ;; handler to be seen as live in the prompt body, as indeed they
+      ;; are.
+      (visit-prompt-control-flow
+       dfg min-label label-count
+       (lambda (prompt handler body)
+         (define (renumber label)
+           (vector-ref k-map (- label min-label)))
+         (vector-push! succs (renumber body) (renumber handler))))
       cfa))
+
   (match fun
     (($ $fun src meta free
-        ($ $cont kentry
-           (and entry ($ $kentry self ($ $cont ktail tail)))))
-     (if reverse?
-         (build-cfa ktail lookup-predecessors lookup-successors
-                    (analyze-control-flow fun dfg #:reverse? #f
-                                          #:add-handler-preds? #f))
-         (build-cfa kentry lookup-successors lookup-predecessors #f)))))
+        ($ $cont kentry ($ $kentry self ($ $cont ktail tail))))
+     (call-with-values (lambda () (compute-label-ranges ktail))
+       (lambda (min-label label-count)
+         (call-with-values
+             (lambda ()
+               (compute-reverse-control-flow-order ktail dfg
+                                                   min-label label-count))
+           (lambda (order k-map)
+             (build-cfa ktail min-label label-count order k-map))))))))
 
 ;; Dominator analysis.
 (define-record-type $dominator-analysis
@@ -704,8 +691,7 @@ BODY for each body continuation in the prompt."
     (error "function needs renumbering"))
   (let* ((min-var (dfg-min-var dfg))
          (nvars (dfg-var-count dfg))
-         (cfa (analyze-control-flow fun dfg #:reverse? #t
-                                    #:add-handler-preds? #t))
+         (cfa (analyze-reverse-control-flow fun dfg))
          (usev (make-vector (cfa-k-count cfa) '()))
          (defv (make-vector (cfa-k-count cfa) '()))
          (live-in (make-vector (cfa-k-count cfa) #f))
