@@ -49,6 +49,7 @@
             dfg-label-count
             dfg-min-var
             dfg-var-count
+            with-fresh-name-state-from-dfg
             lookup-def
             lookup-uses
             lookup-predecessors
@@ -102,7 +103,8 @@
 ;; Data-flow graph for CPS: both for values and continuations.
 (define-record-type $dfg
   (make-dfg conts preds defs uses scopes scope-levels
-            min-label label-count min-var var-count)
+            min-label max-label label-count
+            min-var max-var var-count)
   dfg?
   ;; vector of label -> $kif, $kargs, etc
   (conts dfg-cont-table)
@@ -118,8 +120,11 @@
   (scope-levels dfg-scope-levels)
 
   (min-label dfg-min-label)
+  (max-label dfg-max-label)
   (label-count dfg-label-count)
+
   (min-var dfg-min-var)
+  (max-var dfg-max-var)
   (var-count dfg-var-count))
 
 (define-inlinable (vector-push! vec idx val)
@@ -905,7 +910,13 @@ body continuation in the prompt."
         (visit-fun fun conts preds defs uses scopes scope-levels
                    min-label min-var global?)
         (make-dfg conts preds defs uses scopes scope-levels
-                  min-label label-count min-var var-count)))))
+                  min-label max-label label-count
+                  min-var max-var var-count)))))
+
+(define-syntax-rule (with-fresh-name-state-from-dfg dfg body ...)
+  (parameterize ((label-counter (1+ (dfg-max-label dfg)))
+                 (var-counter (1+ (dfg-max-var dfg))))
+    body ...))
 
 (define (lookup-cont label dfg)
   (let ((res (vector-ref (dfg-cont-table dfg) (- label (dfg-min-label dfg)))))

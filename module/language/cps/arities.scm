@@ -190,5 +190,6 @@
      ($fun src meta free ,(fix-clause-arities body dfg)))))
 
 (define (fix-arities fun)
-  (with-fresh-name-state fun
-    (fix-arities* fun (compute-dfg fun))))
+  (let ((dfg (compute-dfg fun)))
+    (with-fresh-name-state-from-dfg dfg
+      (fix-arities* fun dfg))))

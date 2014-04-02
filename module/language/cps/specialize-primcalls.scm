@@ -31,8 +31,8 @@
   #:export (specialize-primcalls))
 
 (define (specialize-primcalls fun)
-  (with-fresh-name-state fun
-    (let ((dfg (compute-dfg fun #:global? #t)))
+  (let ((dfg (compute-dfg fun #:global? #t)))
+    (with-fresh-name-state-from-dfg dfg
       (define (immediate-u8? sym)
         (call-with-values (lambda () (find-constant-value sym dfg))
           (lambda (has-const? val)

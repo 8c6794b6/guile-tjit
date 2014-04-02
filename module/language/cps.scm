@@ -215,15 +215,12 @@
     body ...))
 
 (define-syntax-rule (with-fresh-name-state fun body ...)
-  (begin
-    (when (or (label-counter) (var-counter))
-      (error "with-fresh-name-state should not be called recursively"))
-    (call-with-values (lambda ()
-                        (compute-max-label-and-var fun))
-      (lambda (max-label max-var)
-        (parameterize ((label-counter (1+ max-label))
-                       (var-counter (1+ max-var)))
-          body ...)))))
+  (call-with-values (lambda ()
+                      (compute-max-label-and-var fun))
+    (lambda (max-label max-var)
+      (parameterize ((label-counter (1+ max-label))
+                     (var-counter (1+ max-var)))
+        body ...))))
 
 (define-syntax build-arity
   (syntax-rules (unquote)
