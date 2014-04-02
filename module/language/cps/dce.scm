@@ -43,11 +43,10 @@
   #:export (eliminate-dead-code))
 
 (define-record-type $fun-data
-  (make-fun-data min-label effects conts live-conts defs)
+  (make-fun-data min-label effects live-conts defs)
   fun-data?
   (min-label fun-data-min-label)
   (effects fun-data-effects)
-  (conts fun-data-conts)
   (live-conts fun-data-live-conts)
   (defs fun-data-defs))
 
@@ -100,14 +99,14 @@
                      (effects (compute-effects dfg min-label label-count))
                      (live-conts (make-bitvector label-count #f))
                      (defs (compute-defs dfg min-label label-count))
-                     (fun-data (make-fun-data min-label label-count
-                                              effects live-conts defs)))
+                     (fun-data (make-fun-data
+                                min-label effects live-conts defs)))
                 (hashq-set! fun-data-table fun fun-data)
                 (set! changed? #t)
                 fun-data)))))
     (define (visit-fun fun)
       (match (ensure-fun-data fun)
-        (($ $fun-data min-label label-count effects live-conts defs)
+        (($ $fun-data min-label effects live-conts defs)
          (define (visit-grey-exp n)
            (let ((defs (vector-ref defs n)))
              (cond
@@ -118,7 +117,7 @@
               (else
                (or-map value-live? defs)))))
          (define (idx->label idx) (+ idx min-label))
-         (let lp ((n (1- label-count)))
+         (let lp ((n (1- (vector-length effects))))
            (unless (< n 0)
              (let ((cont (lookup-cont (idx->label n) dfg)))
                (match cont
@@ -191,7 +190,7 @@
                 ($continue k #f ($values live)))))))
   (define (visit-fun fun)
     (match (hashq-ref fun-data-table fun)
-      (($ $fun-data min-label label-count effects live-conts defs)
+      (($ $fun-data min-label effects live-conts defs)
        (define (label->idx label) (- label min-label))
        (define (visit-cont cont)
          (match (visit-cont* cont)
