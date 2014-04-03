@@ -70,7 +70,8 @@
             effect-free?
             constant?
             depends-on-effects?
-            causes-effects?))
+            causes-effects?
+            causes-all-effects?))
 
 (define-syntax define-effects
   (lambda (x)
@@ -233,6 +234,8 @@
   (not (zero? (logand (&depends-on x) effects))))
 (define-inlinable (causes-effects? x effects)
   (not (zero? (logand (&causes x) (cause effects)))))
+(define-inlinable (causes-all-effects? x effects)
+  (= (logand (&causes x) (cause effects)) (cause effects)))
 
 (define-inlinable (effects-commute? a b)
   (and (not (causes-effects? a (&depends-on b)))
