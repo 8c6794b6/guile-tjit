@@ -1,6 +1,6 @@
 ;;; Common Subexpression Elimination (CSE) on Tree-IL
 
-;; Copyright (C) 2011, 2012, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -194,7 +194,7 @@
 
   
   (define (hasher n)
-    (lambda (x size) (modulo n size)))
+    (lambda (x size) (hashq n size)))
 
   (define (add-to-db exp effects ctx db)
     (let ((v (vector exp effects ctx))
