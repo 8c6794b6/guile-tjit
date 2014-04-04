@@ -124,6 +124,7 @@ CPS_LANG_SOURCES =						\
   language/cps/compile-bytecode.scm				\
   language/cps/constructors.scm					\
   language/cps/contification.scm				\
+  language/cps/cse.scm						\
   language/cps/dce.scm						\
   language/cps/dfg.scm						\
   language/cps/effects-analysis.scm				\
