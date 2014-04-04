@@ -53,7 +53,8 @@ index corresponds to MIN-LABEL, and so on."
          ;; Vector of bitvectors, indicating that at a continuation N,
          ;; the values from continuations M... are available.
          (avail-in (make-vector label-count #f))
-         (avail-out (make-vector label-count #f)))
+         (avail-out (make-vector label-count #f))
+         (bailouts (make-bitvector label-count #f)))
 
     (define (label->idx label) (- label min-label))
     (define (idx->label idx) (+ idx min-label))
@@ -70,6 +71,9 @@ index corresponds to MIN-LABEL, and so on."
               (out (make-bitvector label-count #f)))
           (vector-set! avail-in n in)
           (vector-set! avail-out n out)
+          #;
+          (bitvector-set! bailouts n
+                          (causes-effects? (vector-ref effects n) &bailout))
           (lp (1+ n)))))
 
     (let ((tmp (make-bitvector label-count #f)))
@@ -147,7 +151,7 @@ index corresponds to MIN-LABEL, and so on."
          (else
           (if (or first? changed?)
               (lp 0 #f #f)
-              avail-in)))))))
+              (values avail-in bailouts))))))))
 
 (define (compute-defs dfg min-label label-count)
   (define (cont-defs k)
@@ -200,7 +204,7 @@ index corresponds to MIN-LABEL, and so on."
              (values min-label label-count min-var var-count)))))
       fun kentry 0 self 0))))
 
-(define (compute-idoms dfg min-label label-count)
+(define (compute-idoms dfg bailouts min-label label-count)
   (define (label->idx label) (- label min-label))
   (define (idx->label idx) (+ idx min-label))
   (let ((idoms (make-vector label-count #f)))
@@ -213,17 +217,22 @@ index corresponds to MIN-LABEL, and so on."
        ((< d0 d1) (common-idom d0 (vector-ref idoms (label->idx d1))))
        (else (common-idom (vector-ref idoms (label->idx d0)) d1))))
     (define (compute-idom preds)
+      (define (has-idom? pred)
+        (and (vector-ref idoms (label->idx pred))
+             (not (bitvector-ref bailouts (label->idx pred)))))
       (match preds
         (() min-label)
         ((pred . preds)
-         (let lp ((idom pred) (preds preds))
-           (match preds
-             (() idom)
-             ((pred . preds)
-              (lp (if (vector-ref idoms (label->idx pred))
-                      (common-idom idom pred)
-                      idom)
-                  preds)))))))
+         (if (has-idom? pred)
+             (let lp ((idom pred) (preds preds))
+               (match preds
+                 (() idom)
+                 ((pred . preds)
+                  (lp (if (has-idom? pred)
+                          (common-idom idom pred)
+                          idom)
+                      preds))))
+             (compute-idom preds)))))
     ;; This is the iterative O(n^2) fixpoint algorithm, originally from
     ;; Allen and Cocke ("Graph-theoretic constructs for program flow
     ;; analysis", 1972).  See the discussion in Cooper, Harvey, and
@@ -232,7 +241,7 @@ index corresponds to MIN-LABEL, and so on."
       (cond
        ((< n label-count)
         (let ((idom (vector-ref idoms n))
-              (idom* (compute-idom (sort (lookup-predecessors (idx->label n) dfg) <))))
+              (idom* (compute-idom (lookup-predecessors (idx->label n) dfg))))
           (cond
            ((eqv? idom idom*)
             (iterate (1+ n) changed?))
@@ -260,89 +269,97 @@ index corresponds to MIN-LABEL, and so on."
     doms))
 
 (define (compute-equivalent-subexpressions fun dfg)
+  (define (compute min-label label-count min-var var-count avail bailouts)
+    (let ((idoms (compute-idoms dfg bailouts min-label label-count))
+          (defs (compute-defs dfg min-label label-count))
+          (var-substs (make-vector var-count #f))
+          (label-substs (make-vector label-count #f))
+          (equiv-set (make-hash-table)))
+      (define (idx->label idx) (+ idx min-label))
+      (define (label->idx label) (- label min-label))
+      (define (idx->var idx) (+ idx min-var))
+      (define (var->idx var) (- var min-var))
+
+      (define (subst-var var)
+        ;; It could be that the var is free in this function; if so, its
+        ;; name will be less than min-var.
+        (let ((idx (var->idx var)))
+          (if (<= 0 idx)
+              (vector-ref var-substs idx)
+              var)))
+
+      (define (compute-exp-key exp)
+        (match exp
+          (($ $void) 'void)
+          (($ $const val) (cons 'const val))
+          (($ $prim name) (cons 'prim name))
+          (($ $fun src meta free body) #f)
+          (($ $call proc args) #f)
+          (($ $callk k proc args) #f)
+          (($ $primcall name args)
+           (cons* 'primcall name (map subst-var args)))
+          (($ $values args) #f)
+          (($ $prompt escape? tag handler) #f)))
+
+      ;; The initial substs vector is the identity map.
+      (let lp ((var min-var))
+        (when (< (var->idx var) var-count)
+          (vector-set! var-substs (var->idx var) var)
+          (lp (1+ var))))
+
+      ;; Traverse the labels in fun in forward order, which will visit
+      ;; dominators first.
+      (let lp ((label min-label))
+        (when (< (label->idx label) label-count)
+          (match (lookup-cont label dfg)
+            (($ $kargs names vars body)
+             (match (find-call body)
+               (($ $continue k src exp)
+                (let* ((exp-key (compute-exp-key exp))
+                       (equiv (hash-ref equiv-set exp-key '()))
+                       (avail (vector-ref avail (label->idx label))))
+                  (let lp ((candidates equiv))
+                    (match candidates
+                      (()
+                       ;; No matching expressions.  Add our expression
+                       ;; to the equivalence set, if appropriate.
+                       (when exp-key
+                         (hash-set! equiv-set exp-key (cons label equiv))))
+                      ((candidate . candidates)
+                       (let ((subst (vector-ref defs (label->idx candidate))))
+                         (cond
+                          ((not (bitvector-ref avail (label->idx candidate)))
+                           ;; This expression isn't available here; try
+                           ;; the next one.
+                           (lp candidates))
+                          (else
+                           ;; Yay, a match.  Mark expression for
+                           ;; replacement with $values.
+                           (vector-set! label-substs (label->idx label) subst)
+                           ;; If we dominate the successor, mark vars
+                           ;; for substitution.
+                           (when (= label (vector-ref idoms (label->idx k)))
+                             (for-each
+                              (lambda (var subst-var)
+                                (vector-set! var-substs (var->idx var) subst-var))
+                              (vector-ref defs (label->idx label))
+                              subst))))))))))))
+            (_ #f))
+          (lp (1+ label))))
+      (values (compute-dom-edges idoms min-label)
+              label-substs min-label var-substs min-var
+              bailouts)))
+
   (call-with-values (lambda () (compute-label-and-var-ranges fun))
     (lambda (min-label label-count min-var var-count)
-      (let ((avail (compute-available-expressions dfg min-label label-count))
-            (idoms (compute-idoms dfg min-label label-count))
-            (defs (compute-defs dfg min-label label-count))
-            (var-substs (make-vector var-count #f))
-            (label-substs (make-vector label-count #f))
-            (equiv-set (make-hash-table)))
-        (define (idx->label idx) (+ idx min-label))
-        (define (label->idx label) (- label min-label))
-        (define (idx->var idx) (+ idx min-var))
-        (define (var->idx var) (- var min-var))
+      (call-with-values
+          (lambda ()
+            (compute-available-expressions dfg min-label label-count))
+        (lambda (avail bailouts)
+          (compute min-label label-count min-var var-count avail bailouts))))))
 
-        (define (subst-var var)
-          ;; It could be that the var is free in this function; if so,
-          ;; its name will be less than min-var.
-          (let ((idx (var->idx var)))
-            (if (<= 0 idx)
-                (vector-ref var-substs idx)
-                var)))
-
-        (define (compute-exp-key exp)
-          (match exp
-            (($ $void) 'void)
-            (($ $const val) (cons 'const val))
-            (($ $prim name) (cons 'prim name))
-            (($ $fun src meta free body) #f)
-            (($ $call proc args) #f)
-            (($ $callk k proc args) #f)
-            (($ $primcall name args)
-             (cons* 'primcall name (map subst-var args)))
-            (($ $values args) #f)
-            (($ $prompt escape? tag handler) #f)))
-
-        ;; The initial substs vector is the identity map.
-        (let lp ((var min-var))
-          (when (< (var->idx var) var-count)
-            (vector-set! var-substs (var->idx var) var)
-            (lp (1+ var))))
-
-        ;; Traverse the labels in fun in forward order, which will visit
-        ;; dominators first.
-        (let lp ((label min-label))
-          (when (< (label->idx label) label-count)
-            (match (lookup-cont label dfg)
-              (($ $kargs names vars body)
-               (match (find-call body)
-                 (($ $continue k src exp)
-                  (let* ((exp-key (compute-exp-key exp))
-                         (equiv (hash-ref equiv-set exp-key '()))
-                         (avail (vector-ref avail (label->idx label))))
-                    (let lp ((candidates equiv))
-                      (match candidates
-                        (()
-                         ;; No matching expressions.  Add our expression
-                         ;; to the equivalence set, if appropriate.
-                         (when exp-key
-                           (hash-set! equiv-set exp-key (cons label equiv))))
-                        ((candidate . candidates)
-                         (let ((subst (vector-ref defs (label->idx candidate))))
-                           (cond
-                            ((not (bitvector-ref avail (label->idx candidate)))
-                             ;; This expression isn't available here; try
-                             ;; the next one.
-                             (lp candidates))
-                            (else
-                             ;; Yay, a match.  Mark expression for
-                             ;; replacement with $values.
-                             (vector-set! label-substs (label->idx label) subst)
-                             ;; If we dominate the successor, mark vars
-                             ;; for substitution.
-                             (when (= label (vector-ref idoms (label->idx k)))
-                               (for-each
-                                (lambda (var subst-var)
-                                  (vector-set! var-substs (var->idx var) subst-var))
-                                (vector-ref defs (label->idx label))
-                                subst))))))))))))
-              (_ #f))
-            (lp (1+ label))))
-        (values (compute-dom-edges idoms min-label)
-                label-substs min-label var-substs min-var)))))
-
-(define (apply-cse fun dfg doms label-substs min-label var-substs min-var)
+(define (apply-cse fun dfg doms label-substs min-label var-substs min-var
+                   bailouts)
   (define (idx->label idx) (+ idx min-label))
   (define (label->idx label) (- label min-label))
   (define (idx->var idx) (+ idx min-var))
@@ -419,9 +436,14 @@ index corresponds to MIN-LABEL, and so on."
        ($letrec names syms (map (lambda (fun) (cse fun dfg)) funs)
                 ,(visit-term body label)))
       (($ $continue k src exp)
-       ,(let ((exp (visit-exp* k exp))
-              (conts (append-map visit-dom-conts
-                                 (vector-ref doms (label->idx label)))))
+       ,(let* ((k (if (bitvector-ref bailouts (label->idx label))
+                      (match fun
+                        (($ $fun src meta free ($ $kentry self ($ $cont ktail)))
+                         ktail))
+                      k))
+               (exp (visit-exp* k exp))
+               (conts (append-map visit-dom-conts
+                                  (vector-ref doms (label->idx label)))))
           (if (null? conts)
               (build-cps-term ($continue k src ,exp))
               (build-cps-term ($letk ,conts ($continue k src ,exp))))))))
@@ -433,8 +455,9 @@ index corresponds to MIN-LABEL, and so on."
 ;; TODO: Bailout branches, truth values, and interprocedural CSE.
 (define (cse fun dfg)
   (call-with-values (lambda () (compute-equivalent-subexpressions fun dfg))
-    (lambda (doms label-substs min-label var-substs min-var)
-      (apply-cse fun dfg doms label-substs min-label var-substs min-var))))
+    (lambda (doms label-substs min-label var-substs min-var bailouts)
+      (apply-cse fun dfg doms label-substs min-label var-substs min-var
+                 bailouts))))
 
 (define (eliminate-common-subexpressions fun)
   (call-with-values (lambda () (renumber fun))
