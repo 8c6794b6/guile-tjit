@@ -47,6 +47,7 @@
             compute-effects
 
             &fluid
+            &fluid-environment
             &prompt
             &definite-bailout
             &possible-bailout
@@ -110,6 +111,9 @@
     ;; Indicates that an expression depends on the value of a fluid
     ;; variable.
     &fluid
+
+    ;; Indicates that an expression depends on the current fluid environment.
+    &fluid-environment
 
     ;; Indicates that an expression depends on the current prompt
     ;; stack.
@@ -194,6 +198,7 @@
     &string
     &bytevector
     &type-check)
+  (define-syntax &fluid-environment (identifier-syntax &fluid))
   (define-syntax &struct-0 (identifier-syntax &struct))
   (define-syntax &struct-1 (identifier-syntax &struct))
   (define-syntax &struct-2 (identifier-syntax &struct))
@@ -272,7 +277,6 @@
   ((pair? arg) &no-effects)
   ((null? arg) &no-effects)
   ((nil? arg ) &no-effects)
-  ((list? arg) &no-effects)
   ((symbol? arg) &no-effects)
   ((variable? arg) &no-effects)
   ((vector? arg) &no-effects)
@@ -285,10 +289,14 @@
 
 ;; Fluids.
 (define-primitive-effects
-  ((fluid-ref f) (logior (cause &type-check) &fluid))
-  ((fluid-set! f v) (logior (cause &type-check) (cause &fluid)))
-  ((push-fluid f v) (logior (cause &type-check) (cause &fluid)))
-  ((pop-fluid) (logior (cause &fluid))))
+  ((fluid-ref f)
+   (logior (cause &type-check) &fluid &fluid-environment))
+  ((fluid-set! f v)
+   (logior (cause &type-check) (cause &fluid) &fluid-environment))
+  ((push-fluid f v)
+   (logior (cause &type-check) (cause &fluid-environment)))
+  ((pop-fluid)
+   (logior (cause &fluid-environment))))
 
 ;; Prompts.
 (define-primitive-effects
@@ -310,6 +318,7 @@
   ((set-cdr! x y) (logior (cause &type-check) (cause &cdr)))
   ((memq x y) (logior (cause &type-check) &car &cdr))
   ((memv x y) (logior (cause &type-check) &car &cdr))
+  ((list? arg) &cdr)
   ((length l) (logior (cause &type-check) &car &cdr)))
 
 ;; Vectors.
@@ -327,12 +336,12 @@
 
 ;; Structs.
 (define-primitive-effects* dfg
-  ((allocate-struct vtable nfields) (logior (cause &type-check)
-                                            (cause &allocation)))
-  ((make-struct vtable ntail . args) (logior (cause &type-check)
-                                             (cause &allocation)))
-  ((make-struct/no-tail vtable . args) (logior (cause &type-check)
-                                               (cause &allocation)))
+  ((allocate-struct vtable nfields)
+   (logior (cause &type-check) (cause &allocation)))
+  ((make-struct vtable ntail . args)
+   (logior (cause &type-check) (cause &allocation)))
+  ((make-struct/no-tail vtable . args)
+   (logior (cause &type-check) (cause &allocation)))
   ((struct-ref s n)
    (logior (cause &type-check)
            (match (lookup-constant-index n dfg)
@@ -439,9 +448,9 @@
 (define-primitive-effects
   ((current-module) &module)
   ((cache-current-module! mod scope) (cause &box))
-  ((resolve name bound?) (logior &box &module (cause &type-check)))
-  ((cached-toplevel-box scope name bound?) (logior &box (cause &type-check)))
-  ((cached-module-box scope name bound?) (logior &box (cause &type-check)))
+  ((resolve name bound?) (logior &module (cause &type-check)))
+  ((cached-toplevel-box scope name bound?) (cause &type-check))
+  ((cached-module-box scope name bound?) (cause &type-check))
   ((define! name val) (logior &module (cause &box))))
 
 (define (primitive-effects dfg name args)
