@@ -88,24 +88,40 @@ index corresponds to MIN-LABEL, and so on."
                  (out (vector-ref avail-out n))
                  (fx (vector-ref effects n)))
             ;; Intersect avail-out from predecessors into "in".
-            (match (lookup-predecessors (idx->label n) dfg)
-              (() #t)
-              (preds
-               (bitvector-fill! in #t)
-               (for-each (lambda (pred)
-                           (let ((pred (label->idx pred)))
-                             ;; Avoid intersecting back-edges and
-                             ;; cross-edges on the first iteration.
-                             (unless (and first? (<= n pred))
-                               (intersect! in (vector-ref avail-out pred)))))
-                         (lookup-predecessors (idx->label n) dfg))))
+            (let lp ((preds (lookup-predecessors (idx->label n) dfg))
+                     (initialized? #f))
+              (match preds
+                (() #t)
+                ((pred . preds)
+                 (let ((pred (label->idx pred)))
+                   (cond
+                    ((or (and first? (<= n pred))
+                         ;; Here it would be nice to avoid intersecting
+                         ;; with predecessors that bail out, which might
+                         ;; allow expressions from the other (if there's
+                         ;; only one) predecessor to propagate past the
+                         ;; join.  However that would require the tree
+                         ;; to be rewritten so that the successor is
+                         ;; correctly scoped, and gets the right
+                         ;; dominator.  Punt for now.
+
+                         ;; (bitvector-ref bailouts pred)
+                         )
+                     ;; Avoid intersecting back-edges and cross-edges on
+                     ;; the first iteration.
+                     (lp preds initialized?))
+                    (else
+                     (if initialized?
+                         (intersect! in (vector-ref avail-out pred))
+                         (bitvector-copy! in (vector-ref avail-out pred)))
+                     (lp preds #t)))))))
             (let ((new-count (bit-count #t in)))
               (unless (= prev-count new-count)
                 ;; Copy "in" to "out".
                 (bitvector-copy! out in)
                 ;; Kill expressions that don't commute.
                 (cond
-                 ((causes-all-effects? fx &all-effects-but-bailout)
+                 ((causes-all-effects? fx &unknown-effects)
                   ;; Fast-path if this expression clobbers the world.
                   (intersect! out always-avail))
                  ((effect-free? (exclude-effects fx &type-check))
@@ -129,7 +145,7 @@ index corresponds to MIN-LABEL, and so on."
                 (bitvector-set! out n #t))
               (lp (1+ n) first? (or changed? (not (= prev-count new-count)))))))
          (else
-          (if changed?
+          (if (or first? changed?)
               (lp 0 #f #f)
               avail-in)))))))
 

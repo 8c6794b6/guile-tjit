@@ -49,8 +49,7 @@
             &fluid
             &fluid-environment
             &prompt
-            &definite-bailout
-            &possible-bailout
+            &bailout
             &allocation
             &car
             &cdr
@@ -64,7 +63,7 @@
 
             &no-effects
             &all-effects
-            &all-effects-but-bailout
+            &unknown-effects
 
             effects-commute?
             exclude-effects
@@ -121,10 +120,7 @@
 
     ;; Indicates that an expression definitely causes a non-local,
     ;; non-resumable exit -- a bailout.  Only used in the "changes" sense.
-    &definite-bailout
-
-    ;; Indicates that an expression may cause a bailout.
-    &possible-bailout
+    &bailout
 
     ;; Indicates that an expression may return a fresh object -- a
     ;; "causes" effect.
@@ -186,8 +182,7 @@
   (define-effects &all-effects
     &fluid
     &prompt
-    &definite-bailout
-    &possible-bailout
+    &bailout
     &allocation
     &car
     &cdr
@@ -209,16 +204,12 @@
 
 (define-syntax &no-effects (identifier-syntax 0))
 
-;; Definite bailout is an oddball effect.  Since it indicates that an
-;; expression definitely causes bailout, it's not in the set of effects
-;; of a call to an unknown procedure.  At the same time, it's also
-;; special in that a definite bailout in a subexpression doesn't always
-;; cause an outer expression to include &definite-bailout in its
-;; effects.  For that reason we have to treat it specially.
+;; An expression with unknown effects can cause any effect, except
+;; &bailout (which indicates certain bailout).
 ;;
-(define-syntax &all-effects-but-bailout
+(define-syntax &unknown-effects
   (identifier-syntax
-   (logand &all-effects (lognot &definite-bailout))))
+   (logand &all-effects (lognot &bailout))))
 
 (define-inlinable (cause effect)
   (ash effect 1))
@@ -257,8 +248,7 @@
   (begin
     (hashq-set! *primitive-effects* 'name
                 (case-lambda* ((dfg . args) effects)
-                              (_ (logior (cause &possible-bailout)
-                                         (cause &definite-bailout)))))
+                              (_ (cause &bailout))))
     ...))
 
 (define-syntax-rule (define-primitive-effects ((name . args) effects) ...)
@@ -304,9 +294,9 @@
 
 ;; Bailout.
 (define-primitive-effects
-  ((error . _) (logior (cause &definite-bailout) (cause &possible-bailout)))
-  ((scm-error . _) (logior (cause &definite-bailout) (cause &possible-bailout)))
-  ((throw . _) (logior (cause &definite-bailout) (cause &possible-bailout))))
+  ((error . _) (logior (cause &bailout)))
+  ((scm-error . _) (logior (cause &bailout)))
+  ((throw . _) (logior (cause &bailout))))
 
 ;; Pairs.
 (define-primitive-effects
@@ -457,7 +447,7 @@
   (let ((proc (hashq-ref *primitive-effects* name)))
     (if proc
         (apply proc dfg args)
-        (logior &all-effects-but-bailout (cause &all-effects-but-bailout)))))
+        (logior &unknown-effects (cause &unknown-effects)))))
 
 (define (expression-effects exp dfg)
   (match exp
@@ -468,7 +458,7 @@
     (($ $prompt)
      (cause &prompt))
     ((or ($ $call) ($ $callk))
-     (logior &all-effects-but-bailout (cause &all-effects-but-bailout)))
+     (logior &unknown-effects (cause &unknown-effects)))
     (($ $primcall name args)
      (primitive-effects dfg name args))))
 
