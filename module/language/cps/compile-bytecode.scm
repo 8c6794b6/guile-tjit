@@ -329,8 +329,6 @@
         (($ $primcall 'vector-set!/immediate (vector index value))
          (emit-vector-set!/immediate asm (slot vector) (constant index)
                                      (slot value)))
-        (($ $primcall 'variable-set! (var val))
-         (emit-box-set! asm (slot var) (slot val)))
         (($ $primcall 'set-car! (pair value))
          (emit-set-car! asm (slot pair) (slot value)))
         (($ $primcall 'set-cdr! (pair value))
