@@ -53,8 +53,7 @@ index corresponds to MIN-LABEL, and so on."
          ;; Vector of bitvectors, indicating that at a continuation N,
          ;; the values from continuations M... are available.
          (avail-in (make-vector label-count #f))
-         (avail-out (make-vector label-count #f))
-         (bailouts (make-bitvector label-count #f)))
+         (avail-out (make-vector label-count #f)))
 
     (define (label->idx label) (- label min-label))
     (define (idx->label idx) (+ idx min-label))
@@ -71,9 +70,6 @@ index corresponds to MIN-LABEL, and so on."
               (out (make-bitvector label-count #f)))
           (vector-set! avail-in n in)
           (vector-set! avail-out n out)
-          #;
-          (bitvector-set! bailouts n
-                          (causes-effects? (vector-ref effects n) &bailout))
           (lp (1+ n)))))
 
     (let ((tmp (make-bitvector label-count #f)))
@@ -99,18 +95,7 @@ index corresponds to MIN-LABEL, and so on."
                 ((pred . preds)
                  (let ((pred (label->idx pred)))
                    (cond
-                    ((or (and first? (<= n pred))
-                         ;; Here it would be nice to avoid intersecting
-                         ;; with predecessors that bail out, which might
-                         ;; allow expressions from the other (if there's
-                         ;; only one) predecessor to propagate past the
-                         ;; join.  However that would require the tree
-                         ;; to be rewritten so that the successor is
-                         ;; correctly scoped, and gets the right
-                         ;; dominator.  Punt for now.
-
-                         ;; (bitvector-ref bailouts pred)
-                         )
+                    ((and first? (<= n pred))
                      ;; Avoid intersecting back-edges and cross-edges on
                      ;; the first iteration.
                      (lp preds initialized?))
@@ -151,7 +136,7 @@ index corresponds to MIN-LABEL, and so on."
          (else
           (if (or first? changed?)
               (lp 0 #f #f)
-              (values avail-in bailouts))))))))
+              avail-in)))))))
 
 (define (compute-defs dfg min-label label-count)
   (define (cont-defs k)
@@ -204,7 +189,7 @@ index corresponds to MIN-LABEL, and so on."
              (values min-label label-count min-var var-count)))))
       fun kentry 0 self 0))))
 
-(define (compute-idoms dfg bailouts min-label label-count)
+(define (compute-idoms dfg min-label label-count)
   (define (label->idx label) (- label min-label))
   (define (idx->label idx) (+ idx min-label))
   (let ((idoms (make-vector label-count #f)))
@@ -218,8 +203,7 @@ index corresponds to MIN-LABEL, and so on."
        (else (common-idom (vector-ref idoms (label->idx d0)) d1))))
     (define (compute-idom preds)
       (define (has-idom? pred)
-        (and (vector-ref idoms (label->idx pred))
-             (not (bitvector-ref bailouts (label->idx pred)))))
+        (vector-ref idoms (label->idx pred)))
       (match preds
         (() min-label)
         ((pred . preds)
@@ -269,8 +253,9 @@ index corresponds to MIN-LABEL, and so on."
     doms))
 
 (define (compute-equivalent-subexpressions fun dfg)
-  (define (compute min-label label-count min-var var-count avail bailouts)
-    (let ((idoms (compute-idoms dfg bailouts min-label label-count))
+  (define (compute min-label label-count min-var var-count)
+    (let ((avail (compute-available-expressions dfg min-label label-count))
+          (idoms (compute-idoms dfg min-label label-count))
           (defs (compute-defs dfg min-label label-count))
           (var-substs (make-vector var-count #f))
           (label-substs (make-vector label-count #f))
@@ -347,19 +332,11 @@ index corresponds to MIN-LABEL, and so on."
             (_ #f))
           (lp (1+ label))))
       (values (compute-dom-edges idoms min-label)
-              label-substs min-label var-substs min-var
-              bailouts)))
+              label-substs min-label var-substs min-var)))
 
-  (call-with-values (lambda () (compute-label-and-var-ranges fun))
-    (lambda (min-label label-count min-var var-count)
-      (call-with-values
-          (lambda ()
-            (compute-available-expressions dfg min-label label-count))
-        (lambda (avail bailouts)
-          (compute min-label label-count min-var var-count avail bailouts))))))
+  (call-with-values (lambda () (compute-label-and-var-ranges fun)) compute))
 
-(define (apply-cse fun dfg doms label-substs min-label var-substs min-var
-                   bailouts)
+(define (apply-cse fun dfg doms label-substs min-label var-substs min-var)
   (define (idx->label idx) (+ idx min-label))
   (define (label->idx label) (- label min-label))
   (define (idx->var idx) (+ idx min-var))
@@ -436,12 +413,7 @@ index corresponds to MIN-LABEL, and so on."
        ($letrec names syms (map (lambda (fun) (cse fun dfg)) funs)
                 ,(visit-term body label)))
       (($ $continue k src exp)
-       ,(let* ((k (if (bitvector-ref bailouts (label->idx label))
-                      (match fun
-                        (($ $fun src meta free ($ $kentry self ($ $cont ktail)))
-                         ktail))
-                      k))
-               (exp (visit-exp* k exp))
+       ,(let* ((exp (visit-exp* k exp))
                (conts (append-map visit-dom-conts
                                   (vector-ref doms (label->idx label)))))
           (if (null? conts)
@@ -452,12 +424,11 @@ index corresponds to MIN-LABEL, and so on."
     (($ $fun src meta free body)
      ($fun src meta (map subst-var free) ,(visit-entry-cont body)))))
 
-;; TODO: Bailout branches, truth values, and interprocedural CSE.
+;; TODO: Truth values, and interprocedural CSE.
 (define (cse fun dfg)
   (call-with-values (lambda () (compute-equivalent-subexpressions fun dfg))
-    (lambda (doms label-substs min-label var-substs min-var bailouts)
-      (apply-cse fun dfg doms label-substs min-label var-substs min-var
-                 bailouts))))
+    (lambda (doms label-substs min-label var-substs min-var)
+      (apply-cse fun dfg doms label-substs min-label var-substs min-var))))
 
 (define (eliminate-common-subexpressions fun)
   (call-with-values (lambda () (renumber fun))
