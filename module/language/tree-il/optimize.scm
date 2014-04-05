@@ -1,6 +1,6 @@
 ;;; Tree-il optimizer
 
-;; Copyright (C) 2009, 2011, 2012, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -35,10 +35,11 @@
                   (lambda (x e) x))
                  (_ peval)))
         (cse (match (memq #:cse? opts)
-               ((#:cse? #f _ ...)
-                ;; Disable CSE.
-                (lambda (x) x))
-               (_ cse))))
+               ((#:cse? #t _ ...)
+                cse)
+               (_
+                ;; Disable Tree-IL CSE by default.
+                (lambda (x) x)))))
     (fix-letrec
      (verify-tree-il
       (cse
