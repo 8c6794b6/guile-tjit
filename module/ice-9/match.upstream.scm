@@ -280,19 +280,14 @@
 ;; clauses.  `g+s' is a list of two elements, the get! and set!
 ;; expressions respectively.
 
-(define (match-error v)
-  #((definite-bailout? . #t))
-  (error 'match "no matching pattern" v))
-
 (define-syntax match-next
   (syntax-rules (=>)
     ;; no more clauses, the match failed
     ((match-next v g+s)
-     ;; Here we call match-error in non-tail context, so that the
-     ;; backtrace can show the source location of the failing match
-     ;; form.
+     ;; Here we call error in non-tail context, so that the backtrace
+     ;; can show the source location of the failing match form.
      (begin
-       (match-error v)
+       (error 'match "no matching pattern" v)
        #f))
     ;; named failure continuation
     ((match-next v g+s (pat (=> failure) . body) . rest)

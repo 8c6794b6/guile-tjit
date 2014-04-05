@@ -1,7 +1,7 @@
 ;;; srfi-9.scm --- define-record-type
 
 ;; Copyright (C) 2001, 2002, 2006, 2009, 2010, 2011, 2012,
-;;   2013 Free Software Foundation, Inc.
+;;   2013, 2014 Free Software Foundation, Inc.
 ;;
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -143,11 +143,11 @@
       (loop (cdr fields) (+ 1 off)))))
   (display ">" p))
 
-(define (throw-bad-struct s who)
-  #((definite-bailout? . #t))
-  (throw 'wrong-type-arg who
-         "Wrong type argument: ~S" (list s)
-         (list s)))
+(define-syntax-rule (throw-bad-struct s who)
+  (let ((s* s))
+    (throw 'wrong-type-arg who
+           "Wrong type argument: ~S" (list s*)
+           (list s*))))
 
 (define (make-copier-id type-name)
   (datum->syntax type-name
