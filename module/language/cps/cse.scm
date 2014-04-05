@@ -132,6 +132,75 @@ index corresponds to MIN-LABEL, and so on."
               (lp 0 #f #f)
               avail-in)))))))
 
+(define (compute-truthy-expressions dfg min-label label-count)
+  "Compute a \"truth map\", indicating which expressions can be shown to
+be true and/or false at each of LABEL-COUNT expressions in DFG, starting
+from MIN-LABEL.  Returns a vector of bitvectors, each bitvector twice as
+long as LABEL-COUNT.  The first half of the bitvector indicates labels
+that may be true, and the second half those that may be false.  It could
+be that both true and false proofs are available."
+  (let ((boolv (make-vector label-count #f)))
+    (define (label->idx label) (- label min-label))
+    (define (idx->label idx) (+ idx min-label))
+    (define (true-idx idx) idx)
+    (define (false-idx idx) (+ idx label-count))
+
+    (let lp ((n 0))
+      (when (< n label-count)
+        (let ((bool (make-bitvector (* label-count 2) #f)))
+          (vector-set! boolv n bool)
+          (lp (1+ n)))))
+
+    (let ((tmp (make-bitvector (* label-count 2) #f)))
+      (define (bitvector-copy! dst src)
+        (bitvector-fill! dst #f)
+        (bit-set*! dst src #t))
+      (define (intersect! dst src)
+        (bitvector-copy! tmp src)
+        (bit-invert! tmp)
+        (bit-set*! dst tmp #f))
+      (let lp ((n 0) (first? #t) (changed? #f))
+        (cond
+         ((< n label-count)
+          (let* ((label (idx->label n))
+                 (bool (vector-ref boolv n))
+                 (prev-count (bit-count #t bool)))
+            ;; Intersect truthiness from all predecessors.
+            (let lp ((preds (lookup-predecessors label dfg))
+                     (initialized? #f))
+              (match preds
+                (() #t)
+                ((pred . preds)
+                 (let ((pidx (label->idx pred)))
+                   (cond
+                    ((and first? (<= n pidx))
+                     ;; Avoid intersecting back-edges and cross-edges on
+                     ;; the first iteration.
+                     (lp preds initialized?))
+                    (else
+                     (if initialized?
+                         (intersect! bool (vector-ref boolv pidx))
+                         (bitvector-copy! bool (vector-ref boolv pidx)))
+                     (match (lookup-predecessors pred dfg)
+                       ((test)
+                        (let ((tidx (label->idx test)))
+                          (match (lookup-cont pred dfg)
+                            (($ $kif kt kf)
+                             (when (eqv? kt label)
+                               (bitvector-set! bool (true-idx tidx) #t))
+                             (when (eqv? kf label)
+                               (bitvector-set! bool (false-idx tidx) #t)))
+                            (_ #t))))
+                       (_ #t))
+                     (lp preds #t)))))))
+            (lp (1+ n) first?
+                (or changed?
+                    (not (= prev-count (bit-count #t bool)))))))
+         (else
+          (if (or first? changed?)
+              (lp 0 #f #f)
+              boolv)))))))
+
 (define (compute-defs dfg min-label label-count)
   (define (cont-defs k)
     (match (lookup-cont k dfg)
@@ -252,7 +321,7 @@ index corresponds to MIN-LABEL, and so on."
           (idoms (compute-idoms dfg min-label label-count))
           (defs (compute-defs dfg min-label label-count))
           (var-substs (make-vector var-count #f))
-          (label-substs (make-vector label-count #f))
+          (equiv-labels (make-vector label-count #f))
           (equiv-set (make-hash-table)))
       (define (idx->label idx) (+ idx min-label))
       (define (label->idx label) (- label min-label))
@@ -313,36 +382,38 @@ index corresponds to MIN-LABEL, and so on."
                        (when exp-key
                          (hash-set! equiv-set exp-key (cons label equiv))))
                       ((candidate . candidates)
-                       (let ((subst (vector-ref defs (label->idx candidate))))
-                         (cond
-                          ((not (bitvector-ref avail (label->idx candidate)))
-                           ;; This expression isn't available here; try
-                           ;; the next one.
-                           (lp candidates))
-                          (else
-                           ;; Yay, a match.  Mark expression for
-                           ;; replacement with $values.
-                           (vector-set! label-substs (label->idx label) subst)
-                           ;; If we dominate the successor, mark vars
-                           ;; for substitution.
-                           (when (= label (vector-ref idoms (label->idx k)))
-                             (for-each/2
-                              (lambda (var subst-var)
-                                (vector-set! var-substs (var->idx var) subst-var))
-                              (vector-ref defs (label->idx label))
-                              subst))))))))))))
+                       (cond
+                        ((not (bitvector-ref avail (label->idx candidate)))
+                         ;; This expression isn't available here; try
+                         ;; the next one.
+                         (lp candidates))
+                        (else
+                         ;; Yay, a match.  Mark expression as equivalent.
+                         (vector-set! equiv-labels (label->idx label)
+                                      candidate)
+                         ;; If we dominate the successor, mark vars
+                         ;; for substitution.
+                         (when (= label (vector-ref idoms (label->idx k)))
+                           (for-each/2
+                            (lambda (var subst-var)
+                              (vector-set! var-substs (var->idx var) subst-var))
+                            (vector-ref defs (label->idx label))
+                            (vector-ref defs (label->idx candidate)))))))))))))
             (_ #f))
           (lp (1+ label))))
       (values (compute-dom-edges idoms min-label)
-              label-substs min-label var-substs min-var)))
+              equiv-labels defs min-label var-substs min-var)))
 
   (call-with-values (lambda () (compute-label-and-var-ranges fun)) compute))
 
-(define (apply-cse fun dfg doms label-substs min-label var-substs min-var)
+(define (apply-cse fun dfg
+                   doms equiv-labels defs min-label var-substs min-var boolv)
   (define (idx->label idx) (+ idx min-label))
   (define (label->idx label) (- label min-label))
   (define (idx->var idx) (+ idx min-var))
   (define (var->idx var) (- var min-var))
+  (define (true-idx idx) idx)
+  (define (false-idx idx) (+ idx (vector-length equiv-labels)))
 
   (define (subst-var var)
     ;; It could be that the var is free in this function; if so,
@@ -385,18 +456,36 @@ index corresponds to MIN-LABEL, and so on."
         (($ $prompt escape? tag handler)
          ($prompt escape? (subst-var tag) handler))))
 
-    (define (visit-exp* k exp)
+    (define (visit-exp* k src exp)
       (match exp
-        ((and fun ($ $fun)) (cse fun dfg))
+        ((and fun ($ $fun))
+         (build-cps-term ($continue k src ,(cse fun dfg))))
         (_
-         (match (lookup-cont k dfg)
-           (($ $kargs names vars)
-            (cond
-             ((vector-ref label-substs (label->idx label))
-              => (lambda (vars)
-                   (build-cps-exp ($values vars))))
-             (else (visit-exp exp))))
-           (_ (visit-exp exp))))))
+         (cond
+          ((vector-ref equiv-labels (label->idx label))
+           => (lambda (equiv)
+                (let* ((eidx (label->idx equiv))
+                       (vars (vector-ref defs eidx)))
+                  (rewrite-cps-term (lookup-cont k dfg)
+                    (($ $kif kt kf)
+                     ,(let* ((bool (vector-ref boolv (label->idx label)))
+                             (t (bitvector-ref bool (true-idx eidx)))
+                             (f (bitvector-ref bool (false-idx eidx))))
+                        (if (eqv? t f)
+                            (build-cps-term
+                              ($continue k src ,(visit-exp exp)))
+                            (build-cps-term
+                              ($continue (if t kt kf) src ($values ()))))))
+                    (($ $kargs)
+                     ($continue k src ($values vars)))
+                    ;; There is no point in adding a case for $ktail, as
+                    ;; only $values, $call, or $callk can continue to
+                    ;; $ktail.
+                    (_
+                     ($continue k src ,(visit-exp exp)))))))
+          (else
+           (build-cps-term
+             ($continue k src ,(visit-exp exp))))))))
 
     (define (visit-dom-conts label)
       (let ((cont (lookup-cont label dfg)))
@@ -415,22 +504,23 @@ index corresponds to MIN-LABEL, and so on."
        ($letrec names syms (map (lambda (fun) (cse fun dfg)) funs)
                 ,(visit-term body label)))
       (($ $continue k src exp)
-       ,(let* ((exp (visit-exp* k exp))
-               (conts (append-map visit-dom-conts
-                                  (vector-ref doms (label->idx label)))))
+       ,(let ((conts (append-map visit-dom-conts
+                                 (vector-ref doms (label->idx label)))))
           (if (null? conts)
-              (build-cps-term ($continue k src ,exp))
-              (build-cps-term ($letk ,conts ($continue k src ,exp))))))))
+              (visit-exp* k src exp)
+              (build-cps-term
+                ($letk ,conts ,(visit-exp* k src exp))))))))
 
   (rewrite-cps-exp fun
     (($ $fun src meta free body)
      ($fun src meta (map subst-var free) ,(visit-entry-cont body)))))
 
-;; TODO: Truth values, and interprocedural CSE.
 (define (cse fun dfg)
   (call-with-values (lambda () (compute-equivalent-subexpressions fun dfg))
-    (lambda (doms label-substs min-label var-substs min-var)
-      (apply-cse fun dfg doms label-substs min-label var-substs min-var))))
+    (lambda (doms equiv-labels defs min-label var-substs min-var)
+      (apply-cse fun dfg doms equiv-labels defs min-label var-substs min-var
+                 (compute-truthy-expressions dfg
+                                             min-label (vector-length doms))))))
 
 (define (eliminate-common-subexpressions fun)
   (call-with-values (lambda () (renumber fun))
