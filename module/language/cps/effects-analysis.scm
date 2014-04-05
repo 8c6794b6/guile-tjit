@@ -440,7 +440,7 @@
   ((cache-current-module! mod scope) (cause &box))
   ((resolve name bound?) (logior &module (cause &type-check)))
   ((cached-toplevel-box scope name bound?) (cause &type-check))
-  ((cached-module-box scope name bound?) (cause &type-check))
+  ((cached-module-box mod name public? bound?) (cause &type-check))
   ((define! name val) (logior &module (cause &box))))
 
 (define (primitive-effects dfg name args)
