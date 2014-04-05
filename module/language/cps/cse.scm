@@ -110,7 +110,7 @@ index corresponds to MIN-LABEL, and so on."
                 (bitvector-copy! out in)
                 ;; Kill expressions that don't commute.
                 (cond
-                 ((causes-all-effects? fx &unknown-effects)
+                 ((causes-all-effects? fx &all-effects)
                   ;; Fast-path if this expression clobbers the world.
                   (intersect! out always-avail))
                  ((effect-free? (exclude-effects fx &type-check))

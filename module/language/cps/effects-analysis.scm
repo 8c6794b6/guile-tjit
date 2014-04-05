@@ -49,7 +49,6 @@
             &fluid
             &fluid-environment
             &prompt
-            &bailout
             &allocation
             &car
             &cdr
@@ -63,7 +62,6 @@
 
             &no-effects
             &all-effects
-            &unknown-effects
 
             effects-commute?
             exclude-effects
@@ -117,10 +115,6 @@
     ;; Indicates that an expression depends on the current prompt
     ;; stack.
     &prompt
-
-    ;; Indicates that an expression definitely causes a non-local,
-    ;; non-resumable exit -- a bailout.  Only used in the "changes" sense.
-    &bailout
 
     ;; Indicates that an expression may return a fresh object -- a
     ;; "causes" effect.
@@ -182,7 +176,6 @@
   (define-effects &all-effects
     &fluid
     &prompt
-    &bailout
     &allocation
     &car
     &cdr
@@ -203,13 +196,6 @@
   (define-syntax &struct-6+ (identifier-syntax &struct))))
 
 (define-syntax &no-effects (identifier-syntax 0))
-
-;; An expression with unknown effects can cause any effect, except
-;; &bailout (which indicates certain bailout).
-;;
-(define-syntax &unknown-effects
-  (identifier-syntax
-   (logand &all-effects (lognot &bailout))))
 
 (define-inlinable (cause effect)
   (ash effect 1))
@@ -248,7 +234,7 @@
   (begin
     (hashq-set! *primitive-effects* 'name
                 (case-lambda* ((dfg . args) effects)
-                              (_ (cause &bailout))))
+                              (_ (logior &all-effects (cause &all-effects)))))
     ...))
 
 (define-syntax-rule (define-primitive-effects ((name . args) effects) ...)
@@ -291,12 +277,6 @@
 ;; Prompts.
 (define-primitive-effects
   ((make-prompt-tag #:optional arg) (cause &allocation)))
-
-;; Bailout.
-(define-primitive-effects
-  ((error . _) (logior (cause &bailout)))
-  ((scm-error . _) (logior (cause &bailout)))
-  ((throw . _) (logior (cause &bailout))))
 
 ;; Pairs.
 (define-primitive-effects
@@ -447,7 +427,7 @@
   (let ((proc (hashq-ref *primitive-effects* name)))
     (if proc
         (apply proc dfg args)
-        (logior &unknown-effects (cause &unknown-effects)))))
+        (logior &all-effects (cause &all-effects)))))
 
 (define (expression-effects exp dfg)
   (match exp
@@ -458,7 +438,7 @@
     (($ $prompt)
      (cause &prompt))
     ((or ($ $call) ($ $callk))
-     (logior &unknown-effects (cause &unknown-effects)))
+     (logior &all-effects (cause &all-effects)))
     (($ $primcall name args)
      (primitive-effects dfg name args))))
 
