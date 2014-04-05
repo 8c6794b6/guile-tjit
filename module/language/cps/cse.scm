@@ -58,12 +58,6 @@ index corresponds to MIN-LABEL, and so on."
     (define (label->idx label) (- label min-label))
     (define (idx->label idx) (+ idx min-label))
 
-    (define (for-each f l)
-      (let lp ((l l))
-        (when (pair? l)
-          (f (car l))
-          (lp (cdr l)))))
-
     (let lp ((n 0))
       (when (< n label-count)
         (let ((in (make-bitvector label-count #f))
@@ -265,6 +259,14 @@ index corresponds to MIN-LABEL, and so on."
       (define (idx->var idx) (+ idx min-var))
       (define (var->idx var) (- var min-var))
 
+      (define (for-each/2 f l1 l2)
+        (unless (= (length l1) (length l2))
+          (error "bad lengths" l1 l2))
+        (let lp ((l1 l1) (l2 l2))
+          (when (pair? l1)
+            (f (car l1) (car l2))
+            (lp (cdr l1) (cdr l2)))))
+
       (define (subst-var var)
         ;; It could be that the var is free in this function; if so, its
         ;; name will be less than min-var.
@@ -324,7 +326,7 @@ index corresponds to MIN-LABEL, and so on."
                            ;; If we dominate the successor, mark vars
                            ;; for substitution.
                            (when (= label (vector-ref idoms (label->idx k)))
-                             (for-each
+                             (for-each/2
                               (lambda (var subst-var)
                                 (vector-set! var-substs (var->idx var) subst-var))
                               (vector-ref defs (label->idx label))
