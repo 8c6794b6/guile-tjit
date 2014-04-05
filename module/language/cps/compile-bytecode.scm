@@ -36,6 +36,7 @@
   #:use-module (language cps dfg)
   #:use-module (language cps elide-values)
   #:use-module (language cps primitives)
+  #:use-module (language cps prune-bailouts)
   #:use-module (language cps prune-top-level-scopes)
   #:use-module (language cps reify-primitives)
   #:use-module (language cps renumber)
@@ -62,7 +63,8 @@
   ;; called.  The last is mainly to eliminate rest parameters that
   ;; aren't used, and thus shouldn't be consed.
 
-  (let* ((exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
+  (let* ((exp (run-pass exp prune-bailouts #:prune-bailouts? #t))
+         (exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
          (exp (run-pass exp prune-top-level-scopes #:prune-top-level-scopes? #t))
          (exp (run-pass exp simplify #:simplify? #t))
          (exp (run-pass exp contify #:contify? #t))
