@@ -22,7 +22,6 @@
   #:use-module (language tree-il)
   #:use-module (language tree-il primitives)
   #:use-module (language tree-il peval)
-  #:use-module (language tree-il cse)
   #:use-module (language tree-il fix-letrec)
   #:use-module (language tree-il debug)
   #:use-module (ice-9 match)
@@ -33,16 +32,8 @@
                  ((#:partial-eval? #f _ ...)
                   ;; Disable partial evaluation.
                   (lambda (x e) x))
-                 (_ peval)))
-        (cse (match (memq #:cse? opts)
-               ((#:cse? #t _ ...)
-                cse)
-               (_
-                ;; Disable Tree-IL CSE by default.
-                (lambda (x) x)))))
+                 (_ peval))))
     (fix-letrec
      (verify-tree-il
-      (cse
-       (verify-tree-il
-        (peval (expand-primitives (resolve-primitives x env))
-               env)))))))
+      (peval (expand-primitives (resolve-primitives x env))
+             env)))))

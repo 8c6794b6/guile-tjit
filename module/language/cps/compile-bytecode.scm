@@ -71,7 +71,7 @@
          (exp (run-pass exp specialize-primcalls #:specialize-primcalls? #t))
          (exp (run-pass exp elide-values #:elide-values? #t))
          (exp (run-pass exp prune-bailouts #:prune-bailouts? #t))
-         (exp (run-pass exp eliminate-common-subexpressions #:cps-cse? #t))
+         (exp (run-pass exp eliminate-common-subexpressions #:cse? #t))
          (exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
          (exp (run-pass exp simplify #:simplify? #t)))
     ;; Passes that are needed:

@@ -47,7 +47,6 @@ ice-9/match.go: ice-9/match.scm ice-9/match.upstream.scm
 SOURCES =					\
   ice-9/boot-9.scm				\
   language/tree-il/peval.scm                    \
-  language/tree-il/cse.scm                      \
   system/vm/elf.scm				\
   ice-9/vlist.scm                               \
   srfi/srfi-1.scm                               \
