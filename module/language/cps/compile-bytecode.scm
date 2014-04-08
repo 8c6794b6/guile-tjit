@@ -81,8 +81,6 @@
     ;;  * Abort contification: turning abort primcalls into continuation
     ;;    calls, and eliding prompts if possible.
     ;;
-    ;;  * Common subexpression elimination.  Desperately needed.
-    ;;
     ;;  * Loop peeling.  Unrolls the first round through a loop if the
     ;;    loop has effects that CSE can work on.  Requires effects
     ;;    analysis.  When run before CSE, loop peeling is the equivalent
