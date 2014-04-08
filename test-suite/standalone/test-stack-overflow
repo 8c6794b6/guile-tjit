@@ -1,4 +1,5 @@
 #!/bin/sh
+guild compile "$0"
 exec guile -q -s "$0" "$@"
 !#
 
