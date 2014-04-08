@@ -40,6 +40,7 @@
   #:use-module (language cps prune-top-level-scopes)
   #:use-module (language cps reify-primitives)
   #:use-module (language cps renumber)
+  #:use-module (language cps self-references)
   #:use-module (language cps simplify)
   #:use-module (language cps slot-allocation)
   #:use-module (language cps specialize-primcalls)
@@ -72,6 +73,7 @@
          (exp (run-pass exp elide-values #:elide-values? #t))
          (exp (run-pass exp prune-bailouts #:prune-bailouts? #t))
          (exp (run-pass exp eliminate-common-subexpressions #:cse? #t))
+         (exp (run-pass exp resolve-self-references #:resolve-self-references? #t))
          (exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
          (exp (run-pass exp simplify #:simplify? #t)))
     ;; Passes that are needed:

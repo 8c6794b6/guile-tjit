@@ -133,6 +133,7 @@ CPS_LANG_SOURCES =						\
   language/cps/prune-top-level-scopes.scm			\
   language/cps/reify-primitives.scm				\
   language/cps/renumber.scm					\
+  language/cps/self-references.scm				\
   language/cps/slot-allocation.scm				\
   language/cps/simplify.scm					\
   language/cps/spec.scm						\
