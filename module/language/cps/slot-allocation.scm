@@ -337,7 +337,7 @@ are comparable with eqv?.  A tmp slot may be used."
       (let lp ((n 0))
         (when (< n (vector-length usev))
           (match (lookup-cont (idx->label n) dfg)
-            (($ $kentry src meta self)
+            (($ $kfun src meta self)
              (vector-set! defv n (list (dfa-var-idx dfa self))))
             (($ $kargs names syms body)
              (vector-set! defv n (map (cut dfa-var-idx dfa <>) syms))
@@ -671,7 +671,7 @@ are comparable with eqv?.  A tmp slot may be used."
                     (error "Unexpected clause order"))))
                (visit-clauses next live))))))
       (match (lookup-cont (idx->label 0) dfg)
-        (($ $kentry src meta self)
+        (($ $kfun src meta self)
          (visit-clauses 1 (allocate-defs! 0 (empty-live-slots))))))
 
     (compute-constants!)

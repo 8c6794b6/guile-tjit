@@ -50,8 +50,8 @@
     (rewrite-cps-cont cont
       (($ $cont label ($ $kargs names vars body))
        (label ($kargs names vars ,(visit-term body ktail))))
-      (($ $cont label ($ $kentry src meta self tail clause))
-       (label ($kentry src meta self ,tail
+      (($ $cont label ($ $kfun src meta self tail clause))
+       (label ($kfun src meta self ,tail
                 ,(and clause (visit-cont clause ktail)))))
       (($ $cont label ($ $kclause arity body alternate))
        (label ($kclause ,arity ,(visit-cont body ktail)
@@ -88,10 +88,10 @@
 
   (rewrite-cps-exp fun
     (($ $fun free
-        ($ $cont kentry
-           ($ $kentry src meta self ($ $cont ktail ($ $ktail)) clause)))
+        ($ $cont kfun
+           ($ $kfun src meta self ($ $cont ktail ($ $ktail)) clause)))
      ($fun free
-           (kentry ($kentry src meta self (ktail ($ktail))
+           (kfun ($kfun src meta self (ktail ($ktail))
                      ,(and clause (visit-cont clause ktail))))))))
 
 (define (prune-bailouts fun)

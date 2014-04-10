@@ -39,7 +39,7 @@
       (match cont
         (($ $cont sym ($ $kargs names syms body))
          (visit-term body sym syms))
-        (($ $cont sym ($ $kentry src meta self tail clause))
+        (($ $cont sym ($ $kfun src meta self tail clause))
          (when clause (visit-cont clause)))
         (($ $cont sym ($ $kclause arity body alternate))
          (visit-cont body)
@@ -89,8 +89,8 @@
       (rewrite-cps-cont cont
         (($ $cont sym ($ $kargs names syms body))
          (sym ($kargs names syms ,(visit-term body sym))))
-        (($ $cont sym ($ $kentry src meta self tail clause))
-         (sym ($kentry src meta self ,tail
+        (($ $cont sym ($ $kfun src meta self tail clause))
+         (sym ($kfun src meta self ,tail
                 ,(and clause (visit-cont clause sym)))))
         (($ $cont sym ($ $kclause arity body alternate))
          (sym ($kclause ,arity ,(visit-cont body sym)
@@ -130,7 +130,7 @@
       (match cont
         (($ $cont sym ($ $kargs names syms body))
          (visit-term body))
-        (($ $cont sym ($ $kentry src meta self tail clause))
+        (($ $cont sym ($ $kfun src meta self tail clause))
          (when clause (visit-cont clause)))
         (($ $cont sym ($ $kclause arity body alternate))
          (visit-cont body)
@@ -186,8 +186,8 @@
               (rewrite-cps-cont cont
                 (($ $kargs names syms body)
                  (sym ($kargs names syms ,(visit-term body))))
-                (($ $kentry src meta self tail clause)
-                 (sym ($kentry src meta self ,tail
+                (($ $kfun src meta self tail clause)
+                 (sym ($kfun src meta self ,tail
                         ,(and clause (must-visit-cont clause)))))
                 (($ $kclause arity body alternate)
                  (sym ($kclause ,arity ,(must-visit-cont body)

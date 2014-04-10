@@ -187,7 +187,7 @@
           (if (scope-contains? k-scope term-k)
               term-k
               (match (lookup-cont k-scope dfg)
-                (($ $kentry src meta self tail clause)
+                (($ $kfun src meta self tail clause)
                  ;; K is the tail of some function.  If that function
                  ;; has just one clause, return that clause.  Otherwise
                  ;; bail.
@@ -225,7 +225,7 @@
       (match cont
         (($ $cont sym ($ $kargs _ _ body))
          (visit-term body sym))
-        (($ $cont sym ($ $kentry src meta self tail clause))
+        (($ $cont sym ($ $kfun src meta self tail clause))
          (when clause (visit-cont clause)))
         (($ $cont sym ($ $kclause arity body alternate))
          (visit-cont body)
@@ -251,9 +251,9 @@
                 (if (null? rec)
                     '()
                     (list rec)))
-               (((and elt (n s ($ $fun free ($ $cont kentry))))
+               (((and elt (n s ($ $fun free ($ $cont kfun))))
                  . nsf)
-                (if (recursive? kentry)
+                (if (recursive? kfun)
                     (lp nsf (cons elt rec))
                     (cons (list elt) (lp nsf rec)))))))
          (define (extract-arities+bodies clauses)
@@ -265,7 +265,7 @@
               (match fun
                 ((($ $fun free
                      ($ $cont fun-k
-                        ($ $kentry src meta self ($ $cont tail-k ($ $ktail))
+                        ($ $kfun src meta self ($ $cont tail-k ($ $ktail))
                            clause)))
                   ...)
                  (call-with-values (lambda () (extract-arities+bodies clause))
@@ -280,7 +280,7 @@
          (match exp
            (($ $fun free
                ($ $cont fun-k
-                  ($ $kentry src meta self ($ $cont tail-k ($ $ktail)) clause)))
+                  ($ $kfun src meta self ($ $cont tail-k ($ $ktail)) clause)))
             (if (and=> (bound-symbol k)
                        (lambda (sym)
                          (contify-fun term-k sym self tail-k
@@ -350,8 +350,8 @@
        ,#f)
       (($ $cont sym ($ $kargs names syms body))
        (sym ($kargs names syms ,(visit-term body sym))))
-      (($ $cont sym ($ $kentry src meta self tail clause))
-       (sym ($kentry src meta self ,tail ,(and clause (visit-cont clause)))))
+      (($ $cont sym ($ $kfun src meta self tail clause))
+       (sym ($kfun src meta self ,tail ,(and clause (visit-cont clause)))))
       (($ $cont sym ($ $kclause arity body alternate))
        (sym ($kclause ,arity ,(visit-cont body)
                       ,(and alternate (visit-cont alternate)))))

@@ -222,14 +222,14 @@ be that both true and false proofs are available."
            (($ $kclause arity ($ $cont kargs ($ $kargs names syms)))
             syms)
            (($ $kif) '())
-           (($ $kentry src meta self) (list self))
+           (($ $kfun src meta self) (list self))
            (($ $ktail) '())))
         (lp (1+ n))))
     defs))
 
 (define (compute-label-and-var-ranges fun)
   (match fun
-    (($ $fun free ($ $cont kentry ($ $kentry src meta self)))
+    (($ $fun free ($ $cont kfun ($ $kfun src meta self)))
      ((make-cont-folder #f min-label label-count min-var var-count)
       (lambda (k cont min-label label-count min-var var-count)
         (let ((min-label (min k min-label))
@@ -246,11 +246,11 @@ be that both true and false proofs are available."
                       (+ var-count (length vars))))
                  (($ $letk conts body) (lp body min-var var-count))
                  (_ (values min-label label-count min-var var-count)))))
-            (($ $kentry src meta self)
+            (($ $kfun src meta self)
              (values min-label label-count (min self min-var) (1+ var-count)))
             (_
              (values min-label label-count min-var var-count)))))
-      fun kentry 0 self 0))))
+      fun kfun 0 self 0))))
 
 (define (compute-idoms dfg min-label label-count)
   (define (label->idx label) (- label min-label))
@@ -423,16 +423,16 @@ be that both true and false proofs are available."
           (vector-ref var-substs idx)
           var)))
 
-  (define (visit-entry-cont cont)
+  (define (visit-fun-cont cont)
     (rewrite-cps-cont cont
       (($ $cont label ($ $kargs names vars body))
        (label ($kargs names vars ,(visit-term body label))))
-      (($ $cont label ($ $kentry src meta self tail clause))
-       (label ($kentry src meta self ,tail
-                ,(and clause (visit-entry-cont clause)))))
+      (($ $cont label ($ $kfun src meta self tail clause))
+       (label ($kfun src meta self ,tail
+                ,(and clause (visit-fun-cont clause)))))
       (($ $cont label ($ $kclause arity ($ $cont kbody body) alternate))
        (label ($kclause ,arity ,(visit-cont kbody body)
-                        ,(and alternate (visit-entry-cont alternate)))))))
+                        ,(and alternate (visit-fun-cont alternate)))))))
 
   (define (visit-cont label cont)
     (rewrite-cps-cont cont
@@ -513,7 +513,7 @@ be that both true and false proofs are available."
 
   (rewrite-cps-exp fun
     (($ $fun free body)
-     ($fun (map subst-var free) ,(visit-entry-cont body)))))
+     ($fun (map subst-var free) ,(visit-fun-cont body)))))
 
 (define (cse fun dfg)
   (call-with-values (lambda () (compute-equivalent-subexpressions fun dfg))

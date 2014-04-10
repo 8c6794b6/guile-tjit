@@ -326,7 +326,7 @@ body continuation in the prompt."
 
   (match fun
     (($ $fun free
-        ($ $cont kentry ($ $kentry src meta self ($ $cont ktail tail))))
+        ($ $cont kfun ($ $kfun src meta self ($ $cont ktail tail))))
      (call-with-values
          (lambda ()
            (compute-reverse-control-flow-order ktail dfg))
@@ -822,13 +822,13 @@ body continuation in the prompt."
 
   (match fun
     (($ $fun free
-        ($ $cont kentry
+        ($ $cont kfun
            (and entry
-                ($ $kentry src meta self ($ $cont ktail tail) clause))))
-     (declare-block! kentry entry #f 0)
-     (add-def! self kentry)
+                ($ $kfun src meta self ($ $cont ktail tail) clause))))
+     (declare-block! kfun entry #f 0)
+     (add-def! self kfun)
 
-     (declare-block! ktail tail kentry)
+     (declare-block! ktail tail kfun)
 
      (let lp ((clause clause))
        (match clause
@@ -836,8 +836,8 @@ body continuation in the prompt."
          (($ $cont kclause
              (and clause ($ $kclause arity ($ $cont kbody body)
                             alternate)))
-          (declare-block! kclause clause kentry)
-          (link-blocks! kentry kclause)
+          (declare-block! kclause clause kfun)
+          (link-blocks! kfun kclause)
 
           (declare-block! kbody body kclause)
           (link-blocks! kclause kbody)
@@ -883,7 +883,7 @@ body continuation in the prompt."
                               (else min-var))
                         (fold max max-var vars)
                         (+ var-count (length vars))))))
-           (($ $kentry src meta self)
+           (($ $kfun src meta self)
             (values min-label max-label (1+ label-count)
                     (min* self min-var) (max self max-var) (1+ var-count)))
            (_ (values min-label max-label (1+ label-count)

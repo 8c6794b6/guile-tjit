@@ -117,11 +117,11 @@
         (rewrite-cps-cont cont
           (($ $cont sym ($ $kargs names syms body))
            (sym ($kargs names syms ,(visit-term body))))
-          (($ $cont sym ($ $kentry src meta self (and tail ($ $cont ktail)) #f))
+          (($ $cont sym ($ $kfun src meta self (and tail ($ $cont ktail)) #f))
            ;; A case-lambda with no clauses.  Reify a clause.
-           (sym ($kentry src meta self ,tail ,(reify-clause ktail))))
-          (($ $cont sym ($ $kentry src meta self tail clause))
-           (sym ($kentry src meta self ,tail ,(visit-cont clause))))
+           (sym ($kfun src meta self ,tail ,(reify-clause ktail))))
+          (($ $cont sym ($ $kfun src meta self tail clause))
+           (sym ($kfun src meta self ,tail ,(visit-cont clause))))
           (($ $cont sym ($ $kclause arity body alternate))
            (sym ($kclause ,arity ,(visit-cont body)
                           ,(and alternate (visit-cont alternate)))))

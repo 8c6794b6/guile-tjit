@@ -40,8 +40,8 @@
     (rewrite-cps-cont cont
       (($ $cont sym ($ $kargs names syms body))
        (sym ($kargs names syms ,(visit-term body))))
-      (($ $cont sym ($ $kentry src meta self tail clause))
-       (sym ($kentry src meta self ,tail ,(and clause (visit-cont clause)))))
+      (($ $cont sym ($ $kfun src meta self tail clause))
+       (sym ($kfun src meta self ,tail ,(and clause (visit-cont clause)))))
       (($ $cont sym ($ $kclause arity body alternate))
        (sym ($kclause ,arity ,(visit-cont body)
                       ,(and alternate (visit-cont alternate)))))

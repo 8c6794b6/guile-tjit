@@ -294,11 +294,11 @@
                             arity gensyms inits)))
                        ,(convert-clauses alternate ktail))))))))))
        (if (current-topbox-scope)
-           (let-fresh (kentry ktail) (self)
+           (let-fresh (kfun ktail) (self)
              (build-cps-term
                ($continue k fun-src
                  ($fun '()
-                   (kentry ($kentry fun-src meta self (ktail ($ktail))
+                   (kfun ($kfun fun-src meta self (ktail ($ktail))
                              ,(convert-clauses body ktail)))))))
            (let ((scope-id (fresh-scope-id)))
              (let-fresh (kscope) ()
@@ -605,7 +605,7 @@ integer."
       (let-fresh (kinit ktail kclause kbody) (init)
         (build-cps-exp
           ($fun '()
-            (kinit ($kentry src '() init (ktail ($ktail))
+            (kinit ($kfun src '() init (ktail ($ktail))
                      (kclause
                       ($kclause ('() '() #f '() #f)
                         (kbody ($kargs () ()

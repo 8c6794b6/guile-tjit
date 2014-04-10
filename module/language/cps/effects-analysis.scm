@@ -487,7 +487,7 @@
               (($ $arity _ () _ () #f) (logior (cause &allocation)
                                                (cause &type-check)))))
            (($ $kif) &no-effects)
-           (($ $kentry) (cause &type-check))
+           (($ $kfun) (cause &type-check))
            (($ $kclause) (cause &type-check))
            (($ $ktail) &no-effects)))
         (lp (1+ n))))

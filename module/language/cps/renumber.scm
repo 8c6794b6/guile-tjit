@@ -92,7 +92,7 @@
                (match cont
                  (($ $kargs names vars body)
                   (visit-term body))
-                 (($ $kentry src meta self tail clause)
+                 (($ $kfun src meta self tail clause)
                   (visit-cont tail)
                   (when clause
                     (visit-cont clause)))
@@ -131,7 +131,7 @@
                     (when reachable?
                       (for-each rename! vars))
                     (visit-term body reachable?))
-                   (($ $kentry src meta self tail clause)
+                   (($ $kfun src meta self tail clause)
                     (unless reachable? (error "entry should be reachable"))
                     (rename! self)
                     (visit-cont tail)
@@ -168,8 +168,8 @@
 
           (collect-conts fun)
           (match fun
-            (($ $fun free (and entry ($ $cont kentry)))
-             (set! next-label (sort-conts kentry labels next-label))
+            (($ $fun free (and entry ($ $cont kfun)))
+             (set! next-label (sort-conts kfun labels next-label))
              (visit-cont entry)
              (for-each compute-names-in-fun (reverse queue)))))
 
@@ -211,9 +211,9 @@
               (rewrite-cps-cont cont
                 (($ $kargs names vars body)
                  (label ($kargs names (map rename vars) ,(visit-term body))))
-                (($ $kentry src meta self tail clause)
+                (($ $kfun src meta self tail clause)
                  (label
-                  ($kentry src meta (rename self) ,(must-visit-cont tail)
+                  ($kfun src meta (rename self) ,(must-visit-cont tail)
                     ,(and clause (must-visit-cont clause)))))
                 (($ $ktail)
                  (label ($ktail)))

@@ -128,11 +128,11 @@ convert functions to flat closures."
        (values (build-cps-cont (sym ($kargs names syms ,body)))
                free)))
 
-    (($ $cont sym ($ $kentry src meta self tail clause))
+    (($ $cont sym ($ $kfun src meta self tail clause))
      (receive (clause free) (if clause
                                 (cc clause self (list self))
                                 (values #f '()))
-       (values (build-cps-cont (sym ($kentry src meta self ,tail ,clause)))
+       (values (build-cps-cont (sym ($kfun src meta self ,tail ,clause)))
                free)))
 
     (($ $cont sym ($ $kclause arity body alternate))
@@ -159,7 +159,7 @@ convert functions to flat closures."
            (match in
              (() (values (bindings body) free))
              (((name sym ($ $fun () (and fun-body
-                                         ($ $cont _ ($ $kentry src))))) . in)
+                                         ($ $cont _ ($ $kfun src))))) . in)
               (receive (fun-body fun-free) (cc fun-body #f '())
                 (lp in
                     (lambda (body)
@@ -269,8 +269,8 @@ convert functions to flat closures."
        ,cont)))
 
   (rewrite-cps-cont body
-    (($ $cont sym ($ $kentry src meta self tail clause))
-     (sym ($kentry src meta self ,tail ,(and clause (visit-cont clause)))))))
+    (($ $cont sym ($ $kfun src meta self tail clause))
+     (sym ($kfun src meta self ,tail ,(and clause (visit-cont clause)))))))
 
 (define (convert-closures exp)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},

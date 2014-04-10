@@ -82,7 +82,7 @@
          (error "name and sym lengths don't match" name sym))
        (visit-term body k-env (add-vars sym v-env)))
       (_ 
-       ;; $kclause, $kentry, and $ktail are only ever seen in $fun.
+       ;; $kclause, $kfun, and $ktail are only ever seen in $fun.
        (error "unexpected cont body" cont))))
 
   (define (visit-clause clause k-env v-env)
@@ -117,7 +117,7 @@
     (match fun
       (($ $fun (free ...)
           ($ $cont kbody
-             ($ $kentry src meta self ($ $cont ktail ($ $ktail)) clause)))
+             ($ $kfun src meta self ($ $cont ktail ($ $ktail)) clause)))
        (when (and meta (not (and (list? meta) (and-map pair? meta))))
          (error "meta should be alist" meta))
        (for-each (cut check-var <> v-env) free)

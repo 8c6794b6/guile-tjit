@@ -116,7 +116,7 @@
     (define (compile-entry)
       (let ((label (dfg-min-label dfg)))
         (match (lookup-cont label dfg)
-          (($ $kentry src meta self tail clause)
+          (($ $kfun src meta self tail clause)
            (when src
              (emit-source asm src))
            (emit-begin-program asm label meta)
@@ -471,7 +471,7 @@
                     (emit-call-label asm proc-slot nargs k))))))
 
     (match f
-      (($ $fun free ($ $cont k ($ $kentry src meta self tail clause)))
+      (($ $fun free ($ $cont k ($ $kfun src meta self tail clause)))
        (compile-entry)))))
 
 (define (visit-funs proc exp)
@@ -495,7 +495,7 @@
      (when alternate
        (visit-funs proc alternate)))
 
-    (($ $cont sym ($ $kentry src meta self tail clause))
+    (($ $cont sym ($ $kfun src meta self tail clause))
      (when clause
        (visit-funs proc clause)))
 
