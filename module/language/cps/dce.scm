@@ -71,7 +71,7 @@
            (($ $kclause arity ($ $cont kargs ($ $kargs names syms)))
             syms)
            (($ $kif) #f)
-           (($ $kentry self) (list self))
+           (($ $kentry src meta self) (list self))
            (($ $ktail) #f)))
         (lp (1+ n))))
     defs))
@@ -163,7 +163,7 @@
                  (($ $kif) #f)
                  (($ $kclause arity ($ $cont kargs ($ $kargs names syms body)))
                   (for-each mark-live! syms))
-                 (($ $kentry self)
+                 (($ $kentry src meta self)
                   (mark-live! self))
                  (($ $ktail) #f))
                (lp (1- n))))))))
@@ -209,10 +209,10 @@
                    (build-cps-cont
                      (label ($kargs names syms
                               ,(visit-term body label))))))))
-              (($ $kentry self tail clause)
+              (($ $kentry src meta self tail clause)
                (list
                 (build-cps-cont
-                  (label ($kentry self ,tail
+                  (label ($kentry src meta self ,tail
                            ,(and clause (visit-cont clause)))))))
               (($ $kclause arity body alternate)
                (list
@@ -275,8 +275,8 @@
                              ($continue adapt src ,exp))))))))
                 (build-cps-term ($continue k src ($values ())))))))
        (rewrite-cps-exp fun
-         (($ $fun src meta free body)
-          ($fun src meta free ,(visit-cont body)))))))
+         (($ $fun free body)
+          ($fun free ,(visit-cont body)))))))
   (visit-fun fun))
 
 (define (eliminate-dead-code fun)

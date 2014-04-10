@@ -41,7 +41,7 @@
            (hashq-set! k->scope-var k var)))
         (($ $cont k ($ $kargs names syms body))
          (visit-term body))
-        (($ $cont k ($ $kentry self tail clause))
+        (($ $cont k ($ $kentry src meta self tail clause))
          (when clause (visit-cont clause)))
         (($ $cont k ($ $kclause arity body alternate))
          (visit-cont body)
@@ -82,7 +82,7 @@
            (_ #t)))))
     (define (visit-fun fun)
       (match fun
-        (($ $fun src meta free body)
+        (($ $fun free body)
          (visit-cont body))))
 
     (visit-fun fun)
@@ -94,8 +94,8 @@
       (rewrite-cps-cont cont
         (($ $cont sym ($ $kargs names syms body))
          (sym ($kargs names syms ,(visit-term body))))
-        (($ $cont sym ($ $kentry self tail clause))
-         (sym ($kentry self ,tail ,(and clause (visit-cont clause)))))
+        (($ $cont sym ($ $kentry src meta self tail clause))
+         (sym ($kentry src meta self ,tail ,(and clause (visit-cont clause)))))
         (($ $cont sym ($ $kclause arity body alternate))
          (sym ($kclause ,arity ,(visit-cont body)
                         ,(and alternate (visit-cont alternate)))))
@@ -115,5 +115,5 @@
         (($ $continue)
          ,term)))
     (rewrite-cps-exp fun
-      (($ $fun src meta free body)
-       ($fun src meta free ,(visit-cont body))))))
+      (($ $fun free body)
+       ($fun free ,(visit-cont body))))))

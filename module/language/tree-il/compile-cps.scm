@@ -297,9 +297,9 @@
            (let-fresh (kentry ktail) (self)
              (build-cps-term
                ($continue k fun-src
-                 ($fun fun-src meta '()
-                       (kentry ($kentry self (ktail ($ktail))
-                                 ,(convert-clauses body ktail)))))))
+                 ($fun '()
+                   (kentry ($kentry fun-src meta self (ktail ($ktail))
+                             ,(convert-clauses body ktail)))))))
            (let ((scope-id (fresh-scope-id)))
              (let-fresh (kscope) ()
                (build-cps-term
@@ -604,14 +604,14 @@ integer."
     (let ((src (tree-il-src exp)))
       (let-fresh (kinit ktail kclause kbody) (init)
         (build-cps-exp
-          ($fun src '() '()
-                (kinit ($kentry init (ktail ($ktail))
-                         (kclause
-                          ($kclause ('() '() #f '() #f)
-                            (kbody ($kargs () ()
-                                     ,(convert exp ktail
-                                               (build-subst exp))))
-                            ,#f))))))))))
+          ($fun '()
+            (kinit ($kentry src '() init (ktail ($ktail))
+                     (kclause
+                      ($kclause ('() '() #f '() #f)
+                        (kbody ($kargs () ()
+                                 ,(convert exp ktail
+                                           (build-subst exp))))
+                        ,#f))))))))))
 
 (define *comp-module* (make-fluid))
 

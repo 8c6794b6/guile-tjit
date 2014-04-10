@@ -92,7 +92,7 @@
                (match cont
                  (($ $kargs names vars body)
                   (visit-term body))
-                 (($ $kentry self tail clause)
+                 (($ $kentry src meta self tail clause)
                   (visit-cont tail)
                   (when clause
                     (visit-cont clause)))
@@ -111,7 +111,7 @@
                (visit-term body))
               (($ $continue k src _) #f)))
           (match fun
-            (($ $fun src meta free body)
+            (($ $fun free body)
              (visit-cont body))))
 
         (define (compute-names-in-fun fun)
@@ -131,7 +131,7 @@
                     (when reachable?
                       (for-each rename! vars))
                     (visit-term body reachable?))
-                   (($ $kentry self tail clause)
+                   (($ $kentry src meta self tail clause)
                     (unless reachable? (error "entry should be reachable"))
                     (rename! self)
                     (visit-cont tail)
@@ -168,7 +168,7 @@
 
           (collect-conts fun)
           (match fun
-            (($ $fun src meta free (and entry ($ $cont kentry)))
+            (($ $fun free (and entry ($ $cont kentry)))
              (set! next-label (sort-conts kentry labels next-label))
              (visit-cont entry)
              (for-each compute-names-in-fun (reverse queue)))))
@@ -211,9 +211,9 @@
               (rewrite-cps-cont cont
                 (($ $kargs names vars body)
                  (label ($kargs names (map rename vars) ,(visit-term body))))
-                (($ $kentry self tail clause)
+                (($ $kentry src meta self tail clause)
                  (label
-                  ($kentry (rename self) ,(must-visit-cont tail)
+                  ($kentry src meta (rename self) ,(must-visit-cont tail)
                     ,(and clause (must-visit-cont clause)))))
                 (($ $ktail)
                  (label ($ktail)))
@@ -259,6 +259,6 @@
              ($prompt escape? (rename tag) (relabel handler))))))
       (define (visit-fun fun)
         (rewrite-cps-exp fun
-          (($ $fun src meta free body)
-           ($fun src meta (map rename free) ,(must-visit-cont body)))))
+          (($ $fun free body)
+           ($fun (map rename free) ,(must-visit-cont body)))))
       (values (visit-fun fun) nlabels nvars))))

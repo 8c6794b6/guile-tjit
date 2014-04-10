@@ -111,17 +111,17 @@
     (let ((conts (build-cont-table fun)))
       (define (visit-fun term)
         (rewrite-cps-exp term
-          (($ $fun src meta free body)
-           ($fun src meta free ,(visit-cont body)))))
+          (($ $fun free body)
+           ($fun free ,(visit-cont body)))))
       (define (visit-cont cont)
         (rewrite-cps-cont cont
           (($ $cont sym ($ $kargs names syms body))
            (sym ($kargs names syms ,(visit-term body))))
-          (($ $cont sym ($ $kentry self (and tail ($ $cont ktail)) #f))
+          (($ $cont sym ($ $kentry src meta self (and tail ($ $cont ktail)) #f))
            ;; A case-lambda with no clauses.  Reify a clause.
-           (sym ($kentry self ,tail ,(reify-clause ktail))))
-          (($ $cont sym ($ $kentry self tail clause))
-           (sym ($kentry self ,tail ,(visit-cont clause))))
+           (sym ($kentry src meta self ,tail ,(reify-clause ktail))))
+          (($ $cont sym ($ $kentry src meta self tail clause))
+           (sym ($kentry src meta self ,tail ,(visit-cont clause))))
           (($ $cont sym ($ $kclause arity body alternate))
            (sym ($kclause ,arity ,(visit-cont body)
                           ,(and alternate (visit-cont alternate)))))

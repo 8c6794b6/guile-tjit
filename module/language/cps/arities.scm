@@ -34,7 +34,8 @@
 
 (define (fix-clause-arities clause dfg)
   (let ((ktail (match clause
-                 (($ $cont _ ($ $kentry _ ($ $cont ktail) _)) ktail))))
+                 (($ $cont _
+                     ($ $kentry src meta _ ($ $cont ktail) _)) ktail))))
     (define (visit-term term)
       (rewrite-cps-term term
         (($ $letk conts body)
@@ -181,13 +182,13 @@
          ,cont)))
 
     (rewrite-cps-cont clause
-      (($ $cont sym ($ $kentry self tail clause))
-       (sym ($kentry self ,tail ,(and clause (visit-cont clause))))))))
+      (($ $cont sym ($ $kentry src meta self tail clause))
+       (sym ($kentry src meta self ,tail ,(and clause (visit-cont clause))))))))
 
 (define (fix-arities* fun dfg)
   (rewrite-cps-exp fun
-    (($ $fun src meta free body)
-     ($fun src meta free ,(fix-clause-arities body dfg)))))
+    (($ $fun free body)
+     ($fun free ,(fix-clause-arities body dfg)))))
 
 (define (fix-arities fun)
   (let ((dfg (compute-dfg fun)))

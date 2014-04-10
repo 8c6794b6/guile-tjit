@@ -325,8 +325,8 @@ body continuation in the prompt."
       succs))
 
   (match fun
-    (($ $fun src meta free
-        ($ $cont kentry ($ $kentry self ($ $cont ktail tail))))
+    (($ $fun free
+        ($ $cont kentry ($ $kentry src meta self ($ $cont ktail tail))))
      (call-with-values
          (lambda ()
            (compute-reverse-control-flow-order ktail dfg))
@@ -821,10 +821,10 @@ body continuation in the prompt."
          (_ #f)))))
 
   (match fun
-    (($ $fun src meta free
+    (($ $fun free
         ($ $cont kentry
            (and entry
-                ($ $kentry self ($ $cont ktail tail) clause))))
+                ($ $kentry src meta self ($ $cont ktail tail) clause))))
      (declare-block! kentry entry #f 0)
      (add-def! self kentry)
 
@@ -883,7 +883,7 @@ body continuation in the prompt."
                               (else min-var))
                         (fold max max-var vars)
                         (+ var-count (length vars))))))
-           (($ $kentry self)
+           (($ $kentry src meta self)
             (values min-label max-label (1+ label-count)
                     (min* self min-var) (max self max-var) (1+ var-count)))
            (_ (values min-label max-label (1+ label-count)

@@ -34,8 +34,8 @@
     (rewrite-cps-cont cont
       (($ $cont sym ($ $kargs names syms body))
        (sym ($kargs names syms ,(visit-term body))))
-      (($ $cont sym ($ $kentry self tail clause))
-       (sym ($kentry self ,tail ,(and clause (visit-cont clause)))))
+      (($ $cont sym ($ $kentry src meta self tail clause))
+       (sym ($kentry src meta self ,tail ,(and clause (visit-cont clause)))))
       (($ $cont sym ($ $kclause arity body alternate))
        (sym ($kclause ,arity ,(visit-cont body)
                       ,(and alternate (visit-cont alternate)))))
@@ -95,8 +95,8 @@
        ,term)))
 
   (rewrite-cps-exp fun
-    (($ $fun src meta free body)
-     ($fun src meta free ,(visit-cont body)))))
+    (($ $fun free body)
+     ($fun free ,(visit-cont body)))))
 
 (define (inline-constructors fun)
   (with-fresh-name-state fun

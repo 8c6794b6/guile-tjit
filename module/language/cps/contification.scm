@@ -187,7 +187,7 @@
           (if (scope-contains? k-scope term-k)
               term-k
               (match (lookup-cont k-scope dfg)
-                (($ $kentry self tail clause)
+                (($ $kentry src meta self tail clause)
                  ;; K is the tail of some function.  If that function
                  ;; has just one clause, return that clause.  Otherwise
                  ;; bail.
@@ -219,13 +219,13 @@
 
     (define (visit-fun term)
       (match term
-        (($ $fun src meta free body)
+        (($ $fun free body)
          (visit-cont body))))
     (define (visit-cont cont)
       (match cont
         (($ $cont sym ($ $kargs _ _ body))
          (visit-term body sym))
-        (($ $cont sym ($ $kentry self tail clause))
+        (($ $cont sym ($ $kentry src meta self tail clause))
          (when clause (visit-cont clause)))
         (($ $cont sym ($ $kclause arity body alternate))
          (visit-cont body)
@@ -251,7 +251,7 @@
                 (if (null? rec)
                     '()
                     (list rec)))
-               (((and elt (n s ($ $fun src meta free ($ $cont kentry))))
+               (((and elt (n s ($ $fun free ($ $cont kentry))))
                  . nsf)
                 (if (recursive? kentry)
                     (lp nsf (cons elt rec))
@@ -263,9 +263,10 @@
            (match component
              (((name sym fun) ...)
               (match fun
-                ((($ $fun src meta free
+                ((($ $fun free
                      ($ $cont fun-k
-                        ($ $kentry self ($ $cont tail-k ($ $ktail)) clause)))
+                        ($ $kentry src meta self ($ $cont tail-k ($ $ktail))
+                           clause)))
                   ...)
                  (call-with-values (lambda () (extract-arities+bodies clause))
                    (lambda (arities bodies)
@@ -277,9 +278,9 @@
                    (split-components (map list names syms funs))))
         (($ $continue k src exp)
          (match exp
-           (($ $fun src meta free
+           (($ $fun free
                ($ $cont fun-k
-                  ($ $kentry self ($ $cont tail-k ($ $ktail)) clause)))
+                  ($ $kentry src meta self ($ $cont tail-k ($ $ktail)) clause)))
             (if (and=> (bound-symbol k)
                        (lambda (sym)
                          (contify-fun term-k sym self tail-k
@@ -340,8 +341,8 @@
               ,body)))))))
   (define (visit-fun term)
     (rewrite-cps-exp term
-      (($ $fun src meta free body)
-       ($fun src meta free ,(visit-cont body)))))
+      (($ $fun free body)
+       ($fun free ,(visit-cont body)))))
   (define (visit-cont cont)
     (rewrite-cps-cont cont
       (($ $cont (? (cut assq <> fun-elisions)))
@@ -349,8 +350,8 @@
        ,#f)
       (($ $cont sym ($ $kargs names syms body))
        (sym ($kargs names syms ,(visit-term body sym))))
-      (($ $cont sym ($ $kentry self tail clause))
-       (sym ($kentry self ,tail ,(and clause (visit-cont clause)))))
+      (($ $cont sym ($ $kentry src meta self tail clause))
+       (sym ($kentry src meta self ,tail ,(and clause (visit-cont clause)))))
       (($ $cont sym ($ $kclause arity body alternate))
        (sym ($kclause ,arity ,(visit-cont body)
                       ,(and alternate (visit-cont alternate)))))

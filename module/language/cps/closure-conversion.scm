@@ -128,11 +128,11 @@ convert functions to flat closures."
        (values (build-cps-cont (sym ($kargs names syms ,body)))
                free)))
 
-    (($ $cont sym ($ $kentry self tail clause))
+    (($ $cont sym ($ $kentry src meta self tail clause))
      (receive (clause free) (if clause
                                 (cc clause self (list self))
                                 (values #f '()))
-       (values (build-cps-cont (sym ($kentry self ,tail ,clause)))
+       (values (build-cps-cont (sym ($kentry src meta self ,tail ,clause)))
                free)))
 
     (($ $cont sym ($ $kclause arity body alternate))
@@ -158,7 +158,8 @@ convert functions to flat closures."
                   (free free))
            (match in
              (() (values (bindings body) free))
-             (((name sym ($ $fun src meta () fun-body)) . in)
+             (((name sym ($ $fun () (and fun-body
+                                         ($ $cont _ ($ $kentry src))))) . in)
               (receive (fun-body fun-free) (cc fun-body #f '())
                 (lp in
                     (lambda (body)
@@ -166,7 +167,7 @@ convert functions to flat closures."
                         (build-cps-term
                           ($letk ((k ($kargs (name) (sym) ,(bindings body))))
                             ($continue k src
-                              ($fun src meta fun-free ,fun-body))))))
+                              ($fun fun-free ,fun-body))))))
                     (init-closure src sym fun-free self bound body)
                     (union free (difference fun-free bound))))))))))
 
@@ -176,12 +177,12 @@ convert functions to flat closures."
             ($ $prim)))
      (values exp '()))
 
-    (($ $continue k src ($ $fun src* meta () body))
+    (($ $continue k src ($ $fun () body))
      (receive (body free) (cc body #f '())
        (match free
          (()
           (values (build-cps-term
-                    ($continue k src ($fun src* meta free ,body)))
+                    ($continue k src ($fun free ,body)))
                   free))
          (_
           (values
@@ -192,7 +193,7 @@ convert functions to flat closures."
                                   src v free self bound
                                   (build-cps-term
                                     ($continue k src ($values (v))))))))
-                 ($continue kinit src ($fun src* meta free ,body)))))
+                 ($continue kinit src ($fun free ,body)))))
            (difference free bound))))))
 
     (($ $continue k src ($ $call proc args))
@@ -250,9 +251,9 @@ convert functions to flat closures."
           (build-cps-term
             ($letconst (('idx idx (free-index sym)))
               ($continue k src ($primcall 'free-ref (closure idx)))))))
-      (($ $continue k src ($ $fun src* meta free body))
+      (($ $continue k src ($ $fun free body))
        ($continue k src
-         ($fun src* meta free ,(convert-to-indices body free))))
+         ($fun free ,(convert-to-indices body free))))
       (($ $continue)
        ,term)))
   (define (visit-cont cont)
@@ -268,17 +269,17 @@ convert functions to flat closures."
        ,cont)))
 
   (rewrite-cps-cont body
-    (($ $cont sym ($ $kentry self tail clause))
-     (sym ($kentry self ,tail ,(and clause (visit-cont clause)))))))
+    (($ $cont sym ($ $kentry src meta self tail clause))
+     (sym ($kentry src meta self ,tail ,(and clause (visit-cont clause)))))))
 
 (define (convert-closures exp)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
 and allocate and initialize flat closures."
   (with-fresh-name-state exp
     (match exp
-      (($ $fun src meta () body)
+      (($ $fun () body)
        (receive (body free) (cc body #f '())
          (unless (null? free)
            (error "Expected no free vars in toplevel thunk" exp body free))
          (build-cps-exp
-           ($fun src meta free ,(convert-to-indices body free))))))))
+           ($fun free ,(convert-to-indices body free))))))))

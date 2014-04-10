@@ -71,11 +71,11 @@
 ;;;     That's to say that a $fun can be matched like this:
 ;;;
 ;;;     (match f
-;;;       (($ $fun src meta free
+;;;       (($ $fun free
 ;;;           ($ $cont kentry
-;;;              ($ $kentry self ($ $cont ktail _ ($ $ktail))
+;;;              ($ $kentry src meta self ($ $cont ktail ($ $ktail))
 ;;;                 ($ $kclause arity
-;;;                    ($ $cont kbody _ ($ $kargs names syms body))
+;;;                    ($ $cont kbody ($ $kargs names syms body))
 ;;;                    alternate))))
 ;;;         #t))
 ;;;
@@ -179,7 +179,7 @@
 (define-cps-type $kif kt kf)
 (define-cps-type $kreceive arity k)
 (define-cps-type $kargs names syms body)
-(define-cps-type $kentry self tail clause)
+(define-cps-type $kentry src meta self tail clause)
 (define-cps-type $ktail)
 (define-cps-type $kclause arity cont alternate)
 
@@ -187,7 +187,7 @@
 (define-cps-type $void)
 (define-cps-type $const val)
 (define-cps-type $prim name)
-(define-cps-type $fun src meta free body)
+(define-cps-type $fun free body)
 (define-cps-type $call proc args)
 (define-cps-type $callk k proc args)
 (define-cps-type $primcall name args)
@@ -242,8 +242,8 @@
      (make-$kargs (list name ...) (list sym ...) (build-cps-term body)))
     ((_ ($kargs names syms body))
      (make-$kargs names syms (build-cps-term body)))
-    ((_ ($kentry self tail clause))
-     (make-$kentry self (build-cps-cont tail) (build-cps-cont clause)))
+    ((_ ($kentry src meta self tail clause))
+     (make-$kentry src meta self (build-cps-cont tail) (build-cps-cont clause)))
     ((_ ($ktail))
      (make-$ktail))
     ((_ ($kclause arity cont alternate))
@@ -262,8 +262,8 @@
     ((_ ($void)) (make-$void))
     ((_ ($const val)) (make-$const val))
     ((_ ($prim name)) (make-$prim name))
-    ((_ ($fun src meta free body))
-     (make-$fun src meta free (build-cps-cont body)))
+    ((_ ($fun free body))
+     (make-$fun free (build-cps-cont body)))
     ((_ ($call proc (unquote args))) (make-$call proc args))
     ((_ ($call proc (arg ...))) (make-$call proc (list arg ...)))
     ((_ ($call proc args)) (make-$call proc args))
@@ -344,9 +344,10 @@
      (build-cont-body ($kreceive req rest k)))
     (('kargs names syms body)
      (build-cont-body ($kargs names syms ,(parse-cps body))))
-    (('kentry self tail clause)
+    (('kentry src meta self tail clause)
      (build-cont-body
-      ($kentry self ,(parse-cps tail) ,(and=> clause parse-cps))))
+      ($kentry (src exp) meta self ,(parse-cps tail)
+        ,(and=> clause parse-cps))))
     (('ktail)
      (build-cont-body
       ($ktail)))
@@ -372,8 +373,8 @@
      (build-cps-exp ($const exp)))
     (('prim name)
      (build-cps-exp ($prim name)))
-    (('fun meta free body)
-     (build-cps-exp ($fun (src exp) meta free ,(parse-cps body))))
+    (('fun free body)
+     (build-cps-exp ($fun free ,(parse-cps body))))
     (('letrec ((name sym fun) ...) body)
      (build-cps-term
        ($letrec name sym (map parse-cps fun) ,(parse-cps body))))
@@ -412,8 +413,8 @@
      `(kseq ,(unparse-cps body)))
     (($ $kargs names syms body)
      `(kargs ,names ,syms ,(unparse-cps body)))
-    (($ $kentry self tail clause)
-     `(kentry ,self ,(unparse-cps tail) ,(unparse-cps clause)))
+    (($ $kentry src meta self tail clause)
+     `(kentry ,meta ,self ,(unparse-cps tail) ,(unparse-cps clause)))
     (($ $ktail)
      `(ktail))
     (($ $kclause ($ $arity req opt rest kw allow-other-keys?) body alternate)
@@ -429,8 +430,8 @@
      `(const ,val))
     (($ $prim name)
      `(prim ,name))
-    (($ $fun src meta free body)
-     `(fun ,meta ,free ,(unparse-cps body)))
+    (($ $fun free body)
+     `(fun ,free ,(unparse-cps body)))
     (($ $letrec names syms funs body)
      `(letrec ,(map (lambda (name sym fun)
                       (list name sym (unparse-cps fun)))
@@ -465,7 +466,7 @@
              (($ $kargs names syms body)
               (term-folder body seed ...))
 
-             (($ $kentry self tail clause)
+             (($ $kentry src meta self tail clause)
               (let-values (((seed ...) (cont-folder tail seed ...)))
                 (if clause
                     (cont-folder clause seed ...)
@@ -481,7 +482,7 @@
 
     (define (fun-folder fun seed ...)
       (match fun
-        (($ $fun src meta free body)
+        (($ $fun free body)
          (cont-folder body seed ...))))
 
     (define (term-folder term seed ...)
@@ -518,7 +519,7 @@
                     (($ $letrec names vars funs body)
                      (lp body (fold max max-var vars)))
                     (_ max-var))))
-               (($ $kentry self)
+               (($ $kentry src meta self)
                 (max self max-var))
                (_ max-var))))
    fun
@@ -551,8 +552,8 @@
 
     (($ $kclause arity ($ $cont kbody) ($ $cont kalt)) (proc kbody kalt))
 
-    (($ $kentry self tail ($ $cont clause)) (proc clause))
+    (($ $kentry src meta self tail ($ $cont clause)) (proc clause))
 
-    (($ $kentry self tail #f) (proc))
+    (($ $kentry src meta self tail #f) (proc))
 
     (($ $ktail) (proc))))

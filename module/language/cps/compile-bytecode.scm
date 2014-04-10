@@ -113,10 +113,12 @@
                  (emit-load-constant asm slot val)
                  #t)))))
 
-    (define (compile-entry meta)
+    (define (compile-entry)
       (let ((label (dfg-min-label dfg)))
         (match (lookup-cont label dfg)
-          (($ $kentry self tail clause)
+          (($ $kentry src meta self tail clause)
+           (when src
+             (emit-source asm src))
            (emit-begin-program asm label meta)
            (compile-clause (1+ label))
            (emit-end-program asm)))))
@@ -243,9 +245,9 @@
          (emit-load-constant asm dst *unspecified*))
         (($ $const exp)
          (emit-load-constant asm dst exp))
-        (($ $fun src meta () ($ $cont k))
+        (($ $fun () ($ $cont k))
          (emit-load-static-procedure asm dst k))
-        (($ $fun src meta free ($ $cont k))
+        (($ $fun free ($ $cont k))
          (emit-make-closure asm dst k (length free)))
         (($ $primcall 'current-module)
          (emit-current-module asm dst))
@@ -469,18 +471,15 @@
                     (emit-call-label asm proc-slot nargs k))))))
 
     (match f
-      (($ $fun src meta free ($ $cont k ($ $kentry self tail clause)))
-       ;; FIXME: src on kentry instead?
-       (when src
-         (emit-source asm src))
-       (compile-entry (or meta '()))))))
+      (($ $fun free ($ $cont k ($ $kentry src meta self tail clause)))
+       (compile-entry)))))
 
 (define (visit-funs proc exp)
   (match exp
     (($ $continue _ _ exp)
      (visit-funs proc exp))
 
-    (($ $fun src meta free body)
+    (($ $fun free body)
      (proc exp)
      (visit-funs proc body))
 
@@ -496,7 +495,7 @@
      (when alternate
        (visit-funs proc alternate)))
 
-    (($ $cont sym ($ $kentry self tail clause))
+    (($ $cont sym ($ $kentry src meta self tail clause))
      (when clause
        (visit-funs proc clause)))
 

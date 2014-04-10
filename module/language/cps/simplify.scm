@@ -39,7 +39,7 @@
       (match cont
         (($ $cont sym ($ $kargs names syms body))
          (visit-term body sym syms))
-        (($ $cont sym ($ $kentry self tail clause))
+        (($ $cont sym ($ $kentry src meta self tail clause))
          (when clause (visit-cont clause)))
         (($ $cont sym ($ $kclause arity body alternate))
          (visit-cont body)
@@ -62,7 +62,7 @@
          #f)))
     (define (visit-fun fun)
       (match fun
-        (($ $fun src meta free body)
+        (($ $fun free body)
          (visit-cont body))))
     (visit-fun fun)
     table))
@@ -89,8 +89,9 @@
       (rewrite-cps-cont cont
         (($ $cont sym ($ $kargs names syms body))
          (sym ($kargs names syms ,(visit-term body sym))))
-        (($ $cont sym ($ $kentry self tail clause))
-         (sym ($kentry self ,tail ,(and clause (visit-cont clause sym)))))
+        (($ $cont sym ($ $kentry src meta self tail clause))
+         (sym ($kentry src meta self ,tail
+                ,(and clause (visit-cont clause sym)))))
         (($ $cont sym ($ $kclause arity body alternate))
          (sym ($kclause ,arity ,(visit-cont body sym)
                         ,(and alternate (visit-cont alternate sym)))))
@@ -114,8 +115,8 @@
          ($continue (reduce k scope) src ,exp))))
     (define (visit-fun fun)
       (rewrite-cps-exp fun
-        (($ $fun src meta free body)
-         ($fun src meta free ,(visit-cont body #f)))))
+        (($ $fun free body)
+         ($fun free ,(visit-cont body #f)))))
     (visit-fun fun)))
 
 (define (compute-beta-reductions fun)
@@ -129,7 +130,7 @@
       (match cont
         (($ $cont sym ($ $kargs names syms body))
          (visit-term body))
-        (($ $cont sym ($ $kentry self tail clause))
+        (($ $cont sym ($ $kentry src meta self tail clause))
          (when clause (visit-cont clause)))
         (($ $cont sym ($ $kclause arity body alternate))
          (visit-cont body)
@@ -165,7 +166,7 @@
          #f)))
     (define (visit-fun fun)
       (match fun
-        (($ $fun src meta free body)
+        (($ $fun free body)
          (visit-cont body))))
     (visit-fun fun)
     (values var-table k-table)))
@@ -185,8 +186,8 @@
               (rewrite-cps-cont cont
                 (($ $kargs names syms body)
                  (sym ($kargs names syms ,(visit-term body))))
-                (($ $kentry self tail clause)
-                 (sym ($kentry self ,tail
+                (($ $kentry src meta self tail clause)
+                 (sym ($kentry src meta self ,tail
                         ,(and clause (must-visit-cont clause)))))
                 (($ $kclause arity body alternate)
                  (sym ($kclause ,arity ,(must-visit-cont body)
@@ -229,8 +230,8 @@
                    (build-cps-exp ($prompt escape? (subst tag) handler)))))))))))
     (define (visit-fun fun)
       (rewrite-cps-exp fun
-        (($ $fun src meta free body)
-         ($fun src meta (map subst free) ,(must-visit-cont body)))))
+        (($ $fun free body)
+         ($fun (map subst free) ,(must-visit-cont body)))))
     (visit-fun fun)))
 
 (define (simplify fun)

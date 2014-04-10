@@ -35,8 +35,8 @@
     (rewrite-cps-cont cont
       (($ $cont label ($ $kargs names vars body))
        (label ($kargs names vars ,(visit-term body))))
-      (($ $cont label ($ $kentry self tail clause))
-       (label ($kentry self ,tail
+      (($ $cont label ($ $kentry src meta self tail clause))
+       (label ($kentry src meta self ,tail
                 ,(and clause (visit-cont clause)))))
       (($ $cont label ($ $kclause arity body alternate))
        (label ($kclause ,arity ,(visit-cont body)
@@ -71,9 +71,9 @@
 
   (define (visit-recursive-fun fun var)
     (match fun
-      (($ $fun src meta free (and cont ($ $cont _ ($ $kentry self))))
+      (($ $fun free (and cont ($ $cont _ ($ $kentry src meta self))))
        (resolve-self-references fun (acons var self env)))))
 
   (rewrite-cps-exp fun
-    (($ $fun src meta free cont)
-     ($fun src meta (map subst free) ,(visit-cont cont)))))
+    (($ $fun free cont)
+     ($fun (map subst free) ,(visit-cont cont)))))

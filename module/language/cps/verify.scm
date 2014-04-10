@@ -115,9 +115,9 @@
 
   (define (visit-fun fun k-env v-env)
     (match fun
-      (($ $fun src meta (free ...)
+      (($ $fun (free ...)
           ($ $cont kbody
-             ($ $kentry self ($ $cont ktail ($ $ktail)) clause)))
+             ($ $kentry src meta self ($ $cont ktail ($ $ktail)) clause)))
        (when (and meta (not (and (list? meta) (and-map pair? meta))))
          (error "meta should be alist" meta))
        (for-each (cut check-var <> v-env) free)
