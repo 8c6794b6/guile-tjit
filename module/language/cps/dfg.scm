@@ -325,8 +325,7 @@ body continuation in the prompt."
       succs))
 
   (match fun
-    (($ $fun free
-        ($ $cont kfun ($ $kfun src meta self ($ $cont ktail tail))))
+    (($ $cont kfun ($ $kfun src meta self ($ $cont ktail tail)))
      (call-with-values
          (lambda ()
            (compute-reverse-control-flow-order ktail dfg))

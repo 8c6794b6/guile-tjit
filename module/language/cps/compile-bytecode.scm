@@ -89,9 +89,7 @@
     exp))
 
 (define (compile-fun f asm)
-  (let* ((dfg (match f
-                (($ $fun free body)
-                 (compute-dfg body #:global? #f))))
+  (let* ((dfg (compute-dfg f #:global? #f))
          (allocation (allocate-slots f dfg)))
     (define (maybe-slot sym)
       (lookup-maybe-slot sym allocation))
@@ -473,7 +471,7 @@
                     (emit-call-label asm proc-slot nargs k))))))
 
     (match f
-      (($ $fun free ($ $cont k ($ $kfun src meta self tail clause)))
+      (($ $cont k ($ $kfun src meta self tail clause))
        (compile-entry)))))
 
 (define (visit-funs proc exp)
@@ -482,7 +480,6 @@
      (visit-funs proc exp))
 
     (($ $fun free body)
-     (proc exp)
      (visit-funs proc body))
 
     (($ $letk conts body)
@@ -498,6 +495,7 @@
        (visit-funs proc alternate)))
 
     (($ $cont sym ($ $kfun src meta self tail clause))
+     (proc exp)
      (when clause
        (visit-funs proc clause)))
 
@@ -512,7 +510,9 @@
          (asm (make-assembler)))
     (visit-funs (lambda (fun)
                   (compile-fun fun asm))
-                exp)
+                (match exp
+                  (($ $fun free body)
+                   body)))
     (values (link-assembly asm #:page-aligned? (kw-arg-ref opts #:to-file? #f))
             env
             env)))
