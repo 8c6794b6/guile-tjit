@@ -27,6 +27,7 @@
      (eval . (put '$continue           'scheme-indent-function 2))
      (eval . (put '$kargs              'scheme-indent-function 2))
      (eval . (put '$kfun               'scheme-indent-function 4))
+     (eval . (put '$letrec             'scheme-indent-function 3))
      (eval . (put '$kclause            'scheme-indent-function 1))
      (eval . (put '$fun                'scheme-indent-function 1))))
  (emacs-lisp-mode . ((indent-tabs-mode . nil)))

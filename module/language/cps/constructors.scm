@@ -47,8 +47,8 @@
        ($letk ,(map visit-cont conts)
          ,(visit-term body)))
       (($ $letrec names syms funs body)
-       ($letrec names syms (map inline-constructors* funs)
-                ,(visit-term body)))
+       ($letrec names syms (map visit-fun funs)
+         ,(visit-term body)))
       (($ $continue k src ($ $primcall 'list args))
        ,(let-fresh (kvalues) (val)
           (build-cps-term
@@ -90,16 +90,16 @@
                 ($continue kalloc src
                   ($primcall 'make-vector (len init))))))))
       (($ $continue k src (and fun ($ $fun)))
-       ($continue k src ,(inline-constructors* fun)))
+       ($continue k src ,(visit-fun fun)))
       (($ $continue)
        ,term)))
+  (define (visit-fun fun)
+    (rewrite-cps-exp fun
+      (($ $fun free body)
+       ($fun free ,(inline-constructors* body)))))
 
-  (rewrite-cps-exp fun
-    (($ $fun free body)
-     ($fun free ,(visit-cont body)))))
+  (visit-cont fun))
 
 (define (inline-constructors fun)
-  (match fun
-    (($ $fun free body)
-     (with-fresh-name-state body
-       (inline-constructors* fun)))))
+  (with-fresh-name-state fun
+    (inline-constructors* fun)))

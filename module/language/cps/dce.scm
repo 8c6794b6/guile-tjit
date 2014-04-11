@@ -78,9 +78,7 @@
 
 (define (compute-live-code fun)
   (let* ((fun-data-table (make-hash-table))
-         (dfg (match fun
-                (($ $fun free body)
-                 (compute-dfg body #:global? #t))))
+         (dfg (compute-dfg fun #:global? #t))
          (live-vars (make-bitvector (dfg-var-count dfg) #f))
          (changed? #f))
     (define (mark-live! var)
@@ -92,12 +90,10 @@
     (define (ensure-fun-data fun)
       (or (hashq-ref fun-data-table fun)
           (call-with-values (lambda ()
-                              (match fun
-                                (($ $fun free body)
-                                 ((make-cont-folder #f label-count max-label)
-                                  (lambda (k cont label-count max-label)
-                                    (values (1+ label-count) (max k max-label)))
-                                  body 0 -1))))
+                              ((make-cont-folder #f label-count max-label)
+                               (lambda (k cont label-count max-label)
+                                 (values (1+ label-count) (max k max-label)))
+                               fun 0 -1))
             (lambda (label-count max-label)
               (let* ((min-label (- (1+ max-label) label-count))
                      (effects (compute-effects dfg min-label label-count))
@@ -133,7 +129,9 @@
                        (lp body)
                        (for-each (lambda (sym fun)
                                    (when (value-live? sym)
-                                     (visit-fun fun)))
+                                     (match fun
+                                       (($ $fun free body)
+                                        (visit-fun body)))))
                                  syms funs))
                       (($ $continue k src exp)
                        (unless (bitvector-ref live-conts n)
@@ -144,8 +142,8 @@
                          (match exp
                            ((or ($ $void) ($ $const) ($ $prim))
                             #f)
-                           ((and fun ($ $fun))
-                            (visit-fun fun))
+                           (($ $fun free body)
+                            (visit-fun body))
                            (($ $prompt escape? tag handler)
                             (mark-live! tag))
                            (($ $call proc args)
@@ -248,7 +246,12 @@
               (match (filter-map
                       (lambda (name sym fun)
                         (and (value-live? sym)
-                             (list name sym (visit-fun fun))))
+                             (match fun
+                               (($ $fun free body)
+                                (list name
+                                      sym
+                                      (build-cps-exp
+                                        ($fun free ,(visit-fun body))))))))
                       names syms funs)
                 (() body)
                 (((names syms funs) ...)
@@ -266,7 +269,8 @@
            (($ $continue k src exp)
             (if (bitvector-ref live-conts (label->idx term-k))
                 (rewrite-cps-term exp
-                  (($ $fun) ($continue k src ,(visit-fun exp)))
+                  (($ $fun free body)
+                   ($continue k src ($fun free ,(visit-fun body))))
                   (_
                    ,(match (vector-ref defs (label->idx term-k))
                       ((or #f ((? value-live?) ...))
@@ -278,9 +282,7 @@
                            ($letk (,(make-adaptor adapt k syms))
                              ($continue adapt src ,exp))))))))
                 (build-cps-term ($continue k src ($values ())))))))
-       (rewrite-cps-exp fun
-         (($ $fun free body)
-          ($fun free ,(visit-cont body)))))))
+       (visit-cont fun))))
   (visit-fun fun))
 
 (define (eliminate-dead-code fun)

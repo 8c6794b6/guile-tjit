@@ -61,7 +61,7 @@
   (define (visit-term term ktail)
     (rewrite-cps-term term
       (($ $letrec names vars funs body)
-       ($letrec names vars (map prune-bailouts* funs)
+       ($letrec names vars (map visit-fun funs)
                 ,(visit-term body ktail)))
       (($ $letk conts body)
        ($letk ,(map (lambda (cont) (visit-cont cont ktail)) conts)
@@ -71,7 +71,7 @@
 
   (define (visit-exp k src exp ktail)
     (rewrite-cps-term exp
-      (($ $fun) ($continue k src ,(prune-bailouts* exp)))
+      (($ $fun) ($continue k src ,(visit-fun exp)))
       (($ $primcall (and name (or 'error 'scm-error 'throw)) args)
        ,(if (eq? k ktail)
             (build-cps-term ($continue k src ,exp))
@@ -86,16 +86,17 @@
                   ,(primitive-ref name kprim src))))))
       (_ ($continue k src ,exp))))
 
-  (rewrite-cps-exp fun
-    (($ $fun free
-        ($ $cont kfun
-           ($ $kfun src meta self ($ $cont ktail ($ $ktail)) clause)))
-     ($fun free
-           (kfun ($kfun src meta self (ktail ($ktail))
-                     ,(and clause (visit-cont clause ktail))))))))
+  (define (visit-fun fun)
+    (rewrite-cps-exp fun
+      (($ $fun free body)
+       ($fun free ,(prune-bailouts* body)))))
+
+  (rewrite-cps-cont fun
+    (($ $cont kfun
+        ($ $kfun src meta self ($ $cont ktail ($ $ktail)) clause))
+     (kfun ($kfun src meta self (ktail ($ktail))
+             ,(and clause (visit-cont clause ktail)))))))
 
 (define (prune-bailouts fun)
-  (match fun
-    (($ $fun free body)
-     (with-fresh-name-state body
-       (prune-bailouts* fun)))))
+  (with-fresh-name-state fun
+    (prune-bailouts* fun)))

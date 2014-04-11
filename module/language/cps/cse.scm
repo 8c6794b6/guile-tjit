@@ -229,7 +229,7 @@ be that both true and false proofs are available."
 
 (define (compute-label-and-var-ranges fun)
   (match fun
-    (($ $fun free (and body ($ $cont kfun ($ $kfun src meta self))))
+    (($ $cont kfun ($ $kfun src meta self))
      ((make-cont-folder #f min-label label-count min-var var-count)
       (lambda (k cont min-label label-count min-var var-count)
         (let ((min-label (min k min-label))
@@ -250,7 +250,7 @@ be that both true and false proofs are available."
              (values min-label label-count (min self min-var) (1+ var-count)))
             (_
              (values min-label label-count min-var var-count)))))
-      body kfun 0 self 0))))
+      fun kfun 0 self 0))))
 
 (define (compute-idoms dfg min-label label-count)
   (define (label->idx label) (- label min-label))
@@ -458,8 +458,10 @@ be that both true and false proofs are available."
 
     (define (visit-exp* k src exp)
       (match exp
-        ((and fun ($ $fun))
-         (build-cps-term ($continue k src ,(cse fun dfg))))
+        (($ $fun free body)
+         (build-cps-term
+           ($continue k src
+             ($fun (map subst-var free) ,(cse body dfg)))))
         (_
          (cond
           ((vector-ref equiv-labels (label->idx label))
@@ -501,8 +503,13 @@ be that both true and false proofs are available."
       (($ $letk conts body)
        ,(visit-term body label))
       (($ $letrec names syms funs body)
-       ($letrec names syms (map (lambda (fun) (cse fun dfg)) funs)
-                ,(visit-term body label)))
+       ($letrec names syms
+                (map (lambda (fun)
+                       (rewrite-cps-exp fun
+                         (($ $fun free body)
+                          ($fun (map subst-var free) ,(cse body dfg)))))
+                     funs)
+         ,(visit-term body label)))
       (($ $continue k src exp)
        ,(let ((conts (append-map visit-dom-conts
                                  (vector-ref doms (label->idx label)))))
@@ -511,9 +518,7 @@ be that both true and false proofs are available."
               (build-cps-term
                 ($letk ,conts ,(visit-exp* k src exp))))))))
 
-  (rewrite-cps-exp fun
-    (($ $fun free body)
-     ($fun (map subst-var free) ,(visit-fun-cont body)))))
+  (visit-fun-cont fun))
 
 (define (cse fun dfg)
   (call-with-values (lambda () (compute-equivalent-subexpressions fun dfg))
@@ -525,6 +530,4 @@ be that both true and false proofs are available."
 (define (eliminate-common-subexpressions fun)
   (call-with-values (lambda () (renumber fun))
     (lambda (fun nlabels nvars)
-      (match fun
-        (($ $fun free body)
-         (cse fun (compute-dfg body)))))))
+      (cse fun (compute-dfg fun)))))

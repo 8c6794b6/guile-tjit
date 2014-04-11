@@ -64,14 +64,12 @@
       (match fun
         (($ $fun free body)
          (visit-cont body))))
-    (visit-fun fun)
+    (visit-cont fun)
     table))
 
 (define (eta-reduce fun)
   (let ((table (compute-eta-reductions fun))
-        (dfg (match fun
-               (($ $fun free body)
-                (compute-dfg body)))))
+        (dfg (compute-dfg fun)))
     (define (reduce* k scope values?)
       (match (hashq-ref table k)
         (#f k)
@@ -119,7 +117,7 @@
       (rewrite-cps-exp fun
         (($ $fun free body)
          ($fun free ,(visit-cont body #f)))))
-    (visit-fun fun)))
+    (visit-cont fun #f)))
 
 (define (compute-beta-reductions fun)
   ;; A continuation's body can be inlined in place of a $values
@@ -127,8 +125,7 @@
   ;; inlined if it is used only once, and not recursively.
   (let ((var-table (make-hash-table))
         (k-table (make-hash-table))
-        (dfg (match fun
-               (($ $fun free body) (compute-dfg body)))))
+        (dfg (compute-dfg fun)))
     (define (visit-cont cont)
       (match cont
         (($ $cont sym ($ $kargs names syms body))
@@ -171,7 +168,7 @@
       (match fun
         (($ $fun free body)
          (visit-cont body))))
-    (visit-fun fun)
+    (visit-cont fun)
     (values var-table k-table)))
 
 (define (beta-reduce fun)
@@ -235,7 +232,7 @@
       (rewrite-cps-exp fun
         (($ $fun free body)
          ($fun (map subst free) ,(must-visit-cont body)))))
-    (visit-fun fun)))
+    (must-visit-cont fun)))
 
 (define (simplify fun)
   ;; Renumbering prunes continuations that are made unreachable by

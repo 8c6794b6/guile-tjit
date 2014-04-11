@@ -603,15 +603,14 @@ integer."
                  (scope-counter 0))
     (let ((src (tree-il-src exp)))
       (let-fresh (kinit ktail kclause kbody) (init)
-        (build-cps-exp
-          ($fun '()
-            (kinit ($kfun src '() init (ktail ($ktail))
-                     (kclause
-                      ($kclause ('() '() #f '() #f)
-                        (kbody ($kargs () ()
-                                 ,(convert exp ktail
-                                           (build-subst exp))))
-                        ,#f))))))))))
+        (build-cps-cont
+          (kinit ($kfun src '() init (ktail ($ktail))
+                   (kclause
+                    ($kclause ('() '() #f '() #f)
+                      (kbody ($kargs () ()
+                               ,(convert exp ktail
+                                         (build-subst exp))))
+                      ,#f)))))))))
 
 (define *comp-module* (make-fluid))
 

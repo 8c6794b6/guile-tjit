@@ -53,8 +53,8 @@
        ($letk ,(map visit-cont conts)
          ,(visit-term body)))
       (($ $letrec names syms funs body)
-       ($letrec names syms (map (cut elide-values* <> conts) funs)
-                ,(visit-term body)))
+       ($letrec names syms (map visit-fun funs)
+         ,(visit-term body)))
       (($ $continue k src ($ $primcall 'values vals))
        ,(rewrite-cps-term (vector-ref conts k)
           (($ $ktail)
@@ -94,17 +94,17 @@
                   (build-cps-term
                     ($continue k src ($values vals))))))))
       (($ $continue k src (and fun ($ $fun)))
-       ($continue k src ,(elide-values* fun conts)))
+       ($continue k src ,(visit-fun fun)))
       (($ $continue)
        ,term)))
+  (define (visit-fun fun)
+    (rewrite-cps-exp fun
+      (($ $fun free cont)
+       ($fun free ,(visit-cont cont)))))
 
-  (rewrite-cps-exp fun
-    (($ $fun free body)
-     ($fun free ,(visit-cont body)))))
+  (visit-cont fun))
 
 (define (elide-values fun)
-  (match fun
-    (($ $fun free funk)
-     (with-fresh-name-state funk
-       (let ((conts (build-cont-table funk)))
-         (elide-values* fun conts))))))
+  (with-fresh-name-state fun
+    (let ((conts (build-cont-table fun)))
+      (elide-values* fun conts))))

@@ -32,7 +32,7 @@
   #:use-module (language cps primitives)
   #:export (fix-arities))
 
-(define (fix-clause-arities clause dfg)
+(define (fix-arities* clause dfg)
   (let ((ktail (match clause
                  (($ $cont _
                      ($ $kfun src meta _ ($ $cont ktail) _)) ktail))))
@@ -41,8 +41,12 @@
         (($ $letk conts body)
          ($letk ,(map visit-cont conts) ,(visit-term body)))
         (($ $letrec names syms funs body)
-         ($letrec names syms (map (cut fix-arities* <> dfg) funs)
-                  ,(visit-term body)))
+         ($letrec names syms (map (lambda (fun)
+                                    (rewrite-cps-exp fun
+                                      (($ $fun free body)
+                                       ($fun free ,(fix-arities* body dfg)))))
+                                  funs)
+           ,(visit-term body)))
         (($ $continue k src exp)
          ,(visit-exp k src exp))))
 
@@ -135,8 +139,9 @@
              ($ $prim)
              ($ $values (_)))
          ,(adapt-exp 1 k src exp))
-        (($ $fun)
-         ,(adapt-exp 1 k src (fix-arities* exp dfg)))
+        (($ $fun free body)
+         ,(adapt-exp 1 k src (build-cps-exp
+                               ($fun free ,(fix-arities* body dfg)))))
         ((or ($ $call) ($ $callk))
          ;; In general, calls have unknown return arity.  For that
          ;; reason every non-tail call has a $kreceive continuation to
@@ -185,14 +190,7 @@
       (($ $cont sym ($ $kfun src meta self tail clause))
        (sym ($kfun src meta self ,tail ,(and clause (visit-cont clause))))))))
 
-(define (fix-arities* fun dfg)
-  (rewrite-cps-exp fun
-    (($ $fun free body)
-     ($fun free ,(fix-clause-arities body dfg)))))
-
 (define (fix-arities fun)
-  (let ((dfg (match fun
-               (($ $fun free body)
-                (compute-dfg body)))))
+  (let ((dfg (compute-dfg fun)))
     (with-fresh-name-state-from-dfg dfg
       (fix-arities* fun dfg))))

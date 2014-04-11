@@ -85,7 +85,7 @@
         (($ $fun free body)
          (visit-cont body))))
 
-    (visit-fun fun)
+    (visit-cont fun)
     scope-var->used?))
 
 (define (prune-top-level-scopes fun)
@@ -114,6 +114,4 @@
          ($continue k src ($primcall 'values ())))
         (($ $continue)
          ,term)))
-    (rewrite-cps-exp fun
-      (($ $fun free body)
-       ($fun free ,(visit-cont body))))))
+    (visit-cont fun)))

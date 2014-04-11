@@ -39,9 +39,7 @@
   #:export (contify))
 
 (define (compute-contification fun)
-  (let* ((dfg (match fun
-                (($ $fun free body)
-                 (compute-dfg body))))
+  (let* ((dfg (compute-dfg fun))
          (scope-table (make-hash-table))
          (call-substs '())
          (cont-substs '())
@@ -294,7 +292,7 @@
                 (visit-fun exp)))
            (_ #t)))))
 
-    (visit-fun fun)
+    (visit-cont fun)
     (values call-substs cont-substs fun-elisions cont-splices)))
 
 (define (apply-contification fun call-substs cont-substs fun-elisions cont-splices)
@@ -401,7 +399,7 @@
            (or (contify-call src proc args)
                (continue k src exp)))
           (_ (continue k src exp)))))))
-  (visit-fun fun))
+  (visit-cont fun))
 
 (define (contify fun)
   (call-with-values (lambda () (compute-contification fun))

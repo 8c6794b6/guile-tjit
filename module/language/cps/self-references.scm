@@ -47,7 +47,7 @@
     (rewrite-cps-term term
       (($ $letrec names vars funs body)
        ($letrec names vars (map visit-recursive-fun funs vars)
-                ,(visit-term body)))
+         ,(visit-term body)))
       (($ $letk conts body)
        ($letk ,(map visit-cont conts)
          ,(visit-term body)))
@@ -57,7 +57,8 @@
   (define (visit-exp exp)
     (rewrite-cps-exp exp
       ((or ($ $void) ($ $const) ($ $prim)) ,exp)
-      (($ $fun) ,(resolve-self-references exp env))
+      (($ $fun free body)
+       ($fun free ,(resolve-self-references body env)))
       (($ $call proc args)
        ($call (subst proc) ,(map subst args)))
       (($ $callk k proc args)
@@ -70,10 +71,8 @@
        ($prompt escape? (subst tag) handler))))
 
   (define (visit-recursive-fun fun var)
-    (match fun
+    (rewrite-cps-exp fun
       (($ $fun free (and cont ($ $cont _ ($ $kfun src meta self))))
-       (resolve-self-references fun (acons var self env)))))
+       ($fun free ,(resolve-self-references cont (acons var self env))))))
 
-  (rewrite-cps-exp fun
-    (($ $fun free cont)
-     ($fun (map subst free) ,(visit-cont cont)))))
+  (visit-cont fun))

@@ -31,9 +31,7 @@
   #:export (specialize-primcalls))
 
 (define (specialize-primcalls fun)
-  (let ((dfg (match fun
-               (($ $fun free body)
-                (compute-dfg body #:global? #t)))))
+  (let ((dfg (compute-dfg fun #:global? #t)))
     (with-fresh-name-state-from-dfg dfg
       (define (immediate-u8? sym)
         (call-with-values (lambda () (find-constant-value sym dfg))
@@ -113,4 +111,4 @@
           (($ $fun free body)
            ($fun free ,(visit-cont body)))))
 
-      (visit-fun fun))))
+      (visit-cont fun))))
