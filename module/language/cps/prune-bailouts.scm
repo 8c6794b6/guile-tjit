@@ -95,5 +95,7 @@
                      ,(and clause (visit-cont clause ktail))))))))
 
 (define (prune-bailouts fun)
-  (with-fresh-name-state fun
-    (prune-bailouts* fun)))
+  (match fun
+    (($ $fun free body)
+     (with-fresh-name-state body
+       (prune-bailouts* fun)))))

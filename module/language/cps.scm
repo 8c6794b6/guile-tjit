@@ -215,10 +215,7 @@
     body ...))
 
 (define-syntax-rule (with-fresh-name-state fun body ...)
-  (call-with-values (lambda ()
-                      (match fun
-                        (($ $fun free fun-k)
-                         (compute-max-label-and-var fun-k))))
+  (call-with-values (lambda () (compute-max-label-and-var fun))
     (lambda (max-label max-var)
       (parameterize ((label-counter (1+ max-label))
                      (var-counter (1+ max-var)))

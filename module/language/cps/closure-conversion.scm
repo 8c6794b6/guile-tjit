@@ -275,9 +275,9 @@ convert functions to flat closures."
 (define (convert-closures exp)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
 and allocate and initialize flat closures."
-  (with-fresh-name-state exp
-    (match exp
-      (($ $fun () body)
+  (match exp
+    (($ $fun () body)
+     (with-fresh-name-state body
        (receive (body free) (cc body #f '())
          (unless (null? free)
            (error "Expected no free vars in toplevel thunk" exp body free))

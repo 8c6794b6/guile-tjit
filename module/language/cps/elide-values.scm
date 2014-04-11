@@ -105,6 +105,6 @@
 (define (elide-values fun)
   (match fun
     (($ $fun free funk)
-     (with-fresh-name-state fun
+     (with-fresh-name-state funk
        (let ((conts (build-cont-table funk)))
          (elide-values* fun conts))))))

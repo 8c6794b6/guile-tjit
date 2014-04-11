@@ -109,7 +109,7 @@
 (define (reify-primitives fun)
   (match fun
     (($ $fun free body)
-     (with-fresh-name-state fun
+     (with-fresh-name-state body
        (let ((conts (build-cont-table body)))
          (define (visit-fun term)
            (rewrite-cps-exp term

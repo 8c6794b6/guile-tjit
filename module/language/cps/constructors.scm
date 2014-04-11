@@ -99,5 +99,7 @@
      ($fun free ,(visit-cont body)))))
 
 (define (inline-constructors fun)
-  (with-fresh-name-state fun
-    (inline-constructors* fun)))
+  (match fun
+    (($ $fun free body)
+     (with-fresh-name-state body
+       (inline-constructors* fun)))))
