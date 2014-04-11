@@ -229,7 +229,7 @@ be that both true and false proofs are available."
 
 (define (compute-label-and-var-ranges fun)
   (match fun
-    (($ $fun free ($ $cont kfun ($ $kfun src meta self)))
+    (($ $fun free (and body ($ $cont kfun ($ $kfun src meta self))))
      ((make-cont-folder #f min-label label-count min-var var-count)
       (lambda (k cont min-label label-count min-var var-count)
         (let ((min-label (min k min-label))
@@ -250,7 +250,7 @@ be that both true and false proofs are available."
              (values min-label label-count (min self min-var) (1+ var-count)))
             (_
              (values min-label label-count min-var var-count)))))
-      fun kfun 0 self 0))))
+      body kfun 0 self 0))))
 
 (define (compute-idoms dfg min-label label-count)
   (define (label->idx label) (- label min-label))

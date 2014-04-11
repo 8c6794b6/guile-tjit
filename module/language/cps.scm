@@ -216,7 +216,9 @@
 
 (define-syntax-rule (with-fresh-name-state fun body ...)
   (call-with-values (lambda ()
-                      (compute-max-label-and-var fun))
+                      (match fun
+                        (($ $fun free fun-k)
+                         (compute-max-label-and-var fun-k))))
     (lambda (max-label max-var)
       (parameterize ((label-counter (1+ max-label))
                      (var-counter (1+ max-var)))
@@ -451,7 +453,7 @@
      (error "unexpected cps" exp))))
 
 (define-syntax-rule (make-cont-folder global? seed ...)
-  (lambda (proc fun seed ...)
+  (lambda (proc cont seed ...)
     (define (fold-values proc in seed ...)
       (if (null? in)
           (values seed ...)
@@ -505,7 +507,7 @@
                (fold-values fun-folder funs seed ...)
                (values seed ...))))))
 
-    (fun-folder fun seed ...)))
+    (cont-folder cont seed ...)))
 
 (define (compute-max-label-and-var fun)
   ((make-cont-folder #t max-label max-var)

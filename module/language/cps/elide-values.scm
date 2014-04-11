@@ -103,6 +103,8 @@
      ($fun free ,(visit-cont body)))))
 
 (define (elide-values fun)
-  (with-fresh-name-state fun
-    (let ((conts (build-cont-table fun)))
-      (elide-values* fun conts))))
+  (match fun
+    (($ $fun free funk)
+     (with-fresh-name-state fun
+       (let ((conts (build-cont-table funk)))
+         (elide-values* fun conts))))))

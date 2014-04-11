@@ -895,23 +895,25 @@ body continuation in the prompt."
       (do-fold #f)))
 
 (define* (compute-dfg fun #:key (global? #t))
-  (call-with-values (lambda () (compute-label-and-var-ranges fun global?))
-    (lambda (min-label max-label label-count min-var max-var var-count)
-      (when (or (zero? label-count) (zero? var-count))
-        (error "internal error (no vars or labels for fun?)"))
-      (let* ((nlabels (- (1+ max-label) min-label))
-             (nvars (- (1+ max-var) min-var))
-             (conts (make-vector nlabels #f))
-             (preds (make-vector nlabels '()))
-             (defs (make-vector nvars #f))
-             (uses (make-vector nvars '()))
-             (scopes (make-vector nlabels #f))
-             (scope-levels (make-vector nlabels #f)))
-        (visit-fun fun conts preds defs uses scopes scope-levels
-                   min-label min-var global?)
-        (make-dfg conts preds defs uses scopes scope-levels
-                  min-label max-label label-count
-                  min-var max-var var-count)))))
+  (match fun
+    (($ $fun free body)
+     (call-with-values (lambda () (compute-label-and-var-ranges body global?))
+       (lambda (min-label max-label label-count min-var max-var var-count)
+         (when (or (zero? label-count) (zero? var-count))
+           (error "internal error (no vars or labels for fun?)"))
+         (let* ((nlabels (- (1+ max-label) min-label))
+                (nvars (- (1+ max-var) min-var))
+                (conts (make-vector nlabels #f))
+                (preds (make-vector nlabels '()))
+                (defs (make-vector nvars #f))
+                (uses (make-vector nvars '()))
+                (scopes (make-vector nlabels #f))
+                (scope-levels (make-vector nlabels #f)))
+           (visit-fun fun conts preds defs uses scopes scope-levels
+                      min-label min-var global?)
+           (make-dfg conts preds defs uses scopes scope-levels
+                     min-label max-label label-count
+                     min-var max-var var-count)))))))
 
 (define-syntax-rule (with-fresh-name-state-from-dfg dfg body ...)
   (parameterize ((label-counter (1+ (dfg-max-label dfg)))
