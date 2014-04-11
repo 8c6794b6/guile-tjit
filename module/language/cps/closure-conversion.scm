@@ -281,5 +281,4 @@ and allocate and initialize flat closures."
        (receive (body free) (cc body #f '())
          (unless (null? free)
            (error "Expected no free vars in toplevel thunk" exp body free))
-         (build-cps-exp
-           ($fun free ,(convert-to-indices body free))))))))
+         (convert-to-indices body free))))))

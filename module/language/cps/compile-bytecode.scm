@@ -506,13 +506,12 @@
          (exp (optimize exp opts))
          (exp (convert-closures exp))
          (exp (reify-primitives exp))
-         (exp (renumber exp))
+         (exp (match (renumber (build-cps-exp ($fun '() ,exp)))
+                (($ $fun free body) body)))
          (asm (make-assembler)))
     (visit-funs (lambda (fun)
                   (compile-fun fun asm))
-                (match exp
-                  (($ $fun free body)
-                   body)))
+                exp)
     (values (link-assembly asm #:page-aligned? (kw-arg-ref opts #:to-file? #f))
             env
             env)))
