@@ -735,9 +735,8 @@ body continuation in the prompt."
 (define (compute-label-and-var-ranges fun global?)
   (define (min* a b)
     (if b (min a b) a))
-  (define-syntax-rule (do-fold global?)
-    ((make-cont-folder global?
-                       min-label max-label label-count
+  (define-syntax-rule (do-fold make-cont-folder)
+    ((make-cont-folder min-label max-label label-count
                        min-var max-var var-count)
      (lambda (label cont
                     min-label max-label label-count
@@ -778,8 +777,8 @@ body continuation in the prompt."
      fun
      #f -1 0 #f -1 0))
   (if global?
-      (do-fold #t)
-      (do-fold #f)))
+      (do-fold make-global-cont-folder)
+      (do-fold make-local-cont-folder)))
 
 (define* (compute-dfg fun #:key (global? #t))
   (call-with-values (lambda () (compute-label-and-var-ranges fun global?))

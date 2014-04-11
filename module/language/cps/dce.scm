@@ -90,7 +90,7 @@
     (define (ensure-fun-data fun)
       (or (hashq-ref fun-data-table fun)
           (call-with-values (lambda ()
-                              ((make-cont-folder #f label-count max-label)
+                              ((make-local-cont-folder label-count max-label)
                                (lambda (k cont label-count max-label)
                                  (values (1+ label-count) (max k max-label)))
                                fun 0 -1))

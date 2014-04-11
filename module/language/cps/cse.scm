@@ -230,7 +230,7 @@ be that both true and false proofs are available."
 (define (compute-label-and-var-ranges fun)
   (match fun
     (($ $cont kfun ($ $kfun src meta self))
-     ((make-cont-folder #f min-label label-count min-var var-count)
+     ((make-local-cont-folder min-label label-count min-var var-count)
       (lambda (k cont min-label label-count min-var var-count)
         (let ((min-label (min k min-label))
               (label-count (1+ label-count)))
