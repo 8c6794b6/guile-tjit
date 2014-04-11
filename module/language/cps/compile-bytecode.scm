@@ -89,7 +89,9 @@
     exp))
 
 (define (compile-fun f asm)
-  (let* ((dfg (compute-dfg f #:global? #f))
+  (let* ((dfg (match f
+                (($ $fun free body)
+                 (compute-dfg body #:global? #f))))
          (allocation (allocate-slots f dfg)))
     (define (maybe-slot sym)
       (lookup-maybe-slot sym allocation))

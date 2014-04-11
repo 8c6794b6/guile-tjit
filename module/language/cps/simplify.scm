@@ -69,7 +69,9 @@
 
 (define (eta-reduce fun)
   (let ((table (compute-eta-reductions fun))
-        (dfg (compute-dfg fun)))
+        (dfg (match fun
+               (($ $fun free body)
+                (compute-dfg body)))))
     (define (reduce* k scope values?)
       (match (hashq-ref table k)
         (#f k)
@@ -125,7 +127,8 @@
   ;; inlined if it is used only once, and not recursively.
   (let ((var-table (make-hash-table))
         (k-table (make-hash-table))
-        (dfg (compute-dfg fun)))
+        (dfg (match fun
+               (($ $fun free body) (compute-dfg body)))))
     (define (visit-cont cont)
       (match cont
         (($ $cont sym ($ $kargs names syms body))

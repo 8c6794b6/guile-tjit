@@ -733,118 +733,6 @@ body continuation in the prompt."
          (newline)
          (lp (1+ n)))))))
 
-(define (visit-fun fun conts preds defs uses scopes scope-levels
-                   min-label min-var global?)
-  (define (add-def! var def-k)
-    (vector-set! defs (- var min-var) def-k))
-
-  (define (add-use! var use-k)
-    (vector-push! uses (- var min-var) use-k))
-
-  (define* (declare-block! label cont parent
-                           #:optional (level
-                                       (1+ (vector-ref
-                                            scope-levels
-                                            (- parent min-label)))))
-    (vector-set! conts (- label min-label) cont)
-    (vector-set! scopes (- label min-label) parent)
-    (vector-set! scope-levels (- label min-label) level))
-
-  (define (link-blocks! pred succ)
-    (vector-push! preds (- succ min-label) pred))
-
-  (define (visit exp exp-k)
-    (define (def! sym)
-      (add-def! sym exp-k))
-    (define (use! sym)
-      (add-use! sym exp-k))
-    (define (use-k! k)
-      (link-blocks! exp-k k))
-    (define (recur exp)
-      (visit exp exp-k))
-    (match exp
-      (($ $letk (($ $cont k cont) ...) body)
-       ;; Set up recursive environment before visiting cont bodies.
-       (for-each/2 (lambda (cont k)
-                     (declare-block! k cont exp-k))
-                   cont k)
-       (for-each/2 visit cont k)
-       (recur body))
-
-      (($ $kargs names syms body)
-       (for-each def! syms)
-       (recur body))
-
-      (($ $kif kt kf)
-       (use-k! kt)
-       (use-k! kf))
-
-      (($ $kreceive arity k)
-       (use-k! k))
-
-      (($ $letrec names syms funs body)
-       (unless global?
-         (error "$letrec should not be present when building a local DFG"))
-       (for-each def! syms)
-       (for-each
-        (cut visit-fun <> conts preds defs uses scopes scope-levels
-             min-label min-var global?)
-        funs)
-       (visit body exp-k))
-
-      (($ $continue k src exp)
-       (use-k! k)
-       (match exp
-         (($ $call proc args)
-          (use! proc)
-          (for-each use! args))
-
-         (($ $callk k proc args)
-          (use! proc)
-          (for-each use! args))
-
-         (($ $primcall name args)
-          (for-each use! args))
-
-         (($ $values args)
-          (for-each use! args))
-
-         (($ $prompt escape? tag handler)
-          (use! tag)
-          (use-k! handler))
-
-         (($ $fun)
-          (when global?
-            (visit-fun exp conts preds defs uses scopes scope-levels
-                       min-label min-var global?)))
-
-         (_ #f)))))
-
-  (match fun
-    (($ $fun free
-        ($ $cont kfun
-           (and entry
-                ($ $kfun src meta self ($ $cont ktail tail) clause))))
-     (declare-block! kfun entry #f 0)
-     (add-def! self kfun)
-
-     (declare-block! ktail tail kfun)
-
-     (let lp ((clause clause))
-       (match clause
-         (#f #t)
-         (($ $cont kclause
-             (and clause ($ $kclause arity ($ $cont kbody body)
-                            alternate)))
-          (declare-block! kclause clause kfun)
-          (link-blocks! kfun kclause)
-
-          (declare-block! kbody body kclause)
-          (link-blocks! kclause kbody)
-
-          (visit body kbody)
-          (lp alternate)))))))
-
 (define (compute-label-and-var-ranges fun global?)
   (define (min* a b)
     (if b (min a b) a))
@@ -895,25 +783,124 @@ body continuation in the prompt."
       (do-fold #f)))
 
 (define* (compute-dfg fun #:key (global? #t))
-  (match fun
-    (($ $fun free body)
-     (call-with-values (lambda () (compute-label-and-var-ranges body global?))
-       (lambda (min-label max-label label-count min-var max-var var-count)
-         (when (or (zero? label-count) (zero? var-count))
-           (error "internal error (no vars or labels for fun?)"))
-         (let* ((nlabels (- (1+ max-label) min-label))
-                (nvars (- (1+ max-var) min-var))
-                (conts (make-vector nlabels #f))
-                (preds (make-vector nlabels '()))
-                (defs (make-vector nvars #f))
-                (uses (make-vector nvars '()))
-                (scopes (make-vector nlabels #f))
-                (scope-levels (make-vector nlabels #f)))
-           (visit-fun fun conts preds defs uses scopes scope-levels
-                      min-label min-var global?)
-           (make-dfg conts preds defs uses scopes scope-levels
-                     min-label max-label label-count
-                     min-var max-var var-count)))))))
+  (call-with-values (lambda () (compute-label-and-var-ranges fun global?))
+    (lambda (min-label max-label label-count min-var max-var var-count)
+      (when (or (zero? label-count) (zero? var-count))
+        (error "internal error (no vars or labels for fun?)"))
+      (let* ((nlabels (- (1+ max-label) min-label))
+             (nvars (- (1+ max-var) min-var))
+             (conts (make-vector nlabels #f))
+             (preds (make-vector nlabels '()))
+             (defs (make-vector nvars #f))
+             (uses (make-vector nvars '()))
+             (scopes (make-vector nlabels #f))
+             (scope-levels (make-vector nlabels #f)))
+        (define (var->idx var) (- var min-var))
+        (define (label->idx label) (- label min-label))
+
+        (define (add-def! var def-k)
+          (vector-set! defs (var->idx var) def-k))
+        (define (add-use! var use-k)
+          (vector-push! uses (var->idx var) use-k))
+
+        (define* (declare-block! label cont parent
+                                 #:optional (level
+                                             (1+ (vector-ref
+                                                  scope-levels
+                                                  (label->idx parent)))))
+          (vector-set! conts (label->idx label) cont)
+          (vector-set! scopes (label->idx label) parent)
+          (vector-set! scope-levels (label->idx label) level))
+
+        (define (link-blocks! pred succ)
+          (vector-push! preds (label->idx succ) pred))
+
+        (define (visit-cont cont label)
+          (match cont
+            (($ $kargs names syms body)
+             (for-each (cut add-def! <> label) syms)
+             (visit-term body label))
+            (($ $kif kt kf)
+             (link-blocks! label kt)
+             (link-blocks! label kf))
+            (($ $kreceive arity k)
+             (link-blocks! label k))))
+
+        (define (visit-term term label)
+          (match term
+            (($ $letk (($ $cont k cont) ...) body)
+             ;; Set up recursive environment before visiting cont bodies.
+             (for-each/2 (lambda (cont k)
+                           (declare-block! k cont label))
+                         cont k)
+             (for-each/2 visit-cont cont k)
+             (visit-term body label))
+            (($ $letrec names syms funs body)
+             (unless global?
+               (error "$letrec should not be present when building a local DFG"))
+             (for-each (cut add-def! <> label) syms)
+             (for-each (lambda (fun)
+                         (match fun
+                           (($ $fun free body)
+                            (visit-fun body))))
+                       funs)
+             (visit-term body label))
+            (($ $continue k src exp)
+             (link-blocks! label k)
+             (visit-exp exp label))))
+
+        (define (visit-exp exp label)
+          (define (use! sym)
+            (add-use! sym label))
+          (match exp
+            ((or ($ $void) ($ $const) ($ $prim)) #f)
+            (($ $call proc args)
+             (use! proc)
+             (for-each use! args))
+            (($ $callk k proc args)
+             (use! proc)
+             (for-each use! args))
+            (($ $primcall name args)
+             (for-each use! args))
+            (($ $values args)
+             (for-each use! args))
+            (($ $prompt escape? tag handler)
+             (use! tag)
+             (link-blocks! label handler))
+            (($ $fun free body)
+             (when global?
+               (visit-fun body)))))
+
+        (define (visit-clause clause kfun)
+          (match clause
+            (#f #t)
+            (($ $cont kclause
+                (and clause ($ $kclause arity ($ $cont kbody body)
+                               alternate)))
+             (declare-block! kclause clause kfun)
+             (link-blocks! kfun kclause)
+
+             (declare-block! kbody body kclause)
+             (link-blocks! kclause kbody)
+
+             (visit-cont body kbody)
+             (visit-clause alternate kfun))))
+
+        (define (visit-fun fun)
+          (match fun
+            (($ $cont kfun
+                (and cont
+                     ($ $kfun src meta self ($ $cont ktail tail) clause)))
+             (declare-block! kfun cont #f 0)
+             (add-def! self kfun)
+             (declare-block! ktail tail kfun)
+             (visit-clause clause kfun))))
+
+        (visit-fun fun)
+
+        (make-dfg conts preds defs uses scopes scope-levels
+                  min-label max-label label-count
+                  min-var max-var var-count)))))
 
 (define-syntax-rule (with-fresh-name-state-from-dfg dfg body ...)
   (parameterize ((label-counter (1+ (dfg-max-label dfg)))

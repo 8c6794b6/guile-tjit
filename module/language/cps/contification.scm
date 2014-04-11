@@ -39,7 +39,9 @@
   #:export (contify))
 
 (define (compute-contification fun)
-  (let* ((dfg (compute-dfg fun))
+  (let* ((dfg (match fun
+                (($ $fun free body)
+                 (compute-dfg body))))
          (scope-table (make-hash-table))
          (call-substs '())
          (cont-substs '())

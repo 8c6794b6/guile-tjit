@@ -525,4 +525,6 @@ be that both true and false proofs are available."
 (define (eliminate-common-subexpressions fun)
   (call-with-values (lambda () (renumber fun))
     (lambda (fun nlabels nvars)
-      (cse fun (compute-dfg fun)))))
+      (match fun
+        (($ $fun free body)
+         (cse fun (compute-dfg body)))))))

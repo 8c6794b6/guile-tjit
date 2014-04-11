@@ -78,7 +78,9 @@
 
 (define (compute-live-code fun)
   (let* ((fun-data-table (make-hash-table))
-         (dfg (compute-dfg fun #:global? #t))
+         (dfg (match fun
+                (($ $fun free body)
+                 (compute-dfg body #:global? #t))))
          (live-vars (make-bitvector (dfg-var-count dfg) #f))
          (changed? #f))
     (define (mark-live! var)

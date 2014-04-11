@@ -191,6 +191,8 @@
      ($fun free ,(fix-clause-arities body dfg)))))
 
 (define (fix-arities fun)
-  (let ((dfg (compute-dfg fun)))
+  (let ((dfg (match fun
+               (($ $fun free body)
+                (compute-dfg body)))))
     (with-fresh-name-state-from-dfg dfg
       (fix-arities* fun dfg))))
