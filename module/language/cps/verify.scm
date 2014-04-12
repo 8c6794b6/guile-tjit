@@ -113,14 +113,12 @@
       (_
        (error "unexpected clause" clause))))
 
-  (define (visit-fun fun k-env v-env)
-    (match fun
-      (($ $fun (free ...)
-          ($ $cont kbody
-             ($ $kfun src meta self ($ $cont ktail ($ $ktail)) clause)))
+  (define (visit-entry entry k-env v-env)
+    (match entry
+      (($ $cont kbody
+          ($ $kfun src meta self ($ $cont ktail ($ $ktail)) clause))
        (when (and meta (not (and (list? meta) (and-map pair? meta))))
          (error "meta should be alist" meta))
-       (for-each (cut check-var <> v-env) free)
        (check-src src)
        ;; Reset the continuation environment, because Guile's
        ;; continuations are local.
@@ -128,6 +126,13 @@
              (k-env (add-labels (list ktail) '())))
          (when clause
            (visit-clause clause k-env v-env))))
+      (_ (error "unexpected $kfun" entry))))
+
+  (define (visit-fun fun k-env v-env)
+    (match fun
+      (($ $fun (free ...) entry)
+       (for-each (cut check-var <> v-env) free)
+       (visit-entry '() v-env))
       (_
        (error "unexpected $fun" fun))))
 
@@ -138,6 +143,8 @@
       (($ $const val)
        #t)
       (($ $prim (? symbol? name))
+       #t)
+      (($ $closure kfun n)
        #t)
       (($ $fun)
        (visit-fun exp k-env v-env))
@@ -184,5 +191,5 @@
       (_
        (error "unexpected term" term))))
 
-  (visit-fun fun '() '())
+  (visit-entry fun '() '())
   fun)
