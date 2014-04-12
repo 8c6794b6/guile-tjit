@@ -86,11 +86,10 @@ performed, and @var{outer-free} is the list of free variables there."
                 ,(convert-free-var
                   free outer-self outer-free
                   (lambda (free)
-                    (values (build-cps-term
-                              ($letconst (('idx idxvar idx))
-                                ($continue k src
-                                  ($primcall 'free-set! (v idxvar free)))))
-                            '())))))))
+                    (build-cps-term
+                      ($letconst (('idx idxvar idx))
+                        ($continue k src
+                          ($primcall 'free-set! (v idxvar free)))))))))))
         body
         free
         (iota (length free))))
@@ -100,11 +99,23 @@ performed, and @var{outer-free} is the list of free variables there."
 @var{exp}."
   (let ((free-vars (make-hash-table))
         (named-funs (make-hash-table))
-        (well-known (make-bitvector (var-counter) #t)))
+        (well-known-vars (make-bitvector (var-counter) #t)))
     (define (add-named-fun! var cont)
       (hashq-set! named-funs var cont))
     (define (clear-well-known! var)
-      (bitvector-set! well-known var #f))
+      (bitvector-set! well-known-vars var #f))
+    (define (compute-well-known-labels)
+      (let ((bv (make-bitvector (label-counter) #f)))
+        (hash-for-each
+         (lambda (var cont)
+           (match cont
+             (($ $cont label ($ $kfun src meta self))
+              (unless (equal? var self)
+                (bitvector-set! bv label
+                                (and (bitvector-ref well-known-vars var)
+                                     (bitvector-ref well-known-vars self)))))))
+         named-funs)
+        bv))
     (define (union a b)
       (lset-union eq? a b))
     (define (difference a b)
@@ -118,7 +129,7 @@ performed, and @var{outer-free} is the list of free variables there."
          (let ((free (if clause
                          (visit-cont clause (list self))
                          '())))
-           (hashq-set! free-vars label (cons free cont))
+           (hashq-set! free-vars label free)
            (difference free bound)))
         (($ $cont label ($ $kclause arity body alternate))
          (let ((free (visit-cont body bound)))
@@ -172,107 +183,165 @@ performed, and @var{outer-free} is the list of free variables there."
     (let ((free (visit-cont exp '())))
       (unless (null? free)
         (error "Expected no free vars in toplevel thunk" free exp))
-      (values free-vars named-funs well-known))))
+      (values free-vars named-funs (compute-well-known-labels)))))
 
-(define (convert-one label free-vars named-funs well-known)
-  (match (hashq-ref free-vars label)
-    ((free . (and fun ($ $cont _ ($ $kfun _ _ self))))
-     (define (visit-cont cont)
-       (rewrite-cps-cont cont
-         (($ $cont label ($ $kargs names vars body))
-          (label ($kargs names vars ,(visit-term body))))
-         (($ $cont label ($ $kfun src meta self tail clause))
-          (label ($kfun src meta self ,tail
-                   ,(and clause (visit-cont clause)))))
-         (($ $cont label ($ $kclause arity body alternate))
-          (label ($kclause ,arity ,(visit-cont body)
-                         ,(and alternate (visit-cont alternate)))))
-         (($ $cont) ,cont)))
-     (define (visit-term term)
-       (match term
-         (($ $letk conts body)
-          (build-cps-term
-            ($letk ,(map visit-cont conts) ,(visit-term body))))
+(define (convert-one label fun free-vars named-funs well-known)
+  ;; Load the closure for a known call.  The callee may or may not be
+  ;; known at all call sites.
+  (define (convert-known-proc-call var label self free k)
+    (match (cons (bitvector-ref well-known label)
+                 (hashq-ref free-vars label))
+      ((#t)
+       ;; Calling a known procedure with no free variables; pass #f as
+       ;; the closure.
+       (let-fresh (k*) (v*)
+         (build-cps-term
+           ($letk ((k* ($kargs (v*) (v*) ,(k v*))))
+             ($continue k* #f ($const #f))))))
+      (_
+       (convert-free-var var self free k))))
 
-         ;; Remove letrec.
-         (($ $letrec names vars funs body)
-          (let lp ((in (map list names vars funs))
-                   (bindings (lambda (body) body))
-                   (body (visit-term body)))
-            (match in
-              (() (bindings body))
-              (((name var ($ $fun ()
-                             (and fun-body
-                                  ($ $cont kfun ($ $kfun src))))) . in)
-               (match (hashq-ref free-vars kfun)
-                 ((fun-free . _)
-                  (lp in
-                      (lambda (body)
-                        (let-fresh (k) ()
-                          (build-cps-term
-                            ($letk ((k ($kargs (name) (var) ,(bindings body))))
-                              ($continue k src
-                                ($closure kfun (length fun-free)))))))
-                      (init-closure src var fun-free self free body))))))))
+  (let ((free (hashq-ref free-vars label))
+        (self (match fun (($ $kfun _ _ self) self))))
+    (define (visit-cont cont)
+      (rewrite-cps-cont cont
+        (($ $cont label ($ $kargs names vars body))
+         (label ($kargs names vars ,(visit-term body))))
+        (($ $cont label ($ $kfun src meta self tail clause))
+         (label ($kfun src meta self ,tail
+                  ,(and clause (visit-cont clause)))))
+        (($ $cont label ($ $kclause arity body alternate))
+         (label ($kclause ,arity ,(visit-cont body)
+                          ,(and alternate (visit-cont alternate)))))
+        (($ $cont) ,cont)))
+    (define (visit-term term)
+      (match term
+        (($ $letk conts body)
+         (build-cps-term
+           ($letk ,(map visit-cont conts) ,(visit-term body))))
 
-         (($ $continue k src (or ($ $void) ($ $const) ($ $prim)))
-          term)
+        ;; Remove letrec.
+        (($ $letrec names vars funs body)
+         (let lp ((in (map list names vars funs))
+                  (bindings (lambda (body) body))
+                  (body (visit-term body)))
+           (match in
+             (() (bindings body))
+             (((name var ($ $fun ()
+                            (and fun-body
+                                 ($ $cont kfun ($ $kfun src))))) . in)
+              (match (cons (bitvector-ref well-known kfun)
+                           (hashq-ref free-vars kfun))
+                ((#t)
+                 (lp in bindings body))
+                ((_ . fun-free)
+                 (lp in
+                     (lambda (body)
+                       (let-fresh (k) ()
+                         (build-cps-term
+                           ($letk ((k ($kargs (name) (var) ,(bindings body))))
+                             ($continue k src
+                               ($closure kfun (length fun-free)))))))
+                     (init-closure src var fun-free self free body))))))))
 
-         (($ $continue k src ($ $fun () ($ $cont kfun)))
-          (match (hashq-ref free-vars kfun)
-            ((() . _)
-             (build-cps-term ($continue k src ($closure kfun 0))))
-            ((fun-free . _)
-             (let-fresh (kinit) (v)
-               (build-cps-term
-                 ($letk ((kinit ($kargs (v) (v)
-                                  ,(init-closure
-                                    src v fun-free self free
+        (($ $continue k src (or ($ $void) ($ $const) ($ $prim)))
+         term)
+
+        (($ $continue k src ($ $fun () ($ $cont kfun)))
+         (match (cons (bitvector-ref well-known kfun)
+                      (hashq-ref free-vars kfun))
+           ((#t)
+            (build-cps-term ($continue k src ($const #f))))
+           ((#f)
+            (build-cps-term ($continue k src ($closure kfun 0))))
+           ((_ . fun-free)
+            (let-fresh (kinit) (v)
+              (build-cps-term
+                ($letk ((kinit ($kargs (v) (v)
+                                 ,(init-closure
+                                   src v fun-free self free
+                                   (build-cps-term
+                                     ($continue k src ($values (v))))))))
+                  ($continue kinit src
+                    ($closure kfun (length fun-free)))))))))
+
+        (($ $continue k src ($ $call proc args))
+         (match (hashq-ref named-funs proc)
+           (($ $cont label)
+            (convert-known-proc-call
+             proc label self free
+             (lambda (proc)
+               (convert-free-vars args self free
+                                  (lambda (args)
                                     (build-cps-term
-                                      ($continue k src ($values (v))))))))
-                   ($continue kinit src
-                     ($closure kfun (length fun-free)))))))))
-
-         (($ $continue k src ($ $call proc args))
-          (let ((def (hashq-ref named-funs proc))
-                (known? (bitvector-ref well-known proc)))
+                                      ($continue k src
+                                        ($callk label proc args))))))))
+           (#f
             (convert-free-vars (cons proc args) self free
                                (match-lambda
                                 ((proc . args)
-                                 (rewrite-cps-term def
-                                   (($ $cont label)
-                                    ($continue k src
-                                      ($callk label proc args)))
-                                   (#f
-                                    ($continue k src
-                                      ($call proc args)))))))))
+                                 (build-cps-term
+                                   ($continue k src
+                                     ($call proc args)))))))))
 
-         (($ $continue k src ($ $callk k* proc args))
-          (convert-free-vars (cons proc args) self free
-                             (match-lambda
-                              ((proc . args)
-                               (build-cps-term
-                                 ($continue k src ($callk k* proc args)))))))
-
-         (($ $continue k src ($ $primcall name args))
-          (convert-free-vars args self free
-                             (lambda (args)
-                               (build-cps-term
-                                 ($continue k src ($primcall name args))))))
-
-         (($ $continue k src ($ $values args))
-          (convert-free-vars args self free
-                             (lambda (args)
-                               (build-cps-term
-                                 ($continue k src ($values args))))))
-
-         (($ $continue k src ($ $prompt escape? tag handler))
-          (convert-free-var tag self free
-                            (lambda (tag)
+        (($ $continue k src ($ $primcall name args))
+         (convert-free-vars args self free
+                            (lambda (args)
                               (build-cps-term
-                                ($continue k src
-                                  ($prompt escape? tag handler))))))))
-     (visit-cont fun))))
+                                ($continue k src ($primcall name args))))))
+
+        (($ $continue k src ($ $values args))
+         (convert-free-vars args self free
+                            (lambda (args)
+                              (build-cps-term
+                                ($continue k src ($values args))))))
+
+        (($ $continue k src ($ $prompt escape? tag handler))
+         (convert-free-var tag self free
+                           (lambda (tag)
+                             (build-cps-term
+                               ($continue k src
+                                 ($prompt escape? tag handler))))))))
+    (visit-cont (build-cps-cont (label ,fun)))))
+
+(define (prune-free-vars free-vars named-funs well-known)
+  (let ((eliminated (make-bitvector (label-counter) #f)))
+    (define (filter-out-eliminated free)
+      (match free
+        (() '())
+        ((var . free)
+         (match (hashq-ref named-funs var)
+           (($ $cont (? (cut bitvector-ref eliminated <>) label))
+            (filter-out-eliminated free))
+           (_ (cons var (filter-out-eliminated free)))))))
+    (let lp ((label 0))
+      (let ((label (bit-position #t well-known label)))
+        (when label
+          (match (hashq-ref free-vars label)
+            ;; Eliminate all well-known closures that have no free
+            ;; variables.
+            (() (bitvector-set! eliminated label #t))
+            (_ #f))
+          (lp (1+ label)))))
+    (let lp ()
+      (let ((recurse? #f))
+        (hash-for-each-handle
+         (lambda (pair)
+           (match pair
+             ((label . ()) #t)
+             ((label . free)
+              ;; We could be more precise and eliminate elements of
+              ;; `free' that are well-known closures within this
+              ;; function, even if they aren't globally well known.  Not
+              ;; implemented.
+              (let ((free (filter-out-eliminated free)))
+                (set-cdr! pair free)
+                (when (and (null? free) (bitvector-ref well-known label))
+                  (bitvector-set! eliminated label #t)
+                  (set! recurse? #t))))))
+         free-vars)
+        ;; Iterate to fixed point.
+        (when recurse? (lp))))))
 
 (define (convert-closures fun)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
@@ -281,8 +350,11 @@ and allocate and initialize flat closures."
     (with-fresh-name-state-from-dfg dfg
       (call-with-values (lambda () (analyze-closures fun dfg))
         (lambda (free-vars named-funs well-known)
+          (prune-free-vars free-vars named-funs well-known)
           (let ((labels (sort (hash-map->list (lambda (k v) k) free-vars) <)))
             (build-cps-term
               ($program
-               ,(map (cut convert-one <> free-vars named-funs well-known)
+               ,(map (lambda (label)
+                       (convert-one label (lookup-cont label dfg)
+                                    free-vars named-funs well-known))
                      labels)))))))))
