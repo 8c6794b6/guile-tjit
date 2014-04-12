@@ -34,8 +34,10 @@
   #:use-module ((srfi srfi-1) #:select (fold
                                         lset-union lset-difference
                                         list-index))
+  #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
+  #:use-module (language cps dfg)
   #:export (convert-closures))
 
 ;; free := var ...
@@ -93,10 +95,15 @@ performed, and @var{outer-free} is the list of free variables there."
         free
         (iota (length free))))
 
-(define (compute-free-vars exp)
+(define (analyze-closures exp dfg)
   "Compute the set of free variables for all $fun instances in
 @var{exp}."
-  (let ((table (make-hash-table)))
+  (let ((free-vars (make-hash-table))
+        (well-known (make-hash-table)))
+    (define (add-well-known! var cont)
+      (hashq-set! well-known var cont))
+    (define (clear-well-known! var)
+      (hashq-remove! well-known var))
     (define (union a b)
       (lset-union eq? a b))
     (define (difference a b)
@@ -109,7 +116,7 @@ performed, and @var{outer-free} is the list of free variables there."
          (let ((free (if clause
                          (visit-cont clause (list self))
                          '())))
-           (hashq-set! table label (cons free cont))
+           (hashq-set! free-vars label (cons free cont))
            (difference free bound)))
         (($ $cont label ($ $kclause arity body alternate))
          (let ((free (visit-cont body bound)))
@@ -126,11 +133,17 @@ performed, and @var{outer-free} is the list of free variables there."
                conts))
         (($ $letrec names vars (($ $fun () cont) ...) body)
          (let ((bound (append vars bound)))
+           (for-each add-well-known! vars cont)
            (fold (lambda (cont free)
                    (union (visit-cont cont bound) free))
                  (visit-term body bound)
                  cont)))
         (($ $continue k src ($ $fun () body))
+         (match (lookup-predecessors k dfg)
+           ((_) (match (lookup-cont k dfg)
+                  (($ $kargs (name) (var))
+                   (add-well-known! var body))))
+           (_ #f))
          (visit-cont body bound))
         (($ $continue k src exp)
          (visit-exp exp bound))))
@@ -142,23 +155,25 @@ performed, and @var{outer-free} is the list of free variables there."
       (match exp
         ((or ($ $void) ($ $const) ($ $prim)) '())
         (($ $call proc args)
-         (fold adjoin (adjoin proc '()) args))
-        (($ $callk k* proc args)
+         (for-each clear-well-known! args)
          (fold adjoin (adjoin proc '()) args))
         (($ $primcall name args)
+         (for-each clear-well-known! args)
          (fold adjoin '() args))
         (($ $values args)
+         (for-each clear-well-known! args)
          (fold adjoin '() args))
         (($ $prompt escape? tag handler)
+         (clear-well-known! tag)
          (adjoin tag '()))))
 
     (let ((free (visit-cont exp '())))
       (unless (null? free)
         (error "Expected no free vars in toplevel thunk" free exp))
-      table)))
+      (values free-vars well-known))))
 
-(define (convert-one label table)
-  (match (hashq-ref table label)
+(define (convert-one label free-vars well-known)
+  (match (hashq-ref free-vars label)
     ((free . (and fun ($ $cont _ ($ $kfun _ _ self))))
      (define (visit-cont cont)
        (rewrite-cps-cont cont
@@ -186,7 +201,7 @@ performed, and @var{outer-free} is the list of free variables there."
               (((name var ($ $fun ()
                              (and fun-body
                                   ($ $cont kfun ($ $kfun src))))) . in)
-               (match (hashq-ref table kfun)
+               (match (hashq-ref free-vars kfun)
                  ((fun-free . _)
                   (lp in
                       (lambda (body)
@@ -201,7 +216,7 @@ performed, and @var{outer-free} is the list of free variables there."
           term)
 
          (($ $continue k src ($ $fun () ($ $cont kfun)))
-          (match (hashq-ref table kfun)
+          (match (hashq-ref free-vars kfun)
             ((() . _)
              (build-cps-term ($continue k src ($closure kfun 0))))
             ((fun-free . _)
@@ -252,8 +267,11 @@ performed, and @var{outer-free} is the list of free variables there."
 (define (convert-closures fun)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
 and allocate and initialize flat closures."
-  (with-fresh-name-state fun
-    (let* ((table (compute-free-vars fun))
-           (labels (sort (hash-map->list (lambda (k v) k) table) <)))
-      (build-cps-term
-        ($program ,(map (cut convert-one <> table) labels))))))
+  (let ((dfg (compute-dfg fun)))
+    (with-fresh-name-state-from-dfg dfg
+      (call-with-values (lambda () (analyze-closures fun dfg))
+        (lambda (free-vars well-known)
+          (let ((labels (sort (hash-map->list (lambda (k v) k) free-vars) <)))
+            (build-cps-term
+              ($program ,(map (cut convert-one <> free-vars well-known)
+                              labels)))))))))
