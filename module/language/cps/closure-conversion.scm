@@ -99,11 +99,12 @@ performed, and @var{outer-free} is the list of free variables there."
   "Compute the set of free variables for all $fun instances in
 @var{exp}."
   (let ((free-vars (make-hash-table))
-        (well-known (make-hash-table)))
-    (define (add-well-known! var cont)
-      (hashq-set! well-known var cont))
+        (named-funs (make-hash-table))
+        (well-known (make-bitvector (var-counter) #t)))
+    (define (add-named-fun! var cont)
+      (hashq-set! named-funs var cont))
     (define (clear-well-known! var)
-      (hashq-remove! well-known var))
+      (bitvector-set! well-known var #f))
     (define (union a b)
       (lset-union eq? a b))
     (define (difference a b)
@@ -113,6 +114,7 @@ performed, and @var{outer-free} is the list of free variables there."
         (($ $cont label ($ $kargs names vars body))
          (visit-term body (append vars bound)))
         (($ $cont label ($ $kfun src meta self tail clause))
+         (add-named-fun! self cont)
          (let ((free (if clause
                          (visit-cont clause (list self))
                          '())))
@@ -133,7 +135,7 @@ performed, and @var{outer-free} is the list of free variables there."
                conts))
         (($ $letrec names vars (($ $fun () cont) ...) body)
          (let ((bound (append vars bound)))
-           (for-each add-well-known! vars cont)
+           (for-each add-named-fun! vars cont)
            (fold (lambda (cont free)
                    (union (visit-cont cont bound) free))
                  (visit-term body bound)
@@ -142,7 +144,7 @@ performed, and @var{outer-free} is the list of free variables there."
          (match (lookup-predecessors k dfg)
            ((_) (match (lookup-cont k dfg)
                   (($ $kargs (name) (var))
-                   (add-well-known! var body))))
+                   (add-named-fun! var body))))
            (_ #f))
          (visit-cont body bound))
         (($ $continue k src exp)
@@ -170,9 +172,9 @@ performed, and @var{outer-free} is the list of free variables there."
     (let ((free (visit-cont exp '())))
       (unless (null? free)
         (error "Expected no free vars in toplevel thunk" free exp))
-      (values free-vars well-known))))
+      (values free-vars named-funs well-known))))
 
-(define (convert-one label free-vars well-known)
+(define (convert-one label free-vars named-funs well-known)
   (match (hashq-ref free-vars label)
     ((free . (and fun ($ $cont _ ($ $kfun _ _ self))))
      (define (visit-cont cont)
@@ -180,7 +182,8 @@ performed, and @var{outer-free} is the list of free variables there."
          (($ $cont label ($ $kargs names vars body))
           (label ($kargs names vars ,(visit-term body))))
          (($ $cont label ($ $kfun src meta self tail clause))
-          (label ($kfun src meta self ,tail ,(and clause (visit-cont clause)))))
+          (label ($kfun src meta self ,tail
+                   ,(and clause (visit-cont clause)))))
          (($ $cont label ($ $kclause arity body alternate))
           (label ($kclause ,arity ,(visit-cont body)
                          ,(and alternate (visit-cont alternate)))))
@@ -231,11 +234,18 @@ performed, and @var{outer-free} is the list of free variables there."
                      ($closure kfun (length fun-free)))))))))
 
          (($ $continue k src ($ $call proc args))
-          (convert-free-vars (cons proc args) self free
-                             (match-lambda
-                              ((proc . args)
-                               (build-cps-term
-                                 ($continue k src ($call proc args)))))))
+          (let ((def (hashq-ref named-funs proc))
+                (known? (bitvector-ref well-known proc)))
+            (convert-free-vars (cons proc args) self free
+                               (match-lambda
+                                ((proc . args)
+                                 (rewrite-cps-term def
+                                   (($ $cont label)
+                                    ($continue k src
+                                      ($callk label proc args)))
+                                   (#f
+                                    ($continue k src
+                                      ($call proc args)))))))))
 
          (($ $continue k src ($ $callk k* proc args))
           (convert-free-vars (cons proc args) self free
@@ -270,8 +280,9 @@ and allocate and initialize flat closures."
   (let ((dfg (compute-dfg fun)))
     (with-fresh-name-state-from-dfg dfg
       (call-with-values (lambda () (analyze-closures fun dfg))
-        (lambda (free-vars well-known)
+        (lambda (free-vars named-funs well-known)
           (let ((labels (sort (hash-map->list (lambda (k v) k) free-vars) <)))
             (build-cps-term
-              ($program ,(map (cut convert-one <> free-vars well-known)
-                              labels)))))))))
+              ($program
+               ,(map (cut convert-one <> free-vars named-funs well-known)
+                     labels)))))))))
