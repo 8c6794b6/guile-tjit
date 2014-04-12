@@ -42,7 +42,7 @@
 
 ;; free := var ...
 
-(define (convert-free-var var self free k)
+(define (convert-free-var var self self-known? free k)
   "Convert one possibly free variable reference to a bound reference.
 
 If @var{var} is free (i.e., present in @var{free},), it is replaced
@@ -52,47 +52,135 @@ called with @var{var}."
   (cond
    ((list-index (cut eq? <> var) free)
     => (lambda (free-idx)
-         (let-fresh (k* kidx) (idx var*)
-           (build-cps-term
-             ($letk ((kidx ($kargs ('idx) (idx)
-                             ($letk ((k* ($kargs (var*) (var*) ,(k var*))))
-                               ($continue k* #f
-                                 ($primcall 'free-ref (self idx)))))))
-               ($continue kidx #f ($const free-idx)))))))
+         (match (cons self-known? free)
+           ;; A reference to one of the two free vars in a well-known
+           ;; function.
+           ((#t _ _)
+            (let-fresh (k*) (var*)
+              (build-cps-term
+                ($letk ((k* ($kargs (var*) (var*) ,(k var*))))
+                  ($continue k* #f
+                    ($primcall (match free-idx (0 'car) (1 'cdr)) (self)))))))
+           (_
+            (let-fresh (k* kidx) (idx var*)
+              (build-cps-term
+                ($letk ((kidx ($kargs ('idx) (idx)
+                                ($letk ((k* ($kargs (var*) (var*) ,(k var*))))
+                                  ($continue k* #f
+                                    ($primcall
+                                     (cond
+                                      ((not self-known?) 'free-ref)
+                                      ((<= free-idx #xff) 'vector-ref/immediate)
+                                      (else 'vector-ref))
+                                     (self idx)))))))
+                  ($continue kidx #f ($const free-idx)))))))))
    (else (k var))))
   
-(define (convert-free-vars vars self free k)
+(define (convert-free-vars vars self self-known? free k)
   "Convert a number of possibly free references to bound references.
 @var{k} is called with the bound references, and should return the
 term."
   (match vars
     (() (k '()))
     ((var . vars)
-     (convert-free-var var self free
+     (convert-free-var var self self-known? free
                        (lambda (var)
-                         (convert-free-vars vars self free
+                         (convert-free-vars vars self self-known? free
                                             (lambda (vars)
                                               (k (cons var vars)))))))))
   
-(define (init-closure src v free outer-self outer-free body)
+(define (allocate-closure src name var label known? free body)
+  "Allocate a new closure."
+  (match (cons known? free)
+    ((#f . _)
+     (let-fresh (k*) ()
+       (build-cps-term
+         ($letk ((k* ($kargs (name) (var) ,body)))
+           ($continue k* src
+             ($closure label (length free)))))))
+    ((#t)
+     ;; Well-known callee with no free variables; elide the
+     ;; binding entirely.
+     body)
+    ;; FIXME: Single-var case here.
+    ((#t _ _)
+     ;; Well-known callee with two free variables; the closure is a
+     ;; pair.
+     (let-fresh (kinit kfalse) (false)
+       (build-cps-term
+         ($letk ((kinit ($kargs (name) (var)
+                          ,body))
+                 (kfalse ($kargs ('false) (false)
+                           ($continue kinit src
+                             ($primcall 'cons (false false))))))
+           ($continue kfalse src ($const #f))))))
+    ;; Well-known callee with more than two free variables; the closure
+    ;; is a vector.
+    ((#t . _)
+     (let ((nfree (length free)))
+       (let-fresh (kinit klen kfalse) (false len-var)
+         (build-cps-term
+           ($letk ((kinit ($kargs (name) (var) ,body))
+                   (kfalse ($kargs ('false) (false)
+                             ($letk ((klen
+                                      ($kargs ('len) (len-var)
+                                        ($continue kinit src
+                                          ($primcall (if (<= nfree #xff)
+                                                         'make-vector/immediate
+                                                         'make-vector)
+                                                     (len-var false))))))
+                               ($continue klen src ($const nfree))))))
+             ($continue kfalse src ($const #f)))))))))
+
+(define (init-closure src var known? free
+                      outer-self outer-known? outer-free body)
   "Initialize the free variables @var{free} in a closure bound to
-@var{v}, and continue with @var{body}.  @var{outer-self} must be the
+@var{var}, and continue with @var{body}.  @var{outer-self} must be the
 label of the outer procedure, where the initialization will be
 performed, and @var{outer-free} is the list of free variables there."
-  (fold (lambda (free idx body)
-          (let-fresh (k) (idxvar)
-            (build-cps-term
-              ($letk ((k ($kargs () () ,body)))
-                ,(convert-free-var
-                  free outer-self outer-free
-                  (lambda (free)
-                    (build-cps-term
-                      ($letconst (('idx idxvar idx))
-                        ($continue k src
-                          ($primcall 'free-set! (v idxvar free)))))))))))
-        body
-        free
-        (iota (length free))))
+  (match (cons known? free)
+    ;; Well-known callee with no free variables; no initialization
+    ;; necessary.
+    ((#t) body)
+    ;; Well-known callee with two free variables; do a set-car! and
+    ;; set-cdr!.
+    ((#t v0 v1)
+     (let-fresh (kcar kcdr) ()
+       (convert-free-var
+        v0 outer-self outer-known? outer-free
+        (lambda (v0)
+          (build-cps-term
+            ($letk ((kcar ($kargs () ()
+                            ,(convert-free-var
+                              v1 outer-self outer-known? outer-free
+                              (lambda (v1)
+                                (build-cps-term
+                                  ($letk ((kcdr ($kargs () () ,body)))
+                                    ($continue kcdr src
+                                      ($primcall 'set-cdr! (var v1))))))))))
+              ($continue kcar src
+                ($primcall 'set-car! (var v0)))))))))
+    ;; Otherwise residualize a sequence of vector-set! or free-set!,
+    ;; depending on whether the callee is well-known or not.
+    (_
+     (fold (lambda (free idx body)
+             (let-fresh (k) (idxvar)
+               (build-cps-term
+                 ($letk ((k ($kargs () () ,body)))
+                   ,(convert-free-var
+                     free outer-self outer-known? outer-free
+                     (lambda (free)
+                       (build-cps-term
+                         ($letconst (('idx idxvar idx))
+                           ($continue k src
+                             ($primcall (cond
+                                         ((not known?) 'free-set!)
+                                         ((<= idx #xff) 'vector-set!/immediate)
+                                         (else 'vector-set!))
+                                        (var idxvar free)))))))))))
+           body
+           free
+           (iota (length free))))))
 
 (define (analyze-closures exp dfg)
   "Compute the set of free variables for all $fun instances in
@@ -185,126 +273,9 @@ performed, and @var{outer-free} is the list of free variables there."
         (error "Expected no free vars in toplevel thunk" free exp))
       (values free-vars named-funs (compute-well-known-labels)))))
 
-(define (convert-one label fun free-vars named-funs well-known)
-  ;; Load the closure for a known call.  The callee may or may not be
-  ;; known at all call sites.
-  (define (convert-known-proc-call var label self free k)
-    (match (cons (bitvector-ref well-known label)
-                 (hashq-ref free-vars label))
-      ((#t)
-       ;; Calling a known procedure with no free variables; pass #f as
-       ;; the closure.
-       (let-fresh (k*) (v*)
-         (build-cps-term
-           ($letk ((k* ($kargs (v*) (v*) ,(k v*))))
-             ($continue k* #f ($const #f))))))
-      (_
-       (convert-free-var var self free k))))
-
-  (let ((free (hashq-ref free-vars label))
-        (self (match fun (($ $kfun _ _ self) self))))
-    (define (visit-cont cont)
-      (rewrite-cps-cont cont
-        (($ $cont label ($ $kargs names vars body))
-         (label ($kargs names vars ,(visit-term body))))
-        (($ $cont label ($ $kfun src meta self tail clause))
-         (label ($kfun src meta self ,tail
-                  ,(and clause (visit-cont clause)))))
-        (($ $cont label ($ $kclause arity body alternate))
-         (label ($kclause ,arity ,(visit-cont body)
-                          ,(and alternate (visit-cont alternate)))))
-        (($ $cont) ,cont)))
-    (define (visit-term term)
-      (match term
-        (($ $letk conts body)
-         (build-cps-term
-           ($letk ,(map visit-cont conts) ,(visit-term body))))
-
-        ;; Remove letrec.
-        (($ $letrec names vars funs body)
-         (let lp ((in (map list names vars funs))
-                  (bindings (lambda (body) body))
-                  (body (visit-term body)))
-           (match in
-             (() (bindings body))
-             (((name var ($ $fun ()
-                            (and fun-body
-                                 ($ $cont kfun ($ $kfun src))))) . in)
-              (match (cons (bitvector-ref well-known kfun)
-                           (hashq-ref free-vars kfun))
-                ((#t)
-                 (lp in bindings body))
-                ((_ . fun-free)
-                 (lp in
-                     (lambda (body)
-                       (let-fresh (k) ()
-                         (build-cps-term
-                           ($letk ((k ($kargs (name) (var) ,(bindings body))))
-                             ($continue k src
-                               ($closure kfun (length fun-free)))))))
-                     (init-closure src var fun-free self free body))))))))
-
-        (($ $continue k src (or ($ $void) ($ $const) ($ $prim)))
-         term)
-
-        (($ $continue k src ($ $fun () ($ $cont kfun)))
-         (match (cons (bitvector-ref well-known kfun)
-                      (hashq-ref free-vars kfun))
-           ((#t)
-            (build-cps-term ($continue k src ($const #f))))
-           ((#f)
-            (build-cps-term ($continue k src ($closure kfun 0))))
-           ((_ . fun-free)
-            (let-fresh (kinit) (v)
-              (build-cps-term
-                ($letk ((kinit ($kargs (v) (v)
-                                 ,(init-closure
-                                   src v fun-free self free
-                                   (build-cps-term
-                                     ($continue k src ($values (v))))))))
-                  ($continue kinit src
-                    ($closure kfun (length fun-free)))))))))
-
-        (($ $continue k src ($ $call proc args))
-         (match (hashq-ref named-funs proc)
-           (($ $cont label)
-            (convert-known-proc-call
-             proc label self free
-             (lambda (proc)
-               (convert-free-vars args self free
-                                  (lambda (args)
-                                    (build-cps-term
-                                      ($continue k src
-                                        ($callk label proc args))))))))
-           (#f
-            (convert-free-vars (cons proc args) self free
-                               (match-lambda
-                                ((proc . args)
-                                 (build-cps-term
-                                   ($continue k src
-                                     ($call proc args)))))))))
-
-        (($ $continue k src ($ $primcall name args))
-         (convert-free-vars args self free
-                            (lambda (args)
-                              (build-cps-term
-                                ($continue k src ($primcall name args))))))
-
-        (($ $continue k src ($ $values args))
-         (convert-free-vars args self free
-                            (lambda (args)
-                              (build-cps-term
-                                ($continue k src ($values args))))))
-
-        (($ $continue k src ($ $prompt escape? tag handler))
-         (convert-free-var tag self free
-                           (lambda (tag)
-                             (build-cps-term
-                               ($continue k src
-                                 ($prompt escape? tag handler))))))))
-    (visit-cont (build-cps-cont (label ,fun)))))
-
 (define (prune-free-vars free-vars named-funs well-known)
+  (define (well-known? label)
+    (bitvector-ref well-known label))
   (let ((eliminated (make-bitvector (label-counter) #f)))
     (define (filter-out-eliminated free)
       (match free
@@ -336,12 +307,129 @@ performed, and @var{outer-free} is the list of free variables there."
               ;; implemented.
               (let ((free (filter-out-eliminated free)))
                 (set-cdr! pair free)
-                (when (and (null? free) (bitvector-ref well-known label))
+                (when (and (null? free) (well-known? label))
                   (bitvector-set! eliminated label #t)
                   (set! recurse? #t))))))
          free-vars)
         ;; Iterate to fixed point.
         (when recurse? (lp))))))
+
+(define (convert-one label fun free-vars named-funs well-known)
+  (define (well-known? label)
+    (bitvector-ref well-known label))
+
+  ;; Load the closure for a known call.  The callee may or may not be
+  ;; known at all call sites.
+  (define (convert-known-proc-call var label self self-known? free k)
+    (match (cons (well-known? label)
+                 (hashq-ref free-vars label))
+      ((#t)
+       ;; Calling a well-known procedure with no free variables; pass #f
+       ;; as the closure.
+       (let-fresh (k*) (v*)
+         (build-cps-term
+           ($letk ((k* ($kargs (v*) (v*) ,(k v*))))
+             ($continue k* #f ($const #f))))))
+      (_
+       (convert-free-var var self self-known? free k))))
+
+  (let ((free (hashq-ref free-vars label))
+        (self-known? (well-known? label))
+        (self (match fun (($ $kfun _ _ self) self))))
+    (define (visit-cont cont)
+      (rewrite-cps-cont cont
+        (($ $cont label ($ $kargs names vars body))
+         (label ($kargs names vars ,(visit-term body))))
+        (($ $cont label ($ $kfun src meta self tail clause))
+         (label ($kfun src meta self ,tail
+                  ,(and clause (visit-cont clause)))))
+        (($ $cont label ($ $kclause arity body alternate))
+         (label ($kclause ,arity ,(visit-cont body)
+                          ,(and alternate (visit-cont alternate)))))
+        (($ $cont) ,cont)))
+    (define (visit-term term)
+      (match term
+        (($ $letk conts body)
+         (build-cps-term
+           ($letk ,(map visit-cont conts) ,(visit-term body))))
+
+        ;; Remove letrec.
+        (($ $letrec names vars funs body)
+         (let lp ((in (map list names vars funs))
+                  (bindings (lambda (body) body))
+                  (body (visit-term body)))
+           (match in
+             (() (bindings body))
+             (((name var ($ $fun ()
+                            (and fun-body
+                                 ($ $cont kfun ($ $kfun src))))) . in)
+              (let ((fun-free (hashq-ref free-vars kfun)))
+                (lp in
+                    (lambda (body)
+                      (allocate-closure
+                       src name var kfun (well-known? kfun) fun-free
+                       (bindings body)))
+                    (init-closure
+                     src var (well-known? kfun) fun-free self self-known? free
+                     body)))))))
+
+        (($ $continue k src (or ($ $void) ($ $const) ($ $prim)))
+         term)
+
+        (($ $continue k src ($ $fun () ($ $cont kfun)))
+         (let ((fun-free (hashq-ref free-vars kfun)))
+           (match fun-free
+             (()
+              (build-cps-term
+                ($continue k src ,(if (well-known? kfun)
+                                      (build-cps-exp ($const #f))
+                                      (build-cps-exp ($closure kfun 0))))))
+             (_
+              (let-fresh () (var)
+                (allocate-closure
+                 src #f var kfun (well-known? kfun) fun-free
+                 (init-closure
+                  src var (well-known? kfun) fun-free self self-known? free
+                  (build-cps-term ($continue k src ($values (var)))))))))))
+
+        (($ $continue k src ($ $call proc args))
+         (match (hashq-ref named-funs proc)
+           (($ $cont kfun)
+            (convert-known-proc-call
+             proc kfun self self-known? free
+             (lambda (proc)
+               (convert-free-vars args self self-known? free
+                                  (lambda (args)
+                                    (build-cps-term
+                                      ($continue k src
+                                        ($callk kfun proc args))))))))
+           (#f
+            (convert-free-vars (cons proc args) self self-known? free
+                               (match-lambda
+                                ((proc . args)
+                                 (build-cps-term
+                                   ($continue k src
+                                     ($call proc args)))))))))
+
+        (($ $continue k src ($ $primcall name args))
+         (convert-free-vars args self self-known? free
+                            (lambda (args)
+                              (build-cps-term
+                                ($continue k src ($primcall name args))))))
+
+        (($ $continue k src ($ $values args))
+         (convert-free-vars args self self-known? free
+                            (lambda (args)
+                              (build-cps-term
+                                ($continue k src ($values args))))))
+
+        (($ $continue k src ($ $prompt escape? tag handler))
+         (convert-free-var tag self self-known? free
+                           (lambda (tag)
+                             (build-cps-term
+                               ($continue k src
+                                 ($prompt escape? tag handler))))))))
+    (visit-cont (build-cps-cont (label ,fun)))))
 
 (define (convert-closures fun)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
