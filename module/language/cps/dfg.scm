@@ -851,7 +851,7 @@ body continuation in the prompt."
           (define (use! sym)
             (add-use! sym label))
           (match exp
-            ((or ($ $void) ($ $const) ($ $prim)) #f)
+            ((or ($ $void) ($ $const) ($ $prim) ($ $closure)) #f)
             (($ $call proc args)
              (use! proc)
              (for-each use! args))

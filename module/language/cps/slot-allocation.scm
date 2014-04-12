@@ -442,7 +442,7 @@ are comparable with eqv?.  A tmp slot may be used."
                 ;; are finished with the scan, we kill uses of the
                 ;; terminator, but leave its definitions.
                 (match (find-expression body)
-                  ((or ($ $void) ($ $const) ($ $prim) ($ $fun)
+                  ((or ($ $void) ($ $const) ($ $prim) ($ $closure)
                        ($ $primcall) ($ $prompt)
                        ;; If $values has more than one argument, it may
                        ;; use a temporary, which would invalidate our

@@ -122,7 +122,11 @@
             $kif $kreceive $kargs $kfun $ktail $kclause
 
             ;; Expressions.
-            $void $const $prim $fun $call $callk $primcall $values $prompt
+            $void $const $prim $fun $closure
+            $call $callk $primcall $values $prompt
+
+            ;; First-order CPS root.
+            $program
 
             ;; Fresh names.
             label-counter var-counter
@@ -173,7 +177,7 @@
 ;; Terms.
 (define-cps-type $letk conts body)
 (define-cps-type $continue k src exp)
-(define-cps-type $letrec names syms funs body)
+(define-cps-type $letrec names syms funs body) ; Higher-order.
 
 ;; Continuations
 (define-cps-type $cont k cont)
@@ -188,12 +192,17 @@
 (define-cps-type $void)
 (define-cps-type $const val)
 (define-cps-type $prim name)
-(define-cps-type $fun free body)
+(define-cps-type $fun free body) ; Higher-order.
+(define-cps-type $closure label nfree) ; First-order.
 (define-cps-type $call proc args)
-(define-cps-type $callk k proc args)
+(define-cps-type $callk k proc args) ; First-order.
 (define-cps-type $primcall name args)
 (define-cps-type $values args)
 (define-cps-type $prompt escape? tag handler)
+
+;; The root of a higher-order CPS term is $cont containing a $kfun.  The
+;; root of a first-order CPS term is a $program.
+(define-cps-type $program funs)
 
 (define label-counter (make-parameter #f))
 (define var-counter (make-parameter #f))
@@ -257,13 +266,14 @@
 
 (define-syntax build-cps-exp
   (syntax-rules (unquote
-                 $void $const $prim $fun $call $callk $primcall $values $prompt)
+                 $void $const $prim $fun $closure
+                 $call $callk $primcall $values $prompt)
     ((_ (unquote exp)) exp)
     ((_ ($void)) (make-$void))
     ((_ ($const val)) (make-$const val))
     ((_ ($prim name)) (make-$prim name))
-    ((_ ($fun free body))
-     (make-$fun free (build-cps-cont body)))
+    ((_ ($fun free body)) (make-$fun free (build-cps-cont body)))
+    ((_ ($closure k nfree)) (make-$closure k nfree))
     ((_ ($call proc (unquote args))) (make-$call proc args))
     ((_ ($call proc (arg ...))) (make-$call proc (list arg ...)))
     ((_ ($call proc args)) (make-$call proc args))
@@ -280,7 +290,7 @@
      (make-$prompt escape? tag handler))))
 
 (define-syntax build-cps-term
-  (syntax-rules (unquote $letk $letk* $letconst $letrec $continue)
+  (syntax-rules (unquote $letk $letk* $letconst $letrec $program $continue)
     ((_ (unquote exp))
      exp)
     ((_ ($letk (unquote conts) body))
@@ -303,6 +313,12 @@
              ($const val))))))
     ((_ ($letrec names gensyms funs body))
      (make-$letrec names gensyms funs (build-cps-term body)))
+    ((_ ($program (unquote conts)))
+     (make-$program conts))
+    ((_ ($program (cont ...)))
+     (make-$program (list (build-cps-cont cont) ...)))
+    ((_ ($program conts))
+     (make-$program conts))
     ((_ ($continue k src exp))
      (make-$continue k src (build-cps-exp exp)))))
 
@@ -375,9 +391,13 @@
      (build-cps-exp ($prim name)))
     (('fun free body)
      (build-cps-exp ($fun free ,(parse-cps body))))
+    (('closure k nfree)
+     (build-cps-exp ($closure k nfree)))
     (('letrec ((name sym fun) ...) body)
      (build-cps-term
        ($letrec name sym (map parse-cps fun) ,(parse-cps body))))
+    (('program (cont ...))
+     (build-cps-term ($program ,(map parse-cps cont))))
     (('call proc arg ...)
      (build-cps-exp ($call proc arg)))
     (('callk k proc arg ...)
@@ -432,11 +452,15 @@
      `(prim ,name))
     (($ $fun free body)
      `(fun ,free ,(unparse-cps body)))
+    (($ $closure k nfree)
+     `(closure ,k ,nfree))
     (($ $letrec names syms funs body)
      `(letrec ,(map (lambda (name sym fun)
                       (list name sym (unparse-cps fun)))
                     names syms funs)
         ,(unparse-cps body)))
+    (($ $program conts)
+     `(program ,(map unparse-cps conts)))
     (($ $call proc args)
      `(call ,proc ,@args))
     (($ $callk k proc args)
@@ -541,21 +565,45 @@
          (cont-folder tail seed ...))))))
 
 (define (compute-max-label-and-var fun)
-  ((make-global-cont-folder max-label max-var)
-   (lambda (label cont max-label max-var)
-     (values (max label max-label)
-             (match cont
-               (($ $kargs names vars body)
-                (let lp ((body body) (max-var (fold max max-var vars)))
-                  (match body
-                    (($ $letk conts body) (lp body max-var))
-                    (($ $letrec names vars funs body)
-                     (lp body (fold max max-var vars)))
-                    (_ max-var))))
-               (($ $kfun src meta self)
-                (max self max-var))
-               (_ max-var))))
-   fun -1 -1))
+  (match fun
+    (($ $cont)
+     ((make-global-cont-folder max-label max-var)
+      (lambda (label cont max-label max-var)
+        (values (max label max-label)
+                (match cont
+                  (($ $kargs names vars body)
+                   (let lp ((body body) (max-var (fold max max-var vars)))
+                     (match body
+                       (($ $letk conts body) (lp body max-var))
+                       (($ $letrec names vars funs body)
+                        (lp body (fold max max-var vars)))
+                       (_ max-var))))
+                  (($ $kfun src meta self)
+                   (max self max-var))
+                  (_ max-var))))
+      fun -1 -1))
+    (($ $program conts)
+     (define (fold/2 proc in s0 s1)
+      (if (null? in)
+          (values s0 s1)
+          (let-values (((s0 s1) (proc (car in) s0 s1)))
+            (fold/2 proc (cdr in) s0 s1))))
+     (let lp ((conts conts) (max-label -1) (max-var -1))
+       (if (null? conts)
+           (values max-label max-var)
+           (call-with-values (lambda ()
+                               ((make-local-cont-folder max-label max-var)
+                                (lambda (label cont max-label max-var)
+                                  (values (max label max-label)
+                                          (match cont
+                                            (($ $kargs names vars body)
+                                             (fold max max-var vars))
+                                            (($ $kfun src meta self)
+                                             (max self max-var))
+                                            (_ max-var))))
+                                (car conts) max-label max-var))
+             (lambda (max-label max-var)
+               (lp (cdr conts) max-label max-var))))))))
 
 (define (fold-conts proc seed fun)
   ((make-global-cont-folder seed) proc fun seed))

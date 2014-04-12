@@ -34,249 +34,226 @@
   #:use-module ((srfi srfi-1) #:select (fold
                                         lset-union lset-difference
                                         list-index))
-  #:use-module (ice-9 receive)
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
   #:export (convert-closures))
 
-(define (union s1 s2)
-  (lset-union eq? s1 s2))
+;; free := var ...
 
-(define (difference s1 s2)
-  (lset-difference eq? s1 s2))
-
-;; bound := sym ...
-;; free := sym ...
-
-(define (convert-free-var sym self bound k)
+(define (convert-free-var var self free k)
   "Convert one possibly free variable reference to a bound reference.
 
-If @var{sym} is free (i.e., not present in @var{bound},), it is replaced
+If @var{var} is free (i.e., present in @var{free},), it is replaced
 by a closure reference via a @code{free-ref} primcall, and @var{k} is
-called with the new var.  Otherwise @var{sym} is bound, so @var{k} is
-called with @var{sym}.
-
-@var{k} should return two values: a term and a list of additional free
-values in the term."
-  (if (memq sym bound)
-      (k sym)
-      (let-fresh (k*) (sym*)
-        (receive (exp free) (k sym*)
-          (values (build-cps-term
-                    ($letk ((k* ($kargs (sym*) (sym*) ,exp)))
-                      ($continue k* #f ($primcall 'free-ref (self sym)))))
-                  (cons sym free))))))
+called with the new var.  Otherwise @var{var} is bound, so @var{k} is
+called with @var{var}."
+  (cond
+   ((list-index (cut eq? <> var) free)
+    => (lambda (free-idx)
+         (let-fresh (k* kidx) (idx var*)
+           (build-cps-term
+             ($letk ((kidx ($kargs ('idx) (idx)
+                             ($letk ((k* ($kargs (var*) (var*) ,(k var*))))
+                               ($continue k* #f
+                                 ($primcall 'free-ref (self idx)))))))
+               ($continue kidx #f ($const free-idx)))))))
+   (else (k var))))
   
-(define (convert-free-vars syms self bound k)
+(define (convert-free-vars vars self free k)
   "Convert a number of possibly free references to bound references.
-@var{k} is called with the bound references, and should return two
-values: the term and a list of additional free variables in the term."
-  (match syms
+@var{k} is called with the bound references, and should return the
+term."
+  (match vars
     (() (k '()))
-    ((sym . syms)
-     (convert-free-var sym self bound
-                       (lambda (sym)
-                         (convert-free-vars syms self bound
-                                            (lambda (syms)
-                                              (k (cons sym syms)))))))))
+    ((var . vars)
+     (convert-free-var var self free
+                       (lambda (var)
+                         (convert-free-vars vars self free
+                                            (lambda (vars)
+                                              (k (cons var vars)))))))))
   
-(define (init-closure src v free outer-self outer-bound body)
+(define (init-closure src v free outer-self outer-free body)
   "Initialize the free variables @var{free} in a closure bound to
 @var{v}, and continue with @var{body}.  @var{outer-self} must be the
 label of the outer procedure, where the initialization will be
-performed, and @var{outer-bound} is the list of bound variables there."
+performed, and @var{outer-free} is the list of free variables there."
   (fold (lambda (free idx body)
-          (let-fresh (k) (idxsym)
+          (let-fresh (k) (idxvar)
             (build-cps-term
               ($letk ((k ($kargs () () ,body)))
                 ,(convert-free-var
-                  free outer-self outer-bound
+                  free outer-self outer-free
                   (lambda (free)
                     (values (build-cps-term
-                              ($letconst (('idx idxsym idx))
+                              ($letconst (('idx idxvar idx))
                                 ($continue k src
-                                  ($primcall 'free-set! (v idxsym free)))))
+                                  ($primcall 'free-set! (v idxvar free)))))
                             '())))))))
         body
         free
         (iota (length free))))
 
-(define (cc* exps self bound)
-  "Convert all free references in the list of expressions @var{exps} to
-bound references, and convert functions to flat closures.  Returns two
-values: the transformed list, and a cumulative set of free variables."
-  (let lp ((exps exps) (exps* '()) (free '()))
-    (match exps
-      (() (values (reverse exps*) free))
-      ((exp . exps)
-       (receive (exp* free*) (cc exp self bound)
-         (lp exps (cons exp* exps*) (union free free*)))))))
-
-;; Closure conversion.
-(define (cc exp self bound)
-  "Convert all free references in @var{exp} to bound references, and
-convert functions to flat closures."
-  (match exp
-    (($ $letk conts body)
-     (receive (conts free) (cc* conts self bound)
-       (receive (body free*) (cc body self bound)
-         (values (build-cps-term ($letk ,conts ,body))
-                 (union free free*)))))
-
-    (($ $cont sym ($ $kargs names syms body))
-     (receive (body free) (cc body self (append syms bound))
-       (values (build-cps-cont (sym ($kargs names syms ,body)))
+(define (compute-free-vars exp)
+  "Compute the set of free variables for all $fun instances in
+@var{exp}."
+  (let ((table (make-hash-table)))
+    (define (union a b)
+      (lset-union eq? a b))
+    (define (difference a b)
+      (lset-difference eq? a b))
+    (define (visit-cont cont bound)
+      (match cont
+        (($ $cont label ($ $kargs names vars body))
+         (visit-term body (append vars bound)))
+        (($ $cont label ($ $kfun src meta self tail clause))
+         (let ((free (if clause
+                         (visit-cont clause (list self))
+                         '())))
+           (hashq-set! table label (cons free cont))
+           (difference free bound)))
+        (($ $cont label ($ $kclause arity body alternate))
+         (let ((free (visit-cont body bound)))
+           (if alternate
+               (union (visit-cont alternate bound) free)
                free)))
+        (($ $cont) '())))
+    (define (visit-term term bound)
+      (match term
+        (($ $letk conts body)
+         (fold (lambda (cont free)
+                 (union (visit-cont cont bound) free))
+               (visit-term body bound)
+               conts))
+        (($ $letrec names vars (($ $fun () cont) ...) body)
+         (let ((bound (append vars bound)))
+           (fold (lambda (cont free)
+                   (union (visit-cont cont bound) free))
+                 (visit-term body bound)
+                 cont)))
+        (($ $continue k src ($ $fun () body))
+         (visit-cont body bound))
+        (($ $continue k src exp)
+         (visit-exp exp bound))))
+    (define (visit-exp exp bound)
+      (define (adjoin var free)
+        (if (or (memq var bound) (memq var free))
+            free
+            (cons var free)))
+      (match exp
+        ((or ($ $void) ($ $const) ($ $prim)) '())
+        (($ $call proc args)
+         (fold adjoin (adjoin proc '()) args))
+        (($ $callk k* proc args)
+         (fold adjoin (adjoin proc '()) args))
+        (($ $primcall name args)
+         (fold adjoin '() args))
+        (($ $values args)
+         (fold adjoin '() args))
+        (($ $prompt escape? tag handler)
+         (adjoin tag '()))))
 
-    (($ $cont sym ($ $kfun src meta self tail clause))
-     (receive (clause free) (if clause
-                                (cc clause self (list self))
-                                (values #f '()))
-       (values (build-cps-cont (sym ($kfun src meta self ,tail ,clause)))
-               free)))
+    (let ((free (visit-cont exp '())))
+      (unless (null? free)
+        (error "Expected no free vars in toplevel thunk" free exp))
+      table)))
 
-    (($ $cont sym ($ $kclause arity body alternate))
-     (receive (body free) (cc body self bound)
-       (receive (alternate free*) (if alternate
-                                      (cc alternate self bound)
-                                      (values #f '()))
-         (values (build-cps-cont (sym ($kclause ,arity ,body ,alternate)))
-                 (union free free*)))))
-
-    (($ $cont)
-     ;; Other kinds of continuations don't bind values and don't have
-     ;; bodies.
-     (values exp '()))
-
-    ;; Remove letrec.
-    (($ $letrec names syms funs body)
-     (let ((bound (append bound syms)))
-       (receive (body free) (cc body self bound)
-         (let lp ((in (map list names syms funs))
-                  (bindings (lambda (body) body))
-                  (body body)
-                  (free free))
-           (match in
-             (() (values (bindings body) free))
-             (((name sym ($ $fun () (and fun-body
-                                         ($ $cont _ ($ $kfun src))))) . in)
-              (receive (fun-body fun-free) (cc fun-body #f '())
-                (lp in
-                    (lambda (body)
-                      (let-fresh (k) ()
-                        (build-cps-term
-                          ($letk ((k ($kargs (name) (sym) ,(bindings body))))
-                            ($continue k src
-                              ($fun fun-free ,fun-body))))))
-                    (init-closure src sym fun-free self bound body)
-                    (union free (difference fun-free bound))))))))))
-
-    (($ $continue k src
-        (or ($ $void)
-            ($ $const)
-            ($ $prim)))
-     (values exp '()))
-
-    (($ $continue k src ($ $fun () body))
-     (receive (body free) (cc body #f '())
-       (match free
-         (()
-          (values (build-cps-term
-                    ($continue k src ($fun free ,body)))
-                  free))
-         (_
-          (values
-           (let-fresh (kinit) (v)
-             (build-cps-term
-               ($letk ((kinit ($kargs (v) (v)
-                                ,(init-closure
-                                  src v free self bound
-                                  (build-cps-term
-                                    ($continue k src ($values (v))))))))
-                 ($continue kinit src ($fun free ,body)))))
-           (difference free bound))))))
-
-    (($ $continue k src ($ $call proc args))
-     (convert-free-vars (cons proc args) self bound
-                        (match-lambda
-                         ((proc . args)
-                          (values (build-cps-term
-                                    ($continue k src ($call proc args)))
-                                  '())))))
-
-    (($ $continue k src ($ $callk k* proc args))
-     (convert-free-vars (cons proc args) self bound
-                        (match-lambda
-                         ((proc . args)
-                          (values (build-cps-term
-                                    ($continue k src ($callk k* proc args)))
-                                  '())))))
-
-    (($ $continue k src ($ $primcall name args))
-     (convert-free-vars args self bound
-                        (lambda (args)
-                          (values (build-cps-term
-                                    ($continue k src ($primcall name args)))
-                                  '()))))
-
-    (($ $continue k src ($ $values args))
-     (convert-free-vars args self bound
-                        (lambda (args)
-                          (values (build-cps-term
-                                    ($continue k src ($values args)))
-                                  '()))))
-
-    (($ $continue k src ($ $prompt escape? tag handler))
-     (convert-free-var
-      tag self bound
-      (lambda (tag)
-        (values (build-cps-term
-                  ($continue k src ($prompt escape? tag handler)))
-                '()))))
-
-    (_ (error "what" exp))))
-
-;; Convert the slot arguments of 'free-ref' primcalls from symbols to
-;; indices.
-(define (convert-to-indices body free)
-  (define (free-index sym)
-    (or (list-index (cut eq? <> sym) free)
-        (error "free variable not found!" sym free)))
-  (define (visit-term term)
-    (rewrite-cps-term term
-      (($ $letk conts body)
-       ($letk ,(map visit-cont conts) ,(visit-term body)))
-      (($ $continue k src ($ $primcall 'free-ref (closure sym)))
-       ,(let-fresh () (idx)
+(define (convert-one label table)
+  (match (hashq-ref table label)
+    ((free . (and fun ($ $cont _ ($ $kfun _ _ self))))
+     (define (visit-cont cont)
+       (rewrite-cps-cont cont
+         (($ $cont label ($ $kargs names vars body))
+          (label ($kargs names vars ,(visit-term body))))
+         (($ $cont label ($ $kfun src meta self tail clause))
+          (label ($kfun src meta self ,tail ,(and clause (visit-cont clause)))))
+         (($ $cont label ($ $kclause arity body alternate))
+          (label ($kclause ,arity ,(visit-cont body)
+                         ,(and alternate (visit-cont alternate)))))
+         (($ $cont) ,cont)))
+     (define (visit-term term)
+       (match term
+         (($ $letk conts body)
           (build-cps-term
-            ($letconst (('idx idx (free-index sym)))
-              ($continue k src ($primcall 'free-ref (closure idx)))))))
-      (($ $continue k src ($ $fun free body))
-       ($continue k src
-         ($fun free ,(convert-to-indices body free))))
-      (($ $continue)
-       ,term)))
-  (define (visit-cont cont)
-    (rewrite-cps-cont cont
-      (($ $cont sym ($ $kargs names syms body))
-       (sym ($kargs names syms ,(visit-term body))))
-      (($ $cont sym ($ $kclause arity body alternate))
-       (sym ($kclause ,arity ,(visit-cont body)
-                      ,(and alternate (visit-cont alternate)))))
-      ;; Other kinds of continuations don't bind values and don't have
-      ;; bodies.
-      (($ $cont)
-       ,cont)))
+            ($letk ,(map visit-cont conts) ,(visit-term body))))
 
-  (rewrite-cps-cont body
-    (($ $cont sym ($ $kfun src meta self tail clause))
-     (sym ($kfun src meta self ,tail ,(and clause (visit-cont clause)))))))
+         ;; Remove letrec.
+         (($ $letrec names vars funs body)
+          (let lp ((in (map list names vars funs))
+                   (bindings (lambda (body) body))
+                   (body (visit-term body)))
+            (match in
+              (() (bindings body))
+              (((name var ($ $fun ()
+                             (and fun-body
+                                  ($ $cont kfun ($ $kfun src))))) . in)
+               (match (hashq-ref table kfun)
+                 ((fun-free . _)
+                  (lp in
+                      (lambda (body)
+                        (let-fresh (k) ()
+                          (build-cps-term
+                            ($letk ((k ($kargs (name) (var) ,(bindings body))))
+                              ($continue k src
+                                ($closure kfun (length fun-free)))))))
+                      (init-closure src var fun-free self free body))))))))
+
+         (($ $continue k src (or ($ $void) ($ $const) ($ $prim)))
+          term)
+
+         (($ $continue k src ($ $fun () ($ $cont kfun)))
+          (match (hashq-ref table kfun)
+            ((() . _)
+             (build-cps-term ($continue k src ($closure kfun 0))))
+            ((fun-free . _)
+             (let-fresh (kinit) (v)
+               (build-cps-term
+                 ($letk ((kinit ($kargs (v) (v)
+                                  ,(init-closure
+                                    src v fun-free self free
+                                    (build-cps-term
+                                      ($continue k src ($values (v))))))))
+                   ($continue kinit src
+                     ($closure kfun (length fun-free)))))))))
+
+         (($ $continue k src ($ $call proc args))
+          (convert-free-vars (cons proc args) self free
+                             (match-lambda
+                              ((proc . args)
+                               (build-cps-term
+                                 ($continue k src ($call proc args)))))))
+
+         (($ $continue k src ($ $callk k* proc args))
+          (convert-free-vars (cons proc args) self free
+                             (match-lambda
+                              ((proc . args)
+                               (build-cps-term
+                                 ($continue k src ($callk k* proc args)))))))
+
+         (($ $continue k src ($ $primcall name args))
+          (convert-free-vars args self free
+                             (lambda (args)
+                               (build-cps-term
+                                 ($continue k src ($primcall name args))))))
+
+         (($ $continue k src ($ $values args))
+          (convert-free-vars args self free
+                             (lambda (args)
+                               (build-cps-term
+                                 ($continue k src ($values args))))))
+
+         (($ $continue k src ($ $prompt escape? tag handler))
+          (convert-free-var tag self free
+                            (lambda (tag)
+                              (build-cps-term
+                                ($continue k src
+                                  ($prompt escape? tag handler))))))))
+     (visit-cont fun))))
 
 (define (convert-closures fun)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
 and allocate and initialize flat closures."
   (with-fresh-name-state fun
-    (receive (body free) (cc fun #f '())
-      (unless (null? free)
-        (error "Expected no free vars in toplevel thunk" fun body free))
-      (convert-to-indices body free))))
+    (let* ((table (compute-free-vars fun))
+           (labels (sort (hash-map->list (lambda (k v) k) table) <)))
+      (build-cps-term
+        ($program ,(map (cut convert-one <> table) labels))))))

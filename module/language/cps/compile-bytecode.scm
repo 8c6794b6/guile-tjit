@@ -245,10 +245,10 @@
          (emit-load-constant asm dst *unspecified*))
         (($ $const exp)
          (emit-load-constant asm dst exp))
-        (($ $fun () ($ $cont k))
+        (($ $closure k 0)
          (emit-load-static-procedure asm dst k))
-        (($ $fun free ($ $cont k))
-         (emit-make-closure asm dst k (length free)))
+        (($ $closure k nfree)
+         (emit-make-closure asm dst k nfree))
         (($ $primcall 'current-module)
          (emit-current-module asm dst))
         (($ $primcall 'cached-toplevel-box (scope name bound?))
@@ -474,43 +474,18 @@
       (($ $cont k ($ $kfun src meta self tail clause))
        (compile-entry)))))
 
-(define (visit-funs proc exp)
-  (match exp
-    (($ $continue _ _ exp)
-     (visit-funs proc exp))
-
-    (($ $fun free body)
-     (visit-funs proc body))
-
-    (($ $letk conts body)
-     (visit-funs proc body)
-     (for-each (lambda (cont) (visit-funs proc cont)) conts))
-
-    (($ $cont sym ($ $kargs names syms body))
-     (visit-funs proc body))
-
-    (($ $cont sym ($ $kclause arity body alternate))
-     (visit-funs proc body)
-     (when alternate
-       (visit-funs proc alternate)))
-
-    (($ $cont sym ($ $kfun src meta self tail clause))
-     (proc exp)
-     (when clause
-       (visit-funs proc clause)))
-
-    (_ (values))))
-
 (define (compile-bytecode exp env opts)
   (let* ((exp (fix-arities exp))
          (exp (optimize exp opts))
          (exp (convert-closures exp))
+         ;; first-order optimization should go here
          (exp (reify-primitives exp))
          (exp (renumber exp))
          (asm (make-assembler)))
-    (visit-funs (lambda (fun)
-                  (compile-fun fun asm))
-                exp)
+    (match exp
+      (($ $program funs)
+       (for-each (lambda (fun) (compile-fun fun asm))
+                 funs)))
     (values (link-assembly asm #:page-aligned? (kw-arg-ref opts #:to-file? #f))
             env
             env)))
