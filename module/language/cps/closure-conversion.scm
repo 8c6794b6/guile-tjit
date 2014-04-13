@@ -45,11 +45,16 @@
 (define (analyze-closures exp dfg)
   "Compute the set of free variables for all $fun instances in
 @var{exp}."
-  (let ((free-vars (make-hash-table))
+  (let ((bound-vars (make-hash-table))
+        (free-vars (make-hash-table))
         (named-funs (make-hash-table))
         (well-known-vars (make-bitvector (var-counter) #t)))
     (define (add-named-fun! var cont)
-      (hashq-set! named-funs var cont))
+      (hashq-set! named-funs var cont)
+      (match cont
+        (($ $cont label ($ $kfun src meta self))
+         (unless (eq? var self)
+           (hashq-set! bound-vars label var)))))
     (define (clear-well-known! var)
       (bitvector-set! well-known-vars var #f))
     (define (compute-well-known-labels)
@@ -131,7 +136,7 @@
     (let ((free (visit-cont exp '())))
       (unless (null? free)
         (error "Expected no free vars in toplevel thunk" free exp))
-      (values free-vars named-funs (compute-well-known-labels)))))
+      (values bound-vars free-vars named-funs (compute-well-known-labels)))))
 
 (define (prune-free-vars free-vars named-funs well-known var-aliases)
   (define (well-known? label)
@@ -158,7 +163,7 @@
           ;; Normally you wouldn't see duplicates in a free variable
           ;; list, but with aliases that is possible.
           (if (memq elt list) list (cons elt list)))
-        (define (filter-out-eliminated free)
+        (define (prune-free closure-label free)
           (match free
             (() '())
             ((var . free)
@@ -167,7 +172,7 @@
                  (($ $cont label)
                   (cond
                    ((bitvector-ref eliminated label)
-                    (filter-out-eliminated free))
+                    (prune-free closure-label free))
                    ((vector-ref label-aliases label)
                     => (lambda (var)
                          (cond
@@ -180,19 +185,23 @@
                                        (bitvector-set! eliminated label #t)
                                        (set! recurse? #t))
                                      alias-stack)
-                           (filter-out-eliminated free))
+                           (prune-free closure-label free))
                           (else
                            (lp var (cons label alias-stack))))))
+                   ((eq? closure-label label)
+                    ;; Eliminate self-reference.
+                    (pk 'hi)
+                    (prune-free closure-label free))
                    (else
-                    (adjoin var (filter-out-eliminated free)))))
-                 (_ (adjoin var (filter-out-eliminated free))))))))
+                    (adjoin var (prune-free closure-label free)))))
+                 (_ (adjoin var (prune-free closure-label free))))))))
         (hash-for-each-handle
          (lambda (pair)
            (match pair
              ((label . ()) #t)
              ((label . free)
               (let ((orig-nfree (length free))
-                    (free (filter-out-eliminated free)))
+                    (free (prune-free label free)))
                 (set-cdr! pair free)
                 ;; If we managed to eliminate one or more free variables
                 ;; from a well-known function, it could be that we can
@@ -219,7 +228,7 @@
                             (vector-set! var-aliases var alias))))))
                    named-funs)))
 
-(define (convert-one label fun free-vars named-funs well-known aliases)
+(define (convert-one bound label fun free-vars named-funs well-known aliases)
   (define (well-known? label)
     (bitvector-ref well-known label))
 
@@ -259,6 +268,7 @@ Otherwise @var{var} is bound, so @var{k} is called with @var{var}."
                                           (else 'vector-ref))
                                          (self idx)))))))
                       ($continue kidx #f ($const free-idx)))))))))
+       ((eq? var bound) (k self))
        (else (k var))))
   
     (define (convert-free-vars vars k)
@@ -509,13 +519,14 @@ and allocate and initialize flat closures."
   (let ((dfg (compute-dfg fun)))
     (with-fresh-name-state-from-dfg dfg
       (call-with-values (lambda () (analyze-closures fun dfg))
-        (lambda (free-vars named-funs well-known)
+        (lambda (bound-vars free-vars named-funs well-known)
           (let ((labels (sort (hash-map->list (lambda (k v) k) free-vars) <))
                 (aliases (make-vector (var-counter) #f)))
             (prune-free-vars free-vars named-funs well-known aliases)
             (build-cps-term
               ($program
                ,(map (lambda (label)
-                       (convert-one label (lookup-cont label dfg)
+                       (convert-one (hashq-ref bound-vars label) label
+                                    (lookup-cont label dfg)
                                     free-vars named-funs well-known aliases))
                      labels)))))))))
