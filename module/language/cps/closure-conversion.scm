@@ -190,7 +190,6 @@
                            (lp var (cons label alias-stack))))))
                    ((eq? closure-label label)
                     ;; Eliminate self-reference.
-                    (pk 'hi)
                     (prune-free closure-label free))
                    (else
                     (adjoin var (prune-free closure-label free)))))
