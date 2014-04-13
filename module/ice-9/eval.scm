@@ -1,6 +1,6 @@
 ;;; -*- mode: scheme; coding: utf-8; -*-
 
-;;;; Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+;;;; Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -329,8 +329,12 @@
     ;; of arguments, and some rest arities; see make-fixed-closure and
     ;; make-rest-closure above.
 
-    ;; A unique marker for unbound keywords.
-    (define unbound-arg (list 'unbound-arg))
+    ;; A unique marker for unbound keywords.  NB: There should be no
+    ;; other instance of '(unbound-arg) in this compilation unit, so
+    ;; that this marker is indeed unique.  It's a hack, but it allows
+    ;; the constant to propagate to inner closures, reducing free
+    ;; variable counts all around, so it is important for perf.
+    (define unbound-arg '(unbound-arg))
 
     ;; Procedures with rest, optional, or keyword arguments, potentially with
     ;; multiple arities, as with case-lambda.
