@@ -508,9 +508,14 @@
          (let ((proc
                 (if (null? tail)
                     (make-fixed-closure eval nreq body env)
-                    (if (null? (cdr tail))
-                        (make-rest-closure eval nreq body env)
-                        (apply make-general-closure env body nreq tail)))))
+                    (mx-bind
+                     tail (rest? . tail)
+                     (if (null? tail)
+                         (make-rest-closure eval nreq body env)
+                         (mx-bind
+                          tail (nopt kw inits alt)
+                          (make-general-closure env body nreq rest?
+                                                nopt kw inits alt)))))))
            (let lp ((meta meta))
              (unless (null? meta)
                (set-procedure-property! proc (caar meta) (cdar meta))
