@@ -53,6 +53,8 @@ called with @var{var}."
    ((list-index (cut eq? <> var) free)
     => (lambda (free-idx)
          (match (cons self-known? free)
+           ;; A reference to the one free var of a well-known function.
+           ((#t _) (k self))
            ;; A reference to one of the two free vars in a well-known
            ;; function.
            ((#t _ _)
@@ -99,12 +101,15 @@ term."
            ($continue k* src
              ($closure label (length free)))))))
     ((#t)
-     ;; Well-known callee with no free variables; elide the
+     ;; Well-known closure with no free variables; elide the
      ;; binding entirely.
      body)
-    ;; FIXME: Single-var case here.
+    ((#t _)
+     ;; Well-known closure with one free variable; the free var is the
+     ;; closure, and no new binding need be made.
+     body)
     ((#t _ _)
-     ;; Well-known callee with two free variables; the closure is a
+     ;; Well-known closure with two free variables; the closure is a
      ;; pair.
      (let-fresh (kinit kfalse) (false)
        (build-cps-term
@@ -142,6 +147,9 @@ performed, and @var{outer-free} is the list of free variables there."
     ;; Well-known callee with no free variables; no initialization
     ;; necessary.
     ((#t) body)
+    ;; Well-known callee with one free variable; no initialization
+    ;; necessary.
+    ((#t _) body)
     ;; Well-known callee with two free variables; do a set-car! and
     ;; set-cdr!.
     ((#t v0 v1)
@@ -273,54 +281,109 @@ performed, and @var{outer-free} is the list of free variables there."
         (error "Expected no free vars in toplevel thunk" free exp))
       (values free-vars named-funs (compute-well-known-labels)))))
 
-(define (prune-free-vars free-vars named-funs well-known)
+(define (prune-free-vars free-vars named-funs well-known var-aliases)
   (define (well-known? label)
     (bitvector-ref well-known label))
-  (let ((eliminated (make-bitvector (label-counter) #f)))
-    (define (filter-out-eliminated free)
-      (match free
-        (() '())
-        ((var . free)
-         (match (hashq-ref named-funs var)
-           (($ $cont (? (cut bitvector-ref eliminated <>) label))
-            (filter-out-eliminated free))
-           (_ (cons var (filter-out-eliminated free)))))))
+  (let ((eliminated (make-bitvector (label-counter) #f))
+        (label-aliases (make-vector (label-counter) #f)))
     (let lp ((label 0))
       (let ((label (bit-position #t well-known label)))
         (when label
           (match (hashq-ref free-vars label)
-            ;; Eliminate all well-known closures that have no free
-            ;; variables.
+            ;; Mark all well-known closures that have no free variables
+            ;; for elimination.
             (() (bitvector-set! eliminated label #t))
+            ;; Replace well-known closures that have just one free
+            ;; variable by references to that free variable.
+            ((var)
+             (vector-set! label-aliases label var))
             (_ #f))
           (lp (1+ label)))))
+    ;; Iterative free variable elimination.
     (let lp ()
       (let ((recurse? #f))
+        (define (adjoin elt list)
+          ;; Normally you wouldn't see duplicates in a free variable
+          ;; list, but with aliases that is possible.
+          (if (memq elt list) list (cons elt list)))
+        (define (filter-out-eliminated free)
+          (match free
+            (() '())
+            ((var . free)
+             (let lp ((var var) (alias-stack '()))
+               (match (hashq-ref named-funs var)
+                 (($ $cont label)
+                  (cond
+                   ((bitvector-ref eliminated label)
+                    (filter-out-eliminated free))
+                   ((vector-ref label-aliases label)
+                    => (lambda (var)
+                         (cond
+                          ((memq label alias-stack)
+                           ;; We have found a set of mutually recursive
+                           ;; well-known procedures, each of which only
+                           ;; closes over one of the others.  Mark them
+                           ;; all for elimination.
+                           (for-each (lambda (label)
+                                       (bitvector-set! eliminated label #t)
+                                       (set! recurse? #t))
+                                     alias-stack)
+                           (filter-out-eliminated free))
+                          (else
+                           (lp var (cons label alias-stack))))))
+                   (else
+                    (adjoin var (filter-out-eliminated free)))))
+                 (_ (adjoin var (filter-out-eliminated free))))))))
         (hash-for-each-handle
          (lambda (pair)
            (match pair
              ((label . ()) #t)
              ((label . free)
-              ;; We could be more precise and eliminate elements of
-              ;; `free' that are well-known closures within this
-              ;; function, even if they aren't globally well known.  Not
-              ;; implemented.
-              (let ((free (filter-out-eliminated free)))
+              (let ((orig-nfree (length free))
+                    (free (filter-out-eliminated free)))
                 (set-cdr! pair free)
-                (when (and (null? free) (well-known? label))
-                  (bitvector-set! eliminated label #t)
-                  (set! recurse? #t))))))
+                ;; If we managed to eliminate one or more free variables
+                ;; from a well-known function, it could be that we can
+                ;; eliminate or alias this function as well.
+                (when (and (well-known? label)
+                           (< (length free) orig-nfree))
+                  (match free
+                    (()
+                     (bitvector-set! eliminated label #t)
+                     (set! recurse? #t))
+                    ((var)
+                     (vector-set! label-aliases label var)
+                     (set! recurse? #t))
+                    (_ #t)))))))
          free-vars)
         ;; Iterate to fixed point.
-        (when recurse? (lp))))))
+        (when recurse? (lp))))
+    ;; Populate var-aliases from label-aliases.
+    (hash-for-each (lambda (var cont)
+                     (match cont
+                       (($ $cont label)
+                        (let ((alias (vector-ref label-aliases label)))
+                          (when alias
+                            (vector-set! var-aliases var alias))))))
+                   named-funs)))
 
-(define (convert-one label fun free-vars named-funs well-known)
+(define (convert-one label fun free-vars named-funs well-known aliases)
   (define (well-known? label)
     (bitvector-ref well-known label))
 
   ;; Load the closure for a known call.  The callee may or may not be
   ;; known at all call sites.
   (define (convert-known-proc-call var label self self-known? free k)
+    ;; Well-known closures with one free variable are replaced at their
+    ;; use sites by uses of the one free variable.  The use sites of a
+    ;; well-known closures are only in well-known proc calls, and in
+    ;; free lists of other closures.  Here we handle the call case; the
+    ;; free list case is handled by prune-free-vars.
+    (define (rename var)
+      (let ((var* (vector-ref aliases var)))
+        (if var*
+            (rename var*)
+            var)))
     (match (cons (well-known? label)
                  (hashq-ref free-vars label))
       ((#t)
@@ -330,6 +393,10 @@ performed, and @var{outer-free} is the list of free variables there."
          (build-cps-term
            ($letk ((k* ($kargs (v*) (v*) ,(k v*))))
              ($continue k* #f ($const #f))))))
+      ((#t _)
+       ;; Calling a well-known procedure with one free variable; pass
+       ;; the free variable as the closure.
+       (convert-free-var (rename var) self self-known? free k))
       (_
        (convert-free-var var self self-known? free k))))
 
@@ -370,7 +437,8 @@ performed, and @var{outer-free} is the list of free variables there."
                        src name var kfun (well-known? kfun) fun-free
                        (bindings body)))
                     (init-closure
-                     src var (well-known? kfun) fun-free self self-known? free
+                     src var
+                     (well-known? kfun) fun-free self self-known? free
                      body)))))))
 
         (($ $continue k src (or ($ $void) ($ $const) ($ $prim)))
@@ -378,18 +446,27 @@ performed, and @var{outer-free} is the list of free variables there."
 
         (($ $continue k src ($ $fun () ($ $cont kfun)))
          (let ((fun-free (hashq-ref free-vars kfun)))
-           (match fun-free
-             (()
+           (match (cons (well-known? kfun) fun-free)
+             ((known?)
               (build-cps-term
-                ($continue k src ,(if (well-known? kfun)
+                ($continue k src ,(if known?
                                       (build-cps-exp ($const #f))
                                       (build-cps-exp ($closure kfun 0))))))
+             ((#t _)
+              ;; A well-known closure of one free variable is replaced
+              ;; at each use with the free variable itself, so we don't
+              ;; need a binding at all; and yet, the continuation
+              ;; expects one value, so give it something.  DCE should
+              ;; clean up later.
+              (build-cps-term
+                ($continue k src ,(build-cps-exp ($const #f)))))
              (_
               (let-fresh () (var)
                 (allocate-closure
                  src #f var kfun (well-known? kfun) fun-free
                  (init-closure
-                  src var (well-known? kfun) fun-free self self-known? free
+                  src var
+                  (well-known? kfun) fun-free self self-known? free
                   (build-cps-term ($continue k src ($values (var)))))))))))
 
         (($ $continue k src ($ $call proc args))
@@ -438,11 +515,12 @@ and allocate and initialize flat closures."
     (with-fresh-name-state-from-dfg dfg
       (call-with-values (lambda () (analyze-closures fun dfg))
         (lambda (free-vars named-funs well-known)
-          (prune-free-vars free-vars named-funs well-known)
-          (let ((labels (sort (hash-map->list (lambda (k v) k) free-vars) <)))
+          (let ((labels (sort (hash-map->list (lambda (k v) k) free-vars) <))
+                (aliases (make-vector (var-counter) #f)))
+            (prune-free-vars free-vars named-funs well-known aliases)
             (build-cps-term
               ($program
                ,(map (lambda (label)
                        (convert-one label (lookup-cont label dfg)
-                                    free-vars named-funs well-known))
+                                    free-vars named-funs well-known aliases))
                      labels)))))))))
