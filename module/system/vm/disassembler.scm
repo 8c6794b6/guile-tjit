@@ -1,6 +1,6 @@
 ;;; Guile bytecode disassembler
 
-;;; Copyright (C) 2001, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2012, 2013, 2014 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -249,6 +249,20 @@ address of that offset."
                       "anonymous procedure")))
        (push-addr! addr name)
        (list "~A at #x~X (~A free var~:p)" name addr nfree)))
+    (('call-label closure nlocals target)
+     (let* ((addr (u32-offset->addr (+ offset target) context))
+            (pdi (find-program-debug-info addr context))
+            (name (or (and pdi (program-debug-info-name pdi))
+                      "anonymous procedure")))
+       (push-addr! addr name)
+       (list "~A at #x~X" name addr)))
+    (('tail-call-label nlocals target)
+     (let* ((addr (u32-offset->addr (+ offset target) context))
+            (pdi (find-program-debug-info addr context))
+            (name (or (and pdi (program-debug-info-name pdi))
+                      "anonymous procedure")))
+       (push-addr! addr name)
+       (list "~A at #x~X" name addr)))
     (('make-non-immediate dst target)
      (let ((val (reference-scm target)))
        (when (program? val)
@@ -351,14 +365,15 @@ address of that offset."
                           (lookup-source addr))
               (lp (+ offset len)))))))))
 
-(define (disassemble-addr addr label port)
+(define* (disassemble-addr addr label port #:optional (seen (make-hash-table)))
   (format port "Disassembly of ~A at #x~X:\n\n" label addr)
   (cond
    ((find-program-debug-info addr)
     => (lambda (pdi)
          (let ((worklist '()))
            (define (push-addr! addr label)
-             (unless (assv addr worklist)
+             (unless (hashv-ref seen addr)
+               (hashv-set! seen addr #t)
                (set! worklist (acons addr label worklist))))
            (disassemble-buffer port
                                (program-debug-info-image pdi)
@@ -370,7 +385,7 @@ address of that offset."
                       ((addr . label)
                        (display "\n----------------------------------------\n"
                                 port)
-                       (disassemble-addr addr label port)))
+                       (disassemble-addr addr label port seen)))
                      worklist))))
    (else
     (format port "Debugging information unavailable.~%")))
