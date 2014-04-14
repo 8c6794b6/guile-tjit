@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -33,8 +33,6 @@ verify (sizeof (struct scm_vm_frame) == 3 * sizeof (SCM));
 verify (offsetof (struct scm_vm_frame, dynamic_link) == 0);
 
 
-#define RELOC(frame, val)				\
-  (((SCM *) (val)) + SCM_VM_FRAME_OFFSET (frame))
 
 SCM
 scm_c_make_frame (enum scm_vm_frame_kind frame_kind, void *stack_holder,
@@ -61,27 +59,46 @@ scm_i_frame_print (SCM frame, SCM port, scm_print_state *pstate)
   scm_puts_unlocked (">", port);
 }
 
-SCM*
-scm_i_frame_stack_base (SCM frame)
-#define FUNC_NAME "frame-stack-base"
+static SCM*
+frame_stack_base (enum scm_vm_frame_kind kind, struct scm_frame *frame)
 {
-  void *stack_holder;
-
-  SCM_VALIDATE_VM_FRAME (1, frame);
-
-  stack_holder = SCM_VM_FRAME_STACK_HOLDER (frame);
-
-  switch (SCM_VM_FRAME_KIND (frame))
+  switch (kind)
     {
       case SCM_VM_FRAME_KIND_CONT:
-        return ((struct scm_vm_cont *) stack_holder)->stack_base;
+        return ((struct scm_vm_cont *) frame->stack_holder)->stack_base;
 
       case SCM_VM_FRAME_KIND_VM:
-        return ((struct scm_vm *) stack_holder)->stack_base;
+        return ((struct scm_vm *) frame->stack_holder)->stack_base;
 
       default:
         abort ();
     }
+}
+
+static scm_t_ptrdiff
+frame_offset (enum scm_vm_frame_kind kind, struct scm_frame *frame)
+{
+  switch (kind)
+    {
+    case SCM_VM_FRAME_KIND_CONT:
+      return ((struct scm_vm_cont *) frame->stack_holder)->reloc;
+
+    case SCM_VM_FRAME_KIND_VM:
+      return 0;
+
+    default:
+      abort ();
+    }
+}
+
+SCM*
+scm_i_frame_stack_base (SCM frame)
+#define FUNC_NAME "frame-stack-base"
+{
+  SCM_VALIDATE_VM_FRAME (1, frame);
+
+  return frame_stack_base (SCM_VM_FRAME_KIND (frame),
+                           SCM_VM_FRAME_DATA (frame));
 }
 #undef FUNC_NAME
 
@@ -89,23 +106,11 @@ scm_t_ptrdiff
 scm_i_frame_offset (SCM frame)
 #define FUNC_NAME "frame-offset"
 {
-  void *stack_holder;
-
   SCM_VALIDATE_VM_FRAME (1, frame);
 
-  stack_holder = SCM_VM_FRAME_STACK_HOLDER (frame);
+  return frame_offset (SCM_VM_FRAME_KIND (frame),
+                       SCM_VM_FRAME_DATA (frame));
 
-  switch (SCM_VM_FRAME_KIND (frame))
-    {
-      case SCM_VM_FRAME_KIND_CONT:
-        return ((struct scm_vm_cont *) stack_holder)->reloc;
-
-      case SCM_VM_FRAME_KIND_VM:
-        return 0;
-
-      default:
-        abort ();
-    }
 }
 #undef FUNC_NAME
 
@@ -270,6 +275,9 @@ SCM_DEFINE (scm_frame_return_address, "frame-return-address", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+#define RELOC(kind, frame, val)                                 \
+  (((SCM *) (val)) + frame_offset (kind, frame))
+
 SCM_DEFINE (scm_frame_dynamic_link, "frame-dynamic-link", 1, 0, 0,
 	    (SCM frame),
 	    "")
@@ -279,42 +287,58 @@ SCM_DEFINE (scm_frame_dynamic_link, "frame-dynamic-link", 1, 0, 0,
   /* fixme: munge fp if holder is a continuation */
   return scm_from_uintptr_t
     ((scm_t_uintptr)
-     RELOC (frame,
+     RELOC (SCM_VM_FRAME_KIND (frame), SCM_VM_FRAME_DATA (frame),
             SCM_FRAME_DYNAMIC_LINK (SCM_VM_FRAME_FP (frame))));
 }
 #undef FUNC_NAME
+
+int
+scm_c_frame_previous (enum scm_vm_frame_kind kind, struct scm_frame *frame)
+{
+  SCM *this_fp, *new_fp, *new_sp;
+  SCM proc;
+
+ again:
+  this_fp = frame->fp_offset + frame_stack_base (kind, frame);
+  new_fp = SCM_FRAME_DYNAMIC_LINK (this_fp);
+  if (new_fp) 
+    {
+      SCM *stack_base = frame_stack_base (kind, frame);
+      new_fp = RELOC (kind, frame, new_fp);
+      new_sp = SCM_FRAME_PREVIOUS_SP (this_fp);
+      frame->fp_offset = new_fp - stack_base;
+      frame->sp_offset = new_sp - stack_base;
+      frame->ip = SCM_FRAME_RETURN_ADDRESS (this_fp);
+
+      proc = SCM_FRAME_PROGRAM (new_fp);
+
+      if (SCM_PROGRAM_P (proc) && SCM_PROGRAM_IS_BOOT (proc))
+        goto again;
+      else
+        return 1;
+    }
+  else
+    return 0;
+}
 
 SCM_DEFINE (scm_frame_previous, "frame-previous", 1, 0, 0,
 	    (SCM frame),
 	    "")
 #define FUNC_NAME s_scm_frame_previous
 {
-  SCM *this_fp, *new_fp, *new_sp;
-  SCM proc;
+  enum scm_vm_frame_kind kind;
+  struct scm_frame tmp;
 
   SCM_VALIDATE_VM_FRAME (1, frame);
 
- again:
-  this_fp = SCM_VM_FRAME_FP (frame);
-  new_fp = SCM_FRAME_DYNAMIC_LINK (this_fp);
-  if (new_fp) 
-    {
-      SCM *stack_base = scm_i_frame_stack_base (frame);
-      new_fp = RELOC (frame, new_fp);
-      new_sp = SCM_FRAME_PREVIOUS_SP (this_fp);
-      frame = scm_c_make_frame (SCM_VM_FRAME_KIND (frame),
-                                SCM_VM_FRAME_STACK_HOLDER (frame),
-                                new_fp - stack_base, new_sp - stack_base,
-                                SCM_FRAME_RETURN_ADDRESS (this_fp));
-      proc = scm_frame_procedure (frame);
+  kind = SCM_VM_FRAME_KIND (frame);
+  memcpy (&tmp, SCM_VM_FRAME_DATA (frame), sizeof tmp);
 
-      if (SCM_PROGRAM_P (proc) && SCM_PROGRAM_IS_BOOT (proc))
-        goto again;
-      else
-        return frame;
-    }
-  else
+  if (!scm_c_frame_previous (SCM_VM_FRAME_KIND (frame), &tmp))
     return SCM_BOOL_F;
+
+  return scm_c_make_frame (kind, tmp.stack_holder, tmp.fp_offset,
+                           tmp.sp_offset, tmp.ip);
 }
 #undef FUNC_NAME
 

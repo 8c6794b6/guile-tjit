@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -170,6 +170,9 @@ SCM_INTERNAL scm_t_ptrdiff scm_i_frame_offset (SCM frame);
 SCM_INTERNAL SCM scm_c_make_frame (enum scm_vm_frame_kind vm_frame_kind,
                                    void *stack_holder, scm_t_ptrdiff fp_offset,
                                    scm_t_ptrdiff sp_offset, scm_t_uint32 *ip);
+
+SCM_INTERNAL int scm_c_frame_previous (enum scm_vm_frame_kind kind,
+                                       struct scm_frame *frame);
 
 #endif
 
