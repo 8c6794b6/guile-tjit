@@ -565,7 +565,8 @@ always collects full stacks.)"
             (visit-stacks (1+ pos) (cons (reverse stack) out))))))
        (else (reverse out))))))
 
-(define (statprof-fold-call-data proc init)
+(define* (statprof-fold-call-data proc init #:optional
+                                  (state (existing-profiler-state)))
   "Fold @var{proc} over the call-data accumulated by statprof. Cannot be
 called while statprof is active. @var{proc} should take two arguments,
 @code{(@var{call-data} @var{prior-result})}.
@@ -578,14 +579,15 @@ it represents different functions with the same name."
    (lambda (key value prior-result)
      (proc value prior-result))
    init
-   (stack-samples->procedure-data (existing-profiler-state))))
+   (stack-samples->procedure-data state)))
 
-(define (statprof-proc-call-data proc)
+(define* (statprof-proc-call-data proc #:optional
+                                  (state (existing-profiler-state)))
   "Returns the call-data associated with @var{proc}, or @code{#f} if
 none is available."
   (when (statprof-active?)
     (error "Can't call statprof-proc-call-data while profiler is running."))
-  (hashv-ref (stack-samples->procedure-data (existing-profiler-state))
+  (hashv-ref (stack-samples->procedure-data state)
              (cond
               ((primitive? proc) (procedure-name proc))
               ((program? proc) (program-code proc))
@@ -616,9 +618,9 @@ none is available."
          (proc-source (and=> (call-data-source call-data) source->string))
          (self-samples (call-data-self-sample-count call-data))
          (cum-samples (call-data-cum-sample-count call-data))
-         (all-samples (statprof-sample-count))
-         (secs-per-sample (/ (statprof-accumulated-time)
-                             (statprof-sample-count)))
+         (all-samples (statprof-sample-count state))
+         (secs-per-sample (/ (statprof-accumulated-time state)
+                             (statprof-sample-count state)))
          (num-calls (and (call-counts state)
                          (statprof-call-data-calls call-data))))
 
@@ -657,14 +659,15 @@ none is available."
   "Displays a gprof-like summary of the statistics collected. Unless an
 optional @var{port} argument is passed, uses the current output port."
   (cond
-   ((zero? (statprof-sample-count))
+   ((zero? (statprof-sample-count state))
     (format port "No samples recorded.\n"))
    (else
     (let* ((stats-list (statprof-fold-call-data
                         (lambda (data prior-value)
                           (cons (statprof-call-data->stats data)
                                 prior-value))
-                        '()))
+                        '()
+                        state))
            (sorted-stats (sort stats-list stats-sorter)))
 
       (define (display-stats-line stats)
@@ -705,9 +708,9 @@ optional @var{port} argument is passed, uses the current output port."
       (for-each display-stats-line sorted-stats)
 
       (display "---\n" port)
-      (simple-format #t "Sample count: ~A\n" (statprof-sample-count))
+      (simple-format #t "Sample count: ~A\n" (statprof-sample-count state))
       (simple-format #t "Total time: ~A seconds (~A seconds in GC)\n"
-                     (statprof-accumulated-time)
+                     (statprof-accumulated-time state)
                      (/ (gc-time-taken state)
                         1.0 internal-time-units-per-second))))))
 
@@ -725,9 +728,10 @@ statistics.@code{}"
                       (call-data-name data)
                       (call-data-call-count data)
                       (call-data-cum-sample-count data))))
-   #f)
-  (simple-format #t "Total time: ~A\n" (statprof-accumulated-time))
-  (simple-format #t "Sample count: ~A\n" (statprof-sample-count)))
+   #f
+   state)
+  (simple-format #t "Total time: ~A\n" (statprof-accumulated-time state))
+  (simple-format #t "Sample count: ~A\n" (statprof-sample-count state)))
 
 (define (statprof-display-anomolies)
   (issue-deprecation-warning "statprof-display-anomolies is a misspelling. "
@@ -884,7 +888,7 @@ default: @code{#f}
     #:count-calls? ,(kw-arg-ref #:count-calls? args #f)
     #:full-stacks? ,(kw-arg-ref #:full-stacks? args #f)))
 
-(define* (gcprof thunk #:key (loop 1) full-stacks?)
+(define* (gcprof thunk #:key (loop 1) full-stacks? (port (current-output-port)))
   "Do an allocation profile of the execution of @var{thunk}.
 
 The stack will be sampled soon after every garbage collection, yielding
@@ -930,4 +934,4 @@ times."
                                  (gc-time-taken state)))
           (accumulate-time state (get-internal-run-time))
           (set-profile-level! state 0)
-          (statprof-display))))))
+          (statprof-display port state))))))
