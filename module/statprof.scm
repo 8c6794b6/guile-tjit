@@ -403,8 +403,8 @@ than @code{statprof-stop}, @code{#f} otherwise."
         (set-prev-sigprof-handler! state (car prev)))
       (reset-sigprof-timer (if (zero? rpt) (sampling-period state) rpt))
       (when (call-counts state)
-        (add-hook! (vm-apply-hook) count-call))
-      (set-vm-trace-level! (1+ (vm-trace-level)))
+        (add-hook! (vm-apply-hook) count-call)
+        (set-vm-trace-level! (1+ (vm-trace-level))))
       #t)))
   
 ;; Do not call this from statprof internal functions -- user only.
@@ -414,12 +414,12 @@ than @code{statprof-stop}, @code{#f} otherwise."
   ;; signals here, but if I'm wrong, please let me know.
   (set-profile-level! state (- (profile-level state) 1))
   (when (zero? (profile-level state))
+    (when (call-counts state)
+      (set-vm-trace-level! (1- (vm-trace-level)))
+      (remove-hook! (vm-apply-hook) count-call))
     (set-gc-time-taken! state
                         (- (assq-ref (gc-stats) 'gc-time-taken)
                            (gc-time-taken state)))
-    (set-vm-trace-level! (1- (vm-trace-level)))
-    (when (call-counts state)
-      (remove-hook! (vm-apply-hook) count-call))
     ;; I believe that we need to do this before getting the time
     ;; (unless we want to make things even more complicated).
     (set-remaining-prof-time! state (reset-sigprof-timer 0))
