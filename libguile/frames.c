@@ -35,17 +35,15 @@ verify (offsetof (struct scm_vm_frame, dynamic_link) == 0);
 
 
 SCM
-scm_c_make_frame (enum scm_vm_frame_kind frame_kind, void *stack_holder,
-                  scm_t_ptrdiff fp_offset, scm_t_ptrdiff sp_offset,
-                  scm_t_uint32 *ip)
+scm_c_make_frame (enum scm_vm_frame_kind kind, const struct scm_frame *frame)
 {
   struct scm_frame *p = scm_gc_malloc (sizeof (struct scm_frame),
                                        "vmframe");
-  p->stack_holder = stack_holder;
-  p->fp_offset = fp_offset;
-  p->sp_offset = sp_offset;
-  p->ip = ip;
-  return scm_cell (scm_tc7_frame | (frame_kind << 8), (scm_t_bits)p);
+  p->stack_holder = frame->stack_holder;
+  p->fp_offset = frame->fp_offset;
+  p->sp_offset = frame->sp_offset;
+  p->ip = frame->ip;
+  return scm_cell (scm_tc7_frame | (kind << 8), (scm_t_bits)p);
 }
 
 void
@@ -337,8 +335,7 @@ SCM_DEFINE (scm_frame_previous, "frame-previous", 1, 0, 0,
   if (!scm_c_frame_previous (SCM_VM_FRAME_KIND (frame), &tmp))
     return SCM_BOOL_F;
 
-  return scm_c_make_frame (kind, tmp.stack_holder, tmp.fp_offset,
-                           tmp.sp_offset, tmp.ip);
+  return scm_c_make_frame (kind, &tmp);
 }
 #undef FUNC_NAME
 

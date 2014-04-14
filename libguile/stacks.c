@@ -1,5 +1,5 @@
 /* A stack holds a frame chain
- * Copyright (C) 1996,1997,2000,2001, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation
+ * Copyright (C) 1996,1997,2000,2001, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -254,14 +254,16 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
     {
       SCM cont;
       struct scm_vm_cont *c;
+      struct scm_frame tmp;
 
       cont = scm_i_capture_current_stack ();
-      c = SCM_VM_CONT_DATA (cont);
 
-      frame = scm_c_make_frame (SCM_VM_FRAME_KIND_CONT, c,
-                                (c->fp + c->reloc) - c->stack_base,
-                                (c->sp + c->reloc) - c->stack_base,
-                                c->ra);
+      c = SCM_VM_CONT_DATA (cont);
+      tmp.stack_holder = c;
+      tmp.fp_offset = (c->fp + c->reloc) - c->stack_base;
+      tmp.sp_offset = (c->sp + c->reloc) - c->stack_base;
+      tmp.ip = c->ra;
+      frame = scm_c_make_frame (SCM_VM_FRAME_KIND_CONT, &tmp);
     }
   else if (SCM_VM_FRAME_P (obj))
     frame = obj;

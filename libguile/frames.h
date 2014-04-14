@@ -167,9 +167,8 @@ enum scm_vm_frame_kind
 SCM_INTERNAL SCM* scm_i_frame_stack_base (SCM frame);
 SCM_INTERNAL scm_t_ptrdiff scm_i_frame_offset (SCM frame);
 
-SCM_INTERNAL SCM scm_c_make_frame (enum scm_vm_frame_kind vm_frame_kind,
-                                   void *stack_holder, scm_t_ptrdiff fp_offset,
-                                   scm_t_ptrdiff sp_offset, scm_t_uint32 *ip);
+SCM_INTERNAL SCM scm_c_make_frame (enum scm_vm_frame_kind kind,
+                                   const struct scm_frame *frame);
 
 SCM_INTERNAL int scm_c_frame_previous (enum scm_vm_frame_kind kind,
                                        struct scm_frame *frame);
