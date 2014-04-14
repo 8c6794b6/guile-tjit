@@ -168,8 +168,8 @@ scm_i_make_continuation (int *first, struct scm_vm *vp, SCM vm_cont)
 }
 #undef FUNC_NAME
 
-SCM
-scm_i_continuation_to_frame (SCM continuation)
+int
+scm_i_continuation_to_frame (SCM continuation, struct scm_frame *frame)
 {
   SCM contregs;
   scm_t_contregs *cont;
@@ -179,18 +179,17 @@ scm_i_continuation_to_frame (SCM continuation)
 
   if (scm_is_true (cont->vm_cont))
     {
-      struct scm_frame frame;
       struct scm_vm_cont *data = SCM_VM_CONT_DATA (cont->vm_cont);
 
-      frame.stack_holder = data;
-      frame.fp_offset = (data->fp + data->reloc) - data->stack_base;
-      frame.sp_offset = (data->sp + data->reloc) - data->stack_base;
-      frame.ip = data->ra;
+      frame->stack_holder = data;
+      frame->fp_offset = (data->fp + data->reloc) - data->stack_base;
+      frame->sp_offset = (data->sp + data->reloc) - data->stack_base;
+      frame->ip = data->ra;
 
-      return scm_c_make_frame (SCM_VM_FRAME_KIND_CONT, &frame);
+      return 1;
     }
   else
-    return SCM_BOOL_F;
+    return 0;
 }
 
 struct scm_vm *

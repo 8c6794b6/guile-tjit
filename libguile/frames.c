@@ -58,7 +58,7 @@ scm_i_frame_print (SCM frame, SCM port, scm_print_state *pstate)
 }
 
 static SCM*
-frame_stack_base (enum scm_vm_frame_kind kind, struct scm_frame *frame)
+frame_stack_base (enum scm_vm_frame_kind kind, const struct scm_frame *frame)
 {
   switch (kind)
     {
@@ -74,7 +74,7 @@ frame_stack_base (enum scm_vm_frame_kind kind, struct scm_frame *frame)
 }
 
 static scm_t_ptrdiff
-frame_offset (enum scm_vm_frame_kind kind, struct scm_frame *frame)
+frame_offset (enum scm_vm_frame_kind kind, const struct scm_frame *frame)
 {
   switch (kind)
     {
@@ -124,13 +124,27 @@ SCM_DEFINE (scm_frame_p, "frame?", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+/* Retrieve the local in slot 0, which may or may not actually be a
+   procedure, and may or may not actually be the procedure being
+   applied.  If you want the procedure, look it up from the IP.  */
+SCM
+scm_c_frame_closure (enum scm_vm_frame_kind kind, const struct scm_frame *frame)
+{
+  SCM *fp = frame_stack_base (kind, frame) + frame->fp_offset;
+
+  return SCM_FRAME_PROGRAM (fp);
+}
+
 SCM_DEFINE (scm_frame_procedure, "frame-procedure", 1, 0, 0,
 	    (SCM frame),
 	    "")
 #define FUNC_NAME s_scm_frame_procedure
 {
   SCM_VALIDATE_VM_FRAME (1, frame);
-  return SCM_FRAME_PROGRAM (SCM_VM_FRAME_FP (frame));
+
+  /* FIXME: Retrieve procedure from address?  */
+  return scm_c_frame_closure (SCM_VM_FRAME_KIND (frame),
+                              SCM_VM_FRAME_DATA (frame));
 }
 #undef FUNC_NAME
 

@@ -65,11 +65,12 @@ static SCM scm_sys_stacks;
 /* Count number of debug info frames on a stack, beginning with FRAME.
  */
 static long
-stack_depth (SCM frame)
+stack_depth (enum scm_vm_frame_kind kind, const struct scm_frame *frame)
 {
-  long n = 0;
-  /* count frames, skipping boot frames */
-  for (; scm_is_true (frame); frame = scm_frame_previous (frame))
+  struct scm_frame tmp;
+  long n = 1;
+  memcpy (&tmp, frame, sizeof tmp);
+  while (scm_c_frame_previous (kind, &tmp))
     ++n;
   return n;
 }
@@ -108,24 +109,19 @@ find_prompt (SCM key)
   return fp_offset;
 }
 
-static void
-narrow_stack (SCM stack, SCM inner_cut, SCM outer_cut)
+static long
+narrow_stack (long len, enum scm_vm_frame_kind kind, struct scm_frame *frame,
+              SCM inner_cut, SCM outer_cut)
 {
-  unsigned long int len;
-  SCM frame;
-  
-  len = SCM_STACK_LENGTH (stack);
-  frame = SCM_STACK_FRAME (stack);
-
   /* Cut inner part. */
   if (scm_is_true (scm_procedure_p (inner_cut)))
     {
       /* Cut until the given procedure is seen. */
       for (; len ;)
         {
-          SCM proc = scm_frame_procedure (frame);
+          SCM proc = scm_c_frame_closure (kind, frame);
           len--;
-          frame = scm_frame_previous (frame);
+          scm_c_frame_previous (kind, frame);
           if (scm_is_eq (proc, inner_cut))
             break;
         }
@@ -138,32 +134,32 @@ narrow_stack (SCM stack, SCM inner_cut, SCM outer_cut)
       for (; inner && len; --inner)
         {
           len--;
-          frame = scm_frame_previous (frame);
+          scm_c_frame_previous (kind, frame);
         }
     }
   else
     {
       /* Cut until the given prompt tag is seen. */
       scm_t_ptrdiff fp_offset = find_prompt (inner_cut);
-      for (; len; len--, frame = scm_frame_previous (frame))
-        if (fp_offset == SCM_VM_FRAME_FP_OFFSET (frame))
+      for (; len; len--, scm_c_frame_previous (kind, frame))
+        if (fp_offset == frame->fp_offset)
           break;
     }
-
-  SCM_SET_STACK_LENGTH (stack, len);
-  SCM_SET_STACK_FRAME (stack, frame);
 
   /* Cut outer part. */
   if (scm_is_true (scm_procedure_p (outer_cut)))
     {
+      long i, new_len;
+      struct scm_frame tmp;
+
+      memcpy (&tmp, frame, sizeof tmp);
+
       /* Cut until the given procedure is seen. */
-      for (; len ;)
-        {
-          frame = scm_stack_ref (stack, scm_from_long (len - 1));
-          len--;
-          if (scm_is_eq (scm_frame_procedure (frame), outer_cut))
-            break;
-        }
+      for (new_len = i = 0; i < len; i++, scm_c_frame_previous (kind, &tmp))
+        if (scm_is_eq (scm_c_frame_closure (kind, &tmp), outer_cut))
+          new_len = i;
+
+      len = new_len;
     }
   else if (scm_is_integer (outer_cut))
     {
@@ -178,17 +174,23 @@ narrow_stack (SCM stack, SCM inner_cut, SCM outer_cut)
   else
     {
       /* Cut until the given prompt tag is seen. */
+      long i;
+      struct scm_frame tmp;
       scm_t_ptrdiff fp_offset = find_prompt (outer_cut);
-      while (len)
-        {
-          frame = scm_stack_ref (stack, scm_from_long (len - 1));
-          len--;
-          if (fp_offset == SCM_VM_FRAME_FP_OFFSET (frame))
-            break;
-        }
+
+      memcpy (&tmp, frame, sizeof tmp);
+
+      for (i = 0; i < len; i++, scm_c_frame_previous (kind, &tmp))
+        if (tmp.fp_offset == fp_offset)
+          break;
+
+      if (i < len)
+        len = i;
+      else
+        len = 0;
     }
 
-  SCM_SET_STACK_LENGTH (stack, len);
+  return len;
 }
 
 
@@ -244,9 +246,9 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
 #define FUNC_NAME s_scm_make_stack
 {
   long n;
-  SCM frame;
-  SCM stack;
   SCM inner_cut, outer_cut;
+  enum scm_vm_frame_kind kind;
+  struct scm_frame frame;
 
   /* Extract a pointer to the innermost frame of whatever object
      scm_make_stack was given.  */
@@ -254,49 +256,47 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
     {
       SCM cont;
       struct scm_vm_cont *c;
-      struct scm_frame tmp;
 
       cont = scm_i_capture_current_stack ();
-
       c = SCM_VM_CONT_DATA (cont);
-      tmp.stack_holder = c;
-      tmp.fp_offset = (c->fp + c->reloc) - c->stack_base;
-      tmp.sp_offset = (c->sp + c->reloc) - c->stack_base;
-      tmp.ip = c->ra;
-      frame = scm_c_make_frame (SCM_VM_FRAME_KIND_CONT, &tmp);
+
+      kind = SCM_VM_FRAME_KIND_CONT;
+      frame.stack_holder = c;
+      frame.fp_offset = (c->fp + c->reloc) - c->stack_base;
+      frame.sp_offset = (c->sp + c->reloc) - c->stack_base;
+      frame.ip = c->ra;
     }
   else if (SCM_VM_FRAME_P (obj))
-    frame = obj;
+    {
+      kind = SCM_VM_FRAME_KIND (obj);
+      memcpy (&frame, SCM_VM_FRAME_DATA (obj), sizeof frame);
+    }
   else if (SCM_CONTINUATIONP (obj))
     /* FIXME: Narrowing to prompt tags should narrow with respect to the prompts
        that were in place when the continuation was captured. */
-    frame = scm_i_continuation_to_frame (obj);
+    {
+      kind = SCM_VM_FRAME_KIND_CONT;
+      if (!scm_i_continuation_to_frame (obj, &frame))
+        return SCM_BOOL_F;
+    }
   else
     {
       SCM_WRONG_TYPE_ARG (SCM_ARG1, obj);
       /* not reached */
     }
 
-  /* FIXME: is this even possible? */
-  if (scm_is_true (frame)
-      && SCM_PROGRAM_P (scm_frame_procedure (frame))
-      && SCM_PROGRAM_IS_BOOT (scm_frame_procedure (frame)))
-    frame = scm_frame_previous (frame);
-  
-  if (scm_is_false (frame))
+  /* Skip initial boot frame, if any.  This is possible if the frame
+     originates from a captured continuation.  */
+  if (SCM_PROGRAM_P (scm_c_frame_closure (kind, &frame))
+      && SCM_PROGRAM_IS_BOOT (scm_c_frame_closure (kind, &frame))
+      && !scm_c_frame_previous (kind, &frame))
     return SCM_BOOL_F;
 
   /* Count number of frames.  Also get stack id tag and check whether
      there are more stackframes than we want to record
      (SCM_BACKTRACE_MAXDEPTH). */
-  n = stack_depth (frame);
+  n = stack_depth (kind, &frame);
 
-  /* Make the stack object. */
-  stack = scm_make_struct (scm_stack_type, SCM_INUM0, SCM_EOL);
-  SCM_SET_STACK_LENGTH (stack, n);
-  SCM_SET_STACK_ID (stack, scm_stack_id (obj));
-  SCM_SET_STACK_FRAME (stack, frame);
-  
   /* Narrow the stack according to the arguments given to scm_make_stack. */
   SCM_VALIDATE_REST_ARGUMENT (args);
   while (n > 0 && !scm_is_null (args))
@@ -313,15 +313,18 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
 	  args = SCM_CDR (args);
 	}
       
-      narrow_stack (stack,
-                    inner_cut,
-                    outer_cut);
-
-      n = SCM_STACK_LENGTH (stack);
+      n = narrow_stack (n, kind, &frame, inner_cut, outer_cut);
     }
   
   if (n > 0)
-    return stack;
+    {
+      /* Make the stack object. */
+      SCM stack = scm_make_struct (scm_stack_type, SCM_INUM0, SCM_EOL);
+      SCM_SET_STACK_LENGTH (stack, n);
+      SCM_SET_STACK_ID (stack, scm_stack_id (obj));
+      SCM_SET_STACK_FRAME (stack, scm_c_make_frame (kind, &frame));
+      return stack;
+    }
   else
     return SCM_BOOL_F;
 }

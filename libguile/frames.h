@@ -167,6 +167,10 @@ enum scm_vm_frame_kind
 SCM_INTERNAL SCM* scm_i_frame_stack_base (SCM frame);
 SCM_INTERNAL scm_t_ptrdiff scm_i_frame_offset (SCM frame);
 
+/* See notes in frames.c before using this.  */
+SCM_INTERNAL SCM scm_c_frame_closure (enum scm_vm_frame_kind kind,
+                                      const struct scm_frame *frame);
+
 SCM_INTERNAL SCM scm_c_make_frame (enum scm_vm_frame_kind kind,
                                    const struct scm_frame *frame);
 

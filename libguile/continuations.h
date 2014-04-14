@@ -3,7 +3,7 @@
 #ifndef SCM_CONTINUATIONS_H
 #define SCM_CONTINUATIONS_H
 
-/* Copyright (C) 1995,1996,2000,2001, 2006, 2008, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,2000,2001, 2006, 2008, 2009, 2010, 2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -76,7 +76,10 @@ SCM_INTERNAL SCM scm_i_make_continuation (int *first,
 SCM_INTERNAL void scm_i_check_continuation (SCM cont);
 SCM_INTERNAL void scm_i_reinstate_continuation (SCM cont);
 
-SCM_INTERNAL SCM scm_i_continuation_to_frame (SCM cont);
+struct scm_frame;
+SCM_INTERNAL int scm_i_continuation_to_frame (SCM cont,
+                                              struct scm_frame *frame);
+
 SCM_INTERNAL struct scm_vm* scm_i_contregs_vp (SCM contregs);
 SCM_INTERNAL SCM scm_i_contregs_vm_cont (SCM contregs);
 
