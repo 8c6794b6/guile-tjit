@@ -476,12 +476,6 @@
 
 (define-syntax-rule (make-global-cont-folder seed ...)
   (lambda (proc cont seed ...)
-    (define (fold-values proc in seed ...)
-      (if (null? in)
-          (values seed ...)
-          (let-values (((seed ...) (proc (car in) seed ...)))
-            (fold-values proc (cdr in) seed ...))))
-
     (define (cont-folder cont seed ...)
       (match cont
         (($ $cont k cont)
@@ -513,7 +507,11 @@
       (match term
         (($ $letk conts body)
          (let-values (((seed ...) (term-folder body seed ...)))
-           (fold-values cont-folder conts seed ...)))
+           (let lp ((conts conts) (seed seed) ...)
+             (if (null? conts)
+                 (values seed ...)
+                 (let-values (((seed ...) (cont-folder (car conts) seed ...)))
+                   (lp (cdr conts) seed ...))))))
 
         (($ $continue k src exp)
          (match exp
@@ -522,7 +520,11 @@
 
         (($ $letrec names syms funs body)
          (let-values (((seed ...) (term-folder body seed ...)))
-           (fold-values fun-folder funs seed ...)))))
+           (let lp ((funs funs) (seed seed) ...)
+             (if (null? funs)
+                 (values seed ...)
+                 (let-values (((seed ...) (fun-folder (car funs) seed ...)))
+                   (lp (cdr funs) seed ...))))))))
 
     (cont-folder cont seed ...)))
 
