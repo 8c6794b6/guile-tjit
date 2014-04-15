@@ -1481,6 +1481,8 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
 
 (define (write-arities asm metas headers names-port strtab)
   (define (write-header pos low-pc high-pc offset flags nreq nopt nlocals)
+    (unless (<= (+ nreq nopt) nlocals)
+      (error "forgot to emit definition instructions?"))
     (bytevector-u32-set! headers pos (* low-pc 4) (asm-endianness asm))
     (bytevector-u32-set! headers (+ pos 4) (* high-pc 4) (asm-endianness asm))
     (bytevector-u32-set! headers (+ pos 8) offset (asm-endianness asm))

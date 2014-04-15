@@ -1,6 +1,6 @@
 ;;;; Low-level tests of the bytecode assembler -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;; 	Copyright (C) 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -104,6 +104,7 @@ a procedure."
                         '((begin-program countdown
                                          ((name . countdown)))
                           (begin-standard-arity (x) 4 #f)
+                          (definition x 1)
                           (br fix-body)
                           (label loop-head)
                           (br-if-= 2 1 #f out)
@@ -140,6 +141,7 @@ a procedure."
                           (begin-program accum
                                          ((name . accum)))
                           (begin-standard-arity (x) 4 #f)
+                          (definition x 1)
                           (free-ref 2 0 0)
                           (box-ref 3 2)
                           (add 3 3 1)
@@ -159,6 +161,7 @@ a procedure."
                         '((begin-program call
                                          ((name . call)))
                           (begin-standard-arity (f) 7 #f)
+                          (definition f 1)
                           (mov 5 1)
                           (call 5 1)
                           (receive 2 5 7)
@@ -173,6 +176,7 @@ a procedure."
                         '((begin-program call-with-3
                                          ((name . call-with-3)))
                           (begin-standard-arity (f) 7 #f)
+                          (definition f 1)
                           (mov 5 1)
                           (load-constant 6 3)
                           (call 5 2)
@@ -189,6 +193,7 @@ a procedure."
                         '((begin-program call
                                          ((name . call)))
                           (begin-standard-arity (f) 2 #f)
+                          (definition f 1)
                           (mov 0 1)
                           (tail-call 1)
                           (end-arity)
@@ -201,6 +206,7 @@ a procedure."
                         '((begin-program call-with-3
                                          ((name . call-with-3)))
                           (begin-standard-arity (f) 2 #f)
+                          (definition f 1)
                           (mov 0 1) ;; R0 <- R1
                           (load-constant 1 3) ;; R1 <- 3
                           (tail-call 2)
@@ -225,6 +231,7 @@ a procedure."
                           (begin-program sqrt-trampoline
                                          ((name . sqrt-trampoline)))
                           (begin-standard-arity (x) 3 #f)
+                          (definition x 1)
                           (cached-toplevel-box 2 sqrt-scope sqrt #t)
                           (box-ref 0 2)
                           (tail-call 2)
@@ -278,6 +285,7 @@ a procedure."
                           (begin-program sqrt-trampoline
                                          ((name . sqrt-trampoline)))
                           (begin-standard-arity (x) 3 #f)
+                          (definition x 1)
                           (cached-module-box 2 (guile) sqrt #t #t)
                           (box-ref 0 2)
                           (tail-call 2)
@@ -342,7 +350,7 @@ a procedure."
           (end-arity)
           (end-program))))))
 
-(with-test-prefix "simply procedure arity"
+(with-test-prefix "simple procedure arity"
   (pass-if-equal "#<procedure foo ()>"
       (object->string
        (assemble-program
@@ -357,6 +365,8 @@ a procedure."
        (assemble-program
         '((begin-program foo ((name . foo)))
           (begin-standard-arity (x y) 3 #f)
+          (definition x 1)
+          (definition y 2)
           (load-constant 1 42)
           (return 1)
           (end-arity)
@@ -367,6 +377,9 @@ a procedure."
        (assemble-program
         '((begin-program foo ((name . foo)))
           (begin-opt-arity (x) (y) z 4 #f)
+          (definition x 1)
+          (definition y 2)
+          (definition z 3)
           (load-constant 1 42)
           (return 1)
           (end-arity)
