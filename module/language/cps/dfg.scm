@@ -269,8 +269,7 @@ body continuation in the prompt."
 
 (define (analyze-reverse-control-flow fun dfg min-label label-count)
   (define (compute-reverse-control-flow-order ktail dfg)
-    (let ((order (make-vector label-count #f))
-          (label-map (make-vector label-count #f))
+    (let ((label-map (make-vector label-count #f))
           (next -1))
       (define (label->idx label) (- label min-label))
       (define (idx->label idx) (+ idx min-label))
@@ -304,12 +303,7 @@ body continuation in the prompt."
               (vector-set! label-map (label->idx head) n)
               (lp (1+ n) next))))
 
-      (let lp ((n 0))
-        (when (< n label-count)
-          (vector-set! order (vector-ref label-map n) (idx->label n))
-          (lp (1+ n))))
-
-      (values order label-map)))
+      label-map))
 
   (define (convert-successors k-map)
     (define (idx->label idx) (+ idx min-label))
@@ -326,24 +320,21 @@ body continuation in the prompt."
 
   (match fun
     (($ $cont kfun ($ $kfun src meta self ($ $cont ktail tail)))
-     (call-with-values
-         (lambda ()
-           (compute-reverse-control-flow-order ktail dfg))
-       (lambda (order k-map)
-         (let ((succs (convert-successors k-map)))
-           ;; Any expression in the prompt body could cause an abort to
-           ;; the handler.  This code adds links from every block in the
-           ;; prompt body to the handler.  This causes all values used
-           ;; by the handler to be seen as live in the prompt body, as
-           ;; indeed they are.
-           (visit-prompt-control-flow
-            dfg min-label label-count
-            (lambda (prompt handler body)
-              (define (renumber label)
-                (vector-ref k-map (- label min-label)))
-              (vector-push! succs (renumber body) (renumber handler))))
+     (let* ((k-map (compute-reverse-control-flow-order ktail dfg))
+            (succs (convert-successors k-map)))
+       ;; Any expression in the prompt body could cause an abort to
+       ;; the handler.  This code adds links from every block in the
+       ;; prompt body to the handler.  This causes all values used
+       ;; by the handler to be seen as live in the prompt body, as
+       ;; indeed they are.
+       (visit-prompt-control-flow
+        dfg min-label label-count
+        (lambda (prompt handler body)
+          (define (renumber label)
+            (vector-ref k-map (- label min-label)))
+          (vector-push! succs (renumber body) (renumber handler))))
 
-           (values k-map order succs)))))))
+       (values k-map succs)))))
 
 ;; Dominator analysis.
 (define-record-type $dominator-analysis
@@ -616,18 +607,13 @@ body continuation in the prompt."
 
 ;; Data-flow analysis.
 (define-record-type $dfa
-  (make-dfa min-label k-map k-order min-var var-count in out)
+  (make-dfa min-label min-var var-count in out)
   dfa?
-  ;; Minimum label.
+  ;; Minimum label in this function.
   (min-label dfa-min-label)
-  ;; Vector of (k - min-label) -> k-idx
-  (k-map dfa-k-map)
-  ;; Vector of k-idx -> k-sym, in (possibly reversed) control-flow order
-  (k-order dfa-k-order)
-
   ;; Minimum var in this function.
   (min-var dfa-min-var)
-  ;; Minimum var in this function.
+  ;; Var count in this function.
   (var-count dfa-var-count)
   ;; Vector of k-idx -> bitvector
   (in dfa-in)
@@ -635,13 +621,13 @@ body continuation in the prompt."
   (out dfa-out))
 
 (define (dfa-k-idx dfa k)
-  (vector-ref (dfa-k-map dfa) (- k (dfa-min-label dfa))))
+  (- k (dfa-min-label dfa)))
 
 (define (dfa-k-sym dfa idx)
-  (vector-ref (dfa-k-order dfa) idx))
+  (+ idx (dfa-min-label dfa)))
 
 (define (dfa-k-count dfa)
-  (vector-length (dfa-k-map dfa)))
+  (vector-length (dfa-in dfa)))
 
 (define (dfa-var-idx dfa var)
   (let ((idx (- var (dfa-min-var dfa))))
@@ -675,7 +661,7 @@ body continuation in the prompt."
     (call-with-values
         (lambda ()
           (analyze-reverse-control-flow fun dfg min-label nlabels))
-      (lambda (k-map k-order succs)
+      (lambda (k-map succs)
         (define (var->idx var) (- var min-var))
         (define (idx->var idx) (+ idx min-var))
         (define (label->idx label)
@@ -710,11 +696,22 @@ body continuation in the prompt."
         ;; predecessors.  Continuation 0 is ktail.
         (compute-maximum-fixed-point succs live-out live-in defv usev #t)
 
-        (make-dfa min-label k-map k-order min-var nvars live-in live-out)))))
+        ;; Now rewrite the live-in and live-out sets to be indexed by
+        ;; (LABEL - MIN-LABEL).
+        (let ((live-in* (make-vector nlabels #f))
+              (live-out* (make-vector nlabels #f)))
+          (let lp ((idx 0))
+            (when (< idx nlabels)
+              (let ((dfa-idx (vector-ref k-map idx)))
+                (vector-set! live-in*  idx (vector-ref live-in  dfa-idx))
+                (vector-set! live-out* idx (vector-ref live-out dfa-idx))
+                (lp (1+ idx)))))
+
+          (make-dfa min-label min-var nvars live-in* live-out*))))))
 
 (define (print-dfa dfa)
   (match dfa
-    (($ $dfa min-label k-map k-order min-var var-count in out)
+    (($ $dfa min-label min-var var-count in out)
      (define (print-var-set bv)
        (let lp ((n 0))
          (let ((n (bit-position #t bv n)))
@@ -722,8 +719,8 @@ body continuation in the prompt."
              (format #t " ~A" (+ n min-var))
              (lp (1+ n))))))
      (let lp ((n 0))
-       (when (< n (vector-length k-order))
-         (format #t "~A:\n" (vector-ref k-order n))
+       (when (< n (vector-length in))
+         (format #t "~A:\n" (+ n min-label))
          (format #t "  in:")
          (print-var-set (vector-ref in n))
          (newline)
