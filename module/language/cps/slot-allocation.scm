@@ -223,13 +223,11 @@ are comparable with eqv?.  A tmp slot may be used."
                             tmp)
                       (loop to-move b (cons s+d moved) last-source))))))))))
 
-(define (dead-after-def? def-k v-idx dfa)
-  (let ((l (dfa-k-idx dfa def-k)))
-    (not (bitvector-ref (dfa-k-in dfa l) v-idx))))
+(define (dead-after-def? k-idx v-idx dfa)
+  (not (bitvector-ref (dfa-k-in dfa k-idx) v-idx)))
 
-(define (dead-after-use? use-k v-idx dfa)
-  (let ((l (dfa-k-idx dfa use-k)))
-    (not (bitvector-ref (dfa-k-out dfa l) v-idx))))
+(define (dead-after-use? k-idx v-idx dfa)
+  (not (bitvector-ref (dfa-k-out dfa k-idx) v-idx)))
 
 (define (allocate-slots fun dfg)
   (let* ((dfa (compute-live-variables fun dfg))
@@ -275,7 +273,7 @@ are comparable with eqv?.  A tmp slot may be used."
       (1- (find-first-trailing-zero live-slots)))
 
     (define (recompute-live-slots k nargs)
-      (let ((in (dfa-k-in dfa (dfa-k-idx dfa k))))
+      (let ((in (dfa-k-in dfa (label->idx k))))
         (let lp ((v 0) (live-slots (1- (ash 1 (1+ nargs)))))
           (let ((v (bit-position #t in v)))
             (if v
@@ -384,7 +382,7 @@ are comparable with eqv?.  A tmp slot may be used."
                 ;; predecessor.
                 ((or (_) ((? kreceive-get-kargs) ...))
                  (for-each (lambda (var)
-                             (when (dead-after-def? (idx->label n) var dfa)
+                             (when (dead-after-def? n var dfa)
                                (bitvector-set! needs-slotv var #f)))
                            (vector-ref defv n)))
                 (_ #f))
@@ -399,17 +397,10 @@ are comparable with eqv?.  A tmp slot may be used."
     ;; frames as soon as it's known that a call will happen.  It would
     ;; be nice to recast this as a proper data-flow problem.
     (define (compute-needs-hint!)
-      ;; We traverse the graph using reverse-post-order on a forward
-      ;; control-flow graph, but we did the live variable analysis in
-      ;; the opposite direction -- so the continuation numbers don't
-      ;; correspond.  This helper adapts them.
-      (define (label-idx->dfa-k-idx n)
-        (dfa-k-idx dfa (idx->label n)))
-
       (define (live-before n)
-        (dfa-k-in dfa (label-idx->dfa-k-idx n)))
+        (dfa-k-in dfa n))
       (define (live-after n)
-        (dfa-k-out dfa (label-idx->dfa-k-idx n)))
+        (dfa-k-out dfa n))
 
       ;; Walk backwards.  At a call, compute the set of variables that
       ;; have allocated slots and are live before but not after.  This
@@ -611,7 +602,7 @@ are comparable with eqv?.  A tmp slot may be used."
                   (let ((slot (vector-ref slots v)))
                     (if (and slot
                              (> slot nargs)
-                             (pred (idx->label n) v dfa))
+                             (pred n v dfa))
                         (kill-dead-slot slot live)
                         live)))
                 live
