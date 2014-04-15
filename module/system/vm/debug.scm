@@ -1,6 +1,6 @@
 ;;; Guile runtime debug information
 
-;;; Copyright (C) 2013 Free Software Foundation, Inc.
+;;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -55,6 +55,7 @@
             arity-has-rest?
             arity-allow-other-keys?
             arity-has-keyword-args?
+            arity-keyword-args
             arity-is-case-lambda?
 
             debug-context-from-image
@@ -64,6 +65,7 @@
             find-program-debug-info
             arity-arguments-alist
             find-program-arities
+            find-program-arity
             find-program-minimum-arity
 
             find-program-docstring
@@ -325,6 +327,25 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
             (string->symbol (string-table-ref bv (+ strtab-offset n)))))))
      (else (error "couldn't find arities section")))))
 
+(define (arity-keyword-args arity)
+  (let* ((bv (elf-bytes (debug-context-elf (arity-context arity))))
+         (header (arity-header-offset arity))
+         (link-offset (arity-offset* bv header))
+         (link (+ (arity-base arity) link-offset))
+         (flags (arity-flags* bv header))
+         (nreq (arity-nreq* bv header))
+         (nopt (arity-nopt* bv header)))
+    (define (unpack-scm n)
+      (pointer->scm (make-pointer n)))
+    (define (load-non-immediate idx)
+      (let ((offset (bytevector-u32-native-ref bv (+ link (* idx 4)))))
+        (unpack-scm (+ (debug-context-base (arity-context arity)) offset))))
+    (if (and (not (is-case-lambda? flags))
+             (has-keyword-args? flags))
+        (load-non-immediate
+         (+ nreq nopt (if (has-rest? flags) 1 0)))
+        '())))
+
 (define (arity-arguments-alist arity)
   (let* ((bv (elf-bytes (debug-context-elf (arity-context arity))))
          (%load-symbol (arity-load-symbol arity))
@@ -404,6 +425,17 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
         ((arity-is-case-lambda? first)
          (read-sub-arities context base (arity-header-offset first)))
         (else (list first)))))))
+
+(define* (find-program-arity addr #:optional
+                             (context (find-debug-context addr)))
+  (let lp ((arities (or (find-program-arities addr context) '())))
+    (match arities
+      (() #f)
+      ((arity . arities)
+       (if (and (<= (arity-low-pc arity) addr)
+                (< addr (arity-high-pc arity)))
+           arity
+           (lp arities))))))
 
 (define* (find-program-minimum-arity addr #:optional
                                      (context (find-debug-context addr)))

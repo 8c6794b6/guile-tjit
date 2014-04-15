@@ -1,6 +1,6 @@
 ;;; Guile VM frame functions
 
-;;; Copyright (C) 2001, 2005, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2005, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -21,6 +21,7 @@
 (define-module (system vm frame)
   #:use-module (system base pmatch)
   #:use-module (system vm program)
+  #:use-module (system vm debug)
   #:export (frame-bindings
             frame-lookup-binding
             frame-binding-ref frame-binding-set!
@@ -83,49 +84,53 @@
 ;;      stack, and nothing else is on the stack.
 
 (define (frame-call-representation frame)
-  (let ((p (frame-procedure frame)))
+  (let* ((ip (frame-instruction-pointer frame))
+         (info (find-program-debug-info ip))
+         (nlocals (frame-num-locals frame))
+         (closure (frame-procedure frame)))
+    (define (local-ref i)
+      (if (< i nlocals)
+          (frame-local-ref frame i)
+          ;; Let's not error here, as we are called during backtraces.
+          '???))
     (cons
-     (or (false-if-exception (procedure-name p)) p)
+     (or (and=> info program-debug-info-name)
+         (procedure-name closure)
+         (and info
+              ;; No need to give source info, as backtraces will already
+              ;; take care of that.
+              (format #f "#<procedure ~a>"
+                      (number->string (program-debug-info-addr info) 16)))
+         (procedure-name closure)
+         closure)
      (cond
-      ((and (program? p)
-            (program-arguments-alist p (frame-instruction-pointer frame)))
-       ;; case 1
-       => (lambda (arguments)
-            (define (binding-ref sym i)
-              (cond
-               ((frame-lookup-binding frame sym)
-                => (lambda (b) (frame-local-ref frame (binding:index b))))
-               ((< i (frame-num-locals frame))
-                (frame-local-ref frame i))
-               (else
-                ;; let's not error here, as we are called during backtraces...
-                '???)))
-            (let lp ((req (or (assq-ref arguments 'required) '()))
-                     (opt (or (assq-ref arguments 'optional) '()))
-                     (key (or (assq-ref arguments 'keyword) '()))
-                     (rest (or (assq-ref arguments 'rest) #f))
+      ((find-program-arity ip)
+       => (lambda (arity)
+            ;; case 1
+            (let lp ((nreq (arity-nreq arity))
+                     (nopt (arity-nopt arity))
+                     (kw (arity-keyword-args arity))
+                     (has-rest? (arity-has-rest? arity))
                      (i 1))
               (cond
-               ((pair? req)
-                (cons (binding-ref (car req) i)
-                      (lp (cdr req) opt key rest (1+ i))))
-               ((pair? opt)
-                (cons (binding-ref (car opt) i)
-                      (lp req (cdr opt) key rest (1+ i))))
-               ((pair? key)
-                (cons* (caar key)
-                       (frame-local-ref frame (cdar key))
-                       (lp req opt (cdr key) rest (1+ i))))
-               (rest
-                (binding-ref rest i))
+               ((positive? nreq)
+                (cons (local-ref i)
+                      (lp (1- nreq) nopt kw has-rest? (1+ i))))
+               ((positive? nopt)
+                (cons (local-ref i)
+                      (lp nreq (1- nopt) kw has-rest? (1+ i))))
+               ((pair? kw)
+                (cons* (caar kw) (local-ref (cdar kw))
+                       (lp nreq nopt (cdr kw) has-rest? (1+ i))))
+               (has-rest?
+                (local-ref i))
                (else
                 '())))))
       (else
        ;; case 2
-       (map (lambda (i)
-              (frame-local-ref frame i))
+       (map local-ref
             ;; Cdr past the 0th local, which is the procedure.
-            (cdr (iota (frame-num-locals frame)))))))))
+            (cdr (iota nlocals))))))))
 
 
 
