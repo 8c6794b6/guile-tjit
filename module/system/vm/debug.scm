@@ -31,7 +31,7 @@
   #:use-module (system foreign)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 match)
-  #:use-module ((srfi srfi-1) #:select (fold))
+  #:use-module ((srfi srfi-1) #:select (fold split-at))
   #:use-module (srfi srfi-9)
   #:export (debug-context-image
             debug-context-base
@@ -52,6 +52,7 @@
             arity-high-pc
             arity-nreq
             arity-nopt
+            arity-nlocals
             arity-has-rest?
             arity-allow-other-keys?
             arity-has-keyword-args?
@@ -246,7 +247,7 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
   (header-offset arity-header-offset))
 
 (define arities-prefix-len 4)
-(define arity-header-len (* 6 4))
+(define arity-header-len (* 7 4))
 
 ;;;   struct arity_header {
 ;;;     uint32_t low_pc;
@@ -255,6 +256,7 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 ;;;     uint32_t flags;
 ;;;     uint32_t nreq;
 ;;;     uint32_t nopt;
+;;;     uint32_t nlocals;
 ;;;   }
 
 (define (arity-low-pc* bv header-pos)
@@ -269,6 +271,8 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
   (bytevector-u32-native-ref bv (+ header-pos (* 4 4))))
 (define (arity-nopt* bv header-pos)
   (bytevector-u32-native-ref bv (+ header-pos (* 5 4))))
+(define (arity-nlocals* bv header-pos)
+  (bytevector-u32-native-ref bv (+ header-pos (* 6 4))))
 
 ;;;    #x1: has-rest?
 ;;;    #x2: allow-other-keys?
@@ -304,6 +308,10 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
   (arity-nopt* (elf-bytes (debug-context-elf (arity-context arity)))
                (arity-header-offset arity)))
 
+(define (arity-nlocals arity)
+  (arity-nlocals* (elf-bytes (debug-context-elf (arity-context arity)))
+                  (arity-header-offset arity)))
+
 (define (arity-flags arity)
   (arity-flags* (elf-bytes (debug-context-elf (arity-context arity)))
                 (arity-header-offset arity)))
@@ -313,6 +321,18 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 (define (arity-has-keyword-args? arity) (has-keyword-args? (arity-flags arity)))
 (define (arity-is-case-lambda? arity) (is-case-lambda? (arity-flags arity)))
 (define (arity-is-in-case-lambda? arity) (is-in-case-lambda? (arity-flags arity)))
+
+(define (arity-keyword-args arity)
+  (define (unpack-scm n)
+    (pointer->scm (make-pointer n)))
+  (if (arity-has-keyword-args? arity)
+      (let* ((bv (elf-bytes (debug-context-elf (arity-context arity))))
+             (header (arity-header-offset arity))
+             (link-offset (arity-offset* bv header))
+             (link (+ (arity-base arity) link-offset))
+             (offset (bytevector-u32-native-ref bv link)))
+        (unpack-scm (+ (debug-context-base (arity-context arity)) offset)))
+      '()))
 
 (define (arity-load-symbol arity)
   (let ((elf (debug-context-elf (arity-context arity))))
@@ -327,43 +347,70 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
             (string->symbol (string-table-ref bv (+ strtab-offset n)))))))
      (else (error "couldn't find arities section")))))
 
-(define (arity-keyword-args arity)
-  (define (unpack-scm n)
-    (pointer->scm (make-pointer n)))
-  (if (arity-has-keyword-args? arity)
-      (let* ((bv (elf-bytes (debug-context-elf (arity-context arity))))
-             (header (arity-header-offset arity))
-             (link-offset (arity-offset* bv header))
-             (link (+ (arity-base arity) link-offset))
-             (offset (bytevector-u32-native-ref bv link)))
-        (unpack-scm (+ (debug-context-base (arity-context arity)) offset)))
-      '()))
-
-(define (arity-arguments-alist arity)
+(define* (arity-locals arity #:optional nlocals)
   (let* ((bv (elf-bytes (debug-context-elf (arity-context arity))))
-         (%load-symbol (arity-load-symbol arity))
+         (load-symbol (arity-load-symbol arity))
          (header (arity-header-offset arity))
+         (nlocals (if nlocals
+                      (if (<= 0 nlocals (arity-nlocals* bv header))
+                          nlocals
+                          (error "request for too many locals"))
+                      (arity-nlocals* bv header)))
          (flags (arity-flags* bv header))
-         (nreq (arity-nreq* bv header))
-         (nopt (arity-nopt* bv header))
          (link-offset (arity-offset* bv header))
          (link (+ (arity-base arity)
                   link-offset
                   (if (has-keyword-args? flags) 4 0))))
-    (define (load-symbol idx)
-      (%load-symbol (bytevector-u32-native-ref bv (+ link (* idx 4)))))
-    (define (load-symbols skip n)
-      (let lp ((n n) (out '()))
+    (define (read-uleb128 bv pos)
+      ;; Unrolled by one.
+      (let ((b (bytevector-u8-ref bv pos)))
+        (if (zero? (logand b #x80))
+            (values b
+                    (1+ pos))
+            (let lp ((n (logxor #x80 b)) (pos (1+ pos)) (shift 7))
+              (let ((b (bytevector-u8-ref bv pos)))
+                (if (zero? (logand b #x80))
+                    (values (logior (ash b shift) n)
+                            (1+ pos))
+                    (lp (logior (ash (logxor #x80 b) shift) n)
+                        (1+ pos)
+                        (+ shift 7))))))))
+    (define (load-symbols pos n)
+      (let lp ((pos pos) (n n) (out '()))
         (if (zero? n)
-            out
-            (lp (1- n)
-                (cons (load-symbol (+ skip (1- n))) out)))))
-    (and (not (is-case-lambda? flags))
-         `((required . ,(load-symbols 0 nreq))
-           (optional . ,(load-symbols nreq nopt))
-           (keyword . ,(arity-keyword-args arity))
-           (allow-other-keys? . ,(allow-other-keys? flags))
-           (rest . ,(and (has-rest? flags) (load-symbol (+ nreq nopt))))))))
+            (reverse out)
+            (call-with-values (lambda () (read-uleb128 bv pos))
+              (lambda (strtab-offset pos)
+                strtab-offset
+                (lp pos
+                    (1- n)
+                    (cons (if (zero? strtab-offset)
+                              #f
+                              (load-symbol strtab-offset))
+                          out)))))))
+    (when (is-case-lambda? flags)
+      (error "invalid request for locals of case-lambda wrapper arity"))
+    (load-symbols link nlocals)))
+
+(define (arity-arguments-alist arity)
+  (let* ((bv (elf-bytes (debug-context-elf (arity-context arity))))
+         (header (arity-header-offset arity))
+         (flags (arity-flags* bv header))
+         (nreq (arity-nreq* bv header))
+         (nopt (arity-nopt* bv header))
+         (nargs (+ nreq nopt (if (has-rest? flags) 1 0))))
+    (when (is-case-lambda? flags)
+      (error "invalid request for locals of case-lambda wrapper arity"))
+    (let ((args (arity-locals arity nargs)))
+      (call-with-values (lambda () (split-at args nreq))
+        (lambda (req args)
+          (call-with-values (lambda () (split-at args nopt))
+            (lambda (opt args)
+              `((required . ,req)
+                (optional . ,opt)
+                (keyword . ,(arity-keyword-args arity))
+                (allow-other-keys? . ,(allow-other-keys? flags))
+                (rest . ,(and (has-rest? flags) (car args)))))))))))
 
 (define (find-first-arity context base addr)
   (let* ((bv (elf-bytes (debug-context-elf context)))

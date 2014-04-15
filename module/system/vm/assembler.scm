@@ -1399,6 +1399,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
 ;;;     uint32_t flags;
 ;;;     uint32_t nreq;
 ;;;     uint32_t nopt;
+;;;     uint32_t nlocals;
 ;;;   }
 ;;;
 ;;; All of the offsets and addresses are 32 bits.  We can expand in the
@@ -1423,11 +1424,11 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
 ;;;
 ;;; If the arity has keyword arguments -- if has-keyword-args? is set in
 ;;; the flags -- the first uint32 pointed to by offset encodes a link to
-;;; the "keyword indices" literal, in the data section.  Then follow
-;;; links for required arguments are first, in order, as uint32 values.
-;;; Next follow the optionals, then the rest link if has-rest? is set.
-;;; Unlike the other links, the kw-indices link points into the data
-;;; section, and is relative to the ELF image as a whole.
+;;; the "keyword indices" literal, in the data section.  Then follow the
+;;; names for all locals, in order, as uleb128 values.  The required
+;;; arguments will be the first locals, followed by the optionals,
+;;; followed by the rest argument if if has-rest? is set.  The names
+;;; point into the associated string table section.
 ;;;
 ;;; Functions with no arities have no arities information present in the
 ;;; .guile.arities section.
@@ -1444,10 +1445,28 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
 (define arities-prefix-len 4)
 
 ;; Length of an arity header, in bytes.
-(define arity-header-len (* 6 4))
+(define arity-header-len (* 7 4))
 
-;; The offset of "offset" within arity header, in bytes.
-(define arity-header-offset-offset (* 2 4))
+;; Some helpers.
+(define (put-uleb128 port val)
+  (let lp ((val val))
+    (let ((next (ash val -7)))
+      (if (zero? next)
+          (put-u8 port val)
+          (begin
+            (put-u8 port (logior #x80 (logand val #x7f)))
+            (lp next))))))
+
+(define (put-sleb128 port val)
+  (let lp ((val val))
+    (if (<= 0 (+ val 64) 127)
+        (put-u8 port (logand val #x7f))
+        (begin
+          (put-u8 port (logior #x80 (logand val #x7f)))
+          (lp (ash val -7))))))
+
+(define (port-position port)
+  (seek port 0 SEEK_CUR))
 
 (define-syntax-rule (pack-arity-flags has-rest? allow-other-keys?
                                       has-keyword-args? is-case-lambda?
@@ -1458,131 +1477,114 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
           (if is-case-lambda? (ash 1 3) 0)
           (if is-in-case-lambda? (ash 1 4) 0)))
 
-(define (meta-arities-size meta)
-  (define (lambda-size arity)
-    (+ arity-header-len
-       (* 4    ;; name pointers
-          (+ (if (pair? (arity-kw-indices arity)) 1 0)
-             (length (arity-req arity))
-             (length (arity-opt arity))
-             (if (arity-rest arity) 1 0)))))
-  (define (case-lambda-size arities)
-    (fold +
-          arity-header-len ;; case-lambda header
-          (map lambda-size arities))) ;; the cases
-  (match (meta-arities meta)
-    (() 0)
-    ((arity) (lambda-size arity))
-    (arities (case-lambda-size arities))))
-
-(define (write-arity-headers metas bv endianness)
-  (define (write-arity-header* pos low-pc high-pc flags nreq nopt)
-    (bytevector-u32-set! bv pos (* low-pc 4) endianness)
-    (bytevector-u32-set! bv (+ pos 4) (* high-pc 4) endianness)
-    (bytevector-u32-set! bv (+ pos 8) 0 endianness) ; offset
-    (bytevector-u32-set! bv (+ pos 12) flags endianness)
-    (bytevector-u32-set! bv (+ pos 16) nreq endianness)
-    (bytevector-u32-set! bv (+ pos 20) nopt endianness))
-  (define (write-arity-header pos arity in-case-lambda?)
-    (write-arity-header* pos (arity-low-pc arity)
-                         (arity-high-pc arity)
-                         (pack-arity-flags (arity-rest arity)
-                                           (arity-allow-other-keys? arity)
-                                           (pair? (arity-kw-indices arity))
-                                           #f
-                                           in-case-lambda?)
-                         (length (arity-req arity))
-                         (length (arity-opt arity))))
-  (let lp ((metas metas) (pos arities-prefix-len) (offsets '()))
+(define (write-arities asm metas headers names-port strtab)
+  (define (write-header pos low-pc high-pc offset flags nreq nopt nlocals)
+    (bytevector-u32-set! headers pos (* low-pc 4) (asm-endianness asm))
+    (bytevector-u32-set! headers (+ pos 4) (* high-pc 4) (asm-endianness asm))
+    (bytevector-u32-set! headers (+ pos 8) offset (asm-endianness asm))
+    (bytevector-u32-set! headers (+ pos 12) flags (asm-endianness asm))
+    (bytevector-u32-set! headers (+ pos 16) nreq (asm-endianness asm))
+    (bytevector-u32-set! headers (+ pos 20) nopt (asm-endianness asm))
+    (bytevector-u32-set! headers (+ pos 24) nlocals (asm-endianness asm)))
+  (define (write-kw-indices kw-indices relocs)
+    ;; FIXME: Assert that kw-indices is already interned.
+    (if (pair? kw-indices)
+        (let ((pos (+ (bytevector-length headers)
+                      (port-position names-port)))
+              (label (intern-constant asm kw-indices)))
+          (put-bytevector names-port #vu8(0 0 0 0))
+          (cons (make-linker-reloc 'abs32/1 pos 0 label) relocs))
+        relocs))
+  (define (write-arity pos arity in-case-lambda? relocs)
+    (write-header pos (arity-low-pc arity)
+                  (arity-high-pc arity)
+                  ;; FIXME: Seems silly to add on bytevector-length of
+                  ;; headers, given the arities-prefix.
+                  (+ (bytevector-length headers) (port-position names-port))
+                  (pack-arity-flags (arity-rest arity)
+                                    (arity-allow-other-keys? arity)
+                                    (pair? (arity-kw-indices arity))
+                                    #f
+                                    in-case-lambda?)
+                  (length (arity-req arity))
+                  (length (arity-opt arity))
+                  (length (arity-definitions arity)))
+    (let ((relocs (write-kw-indices (arity-kw-indices arity) relocs)))
+      (let lp ((definitions (arity-definitions arity)))
+        (match definitions
+          (() relocs)
+          ((#(name slot def) . definitions)
+           (let ((sym (if (symbol? name)
+                          (string-table-intern! strtab (symbol->string name))
+                          0)))
+             (put-uleb128 names-port sym)
+             (lp definitions)))))))
+  (let lp ((metas metas) (pos arities-prefix-len) (relocs '()))
     (match metas
       (()
-       ;; Fill in the prefix.
-       (bytevector-u32-set! bv 0 pos endianness)
-       (values pos (reverse offsets)))
+       (unless (= pos (bytevector-length headers))
+         (error "expected to fully fill the bytevector"
+                pos (bytevector-length headers)))
+       relocs)
       ((meta . metas)
        (match (meta-arities meta)
-         (() (lp metas pos offsets))
+         (() (lp metas pos relocs))
          ((arity)
-          (write-arity-header pos arity #f)
           (lp metas
               (+ pos arity-header-len)
-              (acons arity (+ pos arity-header-offset-offset) offsets)))
+              (write-arity pos arity #f relocs)))
          (arities
           ;; Write a case-lambda header, then individual arities.
           ;; The case-lambda header's offset link is 0.
-          (write-arity-header* pos (meta-low-pc meta) (meta-high-pc meta)
-                               (pack-arity-flags #f #f #f #t #f) 0 0)
+          (write-header pos (meta-low-pc meta) (meta-high-pc meta) 0
+                        (pack-arity-flags #f #f #f #t #f) 0 0 0)
           (let lp* ((arities arities) (pos (+ pos arity-header-len))
-                    (offsets offsets))
+                    (relocs relocs))
             (match arities
-              (() (lp metas pos offsets))
+              (() (lp metas pos relocs))
               ((arity . arities)
-               (write-arity-header pos arity #t)
                (lp* arities
                     (+ pos arity-header-len)
-                    (acons arity
-                           (+ pos arity-header-offset-offset)
-                           offsets)))))))))))
-
-(define (write-arity-links asm bv pos arity-offset-pairs strtab)
-  (define (write-symbol sym pos)
-    (bytevector-u32-set! bv pos
-                         (string-table-intern! strtab (symbol->string sym))
-                         (asm-endianness asm))
-    (+ pos 4))
-  (define (write-kw-indices pos kw-indices)
-    ;; FIXME: Assert that kw-indices is already interned.
-    (make-linker-reloc 'abs32/1 pos 0
-                       (intern-constant asm kw-indices)))
-  (let lp ((pos pos) (pairs arity-offset-pairs) (relocs '()))
-    (match pairs
-      (()
-       (unless (= pos (bytevector-length bv))
-         (error "expected to fully fill the bytevector"
-                pos (bytevector-length bv)))
-       relocs)
-      (((arity . offset) . pairs)
-       (bytevector-u32-set! bv offset pos (asm-endianness asm))
-       (call-with-values
-           (lambda ()
-             (match (arity-kw-indices arity)
-               (() (values pos relocs))
-               (kw-indices
-                (values (+ pos 4)
-                        (cons (write-kw-indices pos kw-indices) relocs)))))
-         (lambda (pos relocs)
-           (lp (fold write-symbol
-                     pos
-                     (append (arity-req arity)
-                             (arity-opt arity)
-                             (cond
-                              ((arity-rest arity) => list)
-                              (else '()))))
-               pairs
-               relocs)))))))
+                    (write-arity pos arity #t relocs)))))))))))
 
 (define (link-arities asm)
+  (define (meta-arities-header-size meta)
+    (define (lambda-size arity)
+      arity-header-len)
+    (define (case-lambda-size arities)
+      (fold +
+            arity-header-len            ;; case-lambda header
+            (map lambda-size arities))) ;; the cases
+    (match (meta-arities meta)
+      (() 0)
+      ((arity) (lambda-size arity))
+      (arities (case-lambda-size arities))))
+
+  (define (bytevector-append a b)
+    (let ((out (make-bytevector (+ (bytevector-length a)
+                                   (bytevector-length b)))))
+      (bytevector-copy! a 0 out 0 (bytevector-length a))
+      (bytevector-copy! b 0 out (bytevector-length a) (bytevector-length b))
+      out))
+
   (let* ((endianness (asm-endianness asm))
          (metas (reverse (asm-meta asm)))
-         (size (fold (lambda (meta size)
-                       (+ size (meta-arities-size meta)))
-                     arities-prefix-len
-                     metas))
+         (header-size (fold (lambda (meta size)
+                              (+ size (meta-arities-header-size meta)))
+                            arities-prefix-len
+                            metas))
          (strtab (make-string-table))
-         (bv (make-bytevector size 0)))
-    (let ((kw-indices-relocs
-           (call-with-values
-               (lambda ()
-                 (write-arity-headers metas bv endianness))
-             (lambda (pos arity-offset-pairs)
-               (write-arity-links asm bv pos arity-offset-pairs strtab)))))
-      (let ((strtab (make-object asm '.guile.arities.strtab
-                                 (link-string-table! strtab)
-                                 '() '()
-                                 #:type SHT_STRTAB #:flags 0)))
+         (headers (make-bytevector header-size 0)))
+    (bytevector-u32-set! headers 0 (bytevector-length headers) endianness)
+    (let-values (((names-port get-name-bv) (open-bytevector-output-port)))
+      (let* ((relocs (write-arities asm metas headers names-port strtab))
+             (strtab (make-object asm '.guile.arities.strtab
+                                  (link-string-table! strtab)
+                                  '() '()
+                                  #:type SHT_STRTAB #:flags 0)))
         (values (make-object asm '.guile.arities
-                             bv
-                             kw-indices-relocs '()
+                             (bytevector-append headers (get-name-bv))
+                             relocs '()
                              #:type SHT_PROGBITS #:flags 0
                              #:link (elf-section-index
                                      (linker-object-section strtab)))
@@ -1728,26 +1730,6 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
     (let ((bv (make-bytevector 8)))
       (bytevector-u64-set! bv 0 val (asm-endianness asm))
       (put-bytevector port bv)))
-
-  (define (put-uleb128 port val)
-    (let lp ((val val))
-      (let ((next (ash val -7)))
-        (if (zero? next)
-            (put-u8 port val)
-            (begin
-              (put-u8 port (logior #x80 (logand val #x7f)))
-              (lp next))))))
-
-  (define (put-sleb128 port val)
-    (let lp ((val val))
-      (if (<= 0 (+ val 64) 127)
-          (put-u8 port (logand val #x7f))
-          (begin
-            (put-u8 port (logior #x80 (logand val #x7f)))
-            (lp (ash val -7))))))
-
-  (define (port-position port)
-    (seek port 0 SEEK_CUR))
 
   (define (meta->subprogram-die meta)
     `(subprogram
