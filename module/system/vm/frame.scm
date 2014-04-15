@@ -22,6 +22,7 @@
   #:use-module (system base pmatch)
   #:use-module (system vm program)
   #:use-module (system vm debug)
+  #:use-module (ice-9 match)
   #:export (frame-bindings
             frame-lookup-binding
             frame-binding-ref frame-binding-set!
@@ -93,6 +94,21 @@
           (frame-local-ref frame i)
           ;; Let's not error here, as we are called during backtraces.
           '???))
+    (define (reconstruct-arguments nreq nopt kw has-rest? local)
+      (cond
+       ((positive? nreq)
+        (cons (local-ref local)
+              (reconstruct-arguments (1- nreq) nopt kw has-rest? (1+ local))))
+       ((positive? nopt)
+        (cons (local-ref local)
+              (reconstruct-arguments nreq (1- nopt) kw has-rest? (1+ local))))
+       ((pair? kw)
+        (cons* (caar kw) (local-ref (cdar kw))
+               (reconstruct-arguments nreq nopt (cdr kw) has-rest? (1+ local))))
+       (has-rest?
+        (local-ref local))
+       (else
+        '())))
     (cons
      (or (and=> info program-debug-info-name)
          (procedure-name closure)
@@ -107,25 +123,22 @@
       ((find-program-arity ip)
        => (lambda (arity)
             ;; case 1
-            (let lp ((nreq (arity-nreq arity))
-                     (nopt (arity-nopt arity))
-                     (kw (arity-keyword-args arity))
-                     (has-rest? (arity-has-rest? arity))
-                     (i 1))
-              (cond
-               ((positive? nreq)
-                (cons (local-ref i)
-                      (lp (1- nreq) nopt kw has-rest? (1+ i))))
-               ((positive? nopt)
-                (cons (local-ref i)
-                      (lp nreq (1- nopt) kw has-rest? (1+ i))))
-               ((pair? kw)
-                (cons* (caar kw) (local-ref (cdar kw))
-                       (lp nreq nopt (cdr kw) has-rest? (1+ i))))
-               (has-rest?
-                (local-ref i))
-               (else
-                '())))))
+            (reconstruct-arguments (arity-nreq arity)
+                                   (arity-nopt arity)
+                                   (arity-keyword-args arity)
+                                   (arity-has-rest? arity)
+                                   1)))
+      ((and (primitive? closure)
+            (program-arguments-alist closure ip))
+       => (lambda (args)
+            (match args
+              ((('required . req)
+                ('optional . opt)
+                ('keyword . kw)
+                ('allow-other-keys? . _)
+                ('rest . rest))
+               ;; case 1
+               (reconstruct-arguments (length req) (length opt) kw rest 1)))))
       (else
        ;; case 2
        (map local-ref

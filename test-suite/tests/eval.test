@@ -19,6 +19,7 @@
   :use-module (test-suite lib)
   :use-module ((srfi srfi-1) :select (unfold count))
   :use-module ((system vm vm) :select (call-with-stack-overflow-handler))
+  :use-module ((system vm frame) :select (frame-call-representation))
   :use-module (ice-9 documentation)
   :use-module (ice-9 local-eval))
 
@@ -373,12 +374,9 @@
     ;; Create a stack with two primitive frames and make sure the
     ;; arguments are correct.
     (let* ((stack (make-tagged-trimmed-stack tag '(#t)))
-           (call-list (map (lambda (frame)
-                             (cons (frame-procedure frame)
-                                   (frame-arguments frame)))
-                           (stack->frames stack))))
-      (and (equal? (car call-list) `(,make-stack #t))
-           (pair? (member `(,substring wrong type arg)
+           (call-list (map frame-call-representation (stack->frames stack))))
+      (and (equal? (car call-list) '(make-stack #t))
+           (pair? (member '(substring wrong type arg)
                           (cdr call-list))))))
 
   (pass-if "inner trim with prompt tag"
