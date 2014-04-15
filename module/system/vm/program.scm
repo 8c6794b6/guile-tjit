@@ -24,14 +24,12 @@
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
-  #:export (make-binding binding:name binding:boxed? binding:index
-            binding:start binding:end
+  #:export (binding:name binding:definition-offset binding:slot
+            program-arity-bindings-for-ip
 
             source:addr source:line source:column source:file
             source:line-for-user
             program-sources program-sources-pre-retire program-source
-
-            program-bindings-for-ip
 
             program-arities program-arity arity:start arity:end
 
@@ -61,13 +59,11 @@
 (define (program-properties program)
   (find-program-properties (program-code program)))
 
-(define (make-binding name boxed? index start end)
-  (list name boxed? index start end))
-(define (binding:name b) (list-ref b 0))
-(define (binding:boxed? b) (list-ref b 1))
-(define (binding:index b) (list-ref b 2))
-(define (binding:start b) (list-ref b 3))
-(define (binding:end b) (list-ref b 4))
+(define (make-binding name def-offset slot)
+  (vector name def-offset slot))
+(define (binding:name b) (vector-ref b 0))
+(define (binding:definition-offset b) (vector-ref b 1))
+(define (binding:slot b) (vector-ref b 2))
 
 (define (source:addr source)
   (car source))
@@ -128,39 +124,12 @@
                 (source-column source)))
        (find-program-sources (program-code proc))))
 
-(define (collapse-locals locs)
-  (let lp ((ret '()) (locs locs))
-    (if (null? locs)
-        (map cdr (sort! ret 
-                        (lambda (x y) (< (car x) (car y)))))
-        (let ((b (car locs)))
-          (cond
-           ((assv-ref ret (binding:index b))
-            => (lambda (bindings)
-                 (append! bindings (list b))
-                 (lp ret (cdr locs))))
-           (else
-            (lp (acons (binding:index b) (list b) ret)
-                (cdr locs))))))))
-
-;; returns list of list of bindings
-;; (list-ref ret N) == bindings bound to the Nth local slot
-(define (program-bindings-by-index prog)
-  ;; FIXME!
-  '())
-
-(define (program-bindings-for-ip prog ip)
-  (let lp ((in (program-bindings-by-index prog)) (out '()))
-    (if (null? in)
-        (reverse out)
-        (lp (cdr in)
-            (let inner ((binds (car in)))
-              (cond ((null? binds) out)
-                    ((<= (binding:start (car binds))
-                         ip
-                         (binding:end (car binds)))
-                     (cons (car binds) out))
-                    (else (inner (cdr binds)))))))))
+(define (program-arity-bindings-for-ip prog ip)
+  (or-map (lambda (arity)
+            (and (<= (arity-low-pc arity) ip)
+                 (< ip (arity-high-pc arity))
+                 (arity-definitions arity)))
+          (or (find-program-arities (program-code prog)) '())))
 
 (define (arity:start a)
   (match a ((start end . _) start) (_ (error "bad arity" a))))
@@ -203,31 +172,21 @@
                                  #:optional
                                  (make-placeholder
                                   (lambda (i) (string->symbol "_"))))
-  (define var-by-index
-    (let ((rbinds (map (lambda (x)
-                         (cons (binding:index x) (binding:name x)))
-                       (program-bindings-for-ip prog
-                                                (arity:start arity)))))
-      (lambda (i)
-        (or (assv-ref rbinds i)
-            ;; if we don't know the name, return a placeholder
-            (make-placeholder i)))))
-
   (let lp ((nreq (arity:nreq arity)) (req '())
            (nopt (arity:nopt arity)) (opt '())
            (rest? (arity:rest? arity)) (rest #f)
            (n 0))
     (cond
      ((< 0 nreq)
-      (lp (1- nreq) (cons (var-by-index n) req)
+      (lp (1- nreq) (cons (make-placeholder n) req)
           nopt opt rest? rest (1+ n)))
      ((< 0 nopt)
       (lp nreq req
-          (1- nopt) (cons (var-by-index n) opt)
+          (1- nopt) (cons (make-placeholder n) opt)
           rest? rest (1+ n)))
      (rest?
       (lp nreq req nopt opt
-          #f (var-by-index (+ n (length (arity:kw arity))))
+          #f (make-placeholder (+ n (length (arity:kw arity))))
           (1+ n)))
      (else
       `((required . ,(reverse req))

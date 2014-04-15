@@ -58,6 +58,7 @@
             arity-has-keyword-args?
             arity-keyword-args
             arity-is-case-lambda?
+            arity-definitions
 
             debug-context-from-image
             fold-all-debug-contexts
@@ -346,6 +347,58 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
           (lambda (n)
             (string->symbol (string-table-ref bv (+ strtab-offset n)))))))
      (else (error "couldn't find arities section")))))
+
+(define* (arity-definitions arity)
+  (let* ((bv (elf-bytes (debug-context-elf (arity-context arity))))
+         (load-symbol (arity-load-symbol arity))
+         (header (arity-header-offset arity))
+         (nlocals (arity-nlocals* bv header))
+         (flags (arity-flags* bv header))
+         (link-offset (arity-offset* bv header))
+         (link (+ (arity-base arity)
+                  link-offset
+                  (if (has-keyword-args? flags) 4 0))))
+    (define (read-uleb128 bv pos)
+      ;; Unrolled by one.
+      (let ((b (bytevector-u8-ref bv pos)))
+        (if (zero? (logand b #x80))
+            (values b
+                    (1+ pos))
+            (let lp ((n (logxor #x80 b)) (pos (1+ pos)) (shift 7))
+              (let ((b (bytevector-u8-ref bv pos)))
+                (if (zero? (logand b #x80))
+                    (values (logior (ash b shift) n)
+                            (1+ pos))
+                    (lp (logior (ash (logxor #x80 b) shift) n)
+                        (1+ pos)
+                        (+ shift 7))))))))
+    (define (load-definitions pos names)
+      (let lp ((pos pos) (names names))
+        (match names
+          (() '())
+          ((name . names)
+           (call-with-values (lambda () (read-uleb128 bv pos))
+             (lambda (def-offset pos)
+               (call-with-values (lambda () (read-uleb128 bv pos))
+                 (lambda (slot pos)
+                   (cons (vector name def-offset slot)
+                         (lp pos names))))))))))
+    (define (load-symbols pos)
+      (let lp ((pos pos) (n nlocals) (out '()))
+        (if (zero? n)
+            (load-definitions pos (reverse out))
+            (call-with-values (lambda () (read-uleb128 bv pos))
+              (lambda (strtab-offset pos)
+                strtab-offset
+                (lp pos
+                    (1- n)
+                    (cons (if (zero? strtab-offset)
+                              #f
+                              (load-symbol strtab-offset))
+                          out)))))))
+    (when (is-case-lambda? flags)
+      (error "invalid request for definitions of case-lambda wrapper arity"))
+    (load-symbols link)))
 
 (define* (arity-locals arity #:optional nlocals)
   (let* ((bv (elf-bytes (debug-context-elf (arity-context arity))))
