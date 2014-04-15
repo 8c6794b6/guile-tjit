@@ -153,8 +153,13 @@
             label
             (match (lookup-cont label dfg)
               (($ $kclause) label)
-              (($ $kargs _ _ term)
+              (($ $kargs names vars term)
                (emit-label asm label)
+               (for-each (lambda (name var)
+                           (let ((slot (maybe-slot var)))
+                             (when slot
+                               (emit-definition asm name slot))))
+                         names vars)
                (let find-exp ((term term))
                  (match term
                    (($ $letk conts term)

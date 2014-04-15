@@ -163,7 +163,7 @@
 ;; Metadata for one <lambda-case>.
 (define-record-type <arity>
   (make-arity req opt rest kw-indices allow-other-keys?
-              low-pc high-pc)
+              low-pc high-pc definitions)
   arity?
   (req arity-req)
   (opt arity-opt)
@@ -171,7 +171,8 @@
   (kw-indices arity-kw-indices)
   (allow-other-keys? arity-allow-other-keys?)
   (low-pc arity-low-pc)
-  (high-pc arity-high-pc set-arity-high-pc!))
+  (high-pc arity-high-pc set-arity-high-pc!)
+  (definitions arity-definitions set-arity-definitions!))
 
 (define-syntax *block-size* (identifier-syntax 32))
 
@@ -753,7 +754,7 @@ returned instead."
   (assert-match alternate (or #f (? exact-integer?) (? symbol?)) "#f or symbol")
   (let* ((meta (car (asm-meta asm)))
          (arity (make-arity req opt rest kw-indices allow-other-keys?
-                            (asm-start asm) #f))
+                            (asm-start asm) #f '()))
          ;; The procedure itself is in slot 0, in the standard calling
          ;; convention.  For procedure prologues, nreq includes the
          ;; procedure, so here we add 1.
@@ -772,6 +773,7 @@ returned instead."
 
 (define-macro-assembler (end-arity asm)
   (let ((arity (car (meta-arities (car (asm-meta asm))))))
+    (set-arity-definitions! arity (reverse (arity-definitions arity)))
     (set-arity-high-pc! arity (asm-start asm))))
 
 (define-macro-assembler (standard-prelude asm nreq nlocals alternate)
@@ -824,6 +826,11 @@ returned instead."
 
 (define-macro-assembler (source asm source)
   (set-asm-sources! asm (acons (asm-start asm) source (asm-sources asm))))
+
+(define-macro-assembler (definition asm name slot)
+  (let* ((arity (car (meta-arities (car (asm-meta asm)))))
+         (def (vector name slot (- (asm-start asm) (arity-low-pc arity)))))
+    (set-arity-definitions! arity (cons def (arity-definitions arity)))))
 
 (define-macro-assembler (cache-current-module! asm module scope)
   (let ((mod-label (intern-module-cache-cell asm scope)))
