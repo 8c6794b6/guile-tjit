@@ -829,7 +829,9 @@ returned instead."
 
 (define-macro-assembler (definition asm name slot)
   (let* ((arity (car (meta-arities (car (asm-meta asm)))))
-         (def (vector name slot (- (asm-start asm) (arity-low-pc arity)))))
+         (def (vector name
+                      slot
+                      (* (- (asm-start asm) (arity-low-pc arity)) 4))))
     (set-arity-definitions! arity (cons def (arity-definitions arity)))))
 
 (define-macro-assembler (cache-current-module! asm module scope)
@@ -1510,6 +1512,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                   (length (arity-opt arity))
                   (length (arity-definitions arity)))
     (let ((relocs (write-kw-indices (arity-kw-indices arity) relocs)))
+      ;; Write local names.
       (let lp ((definitions (arity-definitions arity)))
         (match definitions
           (() relocs)
@@ -1518,7 +1521,15 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                           (string-table-intern! strtab (symbol->string name))
                           0)))
              (put-uleb128 names-port sym)
-             (lp definitions)))))))
+             (lp definitions)))))
+      ;; Now write their definitions.
+      (let lp ((definitions (arity-definitions arity)))
+        (match definitions
+          (() relocs)
+          ((#(name slot def) . definitions)
+           (put-uleb128 names-port def)
+           (put-uleb128 names-port slot)
+           (lp definitions))))))
   (let lp ((metas metas) (pos arities-prefix-len) (relocs '()))
     (match metas
       (()
