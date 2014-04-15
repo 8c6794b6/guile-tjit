@@ -1419,12 +1419,15 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
 ;;; is-case-lambda? flag set.  Their "offset" member links to an array
 ;;; of pointers into the associated .guile.arities.strtab string table,
 ;;; identifying the argument names.  This offset is relative to the
-;;; start of the .guile.arities section.  Links for required arguments
-;;; are first, in order, as uint32 values.  Next follow the optionals,
-;;; then the rest link if has-rest? is set, then a link to the "keyword
-;;; indices" literal if has-keyword-args? is set.  Unlike the other
-;;; links, the kw-indices link points into the data section, and is
-;;; relative to the ELF image as a whole.
+;;; start of the .guile.arities section.
+;;;
+;;; If the arity has keyword arguments -- if has-keyword-args? is set in
+;;; the flags -- the first uint32 pointed to by offset encodes a link to
+;;; the "keyword indices" literal, in the data section.  Then follow
+;;; links for required arguments are first, in order, as uint32 values.
+;;; Next follow the optionals, then the rest link if has-rest? is set.
+;;; Unlike the other links, the kw-indices link points into the data
+;;; section, and is relative to the ELF image as a whole.
 ;;;
 ;;; Functions with no arities have no arities information present in the
 ;;; .guile.arities section.
@@ -1459,10 +1462,10 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
   (define (lambda-size arity)
     (+ arity-header-len
        (* 4    ;; name pointers
-          (+ (length (arity-req arity))
+          (+ (if (pair? (arity-kw-indices arity)) 1 0)
+             (length (arity-req arity))
              (length (arity-opt arity))
-             (if (arity-rest arity) 1 0)
-             (if (pair? (arity-kw-indices arity)) 1 0)))))
+             (if (arity-rest arity) 1 0)))))
   (define (case-lambda-size arities)
     (fold +
           arity-header-len ;; case-lambda header
@@ -1540,19 +1543,23 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
        relocs)
       (((arity . offset) . pairs)
        (bytevector-u32-set! bv offset pos (asm-endianness asm))
-       (let ((pos (fold write-symbol
-                        pos
-                        (append (arity-req arity)
-                                (arity-opt arity)
-                                (cond
-                                 ((arity-rest arity) => list)
-                                 (else '()))))))
-         (match (arity-kw-indices arity)
-           (() (lp pos pairs relocs))
-           (kw-indices
-            (lp (+ pos 4)
-                pairs
-                (cons (write-kw-indices pos kw-indices) relocs)))))))))
+       (call-with-values
+           (lambda ()
+             (match (arity-kw-indices arity)
+               (() (values pos relocs))
+               (kw-indices
+                (values (+ pos 4)
+                        (cons (write-kw-indices pos kw-indices) relocs)))))
+         (lambda (pos relocs)
+           (lp (fold write-symbol
+                     pos
+                     (append (arity-req arity)
+                             (arity-opt arity)
+                             (cond
+                              ((arity-rest arity) => list)
+                              (else '()))))
+               pairs
+               relocs)))))))
 
 (define (link-arities asm)
   (let* ((endianness (asm-endianness asm))
