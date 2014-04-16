@@ -171,6 +171,27 @@ SCM_DEFINE (scm_frame_arguments, "frame-arguments", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+static SCM frame_call_representation_var;
+
+static void
+init_frame_call_representation_var (void)
+{
+  frame_call_representation_var
+    = scm_c_private_lookup ("system vm frame", "frame-call-representation");
+}
+
+SCM scm_frame_call_representation (SCM frame)
+#define FUNC_NAME "frame-call-representation"
+{
+  static scm_i_pthread_once_t once = SCM_I_PTHREAD_ONCE_INIT;
+  scm_i_pthread_once (&once, init_frame_call_representation_var);
+
+  SCM_VALIDATE_VM_FRAME (1, frame);
+
+  return scm_call_1 (scm_variable_ref (frame_call_representation_var), frame);
+}
+#undef FUNC_NAME
+
 SCM_DEFINE (scm_frame_source, "frame-source", 1, 0, 0,
 	    (SCM frame),
 	    "")

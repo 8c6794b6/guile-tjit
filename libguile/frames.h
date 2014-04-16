@@ -181,6 +181,7 @@ SCM_INTERNAL int scm_c_frame_previous (enum scm_vm_frame_kind kind,
 
 SCM_API SCM scm_frame_p (SCM obj);
 SCM_API SCM scm_frame_procedure (SCM frame);
+SCM_API SCM scm_frame_call_representation (SCM frame);
 SCM_API SCM scm_frame_arguments (SCM frame);
 SCM_API SCM scm_frame_source (SCM frame);
 SCM_API SCM scm_frame_num_locals (SCM frame);

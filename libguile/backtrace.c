@@ -1,5 +1,5 @@
 /* Printing of backtraces and error messages
- * Copyright (C) 1996,1997,1998,1999,2000,2001, 2003, 2004, 2006, 2009, 2010, 2011 Free Software Foundation
+ * Copyright (C) 1996,1997,1998,1999,2000,2001, 2003, 2004, 2006, 2009, 2010, 2011, 2014 Free Software Foundation
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -262,14 +262,7 @@ display_frame_expr (char *hdr, SCM exp, char *tlr, int indentation, SCM sport, S
 static void
 display_application (SCM frame, int indentation, SCM sport, SCM port, scm_print_state *pstate)
 {
-  SCM proc = scm_frame_procedure (frame);
-  SCM name = (scm_is_true (scm_procedure_p (proc))
-	      ? scm_procedure_name (proc)
-	      : SCM_BOOL_F);
-  display_frame_expr ("[",
-		      scm_cons (scm_is_true (name) ? name : proc,
-				scm_frame_arguments (frame)),
-		      "]",
+  display_frame_expr ("[", scm_frame_call_representation (frame), "]",
 		      indentation,
 		      sport,
 		      port,
