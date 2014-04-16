@@ -24,14 +24,26 @@
   #:use-module (system vm program)
   #:use-module (system vm debug)
   #:use-module (system vm disassembler)
+  #:use-module (srfi srfi-9)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 match)
-  #:export (frame-bindings
+  #:export (binding-index
+            binding-name
+            binding-slot
+
+            frame-bindings
             frame-lookup-binding
             frame-binding-ref frame-binding-set!
             frame-call-representation
             frame-environment
             frame-object-binding frame-object-name))
+
+(define-record-type <binding>
+  (make-binding idx name slot)
+  binding?
+  (idx binding-index)
+  (name binding-name)
+  (slot binding-slot))
 
 (define (parse-code code)
   (let ((len (bytevector-length code)))
@@ -212,7 +224,7 @@
                 (if n
                     (match (vector-ref defs n)
                       (#(name def-offset slot)
-                       (acons name slot (lp (1+ n)))))
+                       (cons (make-binding n name slot) (lp (1+ n)))))
                     '()))))
           (lp (1+ n) (- offset (vector-ref parsed n)))))))
 
@@ -228,21 +240,21 @@
   (let lp ((bindings (frame-bindings frame)))
     (cond ((null? bindings)
            #f)
-          ((eq? (binding:name (car bindings)) var)
+          ((eq? (binding-name (car bindings)) var)
            (car bindings))
           (else
            (lp (cdr bindings))))))
 
 (define (frame-binding-set! frame var val)
   (frame-local-set! frame
-                    (binding:index
+                    (binding-slot
                      (or (frame-lookup-binding frame var)
                          (error "variable not bound in frame" var frame)))
                     val))
 
 (define (frame-binding-ref frame var)
   (frame-local-ref frame
-                   (binding:index
+                   (binding-slot
                     (or (frame-lookup-binding frame var)
                         (error "variable not bound in frame" var frame)))))
 
@@ -342,7 +354,7 @@
 
 (define (frame-environment frame)
   (map (lambda (binding)
-	 (cons (binding:name binding) (frame-binding-ref frame binding)))
+	 (cons (binding-name binding) (frame-binding-ref frame binding)))
        (frame-bindings frame)))
 
 (define (frame-object-binding frame obj)
@@ -351,5 +363,5 @@
        (and (pair? bs) (car bs)))))
 
 (define (frame-object-name frame obj)
-  (cond ((frame-object-binding frame obj) => binding:name)
+  (cond ((frame-object-binding frame obj) => binding-name)
 	(else #f)))

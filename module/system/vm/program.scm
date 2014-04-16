@@ -24,10 +24,7 @@
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
-  #:export (binding:name binding:definition-offset binding:slot
-            program-arity-bindings-for-ip
-
-            source:addr source:line source:column source:file
+  #:export (source:addr source:line source:column source:file
             source:line-for-user
             program-sources program-sources-pre-retire program-source
 
@@ -58,12 +55,6 @@
   (find-program-minimum-arity (program-code program)))
 (define (program-properties program)
   (find-program-properties (program-code program)))
-
-(define (make-binding name def-offset slot)
-  (vector name def-offset slot))
-(define (binding:name b) (vector-ref b 0))
-(define (binding:definition-offset b) (vector-ref b 1))
-(define (binding:slot b) (vector-ref b 2))
 
 (define (source:addr source)
   (car source))
@@ -123,13 +114,6 @@
                 (source-line source)
                 (source-column source)))
        (find-program-sources (program-code proc))))
-
-(define (program-arity-bindings-for-ip prog ip)
-  (or-map (lambda (arity)
-            (and (<= (arity-low-pc arity) ip)
-                 (< ip (arity-high-pc arity))
-                 (arity-definitions arity)))
-          (or (find-program-arities (program-code prog)) '())))
 
 (define (arity:start a)
   (match a ((start end . _) start) (_ (error "bad arity" a))))

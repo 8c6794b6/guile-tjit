@@ -1,6 +1,6 @@
 ;;; Guile VM debugging facilities
 
-;;; Copyright (C) 2001, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2011, 2013, 2014 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -113,14 +113,10 @@
       (format port "~aLocal variables:~%" per-line-prefix)
       (for-each
        (lambda (binding)
-         (let ((v (let ((x (frame-local-ref frame (binding:index binding))))
-                    (if (binding:boxed? binding)
-                        (variable-ref x)
-                        x))))
+         (let ((v (frame-local-ref frame (binding-slot binding))))
            (display per-line-prefix port)
            (run-hook before-print-hook v)
-           (format port "~a~:[~; (boxed)~] = ~v:@y\n"
-                   (binding:name binding) (binding:boxed? binding) width v)))
+           (format port "~a = ~v:@y\n" (binding-name binding) width v)))
        (frame-bindings frame))))))
 
 (define* (print-frame frame #:optional (port (current-output-port))
@@ -171,20 +167,20 @@
 (define (frame->module frame)
   (let ((proc (frame-procedure frame)))
     (if #f
-        ;; FIXME!
+        ;; FIXME: program-module does not exist.
         (let* ((mod (or (program-module proc) (current-module)))
                (mod* (make-module)))
           (module-use! mod* mod)
           (for-each
            (lambda (binding)
-             (let* ((x (frame-local-ref frame (binding:index binding)))
-                    (var (if (binding:boxed? binding) x (make-variable x))))
+             (let* ((x (frame-local-ref frame (binding-slot binding)))
+                    (var (if (variable? x) x (make-variable x))))
                (format #t
                        "~:[Read-only~;Mutable~] local variable ~a = ~70:@y\n"
-                       (binding:boxed? binding)
-                       (binding:name binding)
+                       (not (variable? x))
+                       (binding-name binding)
                        (if (variable-bound? var) (variable-ref var) var))
-               (module-add! mod* (binding:name binding) var)))
+               (module-add! mod* (binding-name binding) var)))
            (frame-bindings frame))
           mod*)
         (current-module))))
