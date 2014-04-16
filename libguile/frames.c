@@ -130,9 +130,15 @@ SCM_DEFINE (scm_frame_p, "frame?", 1, 0, 0,
 SCM
 scm_c_frame_closure (enum scm_vm_frame_kind kind, const struct scm_frame *frame)
 {
-  SCM *fp = frame_stack_base (kind, frame) + frame->fp_offset;
+  SCM *fp, *sp;
 
-  return SCM_FRAME_PROGRAM (fp);
+  fp = frame_stack_base (kind, frame) + frame->fp_offset;
+  sp = frame_stack_base (kind, frame) + frame->sp_offset;
+
+  if (SCM_FRAME_NUM_LOCALS (fp, sp) > 0)
+    return SCM_FRAME_LOCAL (fp, 0);
+
+  return SCM_BOOL_F;
 }
 
 SCM_DEFINE (scm_frame_procedure, "frame-procedure", 1, 0, 0,
@@ -329,29 +335,36 @@ int
 scm_c_frame_previous (enum scm_vm_frame_kind kind, struct scm_frame *frame)
 {
   SCM *this_fp, *new_fp, *new_sp;
-  SCM proc;
+  SCM *stack_base = frame_stack_base (kind, frame);
 
  again:
-  this_fp = frame->fp_offset + frame_stack_base (kind, frame);
-  new_fp = SCM_FRAME_DYNAMIC_LINK (this_fp);
-  if (new_fp) 
-    {
-      SCM *stack_base = frame_stack_base (kind, frame);
-      new_fp = RELOC (kind, frame, new_fp);
-      new_sp = SCM_FRAME_PREVIOUS_SP (this_fp);
-      frame->fp_offset = new_fp - stack_base;
-      frame->sp_offset = new_sp - stack_base;
-      frame->ip = SCM_FRAME_RETURN_ADDRESS (this_fp);
+  this_fp = frame->fp_offset + stack_base;
 
-      proc = SCM_FRAME_PROGRAM (new_fp);
-
-      if (SCM_PROGRAM_P (proc) && SCM_PROGRAM_IS_BOOT (proc))
-        goto again;
-      else
-        return 1;
-    }
-  else
+  if (this_fp == stack_base)
     return 0;
+
+  new_fp = SCM_FRAME_DYNAMIC_LINK (this_fp);
+
+  if (!new_fp)
+    return 0;
+
+  new_fp = RELOC (kind, frame, new_fp);
+
+  if (new_fp < stack_base)
+    return 0;
+
+  new_sp = SCM_FRAME_PREVIOUS_SP (this_fp);
+  frame->fp_offset = new_fp - stack_base;
+  frame->sp_offset = new_sp - stack_base;
+  frame->ip = SCM_FRAME_RETURN_ADDRESS (this_fp);
+
+  {
+    SCM proc = scm_c_frame_closure (kind, frame);
+    if (SCM_PROGRAM_P (proc) && SCM_PROGRAM_IS_BOOT (proc))
+      goto again;
+  }
+
+  return 1;
 }
 
 SCM_DEFINE (scm_frame_previous, "frame-previous", 1, 0, 0,
