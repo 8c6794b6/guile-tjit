@@ -101,6 +101,7 @@ SCM_INTERNAL SCM scm_i_vm_capture_stack (SCM *stack_base, SCM *fp, SCM *sp,
                                          scm_t_uint32 *ra,
                                          scm_t_dynstack *dynstack,
                                          scm_t_uint32 flags);
+SCM_INTERNAL int scm_i_vm_cont_to_frame (SCM cont, struct scm_frame *frame);
 SCM_INTERNAL void scm_i_vm_cont_print (SCM x, SCM port,
                                        scm_print_state *pstate);
 SCM_INTERNAL void scm_bootstrap_vm (void);

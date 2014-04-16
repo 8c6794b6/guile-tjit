@@ -112,6 +112,19 @@ scm_i_vm_cont_print (SCM x, SCM port, scm_print_state *pstate)
   scm_puts_unlocked (">", port);
 }
 
+int
+scm_i_vm_cont_to_frame (SCM cont, struct scm_frame *frame)
+{
+  struct scm_vm_cont *data = SCM_VM_CONT_DATA (cont);
+
+  frame->stack_holder = data;
+  frame->fp_offset = (data->fp + data->reloc) - data->stack_base;
+  frame->sp_offset = (data->sp + data->reloc) - data->stack_base;
+  frame->ip = data->ra;
+
+  return 1;
+}
+
 /* Ideally we could avoid copying the C stack if the continuation root
    is inside VM code, and call/cc was invoked within that same call to
    vm_run.  That's currently not implemented.  */

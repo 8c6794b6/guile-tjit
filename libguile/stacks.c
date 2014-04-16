@@ -279,6 +279,13 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
       if (!scm_i_continuation_to_frame (obj, &frame))
         return SCM_BOOL_F;
     }
+  else if (SCM_PROGRAM_P (obj) && SCM_PROGRAM_IS_PARTIAL_CONTINUATION (obj))
+    {
+      kind = SCM_VM_FRAME_KIND_CONT;
+      if (!scm_i_vm_cont_to_frame (SCM_PROGRAM_FREE_VARIABLE_REF (obj, 0),
+                                   &frame))
+        return SCM_BOOL_F;
+    }
   else
     {
       SCM_WRONG_TYPE_ARG (SCM_ARG1, obj);
@@ -345,6 +352,9 @@ SCM_DEFINE (scm_stack_id, "stack-id", 1, 0, 0,
       return scm_is_pair (stacks) ? scm_caar (stacks) : SCM_BOOL_F;
     }
   else if (SCM_CONTINUATIONP (stack))
+    /* FIXME: implement me */
+    return SCM_BOOL_F;
+  else if (SCM_PROGRAM_P (stack) && SCM_PROGRAM_IS_PARTIAL_CONTINUATION (stack))
     /* FIXME: implement me */
     return SCM_BOOL_F;
   else
