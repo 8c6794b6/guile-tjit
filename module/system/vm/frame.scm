@@ -224,7 +224,10 @@
                 (if n
                     (match (vector-ref defs n)
                       (#(name def-offset slot)
-                       (cons (make-binding n name slot) (lp (1+ n)))))
+                       ;; Binding 0 is the closure, and is not present
+                       ;; in arity-definitions.
+                       (cons (make-binding (1+ n) name slot)
+                             (lp (1+ n)))))
                     '()))))
           (lp (1+ n) (- offset (vector-ref parsed n)))))))
 
@@ -286,29 +289,41 @@
 ;;      the types don't match. In that case the arguments are all on the
 ;;      stack, and nothing else is on the stack.
 
-(define (frame-call-representation frame)
+(define* (frame-call-representation frame #:optional top-frame?)
   (let* ((ip (frame-instruction-pointer frame))
          (info (find-program-debug-info ip))
          (nlocals (frame-num-locals frame))
          (closure (frame-procedure frame)))
-    (define (local-ref i)
-      (if (< i nlocals)
-          (frame-local-ref frame i)
-          ;; Let's not error here, as we are called during backtraces.
-          '???))
-    (define (reconstruct-arguments nreq nopt kw has-rest? local)
+    (define (find-slot i bindings)
+      (match bindings
+        (#f (and (< i nlocals) i))
+        (() #f)
+        ((($ <binding> idx name slot) . bindings)
+         (if (< idx i)
+             (find-slot i bindings)
+             (and (= idx i) slot)))))
+    (define (local-ref i bindings)
+      (cond
+       ((find-slot i bindings)
+        => (lambda (slot) (frame-local-ref frame slot)))
+       (else
+        '_)))
+    (define (reconstruct-arguments bindings nreq nopt kw has-rest? local)
       (cond
        ((positive? nreq)
-        (cons (local-ref local)
-              (reconstruct-arguments (1- nreq) nopt kw has-rest? (1+ local))))
+        (cons (local-ref local bindings)
+              (reconstruct-arguments bindings
+                                     (1- nreq) nopt kw has-rest? (1+ local))))
        ((positive? nopt)
-        (cons (local-ref local)
-              (reconstruct-arguments nreq (1- nopt) kw has-rest? (1+ local))))
+        (cons (local-ref local bindings)
+              (reconstruct-arguments bindings
+                                     nreq (1- nopt) kw has-rest? (1+ local))))
        ((pair? kw)
-        (cons* (caar kw) (local-ref (cdar kw))
-               (reconstruct-arguments nreq nopt (cdr kw) has-rest? (1+ local))))
+        (cons* (caar kw) (local-ref (cdar kw) bindings)
+               (reconstruct-arguments bindings
+                                      nreq nopt (cdr kw) has-rest? (1+ local))))
        (has-rest?
-        (local-ref local))
+        (local-ref local bindings))
        (else
         '())))
     (cons
@@ -325,7 +340,8 @@
       ((find-program-arity ip)
        => (lambda (arity)
             ;; case 1
-            (reconstruct-arguments (arity-nreq arity)
+            (reconstruct-arguments (available-bindings arity ip top-frame?)
+                                   (arity-nreq arity)
                                    (arity-nopt arity)
                                    (arity-keyword-args arity)
                                    (arity-has-rest? arity)
@@ -340,7 +356,8 @@
                 ('allow-other-keys? . _)
                 ('rest . rest))
                ;; case 1
-               (reconstruct-arguments (length req) (length opt) kw rest 1)))))
+               (reconstruct-arguments #f
+                                      (length req) (length opt) kw rest 1)))))
       (else
        ;; case 2
        (map local-ref
