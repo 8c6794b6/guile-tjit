@@ -328,13 +328,12 @@
         '())))
     (cons
      (or (and=> info program-debug-info-name)
-         (procedure-name closure)
+         (and (procedure? closure) (procedure-name closure))
          (and info
               ;; No need to give source info, as backtraces will already
               ;; take care of that.
               (format #f "#<procedure ~a>"
                       (number->string (program-debug-info-addr info) 16)))
-         (procedure-name closure)
          closure)
      (cond
       ((find-program-arity ip)
@@ -360,7 +359,7 @@
                                       (length req) (length opt) kw rest 1)))))
       (else
        ;; case 2
-       (map local-ref
+       (map (lambda (local) (local-ref local #f))
             ;; Cdr past the 0th local, which is the procedure.
             (cdr (iota nlocals))))))))
 
