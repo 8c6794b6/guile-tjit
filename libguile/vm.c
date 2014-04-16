@@ -397,7 +397,7 @@ vm_reinstate_partial_continuation_inner (void *data_ptr)
   {
     SCM *fp;
     for (fp = vp->fp;
-         SCM_FRAME_LOWER_ADDRESS (fp) > base;
+         SCM_FRAME_LOWER_ADDRESS (fp) >= base;
          fp = SCM_FRAME_DYNAMIC_LINK (fp))
       SCM_FRAME_SET_DYNAMIC_LINK (fp, SCM_FRAME_DYNAMIC_LINK (fp) + reloc);
   }
