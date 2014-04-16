@@ -34,7 +34,12 @@
   #:export (disassemble-program
             fold-program-code
             disassemble-image
-            disassemble-file))
+            disassemble-file
+
+            instruction-length
+            instruction-has-fallthrough?
+            instruction-relative-jump-targets
+            instruction-slot-clobbers))
 
 (define-syntax-rule (u32-ref buf n)
   (bytevector-u32-native-ref buf (* n 4)))
@@ -486,3 +491,113 @@ address of that offset."
   (let* ((thunk (load-thunk-from-file file))
          (elf (find-mapped-elf-image (program-code thunk))))
     (disassemble-image elf)))
+
+(define-syntax instruction-lengths-vector
+  (lambda (x)
+    (syntax-case x ()
+      ((_)
+       (let ((lengths (make-vector 256 #f)))
+         (for-each (match-lambda
+                    ((name opcode kind words ...)
+                     (vector-set! lengths opcode (* 4 (length words)))))
+                   (instruction-list))
+         (datum->syntax x lengths))))))
+
+(define (instruction-length code pos)
+  (let ((opcode (logand (bytevector-u32-native-ref code pos) #xff)))
+    (or (vector-ref (instruction-lengths-vector) opcode)
+        (error "Unknown opcode" opcode))))
+
+(define-syntax static-opcode-set
+  (lambda (x)
+    (define (instruction-opcode inst)
+      (cond
+       ((assq inst (instruction-list))
+        => (match-lambda ((name opcode . _) opcode)))
+       (else
+        (error "unknown instruction" inst))))
+
+    (syntax-case x ()
+      ((static-opcode-set inst ...)
+       (let ((bv (make-bitvector 256 #f)))
+         (for-each (lambda (inst)
+                     (bitvector-set! bv (instruction-opcode inst) #t))
+                   (syntax->datum #'(inst ...)))
+         (datum->syntax #'static-opcode-set bv))))))
+
+(define (instruction-has-fallthrough? code pos)
+  (define non-fallthrough-set
+    (static-opcode-set halt
+                       tail-call tail-call-label tail-call/shuffle
+                       return return-values
+                       subr-call foreign-call continuation-call
+                       tail-apply
+                       br))
+  (let ((opcode (logand (bytevector-u32-native-ref code pos) #xff)))
+    (not (bitvector-ref non-fallthrough-set opcode))))
+
+(define-syntax define-jump-parser
+  (lambda (x)
+    (syntax-case x ()
+      ((_ name opcode kind word0 word* ...)
+       (let ((symname (syntax->datum #'name)))
+         (if (or (memq symname '(br prompt))
+                 (string-prefix? "br-" (symbol->string symname)))
+             (let ((offset (* 4 (length #'(word* ...)))))
+               #`(vector-set!
+                  jump-parsers
+                  opcode
+                  (lambda (code pos)
+                    (let ((target
+                           (bytevector-s32-native-ref code (+ pos #,offset))))
+                      ;; Assume that the target is in the last word, as
+                      ;; an L24 in the high bits.
+                      (list (* 4 (ash target -8)))))))
+             #'(begin)))))))
+
+(define jump-parsers (make-vector 256 (lambda (code pos) '())))
+(visit-opcodes define-jump-parser)
+
+(define (instruction-relative-jump-targets code pos)
+  (let ((opcode (logand (bytevector-u32-native-ref code pos) #xff)))
+    ((vector-ref jump-parsers opcode) code pos)))
+
+(define-syntax define-clobber-parser
+  (lambda (x)
+    (syntax-case x ()
+      ((_ name opcode kind arg ...)
+       (case (syntax->datum #'kind)
+         ((!)
+          (case (syntax->datum #'name)
+            ((call call-label)
+             #'(let ((parse (lambda (code pos nslots)
+                              (call-with-values
+                                  (lambda ()
+                                    (disassemble-one code (/ pos 4)))
+                                (lambda (len elt)
+                                  (match elt
+                                    ((_ proc . _)
+                                     (let lp ((slot (- proc 2)))
+                                       (if (< slot nslots)
+                                           (cons slot (lp (1+ slot)))
+                                           '())))))))))
+                 (vector-set! clobber-parsers opcode parse)))
+            (else
+             #'(begin))))
+         ((<-)
+          #'(let ((parse (lambda (code pos nslots)
+                           (call-with-values
+                               (lambda ()
+                                 (disassemble-one code (/ pos 4)))
+                             (lambda (len elt)
+                               (match elt
+                                 ((_ dst . _) (list dst))))))))
+              (vector-set! clobber-parsers opcode parse)))
+         (else (error "unexpected instruction kind" #'kind)))))))
+
+(define clobber-parsers (make-vector 256 (lambda (code pos nslots) '())))
+(visit-opcodes define-clobber-parser)
+
+(define (instruction-slot-clobbers code pos nslots)
+  (let ((opcode (logand (bytevector-u32-native-ref code pos) #xff)))
+    ((vector-ref clobber-parsers opcode) code pos nslots)))
