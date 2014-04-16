@@ -270,11 +270,13 @@ are comparable with eqv?.  A tmp slot may be used."
       (+ 2 (find-first-trailing-zero live-slots)))
 
     (define (compute-prompt-handler-proc-slot live-slots)
-      (1- (find-first-trailing-zero live-slots)))
+      (if (zero? live-slots)
+          0
+          (1- (find-first-trailing-zero live-slots))))
 
     (define (recompute-live-slots k nargs)
       (let ((in (dfa-k-in dfa (label->idx k))))
-        (let lp ((v 0) (live-slots (1- (ash 1 (1+ nargs)))))
+        (let lp ((v 0) (live-slots 0))
           (let ((v (bit-position #t in v)))
             (if v
                 (let ((slot (vector-ref slots v)))
@@ -596,13 +598,11 @@ are comparable with eqv?.  A tmp slot may be used."
     ;; definitions dominate uses and a block's dominator will appear
     ;; before it, in reverse post-order.
     (define (visit-clause n nargs live)
-      (let lp ((n n) (live live))
+      (let lp ((n n) (live (recompute-live-slots (idx->label n) nargs)))
         (define (kill-dead live vars-by-label-idx pred)
           (fold (lambda (v live)
                   (let ((slot (vector-ref slots v)))
-                    (if (and slot
-                             (> slot nargs)
-                             (pred n v dfa))
+                    (if (and slot (pred n v dfa))
                         (kill-dead-slot slot live)
                         live)))
                 live
