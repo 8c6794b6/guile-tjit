@@ -110,27 +110,6 @@ struct scm_vm_frame
 #define SCM_FRAME_NUM_LOCALS(fp, sp)            \
   ((sp) + 1 - &SCM_FRAME_LOCAL (fp, 0))
 
-/* Currently (November 2013) we keep the procedure and arguments in
-   their slots for the duration of the procedure call, regardless of
-   whether the values are live or not.  This allows for backtraces that
-   show the closure and arguments.  We may allow the compiler to relax
-   this restriction in the future, if the user so desires.  This would
-   conserve stack space and make GC more precise.  We would need better
-   debugging information to do that, however.
-
-   Even now there is an exception to the rule that slot 0 holds the
-   procedure, which is in the case of tail calls.  The compiler will
-   emit code that shuffles the new procedure and arguments into position
-   before performing the tail call, so there is a window in which
-   SCM_FRAME_PROGRAM does not correspond to the program being executed.
-
-   The moral of the story is to use the IP in a frame to determine what
-   procedure is being called.  It is only appropriate to use
-   SCM_FRAME_PROGRAM in the prologue of a procedure call, when you know
-   it must be there.  */
-
-#define SCM_FRAME_PROGRAM(fp) (SCM_FRAME_LOCAL (fp, 0))
-
 
 /*
  * Heap frames
