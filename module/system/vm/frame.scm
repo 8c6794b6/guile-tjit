@@ -20,8 +20,11 @@
 
 (define-module (system vm frame)
   #:use-module (system base pmatch)
+  #:use-module (system foreign)
   #:use-module (system vm program)
   #:use-module (system vm debug)
+  #:use-module (system vm disassembler)
+  #:use-module (rnrs bytevectors)
   #:use-module (ice-9 match)
   #:export (frame-bindings
             frame-lookup-binding
@@ -30,9 +33,196 @@
             frame-environment
             frame-object-binding frame-object-name))
 
-(define (frame-bindings frame)
-  (let ((p (frame-procedure frame)))
-    (program-bindings-for-ip p (frame-instruction-pointer frame))))
+(define (parse-code code)
+  (let ((len (bytevector-length code)))
+    (let lp ((pos 0) (out '()))
+      (cond
+       ((< pos len)
+        (let* ((inst-len (instruction-length code pos))
+               (pos (+ pos inst-len)))
+          (unless (<= pos len)
+            (error "Failed to parse codestream"))
+          (lp pos (cons inst-len out))))
+       (else
+        (list->vector (reverse out)))))))
+
+(define (compute-predecessors code parsed)
+  (let ((preds (make-vector (vector-length parsed) '())))
+    (define (add-pred! from target)
+      (let lp ((to from) (target target))
+        (cond
+         ((negative? target)
+          (lp (1- to) (+ target (vector-ref parsed to))))
+         ((positive? target)
+          (lp (1+ to) (- target (vector-ref parsed to))))
+         ((= to (vector-length preds))
+          ;; This can happen when an arity fails to match.  Just ignore
+          ;; this case.
+          #t)
+         (else
+          (vector-set! preds to (cons from (vector-ref preds to)))))))
+    (let lp ((n 0) (pos 0))
+      (when (< n (vector-length preds))
+        (when (instruction-has-fallthrough? code pos)
+          (add-pred! n (vector-ref parsed n)))
+        (for-each (lambda (target)
+                    (add-pred! n target))
+                  (instruction-relative-jump-targets code pos))
+        (lp (1+ n) (+ pos (vector-ref parsed n)))))
+    preds))
+
+(define (compute-genv parsed defs)
+  (let ((genv (make-vector (vector-length parsed) '())))
+    (define (add-def! pos var)
+      (vector-set! genv pos (cons var (vector-ref genv pos))))
+    (let lp ((var 0) (pos 0) (pc-offset 0))
+      (when (< var (vector-length defs))
+        (match (vector-ref defs var)
+          (#(name offset slot)
+           (when (< offset pc-offset)
+             (error "mismatch between def offsets and parsed code"))
+           (cond
+            ((< pc-offset offset)
+             (lp var (1+ pos) (+ pc-offset (vector-ref parsed pos))))
+            (else
+             (add-def! pos var)
+             (lp (1+ var) pos pc-offset)))))))
+    genv))
+
+(define (compute-defs-by-slot defs)
+  (let* ((nslots (match defs
+                   (#(#(_ _ slot) ...) (1+ (apply max slot)))))
+         (by-slot (make-vector nslots #f)))
+    (let lp ((n 0))
+      (when (< n nslots)
+        (vector-set! by-slot n (make-bitvector (vector-length defs) #f))
+        (lp (1+ n))))
+    (let lp ((n 0))
+      (when (< n (vector-length defs))
+        (match (vector-ref defs n)
+          (#(_ _ slot)
+           (bitvector-set! (vector-ref by-slot slot) n #t)
+           (lp (1+ n))))))
+    by-slot))
+
+(define (compute-killv code parsed defs)
+  (let ((defs-by-slot (compute-defs-by-slot defs))
+        (killv (make-vector (vector-length parsed) #f)))
+    (define (kill-slot! n slot)
+      (bit-set*! (vector-ref killv n) (vector-ref defs-by-slot slot) #t))
+    (let lp ((n 0))
+      (when (< n (vector-length killv))
+        (vector-set! killv n (make-bitvector (vector-length defs) #f))
+        (lp (1+ n))))
+    ;; Some defs get into place without explicit instructions -- this is
+    ;; the case if no shuffling need occur, for example.  In any case,
+    ;; mark them as killing any previous definitions at that slot.
+    (let lp ((var 0) (pos 0) (pc-offset 0))
+      (when (< var (vector-length defs))
+        (match (vector-ref defs var)
+          (#(name offset slot)
+           (when (< offset pc-offset)
+             (error "mismatch between def offsets and parsed code"))
+           (cond
+            ((< pc-offset offset)
+             (lp var (1+ pos) (+ pc-offset (vector-ref parsed pos))))
+            (else
+             (kill-slot! pos slot)
+             (lp (1+ var) pos pc-offset)))))))
+    (let lp ((n 0) (pos 0))
+      (when (< n (vector-length parsed))
+        (for-each (lambda (slot)
+                    (when (< slot (vector-length defs-by-slot))
+                      (kill-slot! n slot)))
+                  (instruction-slot-clobbers code pos
+                                             (vector-length defs-by-slot)))
+        (lp (1+ n) (+ pos (vector-ref parsed n)))))
+    killv))
+
+(define (available-bindings arity ip top-frame?)
+  (let* ((defs (list->vector (arity-definitions arity)))
+         (code (arity-code arity))
+         (parsed (parse-code code))
+         (len (vector-length parsed))
+         (preds (compute-predecessors code parsed))
+         (genv (compute-genv parsed defs))
+         (killv (compute-killv code parsed defs))
+         (inv (make-vector len #f))
+         (outv (make-vector len #f))
+         (tmp (make-bitvector (vector-length defs) #f)))
+    (define (bitvector-copy! dst src)
+      (bitvector-fill! dst #f)
+      (bit-set*! dst src #t))
+    (define (bitvector-meet! accum src)
+      (bitvector-copy! tmp src)
+      (bit-invert! tmp)
+      (bit-set*! accum tmp #f))
+
+    (let lp ((n 0))
+      (when (< n len)
+        (vector-set! inv n (make-bitvector (vector-length defs) #f))
+        (vector-set! outv n (make-bitvector (vector-length defs) #f))
+        (lp (1+ n))))
+
+    (let lp ((n 0) (first? #t) (changed? #f))
+      (cond
+       ((< n len)
+        (let ((in (vector-ref inv n))
+              (out (vector-ref outv n))
+              (kill (vector-ref killv n))
+              (gen (vector-ref genv n)))
+          (let ((out-count (or changed? (bit-count #t out))))
+            (bitvector-fill! in (not (zero? n)))
+            (let lp ((preds (vector-ref preds n)))
+              (match preds
+                (() #t)
+                ((pred . preds)
+                 (unless (and first? (<= n pred))
+                   (bitvector-meet! in (vector-ref outv pred)))
+                 (lp preds))))
+            (bitvector-copy! out in)
+            (bit-set*! out kill #f)
+            (for-each (lambda (def)
+                        (bitvector-set! out def #t))
+                      gen)
+            (lp (1+ n) first?
+                (or changed? (not (eqv? out-count (bit-count #t out))))))))
+       ((or changed? first?)
+        (lp 0 #f #f))))
+
+    (let lp ((n 0) (offset (- ip (arity-low-pc arity))))
+      (when (< offset 0)
+        (error "ip did not correspond to an instruction boundary?"))
+      (if (zero? offset)
+          (let ((live (if top-frame?
+                          (vector-ref inv n)
+                          ;; If we're not at a top frame, the IP points
+                          ;; to the continuation -- but we haven't
+                          ;; returned and defined its values yet.  The
+                          ;; set of live variables is the set that was
+                          ;; live going into the call, minus the set
+                          ;; killed by the call, but not including
+                          ;; values defined by the call.
+                          (begin
+                            (bitvector-copy! tmp (vector-ref inv (1- n)))
+                            (bit-set*! tmp (vector-ref killv (1- n)) #f)
+                            tmp))))
+            (let lp ((n 0))
+              (let ((n (bit-position #t live n)))
+                (if n
+                    (match (vector-ref defs n)
+                      (#(name def-offset slot)
+                       (acons name slot (lp (1+ n)))))
+                    '()))))
+          (lp (1+ n) (- offset (vector-ref parsed n)))))))
+
+(define* (frame-bindings frame #:optional top-frame?)
+  (let ((ip (frame-instruction-pointer frame)))
+    (cond
+     ((find-program-arity ip)
+      => (lambda (arity)
+           (available-bindings arity ip top-frame?)))
+     (else '()))))
 
 (define (frame-lookup-binding frame var)
   (let lp ((bindings (frame-bindings frame)))
