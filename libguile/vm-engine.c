@@ -1662,7 +1662,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * Make an immediate whose low bits are LOW-BITS, and whose top bits are
    * 0.
    */
-  VM_DEFINE_OP (53, make_long_immediate, "make-long-immediate", OP2 (U8_U24, I32))
+  VM_DEFINE_OP (53, make_long_immediate, "make-long-immediate", OP2 (U8_U24, I32) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_bits val;
@@ -1737,7 +1737,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
    * that the compiler is unable to statically allocate, like symbols.
    * These values would be initialized when the object file loads.
    */
-  VM_DEFINE_OP (56, static_ref, "static-ref", OP2 (U8_U24, S32))
+  VM_DEFINE_OP (56, static_ref, "static-ref", OP2 (U8_U24, S32) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_int32 offset;
