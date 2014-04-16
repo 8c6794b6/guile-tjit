@@ -457,9 +457,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     NEXT (0);
 
  apply:
-  while (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp)))
+  while (!SCM_PROGRAM_P (LOCAL_REF (0)))
     {
-      SCM proc = SCM_FRAME_PROGRAM (fp);
+      SCM proc = LOCAL_REF (0);
 
       if (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc))
         {
@@ -484,7 +484,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
     }
 
   /* Let's go! */
-  ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+  ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
   NEXT (0);
 
   BEGIN_DISPATCH_SWITCH;
@@ -558,10 +558,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       PUSH_CONTINUATION_HOOK ();
       APPLY_HOOK ();
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
         goto apply;
 
-      ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
       NEXT (0);
     }
 
@@ -618,10 +618,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       APPLY_HOOK ();
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
         goto apply;
 
-      ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
       NEXT (0);
     }
 
@@ -672,10 +672,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       APPLY_HOOK ();
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
         goto apply;
 
-      ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
       NEXT (0);
     }
 
@@ -961,10 +961,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       APPLY_HOOK ();
 
-      if (SCM_UNLIKELY (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
+      if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
         goto apply;
 
-      ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
       NEXT (0);
     }
 
@@ -1005,10 +1005,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
           APPLY_HOOK ();
 
-          if (SCM_UNLIKELY (!SCM_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
+          if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
             goto apply;
 
-          ip = SCM_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
+          ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
           NEXT (0);
         }
       else
@@ -1096,7 +1096,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint32 expected;
       UNPACK_24 (op, expected);
       VM_ASSERT (FRAME_LOCALS_COUNT () == expected,
-                 vm_error_wrong_num_args (SCM_FRAME_PROGRAM (fp)));
+                 vm_error_wrong_num_args (LOCAL_REF (0)));
       NEXT (1);
     }
   VM_DEFINE_OP (22, assert_nargs_ge, "assert-nargs-ge", OP1 (U8_U24))
@@ -1104,7 +1104,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint32 expected;
       UNPACK_24 (op, expected);
       VM_ASSERT (FRAME_LOCALS_COUNT () >= expected,
-                 vm_error_wrong_num_args (SCM_FRAME_PROGRAM (fp)));
+                 vm_error_wrong_num_args (LOCAL_REF (0)));
       NEXT (1);
     }
   VM_DEFINE_OP (23, assert_nargs_le, "assert-nargs-le", OP1 (U8_U24))
@@ -1112,7 +1112,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint32 expected;
       UNPACK_24 (op, expected);
       VM_ASSERT (FRAME_LOCALS_COUNT () <= expected,
-                 vm_error_wrong_num_args (SCM_FRAME_PROGRAM (fp)));
+                 vm_error_wrong_num_args (LOCAL_REF (0)));
       NEXT (1);
     }
 
@@ -1159,7 +1159,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       scm_t_uint16 expected, nlocals;
       UNPACK_12_12 (op, expected, nlocals);
       VM_ASSERT (FRAME_LOCALS_COUNT () == expected,
-                 vm_error_wrong_num_args (SCM_FRAME_PROGRAM (fp)));
+                 vm_error_wrong_num_args (LOCAL_REF (0)));
       ALLOC_FRAME (expected + nlocals);
       while (nlocals--)
         LOCAL_SET (expected + nlocals, SCM_UNDEFINED);
@@ -1258,7 +1258,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
         LOCAL_SET (n++, SCM_UNDEFINED);
 
       VM_ASSERT (has_rest || (nkw % 2) == 0,
-                 vm_error_kwargs_length_not_even (SCM_FRAME_PROGRAM (fp)));
+                 vm_error_kwargs_length_not_even (LOCAL_REF (0)));
 
       /* Now bind keywords, in the order given.  */
       for (n = 0; n < nkw; n++)
@@ -1274,12 +1274,12 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
                   break;
                 }
             VM_ASSERT (scm_is_pair (walk) || allow_other_keys,
-                       vm_error_kwargs_unrecognized_keyword (SCM_FRAME_PROGRAM (fp),
+                       vm_error_kwargs_unrecognized_keyword (LOCAL_REF (0),
                                                              LOCAL_REF (ntotal + n)));
             n++;
           }
         else
-          VM_ASSERT (has_rest, vm_error_kwargs_invalid_keyword (SCM_FRAME_PROGRAM (fp),
+          VM_ASSERT (has_rest, vm_error_kwargs_invalid_keyword (LOCAL_REF (0),
                                                                 LOCAL_REF (ntotal + n)));
 
       if (has_rest)
@@ -1555,8 +1555,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       var = LOCAL_REF (src);
       VM_ASSERT (SCM_VARIABLEP (var),
                  vm_error_not_a_variable ("variable-ref", var));
-      VM_ASSERT (VARIABLE_BOUNDP (var),
-                 vm_error_unbound (SCM_FRAME_PROGRAM (fp), var));
+      VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (var));
       LOCAL_SET (dst, VARIABLE_REF (var));
       NEXT (1);
     }
@@ -1870,8 +1869,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       var = scm_lookup (LOCAL_REF (sym));
       CACHE_FP ();
       if (ip[1] & 0x1)
-        VM_ASSERT (VARIABLE_BOUNDP (var),
-                   vm_error_unbound (fp[0], LOCAL_REF (sym)));
+        VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (LOCAL_REF (sym)));
       LOCAL_SET (dst, var);
 
       NEXT (2);
@@ -1950,7 +1948,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           var = scm_module_lookup (mod, sym);
           CACHE_FP ();
           if (ip[4] & 0x1)
-            VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (fp[0], sym));
+            VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (sym));
 
           *var_loc = var;
         }
@@ -2012,7 +2010,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           CACHE_FP ();
 
           if (ip[4] & 0x1)
-            VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (fp[0], sym));
+            VM_ASSERT (VARIABLE_BOUNDP (var), vm_error_unbound (sym));
 
           *var_loc = var;
         }
@@ -2141,7 +2139,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           if (scm_is_eq (val, SCM_UNDEFINED))
             val = SCM_I_FLUID_DEFAULT (fluid);
           VM_ASSERT (!scm_is_eq (val, SCM_UNDEFINED),
-                     vm_error_unbound_fluid (SCM_FRAME_PROGRAM (fp), fluid));
+                     vm_error_unbound_fluid (fluid));
           LOCAL_SET (dst, val);
         }
 
