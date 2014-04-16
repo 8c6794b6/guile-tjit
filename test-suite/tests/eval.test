@@ -384,8 +384,8 @@
            (frames (stack->frames stack)))
       ;; the top frame on the stack is the lambda inside the 'catch, and the
       ;; next frame is the (catch 'result ...)
-      (and (eq? (frame-procedure (cadr frames))
-                catch)
+      (and (eq? (car (frame-call-representation (cadr frames)))
+                'catch)
            (eq? (car (frame-arguments (cadr frames)))
                 'result))))
 
@@ -394,12 +394,10 @@
            (frames (stack->frames stack)))
       ;; the top frame on the stack is the make-stack call, and the last
       ;; frame is the (with-throw-handler 'wrong-type-arg ...)
-      (and (eq? (frame-procedure (car frames))
-                make-stack)
-           (eq? (frame-procedure (car (last-pair frames)))
-                with-throw-handler)
-           (eq? (car (frame-arguments (car (last-pair frames))))
-                'wrong-type-arg)))))
+      (and (eq? (car (frame-call-representation (car frames)))
+                'make-stack)
+           (eq? (car (frame-call-representation (car (last-pair frames))))
+                'with-throw-handler)))))
 
 ;;;
 ;;; letrec init evaluation
