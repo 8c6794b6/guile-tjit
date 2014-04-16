@@ -59,6 +59,7 @@
             arity-keyword-args
             arity-is-case-lambda?
             arity-definitions
+            arity-code
 
             debug-context-from-image
             fold-all-debug-contexts
@@ -399,6 +400,17 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
     (when (is-case-lambda? flags)
       (error "invalid request for definitions of case-lambda wrapper arity"))
     (load-symbols link)))
+
+(define (arity-code arity)
+  (let* ((ctx (arity-context arity))
+         (bv (elf-bytes (debug-context-elf ctx)))
+         (header (arity-header-offset arity))
+         (base-addr (+ (debug-context-base ctx) (debug-context-text-base ctx)))
+         (low-pc (+ base-addr (arity-low-pc* bv header)))
+         (high-pc (+ base-addr (arity-high-pc* bv header))))
+    ;; FIXME: We should be able to use a sub-bytevector operation here;
+    ;; it would be safer.
+    (pointer->bytevector (make-pointer low-pc) (- high-pc low-pc))))
 
 (define* (arity-locals arity #:optional nlocals)
   (let* ((bv (elf-bytes (debug-context-elf (arity-context arity))))
