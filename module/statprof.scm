@@ -337,29 +337,36 @@
   (let ((prev (setitimer ITIMER_PROF 0 0 0 usecs)))
     (+ (* (caadr prev) #e1e6) (cdadr prev))))
 
-(define (profile-signal-handler sig)
-  (define state (existing-profiler-state))
+(define profile-signal-handler
+  (let ()
+    (define (profile-signal-handler sig)
+      (define state (existing-profiler-state))
 
-  (set-inside-profiler?! state #t)
+      (set-inside-profiler?! state #t)
 
-  (when (positive? (profile-level state))
-    (let* ((stop-time (get-internal-run-time))
-           ;; Cut down to the signal handler.  Note that this will only
-           ;; work if statprof.scm is compiled; otherwise we get `eval'
-           ;; on the stack instead, because if it's not compiled,
-           ;; profile-signal-handler is a thunk that tail-calls eval.
-           ;; Perhaps we should always compile the signal handler
-           ;; instead.
-           (stack (or (make-stack #t profile-signal-handler (outer-cut state))
-                      (pk 'what! (make-stack #t)))))
+      (when (positive? (profile-level state))
+        (let* ((stop-time (get-internal-run-time))
+               ;; Cut down to the signal handler.  Note that this will
+               ;; only work if statprof.scm is compiled; otherwise we
+               ;; get `eval' on the stack instead, because if it's not
+               ;; compiled, profile-signal-handler is a thunk that
+               ;; tail-calls eval.  For the same reason we define the
+               ;; handler in an inner letrec, so that the compiler sees
+               ;; the inner reference to profile-signal-handler as the
+               ;; same as the procedure, and therefore keeps slot 0
+               ;; alive.  Nastiness, that.
+               (stack
+                (or (make-stack #t profile-signal-handler (outer-cut state))
+                    (pk 'what! (make-stack #t)))))
 
-      (sample-stack-procs state stack)
-      (accumulate-time state stop-time)
-      (set-last-start-time! state (get-internal-run-time))
+          (sample-stack-procs state stack)
+          (accumulate-time state stop-time)
+          (set-last-start-time! state (get-internal-run-time))
 
-      (reset-sigprof-timer (sampling-period state))))
-  
-  (set-inside-profiler?! state #f))
+          (reset-sigprof-timer (sampling-period state))))
+
+      (set-inside-profiler?! state #f))
+    profile-signal-handler))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Count total calls.
