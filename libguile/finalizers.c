@@ -1,4 +1,4 @@
-/* Copyright (C) 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -37,6 +37,8 @@
 #include "libguile/threads.h"
 
 
+
+static int automatic_finalization_p = 1;
 
 static size_t finalization_count;
 
@@ -137,7 +139,7 @@ static SCM finalizer_async_cell;
 static SCM
 run_finalizers_async_thunk (void)
 {
-  finalization_count += GC_invoke_finalizers ();
+  scm_run_finalizers ();
   return SCM_UNSPECIFIED;
 }
 
@@ -226,7 +228,7 @@ finalization_thread_proc (void *unused)
       switch (data.byte)
         {
         case 0:
-          finalization_count += GC_invoke_finalizers ();
+          scm_run_finalizers ();
           break;
         case 1:
           return NULL;
@@ -291,8 +293,11 @@ void
 scm_i_finalizer_pre_fork (void)
 {
 #if SCM_USE_PTHREAD_THREADS
-  stop_finalization_thread ();
-  GC_set_finalizer_notifier (spawn_finalizer_thread);
+  if (automatic_finalization_p)
+    {
+      stop_finalization_thread ();
+      GC_set_finalizer_notifier (spawn_finalizer_thread);
+    }
 #endif
 }
 
@@ -355,6 +360,59 @@ scm_i_register_weak_gc_callback (SCM obj, void (*callback) (SCM))
 }
 
 
+int
+scm_set_automatic_finalization_enabled (int enabled_p)
+{
+  int was_enabled_p = automatic_finalization_p;
+
+  if (enabled_p == was_enabled_p)
+    return was_enabled_p;
+
+  if (!scm_initialized_p)
+    {
+      automatic_finalization_p = enabled_p;
+      return was_enabled_p;
+    }
+
+  if (enabled_p)
+    {
+#if SCM_USE_PTHREAD_THREADS
+      if (pipe2 (finalization_pipe, O_CLOEXEC) != 0)
+        scm_syserror (NULL);
+      GC_set_finalizer_notifier (spawn_finalizer_thread);
+#else
+      GC_set_finalizer_notifier (queue_finalizer_async);
+#endif
+    }
+  else
+    {
+      GC_set_finalizer_notifier (0);
+
+#if SCM_USE_PTHREAD_THREADS
+      stop_finalization_thread ();
+      close (finalization_pipe[0]);
+      close (finalization_pipe[1]);
+      finalization_pipe[0] = -1;
+      finalization_pipe[1] = -1;
+#endif
+    }
+
+  automatic_finalization_p = enabled_p;
+
+  return was_enabled_p;
+}
+
+int
+scm_run_finalizers (void)
+{
+  int finalized = GC_invoke_finalizers ();
+
+  finalization_count += finalized;
+
+  return finalized;
+}
+
+
 
 
 void
@@ -366,15 +424,20 @@ scm_init_finalizers (void)
     scm_cons (scm_c_make_gsubr ("%run-finalizers", 0, 0, 0,
                                 run_finalizers_async_thunk),
               SCM_BOOL_F);
-  GC_set_finalizer_notifier (queue_finalizer_async);
+
+  if (automatic_finalization_p)
+    GC_set_finalizer_notifier (queue_finalizer_async);
 }
 
 void
 scm_init_finalizer_thread (void)
 {
 #if SCM_USE_PTHREAD_THREADS
-  if (pipe2 (finalization_pipe, O_CLOEXEC) != 0)
-    scm_syserror (NULL);
-  GC_set_finalizer_notifier (spawn_finalizer_thread);
+  if (automatic_finalization_p)
+    {
+      if (pipe2 (finalization_pipe, O_CLOEXEC) != 0)
+        scm_syserror (NULL);
+      GC_set_finalizer_notifier (spawn_finalizer_thread);
+    }
 #endif
 }

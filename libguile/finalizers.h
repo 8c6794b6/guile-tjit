@@ -1,7 +1,7 @@
 #ifndef SCM_FINALIZERS_H
 #define SCM_FINALIZERS_H
 
-/* Copyright (C) 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -40,6 +40,9 @@ SCM_INTERNAL void scm_i_finalizer_pre_fork (void);
    as OBJ is accessible.  It will be called from a finalizer, which may
    be from an async or from another thread. */
 SCM_INTERNAL void scm_i_register_weak_gc_callback (SCM obj, void (*callback) (SCM));
+
+SCM_API int scm_set_automatic_finalization_enabled (int enabled_p);
+SCM_API int scm_run_finalizers (void);
 
 SCM_INTERNAL void scm_init_finalizers (void);
 SCM_INTERNAL void scm_init_finalizer_thread (void);
