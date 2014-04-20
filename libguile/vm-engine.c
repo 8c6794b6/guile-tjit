@@ -2783,15 +2783,15 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       NEXT (3);
     }
 
-  /* make-array dst:12 type:12 _:8 fill:12 bounds:12
+  /* make-array dst:8 type:8 fill:8 _:8 bounds:24
    *
    * Make a new array with TYPE, FILL, and BOUNDS, storing it in DST.
    */
-  VM_DEFINE_OP (106, make_array, "make-array", OP2 (U8_U12_U12, X8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (106, make_array, "make-array", OP2 (U8_U8_U8_U8, X8_U24) | OP_DST)
     {
-      scm_t_uint16 dst, type, fill, bounds;
-      UNPACK_12_12 (op, dst, type);
-      UNPACK_12_12 (ip[1], fill, bounds);
+      scm_t_uint8 dst, type, fill, bounds;
+      UNPACK_8_8_8 (op, dst, type, fill);
+      UNPACK_24 (ip[1], bounds);
       SYNC_IP ();
       LOCAL_SET (dst, scm_make_typed_array (LOCAL_REF (type), LOCAL_REF (fill),
                                             LOCAL_REF (bounds)));
