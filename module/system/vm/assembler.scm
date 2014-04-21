@@ -57,6 +57,119 @@
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-11)
   #:export (make-assembler
+
+            emit-call
+            emit-call-label
+            emit-tail-call
+            emit-tail-call-label
+            (emit-receive* . emit-receive)
+            emit-receive-values
+            emit-return
+            emit-return-values
+            emit-call/cc
+            emit-abort
+            (emit-builtin-ref* . emit-builtin-ref)
+            emit-br-if-nargs-ne
+            emit-br-if-nargs-lt
+            emit-br-if-nargs-gt
+            emit-assert-nargs-ee
+            emit-assert-nargs-ge
+            emit-assert-nargs-le
+            emit-alloc-frame
+            emit-reset-frame
+            emit-assert-nargs-ee/locals
+            emit-br-if-npos-gt
+            emit-bind-kwargs
+            emit-bind-rest
+            emit-br
+            emit-br-if-true
+            emit-br-if-null
+            emit-br-if-nil
+            emit-br-if-pair
+            emit-br-if-struct
+            emit-br-if-char
+            emit-br-if-tc7
+            (emit-br-if-eq* . emit-br-if-eq)
+            (emit-br-if-eqv* . emit-br-if-eqv)
+            (emit-br-if-equal* . emit-br-if-equal)
+            (emit-br-if-=* . emit-br-if-=)
+            (emit-br-if-<* . emit-br-if-<)
+            (emit-br-if-<=* . emit-br-if-<=)
+            (emit-mov* . emit-mov)
+            (emit-box* . emit-box)
+            (emit-box-ref* . emit-box-ref)
+            (emit-box-set!* . emit-box-set!)
+            emit-make-closure
+            (emit-free-ref* . emit-free-ref)
+            (emit-free-set!* . emit-free-set!)
+            emit-current-module
+            emit-resolve
+            (emit-define!* . emit-define!)
+            emit-toplevel-box
+            emit-module-box
+            emit-prompt
+            (emit-wind* . emit-wind)
+            emit-unwind
+            (emit-push-fluid* . emit-push-fluid)
+            emit-pop-fluid
+            (emit-fluid-ref* . emit-fluid-ref)
+            (emit-fluid-set* . emit-fluid-set)
+            (emit-string-length* . emit-string-length)
+            (emit-string-ref* . emit-string-ref)
+            (emit-string->number* . emit-string->number)
+            (emit-string->symbol* . emit-string->symbol)
+            (emit-symbol->keyword* . emit-symbol->keyword)
+            (emit-cons* . emit-cons)
+            (emit-car* . emit-car)
+            (emit-cdr* . emit-cdr)
+            (emit-set-car!* . emit-set-car!)
+            (emit-set-cdr!* . emit-set-cdr!)
+            (emit-add* . emit-add)
+            (emit-add1* . emit-add1)
+            (emit-sub* . emit-sub)
+            (emit-sub1* . emit-sub1)
+            (emit-mul* . emit-mul)
+            (emit-div* . emit-div)
+            (emit-quo* . emit-quo)
+            (emit-rem* . emit-rem)
+            (emit-mod* . emit-mod)
+            (emit-ash* . emit-ash)
+            (emit-logand* . emit-logand)
+            (emit-logior* . emit-logior)
+            (emit-logxor* . emit-logxor)
+            (emit-make-vector/immediate* . emit-make-vector/immediate)
+            (emit-vector-length* . emit-vector-length)
+            (emit-vector-ref* . emit-vector-ref)
+            (emit-vector-ref/immediate* . emit-vector-ref/immediate)
+            (emit-vector-set!* . emit-vector-set!)
+            (emit-vector-set!/immediate* . emit-vector-set!/immediate)
+            (emit-struct-vtable* . emit-struct-vtable)
+            (emit-allocate-struct/immediate* . emit-allocate-struct/immediate)
+            (emit-struct-ref/immediate* . emit-struct-ref/immediate)
+            (emit-struct-set!/immediate* . emit-struct-set!/immediate)
+            (emit-class-of* . emit-class-of)
+            (emit-make-array* . emit-make-array)
+            (emit-bv-u8-ref* . emit-bv-u8-ref)
+            (emit-bv-s8-ref* . emit-bv-s8-ref)
+            (emit-bv-u16-ref* . emit-bv-u16-ref)
+            (emit-bv-s16-ref* . emit-bv-s16-ref)
+            (emit-bv-u32-ref* . emit-bv-u32-ref)
+            (emit-bv-s32-ref* . emit-bv-s32-ref)
+            (emit-bv-u64-ref* . emit-bv-u64-ref)
+            (emit-bv-s64-ref* . emit-bv-s64-ref)
+            (emit-bv-f32-ref* . emit-bv-f32-ref)
+            (emit-bv-f64-ref* . emit-bv-f64-ref)
+            (emit-bv-u8-set!* . emit-bv-u8-set!)
+            (emit-bv-s8-set!* . emit-bv-s8-set!)
+            (emit-bv-u16-set!* . emit-bv-u16-set!)
+            (emit-bv-s16-set!* . emit-bv-s16-set!)
+            (emit-bv-u32-set!* . emit-bv-u32-set!)
+            (emit-bv-s32-set!* . emit-bv-s32-set!)
+            (emit-bv-u64-set!* . emit-bv-u64-set!)
+            (emit-bv-s64-set!* . emit-bv-s64-set!)
+            (emit-bv-f32-set!* . emit-bv-f32-set!)
+            (emit-bv-f64-set!* . emit-bv-f64-set!)
+
             emit-text
             link-assembly))
 
@@ -481,12 +594,10 @@ later by the linker."
       (syntax-case x ()
         ((_ name opcode kind arg ...)
          (with-syntax ((emit (id-append #'name #'emit- #'name)))
-           #'(begin
-               (define emit
-                 (let ((emit (assembler name opcode arg ...)))
-                   (hashq-set! assemblers 'name emit)
-                   emit))
-               (export emit)))))))
+           #'(define emit
+               (let ((emit (assembler name opcode arg ...)))
+                 (hashq-set! assemblers 'name emit)
+                 emit)))))))
 
   (define-syntax visit-opcodes
     (lambda (x)
@@ -500,6 +611,165 @@ later by the linker."
                ...)))))))
 
 (visit-opcodes define-assembler)
+
+(eval-when (expand)
+
+  ;; Some operands are encoded using a restricted subset of the full
+  ;; 24-bit local address space, in order to make the bytecode more
+  ;; dense in the usual case that there are few live locals.  Here we
+  ;; define wrapper emitters that shuffle out-of-range operands into and
+  ;; out of the reserved range of locals [233,255].  This range is
+  ;; sufficient because these restricted operands are only present in
+  ;; the first word of an instruction.  Since 8 bits is the smallest
+  ;; slot-addressing operand size, that means we can fit 3 operands in
+  ;; the 24 bits of payload of the first word (the lower 8 bits being
+  ;; taken by the opcode).
+  ;;
+  ;; The result are wrapper emitters with the same arity,
+  ;; e.g. emit-cons* that wraps emit-cons.  We expose these wrappers as
+  ;; the public interface for emitting `cons' instructions.  That way we
+  ;; solve the problem fully and in just one place.  The only manual
+  ;; care that need be taken is in the exports list at the top of the
+  ;; file -- to be sure that we export the wrapper and not the wrapped
+  ;; emitter.
+
+  (define (shuffling-assembler name kind word0 word*)
+    (define (analyze-first-word)
+      (define-syntax op-case
+        (syntax-rules ()
+          ((_ type ((%type %kind arg ...) values) clause ...)
+           (if (and (eq? type '%type) (eq? kind '%kind))
+               (with-syntax (((arg ...) (generate-temporaries #'(arg ...))))
+                 #'((arg ...) values))
+               (op-case type clause ...)))
+          ((_ type)
+           #f)))
+      (op-case
+       word0
+       ((U8_U8_I16 ! a imm)
+        (values (if (< a (ash 1 8))  a (begin (emit-mov* asm 253 a) 253))
+                imm))
+       ((U8_U8_I16 <- a imm)
+        (values (if (< a (ash 1 8))  a 253)
+                imm))
+       ((U8_U12_U12 ! a b)
+        (values (if (< a (ash 1 12)) a (begin (emit-mov* asm 253 a) 253))
+                (if (< b (ash 1 12)) b (begin (emit-mov* asm 254 b) 254))))
+       ((U8_U12_U12 <- a b)
+        (values (if (< a (ash 1 12)) a 253)
+                (if (< b (ash 1 12)) b (begin (emit-mov* asm 254 b) 254))))
+       ((U8_U8_U8_U8 ! a b c)
+        (values (if (< a (ash 1 8))  a (begin (emit-mov* asm 253 a) 253))
+                (if (< b (ash 1 8))  b (begin (emit-mov* asm 254 b) 254))
+                (if (< c (ash 1 8))  c (begin (emit-mov* asm 255 c) 255))))
+       ((U8_U8_U8_U8 <- a b c)
+        (values (if (< a (ash 1 8))  a 253)
+                (if (< b (ash 1 8))  b (begin (emit-mov* asm 254 b) 254))
+                (if (< c (ash 1 8))  c (begin (emit-mov* asm 255 c) 255))))))
+
+    (define (tail-formals type)
+      (define-syntax op-case
+        (syntax-rules ()
+          ((op-case type (%type arg ...) clause ...)
+           (if (eq? type '%type)
+               (generate-temporaries #'(arg ...))
+               (op-case type clause ...)))
+          ((op-case type)
+           (error "unmatched type" type))))
+      (op-case type
+               (U8_U24 a b)
+               (U8_L24 a label)
+               (U32 a)
+               (I32 imm)
+               (A32 imm)
+               (B32)
+               (N32 label)
+               (S32 label)
+               (L32 label)
+               (LO32 label offset)
+               (X8_U24 a)
+               (X8_L24 label)
+               (B1_X7_L24 a label)
+               (B1_U7_L24 a b label)
+               (B1_X31 a)
+               (B1_X7_U24 a b)))
+
+    (define (shuffle-up dst)
+      (define-syntax op-case
+        (syntax-rules ()
+          ((_ type ((%type ...) exp) clause ...)
+           (if (memq type '(%type ...))
+               #'exp
+               (op-case type clause ...)))
+          ((_ type)
+           (error "unexpected type" type))))
+      (with-syntax ((dst dst))
+        (op-case
+         word0
+         ((U8_U8_I16 U8_U8_U8_U8)
+          (unless (< dst (ash 1 8))
+            (emit-mov* asm dst 253)))
+         ((U8_U12_U12)
+          (unless (< dst (ash 1 12))
+            (emit-mov* asm dst 253))))))
+
+    (and=>
+     (analyze-first-word)
+     (lambda (formals+shuffle)
+       (with-syntax ((emit-name (id-append name #'emit- name))
+                     (((formal0 ...) shuffle) formals+shuffle)
+                     (((formal* ...) ...) (map tail-formals word*)))
+         (with-syntax (((shuffle-up-dst ...)
+                        (if (eq? kind '<-)
+                            (syntax-case #'(formal0 ...) ()
+                              ((dst . _)
+                               (list (shuffle-up #'dst))))
+                            '())))
+           #'(lambda (asm formal0 ... formal* ... ...)
+               (call-with-values (lambda () shuffle)
+                 (lambda (formal0 ...)
+                   (emit-name asm formal0 ... formal* ... ...)))
+               shuffle-up-dst ...))))))
+
+  (define-syntax define-shuffling-assembler
+    (lambda (stx)
+      (syntax-case stx ()
+        ((_ #:except (except ...) name opcode kind word0 word* ...)
+         (cond
+          ((or-map (lambda (op) (eq? (syntax->datum #'name) op))
+                   (map syntax->datum #'(except ...)))
+           #'(begin))
+          ((shuffling-assembler #'name (syntax->datum #'kind)
+                                (syntax->datum #'word0)
+                                (map syntax->datum #'(word* ...)))
+           => (lambda (proc)
+                (with-syntax ((emit (id-append #'name
+                                               (id-append #'name #'emit- #'name)
+                                               #'*))
+                              (proc proc))
+                  #'(define emit
+                      (let ((emit proc))
+                        (hashq-set! assemblers 'name emit)
+                        emit)))))
+          (else #'(begin))))))))
+
+(visit-opcodes define-shuffling-assembler #:except (receive mov))
+
+;; Mov and receive are two special cases that can work without wrappers.
+;; Indeed it is important that they do so.
+
+(define (emit-mov* asm dst src)
+  (if (and (< dst (ash 1 12)) (< src (ash 1 12)))
+      (emit-mov asm dst src)
+      (emit-long-mov asm dst src)))
+
+(define (emit-receive* asm dst proc nlocals)
+  (if (and (< dst (ash 1 12)) (< proc (ash 1 12)))
+      (emit-receive asm dst proc nlocals)
+      (begin
+        (emit-receive-values asm proc #t 1)
+        (emit-mov* asm dst (1+ proc))
+        (emit-reset-frame asm nlocals))))
 
 (define (emit-text asm instructions)
   "Assemble @var{instructions} using the assembler @var{asm}.
@@ -786,6 +1056,19 @@ returned instead."
     (set-arity-definitions! arity (reverse (arity-definitions arity)))
     (set-arity-high-pc! arity (asm-start asm))))
 
+;; As noted above, we reserve locals 253 through 255 for shuffling large
+;; operands.  However the calling convention has all arguments passed in
+;; a contiguous block.  This helper, called after the clause has been
+;; chosen and the keyword/optional/rest arguments have been processed,
+;; shuffles up arguments from slot 253 and higher into their final
+;; allocations.
+;;
+(define (shuffle-up-args asm nargs)
+  (when (> nargs 253)
+    (let ((slot (1- nargs)))
+      (emit-mov asm (+ slot 3) slot)
+      (shuffle-up-args asm (1- nargs)))))
+
 (define-macro-assembler (standard-prelude asm nreq nlocals alternate)
   (cond
    (alternate
@@ -795,7 +1078,8 @@ returned instead."
     (emit-assert-nargs-ee/locals asm nreq (- nlocals nreq)))
    (else
     (emit-assert-nargs-ee asm nreq)
-    (emit-alloc-frame asm nlocals))))
+    (emit-alloc-frame asm nlocals)))
+  (shuffle-up-args asm nreq))
 
 (define-macro-assembler (opt-prelude asm nreq nopt rest? nlocals alternate)
   (if alternate
@@ -808,7 +1092,8 @@ returned instead."
     (emit-br-if-nargs-gt asm (+ nreq nopt) alternate))
    (else
     (emit-assert-nargs-le asm (+ nreq nopt))))
-  (emit-alloc-frame asm nlocals))
+  (emit-alloc-frame asm nlocals)
+  (shuffle-up-args asm (+ nreq nopt (if rest? 1 0))))
 
 (define-macro-assembler (kw-prelude asm nreq nopt rest? kw-indices
                                     allow-other-keys? nlocals alternate)
@@ -829,7 +1114,8 @@ returned instead."
                       (+ nreq nopt)
                       ntotal
                       (intern-constant asm kw-indices))
-    (emit-alloc-frame asm nlocals)))
+    (emit-alloc-frame asm nlocals)
+    (shuffle-up-args asm ntotal)))
 
 (define-macro-assembler (label asm sym)
   (hashq-set! (asm-labels asm) sym (asm-start asm)))

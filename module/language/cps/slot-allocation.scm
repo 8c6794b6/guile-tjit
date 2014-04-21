@@ -262,9 +262,15 @@ are comparable with eqv?.  A tmp slot may be used."
       (logand live-slots (lognot (ash 1 slot))))
 
     (define (compute-slot live-slots hint)
-      (if (and hint (not (logbit? hint live-slots)))
+      ;; Slots 253-255 are reserved for shuffling; see comments in
+      ;; assembler.scm.
+      (if (and hint (not (logbit? hint live-slots))
+               (or (< hint 253) (> hint 255)))
           hint
-          (find-first-zero live-slots)))
+          (let ((slot (find-first-zero live-slots)))
+            (if (or (< slot 253) (> slot 255))
+                slot
+                (+ 256 (find-first-zero (ash live-slots -256)))))))
 
     (define (compute-call-proc-slot live-slots)
       (+ 2 (find-first-trailing-zero live-slots)))
@@ -307,6 +313,12 @@ are comparable with eqv?.  A tmp slot may be used."
     ;; or to function return values -- it could be that they are out of
     ;; the computed live set.  In that case they need to be adjoined to
     ;; the live set, used when choosing a temporary slot.
+    ;;
+    ;; Note that although we reserve slots 253-255 for shuffling
+    ;; operands that address less than the full 24-bit range of locals,
+    ;; that reservation doesn't apply here, because this temporary
+    ;; itself is used while doing parallel assignment via "mov", and
+    ;; "mov" does not need shuffling.
     (define (compute-tmp-slot live stack-slots)
       (find-first-zero (fold add-live-slot live stack-slots)))
 
