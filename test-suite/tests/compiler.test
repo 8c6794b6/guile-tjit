@@ -195,4 +195,10 @@
     (equal? ((compile `(lambda ()
                          (list ,@(map (lambda (n) `(identity ,n))
                                       (iota 300))))))
-            (iota 300))))
+            (iota 300)))
+
+  (pass-if "0 arguments with vector of 300 elements"
+    (equal? ((compile `(lambda ()
+                         (vector ,@(map (lambda (n) `(identity ,n))
+                                        (iota 300))))))
+            (list->vector (iota 300)))))

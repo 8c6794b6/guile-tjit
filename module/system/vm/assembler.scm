@@ -137,6 +137,7 @@
             (emit-logand* . emit-logand)
             (emit-logior* . emit-logior)
             (emit-logxor* . emit-logxor)
+            (emit-make-vector* . emit-make-vector)
             (emit-make-vector/immediate* . emit-make-vector/immediate)
             (emit-vector-length* . emit-vector-length)
             (emit-vector-ref* . emit-vector-ref)
@@ -1586,7 +1587,7 @@ needed."
 
 ;; FIXME: Define these somewhere central, shared with C.
 (define *bytecode-major-version* #x0202)
-(define *bytecode-minor-version* 5)
+(define *bytecode-minor-version* 6)
 
 (define (link-dynamic-section asm text rw rw-init frame-maps)
   "Link the dynamic section for an ELF image with bytecode @var{text},

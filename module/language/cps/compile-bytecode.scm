@@ -268,6 +268,8 @@
          (emit-free-ref asm dst (slot closure) (constant idx)))
         (($ $primcall 'vector-ref (vector index))
          (emit-vector-ref asm dst (slot vector) (slot index)))
+        (($ $primcall 'make-vector (length init))
+         (emit-make-vector asm dst (slot length) (slot init)))
         (($ $primcall 'make-vector/immediate (length init))
          (emit-make-vector/immediate asm dst (constant length) (slot init)))
         (($ $primcall 'vector-ref/immediate (vector index))
