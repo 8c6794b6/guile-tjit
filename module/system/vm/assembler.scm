@@ -65,14 +65,16 @@
 
 ;; Like define-inlinable, but only for first-order uses of the defined
 ;; routine.  Should residualize less code.
-(define-syntax define-inline
-  (lambda (x)
-    (syntax-case x ()
-      ((_ (name arg ...) body ...)
-       (with-syntax (((temp ...) (generate-temporaries #'(arg ...))))
-         #`(define-syntax-rule (name temp ...)
-             (let ((arg temp) ...)
-               body ...)))))))
+(eval-when (expand)
+  (define-syntax define-inline
+    (lambda (x)
+      (syntax-case x ()
+        ((_ (name arg ...) body ...)
+         (with-syntax (((temp ...) (generate-temporaries #'(arg ...))))
+           #`(eval-when (expand)
+               (define-syntax-rule (name temp ...)
+                 (let ((arg temp) ...)
+                   body ...)))))))))
 
 ;;; Bytecode consists of 32-bit units, often subdivided in some way.
 ;;; These helpers create one 32-bit unit from multiple components.
@@ -123,24 +125,25 @@
     (error "out of range" z))
   (logior x (ash y 8) (ash z 16) (ash w 24)))
 
-(define-syntax pack-flags
-  (syntax-rules ()
-    ;; Add clauses as needed.
-    ((pack-flags f1 f2) (logior (if f1 (ash 1 0) 0)
-                                (if f2 (ash 2 0) 0)))))
+(eval-when (expand)
+  (define-syntax pack-flags
+    (syntax-rules ()
+      ;; Add clauses as needed.
+      ((pack-flags f1 f2) (logior (if f1 (ash 1 0) 0)
+                                  (if f2 (ash 2 0) 0))))))
 
 ;;; Helpers to read and write 32-bit units in a buffer.
 
-(define-syntax-rule (u32-ref buf n)
+(define-inline (u32-ref buf n)
   (bytevector-u32-native-ref buf (* n 4)))
 
-(define-syntax-rule (u32-set! buf n val)
+(define-inline (u32-set! buf n val)
   (bytevector-u32-native-set! buf (* n 4) val))
 
-(define-syntax-rule (s32-ref buf n)
+(define-inline (s32-ref buf n)
   (bytevector-s32-native-ref buf (* n 4)))
 
-(define-syntax-rule (s32-set! buf n val)
+(define-inline (s32-set! buf n val)
   (bytevector-s32-native-set! buf (* n 4) val))
 
 
@@ -149,10 +152,11 @@
 ;;; A <meta> entry collects metadata for one procedure.  Procedures are
 ;;; written as contiguous ranges of bytecode.
 ;;;
-(define-syntax-rule (assert-match arg pattern kind)
-  (let ((x arg))
-    (unless (match x (pattern #t) (_ #f))
-      (error (string-append "expected " kind) x))))
+(eval-when (expand)
+  (define-syntax-rule (assert-match arg pattern kind)
+    (let ((x arg))
+      (unless (match x (pattern #t) (_ #f))
+        (error (string-append "expected " kind) x)))))
 
 (define-record-type <meta>
   (%make-meta label properties low-pc high-pc arities)
@@ -185,7 +189,8 @@
   (high-pc arity-high-pc set-arity-high-pc!)
   (definitions arity-definitions set-arity-definitions!))
 
-(define-syntax *block-size* (identifier-syntax 32))
+(eval-when (expand)
+  (define-syntax *block-size* (identifier-syntax 32)))
 
 ;;; An assembler collects all of the words emitted during assembly, and
 ;;; also maintains ancillary information such as the constant table, a
@@ -365,133 +370,134 @@ later by the linker."
 ;;; opcode in `(instruction-list)'.
 ;;;
 
-(eval-when (expand compile load eval)
+(eval-when (expand)
   (define (id-append ctx a b)
-    (datum->syntax ctx (symbol-append (syntax->datum a) (syntax->datum b)))))
+    (datum->syntax ctx (symbol-append (syntax->datum a) (syntax->datum b))))
 
-(define-syntax assembler
-  (lambda (x)
-    (define-syntax op-case
-      (lambda (x)
-        (syntax-case x ()
-          ((_ asm name ((type arg ...) code ...) clause ...)
-           #`(if (eq? name 'type)
-                 (with-syntax (((arg ...) (generate-temporaries #'(arg ...))))
-                   #'((arg ...)
-                      code ...))
-                 (op-case asm name clause ...)))
-          ((_ asm name)
-           #'(error "unmatched name" name)))))
+  (define-syntax assembler
+    (lambda (x)
+      (define-syntax op-case
+        (lambda (x)
+          (syntax-case x ()
+            ((_ asm name ((type arg ...) code ...) clause ...)
+             #`(if (eq? name 'type)
+                   (with-syntax (((arg ...) (generate-temporaries #'(arg ...))))
+                     #'((arg ...)
+                        code ...))
+                   (op-case asm name clause ...)))
+            ((_ asm name)
+             #'(error "unmatched name" name)))))
 
-    (define (pack-first-word asm opcode type)
-      (with-syntax ((opcode opcode))
+      (define (pack-first-word asm opcode type)
+        (with-syntax ((opcode opcode))
+          (op-case
+           asm type
+           ((U8_X24)
+            (emit asm opcode))
+           ((U8_U24 arg)
+            (emit asm (pack-u8-u24 opcode arg)))
+           ((U8_L24 label)
+            (record-label-reference asm label)
+            (emit asm opcode))
+           ((U8_U8_I16 a imm)
+            (emit asm (pack-u8-u8-u16 opcode a (object-address imm))))
+           ((U8_U12_U12 a b)
+            (emit asm (pack-u8-u12-u12 opcode a b)))
+           ((U8_U8_U8_U8 a b c)
+            (emit asm (pack-u8-u8-u8-u8 opcode a b c))))))
+
+      (define (pack-tail-word asm type)
         (op-case
          asm type
-         ((U8_X24)
-          (emit asm opcode))
-         ((U8_U24 arg)
-          (emit asm (pack-u8-u24 opcode arg)))
-         ((U8_L24 label)
+         ((U8_U24 a b)
+          (emit asm (pack-u8-u24 a b)))
+         ((U8_L24 a label)
           (record-label-reference asm label)
-          (emit asm opcode))
-         ((U8_U8_I16 a imm)
-          (emit asm (pack-u8-u8-u16 opcode a (object-address imm))))
-         ((U8_U12_U12 a b)
-          (emit asm (pack-u8-u12-u12 opcode a b)))
-         ((U8_U8_U8_U8 a b c)
-          (emit asm (pack-u8-u8-u8-u8 opcode a b c))))))
+          (emit asm a))
+         ((U32 a)
+          (emit asm a))
+         ((I32 imm)
+          (let ((val (object-address imm)))
+            (unless (zero? (ash val -32))
+              (error "FIXME: enable truncation of negative fixnums when cross-compiling"))
+            (emit asm val)))
+         ((A32 imm)
+          (unless (= (asm-word-size asm) 8)
+            (error "make-long-immediate unavailable for this target"))
+          (emit asm (ash (object-address imm) -32))
+          (emit asm (logand (object-address imm) (1- (ash 1 32)))))
+         ((B32))
+         ((N32 label)
+          (record-far-label-reference asm label)
+          (emit asm 0))
+         ((S32 label)
+          (record-far-label-reference asm label)
+          (emit asm 0))
+         ((L32 label)
+          (record-far-label-reference asm label)
+          (emit asm 0))
+         ((LO32 label offset)
+          (record-far-label-reference asm label
+                                      (* offset (/ (asm-word-size asm) 4)))
+          (emit asm 0))
+         ((X8_U24 a)
+          (emit asm (pack-u8-u24 0 a)))
+         ((X8_L24 label)
+          (record-label-reference asm label)
+          (emit asm 0))
+         ((B1_X7_L24 a label)
+          (record-label-reference asm label)
+          (emit asm (pack-u1-u7-u24 (if a 1 0) 0 0)))
+         ((B1_U7_L24 a b label)
+          (record-label-reference asm label)
+          (emit asm (pack-u1-u7-u24 (if a 1 0) b 0)))
+         ((B1_X31 a)
+          (emit asm (pack-u1-u7-u24 (if a 1 0) 0 0)))
+         ((B1_X7_U24 a b)
+          (emit asm (pack-u1-u7-u24 (if a 1 0) 0 b)))))
 
-    (define (pack-tail-word asm type)
-      (op-case
-       asm type
-       ((U8_U24 a b)
-        (emit asm (pack-u8-u24 a b)))
-       ((U8_L24 a label)
-        (record-label-reference asm label)
-        (emit asm a))
-       ((U32 a)
-        (emit asm a))
-       ((I32 imm)
-        (let ((val (object-address imm)))
-          (unless (zero? (ash val -32))
-            (error "FIXME: enable truncation of negative fixnums when cross-compiling"))
-          (emit asm val)))
-       ((A32 imm)
-        (unless (= (asm-word-size asm) 8)
-          (error "make-long-immediate unavailable for this target"))
-        (emit asm (ash (object-address imm) -32))
-        (emit asm (logand (object-address imm) (1- (ash 1 32)))))
-       ((B32))
-       ((N32 label)
-        (record-far-label-reference asm label)
-        (emit asm 0))
-       ((S32 label)
-        (record-far-label-reference asm label)
-        (emit asm 0))
-       ((L32 label)
-        (record-far-label-reference asm label)
-        (emit asm 0))
-       ((LO32 label offset)
-        (record-far-label-reference asm label
-                                    (* offset (/ (asm-word-size asm) 4)))
-        (emit asm 0))
-       ((X8_U24 a)
-        (emit asm (pack-u8-u24 0 a)))
-       ((X8_L24 label)
-        (record-label-reference asm label)
-        (emit asm 0))
-       ((B1_X7_L24 a label)
-        (record-label-reference asm label)
-        (emit asm (pack-u1-u7-u24 (if a 1 0) 0 0)))
-       ((B1_U7_L24 a b label)
-        (record-label-reference asm label)
-        (emit asm (pack-u1-u7-u24 (if a 1 0) b 0)))
-       ((B1_X31 a)
-        (emit asm (pack-u1-u7-u24 (if a 1 0) 0 0)))
-       ((B1_X7_U24 a b)
-        (emit asm (pack-u1-u7-u24 (if a 1 0) 0 b)))))
-
-    (syntax-case x ()
-      ((_ name opcode word0 word* ...)
-       (with-syntax ((((formal0 ...)
-                       code0 ...)
-                      (pack-first-word #'asm
-                                       (syntax->datum #'opcode)
-                                       (syntax->datum #'word0)))
-                     ((((formal* ...)
-                        code* ...) ...)
-                      (map (lambda (word) (pack-tail-word #'asm word))
-                           (syntax->datum #'(word* ...)))))
-         #'(lambda (asm formal0 ... formal* ... ...)
-             (unless (asm? asm) (error "not an asm"))
-             code0 ...
-             code* ... ...
-             (reset-asm-start! asm)))))))
+      (syntax-case x ()
+        ((_ name opcode word0 word* ...)
+         (with-syntax ((((formal0 ...)
+                         code0 ...)
+                        (pack-first-word #'asm
+                                         (syntax->datum #'opcode)
+                                         (syntax->datum #'word0)))
+                       ((((formal* ...)
+                          code* ...) ...)
+                        (map (lambda (word) (pack-tail-word #'asm word))
+                             (syntax->datum #'(word* ...)))))
+           #'(lambda (asm formal0 ... formal* ... ...)
+               (unless (asm? asm) (error "not an asm"))
+               code0 ...
+               code* ... ...
+               (reset-asm-start! asm))))))))
 
 (define assemblers (make-hash-table))
 
-(define-syntax define-assembler
-  (lambda (x)
-    (syntax-case x ()
-      ((_ name opcode kind arg ...)
-       (with-syntax ((emit (id-append #'name #'emit- #'name)))
-         #'(begin
-             (define emit
-               (let ((emit (assembler name opcode arg ...)))
-                 (hashq-set! assemblers 'name emit)
-                 emit))
-             (export emit)))))))
+(eval-when (expand)
+  (define-syntax define-assembler
+    (lambda (x)
+      (syntax-case x ()
+        ((_ name opcode kind arg ...)
+         (with-syntax ((emit (id-append #'name #'emit- #'name)))
+           #'(begin
+               (define emit
+                 (let ((emit (assembler name opcode arg ...)))
+                   (hashq-set! assemblers 'name emit)
+                   emit))
+               (export emit)))))))
 
-(define-syntax visit-opcodes
-  (lambda (x)
-    (syntax-case x ()
-      ((visit-opcodes macro arg ...)
-       (with-syntax (((inst ...)
-                      (map (lambda (x) (datum->syntax #'macro x))
-                           (instruction-list))))
-         #'(begin
-             (macro arg ... . inst)
-             ...))))))
+  (define-syntax visit-opcodes
+    (lambda (x)
+      (syntax-case x ()
+        ((visit-opcodes macro arg ...)
+         (with-syntax (((inst ...)
+                        (map (lambda (x) (datum->syntax #'macro x))
+                             (instruction-list))))
+           #'(begin
+               (macro arg ... . inst)
+               ...)))))))
 
 (visit-opcodes define-assembler)
 
@@ -662,17 +668,18 @@ returned instead."
 ;;; some higher-level operations.
 ;;;
 
-(define-syntax define-macro-assembler
-  (lambda (x)
-    (syntax-case x ()
-      ((_ (name arg ...) body body* ...)
-       (with-syntax ((emit (id-append #'name #'emit- #'name)))
-         #'(begin
-             (define emit
-               (let ((emit (lambda (arg ...) body body* ...)))
-                 (hashq-set! assemblers 'name emit)
-                 emit))
-             (export emit)))))))
+(eval-when (expand)
+  (define-syntax define-macro-assembler
+    (lambda (x)
+      (syntax-case x ()
+        ((_ (name arg ...) body body* ...)
+         (with-syntax ((emit (id-append #'name #'emit- #'name)))
+           #'(begin
+               (define emit
+                 (let ((emit (lambda (arg ...) body body* ...)))
+                   (hashq-set! assemblers 'name emit)
+                   emit))
+               (export emit))))))))
 
 (define-macro-assembler (load-constant asm dst obj)
   (cond
@@ -1473,9 +1480,9 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
 (define (port-position port)
   (seek port 0 SEEK_CUR))
 
-(define-syntax-rule (pack-arity-flags has-rest? allow-other-keys?
-                                      has-keyword-args? is-case-lambda?
-                                      is-in-case-lambda?)
+(define-inline (pack-arity-flags has-rest? allow-other-keys?
+                                 has-keyword-args? is-case-lambda?
+                                 is-in-case-lambda?)
   (logior (if has-rest? (ash 1 0) 0)
           (if allow-other-keys? (ash 1 1) 0)
           (if has-keyword-args? (ash 1 2) 0)
