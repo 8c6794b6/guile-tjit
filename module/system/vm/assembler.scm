@@ -63,15 +63,26 @@
 
 
 
+;; Like define-inlinable, but only for first-order uses of the defined
+;; routine.  Should residualize less code.
+(define-syntax define-inline
+  (lambda (x)
+    (syntax-case x ()
+      ((_ (name arg ...) body ...)
+       (with-syntax (((temp ...) (generate-temporaries #'(arg ...))))
+         #`(define-syntax-rule (name temp ...)
+             (let ((arg temp) ...)
+               body ...)))))))
+
 ;;; Bytecode consists of 32-bit units, often subdivided in some way.
 ;;; These helpers create one 32-bit unit from multiple components.
 
-(define-inlinable (pack-u8-u24 x y)
+(define-inline (pack-u8-u24 x y)
   (unless (<= 0 x 255)
     (error "out of range" x))
   (logior x (ash y 8)))
 
-(define-inlinable (pack-u8-s24 x y)
+(define-inline (pack-u8-s24 x y)
   (unless (<= 0 x 255)
     (error "out of range" x))
   (logior x (ash (cond
@@ -82,28 +93,28 @@
                   (else (error "out of range" y)))
                  8)))
 
-(define-inlinable (pack-u1-u7-u24 x y z)
+(define-inline (pack-u1-u7-u24 x y z)
   (unless (<= 0 x 1)
     (error "out of range" x))
   (unless (<= 0 y 127)
     (error "out of range" y))
   (logior x (ash y 1) (ash z 8)))
 
-(define-inlinable (pack-u8-u12-u12 x y z)
+(define-inline (pack-u8-u12-u12 x y z)
   (unless (<= 0 x 255)
     (error "out of range" x))
   (unless (<= 0 y 4095)
     (error "out of range" y))
   (logior x (ash y 8) (ash z 20)))
 
-(define-inlinable (pack-u8-u8-u16 x y z)
+(define-inline (pack-u8-u8-u16 x y z)
   (unless (<= 0 x 255)
     (error "out of range" x))
   (unless (<= 0 y 255)
     (error "out of range" y))
   (logior x (ash y 8) (ash z 16)))
 
-(define-inlinable (pack-u8-u8-u8-u8 x y z w)
+(define-inline (pack-u8-u8-u8-u8 x y z w)
   (unless (<= 0 x 255)
     (error "out of range" x))
   (unless (<= 0 y 255)
@@ -276,7 +287,7 @@
   ;;
   (dead-slot-maps asm-dead-slot-maps set-asm-dead-slot-maps!))
 
-(define-inlinable (fresh-block)
+(define-inline (fresh-block)
   (make-u32vector *block-size*))
 
 (define* (make-assembler #:key (word-size (target-word-size))
@@ -295,7 +306,7 @@ target."
   "Add a string to the section name table (shstrtab)."
   (string-table-intern! (asm-shstrtab asm) string))
 
-(define-inlinable (asm-pos asm)
+(define-inline (asm-pos asm)
   "The offset of the next word to be written into the code buffer, in
 32-bit units."
   (+ (asm-idx asm) (asm-written asm)))
@@ -309,7 +320,7 @@ written to a fresh block."
     (set-asm-cur! asm new)
     (set-asm-idx! asm 0)))
 
-(define-inlinable (emit asm u32)
+(define-inline (emit asm u32)
   "Emit one 32-bit word into the instruction stream.  Assumes that there
 is space for the word, and ensures that there is space for the next
 word."
@@ -318,7 +329,7 @@ word."
   (if (= (asm-idx asm) *block-size*)
       (allocate-new-block asm)))
 
-(define-inlinable (make-reloc type label base word)
+(define-inline (make-reloc type label base word)
   "Make an internal relocation of type @var{type} referencing symbol
 @var{label}, @var{word} words after position @var{start}.  @var{type}
 may be x8-s24, indicating a 24-bit relative label reference that can be
@@ -326,7 +337,7 @@ fixed up by the assembler, or s32, indicating a 32-bit relative
 reference that needs to be fixed up by the linker."
   (list type label base word))
 
-(define-inlinable (reset-asm-start! asm)
+(define-inline (reset-asm-start! asm)
   "Reset the asm-start after writing the words for one instruction."
   (set-asm-start! asm (asm-pos asm)))
 
@@ -510,7 +521,7 @@ lists.  This procedure can be called many times before calling
 ;;; to the table.
 ;;;
 
-(define-inlinable (immediate? x)
+(define-inline (immediate? x)
   "Return @code{#t} if @var{x} is immediate, and @code{#f} otherwise."
   (not (zero? (logand (object-address x) 6))))
 
