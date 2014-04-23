@@ -602,6 +602,14 @@ scm_storage_prehistory ()
   GC_set_free_space_divisor (free_space_divisor);
   GC_set_finalize_on_demand (1);
 
+#if (GC_VERSION_MAJOR == 7 && GC_VERSION_MINOR == 4	\
+     && GC_ALPHA_VERSION == 0)
+  /* BDW-GC 7.4.0 has a bug making it loop indefinitely when using more
+     than one marker thread: <https://github.com/ivmai/bdwgc/pull/30>.
+     Work around it by asking for one marker thread.  */
+  setenv ("GC_MARKERS", "1", 1);
+#endif
+
   GC_INIT ();
 
   GC_expand_hp (DEFAULT_INITIAL_HEAP_SIZE);
