@@ -1,4 +1,5 @@
-/* Copyright (C) 1994-1998, 2000-2011, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 1994-1998, 2000-2011, 2013, 2014 Free Software Foundation, Inc.
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
  * as published by the Free Software Foundation; either version 3 of
@@ -45,9 +46,7 @@
 #include <string.h>
 #endif
 
-#ifdef HAVE_UNISTD_H
 #include <unistd.h>		/* for X_OK define */
-#endif
 
 #ifdef HAVE_IO_H
 #include <io.h>
@@ -220,6 +219,21 @@ script_get_backslash (FILE *f)
 }
 #undef FUNC_NAME
 
+/*
+ * Like `realloc', but free memory on failure;
+ * unlike `scm_realloc', return NULL, not aborts.
+*/
+static void*
+realloc0 (void *ptr, size_t size)
+{
+  void *new_ptr = realloc (ptr, size);
+  if (!new_ptr)
+    {
+      free (ptr);
+    }
+  return new_ptr;
+}
+
 
 static char *
 script_read_arg (FILE *f)
@@ -245,7 +259,7 @@ script_read_arg (FILE *f)
 	  if (len >= size)
 	    {
 	      size = (size + 1) * 2;
-	      buf = realloc (buf, size);
+	      buf = realloc0 (buf, size);
 	      if (! buf)
 		return 0;
 	    }
@@ -328,9 +342,9 @@ scm_get_meta_args (int argc, char **argv)
 	found_args:
           /* FIXME: we leak the result of calling script_read_arg.  */
 	  while ((narg = script_read_arg (f)))
-	    if (!(nargv = (char **) realloc (nargv,
+	    if (!(nargv = (char **) realloc0 (nargv,
 					     (1 + ++nargc) * sizeof (char *))))
-	        return 0L;
+	      return 0L;
 	    else
 	      nargv[nargi++] = narg;
 	  fclose (f);

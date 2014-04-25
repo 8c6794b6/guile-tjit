@@ -139,7 +139,7 @@ TESTS += test-list
 # test-unwind
 test_unwind_SOURCES = test-unwind.c
 test_unwind_CFLAGS = ${test_cflags}
-test_unwind_LDADD = $(LIBGUILE_LDADD)
+test_unwind_LDADD = $(LIBGUILE_LDADD) $(top_builddir)/lib/libgnu.la
 check_PROGRAMS += test-unwind
 TESTS += test-unwind
 
@@ -210,6 +210,13 @@ test_scm_c_bind_keyword_arguments_CFLAGS = ${test_cflags}
 test_scm_c_bind_keyword_arguments_LDADD = $(LIBGUILE_LDADD)
 check_PROGRAMS += test-scm-c-bind-keyword-arguments
 TESTS += test-scm-c-bind-keyword-arguments
+
+# test-srfi-4
+test_srfi_4_SOURCES = test-srfi-4.c
+test_srfi_4_CFLAGS = ${test_cflags}
+test_srfi_4_LDADD = $(LIBGUILE_LDADD)
+check_PROGRAMS += test-srfi-4
+TESTS += test-srfi-4
 
 if HAVE_SHARED_LIBRARIES
 

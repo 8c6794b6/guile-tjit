@@ -36,12 +36,17 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/chars.test			\
 	    tests/coding.test			\
 	    tests/common-list.test		\
+	    tests/compiler.test			\
 	    tests/control.test			\
 	    tests/continuations.test		\
 	    tests/coverage.test			\
 	    tests/cross-compilation.test	\
 	    tests/curried-definitions.test	\
 	    tests/dwarf.test			\
+	    tests/encoding-escapes.test		\
+	    tests/encoding-iso88591.test	\
+	    tests/encoding-iso88597.test	\
+	    tests/encoding-utf8.test		\
 	    tests/ecmascript.test		\
 	    tests/elisp.test			\
 	    tests/elisp-compiler.test		\
@@ -77,6 +82,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/numbers.test			\
 	    tests/optargs.test			\
 	    tests/options.test			\
+	    tests/pairs.test			\
 	    tests/parameters.test		\
 	    tests/peg.test			\
 	    tests/peval.test			\
@@ -113,12 +119,14 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/random.test			\
 	    tests/rdelim.test			\
 	    tests/reader.test			\
+	    tests/records.test			\
 	    tests/receive.test			\
 	    tests/regexp.test			\
 	    tests/rtl.test			\
 	    tests/rtl-compilation.test		\
 	    tests/session.test			\
 	    tests/signals.test			\
+	    tests/sort.test			\
 	    tests/srcprop.test			\
 	    tests/srfi-1.test			\
 	    tests/srfi-6.test			\
@@ -126,6 +134,8 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/srfi-11.test			\
 	    tests/srfi-13.test			\
 	    tests/srfi-14.test			\
+	    tests/srfi-17.test			\
+	    tests/srfi-18.test			\
 	    tests/srfi-19.test			\
 	    tests/srfi-26.test			\
 	    tests/srfi-27.test			\
@@ -144,11 +154,13 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/srfi-67.test			\
 	    tests/srfi-69.test			\
 	    tests/srfi-88.test			\
+	    tests/srfi-98.test			\
 	    tests/srfi-105.test			\
 	    tests/srfi-111.test			\
 	    tests/srfi-4.test			\
 	    tests/srfi-9.test			\
 	    tests/statprof.test			\
+	    tests/streams.test			\
 	    tests/strings.test			\
 	    tests/structs.test			\
 	    tests/sxml.fold.test		\
@@ -167,9 +179,12 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/threads.test			\
 	    tests/time.test			\
 	    tests/tree-il.test			\
+	    tests/types.test			\
 	    tests/version.test			\
+	    tests/vectors.test			\
 	    tests/vlist.test			\
 	    tests/weaks.test			\
+	    tests/web-client.test		\
 	    tests/web-http.test			\
 	    tests/web-request.test		\
 	    tests/web-response.test		\

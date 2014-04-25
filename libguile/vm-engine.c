@@ -1,4 +1,5 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013,
+ *   2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -2481,7 +2482,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
                   && ((scm_t_bits)
                       (SCM_SRS (nn, (SCM_I_FIXNUM_BIT-1 - bits_to_shift)) + 1)
                       <= 1))
-                RETURN (SCM_I_MAKINUM (nn << bits_to_shift));
+                RETURN (SCM_I_MAKINUM (nn < 0
+                                       ? -(-nn << bits_to_shift)
+                                       : (nn << bits_to_shift)));
               /* fall through */
             }
           /* fall through */

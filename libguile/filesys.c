@@ -1,5 +1,5 @@
 /* Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2004, 2006,
- *   2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ *   2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -71,9 +71,7 @@
 # endif
 #endif
 
-#ifdef HAVE_UNISTD_H
 #include <unistd.h>
-#endif
 
 #ifdef LIBC_H_WITH_UNISTD_H
 #include <libc.h>
@@ -107,12 +105,6 @@
 
 #include <full-read.h>
 #include <full-write.h>
-
-
-/* Some more definitions for the native Windows port. */
-#ifdef __MINGW32__
-# define fsync(fd) _commit (fd)
-#endif /* __MINGW32__ */
 
 
 
@@ -564,7 +556,6 @@ SCM_DEFINE (scm_stat, "stat", 1, 1, 0,
 }
 #undef FUNC_NAME
 
-#ifdef HAVE_LSTAT
 SCM_DEFINE (scm_lstat, "lstat", 1, 0, 0, 
             (SCM str),
 	    "Similar to @code{stat}, but does not follow symbolic links, i.e.,\n"
@@ -587,7 +578,6 @@ SCM_DEFINE (scm_lstat, "lstat", 1, 0, 0,
   return scm_stat2scm (&stat_temp);
 }
 #undef FUNC_NAME
-#endif /* HAVE_LSTAT */
 
 
 #ifdef HAVE_POSIX
@@ -595,7 +585,6 @@ SCM_DEFINE (scm_lstat, "lstat", 1, 0, 0,
 /* {Modifying Directories}
  */
 
-#ifdef HAVE_LINK
 SCM_DEFINE (scm_link, "link", 2, 0, 0,
             (SCM oldpath, SCM newpath),
 	    "Creates a new name @var{newpath} in the file system for the\n"
@@ -614,7 +603,6 @@ SCM_DEFINE (scm_link, "link", 2, 0, 0,
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
-#endif /* HAVE_LINK */
 
 
 /* {Navigating Directories}
@@ -1017,7 +1005,6 @@ SCM_DEFINE (scm_symlink, "symlink", 2, 0, 0,
 #undef FUNC_NAME
 #endif /* HAVE_SYMLINK */
 
-#ifdef HAVE_READLINK
 SCM_DEFINE (scm_readlink, "readlink", 1, 0, 0, 
             (SCM path),
 	    "Return the value of the symbolic link named by @var{path} (a\n"
@@ -1056,7 +1043,6 @@ SCM_DEFINE (scm_readlink, "readlink", 1, 0, 0,
   return result;
 }
 #undef FUNC_NAME
-#endif /* HAVE_READLINK */
 
 SCM_DEFINE (scm_copy_file, "copy-file", 2, 0, 0,
             (SCM oldfile, SCM newfile),
@@ -1259,7 +1245,6 @@ SCM_DEFINE (scm_getcwd, "getcwd", 0, 0, 0,
 #undef FUNC_NAME
 #endif /* HAVE_GETCWD */
 
-#ifdef HAVE_MKDIR
 SCM_DEFINE (scm_mkdir, "mkdir", 1, 1, 0,
             (SCM path, SCM mode),
 	    "Create a new directory named by @var{path}.  If @var{mode} is omitted\n"
@@ -1286,9 +1271,7 @@ SCM_DEFINE (scm_mkdir, "mkdir", 1, 1, 0,
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
-#endif /* HAVE_MKDIR */
 
-#ifdef HAVE_RMDIR
 SCM_DEFINE (scm_rmdir, "rmdir", 1, 0, 0, 
             (SCM path),
 	    "Remove the existing directory named by @var{path}.  The directory must\n"
@@ -1303,27 +1286,6 @@ SCM_DEFINE (scm_rmdir, "rmdir", 1, 0, 0,
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
-#endif
-
-#ifdef HAVE_RENAME
-#define my_rename rename
-#else
-static int
-my_rename (const char *oldname, const char *newname)
-{
-  int rv;
-
-  SCM_SYSCALL (rv = link (oldname, newname));
-  if (rv == 0)
-    {
-      SCM_SYSCALL (rv = unlink (oldname));
-      if (rv != 0)
-	/* unlink failed.  remove new name */
-	SCM_SYSCALL (unlink (newname)); 
-    }
-  return rv;
-}
-#endif
 
 SCM_DEFINE (scm_rename, "rename-file", 2, 0, 0,
             (SCM oldname, SCM newname),
@@ -1335,7 +1297,7 @@ SCM_DEFINE (scm_rename, "rename-file", 2, 0, 0,
 
   STRING2_SYSCALL (oldname, c_oldname,
 		   newname, c_newname,
-		   rv = my_rename (c_oldname, c_newname));
+		   rv = rename (c_oldname, c_newname));
   if (rv != 0)
     SCM_SYSERROR;
   return SCM_UNSPECIFIED;
@@ -1469,10 +1431,6 @@ SCM_DEFINE (scm_umask, "umask", 0, 1, 0,
   return scm_from_uint (mask);
 }
 #undef FUNC_NAME
-
-#ifndef HAVE_MKSTEMP
-extern int mkstemp (char *);
-#endif
 
 SCM_DEFINE (scm_mkstemp, "mkstemp!", 1, 0, 0,
 	    (SCM tmpl),

@@ -92,11 +92,12 @@ guile_filter_doc_snarfage_SOURCES = c-tokenize.c
 ## Override default rule; this should be compiled for BUILD host.
 ## For some reason, OBJEXT does not include the dot
 c-tokenize.$(OBJEXT): c-tokenize.c
-	$(AM_V_GEN) \
-	if [ "$(cross_compiling)" = "yes" ]; then \
-		$(CC_FOR_BUILD) -I$(top_builddir) -c -o $@ $<; \
-	else \
-		$(COMPILE) -c -o $@ $<; \
+	$(AM_V_GEN)							\
+	if [ "$(cross_compiling)" = "yes" ]; then			\
+		$(CC_FOR_BUILD) -DCROSS_COMPILING=1 -I$(top_builddir)	\
+	           -c -o "$@" "$<";					\
+	else								\
+		$(COMPILE) -c -o "$@" "$<";				\
 	fi
 
 ## Override default rule; this should run on BUILD host.
@@ -460,6 +461,37 @@ EXTRA_libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES = _scm.h		\
 install-exec-hook:
 	rm -f $(DESTDIR)$(bindir)/guile-snarf.awk
 
+install-data-hook: libguile-2.2-gdb.scm
+	@$(MKDIR_P) $(DESTDIR)$(libdir)
+## We want to install libguile-2.2-gdb.scm as SOMETHING-gdb.scm.
+## SOMETHING is the full name of the final library.  We want to ignore
+## symlinks, the .la file, and any previous -gdb.py file.  This is
+## inherently fragile, but there does not seem to be a better option,
+## because libtool hides the real names from us.  (Trick courtesy of
+## GNU libstdc++.)
+	@here=`pwd`; cd $(DESTDIR)$(libdir);			\
+	  for file in libguile-@GUILE_EFFECTIVE_VERSION@*; do	\
+	    case $$file in					\
+	      *-gdb.scm) ;;					\
+	      *.la) ;;						\
+	      *) if test -h $$file; then			\
+	           continue;					\
+	         fi;						\
+	         libname=$$file;;				\
+	    esac;						\
+	  done;							\
+	cd $$here;						\
+	echo " $(INSTALL_DATA) $<				\
+$(DESTDIR)$(libdir)/$$libname-gdb.scm";				\
+	$(INSTALL_DATA) "$<"					\
+	    "$(DESTDIR)$(libdir)/$$libname-gdb.scm"
+
+# Remove the GDB support file and the Info 'dir' file that
+# 'install-info' 5.x installs.
+uninstall-hook:
+	-rm "$(DESTDIR)$(libdir)/libguile-@GUILE_EFFECTIVE_VERSION@"*-gdb.scm
+	-rm -f "$(DESTDIR)$(infodir)/dir"
+
 ## This is kind of nasty... there are ".c" files that we don't want to
 ## compile, since they are #included.  So instead we list them here.
 ## Perhaps we can deal with them normally once the merge seems to be
@@ -650,12 +682,13 @@ bin_SCRIPTS = guile-snarf
 # and people feel like maintaining them.  For now, this is not the case.
 noinst_SCRIPTS = guile-snarf-docs
 
-EXTRA_DIST = ChangeLog-scm ChangeLog-threads		\
-    ChangeLog-1996-1999 ChangeLog-2000 ChangeLog-2008	\
-    guile-func-name-check				\
-    cpp-E.syms cpp-E.c cpp-SIG.syms cpp-SIG.c			\
-    c-tokenize.lex						\
-    scmconfig.h.top libgettext.h unidata_to_charset.pl libguile.map
+EXTRA_DIST = ChangeLog-scm ChangeLog-threads				\
+    ChangeLog-1996-1999 ChangeLog-2000 ChangeLog-2008			\
+    guile-func-name-check						\
+    cpp-E.syms cpp-E.c cpp-SIG.syms cpp-SIG.c				\
+    c-tokenize.lex							\
+    scmconfig.h.top libgettext.h unidata_to_charset.pl libguile.map	\
+    libguile-2.2-gdb.scm
 #    $(DOT_DOC_FILES) $(EXTRA_DOT_DOC_FILES) \
 #    guile-procedures.txt guile.texi
 

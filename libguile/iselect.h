@@ -29,8 +29,6 @@
 /* Needed for FD_SET on some systems.  */
 #include <sys/types.h>
 
-#if SCM_HAVE_SYS_SELECT_H
-
 #include <sys/select.h>
 
 SCM_API int scm_std_select (int fds,
@@ -40,8 +38,6 @@ SCM_API int scm_std_select (int fds,
 			    struct timeval *timeout);
 
 #define SELECT_TYPE fd_set
-
-#endif /* SCM_HAVE_SYS_SELECT_H */
 
 #endif  /* SCM_ISELECT_H */
 

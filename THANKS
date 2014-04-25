@@ -5,6 +5,7 @@ Contributors since the last release:
           Aleix Conchillo Flaqué
         Ludovic Courtès
           Jason Earl
+           Paul Eggert
           Brian Gough
          Volker Grabsch
          Julian Graham
@@ -183,6 +184,7 @@ For fixes or providing information which led to a fix:
 	Andreas Vögele
         Michael Talbot-Wilson
         Michael Tuexen
+            Xin Wang
          Thomas Wawrzinek
         Mark H. Weaver
           Göran Weinholt

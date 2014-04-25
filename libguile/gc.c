@@ -66,9 +66,7 @@ extern unsigned long * __libc_ia64_register_backing_store_base;
 #include "libguile/debug-malloc.h"
 #endif
 
-#ifdef HAVE_UNISTD_H
 #include <unistd.h>
-#endif
 
 /* Size in bytes of the initial heap.  This should be about the size of
    result of 'guile -c "(display (assq-ref (gc-stats)

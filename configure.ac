@@ -51,6 +51,10 @@ GUILE_VERSION="$PACKAGE_VERSION"
 AC_CONFIG_HEADERS([config.h])
 AH_TOP(/*GUILE_CONFIGURE_COPYRIGHT*/)
 
+dnl We require the pkg.m4 set of macros from pkg-config.
+dnl Make sure it's available.
+m4_pattern_forbid([PKG_CHECK_MODULES])
+
 #--------------------------------------------------------------------
 
 AC_LANG([C])
@@ -71,6 +75,13 @@ AM_PROG_AR
 
 dnl Gnulib.
 gl_INIT
+
+dnl We provide our own lib/glthread/lock.h, so let other Gnulib modules
+dnl know that we have it.  This allows them to be compiled with adequate
+dnl locking support.  See <http://bugs.gnu.org/14404>.
+AC_DEFINE([GNULIB_LOCK], [1],
+  [Define to allow Gnulib modules to use Guile's locks.])
+
 
 AC_PROG_CC_C89
 
@@ -1409,9 +1420,12 @@ AM_CONDITIONAL([BUILD_PTHREAD_SUPPORT],
   [test "x$build_pthread_support" = "xyes"])
 
 
-## Check whether pthread_attr_getstack works for the main thread
-
 if test "$with_threads" = pthreads; then
+
+dnl Normally Gnulib's 'threadlib' module would define this macro, but
+dnl since we don't use it, define it by ourselves.
+AC_DEFINE([USE_POSIX_THREADS], [1],
+  [Define to let Gnulib modules know that we use POSIX threads.])
 
 AC_MSG_CHECKING([whether pthread_attr_getstack works for the main thread])
 old_CFLAGS="$CFLAGS"
@@ -1488,7 +1502,8 @@ AC_SUBST(HOST_CC)
 
 GUILE_CHECK_GUILE_FOR_BUILD
   			
-## If we're using GCC, ask for aggressive warnings.
+## If we're using GCC, add flags to reduce strictness of undefined
+## behavior, and ask for aggressive warnings.
 GCC_CFLAGS=""
 case "$GCC" in
   yes )
@@ -1498,13 +1513,13 @@ case "$GCC" in
     ## -Wundef was removed because Gnulib prevented it (see
     ## <http://thread.gmane.org/gmane.lisp.guile.bugs/5329>.)
 
-    ## Build with `-fno-strict-aliasing' to prevent miscompilation on
-    ## some platforms.  See
+    ## Build with `-fno-strict-aliasing' and `-fwrapv' to prevent
+    ## miscompilation on some platforms.  See
     ## <http://lists.gnu.org/archive/html/guile-devel/2012-01/msg00487.html>.
 
     POTENTIAL_GCC_CFLAGS="-Wall -Wmissing-prototypes \
       -Wdeclaration-after-statement -Wpointer-arith \
-      -Wswitch-enum -fno-strict-aliasing"
+      -Wswitch-enum -fno-strict-aliasing -fwrapv"
     # Do this here so we don't screw up any of the tests above that might
     # not be "warning free"
     if test "${GUILE_ERROR_ON_WARNING}" = yes
@@ -1596,6 +1611,9 @@ top_builddir_absolute=`pwd`
 AC_SUBST(top_builddir_absolute)
 top_srcdir_absolute=`(cd $srcdir && pwd)`
 AC_SUBST(top_srcdir_absolute)
+
+dnl Add -I flag so that lib/glthread/lock.h finds <libguile/threads.h>.
+CPPFLAGS="-I$top_srcdir_absolute $CPPFLAGS"
 
 dnl `sitedir' goes into libpath.h and the pkg-config file.
 pkgdatadir="$datadir/$PACKAGE_TARNAME"

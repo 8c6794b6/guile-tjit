@@ -202,6 +202,7 @@ SYSTEM_BASE_SOURCES =				\
   system/base/lalr.scm				\
   system/base/message.scm			\
   system/base/target.scm			\
+  system/base/types.scm				\
   system/base/ck.scm
 
 ICE_9_SOURCES = \
@@ -386,7 +387,8 @@ SYSTEM_SOURCES =				\
   system/repl/common.scm			\
   system/repl/command.scm			\
   system/repl/repl.scm				\
-  system/repl/server.scm
+  system/repl/server.scm			\
+  system/repl/coop-server.scm
 
 LIB_SOURCES =					\
   statprof.scm					\
