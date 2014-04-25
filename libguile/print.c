@@ -585,6 +585,33 @@ scm_iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 }
 
 static void
+print_vector_or_weak_vector (SCM v, size_t len, SCM (*ref) (SCM, size_t),
+                             SCM port, scm_print_state *pstate)
+{
+  long i;
+  long last = len - 1;
+  int cutp = 0;
+  if (pstate->fancyp && len > pstate->length)
+    {
+      last = pstate->length - 1;
+      cutp = 1;
+    }
+  for (i = 0; i < last; ++i)
+    {
+      scm_iprin1 (ref (v, i), port, pstate);
+      scm_putc_unlocked (' ', port);
+    }
+  if (i == last)
+    {
+      /* CHECK_INTS; */
+      scm_iprin1 (ref (v, i), port, pstate);
+    }
+  if (cutp)
+    scm_puts_unlocked (" ...", port);
+  scm_putc_unlocked (')', port);
+}
+
+static void
 iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 {
   switch (SCM_ITAG3 (exp))
@@ -766,35 +793,15 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	case scm_tc7_wvect:
 	  ENTER_NESTED_DATA (pstate, exp, circref);
           scm_puts_unlocked ("#w(", port);
-	  goto common_vector_printer;
+          print_vector_or_weak_vector (exp, scm_c_weak_vector_length (exp),
+                                       scm_c_weak_vector_ref, port, pstate);
+	  EXIT_NESTED_DATA (pstate);
+	  break;
 	case scm_tc7_vector:
 	  ENTER_NESTED_DATA (pstate, exp, circref);
 	  scm_puts_unlocked ("#(", port);
-	common_vector_printer:
-	  {
-	    register long i;
-	    long last = SCM_SIMPLE_VECTOR_LENGTH (exp) - 1;
-	    int cutp = 0;
-	    if (pstate->fancyp
-		&& SCM_SIMPLE_VECTOR_LENGTH (exp) > pstate->length)
-	      {
-		last = pstate->length - 1;
-		cutp = 1;
-	      }
-            for (i = 0; i < last; ++i)
-              {
-                scm_iprin1 (scm_c_vector_ref (exp, i), port, pstate);
-                scm_putc_unlocked (' ', port);
-              }
-	    if (i == last)
-	      {
-		/* CHECK_INTS; */
-		scm_iprin1 (scm_c_vector_ref (exp, i), port, pstate);
-	      }
-	    if (cutp)
-	      scm_puts_unlocked (" ...", port);
-	    scm_putc_unlocked (')', port);
-	  }
+          print_vector_or_weak_vector (exp, SCM_SIMPLE_VECTOR_LENGTH (exp),
+                                       scm_c_vector_ref, port, pstate);
 	  EXIT_NESTED_DATA (pstate);
 	  break;
 	case scm_tc7_port:
