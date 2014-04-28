@@ -640,7 +640,7 @@ SCM_DEFINE (scm_sys_initialize_object, "%initialize-object", 2, 0, 0,
        get_n_set = SCM_CDR (get_n_set), slots = SCM_CDR (slots))
     {
       SCM slot_name  = SCM_CAR (slots);
-      SCM slot_value = SCM_PACK (0);
+      SCM slot_value = SCM_GOOPS_UNBOUND;
 
       if (!scm_is_null (SCM_CDR (slot_name)))
 	{
@@ -664,12 +664,12 @@ SCM_DEFINE (scm_sys_initialize_object, "%initialize-object", 2, 0, 0,
 	      slot_value = scm_i_get_keyword (tmp,
 					      initargs,
 					      n_initargs,
-					      SCM_PACK (0),
+					      SCM_GOOPS_UNBOUND,
 					      FUNC_NAME);
 	    }
 	}
 
-      if (SCM_UNPACK (slot_value))
+      if (!SCM_GOOPS_UNBOUNDP (slot_value))
 	/* set slot to provided value */
 	set_slot_value (class, obj, SCM_CAR (get_n_set), slot_value);
       else
@@ -677,14 +677,10 @@ SCM_DEFINE (scm_sys_initialize_object, "%initialize-object", 2, 0, 0,
 	  /* set slot to its :init-form if it exists */
 	  tmp = SCM_CADAR (get_n_set);
 	  if (scm_is_true (tmp))
-	    {
-	      slot_value = get_slot_value (class, obj, SCM_CAR (get_n_set));
-	      if (SCM_GOOPS_UNBOUNDP (slot_value))
-                set_slot_value (class,
-                                obj,
-                                SCM_CAR (get_n_set),
-                                scm_call_0 (tmp));
-	    }
+            set_slot_value (class,
+                            obj,
+                            SCM_CAR (get_n_set),
+                            scm_call_0 (tmp));
 	}
     }
 

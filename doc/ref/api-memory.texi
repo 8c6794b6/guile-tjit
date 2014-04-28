@@ -112,15 +112,16 @@ functions for dynamic memory allocation that are integrated into the
 garbage collector and the error reporting system.
 
 Memory blocks that are associated with Scheme objects (for example a
-smob) should be allocated with @code{scm_gc_malloc} or
+foreign object) should be allocated with @code{scm_gc_malloc} or
 @code{scm_gc_malloc_pointerless}.  These two functions will either
 return a valid pointer or signal an error.  Memory blocks allocated this
-way can be freed with @code{scm_gc_free}; however, this is not strictly
-needed: memory allocated with @code{scm_gc_malloc} or
-@code{scm_gc_malloc_pointerless} is automatically reclaimed when the
-garbage collector no longer sees any live reference to it@footnote{In
-Guile up to version 1.8, memory allocated with @code{scm_gc_malloc}
-@emph{had} to be freed with @code{scm_gc_free}.}.
+way may be released explicitly; however, this is not strictly needed,
+and we recommend @emph{not} calling @code{scm_gc_free}.  All memory
+allocated with @code{scm_gc_malloc} or @code{scm_gc_malloc_pointerless}
+is automatically reclaimed when the garbage collector no longer sees any
+live reference to it@footnote{In Guile up to version 1.8, memory
+allocated with @code{scm_gc_malloc} @emph{had} to be freed with
+@code{scm_gc_free}.}.
 
 Memory allocated with @code{scm_gc_malloc} is scanned for live pointers.
 This means that if @code{scm_gc_malloc}-allocated memory contains a
@@ -204,7 +205,9 @@ size of a reallocated memory block as well.  See below for a motivation.
 
 @deftypefn {C Function} void scm_gc_free (void *@var{mem}, size_t @var{size}, const char *@var{what})
 Explicitly free the memory block pointed to by @var{mem}, which was
-previously allocated by one of the above @code{scm_gc} functions.
+previously allocated by one of the above @code{scm_gc} functions.  This
+function is almost always unnecessary, except for codebases that still
+need to compile on Guile 1.8.
 
 Note that you need to explicitly pass the @var{size} parameter.  This
 is done since it should normally be easy to provide this parameter
@@ -225,7 +228,7 @@ often (as appropriate).
 
 It is especially important to call this function when large unmanaged
 allocations, like images, may be freed by small Scheme allocations, like
-SMOBs.
+foreign objects.
 @end deftypefn
 
 
