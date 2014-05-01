@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -66,6 +66,8 @@ SCM_INTERNAL SCM scm_i_program_documentation (SCM program);
 SCM_INTERNAL SCM scm_i_program_properties (SCM program);
 
 SCM_INTERNAL SCM scm_find_source_for_addr (SCM ip);
+
+SCM_INTERNAL SCM scm_program_address_range (SCM program);
 
 SCM_API SCM scm_program_num_free_variables (SCM program);
 SCM_API SCM scm_program_free_variable_ref (SCM program, SCM i);

@@ -28,6 +28,8 @@
             source:line-for-user
             program-sources program-sources-pre-retire program-source
 
+            program-address-range
+
             program-arities program-arity arity:start arity:end
 
             arity:nreq arity:nopt arity:rest? arity:kw arity:allow-other-keys?
@@ -96,6 +98,15 @@
        (if (<= pc ip)
            (lp s sources)
            source)))))
+
+(define (program-address-range program)
+  "Return the start and end addresses of @var{program}'s code, as a pair
+of integers."
+  (let ((pdi (find-program-debug-info (program-code program))))
+    (and pdi
+         (cons (program-debug-info-addr pdi)
+               (+ (program-debug-info-addr pdi)
+                  (program-debug-info-size pdi))))))
 
 ;; Source information could in theory be correlated with the ip of the
 ;; instruction, or the ip just after the instruction is retired. Guile

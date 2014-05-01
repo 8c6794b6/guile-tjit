@@ -113,6 +113,22 @@ static long
 narrow_stack (long len, enum scm_vm_frame_kind kind, struct scm_frame *frame,
               SCM inner_cut, SCM outer_cut)
 {
+  /* Resolve procedure cuts to address ranges, if possible.  If the
+     debug information has been stripped, this might not be
+     possible.  */
+  if (scm_is_true (scm_program_p (inner_cut)))
+    {
+      SCM addr_range = scm_program_address_range (inner_cut);
+      if (scm_is_pair (addr_range))
+        inner_cut = addr_range;
+    }
+  if (scm_is_true (scm_program_p (outer_cut)))
+    {
+      SCM addr_range = scm_program_address_range (outer_cut);
+      if (scm_is_pair (addr_range))
+        outer_cut = addr_range;
+    }
+
   /* Cut inner part. */
   if (scm_is_true (scm_procedure_p (inner_cut)))
     {
@@ -123,6 +139,25 @@ narrow_stack (long len, enum scm_vm_frame_kind kind, struct scm_frame *frame,
           len--;
           scm_c_frame_previous (kind, frame);
           if (scm_is_eq (proc, inner_cut))
+            break;
+        }
+    }
+  else if (scm_is_pair (inner_cut)
+           && scm_is_integer (scm_car (inner_cut))
+           && scm_is_integer (scm_cdr (inner_cut)))
+    {
+      /* Cut until an IP within the given range is found.  */
+      scm_t_uintptr low_pc, high_pc, pc;
+
+      low_pc = scm_to_uintptr_t (scm_car (inner_cut));
+      high_pc = scm_to_uintptr_t (scm_cdr (inner_cut));
+
+      for (; len ;)
+        {
+          pc = (scm_t_uintptr) frame->ip;
+          len--;
+          scm_c_frame_previous (kind, frame);
+          if (low_pc <= pc && pc < high_pc)
             break;
         }
     }
@@ -158,6 +193,30 @@ narrow_stack (long len, enum scm_vm_frame_kind kind, struct scm_frame *frame,
       for (new_len = i = 0; i < len; i++, scm_c_frame_previous (kind, &tmp))
         if (scm_is_eq (scm_c_frame_closure (kind, &tmp), outer_cut))
           new_len = i;
+
+      len = new_len;
+    }
+  else if (scm_is_pair (outer_cut)
+           && scm_is_integer (scm_car (outer_cut))
+           && scm_is_integer (scm_cdr (outer_cut)))
+    {
+      /* Cut until an IP within the given range is found.  */
+      scm_t_uintptr low_pc, high_pc, pc;
+      long i, new_len;
+      struct scm_frame tmp;
+
+      low_pc = scm_to_uintptr_t (scm_car (outer_cut));
+      high_pc = scm_to_uintptr_t (scm_cdr (outer_cut));
+
+      memcpy (&tmp, frame, sizeof tmp);
+
+      /* Cut until the given procedure is seen. */
+      for (new_len = i = 0; i < len; i++, scm_c_frame_previous (kind, &tmp))
+        {
+          pc = (scm_t_uintptr) tmp.ip;
+          if (low_pc <= pc && pc < high_pc)
+            new_len = i;
+        }
 
       len = new_len;
     }
@@ -217,7 +276,8 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
 	    "a continuation or a frame object).\n"
             "\n"
 	    "@var{args} should be a list containing any combination of\n"
-	    "integer, procedure, prompt tag and @code{#t} values.\n"
+	    "integer, procedure, address range, prompt tag and @code{#t}\n"
+            "values.\n"
             "\n"
 	    "These values specify various ways of cutting away uninteresting\n"
 	    "stack frames from the top and bottom of the stack that\n"
@@ -225,24 +285,28 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
 	    "@code{(@var{inner_cut_1} @var{outer_cut_1} @var{inner_cut_2}\n"
 	    "@var{outer_cut_2} @dots{})}.\n"
             "\n"
-	    "Each @var{inner_cut_i} can be @code{#t}, an integer, a prompt\n"
-            "tag, or a procedure.  @code{#t} means to cut away all frames up\n"
-            "to but excluding the first user module frame.  An integer means\n"
-            "to cut away exactly that number of frames.  A prompt tag means\n"
-            "to cut away all frames that are inside a prompt with the given\n"
-            "tag. A procedure means to cut away all frames up to but\n"
-            "excluding the application frame whose procedure matches the\n"
-            "specified one.\n"
+	    "Each @var{inner_cut_i} can be an integer, a procedure, an\n"
+            "address range, or a prompt tag.  An integer means to cut away\n"
+            "exactly that number of frames.  A procedure means to cut\n"
+            "away all frames up to but excluding the frame whose procedure\n"
+            "matches the specified one.  An address range is a pair of\n"
+            "integers indicating the low and high addresses of a procedure's\n"
+            "code, and is the same as cutting away to a procedure (though\n"
+            "with less work).  Anything else is interpreted as a prompt tag\n"
+            "which cuts away all frames that are inside a prompt with the\n"
+            "given tag.\n"
             "\n"
-	    "Each @var{outer_cut_i} can be an integer, a prompt tag, or a\n"
-            "procedure.  An integer means to cut away that number of frames.\n"
-            "A prompt tag means to cut away all frames that are outside a\n"
-            "prompt with the given tag. A procedure means to cut away\n"
-            "frames down to but excluding the application frame whose\n"
-            "procedure matches the specified one.\n"
+	    "Each @var{outer_cut_i} can be an integer, a procedure, an\n"
+            "address range, or a prompt tag.  An integer means to cut away\n"
+            "that number of frames.  A procedure means to cut away frames\n"
+            "down to but excluding the frame whose procedure matches the\n"
+            "specified one.  An address range is the same, but with the\n"
+            "procedure's code specified as an address range.  Anything else\n"
+            "is taken to be a prompt tag, which cuts away all frames that are\n"
+            "outside a prompt with the given tag.\n"
             "\n"
-	    "If the @var{outer_cut_i} of the last pair is missing, it is\n"
-	    "taken as 0.")
+            "If the @var{outer_cut_i} of the last pair is missing, it is\n"
+            "taken as 0.")
 #define FUNC_NAME s_scm_make_stack
 {
   long n;

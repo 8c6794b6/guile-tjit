@@ -88,33 +88,33 @@ evaluation stack is used for creating the stack frames,
 otherwise the frames are taken from @var{obj} (which must be
 a continuation or a frame object).
 
-@var{arg} @dots{} can be any combination of integer, procedure, prompt
-tag and @code{#t} values.
+@var{arg} @dots{} can be any combination of integer, procedure, address
+range, and prompt tag values.
 
-These values specify various ways of cutting away uninteresting
-stack frames from the top and bottom of the stack that
-@code{make-stack} returns.  They come in pairs like this:
-@code{(@var{inner_cut_1} @var{outer_cut_1} @var{inner_cut_2}
-@var{outer_cut_2} @dots{})}.
+These values specify various ways of cutting away uninteresting stack
+frames from the top and bottom of the stack that @code{make-stack}
+returns.  They come in pairs like this:  @code{(@var{inner_cut_1}
+@var{outer_cut_1} @var{inner_cut_2} @var{outer_cut_2} @dots{})}.
 
-Each @var{inner_cut_i} can be @code{#t}, an integer, a prompt
-tag, or a procedure.  @code{#t} means to cut away all frames up
-to but excluding the first user module frame.  An integer means
-to cut away exactly that number of frames.  A prompt tag means
-to cut away all frames that are inside a prompt with the given
-tag. A procedure means to cut away all frames up to but
-excluding the application frame whose procedure matches the
-specified one.
+Each @var{inner_cut_i} can be an integer, a procedure, an address range,
+or a prompt tag.  An integer means to cut away exactly that number of
+frames.  A procedure means to cut away all frames up to but excluding
+the frame whose procedure matches the specified one.  An address range
+is a pair of integers indicating the low and high addresses of a
+procedure's code, and is the same as cutting away to a procedure (though
+with less work).  Anything else is interpreted as a prompt tag which
+cuts away all frames that are inside a prompt with the given tag.
 
-Each @var{outer_cut_i} can be an integer, a prompt tag, or a
-procedure.  An integer means to cut away that number of frames.
-A prompt tag means to cut away all frames that are outside a
-prompt with the given tag. A procedure means to cut away
-frames down to but excluding the application frame whose
-procedure matches the specified one.
+Each @var{outer_cut_i} can likewise be an integer, a procedure, an
+address range, or a prompt tag.  An integer means to cut away that
+number of frames.  A procedure means to cut away frames down to but
+excluding the frame whose procedure matches the specified one.  An
+address range is the same, but with the procedure's code specified as an
+address range.  Anything else is taken to be a prompt tag, which cuts
+away all frames that are outside a prompt with the given tag.
 
-If the @var{outer_cut_i} of the last pair is missing, it is
-taken as 0.
+
+If the @var{outer_cut_i} of the last pair is missing, it is taken as 0.
 @end deffn
 
 @deffn {Scheme Syntax} start-stack id exp

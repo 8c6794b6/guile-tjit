@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -178,6 +178,18 @@ scm_find_source_for_addr (SCM ip)
   }
 
   return scm_call_1 (scm_variable_ref (source_for_addr), ip);
+}
+
+SCM
+scm_program_address_range (SCM program)
+{
+  static SCM program_address_range = SCM_BOOL_F;
+
+  if (scm_is_false (program_address_range) && scm_module_system_booted_p)
+    program_address_range =
+      scm_c_private_variable ("system vm program", "program-address-range");
+
+  return scm_call_1 (scm_variable_ref (program_address_range), program);
 }
 
 SCM_DEFINE (scm_program_num_free_variables, "program-num-free-variables", 1, 0, 0,

@@ -845,7 +845,8 @@ operation is somewhat expensive."
   (let ((state (fresh-profiler-state #:count-calls? count-calls?
                                      #:sampling-period
                                      (inexact->exact (round (/ 1e6 hz)))
-                                     #:outer-cut call-thunk)))
+                                     #:outer-cut
+                                     (program-address-range call-thunk))))
     (parameterize ((profiler-state state))
       (dynamic-wind
         (lambda ()
@@ -905,7 +906,8 @@ Since GC does not occur very frequently, you may need to use the
 @var{loop} parameter, to cause @var{thunk} to be called @var{loop}
 times."
   
-  (let ((state (fresh-profiler-state #:outer-cut call-thunk)))
+  (let ((state (fresh-profiler-state #:outer-cut
+                                     (program-address-range call-thunk))))
     (parameterize ((profiler-state state))
       (define (gc-callback)
         (unless (inside-profiler? state)
