@@ -239,49 +239,83 @@ file with the given name already exists, the effect is unspecified."
 
 
 
-;;; Boot versions of `map' and `for-each', enough to get the expander
-;;; running.
+;;; {map and for-each}
 ;;;
+
 (define map
   (case-lambda
     ((f l)
+     (if (not (list? l))
+         (scm-error 'wrong-type-arg "map" "Not a list: ~S"
+                    (list l) #f))
      (let map1 ((l l))
-       (if (null? l)
-           '()
-           (cons (f (car l)) (map1 (cdr l))))))
+       (if (pair? l)
+           (cons (f (car l)) (map1 (cdr l)))
+           '())))
+
     ((f l1 l2)
+     (if (not (= (length l1) (length l2)))
+         (scm-error 'wrong-type-arg "map" "List of wrong length: ~S"
+                    (list l2) #f))
+
      (let map2 ((l1 l1) (l2 l2))
-       (if (null? l1)
-           '()
+       (if (pair? l1)
            (cons (f (car l1) (car l2))
-                 (map2 (cdr l1) (cdr l2))))))
+                 (map2 (cdr l1) (cdr l2)))
+           '())))
+
     ((f l1 . rest)
-     (let lp ((l1 l1) (rest rest))
-       (if (null? l1)
-           '()
+     (let ((len (length l1)))
+       (let mapn ((rest rest))
+         (or (null? rest)
+             (if (= (length (car rest)) len)
+                 (mapn (cdr rest))
+                 (scm-error 'wrong-type-arg "map" "List of wrong length: ~S"
+                            (list (car rest)) #f)))))
+     (let mapn ((l1 l1) (rest rest))
+       (if (pair? l1)
            (cons (apply f (car l1) (map car rest))
-                 (lp (cdr l1) (map cdr rest))))))))
+                 (mapn (cdr l1) (map cdr rest)))
+           '())))))
+
+(define map-in-order map)
 
 (define for-each
   (case-lambda
     ((f l)
+     (if (not (list? l))
+         (scm-error 'wrong-type-arg "for-each" "Not a list: ~S" (list l) #f))
      (let for-each1 ((l l))
-       (if (pair? l)
+       (if (not (null? l))
            (begin
              (f (car l))
              (for-each1 (cdr l))))))
+
     ((f l1 l2)
+     (if (not (= (length l1) (length l2)))
+         (scm-error 'wrong-type-arg "for-each" "List of wrong length: ~S"
+                    (list l2) #f))
      (let for-each2 ((l1 l1) (l2 l2))
-       (if (pair? l1)
+       (if (not (null? l1))
            (begin
              (f (car l1) (car l2))
              (for-each2 (cdr l1) (cdr l2))))))
+
     ((f l1 . rest)
-     (let lp ((l1 l1) (rest rest))
+     (let ((len (length l1)))
+       (let for-eachn ((rest rest))
+         (or (null? rest)
+             (if (= (length (car rest)) len)
+                 (for-eachn (cdr rest))
+                 (scm-error 'wrong-type-arg "for-each" "List of wrong length: ~S"
+                            (list (car rest)) #f)))))
+
+     (let for-eachn ((l1 l1) (rest rest))
        (if (pair? l1)
            (begin
              (apply f (car l1) (map car rest))
-             (lp (cdr l1) (map cdr rest))))))))
+             (for-eachn (cdr l1) (map cdr rest))))))))
+
 
 ;; Temporary definition used in the include-from-path expansion;
 ;; replaced later.
@@ -827,83 +861,6 @@ for key @var{k}, then invoke @var{thunk}."
   (define! 'catch catch)
   (define! 'with-throw-handler with-throw-handler)
   (define! 'throw throw))
-
-
-
-
-;;; The real versions of `map' and `for-each', with cycle detection, and
-;;; that use reverse! instead of recursion in the case of `map'.
-;;;
-(define map
-  (case-lambda
-    ((f l)
-     (unless (list? l)
-       (scm-error 'wrong-type-arg "map" "Not a list: ~S"
-                  (list l) #f))
-     (let map1 ((l l) (out '()))
-       (if (pair? l)
-           (map1 (cdr l) (cons (f (car l)) out))
-           (reverse! out))))
-    
-    ((f l1 l2)
-     (unless (= (length l1) (length l2))
-       (scm-error 'wrong-type-arg "map" "List of wrong length: ~S"
-                  (list l2) #f))
-
-     (let map2 ((l1 l1) (l2 l2) (out '()))
-       (if (pair? l1)
-           (map2 (cdr l1) (cdr l2) (cons (f (car l1) (car l2)) out))
-           (reverse! out))))
-
-    ((f l1 . rest)
-     (let ((len (length l1)))
-       (let mapn ((rest rest))
-         (or (null? rest)
-             (if (= (length (car rest)) len)
-                 (mapn (cdr rest))
-                 (scm-error 'wrong-type-arg "map" "List of wrong length: ~S"
-                            (list (car rest)) #f)))))
-     (let mapn ((l1 l1) (rest rest) (out '()))
-       (if (null? l1)
-           (reverse! out)
-           (mapn (cdr l1) (map cdr rest)
-                 (cons (apply f (car l1) (map car rest)) out)))))))
-
-(define map-in-order map)
-
-(define for-each
-  (case-lambda
-    ((f l)
-     (unless (list? l)
-       (scm-error 'wrong-type-arg "for-each" "Not a list: ~S" (list l) #f))
-     (let for-each1 ((l l))
-       (unless (null? l)
-         (f (car l))
-         (for-each1 (cdr l)))))
-
-    ((f l1 l2)
-     (unless (= (length l1) (length l2))
-       (scm-error 'wrong-type-arg "for-each" "List of wrong length: ~S"
-                  (list l2) #f))
-     (let for-each2 ((l1 l1) (l2 l2))
-       (unless (null? l1)
-         (f (car l1) (car l2))
-         (for-each2 (cdr l1) (cdr l2)))))
-
-    ((f l1 . rest)
-     (let ((len (length l1)))
-       (let for-eachn ((rest rest))
-         (or (null? rest)
-             (if (= (length (car rest)) len)
-                 (for-eachn (cdr rest))
-                 (scm-error 'wrong-type-arg "for-each" "List of wrong length: ~S"
-                            (list (car rest)) #f)))))
-     
-     (let for-eachn ((l1 l1) (rest rest))
-       (if (pair? l1)
-           (begin
-             (apply f (car l1) (map car rest))
-             (for-eachn (cdr l1) (map cdr rest))))))))
 
 
 

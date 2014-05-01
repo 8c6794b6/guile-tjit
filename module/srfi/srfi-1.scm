@@ -454,21 +454,41 @@ a list of those after."
 
 ;;; Fold, unfold & map
 
-(define (fold kons knil list1 . rest)
-  "Apply PROC to the elements of LIST1 ... LISTN to build a result, and return
+(define fold
+  (case-lambda
+    "Apply PROC to the elements of LIST1 ... LISTN to build a result, and return
 that result.  See the manual for details."
-  (check-arg procedure? kons fold)
-  (if (null? rest)
-      (let f ((knil knil) (list1 list1))
-	(if (null? list1)
-	    knil
-	    (f (kons (car list1) knil) (cdr list1))))
-      (let f ((knil knil) (lists (cons list1 rest)))
-	(if (any null? lists)
-	    knil
-	    (let ((cars (map car lists))
-		  (cdrs (map cdr lists)))
-	      (f (apply kons (append! cars (list knil))) cdrs))))))
+    ((kons knil list1)
+     (check-arg procedure? kons fold)
+     (check-arg list? list1 fold)
+     (let fold1 ((knil knil) (list1 list1))
+       (if (pair? list1)
+           (fold1 (kons (car list1) knil) (cdr list1))
+           knil)))
+    ((kons knil list1 list2)
+     (check-arg procedure? kons fold)
+     (let* ((len1 (length+ list1))
+            (len2 (length+ list2))
+            (len (if (and len1 len2)
+                     (min len1 len2)
+                     (or len1 len2))))
+       (unless len
+         (scm-error 'wrong-type-arg "fold"
+                    "Args do not contain a proper (finite) list: ~S"
+                    (list (list list1 list2)) #f))
+       (let fold2 ((knil knil) (list1 list1) (list2 list2) (len len))
+         (if (zero? len)
+             knil
+             (fold2 (kons (car list1) (car list2) knil)
+                    (cdr list1) (cdr list2) (1- len))))))
+    ((kons knil list1 . rest)
+     (check-arg procedure? kons fold)
+     (let foldn ((knil knil) (lists (cons list1 rest)))
+       (if (any null? lists)
+           knil
+           (let ((cars (map car lists))
+                 (cdrs (map cdr lists)))
+             (foldn (apply kons (append! cars (list knil))) cdrs)))))))
 
 (define (fold-right kons knil clist1 . rest)
   (check-arg procedure? kons fold-right)
@@ -567,10 +587,10 @@ has just one element then that's the return value."
     ((f l)
      (check-arg procedure? f map)
      (check-arg list? l map)
-     (let map1 ((in l) (out '()))
-       (if (pair? in)
-           (map1 (cdr in) (cons (f (car in)) out))
-           (reverse! out))))
+     (let map1 ((l l))
+       (if (pair? l)
+           (cons (f (car l)) (map1 (cdr l)))
+           '())))
     
     ((f l1 l2)
      (check-arg procedure? f map)
@@ -583,11 +603,11 @@ has just one element then that's the return value."
          (scm-error 'wrong-type-arg "map"
                     "Args do not contain a proper (finite) list: ~S"
                     (list (list l1 l2)) #f))
-       (let map2 ((l1 l1) (l2 l2) (out '()) (len len))
+       (let map2 ((l1 l1) (l2 l2) (len len))
          (if (zero? len)
-             (reverse! out)
-             (map2 (cdr l1) (cdr l2)
-                   (cons (f (car l1) (car l2)) out) (1- len))))))
+             '()
+             (cons (f (car l1) (car l2))
+                   (map2 (cdr l1) (cdr l2) (1- len)))))))
 
     ((f l1 . rest)
      (check-arg procedure? f map)
@@ -602,11 +622,11 @@ has just one element then that's the return value."
            (scm-error 'wrong-type-arg "map"
                       "Args do not contain a proper (finite) list: ~S"
                       (list (cons l1 rest)) #f))
-       (let mapn ((l1 l1) (rest rest) (len len) (out '()))
+       (let mapn ((l1 l1) (rest rest) (len len))
          (if (zero? len)
-             (reverse! out)
-             (mapn (cdr l1) (map cdr rest) (1- len)
-                   (cons (apply f (car l1) (map car rest)) out))))))))
+             '()
+             (cons (apply f (car l1) (map car rest))
+                   (mapn (cdr l1) (map cdr rest) (1- len)))))))))
 
 (define map-in-order map)
 

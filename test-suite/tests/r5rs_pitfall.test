@@ -1,5 +1,5 @@
 ;;;; r5rs_pitfall.test --- tests some pitfalls in R5RS     -*- scheme -*-
-;;;; Copyright (C) 2003, 2004, 2006 Free Software Foundation, Inc.
+;;;; Copyright (C) 2003, 2004, 2006, 2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -292,7 +292,7 @@
 ;;Not really an error to fail this (Matthias Radestock)
 ;;If this returns (0 1 0), your map isn't call/cc safe, but is probably
 ;;tail-recursive.  If its (0 0 0), the opposite is true.
-(should-be 8.3 '(0 1 0)
+(should-be 8.3 '(0 0 0)
   (let ()
     (define executed-k #f)
     (define cont #f)
