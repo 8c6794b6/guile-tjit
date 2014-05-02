@@ -76,6 +76,97 @@
         (lp (1+ n))))
     defs))
 
+(define (constant-type val)
+  (cond
+   ((and (exact-integer? val) (<= 0 val most-positive-fixnum))
+    'size)
+   ((number? val) 'number)
+   ((vector? val) 'vector)
+   ((pair? val) 'pair)
+   ((char? val) 'char)
+   (else #f)))
+
+(define (lookup-type arg dfg)
+  (match (lookup-predecessors (lookup-def arg dfg) dfg)
+    ((pred)
+     (match (lookup-cont pred dfg)
+       (($ $kargs _ _ term)
+        (match (find-expression term)
+          (($ $const val) (constant-type val))
+          (($ $primcall name args)
+           (match (check-primcall-arg-types dfg name args)
+             ((type) type)
+             (_ #f)))
+          (($ $values (var)) (lookup-type var dfg))
+          (($ $void) 'unspecified)
+          (_ #f)))
+       (_ #f)))
+    (_ #f)))
+
+(define (default-type-checker . _)
+  #f)
+
+(define *primcall-type-checkers* (make-hash-table))
+
+(define-syntax-rule (define-primcall-type-checker (name dfg arg ...)
+                      body ...)
+  (hashq-set! *primcall-type-checkers* 'name
+              (lambda (dfg arg ...) body ...)))
+
+(define-syntax-rule (define-simple-primcall-types
+                      ((name (arg arg-type) ...) result ...)
+                      ...)
+  (begin
+    (define-primcall-type-checker (name dfg arg ...)
+      (define (check-type val type)
+        (or (eqv? type #t)
+            (eqv? (lookup-type val dfg) type)))
+      (and (check-type arg 'arg-type)
+           ...
+           '(result ...)))
+    ...))
+
+(define-simple-primcall-types
+  ((cons (car #t) (cdr #t)) pair)
+  ((car (pair pair)) #f)
+  ((cdr (pair pair)) #f)
+  ((set-car! (pair pair) (car #t)))
+  ((set-cdr! (pair pair) (car #t)))
+  ((make-vector (len size) (fill #t)) vector)
+  ((make-vector/immediate (len size) (fill #t)) vector)
+  ((vector-length (vector vector)) size)
+  ((box (val #t)) box)
+  ((box-ref (box box)) #f)
+  ((box-set! (box box) (val #t)))
+  ((make-struct (vtable vtable) (len size)) struct)
+  ((make-struct/immediate (vtable vtable) (len size)) struct))
+
+(define (vector-index-within-range? dfg vec idx)
+  (define (constant-value var)
+    (call-with-values (lambda () (find-constant-value var dfg))
+      (lambda (found? val)
+        (unless found?
+          (error "should have found value" var))
+        val)))
+  (let lp ((vec vec))
+    (match (find-defining-expression vec dfg)
+      (($ $primcall 'make-vector/immediate (len fill))
+       (<= 0 (constant-value idx) (1- (constant-value len))))
+      (($ $values (vec)) (lp vec))
+      (_ #f))))
+
+(define-primcall-type-checker (vector-ref/immediate dfg vec idx)
+  (and (vector-index-within-range? dfg vec idx)
+       '(#f)))
+
+(define-primcall-type-checker (vector-set!/immediate dfg vec idx val)
+  (and (vector-index-within-range? dfg vec idx)
+       '()))
+
+(define (check-primcall-arg-types dfg name args)
+  (apply (hashq-ref *primcall-type-checkers* name default-type-checker)
+         dfg args))
+
 (define (compute-live-code fun)
   (let* ((fun-data-table (make-hash-table))
          (dfg (compute-dfg fun #:global? #t))
@@ -107,15 +198,48 @@
     (define (visit-fun fun)
       (match (ensure-fun-data fun)
         (($ $fun-data min-label effects live-conts defs)
-         (define (visit-grey-exp n)
-           (let ((defs (vector-ref defs n)))
-             (cond
-              ((not defs) #t)
-              ((not (effect-free? (exclude-effects (vector-ref effects n)
-                                                   &allocation)))
-               #t)
-              (else
-               (or-map value-live? defs)))))
+         (define (types-check? exp)
+           (match exp
+             (($ $primcall name args)
+              (check-primcall-arg-types dfg name args))))
+         (define (visit-grey-exp n exp)
+           (let ((defs (vector-ref defs n))
+                 (fx (vector-ref effects n)))
+             (or
+              ;; No defs; perhaps continuation is $ktail.
+              (not defs)
+              ;; Do we have a live def?
+              (or-map value-live? defs)
+              ;; Does this expression cause any effects we don't know
+              ;; how to elide?
+              (not (effect-free?
+                    (exclude-effects fx
+                                     (logior &allocation &type-check
+                                             &car &cdr &vector &struct &box))))
+              ;; Does it cause a type check, but we can't prove that the
+              ;; types check?
+              (and (causes-effects? fx &type-check)
+                   (not (types-check? exp)))
+              (cond
+               ((effect-free?
+                 (exclude-effects fx (logior &type-check &allocation)))
+                ;; We've already handled type checks.  If allocation is
+                ;; the only remaining effect, this expression is still
+                ;; dead.
+                #f)
+               (else
+                ;; We might have a setter.  If the object being assigned
+                ;; to is live, then this expression is live.
+                (match exp
+                  (($ $primcall 'vector-set!/immediate (vec idx val))
+                   (value-live? vec))
+                  (($ $primcall 'set-car! (pair car))
+                   (value-live? pair))
+                  (($ $primcall 'set-cdr! (pair cdr))
+                   (value-live? pair))
+                  (($ $primcall 'box-set! (box val))
+                   (value-live? box))
+                  (_ #t)))))))
          (define (idx->label idx) (+ idx min-label))
          (let lp ((n (1- (vector-length effects))))
            (unless (< n 0)
@@ -135,7 +259,7 @@
                                  syms funs))
                       (($ $continue k src exp)
                        (unless (bitvector-ref live-conts n)
-                         (when (visit-grey-exp n)
+                         (when (visit-grey-exp n exp)
                            (set! changed? #t)
                            (bitvector-set! live-conts n #t)))
                        (when (bitvector-ref live-conts n)
