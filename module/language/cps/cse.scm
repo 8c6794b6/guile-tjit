@@ -58,6 +58,8 @@ index corresponds to MIN-LABEL, and so on."
     (define (label->idx label) (- label min-label))
     (define (idx->label idx) (+ idx min-label))
 
+    (synthesize-definition-effects! effects dfg min-label label-count)
+
     (let lp ((n 0))
       (when (< n label-count)
         (let ((in (make-bitvector label-count #f))
@@ -120,17 +122,12 @@ index corresponds to MIN-LABEL, and so on."
                         (unless (effects-commute? (vector-ref effects i) fx)
                           (bitvector-set! out i #f))
                         (lp (1+ i))))))))
-              ;; Unless this expression allocates a fresh object or
-              ;; changes the current fluid environment, mark expressions
-              ;; that match it as available for elimination.
-              (unless (causes-effects? fx (logior &fluid-environment
-                                                  &allocation))
-                (bitvector-set! out n #t))
+              (bitvector-set! out n #t)
               (lp (1+ n) first? (or changed? (not (= prev-count new-count)))))))
          (else
           (if (or first? changed?)
               (lp 0 #f #f)
-              avail-in)))))))
+              (values avail-in effects))))))))
 
 (define (compute-truthy-expressions dfg min-label label-count)
   "Compute a \"truth map\", indicating which expressions can be shown to
@@ -201,6 +198,8 @@ be that both true and false proofs are available."
               (lp 0 #f #f)
               boolv)))))))
 
+;; Returns a map of label-idx -> (var-idx ...) indicating the variables
+;; defined by a given labelled expression.
 (define (compute-defs dfg min-label label-count)
   (define (cont-defs k)
     (match (lookup-cont k dfg)
@@ -316,9 +315,8 @@ be that both true and false proofs are available."
     doms))
 
 (define (compute-equivalent-subexpressions fun dfg)
-  (define (compute min-label label-count min-var var-count)
-    (let ((avail (compute-available-expressions dfg min-label label-count))
-          (idoms (compute-idoms dfg min-label label-count))
+  (define (compute min-label label-count min-var var-count avail effects)
+    (let ((idoms (compute-idoms dfg min-label label-count))
           (defs (compute-defs dfg min-label label-count))
           (var-substs (make-vector var-count #f))
           (equiv-labels (make-vector label-count #f))
@@ -357,6 +355,41 @@ be that both true and false proofs are available."
           (($ $values args) #f)
           (($ $prompt escape? tag handler) #f)))
 
+      (define (add-auxiliary-definitions! label exp-key)
+        (let ((defs (vector-ref defs (label->idx label))))
+          (define (add-def! aux-key var)
+            (let ((equiv (hash-ref equiv-set aux-key '())))
+              (hash-set! equiv-set aux-key
+                         (acons label (list var) equiv))))
+          (match exp-key
+            (('primcall 'cons car cdr)
+             (match defs
+               ((pair)
+                (add-def! `(primcall car ,pair) car)
+                (add-def! `(primcall cdr ,pair) cdr))))
+            (('primcall 'set-car! pair car)
+             (add-def! `(primcall car ,pair) car))
+            (('primcall 'set-cdr! pair cdr)
+             (add-def! `(primcall cdr ,pair) cdr))
+            (('primcall (or 'make-vector 'make-vector/immediate) len fill)
+             (match defs
+               ((vec)
+                (add-def! `(primcall vector-length ,vec) len))))
+            (('primcall 'vector-set! vec idx val)
+             (add-def! `(primcall vector-ref ,vec ,idx) val))
+            (('primcall 'vector-set!/immediate vec idx val)
+             (add-def! `(primcall vector-ref/immediate ,vec ,idx) val))
+            (('primcall (or 'allocate-struct 'allocate-struct/immediate)
+                        vtable size)
+             (match defs
+               ((struct)
+                (add-def! `(primcall struct-vtable ,struct) vtable))))
+            (('primcall 'struct-set! struct n val)
+             (add-def! `(primcall struct-ref ,struct ,n) val))
+            (('primcall 'struct-set!/immediate struct n val)
+             (add-def! `(primcall struct-ref/immediate ,struct ,n) val))
+            (_ #t))))
+
       ;; The initial substs vector is the identity map.
       (let lp ((var min-var))
         (when (< (var->idx var) var-count)
@@ -373,15 +406,31 @@ be that both true and false proofs are available."
                (($ $continue k src exp)
                 (let* ((exp-key (compute-exp-key exp))
                        (equiv (hash-ref equiv-set exp-key '()))
-                       (avail (vector-ref avail (label->idx label))))
+                       (lidx (label->idx label))
+                       (avail (vector-ref avail lidx)))
+                  ;; If this expression defines auxiliary definitions,
+                  ;; as `cons' does for the results of `car' and `cdr',
+                  ;; define those.
+                  (add-auxiliary-definitions! label exp-key)
                   (let lp ((candidates equiv))
                     (match candidates
                       (()
                        ;; No matching expressions.  Add our expression
-                       ;; to the equivalence set, if appropriate.
-                       (when exp-key
-                         (hash-set! equiv-set exp-key (cons label equiv))))
-                      ((candidate . candidates)
+                       ;; to the equivalence set, if appropriate.  Note
+                       ;; that expressions that allocate a fresh object
+                       ;; or change the current fluid environment can't
+                       ;; be eliminated by CSE (though DCE might do it
+                       ;; if the value proves to be unused, in the
+                       ;; allocation case).
+                       (when (and exp-key
+                                  (not (causes-effects?
+                                        (vector-ref effects lidx)
+                                        (logior &fluid-environment
+                                                &allocation))))
+                         (hash-set! equiv-set exp-key
+                                    (acons label (vector-ref defs lidx)
+                                           equiv))))
+                      (((and head (candidate . vars)) . candidates)
                        (cond
                         ((not (bitvector-ref avail (label->idx candidate)))
                          ;; This expression isn't available here; try
@@ -389,25 +438,30 @@ be that both true and false proofs are available."
                          (lp candidates))
                         (else
                          ;; Yay, a match.  Mark expression as equivalent.
-                         (vector-set! equiv-labels (label->idx label)
-                                      candidate)
+                         (vector-set! equiv-labels lidx head)
                          ;; If we dominate the successor, mark vars
                          ;; for substitution.
                          (when (= label (vector-ref idoms (label->idx k)))
                            (for-each/2
                             (lambda (var subst-var)
                               (vector-set! var-substs (var->idx var) subst-var))
-                            (vector-ref defs (label->idx label))
-                            (vector-ref defs (label->idx candidate)))))))))))))
+                            (vector-ref defs lidx)
+                            vars)))))))))))
             (_ #f))
           (lp (1+ label))))
       (values (compute-dom-edges idoms min-label)
-              equiv-labels defs min-label var-substs min-var)))
+              equiv-labels min-label var-substs min-var)))
 
-  (call-with-values (lambda () (compute-label-and-var-ranges fun)) compute))
+  (call-with-values (lambda () (compute-label-and-var-ranges fun))
+    (lambda (min-label label-count min-var var-count)
+      (call-with-values
+          (lambda ()
+            (compute-available-expressions dfg min-label label-count))
+        (lambda (avail effects)
+          (compute min-label label-count min-var var-count avail effects))))))
 
 (define (apply-cse fun dfg
-                   doms equiv-labels defs min-label var-substs min-var boolv)
+                   doms equiv-labels min-label var-substs min-var boolv)
   (define (idx->label idx) (+ idx min-label))
   (define (label->idx label) (- label min-label))
   (define (idx->var idx) (+ idx min-var))
@@ -465,9 +519,9 @@ be that both true and false proofs are available."
         (_
          (cond
           ((vector-ref equiv-labels (label->idx label))
-           => (lambda (equiv)
-                (let* ((eidx (label->idx equiv))
-                       (vars (vector-ref defs eidx)))
+           => (match-lambda
+               ((equiv . vars)
+                (let* ((eidx (label->idx equiv)))
                   (rewrite-cps-term (lookup-cont k dfg)
                     (($ $kif kt kf)
                      ,(let* ((bool (vector-ref boolv (label->idx label)))
@@ -484,7 +538,7 @@ be that both true and false proofs are available."
                     ;; only $values, $call, or $callk can continue to
                     ;; $ktail.
                     (_
-                     ($continue k src ,(visit-exp exp)))))))
+                     ($continue k src ,(visit-exp exp))))))))
           (else
            (build-cps-term
              ($continue k src ,(visit-exp exp))))))))
@@ -522,8 +576,8 @@ be that both true and false proofs are available."
 
 (define (cse fun dfg)
   (call-with-values (lambda () (compute-equivalent-subexpressions fun dfg))
-    (lambda (doms equiv-labels defs min-label var-substs min-var)
-      (apply-cse fun dfg doms equiv-labels defs min-label var-substs min-var
+    (lambda (doms equiv-labels min-label var-substs min-var)
+      (apply-cse fun dfg doms equiv-labels min-label var-substs min-var
                  (compute-truthy-expressions dfg
                                              min-label (vector-length doms))))))
 

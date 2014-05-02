@@ -45,6 +45,7 @@
   #:use-module (ice-9 match)
   #:export (expression-effects
             compute-effects
+            synthesize-definition-effects!
 
             &fluid
             &fluid-environment
@@ -211,6 +212,8 @@
   (zero? (&causes effects)))
 (define-inlinable (constant? effects)
   (zero? effects))
+(define-inlinable (effects-clobber effects)
+  (ash (&causes effects) -1))
 
 (define-inlinable (depends-on-effects? x effects)
   (not (zero? (logand (&depends-on x) effects))))
@@ -289,7 +292,7 @@
   ((memq x y) (logior (cause &type-check) &car &cdr))
   ((memv x y) (logior (cause &type-check) &car &cdr))
   ((list? arg) &cdr)
-  ((length l) (logior (cause &type-check) &car &cdr)))
+  ((length l) (logior (cause &type-check) &cdr)))
 
 ;; Vectors.
 (define-primitive-effects
@@ -494,3 +497,41 @@
            (($ $ktail) &no-effects)))
         (lp (1+ n))))
     effects))
+
+;; There is a way to abuse effects analysis in CSE to also do scalar
+;; replacement, effectively adding `car' and `cdr' expressions to `cons'
+;; expressions, and likewise with other constructors and setters.  This
+;; routine adds appropriate effects to `cons' and `set-car!' and the
+;; like.
+;;
+;; This doesn't affect CSE's ability to eliminate expressions, given
+;; that allocations aren't eliminated anyway, and the new effects will
+;; just cause the allocations not to commute with e.g. set-car!  which
+;; is what we want anyway.
+(define* (synthesize-definition-effects! effects dfg min-label #:optional
+                                         (label-count (vector-length effects)))
+  (define (label->idx label) (- label min-label))
+  (let lp ((label min-label))
+    (when (< label (+ min-label label-count))
+      (let* ((lidx (label->idx label))
+             (fx (vector-ref effects lidx)))
+        (define (add-deps! deps)
+          (vector-set! effects lidx (logior fx deps)))
+        (match (lookup-cont label dfg)
+          (($ $kargs _ _ term)
+           (match (find-expression term)
+             (($ $primcall 'cons)
+              (add-deps! (logior &car &cdr)))
+             (($ $primcall (or 'make-vector 'make-vector/immediate))
+              (add-deps! &vector))
+             (($ $primcall (or 'allocate-struct 'allocate-struct/immediate
+                               'make-struct/no-tail 'make-struct))
+              (add-deps! &struct))
+             (($ $primcall 'box)
+              (add-deps! &box))
+             (_
+              (add-deps! (effects-clobber
+                          (logior fx &car &cdr &vector &struct &box)))
+              #t)))
+          (_ #t))
+        (lp (1+ label))))))
