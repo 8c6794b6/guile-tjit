@@ -25,13 +25,28 @@ Notably, weak hash tables are now transparently thread-safe.  Ports are
 also thread-safe; see "New interfaces" below for details on the changes
 to the C interface.
 
+** Better space-safety
+
+It used to be the case that, when calling a Scheme procedure, the
+procedure and arguments were always preserved against garbage
+collection.  This is no longer the case; Guile is free to collect the
+procedure and arguments if they become unreachable, or to re-use their
+slots for other local variables.  Guile still offers good-quality
+backtraces by determining the procedure being called from the
+instruction pointer instead of from the value in slot 0 of an
+application frame, and by using a live variable map that allows the
+debugger to know which locals are live at all points in a frame.
+
 ** Off-main-thread finalization
 
 Following Guile 2.0.6's change to invoke finalizers via asyncs, Guile
 2.2 takes the additional step of invoking finalizers from a dedicated
 finalizer thread, if threads are enabled.  This avoids concurrency
 issues between finalizers and application code, and also speeds up
-finalization.
+finalization.  If your application's finalizers are not robust to the
+presence of threads, see "Foreign Objects" in the manual for information
+on how to disable automatic finalization and instead run finalizers
+manually.
 
 ** Better locale support in Guile scripts
 
@@ -65,6 +80,12 @@ loop that collect its results in reverse order only to re-reverse them
 at the end, now you can just recurse without worrying about stack
 overflows.
 
+** Out-of-memory improvements
+
+Instead of aborting, failures to allocate memory will now raise an
+unwind-only `out-of-memory' exception, and cause the corresponding
+`catch' expression to run garbage collection in order to free up memory.
+
 * Performance improvements
 
 ** Faster programs via new virtual machine
@@ -95,9 +116,11 @@ as well.  See "Object File Format" in the manual, for full details.
 Guile's compiler now uses a Continuation-Passing Style (CPS)
 intermediate language, allowing it to reason easily about temporary
 values and control flow.  Examples of optimizations that this permits
-are optimal contification, dead code elimination, parallel moves with at
-most one temporary, and allocation of stack slots using precise liveness
-information.  For more, see "Continuation-Passing Style" in the manual.
+are optimal contification, optimal common subexpression elimination,
+dead code elimination, parallel moves with at most one temporary,
+allocation of stack slots using precise liveness information, and
+closure optimization.  For more, see "Continuation-Passing Style" in the
+manual.
 
 ** Faster interpreter
 
@@ -124,6 +147,12 @@ Guile 2.2 now uses Bob Jenkins' `hashword2' (from his `lookup3.c') for
 its string hash, and Thomas Wang's integer hash function for `hashq' and
 `hashv'.  These functions produce much better hash values across all
 available fixnum bits.
+
+** Optimized generic array facility
+
+Thanks to work by Daniel Llorens, the generic array facility is much
+faster now, as it is internally better able to dispatch on the type of
+the underlying backing store.
 
 * New interfaces
 
@@ -179,10 +208,6 @@ For more on `SCM_HAS_TYP7', `SCM_HAS_TYP7S', `SCM_HAS_TYP16', see XXX.
 `SCM_UNPACK_POINTER' and `SCM_PACK_POINTER' are better-named versions of
 the old `SCM2PTR' and `PTR2SCM'.  Also, `SCM_UNPACK_POINTER' yields a
 void*.
-
-** `scm_c_weak_vector_ref', `scm_c_weak_vector_set_x'
-
-Weak vectors can now be accessed from C using these accessors.
 
 ** <standard-vtable>, standard-vtable-fields
 
@@ -340,14 +365,34 @@ of compiling to objcode and then calling `make-program', now the way to
 do it is to compile to `bytecode' and then call `load-thunk-from-memory'
 from `(system vm loader)'.
 
-** Remove weak pairs.
+** Weak pairs removed
 
 Weak pairs were not safe to access with `car' and `cdr', and so were
 removed.
 
-** Remove weak alist vectors.
+** Weak alist vectors removed
 
 Use weak hash tables instead.
+
+** Weak vectors may no longer be accessed via `vector-ref' et al
+
+Weak vectors may no longer be accessed with the vector interface.  This
+was a source of bugs in the 2.0 Guile implementation, and a limitation
+on using vectors as building blocks for other abstractions.  Vectors in
+Guile are now a concrete type; for an abstract interface, use the
+generic array facility (`array-ref' et al).
+
+** scm_t_array_implementation removed
+
+This interface was introduced in 2.0 but never documented.  It was a
+failed attempt to layer the array implementation that actually
+introduced too many layers, as it prevented the "vref" and "vset"
+members of scm_t_array_handle (called "ref" and "set" in 1.8, not
+present in 2.0) from specializing on array backing stores.
+
+Notably, the definition of scm_t_array_handle has now changed, to not
+include the (undocumented) "impl" member.  We are sorry for any
+inconvenience this may cause.
 
 * New deprecations
 
