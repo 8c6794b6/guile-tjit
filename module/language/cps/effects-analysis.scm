@@ -205,11 +205,11 @@
 (define-inlinable (&causes a)
   (logand a (cause &all-effects)))
 
-(define (exclude-effects effects exclude)
+(define-inlinable (exclude-effects effects exclude)
   (logand effects (lognot (cause exclude))))
-(define (effect-free? effects)
+(define-inlinable (effect-free? effects)
   (zero? (&causes effects)))
-(define (constant? effects)
+(define-inlinable (constant? effects)
   (zero? effects))
 
 (define-inlinable (depends-on-effects? x effects)
@@ -311,6 +311,8 @@
 ;; Structs.
 (define-primitive-effects* dfg
   ((allocate-struct vtable nfields)
+   (logior (cause &type-check) (cause &allocation)))
+  ((allocate-struct/immediate vtable nfields)
    (logior (cause &type-check) (cause &allocation)))
   ((make-struct vtable ntail . args)
    (logior (cause &type-check) (cause &allocation)))
