@@ -362,6 +362,12 @@ be that both true and false proofs are available."
               (hash-set! equiv-set aux-key
                          (acons label (list var) equiv))))
           (match exp-key
+            (('primcall 'box val)
+             (match defs
+               ((box)
+                (add-def! `(primcall box-ref ,box) val))))
+            (('primcall 'box-set! box val)
+             (add-def! `(primcall box-ref ,box) val))
             (('primcall 'cons car cdr)
              (match defs
                ((pair)
