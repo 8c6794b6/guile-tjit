@@ -308,7 +308,13 @@
         => (lambda (slot) (frame-local-ref frame slot)))
        (else
         '_)))
+    (define (application-arguments)
+      ;; Case 1.
+      (map (lambda (local) (local-ref local #f))
+           ;; Cdr past the 0th local, which is the procedure.
+           (cdr (iota nlocals))))
     (define (reconstruct-arguments bindings nreq nopt kw has-rest? local)
+      ;; Case 2.
       (cond
        ((positive? nreq)
         (cons (local-ref local bindings)
@@ -333,13 +339,14 @@
      (cond
       ((find-program-arity ip)
        => (lambda (arity)
-            ;; case 1
-            (reconstruct-arguments (available-bindings arity ip top-frame?)
-                                   (arity-nreq arity)
-                                   (arity-nopt arity)
-                                   (arity-keyword-args arity)
-                                   (arity-has-rest? arity)
-                                   1)))
+            (if (and top-frame? (eqv? ip (arity-low-pc arity)))
+                (application-arguments)
+                (reconstruct-arguments (available-bindings arity ip top-frame?)
+                                       (arity-nreq arity)
+                                       (arity-nopt arity)
+                                       (arity-keyword-args arity)
+                                       (arity-has-rest? arity)
+                                       1))))
       ((and (primitive? closure)
             (program-arguments-alist closure ip))
        => (lambda (args)
@@ -349,14 +356,10 @@
                 ('keyword . kw)
                 ('allow-other-keys? . _)
                 ('rest . rest))
-               ;; case 1
                (reconstruct-arguments #f
                                       (length req) (length opt) kw rest 1)))))
       (else
-       ;; case 2
-       (map (lambda (local) (local-ref local #f))
-            ;; Cdr past the 0th local, which is the procedure.
-            (cdr (iota nlocals))))))))
+       (application-arguments))))))
 
 
 
