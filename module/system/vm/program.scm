@@ -42,6 +42,8 @@
             program-num-free-variables
             program-free-variable-ref program-free-variable-set!
 
+            print-program
+
             primitive?))
 
 (load-extension (string-append "libguile-" (effective-version))
@@ -259,28 +261,57 @@ lists."
           (fallback))))
    (else (error "expected a program" prog))))
 
+(define* (print-program #:optional program (port (current-output-port))
+                        #:key (addr (program-code program))
+                        (always-print-addr? #f) (never-print-addr? #f)
+                        (always-print-source? #f) (never-print-source? #f)
+                        (name-only? #f) (print-formals? #t))
+  (let* ((pdi (find-program-debug-info addr))
+         ;; It could be the procedure had its name property set via the
+         ;; procedure property interface.
+         (name (or (and program (procedure-name program))
+                   (program-debug-info-name pdi)))
+         (source (match (find-program-sources addr)
+                   (() #f)
+                   ((source . _) source)))
+         (formals (if program
+                      (program-arguments-alists program)
+                      (let ((arities (find-program-arities addr)))
+                        (if arities
+                            (map arity-arguments-alist arities)
+                            '())))))
+    (define (hex n)
+      (number->string n 16))
+
+    (cond
+     ((and name-only? name)
+      (format port "~a" name))
+     (else
+      (format port "#<procedure")
+      (format port " ~a"
+              (or name
+                  (and program (hex (object-address program)))
+                  (if never-print-addr?
+                      ""
+                      (string-append "@" (hex addr)))))
+      (when (and always-print-addr? (not never-print-addr?))
+        (unless (and (not name) (not program))
+          (format port " @~a" (hex addr))))
+      (when (and source (not never-print-source?)
+                 (or always-print-source? (not name)))
+        (format port " at ~a:~a:~a"
+                (or (source-file source) "<unknown port>")
+                (source-line-for-user source)
+                (source-column source)))
+      (unless (or (null? formals) (not print-formals?))
+        (format port "~a"
+                (string-append
+                 " " (string-join (map (lambda (a)
+                                         (object->string
+                                          (arguments-alist->lambda-list a)))
+                                       formals)
+                                  " | "))))
+      (format port ">")))))
+
 (define (write-program prog port)
-  (define (program-identity-string)
-    (or (procedure-name prog)
-        (and=> (program-source prog 0)
-               (lambda (s)
-                 (format #f "~a at ~a:~a:~a"
-                         (number->string (object-address prog) 16)
-                         (or (source:file s)
-                             (if s "<current input>" "<unknown port>"))
-                         (source:line-for-user s) (source:column s))))
-        (number->string (object-address prog) 16)))
-
-  (define (program-formals-string)
-    (let ((arguments (program-arguments-alists prog)))
-      (if (null? arguments)
-          ""
-          (string-append
-           " " (string-join (map (lambda (a)
-                                   (object->string
-                                    (arguments-alist->lambda-list a)))
-                                 arguments)
-                            " | ")))))
-
-  (format port "#<procedure ~a~a>"
-          (program-identity-string) (program-formals-string)))
+  (print-program prog port))

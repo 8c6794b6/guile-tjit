@@ -329,11 +329,6 @@
     (cons
      (or (and=> info program-debug-info-name)
          (and (procedure? closure) (procedure-name closure))
-         (and info
-              ;; No need to give source info, as backtraces will already
-              ;; take care of that.
-              (format #f "#<procedure ~a>"
-                      (number->string (program-debug-info-addr info) 16)))
          closure)
      (cond
       ((find-program-arity ip)
