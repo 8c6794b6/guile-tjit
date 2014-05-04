@@ -186,10 +186,6 @@
       (if (our-frame? frame)
           (enter-proc frame)))
 
-    (define (push-cont-hook frame)
-      (if in-proc?
-          (exit-proc frame)))
-    
     (define (pop-cont-hook frame . values)
       (if in-proc?
           (exit-proc frame))
@@ -206,7 +202,6 @@
      current-frame
      (lambda (frame)
        (add-hook! (vm-apply-hook) apply-hook)
-       (add-hook! (vm-push-continuation-hook) push-cont-hook)
        (add-hook! (vm-pop-continuation-hook) pop-cont-hook)
        (add-hook! (vm-abort-continuation-hook) abort-hook)
        (if (and frame (our-frame? frame))
@@ -215,7 +210,6 @@
        (if in-proc?
            (exit-proc frame))
        (remove-hook! (vm-apply-hook) apply-hook)
-       (remove-hook! (vm-push-continuation-hook) push-cont-hook)
        (remove-hook! (vm-pop-continuation-hook) pop-cont-hook)
        (remove-hook! (vm-abort-continuation-hook) abort-hook)))))
 

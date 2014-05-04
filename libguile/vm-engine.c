@@ -486,6 +486,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
   /* Let's go! */
   ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+
+  APPLY_HOOK ();
+
   NEXT (0);
 
   BEGIN_DISPATCH_SWITCH;
@@ -549,6 +552,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       VM_HANDLE_INTERRUPTS;
 
+      PUSH_CONTINUATION_HOOK ();
+
       old_fp = fp;
       fp = vp->fp = old_fp + proc;
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
@@ -556,13 +561,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       RESET_FRAME (nlocals);
 
-      PUSH_CONTINUATION_HOOK ();
-      APPLY_HOOK ();
-
       if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
         goto apply;
 
       ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+
+      APPLY_HOOK ();
+
       NEXT (0);
     }
 
@@ -588,6 +593,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       VM_HANDLE_INTERRUPTS;
 
+      PUSH_CONTINUATION_HOOK ();
+
       old_fp = fp;
       fp = vp->fp = old_fp + proc;
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
@@ -595,10 +602,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       RESET_FRAME (nlocals);
 
-      PUSH_CONTINUATION_HOOK ();
+      ip += label;
+
       APPLY_HOOK ();
 
-      NEXT (label);
+      NEXT (0);
     }
 
   /* tail-call nlocals:24
@@ -617,12 +625,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       RESET_FRAME (nlocals);
 
-      APPLY_HOOK ();
-
       if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
         goto apply;
 
       ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+
+      APPLY_HOOK ();
+
       NEXT (0);
     }
 
@@ -643,9 +652,11 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       RESET_FRAME (nlocals);
 
+      ip += label;
+
       APPLY_HOOK ();
 
-      NEXT (label);
+      NEXT (0);
     }
 
   /* tail-call/shuffle from:24
@@ -671,12 +682,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       RESET_FRAME (n + 1);
 
-      APPLY_HOOK ();
-
       if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
         goto apply;
 
       ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+
+      APPLY_HOOK ();
+
       NEXT (0);
     }
 
@@ -960,12 +972,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
       for (i = 0; i < list_len; i++, list = SCM_CDR (list))
         LOCAL_SET (list_idx - 1 + i, SCM_CAR (list));
 
-      APPLY_HOOK ();
-
       if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
         goto apply;
 
       ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+
+      APPLY_HOOK ();
+
       NEXT (0);
     }
 
@@ -1004,12 +1017,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
           LOCAL_SET (1, cont);
           RESET_FRAME (2);
 
-          APPLY_HOOK ();
-
           if (SCM_UNLIKELY (!SCM_PROGRAM_P (LOCAL_REF (0))))
             goto apply;
 
           ip = SCM_PROGRAM_CODE (LOCAL_REF (0));
+
+          APPLY_HOOK ();
+
           NEXT (0);
         }
       else
