@@ -100,8 +100,8 @@
       (format port " (#x~x~@d)" code
               (- (frame-instruction-pointer frame) code))))
   (newline port)
-  (print "sp = #x~x\n" (frame-stack-pointer frame))
-  (print "fp = #x~x\n" (frame-address frame)))
+  (print "sp = ~a\n" (frame-stack-pointer frame))
+  (print "fp = ~a\n" (frame-address frame)))
 
 (define* (print-locals frame #:optional (port (current-output-port))
                        #:key (width (terminal-width)) (per-line-prefix "  "))

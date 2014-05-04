@@ -277,7 +277,7 @@ SCM_DEFINE (scm_frame_address, "frame-address", 1, 0, 0,
 #define FUNC_NAME s_scm_frame_address
 {
   SCM_VALIDATE_VM_FRAME (1, frame);
-  return scm_from_uintptr_t ((scm_t_uintptr) SCM_VM_FRAME_FP (frame));
+  return scm_from_ptrdiff_t (SCM_VM_FRAME_FP_OFFSET (frame));
 }
 #undef FUNC_NAME
 
@@ -288,7 +288,7 @@ SCM_DEFINE (scm_frame_stack_pointer, "frame-stack-pointer", 1, 0, 0,
 {
   SCM_VALIDATE_VM_FRAME (1, frame);
 
-  return scm_from_uintptr_t ((scm_t_uintptr) SCM_VM_FRAME_SP (frame));
+  return scm_from_ptrdiff_t (SCM_VM_FRAME_SP_OFFSET (frame));
 }
 #undef FUNC_NAME
 
