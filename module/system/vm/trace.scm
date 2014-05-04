@@ -46,7 +46,7 @@
     (format (current-error-port) "~a~v:@y\n"
             prefix
             width
-            (frame-call-representation frame))))
+            (frame-call-representation frame #:top-frame? #t))))
 
 (define (print-return depth width prefix max-indent values)
   (let ((prefix (build-prefix prefix depth "|  " "~d< "max-indent)))

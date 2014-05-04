@@ -289,7 +289,7 @@
 ;;      the types don't match. In that case the arguments are all on the
 ;;      stack, and nothing else is on the stack.
 
-(define* (frame-call-representation frame #:optional top-frame?)
+(define* (frame-call-representation frame #:key top-frame?)
   (let* ((ip (frame-instruction-pointer frame))
          (info (find-program-debug-info ip))
          (nlocals (frame-num-locals frame))
