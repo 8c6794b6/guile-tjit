@@ -39,7 +39,7 @@ no dependencies and which cause no effects besides &type-check."
     (let lp ((n 0))
       (cond
        ((< n (vector-length effects))
-        (when (zero? (exclude-effects (vector-ref effects n) &type-check))
+        (when (constant? (exclude-effects (vector-ref effects n) &type-check))
           (bitvector-set! out n #t))
         (lp (1+ n)))
        (else out)))))
