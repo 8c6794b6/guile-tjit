@@ -531,7 +531,9 @@
               (add-deps! &box))
              (_
               (add-deps! (effects-clobber
-                          (logior fx &car &cdr &vector &struct &box)))
+                          (logand
+                           fx
+                           (cause (logior &car &cdr &vector &struct &box)))))
               #t)))
           (_ #t))
         (lp (1+ label))))))
