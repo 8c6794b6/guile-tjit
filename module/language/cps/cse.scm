@@ -62,11 +62,9 @@ index corresponds to MIN-LABEL, and so on."
 
     (let lp ((n 0))
       (when (< n label-count)
-        (let ((in (make-bitvector label-count #f))
-              (out (make-bitvector label-count #f)))
-          (vector-set! avail-in n in)
-          (vector-set! avail-out n out)
-          (lp (1+ n)))))
+        (vector-set! avail-in n (make-bitvector label-count #f))
+        (vector-set! avail-out n (make-bitvector label-count #f))
+        (lp (1+ n))))
 
     (let ((tmp (make-bitvector label-count #f)))
       (define (bitvector-copy! dst src)
@@ -365,14 +363,14 @@ be that both true and false proofs are available."
             (('primcall 'box val)
              (match defs
                ((box)
-                (add-def! `(primcall box-ref ,box) val))))
+                (add-def! `(primcall box-ref ,(subst-var box)) val))))
             (('primcall 'box-set! box val)
              (add-def! `(primcall box-ref ,box) val))
             (('primcall 'cons car cdr)
              (match defs
                ((pair)
-                (add-def! `(primcall car ,pair) car)
-                (add-def! `(primcall cdr ,pair) cdr))))
+                (add-def! `(primcall car ,(subst-var pair)) car)
+                (add-def! `(primcall cdr ,(subst-var pair)) cdr))))
             (('primcall 'set-car! pair car)
              (add-def! `(primcall car ,pair) car))
             (('primcall 'set-cdr! pair cdr)
@@ -380,7 +378,7 @@ be that both true and false proofs are available."
             (('primcall (or 'make-vector 'make-vector/immediate) len fill)
              (match defs
                ((vec)
-                (add-def! `(primcall vector-length ,vec) len))))
+                (add-def! `(primcall vector-length ,(subst-var vec)) len))))
             (('primcall 'vector-set! vec idx val)
              (add-def! `(primcall vector-ref ,vec ,idx) val))
             (('primcall 'vector-set!/immediate vec idx val)
@@ -389,7 +387,8 @@ be that both true and false proofs are available."
                         vtable size)
              (match defs
                ((struct)
-                (add-def! `(primcall struct-vtable ,struct) vtable))))
+                (add-def! `(primcall struct-vtable ,(subst-var struct))
+                          vtable))))
             (('primcall 'struct-set! struct n val)
              (add-def! `(primcall struct-ref ,struct ,n) val))
             (('primcall 'struct-set!/immediate struct n val)
@@ -414,10 +413,6 @@ be that both true and false proofs are available."
                        (equiv (hash-ref equiv-set exp-key '()))
                        (lidx (label->idx label))
                        (avail (vector-ref avail lidx)))
-                  ;; If this expression defines auxiliary definitions,
-                  ;; as `cons' does for the results of `car' and `cdr',
-                  ;; define those.
-                  (add-auxiliary-definitions! label exp-key)
                   (let lp ((candidates equiv))
                     (match candidates
                       (()
@@ -452,7 +447,13 @@ be that both true and false proofs are available."
                             (lambda (var subst-var)
                               (vector-set! var-substs (var->idx var) subst-var))
                             (vector-ref defs lidx)
-                            vars)))))))))))
+                            vars)))))))
+                  ;; If this expression defines auxiliary definitions,
+                  ;; as `cons' does for the results of `car' and `cdr',
+                  ;; define those.  Do so after finding equivalent
+                  ;; expressions, so that we can take advantage of
+                  ;; subst'd output vars.
+                  (add-auxiliary-definitions! label exp-key)))))
             (_ #f))
           (lp (1+ label))))
       (values (compute-dom-edges idoms min-label)
