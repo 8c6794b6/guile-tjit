@@ -36,6 +36,7 @@
 
 (define-module (language cps dfg)
   #:use-module (ice-9 match)
+  #:use-module (ice-9 format)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-26)
@@ -896,6 +897,58 @@ body continuation in the prompt."
         (make-dfg conts preds defs uses scopes scope-levels
                   min-label max-label label-count
                   min-var max-var var-count)))))
+
+(define* (dump-dfg dfg #:optional (port (current-output-port)))
+  (let ((min-label (dfg-min-label dfg))
+        (min-var (dfg-min-var dfg)))
+    (define (label->idx label) (- label min-label))
+    (define (idx->label idx) (+ idx min-label))
+    (define (var->idx var) (- var min-var))
+    (define (idx->var idx) (+ idx min-var))
+
+    (let lp ((label (dfg-min-label dfg)))
+      (when (< label (dfg-max-label dfg))
+        (let ((cont (vector-ref (dfg-cont-table dfg) (label->idx label))))
+          (when cont
+            (unless (equal? (lookup-predecessors label dfg) (list (1- label)))
+              (newline port))
+            (format port "k~a:~8t" label)
+            (match cont
+              (($ $kif kt kf)
+               (format port "$kif k~a k~a\n" kt kf))
+              (($ $kreceive arity k)
+               (format port "$kreceive ~a k~a\n" arity k))
+              (($ $kfun src meta self tail clause)
+               (format port "$kfun ~a ~a v~a\n" src meta self))
+              (($ $ktail)
+               (format port "$ktail\n"))
+              (($ $kclause arity ($ $cont kbody) alternate)
+               (format port "$kclause ~a k~a" arity kbody)
+               (match alternate
+                 (#f #f)
+                 (($ $cont kalt) (format port " -> k~a" kalt)))
+               (newline port))
+              (($ $kargs names vars term)
+               (unless (null? vars)
+                 (format port "v~a[~a]~:{ v~a[~a]~}: "
+                         (car vars) (car names) (map list (cdr vars) (cdr names))))
+               (match (find-call term)
+                 (($ $continue k src exp)
+                  (match exp
+                    (($ $void) (format port "void"))
+                    (($ $const val) (format port "const ~@y" val))
+                    (($ $prim name) (format port "prim ~a" name))
+                    (($ $fun free ($ $cont kbody)) (format port "fun k~a" kbody))
+                    (($ $closure label nfree) (format port "closure k~a (~a free)" label nfree))
+                    (($ $call proc args) (format port "call~{ v~a~}" (cons proc args)))
+                    (($ $callk k proc args) (format port "callk k~a~{ v~a~}" k (cons proc args)))
+                    (($ $primcall name args) (format port "~a~{ v~a~}" name args))
+                    (($ $values args) (format port "values~{ v~a~}" args))
+                    (($ $prompt escape? tag handler) (format port "prompt ~a v~a k~a" escape? tag handler)))
+                  (unless (= k (1+ label))
+                    (format port " -> k~a" k))
+                  (newline port))))))
+          (lp (1+ label)))))))
 
 (define-syntax-rule (with-fresh-name-state-from-dfg dfg body ...)
   (parameterize ((label-counter (1+ (dfg-max-label dfg)))
