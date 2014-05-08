@@ -210,36 +210,27 @@
               (not defs)
               ;; Do we have a live def?
               (or-map value-live? defs)
-              ;; Does this expression cause any effects we don't know
-              ;; how to elide?
-              (not (effect-free?
-                    (exclude-effects fx
-                                     (logior &allocation &type-check
-                                             &car &cdr &vector &struct &box))))
+              ;; Does this expression cause all effects?  If so, it's
+              ;; definitely live.
+              (causes-all-effects? fx)
               ;; Does it cause a type check, but we can't prove that the
               ;; types check?
-              (and (causes-effects? fx &type-check)
+              (and (causes-effect? fx &type-check)
                    (not (types-check? exp)))
-              (cond
-               ((effect-free?
-                 (exclude-effects fx (logior &type-check &allocation)))
-                ;; We've already handled type checks.  If allocation is
-                ;; the only remaining effect, this expression is still
-                ;; dead.
-                #f)
-               (else
-                ;; We might have a setter.  If the object being assigned
-                ;; to is live, then this expression is live.
-                (match exp
-                  (($ $primcall 'vector-set!/immediate (vec idx val))
-                   (value-live? vec))
-                  (($ $primcall 'set-car! (pair car))
-                   (value-live? pair))
-                  (($ $primcall 'set-cdr! (pair cdr))
-                   (value-live? pair))
-                  (($ $primcall 'box-set! (box val))
-                   (value-live? box))
-                  (_ #t)))))))
+              ;; We might have a setter.  If the object being assigned
+              ;; to is live, then this expression is live.  Otherwise
+              ;; the value is still dead.
+              (and (causes-effect? fx &write)
+                   (match exp
+                     (($ $primcall 'vector-set!/immediate (vec idx val))
+                      (value-live? vec))
+                     (($ $primcall 'set-car! (pair car))
+                      (value-live? pair))
+                     (($ $primcall 'set-cdr! (pair cdr))
+                      (value-live? pair))
+                     (($ $primcall 'box-set! (box val))
+                      (value-live? box))
+                     (_ #t))))))
          (define (idx->label idx) (+ idx min-label))
          (let lp ((n (1- (vector-length effects))))
            (unless (< n 0)

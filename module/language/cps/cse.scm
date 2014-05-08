@@ -33,13 +33,14 @@
 
 (define (compute-always-available-expressions effects)
   "Return the set of continuations whose values are always available
-within their dominance frontier.  This is the case for effects that have
-no dependencies and which cause no effects besides &type-check."
+within their dominance frontier.  This is the case for effects that do
+not allocate, read, or write mutable memory."
   (let ((out (make-bitvector (vector-length effects) #f)))
     (let lp ((n 0))
       (cond
        ((< n (vector-length effects))
-        (when (constant? (exclude-effects (vector-ref effects n) &type-check))
+        (unless (causes-effect? (vector-ref effects n)
+                                (logior &allocation &read &write))
           (bitvector-set! out n #t))
         (lp (1+ n)))
        (else out)))))
@@ -104,10 +105,10 @@ index corresponds to MIN-LABEL, and so on."
                 (bitvector-copy! out in)
                 ;; Kill expressions that don't commute.
                 (cond
-                 ((causes-all-effects? fx &all-effects)
+                 ((causes-all-effects? fx)
                   ;; Fast-path if this expression clobbers the world.
                   (intersect! out always-avail))
-                 ((effect-free? (exclude-effects fx &type-check))
+                 ((not (causes-effect? fx &write))
                   ;; Fast-path if this expression clobbers nothing.
                   #t)
                  (else
@@ -117,7 +118,7 @@ index corresponds to MIN-LABEL, and so on."
                   (let lp ((i 0))
                     (let ((i (bit-position #t tmp i)))
                       (when i
-                        (unless (effects-commute? (vector-ref effects i) fx)
+                        (when (effect-clobbers? fx (vector-ref effects i))
                           (bitvector-set! out i #f))
                         (lp (1+ i))))))))
               (bitvector-set! out n #t)
@@ -412,6 +413,7 @@ be that both true and false proofs are available."
                 (let* ((exp-key (compute-exp-key exp))
                        (equiv (hash-ref equiv-set exp-key '()))
                        (lidx (label->idx label))
+                       (fx (vector-ref effects lidx))
                        (avail (vector-ref avail lidx)))
                   (let lp ((candidates equiv))
                     (match candidates
@@ -424,10 +426,10 @@ be that both true and false proofs are available."
                        ;; if the value proves to be unused, in the
                        ;; allocation case).
                        (when (and exp-key
-                                  (not (causes-effects?
-                                        (vector-ref effects lidx)
-                                        (logior &fluid-environment
-                                                &allocation))))
+                                  (not (causes-effect? fx &allocation))
+                                  (not (effect-clobbers?
+                                        fx
+                                        (&read-object &fluid))))
                          (hash-set! equiv-set exp-key
                                     (acons label (vector-ref defs lidx)
                                            equiv))))
