@@ -138,6 +138,8 @@ CPS_LANG_SOURCES =						\
   language/cps/simplify.scm					\
   language/cps/spec.scm						\
   language/cps/specialize-primcalls.scm				\
+  language/cps/types.scm					\
+  language/cps/type-fold.scm					\
   language/cps/verify.scm
 
 BYTECODE_LANG_SOURCES =						\
