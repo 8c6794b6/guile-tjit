@@ -1381,7 +1381,7 @@ mapping symbols to types."
        ;; All done!  Return the computed types.
        (else typev)))))
 
-(define (infer-types fun dfg)
+(define* (infer-types fun dfg #:key (max-label-count +inf.0))
   ;; Fun must be renumbered.
   (match fun
     (($ $cont min-label ($ $kfun _ _ min-var))
@@ -1412,7 +1412,8 @@ mapping symbols to types."
                    (values label-count var-count)))))
             fun 0 0))
        (lambda (label-count var-count)
-         (infer-types* dfg min-label label-count min-var var-count))))))
+         (and (< label-count max-label-count)
+              (infer-types* dfg min-label label-count min-var var-count)))))))
 
 (define (lookup-pre-type typev label def)
   (if (< def 0)

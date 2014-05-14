@@ -134,9 +134,11 @@
      ((eqv? type &nil) #nil)
      ((eqv? type &null) '())
      (else (error "unhandled type" type val))))
-  (let* ((typev (infer-types fun dfg))
-         (folded? (make-bitvector (/ (vector-length typev) 2) #f))
-         (folded-values (make-vector (bitvector-length folded?) #f)))
+  (let* ((typev (infer-types fun dfg #:max-label-count 3000))
+         (folded? (and typev
+                       (make-bitvector (/ (vector-length typev) 2) #f)))
+         (folded-values (and typev
+                             (make-vector (bitvector-length folded?) #f))))
     (define (label->idx label) (- label min-label))
     (define (var->idx var) (- var min-var))
     (define (maybe-fold-value! label name k def)
@@ -201,9 +203,10 @@
                                           (var->idx arg0) (var->idx arg1)))))
            (_ #f)))
         (_ #f)))
-    (match fun
-      (($ $cont kfun ($ $kfun src meta self tail clause))
-       (visit-cont clause)))
+    (when typev
+      (match fun
+        (($ $cont kfun ($ $kfun src meta self tail clause))
+         (visit-cont clause))))
     (values folded? folded-values)))
 
 (define (fold-constants* fun dfg)
@@ -232,7 +235,8 @@
              (($ $continue k src (and fun ($ $fun)))
               ($continue k src ,(visit-fun fun)))
              (($ $continue k src (and primcall ($ $primcall)))
-              ,(if (bitvector-ref folded? (label->idx label))
+              ,(if (and folded?
+                        (bitvector-ref folded? (label->idx label)))
                    (let ((val (vector-ref folded-values (label->idx label))))
                      ;; Uncomment for debugging.
                      ;; (pk 'folded src primcall val)
