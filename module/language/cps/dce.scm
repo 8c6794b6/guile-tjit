@@ -40,6 +40,7 @@
   #:use-module (language cps dfg)
   #:use-module (language cps effects-analysis)
   #:use-module (language cps renumber)
+  #:use-module (language cps types)
   #:export (eliminate-dead-code))
 
 (define-record-type $fun-data
@@ -76,96 +77,31 @@
         (lp (1+ n))))
     defs))
 
-(define (constant-type val)
-  (cond
-   ((and (exact-integer? val) (<= 0 val most-positive-fixnum))
-    'size)
-   ((number? val) 'number)
-   ((vector? val) 'vector)
-   ((pair? val) 'pair)
-   ((char? val) 'char)
-   (else #f)))
-
-(define (lookup-type arg dfg)
-  (match (lookup-predecessors (lookup-def arg dfg) dfg)
-    ((pred)
-     (match (lookup-cont pred dfg)
-       (($ $kargs _ _ term)
-        (match (find-expression term)
-          (($ $const val) (constant-type val))
-          (($ $primcall name args)
-           (match (check-primcall-arg-types dfg name args)
-             ((type) type)
-             (_ #f)))
-          (($ $values (var)) (lookup-type var dfg))
-          (($ $void) 'unspecified)
-          (_ #f)))
-       (_ #f)))
-    (_ #f)))
-
-(define (default-type-checker . _)
-  #f)
-
-(define *primcall-type-checkers* (make-hash-table))
-
-(define-syntax-rule (define-primcall-type-checker (name dfg arg ...)
-                      body ...)
-  (hashq-set! *primcall-type-checkers* 'name
-              (lambda (dfg arg ...) body ...)))
-
-(define-syntax-rule (define-simple-primcall-types
-                      ((name (arg arg-type) ...) result ...)
-                      ...)
-  (begin
-    (define-primcall-type-checker (name dfg arg ...)
-      (define (check-type val type)
-        (or (eqv? type #t)
-            (eqv? (lookup-type val dfg) type)))
-      (and (check-type arg 'arg-type)
-           ...
-           '(result ...)))
-    ...))
-
-(define-simple-primcall-types
-  ((cons (car #t) (cdr #t)) pair)
-  ((car (pair pair)) #f)
-  ((cdr (pair pair)) #f)
-  ((set-car! (pair pair) (car #t)))
-  ((set-cdr! (pair pair) (car #t)))
-  ((make-vector (len size) (fill #t)) vector)
-  ((make-vector/immediate (len size) (fill #t)) vector)
-  ((vector-length (vector vector)) size)
-  ((box (val #t)) box)
-  ((box-ref (box box)) #f)
-  ((box-set! (box box) (val #t)))
-  ((make-struct (vtable vtable) (len size)) struct)
-  ((make-struct/immediate (vtable vtable) (len size)) struct))
-
-(define (vector-index-within-range? dfg vec idx)
-  (define (constant-value var)
-    (call-with-values (lambda () (find-constant-value var dfg))
-      (lambda (found? val)
-        (unless found?
-          (error "should have found value" var))
-        val)))
-  (let lp ((vec vec))
-    (match (find-defining-expression vec dfg)
-      (($ $primcall 'make-vector/immediate (len fill))
-       (<= 0 (constant-value idx) (1- (constant-value len))))
-      (($ $values (vec)) (lp vec))
-      (_ #f))))
-
-(define-primcall-type-checker (vector-ref/immediate dfg vec idx)
-  (and (vector-index-within-range? dfg vec idx)
-       '(#f)))
-
-(define-primcall-type-checker (vector-set!/immediate dfg vec idx val)
-  (and (vector-index-within-range? dfg vec idx)
-       '()))
-
-(define (check-primcall-arg-types dfg name args)
-  (apply (hashq-ref *primcall-type-checkers* name default-type-checker)
-         dfg args))
+(define (elide-type-checks! fun dfg effects min-label label-count)
+  (when (< label-count 2000)
+    (match fun
+     (($ $cont kfun ($ $kfun src meta min-var))
+      (let ((typev (infer-types fun dfg)))
+        (define (idx->label idx) (+ idx min-label))
+        (define (var->idx var) (- var min-var))
+        (let lp ((lidx 0))
+          (when (< lidx label-count)
+            (let ((fx (vector-ref effects lidx)))
+              (unless (causes-all-effects? fx)
+                (when (causes-effect? fx &type-check)
+                  (match (lookup-cont (idx->label lidx) dfg)
+                    (($ $kargs _ _ term)
+                     (match (find-call term)
+                       (($ $continue k src ($ $primcall name args))
+                        (let ((args (map var->idx args)))
+                          ;; Negative args are closure variables.
+                          (unless (or-map negative? args)
+                            (when (primcall-types-check? lidx typev name args)
+                              (vector-set! effects lidx
+                                           (logand fx (lognot &type-check)))))))
+                       (_ #f)))
+                    (_ #f)))))
+            (lp (1+ lidx)))))))))
 
 (define (compute-live-code fun)
   (let* ((fun-data-table (make-hash-table))
@@ -192,16 +128,31 @@
                      (defs (compute-defs dfg min-label label-count))
                      (fun-data (make-fun-data
                                 min-label effects live-conts defs)))
+                (elide-type-checks! fun dfg effects min-label label-count)
                 (hashq-set! fun-data-table fun fun-data)
                 (set! changed? #t)
                 fun-data)))))
     (define (visit-fun fun)
       (match (ensure-fun-data fun)
         (($ $fun-data min-label effects live-conts defs)
-         (define (types-check? exp)
-           (match exp
-             (($ $primcall name args)
-              (check-primcall-arg-types dfg name args))))
+         (define (idx->label idx) (+ idx min-label))
+         (define (label->idx label) (- label min-label))
+         (define (known-allocation? var dfg)
+           (match (lookup-predecessors (lookup-def var dfg) dfg)
+             ((def-exp-k)
+              (match (lookup-cont def-exp-k dfg)
+                (($ $kargs _ _ term)
+                 (match (find-call term)
+                   (($ $continue k src ($ $values (var)))
+                    (known-allocation? var dfg))
+                   (($ $continue k src ($ $primcall))
+                    (let ((kidx (label->idx def-exp-k)))
+                      (and (>= kidx 0)
+                           (causes-effect? (vector-ref effects kidx)
+                                           &allocation))))
+                   (_ #f)))
+                (_ #f)))
+             (_ #f)))
          (define (visit-grey-exp n exp)
            (let ((defs (vector-ref defs n))
                  (fx (vector-ref effects n)))
@@ -213,25 +164,22 @@
               ;; Does this expression cause all effects?  If so, it's
               ;; definitely live.
               (causes-all-effects? fx)
-              ;; Does it cause a type check, but we can't prove that the
-              ;; types check?
-              (and (causes-effect? fx &type-check)
-                   (not (types-check? exp)))
+              ;; Does it cause a type check, but we weren't able to
+              ;; prove that the types check?
+              (causes-effect? fx &type-check)
               ;; We might have a setter.  If the object being assigned
-              ;; to is live, then this expression is live.  Otherwise
-              ;; the value is still dead.
+              ;; to is live or was not created by us, then this
+              ;; expression is live.  Otherwise the value is still dead.
               (and (causes-effect? fx &write)
                    (match exp
-                     (($ $primcall 'vector-set!/immediate (vec idx val))
-                      (value-live? vec))
-                     (($ $primcall 'set-car! (pair car))
-                      (value-live? pair))
-                     (($ $primcall 'set-cdr! (pair cdr))
-                      (value-live? pair))
-                     (($ $primcall 'box-set! (box val))
-                      (value-live? box))
+                     (($ $primcall
+                         (or 'vector-set! 'vector-set!/immediate
+                             'set-car! 'set-cdr!
+                             'box-set!)
+                         (obj . _))
+                      (or (value-live? obj)
+                          (not (known-allocation? obj dfg))))
                      (_ #t))))))
-         (define (idx->label idx) (+ idx min-label))
          (let lp ((n (1- (vector-length effects))))
            (unless (< n 0)
              (let ((cont (lookup-cont (idx->label n) dfg)))
