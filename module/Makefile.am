@@ -27,14 +27,18 @@ modpath =
 
 # Build eval.go first.  Then build psyntax-pp.go, as the expander has to
 # run on every loaded scheme file.  It doesn't pay off at compile-time
-# to interpret the expander in parallel!
-$(GOBJECTS): ice-9/psyntax-pp.go
-ice-9/psyntax-pp.go: ice-9/eval.go
-CLEANFILES += ice-9/eval.go ice-9/psyntax-pp.go
-nobase_mod_DATA += ice-9/eval.scm ice-9/psyntax-pp.scm
-nobase_ccache_DATA += ice-9/eval.go ice-9/psyntax-pp.go
-EXTRA_DIST += ice-9/eval.scm ice-9/psyntax-pp.scm
-ETAGS_ARGS += ice-9/eval.scm ice-9/psyntax-pp.scm
+# to interpret the expander in parallel.  At the same time build
+# language/cps/types.go -- it has a particularly bad memory overhead
+# when run interpreted, and it makes sense to compile it first.
+BOOT_SOURCES = ice-9/psyntax-pp.scm language/cps/types.go
+BOOT_GOBJECTS = $(BOOT_SOURCES:%.scm=%.go)
+$(BOOT_GOBJECTS): ice-9/eval.go
+$(GOBJECTS): $(BOOT_GOBJECTS)
+CLEANFILES += ice-9/eval.go $(BOOT_GOBJECTS)
+nobase_mod_DATA += ice-9/eval.scm $(BOOT_SOURCES)
+nobase_ccache_DATA += ice-9/eval.go $(BOOT_GOBJECTS)
+EXTRA_DIST += ice-9/eval.scm $(BOOT_SOURCES)
+ETAGS_ARGS += ice-9/eval.scm $(BOOT_SOURCES)
 
 VM_TARGETS := system/vm/assembler.go system/vm/disassembler.go
 $(VM_TARGETS): $(top_builddir)/libguile/vm-operations.h
@@ -138,7 +142,6 @@ CPS_LANG_SOURCES =						\
   language/cps/simplify.scm					\
   language/cps/spec.scm						\
   language/cps/specialize-primcalls.scm				\
-  language/cps/types.scm					\
   language/cps/type-fold.scm					\
   language/cps/verify.scm
 
