@@ -74,7 +74,7 @@
          (exp (run-pass exp elide-values #:elide-values? #t))
          (exp (run-pass exp prune-bailouts #:prune-bailouts? #t))
          (exp (run-pass exp eliminate-common-subexpressions #:cse? #t))
-         (exp (run-pass exp type-fold #:type-fold? #f))
+         (exp (run-pass exp type-fold #:type-fold? #t))
          (exp (run-pass exp resolve-self-references #:resolve-self-references? #t))
          (exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
          (exp (run-pass exp simplify #:simplify? #t)))
