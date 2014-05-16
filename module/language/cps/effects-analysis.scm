@@ -18,24 +18,24 @@
 
 ;;; Commentary:
 ;;;
-;;; A helper module to compute the set of effects that an expression
-;;; depends on and causes.  This information is useful when writing
-;;; algorithms that move code around, while preserving the semantics of
-;;; an input program.
+;;; A helper module to compute the set of effects caused by an
+;;; expression.  This information is useful when writing algorithms that
+;;; move code around, while preserving the semantics of an input
+;;; program.
 ;;;
-;;; The effects set is represented by a bitfield, as a fixnum.  The set
-;;; of possible effects is modelled rather coarsely.  For example, a
-;;; "car" call modelled as depending on the &car effect, and causing a
-;;; &type-check effect.  If any intervening code sets the car of any
-;;; pair, that will block motion of the "car" call.
+;;; The effects set is represented as an integer with three parts.  The
+;;; low 4 bits indicate effects caused by an expression, as a bitfield.
+;;; The next 4 bits indicate the kind of memory accessed by the
+;;; expression, if it accesses mutable memory.  Finally the rest of the
+;;; bits indicate the field in the object being accessed, if known, or
+;;; -1 for unknown.
 ;;;
-;;; For each effect, two bits are reserved: one to indicate that an
-;;; expression depends on the effect, and the other to indicate that an
-;;; expression causes the effect.
-;;;
-;;; Since we have more bits in a fixnum on 64-bit systems, we can be
-;;; more precise without losing efficiency.  On a 32-bit system, some of
-;;; the more precise effects map to fewer bits.
+;;; In this way we embed a coarse type-based alias analysis in the
+;;; effects analysis.  For example, a "car" call is modelled as causing
+;;; a read to field 0 on a &pair, and causing a &type-check effect.  If
+;;; any intervening code sets the car of any pair, that will block
+;;; motion of the "car" call, because any write to field 0 of a pair is
+;;; seen by effects analysis as being a write to field 0 of all pairs.
 ;;;
 ;;; Code:
 
