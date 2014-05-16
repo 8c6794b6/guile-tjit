@@ -95,6 +95,25 @@
                (define-syntax all (identifier-syntax (1- (ash 1 count))))
                (define-syntax shift (identifier-syntax count)))))))))
 
+(define-syntax define-enumeration
+  (lambda (x)
+    (define (count-bits n)
+      (let lp ((out 1))
+        (if (< n (ash 1 (1- out)))
+            out
+            (lp (1+ out)))))
+    (syntax-case x ()
+      ((_ mask shift name ...)
+       (let* ((len (length #'(name ...)))
+              (bits (count-bits len)))
+         (with-syntax (((n ...) (iota len))
+                       (bits bits))
+           #'(begin
+               (define-syntax name (identifier-syntax n))
+               ...
+               (define-syntax mask (identifier-syntax (1- (ash 1 bits))))
+               (define-syntax shift (identifier-syntax bits)))))))))
+
 (define-flags &all-effect-kinds &effect-kind-bits
   ;; Indicates that an expression may cause a type check.  A type check,
   ;; for the purposes of this analysis, is the possibility of throwing
@@ -121,7 +140,10 @@
   ;; Indicates that an expression may cause a write to memory.
   &write)
 
-(define-flags &all-memory-kinds &memory-kind-bits
+(define-enumeration &memory-kind-mask &memory-kind-bits
+  ;; Indicates than an expression may access unknown kinds of memory.
+  &unknown-memory-kinds
+
   ;; Indicates that an expression depends on the value of a fluid
   ;; variable, or on the current fluid environment.
   &fluid
@@ -178,7 +200,7 @@
 (define-syntax &no-effects (identifier-syntax 0))
 (define-syntax &all-effects
   (identifier-syntax
-   (logior &all-effect-kinds (&field &all-memory-kinds -1))))
+   (logior &all-effect-kinds (&object &unknown-memory-kinds))))
 
 (define-inlinable (constant? effects)
   (zero? effects))
@@ -193,12 +215,14 @@
   "Return true if A clobbers B.  This is the case if A is a write, and B
 is or might be a read or a write to the same location as A."
   (define (locations-same?)
-    (and (not (zero? (logand a b (ash &all-memory-kinds &effect-kind-bits))))
-         ;; A negative field indicates "the whole object".  Non-negative
-         ;; fields indicate only part of the object.
-         (or (< a 0) (< b 0)
-             (= (ash a (- (+ &effect-kind-bits &memory-kind-bits)))
-                (ash b (- (+ &effect-kind-bits &memory-kind-bits)))))))
+    (let ((a (ash a (- &effect-kind-bits)))
+          (b (ash b (- &effect-kind-bits))))
+      (or (eqv? &unknown-memory-kinds (logand a &memory-kind-mask))
+          (eqv? &unknown-memory-kinds (logand b &memory-kind-mask))
+          (and (eqv? (logand a &memory-kind-mask) (logand b &memory-kind-mask))
+               ;; A negative field indicates "the whole object".
+               ;; Non-negative fields indicate only part of the object.
+               (or (< a 0) (< b 0) (= a b))))))
   (and (not (zero? (logand a &write)))
        (not (zero? (logand b (logior &read &write))))
        (locations-same?)))
@@ -262,7 +286,7 @@ is or might be a read or a write to the same location as A."
 
 ;; Prompts.
 (define-primitive-effects
-  ((make-prompt-tag #:optional arg) (&allocate &all-memory-kinds)))
+  ((make-prompt-tag #:optional arg) (&allocate &unknown-memory-kinds)))
 
 ;; Pairs.
 (define-primitive-effects
@@ -416,9 +440,9 @@ is or might be a read or a write to the same location as A."
     ((or ($ $void) ($ $const) ($ $prim) ($ $values))
      &no-effects)
     (($ $fun)
-     (&allocate &all-memory-kinds))
+     (&allocate &unknown-memory-kinds))
     (($ $prompt)
-     (logior (&write-object &prompt)))
+     (&write-object &prompt))
     ((or ($ $call) ($ $callk))
      &all-effects)
     (($ $primcall name args)
