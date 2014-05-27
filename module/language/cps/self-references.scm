@@ -65,6 +65,8 @@
        ($callk k (subst proc) ,(map subst args)))
       (($ $primcall name args)
        ($primcall name ,(map subst args)))
+      (($ $branch k exp)
+       ($branch k ,(visit-exp exp)))
       (($ $values args)
        ($values ,(map subst args)))
       (($ $prompt escape? tag handler)

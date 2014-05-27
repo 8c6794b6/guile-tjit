@@ -158,6 +158,12 @@
        ;; the reference.
        (check-var proc v-env)
        (for-each (cut check-var <> v-env) arg))
+      (($ $branch kt ($ $primcall (? symbol? name) (arg ...)))
+       (check-var kt k-env)
+       (for-each (cut check-var <> v-env) arg))
+      (($ $branch kt ($ $values (arg ...)))
+       (check-var kt k-env)
+       (for-each (cut check-var <> v-env) arg))
       (($ $primcall (? symbol? name) (arg ...))
        (for-each (cut check-var <> v-env) arg))
       (($ $values (arg ...))

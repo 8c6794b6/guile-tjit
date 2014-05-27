@@ -148,6 +148,9 @@
          ;; adapt the return to the target continuation, and we don't
          ;; need to do any adapting here.
          ($continue k src ,exp))
+        (($ $branch)
+         ;; Assume branching primcalls have the correct arity.
+         ($continue k src ,exp))
         (($ $primcall 'return (arg))
          ;; Primcalls to return are in tail position.
          ($continue ktail src ,exp))

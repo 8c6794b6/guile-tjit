@@ -256,6 +256,8 @@
       (($ $callk k proc args)
        (let ((args (map rename args)))
          (build-cps-exp ($callk (relabel k) (rename proc) args))))
+      (($ $branch kt exp)
+       (build-cps-exp ($branch (relabel kt) ,(visit-exp exp))))
       (($ $primcall name args)
        (let ((args (map rename args)))
          (build-cps-exp ($primcall name args))))

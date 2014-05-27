@@ -351,6 +351,9 @@ be that both true and false proofs are available."
           (($ $callk k proc args) #f)
           (($ $primcall name args)
            (cons* 'primcall name (map subst-var args)))
+          (($ $branch _ ($ $primcall name args))
+           (cons* 'primcall name (map subst-var args)))
+          (($ $branch) #f)
           (($ $values args) #f)
           (($ $prompt escape? tag handler) #f)))
 
@@ -514,6 +517,8 @@ be that both true and false proofs are available."
          ($callk k (subst-var proc) ,(map subst-var args)))
         (($ $primcall name args)
          ($primcall name ,(map subst-var args)))
+        (($ $branch k exp)
+         ($branch k ,(visit-exp exp)))
         (($ $values args)
          ($values ,(map subst-var args)))
         (($ $prompt escape? tag handler)
@@ -531,23 +536,32 @@ be that both true and false proofs are available."
            => (match-lambda
                ((equiv . vars)
                 (let* ((eidx (label->idx equiv)))
-                  (rewrite-cps-term (lookup-cont k dfg)
-                    (($ $kif kt kf)
-                     ,(let* ((bool (vector-ref boolv (label->idx label)))
-                             (t (bitvector-ref bool (true-idx eidx)))
-                             (f (bitvector-ref bool (false-idx eidx))))
-                        (if (eqv? t f)
-                            (build-cps-term
-                              ($continue k src ,(visit-exp exp)))
-                            (build-cps-term
-                              ($continue (if t kt kf) src ($values ()))))))
-                    (($ $kargs)
-                     ($continue k src ($values vars)))
-                    ;; There is no point in adding a case for $ktail, as
-                    ;; only $values, $call, or $callk can continue to
-                    ;; $ktail.
+                  (match exp
+                    (($ $branch kt exp)
+                     (let* ((bool (vector-ref boolv (label->idx label)))
+                            (t (bitvector-ref bool (true-idx eidx)))
+                            (f (bitvector-ref bool (false-idx eidx))))
+                       (if (eqv? t f)
+                           (build-cps-term
+                             ($continue k src
+                               ($branch kt ,(visit-exp exp))))
+                           (build-cps-term
+                             ($continue (if t kt k) src ($values ()))))))
                     (_
-                     ($continue k src ,(visit-exp exp))))))))
+                     (rewrite-cps-term (lookup-cont k dfg)
+                       (($ $kif kt kf)
+                        ,(let* ((bool (vector-ref boolv (label->idx label)))
+                                (t (bitvector-ref bool (true-idx eidx)))
+                                (f (bitvector-ref bool (false-idx eidx))))
+                           (if (eqv? t f)
+                               (build-cps-term
+                                 ($continue k src ,(visit-exp exp)))
+                               (build-cps-term
+                                 ($continue (if t kt kf) src ($values ()))))))
+                       (($ $kargs)
+                        ($continue k src ($values vars)))
+                       (_
+                        ($continue k src ,(visit-exp exp))))))))))
           (else
            (build-cps-term
              ($continue k src ,(visit-exp exp))))))))

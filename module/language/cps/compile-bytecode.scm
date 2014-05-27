@@ -189,8 +189,12 @@
                (compile-value label exp dst nlocals)))
            (maybe-emit-jump))
           (($ $kargs () ())
-           (compile-effect label exp k nlocals)
-           (maybe-emit-jump))
+           (match exp
+             (($ $branch kt exp)
+              (compile-test label exp kt k (1+ label)))
+             (_
+              (compile-effect label exp k nlocals)
+              (maybe-emit-jump))))
           (($ $kargs names syms)
            (compile-values label exp syms)
            (maybe-emit-jump))

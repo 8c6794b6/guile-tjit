@@ -126,6 +126,8 @@
         (($ $primcall name args)
          (for-each clear-well-known! args)
          (fold adjoin '() args))
+        (($ $branch kt exp)
+         (visit-exp exp bound))
         (($ $values args)
          (for-each clear-well-known! args)
          (fold adjoin '() args))
@@ -497,6 +499,20 @@ bound to @var{var}, and continue with @var{body}."
                             (lambda (args)
                               (build-cps-term
                                 ($continue k src ($primcall name args))))))
+
+        (($ $continue k src ($ $branch kt ($ $primcall name args)))
+         (convert-free-vars args
+                            (lambda (args)
+                              (build-cps-term
+                                ($continue k src
+                                  ($branch kt ($primcall name args)))))))
+
+        (($ $continue k src ($ $branch kt ($ $values (arg))))
+         (convert-free-var arg
+                           (lambda (arg)
+                             (build-cps-term
+                               ($continue k src
+                                 ($branch kt ($values (arg))))))))
 
         (($ $continue k src ($ $values args))
          (convert-free-vars args

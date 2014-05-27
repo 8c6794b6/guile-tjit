@@ -858,6 +858,9 @@ body continuation in the prompt."
              (for-each use! args))
             (($ $primcall name args)
              (for-each use! args))
+            (($ $branch kt exp)
+             (link-blocks! label kt)
+             (visit-exp exp label))
             (($ $values args)
              (for-each use! args))
             (($ $prompt escape? tag handler)
@@ -933,6 +936,14 @@ body continuation in the prompt."
                  (format port "v~a[~a]~:{ v~a[~a]~}: "
                          (car vars) (car names) (map list (cdr vars) (cdr names))))
                (match (find-call term)
+                 (($ $continue kf src ($ $branch kt exp))
+                  (format port "if ")
+                  (match exp
+                    (($ $primcall name args)
+                     (format port "(~a~{ v~a~})" name args))
+                    (($ $values (arg))
+                     (format port "v~a" arg)))
+                  (format port " k~a k~a\n" kt kf))
                  (($ $continue k src exp)
                   (match exp
                     (($ $void) (format port "void"))

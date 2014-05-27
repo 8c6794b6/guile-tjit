@@ -202,6 +202,15 @@
                (maybe-fold-binary-branch! (label->idx label) name
                                           (var->idx arg0) (var->idx arg1)))))
            (_ #f)))
+        (($ $continue kf src ($ $branch kt ($ $primcall name args)))
+         ;; We might be able to fold primcalls that branch.
+         (match args
+           ((arg)
+            (maybe-fold-unary-branch! (label->idx label) name
+                                      (var->idx arg)))
+           ((arg0 arg1)
+            (maybe-fold-binary-branch! (label->idx label) name
+                                       (var->idx arg0) (var->idx arg1)))))
         (_ #f)))
     (when typev
       (match fun
@@ -253,6 +262,14 @@
                         ;; Folded branch.
                         (build-cps-term
                           ($continue (if val kt kf) src ($values ()))))))
+                   term))
+             (($ $continue kf src ($ $branch kt ($ $primcall)))
+              ,(if (and folded?
+                        (bitvector-ref folded? (label->idx label)))
+                   ;; Folded branch.
+                   (let ((val (vector-ref folded-values (label->idx label))))
+                     (build-cps-term
+                       ($continue (if val kt kf) src ($values ()))))
                    term))
              (_ ,term)))
          (define (visit-fun fun)

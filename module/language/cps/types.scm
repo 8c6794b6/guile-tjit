@@ -470,6 +470,7 @@ minimum, and maximum."
           (max (min (&max a) (&max b))))
       (restrict! a type min max)
       (restrict! b type min max))))
+;; FIXME!!!!!
 (define-type-inferrer-aliases eq? eqv? equal?)
 
 (define-syntax-rule (define-simple-predicate-inferrer predicate type)
@@ -730,6 +731,7 @@ minimum, and maximum."
   (when (zero? (logand (logior (&type a) (&type b)) (lognot &number)))
     (restrict! a &real -inf.0 +inf.0)
     (restrict! b &real -inf.0 +inf.0)))
+;; FIXME!!!
 (define-type-aliases < <= > >=)
 
 ;; Arithmetic.
@@ -1198,7 +1200,6 @@ mapping symbols to types."
           ;; Add types for new definitions, and restrict types of
           ;; existing variables due to side effects.
           (match (lookup-cont label dfg)
-            ;; fixme: letrec
             (($ $kargs names vars term)
              (let visit-term ((term term))
                (match term
@@ -1215,6 +1216,61 @@ mapping symbols to types."
                   (visit-term term))
                  (($ $continue k src exp)
                   (match exp
+                    (($ $branch kt exp)
+                     ;; The "normal" continuation is the #f branch.
+                     ;; For the #t branch we need to roll our own
+                     ;; "changed" logic.  This will be refactored
+                     ;; in the future.
+                     (let ((kt-out tmp2))
+                       (bytevector-copy! pre 0 kt-out 0 (bytevector-length pre))
+                       (match exp
+                         (($ $values (arg))
+                          (let ((arg (var->idx arg)))
+                            (unless (< arg 0)
+                              (bitvector-set! changed arg #t)
+                              (restrict! post arg (logior &boolean &nil) 0 0))
+                            ;; No additional information on the #t branch,
+                            ;; as there's no way currently to remove #f
+                            ;; from the typeset (because it would remove
+                            ;; #t as well: they are both &boolean).
+                            ))
+                         (($ $primcall name args)
+                          (let ((args (map var->idx args)))
+                            ;; For the #t branch we need to roll our own
+                            ;; "changed" logic.  This will be refactored
+                            ;; in the future.
+                            (define (update-changelist! k from var)
+                              (let ((to (get-pre-types k)))
+                                (unless (or (< var 0)
+                                            (bitvector-ref changed-types var)
+                                            (= (logior (var-type from var)
+                                                       (var-type to var))
+                                               (var-type to var)))
+                                  (bitvector-set! changed-types var #t))
+                                (unless (or (< var 0)
+                                            (bitvector-ref changed-ranges var)
+                                            (and
+                                             (<= (var-min to var) (var-min from var))
+                                             (<= (var-max from var) (var-max to var))))
+                                  (bitvector-set! changed-ranges var #t))))
+                            ;; The "normal" continuation is the #f branch.
+                            (infer-predicate! post name args #f)
+                            (infer-predicate! kt-out name args #t)
+                            (let lp ((args args))
+                              (match args
+                                ((arg . args)
+                                 ;; Primcall operands can originate
+                                 ;; outside the function.
+                                 (when (<= 0 arg)
+                                   ;; `out' will be scanned below.
+                                   (bitvector-set! changed arg #t)
+                                   ;; But we need to manually scan
+                                   ;; kt-out.
+                                   (update-changelist! kt kt-out arg))
+                                 (lp args))
+                                (_ #f))))))
+                       ;; Manually propagate the kt branch.
+                       (propagate-types! kt kt-out)))
                     (($ $primcall name args)
                      (match (lookup-cont k dfg)
                        (($ $kargs (_) (var))

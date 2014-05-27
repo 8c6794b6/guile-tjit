@@ -122,7 +122,7 @@
             $kif $kreceive $kargs $kfun $ktail $kclause
 
             ;; Expressions.
-            $void $const $prim $fun $closure
+            $void $const $prim $fun $closure $branch
             $call $callk $primcall $values $prompt
 
             ;; First-order CPS root.
@@ -194,6 +194,7 @@
 (define-cps-type $prim name)
 (define-cps-type $fun free body) ; Higher-order.
 (define-cps-type $closure label nfree) ; First-order.
+(define-cps-type $branch k exp)
 (define-cps-type $call proc args)
 (define-cps-type $callk k proc args) ; First-order.
 (define-cps-type $primcall name args)
@@ -266,7 +267,7 @@
 
 (define-syntax build-cps-exp
   (syntax-rules (unquote
-                 $void $const $prim $fun $closure
+                 $void $const $prim $fun $closure $branch
                  $call $callk $primcall $values $prompt)
     ((_ (unquote exp)) exp)
     ((_ ($void)) (make-$void))
@@ -286,6 +287,7 @@
     ((_ ($values (unquote args))) (make-$values args))
     ((_ ($values (arg ...))) (make-$values (list arg ...)))
     ((_ ($values args)) (make-$values args))
+    ((_ ($branch k exp)) (make-$branch k (build-cps-exp exp)))
     ((_ ($prompt escape? tag handler))
      (make-$prompt escape? tag handler))))
 
@@ -404,6 +406,8 @@
      (build-cps-exp ($callk k proc arg)))
     (('primcall name arg ...)
      (build-cps-exp ($primcall name arg)))
+    (('branch k exp)
+     (build-cps-exp ($branch k ,(parse-cps exp))))
     (('values arg ...)
      (build-cps-exp ($values arg)))
     (('prompt escape? tag handler)
@@ -467,6 +471,8 @@
      `(callk ,k ,proc ,@args))
     (($ $primcall name args)
      `(primcall ,name ,@args))
+    (($ $branch k exp)
+     `(branch ,k ,(unparse-cps exp)))
     (($ $values args)
      `(values ,@args))
     (($ $prompt escape? tag handler)
@@ -623,6 +629,7 @@
          (($ $continue k src exp)
           (match exp
             (($ $prompt escape? tag handler) (proc k handler))
+            (($ $branch kt) (proc k kt))
             (_ (proc k)))))))
 
     (($ $kif kt kf) (proc kt kf))

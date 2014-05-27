@@ -18,7 +18,8 @@
 
 ;;; Commentary:
 ;;;
-;;; Information about named primitives, as they appear in $prim and $primcall.
+;;; Information about named primitives, as they appear in $prim and
+;;; $primcall.
 ;;;
 ;;; Code:
 

@@ -445,6 +445,8 @@ is or might be a read or a write to the same location as A."
      (&write-object &prompt))
     ((or ($ $call) ($ $callk))
      &all-effects)
+    (($ $branch k exp)
+     (expression-effects exp dfg))
     (($ $primcall name args)
      (primitive-effects dfg name args))))
 
