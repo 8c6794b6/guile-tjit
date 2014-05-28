@@ -907,7 +907,7 @@ body continuation in the prompt."
     (define (idx->var idx) (+ idx min-var))
 
     (let lp ((label (dfg-min-label dfg)))
-      (when (< label (dfg-max-label dfg))
+      (when (<= label (dfg-max-label dfg))
         (let ((cont (vector-ref (dfg-cont-table dfg) (label->idx label))))
           (when cont
             (unless (equal? (lookup-predecessors label dfg) (list (1- label)))
