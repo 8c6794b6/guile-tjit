@@ -64,7 +64,7 @@
       (let lp ((to from) (target target))
         (cond
          ((negative? target)
-          (lp (1- to) (+ target (vector-ref parsed to))))
+          (lp (1- to) (+ target (vector-ref parsed (1- to)))))
          ((positive? target)
           (lp (1+ to) (- target (vector-ref parsed to))))
          ((= to (vector-length preds))
