@@ -657,7 +657,7 @@ section of the ELF image.  Returns an ELF symbol, or @code{#f}."
 ;; one-indexed. Columns, on the other hand, are zero-indexed to both. Go
 ;; figure.
 (define (source-line-for-user source)
-  (1+ (source-line source)))
+  (and (source-line source) (1+ (source-line source))))
 
 (define* (find-source-for-addr addr #:optional
                                (context (find-debug-context addr))
