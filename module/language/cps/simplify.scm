@@ -96,9 +96,7 @@
          (sym ($kclause ,arity ,(visit-cont body sym)
                         ,(and alternate (visit-cont alternate sym)))))
         (($ $cont sym ($ $kreceive ($ $arity req () rest () #f) kargs))
-         (sym ($kreceive req rest (reduce kargs scope))))
-        (($ $cont sym ($ $kif kt kf))
-         (sym ($kif (reduce kt scope) (reduce kf scope))))))
+         (sym ($kreceive req rest (reduce kargs scope))))))
     (define (visit-term term scope)
       (rewrite-cps-term term
         (($ $letk conts body)
@@ -135,7 +133,7 @@
         (($ $cont sym ($ $kclause arity body alternate))
          (visit-cont body)
          (when alternate (visit-cont alternate)))
-        (($ $cont sym (or ($ $ktail) ($ $kreceive) ($ $kif)))
+        (($ $cont sym (or ($ $ktail) ($ $kreceive)))
          #f)))
     (define (visit-term term)
       (match term
@@ -192,7 +190,7 @@
                 (($ $kclause arity body alternate)
                  (sym ($kclause ,arity ,(must-visit-cont body)
                                 ,(and alternate (must-visit-cont alternate)))))
-                ((or ($ $kreceive) ($ $kif))
+                (($ $kreceive)
                  (sym ,cont)))))))
     (define (visit-term term)
       (match term

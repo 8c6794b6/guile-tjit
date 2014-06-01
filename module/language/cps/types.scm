@@ -1276,7 +1276,7 @@ mapping symbols to types."
                        (($ $kargs (_) (var))
                         (let ((def (var->idx var)))
                           (infer-primcall! post name (map var->idx args) def)))
-                       ((or ($ $kargs ()) ($ $kif))
+                       (($ $kargs ())
                         (infer-primcall! post name (map var->idx args) #f))
                        (_ #f)))
                     (($ $values args)
@@ -1354,54 +1354,6 @@ mapping symbols to types."
                 (match exp
                   (($ $prompt escape? tag handler)
                    (propagate-types! handler post))
-                  (_ #f))
-                (match (lookup-cont k dfg)
-                  ;; We propagate one step farther for conditionals.
-                  ;; Unfortunately we have to duplicate the
-                  ;; changed-types logic.  This is unavoidable as a $kif
-                  ;; node has two successors but only one post-types
-                  ;; set.
-                  (($ $kif kt kf)
-                   (let ((kt-out tmp)
-                         (kf-out tmp2))
-                     (define (update-changelist! k from var)
-                       (let ((to (get-pre-types k)))
-                         (unless (or (< var 0)
-                                     (bitvector-ref changed-types var)
-                                     (= (logior (var-type from var)
-                                                (var-type to var))
-                                        (var-type to var)))
-                           (bitvector-set! changed-types var #t))
-                         (unless (or (< var 0)
-                                     (bitvector-ref changed-ranges var)
-                                     (and
-                                      (<= (var-min to var) (var-min from var))
-                                      (<= (var-max from var) (var-max to var))))
-                           (bitvector-set! changed-ranges var #t))))
-                     (bytevector-copy! post 0 kt-out 0 (bytevector-length post))
-                     (bytevector-copy! post 0 kf-out 0 (bytevector-length post))
-                     (let lp ((args (match exp
-                                      (($ $values (arg))
-                                       (let* ((arg (var->idx arg)))
-                                         (restrict! kf-out arg
-                                                    (logior &boolean &nil) 0 0)
-                                         (list arg)))
-                                      (($ $primcall name args)
-                                       (let ((args (map var->idx args)))
-                                         (infer-predicate! kt-out name args #t)
-                                         (infer-predicate! kf-out name args #f)
-                                         args)))))
-                       (match args
-                         ((arg . args)
-                          (update-changelist! kt kt-out arg)
-                          (update-changelist! kf kf-out arg)
-                          (lp args))
-                         (_ #f)))
-                     ;; Although "k" might dominate "kt", it's not
-                     ;; necessarily the case that "label" dominates
-                     ;; "kt".  The perils of lookahead.
-                     (propagate-types/slow! kt kt-out)
-                     (propagate-types/slow! kf kf-out)))
                   (_ #f)))))
             (($ $kreceive arity k*)
              (propagate-types! k* post))

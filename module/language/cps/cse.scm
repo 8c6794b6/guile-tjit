@@ -177,16 +177,15 @@ be that both true and false proofs are available."
                      (if initialized?
                          (intersect! bool (vector-ref boolv pidx))
                          (bitvector-copy! bool (vector-ref boolv pidx)))
-                     (match (lookup-predecessors pred dfg)
-                       ((test)
-                        (let ((tidx (label->idx test)))
-                          (match (lookup-cont pred dfg)
-                            (($ $kif kt kf)
-                             (when (eqv? kt label)
-                               (bitvector-set! bool (true-idx tidx) #t))
-                             (when (eqv? kf label)
-                               (bitvector-set! bool (false-idx tidx) #t)))
-                            (_ #t))))
+                     (match (lookup-cont pred dfg)
+                       (($ $kargs _ _ term)
+                        (match (find-call term)
+                          (($ $continue kf ($ $branch kt exp))
+                           (when (eqv? kt label)
+                             (bitvector-set! bool (true-idx pidx) #t))
+                           (when (eqv? kf label)
+                             (bitvector-set! bool (false-idx pidx) #t)))
+                          (_ #t)))
                        (_ #t))
                      (lp preds #t)))))))
             (lp (1+ n) first?
@@ -219,7 +218,6 @@ be that both true and false proofs are available."
             (cont-defs kargs))
            (($ $kclause arity ($ $cont kargs ($ $kargs names syms)))
             syms)
-           (($ $kif) '())
            (($ $kfun src meta self) (list self))
            (($ $ktail) '())))
         (lp (1+ n))))
@@ -548,16 +546,9 @@ be that both true and false proofs are available."
                            (build-cps-term
                              ($continue (if t kt k) src ($values ()))))))
                     (_
+                     ;; FIXME: can we always continue with $values?  why
+                     ;; or why not?
                      (rewrite-cps-term (lookup-cont k dfg)
-                       (($ $kif kt kf)
-                        ,(let* ((bool (vector-ref boolv (label->idx label)))
-                                (t (bitvector-ref bool (true-idx eidx)))
-                                (f (bitvector-ref bool (false-idx eidx))))
-                           (if (eqv? t f)
-                               (build-cps-term
-                                 ($continue k src ,(visit-exp exp)))
-                               (build-cps-term
-                                 ($continue (if t kt kf) src ($values ()))))))
                        (($ $kargs)
                         ($continue k src ($values vars)))
                        (_

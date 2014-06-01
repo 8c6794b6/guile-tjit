@@ -187,20 +187,11 @@
         (($ $letrec _ _ _ body)
          (visit-term body label))
         (($ $continue k src ($ $primcall name args))
-         ;; We might be able to fold primcalls that define a value or
-         ;; that branch.
+         ;; We might be able to fold primcalls that define a value.
          (match (lookup-cont k dfg)
            (($ $kargs (_) (def))
             (maybe-fold-value! (label->idx label) name (label->idx k)
                                (var->idx def)))
-           (($ $kif kt kf)
-            (match args
-              ((arg)
-               (maybe-fold-unary-branch! (label->idx label) name
-                                         (var->idx arg)))
-              ((arg0 arg1)
-               (maybe-fold-binary-branch! (label->idx label) name
-                                          (var->idx arg0) (var->idx arg1)))))
            (_ #f)))
         (($ $continue kf src ($ $branch kt ($ $primcall name args)))
          ;; We might be able to fold primcalls that branch.
@@ -249,19 +240,13 @@
                    (let ((val (vector-ref folded-values (label->idx label))))
                      ;; Uncomment for debugging.
                      ;; (pk 'folded src primcall val)
-                     (match (lookup-cont k dfg)
-                       (($ $kargs)
-                        (let-fresh (k*) (v*)
-                          ;; Rely on DCE to elide this expression, if
-                          ;; possible.
-                          (build-cps-term
-                            ($letk ((k* ($kargs (#f) (v*)
-                                          ($continue k src ($const val)))))
-                              ($continue k* src ,primcall)))))
-                       (($ $kif kt kf)
-                        ;; Folded branch.
-                        (build-cps-term
-                          ($continue (if val kt kf) src ($values ()))))))
+                     (let-fresh (k*) (v*)
+                       ;; Rely on DCE to elide this expression, if
+                       ;; possible.
+                       (build-cps-term
+                         ($letk ((k* ($kargs (#f) (v*)
+                                       ($continue k src ($const val)))))
+                           ($continue k* src ,primcall)))))
                    term))
              (($ $continue kf src ($ $branch kt ($ $primcall)))
               ,(if (and folded?

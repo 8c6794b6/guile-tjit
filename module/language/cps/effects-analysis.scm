@@ -467,7 +467,6 @@ is or might be a read or a write to the same location as A."
               (($ $arity _ () #f () #f) &type-check)
               (($ $arity () () _ () #f) (&allocate &pair))
               (($ $arity _ () _ () #f) (logior (&allocate &pair) &type-check))))
-           (($ $kif) &no-effects)
            (($ $kfun) &type-check)
            (($ $kclause) &type-check)
            (($ $ktail) &no-effects)))

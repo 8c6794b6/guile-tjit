@@ -27,8 +27,8 @@
 ;;; $letk binds a set of mutually recursive continuations, each one an
 ;;; instance of $cont.  A $cont declares the name of a continuation, and
 ;;; then contains as a subterm the particular continuation instance:
-;;; $kif for test continuations, $kargs for continuations that bind
-;;; values, etc.
+;;; $kargs for continuations that bind values, $ktail for the tail
+;;; continuation, etc.
 ;;;
 ;;; $continue nodes call continuations.  The expression contained in the
 ;;; $continue node determines the value or values that are passed to the
@@ -92,7 +92,7 @@
 ;;;   - $letk, $letrec, and $continue are terms.
 ;;;
 ;;;   - $cont is a continuation, containing a continuation body ($kargs,
-;;;     $kif, etc).
+;;;     $ktail, etc).
 ;;;
 ;;;   - $continue terms contain an expression ($call, $const, $fun,
 ;;;     etc).
@@ -119,7 +119,7 @@
             $cont
 
             ;; Continuation bodies.
-            $kif $kreceive $kargs $kfun $ktail $kclause
+            $kreceive $kargs $kfun $ktail $kclause
 
             ;; Expressions.
             $void $const $prim $fun $closure $branch
@@ -181,7 +181,6 @@
 
 ;; Continuations
 (define-cps-type $cont k cont)
-(define-cps-type $kif kt kf)
 (define-cps-type $kreceive arity k)
 (define-cps-type $kargs names syms body)
 (define-cps-type $kfun src meta self tail clause)
@@ -239,11 +238,9 @@
      (make-$arity req opt rest kw allow-other-keys?))))
 
 (define-syntax build-cont-body
-  (syntax-rules (unquote $kif $kreceive $kargs $kfun $ktail $kclause)
+  (syntax-rules (unquote $kreceive $kargs $kfun $ktail $kclause)
     ((_ (unquote exp))
      exp)
-    ((_ ($kif kt kf))
-     (make-$kif kt kf))
     ((_ ($kreceive req rest kargs))
      (make-$kreceive (make-$arity req '() rest '() #f) kargs))
     ((_ ($kargs (name ...) (unquote syms) body))
@@ -356,8 +353,6 @@
     (('k sym body)
      (build-cps-cont
        (sym ,(parse-cps body))))
-    (('kif kt kf)
-     (build-cont-body ($kif kt kf)))
     (('kreceive req rest k)
      (build-cont-body ($kreceive req rest k)))
     (('kargs names syms body)
@@ -429,8 +424,6 @@
      `(letk ,(map unparse-cps conts) ,(unparse-cps body)))
     (($ $cont sym body)
      `(k ,sym ,(unparse-cps body)))
-    (($ $kif kt kf)
-     `(kif ,kt ,kf))
     (($ $kreceive ($ $arity req () rest '() #f) k)
      `(kreceive ,req ,rest ,k))
     (($ $kargs () () body)
@@ -631,8 +624,6 @@
             (($ $prompt escape? tag handler) (proc k handler))
             (($ $branch kt) (proc k kt))
             (_ (proc k)))))))
-
-    (($ $kif kt kf) (proc kt kf))
 
     (($ $kreceive arity k) (proc k))
 

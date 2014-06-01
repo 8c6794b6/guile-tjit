@@ -107,7 +107,7 @@
             min-label max-label label-count
             min-var max-var var-count)
   dfg?
-  ;; vector of label -> $kif, $kargs, etc
+  ;; vector of label -> $kargs, etc
   (conts dfg-cont-table)
   ;; vector of label -> (pred-label ...)
   (preds dfg-preds)
@@ -816,9 +816,6 @@ body continuation in the prompt."
             (($ $kargs names syms body)
              (for-each (cut add-def! <> label) syms)
              (visit-term body label))
-            (($ $kif kt kf)
-             (link-blocks! label kt)
-             (link-blocks! label kf))
             (($ $kreceive arity k)
              (link-blocks! label k))))
 
@@ -917,8 +914,6 @@ body continuation in the prompt."
               (newline port))
             (format port "k~a:~8t" label)
             (match cont
-              (($ $kif kt kf)
-               (format port "$kif k~a k~a\n" kt kf))
               (($ $kreceive arity k)
                (format port "$kreceive ~a k~a\n" arity k))
               (($ $kfun src meta self tail clause)

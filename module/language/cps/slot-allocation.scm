@@ -581,8 +581,7 @@ are comparable with eqv?.  A tmp slot may be used."
                                       (compute-tmp-slot (logior pre-live result-live)
                                                         '()))))
            (hashq-set! call-allocations label
-                       (make-call-allocation #f moves #f))))
-        (($ $kif) #f)))
+                       (make-call-allocation #f moves #f))))))
 
     (define (allocate-prompt label k handler nargs)
       (match (lookup-cont handler dfg)
@@ -652,7 +651,7 @@ are comparable with eqv?.  A tmp slot may be used."
                       (allocate-prompt label k handler nargs))
                      (_ #f)))
                  (lp (1+ n) post-live))
-                ((or ($ $kreceive) ($ $kif) ($ $ktail))
+                ((or ($ $kreceive) ($ $ktail))
                  (lp (1+ n) post-live)))))))
 
     (define (visit-entry)

@@ -100,7 +100,7 @@
                   (visit-cont body)
                   (when alternate
                     (visit-cont alternate)))
-                 ((or ($ $ktail) ($ $kreceive) ($ $kif))
+                 ((or ($ $ktail) ($ $kreceive))
                   #f)))))
           (define (visit-term term)
             (match term
@@ -147,7 +147,7 @@
                       ;; sure we mark as reachable.
                       (vector-set! labels label next-label)
                       (set! next-label (1+ next-label))))
-                   ((or ($ $kreceive) ($ $kif))
+                   (($ $kreceive)
                     #f))))))
           (define (visit-term term reachable?)
             (match term
@@ -225,9 +225,7 @@
               ($kclause ,(rename-kw-arity arity) ,(must-visit-cont body)
                         ,(and alternate (must-visit-cont alternate)))))
             (($ $kreceive ($ $arity req () rest () #f) kargs)
-             (label ($kreceive req rest (relabel kargs))))
-            (($ $kif kt kf)
-             (label ($kif (relabel kt) (relabel kf))))))))))
+             (label ($kreceive req rest (relabel kargs))))))))))
   (define (visit-term term)
     (rewrite-cps-term term
       (($ $letk conts body)

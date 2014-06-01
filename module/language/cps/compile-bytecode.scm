@@ -198,8 +198,6 @@
           (($ $kargs names syms)
            (compile-values label exp syms)
            (maybe-emit-jump))
-          (($ $kif kt kf)
-           (compile-test label exp kt kf (and fallthrough? (1+ k))))
           (($ $kreceive ($ $arity req () rest () #f) kargs)
            (compile-trunc label k exp (length req)
                           (and rest

@@ -46,7 +46,7 @@
         (($ $cont k ($ $kclause arity body alternate))
          (visit-cont body)
          (when alternate (visit-cont alternate)))
-        (($ $cont k (or ($ $kreceive) ($ $kif)))
+        (($ $cont k ($ $kreceive))
          #t)))
     (define (visit-term term)
       (match term
@@ -99,7 +99,7 @@
         (($ $cont sym ($ $kclause arity body alternate))
          (sym ($kclause ,arity ,(visit-cont body)
                         ,(and alternate (visit-cont alternate)))))
-        (($ $cont sym (or ($ $kreceive) ($ $kif)))
+        (($ $cont sym ($ $kreceive))
          ,cont)))
     (define (visit-term term)
       (rewrite-cps-term term

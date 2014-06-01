@@ -72,9 +72,6 @@
 
   (define (visit-cont-body cont k-env v-env)
     (match cont
-      (($ $kif kt kf)
-       (check-label kt k-env)
-       (check-label kf k-env))
       (($ $kreceive ($ $arity ((? symbol?) ...) () (or #f (? symbol?)) () #f) k)
        (check-label k k-env))
       (($ $kargs (name ...) (sym ...) body)
