@@ -167,13 +167,12 @@
   (define tc8-iflag 4)
   (define unbound-val 9)
   (define unbound-bits (logior (ash unbound-val 8) tc8-iflag))
-  (let-fresh (ktest) (unbound)
+  (let-fresh () (unbound)
     (build-cps-term
       ($letconst (('unbound unbound
                             (pointer->scm (make-pointer unbound-bits))))
-        ($letk ((ktest ($kif kt kf)))
-          ($continue ktest src
-            ($primcall 'eq? (var unbound))))))))
+        ($continue kf src
+          ($branch kt ($primcall 'eq? (var unbound))))))))
 
 (define (init-default-value name sym subst init body)
   (match (hashq-ref subst sym)
@@ -358,12 +357,12 @@
       ((branching-primitive? name)
        (convert-args args
          (lambda (args)
-           (let-fresh (kt kf kif) ()
+           (let-fresh (kt kf) ()
              (build-cps-term
                ($letk ((kt ($kargs () () ($continue k src ($const #t))))
-                       (kf ($kargs () () ($continue k src ($const #f))))
-                       (kif ($kif kt kf)))
-                 ($continue kif src ($primcall name args))))))))
+                       (kf ($kargs () () ($continue k src ($const #f)))))
+                 ($continue kf src
+                   ($branch kt ($primcall name args)))))))))
       ((and (eq? name 'list)
             (and-map (match-lambda
                       ((or ($ <const>)
@@ -467,21 +466,22 @@
            ($continue k src ($primcall 'apply args*))))))
 
     (($ <conditional> src test consequent alternate)
-     (let-fresh (kif kt kf) ()
+     (let-fresh (kt kf) ()
        (build-cps-term
          ($letk* ((kt ($kargs () () ,(convert consequent k subst)))
-                  (kf ($kargs () () ,(convert alternate k subst)))
-                  (kif ($kif kt kf)))
+                  (kf ($kargs () () ,(convert alternate k subst))))
            ,(match test
               (($ <primcall> src (? branching-primitive? name) args)
                (convert-args args
                  (lambda (args)
                    (build-cps-term
-                     ($continue kif src ($primcall name args))))))
+                     ($continue kf src
+                       ($branch kt ($primcall name args)))))))
               (_ (convert-arg test
                    (lambda (test)
                      (build-cps-term
-                       ($continue kif src ($values (test))))))))))))
+                       ($continue kf src
+                         ($branch kt ($values (test)))))))))))))
 
     (($ <lexical-set> src name gensym exp)
      (convert-arg exp
