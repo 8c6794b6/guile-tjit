@@ -1249,6 +1249,10 @@ top-level bindings from ENV and return the resulting expression."
             (make-primcall src 'list (list x)))
            (('cons x ($ <primcall> _ 'list elts))
             (make-primcall src 'list (cons x elts)))
+           (('list)
+            (make-const src '()))
+           (('vector)
+            (make-const src '#()))
            ((name . args)
             (make-primcall src name args))))))
 
