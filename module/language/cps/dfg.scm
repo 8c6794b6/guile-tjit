@@ -67,6 +67,9 @@
             control-point?
             lookup-bound-syms
 
+            compute-idoms
+            compute-dom-edges
+
             ;; Data flow analysis.
             compute-live-variables
             dfa-k-idx dfa-k-sym dfa-k-count dfa-k-in dfa-k-out
@@ -337,56 +340,36 @@ body continuation in the prompt."
 
        (values k-map succs)))))
 
-;; Dominator analysis.
-(define-record-type $dominator-analysis
-  (make-dominator-analysis min-label idoms dom-levels loop-header irreducible)
-  dominator-analysis?
-  ;; Label corresponding to first entry in idoms, dom-levels, etc
-  (min-label dominator-analysis-min-label)
-  ;; Vector of k-idx -> k-idx
-  (idoms dominator-analysis-idoms)
-  ;; Vector of k-idx -> dom-level
-  (dom-levels dominator-analysis-dom-levels)
-  ;; Vector of k-idx -> k-idx or -1
-  (loop-header dominator-analysis-loop-header)
-  ;; Vector of k-idx -> true or false value
-  (irreducible dominator-analysis-irreducible))
-
-(define (compute-dom-levels idoms)
-  (let ((dom-levels (make-vector (vector-length idoms) #f)))
-    (define (compute-dom-level n)
-      (or (vector-ref dom-levels n)
-          (let ((dom-level (1+ (compute-dom-level (vector-ref idoms n)))))
-            (vector-set! dom-levels n dom-level)
-            dom-level)))
-    (vector-set! dom-levels 0 0)
-    (let lp ((n 0))
-      (when (< n (vector-length idoms))
-        (compute-dom-level n)
-        (lp (1+ n))))
-    dom-levels))
-
-(define (compute-idoms preds min-label label-count)
+(define (compute-idoms dfg min-label label-count)
+  (define preds (dfg-preds dfg))
   (define (label->idx label) (- label min-label))
   (define (idx->label idx) (+ idx min-label))
-  (let ((idoms (make-vector label-count 0)))
+  (define (idx->dfg-idx idx)  (- (idx->label idx) (dfg-min-label dfg)))
+  (let ((idoms (make-vector label-count #f)))
     (define (common-idom d0 d1)
       ;; We exploit the fact that a reverse post-order is a topological
       ;; sort, and so the idom of a node is always numerically less than
       ;; the node itself.
       (cond
        ((= d0 d1) d0)
-       ((< d0 d1) (common-idom d0 (vector-ref idoms d1)))
-       (else (common-idom (vector-ref idoms d0) d1))))
+       ((< d0 d1) (common-idom d0 (vector-ref idoms (label->idx d1))))
+       (else (common-idom (vector-ref idoms (label->idx d0)) d1))))
     (define (compute-idom preds)
+      (define (has-idom? pred)
+        (vector-ref idoms (label->idx pred)))
       (match preds
-        (() 0)
+        (() min-label)
         ((pred . preds)
-         (let lp ((idom (label->idx pred)) (preds preds))
-           (match preds
-             (() idom)
-             ((pred . preds)
-              (lp (common-idom idom (label->idx pred)) preds)))))))
+         (if (has-idom? pred)
+             (let lp ((idom pred) (preds preds))
+               (match preds
+                 (() idom)
+                 ((pred . preds)
+                  (lp (if (has-idom? pred)
+                          (common-idom idom pred)
+                          idom)
+                      preds))))
+             (compute-idom preds)))))
     ;; This is the iterative O(n^2) fixpoint algorithm, originally from
     ;; Allen and Cocke ("Graph-theoretic constructs for program flow
     ;; analysis", 1972).  See the discussion in Cooper, Harvey, and
@@ -395,7 +378,7 @@ body continuation in the prompt."
       (cond
        ((< n label-count)
         (let ((idom (vector-ref idoms n))
-              (idom* (compute-idom (vector-ref preds (idx->label n)))))
+              (idom* (compute-idom (vector-ref preds (idx->dfg-idx n)))))
           (cond
            ((eqv? idom idom*)
             (iterate (1+ n) changed?))
@@ -408,168 +391,20 @@ body continuation in the prompt."
 
 ;; Compute a vector containing, for each node, a list of the nodes that
 ;; it immediately dominates.  These are the "D" edges in the DJ tree.
-(define (compute-dom-edges idoms)
+(define (compute-dom-edges idoms min-label)
+  (define (label->idx label) (- label min-label))
+  (define (idx->label idx) (+ idx min-label))
   (let ((doms (make-vector (vector-length idoms) '())))
     (let lp ((n 0))
       (when (< n (vector-length idoms))
         (let ((idom (vector-ref idoms n)))
-          (vector-push! doms idom n))
+          (vector-push! doms (label->idx idom) (idx->label n)))
         (lp (1+ n))))
     doms))
 
-;; Compute a vector containing, for each node, a list of the successors
-;; of that node that are not dominated by that node.  These are the "J"
-;; edges in the DJ tree.
-(define (compute-join-edges preds min-label idoms)
-  (define (dominates? n1 n2)
-    (or (= n1 n2)
-        (and (< n1 n2)
-             (dominates? n1 (vector-ref idoms n2)))))
-  (let ((joins (make-vector (vector-length idoms) '())))
-    (let lp ((n 0))
-      (when (< n (vector-length idoms))
-        (for-each (lambda (pred)
-                    (let ((pred (- pred min-label)))
-                      (unless (dominates? pred n)
-                        (vector-push! joins pred n))))
-                  (vector-ref preds (+ n min-label)))
-        (lp (1+ n))))
-    joins))
-
-;; Compute a vector containing, for each node, a list of the back edges
-;; to that node.  If a node is not the entry of a reducible loop, that
-;; list is empty.
-(define (compute-reducible-back-edges joins idoms)
-  (define (dominates? n1 n2)
-    (or (= n1 n2)
-        (and (< n1 n2)
-             (dominates? n1 (vector-ref idoms n2)))))
-  (let ((back-edges (make-vector (vector-length idoms) '())))
-    (let lp ((n 0))
-      (when (< n (vector-length joins))
-        (for-each (lambda (succ)
-                    (when (dominates? succ n)
-                      (vector-push! back-edges succ n)))
-                  (vector-ref joins n))
-        (lp (1+ n))))
-    back-edges))
-
-;; Compute the levels in the dominator tree at which there are
-;; irreducible loops, as an integer.  If a bit N is set in the integer,
-;; that indicates that at level N in the dominator tree, there is at
-;; least one irreducible loop.
-(define (compute-irreducible-dom-levels doms joins idoms dom-levels)
-  (define (dominates? n1 n2)
-    (or (= n1 n2)
-        (and (< n1 n2)
-             (dominates? n1 (vector-ref idoms n2)))))
-  (let ((pre-order (make-vector (vector-length doms) #f))
-        (last-pre-order (make-vector (vector-length doms) #f))
-        (res 0)
-        (count 0))
-    ;; Is MAYBE-PARENT an ancestor of N on the depth-first spanning tree
-    ;; computed from the DJ graph?  See Havlak 1997, "Nesting of
-    ;; Reducible and Irreducible Loops".
-    (define (ancestor? a b)
-      (let ((w (vector-ref pre-order a))
-            (v (vector-ref pre-order b)))
-        (and (<= w v)
-             (<= v (vector-ref last-pre-order w)))))
-    ;; Compute depth-first spanning tree of DJ graph.
-    (define (recurse n)
-      (unless (vector-ref pre-order n)
-        (visit n)))
-    (define (visit n)
-      ;; Pre-order visitation index.
-      (vector-set! pre-order n count)
-      (set! count (1+ count))
-      (for-each recurse (vector-ref doms n))
-      (for-each recurse (vector-ref joins n))
-      ;; Pre-order visitation index of last descendant.
-      (vector-set! last-pre-order (vector-ref pre-order n) (1- count)))
-
-    (visit 0)
-
-    (let lp ((n 0))
-      (when (< n (vector-length joins))
-        (for-each (lambda (succ)
-                    ;; If this join edge is not a loop back edge but it
-                    ;; does go to an ancestor on the DFST of the DJ
-                    ;; graph, then we have an irreducible loop.
-                    (when (and (not (dominates? succ n))
-                               (ancestor? succ n))
-                      (set! res (logior (ash 1 (vector-ref dom-levels succ))))))
-                  (vector-ref joins n))
-        (lp (1+ n))))
-
-    res))
-
-(define (compute-nodes-by-level dom-levels)
-  (let* ((max-level (let lp ((n 0) (max-level 0))
-                      (if (< n (vector-length dom-levels))
-                          (lp (1+ n) (max (vector-ref dom-levels n) max-level))
-                          max-level)))
-         (nodes-by-level (make-vector (1+ max-level) '())))
-    (let lp ((n (1- (vector-length dom-levels))))
-      (when (>= n 0)
-        (vector-push! nodes-by-level (vector-ref dom-levels n) n)
-        (lp (1- n))))
-    nodes-by-level))
-
-;; Collect all predecessors to the back-nodes that are strictly
-;; dominated by the loop header, and mark them as belonging to the loop.
-;; If they already have a loop header, that means they are either in a
-;; nested loop, or they have already been visited already.
-(define (mark-loop-body header back-nodes preds min-label idoms loop-headers)
-  (define (strictly-dominates? n1 n2)
-    (and (< n1 n2)
-         (let ((idom (vector-ref idoms n2)))
-           (or (= n1 idom)
-               (strictly-dominates? n1 idom)))))
-  (define (visit node)
-    (when (strictly-dominates? header node)
-      (cond
-       ((vector-ref loop-headers node) => visit)
-       (else
-        (vector-set! loop-headers node header)
-        (for-each (lambda (pred) (visit (- pred min-label)))
-                  (vector-ref preds (+ node min-label)))))))
-  (for-each visit back-nodes))
-
-(define (mark-irreducible-loops level idoms dom-levels loop-headers)
-  ;; FIXME: Identify strongly-connected components that are >= LEVEL in
-  ;; the dominator tree, and somehow mark them as irreducible.
-  (warn 'irreducible-loops-at-level level))
-
-;; "Identifying Loops Using DJ Graphs" by Sreedhar, Gao, and Lee, ACAPS
-;; Technical Memo 98, 1995.
-(define (identify-loops preds min-label idoms dom-levels)
-  (let* ((doms (compute-dom-edges idoms))
-         (joins (compute-join-edges preds min-label idoms))
-         (back-edges (compute-reducible-back-edges joins idoms))
-         (irreducible-levels
-          (compute-irreducible-dom-levels doms joins idoms dom-levels))
-         (loop-headers (make-vector (vector-length idoms) #f))
-         (nodes-by-level (compute-nodes-by-level dom-levels)))
-    (let lp ((level (1- (vector-length nodes-by-level))))
-      (when (>= level 0)
-        (for-each (lambda (n)
-                    (let ((edges (vector-ref back-edges n)))
-                      (unless (null? edges)
-                        (mark-loop-body n edges preds min-label
-                                        idoms loop-headers))))
-                  (vector-ref nodes-by-level level))
-        (when (logbit? level irreducible-levels)
-          (mark-irreducible-loops level idoms dom-levels loop-headers))
-        (lp (1- level))))
-    loop-headers))
-
-(define (analyze-dominators dfg min-label label-count)
-  (let* ((idoms (compute-idoms (dfg-preds dfg) min-label label-count))
-         (dom-levels (compute-dom-levels idoms))
-         (loop-headers (identify-loops (dfg-preds dfg) min-label idoms dom-levels)))
-    (make-dominator-analysis min-label idoms dom-levels loop-headers #f)))
-
+;; There used to be some loop detection code here, but it bitrotted.
+;; We'll need it again eventually but for now it can be found in the git
+;; history.
 
 ;; Compute the maximum fixed point of the data-flow constraint problem.
 ;;

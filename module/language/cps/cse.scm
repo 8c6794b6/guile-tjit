@@ -248,68 +248,8 @@ be that both true and false proofs are available."
              (values min-label label-count min-var var-count)))))
       fun kfun 0 self 0))))
 
-(define (compute-idoms dfg min-label label-count)
-  (define (label->idx label) (- label min-label))
-  (define (idx->label idx) (+ idx min-label))
-  (let ((idoms (make-vector label-count #f)))
-    (define (common-idom d0 d1)
-      ;; We exploit the fact that a reverse post-order is a topological
-      ;; sort, and so the idom of a node is always numerically less than
-      ;; the node itself.
-      (cond
-       ((= d0 d1) d0)
-       ((< d0 d1) (common-idom d0 (vector-ref idoms (label->idx d1))))
-       (else (common-idom (vector-ref idoms (label->idx d0)) d1))))
-    (define (compute-idom preds)
-      (define (has-idom? pred)
-        (vector-ref idoms (label->idx pred)))
-      (match preds
-        (() min-label)
-        ((pred . preds)
-         (if (has-idom? pred)
-             (let lp ((idom pred) (preds preds))
-               (match preds
-                 (() idom)
-                 ((pred . preds)
-                  (lp (if (has-idom? pred)
-                          (common-idom idom pred)
-                          idom)
-                      preds))))
-             (compute-idom preds)))))
-    ;; This is the iterative O(n^2) fixpoint algorithm, originally from
-    ;; Allen and Cocke ("Graph-theoretic constructs for program flow
-    ;; analysis", 1972).  See the discussion in Cooper, Harvey, and
-    ;; Kennedy's "A Simple, Fast Dominance Algorithm", 2001.
-    (let iterate ((n 0) (changed? #f))
-      (cond
-       ((< n label-count)
-        (let ((idom (vector-ref idoms n))
-              (idom* (compute-idom (lookup-predecessors (idx->label n) dfg))))
-          (cond
-           ((eqv? idom idom*)
-            (iterate (1+ n) changed?))
-           (else
-            (vector-set! idoms n idom*)
-            (iterate (1+ n) #t)))))
-       (changed?
-        (iterate 0 #f))
-       (else idoms)))))
-
 ;; Compute a vector containing, for each node, a list of the nodes that
 ;; it immediately dominates.  These are the "D" edges in the DJ tree.
-(define (compute-dom-edges idoms min-label)
-  (define (label->idx label) (- label min-label))
-  (define (idx->label idx) (+ idx min-label))
-  (define (vector-push! vec idx val)
-    (let ((v vec) (i idx))
-      (vector-set! v i (cons val (vector-ref v i)))))
-  (let ((doms (make-vector (vector-length idoms) '())))
-    (let lp ((n 0))
-      (when (< n (vector-length idoms))
-        (let ((idom (vector-ref idoms n)))
-          (vector-push! doms (label->idx idom) (idx->label n)))
-        (lp (1+ n))))
-    doms))
 
 (define (compute-equivalent-subexpressions fun dfg)
   (define (compute min-label label-count min-var var-count avail effects)
