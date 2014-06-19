@@ -87,12 +87,9 @@
         (define (idx->label idx) (+ idx min-label))
         (define (var->idx var) (- var min-var))
         (define (visit-primcall lidx fx name args)
-          (let ((args (map var->idx args)))
-            ;; Negative args are closure variables.
-            (unless (or-map negative? args)
-              (when (primcall-types-check? lidx typev name args)
-                (vector-set! effects lidx
-                             (logand fx (lognot &type-check)))))))
+          (when (primcall-types-check? typev (idx->label lidx) name args)
+            (vector-set! effects lidx
+                         (logand fx (lognot &type-check)))))
         (let lp ((lidx 0))
           (when (< lidx label-count)
             (let ((fx (vector-ref effects lidx)))

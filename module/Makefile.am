@@ -27,10 +27,8 @@ modpath =
 
 # Build eval.go first.  Then build psyntax-pp.go, as the expander has to
 # run on every loaded scheme file.  It doesn't pay off at compile-time
-# to interpret the expander in parallel.  At the same time build
-# language/cps/types.go -- it has a particularly bad memory overhead
-# when run interpreted, and it makes sense to compile it first.
-BOOT_SOURCES = ice-9/psyntax-pp.scm language/cps/types.go
+# to interpret the expander in parallel.
+BOOT_SOURCES = ice-9/psyntax-pp.scm
 BOOT_GOBJECTS = $(BOOT_SOURCES:%.scm=%.go)
 $(BOOT_GOBJECTS): ice-9/eval.go
 $(GOBJECTS): $(BOOT_GOBJECTS)
@@ -51,6 +49,7 @@ ice-9/match.go: ice-9/match.scm ice-9/match.upstream.scm
 SOURCES =					\
   ice-9/boot-9.scm				\
   language/tree-il/peval.scm                    \
+  language/cps/types.scm			\
   system/vm/elf.scm				\
   ice-9/vlist.scm                               \
   srfi/srfi-1.scm                               \

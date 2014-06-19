@@ -134,22 +134,24 @@
      ((eqv? type &nil) #nil)
      ((eqv? type &null) '())
      (else (error "unhandled type" type val))))
-  (let* ((typev (infer-types fun dfg #:max-label-count 3000))
-         (folded? (and typev
-                       (make-bitvector (/ (vector-length typev) 2) #f)))
-         (folded-values (and typev
-                             (make-vector (bitvector-length folded?) #f))))
+  (let* ((typev (infer-types fun dfg))
+         (label-count ((make-local-cont-folder label-count)
+                       (lambda (k cont label-count) (1+ label-count))
+                       fun 0))
+         (folded? (make-bitvector label-count #f))
+         (folded-values (make-vector label-count #f)))
     (define (label->idx label) (- label min-label))
     (define (var->idx var) (- var min-var))
-    (define (maybe-fold-value! label name k def)
-      (call-with-values (lambda () (lookup-post-type typev label def))
+    (define (maybe-fold-value! label name def)
+      (call-with-values (lambda () (lookup-post-type typev label def 0))
         (lambda (type min max)
           (when (and (not (zero? type))
                      (zero? (logand type (1- type)))
                      (zero? (logand type (lognot &scalar-types)))
                      (eqv? min max))
-            (bitvector-set! folded? label #t)
-            (vector-set! folded-values label (scalar-value type min))))))
+            (bitvector-set! folded? (label->idx label) #t)
+            (vector-set! folded-values (label->idx label)
+                         (scalar-value type min))))))
     (define (maybe-fold-unary-branch! label name arg)
       (let* ((folder (hashq-ref *branch-folders* name)))
         (when folder
@@ -157,8 +159,8 @@
             (lambda (type min max)
               (call-with-values (lambda () (folder type min max))
                 (lambda (f? v)
-                  (bitvector-set! folded? label f?)
-                  (vector-set! folded-values label v))))))))
+                  (bitvector-set! folded? (label->idx label) f?)
+                  (vector-set! folded-values (label->idx label) v))))))))
     (define (maybe-fold-binary-branch! label name arg0 arg1)
       (let* ((folder (hashq-ref *branch-folders* name)))
         (when folder
@@ -169,8 +171,8 @@
                   (call-with-values (lambda ()
                                       (folder type0 min0 max0 type1 min1 max1))
                     (lambda (f? v)
-                      (bitvector-set! folded? label f?)
-                      (vector-set! folded-values label v))))))))))
+                      (bitvector-set! folded? (label->idx label) f?)
+                      (vector-set! folded-values (label->idx label) v))))))))))
     (define (visit-cont cont)
       (match cont
         (($ $cont label ($ $kargs _ _ body))
@@ -190,18 +192,17 @@
          ;; We might be able to fold primcalls that define a value.
          (match (lookup-cont k dfg)
            (($ $kargs (_) (def))
-            (maybe-fold-value! (label->idx label) name (label->idx k)
-                               (var->idx def)))
+            ;(pk 'maybe-fold-value src name args)
+            (maybe-fold-value! label name def))
            (_ #f)))
         (($ $continue kf src ($ $branch kt ($ $primcall name args)))
          ;; We might be able to fold primcalls that branch.
+         ;(pk 'maybe-fold-branch label src name args)
          (match args
            ((arg)
-            (maybe-fold-unary-branch! (label->idx label) name
-                                      (var->idx arg)))
+            (maybe-fold-unary-branch! label name arg))
            ((arg0 arg1)
-            (maybe-fold-binary-branch! (label->idx label) name
-                                       (var->idx arg0) (var->idx arg1)))))
+            (maybe-fold-binary-branch! label name arg0 arg1))))
         (_ #f)))
     (when typev
       (match fun
