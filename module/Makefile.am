@@ -133,7 +133,6 @@ CPS_LANG_SOURCES =						\
   language/cps/elide-values.scm					\
   language/cps/intmap.scm					\
   language/cps/intset.scm					\
-  language/cps/nameset.scm					\
   language/cps/primitives.scm					\
   language/cps/prune-bailouts.scm				\
   language/cps/prune-top-level-scopes.scm			\
