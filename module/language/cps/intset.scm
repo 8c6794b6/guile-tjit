@@ -91,23 +91,27 @@
     (make-intset min* shift* (clone-branch-and-set #f idx root))))
 
 (define (make-intset/prune min shift root)
-  (if (= shift *leaf-bits*)
-      (make-intset min shift root)
-      (let lp ((i 0) (elt #f))
-        (cond
-         ((< i *branch-size*)
-          (if (vector-ref root i)
-              (if elt
-                  (make-intset min shift root)
-                  (lp (1+ i) i))
-              (lp (1+ i) elt)))
-         (elt
-          (let ((shift (- shift *branch-bits*)))
-            (make-intset/prune (+ min (ash elt shift))
-                               shift
-                               (vector-ref root elt))))
-         ;; Shouldn't be reached...
-         (else empty-intset)))))
+  (cond
+   ((not root)
+    empty-intset)
+   ((= shift *leaf-bits*)
+    (make-intset min shift root))
+   (else
+    (let lp ((i 0) (elt #f))
+      (cond
+       ((< i *branch-size*)
+        (if (vector-ref root i)
+            (if elt
+                (make-intset min shift root)
+                (lp (1+ i) i))
+            (lp (1+ i) elt)))
+       (elt
+        (let ((shift (- shift *branch-bits*)))
+          (make-intset/prune (+ min (ash elt shift))
+                             shift
+                             (vector-ref root elt))))
+       ;; Shouldn't be reached...
+       (else empty-intset))))))
 
 (define (intset-add bs i)
   (define (adjoin i shift root)
