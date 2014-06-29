@@ -29,104 +29,121 @@
   #:use-module (language cps dfg)
   #:use-module (language cps effects-analysis)
   #:use-module (language cps renumber)
+  #:use-module (language cps intset)
+  #:use-module (rnrs bytevectors)
   #:export (eliminate-common-subexpressions))
 
-(define (compute-always-available-expressions effects)
-  "Return the set of continuations whose values are always available
-within their dominance frontier.  This is the case for effects that do
-not allocate, read, or write mutable memory."
-  (let ((out (make-bitvector (vector-length effects) #f)))
-    (let lp ((n 0))
-      (cond
-       ((< n (vector-length effects))
-        (unless (causes-effect? (vector-ref effects n)
-                                (logior &allocation &read &write))
-          (bitvector-set! out n #t))
-        (lp (1+ n)))
-       (else out)))))
+(define (cont-successors cont)
+  (match cont
+    (($ $kargs names syms body)
+     (let lp ((body body))
+       (match body
+         (($ $letk conts body) (lp body))
+         (($ $letrec names vars funs body) (lp body))
+         (($ $continue k src exp)
+          (match exp
+            (($ $prompt escape? tag handler) (list k handler))
+            (($ $branch kt) (list k kt))
+            (_ (list k)))))))
 
-(define (compute-available-expressions dfg min-label label-count)
+    (($ $kreceive arity k) (list k))
+
+    (($ $kclause arity ($ $cont kbody)) (list kbody))
+
+    (($ $kfun src meta self tail clause)
+     (let lp ((clause clause))
+       (match clause
+         (($ $cont kclause ($ $kclause _ _ alt))
+          (cons kclause (lp alt)))
+         (#f '()))))
+
+    (($ $kfun src meta self tail #f) '())
+
+    (($ $ktail) '())))
+
+(define (compute-available-expressions dfg min-label label-count idoms)
   "Compute and return the continuations that may be reached if flow
 reaches a continuation N.  Returns a vector of bitvectors, whose first
 index corresponds to MIN-LABEL, and so on."
   (let* ((effects (compute-effects dfg min-label label-count))
-         (always-avail (compute-always-available-expressions effects))
-         ;; Vector of bitvectors, indicating that at a continuation N,
-         ;; the values from continuations M... are available.
-         (avail-in (make-vector label-count #f))
-         (avail-out (make-vector label-count #f)))
+         ;; Vector of intsets, indicating that at a continuation N, the
+         ;; values from continuations M... are available.
+         (avail (make-vector label-count #f))
+         (revisit-label #f))
 
     (define (label->idx label) (- label min-label))
     (define (idx->label idx) (+ idx min-label))
+    (define (get-effects label) (vector-ref effects (label->idx label)))
+
+    (define (propagate! pred succ out)
+      (let* ((succ-idx (label->idx succ))
+             (in (match (lookup-predecessors succ dfg)
+                   ;; Fast path: normal control flow.
+                   ((_) out)
+                   ;; Slow path: control-flow join.
+                   (_ (cond
+                       ((vector-ref avail succ-idx)
+                        => (lambda (in)
+                             (intset-intersect in out)))
+                       (else out))))))
+        (when (and (<= succ pred)
+                   (or (not revisit-label) (< succ revisit-label))
+                   (not (eq? in (vector-ref avail succ-idx))))
+          ;; Arrange to revisit if this is not a forward edge and the
+          ;; available set changed.
+          (set! revisit-label succ))
+        (vector-set! avail succ-idx in)))
+
+    (define (clobber label in)
+      (let ((fx (get-effects label)))
+        (cond
+         ((not (causes-effect? fx &write))
+          ;; Fast-path if this expression clobbers nothing.
+          in)
+         (else
+          ;; Kill clobbered expressions.
+          (let ((first (let lp ((dom label))
+                         (let* ((dom (vector-ref idoms (label->idx dom))))
+                           (and (< min-label dom)
+                                (let ((fx (vector-ref effects (label->idx dom))))
+                                  (if (causes-all-effects? fx)
+                                      dom
+                                      (lp dom))))))))
+            (let lp ((i first) (in in))
+              (cond
+               ((intset-next in i)
+                => (lambda (i)
+                     (if (effect-clobbers? fx (vector-ref effects (label->idx i)))
+                         (lp (1+ i) (intset-remove in i))
+                         (lp (1+ i) in))))
+               (else in))))))))
 
     (synthesize-definition-effects! effects dfg min-label label-count)
 
-    (let lp ((n 0))
-      (when (< n label-count)
-        (vector-set! avail-in n (make-bitvector label-count #f))
-        (vector-set! avail-out n (make-bitvector label-count #f))
-        (lp (1+ n))))
+    (vector-set! avail 0 empty-intset)
 
-    (let ((tmp (make-bitvector label-count #f)))
-      (define (bitvector-copy! dst src)
-        (bitvector-fill! dst #f)
-        (bit-set*! dst src #t))
-      (define (intersect! dst src)
-        (bitvector-copy! tmp src)
-        (bit-invert! tmp)
-        (bit-set*! dst tmp #f))
-      (let lp ((n 0) (first? #t) (changed? #f))
-        (cond
-         ((< n label-count)
-          (let* ((in (vector-ref avail-in n))
-                 (prev-count (bit-count #t in))
-                 (out (vector-ref avail-out n))
-                 (fx (vector-ref effects n)))
-            ;; Intersect avail-out from predecessors into "in".
-            (let lp ((preds (lookup-predecessors (idx->label n) dfg))
-                     (initialized? #f))
-              (match preds
-                (() #t)
-                ((pred . preds)
-                 (let ((pred (label->idx pred)))
-                   (cond
-                    ((and first? (<= n pred))
-                     ;; Avoid intersecting back-edges and cross-edges on
-                     ;; the first iteration.
-                     (lp preds initialized?))
-                    (else
-                     (if initialized?
-                         (intersect! in (vector-ref avail-out pred))
-                         (bitvector-copy! in (vector-ref avail-out pred)))
-                     (lp preds #t)))))))
-            (let ((new-count (bit-count #t in)))
-              (unless (= prev-count new-count)
-                ;; Copy "in" to "out".
-                (bitvector-copy! out in)
-                ;; Kill expressions that don't commute.
-                (cond
-                 ((causes-all-effects? fx)
-                  ;; Fast-path if this expression clobbers the world.
-                  (intersect! out always-avail))
-                 ((not (causes-effect? fx &write))
-                  ;; Fast-path if this expression clobbers nothing.
-                  #t)
-                 (else
-                  ;; Loop of sadness.
-                  (bitvector-copy! tmp out)
-                  (bit-set*! tmp always-avail #f)
-                  (let lp ((i 0))
-                    (let ((i (bit-position #t tmp i)))
-                      (when i
-                        (when (effect-clobbers? fx (vector-ref effects i))
-                          (bitvector-set! out i #f))
-                        (lp (1+ i))))))))
-              (bitvector-set! out n #t)
-              (lp (1+ n) first? (or changed? (not (= prev-count new-count)))))))
-         (else
-          (if (or first? changed?)
-              (lp 0 #f #f)
-              (values avail-in effects))))))))
+    (let lp ((n 0))
+      (cond
+       ((< n label-count)
+        (let* ((label (idx->label n))
+               ;; It's possible for "in" to be #f if it has no
+               ;; predecessors, as is the case for the ktail of a
+               ;; function with an iloop.
+               (in (or (vector-ref avail n) empty-intset))
+               (out (intset-add (clobber label in) label)))
+          (lookup-predecessors label dfg)
+          (let visit-succs ((succs (cont-successors (lookup-cont label dfg))))
+            (match succs
+              (() (lp (1+ n)))
+              ((succ . succs)
+               (propagate! label succ out)
+               (visit-succs succs))))))
+       (revisit-label
+        (let ((n (label->idx revisit-label)))
+          (set! revisit-label #f)
+          (lp n)))
+       (else
+        (values avail effects))))))
 
 (define (compute-truthy-expressions dfg min-label label-count)
   "Compute a \"truth map\", indicating which expressions can be shown to
@@ -252,9 +269,8 @@ be that both true and false proofs are available."
 ;; it immediately dominates.  These are the "D" edges in the DJ tree.
 
 (define (compute-equivalent-subexpressions fun dfg)
-  (define (compute min-label label-count min-var var-count avail effects)
-    (let ((idoms (compute-idoms dfg min-label label-count))
-          (defs (compute-defs dfg min-label label-count))
+  (define (compute min-label label-count min-var var-count idoms avail effects)
+    (let ((defs (compute-defs dfg min-label label-count))
           (var-substs (make-vector var-count #f))
           (equiv-labels (make-vector label-count #f))
           (equiv-set (make-hash-table)))
@@ -376,7 +392,7 @@ be that both true and false proofs are available."
                                            equiv))))
                       (((and head (candidate . vars)) . candidates)
                        (cond
-                        ((not (bitvector-ref avail (label->idx candidate)))
+                        ((not (intset-ref avail candidate))
                          ;; This expression isn't available here; try
                          ;; the next one.
                          (lp candidates))
@@ -404,11 +420,13 @@ be that both true and false proofs are available."
 
   (call-with-values (lambda () (compute-label-and-var-ranges fun))
     (lambda (min-label label-count min-var var-count)
-      (call-with-values
-          (lambda ()
-            (compute-available-expressions dfg min-label label-count))
-        (lambda (avail effects)
-          (compute min-label label-count min-var var-count avail effects))))))
+      (let ((idoms (compute-idoms dfg min-label label-count)))
+        (call-with-values
+            (lambda ()
+              (compute-available-expressions dfg min-label label-count idoms))
+          (lambda (avail effects)
+            (compute min-label label-count min-var var-count
+                     idoms avail effects)))))))
 
 (define (apply-cse fun dfg
                    doms equiv-labels min-label var-substs min-var boolv)
