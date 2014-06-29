@@ -70,13 +70,8 @@
 ;;; A naive approach to type analysis would build up a table that has
 ;;; entries for all variables at all program points, but this has
 ;;; N-squared complexity and quickly grows unmanageable.  Instead, we
-;;; use _namesets_ from (language cps nameset) to share state between
-;;; connected program points.  All namesets in a type analysis share a
-;;; tail at some depth, which allows efficient computation of the
-;;; differences between types at two different program points.  The
-;;; shared tail corresponds to the types that flow into an expression's
-;;; dominator.  This approach also allows easy detection of when a
-;;; fixed-point has been reached.
+;;; use _intmaps_ from (language cps intmap) to share state between
+;;; connected program points.
 ;;;
 ;;; Code:
 
@@ -84,7 +79,7 @@
   #:use-module (ice-9 match)
   #:use-module (language cps)
   #:use-module (language cps dfg)
-  #:use-module (language cps nameset)
+  #:use-module (language cps intmap)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-11)
@@ -191,23 +186,105 @@
     ((a b c) (max (max a b) c))
     ((a b c d) (max (max a b) c d))))
 
+
+
+(define-syntax-rule (define-compile-time-value name val)
+  (define-syntax name
+    (make-variable-transformer
+     (lambda (x)
+       (syntax-case x (set!)
+         (var (identifier? #'var)
+              (datum->syntax #'var val)))))))
+
+(define-compile-time-value min-fixnum most-negative-fixnum)
+(define-compile-time-value max-fixnum most-positive-fixnum)
+
+(define-inlinable (make-unclamped-type-entry type min max)
+  (vector type min max))
+(define-inlinable (type-entry-type tentry)
+  (vector-ref tentry 0))
+(define-inlinable (type-entry-clamped-min tentry)
+  (vector-ref tentry 1))
+(define-inlinable (type-entry-clamped-max tentry)
+  (vector-ref tentry 2))
+
+(define-syntax-rule (clamp-range val)
+  (cond
+   ((< val min-fixnum) min-fixnum)
+   ((< max-fixnum val) max-fixnum)
+   (else val)))
+
+(define-inlinable (make-type-entry type min max)
+  (vector type (clamp-range min) (clamp-range max)))
+(define-inlinable (type-entry-min tentry)
+  (let ((min (type-entry-clamped-min tentry)))
+    (if (eq? min min-fixnum) -inf.0 min)))
+(define-inlinable (type-entry-max tentry)
+  (let ((max (type-entry-clamped-max tentry)))
+    (if (eq? max max-fixnum) +inf.0 max)))
+
+(define all-types-entry (make-type-entry &all-types -inf.0 +inf.0))
+
+(define* (var-type-entry typeset var #:optional (default all-types-entry))
+  (or (intmap-ref typeset var) default))
+
+(define (var-type typeset var)
+  (type-entry-type (var-type-entry typeset var)))
+(define (var-min typeset var)
+  (type-entry-min (var-type-entry typeset var)))
+(define (var-max typeset var)
+  (type-entry-max (var-type-entry typeset var)))
+
+;; Is the type entry A contained entirely within B?
+(define (type-entry<=? a b)
+  (match (cons a b)
+    ((#(a-type a-min a-max) . #(b-type b-min b-max))
+     (and (eqv? b-type (logior a-type b-type))
+          (<= b-min a-min)
+          (>= b-max a-max)))))
+
+(define (type-entry-union a b)
+  (cond
+   ((type-entry<=? b a) a)
+   ((type-entry<=? a b) b)
+   (else (make-type-entry
+          (logior (type-entry-type a) (type-entry-type b))
+          (min (type-entry-clamped-min a) (type-entry-clamped-min b))
+          (max (type-entry-clamped-max a) (type-entry-clamped-max b))))))
+
+(define (type-entry-intersection a b)
+  (cond
+   ((type-entry<=? a b) a)
+   ((type-entry<=? b a) b)
+   (else (make-type-entry
+          (logand (type-entry-type a) (type-entry-type b))
+          (max (type-entry-clamped-min a) (type-entry-clamped-min b))
+          (min (type-entry-clamped-max a) (type-entry-clamped-max b))))))
+
+(define (adjoin-var typeset var entry)
+  (intmap-add typeset var entry type-entry-union))
+
+(define (restrict-var typeset var entry)
+  (intmap-add typeset var entry type-entry-intersection))
+
 (define (constant-type val)
   "Compute the type and range of VAL.  Return three values: the type,
 minimum, and maximum."
   (define (return type val)
     (if val
-        (values type val val)
-        (values type -inf.0 +inf.0)))
+        (make-type-entry type val val)
+        (make-type-entry type -inf.0 +inf.0)))
   (cond
    ((number? val)
     (cond
      ((exact-integer? val) (return &exact-integer val))
      ((eqv? (imag-part val) 0)
       (if (nan? val)
-          (values &flonum -inf.0 +inf.0)
-          (values (if (exact? val) &fraction &flonum)
-                  (if (rational? val) (inexact->exact (floor val)) val)
-                  (if (rational? val) (inexact->exact (ceiling val)) val))))
+          (make-type-entry &flonum -inf.0 +inf.0)
+          (make-type-entry
+           (if (exact? val) &fraction &flonum)
+           (if (rational? val) (inexact->exact (floor val)) val)
+           (if (rational? val) (inexact->exact (ceiling val)) val))))
      (else (return &complex #f))))
    ((eq? val '()) (return &null #f))
    ((eq? val #nil) (return &nil #f))
@@ -225,92 +302,6 @@ minimum, and maximum."
    ((not (variable-bound? (make-variable val))) (return &unbound #f))
 
    (else (error "unhandled constant" val))))
-
-
-
-;;; Types are represented as a nameset that maps variable index to type,
-;;; minimum, and maximum values.  See (language cps nameset) for more
-;;; details on namesets.
-
-(define-nameset-type (typeset type min max #:size 12)
-  ;; unt32 type * int32 min * int32 max
-  (lambda (bv pos)
-    (let ((type (bytevector-u32-native-ref bv pos))
-          (min (bytevector-s32-native-ref bv (+ pos 4)))
-          (max (bytevector-s32-native-ref bv (+ pos 8))))
-      (values type min max)))
-  (lambda (bv pos type min max)
-    (bytevector-u32-native-set! bv pos type)
-    (bytevector-s32-native-set! bv (+ pos 4) min)
-    (bytevector-s32-native-set! bv (+ pos 8) max))
-  (lambda (type1 min1 max1 type2 min2 max2)
-    (values (logior type1 type2)
-            (min min1 min2)
-            (max max1 max2))))
-
-
-
-
-(define* (var-type-and-clamped-range typeset var #:optional
-                                     (default (lambda ()
-                                                (values &all-types
-                                                        *min-s32*
-                                                        *max-s32*))))
-  (let ((pos (typeset-lookup typeset var)))
-    (if pos
-        (call-with-values (lambda () (typeset-ref typeset pos))
-          (lambda (name type min max)
-            (values type min max)))
-        (default))))
-
-(define (var-type typeset var)
-  (let-values (((type min max) (var-type-and-clamped-range typeset var)))
-    type))
-(define (var-min typeset var)
-  (let-values (((type min max) (var-type-and-clamped-range typeset var)))
-    (if (= min *min-s32*) -inf.0 min)))
-(define (var-max typeset var)
-  (let-values (((type min max) (var-type-and-clamped-range typeset var)))
-    (if (= max *max-s32*) +inf.0 max)))
-
-(define (var-type-and-range typeset var)
-  (let-values (((type min max) (var-type-and-clamped-range typeset var)))
-    (values type
-            (if (= min *min-s32*) -inf.0 min)
-            (if (= max *max-s32*) +inf.0 max))))
-
-(define-syntax-rule (clamp-range val)
-  (cond
-   ((< val *min-s32*) *min-s32*)
-   ((< *max-s32* val) *max-s32*)
-   (else val)))
-
-(define (adjoin-var/clamped typeset var type min max)
-  ;(pk 'adjoin/clamped var type min max)
-  (match (typeset-lookup typeset var)
-    (#f (typeset-add typeset var type min max))
-    (pos
-     (let-values (((_ type* min* max*) (typeset-ref typeset pos)))
-       (let ((type (logior type type*))
-             (min (if (< min min*) min min*))
-             (max (if (> max max*) max max*)))
-         (if (and (eqv? type type*) (eqv? min min*) (eqv? max max*))
-             typeset
-             (typeset-add typeset var type min max)))))))
-(define (adjoin-var typeset var type min max)
-  (adjoin-var/clamped typeset var type (clamp-range min) (clamp-range max)))
-
-(define (restrict-var/clamped typeset var type min max)
-  (let-values (((type* min* max*) (var-type-and-clamped-range typeset var)))
-    (let ((type (logand type type*))
-          (min (if (> min min*) min min*))
-          (max (if (< max max*) max max*)))
-      (if (and (eqv? type type*) (eqv? min min*) (eqv? max max*))
-          typeset
-          (typeset-add typeset var type min max)))))
-(define (restrict-var typeset var type min max)
-  ;(pk 'restrict var type min max)
-  (restrict-var/clamped typeset var type (clamp-range min) (clamp-range max)))
 
 (define *type-checkers* (make-hash-table))
 (define *type-inferrers* (make-hash-table))
@@ -355,11 +346,13 @@ minimum, and maximum."
            ((define!
               (syntax-rules ()
                 ((_ val type min max)
-                 (set! out (adjoin-var out val type min max)))))
+                 (set! out (adjoin-var out val
+                                       (make-type-entry type min max))))))
             (restrict!
              (syntax-rules ()
                ((_ val type min max)
-                (set! out (restrict-var out val type min max)))))
+                (set! out (restrict-var out val
+                                        (make-type-entry type min max))))))
             (&type (syntax-rules () ((_ val) (var-type in val))))
             (&min  (syntax-rules () ((_ val) (var-min in val))))
             (&max  (syntax-rules () ((_ val) (var-max in val)))))
@@ -1119,13 +1112,13 @@ mapping symbols to types."
 
       ;; Initial state: nothing flows into the $kfun.
       (let ((entry (get-entry min-label)))
-        (update-in-types! entry typeset-null)))
+        (update-in-types! entry empty-intmap)))
 
-    (define (adjoin-vars types vars type min max)
+    (define (adjoin-vars types vars entry)
       (match vars
         (() types)
         ((var . vars)
-         (adjoin-vars (adjoin-var types var type min max) vars type min max))))
+         (adjoin-vars (adjoin-var types var entry) vars entry))))
 
     (define (infer-primcall types succ name args result)
       (cond
@@ -1138,9 +1131,34 @@ mapping symbols to types."
                         (append args (list result))
                         args))))
        (result
-        (adjoin-var types result &all-types -inf.0 +inf.0))
+        (adjoin-var types result all-types-entry))
        (else
         types)))
+
+    (define (type-entry-saturating-union a b)
+      (cond
+       ((type-entry<=? b a) a)
+       #;
+       ((and (not saturate-ranges?)
+         (eqv? (a-type ))
+         (type-entry<=? a b)) b)
+       (else (make-type-entry
+              (let* ((a-type (type-entry-type a))
+                     (b-type (type-entry-type b))
+                     (type (logior a-type b-type)))
+                (unless (eqv? a-type type)
+                  (set! types-changed? #t))
+                type)
+              (let ((a-min (type-entry-clamped-min a))
+                    (b-min (type-entry-clamped-min b)))
+                (if (< b-min a-min)
+                    (if saturate-ranges? min-fixnum b-min)
+                    a-min))
+              (let ((a-max (type-entry-clamped-max a))
+                    (b-max (type-entry-clamped-max b)))
+                (if (> b-max a-max)
+                    (if saturate-ranges? max-fixnum b-max)
+                    a-max))))))
 
     (define (propagate-types! pred-label pred-entry succ-idx succ-label out)
       ;; Update "in" set of continuation.
@@ -1154,61 +1172,20 @@ mapping symbols to types."
            (let* ((succ-dom-label (vector-ref idoms (label->idx succ-label)))
                   (succ-dom-entry (get-entry succ-dom-label))
                   (old-in (in-types succ-entry))
-                  (base (or old-in (in-types succ-dom-entry)))
-                  (tail (or (out-types pred-entry succ-idx)
-                            (in-types succ-dom-entry))))
-             (define (name-dominates? name)
-               (let ((d (lookup-def name dfg)))
-                 (or (= d succ-label)
-                     ;; If D is less than min-label, it is a closure
-                     ;; variable and thus dominates the whole function.
-                     ;; However it may not have a definition on the
-                     ;; base; in that case the adjoin will do nothing.
-                     (<= d succ-dom-label))))
-             (define (adjoin base name type min max)
-               (if (name-dominates? name)
-                   (call-with-values
-                       (lambda ()
-                         (var-type-and-clamped-range
-                          base
-                          name
-                          (if (< (lookup-def name dfg) min-label)
-                              ;; A free variable with no restrictions.
-                              (lambda ()
-                                (values &all-types *min-s32* *max-s32*))
-                              ;; The first def'n of a loop variable.
-                              (lambda ()
-                                (values &no-type *max-s32* *min-s32*)))))
-                     (lambda (type* min* max*)
-                       (if (and (eqv? type* (logior type type*))
-                                (<= min* min) (>= max* max))
-                           base
-                           (let ((type (logior type type*))
-                                 (min (if (< min min*)
-                                          (if saturate-ranges? *min-s32* min)
-                                          min*))
-                                 (max (if (> max max*)
-                                          (if saturate-ranges? *max-s32* max)
-                                          max*)))
-                             (unless (eqv? type type*)
-                               (when (<= succ-label pred-label)
-                                        ;(pk 'types-changed name type type*)
-                                 (set! types-changed? #t)))
-                             (typeset-add base name type min max)))))
-                   base))
-             (unless base (error "what!"))
-             (unless tail (error "what2!"))
-             (let ((in (typeset-meet base out tail adjoin)))
-               ;; If the "in" set changed, update the entry and possibly
-               ;; arrange to iterate again.
-               (unless (eq? old-in in)
-                 (update-in-types! succ-entry in)
-                 ;; If the changed successor is a back-edge, ensure that
-                 ;; we revisit the function.
-                 (when (<= succ-label pred-label)
-                   (unless (and revisit-label (< revisit-label succ-label))
-                     ;(pk 'marking-revisit pred-label succ-label)
-                     (set! revisit-label succ-label)))))))))
+                  (in (if old-in
+                          (intmap-intersect old-in out
+                                            type-entry-saturating-union)
+                          out)))
+             ;; If the "in" set changed, update the entry and possibly
+             ;; arrange to iterate again.
+             (unless (eq? old-in in)
+               (update-in-types! succ-entry in)
+               ;; If the changed successor is a back-edge, ensure that
+               ;; we revisit the function.
+               (when (<= succ-label pred-label)
+                 (unless (and revisit-label (<= revisit-label succ-label))
+                   ;; (pk 'marking-revisit pred-label succ-label)
+                   (set! revisit-label succ-label))))))))
       ;; Finally update "out" set for current expression.
       (update-out-types! pred-entry succ-idx out))
 
@@ -1219,7 +1196,10 @@ mapping symbols to types."
       (match exp
         (($ $branch kt ($ $values (arg)))
          ;; The "normal" continuation is the #f branch.
-         (let ((types (restrict-var types arg (logior &boolean &nil) 0 0)))
+         (let ((types (restrict-var types arg
+                                    (make-type-entry (logior &boolean &nil)
+                                                     0
+                                                     0))))
            (propagate! 0 k types))
          ;; No additional information on the #t branch,
          ;; as there's no way currently to remove #f
@@ -1255,30 +1235,23 @@ mapping symbols to types."
                    (propagate! 0 k out))
                   (((def . defs) . (arg . args))
                    (lp defs args
-                       (call-with-values
-                           (lambda ()
-                             (var-type-and-clamped-range in arg))
-                         (lambda (type min max)
-                           (adjoin-var/clamped out def
-                                               type min max)))))))))
+                       (adjoin-var out def (var-type-entry in arg))))))))
            (_
             (propagate! 0 k types))))
         ((or ($ $call) ($ $callk))
          (propagate! 0 k types))
         (_
-         (let-values (((type min max)
-                       (match exp
-                         (($ $void)
-                          (values &unspecified -inf.0 +inf.0))
-                         (($ $const val)
-                          (constant-type val))
-                         ((or ($ $prim) ($ $fun) ($ $closure))
-                          ;; Could be more precise here.
-                          (values &procedure -inf.0 +inf.0)))))
-           (match (lookup-cont k dfg)
-             (($ $kargs (_) (var))
-              (let ((types (adjoin-var types var type min max)))
-                (propagate! 0 k types))))))))
+         (match (lookup-cont k dfg)
+           (($ $kargs (_) (var))
+            (let ((entry (match exp
+                           (($ $void)
+                            (make-type-entry &unspecified -inf.0 +inf.0))
+                           (($ $const val)
+                            (constant-type val))
+                           ((or ($ $prim) ($ $fun) ($ $closure))
+                            ;; Could be more precise here.
+                            (make-type-entry &procedure -inf.0 +inf.0)))))
+              (propagate! 0 k (adjoin-var types var entry))))))))
 
     (prepare-initial-state!)
 
@@ -1301,7 +1274,8 @@ mapping symbols to types."
                  (($ $letrec names vars funs term)
                   (visit-term term
                               (adjoin-vars types vars
-                                           &procedure -inf.0 +inf.0)))
+                                           (make-type-entry &procedure
+                                                            -inf.0 +inf.0))))
                  (($ $letk conts term)
                   (visit-term term types))
                  (($ $continue k src exp)
@@ -1310,19 +1284,16 @@ mapping symbols to types."
              (match (lookup-cont k dfg)
                (($ $kargs names vars)
                 (propagate! 0 k
-                             (adjoin-vars types vars
-                                          &all-types -inf.0 +inf.0)))))
+                             (adjoin-vars types vars all-types-entry)))))
             (($ $kfun src meta self tail clause)
-             (let ((types (adjoin-var types self
-                                      &all-types -inf.0 +inf.0)))
+             (let ((types (adjoin-var types self all-types-entry)))
                (match clause
                  (#f #f)
                  (($ $cont kclause)
                   (propagate! 0 kclause types)))))
             (($ $kclause arity ($ $cont kbody ($ $kargs names vars)) alt)
              (propagate! 0 kbody
-                         (adjoin-vars types vars
-                                      &all-types -inf.0 +inf.0))
+                         (adjoin-vars types vars all-types-entry))
              (match alt
                (#f #f)
                (($ $cont kclause)
@@ -1368,14 +1339,20 @@ mapping symbols to types."
 (define (lookup-pre-type analysis label def)
   (match analysis
     (($ <type-analysis> min-label label-count typev)
-     (let ((entry (vector-ref typev (- label min-label))))
-       (var-type-and-range (vector-ref entry 0) def)))))
+     (let* ((entry (vector-ref typev (- label min-label)))
+            (tentry (var-type-entry (vector-ref entry 0) def)))
+       (values (type-entry-type tentry)
+               (type-entry-min tentry)
+               (type-entry-max tentry))))))
 
 (define (lookup-post-type analysis label def succ-idx)
   (match analysis
     (($ <type-analysis> min-label label-count typev)
-     (let ((entry (vector-ref typev (- label min-label))))
-       (var-type-and-range (vector-ref entry (1+ succ-idx)) def)))))
+     (let* ((entry (vector-ref typev (- label min-label)))
+            (tentry (var-type-entry (vector-ref entry (1+ succ-idx)) def)))
+       (values (type-entry-type tentry)
+               (type-entry-min tentry)
+               (type-entry-max tentry))))))
 
 (define (primcall-types-check? analysis label name args)
   (match (hashq-ref *type-checkers* name)
