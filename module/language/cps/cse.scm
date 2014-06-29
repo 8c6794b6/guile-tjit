@@ -63,7 +63,7 @@
 
 (define (compute-available-expressions dfg min-label label-count idoms)
   "Compute and return the continuations that may be reached if flow
-reaches a continuation N.  Returns a vector of bitvectors, whose first
+reaches a continuation N.  Returns a vector of intsets, whose first
 index corresponds to MIN-LABEL, and so on."
   (let* ((effects (compute-effects dfg min-label label-count))
          ;; Vector of intsets, indicating that at a continuation N, the
@@ -148,70 +148,65 @@ index corresponds to MIN-LABEL, and so on."
 (define (compute-truthy-expressions dfg min-label label-count)
   "Compute a \"truth map\", indicating which expressions can be shown to
 be true and/or false at each of LABEL-COUNT expressions in DFG, starting
-from MIN-LABEL.  Returns a vector of bitvectors, each bitvector twice as
-long as LABEL-COUNT.  The first half of the bitvector indicates labels
-that may be true, and the second half those that may be false.  It could
-be that both true and false proofs are available."
-  (let ((boolv (make-vector label-count #f)))
+from MIN-LABEL.  Returns a vector of intsets, each intset twice as long
+as LABEL-COUNT.  The even elements of the intset indicate labels that
+may be true, and the odd ones indicate those that may be false.  It
+could be that both true and false proofs are available."
+  (let ((boolv (make-vector label-count #f))
+        (revisit-label #f))
     (define (label->idx label) (- label min-label))
     (define (idx->label idx) (+ idx min-label))
-    (define (true-idx idx) idx)
-    (define (false-idx idx) (+ idx label-count))
+    (define (true-idx idx) (ash idx 1))
+    (define (false-idx idx) (1+ (ash idx 1)))
+
+    (define (propagate! pred succ out)
+      (let* ((succ-idx (label->idx succ))
+             (in (match (lookup-predecessors succ dfg)
+                   ;; Fast path: normal control flow.
+                   ((_) out)
+                   ;; Slow path: control-flow join.
+                   (_ (cond
+                       ((vector-ref boolv succ-idx)
+                        => (lambda (in)
+                             (intset-intersect in out)))
+                       (else out))))))
+        (when (and (<= succ pred)
+                   (or (not revisit-label) (< succ revisit-label))
+                   (not (eq? in (vector-ref boolv succ-idx))))
+          (set! revisit-label succ))
+        (vector-set! boolv succ-idx in)))
+
+    (vector-set! boolv 0 empty-intset)
 
     (let lp ((n 0))
-      (when (< n label-count)
-        (let ((bool (make-bitvector (* label-count 2) #f)))
-          (vector-set! boolv n bool)
-          (lp (1+ n)))))
-
-    (let ((tmp (make-bitvector (* label-count 2) #f)))
-      (define (bitvector-copy! dst src)
-        (bitvector-fill! dst #f)
-        (bit-set*! dst src #t))
-      (define (intersect! dst src)
-        (bitvector-copy! tmp src)
-        (bit-invert! tmp)
-        (bit-set*! dst tmp #f))
-      (let lp ((n 0) (first? #t) (changed? #f))
-        (cond
-         ((< n label-count)
-          (let* ((label (idx->label n))
-                 (bool (vector-ref boolv n))
-                 (prev-count (bit-count #t bool)))
-            ;; Intersect truthiness from all predecessors.
-            (let lp ((preds (lookup-predecessors label dfg))
-                     (initialized? #f))
-              (match preds
-                (() #t)
-                ((pred . preds)
-                 (let ((pidx (label->idx pred)))
-                   (cond
-                    ((and first? (<= n pidx))
-                     ;; Avoid intersecting back-edges and cross-edges on
-                     ;; the first iteration.
-                     (lp preds initialized?))
-                    (else
-                     (if initialized?
-                         (intersect! bool (vector-ref boolv pidx))
-                         (bitvector-copy! bool (vector-ref boolv pidx)))
-                     (match (lookup-cont pred dfg)
-                       (($ $kargs _ _ term)
-                        (match (find-call term)
-                          (($ $continue kf ($ $branch kt exp))
-                           (when (eqv? kt label)
-                             (bitvector-set! bool (true-idx pidx) #t))
-                           (when (eqv? kf label)
-                             (bitvector-set! bool (false-idx pidx) #t)))
-                          (_ #t)))
-                       (_ #t))
-                     (lp preds #t)))))))
-            (lp (1+ n) first?
-                (or changed?
-                    (not (= prev-count (bit-count #t bool)))))))
-         (else
-          (if (or first? changed?)
-              (lp 0 #f #f)
-              boolv)))))))
+      (cond
+       ((< n label-count)
+        (let* ((label (idx->label n))
+               ;; It's possible for "in" to be #f if it has no
+               ;; predecessors, as is the case for the ktail of a
+               ;; function with an iloop.
+               (in (or (vector-ref boolv n) empty-intset)))
+          (define (default-propagate)
+            (let visit-succs ((succs (cont-successors (lookup-cont label dfg))))
+              (match succs
+                (() (lp (1+ n)))
+                ((succ . succs)
+                 (propagate! label succ in)
+                 (visit-succs succs)))))
+          (match (lookup-cont label dfg)
+            (($ $kargs names syms body)
+             (match (find-call body)
+               (($ $continue k src ($ $branch kt))
+                (propagate! label k (intset-add in (false-idx n)))
+                (propagate! label kt (intset-add in (true-idx n)))
+                (lp (1+ n)))
+               (_ (default-propagate))))
+            (_ (default-propagate)))))
+       (revisit-label
+        (let ((n (label->idx revisit-label)))
+          (set! revisit-label #f)
+          (lp n)))
+       (else boolv)))))
 
 ;; Returns a map of label-idx -> (var-idx ...) indicating the variables
 ;; defined by a given labelled expression.
@@ -434,8 +429,8 @@ be that both true and false proofs are available."
   (define (label->idx label) (- label min-label))
   (define (idx->var idx) (+ idx min-var))
   (define (var->idx var) (- var min-var))
-  (define (true-idx idx) idx)
-  (define (false-idx idx) (+ idx (vector-length equiv-labels)))
+  (define (true-idx idx) (ash idx 1))
+  (define (false-idx idx) (1+ (ash idx 1)))
 
   (define (subst-var var)
     ;; It could be that the var is free in this function; if so,
@@ -495,8 +490,8 @@ be that both true and false proofs are available."
                   (match exp
                     (($ $branch kt exp)
                      (let* ((bool (vector-ref boolv (label->idx label)))
-                            (t (bitvector-ref bool (true-idx eidx)))
-                            (f (bitvector-ref bool (false-idx eidx))))
+                            (t (intset-ref bool (true-idx eidx)))
+                            (f (intset-ref bool (false-idx eidx))))
                        (if (eqv? t f)
                            (build-cps-term
                              ($continue k src
