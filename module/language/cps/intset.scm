@@ -396,22 +396,30 @@
         (else
          (let* ((b-shift (- b-shift *branch-bits*))
                 (b-idx (ash (- a-min b-min) (- b-shift))))
-           (if (>= b-idx *branch-size*)
-               ;; A has a lower shift, but it not within B.
-               empty-intset
-               (intset-intersect a
-                                 (make-intset (+ b-min (ash b-idx b-shift))
-                                              b-shift
-                                              (vector-ref b-root b-idx))))))))
+           (cond
+            ((>= b-idx *branch-size*)
+             ;; A has a lower shift, but it not within B.
+             empty-intset)
+            ((vector-ref b-root b-idx)
+             => (lambda (b-root)
+                  (intset-intersect a
+                                    (make-intset (+ b-min (ash b-idx b-shift))
+                                                 b-shift
+                                                 b-root))))
+            (else empty-intset))))))
       ((< b-shift a-shift)
        ;; Make A have the lower shift.
        (intset-intersect b a))
       ((< a-shift b-shift)
        ;; A and B have the same min but a different shift.  Recurse down.
-       (intset-intersect a
-                         (make-intset b-min
-                                      (- b-shift *branch-bits*)
-                                      (vector-ref b-root 0))))
+       (cond
+        ((vector-ref b-root 0)
+         => (lambda (b-root)
+              (intset-intersect a
+                                (make-intset b-min
+                                             (- b-shift *branch-bits*)
+                                             b-root))))
+        (else empty-intset)))
       (else
        ;; At this point, A and B cover the same range.
        (let ((root (intersect a-shift a-root b-root)))
