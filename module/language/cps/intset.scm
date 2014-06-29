@@ -380,46 +380,54 @@
      ((eq? a-node b-node) a-node)
      ((= shift *leaf-bits*) (intersect-leaves a-node b-node))
      (else (intersect-branches (- shift *branch-bits*) a-node b-node))))
+
+  (define (different-mins lo-min lo-shift lo-root hi-min hi-shift hi lo-is-a?)
+    (cond
+     ((<= lo-shift hi-shift)
+      ;; If LO has a lower shift and a lower min, it is disjoint.  If
+      ;; it has the same shift and a different min, it is also
+      ;; disjoint.
+      empty-intset)
+     (else
+      (let* ((lo-shift (- lo-shift *branch-bits*))
+             (lo-idx (ash (- hi-min lo-min) (- lo-shift))))
+        (cond
+         ((>= lo-idx *branch-size*)
+          ;; HI has a lower shift, but it not within LO.
+          empty-intset)
+         ((vector-ref lo-root lo-idx)
+          => (lambda (lo-root)
+               (let ((lo (make-intset (+ lo-min (ash lo-idx lo-shift))
+                                      lo-shift
+                                      lo-root)))
+                 (if lo-is-a?
+                     (intset-intersect lo hi)
+                     (intset-intersect hi lo)))))
+         (else empty-intset))))))
+
+  (define (different-shifts-same-min min hi-shift hi-root lo lo-is-a?)
+    (cond
+     ((vector-ref hi-root 0)
+      => (lambda (hi-root)
+           (let ((hi (make-intset min
+                                  (- hi-shift *branch-bits*)
+                                  hi-root)))
+             (if lo-is-a?
+                 (intset-intersect lo hi)
+                 (intset-intersect hi lo)))))
+     (else empty-intset)))
+
   (match (cons a b)
     ((($ <intset> a-min a-shift a-root) . ($ <intset> b-min b-shift b-root))
      (cond
       ((< a-min b-min)
-       ;; Make A have the higher min.
-       (intset-intersect b a))
+       (different-mins a-min a-shift a-root b-min b-shift b #t))
       ((< b-min a-min)
-       (cond
-        ((<= b-shift a-shift)
-         ;; If B has a lower shift and a lower min, it is disjoint.  If
-         ;; it has the same shift and a different min, it is also
-         ;; disjoint.
-         empty-intset)
-        (else
-         (let* ((b-shift (- b-shift *branch-bits*))
-                (b-idx (ash (- a-min b-min) (- b-shift))))
-           (cond
-            ((>= b-idx *branch-size*)
-             ;; A has a lower shift, but it not within B.
-             empty-intset)
-            ((vector-ref b-root b-idx)
-             => (lambda (b-root)
-                  (intset-intersect a
-                                    (make-intset (+ b-min (ash b-idx b-shift))
-                                                 b-shift
-                                                 b-root))))
-            (else empty-intset))))))
-      ((< b-shift a-shift)
-       ;; Make A have the lower shift.
-       (intset-intersect b a))
+       (different-mins b-min b-shift b-root a-min a-shift a #f))
       ((< a-shift b-shift)
-       ;; A and B have the same min but a different shift.  Recurse down.
-       (cond
-        ((vector-ref b-root 0)
-         => (lambda (b-root)
-              (intset-intersect a
-                                (make-intset b-min
-                                             (- b-shift *branch-bits*)
-                                             b-root))))
-        (else empty-intset)))
+       (different-shifts-same-min b-min b-shift b-root a #t))
+      ((< b-shift a-shift)
+       (different-shifts-same-min a-min a-shift a-root b #f))
       (else
        ;; At this point, A and B cover the same range.
        (let ((root (intersect a-shift a-root b-root)))
