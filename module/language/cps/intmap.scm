@@ -349,23 +349,31 @@
      (else
       (let* ((lo-shift (- lo-shift *branch-bits*))
              (lo-idx (ash (- hi-min lo-min) (- lo-shift))))
-        (if (>= lo-idx *branch-size*)
-            ;; HI has a lower shift, but it not within LO.
-            empty-intmap
-            (let ((lo (make-intmap (+ lo-min (ash lo-idx lo-shift))
-                                   lo-shift
-                                   (vector-ref lo-root lo-idx))))
-              (if lo-is-a?
-                  (intmap-intersect lo hi meet)
-                  (intmap-intersect hi lo meet))))))))
+        (cond
+         ((>= lo-idx *branch-size*)
+          ;; HI has a lower shift, but it not within LO.
+          empty-intmap)
+         ((vector-ref lo-root lo-idx)
+          => (lambda (lo-root)
+               (let ((lo (make-intmap (+ lo-min (ash lo-idx lo-shift))
+                                      lo-shift
+                                      lo-root)))
+                 (if lo-is-a?
+                     (intmap-intersect lo hi meet)
+                     (intmap-intersect hi lo meet)))))
+         (else empty-intmap))))))
 
   (define (different-shifts-same-min min hi-shift hi-root lo lo-is-a?)
-    (let ((hi (make-intmap min
-                           (- hi-shift *branch-bits*)
-                           (vector-ref hi-root 0))))
-      (if lo-is-a?
-          (intmap-intersect lo hi meet)
-          (intmap-intersect hi lo meet))))
+    (cond
+     ((vector-ref hi-root 0)
+      => (lambda (hi-root)
+           (let ((hi (make-intmap min
+                                  (- hi-shift *branch-bits*)
+                                  hi-root)))
+             (if lo-is-a?
+                 (intmap-intersect lo hi meet)
+                 (intmap-intersect hi lo meet)))))
+     (else empty-intmap)))
 
   (match (cons a b)
     ((($ <intmap> a-min a-shift a-root) . ($ <intmap> b-min b-shift b-root))
