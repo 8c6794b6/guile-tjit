@@ -40,7 +40,26 @@
 (define-syntax-rule (define-inline name val)
   (define-syntax name (identifier-syntax val)))
 
-(define-inline *leaf-bits* 5)
+(eval-when (expand)
+  (use-modules (system base target))
+  (define-syntax compile-time-cond
+    (lambda (x)
+      (syntax-case x (else)
+        ((_ (test body ...) rest ...)
+         (if (primitive-eval (syntax->datum #'test))
+             #'(begin body ...)
+             #'(begin (compile-time-cond rest ...))))
+        ((_ (else body ...))
+         #'(begin body ...))
+        ((_)
+         (error "no compile-time-cond expression matched"))))))
+
+(compile-time-cond
+ ((eqv? (target-word-size) 4)
+  (define-inline *leaf-bits* 4))
+ ((eqv? (target-word-size) 8)
+  (define-inline *leaf-bits* 5)))
+
 (define-inline *leaf-size* (ash 1 *leaf-bits*))
 (define-inline *leaf-mask* (1- *leaf-size*))
 (define-inline *branch-bits* 3)
