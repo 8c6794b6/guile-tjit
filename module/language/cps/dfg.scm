@@ -41,6 +41,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
+  #:use-module (language cps intset)
   #:export (build-cont-table
             lookup-cont
 
@@ -139,48 +140,39 @@
   "Compute and return the continuations that may be reached if flow
 reaches a continuation N.  Returns a vector of bitvectors, whose first
 index corresponds to MIN-LABEL, and so on."
-  (let (;; Vector of bitvectors, indicating that continuation N can
+  (let (;; Vector of intsets, indicating that continuation N can
         ;; reach a set M...
         (reachable (make-vector label-count #f)))
 
     (define (label->idx label) (- label min-label))
 
-    ;; All continuations are reachable from themselves.
-    (let lp ((n 0))
-      (when (< n label-count)
-        (let ((bv (make-bitvector label-count #f)))
-          (bitvector-set! bv n #t)
-          (vector-set! reachable n bv)
-          (lp (1+ n)))))
-
     ;; Iterate labels backwards, to converge quickly.
-    (let ((tmp (make-bitvector label-count #f)))
-      (define (add-reachable! succ)
-        (bit-set*! tmp (vector-ref reachable (label->idx succ)) #t))
-      (let lp ((label (+ min-label label-count)) (changed? #f))
-        (cond
-         ((= label min-label)
-          (if changed?
-              (lp (+ min-label label-count) #f)
-              reachable))
-         (else
-          (let* ((label (1- label))
-                 (idx (label->idx label)))
-            (bitvector-fill! tmp #f)
-            (visit-cont-successors
-             (case-lambda
-               (() #t)
-               ((succ0) (add-reachable! succ0))
-               ((succ0 succ1) (add-reachable! succ0) (add-reachable! succ1)))
-             (lookup-cont label dfg))
-            (bitvector-set! tmp idx #t)
-            (bit-set*! tmp (vector-ref reachable idx) #f)
-            (cond
-             ((bit-position #t tmp 0)
-              (bit-set*! (vector-ref reachable idx) tmp #t)
-              (lp label #t))
-             (else
-              (lp label changed?))))))))))
+    (let lp ((label (+ min-label label-count)) (changed? #f))
+      (cond
+       ((= label min-label)
+        (if changed?
+            (lp (+ min-label label-count) #f)
+            reachable))
+       (else
+        (let* ((label (1- label))
+               (idx (label->idx label))
+               (old (vector-ref reachable idx))
+               (new (fold (lambda (succ set)
+                            (cond
+                             ((vector-ref reachable (label->idx succ))
+                              => (lambda (succ-set)
+                                   (intset-union set succ-set)))
+                             (else set)))
+                          (or (vector-ref reachable idx)
+                              (intset-add empty-intset label))
+                          (visit-cont-successors list
+                                                 (lookup-cont label dfg)))))
+          (cond
+           ((eq? old new)
+            (lp label changed?))
+           (else
+            (vector-set! reachable idx new)
+            (lp label #t)))))))))
 
 (define (find-prompts dfg min-label label-count)
   "Find the prompts in DFG between MIN-LABEL and MIN-LABEL +
@@ -201,19 +193,17 @@ pairs."
 
 (define (compute-interval reachable min-label label-count start end)
   "Compute and return the set of continuations that may be reached from
-START, inclusive, but not reached by END, exclusive.  Returns a
-bitvector."
-  (let ((body (make-bitvector label-count #f)))
-    (bit-set*! body (vector-ref reachable (- start min-label)) #t)
-    (bit-set*! body (vector-ref reachable (- end min-label)) #f)
-    body))
+START, inclusive, but not reached by END, exclusive.  Returns an
+intset."
+  (intset-subtract (vector-ref reachable (- start min-label))
+                   (vector-ref reachable (- end min-label))))
 
 (define (find-prompt-bodies dfg min-label label-count)
   "Find all the prompts in DFG from the LABEL-COUNT continuations
 starting at MIN-LABEL, and compute the set of continuations that is
 reachable from the prompt bodies but not from the corresponding handler.
-Returns a list of PROMPT, HANDLER, BODY lists, where the BODY is a
-bitvector."
+Returns a list of PROMPT, HANDLER, BODY lists, where the BODY is an
+intset."
   (match (find-prompts dfg min-label label-count)
     (() '())
     (((prompt . handler) ...)
@@ -246,7 +236,7 @@ body continuation in the prompt."
   (for-each
    (match-lambda
     ((prompt handler body)
-     (define (out-or-back-edge? n)
+     (define (out-or-back-edge? label)
        ;; Most uses of visit-prompt-control-flow don't need every body
        ;; continuation, and would be happy getting called only for
        ;; continuations that postdominate the rest of the body.  Unless
@@ -259,16 +249,15 @@ body continuation in the prompt."
        ;; not continue to the pop if it never terminates.  The pop could
        ;; even be removed by DCE, in that case.
        (or-map (lambda (succ)
-                 (let ((succ (label->idx succ)))
-                   (or (not (bitvector-ref body succ))
-                       (<= succ n))))
-               (lookup-successors (idx->label n) dfg)))
-     (let lp ((n 0))
-       (let ((n (bit-position #t body n)))
-         (when n
-           (when (or complete? (out-or-back-edge? n))
-             (f prompt handler (idx->label n)))
-           (lp (1+ n)))))))
+                 (or (not (intset-ref body succ))
+                     (<= succ label)))
+               (lookup-successors label dfg)))
+     (let lp ((label min-label))
+       (let ((label (intset-next body label)))
+         (when label
+           (when (or complete? (out-or-back-edge? label))
+             (f prompt handler label))
+           (lp (1+ label)))))))
    (find-prompt-bodies dfg min-label label-count)))
 
 (define (analyze-reverse-control-flow fun dfg min-label label-count)
