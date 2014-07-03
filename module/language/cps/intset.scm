@@ -152,6 +152,9 @@
   (match bs
     (($ <intset> min shift root)
      (cond
+      ((< i 0)
+       ;; The power-of-two spanning trick doesn't work across 0.
+       (error "Intsets can only hold non-negative integers." i))
       ((not root)
        ;; Add first element.
        (let ((min (round-down i shift)))

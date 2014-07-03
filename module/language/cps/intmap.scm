@@ -121,6 +121,9 @@
   (match bs
     (($ <intmap> min shift root)
      (cond
+      ((< i 0)
+       ;; The power-of-two spanning trick doesn't work across 0.
+       (error "Intmaps can only map non-negative integers." i))
       ((not val) (intmap-remove bs i))
       ((not root)
        ;; Add first element.
