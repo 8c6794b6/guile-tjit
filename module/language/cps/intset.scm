@@ -36,7 +36,8 @@
             intset-next
             intset-union
             intset-intersect
-            intset-subtract))
+            intset-subtract
+            bitvector->intset))
 
 (define-syntax-rule (define-inline name val)
   (define-syntax name (identifier-syntax val)))
@@ -536,3 +537,20 @@
                 (if (eq? old new)
                     a-root
                     (clone-branch-and-set a-root a-idx new)))))))))))
+
+(define (bitvector->intset bv)
+  (define (finish-tail out min tail)
+    (if (zero? tail)
+        out
+        (intset-union out (make-intset min *leaf-bits* tail))))
+  (let lp ((out empty-intset) (min 0) (pos 0) (tail 0))
+    (let ((pos (bit-position #t bv pos)))
+      (cond
+       ((not pos)
+        (finish-tail out min tail))
+       ((< pos (+ min *leaf-size*))
+        (lp out min (1+ pos) (logior tail (ash 1 (- pos min)))))
+       (else
+        (let ((min* (round-down pos *leaf-bits*)))
+          (lp (finish-tail out min tail)
+              min* pos (ash 1 (- pos min*)))))))))
