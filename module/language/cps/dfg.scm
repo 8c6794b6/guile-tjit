@@ -138,7 +138,7 @@
 
 (define (compute-reachable dfg min-label label-count)
   "Compute and return the continuations that may be reached if flow
-reaches a continuation N.  Returns a vector of bitvectors, whose first
+reaches a continuation N.  Returns a vector of intsets, whose first
 index corresponds to MIN-LABEL, and so on."
   (let (;; Vector of intsets, indicating that continuation N can
         ;; reach a set M...
@@ -395,41 +395,6 @@ body continuation in the prompt."
 ;; We'll need it again eventually but for now it can be found in the git
 ;; history.
 
-;; Compute the maximum fixed point of the data-flow constraint problem.
-;;
-;; This always completes, as the graph is finite and the in and out sets
-;; are complete semi-lattices.  If the graph is reducible and the blocks
-;; are sorted in reverse post-order, this completes in a maximum of LC +
-;; 2 iterations, where LC is the loop connectedness number.  See Hecht
-;; and Ullman, "Analysis of a simple algorithm for global flow
-;; problems", POPL 1973, or the recent summary in "Notes on graph
-;; algorithms used in optimizing compilers", Offner 2013.
-(define (compute-maximum-fixed-point preds inv outv killv genv union?)
-  (define (bitvector-copy! dst src)
-    (bitvector-fill! dst #f)
-    (bit-set*! dst src #t))
-  (define (bitvector-meet! accum src)
-    (bit-set*! accum src union?))
-  (let lp ((n 0) (changed? #f))
-    (cond
-     ((< n (vector-length preds))
-      (let ((in (vector-ref inv n))
-            (out (vector-ref outv n))
-            (kill (vector-ref killv n))
-            (gen (vector-ref genv n)))
-        (let ((out-count (or changed? (bit-count #t out))))
-          (for-each
-           (lambda (pred)
-             (bitvector-meet! in (vector-ref outv pred)))
-           (vector-ref preds n))
-          (bitvector-copy! out in)
-          (for-each (cut bitvector-set! out <> #f) kill)
-          (for-each (cut bitvector-set! out <> #t) gen)
-          (lp (1+ n)
-              (or changed? (not (eqv? out-count (bit-count #t out))))))))
-     (changed?
-      (lp 0 #f)))))
-
 ;; Data-flow analysis.
 (define-record-type $dfa
   (make-dfa min-label min-var var-count in out)
@@ -440,9 +405,9 @@ body continuation in the prompt."
   (min-var dfa-min-var)
   ;; Var count in this function.
   (var-count dfa-var-count)
-  ;; Vector of k-idx -> bitvector
+  ;; Vector of k-idx -> intset
   (in dfa-in)
-  ;; Vector of k-idx -> bitvector
+  ;; Vector of k-idx -> intset
   (out dfa-out))
 
 (define (dfa-k-idx dfa k)
@@ -472,6 +437,49 @@ body continuation in the prompt."
   (vector-ref (dfa-out dfa) idx))
 
 (define (compute-live-variables fun dfg)
+  ;; Compute the maximum fixed point of the data-flow constraint problem.
+  ;;
+  ;; This always completes, as the graph is finite and the in and out sets
+  ;; are complete semi-lattices.  If the graph is reducible and the blocks
+  ;; are sorted in reverse post-order, this completes in a maximum of LC +
+  ;; 2 iterations, where LC is the loop connectedness number.  See Hecht
+  ;; and Ullman, "Analysis of a simple algorithm for global flow
+  ;; problems", POPL 1973, or the recent summary in "Notes on graph
+  ;; algorithms used in optimizing compilers", Offner 2013.
+  (define (compute-maximum-fixed-point preds inv outv killv genv)
+    (define (fold f seed l)
+      (if (null? l) seed (fold f (f (car l) seed) (cdr l))))
+    (let lp ((n 0) (changed? #f))
+      (cond
+       ((< n (vector-length preds))
+        (let* ((in (vector-ref inv n))
+               (in* (or
+                     (fold (lambda (pred set)
+                             (cond
+                              ((vector-ref outv pred)
+                               => (lambda (out)
+                                    (if set
+                                        (intset-union set out)
+                                        out)))
+                              (else set)))
+                           in
+                           (vector-ref preds n))
+                     empty-intset)))
+          (if (eq? in in*)
+              (lp (1+ n) changed?)
+              (let ((out* (fold (lambda (gen set)
+                                  (intset-add set gen))
+                                (fold (lambda (kill set)
+                                        (intset-remove set kill))
+                                      in*
+                                      (vector-ref killv n))
+                                (vector-ref genv n))))
+                (vector-set! inv n in*)
+                (vector-set! outv n out*)
+                (lp (1+ n) #t)))))
+       (changed?
+        (lp 0 #f)))))
+
   (unless (and (= (vector-length (dfg-uses dfg)) (dfg-var-count dfg))
                (= (vector-length (dfg-cont-table dfg)) (dfg-label-count dfg)))
     (error "function needs renumbering"))
@@ -508,18 +516,11 @@ body continuation in the prompt."
                           (vector-ref uses n))
                 (lp (1+ n))))))
 
-        ;; Initialize live-in and live-out sets.
-        (let lp ((n 0))
-          (when (< n (vector-length live-out))
-            (vector-set! live-in n (make-bitvector nvars #f))
-            (vector-set! live-out n (make-bitvector nvars #f))
-            (lp (1+ n))))
-
         ;; Liveness is a reverse data-flow problem, so we give
         ;; compute-maximum-fixed-point a reversed graph, swapping in for
         ;; out, usev for defv, and using successors instead of
         ;; predecessors.  Continuation 0 is ktail.
-        (compute-maximum-fixed-point succs live-out live-in defv usev #t)
+        (compute-maximum-fixed-point succs live-out live-in defv usev)
 
         ;; Now rewrite the live-in and live-out sets to be indexed by
         ;; (LABEL - MIN-LABEL).
@@ -539,7 +540,7 @@ body continuation in the prompt."
     (($ $dfa min-label min-var var-count in out)
      (define (print-var-set bv)
        (let lp ((n 0))
-         (let ((n (bit-position #t bv n)))
+         (let ((n (intset-next bv n)))
            (when n
              (format #t " ~A" (+ n min-var))
              (lp (1+ n))))))

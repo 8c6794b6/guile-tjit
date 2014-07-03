@@ -29,6 +29,7 @@
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
   #:use-module (language cps dfg)
+  #:use-module (language cps intset)
   #:export (allocate-slots
             lookup-slot
             lookup-maybe-slot
@@ -224,10 +225,10 @@ are comparable with eqv?.  A tmp slot may be used."
                       (loop to-move b (cons s+d moved) last-source))))))))))
 
 (define (dead-after-def? k-idx v-idx dfa)
-  (not (bitvector-ref (dfa-k-in dfa k-idx) v-idx)))
+  (not (intset-ref (dfa-k-in dfa k-idx) v-idx)))
 
 (define (dead-after-use? k-idx v-idx dfa)
-  (not (bitvector-ref (dfa-k-out dfa k-idx) v-idx)))
+  (not (intset-ref (dfa-k-out dfa k-idx) v-idx)))
 
 (define (allocate-slots fun dfg)
   (let* ((dfa (compute-live-variables fun dfg))
@@ -283,7 +284,7 @@ are comparable with eqv?.  A tmp slot may be used."
     (define (recompute-live-slots k nargs)
       (let ((in (dfa-k-in dfa (label->idx k))))
         (let lp ((v 0) (live-slots 0))
-          (let ((v (bit-position #t in v)))
+          (let ((v (intset-next in v)))
             (if v
                 (let ((slot (vector-ref slots v)))
                   (lp (1+ v)
@@ -419,6 +420,8 @@ are comparable with eqv?.  A tmp slot may be used."
         (dfa-k-in dfa n))
       (define (live-after n)
         (dfa-k-out dfa n))
+      (define needs-slot
+        (bitvector->intset needs-slotv))
 
       ;; Walk backwards.  At a call, compute the set of variables that
       ;; have allocated slots and are live before but not after.  This
@@ -429,12 +432,10 @@ are comparable with eqv?.  A tmp slot may be used."
             (($ $kargs names syms body)
              (match (find-expression body)
                ((or ($ $call) ($ $callk))
-                (let ((args (make-bitvector (bitvector-length needs-slotv) #f)))
-                  (bit-set*! args (live-before n) #t)
-                  (bit-set*! args (live-after n) #f)
-                  (bit-set*! args no-slot-needed #f)
-                  (if (bit-position #t args 0)
-                      (scan-for-hints (1- n) args)
+                (let* ((args (intset-subtract (live-before n) (live-after n)))
+                       (args-needing-slots (intset-intersect args needs-slot)))
+                  (if (intset-next args-needing-slots #f)
+                      (scan-for-hints (1- n) args-needing-slots)
                       (scan-for-call (1- n)))))
                (_ (scan-for-call (1- n)))))
             (_ (scan-for-call (1- n))))))
@@ -458,11 +459,8 @@ are comparable with eqv?.  A tmp slot may be used."
                        ;; assumptions that slots not allocated are not
                        ;; used.
                        ($ $values (or () (_))))
-                   (let ((dead (make-bitvector (bitvector-length args) #f)))
-                     (bit-set*! dead (live-before n) #t)
-                     (bit-set*! dead (live-after n) #f)
-                     (bit-set*! dead no-slot-needed #f)
-                     (if (bit-position #t dead 0)
+                   (let ((killed (intset-subtract (live-before n) (live-after n))))
+                     (if (intset-next (intset-intersect killed needs-slot) #f)
                          (finish-hints n (live-before n) args)
                          (scan-for-hints (1- n) args))))
                   ((or ($ $call) ($ $callk) ($ $values) ($ $branch))
@@ -474,17 +472,14 @@ are comparable with eqv?.  A tmp slot may be used."
       ;; Add definitions ARGS minus KILL to NEED-HINTS, and go back to
       ;; looking for calls.
       (define (finish-hints n kill args)
-        (bit-invert! args)
-        (bit-set*! args kill #t)
-        (bit-invert! args)
-        (bit-set*! needs-hintv args #t)
+        (let ((new-hints (intset-subtract args kill)))
+          (let lp ((n 0))
+            (let ((n (intset-next new-hints n)))
+              (when n
+                (bitvector-set! needs-hintv n #t)
+                (lp (1+ n))))))
         (scan-for-call n))
 
-      (define no-slot-needed
-        (make-bitvector (bitvector-length needs-slotv) #f))
-
-      (bit-set*! no-slot-needed needs-slotv #t)
-      (bit-invert! no-slot-needed)
       (scan-for-call (1- label-count)))
 
     (define (allocate-call label k uses pre-live post-live)
