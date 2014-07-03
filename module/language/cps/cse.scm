@@ -101,7 +101,9 @@ index corresponds to MIN-LABEL, and so on."
           ;; Fast-path if this expression clobbers nothing.
           in)
          (else
-          ;; Kill clobbered expressions.
+          ;; Kill clobbered expressions.  There is no need to check on
+          ;; any label before than the last dominating label that
+          ;; clobbered everything.
           (let ((first (let lp ((dom label))
                          (let* ((dom (vector-ref idoms (label->idx dom))))
                            (and (< min-label dom)
