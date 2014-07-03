@@ -123,6 +123,19 @@
     ((= <= <) (values #t #f))
     (else (values #f #f))))
 
+(define-binary-branch-folder (logtest type0 min0 max0 type1 min1 max1)
+  (define (logand-min a b)
+    (if (< a b 0)
+        (min a b)
+        0))
+  (define (logand-max a b)
+    (if (< a b 0)
+        0
+        (max a b)))
+  (if (and (= min0 max0) (= min1 max1) (eqv? type0 type1 &exact-integer))
+      (values #t (logtest min0 min1))
+      (values #f #f)))
+
 (define (compute-folded fun dfg min-label min-var)
   (define (scalar-value type val)
     (cond

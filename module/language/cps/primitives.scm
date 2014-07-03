@@ -86,7 +86,8 @@
     (< . (1 . 2))
     (> . (1 . 2))
     (<= . (1 . 2))
-    (>= . (1 . 2))))
+    (>= . (1 . 2))
+    (logtest . (1 . 2))))
 
 (define (compute-prim-instructions)
   (let ((table (make-hash-table)))

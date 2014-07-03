@@ -95,6 +95,7 @@
             (emit-br-if-=* . emit-br-if-=)
             (emit-br-if-<* . emit-br-if-<)
             (emit-br-if-<=* . emit-br-if-<=)
+            (emit-br-if-logtest* . emit-br-if-logtest)
             (emit-mov* . emit-mov)
             (emit-box* . emit-box)
             (emit-box-ref* . emit-box-ref)

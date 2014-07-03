@@ -296,7 +296,7 @@ address of that offset."
                    br-if-nargs-ne br-if-nargs-lt br-if-nargs-gt
                    br-if-true br-if-null br-if-nil br-if-pair br-if-struct
                    br-if-char br-if-tc7 br-if-eq br-if-eqv br-if-equal
-                   br-if-= br-if-< br-if-<= br-if-> br-if->=)
+                   br-if-= br-if-< br-if-<= br-if-> br-if->= br-if-logtest)
                   (match arg
                     ((_ ... target)
                      (add-label! (+ offset target) "L"))))
