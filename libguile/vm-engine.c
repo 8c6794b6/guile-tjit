@@ -3095,7 +3095,20 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   VM_DEFINE_OP (127, bv_f64_set, "bv-f64-set!", OP1 (U8_U8_U8_U8))
     BV_FLOAT_SET (f64, ieee_double, double, 8);
 
-  VM_DEFINE_OP (128, unused_128, NULL, NOP)
+  /* br-if-logtest a:12 b:12 invert:1 _:7 offset:24
+   *
+   * If the exact integer in A has any bits in common with the exact
+   * integer in B, add OFFSET, a signed 24-bit number, to the current
+   * instruction pointer.
+   */
+  VM_DEFINE_OP (128, br_if_logtest, "br-if-logtest", OP2 (U8_U12_U12, B1_X7_L24))
+    {
+      BR_BINARY (x, y,
+                 ((SCM_I_INUMP (x) && SCM_I_INUMP (y))
+                  ? (SCM_UNPACK (x) & SCM_UNPACK (y) & ~scm_tc2_int)
+                  : scm_is_true (scm_logtest (x, y))));
+    }
+
   VM_DEFINE_OP (129, unused_129, NULL, NOP)
   VM_DEFINE_OP (130, unused_130, NULL, NOP)
   VM_DEFINE_OP (131, unused_131, NULL, NOP)

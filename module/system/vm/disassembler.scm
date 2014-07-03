@@ -205,7 +205,8 @@ address of that offset."
           'br-if-nargs-ne 'br-if-nargs-lt 'br-if-nargs-gt
           'br-if-true 'br-if-null 'br-if-nil 'br-if-pair 'br-if-struct
           'br-if-char 'br-if-eq 'br-if-eqv 'br-if-equal
-          'br-if-= 'br-if-< 'br-if-<= 'br-if-> 'br-if->=) _ ... target)
+          'br-if-= 'br-if-< 'br-if-<= 'br-if-> 'br-if->=
+          'br-if-logtest) _ ... target)
      (list "-> ~A" (vector-ref labels (- (+ offset target) start))))
     (('br-if-tc7 slot invert? tc7 target)
      (list "~A -> ~A"
