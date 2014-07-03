@@ -47,7 +47,7 @@
     memq memv
     = < > <= >= zero? positive? negative?
     + * - / 1- 1+ quotient remainder modulo
-    ash logand logior logxor lognot
+    ash logand logior logxor lognot logtest logbit?
     sqrt abs
     not
     pair? null? list? symbol? vector? string? struct? number? char? nil?
@@ -165,7 +165,7 @@
   `(values
     eq? eqv? equal?
     = < > <= >= zero? positive? negative?
-    ash logand logior logxor lognot
+    ash logand logior logxor lognot logtest logbit?
     + * - / 1- 1+ sqrt abs quotient remainder modulo
     not
     pair? null? nil? list?

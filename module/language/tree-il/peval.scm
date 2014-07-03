@@ -1334,6 +1334,20 @@ top-level bindings from ENV and return the resulting expression."
            ($ <lexical-ref> _ _ sym) ($ <lexical-ref> _ _ sym))
           (for-tail (make-const #f #t)))
 
+         (('= ($ <primcall> src2 'logand (a b)) ($ <const> _ 0))
+          (let ((src (or src src2)))
+            (make-primcall src 'not
+                           (list (make-primcall src 'logtest (list a b))))))
+
+         (('logbit? ($ <const> src2
+                       (? (lambda (bit)
+                            (and (exact-integer? bit) (not (negative? bit))))
+                          bit))
+                    val)
+          (fold-constants src 'logtest
+                          (list (make-const (or src2 src) (ash 1 bit)) val)
+                          ctx))
+
          (((? effect-free-primitive?) . args)
           (fold-constants src name args ctx))
 

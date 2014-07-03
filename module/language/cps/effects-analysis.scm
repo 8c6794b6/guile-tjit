@@ -417,6 +417,8 @@ is or might be a read or a write to the same location as A."
   ((logior . _)                    &type-check)
   ((logxor . _)                    &type-check)
   ((lognot . _)                    &type-check)
+  ((logtest a b)                   &type-check)
+  ((logbit? a b)                   &type-check)
   ((sqrt _)                        &type-check)
   ((abs _)                         &type-check))
 
