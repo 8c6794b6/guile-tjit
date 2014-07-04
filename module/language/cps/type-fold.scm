@@ -31,6 +31,11 @@
   #:use-module (language cps types)
   #:export (type-fold))
 
+
+
+
+;; Branch folders.
+
 (define &scalar-types
   (logior &exact-integer &flonum &char &unspecified &boolean &nil &null))
 
@@ -136,7 +141,81 @@
       (values #t (logtest min0 min1))
       (values #f #f)))
 
-(define (compute-folded fun dfg min-label min-var)
+
+
+
+;; Strength reduction.
+
+(define *primcall-reducers* (make-hash-table))
+
+(define-syntax-rule (define-primcall-reducer name f)
+  (hashq-set! *primcall-reducers* 'name f))
+
+(define-syntax-rule (define-unary-primcall-reducer (name k src
+                                                         arg type min max)
+                      body ...)
+  (define-primcall-reducer name
+    (lambda (k src arg type min max) body ...)))
+
+(define-syntax-rule (define-binary-primcall-reducer (name k src
+                                                          arg0 type0 min0 max0
+                                                          arg1 type1 min1 max1)
+                      body ...)
+  (define-primcall-reducer name
+    (lambda (k src arg0 type0 min0 max0 arg1 type1 min1 max1) body ...)))
+
+(define-binary-primcall-reducer (mul k src
+                                     arg0 type0 min0 max0
+                                     arg1 type1 min1 max1)
+  (define (negate arg)
+    (let-fresh (kzero) (zero)
+      (build-cps-term
+        ($letk ((kzero ($kargs (#f) (zero)
+                         ($continue k src ($primcall 'sub (zero arg))))))
+          ($continue kzero src ($const 0))))))
+  (define (zero)
+    (build-cps-term ($continue k src ($const 0))))
+  (define (identity arg)
+    (build-cps-term ($continue k src ($values (arg)))))
+  (define (double arg)
+    (build-cps-term ($continue k src ($primcall 'add (arg arg)))))
+  (define (power-of-two constant arg)
+    (let ((n (let lp ((bits 0) (constant constant))
+               (if (= constant 1) bits (lp (1+ bits) (ash constant -1))))))
+      (let-fresh (kbits) (bits)
+        (build-cps-term
+          ($letk ((kbits ($kargs (#f) (bits)
+                           ($continue k src ($primcall 'ash (arg bits))))))
+            ($continue kbits src ($const n)))))))
+  (define (mul/constant constant constant-type arg arg-type)
+    (and (or (= constant-type &exact-integer) (= constant-type arg-type))
+         (case constant
+           ;; (* arg -1) -> (- 0 arg)
+           ((-1) (negate arg))
+           ;; (* arg 0) -> 0 if arg is not a flonum or complex
+           ((0) (and (= constant-type &exact-integer)
+                     (zero? (logand arg-type
+                                    (lognot (logior &flonum &complex))))
+                     (zero)))
+           ;; (* arg 1) -> arg
+           ((1) (identity arg))
+           ;; (* arg 2) -> (+ arg arg)
+           ((2) (double arg))
+           (else (and (= constant-type arg-type &exact-integer)
+                      (positive? constant)
+                      (zero? (logand constant (1- constant)))
+                      (power-of-two constant arg))))))
+  (cond
+   ((= min0 max0) (mul/constant min0 type0 arg1 type1))
+   ((= min1 max1) (mul/constant min1 type1 arg0 type0))
+   (else #f)))
+
+
+
+
+;;
+
+(define (fold-and-reduce fun dfg min-label min-var)
   (define (scalar-value type val)
     (cond
      ((eqv? type &exact-integer) val)
@@ -152,19 +231,49 @@
                        (lambda (k cont label-count) (1+ label-count))
                        fun 0))
          (folded? (make-bitvector label-count #f))
-         (folded-values (make-vector label-count #f)))
+         (folded-values (make-vector label-count #f))
+         (reduced-terms (make-vector label-count #f)))
     (define (label->idx label) (- label min-label))
     (define (var->idx var) (- var min-var))
+    (define (maybe-reduce-primcall! label k src name args)
+      (let* ((reducer (hashq-ref *primcall-reducers* name)))
+        (when (and reducer
+                   (primcall-types-check? typev label name args))
+          (vector-set!
+           reduced-terms
+           (label->idx label)
+           (match args
+             ((arg0)
+              (call-with-values (lambda () (lookup-pre-type typev label arg0))
+                (lambda (type0 min0 max0)
+                  (reducer k src arg0 type0 min0 max0))))
+             ((arg0 arg1)
+              (call-with-values (lambda () (lookup-pre-type typev label arg0))
+                (lambda (type0 min0 max0)
+                  (call-with-values (lambda () (lookup-pre-type typev label arg1))
+                    (lambda (type1 min1 max1)
+                      (reducer k src arg0 type0 min0 max0
+                               arg1 type1 min1 max1))))))
+             (_ #f))))))
     (define (maybe-fold-value! label name def)
       (call-with-values (lambda () (lookup-post-type typev label def 0))
         (lambda (type min max)
-          (when (and (not (zero? type))
-                     (zero? (logand type (1- type)))
-                     (zero? (logand type (lognot &scalar-types)))
-                     (eqv? min max))
+          (cond
+           ((and (not (zero? type))
+                 (zero? (logand type (1- type)))
+                 (zero? (logand type (lognot &scalar-types)))
+                 (eqv? min max))
             (bitvector-set! folded? (label->idx label) #t)
             (vector-set! folded-values (label->idx label)
-                         (scalar-value type min))))))
+                         (scalar-value type min)))
+           (else
+            (match (lookup-cont label dfg)
+              (($ $kargs _ _ body)
+               (match (find-call body)
+                 (($ $continue k src ($ $primcall name args))
+                  (maybe-reduce-primcall! label k src name args))
+                 (_ #f)))
+              (_ #f)))))))
     (define (maybe-fold-unary-branch! label name arg)
       (let* ((folder (hashq-ref *branch-folders* name)))
         (when folder
@@ -221,13 +330,13 @@
       (match fun
         (($ $cont kfun ($ $kfun src meta self tail clause))
          (visit-cont clause))))
-    (values folded? folded-values)))
+    (values folded? folded-values reduced-terms)))
 
 (define (fold-constants* fun dfg)
   (match fun
     (($ $cont min-label ($ $kfun _ _ min-var))
-     (call-with-values (lambda () (compute-folded fun dfg min-label min-var))
-       (lambda (folded? folded-values)
+     (call-with-values (lambda () (fold-and-reduce fun dfg min-label min-var))
+       (lambda (folded? folded-values reduced-terms)
          (define (label->idx label) (- label min-label))
          (define (var->idx var) (- var min-var))
          (define (visit-cont cont)
@@ -248,19 +357,22 @@
                 ,(visit-term body label)))
              (($ $continue k src (and fun ($ $fun)))
               ($continue k src ,(visit-fun fun)))
-             (($ $continue k src (and primcall ($ $primcall)))
-              ,(if (bitvector-ref folded? (label->idx label))
-                   (let ((val (vector-ref folded-values (label->idx label))))
-                     ;; Uncomment for debugging.
-                     ;; (pk 'folded src primcall val)
-                     (let-fresh (k*) (v*)
-                       ;; Rely on DCE to elide this expression, if
-                       ;; possible.
-                       (build-cps-term
-                         ($letk ((k* ($kargs (#f) (v*)
-                                       ($continue k src ($const val)))))
-                           ($continue k* src ,primcall)))))
-                   term))
+             (($ $continue k src (and primcall ($ $primcall name args)))
+              ,(cond
+                ((bitvector-ref folded? (label->idx label))
+                 (let ((val (vector-ref folded-values (label->idx label))))
+                   ;; Uncomment for debugging.
+                   ;; (pk 'folded src primcall val)
+                   (let-fresh (k*) (v*)
+                     ;; Rely on DCE to elide this expression, if
+                     ;; possible.
+                     (build-cps-term
+                       ($letk ((k* ($kargs (#f) (v*)
+                                     ($continue k src ($const val)))))
+                         ($continue k* src ,primcall))))))
+                (else
+                 (or (vector-ref reduced-terms (label->idx label))
+                     term))))
              (($ $continue kf src ($ $branch kt ($ $primcall)))
               ,(if (bitvector-ref folded? (label->idx label))
                    ;; Folded branch.
