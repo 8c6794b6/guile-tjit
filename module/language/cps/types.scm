@@ -991,13 +991,13 @@ minimum, and maximum."
 (define-simple-type-checker (logand &exact-integer &exact-integer))
 (define-type-inferrer (logand a b result)
   (define (logand-min a b)
-    (if (< a b 0)
+    (if (and (negative? a) (negative? b))
         (min a b)
         0))
   (define (logand-max a b)
-    (if (< a b 0)
-        0
-        (max a b)))
+    (if (and (positive? a) (positive? b))
+        (min a b)
+        0))
   (restrict! a &exact-integer -inf.0 +inf.0)
   (restrict! b &exact-integer -inf.0 +inf.0)
   (define! result &exact-integer
