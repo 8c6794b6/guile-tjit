@@ -799,13 +799,30 @@ minimum, and maximum."
 (define-type-inferrer (mul a b result)
   (let ((min-a (&min a)) (max-a (&max a))
         (min-b (&min b)) (max-b (&max b)))
-    (let ((-- (* min-a min-b))
-          (-+ (* min-a max-b))
-          (++ (* max-a max-b))
-          (+- (* max-a min-b)))
-      (define-binary-result! a b result #t
-                             (if (eqv? a b) 0 (min -- -+ ++ +-))
-                             (max -- -+ ++ +-)))))
+    (define (nan* a b)
+      ;; We only really get +inf.0 at runtime for flonums and compnums.
+      ;; If we have inferred that the arguments are not flonums and not
+      ;; compnums, then the result of (* +inf.0 0) at range inference
+      ;; time is 0 and not +nan.0.
+      (if (or (and (inf? a) (zero? b))
+              (and (zero? a) (inf? b))
+              (not (logtest (logior (&type a) (&type b))
+                            (logior &flonum &complex))))
+          0 
+          (* a b)))
+    (let ((-- (nan* min-a min-b))
+          (-+ (nan* min-a max-b))
+          (++ (nan* max-a max-b))
+          (+- (nan* max-a min-b)))
+      (let ((has-nan? (or (nan? --) (nan? -+) (nan? ++) (nan? +-))))
+        (define-binary-result! a b result #t
+                               (cond
+                                ((eqv? a b) 0)
+                                (has-nan? -inf.0)
+                                (else (min -- -+ ++ +-)))
+                               (if has-nan?
+                                   +inf.0
+                                   (max -- -+ ++ +-)))))))
 
 (define-type-checker (div a b)
   (and (check-type a &number -inf.0 +inf.0)
@@ -824,12 +841,18 @@ minimum, and maximum."
               (values -inf.0 +inf.0)
               ;; Otherwise min-b and max-b have the same sign, and cannot both
               ;; be infinity.
-              (let ((-- (if (inf? min-b) 0 (* min-a min-b)))
-                    (-+ (if (inf? max-b) 0 (* min-a max-b)))
-                    (++ (if (inf? max-b) 0 (* max-a max-b)))
-                    (+- (if (inf? min-b) 0 (* max-a min-b))))
-                (values (min -- -+ ++ +-)
-                        (max -- -+ ++ +-)))))
+              (let ((--- (if (inf? min-b) 0 (floor/ min-a min-b)))
+                    (-+- (if (inf? max-b) 0 (floor/ min-a max-b)))
+                    (++- (if (inf? max-b) 0 (floor/ max-a max-b)))
+                    (+-- (if (inf? min-b) 0 (floor/ max-a min-b)))
+                    (--+ (if (inf? min-b) 0 (ceiling/ min-a min-b)))
+                    (-++ (if (inf? max-b) 0 (ceiling/ min-a max-b)))
+                    (+++ (if (inf? max-b) 0 (ceiling/ max-a max-b)))
+                    (+-+ (if (inf? min-b) 0 (ceiling/ max-a min-b))))
+                (values (min (min --- -+- ++- +--)
+                             (min --+ -++ +++ +-+))
+                        (max (max --- -+- ++- +--)
+                             (max --+ -++ +++ +-+))))))
       (lambda (min max)
         (define-binary-result! a b result #f min max)))))
 
