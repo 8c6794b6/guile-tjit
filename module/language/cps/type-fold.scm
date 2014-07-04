@@ -249,8 +249,7 @@
              (($ $continue k src (and fun ($ $fun)))
               ($continue k src ,(visit-fun fun)))
              (($ $continue k src (and primcall ($ $primcall)))
-              ,(if (and folded?
-                        (bitvector-ref folded? (label->idx label)))
+              ,(if (bitvector-ref folded? (label->idx label))
                    (let ((val (vector-ref folded-values (label->idx label))))
                      ;; Uncomment for debugging.
                      ;; (pk 'folded src primcall val)
@@ -263,8 +262,7 @@
                            ($continue k* src ,primcall)))))
                    term))
              (($ $continue kf src ($ $branch kt ($ $primcall)))
-              ,(if (and folded?
-                        (bitvector-ref folded? (label->idx label)))
+              ,(if (bitvector-ref folded? (label->idx label))
                    ;; Folded branch.
                    (let ((val (vector-ref folded-values (label->idx label))))
                      (build-cps-term
