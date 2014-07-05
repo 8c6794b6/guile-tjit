@@ -32,33 +32,60 @@
 
 ;; Topologically sort the continuation tree starting at k0, using
 ;; reverse post-order numbering.
-(define (sort-conts k0 conts new-k0)
-  (define (for-each-successor f cont)
-    (visit-cont-successors
-     (case-lambda
-       (() #t)
-       ((succ0) (f succ0))
-       ((succ0 succ1)
-        ;; Visit higher-numbered successors first, so that if they are
-        ;; unordered, their original order is preserved.
-        (cond
-         ((< succ0 succ1) (f succ1) (f succ0))
-         (else (f succ0) (f succ1)))))
-     cont))
-
+(define (sort-conts k0 conts new-k0 path-lengths)
   (let ((next -1))
     (let visit ((k k0))
+      (define (maybe-visit k)
+        (let ((entry (vector-ref conts k)))
+          ;; Visit the successor if it has not been
+          ;; visited yet.
+          (when (and entry (not (exact-integer? entry)))
+            (visit k))))
+
       (let ((cont (vector-ref conts k)))
         ;; Clear the cont table entry to mark this continuation as
         ;; visited.
         (vector-set! conts k #f)
-        (for-each-successor (lambda (k)
-                              (let ((entry (vector-ref conts k)))
-                                ;; Visit the successor if it has not been
-                                ;; visited yet.
-                                (when (and entry (not (exact-integer? entry)))
-                                  (visit k))))
-                            cont)
+
+        (match cont
+          (($ $kargs names syms body)
+           (let lp ((body body))
+             (match body
+               (($ $letk conts body) (lp body))
+               (($ $letrec names syms funs body) (lp body))
+               (($ $continue k src exp)
+                (match exp
+                  (($ $prompt escape? tag handler)
+                   (maybe-visit handler)
+                   (maybe-visit k))
+                  (($ $branch kt)
+                   ;; Visit the successor with the shortest path length
+                   ;; to the tail first, so that if the branches are
+                   ;; unsorted, the longer path length will appear
+                   ;; first.  This will move a loop exit out of a loop.
+                   (let ((k-len (vector-ref path-lengths k))
+                         (kt-len (vector-ref path-lengths kt)))
+                     (cond
+                      ((and k-len kt-len (< k-len kt-len))
+                       (maybe-visit k)
+                       (maybe-visit kt))
+                      (else
+                       (maybe-visit kt)
+                       (maybe-visit k)))))
+                  (_
+                   (maybe-visit k)))))))
+          (($ $kreceive arity k) (maybe-visit k))
+          (($ $kclause arity ($ $cont kbody) alt)
+           (match alt
+             (($ $cont kalt) (maybe-visit kalt))
+             (_ #f))
+           (maybe-visit kbody))
+          (($ $kfun src meta self tail clause)
+           (match clause
+             (($ $cont kclause) (maybe-visit kclause))
+             (_ #f)))
+          (_ #f))
+
         ;; Chain this label to the label that will follow it in the sort
         ;; order, and record this label as the new head of the order.
         (vector-set! conts k next)
@@ -73,13 +100,29 @@
             (vector-set! conts head n)
             (lp (1+ n) next))))))
 
+(define (compute-tail-path-lengths preds ktail path-lengths)
+  (let visit ((k ktail) (length-in 0))
+    (let ((length (vector-ref path-lengths k)))
+      (unless (and length (<= length length-in))
+        (vector-set! path-lengths k length-in)
+        (let lp ((preds (vector-ref preds k)))
+          (match preds
+            (() #t)
+            ((pred . preds)
+             (visit pred (1+ length-in))
+             (lp preds))))))))
+
 (define (compute-new-labels-and-vars fun)
   (call-with-values (lambda () (compute-max-label-and-var fun))
     (lambda (max-label max-var)
       (let ((labels (make-vector (1+ max-label) #f))
             (next-label 0)
             (vars (make-vector (1+ max-var) #f))
-            (next-var 0))
+            (next-var 0)
+            (preds (make-vector (1+ max-label) '()))
+            (path-lengths (make-vector (1+ max-label) #f)))
+        (define (add-predecessor! pred succ)
+          (vector-set! preds succ (cons pred (vector-ref preds succ))))
         (define (rename! var)
           (vector-set! vars var next-var)
           (set! next-var (1+ next-var)))
@@ -91,25 +134,43 @@
                (vector-set! labels label cont)
                (match cont
                  (($ $kargs names vars body)
-                  (visit-term body))
+                  (visit-term body label))
                  (($ $kfun src meta self tail clause)
                   (visit-cont tail)
-                  (when clause
-                    (visit-cont clause)))
-                 (($ $kclause arity body alternate)
+                  (match clause
+                    (($ $cont kclause)
+                     (add-predecessor! label kclause)
+                     (visit-cont clause))
+                    (#f #f)))
+                 (($ $kclause arity (and body ($ $cont kbody)) alternate)
+                  (add-predecessor! label kbody)
                   (visit-cont body)
-                  (when alternate
-                    (visit-cont alternate)))
-                 ((or ($ $ktail) ($ $kreceive))
-                  #f)))))
-          (define (visit-term term)
+                  (match alternate
+                    (($ $cont kalt)
+                     (add-predecessor! label kalt)
+                     (visit-cont alternate))
+                    (#f #f)))
+                 (($ $kreceive arity kargs)
+                  (add-predecessor! label kargs))
+                 (($ $ktail) #f)))))
+          (define (visit-term term label)
             (match term
               (($ $letk conts body)
-               (for-each visit-cont conts)
-               (visit-term body))
+               (let lp ((conts conts))
+                 (unless (null? conts)
+                   (visit-cont (car conts))
+                   (lp (cdr conts))))
+               (visit-term body label))
               (($ $letrec names syms funs body)
-               (visit-term body))
-              (($ $continue k src _) #f)))
+               (visit-term body label))
+              (($ $continue k src exp)
+               (add-predecessor! label k)
+               (match exp
+                 (($ $branch kt)
+                  (add-predecessor! label kt))
+                 (($ $prompt escape? tag handler)
+                  (add-predecessor! label handler))
+                 (_ #f)))))
           (visit-cont fun))
 
         (define (compute-names-in-fun fun)
@@ -170,9 +231,10 @@
               (($ $continue) #f)))
 
           (match fun
-            (($ $cont kfun)
+            (($ $cont kfun ($ $kfun src meta self ($ $cont ktail)))
              (collect-conts fun)
-             (set! next-label (sort-conts kfun labels next-label))
+             (compute-tail-path-lengths preds ktail path-lengths)
+             (set! next-label (sort-conts kfun labels next-label path-lengths))
              (visit-cont fun)
              (for-each compute-names-in-fun (reverse queue)))
             (($ $program conts)
