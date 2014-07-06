@@ -234,7 +234,74 @@
          ($fun (map subst free) ,(must-visit-cont body)))))
     (must-visit-cont fun)))
 
+;; Rewrite the scope tree to reflect the dominator tree.  Precondition:
+;; the fun has been renumbered, its min-label is 0, and its labels are
+;; packed.
+(define (redominate fun)
+  (let* ((dfg (compute-dfg fun))
+         (idoms (compute-idoms dfg 0 (dfg-label-count dfg)))
+         (doms (compute-dom-edges idoms 0)))
+    (define (visit-fun-cont cont)
+      (rewrite-cps-cont cont
+        (($ $cont label ($ $kfun src meta self tail clause))
+         (label ($kfun src meta self ,tail
+                  ,(and clause (visit-fun-cont clause)))))
+        (($ $cont label ($ $kclause arity ($ $cont kbody body) alternate))
+         (label ($kclause ,arity ,(visit-cont kbody body)
+                          ,(and alternate (visit-fun-cont alternate)))))))
+
+    (define (visit-cont label cont)
+      (rewrite-cps-cont cont
+        (($ $kargs names vars body)
+         (label ($kargs names vars ,(visit-term body label))))
+        (_ (label ,cont))))
+
+    (define (visit-exp k src exp)
+      (rewrite-cps-term exp
+        (($ $fun free body)
+         ($continue k src ($fun free ,(visit-fun-cont body))))
+        (_
+         ($continue k src ,exp))))
+
+    (define (visit-term term label)
+      (define (visit-dom-conts label)
+        (let ((cont (lookup-cont label dfg)))
+          (match cont
+            (($ $ktail) '())
+            (($ $kargs) (list (visit-cont label cont)))
+            (else
+             (cons (visit-cont label cont)
+                   (visit-dom-conts* (vector-ref doms label)))))))
+
+      (define (visit-dom-conts* labels)
+        (match labels
+          (() '())
+          ((label . labels)
+           (append (visit-dom-conts label)
+                   (visit-dom-conts* labels)))))
+
+      (rewrite-cps-term term
+        (($ $letk conts body)
+         ,(visit-term body label))
+        (($ $letrec names syms funs body)
+         ($letrec names syms (let lp ((funs funs))
+                               (match funs
+                                 (() '())
+                                 ((($ $fun free body) . funs)
+                                  (cons (build-cps-exp
+                                          ($fun free ,(visit-fun-cont body)))
+                                        (lp funs)))))
+           ,(visit-term body label)))
+        (($ $continue k src exp)
+         ,(let ((conts (visit-dom-conts* (vector-ref doms label))))
+            (if (null? conts)
+                (visit-exp k src exp)
+                (build-cps-term
+                  ($letk ,conts ,(visit-exp k src exp))))))))
+
+    (visit-fun-cont fun)))
+
 (define (simplify fun)
   ;; Renumbering prunes continuations that are made unreachable by
   ;; eta/beta reductions.
-  (renumber (eta-reduce (beta-reduce fun))))
+  (redominate (renumber (eta-reduce (beta-reduce fun)))))
