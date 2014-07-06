@@ -445,8 +445,6 @@ could be that both true and false proofs are available."
 
   (define (visit-fun-cont cont)
     (rewrite-cps-cont cont
-      (($ $cont label ($ $kargs names vars body))
-       (label ($kargs names vars ,(visit-term body label))))
       (($ $cont label ($ $kfun src meta self tail clause))
        (label ($kfun src meta self ,tail
                 ,(and clause (visit-fun-cont clause)))))
