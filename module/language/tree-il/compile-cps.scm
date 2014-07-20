@@ -363,6 +363,15 @@
                        (kf ($kargs () () ($continue k src ($const #f)))))
                  ($continue kf src
                    ($branch kt ($primcall name args)))))))))
+      ((and (eq? name 'not) (match args ((_) #t) (_ #f)))
+       (convert-args args
+         (lambda (args)
+           (let-fresh (kt kf) ()
+             (build-cps-term
+               ($letk ((kt ($kargs () () ($continue k src ($const #f))))
+                       (kf ($kargs () () ($continue k src ($const #t)))))
+                 ($continue kf src
+                   ($branch kt ($values args)))))))))
       ((and (eq? name 'list)
             (and-map (match-lambda
                       ((or ($ <const>)

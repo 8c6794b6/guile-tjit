@@ -256,8 +256,7 @@ is or might be a read or a write to the same location as A."
 
 ;; Miscellaneous.
 (define-primitive-effects
-  ((values . _))
-  ((not arg)))
+  ((values . _)))
 
 ;; Generic effect-free predicates.
 (define-primitive-effects

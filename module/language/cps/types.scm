@@ -450,23 +450,6 @@ minimum, and maximum."
 
 
 ;;;
-;;; Miscellaneous.
-;;;
-
-(define-simple-type-checker (not &all-types))
-(define-type-inferrer (not val result)
-  (cond
-   ((and (eqv? (&type val) &boolean)
-         (eqv? (&min val) (&max val)))
-    (let ((val (if (zero? (&min val)) 1 0)))
-      (define! result &boolean val val)))
-   (else
-    (define! result &boolean 0 1))))
-
-
-
-
-;;;
 ;;; Generic effect-free predicates.
 ;;;
 
