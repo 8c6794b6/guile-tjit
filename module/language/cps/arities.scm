@@ -95,7 +95,7 @@
          (rewrite-cps-term (lookup-cont k dfg)
            (($ $ktail)
             ,(rewrite-cps-term exp
-               (($values (sym))
+               (($ $values (sym))
                 ($continue ktail src ($primcall 'return (sym))))
                (_
                 ,(let-fresh (k*) (v)
