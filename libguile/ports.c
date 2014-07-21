@@ -2172,14 +2172,8 @@ scm_ungetc_unlocked (scm_t_wchar c, SCM port)
     free (result);
 
   if (c == '\n')
-    {
-      /* What should col be in this case?
-       * We'll leave it at -1.
-       */
-      SCM_LINUM (port) -= 1;
-    }
-  else
-    SCM_COL(port) -= 1;
+    SCM_LINUM (port) -= 1;
+  SCM_DECCOL (port);
 }
 #undef FUNC_NAME
 
