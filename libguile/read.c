@@ -411,6 +411,11 @@ static SCM
 maybe_annotate_source (SCM x, SCM port, scm_t_read_opts *opts,
                        long line, int column)
 {
+  /* This condition can be caused by a user calling
+     set-port-column!.  */
+  if (line < 0 || column < 0)
+    return x;
+
   if (opts->record_positions_p)
     scm_i_set_source_properties_x (x, line, column, SCM_FILENAME (port));
   return x;
