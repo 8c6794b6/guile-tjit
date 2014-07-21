@@ -88,6 +88,7 @@ sf_fill_input (SCM port)
 {
   SCM p = SCM_PACK (SCM_STREAM (port));
   SCM ans;
+  scm_t_wchar c;
   scm_t_port_internal *pti;
 
   ans = scm_call_0 (SCM_SIMPLE_VECTOR_REF (p, 3)); /* get char.  */
@@ -96,18 +97,29 @@ sf_fill_input (SCM port)
   SCM_ASSERT (SCM_CHARP (ans), ans, SCM_ARG1, "sf_fill_input");
   pti = SCM_PORT_GET_INTERNAL (port);
 
-  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1)
+  c = SCM_CHAR (ans);
+
+  if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_LATIN1
+      || (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8 && c < 0xff))
     {
       scm_t_port *pt = SCM_PTAB_ENTRY (port);    
       
-      *pt->read_buf = SCM_CHAR (ans);
+      *pt->read_buf = c;
       pt->read_pos = pt->read_buf;
       pt->read_end = pt->read_buf + 1;
-      return *pt->read_buf;
     }
   else
-    scm_ungetc_unlocked (SCM_CHAR (ans), port);
-  return SCM_CHAR (ans);
+    {
+      long line = SCM_LINUM (port);
+      int column = SCM_COL (port);
+
+      scm_ungetc_unlocked (c, port);
+
+      SCM_LINUM (port) = line;
+      SCM_COL (port) = column;
+    }
+
+  return c;
 }
 
 
