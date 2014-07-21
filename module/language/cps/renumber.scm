@@ -66,7 +66,14 @@
                    (let ((k-len (vector-ref path-lengths k))
                          (kt-len (vector-ref path-lengths kt)))
                      (cond
-                      ((and k-len kt-len (< k-len kt-len))
+                      ((if kt-len
+                           (or (not k-len)
+                               (< k-len kt-len)
+                               ;; If the path lengths are the
+                               ;; same, preserve original order
+                               ;; to avoid squirreliness.
+                               (and (= k-len kt-len) (< kt k)))
+                           (if k-len #f (< kt k)))
                        (maybe-visit k)
                        (maybe-visit kt))
                       (else
