@@ -341,6 +341,7 @@ could be that both true and false proofs are available."
             (('primcall (or 'allocate-struct 'allocate-struct/immediate)
                         vtable size)
              (match defs
+               (() #f) ;; allocate-struct in tail or kreceive position.
                ((struct)
                 (add-def! `(primcall struct-vtable ,(subst-var struct))
                           vtable))))
