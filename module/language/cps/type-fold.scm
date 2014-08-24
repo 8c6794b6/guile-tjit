@@ -38,7 +38,7 @@
 ;; Branch folders.
 
 (define &scalar-types
-  (logior &exact-integer &flonum &char &unspecified &boolean &nil &null))
+  (logior &exact-integer &flonum &char &unspecified &false &true &nil &null))
 
 (define *branch-folders* (make-hash-table))
 
@@ -276,7 +276,8 @@
      ((eqv? type &flonum) (exact->inexact val))
      ((eqv? type &char) (integer->char val))
      ((eqv? type &unspecified) *unspecified*)
-     ((eqv? type &boolean) (not (zero? val)))
+     ((eqv? type &false) #f)
+     ((eqv? type &true) #t)
      ((eqv? type &nil) #nil)
      ((eqv? type &null) '())
      (else (error "unhandled type" type val))))

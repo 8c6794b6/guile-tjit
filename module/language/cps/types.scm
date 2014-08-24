@@ -92,7 +92,8 @@
             &char
             &unspecified
             &unbound
-            &boolean
+            &false
+            &true
             &nil
             &null
             &symbol
@@ -143,7 +144,8 @@
   &char
   &unspecified
   &unbound
-  &boolean
+  &false
+  &true
   &nil
   &null
   &symbol
@@ -288,9 +290,10 @@ minimum, and maximum."
      (else (return &complex #f))))
    ((eq? val '()) (return &null #f))
    ((eq? val #nil) (return &nil #f))
+   ((eq? val #t) (return &true #f))
+   ((eq? val #f) (return &false #f))
    ((char? val) (return &char (char->integer val)))
    ((eqv? val *unspecified*) (return &unspecified #f))
-   ((boolean? val) (return &boolean (if val 1 0)))
    ((symbol? val) (return &symbol #f))
    ((keyword? val) (return &keyword #f))
    ((pair? val) (return &pair #f))
@@ -647,7 +650,7 @@ minimum, and maximum."
 
 (define-simple-type (number->string &number) (&string 0 +inf.0))
 (define-simple-type (string->number (&string 0 +inf.0))
-  ((logior &number &boolean) -inf.0 +inf.0))
+  ((logior &number &false) -inf.0 +inf.0))
 
 
 
@@ -891,11 +894,11 @@ minimum, and maximum."
   (define-type-inferrer (name val result)
     (cond
      ((zero? (logand (&type val) type))
-      (define! result &boolean 0 0))
+      (define! result &false 0 0))
      ((zero? (logand (&type val) (lognot type)))
-      (define! result &boolean 1 1))
+      (define! result &true 0 0))
      (else
-      (define! result &boolean 0 1)))))
+      (define! result (logior &true &false) 0 0)))))
 (define-number-kind-predicate-inferrer complex? &number)
 (define-number-kind-predicate-inferrer real? &real)
 (define-number-kind-predicate-inferrer rational?
@@ -910,23 +913,23 @@ minimum, and maximum."
   (restrict! val &number -inf.0 +inf.0)
   (cond
    ((zero? (logand (&type val) (logior &exact-integer &fraction)))
-    (define! result &boolean 0 0))
+    (define! result &false 0 0))
    ((zero? (logand (&type val) (lognot (logior &exact-integer &fraction))))
-    (define! result &boolean 1 1))
+    (define! result &true 0 0))
    (else
-    (define! result &boolean 0 1))))
+    (define! result (logior &true &false) 0 0))))
 
 (define-simple-type-checker (inexact? &number))
 (define-type-inferrer (inexact? val result)
   (restrict! val &number -inf.0 +inf.0)
   (cond
    ((zero? (logand (&type val) (logior &flonum &complex)))
-    (define! result &boolean 0 0))
+    (define! result &false 0 0))
    ((zero? (logand (&type val) (logand &number
                                        (lognot (logior &flonum &complex)))))
-    (define! result &boolean 1 1))
+    (define! result &true 0 0))
    (else
-    (define! result &boolean 0 1))))
+    (define! result (logior &true &false) 0 0))))
 
 (define-simple-type-checker (inf? &real))
 (define-type-inferrer (inf? val result)
@@ -934,13 +937,14 @@ minimum, and maximum."
   (cond
    ((or (zero? (logand (&type val) (logior &flonum &complex)))
         (and (not (inf? (&min val))) (not (inf? (&max val)))))
-    (define! result &boolean 0 0))
+    (define! result &false 0 0))
    (else
-    (define! result &boolean 0 1))))
+    (define! result (logior &true &false) 0 0))))
 
 (define-type-aliases inf? nan?)
 
-(define-simple-type (even? &exact-integer) (&boolean 0 1))
+(define-simple-type (even? &exact-integer)
+  ((logior &true &false) 0 0))
 (define-type-aliases even? odd?)
 
 ;; Bit operations.
@@ -1031,9 +1035,9 @@ minimum, and maximum."
         (b-max (&max b)))
     (if (and (eqv? a-min a-max) (>= a-min 0) (not (inf? a-min))
              (eqv? b-min b-max) (>= b-min 0) (not (inf? b-min)))
-        (let ((res (if (logbit? a-min b-min) 1 0)))
-          (define! result &boolean res res))
-        (define! result &boolean 0 1))))
+        (let ((type (if (logbit? a-min b-min) &true &false)))
+          (define! result type 0 0))
+        (define! result (logior &true &false) 0 0))))
 
 ;; Flonums.
 (define-simple-type-checker (sqrt &number))
@@ -1072,7 +1076,8 @@ minimum, and maximum."
 ;;; Characters.
 ;;;
 
-(define-simple-type (char<? &char &char) (&boolean 0 1))
+(define-simple-type (char<? &char &char)
+  ((logior &true &false) 0 0))
 (define-type-aliases char<? char<=? char>=? char>?)
 
 (define-simple-type-checker (integer->char (&exact-integer 0 #x10ffff)))
@@ -1220,15 +1225,16 @@ mapping symbols to types."
         (($ $branch kt ($ $values (arg)))
          ;; The "normal" continuation is the #f branch.
          (let ((types (restrict-var types arg
-                                    (make-type-entry (logior &boolean &nil)
+                                    (make-type-entry (logior &false &nil)
                                                      0
                                                      0))))
            (propagate! 0 k types))
-         ;; No additional information on the #t branch,
-         ;; as there's no way currently to remove #f
-         ;; from the typeset (because it would remove
-         ;; #t as well: they are both &boolean).
-         (propagate! 1 kt types))
+         (let ((types (restrict-var types arg
+                                    (make-type-entry
+                                     (logand &all-types 
+                                             (lognot (logior &false &nil)))
+                                     -inf.0 +inf.0))))
+           (propagate! 1 kt types)))
         (($ $branch kt ($ $primcall name args))
          ;; The "normal" continuation is the #f branch.
          (let ((types (infer-primcall types 0 name args #f)))
