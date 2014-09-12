@@ -128,6 +128,7 @@
 #include "libguile/throw.h"
 #include "libguile/arrays.h"
 #include "libguile/trees.h"
+#include "libguile/unicode.h"
 #include "libguile/values.h"
 #include "libguile/variable.h"
 #include "libguile/vectors.h"
@@ -508,6 +509,7 @@ scm_i_init_guile (void *base)
 #endif
   scm_bootstrap_i18n ();
   scm_init_script ();
+  scm_init_unicode ();
 
   scm_init_goops ();
 

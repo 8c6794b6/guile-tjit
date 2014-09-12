@@ -277,7 +277,8 @@ ICE_9_SOURCES = \
   ice-9/weak-vector.scm \
   ice-9/list.scm \
   ice-9/serialize.scm \
-  ice-9/local-eval.scm
+  ice-9/local-eval.scm \
+  ice-9/unicode.scm
 
 if BUILD_ICE_9_POPEN
 
