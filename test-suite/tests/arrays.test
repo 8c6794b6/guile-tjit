@@ -200,7 +200,7 @@
 ;;; array-equal?
 ;;;
 
-(with-test-prefix "array-equal?"
+(with-test-prefix/c&e "array-equal?"
 
   (pass-if "#s16(...)"
     (array-equal? #s16(1 2 3) #s16(1 2 3))))
@@ -212,7 +212,7 @@
 (define exception:mapping-out-of-range
   (cons 'misc-error "^mapping out of range"))  ;; per scm_make_shared_array
 
-(with-test-prefix "make-shared-array"
+(with-test-prefix/c&e "make-shared-array"
 
   ;; this failed in guile 1.8.0
   (pass-if "vector unchanged"
@@ -283,9 +283,9 @@
 ;;; array-contents
 ;;;
 
-(with-test-prefix "array-contents"
+(define (every-two x) (make-shared-array x (lambda (i) (list (* i 2))) 2))
 
-  (define (every-two x) (make-shared-array x (lambda (i) (list (* i 2))) 2))
+(with-test-prefix/c&e "array-contents"
 
   (pass-if "simple vector"
     (let* ((a (make-array 0 4)))
@@ -342,30 +342,33 @@
       (not (array-contents b))))
 
   ;; FIXME maybe this should be allowed.
-  #;
-  (pass-if "broadcast vector -> empty"
-    (let* ((a (make-array 0 4))
-           (b (make-shared-array a (lambda (i j k) (list k)) 0 1 4)))
-      (if #f #f)))
+  ;; (pass-if "broadcast vector -> empty"
+  ;;   (let* ((a (make-array 0 4))
+  ;;          (b (make-shared-array a (lambda (i j k) (list k)) 0 1 4)))
+  ;;     (if #f #f)))
 
   (pass-if "broadcast 2-rank I"
     (let* ((a #2((1 2 3) (4 5 6)))
            (b (make-shared-array a (lambda (i j) (list 0 j)) 2 3)))
       (not (array-contents b))))
 
-  (pass-if "broadcast 2-rank I"
+  (pass-if "broadcast 2-rank II"
     (let* ((a #2((1 2 3) (4 5 6)))
            (b (make-shared-array a (lambda (i j) (list i 0)) 2 3)))
-      (not (array-contents b)))))
+      (not (array-contents b))))
+
+  (pass-if "literal array"
+    (not (not (array-contents #2((1 2 3) (4 5 6)))))))
+
 
 ;;;
 ;;; shared-array-root
 ;;;
 
-(with-test-prefix "shared-array-root"
+(define amap1 (lambda (i) (list (* 2 i))))
+(define amap2 (lambda (i j) (list (+ 1 (* 2 i)) (+ 1 (* 2 j)))))
 
-  (define amap1 (lambda (i) (list (* 2 i))))
-  (define amap2 (lambda (i j) (list (+ 1 (* 2 i)) (+ 1 (* 2 j)))))
+(with-test-prefix/c&e "shared-array-root"
 
   (pass-if "plain vector"
     (let* ((a (make-vector 4 0))
@@ -395,7 +398,7 @@
 (define exception:wrong-type-arg
   (cons #t "Wrong type"))
 
-(with-test-prefix "transpose-array"
+(with-test-prefix/c&e "transpose-array"
 
   (pass-if-exception "non array argument" exception:wrong-type-arg
     (transpose-array 99))
@@ -436,11 +439,11 @@
 ;;; array->list
 ;;;
 
-(with-test-prefix "array->list"
-  (pass-if-equal '(1 2 3) (array->list #s16(1 2 3)))
-  (pass-if-equal '(1 2 3) (array->list #(1 2 3)))
-  (pass-if-equal '((1 2) (3 4) (5 6)) (array->list #2((1 2) (3 4) (5 6))))
-  (pass-if-equal '()  (array->list #()))
+(with-test-prefix/c&e "array->list"
+  (pass-if-equal "uniform vector" '(1 2 3) (array->list #s16(1 2 3)))
+  (pass-if-equal "vector" '(1 2 3) (array->list #(1 2 3)))
+  (pass-if-equal "rank 2 array" '((1 2) (3 4) (5 6)) (array->list #2((1 2) (3 4) (5 6))))
+  (pass-if-equal "empty vector" '()  (array->list #()))
 
   (pass-if-equal "http://bugs.gnu.org/12465 - ok"
       '(3 4)
@@ -531,7 +534,7 @@
 ;;; array-in-bounds?
 ;;;
 
-(with-test-prefix "array-in-bounds?"
+(with-test-prefix/c&e "array-in-bounds?"
 
   (pass-if (let ((a (make-array #f '(425 425))))
 	     (eq? #f (array-in-bounds? a 0)))))
@@ -542,7 +545,7 @@
 
 (with-test-prefix "array-type"
 
-  (with-test-prefix "on make-foo-vector"
+  (with-test-prefix/c&e "on make-foo-vector"
 
     (pass-if "bool"
       (eq? 'b (array-type (make-bitvector 1))))
@@ -728,7 +731,7 @@
 ;;; syntax
 ;;;
 
-(with-test-prefix "syntax"
+(with-test-prefix/c&e "syntax"
 
   (pass-if "rank and lower bounds"
     ;; uniform u32 array of rank 2 with index ranges 2..3 and 7..8.
@@ -770,7 +773,7 @@
 ;;; equal? with vector and one-dimensional array
 ;;;
 
-(with-test-prefix "equal?"
+(with-test-prefix/c&e "equal?"
   (pass-if "array and non-array"
     (not (equal? #2f64((0 1) (2 3)) 100)))
 
@@ -805,12 +808,12 @@
 ;;; slices as generalized vectors
 ;;;
 
-(let ((array #2u32((0 1) (2 3))))
-  (define (array-row a i)
-    (make-shared-array a (lambda (j) (list i j))
-                       (cadr (array-dimensions a))))
-  (with-test-prefix "generalized vector slices"
-    (pass-if (equal? (array-row array 1)
-                     #u32(2 3)))
-    (pass-if (equal? (array-ref (array-row array 1) 0)
-                     2))))
+(define (array-row a i)
+  (make-shared-array a (lambda (j) (list i j))
+                     (cadr (array-dimensions a))))
+
+(with-test-prefix/c&e "generalized vector slices"
+  (pass-if (equal? (array-row #2u32((0 1) (2 3)) 1)
+                   #u32(2 3)))
+  (pass-if (equal? (array-ref (array-row #2u32((0 1) (2 3)) 1) 0)
+                   2)))
