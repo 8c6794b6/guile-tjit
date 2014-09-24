@@ -2139,7 +2139,7 @@ scm_ungetc_unlocked (scm_t_wchar c, SCM port)
 
   if (pti->encoding_mode == SCM_PORT_ENCODING_MODE_UTF8)
     {
-      if (c < 0xf0)
+      if (c < 0x80)
         {
           result_buf[0] = (char) c;
           result = result_buf;
