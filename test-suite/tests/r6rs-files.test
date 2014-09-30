@@ -24,7 +24,9 @@
 
 (with-test-prefix "delete-file"
   (pass-if "delete-file deletes file"
-    (let ((filename (port-filename (mkstemp! "T-XXXXXX"))))
+    (let* ((port (mkstemp! "T-XXXXXX"))
+           (filename (port-filename port)))
+      (close-port port)
       (delete-file filename)
       (not (file-exists? filename))))
 
@@ -32,9 +34,9 @@
     (let ((success #f))
       (call/cc
        (lambda (continuation)
-	 (with-exception-handler
-	  (lambda (condition)
-	    (set! success (i/o-filename-error? condition))
-	    (continuation))
-	  (lambda () (delete-file "")))))
+         (with-exception-handler
+          (lambda (condition)
+            (set! success (i/o-filename-error? condition))
+            (continuation))
+          (lambda () (delete-file "")))))
       success)))

@@ -1,6 +1,6 @@
 ;;;; modules.test --- exercise some of guile's module stuff -*- scheme -*-
 
-;;;; Copyright (C) 2006, 2007, 2009, 2010, 2011 Free Software Foundation, Inc.
+;;;; Copyright (C) 2006, 2007, 2009-2011, 2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -18,8 +18,7 @@
 
 (define-module (test-suite test-modules)
   #:use-module (srfi srfi-1)
-  #:use-module ((ice-9 streams)  ;; for test purposes
-                #:renamer (symbol-prefix-proc 's:))
+  #:use-module ((ice-9 streams) #:prefix s:)  ; for test purposes
   #:use-module (test-suite lib))
 
 

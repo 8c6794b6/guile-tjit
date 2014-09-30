@@ -1,8 +1,7 @@
 ;;;; tree-il.test --- test suite for compiling tree-il   -*- scheme -*-
 ;;;; Andy Wingo <wingo@pobox.com> --- May 2009
 ;;;;
-;;;; Copyright (C) 2009, 2010, 2011, 2012, 2013,
-;;;;   2014 Free Software Foundation, Inc.
+;;;; Copyright (C) 2009-2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -1132,6 +1131,50 @@
               (number? (string-contains (car w)
                                         "expected 3, got 2")))))
 
+     (pass-if "~p"
+       (null? (call-with-warnings
+               (lambda ()
+                 (compile '(((@ (ice-9 format) format) #f "thing~p" 2))
+                          #:opts %opts-w-format
+                          #:to 'cps)))))
+
+     (pass-if "~p, too few arguments"
+       (let ((w (call-with-warnings
+                 (lambda ()
+                   (compile '((@ (ice-9 format) format) #f "~p")
+                            #:opts %opts-w-format
+                            #:to 'cps)))))
+         (and (= (length w) 1)
+              (number? (string-contains (car w)
+                                        "expected 1, got 0")))))
+
+     (pass-if "~:p"
+       (null? (call-with-warnings
+               (lambda ()
+                 (compile '(((@ (ice-9 format) format) #f "~d thing~:p" 2))
+                          #:opts %opts-w-format
+                          #:to 'cps)))))
+
+     (pass-if "~:@p, too many arguments"
+       (let ((w (call-with-warnings
+                 (lambda ()
+                   (compile '((@ (ice-9 format) format) #f "~d pupp~:@p" 5 5)
+                            #:opts %opts-w-format
+                            #:to 'cps)))))
+         (and (= (length w) 1)
+              (number? (string-contains (car w)
+                                        "expected 1, got 2")))))
+
+     (pass-if "~:@p, too few arguments"
+       (let ((w (call-with-warnings
+                 (lambda ()
+                   (compile '((@ (ice-9 format) format) #f "pupp~:@p")
+                            #:opts %opts-w-format
+                            #:to 'cps)))))
+         (and (= (length w) 1)
+              (number? (string-contains (car w)
+                                        "expected 1, got 0")))))
+
      (pass-if "~?"
        (null? (call-with-warnings
                (lambda ()
@@ -1202,8 +1245,7 @@
        (let ((w (call-with-warnings
                  (lambda ()
                    (let ((in (open-input-string
-                              "(use-modules ((ice-9 format)
-                                 #:renamer (symbol-prefix-proc 'i9-)))
+                              "(use-modules ((ice-9 format) #:prefix i9-))
                                (i9-format #t \"yo! ~A\" 1 2)")))
                      (read-and-compile in
                                        #:opts %opts-w-format

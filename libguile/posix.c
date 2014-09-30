@@ -1346,23 +1346,21 @@ scm_open_process (SCM mode, SCM prog, SCM args)
       SCM read_port = SCM_BOOL_F, write_port = SCM_BOOL_F;
 
       /* There is no sense in catching errors on close().  */
-      if (reading) 
+      if (reading)
         {
           close (c2p[1]);
-          read_port = scm_fdes_to_port (c2p[0], "r", sym_read_pipe);
-          scm_setvbuf (read_port, scm_from_int (_IONBF), SCM_UNDEFINED);
+          read_port = scm_fdes_to_port (c2p[0], "r0", sym_read_pipe);
         }
       if (writing)
         {
           close (p2c[0]);
-          write_port = scm_fdes_to_port (p2c[1], "w", sym_write_pipe);
-          scm_setvbuf (write_port, scm_from_int (_IONBF), SCM_UNDEFINED);
+          write_port = scm_fdes_to_port (p2c[1], "w0", sym_write_pipe);
         }
-      
+
       return scm_values
         (scm_list_3 (read_port, write_port, scm_from_int (pid)));
     }
-  
+
   /* The child.  */
   if (reading)
     close (c2p[0]);
@@ -1982,9 +1980,9 @@ cpu_set_to_bitvector (const cpu_set_t *cs)
   SCM bv;
   size_t cpu;
 
-  bv = scm_c_make_bitvector (sizeof (*cs), SCM_BOOL_F);
+  bv = scm_c_make_bitvector (CPU_SETSIZE, SCM_BOOL_F);
 
-  for (cpu = 0; cpu < sizeof (*cs); cpu++)
+  for (cpu = 0; cpu < CPU_SETSIZE; cpu++)
     {
       if (CPU_ISSET (cpu, cs))
 	/* XXX: This is inefficient but avoids code duplication.  */
@@ -2250,6 +2248,12 @@ void
 scm_init_posix ()
 {
   scm_add_feature ("posix");
+#ifdef EXIT_SUCCESS
+  scm_c_define ("EXIT_SUCCESS", scm_from_int (EXIT_SUCCESS));
+#endif
+#ifdef EXIT_FAILURE
+  scm_c_define ("EXIT_FAILURE", scm_from_int (EXIT_FAILURE));
+#endif
 #ifdef HAVE_GETEUID
   scm_add_feature ("EIDs");
 #endif

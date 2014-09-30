@@ -692,10 +692,9 @@ AC_TYPE_GETGROUPS
 AC_TYPE_SIGNAL
 AC_TYPE_MODE_T
 
-# On mingw -lm is empty, so this test is unnecessary, but it's
-# harmless so we don't hard-code to suppress it.
-#
-AC_CHECK_LIB(m, cos)
+dnl Check whether we need -lm.
+LT_LIB_M
+LIBS="$LIBS $LIBM"
 
 AC_CHECK_FUNCS(gethostbyname)
 if test $ac_cv_func_gethostbyname = no; then
@@ -769,9 +768,6 @@ AC_CHECK_FUNCS([DINFINITY DQNAN cexp chsize clog clog10 ctermid		\
   index bcopy memcpy rindex truncate unsetenv isblank _NSGetEnviron	\
   strcoll strcoll_l newlocale utimensat sched_getaffinity		\
   sched_setaffinity sendfile])
-
-AM_CONDITIONAL([BUILD_ICE_9_POPEN],
-  [test "x$enable_posix" = "xyes" && test "x$ac_cv_func_fork" = "xyes"])
 
 # Reasons for testing:
 #   netdb.h - not in mingw
@@ -1351,8 +1347,11 @@ case "$with_threads" in
     #     pthread_attr_get_np - "np" meaning "non portable" says it
     #         all; specific to FreeBSD
     #     pthread_sigmask - not available on mingw
+    #     pthread_cancel - not available on Android (Bionic libc)
     #
-    AC_CHECK_FUNCS(pthread_attr_getstack pthread_getattr_np pthread_get_stackaddr_np pthread_attr_get_np pthread_sigmask)
+    AC_CHECK_FUNCS([pthread_attr_getstack pthread_getattr_np		\
+      pthread_get_stackaddr_np pthread_attr_get_np pthread_sigmask	\
+      pthread_cancel])
 
     # On past versions of Solaris, believe 8 through 10 at least, you
     # had to write "pthread_once_t foo = { PTHREAD_ONCE_INIT };".

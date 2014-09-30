@@ -1,8 +1,6 @@
 ;;; -*- mode: scheme; coding: utf-8; -*-
 
-;;;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-;;;;   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
-;;;;   Free Software Foundation, Inc.
+;;;; Copyright (C) 1995-2014  Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -430,13 +428,15 @@ file with the given name already exists, the effect is unspecified."
   (syntax-rules ()
     ((_) #t)
     ((_ x) x)
-    ((_ x y ...) (if x (and y ...) #f))))
+    ;; Avoid ellipsis, which would lead to quadratic expansion time.
+    ((_ x . y) (if x (and . y) #f))))
 
 (define-syntax or
   (syntax-rules ()
     ((_) #f)
     ((_ x) x)
-    ((_ x y ...) (let ((t x)) (if t t (or y ...))))))
+    ;; Avoid ellipsis, which would lead to quadratic expansion time.
+    ((_ x . y) (let ((t x)) (if t t (or . y))))))
 
 (include-from-path "ice-9/quasisyntax")
 
@@ -1891,7 +1891,7 @@ written into the port is returned."
        (or (char=? c #\/)
            (char=? c #\\)))
 
-     (define file-name-separator-string "\\")
+     (define file-name-separator-string "/")
 
      (define (absolute-file-name? file-name)
        (define (file-name-separator-at-index? idx)
@@ -1982,7 +1982,7 @@ written into the port is returned."
 (define-syntax-rule (add-to-load-path elt)
   "Add ELT to Guile's load path, at compile-time and at run-time."
   (eval-when (expand load eval)
-    (set! %load-path (cons elt %load-path))))
+    (set! %load-path (cons elt (delete elt %load-path)))))
 
 (define %load-verbosely #f)
 (define (assert-load-verbosity v) (set! %load-verbosely v))

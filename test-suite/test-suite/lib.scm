@@ -63,6 +63,9 @@
  ;; Using a given locale
  with-locale with-locale* with-latin1-locale with-latin1-locale*
 
+ ;; The bit bucket.
+ %null-device
+
  ;; Reporting results in various ways.
  register-reporter unregister-reporter reporter-registered?
  make-count-reporter print-counts
@@ -561,6 +564,17 @@
   (syntax-rules ()
     ((_ body ...)
      (with-latin1-locale* (lambda () body ...)))))
+
+(define %null-device
+  ;; On Windows (MinGW), /dev/null does not exist and we must instead
+  ;; use NUL.  Note that file system procedures automatically translate
+  ;; /dev/null, so this variable is only useful for shell snippets.
+
+  ;; Test for Windowsness by checking whether the current directory name
+  ;; starts with a drive letter.
+  (if (string-match "^[a-zA-Z]:[/\\]" (getcwd))
+      "NUL"
+      "/dev/null"))
 
 
 ;;;; REPORTERS

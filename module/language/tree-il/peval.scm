@@ -1,6 +1,6 @@
 ;;; Tree-IL partial evaluator
 
-;; Copyright (C) 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -1405,18 +1405,31 @@ top-level bindings from ENV and return the resulting expression."
                                 gensyms
                                 (append req-vals opt-vals rest-vals)
                                 body)
-                      ;; The required argument values are in the scope
-                      ;; of the optional argument initializers.
+                      ;; The default initializers of optional arguments
+                      ;; may refer to earlier arguments, so in the general
+                      ;; case we must expand into a series of nested let
+                      ;; expressions.
+                      ;;
+                      ;; In the generated code, the outermost let
+                      ;; expression will bind all required arguments, as
+                      ;; well as the empty rest argument, if any.  Each
+                      ;; optional argument will be bound within an inner
+                      ;; let.
                       (make-let src
                                 (append req rest)
                                 (append (list-head gensyms nreq)
                                         (last-pair gensyms))
                                 (append req-vals rest-vals)
-                                (make-let src
-                                          opt
-                                          (list-head (drop gensyms nreq) nopt)
-                                          opt-vals
-                                          body)))))
+                                (fold-right (lambda (var gensym val body)
+                                              (make-let src
+                                                        (list var)
+                                                        (list gensym)
+                                                        (list val)
+                                                        body))
+                                            body
+                                            opt
+                                            (list-head (drop gensyms nreq) nopt)
+                                            opt-vals)))))
 
               (cond
                ((or (< nargs nreq) (and (not rest) (> nargs (+ nreq nopt))))

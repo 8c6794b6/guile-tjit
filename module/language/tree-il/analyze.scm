@@ -1,6 +1,6 @@
 ;;; TREE-IL -> GLIL compiler
 
-;; Copyright (C) 2001, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2008-2014 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -1222,6 +1222,16 @@ given `tree-il' element."
                               conditions end-group
                               (+ 1 min-count)
                               (+ 1 max-count)))
+             ((#\p #\P) (let* ((colon?    (memq #\: params))
+                               (min-count (if colon?
+                                              (max 1 min-count)
+                                              (+ 1 min-count))))
+                          (loop (cdr chars) 'literal '()
+                                conditions end-group
+                                min-count
+                                (if colon?
+                                    (max max-count min-count)
+                                    (+ 1 max-count)))))
              ((#\[)
               (loop chars 'literal '() '()
                     (let ((selector (previous-number params))
