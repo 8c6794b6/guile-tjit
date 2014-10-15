@@ -74,7 +74,8 @@
       (delete-duplicates
        (getaddrinfo (uri-host uri)
                     (cond (port => number->string)
-                          (else (symbol->string (uri-scheme uri))))
+                          ((uri-scheme uri) => symbol->string)
+                          (else (error "Not an absolute URI" uri)))
                     (if port
                         AI_NUMERICSERV
                         0))

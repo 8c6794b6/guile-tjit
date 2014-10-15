@@ -300,7 +300,8 @@ request R."
 (define-request-accessor user-agent #f)
 
 ;; Misc accessors
-(define* (request-absolute-uri r #:optional default-host default-port)
+(define* (request-absolute-uri r #:optional default-host default-port
+                               default-scheme)
   "A helper routine to determine the absolute URI of a request, using the
 ‘host’ header and the default host and port."
   (let ((uri (request-uri r)))
@@ -313,7 +314,10 @@ request R."
                        (bad-request
                         "URI not absolute, no Host header, and no default: ~s"
                         uri)))))
-          (build-uri (uri-scheme uri)
+          (build-uri (or (uri-scheme uri)
+                         default-scheme
+                         (bad-request "URI not absolute and no default-port"
+                                      uri))
                      #:host (car host)
                      #:port (cdr host)
                      #:path (uri-path uri)

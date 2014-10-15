@@ -1090,20 +1090,19 @@ three values: the method, the URI, and the version."
         (bad-request "Bad Request-Line: ~s" line))))
 
 (define (write-uri uri port)
-  (if (uri-host uri)
-      (begin
-        (display (uri-scheme uri) port)
-        (display "://" port)
-        (if (uri-userinfo uri)
-            (begin
-              (display (uri-userinfo uri) port)
-              (display #\@ port)))
-        (display (uri-host uri) port)
-        (let ((p (uri-port uri)))
-          (if (and p (not (eqv? p 80)))
-              (begin
-                (display #\: port)
-                (display p port))))))
+  (when (uri-host uri)
+    (when (uri-scheme uri)
+      (display (uri-scheme uri) port)
+      (display #\: port))
+    (display "//" port)
+    (when (uri-userinfo uri)
+      (display (uri-userinfo uri) port)
+      (display #\@ port))
+    (display (uri-host uri) port)
+    (let ((p (uri-port uri)))
+      (when (and p (not (eqv? p 80)))
+        (display #\: port)
+        (display p port))))
   (let* ((path (uri-path uri))
          (len (string-length path)))
     (cond
@@ -1113,10 +1112,9 @@ three values: the method, the URI, and the version."
       (bad-request "Empty path and no host for URI: ~s" uri))
      (else
       (display path port))))
-  (if (uri-query uri)
-      (begin
-        (display #\? port)
-        (display (uri-query uri) port))))
+  (when (uri-query uri)
+    (display #\? port)
+    (display (uri-query uri) port)))
 
 (define (write-request-line method uri version port)
   "Write the first line of an HTTP request to PORT."
@@ -1226,11 +1224,11 @@ treated specially, and is just returned as a plain string."
     (@@ (web uri) absolute-uri?)
     write-uri))
 
-;; emacs: (put 'declare-relative-uri-header! 'scheme-indent-function 1)
-(define (declare-relative-uri-header! name)
+;; emacs: (put 'declare-uri-reference-header! 'scheme-indent-function 1)
+(define (declare-uri-reference-header! name)
   (declare-header! name
     (lambda (str)
-      (or ((@@ (web uri) string->uri*) str)
+      (or (string->uri-reference str)
           (bad-header-component 'uri str)))
     uri?
     write-uri))
@@ -1519,9 +1517,9 @@ treated specially, and is just returned as a plain string."
 ;;
 (declare-integer-header! "Content-Length")
 
-;; Content-Location = ( absoluteURI | relativeURI )
+;; Content-Location = URI-reference
 ;;
-(declare-relative-uri-header! "Content-Location")
+(declare-uri-reference-header! "Content-Location")
 
 ;; Content-MD5 = <base64 of 128 bit MD5 digest as per RFC 1864>
 ;;
@@ -1822,9 +1820,9 @@ treated specially, and is just returned as a plain string."
            (display (cdr pair) port)))
      ",")))
 
-;; Referer = ( absoluteURI | relativeURI )
+;; Referer = URI-reference
 ;;
-(declare-relative-uri-header! "Referer")
+(declare-uri-reference-header! "Referer")
 
 ;; TE = #( t-codings )
 ;; t-codings = "trailers" | ( transfer-extension [ accept-params ] )
@@ -1859,9 +1857,13 @@ treated specially, and is just returned as a plain string."
   entity-tag?
   write-entity-tag)
 
-;; Location = absoluteURI
+;; Location = URI-reference
+;;
+;; In RFC 2616, Location was specified as being an absolute URI.  This
+;; was changed in RFC 7231 to permit URI references generally, which
+;; matches web reality.
 ;; 
-(declare-uri-header! "Location")
+(declare-uri-reference-header! "Location")
 
 ;; Proxy-Authenticate = 1#challenge
 ;;

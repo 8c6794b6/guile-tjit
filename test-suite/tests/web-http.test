@@ -345,6 +345,14 @@
   (pass-if-parse etag "W/\"foo\"" '("foo" . #f))
   (pass-if-parse location "http://other-place"
                  (build-uri 'http #:host "other-place"))
+  (pass-if-parse location "#foo"
+                 (build-uri-reference #:fragment "foo"))
+  (pass-if-parse location "/#foo"
+                 (build-uri-reference #:path "/" #:fragment "foo"))
+  (pass-if-parse location "/foo"
+                 (build-uri-reference #:path "/foo"))
+  (pass-if-parse location "//server/foo"
+                 (build-uri-reference #:host "server" #:path "/foo"))
   (pass-if-parse proxy-authenticate "Basic realm=\"guile\""
                  '((basic (realm . "guile"))))
   (pass-if-parse retry-after "Tue, 15 Nov 1994 08:12:31 GMT"

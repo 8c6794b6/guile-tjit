@@ -1,6 +1,6 @@
 ;;;; web-uri.test --- URI library          -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;; 	Copyright (C) 2010, 2011, 2012 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2010, 2011, 2012, 2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -210,7 +210,298 @@
   (pass-if "file:///etc/hosts"
     (uri=? (string->uri "file:///etc/hosts")
            #:scheme 'file
-           #:path "/etc/hosts")))
+           #:path "/etc/hosts"))
+
+  (pass-if "http://foo#bar"
+    (uri=? (string->uri "http://foo#bar")
+           #:scheme 'http
+           #:host "foo"
+           #:path ""
+           #:fragment "bar"))
+
+  (pass-if "http://foo:/#bar"
+    (uri=? (string->uri "http://foo:/#bar")
+           #:scheme 'http
+           #:host "foo"
+           #:path "/"
+           #:fragment "bar"))
+
+  (pass-if "http://foo:100#bar"
+    (uri=? (string->uri "http://foo:100#bar")
+           #:scheme 'http
+           #:host "foo"
+           #:port 100
+           #:path ""
+           #:fragment "bar"))
+
+  (pass-if "http://foo:100/#bar"
+    (uri=? (string->uri "http://foo:100/#bar")
+           #:scheme 'http
+           #:host "foo"
+           #:port 100
+           #:path "/"
+           #:fragment "bar"))
+
+  (pass-if "http://foo?q#bar"
+    (uri=? (string->uri "http://foo?q#bar")
+           #:scheme 'http
+           #:host "foo"
+           #:path ""
+           #:query "q"
+           #:fragment "bar"))
+
+  (pass-if "http://foo:/?q#bar"
+    (uri=? (string->uri "http://foo:/?q#bar")
+           #:scheme 'http
+           #:host "foo"
+           #:path "/"
+           #:query "q"
+           #:fragment "bar"))
+
+  (pass-if "http://foo:100?q#bar"
+    (uri=? (string->uri "http://foo:100?q#bar")
+           #:scheme 'http
+           #:host "foo"
+           #:port 100
+           #:path ""
+           #:query "q"
+           #:fragment "bar"))
+
+  (pass-if "http://foo:100/?q#bar"
+    (uri=? (string->uri "http://foo:100/?q#bar")
+           #:scheme 'http
+           #:host "foo"
+           #:port 100
+           #:path "/"
+           #:query "q"
+           #:fragment "bar")))
+
+(with-test-prefix "string->uri-reference"
+  (pass-if "/foo"
+    (uri=? (string->uri-reference "/foo")
+           #:path "/foo"))
+  
+  (pass-if "ftp:/foo"
+    (uri=? (string->uri-reference "ftp:/foo")
+           #:scheme 'ftp
+           #:path "/foo"))
+  
+  (pass-if "ftp:foo"
+    (uri=? (string->uri-reference "ftp:foo")
+           #:scheme 'ftp
+           #:path "foo"))
+  
+  (pass-if "//foo/bar"
+    (uri=? (string->uri-reference "//foo/bar")
+           #:host "foo"
+           #:path "/bar"))
+  
+  (pass-if "ftp://foo@bar:22/baz"
+    (uri=? (string->uri-reference "ftp://foo@bar:22/baz")
+           #:scheme 'ftp
+           #:userinfo "foo"
+           #:host "bar"
+           #:port 22
+           #:path "/baz"))
+
+  (pass-if "//foo@bar:22/baz"
+    (uri=? (string->uri-reference "//foo@bar:22/baz")
+           #:userinfo "foo"
+           #:host "bar"
+           #:port 22
+           #:path "/baz"))
+
+  (pass-if "http://bad.host.1"
+    (not (string->uri-reference "http://bad.host.1")))
+
+  (pass-if "//bad.host.1"
+    (not (string->uri-reference "//bad.host.1")))
+
+  (pass-if "http://1.good.host"
+    (uri=? (string->uri-reference "http://1.good.host")
+           #:scheme 'http #:host "1.good.host" #:path ""))
+
+  (pass-if "//1.good.host"
+    (uri=? (string->uri-reference "//1.good.host")
+           #:host "1.good.host" #:path ""))
+
+  (when (memq 'socket *features*)
+    (pass-if "http://192.0.2.1"
+      (uri=? (string->uri-reference "http://192.0.2.1")
+             #:scheme 'http #:host "192.0.2.1" #:path ""))
+
+    (pass-if "//192.0.2.1"
+      (uri=? (string->uri-reference "//192.0.2.1")
+             #:host "192.0.2.1" #:path ""))
+
+    (pass-if "http://[2001:db8::1]"
+      (uri=? (string->uri-reference "http://[2001:db8::1]")
+             #:scheme 'http #:host "2001:db8::1" #:path ""))
+
+    (pass-if "//[2001:db8::1]"
+      (uri=? (string->uri-reference "//[2001:db8::1]")
+             #:host "2001:db8::1" #:path ""))
+
+    (pass-if "http://[2001:db8::1]:80"
+      (uri=? (string->uri-reference "http://[2001:db8::1]:80")
+             #:scheme 'http
+             #:host "2001:db8::1"
+             #:port 80
+             #:path ""))
+
+    (pass-if "//[2001:db8::1]:80"
+      (uri=? (string->uri-reference "//[2001:db8::1]:80")
+             #:host "2001:db8::1"
+             #:port 80
+             #:path ""))
+
+    (pass-if "http://[::ffff:192.0.2.1]"
+      (uri=? (string->uri-reference "http://[::ffff:192.0.2.1]")
+             #:scheme 'http #:host "::ffff:192.0.2.1" #:path ""))
+
+    (pass-if "//[::ffff:192.0.2.1]"
+      (uri=? (string->uri-reference "//[::ffff:192.0.2.1]")
+             #:host "::ffff:192.0.2.1" #:path "")))
+
+  (pass-if "http://foo:"
+    (uri=? (string->uri-reference "http://foo:")
+           #:scheme 'http #:host "foo" #:path ""))
+
+  (pass-if "//foo:"
+    (uri=? (string->uri-reference "//foo:")
+           #:host "foo" #:path ""))
+
+  (pass-if "http://foo:/"
+    (uri=? (string->uri-reference "http://foo:/")
+           #:scheme 'http #:host "foo" #:path "/"))
+
+  (pass-if "//foo:/"
+    (uri=? (string->uri-reference "//foo:/")
+           #:host "foo" #:path "/"))
+
+  (pass-if "http://2012.jsconf.us/"
+    (uri=? (string->uri-reference "http://2012.jsconf.us/")
+           #:scheme 'http #:host "2012.jsconf.us" #:path "/"))
+
+  (pass-if "//2012.jsconf.us/"
+    (uri=? (string->uri-reference "//2012.jsconf.us/")
+           #:host "2012.jsconf.us" #:path "/"))
+
+  (pass-if "http://foo:not-a-port"
+    (not (string->uri-reference "http://foo:not-a-port")))
+  
+  (pass-if "//foo:not-a-port"
+    (not (string->uri-reference "//foo:not-a-port")))
+  
+  (pass-if "http://:10"
+    (not (string->uri-reference "http://:10")))
+
+  (pass-if "//:10"
+    (not (string->uri-reference "//:10")))
+
+  (pass-if "http://foo@"
+    (not (string->uri-reference "http://foo@")))
+
+  (pass-if "//foo@"
+    (not (string->uri-reference "//foo@")))
+
+  (pass-if "file:/"
+    (uri=? (string->uri-reference "file:/")
+           #:scheme 'file
+           #:path "/"))
+
+  (pass-if "/"
+    (uri=? (string->uri-reference "/")
+           #:path "/"))
+
+  (pass-if "foo"
+    (uri=? (string->uri-reference "foo")
+           #:path "foo"))
+
+  (pass-if "file:/etc/hosts"
+    (uri=? (string->uri-reference "file:/etc/hosts")
+           #:scheme 'file
+           #:path "/etc/hosts"))
+
+  (pass-if "/etc/hosts"
+    (uri=? (string->uri-reference "/etc/hosts")
+           #:path "/etc/hosts"))
+
+  (pass-if "file:///etc/hosts"
+    (uri=? (string->uri-reference "file:///etc/hosts")
+           #:scheme 'file
+           #:path "/etc/hosts"))
+
+  (pass-if "///etc/hosts"
+    (uri=? (string->uri-reference "///etc/hosts")
+           #:path "/etc/hosts"))
+
+  (pass-if "/foo#bar"
+    (uri=? (string->uri-reference "/foo#bar")
+           #:path "/foo"
+           #:fragment "bar"))
+
+  (pass-if "//foo#bar"
+    (uri=? (string->uri-reference "//foo#bar")
+           #:host "foo"
+           #:path ""
+           #:fragment "bar"))
+
+  (pass-if "//foo:/#bar"
+    (uri=? (string->uri-reference "//foo:/#bar")
+           #:host "foo"
+           #:path "/"
+           #:fragment "bar"))
+
+  (pass-if "//foo:100#bar"
+    (uri=? (string->uri-reference "//foo:100#bar")
+           #:host "foo"
+           #:port 100
+           #:path ""
+           #:fragment "bar"))
+
+  (pass-if "//foo:100/#bar"
+    (uri=? (string->uri-reference "//foo:100/#bar")
+           #:host "foo"
+           #:port 100
+           #:path "/"
+           #:fragment "bar"))
+
+  (pass-if "/foo?q#bar"
+    (uri=? (string->uri-reference "/foo?q#bar")
+           #:path "/foo"
+           #:query "q"
+           #:fragment "bar"))
+
+  (pass-if "//foo?q#bar"
+    (uri=? (string->uri-reference "//foo?q#bar")
+           #:host "foo"
+           #:path ""
+           #:query "q"
+           #:fragment "bar"))
+
+  (pass-if "//foo:/?q#bar"
+    (uri=? (string->uri-reference "//foo:/?q#bar")
+           #:host "foo"
+           #:path "/"
+           #:query "q"
+           #:fragment "bar"))
+
+  (pass-if "//foo:100?q#bar"
+    (uri=? (string->uri-reference "//foo:100?q#bar")
+           #:host "foo"
+           #:port 100
+           #:path ""
+           #:query "q"
+           #:fragment "bar"))
+
+  (pass-if "//foo:100/?q#bar"
+    (uri=? (string->uri-reference "//foo:100/?q#bar")
+           #:host "foo"
+           #:port 100
+           #:path "/"
+           #:query "q"
+           #:fragment "bar")))
 
 (with-test-prefix "uri->string"
   (pass-if "ftp:"
@@ -225,30 +516,78 @@
     (equal? "ftp://foo/bar"
             (uri->string (string->uri "ftp://foo/bar"))))
   
+  (pass-if "//foo/bar"
+    (equal? "//foo/bar"
+            (uri->string (string->uri-reference "//foo/bar"))))
+  
   (pass-if "ftp://foo@bar:22/baz"
     (equal? "ftp://foo@bar:22/baz"
             (uri->string (string->uri "ftp://foo@bar:22/baz"))))
+  
+  (pass-if "//foo@bar:22/baz"
+    (equal? "//foo@bar:22/baz"
+            (uri->string (string->uri-reference "//foo@bar:22/baz"))))
   
   (when (memq 'socket *features*)
     (pass-if "http://192.0.2.1"
       (equal? "http://192.0.2.1"
               (uri->string (string->uri "http://192.0.2.1"))))
 
+    (pass-if "//192.0.2.1"
+      (equal? "//192.0.2.1"
+              (uri->string (string->uri-reference "//192.0.2.1"))))
+
     (pass-if "http://[2001:db8::1]"
       (equal? "http://[2001:db8::1]"
               (uri->string (string->uri "http://[2001:db8::1]"))))
 
+    (pass-if "//[2001:db8::1]"
+      (equal? "//[2001:db8::1]"
+              (uri->string (string->uri-reference "//[2001:db8::1]"))))
+
     (pass-if "http://[::ffff:192.0.2.1]"
       (equal? "http://[::ffff:192.0.2.1]"
-              (uri->string (string->uri "http://[::ffff:192.0.2.1]")))))
+              (uri->string (string->uri "http://[::ffff:192.0.2.1]"))))
+
+    (pass-if "//[::ffff:192.0.2.1]"
+      (equal? "//[::ffff:192.0.2.1]"
+              (uri->string (string->uri-reference "//[::ffff:192.0.2.1]")))))
 
   (pass-if "http://foo:"
     (equal? "http://foo"
             (uri->string (string->uri "http://foo:"))))
   
+  (pass-if "//foo"
+    (equal? "//foo"
+            (uri->string (string->uri-reference "//foo"))))
+
   (pass-if "http://foo:/"
     (equal? "http://foo/"
-            (uri->string (string->uri "http://foo:/")))))
+            (uri->string (string->uri "http://foo:/"))))
+
+  (pass-if "//foo:/"
+    (equal? "//foo/"
+            (uri->string (string->uri-reference "//foo:/"))))
+
+  (pass-if "/"
+    (equal? "/"
+            (uri->string (string->uri-reference "/"))))
+
+  (pass-if "/foo"
+    (equal? "/foo"
+            (uri->string (string->uri-reference "/foo"))))
+
+  (pass-if "/foo/"
+    (equal? "/foo/"
+            (uri->string (string->uri-reference "/foo/"))))
+
+  (pass-if "/foo/?bar#baz"
+    (equal? "/foo/?bar#baz"
+            (uri->string (string->uri-reference "/foo/?bar#baz"))))
+
+  (pass-if "foo/?bar#baz"
+    (equal? "foo/?bar#baz"
+            (uri->string (string->uri-reference "foo/?bar#baz")))))
 
 (with-test-prefix "decode"
   (pass-if "foo%20bar"

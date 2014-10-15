@@ -1,6 +1,6 @@
 ;;;; (web uri) --- URI manipulation tools
 ;;;;
-;;;; Copyright (C) 1997,2001,2002,2010,2011,2012,2013 Free Software Foundation, Inc.
+;;;; Copyright (C) 1997,2001,2002,2010,2011,2012,2013,2014 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -36,8 +36,10 @@
             uri-path uri-query uri-fragment
 
             build-uri
+            build-uri-reference
             declare-default-port!
-            string->uri uri->string
+            string->uri string->uri-reference
+            uri->string
             uri-decode uri-encode
             split-and-decode-uri-path
             encode-and-join-uri-path))
@@ -62,9 +64,10 @@
 (define (positive-exact-integer? port)
   (and (number? port) (exact? port) (integer? port) (positive? port)))
 
-(define (validate-uri scheme userinfo host port path query fragment)
+(define* (validate-uri scheme userinfo host port path query fragment
+                       #:key reference?)
   (cond
-   ((not (symbol? scheme))
+   ((and (not reference?) (not (symbol? scheme)))
     (uri-error "Expected a symbol for the URI scheme: ~s" scheme))
    ((and (or userinfo port) (not host))
     (uri-error "Expected a host, given userinfo or port"))
@@ -82,13 +85,24 @@
 
 (define* (build-uri scheme #:key userinfo host port (path "") query fragment
                     (validate? #t))
-  "Construct a URI object.  SCHEME should be a symbol, PORT
-either a positive, exact integer or ‘#f’, and the rest of the
-fields are either strings or ‘#f’.  If VALIDATE? is true,
-also run some consistency checks to make sure that the constructed URI
-is valid."
+  "Construct a URI object.  SCHEME should be a symbol, PORT either a
+positive, exact integer or ‘#f’, and the rest of the fields are either
+strings or ‘#f’.  If VALIDATE? is true, also run some consistency checks
+to make sure that the constructed object is a valid absolute URI."
   (if validate?
       (validate-uri scheme userinfo host port path query fragment))
+  (make-uri scheme userinfo host port path query fragment))
+
+(define* (build-uri-reference #:key scheme userinfo host port (path "") query
+                              fragment (validate? #t))
+  "Construct a URI object.  SCHEME should be a symbol or ‘#f’, PORT
+either a positive, exact integer or ‘#f’, and the rest of the fields
+are either strings or ‘#f’.  If VALIDATE? is true, also run some
+consistency checks to make sure that the constructed URI is a valid URI
+reference (either an absolute URI or a relative reference)."
+  (if validate?
+      (validate-uri scheme userinfo host port path query fragment
+                    #:reference? #t))
   (make-uri scheme userinfo host port path query fragment))
 
 ;; See RFC 3986 #3.2.2 for comments on percent-encodings, IDNA (RFC
@@ -156,6 +170,10 @@ is valid."
 ;;;               / path-absolute
 ;;;               / path-rootless
 ;;;               / path-empty
+;;;
+;;;   A URI-reference is the same as URI, but where the scheme is
+;;;   optional.  If the scheme is not present, its colon isn't present
+;;;   either.
 
 (define scheme-pat
   "[a-zA-Z][a-zA-Z0-9+.-]*")
@@ -173,9 +191,9 @@ is valid."
 (define uri-regexp
   (make-regexp uri-pat))
 
-(define (string->uri* string)
-  "Parse STRING into a URI object.  Return ‘#f’ if the string
-could not be parsed."
+(define (string->uri-reference string)
+  "Parse the URI reference written as STRING into a URI object.  Return
+‘#f’ if the string could not be parsed."
   (% (let ((m (regexp-exec uri-regexp string)))
        (if (not m) (abort))
        (let ((scheme (let ((str (match:substring m 2)))
@@ -183,7 +201,7 @@ could not be parsed."
              (authority (match:substring m 3))
              (path (match:substring m 4))
              (query (match:substring m 6))
-             (fragment (match:substring m 7)))
+             (fragment (match:substring m 8)))
          (call-with-values
              (lambda ()
                (if authority
@@ -195,9 +213,9 @@ could not be parsed."
        #f)))
 
 (define (string->uri string)
-  "Parse STRING into a URI object.  Return ‘#f’ if the string
+  "Parse STRING into an absolute URI object.  Return ‘#f’ if the string
 could not be parsed."
-  (let ((uri (string->uri* string)))
+  (let ((uri (string->uri-reference string)))
     (and uri (uri-scheme uri) uri)))
 
 (define *default-ports* (make-hash-table))
