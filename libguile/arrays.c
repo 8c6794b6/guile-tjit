@@ -1,6 +1,6 @@
 /* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004,2005,
  *   2006, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
- * 
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
  * as published by the Free Software Foundation; either version 3 of
@@ -28,6 +28,8 @@
 #include <errno.h>
 #include <string.h>
 #include <assert.h>
+
+#include "verify.h"
 
 #include "libguile/_scm.h"
 #include "libguile/__scm.h"
@@ -92,7 +94,7 @@ SCM_DEFINE (scm_shared_array_offset, "shared-array-offset", 1, 0, 0,
 #undef FUNC_NAME
 
 
-SCM_DEFINE (scm_shared_array_increments, "shared-array-increments", 1, 0, 0, 
+SCM_DEFINE (scm_shared_array_increments, "shared-array-increments", 1, 0, 0,
            (SCM ra),
 	    "For each dimension, return the distance between elements in the root vector.")
 #define FUNC_NAME s_scm_shared_array_increments
@@ -112,15 +114,19 @@ SCM_DEFINE (scm_shared_array_increments, "shared-array-increments", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+/* FIXME: to avoid this assumption, fix the accessors in arrays.h,
+   scm_i_make_array, and the array cases in system/vm/assembler.scm. */
+
+verify (sizeof (scm_t_array_dim) == 3*sizeof (scm_t_bits));
+
+/* Matching SCM_I_ARRAY accessors in arrays.h */
 SCM
 scm_i_make_array (int ndim)
 {
-  SCM ra;
-  ra = scm_cell (((scm_t_bits) ndim << 17) + scm_tc7_array,
-		 (scm_t_bits) scm_gc_malloc (sizeof (scm_i_t_array) +
-					     ndim * sizeof (scm_t_array_dim),
-					     "array"));
-  SCM_I_ARRAY_V (ra) = SCM_BOOL_F;
+  SCM ra = scm_words (((scm_t_bits) ndim << 17) + scm_tc7_array, 3 + ndim*3);
+  SCM_I_ARRAY_SET_V (ra, SCM_BOOL_F);
+  SCM_I_ARRAY_SET_BASE (ra, 0);
+  /* dimensions are unset */
   return ra;
 }
 
@@ -139,7 +145,7 @@ scm_i_shap2ra (SCM args)
     scm_misc_error (NULL, s_bad_spec, SCM_EOL);
 
   ra = scm_i_make_array (ndim);
-  SCM_I_ARRAY_BASE (ra) = 0;
+  SCM_I_ARRAY_SET_BASE (ra, 0);
   s = SCM_I_ARRAY_DIMS (ra);
   for (; !scm_is_null (args); s++, args = SCM_CDR (args))
     {
@@ -179,7 +185,7 @@ SCM_DEFINE (scm_make_typed_array, "make-typed-array", 2, 0, 1,
   size_t k, rlen = 1;
   scm_t_array_dim *s;
   SCM ra;
-  
+
   ra = scm_i_shap2ra (bounds);
   SCM_SET_ARRAY_CONTIGUOUS_FLAG (ra);
   s = SCM_I_ARRAY_DIMS (ra);
@@ -195,8 +201,7 @@ SCM_DEFINE (scm_make_typed_array, "make-typed-array", 2, 0, 1,
   if (scm_is_eq (fill, SCM_UNSPECIFIED))
     fill = SCM_UNDEFINED;
 
-  SCM_I_ARRAY_V (ra) =
-    scm_make_generalized_vector (type, scm_from_size_t (rlen), fill);
+  SCM_I_ARRAY_SET_V (ra, scm_make_generalized_vector (type, scm_from_size_t (rlen), fill));
 
   if (1 == SCM_I_ARRAY_NDIM (ra) && 0 == SCM_I_ARRAY_BASE (ra))
     if (0 == s->lbnd)
@@ -217,7 +222,7 @@ scm_from_contiguous_typed_array (SCM type, SCM bounds, const void *bytes,
   scm_t_array_handle h;
   void *elts;
   size_t sz;
-  
+
   ra = scm_i_shap2ra (bounds);
   SCM_SET_ARRAY_CONTIGUOUS_FLAG (ra);
   s = SCM_I_ARRAY_DIMS (ra);
@@ -229,8 +234,7 @@ scm_from_contiguous_typed_array (SCM type, SCM bounds, const void *bytes,
       SCM_ASSERT_RANGE (1, bounds, s[k].lbnd <= s[k].ubnd + 1);
       rlen = (s[k].ubnd - s[k].lbnd + 1) * s[k].inc;
     }
-  SCM_I_ARRAY_V (ra) =
-    scm_make_generalized_vector (type, scm_from_size_t (rlen), SCM_UNDEFINED);
+  SCM_I_ARRAY_SET_V (ra, scm_make_generalized_vector (type, scm_from_size_t (rlen), SCM_UNDEFINED));
 
 
   scm_array_get_handle (ra, &h);
@@ -273,7 +277,7 @@ scm_from_contiguous_array (SCM bounds, const SCM *elts, size_t len)
   scm_t_array_dim *s;
   SCM ra;
   scm_t_array_handle h;
-  
+
   ra = scm_i_shap2ra (bounds);
   SCM_SET_ARRAY_CONTIGUOUS_FLAG (ra);
   s = SCM_I_ARRAY_DIMS (ra);
@@ -288,7 +292,7 @@ scm_from_contiguous_array (SCM bounds, const SCM *elts, size_t len)
   if (rlen != len)
     SCM_MISC_ERROR ("element length and dimensions do not match", SCM_EOL);
 
-  SCM_I_ARRAY_V (ra) = scm_c_make_vector (rlen, SCM_UNDEFINED);
+  SCM_I_ARRAY_SET_V (ra, scm_c_make_vector (rlen, SCM_UNDEFINED));
   scm_array_get_handle (ra, &h);
   memcpy (h.writable_elements, elts, rlen * sizeof(SCM));
   scm_array_handle_release (&h);
@@ -323,7 +327,7 @@ scm_i_ra_set_contp (SCM ra)
 	      SCM_CLR_ARRAY_CONTIGUOUS_FLAG (ra);
 	      return;
 	    }
-	  inc *= (SCM_I_ARRAY_DIMS (ra)[k].ubnd 
+	  inc *= (SCM_I_ARRAY_DIMS (ra)[k].ubnd
 		  - SCM_I_ARRAY_DIMS (ra)[k].lbnd + 1);
 	}
     }
@@ -368,7 +372,7 @@ SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
 
   if (SCM_I_ARRAYP (oldra))
     {
-      SCM_I_ARRAY_V (ra) = SCM_I_ARRAY_V (oldra);
+      SCM_I_ARRAY_SET_V (ra, SCM_I_ARRAY_V (oldra));
       old_base = old_min = old_max = SCM_I_ARRAY_BASE (oldra);
       s = scm_array_handle_dims (&old_handle);
       k = scm_array_handle_rank (&old_handle);
@@ -382,7 +386,7 @@ SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
     }
   else
     {
-      SCM_I_ARRAY_V (ra) = oldra;
+      SCM_I_ARRAY_SET_V (ra, oldra);
       old_base = old_min = 0;
       old_max = scm_c_array_length (oldra) - 1;
     }
@@ -398,9 +402,8 @@ SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
 	    ra = scm_make_generalized_vector (scm_array_type (ra),
                                               SCM_INUM0, SCM_UNDEFINED);
 	  else
-	    SCM_I_ARRAY_V (ra) =
-              scm_make_generalized_vector (scm_array_type (ra),
-                                           SCM_INUM0, SCM_UNDEFINED);
+	    SCM_I_ARRAY_SET_V (ra, scm_make_generalized_vector (scm_array_type (ra),
+                                                                SCM_INUM0, SCM_UNDEFINED));
 	  scm_array_handle_release (&old_handle);
 	  return ra;
 	}
@@ -408,7 +411,8 @@ SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
 
   imap = scm_apply_0 (mapfunc, scm_reverse (inds));
   i = scm_array_handle_pos (&old_handle, imap);
-  SCM_I_ARRAY_BASE (ra) = new_min = new_max = i + old_base;
+  new_min = new_max = i + old_base;
+  SCM_I_ARRAY_SET_BASE (ra, new_min);
   indptr = inds;
   k = SCM_I_ARRAY_NDIM (ra);
   while (k--)
@@ -450,7 +454,7 @@ SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
 
 
 /* args are RA . DIMS */
-SCM_DEFINE (scm_transpose_array, "transpose-array", 1, 0, 1, 
+SCM_DEFINE (scm_transpose_array, "transpose-array", 1, 0, 1,
            (SCM ra, SCM args),
 	    "Return an array sharing contents with @var{ra}, but with\n"
 	    "dimensions arranged in a different order.  There must be one\n"
@@ -509,8 +513,8 @@ SCM_DEFINE (scm_transpose_array, "transpose-array", 1, 0, 1,
 	}
       ndim++;
       res = scm_i_make_array (ndim);
-      SCM_I_ARRAY_V (res) = SCM_I_ARRAY_V (ra);
-      SCM_I_ARRAY_BASE (res) = SCM_I_ARRAY_BASE (ra);
+      SCM_I_ARRAY_SET_V (res, SCM_I_ARRAY_V (ra));
+      SCM_I_ARRAY_SET_BASE (res, SCM_I_ARRAY_BASE (ra));
       for (k = ndim; k--;)
 	{
 	  SCM_I_ARRAY_DIMS (res)[k].lbnd = 0;
@@ -534,7 +538,7 @@ SCM_DEFINE (scm_transpose_array, "transpose-array", 1, 0, 1,
 		r->ubnd = s->ubnd;
 	      if (r->lbnd < s->lbnd)
 		{
-		  SCM_I_ARRAY_BASE (res) += (s->lbnd - r->lbnd) * r->inc;
+		  SCM_I_ARRAY_SET_BASE (res, SCM_I_ARRAY_BASE (res) + (s->lbnd - r->lbnd) * r->inc);
 		  r->lbnd = s->lbnd;
 		}
 	      r->inc += s->inc;
@@ -596,8 +600,8 @@ SCM_DEFINE (scm_array_contents, "array-contents", 1, 1, 0,
           SCM sra = scm_i_make_array (1);
           SCM_I_ARRAY_DIMS (sra)->lbnd = 0;
           SCM_I_ARRAY_DIMS (sra)->ubnd = len - 1;
-          SCM_I_ARRAY_V (sra) = v;
-          SCM_I_ARRAY_BASE (sra) = SCM_I_ARRAY_BASE (ra);
+          SCM_I_ARRAY_SET_V (sra, v);
+          SCM_I_ARRAY_SET_BASE (sra, SCM_I_ARRAY_BASE (ra));
           SCM_I_ARRAY_DIMS (sra)->inc = (ndim ? SCM_I_ARRAY_DIMS (ra)[ndim - 1].inc : 1);
           return sra;
         }
@@ -760,7 +764,7 @@ scm_i_print_array (SCM array, SCM port, scm_print_state *pstate)
     scm_intprint (h.ndims, 10, port);
   if (h.element_type != SCM_ARRAY_ELEMENT_TYPE_SCM)
     scm_write (scm_array_handle_element_type (&h), port);
-  
+
   for (i = 0; i < h.ndims; i++)
     {
       if (h.dims[i].lbnd != 0)

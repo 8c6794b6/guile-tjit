@@ -465,6 +465,8 @@
 (define-syntax c&e
   (syntax-rules (pass-if pass-if-equal pass-if-exception)
     "Run the given tests both with the evaluator and the compiler/VM."
+    ((_ (pass-if exp))
+     (c&e (pass-if "[unnamed test]" exp)))
     ((_ (pass-if test-name exp))
      (begin (pass-if (string-append test-name " (eval)")
                      (primitive-eval 'exp))

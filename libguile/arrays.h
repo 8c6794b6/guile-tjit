@@ -54,23 +54,18 @@ SCM_API SCM scm_list_to_typed_array (SCM type, SCM ndim, SCM lst);
 
 /* internal. */
 
-typedef struct scm_i_t_array
-{
-  SCM v;  /* the contents of the array, e.g., a vector or uniform vector.  */
-  unsigned long base;
-} scm_i_t_array;
-
 #define SCM_I_ARRAY_FLAG_CONTIGUOUS (1 << 0)
 
 #define SCM_I_ARRAYP(a)	    SCM_TYP16_PREDICATE (scm_tc7_array, a)
 #define SCM_I_ARRAY_NDIM(x)  ((size_t) (SCM_CELL_WORD_0 (x)>>17))
 #define SCM_I_ARRAY_CONTP(x) (SCM_CELL_WORD_0 (x) & (SCM_I_ARRAY_FLAG_CONTIGUOUS << 16))
 
-#define SCM_I_ARRAY_MEM(a)  ((scm_i_t_array *) SCM_CELL_WORD_1 (a))
-#define SCM_I_ARRAY_V(a)    (SCM_I_ARRAY_MEM (a)->v)
-#define SCM_I_ARRAY_BASE(a) (SCM_I_ARRAY_MEM (a)->base)
-#define SCM_I_ARRAY_DIMS(a) \
-  ((scm_t_array_dim *)((char *) SCM_I_ARRAY_MEM (a) + sizeof (scm_i_t_array)))
+#define SCM_I_ARRAY_V(a)    SCM_CELL_OBJECT_1 (a)
+#define SCM_I_ARRAY_BASE(a) ((size_t) SCM_CELL_WORD_2 (a))
+#define SCM_I_ARRAY_DIMS(a) ((scm_t_array_dim *) SCM_CELL_OBJECT_LOC (a, 3))
+
+#define SCM_I_ARRAY_SET_V(a, v)       SCM_SET_CELL_OBJECT_1(a, v)
+#define SCM_I_ARRAY_SET_BASE(a, base) SCM_SET_CELL_WORD_2(a, base)
 
 SCM_INTERNAL SCM scm_i_make_array (int ndim);
 SCM_INTERNAL int scm_i_print_array (SCM array, SCM port, scm_print_state *pstate);

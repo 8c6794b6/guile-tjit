@@ -900,14 +900,15 @@ table, its existing label is used directly."
                          ,(recur (make-uniform-vector-backing-store
                                   (uniform-array->bytevector obj)
                                   width))))))
+     ((array? obj)
+      `((static-patch! ,label 1 ,(recur (shared-array-root obj)))))
      (else
       (error "don't know how to intern" obj))))
   (cond
    ((immediate? obj) #f)
    ((vhash-assoc obj (asm-constants asm)) => cdr)
    (else
-    ;; Note that calling intern may mutate asm-constants and
-    ;; asm-constant-inits.
+    ;; Note that calling intern may mutate asm-constants and asm-inits.
     (let* ((label (gensym "constant"))
            (inits (intern obj label)))
       (set-asm-constants! asm (vhash-cons obj label (asm-constants asm)))
@@ -1230,6 +1231,7 @@ should be .data or .rodata), and return the resulting linker object.
   (define tc7-program 69)
   (define tc7-bytevector 77)
   (define tc7-bitvector 95)
+  (define tc7-array 93)
 
   (let ((word-size (asm-word-size asm))
         (endianness (asm-endianness asm)))
@@ -1254,6 +1256,8 @@ should be .data or .rodata), and return the resulting linker object.
         (* 4 word-size))
        ((uniform-vector-backing-store? x)
         (bytevector-length (uniform-vector-backing-store-bytes x)))
+       ((array? x)
+        (* word-size (+ 3 (* 3 (array-rank x)))))
        (else
         word-size)))
 
@@ -1310,7 +1314,7 @@ should be .data or .rodata), and return the resulting linker object.
         (write-immediate asm buf pos #f))
 
        ((string? obj)
-        (let ((tag (logior tc7-ro-string (ash (string-length obj) 8))))
+        (let ((tag (logior tc7-ro-string (ash (string-length obj) 8)))) ; FIXME: unused?
           (case word-size
             ((4)
              (bytevector-u32-set! buf pos tc7-ro-string endianness)
@@ -1384,6 +1388,27 @@ should be .data or .rodata), and return the resulting linker object.
                       (eq? endianness (native-endianness)))
             ;; Need to swap units of element-size bytes
             (error "FIXME: Implement byte order swap"))))
+
+       ((array? obj)
+        (let-values
+            ;; array tag + rank + contp flag: see libguile/arrays.h .
+            (((tag) (logior tc7-array (ash (array-rank obj) 17) (ash 1 16)))
+             ((bv-set! bvs-set!)
+              (case word-size
+                ((4) (values bytevector-u32-set! bytevector-s32-set!))
+                ((8) (values bytevector-u64-set! bytevector-s64-set!))
+                (else (error "bad word size")))))
+          (bv-set! buf pos tag endianness)
+          (write-immediate asm buf (+ pos word-size) #f) ; root vector (fixed later)
+          (bv-set! buf (+ pos (* word-size 2)) 0 endianness) ; base
+          (let lp ((pos (+ pos (* word-size 3)))
+                   (bounds (array-shape obj))
+                   (incs (shared-array-increments obj)))
+            (when (pair? bounds)
+              (bvs-set! buf pos (first (first bounds)) endianness)
+              (bvs-set! buf (+ pos word-size) (second (first bounds)) endianness)
+              (bvs-set! buf (+ pos (* word-size 2)) (first incs) endianness)
+              (lp (+ pos (* 3 word-size)) (cdr bounds) (cdr incs))))))
 
        (else
         (error "unrecognized object" obj))))

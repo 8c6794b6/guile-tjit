@@ -1,6 +1,6 @@
 /* Copyright (C) 1996, 1998, 2000, 2001, 2004, 2005, 2006, 2008, 2009,
  *   2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
- * 
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
  * as published by the Free Software Foundation; either version 3 of
@@ -63,11 +63,11 @@ static SCM
 make1array (SCM v, ssize_t inc)
 {
   SCM a = scm_i_make_array (1);
-  SCM_I_ARRAY_BASE (a) = 0;
+  SCM_I_ARRAY_SET_BASE (a, 0);
   SCM_I_ARRAY_DIMS (a)->lbnd = 0;
   SCM_I_ARRAY_DIMS (a)->ubnd = scm_c_array_length (v) - 1;
   SCM_I_ARRAY_DIMS (a)->inc = inc;
-  SCM_I_ARRAY_V (a) = v;
+  SCM_I_ARRAY_SET_V (a, v);
   return a;
 }
 
@@ -195,9 +195,9 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
       if (k == kroll)
         {
           SCM y = lra;
-          SCM_I_ARRAY_BASE (va0) = cindk (ra0, vi, kroll);
+          SCM_I_ARRAY_SET_BASE (va0, cindk (ra0, vi, kroll));
           for (z = lva; !scm_is_null (z); z = SCM_CDR (z), y = SCM_CDR (y))
-            SCM_I_ARRAY_BASE (SCM_CAR (z)) = cindk (SCM_CAR (y), vi, kroll);
+            SCM_I_ARRAY_SET_BASE (SCM_CAR (z), cindk (SCM_CAR (y), vi, kroll));
           if (! (SCM_UNBNDP (data) ? cproc (va0, lva) : cproc (va0, data, lva)))
             return 0;
           --k;
@@ -815,7 +815,7 @@ array_compare (scm_t_array_handle *hx, scm_t_array_handle *hy,
         return 0;
 
       i = hx->dims[dim].ubnd - hx->dims[dim].lbnd + 1;
-      
+
       incx = hx->dims[dim].inc;
       incy = hy->dims[dim].inc;
       posx += (i - 1) * incx;
@@ -832,11 +832,11 @@ SCM
 scm_array_equal_p (SCM x, SCM y)
 {
   scm_t_array_handle hx, hy;
-  SCM res;  
-  
+  SCM res;
+
   scm_array_get_handle (x, &hx);
   scm_array_get_handle (y, &hy);
-  
+
   res = scm_from_bool (hx.ndims == hy.ndims
                        && hx.element_type == hy.element_type);
 
@@ -860,7 +860,7 @@ SCM_DEFINE (scm_i_array_equal_p, "array-equal?", 0, 2, 1,
 {
   if (SCM_UNBNDP (ra0) || SCM_UNBNDP (ra1))
     return SCM_BOOL_T;
-  
+
   while (!scm_is_null (rest))
     { if (scm_is_false (scm_array_equal_p (ra0, ra1)))
         return SCM_BOOL_F;
