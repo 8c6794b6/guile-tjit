@@ -219,7 +219,7 @@ lambda. Only present for @code{INLINE-ARGS}, @code{EOL-ARGS},
     (pxref              INLINE-TEXT-ARGS
                         . (node #:opt name section info-file manual))
     (url                ALIAS       . uref)
-    (uref               INLINE-ARGS . (url #:opt title replacement))
+    (uref               INLINE-TEXT-ARGS . (url #:opt title replacement))
     (anchor             INLINE-ARGS . (name))
     (dots               INLINE-ARGS . ())
     (result             INLINE-ARGS . ())

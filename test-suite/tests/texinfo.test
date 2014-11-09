@@ -209,6 +209,10 @@
              '((para (code "arg"))))
   (test-body "@url{arg}"
              '((para (uref (% (url "arg"))))))
+  (test-body "@url{@@}"
+             '((para (uref (% (url "@"))))))
+  (test-body "@url{@var{foo}}"
+             '((para (uref (% (url (var "foo")))))))
   (test-body "@code{     }"
              '((para (code))))
   (test-body "@code{ @code{}    }"
