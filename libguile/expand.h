@@ -3,7 +3,7 @@
 #ifndef SCM_EXPAND_H
 #define SCM_EXPAND_H
 
-/* Copyright (C) 2010, 2011, 2013
+/* Copyright (C) 2010, 2011, 2013, 2014
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -336,6 +336,8 @@ enum
 
 SCM_INTERNAL SCM scm_macroexpand (SCM exp);
 SCM_INTERNAL SCM scm_macroexpanded_p (SCM exp);
+
+SCM_INTERNAL SCM scm_convert_assignment (SCM exp);
 
 SCM_INTERNAL void scm_init_expand (void);
 

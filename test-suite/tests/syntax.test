@@ -87,6 +87,8 @@
 (define exception:zero-expression-sequence
   "sequence of zero expressions")
 
+(define exception:variable-ref
+  '(misc-error . "variable is unbound"))
 
 ;; (put 'pass-if-syntax-error 'scheme-indent-function 1)
 (define-syntax pass-if-syntax-error
@@ -413,14 +415,11 @@
 
   (with-test-prefix "bindings"
 
-    (pass-if-syntax-error "initial bindings are undefined"
-      exception:used-before-defined
-      (let ((x 1))
-        ;; FIXME: the memoizer does initialize the var to undefined, but
-        ;; the Scheme evaluator has no way of checking what's an
-        ;; undefined value. Not sure how to do this.
-        (throw 'unresolved)
-	(letrec ((x 1) (y x)) y))))
+    (pass-if-exception "initial bindings are undefined"
+      exception:variable-ref
+      (eval '(let ((x 1))
+               (letrec ((x 1) (y x)) y))
+            (interaction-environment))))
 
   (with-test-prefix "bad bindings"
 
@@ -492,14 +491,10 @@
 
   (with-test-prefix "bindings"
 
-    (pass-if-syntax-error "initial bindings are undefined"
-      exception:used-before-defined
-      (begin
-        ;; FIXME: the memoizer does initialize the var to undefined, but
-        ;; the Scheme evaluator has no way of checking what's an
-        ;; undefined value. Not sure how to do this.
-        (throw 'unresolved)
-	(letrec* ((x y) (y 1)) y))))
+    (pass-if-exception "initial bindings are undefined"
+      exception:variable-ref
+      (eval '(letrec* ((x y) (y 1)) y)
+            (interaction-environment))))
 
   (with-test-prefix "bad bindings"
 
@@ -568,8 +563,8 @@
 	    (interaction-environment))))
 
   (with-test-prefix "referencing previous values"
-    (pass-if (equal? (letrec ((a (cons 'foo 'bar))
-                              (b a))
+    (pass-if (equal? (letrec* ((a (cons 'foo 'bar))
+                               (b a))
                        b)
                      '(foo . bar)))
     (pass-if (equal? (let ()

@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014
  * Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
@@ -45,6 +45,7 @@
 SCM scm_exp_vtable_vtable;
 static SCM exp_vtables[SCM_NUM_EXPANDED_TYPES];
 static size_t exp_nfields[SCM_NUM_EXPANDED_TYPES];
+static SCM const_unbound;
 static const char* exp_names[SCM_NUM_EXPANDED_TYPES];
 static const char** exp_field_names[SCM_NUM_EXPANDED_TYPES];
 
@@ -98,6 +99,10 @@ static const char** exp_field_names[SCM_NUM_EXPANDED_TYPES];
 #define CADDR(x) SCM_CADDR(x)
 #define CDDDR(x) SCM_CDDDR(x)
 #define CADDDR(x) SCM_CADDDR(x)
+
+/* Abbreviate SCM_EXPANDED_REF.  */
+#define REF(x,type,field) \
+  (scm_struct_ref (x, SCM_I_MAKINUM (SCM_EXPANDED_##type##_##field)))
 
 
 static const char s_bad_expression[] = "Bad expression";
@@ -1176,7 +1181,392 @@ SCM_DEFINE (scm_macroexpanded_p, "macroexpanded?", 1, 0, 0,
 #undef FUNC_NAME
 
 
- 
+
+
+static void
+compute_assigned (SCM exp, SCM assigned)
+{
+  if (scm_is_null (exp) || scm_is_false (exp))
+    return;
+
+  if (scm_is_pair (exp))
+    {
+      compute_assigned (CAR (exp), assigned);
+      compute_assigned (CDR (exp), assigned);
+      return;
+    }
+
+  if (!SCM_EXPANDED_P (exp))
+    abort ();
+
+  switch (SCM_EXPANDED_TYPE (exp))
+    {
+    case SCM_EXPANDED_VOID:
+    case SCM_EXPANDED_CONST:
+    case SCM_EXPANDED_PRIMITIVE_REF:
+    case SCM_EXPANDED_LEXICAL_REF:
+    case SCM_EXPANDED_MODULE_REF:
+    case SCM_EXPANDED_TOPLEVEL_REF:
+      return;
+
+    case SCM_EXPANDED_LEXICAL_SET:
+      scm_hashq_set_x (assigned, REF (exp, LEXICAL_SET, GENSYM), SCM_BOOL_T);
+      compute_assigned (REF (exp, LEXICAL_SET, EXP), assigned);
+      return;
+
+    case SCM_EXPANDED_MODULE_SET:
+      compute_assigned (REF (exp, MODULE_SET, EXP), assigned);
+      return;
+
+    case SCM_EXPANDED_TOPLEVEL_SET:
+      compute_assigned (REF (exp, TOPLEVEL_SET, EXP), assigned);
+      return;
+
+    case SCM_EXPANDED_TOPLEVEL_DEFINE:
+      compute_assigned (REF (exp, TOPLEVEL_DEFINE, EXP), assigned);
+      return;
+
+    case SCM_EXPANDED_CONDITIONAL:
+      compute_assigned (REF (exp, CONDITIONAL, TEST), assigned);
+      compute_assigned (REF (exp, CONDITIONAL, CONSEQUENT), assigned);
+      compute_assigned (REF (exp, CONDITIONAL, ALTERNATE), assigned);
+      return;
+
+    case SCM_EXPANDED_CALL:
+      compute_assigned (REF (exp, CALL, PROC), assigned);
+      compute_assigned (REF (exp, CALL, ARGS), assigned);
+      return;
+
+    case SCM_EXPANDED_PRIMCALL:
+      compute_assigned (REF (exp, PRIMCALL, ARGS), assigned);
+      return;
+
+    case SCM_EXPANDED_SEQ:
+      compute_assigned (REF (exp, SEQ, HEAD), assigned);
+      compute_assigned (REF (exp, SEQ, TAIL), assigned);
+      return;
+
+    case SCM_EXPANDED_LAMBDA:
+      compute_assigned (REF (exp, LAMBDA, BODY), assigned);
+      return;
+
+    case SCM_EXPANDED_LAMBDA_CASE:
+      compute_assigned (REF (exp, LAMBDA_CASE, INITS), assigned);
+      compute_assigned (REF (exp, LAMBDA_CASE, BODY), assigned);
+      compute_assigned (REF (exp, LAMBDA_CASE, ALTERNATE), assigned);
+      return;
+
+    case SCM_EXPANDED_LET:
+      compute_assigned (REF (exp, LET, VALS), assigned);
+      compute_assigned (REF (exp, LET, BODY), assigned);
+      return;
+
+    case SCM_EXPANDED_LETREC:
+      {
+        SCM syms = REF (exp, LETREC, GENSYMS);
+        /* We lower letrec in this same pass, so mark these variables as
+           assigned.  */
+        for (; scm_is_pair (syms); syms = CDR (syms))
+          scm_hashq_set_x (assigned, CAR (syms), SCM_BOOL_T);
+      }
+      compute_assigned (REF (exp, LETREC, VALS), assigned);
+      compute_assigned (REF (exp, LETREC, BODY), assigned);
+      return;
+
+    default:
+      abort ();
+    }
+}
+
+static SCM
+box_value (SCM exp)
+{
+  return PRIMCALL (SCM_BOOL_F, scm_from_latin1_symbol ("make-variable"),
+                   scm_list_1 (exp));
+}
+
+static SCM
+box_lexical (SCM name, SCM sym)
+{
+  return LEXICAL_SET (SCM_BOOL_F, name, sym,
+                      box_value (LEXICAL_REF (SCM_BOOL_F, name, sym)));
+}
+
+static SCM
+init_if_unbound (SCM src, SCM name, SCM sym, SCM init)
+{
+  return CONDITIONAL (src,
+                      PRIMCALL (src,
+                                scm_from_latin1_symbol ("eq?"),
+                                scm_list_2 (LEXICAL_REF (src, name, sym),
+                                            const_unbound)),
+                      LEXICAL_SET (src, name, sym, init),
+                      VOID_ (src));
+}
+
+static SCM
+init_boxes (SCM names, SCM syms, SCM vals, SCM body)
+{
+  if (scm_is_null (names)) return body;
+
+  return SEQ (SCM_BOOL_F,
+              PRIMCALL
+              (SCM_BOOL_F,
+               scm_from_latin1_symbol ("variable-set!"),
+               scm_list_2 (LEXICAL_REF (SCM_BOOL_F, CAR (names), CAR (syms)),
+                           CAR (vals))),
+              init_boxes (CDR (names), CDR (syms), CDR (vals), body));
+}
+
+static SCM
+convert_assignment (SCM exp, SCM assigned)
+{
+  if (scm_is_null (exp) || scm_is_false (exp))
+    return exp;
+
+  if (scm_is_pair (exp))
+    return scm_cons (convert_assignment (CAR (exp), assigned),
+                     convert_assignment (CDR (exp), assigned));
+
+  if (!SCM_EXPANDED_P (exp))
+    abort ();
+
+  switch (SCM_EXPANDED_TYPE (exp))
+    {
+    case SCM_EXPANDED_VOID:
+    case SCM_EXPANDED_CONST:
+    case SCM_EXPANDED_PRIMITIVE_REF:
+    case SCM_EXPANDED_MODULE_REF:
+    case SCM_EXPANDED_TOPLEVEL_REF:
+      return exp;
+
+    case SCM_EXPANDED_LEXICAL_REF:
+      {
+        SCM sym = REF (exp, LEXICAL_REF, GENSYM);
+
+        if (scm_is_true (scm_hashq_ref (assigned, sym, SCM_BOOL_F)))
+          return PRIMCALL
+            (REF (exp, LEXICAL_REF, SRC),
+             scm_from_latin1_symbol ("variable-ref"),
+             scm_list_1 (exp));
+        return exp;
+      }
+
+    case SCM_EXPANDED_LEXICAL_SET:
+      return PRIMCALL
+        (REF (exp, LEXICAL_SET, SRC),
+         scm_from_latin1_symbol ("variable-set!"),
+         scm_list_2 (LEXICAL_REF (REF (exp, LEXICAL_SET, SRC),
+                                  REF (exp, LEXICAL_SET, NAME),
+                                  REF (exp, LEXICAL_SET, GENSYM)),
+                     convert_assignment (REF (exp, LEXICAL_SET, EXP),
+                                         assigned)));
+
+    case SCM_EXPANDED_MODULE_SET:
+      return MODULE_SET
+        (REF (exp, MODULE_SET, SRC),
+         REF (exp, MODULE_SET, MOD),
+         REF (exp, MODULE_SET, NAME),
+         REF (exp, MODULE_SET, PUBLIC),
+         convert_assignment (REF (exp, MODULE_SET, EXP), assigned));
+
+    case SCM_EXPANDED_TOPLEVEL_SET:
+      return TOPLEVEL_SET
+	 (REF (exp, TOPLEVEL_SET, SRC),
+          REF (exp, TOPLEVEL_SET, NAME),
+          convert_assignment (REF (exp, TOPLEVEL_SET, EXP), assigned));
+
+    case SCM_EXPANDED_TOPLEVEL_DEFINE:
+      return TOPLEVEL_DEFINE
+        (REF (exp, TOPLEVEL_DEFINE, SRC),
+         REF (exp, TOPLEVEL_DEFINE, NAME),
+         convert_assignment (REF (exp, TOPLEVEL_DEFINE, EXP),
+                             assigned));
+
+    case SCM_EXPANDED_CONDITIONAL:
+      return CONDITIONAL
+        (REF (exp, CONDITIONAL, SRC),
+         convert_assignment (REF (exp, CONDITIONAL, TEST), assigned),
+         convert_assignment (REF (exp, CONDITIONAL, CONSEQUENT), assigned),
+         convert_assignment (REF (exp, CONDITIONAL, ALTERNATE), assigned));
+
+    case SCM_EXPANDED_CALL:
+      return CALL
+        (REF (exp, CALL, SRC),
+         convert_assignment (REF (exp, CALL, PROC), assigned),
+         convert_assignment (REF (exp, CALL, ARGS), assigned));
+
+    case SCM_EXPANDED_PRIMCALL:
+      return PRIMCALL
+        (REF (exp, PRIMCALL, SRC),
+         REF (exp, PRIMCALL, NAME),
+         convert_assignment (REF (exp, PRIMCALL, ARGS), assigned));
+
+    case SCM_EXPANDED_SEQ:
+      return SEQ
+        (REF (exp, SEQ, SRC),
+         convert_assignment (REF (exp, SEQ, HEAD), assigned),
+         convert_assignment (REF (exp, SEQ, TAIL), assigned));
+
+    case SCM_EXPANDED_LAMBDA:
+      return LAMBDA
+        (REF (exp, LAMBDA, SRC),
+         REF (exp, LAMBDA, META),
+         convert_assignment (REF (exp, LAMBDA, BODY), assigned));
+
+    case SCM_EXPANDED_LAMBDA_CASE:
+      {
+        SCM src, req, opt, rest, kw, inits, syms, body, alt;
+        SCM namewalk, symwalk, new_inits, seq;
+
+        /* Box assigned formals.  Since initializers can capture
+           previous formals, we convert initializers to be in the body
+           instead of in the "header".  */
+
+        src = REF (exp, LAMBDA_CASE, SRC);
+        req = REF (exp, LAMBDA_CASE, REQ);
+        opt = REF (exp, LAMBDA_CASE, OPT);
+        rest = REF (exp, LAMBDA_CASE, REST);
+        kw = REF (exp, LAMBDA_CASE, KW);
+        inits = convert_assignment (REF (exp, LAMBDA_CASE, INITS), assigned);
+        syms = REF (exp, LAMBDA_CASE, GENSYMS);
+        body = convert_assignment (REF (exp, LAMBDA_CASE, BODY), assigned);
+        alt = convert_assignment (REF (exp, LAMBDA_CASE, ALTERNATE), assigned);
+
+        new_inits = scm_make_list (scm_length (inits), const_unbound);
+                                             
+        seq = SCM_EOL, symwalk = syms;
+
+        /* Required arguments may need boxing.  */
+        for (namewalk = req;
+             scm_is_pair (namewalk);
+             namewalk = CDR (namewalk), symwalk = CDR (symwalk))
+          {
+            SCM name = CAR (namewalk), sym = CAR (symwalk);
+            if (scm_is_true (scm_hashq_ref (assigned, sym, SCM_BOOL_F)))
+              seq = scm_cons (box_lexical (name, sym), seq);
+          }
+        /* Optional arguments may need initialization and/or boxing.  */
+        for (namewalk = opt;
+             scm_is_pair (namewalk);
+             namewalk = CDR (namewalk), symwalk = CDR (symwalk),
+               inits = CDR (inits))
+          {
+            SCM name = CAR (namewalk), sym = CAR (symwalk), init = CAR (inits);
+            seq = scm_cons (init_if_unbound (src, name, sym, init), seq);
+            if (scm_is_true (scm_hashq_ref (assigned, sym, SCM_BOOL_F)))
+              seq = scm_cons (box_lexical (name, sym), seq);
+          }
+        /* Rest arguments may need boxing.  */
+        if (scm_is_true (rest))
+          {
+            SCM sym = CAR (symwalk);
+            symwalk = CDR (symwalk);
+            if (scm_is_true (scm_hashq_ref (assigned, sym, SCM_BOOL_F)))
+              seq = scm_cons (box_lexical (rest, sym), seq);
+          }
+        /* The rest of the arguments, if any, are keyword arguments,
+           which may need initialization and/or boxing.  */
+        for (;
+             scm_is_pair (symwalk);
+             symwalk = CDR (symwalk), inits = CDR (inits))
+          {
+            SCM sym = CAR (symwalk), init = CAR (inits);
+            seq = scm_cons (init_if_unbound (src, SCM_BOOL_F, sym, init), seq);
+            if (scm_is_true (scm_hashq_ref (assigned, sym, SCM_BOOL_F)))
+              seq = scm_cons (box_lexical (SCM_BOOL_F, sym), seq);
+          }
+
+        for (; scm_is_pair (seq); seq = CDR (seq))
+          body = SEQ (src, CAR (seq), body);
+
+        return LAMBDA_CASE
+          (src, req, opt, rest, kw, new_inits, syms, body, alt);
+      }
+
+    case SCM_EXPANDED_LET:
+      {
+        SCM src, names, syms, vals, body, new_vals, walk;
+        
+        src = REF (exp, LET, SRC);
+        names = REF (exp, LET, NAMES);
+        syms = REF (exp, LET, GENSYMS);
+        vals = convert_assignment (REF (exp, LET, VALS), assigned);
+        body = convert_assignment (REF (exp, LET, BODY), assigned);
+
+        for (new_vals = SCM_EOL, walk = syms;
+             scm_is_pair (vals);
+             vals = CDR (vals), walk = CDR (walk))
+          {
+            SCM sym = CAR (walk), val = CAR (vals);
+            if (scm_is_true (scm_hashq_ref (assigned, sym, SCM_BOOL_F)))
+              new_vals = scm_cons (box_value (val), new_vals);
+            else
+              new_vals = scm_cons (val, new_vals);
+          }
+        new_vals = scm_reverse (new_vals);
+
+        return LET (src, names, syms, new_vals, body);
+      }
+
+    case SCM_EXPANDED_LETREC:
+      {
+        SCM src, names, syms, vals, unbound, boxes, body;
+
+        src = REF (exp, LETREC, SRC);
+        names = REF (exp, LETREC, NAMES);
+        syms = REF (exp, LETREC, GENSYMS);
+        vals = convert_assignment (REF (exp, LETREC, VALS), assigned);
+        body = convert_assignment (REF (exp, LETREC, BODY), assigned);
+
+        unbound = PRIMCALL (SCM_BOOL_F,
+                            scm_from_latin1_symbol ("make-undefined-variable"),
+                            SCM_EOL);
+        boxes = scm_make_list (scm_length (names), unbound);
+
+        if (scm_is_true (REF (exp, LETREC, IN_ORDER_P)))
+          return LET
+            (src, names, syms, boxes,
+             init_boxes (names, syms, vals, body));
+        else
+          {
+            SCM walk, tmps = SCM_EOL, inits = SCM_EOL;
+
+            for (walk = syms; scm_is_pair (walk); walk = CDR (walk))
+              {
+                SCM tmp = scm_gensym (SCM_UNDEFINED);
+                tmps = scm_cons (tmp, tmps);
+                inits = scm_cons (LEXICAL_REF (SCM_BOOL_F, SCM_BOOL_F, tmp),
+                                  inits);
+              }
+            tmps = scm_reverse (tmps);
+            inits = scm_reverse (inits);
+
+            return LET
+              (src, names, syms, boxes,
+               SEQ (src,
+                    LET (src, names, tmps, vals,
+                         init_boxes (names, syms, inits, VOID_ (src))),
+                    body));
+          }
+      }
+
+    default:
+      abort ();
+    }
+}
+
+SCM
+scm_convert_assignment (SCM exp)
+{
+  SCM assigned = scm_c_make_hash_table (0);
+
+  compute_assigned (exp, assigned);
+  return convert_assignment (exp, assigned);
+}
+
+
+
 
 #define DEFINE_NAMES(type)                                              \
   {                                                                     \
@@ -1244,6 +1634,11 @@ scm_init_expand ()
   /* Now walk back down, consing in reverse. */
   while (n--)
     exp_vtable_list = scm_cons (exp_vtables[n], exp_vtable_list);
+
+  const_unbound =
+    CONST_ (SCM_BOOL_F, scm_list_1 (scm_from_latin1_symbol ("unbound")));
+
+  scm_c_define_gsubr ("convert-assignment", 1, 0, 0, scm_convert_assignment);
 
   scm_c_define ("%expanded-vtables", scm_vector (exp_vtable_list));
   

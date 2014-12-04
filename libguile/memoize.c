@@ -569,7 +569,7 @@ SCM_DEFINE (scm_memoize_expression, "memoize-expression", 1, 0, 0,
 #define FUNC_NAME s_scm_memoize_expression
 {
   SCM_ASSERT_TYPE (SCM_EXPANDED_P (exp), exp, 1, FUNC_NAME, "expanded");
-  return memoize (exp, SCM_BOOL_F);
+  return memoize (scm_convert_assignment (exp), SCM_BOOL_F);
 }
 #undef FUNC_NAME
 
