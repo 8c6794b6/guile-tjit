@@ -977,8 +977,8 @@ expand_named_let (const SCM expr, SCM env)
      scm_list_1 (name), scm_list_1 (name_sym),
      scm_list_1 (LAMBDA (SCM_BOOL_F,
                          SCM_EOL,
-                         LAMBDA_CASE (SCM_BOOL_F, var_names, SCM_BOOL_F, SCM_BOOL_F,
-                                      SCM_BOOL_F, SCM_BOOL_F, var_syms,
+                         LAMBDA_CASE (SCM_BOOL_F, var_names, SCM_EOL, SCM_BOOL_F,
+                                      SCM_BOOL_F, SCM_EOL, var_syms,
                                       expand_sequence (CDDDR (expr), inner_env),
                                       SCM_BOOL_F))),
      CALL (SCM_BOOL_F,
@@ -1434,7 +1434,7 @@ convert_assignment (SCM exp, SCM assigned)
         alt = convert_assignment (REF (exp, LAMBDA_CASE, ALTERNATE), assigned);
 
         new_inits = scm_make_list (scm_length (inits), const_unbound);
-                                             
+
         seq = SCM_EOL, symwalk = syms;
 
         /* Required arguments may need boxing.  */
@@ -1511,7 +1511,7 @@ convert_assignment (SCM exp, SCM assigned)
 
     case SCM_EXPANDED_LETREC:
       {
-        SCM src, names, syms, vals, unbound, boxes, body;
+        SCM src, names, syms, vals, empty_box, boxes, body;
 
         src = REF (exp, LETREC, SRC);
         names = REF (exp, LETREC, NAMES);
@@ -1519,10 +1519,11 @@ convert_assignment (SCM exp, SCM assigned)
         vals = convert_assignment (REF (exp, LETREC, VALS), assigned);
         body = convert_assignment (REF (exp, LETREC, BODY), assigned);
 
-        unbound = PRIMCALL (SCM_BOOL_F,
-                            scm_from_latin1_symbol ("make-undefined-variable"),
-                            SCM_EOL);
-        boxes = scm_make_list (scm_length (names), unbound);
+        empty_box =
+          PRIMCALL (SCM_BOOL_F,
+                    scm_from_latin1_symbol ("make-undefined-variable"),
+                    SCM_EOL);
+        boxes = scm_make_list (scm_length (names), empty_box);
 
         if (scm_is_true (REF (exp, LETREC, IN_ORDER_P)))
           return LET

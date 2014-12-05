@@ -116,13 +116,13 @@ static scm_t_bits scm_tc16_boot_closure;
 #define BOOT_CLOSURE_IS_REST(x) scm_is_null (SCM_CDR (CDDDR (BOOT_CLOSURE_CODE (x))))
 /* NB: One may only call the following accessors if the closure is not REST. */
 #define BOOT_CLOSURE_IS_FULL(x) (1)
-#define BOOT_CLOSURE_PARSE_FULL(fu_,body,nargs,rest,nopt,kw,inits,alt)    \
+#define BOOT_CLOSURE_PARSE_FULL(fu_,body,nargs,rest,nopt,kw,ninits,unbound,alt) \
   do { SCM fu = fu_;                                            \
     body = CAR (fu); fu = CDDR (fu);                            \
                                                                 \
     rest = kw = alt = SCM_BOOL_F;                               \
-    inits = SCM_EOL;                                            \
-    nopt = 0;                                                   \
+    unbound = SCM_BOOL_F;                                       \
+    nopt = ninits = 0;                                          \
                                                                 \
     nreq = SCM_I_INUM (CAR (fu)); fu = CDR (fu);                \
     if (scm_is_pair (fu))                                       \
@@ -132,7 +132,8 @@ static scm_t_bits scm_tc16_boot_closure;
           {                                                     \
             nopt = SCM_I_INUM (CAR (fu)); fu = CDR (fu);        \
             kw = CAR (fu); fu = CDR (fu);                       \
-            inits = CAR (fu); fu = CDR (fu);                    \
+            ninits = SCM_I_INUM (CAR (fu)); fu = CDR (fu);      \
+            unbound = CAR (fu); fu = CDR (fu);                  \
             alt = CAR (fu);                                     \
           }                                                     \
       }                                                         \
@@ -195,14 +196,6 @@ env_set (SCM env, int depth, int width, SCM val)
   VECTOR_SET (env, width + 1, val);
 }
 
-
-SCM_SYMBOL (scm_unbound_variable_key, "unbound-variable");
-
-static void error_used_before_defined (void)
-{
-  scm_error (scm_unbound_variable_key, NULL,
-             "Variable used before given a value", SCM_EOL, SCM_BOOL_F);
-}
 
 static void error_invalid_keyword (SCM proc, SCM obj)
 {
@@ -358,20 +351,14 @@ eval (SCM x, SCM env)
 
     case SCM_M_LEXICAL_REF:
       {
-        SCM pos, ret;
+        SCM pos;
         int depth, width;
 
         pos = mx;
         depth = SCM_I_INUM (CAR (pos));
         width = SCM_I_INUM (CDR (pos));
 
-        ret = env_ref (env, depth, width);
-
-        if (SCM_UNLIKELY (SCM_UNBNDP (ret)))
-          /* we don't know what variable, though, because we don't have its
-             name */
-          error_used_before_defined ();
-        return ret;
+        return env_ref (env, depth, width);
       }
 
     case SCM_M_LEXICAL_SET:
@@ -764,12 +751,13 @@ prepare_boot_closure_env_for_apply (SCM proc, SCM args,
     }
   else
     {
-      int i, argc, nreq, nopt, nenv;
-      SCM body, rest, kw, inits, alt;
+      int i, argc, nreq, nopt, ninits, nenv;
+      SCM body, rest, kw, unbound, alt;
       SCM mx = BOOT_CLOSURE_CODE (proc);
       
     loop:
-      BOOT_CLOSURE_PARSE_FULL (mx, body, nargs, rest, nopt, kw, inits, alt);
+      BOOT_CLOSURE_PARSE_FULL (mx, body, nargs, rest, nopt, kw,
+                               ninits, unbound, alt);
 
       argc = scm_ilength (args);
       if (argc < nreq)
@@ -814,8 +802,8 @@ prepare_boot_closure_env_for_apply (SCM proc, SCM args,
         }
 
       /* At this point we are committed to the chosen clause.  */
-      nenv = nreq + (scm_is_true (rest) ? 1 : 0) + scm_ilength (inits);
-      env = make_env (nenv, SCM_UNDEFINED, env);
+      nenv = nreq + (scm_is_true (rest) ? 1 : 0) + ninits;
+      env = make_env (nenv, unbound, env);
 
       for (i = 0; i < nreq; i++, args = CDR (args))
         env_set (env, 0, i, CAR (args));
@@ -823,15 +811,10 @@ prepare_boot_closure_env_for_apply (SCM proc, SCM args,
       if (scm_is_false (kw))
         {
           /* Optional args (possibly), but no keyword args. */
-          for (; i < argc && i < nreq + nopt;
-               i++, args = CDR (args), inits = CDR (inits))
+          for (; i < argc && i < nreq + nopt; i++, args = CDR (args))
             env_set (env, 0, i, CAR (args));
-              
-          for (; i < nreq + nopt; i++, inits = CDR (inits))
-            env_set (env, 0, i, EVAL1 (CAR (inits), env));
-
           if (scm_is_true (rest))
-            env_set (env, 0, i++, args);
+            env_set (env, 0, nreq + nopt, args);
         }
       else
         {
@@ -842,18 +825,13 @@ prepare_boot_closure_env_for_apply (SCM proc, SCM args,
 
           /* Optional args. As before, but stop at the first keyword. */
           for (; i < argc && i < nreq + nopt && !scm_is_keyword (CAR (args));
-               i++, args = CDR (args), inits = CDR (inits))
+               i++, args = CDR (args))
             env_set (env, 0, i, CAR (args));
-              
-          for (; i < nreq + nopt; i++, inits = CDR (inits))
-            env_set (env, 0, i, EVAL1 (CAR (inits), env));
-
           if (scm_is_true (rest))
-            env_set (env, 0, i++, args);
+            env_set (env, 0, nreq + nopt, args);
 
           /* Parse keyword args. */
           {
-            int kw_start_idx = i;
             SCM walk;
 
             if (scm_is_pair (args) && scm_is_pair (CDR (args)))
@@ -880,19 +858,8 @@ prepare_boot_closure_env_for_apply (SCM proc, SCM args,
                 }
             if (scm_is_pair (args) && scm_is_false (rest))
               error_invalid_keyword (proc, CAR (args));
-
-            /* Now fill in unbound values, evaluating init expressions in their
-               appropriate environment. */
-            for (i = kw_start_idx; scm_is_pair (inits); i++, inits = CDR (inits))
-              if (SCM_UNBNDP (env_ref (env, 0, i)))
-                env_set (env, 0, i, EVAL1 (CAR (inits), env));
           }
         }
-
-      if (!scm_is_null (inits))
-        abort ();
-      if (i != nenv)
-        abort ();
 
       *out_body = body;
       *out_env = env;

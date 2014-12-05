@@ -119,9 +119,9 @@ scm_t_bits scm_tc16_memoized;
   scm_list_1 (SCM_I_MAKINUM (nreq))
 #define REST_ARITY(nreq, rest) \
   scm_list_2 (SCM_I_MAKINUM (nreq), rest)
-#define FULL_ARITY(nreq, rest, nopt, kw, inits, alt) \
-  scm_list_n (SCM_I_MAKINUM (nreq), rest, SCM_I_MAKINUM (nopt), kw, inits, \
-              alt, SCM_UNDEFINED)
+#define FULL_ARITY(nreq, rest, nopt, kw, ninits, unbound, alt) \
+  scm_list_n (SCM_I_MAKINUM (nreq), rest, SCM_I_MAKINUM (nopt), kw, \
+              SCM_I_MAKINUM (ninits), unbound, alt, SCM_UNDEFINED)
 #define MAKMEMO_LAMBDA(body, arity, meta)			\
   MAKMEMO (SCM_M_LAMBDA,					\
 	   scm_cons (body, scm_cons (meta, arity)))
@@ -418,8 +418,8 @@ memoize (SCM exp, SCM env)
     case SCM_EXPANDED_LAMBDA_CASE:
       {
         SCM req, rest, opt, kw, inits, vars, body, alt;
-        SCM walk, minits, arity, rib, new_env;
-        int nreq, nopt;
+        SCM unbound, arity, rib;
+        int nreq, nopt, ninits;
 
         req = REF (exp, LAMBDA_CASE, REQ);
         rest = scm_not (scm_not (REF (exp, LAMBDA_CASE, REST)));
@@ -432,17 +432,12 @@ memoize (SCM exp, SCM env)
 
         nreq = scm_ilength (req);
         nopt = scm_is_pair (opt) ? scm_ilength (opt) : 0;
-
-        /* The vars are the gensyms, according to the divine plan. But we need
-           to memoize the inits within their appropriate environment,
-           complicating things. */
+        ninits = scm_ilength (inits);
+        /* This relies on assignment conversion turning inits into a
+           sequence of CONST expressions whose values are a unique
+           "unbound" token.  */
+        unbound = ninits ? REF (CAR (inits), CONST, EXP) : SCM_BOOL_F;
         rib = scm_vector (vars);
-        new_env = scm_cons (rib, env);
-
-        minits = SCM_EOL;
-        for (walk = inits; scm_is_pair (walk); walk = CDR (walk))
-          minits = scm_cons (memoize (CAR (walk), new_env), minits);
-        minits = scm_reverse_x (minits, SCM_UNDEFINED);
 
         if (scm_is_true (kw))
           {
@@ -468,12 +463,13 @@ memoize (SCM exp, SCM env)
               arity = REST_ARITY (nreq, SCM_BOOL_T);
           }
         else if (scm_is_true (alt))
-          arity = FULL_ARITY (nreq, rest, nopt, kw, minits,
+          arity = FULL_ARITY (nreq, rest, nopt, kw, ninits, unbound,
                               SCM_MEMOIZED_ARGS (memoize (alt, env)));
         else
-          arity = FULL_ARITY (nreq, rest, nopt, kw, minits, SCM_BOOL_F);
+          arity = FULL_ARITY (nreq, rest, nopt, kw, ninits, unbound,
+                              SCM_BOOL_F);
 
-        return MAKMEMO_LAMBDA (memoize (body, new_env), arity,
+        return MAKMEMO_LAMBDA (memoize (body, scm_cons (rib, env)), arity,
 			       SCM_BOOL_F /* meta, filled in later */);
       }
 
@@ -495,64 +491,6 @@ memoize (SCM exp, SCM env)
 
         return maybe_makmemo_capture_module
           (MAKMEMO_LET (inits, memoize (body, new_env)), env);
-      }
-
-    case SCM_EXPANDED_LETREC:
-      {
-        SCM vars, varsv, exps, expsv, body, undefs, new_env;
-        int i, nvars, in_order_p;
-        
-        vars = REF (exp, LETREC, GENSYMS);
-        exps = REF (exp, LETREC, VALS);
-        body = REF (exp, LETREC, BODY);
-        in_order_p = scm_is_true (REF (exp, LETREC, IN_ORDER_P));
-
-        varsv = scm_vector (vars);
-        nvars = VECTOR_LENGTH (varsv);
-        expsv = scm_vector (exps);
-
-        undefs = scm_c_make_vector (nvars, MAKMEMO_QUOTE (SCM_UNDEFINED));
-        new_env = scm_cons (varsv, capture_env (env));
-
-        if (in_order_p)
-          {
-            SCM body_exps = memoize (body, new_env);
-            for (i = nvars - 1; i >= 0; i--)
-              {
-                SCM init = memoize (VECTOR_REF (expsv, i), new_env);
-                body_exps = MAKMEMO_SEQ (MAKMEMO_LEX_SET (make_pos (0, i), init),
-                                         body_exps);
-              }
-            return maybe_makmemo_capture_module
-              (MAKMEMO_LET (undefs, body_exps), env);
-          }
-        else
-          {
-            SCM sets = SCM_BOOL_F, inits = scm_c_make_vector (nvars, SCM_BOOL_F);
-            for (i = nvars - 1; i >= 0; i--)
-              {
-                SCM init, set;
-
-                init = memoize (VECTOR_REF (expsv, i), new_env);
-                VECTOR_SET (inits, i, init);
-
-                set = MAKMEMO_LEX_SET (make_pos (1, i),
-                                       MAKMEMO_LEX_REF (make_pos (0, i)));
-                if (scm_is_false (sets))
-                  sets = set;
-                else
-                  sets = MAKMEMO_SEQ (set, sets);
-              }
-
-            if (scm_is_false (sets))
-              return memoize (body, env);
-
-            return maybe_makmemo_capture_module
-              (MAKMEMO_LET (undefs,
-                            MAKMEMO_SEQ (MAKMEMO_LET (inits, sets),
-                                         memoize (body, new_env))),
-               env);
-          }
       }
 
     default:
@@ -670,7 +608,7 @@ unmemoize (const SCM expr)
 	  {
 	    SCM alt, tail;
 
-	    alt = CADDR (CDDDR (spec));
+	    alt = CADDDR (CDDDR (spec));
 	    if (scm_is_true (alt))
 	      tail = CDR (unmemoize (alt));
 	    else
@@ -682,7 +620,7 @@ unmemoize (const SCM expr)
 						 CADR (spec),
 						 CADDR (spec),
 						 CADDDR (spec),
-						 unmemoize_exprs (CADR (CDDDR (spec)))),
+                                                 CADR (CDDDR (spec))),
 				     unmemoize (body)),
 			 tail));
 	  }

@@ -329,16 +329,10 @@
     ;; of arguments, and some rest arities; see make-fixed-closure and
     ;; make-rest-closure above.
 
-    ;; A unique marker for unbound keywords.  NB: There should be no
-    ;; other instance of '(unbound-arg) in this compilation unit, so
-    ;; that this marker is indeed unique.  It's a hack, but it allows
-    ;; the constant to propagate to inner closures, reducing free
-    ;; variable counts all around, so it is important for perf.
-    (define unbound-arg '(unbound-arg))
-
     ;; Procedures with rest, optional, or keyword arguments, potentially with
     ;; multiple arities, as with case-lambda.
-    (define (make-general-closure env body nreq rest? nopt kw inits alt)
+    (define (make-general-closure env body nreq rest? nopt kw ninits unbound
+                                  alt)
       (define alt-proc
         (and alt                        ; (body meta nreq ...)
              (let* ((body (car alt))
@@ -348,9 +342,11 @@
                     (tail (and (pair? (cdr spec)) (pair? (cddr spec)) (cddr spec)))
                     (nopt (if tail (car tail) 0))
                     (kw (and tail (cadr tail)))
-                    (inits (if tail (caddr tail) '()))
-                    (alt (and tail (cadddr tail))))
-               (make-general-closure env body nreq rest nopt kw inits alt))))
+                    (ninits (if tail (caddr tail) 0))
+                    (unbound (and tail (cadddr tail)))
+                    (alt (and tail (car (cddddr tail)))))
+               (make-general-closure env body nreq rest nopt kw ninits unbound
+                                     alt))))
       (define (set-procedure-arity! proc)
         (let lp ((alt alt) (nreq nreq) (nopt nopt) (rest? rest?))
           (if (not alt)
@@ -367,7 +363,7 @@
                      (rest?* (if (null? (cdr spec)) #f (cadr spec)))
                      (tail (and (pair? (cdr spec)) (pair? (cddr spec)) (cddr spec)))
                      (nopt* (if tail (car tail) 0))
-                     (alt* (and tail (cadddr tail))))
+                     (alt* (and tail (car (cddddr tail)))))
                 (if (or (< nreq* nreq)
                         (and (= nreq* nreq)
                              (if rest?
@@ -395,8 +391,8 @@
                              "eval" "Wrong number of arguments"
                              '() #f))))
             (else
-             (let* ((nvals (+ nreq (if rest? 1 0) (length inits)))
-                    (env (make-env nvals unbound-arg env)))
+             (let* ((nvals (+ nreq (if rest? 1 0) ninits))
+                    (env (make-env nvals unbound env)))
                (let lp ((i 0) (args %args))
                  (cond
                   ((< i nreq)
@@ -405,39 +401,30 @@
                    (lp (1+ i) (cdr args)))
                   ((not kw)
                    ;; Optional args (possibly), but no keyword args.
-                   (let lp ((i i) (args args) (inits inits))
+                   (let lp ((i i) (args args))
                      (cond
-                      ((< i (+ nreq nopt))
-                       (cond
-                        ((< i nargs)
-                         (env-set! env 0 i (car args))
-                         (lp (1+ i) (cdr args) (cdr inits)))
-                        (else
-                         (env-set! env 0 i (eval (car inits) env))
-                         (lp (1+ i) args (cdr inits)))))
+                      ((and (< i (+ nreq nopt)) (< i nargs))
+                       (env-set! env 0 i (car args))
+                       (lp (1+ i) (cdr args)))
                       (else
                        (when rest?
-                         (env-set! env 0 i args))
+                         (env-set! env 0 (+ nreq nopt) args))
                        (eval body env)))))
                   (else
                    ;; Optional args.  As before, but stop at the first
                    ;; keyword.
-                   (let lp ((i i) (args args) (inits inits))
+                   (let lp ((i i) (args args))
                      (cond
-                      ((< i (+ nreq nopt))
-                       (cond
-                        ((and (< i nargs) (not (keyword? (car args))))
-                         (env-set! env 0 i (car args))
-                         (lp (1+ i) (cdr args) (cdr inits)))
-                        (else
-                         (env-set! env 0 i (eval (car inits) env))
-                         (lp (1+ i) args (cdr inits)))))
+                      ((and (< i (+ nreq nopt))
+                            (< i nargs)
+                            (not (keyword? (car args))))
+                       (env-set! env 0 i (car args))
+                       (lp (1+ i) (cdr args)))
                       (else
                        (when rest?
-                         (env-set! env 0 i args))
+                         (env-set! env 0 (+ nreq nopt) args))
                        (let ((aok (car kw))
-                             (kw (cdr kw))
-                             (kw-base (if rest? (1+ i) i)))
+                             (kw (cdr kw)))
                          ;; Now scan args for keywords.
                          (let lp ((args args))
                            (cond
@@ -463,19 +450,8 @@
                                              "eval" "Invalid keyword"
                                              '() (list (car args))))))
                             (else
-                             ;; Finished parsing keywords. Fill in
-                             ;; uninitialized kwargs by evalling init
-                             ;; expressions in their appropriate
-                             ;; environment.
-                             (let lp ((i kw-base) (inits inits))
-                               (cond
-                                ((pair? inits)
-                                 (when (eq? (env-ref env 0 i) unbound-arg)
-                                   (env-set! env 0 i (eval (car inits) env)))
-                                 (lp (1+ i) (cdr inits)))
-                                (else
-                                 ;; Finally, eval the body.
-                                 (eval body env)))))))))))))))))))))
+                             ;; Finally, eval the body.
+                             (eval body env))))))))))))))))))
 
     ;; The "engine". EXP is a memoized expression.
     (define (eval exp env)
@@ -513,9 +489,10 @@
                      (if (null? tail)
                          (make-rest-closure eval nreq body env)
                          (mx-bind
-                          tail (nopt kw inits alt)
+                          tail (nopt kw ninits unbound alt)
                           (make-general-closure env body nreq rest?
-                                                nopt kw inits alt)))))))
+                                                nopt kw ninits unbound
+                                                alt)))))))
            (let lp ((meta meta))
              (unless (null? meta)
                (set-procedure-property! proc (caar meta) (cdar meta))
