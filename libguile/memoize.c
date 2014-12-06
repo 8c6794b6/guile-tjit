@@ -165,6 +165,7 @@ static const char *const memoized_tags[] =
   "seq",
   "if",
   "lambda",
+  "capture-env",
   "let",
   "quote",
   "define",
@@ -625,6 +626,10 @@ unmemoize (const SCM expr)
 			 tail));
 	  }
       }
+    case SCM_M_CAPTURE_ENV:
+      return scm_list_3 (scm_from_latin1_symbol ("capture-env"),
+                         CAR (args),
+                         unmemoize (CDR (args)));
     case SCM_M_LET:
       return scm_list_3 (scm_sym_let,
                          unmemoize_bindings (CAR (args)),

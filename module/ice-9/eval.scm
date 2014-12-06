@@ -499,6 +499,17 @@
                (lp (cdr meta))))
            proc))
 
+        (('capture-env (locs . body))
+         (let* ((len (vector-length locs))
+                (new-env (make-env len #f (env-toplevel env))))
+           (let lp ((n 0))
+             (when (< n len)
+               (mx-bind
+                (vector-ref locs n) (depth . width)
+                (env-set! new-env 0 n (env-ref env depth width)))
+               (lp (1+ n))))
+           (eval body new-env)))
+
         (('seq (head . tail))
          (begin
            (eval head env)

@@ -280,6 +280,28 @@ eval (SCM x, SCM env)
     case SCM_M_LAMBDA:
       RETURN_BOOT_CLOSURE (mx, env);
 
+    case SCM_M_CAPTURE_ENV:
+      {
+        SCM locs = CAR (mx);
+        SCM new_env;
+        int i;
+
+        new_env = make_env (VECTOR_LENGTH (locs), SCM_BOOL_F, env);
+        for (i = 0; i < VECTOR_LENGTH (locs); i++)
+          {
+            SCM loc = VECTOR_REF (locs, i);
+            int depth, width;
+
+            depth = SCM_I_INUM (CAR (loc));
+            width = SCM_I_INUM (CDR (loc));
+            env_set (new_env, 0, i, env_ref (env, depth, width));
+          }
+
+        env = new_env;
+        x = CDR (mx);
+        goto loop;
+      }
+
     case SCM_M_QUOTE:
       return mx;
 
