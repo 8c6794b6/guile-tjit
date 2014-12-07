@@ -1412,7 +1412,21 @@ convert_assignment (SCM exp, SCM assigned)
       return LAMBDA
         (REF (exp, LAMBDA, SRC),
          REF (exp, LAMBDA, META),
-         convert_assignment (REF (exp, LAMBDA, BODY), assigned));
+         scm_is_false (REF (exp, LAMBDA, BODY))
+         /* Give a body to case-lambda with no clauses.  */
+         ? LAMBDA_CASE (SCM_BOOL_F, SCM_EOL, SCM_EOL, SCM_BOOL_F, SCM_BOOL_F,
+                        SCM_EOL, SCM_EOL,
+                        PRIMCALL
+                        (SCM_BOOL_F,
+                         scm_from_latin1_symbol ("throw"),
+                         scm_list_5 (CONST_ (SCM_BOOL_F, scm_args_number_key),
+                                     CONST_ (SCM_BOOL_F, SCM_BOOL_F),
+                                     CONST_ (SCM_BOOL_F, scm_from_latin1_string
+                                             ("Wrong number of arguments")),
+                                     CONST_ (SCM_BOOL_F, SCM_EOL),
+                                     CONST_ (SCM_BOOL_F, SCM_BOOL_F))),
+                        SCM_BOOL_F)
+         : convert_assignment (REF (exp, LAMBDA, BODY), assigned));
 
     case SCM_EXPANDED_LAMBDA_CASE:
       {

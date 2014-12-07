@@ -305,10 +305,6 @@ eval (SCM x, SCM env)
     case SCM_M_QUOTE:
       return mx;
 
-    case SCM_M_DEFINE:
-      scm_define (CAR (mx), EVAL1 (CDR (mx), env));
-      return SCM_UNSPECIFIED;
-
     case SCM_M_CAPTURE_MODULE:
       return eval (mx, scm_current_module ());
 
@@ -398,51 +394,31 @@ eval (SCM x, SCM env)
         return SCM_UNSPECIFIED;
       }
 
-    case SCM_M_TOPLEVEL_REF:
-      if (SCM_VARIABLEP (mx))
-        return SCM_VARIABLE_REF (mx);
-      else
-        {
-          env = env_tail (env);
-          return SCM_VARIABLE_REF (scm_memoize_variable_access_x (x, env));
-        }
-
-    case SCM_M_TOPLEVEL_SET:
+    case SCM_M_BOX_REF:
       {
-        SCM var = CAR (mx);
-        SCM val = EVAL1 (CDR (mx), env);
-        if (SCM_VARIABLEP (var))
-          {
-            SCM_VARIABLE_SET (var, val);
-            return SCM_UNSPECIFIED;
-          }
-        else
-          {
-            env = env_tail (env);
-            SCM_VARIABLE_SET (scm_memoize_variable_access_x (x, env), val);
-            return SCM_UNSPECIFIED;
-          }
+        SCM box = mx;
+
+        return scm_variable_ref (EVAL1 (box, env));
       }
 
-    case SCM_M_MODULE_REF:
-      if (SCM_VARIABLEP (mx))
-        return SCM_VARIABLE_REF (mx);
-      else
-        return SCM_VARIABLE_REF
-          (scm_memoize_variable_access_x (x, SCM_BOOL_F));
+    case SCM_M_BOX_SET:
+      {
+        SCM box = CAR (mx), val = CDR (mx);
 
-    case SCM_M_MODULE_SET:
-      if (SCM_VARIABLEP (CDR (mx)))
-        {
-          SCM_VARIABLE_SET (CDR (mx), EVAL1 (CAR (mx), env));
-          return SCM_UNSPECIFIED;
-        }
+        return scm_variable_set_x (EVAL1 (box, env), EVAL1 (val, env));
+      }
+
+    case SCM_M_RESOLVE:
+      if (SCM_VARIABLEP (mx))
+        return mx;
       else
         {
-          SCM_VARIABLE_SET
-            (scm_memoize_variable_access_x (x, SCM_BOOL_F),
-             EVAL1 (CAR (mx), env));
-          return SCM_UNSPECIFIED;
+          SCM mod, var;
+
+          var = scm_sys_resolve_variable (mx, env_tail (env));
+          scm_set_cdr_x (x, var);
+
+          return var;
         }
 
     case SCM_M_CALL_WITH_PROMPT:

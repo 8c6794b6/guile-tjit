@@ -463,11 +463,15 @@
          (let ((proc (eval f env)))
            (call eval proc nargs args env)))
         
-        (('toplevel-ref var-or-sym)
-         (variable-ref
-          (if (variable? var-or-sym)
-              var-or-sym
-              (memoize-variable-access! exp (env-toplevel env)))))
+        (('box-ref box)
+         (variable-ref (eval box env)))
+
+        (('resolve var-or-loc)
+         (if (variable? var-or-loc)
+             var-or-loc
+             (let ((var (%resolve-variable var-or-loc (env-toplevel env))))
+               (set-cdr! exp var)
+               var)))
 
         (('if (test consequent . alternate))
          (if (eval test env)
@@ -515,6 +519,9 @@
            (eval head env)
            (eval tail env)))
         
+        (('box-set! (box . val))
+         (variable-set! (eval box env) (eval val env)))
+
         (('lexical-set! ((depth . width) . x))
          (env-set! env depth width (eval x env)))
         
@@ -525,27 +532,9 @@
         (('apply (f args))
          (apply (eval f env) (eval args env)))
 
-        (('module-ref var-or-spec)
-         (variable-ref
-          (if (variable? var-or-spec)
-              var-or-spec
-              (memoize-variable-access! exp #f))))
-
-        (('define (name . x))
-         (begin
-           (define! name (eval x env))
-           (if #f #f)))
-
         (('capture-module x)
          (eval x (current-module)))
 
-        (('toplevel-set! (var-or-sym . x))
-         (variable-set!
-          (if (variable? var-or-sym)
-              var-or-sym
-              (memoize-variable-access! exp (env-toplevel env)))
-          (eval x env)))
-      
         (('call-with-prompt (tag thunk . handler))
          (call-with-prompt
           (eval tag env)
@@ -553,14 +542,7 @@
           (eval handler env)))
         
         (('call/cc proc)
-         (call/cc (eval proc env)))
-
-        (('module-set! (x . var-or-spec))
-         (variable-set!
-          (if (variable? var-or-spec)
-              var-or-spec
-              (memoize-variable-access! exp #f))
-          (eval x env)))))
+         (call/cc (eval proc env)))))
   
     ;; primitive-eval
     (lambda (exp)

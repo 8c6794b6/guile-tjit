@@ -69,7 +69,6 @@ enum
     SCM_M_CAPTURE_ENV,
     SCM_M_LET,
     SCM_M_QUOTE,
-    SCM_M_DEFINE,
     SCM_M_CAPTURE_MODULE,
     SCM_M_APPLY,
     SCM_M_CONT,
@@ -77,10 +76,9 @@ enum
     SCM_M_CALL,
     SCM_M_LEXICAL_REF,
     SCM_M_LEXICAL_SET,
-    SCM_M_TOPLEVEL_REF,
-    SCM_M_TOPLEVEL_SET,
-    SCM_M_MODULE_REF,
-    SCM_M_MODULE_SET,
+    SCM_M_BOX_REF,
+    SCM_M_BOX_SET,
+    SCM_M_RESOLVE,
     SCM_M_CALL_WITH_PROMPT
   };
 
@@ -90,7 +88,7 @@ enum
 SCM_INTERNAL SCM scm_memoize_expression (SCM exp);
 SCM_INTERNAL SCM scm_unmemoize_expression (SCM memoized);
 SCM_INTERNAL SCM scm_memoized_typecode (SCM sym);
-SCM_INTERNAL SCM scm_memoize_variable_access_x (SCM memoized, SCM module);
+SCM_INTERNAL SCM scm_sys_resolve_variable (SCM loc, SCM module);
 
 SCM_INTERNAL void scm_init_memoize (void);
 
