@@ -279,9 +279,11 @@
   ;; we compile `case' effectively, this situation will improve.
   (define-syntax mx-match
     (lambda (x)
-      (syntax-case x (quote)
+      (syntax-case x (quote else)
         ((_ mx data tag)
          #'(error "what" mx))
+        ((_ mx data tag (else body))
+         #'body)
         ((_ mx data tag (('type pat) body) c* ...)
          #`(if (eqv? tag #,(or (memoized-typecode (syntax->datum #'type))
                                (error "not a typecode" #'type)))
@@ -464,7 +466,16 @@
            (call eval proc nargs args env)))
         
         (('box-ref box)
-         (variable-ref (eval box env)))
+         (memoized-expression-case box
+           ;; Accelerate common cases.
+           (('resolve var-or-loc)
+            (if (variable? var-or-loc)
+                (variable-ref var-or-loc)
+                (variable-ref (eval box env))))
+           (('lexical-ref (depth . width))
+            (variable-ref (env-ref env depth width)))
+           (else
+            (variable-ref (eval box env)))))
 
         (('resolve var-or-loc)
          (if (variable? var-or-loc)

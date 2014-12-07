@@ -750,10 +750,15 @@ unmemoize (const SCM expr)
                          unmemoize (CAR (args)),
                          unmemoize (CDR (args)));
     case SCM_M_RESOLVE:
-      return (SCM_VARIABLEP (args) || scm_is_symbol (args)) ? args
-        : scm_list_3 (scm_is_true (CDDR (args)) ? scm_sym_at : scm_sym_atat,
-                      scm_i_finite_list_copy (CAR (args)),
-                      CADR (args));
+      if (SCM_VARIABLEP (args))
+        return args;
+      else if (scm_is_symbol (CDR (args)))
+        return CDR (args);
+      else
+        return scm_list_3
+          (scm_is_true (CDDDR (args)) ? scm_sym_at : scm_sym_atat,
+           scm_i_finite_list_copy (CADR (args)),
+           CADDR (args));
     case SCM_M_CALL_WITH_PROMPT:
       return scm_list_4 (scm_from_latin1_symbol ("call-with-prompt"),
                          unmemoize (CAR (args)),

@@ -413,7 +413,7 @@ eval (SCM x, SCM env)
         return mx;
       else
         {
-          SCM mod, var;
+          SCM var;
 
           var = scm_sys_resolve_variable (mx, env_tail (env));
           scm_set_cdr_x (x, var);
