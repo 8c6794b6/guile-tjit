@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
- *   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
+ *   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
  *   Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -125,6 +125,8 @@ scm_t_bits scm_tc16_memoized;
 #define MAKMEMO_LAMBDA(body, arity, meta)			\
   MAKMEMO (SCM_M_LAMBDA,					\
 	   scm_cons (body, scm_cons (meta, arity)))
+#define MAKMEMO_CAPTURE_ENV(vars, body)			\
+  MAKMEMO (SCM_M_CAPTURE_ENV, scm_cons (vars, body))
 #define MAKMEMO_LET(inits, body) \
   MAKMEMO (SCM_M_LET, scm_cons (inits, body))
 #define MAKMEMO_QUOTE(exp) \
@@ -187,6 +189,31 @@ static const char *const memoized_tags[] =
 
 
 
+/* Memoization-time environments mirror the structure of eval-time
+   environments.  Each link in the chain at memoization-time corresponds
+   to a link at eval-time.
+
+   env := module | (link, env)
+   module := #f | #t
+   link := flat-link . nested-link
+   flat-link := (#t . ((var . pos) ...))
+   nested-link := (#f . #(var ...))
+
+   A module of #f indicates that the current module has not yet been
+   captured.  Memoizing a capture-module expression will capture the
+   module.
+
+   Flat environments copy the values for a set of free variables into a
+   flat environment, via the capture-env expression.  During memoization
+   a flat link collects the values of free variables, along with their
+   resolved outer locations.  We are able to copy values because the
+   incoming expression has already been assignment-converted.  Flat
+   environments prevent closures from hanging on to too much memory.
+
+   Nested environments have a rib of "let" bindings, and link to an
+   outer environment.
+*/
+
 static int
 try_lookup_rib (SCM x, SCM rib)
 {
@@ -213,17 +240,84 @@ make_pos (int depth, int width)
 }
 
 static SCM
+push_nested_link (SCM vars, SCM env)
+{
+  return scm_acons (SCM_BOOL_F, vars, env);
+}
+
+static SCM
+push_flat_link (SCM env)
+{
+  return scm_acons (SCM_BOOL_T, SCM_EOL, env);
+}
+
+static int
+env_link_is_flat (SCM env_link)
+{
+  return scm_is_true (CAR (env_link));
+}
+
+static SCM
+env_link_vars (SCM env_link)
+{
+  return CDR (env_link);
+}
+
+static void
+env_link_add_flat_var (SCM env_link, SCM var, SCM pos)
+{
+  SCM vars = env_link_vars (env_link);
+  if (scm_is_false (scm_assq (var, vars)))
+    scm_set_cdr_x (env_link, scm_acons (var, pos, vars));
+}
+
+static SCM
 lookup (SCM x, SCM env)
 {
   int d = 0;
   for (; scm_is_pair (env); env = CDR (env), d++)
     {
-      int w = try_lookup_rib (x, CAR (env));
-      if (w < 0)
-        continue;
-      return make_pos (d, w);
+      SCM link = CAR (env);
+      if (env_link_is_flat (link))
+        {
+          int w;
+          SCM vars;
+
+          for (vars = env_link_vars (link), w = scm_ilength (vars) - 1;
+               scm_is_pair (vars);
+               vars = CDR (vars), w--)
+            if (scm_is_eq (x, (CAAR (vars))))
+              return make_pos (d, w);
+
+          env_link_add_flat_var (link, x, lookup (x, CDR (env)));
+          return make_pos (d, scm_ilength (env_link_vars (link)) - 1);
+        }
+      else
+        {
+          int w = try_lookup_rib (x, env_link_vars (link));
+          if (w < 0)
+            continue;
+          return make_pos (d, w);
+        }
     }
   abort ();
+}
+
+static SCM
+capture_flat_env (SCM lambda, SCM env)
+{
+  int nenv;
+  SCM vars, link, locs;
+
+  link = CAR (env);
+  vars = env_link_vars (link);
+  nenv = scm_ilength (vars);
+  locs = scm_c_make_vector (nenv, SCM_BOOL_F);
+
+  for (; scm_is_pair (vars); vars = CDR (vars))
+    scm_c_vector_set_x (locs, --nenv, CDAR (vars));
+
+  return MAKMEMO_CAPTURE_ENV (locs, lambda);
 }
 
 /* Abbreviate SCM_EXPANDED_REF. Copied because I'm not sure about symbol pasting */
@@ -386,11 +480,12 @@ memoize (SCM exp, SCM env)
     case SCM_EXPANDED_LAMBDA:
       /* The body will be a lambda-case or #f. */
       {
-	SCM meta, body, proc;
+	SCM meta, body, proc, new_env;
 
 	meta = REF (exp, LAMBDA, META);
-
         body = REF (exp, LAMBDA, BODY);
+        new_env = push_flat_link (capture_env (env));
+
         if (scm_is_false (body))
           /* Give a body to case-lambda with no clauses.  */
           proc = MAKMEMO_LAMBDA
@@ -409,17 +504,18 @@ memoize (SCM exp, SCM env)
              meta);
         else
           {
-            proc = memoize (body, capture_env (env));
+            proc = memoize (body, new_env);
             SCM_SETCAR (SCM_CDR (SCM_MEMOIZED_ARGS (proc)), meta);
           }
 
-	return maybe_makmemo_capture_module (proc, env);
+	return maybe_makmemo_capture_module (capture_flat_env (proc, new_env),
+                                             env);
       }
 
     case SCM_EXPANDED_LAMBDA_CASE:
       {
         SCM req, rest, opt, kw, inits, vars, body, alt;
-        SCM unbound, arity, rib;
+        SCM unbound, arity, rib, new_env;
         int nreq, nopt, ninits;
 
         req = REF (exp, LAMBDA_CASE, REQ);
@@ -439,6 +535,7 @@ memoize (SCM exp, SCM env)
            "unbound" token.  */
         unbound = ninits ? REF (CAR (inits), CONST, EXP) : SCM_BOOL_F;
         rib = scm_vector (vars);
+        new_env = push_nested_link (rib, env);
 
         if (scm_is_true (kw))
           {
@@ -470,8 +567,8 @@ memoize (SCM exp, SCM env)
           arity = FULL_ARITY (nreq, rest, nopt, kw, ninits, unbound,
                               SCM_BOOL_F);
 
-        return MAKMEMO_LAMBDA (memoize (body, scm_cons (rib, env)), arity,
-			       SCM_BOOL_F /* meta, filled in later */);
+        return MAKMEMO_LAMBDA (memoize (body, new_env), arity,
+                               SCM_BOOL_F /* meta, filled in later */);
       }
 
     case SCM_EXPANDED_LET:
@@ -486,7 +583,7 @@ memoize (SCM exp, SCM env)
         varsv = scm_vector (vars);
         inits = scm_c_make_vector (VECTOR_LENGTH (varsv),
                                    SCM_BOOL_F);
-        new_env = scm_cons (varsv, capture_env (env));
+        new_env = push_nested_link (varsv, capture_env (env));
         for (i = 0; scm_is_pair (exps); exps = CDR (exps), i++)
           VECTOR_SET (inits, i, memoize (CAR (exps), env));
 
