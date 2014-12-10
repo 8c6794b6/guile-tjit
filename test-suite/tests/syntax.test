@@ -88,7 +88,7 @@
   "sequence of zero expressions")
 
 (define exception:variable-ref
-  '(misc-error . "variable is unbound"))
+  '(misc-error . "Unbound variable"))
 
 ;; (put 'pass-if-syntax-error 'scheme-indent-function 1)
 (define-syntax pass-if-syntax-error
