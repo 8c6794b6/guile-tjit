@@ -27,22 +27,18 @@
 ;;; psyntax), then memoized into internal forms. The evaluator itself
 ;;; only operates on the internal forms ("memoized expressions").
 ;;;
-;;; Environments are represented as linked lists of the form (VAL ... .
-;;; MOD). If MOD is #f, it means the environment was captured before
-;;; modules were booted. If MOD is the literal value '(), we are
-;;; evaluating at the top level, and so should track changes to the
-;;; current module.
-;;;
-;;; Evaluate this in Emacs to make code indentation work right:
-;;;
-;;;    (put 'memoized-expression-case 'scheme-indent-function 1)
+;;; Environments are represented as a chain of vectors, linked through
+;;; their first elements.  The terminal element of an environment is the
+;;; module that was current when the outer lexical environment was
+;;; entered.
 ;;;
 
 ;;; Code:
 
 
 
-(eval-when (compile)
+(define (primitive-eval exp)
+  "Evaluate @var{exp} in the current module."
   (define-syntax env-toplevel
     (syntax-rules ()
       ((_ env)
@@ -79,488 +75,537 @@
              (vector-set! e (1+ width) val)
              (lp (vector-ref e 0) (1- d)))))))
 
-  ;; For evaluating the initializers in a "let" expression.  We have to
-  ;; evaluate the initializers before creating the environment rib, to
-  ;; prevent continuation-related shenanigans; see
-  ;; http://wingolog.org/archives/2013/11/02/scheme-quiz-time for a
-  ;; deeper discussion.
-  ;;
-  ;; This macro will inline evaluation of the first N initializers.
-  ;; That number N is indicated by the number of template arguments
-  ;; passed to the macro.  It's a bit nasty but it's flexible and
-  ;; optimizes well.
-  (define-syntax let-env-evaluator
+  ;; This is a modified version of Oleg Kiselyov's "pmatch".
+  (define-syntax-rule (match e cs ...)
+    (let ((v e)) (expand-clauses v cs ...)))
+
+  (define-syntax expand-clauses
     (syntax-rules ()
-      ((eval-and-make-env eval env (template ...))
-       (let ()
-         (define-syntax eval-and-make-env
-           (syntax-rules ()
-             ((eval-and-make-env inits width (template ...) k)
-              (let lp ((n (length '(template ...))) (vals '()))
-                (if (eqv? n width)
-                    (let ((env (make-env n #f env)))
-                      (let lp ((n (1- n)) (vals vals))
-                        (if (null? vals)
-                            (k env)
-                            (begin
-                              (env-set! env 0 n (car vals))
-                              (lp (1- n) (cdr vals))))))
-                    (lp (1+ n)
-                        (cons (eval (vector-ref inits n) env) vals)))))
-             ((eval-and-make-env inits width (var (... ...)) k)
-              (let ((n (length '(var (... ...)))))
-                (if (eqv? n width)
-                    (k (make-env n #f env))
-                    (let* ((x (eval (vector-ref inits n) env))
-                           (k (lambda (env)
-                                (env-set! env 0 n x)
-                                (k env))))
-                      (eval-and-make-env inits width (x var (... ...)) k)))))))
-         (lambda (inits)
-           (let ((width (vector-length inits))
-                 (k (lambda (env) env)))
-             (eval-and-make-env inits width () k)))))))
+      ((_ v) ((error "unreachable")))
+      ((_ v (pat e0 e ...) cs ...)
+       (let ((fk (lambda () (expand-clauses v cs ...))))
+         (expand-pattern v pat (let () e0 e ...) (fk))))))
 
-  ;; Fast case for procedures with fixed arities.
-  (define-syntax make-fixed-closure
-    (lambda (x)
-      (define *max-static-argument-count* 8)
-      (define (make-formals n)
-        (map (lambda (i)
-               (datum->syntax
-                x
-                (string->symbol
-                 (string (integer->char (+ (char->integer #\a) i))))))
-             (iota n)))
-      (syntax-case x ()
-        ((_ eval nreq body env) (not (identifier? #'env))
-         #'(let ((e env))
-             (make-fixed-closure eval nreq body e)))
-        ((_ eval nreq body env)
-         #`(case nreq
-             #,@(map (lambda (nreq)
-                       (let ((formals (make-formals nreq)))
-                         #`((#,nreq)
-                            (lambda (#,@formals)
-                              (eval body
-                                    (make-env* env #,@formals))))))
-                     (iota *max-static-argument-count*))
-             (else
-              #,(let ((formals (make-formals *max-static-argument-count*)))
-                  #`(lambda (#,@formals . more)
-                      (let ((env (make-env nreq #f env)))
-                        #,@(map (lambda (formal n)
-                                  #`(env-set! env 0 #,n #,formal))
-                                formals (iota (length formals)))
-                        (let lp ((i #,*max-static-argument-count*)
-                                 (args more))
-                          (cond
-                           ((= i nreq)
-                            (eval body
-                                  (if (null? args)
-                                      env
-                                      (scm-error 'wrong-number-of-args
-                                                 "eval" "Wrong number of arguments"
-                                                 '() #f))))
-                           ((null? args)
-                            (scm-error 'wrong-number-of-args
-                                       "eval" "Wrong number of arguments"
-                                       '() #f))
-                           (else
-                            (env-set! env 0 i (car args))
-                            (lp (1+ i) (cdr args))))))))))))))
+  (define-syntax expand-pattern
+    (syntax-rules (_ quote unquote)
+      ((_ v _ kt kf) kt)
+      ((_ v () kt kf) (if (null? v) kt kf))
+      ((_ v (quote lit) kt kf)
+       (if (equal? v (quote lit)) kt kf))
+      ((_ v (unquote exp) kt kf)
+       (if (equal? v exp) kt kf))
+      ((_ v (x . y) kt kf)
+       (if (pair? v)
+           (let ((vx (car v)) (vy (cdr v)))
+             (expand-pattern vx x (expand-pattern vy y kt kf) kf))
+           kf))
+      ((_ v #f kt kf) (if (eqv? v #f) kt kf))
+      ((_ v var kt kf) (let ((var v)) kt))))
 
-  ;; Fast case for procedures with fixed arities and a rest argument.
-  (define-syntax make-rest-closure
-    (lambda (x)
-      (define *max-static-argument-count* 3)
-      (define (make-formals n)
-        (map (lambda (i)
-               (datum->syntax
-                x
-                (string->symbol
-                 (string (integer->char (+ (char->integer #\a) i))))))
-             (iota n)))
-      (syntax-case x ()
-        ((_ eval nreq body env) (not (identifier? #'env))
-         #'(let ((e env))
-             (make-rest-closure eval nreq body e)))
-        ((_ eval nreq body env)
-         #`(case nreq
-             #,@(map (lambda (nreq)
-                       (let ((formals (make-formals nreq)))
-                         #`((#,nreq)
-                            (lambda (#,@formals . rest)
-                              (eval body
-                                    (make-env* env #,@formals rest))))))
-                     (iota *max-static-argument-count*))
-             (else
-              #,(let ((formals (make-formals *max-static-argument-count*)))
-                  #`(lambda (#,@formals . more)
-                      (let ((env (make-env (1+ nreq) #f env)))
-                        #,@(map (lambda (formal n)
-                                  #`(env-set! env 0 #,n #,formal))
-                                formals (iota (length formals)))
-                        (let lp ((i #,*max-static-argument-count*)
-                                 (args more))
-                          (cond
-                           ((= i nreq)
-                            (env-set! env 0 nreq args)
-                            (eval body env))
-                           ((null? args)
-                            (scm-error 'wrong-number-of-args
-                                       "eval" "Wrong number of arguments"
-                                       '() #f))
-                           (else
-                            (env-set! env 0 i (car args))
-                            (lp (1+ i) (cdr args))))))))))))))
-
-  (define-syntax call
-    (lambda (x)
-      (define *max-static-call-count* 4)
-      (syntax-case x ()
-        ((_ eval proc nargs args env) (identifier? #'env)
-         #`(case nargs
-             #,@(map (lambda (nargs)
-                       #`((#,nargs)
-                          (proc
-                           #,@(map
-                               (lambda (n)
-                                 (let lp ((n n) (args #'args))
-                                   (if (zero? n)
-                                       #`(eval (car #,args) env)
-                                       (lp (1- n) #`(cdr #,args)))))
-                               (iota nargs)))))
-                     (iota *max-static-call-count*))
-             (else
-              (apply proc
-                     #,@(map
-                         (lambda (n)
-                           (let lp ((n n) (args #'args))
-                             (if (zero? n)
-                                 #`(eval (car #,args) env)
-                                 (lp (1- n) #`(cdr #,args)))))
-                         (iota *max-static-call-count*))
-                     (let lp ((exps #,(let lp ((n *max-static-call-count*)
-                                               (args #'args))
-                                        (if (zero? n)
-                                            args
-                                            (lp (1- n) #`(cdr #,args)))))
-                              (args '()))
-                       (if (null? exps)
-                           (reverse args)
-                           (lp (cdr exps)
-                               (cons (eval (car exps) env) args)))))))))))
-
-  ;; This macro could be more straightforward if the compiler had better
-  ;; copy propagation. As it is we do some copy propagation by hand.
-  (define-syntax mx-bind
+  (define-syntax typecode
     (lambda (x)
       (syntax-case x ()
-        ((_ data () body)
-         #'body)
-        ((_ data (a . b) body) (and (identifier? #'a) (identifier? #'b))
-         #'(let ((a (car data))
-                 (b (cdr data)))
-             body))
-        ((_ data (a . b) body) (identifier? #'a)
-         #'(let ((a (car data))
-                 (xb (cdr data)))
-             (mx-bind xb b body)))
-        ((_ data (a . b) body) 
-         #'(let ((xa (car data))
-                 (xb (cdr data)))
-             (mx-bind xa a (mx-bind xb b body))))
-        ((_ data v body) (identifier? #'v)
-         #'(let ((v data))
-             body)))))
-  
-  ;; The resulting nested if statements will be an O(n) dispatch. Once
-  ;; we compile `case' effectively, this situation will improve.
-  (define-syntax mx-match
-    (lambda (x)
-      (syntax-case x (quote else)
-        ((_ mx data tag)
-         #'(error "what" mx))
-        ((_ mx data tag (else body))
-         #'body)
-        ((_ mx data tag (('type pat) body) c* ...)
-         #`(if (eqv? tag #,(or (memoized-typecode (syntax->datum #'type))
-                               (error "not a typecode" #'type)))
-               (mx-bind data pat body)
-               (mx-match mx data tag c* ...))))))
+        ((_ type)
+         (or (memoized-typecode (syntax->datum #'type))
+             (error "not a typecode" (syntax->datum #'type)))))))
 
-  (define-syntax memoized-expression-case
-    (lambda (x)
-      (syntax-case x ()
-        ((_ mx c ...)
-         #'(let ((tag (car mx))
-                 (data (cdr mx)))
-             (mx-match mx data tag c ...)))))))
+  (define (compile-lexical-ref depth width)
+    (lambda (env)
+      (env-ref env depth width)))
 
+  (define (compile-call f nargs args)
+    (let ((f (compile f)))
+      (match args
+        (() (lambda (env) ((f env))))
+        ((a)
+         (let ((a (compile a)))
+           (lambda (env) ((f env) (a env)))))
+        ((a b)
+         (let ((a (compile a))
+               (b (compile b)))
+           (lambda (env) ((f env) (a env) (b env)))))
+        ((a b c)
+         (let ((a (compile a))
+               (b (compile b))
+               (c (compile c)))
+           (lambda (env) ((f env) (a env) (b env) (c env)))))
+        ((a b c . args)
+         (let ((a (compile a))
+               (b (compile b))
+               (c (compile c))
+               (args (let lp ((args args))
+                       (if (null? args)
+                           '()
+                           (cons (compile (car args)) (lp (cdr args)))))))
+           (lambda (env)
+             (apply (f env) (a env) (b env) (c env)
+                    (let lp ((args args))
+                      (if (null? args)
+                          '()
+                          (cons ((car args) env) (lp (cdr args))))))))))))
 
-;;;
-;;; On 18 Feb 2010, I did a profile of how often the various memoized expression
-;;; types occur when getting to a prompt on a fresh build. Here are the numbers
-;;; I got:
-;;;
-;;;      lexical-ref: 32933054
-;;;             call: 20281547
-;;;     toplevel-ref: 13228724
-;;;               if: 9156156
-;;;            quote: 6610137
-;;;              let: 2619707
-;;;           lambda: 1010921
-;;;            begin: 948945
-;;;      lexical-set: 509862
-;;; call-with-values: 139668
-;;;            apply: 49402
-;;;       module-ref: 14468
-;;;           define: 1259
-;;;     toplevel-set: 328
-;;;          call/cc: 0
-;;;       module-set: 0
-;;;
-;;; So until we compile `case' into a computed goto, we'll order the clauses in
-;;; `eval' in this order, to put the most frequent cases first.
-;;;
+  (define (compile-box-ref box)
+    (match box
+      ((,(typecode resolve) . var-or-loc)
+       (lambda (env)
+         (cond
+          ((variable? var-or-loc) (variable-ref var-or-loc))
+          (else
+           (set! var-or-loc
+                 (%resolve-variable var-or-loc (env-toplevel env)))
+           (variable-ref var-or-loc)))))
+      ((,(typecode lexical-ref) depth . width)
+       (lambda (env)
+         (variable-ref (env-ref env depth width))))
+      (_
+       (let ((box (compile box)))
+         (lambda (env)
+           (variable-ref (box env)))))))
 
-(define primitive-eval
-  (let ()
-    ;; We pre-generate procedures with fixed arities, up to some number
-    ;; of arguments, and some rest arities; see make-fixed-closure and
-    ;; make-rest-closure above.
+  (define (compile-resolve var-or-loc)
+    (lambda (env)
+      (cond
+       ((variable? var-or-loc) var-or-loc)
+       (else
+        (set! var-or-loc (%resolve-variable var-or-loc (env-toplevel env)))
+        var-or-loc))))
 
-    ;; Procedures with rest, optional, or keyword arguments, potentially with
-    ;; multiple arities, as with case-lambda.
-    (define (make-general-closure env body nreq rest? nopt kw ninits unbound
-                                  alt)
-      (define alt-proc
-        (and alt                        ; (body meta nreq ...)
-             (let* ((body (car alt))
-                    (spec (cddr alt))
-                    (nreq (car spec))
-                    (rest (if (null? (cdr spec)) #f (cadr spec)))
-                    (tail (and (pair? (cdr spec)) (pair? (cddr spec)) (cddr spec)))
-                    (nopt (if tail (car tail) 0))
-                    (kw (and tail (cadr tail)))
-                    (ninits (if tail (caddr tail) 0))
-                    (unbound (and tail (cadddr tail)))
-                    (alt (and tail (car (cddddr tail)))))
-               (make-general-closure env body nreq rest nopt kw ninits unbound
-                                     alt))))
-      (define (set-procedure-arity! proc)
-        (let lp ((alt alt) (nreq nreq) (nopt nopt) (rest? rest?))
-          (if (not alt)
-              (begin
-                (set-procedure-property! proc 'arglist
-                                         (list nreq
-                                               nopt
-                                               (if kw (cdr kw) '())
-                                               (and kw (car kw))
-                                               (and rest? '_)))
-                (set-procedure-minimum-arity! proc nreq nopt rest?))
-              (let* ((spec (cddr alt))
-                     (nreq* (car spec))
-                     (rest?* (if (null? (cdr spec)) #f (cadr spec)))
-                     (tail (and (pair? (cdr spec)) (pair? (cddr spec)) (cddr spec)))
-                     (nopt* (if tail (car tail) 0))
-                     (alt* (and tail (car (cddddr tail)))))
-                (if (or (< nreq* nreq)
-                        (and (= nreq* nreq)
-                             (if rest?
-                                 (and rest?* (> nopt* nopt))
-                                 (or rest?* (> nopt* nopt)))))
-                    (lp alt* nreq* nopt* rest?*)
-                    (lp alt* nreq nopt rest?)))))
-        proc)
-      (set-procedure-arity!
-       (lambda %args
-         (define (npositional args)
-           (let lp ((n 0) (args args))
-             (if (or (null? args)
-                     (and (>= n nreq) (keyword? (car args))))
-                 n
-                 (lp (1+ n) (cdr args)))))
-         (let ((nargs (length %args)))
-           (cond
-            ((or (< nargs nreq)
-                 (and (not kw) (not rest?) (> nargs (+ nreq nopt)))
-                 (and alt kw (not rest?) (> (npositional %args) (+ nreq nopt))))
-             (if alt
-                 (apply alt-proc %args)
-                 ((scm-error 'wrong-number-of-args
-                             "eval" "Wrong number of arguments"
-                             '() #f))))
-            (else
-             (let* ((nvals (+ nreq (if rest? 1 0) ninits))
-                    (env (make-env nvals unbound env)))
-               (let lp ((i 0) (args %args))
-                 (cond
-                  ((< i nreq)
-                   ;; Bind required arguments.
-                   (env-set! env 0 i (car args))
-                   (lp (1+ i) (cdr args)))
-                  ((not kw)
-                   ;; Optional args (possibly), but no keyword args.
-                   (let lp ((i i) (args args))
-                     (cond
-                      ((and (< i (+ nreq nopt)) (< i nargs))
-                       (env-set! env 0 i (car args))
-                       (lp (1+ i) (cdr args)))
-                      (else
-                       (when rest?
-                         (env-set! env 0 (+ nreq nopt) args))
-                       (eval body env)))))
-                  (else
-                   ;; Optional args.  As before, but stop at the first
-                   ;; keyword.
-                   (let lp ((i i) (args args))
-                     (cond
-                      ((and (< i (+ nreq nopt))
-                            (< i nargs)
-                            (not (keyword? (car args))))
-                       (env-set! env 0 i (car args))
-                       (lp (1+ i) (cdr args)))
-                      (else
-                       (when rest?
-                         (env-set! env 0 (+ nreq nopt) args))
-                       (let ((aok (car kw))
-                             (kw (cdr kw)))
-                         ;; Now scan args for keywords.
-                         (let lp ((args args))
-                           (cond
-                            ((and (pair? args) (pair? (cdr args))
-                                  (keyword? (car args)))
-                             (let ((kw-pair (assq (car args) kw))
-                                   (v (cadr args)))
-                               (if kw-pair
-                                   ;; Found a known keyword; set its value.
-                                   (env-set! env 0 (cdr kw-pair) v)
-                                   ;; Unknown keyword.
-                                   (if (not aok)
-                                       ((scm-error
-                                         'keyword-argument-error
-                                         "eval" "Unrecognized keyword"
-                                         '() (list (car args))))))
-                               (lp (cddr args))))
-                            ((pair? args)
-                             (if rest?
-                                 ;; Be lenient parsing rest args.
-                                 (lp (cdr args))
-                                 ((scm-error 'keyword-argument-error
-                                             "eval" "Invalid keyword"
-                                             '() (list (car args))))))
-                            (else
-                             ;; Finally, eval the body.
-                             (eval body env))))))))))))))))))
+  (define (compile-if test consequent alternate)
+    (let ((test (compile test))
+          (consequent (compile consequent))
+          (alternate (compile alternate)))
+      (lambda (env)
+        (if (test env) (consequent env) (alternate env)))))
 
-    ;; The "engine". EXP is a memoized expression.
-    (define (eval exp env)
-      (memoized-expression-case exp
-        (('lexical-ref (depth . width))
-         (env-ref env depth width))
-        
-        (('call (f nargs . args))
-         (let ((proc (eval f env)))
-           (call eval proc nargs args env)))
-        
-        (('box-ref box)
-         (memoized-expression-case box
-           ;; Accelerate common cases.
-           (('resolve var-or-loc)
-            (if (variable? var-or-loc)
-                (variable-ref var-or-loc)
-                (variable-ref (eval box env))))
-           (('lexical-ref (depth . width))
-            (variable-ref (env-ref env depth width)))
+  (define (compile-quote x)
+    (lambda (env) x))
+
+  (define (compile-let inits body)
+    (let ((body (compile body))
+          (width (vector-length inits)))
+      (case width
+        ((0) (lambda (env)
+               (body (make-env* env))))
+        ((1)
+         (let ((a (compile (vector-ref inits 0))))
+           (lambda (env)
+             (body (make-env* env (a env))))))
+        ((2)
+         (let ((a (compile (vector-ref inits 0)))
+               (b (compile (vector-ref inits 1))))
+           (lambda (env)
+             (body (make-env* env (a env) (b env))))))
+        ((3)
+         (let ((a (compile (vector-ref inits 0)))
+               (b (compile (vector-ref inits 1)))
+               (c (compile (vector-ref inits 2))))
+           (lambda (env)
+             (body (make-env* env (a env) (b env) (c env))))))
+        ((4)
+         (let ((a (compile (vector-ref inits 0)))
+               (b (compile (vector-ref inits 1)))
+               (c (compile (vector-ref inits 2)))
+               (d (compile (vector-ref inits 3))))
+           (lambda (env)
+             (body (make-env* env (a env) (b env) (c env) (d env))))))
+        (else
+         (let lp ((n width)
+                  (k (lambda (env)
+                       (make-env width #f env))))
+           (if (zero? n)
+               (lambda (env)
+                 (body (k env)))
+               (lp (1- n)
+                   (let ((init (compile (vector-ref inits (1- n)))))
+                     (lambda (env)
+                       (let* ((x (init env))
+                              (new-env (k env)))
+                         (env-set! new-env 0 (1- n) x)
+                         new-env))))))))))
+
+  (define (compile-fixed-lambda body nreq)
+    (case nreq
+      ((0) (lambda (env)
+             (lambda ()
+               (body (make-env* env)))))
+      ((1) (lambda (env)
+             (lambda (a)
+               (body (make-env* env a)))))
+      ((2) (lambda (env)
+             (lambda (a b)
+               (body (make-env* env a b)))))
+      ((3) (lambda (env)
+             (lambda (a b c)
+               (body (make-env* env a b c)))))
+      ((4) (lambda (env)
+             (lambda (a b c d)
+               (body (make-env* env a b c d)))))
+      ((5) (lambda (env)
+             (lambda (a b c d e)
+               (body (make-env* env a b c d e)))))
+      ((6) (lambda (env)
+             (lambda (a b c d e f)
+               (body (make-env* env a b c d e f)))))
+      ((7) (lambda (env)
+             (lambda (a b c d e f g)
+               (body (make-env* env a b c d e f g)))))
+      (else
+       (lambda (env)
+         (lambda (a b c d e f g . more)
+           (let ((env (make-env nreq #f env)))
+             (env-set! env 0 0 a)
+             (env-set! env 0 1 b)
+             (env-set! env 0 2 c)
+             (env-set! env 0 3 d)
+             (env-set! env 0 4 e)
+             (env-set! env 0 5 f)
+             (env-set! env 0 6 g)
+             (let lp ((n 7) (args more))
+               (cond
+                ((= n nreq)
+                 (unless (null? args)
+                   (scm-error 'wrong-number-of-args
+                              "eval" "Wrong number of arguments"
+                              '() #f))
+                 (body env))
+                ((null? args)
+                 (scm-error 'wrong-number-of-args
+                            "eval" "Wrong number of arguments"
+                            '() #f))
+                (else
+                 (env-set! env 0 n (car args))
+                 (lp (1+ n) (cdr args)))))))))))
+
+  (define (compile-rest-lambda body nreq rest?)
+    (case nreq
+      ((0) (lambda (env)
+             (lambda rest
+               (body (make-env* env rest)))))
+      ((1) (lambda (env)
+             (lambda (a . rest)
+               (body (make-env* env a rest)))))
+      ((2) (lambda (env)
+             (lambda (a b . rest)
+               (body (make-env* env a b rest)))))
+      ((3) (lambda (env)
+             (lambda (a b c . rest)
+               (body (make-env* env a b c rest)))))
+      (else
+       (lambda (env)
+         (lambda (a b c . more)
+           (let ((env (make-env (1+ nreq) #f env)))
+             (env-set! env 0 0 a)
+             (env-set! env 0 1 b)
+             (env-set! env 0 2 c)
+             (let lp ((n 3) (args more))
+               (cond
+                ((= n nreq)
+                 (env-set! env 0 n args)
+                 (body env))
+                ((null? args)
+                 (scm-error 'wrong-number-of-args
+                            "eval" "Wrong number of arguments"
+                            '() #f))
+                (else
+                 (env-set! env 0 n (car args))
+                 (lp (1+ n) (cdr args)))))))))))
+
+  (define (compile-opt-lambda body nreq rest? nopt ninits unbound make-alt)
+    (lambda (env)
+      (define alt (and make-alt (make-alt env)))
+      (lambda args
+        (let ((nargs (length args)))
+          (cond
+           ((or (< nargs nreq) (and (not rest?) (> nargs (+ nreq nopt))))
+            (if alt
+                (apply alt args)
+                ((scm-error 'wrong-number-of-args
+                            "eval" "Wrong number of arguments"
+                            '() #f))))
            (else
-            (variable-ref (eval box env)))))
+            (let* ((nvals (+ nreq (if rest? 1 0) ninits))
+                   (env (make-env nvals unbound env)))
+              (define (bind-req args)
+                (let lp ((i 0) (args args))
+                  (cond
+                   ((< i nreq)
+                    ;; Bind required arguments.
+                    (env-set! env 0 i (car args))
+                    (lp (1+ i) (cdr args)))
+                   (else
+                    (bind-opt args)))))
+              (define (bind-opt args)
+                (let lp ((i nreq) (args args))
+                  (cond
+                   ((and (< i (+ nreq nopt)) (< i nargs))
+                    (env-set! env 0 i (car args))
+                    (lp (1+ i) (cdr args)))
+                   (else
+                    (bind-rest args)))))
+              (define (bind-rest args)
+                (when rest?
+                  (env-set! env 0 (+ nreq nopt) args))
+                (body env))
+              (bind-req args))))))))
 
-        (('resolve var-or-loc)
-         (if (variable? var-or-loc)
-             var-or-loc
-             (let ((var (%resolve-variable var-or-loc (env-toplevel env))))
-               (set-cdr! exp var)
-               var)))
+  (define (compile-kw-lambda body nreq rest? nopt kw ninits unbound make-alt)
+    (define allow-other-keys? (car kw))
+    (define keywords (cdr kw))
+    (lambda (env)
+      (define alt (and make-alt (make-alt env)))
+      (lambda args
+        (define (npositional args)
+          (let lp ((n 0) (args args))
+            (if (or (null? args)
+                    (and (>= n nreq) (keyword? (car args))))
+                n
+                (lp (1+ n) (cdr args)))))
+        (let ((nargs (length args)))
+          (cond
+           ((or (< nargs nreq)
+                (and alt (not rest?) (> (npositional args) (+ nreq nopt))))
+            (if alt
+                (apply alt args)
+                ((scm-error 'wrong-number-of-args
+                            "eval" "Wrong number of arguments"
+                            '() #f))))
+           (else
+            (let* ((nvals (+ nreq (if rest? 1 0) ninits))
+                   (env (make-env nvals unbound env)))
+              (define (bind-req args)
+                (let lp ((i 0) (args args))
+                  (cond
+                   ((< i nreq)
+                    ;; Bind required arguments.
+                    (env-set! env 0 i (car args))
+                    (lp (1+ i) (cdr args)))
+                   (else
+                    (bind-opt args)))))
+              (define (bind-opt args)
+                (let lp ((i nreq) (args args))
+                  (cond
+                   ((and (< i (+ nreq nopt)) (< i nargs)
+                         (not (keyword? (car args))))
+                    (env-set! env 0 i (car args))
+                    (lp (1+ i) (cdr args)))
+                   (else
+                    (bind-rest args)))))
+              (define (bind-rest args)
+                (when rest?
+                  (env-set! env 0 (+ nreq nopt) args))
+                (bind-kw args))
+              (define (bind-kw args)
+                (let lp ((args args))
+                  (cond
+                   ((and (pair? args) (pair? (cdr args))
+                         (keyword? (car args)))
+                    (let ((kw-pair (assq (car args) keywords))
+                          (v (cadr args)))
+                      (if kw-pair
+                          ;; Found a known keyword; set its value.
+                          (env-set! env 0 (cdr kw-pair) v)
+                          ;; Unknown keyword.
+                          (if (not allow-other-keys?)
+                              ((scm-error
+                                'keyword-argument-error
+                                "eval" "Unrecognized keyword"
+                                '() (list (car args))))))
+                      (lp (cddr args))))
+                   ((pair? args)
+                    (if rest?
+                        ;; Be lenient parsing rest args.
+                        (lp (cdr args))
+                        ((scm-error 'keyword-argument-error
+                                    "eval" "Invalid keyword"
+                                    '() (list (car args))))))
+                   (else
+                    (body env)))))
+              (bind-req args))))))))
 
-        (('if (test consequent . alternate))
-         (if (eval test env)
-             (eval consequent env)
-             (eval alternate env)))
+  (define (compute-arity alt nreq rest? nopt kw)
+    (let lp ((alt alt) (nreq nreq) (nopt nopt) (rest? rest?))
+      (if (not alt)
+          (let ((arglist (list nreq
+                               nopt
+                               (if kw (cdr kw) '())
+                               (and kw (car kw))
+                               (and rest? '_))))
+            (values arglist nreq nopt rest?))
+          (let* ((spec (cddr alt))
+                 (nreq* (car spec))
+                 (rest?* (if (null? (cdr spec)) #f (cadr spec)))
+                 (tail (and (pair? (cdr spec)) (pair? (cddr spec)) (cddr spec)))
+                 (nopt* (if tail (car tail) 0))
+                 (alt* (and tail (car (cddddr tail)))))
+            (if (or (< nreq* nreq)
+                    (and (= nreq* nreq)
+                         (if rest?
+                             (and rest?* (> nopt* nopt))
+                             (or rest?* (> nopt* nopt)))))
+                (lp alt* nreq* nopt* rest?*)
+                (lp alt* nreq nopt rest?))))))
+
+  (define (compile-general-lambda body nreq rest? nopt kw ninits unbound alt)
+    (call-with-values
+        (lambda ()
+          (compute-arity alt nreq rest? nopt kw))
+      (lambda (arglist min-nreq min-nopt min-rest?)
+        (define make-alt
+          (match alt
+            (#f #f)
+            ((body meta nreq . tail)
+             (compile-lambda body meta nreq tail))))
+        (define make-closure
+          (if kw
+              (compile-kw-lambda body nreq rest? nopt kw ninits unbound make-alt)
+              (compile-opt-lambda body nreq rest? nopt ninits unbound make-alt)))
+        (lambda (env)
+          (let ((proc (make-closure env)))
+            (set-procedure-property! proc 'arglist arglist)
+            (set-procedure-minimum-arity! proc min-nreq min-nopt min-rest?)
+            proc)))))
+
+  (define (compile-lambda body meta nreq tail)
+    (define (set-procedure-meta meta proc)
+      (match meta
+        (() proc)
+        (((prop . val) . meta)
+         (set-procedure-meta meta
+                             (lambda (env)
+                               (let ((proc (proc env)))
+                                 (set-procedure-property! proc prop val)
+                                 proc))))))
+    (let ((body (compile body)))
+      (set-procedure-meta
+       meta
+       (match tail
+         (() (compile-fixed-lambda body nreq))
+         ((rest? . tail)
+          (match tail
+            (() (compile-rest-lambda body nreq rest?))
+            ((nopt kw ninits unbound alt)
+             (compile-general-lambda body nreq rest? nopt kw
+                                     ninits unbound alt))))))))
+
+  (define (compile-capture-env locs body)
+    (let ((body (compile body)))
+      (lambda (env)
+        (let* ((len (vector-length locs))
+               (new-env (make-env len #f (env-toplevel env))))
+          (let lp ((n 0))
+            (when (< n len)
+              (match (vector-ref locs n)
+                ((depth . width)
+                 (env-set! new-env 0 n (env-ref env depth width))))
+              (lp (1+ n))))
+          (body new-env)))))
+
+  (define (compile-seq head tail)
+    (let ((head (compile head))
+          (tail (compile tail)))
+      (lambda (env)
+        (head env)
+        (tail env))))
+
+  (define (compile-box-set! box val)
+    (let ((box (compile box))
+          (val (compile val)))
+      (lambda (env)
+        (let ((val (val env)))
+          (variable-set! (box env) val)))))
+
+  (define (compile-lexical-set! depth width x)
+    (let ((x (compile x)))
+      (lambda (env)
+        (env-set! env depth width (x env)))))
+
+  (define (compile-call-with-values producer consumer)
+    (let ((producer (compile producer))
+          (consumer (compile consumer)))
+      (lambda (env)
+        (call-with-values (producer env)
+          (consumer env)))))
+
+  (define (compile-apply f args)
+    (let ((f (compile f))
+          (args (compile args)))
+      (lambda (env)
+        (apply (f env) (args env)))))
+
+  (define (compile-capture-module x)
+    (let ((x (compile x)))
+      (lambda (env)
+        (x (current-module)))))
+
+  (define (compile-call-with-prompt tag thunk handler)
+    (let ((tag (compile tag))
+          (thunk (compile thunk))
+          (handler (compile handler)))
+      (lambda (env)
+        (call-with-prompt (tag env) (thunk env) (handler env)))))
+
+  (define (compile-call/cc proc)
+    (let ((proc (compile proc)))
+      (lambda (env)
+        (call/cc (proc env)))))
+
+  (define (compile exp)
+    (match exp
+      ((,(typecode lexical-ref) depth . width)
+       (compile-lexical-ref depth width))
       
-        (('quote x)
-         x)
+      ((,(typecode call) f nargs . args)
+       (compile-call f nargs args))
+      
+      ((,(typecode box-ref) . box)
+       (compile-box-ref box))
 
-        (('let (inits . body))
-         (eval body ((let-env-evaluator eval env (_ _ _ _)) inits)))
+      ((,(typecode resolve) . var-or-loc)
+       (compile-resolve var-or-loc))
 
-        (('lambda (body meta nreq . tail))
-         (let ((proc
-                (if (null? tail)
-                    (make-fixed-closure eval nreq body env)
-                    (mx-bind
-                     tail (rest? . tail)
-                     (if (null? tail)
-                         (make-rest-closure eval nreq body env)
-                         (mx-bind
-                          tail (nopt kw ninits unbound alt)
-                          (make-general-closure env body nreq rest?
-                                                nopt kw ninits unbound
-                                                alt)))))))
-           (let lp ((meta meta))
-             (unless (null? meta)
-               (set-procedure-property! proc (caar meta) (cdar meta))
-               (lp (cdr meta))))
-           proc))
+      ((,(typecode if) test consequent . alternate)
+       (compile-if test consequent alternate))
 
-        (('capture-env (locs . body))
-         (let* ((len (vector-length locs))
-                (new-env (make-env len #f (env-toplevel env))))
-           (let lp ((n 0))
-             (when (< n len)
-               (mx-bind
-                (vector-ref locs n) (depth . width)
-                (env-set! new-env 0 n (env-ref env depth width)))
-               (lp (1+ n))))
-           (eval body new-env)))
+      ((,(typecode quote) . x)
+       (compile-quote x))
 
-        (('seq (head . tail))
-         (begin
-           (eval head env)
-           (eval tail env)))
-        
-        (('box-set! (box . val))
-         (variable-set! (eval box env) (eval val env)))
+      ((,(typecode let) inits . body)
+       (compile-let inits body))
 
-        (('lexical-set! ((depth . width) . x))
-         (env-set! env depth width (eval x env)))
-        
-        (('call-with-values (producer . consumer))
-         (call-with-values (eval producer env)
-           (eval consumer env)))
+      ((,(typecode lambda) body meta nreq . tail)
+       (compile-lambda body meta nreq tail))
 
-        (('apply (f args))
-         (apply (eval f env) (eval args env)))
+      ((,(typecode capture-env) locs . body)
+       (compile-capture-env locs body))
 
-        (('capture-module x)
-         (eval x (current-module)))
+      ((,(typecode seq) head . tail)
+       (compile-seq head tail))
+      
+      ((,(typecode box-set!) box . val)
+       (compile-box-set! box val))
 
-        (('call-with-prompt (tag thunk . handler))
-         (call-with-prompt
-          (eval tag env)
-          (eval thunk env)
-          (eval handler env)))
-        
-        (('call/cc proc)
-         (call/cc (eval proc env)))))
-  
-    ;; primitive-eval
-    (lambda (exp)
-      "Evaluate @var{exp} in the current module."
-      (eval 
-       (memoize-expression 
-        (if (macroexpanded? exp)
-            exp
-            ((module-transformer (current-module)) exp)))
-       #f))))
+      ((,(typecode lexical-set!) (depth . width) . x)
+       (compile-lexical-set! depth width x))
+      
+      ((,(typecode call-with-values) producer . consumer)
+       (compile-call-with-values producer consumer))
+
+      ((,(typecode apply) f args)
+       (compile-apply f args))
+
+      ((,(typecode capture-module) . x)
+       (compile-capture-module x))
+
+      ((,(typecode call-with-prompt) tag thunk . handler)
+       (compile-call-with-prompt tag thunk handler))
+      
+      ((,(typecode call/cc) . proc)
+       (compile-call/cc proc))))
+
+  (let ((proc (compile
+               (memoize-expression 
+                (if (macroexpanded? exp)
+                    exp
+                    ((module-transformer (current-module)) exp)))))
+        (env #f))
+    (proc env)))

@@ -574,7 +574,7 @@ memoize (SCM exp, SCM env)
                               SCM_BOOL_F);
 
         return MAKMEMO_LAMBDA (memoize (body, new_env), arity,
-                               SCM_BOOL_F /* meta, filled in later */);
+                               SCM_EOL /* meta, filled in later */);
       }
 
     case SCM_EXPANDED_LET:
