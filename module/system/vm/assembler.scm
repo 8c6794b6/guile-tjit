@@ -2141,7 +2141,7 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
                  ;; Guile line and column numbers are 0-indexed, but
                  ;; they are 1-indexed for DWARF.
                  (cons (list pc
-                             (if file (intern-file file) 0)
+                             (if (string? file) (intern-file file) 0)
                              (if line (1+ line))
                              (if col (1+ col)))
                        out))))
