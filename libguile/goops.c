@@ -2115,28 +2115,7 @@ scm_compute_applicable_methods (SCM gf, SCM args, long len, int find_method_p)
 	  : sort_applicable_methods (applicable, count, types));
 }
 
-#if 0
-SCM_PROC (s_sys_compute_applicable_methods, "%compute-applicable-methods", 2, 0, 0, scm_sys_compute_applicable_methods);
-#endif
-
-static const char s_sys_compute_applicable_methods[] = "%compute-applicable-methods";
-
-SCM
-scm_sys_compute_applicable_methods (SCM gf, SCM args)
-#define FUNC_NAME s_sys_compute_applicable_methods
-{
-  long n;
-  SCM_VALIDATE_GENERIC (1, gf);
-  n = scm_ilength (args);
-  SCM_ASSERT (n >= 0, args, SCM_ARG2, FUNC_NAME);
-  return scm_compute_applicable_methods (gf, args, n, 1);
-}
-#undef FUNC_NAME
-
 SCM_SYMBOL (sym_compute_applicable_methods, "compute-applicable-methods");
-SCM_VARIABLE_INIT (var_compute_applicable_methods, "compute-applicable-methods",
-                   scm_c_define_gsubr (s_sys_compute_applicable_methods, 2, 0, 0,
-                                       scm_sys_compute_applicable_methods));
 
 /******************************************************************************
  *
@@ -2789,8 +2768,6 @@ SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
 #define FUNC_NAME s_scm_sys_goops_loaded
 {
   goops_loaded_p = 1;
-  var_compute_applicable_methods =
-    scm_module_variable (scm_module_goops, sym_compute_applicable_methods);
   var_slot_unbound =
     scm_module_variable (scm_module_goops, sym_slot_unbound);
   var_slot_missing =

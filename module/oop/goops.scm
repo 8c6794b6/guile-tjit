@@ -508,6 +508,34 @@
 ;;; {Methods}
 ;;;
 
+(define (%sort-applicable-methods methods types)
+  (sort methods (lambda (a b) (%method-more-specific? a b types))))
+
+(define (%compute-applicable-methods gf args)
+  (define (method-applicable? m types)
+    (let lp ((specs (method-specializers m)) (types types))
+      (cond
+       ((null? specs) (null? types))
+       ((not (pair? specs)) #t)
+       ((null? types) #f)
+       (else
+        (and (memq (car specs) (class-precedence-list (car types)))
+             (lp (cdr specs) (cdr types)))))))
+  (let ((n (length args))
+        (types (map class-of args)))
+    (let lp ((methods (generic-function-methods gf))
+             (applicable '()))
+      (if (null? methods)
+          (and (not (null? applicable))
+               (%sort-applicable-methods applicable types))
+          (let ((m (car methods)))
+            (lp (cdr methods)
+                (if (method-applicable? m types)
+                    (cons m applicable)
+                    applicable)))))))
+
+(define compute-applicable-methods %compute-applicable-methods)
+
 (define (toplevel-define! name val)
   (module-define! (current-module) name val))
 
@@ -1664,8 +1692,7 @@
 (set! compute-applicable-methods %%compute-applicable-methods)
 
 (define-method (sort-applicable-methods (gf <generic>) methods args)
-  (let ((targs (map class-of args)))
-    (sort methods (lambda (m1 m2) (method-more-specific? m1 m2 targs)))))
+  (%sort-applicable-methods methods (map class-of args)))
 
 (define-method (method-more-specific? (m1 <method>) (m2 <method>) targs)
   (%method-more-specific? m1 m2 targs))

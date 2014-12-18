@@ -3,7 +3,7 @@
 #ifndef SCM_GOOPS_H
 #define SCM_GOOPS_H
 
-/* Copyright (C) 1998,1999,2000,2001,2002,2003, 2006, 2008, 2009, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1998,1999,2000,2001,2002,2003, 2006, 2008, 2009, 2011, 2014 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -248,7 +248,6 @@ SCM_API SCM scm_slot_ref (SCM obj, SCM slot_name);
 SCM_API SCM scm_slot_set_x (SCM obj, SCM slot_name, SCM value);
 
 SCM_API SCM scm_compute_applicable_methods (SCM gf, SCM args, long len, int scm_find_method);
-SCM_API SCM scm_sys_compute_applicable_methods (SCM gf, SCM args);
 #ifdef GUILE_DEBUG
 SCM_API SCM scm_pure_generic_p (SCM obj);
 #endif
