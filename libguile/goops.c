@@ -168,8 +168,6 @@ SCM scm_smob_class[SCM_I_MAX_SMOB_TYPE_COUNT];
 
 SCM scm_no_applicable_method;
 
-SCM_SYMBOL (scm_sym_define_public, "define-public");
-
 static SCM scm_make_unbound (void);
 static SCM scm_unbound_p (SCM obj);
 static SCM scm_assert_bound (SCM value, SCM obj);
