@@ -110,9 +110,6 @@ SCM_VARIABLE (scm_var_make_extended_generic, "make-extended-generic");
 	    }							       \
 	}
 
-#define NXT_MTHD_METHODS(m)	(SCM_VELTS (m)[1])
-#define NXT_MTHD_ARGS(m)	(SCM_VELTS (m)[2])
-
 #define SCM_GOOPS_UNBOUND SCM_UNBOUND
 #define SCM_GOOPS_UNBOUNDP(x) (scm_is_eq (x, SCM_GOOPS_UNBOUND))
 
