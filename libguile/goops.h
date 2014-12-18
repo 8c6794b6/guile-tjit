@@ -291,7 +291,6 @@ SCM_API SCM scm_primitive_generic_generic (SCM subr);
 SCM_API void scm_c_extend_primitive_generic (SCM subr, SCM extension);
 SCM_API SCM stklos_version (void);
 SCM_API SCM scm_make (SCM args);
-SCM_API SCM scm_sys_method_more_specific_p (SCM m1, SCM m2, SCM targs);
 SCM_API void scm_change_object_class (SCM, SCM, SCM);
 
 /* These procedures are for dispatching to a generic when a primitive
