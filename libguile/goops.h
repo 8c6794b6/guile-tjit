@@ -304,7 +304,6 @@ SCM_API SCM scm_wta_dispatch_n (SCM gf, SCM args, int pos, const char *subr);
 SCM_INTERNAL SCM scm_i_define_class_for_vtable (SCM vtable);
 
 
-SCM_INTERNAL SCM scm_init_goops_builtins (void);
 SCM_INTERNAL void scm_init_goops (void);
 
 #endif  /* SCM_GOOPS_H */

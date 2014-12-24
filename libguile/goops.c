@@ -2439,8 +2439,8 @@ SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
 
 SCM scm_module_goops;
 
-SCM
-scm_init_goops_builtins (void)
+static void
+scm_init_goops_builtins (void *unused)
 {
   scm_module_goops = scm_current_module ();
 
@@ -2466,15 +2466,14 @@ scm_init_goops_builtins (void)
       scm_make (scm_list_3 (scm_class_generic, k_name, name));
     scm_module_define (scm_module_goops, name, scm_no_applicable_method);
   }
-
-  return SCM_UNSPECIFIED;
 }
 
 void
 scm_init_goops ()
 {
-  scm_c_define_gsubr ("%init-goops-builtins", 0, 0, 0,
-		      scm_init_goops_builtins);
+  scm_c_register_extension ("libguile-" SCM_EFFECTIVE_VERSION,
+                            "scm_init_goops_builtins", scm_init_goops_builtins,
+                            NULL);
 }
 
 /*

@@ -200,7 +200,8 @@
 
 ;; First initialize the builtin part of GOOPS
 (eval-when (compile load eval)
-  (%init-goops-builtins))
+  (load-extension (string-append "libguile-" (effective-version))
+                  "scm_init_goops_builtins"))
 
 (eval-when (compile load eval)
   (use-modules ((language tree-il primitives) :select (add-interesting-primitive!)))
