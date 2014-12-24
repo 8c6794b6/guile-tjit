@@ -207,6 +207,9 @@
   (use-modules ((language tree-il primitives) :select (add-interesting-primitive!)))
   (add-interesting-primitive! 'class-of))
 
+(eval-when (compile load eval)
+  (%goops-early-init))
+
 ;; Then load the rest of GOOPS
 (use-modules (oop goops util)
 	     (oop goops dispatch)

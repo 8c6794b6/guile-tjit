@@ -172,6 +172,7 @@ static SCM scm_make_unbound (void);
 static SCM scm_unbound_p (SCM obj);
 static SCM scm_assert_bound (SCM value, SCM obj);
 static SCM scm_at_assert_bound_ref (SCM obj, SCM index);
+static SCM scm_sys_goops_early_init (void);
 static SCM scm_sys_goops_loaded (void);
 static SCM scm_make_extended_class_from_symbol (SCM type_name_sym, 
 						int applicablep);
@@ -2417,6 +2418,28 @@ SCM_DEFINE (scm_pure_generic_p, "pure-generic?", 1, 0, 0,
  * Initialization
  */
 
+SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
+	    (),
+	    "")
+#define FUNC_NAME s_scm_sys_goops_early_init
+{
+  create_basic_classes ();
+  create_standard_classes ();
+  create_smob_classes ();
+  create_struct_classes ();
+  create_port_classes ();
+
+  {
+    SCM name = scm_from_latin1_symbol ("no-applicable-method");
+    scm_no_applicable_method =
+      scm_make (scm_list_3 (scm_class_generic, k_name, name));
+    scm_module_define (scm_module_goops, name, scm_no_applicable_method);
+  }
+
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
 SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
 	    (),
 	    "Announce that GOOPS is loaded and perform initialization\n"
@@ -2446,26 +2469,13 @@ scm_init_goops_builtins (void *unused)
 
   goops_rstate = scm_c_make_rstate ("GOOPS", 5);
 
+  hell = scm_calloc (hell_size * sizeof (*hell));
+  hell_mutex = scm_make_mutex ();
+
 #include "libguile/goops.x"
 
   var_compute_cpl =
     scm_module_variable (scm_module_goops, sym_compute_cpl);
-
-  hell = scm_calloc (hell_size * sizeof (*hell));
-  hell_mutex = scm_make_mutex ();
-
-  create_basic_classes ();
-  create_standard_classes ();
-  create_smob_classes ();
-  create_struct_classes ();
-  create_port_classes ();
-
-  {
-    SCM name = scm_from_latin1_symbol ("no-applicable-method");
-    scm_no_applicable_method =
-      scm_make (scm_list_3 (scm_class_generic, k_name, name));
-    scm_module_define (scm_module_goops, name, scm_no_applicable_method);
-  }
 }
 
 void
