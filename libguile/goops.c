@@ -338,63 +338,6 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 
 /******************************************************************************
  *
- * Compute-cpl
- *
- *   This version doesn't fully handle multiple-inheritance. It serves
- *   only for booting classes and will be overloaded in Scheme
- *
- ******************************************************************************/
-
-static SCM
-map (SCM (*proc) (SCM), SCM ls)
-{
-  if (scm_is_null (ls))
-    return ls;
-  else
-    {
-      SCM res = scm_cons (proc (SCM_CAR (ls)), SCM_EOL);
-      SCM h = res;
-      ls = SCM_CDR (ls);
-      while (scm_is_pair (ls))
-	{
-	  SCM_SETCDR (h, scm_cons (proc (SCM_CAR (ls)), SCM_EOL));
-	  h = SCM_CDR (h);
-	  ls = SCM_CDR (ls);
-	}
-      return res;
-    }
-}
-
-static SCM
-filter_cpl (SCM ls)
-{
-  SCM res = SCM_EOL;
-  while (scm_is_pair (ls))
-    {
-      SCM el = SCM_CAR (ls);
-      if (scm_is_false (scm_c_memq (el, res)))
-	res = scm_cons (el, res);
-      ls = SCM_CDR (ls);
-    }
-  return res;
-}
-
-static SCM
-compute_cpl (SCM class)
-{
-  if (goops_loaded_p)
-    return scm_call_1 (SCM_VARIABLE_REF (var_compute_cpl), class);
-  else
-    {
-      SCM supers = SCM_SLOT (class, scm_si_direct_supers);
-      SCM ls = scm_append (scm_acons (class, supers,
-				      map (compute_cpl, supers)));
-      return scm_reverse_x (filter_cpl (ls), SCM_EOL);
-    }
-}
-
-/******************************************************************************
- *
  * compute-slots
  *
  ******************************************************************************/
@@ -428,8 +371,8 @@ check_cpl (SCM slots, SCM bslots)
                       "field cannot be redefined", SCM_EOL);  
 }
 
-static SCM 
-build_class_class_slots (void);
+enum build_class_class_slots_mode { BOOT_SLOTS, FINAL_SLOTS };
+static SCM build_class_class_slots (enum build_class_class_slots_mode mode);
 
 static SCM
 build_slots_list (SCM dslots, SCM cpl)
@@ -443,7 +386,7 @@ build_slots_list (SCM dslots, SCM cpl)
   
   if (classp) 
     {
-      bslots = build_class_class_slots ();
+      bslots = build_class_class_slots (FINAL_SLOTS);
       check_cpl (res, bslots);
     }
   else
@@ -841,7 +784,7 @@ scm_basic_basic_make_class (SCM class, SCM name, SCM dsupers, SCM dslots)
 
   /* Initialize its slots */
   SCM_SET_SLOT (z, scm_si_direct_supers, dsupers);
-  cpl   = compute_cpl (z);
+  cpl   = scm_call_1 (SCM_VARIABLE_REF (var_compute_cpl), z);
   slots = build_slots_list (maplist (dslots), cpl);
   nfields = scm_from_int (scm_ilength (slots));
   g_n_s = compute_getters_n_setters (slots);
@@ -909,29 +852,37 @@ SCM_SYMBOL (sym_getters_n_setters, "getters-n-setters");
 SCM_SYMBOL (sym_nfields, "nfields");
 
 
+static int specialized_slots_initialized = 0;
+
 static SCM
-build_class_class_slots (void)
+build_class_class_slots (enum build_class_class_slots_mode mode)
 {
+#define SPECIALIZED_SLOT(name, class) \
+  (mode == BOOT_SLOTS ? scm_list_1 (name) : scm_list_3 (name, k_class, class))
+
+  if (mode == FINAL_SLOTS && !specialized_slots_initialized)
+    abort ();
+
   /* has to be kept in sync with SCM_VTABLE_BASE_LAYOUT and
      SCM_CLASS_CLASS_LAYOUT */
   return scm_list_n (
-    scm_list_3 (sym_layout, k_class, scm_class_protected_read_only),
-    scm_list_3 (sym_flags, k_class, scm_class_hidden),
-    scm_list_3 (sym_self, k_class, scm_class_self),
-    scm_list_3 (sym_instance_finalizer, k_class, scm_class_hidden),
+    SPECIALIZED_SLOT (sym_layout, scm_class_protected_read_only),
+    SPECIALIZED_SLOT (sym_flags, scm_class_hidden),
+    SPECIALIZED_SLOT (sym_self, scm_class_self),
+    SPECIALIZED_SLOT (sym_instance_finalizer, scm_class_hidden),
     scm_list_1 (sym_print),
-    scm_list_3 (sym_name, k_class, scm_class_protected_hidden),
-    scm_list_3 (sym_reserved_0, k_class, scm_class_hidden),
-    scm_list_3 (sym_reserved_1, k_class, scm_class_hidden),
+    SPECIALIZED_SLOT (sym_name, scm_class_protected_hidden),
+    SPECIALIZED_SLOT (sym_reserved_0, scm_class_hidden),
+    SPECIALIZED_SLOT (sym_reserved_1, scm_class_hidden),
     scm_list_1 (sym_redefined),
-    scm_list_3 (sym_h0, k_class, scm_class_int),
-    scm_list_3 (sym_h1, k_class, scm_class_int),
-    scm_list_3 (sym_h2, k_class, scm_class_int),
-    scm_list_3 (sym_h3, k_class, scm_class_int),
-    scm_list_3 (sym_h4, k_class, scm_class_int),
-    scm_list_3 (sym_h5, k_class, scm_class_int),
-    scm_list_3 (sym_h6, k_class, scm_class_int),
-    scm_list_3 (sym_h7, k_class, scm_class_int),
+    SPECIALIZED_SLOT (sym_h0, scm_class_int),
+    SPECIALIZED_SLOT (sym_h1, scm_class_int),
+    SPECIALIZED_SLOT (sym_h2, scm_class_int),
+    SPECIALIZED_SLOT (sym_h3, scm_class_int),
+    SPECIALIZED_SLOT (sym_h4, scm_class_int),
+    SPECIALIZED_SLOT (sym_h5, scm_class_int),
+    SPECIALIZED_SLOT (sym_h6, scm_class_int),
+    SPECIALIZED_SLOT (sym_h7, scm_class_int),
     scm_list_1 (sym_direct_supers),
     scm_list_1 (sym_direct_slots),
     scm_list_1 (sym_direct_subclasses),
@@ -947,7 +898,7 @@ build_class_class_slots (void)
 static void
 create_basic_classes (void)
 {
-  /* SCM slots_of_class = build_class_class_slots (); */
+  SCM slots_of_class = build_class_class_slots (BOOT_SLOTS);
 
   /**** <class> ****/
   SCM cs = scm_from_locale_string (SCM_CLASS_CLASS_LAYOUT);
@@ -958,14 +909,14 @@ create_basic_classes (void)
 
   SCM_SET_SLOT (scm_class_class, scm_vtable_index_name, name);
   SCM_SET_SLOT (scm_class_class, scm_si_direct_supers, SCM_EOL);  /* will be changed */
-  /* SCM_SET_SLOT (scm_class_class, scm_si_direct_slots, slots_of_class); */
+  SCM_SET_SLOT (scm_class_class, scm_si_direct_slots, slots_of_class); /* will be changed */
   SCM_SET_SLOT (scm_class_class, scm_si_direct_subclasses, SCM_EOL);
   SCM_SET_SLOT (scm_class_class, scm_si_direct_methods, SCM_EOL);
   SCM_SET_SLOT (scm_class_class, scm_si_cpl, SCM_EOL);  /* will be changed */
-  /* SCM_SET_SLOT (scm_class_class, scm_si_slots, slots_of_class); */
+  SCM_SET_SLOT (scm_class_class, scm_si_slots, slots_of_class); /* will be changed */
   SCM_SET_SLOT (scm_class_class, scm_si_nfields, scm_from_int (SCM_N_CLASS_SLOTS));
-  /* SCM_SET_SLOT (scm_class_class, scm_si_getters_n_setters,
-                   compute_getters_n_setters (slots_of_class)); */
+  SCM_SET_SLOT (scm_class_class, scm_si_getters_n_setters,
+                compute_getters_n_setters (slots_of_class)); /* will be changed */
   SCM_SET_SLOT (scm_class_class, scm_si_redefined, SCM_BOOL_F);
 
   prep_hashsets (scm_class_class);
@@ -2045,33 +1996,6 @@ SCM_DEFINE (scm_make, "make",  0, 0, 1,
  *
  ******************************************************************************/
 
-/* Munge the CPL of C in place such that BEFORE appears before AFTER,
-   assuming that currently the reverse is true.  Recalculate slots and
-   associated getters-n-setters.  */
-static void
-fix_cpl (SCM c, SCM before, SCM after)
-{
-  SCM cpl = SCM_SLOT (c, scm_si_cpl);
-  SCM ls = scm_c_memq (after, cpl);
-  SCM tail;
-
-  if (scm_is_false (ls))
-    /* if this condition occurs, fix_cpl should not be applied this way */
-    abort ();
-
-  tail = scm_delq1_x (before, SCM_CDR (ls));
-  SCM_SETCAR (ls, before);
-  SCM_SETCDR (ls, scm_cons (after, tail));
-  {
-    SCM dslots = SCM_SLOT (c, scm_si_direct_slots);
-    SCM slots = build_slots_list (maplist (dslots), cpl);
-    SCM g_n_s = compute_getters_n_setters (slots);
-    SCM_SET_SLOT (c, scm_si_slots, slots);
-    SCM_SET_SLOT (c, scm_si_getters_n_setters, g_n_s);
-  }
-}
-
-
 static void
 make_stdcls (SCM *var, char *name, SCM meta, SCM super, SCM slots)
 {
@@ -2146,9 +2070,11 @@ create_standard_classes (void)
   make_stdcls (&scm_class_double,	   "<double-slot>",
 	       scm_class_class, scm_class_foreign_slot,	   SCM_EOL);
 
-  /* Continue initialization of class <class> */
+  specialized_slots_initialized = 1;
 
-  slots = build_class_class_slots ();
+  /* Finish initialization of class <class> */
+
+  slots = build_class_class_slots (FINAL_SLOTS);
   SCM_SET_SLOT (scm_class_class, scm_si_direct_slots, slots);
   SCM_SET_SLOT (scm_class_class, scm_si_slots, slots);
   SCM_SET_SLOT (scm_class_class, scm_si_getters_n_setters,
@@ -2195,9 +2121,6 @@ create_standard_classes (void)
 	       scm_list_2 (scm_class_accessor,
 			   scm_class_extended_generic_with_setter),
 	       SCM_EOL);
-  /* <extended-generic> is misplaced.  */
-  fix_cpl (scm_class_extended_accessor,
-	   scm_class_extended_generic, scm_class_generic_with_setter);
   SCM_SET_CLASS_FLAGS (scm_class_extended_accessor, SCM_CLASSF_PURE_GENERIC);
 
   /* Primitive types classes */
@@ -2505,8 +2428,6 @@ SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
     scm_module_variable (scm_module_goops, sym_slot_unbound);
   var_slot_missing =
     scm_module_variable (scm_module_goops, sym_slot_missing);
-  var_compute_cpl =
-    scm_module_variable (scm_module_goops, sym_compute_cpl);
   var_no_applicable_method =
     scm_module_variable (scm_module_goops, sym_no_applicable_method);
   var_change_class =
@@ -2526,6 +2447,9 @@ scm_init_goops_builtins (void)
   goops_rstate = scm_c_make_rstate ("GOOPS", 5);
 
 #include "libguile/goops.x"
+
+  var_compute_cpl =
+    scm_module_variable (scm_module_goops, sym_compute_cpl);
 
   hell = scm_calloc (hell_size * sizeof (*hell));
   hell_mutex = scm_make_mutex ();

@@ -135,6 +135,64 @@
 
 (define *goops-module* (current-module))
 
+(eval-when (compile load eval)
+  ;;; The standard class precedence list computation algorithm
+  ;;;
+  ;;; Correct behaviour:
+  ;;;
+  ;;; (define-class food ())
+  ;;; (define-class fruit (food))
+  ;;; (define-class spice (food))
+  ;;; (define-class apple (fruit))
+  ;;; (define-class cinnamon (spice))
+  ;;; (define-class pie (apple cinnamon))
+  ;;; => cpl (pie) = pie apple fruit cinnamon spice food object top
+  ;;;
+  ;;; (define-class d ())
+  ;;; (define-class e ())
+  ;;; (define-class f ())
+  ;;; (define-class b (d e))
+  ;;; (define-class c (e f))
+  ;;; (define-class a (b c))
+  ;;; => cpl (a) = a b d c e f object top
+  ;;;
+
+  (define (compute-std-cpl c get-direct-supers)
+    (define (only-non-null lst)
+      (filter (lambda (l) (not (null? l))) lst))
+
+    (define (merge-lists reversed-partial-result inputs)
+      (cond
+       ((every null? inputs)
+        (reverse! reversed-partial-result))
+       (else
+        (let* ((candidate (lambda (c)
+                            (and (not (any (lambda (l)
+                                             (memq c (cdr l)))
+                                           inputs))
+                                 c)))
+               (candidate-car (lambda (l)
+                                (and (not (null? l))
+                                     (candidate (car l)))))
+               (next (any candidate-car inputs)))
+          (if (not next)
+              (goops-error "merge-lists: Inconsistent precedence graph"))
+          (let ((remove-next (lambda (l)
+                               (if (eq? (car l) next)
+                                   (cdr l)
+                                   l))))
+            (merge-lists (cons next reversed-partial-result)
+                         (only-non-null (map remove-next inputs))))))))
+    (let ((c-direct-supers (get-direct-supers c)))
+      (merge-lists (list c)
+                   (only-non-null (append (map class-precedence-list
+                                               c-direct-supers)
+                                          (list c-direct-supers))))))
+
+  ;; Bootstrap version.
+  (define (compute-cpl class)
+    (compute-std-cpl class class-direct-supers)))
+
 ;; XXX FIXME: figure out why the 'eval-when's in this file must use
 ;; 'compile' and must avoid 'expand', but only in 2.2, and only when
 ;; compiling something that imports goops, e.g. (ice-9 occam-channel),
@@ -1358,149 +1416,13 @@
 
 ;;; compute-cpl
 ;;;
-;;; Correct behaviour:
-;;;
-;;; (define-class food ())
-;;; (define-class fruit (food))
-;;; (define-class spice (food))
-;;; (define-class apple (fruit))
-;;; (define-class cinnamon (spice))
-;;; (define-class pie (apple cinnamon))
-;;; => cpl (pie) = pie apple fruit cinnamon spice food object top
-;;;
-;;; (define-class d ())
-;;; (define-class e ())
-;;; (define-class f ())
-;;; (define-class b (d e))
-;;; (define-class c (e f))
-;;; (define-class a (b c))
-;;; => cpl (a) = a b d c e f object top
-;;;
+
+;; Replace the bootstrap compute-cpl with this definition.
+(define compute-cpl
+  (make <generic> #:name 'compute-cpl))
 
 (define-method (compute-cpl (class <class>))
   (compute-std-cpl class class-direct-supers))
-
-;; Support
-
-(define (only-non-null lst)
-  (filter (lambda (l) (not (null? l))) lst))
-
-(define (compute-std-cpl c get-direct-supers)
-  (let ((c-direct-supers (get-direct-supers c)))
-    (merge-lists (list c)
-                 (only-non-null (append (map class-precedence-list
-					     c-direct-supers)
-                                        (list c-direct-supers))))))
-
-(define (merge-lists reversed-partial-result inputs)
-  (cond
-   ((every null? inputs)
-    (reverse! reversed-partial-result))
-   (else
-    (let* ((candidate (lambda (c)
-                        (and (not (any (lambda (l)
-                                         (memq c (cdr l)))
-                                       inputs))
-                             c)))
-           (candidate-car (lambda (l)
-                            (and (not (null? l))
-                                 (candidate (car l)))))
-           (next (any candidate-car inputs)))
-      (if (not next)
-          (goops-error "merge-lists: Inconsistent precedence graph"))
-      (let ((remove-next (lambda (l)
-                           (if (eq? (car l) next)
-                               (cdr l)
-                             l))))
-        (merge-lists (cons next reversed-partial-result)
-                     (only-non-null (map remove-next inputs))))))))
-
-;; Modified from TinyClos:
-;;
-;; A simple topological sort.
-;;
-;; It's in this file so that both TinyClos and Objects can use it.
-;;
-;; This is a fairly modified version of code I originally got from Anurag
-;; Mendhekar <anurag@moose.cs.indiana.edu>.
-;;
-
-(define (compute-clos-cpl c get-direct-supers)
-  (top-sort ((build-transitive-closure get-direct-supers) c)
-	    ((build-constraints get-direct-supers) c)
-	    (std-tie-breaker get-direct-supers)))
-
-
-(define (top-sort elements constraints tie-breaker)
-  (let loop ((elements    elements)
-	     (constraints constraints)
-	     (result      '()))
-    (if (null? elements)
-	result
-	(let ((can-go-in-now
-	       (filter
-		(lambda (x)
-		  (every (lambda (constraint)
-			   (or (not (eq? (cadr constraint) x))
-			       (memq (car constraint) result)))
-			 constraints))
-		elements)))
-	  (if (null? can-go-in-now)
-	      (goops-error "top-sort: Invalid constraints")
-	      (let ((choice (if (null? (cdr can-go-in-now))
-				(car can-go-in-now)
-				(tie-breaker result
-					     can-go-in-now))))
-		(loop
-		 (filter (lambda (x) (not (eq? x choice)))
-			 elements)
-		 constraints
-		 (append result (list choice)))))))))
-
-(define (std-tie-breaker get-supers)
-  (lambda (partial-cpl min-elts)
-    (let loop ((pcpl (reverse partial-cpl)))
-      (let ((current-elt (car pcpl)))
-	(let ((ds-of-ce (get-supers current-elt)))
-	  (let ((common (filter (lambda (x)
-				      (memq x ds-of-ce))
-				    min-elts)))
-	    (if (null? common)
-		(if (null? (cdr pcpl))
-		    (goops-error "std-tie-breaker: Nothing valid")
-		    (loop (cdr pcpl)))
-		(car common))))))))
-
-
-(define (build-transitive-closure get-follow-ons)
-  (lambda (x)
-    (let track ((result '())
-		(pending (list x)))
-      (if (null? pending)
-	  result
-	  (let ((next (car pending)))
-	    (if (memq next result)
-		(track result (cdr pending))
-		(track (cons next result)
-		       (append (get-follow-ons next)
-			       (cdr pending)))))))))
-
-(define (build-constraints get-follow-ons)
-  (lambda (x)
-    (let loop ((elements ((build-transitive-closure get-follow-ons) x))
-	       (this-one '())
-	       (result '()))
-      (if (or (null? this-one) (null? (cdr this-one)))
-	  (if (null? elements)
-	      result
-	      (loop (cdr elements)
-		    (cons (car elements)
-			  (get-follow-ons (car elements)))
-		    result))
-	  (loop elements
-		(cdr this-one)
-		(cons (list (car this-one) (cadr this-one))
-		      result))))))
 
 ;;; compute-get-n-set
 ;;;
