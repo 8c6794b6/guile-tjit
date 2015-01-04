@@ -227,9 +227,6 @@ SCM_API SCM scm_no_applicable_method;
 SCM_API SCM scm_module_goops;
 
 SCM_API SCM scm_goops_version (void);
-SCM_API SCM scm_oldfmt (SCM);
-SCM_API char *scm_c_oldfmt0 (char *);
-SCM_API char *scm_c_oldfmt (char *, int n);
 SCM_API void scm_load_goops (void);
 SCM_API SCM scm_make_extended_class (char const *type_name, int applicablep);
 SCM_API void scm_make_port_classes (long ptobnum, char *type_name);
