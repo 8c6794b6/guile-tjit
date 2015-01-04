@@ -732,30 +732,37 @@
 ;; Apparently the desired semantics are that we extend previous
 ;; procedural definitions, but that if `name' was already a generic, we
 ;; overwrite its definition.
-(define-macro (define-generic name)
-  (if (not (symbol? name))
-      (goops-error "bad generic function name: ~S" name))
-  `(define ,name
-     (if (and (defined? ',name) (is-a? ,name <generic>))
-         (make <generic> #:name ',name)
-         (ensure-generic (if (defined? ',name) ,name #f) ',name))))
+(define-syntax define-generic
+  (lambda (x)
+    (syntax-case x ()
+      ((define-generic name) (symbol? (syntax->datum #'name))
+       #'(define name
+           (if (and (defined? 'name) (is-a? name <generic>))
+               (make <generic> #:name 'name)
+               (ensure-generic (if (defined? 'name) name #f) 'name)))))))
 
-(define-macro (define-extended-generic name val)
-  (if (not (symbol? name))
-      (goops-error "bad generic function name: ~S" name))
-  `(define ,name (make-extended-generic ,val ',name)))
+(define-syntax define-extended-generic
+  (lambda (x)
+    (syntax-case x ()
+      ((define-extended-generic name val) (symbol? (syntax->datum #'name))
+       #'(define name (make-extended-generic val 'name))))))
 
-(define-macro (define-extended-generics names . args)
-  (let ((prefixes (get-keyword #:prefix args #f)))
-    (if prefixes
-        `(begin
-           ,@(map (lambda (name)
-                    `(define-extended-generic ,name
-                       (list ,@(map (lambda (prefix)
-                                      (symbol-append prefix name))
-                                    prefixes))))
-                  names))
-        (goops-error "no prefixes supplied"))))
+(define-syntax define-extended-generics
+  (lambda (x)
+    (define (id-append ctx a b)
+      (datum->syntax ctx (symbol-append (syntax->datum a) (syntax->datum b))))
+    (syntax-case x ()
+      ((define-extended-generic (name ...) #:prefix (prefix ...))
+       (and (and-map symbol? (syntax->datum #'(name ...)))
+            (and-map symbol? (syntax->datum #'(prefix ...))))
+       (with-syntax ((((val ...)) (map (lambda (name)
+                                         (map (lambda (prefix)
+                                                (id-append name prefix name))
+                                              #'(prefix ...)))
+                                       #'(name ...))))
+         #'(begin
+             (define-extended-generic name (list val ...))
+             ...))))))
 
 (define* (make-generic #:optional name)
   (make <generic> #:name name))
