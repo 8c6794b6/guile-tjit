@@ -2,7 +2,7 @@
    deprecate something, move it here when that is feasible.
 */
 
-/* Copyright (C) 2003, 2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+/* Copyright (C) 2003, 2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -318,6 +318,17 @@ scm_find_method (SCM l)
   return scm_compute_applicable_methods (gf, l, len - 1, 1);
 }
 #undef FUNC_NAME
+
+SCM
+scm_basic_make_class (SCM meta, SCM name, SCM dsupers, SCM dslots)
+{
+  scm_c_issue_deprecation_warning
+    ("scm_basic_make_class is deprecated.  Use `define-class' in Scheme,"
+     "or use `(make META #:name NAME #:dsupers DSUPERS #:slots DSLOTS)' "
+     "in Scheme.");
+
+  return scm_make_standard_class (meta, name, dsupers, dslots);
+}
 
 
 

@@ -5,7 +5,7 @@
 #ifndef SCM_DEPRECATED_H
 #define SCM_DEPRECATED_H
 
-/* Copyright (C) 2003,2004, 2005, 2006, 2007, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+/* Copyright (C) 2003,2004, 2005, 2006, 2007, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -152,6 +152,7 @@ SCM_DEPRECATED void scm_memory_error (const char *subr) SCM_NORETURN;
 
 SCM_DEPRECATED SCM scm_compute_applicable_methods (SCM gf, SCM args, long len, int scm_find_method);
 SCM_DEPRECATED SCM scm_find_method (SCM l);
+SCM_DEPRECATED SCM scm_basic_make_class (SCM c, SCM name, SCM dsupers, SCM dslots);
 
 
 

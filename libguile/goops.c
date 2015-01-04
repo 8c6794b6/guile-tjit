@@ -516,10 +516,10 @@ prep_hashsets (SCM class)
 /******************************************************************************/
 
 SCM
-scm_basic_make_class (SCM class, SCM name, SCM dsupers, SCM dslots)
+scm_make_standard_class (SCM meta, SCM name, SCM dsupers, SCM dslots)
 {
   return scm_call_4 (scm_variable_ref (var_make_standard_class),
-                     class, name, dsupers, dslots);
+                     meta, name, dsupers, dslots);
 }
 
 /******************************************************************************/
@@ -1594,7 +1594,7 @@ make_class_from_template (char const *template, char const *type_name, SCM super
 
   meta = applicablep ? scm_class_procedure_class : scm_class_class;
 
-  return scm_basic_make_class (meta, name, supers, SCM_EOL);
+  return scm_make_standard_class (meta, name, supers, SCM_EOL);
 }
 
 static SCM
@@ -1614,7 +1614,7 @@ make_class_from_symbol (SCM type_name_sym, SCM supers, int applicablep)
 
   meta = applicablep ? scm_class_procedure_class : scm_class_class;
 
-  return scm_basic_make_class (meta, name, supers, SCM_EOL);
+  return scm_make_standard_class (meta, name, supers, SCM_EOL);
 }
 
 SCM

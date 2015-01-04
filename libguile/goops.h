@@ -235,7 +235,8 @@ SCM_API SCM scm_class_of (SCM obj);
 
 /* Low level functions exported */
 SCM_API SCM scm_make_next_method (SCM methods, SCM args, SCM gf);
-SCM_API SCM scm_basic_make_class (SCM c, SCM name, SCM dsupers, SCM dslots);
+SCM_INTERNAL SCM scm_make_standard_class (SCM meta, SCM name, SCM dsupers,
+                                          SCM dslots);
 
 /* Primitives exported */
 SCM_API SCM scm_sys_allocate_instance (SCM c, SCM initargs);
