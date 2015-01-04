@@ -27,6 +27,8 @@
 (define-module (oop goops)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 match)
+  #:use-module (oop goops util)
+  #:use-module (system base target)
   #:export-syntax (define-class class standard-define-class
                     define-generic define-accessor define-method
                     define-extended-generic define-extended-generics
@@ -134,64 +136,6 @@
             slot-exists? make find-method get-keyword)
   #:no-backtrace)
 
-(eval-when (compile load eval)
-  ;;; The standard class precedence list computation algorithm
-  ;;;
-  ;;; Correct behaviour:
-  ;;;
-  ;;; (define-class food ())
-  ;;; (define-class fruit (food))
-  ;;; (define-class spice (food))
-  ;;; (define-class apple (fruit))
-  ;;; (define-class cinnamon (spice))
-  ;;; (define-class pie (apple cinnamon))
-  ;;; => cpl (pie) = pie apple fruit cinnamon spice food object top
-  ;;;
-  ;;; (define-class d ())
-  ;;; (define-class e ())
-  ;;; (define-class f ())
-  ;;; (define-class b (d e))
-  ;;; (define-class c (e f))
-  ;;; (define-class a (b c))
-  ;;; => cpl (a) = a b d c e f object top
-  ;;;
-
-  (define (compute-std-cpl c get-direct-supers)
-    (define (only-non-null lst)
-      (filter (lambda (l) (not (null? l))) lst))
-
-    (define (merge-lists reversed-partial-result inputs)
-      (cond
-       ((every null? inputs)
-        (reverse! reversed-partial-result))
-       (else
-        (let* ((candidate (lambda (c)
-                            (and (not (any (lambda (l)
-                                             (memq c (cdr l)))
-                                           inputs))
-                                 c)))
-               (candidate-car (lambda (l)
-                                (and (not (null? l))
-                                     (candidate (car l)))))
-               (next (any candidate-car inputs)))
-          (if (not next)
-              (goops-error "merge-lists: Inconsistent precedence graph"))
-          (let ((remove-next (lambda (l)
-                               (if (eq? (car l) next)
-                                   (cdr l)
-                                   l))))
-            (merge-lists (cons next reversed-partial-result)
-                         (only-non-null (map remove-next inputs))))))))
-    (let ((c-direct-supers (get-direct-supers c)))
-      (merge-lists (list c)
-                   (only-non-null (append (map class-precedence-list
-                                               c-direct-supers)
-                                          (list c-direct-supers))))))
-
-  ;; Bootstrap version.
-  (define (compute-cpl class)
-    (compute-std-cpl class class-direct-supers)))
-
 ;; XXX FIXME: figure out why the 'eval-when's in this file must use
 ;; 'compile' and must avoid 'expand', but only in 2.2, and only when
 ;; compiling something that imports goops, e.g. (ice-9 occam-channel),
@@ -205,6 +149,63 @@
 (eval-when (compile load eval)
   (use-modules ((language tree-il primitives) :select (add-interesting-primitive!)))
   (add-interesting-primitive! 'class-of))
+
+;;; The standard class precedence list computation algorithm
+;;;
+;;; Correct behaviour:
+;;;
+;;; (define-class food ())
+;;; (define-class fruit (food))
+;;; (define-class spice (food))
+;;; (define-class apple (fruit))
+;;; (define-class cinnamon (spice))
+;;; (define-class pie (apple cinnamon))
+;;; => cpl (pie) = pie apple fruit cinnamon spice food object top
+;;;
+;;; (define-class d ())
+;;; (define-class e ())
+;;; (define-class f ())
+;;; (define-class b (d e))
+;;; (define-class c (e f))
+;;; (define-class a (b c))
+;;; => cpl (a) = a b d c e f object top
+;;;
+
+(define (compute-std-cpl c get-direct-supers)
+  (define (only-non-null lst)
+    (filter (lambda (l) (not (null? l))) lst))
+
+  (define (merge-lists reversed-partial-result inputs)
+    (cond
+     ((every null? inputs)
+      (reverse! reversed-partial-result))
+     (else
+      (let* ((candidate (lambda (c)
+                          (and (not (any (lambda (l)
+                                           (memq c (cdr l)))
+                                         inputs))
+                               c)))
+             (candidate-car (lambda (l)
+                              (and (not (null? l))
+                                   (candidate (car l)))))
+             (next (any candidate-car inputs)))
+        (if (not next)
+            (goops-error "merge-lists: Inconsistent precedence graph"))
+        (let ((remove-next (lambda (l)
+                             (if (eq? (car l) next)
+                                 (cdr l)
+                                 l))))
+          (merge-lists (cons next reversed-partial-result)
+                       (only-non-null (map remove-next inputs))))))))
+  (let ((c-direct-supers (get-direct-supers c)))
+    (merge-lists (list c)
+                 (only-non-null (append (map class-precedence-list
+                                             c-direct-supers)
+                                        (list c-direct-supers))))))
+
+;; Bootstrap version.
+(define (compute-cpl class)
+  (compute-std-cpl class class-direct-supers))
 
 ;; During boot, the specialized slot classes aren't defined yet, so we
 ;; initialize <class> with unspecialized slots.
@@ -243,291 +244,606 @@
           (unspecialized-slot getters-n-setters)
           (unspecialized-slot nfields))))
 
-(eval-when (compile load eval)
-  (define (build-slots-list dslots cpl)
-    (define (check-cpl slots class-slots)
-      (when (or-map (lambda (slot-def) (assq (car slot-def) slots))
-                    class-slots)
-        (scm-error 'misc-error #f
-                   "a predefined <class> inherited field cannot be redefined"
-                   '() '())))
-    (define (remove-duplicate-slots slots)
-      (let lp ((slots (reverse slots)) (res '()) (seen '()))
-        (cond
-         ((null? slots) res)
-         ((memq (caar slots) seen)
-          (lp (cdr slots) res seen))
-         (else
-          (lp (cdr slots) (cons (car slots) res) (cons (caar slots) seen))))))
-    (let* ((class-slots (and (memq <class> cpl) (slot-ref <class> 'slots))))
-      (when class-slots
-        (check-cpl dslots class-slots))
-      (let lp ((cpl (cdr cpl)) (res dslots) (class-slots '()))
-        (if (null? cpl)
-            (remove-duplicate-slots (append class-slots res))
-            (let* ((head (car cpl))
-                   (cpl (cdr cpl))
-                   (new-slots (slot-ref head 'direct-slots)))
-              (cond
-               ((not class-slots)
-                (lp cpl (append new-slots res) class-slots))
-               ((eq? head <class>)
-                ;; Move class slots to the head of the list.
-                (lp cpl res new-slots))
-               (else
-                (check-cpl new-slots class-slots)
-                (lp cpl (append new-slots res) class-slots))))))))
-
-  (define (%compute-getters-n-setters slots)
-    (define (compute-init-thunk options)
+(define (build-slots-list dslots cpl)
+  (define (check-cpl slots class-slots)
+    (when (or-map (lambda (slot-def) (assq (car slot-def) slots))
+                  class-slots)
+      (scm-error 'misc-error #f
+                 "a predefined <class> inherited field cannot be redefined"
+                 '() '())))
+  (define (remove-duplicate-slots slots)
+    (let lp ((slots (reverse slots)) (res '()) (seen '()))
       (cond
-       ((kw-arg-ref options #:init-value) => (lambda (val) (lambda () val)))
-       ((kw-arg-ref options #:init-thunk))
-       (else #f)))
-    (let lp ((slots slots) (n 0))
-      (match slots
-        (() '())
-        (((name . options) . slots)
-         (cons (cons name (cons (compute-init-thunk options) n))
-               (lp slots (1+ n)))))))
+       ((null? slots) res)
+       ((memq (caar slots) seen)
+        (lp (cdr slots) res seen))
+       (else
+        (lp (cdr slots) (cons (car slots) res) (cons (caar slots) seen))))))
+  (let* ((class-slots (and (memq <class> cpl) (slot-ref <class> 'slots))))
+    (when class-slots
+      (check-cpl dslots class-slots))
+    (let lp ((cpl (cdr cpl)) (res dslots) (class-slots '()))
+      (if (null? cpl)
+          (remove-duplicate-slots (append class-slots res))
+          (let* ((head (car cpl))
+                 (cpl (cdr cpl))
+                 (new-slots (slot-ref head 'direct-slots)))
+            (cond
+             ((not class-slots)
+              (lp cpl (append new-slots res) class-slots))
+             ((eq? head <class>)
+              ;; Move class slots to the head of the list.
+              (lp cpl res new-slots))
+             (else
+              (check-cpl new-slots class-slots)
+              (lp cpl (append new-slots res) class-slots))))))))
 
-  (define (%compute-layout slots getters-n-setters nfields is-class?)
-    (define (instance-allocated? g-n-s)
-      (match g-n-s
-        ((name init-thunk . (? exact-integer? index)) #t)
-        ((name init-thunk getter setter index size) #t)
-        (_ #f)))
+(define (%compute-getters-n-setters slots)
+  (define (compute-init-thunk options)
+    (cond
+     ((kw-arg-ref options #:init-value) => (lambda (val) (lambda () val)))
+     ((kw-arg-ref options #:init-thunk))
+     (else #f)))
+  (let lp ((slots slots) (n 0))
+    (match slots
+      (() '())
+      (((name . options) . slots)
+       (cons (cons name (cons (compute-init-thunk options) n))
+             (lp slots (1+ n)))))))
 
-    (define (allocated-index g-n-s)
-      (match g-n-s
-        ((name init-thunk . (? exact-integer? index)) index)
-        ((name init-thunk getter setter index size) index)))
+(define (%compute-layout slots getters-n-setters nfields is-class?)
+  (define (instance-allocated? g-n-s)
+    (match g-n-s
+      ((name init-thunk . (? exact-integer? index)) #t)
+      ((name init-thunk getter setter index size) #t)
+      (_ #f)))
 
-    (define (allocated-size g-n-s)
-      (match g-n-s
-        ((name init-thunk . (? exact-integer? index)) 1)
-        ((name init-thunk getter setter index size) size)))
+  (define (allocated-index g-n-s)
+    (match g-n-s
+      ((name init-thunk . (? exact-integer? index)) index)
+      ((name init-thunk getter setter index size) index)))
 
-    (define (slot-protection-and-kind options)
-      (define (subclass? class parent)
-        (memq parent (class-precedence-list class)))
-      (let ((type (kw-arg-ref options #:class)))
-        (if (and type (subclass? type <foreign-slot>))
-            (values (cond
-                     ((subclass? type <self-slot>) #\s)
-                     ((subclass? type <protected-slot>) #\p)
-                     (else #\u))
+  (define (allocated-size g-n-s)
+    (match g-n-s
+      ((name init-thunk . (? exact-integer? index)) 1)
+      ((name init-thunk getter setter index size) size)))
+
+  (define (slot-protection-and-kind options)
+    (define (subclass? class parent)
+      (memq parent (class-precedence-list class)))
+    (let ((type (kw-arg-ref options #:class)))
+      (if (and type (subclass? type <foreign-slot>))
+          (values (cond
+                   ((subclass? type <self-slot>) #\s)
+                   ((subclass? type <protected-slot>) #\p)
+                   (else #\u))
+                  (cond
+                   ((subclass? type <opaque-slot>) #\o)
+                   ((subclass? type <read-only-slot>) #\r)
+                   ((subclass? type <hidden-slot>) #\h)
+                   (else #\w)))
+          (values #\p #\w))))
+
+  (let ((layout (make-string (* nfields 2))))
+    (let lp ((n 0) (slots slots) (getters-n-setters getters-n-setters))
+      (match getters-n-setters
+        (()
+         (unless (= n nfields) (error "bad nfields"))
+         (unless (null? slots) (error "inconsistent g-n-s/slots"))
+         (when is-class?
+           (let ((class-layout (symbol->string (slot-ref <class> 'layout))))
+             (unless (string-prefix? class-layout layout)
+               (error "bad layout for class"))))
+         layout)
+        ((g-n-s . getters-n-setters)
+         (match slots
+           (((name . options) . slots)
+            (cond
+             ((instance-allocated? g-n-s)
+              (unless (< n nfields) (error "bad nfields"))
+              (unless (= n (allocated-index g-n-s)) (error "bad allocation"))
+              (call-with-values (lambda () (slot-protection-and-kind options))
+                (lambda (protection kind)
+                  (let init ((n n) (size (allocated-size g-n-s)))
                     (cond
-                     ((subclass? type <opaque-slot>) #\o)
-                     ((subclass? type <read-only-slot>) #\r)
-                     ((subclass? type <hidden-slot>) #\h)
-                     (else #\w)))
-            (values #\p #\w))))
+                     ((zero? size) (lp n slots getters-n-setters))
+                     (else
+                      (string-set! layout (* n 2) protection)
+                      (string-set! layout (1+ (* n 2)) kind)
+                      (init (1+ n) (1- size))))))))
+             (else
+              (lp n slots getters-n-setters))))))))))
 
-    (let ((layout (make-string (* nfields 2))))
-      (let lp ((n 0) (slots slots) (getters-n-setters getters-n-setters))
-        (match getters-n-setters
-          (()
-           (unless (= n nfields) (error "bad nfields"))
-           (unless (null? slots) (error "inconsistent g-n-s/slots"))
-           (when is-class?
-             (let ((class-layout (symbol->string (slot-ref <class> 'layout))))
-               (unless (string-prefix? class-layout layout)
-                 (error "bad layout for class"))))
-           layout)
-          ((g-n-s . getters-n-setters)
-           (match slots
-             (((name . options) . slots)
+(define (%prep-layout! class)
+  (let* ((is-class? (and (memq <class> (slot-ref class 'cpl)) #t))
+         (layout (%compute-layout (slot-ref class 'slots)
+                                  (slot-ref class 'getters-n-setters)
+                                  (slot-ref class 'nfields)
+                                  is-class?)))
+    (%init-layout! class layout)))
+
+(define (make-standard-class class name dsupers dslots)
+  (let ((z (make-struct/no-tail class)))
+    (slot-set! z 'direct-supers dsupers)
+    (let* ((cpl (compute-cpl z))
+           (dslots (map (lambda (slot)
+                          (if (pair? slot) slot (list slot)))
+                        dslots))
+           (slots (build-slots-list dslots cpl))
+           (nfields (length slots))
+           (g-n-s (%compute-getters-n-setters slots)))
+      (slot-set! z 'name name)
+      (slot-set! z 'direct-slots dslots)
+      (slot-set! z 'direct-subclasses '())
+      (slot-set! z 'direct-methods '())
+      (slot-set! z 'cpl cpl)
+      (slot-set! z 'slots slots)
+      (slot-set! z 'nfields nfields)
+      (slot-set! z 'getters-n-setters g-n-s)
+      (slot-set! z 'redefined #f)
+      (for-each (lambda (super)
+                  (let ((subclasses (slot-ref super 'direct-subclasses)))
+                    (slot-set! super 'direct-subclasses (cons z subclasses))))
+                dsupers)
+      (%prep-layout! z)
+      (%inherit-magic! z dsupers)
+      z)))
+
+(define <class>
+  (let ((dslots (build-<class>-slots #f)))
+    (%make-root-class '<class> dslots (%compute-getters-n-setters dslots))))
+
+(define-syntax define-standard-class
+  (syntax-rules ()
+    ((define-standard-class name (super ...) #:metaclass meta slot ...)
+     (define name
+       (make-standard-class meta 'name (list super ...) '(slot ...))))
+    ((define-standard-class name (super ...) slot ...)
+     (define-standard-class name (super ...) #:metaclass <class> slot ...))))
+
+(define-standard-class <top> ())
+(define-standard-class <object> (<top>))
+
+;; <top>, <object>, and <class> were partially initialized.  Correct
+;; them here.
+(slot-set! <object> 'direct-subclasses (list <class>))
+(slot-set! <class> 'direct-supers (list <object>))
+(slot-set! <class> 'cpl (list <class> <object> <top>))
+
+(define-standard-class <foreign-slot> (<top>))
+(define-standard-class <protected-slot> (<foreign-slot>))
+(define-standard-class <hidden-slot> (<foreign-slot>))
+(define-standard-class <opaque-slot> (<foreign-slot>))
+(define-standard-class <read-only-slot> (<foreign-slot>))
+(define-standard-class <self-slot> (<read-only-slot>))
+(define-standard-class <protected-opaque-slot> (<protected-slot>
+                                                <opaque-slot>))
+(define-standard-class <protected-hidden-slot> (<protected-slot>
+                                                <hidden-slot>))
+(define-standard-class <protected-read-only-slot> (<protected-slot>
+                                                   <read-only-slot>))
+(define-standard-class <scm-slot> (<protected-slot>))
+(define-standard-class <int-slot> (<foreign-slot>))
+(define-standard-class <float-slot> (<foreign-slot>))
+(define-standard-class <double-slot> (<foreign-slot>))
+
+;; Finish initialization of <class>.
+(let ((dslots (build-<class>-slots #t)))
+  (slot-set! <class> 'direct-slots dslots)
+  (slot-set! <class> 'slots dslots)
+  (slot-set! <class> 'getters-n-setters (%compute-getters-n-setters dslots)))
+
+;; Applicables and their classes.
+(define-standard-class <procedure-class> (<class>))
+(define-standard-class <applicable-struct-class> (<procedure-class>))
+(%bless-applicable-struct-vtable! <applicable-struct-class>)
+(define-standard-class <method> (<object>)
+  generic-function
+  specializers
+  procedure
+  formals
+  body
+  make-procedure)
+(define-standard-class <accessor-method> (<method>)
+  (slot-definition #:init-keyword #:slot-definition))
+(define-standard-class <applicable> (<top>))
+(define-standard-class <applicable-struct> (<object> <applicable>)
+  #:metaclass <applicable-struct-class>
+  procedure)
+(define-standard-class <generic> (<applicable-struct>)
+  #:metaclass <applicable-struct-class>
+  methods
+  (n-specialized #:init-value 0)
+  (extended-by #:init-value ())
+  effective-methods)
+(%bless-pure-generic-vtable! <generic>)
+(define-standard-class <extended-generic> (<generic>)
+  #:metaclass <applicable-struct-class>
+  (extends #:init-value ()))
+(%bless-pure-generic-vtable! <extended-generic>)
+(define-standard-class <generic-with-setter> (<generic>)
+  #:metaclass <applicable-struct-class>
+  setter)
+(%bless-pure-generic-vtable! <generic-with-setter>)
+(define-standard-class <accessor> (<generic-with-setter>)
+  #:metaclass <applicable-struct-class>)
+(%bless-pure-generic-vtable! <accessor>)
+(define-standard-class <extended-generic-with-setter> (<extended-generic>
+                                                       <generic-with-setter>)
+  #:metaclass <applicable-struct-class>)
+(%bless-pure-generic-vtable! <extended-generic-with-setter>)
+(define-standard-class <extended-accessor> (<accessor>
+                                            <extended-generic-with-setter>)
+  #:metaclass <applicable-struct-class>)
+(%bless-pure-generic-vtable! <extended-accessor>)
+
+;; Primitive types classes
+(define-standard-class <boolean> (<top>))
+(define-standard-class <char> (<top>))
+(define-standard-class <list> (<top>))
+(define-standard-class <pair> (<list>))
+(define-standard-class <null> (<list>))
+(define-standard-class <string> (<top>))
+(define-standard-class <symbol> (<top>))
+(define-standard-class <vector> (<top>))
+(define-standard-class <foreign> (<top>))
+(define-standard-class <hashtable> (<top>))
+(define-standard-class <fluid> (<top>))
+(define-standard-class <dynamic-state> (<top>))
+(define-standard-class <frame> (<top>))
+(define-standard-class <vm-continuation> (<top>))
+(define-standard-class <bytevector> (<top>))
+(define-standard-class <uvec> (<bytevector>))
+(define-standard-class <array> (<top>))
+(define-standard-class <bitvector> (<top>))
+(define-standard-class <number> (<top>))
+(define-standard-class <complex> (<number>))
+(define-standard-class <real> (<complex>))
+(define-standard-class <integer> (<real>))
+(define-standard-class <fraction> (<real>))
+(define-standard-class <keyword> (<top>))
+(define-standard-class <unknown> (<top>))
+(define-standard-class <procedure> (<applicable>)
+  #:metaclass <procedure-class>)
+(define-standard-class <primitive-generic> (<procedure>)
+  #:metaclass <procedure-class>)
+(define-standard-class <port> (<top>))
+(define-standard-class <input-port> (<port>))
+(define-standard-class <output-port> (<port>))
+(define-standard-class <input-output-port> (<input-port> <output-port>))
+
+(define (%invalidate-method-cache! gf)
+  (slot-set! gf 'procedure (delayed-compile gf))
+  (slot-set! gf 'effective-methods '()))
+
+;; Boot definition.
+(define (invalidate-method-cache! gf)
+  (%invalidate-method-cache! gf))
+
+;; A simple make which will be redefined later.  This version handles
+;; only creation of gf, methods and classes (no instances).
+;;
+;; Since this code will disappear when Goops will be fully booted,
+;; no precaution is taken to be efficient.
+;;
+(define (make class . args)
+  (cond
+   ((or (eq? class <generic>) (eq? class <accessor>))
+    (let ((z (make-struct/no-tail class #f '() 0 '())))
+      (set-procedure-property! z 'name (get-keyword #:name args #f))
+      (invalidate-method-cache! z)
+      (when (eq? class <accessor>)
+        (let ((setter (get-keyword #:setter args #f)))
+          (when setter
+            (%set-object-setter! z setter))))
+      z))
+   (else
+    (let ((z (%allocate-instance class args)))
+      (cond
+       ((or (eq? class <method>) (eq? class <accessor-method>))
+        (for-each (match-lambda
+                   ((kw slot default)
+                    (slot-set! z slot (get-keyword kw args default))))
+                  '((#:generic-function generic-function #f)
+                    (#:specializers specializers ())
+                    (#:procedure procedure #f)
+                    (#:formals formals ())
+                    (#:body body ())
+                    (#:make-procedure make-procedure #f))))
+       ((memq <class> (class-precedence-list class))
+        (for-each (match-lambda
+                   ((kw slot default)
+                    (slot-set! z slot (get-keyword kw args default))))
+                  '((#:name name ???)
+                    (#:dsupers direct-supers ())
+                    (#:slots direct-slots ())
+                    )))
+       (else
+        (error "boot `make' does not support this class" class)))
+      z))))
+
+(define *dispatch-module* (current-module))
+
+;;;
+;;; Generic functions have an applicable-methods cache associated with
+;;; them. Every distinct set of types that is dispatched through a
+;;; generic adds an entry to the cache. This cache gets compiled out to
+;;; a dispatch procedure. In steady-state, this dispatch procedure is
+;;; never recompiled; but during warm-up there is some churn, both to
+;;; the cache and to the dispatch procedure.
+;;;
+;;; So what is the deal if warm-up happens in a multithreaded context?
+;;; There is indeed a window between missing the cache for a certain set
+;;; of arguments, and then updating the cache with the newly computed
+;;; applicable methods. One of the updaters is liable to lose their new
+;;; entry.
+;;;
+;;; This is actually OK though, because a subsequent cache miss for the
+;;; race loser will just cause memoization to try again. The cache will
+;;; eventually be consistent. We're not mutating the old part of the
+;;; cache, just consing on the new entry.
+;;;
+;;; It doesn't even matter if the dispatch procedure and the cache are
+;;; inconsistent -- most likely the type-set that lost the dispatch
+;;; procedure race will simply re-trigger a memoization, but since the
+;;; winner isn't in the effective-methods cache, it will likely also
+;;; re-trigger a memoization, and the cache will finally be consistent.
+;;; As you can see there is a possibility for ping-pong effects, but
+;;; it's unlikely given the shortness of the window between slot-set!
+;;; invocations. We could add a mutex, but it is strictly unnecessary,
+;;; and would add runtime cost and complexity.
+;;;
+
+(define (emit-linear-dispatch gf-sym nargs methods free rest?)
+  (define (gen-syms n stem)
+    (let lp ((n (1- n)) (syms '()))
+      (if (< n 0)
+          syms
+          (lp (1- n) (cons (gensym stem) syms)))))
+  (let* ((args (gen-syms nargs "a"))
+         (types (gen-syms nargs "t")))
+    (let lp ((methods methods)
+             (free free)
+             (exp `(cache-miss ,gf-sym
+                               ,(if rest?
+                                    `(cons* ,@args rest)
+                                    `(list ,@args)))))
+      (cond
+       ((null? methods)
+        (values `(,(if rest? `(,@args . rest) args)
+                  (let ,(map (lambda (t a)
+                               `(,t (class-of ,a)))
+                             types args)
+                    ,exp))
+                free))
+       (else
+        ;; jeez
+        (let preddy ((free free)
+                     (types types)
+                     (specs (vector-ref (car methods) 1))
+                     (checks '()))
+          (if (null? types)
+              (let ((m-sym (gensym "p")))
+                (lp (cdr methods)
+                    (acons (vector-ref (car methods) 3)
+                           m-sym
+                           free)
+                    `(if (and . ,checks)
+                         ,(if rest?
+                              `(apply ,m-sym ,@args rest)
+                              `(,m-sym . ,args))
+                         ,exp)))
+              (let ((var (assq-ref free (car specs))))
+                (if var
+                    (preddy free
+                            (cdr types)
+                            (cdr specs)
+                            (cons `(eq? ,(car types) ,var)
+                                  checks))
+                    (let ((var (gensym "c")))
+                      (preddy (acons (car specs) var free)
+                              (cdr types)
+                              (cdr specs)
+                              (cons `(eq? ,(car types) ,var)
+                                    checks))))))))))))
+
+(define (compute-dispatch-procedure gf cache)
+  (define (scan)
+    (let lp ((ls cache) (nreq -1) (nrest -1))
+      (cond
+       ((null? ls)
+        (collate (make-vector (1+ nreq) '())
+                 (make-vector (1+ nrest) '())))
+       ((vector-ref (car ls) 2)         ; rest
+        (lp (cdr ls) nreq (max nrest (vector-ref (car ls) 0))))
+       (else                            ; req
+        (lp (cdr ls) (max nreq (vector-ref (car ls) 0)) nrest)))))
+  (define (collate req rest)
+    (let lp ((ls cache))
+      (cond
+       ((null? ls)
+        (emit req rest))
+       ((vector-ref (car ls) 2)         ; rest
+        (let ((n (vector-ref (car ls) 0)))
+          (vector-set! rest n (cons (car ls) (vector-ref rest n)))
+          (lp (cdr ls))))
+       (else                            ; req
+        (let ((n (vector-ref (car ls) 0)))
+          (vector-set! req n (cons (car ls) (vector-ref req n)))
+          (lp (cdr ls)))))))
+  (define (emit req rest)
+    (let ((gf-sym (gensym "g")))
+      (define (emit-rest n clauses free)
+        (if (< n (vector-length rest))
+            (let ((methods (vector-ref rest n)))
               (cond
-               ((instance-allocated? g-n-s)
-                (unless (< n nfields) (error "bad nfields"))
-                (unless (= n (allocated-index g-n-s)) (error "bad allocation"))
-                (call-with-values (lambda () (slot-protection-and-kind options))
-                  (lambda (protection kind)
-                    (let init ((n n) (size (allocated-size g-n-s)))
-                      (cond
-                       ((zero? size) (lp n slots getters-n-setters))
-                       (else
-                        (string-set! layout (* n 2) protection)
-                        (string-set! layout (1+ (* n 2)) kind)
-                        (init (1+ n) (1- size))))))))
+               ((null? methods)
+                (emit-rest (1+ n) clauses free))
+               ;; FIXME: hash dispatch
                (else
-                (lp n slots getters-n-setters))))))))))
+                (call-with-values
+                    (lambda ()
+                      (emit-linear-dispatch gf-sym n methods free #t))
+                  (lambda (clause free)
+                    (emit-rest (1+ n) (cons clause clauses) free))))))
+            (emit-req (1- (vector-length req)) clauses free)))
+      (define (emit-req n clauses free)
+        (if (< n 0)
+            (comp `(lambda ,(map cdr free)
+                     (case-lambda ,@clauses))
+                  (map car free))
+            (let ((methods (vector-ref req n)))
+              (cond
+               ((null? methods)
+                (emit-req (1- n) clauses free))
+               ;; FIXME: hash dispatch
+               (else
+                (call-with-values
+                    (lambda ()
+                      (emit-linear-dispatch gf-sym n methods free #f))
+                  (lambda (clause free)
+                    (emit-req (1- n) (cons clause clauses) free))))))))
 
-  (define (%prep-layout! class)
-    (let* ((is-class? (and (memq <class> (slot-ref class 'cpl)) #t))
-           (layout (%compute-layout (slot-ref class 'slots)
-                                    (slot-ref class 'getters-n-setters)
-                                    (slot-ref class 'nfields)
-                                    is-class?)))
-      (%init-layout! class layout)))
+      (emit-rest 0
+                 (if (or (zero? (vector-length rest))
+                         (null? (vector-ref rest 0)))
+                     (list `(args (cache-miss ,gf-sym args)))
+                     '())
+                 (acons gf gf-sym '()))))
+  (define (comp exp vals)
+    ;; When cross-compiling Guile itself, the native Guile must generate
+    ;; code for the host.
+    (with-target %host-type
+      (lambda ()
+        (let ((p ((@ (system base compile) compile) exp
+                  #:env *dispatch-module*
+                  #:from 'scheme
+                  #:opts '(#:partial-eval? #f #:cse? #f))))
+          (apply p vals)))))
 
-  (define (make-standard-class class name dsupers dslots)
-    (let ((z (make-struct/no-tail class)))
-      (slot-set! z 'direct-supers dsupers)
-      (let* ((cpl (compute-cpl z))
-             (dslots (map (lambda (slot)
-                            (if (pair? slot) slot (list slot)))
-                          dslots))
-             (slots (build-slots-list dslots cpl))
-             (nfields (length slots))
-             (g-n-s (%compute-getters-n-setters slots)))
-        (slot-set! z 'name name)
-        (slot-set! z 'direct-slots dslots)
-        (slot-set! z 'direct-subclasses '())
-        (slot-set! z 'direct-methods '())
-        (slot-set! z 'cpl cpl)
-        (slot-set! z 'slots slots)
-        (slot-set! z 'nfields nfields)
-        (slot-set! z 'getters-n-setters g-n-s)
-        (slot-set! z 'redefined #f)
-        (for-each (lambda (super)
-                    (let ((subclasses (slot-ref super 'direct-subclasses)))
-                      (slot-set! super 'direct-subclasses (cons z subclasses))))
-                  dsupers)
-        (%prep-layout! z)
-        (%inherit-magic! z dsupers)
-        z)))
+  ;; kick it.
+  (scan))
 
-  (define <class>
-    (let ((dslots (build-<class>-slots #f)))
-      (%make-root-class '<class> dslots (%compute-getters-n-setters dslots))))
+;; o/~  ten, nine, eight
+;;        sometimes that's just how it goes
+;;          three, two, one
+;;
+;;            get out before it blows    o/~
+;;
+(define timer-init 30)
+(define (delayed-compile gf)
+  (let ((timer timer-init))
+    (lambda args
+      (set! timer (1- timer))
+      (cond
+       ((zero? timer)
+        (let ((dispatch (compute-dispatch-procedure
+                         gf (slot-ref gf 'effective-methods))))
+          (slot-set! gf 'procedure dispatch)
+          (apply dispatch args)))
+       (else
+        ;; interestingly, this catches recursive compilation attempts as
+        ;; well; in that case, timer is negative
+        (cache-dispatch gf args))))))
 
-  (define-syntax define-standard-class
-    (syntax-rules ()
-      ((define-standard-class name (super ...) #:metaclass meta slot ...)
-       (define name
-         (make-standard-class meta 'name (list super ...) '(slot ...))))
-      ((define-standard-class name (super ...) slot ...)
-       (define-standard-class name (super ...) #:metaclass <class> slot ...))))
+(define (cache-dispatch gf args)
+  (define (map-until n f ls)
+    (if (or (zero? n) (null? ls))
+        '()
+        (cons (f (car ls)) (map-until (1- n) f (cdr ls)))))
+  (define (equal? x y) ; can't use the stock equal? because it's a generic...
+    (cond ((pair? x) (and (pair? y)
+                          (eq? (car x) (car y))
+                          (equal? (cdr x) (cdr y))))
+          ((null? x) (null? y))
+          (else #f)))
+  (if (slot-ref gf 'n-specialized)
+      (let ((types (map-until (slot-ref gf 'n-specialized) class-of args)))
+        (let lp ((cache (slot-ref gf 'effective-methods)))
+          (cond ((null? cache)
+                 (cache-miss gf args))
+                ((equal? (vector-ref (car cache) 1) types)
+                 (apply (vector-ref (car cache) 3) args))
+                (else (lp (cdr cache))))))
+      (cache-miss gf args)))
 
-  (define-standard-class <top> ())
-  (define-standard-class <object> (<top>))
+(define (cache-miss gf args)
+  (apply (memoize-method! gf args) args))
 
-  ;; <top>, <object>, and <class> were partially initialized.  Correct
-  ;; them here.
-  (slot-set! <object> 'direct-subclasses (list <class>))
-  (slot-set! <class> 'direct-supers (list <object>))
-  (slot-set! <class> 'cpl (list <class> <object> <top>))
+(define (memoize-effective-method! gf args applicable)
+  (define (first-n ls n)
+    (if (or (zero? n) (null? ls))
+        '()
+        (cons (car ls) (first-n (cdr ls) (- n 1)))))
+  (define (parse n ls)
+    (cond ((null? ls)
+           (memoize n #f (map class-of args)))
+          ((= n (slot-ref gf 'n-specialized))
+           (memoize n #t (map class-of (first-n args n))))
+          (else
+           (parse (1+ n) (cdr ls)))))
+  (define (memoize len rest? types)
+    (let* ((cmethod (compute-cmethod applicable types))
+           (cache (cons (vector len types rest? cmethod)
+                        (slot-ref gf 'effective-methods))))
+      (slot-set! gf 'effective-methods cache)
+      (slot-set! gf 'procedure (delayed-compile gf))
+      cmethod))
+  (parse 0 args))
 
-  (define-standard-class <foreign-slot> (<top>))
-  (define-standard-class <protected-slot> (<foreign-slot>))
-  (define-standard-class <hidden-slot> (<foreign-slot>))
-  (define-standard-class <opaque-slot> (<foreign-slot>))
-  (define-standard-class <read-only-slot> (<foreign-slot>))
-  (define-standard-class <self-slot> (<read-only-slot>))
-  (define-standard-class <protected-opaque-slot> (<protected-slot>
-                                                  <opaque-slot>))
-  (define-standard-class <protected-hidden-slot> (<protected-slot>
-                                                  <hidden-slot>))
-  (define-standard-class <protected-read-only-slot> (<protected-slot>
-                                                     <read-only-slot>))
-  (define-standard-class <scm-slot> (<protected-slot>))
-  (define-standard-class <int-slot> (<foreign-slot>))
-  (define-standard-class <float-slot> (<foreign-slot>))
-  (define-standard-class <double-slot> (<foreign-slot>))
+;;;
+;;; Compiling next methods into method bodies
+;;;
 
-  ;; Finish initialization of <class>.
-  (let ((dslots (build-<class>-slots #t)))
-    (slot-set! <class> 'direct-slots dslots)
-    (slot-set! <class> 'slots dslots)
-    (slot-set! <class> 'getters-n-setters (%compute-getters-n-setters dslots)))
+;;; So, for the reader: there basic idea is that, given that the
+;;; semantics of `next-method' depend on the concrete types being
+;;; dispatched, why not compile a specific procedure to handle each type
+;;; combination that we see at runtime.
+;;;
+;;; In theory we can do much better than a bytecode compilation, because
+;;; we know the *exact* types of the arguments. It's ideal for native
+;;; compilation. A task for the future.
+;;;
+;;; I think this whole generic application mess would benefit from a
+;;; strict MOP.
 
-  ;; Applicables and their classes.
-  (define-standard-class <procedure-class> (<class>))
-  (define-standard-class <applicable-struct-class> (<procedure-class>))
-  (%bless-applicable-struct-vtable! <applicable-struct-class>)
-  (define-standard-class <method> (<object>)
-    generic-function
-    specializers
-    procedure
-    formals
-    body
-    make-procedure)
-  (define-standard-class <accessor-method> (<method>)
-    (slot-definition #:init-keyword #:slot-definition))
-  (define-standard-class <applicable> (<top>))
-  (define-standard-class <applicable-struct> (<object> <applicable>)
-    #:metaclass <applicable-struct-class>
-    procedure)
-  (define-standard-class <generic> (<applicable-struct>)
-    #:metaclass <applicable-struct-class>
-    methods
-    (n-specialized #:init-value 0)
-    (extended-by #:init-value ())
-    effective-methods)
-  (%bless-pure-generic-vtable! <generic>)
-  (define-standard-class <extended-generic> (<generic>)
-    #:metaclass <applicable-struct-class>
-    (extends #:init-value ()))
-  (%bless-pure-generic-vtable! <extended-generic>)
-  (define-standard-class <generic-with-setter> (<generic>)
-    #:metaclass <applicable-struct-class>
-    setter)
-  (%bless-pure-generic-vtable! <generic-with-setter>)
-  (define-standard-class <accessor> (<generic-with-setter>)
-    #:metaclass <applicable-struct-class>)
-  (%bless-pure-generic-vtable! <accessor>)
-  (define-standard-class <extended-generic-with-setter> (<extended-generic>
-                                                         <generic-with-setter>)
-    #:metaclass <applicable-struct-class>)
-  (%bless-pure-generic-vtable! <extended-generic-with-setter>)
-  (define-standard-class <extended-accessor> (<accessor>
-                                              <extended-generic-with-setter>)
-    #:metaclass <applicable-struct-class>)
-  (%bless-pure-generic-vtable! <extended-accessor>)
+(define (compute-cmethod methods types)
+  (let ((make-procedure (slot-ref (car methods) 'make-procedure)))
+    (if make-procedure
+        (make-procedure
+         (if (null? (cdr methods))
+             (lambda args
+               (no-next-method (method-generic-function (car methods)) args))
+             (compute-cmethod (cdr methods) types)))
+        (method-procedure (car methods)))))
 
-  ;; Primitive types classes
-  (define-standard-class <boolean> (<top>))
-  (define-standard-class <char> (<top>))
-  (define-standard-class <list> (<top>))
-  ;; Not all pairs are lists, but there is code out there that relies on
-  ;; (is-a? '(1 2 3) <list>) to work.  Terrible.  How to fix?
-  (define-standard-class <pair> (<list>))
-  (define-standard-class <null> (<list>))
-  (define-standard-class <string> (<top>))
-  (define-standard-class <symbol> (<top>))
-  (define-standard-class <vector> (<top>))
-  (define-standard-class <foreign> (<top>))
-  (define-standard-class <hashtable> (<top>))
-  (define-standard-class <fluid> (<top>))
-  (define-standard-class <dynamic-state> (<top>))
-  (define-standard-class <frame> (<top>))
-  (define-standard-class <vm-continuation> (<top>))
-  (define-standard-class <bytevector> (<top>))
-  (define-standard-class <uvec> (<bytevector>))
-  (define-standard-class <array> (<top>))
-  (define-standard-class <bitvector> (<top>))
-  (define-standard-class <number> (<top>))
-  (define-standard-class <complex> (<number>))
-  (define-standard-class <real> (<complex>))
-  (define-standard-class <integer> (<real>))
-  (define-standard-class <fraction> (<real>))
-  (define-standard-class <keyword> (<top>))
-  (define-standard-class <unknown> (<top>))
-  (define-standard-class <procedure> (<applicable>)
-    #:metaclass <procedure-class>)
-  (define-standard-class <primitive-generic> (<procedure>)
-    #:metaclass <procedure-class>)
-  (define-standard-class <port> (<top>))
-  (define-standard-class <input-port> (<port>))
-  (define-standard-class <output-port> (<port>))
-  (define-standard-class <input-output-port> (<input-port> <output-port>))
-  )
+;;;
+;;; Memoization
+;;;
 
-(eval-when (compile load eval)
-  (%goops-early-init))
+(define (memoize-method! gf args)
+  (let ((applicable ((if (eq? gf compute-applicable-methods)
+			 %compute-applicable-methods
+			 compute-applicable-methods)
+		     gf args)))
+    (cond (applicable
+           (memoize-effective-method! gf args applicable))
+	  (else
+	   (no-applicable-method gf args)))))
+
+(set-procedure-property! memoize-method! 'system-procedure #t)
+
+(define no-applicable-method
+  (make <generic> #:name 'no-applicable-method))
+
+(%goops-early-init)
 
 ;; Then load the rest of GOOPS
-(use-modules (oop goops util)
-	     (oop goops dispatch)
-	     (oop goops compile))
 
 
 ;; FIXME: deprecate.
-(eval-when (compile load eval)
-  (define min-fixnum (- (expt 2 29)))
-  (define max-fixnum (- (expt 2 29) 1)))
+(define min-fixnum (- (expt 2 29)))
+(define max-fixnum (- (expt 2 29) 1))
 
 ;;
 ;; goops-error
@@ -1855,7 +2171,7 @@
 				    '()))
     (if name
 	(set-procedure-property! generic 'name name))
-    ))
+    (invalidate-method-cache! generic)))
 
 (define-method (initialize (gws <generic-with-setter>) initargs)
   (next-method)

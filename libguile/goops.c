@@ -77,6 +77,7 @@ static SCM var_slot_unbound = SCM_BOOL_F;
 static SCM var_slot_missing = SCM_BOOL_F;
 static SCM var_no_applicable_method = SCM_BOOL_F;
 static SCM var_change_class = SCM_BOOL_F;
+static SCM var_make = SCM_BOOL_F;
 
 SCM_SYMBOL (sym_slot_unbound, "slot-unbound");
 SCM_SYMBOL (sym_slot_missing, "slot-missing");
@@ -1021,8 +1022,6 @@ SCM_DEFINE (scm_slot_exists_p, "slot-exists?", 2, 0, 0,
  *
  ******************************************************************************/
 
-static void clear_method_cache (SCM);
-
 SCM_DEFINE (scm_sys_allocate_instance, "%allocate-instance", 2, 0, 0,
 	    (SCM class, SCM initargs),
 	    "Create a new instance of class @var{class} and initialize it\n"
@@ -1053,9 +1052,6 @@ SCM_DEFINE (scm_sys_allocate_instance, "%allocate-instance", 2, 0, 0,
       else
         SCM_STRUCT_DATA (obj)[i] = 0;
     }
-
-  if (SCM_CLASS_FLAGS (class) & SCM_CLASSF_PURE_GENERIC)
-    clear_method_cache (obj);
 
   return obj;
 }
@@ -1232,46 +1228,7 @@ scm_change_object_class (SCM obj, SCM old_class SCM_UNUSED, SCM new_class)
  ******************************************************************************/
 
 SCM_KEYWORD (k_name, "name");
-
 SCM_GLOBAL_SYMBOL (scm_sym_args, "args");
-
-SCM_SYMBOL (sym_delayed_compile, "delayed-compile");
-
-static SCM delayed_compile_var;
-
-static void
-init_delayed_compile_var (void)
-{
-  delayed_compile_var
-    = scm_c_private_lookup ("oop goops dispatch", "delayed-compile");
-}
-
-static SCM
-make_dispatch_procedure (SCM gf)
-{
-  static scm_i_pthread_once_t once = SCM_I_PTHREAD_ONCE_INIT;
-  scm_i_pthread_once (&once, init_delayed_compile_var);
-
-  return scm_call_1 (scm_variable_ref (delayed_compile_var), gf);
-}
-
-static void
-clear_method_cache (SCM gf)
-{
-  SCM_SET_GENERIC_DISPATCH_PROCEDURE (gf, make_dispatch_procedure (gf));
-  SCM_CLEAR_GENERIC_EFFECTIVE_METHODS (gf);
-}
-
-SCM_DEFINE (scm_sys_invalidate_method_cache_x, "%invalidate-method-cache!", 1, 0, 0,
-	    (SCM gf),
-	    "")
-#define FUNC_NAME s_scm_sys_invalidate_method_cache_x
-{
-  SCM_ASSERT (SCM_PUREGENERICP (gf), gf, SCM_ARG1, FUNC_NAME);
-  clear_method_cache (gf);
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
 
 SCM_DEFINE (scm_generic_capability_p, "generic-capability?", 1, 0, 0,
 	    (SCM proc),
@@ -1445,129 +1402,13 @@ scm_wta_dispatch_n (SCM gf, SCM args, int pos, const char *subr)
  *
  ******************************************************************************/
 
-/******************************************************************************
- *
- * A simple make (which will be redefined later in Scheme)
- * This version handles only creation of gf, methods and classes (no instances)
- *
- * Since this code will disappear when Goops will be fully booted,
- * no precaution is taken to be efficient.
- *
- ******************************************************************************/
-
-SCM_KEYWORD (k_setter,		"setter");
-SCM_KEYWORD (k_specializers,	"specializers");
-SCM_KEYWORD (k_procedure,	"procedure");
-SCM_KEYWORD (k_formals,		"formals");
-SCM_KEYWORD (k_body,		"body");
-SCM_KEYWORD (k_make_procedure,	"make-procedure");
-SCM_KEYWORD (k_dsupers,		"dsupers");
-SCM_KEYWORD (k_slots,		"slots");
-SCM_KEYWORD (k_gf,		"generic-function");
-
 SCM_DEFINE (scm_make, "make",  0, 0, 1,
 	    (SCM args),
 	    "Make a new object.  @var{args} must contain the class and\n"
 	    "all necessary initialization information.")
 #define FUNC_NAME s_scm_make
 {
-  SCM class, z;
-  long len = scm_ilength (args);
-
-  if (len <= 0 || (len & 1) == 0)
-    SCM_WRONG_NUM_ARGS ();
-
-  class = SCM_CAR(args);
-  args  = SCM_CDR(args);
-
-  if (scm_is_eq (class, scm_class_generic)
-      || scm_is_eq (class, scm_class_accessor))
-    {
-      z = scm_make_struct (class, SCM_INUM0,
-                           scm_list_4 (SCM_BOOL_F,
-                                       SCM_EOL,
-				       SCM_INUM0,
-				       SCM_EOL));
-      scm_set_procedure_property_x (z, scm_sym_name,
-				    scm_get_keyword (k_name,
-						     args,
-						     SCM_BOOL_F));
-      clear_method_cache (z);
-      if (scm_is_eq (class, scm_class_accessor))
-	{
-	  SCM setter = scm_get_keyword (k_setter, args, SCM_BOOL_F);
-	  if (scm_is_true (setter))
-	    scm_sys_set_object_setter_x (z, setter);
-	}
-    }
-  else
-    {
-      z = scm_sys_allocate_instance (class, args);
-
-      if (scm_is_eq (class, scm_class_method)
-	  || scm_is_eq (class, scm_class_accessor_method))
-	{
-	  SCM_SET_SLOT (z, scm_si_generic_function,
-	    scm_i_get_keyword (k_gf,
-			       args,
-			       len - 1,
-			       SCM_BOOL_F,
-			       FUNC_NAME));
-	  SCM_SET_SLOT (z, scm_si_specializers,
-	    scm_i_get_keyword (k_specializers,
-			       args,
-			       len - 1,
-			       SCM_EOL,
-			       FUNC_NAME));
-	  SCM_SET_SLOT (z, scm_si_procedure,
-	    scm_i_get_keyword (k_procedure,
-			       args,
-			       len - 1,
-			       SCM_BOOL_F,
-			       FUNC_NAME));
-	  SCM_SET_SLOT (z, scm_si_formals,
-	    scm_i_get_keyword (k_formals,
-			       args,
-			       len - 1,
-			       SCM_EOL,
-			       FUNC_NAME));
-	  SCM_SET_SLOT (z, scm_si_body,
-	    scm_i_get_keyword (k_body,
-			       args,
-			       len - 1,
-			       SCM_EOL,
-			       FUNC_NAME));
-	  SCM_SET_SLOT (z, scm_si_make_procedure,
-	    scm_i_get_keyword (k_make_procedure,
-			       args,
-			       len - 1,
-			       SCM_BOOL_F,
-			       FUNC_NAME));
-	}
-      else
-	{
-	  /* In all the others case, make a new class .... No instance here */
-	  SCM_SET_SLOT (z, scm_vtable_index_name,
-	    scm_i_get_keyword (k_name,
-			       args,
-			       len - 1,
-			       scm_from_latin1_symbol ("???"),
-			       FUNC_NAME));
-	  SCM_SET_SLOT (z, scm_si_direct_supers,
-	    scm_i_get_keyword (k_dsupers,
-			       args,
-			       len - 1,
-			       SCM_EOL,
-			       FUNC_NAME));
-	  SCM_SET_SLOT (z, scm_si_direct_slots,
-	    scm_i_get_keyword (k_slots,
-			       args,
-			       len - 1,
-			       SCM_EOL,
-			       FUNC_NAME));
-	}
-    }
-  return z;
+  return scm_apply_0 (scm_variable_ref (var_make), args);
 }
 #undef FUNC_NAME
 
@@ -1755,6 +1596,8 @@ scm_load_goops ()
 }
 
 
+SCM_KEYWORD (k_setter, "setter");
+
 SCM
 scm_ensure_accessor (SCM name)
 {
@@ -1824,6 +1667,7 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
 #define FUNC_NAME s_scm_sys_goops_early_init
 {
   var_make_standard_class = scm_c_lookup ("make-standard-class");
+  var_make = scm_c_lookup ("make");
 
   scm_class_class = scm_variable_ref (scm_c_lookup ("<class>"));
   scm_class_top = scm_variable_ref (scm_c_lookup ("<top>"));
@@ -1895,12 +1739,7 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
   create_struct_classes ();
   create_port_classes ();
 
-  {
-    SCM name = scm_from_latin1_symbol ("no-applicable-method");
-    scm_no_applicable_method =
-      scm_make (scm_list_3 (scm_class_generic, k_name, name));
-    scm_module_define (scm_module_goops, name, scm_no_applicable_method);
-  }
+  scm_no_applicable_method = scm_variable_ref (scm_c_lookup ("no-applicable-method"));
 
   return SCM_UNSPECIFIED;
 }

@@ -1,7 +1,7 @@
 ## Process this file with automake to produce Makefile.in.
 ##
 ##  	Copyright (C) 2009, 2010, 2011, 2012, 2013,
-##        2014 Free Software Foundation, Inc.
+##        2014, 2015 Free Software Foundation, Inc.
 ##
 ##   This file is part of GUILE.
 ##
@@ -356,10 +356,8 @@ EXTRA_DIST += scripts/README
 OOP_SOURCES = \
   oop/goops.scm \
   oop/goops/active-slot.scm \
-  oop/goops/compile.scm \
   oop/goops/composite-slot.scm \
   oop/goops/describe.scm \
-  oop/goops/dispatch.scm \
   oop/goops/internal.scm \
   oop/goops/save.scm \
   oop/goops/stklos.scm \
