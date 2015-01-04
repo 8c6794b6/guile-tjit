@@ -26,6 +26,7 @@
 
 (define-module (oop goops)
   #:use-module (srfi srfi-1)
+  #:use-module (ice-9 match)
   #:export-syntax (define-class class standard-define-class
                     define-generic define-accessor define-method
                     define-extended-generic define-extended-generics
@@ -206,6 +207,315 @@
 (eval-when (compile load eval)
   (use-modules ((language tree-il primitives) :select (add-interesting-primitive!)))
   (add-interesting-primitive! 'class-of))
+
+;; During boot, the specialized slot classes aren't defined yet, so we
+;; initialize <class> with unspecialized slots.
+(define-syntax-rule (build-<class>-slots specialized?)
+  (let-syntax ((unspecialized-slot (syntax-rules ()
+                                     ((_ name) (list 'name))))
+               (specialized-slot (syntax-rules ()
+                                   ((_ name class)
+                                    (if specialized?
+                                        (list 'name #:class class)
+                                        (list 'name))))))
+    (list (specialized-slot layout <protected-read-only-slot>)
+          (specialized-slot flags <hidden-slot>)
+          (specialized-slot self <self-slot>)
+          (specialized-slot instance-finalizer <hidden-slot>)
+          (unspecialized-slot print)
+          (specialized-slot name <protected-hidden-slot>)
+          (specialized-slot reserved-0 <hidden-slot>)
+          (specialized-slot reserved-1 <hidden-slot>)
+          (unspecialized-slot redefined)
+          (specialized-slot h0 <int-slot>)
+          (specialized-slot h1 <int-slot>)
+          (specialized-slot h2 <int-slot>)
+          (specialized-slot h3 <int-slot>)
+          (specialized-slot h4 <int-slot>)
+          (specialized-slot h5 <int-slot>)
+          (specialized-slot h6 <int-slot>)
+          (specialized-slot h7 <int-slot>)
+          (unspecialized-slot direct-supers)
+          (unspecialized-slot direct-slots)
+          (unspecialized-slot direct-subclasses)
+          (unspecialized-slot direct-methods)
+          (unspecialized-slot cpl)
+          (unspecialized-slot default-slot-definition-class)
+          (unspecialized-slot slots)
+          (unspecialized-slot getters-n-setters)
+          (unspecialized-slot nfields))))
+
+(eval-when (compile load eval)
+  (define (build-slots-list dslots cpl)
+    (define (check-cpl slots class-slots)
+      (when (or-map (lambda (slot-def) (assq (car slot-def) slots))
+                    class-slots)
+        (scm-error 'misc-error #f
+                   "a predefined <class> inherited field cannot be redefined"
+                   '() '())))
+    (define (remove-duplicate-slots slots)
+      (let lp ((slots (reverse slots)) (res '()) (seen '()))
+        (cond
+         ((null? slots) res)
+         ((memq (caar slots) seen)
+          (lp (cdr slots) res seen))
+         (else
+          (lp (cdr slots) (cons (car slots) res) (cons (caar slots) seen))))))
+    (let* ((class-slots (and (memq <class> cpl) (slot-ref <class> 'slots))))
+      (when class-slots
+        (check-cpl dslots class-slots))
+      (let lp ((cpl (cdr cpl)) (res dslots) (class-slots '()))
+        (if (null? cpl)
+            (remove-duplicate-slots (append class-slots res))
+            (let* ((head (car cpl))
+                   (cpl (cdr cpl))
+                   (new-slots (slot-ref head 'direct-slots)))
+              (cond
+               ((not class-slots)
+                (lp cpl (append new-slots res) class-slots))
+               ((eq? head <class>)
+                ;; Move class slots to the head of the list.
+                (lp cpl res new-slots))
+               (else
+                (check-cpl new-slots class-slots)
+                (lp cpl (append new-slots res) class-slots))))))))
+
+  (define (%compute-getters-n-setters slots)
+    (define (compute-init-thunk options)
+      (cond
+       ((kw-arg-ref options #:init-value) => (lambda (val) (lambda () val)))
+       ((kw-arg-ref options #:init-thunk))
+       (else #f)))
+    (let lp ((slots slots) (n 0))
+      (match slots
+        (() '())
+        (((name . options) . slots)
+         (cons (cons name (cons (compute-init-thunk options) n))
+               (lp slots (1+ n)))))))
+
+  (define (%compute-layout slots getters-n-setters nfields is-class?)
+    (define (instance-allocated? g-n-s)
+      (match g-n-s
+        ((name init-thunk . (? exact-integer? index)) #t)
+        ((name init-thunk getter setter index size) #t)
+        (_ #f)))
+
+    (define (allocated-index g-n-s)
+      (match g-n-s
+        ((name init-thunk . (? exact-integer? index)) index)
+        ((name init-thunk getter setter index size) index)))
+
+    (define (allocated-size g-n-s)
+      (match g-n-s
+        ((name init-thunk . (? exact-integer? index)) 1)
+        ((name init-thunk getter setter index size) size)))
+
+    (define (slot-protection-and-kind options)
+      (define (subclass? class parent)
+        (memq parent (class-precedence-list class)))
+      (let ((type (kw-arg-ref options #:class)))
+        (if (and type (subclass? type <foreign-slot>))
+            (values (cond
+                     ((subclass? type <self-slot>) #\s)
+                     ((subclass? type <protected-slot>) #\p)
+                     (else #\u))
+                    (cond
+                     ((subclass? type <opaque-slot>) #\o)
+                     ((subclass? type <read-only-slot>) #\r)
+                     ((subclass? type <hidden-slot>) #\h)
+                     (else #\w)))
+            (values #\p #\w))))
+
+    (let ((layout (make-string (* nfields 2))))
+      (let lp ((n 0) (slots slots) (getters-n-setters getters-n-setters))
+        (match getters-n-setters
+          (()
+           (unless (= n nfields) (error "bad nfields"))
+           (unless (null? slots) (error "inconsistent g-n-s/slots"))
+           (when is-class?
+             (let ((class-layout (symbol->string (slot-ref <class> 'layout))))
+               (unless (string-prefix? class-layout layout)
+                 (error "bad layout for class"))))
+           layout)
+          ((g-n-s . getters-n-setters)
+           (match slots
+             (((name . options) . slots)
+              (cond
+               ((instance-allocated? g-n-s)
+                (unless (< n nfields) (error "bad nfields"))
+                (unless (= n (allocated-index g-n-s)) (error "bad allocation"))
+                (call-with-values (lambda () (slot-protection-and-kind options))
+                  (lambda (protection kind)
+                    (let init ((n n) (size (allocated-size g-n-s)))
+                      (cond
+                       ((zero? size) (lp n slots getters-n-setters))
+                       (else
+                        (string-set! layout (* n 2) protection)
+                        (string-set! layout (1+ (* n 2)) kind)
+                        (init (1+ n) (1- size))))))))
+               (else
+                (lp n slots getters-n-setters))))))))))
+
+  (define (%prep-layout! class)
+    (let* ((is-class? (and (memq <class> (slot-ref class 'cpl)) #t))
+           (layout (%compute-layout (slot-ref class 'slots)
+                                    (slot-ref class 'getters-n-setters)
+                                    (slot-ref class 'nfields)
+                                    is-class?)))
+      (%init-layout! class layout)))
+
+  (define (make-standard-class class name dsupers dslots)
+    (let ((z (make-struct/no-tail class)))
+      (slot-set! z 'direct-supers dsupers)
+      (let* ((cpl (compute-cpl z))
+             (dslots (map (lambda (slot)
+                            (if (pair? slot) slot (list slot)))
+                          dslots))
+             (slots (build-slots-list dslots cpl))
+             (nfields (length slots))
+             (g-n-s (%compute-getters-n-setters slots)))
+        (slot-set! z 'name name)
+        (slot-set! z 'direct-slots dslots)
+        (slot-set! z 'direct-subclasses '())
+        (slot-set! z 'direct-methods '())
+        (slot-set! z 'cpl cpl)
+        (slot-set! z 'slots slots)
+        (slot-set! z 'nfields nfields)
+        (slot-set! z 'getters-n-setters g-n-s)
+        (slot-set! z 'redefined #f)
+        (for-each (lambda (super)
+                    (let ((subclasses (slot-ref super 'direct-subclasses)))
+                      (slot-set! super 'direct-subclasses (cons z subclasses))))
+                  dsupers)
+        (%prep-layout! z)
+        (%inherit-magic! z dsupers)
+        z)))
+
+  (define <class>
+    (let ((dslots (build-<class>-slots #f)))
+      (%make-root-class '<class> dslots (%compute-getters-n-setters dslots))))
+
+  (define-syntax define-standard-class
+    (syntax-rules ()
+      ((define-standard-class name (super ...) #:metaclass meta slot ...)
+       (define name
+         (make-standard-class meta 'name (list super ...) '(slot ...))))
+      ((define-standard-class name (super ...) slot ...)
+       (define-standard-class name (super ...) #:metaclass <class> slot ...))))
+
+  (define-standard-class <top> ())
+  (define-standard-class <object> (<top>))
+
+  ;; <top>, <object>, and <class> were partially initialized.  Correct
+  ;; them here.
+  (slot-set! <object> 'direct-subclasses (list <class>))
+  (slot-set! <class> 'direct-supers (list <object>))
+  (slot-set! <class> 'cpl (list <class> <object> <top>))
+
+  (define-standard-class <foreign-slot> (<top>))
+  (define-standard-class <protected-slot> (<foreign-slot>))
+  (define-standard-class <hidden-slot> (<foreign-slot>))
+  (define-standard-class <opaque-slot> (<foreign-slot>))
+  (define-standard-class <read-only-slot> (<foreign-slot>))
+  (define-standard-class <self-slot> (<read-only-slot>))
+  (define-standard-class <protected-opaque-slot> (<protected-slot>
+                                                  <opaque-slot>))
+  (define-standard-class <protected-hidden-slot> (<protected-slot>
+                                                  <hidden-slot>))
+  (define-standard-class <protected-read-only-slot> (<protected-slot>
+                                                     <read-only-slot>))
+  (define-standard-class <scm-slot> (<protected-slot>))
+  (define-standard-class <int-slot> (<foreign-slot>))
+  (define-standard-class <float-slot> (<foreign-slot>))
+  (define-standard-class <double-slot> (<foreign-slot>))
+
+  ;; Finish initialization of <class>.
+  (let ((dslots (build-<class>-slots #t)))
+    (slot-set! <class> 'direct-slots dslots)
+    (slot-set! <class> 'slots dslots)
+    (slot-set! <class> 'getters-n-setters (%compute-getters-n-setters dslots)))
+
+  ;; Applicables and their classes.
+  (define-standard-class <procedure-class> (<class>))
+  (define-standard-class <applicable-struct-class> (<procedure-class>))
+  (%bless-applicable-struct-vtable! <applicable-struct-class>)
+  (define-standard-class <method> (<object>)
+    generic-function
+    specializers
+    procedure
+    formals
+    body
+    make-procedure)
+  (define-standard-class <accessor-method> (<method>)
+    (slot-definition #:init-keyword #:slot-definition))
+  (define-standard-class <applicable> (<top>))
+  (define-standard-class <applicable-struct> (<object> <applicable>)
+    #:metaclass <applicable-struct-class>
+    procedure)
+  (define-standard-class <generic> (<applicable-struct>)
+    #:metaclass <applicable-struct-class>
+    methods
+    (n-specialized #:init-value 0)
+    (extended-by #:init-value ())
+    effective-methods)
+  (%bless-pure-generic-vtable! <generic>)
+  (define-standard-class <extended-generic> (<generic>)
+    #:metaclass <applicable-struct-class>
+    (extends #:init-value ()))
+  (%bless-pure-generic-vtable! <extended-generic>)
+  (define-standard-class <generic-with-setter> (<generic>)
+    #:metaclass <applicable-struct-class>
+    setter)
+  (%bless-pure-generic-vtable! <generic-with-setter>)
+  (define-standard-class <accessor> (<generic-with-setter>)
+    #:metaclass <applicable-struct-class>)
+  (%bless-pure-generic-vtable! <accessor>)
+  (define-standard-class <extended-generic-with-setter> (<extended-generic>
+                                                         <generic-with-setter>)
+    #:metaclass <applicable-struct-class>)
+  (%bless-pure-generic-vtable! <extended-generic-with-setter>)
+  (define-standard-class <extended-accessor> (<accessor>
+                                              <extended-generic-with-setter>)
+    #:metaclass <applicable-struct-class>)
+  (%bless-pure-generic-vtable! <extended-accessor>)
+
+  ;; Primitive types classes
+  (define-standard-class <boolean> (<top>))
+  (define-standard-class <char> (<top>))
+  (define-standard-class <list> (<top>))
+  ;; Not all pairs are lists, but there is code out there that relies on
+  ;; (is-a? '(1 2 3) <list>) to work.  Terrible.  How to fix?
+  (define-standard-class <pair> (<list>))
+  (define-standard-class <null> (<list>))
+  (define-standard-class <string> (<top>))
+  (define-standard-class <symbol> (<top>))
+  (define-standard-class <vector> (<top>))
+  (define-standard-class <foreign> (<top>))
+  (define-standard-class <hashtable> (<top>))
+  (define-standard-class <fluid> (<top>))
+  (define-standard-class <dynamic-state> (<top>))
+  (define-standard-class <frame> (<top>))
+  (define-standard-class <vm-continuation> (<top>))
+  (define-standard-class <bytevector> (<top>))
+  (define-standard-class <uvec> (<bytevector>))
+  (define-standard-class <array> (<top>))
+  (define-standard-class <bitvector> (<top>))
+  (define-standard-class <number> (<top>))
+  (define-standard-class <complex> (<number>))
+  (define-standard-class <real> (<complex>))
+  (define-standard-class <integer> (<real>))
+  (define-standard-class <fraction> (<real>))
+  (define-standard-class <keyword> (<top>))
+  (define-standard-class <unknown> (<top>))
+  (define-standard-class <procedure> (<applicable>)
+    #:metaclass <procedure-class>)
+  (define-standard-class <primitive-generic> (<procedure>)
+    #:metaclass <procedure-class>)
+  (define-standard-class <port> (<top>))
+  (define-standard-class <input-port> (<port>))
+  (define-standard-class <output-port> (<port>))
+  (define-standard-class <input-output-port> (<input-port> <output-port>))
+  )
 
 (eval-when (compile load eval)
   (%goops-early-init))
@@ -1481,7 +1791,8 @@
   (goops-error "Allocation \"~S\" is unknown" (slot-definition-allocation s)))
 
 (define-method (compute-slots (class <class>))
-  (%compute-slots class))
+  (build-slots-list (class-direct-slots class)
+                    (class-precedence-list class)))
 
 ;;;
 ;;; {Initialize}

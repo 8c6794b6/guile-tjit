@@ -3,7 +3,7 @@
 #ifndef SCM_GOOPS_H
 #define SCM_GOOPS_H
 
-/* Copyright (C) 1998,1999,2000,2001,2002,2003, 2006, 2008, 2009, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 1998,1999,2000,2001,2002,2003, 2006, 2008, 2009, 2011, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -235,7 +235,6 @@ SCM_API SCM scm_class_of (SCM obj);
 
 /* Low level functions exported */
 SCM_API SCM scm_make_next_method (SCM methods, SCM args, SCM gf);
-SCM_API SCM scm_basic_basic_make_class (SCM c, SCM name, SCM dsupers, SCM dslots);
 SCM_API SCM scm_basic_make_class (SCM c, SCM name, SCM dsupers, SCM dslots);
 
 /* Primitives exported */
@@ -248,13 +247,11 @@ SCM_API SCM scm_slot_set_x (SCM obj, SCM slot_name, SCM value);
 SCM_API SCM scm_pure_generic_p (SCM obj);
 #endif
 
-SCM_API SCM scm_sys_compute_slots (SCM c);
 SCM_INTERNAL void scm_i_inherit_applicable (SCM c);
 SCM_INTERNAL SCM scm_i_get_keyword (SCM key, SCM l, long len,
 				    SCM default_value, const char *subr);
 SCM_API SCM scm_get_keyword (SCM key, SCM l, SCM default_value);
 SCM_API SCM scm_sys_initialize_object (SCM obj, SCM initargs);
-SCM_API SCM scm_sys_prep_layout_x (SCM c);
 SCM_API SCM scm_sys_inherit_magic_x (SCM c, SCM dsupers);
 SCM_API SCM scm_instance_p (SCM obj);
 SCM_API SCM scm_class_name (SCM obj);
