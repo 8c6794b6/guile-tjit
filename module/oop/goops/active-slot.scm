@@ -1,6 +1,6 @@
 ;;; installed-scm-file
 
-;;;; Copyright (C) 1999, 2001, 2006, 2009 Free Software Foundation, Inc.
+;;;; Copyright (C) 1999, 2001, 2006, 2009, 2015 Free Software Foundation, Inc.
 ;;;; Copyright (C) 1993-1998 Erick Gallesio - I3S-CNRS/ESSI <eg@unice.fr>
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -43,11 +43,11 @@
 	(list (lambda (o)
 		(if before-ref
 		    (if (before-ref o)
-			(let ((res (%fast-slot-ref o index)))
+			(let ((res (struct-ref o index)))
 			  (and after-ref (not (eqv? res unbound)) (after-ref o))
 			  res)
 			(make-unbound))
-		    (let ((res (%fast-slot-ref o index)))
+		    (let ((res (struct-ref o index)))
 		      (and after-ref (not (eqv? res unbound)) (after-ref o))
 		      res)))
 
@@ -55,9 +55,9 @@
 		(if before-set!
 		    (if (before-set! o v)
 			(begin
-			  (%fast-slot-set! o index v)
+			  (struct-set! o index v)
 			  (and after-set! (after-set! o v))))
 		    (begin
-		      (%fast-slot-set! o index v)
+		      (struct-set! o index v)
 		      (and after-set! (after-set! o v)))))))
       (next-method)))

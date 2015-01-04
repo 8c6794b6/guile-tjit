@@ -272,8 +272,6 @@ SCM_API SCM scm_generic_function_methods (SCM obj);
 SCM_API SCM scm_method_generic_function (SCM obj);
 SCM_API SCM scm_method_specializers (SCM obj);
 SCM_API SCM scm_method_procedure (SCM obj);
-SCM_API SCM scm_sys_fast_slot_ref (SCM obj, SCM index);
-SCM_API SCM scm_sys_fast_slot_set_x (SCM obj, SCM index, SCM value);
 SCM_API SCM scm_slot_ref_using_class (SCM cls, SCM obj, SCM slot_name);
 SCM_API SCM scm_slot_set_using_class_x (SCM cls, SCM obj, SCM slot_name, SCM value);
 SCM_API SCM scm_slot_bound_using_class_p (SCM cls, SCM obj, SCM slot_name);
