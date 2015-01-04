@@ -593,20 +593,6 @@
 ;;;   OPTION ::= KEYWORD VALUE
 ;;;
 
-(define (kw-do-map mapper f kwargs)
-  (define (keywords l)
-    (cond
-     ((null? l) '())
-     ((or (null? (cdr l)) (not (keyword? (car l))))
-      (goops-error "malformed keyword arguments: ~a" kwargs))
-     (else (cons (car l) (keywords (cddr l))))))
-  (define (args l)
-    (if (null? l) '() (cons (cadr l) (args (cddr l)))))
-  ;; let* to check keywords first
-  (let* ((k (keywords kwargs))
-         (a (args kwargs)))
-    (mapper f k a)))
-
 (define (make-class supers slots . options)
   (let* ((name (get-keyword #:name options (make-unbound)))
          (supers (if (not (or-map (lambda (class)
@@ -641,35 +627,43 @@
 ;;;   SLOT-DEFINITION ::= SLOT-NAME | (SLOT-NAME OPTION ...)
 ;;;   OPTION ::= KEYWORD VALUE
 ;;;
-(define-macro (class supers . slots)
-  (define (make-slot-definition-forms slots)
-    (map
-     (lambda (def)
-       (cond
-        ((pair? def)
-         `(list ',(car def)
-                ,@(kw-do-map append-map
-                             (lambda (kw arg)
-                               (case kw
-                                 ((#:init-form)
-                                  `(#:init-form ',arg
-                                    #:init-thunk (lambda () ,arg)))
-                                 (else (list kw arg))))
-                             (cdr def))))
-        (else
-         `(list ',def))))
-     slots))
-  (if (not (list? supers))
-      (goops-error "malformed superclass list: ~S" supers))
-  (let ((slots (take-while (lambda (x) (not (keyword? x))) slots))
-        (options (or (find-tail keyword? slots) '())))
-    `(make-class
-      ;; evaluate super class variables
-      (list ,@supers)
-      ;; evaluate slot definitions, except the slot name!
-      (list ,@(make-slot-definition-forms slots))
-      ;; evaluate class options
-      ,@options)))
+(define-syntax class
+  (lambda (x)
+    (define (parse-options options)
+      (syntax-case options ()
+        (() #'())
+        ((kw arg . options) (keyword? (syntax->datum #'kw))
+         (with-syntax ((options (parse-options #'options)))
+           (syntax-case #'kw ()
+             (#:init-form
+              #'(kw 'arg #:init-thunk (lambda () arg) . options))
+             (_
+              #'(kw arg . options)))))))
+    (define (check-valid-kwargs args)
+      (syntax-case args ()
+        (() #'())
+        ((kw arg . args) (keyword? (syntax->datum #'kw))
+         #`(kw arg . #,(check-valid-kwargs #'args)))))
+    (define (parse-slots-and-kwargs args)
+      (syntax-case args ()
+        (()
+         #'(() ()))
+        ((kw . _) (keyword? (syntax->datum #'kw))
+         #`(() #,(check-valid-kwargs args)))
+        (((name option ...) args ...)
+         (with-syntax (((slots kwargs) (parse-slots-and-kwargs #'(args ...)))
+                       ((option ...) (parse-options #'(option ...))))
+           #'(((list 'name option ...) . slots) kwargs)))
+        ((name args ...) (symbol? (syntax->datum #'name))
+         (with-syntax (((slots kwargs) (parse-slots-and-kwargs #'(args ...))))
+           #'(('(name) . slots) kwargs)))))
+    (syntax-case x ()
+      ((class (super ...) arg ...)
+       (with-syntax ((((slot-def ...) (option ...))
+                      (parse-slots-and-kwargs #'(arg ...))))
+         #'(make-class (list super ...)
+                       (list slot-def ...)
+                       option ...))))))
 
 (define-syntax define-class-pre-definition
   (lambda (x)
