@@ -103,8 +103,10 @@ scm_init_deprecated_goops (void)
 }
 
 #define BUFFSIZE 32		/* big enough for most uses */
-#define scm_si_specializers	 1  /* offset of spec. slot in a <method> */
-#define SPEC_OF(x)  SCM_SLOT (x, scm_si_specializers)
+#define SPEC_OF(x) \
+  (scm_slot_ref (x, scm_slot_ref (x, scm_from_latin1_symbol ("specializers"))))
+#define CPL_OF(x) \
+  (scm_slot_ref (x, scm_slot_ref (x, scm_from_latin1_symbol ("cpl"))))
 
 static SCM
 scm_i_vector2list (SCM l, long len)
@@ -122,7 +124,7 @@ static int
 applicablep (SCM actual, SCM formal)
 {
   /* We already know that the cpl is well formed. */
-  return scm_is_true (scm_c_memq (formal, SCM_SLOT (actual, scm_si_cpl)));
+  return scm_is_true (scm_c_memq (formal, CPL_OF (actual)));
 }
 
 static int
@@ -152,7 +154,7 @@ more_specificp (SCM m1, SCM m2, SCM const *targs)
     if (!scm_is_eq (SCM_CAR(s1), SCM_CAR(s2))) {
       register SCM l, cs1 = SCM_CAR(s1), cs2 = SCM_CAR(s2);
 
-      for (l = SCM_SLOT (targs[i], scm_si_cpl);   ; l = SCM_CDR(l)) {
+      for (l = CPL_OF (targs[i]);   ; l = SCM_CDR(l)) {
 	if (scm_is_eq (cs1, SCM_CAR (l)))
 	  return 1;
 	if (scm_is_eq (cs2, SCM_CAR (l)))
@@ -322,7 +324,7 @@ scm_find_method (SCM l)
 
   gf = SCM_CAR(l); l = SCM_CDR(l);
   SCM_VALIDATE_GENERIC (1, gf);
-  if (scm_is_null (SCM_SLOT (gf, scm_si_methods)))
+  if (scm_is_null (scm_slot_ref (gf, scm_from_latin1_symbol ("methods"))))
     SCM_MISC_ERROR ("no methods for generic ~S", scm_list_1 (gf));
 
   return scm_compute_applicable_methods (gf, l, len - 1, 1);

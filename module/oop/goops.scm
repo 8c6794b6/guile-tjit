@@ -51,8 +51,8 @@
             <procedure> <primitive-generic>
 
             ;; Applicable structs.
-            <applicable-struct-class>
-            <applicable-struct>
+            <applicable-struct-class> <applicable-struct-with-setter-class>
+            <applicable-struct> <applicable-struct-with-setter>
             <generic> <extended-generic>
             <generic-with-setter> <extended-generic-with-setter>
             <accessor> <extended-accessor>
@@ -434,21 +434,20 @@
 
 ;; Applicables and their classes.
 (define-standard-class <procedure-class> (<class>))
-(define-standard-class <applicable-struct-class> (<procedure-class>))
-(%bless-applicable-struct-vtable! <applicable-struct-class>)
-(define-standard-class <method> (<object>)
-  generic-function
-  specializers
-  procedure
-  formals
-  body
-  make-procedure)
-(define-standard-class <accessor-method> (<method>)
-  (slot-definition #:init-keyword #:slot-definition))
+(define-standard-class <applicable-struct-class>
+  (<procedure-class>))
+(define-standard-class <applicable-struct-with-setter-class>
+  (<applicable-struct-class>))
+(%bless-applicable-struct-vtables! <applicable-struct-class>
+                                   <applicable-struct-with-setter-class>)
+
 (define-standard-class <applicable> (<top>))
 (define-standard-class <applicable-struct> (<object> <applicable>)
   #:metaclass <applicable-struct-class>
   procedure)
+(define-standard-class <applicable-struct-with-setter> (<applicable-struct>)
+  #:metaclass <applicable-struct-with-setter-class>
+  setter)
 (define-standard-class <generic> (<applicable-struct>)
   #:metaclass <applicable-struct-class>
   methods
@@ -460,21 +459,32 @@
   #:metaclass <applicable-struct-class>
   (extends #:init-value ()))
 (%bless-pure-generic-vtable! <extended-generic>)
-(define-standard-class <generic-with-setter> (<generic>)
-  #:metaclass <applicable-struct-class>
-  setter)
+(define-standard-class <generic-with-setter> (<generic>
+                                              <applicable-struct-with-setter>)
+  #:metaclass <applicable-struct-with-setter-class>)
 (%bless-pure-generic-vtable! <generic-with-setter>)
 (define-standard-class <accessor> (<generic-with-setter>)
-  #:metaclass <applicable-struct-class>)
+  #:metaclass <applicable-struct-with-setter-class>)
 (%bless-pure-generic-vtable! <accessor>)
 (define-standard-class <extended-generic-with-setter> (<extended-generic>
                                                        <generic-with-setter>)
-  #:metaclass <applicable-struct-class>)
+  #:metaclass <applicable-struct-with-setter-class>)
 (%bless-pure-generic-vtable! <extended-generic-with-setter>)
 (define-standard-class <extended-accessor> (<accessor>
                                             <extended-generic-with-setter>)
-  #:metaclass <applicable-struct-class>)
+  #:metaclass <applicable-struct-with-setter-class>)
 (%bless-pure-generic-vtable! <extended-accessor>)
+
+;; Methods
+(define-standard-class <method> (<object>)
+  generic-function
+  specializers
+  procedure
+  formals
+  body
+  make-procedure)
+(define-standard-class <accessor-method> (<method>)
+  (slot-definition #:init-keyword #:slot-definition))
 
 ;; Primitive types classes
 (define-standard-class <boolean> (<top>))
@@ -534,7 +544,7 @@
       (when (eq? class <accessor>)
         (let ((setter (get-keyword #:setter args #f)))
           (when setter
-            (%set-object-setter! z setter))))
+            (slot-set! z 'setter setter))))
       z))
    (else
     (let ((z (%allocate-instance class args)))
@@ -2160,6 +2170,11 @@
   (next-method)
   (initialize-object-procedure applicable-struct initargs))
 
+(define-method (initialize (applicable-struct <applicable-struct-with-setter>)
+                           initargs)
+  (next-method)
+  (slot-set! applicable-struct 'setter (get-keyword #:setter initargs #f)))
+
 (define-method (initialize (generic <generic>) initargs)
   (let ((previous-definition (get-keyword #:default initargs #f))
 	(name (get-keyword #:name initargs #f)))
@@ -2171,10 +2186,6 @@
     (if name
 	(set-procedure-property! generic 'name name))
     (invalidate-method-cache! generic)))
-
-(define-method (initialize (gws <generic-with-setter>) initargs)
-  (next-method)
-  (%set-object-setter! gws (get-keyword #:setter initargs #f)))
 
 (define-method (initialize (eg <extended-generic>) initargs)
   (next-method)

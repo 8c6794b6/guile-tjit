@@ -140,6 +140,7 @@ SCM scm_class_method;
 SCM scm_class_accessor_method;
 SCM scm_class_procedure_class;
 SCM scm_class_applicable_struct_class;
+static SCM scm_class_applicable_struct_with_setter_class;
 SCM scm_class_number, scm_class_list;
 SCM scm_class_keyword;
 SCM scm_class_port, scm_class_input_output_port;
@@ -176,54 +177,15 @@ static SCM scm_make_unbound (void);
 static SCM scm_unbound_p (SCM obj);
 static SCM scm_assert_bound (SCM value, SCM obj);
 static SCM scm_at_assert_bound_ref (SCM obj, SCM index);
-static SCM scm_sys_bless_applicable_struct_vtable_x (SCM vtable);
+static SCM scm_sys_bless_applicable_struct_vtables_x (SCM applicable,
+                                                      SCM setter);
 static SCM scm_sys_bless_pure_generic_vtable_x (SCM vtable);
 static SCM scm_sys_make_root_class (SCM name, SCM dslots,
                                     SCM getters_n_setters);
 static SCM scm_sys_init_layout_x (SCM class, SCM layout);
 static SCM scm_sys_goops_early_init (void);
 static SCM scm_sys_goops_loaded (void);
-static SCM scm_make_extended_class_from_symbol (SCM type_name_sym, 
-						int applicablep);
 
-
-SCM
-scm_i_define_class_for_vtable (SCM vtable)
-{
-  SCM class;
-
-  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
-  if (scm_is_false (vtable_class_map))
-    vtable_class_map = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
-  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
-  
-  if (scm_is_false (scm_struct_vtable_p (vtable)))
-    abort ();
-
-  class = scm_weak_table_refq (vtable_class_map, vtable, SCM_BOOL_F);
-
-  if (scm_is_false (class))
-    {
-      if (SCM_UNPACK (scm_class_class))
-        {
-          SCM name = SCM_VTABLE_NAME (vtable);
-          if (!scm_is_symbol (name))
-            name = scm_string_to_symbol (scm_nullstr);
-
-          class = scm_make_extended_class_from_symbol
-            (name, SCM_VTABLE_FLAG_IS_SET (vtable, SCM_VTABLE_FLAG_APPLICABLE));
-        }
-      else
-        /* `create_struct_classes' will fill this in later.  */
-        class = SCM_BOOL_F;
-
-      /* Don't worry about races.  This only happens when creating a
-         vtable, which happens by definition in one thread.  */
-      scm_weak_table_putq_x (vtable_class_map, vtable, class);
-    }
-
-  return class;
-}
 
 /* This function is used for efficient type dispatch.  */
 SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
@@ -1053,21 +1015,6 @@ SCM_DEFINE (scm_sys_allocate_instance, "%allocate-instance", 2, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_sys_set_object_setter_x, "%set-object-setter!", 2, 0, 0,
-	    (SCM obj, SCM setter),
-	    "")
-#define FUNC_NAME s_scm_sys_set_object_setter_x
-{
-  SCM_ASSERT (SCM_STRUCTP (obj)
-              && (SCM_OBJ_CLASS_FLAGS (obj) & SCM_CLASSF_PURE_GENERIC),
-	      obj,
-	      SCM_ARG1,
-	      FUNC_NAME);
-  SCM_SET_GENERIC_SETTER (obj, setter);
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
 /******************************************************************************
  *
  * %modify-instance (used by change-class to modify in place)
@@ -1434,26 +1381,6 @@ make_class_from_template (char const *template, char const *type_name, SCM super
   return scm_make_standard_class (meta, name, supers, SCM_EOL);
 }
 
-static SCM
-make_class_from_symbol (SCM type_name_sym, SCM supers, int applicablep)
-{
-  SCM meta, name;
-
-  if (scm_is_true (type_name_sym))
-    {
-      name = scm_string_append (scm_list_3 (scm_from_locale_string ("<"),
-					    scm_symbol_to_string (type_name_sym),
-					    scm_from_locale_string (">")));
-      name = scm_string_to_symbol (name);
-    }
-  else
-    name = SCM_GOOPS_UNBOUND;
-
-  meta = applicablep ? scm_class_procedure_class : scm_class_class;
-
-  return scm_make_standard_class (meta, name, supers, SCM_EOL);
-}
-
 SCM
 scm_make_extended_class (char const *type_name, int applicablep)
 {
@@ -1463,16 +1390,6 @@ scm_make_extended_class (char const *type_name, int applicablep)
 					       ? scm_class_applicable
 					       : scm_class_top),
 				   applicablep);
-}
-
-static SCM
-scm_make_extended_class_from_symbol (SCM type_name_sym, int applicablep)
-{
-  return make_class_from_symbol (type_name_sym,
-				 scm_list_1 (applicablep
-					     ? scm_class_applicable
-					     : scm_class_top),
-				 applicablep);
 }
 
 void
@@ -1561,6 +1478,68 @@ create_port_classes (void)
     scm_make_port_classes (i, SCM_PTOBNAME (i));
 }
 
+SCM
+scm_i_define_class_for_vtable (SCM vtable)
+{
+  SCM class;
+
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
+  if (scm_is_false (vtable_class_map))
+    vtable_class_map = scm_c_make_weak_table (0, SCM_WEAK_TABLE_KIND_KEY);
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
+
+  if (scm_is_false (scm_struct_vtable_p (vtable)))
+    abort ();
+
+  class = scm_weak_table_refq (vtable_class_map, vtable, SCM_BOOL_F);
+
+  if (scm_is_false (class))
+    {
+      if (SCM_UNPACK (scm_class_class))
+        {
+          SCM name, meta, supers;
+
+          name = SCM_VTABLE_NAME (vtable);
+          if (scm_is_symbol (name))
+            name = scm_string_to_symbol
+              (scm_string_append
+               (scm_list_3 (scm_from_latin1_string ("<"),
+                            scm_symbol_to_string (name),
+                            scm_from_latin1_string (">"))));
+          else
+            name = scm_from_latin1_symbol ("<>");
+
+          if (SCM_STRUCT_VTABLE_FLAG_IS_SET (vtable, SCM_VTABLE_FLAG_SETTER))
+            {
+              meta = scm_class_applicable_struct_with_setter_class;
+              supers = scm_list_1 (scm_class_applicable_struct_with_setter);
+            }
+          else if (SCM_STRUCT_VTABLE_FLAG_IS_SET (vtable,
+                                                  SCM_VTABLE_FLAG_APPLICABLE))
+            {
+              meta = scm_class_applicable_struct_class;
+              supers = scm_list_1 (scm_class_applicable_struct);
+            }
+          else
+            {
+              meta = scm_class_class;
+              supers = scm_list_1 (scm_class_top);
+            }
+
+          return scm_make_standard_class (meta, name, supers, SCM_EOL);
+        }
+      else
+        /* `create_struct_classes' will fill this in later.  */
+        class = SCM_BOOL_F;
+
+      /* Don't worry about races.  This only happens when creating a
+         vtable, which happens by definition in one thread.  */
+      scm_weak_table_putq_x (vtable_class_map, vtable, class);
+    }
+
+  return class;
+}
+
 static SCM
 make_struct_class (void *closure SCM_UNUSED,
 		   SCM vtable, SCM data, SCM prev SCM_UNUSED)
@@ -1635,13 +1614,15 @@ SCM_DEFINE (scm_pure_generic_p, "pure-generic?", 1, 0, 0,
  * Initialization
  */
 
-SCM_DEFINE (scm_sys_bless_applicable_struct_vtable_x, "%bless-applicable-struct-vtable!", 1, 0, 0,
-	    (SCM vtable),
+SCM_DEFINE (scm_sys_bless_applicable_struct_vtables_x, "%bless-applicable-struct-vtables!", 2, 0, 0,
+	    (SCM applicable, SCM setter),
 	    "")
-#define FUNC_NAME s_scm_sys_bless_applicable_struct_vtable_x
+#define FUNC_NAME s_scm_sys_bless_applicable_struct_vtables_x
 {
-  SCM_VALIDATE_CLASS (1, vtable);
-  SCM_SET_VTABLE_FLAGS (vtable, SCM_VTABLE_FLAG_APPLICABLE_VTABLE);
+  SCM_VALIDATE_CLASS (1, applicable);
+  SCM_VALIDATE_CLASS (2, setter);
+  SCM_SET_VTABLE_FLAGS (applicable, SCM_VTABLE_FLAG_APPLICABLE_VTABLE);
+  SCM_SET_VTABLE_FLAGS (setter, SCM_VTABLE_FLAG_SETTER_VTABLE);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -1686,11 +1667,14 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
   /* scm_class_generic functions classes */
   scm_class_procedure_class = scm_variable_ref (scm_c_lookup ("<procedure-class>"));
   scm_class_applicable_struct_class = scm_variable_ref (scm_c_lookup ("<applicable-struct-class>"));
+  scm_class_applicable_struct_with_setter_class =
+    scm_variable_ref (scm_c_lookup ("<applicable-struct-with-setter-class>"));
 
   scm_class_method = scm_variable_ref (scm_c_lookup ("<method>"));
   scm_class_accessor_method = scm_variable_ref (scm_c_lookup ("<accessor-method>"));
   scm_class_applicable = scm_variable_ref (scm_c_lookup ("<applicable>"));
   scm_class_applicable_struct = scm_variable_ref (scm_c_lookup ("<applicable-struct>"));
+  scm_class_applicable_struct_with_setter = scm_variable_ref (scm_c_lookup ("<applicable-struct-with-setter>"));
   scm_class_generic = scm_variable_ref (scm_c_lookup ("<generic>"));
   scm_class_extended_generic = scm_variable_ref (scm_c_lookup ("<extended-generic>"));
   scm_class_generic_with_setter = scm_variable_ref (scm_c_lookup ("<generic-with-setter>"));
