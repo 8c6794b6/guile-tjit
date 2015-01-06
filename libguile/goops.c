@@ -977,8 +977,6 @@ SCM_DEFINE (scm_slot_set_x, "slot-set!", 3, 0, 0,
 }
 #undef FUNC_NAME
 
-const char *scm_s_slot_set_x = s_scm_slot_set_x;
-
 SCM_DEFINE (scm_slot_bound_p, "slot-bound?", 2, 0, 0,
 	    (SCM obj, SCM slot_name),
 	    "Return @code{#t} if the slot named @var{slot_name} of @var{obj}\n"

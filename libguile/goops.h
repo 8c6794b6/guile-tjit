@@ -212,7 +212,6 @@ SCM_API SCM scm_class_scm;
 SCM_API SCM scm_class_int;
 SCM_API SCM scm_class_float;
 SCM_API SCM scm_class_double;
-SCM_API const char *scm_s_slot_set_x;
 
 SCM_API SCM scm_module_goops;
 
