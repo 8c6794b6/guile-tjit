@@ -3,7 +3,7 @@
 #ifndef SCM_DEBUG_H
 #define SCM_DEBUG_H
 
-/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002,2004,2008,2009,2010,2011,2012,2013
+/* Copyright (C) 1995,1996,1998,1999,2000,2001,2002,2004,2008,2009,2010,2011,2012,2013,2015
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -27,18 +27,6 @@
 #include "libguile/__scm.h"
 
 #include "libguile/options.h"
-
-
-/* {Evaluator}
- */
-
-typedef union scm_t_debug_info
-{
-  struct { SCM exp, env; } e;
-  struct { SCM proc, args; } a;
-  SCM id;
-} scm_t_debug_info;
-
 
 
 SCM_API SCM scm_local_eval (SCM exp, SCM env);
