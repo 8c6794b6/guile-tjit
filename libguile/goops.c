@@ -172,8 +172,6 @@ SCM scm_port_class[3 * SCM_I_MAX_PORT_TYPE_COUNT];
 /* SMOB classes.  */
 SCM scm_smob_class[SCM_I_MAX_SMOB_TYPE_COUNT];
 
-SCM scm_no_applicable_method;
-
 static SCM scm_make_unbound (void);
 static SCM scm_unbound_p (SCM obj);
 static SCM scm_assert_bound (SCM value, SCM obj);
@@ -1739,8 +1737,6 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
   create_struct_classes ();
   create_port_classes ();
 
-  scm_no_applicable_method = scm_variable_ref (scm_c_lookup ("no-applicable-method"));
-
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -1761,6 +1757,11 @@ SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
   var_change_class =
     scm_module_variable (scm_module_goops, sym_change_class);
   setup_extended_primitive_generics ();
+
+#if (SCM_ENABLE_DEPRECATED == 1)
+  scm_init_deprecated_goops ();
+#endif
+
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME

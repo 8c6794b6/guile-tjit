@@ -93,6 +93,15 @@ scm_memory_error (const char *subr)
 
 
 
+SCM scm_no_applicable_method = SCM_BOOL_F;
+
+void
+scm_init_deprecated_goops (void)
+{
+  scm_no_applicable_method =
+    scm_variable_ref (scm_c_lookup ("no-applicable-method"));
+}
+
 #define BUFFSIZE 32		/* big enough for most uses */
 #define SPEC_OF(x)  SCM_SLOT (x, scm_si_specializers)
 

@@ -150,6 +150,10 @@ SCM_DEPRECATED void scm_memory_error (const char *subr) SCM_NORETURN;
 
 
 
+SCM_DEPRECATED SCM scm_no_applicable_method;
+
+SCM_INTERNAL void scm_init_deprecated_goops (void);
+
 SCM_DEPRECATED SCM scm_compute_applicable_methods (SCM gf, SCM args, long len, int scm_find_method);
 SCM_DEPRECATED SCM scm_find_method (SCM l);
 SCM_DEPRECATED SCM scm_basic_make_class (SCM c, SCM name, SCM dsupers, SCM dslots);
