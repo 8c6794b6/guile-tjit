@@ -75,13 +75,11 @@
 static SCM var_make_standard_class = SCM_BOOL_F;
 static SCM var_slot_unbound = SCM_BOOL_F;
 static SCM var_slot_missing = SCM_BOOL_F;
-static SCM var_no_applicable_method = SCM_BOOL_F;
 static SCM var_change_class = SCM_BOOL_F;
 static SCM var_make = SCM_BOOL_F;
 
 SCM_SYMBOL (sym_slot_unbound, "slot-unbound");
 SCM_SYMBOL (sym_slot_missing, "slot-missing");
-SCM_SYMBOL (sym_no_applicable_method, "no-applicable-method");
 SCM_SYMBOL (sym_memoize_method_x, "memoize-method!");
 SCM_SYMBOL (sym_change_class, "change-class");
 
@@ -1703,8 +1701,6 @@ SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
     scm_module_variable (scm_module_goops, sym_slot_unbound);
   var_slot_missing =
     scm_module_variable (scm_module_goops, sym_slot_missing);
-  var_no_applicable_method =
-    scm_module_variable (scm_module_goops, sym_no_applicable_method);
   var_change_class =
     scm_module_variable (scm_module_goops, sym_change_class);
   setup_extended_primitive_generics ();
