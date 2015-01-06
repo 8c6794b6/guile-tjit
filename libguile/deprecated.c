@@ -103,6 +103,7 @@ scm_init_deprecated_goops (void)
 }
 
 #define BUFFSIZE 32		/* big enough for most uses */
+#define scm_si_specializers	 1  /* offset of spec. slot in a <method> */
 #define SPEC_OF(x)  SCM_SLOT (x, scm_si_specializers)
 
 static SCM

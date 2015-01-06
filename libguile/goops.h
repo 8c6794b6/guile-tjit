@@ -150,13 +150,6 @@
 #define scm_si_effective_methods  4
 #define scm_si_generic_setter     5
 
-#define scm_si_generic_function	 0  /* offset of gf    slot in a <method> */
-#define scm_si_specializers	 1  /* offset of spec. slot in a <method> */
-#define scm_si_procedure 	 2  /* offset of proc. slot in a <method> */
-#define scm_si_formals		 3  /* offset of form. slot in a <method> */
-#define scm_si_body		 4  /* offset of body  slot in a <method> */
-#define scm_si_make_procedure	 5  /* offset of makep.slot in a <method> */
-
 /* C interface */
 SCM_API SCM scm_class_boolean;
 SCM_API SCM scm_class_char;
