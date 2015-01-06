@@ -80,7 +80,6 @@ static SCM var_make = SCM_BOOL_F;
 
 SCM_SYMBOL (sym_slot_unbound, "slot-unbound");
 SCM_SYMBOL (sym_slot_missing, "slot-missing");
-SCM_SYMBOL (sym_memoize_method_x, "memoize-method!");
 SCM_SYMBOL (sym_change_class, "change-class");
 
 SCM_VARIABLE (scm_var_make_extended_generic, "make-extended-generic");
