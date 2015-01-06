@@ -102,14 +102,6 @@
 #define scm_si_nfields		 (scm_vtable_offset_user + 17) /* an integer */
 #define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 18)
 
-typedef struct scm_t_method {
-  SCM generic_function;
-  SCM specializers;
-  SCM procedure;
-} scm_t_method;
-
-#define SCM_METHOD(obj) ((scm_t_method *) SCM_STRUCT_DATA (obj))
-
 #define SCM_OBJ_CLASS_REDEF(x)  (SCM_PACK (SCM_STRUCT_VTABLE_DATA (x) [scm_si_redefined]))
 #define SCM_INST(x)	       SCM_STRUCT_DATA (x)
 
