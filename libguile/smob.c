@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1998, 1999, 2000, 2001, 2003, 2004, 2006,
- *   2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ *   2009, 2010, 2011, 2012, 2013, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -218,8 +218,8 @@ scm_make_smob_type (char const *name, size_t size)
   scm_smobs[new_smob].size = size;
 
   /* Make a class object if Goops is present. */
-  if (SCM_UNPACK (scm_smob_class[0]) != 0)
-    scm_smob_class[new_smob] = scm_make_extended_class (name, 0);
+  if (SCM_UNPACK (scm_i_smob_class[0]) != 0)
+    scm_i_smob_class[new_smob] = scm_make_extended_class (name, 0);
 
   return scm_tc7_smob + new_smob * 256;
 }
@@ -259,8 +259,8 @@ scm_set_smob_apply (scm_t_bits tc, SCM (*apply) (),
   scm_smobs[SCM_TC2SMOBNUM (tc)].apply = apply;
   scm_smobs[SCM_TC2SMOBNUM (tc)].apply_trampoline = trampoline;
 
-  if (SCM_UNPACK (scm_smob_class[0]) != 0)
-    scm_i_inherit_applicable (scm_smob_class[SCM_TC2SMOBNUM (tc)]);
+  if (SCM_UNPACK (scm_i_smob_class[0]) != 0)
+    scm_i_inherit_applicable (scm_i_smob_class[SCM_TC2SMOBNUM (tc)]);
 }
 
 SCM

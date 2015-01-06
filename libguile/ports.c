@@ -1,6 +1,6 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2006,
  *   2007, 2008, 2009, 2010, 2011, 2012, 2013,
- *   2014 Free Software Foundation, Inc.
+ *   2014, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -261,7 +261,7 @@ scm_make_port_type (char *name,
   ptobnum = scm_c_port_type_add_x (desc);
 
   /* Make a class object if GOOPS is present.  */
-  if (SCM_UNPACK (scm_port_class[0]) != 0)
+  if (SCM_UNPACK (scm_i_port_class[0]) != 0)
     scm_make_port_classes (ptobnum, name);
 
   return scm_tc7_port + ptobnum * 256;

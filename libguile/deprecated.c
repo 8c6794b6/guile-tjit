@@ -95,11 +95,101 @@ scm_memory_error (const char *subr)
 
 SCM scm_no_applicable_method = SCM_BOOL_F;
 
+SCM scm_class_boolean, scm_class_char, scm_class_pair;
+SCM scm_class_procedure, scm_class_string, scm_class_symbol;
+SCM scm_class_primitive_generic;
+SCM scm_class_vector, scm_class_null;
+SCM scm_class_integer, scm_class_real, scm_class_complex, scm_class_fraction;
+SCM scm_class_unknown;
+SCM scm_class_top, scm_class_object, scm_class_class;
+SCM scm_class_applicable;
+SCM scm_class_applicable_struct, scm_class_applicable_struct_with_setter;
+SCM scm_class_generic, scm_class_generic_with_setter;
+SCM scm_class_accessor;
+SCM scm_class_extended_generic, scm_class_extended_generic_with_setter;
+SCM scm_class_extended_accessor;
+SCM scm_class_method;
+SCM scm_class_accessor_method;
+SCM scm_class_procedure_class;
+SCM scm_class_applicable_struct_class;
+SCM scm_class_number, scm_class_list;
+SCM scm_class_keyword;
+SCM scm_class_port, scm_class_input_output_port;
+SCM scm_class_input_port, scm_class_output_port;
+SCM scm_class_foreign_slot;
+SCM scm_class_self, scm_class_protected;
+SCM scm_class_hidden, scm_class_opaque, scm_class_read_only;
+SCM scm_class_protected_hidden, scm_class_protected_opaque, scm_class_protected_read_only;
+SCM scm_class_scm;
+SCM scm_class_int, scm_class_float, scm_class_double;
+
+SCM *scm_port_class, *scm_smob_class;
+
 void
 scm_init_deprecated_goops (void)
 {
   scm_no_applicable_method =
     scm_variable_ref (scm_c_lookup ("no-applicable-method"));
+
+  scm_class_class = scm_variable_ref (scm_c_lookup ("<class>"));
+  scm_class_top = scm_variable_ref (scm_c_lookup ("<top>"));
+  scm_class_object = scm_variable_ref (scm_c_lookup ("<object>"));
+
+  scm_class_foreign_slot = scm_variable_ref (scm_c_lookup ("<foreign-slot>"));
+  scm_class_protected = scm_variable_ref (scm_c_lookup ("<protected-slot>"));
+  scm_class_hidden = scm_variable_ref (scm_c_lookup ("<hidden-slot>"));
+  scm_class_opaque = scm_variable_ref (scm_c_lookup ("<opaque-slot>"));
+  scm_class_read_only = scm_variable_ref (scm_c_lookup ("<read-only-slot>"));
+  scm_class_self = scm_variable_ref (scm_c_lookup ("<self-slot>"));
+  scm_class_protected_opaque = scm_variable_ref (scm_c_lookup ("<protected-opaque-slot>"));
+  scm_class_protected_hidden = scm_variable_ref (scm_c_lookup ("<protected-hidden-slot>"));
+  scm_class_protected_read_only = scm_variable_ref (scm_c_lookup ("<protected-read-only-slot>"));
+  scm_class_scm = scm_variable_ref (scm_c_lookup ("<scm-slot>"));
+  scm_class_int = scm_variable_ref (scm_c_lookup ("<int-slot>"));
+  scm_class_float = scm_variable_ref (scm_c_lookup ("<float-slot>"));
+  scm_class_double = scm_variable_ref (scm_c_lookup ("<double-slot>"));
+
+  /* scm_class_generic functions classes */
+  scm_class_procedure_class = scm_variable_ref (scm_c_lookup ("<procedure-class>"));
+  scm_class_applicable_struct_class = scm_variable_ref (scm_c_lookup ("<applicable-struct-class>"));
+
+  scm_class_method = scm_variable_ref (scm_c_lookup ("<method>"));
+  scm_class_accessor_method = scm_variable_ref (scm_c_lookup ("<accessor-method>"));
+  scm_class_applicable = scm_variable_ref (scm_c_lookup ("<applicable>"));
+  scm_class_applicable_struct = scm_variable_ref (scm_c_lookup ("<applicable-struct>"));
+  scm_class_applicable_struct_with_setter = scm_variable_ref (scm_c_lookup ("<applicable-struct-with-setter>"));
+  scm_class_generic = scm_variable_ref (scm_c_lookup ("<generic>"));
+  scm_class_extended_generic = scm_variable_ref (scm_c_lookup ("<extended-generic>"));
+  scm_class_generic_with_setter = scm_variable_ref (scm_c_lookup ("<generic-with-setter>"));
+  scm_class_accessor = scm_variable_ref (scm_c_lookup ("<accessor>"));
+  scm_class_extended_generic_with_setter = scm_variable_ref (scm_c_lookup ("<extended-generic-with-setter>"));
+  scm_class_extended_accessor = scm_variable_ref (scm_c_lookup ("<extended-accessor>"));
+
+  /* Primitive types classes */
+  scm_class_boolean = scm_variable_ref (scm_c_lookup ("<boolean>"));
+  scm_class_char = scm_variable_ref (scm_c_lookup ("<char>"));
+  scm_class_list = scm_variable_ref (scm_c_lookup ("<list>"));
+  scm_class_pair = scm_variable_ref (scm_c_lookup ("<pair>"));
+  scm_class_null = scm_variable_ref (scm_c_lookup ("<null>"));
+  scm_class_string = scm_variable_ref (scm_c_lookup ("<string>"));
+  scm_class_symbol = scm_variable_ref (scm_c_lookup ("<symbol>"));
+  scm_class_vector = scm_variable_ref (scm_c_lookup ("<vector>"));
+  scm_class_number = scm_variable_ref (scm_c_lookup ("<number>"));
+  scm_class_complex = scm_variable_ref (scm_c_lookup ("<complex>"));
+  scm_class_real = scm_variable_ref (scm_c_lookup ("<real>"));
+  scm_class_integer = scm_variable_ref (scm_c_lookup ("<integer>"));
+  scm_class_fraction = scm_variable_ref (scm_c_lookup ("<fraction>"));
+  scm_class_keyword = scm_variable_ref (scm_c_lookup ("<keyword>"));
+  scm_class_unknown = scm_variable_ref (scm_c_lookup ("<unknown>"));
+  scm_class_procedure = scm_variable_ref (scm_c_lookup ("<procedure>"));
+  scm_class_primitive_generic = scm_variable_ref (scm_c_lookup ("<primitive-generic>"));
+  scm_class_port = scm_variable_ref (scm_c_lookup ("<port>"));
+  scm_class_input_port = scm_variable_ref (scm_c_lookup ("<input-port>"));
+  scm_class_output_port = scm_variable_ref (scm_c_lookup ("<output-port>"));
+  scm_class_input_output_port = scm_variable_ref (scm_c_lookup ("<input-output-port>"));
+
+  scm_port_class = scm_i_port_class;
+  scm_smob_class = scm_i_smob_class;
 }
 
 #define BUFFSIZE 32		/* big enough for most uses */

@@ -123,34 +123,34 @@ static int goops_loaded_p = 0;
 static scm_t_rstate *goops_rstate;
 
 /* These variables are filled in by the object system when loaded. */
-SCM scm_class_boolean, scm_class_char, scm_class_pair;
-SCM scm_class_procedure, scm_class_string, scm_class_symbol;
-SCM scm_class_primitive_generic;
-SCM scm_class_vector, scm_class_null;
-SCM scm_class_integer, scm_class_real, scm_class_complex, scm_class_fraction;
-SCM scm_class_unknown;
-SCM scm_class_top, scm_class_object, scm_class_class;
-SCM scm_class_applicable;
-SCM scm_class_applicable_struct, scm_class_applicable_struct_with_setter;
-SCM scm_class_generic, scm_class_generic_with_setter;
-SCM scm_class_accessor;
-SCM scm_class_extended_generic, scm_class_extended_generic_with_setter;
-SCM scm_class_extended_accessor;
-SCM scm_class_method;
-SCM scm_class_accessor_method;
-SCM scm_class_procedure_class;
-SCM scm_class_applicable_struct_class;
-static SCM scm_class_applicable_struct_with_setter_class;
-SCM scm_class_number, scm_class_list;
-SCM scm_class_keyword;
-SCM scm_class_port, scm_class_input_output_port;
-SCM scm_class_input_port, scm_class_output_port;
-SCM scm_class_foreign_slot;
-SCM scm_class_self, scm_class_protected;
-SCM scm_class_hidden, scm_class_opaque, scm_class_read_only;
-SCM scm_class_protected_hidden, scm_class_protected_opaque, scm_class_protected_read_only;
-SCM scm_class_scm;
-SCM scm_class_int, scm_class_float, scm_class_double;
+static SCM class_boolean, class_char, class_pair;
+static SCM class_procedure, class_string, class_symbol;
+static SCM class_primitive_generic;
+static SCM class_vector, class_null;
+static SCM class_integer, class_real, class_complex, class_fraction;
+static SCM class_unknown;
+static SCM class_top, class_object, class_class;
+static SCM class_applicable;
+static SCM class_applicable_struct, class_applicable_struct_with_setter;
+static SCM class_generic, class_generic_with_setter;
+static SCM class_accessor;
+static SCM class_extended_generic, class_extended_generic_with_setter;
+static SCM class_extended_accessor;
+static SCM class_method;
+static SCM class_accessor_method;
+static SCM class_procedure_class;
+static SCM class_applicable_struct_class;
+static SCM class_applicable_struct_with_setter_class;
+static SCM class_number, class_list;
+static SCM class_keyword;
+static SCM class_port, class_input_output_port;
+static SCM class_input_port, class_output_port;
+static SCM class_foreign_slot;
+static SCM class_self, class_protected;
+static SCM class_hidden, class_opaque, class_read_only;
+static SCM class_protected_hidden, class_protected_opaque, class_protected_read_only;
+static SCM class_scm;
+static SCM class_int, class_float, class_double;
 
 static SCM class_foreign;
 static SCM class_hashtable;
@@ -168,10 +168,10 @@ static SCM vtable_class_map = SCM_BOOL_F;
 /* Port classes.  Allocate 3 times the maximum number of port types so that
    input ports, output ports, and in/out ports can be stored at different
    offsets.  See `SCM_IN_PCLASS_INDEX' et al.  */
-SCM scm_port_class[3 * SCM_I_MAX_PORT_TYPE_COUNT];
+SCM scm_i_port_class[3 * SCM_I_MAX_PORT_TYPE_COUNT];
 
 /* SMOB classes.  */
-SCM scm_smob_class[SCM_I_MAX_SMOB_TYPE_COUNT];
+SCM scm_i_smob_class[SCM_I_MAX_SMOB_TYPE_COUNT];
 
 static SCM scm_make_unbound (void);
 static SCM scm_unbound_p (SCM obj);
@@ -197,28 +197,28 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
     {
     case scm_tc3_int_1:
     case scm_tc3_int_2:
-      return scm_class_integer;
+      return class_integer;
 
     case scm_tc3_imm24:
       if (SCM_CHARP (x))
-	return scm_class_char;
+	return class_char;
       else if (scm_is_bool (x))
-        return scm_class_boolean;
+        return class_boolean;
       else if (scm_is_null (x))
-        return scm_class_null;
+        return class_null;
       else
-        return scm_class_unknown;
+        return class_unknown;
 
     case scm_tc3_cons:
       switch (SCM_TYP7 (x))
 	{
 	case scm_tcs_cons_nimcar:
-	  return scm_class_pair;
+	  return class_pair;
 	case scm_tc7_symbol:
-	  return scm_class_symbol;
+	  return class_symbol;
 	case scm_tc7_vector:
 	case scm_tc7_wvect:
-	  return scm_class_vector;
+	  return class_vector;
 	case scm_tc7_pointer:
 	  return class_foreign;
 	case scm_tc7_hashtable:
@@ -230,7 +230,7 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
         case scm_tc7_frame:
 	  return class_frame;
         case scm_tc7_keyword:
-	  return scm_class_keyword;
+	  return class_keyword;
         case scm_tc7_vm_cont:
 	  return class_vm_cont;
 	case scm_tc7_bytevector:
@@ -243,39 +243,39 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	case scm_tc7_bitvector:
           return class_bitvector;
 	case scm_tc7_string:
-	  return scm_class_string;
+	  return class_string;
         case scm_tc7_number:
           switch SCM_TYP16 (x) {
           case scm_tc16_big:
-            return scm_class_integer;
+            return class_integer;
           case scm_tc16_real:
-            return scm_class_real;
+            return class_real;
           case scm_tc16_complex:
-            return scm_class_complex;
+            return class_complex;
 	  case scm_tc16_fraction:
-	    return scm_class_fraction;
+	    return class_fraction;
           }
 	case scm_tc7_program:
 	  if (SCM_PROGRAM_IS_PRIMITIVE_GENERIC (x)
               && SCM_UNPACK (*SCM_SUBR_GENERIC (x)))
-	    return scm_class_primitive_generic;
+	    return class_primitive_generic;
 	  else
-	    return scm_class_procedure;
+	    return class_procedure;
 
 	case scm_tc7_smob:
 	  {
 	    scm_t_bits type = SCM_TYP16 (x);
 	    if (type != scm_tc16_port_with_ps)
-	      return scm_smob_class[SCM_TC2SMOBNUM (type)];
+	      return scm_i_smob_class[SCM_TC2SMOBNUM (type)];
 	    x = SCM_PORT_WITH_PS_PORT (x);
 	    /* fall through to ports */
 	  }
 	case scm_tc7_port:
-	  return scm_port_class[(SCM_WRTNG & SCM_CELL_WORD_0 (x)
-				 ? (SCM_RDNG & SCM_CELL_WORD_0 (x)
-				    ? SCM_INOUT_PCLASS_INDEX | SCM_PTOBNUM (x)
-				    : SCM_OUT_PCLASS_INDEX | SCM_PTOBNUM (x))
-				 : SCM_IN_PCLASS_INDEX | SCM_PTOBNUM (x))];
+	  return scm_i_port_class[(SCM_WRTNG & SCM_CELL_WORD_0 (x)
+                                   ? (SCM_RDNG & SCM_CELL_WORD_0 (x)
+                                      ? SCM_INOUT_PCLASS_INDEX | SCM_PTOBNUM (x)
+                                      : SCM_OUT_PCLASS_INDEX | SCM_PTOBNUM (x))
+                                   : SCM_IN_PCLASS_INDEX | SCM_PTOBNUM (x))];
 	case scm_tcs_struct:
 	  if (SCM_OBJ_CLASS_FLAGS (x) & SCM_CLASSF_GOOPS_VALID)
 	    return SCM_CLASS_OF (x);
@@ -292,9 +292,9 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
             return scm_i_define_class_for_vtable (SCM_CLASS_OF (x));
 	default:
 	  if (scm_is_pair (x))
-	    return scm_class_pair;
+	    return class_pair;
 	  else
-	    return scm_class_unknown;
+	    return class_unknown;
 	}
 
     case scm_tc3_struct:
@@ -304,7 +304,7 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
       /* Never reached */
       break;
     }
-  return scm_class_unknown;
+  return class_unknown;
 }
 #undef FUNC_NAME
 
@@ -525,6 +525,17 @@ SCM_DEFINE (scm_instance_p, "instance?", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+int
+scm_is_generic (SCM x)
+{
+  return SCM_INSTANCEP (x) && SCM_SUBCLASSP (SCM_CLASS_OF (x), class_generic);
+}
+
+int
+scm_is_method (SCM x)
+{
+  return SCM_INSTANCEP (x) && SCM_SUBCLASSP (SCM_CLASS_OF (x), class_method);
+}
 
 /******************************************************************************
  *
@@ -640,7 +651,7 @@ SCM fold_downward_gf_methods (SCM method_lists, SCM gf)
 static
 SCM fold_upward_gf_methods (SCM method_lists, SCM gf)
 {
-  if (SCM_IS_A_P (gf, scm_class_extended_generic))
+  if (SCM_IS_A_P (gf, class_extended_generic))
     {
       SCM gfs = scm_slot_ref (gf, sym_extends);
       while (!scm_is_null (gfs))
@@ -1195,7 +1206,7 @@ SCM_DEFINE (scm_enable_primitive_generic_x, "enable-primitive-generic!", 0, 0, 1
       SCM subr = SCM_CAR (subrs);
       SCM_ASSERT (SCM_PRIMITIVE_GENERIC_P (subr), subr, SCM_ARGn, FUNC_NAME);
       SCM_SET_SUBR_GENERIC (subr,
-                            scm_make (scm_list_3 (scm_class_generic,
+                            scm_make (scm_list_3 (class_generic,
                                                   k_name,
                                                   SCM_SUBR_NAME (subr))));
       subrs = SCM_CDR (subrs);
@@ -1376,7 +1387,7 @@ make_class_from_template (char const *template, char const *type_name, SCM super
   else
     name = SCM_GOOPS_UNBOUND;
 
-  meta = applicablep ? scm_class_procedure_class : scm_class_class;
+  meta = applicablep ? class_procedure_class : class_class;
 
   return scm_make_standard_class (meta, name, supers, SCM_EOL);
 }
@@ -1387,42 +1398,42 @@ scm_make_extended_class (char const *type_name, int applicablep)
   return make_class_from_template ("<%s>",
 				   type_name,
 				   scm_list_1 (applicablep
-					       ? scm_class_applicable
-					       : scm_class_top),
+					       ? class_applicable
+					       : class_top),
 				   applicablep);
 }
 
 void
 scm_i_inherit_applicable (SCM c)
 {
-  if (!SCM_SUBCLASSP (c, scm_class_applicable))
+  if (!SCM_SUBCLASSP (c, class_applicable))
     {
       SCM dsupers = SCM_SLOT (c, scm_si_direct_supers);
       SCM cpl = SCM_SLOT (c, scm_si_cpl);
-      /* patch scm_class_applicable into direct-supers */
-      SCM top = scm_c_memq (scm_class_top, dsupers);
+      /* patch class_applicable into direct-supers */
+      SCM top = scm_c_memq (class_top, dsupers);
       if (scm_is_false (top))
 	dsupers = scm_append (scm_list_2 (dsupers,
-					  scm_list_1 (scm_class_applicable)));
+					  scm_list_1 (class_applicable)));
       else
 	{
-	  SCM_SETCAR (top, scm_class_applicable);
-	  SCM_SETCDR (top, scm_cons (scm_class_top, SCM_CDR (top)));
+	  SCM_SETCAR (top, class_applicable);
+	  SCM_SETCDR (top, scm_cons (class_top, SCM_CDR (top)));
 	}
       SCM_SET_SLOT (c, scm_si_direct_supers, dsupers);
-      /* patch scm_class_applicable into cpl */
-      top = scm_c_memq (scm_class_top, cpl);
+      /* patch class_applicable into cpl */
+      top = scm_c_memq (class_top, cpl);
       if (scm_is_false (top))
 	abort ();
       else
 	{
-	  SCM_SETCAR (top, scm_class_applicable);
-	  SCM_SETCDR (top, scm_cons (scm_class_top, SCM_CDR (top)));
+	  SCM_SETCAR (top, class_applicable);
+	  SCM_SETCDR (top, scm_cons (class_top, SCM_CDR (top)));
 	}
-      /* add class to direct-subclasses of scm_class_applicable */
-      SCM_SET_SLOT (scm_class_applicable,
+      /* add class to direct-subclasses of class_applicable */
+      SCM_SET_SLOT (class_applicable,
 		    scm_si_direct_subclasses,
-		    scm_cons (c, SCM_SLOT (scm_class_applicable,
+		    scm_cons (c, SCM_SLOT (class_applicable,
 					   scm_si_direct_subclasses)));
     }
 }
@@ -1433,12 +1444,12 @@ create_smob_classes (void)
   long i;
 
   for (i = 0; i < SCM_I_MAX_SMOB_TYPE_COUNT; ++i)
-    scm_smob_class[i] = SCM_BOOL_F;
+    scm_i_smob_class[i] = SCM_BOOL_F;
 
   for (i = 0; i < scm_numsmob; ++i)
-    if (scm_is_false (scm_smob_class[i]))
-      scm_smob_class[i] = scm_make_extended_class (SCM_SMOBNAME (i),
-						   scm_smobs[i].apply != 0);
+    if (scm_is_false (scm_i_smob_class[i]))
+      scm_i_smob_class[i] = scm_make_extended_class (SCM_SMOBNAME (i),
+                                                     scm_smobs[i].apply != 0);
 }
 
 void
@@ -1446,27 +1457,27 @@ scm_make_port_classes (long ptobnum, char *type_name)
 {
   SCM c, class = make_class_from_template ("<%s-port>",
 					   type_name,
-					   scm_list_1 (scm_class_port),
+					   scm_list_1 (class_port),
 					   0);
-  scm_port_class[SCM_IN_PCLASS_INDEX + ptobnum]
+  scm_i_port_class[SCM_IN_PCLASS_INDEX + ptobnum]
     = make_class_from_template ("<%s-input-port>",
 				type_name,
-				scm_list_2 (class, scm_class_input_port),
+				scm_list_2 (class, class_input_port),
 				0);
-  scm_port_class[SCM_OUT_PCLASS_INDEX + ptobnum]
+  scm_i_port_class[SCM_OUT_PCLASS_INDEX + ptobnum]
     = make_class_from_template ("<%s-output-port>",
 				type_name,
-				scm_list_2 (class, scm_class_output_port),
+				scm_list_2 (class, class_output_port),
 				0);
-  scm_port_class[SCM_INOUT_PCLASS_INDEX + ptobnum]
+  scm_i_port_class[SCM_INOUT_PCLASS_INDEX + ptobnum]
     = c
     = make_class_from_template ("<%s-input-output-port>",
 				type_name,
-				scm_list_2 (class, scm_class_input_output_port),
+				scm_list_2 (class, class_input_output_port),
 				0);
   /* Patch cpl (since this tree is too complex for the C level compute-cpl) */
   SCM_SET_SLOT (c, scm_si_cpl,
-		scm_cons2 (c, class, SCM_SLOT (scm_class_input_output_port, scm_si_cpl)));
+		scm_cons2 (c, class, SCM_SLOT (class_input_output_port, scm_si_cpl)));
 }
 
 static void
@@ -1495,7 +1506,7 @@ scm_i_define_class_for_vtable (SCM vtable)
 
   if (scm_is_false (class))
     {
-      if (SCM_UNPACK (scm_class_class))
+      if (SCM_UNPACK (class_class))
         {
           SCM name, meta, supers;
 
@@ -1511,19 +1522,19 @@ scm_i_define_class_for_vtable (SCM vtable)
 
           if (SCM_STRUCT_VTABLE_FLAG_IS_SET (vtable, SCM_VTABLE_FLAG_SETTER))
             {
-              meta = scm_class_applicable_struct_with_setter_class;
-              supers = scm_list_1 (scm_class_applicable_struct_with_setter);
+              meta = class_applicable_struct_with_setter_class;
+              supers = scm_list_1 (class_applicable_struct_with_setter);
             }
           else if (SCM_STRUCT_VTABLE_FLAG_IS_SET (vtable,
                                                   SCM_VTABLE_FLAG_APPLICABLE))
             {
-              meta = scm_class_applicable_struct_class;
-              supers = scm_list_1 (scm_class_applicable_struct);
+              meta = class_applicable_struct_class;
+              supers = scm_list_1 (class_applicable_struct);
             }
           else
             {
-              meta = scm_class_class;
-              supers = scm_list_1 (scm_class_top);
+              meta = class_class;
+              supers = scm_list_1 (class_top);
             }
 
           return scm_make_standard_class (meta, name, supers, SCM_EOL);
@@ -1584,10 +1595,10 @@ scm_ensure_accessor (SCM name)
   else
     gf = SCM_BOOL_F;
 
-  if (!SCM_IS_A_P (gf, scm_class_accessor))
+  if (!SCM_IS_A_P (gf, class_accessor))
     {
-      gf = scm_make (scm_list_3 (scm_class_generic, k_name, name));
-      gf = scm_make (scm_list_5 (scm_class_accessor,
+      gf = scm_make (scm_list_3 (class_generic, k_name, name));
+      gf = scm_make (scm_list_5 (class_accessor,
 				 k_name, name, k_setter, gf));
     }
 
@@ -1646,51 +1657,51 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
   var_make_standard_class = scm_c_lookup ("make-standard-class");
   var_make = scm_c_lookup ("make");
 
-  scm_class_class = scm_variable_ref (scm_c_lookup ("<class>"));
-  scm_class_top = scm_variable_ref (scm_c_lookup ("<top>"));
-  scm_class_object = scm_variable_ref (scm_c_lookup ("<object>"));
+  class_class = scm_variable_ref (scm_c_lookup ("<class>"));
+  class_top = scm_variable_ref (scm_c_lookup ("<top>"));
+  class_object = scm_variable_ref (scm_c_lookup ("<object>"));
 
-  scm_class_foreign_slot = scm_variable_ref (scm_c_lookup ("<foreign-slot>"));
-  scm_class_protected = scm_variable_ref (scm_c_lookup ("<protected-slot>"));
-  scm_class_hidden = scm_variable_ref (scm_c_lookup ("<hidden-slot>"));
-  scm_class_opaque = scm_variable_ref (scm_c_lookup ("<opaque-slot>"));
-  scm_class_read_only = scm_variable_ref (scm_c_lookup ("<read-only-slot>"));
-  scm_class_self = scm_variable_ref (scm_c_lookup ("<self-slot>"));
-  scm_class_protected_opaque = scm_variable_ref (scm_c_lookup ("<protected-opaque-slot>"));
-  scm_class_protected_hidden = scm_variable_ref (scm_c_lookup ("<protected-hidden-slot>"));
-  scm_class_protected_read_only = scm_variable_ref (scm_c_lookup ("<protected-read-only-slot>"));
-  scm_class_scm = scm_variable_ref (scm_c_lookup ("<scm-slot>"));
-  scm_class_int = scm_variable_ref (scm_c_lookup ("<int-slot>"));
-  scm_class_float = scm_variable_ref (scm_c_lookup ("<float-slot>"));
-  scm_class_double = scm_variable_ref (scm_c_lookup ("<double-slot>"));
+  class_foreign_slot = scm_variable_ref (scm_c_lookup ("<foreign-slot>"));
+  class_protected = scm_variable_ref (scm_c_lookup ("<protected-slot>"));
+  class_hidden = scm_variable_ref (scm_c_lookup ("<hidden-slot>"));
+  class_opaque = scm_variable_ref (scm_c_lookup ("<opaque-slot>"));
+  class_read_only = scm_variable_ref (scm_c_lookup ("<read-only-slot>"));
+  class_self = scm_variable_ref (scm_c_lookup ("<self-slot>"));
+  class_protected_opaque = scm_variable_ref (scm_c_lookup ("<protected-opaque-slot>"));
+  class_protected_hidden = scm_variable_ref (scm_c_lookup ("<protected-hidden-slot>"));
+  class_protected_read_only = scm_variable_ref (scm_c_lookup ("<protected-read-only-slot>"));
+  class_scm = scm_variable_ref (scm_c_lookup ("<scm-slot>"));
+  class_int = scm_variable_ref (scm_c_lookup ("<int-slot>"));
+  class_float = scm_variable_ref (scm_c_lookup ("<float-slot>"));
+  class_double = scm_variable_ref (scm_c_lookup ("<double-slot>"));
 
-  /* scm_class_generic functions classes */
-  scm_class_procedure_class = scm_variable_ref (scm_c_lookup ("<procedure-class>"));
-  scm_class_applicable_struct_class = scm_variable_ref (scm_c_lookup ("<applicable-struct-class>"));
-  scm_class_applicable_struct_with_setter_class =
+  /* Applicables */
+  class_procedure_class = scm_variable_ref (scm_c_lookup ("<procedure-class>"));
+  class_applicable_struct_class = scm_variable_ref (scm_c_lookup ("<applicable-struct-class>"));
+  class_applicable_struct_with_setter_class =
     scm_variable_ref (scm_c_lookup ("<applicable-struct-with-setter-class>"));
 
-  scm_class_method = scm_variable_ref (scm_c_lookup ("<method>"));
-  scm_class_accessor_method = scm_variable_ref (scm_c_lookup ("<accessor-method>"));
-  scm_class_applicable = scm_variable_ref (scm_c_lookup ("<applicable>"));
-  scm_class_applicable_struct = scm_variable_ref (scm_c_lookup ("<applicable-struct>"));
-  scm_class_applicable_struct_with_setter = scm_variable_ref (scm_c_lookup ("<applicable-struct-with-setter>"));
-  scm_class_generic = scm_variable_ref (scm_c_lookup ("<generic>"));
-  scm_class_extended_generic = scm_variable_ref (scm_c_lookup ("<extended-generic>"));
-  scm_class_generic_with_setter = scm_variable_ref (scm_c_lookup ("<generic-with-setter>"));
-  scm_class_accessor = scm_variable_ref (scm_c_lookup ("<accessor>"));
-  scm_class_extended_generic_with_setter = scm_variable_ref (scm_c_lookup ("<extended-generic-with-setter>"));
-  scm_class_extended_accessor = scm_variable_ref (scm_c_lookup ("<extended-accessor>"));
+  class_method = scm_variable_ref (scm_c_lookup ("<method>"));
+  class_accessor_method = scm_variable_ref (scm_c_lookup ("<accessor-method>"));
+  class_applicable = scm_variable_ref (scm_c_lookup ("<applicable>"));
+  class_applicable_struct = scm_variable_ref (scm_c_lookup ("<applicable-struct>"));
+  class_applicable_struct_with_setter = scm_variable_ref (scm_c_lookup ("<applicable-struct-with-setter>"));
+  class_generic = scm_variable_ref (scm_c_lookup ("<generic>"));
+  class_extended_generic = scm_variable_ref (scm_c_lookup ("<extended-generic>"));
+  class_generic_with_setter = scm_variable_ref (scm_c_lookup ("<generic-with-setter>"));
+  class_accessor = scm_variable_ref (scm_c_lookup ("<accessor>"));
+  class_extended_generic_with_setter = scm_variable_ref (scm_c_lookup ("<extended-generic-with-setter>"));
+  class_extended_accessor = scm_variable_ref (scm_c_lookup ("<extended-accessor>"));
 
   /* Primitive types classes */
-  scm_class_boolean = scm_variable_ref (scm_c_lookup ("<boolean>"));
-  scm_class_char = scm_variable_ref (scm_c_lookup ("<char>"));
-  scm_class_list = scm_variable_ref (scm_c_lookup ("<list>"));
-  scm_class_pair = scm_variable_ref (scm_c_lookup ("<pair>"));
-  scm_class_null = scm_variable_ref (scm_c_lookup ("<null>"));
-  scm_class_string = scm_variable_ref (scm_c_lookup ("<string>"));
-  scm_class_symbol = scm_variable_ref (scm_c_lookup ("<symbol>"));
-  scm_class_vector = scm_variable_ref (scm_c_lookup ("<vector>"));
+  class_boolean = scm_variable_ref (scm_c_lookup ("<boolean>"));
+  class_char = scm_variable_ref (scm_c_lookup ("<char>"));
+  class_list = scm_variable_ref (scm_c_lookup ("<list>"));
+  class_pair = scm_variable_ref (scm_c_lookup ("<pair>"));
+  class_null = scm_variable_ref (scm_c_lookup ("<null>"));
+  class_string = scm_variable_ref (scm_c_lookup ("<string>"));
+  class_symbol = scm_variable_ref (scm_c_lookup ("<symbol>"));
+  class_vector = scm_variable_ref (scm_c_lookup ("<vector>"));
   class_foreign = scm_variable_ref (scm_c_lookup ("<foreign>"));
   class_hashtable = scm_variable_ref (scm_c_lookup ("<hashtable>"));
   class_fluid = scm_variable_ref (scm_c_lookup ("<fluid>"));
@@ -1701,19 +1712,19 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
   class_uvec = scm_variable_ref (scm_c_lookup ("<uvec>"));
   class_array = scm_variable_ref (scm_c_lookup ("<array>"));
   class_bitvector = scm_variable_ref (scm_c_lookup ("<bitvector>"));
-  scm_class_number = scm_variable_ref (scm_c_lookup ("<number>"));
-  scm_class_complex = scm_variable_ref (scm_c_lookup ("<complex>"));
-  scm_class_real = scm_variable_ref (scm_c_lookup ("<real>"));
-  scm_class_integer = scm_variable_ref (scm_c_lookup ("<integer>"));
-  scm_class_fraction = scm_variable_ref (scm_c_lookup ("<fraction>"));
-  scm_class_keyword = scm_variable_ref (scm_c_lookup ("<keyword>"));
-  scm_class_unknown = scm_variable_ref (scm_c_lookup ("<unknown>"));
-  scm_class_procedure = scm_variable_ref (scm_c_lookup ("<procedure>"));
-  scm_class_primitive_generic = scm_variable_ref (scm_c_lookup ("<primitive-generic>"));
-  scm_class_port = scm_variable_ref (scm_c_lookup ("<port>"));
-  scm_class_input_port = scm_variable_ref (scm_c_lookup ("<input-port>"));
-  scm_class_output_port = scm_variable_ref (scm_c_lookup ("<output-port>"));
-  scm_class_input_output_port = scm_variable_ref (scm_c_lookup ("<input-output-port>"));
+  class_number = scm_variable_ref (scm_c_lookup ("<number>"));
+  class_complex = scm_variable_ref (scm_c_lookup ("<complex>"));
+  class_real = scm_variable_ref (scm_c_lookup ("<real>"));
+  class_integer = scm_variable_ref (scm_c_lookup ("<integer>"));
+  class_fraction = scm_variable_ref (scm_c_lookup ("<fraction>"));
+  class_keyword = scm_variable_ref (scm_c_lookup ("<keyword>"));
+  class_unknown = scm_variable_ref (scm_c_lookup ("<unknown>"));
+  class_procedure = scm_variable_ref (scm_c_lookup ("<procedure>"));
+  class_primitive_generic = scm_variable_ref (scm_c_lookup ("<primitive-generic>"));
+  class_port = scm_variable_ref (scm_c_lookup ("<port>"));
+  class_input_port = scm_variable_ref (scm_c_lookup ("<input-port>"));
+  class_output_port = scm_variable_ref (scm_c_lookup ("<output-port>"));
+  class_input_output_port = scm_variable_ref (scm_c_lookup ("<input-output-port>"));
 
   create_smob_classes ();
   create_struct_classes ();

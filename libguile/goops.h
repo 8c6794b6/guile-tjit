@@ -127,69 +127,16 @@
 #define SCM_IS_A_P(x, c) \
   (SCM_INSTANCEP (x) && SCM_SUBCLASSP (SCM_CLASS_OF (x), c))
 
-#define SCM_GENERICP(x) \
-  (SCM_INSTANCEP (x) && SCM_SUBCLASSP (SCM_CLASS_OF (x), scm_class_generic))
+#define SCM_GENERICP(x) (scm_is_generic (x))
 #define SCM_VALIDATE_GENERIC(pos, x) SCM_MAKE_VALIDATE_MSG (pos, x, GENERICP, "generic function")
 
-#define SCM_METHODP(x) \
-  (SCM_INSTANCEP (x) && SCM_SUBCLASSP (SCM_CLASS_OF (x), scm_class_method))
+#define SCM_METHODP(x) (scm_is_method (x))
 #define SCM_VALIDATE_METHOD(pos, x) SCM_MAKE_VALIDATE_MSG (pos, x, METHODP, "method")
 
 #define SCM_SET_CLASS_DESTRUCTOR(c, d) SCM_SET_VTABLE_DESTRUCTOR (c, d)
 
-/* C interface */
-SCM_API SCM scm_class_boolean;
-SCM_API SCM scm_class_char;
-SCM_API SCM scm_class_pair;
-SCM_API SCM scm_class_procedure;
-SCM_API SCM scm_class_string;
-SCM_API SCM scm_class_symbol;
-SCM_API SCM scm_class_primitive_generic;
-SCM_API SCM scm_class_vector;
-SCM_API SCM scm_class_null;
-SCM_API SCM scm_class_real;
-SCM_API SCM scm_class_complex;
-SCM_API SCM scm_class_integer;
-SCM_API SCM scm_class_fraction;
-SCM_API SCM scm_class_unknown;
-SCM_API SCM scm_port_class[];
-SCM_API SCM scm_smob_class[];
-SCM_API SCM scm_class_top;
-SCM_API SCM scm_class_object;
-SCM_API SCM scm_class_class;
-SCM_API SCM scm_class_applicable;
-SCM_API SCM scm_class_applicable_struct;
-SCM_API SCM scm_class_applicable_struct_with_setter;
-SCM_API SCM scm_class_generic;
-SCM_API SCM scm_class_generic_with_setter;
-SCM_API SCM scm_class_accessor;
-SCM_API SCM scm_class_extended_generic;
-SCM_API SCM scm_class_extended_generic_with_setter;
-SCM_API SCM scm_class_extended_accessor;
-SCM_API SCM scm_class_method;
-SCM_API SCM scm_class_accessor_method;
-SCM_API SCM scm_class_procedure_class;
-SCM_API SCM scm_class_applicable_struct_class;
-SCM_API SCM scm_class_number;
-SCM_API SCM scm_class_list;
-SCM_API SCM scm_class_keyword;
-SCM_API SCM scm_class_port;
-SCM_API SCM scm_class_input_output_port;
-SCM_API SCM scm_class_input_port;
-SCM_API SCM scm_class_output_port;
-SCM_API SCM scm_class_foreign_slot;
-SCM_API SCM scm_class_self;
-SCM_API SCM scm_class_protected;
-SCM_API SCM scm_class_hidden;
-SCM_API SCM scm_class_opaque;
-SCM_API SCM scm_class_read_only;
-SCM_API SCM scm_class_protected_hidden;
-SCM_API SCM scm_class_protected_opaque;
-SCM_API SCM scm_class_protected_read_only;
-SCM_API SCM scm_class_scm;
-SCM_API SCM scm_class_int;
-SCM_API SCM scm_class_float;
-SCM_API SCM scm_class_double;
+SCM_INTERNAL SCM scm_i_port_class[];
+SCM_INTERNAL SCM scm_i_smob_class[];
 
 SCM_API SCM scm_module_goops;
 
@@ -221,6 +168,8 @@ SCM_API SCM scm_get_keyword (SCM key, SCM l, SCM default_value);
 SCM_API SCM scm_sys_initialize_object (SCM obj, SCM initargs);
 SCM_API SCM scm_sys_inherit_magic_x (SCM c, SCM dsupers);
 SCM_API SCM scm_instance_p (SCM obj);
+SCM_API int scm_is_generic (SCM x);
+SCM_API int scm_is_method (SCM x);
 SCM_API SCM scm_class_name (SCM obj);
 SCM_API SCM scm_class_direct_supers (SCM obj);
 SCM_API SCM scm_class_direct_slots (SCM obj);
