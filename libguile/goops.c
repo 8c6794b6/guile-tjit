@@ -448,8 +448,6 @@ SCM_DEFINE (scm_sys_init_layout_x, "%init-layout!", 2, 0, 0,
 }
 #undef FUNC_NAME
 
-static void prep_hashsets (SCM);
-
 SCM_DEFINE (scm_sys_inherit_magic_x, "%inherit-magic!", 2, 0, 0,
 	    (SCM class, SCM dsupers),
 	    "")
@@ -459,20 +457,9 @@ SCM_DEFINE (scm_sys_inherit_magic_x, "%inherit-magic!", 2, 0, 0,
   scm_i_struct_inherit_vtable_magic (SCM_CLASS_OF (class), class);
   SCM_SET_CLASS_FLAGS (class, SCM_CLASSF_GOOPS_OR_VALID);
 
-  prep_hashsets (class);
-
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
-
-static void
-prep_hashsets (SCM class)
-{
-  unsigned int i;
-
-  for (i = 0; i < 8; ++i)
-    SCM_SET_HASHSET (class, i, scm_c_uniform32 (goops_rstate));
-}
 
 /******************************************************************************/
 
@@ -507,8 +494,6 @@ SCM_DEFINE (scm_sys_make_root_class, "%make-root-class", 3, 0, 0,
   SCM_SET_SLOT (z, scm_si_nfields, scm_from_int (SCM_N_CLASS_SLOTS));
   SCM_SET_SLOT (z, scm_si_getters_n_setters, getters_n_setters); /* will be changed */
   SCM_SET_SLOT (z, scm_si_redefined, SCM_BOOL_F);
-
-  prep_hashsets (z);
 
   return z;
 }

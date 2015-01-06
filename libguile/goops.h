@@ -63,14 +63,6 @@
 /* see also, SCM_VTABLE_BASE_LAYOUT, and build_class_class_slots */
 #define SCM_CLASS_CLASS_LAYOUT                  \
   "pw" /* redefined */                          \
-  "uw" /* h0 */                                 \
-  "uw" /* h1 */                                 \
-  "uw" /* h2 */                                 \
-  "uw" /* h3 */                                 \
-  "uw" /* h4 */                                 \
-  "uw" /* h5 */                                 \
-  "uw" /* h6 */                                 \
-  "uw" /* h7 */                                 \
   "pw" /* direct supers */                      \
   "pw" /* direct slots */                       \
   "pw" /* direct subclasses */                  \
@@ -81,24 +73,15 @@
   "pw" /* nfields */
 
 #define scm_si_redefined         (scm_vtable_offset_user + 0)
-#define scm_si_h0                (scm_vtable_offset_user + 1)
-#define scm_si_hashsets          scm_si_h0
-#define scm_si_h1                (scm_vtable_offset_user + 2)
-#define scm_si_h2                (scm_vtable_offset_user + 3)
-#define scm_si_h3                (scm_vtable_offset_user + 4)
-#define scm_si_h4                (scm_vtable_offset_user + 5)
-#define scm_si_h5                (scm_vtable_offset_user + 6)
-#define scm_si_h6                (scm_vtable_offset_user + 7)
-#define scm_si_h7                (scm_vtable_offset_user + 8)
-#define scm_si_direct_supers 	 (scm_vtable_offset_user + 9) /* (class ...) */
-#define scm_si_direct_slots	 (scm_vtable_offset_user + 10) /* ((name . options) ...) */
-#define scm_si_direct_subclasses (scm_vtable_offset_user + 11) /* (class ...) */
-#define scm_si_direct_methods	 (scm_vtable_offset_user + 12) /* (methods ...) */
-#define scm_si_cpl		 (scm_vtable_offset_user + 13) /* (class ...) */
-#define scm_si_slots		 (scm_vtable_offset_user + 14) /* ((name . options) ...) */
-#define scm_si_getters_n_setters (scm_vtable_offset_user + 15)
-#define scm_si_nfields		 (scm_vtable_offset_user + 16) /* an integer */
-#define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 17)
+#define scm_si_direct_supers 	 (scm_vtable_offset_user + 1) /* (class ...) */
+#define scm_si_direct_slots	 (scm_vtable_offset_user + 2) /* ((name . options) ...) */
+#define scm_si_direct_subclasses (scm_vtable_offset_user + 3) /* (class ...) */
+#define scm_si_direct_methods	 (scm_vtable_offset_user + 4) /* (methods ...) */
+#define scm_si_cpl		 (scm_vtable_offset_user + 5) /* (class ...) */
+#define scm_si_slots		 (scm_vtable_offset_user + 6) /* ((name . options) ...) */
+#define scm_si_getters_n_setters (scm_vtable_offset_user + 7)
+#define scm_si_nfields		 (scm_vtable_offset_user + 8) /* an integer */
+#define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 9)
 
 #define SCM_OBJ_CLASS_REDEF(x)  (SCM_PACK (SCM_STRUCT_VTABLE_DATA (x) [scm_si_redefined]))
 #define SCM_INST(x)	       SCM_STRUCT_DATA (x)
@@ -120,8 +103,6 @@
 
 #define SCM_SLOT(x, i)         (SCM_STRUCT_SLOT_REF (x, i))
 #define SCM_SET_SLOT(x, i, v)  (SCM_STRUCT_SLOT_SET (x, i, v))
-#define SCM_INSTANCE_HASH(c, i) (SCM_INST (c) [scm_si_hashsets + (i)])
-#define SCM_SET_HASHSET(c, i, h)  (SCM_INST (c) [scm_si_hashsets + (i)] = (h))
 
 #define SCM_SUBCLASSP(c1, c2)  (scm_is_true (scm_c_memq (c2, SCM_SLOT (c1, scm_si_cpl))))
 #define SCM_IS_A_P(x, c) \
