@@ -176,7 +176,6 @@ SCM scm_i_smob_class[SCM_I_MAX_SMOB_TYPE_COUNT];
 static SCM scm_make_unbound (void);
 static SCM scm_unbound_p (SCM obj);
 static SCM scm_assert_bound (SCM value, SCM obj);
-static SCM scm_at_assert_bound_ref (SCM obj, SCM index);
 static SCM scm_sys_bless_applicable_struct_vtables_x (SCM applicable,
                                                       SCM setter);
 static SCM scm_sys_bless_pure_generic_vtable_x (SCM vtable);
@@ -724,19 +723,6 @@ SCM_DEFINE (scm_assert_bound, "assert-bound", 2, 0, 0,
 	    "@var{slot-unbound} method of @var{obj} if it is not.")
 #define FUNC_NAME s_scm_assert_bound
 {
-  if (SCM_GOOPS_UNBOUNDP (value))
-    return scm_call_1 (SCM_VARIABLE_REF (var_slot_unbound), obj);
-  return value;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_at_assert_bound_ref, "@assert-bound-ref", 2, 0, 0,
-	    (SCM obj, SCM index),
-	    "Like @code{assert-bound}, but use @var{index} for accessing\n"
-	    "the value from @var{obj}.")
-#define FUNC_NAME s_scm_at_assert_bound_ref
-{
-  SCM value = SCM_SLOT (obj, scm_to_int (index));
   if (SCM_GOOPS_UNBOUNDP (value))
     return scm_call_1 (SCM_VARIABLE_REF (var_slot_unbound), obj);
   return value;
