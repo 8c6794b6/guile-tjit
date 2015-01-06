@@ -1950,7 +1950,11 @@
 	  #:slot-definition slotdef)))
 
 (define (make-generic-bound-check-getter proc)
-  (lambda (o) (assert-bound (proc o) o)))
+  (lambda (o)
+    (let ((val (proc o)))
+      (if (unbound? val)
+          (slot-unbound o)
+          val))))
 
 ;;; Pre-generate getters and setters for the first 20 slots.
 (define-syntax define-standard-accessor-method
