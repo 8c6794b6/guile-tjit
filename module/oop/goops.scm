@@ -239,7 +239,6 @@
           (unspecialized-slot direct-subclasses)
           (unspecialized-slot direct-methods)
           (unspecialized-slot cpl)
-          (unspecialized-slot default-slot-definition-class)
           (unspecialized-slot slots)
           (unspecialized-slot getters-n-setters)
           (unspecialized-slot nfields))))

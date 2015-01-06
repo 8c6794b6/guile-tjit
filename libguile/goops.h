@@ -76,7 +76,6 @@
   "pw" /* direct subclasses */                  \
   "pw" /* direct methods */                     \
   "pw" /* cpl */                                \
-  "pw" /* default-slot-definition-class */      \
   "pw" /* slots */                              \
   "pw" /* getters-n-setters */                  \
   "pw" /* nfields */
@@ -96,11 +95,10 @@
 #define scm_si_direct_subclasses (scm_vtable_offset_user + 11) /* (class ...) */
 #define scm_si_direct_methods	 (scm_vtable_offset_user + 12) /* (methods ...) */
 #define scm_si_cpl		 (scm_vtable_offset_user + 13) /* (class ...) */
-#define scm_si_slotdef_class	 (scm_vtable_offset_user + 14)
-#define scm_si_slots		 (scm_vtable_offset_user + 15) /* ((name . options) ...) */
-#define scm_si_getters_n_setters (scm_vtable_offset_user + 16)
-#define scm_si_nfields		 (scm_vtable_offset_user + 17) /* an integer */
-#define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 18)
+#define scm_si_slots		 (scm_vtable_offset_user + 14) /* ((name . options) ...) */
+#define scm_si_getters_n_setters (scm_vtable_offset_user + 15)
+#define scm_si_nfields		 (scm_vtable_offset_user + 16) /* an integer */
+#define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 17)
 
 #define SCM_OBJ_CLASS_REDEF(x)  (SCM_PACK (SCM_STRUCT_VTABLE_DATA (x) [scm_si_redefined]))
 #define SCM_INST(x)	       SCM_STRUCT_DATA (x)
