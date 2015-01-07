@@ -29,14 +29,9 @@
 # include <config.h>
 #endif
 
-#include <stdio.h>
-
 #include "libguile/_scm.h"
-#include "libguile/alist.h"
 #include "libguile/async.h"
 #include "libguile/chars.h"
-#include "libguile/debug.h"
-#include "libguile/dynl.h"
 #include "libguile/dynwind.h"
 #include "libguile/eval.h"
 #include "libguile/gsubr.h"
@@ -47,13 +42,10 @@
 #include "libguile/ports.h"
 #include "libguile/procprop.h"
 #include "libguile/programs.h"
-#include "libguile/random.h"
-#include "libguile/root.h"
 #include "libguile/smob.h"
 #include "libguile/strings.h"
 #include "libguile/strports.h"
 #include "libguile/vectors.h"
-#include "libguile/vm.h"
 
 #include "libguile/validate.h"
 #include "libguile/goops.h"
@@ -1329,33 +1321,30 @@ SCM_DEFINE (scm_make, "make",  0, 0, 1,
  **********************************************************************/
 
 static SCM
-make_class_from_template (char const *template, char const *type_name, SCM supers, int applicablep)
+make_class_name (const char *prefix, const char *type_name, const char *suffix)
 {
-  SCM meta, name;
-
-  if (type_name)
-    {
-      char buffer[100];
-      sprintf (buffer, template, type_name);
-      name = scm_from_utf8_symbol (buffer);
-    }
-  else
-    name = SCM_GOOPS_UNBOUND;
-
-  meta = applicablep ? class_procedure_class : class_class;
-
-  return scm_make_standard_class (meta, name, supers, SCM_EOL);
+  if (!type_name)
+    type_name = "";
+  return scm_string_to_symbol (scm_string_append
+                               (scm_list_3 (scm_from_utf8_string (prefix),
+                                            scm_from_utf8_string (type_name),
+                                            scm_from_utf8_string (suffix))));
 }
 
 SCM
 scm_make_extended_class (char const *type_name, int applicablep)
 {
-  return make_class_from_template ("<%s>",
-				   type_name,
-				   scm_list_1 (applicablep
-					       ? class_applicable
-					       : class_top),
-				   applicablep);
+  SCM name, meta, supers;
+
+  name = make_class_name ("<", type_name, ">");
+  meta = class_class;
+
+  if (applicablep)
+    supers = scm_list_1 (class_applicable);
+  else
+    supers = scm_list_1 (class_top);
+
+  return scm_make_standard_class (meta, name, supers, SCM_EOL);
 }
 
 void
@@ -1410,29 +1399,28 @@ create_smob_classes (void)
 void
 scm_make_port_classes (long ptobnum, char *type_name)
 {
-  SCM c, class = make_class_from_template ("<%s-port>",
-					   type_name,
-					   scm_list_1 (class_port),
-					   0);
+  SCM name, meta, super, supers;
+
+  meta = class_class;
+
+  name = make_class_name ("<", type_name, "-port>");
+  supers = scm_list_1 (class_port);
+  super = scm_make_standard_class (meta, name, supers, SCM_EOL);
+
+  name = make_class_name ("<", type_name, "-input-port>");
+  supers = scm_list_2 (super, class_input_port);
   scm_i_port_class[SCM_IN_PCLASS_INDEX + ptobnum]
-    = make_class_from_template ("<%s-input-port>",
-				type_name,
-				scm_list_2 (class, class_input_port),
-				0);
+    = scm_make_standard_class (meta, name, supers, SCM_EOL);
+
+  name = make_class_name ("<", type_name, "-output-port>");
+  supers = scm_list_2 (super, class_output_port);
   scm_i_port_class[SCM_OUT_PCLASS_INDEX + ptobnum]
-    = make_class_from_template ("<%s-output-port>",
-				type_name,
-				scm_list_2 (class, class_output_port),
-				0);
+    = scm_make_standard_class (meta, name, supers, SCM_EOL);
+
+  name = make_class_name ("<", type_name, "-input-output-port>");
+  supers = scm_list_2 (super, class_input_output_port);
   scm_i_port_class[SCM_INOUT_PCLASS_INDEX + ptobnum]
-    = c
-    = make_class_from_template ("<%s-input-output-port>",
-				type_name,
-				scm_list_2 (class, class_input_output_port),
-				0);
-  /* Patch cpl (since this tree is too complex for the C level compute-cpl) */
-  SCM_SET_SLOT (c, scm_si_cpl,
-		scm_cons2 (c, class, SCM_SLOT (class_input_output_port, scm_si_cpl)));
+    = scm_make_standard_class (meta, name, supers, SCM_EOL);
 }
 
 static void
