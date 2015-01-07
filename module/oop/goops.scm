@@ -207,33 +207,31 @@
 (define (compute-cpl class)
   (compute-std-cpl class class-direct-supers))
 
-;; During boot, the specialized slot classes aren't defined yet, so we
-;; initialize <class> with unspecialized slots.
-(define-syntax-rule (build-<class>-slots specialized?)
-  (let-syntax ((unspecialized-slot (syntax-rules ()
-                                     ((_ name) (list 'name))))
-               (specialized-slot (syntax-rules ()
-                                   ((_ name class)
-                                    (if specialized?
-                                        (list 'name #:class class)
-                                        (list 'name))))))
-    (list (specialized-slot layout <protected-read-only-slot>)
-          (specialized-slot flags <hidden-slot>)
-          (specialized-slot self <self-slot>)
-          (specialized-slot instance-finalizer <hidden-slot>)
-          (unspecialized-slot print)
-          (specialized-slot name <protected-hidden-slot>)
-          (specialized-slot reserved-0 <hidden-slot>)
-          (specialized-slot reserved-1 <hidden-slot>)
-          (unspecialized-slot redefined)
-          (unspecialized-slot direct-supers)
-          (unspecialized-slot direct-slots)
-          (unspecialized-slot direct-subclasses)
-          (unspecialized-slot direct-methods)
-          (unspecialized-slot cpl)
-          (unspecialized-slot slots)
-          (unspecialized-slot getters-n-setters)
-          (unspecialized-slot nfields))))
+(define-syntax macro-fold-right
+  (syntax-rules ()
+    ((_ folder seed ()) seed)
+    ((_ folder seed (head . tail))
+     (folder head (macro-fold-right folder seed tail)))))
+
+(define-syntax-rule (fold-<class>-slots fold visit seed)
+  (fold visit seed
+        ((layout <protected-read-only-slot>)
+         (flags <hidden-slot>)
+         (self <self-slot>)
+         (instance-finalizer <hidden-slot>)
+         (print)
+         (name <protected-hidden-slot>)
+         (reserved-0 <hidden-slot>)
+         (reserved-1 <hidden-slot>)
+         (redefined)
+         (direct-supers)
+         (direct-slots)
+         (direct-subclasses)
+         (direct-methods)
+         (cpl)
+         (slots)
+         (getters-n-setters)
+         (nfields))))
 
 (define (build-slots-list dslots cpl)
   (define (check-cpl slots class-slots)
@@ -381,8 +379,14 @@
       z)))
 
 (define <class>
-  (let ((dslots (build-<class>-slots #f)))
-    (%make-root-class '<class> dslots (%compute-getters-n-setters dslots))))
+  (let-syntax ((visit
+                ;; The specialized slot classes have not been defined
+                ;; yet; initialize <class> with unspecialized slots.
+                (syntax-rules ()
+                  ((_ (name) tail)       (cons (list 'name) tail))
+                  ((_ (name class) tail) (cons (list 'name) tail)))))
+    (let ((dslots (fold-<class>-slots macro-fold-right visit '())))
+      (%make-root-class '<class> dslots (%compute-getters-n-setters dslots)))))
 
 (define-syntax define-standard-class
   (syntax-rules ()
@@ -418,11 +422,17 @@
 (define-standard-class <float-slot> (<foreign-slot>))
 (define-standard-class <double-slot> (<foreign-slot>))
 
-;; Finish initialization of <class>.
-(let ((dslots (build-<class>-slots #t)))
-  (slot-set! <class> 'direct-slots dslots)
-  (slot-set! <class> 'slots dslots)
-  (slot-set! <class> 'getters-n-setters (%compute-getters-n-setters dslots)))
+;; Finish initialization of <class> with specialized slots.
+(let-syntax ((visit
+              (syntax-rules ()
+                ((_ (name) tail)
+                 (cons (list 'name) tail))
+                ((_ (name class) tail)
+                 (cons (list 'name #:class class) tail)))))
+  (let ((dslots (fold-<class>-slots macro-fold-right visit '())))
+    (slot-set! <class> 'direct-slots dslots)
+    (slot-set! <class> 'slots dslots)
+    (slot-set! <class> 'getters-n-setters (%compute-getters-n-setters dslots))))
 
 ;; Applicables and their classes.
 (define-standard-class <procedure-class> (<class>))
