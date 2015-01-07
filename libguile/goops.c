@@ -109,7 +109,6 @@ SCM_VARIABLE (scm_var_make_extended_generic, "make-extended-generic");
 #define SCM_GOOPS_UNBOUNDP(x) (scm_is_eq (x, SCM_GOOPS_UNBOUND))
 
 static int goops_loaded_p = 0;
-static scm_t_rstate *goops_rstate;
 
 /* These variables are filled in by the object system when loaded. */
 static SCM class_boolean, class_char, class_pair;
@@ -1706,8 +1705,6 @@ static void
 scm_init_goops_builtins (void *unused)
 {
   scm_module_goops = scm_current_module ();
-
-  goops_rstate = scm_c_make_rstate ("GOOPS", 5);
 
   hell = scm_calloc (hell_size * sizeof (*hell));
   hell_mutex = scm_make_mutex ();
