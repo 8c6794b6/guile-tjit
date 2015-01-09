@@ -77,6 +77,12 @@ static SCM var_class_direct_methods = SCM_BOOL_F;
 static SCM var_class_precedence_list = SCM_BOOL_F;
 static SCM var_class_slots = SCM_BOOL_F;
 
+static SCM var_generic_function_methods = SCM_BOOL_F;
+static SCM var_method_generic_function = SCM_BOOL_F;
+static SCM var_method_specializers = SCM_BOOL_F;
+static SCM var_method_procedure = SCM_BOOL_F;
+
+
 SCM_SYMBOL (sym_slot_unbound, "slot-unbound");
 SCM_SYMBOL (sym_slot_missing, "slot-missing");
 SCM_SYMBOL (sym_change_class, "change-class");
@@ -585,83 +591,29 @@ SCM_DEFINE (scm_generic_function_name, "generic-function-name", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_SYMBOL (sym_methods, "methods");
-SCM_SYMBOL (sym_extended_by, "extended-by");
-SCM_SYMBOL (sym_extends, "extends");
-
-static
-SCM fold_downward_gf_methods (SCM method_lists, SCM gf)
+SCM
+scm_generic_function_methods (SCM obj)
 {
-  SCM gfs = scm_slot_ref (gf, sym_extended_by);
-  method_lists = scm_cons (scm_slot_ref (gf, sym_methods), method_lists);
-  while (!scm_is_null (gfs))
-    {
-      method_lists = fold_downward_gf_methods (method_lists, SCM_CAR (gfs));
-      gfs = SCM_CDR (gfs);
-    }
-  return method_lists;
+  return scm_call_1 (scm_variable_ref (var_generic_function_methods), obj);
 }
 
-static
-SCM fold_upward_gf_methods (SCM method_lists, SCM gf)
+SCM
+scm_method_generic_function (SCM obj)
 {
-  if (SCM_IS_A_P (gf, class_extended_generic))
-    {
-      SCM gfs = scm_slot_ref (gf, sym_extends);
-      while (!scm_is_null (gfs))
-	{
-	  SCM methods = scm_slot_ref (SCM_CAR (gfs), sym_methods);
-	  method_lists = fold_upward_gf_methods (scm_cons (methods,
-							   method_lists),
-						 SCM_CAR (gfs));
-	  gfs = SCM_CDR (gfs);
-	}
-    }
-  return method_lists;
+  return scm_call_1 (scm_variable_ref (var_method_generic_function), obj);
 }
 
-SCM_DEFINE (scm_generic_function_methods, "generic-function-methods", 1, 0, 0,
-	    (SCM obj),
-	    "Return the methods of the generic function @var{obj}.")
-#define FUNC_NAME s_scm_generic_function_methods
+SCM
+scm_method_specializers (SCM obj)
 {
-  SCM methods;
-  SCM_VALIDATE_GENERIC (1, obj);
-  methods = fold_upward_gf_methods (SCM_EOL, obj);
-  methods = fold_downward_gf_methods (methods, obj);
-  return scm_append (methods);
+  return scm_call_1 (scm_variable_ref (var_method_specializers), obj);
 }
-#undef FUNC_NAME
 
-SCM_DEFINE (scm_method_generic_function, "method-generic-function", 1, 0, 0,
-	    (SCM obj),
-	    "Return the generic function for the method @var{obj}.")
-#define FUNC_NAME s_scm_method_generic_function
+SCM
+scm_method_procedure (SCM obj)
 {
-  SCM_VALIDATE_METHOD (1, obj);
-  return scm_slot_ref (obj, scm_from_latin1_symbol ("generic-function"));
+  return scm_call_1 (scm_variable_ref (var_method_procedure), obj);
 }
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_method_specializers, "method-specializers", 1, 0, 0,
-	    (SCM obj),
-	    "Return specializers of the method @var{obj}.")
-#define FUNC_NAME s_scm_method_specializers
-{
-  SCM_VALIDATE_METHOD (1, obj);
-  return scm_slot_ref (obj, scm_from_latin1_symbol ("specializers"));
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_method_procedure, "method-procedure", 1, 0, 0,
-	    (SCM obj),
-	    "Return the procedure of the method @var{obj}.")
-#define FUNC_NAME s_scm_method_procedure
-{
-  SCM_VALIDATE_METHOD (1, obj);
-  return scm_slot_ref (obj, sym_procedure);
-}
-#undef FUNC_NAME
 
 /******************************************************************************
  *
@@ -1581,13 +1533,6 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
 {
   var_make_standard_class = scm_c_lookup ("make-standard-class");
   var_make = scm_c_lookup ("make");
-  var_class_name = scm_c_lookup ("class-name");
-  var_class_direct_supers = scm_c_lookup ("class-direct-supers");
-  var_class_direct_slots = scm_c_lookup ("class-direct-slots");
-  var_class_direct_subclasses = scm_c_lookup ("class-direct-subclasses");
-  var_class_direct_methods = scm_c_lookup ("class-direct-methods");
-  var_class_precedence_list = scm_c_lookup ("class-precedence-list");
-  var_class_slots = scm_c_lookup ("class-slots");
 
   class_class = scm_variable_ref (scm_c_lookup ("<class>"));
   class_top = scm_variable_ref (scm_c_lookup ("<top>"));
@@ -1673,6 +1618,19 @@ SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
 #define FUNC_NAME s_scm_sys_goops_loaded
 {
   goops_loaded_p = 1;
+  var_class_name = scm_c_lookup ("class-name");
+  var_class_direct_supers = scm_c_lookup ("class-direct-supers");
+  var_class_direct_slots = scm_c_lookup ("class-direct-slots");
+  var_class_direct_subclasses = scm_c_lookup ("class-direct-subclasses");
+  var_class_direct_methods = scm_c_lookup ("class-direct-methods");
+  var_class_precedence_list = scm_c_lookup ("class-precedence-list");
+  var_class_slots = scm_c_lookup ("class-slots");
+
+  var_generic_function_methods = scm_c_lookup ("generic-function-methods");
+  var_method_generic_function = scm_c_lookup ("method-generic-function");
+  var_method_specializers = scm_c_lookup ("method-specializers");
+  var_method_procedure = scm_c_lookup ("method-procedure");
+
   var_slot_unbound =
     scm_module_variable (scm_module_goops, sym_slot_unbound);
   var_slot_missing =

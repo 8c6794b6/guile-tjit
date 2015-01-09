@@ -640,6 +640,27 @@
         (error "boot `make' does not support this class" class)))
       z))))
 
+(define (method-generic-function obj)
+  "Return the generic function for the method @var{obj}."
+  (unless (is-a? obj <method>)
+    (scm-error 'wrong-type-arg #f "Not a method: ~S"
+               (list obj) #f))
+  (slot-ref obj 'generic-function))
+
+(define (method-specializers obj)
+  "Return specializers of the method @var{obj}."
+  (unless (is-a? obj <method>)
+    (scm-error 'wrong-type-arg #f "Not a method: ~S"
+               (list obj) #f))
+  (slot-ref obj 'specializers))
+
+(define (method-procedure obj)
+  "Return the procedure of the method @var{obj}."
+  (unless (is-a? obj <method>)
+    (scm-error 'wrong-type-arg #f "Not a method: ~S"
+               (list obj) #f))
+  (slot-ref obj 'procedure))
+
 (define *dispatch-module* (current-module))
 
 ;;;
@@ -1318,6 +1339,30 @@
 
 (define (%sort-applicable-methods methods types)
   (sort methods (lambda (a b) (%method-more-specific? a b types))))
+
+(define (generic-function-methods obj)
+  "Return the methods of the generic function @var{obj}."
+  (define (fold-upward method-lists gf)
+    (cond
+     ((is-a? gf <extended-generic>)
+      (let lp ((method-lists method-lists) (gfs (slot-ref gf 'extends)))
+        (match gfs
+          (() method-lists)
+          ((gf . gfs)
+           (lp (fold-upward (cons (slot-ref gf 'methods) method-lists) gf)
+               gfs)))))
+     (else method-lists)))
+  (define (fold-downward method-lists gf)
+    (let lp ((method-lists (cons (slot-ref gf 'methods) method-lists))
+             (gfs (slot-ref gf 'extended-by)))
+      (match gfs
+        (() method-lists)
+        ((gf . gfs)
+         (lp (fold-downward method-lists gf) gfs)))))
+  (unless (is-a? obj <generic>)
+    (scm-error 'wrong-type-arg #f "Not a generic: ~S"
+               (list obj) #f))
+  (concatenate (fold-downward (fold-upward '() obj) obj)))
 
 (define (%compute-applicable-methods gf args)
   (define (method-applicable? m types)
