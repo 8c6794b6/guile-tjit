@@ -1314,22 +1314,6 @@ scm_ensure_accessor (SCM name)
   return gf;
 }
 
-#ifdef GUILE_DEBUG
-/*
- * Debugging utilities
- */
-
-SCM_DEFINE (scm_pure_generic_p, "pure-generic?", 1, 0, 0,
-	    (SCM obj),
-	    "Return @code{#t} if @var{obj} is a pure generic.")
-#define FUNC_NAME s_scm_pure_generic_p
-{
-  return scm_from_bool (SCM_PUREGENERICP (obj));
-}
-#undef FUNC_NAME
-
-#endif /* GUILE_DEBUG */
-
 /*
  * Initialization
  */

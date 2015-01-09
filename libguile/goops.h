@@ -138,10 +138,6 @@ SCM_API SCM scm_sys_allocate_instance (SCM c, SCM initargs);
 SCM_API SCM scm_slot_ref (SCM obj, SCM slot_name);
 SCM_API SCM scm_slot_set_x (SCM obj, SCM slot_name, SCM value);
 
-#ifdef GUILE_DEBUG
-SCM_API SCM scm_pure_generic_p (SCM obj);
-#endif
-
 SCM_INTERNAL void scm_i_inherit_applicable (SCM c);
 SCM_INTERNAL SCM scm_i_get_keyword (SCM key, SCM l, long len,
 				    SCM default_value, const char *subr);
