@@ -97,14 +97,14 @@
             make-extended-generic
             make-accessor ensure-accessor
             add-method!
-            class-slot-ref class-slot-set! slot-unbound slot-missing 
+            class-slot-ref class-slot-set! slot-unbound slot-missing
             slot-definition-name  slot-definition-options
             slot-definition-allocation
 
             slot-definition-getter slot-definition-setter
             slot-definition-accessor
             slot-definition-init-value slot-definition-init-form
-            slot-definition-init-thunk slot-definition-init-keyword 
+            slot-definition-init-thunk slot-definition-init-keyword
             slot-init-function class-slot-definition
             method-source
             compute-cpl compute-std-cpl compute-get-n-set compute-slots
@@ -120,7 +120,7 @@
             class-subclasses class-methods
             goops-error
             min-fixnum max-fixnum
-           
+
 ;;; *fixme* Should go into goops.c
             instance?  slot-ref-using-class
             slot-set-using-class! slot-bound-using-class?
@@ -279,7 +279,8 @@
         (lp (cdr slots) res seen))
        (else
         (lp (cdr slots) (cons (car slots) res) (cons (caar slots) seen))))))
-  (let* ((class-slots (and (memq <class> cpl) (slot-ref <class> 'slots))))
+  (let* ((class-slots (and (memq <class> cpl)
+                           (struct-ref <class> class-index-slots))))
     (when class-slots
       (check-cpl dslots class-slots))
     (let lp ((cpl (cdr cpl)) (res dslots) (class-slots '()))
@@ -287,7 +288,7 @@
           (remove-duplicate-slots (append class-slots res))
           (let* ((head (car cpl))
                  (cpl (cdr cpl))
-                 (new-slots (slot-ref head 'direct-slots)))
+                 (new-slots (struct-ref head class-index-direct-slots)))
             (cond
              ((not class-slots)
               (lp cpl (append new-slots res) class-slots))
@@ -351,8 +352,8 @@
          (unless (= n nfields) (error "bad nfields"))
          (unless (null? slots) (error "inconsistent g-n-s/slots"))
          (when is-class?
-           (let ((class-layout (symbol->string (slot-ref <class> 'layout))))
-             (unless (string-prefix? class-layout layout)
+           (let ((class-layout (struct-ref <class> class-index-layout)))
+             (unless (string-prefix? (symbol->string class-layout) layout)
                (error "bad layout for class"))))
          layout)
         ((g-n-s . getters-n-setters)
@@ -375,16 +376,17 @@
               (lp n slots getters-n-setters))))))))))
 
 (define (%prep-layout! class)
-  (let* ((is-class? (and (memq <class> (slot-ref class 'cpl)) #t))
-         (layout (%compute-layout (slot-ref class 'slots)
-                                  (slot-ref class 'getters-n-setters)
-                                  (slot-ref class 'nfields)
-                                  is-class?)))
+  (let* ((is-class? (and (memq <class> (struct-ref class class-index-cpl)) #t))
+         (layout (%compute-layout
+                  (struct-ref class class-index-slots)
+                  (struct-ref class class-index-getters-n-setters)
+                  (struct-ref class class-index-nfields)
+                  is-class?)))
     (%init-layout! class layout)))
 
 (define (make-standard-class class name dsupers dslots)
   (let ((z (make-struct/no-tail class)))
-    (slot-set! z 'direct-supers dsupers)
+    (struct-set! z class-index-direct-supers dsupers)
     (let* ((cpl (compute-cpl z))
            (dslots (map (lambda (slot)
                           (if (pair? slot) slot (list slot)))
@@ -392,18 +394,20 @@
            (slots (build-slots-list dslots cpl))
            (nfields (length slots))
            (g-n-s (%compute-getters-n-setters slots)))
-      (slot-set! z 'name name)
-      (slot-set! z 'direct-slots dslots)
-      (slot-set! z 'direct-subclasses '())
-      (slot-set! z 'direct-methods '())
-      (slot-set! z 'cpl cpl)
-      (slot-set! z 'slots slots)
-      (slot-set! z 'nfields nfields)
-      (slot-set! z 'getters-n-setters g-n-s)
-      (slot-set! z 'redefined #f)
+      (struct-set! z class-index-name name)
+      (struct-set! z class-index-direct-slots dslots)
+      (struct-set! z class-index-direct-subclasses '())
+      (struct-set! z class-index-direct-methods '())
+      (struct-set! z class-index-cpl cpl)
+      (struct-set! z class-index-slots slots)
+      (struct-set! z class-index-nfields nfields)
+      (struct-set! z class-index-getters-n-setters g-n-s)
+      (struct-set! z class-index-redefined #f)
       (for-each (lambda (super)
-                  (let ((subclasses (slot-ref super 'direct-subclasses)))
-                    (slot-set! super 'direct-subclasses (cons z subclasses))))
+                  (let ((subclasses
+                         (struct-ref super class-index-direct-subclasses)))
+                    (struct-set! super class-index-direct-subclasses
+                                 (cons z subclasses))))
                 dsupers)
       (%prep-layout! z)
       (%inherit-magic! z dsupers)
@@ -432,9 +436,9 @@
 
 ;; <top>, <object>, and <class> were partially initialized.  Correct
 ;; them here.
-(slot-set! <object> 'direct-subclasses (list <class>))
-(slot-set! <class> 'direct-supers (list <object>))
-(slot-set! <class> 'cpl (list <class> <object> <top>))
+(struct-set! <object> class-index-direct-subclasses (list <class>))
+(struct-set! <class> class-index-direct-supers (list <object>))
+(struct-set! <class> class-index-cpl (list <class> <object> <top>))
 
 (define-standard-class <foreign-slot> (<top>))
 (define-standard-class <protected-slot> (<foreign-slot>))
@@ -460,10 +464,11 @@
                  (cons (list 'name) tail))
                 ((_ (name class) tail)
                  (cons (list 'name #:class class) tail)))))
-  (let ((dslots (fold-<class>-slots macro-fold-right visit '())))
-    (slot-set! <class> 'direct-slots dslots)
-    (slot-set! <class> 'slots dslots)
-    (slot-set! <class> 'getters-n-setters (%compute-getters-n-setters dslots))))
+  (let* ((dslots (fold-<class>-slots macro-fold-right visit '()))
+         (g-n-s (%compute-getters-n-setters dslots)))
+    (struct-set! <class> class-index-direct-slots dslots)
+    (struct-set! <class> class-index-slots dslots)
+    (struct-set! <class> class-index-getters-n-setters g-n-s)))
 
 ;; Applicables and their classes.
 (define-standard-class <procedure-class> (<class>))
@@ -865,13 +870,13 @@
 
 (define (memoize-method! gf args)
   (let ((applicable ((if (eq? gf compute-applicable-methods)
-			 %compute-applicable-methods
-			 compute-applicable-methods)
-		     gf args)))
+                         %compute-applicable-methods
+                         compute-applicable-methods)
+                     gf args)))
     (cond (applicable
            (memoize-effective-method! gf args applicable))
-	  (else
-	   (no-applicable-method gf args)))))
+          (else
+           (no-applicable-method gf args)))))
 
 (set-procedure-property! memoize-method! 'system-procedure #t)
 
@@ -908,36 +913,36 @@
   (let ((table-of-metas '()))
     (lambda (meta-supers)
       (let ((entry (assoc meta-supers table-of-metas)))
-	(if entry
-	    ;; Found a previously created metaclass
-	    (cdr entry)
-	    ;; Create a new meta-class which inherit from "meta-supers"
-	    (let ((new (make <class> #:dsupers meta-supers
-			             #:slots   '()
-				     #:name   (gensym "metaclass"))))
-	      (set! table-of-metas (cons (cons meta-supers new) table-of-metas))
-	      new))))))
+        (if entry
+            ;; Found a previously created metaclass
+            (cdr entry)
+            ;; Create a new meta-class which inherit from "meta-supers"
+            (let ((new (make <class> #:dsupers meta-supers
+                                     #:slots   '()
+                                     #:name   (gensym "metaclass"))))
+              (set! table-of-metas (cons (cons meta-supers new) table-of-metas))
+              new))))))
 
 (define (ensure-metaclass supers)
   (if (null? supers)
       <class>
       (let* ((all-metas (map (lambda (x) (class-of x)) supers))
-	     (all-cpls  (append-map (lambda (m)
-                                      (cdr (class-precedence-list m))) 
+             (all-cpls  (append-map (lambda (m)
+                                      (cdr (class-precedence-list m)))
                                     all-metas))
-	     (needed-metas '()))
-	;; Find the most specific metaclasses.  The new metaclass will be
-	;; a subclass of these.
-	(for-each
-	 (lambda (meta)
-	   (if (and (not (member meta all-cpls))
-		      (not (member meta needed-metas)))
-	     (set! needed-metas (append needed-metas (list meta)))))
-	 all-metas)
-	;; Now return a subclass of the metaclasses we found.
-	(if (null? (cdr needed-metas))
-	    (car needed-metas)  ; If there's only one, just use it.
-	    (ensure-metaclass-with-supers needed-metas)))))
+             (needed-metas '()))
+        ;; Find the most specific metaclasses.  The new metaclass will be
+        ;; a subclass of these.
+        (for-each
+         (lambda (meta)
+           (if (and (not (member meta all-cpls))
+                      (not (member meta needed-metas)))
+             (set! needed-metas (append needed-metas (list meta)))))
+         all-metas)
+        ;; Now return a subclass of the metaclasses we found.
+        (if (null? (cdr needed-metas))
+            (car needed-metas)  ; If there's only one, just use it.
+            (ensure-metaclass-with-supers needed-metas)))))
 
 ;;;
 ;;; {Classes}
@@ -974,7 +979,7 @@
     ;; Everything seems correct, build the class
     (apply make metaclass
            #:dsupers supers
-           #:slots slots 
+           #:slots slots
            #:name name
            options)))
 
@@ -1047,7 +1052,7 @@
           #'(define-class-pre-definition (rest ...) out ...))))
       ((_ () out ...)
        #'(begin out ...)))))
-       
+
 ;; Some slot options require extra definitions to be made. In
 ;; particular, we want to make sure that the generic function objects
 ;; which represent accessors exist before `make-class' tries to add
@@ -1065,7 +1070,7 @@
        #'(define-class-pre-definitions (rest ...)
          out ...))
       ((_ ((slotname slotopt ...) rest ...) out ...)
-       #'(define-class-pre-definitions (rest ...) 
+       #'(define-class-pre-definitions (rest ...)
          out ... (define-class-pre-definition (slotopt ...)))))))
 
 (define-syntax-rule (define-class name supers slot ...)
@@ -1077,7 +1082,7 @@
         (class-redefinition name
                             (class supers slot ... #:name 'name))
         (toplevel-define! 'name (class supers slot ... #:name 'name)))))
-       
+
 (define-syntax-rule (standard-define-class arg ...)
   (define-class arg ...))
 
@@ -1125,42 +1130,42 @@
 
 (define* (make-extended-generic gfs #:optional name)
   (let* ((gfs (if (list? gfs) gfs (list gfs)))
-	 (gws? (any (lambda (gf) (is-a? gf <generic-with-setter>)) gfs)))
+         (gws? (any (lambda (gf) (is-a? gf <generic-with-setter>)) gfs)))
     (let ((ans (if gws?
-		   (let* ((sname (and name (make-setter-name name)))
-			  (setters
-			   (append-map (lambda (gf)
-					 (if (is-a? gf <generic-with-setter>)
-					     (list (ensure-generic (setter gf)
-								   sname))
-					     '()))
-				       gfs))
-			  (es (make <extended-generic-with-setter>
-				#:name name
-				#:extends gfs
-				#:setter (make <extended-generic>
-					   #:name sname
-					   #:extends setters))))
-		     (extended-by! setters (setter es))
-		     es)
-		   (make <extended-generic>
-		     #:name name
-		     #:extends gfs))))
+                   (let* ((sname (and name (make-setter-name name)))
+                          (setters
+                           (append-map (lambda (gf)
+                                         (if (is-a? gf <generic-with-setter>)
+                                             (list (ensure-generic (setter gf)
+                                                                   sname))
+                                             '()))
+                                       gfs))
+                          (es (make <extended-generic-with-setter>
+                                #:name name
+                                #:extends gfs
+                                #:setter (make <extended-generic>
+                                           #:name sname
+                                           #:extends setters))))
+                     (extended-by! setters (setter es))
+                     es)
+                   (make <extended-generic>
+                     #:name name
+                     #:extends gfs))))
       (extended-by! gfs ans)
       ans)))
 
 (define (extended-by! gfs eg)
   (for-each (lambda (gf)
-	      (slot-set! gf 'extended-by
-			 (cons eg (slot-ref gf 'extended-by))))
-	    gfs)
+              (slot-set! gf 'extended-by
+                         (cons eg (slot-ref gf 'extended-by))))
+            gfs)
   (invalidate-method-cache! eg))
 
 (define (not-extended-by! gfs eg)
   (for-each (lambda (gf)
-	      (slot-set! gf 'extended-by
-			 (delq! eg (slot-ref gf 'extended-by))))
-	    gfs)
+              (slot-set! gf 'extended-by
+                         (delq! eg (slot-ref gf 'extended-by))))
+            gfs)
   (invalidate-method-cache! eg))
 
 (define* (ensure-generic old-definition #:optional name)
@@ -1214,21 +1219,21 @@
 
 (define (upgrade-accessor generic setter)
   (let ((methods (slot-ref generic 'methods))
-	(gws (make (if (is-a? generic <extended-generic>)
-		       <extended-generic-with-setter>
-		       <accessor>)
-		   #:name (generic-function-name generic)
-		   #:extended-by (slot-ref generic 'extended-by)
-		   #:setter setter)))
+        (gws (make (if (is-a? generic <extended-generic>)
+                       <extended-generic-with-setter>
+                       <accessor>)
+                   #:name (generic-function-name generic)
+                   #:extended-by (slot-ref generic 'extended-by)
+                   #:setter setter)))
     (if (is-a? generic <extended-generic>)
-	(let ((gfs (slot-ref generic 'extends)))
-	  (not-extended-by! gfs generic)
-	  (slot-set! gws 'extends gfs)
-	  (extended-by! gfs gws)))
+        (let ((gfs (slot-ref generic 'extends)))
+          (not-extended-by! gfs generic)
+          (slot-set! gws 'extends gfs)
+          (extended-by! gfs gws)))
     ;; Steal old methods
     (for-each (lambda (method)
-		(slot-set! method 'generic-function gws))
-	      methods)
+                (slot-set! method 'generic-function gws))
+              methods)
     (slot-set! gws 'methods methods)
     (invalidate-method-cache! gws)
     gws))
@@ -1247,9 +1252,9 @@
 ;;
 ;;   (define-method M (a . l) ....)
 ;;   (define-method M (a) ....)
-;; 
+;;
 ;; we consider that the second method is more specific.
-;; 
+;;
 ;; Precondition: `a' and `b' are methods and are applicable to `types'.
 (define (%method-more-specific? a b types)
   (let lp ((a-specializers (method-specializers a))
@@ -1439,32 +1444,32 @@
 (define (add-method-in-classes! m)
   ;; Add method in all the classes which appears in its specializers list
   (for-each* (lambda (x)
-	       (let ((dm (class-direct-methods x)))
-		 (if (not (memq m dm))
-		     (slot-set! x 'direct-methods (cons m dm)))))
-	     (method-specializers m)))
+               (let ((dm (class-direct-methods x)))
+                 (unless (memq m dm)
+                   (struct-set! x class-index-direct-methods (cons m dm)))))
+             (method-specializers m)))
 
 (define (remove-method-in-classes! m)
   ;; Remove method in all the classes which appears in its specializers list
   (for-each* (lambda (x)
-	       (slot-set! x
-			  'direct-methods
-			  (delv! m (class-direct-methods x))))
-	     (method-specializers m)))
+               (struct-set! x
+                            class-index-direct-methods
+                            (delv! m (class-direct-methods x))))
+             (method-specializers m)))
 
 (define (compute-new-list-of-methods gf new)
   (let ((new-spec (method-specializers new))
-	(methods  (slot-ref gf 'methods)))
+        (methods  (slot-ref gf 'methods)))
     (let loop ((l methods))
       (if (null? l)
-	  (cons new methods)
-	  (if (equal? (method-specializers (car l)) new-spec)
-	      (begin 
-		;; This spec. list already exists. Remove old method from dependents
-		(remove-method-in-classes! (car l))
-		(set-car! l new) 
-		methods)
-	      (loop (cdr l)))))))
+          (cons new methods)
+          (if (equal? (method-specializers (car l)) new-spec)
+              (begin
+                ;; This spec. list already exists. Remove old method from dependents
+                (remove-method-in-classes! (car l))
+                (set-car! l new)
+                methods)
+              (loop (cdr l)))))))
 
 (define (method-n-specializers m)
   (length* (slot-ref m 'specializers)))
@@ -1495,8 +1500,8 @@
 (define-method (add-method! (proc <procedure>) (m <method>))
   (if (generic-capability? proc)
       (begin
-	(enable-primitive-generic! proc)
-	(add-method! proc m))
+        (enable-primitive-generic! proc)
+        (add-method! proc m))
       (next-method)))
 
 (define-method (add-method! (pg <primitive-generic>) (m <method>))
@@ -1514,7 +1519,7 @@
 ;;;
 (define-method (method-source (m <method>))
   (let* ((spec (map* class-name (slot-ref m 'specializers)))
-	 (src (procedure-source (slot-ref m 'procedure))))
+         (src (procedure-source (slot-ref m 'procedure))))
     (and src
          (let ((args (cadr src))
                (body (cddr src)))
@@ -1561,7 +1566,7 @@
   (assq slot-name (class-slots class)))
 
 (define (slot-init-function class slot-name)
-  (cadr (assq slot-name (slot-ref class 'getters-n-setters))))
+  (cadr (assq slot-name (struct-ref class class-index-getters-n-setters))))
 
 (define (accessor-method-slot-definition obj)
   "Return the slot definition of the accessor @var{obj}."
@@ -1582,7 +1587,7 @@
 ;; When this generic gets called, we will have already checked eq? and
 ;; eqv? -- the purpose of this generic is to extend equality. So by
 ;; default, there is no extension, thus the #f return.
-(add-method! g-equal? (method (x y) #f)) 
+(add-method! g-equal? (method (x y) #f))
 (set-primitive-generic! equal? g-equal?)
 
 ;;;
@@ -1590,7 +1595,7 @@
 ;;;
 
 ;     Code for writing objects must test that the slots they use are
-;     bound. Otherwise a slot-unbound method will be called and will 
+;     bound. Otherwise a slot-unbound method will be called and will
 ;     conduct to an infinite loop.
 
 ;; Write
@@ -1607,66 +1612,66 @@
 (define-method (write (o <object>) file)
   (let ((class (class-of o)))
     (if (slot-bound? class 'name)
-	(begin
-	  (display "#<" file)
-	  (display (class-name class) file)
-	  (display #\space file)
-	  (display-address o file)
-	  (display #\> file))
-	(next-method))))
+        (begin
+          (display "#<" file)
+          (display (class-name class) file)
+          (display #\space file)
+          (display-address o file)
+          (display #\> file))
+        (next-method))))
 
 (define-method (write (class <class>) file)
   (let ((meta (class-of class)))
     (if (and (slot-bound? class 'name)
-	     (slot-bound? meta 'name))
-	(begin
-	  (display "#<" file)
-	  (display (class-name meta) file)
-	  (display #\space file)
-	  (display (class-name class) file)
-	  (display #\space file)
-	  (display-address class file)
-	  (display #\> file))
-	(next-method))))
+             (slot-bound? meta 'name))
+        (begin
+          (display "#<" file)
+          (display (class-name meta) file)
+          (display #\space file)
+          (display (class-name class) file)
+          (display #\space file)
+          (display-address class file)
+          (display #\> file))
+        (next-method))))
 
 (define-method (write (gf <generic>) file)
   (let ((meta (class-of gf)))
     (if (and (slot-bound? meta 'name)
-	     (slot-bound? gf 'methods))
-	(begin
-	  (display "#<" file)
-	  (display (class-name meta) file)
-	  (let ((name (generic-function-name gf)))
-	    (if name
-		(begin
-		  (display #\space file)
-		  (display name file))))
-	  (display " (" file)
-	  (display (length (generic-function-methods gf)) file)
-	  (display ")>" file))
-	(next-method))))
+             (slot-bound? gf 'methods))
+        (begin
+          (display "#<" file)
+          (display (class-name meta) file)
+          (let ((name (generic-function-name gf)))
+            (if name
+                (begin
+                  (display #\space file)
+                  (display name file))))
+          (display " (" file)
+          (display (length (generic-function-methods gf)) file)
+          (display ")>" file))
+        (next-method))))
 
 (define-method (write (o <method>) file)
   (let ((meta (class-of o)))
     (if (and (slot-bound? meta 'name)
-	     (slot-bound? o 'specializers))
-	(begin
-	  (display "#<" file)
-	  (display (class-name meta) file)
-	  (display #\space file)
-	  (display (map* (lambda (spec)
-			   (if (slot-bound? spec 'name)
-			       (slot-ref spec 'name)
-			       spec))
-			 (method-specializers o))
-		   file)
-	  (display #\space file)
-	  (display-address o file)
-	  (display #\> file))
-	(next-method))))
+             (slot-bound? o 'specializers))
+        (begin
+          (display "#<" file)
+          (display (class-name meta) file)
+          (display #\space file)
+          (display (map* (lambda (spec)
+                           (if (slot-bound? spec 'name)
+                               (slot-ref spec 'name)
+                               spec))
+                         (method-specializers o))
+                   file)
+          (display #\space file)
+          (display-address o file)
+          (display #\> file))
+        (next-method))))
 
 ;; Display (do the same thing as write by default)
-(define-method (display o file) 
+(define-method (display o file)
   (write-object o file))
 
 ;;;
@@ -1688,65 +1693,65 @@
 (define <module> (find-subclass <top> '<module>))
 
 (define-method (merge-generics (module <module>)
-			       (name <symbol>)
-			       (int1 <module>)
-			       (val1 <top>)
-			       (int2 <module>)
-			       (val2 <top>)
-			       (var <top>)
-			       (val <top>))
+                               (name <symbol>)
+                               (int1 <module>)
+                               (val1 <top>)
+                               (int2 <module>)
+                               (val2 <top>)
+                               (var <top>)
+                               (val <top>))
   #f)
 
 (define-method (merge-generics (module <module>)
-			       (name <symbol>)
-			       (int1 <module>)
-			       (val1 <generic>)
-			       (int2 <module>)
-			       (val2 <generic>)
-			       (var <top>)
-			       (val <boolean>))
+                               (name <symbol>)
+                               (int1 <module>)
+                               (val1 <generic>)
+                               (int2 <module>)
+                               (val2 <generic>)
+                               (var <top>)
+                               (val <boolean>))
   (and (not (eq? val1 val2))
        (make-variable (make-extended-generic (list val2 val1) name))))
 
 (define-method (merge-generics (module <module>)
-			       (name <symbol>)
-			       (int1 <module>)
-			       (val1 <generic>)
-			       (int2 <module>)
-			       (val2 <generic>)
-			       (var <top>)
-			       (gf <extended-generic>))
+                               (name <symbol>)
+                               (int1 <module>)
+                               (val1 <generic>)
+                               (int2 <module>)
+                               (val2 <generic>)
+                               (var <top>)
+                               (gf <extended-generic>))
   (and (not (memq val2 (slot-ref gf 'extends)))
        (begin
-	 (slot-set! gf
-		    'extends
-		    (cons val2 (delq! val2 (slot-ref gf 'extends))))
-	 (slot-set! val2
-		    'extended-by
-		    (cons gf (delq! gf (slot-ref val2 'extended-by))))
+         (slot-set! gf
+                    'extends
+                    (cons val2 (delq! val2 (slot-ref gf 'extends))))
+         (slot-set! val2
+                    'extended-by
+                    (cons gf (delq! gf (slot-ref val2 'extended-by))))
          (invalidate-method-cache! gf)
-	 var)))
+         var)))
 
 (module-define! duplicate-handlers 'merge-generics merge-generics)
 
 (define-method (merge-accessors (module <module>)
-				(name <symbol>)
-				(int1 <module>)
-				(val1 <top>)
-				(int2 <module>)
-				(val2 <top>)
-				(var <top>)
-				(val <top>))
+                                (name <symbol>)
+                                (int1 <module>)
+                                (val1 <top>)
+                                (int2 <module>)
+                                (val2 <top>)
+                                (var <top>)
+                                (val <top>))
   #f)
 
 (define-method (merge-accessors (module <module>)
-				(name <symbol>)
-				(int1 <module>)
-				(val1 <accessor>)
-				(int2 <module>)
-				(val2 <accessor>)
-				(var <top>)
-				(val <top>))
+                                (name <symbol>)
+                                (int1 <module>)
+                                (val1 <accessor>)
+                                (int2 <module>)
+                                (val2 <accessor>)
+                                (var <top>)
+                                (val <top>))
   (merge-generics module name int1 val1 int2 val2 var val))
 
 (module-define! duplicate-handlers 'merge-accessors merge-accessors)
@@ -1756,19 +1761,20 @@
 ;;;
 
 (define (class-slot-g-n-s class slot-name)
-  (let* ((this-slot (assq slot-name (slot-ref class 'slots)))
-	 (g-n-s (cddr (or (assq slot-name (slot-ref class 'getters-n-setters))
-			  (slot-missing class slot-name)))))
+  (let* ((this-slot (assq slot-name (struct-ref class class-index-slots)))
+         (getters-n-setters (struct-ref class class-index-getters-n-setters))
+         (g-n-s (cddr (or (assq slot-name getters-n-setters)
+                          (slot-missing class slot-name)))))
     (if (not (memq (slot-definition-allocation this-slot)
-		   '(#:class #:each-subclass)))
-	(slot-missing class slot-name))
+                   '(#:class #:each-subclass)))
+        (slot-missing class slot-name))
     g-n-s))
 
 (define (class-slot-ref class slot)
   (let ((x ((car (class-slot-g-n-s class slot)) #f)))
     (if (unbound? x)
-	(slot-unbound class slot)
-	x)))
+        (slot-unbound class slot)
+        x)))
 
 (define (class-slot-set! class slot value)
   ((cadr (class-slot-g-n-s class slot)) #f value))
@@ -1784,10 +1790,10 @@
 
 (define-method (slot-missing (c <class>) (o <object>) s)
   (goops-error "No slot with name `~S' in object ~S" s o))
-  
+
 (define-method (slot-missing (c <class>) s)
   (goops-error "No class slot with name `~S' in class ~S" s c))
-  
+
 
 (define-method (slot-missing (c <class>) (o <object>) s value)
   (slot-missing c o s))
@@ -1799,7 +1805,7 @@
 
 (define-method (no-applicable-method (gf <generic>) args)
   (goops-error "No applicable method for ~S in call ~S"
-	       gf (cons (generic-function-name gf) args)))
+               gf (cons (generic-function-name gf) args)))
 
 (define-method (no-method (gf <generic>) args)
   (goops-error "No method defined for ~S"  gf))
@@ -1810,26 +1816,26 @@
 
 (define-method (shallow-clone (self <object>))
   (let ((clone (%allocate-instance (class-of self) '()))
-	(slots (map slot-definition-name
-		    (class-slots (class-of self)))))
+        (slots (map slot-definition-name
+                    (class-slots (class-of self)))))
     (for-each (lambda (slot)
-		(if (slot-bound? self slot)
-		    (slot-set! clone slot (slot-ref self slot))))
-	      slots)
+                (if (slot-bound? self slot)
+                    (slot-set! clone slot (slot-ref self slot))))
+              slots)
     clone))
 
 (define-method (deep-clone  (self <object>))
   (let ((clone (%allocate-instance (class-of self) '()))
-	(slots (map slot-definition-name
-		    (class-slots (class-of self)))))
+        (slots (map slot-definition-name
+                    (class-slots (class-of self)))))
     (for-each (lambda (slot)
-		(if (slot-bound? self slot)
-		    (slot-set! clone slot
-			       (let ((value (slot-ref self slot)))
-				 (if (instance? value)
-				     (deep-clone value)
-				     value)))))
-	      slots)
+                (if (slot-bound? self slot)
+                    (slot-set! clone slot
+                               (let ((value (slot-ref self slot)))
+                                 (if (instance? value)
+                                     (deep-clone value)
+                                     value)))))
+              slots)
     clone))
 
 ;;;
@@ -1842,42 +1848,42 @@
 ;;; Has correct the following conditions:
 
 ;;; Methods
-;;; 
+;;;
 ;;; 1. New accessor specializers refer to new header
-;;; 
+;;;
 ;;; Classes
-;;; 
+;;;
 ;;; 1. New class cpl refers to the new class header
 ;;; 2. Old class header exists on old super classes direct-subclass lists
 ;;; 3. New class header exists on new super classes direct-subclass lists
 
 (define-method (class-redefinition (old <class>) (new <class>))
   ;; Work on direct methods:
-  ;;		1. Remove accessor methods from the old class 
-  ;;		2. Patch the occurences of new in the specializers by old
-  ;;		3. Displace the methods from old to new
-  (remove-class-accessors! old)					;; -1-
+  ;;            1. Remove accessor methods from the old class
+  ;;            2. Patch the occurences of new in the specializers by old
+  ;;            3. Displace the methods from old to new
+  (remove-class-accessors! old)                                 ;; -1-
   (let ((methods (class-direct-methods new)))
     (for-each (lambda (m)
-     	         (update-direct-method! m new old))	;; -2-
+                 (update-direct-method! m new old))     ;; -2-
               methods)
-    (slot-set! new
-	       'direct-methods
-	       (append methods (class-direct-methods old))))
+    (struct-set! new
+                 class-index-direct-methods
+                 (append methods (class-direct-methods old))))
 
   ;; Substitute old for new in new cpl
-  (set-car! (slot-ref new 'cpl) old)
-  
+  (set-car! (struct-ref new class-index-cpl) old)
+
   ;; Remove the old class from the direct-subclasses list of its super classes
-  (for-each (lambda (c) (slot-set! c 'direct-subclasses
-				   (delv! old (class-direct-subclasses c))))
-	    (class-direct-supers old))
+  (for-each (lambda (c) (struct-set! c class-index-direct-subclasses
+                                     (delv! old (class-direct-subclasses c))))
+            (class-direct-supers old))
 
   ;; Replace the new class with the old in the direct-subclasses of the supers
   (for-each (lambda (c)
-	      (slot-set! c 'direct-subclasses
-			 (cons old (delv! new (class-direct-subclasses c)))))
-	    (class-direct-supers new))
+              (struct-set! c class-index-direct-subclasses
+                           (cons old (delv! new (class-direct-subclasses c)))))
+            (class-direct-supers new))
 
   ;; Swap object headers
   (%modify-class old new)
@@ -1885,14 +1891,14 @@
   ;; Now old is NEW!
 
   ;; Redefine all the subclasses of old to take into account modification
-  (for-each 
-       (lambda (c)
-	 (update-direct-subclass! c new old))
-       (class-direct-subclasses new))
+  (for-each
+   (lambda (c)
+     (update-direct-subclass! c new old))
+   (class-direct-subclasses new))
 
   ;; Invalidate class so that subsequent instances slot accesses invoke
   ;; change-object-class
-  (slot-set! new 'redefined old)
+  (struct-set! new class-index-redefined old)
   (%invalidate-class new) ;must come after slot-set!
 
   old)
@@ -1903,44 +1909,44 @@
 
 (define-method (remove-class-accessors! (c <class>))
   (for-each (lambda (m)
-	      (if (is-a? m <accessor-method>)
-		  (let ((gf (slot-ref m 'generic-function)))
-		    ;; remove the method from its GF
-		    (slot-set! gf 'methods
-			       (delq1! m (slot-ref gf 'methods)))
-		    (invalidate-method-cache! gf)
-		    ;; remove the method from its specializers
-		    (remove-method-in-classes! m))))
-	    (class-direct-methods c)))
+              (if (is-a? m <accessor-method>)
+                  (let ((gf (slot-ref m 'generic-function)))
+                    ;; remove the method from its GF
+                    (slot-set! gf 'methods
+                               (delq1! m (slot-ref gf 'methods)))
+                    (invalidate-method-cache! gf)
+                    ;; remove the method from its specializers
+                    (remove-method-in-classes! m))))
+            (class-direct-methods c)))
 
 ;;;
 ;;; update-direct-method!
 ;;;
 
 (define-method (update-direct-method! (m  <method>)
-				      (old <class>)
-				      (new <class>))
+                                      (old <class>)
+                                      (new <class>))
   (let loop ((l (method-specializers m)))
-    ;; Note: the <top> in dotted list is never used. 
+    ;; Note: the <top> in dotted list is never used.
     ;; So we can work as if we had only proper lists.
-    (if (pair? l)       	  
-	(begin
-	  (if (eqv? (car l) old)  
-	      (set-car! l new))
-	  (loop (cdr l))))))
+    (if (pair? l)
+        (begin
+          (if (eqv? (car l) old)
+              (set-car! l new))
+          (loop (cdr l))))))
 
 ;;;
 ;;; update-direct-subclass!
 ;;;
 
 (define-method (update-direct-subclass! (c <class>)
-					(old <class>)
-					(new <class>))
+                                        (old <class>)
+                                        (new <class>))
   (class-redefinition c
-		      (make-class (class-direct-supers c)
-				  (class-direct-slots c)
-				  #:name (class-name c)
-				  #:metaclass (class-of c))))
+                      (make-class (class-direct-supers c)
+                                  (class-direct-slots c)
+                                  #:name (class-name c)
+                                  #:metaclass (class-of c))))
 
 ;;;
 ;;; {Utilities for INITIALIZE methods}
@@ -1951,44 +1957,44 @@
 (define (compute-slot-accessors class slots)
   (for-each
       (lambda (s g-n-s)
-	(let ((getter-function (slot-definition-getter   s))
-	      (setter-function (slot-definition-setter   s))
-	      (accessor        (slot-definition-accessor s)))
-	  (if getter-function
-	      (add-method! getter-function
-			   (compute-getter-method class g-n-s)))
-	  (if setter-function
-	      (add-method! setter-function
-			   (compute-setter-method class g-n-s)))
-	  (if accessor
-	      (begin
-		(add-method! accessor
-			     (compute-getter-method class g-n-s))
-		(add-method! (setter accessor)
-			     (compute-setter-method class g-n-s))))))
-      slots (slot-ref class 'getters-n-setters)))
+        (let ((getter-function (slot-definition-getter   s))
+              (setter-function (slot-definition-setter   s))
+              (accessor        (slot-definition-accessor s)))
+          (if getter-function
+              (add-method! getter-function
+                           (compute-getter-method class g-n-s)))
+          (if setter-function
+              (add-method! setter-function
+                           (compute-setter-method class g-n-s)))
+          (if accessor
+              (begin
+                (add-method! accessor
+                             (compute-getter-method class g-n-s))
+                (add-method! (setter accessor)
+                             (compute-setter-method class g-n-s))))))
+      slots (struct-ref class class-index-getters-n-setters)))
 
 (define-method (compute-getter-method (class <class>) slotdef)
   (let ((init-thunk (cadr slotdef))
-	(g-n-s (cddr slotdef)))
+        (g-n-s (cddr slotdef)))
     (make <accessor-method>
           #:specializers (list class)
-	  #:procedure (cond ((pair? g-n-s)
-			     (make-generic-bound-check-getter (car g-n-s)))
-			    (init-thunk
-			     (standard-get g-n-s))
-			    (else
-			     (bound-check-get g-n-s)))
-	  #:slot-definition slotdef)))
+          #:procedure (cond ((pair? g-n-s)
+                             (make-generic-bound-check-getter (car g-n-s)))
+                            (init-thunk
+                             (standard-get g-n-s))
+                            (else
+                             (bound-check-get g-n-s)))
+          #:slot-definition slotdef)))
 
 (define-method (compute-setter-method (class <class>) slotdef)
   (let ((g-n-s (cddr slotdef)))
     (make <accessor-method>
           #:specializers (list class <top>)
-	  #:procedure (if (pair? g-n-s)
-			  (cadr g-n-s)
-			  (standard-set g-n-s))
-	  #:slot-definition slotdef)))
+          #:procedure (if (pair? g-n-s)
+                          (cadr g-n-s)
+                          (standard-set g-n-s))
+          #:slot-definition slotdef)))
 
 (define (make-generic-bound-check-getter proc)
   (lambda (o)
@@ -2032,47 +2038,47 @@
 
   (define (compute-slot-init-function name s)
     (or (let ((thunk (slot-definition-init-thunk s)))
-	  (and thunk
-	       (if (thunk? thunk)
+          (and thunk
+               (if (thunk? thunk)
                    thunk
                    (goops-error "Bad init-thunk for slot `~S' in ~S: ~S"
                                 name class thunk))))
-	(let ((init (slot-definition-init-value s)))
-	  (and (not (unbound? init))
-	       (lambda () init)))))
+        (let ((init (slot-definition-init-value s)))
+          (and (not (unbound? init))
+               (lambda () init)))))
 
   (define (verify-accessors slot l)
     (cond ((integer? l))
-	  ((not (and (list? l) (= (length l) 2)))
-	   (goops-error "Bad getter and setter for slot `~S' in ~S: ~S"
-			slot class l))
-	  (else
-	   (let ((get (car l)) 
-		 (set (cadr l)))
-	     (if (not (procedure? get))
+          ((not (and (list? l) (= (length l) 2)))
+           (goops-error "Bad getter and setter for slot `~S' in ~S: ~S"
+                        slot class l))
+          (else
+           (let ((get (car l))
+                 (set (cadr l)))
+             (if (not (procedure? get))
                  (goops-error "Bad getter closure for slot `~S' in ~S: ~S"
-			      slot class get))
-	     (if (not (procedure? set))
+                              slot class get))
+             (if (not (procedure? set))
                  (goops-error "Bad setter closure for slot `~S' in ~S: ~S"
-			      slot class set))))))
+                              slot class set))))))
 
   (map (lambda (s)
-	 ;; The strange treatment of nfields is due to backward compatibility.
-	 (let* ((index (slot-ref class 'nfields))
-		(g-n-s (compute-get-n-set class s))
-		(size (- (slot-ref class 'nfields) index))
-		(name  (slot-definition-name s)))
-	   ;; NOTE: The following is interdependent with C macros
-	   ;; defined above goops.c:scm_sys_prep_layout_x.
-	   ;;
-	   ;; For simple instance slots, we have the simplest form
-	   ;; '(name init-function . index)
-	   ;; For other slots we have
-	   ;; '(name init-function getter setter . alloc)
-	   ;; where alloc is:
-	   ;;   '(index size) for instance allocated slots
-	   ;;   '() for other slots
-	   (verify-accessors name g-n-s)
+         ;; The strange treatment of nfields is due to backward compatibility.
+         (let* ((index (slot-ref class 'nfields))
+                (g-n-s (compute-get-n-set class s))
+                (size (- (slot-ref class 'nfields) index))
+                (name  (slot-definition-name s)))
+           ;; NOTE: The following is interdependent with C macros
+           ;; defined above goops.c:scm_sys_prep_layout_x.
+           ;;
+           ;; For simple instance slots, we have the simplest form
+           ;; '(name init-function . index)
+           ;; For other slots we have
+           ;; '(name init-function getter setter . alloc)
+           ;; where alloc is:
+           ;;   '(index size) for instance allocated slots
+           ;;   '() for other slots
+           (verify-accessors name g-n-s)
            (case (slot-definition-allocation s)
              ((#:each-subclass #:class)
               (unless (and (zero? size) (pair? g-n-s))
@@ -2111,24 +2117,26 @@
   (case (slot-definition-allocation s)
     ((#:instance) ;; Instance slot
      ;; get-n-set is just its offset
-     (let ((already-allocated (slot-ref class 'nfields)))
-       (slot-set! class 'nfields (+ already-allocated 1))
+     (let ((already-allocated (struct-ref class class-index-nfields)))
+       (struct-set! class class-index-nfields (+ already-allocated 1))
        already-allocated))
 
     ((#:class)  ;; Class slot
-     ;; Class-slots accessors are implemented as 2 closures around 
+     ;; Class-slots accessors are implemented as 2 closures around
      ;; a Scheme variable. As instance slots, class slots must be
      ;; unbound at init time.
      (let ((name (slot-definition-name s)))
        (if (memq name (map slot-definition-name (class-direct-slots class)))
-	   ;; This slot is direct; create a new shared variable
-	   (make-closure-variable class (class-slot-init-value))
-	   ;; Slot is inherited. Find its definition in superclass
-	   (let loop ((l (cdr (class-precedence-list class))))
-	     (let ((r (assoc name (slot-ref (car l) 'getters-n-setters))))
-	       (if r
-		   (cddr r)
-		   (loop (cdr l))))))))
+           ;; This slot is direct; create a new shared variable
+           (make-closure-variable class (class-slot-init-value))
+           ;; Slot is inherited. Find its definition in superclass
+           (let loop ((l (cdr (class-precedence-list class))))
+             (let ((r (assoc name
+                             (struct-ref (car l)
+                                         class-index-getters-n-setters))))
+               (if r
+                   (cddr r)
+                   (loop (cdr l))))))))
 
     ((#:each-subclass) ;; slot shared by instances of direct subclass.
      ;; (Thomas Buerger, April 1998)
@@ -2137,10 +2145,10 @@
     ((#:virtual) ;; No allocation
      ;; slot-ref and slot-set! function must be given by the user
      (let ((get (get-keyword #:slot-ref  (slot-definition-options s) #f))
-	   (set (get-keyword #:slot-set! (slot-definition-options s) #f)))
+           (set (get-keyword #:slot-set! (slot-definition-options s) #f)))
        (if (not (and get set))
-	   (goops-error "You must supply a #:slot-ref and a #:slot-set! in ~S"
-			s))
+           (goops-error "You must supply a #:slot-ref and a #:slot-set! in ~S"
+                        s))
        (list get set)))
     (else    (next-method))))
 
@@ -2165,31 +2173,32 @@
 (define-method (initialize (class <class>) initargs)
   (next-method)
   (let ((dslots (get-keyword #:slots initargs '()))
-	(supers (get-keyword #:dsupers	  initargs '())))
-    (slot-set! class 'name	  	(get-keyword #:name initargs '???))
-    (slot-set! class 'direct-supers 	supers)
-    (slot-set! class 'direct-slots  	dslots)
-    (slot-set! class 'direct-subclasses '())
-    (slot-set! class 'direct-methods    '())
-    (slot-set! class 'cpl		(compute-cpl class))
-    (slot-set! class 'redefined		#f)
+        (supers (get-keyword #:dsupers    initargs '())))
+    (let ((name (get-keyword #:name initargs '???)))
+      (struct-set! class class-index-name            name))
+    (struct-set! class class-index-direct-supers     supers)
+    (struct-set! class class-index-direct-slots      dslots)
+    (struct-set! class class-index-direct-subclasses '())
+    (struct-set! class class-index-direct-methods    '())
+    (struct-set! class class-index-cpl               (compute-cpl class))
+    (struct-set! class class-index-redefined         #f)
     (let ((slots (compute-slots class)))
-      (slot-set! class 'slots	  	  slots)
-      (slot-set! class 'nfields	  	  0)
-      (slot-set! class 'getters-n-setters (compute-getters-n-setters class 
-								     slots))
+      (struct-set! class class-index-slots           slots)
+      (struct-set! class class-index-nfields         0)
+      (let ((getters-n-setters (compute-getters-n-setters class slots)))
+        (struct-set! class class-index-getters-n-setters getters-n-setters))
       ;; Build getters - setters - accessors
       (compute-slot-accessors class slots))
 
     ;; Update the "direct-subclasses" of each inherited classes
     (for-each (lambda (x)
-		(slot-set! x
-			   'direct-subclasses 
-			   (cons class (slot-ref x 'direct-subclasses))))
-	      supers)
+                (let ((dsubs (struct-ref x class-index-direct-subclasses)))
+                  (struct-set! x class-index-direct-subclasses
+                               (cons class dsubs))))
+              supers)
 
     ;; Support for the underlying structs:
-    
+
     ;; Set the layout slot
     (%prep-layout! class)
     ;; Inherit class flags (invisible on scheme level) from supers
@@ -2198,9 +2207,9 @@
 (define (initialize-object-procedure object initargs)
   (let ((proc (get-keyword #:procedure initargs #f)))
     (cond ((not proc))
-	  ((pair? proc)
-	   (apply slot-set! object 'procedure proc))
-	  (else
+          ((pair? proc)
+           (apply slot-set! object 'procedure proc))
+          (else
            (slot-set! object 'procedure proc)))))
 
 (define-method (initialize (applicable-struct <applicable-struct>) initargs)
@@ -2214,14 +2223,14 @@
 
 (define-method (initialize (generic <generic>) initargs)
   (let ((previous-definition (get-keyword #:default initargs #f))
-	(name (get-keyword #:name initargs #f)))
+        (name (get-keyword #:name initargs #f)))
     (next-method)
     (slot-set! generic 'methods (if (is-a? previous-definition <procedure>)
-				    (list (method args
+                                    (list (method args
                                             (apply previous-definition args)))
-				    '()))
+                                    '()))
     (if name
-	(set-procedure-property! generic 'name name))
+        (set-procedure-property! generic 'name name))
     (invalidate-method-cache! generic)))
 
 (define-method (initialize (eg <extended-generic>) initargs)
@@ -2235,11 +2244,11 @@
   (slot-set! method 'generic-function (get-keyword #:generic-function initargs #f))
   (slot-set! method 'specializers (get-keyword #:specializers initargs '()))
   (slot-set! method 'procedure
-	     (get-keyword #:procedure initargs #f))
+             (get-keyword #:procedure initargs #f))
   (slot-set! method 'formals (get-keyword #:formals initargs '()))
   (slot-set! method 'body (get-keyword #:body initargs '()))
   (slot-set! method 'make-procedure (get-keyword #:make-procedure initargs #f)))
-             
+
 
 ;;;
 ;;; {Change-class}
@@ -2249,26 +2258,26 @@
   (let ((new-instance (allocate-instance new-class '())))
     ;; Initialize the slots of the new instance
     (for-each (lambda (slot)
-		(if (and (slot-exists-using-class? old-class old-instance slot)
-			 (eq? (slot-definition-allocation
-			       (class-slot-definition old-class slot))
-			      #:instance)
-			 (slot-bound-using-class? old-class old-instance slot))
-		    ;; Slot was present and allocated in old instance; copy it 
-		    (slot-set-using-class!
-		     new-class 
-		     new-instance 
-		     slot 
-		     (slot-ref-using-class old-class old-instance slot))
-		    ;; slot was absent; initialize it with its default value
-		    (let ((init (slot-init-function new-class slot)))
-		      (if init
-			  (slot-set-using-class!
-			       new-class 
-			       new-instance 
-			       slot
-			       (apply init '()))))))
-	      (map slot-definition-name (class-slots new-class)))
+                (if (and (slot-exists-using-class? old-class old-instance slot)
+                         (eq? (slot-definition-allocation
+                               (class-slot-definition old-class slot))
+                              #:instance)
+                         (slot-bound-using-class? old-class old-instance slot))
+                    ;; Slot was present and allocated in old instance; copy it
+                    (slot-set-using-class!
+                     new-class
+                     new-instance
+                     slot
+                     (slot-ref-using-class old-class old-instance slot))
+                    ;; slot was absent; initialize it with its default value
+                    (let ((init (slot-init-function new-class slot)))
+                      (if init
+                          (slot-set-using-class!
+                               new-class
+                               new-instance
+                               slot
+                               (apply init '()))))))
+              (map slot-definition-name (class-slots new-class)))
     ;; Exchange old and new instance in place to keep pointers valid
     (%modify-instance old-instance new-instance)
     ;; Allow class specific updates of instances (which now are swapped)
@@ -2277,8 +2286,8 @@
 
 
 (define-method (update-instance-for-different-class (old-instance <object>)
-						    (new-instance
-						     <object>))
+                                                    (new-instance
+                                                     <object>))
   ;;not really important what we do, we just need a default method
   new-instance)
 
@@ -2320,8 +2329,8 @@
       (no-method gf args))
   (let ((methods (compute-applicable-methods gf args)))
     (if methods
-	(apply-methods gf (sort-applicable-methods gf methods args) args)
-	(no-applicable-method gf args))))
+        (apply-methods gf (sort-applicable-methods gf methods args) args)
+        (no-applicable-method gf args))))
 
 ;; compute-applicable-methods is bound to %compute-applicable-methods.
 ;; *fixme* use let
@@ -2341,27 +2350,27 @@
 
 (define-method (apply-method (gf <generic>) methods build-next args)
   (apply (method-procedure (car methods))
-	 (build-next (cdr methods) args)
-	 args))
+         (build-next (cdr methods) args)
+         args))
 
 (define-method (apply-methods (gf <generic>) (l <list>) args)
   (letrec ((next (lambda (procs args)
-		   (lambda new-args
-		     (let ((a (if (null? new-args) args new-args)))
-		       (if (null? procs)
-			   (no-next-method gf a)
-			   (apply-method gf procs next a)))))))
+                   (lambda new-args
+                     (let ((a (if (null? new-args) args new-args)))
+                       (if (null? procs)
+                           (no-next-method gf a)
+                           (apply-method gf procs next a)))))))
     (apply-method gf l next args)))
 
 ;; We don't want the following procedure to turn up in backtraces:
 (for-each (lambda (proc)
-	    (set-procedure-property! proc 'system-procedure #t))
-	  (list slot-unbound
-		slot-missing
-		no-next-method
-		no-applicable-method
-		no-method
-		))
+            (set-procedure-property! proc 'system-procedure #t))
+          (list slot-unbound
+                slot-missing
+                no-next-method
+                no-applicable-method
+                no-method
+                ))
 
 ;;;
 ;;; {<composite-metaclass> and <active-metaclass>}
@@ -2380,23 +2389,23 @@
 ;; duplicate the standard list->set function but using eq instead of
 ;; eqv which really sucks a lot, uselessly here
 ;;
-(define (list2set l)	       
+(define (list2set l)
   (let loop ((l l)
-	     (res '()))
-    (cond		       
+             (res '()))
+    (cond
      ((null? l) res)
      ((memq (car l) res) (loop (cdr l) res))
      (else (loop (cdr l) (cons (car l) res))))))
 
 (define (class-subclasses c)
   (letrec ((allsubs (lambda (c)
-		      (cons c (mapappend allsubs
-					 (class-direct-subclasses c))))))
+                      (cons c (mapappend allsubs
+                                         (class-direct-subclasses c))))))
     (list2set (cdr (allsubs c)))))
 
 (define (class-methods c)
   (list2set (mapappend class-direct-methods
-		       (cons c (class-subclasses c)))))
+                       (cons c (class-subclasses c)))))
 
 ;;;
 ;;; {Final initialization}
