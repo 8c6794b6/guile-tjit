@@ -82,6 +82,16 @@ static SCM var_method_generic_function = SCM_BOOL_F;
 static SCM var_method_specializers = SCM_BOOL_F;
 static SCM var_method_procedure = SCM_BOOL_F;
 
+static SCM var_slot_ref_using_class = SCM_BOOL_F;
+static SCM var_slot_set_using_class_x = SCM_BOOL_F;
+static SCM var_slot_bound_using_class_p = SCM_BOOL_F;
+static SCM var_slot_exists_using_class_p = SCM_BOOL_F;
+
+static SCM var_slot_ref = SCM_BOOL_F;
+static SCM var_slot_set_x = SCM_BOOL_F;
+static SCM var_slot_bound_p = SCM_BOOL_F;
+static SCM var_slot_exists_p = SCM_BOOL_F;
+
 
 SCM_SYMBOL (sym_slot_unbound, "slot-unbound");
 SCM_SYMBOL (sym_slot_missing, "slot-missing");
@@ -360,8 +370,6 @@ SCM_DEFINE (scm_get_keyword, "get-keyword", 3, 0, 0,
 
 SCM_KEYWORD (k_init_keyword, "init-keyword");
 
-static SCM get_slot_value (SCM class, SCM obj, SCM slotdef);
-static SCM set_slot_value (SCM class, SCM obj, SCM slotdef, SCM value);
 
 SCM_DEFINE (scm_sys_initialize_object, "%initialize-object", 2, 0, 0,
 	    (SCM obj, SCM initargs),
@@ -417,16 +425,13 @@ SCM_DEFINE (scm_sys_initialize_object, "%initialize-object", 2, 0, 0,
 
       if (!SCM_GOOPS_UNBOUNDP (slot_value))
 	/* set slot to provided value */
-	set_slot_value (class, obj, SCM_CAR (get_n_set), slot_value);
+	scm_slot_set_x (obj, slot_name, slot_value);
       else
 	{
 	  /* set slot to its :init-form if it exists */
 	  tmp = SCM_CADAR (get_n_set);
 	  if (scm_is_true (tmp))
-            set_slot_value (class,
-                            obj,
-                            SCM_CAR (get_n_set),
-                            scm_call_0 (tmp));
+            scm_slot_set_x (obj, slot_name, scm_call_0 (tmp));
 	}
     }
 
@@ -641,229 +646,58 @@ SCM_DEFINE (scm_unbound_p, "unbound?", 1, 0, 0,
 
 
 
-/** Utilities **/
 
-/* In the future, this function will return the effective slot
- * definition associated with SLOT_NAME.  Now it just returns some of
- * the information which will be stored in the effective slot
- * definition.
- */
-
-static SCM
-slot_definition_using_name (SCM class, SCM slot_name)
+SCM
+scm_slot_ref_using_class (SCM class, SCM obj, SCM slot_name)
 {
-  register SCM slots = SCM_SLOT (class, scm_si_getters_n_setters);
-  for (; !scm_is_null (slots); slots = SCM_CDR (slots))
-    if (scm_is_eq (SCM_CAAR (slots), slot_name))
-      return SCM_CAR (slots);
-  return SCM_BOOL_F;
+  return scm_call_3 (scm_variable_ref (var_slot_ref_using_class),
+                     class, obj, slot_name);
 }
 
-static SCM
-get_slot_value (SCM class SCM_UNUSED, SCM obj, SCM slotdef)
-#define FUNC_NAME "%get-slot-value"
+SCM
+scm_slot_set_using_class_x (SCM class, SCM obj, SCM slot_name, SCM value)
 {
-  SCM access = SCM_CDDR (slotdef);
-  /* Two cases here:
-   *	- access is an integer (the offset of this slot in the slots vector)
-   *	- otherwise (car access) is the getter function to apply
-   *
-   * Instances have never more than SCM_MOST_POSITIVE_FIXNUM slots, so
-   * we can just assume fixnums here.
-   */
-  if (SCM_I_INUMP (access))
-    /* Don't poke at the slots directly, because scm_struct_ref handles the
-       access bits for us. */
-    return scm_struct_ref (obj, access);
-  else
-    return scm_call_1 (SCM_CAR (access), obj);
-}
-#undef FUNC_NAME
-
-static SCM
-get_slot_value_using_name (SCM class, SCM obj, SCM slot_name)
-{
-  SCM slotdef = slot_definition_using_name (class, slot_name);
-  if (scm_is_true (slotdef))
-    return get_slot_value (class, obj, slotdef);
-  else
-    return scm_call_3 (SCM_VARIABLE_REF (var_slot_missing), class, obj, slot_name);
+  return scm_call_4 (scm_variable_ref (var_slot_set_using_class_x),
+                     class, obj, slot_name, value);
 }
 
-static SCM
-set_slot_value (SCM class SCM_UNUSED, SCM obj, SCM slotdef, SCM value)
-#define FUNC_NAME "%set-slot-value"
+SCM
+scm_slot_bound_using_class_p (SCM class, SCM obj, SCM slot_name)
 {
-  SCM access = SCM_CDDR (slotdef);
-  /* Two cases here:
-   *	- access is an integer (the offset of this slot in the slots vector)
-   *	- otherwise (cadr access) is the setter function to apply
-   *
-   * Instances have never more than SCM_MOST_POSITIVE_FIXNUM slots, so
-   * we can just assume fixnums here.
-   */
-  if (SCM_I_INUMP (access))
-    /* obey permissions bits via going through struct-set! */
-    scm_struct_set_x (obj, access, value);
-  else
-    /* ((cadr l) obj value) */
-    scm_call_2 (SCM_CADR (access), obj, value);
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-static SCM
-set_slot_value_using_name (SCM class, SCM obj, SCM slot_name, SCM value)
-{
-  SCM slotdef = slot_definition_using_name (class, slot_name);
-  if (scm_is_true (slotdef))
-    return set_slot_value (class, obj, slotdef, value);
-  else
-    return scm_call_4 (SCM_VARIABLE_REF (var_slot_missing), class, obj, slot_name, value);
+  return scm_call_3 (scm_variable_ref (var_slot_bound_using_class_p),
+                     class, obj, slot_name);
 }
 
-static SCM
-test_slot_existence (SCM class SCM_UNUSED, SCM obj, SCM slot_name)
+SCM
+scm_slot_exists_using_class_p (SCM class, SCM obj, SCM slot_name)
 {
-  register SCM l;
-
-  for (l = SCM_ACCESSORS_OF (obj); !scm_is_null (l); l = SCM_CDR (l))
-    if (scm_is_eq (SCM_CAAR (l), slot_name))
-      return SCM_BOOL_T;
-
-  return SCM_BOOL_F;
+  return scm_call_3 (scm_variable_ref (var_slot_exists_using_class_p),
+                     class, obj, slot_name);
 }
 
-		/* ======================================== */
-
-SCM_DEFINE (scm_slot_ref_using_class, "slot-ref-using-class", 3, 0, 0,
-	    (SCM class, SCM obj, SCM slot_name),
-	    "")
-#define FUNC_NAME s_scm_slot_ref_using_class
+SCM
+scm_slot_ref (SCM obj, SCM slot_name)
 {
-  SCM res;
-
-  SCM_VALIDATE_CLASS (1, class);
-  SCM_VALIDATE_INSTANCE (2, obj);
-  SCM_VALIDATE_SYMBOL (3, slot_name);
-
-  res = get_slot_value_using_name (class, obj, slot_name);
-  if (SCM_GOOPS_UNBOUNDP (res))
-    return scm_call_3 (SCM_VARIABLE_REF (var_slot_unbound), class, obj, slot_name);
-  return res;
+  return scm_call_2 (scm_variable_ref (var_slot_ref), obj, slot_name);
 }
-#undef FUNC_NAME
 
-
-SCM_DEFINE (scm_slot_set_using_class_x, "slot-set-using-class!", 4, 0, 0,
-	    (SCM class, SCM obj, SCM slot_name, SCM value),
-	    "")
-#define FUNC_NAME s_scm_slot_set_using_class_x
+SCM
+scm_slot_set_x (SCM obj, SCM slot_name, SCM value)
 {
-  SCM_VALIDATE_CLASS (1, class);
-  SCM_VALIDATE_INSTANCE (2, obj);
-  SCM_VALIDATE_SYMBOL (3, slot_name);
-
-  return set_slot_value_using_name (class, obj, slot_name, value);
+  return scm_call_3 (scm_variable_ref (var_slot_set_x), obj, slot_name, value);
 }
-#undef FUNC_NAME
 
-
-SCM_DEFINE (scm_slot_bound_using_class_p, "slot-bound-using-class?", 3, 0, 0,
-	    (SCM class, SCM obj, SCM slot_name),
-	    "")
-#define FUNC_NAME s_scm_slot_bound_using_class_p
+SCM
+scm_slot_bound_p (SCM obj, SCM slot_name)
 {
-  SCM_VALIDATE_CLASS (1, class);
-  SCM_VALIDATE_INSTANCE (2, obj);
-  SCM_VALIDATE_SYMBOL (3, slot_name);
-
-  return (SCM_GOOPS_UNBOUNDP (get_slot_value_using_name (class, obj, slot_name))
-	  ? SCM_BOOL_F
-	  : SCM_BOOL_T);
+  return scm_call_2 (scm_variable_ref (var_slot_bound_p), obj, slot_name);
 }
-#undef FUNC_NAME
 
-SCM_DEFINE (scm_slot_exists_using_class_p, "slot-exists-using-class?", 3, 0, 0,
-	    (SCM class, SCM obj, SCM slot_name),
-	    "")
-#define FUNC_NAME s_scm_slot_exists_using_class_p
+SCM
+scm_slot_exists_p (SCM obj, SCM slot_name)
 {
-  SCM_VALIDATE_CLASS (1, class);
-  SCM_VALIDATE_INSTANCE (2, obj);
-  SCM_VALIDATE_SYMBOL (3, slot_name);
-  return test_slot_existence (class, obj, slot_name);
+  return scm_call_2 (scm_variable_ref (var_slot_exists_p), obj, slot_name);
 }
-#undef FUNC_NAME
-
-
-		/* ======================================== */
-
-SCM_DEFINE (scm_slot_ref, "slot-ref", 2, 0, 0,
-	    (SCM obj, SCM slot_name),
-	    "Return the value from @var{obj}'s slot with the name\n"
-	    "@var{slot_name}.")
-#define FUNC_NAME s_scm_slot_ref
-{
-  SCM res, class;
-
-  SCM_VALIDATE_INSTANCE (1, obj);
-  TEST_CHANGE_CLASS (obj, class);
-
-  res = get_slot_value_using_name (class, obj, slot_name);
-  if (SCM_GOOPS_UNBOUNDP (res))
-    return scm_call_3 (SCM_VARIABLE_REF (var_slot_unbound), class, obj, slot_name);
-  return res;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_slot_set_x, "slot-set!", 3, 0, 0,
-	    (SCM obj, SCM slot_name, SCM value),
-	    "Set the slot named @var{slot_name} of @var{obj} to @var{value}.")
-#define FUNC_NAME s_scm_slot_set_x
-{
-  SCM class;
-
-  SCM_VALIDATE_INSTANCE (1, obj);
-  TEST_CHANGE_CLASS(obj, class);
-
-  return set_slot_value_using_name (class, obj, slot_name, value);
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_slot_bound_p, "slot-bound?", 2, 0, 0,
-	    (SCM obj, SCM slot_name),
-	    "Return @code{#t} if the slot named @var{slot_name} of @var{obj}\n"
-	    "is bound.")
-#define FUNC_NAME s_scm_slot_bound_p
-{
-  SCM class;
-
-  SCM_VALIDATE_INSTANCE (1, obj);
-  TEST_CHANGE_CLASS(obj, class);
-
-  return (SCM_GOOPS_UNBOUNDP (get_slot_value_using_name (class,
-							 obj,
-							 slot_name))
-	  ? SCM_BOOL_F
-	  : SCM_BOOL_T);
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_slot_exists_p, "slot-exists?", 2, 0, 0,
-	    (SCM obj, SCM slot_name),
-	    "Return @code{#t} if @var{obj} has a slot named @var{slot_name}.")
-#define FUNC_NAME s_scm_slot_exists_p
-{
-  SCM class;
-
-  SCM_VALIDATE_INSTANCE (1, obj);
-  SCM_VALIDATE_SYMBOL (2, slot_name);
-  TEST_CHANGE_CLASS (obj, class);
-
-  return test_slot_existence (class, obj, slot_name);
-}
-#undef FUNC_NAME
 
 
 /******************************************************************************
@@ -1533,6 +1367,16 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
 {
   var_make_standard_class = scm_c_lookup ("make-standard-class");
   var_make = scm_c_lookup ("make");
+
+  var_slot_ref_using_class = scm_c_lookup ("slot-ref-using-class");
+  var_slot_set_using_class_x = scm_c_lookup ("slot-set-using-class!");
+  var_slot_bound_using_class_p = scm_c_lookup ("slot-bound-using-class?");
+  var_slot_exists_using_class_p = scm_c_lookup ("slot-exists-using-class?");
+
+  var_slot_ref = scm_c_lookup ("slot-ref");
+  var_slot_set_x = scm_c_lookup ("slot-set!");
+  var_slot_bound_p = scm_c_lookup ("slot-bound?");
+  var_slot_exists_p = scm_c_lookup ("slot-exists?");
 
   class_class = scm_variable_ref (scm_c_lookup ("<class>"));
   class_top = scm_variable_ref (scm_c_lookup ("<top>"));

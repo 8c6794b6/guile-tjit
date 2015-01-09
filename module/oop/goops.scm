@@ -238,6 +238,13 @@
   "Return the slot list of the class @var{obj}."
   class-index-slots)
 
+;;
+;; is-a?
+;;
+(define (is-a? obj class)
+  (and (memq class (class-precedence-list (class-of obj))) #t))
+
+
 ;;; The standard class precedence list computation algorithm
 ;;;
 ;;; Correct behaviour:
@@ -640,6 +647,102 @@
         (error "boot `make' does not support this class" class)))
       z))))
 
+;; In the future, this function will return the effective slot
+;; definition associated with SLOT_NAME.  Now it just returns some of
+;; the information which will be stored in the effective slot
+;; definition.
+;;
+(define (get-slot-value-using-name class obj slot-name)
+  (match (assq slot-name (struct-ref class class-index-getters-n-setters))
+    (#f (slot-missing class obj slot-name))
+    ((name init-thunk . (? exact-integer? index))
+     (struct-ref obj index))
+    ((name init-thunk getter setter . _)
+     (getter obj))))
+
+(define (set-slot-value-using-name! class obj slot-name value)
+  (match (assq slot-name (struct-ref class class-index-getters-n-setters))
+    (#f (slot-missing class obj slot-name value))
+    ((name init-thunk . (? exact-integer? index))
+     (struct-set! obj index value))
+    ((name init-thunk getter setter . _)
+     (setter obj value))))
+
+(define (test-slot-existence class obj slot-name)
+  (and (assq slot-name (struct-ref class class-index-getters-n-setters))
+       #t))
+
+;; ========================================
+
+(define (check-slot-args class obj slot-name)
+  (unless (class? class)
+    (scm-error 'wrong-type-arg #f "Not a class: ~S"
+               (list class) #f))
+  (unless (is-a? obj <object>)
+    (scm-error 'wrong-type-arg #f "Not an instance: ~S"
+               (list obj) #f))
+  (unless (symbol? slot-name)
+    (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
+               (list slot-name) #f)))
+
+(define (slot-ref-using-class class obj slot-name)
+  (check-slot-args class obj slot-name)
+  (let ((val (get-slot-value-using-name class obj slot-name)))
+    (if (unbound? val)
+        (slot-unbound class obj slot-name)
+        val)))
+
+(define (slot-set-using-class! class obj slot-name value)
+  (check-slot-args class obj slot-name)
+  (set-slot-value-using-name! class obj slot-name value))
+
+(define (slot-bound-using-class? class obj slot-name)
+  (check-slot-args class obj slot-name)
+  (not (unbound? (get-slot-value-using-name class obj slot-name))))
+
+(define (slot-exists-using-class? class obj slot-name)
+  (check-slot-args class obj slot-name)
+  (test-slot-existence class obj slot-name))
+
+;; Class redefinition protocol:
+;;
+;; A class is represented by a heap header h1 which points to a
+;; malloc:ed memory block m1.
+;;
+;; When a new version of a class is created, a new header h2 and
+;; memory block m2 are allocated.  The headers h1 and h2 then switch
+;; pointers so that h1 refers to m2 and h2 to m1.  In this way, names
+;; bound to h1 will point to the new class at the same time as h2 will
+;; be a handle which the GC will use to free m1.
+;;
+;; The `redefined' slot of m1 will be set to point to h1.  An old
+;; instance will have its class pointer (the CAR of the heap header)
+;; pointing to m1.  The non-immediate `redefined'-slot in m1 indicates
+;; the class modification and the new class pointer can be found via
+;; h1.
+;;
+
+;; In the following interfaces, class-of handles the redefinition
+;; protocol.  There would seem to be some thread-unsafety though as the
+;; { class, object data } pair needs to be accessed atomically, not the
+;; { class, object } pair.
+
+(define (slot-ref obj slot-name)
+  "Return the value from @var{obj}'s slot with the nam var{slot_name}."
+  (slot-ref-using-class (class-of obj) obj slot-name))
+
+(define (slot-set! obj slot-name value)
+  "Set the slot named @var{slot_name} of @var{obj} to @var{value}."
+  (slot-set-using-class! (class-of obj) obj slot-name value))
+
+(define (slot-bound? obj slot-name)
+  "Return the value from @var{obj}'s slot with the nam var{slot_name}."
+  (slot-bound-using-class? (class-of obj) obj slot-name))
+
+(define (slot-exists? obj slot-name)
+  "Return @code{#t} if @var{obj} has a slot named @var{slot_name}."
+  (slot-exists-using-class? (class-of obj) obj slot-name))
+
 (define (method-generic-function obj)
   "Return the generic function for the method @var{obj}."
   (unless (is-a? obj <method>)
@@ -949,13 +1052,6 @@
 ;;
 (define (goops-error format-string . args)
   (scm-error 'goops-error #f format-string args '()))
-
-;;
-;; is-a?
-;;
-(define (is-a? obj class)
-  (and (memq class (class-precedence-list (class-of obj))) #t))
-
 
 ;;;
 ;;; {Meta classes}
