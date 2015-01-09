@@ -65,8 +65,6 @@
    though, as in the rest of Guile.  */
 
 static SCM var_make_standard_class = SCM_BOOL_F;
-static SCM var_slot_unbound = SCM_BOOL_F;
-static SCM var_slot_missing = SCM_BOOL_F;
 static SCM var_change_class = SCM_BOOL_F;
 static SCM var_make = SCM_BOOL_F;
 static SCM var_class_name = SCM_BOOL_F;
@@ -1475,10 +1473,6 @@ SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
   var_method_specializers = scm_c_lookup ("method-specializers");
   var_method_procedure = scm_c_lookup ("method-procedure");
 
-  var_slot_unbound =
-    scm_module_variable (scm_module_goops, sym_slot_unbound);
-  var_slot_missing =
-    scm_module_variable (scm_module_goops, sym_slot_missing);
   var_change_class =
     scm_module_variable (scm_module_goops, sym_change_class);
   setup_extended_primitive_generics ();
