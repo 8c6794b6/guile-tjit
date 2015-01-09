@@ -207,31 +207,62 @@
 (define (compute-cpl class)
   (compute-std-cpl class class-direct-supers))
 
+(define-syntax macro-fold-left
+  (syntax-rules ()
+    ((_ folder seed ()) seed)
+    ((_ folder seed (head . tail))
+     (macro-fold-left folder (folder head seed) tail))))
+
 (define-syntax macro-fold-right
   (syntax-rules ()
     ((_ folder seed ()) seed)
     ((_ folder seed (head . tail))
      (folder head (macro-fold-right folder seed tail)))))
 
-(define-syntax-rule (fold-<class>-slots fold visit seed)
-  (fold visit seed
-        ((layout <protected-read-only-slot>)
-         (flags <hidden-slot>)
-         (self <self-slot>)
-         (instance-finalizer <hidden-slot>)
-         (print)
-         (name <protected-hidden-slot>)
-         (reserved-0 <hidden-slot>)
-         (reserved-1 <hidden-slot>)
-         (redefined)
-         (direct-supers)
-         (direct-slots)
-         (direct-subclasses)
-         (direct-methods)
-         (cpl)
-         (slots)
-         (getters-n-setters)
-         (nfields))))
+(define-syntax fold-<class>-slots
+  (lambda (x)
+    (define slots
+      '((layout <protected-read-only-slot>)
+        (flags <hidden-slot>)
+        (self <self-slot>)
+        (instance-finalizer <hidden-slot>)
+        (print)
+        (name <protected-hidden-slot>)
+        (reserved-0 <hidden-slot>)
+        (reserved-1 <hidden-slot>)
+        (redefined)
+        (direct-supers)
+        (direct-slots)
+        (direct-subclasses)
+        (direct-methods)
+        (cpl)
+        (slots)
+        (getters-n-setters)
+        (nfields)))
+    (syntax-case x ()
+      ((_ fold visit seed)
+       ;; The datum->syntax makes it as if the identifiers in `slots'
+       ;; were present in the initial form, which allows them to be used
+       ;; as (components of) introduced identifiers.
+       #`(fold visit seed #,(datum->syntax #'visit slots))))))
+
+;; Define class-index-layout to 0, class-index-flags to 1, and so on.
+(let-syntax ((define-class-index
+              (lambda (x)
+                (define (id-append ctx a b)
+                  (datum->syntax ctx (symbol-append (syntax->datum a)
+                                                    (syntax->datum b))))
+                (define (tail-length tail)
+                  (syntax-case tail ()
+                    ((begin) 0)
+                    ((visit head tail) (1+ (tail-length #'tail)))))
+                (syntax-case x ()
+                  ((_ (name . _) tail)
+                   #`(begin
+                       (define #,(id-append #'name #'class-index- #'name)
+                         #,(tail-length #'tail))
+                       tail))))))
+  (fold-<class>-slots macro-fold-left define-class-index (begin)))
 
 (define (build-slots-list dslots cpl)
   (define (check-cpl slots class-slots)
