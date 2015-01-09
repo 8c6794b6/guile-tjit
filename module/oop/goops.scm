@@ -150,63 +150,6 @@
   (use-modules ((language tree-il primitives) :select (add-interesting-primitive!)))
   (add-interesting-primitive! 'class-of))
 
-;;; The standard class precedence list computation algorithm
-;;;
-;;; Correct behaviour:
-;;;
-;;; (define-class food ())
-;;; (define-class fruit (food))
-;;; (define-class spice (food))
-;;; (define-class apple (fruit))
-;;; (define-class cinnamon (spice))
-;;; (define-class pie (apple cinnamon))
-;;; => cpl (pie) = pie apple fruit cinnamon spice food object top
-;;;
-;;; (define-class d ())
-;;; (define-class e ())
-;;; (define-class f ())
-;;; (define-class b (d e))
-;;; (define-class c (e f))
-;;; (define-class a (b c))
-;;; => cpl (a) = a b d c e f object top
-;;;
-
-(define (compute-std-cpl c get-direct-supers)
-  (define (only-non-null lst)
-    (filter (lambda (l) (not (null? l))) lst))
-
-  (define (merge-lists reversed-partial-result inputs)
-    (cond
-     ((every null? inputs)
-      (reverse! reversed-partial-result))
-     (else
-      (let* ((candidate (lambda (c)
-                          (and (not (any (lambda (l)
-                                           (memq c (cdr l)))
-                                         inputs))
-                               c)))
-             (candidate-car (lambda (l)
-                              (and (not (null? l))
-                                   (candidate (car l)))))
-             (next (any candidate-car inputs)))
-        (if (not next)
-            (goops-error "merge-lists: Inconsistent precedence graph"))
-        (let ((remove-next (lambda (l)
-                             (if (eq? (car l) next)
-                                 (cdr l)
-                                 l))))
-          (merge-lists (cons next reversed-partial-result)
-                       (only-non-null (map remove-next inputs))))))))
-  (let ((c-direct-supers (get-direct-supers c)))
-    (merge-lists (list c)
-                 (only-non-null (append (map class-precedence-list
-                                             c-direct-supers)
-                                        (list c-direct-supers))))))
-
-;; Bootstrap version.
-(define (compute-cpl class)
-  (compute-std-cpl class class-direct-supers))
-
 (define-syntax macro-fold-left
   (syntax-rules ()
     ((_ folder seed ()) seed)
@@ -263,6 +206,94 @@
                          #,(tail-length #'tail))
                        tail))))))
   (fold-<class>-slots macro-fold-left define-class-index (begin)))
+
+(define-syntax-rule (define-class-accessor name docstring field)
+  (define (name obj)
+    docstring
+    (let ((val obj))
+      (unless (class? val)
+        (scm-error 'wrong-type-arg #f "Not a class: ~S"
+                   (list val) #f))
+      (struct-ref val field))))
+
+(define-class-accessor class-name
+  "Return the class name of @var{obj}."
+  class-index-name)
+(define-class-accessor class-direct-supers
+  "Return the direct superclasses of the class @var{obj}."
+  class-index-direct-supers)
+(define-class-accessor class-direct-slots
+  "Return the direct slots of the class @var{obj}."
+  class-index-direct-slots)
+(define-class-accessor class-direct-subclasses
+  "Return the direct subclasses of the class @var{obj}."
+  class-index-direct-subclasses)
+(define-class-accessor class-direct-methods
+  "Return the direct methods of the class @var{obj}."
+  class-index-direct-methods)
+(define-class-accessor class-precedence-list
+  "Return the class precedence list of the class @var{obj}."
+  class-index-cpl)
+(define-class-accessor class-slots
+  "Return the slot list of the class @var{obj}."
+  class-index-slots)
+
+;;; The standard class precedence list computation algorithm
+;;;
+;;; Correct behaviour:
+;;;
+;;; (define-class food ())
+;;; (define-class fruit (food))
+;;; (define-class spice (food))
+;;; (define-class apple (fruit))
+;;; (define-class cinnamon (spice))
+;;; (define-class pie (apple cinnamon))
+;;; => cpl (pie) = pie apple fruit cinnamon spice food object top
+;;;
+;;; (define-class d ())
+;;; (define-class e ())
+;;; (define-class f ())
+;;; (define-class b (d e))
+;;; (define-class c (e f))
+;;; (define-class a (b c))
+;;; => cpl (a) = a b d c e f object top
+;;;
+
+(define (compute-std-cpl c get-direct-supers)
+  (define (only-non-null lst)
+    (filter (lambda (l) (not (null? l))) lst))
+
+  (define (merge-lists reversed-partial-result inputs)
+    (cond
+     ((every null? inputs)
+      (reverse! reversed-partial-result))
+     (else
+      (let* ((candidate (lambda (c)
+                          (and (not (any (lambda (l)
+                                           (memq c (cdr l)))
+                                         inputs))
+                               c)))
+             (candidate-car (lambda (l)
+                              (and (not (null? l))
+                                   (candidate (car l)))))
+             (next (any candidate-car inputs)))
+        (if (not next)
+            (goops-error "merge-lists: Inconsistent precedence graph"))
+        (let ((remove-next (lambda (l)
+                             (if (eq? (car l) next)
+                                 (cdr l)
+                                 l))))
+          (merge-lists (cons next reversed-partial-result)
+                       (only-non-null (map remove-next inputs))))))))
+  (let ((c-direct-supers (get-direct-supers c)))
+    (merge-lists (list c)
+                 (only-non-null (append (map class-precedence-list
+                                             c-direct-supers)
+                                        (list c-direct-supers))))))
+
+;; Bootstrap version.
+(define (compute-cpl class)
+  (compute-std-cpl class class-direct-supers))
 
 (define (build-slots-list dslots cpl)
   (define (check-cpl slots class-slots)

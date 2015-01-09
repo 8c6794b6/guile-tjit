@@ -69,6 +69,13 @@ static SCM var_slot_unbound = SCM_BOOL_F;
 static SCM var_slot_missing = SCM_BOOL_F;
 static SCM var_change_class = SCM_BOOL_F;
 static SCM var_make = SCM_BOOL_F;
+static SCM var_class_name = SCM_BOOL_F;
+static SCM var_class_direct_supers = SCM_BOOL_F;
+static SCM var_class_direct_slots = SCM_BOOL_F;
+static SCM var_class_direct_subclasses = SCM_BOOL_F;
+static SCM var_class_direct_methods = SCM_BOOL_F;
+static SCM var_class_precedence_list = SCM_BOOL_F;
+static SCM var_class_slots = SCM_BOOL_F;
 
 SCM_SYMBOL (sym_slot_unbound, "slot-unbound");
 SCM_SYMBOL (sym_slot_missing, "slot-missing");
@@ -163,6 +170,7 @@ SCM scm_i_smob_class[SCM_I_MAX_SMOB_TYPE_COUNT];
 
 static SCM scm_make_unbound (void);
 static SCM scm_unbound_p (SCM obj);
+static SCM scm_class_p (SCM obj);
 static SCM scm_sys_bless_applicable_struct_vtables_x (SCM applicable,
                                                       SCM setter);
 static SCM scm_sys_bless_pure_generic_vtable_x (SCM vtable);
@@ -496,6 +504,15 @@ SCM_DEFINE (scm_instance_p, "instance?", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_class_p, "class?", 1, 0, 0,
+	    (SCM obj),
+	    "Return @code{#t} if @var{obj} is a class.")
+#define FUNC_NAME s_scm_class_p
+{
+  return scm_from_bool (SCM_CLASSP (obj));
+}
+#undef FUNC_NAME
+
 int
 scm_is_generic (SCM x)
 {
@@ -515,85 +532,51 @@ scm_is_method (SCM x)
  ******************************************************************************/
 
 SCM_SYMBOL (sym_procedure, "procedure");
-SCM_SYMBOL (sym_direct_supers, "direct-supers");
-SCM_SYMBOL (sym_direct_slots, "direct-slots");
-SCM_SYMBOL (sym_direct_subclasses, "direct-subclasses");
-SCM_SYMBOL (sym_direct_methods, "direct-methods");
-SCM_SYMBOL (sym_cpl, "cpl");
-SCM_SYMBOL (sym_slots, "slots");
 
-SCM_DEFINE (scm_class_name, "class-name",  1, 0, 0,
-	    (SCM obj),
-	    "Return the class name of @var{obj}.")
-#define FUNC_NAME s_scm_class_name
+SCM
+scm_class_name (SCM obj)
 {
-  SCM_VALIDATE_CLASS (1, obj);
-  return scm_slot_ref (obj, scm_sym_name);
+  return scm_call_1 (scm_variable_ref (var_class_name), obj);
 }
-#undef FUNC_NAME
 
-SCM_DEFINE (scm_class_direct_supers, "class-direct-supers", 1, 0, 0,
-	    (SCM obj),
-	    "Return the direct superclasses of the class @var{obj}.")
-#define FUNC_NAME s_scm_class_direct_supers
+SCM
+scm_class_direct_supers (SCM obj)
 {
-  SCM_VALIDATE_CLASS (1, obj);
-  return scm_slot_ref (obj, sym_direct_supers);
+  return scm_call_1 (scm_variable_ref (var_class_direct_supers), obj);
 }
-#undef FUNC_NAME
 
-SCM_DEFINE (scm_class_direct_slots, "class-direct-slots", 1, 0, 0,
-	    (SCM obj),
-	    "Return the direct slots of the class @var{obj}.")
-#define FUNC_NAME s_scm_class_direct_slots
+SCM
+scm_class_direct_slots (SCM obj)
 {
-  SCM_VALIDATE_CLASS (1, obj);
-  return scm_slot_ref (obj, sym_direct_slots);
+  return scm_call_1 (scm_variable_ref (var_class_direct_slots), obj);
 }
-#undef FUNC_NAME
 
-SCM_DEFINE (scm_class_direct_subclasses, "class-direct-subclasses", 1, 0, 0,
-	    (SCM obj),
-	    "Return the direct subclasses of the class @var{obj}.")
-#define FUNC_NAME s_scm_class_direct_subclasses
+SCM
+scm_class_direct_subclasses (SCM obj)
 {
-  SCM_VALIDATE_CLASS (1, obj);
-  return scm_slot_ref(obj, sym_direct_subclasses);
+  return scm_call_1 (scm_variable_ref (var_class_direct_subclasses), obj);
 }
-#undef FUNC_NAME
 
-SCM_DEFINE (scm_class_direct_methods, "class-direct-methods", 1, 0, 0,
-	    (SCM obj),
-	    "Return the direct methods of the class @var{obj}")
-#define FUNC_NAME s_scm_class_direct_methods
+SCM
+scm_class_direct_methods (SCM obj)
 {
-  SCM_VALIDATE_CLASS (1, obj);
-  return scm_slot_ref (obj, sym_direct_methods);
+  return scm_call_1 (scm_variable_ref (var_class_direct_methods), obj);
 }
-#undef FUNC_NAME
 
-SCM_DEFINE (scm_class_precedence_list, "class-precedence-list", 1, 0, 0,
-	    (SCM obj),
-	    "Return the class precedence list of the class @var{obj}.")
-#define FUNC_NAME s_scm_class_precedence_list
+SCM
+scm_class_precedence_list (SCM obj)
 {
-  SCM_VALIDATE_CLASS (1, obj);
-  return scm_slot_ref (obj, sym_cpl);
+  return scm_call_1 (scm_variable_ref (var_class_precedence_list), obj);
 }
-#undef FUNC_NAME
 
-SCM_DEFINE (scm_class_slots, "class-slots", 1, 0, 0,
-	    (SCM obj),
-	    "Return the slot list of the class @var{obj}.")
-#define FUNC_NAME s_scm_class_slots
+SCM
+scm_class_slots (SCM obj)
 {
-  SCM_VALIDATE_CLASS (1, obj);
-  return scm_slot_ref (obj, sym_slots);
+  return scm_call_1 (scm_variable_ref (var_class_slots), obj);
 }
-#undef FUNC_NAME
 
 SCM_DEFINE (scm_generic_function_name, "generic-function-name", 1, 0, 0,
-	    (SCM obj),
+            (SCM obj),
 	    "Return the name of the generic function @var{obj}.")
 #define FUNC_NAME s_scm_generic_function_name
 {
@@ -1598,6 +1581,13 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
 {
   var_make_standard_class = scm_c_lookup ("make-standard-class");
   var_make = scm_c_lookup ("make");
+  var_class_name = scm_c_lookup ("class-name");
+  var_class_direct_supers = scm_c_lookup ("class-direct-supers");
+  var_class_direct_slots = scm_c_lookup ("class-direct-slots");
+  var_class_direct_subclasses = scm_c_lookup ("class-direct-subclasses");
+  var_class_direct_methods = scm_c_lookup ("class-direct-methods");
+  var_class_precedence_list = scm_c_lookup ("class-precedence-list");
+  var_class_slots = scm_c_lookup ("class-slots");
 
   class_class = scm_variable_ref (scm_c_lookup ("<class>"));
   class_top = scm_variable_ref (scm_c_lookup ("<top>"));
