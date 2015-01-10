@@ -530,26 +530,20 @@
   (n-specialized #:init-value 0)
   (extended-by #:init-value ())
   effective-methods)
-(%bless-pure-generic-vtable! <generic>)
 (define-standard-class <extended-generic> (<generic>)
   #:metaclass <applicable-struct-class>
   (extends #:init-value ()))
-(%bless-pure-generic-vtable! <extended-generic>)
 (define-standard-class <generic-with-setter> (<generic>
                                               <applicable-struct-with-setter>)
   #:metaclass <applicable-struct-with-setter-class>)
-(%bless-pure-generic-vtable! <generic-with-setter>)
 (define-standard-class <accessor> (<generic-with-setter>)
   #:metaclass <applicable-struct-with-setter-class>)
-(%bless-pure-generic-vtable! <accessor>)
 (define-standard-class <extended-generic-with-setter> (<extended-generic>
                                                        <generic-with-setter>)
   #:metaclass <applicable-struct-with-setter-class>)
-(%bless-pure-generic-vtable! <extended-generic-with-setter>)
 (define-standard-class <extended-accessor> (<accessor>
                                             <extended-generic-with-setter>)
   #:metaclass <applicable-struct-with-setter-class>)
-(%bless-pure-generic-vtable! <extended-accessor>)
 
 ;; Methods
 (define-standard-class <method> (<object>)

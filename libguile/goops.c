@@ -157,7 +157,6 @@ static SCM scm_unbound_p (SCM obj);
 static SCM scm_class_p (SCM obj);
 static SCM scm_sys_bless_applicable_struct_vtables_x (SCM applicable,
                                                       SCM setter);
-static SCM scm_sys_bless_pure_generic_vtable_x (SCM vtable);
 static SCM scm_sys_make_root_class (SCM name, SCM dslots,
                                     SCM getters_n_setters);
 static SCM scm_sys_init_layout_x (SCM class, SCM layout);
@@ -904,7 +903,7 @@ SCM_DEFINE (scm_set_primitive_generic_x, "set-primitive-generic!", 2, 0, 0,
 #define FUNC_NAME s_scm_set_primitive_generic_x
 {
   SCM_ASSERT (SCM_PRIMITIVE_GENERIC_P (subr), subr, SCM_ARG1, FUNC_NAME);
-  SCM_ASSERT (SCM_PUREGENERICP (generic), generic, SCM_ARG2, FUNC_NAME);
+  SCM_ASSERT (SCM_GENERICP (generic), generic, SCM_ARG2, FUNC_NAME);
   SCM_SET_SUBR_GENERIC (subr, generic);
   return SCM_UNSPECIFIED;
 }
@@ -1297,17 +1296,6 @@ SCM_DEFINE (scm_sys_bless_applicable_struct_vtables_x, "%bless-applicable-struct
   SCM_VALIDATE_CLASS (2, setter);
   SCM_SET_VTABLE_FLAGS (applicable, SCM_VTABLE_FLAG_APPLICABLE_VTABLE);
   SCM_SET_VTABLE_FLAGS (setter, SCM_VTABLE_FLAG_SETTER_VTABLE);
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_sys_bless_pure_generic_vtable_x, "%bless-pure-generic-vtable!", 1, 0, 0,
-	    (SCM vtable),
-	    "")
-#define FUNC_NAME s_scm_sys_bless_pure_generic_vtable_x
-{
-  SCM_VALIDATE_CLASS (1, vtable);
-  SCM_SET_CLASS_FLAGS (vtable, SCM_CLASSF_PURE_GENERIC);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
