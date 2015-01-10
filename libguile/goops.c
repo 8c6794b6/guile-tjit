@@ -90,12 +90,6 @@ static SCM var_slot_set_x = SCM_BOOL_F;
 static SCM var_slot_bound_p = SCM_BOOL_F;
 static SCM var_slot_exists_p = SCM_BOOL_F;
 
-
-SCM_SYMBOL (sym_change_class, "change-class");
-
-SCM_VARIABLE (scm_var_make_extended_generic, "make-extended-generic");
-
-
 #define SCM_GOOPS_UNBOUND SCM_UNBOUND
 #define SCM_GOOPS_UNBOUNDP(x) (scm_is_eq (x, SCM_GOOPS_UNBOUND))
 
@@ -822,8 +816,6 @@ go_to_heaven (void *o)
 }
 
 
-SCM_SYMBOL (scm_sym_change_class, "change-class");
-
 static SCM
 purgatory (SCM obj, SCM new_class)
 {
@@ -923,62 +915,6 @@ SCM_DEFINE (scm_primitive_generic_generic, "primitive-generic-generic", 1, 0, 0,
   SCM_WRONG_TYPE_ARG (SCM_ARG1, subr);
 }
 #undef FUNC_NAME
-
-typedef struct t_extension {
-  struct t_extension *next;
-  SCM extended;
-  SCM extension;
-} t_extension;
-
-
-/* Hint for `scm_gc_malloc ()' et al. when allocating `t_extension'
-   objects.  */
-static const char extension_gc_hint[] = "GOOPS extension";
-
-static t_extension *extensions = 0;
-
-void
-scm_c_extend_primitive_generic (SCM extended, SCM extension)
-{
-  if (goops_loaded_p)
-    {
-      SCM gf, gext;
-      if (!SCM_UNPACK (*SCM_SUBR_GENERIC (extended)))
-	scm_enable_primitive_generic_x (scm_list_1 (extended));
-      gf = *SCM_SUBR_GENERIC (extended);
-      gext = scm_call_2 (SCM_VARIABLE_REF (scm_var_make_extended_generic),
-			 gf,
-			 SCM_SUBR_NAME (extension));
-      SCM_SET_SUBR_GENERIC (extension, gext);
-    }
-  else
-    {
-      t_extension *e = scm_gc_malloc (sizeof (t_extension),
-				      extension_gc_hint);
-      t_extension **loc = &extensions;
-      /* Make sure that extensions are placed before their own
-       * extensions in the extensions list.  O(N^2) algorithm, but
-       * extensions of primitive generics are rare.
-       */
-      while (*loc && !scm_is_eq (extension, (*loc)->extended))
-	loc = &(*loc)->next;
-      e->next = *loc;
-      e->extended = extended;
-      e->extension = extension;
-      *loc = e;
-    }
-}
-
-static void
-setup_extended_primitive_generics ()
-{
-  while (extensions)
-    {
-      t_extension *e = extensions;
-      scm_c_extend_primitive_generic (e->extended, e->extension);
-      extensions = e->next;
-    }
-}
 
 /* Dirk:FIXME:: In all of these scm_wta_dispatch_* routines it is
  * assumed that 'gf' is zero if uninitialized.  It would be cleaner if
@@ -1415,9 +1351,7 @@ SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
   var_method_specializers = scm_c_lookup ("method-specializers");
   var_method_procedure = scm_c_lookup ("method-procedure");
 
-  var_change_class =
-    scm_module_variable (scm_module_goops, sym_change_class);
-  setup_extended_primitive_generics ();
+  var_change_class = scm_c_lookup ("change-class");
 
 #if (SCM_ENABLE_DEPRECATED == 1)
   scm_init_deprecated_goops ();
