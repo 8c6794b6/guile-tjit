@@ -55,6 +55,9 @@
 #define SCM_OUT_PCLASS_INDEX      SCM_I_MAX_PORT_TYPE_COUNT
 #define SCM_INOUT_PCLASS_INDEX    (2 * SCM_I_MAX_PORT_TYPE_COUNT)
 
+#define SCM_GOOPS_UNBOUND SCM_UNBOUND
+#define SCM_GOOPS_UNBOUNDP(x) (scm_is_eq (x, SCM_GOOPS_UNBOUND))
+
 /* Objects have identity, so references to classes and instances are by
    value, not by reference.  Redefinition of a class or modification of
    an instance causes in-place update; you can think of GOOPS as
@@ -63,6 +66,8 @@
 
    References to ordinary procedures is by reference (by variable),
    though, as in the rest of Guile.  */
+
+static int goops_loaded_p = 0;
 
 static SCM var_make_standard_class = SCM_BOOL_F;
 static SCM var_change_class = SCM_BOOL_F;
@@ -89,11 +94,6 @@ static SCM var_slot_ref = SCM_BOOL_F;
 static SCM var_slot_set_x = SCM_BOOL_F;
 static SCM var_slot_bound_p = SCM_BOOL_F;
 static SCM var_slot_exists_p = SCM_BOOL_F;
-
-#define SCM_GOOPS_UNBOUND SCM_UNBOUND
-#define SCM_GOOPS_UNBOUNDP(x) (scm_is_eq (x, SCM_GOOPS_UNBOUND))
-
-static int goops_loaded_p = 0;
 
 /* These variables are filled in by the object system when loaded. */
 static SCM class_boolean, class_char, class_pair;
@@ -502,8 +502,6 @@ scm_is_method (SCM x)
  * Meta object accessors
  *
  ******************************************************************************/
-
-SCM_SYMBOL (sym_procedure, "procedure");
 
 SCM
 scm_class_name (SCM obj)
