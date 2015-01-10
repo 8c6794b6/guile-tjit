@@ -279,59 +279,6 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-/******************************************************************************
- *
- * initialize-object
- *
- ******************************************************************************/
-
-/*fixme* Manufacture keywords in advance */
-SCM
-scm_i_get_keyword (SCM key, SCM l, long len, SCM default_value, const char *subr)
-{
-  long i;
-
-  for (i = 0; i != len; i += 2)
-    {
-      SCM obj = SCM_CAR (l);
-
-      if (!scm_is_keyword (obj))
-	scm_misc_error (subr, "bad keyword: ~S", scm_list_1 (obj));
-      else if (scm_is_eq (obj, key))
-	return SCM_CADR (l);
-      else
-	l = SCM_CDDR (l);
-    }
-
-  return default_value;
-}
-
-
-SCM_DEFINE (scm_get_keyword, "get-keyword", 3, 0, 0,
-	    (SCM key, SCM l, SCM default_value),
-	    "Determine an associated value for the keyword @var{key} from\n"
-	    "the list @var{l}.  The list @var{l} has to consist of an even\n"
-	    "number of elements, where, starting with the first, every\n"
-	    "second element is a keyword, followed by its associated value.\n"
-	    "If @var{l} does not hold a value for @var{key}, the value\n"
-	    "@var{default_value} is returned.")
-#define FUNC_NAME s_scm_get_keyword
-{
-  long len;
-
-  SCM_ASSERT (scm_is_keyword (key), key, SCM_ARG1, FUNC_NAME);
-  len = scm_ilength (l);
-  if (len < 0 || len % 2 == 1)
-    scm_misc_error (FUNC_NAME, "Bad keyword-value list: ~S", scm_list_1 (l));
-
-  return scm_i_get_keyword (key, l, len, default_value, FUNC_NAME);
-}
-#undef FUNC_NAME
-
-
-SCM_KEYWORD (k_init_keyword, "init-keyword");
-
-
 SCM_DEFINE (scm_sys_init_layout_x, "%init-layout!", 2, 0, 0,
 	    (SCM class, SCM layout),
 	    "")

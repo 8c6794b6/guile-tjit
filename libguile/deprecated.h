@@ -211,6 +211,7 @@ SCM_INTERNAL void scm_init_deprecated_goops (void);
 SCM_DEPRECATED SCM scm_compute_applicable_methods (SCM gf, SCM args, long len, int scm_find_method);
 SCM_DEPRECATED SCM scm_find_method (SCM l);
 SCM_DEPRECATED SCM scm_basic_make_class (SCM c, SCM name, SCM dsupers, SCM dslots);
+SCM_DEPRECATED SCM scm_get_keyword (SCM kw, SCM initargs, SCM default_value);
 
 
 

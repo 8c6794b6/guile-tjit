@@ -95,6 +95,8 @@ scm_memory_error (const char *subr)
 
 SCM scm_no_applicable_method = SCM_BOOL_F;
 
+SCM var_get_keyword = SCM_BOOL_F;
+
 SCM scm_class_boolean, scm_class_char, scm_class_pair;
 SCM scm_class_procedure, scm_class_string, scm_class_symbol;
 SCM scm_class_primitive_generic;
@@ -130,6 +132,8 @@ scm_init_deprecated_goops (void)
 {
   scm_no_applicable_method =
     scm_variable_ref (scm_c_lookup ("no-applicable-method"));
+
+  var_get_keyword = scm_c_lookup ("get-keyword");
 
   scm_class_class = scm_variable_ref (scm_c_lookup ("<class>"));
   scm_class_top = scm_variable_ref (scm_c_lookup ("<top>"));
@@ -190,6 +194,16 @@ scm_init_deprecated_goops (void)
 
   scm_port_class = scm_i_port_class;
   scm_smob_class = scm_i_smob_class;
+}
+
+SCM
+scm_get_keyword (SCM kw, SCM initargs, SCM default_value)
+{
+  scm_c_issue_deprecation_warning
+    ("scm_get_keyword is deprecated.  Use `kw-arg-ref' from Scheme instead.");
+
+  return scm_call_3 (scm_variable_ref (var_get_keyword),
+                     kw, initargs, default_value);
 }
 
 #define BUFFSIZE 32		/* big enough for most uses */
