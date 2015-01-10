@@ -599,6 +599,22 @@
 (define (invalidate-method-cache! gf)
   (%invalidate-method-cache! gf))
 
+(define* (get-keyword key l #:optional default)
+  "Determine an associated value for the keyword @var{key} from the list
+@var{l}.  The list @var{l} has to consist of an even number of elements,
+where, starting with the first, every second element is a keyword,
+followed by its associated value.  If @var{l} does not hold a value for
+@var{key}, the value @var{default} is returned."
+  (unless (keyword? key)
+    (scm-error 'wrong-type-arg #f "Not a keyword: ~S" (list key) #f))
+  (let lp ((l l))
+    (match l
+      (() default)
+      ((kw arg . l)
+       (unless (keyword? kw)
+         (scm-error 'wrong-type-arg #f "Not a keyword: ~S" (list kw) #f))
+       (if (eq? kw key) arg (lp l))))))
+
 ;; A simple make which will be redefined later.  This version handles
 ;; only creation of gf, methods and classes (no instances).
 ;;
@@ -2332,6 +2348,38 @@
 ;;;
 ;;; {Initialize}
 ;;;
+
+(define *unbound* (make-unbound))
+
+;; FIXME: This could be much more efficient.
+(define (%initialize-object obj initargs)
+  "Initialize the object @var{obj} with the given arguments
+var{initargs}."
+  (unless (instance? obj)
+    (scm-error 'wrong-type-arg #f "Not an object: ~S"
+               (list obj) #f))
+  (unless (even? (length initargs))
+    (scm-error 'wrong-type-arg #f "Initargs has odd length: ~S"
+               (list initargs) #f))
+  (let ((class (class-of obj)))
+    (define (get-initarg kw)
+      (if kw
+          (get-keyword kw initargs *unbound*)
+          *unbound*))
+    (let lp ((get-n-set (struct-ref class class-index-getters-n-setters))
+             (slots (struct-ref class class-index-slots)))
+      (match slots
+        (() obj)
+        (((name . options) . slots)
+         (match get-n-set
+           (((_ init-thunk . _) . get-n-set)
+            (let ((initarg (get-initarg (get-keyword #:init-keyword options))))
+              (cond
+               ((not (unbound? initarg))
+                (slot-set! obj name initarg))
+               (init-thunk
+                (slot-set! obj name (init-thunk)))))
+            (lp get-n-set slots))))))))
 
 (define-method (initialize (object <object>) initargs)
   (%initialize-object object initargs))
