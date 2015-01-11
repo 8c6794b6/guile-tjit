@@ -126,7 +126,6 @@ SCM_INTERNAL SCM scm_make_standard_class (SCM meta, SCM name, SCM dsupers,
                                           SCM dslots);
 
 /* Primitives exported */
-SCM_API SCM scm_sys_allocate_instance (SCM c, SCM initargs);
 SCM_API SCM scm_slot_ref (SCM obj, SCM slot_name);
 SCM_API SCM scm_slot_set_x (SCM obj, SCM slot_name, SCM value);
 

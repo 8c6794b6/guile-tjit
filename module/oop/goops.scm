@@ -650,6 +650,11 @@ followed by its associated value.  If @var{l} does not hold a value for
 ;; Since this code will disappear when Goops will be fully booted,
 ;; no precaution is taken to be efficient.
 ;;
+(define (%allocate-instance class)
+  (let ((obj (allocate-struct class (struct-ref class class-index-nfields))))
+    (%clear-fields! obj)
+    obj))
+
 (define (make class . args)
   (cond
    ((or (eq? class <generic>) (eq? class <accessor>))
@@ -662,7 +667,7 @@ followed by its associated value.  If @var{l} does not hold a value for
             (slot-set! z 'setter setter))))
       z))
    (else
-    (let ((z (%allocate-instance class args)))
+    (let ((z (%allocate-instance class)))
       (cond
        ((or (eq? class <method>) (eq? class <accessor-method>))
         (for-each (match-lambda
@@ -2026,9 +2031,9 @@ followed by its associated value.  If @var{l} does not hold a value for
 ;;;
 
 (define-method (shallow-clone (self <object>))
-  (let ((clone (%allocate-instance (class-of self) '()))
-        (slots (map slot-definition-name
-                    (class-slots (class-of self)))))
+  (let* ((class (class-of self))
+         (clone (%allocate-instance class))
+         (slots (map slot-definition-name (class-slots class))))
     (for-each (lambda (slot)
                 (if (slot-bound? self slot)
                     (slot-set! clone slot (slot-ref self slot))))
@@ -2036,9 +2041,9 @@ followed by its associated value.  If @var{l} does not hold a value for
     clone))
 
 (define-method (deep-clone  (self <object>))
-  (let ((clone (%allocate-instance (class-of self) '()))
-        (slots (map slot-definition-name
-                    (class-slots (class-of self)))))
+  (let* ((class (class-of self))
+         (clone (%allocate-instance class))
+         (slots (map slot-definition-name (class-slots class))))
     (for-each (lambda (slot)
                 (if (slot-bound? self slot)
                     (slot-set! clone slot
@@ -2544,7 +2549,7 @@ var{initargs}."
 ;;;
 
 (define-method (allocate-instance (class <class>) initargs)
-  (%allocate-instance class initargs))
+  (%allocate-instance class))
 
 (define-method (make-instance (class <class>) . initargs)
   (let ((instance (allocate-instance class initargs)))

@@ -153,6 +153,7 @@ static SCM scm_sys_bless_applicable_struct_vtables_x (SCM applicable,
                                                       SCM setter);
 static SCM scm_sys_make_root_class (SCM layout);
 static SCM scm_sys_init_layout_x (SCM class, SCM layout);
+static SCM scm_sys_clear_fields_x (SCM obj);
 static SCM scm_sys_goops_early_init (void);
 static SCM scm_sys_goops_loaded (void);
 
@@ -523,45 +524,26 @@ scm_slot_exists_p (SCM obj, SCM slot_name)
   return scm_call_2 (scm_variable_ref (var_slot_exists_p), obj, slot_name);
 }
 
-
-/******************************************************************************
- *
- * %allocate-instance (the low level instance allocation primitive)
- *
- ******************************************************************************/
-
-SCM_DEFINE (scm_sys_allocate_instance, "%allocate-instance", 2, 0, 0,
-	    (SCM class, SCM initargs),
-	    "Create a new instance of class @var{class} and initialize it\n"
-	    "from the arguments @var{initargs}.")
-#define FUNC_NAME s_scm_sys_allocate_instance
+SCM_DEFINE (scm_sys_clear_fields_x, "%clear-fields!", 1, 0, 0,
+	    (SCM obj),
+            "")
+#define FUNC_NAME s_scm_sys_clear_fields_x
 {
-  SCM obj;
   scm_t_signed_bits n, i;
-  SCM layout;
+  SCM vtable, layout;
 
-  SCM_VALIDATE_CLASS (1, class);
+  SCM_VALIDATE_STRUCT (1, obj);
+  vtable = SCM_STRUCT_VTABLE (obj);
 
-  /* FIXME: duplicates some of scm_make_struct. */
+  n = SCM_STRUCT_DATA_REF (vtable, scm_vtable_index_size);
+  layout = SCM_VTABLE_LAYOUT (vtable);
 
-  n = SCM_STRUCT_DATA_REF (class, scm_vtable_index_size);
-  obj = scm_i_alloc_struct (SCM_STRUCT_DATA (class), n);
-
-  layout = SCM_VTABLE_LAYOUT (class);
-
-  /* Set all SCM-holding slots to unbound */
+  /* Set all SCM-holding slots to the GOOPS unbound value.  */
   for (i = 0; i < n; i++)
-    {
-      scm_t_wchar c = scm_i_symbol_ref (layout, i*2);
-      if (c == 'p')
-        SCM_STRUCT_DATA (obj)[i] = SCM_UNPACK (SCM_GOOPS_UNBOUND);
-      else if (c == 's')
-        SCM_STRUCT_DATA (obj)[i] = SCM_UNPACK (obj);
-      else
-        SCM_STRUCT_DATA (obj)[i] = 0;
-    }
+    if (scm_i_symbol_ref (layout, i*2) == 'p')
+      SCM_STRUCT_SLOT_SET (obj, i, SCM_GOOPS_UNBOUND);
 
-  return obj;
+  return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 
