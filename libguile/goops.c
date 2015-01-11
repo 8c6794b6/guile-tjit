@@ -69,6 +69,7 @@
 
 SCM_KEYWORD (k_name, "name");
 SCM_KEYWORD (k_setter, "setter");
+SCM_SYMBOL (sym_redefined, "redefined");
 SCM_GLOBAL_SYMBOL (scm_sym_args, "args");
 
 static int goops_loaded_p = 0;
@@ -254,14 +255,16 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
                                    : SCM_IN_PCLASS_INDEX | SCM_PTOBNUM (x))];
 	case scm_tcs_struct:
 	  if (SCM_OBJ_CLASS_FLAGS (x) & SCM_CLASSF_GOOPS_VALID)
+            /* A GOOPS object with a valid class.  */
 	    return SCM_CLASS_OF (x);
 	  else if (SCM_OBJ_CLASS_FLAGS (x) & SCM_CLASSF_GOOPS)
+            /* A GOOPS object whose class might have been redefined.  */
 	    {
-	      /* Goops object */
-	      if (! scm_is_false (SCM_OBJ_CLASS_REDEF (x)))
-		scm_change_object_class (x,
-					 SCM_CLASS_OF (x),         /* old */
-					 SCM_OBJ_CLASS_REDEF (x)); /* new */
+              SCM class = SCM_CLASS_OF (x);
+              SCM new_class = scm_slot_ref (class, sym_redefined);
+              if (!scm_is_false (new_class))
+		scm_change_object_class (x, class, new_class);
+              /* Re-load class from instance.  */
 	      return SCM_CLASS_OF (x);
 	    }
 	  else
@@ -1060,6 +1063,9 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
   var_make = scm_c_lookup ("make");
   var_inherit_applicable = scm_c_lookup ("inherit-applicable!");
 
+  /* For SCM_SUBCLASSP.  */
+  var_class_precedence_list = scm_c_lookup ("class-precedence-list");
+
   var_slot_ref_using_class = scm_c_lookup ("slot-ref-using-class");
   var_slot_set_using_class_x = scm_c_lookup ("slot-set-using-class!");
   var_slot_bound_using_class_p = scm_c_lookup ("slot-bound-using-class?");
@@ -1159,7 +1165,6 @@ SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
   var_class_direct_slots = scm_c_lookup ("class-direct-slots");
   var_class_direct_subclasses = scm_c_lookup ("class-direct-subclasses");
   var_class_direct_methods = scm_c_lookup ("class-direct-methods");
-  var_class_precedence_list = scm_c_lookup ("class-precedence-list");
   var_class_slots = scm_c_lookup ("class-slots");
 
   var_generic_function_methods = scm_c_lookup ("generic-function-methods");

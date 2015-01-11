@@ -54,36 +54,7 @@
 #define SCM_CLASSF_GOOPS         SCM_VTABLE_FLAG_GOOPS_CLASS
 #define SCM_CLASSF_GOOPS_OR_VALID (SCM_CLASSF_GOOPS | SCM_CLASSF_GOOPS_VALID)
 
-/*
- * scm_class_class
- */
-
-/* see also, SCM_VTABLE_BASE_LAYOUT, and build_class_class_slots */
-#define SCM_CLASS_CLASS_LAYOUT                  \
-  "pw" /* redefined */                          \
-  "pw" /* direct supers */                      \
-  "pw" /* direct slots */                       \
-  "pw" /* direct subclasses */                  \
-  "pw" /* direct methods */                     \
-  "pw" /* cpl */                                \
-  "pw" /* slots */                              \
-  "pw" /* getters-n-setters */
-
-#define scm_si_redefined         (scm_vtable_offset_user + 0)
-#define scm_si_direct_supers 	 (scm_vtable_offset_user + 1) /* (class ...) */
-#define scm_si_direct_slots	 (scm_vtable_offset_user + 2) /* ((name . options) ...) */
-#define scm_si_direct_subclasses (scm_vtable_offset_user + 3) /* (class ...) */
-#define scm_si_direct_methods	 (scm_vtable_offset_user + 4) /* (methods ...) */
-#define scm_si_cpl		 (scm_vtable_offset_user + 5) /* (class ...) */
-#define scm_si_slots		 (scm_vtable_offset_user + 6) /* ((name . options) ...) */
-#define scm_si_getters_n_setters (scm_vtable_offset_user + 7)
-#define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 8)
-
-#define SCM_OBJ_CLASS_REDEF(x)  (SCM_PACK (SCM_STRUCT_VTABLE_DATA (x) [scm_si_redefined]))
-#define SCM_INST(x)	       SCM_STRUCT_DATA (x)
-
 #define SCM_CLASS_OF(x)        SCM_STRUCT_VTABLE (x)
-#define SCM_ACCESSORS_OF(x)    (SCM_PACK (SCM_STRUCT_VTABLE_DATA (x)[scm_si_getters_n_setters]))
 
 #define SCM_CLASSP(x) \
   (SCM_STRUCTP (x) && SCM_STRUCT_VTABLE_FLAGS (x) & SCM_CLASSF_METACLASS)
@@ -96,7 +67,8 @@
 #define SCM_SLOT(x, i)         (SCM_STRUCT_SLOT_REF (x, i))
 #define SCM_SET_SLOT(x, i, v)  (SCM_STRUCT_SLOT_SET (x, i, v))
 
-#define SCM_SUBCLASSP(c1, c2)  (scm_is_true (scm_c_memq (c2, SCM_SLOT (c1, scm_si_cpl))))
+#define SCM_SUBCLASSP(c1, c2) \
+  (scm_is_true (scm_c_memq (c2, scm_class_precedence_list (c1))))
 #define SCM_IS_A_P(x, c) \
   (SCM_INSTANCEP (x) && SCM_SUBCLASSP (SCM_CLASS_OF (x), c))
 
