@@ -544,7 +544,7 @@ SCM_DEFINE (scm_sys_allocate_instance, "%allocate-instance", 2, 0, 0,
 
   /* FIXME: duplicates some of scm_make_struct. */
 
-  n = SCM_I_INUM (SCM_SLOT (class, scm_si_nfields));
+  n = SCM_STRUCT_DATA_REF (class, scm_vtable_index_size);
   obj = scm_i_alloc_struct (SCM_STRUCT_DATA (class), n);
 
   layout = SCM_VTABLE_LAYOUT (class);

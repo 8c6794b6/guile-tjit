@@ -67,8 +67,7 @@
   "pw" /* direct methods */                     \
   "pw" /* cpl */                                \
   "pw" /* slots */                              \
-  "pw" /* getters-n-setters */                  \
-  "pw" /* nfields */
+  "pw" /* getters-n-setters */
 
 #define scm_si_redefined         (scm_vtable_offset_user + 0)
 #define scm_si_direct_supers 	 (scm_vtable_offset_user + 1) /* (class ...) */
@@ -78,8 +77,7 @@
 #define scm_si_cpl		 (scm_vtable_offset_user + 5) /* (class ...) */
 #define scm_si_slots		 (scm_vtable_offset_user + 6) /* ((name . options) ...) */
 #define scm_si_getters_n_setters (scm_vtable_offset_user + 7)
-#define scm_si_nfields		 (scm_vtable_offset_user + 8) /* an integer */
-#define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 9)
+#define SCM_N_CLASS_SLOTS	 (scm_vtable_offset_user + 8)
 
 #define SCM_OBJ_CLASS_REDEF(x)  (SCM_PACK (SCM_STRUCT_VTABLE_DATA (x) [scm_si_redefined]))
 #define SCM_INST(x)	       SCM_STRUCT_DATA (x)
