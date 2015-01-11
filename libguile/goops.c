@@ -152,6 +152,8 @@ SCM scm_i_port_class[3 * SCM_I_MAX_PORT_TYPE_COUNT];
 /* SMOB classes.  */
 SCM scm_i_smob_class[SCM_I_MAX_SMOB_TYPE_COUNT];
 
+SCM scm_module_goops;
+
 static SCM scm_make_unbound (void);
 static SCM scm_unbound_p (SCM obj);
 static SCM scm_class_p (SCM obj);
@@ -165,6 +167,33 @@ static SCM scm_sys_goops_loaded (void);
 
 
 
+
+SCM_DEFINE (scm_sys_make_root_class, "%make-root-class", 1, 0, 0,
+            (SCM layout),
+	    "")
+#define FUNC_NAME s_scm_sys_make_root_class
+{
+  SCM z;
+
+  z = scm_i_make_vtable_vtable (layout);
+  SCM_SET_CLASS_FLAGS (z, (SCM_CLASSF_GOOPS_OR_VALID | SCM_CLASSF_METACLASS));
+
+  return z;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_sys_bless_applicable_struct_vtables_x, "%bless-applicable-struct-vtables!", 2, 0, 0,
+	    (SCM applicable, SCM setter),
+	    "")
+#define FUNC_NAME s_scm_sys_bless_applicable_struct_vtables_x
+{
+  SCM_VALIDATE_CLASS (1, applicable);
+  SCM_VALIDATE_CLASS (2, setter);
+  SCM_SET_VTABLE_FLAGS (applicable, SCM_VTABLE_FLAG_APPLICABLE_VTABLE);
+  SCM_SET_VTABLE_FLAGS (setter, SCM_VTABLE_FLAG_SETTER_VTABLE);
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
 
 SCM
 scm_make_standard_class (SCM meta, SCM name, SCM dsupers, SCM dslots)
@@ -316,25 +345,8 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-/******************************************************************************/
 
-/******************************************************************************/
-
-SCM_DEFINE (scm_sys_make_root_class, "%make-root-class", 1, 0, 0,
-            (SCM layout),
-	    "")
-#define FUNC_NAME s_scm_sys_make_root_class
-{
-  SCM z;
-
-  z = scm_i_make_vtable_vtable (layout);
-  SCM_SET_CLASS_FLAGS (z, (SCM_CLASSF_GOOPS_OR_VALID | SCM_CLASSF_METACLASS));
-
-  return z;
-}
-#undef FUNC_NAME
-
-/******************************************************************************/
+
 
 SCM_DEFINE (scm_instance_p, "instance?", 1, 0, 0,
 	    (SCM obj),
@@ -366,11 +378,8 @@ scm_is_method (SCM x)
   return SCM_INSTANCEP (x) && SCM_SUBCLASSP (SCM_CLASS_OF (x), class_method);
 }
 
-/******************************************************************************
- *
- * Meta object accessors
- *
- ******************************************************************************/
+
+
 
 SCM
 scm_class_name (SCM obj)
@@ -414,6 +423,9 @@ scm_class_slots (SCM obj)
   return scm_call_1 (scm_variable_ref (var_class_slots), obj);
 }
 
+
+
+
 SCM_DEFINE (scm_generic_function_name, "generic-function-name", 1, 0, 0,
             (SCM obj),
 	    "Return the name of the generic function @var{obj}.")
@@ -448,11 +460,8 @@ scm_method_procedure (SCM obj)
   return scm_call_1 (scm_variable_ref (var_method_procedure), obj);
 }
 
-/******************************************************************************
- *
- * S l o t   a c c e s s
- *
- ******************************************************************************/
+
+
 
 SCM_DEFINE (scm_make_unbound, "make-unbound", 0, 0, 0,
 	    (),
@@ -527,6 +536,9 @@ scm_slot_exists_p (SCM obj, SCM slot_name)
   return scm_call_2 (scm_variable_ref (var_slot_exists_p), obj, slot_name);
 }
 
+
+
+
 SCM_DEFINE (scm_sys_clear_fields_x, "%clear-fields!", 1, 0, 0,
 	    (SCM obj),
             "")
@@ -550,15 +562,12 @@ SCM_DEFINE (scm_sys_clear_fields_x, "%clear-fields!", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-/******************************************************************************
- *
- * %modify-instance (used by change-class to modify in place)
- *
- ******************************************************************************/
+
+
 
 SCM_DEFINE (scm_sys_modify_instance, "%modify-instance", 2, 0, 0,
 	    (SCM old, SCM new),
-	    "")
+	    "Used by change-class to modify objects in place.")
 #define FUNC_NAME s_scm_sys_modify_instance
 {
   SCM_VALIDATE_INSTANCE (1, old);
@@ -687,21 +696,11 @@ scm_change_object_class (SCM obj, SCM old_class SCM_UNUSED, SCM new_class)
     }
 }
 
-/******************************************************************************
- *
- *   GGGG                FFFFF
- *  G                    F
- *  G  GG                FFF
- *  G   G                F
- *   GGG  E N E R I C    F    U N C T I O N S
- *
- * This implementation provides
- *	- generic functions (with class specializers)
- *	- multi-methods
- *	- next-method
- *	- a hard-coded MOP for standard gf, which can be overloaded for non-std gf
- *
- ******************************************************************************/
+
+
+
+/* Primitive generics: primitives that can dispatch to generics if their
+   arguments fail to apply.  */
 
 SCM_DEFINE (scm_generic_capability_p, "generic-capability?", 1, 0, 0,
 	    (SCM proc),
@@ -761,11 +760,6 @@ SCM_DEFINE (scm_primitive_generic_generic, "primitive-generic-generic", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-/* Dirk:FIXME:: In all of these scm_wta_dispatch_* routines it is
- * assumed that 'gf' is zero if uninitialized.  It would be cleaner if
- * some valid SCM value like SCM_BOOL_F or SCM_UNDEFINED were chosen.
- */
-
 SCM
 scm_wta_dispatch_0 (SCM gf, const char *subr)
 {
@@ -802,22 +796,8 @@ scm_wta_dispatch_n (SCM gf, SCM args, int pos, const char *subr)
   return scm_apply_0 (gf, args);
 }
 
-/******************************************************************************
- *
- * Protocol for calling a generic fumction
- * This protocol is roughly equivalent to (parameter are a little bit different
- * for efficiency reasons):
- *
- * 	+ apply-generic (gf args)
- *		+ compute-applicable-methods (gf args ...)
- *			+ sort-applicable-methods (methods args)
- *		+ apply-methods (gf methods args)
- *
- * apply-methods calls make-next-method to build the "continuation" of a a
- * method.  Applying a next-method will call apply-next-method which in
- * turn will call  apply again to call effectively the following method.
- *
- ******************************************************************************/
+
+
 
 SCM_DEFINE (scm_make, "make",  0, 0, 1,
 	    (SCM args),
@@ -830,11 +810,9 @@ SCM_DEFINE (scm_make, "make",  0, 0, 1,
 #undef FUNC_NAME
 
 
-/**********************************************************************
- *
- * Smob classes
- *
- **********************************************************************/
+
+
+/* SMOB, struct, and port classes.  */
 
 static SCM
 make_class_name (const char *prefix, const char *type_name, const char *suffix)
@@ -998,11 +976,8 @@ create_struct_classes (void)
                           vtable_class_map);
 }
 
-/**********************************************************************
- *
- * C interface
- *
- **********************************************************************/
+
+
 
 void
 scm_load_goops ()
@@ -1032,22 +1007,8 @@ scm_ensure_accessor (SCM name)
   return gf;
 }
 
-/*
- * Initialization
- */
 
-SCM_DEFINE (scm_sys_bless_applicable_struct_vtables_x, "%bless-applicable-struct-vtables!", 2, 0, 0,
-	    (SCM applicable, SCM setter),
-	    "")
-#define FUNC_NAME s_scm_sys_bless_applicable_struct_vtables_x
-{
-  SCM_VALIDATE_CLASS (1, applicable);
-  SCM_VALIDATE_CLASS (2, setter);
-  SCM_SET_VTABLE_FLAGS (applicable, SCM_VTABLE_FLAG_APPLICABLE_VTABLE);
-  SCM_SET_VTABLE_FLAGS (setter, SCM_VTABLE_FLAG_SETTER_VTABLE);
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
+
 
 SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
 	    (),
@@ -1176,8 +1137,6 @@ SCM_DEFINE (scm_sys_goops_loaded, "%goops-loaded", 0, 0, 0,
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
-
-SCM scm_module_goops;
 
 static void
 scm_init_goops_builtins (void *unused)

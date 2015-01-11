@@ -2583,15 +2583,30 @@ var{initargs}."
 ;;;
 ;;; {apply-generic}
 ;;;
-;;; Protocol for calling standard generic functions.  This protocol is
-;;; not used for real <generic> functions (in this case we use a
-;;; completely C hard-coded protocol).  Apply-generic is used by
-;;; goops for calls to subclasses of <generic> and <generic-with-setter>.
-;;; The code below is similar to the first MOP described in AMOP. In
-;;; particular, it doesn't used the currified approach to gf
-;;; call. There are 2 reasons for that:
-;;;   - the protocol below is exposed to mimic completely the one written in C
-;;;   - the currified protocol would be imho inefficient in C.
+;;; Protocol for calling generic functions, intended to be used when
+;;; applying subclasses of <generic> and <generic-with-setter>.  The
+;;; code below is similar to the first MOP described in AMOP.
+;;;
+;;; Note that standard generic functions dispatch only on the classes of
+;;; the arguments, and the result of such dispatch can be memoized.  The
+;;; `cache-dispatch' routine implements this.  `apply-generic' isn't
+;;; called currently; the generic function MOP was never fully
+;;; implemented in GOOPS.  However now that GOOPS is implemented
+;;; entirely in Scheme (2015) it's much easier to complete this work.
+;;; Contributions gladly accepted!  Please read the AMOP first though :)
+;;;
+;;; The protocol is:
+;;;
+;;; 	+ apply-generic (gf args)
+;;;		+ compute-applicable-methods (gf args ...)
+;;;			+ sort-applicable-methods (gf methods args)
+;;;		+ apply-methods (gf methods args)
+;;;
+;;; apply-methods calls make-next-method to build the "continuation" of
+;;; a method.  Applying a next-method will call apply-next-method which
+;;; in turn will call apply again to call effectively the following
+;;; method.  (This paragraph is out of date but is kept so that maybe it
+;;; illuminates some future hack.)
 ;;;
 
 (define-method (apply-generic (gf <generic>) args)
