@@ -151,8 +151,7 @@ static SCM scm_unbound_p (SCM obj);
 static SCM scm_class_p (SCM obj);
 static SCM scm_sys_bless_applicable_struct_vtables_x (SCM applicable,
                                                       SCM setter);
-static SCM scm_sys_make_root_class (SCM name, SCM dslots,
-                                    SCM getters_n_setters);
+static SCM scm_sys_make_root_class (SCM layout);
 static SCM scm_sys_init_layout_x (SCM class, SCM layout);
 static SCM scm_sys_goops_early_init (void);
 static SCM scm_sys_goops_loaded (void);
@@ -317,28 +316,15 @@ scm_make_standard_class (SCM meta, SCM name, SCM dsupers, SCM dslots)
 
 /******************************************************************************/
 
-SCM_DEFINE (scm_sys_make_root_class, "%make-root-class", 3, 0, 0,
-	    (SCM name, SCM dslots, SCM getters_n_setters),
+SCM_DEFINE (scm_sys_make_root_class, "%make-root-class", 1, 0, 0,
+            (SCM layout),
 	    "")
 #define FUNC_NAME s_scm_sys_make_root_class
 {
-  SCM cs, z;
+  SCM z;
 
-  cs = scm_from_locale_string (SCM_CLASS_CLASS_LAYOUT);
-  z = scm_i_make_vtable_vtable (cs);
-  SCM_SET_CLASS_FLAGS (z, (SCM_CLASSF_GOOPS_OR_VALID
-                           | SCM_CLASSF_METACLASS));
-
-  SCM_SET_SLOT (z, scm_vtable_index_name, name);
-  SCM_SET_SLOT (z, scm_si_direct_supers, SCM_EOL);  /* will be changed */
-  SCM_SET_SLOT (z, scm_si_direct_slots, dslots); /* will be changed */
-  SCM_SET_SLOT (z, scm_si_direct_subclasses, SCM_EOL);
-  SCM_SET_SLOT (z, scm_si_direct_methods, SCM_EOL);
-  SCM_SET_SLOT (z, scm_si_cpl, SCM_EOL);  /* will be changed */
-  SCM_SET_SLOT (z, scm_si_slots, dslots); /* will be changed */
-  SCM_SET_SLOT (z, scm_si_nfields, scm_from_int (SCM_N_CLASS_SLOTS));
-  SCM_SET_SLOT (z, scm_si_getters_n_setters, getters_n_setters); /* will be changed */
-  SCM_SET_SLOT (z, scm_si_redefined, SCM_BOOL_F);
+  z = scm_i_make_vtable_vtable (layout);
+  SCM_SET_CLASS_FLAGS (z, (SCM_CLASSF_GOOPS_OR_VALID | SCM_CLASSF_METACLASS));
 
   return z;
 }

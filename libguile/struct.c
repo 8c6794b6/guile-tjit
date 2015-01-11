@@ -1,5 +1,5 @@
 /* Copyright (C) 1996,1997,1998,1999,2000,2001, 2003, 2004, 2006, 2007,
- *   2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+ *   2008, 2009, 2010, 2011, 2012, 2013, 2015 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -597,20 +597,18 @@ SCM_DEFINE (scm_make_struct, "make-struct", 2, 0, 1,
 #undef FUNC_NAME
 
 SCM
-scm_i_make_vtable_vtable (SCM user_fields)
+scm_i_make_vtable_vtable (SCM fields)
 #define FUNC_NAME "make-vtable-vtable"
 {
-  SCM fields, layout, obj;
+  SCM layout, obj;
   size_t basic_size;
   scm_t_bits v;
 
-  SCM_VALIDATE_STRING (1, user_fields);
+  SCM_VALIDATE_STRING (1, fields);
 
-  fields = scm_string_append (scm_list_2 (required_vtable_fields,
-					  user_fields));
   layout = scm_make_struct_layout (fields);
   if (!scm_is_valid_vtable_layout (layout))
-    SCM_MISC_ERROR ("invalid user fields", scm_list_1 (user_fields));
+    SCM_MISC_ERROR ("invalid user fields", scm_list_1 (fields));
 
   basic_size = scm_i_symbol_length (layout) / 2;
 
@@ -997,7 +995,8 @@ scm_init_struct ()
   required_applicable_fields = scm_from_locale_string (SCM_APPLICABLE_BASE_LAYOUT);
   required_applicable_with_setter_fields = scm_from_locale_string (SCM_APPLICABLE_WITH_SETTER_BASE_LAYOUT);
 
-  scm_standard_vtable_vtable = scm_i_make_vtable_vtable (scm_nullstr);
+  scm_standard_vtable_vtable =
+    scm_i_make_vtable_vtable (required_vtable_fields);
   name = scm_from_utf8_symbol ("<standard-vtable>");
   scm_set_struct_vtable_name_x (scm_standard_vtable_vtable, name);
   scm_define (name, scm_standard_vtable_vtable);

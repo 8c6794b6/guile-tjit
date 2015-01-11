@@ -452,14 +452,44 @@
       z)))
 
 (define <class>
-  (let-syntax ((visit
+  (let-syntax ((cons-dslot
                 ;; The specialized slot classes have not been defined
                 ;; yet; initialize <class> with unspecialized slots.
                 (syntax-rules ()
                   ((_ (name) tail)       (cons (list 'name) tail))
-                  ((_ (name class) tail) (cons (list 'name) tail)))))
-    (let ((dslots (fold-<class>-slots macro-fold-right visit '())))
-      (%make-root-class '<class> dslots (%compute-getters-n-setters dslots)))))
+                  ((_ (name class) tail) (cons (list 'name) tail))))
+               (cons-layout
+                ;; A simple way to compute class layout for the concrete
+                ;; types used in <class>.
+                (syntax-rules (<protected-read-only-slot> <self-slot>
+                               <hidden-slot> <protected-hidden-slot>)
+                  ((_ (name) tail)
+                   (string-append "pw" tail))
+                  ((_ (name <protected-read-only-slot>) tail)
+                   (string-append "pr" tail))
+                  ((_ (name <self-slot>) tail)
+                   (string-append "sr" tail))
+                  ((_ (name <hidden-slot>) tail)
+                   (string-append "uh" tail))
+                  ((_ (name <protected-hidden-slot>) tail)
+                   (string-append "ph" tail)))))
+    (let* ((dslots (fold-<class>-slots macro-fold-right cons-dslot '()))
+           (layout (fold-<class>-slots macro-fold-right cons-layout ""))
+           (<class> (%make-root-class layout)))
+      ;; The `direct-supers', `direct-slots', `cpl', `slots', and
+      ;; `getters-n-setters' fields will be updated later.
+      (struct-set! <class> class-index-name '<class>)
+      (struct-set! <class> class-index-direct-supers '())
+      (struct-set! <class> class-index-direct-slots dslots)
+      (struct-set! <class> class-index-direct-subclasses '())
+      (struct-set! <class> class-index-direct-methods '())
+      (struct-set! <class> class-index-cpl '())
+      (struct-set! <class> class-index-slots dslots)
+      (struct-set! <class> class-index-nfields (length dslots))
+      (struct-set! <class> class-index-getters-n-setters
+                   (%compute-getters-n-setters dslots))
+      (struct-set! <class> class-index-redefined #f)
+      <class>)))
 
 (define-syntax define-standard-class
   (syntax-rules ()
