@@ -67,11 +67,16 @@
    References to ordinary procedures is by reference (by variable),
    though, as in the rest of Guile.  */
 
+SCM_KEYWORD (k_name, "name");
+SCM_KEYWORD (k_setter, "setter");
+SCM_GLOBAL_SYMBOL (scm_sym_args, "args");
+
 static int goops_loaded_p = 0;
 
 static SCM var_make_standard_class = SCM_BOOL_F;
 static SCM var_change_class = SCM_BOOL_F;
 static SCM var_make = SCM_BOOL_F;
+static SCM var_inherit_applicable = SCM_BOOL_F;
 static SCM var_class_name = SCM_BOOL_F;
 static SCM var_class_direct_supers = SCM_BOOL_F;
 static SCM var_class_direct_slots = SCM_BOOL_F;
@@ -700,9 +705,6 @@ scm_change_object_class (SCM obj, SCM old_class SCM_UNUSED, SCM new_class)
  *
  ******************************************************************************/
 
-SCM_KEYWORD (k_name, "name");
-SCM_GLOBAL_SYMBOL (scm_sym_args, "args");
-
 SCM_DEFINE (scm_generic_capability_p, "generic-capability?", 1, 0, 0,
 	    (SCM proc),
 	    "")
@@ -866,36 +868,7 @@ scm_make_extended_class (char const *type_name, int applicablep)
 void
 scm_i_inherit_applicable (SCM c)
 {
-  if (!SCM_SUBCLASSP (c, class_applicable))
-    {
-      SCM dsupers = SCM_SLOT (c, scm_si_direct_supers);
-      SCM cpl = SCM_SLOT (c, scm_si_cpl);
-      /* patch class_applicable into direct-supers */
-      SCM top = scm_c_memq (class_top, dsupers);
-      if (scm_is_false (top))
-	dsupers = scm_append (scm_list_2 (dsupers,
-					  scm_list_1 (class_applicable)));
-      else
-	{
-	  SCM_SETCAR (top, class_applicable);
-	  SCM_SETCDR (top, scm_cons (class_top, SCM_CDR (top)));
-	}
-      SCM_SET_SLOT (c, scm_si_direct_supers, dsupers);
-      /* patch class_applicable into cpl */
-      top = scm_c_memq (class_top, cpl);
-      if (scm_is_false (top))
-	abort ();
-      else
-	{
-	  SCM_SETCAR (top, class_applicable);
-	  SCM_SETCDR (top, scm_cons (class_top, SCM_CDR (top)));
-	}
-      /* add class to direct-subclasses of class_applicable */
-      SCM_SET_SLOT (class_applicable,
-		    scm_si_direct_subclasses,
-		    scm_cons (c, SCM_SLOT (class_applicable,
-					   scm_si_direct_subclasses)));
-    }
+  scm_call_1 (scm_variable_ref (var_inherit_applicable), c);
 }
 
 static void
@@ -1040,9 +1013,6 @@ scm_load_goops ()
     scm_c_resolve_module ("oop goops");
 }
 
-
-SCM_KEYWORD (k_setter, "setter");
-
 SCM
 scm_ensure_accessor (SCM name)
 {
@@ -1088,6 +1058,7 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
 {
   var_make_standard_class = scm_c_lookup ("make-standard-class");
   var_make = scm_c_lookup ("make");
+  var_inherit_applicable = scm_c_lookup ("inherit-applicable!");
 
   var_slot_ref_using_class = scm_c_lookup ("slot-ref-using-class");
   var_slot_set_using_class_x = scm_c_lookup ("slot-set-using-class!");

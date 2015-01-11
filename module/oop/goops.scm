@@ -620,6 +620,32 @@
 (define-standard-class <output-port> (<port>))
 (define-standard-class <input-output-port> (<input-port> <output-port>))
 
+(define (inherit-applicable! class)
+  "An internal routine to redefine a SMOB class that was added after
+GOOPS was loaded, and on which scm_set_smob_apply installed an apply
+function."
+  ;; Why not use class-redefinition?  We would, except that loading the
+  ;; compiler to compile effective methods can happen while GOOPS has
+  ;; only been partially loaded, and loading the compiler might cause
+  ;; SMOB types to be defined that need this facility.  Instead we make
+  ;; a very specific hack, not a general solution.  Probably the right
+  ;; solution is to avoid using the compiler, but that is another kettle
+  ;; of fish.
+  (unless (memq <applicable> (class-precedence-list class))
+    (unless (null? (class-slots class))
+      (error "SMOB object has slots?"))
+    (for-each
+     (lambda (super)
+       (let ((subclasses (struct-ref super class-index-direct-subclasses)))
+         (struct-set! super class-index-direct-subclasses
+                      (delq class subclasses))))
+     (struct-ref class class-index-direct-supers))
+    (struct-set! class class-index-direct-supers (list <applicable>))
+    (struct-set! class class-index-cpl (compute-cpl class))
+    (let ((subclasses (struct-ref <applicable> class-index-direct-subclasses)))
+      (struct-set! <applicable> class-index-direct-subclasses
+                   (cons class subclasses)))))
+
 (define (%invalidate-method-cache! gf)
   (slot-set! gf 'procedure (delayed-compile gf))
   (slot-set! gf 'effective-methods '()))
