@@ -102,7 +102,6 @@ SCM_API SCM scm_slot_ref (SCM obj, SCM slot_name);
 SCM_API SCM scm_slot_set_x (SCM obj, SCM slot_name, SCM value);
 
 SCM_INTERNAL void scm_i_inherit_applicable (SCM c);
-SCM_API SCM scm_sys_inherit_magic_x (SCM c, SCM dsupers);
 SCM_API SCM scm_instance_p (SCM obj);
 SCM_API int scm_is_generic (SCM x);
 SCM_API int scm_is_method (SCM x);

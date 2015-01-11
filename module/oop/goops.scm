@@ -447,7 +447,6 @@
                                  (cons z subclasses))))
                 dsupers)
       (%prep-layout! z)
-      (%inherit-magic! z dsupers)
       z)))
 
 (define <class>
@@ -2471,12 +2470,9 @@ var{initargs}."
                                (cons class dsubs))))
               supers)
 
-    ;; Support for the underlying structs:
-
-    ;; Set the layout slot
-    (%prep-layout! class)
-    ;; Inherit class flags (invisible on scheme level) from supers
-    (%inherit-magic! class supers)))
+    ;; Compute struct layout of instances, set the `layout' slot, and
+    ;; update class flags.
+    (%prep-layout! class)))
 
 (define (initialize-object-procedure object initargs)
   (let ((proc (get-keyword #:procedure initargs #f)))

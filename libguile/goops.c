@@ -164,6 +164,35 @@ static SCM scm_sys_goops_early_init (void);
 static SCM scm_sys_goops_loaded (void);
 
 
+
+
+SCM
+scm_make_standard_class (SCM meta, SCM name, SCM dsupers, SCM dslots)
+{
+  return scm_call_4 (scm_variable_ref (var_make_standard_class),
+                     meta, name, dsupers, dslots);
+}
+
+SCM_DEFINE (scm_sys_init_layout_x, "%init-layout!", 2, 0, 0,
+	    (SCM class, SCM layout),
+	    "")
+#define FUNC_NAME s_scm_sys_init_layout_x
+{
+  SCM_VALIDATE_INSTANCE (1, class);
+  SCM_ASSERT (!scm_is_symbol (SCM_VTABLE_LAYOUT (class)), class, 1, FUNC_NAME);
+  SCM_VALIDATE_STRING (2, layout);
+
+  SCM_SET_VTABLE_LAYOUT (class, scm_make_struct_layout (layout));
+  scm_i_struct_inherit_vtable_magic (SCM_CLASS_OF (class), class);
+  SCM_SET_CLASS_FLAGS (class, SCM_CLASSF_GOOPS_OR_VALID);
+
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
+
+
+
 /* This function is used for efficient type dispatch.  */
 SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	    (SCM x),
@@ -287,41 +316,7 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_sys_init_layout_x, "%init-layout!", 2, 0, 0,
-	    (SCM class, SCM layout),
-	    "")
-#define FUNC_NAME s_scm_sys_init_layout_x
-{
-  SCM_VALIDATE_INSTANCE (1, class);
-  SCM_ASSERT (!scm_is_symbol (SCM_VTABLE_LAYOUT (class)), class, 1, FUNC_NAME);
-  SCM_VALIDATE_STRING (2, layout);
-
-  SCM_SET_VTABLE_LAYOUT (class, scm_make_struct_layout (layout));
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_sys_inherit_magic_x, "%inherit-magic!", 2, 0, 0,
-	    (SCM class, SCM dsupers),
-	    "")
-#define FUNC_NAME s_scm_sys_inherit_magic_x
-{
-  SCM_VALIDATE_INSTANCE (1, class);
-  scm_i_struct_inherit_vtable_magic (SCM_CLASS_OF (class), class);
-  SCM_SET_CLASS_FLAGS (class, SCM_CLASSF_GOOPS_OR_VALID);
-
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
 /******************************************************************************/
-
-SCM
-scm_make_standard_class (SCM meta, SCM name, SCM dsupers, SCM dslots)
-{
-  return scm_call_4 (scm_variable_ref (var_make_standard_class),
-                     meta, name, dsupers, dslots);
-}
 
 /******************************************************************************/
 
