@@ -1,4 +1,4 @@
-;;;; 	Copyright (C) 1999, 2000, 2001, 2003, 2006, 2008, 2012 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 1999, 2000, 2001, 2003, 2006, 2008, 2012, 2015 Free Software Foundation, Inc.
 ;;;; 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,7 @@
 
 
 (define-module (oop goops util)
-  :export (mapappend find-duplicate
+  :export (find-duplicate
 	   map* for-each* length* improper->proper)
   :use-module (srfi srfi-1)
   :re-export  (any every)
@@ -28,8 +28,6 @@
 ;;;
 ;;; {Utilities}
 ;;;
-
-(define mapappend append-map)
 
 (define (find-duplicate l)	; find a duplicate in a list; #f otherwise
   (cond 
