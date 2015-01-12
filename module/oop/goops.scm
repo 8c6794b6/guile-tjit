@@ -27,8 +27,9 @@
 (define-module (oop goops)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 match)
-  #:use-module (oop goops util)
   #:use-module (system base target)
+  #:use-module ((language tree-il primitives)
+                :select (add-interesting-primitive!))
   #:export-syntax (define-class class standard-define-class
                     define-generic define-accessor define-method
                     define-extended-generic define-extended-generics
@@ -121,7 +122,6 @@
             goops-error
             min-fixnum max-fixnum
 
-;;; *fixme* Should go into goops.c
             instance?  slot-ref-using-class
             slot-set-using-class! slot-bound-using-class?
             slot-exists-using-class? slot-ref slot-set! slot-bound?
@@ -136,18 +136,10 @@
             slot-exists? make find-method get-keyword)
   #:no-backtrace)
 
-;; XXX FIXME: figure out why the 'eval-when's in this file must use
-;; 'compile' and must avoid 'expand', but only in 2.2, and only when
-;; compiling something that imports goops, e.g. (ice-9 occam-channel),
-;; before (oop goops) itself has been compiled.
-
 ;; First initialize the builtin part of GOOPS
-(eval-when (compile load eval)
+(eval-when (expand load eval)
   (load-extension (string-append "libguile-" (effective-version))
-                  "scm_init_goops_builtins"))
-
-(eval-when (compile load eval)
-  (use-modules ((language tree-il primitives) :select (add-interesting-primitive!)))
+                  "scm_init_goops_builtins")
   (add-interesting-primitive! 'class-of))
 
 (define-syntax macro-fold-left
@@ -1696,6 +1688,31 @@ followed by its associated value.  If @var{l} does not hold a value for
                    #:body '(body0 body1 ...)
                    #:make-procedure make-procedure
                    #:procedure procedure)))))))))
+
+;;;
+;;; {Utilities}
+;;;
+;;; These are useful when dealing with method specializers, which might
+;;; have a rest argument.
+;;;
+
+(define (map* fn . l) 		; A map which accepts dotted lists (arg lists  
+  (cond 			; must be "isomorph"
+   ((null? (car l)) '())
+   ((pair? (car l)) (cons (apply fn      (map car l))
+			  (apply map* fn (map cdr l))))
+   (else            (apply fn l))))
+
+(define (for-each* fn . l) 	; A for-each which accepts dotted lists (arg lists  
+  (cond 			; must be "isomorph"
+   ((null? (car l)) '())
+   ((pair? (car l)) (apply fn (map car l)) (apply for-each* fn (map cdr l)))
+   (else            (apply fn l))))
+
+(define (length* ls)
+  (do ((n 0 (+ 1 n))
+       (ls ls (cdr ls)))
+      ((not (pair? ls)) n)))
 
 ;;;
 ;;; {add-method!}

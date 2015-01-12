@@ -361,7 +361,6 @@ OOP_SOURCES = \
   oop/goops/internal.scm \
   oop/goops/save.scm \
   oop/goops/stklos.scm \
-  oop/goops/util.scm \
   oop/goops/accessors.scm \
   oop/goops/simple.scm
 
