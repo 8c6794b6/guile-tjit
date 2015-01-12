@@ -237,6 +237,17 @@
   "Return the slot list of the class @var{obj}."
   class-index-slots)
 
+(define (class-subclasses c)
+  (define (all-subclasses c)
+    (cons c (append-map all-subclasses
+                        (class-direct-subclasses c))))
+  (delete-duplicates (cdr (all-subclasses c)) eq?))
+
+(define (class-methods c)
+  (delete-duplicates (append-map class-direct-methods
+                                 (cons c (class-subclasses c)))
+                     eq?))
+
 ;;
 ;; is-a?
 ;;
@@ -2656,41 +2667,6 @@ var{initargs}."
                 no-applicable-method
                 no-method
                 ))
-
-;;;
-;;; {<composite-metaclass> and <active-metaclass>}
-;;;
-
-;(autoload "active-slot"    <active-metaclass>)
-;(autoload "composite-slot" <composite-metaclass>)
-;(export <composite-metaclass> <active-metaclass>)
-
-;;;
-;;; {Tools}
-;;;
-
-;; list2set
-;;
-;; duplicate the standard list->set function but using eq instead of
-;; eqv which really sucks a lot, uselessly here
-;;
-(define (list2set l)
-  (let loop ((l l)
-             (res '()))
-    (cond
-     ((null? l) res)
-     ((memq (car l) res) (loop (cdr l) res))
-     (else (loop (cdr l) (cons (car l) res))))))
-
-(define (class-subclasses c)
-  (letrec ((allsubs (lambda (c)
-                      (cons c (mapappend allsubs
-                                         (class-direct-subclasses c))))))
-    (list2set (cdr (allsubs c)))))
-
-(define (class-methods c)
-  (list2set (mapappend class-direct-methods
-                       (cons c (class-subclasses c)))))
 
 ;;;
 ;;; {Final initialization}
