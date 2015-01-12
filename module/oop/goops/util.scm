@@ -17,23 +17,11 @@
 
 
 (define-module (oop goops util)
-  :export (find-duplicate
-	   map* for-each* length* improper->proper)
-  :use-module (srfi srfi-1)
-  :re-export  (any every)
-  :no-backtrace
-  )
-
+  #:export (map* for-each* length*))
 
 ;;;
 ;;; {Utilities}
 ;;;
-
-(define (find-duplicate l)	; find a duplicate in a list; #f otherwise
-  (cond 
-    ((null? l)			#f)
-    ((memv (car l) (cdr l))	(car l))
-    (else 			(find-duplicate (cdr l)))))
 
 (define (map* fn . l) 		; A map which accepts dotted lists (arg lists  
   (cond 			; must be "isomorph"
@@ -52,8 +40,3 @@
   (do ((n 0 (+ 1 n))
        (ls ls (cdr ls)))
       ((not (pair? ls)) n)))
-
-(define (improper->proper ls)
-  (if (pair? ls)
-      (cons (car ls) (improper->proper (cdr ls)))
-      (list ls)))

@@ -1183,6 +1183,14 @@ followed by its associated value.  If @var{l} does not hold a value for
 ;;;
 
 (define (make-class supers slots . options)
+  (define (find-duplicate l)
+    (match l
+      (() #f)
+      ((head . tail)
+       (if (memq head tail)
+           head
+           (find-duplicate tail)))))
+
   (let* ((name (get-keyword #:name options (make-unbound)))
          (supers (if (not (or-map (lambda (class)
                                     (memq <object>
