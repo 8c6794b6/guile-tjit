@@ -599,3 +599,26 @@
           (pass-if-equal 100 (slot-ref a 'test))
           (pass-if-equal 100 (slot-ref b 'test))
           (pass-if-equal 200 (slot-ref c 'test)))))))
+
+(define-class <food> ())
+(define-class <fruit> (<food>))
+(define-class <spice> (<food>))
+(define-class <apple> (<fruit>))
+(define-class <cinnamon> (<spice>))
+(define-class <pie> (<apple> <cinnamon>))
+
+(define-class <d> ())
+(define-class <e> ())
+(define-class <f> ())
+(define-class <b> (<d> <e>))
+(define-class <c> (<e> <f>))
+(define-class <a> (<b> <c>))
+
+(with-test-prefix "compute-cpl"
+  (pass-if-equal "<pie>"
+      (list <pie> <apple> <fruit> <cinnamon> <spice> <food> <object> <top>)
+    (compute-cpl <pie>))
+
+  (pass-if-equal "<a>"
+      (list <a> <b> <d> <c> <e> <f> <object> <top>)
+    (compute-cpl <a>)))

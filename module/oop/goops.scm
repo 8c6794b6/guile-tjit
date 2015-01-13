@@ -246,29 +246,8 @@
 (define (is-a? obj class)
   (and (memq class (class-precedence-list (class-of obj))) #t))
 
-
-;;; The standard class precedence list computation algorithm
-;;;
-;;; Correct behaviour:
-;;;
-;;; (define-class food ())
-;;; (define-class fruit (food))
-;;; (define-class spice (food))
-;;; (define-class apple (fruit))
-;;; (define-class cinnamon (spice))
-;;; (define-class pie (apple cinnamon))
-;;; => cpl (pie) = pie apple fruit cinnamon spice food object top
-;;;
-;;; (define-class d ())
-;;; (define-class e ())
-;;; (define-class f ())
-;;; (define-class b (d e))
-;;; (define-class c (e f))
-;;; (define-class a (b c))
-;;; => cpl (a) = a b d c e f object top
-;;;
-
 (define (compute-std-cpl c get-direct-supers)
+  "The standard class precedence list computation algorithm."
   (define (only-non-null lst)
     (filter (lambda (l) (not (null? l))) lst))
 
@@ -300,7 +279,8 @@
                                              c-direct-supers)
                                         (list c-direct-supers))))))
 
-;; Bootstrap version.
+;; This version of compute-cpl is replaced with a generic function once
+;; GOOPS has booted.
 (define (compute-cpl class)
   (compute-std-cpl class class-direct-supers))
 
