@@ -136,12 +136,27 @@
             slot-exists? make find-method get-keyword)
   #:no-backtrace)
 
-;; First initialize the builtin part of GOOPS
+
+;;;
+;;; Booting GOOPS is a tortuous process.  We begin by loading a small
+;;; set of primitives from C.
+;;;
 (eval-when (expand load eval)
   (load-extension (string-append "libguile-" (effective-version))
                   "scm_init_goops_builtins")
   (add-interesting-primitive! 'class-of))
 
+
+
+
+;;;
+;;; We then define the slots that must appear in all classes (<class>
+;;; objects).  These slots must appear in order.  We'll use this list to
+;;; statically compute offsets for the various fields, to compute the
+;;; struct layout for <class> instances, and to compute the slot
+;;; definition lists for <class>.  Because the list is needed at
+;;; expansion-time, we define it as a macro.
+;;;
 (define-syntax macro-fold-left
   (syntax-rules ()
     ((_ folder seed ()) seed)
@@ -154,7 +169,7 @@
     ((_ folder seed (head . tail))
      (folder head (macro-fold-right folder seed tail)))))
 
-(define-syntax fold-<class>-slots
+(define-syntax fold-class-slots
   (lambda (x)
     (define slots
       '((layout <protected-read-only-slot>)
@@ -180,7 +195,10 @@
        ;; as (components of) introduced identifiers.
        #`(fold visit seed #,(datum->syntax #'visit slots))))))
 
-;; Define class-index-layout to 0, class-index-flags to 1, and so on.
+;;;
+;;; Statically define variables for slot offsets: `class-index-layout'
+;;; will be 0, `class-index-flags' will be 1, and so on.
+;;;
 (let-syntax ((define-class-index
               (lambda (x)
                 (define (id-append ctx a b)
@@ -196,8 +214,57 @@
                        (define #,(id-append #'name #'class-index- #'name)
                          #,(tail-length #'tail))
                        tail))))))
-  (fold-<class>-slots macro-fold-left define-class-index (begin)))
+  (fold-class-slots macro-fold-left define-class-index (begin)))
 
+;;;
+;;; Now that we know the slots that must be present in classes, and
+;;; their offsets, we can create the root of the class hierarchy.
+;;;
+;;; Note that the `direct-supers', `direct-slots', `cpl', `slots', and
+;;; `getters-n-setters' fields will be updated later, once we have
+;;; definitions for the specialized slot types like <read-only-slot> and
+;;; once we have definitions for <top> and <object>.
+;;;
+(define <class>
+  (let-syntax ((cons-layout
+                ;; A simple way to compute class layout for the concrete
+                ;; types used in <class>.
+                (syntax-rules (<protected-read-only-slot>
+                               <self-slot>
+                               <hidden-slot>
+                               <protected-hidden-slot>)
+                  ((_ (name) tail)
+                   (string-append "pw" tail))
+                  ((_ (name <protected-read-only-slot>) tail)
+                   (string-append "pr" tail))
+                  ((_ (name <self-slot>) tail)
+                   (string-append "sr" tail))
+                  ((_ (name <hidden-slot>) tail)
+                   (string-append "uh" tail))
+                  ((_ (name <protected-hidden-slot>) tail)
+                   (string-append "ph" tail))))
+               (cons-slot
+                (syntax-rules ()
+                  ((_ (name) tail)       (cons (list 'name) tail))
+                  ((_ (name class) tail) (cons (list 'name) tail)))))
+    (let* ((layout (fold-class-slots macro-fold-right cons-layout ""))
+           (slots (fold-class-slots macro-fold-right cons-slot '()))
+           (<class> (%make-root-class layout)))
+      (struct-set! <class> class-index-name '<class>)
+      (struct-set! <class> class-index-nfields (length slots))
+      (struct-set! <class> class-index-direct-supers '())
+      (struct-set! <class> class-index-direct-slots slots)
+      (struct-set! <class> class-index-direct-subclasses '())
+      (struct-set! <class> class-index-direct-methods '())
+      (struct-set! <class> class-index-cpl '())
+      (struct-set! <class> class-index-slots slots)
+      (struct-set! <class> class-index-getters-n-setters '())
+      (struct-set! <class> class-index-redefined #f)
+      <class>)))
+
+;;;
+;;; Accessors to fields of <class>.
+;;;
 (define-syntax-rule (define-class-accessor name docstring field)
   (define (name obj)
     docstring
@@ -230,21 +297,54 @@
   class-index-slots)
 
 (define (class-subclasses c)
+  "Compute a list of all subclasses of @var{c}, direct and indirect."
   (define (all-subclasses c)
     (cons c (append-map all-subclasses
                         (class-direct-subclasses c))))
   (delete-duplicates (cdr (all-subclasses c)) eq?))
 
 (define (class-methods c)
+  "Compute a list of all methods that specialize on @var{c} or
+subclasses of @var{c}."
   (delete-duplicates (append-map class-direct-methods
                                  (cons c (class-subclasses c)))
                      eq?))
 
-;;
-;; is-a?
-;;
-(define (is-a? obj class)
-  (and (memq class (class-precedence-list (class-of obj))) #t))
+
+
+
+;;;
+;;; The "getters-n-setters" define how to access slot values for a
+;;; particular class.  In general, there are many ways to access slot
+;;; values, but for standard classes it's pretty easy: each slot is
+;;; associated with a field in the object.
+;;;
+(define (%compute-getters-n-setters slots)
+  (define (compute-init-thunk options)
+    (cond
+     ((kw-arg-ref options #:init-value) => (lambda (val) (lambda () val)))
+     ((kw-arg-ref options #:init-thunk))
+     (else #f)))
+  (let lp ((slots slots) (n 0))
+    (match slots
+      (() '())
+      (((name . options) . slots)
+       (let ((init-thunk (compute-init-thunk options)))
+         (cons `(,name ,init-thunk . ,n)
+               (lp slots (1+ n))))))))
+
+(struct-set! <class> class-index-getters-n-setters
+             (%compute-getters-n-setters (class-slots <class>)))
+
+
+
+
+;;;
+;;; At this point, we have <class> but no other objects.  We need to
+;;; define a standard way to make subclasses: how to compute the
+;;; precedence list of subclasses, how to compute the list of slots in a
+;;; subclass, and what layout to use for instances of those classes.
+;;;
 
 (define (compute-std-cpl c get-direct-supers)
   "The standard class precedence list computation algorithm."
@@ -319,19 +419,6 @@
               (check-cpl new-slots class-slots)
               (lp cpl (append new-slots res) class-slots))))))))
 
-(define (%compute-getters-n-setters slots)
-  (define (compute-init-thunk options)
-    (cond
-     ((kw-arg-ref options #:init-value) => (lambda (val) (lambda () val)))
-     ((kw-arg-ref options #:init-thunk))
-     (else #f)))
-  (let lp ((slots slots) (n 0))
-    (match slots
-      (() '())
-      (((name . options) . slots)
-       (cons (cons name (cons (compute-init-thunk options) n))
-             (lp slots (1+ n)))))))
-
 (define (%compute-layout slots getters-n-setters nfields is-class?)
   (define (instance-allocated? g-n-s)
     (match g-n-s
@@ -395,6 +482,12 @@
              (else
               (lp n slots getters-n-setters))))))))))
 
+
+
+
+;;;
+;;; With all of this, we are now able to define subclasses of <class>.
+;;;
 (define (%prep-layout! class)
   (let* ((is-class? (and (memq <class> (struct-ref class class-index-cpl)) #t))
          (layout (%compute-layout
@@ -432,46 +525,6 @@
       (%prep-layout! z)
       z)))
 
-(define <class>
-  (let-syntax ((cons-dslot
-                ;; The specialized slot classes have not been defined
-                ;; yet; initialize <class> with unspecialized slots.
-                (syntax-rules ()
-                  ((_ (name) tail)       (cons (list 'name) tail))
-                  ((_ (name class) tail) (cons (list 'name) tail))))
-               (cons-layout
-                ;; A simple way to compute class layout for the concrete
-                ;; types used in <class>.
-                (syntax-rules (<protected-read-only-slot> <self-slot>
-                               <hidden-slot> <protected-hidden-slot>)
-                  ((_ (name) tail)
-                   (string-append "pw" tail))
-                  ((_ (name <protected-read-only-slot>) tail)
-                   (string-append "pr" tail))
-                  ((_ (name <self-slot>) tail)
-                   (string-append "sr" tail))
-                  ((_ (name <hidden-slot>) tail)
-                   (string-append "uh" tail))
-                  ((_ (name <protected-hidden-slot>) tail)
-                   (string-append "ph" tail)))))
-    (let* ((dslots (fold-<class>-slots macro-fold-right cons-dslot '()))
-           (layout (fold-<class>-slots macro-fold-right cons-layout ""))
-           (<class> (%make-root-class layout)))
-      ;; The `direct-supers', `direct-slots', `cpl', `slots', and
-      ;; `getters-n-setters' fields will be updated later.
-      (struct-set! <class> class-index-name '<class>)
-      (struct-set! <class> class-index-nfields (length dslots))
-      (struct-set! <class> class-index-direct-supers '())
-      (struct-set! <class> class-index-direct-slots dslots)
-      (struct-set! <class> class-index-direct-subclasses '())
-      (struct-set! <class> class-index-direct-methods '())
-      (struct-set! <class> class-index-cpl '())
-      (struct-set! <class> class-index-slots dslots)
-      (struct-set! <class> class-index-getters-n-setters
-                   (%compute-getters-n-setters dslots))
-      (struct-set! <class> class-index-redefined #f)
-      <class>)))
-
 (define-syntax define-standard-class
   (syntax-rules ()
     ((define-standard-class name (super ...) #:metaclass meta slot ...)
@@ -480,6 +533,14 @@
     ((define-standard-class name (super ...) slot ...)
      (define-standard-class name (super ...) #:metaclass <class> slot ...))))
 
+
+
+
+;;;
+;;; Sweet!  Now we can define <top> and <object>, and finish
+;;; initializing the `direct-subclasses', `direct-supers', and `cpl'
+;;; slots of <class>.
+;;;
 (define-standard-class <top> ())
 (define-standard-class <object> (<top>))
 
@@ -489,6 +550,13 @@
 (struct-set! <class> class-index-direct-supers (list <object>))
 (struct-set! <class> class-index-cpl (list <class> <object> <top>))
 
+
+
+
+;;;
+;;; We can also define the various slot types, and finish initializing
+;;; `direct-slots', `slots', and `getters-n-setters' of <class>.
+;;;
 (define-standard-class <foreign-slot> (<top>))
 (define-standard-class <protected-slot> (<foreign-slot>))
 (define-standard-class <hidden-slot> (<foreign-slot>))
@@ -506,18 +574,24 @@
 (define-standard-class <float-slot> (<foreign-slot>))
 (define-standard-class <double-slot> (<foreign-slot>))
 
-;; Finish initialization of <class> with specialized slots.
 (let-syntax ((visit
               (syntax-rules ()
                 ((_ (name) tail)
                  (cons (list 'name) tail))
                 ((_ (name class) tail)
                  (cons (list 'name #:class class) tail)))))
-  (let* ((dslots (fold-<class>-slots macro-fold-right visit '()))
+  (let* ((dslots (fold-class-slots macro-fold-right visit '()))
          (g-n-s (%compute-getters-n-setters dslots)))
     (struct-set! <class> class-index-direct-slots dslots)
     (struct-set! <class> class-index-slots dslots)
     (struct-set! <class> class-index-getters-n-setters g-n-s)))
+
+
+
+
+;;;
+;;; Now, to build out the class hierarchy.
+;;;
 
 ;; Applicables and their classes.
 (define-standard-class <procedure-class> (<class>))
@@ -698,6 +772,11 @@ followed by its associated value.  If @var{l} does not hold a value for
        (else
         (error "boot `make' does not support this class" class)))
       z))))
+
+(define (is-a? obj class)
+  "Return @code{#t} if @var{obj} is an instance of @var{class}, or
+@code{#f} otherwise."
+  (and (memq class (class-precedence-list (class-of obj))) #t))
 
 ;; In the future, this function will return the effective slot
 ;; definition associated with SLOT_NAME.  Now it just returns some of
