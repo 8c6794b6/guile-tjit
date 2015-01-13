@@ -799,15 +799,11 @@ scm_wta_dispatch_n (SCM gf, SCM args, int pos, const char *subr)
 
 
 
-SCM_DEFINE (scm_make, "make",  0, 0, 1,
-	    (SCM args),
-	    "Make a new object.  @var{args} must contain the class and\n"
-	    "all necessary initialization information.")
-#define FUNC_NAME s_scm_make
+SCM
+scm_make (SCM args)
 {
   return scm_apply_0 (scm_variable_ref (var_make), args);
 }
-#undef FUNC_NAME
 
 
 
