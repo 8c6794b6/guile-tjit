@@ -785,14 +785,16 @@ followed by its associated value.  If @var{l} does not hold a value for
 
 
 ;;;
-;;; Slot access.
+;;; Slot access.  This protocol is a bit of a mess: there's the `slots'
+;;; slot, which ostensibly holds "slot definitions" but really just has
+;;; specially formatted lists.  And then there's the `getters-n-setters'
+;;; slot, which mirrors `slots' but should in theory indicates how to
+;;; get at slots for a particular instance -- never mind that `slots'
+;;; was also computed for a particular instance, and that
+;;; `getters-n-setters' is a strangely structured chain of pairs.
+;;; Perhaps we can fix this in the future, following the CLOS MOP, to
+;;; have proper <effective-slot-definition> objects.
 ;;;
-
-;; In the future, this function will return the effective slot
-;; definition associated with SLOT_NAME.  Now it just returns some of
-;; the information which will be stored in the effective slot
-;; definition.
-;;
 (define (get-slot-value-using-name class obj slot-name)
   (match (assq slot-name (struct-ref class class-index-getters-n-setters))
     (#f (slot-missing class obj slot-name))
@@ -812,8 +814,6 @@ followed by its associated value.  If @var{l} does not hold a value for
 (define (test-slot-existence class obj slot-name)
   (and (assq slot-name (struct-ref class class-index-getters-n-setters))
        #t))
-
-;; ========================================
 
 (define (check-slot-args class obj slot-name)
   (unless (class? class)
@@ -845,28 +845,19 @@ followed by its associated value.  If @var{l} does not hold a value for
   (check-slot-args class obj slot-name)
   (test-slot-existence class obj slot-name))
 
-;; Class redefinition protocol:
-;;
-;; A class is represented by a heap header h1 which points to a
-;; malloc:ed memory block m1.
-;;
-;; When a new version of a class is created, a new header h2 and
-;; memory block m2 are allocated.  The headers h1 and h2 then switch
-;; pointers so that h1 refers to m2 and h2 to m1.  In this way, names
-;; bound to h1 will point to the new class at the same time as h2 will
-;; be a handle which the GC will use to free m1.
-;;
-;; The `redefined' slot of m1 will be set to point to h1.  An old
-;; instance will have its class pointer (the CAR of the heap header)
-;; pointing to m1.  The non-immediate `redefined'-slot in m1 indicates
-;; the class modification and the new class pointer can be found via
-;; h1.
-;;
-
-;; In the following interfaces, class-of handles the redefinition
-;; protocol.  There would seem to be some thread-unsafety though as the
-;; { class, object data } pair needs to be accessed atomically, not the
-;; { class, object } pair.
+;;;
+;;; Before we go on, some notes about class redefinition.  In GOOPS,
+;;; classes can be redefined.  Redefinition of a class marks the class
+;;; as invalid, and instances will be lazily migrated over to the new
+;;; representation as they are accessed.  Migration happens when
+;;; `class-of' is called on an instance.  For more technical details on
+;;; object redefinition, see struct.h.
+;;;
+;;; In the following interfaces, class-of handles the redefinition
+;;; protocol.  I would think though that there is some thread-unsafety
+;;; here though as the { class, object data } pair needs to be accessed
+;;; atomically, not the { class, object } pair.
+;;;
 
 (define (slot-ref obj slot-name)
   "Return the value from @var{obj}'s slot with the nam var{slot_name}."
@@ -884,6 +875,12 @@ followed by its associated value.  If @var{l} does not hold a value for
   "Return @code{#t} if @var{obj} has a slot named @var{slot_name}."
   (slot-exists-using-class? (class-of obj) obj slot-name))
 
+
+
+
+;;;
+;;; Method accessors.
+;;;
 (define (method-generic-function obj)
   "Return the generic function for the method @var{obj}."
   (unless (is-a? obj <method>)
@@ -905,6 +902,12 @@ followed by its associated value.  If @var{l} does not hold a value for
                (list obj) #f))
   (slot-ref obj 'procedure))
 
+
+
+
+;;;
+;;; Generic functions!
+;;;
 (define *dispatch-module* (current-module))
 
 ;;;
