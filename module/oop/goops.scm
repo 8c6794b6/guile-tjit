@@ -593,7 +593,6 @@ subclasses of @var{c}."
 ;;; Now, to build out the class hierarchy.
 ;;;
 
-;; Applicables and their classes.
 (define-standard-class <procedure-class> (<class>))
 (define-standard-class <applicable-struct-class>
   (<procedure-class>))
@@ -630,7 +629,6 @@ subclasses of @var{c}."
                                             <extended-generic-with-setter>)
   #:metaclass <applicable-struct-with-setter-class>)
 
-;; Methods
 (define-standard-class <method> (<object>)
   generic-function
   specializers
@@ -641,7 +639,6 @@ subclasses of @var{c}."
 (define-standard-class <accessor-method> (<method>)
   (slot-definition #:init-keyword #:slot-definition))
 
-;; Primitive types classes
 (define-standard-class <boolean> (<top>))
 (define-standard-class <char> (<top>))
 (define-standard-class <list> (<top>))
@@ -702,6 +699,18 @@ function."
       (struct-set! <applicable> class-index-direct-subclasses
                    (cons class subclasses)))))
 
+
+
+
+;;;
+;;; At this point we have defined the class hierarchy, and it's time to
+;;; move on to instance allocation and generics.  Once we have generics,
+;;; we'll fill out the metaobject protocol.
+;;;
+;;; Here we define a limited version of `make', so that we can allocate
+;;; instances of specific classes.  This definition will be replaced
+;;; later.
+;;;
 (define (%invalidate-method-cache! gf)
   (slot-set! gf 'procedure (delayed-compile gf))
   (slot-set! gf 'effective-methods '()))
@@ -726,12 +735,6 @@ followed by its associated value.  If @var{l} does not hold a value for
          (scm-error 'wrong-type-arg #f "Not a keyword: ~S" (list kw) #f))
        (if (eq? kw key) arg (lp l))))))
 
-;; A simple make which will be redefined later.  This version handles
-;; only creation of gf, methods and classes (no instances).
-;;
-;; Since this code will disappear when Goops will be fully booted,
-;; no precaution is taken to be efficient.
-;;
 (define (%allocate-instance class)
   (let ((obj (allocate-struct class (struct-ref class class-index-nfields))))
     (%clear-fields! obj)
@@ -777,6 +780,13 @@ followed by its associated value.  If @var{l} does not hold a value for
   "Return @code{#t} if @var{obj} is an instance of @var{class}, or
 @code{#f} otherwise."
   (and (memq class (class-precedence-list (class-of obj))) #t))
+
+
+
+
+;;;
+;;; Slot access.
+;;;
 
 ;; In the future, this function will return the effective slot
 ;; definition associated with SLOT_NAME.  Now it just returns some of
