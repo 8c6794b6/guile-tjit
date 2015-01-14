@@ -365,8 +365,8 @@ subclasses of @var{c}."
                               (and (not (null? l))
                                    (candidate (car l)))))
              (next (any candidate-car inputs)))
-        (if (not next)
-            (goops-error "merge-lists: Inconsistent precedence graph"))
+        (unless next
+          (goops-error "merge-lists: Inconsistent precedence graph"))
         (let ((remove-next (lambda (l)
                              (if (eq? (car l) next)
                                  (cdr l)
@@ -386,7 +386,7 @@ subclasses of @var{c}."
 
 (define (build-slots-list dslots cpl)
   (define (check-cpl slots class-slots)
-    (when (or-map (lambda (slot-def) (assq (car slot-def) slots))
+    (when (or-map (match-lambda ((name . options) (assq name slots)))
                   class-slots)
       (scm-error 'misc-error #f
                  "a predefined <class> inherited field cannot be redefined"
@@ -1227,7 +1227,7 @@ followed by its associated value.  If @var{l} does not hold a value for
         ;; a subclass of these.
         (for-each
          (lambda (meta)
-           (if (and (not (member meta all-cpls))
+           (when (and (not (member meta all-cpls))
                       (not (member meta needed-metas)))
              (set! needed-metas (append needed-metas (list meta)))))
          all-metas)
@@ -1335,19 +1335,19 @@ followed by its associated value.  If @var{l} does not hold a value for
          ((#:getter #:setter)
           #'(define-class-pre-definition (rest ...)
               out ...
-              (if (or (not (defined? 'arg))
-                      (not (is-a? arg <generic>)))
-                  (toplevel-define!
-                   'arg
-                   (ensure-generic (if (defined? 'arg) arg #f) 'arg)))))
+              (when (or (not (defined? 'arg))
+                        (not (is-a? arg <generic>)))
+                (toplevel-define!
+                 'arg
+                 (ensure-generic (if (defined? 'arg) arg #f) 'arg)))))
          ((#:accessor)
           #'(define-class-pre-definition (rest ...)
               out ...
-              (if (or (not (defined? 'arg))
-                      (not (is-a? arg <accessor>)))
-                  (toplevel-define!
-                   'arg
-                   (ensure-accessor (if (defined? 'arg) arg #f) 'arg)))))
+              (when (or (not (defined? 'arg))
+                        (not (is-a? arg <accessor>)))
+                (toplevel-define!
+                 'arg
+                 (ensure-accessor (if (defined? 'arg) arg #f) 'arg)))))
          (else
           #'(define-class-pre-definition (rest ...) out ...))))
       ((_ () out ...)
@@ -1525,11 +1525,11 @@ followed by its associated value.  If @var{l} does not hold a value for
                    #:name (generic-function-name generic)
                    #:extended-by (slot-ref generic 'extended-by)
                    #:setter setter)))
-    (if (is-a? generic <extended-generic>)
-        (let ((gfs (slot-ref generic 'extends)))
-          (not-extended-by! gfs generic)
-          (slot-set! gws 'extends gfs)
-          (extended-by! gfs gws)))
+    (when (is-a? generic <extended-generic>)
+      (let ((gfs (slot-ref generic 'extends)))
+        (not-extended-by! gfs generic)
+        (slot-set! gws 'extends gfs)
+        (extended-by! gfs gws)))
     ;; Steal old methods
     (for-each (lambda (method)
                 (slot-set! method 'generic-function gws))
@@ -1644,11 +1644,11 @@ followed by its associated value.  If @var{l} does not hold a value for
   (syntax-rules (setter)
     ((_ ((setter name) . args) body ...)
      (begin
-       (if (or (not (defined? 'name))
-               (not (is-a? name <accessor>)))
-           (toplevel-define! 'name
-                             (ensure-accessor
-                              (if (defined? 'name) name #f) 'name)))
+       (when (or (not (defined? 'name))
+                 (not (is-a? name <accessor>)))
+         (toplevel-define! 'name
+                           (ensure-accessor
+                            (if (defined? 'name) name #f) 'name)))
        (add-method! (setter name) (method args body ...))))
     ((_ (name . args) body ...)
      (begin
@@ -1657,9 +1657,9 @@ followed by its associated value.  If @var{l} does not hold a value for
        ;; before (ok), or *was defined to #f*. The latter is crack. But
        ;; there are bootstrap issues about fixing this -- change it to
        ;; (is-a? name <generic>) and see.
-       (if (or (not (defined? 'name))
-               (not name))
-           (toplevel-define! 'name (make <generic> #:name 'name)))
+       (when (or (not (defined? 'name))
+                 (not name))
+         (toplevel-define! 'name (make <generic> #:name 'name)))
        (add-method! name (method args body ...))))))
 
 (define-syntax method
@@ -2114,9 +2114,9 @@ followed by its associated value.  If @var{l} does not hold a value for
          (getters-n-setters (struct-ref class class-index-getters-n-setters))
          (g-n-s (cddr (or (assq slot-name getters-n-setters)
                           (slot-missing class slot-name)))))
-    (if (not (memq (slot-definition-allocation this-slot)
-                   '(#:class #:each-subclass)))
-        (slot-missing class slot-name))
+    (unless (memq (slot-definition-allocation this-slot)
+                  '(#:class #:each-subclass))
+      (slot-missing class slot-name))
     g-n-s))
 
 (define (class-slot-ref class slot)
@@ -2168,8 +2168,8 @@ followed by its associated value.  If @var{l} does not hold a value for
          (clone (%allocate-instance class))
          (slots (map slot-definition-name (class-slots class))))
     (for-each (lambda (slot)
-                (if (slot-bound? self slot)
-                    (slot-set! clone slot (slot-ref self slot))))
+                (when (slot-bound? self slot)
+                  (slot-set! clone slot (slot-ref self slot))))
               slots)
     clone))
 
@@ -2178,12 +2178,12 @@ followed by its associated value.  If @var{l} does not hold a value for
          (clone (%allocate-instance class))
          (slots (map slot-definition-name (class-slots class))))
     (for-each (lambda (slot)
-                (if (slot-bound? self slot)
-                    (slot-set! clone slot
-                               (let ((value (slot-ref self slot)))
-                                 (if (instance? value)
-                                     (deep-clone value)
-                                     value)))))
+                (when (slot-bound? self slot)
+                  (slot-set! clone slot
+                             (let ((value (slot-ref self slot)))
+                               (if (instance? value)
+                                   (deep-clone value)
+                                   value)))))
               slots)
     clone))
 
@@ -2258,14 +2258,14 @@ followed by its associated value.  If @var{l} does not hold a value for
 
 (define-method (remove-class-accessors! (c <class>))
   (for-each (lambda (m)
-              (if (is-a? m <accessor-method>)
-                  (let ((gf (slot-ref m 'generic-function)))
-                    ;; remove the method from its GF
-                    (slot-set! gf 'methods
-                               (delq1! m (slot-ref gf 'methods)))
-                    (invalidate-method-cache! gf)
-                    ;; remove the method from its specializers
-                    (remove-method-in-classes! m))))
+              (when (is-a? m <accessor-method>)
+                (let ((gf (slot-ref m 'generic-function)))
+                  ;; remove the method from its GF
+                  (slot-set! gf 'methods
+                             (delq1! m (slot-ref gf 'methods)))
+                  (invalidate-method-cache! gf)
+                  ;; remove the method from its specializers
+                  (remove-method-in-classes! m))))
             (class-direct-methods c)))
 
 ;;;
@@ -2278,11 +2278,10 @@ followed by its associated value.  If @var{l} does not hold a value for
   (let loop ((l (method-specializers m)))
     ;; Note: the <top> in dotted list is never used.
     ;; So we can work as if we had only proper lists.
-    (if (pair? l)
-        (begin
-          (if (eqv? (car l) old)
-              (set-car! l new))
-          (loop (cdr l))))))
+    (when (pair? l)
+      (when (eqv? (car l) old)
+        (set-car! l new))
+      (loop (cdr l)))))
 
 ;;;
 ;;; update-direct-subclass!
@@ -2404,12 +2403,12 @@ followed by its associated value.  If @var{l} does not hold a value for
           (else
            (let ((get (car l))
                  (set (cadr l)))
-             (if (not (procedure? get))
-                 (goops-error "Bad getter closure for slot `~S' in ~S: ~S"
-                              slot class get))
-             (if (not (procedure? set))
-                 (goops-error "Bad setter closure for slot `~S' in ~S: ~S"
-                              slot class set))))))
+             (unless (procedure? get)
+               (goops-error "Bad getter closure for slot `~S' in ~S: ~S"
+                            slot class get))
+             (unless (procedure? set)
+               (goops-error "Bad setter closure for slot `~S' in ~S: ~S"
+                            slot class set))))))
 
   (map (lambda (s)
          ;; The strange treatment of nfields is due to backward compatibility.
@@ -2495,9 +2494,8 @@ followed by its associated value.  If @var{l} does not hold a value for
      ;; slot-ref and slot-set! function must be given by the user
      (let ((get (get-keyword #:slot-ref  (slot-definition-options s) #f))
            (set (get-keyword #:slot-set! (slot-definition-options s) #f)))
-       (if (not (and get set))
-           (goops-error "You must supply a #:slot-ref and a #:slot-set! in ~S"
-                        s))
+       (unless (and get set)
+         (goops-error "You must supply a #:slot-ref and a #:slot-set! in ~S" s))
        (list get set)))
     (else    (next-method))))
 
@@ -2718,8 +2716,8 @@ var{initargs}."
 ;;;
 
 (define-method (apply-generic (gf <generic>) args)
-  (if (null? (slot-ref gf 'methods))
-      (no-method gf args))
+  (when (null? (slot-ref gf 'methods))
+    (no-method gf args))
   (let ((methods (compute-applicable-methods gf args)))
     (if methods
         (apply-methods gf (sort-applicable-methods gf methods args) args)
