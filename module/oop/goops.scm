@@ -393,31 +393,30 @@ subclasses of @var{c}."
                  '() '())))
   (define (remove-duplicate-slots slots)
     (let lp ((slots (reverse slots)) (res '()) (seen '()))
-      (cond
-       ((null? slots) res)
-       ((memq (caar slots) seen)
-        (lp (cdr slots) res seen))
-       (else
-        (lp (cdr slots) (cons (car slots) res) (cons (caar slots) seen))))))
+      (match slots
+        (() res)
+        (((and slot (name . options)) . slots)
+         (if (memq name seen)
+             (lp slots res seen)
+             (lp slots (cons slot res) (cons name seen)))))))
   (let* ((class-slots (and (memq <class> cpl)
                            (struct-ref <class> class-index-slots))))
     (when class-slots
       (check-cpl dslots class-slots))
     (let lp ((cpl (cdr cpl)) (res dslots) (class-slots '()))
-      (if (null? cpl)
-          (remove-duplicate-slots (append class-slots res))
-          (let* ((head (car cpl))
-                 (cpl (cdr cpl))
-                 (new-slots (struct-ref head class-index-direct-slots)))
-            (cond
-             ((not class-slots)
-              (lp cpl (append new-slots res) class-slots))
-             ((eq? head <class>)
-              ;; Move class slots to the head of the list.
-              (lp cpl res new-slots))
-             (else
-              (check-cpl new-slots class-slots)
-              (lp cpl (append new-slots res) class-slots))))))))
+      (match cpl
+        (() (remove-duplicate-slots (append class-slots res)))
+        ((head . cpl)
+         (let ((new-slots (struct-ref head class-index-direct-slots)))
+           (cond
+            ((not class-slots)
+             (lp cpl (append new-slots res) class-slots))
+            ((eq? head <class>)
+             ;; Move class slots to the head of the list.
+             (lp cpl res new-slots))
+            (else
+             (check-cpl new-slots class-slots)
+             (lp cpl (append new-slots res) class-slots)))))))))
 
 (define (%compute-layout slots getters-n-setters nfields is-class?)
   (define (instance-allocated? g-n-s)
@@ -516,12 +515,12 @@ subclasses of @var{c}."
       (struct-set! z class-index-slots slots)
       (struct-set! z class-index-getters-n-setters g-n-s)
       (struct-set! z class-index-redefined #f)
-      (for-each (lambda (super)
-                  (let ((subclasses
-                         (struct-ref super class-index-direct-subclasses)))
-                    (struct-set! super class-index-direct-subclasses
-                                 (cons z subclasses))))
-                dsupers)
+      (for-each
+       (lambda (super)
+         (let ((subclasses (struct-ref super class-index-direct-subclasses)))
+           (struct-set! super class-index-direct-subclasses
+                        (cons z subclasses))))
+       dsupers)
       (%prep-layout! z)
       z)))
 
@@ -770,8 +769,7 @@ followed by its associated value.  If @var{l} does not hold a value for
                     (slot-set! z slot (get-keyword kw args default))))
                   '((#:name name ???)
                     (#:dsupers direct-supers ())
-                    (#:slots direct-slots ())
-                    )))
+                    (#:slots direct-slots ()))))
        (else
         (error "boot `make' does not support this class" class)))
       z))))
