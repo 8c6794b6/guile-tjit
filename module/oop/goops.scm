@@ -952,44 +952,45 @@ followed by its associated value.  If @var{l} does not hold a value for
                                ,(if rest?
                                     `(cons* ,@args rest)
                                     `(list ,@args)))))
-      (cond
-       ((null? methods)
+      (match methods
+       (()
         (values `(,(if rest? `(,@args . rest) args)
                   (let ,(map (lambda (t a)
                                `(,t (class-of ,a)))
                              types args)
                     ,exp))
                 free))
-       (else
-        ;; jeez
-        (let preddy ((free free)
-                     (types types)
-                     (specs (vector-ref (car methods) 1))
-                     (checks '()))
-          (if (null? types)
-              (let ((m-sym (gensym "p")))
-                (lp (cdr methods)
-                    (acons (vector-ref (car methods) 3)
-                           m-sym
-                           free)
-                    `(if (and . ,checks)
-                         ,(if rest?
-                              `(apply ,m-sym ,@args rest)
-                              `(,m-sym . ,args))
-                         ,exp)))
-              (let ((var (assq-ref free (car specs))))
-                (if var
-                    (preddy free
-                            (cdr types)
-                            (cdr specs)
-                            (cons `(eq? ,(car types) ,var)
-                                  checks))
-                    (let ((var (gensym "c")))
-                      (preddy (acons (car specs) var free)
-                              (cdr types)
-                              (cdr specs)
-                              (cons `(eq? ,(car types) ,var)
-                                    checks))))))))))))
+       ((#(_ specs _ cmethod) . methods)
+        (let build-dispatch ((free free)
+                             (types types)
+                             (specs specs)
+                             (checks '()))
+          (match types
+            (()
+             (let ((m-sym (gensym "p")))
+               (lp methods
+                   (acons cmethod m-sym free)
+                   `(if (and . ,checks)
+                        ,(if rest?
+                             `(apply ,m-sym ,@args rest)
+                             `(,m-sym . ,args))
+                        ,exp))))
+            ((type . types)
+             (match specs
+               ((spec . specs)
+                (let ((var (assq-ref free spec)))
+                  (if var
+                      (build-dispatch free
+                                      types
+                                      specs
+                                      (cons `(eq? ,type ,var)
+                                            checks))
+                      (let ((var (gensym "c")))
+                        (build-dispatch (acons spec var free)
+                                        types
+                                        specs
+                                        (cons `(eq? ,type ,var)
+                                              checks)))))))))))))))
 
 (define (compute-dispatch-procedure gf cache)
   (define (scan)
