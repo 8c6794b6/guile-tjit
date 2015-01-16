@@ -211,8 +211,8 @@
                 (syntax-case x ()
                   ((_ (name . _) tail)
                    #`(begin
-                       (define #,(id-append #'name #'class-index- #'name)
-                         #,(tail-length #'tail))
+                       (define-syntax #,(id-append #'name #'class-index- #'name)
+                         (identifier-syntax #,(tail-length #'tail)))
                        tail))))))
   (fold-class-slots macro-fold-left define-class-index (begin)))
 
