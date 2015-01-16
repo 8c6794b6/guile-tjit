@@ -150,11 +150,12 @@
 
 ;;;
 ;;; We then define the slots that must appear in all classes (<class>
-;;; objects).  These slots must appear in order.  We'll use this list to
-;;; statically compute offsets for the various fields, to compute the
-;;; struct layout for <class> instances, and to compute the slot
-;;; definition lists for <class>.  Because the list is needed at
-;;; expansion-time, we define it as a macro.
+;;; objects) and slot definitions (<slot> objects).  These slots must
+;;; appear in order.  We'll use this list to statically compute offsets
+;;; for the various fields, to compute the struct layout for <class>
+;;; instances, and to compute the slot definition lists for <class>.
+;;; Because the list is needed at expansion-time, we define it as a
+;;; macro.
 ;;;
 (define-syntax macro-fold-left
   (syntax-rules ()
@@ -168,52 +169,72 @@
     ((_ folder seed (head . tail))
      (folder head (macro-fold-right folder seed tail)))))
 
-(define-syntax fold-class-slots
-  (lambda (x)
-    (define slots
-      '((layout <protected-read-only-slot>)
-        (flags <hidden-slot>)
-        (self <self-slot>)
-        (instance-finalizer <hidden-slot>)
-        (print)
-        (name <protected-hidden-slot>)
-        (nfields <hidden-slot>)
-        (%reserved <hidden-slot>)
-        (redefined)
-        (direct-supers)
-        (direct-slots)
-        (direct-subclasses)
-        (direct-methods)
-        (cpl)
-        (slots)
-        (getters-n-setters)))
-    (syntax-case x ()
-      ((_ fold visit seed)
-       ;; The datum->syntax makes it as if the identifiers in `slots'
-       ;; were present in the initial form, which allows them to be used
-       ;; as (components of) introduced identifiers.
-       #`(fold visit seed #,(datum->syntax #'visit slots))))))
+(define-syntax-rule (define-macro-folder macro-folder value ...)
+  (define-syntax macro-folder
+    (lambda (x)
+      (syntax-case x ()
+        ((_ fold visit seed)
+         ;; The datum->syntax makes it as if each `value' were present
+         ;; in the initial form, which allows them to be used as
+         ;; (components of) introduced identifiers.
+         #`(fold visit seed #,(datum->syntax #'visit '(value ...))))))))
+
+(define-macro-folder fold-class-slots
+  (layout <protected-read-only-slot>)
+  (flags <hidden-slot>)
+  (self <self-slot>)
+  (instance-finalizer <hidden-slot>)
+  (print)
+  (name <protected-hidden-slot>)
+  (nfields <hidden-slot>)
+  (%reserved <hidden-slot>)
+  (redefined)
+  (direct-supers)
+  (direct-slots)
+  (direct-subclasses)
+  (direct-methods)
+  (cpl)
+  (slots)
+  (getters-n-setters))
+
+(define-macro-folder fold-slot-slots
+  (name #:init-keyword #:name)
+  (allocation #:init-keyword #:allocation #:init-value #:instance)
+  (init-form #:init-keyword #:init-form)
+  (init-thunk #:init-keyword #:init-thunk #:init-value #f)
+  (options)
+  (getter #:init-keyword #:getter)
+  (setter #:init-keyword #:setter)
+  (index #:init-keyword #:index)
+  (size #:init-keyword #:size))
 
 ;;;
 ;;; Statically define variables for slot offsets: `class-index-layout'
-;;; will be 0, `class-index-flags' will be 1, and so on.
+;;; will be 0, `class-index-flags' will be 1, and so on, and the same
+;;; for `slot-index-name' and such for <slot>.
 ;;;
-(let-syntax ((define-class-index
-              (lambda (x)
-                (define (id-append ctx a b)
-                  (datum->syntax ctx (symbol-append (syntax->datum a)
-                                                    (syntax->datum b))))
-                (define (tail-length tail)
-                  (syntax-case tail ()
-                    ((begin) 0)
-                    ((visit head tail) (1+ (tail-length #'tail)))))
-                (syntax-case x ()
-                  ((_ (name . _) tail)
-                   #`(begin
-                       (define-syntax #,(id-append #'name #'class-index- #'name)
-                         (identifier-syntax #,(tail-length #'tail)))
-                       tail))))))
-  (fold-class-slots macro-fold-left define-class-index (begin)))
+(let-syntax ((define-slot-indexer
+               (syntax-rules ()
+                 ((_ define-index prefix)
+                  (define-syntax define-index
+                    (lambda (x)
+                      (define (id-append ctx a b)
+                        (datum->syntax ctx (symbol-append (syntax->datum a)
+                                                          (syntax->datum b))))
+                      (define (tail-length tail)
+                        (syntax-case tail ()
+                          ((begin) 0)
+                          ((visit head tail) (1+ (tail-length #'tail)))))
+                      (syntax-case x ()
+                        ((_ (name . _) tail)
+                         #`(begin
+                             (define-syntax #,(id-append #'name #'prefix #'name)
+                               (identifier-syntax #,(tail-length #'tail)))
+                             tail)))))))))
+  (define-slot-indexer define-class-index class-index-)
+  (define-slot-indexer define-slot-index slot-index-)
+  (fold-class-slots macro-fold-left define-class-index (begin))
+  (fold-slot-slots macro-fold-left define-slot-index (begin)))
 
 ;;;
 ;;; Structs that are vtables have a "flags" slot, which corresponds to
