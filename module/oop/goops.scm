@@ -995,59 +995,51 @@ followed by its associated value.  If @var{l} does not hold a value for
 (define (compute-dispatch-procedure gf cache)
   (define (scan)
     (let lp ((ls cache) (nreq -1) (nrest -1))
-      (cond
-       ((null? ls)
-        (collate (make-vector (1+ nreq) '())
-                 (make-vector (1+ nrest) '())))
-       ((vector-ref (car ls) 2)         ; rest
-        (lp (cdr ls) nreq (max nrest (vector-ref (car ls) 0))))
-       (else                            ; req
-        (lp (cdr ls) (max nreq (vector-ref (car ls) 0)) nrest)))))
+      (match ls
+        (()
+         (collate (make-vector (1+ nreq) '())
+                  (make-vector (1+ nrest) '())))
+        ((#(len specs rest? cmethod) . ls)
+         (if rest?
+             (lp ls nreq (max nrest len))
+             (lp ls (max nreq len) nrest))))))
   (define (collate req rest)
     (let lp ((ls cache))
-      (cond
-       ((null? ls)
-        (emit req rest))
-       ((vector-ref (car ls) 2)         ; rest
-        (let ((n (vector-ref (car ls) 0)))
-          (vector-set! rest n (cons (car ls) (vector-ref rest n)))
-          (lp (cdr ls))))
-       (else                            ; req
-        (let ((n (vector-ref (car ls) 0)))
-          (vector-set! req n (cons (car ls) (vector-ref req n)))
-          (lp (cdr ls)))))))
+      (match ls
+        (() (emit req rest))
+        (((and entry #(len specs rest? cmethod)) . ls)
+         (if rest?
+             (vector-set! rest len (cons entry (vector-ref rest len)))
+             (vector-set! req len (cons entry (vector-ref req len))))
+         (lp ls)))))
   (define (emit req rest)
     (let ((gf-sym (gensym "g")))
       (define (emit-rest n clauses free)
         (if (< n (vector-length rest))
-            (let ((methods (vector-ref rest n)))
-              (cond
-               ((null? methods)
-                (emit-rest (1+ n) clauses free))
-               ;; FIXME: hash dispatch
-               (else
-                (call-with-values
-                    (lambda ()
-                      (emit-linear-dispatch gf-sym n methods free #t))
-                  (lambda (clause free)
-                    (emit-rest (1+ n) (cons clause clauses) free))))))
+            (match (vector-ref rest n)
+              (() (emit-rest (1+ n) clauses free))
+              ;; FIXME: hash dispatch
+              (methods
+               (call-with-values
+                   (lambda ()
+                     (emit-linear-dispatch gf-sym n methods free #t))
+                 (lambda (clause free)
+                   (emit-rest (1+ n) (cons clause clauses) free)))))
             (emit-req (1- (vector-length req)) clauses free)))
       (define (emit-req n clauses free)
         (if (< n 0)
             (comp `(lambda ,(map cdr free)
                      (case-lambda ,@clauses))
                   (map car free))
-            (let ((methods (vector-ref req n)))
-              (cond
-               ((null? methods)
-                (emit-req (1- n) clauses free))
-               ;; FIXME: hash dispatch
-               (else
-                (call-with-values
-                    (lambda ()
-                      (emit-linear-dispatch gf-sym n methods free #f))
-                  (lambda (clause free)
-                    (emit-req (1- n) (cons clause clauses) free))))))))
+            (match (vector-ref req n)
+              (() (emit-req (1- n) clauses free))
+              ;; FIXME: hash dispatch
+              (methods
+               (call-with-values
+                   (lambda ()
+                     (emit-linear-dispatch gf-sym n methods free #f))
+                 (lambda (clause free)
+                   (emit-req (1- n) (cons clause clauses) free)))))))
 
       (emit-rest 0
                  (if (or (zero? (vector-length rest))
