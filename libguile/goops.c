@@ -91,11 +91,6 @@ static SCM var_method_generic_function = SCM_BOOL_F;
 static SCM var_method_specializers = SCM_BOOL_F;
 static SCM var_method_procedure = SCM_BOOL_F;
 
-static SCM var_slot_ref_using_class = SCM_BOOL_F;
-static SCM var_slot_set_using_class_x = SCM_BOOL_F;
-static SCM var_slot_bound_using_class_p = SCM_BOOL_F;
-static SCM var_slot_exists_using_class_p = SCM_BOOL_F;
-
 static SCM var_slot_ref = SCM_BOOL_F;
 static SCM var_slot_set_x = SCM_BOOL_F;
 static SCM var_slot_bound_p = SCM_BOOL_F;
@@ -453,34 +448,6 @@ SCM_DEFINE (scm_unbound_p, "unbound?", 1, 0, 0,
 
 
 
-
-SCM
-scm_slot_ref_using_class (SCM class, SCM obj, SCM slot_name)
-{
-  return scm_call_3 (scm_variable_ref (var_slot_ref_using_class),
-                     class, obj, slot_name);
-}
-
-SCM
-scm_slot_set_using_class_x (SCM class, SCM obj, SCM slot_name, SCM value)
-{
-  return scm_call_4 (scm_variable_ref (var_slot_set_using_class_x),
-                     class, obj, slot_name, value);
-}
-
-SCM
-scm_slot_bound_using_class_p (SCM class, SCM obj, SCM slot_name)
-{
-  return scm_call_3 (scm_variable_ref (var_slot_bound_using_class_p),
-                     class, obj, slot_name);
-}
-
-SCM
-scm_slot_exists_using_class_p (SCM class, SCM obj, SCM slot_name)
-{
-  return scm_call_3 (scm_variable_ref (var_slot_exists_using_class_p),
-                     class, obj, slot_name);
-}
 
 SCM
 scm_slot_ref (SCM obj, SCM slot_name)
@@ -976,11 +943,6 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
 
   /* For SCM_SUBCLASSP.  */
   var_class_precedence_list = scm_c_lookup ("class-precedence-list");
-
-  var_slot_ref_using_class = scm_c_lookup ("slot-ref-using-class");
-  var_slot_set_using_class_x = scm_c_lookup ("slot-set-using-class!");
-  var_slot_bound_using_class_p = scm_c_lookup ("slot-bound-using-class?");
-  var_slot_exists_using_class_p = scm_c_lookup ("slot-exists-using-class?");
 
   var_slot_ref = scm_c_lookup ("slot-ref");
   var_slot_set_x = scm_c_lookup ("slot-set!");

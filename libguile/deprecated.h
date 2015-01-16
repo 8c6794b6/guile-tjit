@@ -212,6 +212,10 @@ SCM_DEPRECATED SCM scm_compute_applicable_methods (SCM gf, SCM args, long len, i
 SCM_DEPRECATED SCM scm_find_method (SCM l);
 SCM_DEPRECATED SCM scm_basic_make_class (SCM c, SCM name, SCM dsupers, SCM dslots);
 SCM_DEPRECATED SCM scm_get_keyword (SCM kw, SCM initargs, SCM default_value);
+SCM_DEPRECATED SCM scm_slot_ref_using_class (SCM cls, SCM obj, SCM slot_name);
+SCM_DEPRECATED SCM scm_slot_set_using_class_x (SCM cls, SCM obj, SCM slot_name, SCM value);
+SCM_DEPRECATED SCM scm_slot_bound_using_class_p (SCM cls, SCM obj, SCM slot_name);
+SCM_DEPRECATED SCM scm_slot_exists_using_class_p (SCM cls, SCM obj, SCM slot_name);
 
 
 

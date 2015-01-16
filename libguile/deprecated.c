@@ -93,6 +93,11 @@ scm_memory_error (const char *subr)
 
 
 
+static SCM var_slot_ref_using_class = SCM_BOOL_F;
+static SCM var_slot_set_using_class_x = SCM_BOOL_F;
+static SCM var_slot_bound_using_class_p = SCM_BOOL_F;
+static SCM var_slot_exists_using_class_p = SCM_BOOL_F;
+
 SCM scm_no_applicable_method = SCM_BOOL_F;
 
 SCM var_get_keyword = SCM_BOOL_F;
@@ -130,6 +135,11 @@ SCM *scm_port_class, *scm_smob_class;
 void
 scm_init_deprecated_goops (void)
 {
+  var_slot_ref_using_class = scm_c_lookup ("slot-ref-using-class");
+  var_slot_set_using_class_x = scm_c_lookup ("slot-set-using-class!");
+  var_slot_bound_using_class_p = scm_c_lookup ("slot-bound-using-class?");
+  var_slot_exists_using_class_p = scm_c_lookup ("slot-exists-using-class?");
+
   scm_no_applicable_method =
     scm_variable_ref (scm_c_lookup ("no-applicable-method"));
 
@@ -444,6 +454,35 @@ scm_basic_make_class (SCM meta, SCM name, SCM dsupers, SCM dslots)
      "in Scheme.");
 
   return scm_make_standard_class (meta, name, dsupers, dslots);
+}
+
+/* Scheme will issue the deprecation warning for these.  */
+SCM
+scm_slot_ref_using_class (SCM class, SCM obj, SCM slot_name)
+{
+  return scm_call_3 (scm_variable_ref (var_slot_ref_using_class),
+                     class, obj, slot_name);
+}
+
+SCM
+scm_slot_set_using_class_x (SCM class, SCM obj, SCM slot_name, SCM value)
+{
+  return scm_call_4 (scm_variable_ref (var_slot_set_using_class_x),
+                     class, obj, slot_name, value);
+}
+
+SCM
+scm_slot_bound_using_class_p (SCM class, SCM obj, SCM slot_name)
+{
+  return scm_call_3 (scm_variable_ref (var_slot_bound_using_class_p),
+                     class, obj, slot_name);
+}
+
+SCM
+scm_slot_exists_using_class_p (SCM class, SCM obj, SCM slot_name)
+{
+  return scm_call_3 (scm_variable_ref (var_slot_exists_using_class_p),
+                     class, obj, slot_name);
 }
 
 

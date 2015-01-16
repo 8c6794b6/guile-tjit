@@ -122,9 +122,8 @@
             goops-error
             min-fixnum max-fixnum
 
-            instance?  slot-ref-using-class
-            slot-set-using-class! slot-bound-using-class?
-            slot-exists-using-class? slot-ref slot-set! slot-bound?
+            instance?
+            slot-ref slot-set! slot-bound? slot-exists?
             class-name class-direct-supers class-direct-subclasses
             class-direct-methods class-direct-slots class-precedence-list
             class-slots
@@ -133,7 +132,7 @@
             method-specializers method-formals
             primitive-generic-generic enable-primitive-generic!
             method-procedure accessor-method-slot-definition
-            slot-exists? make find-method get-keyword)
+            make find-method get-keyword)
   #:no-backtrace)
 
 
@@ -851,36 +850,6 @@ followed by its associated value.  If @var{l} does not hold a value for
   (and (assq slot-name (struct-ref class class-index-getters-n-setters))
        #t))
 
-(define (check-slot-args class obj slot-name)
-  (unless (class? class)
-    (scm-error 'wrong-type-arg #f "Not a class: ~S"
-               (list class) #f))
-  (unless (instance? obj)
-    (scm-error 'wrong-type-arg #f "Not an instance: ~S"
-               (list obj) #f))
-  (unless (symbol? slot-name)
-    (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
-               (list slot-name) #f)))
-
-(define (slot-ref-using-class class obj slot-name)
-  (check-slot-args class obj slot-name)
-  (let ((val (get-slot-value-using-name class obj slot-name)))
-    (if (unbound? val)
-        (slot-unbound class obj slot-name)
-        val)))
-
-(define (slot-set-using-class! class obj slot-name value)
-  (check-slot-args class obj slot-name)
-  (set-slot-value-using-name! class obj slot-name value))
-
-(define (slot-bound-using-class? class obj slot-name)
-  (check-slot-args class obj slot-name)
-  (not (unbound? (get-slot-value-using-name class obj slot-name))))
-
-(define (slot-exists-using-class? class obj slot-name)
-  (check-slot-args class obj slot-name)
-  (test-slot-existence class obj slot-name))
-
 ;;;
 ;;; Before we go on, some notes about class redefinition.  In GOOPS,
 ;;; classes can be redefined.  Redefinition of a class marks the class
@@ -926,6 +895,39 @@ followed by its associated value.  If @var{l} does not hold a value for
     (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
                (list slot-name) #f))
   (test-slot-existence (class-of obj) obj slot-name))
+
+(begin-deprecated
+ (define (check-slot-args class obj slot-name)
+   (unless (eq? class (class-of obj))
+     (scm-error 'wrong-type-arg #f "~S is not the class of ~S"
+                (list class obj) #f))
+   (unless (symbol? slot-name)
+     (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
+                (list slot-name) #f)))
+
+ (define (slot-ref-using-class class obj slot-name)
+   (issue-deprecation-warning "slot-ref-using-class is deprecated.  "
+                              "Use slot-ref instead.")
+   (check-slot-args class obj slot-name)
+   (slot-ref obj slot-name))
+
+ (define (slot-set-using-class! class obj slot-name value)
+   (issue-deprecation-warning "slot-set-using-class! is deprecated.  "
+                              "Use slot-set! instead.")
+   (check-slot-args class obj slot-name)
+   (slot-set! obj slot-name value))
+
+ (define (slot-bound-using-class? class obj slot-name)
+   (issue-deprecation-warning "slot-bound-using-class? is deprecated.  "
+                              "Use slot-bound? instead.")
+   (check-slot-args class obj slot-name)
+   (slot-bound? obj slot-name))
+
+ (define (slot-exists-using-class? class obj slot-name)
+   (issue-deprecation-warning "slot-exists-using-class? is deprecated.  "
+                              "Use slot-exists? instead.")
+   (check-slot-args class obj slot-name)
+   (slot-exists? obj slot-name)))
 
 
 
