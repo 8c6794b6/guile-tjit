@@ -897,19 +897,35 @@ followed by its associated value.  If @var{l} does not hold a value for
 
 (define (slot-ref obj slot-name)
   "Return the value from @var{obj}'s slot with the nam var{slot_name}."
-  (slot-ref-using-class (class-of obj) obj slot-name))
+  (unless (symbol? slot-name)
+    (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
+               (list slot-name) #f))
+  (let* ((class (class-of obj))
+         (val (get-slot-value-using-name class obj slot-name)))
+    (if (unbound? val)
+        (slot-unbound class obj slot-name)
+        val)))
 
 (define (slot-set! obj slot-name value)
   "Set the slot named @var{slot_name} of @var{obj} to @var{value}."
-  (slot-set-using-class! (class-of obj) obj slot-name value))
+  (unless (symbol? slot-name)
+    (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
+               (list slot-name) #f))
+  (set-slot-value-using-name! (class-of obj) obj slot-name value))
 
 (define (slot-bound? obj slot-name)
   "Return the value from @var{obj}'s slot with the nam var{slot_name}."
-  (slot-bound-using-class? (class-of obj) obj slot-name))
+  (unless (symbol? slot-name)
+    (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
+               (list slot-name) #f))
+  (not (unbound? (get-slot-value-using-name (class-of obj) obj slot-name))))
 
 (define (slot-exists? obj slot-name)
   "Return @code{#t} if @var{obj} has a slot named @var{slot_name}."
-  (slot-exists-using-class? (class-of obj) obj slot-name))
+  (unless (symbol? slot-name)
+    (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
+               (list slot-name) #f))
+  (test-slot-existence (class-of obj) obj slot-name))
 
 
 
