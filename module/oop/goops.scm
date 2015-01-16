@@ -2680,27 +2680,20 @@ var{initargs}."
 (define (change-object-class old-instance old-class new-class)
   (let ((new-instance (allocate-instance new-class '())))
     ;; Initialize the slots of the new instance
-    (for-each (lambda (slot)
-                (if (and (slot-exists-using-class? old-class old-instance slot)
-                         (eq? (slot-definition-allocation
-                               (class-slot-definition old-class slot))
-                              #:instance)
-                         (slot-bound-using-class? old-class old-instance slot))
-                    ;; Slot was present and allocated in old instance; copy it
-                    (slot-set-using-class!
-                     new-class
-                     new-instance
-                     slot
-                     (slot-ref-using-class old-class old-instance slot))
-                    ;; slot was absent; initialize it with its default value
-                    (let ((init (slot-init-function new-class slot)))
-                      (if init
-                          (slot-set-using-class!
-                               new-class
-                               new-instance
-                               slot
-                               (apply init '()))))))
-              (map slot-definition-name (class-slots new-class)))
+    (for-each
+     (lambda (slot)
+       (if (and (slot-exists? old-instance slot)
+                (eq? (slot-definition-allocation
+                      (class-slot-definition old-class slot))
+                     #:instance)
+                (slot-bound? old-instance slot))
+           ;; Slot was present and allocated in old instance; copy it
+           (slot-set! new-instance slot (slot-ref old-instance slot))
+           ;; slot was absent; initialize it with its default value
+           (let ((init (slot-init-function new-class slot)))
+             (when init
+               (slot-set! new-instance slot (init))))))
+     (map slot-definition-name (class-slots new-class)))
     ;; Exchange old and new instance in place to keep pointers valid
     (%modify-instance old-instance new-instance)
     ;; Allow class specific updates of instances (which now are swapped)
