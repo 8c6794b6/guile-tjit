@@ -1,6 +1,6 @@
 ;;; ECMAScript for Guile
 
-;; Copyright (C) 2009, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2013, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -35,7 +35,9 @@
 
             new-object new))
 
-(define *undefined* ((@@ (oop goops) make-unbound)))
+(define-class <undefined> ())
+
+(define *undefined* (make <undefined>))
 (define *this* (make-fluid))
 
 (define-class <js-object> ()

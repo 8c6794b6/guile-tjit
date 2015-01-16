@@ -38,7 +38,7 @@
 	     (after-ref   (get-keyword #:after-slot-ref   s #f))
 	     (before-set! (get-keyword #:before-slot-set! s #f))
 	     (after-set!  (get-keyword #:after-slot-set!  s #f))
-	     (unbound	  (make-unbound)))
+	     (unbound	  *unbound*))
 	(slot-set! class 'nfields (+ index 1))
 	(list (lambda (o)
 		(if before-ref
@@ -46,7 +46,7 @@
 			(let ((res (struct-ref o index)))
 			  (and after-ref (not (eqv? res unbound)) (after-ref o))
 			  res)
-			(make-unbound))
+			*unbound*)
 		    (let ((res (struct-ref o index)))
 		      (and after-ref (not (eqv? res unbound)) (after-ref o))
 		      res)))

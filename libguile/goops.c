@@ -55,9 +55,6 @@
 #define SCM_OUT_PCLASS_INDEX      SCM_I_MAX_PORT_TYPE_COUNT
 #define SCM_INOUT_PCLASS_INDEX    (2 * SCM_I_MAX_PORT_TYPE_COUNT)
 
-#define SCM_GOOPS_UNBOUND SCM_UNBOUND
-#define SCM_GOOPS_UNBOUNDP(x) (scm_is_eq (x, SCM_GOOPS_UNBOUND))
-
 /* Objects have identity, so references to classes and instances are by
    value, not by reference.  Redefinition of a class or modification of
    an instance causes in-place update; you can think of GOOPS as
@@ -149,11 +146,9 @@ SCM scm_i_smob_class[SCM_I_MAX_SMOB_TYPE_COUNT];
 
 SCM scm_module_goops;
 
-static SCM scm_make_unbound (void);
-static SCM scm_unbound_p (SCM obj);
 static SCM scm_sys_make_vtable_vtable (SCM layout);
 static SCM scm_sys_init_layout_x (SCM class, SCM layout);
-static SCM scm_sys_clear_fields_x (SCM obj);
+static SCM scm_sys_clear_fields_x (SCM obj, SCM unbound);
 static SCM scm_sys_goops_early_init (void);
 static SCM scm_sys_goops_loaded (void);
 
@@ -428,27 +423,6 @@ scm_method_procedure (SCM obj)
 
 
 
-SCM_DEFINE (scm_make_unbound, "make-unbound", 0, 0, 0,
-	    (),
-	    "Return the unbound value.")
-#define FUNC_NAME s_scm_make_unbound
-{
-  return SCM_GOOPS_UNBOUND;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_unbound_p, "unbound?", 1, 0, 0,
-	    (SCM obj),
-	    "Return @code{#t} if @var{obj} is unbound.")
-#define FUNC_NAME s_scm_unbound_p
-{
-  return SCM_GOOPS_UNBOUNDP (obj) ? SCM_BOOL_T : SCM_BOOL_F;
-}
-#undef FUNC_NAME
-
-
-
-
 SCM
 scm_slot_ref (SCM obj, SCM slot_name)
 {
@@ -476,8 +450,8 @@ scm_slot_exists_p (SCM obj, SCM slot_name)
 
 
 
-SCM_DEFINE (scm_sys_clear_fields_x, "%clear-fields!", 1, 0, 0,
-	    (SCM obj),
+SCM_DEFINE (scm_sys_clear_fields_x, "%clear-fields!", 2, 0, 0,
+	    (SCM obj, SCM unbound),
             "")
 #define FUNC_NAME s_scm_sys_clear_fields_x
 {
@@ -493,7 +467,7 @@ SCM_DEFINE (scm_sys_clear_fields_x, "%clear-fields!", 1, 0, 0,
   /* Set all SCM-holding slots to the GOOPS unbound value.  */
   for (i = 0; i < n; i++)
     if (scm_i_symbol_ref (layout, i*2) == 'p')
-      SCM_STRUCT_SLOT_SET (obj, i, SCM_GOOPS_UNBOUND);
+      SCM_STRUCT_SLOT_SET (obj, i, unbound);
 
   return SCM_UNSPECIFIED;
 }

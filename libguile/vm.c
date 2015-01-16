@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -990,7 +990,7 @@ scm_i_vm_mark_stack (struct scm_vm *vp, struct GC_ms_entry *mark_stack_ptr,
                     {
                       /* This value may become dead as a result of GC,
                          so we can't just leave it on the stack.  */
-                      *sp = SCM_UNBOUND;
+                      *sp = SCM_UNSPECIFIED;
                       continue;
                     }
                 }
