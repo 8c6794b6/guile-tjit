@@ -93,7 +93,6 @@ SCM_API SCM scm_ensure_accessor (SCM name);
 SCM_API SCM scm_class_of (SCM obj);
 
 /* Low level functions exported */
-SCM_API SCM scm_make_next_method (SCM methods, SCM args, SCM gf);
 SCM_INTERNAL SCM scm_make_standard_class (SCM meta, SCM name, SCM dsupers,
                                           SCM dslots);
 
@@ -125,13 +124,10 @@ SCM_API SCM scm_slot_bound_p (SCM obj, SCM slot_name);
 SCM_API SCM scm_slot_exists_p (SCM obj, SCM slot_name);
 SCM_API SCM scm_sys_modify_instance (SCM old, SCM newinst);
 SCM_API SCM scm_sys_modify_class (SCM old, SCM newcls);
-SCM_API SCM scm_sys_invalidate_class (SCM cls);
-SCM_API SCM scm_sys_invalidate_method_cache_x (SCM gf);
 SCM_API SCM scm_generic_capability_p (SCM proc);
 SCM_API SCM scm_enable_primitive_generic_x (SCM subrs);
 SCM_INTERNAL SCM scm_set_primitive_generic_x (SCM subr, SCM generic);
 SCM_API SCM scm_primitive_generic_generic (SCM subr);
-SCM_API SCM stklos_version (void);
 SCM_API SCM scm_make (SCM args);
 SCM_API void scm_change_object_class (SCM, SCM, SCM);
 

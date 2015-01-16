@@ -217,6 +217,36 @@
   (fold-class-slots macro-fold-left define-class-index (begin)))
 
 ;;;
+;;; Structs that are vtables have a "flags" slot, which corresponds to
+;;; class-index-flags.  `vtable-flag-vtable' indicates that instances of
+;;; a vtable are themselves vtables, and `vtable-flag-validated'
+;;; indicates that the struct's layout has been validated.  goops.c
+;;; defines a couple of additional flags: one to indicate that a vtable
+;;; is actually a class, and one to indicate that the class is "valid",
+;;; meaning that it hasn't been redefined.
+;;;
+(define vtable-flag-goops-metaclass
+  (logior vtable-flag-vtable vtable-flag-goops-class))
+
+(define-inlinable (class-add-flags! class flags)
+  (struct-set! class class-index-flags
+               (logior flags (struct-ref class class-index-flags))))
+
+(define-inlinable (class-clear-flags! class flags)
+  (struct-set! class class-index-flags
+               (logand (lognot flags) (struct-ref class class-index-flags))))
+
+(define-inlinable (class-has-flags? class flags)
+  (eqv? flags
+        (logand (struct-ref class class-index-flags) flags)))
+
+(define-inlinable (class? obj)
+  (class-has-flags? (struct-vtable obj) vtable-flag-goops-metaclass))
+
+(define-inlinable (instance? obj)
+  (class-has-flags? (struct-vtable obj) vtable-flag-goops-class))
+
+;;;
 ;;; Now that we know the slots that must be present in classes, and
 ;;; their offsets, we can create the root of the class hierarchy.
 ;;;
@@ -249,7 +279,9 @@
                   ((_ (name class) tail) (cons (list 'name) tail)))))
     (let* ((layout (fold-class-slots macro-fold-right cons-layout ""))
            (slots (fold-class-slots macro-fold-right cons-slot '()))
-           (<class> (%make-root-class layout)))
+           (<class> (%make-vtable-vtable layout)))
+      (class-add-flags! <class> (logior vtable-flag-goops-class
+                                        vtable-flag-goops-valid))
       (struct-set! <class> class-index-name '<class>)
       (struct-set! <class> class-index-nfields (length slots))
       (struct-set! <class> class-index-direct-supers '())
@@ -593,12 +625,16 @@ subclasses of @var{c}."
 ;;;
 
 (define-standard-class <procedure-class> (<class>))
+
 (define-standard-class <applicable-struct-class>
   (<procedure-class>))
+(class-add-flags! <applicable-struct-class>
+                  vtable-flag-applicable-vtable)
+
 (define-standard-class <applicable-struct-with-setter-class>
   (<applicable-struct-class>))
-(%bless-applicable-struct-vtables! <applicable-struct-class>
-                                   <applicable-struct-with-setter-class>)
+(class-add-flags! <applicable-struct-with-setter-class>
+                  vtable-flag-setter-vtable)
 
 (define-standard-class <applicable> (<top>))
 (define-standard-class <applicable-struct> (<object> <applicable>)
@@ -764,6 +800,8 @@ followed by its associated value.  If @var{l} does not hold a value for
                     (#:body body ())
                     (#:make-procedure make-procedure #f))))
        ((memq <class> (class-precedence-list class))
+        (class-add-flags! z (logior vtable-flag-goops-class
+                                    vtable-flag-goops-valid))
         (for-each (match-lambda
                    ((kw slot default)
                     (slot-set! z slot (get-keyword kw args default))))
@@ -817,7 +855,7 @@ followed by its associated value.  If @var{l} does not hold a value for
   (unless (class? class)
     (scm-error 'wrong-type-arg #f "Not a class: ~S"
                (list class) #f))
-  (unless (is-a? obj <object>)
+  (unless (instance? obj)
     (scm-error 'wrong-type-arg #f "Not an instance: ~S"
                (list obj) #f))
   (unless (symbol? slot-name)
@@ -2239,7 +2277,7 @@ followed by its associated value.  If @var{l} does not hold a value for
   ;; Invalidate class so that subsequent instances slot accesses invoke
   ;; change-object-class
   (struct-set! new class-index-redefined old)
-  (%invalidate-class new) ;must come after slot-set!
+  (class-clear-flags! new vtable-flag-goops-valid) ;must come after slot-set!
 
   old)
 
@@ -2544,6 +2582,8 @@ var{initargs}."
   (next-method)
   (let ((dslots (get-keyword #:slots initargs '()))
         (supers (get-keyword #:dsupers    initargs '())))
+    (class-add-flags! class (logior vtable-flag-goops-class
+                                    vtable-flag-goops-valid))
     (let ((name (get-keyword #:name initargs '???)))
       (struct-set! class class-index-name            name))
     (struct-set! class class-index-nfields           0)

@@ -156,10 +156,7 @@ SCM scm_module_goops;
 
 static SCM scm_make_unbound (void);
 static SCM scm_unbound_p (SCM obj);
-static SCM scm_class_p (SCM obj);
-static SCM scm_sys_bless_applicable_struct_vtables_x (SCM applicable,
-                                                      SCM setter);
-static SCM scm_sys_make_root_class (SCM layout);
+static SCM scm_sys_make_vtable_vtable (SCM layout);
 static SCM scm_sys_init_layout_x (SCM class, SCM layout);
 static SCM scm_sys_clear_fields_x (SCM obj);
 static SCM scm_sys_goops_early_init (void);
@@ -168,30 +165,12 @@ static SCM scm_sys_goops_loaded (void);
 
 
 
-SCM_DEFINE (scm_sys_make_root_class, "%make-root-class", 1, 0, 0,
+SCM_DEFINE (scm_sys_make_vtable_vtable, "%make-vtable-vtable", 1, 0, 0,
             (SCM layout),
 	    "")
-#define FUNC_NAME s_scm_sys_make_root_class
+#define FUNC_NAME s_scm_sys_make_vtable_vtable
 {
-  SCM z;
-
-  z = scm_i_make_vtable_vtable (layout);
-  SCM_SET_CLASS_FLAGS (z, (SCM_CLASSF_GOOPS_OR_VALID | SCM_CLASSF_METACLASS));
-
-  return z;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_sys_bless_applicable_struct_vtables_x, "%bless-applicable-struct-vtables!", 2, 0, 0,
-	    (SCM applicable, SCM setter),
-	    "")
-#define FUNC_NAME s_scm_sys_bless_applicable_struct_vtables_x
-{
-  SCM_VALIDATE_CLASS (1, applicable);
-  SCM_VALIDATE_CLASS (2, setter);
-  SCM_SET_VTABLE_FLAGS (applicable, SCM_VTABLE_FLAG_APPLICABLE_VTABLE);
-  SCM_SET_VTABLE_FLAGS (setter, SCM_VTABLE_FLAG_SETTER_VTABLE);
-  return SCM_UNSPECIFIED;
+  return scm_i_make_vtable_vtable (layout);
 }
 #undef FUNC_NAME
 
@@ -354,15 +333,6 @@ SCM_DEFINE (scm_instance_p, "instance?", 1, 0, 0,
 #define FUNC_NAME s_scm_instance_p
 {
   return scm_from_bool (SCM_INSTANCEP (obj));
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_class_p, "class?", 1, 0, 0,
-	    (SCM obj),
-	    "Return @code{#t} if @var{obj} is a class.")
-#define FUNC_NAME s_scm_class_p
-{
-  return scm_from_bool (SCM_CLASSP (obj));
 }
 #undef FUNC_NAME
 
@@ -613,17 +583,6 @@ SCM_DEFINE (scm_sys_modify_class, "%modify-class", 2, 0, 0,
     SCM_STRUCT_DATA (new)[scm_vtable_index_self] = SCM_UNPACK (new);
   }
   SCM_CRITICAL_SECTION_END;
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_sys_invalidate_class, "%invalidate-class", 1, 0, 0,
-	    (SCM class),
-	    "")
-#define FUNC_NAME s_scm_sys_invalidate_class
-{
-  SCM_VALIDATE_CLASS (1, class);
-  SCM_CLEAR_CLASS_FLAGS (class, SCM_CLASSF_GOOPS_VALID);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -1143,6 +1102,19 @@ scm_init_goops_builtins (void *unused)
   hell_mutex = scm_make_mutex ();
 
 #include "libguile/goops.x"
+
+  scm_c_define ("vtable-flag-vtable",
+                scm_from_int (SCM_VTABLE_FLAG_VTABLE));
+  scm_c_define ("vtable-flag-applicable-vtable",
+                scm_from_int (SCM_VTABLE_FLAG_APPLICABLE_VTABLE));
+  scm_c_define ("vtable-flag-setter-vtable",
+                scm_from_int (SCM_VTABLE_FLAG_SETTER_VTABLE));
+  scm_c_define ("vtable-flag-validated",
+                scm_from_int (SCM_VTABLE_FLAG_VALIDATED));
+  scm_c_define ("vtable-flag-goops-class",
+                scm_from_int (SCM_VTABLE_FLAG_GOOPS_CLASS));
+  scm_c_define ("vtable-flag-goops-valid",
+                scm_from_int (SCM_VTABLE_FLAG_GOOPS_VALID));
 }
 
 void
