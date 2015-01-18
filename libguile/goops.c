@@ -1053,6 +1053,8 @@ scm_init_goops_builtins (void *unused)
                 scm_from_int (SCM_VTABLE_FLAG_GOOPS_CLASS));
   scm_c_define ("vtable-flag-goops-valid",
                 scm_from_int (SCM_VTABLE_FLAG_GOOPS_VALID));
+  scm_c_define ("vtable-flag-goops-slot",
+                scm_from_int (SCM_VTABLE_FLAG_GOOPS_SLOT));
 }
 
 void

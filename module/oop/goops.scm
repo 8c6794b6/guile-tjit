@@ -413,6 +413,7 @@ followed by its associated value.  If @var{l} does not hold a value for
            (nfields (/ (string-length layout) 2))
            (<slot> (make-struct/no-tail <class> (make-struct-layout layout))))
       (class-add-flags! <slot> (logior vtable-flag-goops-class
+                                       vtable-flag-goops-slot
                                        vtable-flag-goops-valid))
       (struct-set! <slot> class-index-name '<slot>)
       (struct-set! <slot> class-index-nfields nfields)
@@ -425,8 +426,9 @@ followed by its associated value.  If @var{l} does not hold a value for
       (struct-set! <slot> class-index-redefined #f)
       <slot>)))
 
-(define (slot? obj)
-  (is-a? obj <slot>))
+(define-inlinable (slot? obj)
+  (and (struct? obj)
+       (class-has-flags? (struct-vtable obj) vtable-flag-goops-slot)))
 
 (define-syntax-rule (define-slot-accessor name docstring field)
   (define (name obj)
@@ -632,10 +634,10 @@ followed by its associated value.  If @var{l} does not hold a value for
           (() #f)
           ((slot . slots)
            (or (eq? (slot-definition-name slot) name) (lp slots)))))))
-  (define (check-cpl slots class-slots )
-    (when (or-map (lambda (slot) (slot-memq slot slots)) class-slots)
+  (define (check-cpl slots static-slots)
+    (when (or-map (lambda (slot) (slot-memq slot slots)) static-slots)
       (scm-error 'misc-error #f
-                 "a predefined <class> inherited field cannot be redefined"
+                 "a predefined static inherited field cannot be redefined"
                  '() '())))
   (define (remove-duplicate-slots slots)
     (let lp ((slots (reverse slots)) (res '()) (seen '()))
@@ -646,26 +648,31 @@ followed by its associated value.  If @var{l} does not hold a value for
            (if (memq name seen)
                (lp slots res seen)
                (lp slots (cons slot res) (cons name seen))))))))
-  ;; FIXME: the thing we do for <class> ensures static slot allocation.
-  ;; do the same thing for <slot>.
-  (let* ((class-slots (and (memq <class> cpl)
-                           (struct-ref <class> class-index-slots))))
-    (when class-slots
-      (check-cpl dslots class-slots))
-    (let lp ((cpl (cdr cpl)) (res dslots) (class-slots '()))
+  ;; For subclases of <class> and <slot>, we need to ensure that the
+  ;; <class> or <slot> slots come first.
+  (let* ((static-slots (cond
+                        ((memq <class> cpl)
+                         (when (memq <slot> cpl) (error "invalid class"))
+                         (struct-ref <class> class-index-slots))
+                        ((memq <slot> cpl)
+                         (struct-ref <slot> class-index-slots))
+                        (else #f))))
+    (when static-slots
+      (check-cpl dslots static-slots))
+    (let lp ((cpl (cdr cpl)) (res dslots) (static-slots '()))
       (match cpl
-        (() (remove-duplicate-slots (append class-slots res)))
+        (() (remove-duplicate-slots (append static-slots res)))
         ((head . cpl)
          (let ((new-slots (struct-ref head class-index-direct-slots)))
            (cond
-            ((not class-slots)
-             (lp cpl (append new-slots res) class-slots))
-            ((eq? head <class>)
-             ;; Move class slots to the head of the list.
+            ((not static-slots)
+             (lp cpl (append new-slots res) static-slots))
+            ((or (eq? head <class>) (eq? head <slot>))
+             ;; Move static slots to the head of the list.
              (lp cpl res new-slots))
             (else
-             (check-cpl new-slots class-slots)
-             (lp cpl (append new-slots res) class-slots)))))))))
+             (check-cpl new-slots static-slots)
+             (lp cpl (append new-slots res) static-slots)))))))))
 
 ;; Boot definition.
 (define (compute-get-n-set class slot)
@@ -769,6 +776,8 @@ slots as we go."
     (struct-set! z class-index-redefined #f)
     (let ((cpl (compute-cpl z)))
       (struct-set! z class-index-cpl cpl)
+      (when (memq <slot> cpl)
+        (class-add-flags! z vtable-flag-goops-slot))
       (let* ((dslots (map make-direct-slot-definition dslots))
              (slots (allocate-slots z (build-slots-list dslots cpl))))
         (struct-set! z class-index-direct-slots dslots)
@@ -2768,6 +2777,10 @@ var{initargs}."
                     (get-keyword #:slots initargs '())))
   (struct-set! class class-index-slots
                (allocate-slots class (compute-slots class)))
+
+  ;; This is a hack.
+  (when (memq <slot> (struct-ref class class-index-cpl))
+    (class-add-flags! class vtable-flag-goops-slot))
 
   ;; Build getters - setters - accessors
   (compute-slot-accessors class (struct-ref class class-index-slots))
