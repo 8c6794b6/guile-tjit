@@ -180,33 +180,39 @@
          #`(fold visit seed #,(datum->syntax #'visit '(value ...))))))))
 
 (define-macro-folder fold-class-slots
-  (layout <protected-read-only-slot>)
-  (flags <hidden-slot>)
-  (self <self-slot>)
-  (instance-finalizer <hidden-slot>)
+  (layout #:class <protected-read-only-slot>)
+  (flags #:class <hidden-slot>)
+  (self #:class <self-slot>)
+  (instance-finalizer #:class <hidden-slot>)
   (print)
-  (name <protected-hidden-slot>)
-  (nfields <hidden-slot>)
-  (%reserved <hidden-slot>)
+  (name #:class <protected-hidden-slot>)
+  (nfields #:class <hidden-slot>)
+  (%reserved #:class <hidden-slot>)
   (redefined)
   (direct-supers)
   (direct-slots)
   (direct-subclasses)
   (direct-methods)
   (cpl)
-  (slots)
-  (getters-n-setters))
+  (slots))
 
 (define-macro-folder fold-slot-slots
   (name #:init-keyword #:name)
   (allocation #:init-keyword #:allocation #:init-value #:instance)
+  (init-keyword #:init-keyword #:init-keyword #:init-value #f)
   (init-form #:init-keyword #:init-form)
+  (init-value #:init-keyword #:init-value)
   (init-thunk #:init-keyword #:init-thunk #:init-value #f)
   (options)
-  (getter #:init-keyword #:getter)
-  (setter #:init-keyword #:setter)
-  (index #:init-keyword #:index)
-  (size #:init-keyword #:size))
+  (getter #:init-keyword #:getter #:init-value #f)
+  (setter #:init-keyword #:setter #:init-value #f)
+  (accessor #:init-keyword #:accessor #:init-value #f)
+  ;; These last don't have #:init-keyword because they are meant to be
+  ;; set by `allocate-slots', not in compute-effective-slot-definition.
+  (slot-ref #:init-value #f)
+  (slot-set! #:init-value #f)
+  (index #:init-value #f)
+  (size #:init-value #f))
 
 ;;;
 ;;; Statically define variables for slot offsets: `class-index-layout'
@@ -270,10 +276,9 @@
 ;;; Now that we know the slots that must be present in classes, and
 ;;; their offsets, we can create the root of the class hierarchy.
 ;;;
-;;; Note that the `direct-supers', `direct-slots', `cpl', `slots', and
-;;; `getters-n-setters' fields will be updated later, once we have
-;;; definitions for the specialized slot types like <read-only-slot> and
-;;; once we have definitions for <top> and <object>.
+;;; Note that the `direct-supers', `direct-slots', `cpl', and `slots'
+;;; fields will be updated later, once we can create slot definition
+;;; objects and once we have definitions for <top> and <object>.
 ;;;
 (define <class>
   (let-syntax ((cons-layout
@@ -285,32 +290,27 @@
                                <protected-hidden-slot>)
                   ((_ (name) tail)
                    (string-append "pw" tail))
-                  ((_ (name <protected-read-only-slot>) tail)
+                  ((_ (name #:class <protected-read-only-slot>) tail)
                    (string-append "pr" tail))
-                  ((_ (name <self-slot>) tail)
+                  ((_ (name #:class <self-slot>) tail)
                    (string-append "sr" tail))
-                  ((_ (name <hidden-slot>) tail)
+                  ((_ (name #:class <hidden-slot>) tail)
                    (string-append "uh" tail))
-                  ((_ (name <protected-hidden-slot>) tail)
-                   (string-append "ph" tail))))
-               (cons-slot
-                (syntax-rules ()
-                  ((_ (name) tail)       (cons (list 'name) tail))
-                  ((_ (name class) tail) (cons (list 'name) tail)))))
+                  ((_ (name #:class <protected-hidden-slot>) tail)
+                   (string-append "ph" tail)))))
     (let* ((layout (fold-class-slots macro-fold-right cons-layout ""))
-           (slots (fold-class-slots macro-fold-right cons-slot '()))
+           (nfields (/ (string-length layout) 2))
            (<class> (%make-vtable-vtable layout)))
       (class-add-flags! <class> (logior vtable-flag-goops-class
                                         vtable-flag-goops-valid))
       (struct-set! <class> class-index-name '<class>)
-      (struct-set! <class> class-index-nfields (length slots))
+      (struct-set! <class> class-index-nfields nfields)
       (struct-set! <class> class-index-direct-supers '())
-      (struct-set! <class> class-index-direct-slots slots)
+      (struct-set! <class> class-index-direct-slots '())
       (struct-set! <class> class-index-direct-subclasses '())
       (struct-set! <class> class-index-direct-methods '())
       (struct-set! <class> class-index-cpl '())
-      (struct-set! <class> class-index-slots slots)
-      (struct-set! <class> class-index-getters-n-setters '())
+      (struct-set! <class> class-index-slots '())
       (struct-set! <class> class-index-redefined #f)
       <class>)))
 
@@ -362,42 +362,221 @@ subclasses of @var{c}."
                                  (cons c (class-subclasses c)))
                      eq?))
 
+(define (is-a? obj class)
+  "Return @code{#t} if @var{obj} is an instance of @var{class}, or
+@code{#f} otherwise."
+  (and (memq class (class-precedence-list (class-of obj))) #t))
+
 
 
 
 ;;;
-;;; The "getters-n-setters" define how to access slot values for a
-;;; particular class.  In general, there are many ways to access slot
-;;; values, but for standard classes it's pretty easy: each slot is
-;;; associated with a field in the object.
+;;; At this point, <class> is missing slot definitions, but we can't
+;;; create slot definitions until we have a slot definition class.
+;;; Continue with manual object creation until we're able to bootstrap
+;;; more of the protocol.  Again, the CPL and class hierarchy slots
+;;; remain uninitialized.
 ;;;
-(define (%compute-getters-n-setters slots)
-  (define (compute-init-thunk options)
-    (cond
-     ((kw-arg-ref options #:init-value) => (lambda (val) (lambda () val)))
-     ((kw-arg-ref options #:init-thunk))
-     (else #f)))
-  (let lp ((slots slots) (n 0))
+
+(define* (get-keyword key l #:optional default)
+  "Determine an associated value for the keyword @var{key} from the list
+@var{l}.  The list @var{l} has to consist of an even number of elements,
+where, starting with the first, every second element is a keyword,
+followed by its associated value.  If @var{l} does not hold a value for
+@var{key}, the value @var{default} is returned."
+  (unless (keyword? key)
+    (scm-error 'wrong-type-arg #f "Not a keyword: ~S" (list key) #f))
+  (let lp ((l l))
+    (match l
+      (() default)
+      ((kw arg . l)
+       (unless (keyword? kw)
+         (scm-error 'wrong-type-arg #f "Not a keyword: ~S" (list kw) #f))
+       (if (eq? kw key) arg (lp l))))))
+
+(define *unbound* (list 'unbound))
+
+(define-inlinable (unbound? x)
+  (eq? x *unbound*))
+
+(define (%allocate-instance class)
+  (let ((obj (allocate-struct class (struct-ref class class-index-nfields))))
+    (%clear-fields! obj *unbound*)
+    obj))
+
+(define <slot>
+  (let-syntax ((cons-layout
+                ;; All slots are "pw" in <slot>.
+                (syntax-rules ()
+                  ((_ _ tail) (string-append "pw" tail)))))
+    (let* ((layout (fold-slot-slots macro-fold-right cons-layout ""))
+           (nfields (/ (string-length layout) 2))
+           (<slot> (make-struct/no-tail <class> (make-struct-layout layout))))
+      (class-add-flags! <slot> (logior vtable-flag-goops-class
+                                       vtable-flag-goops-valid))
+      (struct-set! <slot> class-index-name '<slot>)
+      (struct-set! <slot> class-index-nfields nfields)
+      (struct-set! <slot> class-index-direct-supers '())
+      (struct-set! <slot> class-index-direct-slots '())
+      (struct-set! <slot> class-index-direct-subclasses '())
+      (struct-set! <slot> class-index-direct-methods '())
+      (struct-set! <slot> class-index-cpl (list <slot>))
+      (struct-set! <slot> class-index-slots '())
+      (struct-set! <slot> class-index-redefined #f)
+      <slot>)))
+
+(define (slot? obj)
+  (is-a? obj <slot>))
+
+(define-syntax-rule (define-slot-accessor name docstring field)
+  (define (name obj)
+    docstring
+    (let ((val obj))
+      (unless (slot? val)
+        (scm-error 'wrong-type-arg #f "Not a slot: ~S"
+                   (list val) #f))
+      (struct-ref val field))))
+
+(define-slot-accessor slot-definition-name
+  "Return the name of @var{obj}."
+  slot-index-name)
+(define-slot-accessor slot-definition-allocation
+  "Return the allocation of the slot @var{obj}."
+  slot-index-allocation)
+(define-slot-accessor slot-definition-init-keyword
+  "Return the init keyword of the slot @var{obj}, or @code{#f}."
+  slot-index-init-keyword)
+(define-slot-accessor slot-definition-init-form
+  "Return the init form of the slot @var{obj}, or the unbound value"
+  slot-index-init-form)
+(define-slot-accessor slot-definition-init-value
+  "Return the init value of the slot @var{obj}, or the unbound value."
+  slot-index-init-value)
+(define-slot-accessor slot-definition-init-thunk
+  "Return the init thunk of the slot @var{obj}, or @code{#f}."
+  slot-index-init-thunk)
+(define-slot-accessor slot-definition-options
+  "Return the initargs given when creating the slot @var{obj}."
+  slot-index-options)
+(define-slot-accessor slot-definition-getter
+  "Return the getter of the slot @var{obj}, or @code{#f}."
+  slot-index-getter)
+(define-slot-accessor slot-definition-setter
+  "Return the setter of the slot @var{obj}, or @code{#f}."
+  slot-index-setter)
+(define-slot-accessor slot-definition-accessor
+  "Return the accessor of the slot @var{obj}, or @code{#f}."
+  slot-index-accessor)
+(define-slot-accessor slot-definition-slot-ref
+  "Return the slot-ref procedure of the slot @var{obj}, or @code{#f}."
+  slot-index-slot-ref)
+(define-slot-accessor slot-definition-slot-set!
+  "Return the slot-set! procedure of the slot @var{obj}, or @code{#f}."
+  slot-index-slot-set!)
+(define-slot-accessor slot-definition-index
+  "Return the allocated struct offset of the slot @var{obj}, or @code{#f}."
+  slot-index-index)
+(define-slot-accessor slot-definition-size
+  "Return the number fields used by the slot @var{obj}, or @code{#f}."
+  slot-index-size)
+
+(define (class-slot-definition class slot-name)
+  (let lp ((slots (class-slots class)))
     (match slots
-      (() '())
-      (((name . options) . slots)
-       (let ((init-thunk (compute-init-thunk options)))
-         (cons `(,name ,init-thunk . ,n)
-               (lp slots (1+ n))))))))
+      (() #f)
+      ((slot . slots)
+       (if (eq? (struct-ref slot slot-index-name) slot-name)
+           slot
+           (lp slots))))))
 
-(struct-set! <class> class-index-getters-n-setters
-             (%compute-getters-n-setters (class-slots <class>)))
+;; Boot definition.
+(define (direct-slot-definition-class class initargs)
+  (get-keyword #:class initargs <slot>))
+
+;; Boot definition.
+(define (make-slot class initargs)
+  (let ((slot (make-struct/no-tail class)))
+    (define-syntax-rule (init-slot offset kw default)
+      (struct-set! slot offset (get-keyword kw initargs default)))
+    (init-slot slot-index-name #:name #f)
+    (init-slot slot-index-allocation #:allocation #:instance)
+    (init-slot slot-index-init-keyword #:init-keyword #f)
+    (init-slot slot-index-init-form #:init-form *unbound*)
+    (init-slot slot-index-init-value #:init-value *unbound*)
+    (struct-set! slot slot-index-init-thunk
+                 (or (get-keyword #:init-thunk initargs #f)
+                     (let ((val (struct-ref slot slot-index-init-value)))
+                       (if (unbound? val)
+                           #f
+                           (lambda () val)))))
+    (struct-set! slot slot-index-options initargs)
+    (init-slot slot-index-getter #:getter #f)
+    (init-slot slot-index-setter #:setter #f)
+    (init-slot slot-index-accessor #:accessor #f)
+    (init-slot slot-index-slot-ref #:slot-ref #f)
+    (init-slot slot-index-slot-set! #:slot-set! #f)
+    (init-slot slot-index-index #:index #f)
+    (init-slot slot-index-size #:size #f)
+    slot))
+
+;; Boot definition.
+(define (make class . args)
+  (unless (memq <slot> (class-precedence-list class))
+    (error "Unsupported class: ~S" class))
+  (make-slot class args))
+
+;; Boot definition.
+(define (compute-direct-slot-definition class initargs)
+  (apply make (direct-slot-definition-class class initargs) initargs))
+
+(define (compute-direct-slot-definition-initargs class slot-spec)
+  (match slot-spec
+    ((? symbol? name) (list #:name name))
+    (((? symbol? name) . initargs)
+     (cons* #:name name
+            ;; If there is an #:init-form, the `class' macro will have
+            ;; already added an #:init-thunk.  Still, if there isn't an
+            ;; #:init-thunk already but we do have an #:init-value,
+            ;; synthesize an #:init-thunk initarg.  This will ensure
+            ;; that the #:init-thunk gets passed on to the effective
+            ;; slot definition too.
+            (if (get-keyword #:init-thunk initargs)
+                initargs
+                (let ((value (get-keyword #:init-value initargs *unbound*)))
+                  (if (unbound? value)
+                      initargs
+                      (cons* #:init-thunk (lambda () value) initargs))))))))
+
+(let ()
+  (define-syntax cons-slot
+    (syntax-rules ()
+      ((_ (name #:class class) tail)
+       ;; Special case to avoid referencing specialized <slot> kinds,
+       ;; which are not defined yet.
+       (cons (list 'name) tail))
+      ((_ (name . initargs) tail)
+       (cons (list 'name . initargs) tail))))
+  (define-syntax-rule (initialize-direct-slots! class fold-slots)
+    (let ((specs (fold-slots macro-fold-right cons-slot '())))
+      (define (make-direct-slot-definition spec)
+        (let ((initargs (compute-direct-slot-definition-initargs class spec)))
+          (compute-direct-slot-definition class initargs)))
+      (struct-set! class class-index-direct-slots
+                   (map make-direct-slot-definition specs))))
+
+  (initialize-direct-slots! <class> fold-class-slots)
+  (initialize-direct-slots! <slot> fold-slot-slots))
 
 
 
 
 ;;;
-;;; At this point, we have <class> but no other objects.  We need to
-;;; define a standard way to make subclasses: how to compute the
-;;; precedence list of subclasses, how to compute the list of slots in a
-;;; subclass, and what layout to use for instances of those classes.
+;;; OK, at this point we have initialized `direct-slots' on both <class>
+;;; and <slot>.  We need to define a standard way to make subclasses:
+;;; how to compute the precedence list of subclasses, how to compute the
+;;; list of slots in a subclass, and what layout to use for instances of
+;;; those classes.
 ;;;
-
 (define (compute-std-cpl c get-direct-supers)
   "The standard class precedence list computation algorithm."
   (define (only-non-null lst)
@@ -436,10 +615,25 @@ subclasses of @var{c}."
 (define (compute-cpl class)
   (compute-std-cpl class class-direct-supers))
 
+(define (effective-slot-definition-class class slot)
+  (class-of slot))
+
+(define (compute-effective-slot-definition class slot)
+  ;; FIXME: Support slot being a list of slots, as in CLOS.
+  (apply make
+         (effective-slot-definition-class class slot)
+         (slot-definition-options slot)))
+
 (define (build-slots-list dslots cpl)
-  (define (check-cpl slots class-slots)
-    (when (or-map (match-lambda ((name . options) (assq name slots)))
-                  class-slots)
+  (define (slot-memq slot slots)
+    (let ((name (slot-definition-name slot)))
+      (let lp ((slots slots))
+        (match slots
+          (() #f)
+          ((slot . slots)
+           (or (eq? (slot-definition-name slot) name) (lp slots)))))))
+  (define (check-cpl slots class-slots )
+    (when (or-map (lambda (slot) (slot-memq slot slots)) class-slots)
       (scm-error 'misc-error #f
                  "a predefined <class> inherited field cannot be redefined"
                  '() '())))
@@ -447,10 +641,13 @@ subclasses of @var{c}."
     (let lp ((slots (reverse slots)) (res '()) (seen '()))
       (match slots
         (() res)
-        (((and slot (name . options)) . slots)
-         (if (memq name seen)
-             (lp slots res seen)
-             (lp slots (cons slot res) (cons name seen)))))))
+        ((slot . slots)
+         (let ((name (slot-definition-name slot)))
+           (if (memq name seen)
+               (lp slots res seen)
+               (lp slots (cons slot res) (cons name seen))))))))
+  ;; FIXME: the thing we do for <class> ensures static slot allocation.
+  ;; do the same thing for <slot>.
   (let* ((class-slots (and (memq <class> cpl)
                            (struct-ref <class> class-index-slots))))
     (when class-slots
@@ -470,27 +667,47 @@ subclasses of @var{c}."
              (check-cpl new-slots class-slots)
              (lp cpl (append new-slots res) class-slots)))))))))
 
-(define (%compute-layout slots getters-n-setters nfields is-class?)
-  (define (instance-allocated? g-n-s)
-    (match g-n-s
-      ((name init-thunk . (? exact-integer? index)) #t)
-      ((name init-thunk getter setter index size) #t)
-      (_ #f)))
+;; Boot definition.
+(define (compute-get-n-set class slot)
+  (let ((index (struct-ref class class-index-nfields)))
+    (struct-set! class class-index-nfields (1+ index))
+    index))
 
-  (define (allocated-index g-n-s)
-    (match g-n-s
-      ((name init-thunk . (? exact-integer? index)) index)
-      ((name init-thunk getter setter index size) index)))
+(define (allocate-slots class slots)
+  "Transform the computed list of direct slot definitions @var{slots}
+into a corresponding list of effective slot definitions, allocating
+slots as we go."
+  (define (make-effective-slot-definition slot)
+    ;; `compute-get-n-set' is expected to mutate `nfields' if it
+    ;; allocates a field to the object.  Pretty strange, but we preserve
+    ;; the behavior for backward compatibility.
+    (let* ((slot (compute-effective-slot-definition class slot))
+           (index (struct-ref class class-index-nfields))
+           (g-n-s (compute-get-n-set class slot))
+           (size (- (struct-ref class class-index-nfields) index)))
+      (call-with-values
+          (lambda ()
+            (match g-n-s
+              ((? integer?)
+               (unless (= size 1)
+                 (error "unexpected return from compute-get-n-set"))
+               (values #f #f))
+              (((? procedure? get) (? procedure? set))
+               (values get set))))
+        (lambda (get set)
+          (struct-set! slot slot-index-index index)
+          (struct-set! slot slot-index-size size)
+          (struct-set! slot slot-index-slot-ref get)
+          (struct-set! slot slot-index-slot-set! set)))
+      slot))
+  (struct-set! class class-index-nfields 0)
+  (map-in-order make-effective-slot-definition slots))
 
-  (define (allocated-size g-n-s)
-    (match g-n-s
-      ((name init-thunk . (? exact-integer? index)) 1)
-      ((name init-thunk getter setter index size) size)))
-
-  (define (slot-protection-and-kind options)
+(define (%compute-layout slots nfields is-class?)
+  (define (slot-protection-and-kind slot)
     (define (subclass? class parent)
       (memq parent (class-precedence-list class)))
-    (let ((type (kw-arg-ref options #:class)))
+    (let ((type (kw-arg-ref (struct-ref slot slot-index-options) #:class)))
       (if (and type (subclass? type <foreign-slot>))
           (values (cond
                    ((subclass? type <self-slot>) #\s)
@@ -502,36 +719,28 @@ subclasses of @var{c}."
                    ((subclass? type <hidden-slot>) #\h)
                    (else #\w)))
           (values #\p #\w))))
-
   (let ((layout (make-string (* nfields 2))))
-    (let lp ((n 0) (slots slots) (getters-n-setters getters-n-setters))
-      (match getters-n-setters
+    (let lp ((n 0) (slots slots))
+      (match slots
         (()
          (unless (= n nfields) (error "bad nfields"))
-         (unless (null? slots) (error "inconsistent g-n-s/slots"))
          (when is-class?
            (let ((class-layout (struct-ref <class> class-index-layout)))
              (unless (string-prefix? (symbol->string class-layout) layout)
                (error "bad layout for class"))))
          layout)
-        ((g-n-s . getters-n-setters)
-         (match slots
-           (((name . options) . slots)
-            (cond
-             ((instance-allocated? g-n-s)
-              (unless (< n nfields) (error "bad nfields"))
-              (unless (= n (allocated-index g-n-s)) (error "bad allocation"))
-              (call-with-values (lambda () (slot-protection-and-kind options))
-                (lambda (protection kind)
-                  (let init ((n n) (size (allocated-size g-n-s)))
-                    (cond
-                     ((zero? size) (lp n slots getters-n-setters))
-                     (else
-                      (string-set! layout (* n 2) protection)
-                      (string-set! layout (1+ (* n 2)) kind)
-                      (init (1+ n) (1- size))))))))
-             (else
-              (lp n slots getters-n-setters))))))))))
+        ((slot . slots)
+         (unless (= n (slot-definition-index slot)) (error "bad allocation"))
+         (call-with-values (lambda () (slot-protection-and-kind slot))
+           (lambda (protection kind)
+             (let init ((n n) (size (slot-definition-size slot)))
+               (cond
+                ((zero? size) (lp n slots))
+                (else
+                 (unless (< n nfields) (error "bad nfields"))
+                 (string-set! layout (* n 2) protection)
+                 (string-set! layout (1+ (* n 2)) kind)
+                 (init (1+ n) (1- size))))))))))))
 
 
 
@@ -541,40 +750,37 @@ subclasses of @var{c}."
 ;;;
 (define (%prep-layout! class)
   (let* ((is-class? (and (memq <class> (struct-ref class class-index-cpl)) #t))
-         (layout (%compute-layout
-                  (struct-ref class class-index-slots)
-                  (struct-ref class class-index-getters-n-setters)
-                  (struct-ref class class-index-nfields)
-                  is-class?)))
+         (layout (%compute-layout (struct-ref class class-index-slots)
+                                  (struct-ref class class-index-nfields)
+                                  is-class?)))
     (%init-layout! class layout)))
 
 (define (make-standard-class class name dsupers dslots)
   (let ((z (make-struct/no-tail class)))
+    (define (make-direct-slot-definition dslot)
+      (let ((initargs (compute-direct-slot-definition-initargs z dslot)))
+        (compute-direct-slot-definition z initargs)))
+
+    (struct-set! z class-index-name name)
+    (struct-set! z class-index-nfields 0)
     (struct-set! z class-index-direct-supers dsupers)
-    (let* ((cpl (compute-cpl z))
-           (dslots (map (lambda (slot)
-                          (if (pair? slot) slot (list slot)))
-                        dslots))
-           (slots (build-slots-list dslots cpl))
-           (nfields (length slots))
-           (g-n-s (%compute-getters-n-setters slots)))
-      (struct-set! z class-index-name name)
-      (struct-set! z class-index-nfields nfields)
-      (struct-set! z class-index-direct-slots dslots)
-      (struct-set! z class-index-direct-subclasses '())
-      (struct-set! z class-index-direct-methods '())
+    (struct-set! z class-index-direct-subclasses '())
+    (struct-set! z class-index-direct-methods '())
+    (struct-set! z class-index-redefined #f)
+    (let ((cpl (compute-cpl z)))
       (struct-set! z class-index-cpl cpl)
-      (struct-set! z class-index-slots slots)
-      (struct-set! z class-index-getters-n-setters g-n-s)
-      (struct-set! z class-index-redefined #f)
-      (for-each
-       (lambda (super)
-         (let ((subclasses (struct-ref super class-index-direct-subclasses)))
-           (struct-set! super class-index-direct-subclasses
-                        (cons z subclasses))))
-       dsupers)
-      (%prep-layout! z)
-      z)))
+      (let* ((dslots (map make-direct-slot-definition dslots))
+             (slots (allocate-slots z (build-slots-list dslots cpl))))
+        (struct-set! z class-index-direct-slots dslots)
+        (struct-set! z class-index-slots slots)))
+    (for-each
+     (lambda (super)
+       (let ((subclasses (struct-ref super class-index-direct-subclasses)))
+         (struct-set! super class-index-direct-subclasses
+                      (cons z subclasses))))
+     dsupers)
+    (%prep-layout! z)
+    z))
 
 (define-syntax define-standard-class
   (syntax-rules ()
@@ -595,20 +801,22 @@ subclasses of @var{c}."
 (define-standard-class <top> ())
 (define-standard-class <object> (<top>))
 
-;; <top>, <object>, and <class> were partially initialized.  Correct
-;; them here.
-(struct-set! <object> class-index-direct-subclasses (list <class>))
+;; The inheritance links for <top>, <object>, <class>, and <slot> were
+;; partially initialized.  Correct them here.
+(struct-set! <object> class-index-direct-subclasses (list <slot> <class>))
 (struct-set! <class> class-index-direct-supers (list <object>))
+(struct-set! <slot> class-index-direct-supers (list <object>))
 (struct-set! <class> class-index-cpl (list <class> <object> <top>))
+(struct-set! <slot> class-index-cpl (list <slot> <object> <top>))
 
 
 
 
 ;;;
 ;;; We can also define the various slot types, and finish initializing
-;;; `direct-slots', `slots', and `getters-n-setters' of <class>.
+;;; `direct-slots' and `slots' on <class> and <slot>.
 ;;;
-(define-standard-class <foreign-slot> (<top>))
+(define-standard-class <foreign-slot> (<slot>))
 (define-standard-class <protected-slot> (<foreign-slot>))
 (define-standard-class <hidden-slot> (<foreign-slot>))
 (define-standard-class <opaque-slot> (<foreign-slot>))
@@ -625,17 +833,33 @@ subclasses of @var{c}."
 (define-standard-class <float-slot> (<foreign-slot>))
 (define-standard-class <double-slot> (<foreign-slot>))
 
-(let-syntax ((visit
-              (syntax-rules ()
-                ((_ (name) tail)
-                 (cons (list 'name) tail))
-                ((_ (name class) tail)
-                 (cons (list 'name #:class class) tail)))))
-  (let* ((dslots (fold-class-slots macro-fold-right visit '()))
-         (g-n-s (%compute-getters-n-setters dslots)))
-    (struct-set! <class> class-index-direct-slots dslots)
-    (struct-set! <class> class-index-slots dslots)
-    (struct-set! <class> class-index-getters-n-setters g-n-s)))
+
+
+
+;;;
+;;; Finally!  Initialize `direct-slots' and `slots' on <class>, and
+;;; `slots' on <slot>.
+;;;
+(let ()
+  (define-syntax-rule (cons-slot (name . initargs) tail)
+    (cons (list 'name . initargs) tail))
+  (define-syntax-rule (initialize-direct-slots! class fold-slots)
+    (let ((specs (fold-slots macro-fold-right cons-slot '())))
+      (define (make-direct-slot-definition spec)
+        (let ((initargs (compute-direct-slot-definition-initargs class spec)))
+          (compute-direct-slot-definition class initargs)))
+      (struct-set! class class-index-direct-slots
+                   (map make-direct-slot-definition specs))))
+  (define (initialize-slots! class)
+    (let ((slots (build-slots-list (class-direct-slots class)
+                                   (class-precedence-list class))))
+      (struct-set! class class-index-slots (allocate-slots class slots))))
+
+  ;; Finish initializing <class> with the specialized slot kinds.
+  (initialize-direct-slots! <class> fold-class-slots)
+
+  (initialize-slots! <class>)
+  (initialize-slots! <slot>))
 
 
 
@@ -774,32 +998,6 @@ function."
 (define (invalidate-method-cache! gf)
   (%invalidate-method-cache! gf))
 
-(define* (get-keyword key l #:optional default)
-  "Determine an associated value for the keyword @var{key} from the list
-@var{l}.  The list @var{l} has to consist of an even number of elements,
-where, starting with the first, every second element is a keyword,
-followed by its associated value.  If @var{l} does not hold a value for
-@var{key}, the value @var{default} is returned."
-  (unless (keyword? key)
-    (scm-error 'wrong-type-arg #f "Not a keyword: ~S" (list key) #f))
-  (let lp ((l l))
-    (match l
-      (() default)
-      ((kw arg . l)
-       (unless (keyword? kw)
-         (scm-error 'wrong-type-arg #f "Not a keyword: ~S" (list kw) #f))
-       (if (eq? kw key) arg (lp l))))))
-
-(define *unbound* (list 'unbound))
-
-(define-inlinable (unbound? x)
-  (eq? x *unbound*))
-
-(define (%allocate-instance class)
-  (let ((obj (allocate-struct class (struct-ref class class-index-nfields))))
-    (%clear-fields! obj *unbound*)
-    obj))
-
 (define (make class . args)
   (cond
    ((or (eq? class <generic>) (eq? class <accessor>))
@@ -837,43 +1035,36 @@ followed by its associated value.  If @var{l} does not hold a value for
         (error "boot `make' does not support this class" class)))
       z))))
 
-(define (is-a? obj class)
-  "Return @code{#t} if @var{obj} is an instance of @var{class}, or
-@code{#f} otherwise."
-  (and (memq class (class-precedence-list (class-of obj))) #t))
-
 
 
 
 ;;;
-;;; Slot access.  This protocol is a bit of a mess: there's the `slots'
-;;; slot, which ostensibly holds "slot definitions" but really just has
-;;; specially formatted lists.  And then there's the `getters-n-setters'
-;;; slot, which mirrors `slots' but should in theory indicates how to
-;;; get at slots for a particular instance -- never mind that `slots'
-;;; was also computed for a particular instance, and that
-;;; `getters-n-setters' is a strangely structured chain of pairs.
-;;; Perhaps we can fix this in the future, following the CLOS MOP, to
-;;; have proper <effective-slot-definition> objects.
+;;; Slot access.
 ;;;
 (define (get-slot-value-using-name class obj slot-name)
-  (match (assq slot-name (struct-ref class class-index-getters-n-setters))
-    (#f (slot-missing class obj slot-name))
-    ((name init-thunk . (? exact-integer? index))
-     (struct-ref obj index))
-    ((name init-thunk getter setter . _)
-     (getter obj))))
+  (cond
+   ((class-slot-definition class slot-name)
+    => (lambda (slot)
+         (cond
+          ((slot-definition-slot-ref slot)
+           => (lambda (slot-ref) (slot-ref obj)))
+          (else
+           (struct-ref obj (slot-definition-index slot))))))
+   (else (slot-missing class obj slot-name))))
 
 (define (set-slot-value-using-name! class obj slot-name value)
-  (match (assq slot-name (struct-ref class class-index-getters-n-setters))
-    (#f (slot-missing class obj slot-name value))
-    ((name init-thunk . (? exact-integer? index))
-     (struct-set! obj index value))
-    ((name init-thunk getter setter . _)
-     (setter obj value))))
+  (cond
+   ((class-slot-definition class slot-name)
+    => (lambda (slot)
+         (cond
+          ((slot-definition-slot-set! slot)
+           => (lambda (slot-set!) (slot-set! obj value)))
+          (else
+           (struct-set! obj (slot-definition-index slot) value)))))
+   (else (slot-missing class obj slot-name))))
 
 (define (test-slot-existence class obj slot-name)
-  (and (assq slot-name (struct-ref class class-index-getters-n-setters))
+  (and (class-slot-definition class slot-name)
        #t))
 
 ;;;
@@ -1315,7 +1506,7 @@ followed by its associated value.  If @var{l} does not hold a value for
 
 ;;; (define-class NAME (SUPER ...) SLOT-DEFINITION ... OPTION ...)
 ;;;
-;;;   SLOT-DEFINITION ::= SLOT-NAME | (SLOT-NAME OPTION ...)
+;;;   SLOT-DEFINITION ::= INSTANCE-OF-<SLOT> | (SLOT-NAME OPTION ...)
 ;;;   OPTION ::= KEYWORD VALUE
 ;;;
 
@@ -1327,6 +1518,11 @@ followed by its associated value.  If @var{l} does not hold a value for
        (if (memq head tail)
            head
            (find-duplicate tail)))))
+  (define (slot-spec->name slot-spec)
+    (match slot-spec
+      (((? symbol? name) . args) name)
+      ;; We can get here when redefining classes.
+      ((? slot? slot) (slot-definition-name slot))))
 
   (let* ((name (get-keyword #:name options *unbound*))
          (supers (if (not (or-map (lambda (class)
@@ -1341,7 +1537,7 @@ followed by its associated value.  If @var{l} does not hold a value for
     ;; Verify that all direct slots are different and that we don't inherit
     ;; several time from the same class
     (let ((tmp1 (find-duplicate supers))
-          (tmp2 (find-duplicate (map slot-definition-name slots))))
+          (tmp2 (find-duplicate (map slot-spec->name slots))))
       (if tmp1
           (goops-error "make-class: super class ~S is duplicate in class ~S"
                        tmp1 name))
@@ -1955,40 +2151,9 @@ followed by its associated value.  If @var{l} does not hold a value for
 ;;;
 ;;; Slots
 ;;;
-(define slot-definition-name car)
-
-(define slot-definition-options cdr)
-
-(define (slot-definition-allocation s)
-  (get-keyword #:allocation (cdr s) #:instance))
-
-(define (slot-definition-getter s)
-  (get-keyword #:getter (cdr s) #f))
-
-(define (slot-definition-setter s)
-  (get-keyword #:setter (cdr s) #f))
-
-(define (slot-definition-accessor s)
-  (get-keyword #:accessor (cdr s) #f))
-
-(define (slot-definition-init-value s)
-  ;; can be #f, so we can't use #f as non-value
-  (get-keyword #:init-value (cdr s) *unbound*))
-
-(define (slot-definition-init-form s)
-  (get-keyword #:init-form (cdr s) *unbound*))
-
-(define (slot-definition-init-thunk s)
-  (get-keyword #:init-thunk (cdr s) #f))
-
-(define (slot-definition-init-keyword s)
-  (get-keyword #:init-keyword (cdr s) #f))
-
-(define (class-slot-definition class slot-name)
-  (assq slot-name (class-slots class)))
-
 (define (slot-init-function class slot-name)
-  (cadr (assq slot-name (struct-ref class class-index-getters-n-setters))))
+  (slot-definition-init-thunk (or (class-slot-definition class slot-name)
+                                  (error "slot not found" slot-name))))
 
 (define (accessor-method-slot-definition obj)
   "Return the slot definition of the accessor @var{obj}."
@@ -2039,6 +2204,20 @@ followed by its associated value.  If @var{l} does not hold a value for
           (display (class-name class) file)
           (display #\space file)
           (display-address o file)
+          (display #\> file))
+        (next-method))))
+
+(define-method (write (slot <slot>) file)
+  (let ((class (class-of slot)))
+    (if (and (slot-bound? class 'name)
+             (slot-bound? slot 'name))
+        (begin
+          (display "#<" file)
+          (display (class-name class) file)
+          (display #\space file)
+          (display (slot-definition-name slot) file)
+          (display #\space file)
+          (display-address slot file)
           (display #\> file))
         (next-method))))
 
@@ -2182,24 +2361,20 @@ followed by its associated value.  If @var{l} does not hold a value for
 ;;; slot access
 ;;;
 
-(define (class-slot-g-n-s class slot-name)
-  (let* ((this-slot (assq slot-name (struct-ref class class-index-slots)))
-         (getters-n-setters (struct-ref class class-index-getters-n-setters))
-         (g-n-s (cddr (or (assq slot-name getters-n-setters)
-                          (slot-missing class slot-name)))))
-    (unless (memq (slot-definition-allocation this-slot)
-                  '(#:class #:each-subclass))
+(define (class-slot-ref class slot-name)
+  (let ((slot (class-slot-definition class slot-name)))
+    (unless (memq (slot-definition-allocation slot) '(#:class #:each-subclass))
       (slot-missing class slot-name))
-    g-n-s))
+    (let ((x ((slot-definition-slot-ref slot) #f)))
+      (if (unbound? x)
+          (slot-unbound class slot-name)
+          x))))
 
-(define (class-slot-ref class slot)
-  (let ((x ((car (class-slot-g-n-s class slot)) #f)))
-    (if (unbound? x)
-        (slot-unbound class slot)
-        x)))
-
-(define (class-slot-set! class slot value)
-  ((cadr (class-slot-g-n-s class slot)) #f value))
+(define (class-slot-set! class slot-name value)
+  (let ((slot (class-slot-definition class slot-name)))
+    (unless (memq (slot-definition-allocation slot) '(#:class #:each-subclass))
+      (slot-missing class slot-name))
+    ((slot-definition-slot-set! slot) #f value)))
 
 (define-method (slot-unbound (c <class>) (o <object>) s)
   (goops-error "Slot `~S' is unbound in object ~S" s o))
@@ -2377,45 +2552,42 @@ followed by its associated value.  If @var{l} does not hold a value for
 ;;;
 (define (compute-slot-accessors class slots)
   (for-each
-      (lambda (s g-n-s)
-        (let ((getter-function (slot-definition-getter   s))
-              (setter-function (slot-definition-setter   s))
-              (accessor        (slot-definition-accessor s)))
-          (if getter-function
-              (add-method! getter-function
-                           (compute-getter-method class g-n-s)))
-          (if setter-function
-              (add-method! setter-function
-                           (compute-setter-method class g-n-s)))
-          (if accessor
-              (begin
-                (add-method! accessor
-                             (compute-getter-method class g-n-s))
-                (add-method! (setter accessor)
-                             (compute-setter-method class g-n-s))))))
-      slots (struct-ref class class-index-getters-n-setters)))
+   (lambda (slot)
+     (let ((getter (slot-definition-getter slot))
+           (setter (slot-definition-setter slot))
+           (accessor-setter setter)
+           (accessor (slot-definition-accessor slot)))
+       (when getter
+         (add-method! getter (compute-getter-method class slot)))
+       (when setter
+         (add-method! setter (compute-setter-method class slot)))
+       (when accessor
+         (add-method! accessor (compute-getter-method class slot))
+         (add-method! (accessor-setter accessor)
+                      (compute-setter-method class slot)))))
+   slots))
 
-(define-method (compute-getter-method (class <class>) slotdef)
-  (let ((init-thunk (cadr slotdef))
-        (g-n-s (cddr slotdef)))
+(define-method (compute-getter-method (class <class>) slot)
+  (let ((init-thunk (slot-definition-init-thunk slot))
+        (slot-ref (slot-definition-slot-ref slot))
+        (index (slot-definition-index slot)))
     (make <accessor-method>
           #:specializers (list class)
-          #:procedure (cond ((pair? g-n-s)
-                             (make-generic-bound-check-getter (car g-n-s)))
-                            (init-thunk
-                             (standard-get g-n-s))
-                            (else
-                             (bound-check-get g-n-s)))
-          #:slot-definition slotdef)))
+          #:procedure (cond
+                       (slot-ref (make-generic-bound-check-getter slot-ref))
+                       (init-thunk (standard-get index))
+                       (else (bound-check-get index)))
+          #:slot-definition slot)))
 
-(define-method (compute-setter-method (class <class>) slotdef)
-  (let ((g-n-s (cddr slotdef)))
+(define-method (compute-setter-method (class <class>) slot)
+  (let ((slot-set! (slot-definition-slot-set! slot))
+        (index (slot-definition-index slot)))
     (make <accessor-method>
-          #:specializers (list class <top>)
-          #:procedure (if (pair? g-n-s)
-                          (cadr g-n-s)
-                          (standard-set g-n-s))
-          #:slot-definition slotdef)))
+      #:specializers (list class <top>)
+      #:procedure (cond
+                   (slot-set! slot-set!)
+                   (else (standard-set index)))
+      #:slot-definition slot)))
 
 (define (make-generic-bound-check-getter proc)
   (lambda (o)
@@ -2453,69 +2625,6 @@ followed by its associated value.  If @var{l} does not hold a value for
 (define-standard-accessor-method ((standard-set n) o v)
   (struct-set! o n v))
 
-;;; compute-getters-n-setters
-;;;
-(define (compute-getters-n-setters class slots)
-
-  (define (compute-slot-init-function name s)
-    (or (let ((thunk (slot-definition-init-thunk s)))
-          (and thunk
-               (if (thunk? thunk)
-                   thunk
-                   (goops-error "Bad init-thunk for slot `~S' in ~S: ~S"
-                                name class thunk))))
-        (let ((init (slot-definition-init-value s)))
-          (and (not (unbound? init))
-               (lambda () init)))))
-
-  (define (verify-accessors slot l)
-    (cond ((integer? l))
-          ((not (and (list? l) (= (length l) 2)))
-           (goops-error "Bad getter and setter for slot `~S' in ~S: ~S"
-                        slot class l))
-          (else
-           (let ((get (car l))
-                 (set (cadr l)))
-             (unless (procedure? get)
-               (goops-error "Bad getter closure for slot `~S' in ~S: ~S"
-                            slot class get))
-             (unless (procedure? set)
-               (goops-error "Bad setter closure for slot `~S' in ~S: ~S"
-                            slot class set))))))
-
-  (map (lambda (s)
-         ;; The strange treatment of nfields is due to backward compatibility.
-         (let* ((index (slot-ref class 'nfields))
-                (g-n-s (compute-get-n-set class s))
-                (size (- (slot-ref class 'nfields) index))
-                (name  (slot-definition-name s)))
-           ;; NOTE: The following is interdependent with C macros
-           ;; defined above goops.c:scm_sys_prep_layout_x.
-           ;;
-           ;; For simple instance slots, we have the simplest form
-           ;; '(name init-function . index)
-           ;; For other slots we have
-           ;; '(name init-function getter setter . alloc)
-           ;; where alloc is:
-           ;;   '(index size) for instance allocated slots
-           ;;   '() for other slots
-           (verify-accessors name g-n-s)
-           (case (slot-definition-allocation s)
-             ((#:each-subclass #:class)
-              (unless (and (zero? size) (pair? g-n-s))
-                (error "Class-allocated slots should not reserve fields"))
-              ;; Don't initialize the slot; that's handled when the slot
-              ;; is allocated, in compute-get-n-set.
-              (cons name (cons #f g-n-s)))
-             (else
-              (cons name
-                    (cons (compute-slot-init-function name s)
-                          (if (or (integer? g-n-s)
-                                  (zero? size))
-                              g-n-s
-                              (append g-n-s (list index size)))))))))
-       slots))
-
 ;;; compute-cpl
 ;;;
 
@@ -2528,12 +2637,19 @@ followed by its associated value.  If @var{l} does not hold a value for
 
 ;;; compute-get-n-set
 ;;;
+(define compute-get-n-set
+  (make <generic> #:name 'compute-get-n-set))
+
 (define-method (compute-get-n-set (class <class>) s)
   (define (class-slot-init-value)
     (let ((thunk (slot-definition-init-thunk s)))
       (if thunk
           (thunk)
           (slot-definition-init-value s))))
+
+  (define (make-closure-variable class value)
+    (list (lambda (o) value)
+          (lambda (o v) (set! value v))))
 
   (case (slot-definition-allocation s)
     ((#:instance) ;; Instance slot
@@ -2542,7 +2658,7 @@ followed by its associated value.  If @var{l} does not hold a value for
        (struct-set! class class-index-nfields (+ already-allocated 1))
        already-allocated))
 
-    ((#:class)  ;; Class slot
+    ((#:class) ;; Class slot
      ;; Class-slots accessors are implemented as 2 closures around
      ;; a Scheme variable. As instance slots, class slots must be
      ;; unbound at init time.
@@ -2551,13 +2667,16 @@ followed by its associated value.  If @var{l} does not hold a value for
            ;; This slot is direct; create a new shared variable
            (make-closure-variable class (class-slot-init-value))
            ;; Slot is inherited. Find its definition in superclass
-           (let loop ((l (cdr (class-precedence-list class))))
-             (let ((r (assoc name
-                             (struct-ref (car l)
-                                         class-index-getters-n-setters))))
-               (if r
-                   (cddr r)
-                   (loop (cdr l))))))))
+           (let lp ((cpl (cdr (class-precedence-list class))))
+             (match cpl
+               ((super . cpl)
+                (let ((s (class-slot-definition super name)))
+                  (if s
+                      (list (slot-definition-slot-ref s)
+                            (slot-definition-slot-set! s))
+                      ;; Multiple inheritance means that we might have
+                      ;; to look deeper in the CPL.
+                      (lp cpl)))))))))
 
     ((#:each-subclass) ;; slot shared by instances of direct subclass.
      ;; (Thomas Buerger, April 1998)
@@ -2571,10 +2690,6 @@ followed by its associated value.  If @var{l} does not hold a value for
          (goops-error "You must supply a #:slot-ref and a #:slot-set! in ~S" s))
        (list get set)))
     (else    (next-method))))
-
-(define (make-closure-variable class value)
-  (list (lambda (o) value)
-        (lambda (o v) (set! value v))))
 
 (define-method (compute-get-n-set (o <object>) s)
   (goops-error "Allocation \"~S\" is unknown" (slot-definition-allocation s)))
@@ -2602,56 +2717,71 @@ var{initargs}."
       (if kw
           (get-keyword kw initargs *unbound*)
           *unbound*))
-    (let lp ((get-n-set (struct-ref class class-index-getters-n-setters))
-             (slots (struct-ref class class-index-slots)))
+    (let lp ((slots (struct-ref class class-index-slots)))
       (match slots
         (() obj)
-        (((name . options) . slots)
-         (match get-n-set
-           (((_ init-thunk . _) . get-n-set)
-            (let ((initarg (get-initarg (get-keyword #:init-keyword options))))
-              (cond
-               ((not (unbound? initarg))
-                (slot-set! obj name initarg))
-               (init-thunk
-                (slot-set! obj name (init-thunk)))))
-            (lp get-n-set slots))))))))
+        ((slot . slots)
+         (let ((initarg (get-initarg (slot-definition-init-keyword slot))))
+           (cond
+            ((not (unbound? initarg))
+             (slot-set! obj (slot-definition-name slot) initarg))
+            ((slot-definition-init-thunk slot)
+             => (lambda (init-thunk)
+                  (unless (memq (slot-definition-allocation slot)
+                                '(#:class #:each-subclass))
+                    (slot-set! obj (slot-definition-name slot) (init-thunk)))))))
+         (lp slots))))))
 
 (define-method (initialize (object <object>) initargs)
   (%initialize-object object initargs))
 
-(define-method (initialize (class <class>) initargs)
+(define-method (initialize (slot <slot>) initargs)
   (next-method)
-  (let ((dslots (get-keyword #:slots initargs '()))
-        (supers (get-keyword #:dsupers    initargs '())))
-    (class-add-flags! class (logior vtable-flag-goops-class
-                                    vtable-flag-goops-valid))
-    (let ((name (get-keyword #:name initargs '???)))
-      (struct-set! class class-index-name            name))
-    (struct-set! class class-index-nfields           0)
-    (struct-set! class class-index-direct-supers     supers)
-    (struct-set! class class-index-direct-slots      dslots)
-    (struct-set! class class-index-direct-subclasses '())
-    (struct-set! class class-index-direct-methods    '())
-    (struct-set! class class-index-cpl               (compute-cpl class))
-    (struct-set! class class-index-redefined         #f)
-    (let ((slots (compute-slots class)))
-      (struct-set! class class-index-slots           slots)
-      (let ((getters-n-setters (compute-getters-n-setters class slots)))
-        (struct-set! class class-index-getters-n-setters getters-n-setters))
-      ;; Build getters - setters - accessors
-      (compute-slot-accessors class slots))
+  (struct-set! slot slot-index-options initargs)
+  (let ((init-thunk (struct-ref slot slot-index-init-thunk)))
+    (when init-thunk
+      (unless (thunk? init-thunk)
+        (goops-error "Bad init-thunk for slot `~S': ~S"
+                     (slot-definition-name slot) init-thunk)))))
 
-    ;; Update the "direct-subclasses" of each inherited classes
-    (for-each (lambda (x)
-                (let ((dsubs (struct-ref x class-index-direct-subclasses)))
-                  (struct-set! x class-index-direct-subclasses
-                               (cons class dsubs))))
-              supers)
+(define-method (initialize (class <class>) initargs)
+  (define (make-direct-slot-definition dslot)
+    (let ((initargs (compute-direct-slot-definition-initargs class dslot)))
+      (compute-direct-slot-definition class initargs)))
 
-    ;; Compute struct layout of instances, set the `layout' slot, and
-    ;; update class flags.
-    (%prep-layout! class)))
+  (next-method)
+  (class-add-flags! class (logior vtable-flag-goops-class
+                                  vtable-flag-goops-valid))
+  (struct-set! class class-index-name (get-keyword #:name initargs '???))
+  (struct-set! class class-index-nfields 0)
+  (struct-set! class class-index-direct-supers
+               (get-keyword #:dsupers initargs '()))
+  (struct-set! class class-index-direct-subclasses '())
+  (struct-set! class class-index-direct-methods '())
+  (struct-set! class class-index-redefined #f)
+  (struct-set! class class-index-cpl (compute-cpl class))
+  (struct-set! class class-index-direct-slots
+               (map (lambda (slot)
+                      (if (slot? slot)
+                          slot
+                          (make-direct-slot-definition slot)))
+                    (get-keyword #:slots initargs '())))
+  (struct-set! class class-index-slots
+               (allocate-slots class (compute-slots class)))
+
+  ;; Build getters - setters - accessors
+  (compute-slot-accessors class (struct-ref class class-index-slots))
+
+  ;; Update the "direct-subclasses" of each inherited classes
+  (for-each (lambda (x)
+              (let ((dsubs (struct-ref x class-index-direct-subclasses)))
+                (struct-set! x class-index-direct-subclasses
+                             (cons class dsubs))))
+            (struct-ref class class-index-direct-supers))
+
+  ;; Compute struct layout of instances, set the `layout' slot, and
+  ;; update class flags.
+  (%prep-layout! class))
 
 (define (initialize-object-procedure object initargs)
   (let ((proc (get-keyword #:procedure initargs #f)))

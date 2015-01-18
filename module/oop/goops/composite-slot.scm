@@ -1,6 +1,6 @@
 ;;; installed-scm-file
 
-;;;; Copyright (C) 1999, 2000, 2001, 2006 Free Software Foundation, Inc.
+;;;; Copyright (C) 1999, 2000, 2001, 2006, 2015 Free Software Foundation, Inc.
 ;;;; Copyright (C) 1993-1998 Erick Gallesio - I3S-CNRS/ESSI <eg@unice.fr>
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -53,7 +53,9 @@
       (next-method)))
 
 (define (compute-propagated-get-n-set s)
-  (let ((prop   	(get-keyword #:propagate-to (cdr s) #f))
+  (let ((prop   	(get-keyword #:propagate-to
+                                     (slot-definition-options s)
+                                     #f))
 	(s-name   	(slot-definition-name s)))
     
     (if (not prop)

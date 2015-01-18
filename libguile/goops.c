@@ -128,6 +128,7 @@ static SCM class_hashtable;
 static SCM class_fluid;
 static SCM class_dynamic_state;
 static SCM class_frame;
+static SCM class_keyword;
 static SCM class_vm_cont;
 static SCM class_bytevector;
 static SCM class_uvec;
@@ -973,6 +974,7 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
   class_fluid = scm_variable_ref (scm_c_lookup ("<fluid>"));
   class_dynamic_state = scm_variable_ref (scm_c_lookup ("<dynamic-state>"));
   class_frame = scm_variable_ref (scm_c_lookup ("<frame>"));
+  class_keyword = scm_variable_ref (scm_c_lookup ("<keyword>"));
   class_vm_cont = scm_variable_ref (scm_c_lookup ("<vm-continuation>"));
   class_bytevector = scm_variable_ref (scm_c_lookup ("<bytevector>"));
   class_uvec = scm_variable_ref (scm_c_lookup ("<uvec>"));

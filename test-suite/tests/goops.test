@@ -167,16 +167,15 @@
       (eval '(define-class <foo> ()) (current-module))
       (eval '(is-a? <foo> <class>) (current-module)))
 
-    (expect-fail "bad init-thunk"
-		 (begin
-                   (catch #t
-                     (lambda ()
-                       (eval '(define-class <foo> ()
-                                (x #:init-thunk (lambda (x) 1)))
-                             (current-module))
-                       #t)
-                     (lambda args
-                       #f))))
+    (pass-if "bad init-thunk"
+      (catch #t
+        (lambda ()
+          (eval '(define-class <foo> ()
+                   (x #:init-thunk (lambda (x) 1)))
+                (current-module))
+          #f)
+        (lambda args
+          #t)))
 
     (pass-if "interaction with `struct-ref'"
        (eval '(define-class <class-struct> ()

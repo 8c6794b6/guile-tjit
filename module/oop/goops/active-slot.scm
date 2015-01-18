@@ -33,7 +33,7 @@
 (define-method (compute-get-n-set (class <active-class>) slot)
   (if (eq? (slot-definition-allocation slot) #:active)
       (let* ((index 	  (slot-ref class 'nfields))
-	     (s		  (cdr slot))
+	     (s		  (slot-definition-options slot))
 	     (before-ref  (get-keyword #:before-slot-ref  s #f))
 	     (after-ref   (get-keyword #:after-slot-ref   s #f))
 	     (before-set! (get-keyword #:before-slot-set! s #f))
