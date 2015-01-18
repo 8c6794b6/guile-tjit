@@ -482,15 +482,6 @@ followed by its associated value.  If @var{l} does not hold a value for
   "Return the number fields used by the slot @var{obj}, or @code{#f}."
   slot-index-size)
 
-(define (class-slot-definition class slot-name)
-  (let lp ((slots (class-slots class)))
-    (match slots
-      (() #f)
-      ((slot . slots)
-       (if (eq? (struct-ref slot slot-index-name) slot-name)
-           slot
-           (lp slots))))))
-
 ;; Boot definition.
 (define (direct-slot-definition-class class initargs)
   (get-keyword #:class initargs <slot>))
@@ -1050,33 +1041,6 @@ function."
 ;;;
 ;;; Slot access.
 ;;;
-(define (get-slot-value-using-name class obj slot-name)
-  (cond
-   ((class-slot-definition class slot-name)
-    => (lambda (slot)
-         (cond
-          ((slot-definition-slot-ref slot)
-           => (lambda (slot-ref) (slot-ref obj)))
-          (else
-           (struct-ref obj (slot-definition-index slot))))))
-   (else (slot-missing class obj slot-name))))
-
-(define (set-slot-value-using-name! class obj slot-name value)
-  (cond
-   ((class-slot-definition class slot-name)
-    => (lambda (slot)
-         (cond
-          ((slot-definition-slot-set! slot)
-           => (lambda (slot-set!) (slot-set! obj value)))
-          (else
-           (struct-set! obj (slot-definition-index slot) value)))))
-   (else (slot-missing class obj slot-name))))
-
-(define (test-slot-existence class obj slot-name)
-  (and (class-slot-definition class slot-name)
-       #t))
-
-;;;
 ;;; Before we go on, some notes about class redefinition.  In GOOPS,
 ;;; classes can be redefined.  Redefinition of a class marks the class
 ;;; as invalid, and instances will be lazily migrated over to the new
@@ -1089,38 +1053,93 @@ function."
 ;;; here though as the { class, object data } pair needs to be accessed
 ;;; atomically, not the { class, object } pair.
 ;;;
+(define-inlinable (%class-slot-definition class slot-name kt kf)
+  (let lp ((slots (struct-ref class class-index-slots)))
+    (match slots
+      ((slot . slots)
+       (if (eq? (struct-ref slot slot-index-name) slot-name)
+           (kt slot)
+           (lp slots)))
+      (_ (kf)))))
+
+(define (class-slot-definition class slot-name)
+  (unless (class? class)
+    (scm-error 'wrong-type-arg #f "Not a class: ~S" (list class) #f))
+  (%class-slot-definition class slot-name
+                          (lambda (slot) slot)
+                          (lambda () #f)))
 
 (define (slot-ref obj slot-name)
   "Return the value from @var{obj}'s slot with the nam var{slot_name}."
-  (unless (symbol? slot-name)
-    (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
-               (list slot-name) #f))
-  (let* ((class (class-of obj))
-         (val (get-slot-value-using-name class obj slot-name)))
-    (if (unbound? val)
-        (slot-unbound class obj slot-name)
-        val)))
+  (let ((class (class-of obj)))
+    (define (slot-value slot)
+      (cond
+       ((struct-ref slot slot-index-slot-ref)
+        => (lambda (slot-ref) (slot-ref obj)))
+       (else
+        (struct-ref obj (struct-ref slot slot-index-index)))))
+    (define (have-slot slot)
+      (let ((val (slot-value slot)))
+        (if (unbound? val)
+            (slot-unbound class obj slot-name)
+            val)))
+    (define (no-slot)
+      (unless (symbol? slot-name)
+        (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
+                   (list slot-name) #f))
+      (let ((val (slot-missing class obj slot-name)))
+        (if (unbound? val)
+            (slot-unbound class obj slot-name)
+            val)))
+    (%class-slot-definition class slot-name have-slot no-slot)))
 
 (define (slot-set! obj slot-name value)
   "Set the slot named @var{slot_name} of @var{obj} to @var{value}."
-  (unless (symbol? slot-name)
-    (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
-               (list slot-name) #f))
-  (set-slot-value-using-name! (class-of obj) obj slot-name value))
+  (let ((class (class-of obj)))
+    (define (have-slot slot)
+      (cond
+       ((slot-definition-slot-set! slot)
+        => (lambda (slot-set!) (slot-set! obj value)))
+       (else
+        (struct-set! obj (slot-definition-index slot) value))))
+    (define (no-slot)
+      (unless (symbol? slot-name)
+        (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
+                   (list slot-name) #f))
+      (slot-missing class obj slot-name value))
+
+    (%class-slot-definition class slot-name have-slot no-slot)))
 
 (define (slot-bound? obj slot-name)
   "Return the value from @var{obj}'s slot with the nam var{slot_name}."
-  (unless (symbol? slot-name)
-    (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
-               (list slot-name) #f))
-  (not (unbound? (get-slot-value-using-name (class-of obj) obj slot-name))))
+  (let ((class (class-of obj)))
+    (define (slot-value slot)
+      (cond
+       ((struct-ref slot slot-index-slot-ref)
+        => (lambda (slot-ref) (slot-ref obj)))
+       (else
+        (struct-ref obj (struct-ref slot slot-index-index)))))
+    (define (have-slot slot)
+      (not (unbound? (slot-value slot))))
+    (define (no-slot)
+      (unless (symbol? slot-name)
+        (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
+                   (list slot-name) #f))
+      (let ((val (slot-missing class obj slot-name)))
+        (if (unbound? val)
+            (slot-unbound class obj slot-name)
+            val)))
+    (%class-slot-definition class slot-name have-slot no-slot)))
 
 (define (slot-exists? obj slot-name)
   "Return @code{#t} if @var{obj} has a slot named @var{slot_name}."
-  (unless (symbol? slot-name)
-    (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
-               (list slot-name) #f))
-  (test-slot-existence (class-of obj) obj slot-name))
+  (define (have-slot slot) #t)
+  (define (no-slot)
+    (unless (symbol? slot-name)
+      (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
+                 (list slot-name) #f))
+    #f)
+  (%class-slot-definition (class-of obj) slot-name have-slot no-slot))
 
 (begin-deprecated
  (define (check-slot-args class obj slot-name)
