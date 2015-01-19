@@ -1,6 +1,6 @@
 ;;;; types.test --- Type tag decoding.      -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;; 	Copyright (C) 2014 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
 ;;;; This file is part of GNU Guile.
 ;;;;
@@ -48,7 +48,7 @@
    42 (expt 2 28) 3.14
    "narrow string" "wide στρινγ"
    'symbol 'λ
-   ;; NB: keywords are SMOBs.
+   #:keyword #:λ
    '(2 . 3) (iota 123) '(1 (two ("three")))
    #(1 2 3) #(foo bar baz)
    #vu8(255 254 253)
@@ -98,7 +98,6 @@
 (with-test-prefix "opaque objects"
   (test-inferior-objects
    ((make-guardian) smob (? integer?))
-   (#:keyword smob (? integer?))
    ((%make-void-port "w") port (? integer?))
    ((open-input-string "hello") port (? integer?))
    ((lambda () #t) program _)

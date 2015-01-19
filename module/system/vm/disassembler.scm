@@ -1,6 +1,6 @@
 ;;; Guile bytecode disassembler
 
-;;; Copyright (C) 2001, 2009, 2010, 2012, 2013, 2014 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -215,6 +215,7 @@ address of that offset."
                         ((7) "variable?")
                         ((13) "vector?")
                         ((15) "string?")
+                        ((53) "keyword?")
                         ((77) "bytevector?")
                         ((95) "bitvector?")
                         (else (number->string tc7)))))

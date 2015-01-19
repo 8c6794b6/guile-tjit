@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -681,6 +681,22 @@ integer."
                              tail))
                           (make-lexical-ref src 'v v)
                           (reverse args) (reverse (iota len))))))
+
+       (($ <primcall> src 'struct-set! (struct index value))
+        ;; Unhappily, and undocumentedly, struct-set! returns the value
+        ;; that was set.  There is code that relies on this.  Hackety
+        ;; hack...
+        (let ((v (gensym "v ")))
+          (make-let src
+                    (list 'v)
+                    (list v)
+                    (list value)
+                    (make-seq src
+                              (make-primcall src 'struct-set!
+                                             (list struct
+                                                   index
+                                                   (make-lexical-ref src 'v v)))
+                              (make-lexical-ref src 'v v)))))
 
        (($ <prompt> src escape-only? tag body
            ($ <lambda> hsrc hmeta

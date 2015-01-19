@@ -3,7 +3,7 @@
 #ifndef SCM_TAGS_H
 #define SCM_TAGS_H
 
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012,2013,2014
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012,2013,2014,2015
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -416,7 +416,7 @@ typedef union SCM { struct { scm_t_bits n; } n; } SCM;
 #define scm_tc7_dynamic_state	45
 
 #define scm_tc7_frame		47
-#define scm_tc7_unused_53	53
+#define scm_tc7_keyword		53
 #define scm_tc7_unused_55	55
 #define scm_tc7_vm_cont		71
 

@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -75,6 +75,7 @@
     (string? . (1 . 1))
     (vector? . (1 . 1))
     (symbol? . (1 . 1))
+    (keyword? . (1 . 1))
     (variable? . (1 . 1))
     (bitvector? . (1 . 1))
     (bytevector? . (1 . 1))

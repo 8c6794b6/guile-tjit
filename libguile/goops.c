@@ -1,4 +1,4 @@
-/* Copyright (C) 1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012,2013,2014
+/* Copyright (C) 1998,1999,2000,2001,2002,2003,2004,2008,2009,2010,2011,2012,2013,2014,2015
  * Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -264,6 +264,8 @@ SCM_DEFINE (scm_class_of, "class-of", 1, 0, 0,
 	  return class_dynamic_state;
         case scm_tc7_frame:
 	  return class_frame;
+        case scm_tc7_keyword:
+	  return scm_class_keyword;
         case scm_tc7_vm_cont:
 	  return class_vm_cont;
 	case scm_tc7_bytevector:
@@ -2658,8 +2660,6 @@ create_smob_classes (void)
 
   for (i = 0; i < SCM_I_MAX_SMOB_TYPE_COUNT; ++i)
     scm_smob_class[i] = SCM_BOOL_F;
-
-  scm_smob_class[SCM_TC2SMOBNUM (scm_tc16_keyword)] = scm_class_keyword;
 
   for (i = 0; i < scm_numsmob; ++i)
     if (scm_is_false (scm_smob_class[i]))

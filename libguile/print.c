@@ -1,5 +1,5 @@
 /* Copyright (C) 1995-1999, 2000, 2001, 2002, 2003, 2004, 2006, 2008,
- *   2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+ *   2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -776,6 +776,10 @@ iprin1 (SCM exp, SCM port, scm_print_state *pstate)
 	case scm_tc7_frame:
 	  scm_i_frame_print (exp, port, pstate);
 	  break;
+        case scm_tc7_keyword:
+          scm_puts_unlocked ("#:", port);
+          scm_iprin1 (scm_keyword_to_symbol (exp), port, pstate);
+          break;
 	case scm_tc7_vm_cont:
 	  scm_i_vm_cont_print (exp, port, pstate);
 	  break;

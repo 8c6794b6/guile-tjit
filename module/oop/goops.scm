@@ -1,6 +1,6 @@
 ;;; installed-scm-file
 
-;;;; Copyright (C) 1998,1999,2000,2001,2002, 2003, 2006, 2009, 2010, 2011, 2013, 2014 Free Software Foundation, Inc.
+;;;; Copyright (C) 1998,1999,2000,2001,2002, 2003, 2006, 2009, 2010, 2011, 2013, 2014, 2015 Free Software Foundation, Inc.
 ;;;; Copyright (C) 1993-1998 Erick Gallesio - I3S-CNRS/ESSI <eg@unice.fr>
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -58,6 +58,7 @@
             <boolean> <char> <list> <pair> <null> <string> <symbol>
             <vector> <bytevector> <uvec> <foreign> <hashtable>
             <fluid> <dynamic-state> <frame> <vm> <vm-continuation>
+            <keyword>
 
             ;; Numbers.
             <number> <complex> <real> <integer> <fraction>
@@ -71,7 +72,7 @@
             ;; smob-type-name->class procedure.
             <arbiter> <promise> <thread> <mutex> <condition-variable>
             <regexp> <hook> <bitvector> <random-state> <async>
-            <directory> <keyword> <array> <character-set>
+            <directory> <array> <character-set>
             <dynamic-object> <guardian> <macro>
 
             ;; Modules.
@@ -1740,7 +1741,6 @@
 (define <random-state> (find-subclass <top> '<random-state>))
 (define <async> (find-subclass <top> '<async>))
 (define <directory> (find-subclass <top> '<directory>))
-(define <keyword> (find-subclass <top> '<keyword>))
 (define <array> (find-subclass <top> '<array>))
 (define <character-set> (find-subclass <top> '<character-set>))
 (define <dynamic-object> (find-subclass <top> '<dynamic-object>))

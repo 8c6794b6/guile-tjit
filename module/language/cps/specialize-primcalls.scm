@@ -95,14 +95,8 @@
           (('struct-ref s (? immediate-u8? n))
            (adapt-val ($primcall 'struct-ref/immediate (s n))))
           (('struct-set! s (? immediate-u8? n) x)
-           ;; Unhappily, and undocumentedly, struct-set! returns the value
-           ;; that was set.  There is code that relies on this.  Hackety
-           ;; hack...
-           (let-fresh (k*) ()
-             (build-cps-term
-               ($letk ((k* ($kargs () ()
-                             ($continue k src ($primcall 'values (x))))))
-                 ($continue k* src ($primcall 'struct-set!/immediate (s n x)))))))
+           (build-cps-term
+             ($continue k src ($primcall 'struct-set!/immediate (s n x)))))
           (_ 
            (build-cps-term ($continue k src ($primcall name args))))))
 

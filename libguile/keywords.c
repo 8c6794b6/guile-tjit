@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004,
- *   2006, 2008, 2009, 2011, 2013 Free Software Foundation, Inc.
+ *   2006, 2008, 2009, 2011, 2013, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -41,18 +41,8 @@
 
 static SCM keyword_obarray;
 
-scm_t_bits scm_tc16_keyword;
-
-#define KEYWORDP(X)	(SCM_SMOB_PREDICATE (scm_tc16_keyword, (X)))
-#define KEYWORDSYM(X)	(SCM_SMOB_OBJECT (X))
-
-static int
-keyword_print (SCM exp, SCM port, scm_print_state *pstate SCM_UNUSED)
-{
-  scm_puts_unlocked ("#:", port);
-  scm_display (KEYWORDSYM (exp), port);
-  return 1;
-}
+#define SCM_KEYWORDP(x) (SCM_HAS_TYP7 (x, scm_tc7_keyword))
+#define SCM_KEYWORD_SYMBOL(x) (SCM_CELL_OBJECT_1 (x))
 
 SCM_DEFINE (scm_keyword_p, "keyword?", 1, 0, 0, 
             (SCM obj),
@@ -60,7 +50,7 @@ SCM_DEFINE (scm_keyword_p, "keyword?", 1, 0, 0,
 	    "@code{#f}.")
 #define FUNC_NAME s_scm_keyword_p
 {
-  return scm_from_bool (KEYWORDP (obj));
+  return scm_from_bool (SCM_KEYWORDP (obj));
 }
 #undef FUNC_NAME
 
@@ -74,11 +64,12 @@ SCM_DEFINE (scm_symbol_to_keyword, "symbol->keyword", 1, 0, 0,
   SCM_ASSERT_TYPE (scm_is_symbol (symbol), symbol, 0, NULL, "symbol");
 
   SCM_CRITICAL_SECTION_START;
-  /* njrev: NEWSMOB and hashq_set_x can raise errors */
+  /* Note: `scm_cell' and `scm_hashq_set_x' can raise an out-of-memory
+     error.  */
   keyword = scm_hashq_ref (keyword_obarray, symbol, SCM_BOOL_F);
   if (scm_is_false (keyword))
     {
-      SCM_NEWSMOB (keyword, scm_tc16_keyword, SCM_UNPACK (symbol));
+      keyword = scm_cell (scm_tc7_keyword, SCM_UNPACK (symbol));
       scm_hashq_set_x (keyword_obarray, symbol, keyword);
     }
   SCM_CRITICAL_SECTION_END;
@@ -91,15 +82,15 @@ SCM_DEFINE (scm_keyword_to_symbol, "keyword->symbol", 1, 0, 0,
 	    "Return the symbol with the same name as @var{keyword}.")
 #define FUNC_NAME s_scm_keyword_to_symbol
 {
-  scm_assert_smob_type (scm_tc16_keyword, keyword);
-  return KEYWORDSYM (keyword);
+  SCM_VALIDATE_KEYWORD (1, keyword);
+  return SCM_KEYWORD_SYMBOL (keyword);
 }
 #undef FUNC_NAME
 
 int
 scm_is_keyword (SCM val)
 {
-  return KEYWORDP (val);
+  return SCM_KEYWORDP (val);
 }
 
 SCM
@@ -195,13 +186,9 @@ scm_c_bind_keyword_arguments (const char *subr, SCM rest,
     }
 }
 
-/* njrev: critical sections reviewed so far up to here */
 void
 scm_init_keywords ()
 {
-  scm_tc16_keyword = scm_make_smob_type ("keyword", 0);
-  scm_set_smob_print (scm_tc16_keyword, keyword_print);
-
   keyword_obarray = scm_c_make_hash_table (0);
 #include "libguile/keywords.x"
 }

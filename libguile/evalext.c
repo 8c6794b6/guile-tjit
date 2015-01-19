@@ -1,4 +1,4 @@
-/* Copyright (C) 1998,1999,2000,2001,2002,2003, 2006, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+/* Copyright (C) 1998,1999,2000,2001,2002,2003, 2006, 2008, 2009, 2010, 2011, 2012, 2013, 2015 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -81,6 +81,7 @@ SCM_DEFINE (scm_self_evaluating_p, "self-evaluating?", 1, 0, 0,
 	case scm_tc7_fluid:
 	case scm_tc7_dynamic_state:
         case scm_tc7_frame:
+        case scm_tc7_keyword:
         case scm_tc7_vm_cont:
 	case scm_tc7_number:
 	case scm_tc7_string:

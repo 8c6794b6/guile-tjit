@@ -1002,6 +1002,7 @@ returned instead."
 ;(define-tc7-macro-assembler br-if-fluid 37)
 ;(define-tc7-macro-assembler br-if-dynamic-state 45)
 ;(define-tc7-macro-assembler br-if-frame 47)
+(define-tc7-macro-assembler br-if-keyword 53)
 ;(define-tc7-macro-assembler br-if-vm 55)
 ;(define-tc7-macro-assembler br-if-vm-cont 71)
 ;(define-tc7-macro-assembler br-if-rtl-program 69)

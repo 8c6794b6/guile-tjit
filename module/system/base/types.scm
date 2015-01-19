@@ -1,5 +1,5 @@
 ;;; 'SCM' type tag decoding.
-;;; Copyright (C) 2014 Free Software Foundation, Inc.
+;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or modify it
 ;;; under the terms of the GNU Lesser General Public License as published by
@@ -251,6 +251,7 @@ the matching bits, possibly with bitwise operations to extract it from BITS."
 (define %tc7-stringbuf 39)
 (define %tc7-dynamic-state 45)
 (define %tc7-frame 47)
+(define %tc7-keyword 53)
 (define %tc7-program 69)
 (define %tc7-vm-continuation 71)
 (define %tc7-bytevector 77)
@@ -472,6 +473,8 @@ using BACKEND."
            (inferior-object 'hash-table address))
           (((_ & #x7f = %tc7-pointer) address)
            (make-pointer address))
+          (((_ & #x7f = %tc7-keyword) symbol)
+           (symbol->keyword (cell->object symbol backend)))
           (((_ & #x7f = %tc7-vm-continuation))
            (inferior-object 'vm-continuation address))
           (((_ & #x7f = %tc7-weak-set))

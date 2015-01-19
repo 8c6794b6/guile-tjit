@@ -1,6 +1,6 @@
 ;;; open-coding primitive procedures
 
-;; Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -51,6 +51,7 @@
     sqrt abs
     not
     pair? null? list? symbol? vector? string? struct? number? char? nil?
+    bytevector? keyword? bitvector?
 
     procedure? thunk?
 
@@ -170,6 +171,7 @@
     not
     pair? null? nil? list?
     symbol? variable? vector? struct? string? number? char?
+    bytevector? keyword? bitvector?
     complex? real? rational? inf? nan? integer? exact? inexact? even? odd?
     char<? char<=? char>=? char>?
     integer->char char->integer number->string string->number
@@ -191,6 +193,7 @@
     not
     pair? null? nil? list?
     symbol? variable? vector? struct? string? number? char?
+    bytevector? keyword? bitvector?
     procedure? thunk?
     acons cons cons* list vector))
 

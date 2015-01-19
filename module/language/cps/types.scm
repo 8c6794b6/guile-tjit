@@ -1,5 +1,5 @@
 ;;; Type analysis on CPS
-;;; Copyright (C) 2014 Free Software Foundation, Inc.
+;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software: you can redistribute it and/or modify
 ;;; it under the terms of the GNU Lesser General Public License as
@@ -480,6 +480,9 @@ minimum, and maximum."
 (define-simple-predicate-inferrer vector? &vector)
 (define-simple-predicate-inferrer struct? &struct)
 (define-simple-predicate-inferrer string? &string)
+(define-simple-predicate-inferrer bytevector? &bytevector)
+(define-simple-predicate-inferrer bitvector? &bitvector)
+(define-simple-predicate-inferrer keyword? &keyword)
 (define-simple-predicate-inferrer number? &number)
 (define-simple-predicate-inferrer char? &char)
 (define-simple-predicate-inferrer procedure? &procedure)
