@@ -1,6 +1,6 @@
-;;; installed-scm-file
-
-;;;; Copyright (C) 1998,1999,2000-2003,2006,2009-2011,2013-2015 Free Software Foundation, Inc.
+;;;; goops.scm -- The Guile Object-Oriented Programming System
+;;;;
+;;;; Copyright (C) 1998-2003,2006,2009-2011,2013-2015 Free Software Foundation, Inc.
 ;;;; Copyright (C) 1993-1998 Erick Gallesio - I3S-CNRS/ESSI <eg@unice.fr>
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -132,8 +132,7 @@
             method-specializers method-formals
             primitive-generic-generic enable-primitive-generic!
             method-procedure accessor-method-slot-definition
-            make find-method get-keyword)
-  #:no-backtrace)
+            make find-method get-keyword))
 
 
 ;;;
@@ -430,6 +429,12 @@ followed by its associated value.  If @var{l} does not hold a value for
       (struct-set! <slot> class-index-redefined #f)
       <slot>)))
 
+;;; Access to slot objects is performance-sensitive for slot-ref, so in
+;;; addition to the type-checking accessors that we export, we also
+;;; define some internal inlined helpers that just do an unchecked
+;;; struct-ref in cases where we know the object must be a slot, as
+;;; when accessing class-slots.
+;;;
 (define-syntax-rule (define-slot-accessor name docstring %name field)
   (begin
     (define-syntax-rule (%name obj)
