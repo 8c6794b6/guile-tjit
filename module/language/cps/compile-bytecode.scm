@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -278,8 +278,12 @@
          (emit-make-vector/immediate asm dst (constant length) (slot init)))
         (($ $primcall 'vector-ref/immediate (vector index))
          (emit-vector-ref/immediate asm dst (slot vector) (constant index)))
+        (($ $primcall 'allocate-struct (vtable nfields))
+         (emit-allocate-struct asm dst (slot vtable) (slot nfields)))
         (($ $primcall 'allocate-struct/immediate (vtable nfields))
          (emit-allocate-struct/immediate asm dst (slot vtable) (constant nfields)))
+        (($ $primcall 'struct-ref (struct n))
+         (emit-struct-ref asm dst (slot struct) (slot n)))
         (($ $primcall 'struct-ref/immediate (struct n))
          (emit-struct-ref/immediate asm dst (slot struct) (constant n)))
         (($ $primcall 'builtin-ref (name))
@@ -339,6 +343,8 @@
          (emit-free-set! asm (slot closure) (slot value) (constant idx)))
         (($ $primcall 'box-set! (box value))
          (emit-box-set! asm (slot box) (slot value)))
+        (($ $primcall 'struct-set! (struct index value))
+         (emit-struct-set! asm (slot struct) (slot index) (slot value)))
         (($ $primcall 'struct-set!/immediate (struct index value))
          (emit-struct-set!/immediate asm (slot struct) (constant index) (slot value)))
         (($ $primcall 'vector-set! (vector index value))

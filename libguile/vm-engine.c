@@ -1,5 +1,5 @@
 /* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013,
- *   2014 Free Software Foundation, Inc.
+ *   2014, 2015 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -3109,9 +3109,93 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
                   : scm_is_true (scm_logtest (x, y))));
     }
 
-  VM_DEFINE_OP (129, unused_129, NULL, NOP)
-  VM_DEFINE_OP (130, unused_130, NULL, NOP)
-  VM_DEFINE_OP (131, unused_131, NULL, NOP)
+  /* FIXME: Move above */
+
+  /* allocate-struct dst:8 vtable:8 nfields:8
+   *
+   * Allocate a new struct with VTABLE, and place it in DST.  The struct
+   * will be constructed with space for NFIELDS fields, which should
+   * correspond to the field count of the VTABLE.
+   */
+  VM_DEFINE_OP (129, allocate_struct, "allocate-struct", OP1 (U8_U8_U8_U8) | OP_DST)
+    {
+      scm_t_uint8 dst, vtable, nfields;
+      SCM ret;
+
+      UNPACK_8_8_8 (op, dst, vtable, nfields);
+
+      SYNC_IP ();
+      ret = scm_allocate_struct (LOCAL_REF (vtable), LOCAL_REF (nfields));
+      LOCAL_SET (dst, ret);
+
+      NEXT (1);
+    }
+
+  /* struct-ref dst:8 src:8 idx:8
+   *
+   * Fetch the item at slot IDX in the struct in SRC, and store it
+   * in DST.
+   */
+  VM_DEFINE_OP (130, struct_ref, "struct-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+    {
+      scm_t_uint8 dst, src, idx;
+      SCM obj;
+      SCM index;
+
+      UNPACK_8_8_8 (op, dst, src, idx);
+
+      obj = LOCAL_REF (src);
+      index = LOCAL_REF (idx);
+
+      if (SCM_LIKELY (SCM_STRUCTP (obj)
+                      && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
+                                                        SCM_VTABLE_FLAG_SIMPLE)
+                      && SCM_I_INUMP (index)
+                      && SCM_I_INUM (index) >= 0
+                      && SCM_I_INUM (index) < (SCM_STRUCT_DATA_REF
+                                               (SCM_STRUCT_VTABLE (obj),
+                                                scm_vtable_index_size))))
+        RETURN (SCM_STRUCT_SLOT_REF (obj, SCM_I_INUM (index)));
+
+      SYNC_IP ();
+      RETURN (scm_struct_ref (obj, index));
+    }
+
+  /* struct-set! dst:8 idx:8 src:8
+   *
+   * Store SRC into the struct DST at slot IDX.
+   */
+  VM_DEFINE_OP (131, struct_set, "struct-set!", OP1 (U8_U8_U8_U8))
+    {
+      scm_t_uint8 dst, idx, src;
+      SCM obj, val, index;
+
+      UNPACK_8_8_8 (op, dst, idx, src);
+
+      obj = LOCAL_REF (dst);
+      val = LOCAL_REF (src);
+      index = LOCAL_REF (idx);
+
+      if (SCM_LIKELY (SCM_STRUCTP (obj)
+                      && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
+                                                        SCM_VTABLE_FLAG_SIMPLE)
+                      && SCM_STRUCT_VTABLE_FLAG_IS_SET (obj,
+                                                        SCM_VTABLE_FLAG_SIMPLE_RW)
+                      && SCM_I_INUMP (index)
+                      && SCM_I_INUM (index) >= 0
+                      && SCM_I_INUM (index) < (SCM_STRUCT_DATA_REF
+                                               (SCM_STRUCT_VTABLE (obj),
+                                                scm_vtable_index_size))))
+        {
+          SCM_STRUCT_SLOT_SET (obj, SCM_I_INUM (index), val);
+          NEXT (1);
+        }
+
+      SYNC_IP ();
+      scm_struct_set_x (obj, index, val);
+      NEXT (1);
+    }
+
   VM_DEFINE_OP (132, unused_132, NULL, NOP)
   VM_DEFINE_OP (133, unused_133, NULL, NOP)
   VM_DEFINE_OP (134, unused_134, NULL, NOP)

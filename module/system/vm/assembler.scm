@@ -1,6 +1,6 @@
 ;;; Guile bytecode assembler
 
-;;; Copyright (C) 2001, 2009, 2010, 2012, 2013, 2014 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -149,6 +149,9 @@
             (emit-allocate-struct/immediate* . emit-allocate-struct/immediate)
             (emit-struct-ref/immediate* . emit-struct-ref/immediate)
             (emit-struct-set!/immediate* . emit-struct-set!/immediate)
+            (emit-allocate-struct* . emit-allocate-struct)
+            (emit-struct-ref* . emit-struct-ref)
+            (emit-struct-set!* . emit-struct-set!)
             (emit-class-of* . emit-class-of)
             (emit-make-array* . emit-make-array)
             (emit-bv-u8-ref* . emit-bv-u8-ref)
