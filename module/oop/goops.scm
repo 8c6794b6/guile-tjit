@@ -2736,30 +2736,49 @@ function."
 (define (%initialize-object obj initargs)
   "Initialize the object @var{obj} with the given arguments
 var{initargs}."
+  (define (valid-initargs? initargs)
+    (match initargs
+      (() #t)
+      (((? keyword?) _ . initargs) (valid-initargs? initargs))
+      (_ #f)))
   (unless (instance? obj)
     (scm-error 'wrong-type-arg #f "Not an object: ~S"
                (list obj) #f))
-  (unless (even? (length initargs))
-    (scm-error 'wrong-type-arg #f "Initargs has odd length: ~S"
+  (unless (valid-initargs? initargs)
+    (scm-error 'wrong-type-arg #f "Invalid initargs: ~S"
                (list initargs) #f))
   (let ((class (class-of obj)))
     (define (get-initarg kw)
       (if kw
-          (get-keyword kw initargs *unbound*)
+          ;; Inlined get-keyword to avoid checking initargs for validity
+          ;; each time.
+          (let lp ((initargs initargs))
+            (match initargs
+              ((kw* val . initargs)
+               (if (eq? kw* kw)
+                   val
+                   (lp initargs)))
+              (_ *unbound*)))
           *unbound*))
     (let lp ((slots (struct-ref class class-index-slots)))
       (match slots
         (() obj)
         ((slot . slots)
+         (define (initialize-slot! value)
+           (cond
+            ((%slot-definition-slot-set! slot)
+             => (lambda (slot-set!) (slot-set! obj value)))
+            (else
+             (struct-set! obj (%slot-definition-index slot) value))))
          (let ((initarg (get-initarg (%slot-definition-init-keyword slot))))
            (cond
             ((not (unbound? initarg))
-             (slot-set! obj (%slot-definition-name slot) initarg))
+             (initialize-slot! initarg))
             ((%slot-definition-init-thunk slot)
              => (lambda (init-thunk)
                   (unless (memq (slot-definition-allocation slot)
                                 '(#:class #:each-subclass))
-                    (slot-set! obj (%slot-definition-name slot) (init-thunk)))))))
+                    (initialize-slot! (init-thunk)))))))
          (lp slots))))))
 
 (define-method (initialize (object <object>) initargs)
