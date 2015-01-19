@@ -247,9 +247,10 @@
 ;;; class-index-flags.  `vtable-flag-vtable' indicates that instances of
 ;;; a vtable are themselves vtables, and `vtable-flag-validated'
 ;;; indicates that the struct's layout has been validated.  goops.c
-;;; defines a couple of additional flags: one to indicate that a vtable
-;;; is actually a class, and one to indicate that the class is "valid",
-;;; meaning that it hasn't been redefined.
+;;; defines a few additional flags: one to indicate that a vtable is
+;;; actually a class, one to indicate that the class is "valid" (meaning
+;;; that it hasn't been redefined), and one to indicate that instances
+;;; of a class are slot definition objects (<slot> instances).
 ;;;
 (define vtable-flag-goops-metaclass
   (logior vtable-flag-vtable vtable-flag-goops-class))
@@ -268,6 +269,10 @@
 
 (define-inlinable (class? obj)
   (class-has-flags? (struct-vtable obj) vtable-flag-goops-metaclass))
+
+(define-inlinable (slot? obj)
+  (and (struct? obj)
+       (class-has-flags? (struct-vtable obj) vtable-flag-goops-slot)))
 
 (define-inlinable (instance? obj)
   (class-has-flags? (struct-vtable obj) vtable-flag-goops-class))
@@ -377,7 +382,6 @@ subclasses of @var{c}."
 ;;; more of the protocol.  Again, the CPL and class hierarchy slots
 ;;; remain uninitialized.
 ;;;
-
 (define* (get-keyword key l #:optional default)
   "Determine an associated value for the keyword @var{key} from the list
 @var{l}.  The list @var{l} has to consist of an even number of elements,
@@ -425,10 +429,6 @@ followed by its associated value.  If @var{l} does not hold a value for
       (struct-set! <slot> class-index-slots '())
       (struct-set! <slot> class-index-redefined #f)
       <slot>)))
-
-(define-inlinable (slot? obj)
-  (and (struct? obj)
-       (class-has-flags? (struct-vtable obj) vtable-flag-goops-slot)))
 
 (define-syntax-rule (define-slot-accessor name docstring %name field)
   (begin
