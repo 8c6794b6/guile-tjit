@@ -430,57 +430,59 @@ followed by its associated value.  If @var{l} does not hold a value for
   (and (struct? obj)
        (class-has-flags? (struct-vtable obj) vtable-flag-goops-slot)))
 
-(define-syntax-rule (define-slot-accessor name docstring field)
-  (define (name obj)
-    docstring
-    (let ((val obj))
-      (unless (slot? val)
+(define-syntax-rule (define-slot-accessor name docstring %name field)
+  (begin
+    (define-syntax-rule (%name obj)
+      (struct-ref obj field))
+    (define (name obj)
+      docstring
+      (unless (slot? obj)
         (scm-error 'wrong-type-arg #f "Not a slot: ~S"
-                   (list val) #f))
-      (struct-ref val field))))
+                   (list obj) #f))
+      (%name obj))))
 
 (define-slot-accessor slot-definition-name
   "Return the name of @var{obj}."
-  slot-index-name)
+   %slot-definition-name slot-index-name)
 (define-slot-accessor slot-definition-allocation
   "Return the allocation of the slot @var{obj}."
-  slot-index-allocation)
+   %slot-definition-allocation slot-index-allocation)
 (define-slot-accessor slot-definition-init-keyword
   "Return the init keyword of the slot @var{obj}, or @code{#f}."
-  slot-index-init-keyword)
+   %slot-definition-init-keyword slot-index-init-keyword)
 (define-slot-accessor slot-definition-init-form
   "Return the init form of the slot @var{obj}, or the unbound value"
-  slot-index-init-form)
+   %slot-definition-init-form slot-index-init-form)
 (define-slot-accessor slot-definition-init-value
   "Return the init value of the slot @var{obj}, or the unbound value."
-  slot-index-init-value)
+   %slot-definition-init-value slot-index-init-value)
 (define-slot-accessor slot-definition-init-thunk
   "Return the init thunk of the slot @var{obj}, or @code{#f}."
-  slot-index-init-thunk)
+   %slot-definition-init-thunk slot-index-init-thunk)
 (define-slot-accessor slot-definition-options
   "Return the initargs given when creating the slot @var{obj}."
-  slot-index-options)
+   %slot-definition-options slot-index-options)
 (define-slot-accessor slot-definition-getter
   "Return the getter of the slot @var{obj}, or @code{#f}."
-  slot-index-getter)
+   %slot-definition-getter slot-index-getter)
 (define-slot-accessor slot-definition-setter
   "Return the setter of the slot @var{obj}, or @code{#f}."
-  slot-index-setter)
+   %slot-definition-setter slot-index-setter)
 (define-slot-accessor slot-definition-accessor
   "Return the accessor of the slot @var{obj}, or @code{#f}."
-  slot-index-accessor)
+   %slot-definition-accessor slot-index-accessor)
 (define-slot-accessor slot-definition-slot-ref
   "Return the slot-ref procedure of the slot @var{obj}, or @code{#f}."
-  slot-index-slot-ref)
+   %slot-definition-slot-ref slot-index-slot-ref)
 (define-slot-accessor slot-definition-slot-set!
   "Return the slot-set! procedure of the slot @var{obj}, or @code{#f}."
-  slot-index-slot-set!)
+   %slot-definition-slot-set! slot-index-slot-set!)
 (define-slot-accessor slot-definition-index
   "Return the allocated struct offset of the slot @var{obj}, or @code{#f}."
-  slot-index-index)
+   %slot-definition-index slot-index-index)
 (define-slot-accessor slot-definition-size
   "Return the number fields used by the slot @var{obj}, or @code{#f}."
-  slot-index-size)
+   %slot-definition-size slot-index-size)
 
 ;; Boot definition.
 (define (direct-slot-definition-class class initargs)
@@ -498,7 +500,7 @@ followed by its associated value.  If @var{l} does not hold a value for
     (init-slot slot-index-init-value #:init-value *unbound*)
     (struct-set! slot slot-index-init-thunk
                  (or (get-keyword #:init-thunk initargs #f)
-                     (let ((val (struct-ref slot slot-index-init-value)))
+                     (let ((val (%slot-definition-init-value slot)))
                        (if (unbound? val)
                            #f
                            (lambda () val)))))
@@ -619,12 +621,12 @@ followed by its associated value.  If @var{l} does not hold a value for
 
 (define (build-slots-list dslots cpl)
   (define (slot-memq slot slots)
-    (let ((name (slot-definition-name slot)))
+    (let ((name (%slot-definition-name slot)))
       (let lp ((slots slots))
         (match slots
           (() #f)
           ((slot . slots)
-           (or (eq? (slot-definition-name slot) name) (lp slots)))))))
+           (or (eq? (%slot-definition-name slot) name) (lp slots)))))))
   (define (check-cpl slots static-slots)
     (when (or-map (lambda (slot) (slot-memq slot slots)) static-slots)
       (scm-error 'misc-error #f
@@ -635,7 +637,7 @@ followed by its associated value.  If @var{l} does not hold a value for
       (match slots
         (() res)
         ((slot . slots)
-         (let ((name (slot-definition-name slot)))
+         (let ((name (%slot-definition-name slot)))
            (if (memq name seen)
                (lp slots res seen)
                (lp slots (cons slot res) (cons name seen))))))))
@@ -705,7 +707,7 @@ slots as we go."
   (define (slot-protection-and-kind slot)
     (define (subclass? class parent)
       (memq parent (class-precedence-list class)))
-    (let ((type (kw-arg-ref (struct-ref slot slot-index-options) #:class)))
+    (let ((type (kw-arg-ref (%slot-definition-options slot) #:class)))
       (if (and type (subclass? type <foreign-slot>))
           (values (cond
                    ((subclass? type <self-slot>) #\s)
@@ -728,10 +730,10 @@ slots as we go."
                (error "bad layout for class"))))
          layout)
         ((slot . slots)
-         (unless (= n (slot-definition-index slot)) (error "bad allocation"))
+         (unless (= n (%slot-definition-index slot)) (error "bad allocation"))
          (call-with-values (lambda () (slot-protection-and-kind slot))
            (lambda (protection kind)
-             (let init ((n n) (size (slot-definition-size slot)))
+             (let init ((n n) (size (%slot-definition-size slot)))
                (cond
                 ((zero? size) (lp n slots))
                 (else
@@ -1057,7 +1059,7 @@ function."
   (let lp ((slots (struct-ref class class-index-slots)))
     (match slots
       ((slot . slots)
-       (if (eq? (struct-ref slot slot-index-name) slot-name)
+       (if (eq? (%slot-definition-name slot) slot-name)
            (kt slot)
            (lp slots)))
       (_ (kf)))))
@@ -1074,10 +1076,10 @@ function."
   (let ((class (class-of obj)))
     (define (slot-value slot)
       (cond
-       ((struct-ref slot slot-index-slot-ref)
+       ((%slot-definition-slot-ref slot)
         => (lambda (slot-ref) (slot-ref obj)))
        (else
-        (struct-ref obj (struct-ref slot slot-index-index)))))
+        (struct-ref obj (%slot-definition-index slot)))))
     (define (have-slot slot)
       (let ((val (slot-value slot)))
         (if (unbound? val)
@@ -1098,10 +1100,10 @@ function."
   (let ((class (class-of obj)))
     (define (have-slot slot)
       (cond
-       ((slot-definition-slot-set! slot)
+       ((%slot-definition-slot-set! slot)
         => (lambda (slot-set!) (slot-set! obj value)))
        (else
-        (struct-set! obj (slot-definition-index slot) value))))
+        (struct-set! obj (%slot-definition-index slot) value))))
     (define (no-slot)
       (unless (symbol? slot-name)
         (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
@@ -1115,10 +1117,10 @@ function."
   (let ((class (class-of obj)))
     (define (slot-value slot)
       (cond
-       ((struct-ref slot slot-index-slot-ref)
+       ((%slot-definition-slot-ref slot)
         => (lambda (slot-ref) (slot-ref obj)))
        (else
-        (struct-ref obj (struct-ref slot slot-index-index)))))
+        (struct-ref obj (%slot-definition-index slot)))))
     (define (have-slot slot)
       (not (unbound? (slot-value slot))))
     (define (no-slot)
@@ -1550,7 +1552,7 @@ function."
     (match slot-spec
       (((? symbol? name) . args) name)
       ;; We can get here when redefining classes.
-      ((? slot? slot) (slot-definition-name slot))))
+      ((? slot? slot) (%slot-definition-name slot))))
 
   (let* ((name (get-keyword #:name options *unbound*))
          (supers (if (not (or-map (lambda (class)
@@ -2180,8 +2182,8 @@ function."
 ;;; Slots
 ;;;
 (define (slot-init-function class slot-name)
-  (slot-definition-init-thunk (or (class-slot-definition class slot-name)
-                                  (error "slot not found" slot-name))))
+  (%slot-definition-init-thunk (or (class-slot-definition class slot-name)
+                                   (error "slot not found" slot-name))))
 
 (define (accessor-method-slot-definition obj)
   "Return the slot definition of the accessor @var{obj}."
@@ -2243,7 +2245,7 @@ function."
           (display "#<" file)
           (display (class-name class) file)
           (display #\space file)
-          (display (slot-definition-name slot) file)
+          (display (%slot-definition-name slot) file)
           (display #\space file)
           (display-address slot file)
           (display #\> file))
@@ -2391,18 +2393,18 @@ function."
 
 (define (class-slot-ref class slot-name)
   (let ((slot (class-slot-definition class slot-name)))
-    (unless (memq (slot-definition-allocation slot) '(#:class #:each-subclass))
+    (unless (memq (%slot-definition-allocation slot) '(#:class #:each-subclass))
       (slot-missing class slot-name))
-    (let ((x ((slot-definition-slot-ref slot) #f)))
+    (let ((x ((%slot-definition-slot-ref slot) #f)))
       (if (unbound? x)
           (slot-unbound class slot-name)
           x))))
 
 (define (class-slot-set! class slot-name value)
   (let ((slot (class-slot-definition class slot-name)))
-    (unless (memq (slot-definition-allocation slot) '(#:class #:each-subclass))
+    (unless (memq (%slot-definition-allocation slot) '(#:class #:each-subclass))
       (slot-missing class slot-name))
-    ((slot-definition-slot-set! slot) #f value)))
+    ((%slot-definition-slot-set! slot) #f value)))
 
 (define-method (slot-unbound (c <class>) (o <object>) s)
   (goops-error "Slot `~S' is unbound in object ~S" s o))
@@ -2581,10 +2583,10 @@ function."
 (define (compute-slot-accessors class slots)
   (for-each
    (lambda (slot)
-     (let ((getter (slot-definition-getter slot))
-           (setter (slot-definition-setter slot))
+     (let ((getter (%slot-definition-getter slot))
+           (setter (%slot-definition-setter slot))
            (accessor-setter setter)
-           (accessor (slot-definition-accessor slot)))
+           (accessor (%slot-definition-accessor slot)))
        (when getter
          (add-method! getter (compute-getter-method class slot)))
        (when setter
@@ -2749,15 +2751,15 @@ var{initargs}."
       (match slots
         (() obj)
         ((slot . slots)
-         (let ((initarg (get-initarg (slot-definition-init-keyword slot))))
+         (let ((initarg (get-initarg (%slot-definition-init-keyword slot))))
            (cond
             ((not (unbound? initarg))
-             (slot-set! obj (slot-definition-name slot) initarg))
-            ((slot-definition-init-thunk slot)
+             (slot-set! obj (%slot-definition-name slot) initarg))
+            ((%slot-definition-init-thunk slot)
              => (lambda (init-thunk)
                   (unless (memq (slot-definition-allocation slot)
                                 '(#:class #:each-subclass))
-                    (slot-set! obj (slot-definition-name slot) (init-thunk)))))))
+                    (slot-set! obj (%slot-definition-name slot) (init-thunk)))))))
          (lp slots))))))
 
 (define-method (initialize (object <object>) initargs)
@@ -2766,11 +2768,11 @@ var{initargs}."
 (define-method (initialize (slot <slot>) initargs)
   (next-method)
   (struct-set! slot slot-index-options initargs)
-  (let ((init-thunk (struct-ref slot slot-index-init-thunk)))
+  (let ((init-thunk (%slot-definition-init-thunk slot)))
     (when init-thunk
       (unless (thunk? init-thunk)
         (goops-error "Bad init-thunk for slot `~S': ~S"
-                     (slot-definition-name slot) init-thunk)))))
+                     (%slot-definition-name slot) init-thunk)))))
 
 (define-method (initialize (class <class>) initargs)
   (define (make-direct-slot-definition dslot)
@@ -2871,7 +2873,7 @@ var{initargs}."
     (for-each
      (lambda (slot)
        (if (and (slot-exists? old-instance slot)
-                (eq? (slot-definition-allocation
+                (eq? (%slot-definition-allocation
                       (class-slot-definition old-class slot))
                      #:instance)
                 (slot-bound? old-instance slot))
