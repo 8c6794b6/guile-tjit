@@ -1,6 +1,6 @@
 ;;; installed-scm-file
 
-;;;; Copyright (C) 1998, 1999, 2001, 2006, 2008, 2009 Free Software Foundation, Inc.
+;;;; Copyright (C) 1998, 1999, 2001, 2006, 2008, 2009, 2015 Free Software Foundation, Inc.
 ;;;; Copyright (C) 1993-1998 Erick Gallesio - I3S-CNRS/ESSI <eg@unice.fr>
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -138,14 +138,7 @@
 	(format #t "(No direct method)~%")
 	(begin
 	  (format #t "Class direct methods are:~%")
-	  (for-each describe methods))))
-
-;  (format #t "~%Field Initializers ~%    ")
-;  (write (slot-ref x 'initializers)) (newline)
-
-;  (format #t "~%Getters and Setters~%    ")
-;  (write (slot-ref x 'getters-n-setters)) (newline)
-)
+	  (for-each describe methods)))))
 
 ;;;
 ;;; Describe for generic functions
