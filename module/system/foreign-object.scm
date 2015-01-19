@@ -1,6 +1,6 @@
 ;;; Wrapping foreign objects in Scheme
 
-;;; Copyright (C) 2014 Free Software Foundation, Inc.
+;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;; 
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -44,7 +44,7 @@
 
 (define (getter-method class slot-name existing)
   (let ((getter (ensure-generic existing slot-name))
-        (slot-def (or (assq slot-name (slot-ref class 'getters-n-setters))
+        (slot-def (or (class-slot-definition class slot-name)
                       (slot-missing class slot-name))))
     (add-method! getter (compute-getter-method class slot-def))
     getter))
