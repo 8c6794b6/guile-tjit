@@ -1335,12 +1335,12 @@ function."
 (define (single-arity-cache-dispatch cache nargs cache-miss)
   (match cache
     (() cache-miss)
-    ((#(len types rest? cmethod nargs*) . cache)
-     (define (type-ref n)
-       (and (< n len) (list-ref types n)))
+    (((typev . cmethod) . cache)
      (cond
-      ((eqv? nargs nargs*)
+      ((eqv? nargs (vector-length typev))
        (let ((cache-miss (single-arity-cache-dispatch cache nargs cache-miss)))
+         (define (type-ref n)
+           (and (< n nargs) (vector-ref typev n)))
          (define-syntax args-match?
            (syntax-rules ()
              ((args-match?) #t)
@@ -1375,13 +1375,12 @@ function."
          (arity-case nargs 20 dispatch
                      (lambda args
                        (define (args-match? args)
-                         (let lp ((args args) (types types))
-                           (match types
-                             ((type . types)
-                              (let ((arg (car args))
-                                    (args (cdr args)))
-                                (and (eq? type (class-of arg))
-                                     (lp args types))))
+                         (let lp ((args args) (n 0))
+                           (match args
+                             ((arg . args)
+                              (or (not (vector-ref typev n))
+                                  (and (eq? (vector-ref typev n) (class-of arg))
+                                       (lp args (1+ n)))))
                              (_ #t))))
                        (if (args-match? args)
                            (apply cmethod args)
@@ -1394,8 +1393,9 @@ function."
     (let lp ((arities 0) (cache cache))
       (match cache
         (() arities)
-        ((#(_ _ _ _ nargs) . cache)
-         (lp (logior arities (ash 1 nargs)) cache)))))
+        (((typev . cmethod) . cache)
+         (lp (logior arities (ash 1 (vector-length typev)))
+             cache)))))
   (define (cache-miss . args)
     (memoize-generic-function-application! gf args)
     (apply gf args))
@@ -1411,9 +1411,9 @@ function."
       cache-miss)
      ((= arities (ash 1 max-arity))
       ;; Only one arity in the cache.
-      (let ((nargs (match cache ((#(_ _ _ _ nargs) . _) nargs))))
-        (let ((f (single-arity-cache-dispatch cache nargs cache-miss)))
-          (single-arity-dispatcher f nargs cache-miss))))
+      (let* ((nargs max-arity)
+             (f (single-arity-cache-dispatch cache nargs cache-miss)))
+        (single-arity-dispatcher f nargs cache-miss)))
      (else
       ;; Multiple arities.
       (let ((fv (make-vector (1+ max-arity) #f)))
@@ -1429,25 +1429,22 @@ function."
              (compute-generic-function-dispatch-procedure gf)))
 
 (define (memoize-effective-method! gf args applicable)
-  (define (first-n ls n)
-    (if (or (zero? n) (null? ls))
-        '()
-        (cons (car ls) (first-n (cdr ls) (- n 1)))))
-  (define (parse n ls)
-    (cond ((null? ls)
-           (memoize n #f (map class-of args)))
-          ((= n (slot-ref gf 'n-specialized))
-           (memoize n #t (map class-of (first-n args n))))
-          (else
-           (parse (1+ n) (cdr ls)))))
-  (define (memoize len rest? types)
-    (let* ((cmethod (compute-cmethod applicable types))
-           (cache (cons (vector len types rest? cmethod (length args))
-                        (slot-ref gf 'effective-methods))))
-      (slot-set! gf 'effective-methods cache)
-      (recompute-generic-function-dispatch-procedure! gf)
-      cmethod))
-  (parse 0 args))
+  (define (record-types args)
+    (let ((typev (make-vector (length args) #f)))
+      (let lp ((n 0) (args args))
+        (when (and (< n (slot-ref gf 'n-specialized))
+                   (pair? args))
+          (match args
+            ((arg . args)
+             (vector-set! typev n (class-of arg))
+             (lp (1+ n) args)))))
+      typev))
+  (let* ((typev (record-types args))
+         (cmethod (compute-cmethod applicable typev))
+         (cache (acons typev cmethod (slot-ref gf 'effective-methods))))
+    (slot-set! gf 'effective-methods cache)
+    (recompute-generic-function-dispatch-procedure! gf)
+    cmethod))
 
 ;;;
 ;;; If a method refers to `next-method' in its body, that method will be
