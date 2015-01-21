@@ -27,7 +27,6 @@
 (define-module (oop goops)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 match)
-  #:use-module (system base target)
   #:use-module ((language tree-il primitives)
                 :select (add-interesting-primitive!))
   #:export-syntax (define-class class standard-define-class
@@ -928,6 +927,8 @@ slots as we go."
 (define-standard-class <boolean> (<top>))
 (define-standard-class <char> (<top>))
 (define-standard-class <list> (<top>))
+;; Not all pairs are lists, but there is code out there that relies on
+;; (is-a? '(1 2 3) <list>) to work.  Terrible.  How to fix?
 (define-standard-class <pair> (<list>))
 (define-standard-class <null> (<list>))
 (define-standard-class <string> (<top>))
@@ -998,8 +999,8 @@ function."
 ;;; later.
 ;;;
 (define (%invalidate-method-cache! gf)
-  (slot-set! gf 'procedure (delayed-compile gf))
-  (slot-set! gf 'effective-methods '()))
+  (slot-set! gf 'effective-methods '())
+  (recompute-generic-function-dispatch-procedure! gf))
 
 ;; Boot definition.
 (define (invalidate-method-cache! gf)
@@ -1214,15 +1215,14 @@ function."
 ;;;
 ;;; Generic functions!
 ;;;
-(define *dispatch-module* (current-module))
-
-;;;
 ;;; Generic functions have an applicable-methods cache associated with
 ;;; them. Every distinct set of types that is dispatched through a
-;;; generic adds an entry to the cache. This cache gets compiled out to
-;;; a dispatch procedure. In steady-state, this dispatch procedure is
-;;; never recompiled; but during warm-up there is some churn, both to
-;;; the cache and to the dispatch procedure.
+;;; generic adds an entry to the cache.  A composite dispatch procedure
+;;; is recomputed every time an entry gets added to the cache, or when
+;;; the cache is invalidated.
+;;;
+;;; In steady-state, this dispatch procedure is never regenerated; but
+;;; during warm-up there is some churn.
 ;;;
 ;;; So what is the deal if warm-up happens in a multithreaded context?
 ;;; There is indeed a window between missing the cache for a certain set
@@ -1232,7 +1232,7 @@ function."
 ;;;
 ;;; This is actually OK though, because a subsequent cache miss for the
 ;;; race loser will just cause memoization to try again. The cache will
-;;; eventually be consistent. We're not mutating the old part of the
+;;; eventually be consistent.  We're not mutating the old part of the
 ;;; cache, just consing on the new entry.
 ;;;
 ;;; It doesn't even matter if the dispatch procedure and the cache are
@@ -1242,178 +1242,191 @@ function."
 ;;; re-trigger a memoization, and the cache will finally be consistent.
 ;;; As you can see there is a possibility for ping-pong effects, but
 ;;; it's unlikely given the shortness of the window between slot-set!
-;;; invocations. We could add a mutex, but it is strictly unnecessary,
-;;; and would add runtime cost and complexity.
+;;; invocations.
+;;;
+;;; We probably do need to use atomic access primitives to correctly
+;;; handle concurrency, but that's a more general Guile concern.
 ;;;
 
-(define (emit-linear-dispatch gf-sym nargs methods free rest?)
-  (define (gen-syms n stem)
-    (let lp ((n (1- n)) (syms '()))
-      (if (< n 0)
-          syms
-          (lp (1- n) (cons (gensym stem) syms)))))
-  (let* ((args (gen-syms nargs "a"))
-         (types (gen-syms nargs "t")))
-    (let lp ((methods methods)
-             (free free)
-             (exp `(cache-miss ,gf-sym
-                               ,(if rest?
-                                    `(cons* ,@args rest)
-                                    `(list ,@args)))))
-      (match methods
-       (()
-        (values `(,(if rest? `(,@args . rest) args)
-                  (let ,(map (lambda (t a)
-                               `(,t (class-of ,a)))
-                             types args)
-                    ,exp))
-                free))
-       ((#(_ specs _ cmethod) . methods)
-        (let build-dispatch ((free free)
-                             (types types)
-                             (specs specs)
-                             (checks '()))
-          (match types
-            (()
-             (let ((m-sym (gensym "p")))
-               (lp methods
-                   (acons cmethod m-sym free)
-                   `(if (and . ,checks)
-                        ,(if rest?
-                             `(apply ,m-sym ,@args rest)
-                             `(,m-sym . ,args))
-                        ,exp))))
-            ((type . types)
-             (match specs
-               ((spec . specs)
-                (let ((var (assq-ref free spec)))
-                  (if var
-                      (build-dispatch free
-                                      types
-                                      specs
-                                      (cons `(eq? ,type ,var)
-                                            checks))
-                      (let ((var (gensym "c")))
-                        (build-dispatch (acons spec var free)
-                                        types
-                                        specs
-                                        (cons `(eq? ,type ,var)
-                                              checks)))))))))))))))
+(define-syntax arity-case
+  (lambda (x)
+    (syntax-case x ()
+      ;; (arity-case n 2 foo bar)
+      ;; => (case n
+      ;;      ((0) (foo))
+      ;;      ((1) (foo a))
+      ;;      ((2) (foo a b))
+      ;;      (else bar))
+      ((arity-case n max form alternate)
+       (let ((max (syntax->datum #'max)))
+         #`(case n
+             #,@(let lp ((n 0))
+                  (let ((ids (map (lambda (n)
+                                    (let* ((n (+ (char->integer #\a) n))
+                                           (c (integer->char n)))
+                                      (datum->syntax #'here (symbol c))))
+                                  (iota n))))
+                    #`(((#,n) (form #,@ids))
+                       . #,(if (< n max)
+                               (lp (1+ n))
+                               #'()))))
+             (else alternate)))))))
 
-(define (compute-dispatch-procedure gf cache)
-  (define (scan)
-    (let lp ((ls cache) (nreq -1) (nrest -1))
-      (match ls
-        (()
-         (collate (make-vector (1+ nreq) '())
-                  (make-vector (1+ nrest) '())))
-        ((#(len specs rest? cmethod) . ls)
-         (if rest?
-             (lp ls nreq (max nrest len))
-             (lp ls (max nreq len) nrest))))))
-  (define (collate req rest)
-    (let lp ((ls cache))
-      (match ls
-        (() (emit req rest))
-        (((and entry #(len specs rest? cmethod)) . ls)
-         (if rest?
-             (vector-set! rest len (cons entry (vector-ref rest len)))
-             (vector-set! req len (cons entry (vector-ref req len))))
-         (lp ls)))))
-  (define (emit req rest)
-    (let ((gf-sym (gensym "g")))
-      (define (emit-rest n clauses free)
-        (if (< n (vector-length rest))
-            (match (vector-ref rest n)
-              (() (emit-rest (1+ n) clauses free))
-              ;; FIXME: hash dispatch
-              (methods
-               (call-with-values
+;;;
+;;; These dispatchers are set as the "procedure" field of <generic>
+;;; instances.  Unlike CLOS, in GOOPS a generic function can have
+;;; multiple arities.
+;;;
+;;; We pre-generate fast dispatchers for applications of up to 20
+;;; arguments.  More arguments than that will go through slower generic
+;;; routines that cons arguments into a rest list.
+;;;
+(define (multiple-arity-dispatcher fv miss)
+  (define-syntax dispatch
+    (lambda (x)
+      (define (build-clauses args)
+        (let ((len (length (syntax->datum args))))
+          #`((#,args ((vector-ref fv #,len) . #,args))
+             . #,(syntax-case args ()
+                   (() #'())
+                   ((arg ... _) (build-clauses #'(arg ...)))))))
+      (syntax-case x ()
+        ((dispatch arg ...)
+         #`(case-lambda
+             #,@(build-clauses #'(arg ...))
+             (args (apply miss args)))))))
+  (arity-case (vector-length fv) 20 dispatch
+              (lambda args
+                (let ((nargs (length args)))
+                  (if (< nargs (vector-length fv))
+                      (apply (vector-ref fv nargs) args)
+                      (apply miss args))))))
+
+;;;
+;;; The above multiple-arity-dispatcher is entirely sufficient, and
+;;; should be fast enough.  Still, for no good reason we also have an
+;;; arity dispatcher for generics that are only called with one arity.
+;;;
+(define (single-arity-dispatcher f nargs miss)
+  (define-syntax-rule (dispatch arg ...)
+    (case-lambda
+      ((arg ...) (f arg ...))
+      (args (apply miss args))))
+  (arity-case nargs 20 dispatch
+              (lambda args
+                (if (eqv? (length args) nargs)
+                    (apply f args)
+                    (apply miss args)))))
+
+;;;
+;;; The guts of generic function dispatch are here.  Once we've selected
+;;; an arity, we need to map from arguments to effective method.  Until
+;;; we have `eqv?' specializers, this map is entirely a function of the
+;;; types (classes) of the arguments.  So, we look in the cache to see
+;;; if we have seen this set of concrete types, and if so we apply the
+;;; previously computed effective method.  Otherwise we miss the cache,
+;;; so we'll have to compute the right answer for this set of types, add
+;;; the mapping to the cache, and apply the newly computed method.
+;;;
+;;; The cached mapping is invalidated whenever a new method is defined
+;;; on this generic, or whenever the class hierarchy of any method
+;;; specializer changes.
+;;;
+(define (single-arity-cache-dispatch cache nargs cache-miss)
+  (match cache
+    (() cache-miss)
+    ((#(len types rest? cmethod nargs*) . cache)
+     (define (type-ref n)
+       (and (< n len) (list-ref types n)))
+     (cond
+      ((eqv? nargs nargs*)
+       (let ((cache-miss (single-arity-cache-dispatch cache nargs cache-miss)))
+         (define-syntax args-match?
+           (syntax-rules ()
+             ((args-match?) #t)
+             ((args-match? (arg type) (arg* type*) ...)
+              ;; Check that the arg has the exact type that we saw.  It
+              ;; could be that `type' is #f, which indicates the end of
+              ;; the specializers list.  Once all specializers have been
+              ;; examined, we don't need to look at any more arguments
+              ;; to know that this is a cache hit.
+              (or (not type)
+                  (and (eq? (class-of arg) type)
+                       (args-match? (arg* type*) ...))))))
+         (define-syntax dispatch
+           (lambda (x)
+             (define (bind-types types k)
+               (let lp ((types types) (n 0))
+                 (syntax-case types ()
+                   (() (k))
+                   ((type . types)
+                    #`(let ((type (type-ref #,n)))
+                        #,(lp #'types (1+ n)))))))
+             (syntax-case x ()
+               ((dispatch arg ...)
+                (with-syntax (((type ...) (generate-temporaries #'(arg ...))))
+                  (bind-types
+                   #'(type ...)
                    (lambda ()
-                     (emit-linear-dispatch gf-sym n methods free #t))
-                 (lambda (clause free)
-                   (emit-rest (1+ n) (cons clause clauses) free)))))
-            (emit-req (1- (vector-length req)) clauses free)))
-      (define (emit-req n clauses free)
-        (if (< n 0)
-            (comp `(lambda ,(map cdr free)
-                     (case-lambda ,@clauses))
-                  (map car free))
-            (match (vector-ref req n)
-              (() (emit-req (1- n) clauses free))
-              ;; FIXME: hash dispatch
-              (methods
-               (call-with-values
-                   (lambda ()
-                     (emit-linear-dispatch gf-sym n methods free #f))
-                 (lambda (clause free)
-                   (emit-req (1- n) (cons clause clauses) free)))))))
+                     #'(lambda (arg ...)
+                         (if (args-match? (arg type) ...)
+                             (cmethod arg ...)
+                             (cache-miss arg ...))))))))))
+         (arity-case nargs 20 dispatch
+                     (lambda args
+                       (define (args-match? args)
+                         (let lp ((args args) (types types))
+                           (match types
+                             ((type . types)
+                              (let ((arg (car args))
+                                    (args (cdr args)))
+                                (and (eq? type (class-of arg))
+                                     (lp args types))))
+                             (_ #t))))
+                       (if (args-match? args)
+                           (apply cmethod args)
+                           (apply cache-miss args))))))
+      (else
+       (single-arity-cache-dispatch cache nargs cache-miss))))))
 
-      (emit-rest 0
-                 (if (or (zero? (vector-length rest))
-                         (null? (vector-ref rest 0)))
-                     (list `(args (cache-miss ,gf-sym args)))
-                     '())
-                 (acons gf gf-sym '()))))
-  (define (comp exp vals)
-    ;; When cross-compiling Guile itself, the native Guile must generate
-    ;; code for the host.
-    (with-target %host-type
-      (lambda ()
-        (let ((p ((@ (system base compile) compile) exp
-                  #:env *dispatch-module*
-                  #:from 'scheme
-                  #:opts '(#:partial-eval? #f #:cse? #f))))
-          (apply p vals)))))
+(define (compute-generic-function-dispatch-procedure gf)
+  (define (seen-arities cache)
+    (let lp ((arities 0) (cache cache))
+      (match cache
+        (() arities)
+        ((#(_ _ _ _ nargs) . cache)
+         (lp (logior arities (ash 1 nargs)) cache)))))
+  (define (cache-miss . args)
+    (memoize-generic-function-application! gf args)
+    (apply gf args))
+  (let* ((cache (slot-ref gf 'effective-methods))
+         (arities (seen-arities cache))
+         (max-arity (let lp ((max -1))
+                      (if (< arities (ash 1 (1+ max)))
+                          max
+                          (lp (1+ max))))))
+    (cond
+     ((= max-arity -1)
+      ;; Nothing in the cache.
+      cache-miss)
+     ((= arities (ash 1 max-arity))
+      ;; Only one arity in the cache.
+      (let ((nargs (match cache ((#(_ _ _ _ nargs) . _) nargs))))
+        (let ((f (single-arity-cache-dispatch cache nargs cache-miss)))
+          (single-arity-dispatcher f nargs cache-miss))))
+     (else
+      ;; Multiple arities.
+      (let ((fv (make-vector (1+ max-arity) #f)))
+        (let lp ((n 0))
+          (when (<= n max-arity)
+            (let ((f (single-arity-cache-dispatch cache n cache-miss)))
+              (vector-set! fv n f)
+              (lp (1+ n)))))
+        (multiple-arity-dispatcher fv cache-miss))))))
 
-  ;; kick it.
-  (scan))
-
-;; o/~  ten, nine, eight
-;;        sometimes that's just how it goes
-;;          three, two, one
-;;
-;;            get out before it blows    o/~
-;;
-(define timer-init 30)
-(define (delayed-compile gf)
-  (let ((timer timer-init))
-    (lambda args
-      (set! timer (1- timer))
-      (cond
-       ((zero? timer)
-        (let ((dispatch (compute-dispatch-procedure
-                         gf (slot-ref gf 'effective-methods))))
-          (slot-set! gf 'procedure dispatch)
-          (apply dispatch args)))
-       (else
-        ;; interestingly, this catches recursive compilation attempts as
-        ;; well; in that case, timer is negative
-        (cache-dispatch gf args))))))
-
-(define (cache-dispatch gf args)
-  (define (map-until n f ls)
-    (if (or (zero? n) (null? ls))
-        '()
-        (cons (f (car ls)) (map-until (1- n) f (cdr ls)))))
-  (define (equal? x y) ; can't use the stock equal? because it's a generic...
-    (cond ((pair? x) (and (pair? y)
-                          (eq? (car x) (car y))
-                          (equal? (cdr x) (cdr y))))
-          ((null? x) (null? y))
-          (else #f)))
-  (if (slot-ref gf 'n-specialized)
-      (let ((types (map-until (slot-ref gf 'n-specialized) class-of args)))
-        (let lp ((cache (slot-ref gf 'effective-methods)))
-          (cond ((null? cache)
-                 (cache-miss gf args))
-                ((equal? (vector-ref (car cache) 1) types)
-                 (apply (vector-ref (car cache) 3) args))
-                (else (lp (cdr cache))))))
-      (cache-miss gf args)))
-
-(define (cache-miss gf args)
-  (apply (memoize-method! gf args) args))
+(define (recompute-generic-function-dispatch-procedure! gf)
+  (slot-set! gf 'procedure
+             (compute-generic-function-dispatch-procedure gf)))
 
 (define (memoize-effective-method! gf args applicable)
   (define (first-n ls n)
@@ -1429,44 +1442,43 @@ function."
            (parse (1+ n) (cdr ls)))))
   (define (memoize len rest? types)
     (let* ((cmethod (compute-cmethod applicable types))
-           (cache (cons (vector len types rest? cmethod)
+           (cache (cons (vector len types rest? cmethod (length args))
                         (slot-ref gf 'effective-methods))))
       (slot-set! gf 'effective-methods cache)
-      (slot-set! gf 'procedure (delayed-compile gf))
+      (recompute-generic-function-dispatch-procedure! gf)
       cmethod))
   (parse 0 args))
 
 ;;;
-;;; Compiling next methods into method bodies
+;;; If a method refers to `next-method' in its body, that method will be
+;;; able to dispatch to the next most specific method.  The exact
+;;; `next-method' implementation is only known at runtime, as it is a
+;;; function of which precise argument types are being dispatched, which
+;;; might be subclasses of the method's declared specializers.
 ;;;
-
-;;; So, for the reader: there basic idea is that, given that the
-;;; semantics of `next-method' depend on the concrete types being
-;;; dispatched, why not compile a specific procedure to handle each type
-;;; combination that we see at runtime.
+;;; Guile implements `next-method' by binding it as a closure variable.
+;;; An effective method is bound to a specific `next-method' by the
+;;; `make-procedure' slot of a <method>, which returns the new closure.
 ;;;
-;;; In theory we can do much better than a bytecode compilation, because
-;;; we know the *exact* types of the arguments. It's ideal for native
-;;; compilation. A task for the future.
-;;;
-;;; I think this whole generic application mess would benefit from a
-;;; strict MOP.
-
 (define (compute-cmethod methods types)
-  (let ((make-procedure (slot-ref (car methods) 'make-procedure)))
-    (if make-procedure
+  (match methods
+    ((method . methods)
+     (match (slot-ref method 'make-procedure)
+       (#f (method-procedure method))
+       (make-procedure
         (make-procedure
-         (if (null? (cdr methods))
-             (lambda args
-               (no-next-method (method-generic-function (car methods)) args))
-             (compute-cmethod (cdr methods) types)))
-        (method-procedure (car methods)))))
+         (match methods
+           (()
+            (lambda args
+              (no-next-method (method-generic-function method) args)))
+           (methods
+            (compute-cmethod methods types)))))))))
 
 ;;;
 ;;; Memoization
 ;;;
 
-(define (memoize-method! gf args)
+(define (memoize-generic-function-application! gf args)
   (let ((applicable ((if (eq? gf compute-applicable-methods)
                          %compute-applicable-methods
                          compute-applicable-methods)
@@ -1475,8 +1487,6 @@ function."
            (memoize-effective-method! gf args applicable))
           (else
            (no-applicable-method gf args)))))
-
-(set-procedure-property! memoize-method! 'system-procedure #t)
 
 (define no-applicable-method
   (make <generic> #:name 'no-applicable-method))
@@ -2133,8 +2143,8 @@ function."
         (generic-function-methods gf)))
 
 (define (invalidate-method-cache! gf)
-  (%invalidate-method-cache! gf)
   (slot-set! gf 'n-specialized (calculate-n-specialized gf))
+  (%invalidate-method-cache! gf)
   (for-each (lambda (gf) (invalidate-method-cache! gf))
             (slot-ref gf 'extended-by)))
 
@@ -2949,11 +2959,12 @@ var{initargs}."
 ;;;
 ;;; Note that standard generic functions dispatch only on the classes of
 ;;; the arguments, and the result of such dispatch can be memoized.  The
-;;; `cache-dispatch' routine implements this.  `apply-generic' isn't
-;;; called currently; the generic function MOP was never fully
-;;; implemented in GOOPS.  However now that GOOPS is implemented
-;;; entirely in Scheme (2015) it's much easier to complete this work.
-;;; Contributions gladly accepted!  Please read the AMOP first though :)
+;;; `dispatch-generic-function-application-from-cache' routine
+;;; implements this.  `apply-generic' isn't called currently; the
+;;; generic function MOP was never fully implemented in GOOPS.  However
+;;; now that GOOPS is implemented entirely in Scheme (2015) it's much
+;;; easier to complete this work.  Contributions gladly accepted!
+;;; Please read the AMOP first though :)
 ;;;
 ;;; The protocol is:
 ;;;
