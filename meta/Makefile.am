@@ -2,7 +2,7 @@
 ## Jim Blandy <jimb@red-bean.com> --- September 1997
 ##
 ##  	Copyright (C) 1998, 1999, 2001, 2006, 2007, 2008, 2009, 2011,
-##        2012, 2013, 2014 Free Software Foundation, Inc.
+##        2012, 2013, 2014, 2015 Free Software Foundation, Inc.
 ##
 ##   This file is part of GUILE.
 ##   
@@ -22,9 +22,10 @@
 ##   Fifth Floor, Boston, MA 02110-1301 USA
 
 bin_SCRIPTS = guile-config guild
-EXTRA_DIST= \
-  guile.m4 ChangeLog-2008			\
-  guile-2.2.pc.in guile-2.2-uninstalled.pc.in	\
+EXTRA_DIST=						\
+  guile.m4 ChangeLog-2008				\
+  guile-$(GUILE_EFFECTIVE_VERSION).pc.in		\
+  guile-$(GUILE_EFFECTIVE_VERSION)-uninstalled.pc.in	\
   guild.in guile-config.in
 
 # What we now call `guild' used to be known as `guile-tools'.
@@ -37,31 +38,54 @@ install-exec-hook:
 	$(LN_S) "$$guild" "$$guile_tools"
 
 pkgconfigdir = $(libdir)/pkgconfig
-pkgconfig_DATA = guile-2.2.pc
+pkgconfig_DATA = guile-$(GUILE_EFFECTIVE_VERSION).pc
 
 ## FIXME: in the future there will be direct automake support for
 ## doing this.  When that happens, switch over.
 aclocaldir = $(datadir)/aclocal
 aclocal_DATA = guile.m4
 
+# Script to instantiate substitution variables found on the standard
+# input.  We do this from the Makefile because we need things like
+# $(program_transform_name), which are not usable from 'configure.ac'.
+substitute =								\
+  guile="`echo guile | $(SED) -e '$(program_transform_name)'`" ;	\
+  guild="`echo guild | $(SED) -e '$(program_transform_name)'`" ;	\
+  installed_guile="@bindir@/$$guile" ;					\
+  $(SED) -e "s,[@]PACKAGE_NAME[@],$(PACKAGE_NAME),g"			\
+	 -e "s,[@]PACKAGE_BUGREPORT[@],$(PACKAGE_BUGREPORT),g"		\
+	 -e "s,[@]PKG_CONFIG[@],$(PKG_CONFIG),g"			\
+	 -e "s,[@]pkgconfigdir[@],$(pkgconfigdir),g"			\
+	 -e "s,[@]prefix[@],$(prefix),g"				\
+	 -e "s,[@]exec_prefix[@],$(exec_prefix),g"			\
+	 -e "s,[@]bindir[@],$(bindir),g"				\
+	 -e "s,[@]libdir[@],$(libdir),g"				\
+	 -e "s,[@]includedir[@],$(includedir),g"			\
+	 -e "s,[@]datarootdir[@],$(datarootdir),g"			\
+	 -e "s,[@]datadir[@],$(datadir),g"				\
+	 -e "s,[@]sitedir[@],$(sitedir),g"				\
+	 -e "s,[@]guile[@],$$guile,g"					\
+	 -e "s,[@]guild[@],$$guild,g"					\
+	 -e "s,[@]installed_guile[@],$$installed_guile,g"
+
+guile-$(GUILE_EFFECTIVE_VERSION).pc: guile-$(GUILE_EFFECTIVE_VERSION).pc.in
+	$(substitute) < "$<" > "$@.out"
+	mv "$@.out" "$@"
+
+guile-$(GUILE_EFFECTIVE_VERSION)-uninstalled.pc: guile-$(GUILE_EFFECTIVE_VERSION)-uninstalled.pc.in
+	$(substitute) < "$<" > "$@.out"
+	mv "$@.out" "$@"
+
 guile-config: $(srcdir)/guile-config.in $(top_builddir)/config.status
-	guile="@bindir@/`echo guile | $(SED) -e '$(program_transform_name)'`" ;	\
-	$(SED) -e "s,[@]pkgconfigdir[@],$(pkgconfigdir),g"			\
-	       -e "s,[@]PKG_CONFIG[@],$(PKG_CONFIG),g"				\
-	       -e "s,[@]installed_guile[@],$$guile,g"				\
-	  < "$(srcdir)/guile-config.in"						\
-	  > "$@.out"
+	$(substitute) < "$<" > "$@.out"
 	chmod +x "$@.out"
 	mv "$@.out" "$@"
 
 guild: $(srcdir)/guild.in $(top_builddir)/config.status
-	guile="@bindir@/`echo guile | $(SED) -e '$(program_transform_name)'`" ;	\
-	$(SED) -e "s,[@]installed_guile[@],$$guile,g"				\
-	       -e "s,[@]PACKAGE_NAME[@],$(PACKAGE_NAME),g"			\
-	       -e "s,[@]PACKAGE_BUGREPORT[@],$(PACKAGE_BUGREPORT),g"		\
-	  < "$(srcdir)/guild.in"						\
-	  > "$@.out"
+	$(substitute) < "$<" > "$@.out"
 	chmod +x "$@.out"
 	mv "$@.out" "$@"
 
-CLEANFILES = guile-config guild
+CLEANFILES =					\
+  guile-config guild				\
+  guile-$(GUILE_EFFECTIVE_VERSION).pc guile-$(GUILE_EFFECTIVE_VERSION)-uninstalled.pc
