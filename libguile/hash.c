@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 2000, 2001, 2003, 2004, 2006, 2008,
- *   2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2009, 2010, 2011, 2012, 2014, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -124,12 +124,6 @@ wide_string_hash (const scm_t_wchar *str, size_t len)
   JENKINS_LOOKUP3_HASHWORD2 (str, len, ret);
   ret >>= 2; /* Ensure that it fits in a fixnum.  */
   return ret;
-}
-
-unsigned long 
-scm_string_hash (const unsigned char *str, size_t len)
-{
-  return narrow_string_hash (str, len);
 }
 
 unsigned long 
