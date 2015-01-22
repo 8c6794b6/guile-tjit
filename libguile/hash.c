@@ -126,7 +126,7 @@ wide_string_hash (const scm_t_wchar *str, size_t len)
   return ret;
 }
 
-unsigned long 
+unsigned long
 scm_i_string_hash (SCM str)
 {
   size_t len = scm_i_string_length (str);
