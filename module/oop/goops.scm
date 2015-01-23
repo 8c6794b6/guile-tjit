@@ -208,6 +208,7 @@
   (accessor #:init-keyword #:accessor #:init-value #f)
   ;; These last don't have #:init-keyword because they are meant to be
   ;; set by `allocate-slots', not in compute-effective-slot-definition.
+  (slot-ref/raw #:init-value #f)
   (slot-ref #:init-value #f)
   (slot-set! #:init-value #f)
   (index #:init-value #f)
@@ -476,11 +477,14 @@ followed by its associated value.  If @var{l} does not hold a value for
 (define-slot-accessor slot-definition-accessor
   "Return the accessor of the slot @var{obj}, or @code{#f}."
    %slot-definition-accessor slot-index-accessor)
+(define-slot-accessor slot-definition-slot-ref/raw
+  "Return the raw slot-ref procedure of the slot @var{obj}."
+   %slot-definition-slot-ref/raw slot-index-slot-ref/raw)
 (define-slot-accessor slot-definition-slot-ref
-  "Return the slot-ref procedure of the slot @var{obj}, or @code{#f}."
+  "Return the slot-ref procedure of the slot @var{obj}."
    %slot-definition-slot-ref slot-index-slot-ref)
 (define-slot-accessor slot-definition-slot-set!
-  "Return the slot-set! procedure of the slot @var{obj}, or @code{#f}."
+  "Return the slot-set! procedure of the slot @var{obj}."
    %slot-definition-slot-set! slot-index-slot-set!)
 (define-slot-accessor slot-definition-index
   "Return the allocated struct offset of the slot @var{obj}, or @code{#f}."
@@ -513,10 +517,11 @@ followed by its associated value.  If @var{l} does not hold a value for
     (init-slot slot-index-getter #:getter #f)
     (init-slot slot-index-setter #:setter #f)
     (init-slot slot-index-accessor #:accessor #f)
-    (init-slot slot-index-slot-ref #:slot-ref #f)
-    (init-slot slot-index-slot-set! #:slot-set! #f)
-    (init-slot slot-index-index #:index #f)
-    (init-slot slot-index-size #:size #f)
+    (struct-set! slot slot-index-slot-ref/raw #f)
+    (struct-set! slot slot-index-slot-ref #f)
+    (struct-set! slot slot-index-slot-set! #f)
+    (struct-set! slot slot-index-index #f)
+    (struct-set! slot slot-index-size #f)
     slot))
 
 ;; Boot definition.
@@ -678,6 +683,35 @@ followed by its associated value.  If @var{l} does not hold a value for
     (struct-set! class class-index-nfields (1+ index))
     index))
 
+;;; Pre-generate getters and setters for the first 20 slots.
+(define-syntax define-standard-accessor-method
+  (lambda (stx)
+    (define num-standard-pre-cache 20)
+    (syntax-case stx ()
+      ((_ ((proc n) arg ...) body)
+       #`(define proc
+           (let ((cache (vector #,@(map (lambda (n*)
+                                          #`(lambda (arg ...)
+                                              (let ((n #,n*))
+                                                body)))
+                                        (iota num-standard-pre-cache)))))
+             (lambda (n)
+               (if (< n #,num-standard-pre-cache)
+                   (vector-ref cache n)
+                   (lambda (arg ...) body)))))))))
+
+(define-standard-accessor-method ((bound-check-get n) o)
+  (let ((x (struct-ref o n)))
+    (if (unbound? x)
+        (slot-unbound o)
+        x)))
+
+(define-standard-accessor-method ((standard-get n) o)
+  (struct-ref o n))
+
+(define-standard-accessor-method ((standard-set n) o v)
+  (struct-set! o n v))
+
 (define (allocate-slots class slots)
   "Transform the computed list of direct slot definitions @var{slots}
 into a corresponding list of effective slot definitions, allocating
@@ -687,6 +721,7 @@ slots as we go."
     ;; allocates a field to the object.  Pretty strange, but we preserve
     ;; the behavior for backward compatibility.
     (let* ((slot (compute-effective-slot-definition class slot))
+           (name (%slot-definition-name slot))
            (index (struct-ref class class-index-nfields))
            (g-n-s (compute-get-n-set class slot))
            (size (- (struct-ref class class-index-nfields) index)))
@@ -696,14 +731,25 @@ slots as we go."
               ((? integer?)
                (unless (= size 1)
                  (error "unexpected return from compute-get-n-set"))
-               (values #f #f))
+               (values (standard-get g-n-s)
+                       (if (slot-definition-init-thunk slot)
+                           (standard-get g-n-s)
+                           (bound-check-get g-n-s))
+                       (standard-set g-n-s)))
               (((? procedure? get) (? procedure? set))
-               (values get set))))
-        (lambda (get set)
-          (struct-set! slot slot-index-index index)
-          (struct-set! slot slot-index-size size)
+               (values get
+                       (lambda (o)
+                         (let ((value (get o)))
+                           (if (unbound? value)
+                               (slot-unbound class o name)
+                               value)))
+                       set))))
+        (lambda (get/raw get set)
+          (struct-set! slot slot-index-slot-ref/raw get/raw)
           (struct-set! slot slot-index-slot-ref get)
-          (struct-set! slot slot-index-slot-set! set)))
+          (struct-set! slot slot-index-slot-set! set)
+          (struct-set! slot slot-index-index index)
+          (struct-set! slot slot-index-size size)))
       slot))
   (struct-set! class class-index-nfields 0)
   (map-in-order make-effective-slot-definition slots))
@@ -1081,17 +1127,8 @@ function."
 (define (slot-ref obj slot-name)
   "Return the value from @var{obj}'s slot with the nam var{slot_name}."
   (let ((class (class-of obj)))
-    (define (slot-value slot)
-      (cond
-       ((%slot-definition-slot-ref slot)
-        => (lambda (slot-ref) (slot-ref obj)))
-       (else
-        (struct-ref obj (%slot-definition-index slot)))))
     (define (have-slot slot)
-      (let ((val (slot-value slot)))
-        (if (unbound? val)
-            (slot-unbound class obj slot-name)
-            val)))
+      ((%slot-definition-slot-ref slot) obj))
     (define (no-slot)
       (unless (symbol? slot-name)
         (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
@@ -1106,11 +1143,7 @@ function."
   "Set the slot named @var{slot_name} of @var{obj} to @var{value}."
   (let ((class (class-of obj)))
     (define (have-slot slot)
-      (cond
-       ((%slot-definition-slot-set! slot)
-        => (lambda (slot-set!) (slot-set! obj value)))
-       (else
-        (struct-set! obj (%slot-definition-index slot) value))))
+      ((%slot-definition-slot-set! slot) obj value))
     (define (no-slot)
       (unless (symbol? slot-name)
         (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
@@ -1122,22 +1155,13 @@ function."
 (define (slot-bound? obj slot-name)
   "Return the value from @var{obj}'s slot with the nam var{slot_name}."
   (let ((class (class-of obj)))
-    (define (slot-value slot)
-      (cond
-       ((%slot-definition-slot-ref slot)
-        => (lambda (slot-ref) (slot-ref obj)))
-       (else
-        (struct-ref obj (%slot-definition-index slot)))))
     (define (have-slot slot)
-      (not (unbound? (slot-value slot))))
+      (not (unbound? ((%slot-definition-slot-ref/raw slot) obj))))
     (define (no-slot)
       (unless (symbol? slot-name)
         (scm-error 'wrong-type-arg #f "Not a symbol: ~S"
                    (list slot-name) #f))
-      (let ((val (slot-missing class obj slot-name)))
-        (if (unbound? val)
-            (slot-unbound class obj slot-name)
-            val)))
+      (not (unbound? (slot-missing class obj slot-name))))
     (%class-slot-definition class slot-name have-slot no-slot)))
 
 (define (slot-exists? obj slot-name)
@@ -2408,7 +2432,7 @@ function."
   (let ((slot (class-slot-definition class slot-name)))
     (unless (memq (%slot-definition-allocation slot) '(#:class #:each-subclass))
       (slot-missing class slot-name))
-    (let ((x ((%slot-definition-slot-ref slot) #f)))
+    (let ((x ((%slot-definition-slot-ref/raw slot) #f)))
       (if (unbound? x)
           (slot-unbound class slot-name)
           x))))
@@ -2611,25 +2635,17 @@ function."
    slots))
 
 (define-method (compute-getter-method (class <class>) slot)
-  (let ((init-thunk (slot-definition-init-thunk slot))
-        (slot-ref (slot-definition-slot-ref slot))
-        (index (slot-definition-index slot)))
+  (let ((slot-ref (slot-definition-slot-ref slot)))
     (make <accessor-method>
           #:specializers (list class)
-          #:procedure (cond
-                       (slot-ref (make-generic-bound-check-getter slot-ref))
-                       (init-thunk (standard-get index))
-                       (else (bound-check-get index)))
+          #:procedure slot-ref
           #:slot-definition slot)))
 
 (define-method (compute-setter-method (class <class>) slot)
-  (let ((slot-set! (slot-definition-slot-set! slot))
-        (index (slot-definition-index slot)))
+  (let ((slot-set! (slot-definition-slot-set! slot)))
     (make <accessor-method>
       #:specializers (list class <top>)
-      #:procedure (cond
-                   (slot-set! slot-set!)
-                   (else (standard-set index)))
+      #:procedure slot-set!
       #:slot-definition slot)))
 
 (define (make-generic-bound-check-getter proc)
@@ -2638,35 +2654,6 @@ function."
       (if (unbound? val)
           (slot-unbound o)
           val))))
-
-;;; Pre-generate getters and setters for the first 20 slots.
-(define-syntax define-standard-accessor-method
-  (lambda (stx)
-    (define num-standard-pre-cache 20)
-    (syntax-case stx ()
-      ((_ ((proc n) arg ...) body)
-       #`(define proc
-           (let ((cache (vector #,@(map (lambda (n*)
-                                          #`(lambda (arg ...)
-                                              (let ((n #,n*))
-                                                body)))
-                                        (iota num-standard-pre-cache)))))
-             (lambda (n)
-               (if (< n #,num-standard-pre-cache)
-                   (vector-ref cache n)
-                   (lambda (arg ...) body)))))))))
-
-(define-standard-accessor-method ((bound-check-get n) o)
-  (let ((x (struct-ref o n)))
-    (if (unbound? x)
-        (slot-unbound o)
-        x)))
-
-(define-standard-accessor-method ((standard-get n) o)
-  (struct-ref o n))
-
-(define-standard-accessor-method ((standard-set n) o v)
-  (struct-set! o n v))
 
 ;;; compute-cpl
 ;;;
@@ -2778,11 +2765,7 @@ var{initargs}."
         (() obj)
         ((slot . slots)
          (define (initialize-slot! value)
-           (cond
-            ((%slot-definition-slot-set! slot)
-             => (lambda (slot-set!) (slot-set! obj value)))
-            (else
-             (struct-set! obj (%slot-definition-index slot) value))))
+           ((%slot-definition-slot-set! slot) obj value))
          (let ((initarg (get-initarg (%slot-definition-init-keyword slot))))
            (cond
             ((not (unbound? initarg))
