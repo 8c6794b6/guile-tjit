@@ -38,6 +38,7 @@
             <class> <object>
 
             ;; Slot types.
+            <slot>
             <foreign-slot> <protected-slot> <hidden-slot> <opaque-slot>
             <read-only-slot> <self-slot> <protected-opaque-slot>
             <protected-hidden-slot> <protected-read-only-slot>
