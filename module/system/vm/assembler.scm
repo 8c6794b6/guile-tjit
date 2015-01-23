@@ -2144,11 +2144,13 @@ procedure with label @var{rw-init}.  @var{rw-init} may be false.  If
              (lp sources
                  ;; Guile line and column numbers are 0-indexed, but
                  ;; they are 1-indexed for DWARF.
-                 (cons (list pc
-                             (if (string? file) (intern-file file) 0)
-                             (if line (1+ line))
-                             (if col (1+ col)))
-                       out))))
+                 (if (and line col)
+                     (cons (list pc
+                                 (if (string? file) (intern-file file) 0)
+                                 (1+ line)
+                                 (1+ col))
+                           out)
+                     out))))
           (()
            ;; Compilation unit header for .debug_line.  We write in
            ;; DWARF 2 format because more tools understand it than DWARF
