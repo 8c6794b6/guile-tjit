@@ -1465,7 +1465,10 @@ function."
              (lp (1+ n) args)))))
       typev))
   (let* ((typev (record-types args))
-         (cmethod (compute-cmethod applicable typev))
+         (compute-effective-method (if (eq? (class-of gf) <generic>)
+                                       %compute-effective-method
+                                       compute-effective-method))
+         (cmethod (compute-effective-method gf applicable typev))
          (cache (acons typev cmethod (slot-ref gf 'effective-methods))))
     (slot-set! gf 'effective-methods cache)
     (recompute-generic-function-dispatch-procedure! gf)
@@ -1482,26 +1485,44 @@ function."
 ;;; An effective method is bound to a specific `next-method' by the
 ;;; `make-procedure' slot of a <method>, which returns the new closure.
 ;;;
-(define (compute-cmethod methods types)
+(define (%compute-specialized-effective-method gf method types next-method)
+  (match (slot-ref method 'make-procedure)
+    (#f (method-procedure method))
+    (make-procedure (make-procedure next-method))))
+
+(define (compute-specialized-effective-method gf method types next-method)
+  (%compute-specialized-effective-method gf method types next-method))
+
+(define (%compute-effective-method gf methods types)
   (match methods
     ((method . methods)
-     (match (slot-ref method 'make-procedure)
-       (#f (method-procedure method))
-       (make-procedure
-        (make-procedure
-         (match methods
-           (()
-            (lambda args
-              (no-next-method (method-generic-function method) args)))
-           (methods
-            (compute-cmethod methods types)))))))))
+     (let ((compute-specialized-effective-method
+            (if (and (eq? (class-of gf) <generic>)
+                     (eq? (class-of method) <method>))
+                %compute-specialized-effective-method
+                compute-specialized-effective-method)))
+       (compute-specialized-effective-method
+        gf method types
+        (match methods
+          (()
+           (lambda args
+             (no-next-method gf args)))
+          (methods
+           (let ((compute-effective-method (if (eq? (class-of gf) <generic>)
+                                               %compute-effective-method
+                                               compute-effective-method)))
+             (compute-effective-method gf methods types)))))))))
+
+;; Boot definition; overrided with a generic later.
+(define (compute-effective-method gf methods types)
+  (%compute-effective-method gf methods types))
 
 ;;;
 ;;; Memoization
 ;;;
 
 (define (memoize-generic-function-application! gf args)
-  (let ((applicable ((if (eq? gf compute-applicable-methods)
+  (let ((applicable ((if (eq? (class-of gf) <generic>)
                          %compute-applicable-methods
                          compute-applicable-methods)
                      gf args)))
@@ -2635,17 +2656,17 @@ function."
    slots))
 
 (define-method (compute-getter-method (class <class>) slot)
-  (let ((slot-ref (slot-definition-slot-ref slot)))
+  (let ((name (slot-definition-name slot)))
     (make <accessor-method>
           #:specializers (list class)
-          #:procedure slot-ref
+          #:procedure (lambda (o) (slot-ref o name))
           #:slot-definition slot)))
 
 (define-method (compute-setter-method (class <class>) slot)
-  (let ((slot-set! (slot-definition-slot-set! slot)))
+  (let ((name (slot-definition-name slot)))
     (make <accessor-method>
       #:specializers (list class <top>)
-      #:procedure slot-set!
+      #:procedure (lambda (o v) (slot-set! o name v))
       #:slot-definition slot)))
 
 (define (make-generic-bound-check-getter proc)
@@ -2970,20 +2991,44 @@ var{initargs}."
         (no-applicable-method gf args))))
 
 ;; compute-applicable-methods is bound to %compute-applicable-methods.
-;; *fixme* use let
-(define %%compute-applicable-methods
-  (make <generic> #:name 'compute-applicable-methods))
-
-(define-method (%%compute-applicable-methods (gf <generic>) args)
-  (%compute-applicable-methods gf args))
-
-(set! compute-applicable-methods %%compute-applicable-methods)
+(define compute-applicable-methods
+  (let ((gf (make <generic> #:name 'compute-applicable-methods)))
+    (add-method! gf (method ((gf <generic>) args)
+                      (%compute-applicable-methods gf args)))
+    gf))
 
 (define-method (sort-applicable-methods (gf <generic>) methods args)
   (%sort-applicable-methods methods (map class-of args)))
 
 (define-method (method-more-specific? (m1 <method>) (m2 <method>) targs)
   (%method-more-specific? m1 m2 targs))
+
+(define compute-effective-method
+  (let ((gf (make <generic> #:name 'compute-effective-method)))
+    (add-method! gf (method ((gf <generic>) methods typev)
+                      (%compute-effective-method gf methods typev)))
+    gf))
+
+(define compute-specialized-effective-method
+  (let ((gf (make <generic> #:name 'compute-specialized-effective-method)))
+    (add-method!
+     gf
+     (method ((gf <generic>) (method <method>) typev next)
+       (%compute-specialized-effective-method gf method typev next)))
+    gf))
+
+(define-method (compute-specialized-effective-method (gf <generic>)
+                                                     (m <accessor-method>)
+                                                     typev
+                                                     next)
+  (let ((name (slot-definition-name (accessor-method-slot-definition m))))
+    (match typev
+      (#(class)
+       (slot-definition-slot-ref (class-slot-definition class name)))
+      (#(class _)
+       (slot-definition-slot-set! (class-slot-definition class name)))
+      (_
+       (next-method)))))
 
 (define-method (apply-method (gf <generic>) methods build-next args)
   (apply (method-procedure (car methods))
