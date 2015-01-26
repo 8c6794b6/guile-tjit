@@ -1971,14 +1971,24 @@ function."
 
 (define (%compute-applicable-methods gf args)
   (define (method-applicable? m types)
-    (let lp ((specs (method-specializers m)) (types types))
+    (let ((specs (method-specializers m)))
       (cond
-       ((null? specs) (null? types))
-       ((not (pair? specs)) #t)
-       ((null? types) #f)
+       ((and (is-a? m <accessor-method>)
+             (or (null? specs) (null? types)
+                 (not (eq? (car specs) (car types)))))
+        ;; Slot accessor methods are added to each subclass with the
+        ;; slot.  They only apply to that specific concrete class, which
+        ;; appears as the first argument.
+        #f)
        (else
-        (and (memq (car specs) (class-precedence-list (car types)))
-             (lp (cdr specs) (cdr types)))))))
+        (let lp ((specs specs) (types types))
+          (cond
+           ((null? specs) (null? types))
+           ((not (pair? specs)) #t)
+           ((null? types) #f)
+           (else
+            (and (memq (car specs) (class-precedence-list (car types)))
+                 (lp (cdr specs) (cdr types))))))))))
   (let ((n (length args))
         (types (map class-of args)))
     (let lp ((methods (generic-function-methods gf))
@@ -2656,18 +2666,16 @@ function."
    slots))
 
 (define-method (compute-getter-method (class <class>) slot)
-  (let ((name (slot-definition-name slot)))
-    (make <accessor-method>
-          #:specializers (list class)
-          #:procedure (lambda (o) (slot-ref o name))
-          #:slot-definition slot)))
+  (make <accessor-method>
+    #:specializers (list class)
+    #:procedure (slot-definition-slot-ref slot)
+    #:slot-definition slot))
 
 (define-method (compute-setter-method (class <class>) slot)
-  (let ((name (slot-definition-name slot)))
-    (make <accessor-method>
-      #:specializers (list class <top>)
-      #:procedure (lambda (o v) (slot-set! o name v))
-      #:slot-definition slot)))
+  (make <accessor-method>
+    #:specializers (list class <top>)
+    #:procedure (slot-definition-slot-set! slot)
+    #:slot-definition slot))
 
 (define (make-generic-bound-check-getter proc)
   (lambda (o)
