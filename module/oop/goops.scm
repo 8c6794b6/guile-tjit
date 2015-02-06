@@ -277,6 +277,9 @@
 (define-inlinable (instance? obj)
   (class-has-flags? (struct-vtable obj) vtable-flag-goops-class))
 
+(define (class-has-statically-allocated-slots? class)
+  (class-has-flags? class vtable-flag-goops-static))
+
 ;;;
 ;;; Now that we know the slots that must be present in classes, and
 ;;; their offsets, we can create the root of the class hierarchy.
@@ -638,10 +641,14 @@ followed by its associated value.  If @var{l} does not hold a value for
           ((slot . slots)
            (or (eq? (%slot-definition-name slot) name) (lp slots)))))))
   (define (check-cpl slots static-slots)
-    (when (or-map (lambda (slot) (slot-memq slot slots)) static-slots)
-      (scm-error 'misc-error #f
-                 "a predefined static inherited field cannot be redefined"
-                 '() '())))
+    (match static-slots
+      (() #t)
+      ((static-slot . static-slots)
+       (when (slot-memq static-slot slots)
+         (scm-error 'misc-error #f
+                    "statically allocated inherited field cannot be redefined: ~a"
+                    (list (%slot-definition-name static-slot)) '()))
+       (check-cpl slots static-slots))))
   (define (remove-duplicate-slots slots)
     (let lp ((slots (reverse slots)) (res '()) (seen '()))
       (match slots
@@ -653,13 +660,13 @@ followed by its associated value.  If @var{l} does not hold a value for
                (lp slots (cons slot res) (cons name seen))))))))
   ;; For subclases of <class> and <slot>, we need to ensure that the
   ;; <class> or <slot> slots come first.
-  (let* ((static-slots (cond
-                        ((memq <class> cpl)
-                         (when (memq <slot> cpl) (error "invalid class"))
-                         (struct-ref <class> class-index-slots))
-                        ((memq <slot> cpl)
-                         (struct-ref <slot> class-index-slots))
-                        (else #f))))
+  (let ((static-slots
+         (match (filter class-has-statically-allocated-slots? (cdr cpl))
+           (() #f)
+           ((class) (struct-ref class class-index-direct-slots))
+           (classes
+            (error "can't subtype multiple classes with static slot allocation"
+                   classes)))))
     (when static-slots
       (check-cpl dslots static-slots))
     (let lp ((cpl (cdr cpl)) (res dslots) (static-slots '()))
@@ -670,7 +677,7 @@ followed by its associated value.  If @var{l} does not hold a value for
            (cond
             ((not static-slots)
              (lp cpl (append new-slots res) static-slots))
-            ((or (eq? head <class>) (eq? head <slot>))
+            ((class-has-statically-allocated-slots? head)
              ;; Move static slots to the head of the list.
              (lp cpl res new-slots))
             (else
@@ -912,7 +919,12 @@ slots as we go."
   (initialize-direct-slots! <class> fold-class-slots)
 
   (initialize-slots! <class>)
-  (initialize-slots! <slot>))
+  (initialize-slots! <slot>)
+
+  ;; Now that we're all done with that, mark <class> and <slot> as
+  ;; static.
+  (class-add-flags! <class> vtable-flag-goops-static)
+  (class-add-flags! <slot> vtable-flag-goops-static))
 
 
 
@@ -2834,6 +2846,13 @@ var{initargs}."
   (struct-set! class class-index-direct-methods '())
   (struct-set! class class-index-redefined #f)
   (struct-set! class class-index-cpl (compute-cpl class))
+  (when (get-keyword #:static-slot-allocation? initargs #f)
+    (match (filter class-has-statically-allocated-slots?
+                   (class-precedence-list class))
+      (()
+       (class-add-flags! class vtable-flag-goops-static))
+      (classes
+       (error "Class has superclasses with static slot allocation" classes))))
   (struct-set! class class-index-direct-slots
                (map (lambda (slot)
                       (if (slot? slot)

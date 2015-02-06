@@ -63,8 +63,10 @@
     (if finalizer
         (make-class '() dslots #:name name
                     #:finalizer finalizer
+                    #:static-slot-allocation? #t
                     #:metaclass <foreign-class-with-finalizer>)
         (make-class '() dslots #:name name
+                    #:static-slot-allocation? #t
                     #:metaclass <foreign-class>))))
 
 (define-syntax define-foreign-object-type

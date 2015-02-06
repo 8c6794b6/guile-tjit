@@ -657,3 +657,26 @@
     (pass-if-equal "b accessor on ba" 'b (b-accessor ba))
     (pass-if-equal "b accessor on cab" 'b (b-accessor cab))
     (pass-if-equal "b accessor on cba" 'b (b-accessor cba))))
+
+(with-test-prefix "static slot allocation"
+  (let* ((<a> (class () (a) #:name '<a> #:static-slot-allocation? #t))
+         (<b> (class () (b) #:name '<b> #:static-slot-allocation? #t))
+         (<c> (class () (c) #:name '<c>))
+         (<ac> (class (<a> <c>) #:name '<ac>))
+         (<ca> (class (<c> <a>) #:name '<ca>)))
+    (pass-if-equal "slots of <ac>" '(a c)
+      (map slot-definition-name (class-slots <ac>)))
+    (pass-if-equal "slots of <ca>" '(a c)
+      (map slot-definition-name (class-slots <ca>)))
+    (pass-if-exception "can't make <ab>"
+        '(misc-error . "static slot")
+      (class (<a> <b>) #:name '<ab>))
+    ;; It should be possible to create subclasses of static classes
+    ;; whose slots are statically allocated, as long as there is no
+    ;; diamond inheritance among static superclasses, but for now we
+    ;; don't support it at all.
+    (pass-if-exception "static subclass"
+        '(misc-error . "static slot")
+      (class (<a>) (slot) #:name '<static-sub> #:static-slot-allocation? #t))
+    (pass-if-equal "non-static subclass" '(a d)
+      (map slot-definition-name (class-slots (class (<a>) (d) #:name '<ad>))))))
