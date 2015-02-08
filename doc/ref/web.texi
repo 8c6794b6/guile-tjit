@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C) 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+@c Copyright (C) 2010, 2011, 2012, 2013, 2015 Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
 @node Web
@@ -184,6 +184,13 @@ URIs have a scheme and a path (though the path might be empty).  Some
 URIs have a host, and some of those have ports and userinfo.  Any URI
 might have a query part or a fragment.
 
+There is also a ``URI-reference'' data type, which is the same as a URI
+but where the scheme is optional.  In this case, the scheme is taken to
+be relative to some other related URI.  A common use of URI references
+is when you want to be vague regarding the choice of HTTP or HTTPS --
+serving a web page referring to @code{/foo.css} will use HTTPS if loaded
+over HTTPS, or HTTP otherwise.
+
 Userinfo is something of an abstraction, as some legacy URI schemes
 allowed userinfo of the form @code{@var{username}:@var{passwd}}.  But
 since passwords do not belong in URIs, the RFC does not want to condone
@@ -217,6 +224,16 @@ also run some consistency checks to make sure that the constructed URI
 is valid.
 @end deffn
 
+@deffn {Scheme Procedure} build-uri-reference [#:scheme=@code{#f}]@
+       [#:userinfo=@code{#f}] [#:host=@code{#f}] [#:port=@code{#f}] @
+       [#:path=@code{""}] [#:query=@code{#f}] [#:fragment=@code{#f}] @
+       [#:validate?=@code{#t}]
+Like @code{build-uri}, but with an optional scheme.
+@end deffn
+
+In Guile, both URI and URI reference data types are represented in the
+same way, as URI objects.
+
 @deffn {Scheme Procedure} uri? obj
 @deffnx {Scheme Procedure} uri-scheme uri
 @deffnx {Scheme Procedure} uri-userinfo uri
@@ -226,13 +243,20 @@ is valid.
 @deffnx {Scheme Procedure} uri-query uri
 @deffnx {Scheme Procedure} uri-fragment uri
 A predicate and field accessors for the URI record type.  The URI scheme
-will be a symbol, the port either a positive, exact integer or @code{#f},
-and the rest either strings or @code{#f} if not present.
+will be a symbol, or @code{#f} if the object is a URI reference but not
+a URI.  The port will be either a positive, exact integer or @code{#f},
+and the rest of the fields will be either strings or @code{#f} if not
+present.
 @end deffn
 
 @deffn {Scheme Procedure} string->uri string
 Parse @var{string} into a URI object.  Return @code{#f} if the string
 could not be parsed.
+@end deffn
+
+@deffn {Scheme Procedure} string->uri-reference string
+Parse @var{string} into a URI object, while not requiring a scheme.
+Return @code{#f} if the string could not be parsed.
 @end deffn
 
 @deffn {Scheme Procedure} uri->string uri
@@ -265,9 +289,6 @@ character encodings.
 Returns a string of the decoded characters, or a bytevector if
 @var{encoding} was @code{#f}.
 @end deffn
-
-Fixme: clarify return type. indicate default values. type of
-unescaped-chars.
 
 @deffn {Scheme Procedure} uri-encode str [#:encoding=@code{"utf-8"}] [#:unescaped-chars]
 Percent-encode any character not in the character set,
@@ -975,9 +996,10 @@ The entity-tag of the resource.
 @end example
 @end deftypevr
 
-@deftypevr {HTTP Header} URI location
-A URI on which a request may be completed.  Used in combination with a
-redirecting status code to perform client-side redirection.
+@deftypevr {HTTP Header} URI-reference location
+A URI reference on which a request may be completed.  Used in
+combination with a redirecting status code to perform client-side
+redirection.
 @example
 (parse-header 'location "http://example.com/other")
 @result{} #<uri ...>
