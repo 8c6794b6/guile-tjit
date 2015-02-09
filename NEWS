@@ -1,5 +1,5 @@
 Guile NEWS --- history of user-visible changes.
-Copyright (C) 1996-2014 Free Software Foundation, Inc.
+Copyright (C) 1996-2015 Free Software Foundation, Inc.
 See the end for copying conditions.
 
 Please send Guile bug reports to bug-guile@gnu.org.
@@ -80,20 +80,35 @@ loop that collect its results in reverse order only to re-reverse them
 at the end, now you can just recurse without worrying about stack
 overflows.
 
+Using the stack also allows more code to be continuation-safe.  For
+example, returning multiple times from a `map' procedure in Guile 2.0
+would change the value of previously returned result lists, because
+`map' built its result list in reverse order then used `reverse!' to
+return the proper result.  Now in Guile 2.2, `map' is implemented using
+straightforward recursion, which eliminates this bug while maintaining
+good performance as well as good space complexity.
+
 ** Out-of-memory improvements
 
 Instead of aborting, failures to allocate memory will now raise an
 unwind-only `out-of-memory' exception, and cause the corresponding
 `catch' expression to run garbage collection in order to free up memory.
 
+** GOOPS core reimplemented in Scheme
+
+Guile's object orientation system, GOOPS, has been mostly reimplemented
+in Scheme.  This decreases its maintenance burden on the rest of Guile,
+while also makes it possible to implement new features in the future,
+such as method combinations or `eqv?' specializers.
+
 * Performance improvements
 
 ** Faster programs via new virtual machine
 
-Guile's new virtual machine compiles programs to instructions for a new
-virtual machine.  The new virtual machine's instructions can address
-their source and destination operands by "name" (slot).  This makes
-access to named temporary values much faster, and removes a lot of
+Guile now compiles programs to instructions for a new virtual machine.
+The new virtual machine's instructions can address their source and
+destination operands by "name" (slot).  This makes access to named
+temporary values much faster than in Guile 2.0, and removes a lot of
 value-shuffling that the old virtual machine had to do.  The end result
 is that loop-heavy code can be two or three times as fast with Guile 2.2
 as in 2.0.  Your mileage may vary, of course; see "A Virtual Machine for
@@ -222,6 +237,20 @@ See XXX for more on `scm_from_port_string', `scm_from_port_stringn',
 
 See "PEG Parsing" in the manual for more.  Thanks to Michael Lucy for
 originally writing these, and to Noah Lavine for integration work.
+
+** `make-stack' now also works on delimited continuations
+
+** Better URI-reference support
+
+The `(web uri)' module now has interfaces for handling URI references,
+which might not have a scheme.  The Location header of a web request or
+response is now a URI reference instead of a URI.  Also,
+`request-absolute-uri' now has an optional default scheme argument.  See
+"Web" in the manual for full details.
+
+** formal-name->char, char->formal-name
+
+See "Characters", in the manual.
 
 * Incompatible changes
 
@@ -394,6 +423,53 @@ Notably, the definition of scm_t_array_handle has now changed, to not
 include the (undocumented) "impl" member.  We are sorry for any
 inconvenience this may cause.
 
+** `scm_make' is now equivalent to Scheme `make'
+
+It used to be that `scm_make' only implemented a hard-wired object
+allocation and initialization protocol.  This was because `scm_make' was
+used while GOOPS booted its own, more complete `make' implementation in
+Scheme.  Now that we've re-implemented everything in Scheme, the C
+`scm_make' now dispatches directly to Scheme `make', which implements
+the full protocol.  This change is incompatible in some ways, but on the
+whole is good news for GOOPS users.
+
+** GOOPS slot definitions are now objects
+
+Slot definitions are now instances of a <slot> class, instead of being
+specially formatted lists.  To most user code, this is transparent, as
+the slot definition accessors like `slot-definition-name' continue to
+work.  However, code that for example uses `car' to get the name of a
+slot definition will need to be updated to use the accessors.
+
+** Class slot changes
+
+Class objects no longer have a `default-slot-definition-class' slot,
+which was never used.  They also no longer have slots for hashsets
+(`h0', `h1', and so on up to `h7'), which have been unused since Guile
+2.0 and were not a great idea.
+
+There is a new class option, `#:static-slot-allocation?'.  See the
+manual for details.
+
+** Removal of internal, unintentionally exposed GOOPS C interfaces
+
+These include: `scm_sys_fast_slot_ref', `scm_sys_fast_slot_set_x'
+`scm_basic_basic_make_class', `scm_sys_compute_slots',
+`scm_sys_prep_layout_x' `scm_t_method', `SCM_METHOD',
+`scm_s_slot_set_x', `SCM_CLASS_CLASS_LAYOUT', `scm_si_slotdef_class',
+`scm_si_generic_function', `scm_si_specializers', `scm_si_procedure',
+`scm_si_formals', `scm_si_body', `scm_si_make_procedure',
+`SCM_CLASS_CLASS_LAYOUT', `SCM_INSTANCE_HASH', `SCM_SET_HASHSET', `union
+scm_t_debug_info', `scm_pure_generic_p', `SCM_PUREGENERICP',
+`SCM_VALIDATE_PUREGENERIC', `SCM_VTABLE_FLAG_GOOPS_PURE_GENERIC',
+`SCM_CLASSF_PURE_GENERIC', `scm_c_extend_primitive_generic',
+`scm_sys_initialize_object', `SCM_CLASS_CLASS_LAYOUT',
+`scm_si_redefined', `scm_si_direct_supers', `scm_si_direct_slots',
+`scm_si_direct_subclasses', `scm_si_direct_methods', `scm_si_cpl'
+`scm_si_slots', `scm_si_getters_n_setters', `SCM_N_CLASS_SLOTS',
+`SCM_OBJ_CLASS_REDEF', `SCM_INST', `SCM_ACCESSORS_OF',
+`scm_sys_allocate_instance', and `scm_sys_invalidate_class_x'.
+
 * New deprecations
 
 ** SCM_WTA_DISPATCH_0, SCM_WTA_DISPATCH_1, SCM_WTA_DISPATCH_2, SCM_WTA_DISPATCH_N
@@ -404,6 +480,47 @@ These macros were used in dispatching primitive generics.  They can be
 replaced by using C functions (the same name but in lower case), if
 needed, but this is a hairy part of Guile that perhaps you shouldn't be
 using.
+
+** scm_compute_applicable_methods and scm_find_method
+
+Use `compute-applicable-methods' from Scheme instead.
+
+** scm_no_applicable_method
+
+Fetch no-applicable-method from the GOOPS exports if you need it.
+
+** scm_class_boolean, scm_class_char, scm_class_pair
+** scm_class_procedure, scm_class_string, scm_class_symbol
+** scm_class_primitive_generic, scm_class_vector, scm_class_null
+** scm_class_real, scm_class_complex, scm_class_integer
+** scm_class_fraction, scm_class_unknown, scm_class_top
+** scm_class_object, scm_class_class, scm_class_applicable
+** scm_class_applicable_struct, scm_class_applicable_struct_with_setter
+** scm_class_generic, scm_class_generic_with_setter, scm_class_accessor
+** scm_class_extended_generic, scm_class_extended_generic_with_setter
+** scm_class_extended_accessor, scm_class_method
+** scm_class_accessor_method, scm_class_procedure_class
+** scm_class_applicable_struct_class, scm_class_number, scm_class_list
+** scm_class_keyword, scm_class_port, scm_class_input_output_port
+** scm_class_input_port, scm_class_output_port, scm_class_foreign_slot
+** scm_class_self, scm_class_protected, scm_class_hidden
+** scm_class_opaque, scm_class_read_only, scm_class_protected_hidden
+** scm_class_protected_opaque, scm_class_protected_read_only
+** scm_class_scm, scm_class_int, scm_class_float, scm_class_double
+** scm_port_class, scm_smob_class
+
+These class exports are now deprecated.  Instead, look up the ones you
+need from the GOOPS module, or use `scm_class_of' on particular values.
+
+** scm_get_keyword
+
+Instead from Scheme use kw-arg-ref or real keyword arguments, and from C
+use `scm_c_bind_keyword_arguments'.
+
+** scm_slot_ref_using_class, scm_slot_set_using_class_x
+** scm_slot_bound_using_class_p, scm_slot_exists_using_class_p
+
+Instead use the normal `scm_slot_ref' and similar procedures.
 
 * Changes to the distribution
 

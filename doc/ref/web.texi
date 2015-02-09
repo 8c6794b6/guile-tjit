@@ -1263,11 +1263,13 @@ more information on the format of parsed headers.
 Return the given request header, or @var{default} if none was present.
 @end deffn
 
-@deffn {Scheme Procedure} request-absolute-uri r [default-host=#f] [default-port=#f]
+@deffn {Scheme Procedure} request-absolute-uri r [default-host=#f] @
+       [default-port=#f] [default-scheme=#f]
 A helper routine to determine the absolute URI of a request, using the
-@code{host} header and the default host and port.
+@code{host} header and the default scheme, host and port.  If there is
+no default scheme and the URI is not itself absolute, an error is
+signalled.
 @end deffn
-
 
 @node Responses
 @subsection HTTP Responses

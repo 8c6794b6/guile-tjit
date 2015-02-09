@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  2008,2009,2010,2011,2013
+@c Copyright (C)  2008,2009,2010,2011,2013,2015
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -678,10 +678,25 @@ number can be had by subtracting the address of @var{proc} from the
 post-call @code{sp}.
 @end deftypefn
 
+@deftypefn Instruction {} call-label u24:@var{proc} x8:@var{_} u24:@var{nlocals} l32:@var{label}
+Call a procedure in the same compilation unit.
+
+This instruction is just like @code{call}, except that instead of
+dereferencing @var{proc} to find the call target, the call target is
+known to be at @var{label}, a signed 32-bit offset in 32-bit units from
+the current @code{ip}.  Since @var{proc} is not dereferenced, it may be
+some other representation of the closure.
+@end deftypefn
+
 @deftypefn Instruction {} tail-call u24:@var{nlocals}
 Tail-call a procedure.  Requires that the procedure and all of the
 arguments have already been shuffled into position.  Will reset the
 frame to @var{nlocals}.
+@end deftypefn
+
+@deftypefn Instruction {} tail-call-label u24:@var{nlocals} l32:@var{label}
+Tail-call a known procedure.  As @code{call} is to @code{call-label},
+@code{tail-call} is to @code{tail-call-label}.
 @end deftypefn
 
 @deftypefn Instruction {} tail-call/shuffle u24:@var{from}
@@ -937,6 +952,11 @@ in @var{b}, respectively, add @var{offset} to the current instruction
 pointer.
 @end deftypefn
 
+@deftypefn Instruction {} br-if-logtest u12:@var{a} u12:@var{b} b1:@var{invert} x7:@var{_} l24:@var{offset}
+If the bitwise intersection of the integers in @var{a} and @var{b} is
+nonzero, add @var{offset} to the current instruction pointer.
+@end deftypefn
+
 
 @node Constant Instructions
 @subsubsection Constant Instructions
@@ -1125,6 +1145,12 @@ procedures.  It tries to inline these small operations to avoid the
 overhead of creating new stack frames.  This allows the compiler to
 optimize better.
 
+@deftypefn Instruction {} make-vector u8:@var{dst} u8:@var{length} u8:@var{init}
+Make a vector and write it to @var{dst}.  The vector will have space for
+@var{length} slots.  They will be filled with the value in slot
+@var{init}.
+@end deftypefn
+
 @deftypefn Instruction {} make-vector/immediate u8:@var{dst} u8:@var{length} u8:@var{init}
 Make a short vector of known size and write it to @var{dst}.  The vector
 will have space for @var{length} slots, an immediate value.  They will
@@ -1158,27 +1184,33 @@ Store @var{src} into the vector @var{dst} at index @var{idx}.  Here
 Store the vtable of @var{src} into @var{dst}.
 @end deftypefn
 
-@deftypefn Instruction {} allocate-struct/immediate u8:@var{dst} u8:@var{vtable} u8:@var{nfields}
+@deftypefn Instruction {} allocate-struct u8:@var{dst} u8:@var{vtable} u8:@var{nfields}
 Allocate a new struct with @var{vtable}, and place it in @var{dst}.  The
 struct will be constructed with space for @var{nfields} fields, which
 should correspond to the field count of the @var{vtable}.
 @end deftypefn
 
-@deftypefn Instruction {} struct-ref/immediate u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefn Instruction {} struct-ref u8:@var{dst} u8:@var{src} u8:@var{idx}
 Fetch the item at slot @var{idx} in the struct in @var{src}, and store
-it in @var{dst}.  @var{idx} is an immediate unsigned 8-bit value.
+it in @var{dst}.
 @end deftypefn
 
-@deftypefn Instruction {} struct-set!/immediate u8:@var{dst} u8:@var{idx} u8:@var{src}
-Store @var{src} into the struct @var{dst} at slot @var{idx}.  @var{idx}
-is an immediate unsigned 8-bit value.
+@deftypefn Instruction {} struct-set! u8:@var{dst} u8:@var{idx} u8:@var{src}
+Store @var{src} into the struct @var{dst} at slot @var{idx}.
+@end deftypefn
+
+@deftypefn Instruction {} allocate-struct/immediate u8:@var{dst} u8:@var{vtable} u8:@var{nfields}
+@deftypefnx Instruction {} struct-ref/immediate u8:@var{dst} u8:@var{src} u8:@var{idx}
+@deftypefnx Instruction {} struct-set!/immediate u8:@var{dst} u8:@var{idx} u8:@var{src}
+Variants of the struct instructions, but in which the @var{nfields} or
+@var{idx} fields are immediate values.
 @end deftypefn
 
 @deftypefn Instruction {} class-of u12:@var{dst} u12:@var{type}
 Store the vtable of @var{src} into @var{dst}.
 @end deftypefn
 
-@deftypefn Instruction {} make-array u12:@var{dst} u12:@var{type} x8:@var{_} u12:@var{fill} u12:@var{bounds}
+@deftypefn Instruction {} make-array u8:@var{dst} u8:@var{type} u8:@var{fill} x8:@var{_} u24:@var{bounds}
 Make a new array with @var{type}, @var{fill}, and @var{bounds}, storing it in @var{dst}.
 @end deftypefn
 
