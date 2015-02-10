@@ -4,7 +4,7 @@
 #define SCM_SMOB_H
 
 /* Copyright (C) 1995, 1996, 1998, 1999, 2000, 2001, 2004, 2006, 2009,
- *   2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2010, 2011, 2012, 2015 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -189,6 +189,8 @@ SCM_API void scm_set_smob_apply (scm_t_bits tc,
 				 unsigned int req,
 				 unsigned int opt,
 				 unsigned int rst);
+
+SCM_API SCM scm_smob_type_class (scm_t_bits tc);
 
 SCM_API void scm_assert_smob_type (scm_t_bits tag, SCM val);
 

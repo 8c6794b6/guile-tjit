@@ -443,6 +443,18 @@ scm_i_new_double_smob (scm_t_bits tc, scm_t_bits data1,
   return ret;
 }
 
+
+
+
+SCM
+scm_smob_type_class (scm_t_bits tc)
+{
+  scm_load_goops ();
+
+  return scm_i_smob_class[SCM_TC2SMOBNUM (tc)];
+}
+
+
 
 void
 scm_smob_prehistory ()
