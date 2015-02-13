@@ -1,6 +1,6 @@
 ;;;; syncase.test --- test suite for (ice-9 syncase)            -*- scheme -*-
 ;;;;
-;;;; 	Copyright (C) 2001, 2006, 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2001, 2006, 2009, 2010, 2011, 2013, 2015 Free Software Foundation, Inc.
 ;;;; 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -307,3 +307,18 @@
   (pass-if-syntax-error "primref in (guile)"
     "not in operator position"
     (macroexpand '(@@ @@ (guile) (@@ primitive cons)))))
+
+(pass-if "infinite loop bug"
+  (begin
+    (macroexpand
+     '(let-syntax
+          ((define-foo
+             (syntax-rules ()
+               ((define-foo a b)
+                (begin
+                  (define a '())
+                  ;; Oddly, the "*" in the define* seems to be
+                  ;; important in triggering this bug.
+                  (define* (b) (set! a a)))))))
+        (define-foo a c)))
+    #t))

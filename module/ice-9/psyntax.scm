@@ -1,7 +1,7 @@
 ;;;; -*-scheme-*-
 ;;;;
 ;;;; Copyright (C) 2001, 2003, 2006, 2009, 2010, 2011,
-;;;;   2012, 2013 Free Software Foundation, Inc.
+;;;;   2012, 2013, 2015 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -890,9 +890,20 @@
       (let ((n (id-var-name id w mod)))
         (cond
          ((syntax-object? n)
-          ;; Recursing allows syntax-parameterize to override
-          ;; macro-introduced syntax parameters.
-          (resolve-identifier n w r mod resolve-syntax-parameters?))
+          (cond
+           ((not (eq? n id))
+            ;; This identifier aliased another; recurse to allow
+            ;; syntax-parameterize to override macro-introduced syntax
+            ;; parameters.
+            (resolve-identifier n w r mod resolve-syntax-parameters?))
+           (else
+            ;; Resolved to a free variable that was introduced by this
+            ;; macro; continue to resolve this global by name.
+            (resolve-identifier (syntax-object-expression n)
+                                (syntax-object-wrap n)
+                                r
+                                (syntax-object-module n)
+                                resolve-syntax-parameters?))))
          ((symbol? n)
           (resolve-global n (if (syntax-object? id)
                                 (syntax-object-module id)

@@ -463,7 +463,14 @@
                 (values (car b) (cdr b) mod)))))
          (let ((n (id-var-name id w mod)))
            (cond ((syntax-object? n)
-                  (resolve-identifier n w r mod resolve-syntax-parameters?))
+                  (if (not (eq? n id))
+                    (resolve-identifier n w r mod resolve-syntax-parameters?)
+                    (resolve-identifier
+                      (syntax-object-expression n)
+                      (syntax-object-wrap n)
+                      r
+                      (syntax-object-module n)
+                      resolve-syntax-parameters?)))
                  ((symbol? n)
                   (resolve-global
                     n
