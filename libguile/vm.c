@@ -54,6 +54,7 @@ static SCM sym_vm_error;
 static SCM sym_keyword_argument_error;
 static SCM sym_regular;
 static SCM sym_debug;
+static SCM sym_lightning;
 
 /* The page size.  */
 static size_t page_size;
@@ -753,11 +754,17 @@ scm_i_call_with_current_continuation (SCM proc)
 #undef VM_USE_HOOKS
 #undef VM_NAME
 
+#define VM_NAME vm_lightning_engine
+#define VM_USE_HOOKS 0
+#include "vm-lightning.c"
+#undef VM_USE_HOOKS
+#undef VM_NAME
+
 typedef SCM (*scm_t_vm_engine) (scm_i_thread *current_thread, struct scm_vm *vp,
                                 scm_i_jmp_buf *registers, int resume);
 
 static const scm_t_vm_engine vm_engines[SCM_VM_NUM_ENGINES] =
-  { vm_regular_engine, vm_debug_engine };
+  { vm_regular_engine, vm_debug_engine, vm_lightning_engine };
 
 static union scm_vm_stack_element*
 allocate_stack (size_t size)
@@ -1326,10 +1333,12 @@ symbol_to_vm_engine (SCM engine, const char *FUNC_NAME)
     return SCM_VM_REGULAR_ENGINE;
   else if (scm_is_eq (engine, sym_debug))
     return SCM_VM_DEBUG_ENGINE;
+  else if (scm_is_eq (engine, sym_lightning))
+    return SCM_VM_LIGHTNING_ENGINE;
   else
     SCM_MISC_ERROR ("Unknown VM engine: ~a", scm_list_1 (engine));
 }
-  
+
 static SCM
 vm_engine_to_symbol (int engine, const char *FUNC_NAME)
 {
@@ -1521,6 +1530,7 @@ scm_bootstrap_vm (void)
   sym_keyword_argument_error = scm_from_latin1_symbol ("keyword-argument-error");
   sym_regular = scm_from_latin1_symbol ("regular");
   sym_debug = scm_from_latin1_symbol ("debug");
+  sym_lightning = scm_from_latin1_symbol ("lightning");
 
   vm_boot_continuation = scm_i_make_program (vm_boot_continuation_code);
   SCM_SET_CELL_WORD_0 (vm_boot_continuation,

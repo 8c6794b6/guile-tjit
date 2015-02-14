@@ -139,6 +139,10 @@ AC_ARG_ENABLE(guile-debug,
     SCM_I_GSC_GUILE_DEBUG=1
   fi)
 
+AC_ARG_ENABLE(lightning,
+  [  --enable-lightning      build vm-lightning (experimental)],,
+  enable_lightning=no)
+
 AC_ARG_ENABLE(posix,
   [  --disable-posix         omit non-essential POSIX interfaces],,
   enable_posix=yes)
@@ -1312,6 +1316,20 @@ if test $scm_cv_struct_timespec = yes; then
   AC_DEFINE([HAVE_SYSTEM_STRUCT_TIMESPEC], 1,
     [Define this if your system defines struct timespec via either <time.h> or <pthread.h>.])
 fi
+
+#--------------------------------------------------------------------
+#
+# GNU Lightning - JIT library
+#
+#--------------------------------------------------------------------
+if test "$enable_lightning" = yes || test "$enable_lightning" = ""; then
+    AC_DEFINE([BUILD_VM_LIGHTNING], 1, [Build VM lightning.])
+    PKG_CHECK_MODULES([LIGHTNING],[lightning >= 2.0])
+    save_LIBS="$LIBS"
+    LIBS="$LIGHTNING_LIBS $LIBS"
+    CFLAGS="$LIGHTNING_CFLAGS $CFLAGS"
+fi
+
 
 #--------------------------------------------------------------------
 #

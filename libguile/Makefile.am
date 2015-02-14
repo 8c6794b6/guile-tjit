@@ -168,6 +168,7 @@ libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES =				\
 	instructions.c				\
 	ioext.c					\
 	keywords.c				\
+	lightning-binding.c                     \
 	list.c					\
 	load.c					\
 	loader.c				\
@@ -274,6 +275,7 @@ DOT_X_FILES =					\
 	instructions.x				\
 	ioext.x					\
 	keywords.x				\
+	lightning-binding.x                     \
 	list.x					\
 	load.x					\
 	loader.x				\
@@ -508,7 +510,7 @@ noinst_HEADERS = conv-integer.i.c conv-uinteger.i.c		\
 		 private-options.h ports-internal.h
 
 # vm instructions
-noinst_HEADERS += vm-engine.c
+noinst_HEADERS += vm-engine.c vm-lightning.c
 
 libguile_@GUILE_EFFECTIVE_VERSION@_la_DEPENDENCIES = @LIBLOBJS@
 
@@ -520,6 +522,7 @@ version_info = @LIBGUILE_INTERFACE_CURRENT@:@LIBGUILE_INTERFACE_REVISION@:@LIBGU
 
 libguile_@GUILE_EFFECTIVE_VERSION@_la_LDFLAGS =	\
   $(BDW_GC_LIBS) $(LIBFFI_LIBS)			\
+  $(LIGHTNING_LIBS)                             \
   $(CEIL_LIBM)					\
   $(FLOOR_LIBM)					\
   $(FREXP_LIBM)					\

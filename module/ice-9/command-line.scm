@@ -128,6 +128,7 @@ If FILE begins with `-' the -s switch is mandatory.
   --no-debug     start with the normal VM engine (backtraces but
                  no breakpoints); default is --debug for interactive
                  use, but not for `-s' and `-c'.
+  --lightning    start with the \"lightning\" VM engine (EXPERIMENTAL)
   --auto-compile compile source files automatically
   --fresh-auto-compile  invalidate auto-compilation cache
   --no-auto-compile  disable automatic source file compilation;
@@ -201,7 +202,8 @@ If FILE begins with `-' the -s switch is mandatory.
         (interactive? #t)
         (inhibit-user-init? #f)
         (turn-on-debugging? #f)
-        (turn-off-debugging? #f))
+        (turn-off-debugging? #f)
+        (lightning? #f))
 
     (define (error fmt . args)
       (apply shell-usage usage-name #t
@@ -406,6 +408,10 @@ If FILE begins with `-' the -s switch is mandatory.
                          (assq-ref %guile-build-info 'packager-version))
             (exit 0))
 
+           ((string=? arg "--lightning")
+            (set! lightning? #t)
+            (parse args out))
+
            (else
             (error "unrecognized switch ~a" arg)))))))
 
@@ -425,7 +431,13 @@ If FILE begins with `-' the -s switch is mandatory.
           (begin
             (set-default-vm-engine! 'debug)
             (set-vm-engine! 'debug)))
-      
+
+      ;; Use vm-lightning engine
+      (when lightning?
+        (use-modules (system vm lightning))
+        (set-default-vm-engine! 'lightning)
+        (set-vm-engine! 'lightning))
+
       ;; Return this value.
       `(;; It would be nice not to load up (ice-9 control), but the
         ;; default-prompt-handler is nontrivial.

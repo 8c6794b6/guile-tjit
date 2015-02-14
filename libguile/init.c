@@ -75,6 +75,9 @@
 #include "libguile/instructions.h"
 #include "libguile/ioext.h"
 #include "libguile/keywords.h"
+#if BUILD_VM_LIGHTNING == 1
+#include "libguile/lightning-binding.h"
+#endif
 #include "libguile/list.h"
 #include "libguile/load.h"
 #include "libguile/macros.h"
@@ -446,6 +449,9 @@ scm_i_init_guile (void *base)
   scm_init_ioext ();
   scm_init_keywords ();    /* Requires smob_prehistory */
   scm_init_fports_keywords ();
+#if BUILD_VM_LIGHTNING == 1
+  scm_init_lightning ();
+#endif
   scm_init_list ();
   scm_init_random ();      /* Requires smob_prehistory */
   scm_init_macros ();      /* Requires smob_prehistory and random */
