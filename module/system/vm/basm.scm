@@ -25,6 +25,7 @@
 ;;; Code:
 
 (define-module (system vm basm)
+  #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (language bytecode)
   #:use-module (srfi srfi-9)
@@ -110,11 +111,6 @@
 
 (define runtime-call (make-call 0 (vector)))
 
-;; (define-record-type <runtime-obj>
-;;   (make-runtime-obj op)
-;;   runtime-obj?
-;;   (op runtime-obj-op))
-
 (define (basm-chunks->alist chunks)
   (sort (hash-fold (lambda (k v acc) (cons (cons k v) acc))
                    '()
@@ -146,7 +142,7 @@
         '()))
   (reverse (lp (make-hash-table) basm)))
 
-;; Hash table containing sizes of bytecode, in byte.
+;; Hash table containing size of bytecodes, in byte.
 (define *vm-op-sizes* (make-hash-table))
 
 (for-each
@@ -160,7 +156,7 @@
   (pointer->scm (dereference-pointer pointer)))
 
 ;; XXX: Refer C code.
-(define struct-procedure-index 1)
+(define struct-procedure-index 0)
 
 (define (ensure-program-addr program-or-addr)
   (or (and (program? program-or-addr)
@@ -181,9 +177,7 @@
 (define (proc->basm* seen program-or-addr args)
   (define (f op basm)
     (define (base-ip)
-      (if (program? program-or-addr)
-          (program-code program-or-addr)
-          program-or-addr))
+      (ensure-program-addr program-or-addr))
     (define (local-ref n)
       (vector-ref (basm-locals basm) n))
     (define (local-set! idx val)
@@ -210,12 +204,6 @@
         (let ((callee (proc->basm* seen
                                    (closure-addr proc)
                                    (locals->args proc-local nlocals))))
-          ;; (set-basm-callees! basm (basm-callees callee))
-          ;; (hash-for-each (lambda (k v)
-          ;;                  ;; (hashq-set! (basm-callees basm) k v)
-          ;;                  (format #t "basm-callees callee: ~a => ~a~%"
-          ;;                          k (basm-name v)))
-          ;;                (basm-callees callee))
           (hashq-set! (basm-callees basm) (closure-addr proc) callee)
           (hashq-set! (basm-callees basm)
                       (append (list 'closure (basm-ip basm)
@@ -241,14 +229,13 @@
        ;; `apply:'.
        ((not (hashq-ref seen (ensure-program-addr proc)))
         (hashq-set! seen (ensure-program-addr proc) #t)
-        (let ((callee (proc->basm* seen proc (locals->args proc-local nlocals))))
-          ;; (set-basm-callees! basm (basm-callees callee))
-          ;; (hash-for-each (lambda (k v)
-          ;;                  ;; (hashq-set! (basm-callees basm) k v)
-          ;;                  (format #t "basm-callees callee: ~a => ~a~%"
-          ;;                          k (basm-name v))
-          ;;                  )
-          ;;                (basm-callees callee))
+        (let ((callee (proc->basm* seen
+                                   ;; (ensure-program-addr proc)
+                                   (cond ((struct? proc)
+                                          (struct-ref proc 0))
+                                         (else
+                                          proc))
+                                   (locals->args proc-local nlocals))))
           (hashq-set! (basm-callees basm)
                       (ensure-program-addr proc)
                       callee)))))
@@ -306,6 +293,21 @@
              (vector-set! locals n (vector-ref args n))
              (lp (+ n 1))))
          (set-basm-locals! basm locals)))
+      (('assert-nargs-ge expected)
+       (let ((locals (make-vector expected *unspecified*)))
+         (set-basm-locals! basm locals)))
+      (('br-if-nargs-ne expected offset)
+       (let ((locals (make-vector expected *unspecified*)))
+         (set-basm-locals! basm locals)))
+      (('alloc-frame nlocals)
+       (let ((new-locals (make-vector nlocals *unspecified*))
+             (old-locals (basm-locals basm))
+             (old-length (vector-length (basm-locals basm))))
+         (let lp ((n 0))
+           (when (< n old-length)
+             (vector-set! new-locals n (vector-ref old-locals n))
+             (lp (+ n 1))))
+         (set-basm-locals! basm new-locals)))
 
       ;; Lexical binding instructions
       (('mov dst src)
@@ -317,11 +319,9 @@
       (('box-set dst src)
        (variable-set! (local-ref dst) (local-ref src)))
       (('make-closure dst offset nfree)
-       ;; (set-callee! (offset->addr offset) 0 0)
        (local-set! dst (make-closure (offset->addr offset)
                                      (make-vector nfree))))
       (('free-set! dst src idx)
-       ;; (local-set! dst runtime-call)
        (let ((p (local-ref dst)))
          (cond ((program? p)
                 (program-free-variable-set! p idx (local-ref src)))
@@ -330,7 +330,6 @@
                (else
                 (local-set! dst runtime-call)))))
       (('free-ref dst src idx)
-       ;; (local-set! dst runtime-call)
        (let ((p (local-ref src)))
          (cond ((and (program? p)
                      (< idx (program-num-free-variables p)))
@@ -351,27 +350,29 @@
               (offset->pointer
                (lambda (offset) (make-pointer (offset->addr offset))))
               (var (dereference-scm (offset->pointer var-offset))))
+         ;; (format #t "basm: toplevel-box, var=~a~%" var)
          (if (variable? var)
              (local-set! dst var)
-             (let ((resolved (module-variable
-                              (dereference-scm
-                               (offset->pointer mod-offset))
-                              (dereference-scm
-                               (offset->pointer sym-offset)))))
+             (let* ((mod (dereference-scm (offset->pointer mod-offset)))
+                    (sym (dereference-scm (offset->pointer sym-offset)))
+                    (resolved (module-variable (or mod the-root-module) sym)))
                (local-set! dst resolved)))))
       (('module-box dst var-offset mod-offset sym-offset bound?)
        (let* ((current (basm-ip basm))
               (offset->pointer
                (lambda (offset) (make-pointer (offset->addr offset))))
               (var (dereference-scm (offset->pointer var-offset))))
+         ;; (format #t "basm: module-box:~%")
+         ;; (format #t "basm:   var=~a~%" var)
+         ;; (format #t "basm:   mod=~a~%"
+         ;;         (resolve-module
+         ;;          (cdr (pointer->scm (offset->pointer mod-offset)))))
          (if (variable? var)
              (local-set! dst var)
-             (let ((resolved (module-variable
-                              (resolve-module
-                               (cdr (pointer->scm
-                                     (offset->pointer mod-offset))))
-                              (dereference-scm
-                               (offset->pointer sym-offset)))))
+             (let* ((mod (resolve-module
+                          (cdr (pointer->scm (offset->pointer mod-offset)))))
+                    (sym (dereference-scm (offset->pointer sym-offset)))
+                    (resolved (module-variable mod sym)))
                (local-set! dst resolved)))))
 
       (_ *unspecified*))
@@ -395,4 +396,5 @@
     (hashq-set! seen (ensure-program-addr program-or-addr) #t)
     (fold-program-code f
                        (make-basm name args free-vars prim-op?)
-                       (ensure-program-addr program-or-addr) #:raw? #t)))
+                       (ensure-program-addr program-or-addr)
+                       #:raw? #t)))

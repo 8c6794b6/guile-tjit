@@ -76,6 +76,18 @@
 (define-test (call-my-map xs) ('(1 2 3 4 5))
   (my-map add-one xs))
 
+(define (make-applicable-struct)
+  (make-procedure-with-setter
+   (lambda (obj)
+     (+ obj 1))
+   (lambda (obj val)
+     (list obj val))))
+
+(define applicable-struct (make-applicable-struct))
+
+(define-test (call-applicable-struct n) (99)
+  (applicable-struct n))
+
 ;;; Specialized call stubs
 
 ;;; Function prologues

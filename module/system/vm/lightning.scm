@@ -26,6 +26,7 @@
 
 (define-module (system vm lightning)
   #:use-module (ice-9 binary-ports)
+  #:use-module (ice-9 format)
   #:use-module (language bytecode)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
@@ -104,9 +105,12 @@ argument in VM operation."
   (pointer->scm (dereference-pointer pointer)))
 
 (define (ensure-program-code program-or-addr)
-    (if (program? program-or-addr)
-        (program-code program-or-addr)
-        program-or-addr))
+  (cond ((program? program-or-addr)
+         (program-code program-or-addr))
+        ((struct? program-or-addr)
+         (program-code (struct-ref program-or-addr 0)))
+        (else
+         program-or-addr)))
 
 ;; XXX: For x86-64.
 (define *cache-registers*
@@ -203,6 +207,7 @@ Naively load from 0 to (min NLOCALS (number of available cache registers))."
   (let* ((addr (ensure-program-code proc-or-addr))
          (callee (hashq-ref (lightning-nodes st) addr)))
     (jit-patch-at (jit-jmpi) callee)))
+
 
 (define (call-scm/returned st proc proc-or-addr)
   "Call local PROC in ST. PROC-OR-ADDR is the address of program code or program
@@ -755,6 +760,7 @@ procedure itself. Address to return after this call will get patched."
 ;;; Structs and GOOPS
 ;;; -----------------
 
+
 ;;; Arrays, packed uniform arrays, and bytevectors
 ;;; ----------------------------------------------
 
@@ -819,8 +825,16 @@ args passed to target procedure is NARGS."
                                              self #f)))
               (set-call-node! val (ensure-program-code result)))))))))
 
-  (let* ((basm (proc->basm program-or-addr args))
-         (pc (ensure-program-code program-or-addr))
+  (define (unwrap-non-program args program-or-addr)
+    (cond ((struct? program-or-addr)
+           (vector-set! args 0 (struct-ref program-or-addr 0))
+           args)
+          (else
+           args)))
+
+  (let* ((pc (ensure-program-code program-or-addr))
+         (args* (unwrap-non-program args program-or-addr))
+         (basm (proc->basm pc args*))
          (name
           (cond ((and (program? program-or-addr)
                       (procedure-name program-or-addr))
