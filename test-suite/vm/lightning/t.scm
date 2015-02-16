@@ -278,7 +278,31 @@
 (define-test (l-mul x y) (123 321)
   (* x y))
 
+(define-test (l-mul-fx-fl x y) (10 1.23)
+  (* x y))
+
+(define-test (l-mul-fl-fx x y) (1.23 10)
+  (* x y))
+
+(define-test (l-mul-fl-fl x y) (1.23 0.12)
+  (* x y))
+
+(define-test (l-mul-gmp x y) (1.23 9999999999999999999999999999)
+  (* x y))
+
 (define-test (l-div x y) (32 8)
+  (/ x y))
+
+(define-test (l-div-fx-fl x y) (10 1.23)
+  (/ x y))
+
+(define-test (l-div-fl-fx x y) (1.23 10)
+  (/ x y))
+
+(define-test (l-div-fl-fl x y) (1.23 0.12)
+  (/ x y))
+
+(define-test (l-div-gmp x y) (1.23 9999999999999999999999999999)
   (/ x y))
 
 

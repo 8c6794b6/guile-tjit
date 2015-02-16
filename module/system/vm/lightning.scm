@@ -233,8 +233,6 @@ procedure itself. Address to return after this call will get patched."
   (dynamic-func name (dynamic-link)))
 
 (define-syntax-rule (c-inline name)
-  ;; (dynamic-func name
-  ;;               (dynamic-link "libguile-vm-lightning"))
   (c-pointer name))
 
 (define-syntax-rule (define-label l body ...)
@@ -378,6 +376,44 @@ procedure itself. Address to return after this call will get patched."
          (jit-link l4)
          (local-set! st dst r0))))))
 
+(define-syntax define-vm-mul-div-op
+  (syntax-rules ()
+    ((_  (name st dst a b) fl-op cname)
+     (define-vm-op (name st dst a b)
+       (let ((l1 (jit-forward))
+             (l2 (jit-forward))
+             (l3 (jit-forward))
+             (rega (local-ref st a r1))
+             (regb (local-ref st b r2)))
+
+         (jit-patch-at (jit-bmsi rega (imm 2)) l2)
+         (jit-patch-at (jit-bmsi regb (imm 2)) l2)
+
+         (jit-link l1)
+         (jit-ldr r0 rega)
+         (jit-patch-at (jit-bnei r0 (imm tc16-real)) l2)
+         (jit-ldr r0 regb)
+         (jit-patch-at (jit-bnei r0 (imm tc16-real)) l2)
+         (jit-ldxi-d f5 rega (imm 16))
+         (jit-ldxi-d f6 regb (imm 16))
+         (fl-op f5 f5 f6)
+         (jit-prepare)
+         (jit-pushargi (lightning-thread st))
+         (jit-pushargr-d f5)
+         (jit-calli (c-inline "scm_do_inline_from_double"))
+         (jit-retval r0)
+         (jit-patch-at (jit-jmpi) l3)
+
+         (jit-link l2)
+         (jit-prepare)
+         (jit-pushargr rega)
+         (jit-pushargr regb)
+         (jit-calli (c-pointer cname))
+         (jit-retval r0)
+
+         (jit-link l3)
+         (local-set! st dst r0))))))
+
 (define-syntax define-vm-unary-step-op
   (syntax-rules ()
     ((_ (name st dst src) fx-op fl-op cname)
@@ -415,15 +451,6 @@ procedure itself. Address to return after this call will get patched."
 
          (jit-link l3)
          (local-set! st dst r0))))))
-
-(define-syntax-rule (define-vm-binary-c-op (name st dst a b) cname)
-  (define-vm-op (name st dst a b)
-    (jit-prepare)
-    (jit-pushargr (local-ref st a))
-    (jit-pushargr (local-ref st b))
-    (jit-calli (c-pointer cname))
-    (jit-retval r0)
-    (local-set! st dst r0)))
 
 
 ;;;
@@ -686,75 +713,11 @@ procedure itself. Address to return after this call will get patched."
 (define-vm-unary-step-op (sub1 st dst src)
   jit-bosubi jit-subr-d "scm_difference")
 
-(define-vm-op (mul st dst a b)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward))
-        (l3 (jit-forward))
-        (rega (local-ref st a r1))
-        (regb (local-ref st b r2)))
+(define-vm-mul-div-op (mul st dst a b)
+  jit-mulr-d "scm_product")
 
-    (jit-patch-at (jit-bmsi rega (imm 2)) l2)
-    (jit-patch-at (jit-bmsi regb (imm 2)) l2)
-
-    (jit-link l1)
-    (jit-ldr r0 rega)
-    (jit-patch-at (jit-bnei r0 (imm tc16-real)) l2)
-    (jit-ldr r0 regb)
-    (jit-patch-at (jit-bnei r0 (imm tc16-real)) l2)
-    (jit-ldxi-d f5 rega (imm 16))
-    (jit-ldxi-d f6 regb (imm 16))
-    (jit-mulr-d f5 f5 f6)
-    (jit-prepare)
-    (jit-pushargi (lightning-thread st))
-    (jit-pushargr-d f5)
-    (jit-calli (c-inline "scm_do_inline_from_double"))
-    (jit-retval r0)
-    (jit-patch-at (jit-jmpi) l3)
-
-    (jit-link l2)
-    (jit-prepare)
-    (jit-pushargr rega)
-    (jit-pushargr regb)
-    (jit-calli (c-pointer "scm_product"))
-    (jit-retval r0)
-
-    (jit-link l3)
-    (local-set! st dst r0)))
-
-(define-vm-op (div st dst a b)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward))
-        (l3 (jit-forward))
-        (rega (local-ref st a r1))
-        (regb (local-ref st b r2)))
-
-    (jit-patch-at (jit-bmsi rega (imm 2)) l2)
-    (jit-patch-at (jit-bmsi regb (imm 2)) l2)
-
-    (jit-link l1)
-    (jit-ldr r0 rega)
-    (jit-patch-at (jit-bnei r0 (imm tc16-real)) l2)
-    (jit-ldr r0 regb)
-    (jit-patch-at (jit-bnei r0 (imm tc16-real)) l2)
-    (jit-ldxi-d f5 rega (imm 16))
-    (jit-ldxi-d f6 regb (imm 16))
-    (jit-divr-d f5 f5 f6)
-    (jit-prepare)
-    (jit-pushargi (lightning-thread st))
-    (jit-pushargr-d f5)
-    (jit-calli (c-inline "scm_do_inline_from_double"))
-    (jit-retval r0)
-    (jit-patch-at (jit-jmpi) l3)
-
-    (jit-link l2)
-    (jit-prepare)
-    (jit-pushargr rega)
-    (jit-pushargr regb)
-    (jit-calli (c-pointer "scm_divide"))
-    (jit-retval r0)
-
-    (jit-link l3)
-    (local-set! st dst r0)))
+(define-vm-mul-div-op (div st dst a b)
+  jit-divr-d "scm_divide")
 
 
 ;;; Structs and GOOPS
