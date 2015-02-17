@@ -87,16 +87,60 @@ if the information is not available."
     "Return a representation of value VALUE as a string."
     (object->string (scm->object (value->integer value) backend))))
 
+(define (make-scm-pretty-printer-worker obj)
+  (define (list->iterator list)
+    (make-iterator list list
+                   (let ((n 0))
+                     (lambda (iter)
+                       (match (iterator-progress iter)
+                         (() (end-of-iteration))
+                         ((elt . list)
+                          (set-iterator-progress! iter list)
+                          (let ((name (format #f "[~a]" n)))
+                            (set! n (1+ n))
+                            (cons name (object->string elt)))))))))
+  (cond
+   ((string? obj)
+    (make-pretty-printer-worker
+     "string" ; display hint
+     (lambda (printer) obj)
+     #f))
+   ((and (array? obj)
+         (match (array-shape obj)
+           (((0 _)) #t)
+           (_ #f)))
+    (make-pretty-printer-worker
+     "array" ; display hint
+     (lambda (printer)
+       (let ((tag (array-type obj)))
+         (case tag
+           ((#t) "#<vector>")
+           ((b) "#<bitvector>")
+           (else (format #f "#<~avector>" tag)))))
+     (lambda (printer)
+       (list->iterator (array->list obj)))))
+   ((inferior-struct? obj)
+    (make-pretty-printer-worker
+     "array" ; display hint
+     (lambda (printer)
+       (format #f "#<struct ~a>" (inferior-struct-name obj)))
+     (lambda (printer)
+       (list->iterator (inferior-struct-fields obj)))))
+   (else
+    (make-pretty-printer-worker
+     #f                                 ; display hint
+     (lambda (printer)
+       (object->string obj))
+     #f))))
+
 (define %scm-pretty-printer
-  (make-pretty-printer "SCM"
-                       (lambda (pp value)
-                         (let ((name (type-name (value-type value))))
-                           (and (and name (string=? name "SCM"))
-                                (make-pretty-printer-worker
-                                 #f              ; display hint
-                                 (lambda (printer)
-                                   (scm-value->string value %gdb-memory-backend))
-                                 #f))))))
+  (make-pretty-printer
+   "SCM"
+   (lambda (pp value)
+     (let ((name (type-name (value-type value))))
+       (and (and name (string=? name "SCM"))
+            (make-scm-pretty-printer-worker
+             (scm->object (value->integer value) %gdb-memory-backend)))))))
 
 (define* (register-pretty-printer #:optional objfile)
   (prepend-pretty-printer! objfile %scm-pretty-printer))
