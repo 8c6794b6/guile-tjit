@@ -184,21 +184,53 @@ Naively load from 0 to (min NLOCALS (number of available cache registers))."
 (define tc7-program 69)
 (define tc16-real 535)
 
-;;; XXX: Does not support primitive with `rest' argument yet.
+(define-syntax-rule (c-pointer name)
+  (dynamic-func name (dynamic-link)))
+
+(define-syntax-rule (c-inline name)
+  (c-pointer name))
+
 (define (call-primitive st proc nlocals primitive)
-  (jit-prepare)
-  (for-each (lambda (i)
-              (jit-pushargr (local-ref st (+ proc 1 i))))
-            (iota (- nlocals 1)))
   (let* ((pargs (program-arguments-alist primitive))
-         (optionals (cdr (assoc 'optional pargs)))
          (required (cdr (assoc 'required pargs)))
+         (optionals (cdr (assoc 'optional pargs)))
+         (rest (cdr (assoc 'rest pargs)))
+         (num-required (length required))
+         (num-optionals (length optionals))
+         (num-req+opts (+ num-required num-optionals))
          (undefined (make-pointer #x904)))
+
+    ;; If the primitive contained `rest' argument, firstly build a list
+    ;; for rest argument by calling `scm_list_n' or moving empty list to
+    ;; register.
+    (when rest
+      (if (< (- nlocals 1) num-req+opts)
+          (jit-movi r1 (scm->pointer '()))
+          (begin
+            (jit-prepare)
+            (for-each (lambda (i)
+                        (jit-pushargr
+                         (local-ref st (+ proc i 1 num-req+opts))))
+                      (iota (- nlocals num-req+opts 1)))
+            ;; Additional `undefined', to end the arguments.
+            (jit-pushargi undefined)
+            (jit-calli (c-pointer "scm_list_n"))
+            (jit-retval r1))))
+
+    ;; Pushing argument for primitive procedure.
+    (jit-prepare)
+    (for-each (lambda (i)
+                (jit-pushargr (local-ref st (+ proc 1 i))))
+              (iota (min (- nlocals 1) num-req+opts)))
+
+    ;; Filling in unspecified optionals, if any.
     (when (not (null? optionals))
       (for-each (lambda (i)
                   (jit-pushargi undefined))
-                (iota (- (+ (length optionals) (length required))
-                         (- nlocals 1))))))
+                (iota (- num-req+opts (- nlocals 1)))))
+    (when rest
+      (jit-pushargr r1)))
+
   (jit-calli (car (program-free-variables primitive)))
   (jit-retval r0)
   (jit-stxi (stored-ref st (+ proc 1)) (jit-fp) r0))
@@ -228,12 +260,6 @@ procedure itself. Address to return after this call will get patched."
 
 (define (current-callee st)
   (hashq-ref (basm-callers (lightning-asm st)) (lightning-ip st)))
-
-(define-syntax-rule (c-pointer name)
-  (dynamic-func name (dynamic-link)))
-
-(define-syntax-rule (c-inline name)
-  (c-pointer name))
 
 (define-syntax-rule (define-label l body ...)
   (begin (jit-link l) body ...))
@@ -526,6 +552,13 @@ procedure itself. Address to return after this call will get patched."
 ;;; Specialized call stubs
 ;;; ----------------------
 
+(define-vm-op (builtin-ref st dst src)
+  (jit-prepare)
+  (jit-pushargi (imm src))
+  (jit-calli (c-pointer "scm_do_vm_builtin_ref"))
+  (jit-retval r0)
+  (local-set! st dst r0))
+
 ;;; Function prologues
 ;;; ------------------
 
@@ -540,10 +573,11 @@ procedure itself. Address to return after this call will get patched."
   *unspecified*)
 
 ;; XXX: Modify to manage (jit-fp) with absolute value of nlocal?
+;;
+;; Caching was once causing infinite loops and disabled. Brought back
+;; after running `run-nfa' procedure, locals were mixed up from callee.
 (define-vm-op (reset-frame st nlocals)
-  ;; Disabled caching, was causing infinite loops.
-  ;; (cache-locals st (lightning-nargs st))
-  *unspecified*)
+  (cache-locals st (lightning-nargs st)))
 
 
 ;;; Branching instructions
@@ -772,7 +806,8 @@ args passed to target procedure is NARGS."
              (val (cdr callee))
              (self (hashq-ref nodes addr)))
         (cond
-         ((and (basm? val) (not (basm-prim-op? val)))
+         ((and (basm? val)
+               (not (basm-prim-op? val)))
           (let ((sp (lightning-sp st))
                 (nargs (basm-nargs val))
                 (args (basm-args val)))
@@ -890,8 +925,8 @@ args passed to target procedure is NARGS."
         ;; Emit and call the thunk.
         (let* ((fptr (jit-emit))
                (thunk (pointer->procedure '* fptr '())))
-          (write-code-to-file
-           (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
+          ;; (write-code-to-file
+          ;;  (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
           ;; (jit-print)
           ;; (jit-clear-state)
           ;; (newline)

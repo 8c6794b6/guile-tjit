@@ -69,6 +69,12 @@ scm_do_i_string_length (SCM str)
     return scm_string_length (str);
 }
 
+SCM
+scm_do_vm_builtin_ref (unsigned idx)
+{
+  return scm_vm_builtin_ref (idx);
+}
+
 SCM_DEFINE (scm_do_thread_i_data, "thread-i-data", 1, 0, 0,
             (SCM thread),
             "Get pointer to scm_i_thread from THREAD.")

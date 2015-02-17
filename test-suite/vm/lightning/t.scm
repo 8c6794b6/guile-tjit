@@ -55,6 +55,37 @@
 (define-test (l-call-simple-prim x y) ('(a b c) '(d e f g h))
   (+ (length x) (length y)))
 
+(define-test (l-call-rest-prim x y) ('(a b c) '(d e f g h))
+  (append x y))
+
+(define-test (l-call-opt-rest-prim-1 a) (#\a)
+  (char=? a))
+
+(define-test (l-call-opt-rest-prim-2a a b) (#\a #\a)
+  (char=? a b))
+
+(define-test (l-call-opt-rest-prim-2b a b) (#\a #\b)
+  (char=? a b))
+
+(define-test (l-call-opt-rest-prim-3a a b c) (#\a #\a #\a)
+  (char=? a b c))
+
+(define-test (l-call-opt-rest-prim-3b a b c) (#\a #\a #\b)
+  (char=? a b c))
+
+(define-test (l-call-opt-rest-prim-4 a b c d) (#\a #\a #\a #\a)
+  (char=? a b c d))
+
+(define-test (l-call-string->list str) ("foo-bar-buzz")
+  (string->list str))
+
+(define-test (l-call-string-append str1 str2) ("foo" "bar")
+  (string-append str1 str2))
+
+(define-test (l-call-make-string n fill) (113 #\a)
+  (make-string n fill))
+
+
 (define-test (l-call-arg0 f x) ((lambda (a) (+ a 100)) 23)
   (f x))
 
@@ -89,6 +120,21 @@
   (applicable-struct n))
 
 ;;; Specialized call stubs
+
+(define-test (return-builtin-apply) ()
+  apply)
+
+(define-test (return-builtin-values) ()
+  values)
+
+(define-test (return-builtin-abort) ()
+  abort-to-prompt)
+
+(define-test (return-builtin-call-with-values) ()
+  call-with-values)
+
+(define-test (return-builtin-call-with-current-continuation) ()
+  call-with-current-continuation)
 
 ;;; Function prologues
 
