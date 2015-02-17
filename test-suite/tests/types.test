@@ -101,6 +101,7 @@
    ((%make-void-port "w") port (? integer?))
    ((open-input-string "hello") port (? integer?))
    ((lambda () #t) program _)
+   ((make-variable 'foo) variable _)
    ((make-weak-vector 3 #t) weak-vector _)
    ((make-weak-key-hash-table) weak-table _)
    ((make-weak-value-hash-table) weak-table _)
