@@ -22,6 +22,10 @@
 #include <libguile.h>
 #include <libguile/programs.h>
 
+#if BUILD_VM_LIGHTNING == 1
+#include <libguile/vm-lightning.h>
+#endif
+
 enum {
   SCM_VM_APPLY_HOOK,
   SCM_VM_PUSH_CONTINUATION_HOOK,
@@ -69,16 +73,6 @@ SCM_API SCM scm_set_vm_engine_x (SCM engine);
 SCM_API SCM scm_set_default_vm_engine_x (SCM engine);
 SCM_API void scm_c_set_vm_engine_x (int engine);
 SCM_API void scm_c_set_default_vm_engine_x (int engine);
-
-#if BUILD_VM_LIGHTNING == 1
-SCM_API SCM scm_load_vm_lightning (void);
-SCM_API SCM scm_do_inline_cell (scm_i_thread *thread, scm_t_bits car, scm_t_bits cdr);
-SCM_API SCM scm_do_inline_cons (scm_i_thread *thread, SCM car, SCM cdr);
-SCM_API SCM scm_do_inline_from_double (scm_i_thread *thread, double val);
-SCM_API SCM scm_do_i_string_length (SCM str);
-SCM_API SCM scm_do_vm_builtin_ref (unsigned idx);
-SCM_API SCM scm_do_thread_i_data (SCM thread);
-#endif
 
 
 struct GC_ms_entry;
