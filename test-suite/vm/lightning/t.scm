@@ -294,6 +294,15 @@
 (define-test (l-cons x y) (100 200)
   (cons x y))
 
+(define-test (l-set-car! lst x) ('(1 2 3) 123)
+  (set-car! lst x)
+  lst)
+
+(define-test (l-set-cdr! lst x) ('(1 2 3) '(998 999 1000))
+  (set-cdr! lst x)
+  lst)
+
+
 ;;; Numeric operations
 
 (define-test (l-add1 x) (99)

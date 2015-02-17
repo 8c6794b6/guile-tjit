@@ -731,6 +731,12 @@ procedure itself. Address to return after this call will get patched."
   (jit-ldxi r0 (local-ref st src) (imm (sizeof '*)))
   (local-set! st dst r0))
 
+(define-vm-op (set-car! st pair car)
+  (jit-str (local-ref st pair) (local-ref st car)))
+
+(define-vm-op (set-cdr! st pair cdr)
+  (jit-stxi (imm (sizeof '*)) (local-ref st pair) (local-ref st cdr)))
+
 
 ;;; Numeric operations
 ;;; ------------------
