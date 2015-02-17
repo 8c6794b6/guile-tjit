@@ -266,4 +266,95 @@ if the information is not available."
                      (dump-vm-frame frame port))
                    (vm-frames)))
 
+
+;;;
+;;; Frame filters.
+;;;
+
+(define-syntax compile-time-cond
+  (lambda (x)
+    (syntax-case x (else)
+      ((_ (test body ...) clause ...)
+       (if (eval (syntax->datum #'test) (current-module))
+           #'(begin body ...)
+           #'(compile-time-cond clause ...)))
+      ((_ (else body ...))
+       #'(begin body ...)))))
+
+(compile-time-cond
+ ((false-if-exception (resolve-interface '(gdb frames)))
+  (use-modules (gdb frames))
+
+  (define (snarfy-frame-annotator ann)
+    (let* ((frame (annotated-frame-frame ann))
+           (sym (frame-function frame)))
+      (or
+       (and sym
+            (gdb:symbol? sym)
+            (let ((c-name (symbol-name sym)))
+              (match (lookup-symbol (string-append "s_" c-name))
+                (#f #f)
+                ((scheme-name-sym _)
+                 (and (string-prefix?
+                       "const char ["
+                       (type-print-name (symbol-type scheme-name-sym)))
+                      (let* ((scheme-name-value (symbol-value scheme-name-sym))
+                             (scheme-name (value->string scheme-name-value))
+                             (name (format #f "~a [~a]" scheme-name c-name)))
+                        (reannotate-frame ann #:function-name name)))))))
+       ann)))
+
+  (define* (vm-frame-filter gdb-frames #:optional (vm-frames (vm-frames)))
+    (define (synthesize-frame gdb-frame vm-frame)
+      (let* ((ip (value->integer (vm-frame-ip vm-frame))))
+        (reannotate-frame gdb-frame
+                          #:function-name (vm-frame-function-name vm-frame)
+                          #:address ip
+                          #:filename #f
+                          #:line #f
+                          #:arguments '()
+                          #:locals (vm-frame-locals vm-frame)
+                          #:children '())))
+    (define (recur gdb-frame gdb-frames vm-frames)
+      (stream-cons gdb-frame
+                   (vm-frame-filter gdb-frames vm-frames)))
+    (cond
+     ((or (stream-null? gdb-frames)
+          (not (lookup-symbol "vm_boot_continuation_code")))
+      gdb-frames)
+     (else
+      (let ((gdb-frame (stream-car gdb-frames))
+            (gdb-frames (stream-cdr gdb-frames)))
+        (match (lookup-symbol "vm_boot_continuation_code")
+          ((boot-sym _)
+           (let ((boot-ptr (symbol-value boot-sym)))
+             (cond
+              ((vm-engine-frame? (annotated-frame-frame gdb-frame))
+               (let lp ((children (reverse
+                                   (annotated-frame-children gdb-frame)))
+                        (vm-frames vm-frames))
+                 (define (finish reversed-children vm-frames)
+                   (let ((children (reverse reversed-children)))
+                     (recur (reannotate-frame gdb-frame #:children children)
+                            gdb-frames
+                            vm-frames)))
+                 (cond
+                  ((stream-null? vm-frames)
+                   (finish children vm-frames))
+                  (else
+                   (let* ((vm-frame (stream-car vm-frames))
+                          (vm-frames (stream-cdr vm-frames)))
+                     (if (value=? (vm-frame-ip vm-frame) boot-ptr)
+                         ;; Drop the boot frame and finish.
+                         (finish children vm-frames)
+                         (lp (cons (synthesize-frame gdb-frame vm-frame)
+                                   children)
+                             vm-frames)))))))
+              (else
+               (recur gdb-frame gdb-frames vm-frames))))))))))
+
+  (add-frame-annotator! "guile-snarf-annotator" snarfy-frame-annotator)
+  (add-frame-filter! "guile-vm-frame-filter" vm-frame-filter))
+ (else #f))
+
 ;;; libguile-2.2-gdb.scm ends here
