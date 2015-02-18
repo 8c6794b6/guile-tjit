@@ -1,5 +1,6 @@
 /* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004,2005,
- *   2006, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+ *   2006, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation,
+ *   Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -760,7 +761,7 @@ scm_i_print_array (SCM array, SCM port, scm_print_state *pstate)
   scm_array_get_handle (array, &h);
 
   scm_putc_unlocked ('#', port);
-  if (h.ndims != 1 || h.dims[0].lbnd != 0)
+  if (SCM_I_ARRAYP (array))
     scm_intprint (h.ndims, 10, port);
   if (h.element_type != SCM_ARRAY_ELEMENT_TYPE_SCM)
     scm_write (scm_array_handle_element_type (&h), port);

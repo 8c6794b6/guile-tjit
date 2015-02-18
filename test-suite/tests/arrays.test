@@ -1,6 +1,7 @@
 ;;;; arrays.test --- tests guile's uniform arrays     -*- scheme -*-
 ;;;;
-;;;; Copyright 2004, 2006, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+;;;; Copyright 2004, 2006, 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free
+;;;; Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -817,3 +818,14 @@
                    #u32(2 3)))
   (pass-if (equal? (array-ref (array-row #2u32((0 1) (2 3)) 1) 0)
                    2)))
+
+;;;
+;;; printing arrays
+;;;
+
+(with-test-prefix/c&e "printing arrays"
+  (pass-if-equal "writing 1D arrays that aren't vectors"
+    "#1(b c)"
+    (format #f "~a" (make-shared-array #(a b c)
+                                       (lambda (i) (list (+ i 1)))
+                                       2))))
