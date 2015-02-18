@@ -1,6 +1,4 @@
-/* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
- *   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
- *   2013, 2014 Free Software Foundation, Inc.
+/* Copyright (C) 1995-2015 Free Software Foundation, Inc.
  *
  * Portions Copyright 1990, 1991, 1992, 1993 by AT&T Bell Laboratories
  * and Bellcore.  See scm_divide.
@@ -1173,9 +1171,9 @@ void
 scm_euclidean_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 {
   if (scm_is_false (scm_negative_p (y)))
-    return scm_floor_divide (x, y, qp, rp);
+    scm_floor_divide (x, y, qp, rp);
   else
-    return scm_ceiling_divide (x, y, qp, rp);
+    scm_ceiling_divide (x, y, qp, rp);
 }
 
 static SCM scm_i_inexact_floor_quotient (double x, double y);
@@ -1549,7 +1547,6 @@ scm_floor_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 		*qp = scm_i_inum2big (qq);
 	      *rp = SCM_I_MAKINUM (rr);
 	    }
-	  return;
 	}
       else if (SCM_BIGP (y))
 	{
@@ -1584,15 +1581,14 @@ scm_floor_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	      *qp = SCM_I_MAKINUM (-1);
 	      *rp = scm_i_normbig (r);
 	    }
-	  return;
 	}
       else if (SCM_REALP (y))
-	return scm_i_inexact_floor_divide (xx, SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_floor_divide (xx, SCM_REAL_VALUE (y), qp, rp);
       else if (SCM_FRACTIONP (y))
-	return scm_i_exact_rational_floor_divide (x, y, qp, rp);
+	scm_i_exact_rational_floor_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_floor_divide, x, y, SCM_ARG2,
-					  s_scm_floor_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_floor_divide, x, y, SCM_ARG2,
+                                   s_scm_floor_divide, qp, rp);
     }
   else if (SCM_BIGP (x))
     {
@@ -1618,7 +1614,6 @@ scm_floor_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	      *qp = scm_i_normbig (q);
 	      *rp = scm_i_normbig (r);
 	    }
-	  return;
 	}
       else if (SCM_BIGP (y))
 	{
@@ -1629,41 +1624,40 @@ scm_floor_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	  scm_remember_upto_here_2 (x, y);
 	  *qp = scm_i_normbig (q);
 	  *rp = scm_i_normbig (r);
-	  return;
 	}
       else if (SCM_REALP (y))
-	return scm_i_inexact_floor_divide
-	  (scm_i_big2dbl (x), SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_floor_divide (scm_i_big2dbl (x), SCM_REAL_VALUE (y),
+                                    qp, rp);
       else if (SCM_FRACTIONP (y))
-	return scm_i_exact_rational_floor_divide (x, y, qp, rp);
+	scm_i_exact_rational_floor_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_floor_divide, x, y, SCM_ARG2,
-					  s_scm_floor_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_floor_divide, x, y, SCM_ARG2,
+                                   s_scm_floor_divide, qp, rp);
     }
   else if (SCM_REALP (x))
     {
       if (SCM_REALP (y) || SCM_I_INUMP (y) ||
 	  SCM_BIGP (y) || SCM_FRACTIONP (y))
-	return scm_i_inexact_floor_divide
-	  (SCM_REAL_VALUE (x), scm_to_double (y), qp, rp);
+	scm_i_inexact_floor_divide (SCM_REAL_VALUE (x), scm_to_double (y),
+                                    qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_floor_divide, x, y, SCM_ARG2,
-					  s_scm_floor_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_floor_divide, x, y, SCM_ARG2,
+                                   s_scm_floor_divide, qp, rp);
     }
   else if (SCM_FRACTIONP (x))
     {
       if (SCM_REALP (y))
-	return scm_i_inexact_floor_divide
-	  (scm_i_fraction2double (x), SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_floor_divide
+          (scm_i_fraction2double (x), SCM_REAL_VALUE (y), qp, rp);
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
-	return scm_i_exact_rational_floor_divide (x, y, qp, rp);
+	scm_i_exact_rational_floor_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_floor_divide, x, y, SCM_ARG2,
-					  s_scm_floor_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_floor_divide, x, y, SCM_ARG2,
+                                   s_scm_floor_divide, qp, rp);
     }
   else
-    return two_valued_wta_dispatch_2 (g_scm_floor_divide, x, y, SCM_ARG1,
-				      s_scm_floor_divide, qp, rp);
+    two_valued_wta_dispatch_2 (g_scm_floor_divide, x, y, SCM_ARG1,
+                               s_scm_floor_divide, qp, rp);
 }
 
 static void
@@ -2090,7 +2084,6 @@ scm_ceiling_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 		*qp = scm_i_inum2big (qq);
 	      *rp = SCM_I_MAKINUM (rr);
 	    }
-	  return;
 	}
       else if (SCM_BIGP (y))
 	{
@@ -2136,15 +2129,14 @@ scm_ceiling_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	      *qp = SCM_INUM1;
 	      *rp = scm_i_normbig (r);
 	    }
-	  return;
 	}
       else if (SCM_REALP (y))
-	return scm_i_inexact_ceiling_divide (xx, SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_ceiling_divide (xx, SCM_REAL_VALUE (y), qp, rp);
       else if (SCM_FRACTIONP (y))
-	return scm_i_exact_rational_ceiling_divide (x, y, qp, rp);
+	scm_i_exact_rational_ceiling_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_ceiling_divide, x, y, SCM_ARG2,
-					  s_scm_ceiling_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_ceiling_divide, x, y, SCM_ARG2,
+                                   s_scm_ceiling_divide, qp, rp);
     }
   else if (SCM_BIGP (x))
     {
@@ -2170,7 +2162,6 @@ scm_ceiling_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	      *qp = scm_i_normbig (q);
 	      *rp = scm_i_normbig (r);
 	    }
-	  return;
 	}
       else if (SCM_BIGP (y))
 	{
@@ -2181,41 +2172,40 @@ scm_ceiling_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	  scm_remember_upto_here_2 (x, y);
 	  *qp = scm_i_normbig (q);
 	  *rp = scm_i_normbig (r);
-	  return;
 	}
       else if (SCM_REALP (y))
-	return scm_i_inexact_ceiling_divide
-	  (scm_i_big2dbl (x), SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_ceiling_divide (scm_i_big2dbl (x), SCM_REAL_VALUE (y),
+                                      qp, rp);
       else if (SCM_FRACTIONP (y))
-	return scm_i_exact_rational_ceiling_divide (x, y, qp, rp);
+	scm_i_exact_rational_ceiling_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_ceiling_divide, x, y, SCM_ARG2,
-					  s_scm_ceiling_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_ceiling_divide, x, y, SCM_ARG2,
+                                   s_scm_ceiling_divide, qp, rp);
     }
   else if (SCM_REALP (x))
     {
       if (SCM_REALP (y) || SCM_I_INUMP (y) ||
 	  SCM_BIGP (y) || SCM_FRACTIONP (y))
-	return scm_i_inexact_ceiling_divide
-	  (SCM_REAL_VALUE (x), scm_to_double (y), qp, rp);
+	scm_i_inexact_ceiling_divide (SCM_REAL_VALUE (x), scm_to_double (y),
+                                      qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_ceiling_divide, x, y, SCM_ARG2,
-					  s_scm_ceiling_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_ceiling_divide, x, y, SCM_ARG2,
+                                   s_scm_ceiling_divide, qp, rp);
     }
   else if (SCM_FRACTIONP (x))
     {
       if (SCM_REALP (y))
-	return scm_i_inexact_ceiling_divide
+	scm_i_inexact_ceiling_divide
 	  (scm_i_fraction2double (x), SCM_REAL_VALUE (y), qp, rp);
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
-	return scm_i_exact_rational_ceiling_divide (x, y, qp, rp);
+	scm_i_exact_rational_ceiling_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_ceiling_divide, x, y, SCM_ARG2,
-					  s_scm_ceiling_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_ceiling_divide, x, y, SCM_ARG2,
+                                   s_scm_ceiling_divide, qp, rp);
     }
   else
-    return two_valued_wta_dispatch_2 (g_scm_ceiling_divide, x, y, SCM_ARG1,
-				      s_scm_ceiling_divide, qp, rp);
+    two_valued_wta_dispatch_2 (g_scm_ceiling_divide, x, y, SCM_ARG1,
+                               s_scm_ceiling_divide, qp, rp);
 }
 
 static void
@@ -2573,7 +2563,6 @@ scm_truncate_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 		*qp = scm_i_inum2big (qq);
 	      *rp = SCM_I_MAKINUM (rr);
 	    }
-	  return;
 	}
       else if (SCM_BIGP (y))
 	{
@@ -2591,16 +2580,14 @@ scm_truncate_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	      *qp = SCM_INUM0;
 	      *rp = x;
 	    }
-	  return;
 	}
       else if (SCM_REALP (y))
-	return scm_i_inexact_truncate_divide (xx, SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_truncate_divide (xx, SCM_REAL_VALUE (y), qp, rp);
       else if (SCM_FRACTIONP (y))
-	return scm_i_exact_rational_truncate_divide (x, y, qp, rp);
+	scm_i_exact_rational_truncate_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2
-	  (g_scm_truncate_divide, x, y, SCM_ARG2,
-	   s_scm_truncate_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_truncate_divide, x, y, SCM_ARG2,
+                                   s_scm_truncate_divide, qp, rp);
     }
   else if (SCM_BIGP (x))
     {
@@ -2627,7 +2614,6 @@ scm_truncate_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	      *qp = scm_i_normbig (q);
 	      *rp = SCM_I_MAKINUM (rr);
 	    }
-	  return;
 	}
       else if (SCM_BIGP (y))
 	{
@@ -2640,41 +2626,38 @@ scm_truncate_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	  *rp = scm_i_normbig (r);
 	}
       else if (SCM_REALP (y))
-	return scm_i_inexact_truncate_divide
-	  (scm_i_big2dbl (x), SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_truncate_divide (scm_i_big2dbl (x), SCM_REAL_VALUE (y),
+                                       qp, rp);
       else if (SCM_FRACTIONP (y))
-	return scm_i_exact_rational_truncate_divide (x, y, qp, rp);
+	scm_i_exact_rational_truncate_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2
-	  (g_scm_truncate_divide, x, y, SCM_ARG2,
-	   s_scm_truncate_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_truncate_divide, x, y, SCM_ARG2,
+                                   s_scm_truncate_divide, qp, rp);
     }
   else if (SCM_REALP (x))
     {
       if (SCM_REALP (y) || SCM_I_INUMP (y) ||
 	  SCM_BIGP (y) || SCM_FRACTIONP (y))
-	return scm_i_inexact_truncate_divide
-	  (SCM_REAL_VALUE (x), scm_to_double (y), qp, rp);
+	scm_i_inexact_truncate_divide (SCM_REAL_VALUE (x), scm_to_double (y),
+                                       qp, rp);
       else
-	return two_valued_wta_dispatch_2
-	  (g_scm_truncate_divide, x, y, SCM_ARG2,
-	   s_scm_truncate_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_truncate_divide, x, y, SCM_ARG2,
+                                   s_scm_truncate_divide, qp, rp);
     }
   else if (SCM_FRACTIONP (x))
     {
       if (SCM_REALP (y))
-	return scm_i_inexact_truncate_divide
+	scm_i_inexact_truncate_divide
 	  (scm_i_fraction2double (x), SCM_REAL_VALUE (y), qp, rp);
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
-	return scm_i_exact_rational_truncate_divide (x, y, qp, rp);
+	scm_i_exact_rational_truncate_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2
-	  (g_scm_truncate_divide, x, y, SCM_ARG2,
-	   s_scm_truncate_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_truncate_divide, x, y, SCM_ARG2,
+                                   s_scm_truncate_divide, qp, rp);
     }
   else
-    return two_valued_wta_dispatch_2 (g_scm_truncate_divide, x, y, SCM_ARG1,
-				      s_scm_truncate_divide, qp, rp);
+    two_valued_wta_dispatch_2 (g_scm_truncate_divide, x, y, SCM_ARG1,
+                               s_scm_truncate_divide, qp, rp);
 }
 
 static void
@@ -3217,22 +3200,18 @@ scm_centered_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 		*qp = scm_i_inum2big (qq);
 	      *rp = SCM_I_MAKINUM (rr);
 	    }
-	  return;
 	}
       else if (SCM_BIGP (y))
-	{
-	  /* Pass a denormalized bignum version of x (even though it
-	     can fit in a fixnum) to scm_i_bigint_centered_divide */
-	  return scm_i_bigint_centered_divide (scm_i_long2big (xx), y, qp, rp);
-	}
+        /* Pass a denormalized bignum version of x (even though it
+           can fit in a fixnum) to scm_i_bigint_centered_divide */
+        scm_i_bigint_centered_divide (scm_i_long2big (xx), y, qp, rp);
       else if (SCM_REALP (y))
-	return scm_i_inexact_centered_divide (xx, SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_centered_divide (xx, SCM_REAL_VALUE (y), qp, rp);
       else if (SCM_FRACTIONP (y))
-	return scm_i_exact_rational_centered_divide (x, y, qp, rp);
+	scm_i_exact_rational_centered_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2
-	  (g_scm_centered_divide, x, y, SCM_ARG2,
-	   s_scm_centered_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_centered_divide, x, y, SCM_ARG2,
+                                   s_scm_centered_divide, qp, rp);
     }
   else if (SCM_BIGP (x))
     {
@@ -3276,46 +3255,42 @@ scm_centered_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	      *qp = scm_i_normbig (q);
 	      *rp = SCM_I_MAKINUM (rr);
 	    }
-	  return;
 	}
       else if (SCM_BIGP (y))
-	return scm_i_bigint_centered_divide (x, y, qp, rp);
+	scm_i_bigint_centered_divide (x, y, qp, rp);
       else if (SCM_REALP (y))
-	return scm_i_inexact_centered_divide
-	  (scm_i_big2dbl (x), SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_centered_divide (scm_i_big2dbl (x), SCM_REAL_VALUE (y),
+                                       qp, rp);
       else if (SCM_FRACTIONP (y))
-	return scm_i_exact_rational_centered_divide (x, y, qp, rp);
+	scm_i_exact_rational_centered_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2
-	  (g_scm_centered_divide, x, y, SCM_ARG2,
-	   s_scm_centered_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_centered_divide, x, y, SCM_ARG2,
+                                   s_scm_centered_divide, qp, rp);
     }
   else if (SCM_REALP (x))
     {
       if (SCM_REALP (y) || SCM_I_INUMP (y) ||
 	  SCM_BIGP (y) || SCM_FRACTIONP (y))
-	return scm_i_inexact_centered_divide
-	  (SCM_REAL_VALUE (x), scm_to_double (y), qp, rp);
+	scm_i_inexact_centered_divide (SCM_REAL_VALUE (x), scm_to_double (y),
+                                       qp, rp);
       else
-	return two_valued_wta_dispatch_2
-	  (g_scm_centered_divide, x, y, SCM_ARG2,
-	   s_scm_centered_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_centered_divide, x, y, SCM_ARG2,
+                                   s_scm_centered_divide, qp, rp);
     }
   else if (SCM_FRACTIONP (x))
     {
       if (SCM_REALP (y))
-	return scm_i_inexact_centered_divide
-	  (scm_i_fraction2double (x), SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_centered_divide
+          (scm_i_fraction2double (x), SCM_REAL_VALUE (y), qp, rp);
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
-	return scm_i_exact_rational_centered_divide (x, y, qp, rp);
+	scm_i_exact_rational_centered_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2
-	  (g_scm_centered_divide, x, y, SCM_ARG2,
-	   s_scm_centered_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_centered_divide, x, y, SCM_ARG2,
+                                   s_scm_centered_divide, qp, rp);
     }
   else
-    return two_valued_wta_dispatch_2 (g_scm_centered_divide, x, y, SCM_ARG1,
-				      s_scm_centered_divide, qp, rp);
+    two_valued_wta_dispatch_2 (g_scm_centered_divide, x, y, SCM_ARG1,
+                               s_scm_centered_divide, qp, rp);
 }
 
 static void
@@ -3897,22 +3872,18 @@ scm_round_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 		*qp = scm_i_inum2big (qq);
 	      *rp = SCM_I_MAKINUM (rr);
 	    }
-	  return;
 	}
       else if (SCM_BIGP (y))
-	{
-	  /* Pass a denormalized bignum version of x (even though it
-	     can fit in a fixnum) to scm_i_bigint_round_divide */
-	  return scm_i_bigint_round_divide
-	    (scm_i_long2big (SCM_I_INUM (x)), y, qp, rp);
-	}
+        /* Pass a denormalized bignum version of x (even though it
+           can fit in a fixnum) to scm_i_bigint_round_divide */
+        scm_i_bigint_round_divide (scm_i_long2big (SCM_I_INUM (x)), y, qp, rp);
       else if (SCM_REALP (y))
-	return scm_i_inexact_round_divide (xx, SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_round_divide (xx, SCM_REAL_VALUE (y), qp, rp);
       else if (SCM_FRACTIONP (y))
-	return scm_i_exact_rational_round_divide (x, y, qp, rp);
+	scm_i_exact_rational_round_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_round_divide, x, y, SCM_ARG2,
-					  s_scm_round_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_round_divide, x, y, SCM_ARG2,
+                                   s_scm_round_divide, qp, rp);
     }
   else if (SCM_BIGP (x))
     {
@@ -3955,43 +3926,42 @@ scm_round_divide (SCM x, SCM y, SCM *qp, SCM *rp)
 	      *qp = scm_i_normbig (q);
 	      *rp = SCM_I_MAKINUM (rr);
 	    }
-	  return;
 	}
       else if (SCM_BIGP (y))
-	return scm_i_bigint_round_divide (x, y, qp, rp);
+	scm_i_bigint_round_divide (x, y, qp, rp);
       else if (SCM_REALP (y))
-	return scm_i_inexact_round_divide
-	  (scm_i_big2dbl (x), SCM_REAL_VALUE (y), qp, rp);
+	scm_i_inexact_round_divide (scm_i_big2dbl (x), SCM_REAL_VALUE (y),
+                                    qp, rp);
       else if (SCM_FRACTIONP (y))
-	return scm_i_exact_rational_round_divide (x, y, qp, rp);
+	scm_i_exact_rational_round_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_round_divide, x, y, SCM_ARG2,
-					  s_scm_round_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_round_divide, x, y, SCM_ARG2,
+                                   s_scm_round_divide, qp, rp);
     }
   else if (SCM_REALP (x))
     {
       if (SCM_REALP (y) || SCM_I_INUMP (y) ||
 	  SCM_BIGP (y) || SCM_FRACTIONP (y))
-	return scm_i_inexact_round_divide
-	  (SCM_REAL_VALUE (x), scm_to_double (y), qp, rp);
+	scm_i_inexact_round_divide (SCM_REAL_VALUE (x), scm_to_double (y),
+                                    qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_round_divide, x, y, SCM_ARG2,
-					  s_scm_round_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_round_divide, x, y, SCM_ARG2,
+                                   s_scm_round_divide, qp, rp);
     }
   else if (SCM_FRACTIONP (x))
     {
       if (SCM_REALP (y))
-	return scm_i_inexact_round_divide
+	scm_i_inexact_round_divide
 	  (scm_i_fraction2double (x), SCM_REAL_VALUE (y), qp, rp);
       else if (SCM_I_INUMP (y) || SCM_BIGP (y) || SCM_FRACTIONP (y))
-	return scm_i_exact_rational_round_divide (x, y, qp, rp);
+	scm_i_exact_rational_round_divide (x, y, qp, rp);
       else
-	return two_valued_wta_dispatch_2 (g_scm_round_divide, x, y, SCM_ARG2,
-					  s_scm_round_divide, qp, rp);
+	two_valued_wta_dispatch_2 (g_scm_round_divide, x, y, SCM_ARG2,
+                                   s_scm_round_divide, qp, rp);
     }
   else
-    return two_valued_wta_dispatch_2 (g_scm_round_divide, x, y, SCM_ARG1,
-				      s_scm_round_divide, qp, rp);
+    two_valued_wta_dispatch_2 (g_scm_round_divide, x, y, SCM_ARG1,
+                               s_scm_round_divide, qp, rp);
 }
 
 static void
