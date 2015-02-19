@@ -39,10 +39,13 @@
   #:export (compile-lightning
             call-lightning c-call-lightning))
 
-
 ;;;
 ;;; Auxiliary
 ;;;
+
+;; Modified later by function defined in "vm-lightning.c". Defined with
+;; dummy body to silent warning message.
+(define thread-i-data *unspecified*)
 
 (define *vm-instr* (make-hash-table))
 
@@ -1033,4 +1036,5 @@ args passed to target procedure is NARGS."
 ;;;
 
 (init-jit "")
-(%load-vm-lightning)
+(load-extension (string-append "libguile-" (effective-version))
+                "scm_init_vm_lightning")

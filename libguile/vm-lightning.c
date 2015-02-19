@@ -24,16 +24,6 @@
 
 static SCM vm_lightning_var;
 
-SCM_DEFINE (scm_load_vm_lightning, "%load-vm-lightning", 0, 0, 0,
-            (void),
-            "Announce that vm-lightning is loaded, then initialize.")
-#define FUNC_NAME s_scm_load_vm_lightning
-{
-  vm_lightning_var = SCM_VARIABLE_REF (scm_c_lookup ("vm-lightning"));
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
 SCM
 scm_do_inline_cell (scm_i_thread *thread, scm_t_bits car, scm_t_bits cdr)
 {
@@ -75,14 +65,18 @@ scm_do_vm_builtin_ref (unsigned idx)
   return scm_vm_builtin_ref (idx);
 }
 
-SCM_DEFINE (scm_do_thread_i_data, "thread-i-data", 1, 0, 0,
-            (SCM thread),
-            "Get pointer to scm_i_thread from THREAD.")
-#define FUNC_NAME s_scm_do_thread_i_data
+SCM
+scm_do_thread_i_data (SCM thread)
 {
   return scm_from_pointer (SCM_I_THREAD_DATA (thread), NULL);
 }
-#undef FUNC_NAME
+
+void
+scm_init_vm_lightning (void)
+{
+  scm_c_define_gsubr ("thread-i-data", 1, 0, 0, scm_do_thread_i_data);
+  vm_lightning_var = SCM_VARIABLE_REF (scm_c_lookup ("vm-lightning"));
+}
 
 
 /*
