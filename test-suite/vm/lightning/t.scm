@@ -36,7 +36,14 @@
          body ...)
        (test-equal (symbol->string (procedure-name name))
          (name . args)
-         (call-lightning name . args))))))
+         ;; (call-lightning name . args)
+         (dynamic-wind
+           (lambda ()
+             (set-vm-engine! 'lightning))
+           (lambda ()
+             (call-with-vm name . args))
+           (lambda ()
+             (set-vm-engine! 'regular))))))))
 
 ;;;
 ;;; VM operation

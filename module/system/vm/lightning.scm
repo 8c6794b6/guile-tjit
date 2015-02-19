@@ -51,11 +51,12 @@
 
 ;; State used during compilation.
 (define-record-type <lightning>
-  (%make-lightning asm nodes ip labels pc sp thread nargs cached modified)
+  (%make-lightning asm nodes ip labels pc sp thread nargs args nretvals
+                   cached modified)
   lightning?
 
   ;; State from bytecode-asm.
-  (asm lightning-asm)
+  (asm lightning-asm set-lightning-asm!)
 
   ;; Hash table containing compiled nodes.
   (nodes lightning-nodes)
@@ -72,11 +73,17 @@
   ;; Stack pointer
   (sp lightning-sp)
 
-  ;; Thread
+  ;; Thread.
   (thread lightning-thread)
+
+  ;; Arguments.
+  (args lightning-args)
 
   ;; Number of arguments.
   (nargs lightning-nargs)
+
+  ;; Number of return values.
+  (nretvals lightning-nretvals set-lightning-nretvals!)
 
   ;; Registers for cache.
   (cached lightning-cached set-lightning-cached!)
@@ -84,19 +91,15 @@
   ;; Modified cached registers, to be saved before calling procedure.
   (modified lightning-modified set-lightning-modified!))
 
-(define-record-type <nretvals>
-  (make-nretvals n)
-  nretvals?
-  (n nretvals-n set-nretvals-n!))
-
-(define* (make-lightning asm nodes sp thread nargs pc #:optional
+(define* (make-lightning asm nodes sp thread nargs args pc nretvals
+                         #:optional
                          (ip 0)
                          (labels (make-hash-table)))
   (for-each (lambda (labeled-ip)
               (when (< labeled-ip (basm-ip asm))
                 (hashq-set! labels labeled-ip (jit-forward))))
             (basm-labeled-ips asm))
-  (%make-lightning asm nodes ip labels pc sp thread nargs #f #f))
+  (%make-lightning asm nodes ip labels pc sp thread nargs args nretvals #f #f))
 
 (define-syntax define-vm-op
   (syntax-rules ()
@@ -817,21 +820,24 @@ procedure itself. Address to return after this call will get patched."
 ;;; Running generated function
 ;;;
 
+(define (unwrap-non-program args program-or-addr)
+    (cond ((struct? program-or-addr)
+           (vector-set! args 0 (struct-ref program-or-addr 0))
+           args)
+          (else
+           args)))
+
 (define (write-code-to-file file pointer)
   (call-with-output-file file
     (lambda (port)
       (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
 
-(define (compile-lightning sp thread nargs args program-or-addr entry
-                           nretvals)
+(define (compile-lightning st entry)
   "Compile bytecode procedure specified by PROGRAM-OR-ADDR to native code
 using lightning, with stack pointer SP and number of arguments NARGS."
-  (let* ((nodes (make-hash-table)))
-    (compile-lightning* nodes sp thread nargs args program-or-addr entry #t
-                        nretvals)))
+  (compile-lightning* st entry #t))
 
-(define (compile-lightning* nodes sp thread nargs args program-or-addr
-                            entry toplevel? nretvals)
+(define (compile-lightning* st entry toplevel?)
   "Compile bytecode procedure specified by PROGRAM-OR-ADDR, with cached
 procedures in CACHED-TABLE hash table. Using SP as stack pointer, the number of
 args passed to target procedure is NARGS."
@@ -857,35 +863,49 @@ args passed to target procedure is NARGS."
     (lambda (callee)
       (let* ((addr (car callee))
              (val (cdr callee))
-             (self (hashq-ref nodes addr)))
+             (self (hashq-ref (lightning-nodes st) addr)))
         (cond
          ((and (basm? val)
                (not (basm-prim-op? val)))
-          (let ((sp (lightning-sp st))
-                (nargs (basm-nargs val))
-                (args (basm-args val)))
-            (compile-lightning* nodes sp thread nargs args addr self #f nretvals)))
+          (let* ((sp (lightning-sp st))
+                 (nargs (basm-nargs val))
+                 (args (basm-args val))
+                 (args* (unwrap-non-program args addr))
+                 (st2 (make-lightning (proc->basm addr args*)
+                                      (lightning-nodes st)
+                                      (lightning-sp st)
+                                      (lightning-thread st)
+                                      nargs
+                                      args
+                                      addr
+                                      1)))
+            (compile-lightning* st2 self #f)))
          ((call? val)
-          (let ((result (apply call-lightning (vector->list (call-args val))))
+          (let ((result (let ((xs (vector->list (call-args val))))
+                          (apply (car xs) (cdr xs))))
                 (runtime-args (call-runtime-args val)))
             (vector-set! runtime-args 0 result)
             (let* ((sp (lightning-sp st))
                    (nargs (vector-length runtime-args))
                    (args runtime-args)
-                   (node (compile-lightning* nodes sp thread nargs args result
-                                             self #f nretvals)))
+                   (addr (ensure-program-addr result))
+                   (basm (proc->basm addr (unwrap-non-program args result)))
+                   (st2 (make-lightning basm
+                                        (lightning-nodes st)
+                                        sp
+                                        (lightning-thread st)
+                                        nargs
+                                        args
+                                        addr
+                                        1))
+                   (node (compile-lightning* st2 self #f)))
               (set-call-node! val (ensure-program-addr result)))))))))
 
-  (define (unwrap-non-program args program-or-addr)
-    (cond ((struct? program-or-addr)
-           (vector-set! args 0 (struct-ref program-or-addr 0))
-           args)
-          (else
-           args)))
-
-  (let* ((addr (ensure-program-addr program-or-addr))
+  (let* ((program-or-addr (lightning-pc st))
+         (args (lightning-args st))
+         (addr (ensure-program-addr program-or-addr))
          (args* (unwrap-non-program args program-or-addr))
-         (basm (proc->basm addr args*))
+         (basm (lightning-asm st))
          (name
           (cond ((and (program? program-or-addr)
                       (procedure-name program-or-addr))
@@ -896,18 +916,19 @@ args passed to target procedure is NARGS."
                       (cond ((program-debug-info-name pdi)
                              => symbol->string)
                             (else "anon"))))
-                (else "anon")))
-         (st (make-lightning basm nodes sp thread nargs addr)))
+                (else "anon"))))
 
     ;; (format #t ";;; ~a (~a)~%" name addr)
 
-    (hashq-set! nodes addr entry)
+    (hashq-set! (lightning-nodes st) addr entry)
     (when toplevel?
       ;; Compile callees.
       (let ((callees (basm->callees-list basm)))
         (for-each
          (lambda (callee)
-           (hashq-set! nodes (car callee) (jit-forward)))
+           (hashq-set! (lightning-nodes st)
+                       (car callee)
+                       (jit-forward)))
          callees)
         (for-each (compile-callee st) callees)))
     (jit-note name addr)
@@ -917,7 +938,7 @@ args passed to target procedure is NARGS."
     (for-each (lambda (chunk)
                 (assemble-one st chunk))
               (basm-chunks->alist (basm-chunks basm)))
-    (set-nretvals-n! nretvals (basm-nretvals (lightning-asm st)))
+    (set-lightning-nretvals! st (basm-nretvals (lightning-asm st)))
     entry))
 
 (define (call-lightning proc . args)
@@ -971,27 +992,42 @@ args passed to target procedure is NARGS."
                  (nargs (+ (length args) 1))
                  (args (apply vector proc args))
                  (sp0 (+ sp-addr (* szt nargs)))
-                 ;; (sp0 (+ sp-addr (* szt (- nargs 1))))
-                 (nretvals (make-nretvals 1)))
+                 ;; (nretvals (make-nretvals 1))
+                 (lightning (make-lightning
+                             (proc->basm (ensure-program-addr proc)
+                                         (unwrap-non-program
+                                          args
+                                          (ensure-program-addr proc)))
+                             (make-hash-table)
+                             sp0
+                             thread
+                             nargs
+                             args
+                             (ensure-program-addr proc)
+                             1)))
             (jit-patch-at (jit-jmpi) entry)
-            (compile-lightning sp0 thread nargs args proc entry nretvals)
+            ;; (compile-lightning sp0 thread nargs args proc entry nretvals)
+            (compile-lightning lightning
+                               entry)
+
 
             ;; Link the return address, get single return value.
             (jit-patch addr)
 
             ;; Check number of return values, call C function
             ;; scm_values if number of values were not 1.
-            (cond ((= (nretvals-n nretvals) 1)
+            (cond ((= (lightning-nretvals lightning) 1)
                    (jit-ldxi r0 (jit-fp) (offset->addr 4)))
                   (else
                    (jit-prepare)
                    (for-each (lambda (n)
                                (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
                                (jit-pushargr r0))
-                             (iota (nretvals-n nretvals)))
+                             (iota (lightning-nretvals lightning)))
                    (jit-pushargi undefined)
                    (jit-calli (c-pointer "scm_list_n"))
                    (jit-retval r1)
+
                    (jit-prepare)
                    (jit-pushargr r1)
                    (jit-calli (c-pointer "scm_values"))
