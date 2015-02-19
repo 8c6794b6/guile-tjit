@@ -119,6 +119,16 @@
 (define-test (call-applicable-struct n) (99)
   (applicable-struct n))
 
+(define (sum-and-product x y)
+  (values (+ x y) (* x y)))
+
+(define-test (call-sum-and-product x y) (12 34)
+  (call-with-values
+      (lambda ()
+        (sum-and-product x y))
+    (lambda (a b)
+      (cons a b))))
+
 ;;; Specialized call stubs
 
 (define-test (return-builtin-apply) ()

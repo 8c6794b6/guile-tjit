@@ -35,7 +35,8 @@
   #:export (proc->basm
             make-basm basm? basm-ip basm-name basm-nargs basm-args
             basm-free-vars basm-chunks basm-labeled-ips
-            basm-callees basm-callers basm-locals basm-prim-op?
+            basm-callees basm-callers basm-locals basm-nretvals
+            basm-prim-op?
             basm-chunks->alist basm->callees-list
 
             make-chunk chunk? chunk-labeled? chunk-dest-ip chunk-op
@@ -45,11 +46,11 @@
 
             make-closure closure? closure-addr closure-free-vars
 
-            *vm-op-sizes*))
+            ensure-program-addr))
 
 (define-record-type <basm>
   (%make-basm name ip nargs args free-vars chunks labeled-ips
-              callees callers locals prim-op?)
+              callees callers locals nretvals prim-op?)
   basm?
   ;; Name of procedure.
   (name basm-name)
@@ -71,6 +72,8 @@
   (callers basm-callers)
   ;; Local variables.
   (locals basm-locals set-basm-locals!)
+  ;; Number of return values.
+  (nretvals basm-nretvals set-basm-nretvals!)
   ;; Primitive procedure, or #f.
   (prim-op? basm-prim-op?))
 
@@ -80,9 +83,10 @@
                     (labeled-ips '())
                     (callees (make-hash-table))
                     (callers (make-hash-table))
-                    (locals #f))
+                    (locals #f)
+                    (nretvals 1))
   (%make-basm name ip (vector-length args) args free-vars chunks
-              labeled-ips callees callers locals prim-op?))
+              labeled-ips callees callers locals nretvals prim-op?))
 
 (define-record-type <chunk>
   (make-chunk dest-ip op)
@@ -105,6 +109,12 @@
   (args call-args)
   (runtime-args call-runtime-args set-call-runtime-args!)
   (node call-node set-call-node!))
+
+(define-record-type <builtin>
+  (make-builtin idx name)
+  builtin?
+  (idx builtin-idx)
+  (name builtin-name))
 
 (define (make-call program args)
   (%make-call program args #f #f))
@@ -184,6 +194,8 @@
       (vector-set! (basm-locals basm) idx val))
     (define (offset->addr offset)
       (+ (base-ip) (* 4 (+ (basm-ip basm) offset))))
+    (define (nretvals-set! n)
+      (set-basm-nretvals! basm n))
     (define (locals->args proc-local nlocals)
       (let ((args (make-vector nlocals)))
         (let lp ((n 0))
@@ -278,6 +290,14 @@
        (local-set! 1 (make-call 0 (locals->args 0 nlocals))))
       (('receive dst proc nlocals)
        (local-set! dst (local-ref (+ proc 1))))
+      (('return src)
+       (nretvals-set! 1))
+      (('return-values)
+       (nretvals-set! (- (vector-length (basm-locals basm)) 1)))
+
+      ;; Specialized call stubs
+      (('builtin-ref dst idx)
+       (local-set! dst (make-builtin idx (builtin-index->name idx))))
 
       ;; Function prologues
       (('assert-nargs-ee/locals expected nlocals)
@@ -305,6 +325,14 @@
              (old-length (vector-length (basm-locals basm))))
          (let lp ((n 0))
            (when (< n old-length)
+             (vector-set! new-locals n (vector-ref old-locals n))
+             (lp (+ n 1))))
+         (set-basm-locals! basm new-locals)))
+      (('reset-frame nlocals)
+       (let ((new-locals (make-vector nlocals))
+             (old-locals (basm-locals basm)))
+         (let lp ((n 0))
+           (when (< n nlocals)
              (vector-set! new-locals n (vector-ref old-locals n))
              (lp (+ n 1))))
          (set-basm-locals! basm new-locals)))
@@ -350,7 +378,6 @@
               (offset->pointer
                (lambda (offset) (make-pointer (offset->addr offset))))
               (var (dereference-scm (offset->pointer var-offset))))
-         ;; (format #t "basm: toplevel-box, var=~a~%" var)
          (if (variable? var)
              (local-set! dst var)
              (let* ((mod (dereference-scm (offset->pointer mod-offset)))
@@ -362,11 +389,6 @@
               (offset->pointer
                (lambda (offset) (make-pointer (offset->addr offset))))
               (var (dereference-scm (offset->pointer var-offset))))
-         ;; (format #t "basm: module-box:~%")
-         ;; (format #t "basm:   var=~a~%" var)
-         ;; (format #t "basm:   mod=~a~%"
-         ;;         (resolve-module
-         ;;          (cdr (pointer->scm (offset->pointer mod-offset)))))
          (if (variable? var)
              (local-set! dst var)
              (let* ((mod (resolve-module

@@ -81,6 +81,11 @@
   ;; Modified cached registers, to be saved before calling procedure.
   (modified lightning-modified set-lightning-modified!))
 
+(define-record-type <nretvals>
+  (make-nretvals n)
+  nretvals?
+  (n nretvals-n set-nretvals-n!))
+
 (define* (make-lightning asm nodes sp thread nargs pc #:optional
                          (ip 0)
                          (labels (make-hash-table)))
@@ -104,14 +109,6 @@ argument in VM operation."
 (define (dereference-scm pointer)
   (pointer->scm (dereference-pointer pointer)))
 
-(define (ensure-program-code program-or-addr)
-  (cond ((program? program-or-addr)
-         (program-code program-or-addr))
-        ((struct? program-or-addr)
-         (program-code (struct-ref program-or-addr 0)))
-        (else
-         program-or-addr)))
-
 ;; XXX: For x86-64.
 (define *cache-registers*
   (vector v0 v1 v2 v3 f0 f1 f2 f3 f4))
@@ -120,69 +117,102 @@ argument in VM operation."
   "Compare pointer address of register A and B."
   (= (pointer-address a) (pointer-address b)))
 
-;; XXX: Analyze which registers to cache, take benchmarks.
-(define (cache-locals st nlocals)
-  "Load memory contents of current locals from ST.
-Naively load from 0 to (min NLOCALS (number of available cache registers))."
-  (let* ((num-regs (vector-length *cache-registers*))
-         (regs (make-vector (min nlocals num-regs))))
-    (let lp ((n 0))
-      (when (and (< n nlocals) (< n num-regs))
-        (let ((reg (vector-ref *cache-registers* n)))
-          (jit-ldxi reg (jit-fp) (stored-ref st n))
-          (vector-set! regs n reg))
-        (lp (+ n 1))))
-    (set-lightning-cached! st regs)
-    (set-lightning-modified! st (make-vector nlocals #f))))
-
-(define (save-locals st)
-  "Store modified registers in cache to memory."
-  (let* ((cache (lightning-cached st))
-         (ncache (vector-length cache))
-         (modified (lightning-modified st)))
-    (let lp ((n 0))
-      (when (< n ncache)
-        (when (vector-ref modified n)
-          (jit-stxi (stored-ref st n) (jit-fp) (vector-ref cache n)))
-        (lp (+ n 1))))))
-
 (define (stored-ref st n)
   "Memory address of ST's local N."
   (imm (- (lightning-sp st) (* (sizeof '*) n))))
+
+;;; === With argument caching ===
+
+;; ;; XXX: Analyze which registers to cache, take benchmarks.
+;; (define (cache-locals st nlocals)
+;;   "Load memory contents of current locals from ST.
+;; Naively load from 0 to (min NLOCALS (number of available cache registers))."
+;;   (let* ((num-regs (vector-length *cache-registers*))
+;;          (regs (make-vector (min nlocals num-regs))))
+;;     (let lp ((n 0))
+;;       (when (and (< n nlocals) (< n num-regs))
+;;         (let ((reg (vector-ref *cache-registers* n)))
+;;           (jit-ldxi reg (jit-fp) (stored-ref st n))
+;;           (vector-set! regs n reg))
+;;         (lp (+ n 1))))
+;;     (set-lightning-cached! st regs)
+;;     (set-lightning-modified! st (make-vector nlocals #f))))
+
+;; (define (save-locals st)
+;;   "Store modified registers in cache to memory."
+;;   (let* ((cache (lightning-cached st))
+;;          (ncache (vector-length cache))
+;;          (modified (lightning-modified st)))
+;;     (let lp ((n 0))
+;;       (when (< n ncache)
+;;         (when (vector-ref modified n)
+;;           (jit-stxi (stored-ref st n) (jit-fp) (vector-ref cache n)))
+;;         (lp (+ n 1))))))
+
+;; (define-syntax local-ref
+;;   (syntax-rules ()
+;;     ((local-ref st n)
+;;      (local-ref st n r0))
+;;     ((local-ref st n reg)
+;;      (or (let ((cache (lightning-cached st)))
+;;            (and (< n (vector-length cache))
+;;                 (vector-ref cache n)))
+;;          (begin
+;;            (jit-ldxi reg (jit-fp) (stored-ref st n))
+;;            reg)))))
+
+;; (define (local-set! st dst reg)
+;;   (or (and (< dst (vector-length (lightning-cached st)))
+;;            (let ((regb (vector-ref (lightning-cached st) dst)))
+;;              (or (reg=? regb reg)
+;;                  (jit-movr regb reg))
+;;              (vector-set! (lightning-modified st) dst #t)))
+;;       (jit-stxi (stored-ref st dst) (jit-fp) reg)))
+
+;; (define (local-set-immediate! st dst val)
+;;   (or (and (< dst (vector-length (lightning-cached st)))
+;;            (let ((regb (vector-ref (lightning-cached st) dst)))
+;;              (jit-movi regb val)
+;;              (vector-set! (lightning-modified st) dst #t)))
+;;       (and (jit-movi r0 val)
+;;            (jit-stxi (stored-ref st dst) (jit-fp) r0))))
+
+;;; === Without argument caching ===
+
+(define (cache-locals st nlocals)
+  *unspecified*)
+
+(define (save-locals st)
+  *unspecified*)
 
 (define-syntax local-ref
   (syntax-rules ()
     ((local-ref st n)
      (local-ref st n r0))
     ((local-ref st n reg)
-     (or (let ((cache (lightning-cached st)))
-           (and (< n (vector-length cache))
-                (vector-ref cache n)))
-         (begin
-           (jit-ldxi reg (jit-fp) (stored-ref st n))
-           reg)))))
+     (begin
+       (jit-ldxi reg (jit-fp) (stored-ref st n))
+       reg))))
 
 (define (local-set! st dst reg)
-  (or (and (< dst (vector-length (lightning-cached st)))
-           (let ((regb (vector-ref (lightning-cached st) dst)))
-             (or (reg=? regb reg)
-                 (jit-movr regb reg))
-             (vector-set! (lightning-modified st) dst #t)))
-      (jit-stxi (stored-ref st dst) (jit-fp) reg)))
+  (jit-stxi (stored-ref st dst) (jit-fp) reg))
 
 (define (local-set-immediate! st dst val)
-  (or (and (< dst (vector-length (lightning-cached st)))
-           (let ((regb (vector-ref (lightning-cached st) dst)))
-             (jit-movi regb val)
-             (vector-set! (lightning-modified st) dst #t)))
-      (and (jit-movi r0 val)
-           (jit-stxi (stored-ref st dst) (jit-fp) r0))))
+  (jit-movi r0 val)
+  (jit-stxi (stored-ref st dst) (jit-fp) r0))
+
+;;;
 
 (define (offset-addr st offset)
   (+ (lightning-pc st) (* 4 (+ (lightning-ip st) offset))))
 
-(define tc7-program 69)
-(define tc16-real 535)
+(define-syntax-rule (tc7-variable) 7)
+
+(define-syntax-rule (tc7-program) 69)
+
+(define-syntax-rule (tc16-real) 535)
+
+(define undefined (make-pointer #x904))
 
 (define-syntax-rule (c-pointer name)
   (dynamic-func name (dynamic-link)))
@@ -197,8 +227,7 @@ Naively load from 0 to (min NLOCALS (number of available cache registers))."
          (rest (cdr (assoc 'rest pargs)))
          (num-required (length required))
          (num-optionals (length optionals))
-         (num-req+opts (+ num-required num-optionals))
-         (undefined (make-pointer #x904)))
+         (num-req+opts (+ num-required num-optionals)))
 
     ;; If the primitive contained `rest' argument, firstly build a list
     ;; for rest argument by calling `scm_list_n' or moving empty list to
@@ -236,10 +265,9 @@ Naively load from 0 to (min NLOCALS (number of available cache registers))."
   (jit-stxi (stored-ref st (+ proc 1)) (jit-fp) r0))
 
 (define (call-scm st proc-or-addr)
-  (let* ((addr (ensure-program-code proc-or-addr))
+  (let* ((addr (ensure-program-addr proc-or-addr))
          (callee (hashq-ref (lightning-nodes st) addr)))
     (jit-patch-at (jit-jmpi) callee)))
-
 
 (define (call-scm/returned st proc proc-or-addr)
   "Call local PROC in ST. PROC-OR-ADDR is the address of program code or program
@@ -264,6 +292,7 @@ procedure itself. Address to return after this call will get patched."
 (define-syntax-rule (define-label l body ...)
   (begin (jit-link l) body ...))
 
+;; XXX: Add pre and post as in vm-engine.c?
 (define-syntax-rule (vm-handle-interrupts st)
   (let ((l1 (jit-forward)))
     (jit-movi r0 (lightning-thread st))
@@ -301,10 +330,10 @@ procedure itself. Address to return after this call will get patched."
          (jit-link l2)
          (jit-patch-at (jit-bmsi rega (imm 6)) l3)
          (jit-ldr r0 rega)
-         (jit-patch-at (jit-bnei r0 (imm tc16-real)) l3)
+         (jit-patch-at (jit-bnei r0 (imm (tc16-real))) l3)
          (jit-patch-at (jit-bmsi regb (imm 6)) l3)
          (jit-ldr r0 regb)
-         (jit-patch-at (jit-bnei r0 (imm tc16-real)) l3)
+         (jit-patch-at (jit-bnei r0 (imm (tc16-real))) l3)
          (jit-ldxi-d f5 rega (imm (* 2 (sizeof '*))))
          (jit-ldxi-d f6 regb (imm (* 2 (sizeof '*))))
          (jit-patch-at
@@ -377,10 +406,10 @@ procedure itself. Address to return after this call will get patched."
          (jit-link l2)
          (jit-patch-at (jit-bmsi rega (imm 6)) l3)
          (jit-ldr r0 rega)
-         (jit-patch-at (jit-bnei r0 (imm tc16-real)) l3)
+         (jit-patch-at (jit-bnei r0 (imm (tc16-real))) l3)
          (jit-patch-at (jit-bmsi regb (imm 6)) l3)
          (jit-ldr r0 regb)
-         (jit-patch-at (jit-bnei r0 (imm tc16-real)) l3)
+         (jit-patch-at (jit-bnei r0 (imm (tc16-real))) l3)
          (jit-ldxi-d f5 rega (imm (* 2 (sizeof '*))))
          (jit-ldxi-d f6 regb (imm (* 2 (sizeof '*))))
          (fl-op f5 f5 f6)
@@ -417,9 +446,9 @@ procedure itself. Address to return after this call will get patched."
 
          (jit-link l1)
          (jit-ldr r0 rega)
-         (jit-patch-at (jit-bnei r0 (imm tc16-real)) l2)
+         (jit-patch-at (jit-bnei r0 (imm (tc16-real))) l2)
          (jit-ldr r0 regb)
-         (jit-patch-at (jit-bnei r0 (imm tc16-real)) l2)
+         (jit-patch-at (jit-bnei r0 (imm (tc16-real))) l2)
          (jit-ldxi-d f5 rega (imm 16))
          (jit-ldxi-d f6 regb (imm 16))
          (fl-op f5 f5 f6)
@@ -456,7 +485,7 @@ procedure itself. Address to return after this call will get patched."
 
          (jit-link l1)
          (jit-ldr r0 reg)
-         (jit-patch-at (jit-bnei r0 (imm tc16-real)) l2)
+         (jit-patch-at (jit-bnei r0 (imm (tc16-real))) l2)
          (jit-ldxi-d f5 reg (imm 16))
          (jit-movi r0 (imm 1))
          (jit-extr-d f6 r0)
@@ -532,22 +561,32 @@ procedure itself. Address to return after this call will get patched."
   ;; (cache-locals st nlocals)
   (local-set! st dst (local-ref st (+ proc 1))))
 
-(define-vm-op (return st dst)
-  ;; XXX: Understand scm_async_tick, add pre and post as in vm-engine.c.
-  (vm-handle-interrupts st)
+(define-vm-op (receive-values st proc allow-extra? nvalues)
+  (save-locals st))
 
+(define-syntax return-jmp
+  (syntax-rules ()
+    ((_ st)
+     (return-jmp st r0))
+    ((_ st reg)
+     (begin
+       ;; Get return address to jump
+       (jit-ldxi reg (jit-fp) (stored-ref st -1))
+       ;; Restore previous dynamic link to current frame pointer
+       (jit-ldxi (jit-fp) (jit-fp) (stored-ref st -2))
+       ;; ... then jump to return address.
+       (jit-jmpr reg)))))
+
+(define-vm-op (return st dst)
+  (vm-handle-interrupts st)
   ;; Store dst to local-ref 1
   (jit-stxi (stored-ref st 1) (jit-fp) (local-ref st dst))
+  (return-jmp st))
 
-  ;; Get return address to jump
-  (jit-ldxi r0 (jit-fp) (stored-ref st -1))
-
-  ;; Restore previous dynamic link to current frame pointer
-  (jit-ldxi (jit-fp) (jit-fp) (stored-ref st -2))
-
-  ;; Jump to return address.
-  (jit-jmpr r0))
-
+(define-vm-op (return-values st)
+  (vm-handle-interrupts st)
+  (save-locals st)
+  (return-jmp st))
 
 ;;; Specialized call stubs
 ;;; ----------------------
@@ -565,7 +604,8 @@ procedure itself. Address to return after this call will get patched."
 ;; XXX: Move stack pointer, call jit-allocai when necessary.
 (define-vm-op (assert-nargs-ee/locals st expected locals)
   ;; (cache-locals st (+ expected locals))
-  (cache-locals st expected))
+  (cache-locals st expected)
+  )
 
 ;; XXX: Does nothing.
 (define-vm-op (alloc-frame st nlocals)
@@ -577,8 +617,11 @@ procedure itself. Address to return after this call will get patched."
 ;; Caching was once causing infinite loops and disabled. Brought back
 ;; after running `run-nfa' procedure, locals were mixed up from callee.
 (define-vm-op (reset-frame st nlocals)
-  (cache-locals st (lightning-nargs st)))
-
+  ;; (save-locals st)
+  (cache-locals st (lightning-nargs st))
+  ;; (cache-locals st nlocals)
+  ;; *unspecified*
+  )
 
 ;;; Branching instructions
 ;;; ----------------------
@@ -613,12 +656,12 @@ procedure itself. Address to return after this call will get patched."
 (define-vm-op (mov st dst src)
   (local-set! st dst (local-ref st src)))
 
-;; Calling C function "scm_make_variable", which calls "scm_cell" with tc7 for
-;; SCM variable.
 (define-vm-op (box st dst src)
   (jit-prepare)
+  (jit-pushargi (lightning-thread st))
+  (jit-pushargi (imm (tc7-variable)))
   (jit-pushargr (local-ref st src))
-  (jit-calli (dynamic-func "scm_make_variable" (dynamic-link)))
+  (jit-calli (c-pointer "scm_do_inline_cell"))
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -631,7 +674,7 @@ procedure itself. Address to return after this call will get patched."
 
 (define-vm-op (make-closure st dst offset nfree)
   (jit-prepare)
-  (jit-pushargi (imm (logior tc7-program (ash nfree 16))))
+  (jit-pushargi (imm (logior (tc7-program) (ash nfree 16))))
   (jit-pushargi (imm (+ nfree 2)))
   (jit-calli (c-pointer "scm_words"))
   (jit-retval r0)
@@ -713,12 +756,11 @@ procedure itself. Address to return after this call will get patched."
 ;;; Pairs
 ;;; -----
 
-;;; Delegating to C function "scm_do_inline_cons". Use heap?
 (define-vm-op (cons st dst car cdr)
   (jit-prepare)
   (jit-pushargi (lightning-thread st))
   (jit-pushargr (local-ref st car r0))
-  (jit-pushargr (local-ref st cdr r1))
+  (jit-pushargr (local-ref st cdr r0))
   (jit-calli (c-inline "scm_do_inline_cons"))
   (jit-retval r0)
   (local-set! st dst r0))
@@ -732,10 +774,10 @@ procedure itself. Address to return after this call will get patched."
   (local-set! st dst r0))
 
 (define-vm-op (set-car! st pair car)
-  (jit-str (local-ref st pair) (local-ref st car)))
+  (jit-str (local-ref st pair r0) (local-ref st car r1)))
 
 (define-vm-op (set-cdr! st pair cdr)
-  (jit-stxi (imm (sizeof '*)) (local-ref st pair) (local-ref st cdr)))
+  (jit-stxi (imm (sizeof '*)) (local-ref st pair r0) (local-ref st cdr r1)))
 
 
 ;;; Numeric operations
@@ -777,14 +819,16 @@ procedure itself. Address to return after this call will get patched."
     (lambda (port)
       (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
 
-(define (compile-lightning sp thread nargs args program-or-addr entry)
+(define (compile-lightning sp thread nargs args program-or-addr entry
+                           nretvals)
   "Compile bytecode procedure specified by PROGRAM-OR-ADDR to native code
 using lightning, with stack pointer SP and number of arguments NARGS."
   (let* ((nodes (make-hash-table)))
-    (compile-lightning* nodes sp thread nargs args program-or-addr entry #t)))
+    (compile-lightning* nodes sp thread nargs args program-or-addr entry #t
+                        nretvals)))
 
 (define (compile-lightning* nodes sp thread nargs args program-or-addr
-                            entry toplevel?)
+                            entry toplevel? nretvals)
   "Compile bytecode procedure specified by PROGRAM-OR-ADDR, with cached
 procedures in CACHED-TABLE hash table. Using SP as stack pointer, the number of
 args passed to target procedure is NARGS."
@@ -817,7 +861,7 @@ args passed to target procedure is NARGS."
           (let ((sp (lightning-sp st))
                 (nargs (basm-nargs val))
                 (args (basm-args val)))
-            (compile-lightning* nodes sp thread nargs args addr self #f)))
+            (compile-lightning* nodes sp thread nargs args addr self #f nretvals)))
          ((call? val)
           (let ((result (apply call-lightning (vector->list (call-args val))))
                 (runtime-args (call-runtime-args val)))
@@ -826,8 +870,8 @@ args passed to target procedure is NARGS."
                    (nargs (vector-length runtime-args))
                    (args runtime-args)
                    (node (compile-lightning* nodes sp thread nargs args result
-                                             self #f)))
-              (set-call-node! val (ensure-program-code result)))))))))
+                                             self #f nretvals)))
+              (set-call-node! val (ensure-program-addr result)))))))))
 
   (define (unwrap-non-program args program-or-addr)
     (cond ((struct? program-or-addr)
@@ -836,25 +880,25 @@ args passed to target procedure is NARGS."
           (else
            args)))
 
-  (let* ((pc (ensure-program-code program-or-addr))
+  (let* ((addr (ensure-program-addr program-or-addr))
          (args* (unwrap-non-program args program-or-addr))
-         (basm (proc->basm pc args*))
+         (basm (proc->basm addr args*))
          (name
           (cond ((and (program? program-or-addr)
                       (procedure-name program-or-addr))
                  => symbol->string)
                 ((find-program-debug-info
-                  (ensure-program-code program-or-addr))
+                  (ensure-program-addr program-or-addr))
                  => (lambda (pdi)
                       (cond ((program-debug-info-name pdi)
                              => symbol->string)
                             (else "anon"))))
                 (else "anon")))
-         (st (make-lightning basm nodes sp thread nargs pc)))
+         (st (make-lightning basm nodes sp thread nargs addr)))
 
-    ;; (format #t ";;; ~a (~a)~%" name pc)
+    ;; (format #t ";;; ~a (~a)~%" name addr)
 
-    (hashq-set! nodes pc entry)
+    (hashq-set! nodes addr entry)
     (when toplevel?
       ;; Compile callees.
       (let ((callees (basm->callees-list basm)))
@@ -863,33 +907,37 @@ args passed to target procedure is NARGS."
            (hashq-set! nodes (car callee) (jit-forward)))
          callees)
         (for-each (compile-callee st) callees)))
-    (jit-note name pc)
+    (jit-note name addr)
 
     ;; Link and compile the entry point.
     (jit-link entry)
     (for-each (lambda (chunk)
                 (assemble-one st chunk))
               (basm-chunks->alist (basm-chunks basm)))
+    (set-nretvals-n! nretvals (basm-nretvals (lightning-asm st)))
     entry))
 
 (define (call-lightning proc . args)
   "Compile PROC with lightning, and run with ARGS."
-  (c-call-lightning (thread-i-data (current-thread)) proc args))
+  (c-call-lightning (thread-i-data (current-thread)) 0 proc args))
 
 ;; Called by C code.
-(define (c-call-lightning thread proc args)
+(define (c-call-lightning thread vp-fp proc args)
   "Compile PROC with lightning and run with ARGS."
   (define (offset->addr offset)
-    (imm (- (+ #xffffffffffffffff 1) (* offset (sizeof ssize_t)))))
+    ;; (imm (* offset (sizeof ssize_t)))
+    (imm (- (+ #xffffffffffffffff 1) (* offset (sizeof ssize_t))))
+    )
   (parameterize ((jit-state (jit-new-state)))
     (dynamic-wind
       (lambda () #f)
       (lambda ()
         (jit-prolog)
         (let* ((szt (sizeof '*))
-               ;; XXX: Use vp->sp.
+               ;; XXX: Use vp->sp?
                (sp (jit-allocai (imm (* szt (+ 3 (length args))))))
                (sp-addr (logxor #xffffffff00000000 (pointer-address sp)))
+               ;; (sp-addr (- vp-fp 16))
                (addr (jit-movi r1 (imm 0))))
 
           ;; XXX: Allocating constant amount at beginning of function call.
@@ -898,6 +946,7 @@ args passed to target procedure is NARGS."
           (jit-frame (imm (* 4 4096)))
 
           ;; Initial dynamic link, frame pointer.
+          ;; (jit-movi (jit-fp) (imm sp-addr))
           (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
 
           ;; Return address.
@@ -918,14 +967,33 @@ args passed to target procedure is NARGS."
           (let* ((entry (jit-forward))
                  (nargs (+ (length args) 1))
                  (args (apply vector proc args))
-                 (sp0 (+ sp-addr (* szt nargs))))
+                 (sp0 (+ sp-addr (* szt nargs)))
+                 ;; (sp0 (+ sp-addr (* szt (- nargs 1))))
+                 (nretvals (make-nretvals 1)))
             (jit-patch-at (jit-jmpi) entry)
-            (compile-lightning sp0 thread nargs args proc entry))
+            (compile-lightning sp0 thread nargs args proc entry nretvals)
 
-          ;; Link the return address, get single return value.
-          (jit-patch addr)
-          (jit-ldxi r0 (jit-fp) (offset->addr 4))
-          (jit-retr r0))
+            ;; Link the return address, get single return value.
+            (jit-patch addr)
+
+            ;; Check number of return values, call C function
+            ;; scm_values if number of values were not 1.
+            (cond ((= (nretvals-n nretvals) 1)
+                   (jit-ldxi r0 (jit-fp) (offset->addr 4)))
+                  (else
+                   (jit-prepare)
+                   (for-each (lambda (n)
+                               (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
+                               (jit-pushargr r0))
+                             (iota (nretvals-n nretvals)))
+                   (jit-pushargi undefined)
+                   (jit-calli (c-pointer "scm_list_n"))
+                   (jit-retval r1)
+                   (jit-prepare)
+                   (jit-pushargr r1)
+                   (jit-calli (c-pointer "scm_values"))
+                   (jit-retval r0)))
+            (jit-retr r0)))
         (jit-epilog)
 
         ;; Emit and call the thunk.
@@ -940,18 +1008,24 @@ args passed to target procedure is NARGS."
       (lambda ()
         (jit-destroy-state)))))
 
-(define (vm-lightning thread vp ip sp fp registers nargs resume)
+(define (vm-lightning thread vp ip sp fp stack-limit sp-max-since-gc
+                      stack-size stack-base registers nargs resume)
   (let* ((dereference-addr
           (lambda (addr)
             (pointer->scm (dereference-pointer (make-pointer addr)))))
+         (deref (lambda (addr)
+                  (dereference-pointer (make-pointer addr))))
          (args (let lp ((n (- nargs 1)) (acc '()))
                  (if (< n 1)
                      acc
                      (lp (- n 1)
                          (cons (dereference-addr
-                                (+ fp (* (sizeof '*) n)))
+                                (+ fp (* n (sizeof '*))))
                                acc))))))
-    (c-call-lightning (make-pointer thread) (dereference-addr fp) args)))
+    (c-call-lightning (make-pointer thread)
+                      fp
+                      (dereference-addr fp)
+                      args)))
 
 
 ;;;
