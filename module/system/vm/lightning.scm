@@ -51,7 +51,7 @@
 
 ;; State used during compilation.
 (define-record-type <lightning>
-  (%make-lightning asm nodes ip labels pc sp thread nargs args nretvals
+  (%make-lightning asm nodes ip labels pc fp thread nargs args nretvals
                    cached modified)
   lightning?
 
@@ -70,8 +70,8 @@
   ;; Address of byte-compiled program code.
   (pc lightning-pc)
 
-  ;; Stack pointer
-  (sp lightning-sp)
+  ;; Frame pointer
+  (fp lightning-fp)
 
   ;; Thread.
   (thread lightning-thread)
@@ -91,7 +91,7 @@
   ;; Modified cached registers, to be saved before calling procedure.
   (modified lightning-modified set-lightning-modified!))
 
-(define* (make-lightning asm nodes sp thread nargs args pc nretvals
+(define* (make-lightning asm nodes fp thread nargs args pc nretvals
                          #:optional
                          (ip 0)
                          (labels (make-hash-table)))
@@ -99,13 +99,13 @@
               (when (< labeled-ip (basm-ip asm))
                 (hashq-set! labels labeled-ip (jit-forward))))
             (basm-labeled-ips asm))
-  (%make-lightning asm nodes ip labels pc sp thread nargs args nretvals #f #f))
+  (%make-lightning asm nodes ip labels pc fp thread nargs args nretvals #f #f))
 
 (define-syntax define-vm-op
   (syntax-rules ()
     ((_ (op st . args) body ...)
      (hashq-set! *vm-instr* 'op (lambda (st . args)
-                                  body ... )))))
+                                  body ...)))))
 
 (define (resolve-dst st offset)
   "Resolve jump destination with <lightning> state ST and OFFSET given as
@@ -115,19 +115,19 @@ argument in VM operation."
 (define (dereference-scm pointer)
   (pointer->scm (dereference-pointer pointer)))
 
-;; XXX: For x86-64.
-(define *cache-registers*
-  (vector v0 v1 v2 v3 f0 f1 f2 f3 f4))
-
 (define (reg=? a b)
   "Compare pointer address of register A and B."
   (= (pointer-address a) (pointer-address b)))
 
 (define (stored-ref st n)
   "Memory address of ST's local N."
-  (imm (- (lightning-sp st) (* (sizeof '*) n))))
+  (imm (- (lightning-fp st) (* (sizeof '*) n))))
 
 ;;; === With argument caching ===
+
+;; ;; XXX: For x86-64.
+;; (define *cache-registers*
+;;   (vector v0 v1 v2 v3 f0 f1 f2 f3 f4))
 
 ;; ;; XXX: Analyze which registers to cache, take benchmarks.
 ;; (define (cache-locals st nlocals)
@@ -609,9 +609,7 @@ procedure itself. Address to return after this call will get patched."
 
 ;; XXX: Move stack pointer, call jit-allocai when necessary.
 (define-vm-op (assert-nargs-ee/locals st expected locals)
-  ;; (cache-locals st (+ expected locals))
-  (cache-locals st expected)
-  )
+  (cache-locals st expected))
 
 ;; XXX: Does nothing.
 (define-vm-op (alloc-frame st nlocals)
@@ -867,13 +865,12 @@ args passed to target procedure is NARGS."
         (cond
          ((and (basm? val)
                (not (basm-prim-op? val)))
-          (let* ((sp (lightning-sp st))
-                 (nargs (basm-nargs val))
+          (let* ((nargs (basm-nargs val))
                  (args (basm-args val))
                  (args* (unwrap-non-program args addr))
                  (st2 (make-lightning (proc->basm addr args*)
                                       (lightning-nodes st)
-                                      (lightning-sp st)
+                                      (lightning-fp st)
                                       (lightning-thread st)
                                       nargs
                                       args
@@ -885,14 +882,13 @@ args passed to target procedure is NARGS."
                           (apply (car xs) (cdr xs))))
                 (runtime-args (call-runtime-args val)))
             (vector-set! runtime-args 0 result)
-            (let* ((sp (lightning-sp st))
-                   (nargs (vector-length runtime-args))
+            (let* ((nargs (vector-length runtime-args))
                    (args runtime-args)
                    (addr (ensure-program-addr result))
                    (basm (proc->basm addr (unwrap-non-program args result)))
                    (st2 (make-lightning basm
                                         (lightning-nodes st)
-                                        sp
+                                        (lightning-fp st)
                                         (lightning-thread st)
                                         nargs
                                         args
@@ -943,15 +939,13 @@ args passed to target procedure is NARGS."
 
 (define (call-lightning proc . args)
   "Compile PROC with lightning, and run with ARGS."
-  (c-call-lightning (thread-i-data (current-thread)) 0 proc args))
+  (c-call-lightning (thread-i-data (current-thread)) #f #f proc args))
 
 ;; Called by C code.
-(define (c-call-lightning thread vp-fp proc args)
+(define (c-call-lightning thread vp-sp vp-fp proc args)
   "Compile PROC with lightning and run with ARGS."
   (define (offset->addr offset)
-    ;; (imm (* offset (sizeof ssize_t)))
-    (imm (- (+ #xffffffffffffffff 1) (* offset (sizeof ssize_t))))
-    )
+    (imm (- (+ #xffffffffffffffff 1) (* offset (sizeof ssize_t)))))
   (parameterize ((jit-state (jit-new-state)))
     (dynamic-wind
       (lambda () #f)
@@ -959,18 +953,15 @@ args passed to target procedure is NARGS."
         (jit-prolog)
         (let* ((szt (sizeof '*))
                ;; XXX: Use vp->sp?
-               (sp (jit-allocai (imm (* szt (+ 3 (length args))))))
-               (sp-addr (logxor #xffffffff00000000 (pointer-address sp)))
-               ;; (sp-addr (- vp-fp 16))
+               (fp (jit-allocai (imm (* szt (+ 3 (length args))))))
+               (fp-addr (logxor #xffffffff00000000 (pointer-address fp)))
                (addr (jit-movi r1 (imm 0))))
 
           ;; XXX: Allocating constant amount at beginning of function call.
           ;; Might better to allocate at compile time or runtime.
-          ;; (jit-allocai (imm (* 16 4096)))
           (jit-frame (imm (* 4 4096)))
 
           ;; Initial dynamic link, frame pointer.
-          ;; (jit-movi (jit-fp) (imm sp-addr))
           (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
 
           ;; Return address.
@@ -991,25 +982,19 @@ args passed to target procedure is NARGS."
           (let* ((entry (jit-forward))
                  (nargs (+ (length args) 1))
                  (args (apply vector proc args))
-                 (sp0 (+ sp-addr (* szt nargs)))
-                 ;; (nretvals (make-nretvals 1))
-                 (lightning (make-lightning
-                             (proc->basm (ensure-program-addr proc)
-                                         (unwrap-non-program
-                                          args
-                                          (ensure-program-addr proc)))
-                             (make-hash-table)
-                             sp0
-                             thread
-                             nargs
-                             args
-                             (ensure-program-addr proc)
-                             1)))
+                 (fp0 (+ fp-addr (* szt nargs)))
+                 (addr* (ensure-program-addr proc))
+                 (basm (proc->basm addr* (unwrap-non-program args addr*)))
+                 (lightning (make-lightning basm
+                                            (make-hash-table)
+                                            fp0
+                                            thread
+                                            nargs
+                                            args
+                                            addr*
+                                            1)))
             (jit-patch-at (jit-jmpi) entry)
-            ;; (compile-lightning sp0 thread nargs args proc entry nretvals)
-            (compile-lightning lightning
-                               entry)
-
+            (compile-lightning lightning entry)
 
             ;; Link the return address, get single return value.
             (jit-patch addr)
@@ -1033,6 +1018,7 @@ args passed to target procedure is NARGS."
                    (jit-calli (c-pointer "scm_values"))
                    (jit-retval r0)))
             (jit-retr r0)))
+
         (jit-epilog)
 
         ;; Emit and call the thunk.
@@ -1042,14 +1028,13 @@ args passed to target procedure is NARGS."
           ;;  (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
           ;; (jit-print)
           ;; (jit-clear-state)
-          ;; (newline)
           (pointer->scm (thunk))))
       (lambda ()
         (jit-destroy-state)))))
 
 (define (vm-lightning thread vp ip sp fp stack-limit sp-max-since-gc
                       stack-size stack-base registers nargs resume)
-  (let* ((dereference-addr
+  (let* ((addr->scm
           (lambda (addr)
             (pointer->scm (dereference-pointer (make-pointer addr)))))
          (deref (lambda (addr)
@@ -1058,13 +1043,9 @@ args passed to target procedure is NARGS."
                  (if (< n 1)
                      acc
                      (lp (- n 1)
-                         (cons (dereference-addr
-                                (+ fp (* n (sizeof '*))))
+                         (cons (addr->scm (+ fp (* n (sizeof '*))))
                                acc))))))
-    (c-call-lightning (make-pointer thread)
-                      fp
-                      (dereference-addr fp)
-                      args)))
+    (c-call-lightning (make-pointer thread) sp fp (addr->scm fp) args)))
 
 
 ;;;
