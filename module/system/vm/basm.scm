@@ -369,6 +369,8 @@
                 (local-set! dst runtime-call)))))
 
       ;; Immediates and staticaly allocated non-immediates
+      (('make-short-immediate dst low-bits)
+       (local-set! dst (pointer->scm (make-pointer low-bits))))
       (('make-non-immediate dst target)
        (local-set! dst (pointer->scm (make-pointer (offset->addr target)))))
 
@@ -396,6 +398,30 @@
                     (sym (dereference-scm (offset->pointer sym-offset)))
                     (resolved (module-variable mod sym)))
                (local-set! dst resolved)))))
+
+      ;; XXX: Vector related operations will slow down compilation time.
+      ;; Though current approach required book keeping the contents of
+      ;; vector, since there is no way to determine whether vector
+      ;; elements are used as callee.
+
+      (('make-vector dst length init)
+       (let ((len (local-ref length)))
+         (and (integer? len)
+              (local-set! dst (make-vector len (local-ref init))))))
+      (('make-vector/immediate dst length init)
+       (local-set! dst (make-vector length init)))
+      (('vector-ref dst src idx)
+       (let ((i (local-ref idx)))
+         (and (integer? i)
+              (local-set! dst (vector-ref (local-ref src) i)))))
+      (('vector-ref/immediate dst src idx)
+       (local-set! dst (vector-ref (local-ref src) idx)))
+      (('vector-set! dst idx src)
+       (let ((i (local-ref idx)))
+         (and (integer? i)
+              (vector-set! (local-ref dst) i (local-ref src)))))
+      (('vector-set!/immediate dst idx src)
+       (vector-set! (local-ref dst) idx (local-ref src)))
 
       (_ *unspecified*))
 

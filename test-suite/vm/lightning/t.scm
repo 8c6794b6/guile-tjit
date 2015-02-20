@@ -377,6 +377,57 @@
 (define-test (l-div-gmp x y) (1.23 9999999999999999999999999999)
   (/ x y))
 
+(define-test (l-make-vector len fill) (16 'foo)
+  (make-vector len fill))
+
+(define-test (l-make-vector-immediate fill) ('foo)
+  (make-vector 10 fill))
+
+(define-test (l-vector-length v) (#(1 2 3 4 5))
+  (vector-length v))
+
+(define-test (l-vector-ref v idx) (#(1 2 3 4 5) 3)
+  (vector-ref v idx))
+
+(define-test (l-vector-ref-min v idx) (#(1 2 3 4 5) 0)
+  (vector-ref v idx))
+
+(define-test (l-vector-ref-max v idx) (#(1 2 3 4 5) 4)
+  (vector-ref v idx))
+
+(define-test (l-vector-ref-immediate v) (#(1 2 3 4 5))
+  (vector-ref v 3))
+
+(define-test (l-vector-ref-immediate-min v) (#(1 2 3 4 5))
+  (vector-ref v 0))
+
+(define-test (l-vector-ref-immediate-max v) (#(1 2 3 4 5))
+  (vector-ref v 4))
+
+(define-test (l-vector-set! v idx) (#(1 2 3 4 5) 3)
+  (vector-set! v idx 999)
+  v)
+
+(define-test (l-vector-set!-min v idx) (#(1 2 3 4 5) 0)
+  (vector-set! v idx 999)
+  v)
+
+(define-test (l-vector-set!-max v idx) (#(1 2 3 4 5) 4)
+  (vector-set! v idx 999)
+  v)
+
+(define-test (l-vector-set!-immediate v) (#(1 2 3 4 5))
+  (vector-set! v 3 999)
+  v)
+
+(define-test (l-vector-set!-immediate-min v) (#(1 2 3 4 5))
+  (vector-set! v 0 999)
+  v)
+
+(define-test (l-vector-set!-immediate-max v) (#(1 2 3 4 5))
+  (vector-set! v 4 999)
+  v)
+
 
 ;;; Structs and GOOPS
 
@@ -429,10 +480,6 @@
          (fib2 (- n 2)))))
 
 (define-test (nqueens n) (8)
-  (define (my-append a b)
-    (if (null? a)
-        b
-        (cons (car a) (my-append (cdr a) b))))
   (define (one-to n)
     (let loop ((i n) (l '()))
       (if (= i 0) l (loop (- i 1) (cons i l)))))
@@ -446,7 +493,7 @@
     (if (null? x)
         (if (null? y) 1 0)
         (+ (if (ok? (car x) 1 z)
-               (try-it (my-append (cdr x) y) '() (cons (car x) z))
+               (try-it (append (cdr x) y) '() (cons (car x) z))
                0)
            (try-it (cdr x) (cons (car x) y) z))))
   (try-it (one-to n) '() '()))

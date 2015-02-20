@@ -51,6 +51,13 @@ scm_do_inline_from_double (scm_i_thread *thread, double val)
 }
 
 SCM
+scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
+                     scm_t_uint32 n_words)
+{
+  return scm_inline_words (thread, car, n_words);
+}
+
+SCM
 scm_do_i_string_length (SCM str)
 {
   if (SCM_LIKELY (scm_is_string (str)))

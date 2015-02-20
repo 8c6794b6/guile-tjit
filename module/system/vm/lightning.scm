@@ -214,6 +214,8 @@ argument in VM operation."
 
 (define-syntax-rule (tc7-variable) 7)
 
+(define-syntax-rule (tc7-vector) 13)
+
 (define-syntax-rule (tc7-program) 69)
 
 (define-syntax-rule (tc16-real) 535)
@@ -234,6 +236,8 @@ argument in VM operation."
          (num-required (length required))
          (num-optionals (length optionals))
          (num-req+opts (+ num-required num-optionals)))
+
+    ;; (jit-note (symbol->string (procedure-name primitive)) 0)
 
     ;; If the primitive contained `rest' argument, firstly build a list
     ;; for rest argument by calling `scm_list_n' or moving empty list to
@@ -622,9 +626,9 @@ procedure itself. Address to return after this call will get patched."
 ;; after running `run-nfa' procedure, locals were mixed up from callee.
 (define-vm-op (reset-frame st nlocals)
   ;; (save-locals st)
-  (cache-locals st (lightning-nargs st))
+  ;; (cache-locals st (lightning-nargs st))
   ;; (cache-locals st nlocals)
-  ;; *unspecified*
+  *unspecified*
   )
 
 ;;; Branching instructions
@@ -635,6 +639,9 @@ procedure itself. Address to return after this call will get patched."
 
 (define-vm-br-binary-op (br-if-< st a b invert offset)
   jit-bltr jit-bger jit-bltr-d jit-bunltr-d "scm_less_p")
+
+(define-vm-br-binary-op (br-if-<= st a b invert offset)
+  jit-bler jit-bgtr jit-bler-d jit-bunler-d "scm_leq_p")
 
 (define-vm-br-binary-op (br-if-= st a b invert offset)
   jit-beqr jit-bner jit-beqr-d jit-bner-d "scm_num_eq_p")
@@ -678,9 +685,10 @@ procedure itself. Address to return after this call will get patched."
 
 (define-vm-op (make-closure st dst offset nfree)
   (jit-prepare)
+  (jit-pushargi (lightning-thread st))
   (jit-pushargi (imm (logior (tc7-program) (ash nfree 16))))
   (jit-pushargi (imm (+ nfree 2)))
-  (jit-calli (c-pointer "scm_words"))
+  (jit-calli (c-pointer "scm_do_inline_words"))
   (jit-retval r0)
 
   ;; Storing address of byte-compiled program code.
@@ -805,6 +813,63 @@ procedure itself. Address to return after this call will get patched."
 (define-vm-mul-div-op (div st dst a b)
   jit-divr-d "scm_divide")
 
+(define-vm-op (make-vector st dst length init)
+  (jit-prepare)
+  (jit-pushargr (local-ref st length))
+  (jit-pushargr (local-ref st init))
+  (jit-calli (c-pointer "scm_make_vector"))
+  (jit-retval r0)
+  (local-set! st dst r0))
+
+(define-vm-op (make-vector/immediate st dst length init)
+  (jit-prepare)
+  (jit-pushargi (lightning-thread st))
+  (jit-pushargi (imm (logior (tc7-vector) (ash length 8))))
+  (jit-pushargi (imm (+ length 1)))
+  (jit-calli (c-pointer "scm_do_inline_words"))
+  (jit-retval r0)
+  (local-ref st init r1)
+  (for-each (lambda (n)
+              (jit-stxi (imm (* (+ n 1) (sizeof '*))) r0 r1))
+            (iota length))
+  (local-set! st dst r0))
+
+(define-vm-op (vector-length st dst src)
+  (local-ref st src r0)
+  (jit-ldr r0 r0)
+  (jit-rshi r0 r0 (imm 8))
+  (jit-lshi r0 r0 (imm 2))
+  (jit-addi r0 r0 (imm 2))
+  (local-set! st dst r0))
+
+(define-vm-op (vector-ref st dst src idx)
+  (local-ref st src r0)
+  (local-ref st idx r1)
+  (jit-rshi r1 r1 (imm 2))
+  (jit-addi r1 r1 (imm 1))
+  (jit-muli r1 r1 (imm 8))
+  (jit-ldxr r0 r0 r1)
+  (local-set! st dst r0))
+
+(define-vm-op (vector-ref/immediate st dst src idx)
+  (local-ref st src r0)
+  (jit-ldxi r0 r0 (imm (* (+ idx 1) (sizeof '*))))
+  (local-set! st dst r0))
+
+(define-vm-op (vector-set! st dst idx src)
+  (local-ref st dst r0)
+  (local-ref st idx r1)
+  (local-ref st src r2)
+  (jit-rshi r1 r1 (imm 2))
+  (jit-addi r1 r1 (imm 1))
+  (jit-muli r1 r1 (imm 8))
+  (jit-stxr r1 r0 r2))
+
+(define-vm-op (vector-set!/immediate st dst idx src)
+  (local-ref st dst r0)
+  (local-ref st src r1)
+  (jit-stxi (imm (* (+ idx 1) (sizeof '*))) r0 r1))
+
 
 ;;; Structs and GOOPS
 ;;; -----------------
@@ -914,7 +979,8 @@ args passed to target procedure is NARGS."
                             (else "anon"))))
                 (else "anon"))))
 
-    ;; (format #t ";;; ~a (~a)~%" name addr)
+    ;; (when toplevel?
+    ;;   (format #t ";;; ~a (~a) (top-level) ~%" name addr))
 
     (hashq-set! (lightning-nodes st) addr entry)
     (when toplevel?
@@ -927,7 +993,9 @@ args passed to target procedure is NARGS."
                        (jit-forward)))
          callees)
         (for-each (compile-callee st) callees)))
+
     (jit-note name addr)
+    ;; (format #t ";;; ~a (~a)~%" name addr)
 
     ;; Link and compile the entry point.
     (jit-link entry)
