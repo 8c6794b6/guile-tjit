@@ -295,6 +295,17 @@
 
 ;;; The dynamic environment
 
+(define f01 (make-fluid 100))
+(fluid-set! f01 12345)
+
+(define f02 (make-fluid 123))
+
+(define-test (l-fluid-ref fluid) (f01)
+  (fluid-ref fluid))
+
+(define-test (l-fluid-ref-undefine fluid) (f02)
+  (fluid-ref fluid))
+
 ;;; String, symbols, and keywords
 
 (define-test (l-string-length str) ("foo-bar-buzz")

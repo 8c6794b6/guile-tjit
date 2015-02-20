@@ -754,6 +754,39 @@ procedure itself. Address to return after this call will get patched."
 ;;; The dynamic environment
 ;;; -----------------------
 
+(define (thread-dynstack st)
+  (imm (+ (pointer-address (lightning-thread st)) #xd8)))
+
+(define-vm-op (fluid-ref st dst src)
+  (let ((l1 (jit-forward)))
+    (local-ref st src r0)
+
+    ;; r0 = fluids, in thread:
+    ;;   thread->dyntack
+    (jit-ldi r0 (thread-dynstack st))
+    ;;   SCM_I_DYNAMIC_STATE_FLUIDS (dynstack)
+    ;;   (i.e. SCM_CELL_WORD_1 (dynstack))
+    (jit-ldxi r0 r0 (imm 8))
+
+    ;; r1 = fluid, from local:
+    (local-ref st src r1)
+
+    ;; r2 = num, vector index.
+    (jit-ldr r2 r1)
+    (jit-rshi r2 r2 (imm 8))
+    (jit-addi r2 r2 (imm 1))
+    (jit-muli r2 r2 (imm 8))
+
+    ;; r0 = fluid value
+    (jit-ldxr r0 r0 r2)
+    (jit-patch-at (jit-bnei r0 undefined) l1)
+
+    ;; Load default value from local fluid.
+    (jit-ldxi r0 r1 (imm 8))
+
+    (jit-link l1)
+    (local-set! st dst r0)))
+
 
 ;;; String, symbols, and keywords
 ;;; -----------------------------

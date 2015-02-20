@@ -399,6 +399,12 @@
                     (resolved (module-variable mod sym)))
                (local-set! dst resolved)))))
 
+      ;; The dynamic environment
+      (('fluid-ref dst src)
+       (let ((obj (local-ref src)))
+         (and (fluid? obj)
+              (local-set! dst (fluid-ref obj)))))
+
       ;; XXX: Vector related operations will slow down compilation time.
       ;; Though current approach required book keeping the contents of
       ;; vector, since there is no way to determine whether vector
