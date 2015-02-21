@@ -38,12 +38,9 @@
          (name . args)
          ;; (call-lightning name . args)
          (dynamic-wind
-           (lambda ()
-             (set-vm-engine! 'lightning))
-           (lambda ()
-             (call-with-vm name . args))
-           (lambda ()
-             (set-vm-engine! 'regular))))))))
+           (lambda () (set-vm-engine! 'lightning))
+           (lambda () (call-with-vm name . args))
+           (lambda () (set-vm-engine! 'regular))))))))
 
 ;;;
 ;;; VM operation
@@ -157,6 +154,15 @@
 
 (define-test (l-identity x) (12345)
   x)
+
+(define-test (l-bind-rest x . rest) ('foo 'bar 'buzz)
+  (cons x rest))
+
+(define-test (l-call-rest-0 x . rest) ('foo + *)
+  ((car rest) 2 3))
+
+(define-test (l-call-rest-1 x . rest) ('foo + *)
+  ((cadr rest) 2 3))
 
 ;;; Branching instructions
 

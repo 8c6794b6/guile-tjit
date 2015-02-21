@@ -615,6 +615,9 @@ procedure itself. Address to return after this call will get patched."
 (define-vm-op (assert-nargs-ee/locals st expected locals)
   (cache-locals st expected))
 
+(define-vm-op (assert-nargs-ge st expected)
+  *unspecified*)
+
 ;; XXX: Does nothing.
 (define-vm-op (alloc-frame st nlocals)
   ;; (cache-locals st (lightning-nargs st))
@@ -630,6 +633,17 @@ procedure itself. Address to return after this call will get patched."
   ;; (cache-locals st nlocals)
   *unspecified*
   )
+
+(define-vm-op (bind-rest st dst)
+  (jit-prepare)
+  (for-each (lambda (n)
+              (jit-pushargr (local-ref st (+ n dst))))
+            (iota (- (lightning-nargs st) dst)))
+  (jit-pushargi undefined)
+  (jit-calli (c-pointer "scm_list_n"))
+  (jit-retval r0)
+  (local-set! st dst r0))
+
 
 ;;; Branching instructions
 ;;; ----------------------
