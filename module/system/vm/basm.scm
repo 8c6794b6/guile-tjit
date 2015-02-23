@@ -110,16 +110,53 @@
   (runtime-args call-runtime-args set-call-runtime-args!)
   (node call-node set-call-node!))
 
+(define (make-call program args)
+  (%make-call program args #f #f))
+
+(define runtime-call (make-call 0 (vector)))
+
 (define-record-type <builtin>
   (make-builtin idx name)
   builtin?
   (idx builtin-idx)
   (name builtin-name))
 
-(define (make-call program args)
-  (%make-call program args #f #f))
+;; Data type with interface resembling to vector, but with
+;; implementation using hash table.
+(define-record-type <sparse-vector>
+  (%make-sparse-vector table size fill)
+  sparse-vector?
+  (table sparse-vector-table)
+  (size sparse-vector-size)
+  (fill sparse-vector-fill))
 
-(define runtime-call (make-call 0 (vector)))
+(define (make-sparse-vector size fill)
+  (%make-sparse-vector (make-hash-table) size fill))
+
+(define (sparse-vector-ref sv k)
+  ;; (format #t "sparse-vector-ref: sv=~a~%" sv)
+  (cond ((vector? sv)
+         (vector-ref sv k))
+        ((sparse-vector? sv)
+         (or (let ((h (hashq-get-handle (sparse-vector-table sv) k)))
+               (and h (cdr h)))
+             (if (<= 0 k (- (sparse-vector-size sv) 1))
+                 (sparse-vector-fill sv)
+                 (error "sparse-vector-ref: index out of range" k))))
+        (else
+         ;; (format #t "sparse-vector-ref: not a vector ~a" sv)
+         *unspecified*)))
+
+(define (sparse-vector-set! sv k obj)
+  (cond ((vector? sv)
+         (vector-set! sv k obj))
+        ((sparse-vector? sv)
+         (if (<= 0 k (- (sparse-vector-size sv) 1))
+             (hashq-set! (sparse-vector-table sv) k obj)
+             (error "sparse-vector-set!: index out of range" k)))
+        (else
+         ;; (format #t "sparse-vector-set!: not a vector ~a" sv)
+         *unspecified*)))
 
 (define (basm-chunks->alist chunks)
   (sort (hash-fold (lambda (k v acc) (cons (cons k v) acc))
@@ -169,7 +206,9 @@
 (define struct-procedure-index 0)
 
 (define (ensure-program-addr program-or-addr)
-  (or (and (program? program-or-addr)
+  (or (and (primitive? program-or-addr)
+           (pointer-address (program-free-variable-ref program-or-addr 0)))
+      (and (program? program-or-addr)
            (program-code program-or-addr))
       (and (struct? program-or-addr)
            (let ((ref (struct-ref program-or-addr struct-procedure-index)))
@@ -242,11 +281,7 @@
        ((not (hashq-ref seen (ensure-program-addr proc)))
         (hashq-set! seen (ensure-program-addr proc) #t)
         (let ((callee (proc->basm* seen
-                                   ;; (ensure-program-addr proc)
-                                   (cond ((struct? proc)
-                                          (struct-ref proc 0))
-                                         (else
-                                          proc))
+                                   (ensure-program-addr proc)
                                    (locals->args proc-local nlocals))))
           (hashq-set! (basm-callees basm)
                       (ensure-program-addr proc)
@@ -337,15 +372,16 @@
              (lp (+ n 1))))
          (set-basm-locals! basm new-locals)))
       (('reset-frame nlocals)
-       (let* ((new-locals (make-vector nlocals *unspecified*))
-              (old-locals (basm-locals basm))
-              (old-length (vector-length old-locals))
-              (nmax (min nlocals old-length)))
-         (let lp ((n 0))
-           (when (< n nmax)
-             (vector-set! new-locals n (vector-ref old-locals n))
-             (lp (+ n 1))))
-         (set-basm-locals! basm new-locals)))
+       (let* ((old-locals (basm-locals basm))
+              (old-length (vector-length old-locals)))
+         (when (< old-length nlocals)
+           (let* ((new-locals (make-vector nlocals *unspecified*))
+                  (nmax (min nlocals old-length)))
+             (let lp ((n 0))
+               (when (< n nmax)
+                 (vector-set! new-locals n (vector-ref old-locals n))
+                 (lp (+ n 1))))
+             (set-basm-locals! basm new-locals)))))
       (('bind-rest dst)
        (let* ((nargs (vector-length args))
               (lst (let lp ((n (- nargs 1)) (acc '()))
@@ -436,29 +472,30 @@
               (not (null? pair))
               (local-set! dst (cdr pair)))))
 
-      ;; XXX: Vector related operations will slow down compilation time.
+      ;; Vector related operations will slow down compilation time.
       ;; Though current approach required book keeping the contents of
       ;; vector, since there is no way to determine whether vector
-      ;; elements are used as callee.
+      ;; elements are used as callee. Using <sparse-vector> instead of
+      ;; vector to manage vectors in locals.
 
       (('make-vector dst length init)
        (let ((len (local-ref length)))
          (and (integer? len)
-              (local-set! dst (make-vector len (local-ref init))))))
+              (local-set! dst (make-sparse-vector len (local-ref init))))))
       (('make-vector/immediate dst length init)
-       (local-set! dst (make-vector length init)))
+       (local-set! dst (make-sparse-vector length init)))
       (('vector-ref dst src idx)
        (let ((i (local-ref idx)))
          (and (integer? i)
-              (local-set! dst (vector-ref (local-ref src) i)))))
+              (local-set! dst (sparse-vector-ref (local-ref src) i)))))
       (('vector-ref/immediate dst src idx)
-       (local-set! dst (vector-ref (local-ref src) idx)))
+       (local-set! dst (sparse-vector-ref (local-ref src) idx)))
       (('vector-set! dst idx src)
        (let ((i (local-ref idx)))
          (and (integer? i)
-              (vector-set! (local-ref dst) i (local-ref src)))))
+              (sparse-vector-set! (local-ref dst) i (local-ref src)))))
       (('vector-set!/immediate dst idx src)
-       (vector-set! (local-ref dst) idx (local-ref src)))
+       (sparse-vector-set! (local-ref dst) idx (local-ref src)))
 
       (_ *unspecified*))
 

@@ -91,8 +91,9 @@
   ;; Modified cached registers, to be saved before calling procedure.
   (modified lightning-modified set-lightning-modified!))
 
-(define* (make-lightning asm nodes fp thread nargs args pc nretvals
+(define* (make-lightning asm nodes fp thread nargs args pc
                          #:optional
+                         (nretvals 1)
                          (ip 0)
                          (labels (make-hash-table)))
   (for-each (lambda (labeled-ip)
@@ -269,8 +270,7 @@ argument in VM operation."
                 (iota (- num-req+opts (- nlocals 1)))))
     (when rest
       (jit-pushargr r1)))
-
-  (jit-calli (car (program-free-variables primitive)))
+  (jit-calli (program-free-variable-ref primitive 0))
   (jit-retval r0)
   (jit-stxi (stored-ref st (+ proc 1)) (jit-fp) r0))
 
@@ -383,9 +383,10 @@ procedure itself. Address to return after this call will get patched."
          (if (variable? var)
              (local-set-immediate! st dst (scm->pointer var))
              (let ((resolved resolver ...))
-               ;; (jit-movi r0 (scm->pointer resolved))
                ;; VM does this while resolving the var.
-               ;; (jit-sti (offset->pointer var-offset) r0)
+               ;; (jit-movi r0 (scm->pointer resolved))
+               ;; (jit-movi r1 (offset->pointer var-offset))
+               ;; (jit-str r1 r0)
                ;; (local-set! st dst r0)
                (local-set-immediate! st dst (scm->pointer resolved)))))))))
 
@@ -860,6 +861,14 @@ procedure itself. Address to return after this call will get patched."
 (define-vm-mul-div-op (div st dst a b)
   jit-divr-d "scm_divide")
 
+(define-vm-op (quo st dst a b)
+  (jit-prepare)
+  (jit-pushargr (local-ref st a))
+  (jit-pushargr (local-ref st b))
+  (jit-calli (c-pointer "scm_quotient"))
+  (jit-retval r0)
+  (local-set! st dst r0))
+
 (define-vm-op (make-vector st dst length init)
   (jit-prepare)
   (jit-pushargr (local-ref st length))
@@ -986,8 +995,7 @@ args passed to target procedure is NARGS."
                                       (lightning-thread st)
                                       nargs
                                       args
-                                      addr
-                                      1)))
+                                      addr)))
             (compile-lightning* st2 self #f)))
          ((call? val)
           (let ((result (let ((xs (vector->list (call-args val))))
@@ -1004,8 +1012,7 @@ args passed to target procedure is NARGS."
                                         (lightning-thread st)
                                         nargs
                                         args
-                                        addr
-                                        1))
+                                        addr))
                    (node (compile-lightning* st2 self #f)))
               (set-call-node! val (ensure-program-addr result)))))))))
 
@@ -1036,7 +1043,7 @@ args passed to target procedure is NARGS."
         (for-each
          (lambda (callee)
            (hashq-set! (lightning-nodes st)
-                       (car callee)
+                       (ensure-program-addr (car callee))
                        (jit-forward)))
          callees)
         (for-each (compile-callee st) callees)))
@@ -1106,8 +1113,7 @@ args passed to target procedure is NARGS."
                                             thread
                                             nargs
                                             args
-                                            addr*
-                                            1)))
+                                            addr*)))
             (jit-patch-at (jit-jmpi) entry)
             (compile-lightning lightning entry)
 
