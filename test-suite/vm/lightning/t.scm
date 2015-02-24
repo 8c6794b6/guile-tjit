@@ -89,7 +89,6 @@
 (define-test (l-call-make-string n fill) (113 #\a)
   (make-string n fill))
 
-
 (define-test (l-call-arg0 f x) ((lambda (a) (+ a 100)) 23)
   (f x))
 
@@ -137,6 +136,15 @@
 
 (define-test (call-branched-d x) (+)
   (call-branched x))
+
+(define (call-branched-prim x)
+  ((if (even? x) + *) 20 30))
+
+(define-test (call-branched-prim-a x) (1)
+  (call-branched-prim x))
+
+(define-test (call-branched-prim-b x) (2)
+  (call-branched-prim x))
 
 (define (sum-and-product x y)
   (values (+ x y) (* x y)))

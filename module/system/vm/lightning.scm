@@ -201,16 +201,17 @@ argument in VM operation."
        (jit-ldxi reg (jit-fp) (stored-ref st n))
        reg))))
 
-(define (local-set! st dst reg)
+(define-syntax-rule (local-set! st dst reg)
   (jit-stxi (stored-ref st dst) (jit-fp) reg))
 
-(define (local-set-immediate! st dst val)
-  (jit-movi r0 val)
-  (jit-stxi (stored-ref st dst) (jit-fp) r0))
+(define-syntax-rule (local-set-immediate! st dst val)
+  (begin
+    (jit-movi r0 val)
+    (jit-stxi (stored-ref st dst) (jit-fp) r0)))
 
 ;;;
 
-(define (offset-addr st offset)
+(define-syntax-rule (offset-addr st offset)
   (+ (lightning-pc st) (* 4 (+ (lightning-ip st) offset))))
 
 (define-syntax-rule (tc7-variable) 7)
@@ -239,7 +240,7 @@ argument in VM operation."
        ;; ... then jump to return address.
        (jit-jmpr reg)))))
 
-(define (call-primitive st proc nlocals primitive)
+(define-syntax-rule (call-primitive st proc nlocals primitive)
   (let* ((pargs (program-arguments-alist primitive))
          (required (cdr (assoc 'required pargs)))
          (optionals (cdr (assoc 'optional pargs)))
@@ -279,17 +280,17 @@ argument in VM operation."
                   (jit-pushargi undefined))
                 (iota (- num-req+opts (- nlocals 1)))))
     (when rest
-      (jit-pushargr r1)))
-  (jit-calli (program-free-variable-ref primitive 0))
-  (jit-retval r0)
-  (jit-stxi (stored-ref st (+ proc 1)) (jit-fp) r0))
+      (jit-pushargr r1))
+    (jit-calli (program-free-variable-ref primitive 0))
+    (jit-retval r0)
+    (jit-stxi (stored-ref st (+ proc 1)) (jit-fp) r0)))
 
-(define (call-scm st proc-or-addr)
+(define-syntax-rule (call-scm st proc-or-addr)
   (let* ((addr (ensure-program-addr proc-or-addr))
          (callee (hashq-ref (lightning-nodes st) addr)))
     (jit-patch-at (jit-jmpi) callee)))
 
-(define (call-scm/returned st proc proc-or-addr)
+(define-syntax-rule (call-scm/returned st proc proc-or-addr)
   "Call local PROC in ST. PROC-OR-ADDR is the address of program code or program
 procedure itself. Address to return after this call will get patched."
   ;; Stack poionter stored in (jit-fp), decreasing for `proc * word' size to
@@ -306,17 +307,19 @@ procedure itself. Address to return after this call will get patched."
     (call-scm st proc-or-addr)
     (jit-patch addr)))
 
-(define (current-callee st)
+(define-syntax-rule (current-callee st)
   (hashq-ref (basm-callers (lightning-asm st)) (lightning-ip st)))
 
 (define-syntax-rule (define-label l body ...)
   (begin (jit-link l) body ...))
 
+(define-syntax-rule (thread-pending-asyncs st)
+  (imm (+ (pointer-address (lightning-thread st)) #x104)))
+
 ;; XXX: Add pre and post as in vm-engine.c?
 (define-syntax-rule (vm-handle-interrupts st)
   (let ((l1 (jit-forward)))
-    (jit-movi r0 (lightning-thread st))
-    (jit-ldxi r0 r0 (imm #x104)) ; scm_i_thread.pending_asyncs
+    (jit-ldi r0 (thread-pending-asyncs st))
     (jit-patch-at (jit-bmci r0 (imm 1)) l1)
     (jit-prepare)
     (jit-calli (c-pointer "scm_async_tick"))
@@ -540,20 +543,28 @@ procedure itself. Address to return after this call will get patched."
 ;;; Call and return
 ;;; ---------------
 
+(define (call-runtime st proc nlocals)
+  "Inline a call to PROC with call-lightning* with NLOCALS as
+arguments."
+  (jit-prepare)
+  (for-each (lambda (n)
+              (jit-pushargr (local-ref st (+ proc n))))
+            (iota nlocals))
+  (let ((args* (map (lambda _ '*) (iota nlocals))))
+    (jit-calli (procedure->pointer '* call-lightning* args*)))
+
+  ;; XXX: Modify to receive multiple values.
+  (jit-retval r0)
+
+  (local-set! st (+ proc 1) r0))
+
 ;; XXX: Ensure enough space allocated for nlocals.
 (define-vm-op (call st proc nlocals)
   (save-locals st)
-  ;; (jit-prepare)
-  ;; (for-each (lambda (n)
-  ;;             (jit-pushargr (local-ref st (+ proc n))))
-  ;;           (iota nlocals))
-  ;; (jit-calli (procedure->pointer '*
-  ;;                                call-lightning*
-  ;;                                (map (lambda _ '*) (iota nlocals))))
-  ;; (jit-retval r0)
-  ;; (local-set! st (+ proc 1) r0)
   (let ((callee (current-callee st)))
     (cond
+     ((unspecified? callee)
+      (call-runtime st proc nlocals))
      ((primitive? callee)
       (call-primitive st proc nlocals callee))
      ((call? callee)
@@ -569,17 +580,11 @@ procedure itself. Address to return after this call will get patched."
 
 (define-vm-op (tail-call st nlocals)
   (save-locals st)
-  ;; (jit-prepare)
-  ;; (for-each (lambda (n)
-  ;;             (jit-pushargr (local-ref st n)))
-  ;;           (iota nlocals))
-  ;; (jit-calli (procedure->pointer '*
-  ;;                                call-lightning*
-  ;;                                (map (lambda _ '*) (iota nlocals))))
-  ;; (jit-retval r0)
-  ;; (local-set! st 1 r0)
   (let ((callee (current-callee st)))
     (cond
+     ((unspecified? callee)
+      (call-runtime st 0 nlocals)
+      (return-jmp st))
      ((primitive? callee)
       (call-primitive st 0 nlocals callee)
       (return-jmp st))
@@ -784,7 +789,7 @@ procedure itself. Address to return after this call will get patched."
 ;;; The dynamic environment
 ;;; -----------------------
 
-(define (thread-dynstack st)
+(define-syntax-rule (thread-dynstack st)
   (imm (+ (pointer-address (lightning-thread st)) #xd8)))
 
 (define-vm-op (fluid-ref st dst src)
@@ -1008,7 +1013,7 @@ true, the compiled result is for top level ."
                                       (lightning-fp st)
                                       (lightning-thread st)
                                       nargs
-                                      args
+                                      args*
                                       addr)))
             (compile-lightning* st2 self #f)))
          ((call? val)
@@ -1033,7 +1038,6 @@ true, the compiled result is for top level ."
   (let* ((program-or-addr (lightning-pc st))
          (args (lightning-args st))
          (addr (ensure-program-addr program-or-addr))
-         (args* (unwrap-non-program args program-or-addr))
          (basm (lightning-asm st))
          (name
           (cond ((and (program? program-or-addr)
