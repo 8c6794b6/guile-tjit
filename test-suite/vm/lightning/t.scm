@@ -123,6 +123,21 @@
 (define-test (call-applicable-struct n) (99)
   (applicable-struct n))
 
+(define-test (call-branched-a x) (#f)
+  ((or x *) 20 30))
+
+(define-test (call-branched-b x) (+)
+  ((or x *) 20 30))
+
+(define (call-branched x)
+  ((or x *) 20 30))
+
+(define-test (call-branched-c x) (#f)
+  (call-branched x))
+
+(define-test (call-branched-d x) (+)
+  (call-branched x))
+
 (define (sum-and-product x y)
   (values (+ x y) (* x y)))
 
@@ -521,5 +536,24 @@
       (tak (tak (- x 1) y z)
            (tak (- y 1) z x)
            (tak (- z 1) x y))))
+
+(define-test (sieve n) (500)
+  (let ((root (round (sqrt n)))
+        (a (make-vector n #f)))
+    (define (cross-out t to dt)
+      (cond ((> t to) 0)
+            (else
+             (vector-set! a t #t)
+             (cross-out (+ t dt) to dt))))
+    (define (iter i result)
+      (cond ((>= i n)
+             (reverse result))
+            (else
+             (when (< i root)
+               (cross-out (* i i) (- n 1) (+ i i)))
+             (iter (+ i 2) (if (vector-ref a i)
+                               result
+                               (cons i result))))))
+    (iter 3 (list 2))))
 
 (test-end "vm-lightning-test")

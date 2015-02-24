@@ -229,6 +229,19 @@ argument in VM operation."
 (define-syntax-rule (c-inline name)
   (c-pointer name))
 
+(define-syntax return-jmp
+  (syntax-rules ()
+    ((_ st)
+     (return-jmp st r0))
+    ((_ st reg)
+     (begin
+       ;; Get return address to jump
+       (jit-ldxi reg (jit-fp) (stored-ref st -1))
+       ;; Restore previous dynamic link to current frame pointer
+       (jit-ldxi (jit-fp) (jit-fp) (stored-ref st -2))
+       ;; ... then jump to return address.
+       (jit-jmpr reg)))))
+
 (define (call-primitive st proc nlocals primitive)
   (let* ((pargs (program-arguments-alist primitive))
          (required (cdr (assoc 'required pargs)))
@@ -291,7 +304,7 @@ procedure itself. Address to return after this call will get patched."
     (jit-stxi (stored-ref st (- proc 1)) (jit-fp) r0)
     ;; Store dynamic link.
     (jit-stxi (stored-ref st (- proc 2)) (jit-fp) (jit-fp))
-    ;; Put new frame pointer for the callee.
+    ;; Update frame pointer for the callee.
     (jit-subi (jit-fp) (jit-fp) (imm (* (sizeof '*) proc)))
     (call-scm st proc-or-addr)
     (jit-patch addr)))
@@ -533,6 +546,15 @@ procedure itself. Address to return after this call will get patched."
 ;; XXX: Ensure enough space allocated for nlocals.
 (define-vm-op (call st proc nlocals)
   (save-locals st)
+  ;; (jit-prepare)
+  ;; (for-each (lambda (n)
+  ;;             (jit-pushargr (local-ref st (+ proc n))))
+  ;;           (iota nlocals))
+  ;; (jit-calli (procedure->pointer '*
+  ;;                                call-lightning*
+  ;;                                (map (lambda _ '*) (iota nlocals))))
+  ;; (jit-retval r0)
+  ;; (local-set! st (+ proc 1) r0)
   (let ((callee (current-callee st)))
     (cond
      ((primitive? callee)
@@ -550,10 +572,20 @@ procedure itself. Address to return after this call will get patched."
 
 (define-vm-op (tail-call st nlocals)
   (save-locals st)
+  ;; (jit-prepare)
+  ;; (for-each (lambda (n)
+  ;;             (jit-pushargr (local-ref st n)))
+  ;;           (iota nlocals))
+  ;; (jit-calli (procedure->pointer '*
+  ;;                                call-lightning*
+  ;;                                (map (lambda _ '*) (iota nlocals))))
+  ;; (jit-retval r0)
+  ;; (local-set! st 1 r0)
   (let ((callee (current-callee st)))
     (cond
      ((primitive? callee)
-      (call-primitive st 0 nlocals callee))
+      (call-primitive st 0 nlocals callee)
+      (return-jmp st))
      ((call? callee)
       (call-scm st (call-node callee)))
      ((closure? callee)
@@ -574,19 +606,6 @@ procedure itself. Address to return after this call will get patched."
 
 (define-vm-op (receive-values st proc allow-extra? nvalues)
   (save-locals st))
-
-(define-syntax return-jmp
-  (syntax-rules ()
-    ((_ st)
-     (return-jmp st r0))
-    ((_ st reg)
-     (begin
-       ;; Get return address to jump
-       (jit-ldxi reg (jit-fp) (stored-ref st -1))
-       ;; Restore previous dynamic link to current frame pointer
-       (jit-ldxi (jit-fp) (jit-fp) (stored-ref st -2))
-       ;; ... then jump to return address.
-       (jit-jmpr reg)))))
 
 (define-vm-op (return st dst)
   (vm-handle-interrupts st)
@@ -632,8 +651,7 @@ procedure itself. Address to return after this call will get patched."
   ;; (save-locals st)
   ;; (cache-locals st (lightning-nargs st))
   ;; (cache-locals st nlocals)
-  *unspecified*
-  )
+  *unspecified*)
 
 (define-vm-op (bind-rest st dst)
   (jit-prepare)
@@ -952,15 +970,14 @@ procedure itself. Address to return after this call will get patched."
       (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
 
 (define (compile-lightning st entry)
-  "Compile bytecode procedure specified by PROGRAM-OR-ADDR to native code
-using lightning, with stack pointer SP and number of arguments NARGS."
+  "Compile <lightning> data specified by ST to native code using
+lightning, with ENTRY as lightning's node to itself."
   (compile-lightning* st entry #t))
 
 (define (compile-lightning* st entry toplevel?)
-  "Compile bytecode procedure specified by PROGRAM-OR-ADDR, with cached
-procedures in CACHED-TABLE hash table. Using SP as stack pointer, the number of
-args passed to target procedure is NARGS."
-
+  "Compile <lightning> data specified by ST to native code using
+lightning, with ENTRY as lightning's node to itself. If TOPLEVEL? is
+true, the compiled result is for top level ."
   (define (assemble-one st ip-x-chunk)
     (let* ((ip (car ip-x-chunk))
            (chunk (cdr ip-x-chunk))
@@ -989,7 +1006,7 @@ args passed to target procedure is NARGS."
           (let* ((nargs (basm-nargs val))
                  (args (basm-args val))
                  (args* (unwrap-non-program args addr))
-                 (st2 (make-lightning (proc->basm addr args*)
+                 (st2 (make-lightning val
                                       (lightning-nodes st)
                                       (lightning-fp st)
                                       (lightning-thread st)
@@ -1061,97 +1078,110 @@ args passed to target procedure is NARGS."
 
 (define (call-lightning proc . args)
   "Compile PROC with lightning, and run with ARGS."
-  (c-call-lightning (thread-i-data (current-thread)) #f #f proc args))
+  (c-call-lightning (thread-i-data (current-thread)) proc args))
+
+(define (call-lightning* proc . args)
+  "Compile PROC with lightning, and run with ARGS."
+  (scm->pointer
+   (c-call-lightning (thread-i-data (current-thread))
+                     (pointer->scm proc)
+                     (map pointer->scm args))))
 
 ;; Called by C code.
-(define (c-call-lightning thread vp-sp vp-fp proc args)
+(define (c-call-lightning thread proc args)
   "Compile PROC with lightning and run with ARGS."
   (define (offset->addr offset)
     (imm (- (+ #xffffffffffffffff 1) (* offset (sizeof ssize_t)))))
-  (parameterize ((jit-state (jit-new-state)))
-    (dynamic-wind
-      (lambda () #f)
-      (lambda ()
-        (jit-prolog)
-        (let* ((szt (sizeof '*))
-               ;; XXX: Use vp->sp?
-               (fp (jit-allocai (imm (* szt (+ 3 (length args))))))
-               (fp-addr (logxor #xffffffff00000000 (pointer-address fp)))
-               (addr (jit-movi r1 (imm 0))))
+  (cond
+   ((primitive? proc)
+    ;; NO way to JIT compile primitive procedures, run it when it's
+    ;; given, as soon as possible.
+    (apply proc args))
+   (else
+    (parameterize ((jit-state (jit-new-state)))
+      (dynamic-wind
+        (lambda () #f)
+        (lambda ()
+          (jit-prolog)
+          (let* ((szt (sizeof '*))
+                 ;; XXX: Use vp->sp?
+                 (fp (jit-allocai (imm (* szt (+ 3 (length args))))))
+                 (fp-addr (logxor #xffffffff00000000 (pointer-address fp)))
+                 (addr (jit-movi r1 (imm 0))))
 
-          ;; XXX: Allocating constant amount at beginning of function call.
-          ;; Might better to allocate at compile time or runtime.
-          (jit-frame (imm (* 4 4096)))
+            ;; XXX: Allocating constant amount at beginning of function call.
+            ;; Might better to allocate at compile time or runtime.
+            (jit-frame (imm (* 4 4096)))
 
-          ;; Initial dynamic link, frame pointer.
-          (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
+            ;; Initial dynamic link, frame pointer.
+            (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
 
-          ;; Return address.
-          (jit-stxi (offset->addr 2) (jit-fp) r1)
+            ;; Return address.
+            (jit-stxi (offset->addr 2) (jit-fp) r1)
 
-          ;; Argument 0, self procedure.
-          (jit-movi r0 (scm->pointer proc))
-          (jit-stxi (offset->addr 3) (jit-fp) r0)
+            ;; Argument 0, self procedure.
+            (jit-movi r0 (scm->pointer proc))
+            (jit-stxi (offset->addr 3) (jit-fp) r0)
 
-          ;; Pointers of given args.
-          (let lp ((args args) (offset 4))
-            (unless (null? args)
-              (jit-movi r0 (scm->pointer (car args)))
-              (jit-stxi (offset->addr offset) (jit-fp) r0)
-              (lp (cdr args) (+ offset 1))))
+            ;; Pointers of given args.
+            (let lp ((args args) (offset 4))
+              (unless (null? args)
+                (jit-movi r0 (scm->pointer (car args)))
+                (jit-stxi (offset->addr offset) (jit-fp) r0)
+                (lp (cdr args) (+ offset 1))))
 
-          ;; Compile the given proc,
-          (let* ((entry (jit-forward))
-                 (nargs (+ (length args) 1))
-                 (args (apply vector proc args))
-                 (fp0 (+ fp-addr (* szt nargs)))
-                 (addr* (ensure-program-addr proc))
-                 (basm (proc->basm addr* (unwrap-non-program args addr*)))
-                 (lightning (make-lightning basm
-                                            (make-hash-table)
-                                            fp0
-                                            thread
-                                            nargs
-                                            args
-                                            addr*)))
-            (jit-patch-at (jit-jmpi) entry)
-            (compile-lightning lightning entry)
+            ;; Compile the given proc,
+            (let* ((entry (jit-forward))
+                   (nargs (+ (length args) 1))
+                   (args (apply vector proc args))
+                   (fp0 (+ fp-addr (* szt nargs)))
+                   (addr* (ensure-program-addr proc))
+                   (basm (proc->basm addr* (unwrap-non-program args addr*)))
+                   (lightning (make-lightning basm
+                                              (make-hash-table)
+                                              fp0
+                                              thread
+                                              nargs
+                                              args
+                                              addr*)))
+              (jit-patch-at (jit-jmpi) entry)
+              (compile-lightning lightning entry)
 
-            ;; Link the return address, get single return value.
-            (jit-patch addr)
+              ;; Link the return address, get single return value.
+              (jit-patch addr)
 
-            ;; Check number of return values, call C function
-            ;; scm_values if number of values were not 1.
-            (cond ((= (lightning-nretvals lightning) 1)
-                   (jit-ldxi r0 (jit-fp) (offset->addr 4)))
-                  (else
-                   (jit-prepare)
-                   (for-each (lambda (n)
-                               (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
-                               (jit-pushargr r0))
-                             (iota (lightning-nretvals lightning)))
-                   (jit-pushargi undefined)
-                   (jit-calli (c-pointer "scm_list_n"))
-                   (jit-retval r1)
+              ;; Check number of return values, call C function
+              ;; scm_values if number of values were not 1.
+              (cond ((= (lightning-nretvals lightning) 1)
+                     (jit-ldxi r0 (jit-fp) (offset->addr 4)))
+                    (else
+                     (jit-prepare)
+                     (for-each (lambda (n)
+                                 (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
+                                 (jit-pushargr r0))
+                               (iota (lightning-nretvals lightning)))
+                     (jit-pushargi undefined)
+                     (jit-calli (c-pointer "scm_list_n"))
+                     (jit-retval r1)
 
-                   (jit-prepare)
-                   (jit-pushargr r1)
-                   (jit-calli (c-pointer "scm_values"))
-                   (jit-retval r0)))
-            (jit-retr r0)))
+                     (jit-prepare)
+                     (jit-pushargr r1)
+                     (jit-calli (c-pointer "scm_values"))
+                     (jit-retval r0)))
+              (jit-retr r0)))
 
-        (jit-epilog)
+          (jit-epilog)
 
-        ;; Emit and call the thunk.
-        (let* ((fptr (jit-emit))
-               (thunk (pointer->procedure '* fptr '())))
-          ;; (write-code-to-file
-          ;;  (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
-          ;; (jit-print)
-          ;; (jit-clear-state)
-          (pointer->scm (thunk))))
-      (lambda ()
-        (jit-destroy-state)))))
+          ;; Emit and call the thunk.
+          (let* ((fptr (jit-emit))
+                 (thunk (pointer->procedure '* fptr '())))
+            ;; (write-code-to-file
+            ;;  (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
+            ;; (jit-print)
+            ;; (jit-clear-state)
+            (pointer->scm (thunk))))
+        (lambda ()
+          (jit-destroy-state)))))))
 
 (define (vm-lightning thread vp ip sp fp stack-limit sp-max-since-gc
                       stack-size stack-base registers nargs resume)
@@ -1166,7 +1196,7 @@ args passed to target procedure is NARGS."
                      (lp (- n 1)
                          (cons (addr->scm (+ fp (* n (sizeof '*))))
                                acc))))))
-    (c-call-lightning (make-pointer thread) sp fp (addr->scm fp) args)))
+    (c-call-lightning (make-pointer thread) (addr->scm fp) args)))
 
 
 ;;;
