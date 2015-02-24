@@ -47,6 +47,8 @@
 
             make-closure closure? closure-addr closure-free-vars
 
+            builtin? builtin-name
+
             ensure-program-addr))
 
 (define-record-type <basm>
@@ -328,7 +330,8 @@
                       proc))
 
          ((or (unspecified? proc)
-              (primitive? proc))
+              (primitive? proc)
+              (builtin? proc))
           *unspecified*)
 
          ;; XXX: Need to handle smob and structs, as done in vm-engine's

@@ -161,6 +161,24 @@
 (define-test (return-builtin-apply) ()
   apply)
 
+(define-test (l-apply-a f a b rest) (+ 1 2 '(3 4 5))
+  (+ 100 (apply f a b rest)))
+
+(define-test (l-apply-b f a b rest) (+ 1 2 '())
+  (+ 100 (apply f a b rest)))
+
+(define-test (l-apply-c f rest) (+ '(1 2 3 4 5))
+  (+ 100 (apply f rest)))
+
+(define-test (l-apply-tail-a f a b rest) (+ 1 2 '(3 4 5))
+  (apply f a b rest))
+
+(define-test (l-apply-tail-b f a b rest) (+ 1 2 '())
+  (apply f a b rest))
+
+(define-test (l-apply-tail-c f rest) (+ '(1 2 3 4 5))
+  (apply f rest))
+
 (define-test (return-builtin-values) ()
   values)
 

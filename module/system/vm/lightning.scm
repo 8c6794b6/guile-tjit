@@ -543,6 +543,34 @@ procedure itself. Address to return after this call will get patched."
 ;;; Call and return
 ;;; ---------------
 
+(define-syntax-rule (call-apply st proc)
+  (let ((nargs (lightning-nargs st)))
+    ;; Last local, a list containing rest of arguments.
+    (local-ref st (- (+ proc (lightning-nargs st)) 1) r0)
+
+    ;; Cons all the other arguments to rest, if any.
+    (when (< 3 (lightning-nargs st))
+      (for-each (lambda (n)
+                  (jit-prepare)
+                  (local-ref st (+ proc (- (lightning-nargs st) 2 n)) r1)
+                  (jit-pushargi (lightning-thread st))
+                  (jit-pushargr r1)
+                  (jit-pushargr r0)
+                  (jit-calli (c-pointer "scm_do_inline_cons"))
+                  (jit-retval r0))
+                (iota (- (lightning-nargs st) 3))))
+
+    ;; Call `c-call-lightning*' with proc and argument list.
+    (jit-prepare)
+    (jit-pushargi (lightning-thread st))
+    (local-ref st (+ proc 1) r1)
+    (jit-pushargr r1)
+    (jit-pushargr r0)
+    (let ((args (map (lambda _ '*) (iota 3))))
+      (jit-calli (procedure->pointer '* c-call-lightning* args)))
+    (jit-retval r0)
+    (local-set! st (+ proc 1) r0)))
+
 (define (call-runtime st proc nlocals)
   "Inline a call to PROC with call-lightning* with NLOCALS as
 arguments."
@@ -563,6 +591,9 @@ arguments."
   (save-locals st)
   (let ((callee (current-callee st)))
     (cond
+     ((builtin? callee)
+      (case (builtin-name callee)
+        ((apply) (call-apply st proc))))
      ((unspecified? callee)
       (call-runtime st proc nlocals))
      ((primitive? callee)
@@ -582,6 +613,9 @@ arguments."
   (save-locals st)
   (let ((callee (current-callee st)))
     (cond
+     ((builtin? callee)
+      (case (builtin-name callee)
+        ((apply) (call-apply st 0))))
      ((unspecified? callee)
       (call-runtime st 0 nlocals)
       (return-jmp st))
@@ -1087,6 +1121,10 @@ true, the compiled result is for top level ."
    (c-call-lightning (thread-i-data (current-thread))
                      (pointer->scm proc)
                      (map pointer->scm args))))
+
+(define (c-call-lightning* thread proc args)
+  (scm->pointer
+   (c-call-lightning thread (pointer->scm proc) (pointer->scm args))))
 
 ;; Called by C code.
 (define (c-call-lightning thread proc args)
