@@ -226,9 +226,6 @@ argument in VM operation."
 (define-syntax-rule (c-pointer name)
   (dynamic-func name (dynamic-link)))
 
-(define-syntax-rule (c-inline name)
-  (c-pointer name))
-
 (define-syntax return-jmp
   (syntax-rules ()
     ((_ st)
@@ -440,7 +437,7 @@ procedure itself. Address to return after this call will get patched."
          (jit-prepare)
          (jit-pushargi (lightning-thread st))
          (jit-pushargr-d f5)
-         (jit-calli (c-inline "scm_do_inline_from_double"))
+         (jit-calli (c-pointer "scm_do_inline_from_double"))
          (jit-retval r0)
          (jit-patch-at (jit-jmpi) l4)
 
@@ -479,7 +476,7 @@ procedure itself. Address to return after this call will get patched."
          (jit-prepare)
          (jit-pushargi (lightning-thread st))
          (jit-pushargr-d f5)
-         (jit-calli (c-inline "scm_do_inline_from_double"))
+         (jit-calli (c-pointer "scm_do_inline_from_double"))
          (jit-retval r0)
          (jit-patch-at (jit-jmpi) l3)
 
@@ -517,7 +514,7 @@ procedure itself. Address to return after this call will get patched."
          (jit-prepare)
          (jit-pushargi (lightning-thread st))
          (jit-pushargr-d f5)
-         (jit-calli (c-inline "scm_do_inline_from_double"))
+         (jit-calli (c-pointer "scm_do_inline_from_double"))
          (jit-retval r0)
          (jit-patch-at (jit-jmpi) l3)
 
@@ -839,7 +836,7 @@ procedure itself. Address to return after this call will get patched."
   (jit-pushargi (lightning-thread st))
   (jit-pushargr (local-ref st car r0))
   (jit-pushargr (local-ref st cdr r0))
-  (jit-calli (c-inline "scm_do_inline_cons"))
+  (jit-calli (c-pointer "scm_do_inline_cons"))
   (jit-retval r0)
   (local-set! st dst r0))
 
