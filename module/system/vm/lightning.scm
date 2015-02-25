@@ -330,7 +330,8 @@ procedure itself. Address to return after this call will get patched."
     ((_ (name st a b invert offset)
         fx-op fx-invert-op fl-op fl-invert-op cname)
      (define-vm-op (name st a b invert offset)
-       (vm-handle-interrupts st)
+       (when (< offset 0)
+         (vm-handle-interrupts st))
        (let ((l1 (jit-forward))
              (l2 (jit-forward))
              (l3 (jit-forward))
@@ -396,11 +397,17 @@ procedure itself. Address to return after this call will get patched."
          (if (variable? var)
              (local-set-immediate! st dst (scm->pointer var))
              (let ((resolved resolver ...))
-               ;; VM does this while resolving the var.
+
+               ;; XXX: Currently VM updates the offset pointer of
+               ;; var. Though may better to do this in lightning when
+               ;; updating procedure definition already running in
+               ;; another thread.
+
                ;; (jit-movi r0 (scm->pointer resolved))
                ;; (jit-movi r1 (offset->pointer var-offset))
                ;; (jit-str r1 r0)
                ;; (local-set! st dst r0)
+
                (local-set-immediate! st dst (scm->pointer resolved)))))))))
 
 (define-syntax define-vm-add-sub-op
@@ -667,6 +674,10 @@ arguments."
 ;;; Function prologues
 ;;; ------------------
 
+(define-vm-op (br-if-nargs-ne st expected offset)
+  (when (not (= (lightning-nargs st) expected))
+    (jit-patch-at (jit-jmpi) (resolve-dst st offset))))
+
 ;; XXX: Move stack pointer, call jit-allocai when necessary.
 (define-vm-op (assert-nargs-ee/locals st expected locals)
   (cache-locals st expected))
@@ -706,6 +717,45 @@ arguments."
 (define-vm-op (br st dst)
   (jit-patch-at (jit-jmpi) (resolve-dst st dst)))
 
+(define-vm-op (br-if-true st a invert offset)
+  (when (< offset 0)
+    (vm-handle-interrupts st))
+  (jit-patch-at
+   ((if invert jit-beqi jit-bnei)
+    (local-ref st a)
+    (scm->pointer #f))
+   (resolve-dst st offset)))
+
+(define-vm-op (br-if-null st a invert offset)
+  (when (< offset 0)
+    (vm-handle-interrupts st))
+  (jit-patch-at
+   ((if invert jit-bnei jit-beqi)
+    (local-ref st a)
+    (scm->pointer '()))
+   (resolve-dst st offset)))
+
+(define-vm-op (br-if-pair st a invert offset)
+  (when (< offset 0)
+    (vm-handle-interrupts st))
+  (let ((l1 (jit-forward)))
+    (local-ref st a r0)
+    (jit-patch-at (jit-bmsi r0 (imm 6))
+                  (if invert (resolve-dst st offset) l1))
+    (jit-ldr r0 r0)
+    (jit-patch-at (jit-bmsi r0 (imm 1))
+                  (if invert (resolve-dst st offset) l1))
+    (when (not invert)
+      (jit-patch-at (jit-jmpi) (resolve-dst st offset)))
+    (jit-link l1)))
+
+(define-vm-op (br-if-eq st a b invert offset)
+  (jit-patch-at
+   ((if invert jit-bner jit-beqr)
+    (local-ref st a r0)
+    (local-ref st b r1))
+   (resolve-dst st offset)))
+
 (define-vm-br-binary-op (br-if-< st a b invert offset)
   jit-bltr jit-bger jit-bltr-d jit-bunltr-d "scm_less_p")
 
@@ -714,20 +764,6 @@ arguments."
 
 (define-vm-br-binary-op (br-if-= st a b invert offset)
   jit-beqr jit-bner jit-beqr-d jit-bner-d "scm_num_eq_p")
-
-(define-vm-op (br-if-true st a invert offset)
-  (jit-patch-at
-   ((if invert jit-beqi jit-bnei)
-    (local-ref st a)
-    (scm->pointer #f))
-   (resolve-dst st offset)))
-
-(define-vm-op (br-if-null st a invert offset)
-  (jit-patch-at
-   ((if invert jit-bnei jit-beqi)
-    (local-ref st a)
-    (scm->pointer '()))
-   (resolve-dst st offset)))
 
 
 ;;; Lexical binding instructions
@@ -810,7 +846,8 @@ arguments."
 
 (define-vm-box-op (toplevel-box st mod-offset sym-offset)
   (module-variable
-   (dereference-scm (make-pointer (offset-addr st mod-offset)))
+   (or (dereference-scm (make-pointer (offset-addr st mod-offset)))
+       the-root-module)
    (dereference-scm (make-pointer (offset-addr st sym-offset)))))
 
 (define-vm-box-op (module-box st mod-offset sym-offset)

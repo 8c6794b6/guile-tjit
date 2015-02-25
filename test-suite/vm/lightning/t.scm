@@ -53,53 +53,53 @@
 (define (callee x)
   (+ 1 x))
 
-(define-test (l-call n) (98)
+(define-test (t-call n) (98)
   (+ 1 (callee n)))
 
-(define-test (l-call-simple-prim x y) ('(a b c) '(d e f g h))
+(define-test (t-call-simple-prim x y) ('(a b c) '(d e f g h))
   (+ (length x) (length y)))
 
-(define-test (l-call-rest-prim x y) ('(a b c) '(d e f g h))
+(define-test (t-call-rest-prim x y) ('(a b c) '(d e f g h))
   (append x y))
 
-(define-test (l-call-opt-rest-prim-1 a) (#\a)
+(define-test (t-call-opt-rest-prim-1 a) (#\a)
   (char=? a))
 
-(define-test (l-call-opt-rest-prim-2a a b) (#\a #\a)
+(define-test (t-call-opt-rest-prim-2a a b) (#\a #\a)
   (char=? a b))
 
-(define-test (l-call-opt-rest-prim-2b a b) (#\a #\b)
+(define-test (t-call-opt-rest-prim-2b a b) (#\a #\b)
   (char=? a b))
 
-(define-test (l-call-opt-rest-prim-3a a b c) (#\a #\a #\a)
+(define-test (t-call-opt-rest-prim-3a a b c) (#\a #\a #\a)
   (char=? a b c))
 
-(define-test (l-call-opt-rest-prim-3b a b c) (#\a #\a #\b)
+(define-test (t-call-opt-rest-prim-3b a b c) (#\a #\a #\b)
   (char=? a b c))
 
-(define-test (l-call-opt-rest-prim-4 a b c d) (#\a #\a #\a #\a)
+(define-test (t-call-opt-rest-prim-4 a b c d) (#\a #\a #\a #\a)
   (char=? a b c d))
 
-(define-test (l-call-string->list str) ("foo-bar-buzz")
+(define-test (t-call-string->list str) ("foo-bar-buzz")
   (string->list str))
 
-(define-test (l-call-string-append str1 str2) ("foo" "bar")
+(define-test (t-call-string-append str1 str2) ("foo" "bar")
   (string-append str1 str2))
 
-(define-test (l-call-make-string n fill) (113 #\a)
+(define-test (t-call-make-string n fill) (113 #\a)
   (make-string n fill))
 
-(define-test (l-call-arg0 f x) ((lambda (a) (+ a 100)) 23)
+(define-test (t-call-arg0 f x) ((lambda (a) (+ a 100)) 23)
   (f x))
 
 (define (add-one x)
   (+ x 1))
 
-(define-test (l-my-map f xs) (add-one '(1 2 3))
+(define-test (t-my-map f xs) (add-one '(1 2 3))
   (let lp ((xs xs))
     (if (null? xs)
         '()
-        (cons (f (car xs)) (l-my-map f (cdr xs))))))
+        (cons (f (car xs)) (t-my-map f (cdr xs))))))
 
 (define (my-map f xs)
   (let lp ((xs xs))
@@ -161,22 +161,22 @@
 (define-test (return-builtin-apply) ()
   apply)
 
-(define-test (l-apply-a f a b rest) (+ 1 2 '(3 4 5))
+(define-test (t-apply-a f a b rest) (+ 1 2 '(3 4 5))
   (+ 100 (apply f a b rest)))
 
-(define-test (l-apply-b f a b rest) (+ 1 2 '())
+(define-test (t-apply-b f a b rest) (+ 1 2 '())
   (+ 100 (apply f a b rest)))
 
-(define-test (l-apply-c f rest) (+ '(1 2 3 4 5))
+(define-test (t-apply-c f rest) (+ '(1 2 3 4 5))
   (+ 100 (apply f rest)))
 
-(define-test (l-apply-tail-a f a b rest) (+ 1 2 '(3 4 5))
+(define-test (t-apply-tail-a f a b rest) (+ 1 2 '(3 4 5))
   (apply f a b rest))
 
-(define-test (l-apply-tail-b f a b rest) (+ 1 2 '())
+(define-test (t-apply-tail-b f a b rest) (+ 1 2 '())
   (apply f a b rest))
 
-(define-test (l-apply-tail-c f rest) (+ '(1 2 3 4 5))
+(define-test (t-apply-tail-c f rest) (+ '(1 2 3 4 5))
   (apply f rest))
 
 (define-test (return-builtin-values) ()
@@ -193,39 +193,48 @@
 
 ;;; Function prologues
 
-(define-test (l-identity x) (12345)
+(define-test (t-identity x) (12345)
   x)
 
-(define-test (l-bind-rest x . rest) ('foo 'bar 'buzz)
+(define-test (t-bind-rest x . rest) ('foo 'bar 'buzz)
   (cons x rest))
 
-(define-test (l-call-rest-0 x . rest) ('foo + *)
+(define-test (t-call-rest-0 x . rest) ('foo + *)
   ((car rest) 2 3))
 
-(define-test (l-call-rest-1 x . rest) ('foo + *)
+(define-test (t-call-rest-1 x . rest) ('foo + *)
   ((cadr rest) 2 3))
 
 ;;; Branching instructions
 
-(define-test (l-if-zero x) (0)
-  (if (zero? x)
-      100
-      200))
-
-(define-test (l-if-null x) ('(1 2 3))
-  (if (null? x)
-      100
-      200))
-
-(define-test (l-if-true x) (#t)
+(define-test (t-if-true x) (#t)
   (if x 100 200))
 
-(define-test (l-if-true-invert x) (#t)
+(define-test (t-if-true-invert x) (#t)
   (if (not x) 100 200))
+
+(define-test (t-if-null x) ('(1 2 3))
+  (null? x))
+
+(define-test (t-if-null-non-list x) (#(1 2 3))
+  (null? x))
+
+(define-test (t-if-pair x) ('(1 2 3))
+  (pair? x))
+
+(define-test (t-if-pair-immediate x) (123456)
+  (pair? x))
+
+(define-test (t-if-pair-non-immediate x) ((lambda () 'no))
+  (pair? x))
+
+(define-test (t-if-zero x) (0)
+  (zero? x))
+
 
 ;;; Lexical binding instructions
 
-(define-test (l-box-set! n) (20)
+(define-test (t-box-set! n) (20)
   (let ((result 0))
     (if (< n 100)
         (set! result n)
@@ -300,23 +309,23 @@
 
 ;;; Immediates and statically allocated non-immediates
 
-(define-test (l-make-short-immediate) () ;; no args.
+(define-test (t-make-short-immediate) () ;; no args.
   100)
 
-(define-test (l-long-long-immediate) ()
+(define-test (t-long-long-immediate) ()
   -12345)
 
-(define-test (l-non-immediate) ()
+(define-test (t-non-immediate) ()
   "non-immediate string.")
 
-(define-test (l-static-ref) ()
+(define-test (t-static-ref) ()
   0.5)
 
 ;;; Mutable top-level bindings
 
 (define a-toplevel-ref 123)
 
-(define-test (l-toplevel-box x) (321)
+(define-test (t-toplevel-box x) (321)
   (+ x a-toplevel-ref))
 
 (define (add-toplevel-ref x)
@@ -330,7 +339,7 @@
   (call-lightning add-toplevel-ref 100)
   (call-lightning add-toplevel-ref 100))
 
-(define-test (l-module-box) ()
+(define-test (t-module-box) ()
   length)
 
 (define (get-from-module-box)
@@ -347,142 +356,142 @@
 
 (define f02 (make-fluid 123))
 
-(define-test (l-fluid-ref fluid) (f01)
+(define-test (t-fluid-ref fluid) (f01)
   (fluid-ref fluid))
 
-(define-test (l-fluid-ref-undefine fluid) (f02)
+(define-test (t-fluid-ref-undefine fluid) (f02)
   (fluid-ref fluid))
 
 ;;; String, symbols, and keywords
 
-(define-test (l-string-length str) ("foo-bar-buzz")
+(define-test (t-string-length str) ("foo-bar-buzz")
   (string-length str))
 
 ;;; Pairs
 
-(define-test (l-car x) ('(foo bar buzz))
+(define-test (t-car x) ('(foo bar buzz))
   (car x))
 
-(define-test (l-cdr x) ('(foo bar buzz))
+(define-test (t-cdr x) ('(foo bar buzz))
   (cdr x))
 
-(define-test (l-cons x y) (100 200)
+(define-test (t-cons x y) (100 200)
   (cons x y))
 
-(define-test (l-set-car! lst x) ('(1 2 3) 123)
+(define-test (t-set-car! lst x) ('(1 2 3) 123)
   (set-car! lst x)
   lst)
 
-(define-test (l-set-cdr! lst x) ('(1 2 3) '(998 999 1000))
+(define-test (t-set-cdr! lst x) ('(1 2 3) '(998 999 1000))
   (set-cdr! lst x)
   lst)
 
 
 ;;; Numeric operations
 
-(define-test (l-add1 x) (99)
+(define-test (t-add1 x) (99)
   (+ 1 x))
 
-(define-test (l-add-fx-fx x y) (27 73)
+(define-test (t-add-fx-fx x y) (27 73)
   (+ x y))
 
-(define-test (l-add-fx-fl x y) (3 0.456)
+(define-test (t-add-fx-fl x y) (3 0.456)
   (+ x y))
 
-(define-test (l-add-fl-fx x y) (0.345 4)
+(define-test (t-add-fl-fx x y) (0.345 4)
   (+ x y))
 
-(define-test (l-add-fl-fl x y) (0.125 0.775)
+(define-test (t-add-fl-fl x y) (0.125 0.775)
   (+ x y))
 
-(define-test (l-add-fx-gmp x y)
+(define-test (t-add-fx-gmp x y)
   (9999999999999999999999999999999 999999999999999999999999999999)
   (+ x y))
 
-(define-test (l-add-overflow x y) ((- (expt 2 61) 1) 100)
+(define-test (t-add-overflow x y) ((- (expt 2 61) 1) 100)
   (+ x y))
 
-(define-test (l-sub x y) (127 27)
+(define-test (t-sub x y) (127 27)
   (- x y))
 
-(define-test (l-mul x y) (123 321)
+(define-test (t-mul x y) (123 321)
   (* x y))
 
-(define-test (l-mul-fx-fl x y) (10 1.23)
+(define-test (t-mul-fx-fl x y) (10 1.23)
   (* x y))
 
-(define-test (l-mul-fl-fx x y) (1.23 10)
+(define-test (t-mul-fl-fx x y) (1.23 10)
   (* x y))
 
-(define-test (l-mul-fl-fl x y) (1.23 0.12)
+(define-test (t-mul-fl-fl x y) (1.23 0.12)
   (* x y))
 
-(define-test (l-mul-gmp x y) (1.23 9999999999999999999999999999)
+(define-test (t-mul-gmp x y) (1.23 9999999999999999999999999999)
   (* x y))
 
-(define-test (l-div x y) (32 8)
+(define-test (t-div x y) (32 8)
   (/ x y))
 
-(define-test (l-div-fx-fl x y) (10 1.23)
+(define-test (t-div-fx-fl x y) (10 1.23)
   (/ x y))
 
-(define-test (l-div-fl-fx x y) (1.23 10)
+(define-test (t-div-fl-fx x y) (1.23 10)
   (/ x y))
 
-(define-test (l-div-fl-fl x y) (1.23 0.12)
+(define-test (t-div-fl-fl x y) (1.23 0.12)
   (/ x y))
 
-(define-test (l-div-gmp x y) (1.23 9999999999999999999999999999)
+(define-test (t-div-gmp x y) (1.23 9999999999999999999999999999)
   (/ x y))
 
-(define-test (l-make-vector len fill) (16 'foo)
+(define-test (t-make-vector len fill) (16 'foo)
   (make-vector len fill))
 
-(define-test (l-make-vector-immediate fill) ('foo)
+(define-test (t-make-vector-immediate fill) ('foo)
   (make-vector 10 fill))
 
-(define-test (l-vector-length v) (#(1 2 3 4 5))
+(define-test (t-vector-length v) (#(1 2 3 4 5))
   (vector-length v))
 
-(define-test (l-vector-ref v idx) (#(1 2 3 4 5) 3)
+(define-test (t-vector-ref v idx) (#(1 2 3 4 5) 3)
   (vector-ref v idx))
 
-(define-test (l-vector-ref-min v idx) (#(1 2 3 4 5) 0)
+(define-test (t-vector-ref-min v idx) (#(1 2 3 4 5) 0)
   (vector-ref v idx))
 
-(define-test (l-vector-ref-max v idx) (#(1 2 3 4 5) 4)
+(define-test (t-vector-ref-max v idx) (#(1 2 3 4 5) 4)
   (vector-ref v idx))
 
-(define-test (l-vector-ref-immediate v) (#(1 2 3 4 5))
+(define-test (t-vector-ref-immediate v) (#(1 2 3 4 5))
   (vector-ref v 3))
 
-(define-test (l-vector-ref-immediate-min v) (#(1 2 3 4 5))
+(define-test (t-vector-ref-immediate-min v) (#(1 2 3 4 5))
   (vector-ref v 0))
 
-(define-test (l-vector-ref-immediate-max v) (#(1 2 3 4 5))
+(define-test (t-vector-ref-immediate-max v) (#(1 2 3 4 5))
   (vector-ref v 4))
 
-(define-test (l-vector-set! v idx) (#(1 2 3 4 5) 3)
+(define-test (t-vector-set! v idx) (#(1 2 3 4 5) 3)
   (vector-set! v idx 999)
   v)
 
-(define-test (l-vector-set!-min v idx) (#(1 2 3 4 5) 0)
+(define-test (t-vector-set!-min v idx) (#(1 2 3 4 5) 0)
   (vector-set! v idx 999)
   v)
 
-(define-test (l-vector-set!-max v idx) (#(1 2 3 4 5) 4)
+(define-test (t-vector-set!-max v idx) (#(1 2 3 4 5) 4)
   (vector-set! v idx 999)
   v)
 
-(define-test (l-vector-set!-immediate v) (#(1 2 3 4 5))
+(define-test (t-vector-set!-immediate v) (#(1 2 3 4 5))
   (vector-set! v 3 999)
   v)
 
-(define-test (l-vector-set!-immediate-min v) (#(1 2 3 4 5))
+(define-test (t-vector-set!-immediate-min v) (#(1 2 3 4 5))
   (vector-set! v 0 999)
   v)
 
-(define-test (l-vector-set!-immediate-max v) (#(1 2 3 4 5))
+(define-test (t-vector-set!-immediate-max v) (#(1 2 3 4 5))
   (vector-set! v 4 999)
   v)
 
@@ -495,34 +504,34 @@
 ;;; Simple procedures
 ;;;
 
-(define-test (l-lp n) (#e1e7)
+(define-test (t-lp n) (#e1e7)
   (let lp ((n n))
     (if (< 0 n) (lp (- n 1)) n)))
 
-(define-test (l-sum-tail-call x) (1000)
+(define-test (sum-tail-call x) (1000)
   (let lp ((n x) (acc 0))
     (if (< n 0)
         acc
         (lp (- n 1) (+ acc n)))))
 
-(define-test (l-sum-non-tail-call x) (1000)
+(define-test (sum-non-tail-call x) (1000)
   (let lp ((n x))
     (if (< n 0)
         0
         (+ n (lp (- n 1))))))
 
-(define-test (l-sum-toplevel n acc) (1000 0)
+(define-test (sum-toplevel n acc) (1000 0)
   (if (= n 0)
       acc
-      (l-sum-toplevel (- n 1) (+ n acc))))
+      (sum-toplevel (- n 1) (+ n acc))))
 
 (test-skip 1)
-(define-test (l-sum-cps n k) (10 (lambda (a) a))
+(define-test (sum-cps n k) (10 (lambda (a) a))
   (if (< n 0)
       (k 0)
-      (l-sum-cps (- n 1)
-                 (lambda (s)
-                   (k (+ s n))))))
+      (sum-cps (- n 1)
+               (lambda (s)
+                 (k (+ s n))))))
 
 (define-test (fib1 n) (30)
   (let lp ((n n))
