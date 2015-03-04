@@ -295,13 +295,11 @@
 (define (mulk x y k)
   (k (* x y)))
 
-(test-skip 1)
 (define-test (muladdk x y z k) (3 4 5 (lambda (a) a))
   (mulk x y
         (lambda (xy)
           (addk xy z k))))
 
-(test-skip 1)
 (define-test (pythk2 x y k) (3 4 (lambda (a) a))
   (mulk x x
         (lambda (x2)
@@ -574,7 +572,6 @@
            (tak (- y 1) z x)
            (tak (- z 1) x y))))
 
-(test-skip 1)
 (define-test (sieve n) (500)
   (let ((root (round (sqrt n)))
         (a (make-vector n #f)))

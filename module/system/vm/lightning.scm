@@ -37,7 +37,7 @@
   #:use-module (system vm program)
   #:use-module (system vm vm)
   #:export (compile-lightning
-            call-lightning c-call-lightning
+            call-lightning c-call-lightning %lightning-verbosity
             get-native-code set-native-code! *native-code*
             native-proc native-guardian))
 
@@ -54,7 +54,7 @@
 ;; State used during compilation.
 (define-record-type <lightning>
   (%make-lightning asm nodes ip labels pc fp thread nargs args nretvals
-                   cached modified entry)
+                   cached modified verbosity)
   lightning?
 
   ;; State from bytecode-asm.
@@ -93,10 +93,10 @@
   ;; Modified cached registers, to be saved before calling procedure.
   (modified lightning-modified set-lightning-modified!)
 
-  ;; Entry node.
-  (entry lightning-entry))
+  ;; Verbosity debug message.
+  (verbosity lightning-verbosity))
 
-(define* (make-lightning asm nodes fp thread nargs args pc entry
+(define* (make-lightning asm nodes fp thread nargs args pc verbosity
                          #:optional
                          (nretvals 1)
                          (ip 0)
@@ -106,41 +106,66 @@
                 (hashq-set! labels labeled-ip (jit-forward))))
             (basm-labeled-ips asm))
   (%make-lightning asm nodes ip labels pc fp thread nargs args nretvals
-                   #f #f entry))
+                   #f #f verbosity))
 
 (define native-guardian (make-guardian))
 
-(define native-proc (make-object-property))
+;; (define native-proc (make-object-property))
 
-(define (get-native-proc obj)
-  (let ((ret (native-proc (pointer->scm obj))))
-    (or ret (scm->pointer #f))))
+;; (define (get-native-proc obj)
+;;   (let ((ret (native-proc (pointer->scm obj))))
+;;     (or ret (scm->pointer #f))))
+
+(define *native-bv* (make-weak-key-hash-table))
+
+(define (set-native-bv! key bv)
+  (hashq-set! *native-bv* key bv))
+
+(define *native-proc* (make-weak-key-hash-table))
+
+(define (set-native-proc! scm native)
+  (hashq-set! *native-proc* scm native))
+
+(define (get-native-proc scm)
+  (hashq-ref *native-proc* scm))
+
+(define (_get-native-proc scm)
+  (or (get-native-proc scm)
+      (scm->pointer #f )))
 
 ;;; Top-level variable for `get-native-proc', so that could be reused
 ;;; without worrying garbage collection.
 (define get-native-proc*
-  (procedure->pointer '* get-native-proc '(*)))
+  (procedure->pointer '* _get-native-proc '(*)))
 
-(define (get-native-addr obj)
-  (let* ((addr (pointer-address obj))
-         (ret (native-proc addr)))
-    (or ret (scm->pointer #f))))
 
-;;; Top-level variable for `get-native-addr', used by `call-label'.
-(define get-native-addr*
-  (procedure->pointer '* get-native-addr '(*)))
 
 ;;;
+;;; Constants
+;;;
 
-(define *native-code* (make-weak-key-hash-table))
+(define-syntax-rule (tc7-variable) 7)
 
-(define (set-native-code! obj code)
-  (hashq-set! *native-code* (program-code obj) code))
+(define-syntax-rule (tc7-vector) 13)
 
-(define (get-native-code obj)
-  (let ((ret (hashq-ref *native-code* (program-code (pointer->scm obj)))))
-    (or ret (scm->pointer #f))))
+(define-syntax-rule (tc7-program) 69)
 
+(define-syntax-rule (tc16-real) 535)
+
+(define-syntax-rule (undefined) (make-pointer #x904))
+
+;;;
+;;; For debug
+;;;
+
+(define %lightning-verbosity #f)
+
+(define-syntax-rule (verbose-than? st n)
+  (and (lightning-verbosity st)
+       (<= n (lightning-verbosity st))))
+
+;;;
+;;; VM op syntaxes
 ;;;
 
 (define-syntax define-vm-op
@@ -255,16 +280,6 @@ argument in VM operation."
 (define-syntax-rule (offset-addr st offset)
   (+ (lightning-pc st) (* 4 (+ (lightning-ip st) offset))))
 
-(define-syntax-rule (tc7-variable) 7)
-
-(define-syntax-rule (tc7-vector) 13)
-
-(define-syntax-rule (tc7-program) 69)
-
-(define-syntax-rule (tc16-real) 535)
-
-(define undefined (make-pointer #x904))
-
 (define-syntax-rule (c-pointer name)
   (dynamic-func name (dynamic-link)))
 
@@ -312,7 +327,7 @@ argument in VM operation."
                          (local-ref st (+ proc i 1 num-req+opts))))
                       (iota (- nlocals num-req+opts 1)))
             ;; Additional `undefined', to end the arguments.
-            (jit-pushargi undefined)
+            (jit-pushargi (undefined))
             (jit-calli (c-pointer "scm_list_n"))
             (jit-retval r1))))
 
@@ -325,7 +340,7 @@ argument in VM operation."
     ;; Filling in unspecified optionals, if any.
     (when (not (null? optionals))
       (for-each (lambda (i)
-                  (jit-pushargi undefined))
+                  (jit-pushargi (undefined)))
                 (iota (- num-req+opts (- nlocals 1)))))
     (when rest
       (jit-pushargr r1))
@@ -438,6 +453,7 @@ procedure itself. Address to return after this call will get patched."
          (if (variable? var)
              (local-set-immediate! st dst (scm->pointer var))
              (let ((resolved resolver ...))
+
                ;; XXX: In past, vm-regular was updating the offset
                ;; pointer of var. Though may better to do this in
                ;; lightning when updating procedure definition already
@@ -647,7 +663,6 @@ arguments."
 (define-syntax-rule (call-local st proc nlocals)
   (let ((l1 (jit-forward))
         (l2 (jit-forward)))
-    (vm-handle-interrupts st)
 
     ;; Look up compiled code by calling top-level procedure. Currently
     ;; this is a bottleneck.
@@ -674,11 +689,9 @@ arguments."
 (define-syntax-rule (call-addr st proc nlocals label)
   (let ((l1 (jit-forward))
         (l2 (jit-forward)))
-    (vm-handle-interrupts st)
     (jit-prepare)
-    (jit-pushargi (imm (offset-addr st label)))
-    (jit-calli get-native-addr*)
-    ;; (jit-calli (c-pointer "scm_c_get_native_addr"))
+    (jit-pushargi (scm->pointer (make-pointer (offset-addr st label))))
+    (jit-calli get-native-proc*)
     (jit-retval r0)
     (jit-patch-at (jit-beqi r0 (scm->pointer #f)) l1)
 
@@ -691,12 +704,15 @@ arguments."
     (jit-patch-at (jit-jmpi) l2)
 
     (jit-link l1)
-    (let* ((args* (cons uint64 (map (lambda _ '*) (iota (- nlocals 1)))))
-           (call* (procedure->pointer '* call-lightning-addr* args*)))
-      ;;; XXX: Using guardian
+    (let* ((args* (map (lambda _ '*) (iota nlocals)))
+           (call* (procedure->pointer '* call-lightning* args*)))
+
+      ;; XXX: Using guardian
       (native-guardian call*)
       (jit-prepare)
-      (jit-pushargi (imm (offset-addr st label)))
+
+      ;; Convert C integer to SCM fixnum.
+      (jit-pushargi (imm (+ (ash (offset-addr st label) 2) 2)))
       (for-each (lambda (n)
                   (jit-pushargr (local-ref st (+ proc n 1))))
                 (iota (- nlocals 1)))
@@ -717,7 +733,7 @@ arguments."
      ((unspecified? callee)
       (call-runtime st proc nlocals))
      ((primitive? callee)
-      ;; (format #t ";;; ~a is known and primitive.~%" callee)
+      ;; (format #t ";;; ~a is primitive.~%" callee)
       (call-primitive st proc nlocals callee))
      ;; ((call? callee)
      ;;  (call-scm/returned st proc (call-node callee)))
@@ -729,7 +745,7 @@ arguments."
       (call-scm/returned st proc callee))
      ;; Procedure known at compile time, and has compiled code.
      ((and (procedure? callee)
-           (native-proc callee))
+           (get-native-proc callee))
       =>
       (lambda (proc*)
         ;; (format #t ";;; ~a has compiled code.~%" callee)
@@ -740,10 +756,42 @@ arguments."
         (jit-calli proc*)
         (jit-retval r0)
         (local-set! st (+ proc 1) r0)))
+     ((hashq-ref (lightning-nodes st) callee)
+      =>
+      (lambda (node)
+        (let ((ra (jit-movi r0 (imm 0))))
+          (jit-stxi (stored-ref st (- proc 1)) (jit-fp) r0)
+          (jit-stxi (stored-ref st (- proc 2)) (jit-fp) (jit-fp))
+          (jit-subi (jit-fp) (jit-fp) (imm (* (sizeof '*) proc)))
+          (jit-patch-at (jit-jmpi) node)
+          (jit-patch ra))))
+     ((procedure? callee)
+      (when (lightning-verbosity st)
+        (format #t ";;; call: compiling ~a~%" callee))
+      (let* ((args (make-vector nlocals))
+             (basm (proc->basm callee args))
+             (entry (jit-forward))
+             (_ (hashq-set! (lightning-nodes st) callee entry))
+             (lightning (make-lightning basm
+                                        (lightning-nodes st)
+                                        (lightning-fp st)
+                                        (lightning-thread st)
+                                        nlocals
+                                        args
+                                        (ensure-program-addr callee)
+                                        (lightning-verbosity st)))
+             ;; (node )
+             (ra (jit-movi r0 (imm 0))))
+        (jit-stxi (stored-ref st (- proc 1)) (jit-fp) r0)
+        (jit-stxi (stored-ref st (- proc 2)) (jit-fp) (jit-fp))
+        (jit-subi (jit-fp) (jit-fp) (imm (* (sizeof '*) proc)))
+        (compile-lightning* lightning entry #f)
+        (jit-patch ra)))
      (else
       ;; (call-scm/returned st proc callee)
       ;; (call-runtime st proc nlocals)
-      (format #t ";;; call: passing ~a to `call-local'.~%" callee)
+      (when (lightning-verbosity st)
+        (format #t ";;; call: passing ~a to `call-local'.~%" callee))
       (call-local st proc nlocals)))))
 
 (define-syntax-rule (in-same-procedure? st label)
@@ -767,10 +815,45 @@ arguments."
       (jit-subi (jit-fp) (jit-fp) (imm (* (sizeof '*) proc)))
       (jit-patch-at (jit-jmpi) (resolve-dst st label))
       (jit-patch addr)))
+   ((hashq-ref (lightning-nodes st) (offset-addr st label))
+    =>
+    (lambda (node)
+      (let ((ra (jit-movi r0 (imm 0))))
+        (jit-stxi (stored-ref st (- proc 1)) (jit-fp) r0)
+        (jit-stxi (stored-ref st (- proc 2)) (jit-fp) (jit-fp))
+        (jit-subi (jit-fp) (jit-fp) (imm (* (sizeof '*) proc)))
+        (jit-patch-at (jit-jmpi) node)
+        (jit-patch ra))))
    (else
-    (format #t ";;; call-label, passing ip=~a to `call-addr'~%"
-            (offset-addr st label))
-    (call-addr st proc nlocals label))))
+    ;; (format #t ";;; call-label, passing ip=~a to `call-addr'~%"
+    ;;         (offset-addr st label))
+    ;; (call-addr st proc nlocals label)
+
+    (when (lightning-verbosity st)
+      (format #t ";;; call-label, compiling ip=~a~%" (offset-addr st label)))
+    ;; (format #t ";;; dumping (lightning-nodes st):~%")
+    ;; (hash-for-each (lambda (k v)
+    ;;                  (format #t ";;;    ~a => ~a~%" k v))
+    ;;                (lightning-nodes st))
+    (let* ((addr (offset-addr st label))
+           (args (make-vector nlocals))
+           (basm (proc->basm addr args))
+           (entry (jit-forward))
+           (_ (hashq-set! (lightning-nodes st) addr entry))
+           (lightning (make-lightning basm
+                                      (lightning-nodes st)
+                                      (lightning-fp st)
+                                      (lightning-thread st)
+                                      nlocals
+                                      args
+                                      addr
+                                      (lightning-verbosity st)))
+           (ra (jit-movi r0 (imm 0))))
+      (jit-stxi (stored-ref st (- proc 1)) (jit-fp) r0)
+      (jit-stxi (stored-ref st (- proc 2)) (jit-fp) (jit-fp))
+      (jit-subi (jit-fp) (jit-fp) (imm (* (sizeof '*) proc)))
+      (compile-lightning* lightning entry #f)
+      (jit-patch ra)))))
 
 (define-vm-op (tail-call st nlocals)
   (save-locals st)
@@ -793,7 +876,7 @@ arguments."
            (= (lightning-pc st) (program-code callee)))
       (call-scm st callee))
      ((and (procedure? callee)
-           (native-proc callee))
+           (get-native-proc callee))
       =>
       (lambda (proc*)
         (jit-prepare)
@@ -803,29 +886,79 @@ arguments."
         (jit-calli proc*)
         (jit-retval r0)
         (local-set! st 1 r0)))
-     ;;; XXX: Compile now.
+     ;; XXX: Compile now.
      ;; ((and (procedure? callee))
      ;;  ...)
+     ((hashq-ref (lightning-nodes st) callee)
+      =>
+      (lambda (node)
+        (let ((ra (jit-movi r0 (imm 0))))
+          (jit-patch-at (jit-jmpi) node)
+          (jit-patch ra))))
+
+     ((procedure? callee)
+      (when (lightning-verbosity st)
+        (format #t ";;; tail-call: compiling ~a~%" callee))
+      (let* ((args (make-vector nlocals))
+             (basm (proc->basm callee args))
+             (entry (jit-forward))
+             (_ (hashq-set! (lightning-nodes st) callee entry))
+             (lightning (make-lightning basm
+                                        (lightning-nodes st)
+                                        (lightning-fp st)
+                                        (lightning-thread st)
+                                        nlocals
+                                        args
+                                        (ensure-program-addr callee)
+                                        (lightning-verbosity st)))
+             (ra (jit-movi r0 (imm 0))))
+        (compile-lightning* lightning entry #f)
+        (jit-patch ra)))
      (else
       ;; (call-scm st callee)
       ;; (call-runtime st 0 nlocals)
 
       ;; XXX: Could not determine the callee at compile time. Delegate
       ;; the callee in local to `call-local'.
-      (format #t ";;; tail-call: passing ~a to `call-local'.~%" callee)
+      (when (lightning-verbosity st)
+        (format #t ";;; tail-call: passing ~a to `call-local'.~%" callee))
       (call-local st 0 nlocals)
-      (return-jmp st)))))
+      (return-jmp st)
+
+      ))))
 
 (define-vm-op (tail-call-label st nlocals label)
   (save-locals st)
   ;; (call-scm st (offset-addr st label))
   (cond
    ((in-same-procedure? st label)
-    (vm-handle-interrupts st)
     (jit-patch-at (jit-jmpi) (resolve-dst st label)))
+   ((hashq-ref (lightning-nodes st) (offset-addr st label))
+    =>
+    (lambda (node)
+      (jit-patch-at (jit-jmpi) node)))
    (else
-    (call-addr st 0 nlocals label)
-    (return-jmp st))))
+    ;; (call-addr st 0 nlocals label)
+    ;; (return-jmp st)
+    (when (lightning-verbosity st)
+      (format #t ";;; tail-call-label: compiling ~a~%"
+              (offset-addr st label)))
+    (let* ((addr (offset-addr st label))
+           (args (make-vector nlocals))
+           (basm (proc->basm addr args))
+           (entry (jit-forward))
+           (_ (hashq-set! (lightning-nodes st) addr entry))
+           (lightning (make-lightning basm
+                                      (lightning-nodes st)
+                                      (lightning-fp st)
+                                      (lightning-thread st)
+                                      nlocals
+                                      args
+                                      addr
+                                      (lightning-verbosity st)))
+           (ra (jit-movi r0 (imm 0))))
+      (compile-lightning* lightning entry #f)
+      (jit-patch ra)))))
 
 ;; Return value stored in local-ref (proc + 1) by callee. Local variable not
 ;; resolved at compile time.
@@ -848,6 +981,7 @@ arguments."
   (save-locals st)
   (return-jmp st))
 
+
 ;;; Specialized call stubs
 ;;; ----------------------
 
@@ -857,6 +991,7 @@ arguments."
   (jit-calli (c-pointer "scm_do_vm_builtin_ref"))
   (jit-retval r0)
   (local-set! st dst r0))
+
 
 ;;; Function prologues
 ;;; ------------------
@@ -894,7 +1029,7 @@ arguments."
   (for-each (lambda (n)
               (jit-pushargr (local-ref st (+ n dst))))
             (iota (- (lightning-nargs st) dst)))
-  (jit-pushargi undefined)
+  (jit-pushargi (undefined))
   (jit-calli (c-pointer "scm_list_n"))
   (jit-retval r0)
   (local-set! st dst r0))
@@ -1074,7 +1209,7 @@ arguments."
 
     ;; r0 = fluid value
     (jit-ldxr r0 r0 r2)
-    (jit-patch-at (jit-bnei r0 undefined) l1)
+    (jit-patch-at (jit-bnei r0 (undefined)) l1)
 
     ;; Load default value from local fluid.
     (jit-ldxi r0 r1 (imm 8))
@@ -1250,7 +1385,8 @@ true, the compiled result is for top level ."
       (let ((emitter (hashq-ref *vm-instr* instr)))
         ;; For debug.
         (jit-note (format #f "~a" op) (lightning-ip st))
-        ;; (format #t "~3d: ~a~%" ip op)
+        (when (verbose-than? st 1)
+          (format #t "~3d: ~a~%" ip op))
         ;; Link if this bytecode intruction is labeled as destination.
         (cond ((hashq-ref (lightning-labels st) (lightning-ip st))
                => (lambda (label) (jit-link label))))
@@ -1328,7 +1464,8 @@ true, the compiled result is for top level ."
     ;;     (for-each (compile-callee st) callees)))
 
     (jit-note name addr)
-    ;; (format #t ";;; ~a (~a)~%" name addr)
+    (when (verbose-than? st 1)
+      (format #t ";;; start: ~a (~a)~%" name addr))
 
     ;; Link and compile the entry point.
     (jit-link entry)
@@ -1336,6 +1473,10 @@ true, the compiled result is for top level ."
                 (assemble-one st chunk))
               (basm-chunks->alist (basm-chunks basm)))
     (set-lightning-nretvals! st (basm-nretvals (lightning-asm st)))
+
+    (when (verbose-than? st 1)
+      (format #t ";;; end: ~a (~a)~%" name addr))
+
     entry))
 
 (define (call-lightning proc . args)
@@ -1349,14 +1490,9 @@ true, the compiled result is for top level ."
                      (pointer->scm proc)
                      (map pointer->scm args))))
 
-(define (call-lightning-addr* addr . args)
-  "Compile PROC with lightning, and run with ARGS."
-  (scm->pointer
-   (c-call-lightning (thread-i-data (current-thread))
-                     addr
-                     (map pointer->scm args))))
-
 (define (c-call-lightning* thread proc args)
+  "Like `c-call-lightning', but ARGS and PROC are pointers to scheme
+values. Returned value of this procedure is a pointer to scheme value."
   (scm->pointer
    (c-call-lightning thread (pointer->scm proc) (pointer->scm args))))
 
@@ -1370,13 +1506,13 @@ true, the compiled result is for top level ."
     ;; No way to JIT compile primitive procedures, run it when it's
     ;; given, as soon as possible.
     (apply proc args))
-   ((native-proc proc)
-    =>
-    ;; Procedure has compiled code, reuse it.
-    (lambda (proc*)
-      ;; (format #t ";;; Found compiled code for ~a, reusing.~%" proc)
-      (let ((scm-proc (pointer->procedure '* proc* (map (lambda _ '*) args))))
-        (pointer->scm (apply scm-proc (map scm->pointer args))))))
+   ;; ((get-native-proc proc)
+   ;;  =>
+   ;;  ;; Procedure has compiled code, reuse it.
+   ;;  (lambda (proc*)
+   ;;    ;; (format #t ";;; Found compiled code for ~a, reusing.~%" proc)
+   ;;    (let ((scm-proc (pointer->procedure '* proc* (map (lambda _ '*) args))))
+   ;;      (pointer->scm (apply scm-proc (map scm->pointer args))))))
    (else
     ;; (format #t ";;; compiling ~a~%" proc)
     (parameterize ((jit-state (jit-new-state)))
@@ -1407,8 +1543,8 @@ true, the compiled result is for top level ."
             ;; Pointers of given args.
             (let lp ((args args) (offset 4))
               (unless (null? args)
-                ;; (jit-movi r0 (scm->pointer (car args)))
-                (jit-getarg r0 (jit-arg))
+                (jit-movi r0 (scm->pointer (car args)))
+                ;; (jit-getarg r0 (jit-arg))
                 (jit-stxi (offset->addr offset) (jit-fp) r0)
                 (lp (cdr args) (+ offset 1))))
 
@@ -1426,7 +1562,7 @@ true, the compiled result is for top level ."
                                               nargs
                                               args
                                               addr*
-                                              entry)))
+                                              %lightning-verbosity)))
               (jit-patch-at (jit-jmpi) entry)
               (compile-lightning lightning entry)
 
@@ -1444,7 +1580,7 @@ true, the compiled result is for top level ."
                             (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
                             (jit-pushargr r0))
                           (iota (lightning-nretvals lightning)))
-                (jit-pushargi undefined)
+                (jit-pushargi (undefined))
                 (jit-calli (c-pointer "scm_list_n"))
                 (jit-retval r1)
 
@@ -1458,30 +1594,30 @@ true, the compiled result is for top level ."
           (jit-realize)
 
           ;; Emit and call the thunk.
-          (let* ((estimated-code-size (jit-code-size))
-                 ;; (fptr (jit-emit))
-                 (bv (make-bytevector estimated-code-size))
-                 (_ (jit-set-code (bytevector->pointer bv)
-                                  (imm estimated-code-size)))
+          (let* (;; (estimated-code-size (jit-code-size))
+                 ;; (bv (make-bytevector estimated-code-size))
+                 ;; (_ (jit-set-code (bytevector->pointer bv)
+                 ;;                  (imm estimated-code-size)))
                  (fptr (jit-emit))
-                 ;; (thunk (pointer->procedure '* fptr '()))
-                 (args* (map (lambda _ '*) args))
+                 (thunk (pointer->procedure '* fptr '()))
+
+                 ;; (args* (map (lambda _ '*) args))
                  ;; (pre-proc* (pointer->procedure '* fptr args*))
-                 (pre-proc* (pointer->procedure '* fptr args*))
-                 (proc-ptr (procedure->pointer '* pre-proc* args*))
-                 (thunk (lambda ()
-                          (pointer->scm
-                           (apply pre-proc* (map scm->pointer args))))))
+                 ;; (proc-ptr (procedure->pointer '* pre-proc* args*))
+                 ;; (thunk (lambda ()
+                 ;;          (pointer->scm
+                 ;;           (apply pre-proc* (map scm->pointer args)))))
+                 )
 
-            (native-guardian bv)
-            ;; (native-guardian fptr)
-            ;; (native-guardian pre-proc*)
-            ;; (native-guardian proc-ptr)
-            (make-bytevector-executable! bv)
+            ;; (native-guardian bv)
+            ;; (set-native-bv! proc bv)
+            ;; (set! (native-bv (ensure-program-addr proc)) bv)
 
-            ;; (set! (native-bv proc) bv)
             ;; (format #t ";;; setting native-proc for ~a~%" proc)
-            (set! (native-proc proc) proc-ptr)
+            ;; (set! (native-proc proc) proc-ptr)
+
+            ;; (set-native-proc! proc proc-ptr)
+
             ;; (set-native-proc! proc proc-ptr)
             ;; (set-native-code! proc (procedure->pointer '* pre-proc* args*))
 
@@ -1489,8 +1625,11 @@ true, the compiled result is for top level ."
             ;;  (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
             ;; (jit-print)
             ;; (jit-clear-state)
-            ;; (pointer->scm (thunk))
-            (thunk)))
+            (pointer->scm (thunk))
+            ;; (make-bytevector-executable! bv)
+
+            ;; (thunk)
+            ))
         (lambda ()
           ;; (let lp () (when (native-guardian) (lp)))
           (jit-destroy-state)))))))
