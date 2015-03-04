@@ -98,14 +98,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   SCM ret;
   SCM argv[] = {
     scm_from_uintptr_t ((scm_t_uintptr) thread),
-    scm_from_uintptr_t ((scm_t_uintptr) vp),
-    scm_from_uintptr_t ((scm_t_uintptr) vp->ip),
-    scm_from_uintptr_t ((scm_t_uintptr) vp->sp),
     scm_from_uintptr_t ((scm_t_uintptr) vp->fp),
-    scm_from_uintptr_t ((scm_t_uintptr) vp->stack_limit),
-    scm_from_uintptr_t ((scm_t_uintptr) vp->sp_max_since_gc),
-    scm_from_uintptr_t ((scm_t_uintptr) vp->stack_size),
-    scm_from_uintptr_t ((scm_t_uintptr) vp->stack_base),
     scm_from_uintptr_t ((scm_t_uintptr) registers),
     scm_from_int (vp->sp + 1 - &SCM_FRAME_LOCAL (vp->fp, 0)),
     scm_from_int (resume)
@@ -113,7 +106,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
   /* Call scheme procedure `vm_lightning' with vm-regular engine. */
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  ret = scm_call_n (vm_lightning_var, argv, 12);
+  ret = scm_call_n (vm_lightning_var, argv, 5);
   scm_c_set_vm_engine_x (SCM_VM_LIGHTNING_ENGINE);
 
   /* Move vp->fp, once for passed procedure  */

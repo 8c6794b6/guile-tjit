@@ -34,6 +34,7 @@
      (begin
        (define (name . vars)
          body ...)
+       (format #t ";;; Running ~a ...~%" '(name . vars))
        (test-equal (symbol->string (procedure-name name))
          (name . args)
          ;; (call-lightning name . args)
@@ -294,6 +295,7 @@
 (define (mulk x y k)
   (k (* x y)))
 
+(test-skip 1)
 (define-test (muladdk x y z k) (3 4 5 (lambda (a) a))
   (mulk x y
         (lambda (xy)
@@ -572,6 +574,7 @@
            (tak (- y 1) z x)
            (tak (- z 1) x y))))
 
+(test-skip 1)
 (define-test (sieve n) (500)
   (let ((root (round (sqrt n)))
         (a (make-vector n #f)))

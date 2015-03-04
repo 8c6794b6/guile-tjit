@@ -19,16 +19,16 @@
 #ifndef _SCM_LIGHTNING_BINDING_
 #define _SCM_LIGHTNING_BINDING_
 
-#include "_scm.h"
+#if HAVE_CONFIG_H
+#  include <config.h>
+#endif
+
+#include "libguile/_scm.h"
 #include "gc-inline.h"
 #include "lightning-binding.h"
 #include <errno.h>
 #include <lightning.h>
 #include <sys/mman.h>
-
-#if HAVE_CONFIG_H
-#  include <config.h>
-#endif
 
 #if BUILD_VM_LIGHTNING == 1
 
@@ -93,6 +93,46 @@ SCM_DEFINE (scm_jit_code_size, "%jit-code-size", 1, 0, 0, (SCM jit),
   return scm_from_int (code_size);
 }
 #undef FUNC_NAME
+
+#define ERRMSG "could not set execution flag on memory\n"
+
+const int page_size = 4096;
+
+static inline void set_flag (unsigned char *bv, size_t n)
+{
+  char *start = (char *) ((((scm_t_bits ) bv) / page_size) * page_size);
+  int len = (scm_t_bits) bv + n - (scm_t_bits) start;
+  if(mprotect (start, len, PROT_READ | PROT_EXEC))
+    {
+      printf("ERROR: ");
+      if(errno == EINVAL)
+        printf("%s addr is not a valid pointer or not a multiple of PAGESIZE\n"
+               ,ERRMSG);
+      if(errno == EFAULT)
+        printf("%s memory cannot be accessed\n"
+               ,ERRMSG);
+      if(errno == EACCES)
+        printf("%s the memory cannot be given the spicified access\n"
+               ,ERRMSG);
+      if(errno == ENOMEM)
+        printf("%s internal memory structurs could not be constructed\n"
+               ,ERRMSG);
+    }
+}
+#undef ERRMSG
+
+SCM_DEFINE (scm_make_bytevector_executable_x, "make-bytevector-executable!",
+           1, 0, 0,
+           (SCM bv), "Make bytevector as executable.")
+#define FUNC_NAME s_scm_make_bytevector_executable_x
+{
+  if (scm_is_bytevector(bv))
+    {
+      set_flag((unsigned char *) SCM_BYTEVECTOR_CONTENTS (bv),
+               SCM_BYTEVECTOR_LENGTH (bv));
+    }
+  return SCM_UNSPECIFIED;
+}
 
 void
 scm_init_lightning (void)

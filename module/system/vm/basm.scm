@@ -358,7 +358,8 @@
           br-if-true br-if-null br-if-nil br-if-pair br-if-struct br-if-char
           br-if-tc7
           br-if-eq br-if-eqv br-if-equal
-          br-if-= br-if-< br-if-<= br-if-logtest)
+          br-if-= br-if-< br-if-<= br-if-logtest
+          call-label tail-call-label)
          (let* ((offset (list-ref op (- (length op) 1)))
                 (dest (+ (basm-ip basm) offset)))
            (when (< 0 offset)
@@ -367,8 +368,9 @@
                           (not (hashq-ref u dest))
                           (not (memq (car op) '(br-if-nargs-ne
                                                 br-if-nargs-lt
-                                                br-if-nargs-gt)))
-                          )
+                                                br-if-nargs-gt
+                                                call-label
+                                                tail-call-label))))
                  (hashq-set! (basm-undecidables basm) dest '())))
              (when (not (memq dst (basm-br-dests basm)))
                (set-basm-br-dests! basm (cons dest (basm-br-dests basm)))))

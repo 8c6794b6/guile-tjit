@@ -30,6 +30,7 @@ SCM_API SCM scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
 SCM_API SCM scm_do_i_string_length (SCM str);
 SCM_API SCM scm_do_vm_builtin_ref (unsigned idx);
 SCM_API SCM scm_do_thread_i_data (SCM thread);
+
 SCM_API void scm_init_vm_lightning (void);
 
 #endif /* _SCM_VM_LIGHTNING_H_ */

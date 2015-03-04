@@ -225,8 +225,10 @@
    imm null
 
    jit-code-size
-   make-bytevector-executable))
+   make-bytevector-executable!))
 
+(load-extension (string-append "libguile-" (effective-version))
+                "scm_init_lightning")
 
 ;;;
 ;;; Auxiliary

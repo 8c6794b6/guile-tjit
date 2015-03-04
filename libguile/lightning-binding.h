@@ -29,8 +29,9 @@ SCM_API SCM scm_jit_r_num (void);
 SCM_API SCM scm_jit_v_num (void);
 SCM_API SCM scm_jit_f_num (void);
 SCM_API SCM scm_jit_code_size (SCM jit);
+SCM_API SCM scm_make_bytevector_executable_x (SCM bv);
 
-SCM_INTERNAL void scm_init_lightning (void);
+SCM_API void scm_init_lightning (void);
 
 #endif
 
