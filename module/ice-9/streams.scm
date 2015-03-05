@@ -1,7 +1,7 @@
 ;;;; streams.scm --- general lazy streams
 ;;;; -*- Scheme -*-
 
-;;;; Copyright (C) 1999, 2001, 2004, 2006 Free Software Foundation, Inc.
+;;;; Copyright (C) 1999, 2001, 2004, 2006, 2015 Free Software Foundation, Inc.
 ;;;; 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -22,13 +22,20 @@
 ;; modulo stream-empty? -> stream-null? renaming.
 
 (define-module (ice-9 streams)
-  :export (make-stream
-	   stream-car stream-cdr stream-null?
-	   list->stream vector->stream port->stream
-	   stream->list stream->reversed-list
-	   stream->list&length stream->reversed-list&length
-	   stream->vector
-	   stream-fold stream-for-each stream-map))
+  #:use-module ((srfi srfi-41) #:prefix srfi-41:)
+  #:export (make-stream
+            vector->stream port->stream
+            stream->reversed-list
+            stream->list&length stream->reversed-list&length
+            stream->vector
+            stream-fold)
+  #:re-export ((srfi-41:stream-car . stream-car)
+               (srfi-41:stream-cdr . stream-cdr)
+               (srfi-41:stream-null? . stream-null?)
+               (srfi-41:list->stream . list->stream)
+               (srfi-41:stream->list . stream->list)
+               (srfi-41:stream-for-each . stream-for-each)
+               (srfi-41:stream-map . stream-map)))
 
 ;; Use:
 ;;
@@ -84,33 +91,11 @@
 ;; Code:
 
 (define (make-stream m state)
-  (delay
-    (let ((o (m state)))
-      (if (pair? o)
-	  (cons (car o)
-		(make-stream m (cdr o)))
-          '()))))
-
-(define (stream-car stream)
-  "Returns the first element in STREAM.  This is equivalent to `car'."
-  (car (force stream)))
-
-(define (stream-cdr stream)
-  "Returns the first tail of STREAM. Equivalent to `(force (cdr STREAM))'."
-  (cdr (force stream)))
-
-(define (stream-null? stream)
-  "Returns `#t' if STREAM is the end-of-stream marker; otherwise
-returns `#f'.  This is equivalent to `null?', but should be used
-whenever testing for the end of a stream."
-  (null? (force stream)))
-
-(define (list->stream l)
-  "Returns a newly allocated stream whose elements are the elements of
-LIST.  Equivalent to `(apply stream LIST)'."
-  (make-stream
-   (lambda (l) l)
-   l))
+  (srfi-41:stream-let recur ((state state))
+    (let ((state (m state)))
+      (if (pair? state)
+          (srfi-41:stream-cons (car state) (recur (cdr state)))
+          srfi-41:stream-null))))
 
 (define (vector->stream v)
   (make-stream
@@ -122,9 +107,10 @@ LIST.  Equivalent to `(apply stream LIST)'."
 
 (define (stream->reversed-list&length stream)
   (let loop ((s stream) (acc '()) (len 0))
-    (if (stream-null? s)
+    (if (srfi-41:stream-null? s)
         (values acc len)
-        (loop (stream-cdr s) (cons (stream-car s) acc) (+ 1 len)))))
+        (loop (srfi-41:stream-cdr s)
+          (cons (srfi-41:stream-car s) acc) (+ 1 len)))))
 
 (define (stream->reversed-list stream)
   (call-with-values
@@ -135,11 +121,6 @@ LIST.  Equivalent to `(apply stream LIST)'."
   (call-with-values
    (lambda () (stream->reversed-list&length stream))
    (lambda (l len) (values (reverse! l) len))))
-
-(define (stream->list stream)
-  "Returns a newly allocated list whose elements are the elements of STREAM.
-If STREAM has infinite length this procedure will not terminate."
-  (reverse! (stream->reversed-list stream)))
 
 (define (stream->vector stream)
   (call-with-values
@@ -159,53 +140,23 @@ If STREAM has infinite length this procedure will not terminate."
       (stream-fold-many f init (cons stream rest))))
 
 (define (stream-fold-one f r stream)
-  (if (stream-null? stream)
+  (if (srfi-41:stream-null? stream)
       r
-      (stream-fold-one f (f (stream-car stream) r) (stream-cdr stream))))
+      (stream-fold-one f
+                       (f (srfi-41:stream-car stream) r)
+                       (srfi-41:stream-cdr stream))))
 
 (define (stream-fold-many f r streams)
-  (if (or-map stream-null? streams)
+  (if (or-map srfi-41:stream-null? streams)
       r
       (stream-fold-many f
                         (apply f (let recur ((cars
-                                              (map stream-car streams)))
+                                              (map srfi-41:stream-car streams)))
                                    (if (null? cars)
                                        (list r)
                                        (cons (car cars)
                                              (recur (cdr cars))))))
-                        (map stream-cdr streams))))
-
-(define (stream-for-each f stream . rest)
-  (if (null? rest) ;fast path
-      (stream-for-each-one f stream)
-      (stream-for-each-many f (cons stream rest))))
-
-(define (stream-for-each-one f stream)
-  (if (not (stream-null? stream))
-      (begin
-        (f (stream-car stream))
-        (stream-for-each-one f (stream-cdr stream)))))
-
-(define (stream-for-each-many f streams)
-  (if (not (or-map stream-null? streams))
-      (begin
-        (apply f (map stream-car streams))
-        (stream-for-each-many f (map stream-cdr streams)))))
-
-(define (stream-map f stream . rest)
-  "Returns a newly allocated stream, each element being the result of
-invoking F with the corresponding elements of the STREAMs
-as its arguments."
-  (if (null? rest) ;fast path
-      (make-stream (lambda (s)
-                     (or (stream-null? s)
-                         (cons (f (stream-car s)) (stream-cdr s))))
-                   stream)
-      (make-stream (lambda (streams)
-                     (or (or-map stream-null? streams)
-                         (cons (apply f (map stream-car streams))
-                               (map stream-cdr streams))))
-                   (cons stream rest))))
+                        (map srfi-41:stream-cdr streams))))
 
 (define (port->stream port read)
   (make-stream (lambda (p)
