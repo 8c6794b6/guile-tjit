@@ -34,7 +34,7 @@
      (begin
        (define (name . vars)
          body ...)
-       (format #t ";;; Running ~a ...~%" '(name . vars))
+       (format #t ";;; Test: ~a ...~%" '(name . vars))
        (test-equal (symbol->string (procedure-name name))
          (name . args)
          ;; (call-lightning name . args)
@@ -42,6 +42,8 @@
            (lambda () (set-vm-engine! 'lightning))
            (lambda () (call-with-vm name . args))
            (lambda () (set-vm-engine! 'regular))))))))
+
+(set! %lightning-verbosity #f)
 
 ;;;
 ;;; VM operation

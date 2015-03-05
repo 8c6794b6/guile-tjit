@@ -295,11 +295,16 @@
                 (vector-set! args n (local-ref (+ n proc-local)))
                 (lp (+ n 1)))
               args))))
-    (define (set-caller! pre-proc)
+    (define (set-caller! pre-proc proc-local nlocals)
       (let ((proc (local-value pre-proc)))
-        ;; Storing proc itself. Variables for primitive procedures may use same
-        ;; address for different procedures.
-        (hashq-set! (basm-callers basm) (basm-ip basm) proc)))
+        (cond
+         ((call? proc)
+          (let* ((runtime-proc (call-program proc))
+                 (runtime-args (vector->list (call-args proc)))
+                 (retval (call-lightning runtime-proc runtime-args)))
+            (hashq-set! (basm-callers basm) (basm-ip basm) retval)))
+         (else
+          (hashq-set! (basm-callers basm) (basm-ip basm) proc)))))
     (define (set-callee! pre-proc proc-local nlocals)
       ;; (format #t "basm: (set-callee! ~a ~a ~a)~%" pre-proc proc-local nlocals)
       (let ((proc (local-value pre-proc)))
@@ -345,8 +350,8 @@
                         (ensure-program-addr proc)
                         callee))))))
     (define (set-caller/callee! proc proc-local nlocals)
-      (set-callee! proc proc-local nlocals)
-      (set-caller! proc))
+      ;; (set-callee! proc proc-local nlocals)
+      (set-caller! proc proc-local nlocals))
 
     ;; (format #t "basm (~a:~a): ~a~%" (basm-name basm) (basm-ip basm) op)
 
