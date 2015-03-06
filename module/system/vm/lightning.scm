@@ -31,9 +31,9 @@
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
-  #:use-module (system vm basm)
   #:use-module (system vm debug)
   #:use-module (system vm lightning binding)
+  #:use-module (system vm lightning trace)
   #:use-module (system vm program)
   #:use-module (system vm vm)
   #:export (compile-lightning
@@ -107,9 +107,9 @@
                          (ip 0)
                          (labels (make-hash-table)))
   (for-each (lambda (labeled-ip)
-              (when (< labeled-ip (basm-ip asm))
+              (when (< labeled-ip (trace-ip asm))
                 (hashq-set! labels labeled-ip (jit-forward))))
-            (basm-labeled-ips asm))
+            (trace-labeled-ips asm))
   (%make-lightning asm nodes ip labels pc fp thread nargs args nretvals
                    #f #f verbosity indent))
 
@@ -359,10 +359,10 @@ argument in VM operation."
     (jit-patch-at (jit-jmpi) callee)))
 
 (define-syntax-rule (current-callee st)
-  (hashq-ref (basm-callers (lightning-asm st)) (lightning-ip st)))
+  (hashq-ref (trace-callers (lightning-asm st)) (lightning-ip st)))
 
 (define-syntax-rule (current-callee-args st)
-  (hashq-ref (basm-callee-args (lightning-asm st)) (lightning-ip st)))
+  (hashq-ref (trace-callee-args (lightning-asm st)) (lightning-ip st)))
 
 (define-syntax-rule (call-apply st proc)
   (let ((nargs (lightning-nargs st)))
@@ -475,8 +475,8 @@ arguments."
 
     ((_ st1 st2 proc nlocals callee-addr body)
      (let* ((args (current-callee-args st1))
-            (basm (proc->basm callee-addr args))
-            (st2 (make-lightning basm
+            (trace (proc->trace callee-addr args))
+            (st2 (make-lightning trace
                                  (lightning-nodes st1)
                                  (lightning-fp st1)
                                  (lightning-thread st1)
@@ -1283,7 +1283,7 @@ true, the compiled result is for top level ."
   (let* ((program-or-addr (lightning-pc st))
          (args (lightning-args st))
          (addr (ensure-program-addr program-or-addr))
-         (basm (lightning-asm st))
+         (trace (lightning-asm st))
          (name
           (cond ((and (program? program-or-addr)
                       (procedure-name program-or-addr))
@@ -1305,8 +1305,8 @@ true, the compiled result is for top level ."
       (format #t ";;; start: ~a (~a)~%" name addr))
     (for-each (lambda (chunk)
                 (assemble-one st chunk))
-              (basm-chunks->alist (basm-chunks basm)))
-    (set-lightning-nretvals! st (basm-nretvals (lightning-asm st)))
+              (trace-chunks->alist (trace-chunks trace)))
+    (set-lightning-nretvals! st (trace-nretvals (lightning-asm st)))
     (when (verbose-than? st 2)
       (format #t ";;; end: ~a (~a)~%" name addr))
 
@@ -1365,9 +1365,9 @@ values. Returned value of this procedure is a pointer to scheme value."
      ;;      (format #t ";;; Found compiled code for ~a, reusing.~%" proc))
      ;;    (let ((scm-proc (pointer->procedure '* proc* (map (lambda _ '*) args))))
      ;;      (pointer->scm (apply scm-proc (map scm->pointer args))))))
-     ((proc->basm addr2 (unwrap-non-program args2 addr2))
+     ((proc->trace addr2 (unwrap-non-program args2 addr2))
       =>
-      (lambda (basm)
+      (lambda (trace)
         (parameterize ((jit-state (jit-new-state)))
           (dynamic-wind
             (lambda () #f)
@@ -1406,7 +1406,7 @@ values. Returned value of this procedure is a pointer to scheme value."
                        (nargs (+ (length args) 1))
                        (args (apply vector proc args))
                        (fp0 (+ fp-addr (* szt nargs)))
-                       (lightning (make-lightning basm
+                       (lightning (make-lightning trace
                                                   (make-hash-table)
                                                   fp0
                                                   thread
