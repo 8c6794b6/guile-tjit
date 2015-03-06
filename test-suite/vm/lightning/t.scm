@@ -98,6 +98,9 @@
 (define (add-one x)
   (+ x 1))
 
+(define (mul-two x)
+  (* x 2))
+
 (define-test (t-my-map f xs) (add-one '(1 2 3))
   (let lp ((xs xs))
     (if (null? xs)
@@ -112,6 +115,10 @@
 
 (define-test (call-my-map xs) ('(1 2 3 4 5))
   (my-map add-one xs))
+
+(define-test (call-my-map-twice xs) ('(1 2 3 4 5))
+  (append (my-map add-one xs)
+          (my-map mul-two xs)))
 
 (define (make-applicable-struct)
   (make-procedure-with-setter

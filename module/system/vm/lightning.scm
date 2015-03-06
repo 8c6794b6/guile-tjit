@@ -506,8 +506,6 @@ arguments."
   (let lp ((n (- (vector-length v) 1)))
     (cond ((< n 1) #t)
           ((procedure? (vector-ref v n)) #f)
-          ;; XXX: Remove `constant' from basm, making `takr.scm' slow.
-          ((constant? (vector-ref v n)) #f)
           (else (lp (- n 1))))))
 
 (define-syntax-rule (compiled-node st addr)
@@ -761,14 +759,15 @@ arguments."
         ((apply) (call-apply st proc))))
      ((primitive? callee)
       (call-primitive st proc nlocals callee))
-     ((closure? callee)
-      (cond
-       ((and (reusable? (current-callee-args st))
-             (compiled-node st (closure-addr callee)))
-        =>
-        (with-frame st proc (call-scm st (closure-addr callee))))
-       (else
-        (compile-callee st proc nlocals (closure-addr callee) #t))))
+     ;; ((closure? callee)
+     ;;  (call-local st proc nlocals)
+     ;;  (cond
+     ;;   ((and (reusable? (current-callee-args st))
+     ;;         (compiled-node st (closure-addr callee)))
+     ;;    =>
+     ;;    (with-frame st proc (call-scm st (closure-addr callee))))
+     ;;   (else
+     ;;    (compile-callee st proc nlocals (closure-addr callee) #t))))
      ((recursion? st callee)
       (with-frame st proc (call-scm st callee)))
      ((and (reusable? (current-callee-args st))
@@ -807,19 +806,19 @@ arguments."
      ((primitive? callee)
       (call-primitive st 0 nlocals callee)
       (return-jmp st))
-     ((closure? callee)
-      (cond
-       ((and (reusable? (current-callee-args st))
-             (compiled-node st (closure-addr callee)))
-        =>
-        (call-scm st (closure-addr callee)))
-       ((closure-addr callee)
-        =>
-        (lambda (addr)
-          (compile-callee st 0 nlocals addr #f)))
-       (else
-        (call-local st 0 nlocals)
-        (return-jmp st))))
+     ;; ((closure? callee)
+     ;;  (cond
+     ;;   ((and (reusable? (current-callee-args st))
+     ;;         (compiled-node st (closure-addr callee)))
+     ;;    =>
+     ;;    (call-scm st (closure-addr callee)))
+     ;;   ((closure-addr callee)
+     ;;    =>
+     ;;    (lambda (addr)
+     ;;      (compile-callee st 0 nlocals addr #f)))
+     ;;   (else
+     ;;    (call-local st 0 nlocals)
+     ;;    (return-jmp st))))
      ((recursion? st callee)
       (call-scm st callee))
      ((and (reusable? (current-callee-args st))
@@ -1237,20 +1236,8 @@ arguments."
 
 
 ;;;
-;;; Running generated function
+;;; Compilation
 ;;;
-
-(define (unwrap-non-program args program-or-addr)
-    (cond ((struct? program-or-addr)
-           (vector-set! args 0 (struct-ref program-or-addr 0))
-           args)
-          (else
-           args)))
-
-(define (write-code-to-file file pointer)
-  (call-with-output-file file
-    (lambda (port)
-      (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
 
 (define (compile-lightning st entry)
   "Compile <lightning> data specified by ST to native code using
@@ -1283,44 +1270,6 @@ true, the compiled result is for top level ."
         (or (and emitter (apply emitter st args))
             (format #t "compile-lightning: VM op not found `~a'~%" instr)))))
 
-  ;; (define (compile-callee st)
-  ;;   (lambda (callee)
-  ;;     (let* ((addr (car callee))
-  ;;            (val (cdr callee))
-  ;;            (self (hashq-ref (lightning-nodes st) addr)))
-  ;;       (cond
-  ;;        ((and (basm? val)
-  ;;              (not (basm-prim-op? val)))
-  ;;         (let* ((nargs (basm-nargs val))
-  ;;                (args (basm-args val))
-  ;;                (args* (unwrap-non-program args addr))
-  ;;                (st2 (make-lightning val
-  ;;                                     (lightning-nodes st)
-  ;;                                     (lightning-fp st)
-  ;;                                     (lightning-thread st)
-  ;;                                     nargs
-  ;;                                     args*
-  ;;                                     addr)))
-  ;;           (compile-lightning* st2 self #f)))
-  ;;        ((call? val)
-  ;;         (let ((result (let ((xs (vector->list (call-args val))))
-  ;;                         (apply (car xs) (cdr xs))))
-  ;;               (runtime-args (call-runtime-args val)))
-  ;;           (vector-set! runtime-args 0 result)
-  ;;           (let* ((nargs (vector-length runtime-args))
-  ;;                  (args runtime-args)
-  ;;                  (addr (ensure-program-addr result))
-  ;;                  (basm (proc->basm addr (unwrap-non-program args result)))
-  ;;                  (st2 (make-lightning basm
-  ;;                                       (lightning-nodes st)
-  ;;                                       (lightning-fp st)
-  ;;                                       (lightning-thread st)
-  ;;                                       nargs
-  ;;                                       args
-  ;;                                       addr))
-  ;;                  (node (compile-lightning* st2 self #f)))
-  ;;             (set-call-node! val (ensure-program-addr result)))))))))
-
   (let* ((program-or-addr (lightning-pc st))
          (args (lightning-args st))
          (addr (ensure-program-addr program-or-addr))
@@ -1338,22 +1287,37 @@ true, the compiled result is for top level ."
                 (else "anon"))))
 
     (hashq-set! (lightning-nodes st) addr entry)
-
     (jit-note name addr)
-    (when (verbose-than? st 2)
-      (format #t ";;; start: ~a (~a)~%" name addr))
 
     ;; Link and compile the entry point.
     (jit-link entry)
+    (when (verbose-than? st 2)
+      (format #t ";;; start: ~a (~a)~%" name addr))
     (for-each (lambda (chunk)
                 (assemble-one st chunk))
               (basm-chunks->alist (basm-chunks basm)))
     (set-lightning-nretvals! st (basm-nretvals (lightning-asm st)))
-
     (when (verbose-than? st 2)
       (format #t ";;; end: ~a (~a)~%" name addr))
 
     entry))
+
+
+;;;
+;;; Execute generated function
+;;;
+
+(define (unwrap-non-program args program-or-addr)
+    (cond ((struct? program-or-addr)
+           (vector-set! args 0 (struct-ref program-or-addr 0))
+           args)
+          (else
+           args)))
+
+(define (write-code-to-file file pointer)
+  (call-with-output-file file
+    (lambda (port)
+      (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
 
 (define (call-lightning proc . args)
   "Compile PROC with lightning, and run with ARGS."

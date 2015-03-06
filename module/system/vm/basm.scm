@@ -143,30 +143,6 @@
   (idx builtin-idx)
   (name builtin-name))
 
-;; Data type to tell that the value is constant.
-(define-record-type <constant>
-  (make-constant value)
-  constant?
-  (value constant-value))
-
-(define (make-constant-locals locals)
-  (let ((n (- (vector-length locals) 1))
-        (v (make-vector (vector-length locals))))
-    (let lp ((k n))
-      (unless (< k 0)
-        (let ((val (vector-ref locals k)))
-          (vector-set! v k (if (constant? val)
-                               val
-                               (make-constant val))))
-        (lp (- k 1))))
-    v))
-
-(define (local-value local)
-  (cond ((constant? local)
-         (constant-value local))
-        (else
-         local)))
-
 ;; Data type with interface resembling to vector, but with
 ;; implementation using hash table.
 (define-record-type <sparse-vector>
@@ -180,9 +156,7 @@
   (%make-sparse-vector (make-hash-table) size fill))
 
 (define (sparse-vector-ref sv k)
-  (cond ((constant? sv)
-         (sparse-vector-ref (constant-value sv) k))
-        ((vector? sv)
+  (cond ((vector? sv)
          (vector-ref sv k))
         ((sparse-vector? sv)
          (or (let ((h (hashq-get-handle (sparse-vector-table sv) k)))
@@ -193,9 +167,7 @@
         (else *unspecified*)))
 
 (define (sparse-vector-set! sv k obj)
-  (cond ((constant? sv)
-         (sparse-vector-set! (constant-value sv) k obj))
-        ((vector? sv)
+  (cond ((vector? sv)
          (vector-set! sv k obj))
         ((sparse-vector? sv)
          (if (<= 0 k (- (sparse-vector-size sv) 1))
@@ -208,31 +180,6 @@
                    '()
                    chunks)
         (lambda (a b) (< (car a) (car b)))))
-
-;; (define (basm->callees-list basm)
-;;   (define (lp basm)
-;;     (if (basm? basm)
-;;         (hash-fold (lambda (k v acc)
-;;                      (cons (cons k v) (append (lp v) acc)))
-;;                    '()
-;;                    (basm-callees basm))
-;;         '()))
-;;   (reverse (lp basm)))
-
-(define (basm->callees-list basm)
-  (define (lp seen basm)
-    (if (basm? basm)
-        (hash-fold
-         (lambda (k v acc)
-           (cond ((hashq-ref seen k)
-                  acc)
-                 (else
-                  (hashq-set! seen k #t)
-                  (cons (cons k v) (append (lp seen v) acc)))))
-         '()
-         (basm-callees basm))
-        '()))
-  (reverse (lp (make-hash-table) basm)))
 
 ;; Hash table containing size of bytecodes, in byte.
 (define *vm-op-sizes* (make-hash-table))
@@ -266,7 +213,7 @@
   ;;         program-or-addr args)
   (proc->basm* (make-hash-table)
                (ensure-program-addr program-or-addr)
-               (make-constant-locals args)))
+               args))
 
 (define (proc->basm* seen program-or-addr args)
   (define (f op basm)
@@ -274,8 +221,6 @@
       (ensure-program-addr program-or-addr))
     (define (local-ref n)
       (vector-ref (basm-locals basm) n))
-    (define (local-ref/var n)
-      (local-value (vector-ref (basm-locals basm) n)))
     (define (local-set! idx val)
       (for-each (lambda (dst)
                   (let* ((u (basm-undecidables basm))
@@ -300,65 +245,19 @@
                 (vector-set! args n (local-ref (+ n proc-local)))
                 (lp (+ n 1)))
               args))))
-    (define (set-caller! pre-proc proc-local nlocals)
-      (let ((proc (local-value pre-proc)))
-        (cond
-         ((call? proc)
-          (let* ((runtime-proc (call-program proc))
-                 (runtime-args (vector->list (call-args proc)))
-                 (retval (call-lightning runtime-proc runtime-args)))
-            (hashq-set! (basm-callers basm) (basm-ip basm) retval)))
-         (else
-          (hashq-set! (basm-callers basm) (basm-ip basm) proc)))
-        (hashq-set! (basm-callee-args basm)
-                    (basm-ip basm)
-                    (locals->args proc-local nlocals))))
-    (define (set-callee! pre-proc proc-local nlocals)
-      ;; (format #t "basm: (set-callee! ~a ~a ~a)~%" pre-proc proc-local nlocals)
-      (let ((proc (local-value pre-proc)))
-        ;; (format #t "basm: set-callee!, proc=~a~%" proc)
-        (cond
-         ((and (closure? proc)
-               (not (hashq-ref seen (closure-addr proc))))
-          (hashq-set! seen (closure-addr proc) #t)
-          (let ((callee (proc->basm* seen
-                                     (closure-addr proc)
-                                     (locals->args proc-local nlocals))))
-            (hashq-set! (basm-callees basm) (closure-addr proc) callee)
-            (hashq-set! (basm-callees basm)
-                        (append (list 'closure (basm-ip basm)
-                                      (map (lambda (n)
-                                             (+ n proc-local))
-                                           (iota nlocals))))
-                        proc)))
-
-         ((call? proc)
-          ;; (hashq-set! seen (ensure-program-addr (call-program proc)) #t)
-          (set-call-runtime-args! proc (locals->args proc-local nlocals))
-          (hashq-set! (basm-callees basm)
-                      (append (list 'call (basm-ip basm))
-                              (map (lambda (n)
-                                     (+ n proc-local))
-                                   (iota nlocals)))
-                      proc))
-
-         ((or (unspecified? proc)
-              (primitive? proc)
-              (builtin? proc))
-          *unspecified*)
-
-         ;; XXX: Need to handle smob and structs, as done in vm-engine's
-         ;; `apply:'.
-         ((not (hashq-ref seen (ensure-program-addr proc)))
-          (hashq-set! seen (ensure-program-addr proc) #t)
-          (let ((callee (proc->basm* seen
-                                     (ensure-program-addr proc)
-                                     (locals->args proc-local nlocals))))
-            (hashq-set! (basm-callees basm)
-                        (ensure-program-addr proc)
-                        callee))))))
+    (define (set-caller! proc proc-local nlocals)
+      (cond
+       ((call? proc)
+        (let* ((runtime-proc (call-program proc))
+               (runtime-args (vector->list (call-args proc)))
+               (retval (call-lightning runtime-proc runtime-args)))
+          (hashq-set! (basm-callers basm) (basm-ip basm) retval)))
+       (else
+        (hashq-set! (basm-callers basm) (basm-ip basm) proc)))
+      (hashq-set! (basm-callee-args basm)
+                   (basm-ip basm)
+                   (locals->args proc-local nlocals)))
     (define (set-caller/callee! proc proc-local nlocals)
-      ;; (set-callee! proc proc-local nlocals)
       (set-caller! proc proc-local nlocals))
 
     ;; (format #t "basm (~a:~a): ~a~%" (basm-name basm) (basm-ip basm) op)
@@ -548,16 +447,16 @@
         (('mov dst src)
          (local-set! dst (local-ref src)))
         (('box dst src)
-         (local-set! dst (make-variable (local-ref/var src))))
+         (local-set! dst (make-variable (local-ref src))))
         (('box-ref dst src)
-         (local-set! dst (variable-ref (local-ref/var src))))
+         (local-set! dst (variable-ref (local-ref src))))
         (('box-set dst src)
-         (variable-set! (local-ref/var dst) (local-ref/var src)))
+         (variable-set! (local-ref dst) (local-ref src)))
         (('make-closure dst offset nfree)
          (local-set! dst (make-closure (offset->addr offset)
                                        (make-vector nfree))))
         (('free-set! dst src idx)
-         (let ((p (local-ref/var dst)))
+         (let ((p (local-ref dst)))
            (cond ((program? p)
                   (program-free-variable-set! p idx (local-ref src)))
                  ((closure? p)
@@ -565,7 +464,7 @@
                  (else
                   (local-set! dst runtime-call)))))
         (('free-ref dst src idx)
-         (let ((p (local-ref/var src)))
+         (let ((p (local-ref src)))
            (cond ((and (program? p)
                        (< idx (program-num-free-variables p)))
                   (local-set! dst (program-free-variable-ref p idx)))
@@ -608,7 +507,7 @@
 
         ;; The dynamic environment
         (('fluid-ref dst src)
-         (let ((obj (local-ref/var src)))
+         (let ((obj (local-ref src)))
            (and (fluid? obj)
                 (local-set! dst (fluid-ref obj)))))
 
@@ -633,13 +532,13 @@
         ;; vector to manage vectors in locals.
 
         (('make-vector dst length init)
-         (let ((len (local-ref/var length)))
+         (let ((len (local-ref length)))
            (and (integer? len)
                 (local-set! dst (make-sparse-vector len (local-ref init))))))
         (('make-vector/immediate dst length init)
          (local-set! dst (make-sparse-vector length init)))
         (('vector-ref dst src idx)
-         (let ((i (local-ref/var idx)))
+         (let ((i (local-ref idx)))
            (and (integer? i)
                 (local-set! dst (sparse-vector-ref (local-ref src) i)))))
         (('vector-ref/immediate dst src idx)
@@ -649,11 +548,11 @@
            (and (integer? i)
                 (sparse-vector-set! (local-ref dst)
                                     i
-                                    (local-ref/var src)))))
+                                    (local-ref src)))))
         (('vector-set!/immediate dst idx src)
          (sparse-vector-set! (local-ref dst)
                              idx
-                             (local-ref/var src)))
+                             (local-ref src)))
 
         (_ *unspecified*)))
 
