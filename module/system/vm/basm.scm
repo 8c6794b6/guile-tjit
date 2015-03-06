@@ -20,11 +20,12 @@
 
 ;;; Commentary:
 
-;;; Intermediate representation of bytecode, for further assembling.
+;;; Intermediate representation of bytecode.
 
 ;;; Code:
 
 (define-module (system vm basm)
+  #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (language bytecode)
@@ -43,8 +44,7 @@
 
             make-chunk chunk? chunk-labeled? chunk-dest-ip chunk-op
 
-            make-call call? call-program call-args call-runtime-args
-            call-node set-call-node!
+            make-call call? call-program call-args
 
             make-closure closure? closure-addr closure-free-vars
 
@@ -56,7 +56,7 @@
 (define-record-type <basm>
   (%make-basm name ip nargs args free-vars chunks labeled-ips
               callees callers callee-args locals nretvals prim-op?
-              undecidables br-dests next-ip)
+              undecidables br-dests next-ip success escape)
   basm?
   ;; Name of procedure.
   (name basm-name)
@@ -92,9 +92,14 @@
   ;; locals.
   (br-dests basm-br-dests set-basm-br-dests!)
   ;; Next IP.
-  (next-ip basm-next-ip set-basm-next-ip!))
+  (next-ip basm-next-ip set-basm-next-ip!)
+  ;; Success or not.
+  (success basm-success? set-basm-success!)
+  ;; Escape.
+  (escape basm-escape))
 
-(define* (make-basm name args free-vars prim-op? #:optional
+(define* (make-basm name args free-vars prim-op? escape
+                    #:optional
                     (ip 0)
                     (chunks (make-hash-table))
                     (labeled-ips '())
@@ -108,7 +113,7 @@
                     (next-ip #f))
   (%make-basm name ip (vector-length args) args free-vars chunks
               labeled-ips callees callers callee-args locals nretvals
-              prim-op? undecidables br-dests next-ip))
+              prim-op? undecidables br-dests next-ip #t escape))
 
 (define-record-type <chunk>
   (make-chunk dest-ip op)
@@ -125,15 +130,13 @@
   (free-vars closure-free-vars))
 
 (define-record-type <call>
-  (%make-call program args runtime-args node)
+  (%make-call program args)
   call?
   (program call-program)
-  (args call-args)
-  (runtime-args call-runtime-args set-call-runtime-args!)
-  (node call-node set-call-node!))
+  (args call-args))
 
 (define (make-call program args)
-  (%make-call program args #f #f))
+  (%make-call program args))
 
 (define runtime-call (make-call 0 (vector)))
 
@@ -209,14 +212,10 @@
       program-or-addr))
 
 (define (proc->basm program-or-addr args)
-  ;; (format #t ";;; proc->basm:~%;;;   program-or-addr=~a~%;;;   args=~a~%"
-  ;;         program-or-addr args)
-  (proc->basm* (make-hash-table)
-               (ensure-program-addr program-or-addr)
-               args))
+  (proc->basm* (ensure-program-addr program-or-addr) args))
 
-(define (proc->basm* seen program-or-addr args)
-  (define (f op basm)
+(define (proc->basm* program-or-addr args)
+  (define (trace-one op basm)
     (define (base-ip)
       (ensure-program-addr program-or-addr))
     (define (local-ref n)
@@ -245,18 +244,28 @@
                 (vector-set! args n (local-ref (+ n proc-local)))
                 (lp (+ n 1)))
               args))))
+    (define (call-call obj)
+      (cond
+       ((call? obj)
+        (let ((obj-proc (call-program obj)))
+          (and obj-proc
+               (apply call-lightning
+                      obj-proc
+                      (map call-call (cdr (vector->list (call-args obj))))))))
+       (else
+        obj)))
     (define (set-caller! proc proc-local nlocals)
       (cond
        ((call? proc)
-        (let* ((runtime-proc (call-program proc))
-               (runtime-args (vector->list (call-args proc)))
-               (retval (call-lightning runtime-proc runtime-args)))
-          (hashq-set! (basm-callers basm) (basm-ip basm) retval)))
+        ;; (hashq-set! (basm-callers basm) (basm-ip basm) #f)
+        (let ((retval (call-call proc)))
+          (and retval
+               (hashq-set! (basm-callers basm) (basm-ip basm) retval))))
        (else
         (hashq-set! (basm-callers basm) (basm-ip basm) proc)))
       (hashq-set! (basm-callee-args basm)
-                   (basm-ip basm)
-                   (locals->args proc-local nlocals)))
+                  (basm-ip basm)
+                  (locals->args proc-local nlocals)))
     (define (set-caller/callee! proc proc-local nlocals)
       (set-caller! proc proc-local nlocals))
 
@@ -308,6 +317,8 @@
       (match op
 
         ;; Call and return
+        ;; ---------------
+
         (('call proc nlocals)
          (set-caller/callee! (local-ref proc) proc nlocals)
          (local-set! (+ proc 1) (make-call (local-ref proc)
@@ -324,16 +335,22 @@
          (local-set! 1 (make-call 0 (locals->args 0 nlocals))))
         (('receive dst proc nlocals)
          (local-set! dst (local-ref (+ proc 1))))
+        (('receive-values proc allow-extra? nvalues)
+         *unspecified*)
         (('return src)
          (nretvals-set! 1))
         (('return-values)
          (nretvals-set! (- (vector-length (basm-locals basm)) 1)))
 
         ;; Specialized call stubs
+        ;; ----------------------
+
         (('builtin-ref dst idx)
          (local-set! dst (make-builtin idx (builtin-index->name idx))))
 
         ;; Function prologues
+        ;; ------------------
+
         (('assert-nargs-ee/locals expected nlocals)
          (let ((locals (make-vector (+ expected nlocals) *unspecified*)))
            ;; (when (not (= expected (vector-length args)))
@@ -414,6 +431,7 @@
                (vector-set! new-locals n (vector-ref old-locals n))
                (lp (+ n 1))))
            (set-basm-locals! basm new-locals)))
+
         (('reset-frame nlocals)
          (let* ((old-locals (basm-locals basm))
                 (old-length (vector-length old-locals)))
@@ -425,6 +443,7 @@
                    (vector-set! new-locals n (vector-ref old-locals n))
                    (lp (+ n 1))))
                (set-basm-locals! basm new-locals)))))
+
         (('bind-rest dst)
          (let* ((nargs (vector-length args))
                 (lst (let lp ((n (- nargs 1)) (acc '()))
@@ -434,35 +453,58 @@
            (local-set! dst lst)))
 
         ;; Branching instructions
-        ;;
+        ;; ----------------------
+
         ;; Keeping track of locals set inside branch, later used as
         ;; undecidable.
-
+        ;;
         ;; XXX: When this jump is possible during compilation?
         ;; (('br offset)
         ;;  (when (< 0 offset)
         ;;    (set-basm-next-ip! basm (+ (basm-ip basm) offset))))
 
+        (('br dst)
+         *unspecified*)
+        (('br-if-true a invert offset)
+         *unspecified*)
+        (('br-if-null a invert offset)
+         *unspecified*)
+        (('br-if-pair a invert offset)
+         *unspecified*)
+        (('br-if-eq a b invert offset)
+         *unspecified*)
+        ;; (('br-if-eqv a b invert offset)
+        ;;  *unspecified*)
+        ;; (('br-if-equal a b invert offset)
+        ;;  *unspecified*)
+        (('br-if-< a b invert offset)
+         *unspecified*)
+        (('br-if-<= a b invert offset)
+         *unspecified*)
+        (('br-if-= a b invert offset)
+         *unspecified*)
+
         ;; Lexical binding instructions
+        ;; ----------------------------
+
         (('mov dst src)
          (local-set! dst (local-ref src)))
+
         (('box dst src)
          (local-set! dst (make-variable (local-ref src))))
+
         (('box-ref dst src)
-         (local-set! dst (variable-ref (local-ref src))))
-        (('box-set dst src)
+         (let ((var (local-ref src)))
+           (and (variable? var)
+                (local-set! dst (variable-ref var)))))
+
+        (('box-set! dst src)
          (variable-set! (local-ref dst) (local-ref src)))
+
         (('make-closure dst offset nfree)
          (local-set! dst (make-closure (offset->addr offset)
                                        (make-vector nfree))))
-        (('free-set! dst src idx)
-         (let ((p (local-ref dst)))
-           (cond ((program? p)
-                  (program-free-variable-set! p idx (local-ref src)))
-                 ((closure? p)
-                  (vector-set! (closure-free-vars p) idx (local-ref src)))
-                 (else
-                  (local-set! dst runtime-call)))))
+
         (('free-ref dst src idx)
          (let ((p (local-ref src)))
            (cond ((and (program? p)
@@ -474,13 +516,39 @@
                   ;; (local-set! dst *unspecified*)
                   (local-set! dst runtime-call)))))
 
+        (('free-set! dst src idx)
+         (let ((p (local-ref dst)))
+           (cond ((program? p)
+                  (program-free-variable-set! p idx (local-ref src)))
+                 ((closure? p)
+                  (vector-set! (closure-free-vars p) idx (local-ref src)))
+                 (else
+                  (local-set! dst runtime-call)))))
+
         ;; Immediates and staticaly allocated non-immediates
+        ;; -------------------------------------------------
+
         (('make-short-immediate dst low-bits)
          (local-set! dst (pointer->scm (make-pointer low-bits))))
+
+        (('make-long-immediate dst a)
+         (local-set! dst (pointer->scm (make-pointer a))))
+
+        (('make-long-long-immediate dst hi lo)
+         *unspecified*)
+
         (('make-non-immediate dst target)
          (local-set! dst (pointer->scm (make-pointer (offset->addr target)))))
 
+        (('static-ref dst offset)
+         *unspecified*)
+
         ;; Mutable top-level bindings
+        ;; ---------------------------
+
+        (('current-module dst)
+         (local-set! dst (current-module)))
+
         (('toplevel-box dst var-offset mod-offset sym-offset bound?)
          (let* ((current (basm-ip basm))
                 (offset->pointer
@@ -492,6 +560,7 @@
                       (sym (dereference-scm (offset->pointer sym-offset)))
                       (resolved (module-variable (or mod the-root-module) sym)))
                  (local-set! dst resolved)))))
+
         (('module-box dst var-offset mod-offset sym-offset bound?)
          (let* ((current (basm-ip basm))
                 (offset->pointer
@@ -505,28 +574,69 @@
                       (resolved (module-variable mod sym)))
                  (local-set! dst resolved)))))
 
+
         ;; The dynamic environment
+        ;; -----------------------
+
         (('fluid-ref dst src)
          (let ((obj (local-ref src)))
            (and (fluid? obj)
                 (local-set! dst (fluid-ref obj)))))
 
+        ;; String, symbols, and keywords
+        ;; -----------------------------
+        (('string-length dst src)
+         *unspecified*)
+
         ;; Pairs
+        ;; -----
+
         (('cons dst a b)
          (local-set! dst (cons (local-ref a) (local-ref b))))
+
         (('car dst src)
          (let ((pair (local-ref src)))
            (and (pair? pair)
                 (not (null? pair))
                 (local-set! dst (car pair)))))
+
         (('cdr dst src)
          (let ((pair (local-ref src)))
            (and (pair? pair)
                 (not (null? pair))
                 (local-set! dst (cdr pair)))))
 
+        (('set-car! pair car)
+         (let ((pair (local-ref pair)))
+           (and (pair? pair)
+                (set-car! pair (local-ref car)))))
+
+        (('set-cdr! pair cdr)
+         (let ((pair (local-ref pair)))
+           (and (pair? pair)
+                (set-cdr! pair (local-ref cdr)))))
+
+
+        ;; Numeric operations
+        ;; ------------------
+
+        (('add dst a b)
+         *unspecified*)
+        (('add1 dst src)
+         *unspecified*)
+        (('sub dst a b)
+         *unspecified*)
+        (('sub1 dst src)
+         *unspecified*)
+        (('mul dst a b)
+         *unspecified*)
+        (('div dst a b)
+         *unspecified*)
+        (('quo dst a b)
+         *unspecified*)
+
         ;; Vector related operations will slow down compilation time.
-        ;; Though current approach required book keeping the contents of
+        ;; Though current approach requires book keeping the contents of
         ;; vector, since there is no way to determine whether vector
         ;; elements are used as callee. Using <sparse-vector> instead of
         ;; vector to manage vectors in locals.
@@ -535,26 +645,39 @@
          (let ((len (local-ref length)))
            (and (integer? len)
                 (local-set! dst (make-sparse-vector len (local-ref init))))))
+
         (('make-vector/immediate dst length init)
          (local-set! dst (make-sparse-vector length init)))
+
+        (('vector-length dst src)
+         (let ((v (local-ref src)))
+           (and (vector? v)
+                (local-set! dst (vector-length (local-ref src))))))
+
         (('vector-ref dst src idx)
          (let ((i (local-ref idx)))
            (and (integer? i)
                 (local-set! dst (sparse-vector-ref (local-ref src) i)))))
+
         (('vector-ref/immediate dst src idx)
          (local-set! dst (sparse-vector-ref (local-ref src) idx)))
+
         (('vector-set! dst idx src)
          (let ((i (local-ref idx)))
            (and (integer? i)
                 (sparse-vector-set! (local-ref dst)
                                     i
                                     (local-ref src)))))
+
         (('vector-set!/immediate dst idx src)
          (sparse-vector-set! (local-ref dst)
                              idx
                              (local-ref src)))
 
-        (_ *unspecified*)))
+        (_
+         (format #t ";;; basm: unknown opcode: ~a~%" op)
+         (set-basm-success! basm #f)
+         (basm-escape basm))))
 
     ;; Increment IP.
     (set-basm-ip! basm (+ (basm-ip basm) (hashq-ref *vm-op-sizes* (car op))))
@@ -572,9 +695,10 @@
                        (and (closure? program-or-addr)
                             (closure-free-vars program-or-addr))
                        (make-vector 0))))
-    ;; (format #t ";;; basm: ~a (~a)~%" name (ensure-program-addr program-or-addr))
-    (hashq-set! seen (ensure-program-addr program-or-addr) #t)
-    (fold-program-code f
-                       (make-basm name args free-vars prim-op?)
-                       (ensure-program-addr program-or-addr)
-                       #:raw? #t)))
+    (let ((result
+           (call/ec
+            (lambda (escape)
+              (let ((acc (make-basm name args free-vars prim-op? escape))
+                    (addr (ensure-program-addr program-or-addr)))
+                (fold-program-code trace-one acc addr #:raw? #t))))))
+      (and (basm-success? result) result))))

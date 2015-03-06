@@ -298,6 +298,15 @@
 (define-test (call-closure04 n) (100)
   ((closure04 n)))
 
+(define (closure05 f1 f2 f3)
+  (list f1 f2 f3))
+
+(define-test (call-closure05 x) (10)
+  (let ((l (closure05 (closure03 x)
+                      (call-closure03 x)
+                      (call-closure03-b x))))
+    ((car l))))
+
 (define (addk x y k)
   (k (+ x y)))
 
@@ -331,6 +340,9 @@
   0.5)
 
 ;;; Mutable top-level bindings
+
+(define-test (t-current-module) ()
+  (current-module))
 
 (define a-toplevel-ref 123)
 

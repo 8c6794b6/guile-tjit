@@ -37,7 +37,8 @@
   #:use-module (system vm program)
   #:use-module (system vm vm)
   #:export (compile-lightning
-            call-lightning c-call-lightning %lightning-verbosity
+            call-lightning c-call-lightning
+            %lightning-verbosity
             get-native-code set-native-code! *native-code*
             native-proc native-guardian))
 
@@ -531,6 +532,7 @@ arguments."
              (rega (local-ref st a r1))
              (regb (local-ref st b r2)))
 
+         ;; fixnum x fixnum
          (jit-patch-at (jit-bmci rega (imm 2)) l2)
          (jit-patch-at (jit-bmci regb (imm 2)) l1)
          (jit-patch-at
@@ -543,6 +545,7 @@ arguments."
          (jit-link l1)
          (jit-patch-at (jit-bmsi rega (imm 2)) l3)
 
+         ;; flonum x flonum
          (jit-link l2)
          (jit-patch-at (jit-bmsi rega (imm 6)) l3)
          (jit-ldr r0 rega)
@@ -557,6 +560,7 @@ arguments."
           (resolve-dst st offset))
          (jit-patch-at (jit-jmpi) l4)
 
+         ;; else
          (jit-link l3)
          (jit-prepare)
          (jit-pushargr rega)
@@ -1053,6 +1057,12 @@ arguments."
 ;;; Mutable top-level bindings
 ;;; --------------------------
 
+(define-vm-op (current-module st dst)
+  (jit-prepare)
+  (jit-calli (c-pointer "scm_current_module"))
+  (jit-retval r0)
+  (local-set! st dst r0))
+
 (define-vm-box-op (toplevel-box st mod-offset sym-offset)
   (module-variable
    (or (dereference-scm (make-pointer (offset-addr st mod-offset)))
@@ -1341,133 +1351,146 @@ values. Returned value of this procedure is a pointer to scheme value."
   "Compile PROC with lightning and run with ARGS, within THREAD."
   (define (offset->addr offset)
     (imm (- (+ #xffffffffffffffff 1) (* offset (sizeof ssize_t)))))
-  (cond
-   ((primitive? proc)
-    (apply proc args))
-   ;; ((get-native-proc proc)
-   ;;  =>
-   ;;  (lambda (proc*)
-   ;;    (when (and %lightning-verbosity (<= 2 %lightning-verbosity))
-   ;;      (format #t ";;; Found compiled code for ~a, reusing.~%" proc))
-   ;;    (let ((scm-proc (pointer->procedure '* proc* (map (lambda _ '*) args))))
-   ;;      (pointer->scm (apply scm-proc (map scm->pointer args))))))
-   (else
-    (parameterize ((jit-state (jit-new-state)))
-      (dynamic-wind
-        (lambda () #f)
-        (lambda ()
-          (jit-prolog)
-          (let* ((szt (sizeof '*))
-                 ;; XXX: Use vp->sp?
-                 (fp (jit-allocai (imm (* szt (+ 3 (length args))))))
-                 (fp-addr (logxor #xffffffff00000000 (pointer-address fp)))
-                 (return-address (jit-movi r1 (imm 0))))
+  (define (%verbose-than? n)
+    (and %lightning-verbosity (<= n %lightning-verbosity)))
+  (let ((addr2 (ensure-program-addr proc))
+        (args2 (apply vector proc args)))
+    (cond
+     ((primitive? proc)
+      (apply proc args))
+     ;; ((get-native-proc proc)
+     ;;  =>
+     ;;  (lambda (proc*)
+     ;;    (when (and %lightning-verbosity (<= 2 %lightning-verbosity))
+     ;;      (format #t ";;; Found compiled code for ~a, reusing.~%" proc))
+     ;;    (let ((scm-proc (pointer->procedure '* proc* (map (lambda _ '*) args))))
+     ;;      (pointer->scm (apply scm-proc (map scm->pointer args))))))
+     ((proc->basm addr2 (unwrap-non-program args2 addr2))
+      =>
+      (lambda (basm)
+        (parameterize ((jit-state (jit-new-state)))
+          (dynamic-wind
+            (lambda () #f)
+            (lambda ()
+              (jit-prolog)
+              (let* ((szt (sizeof '*))
+                     ;; XXX: Use vp->sp?
+                     (fp (jit-allocai (imm (* szt (+ 3 (length args))))))
+                     (fp-addr (logxor #xffffffff00000000 (pointer-address fp)))
+                     (return-address (jit-movi r1 (imm 0))))
 
-            ;; XXX: Allocating constant amount at beginning of function call.
-            ;; Might better to allocate at compile time or runtime.
-            (jit-frame (imm (* 4 4096)))
+                ;; XXX: Allocating constant amount at beginning of function call.
+                ;; Might better to allocate at compile time or runtime.
+                (jit-frame (imm (* 4 4096)))
 
-            ;; Initial dynamic link, frame pointer.
-            (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
+                ;; Initial dynamic link, frame pointer.
+                (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
 
-            ;; Return address.
-            (jit-stxi (offset->addr 2) (jit-fp) r1)
+                ;; Return address.
+                (jit-stxi (offset->addr 2) (jit-fp) r1)
 
-            ;; Argument 0, self procedure.
-            (jit-movi r0 (scm->pointer proc))
-            (jit-stxi (offset->addr 3) (jit-fp) r0)
+                ;; Argument 0, self procedure.
+                (jit-movi r0 (scm->pointer proc))
+                (jit-stxi (offset->addr 3) (jit-fp) r0)
 
-            ;; Pointers of given args.
-            (let lp ((args args) (offset 4))
-              (unless (null? args)
-                (jit-movi r0 (scm->pointer (car args)))
-                ;; (jit-getarg r0 (jit-arg))
-                (jit-stxi (offset->addr offset) (jit-fp) r0)
-                (lp (cdr args) (+ offset 1))))
+                ;; Pointers of given args.
+                (let lp ((args args) (offset 4))
+                  (unless (null? args)
+                    (jit-movi r0 (scm->pointer (car args)))
+                    ;; (jit-getarg r0 (jit-arg))
+                    (jit-stxi (offset->addr offset) (jit-fp) r0)
+                    (lp (cdr args) (+ offset 1))))
 
-            ;; Compile the given proc,
-            (let* ((entry (jit-forward))
-                   (nargs (+ (length args) 1))
-                   (args (apply vector proc args))
-                   (fp0 (+ fp-addr (* szt nargs)))
-                   (addr* (ensure-program-addr proc))
-                   (basm (proc->basm addr* (unwrap-non-program args addr*)))
-                   (lightning (make-lightning basm
-                                              (make-hash-table)
-                                              fp0
-                                              thread
-                                              nargs
-                                              args
-                                              addr*
-                                              %lightning-verbosity
-                                              0)))
-              ;; (jit-patch-at (jit-jmpi) entry)
-              (compile-lightning lightning entry)
+                ;; Compile the given proc,
+                (let* ((entry (jit-forward))
+                       (nargs (+ (length args) 1))
+                       (args (apply vector proc args))
+                       (fp0 (+ fp-addr (* szt nargs)))
+                       (lightning (make-lightning basm
+                                                  (make-hash-table)
+                                                  fp0
+                                                  thread
+                                                  nargs
+                                                  args
+                                                  addr2
+                                                  %lightning-verbosity
+                                                  0)))
+                  ;; (jit-patch-at (jit-jmpi) entry)
+                  (compile-lightning lightning entry)
 
-              ;; Link the return address, get single return value.
-              (jit-patch return-address)
+                  ;; Link the return address, get single return value.
+                  (jit-patch return-address)
 
-              ;; Check number of return values, call C function
-              ;; scm_values if number of values were not 1.
-              (cond
-               ((= (lightning-nretvals lightning) 1)
-                (jit-ldxi r0 (jit-fp) (offset->addr 4)))
-               (else
-                (jit-prepare)
-                (for-each (lambda (n)
-                            (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
-                            (jit-pushargr r0))
-                          (iota (lightning-nretvals lightning)))
-                (jit-pushargi (undefined))
-                (jit-calli (c-pointer "scm_list_n"))
-                (jit-retval r1)
+                  ;; Check number of return values, call C function
+                  ;; scm_values if number of values were not 1.
+                  (cond
+                   ((= (lightning-nretvals lightning) 1)
+                    (jit-ldxi r0 (jit-fp) (offset->addr 4)))
+                   (else
+                    (jit-prepare)
+                    (for-each (lambda (n)
+                                (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
+                                (jit-pushargr r0))
+                              (iota (lightning-nretvals lightning)))
+                    (jit-pushargi (undefined))
+                    (jit-calli (c-pointer "scm_list_n"))
+                    (jit-retval r1)
 
-                (jit-prepare)
-                (jit-pushargr r1)
-                (jit-calli (c-pointer "scm_values"))
-                (jit-retval r0)))
-              (jit-retr r0)))
+                    (jit-prepare)
+                    (jit-pushargr r1)
+                    (jit-calli (c-pointer "scm_values"))
+                    (jit-retval r0)))
+                  (jit-retr r0)))
 
-          (jit-epilog)
-          (jit-realize)
+              (jit-epilog)
+              (jit-realize)
 
-          ;; Emit and call the thunk.
-          (let* (
-                 ;; (estimated-code-size (jit-code-size))
-                 ;; (bv (make-bytevector estimated-code-size))
-                 ;; (_ (jit-set-code (bytevector->pointer bv)
-                 ;;                  (imm estimated-code-size)))
-                 ;; (fptr (jit-emit))
-                 ;; (args* (map (lambda _ '*) args))
-                 ;; (pre-proc (pointer->procedure '* fptr args*))
-                 ;; (proc* (procedure->pointer '* pre-proc args*))
-                 ;; (thunk (lambda ()
-                 ;;          (apply pre-proc (map scm->pointer args))))
+              ;; Emit and call the thunk.
+              (let* (
+                     ;; (estimated-code-size (jit-code-size))
+                     ;; (bv (make-bytevector estimated-code-size))
+                     ;; (_ (jit-set-code (bytevector->pointer bv)
+                     ;;                  (imm estimated-code-size)))
+                     ;; (fptr (jit-emit))
+                     ;; (args* (map (lambda _ '*) args))
+                     ;; (pre-proc (pointer->procedure '* fptr args*))
+                     ;; (proc* (procedure->pointer '* pre-proc args*))
+                     ;; (thunk (lambda ()
+                     ;;          (apply pre-proc (map scm->pointer args))))
 
-                 (fptr (jit-emit))
-                 (thunk (pointer->procedure '* fptr '()))
-                 )
+                     (fptr (jit-emit))
+                     (thunk (pointer->procedure '* fptr '()))
+                     )
 
-            ;; (native-guardian bv)
-            ;; (set-native-bv! proc bv)
-            ;; (set-native-bv! (ensure-program-addr proc) bv)
-            ;; (set! (native-bv (ensure-program-addr proc)) bv)
+                ;; (native-guardian bv)
+                ;; (set-native-bv! proc bv)
+                ;; (set-native-bv! (ensure-program-addr proc) bv)
+                ;; (set! (native-bv (ensure-program-addr proc)) bv)
 
-            ;; (format #t ";;; setting native-proc for ~a~%" proc)
-            ;; (set! (native-proc proc) proc-ptr)
-            ;; (set-native-proc! proc proc*)
-            ;; (set-native-proc! proc (procedure->pointer '* pre-proc* args*))
+                ;; (format #t ";;; setting native-proc for ~a~%" proc)
+                ;; (set! (native-proc proc) proc-ptr)
+                ;; (set-native-proc! proc proc*)
+                ;; (set-native-proc! proc (procedure->pointer '* pre-proc* args*))
 
-            (when (and %lightning-verbosity (<= 3 %lightning-verbosity))
-              (write-code-to-file
-               (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
-              (jit-print)
-              (jit-clear-state))
+                (when (%verbose-than? 3)
+                  (write-code-to-file
+                   (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
+                  (jit-print)
+                  (jit-clear-state))
 
-            ;; (make-bytevector-executable! bv)
-            (pointer->scm (thunk))))
-        (lambda ()
-          (jit-destroy-state)))))))
+                ;; (make-bytevector-executable! bv)
+                (pointer->scm (thunk))))
+            (lambda ()
+              (jit-destroy-state))))))
+     (else
+      (when (%verbose-than? 1)
+        (format #t ";;; Trace of ~a failed, falling back to interpreter.~%"
+                proc))
+      (let ((engine (vm-engine)))
+        (dynamic-wind
+          (lambda () (set-vm-engine! 'regular))
+          (lambda () (apply proc args))
+          (lambda () (set-vm-engine! engine))))))))
 
 (define (vm-lightning thread fp registers nargs resume)
   (let* ((addr->scm
