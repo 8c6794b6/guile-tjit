@@ -36,7 +36,8 @@
   #:export (proc->basm
             make-basm basm? basm-ip basm-name basm-nargs basm-args
             basm-free-vars basm-chunks basm-labeled-ips
-            basm-callees basm-callers basm-locals basm-nretvals
+            basm-callees basm-callers basm-callee-args
+            basm-locals basm-nretvals
             basm-prim-op?
             basm-chunks->alist basm->callees-list
 
@@ -48,12 +49,13 @@
             make-closure closure? closure-addr closure-free-vars
 
             builtin? builtin-name
+            constant?
 
             ensure-program-addr))
 
 (define-record-type <basm>
   (%make-basm name ip nargs args free-vars chunks labeled-ips
-              callees callers locals nretvals prim-op?
+              callees callers callee-args locals nretvals prim-op?
               undecidables br-dests next-ip)
   basm?
   ;; Name of procedure.
@@ -74,6 +76,8 @@
   (callees basm-callees set-basm-callees!)
   ;; Hash table of caller, key=ip, value=program-code-addr.
   (callers basm-callers)
+  ;; Hash table of arguments for callee, copy of vector.
+  (callee-args basm-callee-args)
   ;; Local variables.
   (locals basm-locals set-basm-locals!)
   ;; Number of return values.
@@ -96,14 +100,15 @@
                     (labeled-ips '())
                     (callees (make-hash-table))
                     (callers (make-hash-table))
+                    (callee-args (make-hash-table))
                     (locals #f)
                     (nretvals 1)
                     (undecidables (make-hash-table))
                     (br-dests '())
                     (next-ip #f))
   (%make-basm name ip (vector-length args) args free-vars chunks
-              labeled-ips callees callers locals nretvals prim-op?
-              undecidables br-dests next-ip))
+              labeled-ips callees callers callee-args locals nretvals
+              prim-op? undecidables br-dests next-ip))
 
 (define-record-type <chunk>
   (make-chunk dest-ip op)
@@ -304,7 +309,10 @@
                  (retval (call-lightning runtime-proc runtime-args)))
             (hashq-set! (basm-callers basm) (basm-ip basm) retval)))
          (else
-          (hashq-set! (basm-callers basm) (basm-ip basm) proc)))))
+          (hashq-set! (basm-callers basm) (basm-ip basm) proc)))
+        (hashq-set! (basm-callee-args basm)
+                    (basm-ip basm)
+                    (locals->args proc-local nlocals))))
     (define (set-callee! pre-proc proc-local nlocals)
       ;; (format #t "basm: (set-callee! ~a ~a ~a)~%" pre-proc proc-local nlocals)
       (let ((proc (local-value pre-proc)))
