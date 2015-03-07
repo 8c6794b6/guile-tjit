@@ -32,6 +32,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
   #:use-module (system vm disassembler)
+  #:use-module (system vm lightning debug)
   #:use-module (system vm program)
   #:autoload (system vm lightning) (call-lightning)
   #:export (proc->trace
@@ -52,6 +53,10 @@
             constant?
 
             ensure-program-addr))
+
+;;;
+;;; Record types
+;;;
 
 (define-record-type <trace>
   (%make-trace name ip nargs args free-vars chunks labeled-ips
@@ -130,13 +135,10 @@
   (free-vars closure-free-vars))
 
 (define-record-type <call>
-  (%make-call program args)
+  (make-call program args)
   call?
   (program call-program)
   (args call-args))
-
-(define (make-call program args)
-  (%make-call program args))
 
 (define runtime-call (make-call 0 (vector)))
 
@@ -269,7 +271,7 @@
     (define (set-caller/callee! proc proc-local nlocals)
       (set-caller! proc proc-local nlocals))
 
-    ;; (format #t "trace (~a:~a): ~a~%" (trace-name trace) (trace-ip trace) op)
+    ;; (debug 2 ";;; ~3d: ~a~%" (trace-ip trace) op)
 
     ;; Resolve label destinations.
     (let ((dst #f))
@@ -586,7 +588,15 @@
         ;; String, symbols, and keywords
         ;; -----------------------------
         (('string-length dst src)
-         *unspecified*)
+         (and (string? src)
+              (local-set! dst (string-length src))))
+
+        (('string-ref dst src idx)
+         (let ((str (local-ref src))
+               (i (local-ref idx)))
+           (and (string? str)
+                (integer? i)
+                (local-set! dst (string-ref str i)))))
 
         ;; Pairs
         ;; -----
@@ -675,7 +685,7 @@
                              (local-ref src)))
 
         (_
-         (format #t ";;; trace: unknown opcode: ~a~%" op)
+         (debug 1 ";;; trace: (~a) Unknown opcode: ~a~%" (trace-ip trace) op)
          (set-trace-success! trace #f)
          (trace-escape trace))))
 
@@ -683,10 +693,8 @@
     (set-trace-ip! trace (+ (trace-ip trace) (hashq-ref *vm-op-sizes* (car op))))
     trace)
 
-  (let ((name (or (and (procedure? program-or-addr)
-                       (procedure-name program-or-addr))
-                  (string->symbol
-                   (format #f "anon:~a" program-or-addr))))
+  (let ((name (program-name program-or-addr))
+        (addr (ensure-program-addr program-or-addr))
         (prim-op? (and (primitive? program-or-addr)
                        program-or-addr))
         (free-vars (or (and (program? program-or-addr)
@@ -695,10 +703,11 @@
                        (and (closure? program-or-addr)
                             (closure-free-vars program-or-addr))
                        (make-vector 0))))
+    (debug 1 ";;; trace: Start tracing ~a (~a)~%" name addr)
     (let ((result
            (call/ec
             (lambda (escape)
-              (let ((acc (make-trace name args free-vars prim-op? escape))
-                    (addr (ensure-program-addr program-or-addr)))
+              (let ((acc (make-trace name args free-vars prim-op? escape)))
                 (fold-program-code trace-one acc addr #:raw? #t))))))
+      (debug 1 ";;; trace: Finished tracing ~a (~a)~%" name addr)
       (and (trace-success? result) result))))

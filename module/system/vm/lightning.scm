@@ -33,14 +33,15 @@
   #:use-module (system foreign)
   #:use-module (system vm debug)
   #:use-module (system vm lightning binding)
+  #:use-module (system vm lightning debug)
   #:use-module (system vm lightning trace)
   #:use-module (system vm program)
   #:use-module (system vm vm)
   #:export (compile-lightning
             call-lightning c-call-lightning
-            %lightning-verbosity
             get-native-code set-native-code! *native-code*
-            native-proc native-guardian))
+            native-proc native-guardian)
+  #:re-export (lightning-verbosity))
 
 ;;;
 ;;; Auxiliary
@@ -55,7 +56,7 @@
 ;; State used during compilation.
 (define-record-type <lightning>
   (%make-lightning asm nodes ip labels pc fp thread nargs args nretvals
-                   cached modified verbosity indent)
+                   cached modified indent)
   lightning?
 
   ;; State from bytecode-asm.
@@ -94,14 +95,11 @@
   ;; Modified cached registers, to be saved before calling procedure.
   (modified lightning-modified set-lightning-modified!)
 
-  ;; Verbosity debug message.
-  (verbosity lightning-verbosity)
-
   ;; Indentation level for debug message.
   (indent lightning-indent))
 
 (define* (make-lightning asm nodes fp thread nargs args pc
-                         verbosity indent
+                         indent
                          #:optional
                          (nretvals 1)
                          (ip 0)
@@ -111,7 +109,7 @@
                 (hashq-set! labels labeled-ip (jit-forward))))
             (trace-labeled-ips asm))
   (%make-lightning asm nodes ip labels pc fp thread nargs args nretvals
-                   #f #f verbosity indent))
+                   #f #f indent))
 
 (define native-guardian (make-guardian))
 
@@ -157,16 +155,6 @@
 (define-syntax-rule (tc16-real) 535)
 
 (define-syntax-rule (undefined) (make-pointer #x904))
-
-;;;
-;;; For debug
-;;;
-
-(define %lightning-verbosity #f)
-
-(define-syntax-rule (verbose-than? st n)
-  (and (lightning-verbosity st)
-       (<= n (lightning-verbosity st))))
 
 ;;;
 ;;; VM op syntaxes
@@ -474,20 +462,24 @@ arguments."
                      (compile-lightning* st2 (jit-forward) #f)))
 
     ((_ st1 st2 proc nlocals callee-addr body)
-     (let* ((args (current-callee-args st1))
-            (trace (proc->trace callee-addr args))
-            (st2 (make-lightning trace
-                                 (lightning-nodes st1)
-                                 (lightning-fp st1)
-                                 (lightning-thread st1)
-                                 nlocals
-                                 args
-                                 callee-addr
-                                 (lightning-verbosity st1)
-                                 (+ 2 (lightning-indent st1)))))
-       (when (lightning-verbosity st1)
-         (format #t ";;; compiling ~a~%" callee-addr))
-       body))))
+     (let ((args (current-callee-args st1)))
+       (cond
+        ((proc->trace callee-addr args)
+         =>
+         (lambda (trace)
+           (let ((st2 (make-lightning trace
+                                      (lightning-nodes st1)
+                                      (lightning-fp st1)
+                                      (lightning-thread st1)
+                                      nlocals
+                                      args
+                                      callee-addr
+                                      (+ 2 (lightning-indent st1)))))
+             (debug 1 ";;; compiling ~a~%" callee-addr)
+             body)))
+        (else
+         (debug 1 ";;; Trace failed, calling ~a at runtime.~%" callee-addr)
+         (call-runtime st1 proc nlocals)))))))
 
 (define-syntax-rule (in-same-procedure? st label)
   (and (<= 0 (+ (lightning-ip st) label))
@@ -754,9 +746,8 @@ arguments."
 (define-vm-op (call st proc nlocals)
   (save-locals st)
   (let ((callee (current-callee st)))
-    (when (verbose-than? st 1)
-      (format #t ";;; call: callee=~a (~a)~%"
-              callee (and (program? callee) (program-code callee))))
+    (debug 1 ";;; call: callee=~a (~a)~%"
+           callee (and (program? callee) (program-code callee)))
     (cond
      ((builtin? callee)
       (case (builtin-name callee)
@@ -800,9 +791,8 @@ arguments."
 (define-vm-op (tail-call st nlocals)
   (save-locals st)
   (let ((callee (current-callee st)))
-    (when (verbose-than? st 1)
-      (format #t ";;; tail-call: callee=~a (~a)~%"
-              callee (and (program? callee) (program-code callee))))
+    (debug 1  ";;; tail-call: callee=~a (~a)~%"
+           callee (and (program? callee) (program-code callee)))
     (cond
      ((builtin? callee)
       (case (builtin-name callee)
@@ -1268,12 +1258,8 @@ true, the compiled result is for top level ."
       (set-lightning-ip! st ip)
       (let ((emitter (hashq-ref *vm-instr* instr)))
         (jit-note (format #f "~a" op) (lightning-ip st))
-        (when (verbose-than? st 2)
-          (let lp ((n 0))
-            (when (< n (lightning-indent st))
-              (display " ")
-              (lp (+ n 1))))
-          (format #t "~3d: ~a~%" ip op))
+        (debug 2 (make-string (lightning-indent st) #\space))
+        (debug 2 "~3d: ~a~%" ip op)
         ;; Link if this bytecode intruction is labeled as destination.
         (cond ((hashq-ref (lightning-labels st) (lightning-ip st))
                => (lambda (label) (jit-link label))))
@@ -1284,37 +1270,25 @@ true, the compiled result is for top level ."
          (args (lightning-args st))
          (addr (ensure-program-addr program-or-addr))
          (trace (lightning-asm st))
-         (name
-          (cond ((and (program? program-or-addr)
-                      (procedure-name program-or-addr))
-                 => symbol->string)
-                ((find-program-debug-info
-                  (ensure-program-addr program-or-addr))
-                 => (lambda (pdi)
-                      (cond ((program-debug-info-name pdi)
-                             => symbol->string)
-                            (else "anon"))))
-                (else "anon"))))
+         (name (program-name program-or-addr)))
 
     (hashq-set! (lightning-nodes st) addr entry)
     (jit-note name addr)
 
     ;; Link and compile the entry point.
     (jit-link entry)
-    (when (verbose-than? st 2)
-      (format #t ";;; start: ~a (~a)~%" name addr))
+    (debug 2 ";;; compile-lightning: Start compiling ~a (~a)~%" name addr)
     (for-each (lambda (chunk)
                 (assemble-one st chunk))
               (trace-chunks->alist (trace-chunks trace)))
     (set-lightning-nretvals! st (trace-nretvals (lightning-asm st)))
-    (when (verbose-than? st 2)
-      (format #t ";;; end: ~a (~a)~%" name addr))
+    (debug 2 ";;; compile-lightning: End of ~a (~a)~%" name addr)
 
     entry))
 
 
 ;;;
-;;; Execute generated function
+;;; Code generation and execution
 ;;;
 
 (define (unwrap-non-program args program-or-addr)
@@ -1346,17 +1320,15 @@ values. Returned value of this procedure is a pointer to scheme value."
   (scm->pointer
    (c-call-lightning thread (pointer->scm proc) (pointer->scm args))))
 
-;; Called by C code.
 (define (c-call-lightning thread proc args)
   "Compile PROC with lightning and run with ARGS, within THREAD."
   (define (offset->addr offset)
     (imm (- (+ #xffffffffffffffff 1) (* offset (sizeof ssize_t)))))
-  (define (%verbose-than? n)
-    (and %lightning-verbosity (<= n %lightning-verbosity)))
   (let ((addr2 (ensure-program-addr proc))
         (args2 (apply vector proc args)))
     (cond
      ((primitive? proc)
+      (debug 1 ";;; calling primitive: ~a~%" proc)
       (apply proc args))
      ;; ((get-native-proc proc)
      ;;  =>
@@ -1413,9 +1385,7 @@ values. Returned value of this procedure is a pointer to scheme value."
                                                   nargs
                                                   args
                                                   addr2
-                                                  %lightning-verbosity
                                                   0)))
-                  ;; (jit-patch-at (jit-jmpi) entry)
                   (compile-lightning lightning entry)
 
                   ;; Link the return address, get single return value.
@@ -1472,26 +1442,27 @@ values. Returned value of this procedure is a pointer to scheme value."
                 ;; (set-native-proc! proc proc*)
                 ;; (set-native-proc! proc (procedure->pointer '* pre-proc* args*))
 
-                (when (%verbose-than? 3)
-                  (write-code-to-file
-                   (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
-                  (jit-print)
-                  (jit-clear-state))
+                (let ((verbosity (lightning-verbosity)))
+                  (when (and verbosity (<= 3 verbosity))
+                    (write-code-to-file
+                     (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
+                    (jit-print)
+                    (jit-clear-state)))
 
                 ;; (make-bytevector-executable! bv)
                 (pointer->scm (thunk))))
             (lambda ()
               (jit-destroy-state))))))
      (else
-      (when (%verbose-than? 1)
-        (format #t ";;; Trace of ~a failed, falling back to interpreter.~%"
-                proc))
+      (debug 1 ";;; Trace failed, interpreting ~a~%" proc)
+      (debug 1 ";;; arguments: ~a~%" args)
       (let ((engine (vm-engine)))
         (dynamic-wind
           (lambda () (set-vm-engine! 'regular))
           (lambda () (apply proc args))
           (lambda () (set-vm-engine! engine))))))))
 
+;; This procedure is called from C function `vm_lightning'.
 (define (vm-lightning thread fp registers nargs resume)
   (let* ((addr->scm
           (lambda (addr)
