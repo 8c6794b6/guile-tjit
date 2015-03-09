@@ -98,17 +98,17 @@
   ;; Indentation level for debug message.
   (indent lightning-indent))
 
-(define* (make-lightning asm nodes fp thread nargs args pc
+(define* (make-lightning trace nodes fp thread nargs args pc
                          indent
                          #:optional
                          (nretvals 1)
                          (ip 0)
                          (labels (make-hash-table)))
   (for-each (lambda (labeled-ip)
-              (when (< labeled-ip (trace-ip asm))
+              (when (< labeled-ip (trace-ip trace))
                 (hashq-set! labels labeled-ip (jit-forward))))
-            (trace-labeled-ips asm))
-  (%make-lightning asm nodes ip labels pc fp thread nargs args nretvals
+            (trace-labeled-ips trace))
+  (%make-lightning trace nodes ip labels pc fp thread nargs args nretvals
                    #f #f indent))
 
 (define native-guardian (make-guardian))
@@ -475,7 +475,6 @@ arguments."
                                       args
                                       callee-addr
                                       (+ 2 (lightning-indent st1)))))
-             (debug 1 ";;; compiling ~a~%" callee-addr)
              body)))
         (else
          (debug 1 ";;; Trace failed, calling ~a at runtime.~%" callee-addr)
@@ -576,7 +575,6 @@ arguments."
   (syntax-rules ()
     ((_ (name st mod-offset sym-offset) resolver ...)
      (define-vm-op (name st dst var-offset mod-offset sym-offset bound?)
-       (vm-handle-interrupts st)
        (let* ((current (lightning-ip st))
               (base (lightning-pc st))
               (offset->pointer
@@ -849,7 +847,6 @@ arguments."
   (save-locals st))
 
 (define-vm-op (return st dst)
-  (vm-handle-interrupts st)
   ;; Store dst to local-ref 1
   (jit-stxi (stored-ref st 1) (jit-fp) (local-ref st dst))
   (return-jmp st))
@@ -876,7 +873,8 @@ arguments."
 
 (define-vm-op (br-if-nargs-ne st expected offset)
   (when (not (= (lightning-nargs st) expected))
-    (jit-patch-at (jit-jmpi) (resolve-dst st offset))))
+    (jit-patch-at (jit-jmpi) (resolve-dst st offset)))
+  (vm-handle-interrupts st))
 
 ;; XXX: Move stack pointer, call jit-allocai when necessary.
 (define-vm-op (assert-nargs-ee/locals st expected locals)
