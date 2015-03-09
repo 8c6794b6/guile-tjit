@@ -262,12 +262,12 @@ if the information is not available."
 
 (define (vm-frame-function-name frame)
   (define (default-name)
-    (format #f "0x~x" (value->integer (vm-frame-ip frame))))
+    "[unknown]")
   (cond
    ((vm-frame-program-debug-info frame)
     => (lambda (pdi)
          (or (and=> (program-debug-info-name pdi) symbol->string)
-             (default-name))))
+             "[anonymous]")))
    (else
     (let ((ip (vm-frame-ip frame)))
       (define (ip-in-symbol? name)
@@ -294,6 +294,13 @@ if the information is not available."
        ((ip-in-symbol? "foreign_stub_code") "[ffi call]")
        (else (default-name)))))))
 
+(define (vm-frame-source frame)
+  (let* ((ip (value->integer (vm-frame-ip frame)))
+         (pdi (vm-frame-program-debug-info frame)))
+    (and pdi
+         (find-source-for-addr (program-debug-info-addr pdi)
+                               (program-debug-info-context pdi)))))
+
 (define* (dump-vm-frame frame #:optional (port (current-output-port)))
   (format port "  name: ~a~%" (vm-frame-function-name frame))
   (format port "  ip: 0x~x~%" (value->integer (vm-frame-ip frame)))
@@ -317,20 +324,20 @@ if the information is not available."
 
 (define-syntax compile-time-cond
   (lambda (x)
-    (syntax-case x (else)
+    (syntax-case x ()
       ((_ (test body ...) clause ...)
        (if (eval (syntax->datum #'test) (current-module))
            #'(begin body ...)
            #'(compile-time-cond clause ...)))
-      ((_ (else body ...))
-       #'(begin body ...)))))
+      ((_)
+       #'(begin)))))
 
 (compile-time-cond
- ((false-if-exception (resolve-interface '(gdb frames)))
-  (use-modules (gdb frames))
+ ((false-if-exception (resolve-interface '(gdb frame-filters)))
+  (use-modules (gdb frame-filters))
 
-  (define (snarfy-frame-annotator ann)
-    (let* ((frame (annotated-frame-frame ann))
+  (define (snarfy-frame-decorator dec)
+    (let* ((frame (decorated-frame-frame dec))
            (sym (frame-function frame)))
       (or
        (and sym
@@ -345,17 +352,18 @@ if the information is not available."
                       (let* ((scheme-name-value (symbol-value scheme-name-sym))
                              (scheme-name (value->string scheme-name-value))
                              (name (format #f "~a [~a]" scheme-name c-name)))
-                        (reannotate-frame ann #:function-name name)))))))
-       ann)))
+                        (redecorate-frame dec #:function-name name)))))))
+       dec)))
 
   (define* (vm-frame-filter gdb-frames #:optional (vm-frames (vm-frames)))
     (define (synthesize-frame gdb-frame vm-frame)
-      (let* ((ip (value->integer (vm-frame-ip vm-frame))))
-        (reannotate-frame gdb-frame
+      (let* ((ip (value->integer (vm-frame-ip vm-frame)))
+             (source (vm-frame-source vm-frame)))
+        (redecorate-frame gdb-frame
                           #:function-name (vm-frame-function-name vm-frame)
                           #:address ip
-                          #:filename #f
-                          #:line #f
+                          #:filename (and=> source source-file)
+                          #:line (and=> source source-line-for-user)
                           #:arguments '()
                           #:locals (vm-frame-locals vm-frame)
                           #:children '())))
@@ -373,13 +381,13 @@ if the information is not available."
           ((boot-sym _)
            (let ((boot-ptr (symbol-value boot-sym)))
              (cond
-              ((vm-engine-frame? (annotated-frame-frame gdb-frame))
+              ((vm-engine-frame? (decorated-frame-frame gdb-frame))
                (let lp ((children (reverse
-                                   (annotated-frame-children gdb-frame)))
+                                   (decorated-frame-children gdb-frame)))
                         (vm-frames vm-frames))
                  (define (finish reversed-children vm-frames)
                    (let ((children (reverse reversed-children)))
-                     (recur (reannotate-frame gdb-frame #:children children)
+                     (recur (redecorate-frame gdb-frame #:children children)
                             gdb-frames
                             vm-frames)))
                  (cond
@@ -397,8 +405,14 @@ if the information is not available."
               (else
                (recur gdb-frame gdb-frames vm-frames))))))))))
 
-  (add-frame-annotator! "guile-snarf-annotator" snarfy-frame-annotator)
-  (add-frame-filter! "guile-vm-frame-filter" vm-frame-filter))
- (else #f))
+  (add-frame-filter!
+   (make-decorating-frame-filter "guile-snarf-decorator"
+                                 snarfy-frame-decorator
+                                 #:objfile (current-objfile)))
+  (add-frame-filter!
+   (make-frame-filter "guile-vm-frame-filter"
+                      vm-frame-filter
+                      #:objfile (current-objfile))))
+ (#t #f))
 
 ;;; libguile-2.2-gdb.scm ends here
