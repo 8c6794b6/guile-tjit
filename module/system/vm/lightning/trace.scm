@@ -735,3 +735,35 @@
                 (fold-program-code trace-one acc addr #:raw? #t))))))
       (debug 1 ";;; trace: Finished tracing ~a (~a)~%" name addr)
       (and (trace-success? result) result))))
+
+
+;;;
+;;; For control flow graph
+;;;
+
+(define (opsize op)
+  (hashq-ref *vm-op-sizes* (car op)))
+
+(define (program->entries program)
+  (let ((entries (make-hash-table)))
+    (define (add-entries . ips)
+      (for-each (lambda (ip)
+                  (hashq-set! entries ip #t))
+                ips))
+    (define (parse-one op ip)
+      (case (car op)
+        ((br)
+         (add-entries (+ (cadr op) ip)))
+        ((br-if-nargs-ne br-if-nargs-lt br-if-nargs-gt br-if-npos-gt
+          br-if-true br-if-null br-if-nil br-if-pair br-if-struct br-if-char
+          br-if-tc7
+          br-if-eq br-if-eqv br-if-equal
+          br-if-= br-if-< br-if-<= br-if-logtest)
+         (let ((dst (list-ref op (- (length op) 1))))
+           (add-entries (+ ip (opsize op)) (+ ip dst)))))
+      (+ ip (opsize op)))
+    (fold-program-code parse-one
+                       0
+                       program
+                       #:raw? #t)
+    entries))

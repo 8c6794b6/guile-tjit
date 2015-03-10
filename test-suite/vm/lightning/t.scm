@@ -43,7 +43,7 @@
            (lambda () (call-with-vm name . args))
            (lambda () (set-vm-engine! 'regular))))))))
 
-(set! %lightning-verbosity #f)
+(lightning-verbosity #f)
 
 ;;;
 ;;; VM operation
@@ -129,8 +129,8 @@
 
 (define applicable-struct (make-applicable-struct))
 
-(define-test (call-applicable-struct n) (99)
-  (applicable-struct n))
+;; (define-test (call-applicable-struct n) (99)
+;;   (applicable-struct n))
 
 (define-test (call-branched-a x) (#f)
   ((or x *) 20 30))
@@ -171,23 +171,23 @@
 (define-test (return-builtin-apply) ()
   apply)
 
-(define-test (t-apply-a f a b rest) (+ 1 2 '(3 4 5))
-  (+ 100 (apply f a b rest)))
+;; (define-test (t-apply-a f a b rest) (+ 1 2 '(3 4 5))
+;;   (+ 100 (apply f a b rest)))
 
-(define-test (t-apply-b f a b rest) (+ 1 2 '())
-  (+ 100 (apply f a b rest)))
+;; (define-test (t-apply-b f a b rest) (+ 1 2 '())
+;;   (+ 100 (apply f a b rest)))
 
-(define-test (t-apply-c f rest) (+ '(1 2 3 4 5))
-  (+ 100 (apply f rest)))
+;; (define-test (t-apply-c f rest) (+ '(1 2 3 4 5))
+;;   (+ 100 (apply f rest)))
 
-(define-test (t-apply-tail-a f a b rest) (+ 1 2 '(3 4 5))
-  (apply f a b rest))
+;; (define-test (t-apply-tail-a f a b rest) (+ 1 2 '(3 4 5))
+;;   (apply f a b rest))
 
-(define-test (t-apply-tail-b f a b rest) (+ 1 2 '())
-  (apply f a b rest))
+;; (define-test (t-apply-tail-b f a b rest) (+ 1 2 '())
+;;   (apply f a b rest))
 
-(define-test (t-apply-tail-c f rest) (+ '(1 2 3 4 5))
-  (apply f rest))
+;; (define-test (t-apply-tail-c f rest) (+ '(1 2 3 4 5))
+;;   (apply f rest))
 
 (define-test (return-builtin-values) ()
   values)

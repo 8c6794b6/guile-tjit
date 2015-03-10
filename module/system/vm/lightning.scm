@@ -40,7 +40,7 @@
   #:export (compile-lightning
             call-lightning c-call-lightning
             get-native-code set-native-code! *native-code*
-            native-proc native-guardian)
+            native-proc jit-code-guardian)
   #:re-export (lightning-verbosity))
 
 ;;;
@@ -111,36 +111,7 @@
   (%make-lightning trace nodes ip labels pc fp thread nargs args nretvals
                    #f #f indent))
 
-(define native-guardian (make-guardian))
-
-;; (define native-proc (make-object-property))
-
-;; (define (get-native-proc obj)
-;;   (let ((ret (native-proc (pointer->scm obj))))
-;;     (or ret (scm->pointer #f))))
-
-(define *native-bv* (make-weak-key-hash-table))
-
-(define (set-native-bv! key bv)
-  (hashq-set! *native-bv* key bv))
-
-(define *native-proc* (make-weak-key-hash-table))
-
-(define (set-native-proc! scm native)
-  (hashq-set! *native-proc* scm native))
-
-(define (get-native-proc scm)
-  (hashq-ref *native-proc* scm))
-
-(define (_get-native-proc scm)
-  (or (get-native-proc scm)
-      (scm->pointer #f )))
-
-;;; Top-level variable for `get-native-proc', so that could be reused
-;;; without worrying garbage collection.
-(define get-native-proc*
-  (procedure->pointer '* _get-native-proc '(*)))
-
+(define jit-code-guardian (make-guardian))
 
 ;;;
 ;;; Constants
@@ -155,6 +126,8 @@
 (define-syntax-rule (tc16-real) 535)
 
 (define-syntax-rule (undefined) (make-pointer #x904))
+
+(define-syntax-rule (program-is-jit-compiled) (imm #x4000))
 
 ;;;
 ;;; VM op syntaxes
@@ -378,7 +351,7 @@ argument in VM operation."
     (let* ((args (map (lambda _ '*) (iota 3)))
            (proc* (procedure->pointer '* c-call-lightning* args)))
       ;; XXX: Using guardian.
-      (native-guardian proc*)
+      (jit-code-guardian proc*)
       (jit-calli proc*))
     (jit-retval r0)
     (local-set! st (+ proc 1) r0)))
@@ -390,7 +363,7 @@ arguments."
                                    call-lightning*
                                    (map (lambda _ '*) (iota nlocals)))))
     ;; XXX: Using guardian.
-    (native-guardian proc*)
+    (jit-code-guardian proc*)
     (jit-prepare)
     (for-each (lambda (n)
                 (jit-pushargr (local-ref st (+ proc n))))
@@ -406,29 +379,30 @@ arguments."
 ;; Look up compiled code by calling top-level procedure.
 ;; This approach was slow, if procedure could hold a pointer to
 ;; compiled code, consider again.
-(define-syntax-rule (call-local st proc nlocals)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
 
-    (jit-prepare)
-    (jit-pushargr (local-ref st proc))
-    (jit-calli get-native-proc*)
-    (jit-retval r0)
-    (jit-patch-at (jit-beqi r0 (scm->pointer #f)) l1)
+;; (define-syntax-rule (call-local st proc nlocals)
+;;   (let ((l1 (jit-forward))
+;;         (l2 (jit-forward)))
 
-    (jit-prepare)
-    (for-each (lambda (n)
-                (jit-pushargr (local-ref st (+ proc n 1) r1)))
-              (iota (- nlocals 1)))
-    (jit-callr r0)
-    (jit-retval r0)
-    (jit-patch-at (jit-jmpi) l2)
+;;     (jit-prepare)
+;;     (jit-pushargr (local-ref st proc))
+;;     (jit-calli get-native-proc*)
+;;     (jit-retval r0)
+;;     (jit-patch-at (jit-beqi r0 (scm->pointer #f)) l1)
 
-    (jit-link l1)
-    (call-runtime st proc nlocals)
+;;     (jit-prepare)
+;;     (for-each (lambda (n)
+;;                 (jit-pushargr (local-ref st (+ proc n 1) r1)))
+;;               (iota (- nlocals 1)))
+;;     (jit-callr r0)
+;;     (jit-retval r0)
+;;     (jit-patch-at (jit-jmpi) l2)
 
-    (jit-link l2)
-    (local-set! st (+ proc 1) r0)))
+;;     (jit-link l1)
+;;     (call-runtime st proc nlocals)
+
+;;     (jit-link l2)
+;;     (local-set! st (+ proc 1) r0)))
 
 (define-syntax with-frame
   ;; Stack poionter stored in (jit-fp), decreasing for `proc * word' size to
@@ -743,35 +717,56 @@ arguments."
 ;; XXX: Ensure enough space allocated for nlocals.
 (define-vm-op (call st proc nlocals)
   (save-locals st)
-  (let ((callee (current-callee st)))
-    (debug 1 ";;; call: callee=~a (~a)~%"
-           callee (and (program? callee) (program-code callee)))
-    (cond
-     ((builtin? callee)
-      (case (builtin-name callee)
-        ((apply) (call-apply st proc))))
-     ((primitive? callee)
-      (call-primitive st proc nlocals callee))
-     ;; ((closure? callee)
-     ;;  (call-local st proc nlocals)
-     ;;  (cond
-     ;;   ((and (reusable? (current-callee-args st))
-     ;;         (compiled-node st (closure-addr callee)))
-     ;;    =>
-     ;;    (with-frame st proc (call-scm st (closure-addr callee))))
-     ;;   (else
-     ;;    (compile-callee st proc nlocals (closure-addr callee) #t))))
-     ((recursion? st callee)
-      (with-frame st proc (call-scm st callee)))
-     ((and (reusable? (current-callee-args st))
-           (compiled-node st (ensure-program-addr callee)))
-      =>
-      (lambda (node)
-        (with-frame st proc (jit-patch-at (jit-jmpi) node))))
-     ((procedure? callee)
-      (compile-callee st proc nlocals (ensure-program-addr callee) #t))
-     (else
-      (call-local st proc nlocals)))))
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+
+    (jit-ldr r0 (local-ref st proc))
+    (jit-patch-at (jit-bmci r0 (program-is-jit-compiled)) l1)
+
+    ;; Has compiled code.
+    (jit-ldxi r1 (local-ref st proc) (imm (* (sizeof '*) 2)))
+    (with-frame st proc (jit-jmpr r1))
+    (jit-patch-at (jit-jmpi) l2)
+
+    ;; Does not have compiled code.
+    ;; XXX: Add test for primitive procedures, inline the call.
+    (jit-link l1)
+    (call-runtime st proc nlocals)
+    (local-set! st (+ proc 1) r0)
+
+    (jit-link l2)))
+
+;; (define-vm-op (call st proc nlocals)
+;;   (save-locals st)
+;;   (let ((callee (current-callee st)))
+;;     (debug 1 ";;; call: callee=~a (~a)~%"
+;;            callee (and (program? callee) (program-code callee)))
+;;     (cond
+;;      ((builtin? callee)
+;;       (case (builtin-name callee)
+;;         ((apply) (call-apply st proc))))
+;;      ((primitive? callee)
+;;       (call-primitive st proc nlocals callee))
+;;      ;; ((closure? callee)
+;;      ;;  (call-local st proc nlocals)
+;;      ;;  (cond
+;;      ;;   ((and (reusable? (current-callee-args st))
+;;      ;;         (compiled-node st (closure-addr callee)))
+;;      ;;    =>
+;;      ;;    (with-frame st proc (call-scm st (closure-addr callee))))
+;;      ;;   (else
+;;      ;;    (compile-callee st proc nlocals (closure-addr callee) #t))))
+;;      ((recursion? st callee)
+;;       (with-frame st proc (call-scm st callee)))
+;;      ((and (reusable? (current-callee-args st))
+;;            (compiled-node st (ensure-program-addr callee)))
+;;       =>
+;;       (lambda (node)
+;;         (with-frame st proc (jit-patch-at (jit-jmpi) node))))
+;;      ((procedure? callee)
+;;       (compile-callee st proc nlocals (ensure-program-addr callee) #t))
+;;      (else
+;;       (call-local st proc nlocals)))))
 
 (define-vm-op (call-label st proc nlocals label)
   (save-locals st)
@@ -788,41 +783,60 @@ arguments."
 
 (define-vm-op (tail-call st nlocals)
   (save-locals st)
-  (let ((callee (current-callee st)))
-    (debug 1  ";;; tail-call: callee=~a (~a)~%"
-           callee (and (program? callee) (program-code callee)))
-    (cond
-     ((builtin? callee)
-      (case (builtin-name callee)
-        ((apply) (call-apply st 0))))
-     ((primitive? callee)
-      (call-primitive st 0 nlocals callee)
-      (return-jmp st))
-     ;; ((closure? callee)
-     ;;  (cond
-     ;;   ((and (reusable? (current-callee-args st))
-     ;;         (compiled-node st (closure-addr callee)))
-     ;;    =>
-     ;;    (call-scm st (closure-addr callee)))
-     ;;   ((closure-addr callee)
-     ;;    =>
-     ;;    (lambda (addr)
-     ;;      (compile-callee st 0 nlocals addr #f)))
-     ;;   (else
-     ;;    (call-local st 0 nlocals)
-     ;;    (return-jmp st))))
-     ((recursion? st callee)
-      (call-scm st callee))
-     ((and (reusable? (current-callee-args st))
-           (compiled-node st (ensure-program-addr callee)))
-      =>
-      (lambda (node)
-        (jit-patch-at (jit-jmpi) node)))
-     ((procedure? callee)
-      (compile-callee st 0 nlocals (ensure-program-addr callee) #f))
-     (else
-      (call-local st 0 nlocals)
-      (return-jmp st)))))
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+
+    (jit-ldr r0 (local-ref st 0))
+    (jit-patch-at (jit-bmci r0 (program-is-jit-compiled)) l1)
+
+    (jit-ldxi r1 (local-ref st 0) (imm (* (sizeof '*) 2)))
+    (jit-jmpr r1)
+    (jit-patch-at (jit-jmpi) l2)
+
+    (jit-link l1)
+    (call-runtime st 0 nlocals)
+    (local-set! st 1 r0)
+
+    (jit-link l2))
+  (return-jmp st r0))
+
+;; (define-vm-op (tail-call st nlocals)
+;;   (save-locals st)
+;;   (let ((callee (current-callee st)))
+;;     (debug 1  ";;; tail-call: callee=~a (~a)~%"
+;;            callee (and (program? callee) (program-code callee)))
+;;     (cond
+;;      ((builtin? callee)
+;;       (case (builtin-name callee)
+;;         ((apply) (call-apply st 0))))
+;;      ((primitive? callee)
+;;       (call-primitive st 0 nlocals callee)
+;;       (return-jmp st))
+;;      ;; ((closure? callee)
+;;      ;;  (cond
+;;      ;;   ((and (reusable? (current-callee-args st))
+;;      ;;         (compiled-node st (closure-addr callee)))
+;;      ;;    =>
+;;      ;;    (call-scm st (closure-addr callee)))
+;;      ;;   ((closure-addr callee)
+;;      ;;    =>
+;;      ;;    (lambda (addr)
+;;      ;;      (compile-callee st 0 nlocals addr #f)))
+;;      ;;   (else
+;;      ;;    (call-local st 0 nlocals)
+;;      ;;    (return-jmp st))))
+;;      ((recursion? st callee)
+;;       (call-scm st callee))
+;;      ((and (reusable? (current-callee-args st))
+;;            (compiled-node st (ensure-program-addr callee)))
+;;       =>
+;;       (lambda (node)
+;;         (jit-patch-at (jit-jmpi) node)))
+;;      ((procedure? callee)
+;;       (compile-callee st 0 nlocals (ensure-program-addr callee) #f))
+;;      (else
+;;       (call-local st 0 nlocals)
+;;       (return-jmp st)))))
 
 (define-vm-op (tail-call-label st nlocals label)
   (save-locals st)
@@ -1008,11 +1022,11 @@ arguments."
   (local-set! st dst r0))
 
 (define-vm-op (free-ref st dst src idx)
-  (jit-ldxi r0 (local-ref st src) (imm (* (sizeof '*) (+ idx 2))))
+  (jit-ldxi r0 (local-ref st src) (imm (* (sizeof '*) (+ idx 3))))
   (local-set! st dst r0))
 
 (define-vm-op (free-set! st dst src idx)
-  (jit-stxi (imm (* (sizeof '*) (+ idx 2)))
+  (jit-stxi (imm (* (sizeof '*) (+ idx 3)))
             (local-ref st dst r1)
             (local-ref st src r0)))
 
@@ -1275,12 +1289,13 @@ true, the compiled result is for top level ."
 
     ;; Link and compile the entry point.
     (jit-link entry)
-    (debug 2 ";;; compile-lightning: Start compiling ~a (~a)~%" name addr)
+    (jit-patch entry)
+    (debug 1 ";;; compile-lightning: Start compiling ~a (~a)~%" name addr)
     (for-each (lambda (chunk)
                 (assemble-one st chunk))
               (trace-chunks->alist (trace-chunks trace)))
     (set-lightning-nretvals! st (trace-nretvals (lightning-asm st)))
-    (debug 2 ";;; compile-lightning: End of ~a (~a)~%" name addr)
+    (debug 1 ";;; compile-lightning: Finished compiling ~a (~a)~%" name addr)
 
     entry))
 
@@ -1318,6 +1333,17 @@ values. Returned value of this procedure is a pointer to scheme value."
   (scm->pointer
    (c-call-lightning thread (pointer->scm proc) (pointer->scm args))))
 
+(define-syntax with-jit-state
+  (syntax-rules ()
+    ((_ . expr)
+     (parameterize ((jit-state (jit-new-state)))
+       (dynamic-wind
+         (lambda () #f)
+         (lambda ()
+           . expr)
+         (lambda ()
+           (jit-destroy-state)))))))
+
 (define (c-call-lightning thread proc args)
   "Compile PROC with lightning and run with ARGS, within THREAD."
   (define (offset->addr offset)
@@ -1328,129 +1354,159 @@ values. Returned value of this procedure is a pointer to scheme value."
      ((primitive? proc)
       (debug 1 ";;; calling primitive: ~a~%" proc)
       (apply proc args))
-     ;; ((get-native-proc proc)
-     ;;  =>
-     ;;  (lambda (proc*)
-     ;;    (when (and %lightning-verbosity (<= 2 %lightning-verbosity))
-     ;;      (format #t ";;; Found compiled code for ~a, reusing.~%" proc))
-     ;;    (let ((scm-proc (pointer->procedure '* proc* (map (lambda _ '*) args))))
-     ;;      (pointer->scm (apply scm-proc (map scm->pointer args))))))
+
+     ((jit-compiled-code proc)
+      =>
+      (lambda (compiled)
+        (debug 1 ";;; ~a compiled at 0x~x, reusing.~%" proc compiled)
+        (with-jit-state
+         (jit-prolog)
+         (let* ((fp (jit-allocai (imm (* (sizeof '*) (+ 3 (length args))))))
+                (fp-addr (logxor #xffffffff00000000 (pointer-address fp)))
+                (return-address (jit-movi r1 (imm 0)))
+                (entry (make-pointer compiled)))
+           (jit-frame (imm (* 4 4096)))
+           (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
+           (jit-stxi (offset->addr 2) (jit-fp) r1)
+           (jit-movi r0 (scm->pointer proc))
+           (jit-stxi (offset->addr 3) (jit-fp) r0)
+           (let lp ((args args) (offset 4))
+             (unless (null? args)
+               (jit-movi r0 (scm->pointer (car args)))
+               (jit-stxi (offset->addr offset) (jit-fp) r0)
+               (lp (cdr args) (+ offset 1))))
+           (jit-movi r0 entry)
+           (jit-jmpr r0)
+           (jit-patch return-address)
+           (jit-ldxi r0 (jit-fp) (offset->addr 4))
+           ;; XXX: Save number of return value, and number of arguments
+           ;; to non-volatile register. Otherwise, could not reuse jit
+           ;; compiled codes containing VM operations `return-values',
+           ;; `br-if-nargs-lt' ... etc.
+           (jit-retr r0))
+         (jit-epilog)
+         (jit-realize)
+         (let* ((fptr (jit-emit))
+                (thunk (pointer->procedure '* fptr '())))
+           (pointer->scm (thunk))))))
+
      ((proc->trace addr2 (unwrap-non-program args2 addr2))
       =>
       (lambda (trace)
-        (parameterize ((jit-state (jit-new-state)))
-          (dynamic-wind
-            (lambda () #f)
-            (lambda ()
-              (jit-prolog)
-              (let* ((szt (sizeof '*))
-                     ;; XXX: Use vp->sp?
-                     (fp (jit-allocai (imm (* szt (+ 3 (length args))))))
-                     (fp-addr (logxor #xffffffff00000000 (pointer-address fp)))
-                     (return-address (jit-movi r1 (imm 0))))
+        (with-jit-state
+         (jit-prolog)
+         (let* ((szt (sizeof '*))
+                ;; XXX: Use vp->sp?
+                (fp (jit-allocai (imm (* szt (+ 3 (length args))))))
+                (fp-addr (logxor #xffffffff00000000 (pointer-address fp)))
+                (return-address (jit-movi r1 (imm 0)))
+                (entry (jit-forward)))
 
-                ;; XXX: Allocating constant amount at beginning of function call.
-                ;; Might better to allocate at compile time or runtime.
-                (jit-frame (imm (* 4 4096)))
+           ;; XXX: Allocating constant amount at beginning of function call.
+           ;; Might better to allocate at compile time or runtime.
+           (jit-frame (imm (* 4 4096)))
 
-                ;; Initial dynamic link, frame pointer.
-                (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
+           ;; Initial dynamic link, frame pointer.
+           (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
 
-                ;; Return address.
-                (jit-stxi (offset->addr 2) (jit-fp) r1)
+           ;; Return address.
+           (jit-stxi (offset->addr 2) (jit-fp) r1)
 
-                ;; Argument 0, self procedure.
-                (jit-movi r0 (scm->pointer proc))
-                (jit-stxi (offset->addr 3) (jit-fp) r0)
+           ;; Argument 0, self procedure.
+           (jit-movi r0 (scm->pointer proc))
+           (jit-stxi (offset->addr 3) (jit-fp) r0)
 
-                ;; Pointers of given args.
-                (let lp ((args args) (offset 4))
-                  (unless (null? args)
-                    (jit-movi r0 (scm->pointer (car args)))
-                    ;; (jit-getarg r0 (jit-arg))
-                    (jit-stxi (offset->addr offset) (jit-fp) r0)
-                    (lp (cdr args) (+ offset 1))))
+           ;; Pointers of given args.
+           (let lp ((args args) (offset 4))
+             (unless (null? args)
+               (jit-movi r0 (scm->pointer (car args)))
+               ;; (jit-getarg r0 (jit-arg))
+               (jit-stxi (offset->addr offset) (jit-fp) r0)
+               (lp (cdr args) (+ offset 1))))
 
-                ;; Compile the given proc,
-                (let* ((entry (jit-forward))
-                       (nargs (+ (length args) 1))
-                       (args (apply vector proc args))
-                       (fp0 (+ fp-addr (* szt nargs)))
-                       (lightning (make-lightning trace
-                                                  (make-hash-table)
-                                                  fp0
-                                                  thread
-                                                  nargs
-                                                  args
-                                                  addr2
-                                                  0)))
-                  (compile-lightning lightning entry)
+           ;; Compile the given proc,
+           (let* ((nargs (+ (length args) 1))
+                  (args (apply vector proc args))
+                  (fp0 (+ fp-addr (* szt nargs)))
+                  (lightning (make-lightning trace
+                                             (make-hash-table)
+                                             fp0
+                                             thread
+                                             nargs
+                                             args
+                                             addr2
+                                             0)))
+             (compile-lightning lightning entry)
 
-                  ;; Link the return address, get single return value.
-                  (jit-patch return-address)
+             ;; Link the return address, get single return value.
+             (jit-patch return-address)
 
-                  ;; Check number of return values, call C function
-                  ;; scm_values if number of values were not 1.
-                  (cond
-                   ((= (lightning-nretvals lightning) 1)
-                    (jit-ldxi r0 (jit-fp) (offset->addr 4)))
-                   (else
-                    (jit-prepare)
-                    (for-each (lambda (n)
-                                (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
-                                (jit-pushargr r0))
-                              (iota (lightning-nretvals lightning)))
-                    (jit-pushargi (undefined))
-                    (jit-calli (c-pointer "scm_list_n"))
-                    (jit-retval r1)
+             ;; Check number of return values, call C function
+             ;; scm_values if number of values were not 1.
+             (cond
+              ((= (lightning-nretvals lightning) 1)
+               (jit-ldxi r0 (jit-fp) (offset->addr 4)))
+              (else
+               (jit-prepare)
+               (for-each (lambda (n)
+                           (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
+                           (jit-pushargr r0))
+                         (iota (lightning-nretvals lightning)))
+               (jit-pushargi (undefined))
+               (jit-calli (c-pointer "scm_list_n"))
+               (jit-retval r1)
 
-                    (jit-prepare)
-                    (jit-pushargr r1)
-                    (jit-calli (c-pointer "scm_values"))
-                    (jit-retval r0)))
-                  (jit-retr r0)))
+               (jit-prepare)
+               (jit-pushargr r1)
+               (jit-calli (c-pointer "scm_values"))
+               (jit-retval r0)))
+             (jit-retr r0))
 
-              (jit-epilog)
-              (jit-realize)
+           (jit-epilog)
+           (jit-realize)
 
-              ;; Emit and call the thunk.
-              (let* (
-                     ;; (estimated-code-size (jit-code-size))
-                     ;; (bv (make-bytevector estimated-code-size))
-                     ;; (_ (jit-set-code (bytevector->pointer bv)
-                     ;;                  (imm estimated-code-size)))
-                     ;; (fptr (jit-emit))
-                     ;; (args* (map (lambda _ '*) args))
-                     ;; (pre-proc (pointer->procedure '* fptr args*))
-                     ;; (proc* (procedure->pointer '* pre-proc args*))
-                     ;; (thunk (lambda ()
-                     ;;          (apply pre-proc (map scm->pointer args))))
+           ;; Emit and call the thunk.
+           (let* (
+                  (estimated-code-size (jit-code-size))
+                  (bv (make-bytevector estimated-code-size))
+                  (_ (jit-set-code (bytevector->pointer bv)
+                                   (imm estimated-code-size)))
+                  (fptr (jit-emit))
+                  (args* (map (lambda _ '*) args))
+                  (thunk (pointer->procedure '* fptr '()))
+                  ;; (pre-proc (pointer->procedure '* fptr args*))
+                  ;; (proc* (procedure->pointer '* pre-proc args*))
+                  ;; (thunk (lambda ()
+                  ;;          (apply pre-proc (map scm->pointer args))))
 
-                     (fptr (jit-emit))
-                     (thunk (pointer->procedure '* fptr '()))
-                     )
+                  ;; (fptr (jit-emit))
+                  ;; (thunk (pointer->procedure '* fptr '()))
+                  )
 
-                ;; (native-guardian bv)
-                ;; (set-native-bv! proc bv)
-                ;; (set-native-bv! (ensure-program-addr proc) bv)
-                ;; (set! (native-bv (ensure-program-addr proc)) bv)
+             ;; XXX: Any where else to store `bv'?
+             (jit-code-guardian bv)
+             ;; (set-native-bv! proc bv)
+             ;; (set-native-bv! (ensure-program-addr proc) bv)
+             ;; (set! (native-bv (ensure-program-addr proc)) bv)
 
-                ;; (format #t ";;; setting native-proc for ~a~%" proc)
-                ;; (set! (native-proc proc) proc-ptr)
-                ;; (set-native-proc! proc proc*)
-                ;; (set-native-proc! proc (procedure->pointer '* pre-proc* args*))
+             ;; (format #t ";;; setting native-proc for ~a~%" proc)
+             ;; (set! (native-proc proc) pre-proc)
+             ;; (set-native-proc! proc pre-proc)
+             ;; (set-native-proc! proc proc*)
+             ;; (set-native-proc! proc (procedure->pointer '* pre-proc* args*))
 
-                (let ((verbosity (lightning-verbosity)))
-                  (when (and verbosity (<= 3 verbosity))
-                    (write-code-to-file
-                     (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
-                    (jit-print)
-                    (jit-clear-state)))
+             ;; (set-native-program! proc pre-proc)
+             (set-jit-compiled-code! proc (jit-address entry))
 
-                ;; (make-bytevector-executable! bv)
-                (pointer->scm (thunk))))
-            (lambda ()
-              (jit-destroy-state))))))
+             (let ((verbosity (lightning-verbosity)))
+               (when (and verbosity (<= 3 verbosity))
+                 (write-code-to-file
+                  (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
+                 (jit-print)
+                 (jit-clear-state)))
+
+             (make-bytevector-executable! bv)
+             (pointer->scm (thunk)))))))
      (else
       (debug 1 ";;; Trace failed, interpreting ~a~%" proc)
       (debug 1 ";;; arguments: ~a~%" args)

@@ -1670,7 +1670,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
       // FIXME: Assert range of nfree?
       closure = scm_inline_words (thread, scm_tc7_program | (nfree << 16),
-                                  nfree + 2);
+                                  nfree + 3);
       SCM_SET_CELL_WORD_1 (closure, ip + offset);
       // FIXME: Elide these initializations?
       for (n = 0; n < nfree; n++)
