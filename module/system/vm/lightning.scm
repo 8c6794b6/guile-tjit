@@ -412,7 +412,10 @@ argument in VM operation."
        (jit-patch-at (jit-jmpi) l2)
 
        ;; Does not have compiled code.
-       ;; XXX: Add test for primitive procedures, inline the call.
+       ;;
+       ;; XXX: Add test for primitive procedures, delegate the call to
+       ;; vm-regular.
+
        (jit-link l1)
        (call-runtime st proc nlocals)
        (local-set! st (+ proc 1) r0)
@@ -456,7 +459,7 @@ arguments."
     ((_ st1 st2 proc nlocals callee-addr body)
      (let ((args (current-callee-args st1)))
        (cond
-        ((proc->trace callee-addr args)
+        ((program->trace callee-addr nlocals)
          =>
          (lambda (trace)
            (let ((st2 (make-lightning trace
@@ -1413,7 +1416,7 @@ values. Returned value of this procedure is a pointer to scheme value."
                (jit-clear-state)))
            (pointer->scm (thunk))))))
 
-     ((proc->trace addr2 (unwrap-non-program args2 addr2))
+     ((program->trace addr2 (+ (length args) 1))
       =>
       (lambda (trace)
         (with-jit-state

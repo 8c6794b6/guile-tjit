@@ -35,13 +35,12 @@
   #:use-module (system vm lightning debug)
   #:use-module (system vm program)
   #:autoload (system vm lightning) (call-lightning)
-  #:export (proc->trace
-            make-trace trace? trace-ip trace-name trace-nargs trace-args
+  #:export (program->trace
+            make-trace trace? trace-ip trace-name trace-nargs
             trace-free-vars trace-chunks trace-labeled-ips
-            trace-callees trace-callers trace-callee-args
+            trace-callers trace-callee-args
             trace-locals trace-nretvals
-            trace-prim-op?
-            trace-chunks->alist trace->callees-list
+            trace-chunks->alist
 
             make-chunk chunk? chunk-labeled? chunk-dest-ip chunk-op
 
@@ -59,9 +58,9 @@
 ;;;
 
 (define-record-type <trace>
-  (%make-trace name ip nargs args free-vars chunks labeled-ips
-              callees callers callee-args locals nretvals prim-op?
-              undecidables br-dests next-ip success escape)
+  (%make-trace name ip nargs free-vars chunks labeled-ips
+               callers callee-args nlocals locals nretvals
+               undecidables br-dests next-ip success escape)
   trace?
 
   ;; Name of procedure.
@@ -73,9 +72,6 @@
   ;; Number of arguments.
   (nargs trace-nargs)
 
-  ;; Vector containing arguments.
-  (args trace-args)
-
   ;; Vector containing free-vars.
   (free-vars trace-free-vars)
 
@@ -85,23 +81,20 @@
   ;; List of ips referred as label destination.
   (labeled-ips trace-labeled-ips set-trace-labeled-ips!)
 
-  ;; Hash table of callee procedures, key=program-code, value=<trace>.
-  (callees trace-callees set-trace-callees!)
-
   ;; Hash table of caller, key=ip, value=program-code-addr.
   (callers trace-callers)
 
   ;; Hash table of arguments for callee, copy of vector.
   (callee-args trace-callee-args)
 
-  ;; Local variables.
+  ;; Number of locals. May not much to the `vector-length' of trace-locals.
+  (nlocals trace-nlocals set-trace-nlocals!)
+
+  ;; Vector for local variables.
   (locals trace-locals set-trace-locals!)
 
   ;; Number of return values.
   (nretvals trace-nretvals set-trace-nretvals!)
-
-  ;; Primitive procedure, or #f.
-  (prim-op? trace-prim-op?)
 
   ;; Hash table for undecidable locals, which might set during skipped
   ;; VM instructions. Key of the hash table is destination ip, value is
@@ -121,22 +114,22 @@
   ;; Escape.
   (escape trace-escape))
 
-(define* (make-trace name args free-vars prim-op? escape
-                    #:optional
-                    (ip 0)
-                    (chunks (make-hash-table))
-                    (labeled-ips '())
-                    (callees (make-hash-table))
-                    (callers (make-hash-table))
-                    (callee-args (make-hash-table))
-                    (locals #f)
-                    (nretvals 1)
-                    (undecidables (make-hash-table))
-                    (br-dests '())
-                    (next-ip #f))
-  (%make-trace name ip (vector-length args) args free-vars chunks
-              labeled-ips callees callers callee-args locals nretvals
-              prim-op? undecidables br-dests next-ip #t escape))
+(define* (make-trace name nargs free-vars escape
+                     #:optional
+                     (ip 0)
+                     (chunks (make-hash-table))
+                     (labeled-ips '())
+                     (callers (make-hash-table))
+                     (callee-args (make-hash-table))
+                     (nlocals 0)
+                     (locals (make-vector 256 unknown))
+                     (nretvals 1)
+                     (undecidables (make-hash-table))
+                     (br-dests '())
+                     (next-ip #f))
+  (%make-trace name ip nargs free-vars chunks labeled-ips
+               callers callee-args nlocals locals nretvals
+               undecidables br-dests next-ip #t escape))
 
 (define-record-type <chunk>
   (make-chunk dest-ip op)
@@ -217,11 +210,28 @@
      (hashq-set! *vm-op-sizes* name size)))
  (instruction-list))
 
+(define (opsize op)
+  (hashq-ref *vm-op-sizes* (car op)))
+
 (define (dereference-scm pointer)
   (pointer->scm (dereference-pointer pointer)))
 
 ;; XXX: Refer C code.
 (define struct-procedure-index 0)
+
+(define *br-ops*
+  '(br
+    br-if-nargs-ne br-if-nargs-lt br-if-nargs-gt br-if-npos-gt
+    br-if-true br-if-null br-if-nil br-if-pair br-if-struct br-if-char
+    br-if-tc7
+    br-if-eq br-if-eqv br-if-equal
+    br-if-= br-if-< br-if-<= br-if-logtest))
+
+(define *non-procedural-ops*
+  '(add add1 sub sub1 mul div quo))
+
+(define *label-call-ops*
+  '(call-label tail-call-label))
 
 (define (ensure-program-addr program-or-addr)
   (or (and (primitive? program-or-addr)
@@ -236,10 +246,10 @@
                   (program-code ref))))
       program-or-addr))
 
-(define (proc->trace program-or-addr args)
-  (proc->trace* (ensure-program-addr program-or-addr) args))
+(define (program->trace program-or-addr nargs)
+  (program->trace* (ensure-program-addr program-or-addr) nargs))
 
-(define (proc->trace* program-or-addr args)
+(define (program->trace* program-or-addr nargs)
   (define (trace-one op trace)
     (define (base-ip)
       (ensure-program-addr program-or-addr))
@@ -254,8 +264,8 @@
                                (not (memq idx undecidable-locals)))
                       (hashq-set! u dst (cons idx undecidable-locals)))))
                 (trace-br-dests trace))
-      ;; (format #t ";;; trace: (~a:~a) local-set! idx=~a, val=~a~%"
-      ;;         (trace-name trace) (trace-ip trace) idx val)
+      (debug 3 ";;; trace: (~a:~a) local-set! idx=~a, val=~a~%"
+             (trace-name trace) (trace-ip trace) idx val)
       (vector-set! (trace-locals trace) idx val))
     (define (offset->addr offset)
       (+ (base-ip) (* 4 (+ (trace-ip trace) offset))))
@@ -282,10 +292,11 @@
     (define (set-caller! proc proc-local nlocals)
       (cond
        ((call? proc)
-        ;; (hashq-set! (trace-callers trace) (trace-ip trace) #f)
-        (let ((retval (call-call proc)))
-          (and retval
-               (hashq-set! (trace-callers trace) (trace-ip trace) retval))))
+        (hashq-set! (trace-callers trace) (trace-ip trace) unknown)
+        ;; (let ((retval (call-call proc)))
+        ;;   (and retval
+        ;;        (hashq-set! (trace-callers trace) (trace-ip trace) retval)))
+        )
        (else
         (hashq-set! (trace-callers trace) (trace-ip trace) proc)))
       (hashq-set! (trace-callee-args trace)
@@ -301,8 +312,8 @@
       (case (car op)
         ((br
           br-if-nargs-ne br-if-nargs-lt br-if-nargs-gt br-if-npos-gt
-          br-if-true br-if-null br-if-nil br-if-pair br-if-struct br-if-char
-          br-if-tc7
+          br-if-true br-if-null br-if-nil br-if-pair br-if-struct
+          br-if-char br-if-tc7
           br-if-eq br-if-eqv br-if-equal
           br-if-= br-if-< br-if-<= br-if-logtest
           call-label tail-call-label)
@@ -365,7 +376,7 @@
         (('return src)
          (nretvals-set! 1))
         (('return-values)
-         (nretvals-set! (- (vector-length (trace-locals trace)) 1)))
+         (nretvals-set! (- (trace-nlocals trace) 1)))
 
         ;; Specialized call stubs
         ;; ----------------------
@@ -377,104 +388,36 @@
         ;; ------------------
 
         (('assert-nargs-ee/locals expected nlocals)
-         (let ((locals (make-vector (+ expected nlocals) *unspecified*)))
-           ;; (when (not (= expected (vector-length args)))
-           ;;   ;; (error "assert-nargs-ee/locals: argument length mismatch"
-           ;;   ;;        (trace-ip trace) expected args)
-           ;;   (format #t "assert-nargs-ee/locals: ~a~%" program-or-addr)
-           ;;   (format #t "  expected ~a, args ~a~%" expected args))
-           (let lp ((n 0))
-             (when (and (< n expected)
-                        (< n (vector-length args)))
-               (vector-set! locals n (vector-ref args n))
-               (lp (+ n 1))))
-           (set-trace-locals! trace locals)))
+         (when (not (= expected nargs))
+           (error "assert-nargs-ee/locals: number of arguments mismatch"
+                  (trace-ip trace) expected nargs))
+         (set-trace-nlocals! trace (+ expected nlocals)))
 
-        (('assert-nargs-ge expected)
-         ;; (when (< (vector-length args) expected)
-         ;;   (error "assert-nargs-ge: argument mismatch" expected))
-         ;; (set-trace-locals! trace args)
-         ;; (format #t ";;; trace: assert-nargs-ge expected=~a~%" expected)
-         ;; (format #t ";;; trace: args=~a~%" args)
-         ;; (set-trace-locals! trace args)
-         (let ((locals (make-vector (+ expected 1))))
-           (let lp ((n 0))
-             (when (and (< n expected)
-                        (< n (trace-nargs trace)))
-               (vector-set! locals n (vector-ref args n))
-               (lp (+ n 1))))
-           ;; (format #t ";;; trace: setting locals to new ~a~%" locals)
-           (set-trace-locals! trace locals))
-
-         ;; (if (< (trace-nargs trace) expected)
-         ;;     (let ((locals (make-vector (+ expected 1))))
-         ;;       (let lp ((n 0))
-         ;;         (when (and (< n expected)
-         ;;                    (< n (trace-nargs trace)))
-         ;;           (vector-set! locals n (vector-ref args n))
-         ;;           (lp (+ n 1))))
-         ;;       (format #t ";;; trace: setting locals to new ~a~%" locals)
-         ;;       (set-trace-locals! trace locals))
-         ;;     (begin
-         ;;       (format #t ";;; trace: setting locals to args ~a~%" args)
-         ;;       (set-trace-locals! trace args)))
-         )
-
-        ;; XXX: Could decide next IP at compile time.
         (('br-if-nargs-ne expected offset)
-         ;; (format #t ";;; br-if-nargs-ne, ip=~a, expected=~a, nargs=~a~%"
-         ;;         (trace-ip trace) expected (trace-nargs trace))
-         (let ((locals (make-vector expected unknown)))
-           (set-trace-locals! trace locals))
-         ;; (when (not (= (trace-nargs trace) expected))
-         ;;   (format #t ";;; br-if-nargs-ne, skipping until ip=~a~%"
-         ;;           (+ (trace-ip trace) offset))
-         ;;   (set-trace-next-ip! trace (+ (trace-ip trace) offset)))
-         )
+         *unspecified*)
 
         (('br-if-nargs-lt expected offset)
-         (let ((locals (make-vector expected unknown)))
-           (set-trace-locals! trace locals))
-         ;; (when (< (trace-nargs trace) expected)
-         ;;   (set-trace-next-ip! trace (+ (trace-ip trace) offset)))
-         )
+         *unspecified*)
 
         (('br-if-nargs-gt expected offset)
-         (let ((locals (make-vector expected unknown)))
-           (set-trace-locals! trace locals))
-         ;; (when (< expected (trace-nargs trace))
-         ;;   (set-trace-next-ip! trace (+ (trace-ip trace) offset)))
-         )
+         *unspecified*)
+
+        (('assert-nargs-ge expected)
+         (when (< nargs expected)
+           (error "assert-nargs-ge: argument mismatch" expected))
+         (set-trace-nlocals! trace nargs))
 
         (('alloc-frame nlocals)
-         (let* ((new-locals (make-vector nlocals unknown))
-                (old-locals (trace-locals trace))
-                (old-length (vector-length old-locals))
-                (nmax (min nlocals old-length)))
-           (let lp ((n 0))
-             (when (< n nmax)
-               (vector-set! new-locals n (vector-ref old-locals n))
-               (lp (+ n 1))))
-           (set-trace-locals! trace new-locals)))
+         *unspecified*)
 
         (('reset-frame nlocals)
-         (let* ((old-locals (trace-locals trace))
-                (old-length (vector-length old-locals)))
-           (when (< old-length nlocals)
-             (let* ((new-locals (make-vector nlocals unknown))
-                    (nmax (min nlocals old-length)))
-               (let lp ((n 0))
-                 (when (< n nmax)
-                   (vector-set! new-locals n (vector-ref old-locals n))
-                   (lp (+ n 1))))
-               (set-trace-locals! trace new-locals)))))
+         (set-trace-nlocals! trace nlocals))
 
         (('bind-rest dst)
-         (let* ((nargs (vector-length args))
-                (lst (let lp ((n (- nargs 1)) (acc '()))
+         (let* ((lst (let lp ((n (- (trace-nlocals trace) 1)) (acc '()))
                        (if (< n dst)
                            acc
-                           (lp (- n 1) (cons (vector-ref args n) acc))))))
+                           (lp (- n 1) (cons (local-ref n) acc))))))
            (local-set! dst lst)))
 
         ;; Branching instructions
@@ -521,7 +464,9 @@
         (('box-ref dst src)
          (let ((var (local-ref src)))
            (and (variable? var)
-                (local-set! dst (variable-ref var)))))
+                (let ((ref (variable-ref var)))
+                  (debug 2 ";;; trace: (box-ref ~a ~a)~%" dst ref)
+                  (local-set! dst (variable-ref var))))))
 
         (('box-set! dst src)
          (variable-set! (local-ref dst) (local-ref src)))
@@ -653,21 +598,6 @@
         ;; Numeric operations
         ;; ------------------
 
-        (('add dst a b)
-         *unspecified*)
-        (('add1 dst src)
-         *unspecified*)
-        (('sub dst a b)
-         *unspecified*)
-        (('sub1 dst src)
-         *unspecified*)
-        (('mul dst a b)
-         *unspecified*)
-        (('div dst a b)
-         *unspecified*)
-        (('quo dst a b)
-         *unspecified*)
-
         ;; Vector related operations will slow down compilation time.
         ;; Though current approach requires book keeping the contents of
         ;; vector, since there is no way to determine whether vector
@@ -708,19 +638,22 @@
                              (local-ref src)))
 
         (_
-         (debug 1 ";;; trace: (~a) Unknown opcode: ~a~%" (trace-ip trace) op)
-         (set-trace-success! trace #f)
-         (trace-escape trace))))
+         (cond
+          ((or (memq (car op) *br-ops*)
+               (memq (car op) *non-procedural-ops*))
+           ;; Ignored.
+           *unspecified*)
+          (else
+           (debug 1 ";;; trace: (~a) Unknown op: ~a~%" (trace-ip trace) op)
+           (set-trace-success! trace #f)
+           (trace-escape trace))))))
 
     ;; Increment IP.
-    (set-trace-ip! trace (+ (trace-ip trace)
-                            (hashq-ref *vm-op-sizes* (car op))))
+    (set-trace-ip! trace (+ (trace-ip trace) (opsize op)))
     trace)
 
   (let ((name (program-name program-or-addr))
         (addr (ensure-program-addr program-or-addr))
-        (prim-op? (and (primitive? program-or-addr)
-                       program-or-addr))
         (free-vars (or (and (program? program-or-addr)
                             (list->vector
                              (program-free-variables program-or-addr)))
@@ -731,7 +664,7 @@
     (let ((result
            (call/ec
             (lambda (escape)
-              (let ((acc (make-trace name args free-vars prim-op? escape)))
+              (let ((acc (make-trace name nargs free-vars escape)))
                 (fold-program-code trace-one acc addr #:raw? #t))))))
       (debug 1 ";;; trace: Finished tracing ~a (~a)~%" name addr)
       (and (trace-success? result) result))))
@@ -740,9 +673,6 @@
 ;;;
 ;;; For control flow graph
 ;;;
-
-(define (opsize op)
-  (hashq-ref *vm-op-sizes* (car op)))
 
 (define (program->entries program)
   (let ((entries (make-hash-table)))
@@ -762,8 +692,5 @@
          (let ((dst (list-ref op (- (length op) 1))))
            (add-entries (+ ip (opsize op)) (+ ip dst)))))
       (+ ip (opsize op)))
-    (fold-program-code parse-one
-                       0
-                       program
-                       #:raw? #t)
+    (fold-program-code parse-one 0 program #:raw? #t)
     entries))
