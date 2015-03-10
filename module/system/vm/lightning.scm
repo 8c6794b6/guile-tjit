@@ -459,7 +459,7 @@ arguments."
     ((_ st1 st2 proc nlocals callee-addr body)
      (let ((args (current-callee-args st1)))
        (cond
-        ((program->trace callee-addr nlocals)
+        ((program->trace callee-addr nlocals args)
          =>
          (lambda (trace)
            (let ((st2 (make-lightning trace
@@ -477,10 +477,7 @@ arguments."
 
 (define-syntax-rule (in-same-procedure? st label)
   (and (<= 0 (+ (lightning-ip st) label))
-       ;; XXX: Should look the last IP of current procedure, too.
-       ;;
-       ;; (<= (+ (lightning-ip st) label) (lightning-ip-end st))
-       ;;
+       ;; XXX: Could look the last IP of current procedure, too.
        ;; Instead, looking for backward jump at the moment.
        (< label 0)))
 
@@ -501,7 +498,7 @@ arguments."
 (define-syntax-rule (define-label l body ...)
   (begin (jit-link l) body ...))
 
-(define-syntax define-vm-br-binary-op
+(define-syntax define-vm-br-arithmetic-op
   (syntax-rules ()
     ((_ (name st a b invert offset)
         fx-op fx-invert-op fl-op fl-invert-op cname)
@@ -952,13 +949,13 @@ arguments."
     (local-ref st b r1))
    (resolve-dst st offset)))
 
-(define-vm-br-binary-op (br-if-< st a b invert offset)
+(define-vm-br-arithmetic-op (br-if-< st a b invert offset)
   jit-bltr jit-bger jit-bltr-d jit-bunltr-d "scm_less_p")
 
-(define-vm-br-binary-op (br-if-<= st a b invert offset)
+(define-vm-br-arithmetic-op (br-if-<= st a b invert offset)
   jit-bler jit-bgtr jit-bler-d jit-bunler-d "scm_leq_p")
 
-(define-vm-br-binary-op (br-if-= st a b invert offset)
+(define-vm-br-arithmetic-op (br-if-= st a b invert offset)
   jit-beqr jit-bner jit-beqr-d jit-bner-d "scm_num_eq_p")
 
 
@@ -1239,10 +1236,12 @@ lightning, with ENTRY as lightning's node to itself."
 lightning, with ENTRY as lightning's node to itself. If TOPLEVEL? is
 true, the compiled result is for top level ."
 
-  (define (assemble-one st ip-x-chunk)
-    (let* ((ip (car ip-x-chunk))
-           (chunk (cdr ip-x-chunk))
-           (op (chunk-op chunk))
+  (define (destination-label st)
+    (hashq-ref (lightning-labels st) (lightning-ip st)))
+
+  (define (assemble-one st ip-x-op)
+    (let* ((ip (car ip-x-op))
+           (op (cdr ip-x-op))
            (instr (car op))
            (args (cdr op)))
       (set-lightning-ip! st ip)
@@ -1251,8 +1250,10 @@ true, the compiled result is for top level ."
         (debug 2 (make-string (lightning-indent st) #\space))
         (debug 2 "~3d: ~a~%" ip op)
         ;; Link if this bytecode intruction is labeled as destination.
-        (cond ((hashq-ref (lightning-labels st) (lightning-ip st))
-               => (lambda (label) (jit-link label))))
+        (cond ((destination-label st)
+               =>
+               (lambda (label)
+                 (jit-link label))))
         (or (and emitter (apply emitter st args))
             (format #t "compile-lightning: VM op not found `~a'~%" instr)))))
 
@@ -1271,7 +1272,7 @@ true, the compiled result is for top level ."
     (debug 1 ";;; compile-lightning: Start compiling ~a (~a)~%" name addr)
     (for-each (lambda (chunk)
                 (assemble-one st chunk))
-              (trace-chunks->alist (trace-chunks trace)))
+              (reverse (trace-ops trace)))
     (set-lightning-nretvals! st (trace-nretvals (lightning-asm st)))
     (debug 1 ";;; compile-lightning: Finished compiling ~a (~a)~%" name addr)
 
@@ -1416,7 +1417,7 @@ values. Returned value of this procedure is a pointer to scheme value."
                (jit-clear-state)))
            (pointer->scm (thunk))))))
 
-     ((program->trace addr2 (+ (length args) 1))
+     ((program->trace addr2 (+ (length args) 1) #f)
       =>
       (lambda (trace)
         (with-jit-state

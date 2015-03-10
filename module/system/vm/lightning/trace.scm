@@ -37,12 +37,9 @@
   #:autoload (system vm lightning) (call-lightning)
   #:export (program->trace
             make-trace trace? trace-ip trace-name trace-nargs
-            trace-free-vars trace-chunks trace-labeled-ips
+            trace-free-vars trace-ops trace-labeled-ips
             trace-callers trace-callee-args
             trace-locals trace-nretvals
-            trace-chunks->alist
-
-            make-chunk chunk? chunk-labeled? chunk-dest-ip chunk-op
 
             make-call call? call-program call-args
 
@@ -58,7 +55,7 @@
 ;;;
 
 (define-record-type <trace>
-  (%make-trace name ip nargs free-vars chunks labeled-ips
+  (%make-trace name ip nargs free-vars ops labeled-ips
                callers callee-args nlocals locals nretvals
                undecidables br-dests next-ip success escape)
   trace?
@@ -75,8 +72,8 @@
   ;; Vector containing free-vars.
   (free-vars trace-free-vars)
 
-  ;; Hash table with key=ip, value=trace-chunk.
-  (chunks trace-chunks)
+  ;; List of VM ops, car=IP, cdr=op.
+  (ops trace-ops set-trace-ops!)
 
   ;; List of ips referred as label destination.
   (labeled-ips trace-labeled-ips set-trace-labeled-ips!)
@@ -114,10 +111,10 @@
   ;; Escape.
   (escape trace-escape))
 
-(define* (make-trace name nargs free-vars escape
+(define* (make-trace name args nargs free-vars escape
                      #:optional
                      (ip 0)
-                     (chunks (make-hash-table))
+                     (ops '())
                      (labeled-ips '())
                      (callers (make-hash-table))
                      (callee-args (make-hash-table))
@@ -127,17 +124,14 @@
                      (undecidables (make-hash-table))
                      (br-dests '())
                      (next-ip #f))
-  (%make-trace name ip nargs free-vars chunks labeled-ips
+  (when args
+    (let lp ((n (- (vector-length args) 1)))
+      (when (< 0 n)
+        (vector-set! locals n (vector-ref args n))
+        (lp (- n 1)))))
+  (%make-trace name ip nargs free-vars ops labeled-ips
                callers callee-args nlocals locals nretvals
                undecidables br-dests next-ip #t escape))
-
-(define-record-type <chunk>
-  (make-chunk dest-ip op)
-  chunk?
-  ;; Bytecode ip of destination, or #f.
-  (dest-ip chunk-dest-ip)
-  ;; Bytecode VM operation.
-  (op chunk-op))
 
 (define unknown 'unknown)
 (define (unknown? obj) (eq? 'unknown obj))
@@ -194,12 +188,6 @@
              (error "sparse-vector-set!: index out of range" k)))
         (else *unspecified*)))
 
-(define (trace-chunks->alist chunks)
-  (sort (hash-fold (lambda (k v acc) (cons (cons k v) acc))
-                   '()
-                   chunks)
-        (lambda (a b) (< (car a) (car b)))))
-
 ;; Hash table containing size of bytecodes, in byte.
 (define *vm-op-sizes* (make-hash-table))
 
@@ -246,10 +234,13 @@
                   (program-code ref))))
       program-or-addr))
 
-(define (program->trace program-or-addr nargs)
-  (program->trace* (ensure-program-addr program-or-addr) nargs))
+(define (program->trace program-or-addr nargs args)
+  "Make trace from PROGRAM-OR-ADDR and NARGS. If ARGS is not #f and a
+vector containing arguments, assign initial locals from contents of
+vector."
+  (program->trace* (ensure-program-addr program-or-addr) nargs args))
 
-(define (program->trace* program-or-addr nargs)
+(define (program->trace* program-or-addr nargs args)
   (define (trace-one op trace)
     (define (base-ip)
       (ensure-program-addr program-or-addr))
@@ -264,8 +255,12 @@
                                (not (memq idx undecidable-locals)))
                       (hashq-set! u dst (cons idx undecidable-locals)))))
                 (trace-br-dests trace))
-      (debug 3 ";;; trace: (~a:~a) local-set! idx=~a, val=~a~%"
-             (trace-name trace) (trace-ip trace) idx val)
+      (let ((verbosity (lightning-verbosity)))
+        (when (and verbosity
+                   (<= 2 verbosity)
+                   (not (unknown? val)))
+          (format #t ";;; trace: (~a:~a) local-set! idx=~a, val=~a~%"
+                  (trace-name trace) (trace-ip trace) idx val)))
       (vector-set! (trace-locals trace) idx val))
     (define (offset->addr offset)
       (+ (base-ip) (* 4 (+ (trace-ip trace) offset))))
@@ -286,37 +281,32 @@
           (and obj-proc
                (apply call-lightning
                       obj-proc
-                      (map call-call (cdr (vector->list (call-args obj))))))))
+                      (map call-call
+                           (cdr (vector->list (call-args obj))))))))
        (else
         obj)))
     (define (set-caller! proc proc-local nlocals)
       (cond
        ((call? proc)
-        (hashq-set! (trace-callers trace) (trace-ip trace) unknown)
         ;; (let ((retval (call-call proc)))
         ;;   (and retval
         ;;        (hashq-set! (trace-callers trace) (trace-ip trace) retval)))
-        )
+        (hashq-set! (trace-callers trace) (trace-ip trace) unknown))
        (else
+        (debug 2 ";;; trace: (~a:~a) setting callee to ~a~%"
+               (trace-name trace) (trace-ip trace) proc)
         (hashq-set! (trace-callers trace) (trace-ip trace) proc)))
       (hashq-set! (trace-callee-args trace)
                   (trace-ip trace)
                   (locals->args proc-local nlocals)))
-    (define (set-caller/callee! proc proc-local nlocals)
-      (set-caller! proc proc-local nlocals))
 
     ;; (debug 2 ";;; ~3d: ~a~%" (trace-ip trace) op)
 
     ;; Resolve label destinations.
     (let ((dst #f))
-      (case (car op)
-        ((br
-          br-if-nargs-ne br-if-nargs-lt br-if-nargs-gt br-if-npos-gt
-          br-if-true br-if-null br-if-nil br-if-pair br-if-struct
-          br-if-char br-if-tc7
-          br-if-eq br-if-eqv br-if-equal
-          br-if-= br-if-< br-if-<= br-if-logtest
-          call-label tail-call-label)
+      (cond
+        ((or (memq (car op) *br-ops*)
+             (memq (car op) *label-call-ops*))
          (let* ((offset (list-ref op (- (length op) 1)))
                 (dest (+ (trace-ip trace) offset)))
            (when (< 0 offset)
@@ -333,7 +323,8 @@
                (set-trace-br-dests! trace (cons dest (trace-br-dests trace)))))
            (set-trace-labeled-ips! trace (cons dest (trace-labeled-ips trace)))
            (set! dst dest))))
-      (hashq-set! (trace-chunks trace) (trace-ip trace) (make-chunk dst op)))
+      (set-trace-ops! trace (cons (cons (trace-ip trace) op)
+                                  (trace-ops trace))))
 
     ;; Set undecidable locals if IP is destination of branch
     ;; instruction.
@@ -356,19 +347,20 @@
         ;; ---------------
 
         (('call proc nlocals)
-         (set-caller/callee! (local-ref proc) proc nlocals)
+         (set-caller! (local-ref proc) proc nlocals)
          (local-set! (+ proc 1) (make-call (local-ref proc)
                                            (locals->args proc nlocals))))
         (('tail-call nlocals)
-         (set-caller/callee! (local-ref 0) 0 nlocals)
-         (local-set! 1 (make-call 0 (locals->args 0 nlocals))))
+         (set-caller! (local-ref 0) 0 nlocals)
+         (local-set! 1 (make-call (local-ref 0) (locals->args 0 nlocals))))
         (('call-label proc nlocals target)
-         (set-caller/callee! (offset->addr target) proc nlocals)
+         (set-caller! (offset->addr target) proc nlocals)
          (local-set! (+ proc 1) (make-call (local-ref proc)
                                            (locals->args proc nlocals))))
         (('tail-call-label nlocals target)
-         (set-caller/callee! (offset->addr target) 0 nlocals)
-         (local-set! 1 (make-call 0 (locals->args 0 nlocals))))
+         (set-caller! (offset->addr target) 0 nlocals)
+         (local-set! 1 (make-call (offset->addr target)
+                                  (locals->args 0 nlocals))))
         (('receive dst proc nlocals)
          (local-set! dst (local-ref (+ proc 1))))
         (('receive-values proc allow-extra? nvalues)
@@ -465,11 +457,12 @@
          (let ((var (local-ref src)))
            (and (variable? var)
                 (let ((ref (variable-ref var)))
-                  (debug 2 ";;; trace: (box-ref ~a ~a)~%" dst ref)
                   (local-set! dst (variable-ref var))))))
 
         (('box-set! dst src)
-         (variable-set! (local-ref dst) (local-ref src)))
+         (let ((var (local-ref dst)))
+           (and (variable? var)
+                (variable-set! (local-ref dst) (local-ref src)))))
 
         (('make-closure dst offset nfree)
          (local-set! dst (make-closure (offset->addr offset)
@@ -477,23 +470,25 @@
 
         (('free-ref dst src idx)
          (let ((p (local-ref src)))
-           (cond ((and (program? p)
-                       (< idx (program-num-free-variables p)))
-                  (local-set! dst (program-free-variable-ref p idx)))
-                 ((closure? p)
-                  (local-set! dst (vector-ref (closure-free-vars p) idx)))
-                 (else
-                  ;; (local-set! dst *unspecified*)
-                  (local-set! dst runtime-call)))))
+           (cond
+            ((and (program? p)
+                  (< idx (program-num-free-variables p)))
+             (local-set! dst (program-free-variable-ref p idx)))
+            ((closure? p)
+             (local-set! dst (vector-ref (closure-free-vars p) idx)))
+            (else
+             ;; (local-set! dst *unspecified*)
+             (local-set! dst runtime-call)))))
 
         (('free-set! dst src idx)
          (let ((p (local-ref dst)))
-           (cond ((program? p)
-                  (program-free-variable-set! p idx (local-ref src)))
-                 ((closure? p)
-                  (vector-set! (closure-free-vars p) idx (local-ref src)))
-                 (else
-                  (local-set! dst runtime-call)))))
+           (cond
+            ((program? p)
+             (program-free-variable-set! p idx (local-ref src)))
+            ((closure? p)
+             (vector-set! (closure-free-vars p) idx (local-ref src)))
+            (else
+             (local-set! dst runtime-call)))))
 
         ;; Immediates and staticaly allocated non-immediates
         ;; -------------------------------------------------
@@ -664,7 +659,7 @@
     (let ((result
            (call/ec
             (lambda (escape)
-              (let ((acc (make-trace name nargs free-vars escape)))
+              (let ((acc (make-trace name args nargs free-vars escape)))
                 (fold-program-code trace-one acc addr #:raw? #t))))))
       (debug 1 ";;; trace: Finished tracing ~a (~a)~%" name addr)
       (and (trace-success? result) result))))
@@ -675,6 +670,7 @@
 ;;;
 
 (define (program->entries program)
+  "Create hash-table containing key=entry IP, val=#t from PROGRAM."
   (let ((entries (make-hash-table)))
     (define (add-entries . ips)
       (for-each (lambda (ip)
