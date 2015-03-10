@@ -171,23 +171,23 @@
 (define-test (return-builtin-apply) ()
   apply)
 
-;; (define-test (t-apply-a f a b rest) (+ 1 2 '(3 4 5))
-;;   (+ 100 (apply f a b rest)))
+(define-test (t-apply-a f a b rest) (+ 1 2 '(3 4 5))
+  (+ 100 (apply f a b rest)))
 
-;; (define-test (t-apply-b f a b rest) (+ 1 2 '())
-;;   (+ 100 (apply f a b rest)))
+(define-test (t-apply-b f a b rest) (+ 1 2 '())
+  (+ 100 (apply f a b rest)))
 
-;; (define-test (t-apply-c f rest) (+ '(1 2 3 4 5))
-;;   (+ 100 (apply f rest)))
+(define-test (t-apply-c f rest) (+ '(1 2 3 4 5))
+  (+ 100 (apply f rest)))
 
-;; (define-test (t-apply-tail-a f a b rest) (+ 1 2 '(3 4 5))
-;;   (apply f a b rest))
+(define-test (t-apply-tail-a f a b rest) (+ 1 2 '(3 4 5))
+  (apply f a b rest))
 
-;; (define-test (t-apply-tail-b f a b rest) (+ 1 2 '())
-;;   (apply f a b rest))
+(define-test (t-apply-tail-b f a b rest) (+ 1 2 '())
+  (apply f a b rest))
 
-;; (define-test (t-apply-tail-c f rest) (+ '(1 2 3 4 5))
-;;   (apply f rest))
+(define-test (t-apply-tail-c f rest) (+ '(1 2 3 4 5))
+  (apply f rest))
 
 (define-test (return-builtin-values) ()
   values)
