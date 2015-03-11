@@ -20,7 +20,7 @@
 
 ;;; Commentary:
 
-;;; Bytecode -> native code with lightning.
+;;; JIT compiler from bytecode to native code with lightning.
 
 ;;; Code:
 
@@ -39,9 +39,9 @@
   #:use-module (system vm vm)
   #:export (compile-lightning
             call-lightning c-call-lightning
-            get-native-code set-native-code! *native-code*
-            native-proc jit-code-guardian)
+            jit-code-guardian)
   #:re-export (lightning-verbosity))
+
 
 ;;;
 ;;; Auxiliary
@@ -135,7 +135,6 @@
 
 (define-syntax-rule (reg-retval) v1)
 
-(define-syntax-rule (reg-nlocals) v2)
 
 ;;;
 ;;; VM op syntaxes
@@ -256,11 +255,17 @@ argument in VM operation."
 (define-syntax-rule (c-pointer name)
   (dynamic-func name (dynamic-link)))
 
+;;; XXX: Use register for current thread. Otherwise,
+;;; `call-with-new-thread' will not work. The thread used at compile
+;;; time will be used in later calls every time,
+
 (define-syntax-rule (thread-dynstack st)
   (imm (+ (pointer-address (lightning-thread st)) #xd8)))
 
 (define-syntax-rule (thread-pending-asyncs st)
   (imm (+ (pointer-address (lightning-thread st)) #x104)))
+
+;;;
 
 ;; XXX: Add pre and post as in vm-engine.c?
 (define-syntax-rule (vm-handle-interrupts st)
@@ -324,15 +329,11 @@ argument in VM operation."
     (when rest
       (jit-pushargr r1))
     (jit-calli (program-free-variable-ref primitive 0))
-    (jit-retval (reg-retval))
-    ;; (jit-retval r0)
-    ;; (jit-stxi (stored-ref st (+ proc 1)) (jit-fp) r0)
-    ))
+    (jit-retval (reg-retval))))
 
 (define-syntax-rule (call-scm st proc-or-addr)
   (let* ((addr (ensure-program-addr proc-or-addr))
          (callee (hashq-ref (lightning-nodes st) addr)))
-    (vm-handle-interrupts st)
     (jit-patch-at (jit-jmpi) callee)))
 
 (define-syntax-rule (current-callee st)
@@ -388,9 +389,7 @@ argument in VM operation."
       ;; XXX: Using guardian.
       (jit-code-guardian proc*)
       (jit-calli proc*))
-    (jit-retval (reg-retval))
-    ;; (local-set! st (+ proc 1) r0)
-    ))
+    (jit-retval (reg-retval))))
 
 (define-syntax call-local
   (syntax-rules ()
@@ -407,7 +406,6 @@ argument in VM operation."
 
        ;; Has compiled code.
        (jit-ldxi r1 (local-ref st proc) (imm (* (sizeof '*) 2)))
-       ;; (with-frame st proc (jit-jmpr r1))
        expr
        (jit-patch-at (jit-jmpi) l2)
 
@@ -435,12 +433,7 @@ arguments."
                 (jit-pushargr (local-ref st (+ proc n))))
               (iota nlocals))
     (jit-calli proc*)
-
-    ;; XXX: Modify to receive multiple values. Need to store number of
-    ;; return values in register.
-    (jit-retval (reg-retval))
-
-    (local-set! st (+ proc 1) r0)))
+    (jit-retval (reg-retval))))
 
 (define-syntax compile-callee
   (syntax-rules (compile-lightning* with-frame)
@@ -476,9 +469,9 @@ arguments."
          (call-runtime st1 proc nlocals)))))))
 
 (define-syntax-rule (in-same-procedure? st label)
+  ;; XXX: Could look the last IP of current procedure.  Instead, looking
+  ;; for backward jump at the moment.
   (and (<= 0 (+ (lightning-ip st) label))
-       ;; XXX: Could look the last IP of current procedure, too.
-       ;; Instead, looking for backward jump at the moment.
        (< label 0)))
 
 (define-syntax-rule (recursion? st proc)
@@ -490,6 +483,7 @@ arguments."
   (let lp ((n (- (vector-length v) 1)))
     (cond ((< n 1) #t)
           ((procedure? (vector-ref v n)) #f)
+          ;; ((unknown? (vector-ref v n)) #f)
           (else (lp (- n 1))))))
 
 (define-syntax-rule (compiled-node st addr)
@@ -497,6 +491,32 @@ arguments."
 
 (define-syntax-rule (define-label l body ...)
   (begin (jit-link l) body ...))
+
+(define-syntax define-vm-br-unary-immediate-op
+  (syntax-rules ()
+    ((_ (name st a invert offset) expr)
+     (define-vm-op (name st a invert offset)
+       (when (< offset 0)
+         (vm-handle-interrupts st))
+       (jit-patch-at expr (resolve-dst st offset))))))
+
+(define-syntax define-vm-br-unary-heap-object-op
+  (syntax-rules ()
+    ((_ (name st a invert offset) reg expr)
+     (define-vm-op (name st a invert offset)
+       (when (< offset 0)
+         (vm-handle-interrupts st))
+       (let ((l1 (jit-forward)))
+         (local-ref st a reg)
+         (jit-patch-at (jit-bmsi reg (imm 6))
+                       (if invert (resolve-dst st offset) l1))
+         (jit-ldr reg reg)
+         (jit-patch-at expr
+                       (if invert (resolve-dst st offset) l1))
+         ;; XXX: Any other way?
+         (when (not invert)
+           (jit-patch-at (jit-jmpi) (resolve-dst st offset)))
+         (jit-link l1))))))
 
 (define-syntax define-vm-br-arithmetic-op
   (syntax-rules ()
@@ -729,9 +749,11 @@ arguments."
 ;;; Call and return
 ;;; ---------------
 
-;; XXX: Ensure enough space allocated for nlocals? How?
+;;; XXX: Ensure enough space allocated for nlocals? How?
+
 (define-vm-op (call st proc nlocals)
   (save-locals st)
+  (vm-handle-interrupts st)
   (let ((callee (current-callee st)))
     (debug 1 ";;; call: callee=~a (~a)~%"
            callee (and (program? callee) (program-code callee)))
@@ -757,13 +779,17 @@ arguments."
       =>
       (lambda (node)
         (with-frame st proc (jit-patch-at (jit-jmpi) node))))
+
+     ;; XXX: Will inlined procedure work when the procedure redefined?
      ((procedure? callee)
       (compile-callee st proc nlocals (ensure-program-addr callee) #f))
+
      (else
       (call-local st proc nlocals #f)))))
 
 (define-vm-op (call-label st proc nlocals label)
   (save-locals st)
+  (vm-handle-interrupts st)
   (let ((addr (offset-addr st label)))
     (cond
      ((in-same-procedure? st label)
@@ -777,6 +803,7 @@ arguments."
 
 (define-vm-op (tail-call st nlocals)
   (save-locals st)
+  (vm-handle-interrupts st)
   (let ((callee (current-callee st)))
     (debug 1  ";;; tail-call: callee=~a (~a)~%"
            callee (and (program? callee) (program-code callee)))
@@ -815,6 +842,7 @@ arguments."
 
 (define-vm-op (tail-call-label st nlocals label)
   (save-locals st)
+  (vm-handle-interrupts st)
   (cond
    ((in-same-procedure? st label)
     (jit-patch-at (jit-jmpi) (resolve-dst st label)))
@@ -825,26 +853,20 @@ arguments."
    (else
     (compile-callee st 0 nlocals (offset-addr st label) #t))))
 
-;; Return value stored in local-ref (proc + 1) by callee. Local variable not
-;; resolved at compile time.
+;; Return value stored in reg-retval by callee.
 (define-vm-op (receive st dst proc nlocals)
   (cache-locals st (lightning-nargs st))
   ;; (cache-locals st nlocals)
-  (local-set! st dst (reg-retval))
-  ;; (local-set! st dst (local-ref st (+ proc 1)))
-  )
+  (local-set! st dst (reg-retval)))
 
 (define-vm-op (receive-values st proc allow-extra? nvalues)
   (save-locals st))
 
 (define-vm-op (return st dst)
   (local-ref st dst (reg-retval))
-  ;; Store dst to local-ref 1
-  ;; (jit-stxi (stored-ref st 1) (jit-fp) (local-ref st dst))
   (return-jmp st))
 
 (define-vm-op (return-values st)
-  (vm-handle-interrupts st)
   (save-locals st)
   (return-jmp st))
 
@@ -865,21 +887,27 @@ arguments."
 
 (define-vm-op (br-if-nargs-ne st expected offset)
   (when (not (= (lightning-nargs st) expected))
-    (jit-patch-at (jit-jmpi) (resolve-dst st offset)))
-  (vm-handle-interrupts st))
+    (jit-patch-at (jit-jmpi) (resolve-dst st offset))))
 
 ;; XXX: Move stack pointer, call jit-allocai when necessary.
 (define-vm-op (assert-nargs-ee/locals st expected locals)
-  (cache-locals st (+ expected locals))
-  (vm-handle-interrupts st))
+  (cache-locals st (+ expected locals)))
+
+(define-vm-op (assert-nargs-le st expected)
+  ;; (vm-handle-interrupts st)
+  *unspecified*)
 
 (define-vm-op (assert-nargs-ge st expected)
-  (vm-handle-interrupts st))
+  ;; (vm-handle-interrupts st)
+  *unspecified*)
 
-;; XXX: Does nothing.
 (define-vm-op (alloc-frame st nlocals)
   ;; (cache-locals st (lightning-nargs st))
-  *unspecified*)
+  (let ((nargs (lightning-nargs st)))
+    (for-each
+     (lambda (n)
+       (local-set-immediate! st (+ nargs n) (undefined)))
+     (iota (- nlocals nargs)))))
 
 ;; XXX: Modify to manage (jit-fp) with absolute value of nlocal?
 ;;
@@ -910,25 +938,31 @@ arguments."
     (vm-handle-interrupts st))
   (jit-patch-at (jit-jmpi) (resolve-dst st dst)))
 
-(define-vm-op (br-if-true st a invert offset)
-  (when (< offset 0)
-    (vm-handle-interrupts st))
-  (jit-patch-at
-   ((if invert jit-beqi jit-bnei)
-    (local-ref st a)
-    (scm->pointer #f))
-   (resolve-dst st offset)))
+(define-vm-br-unary-immediate-op (br-if-true st a invert offset)
+  ((if invert jit-beqi jit-bnei) (local-ref st a) (scm->pointer #f)))
 
-(define-vm-op (br-if-null st a invert offset)
-  (when (< offset 0)
-    (vm-handle-interrupts st))
-  (jit-patch-at
-   ((if invert jit-bnei jit-beqi)
-    (local-ref st a)
-    (scm->pointer '()))
-   (resolve-dst st offset)))
+(define-vm-br-unary-immediate-op (br-if-null st a invert offset)
+  ((if invert jit-bnei jit-beqi) (local-ref st a) (scm->pointer '())))
 
-(define-vm-op (br-if-pair st a invert offset)
+;; XXX: br-if-nil
+
+(define-vm-br-unary-heap-object-op (br-if-pair st a invert offset)
+  r0
+  (jit-bmsi r0 (imm 1)))
+
+(define-vm-br-unary-heap-object-op (br-if-struct st a invert offset)
+  r0
+  (begin (jit-andi r0 r0 (imm 7))
+         (jit-bnei r0 (imm 1))))
+
+(define-vm-br-unary-immediate-op (br-if-char st a invert offset)
+  ((if invert jit-bnei jit-beqi)
+   (begin (local-ref st a r0)
+          (jit-andi r0 r0 (imm #xff))
+          r0)
+   (imm 12)))
+
+(define-vm-op (br-if-tc7 st a invert tc7 offset)
   (when (< offset 0)
     (vm-handle-interrupts st))
   (let ((l1 (jit-forward)))
@@ -936,18 +970,47 @@ arguments."
     (jit-patch-at (jit-bmsi r0 (imm 6))
                   (if invert (resolve-dst st offset) l1))
     (jit-ldr r0 r0)
-    (jit-patch-at (jit-bmsi r0 (imm 1))
+    (jit-patch-at (begin (jit-andi r0 r0 (imm #x7f))
+                         (jit-bnei r0 (imm tc7)))
                   (if invert (resolve-dst st offset) l1))
     (when (not invert)
       (jit-patch-at (jit-jmpi) (resolve-dst st offset)))
     (jit-link l1)))
 
 (define-vm-op (br-if-eq st a b invert offset)
+  (when (< offset 0)
+    (vm-handle-interrupts st))
   (jit-patch-at
    ((if invert jit-bner jit-beqr)
     (local-ref st a r0)
     (local-ref st b r1))
    (resolve-dst st offset)))
+
+(define-vm-op (br-if-eqv st a b invert offset)
+  (when (< offset 0)
+    (vm-handle-interrupts st))
+  (let ((l1 (jit-forward)))
+    (local-ref st a r0)
+    (local-ref st b r1)
+    (jit-patch-at
+     (jit-beqr r0 r1)
+     (if invert l1 (resolve-dst st offset)))
+
+    (jit-prepare)
+    (jit-pushargr r0)
+    (jit-pushargr r1)
+    (jit-calli (c-pointer "scm_eqv_p"))
+    (jit-retval r0)
+
+    (jit-patch-at
+     (jit-beqi r0 (scm->pointer #f))
+     (if invert (resolve-dst st offset) l1))
+    (when (not invert)
+      (jit-patch-at (jit-jmpi) (resolve-dst st offset)))
+
+    (jit-link l1)))
+
+;; XXX: br-if-equal
 
 (define-vm-br-arithmetic-op (br-if-< st a b invert offset)
   jit-bltr jit-bger jit-bltr-d jit-bunltr-d "scm_less_p")
@@ -1100,6 +1163,7 @@ arguments."
   (jit-retval r0)
   (local-set! st dst r0))
 
+
 ;;; Pairs
 ;;; -----
 
@@ -1190,7 +1254,7 @@ arguments."
   (local-ref st idx r1)
   (jit-rshi r1 r1 (imm 2))
   (jit-addi r1 r1 (imm 1))
-  (jit-muli r1 r1 (imm 8))
+  (jit-muli r1 r1 (imm (sizeof '*)))
   (jit-ldxr r0 r0 r1)
   (local-set! st dst r0))
 
@@ -1205,7 +1269,7 @@ arguments."
   (local-ref st src r2)
   (jit-rshi r1 r1 (imm 2))
   (jit-addi r1 r1 (imm 1))
-  (jit-muli r1 r1 (imm 8))
+  (jit-muli r1 r1 (imm (sizeof '*)))
   (jit-stxr r1 r0 r2))
 
 (define-vm-op (vector-set!/immediate st dst idx src)
@@ -1370,10 +1434,7 @@ values. Returned value of this procedure is a pointer to scheme value."
     ;; number of values > 1.
     (cond
      ((= nretvals 1)
-      (jit-retr (reg-retval))
-      ;; (jit-ldxi r0 (jit-fp) (offset->addr 4))
-      ;; (jit-retr r0)
-      )
+      (jit-retr (reg-retval)))
      (else
       (jit-prepare)
       (jit-movi r1 (offset->addr 4))
@@ -1481,7 +1542,7 @@ values. Returned value of this procedure is a pointer to scheme value."
           (lambda () (apply proc args))
           (lambda () (set-vm-engine! engine))))))))
 
-;; This procedure is called from C function `vm_lightning'.
+;;; This procedure is called from C function `vm_lightning'.
 (define (vm-lightning thread fp registers nargs resume)
   (let* ((addr->scm
           (lambda (addr)

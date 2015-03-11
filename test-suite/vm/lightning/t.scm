@@ -238,6 +238,51 @@
 (define-test (t-if-pair-non-immediate x) ((lambda () 'no))
   (pair? x))
 
+(define-test (t-if-struct x) ((make-object-property))
+  (struct? x))
+
+(define-test (t-if-struct-immediate x) (1)
+  (struct? x))
+
+(define-test (t-if-struct-heap-object x) ((vector 1 2 3))
+  (struct? x))
+
+(define-test (t-if-char x) (#\a)
+  (char? x))
+
+(define-test (t-if-char-immediate x) (103)
+  (char? x))
+
+(define-test (t-if-char-heap-object x) ((vector 1 2 3))
+  (char? x))
+
+(define v01 (vector 1 2 3))
+
+(define-test (t-if-tc7-vector x) (v01)
+  (vector? x))
+
+(define-test (t-if-tc7-vector-immediate x) (123)
+  (vector? x))
+
+(define-test (t-if-tc7-vector-heap-object x) ('(1 2 3))
+  (vector? x))
+
+(define-test (t-if-tc7-string x) ("foo bar buzz")
+  (string? x))
+
+(define-test (t-if-tc7-string-immediate x) (123)
+  (string? x))
+
+(define-test (t-if-tc7-string-heap-object x) ('(1 2 3))
+  (string? x))
+
+(define-test (t-eqv? a b) (2.13 2.13)
+  (eqv? a b))
+
+(define-test (t-eqv? a b) (2.14 2.13)
+  (eqv? a b))
+
+
 (define-test (t-if-zero x) (0)
   (zero? x))
 

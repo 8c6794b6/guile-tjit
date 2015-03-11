@@ -46,7 +46,7 @@
             make-closure closure? closure-addr closure-free-vars
 
             builtin? builtin-name
-            constant?
+            unknown?
 
             ensure-program-addr))
 
@@ -381,8 +381,11 @@ vector."
 
         (('assert-nargs-ee/locals expected nlocals)
          (when (not (= expected nargs))
-           (error "assert-nargs-ee/locals: number of arguments mismatch"
-                  (trace-ip trace) expected nargs))
+           ;; (error "trace: assert-nargs-ee/locals, number of arguments mismatch"
+           ;;        (trace-ip trace) expected nargs)
+           (format #t "trace: (~a:~a) assert-nargs-ee/locals: expected ~a, got ~a~%"
+                   (trace-name trace) (trace-ip trace) expected nargs)
+           )
          (set-trace-nlocals! trace (+ expected nlocals)))
 
         (('br-if-nargs-ne expected offset)
@@ -394,13 +397,23 @@ vector."
         (('br-if-nargs-gt expected offset)
          *unspecified*)
 
+        (('assert-nargs-ee expected)
+         (when (not (= nargs expected))
+           (error "assert-nargs-ee: argument mismatch" expected))
+         (set-trace-nlocals! trace nargs))
+
         (('assert-nargs-ge expected)
          (when (< nargs expected)
            (error "assert-nargs-ge: argument mismatch" expected))
          (set-trace-nlocals! trace nargs))
 
+        (('assert-nargs-le expected)
+         (when (> nargs expected)
+           (error "assert-nargs-le: argument mismatch" expected))
+         (set-trace-nlocals! trace nargs))
+
         (('alloc-frame nlocals)
-         *unspecified*)
+         (set-trace-nlocals! trace nlocals))
 
         (('reset-frame nlocals)
          (set-trace-nlocals! trace nlocals))
@@ -456,8 +469,7 @@ vector."
         (('box-ref dst src)
          (let ((var (local-ref src)))
            (and (variable? var)
-                (let ((ref (variable-ref var)))
-                  (local-set! dst (variable-ref var))))))
+                (local-set! dst (variable-ref var)))))
 
         (('box-set! dst src)
          (let ((var (local-ref dst)))
@@ -478,7 +490,8 @@ vector."
              (local-set! dst (vector-ref (closure-free-vars p) idx)))
             (else
              ;; (local-set! dst *unspecified*)
-             (local-set! dst runtime-call)))))
+             ;; (local-set! dst runtime-call)
+             (local-set! dst unknown)))))
 
         (('free-set! dst src idx)
          (let ((p (local-ref dst)))
@@ -639,7 +652,8 @@ vector."
            ;; Ignored.
            *unspecified*)
           (else
-           (debug 1 ";;; trace: (~a) Unknown op: ~a~%" (trace-ip trace) op)
+           (debug 1 ";;; trace: (~a:~a) Unknown op: ~a~%"
+                  (trace-name trace) (trace-ip trace) op)
            (set-trace-success! trace #f)
            (trace-escape trace))))))
 
@@ -677,14 +691,10 @@ vector."
                   (hashq-set! entries ip #t))
                 ips))
     (define (parse-one op ip)
-      (case (car op)
-        ((br)
+      (cond (car op)
+        ((= 'br (car op))
          (add-entries (+ (cadr op) ip)))
-        ((br-if-nargs-ne br-if-nargs-lt br-if-nargs-gt br-if-npos-gt
-          br-if-true br-if-null br-if-nil br-if-pair br-if-struct br-if-char
-          br-if-tc7
-          br-if-eq br-if-eqv br-if-equal
-          br-if-= br-if-< br-if-<= br-if-logtest)
+        ((memq (car op) *br-ops*)
          (let ((dst (list-ref op (- (length op) 1))))
            (add-entries (+ ip (opsize op)) (+ ip dst)))))
       (+ ip (opsize op)))
