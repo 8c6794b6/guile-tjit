@@ -26,6 +26,12 @@
              (system vm lightning)
              (system vm vm))
 
+(define-syntax-rule (with-lightning proc . args)
+  (dynamic-wind
+    (lambda () (set-vm-engine! 'lightning))
+    (lambda () (call-with-vm proc . args))
+    (lambda () (set-vm-engine! 'regular))))
+
 ;; Define and run a procedure with guile vm and lightning, and compare the
 ;; results with test-equal.
 (define-syntax define-test
@@ -38,10 +44,7 @@
        (test-equal (symbol->string (procedure-name name))
          (name . args)
          ;; (call-lightning name . args)
-         (dynamic-wind
-           (lambda () (set-vm-engine! 'lightning))
-           (lambda () (call-with-vm name . args))
-           (lambda () (set-vm-engine! 'regular))))))))
+         (with-lightning name . args))))))
 
 (lightning-verbosity #f)
 
@@ -214,6 +217,21 @@
 
 (define-test (t-call-rest-1 x . rest) ('foo + *)
   ((cadr rest) 2 3))
+
+(define* (sum-optional x #:optional (y 0) (z 0))
+  (+ x y z))
+
+(test-equal "t-sum-optional-one"
+            (sum-optional 1)
+            (with-lightning sum-optional 1))
+
+(test-equal "t-sum-optional-two"
+            (sum-optional 1 2)
+            (with-lightning sum-optional 1 2))
+
+(test-equal "t-sum-optional-two"
+            (sum-optional 1 2 3)
+            (with-lightning sum-optional 1 2 3))
 
 ;;; Branching instructions
 

@@ -754,6 +754,7 @@ arguments."
 (define-vm-op (call st proc nlocals)
   (save-locals st)
   (vm-handle-interrupts st)
+  (jit-movi (reg-nargs) (imm nlocals))
   (let ((callee (current-callee st)))
     (debug 1 ";;; call: callee=~a (~a)~%"
            callee (and (program? callee) (program-code callee)))
@@ -790,6 +791,7 @@ arguments."
 (define-vm-op (call-label st proc nlocals label)
   (save-locals st)
   (vm-handle-interrupts st)
+  (jit-movi (reg-nargs) (imm nlocals))
   (let ((addr (offset-addr st label)))
     (cond
      ((in-same-procedure? st label)
@@ -804,6 +806,7 @@ arguments."
 (define-vm-op (tail-call st nlocals)
   (save-locals st)
   (vm-handle-interrupts st)
+  (jit-movi (reg-nargs) (imm nlocals))
   (let ((callee (current-callee st)))
     (debug 1  ";;; tail-call: callee=~a (~a)~%"
            callee (and (program? callee) (program-code callee)))
@@ -843,6 +846,7 @@ arguments."
 (define-vm-op (tail-call-label st nlocals label)
   (save-locals st)
   (vm-handle-interrupts st)
+  (jit-movi (reg-nargs) (imm nlocals))
   (cond
    ((in-same-procedure? st label)
     (jit-patch-at (jit-jmpi) (resolve-dst st label)))
@@ -903,11 +907,28 @@ arguments."
 
 (define-vm-op (alloc-frame st nlocals)
   ;; (cache-locals st (lightning-nargs st))
-  (let ((nargs (lightning-nargs st)))
-    (for-each
-     (lambda (n)
-       (local-set-immediate! st (+ nargs n) (undefined)))
-     (iota (- nlocals nargs)))))
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+
+    (jit-movi r0 (undefined))
+    (jit-movr r1 (reg-nargs))
+
+    (jit-link l1)
+    (jit-patch-at (jit-bgei r1 (imm nlocals)) l2)
+
+    ;; To do similar thing as `stored-ref' in generated code. Using r2
+    ;; as offset of location to store.
+    (jit-movi r2 (imm (lightning-fp st)))
+    (jit-movr r0 r1)
+    (jit-muli r0 r0 (* (imm (sizeof '*))))
+    (jit-subr r2 r2 r0)
+    (jit-movi r0 (undefined))
+    (jit-stxr r2 (jit-fp) r0)
+
+    (jit-addi r1 r1 (imm 1))
+    (jit-patch-at (jit-jmpi) l1)
+
+    (jit-link l2)))
 
 ;; XXX: Modify to manage (jit-fp) with absolute value of nlocal?
 ;;
@@ -1423,7 +1444,11 @@ values. Returned value of this procedure is a pointer to scheme value."
              (jit-movi r0 (scm->pointer (car args)))
              (jit-stxi (offset->addr offset) (jit-fp) r0)
              (lp (cdr args) (+ offset 1))))
+
+         ;; Initialize registers.
          (jit-movi (reg-retval) (scm->pointer *unspecified*))
+         (jit-movi (reg-nargs) (imm (+ (length args) 1)))
+
          expr
 
          ;; Link the return address.
