@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -238,7 +238,7 @@
            (build-cps-term ($continue k src ,(visit-exp exp))))))))
     (define (visit-exp exp)
       (match exp
-        ((or ($ $void) ($ $const) ($ $prim)) exp)
+        ((or ($ $const) ($ $prim)) exp)
         (($ $fun) (visit-fun exp))
         (($ $call proc args)
          (let ((args (map subst args)))

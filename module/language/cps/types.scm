@@ -1276,8 +1276,6 @@ mapping symbols to types."
          (match (lookup-cont k dfg)
            (($ $kargs (_) (var))
             (let ((entry (match exp
-                           (($ $void)
-                            (make-type-entry &unspecified -inf.0 +inf.0))
                            (($ $const val)
                             (constant-type val))
                            ((or ($ $prim) ($ $fun) ($ $closure))

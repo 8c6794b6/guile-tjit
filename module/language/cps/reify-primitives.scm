@@ -139,7 +139,8 @@
                 => (lambda (idx)
                      (builtin-ref idx k src)))
                (else (primitive-ref name k src)))
-              (build-cps-term ($continue k src ($void)))))
+              (build-cps-term ($continue k src
+                                ($const *unspecified*)))))
          (($ $primcall 'call-thunk/no-inline (proc))
           (build-cps-term
             ($continue k src ($call proc ()))))

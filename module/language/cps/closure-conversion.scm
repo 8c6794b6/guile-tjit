@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -119,7 +119,7 @@
             free
             (cons var free)))
       (match exp
-        ((or ($ $void) ($ $const) ($ $prim)) '())
+        ((or ($ $const) ($ $prim)) '())
         (($ $call proc args)
          (for-each clear-well-known! args)
          (fold adjoin (adjoin proc '()) args))
@@ -448,7 +448,7 @@ bound to @var{var}, and continue with @var{body}."
                      src var (well-known? kfun) fun-free
                      body)))))))
 
-        (($ $continue k src (or ($ $void) ($ $const) ($ $prim)))
+        (($ $continue k src (or ($ $const) ($ $prim)))
          term)
 
         (($ $continue k src ($ $fun () ($ $cont kfun)))

@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -294,7 +294,6 @@ could be that both true and false proofs are available."
 
       (define (compute-exp-key exp)
         (match exp
-          (($ $void) 'void)
           (($ $const val) (cons 'const val))
           (($ $prim name) (cons 'prim name))
           (($ $fun free body) #f)
@@ -462,7 +461,7 @@ could be that both true and false proofs are available."
     (define (visit-exp exp)
       ;; We shouldn't see $fun here.
       (rewrite-cps-exp exp
-        ((or ($ $void) ($ $const) ($ $prim)) ,exp)
+        ((or ($ $const) ($ $prim)) ,exp)
         (($ $call proc args)
          ($call (subst-var proc) ,(map subst-var args)))
         (($ $callk k proc args)

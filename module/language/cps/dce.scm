@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -205,7 +205,7 @@
                            (bitvector-set! live-conts n #t)))
                        (when (bitvector-ref live-conts n)
                          (match exp
-                           ((or ($ $void) ($ $const) ($ $prim))
+                           ((or ($ $const) ($ $prim))
                             #f)
                            (($ $fun free body)
                             (visit-fun body))

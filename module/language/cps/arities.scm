@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -61,7 +61,8 @@
                                      ($continue k src
                                        ($primcall 'return (unspec)))))
                           (kvoid ($kargs () ()
-                                   ($continue kunspec src ($void)))))
+                                   ($continue kunspec src
+                                     ($const *unspecified*)))))
                    ($continue kvoid src ,exp)))))
            (($ $kreceive arity kargs)
             ,(match arity
@@ -82,14 +83,15 @@
                                           ($primcall 'values (void)))))
                              (kvoid ($kargs () ()
                                       ($continue kvalues src
-                                        ($void)))))
+                                        ($const *unspecified*)))))
                       ($continue kvoid src ,exp)))))))
            (($ $kargs () () _)
             ($continue k src ,exp))
            (_
             ,(let-fresh (k*) ()
                (build-cps-term
-                 ($letk ((k* ($kargs () () ($continue k src ($void)))))
+                 ($letk ((k* ($kargs () () ($continue k src
+                                             ($const *unspecified*)))))
                    ($continue k* src ,exp)))))))
         (1
          (rewrite-cps-term (lookup-cont k dfg)
@@ -134,8 +136,7 @@
 
     (define (visit-exp k src exp)
       (rewrite-cps-term exp
-        ((or ($ $void)
-             ($ $const)
+        ((or ($ $const)
              ($ $prim)
              ($ $values (_)))
          ,(adapt-exp 1 k src exp))

@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -452,7 +452,7 @@ are comparable with eqv?.  A tmp slot may be used."
                 ;; are finished with the scan, we kill uses of the
                 ;; terminator, but leave its definitions.
                 (match (find-expression body)
-                  ((or ($ $void) ($ $const) ($ $prim) ($ $closure)
+                  ((or ($ $const) ($ $prim) ($ $closure)
                        ($ $primcall) ($ $prompt)
                        ;; If $values has more than one argument, it may
                        ;; use a temporary, which would invalidate our

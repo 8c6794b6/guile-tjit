@@ -135,8 +135,6 @@
 
   (define (visit-expression exp k-env v-env)
     (match exp
-      (($ $void)
-       #t)
       (($ $const val)
        #t)
       (($ $prim (? symbol? name))

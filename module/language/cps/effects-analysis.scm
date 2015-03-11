@@ -441,7 +441,7 @@ is or might be a read or a write to the same location as A."
 
 (define (expression-effects exp dfg)
   (match exp
-    ((or ($ $void) ($ $const) ($ $prim) ($ $values))
+    ((or ($ $const) ($ $prim) ($ $values))
      &no-effects)
     (($ $fun)
      (&allocate &unknown-memory-kinds))

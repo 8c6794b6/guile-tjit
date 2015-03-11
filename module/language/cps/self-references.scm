@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -56,7 +56,7 @@
 
   (define (visit-exp exp)
     (rewrite-cps-exp exp
-      ((or ($ $void) ($ $const) ($ $prim)) ,exp)
+      ((or ($ $const) ($ $prim)) ,exp)
       (($ $fun free body)
        ($fun free ,(resolve-self-references body env)))
       (($ $call proc args)

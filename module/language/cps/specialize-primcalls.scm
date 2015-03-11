@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -73,7 +73,7 @@
               ($letk ((k* ($kargs ('val) (val)
                             ($continue k src ($primcall 'values (val)))))
                       (kvoid ($kargs () ()
-                               ($continue k* src ($void)))))
+                               ($continue k* src ($const *unspecified*)))))
                 ($continue kvoid src exp)))))
         (define-syntax-rule (adapt-val exp)
           (let-fresh (k*) (val)

@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -122,7 +122,7 @@
             $kreceive $kargs $kfun $ktail $kclause
 
             ;; Expressions.
-            $void $const $prim $fun $closure $branch
+            $const $prim $fun $closure $branch
             $call $callk $primcall $values $prompt
 
             ;; First-order CPS root.
@@ -188,7 +188,6 @@
 (define-cps-type $kclause arity cont alternate)
 
 ;; Expressions.
-(define-cps-type $void)
 (define-cps-type $const val)
 (define-cps-type $prim name)
 (define-cps-type $fun free body) ; Higher-order.
@@ -264,10 +263,9 @@
 
 (define-syntax build-cps-exp
   (syntax-rules (unquote
-                 $void $const $prim $fun $closure $branch
+                 $const $prim $fun $closure $branch
                  $call $callk $primcall $values $prompt)
     ((_ (unquote exp)) exp)
-    ((_ ($void)) (make-$void))
     ((_ ($const val)) (make-$const val))
     ((_ ($prim name)) (make-$prim name))
     ((_ ($fun free body)) (make-$fun free (build-cps-cont body)))
@@ -380,8 +378,6 @@
     ;; Calls.
     (('continue k exp)
      (build-cps-term ($continue k (src exp) ,(parse-cps exp))))
-    (('void)
-     (build-cps-exp ($void)))
     (('const exp)
      (build-cps-exp ($const exp)))
     (('prim name)
@@ -441,8 +437,6 @@
     ;; Calls.
     (($ $continue k src exp)
      `(continue ,k ,(unparse-cps exp)))
-    (($ $void)
-     `(void))
     (($ $const val)
      `(const ,val))
     (($ $prim name)

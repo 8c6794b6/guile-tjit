@@ -253,7 +253,7 @@
        (var ($continue k src ($values (var))))))
 
     (($ <void> src)
-     (build-cps-term ($continue k src ($void))))
+     (build-cps-term ($continue k src ($const *unspecified*))))
 
     (($ <const> src exp)
      (build-cps-term ($continue k src ($const exp))))

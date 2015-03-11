@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -671,7 +671,7 @@ body continuation in the prompt."
           (define (use! sym)
             (add-use! sym label))
           (match exp
-            ((or ($ $void) ($ $const) ($ $prim) ($ $closure)) #f)
+            ((or ($ $const) ($ $prim) ($ $closure)) #f)
             (($ $call proc args)
              (use! proc)
              (for-each use! args))
@@ -766,7 +766,6 @@ body continuation in the prompt."
                   (format port " k~a k~a\n" kt kf))
                  (($ $continue k src exp)
                   (match exp
-                    (($ $void) (format port "void"))
                     (($ $const val) (format port "const ~@y" val))
                     (($ $prim name) (format port "prim ~a" name))
                     (($ $fun free ($ $cont kbody)) (format port "fun k~a" kbody))
@@ -842,8 +841,6 @@ body continuation in the prompt."
   (match (find-defining-expression sym dfg)
     (($ $const val)
      (values #t val))
-    (($ $continue k src ($ $void))
-     (values #t *unspecified*))
     (else
      (values #f #f))))
 

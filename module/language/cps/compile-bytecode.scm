@@ -250,8 +250,6 @@
         (($ $values (arg))
          (or (maybe-load-constant dst arg)
              (maybe-mov dst (slot arg))))
-        (($ $void)
-         (emit-load-constant asm dst *unspecified*))
         (($ $const exp)
          (emit-load-constant asm dst exp))
         (($ $closure k 0)
