@@ -28,8 +28,16 @@
   #:use-module (system vm debug)
   #:export (lightning-verbosity debug program-name))
 
-;;; Parameter to control verbosity level.
-(define lightning-verbosity (make-parameter #f))
+;; Parameter to control verbosity level.
+;;
+;; Current policy:
+;; - #f : Do not show messages.
+;; -  0 : Show message when something went wrong (default).
+;; -  1 : Informative messages in scheme code.
+;; -  2 : More informative messages in scheme code.
+;; -  3 : All of the above, and dump from lightning C library.
+;;
+(define lightning-verbosity (make-parameter 0))
 
 (define-syntax-rule (debug n args ...)
   (let ((verbosity (lightning-verbosity)))

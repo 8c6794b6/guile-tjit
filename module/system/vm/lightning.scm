@@ -119,6 +119,8 @@
 ;;; Constants
 ;;;
 
+(define-syntax-rule (tc3-struct) 1)
+
 (define-syntax-rule (tc7-variable) 7)
 
 (define-syntax-rule (tc7-vector) 13)
@@ -161,6 +163,14 @@ argument in VM operation."
 (define-syntax-rule (stored-ref st n)
   "Memory address of ST's local N."
   (imm (- (lightning-fp st) (* (sizeof '*) n))))
+
+(define-syntax-rule (scm-makinumi n)
+  (imm (+ (ash n 2) 2)))
+
+(define-syntax-rule (scm-makinumr dst src)
+  (begin
+    (jit-lshi dst src (imm 2))
+    (jit-addi dst dst (imm 2))))
 
 ;;; === With argument caching ===
 
@@ -259,7 +269,7 @@ argument in VM operation."
 ;;; `call-with-new-thread' will not work. The thread used at compile
 ;;; time will be used in later calls every time,
 
-(define-syntax-rule (thread-dynstack st)
+(define-syntax-rule (thread-dynamic-state st)
   (imm (+ (pointer-address (lightning-thread st)) #xd8)))
 
 (define-syntax-rule (thread-pending-asyncs st)
@@ -298,8 +308,8 @@ argument in VM operation."
          (num-optionals (length optionals))
          (num-req+opts (+ num-required num-optionals)))
 
-    ;; If the primitive contained `rest' argument, firstly build a list
-    ;; for rest argument by calling `scm_list_n' or moving empty list to
+    ;; If the primitive contained `rest' argument, build a list for rest
+    ;; argument first, by calling `scm_list_n' or moving empty list to
     ;; register.
     (when rest
       (if (< (- nlocals 1) num-req+opts)
@@ -492,6 +502,14 @@ arguments."
 (define-syntax-rule (define-label l body ...)
   (begin (jit-link l) body ...))
 
+(define-syntax define-br-nargs-op
+  (syntax-rules ()
+    ((_ (name st expected offset) jit-op)
+     (define-vm-op (name st expected offset)
+       (jit-patch-at
+        (jit-op (reg-nargs) (imm expected))
+        (resolve-dst st offset))))))
+
 (define-syntax define-vm-br-unary-immediate-op
   (syntax-rules ()
     ((_ (name st a invert offset) expr)
@@ -516,6 +534,33 @@ arguments."
          ;; XXX: Any other way?
          (when (not invert)
            (jit-patch-at (jit-jmpi) (resolve-dst st offset)))
+         (jit-link l1))))))
+
+(define-syntax define-vm-br-binary-op
+  (syntax-rules ()
+    ((_ (name st a b invert offset) cname)
+     (define-vm-op (name st a b invert offset)
+       (when (< offset 0)
+         (vm-handle-interrupts st))
+       (let ((l1 (jit-forward)))
+         (local-ref st a r0)
+         (local-ref st b r1)
+         (jit-patch-at
+          (jit-beqr r0 r1)
+          (if invert l1 (resolve-dst st offset)))
+
+         (jit-prepare)
+         (jit-pushargr r0)
+         (jit-pushargr r1)
+         (jit-calli (c-pointer cname))
+         (jit-retval r0)
+
+         (jit-patch-at
+          (jit-beqi r0 (scm->pointer #f))
+          (if invert (resolve-dst st offset) l1))
+         (when (not invert)
+           (jit-patch-at (jit-jmpi) (resolve-dst st offset)))
+
          (jit-link l1))))))
 
 (define-syntax define-vm-br-arithmetic-op
@@ -828,7 +873,7 @@ arguments."
      ;;    (lambda (addr)
      ;;      (compile-callee st 0 nlocals addr #t)))
      ;;   (else
-     ;;    (call-local st 0 nlocals)
+     ;;    (call-local st 0 nlocals #f)
      ;;    (return-jmp st))))
      ((recursion? st callee)
       (call-scm st callee))
@@ -889,9 +934,14 @@ arguments."
 ;;; Function prologues
 ;;; ------------------
 
-(define-vm-op (br-if-nargs-ne st expected offset)
-  (when (not (= (lightning-nargs st) expected))
-    (jit-patch-at (jit-jmpi) (resolve-dst st offset))))
+(define-br-nargs-op (br-if-nargs-ne st expected offset)
+  jit-bnei)
+
+(define-br-nargs-op (br-if-nargs-lt st expected offset)
+  jit-blti)
+
+(define-br-nargs-op (br-if-nargs-gt st expected offset)
+  jit-bgti)
 
 ;; XXX: Move stack pointer, call jit-allocai when necessary.
 (define-vm-op (assert-nargs-ee/locals st expected locals)
@@ -910,14 +960,13 @@ arguments."
   (let ((l1 (jit-forward))
         (l2 (jit-forward)))
 
-    (jit-movi r0 (undefined))
     (jit-movr r1 (reg-nargs))
 
+    ;; Doing similar things to `stored-ref' in generated code. Using r2
+    ;; as offset of location to store.
     (jit-link l1)
     (jit-patch-at (jit-bgei r1 (imm nlocals)) l2)
 
-    ;; To do similar thing as `stored-ref' in generated code. Using r2
-    ;; as offset of location to store.
     (jit-movi r2 (imm (lightning-fp st)))
     (jit-movr r0 r1)
     (jit-muli r0 r0 (* (imm (sizeof '*))))
@@ -968,13 +1017,11 @@ arguments."
 ;; XXX: br-if-nil
 
 (define-vm-br-unary-heap-object-op (br-if-pair st a invert offset)
-  r0
-  (jit-bmsi r0 (imm 1)))
+  r0 (jit-bmsi r0 (imm 1)))
 
 (define-vm-br-unary-heap-object-op (br-if-struct st a invert offset)
-  r0
-  (begin (jit-andi r0 r0 (imm 7))
-         (jit-bnei r0 (imm 1))))
+  r0 (begin (jit-andi r0 r0 (imm 7))
+            (jit-bnei r0 (imm 1))))
 
 (define-vm-br-unary-immediate-op (br-if-char st a invert offset)
   ((if invert jit-bnei jit-beqi)
@@ -1007,31 +1054,11 @@ arguments."
     (local-ref st b r1))
    (resolve-dst st offset)))
 
-(define-vm-op (br-if-eqv st a b invert offset)
-  (when (< offset 0)
-    (vm-handle-interrupts st))
-  (let ((l1 (jit-forward)))
-    (local-ref st a r0)
-    (local-ref st b r1)
-    (jit-patch-at
-     (jit-beqr r0 r1)
-     (if invert l1 (resolve-dst st offset)))
+(define-vm-br-binary-op (br-if-eqv st a b invert offset)
+  "scm_eqv_p")
 
-    (jit-prepare)
-    (jit-pushargr r0)
-    (jit-pushargr r1)
-    (jit-calli (c-pointer "scm_eqv_p"))
-    (jit-retval r0)
-
-    (jit-patch-at
-     (jit-beqi r0 (scm->pointer #f))
-     (if invert (resolve-dst st offset) l1))
-    (when (not invert)
-      (jit-patch-at (jit-jmpi) (resolve-dst st offset)))
-
-    (jit-link l1)))
-
-;; XXX: br-if-equal
+(define-vm-br-binary-op (br-if-equal st a b invert offset)
+  "scm_equal_p")
 
 (define-vm-br-arithmetic-op (br-if-< st a b invert offset)
   jit-bltr jit-bger jit-bltr-d jit-bunltr-d "scm_less_p")
@@ -1076,6 +1103,11 @@ arguments."
   ;; Storing address of byte-compiled program code.
   (jit-movi r1 (imm (offset-addr st offset)))
   (jit-stxi (imm (sizeof '*)) r0 r1)
+
+  ;; XXX: Storing JIT compiled code. Could fill in the address if
+  ;; already compiled, but not done yet.
+  (jit-movi r1 (undefined))
+  (jit-stxi (imm (* 2 (sizeof '*))) r0 r1)
 
   (jit-movi r1 (scm->pointer #f))
   (for-each (lambda (n)
@@ -1143,13 +1175,45 @@ arguments."
 ;;; The dynamic environment
 ;;; -----------------------
 
+;;; XXX: prompt
+
+;;; XXX: Not tested yet.
+(define-vm-op (wind st winder unwinder)
+  (jit-prepare)
+  (jit-pushargi (lightning-thread st))
+  (local-ref st winder r0)
+  (jit-pushargr r0)
+  (local-ref st unwinder r0)
+  (jit-pushargr r0)
+  (jit-calli (c-pointer "scm_do_dynstack_push_dynwind")))
+
+;;; XXX: Not tested yet.
+(define-vm-op (unwind st)
+  (jit-prepare)
+  (jit-pushargi (lightning-thread st))
+  (jit-calli (c-pointer "scm_do_dynstack_pop")))
+
+(define-vm-op (push-fluid st fluid value)
+  (jit-prepare)
+  (jit-pushargi (lightning-thread st))
+  (local-ref st fluid r0)
+  (jit-pushargr r0)
+  (local-ref st value r0)
+  (jit-pushargr r0)
+  (jit-calli (c-pointer "scm_do_dynstack_push_fluid")))
+
+(define-vm-op (pop-fluid st)
+  (jit-prepare)
+  (jit-pushargi (lightning-thread st))
+  (jit-calli (c-pointer "scm_do_unwind_fluid")))
+
 (define-vm-op (fluid-ref st dst src)
   (let ((l1 (jit-forward)))
     (local-ref st src r0)
 
     ;; r0 = fluids, in thread:
-    ;;   thread->dyntack
-    (jit-ldi r0 (thread-dynstack st))
+    ;;   thread->dynamic_state
+    (jit-ldi r0 (thread-dynamic-state st))
     ;;   SCM_I_DYNAMIC_STATE_FLUIDS (dynstack)
     ;;   (i.e. SCM_CELL_WORD_1 (dynstack))
     (jit-ldxi r0 r0 (imm 8))
@@ -1165,25 +1229,27 @@ arguments."
 
     ;; r0 = fluid value
     (jit-ldxr r0 r0 r2)
+
+    ;; Load default value from local fluid if not set.
     (jit-patch-at (jit-bnei r0 (undefined)) l1)
-
-    ;; Load default value from local fluid.
     (jit-ldxi r0 r1 (imm 8))
-
     (jit-link l1)
     (local-set! st dst r0)))
 
+;;; XXX: fluid-set
 
 ;;; String, symbols, and keywords
 ;;; -----------------------------
 
 (define-vm-op (string-length st dst src)
-  (jit-prepare)
-  (jit-pushargr (local-ref st src))
-  (jit-calli (c-pointer "scm_do_i_string_length"))
-  (jit-retval r0)
+  (jit-ldxi r0 (local-ref st src) (imm (* 3 (sizeof '*))))
+  (scm-makinumr r0 r0)
   (local-set! st dst r0))
 
+;;; XXX: string-ref
+;;; XXX: string->number
+;;; XXX: string->symbol
+;;; XXX: symbol->keyword
 
 ;;; Pairs
 ;;; -----
@@ -1266,8 +1332,7 @@ arguments."
   (local-ref st src r0)
   (jit-ldr r0 r0)
   (jit-rshi r0 r0 (imm 8))
-  (jit-lshi r0 r0 (imm 2))
-  (jit-addi r0 r0 (imm 2))
+  (scm-makinumr r0 r0)
   (local-set! st dst r0))
 
 (define-vm-op (vector-ref st dst src idx)
@@ -1302,6 +1367,38 @@ arguments."
 ;;; Structs and GOOPS
 ;;; -----------------
 
+(define-vm-op (struct-vtable st dst src)
+  (local-ref st src r0)
+  (jit-ldr r0 r0)
+  (jit-subi r0 r0 (imm (tc3-struct)))
+  (jit-ldxi r0 r0 (imm (* 2 (sizeof '*))))
+  (local-set! st dst r0))
+
+(define-vm-op (allocate-struct/immediate st dst vtable nfields)
+  (local-ref st vtable r0)
+  (jit-prepare)
+  (jit-pushargr r0)
+  (jit-pushargi (scm-makinumi nfields))
+  (jit-calli (program-free-variable-ref allocate-struct 0))
+  (jit-retval r0)
+  (local-set! st dst r0))
+
+(define-vm-op (struct-ref/immediate st dst src idx)
+  (local-ref st src r0)
+  (jit-ldxi r0 r0 (imm (sizeof '*)))
+  (jit-ldxi r0 r0 (imm (* idx (sizeof '*))))
+  (local-set! st dst r0))
+
+(define-vm-op (struct-set!/immediate st dst idx src)
+  (local-ref st dst r0)
+  (local-ref st src r1)
+  (jit-ldxi r0 r0 (imm (sizeof '*)))
+  (jit-stxi (imm (* idx (sizeof '*))) r0 r1))
+
+;;; XXX: class-of
+;;; XXX: allocate-struct
+;;; XXX: struct-ref
+;;; XXX: struct-set!
 
 ;;; Arrays, packed uniform arrays, and bytevectors
 ;;; ----------------------------------------------
@@ -1369,11 +1466,12 @@ true, the compiled result is for top level ."
 ;;;
 
 (define (unwrap-non-program args program-or-addr)
-    (cond ((struct? program-or-addr)
-           (vector-set! args 0 (struct-ref program-or-addr 0))
-           args)
-          (else
-           args)))
+  (cond
+   ((struct? program-or-addr)
+    (vector-set! args 0 (struct-ref program-or-addr 0))
+    args)
+   (else
+    args)))
 
 (define (write-code-to-file file pointer)
   (call-with-output-file file
@@ -1401,12 +1499,11 @@ values. Returned value of this procedure is a pointer to scheme value."
   (syntax-rules ()
     ((_ . expr)
      (parameterize ((jit-state (jit-new-state)))
-       (dynamic-wind
-         (lambda () #f)
-         (lambda ()
-           . expr)
-         (lambda ()
-           (jit-destroy-state)))))))
+       (call-with-values
+           (lambda () . expr)
+         (lambda vals
+           (jit-destroy-state)
+           (apply values vals)))))))
 
 (define (c-call-lightning thread proc args)
   "Compile PROC with lightning and run with ARGS, within THREAD."
@@ -1546,7 +1643,7 @@ values. Returned value of this procedure is a pointer to scheme value."
              ;; XXX: Any where else to store `bv'?
              (jit-code-guardian bv)
              (set-jit-compiled-code! proc (jit-address entry))
-             (debug 1 ";;; jit compiled code for ~a set to ~a~%"
+             (debug 1 ";;; set jit compiled code of ~a to ~a~%"
                     proc (jit-address entry))
 
              (let ((verbosity (lightning-verbosity)))
@@ -1559,8 +1656,7 @@ values. Returned value of this procedure is a pointer to scheme value."
              (make-bytevector-executable! bv)
              (pointer->scm (thunk)))))))
      (else
-      (debug 1 ";;; Trace failed, interpreting ~a~%" proc)
-      (debug 1 ";;; arguments: ~a~%" args)
+      (debug 0 ";;; Trace failed, interpreting: ~a~%" (cons proc args))
       (let ((engine (vm-engine)))
         (dynamic-wind
           (lambda () (set-vm-engine! 'regular))

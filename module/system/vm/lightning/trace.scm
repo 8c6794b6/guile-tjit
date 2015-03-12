@@ -216,7 +216,10 @@
     br-if-= br-if-< br-if-<= br-if-logtest))
 
 (define *non-procedural-ops*
-  '(add add1 sub sub1 mul div quo))
+  '(struct-vtable
+    allocate-struct/immediate struct-set!/immediate struct-ref/immediate
+    push-fluid pop-fluid wind unwind
+    add add1 sub sub1 mul div quo))
 
 (define *label-call-ops*
   '(call-label tail-call-label))
@@ -305,24 +308,24 @@ vector."
     ;; Resolve label destinations.
     (let ((dst #f))
       (cond
-        ((or (memq (car op) *br-ops*)
-             (memq (car op) *label-call-ops*))
-         (let* ((offset (list-ref op (- (length op) 1)))
-                (dest (+ (trace-ip trace) offset)))
-           (when (< 0 offset)
-             (let ((u (trace-undecidables trace)))
-               (when (and (< 0 offset)
-                          (not (hashq-ref u dest))
-                          (not (memq (car op) '(br-if-nargs-ne
-                                                br-if-nargs-lt
-                                                br-if-nargs-gt
-                                                call-label
-                                                tail-call-label))))
-                 (hashq-set! (trace-undecidables trace) dest '())))
-             (when (not (memq dst (trace-br-dests trace)))
-               (set-trace-br-dests! trace (cons dest (trace-br-dests trace)))))
-           (set-trace-labeled-ips! trace (cons dest (trace-labeled-ips trace)))
-           (set! dst dest))))
+       ((or (memq (car op) *br-ops*)
+            (memq (car op) *label-call-ops*))
+        (let* ((offset (list-ref op (- (length op) 1)))
+               (dest (+ (trace-ip trace) offset)))
+          (when (< 0 offset)
+            (let ((u (trace-undecidables trace)))
+              (when (and (< 0 offset)
+                         (not (hashq-ref u dest))
+                         (not (memq (car op) '(br-if-nargs-ne
+                                               br-if-nargs-lt
+                                               br-if-nargs-gt
+                                               call-label
+                                               tail-call-label))))
+                (hashq-set! (trace-undecidables trace) dest '())))
+            (when (not (memq dst (trace-br-dests trace)))
+              (set-trace-br-dests! trace (cons dest (trace-br-dests trace)))))
+          (set-trace-labeled-ips! trace (cons dest (trace-labeled-ips trace)))
+          (set! dst dest))))
       (set-trace-ops! trace (cons (cons (trace-ip trace) op)
                                   (trace-ops trace))))
 
@@ -381,11 +384,8 @@ vector."
 
         (('assert-nargs-ee/locals expected nlocals)
          (when (not (= expected nargs))
-           ;; (error "trace: assert-nargs-ee/locals, number of arguments mismatch"
-           ;;        (trace-ip trace) expected nargs)
-           (format #t "trace: (~a:~a) assert-nargs-ee/locals: expected ~a, got ~a~%"
-                   (trace-name trace) (trace-ip trace) expected nargs)
-           )
+           (debug 1 "trace: (~a:~a) assert-nargs-ee/locals: expected ~a, got ~a~%"
+                  (trace-name trace) (trace-ip trace) expected nargs))
          (set-trace-nlocals! trace (+ expected nlocals)))
 
         (('br-if-nargs-ne expected offset)
@@ -399,17 +399,17 @@ vector."
 
         (('assert-nargs-ee expected)
          (when (not (= nargs expected))
-           (error "assert-nargs-ee: argument mismatch" expected))
+           (debug 1 "assert-nargs-ee: argument mismatch" expected))
          (set-trace-nlocals! trace nargs))
 
         (('assert-nargs-ge expected)
          (when (< nargs expected)
-           (error "assert-nargs-ge: argument mismatch" expected))
+           (debug 1 "assert-nargs-ge: argument mismatch" expected))
          (set-trace-nlocals! trace nargs))
 
         (('assert-nargs-le expected)
          (when (> nargs expected)
-           (error "assert-nargs-le: argument mismatch" expected))
+           (debug 1 "assert-nargs-le: argument mismatch" expected))
          (set-trace-nlocals! trace nargs))
 
         (('alloc-frame nlocals)
@@ -652,7 +652,7 @@ vector."
            ;; Ignored.
            *unspecified*)
           (else
-           (debug 1 ";;; trace: (~a:~a) Unknown op: ~a~%"
+           (debug 0 ";;; trace: (~a:~a) Unknown op: ~a~%"
                   (trace-name trace) (trace-ip trace) op)
            (set-trace-success! trace #f)
            (trace-escape trace))))))

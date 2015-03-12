@@ -21,7 +21,8 @@
 
 ;;; Code:
 
-(use-modules (srfi srfi-64)
+(use-modules (srfi srfi-9)
+             (srfi srfi-64)
              (system vm program)
              (system vm lightning)
              (system vm vm))
@@ -46,7 +47,7 @@
          ;; (call-lightning name . args)
          (with-lightning name . args))))))
 
-(lightning-verbosity #f)
+(lightning-verbosity 0)
 
 ;;;
 ;;; VM operation
@@ -233,6 +234,19 @@
             (sum-optional 1 2 3)
             (with-lightning sum-optional 1 2 3))
 
+(define br-nargs-1
+  (case-lambda
+    (() 100)
+    ((x) (cons x 100))))
+
+(test-equal "t-br-if-nargs-1-0"
+            (br-nargs-1)
+            (with-lightning br-nargs-1))
+
+(test-equal "t-br-if-nargs-1-1"
+            (br-nargs-1 99)
+            (with-lightning br-nargs-1 99))
+
 ;;; Branching instructions
 
 (define-test (t-if-true x) (#t)
@@ -294,12 +308,17 @@
 (define-test (t-if-tc7-string-heap-object x) ('(1 2 3))
   (string? x))
 
-(define-test (t-eqv? a b) (2.13 2.13)
+(define-test (t-eqv?-1 a b) (2.13 2.13)
   (eqv? a b))
 
-(define-test (t-eqv? a b) (2.14 2.13)
+(define-test (t-eqv?-2 a b) (2.14 2.13)
   (eqv? a b))
 
+(define-test (t-equal?-1 a b) ('(1 2 3) '(1 2 3))
+  (equal? a b))
+
+(define-test (t-equal?-2 a b) ('(1 2 3) '(1 2 3.3))
+  (equal? a b))
 
 (define-test (t-if-zero x) (0)
   (zero? x))
@@ -446,6 +465,17 @@
 (define-test (t-fluid-ref-undefine fluid) (f02)
   (fluid-ref fluid))
 
+(define-test (t-fluid-push-pop-a) ()
+  (with-fluid* f01 456
+               (lambda ()
+                 (fluid-ref f01))))
+
+(define-test (t-fluid-push-pop-b) ()
+  (let ((a (with-fluid* f01 456
+                        (lambda ()
+                          (fluid-ref f01)))))
+    (list (fluid-ref f01) a)))
+
 ;;; String, symbols, and keywords
 
 (define-test (t-string-length str) ("foo-bar-buzz")
@@ -582,6 +612,27 @@
 
 ;;; Structs and GOOPS
 
+(define-record-type <r01>
+  (make-r01)
+  r01?)
+
+(define-test (t-allocate-struct) ()
+  (make-r01))
+
+(define-record-type <r02>
+  (make-r02 x y)
+  r02?
+  (x r01-x set-r02-x!)
+  (y r01-y set-r02-y!))
+
+(define r02-a (make-r02 123 456))
+
+(define-test (t-struct-set-immediate x y) (1 2)
+  (make-r02 x y))
+
+(define-test (t-struct-ref-immediate r) (r02-a)
+  (struct-ref r 0))
+
 ;;; Arrays, packed uniform arrays, and bytevectors
 
 ;;;
@@ -609,8 +660,17 @@
       acc
       (sum-toplevel (- n 1) (+ n acc))))
 
-(test-skip 1)
 (define-test (sum-cps n k) (10 (lambda (a) a))
+  (if (< n 0)
+      (k 0)
+      (sum-cps (- n 1)
+               (lambda (s)
+                 (k (+ s n))))))
+
+;;; XXX: CPS style sum soon reaches to stack limit, running with n=1000
+;;; causing "Unwind-only `stack-overflow'.
+(test-skip 1)
+(define-test (sum-cps-1000 n k) (1000 (lambda (a) a))
   (if (< n 0)
       (k 0)
       (sum-cps (- n 1)

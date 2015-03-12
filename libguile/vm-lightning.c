@@ -79,6 +79,34 @@ scm_do_thread_i_data (SCM thread)
 }
 
 void
+scm_do_dynstack_push_fluid (scm_i_thread *thread, SCM fluid, SCM value)
+{
+  scm_dynstack_push_fluid (&thread->dynstack,
+                           fluid, value,
+                           thread->dynamic_state);
+}
+
+void
+scm_do_dynstack_push_dynwind (scm_i_thread *thread, SCM winder, SCM unwinder)
+{
+  scm_dynstack_push_dynwind (&thread->dynstack, winder, unwinder);
+}
+
+void
+scm_do_dynstack_pop (scm_i_thread *thread)
+{
+  scm_dynstack_pop (&thread->dynstack);
+}
+
+void
+scm_do_unwind_fluid (scm_i_thread *thread)
+{
+  scm_dynstack_unwind_fluid (&thread->dynstack,
+                             thread->dynamic_state);
+}
+
+
+void
 scm_init_vm_lightning (void)
 {
   scm_c_define_gsubr ("thread-i-data", 1, 0, 0, scm_do_thread_i_data);
