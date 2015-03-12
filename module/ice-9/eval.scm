@@ -111,26 +111,60 @@
          (or (memoized-typecode (syntax->datum #'type))
              (error "not a typecode" (syntax->datum #'type)))))))
 
+  (define-syntax-rule (lazy (arg ...) exp)
+    (letrec ((proc (lambda (arg ...)
+                     (set! proc exp)
+                     (proc arg ...))))
+      (lambda (arg ...)
+        (proc arg ...))))
+
   (define (compile-lexical-ref depth width)
     (lambda (env)
       (env-ref env depth width)))
 
-  (define (compile-call f args)
-    (let ((f (compile f)))
+  (define (compile-top-call cenv loc args)
+    (let* ((module (env-toplevel cenv))
+           (var (%resolve-variable loc module)))
+      (define (primitive=? name)
+        "Return true if VAR is the same as the primitive bound to NAME."
+        (match loc
+          ((mode . loc)
+           (and (match loc
+                  ((mod name* . public?) (eq? name* name))
+                  (_ (eq? loc name)))
+                ;; `module' can be #f if the module system was not yet
+                ;; booted when the environment was captured.
+                (or (not module)
+                    (eq? var (module-local-variable the-root-module name)))))))
+      (define-syntax-rule (maybe-primcall (prim ...) arg ...)
+        (cond
+         ((primitive=? 'prim) (lambda (env) (prim (arg env) ...)))
+         ...
+         (else (lambda (env) ((variable-ref var) (arg env) ...)))))
       (match args
-        (() (lambda (env) ((f env))))
+        (()
+         (lambda (env) ((variable-ref var))))
         ((a)
          (let ((a (compile a)))
-           (lambda (env) ((f env) (a env)))))
+           (maybe-primcall
+            (null? nil? pair? struct? string? vector? symbol?
+             keyword? variable? bitvector? char? zero?
+             1+ 1- car cdr lognot not vector-length
+             variable-ref string-length struct-vtable)
+            a)))
         ((a b)
          (let ((a (compile a))
                (b (compile b)))
-           (lambda (env) ((f env) (a env) (b env)))))
+           (maybe-primcall
+            (+ - * / eq? eqv? equal? = < > <= >=
+               ash logand logior logxor logtest logbit?
+               cons vector-ref struct-ref allocate-struct variable-set!)
+            a b)))
         ((a b c)
          (let ((a (compile a))
                (b (compile b))
                (c (compile c)))
-           (lambda (env) ((f env) (a env) (b env) (c env)))))
+           (maybe-primcall (vector-set! struct-set!) a b c)))
         ((a b c . args)
          (let ((a (compile a))
                (b (compile b))
@@ -140,22 +174,57 @@
                            '()
                            (cons (compile (car args)) (lp (cdr args)))))))
            (lambda (env)
-             (apply (f env) (a env) (b env) (c env)
+             (apply (variable-ref var) (a env) (b env) (c env)
                     (let lp ((args args))
                       (if (null? args)
                           '()
                           (cons ((car args) env) (lp (cdr args))))))))))))
 
-  (define (compile-box-ref box)
+  (define (compile-call f args)
+    (match f
+      ((,(typecode box-ref) . (,(typecode resolve) . loc))
+       (lazy (env) (compile-top-call env loc args)))
+      (_
+       (match args
+         (()
+          (let ((f (compile f)))
+            (lambda (env) ((f env)))))
+         ((a)
+          (let ((f (compile f))
+                (a (compile a)))
+            (lambda (env) ((f env) (a env)))))
+         ((a b)
+          (let ((f (compile f))
+                (a (compile a))
+                (b (compile b)))
+            (lambda (env) ((f env) (a env) (b env)))))
+         ((a b c)
+          (let ((f (compile f))
+                (a (compile a))
+                (b (compile b))
+                (c (compile c)))
+            (lambda (env) ((f env) (a env) (b env) (c env)))))
+         ((a b c . args)
+          (let ((f (compile f))
+                (a (compile a))
+                (b (compile b))
+                (c (compile c))
+                (args (let lp ((args args))
+                        (if (null? args)
+                            '()
+                            (cons (compile (car args)) (lp (cdr args)))))))
+            (lambda (env)
+              (apply (f env) (a env) (b env) (c env)
+                     (let lp ((args args))
+                       (if (null? args)
+                           '()
+                           (cons ((car args) env) (lp (cdr args)))))))))))))
+
+  (define (compile-box-ref cenv box)
     (match box
-      ((,(typecode resolve) . var-or-loc)
-       (lambda (env)
-         (cond
-          ((variable? var-or-loc) (variable-ref var-or-loc))
-          (else
-           (set! var-or-loc
-                 (%resolve-variable var-or-loc (env-toplevel env)))
-           (variable-ref var-or-loc)))))
+      ((,(typecode resolve) . loc)
+       (let ((var (%resolve-variable loc (env-toplevel cenv))))
+         (lambda (env) (variable-ref var))))
       ((,(typecode lexical-ref) depth . width)
        (lambda (env)
          (variable-ref (env-ref env depth width))))
@@ -164,13 +233,9 @@
          (lambda (env)
            (variable-ref (box env)))))))
 
-  (define (compile-resolve var-or-loc)
-    (lambda (env)
-      (cond
-       ((variable? var-or-loc) var-or-loc)
-       (else
-        (set! var-or-loc (%resolve-variable var-or-loc (env-toplevel env)))
-        var-or-loc))))
+  (define (compile-resolve cenv loc)
+    (let ((var (%resolve-variable loc (env-toplevel cenv))))
+      (lambda (env) var)))
 
   (define (compile-if test consequent alternate)
     (let ((test (compile test))
@@ -477,7 +542,7 @@
                                (let ((proc (proc env)))
                                  (set-procedure-property! proc prop val)
                                  proc))))))
-    (let ((body (compile body)))
+    (let ((body (lazy (env) (compile body))))
       (set-procedure-meta
        meta
        (match tail
@@ -560,10 +625,10 @@
        (compile-call f args))
       
       ((,(typecode box-ref) . box)
-       (compile-box-ref box))
+       (lazy (env) (compile-box-ref env box)))
 
-      ((,(typecode resolve) . var-or-loc)
-       (compile-resolve var-or-loc))
+      ((,(typecode resolve) . loc)
+       (lazy (env) (compile-resolve env loc)))
 
       ((,(typecode if) test consequent . alternate)
        (compile-if test consequent alternate))
@@ -604,10 +669,10 @@
       ((,(typecode call/cc) . proc)
        (compile-call/cc proc))))
 
-  (let ((proc (compile
-               (memoize-expression 
+  (let ((eval (compile
+               (memoize-expression
                 (if (macroexpanded? exp)
                     exp
                     ((module-transformer (current-module)) exp)))))
         (env #f))
-    (proc env)))
+    (eval env)))
