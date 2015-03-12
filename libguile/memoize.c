@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
- *   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+ *   2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015
  *   Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
@@ -139,8 +139,8 @@ scm_t_bits scm_tc16_memoized;
   MAKMEMO (SCM_M_CONT, proc)
 #define MAKMEMO_CALL_WITH_VALUES(prod, cons) \
   MAKMEMO (SCM_M_CALL_WITH_VALUES, scm_cons (prod, cons))
-#define MAKMEMO_CALL(proc, nargs, args) \
-  MAKMEMO (SCM_M_CALL, scm_cons (proc, scm_cons (SCM_I_MAKINUM (nargs), args)))
+#define MAKMEMO_CALL(proc, args) \
+  MAKMEMO (SCM_M_CALL, scm_cons (proc, args))
 #define MAKMEMO_LEX_REF(pos) \
   MAKMEMO (SCM_M_LEXICAL_REF, pos)
 #define MAKMEMO_LEX_SET(pos, val)                                      \
@@ -433,7 +433,7 @@ memoize (SCM exp, SCM env)
         proc = REF (exp, CALL, PROC);
         args = memoize_exps (REF (exp, CALL, ARGS), env);
 
-        return MAKMEMO_CALL (memoize (proc, env), scm_ilength (args), args);
+        return MAKMEMO_CALL (memoize (proc, env), args);
       }
 
     case SCM_EXPANDED_PRIMCALL:
@@ -472,30 +472,29 @@ memoize (SCM exp, SCM env)
           return MAKMEMO_BOX_SET (CAR (args), CADR (args));
         else if (nargs == 2
                  && scm_is_eq (name, scm_from_latin1_symbol ("wind")))
-          return MAKMEMO_CALL (MAKMEMO_QUOTE (wind), 2, args);
+          return MAKMEMO_CALL (MAKMEMO_QUOTE (wind), args);
         else if (nargs == 0
                  && scm_is_eq (name, scm_from_latin1_symbol ("unwind")))
-          return MAKMEMO_CALL (MAKMEMO_QUOTE (unwind), 0, SCM_EOL);
+          return MAKMEMO_CALL (MAKMEMO_QUOTE (unwind), SCM_EOL);
         else if (nargs == 2
                  && scm_is_eq (name, scm_from_latin1_symbol ("push-fluid")))
-          return MAKMEMO_CALL (MAKMEMO_QUOTE (push_fluid), 2, args);
+          return MAKMEMO_CALL (MAKMEMO_QUOTE (push_fluid), args);
         else if (nargs == 0
                  && scm_is_eq (name, scm_from_latin1_symbol ("pop-fluid")))
-          return MAKMEMO_CALL (MAKMEMO_QUOTE (pop_fluid), 0, SCM_EOL);
+          return MAKMEMO_CALL (MAKMEMO_QUOTE (pop_fluid), SCM_EOL);
         else if (scm_is_eq (scm_current_module (), scm_the_root_module ()))
           return MAKMEMO_CALL (maybe_makmemo_capture_module
                                (MAKMEMO_BOX_REF
                                 (MAKMEMO_TOP_BOX (SCM_EXPANDED_TOPLEVEL_REF,
                                                   name)),
                                 env),
-                               nargs, args);
+                               args);
         else
           return MAKMEMO_CALL (MAKMEMO_BOX_REF
                                (MAKMEMO_MOD_BOX (SCM_EXPANDED_MODULE_REF,
                                                  list_of_guile,
                                                  name,
                                                  SCM_BOOL_F)),
-                               nargs,
                                args);
       }
 
@@ -675,7 +674,7 @@ unmemoize (const SCM expr)
       return scm_list_3 (scm_sym_begin, unmemoize (CAR (args)),
                          unmemoize (CDR (args)));
     case SCM_M_CALL:
-      return scm_cons (unmemoize (CAR (args)), unmemoize_exprs (CDDR (args)));
+      return unmemoize_exprs (args);
     case SCM_M_CONT:
       return scm_list_2 (scm_from_latin1_symbol
                          ("call-with-current_continuation"),

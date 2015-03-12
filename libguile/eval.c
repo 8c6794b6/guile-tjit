@@ -328,8 +328,8 @@ eval (SCM x, SCM env)
     case SCM_M_CALL:
       /* Evaluate the procedure to be applied.  */
       proc = EVAL1 (CAR (mx), env);
-      argc = SCM_I_INUM (CADR (mx));
-      mx = CDDR (mx);
+      argc = scm_ilength (CDR (mx));
+      mx = CDR (mx);
 
       if (BOOT_CLOSURE_P (proc))
         {

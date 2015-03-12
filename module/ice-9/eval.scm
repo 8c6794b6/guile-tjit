@@ -1,6 +1,6 @@
 ;;; -*- mode: scheme; coding: utf-8; -*-
 
-;;;; Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+;;;; Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014, 2015 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -87,7 +87,7 @@
          (expand-pattern v pat (let () e0 e ...) (fk))))))
 
   (define-syntax expand-pattern
-    (syntax-rules (_ quote unquote)
+    (syntax-rules (_ quote unquote ?)
       ((_ v _ kt kf) kt)
       ((_ v () kt kf) (if (null? v) kt kf))
       ((_ v (quote lit) kt kf)
@@ -99,6 +99,8 @@
            (let ((vx (car v)) (vy (cdr v)))
              (expand-pattern vx x (expand-pattern vy y kt kf) kf))
            kf))
+      ((_ v (? pred var) kt kf)
+       (if (pred v) (let ((var v)) kt) kf))
       ((_ v #f kt kf) (if (eqv? v #f) kt kf))
       ((_ v var kt kf) (let ((var v)) kt))))
 
@@ -113,7 +115,7 @@
     (lambda (env)
       (env-ref env depth width)))
 
-  (define (compile-call f nargs args)
+  (define (compile-call f args)
     (let ((f (compile f)))
       (match args
         (() (lambda (env) ((f env))))
@@ -554,8 +556,8 @@
       ((,(typecode lexical-ref) depth . width)
        (compile-lexical-ref depth width))
       
-      ((,(typecode call) f nargs . args)
-       (compile-call f nargs args))
+      ((,(typecode call) f . args)
+       (compile-call f args))
       
       ((,(typecode box-ref) . box)
        (compile-box-ref box))
