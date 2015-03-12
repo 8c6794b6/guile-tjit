@@ -56,39 +56,53 @@
     (_ default)))
 
 (define (optimize exp opts)
-  (define (run-pass exp pass kw default)
-    (if (kw-arg-ref opts kw default)
-        (pass exp)
-        exp))
+  (define (run-pass! pass kw default)
+    (set! exp
+          (if (kw-arg-ref opts kw default)
+              (pass exp)
+              exp)))
 
   ;; The first DCE pass is mainly to eliminate functions that aren't
   ;; called.  The last is mainly to eliminate rest parameters that
   ;; aren't used, and thus shouldn't be consed.
 
-  (let* ((exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
-         (exp (run-pass exp prune-top-level-scopes #:prune-top-level-scopes? #t))
-         (exp (run-pass exp simplify #:simplify? #t))
-         (exp (run-pass exp contify #:contify? #t))
-         (exp (run-pass exp inline-constructors #:inline-constructors? #t))
-         (exp (run-pass exp specialize-primcalls #:specialize-primcalls? #t))
-         (exp (run-pass exp elide-values #:elide-values? #t))
-         (exp (run-pass exp prune-bailouts #:prune-bailouts? #t))
-         (exp (run-pass exp eliminate-common-subexpressions #:cse? #t))
-         (exp (run-pass exp type-fold #:type-fold? #t))
-         (exp (run-pass exp resolve-self-references #:resolve-self-references? #t))
-         (exp (run-pass exp eliminate-dead-code #:eliminate-dead-code? #t))
-         (exp (run-pass exp simplify #:simplify? #t)))
-    ;; Passes that are needed:
-    ;; 
-    ;;  * Abort contification: turning abort primcalls into continuation
-    ;;    calls, and eliding prompts if possible.
-    ;;
-    ;;  * Loop peeling.  Unrolls the first round through a loop if the
-    ;;    loop has effects that CSE can work on.  Requires effects
-    ;;    analysis.  When run before CSE, loop peeling is the equivalent
-    ;;    of loop-invariant code motion (LICM).
+  ;; This series of assignments to `env' used to be a series of let*
+  ;; bindings of `env', as you would imagine.  In compiled code this is
+  ;; fine because the compiler is able to allocate all let*-bound
+  ;; variable to the same slot, which also means that the garbage
+  ;; collector doesn't have to retain so many copies of the term being
+  ;; optimized.  However during bootstrap, the interpreter doesn't do
+  ;; this optimization, leading to excessive data retention as the terms
+  ;; are rewritten.  To marginally improve bootstrap memory usage, here
+  ;; we use set! instead.  The compiler should produce the same code in
+  ;; any case, though currently it does not because it doesn't do escape
+  ;; analysis on the box created for the set!.
 
-    exp))
+  (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
+  (run-pass! prune-top-level-scopes #:prune-top-level-scopes? #t)
+  (run-pass! simplify #:simplify? #t)
+  (run-pass! contify #:contify? #t)
+  (run-pass! inline-constructors #:inline-constructors? #t)
+  (run-pass! specialize-primcalls #:specialize-primcalls? #t)
+  (run-pass! elide-values #:elide-values? #t)
+  (run-pass! prune-bailouts #:prune-bailouts? #t)
+  (run-pass! eliminate-common-subexpressions #:cse? #t)
+  (run-pass! type-fold #:type-fold? #t)
+  (run-pass! resolve-self-references #:resolve-self-references? #t)
+  (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
+  (run-pass! simplify #:simplify? #t)
+
+  ;; Passes that are needed:
+  ;;
+  ;;  * Abort contification: turning abort primcalls into continuation
+  ;;    calls, and eliding prompts if possible.
+  ;;
+  ;;  * Loop peeling.  Unrolls the first round through a loop if the
+  ;;    loop has effects that CSE can work on.  Requires effects
+  ;;    analysis.  When run before CSE, loop peeling is the equivalent
+  ;;    of loop-invariant code motion (LICM).
+
+  exp)
 
 (define (compile-fun f asm)
   (let* ((dfg (compute-dfg f #:global? #f))
@@ -493,13 +507,14 @@
        (compile-entry)))))
 
 (define (compile-bytecode exp env opts)
-  (let* ((exp (fix-arities exp))
-         (exp (optimize exp opts))
-         (exp (convert-closures exp))
-         ;; first-order optimization should go here
-         (exp (reify-primitives exp))
-         (exp (renumber exp))
-         (asm (make-assembler)))
+  ;; See comment in `optimize' about the use of set!.
+  (set! exp (fix-arities exp))
+  (set! exp (optimize exp opts))
+  (set! exp (convert-closures exp))
+  ;; first-order optimization should go here
+  (set! exp (reify-primitives exp))
+  (set! exp (renumber exp))
+  (let* ((asm (make-assembler)))
     (match exp
       (($ $program funs)
        (for-each (lambda (fun) (compile-fun fun asm))
