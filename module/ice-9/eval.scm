@@ -213,11 +213,12 @@
                            '()
                            (cons ((car args) env) (lp (cdr args)))))))))))))
 
-  (define (compile-box-ref cenv box)
+  (define (compile-box-ref box)
     (match box
       ((,(typecode resolve) . loc)
-       (let ((var (%resolve-variable loc (env-toplevel cenv))))
-         (lambda (env) (variable-ref var))))
+       (lazy (cenv)
+         (let ((var (%resolve-variable loc (env-toplevel cenv))))
+           (lambda (env) (variable-ref var)))))
       ((,(typecode lexical-ref) depth . width)
        (lambda (env)
          (variable-ref (env-ref env depth width))))
@@ -655,7 +656,7 @@
        (compile-call f args))
       
       ((,(typecode box-ref) . box)
-       (lazy (env) (compile-box-ref env box)))
+       (compile-box-ref box))
 
       ((,(typecode resolve) . loc)
        (lazy (env) (compile-resolve env loc)))
