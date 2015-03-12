@@ -122,49 +122,42 @@
     (lambda (env)
       (env-ref env depth width)))
 
+  (define (primitive=? name loc module var)
+    "Return true if VAR is the same as the primitive bound to NAME."
+    (match loc
+      ((mode . loc)
+       (and (match loc
+              ((mod name* . public?) (eq? name* name))
+              (_ (eq? loc name)))
+            ;; `module' can be #f if the module system was not yet
+            ;; booted when the environment was captured.
+            (or (not module)
+                (eq? var (module-local-variable the-root-module name)))))))
+
   (define (compile-top-call cenv loc args)
     (let* ((module (env-toplevel cenv))
            (var (%resolve-variable loc module)))
-      (define (primitive=? name)
-        "Return true if VAR is the same as the primitive bound to NAME."
-        (match loc
-          ((mode . loc)
-           (and (match loc
-                  ((mod name* . public?) (eq? name* name))
-                  (_ (eq? loc name)))
-                ;; `module' can be #f if the module system was not yet
-                ;; booted when the environment was captured.
-                (or (not module)
-                    (eq? var (module-local-variable the-root-module name)))))))
       (define-syntax-rule (maybe-primcall (prim ...) arg ...)
-        (cond
-         ((primitive=? 'prim) (lambda (env) (prim (arg env) ...)))
-         ...
-         (else (lambda (env) ((variable-ref var) (arg env) ...)))))
+        (let ((arg (compile arg))
+              ...)
+          (cond
+           ((primitive=? 'prim loc module var)
+            (lambda (env) (prim (arg env) ...)))
+           ...
+           (else (lambda (env) ((variable-ref var) (arg env) ...))))))
       (match args
         (()
          (lambda (env) ((variable-ref var))))
         ((a)
-         (let ((a (compile a)))
-           (maybe-primcall
-            (null? nil? pair? struct? string? vector? symbol?
-             keyword? variable? bitvector? char? zero?
-             1+ 1- car cdr lognot not vector-length
-             variable-ref string-length struct-vtable)
-            a)))
+         (maybe-primcall (1+ 1- car cdr lognot vector-length
+                          variable-ref string-length struct-vtable)
+                         a))
         ((a b)
-         (let ((a (compile a))
-               (b (compile b)))
-           (maybe-primcall
-            (+ - * / eq? eqv? equal? = < > <= >=
-               ash logand logior logxor logtest logbit?
-               cons vector-ref struct-ref allocate-struct variable-set!)
-            a b)))
+         (maybe-primcall (+ - * / ash logand logior logxor
+                          cons vector-ref struct-ref allocate-struct variable-set!)
+                         a b))
         ((a b c)
-         (let ((a (compile a))
-               (b (compile b))
-               (c (compile c)))
-           (maybe-primcall (vector-set! struct-set!) a b c)))
+         (maybe-primcall (vector-set! struct-set!) a b c))
         ((a b c . args)
          (let ((a (compile a))
                (b (compile b))
@@ -237,12 +230,49 @@
     (let ((var (%resolve-variable loc (env-toplevel cenv))))
       (lambda (env) var)))
 
+  (define (compile-top-branch cenv loc args consequent alternate)
+    (let* ((module (env-toplevel cenv))
+           (var (%resolve-variable loc module))
+           (consequent (compile consequent))
+           (alternate (compile alternate)))
+      (define (generic-top-branch)
+        (let ((test (compile-top-call cenv loc args)))
+          (lambda (env)
+            (if (test env) (consequent env) (alternate env)))))
+      (define-syntax-rule (maybe-primcall (prim ...) arg ...)
+        (cond
+         ((primitive=? 'prim loc module var)
+          (let ((arg (compile arg))
+                ...)
+            (lambda (env)
+              (if (prim (arg env) ...)
+                  (consequent env)
+                  (alternate env)))))
+         ...
+         (else (generic-top-branch))))
+      (match args
+        ((a)
+         (maybe-primcall (null? nil? pair? struct? string? vector? symbol?
+                          keyword? variable? bitvector? char? zero? not)
+                         a))
+        ((a b)
+         (maybe-primcall (eq? eqv? equal? = < > <= >= logtest logbit?)
+                         a b))
+        (_
+         (generic-top-branch)))))
+
   (define (compile-if test consequent alternate)
-    (let ((test (compile test))
-          (consequent (compile consequent))
-          (alternate (compile alternate)))
-      (lambda (env)
-        (if (test env) (consequent env) (alternate env)))))
+    (match test
+      ((,(typecode call)
+        (,(typecode box-ref) . (,(typecode resolve) . loc))
+        . args)
+       (lazy (env) (compile-top-branch env loc args consequent alternate)))
+      (_
+       (let ((test (compile test))
+             (consequent (compile consequent))
+             (alternate (compile alternate)))
+         (lambda (env)
+           (if (test env) (consequent env) (alternate env)))))))
 
   (define (compile-quote x)
     (lambda (env) x))
