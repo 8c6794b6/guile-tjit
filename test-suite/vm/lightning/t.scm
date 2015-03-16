@@ -247,6 +247,39 @@
             (br-nargs-1 99)
             (with-lightning br-nargs-1 99))
 
+(define* (call-bind-kwargs-01 #:key (x 100))
+  x)
+
+(define-test (t-bind-kwargs-01-default) ()
+  (call-bind-kwargs-01))
+
+(define-test (t-bind-kwargs-01-with-x x) (123)
+  (call-bind-kwargs-01 #:x x))
+
+(define* (call-bind-kwargs-02 a #:key (b 2) (c 3))
+  (+ (* a b) c))
+
+(define-test (t-bind-kwargs-02-default x) (10)
+  (call-bind-kwargs-02 x))
+
+(define-test (t-bind-kwargs-02-with-b x) (10)
+  (call-bind-kwargs-02 x #:b x))
+
+(define-test (t-bind-kwargs-02-with-c x) (10)
+  (call-bind-kwargs-02 x #:c x))
+
+(define-test (t-bind-kwargs-02-with-b-and-c x) (10)
+  (call-bind-kwargs-02 x #:b x #:c x))
+
+(define* (call-bind-kwargs-03 a #:key (b 2) . rest)
+  (+ (* a (length rest)) b))
+
+(define-test (t-bind-kwargs-03 x) (100)
+  (call-bind-kwargs-03 x 'foo 'bar 'buzz))
+
+(define-test (t-bind-kwargs-03-with-b x) (100)
+  (call-bind-kwargs-03 x #:b 23 'foo 'bar 'buzz))
+
 ;;; Branching instructions
 
 (define-test (t-if-true x) (#t)
@@ -380,13 +413,10 @@
 (define-test (call-closure04 n) (100)
   ((closure04 n)))
 
-(define (closure05 f1 f2 f3)
-  (list f1 f2 f3))
-
 (define-test (call-closure05 x) (10)
-  (let ((l (closure05 (closure03 x)
-                      (call-closure03 x)
-                      (call-closure03-b x))))
+  (let ((l (list (closure03 x)
+                 (call-closure03 x)
+                 (call-closure03-b x))))
     ((car l))))
 
 (define (addk x y k)
@@ -480,6 +510,9 @@
 
 (define-test (t-string-length str) ("foo-bar-buzz")
   (string-length str))
+
+(define-test (t-string-ref k) (8)
+  (string-ref "foo-bar-buzz" k))
 
 ;;; Pairs
 
@@ -633,6 +666,9 @@
 (define-test (t-struct-ref-immediate r) (r02-a)
   (struct-ref r 0))
 
+(define-test (t-struct-ref x) (<r02>)
+  (record-type-name x))
+
 ;;; Arrays, packed uniform arrays, and bytevectors
 
 ;;;
@@ -669,13 +705,13 @@
 
 ;;; XXX: CPS style sum soon reaches to stack limit, running with n=1000
 ;;; causing "Unwind-only `stack-overflow'.
-(test-skip 1)
-(define-test (sum-cps-1000 n k) (1000 (lambda (a) a))
-  (if (< n 0)
-      (k 0)
-      (sum-cps (- n 1)
-               (lambda (s)
-                 (k (+ s n))))))
+;; (test-skip 1)
+;; (define-test (sum-cps-1000 n k) (1000 (lambda (a) a))
+;;   (if (< n 0)
+;;       (k 0)
+;;       (sum-cps (- n 1)
+;;                (lambda (s)
+;;                  (k (+ s n))))))
 
 (define-test (fib1 n) (30)
   (let lp ((n n))

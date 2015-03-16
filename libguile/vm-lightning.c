@@ -105,6 +105,103 @@ scm_do_unwind_fluid (scm_i_thread *thread)
                              thread->dynamic_state);
 }
 
+void
+scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
+                    scm_t_uint32 nargs, scm_t_uint32 *ip,
+                    scm_t_uint32 nreq, char flags,
+                    scm_t_uint32 nreq_and_opt, scm_t_uint32 ntotal,
+                    scm_t_int32 kw_offset)
+{
+  scm_t_uint32 npositional, nkw, n;
+  scm_t_bits kw_bits;
+  SCM kw;
+  char allow_other_keys, has_rest;
+
+#undef VM_ASSERT
+#define VM_ASSERT(condition, handler)     \
+  do {                                    \
+    if (SCM_UNLIKELY (!(condition)))      \
+      {                                   \
+        handler;                          \
+      }                                   \
+  } while (0)
+
+#define LOCAL_REF(i) (SCM)(fp[(offset / 8) - (i)])
+#define LOCAL_SET(i,o) *(fp + (offset / 8) - (i)) = (scm_t_bits)(o)
+
+  allow_other_keys = flags & 0x1;
+  has_rest = flags & 0x2;
+
+  kw_bits = (scm_t_bits) (ip + kw_offset);
+  kw = SCM_PACK (kw_bits);
+
+  /* LOCAL_SET (1, scm_from_int (12345)); */
+  /* LOCAL_SET (1, LOCAL_REF (0)); */
+
+  npositional = nreq;
+  while (/* while we have args */
+         npositional < nargs
+         /* and we still have positionals to fill */
+         && npositional < nreq_and_opt
+         /* and we haven't reached a keyword yet */
+         && !scm_is_keyword (LOCAL_REF (npositional)))
+    /* bind this optional arg (by leaving it in place) */
+    npositional++;
+
+  nkw = nargs - npositional;
+
+  /* shuffle non-positional arguments above ntotal */
+  /* ALLOC_FRAME (ntotal + nkw); */
+
+  n = nkw;
+  while (n--)
+    LOCAL_SET (ntotal + n, LOCAL_REF (npositional + n));
+
+  /* and fill optionals & keyword args with SCM_UNDEFINED */
+  n = npositional;
+
+  while (n < ntotal)
+    LOCAL_SET (n++, SCM_UNDEFINED);
+
+  VM_ASSERT (has_rest || (nkw % 2) == 0,
+             vm_error_kwargs_length_not_even (LOCAL_REF (0)));
+
+  /* Now bind keywords, in the order given.  */
+  for (n = 0; n < nkw; n++)
+    if (scm_is_keyword (LOCAL_REF (ntotal + n)))
+      {
+        SCM walk;
+        for (walk = kw; scm_is_pair (walk); walk = SCM_CDR (walk))
+          if (scm_is_eq (SCM_CAAR (walk), LOCAL_REF (ntotal + n)))
+            {
+              SCM si = SCM_CDAR (walk);
+              LOCAL_SET (SCM_I_INUMP (si) ? SCM_I_INUM (si) : scm_to_uint32 (si),
+                         LOCAL_REF (ntotal + n + 1));
+              break;
+            }
+        VM_ASSERT (scm_is_pair (walk) || allow_other_keys,
+                   vm_error_kwargs_unrecognized_keyword (LOCAL_REF (0),
+                                                         LOCAL_REF (ntotal + n)));
+        n++;
+      }
+    else
+      VM_ASSERT (has_rest, vm_error_kwargs_invalid_keyword (LOCAL_REF (0),
+                                                            LOCAL_REF (ntotal + n)));
+
+  if (has_rest)
+    {
+      SCM rest = SCM_EOL;
+      n = nkw;
+      while (n--)
+        rest = scm_cons (LOCAL_REF (ntotal + n), rest);
+        /* rest = scm_inline_cons (thread, LOCAL_REF (ntotal + n), rest); */
+      LOCAL_SET (nreq_and_opt, rest);
+    }
+
+#undef VM_ASSERT
+#undef LOCAL_SET
+#undef LOCAL_REF
+}
 
 void
 scm_init_vm_lightning (void)

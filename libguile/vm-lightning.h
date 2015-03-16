@@ -31,6 +31,11 @@ SCM_API SCM scm_do_i_string_length (SCM str);
 SCM_API SCM scm_do_vm_builtin_ref (unsigned idx);
 SCM_API SCM scm_do_thread_i_data (SCM thread);
 
+SCM_API void scm_do_bind_kwargs(scm_t_uintptr *fp, scm_t_uintptr offset,
+                                scm_t_uint32 nargs, scm_t_uint32 *ip,
+                                scm_t_uint32 nreq, char flags,
+                                scm_t_uint32 nreq_and_opt, scm_t_uint32 ntotal,
+                                scm_t_int32 kw_offset);
 SCM_API void scm_do_dynstack_push_fluid (scm_i_thread *thread, SCM fluid,
                                          SCM value);
 SCM_API void scm_do_dynstack_push_dynwind (scm_i_thread *thread,
