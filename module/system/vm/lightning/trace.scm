@@ -121,7 +121,8 @@
 (define *known-ops*
   '(bind-kwargs
     push-fluid pop-fluid wind unwind
-    add add1 sub sub1 mul div quo))
+    add add1 sub sub1 mul div quo rem
+    string->number))
 
 (define *label-call-ops*
   '(call-label tail-call-label))

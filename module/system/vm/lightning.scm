@@ -55,7 +55,7 @@
 
 ;; State used during compilation.
 (define-record-type <lightning>
-  (%make-lightning trace nodes ip labels pc fp thread nargs args nretvals
+  (%make-lightning trace nodes ip labels pc fp nargs args nretvals
                    cached modified indent)
   lightning?
 
@@ -77,9 +77,6 @@
   ;; Frame pointer
   (fp lightning-fp)
 
-  ;; Thread.
-  (thread lightning-thread)
-
   ;; Arguments.
   (args lightning-args)
 
@@ -98,7 +95,7 @@
   ;; Indentation level for debug message.
   (indent lightning-indent))
 
-(define* (make-lightning trace nodes fp thread nargs args pc
+(define* (make-lightning trace nodes fp nargs args pc
                          indent
                          #:optional
                          (nretvals 1)
@@ -109,12 +106,13 @@
               ;;   (hashq-set! labels labeled-ip (jit-forward)))
               (hashq-set! labels labeled-ip (jit-forward)))
             (trace-labeled-ips trace))
-  (%make-lightning trace nodes ip labels pc fp thread nargs args nretvals
+  (%make-lightning trace nodes ip labels pc fp nargs args nretvals
                    #f #f indent))
 
 (define jit-code-guardian (make-guardian))
 
 (define program-nretvals (make-object-property))
+
 
 ;;;
 ;;; Constants
@@ -134,9 +132,19 @@
 
 (define-syntax-rule (program-is-jit-compiled) (imm #x4000))
 
-(define-syntax-rule (reg-nargs) v0)
 
-(define-syntax-rule (reg-retval) v1)
+;;;
+;;; Registers
+;;;
+
+;; Number of arguments.
+(define-syntax reg-nargs (identifier-syntax v0))
+
+;; Return value.
+(define-syntax reg-retval (identifier-syntax v1))
+
+;; Current thread.
+(define-syntax reg-thread (identifier-syntax v2))
 
 
 ;;;
@@ -268,22 +276,18 @@ argument in VM operation."
 (define-syntax-rule (c-pointer name)
   (dynamic-func name (dynamic-link)))
 
-;;; XXX: Use register for current thread. Otherwise,
-;;; `call-with-new-thread' will not work. The thread used at compile
-;;; time will be used in later calls every time,
+(define-syntax-rule (scm-thread-dynamic-state st)
+  (jit-ldxi r0 reg-thread (imm #xd8)))
 
-(define-syntax-rule (thread-dynamic-state st)
-  (imm (+ (pointer-address (lightning-thread st)) #xd8)))
-
-(define-syntax-rule (thread-pending-asyncs st)
-  (imm (+ (pointer-address (lightning-thread st)) #x104)))
+(define-syntax-rule (scm-thread-pending-asyncs st)
+  (jit-ldxi r0 reg-thread (imm #x104)))
 
 ;;;
 
 ;; XXX: Add pre and post as in vm-engine.c?
 (define-syntax-rule (vm-handle-interrupts st)
   (let ((l1 (jit-forward)))
-    (jit-ldi r0 (thread-pending-asyncs st))
+    (scm-thread-pending-asyncs r0)
     (jit-patch-at (jit-bmci r0 (imm 1)) l1)
     (jit-prepare)
     (jit-calli (c-pointer "scm_async_tick"))
@@ -342,7 +346,7 @@ argument in VM operation."
     (when rest
       (jit-pushargr r1))
     (jit-calli (program-free-variable-ref primitive 0))
-    (jit-retval (reg-retval))))
+    (jit-retval reg-retval)))
 
 (define-syntax-rule (call-scm st proc-or-addr)
   (let* ((addr (ensure-program-addr proc-or-addr))
@@ -374,31 +378,31 @@ argument in VM operation."
        body
        (jit-patch ra)))))
 
-(define-syntax-rule (call-apply st proc)
-  (let ((nargs (lightning-nargs st)))
+(define-syntax-rule (call-apply st proc nlocals)
+  (let ((nargs nlocals))
+
     ;; Last local, a list containing rest of arguments.
-    (local-ref st (- (+ proc (lightning-nargs st)) 1) r0)
+    (local-ref st (- (+ proc nargs) 1) r0)
 
     ;; Cons all the other arguments to rest, if any.
-    (when (< 3 (lightning-nargs st))
+    (when (< 3 nargs)
       (for-each (lambda (n)
                   (jit-prepare)
-                  (local-ref st (+ proc (- (lightning-nargs st) 2 n)) r1)
-                  (jit-pushargi (lightning-thread st))
+                  (local-ref st (+ proc (- nargs 2 n)) r1)
+                  (jit-pushargr reg-thread)
                   (jit-pushargr r1)
                   (jit-pushargr r0)
                   (jit-calli (c-pointer "scm_do_inline_cons"))
                   (jit-retval r0))
-                (iota (- (lightning-nargs st) 3))))
+                (iota (- nargs 3))))
 
-    ;; Call `%call-lightning' with proc and argument list.
+    ;; Call `%call-lightning' with thread, proc, and argument list.
     (jit-prepare)
-    (jit-pushargi (lightning-thread st))
-    (local-ref st (+ proc 1) r1)
-    (jit-pushargr r1)
+    (jit-pushargr reg-thread)
+    (jit-pushargr (local-ref st (+ proc 1) r1))
     (jit-pushargr r0)
     (jit-calli %call-lightning)
-    (jit-retval (reg-retval))))
+    (jit-retval reg-retval)))
 
 (define-syntax call-local
   (syntax-rules ()
@@ -438,11 +442,11 @@ argument in VM operation."
     (jit-calli (c-pointer "scm_list_n"))
     (jit-retval r1)
     (jit-prepare)
-    (jit-pushargi (lightning-thread st))
+    (jit-pushargr reg-thread)
     (jit-pushargr (local-ref st proc))
     (jit-pushargr r1)
     (jit-calli %call-lightning)
-    (jit-retval (reg-retval))))
+    (jit-retval reg-retval)))
 
 (define-syntax compile-callee
   (syntax-rules (compile-lightning* with-frame)
@@ -467,7 +471,6 @@ argument in VM operation."
            (let ((st2 (make-lightning trace
                                       (lightning-nodes st1)
                                       (lightning-fp st1)
-                                      (lightning-thread st1)
                                       nlocals
                                       args
                                       callee-addr
@@ -506,7 +509,7 @@ argument in VM operation."
     ((_ (name st expected offset) jit-op)
      (define-vm-op (name st expected offset)
        (jit-patch-at
-        (jit-op (reg-nargs) (imm expected))
+        (jit-op reg-nargs (imm expected))
         (resolve-dst st offset))))))
 
 (define-syntax define-vm-br-unary-immediate-op
@@ -688,7 +691,7 @@ argument in VM operation."
          (jit-ldxi-d f6 regb (imm (* 2 (sizeof '*))))
          (fl-op f5 f5 f6)
          (jit-prepare)
-         (jit-pushargi (lightning-thread st))
+         (jit-pushargr reg-thread)
          (jit-pushargr-d f5)
          (jit-calli (c-pointer "scm_do_inline_from_double"))
          (jit-retval r0)
@@ -727,7 +730,7 @@ argument in VM operation."
          (jit-ldxi-d f6 regb (imm 16))
          (fl-op f5 f5 f6)
          (jit-prepare)
-         (jit-pushargi (lightning-thread st))
+         (jit-pushargr reg-thread)
          (jit-pushargr-d f5)
          (jit-calli (c-pointer "scm_do_inline_from_double"))
          (jit-retval r0)
@@ -765,7 +768,7 @@ argument in VM operation."
          (jit-extr-d f6 r0)
          (fl-op f5 f5 f6)
          (jit-prepare)
-         (jit-pushargi (lightning-thread st))
+         (jit-pushargr reg-thread)
          (jit-pushargr-d f5)
          (jit-calli (c-pointer "scm_do_inline_from_double"))
          (jit-retval r0)
@@ -798,14 +801,14 @@ argument in VM operation."
 (define-vm-op (call st proc nlocals)
   (save-locals st)
   (vm-handle-interrupts st)
-  (jit-movi (reg-nargs) (imm nlocals))
+  (jit-movi reg-nargs (imm nlocals))
   (let ((callee (current-callee st)))
     (debug 1 ";;; call: callee=~a (~a)~%"
            callee (and (program? callee) (program-code callee)))
     (cond
      ((builtin? callee)
       (case (builtin-name callee)
-        ((apply) (call-apply st proc))))
+        ((apply) (call-apply st proc nlocals))))
      ((primitive? callee)
       (call-primitive st proc nlocals callee))
      ((closure? callee)
@@ -843,7 +846,7 @@ argument in VM operation."
 (define-vm-op (call-label st proc nlocals label)
   (save-locals st)
   (vm-handle-interrupts st)
-  (jit-movi (reg-nargs) (imm nlocals))
+  (jit-movi reg-nargs (imm nlocals))
   (let ((addr (offset-addr st label)))
     (cond
      ((in-same-procedure? st label)
@@ -858,14 +861,14 @@ argument in VM operation."
 (define-vm-op (tail-call st nlocals)
   (save-locals st)
   (vm-handle-interrupts st)
-  (jit-movi (reg-nargs) (imm nlocals))
+  (jit-movi reg-nargs (imm nlocals))
   (let ((callee (current-callee st)))
     (debug 1  ";;; tail-call: callee=~a (~a)~%"
            callee (and (program? callee) (program-code callee)))
     (cond
      ((builtin? callee)
       (case (builtin-name callee)
-        ((apply) (call-apply st 0))))
+        ((apply) (call-apply st 0 nlocals))))
      ((primitive? callee)
       (call-primitive st 0 nlocals callee)
       (return-jmp st))
@@ -908,7 +911,7 @@ argument in VM operation."
 (define-vm-op (tail-call-label st nlocals label)
   (save-locals st)
   (vm-handle-interrupts st)
-  (jit-movi (reg-nargs) (imm nlocals))
+  (jit-movi reg-nargs (imm nlocals))
   (cond
    ((in-same-procedure? st label)
     (jit-patch-at (jit-jmpi) (resolve-dst st label)))
@@ -923,13 +926,13 @@ argument in VM operation."
 (define-vm-op (receive st dst proc nlocals)
   (cache-locals st (lightning-nargs st))
   ;; (cache-locals st nlocals)
-  (local-set! st dst (reg-retval)))
+  (local-set! st dst reg-retval))
 
 (define-vm-op (receive-values st proc allow-extra? nvalues)
   (save-locals st))
 
 (define-vm-op (return st dst)
-  (local-ref st dst (reg-retval))
+  (local-ref st dst reg-retval)
   (return-jmp st))
 
 (define-vm-op (return-values st)
@@ -962,13 +965,21 @@ argument in VM operation."
 
 ;; XXX: Move stack pointer, call jit-allocai when necessary.
 (define-vm-op (assert-nargs-ee/locals st expected locals)
-  (cache-locals st (+ expected locals)))
+  (cache-locals st (+ expected locals))
+  ;; (let ((l1 (jit-forward)))
+  ;;   (jit-patch-at (jit-beqi reg-nargs (imm expected)) l1)
+  ;;   (jit-prepare)
+  ;;   (jit-pushargr (local-ref st 0))
+  ;;   (jit-calli (c-pointer "scm_wrong_num_args"))
+  ;;   (jit-reti (scm->pointer *unspecified*))
+  ;;   (jit-link l1))
+  )
 
 (define-vm-op (bind-kwargs st nreq flags nreq-and-opt ntotal kw-offset)
   (jit-prepare)
   (jit-pushargr (jit-fp))
   (jit-pushargi (imm (lightning-fp st)))
-  (jit-pushargr (reg-nargs))
+  (jit-pushargr reg-nargs)
   (jit-pushargi (imm (+ (* 4 (lightning-ip st)) (lightning-pc st))))
   (jit-pushargi (imm nreq))
   (jit-pushargi (imm flags))
@@ -987,11 +998,15 @@ argument in VM operation."
   (jit-retval r0)
   (local-set! st dst r0))
 
-(define-vm-op (assert-nargs-le st expected)
+(define-vm-op (assert-nargs-ee st expected)
   ;; (vm-handle-interrupts st)
   *unspecified*)
 
 (define-vm-op (assert-nargs-ge st expected)
+  ;; (vm-handle-interrupts st)
+  *unspecified*)
+
+(define-vm-op (assert-nargs-le st expected)
   ;; (vm-handle-interrupts st)
   *unspecified*)
 
@@ -1000,7 +1015,7 @@ argument in VM operation."
   (let ((l1 (jit-forward))
         (l2 (jit-forward)))
 
-    (jit-movr r1 (reg-nargs))
+    (jit-movr r1 reg-nargs)
 
     ;; Doing similar things to `stored-ref' in generated code. Using r2
     ;; as offset of location to store.
@@ -1108,7 +1123,7 @@ argument in VM operation."
 
 (define-vm-op (box st dst src)
   (jit-prepare)
-  (jit-pushargi (lightning-thread st))
+  (jit-pushargr reg-thread)
   (jit-pushargi (imm (tc7-variable)))
   (jit-pushargr (local-ref st src))
   (jit-calli (c-pointer "scm_do_inline_cell"))
@@ -1124,7 +1139,7 @@ argument in VM operation."
 
 (define-vm-op (make-closure st dst offset nfree)
   (jit-prepare)
-  (jit-pushargi (lightning-thread st))
+  (jit-pushargr reg-thread)
   (jit-pushargi (imm (logior (tc7-program) (ash nfree 16))))
   (jit-pushargi (imm (+ nfree 3)))
   (jit-calli (c-pointer "scm_do_inline_words"))
@@ -1210,7 +1225,7 @@ argument in VM operation."
 ;;; XXX: Not tested yet.
 (define-vm-op (wind st winder unwinder)
   (jit-prepare)
-  (jit-pushargi (lightning-thread st))
+  (jit-pushargr reg-thread)
   (local-ref st winder r0)
   (jit-pushargr r0)
   (local-ref st unwinder r0)
@@ -1220,12 +1235,12 @@ argument in VM operation."
 ;;; XXX: Not tested yet.
 (define-vm-op (unwind st)
   (jit-prepare)
-  (jit-pushargi (lightning-thread st))
+  (jit-pushargr reg-thread)
   (jit-calli (c-pointer "scm_do_dynstack_pop")))
 
 (define-vm-op (push-fluid st fluid value)
   (jit-prepare)
-  (jit-pushargi (lightning-thread st))
+  (jit-pushargr reg-thread)
   (local-ref st fluid r0)
   (jit-pushargr r0)
   (local-ref st value r0)
@@ -1234,7 +1249,7 @@ argument in VM operation."
 
 (define-vm-op (pop-fluid st)
   (jit-prepare)
-  (jit-pushargi (lightning-thread st))
+  (jit-pushargr reg-thread)
   (jit-calli (c-pointer "scm_do_unwind_fluid")))
 
 (define-vm-op (fluid-ref st dst src)
@@ -1243,7 +1258,7 @@ argument in VM operation."
 
     ;; r0 = fluids, in thread:
     ;;   thread->dynamic_state
-    (jit-ldi r0 (thread-dynamic-state st))
+    (scm-thread-dynamic-state r0)
     ;;   SCM_I_DYNAMIC_STATE_FLUIDS (dynstack)
     ;;   (i.e. SCM_CELL_WORD_1 (dynstack))
     (jit-ldxi r0 r0 (imm 8))
@@ -1285,7 +1300,14 @@ argument in VM operation."
   (jit-retval r0)
   (local-set! st dst r0))
 
-;;; XXX: string->number
+(define-vm-op (string->number st dst src)
+  (jit-prepare)
+  (jit-pushargr (local-ref st src))
+  (jit-pushargi (undefined))
+  (jit-calli (c-pointer "scm_string_to_number"))
+  (jit-retval r0)
+  (local-set! st dst r0))
+
 ;;; XXX: string->symbol
 ;;; XXX: symbol->keyword
 
@@ -1294,9 +1316,9 @@ argument in VM operation."
 
 (define-vm-op (cons st dst car cdr)
   (jit-prepare)
-  (jit-pushargi (lightning-thread st))
-  (jit-pushargr (local-ref st car r0))
-  (jit-pushargr (local-ref st cdr r0))
+  (jit-pushargr reg-thread)
+  (jit-pushargr (local-ref st car))
+  (jit-pushargr (local-ref st cdr))
   (jit-calli (c-pointer "scm_do_inline_cons"))
   (jit-retval r0)
   (local-set! st dst r0))
@@ -1345,6 +1367,14 @@ argument in VM operation."
   (jit-retval r0)
   (local-set! st dst r0))
 
+(define-vm-op (rem st dst a b)
+  (jit-prepare)
+  (jit-pushargr (local-ref st a))
+  (jit-pushargr (local-ref st b))
+  (jit-calli (c-pointer "scm_remainder"))
+  (jit-retval r0)
+  (local-set! st dst r0))
+
 (define-vm-op (make-vector st dst length init)
   (jit-prepare)
   (jit-pushargr (local-ref st length))
@@ -1355,7 +1385,7 @@ argument in VM operation."
 
 (define-vm-op (make-vector/immediate st dst length init)
   (jit-prepare)
-  (jit-pushargi (lightning-thread st))
+  (jit-pushargr reg-thread)
   (jit-pushargi (imm (logior (tc7-vector) (ash length 8))))
   (jit-pushargi (imm (+ length 1)))
   (jit-calli (c-pointer "scm_do_inline_words"))
@@ -1444,8 +1474,8 @@ argument in VM operation."
 
 ;;; XXX: class-of
 ;;; XXX: allocate-struct
-;;; XXX: struct-ref
 ;;; XXX: struct-set!
+
 
 ;;; Arrays, packed uniform arrays, and bytevectors
 ;;; ----------------------------------------------
@@ -1529,13 +1559,6 @@ true, the compiled result is for top level ."
   "Compile PROC with lightning, and run with ARGS."
   (c-call-lightning (thread-i-data (current-thread)) proc args))
 
-(define (call-lightning* proc . args)
-  "Compile PROC with lightning, and run with ARGS."
-  (scm->pointer
-   (c-call-lightning (thread-i-data (current-thread))
-                     (pointer->scm proc)
-                     (map pointer->scm args))))
-
 (define (c-call-lightning* thread proc args)
   "Like `c-call-lightning', but ARGS and PROC are pointers to scheme
 values. Returned value of this procedure is a pointer to scheme value."
@@ -1591,8 +1614,9 @@ values. Returned value of this procedure is a pointer to scheme value."
              (lp (cdr args) (+ offset 1))))
 
          ;; Initialize registers.
-         (jit-movi (reg-retval) (scm->pointer *unspecified*))
-         (jit-movi (reg-nargs) (imm (+ (length args) 1)))
+         (jit-movi reg-retval (scm->pointer *unspecified*))
+         (jit-movi reg-nargs (imm (+ (length args) 1)))
+         (jit-movi reg-thread thread)
 
          expr
 
@@ -1604,7 +1628,7 @@ values. Returned value of this procedure is a pointer to scheme value."
     ;; 1 < number of values.
     (cond
      ((<= nretvals 1)
-      (jit-retr (reg-retval)))
+      (jit-retr reg-retval))
      (else
       (jit-prepare)
       (jit-movi r1 (offset->addr 4))
@@ -1662,7 +1686,6 @@ values. Returned value of this procedure is a pointer to scheme value."
                              (st (make-lightning trace
                                                  (make-hash-table)
                                                  fp0
-                                                 thread
                                                  nargs
                                                  args
                                                  addr2

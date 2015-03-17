@@ -55,6 +55,7 @@
 
 (test-begin "vm-lightning-test")
 
+
 ;;; Call and return
 
 (define (callee x)
@@ -133,6 +134,7 @@
 
 (define applicable-struct (make-applicable-struct))
 
+;; XXX: Getting segfault.
 ;; (define-test (call-applicable-struct n) (99)
 ;;   (applicable-struct n))
 
@@ -514,6 +516,16 @@
 (define-test (t-string-ref k) (8)
   (string-ref "foo-bar-buzz" k))
 
+(define-test (t-string->number-fixnum n) ("12345")
+  (string->number n))
+
+(define-test (t-string->number-flonum n) ("1.2345")
+  (string->number n))
+
+(define-test (t-string->number-gmp n) ("123456789012345678901234567890")
+  (string->number n))
+
+
 ;;; Pairs
 
 (define-test (t-car x) ('(foo bar buzz))
@@ -725,6 +737,9 @@
       n
       (+ (fib2 (- n 1))
          (fib2 (- n 2)))))
+
+(define-test (call-map1 xs) ('(1 2 3))
+  (map (lambda (x) (+ x 1)) xs))
 
 (define-test (nqueens n) (8)
   (define (one-to n)
