@@ -496,6 +496,18 @@ argument in VM operation."
 (define-syntax-rule (define-label l body ...)
   (begin (jit-link l) body ...))
 
+(define-syntax error-wrong-type-arg-msg
+  (syntax-rules ()
+    ((_ subr pos reg expected)
+     (begin
+       (jit-prepare)
+       (jit-pushargi subr)
+       (jit-pushargi (imm pos))
+       (jit-pushargr reg)
+       (jit-pushargi expected)
+       (jit-calli (c-pointer "scm_wrong_type_arg_msg"))
+       (jit-reti (scm->pointer *unspecified*))))))
+
 (define-syntax assert-wrong-num-args
   (syntax-rules ()
     ((_ st jit-op expected local)
@@ -506,6 +518,17 @@ argument in VM operation."
        (jit-calli (c-pointer "scm_wrong_num_args"))
        (jit-reti (scm->pointer *unspecified*))
        (jit-link l1)))))
+
+(define-syntax-rule (validate-pair pair cell-obj subr pos)
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+    (jit-patch-at (jit-bmsi pair (imm 6)) l1)
+    (jit-ldr cell-obj pair)
+    (jit-patch-at (jit-bmsi cell-obj (imm 1)) l1)
+    (jit-patch-at (jit-jmpi) l2)
+    (jit-link l1)
+    (error-wrong-type-arg-msg subr pos r0 *pair-string)
+    (jit-link l2)))
 
 (define-syntax define-br-nargs-op
   (syntax-rules ()
@@ -885,7 +908,8 @@ argument in VM operation."
       ;;  (else
       ;;   (call-local st 0 nlocals #f)
       ;;   (return-jmp st)))
-      (call-local st 0 nlocals #t))
+      (call-local st 0 nlocals #t)
+      (return-jmp st))
      ((recursion? st callee)
       (call-scm st callee))
      ((jit-compiled-code callee)
@@ -1334,6 +1358,12 @@ argument in VM operation."
 ;;; Pairs
 ;;; -----
 
+(define *pair-string (string->pointer "pair"))
+(define *car-string (string->pointer "car"))
+(define *cdr-string (string->pointer "cdr"))
+(define *set-car!-string (string->pointer "set-car!"))
+(define *set-cdr!-string (string->pointer "set-cdr!"))
+
 (define-vm-op (cons st dst car cdr)
   (jit-prepare)
   (jit-pushargr reg-thread)
@@ -1344,18 +1374,25 @@ argument in VM operation."
   (local-set! st dst r0))
 
 (define-vm-op (car st dst src)
-  (jit-ldr r0 (local-ref st src))
-  (local-set! st dst r0))
+  (local-ref st src r0)
+  (validate-pair r0 r1 *car-string 1)
+  (local-set! st dst r1))
 
 (define-vm-op (cdr st dst src)
-  (jit-ldxi r0 (local-ref st src) (imm (sizeof '*)))
+  (local-ref st src r0)
+  (validate-pair r0 r1 *cdr-string 1)
+  (jit-ldxi r0 r0 (imm (sizeof '*)))
   (local-set! st dst r0))
 
 (define-vm-op (set-car! st pair car)
-  (jit-str (local-ref st pair r0) (local-ref st car r1)))
+  (local-ref st pair r0)
+  (validate-pair r0 r1 *set-car!-string 1)
+  (jit-str r0 (local-ref st car r1)))
 
 (define-vm-op (set-cdr! st pair cdr)
-  (jit-stxi (imm (sizeof '*)) (local-ref st pair r0) (local-ref st cdr r1)))
+  (local-ref st pair r0)
+  (validate-pair r0 r1 *set-cdr!-string 1)
+  (jit-stxi (imm (sizeof '*)) r0 (local-ref st cdr r1)))
 
 
 ;;; Numeric operations
@@ -1756,17 +1793,22 @@ values. Returned value of this procedure is a pointer to scheme value."
              ;; XXX: Any where else to store `bv'?
              (jit-code-guardian bv)
              (set-jit-compiled-code! proc (jit-address entry))
-             (debug 1 ";;; set jit compiled code of ~a to ~a~%"
-                    proc (jit-address entry))
+             (make-bytevector-executable! bv)
 
              (let ((verbosity (lightning-verbosity)))
+               (when (and verbosity (<= 1 verbosity))
+                 (format #t ";;; nodes:~%")
+                 (hash-for-each (lambda (k v)
+                                  (format #t ";;;  0x~x => ~a~%" k v))
+                                (lightning-nodes lightning)))
                (when (and verbosity (<= 3 verbosity))
                  (write-code-to-file
                   (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
                  (jit-print)
                  (jit-clear-state)))
+             (debug 1 ";;; set jit compiled code of ~a to ~a~%"
+                    proc (jit-address entry))
 
-             (make-bytevector-executable! bv)
              (pointer->scm (thunk)))))))
      (else
       (debug 0 ";;; Trace failed, interpreting: ~a~%" (cons proc args))
