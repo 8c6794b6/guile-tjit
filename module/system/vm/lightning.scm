@@ -508,6 +508,16 @@ argument in VM operation."
        (jit-calli (c-pointer "scm_wrong_type_arg_msg"))
        (jit-reti (scm->pointer *unspecified*))))))
 
+(define-syntax error-out-of-range
+  (syntax-rules ()
+    ((_ subr expr)
+     (begin
+       (jit-prepare)
+       (jit-pushargi subr)
+       expr
+       (jit-calli (c-pointer "scm_out_of_range"))
+       (jit-reti (scm->pointer *unspecified*))))))
+
 (define-syntax assert-wrong-num-args
   (syntax-rules ()
     ((_ st jit-op expected local)
@@ -1086,10 +1096,14 @@ argument in VM operation."
   (jit-patch-at (jit-jmpi) (resolve-dst st dst)))
 
 (define-vm-br-unary-immediate-op (br-if-true st a invert offset)
-  ((if invert jit-beqi jit-bnei) (local-ref st a) (scm->pointer #f)))
+  ((if invert jit-beqi jit-bnei)
+   (local-ref st a)
+   (scm->pointer #f)))
 
 (define-vm-br-unary-immediate-op (br-if-null st a invert offset)
-  ((if invert jit-bnei jit-beqi) (local-ref st a) (scm->pointer '())))
+  ((if invert jit-bnei jit-beqi)
+   (local-ref st a)
+   (scm->pointer '())))
 
 ;; XXX: br-if-nil
 
@@ -1323,7 +1337,7 @@ argument in VM operation."
   (scm-makinumr r0 r0)
   (local-set! st dst r0))
 
-;;; XXX: Inline with JIT code.
+;;; XXX: Inline JIT code.
 (define-vm-op (string-ref st dst src idx)
   (jit-prepare)
   (jit-pushargr (local-ref st src))
@@ -1440,6 +1454,24 @@ argument in VM operation."
   (jit-retval r0)
   (local-set! st dst r0))
 
+(define *vector-string
+  (string->pointer "vector"))
+
+(define *vector-length-string
+  (string->pointer "vector-length"))
+
+(define *vector-ref-string
+  (string->pointer "vector-ref"))
+
+(define *vector-ref/immediate-string
+  (string->pointer "vector-ref/immediate"))
+
+(define *vector-set!-string
+  (string->pointer "vector-set!"))
+
+(define *vector-set!/immediate-string
+  (string->pointer "vector-set!/immediate"))
+
 (define-vm-op (make-vector/immediate st dst length init)
   (jit-prepare)
   (jit-pushargr reg-thread)
@@ -1453,16 +1485,65 @@ argument in VM operation."
             (iota length))
   (local-set! st dst r0))
 
+(define-syntax-rule (validate-vector vec cell-obj tag subr)
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+    (jit-patch-at (jit-bmsi vec (imm 6)) l1)
+    (jit-ldr cell-obj vec)
+    (jit-andi tag cell-obj (imm #x7f))
+    (jit-patch-at (jit-beqi tag (imm (tc7-vector))) l2)
+    (jit-link l1)
+    (error-wrong-type-arg-msg subr 1 vec *vector-string)
+    (jit-link l2)))
+
+(define-syntax-rule (scm-i-vector-length dst src)
+  (begin
+    (jit-ldr dst src)
+    (jit-rshi dst dst (imm 8))))
+
+(define-syntax-rule (scm-i-inumr dst src)
+  (jit-rshi dst src (imm 2)))
+
+(define-syntax-rule (validate-vector-range vec idx tmp subr)
+  ;; Registers `vec' and `tmp' will get dirty after the validation.
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+    (jit-patch-at (jit-bmci idx (imm 2)) l1)
+
+    (scm-i-inumr tmp idx)
+    (jit-patch-at (jit-blti tmp (imm 0)) l1)
+    (scm-i-vector-length vec vec)
+    (jit-patch-at (jit-bltr tmp vec) l2)
+
+    ;; (jit-patch-at (jit-blti idx (imm 2)) l1)
+    ;; (scm-i-vector-length tmp vec)
+    ;; (scm-makinumr tmp tmp)
+    ;; (jit-patch-at (jit-bltr idx tmp) l2)
+
+    (jit-link l1)
+    (error-out-of-range subr (jit-pushargr idx))
+    (jit-link l2)))
+
+(define-syntax-rule (validate-vector-range/immediate vec idx tmp subr)
+  (let ((l1 (jit-forward)))
+    (scm-i-vector-length tmp vec)
+    (jit-patch-at (jit-bgti tmp (imm idx)) l1)
+    (error-out-of-range subr (jit-pushargi (scm-makinumi idx)))
+    (jit-link l1)))
+
 (define-vm-op (vector-length st dst src)
   (local-ref st src r0)
-  (jit-ldr r0 r0)
-  (jit-rshi r0 r0 (imm 8))
-  (scm-makinumr r0 r0)
-  (local-set! st dst r0))
+  (validate-vector r0 r1 r2 *vector-length-string)
+  (jit-rshi r1 r1 (imm 8))
+  (scm-makinumr r1 r1)
+  (local-set! st dst r1))
 
 (define-vm-op (vector-ref st dst src idx)
   (local-ref st src r0)
+  (validate-vector r0 r1 r2 *vector-ref-string)
   (local-ref st idx r1)
+  (validate-vector-range r0 r1 r2 *vector-ref-string)
+  (local-ref st src r0)
   (jit-rshi r1 r1 (imm 2))
   (jit-addi r1 r1 (imm 1))
   (jit-muli r1 r1 (imm (sizeof '*)))
@@ -1471,6 +1552,8 @@ argument in VM operation."
 
 (define-vm-op (vector-ref/immediate st dst src idx)
   (local-ref st src r0)
+  (validate-vector r0 r1 r2 *vector-ref/immediate-string)
+  (validate-vector-range/immediate r0 idx r1 *vector-ref/immediate-string)
   (jit-ldxi r0 r0 (imm (* (+ idx 1) (sizeof '*))))
   (local-set! st dst r0))
 
@@ -1796,7 +1879,7 @@ values. Returned value of this procedure is a pointer to scheme value."
              (make-bytevector-executable! bv)
 
              (let ((verbosity (lightning-verbosity)))
-               (when (and verbosity (<= 1 verbosity))
+               (when (and verbosity (<= 2 verbosity))
                  (format #t ";;; nodes:~%")
                  (hash-for-each (lambda (k v)
                                   (format #t ";;;  0x~x => ~a~%" k v))
