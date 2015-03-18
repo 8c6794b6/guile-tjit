@@ -122,14 +122,14 @@
   '(bind-kwargs
     push-fluid pop-fluid wind unwind
     add add1 sub sub1 mul div quo rem
-    string->number))
+    string->number string->symbol string->keyword))
 
 (define *label-call-ops*
   '(call-label tail-call-label))
 
 
 ;;;
-;;; For bytecode entries
+;;; For entries in bytecode basic blocks
 ;;;
 
 (define-record-type <entries>
@@ -560,15 +560,6 @@ vector."
            (debug 1 "trace: (~a:~a) assert-nargs-ee/locals: expected ~a, got ~a~%"
                   (trace-name trace) ip expected nargs))
          (set-trace-nlocals! trace (+ expected nlocals)))
-
-        (('br-if-nargs-ne expected offset)
-         *unspecified*)
-
-        (('br-if-nargs-lt expected offset)
-         *unspecified*)
-
-        (('br-if-nargs-gt expected offset)
-         *unspecified*)
 
         (('assert-nargs-ee expected)
          (when (not (= nargs expected))

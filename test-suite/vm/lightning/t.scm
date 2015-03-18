@@ -215,6 +215,15 @@
 (define-test (t-bind-rest x . rest) ('foo 'bar 'buzz)
   (cons x rest))
 
+(define (args-rest a b . rest)
+  (cons (+ a b) rest))
+
+(define-test (t-bind-rest-without-rest a b) (1 2)
+  (args-rest a b))
+
+(define-test (t-bind-rest-with-rest a b c d e) (1 2 3 4 5)
+  (args-rest a b c d e))
+
 (define-test (t-call-rest-0 x . rest) ('foo + *)
   ((car rest) 2 3))
 
@@ -525,6 +534,12 @@
 (define-test (t-string->number-gmp n) ("123456789012345678901234567890")
   (string->number n))
 
+(define-test (t-string->symbol str) ("foo")
+  (string->symbol str))
+
+(define-test (t-symbol->keyword sym) ('foo)
+  (symbol->keyword sym))
+
 
 ;;; Pairs
 
@@ -740,6 +755,12 @@
 
 (define-test (call-map1 xs) ('(1 2 3))
   (map (lambda (x) (+ x 1)) xs))
+
+(define-test (call-map2 xs ys) ('(1 2 3) '(10 20 30))
+  (map (lambda (x y) (+ x y)) xs ys))
+
+(define-test (call-map3 xs ys zs) ('(1 2 3) '(10 20 30) '(100 200 300))
+  (map (lambda (x y z) (+ x y z)) xs ys zs))
 
 (define-test (nqueens n) (8)
   (define (one-to n)

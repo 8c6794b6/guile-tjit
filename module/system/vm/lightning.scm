@@ -128,7 +128,7 @@
 
 (define-syntax-rule (tc16-real) 535)
 
-(define-syntax-rule (undefined) (make-pointer #x904))
+(define-syntax scm-undefined (identifier-syntax (make-pointer #x904)))
 
 (define-syntax-rule (program-is-jit-compiled) (imm #x4000))
 
@@ -328,7 +328,7 @@ argument in VM operation."
                          (local-ref st (+ proc i 1 num-req+opts))))
                       (iota (- nlocals num-req+opts 1)))
             ;; Additional `undefined', to end the arguments.
-            (jit-pushargi (undefined))
+            (jit-pushargi scm-undefined)
             (jit-calli (c-pointer "scm_list_n"))
             (jit-retval r1))))
 
@@ -341,7 +341,7 @@ argument in VM operation."
     ;; Filling in unspecified optionals, if any.
     (when (not (null? optionals))
       (for-each (lambda (i)
-                  (jit-pushargi (undefined)))
+                  (jit-pushargi scm-undefined))
                 (iota (- num-req+opts (- nlocals 1)))))
     (when rest
       (jit-pushargr r1))
@@ -438,7 +438,7 @@ argument in VM operation."
     (for-each (lambda (n)
                 (jit-pushargr (local-ref st (+ proc n 1))))
               (iota (- nlocals 1)))
-    (jit-pushargi (undefined))
+    (jit-pushargi scm-undefined)
     (jit-calli (c-pointer "scm_list_n"))
     (jit-retval r1)
     (jit-prepare)
@@ -503,6 +503,17 @@ argument in VM operation."
 
 (define-syntax-rule (define-label l body ...)
   (begin (jit-link l) body ...))
+
+(define-syntax assert-wrong-num-args
+  (syntax-rules ()
+    ((_ st jit-op expected local)
+     (let ((l1 (jit-forward)))
+       (jit-patch-at (jit-op reg-nargs (imm expected)) l1)
+       (jit-prepare)
+       (jit-pushargr (local-ref st 0))
+       (jit-calli (c-pointer "scm_wrong_num_args"))
+       (jit-reti (scm->pointer *unspecified*))
+       (jit-link l1)))))
 
 (define-syntax define-br-nargs-op
   (syntax-rules ()
@@ -822,14 +833,12 @@ argument in VM operation."
       (call-local st proc nlocals #f))
      ((recursion? st callee)
       (with-frame st proc (call-scm st callee)))
-
      ((jit-compiled-code callee)
       =>
       (lambda (code)
         (debug 1 ";;; call: found jit compiled-code at 0x~x~%" code)
         (with-frame st proc (begin (jit-movi r1 (imm code))
                                    (jit-jmpr r1)))))
-
      ((and (reusable? (current-callee-args st))
            (compiled-node st (ensure-program-addr callee)))
       =>
@@ -888,20 +897,17 @@ argument in VM operation."
       (call-local st 0 nlocals #t))
      ((recursion? st callee)
       (call-scm st callee))
-
      ((jit-compiled-code callee)
       =>
       (lambda (code)
         (debug 1 ";;; tail-call: found jit compiled-code at 0x~x~%" code)
         (jit-movi r0 (imm code))
         (jit-jmpr r0)))
-
      ((and (reusable? (current-callee-args st))
            (compiled-node st (ensure-program-addr callee)))
       =>
       (lambda (node)
         (jit-patch-at (jit-jmpi) node)))
-
      ((procedure? callee)
       (compile-callee st 0 nlocals (ensure-program-addr callee) #t))
      (else
@@ -924,7 +930,7 @@ argument in VM operation."
 
 ;; Return value stored in reg-retval by callee.
 (define-vm-op (receive st dst proc nlocals)
-  (cache-locals st (lightning-nargs st))
+  ;; (cache-locals st (lightning-nargs st))
   ;; (cache-locals st nlocals)
   (local-set! st dst reg-retval))
 
@@ -963,17 +969,8 @@ argument in VM operation."
 (define-br-nargs-op (br-if-nargs-gt st expected offset)
   jit-bgti)
 
-;; XXX: Move stack pointer, call jit-allocai when necessary.
 (define-vm-op (assert-nargs-ee/locals st expected locals)
-  (cache-locals st (+ expected locals))
-  ;; (let ((l1 (jit-forward)))
-  ;;   (jit-patch-at (jit-beqi reg-nargs (imm expected)) l1)
-  ;;   (jit-prepare)
-  ;;   (jit-pushargr (local-ref st 0))
-  ;;   (jit-calli (c-pointer "scm_wrong_num_args"))
-  ;;   (jit-reti (scm->pointer *unspecified*))
-  ;;   (jit-link l1))
-  )
+  (assert-wrong-num-args st jit-beqi expected 0))
 
 (define-vm-op (bind-kwargs st nreq flags nreq-and-opt ntotal kw-offset)
   (jit-prepare)
@@ -989,26 +986,47 @@ argument in VM operation."
   (jit-calli (c-pointer "scm_do_bind_kwargs")))
 
 (define-vm-op (bind-rest st dst)
-  (jit-prepare)
-  (for-each (lambda (n)
-              (jit-pushargr (local-ref st (+ n dst))))
-            (iota (- (lightning-nargs st) dst)))
-  (jit-pushargi (undefined))
-  (jit-calli (c-pointer "scm_list_n"))
-  (jit-retval r0)
-  (local-set! st dst r0))
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+
+    (jit-movi r1 (imm (lightning-fp st)))
+    (jit-movr r0 reg-nargs)
+    (jit-subi r0 r0 (imm 1))
+    (jit-muli r0 r0 (imm (sizeof '*)))
+    (jit-subr r1 r1 r0)                 ; r1 = initial arg index.
+
+    (jit-movi r0 (scm->pointer '()))    ; r0 = initial list.
+
+    (jit-link l1)
+    (jit-patch-at
+     (jit-bgti r1 (imm (- (lightning-fp st) (* dst (sizeof '*)))))
+     l2)
+    (jit-prepare)
+    (jit-pushargr reg-thread)
+    (jit-ldxr r2 (jit-fp) r1)
+    (jit-pushargr r2)
+    (jit-pushargr r0)
+    (jit-calli (c-pointer "scm_do_inline_cons"))
+    (jit-retval r0)
+    (jit-addi r1 r1 (imm (sizeof '*)))
+    (jit-patch-at (jit-jmpi) l1)
+
+    (jit-link l2)
+
+    ;; Updating nargs to prevent following `alloc-frame' to override
+    ;; the rest list with #<unspecified>.
+    (jit-movi reg-nargs (imm (+ dst 1)))
+
+    (local-set! st dst r0)))
 
 (define-vm-op (assert-nargs-ee st expected)
-  ;; (vm-handle-interrupts st)
-  *unspecified*)
+  (assert-wrong-num-args st jit-beqi expected 0))
 
 (define-vm-op (assert-nargs-ge st expected)
-  ;; (vm-handle-interrupts st)
-  *unspecified*)
+  (assert-wrong-num-args st jit-bgei expected 0))
 
 (define-vm-op (assert-nargs-le st expected)
-  ;; (vm-handle-interrupts st)
-  *unspecified*)
+  (assert-wrong-num-args st jit-blei expected 0))
 
 (define-vm-op (alloc-frame st nlocals)
   ;; (cache-locals st (lightning-nargs st))
@@ -1017,18 +1035,17 @@ argument in VM operation."
 
     (jit-movr r1 reg-nargs)
 
-    ;; Doing similar things to `stored-ref' in generated code. Using r2
-    ;; as offset of location to store.
     (jit-link l1)
     (jit-patch-at (jit-bgei r1 (imm nlocals)) l2)
 
+    ;; Doing similar things to `stored-ref' in generated code. Using r2
+    ;; as offset of location to store.
     (jit-movi r2 (imm (lightning-fp st)))
     (jit-movr r0 r1)
     (jit-muli r0 r0 (* (imm (sizeof '*))))
     (jit-subr r2 r2 r0)
-    (jit-movi r0 (undefined))
+    (jit-movi r0 scm-undefined)
     (jit-stxr r2 (jit-fp) r0)
-
     (jit-addi r1 r1 (imm 1))
     (jit-patch-at (jit-jmpi) l1)
 
@@ -1151,7 +1168,7 @@ argument in VM operation."
 
   ;; XXX: Storing JIT compiled code. Could fill in the address if
   ;; already compiled, but not done yet.
-  (jit-movi r1 (undefined))
+  (jit-movi r1 scm-undefined)
   (jit-stxi (imm (* 2 (sizeof '*))) r0 r1)
 
   (jit-movi r1 (scm->pointer #f))
@@ -1276,7 +1293,7 @@ argument in VM operation."
     (jit-ldxr r0 r0 r2)
 
     ;; Load default value from local fluid if not set.
-    (jit-patch-at (jit-bnei r0 (undefined)) l1)
+    (jit-patch-at (jit-bnei r0 scm-undefined) l1)
     (jit-ldxi r0 r1 (imm 8))
     (jit-link l1)
     (local-set! st dst r0)))
@@ -1303,13 +1320,25 @@ argument in VM operation."
 (define-vm-op (string->number st dst src)
   (jit-prepare)
   (jit-pushargr (local-ref st src))
-  (jit-pushargi (undefined))
+  (jit-pushargi scm-undefined)
   (jit-calli (c-pointer "scm_string_to_number"))
   (jit-retval r0)
   (local-set! st dst r0))
 
-;;; XXX: string->symbol
-;;; XXX: symbol->keyword
+(define-vm-op (string->symbol st dst src)
+  (jit-prepare)
+  (jit-pushargr (local-ref st src))
+  (jit-calli (c-pointer "scm_string_to_symbol"))
+  (jit-retval r0)
+  (local-set! st dst r0))
+
+(define-vm-op (symbol->keyword st dst src)
+  (jit-prepare)
+  (jit-pushargr (local-ref st src))
+  (jit-calli (c-pointer "scm_symbol_to_keyword"))
+  (jit-retval r0)
+  (local-set! st dst r0))
+
 
 ;;; Pairs
 ;;; -----
@@ -1480,6 +1509,28 @@ argument in VM operation."
 ;;; Arrays, packed uniform arrays, and bytevectors
 ;;; ----------------------------------------------
 
+;;; load-typed-array
+;;; make-array
+;;; bv-u8-ref
+;;; bv-s8-ref
+;;; bv-u16-ref
+;;; bv-s16-ref
+;;; bv-u32-ref
+;;; bv-s32-ref
+;;; bv-u64-ref
+;;; bv-s64-ref
+;;; bv-f32-ref
+;;; bv-f64-ref
+;;; bv-u8-set!
+;;; bv-s8-set!
+;;; bv-u16-set!
+;;; bv-s16-set!
+;;; bv-u32-set!
+;;; bv-s32-set!
+;;; bv-u64-set!
+;;; bv-s64-set!
+;;; bv-f32-set!
+;;; bv-f64-set!
 
 ;;;
 ;;; Compilation
@@ -1614,9 +1665,9 @@ values. Returned value of this procedure is a pointer to scheme value."
              (lp (cdr args) (+ offset 1))))
 
          ;; Initialize registers.
-         (jit-movi reg-retval (scm->pointer *unspecified*))
          (jit-movi reg-nargs (imm (+ (length args) 1)))
          (jit-movi reg-thread thread)
+         (jit-movi reg-retval (scm->pointer *unspecified*))
 
          expr
 
@@ -1636,7 +1687,7 @@ values. Returned value of this procedure is a pointer to scheme value."
                   (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
                   (jit-pushargr r0))
                 (iota nretvals))
-      (jit-pushargi (undefined))
+      (jit-pushargi scm-undefined)
       (jit-calli (c-pointer "scm_list_n"))
       (jit-retval r1)
       (jit-prepare)
@@ -1733,6 +1784,7 @@ values. Returned value of this procedure is a pointer to scheme value."
           (lambda () (set-vm-engine! 'regular))
           (lambda () (apply proc args))
           (lambda () (set-vm-engine! engine))))))))
+
 
 ;;; This procedure is called from C function `vm_lightning'.
 (define (vm-lightning thread fp registers nargs resume)
