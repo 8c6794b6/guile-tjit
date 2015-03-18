@@ -102,8 +102,6 @@
                          (ip 0)
                          (labels (make-hash-table)))
   (for-each (lambda (labeled-ip)
-              ;; (when (< labeled-ip (trace-ip trace))
-              ;;   (hashq-set! labels labeled-ip (jit-forward)))
               (hashq-set! labels labeled-ip (jit-forward)))
             (trace-labeled-ips trace))
   (%make-lightning trace nodes ip labels pc fp nargs args nretvals
@@ -119,17 +117,11 @@
 ;;;
 
 (define-syntax-rule (tc3-struct) 1)
-
 (define-syntax-rule (tc7-variable) 7)
-
 (define-syntax-rule (tc7-vector) 13)
-
 (define-syntax-rule (tc7-program) 69)
-
 (define-syntax-rule (tc16-real) 535)
-
 (define-syntax scm-undefined (identifier-syntax (make-pointer #x904)))
-
 (define-syntax-rule (program-is-jit-compiled) (imm #x4000))
 
 
@@ -477,7 +469,7 @@ argument in VM operation."
                                       (+ 2 (lightning-indent st1)))))
              body)))
         (else
-         (debug 1 ";;; Trace failed, calling ~a at runtime.~%" callee-addr)
+         (debug 1 ";;; Trace failed, calling 0x~x at runtime.~%" callee-addr)
          (call-runtime st1 proc nlocals)))))))
 
 (define-syntax-rule (in-same-procedure? st label)
@@ -801,7 +793,6 @@ argument in VM operation."
 ;;;
 
 ;; Groupings are taken from "guile/libguile/vm-engine.c".
-;; Assertions not added yet.
 
 
 ;;; Call and return
@@ -814,8 +805,8 @@ argument in VM operation."
   (vm-handle-interrupts st)
   (jit-movi reg-nargs (imm nlocals))
   (let ((callee (current-callee st)))
-    (debug 1 ";;; call: callee=~a (~a)~%"
-           callee (and (program? callee) (program-code callee)))
+    (debug 1 ";;; call: callee=~a (~x)~%"
+           callee (or (and (program? callee) (program-code callee)) 0))
     (cond
      ((builtin? callee)
       (case (builtin-name callee)
@@ -872,8 +863,8 @@ argument in VM operation."
   (vm-handle-interrupts st)
   (jit-movi reg-nargs (imm nlocals))
   (let ((callee (current-callee st)))
-    (debug 1  ";;; tail-call: callee=~a (~a)~%"
-           callee (and (program? callee) (program-code callee)))
+    (debug 1  ";;; tail-call: callee=~a (~x)~%"
+           callee (or (and (program? callee) (program-code callee)) 0))
     (cond
      ((builtin? callee)
       (case (builtin-name callee)
@@ -900,7 +891,7 @@ argument in VM operation."
      ((jit-compiled-code callee)
       =>
       (lambda (code)
-        (debug 1 ";;; tail-call: found jit compiled-code at 0x~x~%" code)
+        (debug 1 ";;; tail-call: found jit compiled-code at ~x~%" code)
         (jit-movi r0 (imm code))
         (jit-jmpr r0)))
      ((and (reusable? (current-callee-args st))
@@ -1579,12 +1570,12 @@ true, the compiled result is for top level ."
     ;; Link and compile the entry point.
     (jit-link entry)
     (jit-patch entry)
-    (debug 1 ";;; compile-lightning: Start compiling ~a (~a)~%" name addr)
+    (debug 1 ";;; compile-lightning: Start compiling ~a (~x)~%" name addr)
     (for-each (lambda (chunk)
                 (assemble-one st chunk))
               (trace-ops trace))
     (set-lightning-nretvals! st (trace-nretvals (lightning-trace st)))
-    (debug 1 ";;; compile-lightning: Finished compiling ~a (~a)~%" name addr)
+    (debug 1 ";;; compile-lightning: Finished compiling ~a (~x)~%" name addr)
 
     entry))
 

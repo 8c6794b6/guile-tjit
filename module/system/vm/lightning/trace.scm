@@ -76,19 +76,15 @@
         ((sparse-vector? sv)
          (or (let ((h (hashq-get-handle (sparse-vector-table sv) k)))
                (and h (cdr h)))
-             (if (<= 0 k (- (sparse-vector-size sv) 1))
-                 (sparse-vector-fill sv)
-                 (error "sparse-vector-ref: index out of range" k))))
-        (else *unspecified*)))
+             (sparse-vector-fill sv)))
+        (else unknown)))
 
 (define (sparse-vector-set! sv k obj)
   (cond ((vector? sv)
          (vector-set! sv k obj))
         ((sparse-vector? sv)
-         (if (<= 0 k (- (sparse-vector-size sv) 1))
-             (hashq-set! (sparse-vector-table sv) k obj)
-             (error "sparse-vector-set!: index out of range" k)))
-        (else *unspecified*)))
+         (hashq-set! (sparse-vector-table sv) k obj))
+        (else unknown)))
 
 ;;;
 ;;; VM op global values
@@ -389,6 +385,7 @@
   builtin?
   (idx builtin-idx)
   (name builtin-name))
+
 
 ;;; XXX: Rewrite the `undecidable' local managment with <cfg>.
 ;;;
@@ -780,7 +777,10 @@ vector."
                 (local-set! dst (sparse-vector-ref (local-ref src) i)))))
 
         (('vector-ref/immediate dst src idx)
-         (local-set! dst (sparse-vector-ref (local-ref src) idx)))
+         (let ((v (local-ref src)))
+           (and (or (sparse-vector? v)
+                    (vector? v))
+                (local-set! dst (sparse-vector-ref v idx)))))
 
         (('vector-set! dst idx src)
          (let ((i (local-ref idx)))
@@ -790,9 +790,14 @@ vector."
                                     (local-ref src)))))
 
         (('vector-set!/immediate dst idx src)
-         (sparse-vector-set! (local-ref dst)
-                             idx
-                             (local-ref src)))
+         (let ((v (local-ref dst)))
+           (and (or (sparse-vector? v)
+                    (vector? v))
+                (sparse-vector-set! v idx (local-ref src))))
+         ;; (sparse-vector-set! (local-ref dst)
+         ;;                     idx
+         ;;                     (local-ref src))
+         )
 
 
         ;; Structs and GOOPs
@@ -869,7 +874,8 @@ vector."
                        (and (closure? program-or-addr)
                             (closure-free-vars program-or-addr))
                        (make-vector 0))))
-    (debug 1 ";;; trace: Start tracing ~a (~a)~%" name addr)
+    (debug 1 ";;; trace: Start tracing ~a (~x)~%"
+           name (or (and (integer? addr) addr) 0))
     (let* ((cfg (program->cfg addr))
            (result
             (call/ec
@@ -878,7 +884,8 @@ vector."
                  (fold-right trace-one
                              acc
                              (entries-ops (cfg-entries cfg))))))))
-      (debug 1 ";;; trace: Finished tracing ~a (~a)~%" name addr)
+      (debug 1 ";;; trace: Finished tracing ~a (~x)~%"
+             name (or (and (integer? addr) addr) 0))
       (and (trace-success? result) result))))
 
 (define (trace-ops trace)
