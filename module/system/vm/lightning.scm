@@ -441,18 +441,18 @@ argument in VM operation."
     (jit-retval reg-retval)))
 
 (define-syntax compile-callee
-  (syntax-rules (compile-lightning* with-frame)
+  (syntax-rules (compile-lightning with-frame)
 
     ;; Non tail call
     ((_ st1 proc nlocals callee-addr #f)
      (compile-callee st1 st2 proc nlocals callee-addr
                      (with-frame st2 proc
-                                 (compile-lightning* st2 (jit-forward) #f))))
+                                 (compile-lightning st2 (jit-forward)))))
 
     ;; Tail call
     ((_ st1 proc nlocals callee-addr #t)
      (compile-callee st1 st2 proc nlocals callee-addr
-                     (compile-lightning* st2 (jit-forward) #f)))
+                     (compile-lightning st2 (jit-forward))))
 
     ((_ st1 st2 proc nlocals callee-addr body)
      (let ((args (current-callee-args st1)))
@@ -1559,7 +1559,10 @@ argument in VM operation."
 
 (define-vm-op (vector-set! st dst idx src)
   (local-ref st dst r0)
+  (validate-vector r0 r1 r2 *vector-set!-string)
   (local-ref st idx r1)
+  (validate-vector-range r0 r1 r2 *vector-set!-string)
+  (local-ref st dst r0)
   (local-ref st src r2)
   (jit-rshi r1 r1 (imm 2))
   (jit-addi r1 r1 (imm 1))
@@ -1568,6 +1571,8 @@ argument in VM operation."
 
 (define-vm-op (vector-set!/immediate st dst idx src)
   (local-ref st dst r0)
+  (validate-vector r0 r1 r2 *vector-set!/immediate-string)
+  (validate-vector-range/immediate r0 idx r1 *vector-set!/immediate-string)
   (local-ref st src r1)
   (jit-stxi (imm (* (+ idx 1) (sizeof '*))) r0 r1))
 
@@ -1647,15 +1652,10 @@ argument in VM operation."
 ;;; Compilation
 ;;;
 
+
 (define (compile-lightning st entry)
   "Compile <lightning> data specified by ST to native code using
 lightning, with ENTRY as lightning's node to itself."
-  (compile-lightning* st entry #t))
-
-(define (compile-lightning* st entry toplevel?)
-  "Compile <lightning> data specified by ST to native code using
-lightning, with ENTRY as lightning's node to itself. If TOPLEVEL? is
-true, the compiled result is for top level ."
 
   (define (destination-label st)
     (hashq-ref (lightning-labels st) (lightning-ip st)))
@@ -1813,6 +1813,9 @@ values. Returned value of this procedure is a pointer to scheme value."
      ((primitive? proc)
       (debug 1 ";;; calling primitive: ~a~%" proc)
       (apply proc args))
+     ;; ((not (program? proc))
+     ;;  (debug 1 ";;; calling non-program: ~a~%" proc)
+     ;;  (apply proc args))
 
      ((jit-compiled-code proc)
       =>
