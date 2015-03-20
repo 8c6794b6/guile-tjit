@@ -58,15 +58,6 @@ scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
 }
 
 SCM
-scm_do_i_string_length (SCM str)
-{
-  if (SCM_LIKELY (scm_is_string (str)))
-    return SCM_I_MAKINUM (scm_i_string_length (str));
-  else
-    return scm_string_length (str);
-}
-
-SCM
 scm_do_vm_builtin_ref (unsigned idx)
 {
   return scm_vm_builtin_ref (idx);
@@ -90,6 +81,19 @@ void
 scm_do_dynstack_push_dynwind (scm_i_thread *thread, SCM winder, SCM unwinder)
 {
   scm_dynstack_push_dynwind (&thread->dynstack, winder, unwinder);
+}
+
+void
+scm_do_dynstack_push_prompt (scm_i_thread *thread,
+                             scm_t_dynstack_prompt_flags flags,
+                             SCM key,
+                             scm_t_ptrdiff fp_offset,
+                             scm_t_ptrdiff sp_offset,
+                             scm_t_uint32 *ip,
+                             scm_i_jmp_buf *registers)
+{
+  scm_dynstack_push_prompt (&thread->dynstack, flags, key,
+                            fp_offset, sp_offset, ip, registers);
 }
 
 void
@@ -134,9 +138,6 @@ scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
 
   kw_bits = (scm_t_bits) (ip + kw_offset);
   kw = SCM_PACK (kw_bits);
-
-  /* LOCAL_SET (1, scm_from_int (12345)); */
-  /* LOCAL_SET (1, LOCAL_REF (0)); */
 
   npositional = nreq;
   while (/* while we have args */
@@ -185,8 +186,9 @@ scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
         n++;
       }
     else
-      VM_ASSERT (has_rest, vm_error_kwargs_invalid_keyword (LOCAL_REF (0),
-                                                            LOCAL_REF (ntotal + n)));
+      VM_ASSERT (has_rest,
+                 vm_error_kwargs_invalid_keyword (LOCAL_REF (0),
+                                                  LOCAL_REF (ntotal + n)));
 
   if (has_rest)
     {

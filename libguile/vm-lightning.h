@@ -27,7 +27,6 @@ SCM_API SCM scm_do_inline_cons (scm_i_thread *thread, SCM car, SCM cdr);
 SCM_API SCM scm_do_inline_from_double (scm_i_thread *thread, double val);
 SCM_API SCM scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
                                  scm_t_uint32 n_words);
-SCM_API SCM scm_do_i_string_length (SCM str);
 SCM_API SCM scm_do_vm_builtin_ref (unsigned idx);
 SCM_API SCM scm_do_thread_i_data (SCM thread);
 
@@ -38,6 +37,13 @@ SCM_API void scm_do_bind_kwargs(scm_t_uintptr *fp, scm_t_uintptr offset,
                                 scm_t_int32 kw_offset);
 SCM_API void scm_do_dynstack_push_fluid (scm_i_thread *thread, SCM fluid,
                                          SCM value);
+SCM_API void scm_do_dynstack_push_prompt (scm_i_thread *thread,
+                                          scm_t_dynstack_prompt_flags,
+                                          SCM key,
+                                          scm_t_ptrdiff fp_offset,
+                                          scm_t_ptrdiff sp_offset,
+                                          scm_t_uint32 *ip,
+                                          scm_i_jmp_buf *registers);
 SCM_API void scm_do_dynstack_push_dynwind (scm_i_thread *thread,
                                            SCM winder, SCM unwinder);
 SCM_API void scm_do_dynstack_pop (scm_i_thread *thread);

@@ -172,6 +172,18 @@
     (lambda (a b)
       (cons a b))))
 
+(define (two-values x)
+  (if (null? x)
+      (values #f x)
+      (car x)))
+
+(define-test (call-two-values-true x) ('())
+  (if (two-values x) 'true-branch 'false-branch))
+
+(define-test (call-two-values-false x) ('(1 2 3))
+  (if (two-values x) 'true-branch 'false-branch))
+
+
 ;;; Specialized call stubs
 
 (define-test (return-builtin-apply) ()
@@ -516,6 +528,14 @@
                         (lambda ()
                           (fluid-ref f01)))))
     (list (fluid-ref f01) a)))
+
+(define-test (t-wind-unwind x) (100)
+  (let ((ret '()))
+    (dynamic-wind
+      (lambda () (set! ret (cons 'pre ret)))
+      (lambda () (set! ret (cons x ret)))
+      (lambda () (set! ret (cons 'post ret))))
+    ret))
 
 ;;; String, symbols, and keywords
 

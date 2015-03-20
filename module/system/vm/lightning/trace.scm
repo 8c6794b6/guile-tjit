@@ -29,7 +29,6 @@
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (language bytecode)
-  #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
   #:use-module (system vm disassembler)
@@ -103,6 +102,9 @@
 (define (opsize op)
   (hashq-ref *vm-op-sizes* (car op)))
 
+(define (br-op-dst op)
+  (list-ref op (- (length op) 1)))
+
 (define *br-ops*
   '(br
     br-if-nargs-ne br-if-nargs-lt br-if-nargs-gt br-if-npos-gt
@@ -114,9 +116,9 @@
 (define *return-ops*
   '(return return-values tail-call tail-call-label))
 
-(define *known-ops*
+(define *ignored-ops*
   '(bind-kwargs
-    push-fluid pop-fluid wind unwind
+    prompt push-fluid pop-fluid wind unwind
     add add1 sub sub1 mul div quo rem
     string->number string->symbol string->keyword))
 
@@ -149,18 +151,17 @@
                 ips))
     (define (entries-one op acc)
       (cond
-        ((eq? (car op) 'br)
-         (add-entries (+ (cadr op) ip)))
         ((memq (car op) *br-ops*)
-         (let ((dst (list-ref op (- (length op) 1))))
-           (add-entries (+ ip (opsize op)) (+ ip dst))))
+         (add-entries (+ ip (opsize op)) (+ ip (br-op-dst op))))
         ((memq (car op) *return-ops*)
          (add-entries (+ ip (opsize op)))))
       (let ((last-ip ip))
         (set! ip (+ ip (opsize op)))
         (cons (cons last-ip op) acc)))
     (let ((ops (fold-program-code entries-one '() program-or-addr #:raw? #t)))
-      (make-entries entries ops ip))))
+      (debug 2 ";;; entries: ~a~%"
+             (hash-fold (lambda (k v acc) (cons k acc)) '() entries))
+      (make-entries entries (reverse! ops) ip))))
 
 ;;;
 ;;; For control flow graph
@@ -193,8 +194,6 @@
 (define (program->cfg program)
   (define entries (program->entries program))
   (define entries-t (entries-table entries))
-  (define (br-op-dst op)
-    (list-ref op (- (length op) 1)))
   (define (add-bb-op ip op bb)
     (cons (cons ip op) (bb-ops bb)))
   (define (new-bb! cfg ip op bb)
@@ -239,12 +238,15 @@
        (else
         (set-bb-ops! bb (add-bb-op ip op bb))))
       cfg))
-  (let ((cfg (fold-right cfg-one
-                         (make-cfg (make-bb 0 '() '())
-                                   '()
-                                   (make-hash-table)
-                                   entries)
-                         (entries-ops entries))))
+  (define (make-fresh-cfg)
+    (make-cfg (make-bb 0 '() '())
+              '()
+              (make-hash-table)
+              entries))
+  (let ((cfg (let lp ((ops (entries-ops entries)) (acc (make-fresh-cfg)))
+               (if (null? ops)
+                   acc
+                   (lp (cdr ops) (cfg-one (car ops) acc))))))
     (set-cfg-bbs! cfg (reverse (cfg-bbs cfg)))
     (let ((v (lightning-verbosity)))
       (and v (<= 2 v) (dump-cfg cfg)))
@@ -444,12 +446,12 @@ vector."
       (define (call-call obj)
         (cond
          ((call? obj)
-          (let ((obj-proc (call-program obj)))
+          (let ((obj-proc (call-program obj))
+                (obj-args (vector->list (call-args obj))))
             (and obj-proc
                  (apply call-lightning
                         obj-proc
-                        (map call-call
-                             (cdr (vector->list (call-args obj))))))))
+                        (map call-call (cdr obj-args))))))
          (else
           obj)))
       (define (set-caller! proc proc-local nlocals)
@@ -614,9 +616,7 @@ vector."
                 (local-set! dst (variable-ref var)))))
 
         (('box-set! dst src)
-         (let ((var (local-ref dst)))
-           (and (variable? var)
-                (variable-set! (local-ref dst) (local-ref src)))))
+         *unspecified*)
 
         (('make-closure dst offset nfree)
          (local-set! dst (make-closure (offset->addr offset)
@@ -636,15 +636,7 @@ vector."
              (local-set! dst unknown)))))
 
         (('free-set! dst src idx)
-         (let ((p (local-ref dst)))
-           (cond
-            ((program? p)
-             (program-free-variable-set! p idx (local-ref src)))
-            ((closure? p)
-             (vector-set! (closure-free-vars p) idx (local-ref src)))
-            (else
-             ;; (local-set! dst unknown)
-             *unspecified*))))
+         *unspecified*)
 
 
         ;; Immediates and staticaly allocated non-immediates
@@ -663,7 +655,8 @@ vector."
          (local-set! dst (pointer->scm (make-pointer (offset->addr target)))))
 
         (('static-ref dst offset)
-         *unspecified*)
+         (local-set! dst (dereference-scm (make-pointer
+                                           (offset->addr offset)))))
 
 
         ;; Mutable top-level bindings
@@ -783,21 +776,10 @@ vector."
                 (local-set! dst (sparse-vector-ref v idx)))))
 
         (('vector-set! dst idx src)
-         (let ((i (local-ref idx)))
-           (and (integer? i)
-                (sparse-vector-set! (local-ref dst)
-                                    i
-                                    (local-ref src)))))
+         *unspecified*)
 
         (('vector-set!/immediate dst idx src)
-         (let ((v (local-ref dst)))
-           (and (or (sparse-vector? v)
-                    (vector? v))
-                (sparse-vector-set! v idx (local-ref src))))
-         ;; (sparse-vector-set! (local-ref dst)
-         ;;                     idx
-         ;;                     (local-ref src))
-         )
+         *unspecified*)
 
 
         ;; Structs and GOOPs
@@ -841,9 +823,7 @@ vector."
            (local-set! dst ref)))
 
         (('struct-set!/immediate dst idx src)
-         (let ((obj (local-ref dst)))
-           (and (struct? obj)
-                (struct-set! obj idx (local-ref src)))))
+         *unspecified*)
 
 
         ;; Arrays, packed uniform arrays, and bytevectors
@@ -855,7 +835,7 @@ vector."
         (_
          (cond
           ((or (memq (car op) *br-ops*)
-               (memq (car op) *known-ops*))
+               (memq (car op) *ignored-ops*))
            ;; Ignored.
            *unspecified*)
           (else
@@ -881,16 +861,17 @@ vector."
             (call/ec
              (lambda (escape)
                (let ((acc (make-trace name args nargs cfg free-vars escape)))
-                 (fold-right trace-one
-                             acc
-                             (entries-ops (cfg-entries cfg))))))))
+                 (let lp ((ops (entries-ops (cfg-entries cfg))) (acc acc))
+                   (if (null? ops)
+                       acc
+                       (lp (cdr ops) (trace-one (car ops) acc)))))))))
       (debug 1 ";;; trace: Finished tracing ~a (~x)~%"
              name (or (and (integer? addr) addr) 0))
       (and (trace-success? result) result))))
 
 (define (trace-ops trace)
   "Returns a list of ip and vm-operation in TRACE."
-  (reverse (entries-ops (cfg-entries (trace-cfg trace)))))
+  (entries-ops (cfg-entries (trace-cfg trace))))
 
 (define (trace-labeled-ips trace)
   "Returns a list of labeld ips in TRACE."
