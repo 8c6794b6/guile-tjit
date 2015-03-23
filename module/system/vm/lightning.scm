@@ -20,7 +20,7 @@
 
 ;;; Commentary:
 
-;;; JIT compiler from bytecode to native code with lightning.
+;;; JIT compiler written with lightning, from bytecode to native code.
 
 ;;; Code:
 
@@ -55,8 +55,7 @@
 
 ;; State used during compilation.
 (define-record-type <lightning>
-  (%make-lightning trace nodes ip labels pc fp nargs args nretvals
-                   cached modified indent)
+  (%make-lightning trace nodes ip labels pc fp nargs args nretvals indent)
   lightning?
 
   ;; State from bytecode trace.
@@ -86,12 +85,6 @@
   ;; Number of return values.
   (nretvals lightning-nretvals set-lightning-nretvals!)
 
-  ;; Registers for cache.
-  (cached lightning-cached set-lightning-cached!)
-
-  ;; Modified cached registers, to be saved before calling procedure.
-  (modified lightning-modified set-lightning-modified!)
-
   ;; Indentation level for debug message.
   (indent lightning-indent))
 
@@ -105,7 +98,7 @@
               (hashq-set! labels labeled-ip (jit-forward)))
             (trace-labeled-ips trace))
   (%make-lightning trace nodes ip labels pc fp nargs args nretvals
-                   #f #f indent))
+                   indent))
 
 (define jit-code-guardian (make-guardian))
 
@@ -139,6 +132,9 @@
 
 ;; Return value.
 (define-inline reg-retval v1)
+
+;; Number of return values, shared with number of arguments.
+(define-inline reg-nretvals v0)
 
 ;; Current thread.
 (define-inline reg-thread v2)
@@ -275,7 +271,8 @@ argument in VM operation."
     (when rest
       (jit-pushargr r1))
     (jit-calli (program-free-variable-ref primitive 0))
-    (jit-retval reg-retval)))
+    (jit-retval reg-retval)
+    (jit-movi reg-nretvals (imm 1))))
 
 (define-syntax-rule (call-scm st proc-or-addr)
   (let* ((addr (ensure-program-addr proc-or-addr))
@@ -330,7 +327,8 @@ argument in VM operation."
     (jit-pushargr (local-ref st (+ proc 1) r1))
     (jit-pushargr r0)
     (jit-calli %call-lightning)
-    (jit-retval reg-retval)))
+    (jit-retval reg-retval)
+    (jit-movi reg-nretvals (imm 1))))
 
 (define-syntax call-local
   (syntax-rules ()
@@ -345,20 +343,22 @@ argument in VM operation."
            (l2 (jit-forward)))
 
        (jit-ldr r0 (local-ref st proc))
-       (jit-patch-at (jit-bmci r0 (imm program-is-jit-compiled)) l1)
-
-       ;; Has compiled code.
-       (jit-ldxi r1 (local-ref st proc) (imm (* (sizeof '*) 2)))
-       expr
-       (jit-patch-at (jit-jmpi) l2)
+       (jit-patch-at (jit-bmsi r0 (imm program-is-jit-compiled)) l1)
 
        ;; Does not have compiled code.
        ;;
-       ;; XXX: Add test for primitive procedures, delegate the call to
-       ;; vm-regular.
-       (jit-link l1)
+       ;; XXX: Add test for boot, primitive, primitive generic,
+       ;; continuation, partial continuation, and foreign, inline the
+       ;; call.
        (call-runtime st proc nlocals)
-       (local-set! st (+ proc 1) r0)
+       ;; XXX: Handle multiple values.
+       (local-set! st (+ proc 1) reg-retval)
+       (jit-patch-at (jit-jmpi) l2)
+
+       ;; Has compiled code.
+       (jit-link l1)
+       (jit-ldxi r1 (local-ref st proc) (imm (* (sizeof '*) 2)))
+       expr
 
        (jit-link l2)))))
 
@@ -792,23 +792,23 @@ argument in VM operation."
       ;;  (else
       ;;   (compile-callee st proc nlocals (closure-addr callee) #f)))
       (call-local st proc nlocals #f))
-     ((recursion? st callee)
-      (with-frame st proc (call-scm st callee)))
-     ((jit-compiled-code callee)
-      =>
-      (lambda (code)
-        (debug 1 ";;; call: found jit compiled-code at 0x~x~%" code)
-        (with-frame st proc (begin (jit-movi r1 (imm code))
-                                   (jit-jmpr r1)))))
-     ((and (reusable? (current-callee-args st))
-           (compiled-node st (ensure-program-addr callee)))
-      =>
-      (lambda (node)
-        (with-frame st proc (jit-patch-at (jit-jmpi) node))))
+     ;; ((recursion? st callee)
+     ;;  (with-frame st proc (call-scm st callee)))
+     ;; ((jit-compiled-code callee)
+     ;;  =>
+     ;;  (lambda (code)
+     ;;    (debug 1 ";;; call: found jit compiled-code at 0x~x~%" code)
+     ;;    (with-frame st proc (begin (jit-movi r1 (imm code))
+     ;;                               (jit-jmpr r1)))))
+     ;; ((and (reusable? (current-callee-args st))
+     ;;       (compiled-node st (ensure-program-addr callee)))
+     ;;  =>
+     ;;  (lambda (node)
+     ;;    (with-frame st proc (jit-patch-at (jit-jmpi) node))))
 
-     ;; XXX: Will inlined procedure work when the procedure redefined?
-     ((procedure? callee)
-      (compile-callee st proc nlocals (ensure-program-addr callee) #f))
+     ;; XXX: Inlined procedure will not work when the procedure redefined.
+     ;; ((procedure? callee)
+     ;;  (compile-callee st proc nlocals (ensure-program-addr callee) #f))
 
      (else
       (call-local st proc nlocals #f)))))
@@ -859,22 +859,22 @@ argument in VM operation."
       ;;   (return-jmp st)))
       (call-local st 0 nlocals #t)
       (return-jmp st))
-     ((recursion? st callee)
-      (call-scm st callee))
-     ((jit-compiled-code callee)
-      =>
-      (lambda (code)
-        (debug 1 ";;; tail-call: found jit compiled-code at ~x~%" code)
-        (jit-movi r0 (imm code))
-        (jit-jmpr r0)))
-     ((and (reusable? (current-callee-args st))
-           (compiled-node st (ensure-program-addr callee)))
-      =>
-      (lambda (node)
-        (jit-patch-at (jit-jmpi) node)))
-     ((procedure? callee)
-      (compile-callee st 0 nlocals (ensure-program-addr callee) #t)
-      (return-jmp st))
+     ;; ((recursion? st callee)
+     ;;  (call-scm st callee))
+     ;; ((jit-compiled-code callee)
+     ;;  =>
+     ;;  (lambda (code)
+     ;;    (debug 1 ";;; tail-call: found jit compiled-code at ~x~%" code)
+     ;;    (jit-movi r0 (imm code))
+     ;;    (jit-jmpr r0)))
+     ;; ((and (reusable? (current-callee-args st))
+     ;;       (compiled-node st (ensure-program-addr callee)))
+     ;;  =>
+     ;;  (lambda (node)
+     ;;    (jit-patch-at (jit-jmpi) node)))
+     ;; ((procedure? callee)
+     ;;  (compile-callee st 0 nlocals (ensure-program-addr callee) #t)
+     ;;  (return-jmp st))
      (else
       (call-local st 0 nlocals #t)
       (return-jmp st)))))
@@ -897,10 +897,11 @@ argument in VM operation."
   (local-set! st dst reg-retval))
 
 (define-vm-op (receive-values st proc allow-extra? nvalues)
-  *unspecified*)
+  (local-set! st (+ proc 1) reg-retval))
 
 (define-vm-op (return st dst)
   (local-ref st dst reg-retval)
+  (jit-movi reg-nretvals (imm 1))
   (return-jmp st))
 
 (define-vm-op (return-values st)
@@ -1017,7 +1018,8 @@ argument in VM operation."
 ;; Caching was once causing infinite loops and disabled. Brought back
 ;; after running `run-nfa' procedure, locals were mixed up from callee.
 (define-vm-op (reset-frame st nlocals)
-  *unspecified*)
+  ;; *unspecified*
+  (jit-movi reg-nretvals (imm nlocals)))
 
 
 ;;; Branching instructions
@@ -1750,12 +1752,14 @@ values. Returned value of this procedure is a pointer to scheme value."
           (apply values vals)))))
 
   (define-syntax-rule (offset->addr offset)
+    ;; `make-pointer' does not accept negative values.
     (imm (- (+ #xffffffffffffffff 1) (* offset (sizeof '*)))))
 
   (define-syntax vm-prolog
     (syntax-rules ()
       ((_ expr)
        (vm-prolog fp-addr expr))
+
       ((_ fp-addr expr)
        ;; XXX: Use vp->sp?
        (let* ((fp (jit-allocai (imm (* (sizeof '*) (+ 3 (length args))))))
@@ -1794,26 +1798,61 @@ values. Returned value of this procedure is a pointer to scheme value."
          (jit-patch return-address)))))
 
   (define-syntax-rule (vm-epilog nretvals)
-    ;; Check number of return values, call C function `scm_values' if
-    ;; 1 < number of values.
-    (cond
-     ((<= nretvals 1)
-      (jit-retr reg-retval))
-     (else
-      (jit-prepare)
+    (let ((l1 (jit-forward))
+          (l2 (jit-forward))
+          (l3 (jit-forward)))
+
+      (jit-patch-at (jit-blei reg-nretvals (imm 1)) l3)
+
+      (jit-movi r0 (scm->pointer '()))
+      (jit-subi reg-nargs reg-nargs (imm 2))
+      (jit-movr r2 reg-nargs)
+      (jit-muli r2 r2 (imm (sizeof '*)))
       (jit-movi r1 (offset->addr 4))
-      (for-each (lambda (n)
-                  (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
-                  (jit-pushargr r0))
-                (iota nretvals))
-      (jit-pushargi scm-undefined)
-      (jit-calli (c-pointer "scm_list_n"))
-      (jit-retval r1)
+      (jit-subr r1 r1 r2)
+
+      (jit-link l1)
       (jit-prepare)
-      (jit-pushargr r1)
-      (jit-calli (c-pointer "scm_values"))
+      (jit-pushargr reg-thread)
+      (jit-ldxr r2 (jit-fp) r1)
+      (jit-pushargr r2)
+      (jit-pushargr r0)
+      (jit-calli (c-pointer "scm_do_inline_cons"))
       (jit-retval r0)
-      (jit-retr r0))))
+      (jit-addi r1 r1 (imm (sizeof '*)))
+      (jit-patch-at (jit-blei r1 (offset->addr 4)) l1)
+
+      (jit-link l2)
+      (jit-prepare)
+      (jit-pushargr r0)
+      (jit-calli (c-pointer "scm_values"))
+      (jit-retval reg-retval)
+
+      (jit-link l3)
+      (jit-retr reg-retval)))
+
+  ;; Check number of return values, call C function `scm_values' if
+  ;; 1 < number of values.
+  ;;
+  ;; (define-syntax-rule (vm-epilog nretvals)
+  ;;   (cond
+  ;;    ((<= nretvals 1)
+  ;;     (jit-retr reg-retval))
+  ;;    (else
+  ;;     (jit-prepare)
+  ;;     (jit-movi r1 (offset->addr 4))
+  ;;     (for-each (lambda (n)
+  ;;                 (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
+  ;;                 (jit-pushargr r0))
+  ;;               (iota nretvals))
+  ;;     (jit-pushargi scm-undefined)
+  ;;     (jit-calli (c-pointer "scm_list_n"))
+  ;;     (jit-retval r1)
+  ;;     (jit-prepare)
+  ;;     (jit-pushargr r1)
+  ;;     (jit-calli (c-pointer "scm_values"))
+  ;;     (jit-retval r0)
+  ;;     (jit-retr r0))))
 
   (let ((addr2 (ensure-program-addr proc))
         (args2 (apply vector proc args)))
