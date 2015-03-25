@@ -323,8 +323,8 @@ SCM_DEFINE (scm_set_jit_compiled_code_x, "set-jit-compiled-code!",
             "Set jit compiled code of PROGRAM to PTR.")
 #define FUNC_NAME s_scm_set_jit_compiled_code_x
 {
-  scm_t_bits flags = SCM_F_PROGRAM_IS_JIT_COMPILED;
-  SCM_SET_CELL_WORD_0 (program, scm_tc7_program | flags);
+  scm_t_bits old_flags = SCM_CELL_WORD_0 (program);
+  SCM_SET_CELL_WORD_0 (program, old_flags | SCM_F_PROGRAM_IS_JIT_COMPILED);
   SCM_SET_CELL_WORD_2 (program, SCM_POINTER_VALUE (ptr));
   return SCM_UNSPECIFIED;
 }

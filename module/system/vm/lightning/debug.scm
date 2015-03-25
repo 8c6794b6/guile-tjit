@@ -45,14 +45,13 @@
       (format #t args ...))))
 
 (define-syntax-rule (program-name program-or-addr)
-  (let* ((addr (cond
-                ((integer? program-or-addr)
-                 program-or-addr)
-                ((program? program-or-addr)
-                 (program-code program-or-addr))
-                (else
-                 (error "program-name: not a program" program-or-addr))))
-         (name (and=> (find-program-debug-info addr)
-                      program-debug-info-name)))
+  (let ((name (cond
+               ((integer? program-or-addr)
+                (and=> (find-program-debug-info program-or-addr)
+                       program-debug-info-name))
+               ((procedure? program-or-addr)
+                (procedure-name program-or-addr))
+               (else
+                (error "program-name: got " program-or-addr)))))
     (or (and=> name symbol->string)
         "anonymous")))

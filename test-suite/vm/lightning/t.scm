@@ -303,6 +303,7 @@
 (define-test (t-bind-kwargs-03-with-b x) (100)
   (call-bind-kwargs-03 x #:b 23 'foo 'bar 'buzz))
 
+
 ;;; Branching instructions
 
 (define-test (t-if-true x) (#t)
@@ -529,6 +530,7 @@
                           (fluid-ref f01)))))
     (list (fluid-ref f01) a)))
 
+(test-skip 1)
 (define-test (t-wind-unwind x) (100)
   (let ((ret '()))
     (dynamic-wind
@@ -780,6 +782,10 @@
   (map (lambda (x y) (+ x y)) xs ys))
 
 (define-test (call-map3 xs ys zs) ('(1 2 3) '(10 20 30) '(100 200 300))
+  (map + xs ys zs))
+
+(test-skip 1)
+(define-test (call-map3-lambda xs ys zs) ('(1 2 3) '(10 20 30) '(100 200 300))
   (map (lambda (x y z) (+ x y z)) xs ys zs))
 
 (define-test (nqueens n) (8)

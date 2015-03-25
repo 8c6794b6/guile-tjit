@@ -102,8 +102,6 @@
 
 (define jit-code-guardian (make-guardian))
 
-(define program-nretvals (make-object-property))
-
 
 ;;;
 ;;; Inlined constants
@@ -141,6 +139,41 @@
 
 
 ;;;
+;;; SCM macros
+;;;
+
+(define-syntax-rule (scm-thread-dynamic-state st)
+  (jit-ldxi r0 reg-thread (imm #xd8)))
+
+(define-syntax-rule (scm-thread-pending-asyncs st)
+  (jit-ldxi r0 reg-thread (imm #x104)))
+
+(define-syntax-rule (scm-makinumi n)
+  "Make scheme small fixnum from N."
+  (imm (+ (ash n 2) 2)))
+
+(define-syntax-rule (scm-makinumr dst src)
+  "Make scheme small fixnum from SRC and store to DST."
+  (begin
+    (jit-lshi dst src (imm 2))
+    (jit-addi dst dst (imm 2))))
+
+(define-syntax-rule (scm-i-inumr dst src)
+  (jit-rshi dst src (imm 2)))
+
+(define-syntax-rule (scm-program-free-variable-ref dst src index)
+  (jit-ldxi dst src (imm (* (+ index 3) (sizeof '*)))))
+
+(define-syntax-rule (scm-pointer-value dst src)
+  (jit-ldxi dst src (imm (sizeof '*))))
+
+(define-syntax-rule (scm-i-vector-length dst src)
+  (begin
+    (jit-ldr dst src)
+    (jit-rshi dst dst (imm 8))))
+
+
+;;;
 ;;; VM op syntaxes
 ;;;
 
@@ -164,17 +197,7 @@ argument in VM operation."
 
 (define-syntax-rule (stored-ref st n)
   "Memory address of ST's local N."
-  (imm (- (lightning-fp st) (* (sizeof '*) n))))
-
-(define-syntax-rule (scm-makinumi n)
-  "Make scheme small fixnum from N."
-  (imm (+ (ash n 2) 2)))
-
-(define-syntax-rule (scm-makinumr dst src)
-  "Make scheme small fixnum from SRC and store to DST."
-  (begin
-    (jit-lshi dst src (imm 2))
-    (jit-addi dst dst (imm 2))))
+  (imm (- (lightning-fp st) (* n (sizeof '*)))))
 
 (define-syntax local-ref
   (syntax-rules ()
@@ -193,21 +216,11 @@ argument in VM operation."
     (jit-movi r0 val)
     (jit-stxi (stored-ref st dst) (jit-fp) r0)))
 
-;;;
-
 (define-syntax-rule (offset-addr st offset)
   (+ (lightning-pc st) (* 4 (+ (lightning-ip st) offset))))
 
 (define-syntax-rule (c-pointer name)
   (dynamic-func name (dynamic-link)))
-
-(define-syntax-rule (scm-thread-dynamic-state st)
-  (jit-ldxi r0 reg-thread (imm #xd8)))
-
-(define-syntax-rule (scm-thread-pending-asyncs st)
-  (jit-ldxi r0 reg-thread (imm #x104)))
-
-;;;
 
 ;; XXX: Add pre and post as in vm-engine.c?
 (define-syntax-rule (vm-handle-interrupts st)
@@ -231,60 +244,6 @@ argument in VM operation."
        ;; ... then jump to return address.
        (jit-jmpr reg)))))
 
-(define-syntax-rule (call-primitive st proc nlocals primitive)
-  (let* ((pargs (program-arguments-alist primitive))
-         (required (cdr (assoc 'required pargs)))
-         (optionals (cdr (assoc 'optional pargs)))
-         (rest (cdr (assoc 'rest pargs)))
-         (num-required (length required))
-         (num-optionals (length optionals))
-         (num-req+opts (+ num-required num-optionals)))
-
-    ;; If the primitive contained `rest' argument, build a list for rest
-    ;; argument first, by calling `scm_list_n' or moving empty list to
-    ;; register.
-    (when rest
-      (if (< (- nlocals 1) num-req+opts)
-          (jit-movi r1 (scm->pointer '()))
-          (begin
-            (jit-prepare)
-            (for-each (lambda (i)
-                        (jit-pushargr
-                         (local-ref st (+ proc i 1 num-req+opts))))
-                      (iota (- nlocals num-req+opts 1)))
-            ;; Additional `undefined', to end the arguments.
-            (jit-pushargi scm-undefined)
-            (jit-calli (c-pointer "scm_list_n"))
-            (jit-retval r1))))
-
-    ;; Pushing argument for primitive procedure.
-    (jit-prepare)
-    (for-each (lambda (i)
-                (jit-pushargr (local-ref st (+ proc 1 i))))
-              (iota (min (- nlocals 1) num-req+opts)))
-
-    ;; Filling in unspecified optionals, if any.
-    (when (not (null? optionals))
-      (for-each (lambda (i)
-                  (jit-pushargi scm-undefined))
-                (iota (- num-req+opts (- nlocals 1)))))
-    (when rest
-      (jit-pushargr r1))
-    (jit-calli (program-free-variable-ref primitive 0))
-    (jit-retval reg-retval)
-    (jit-movi reg-nretvals (imm 1))))
-
-(define-syntax-rule (call-scm st proc-or-addr)
-  (let* ((addr (ensure-program-addr proc-or-addr))
-         (callee (hashq-ref (lightning-nodes st) addr)))
-    (jit-patch-at (jit-jmpi) callee)))
-
-(define-syntax-rule (current-callee st)
-  (hashq-ref (trace-callers (lightning-trace st)) (lightning-ip st)))
-
-(define-syntax-rule (current-callee-args st)
-  (hashq-ref (trace-callee-args (lightning-trace st)) (lightning-ip st)))
-
 (define-syntax with-frame
   ;; Stack poionter stored in (jit-fp), decreasing for `proc * word' size to
   ;; shift the locals.  Then patching the address after the jmp, so that
@@ -304,32 +263,6 @@ argument in VM operation."
        body
        (jit-patch ra)))))
 
-(define-syntax-rule (call-apply st proc nlocals)
-  (begin
-    ;; Last local, a list containing rest of arguments.
-    (local-ref st (- (+ proc nlocals) 1) r0)
-
-    ;; Cons all the other arguments to rest, if any.
-    (when (< 3 nlocals)
-      (for-each (lambda (n)
-                  (jit-prepare)
-                  (local-ref st (+ proc (- nlocals 2 n)) r1)
-                  (jit-pushargr reg-thread)
-                  (jit-pushargr r1)
-                  (jit-pushargr r0)
-                  (jit-calli (c-pointer "scm_do_inline_cons"))
-                  (jit-retval r0))
-                (iota (- nlocals 3))))
-
-    ;; Call `%call-lightning' with thread, proc, and argument list.
-    (jit-prepare)
-    (jit-pushargr reg-thread)
-    (jit-pushargr (local-ref st (+ proc 1) r1))
-    (jit-pushargr r0)
-    (jit-calli %call-lightning)
-    (jit-retval reg-retval)
-    (jit-movi reg-nretvals (imm 1))))
-
 (define-syntax call-local
   (syntax-rules ()
     ((_ st proc nlocals #f)
@@ -342,8 +275,8 @@ argument in VM operation."
      (let ((l1 (jit-forward))
            (l2 (jit-forward)))
 
-       (jit-ldr r0 (local-ref st proc))
-       (jit-patch-at (jit-bmsi r0 (imm program-is-jit-compiled)) l1)
+       (jit-ldr r2 (local-ref st proc r0))
+       (jit-patch-at (jit-bmsi r2 (imm program-is-jit-compiled)) l1)
 
        ;; Does not have compiled code.
        ;;
@@ -357,7 +290,8 @@ argument in VM operation."
 
        ;; Has compiled code.
        (jit-link l1)
-       (jit-ldxi r1 (local-ref st proc) (imm (* (sizeof '*) 2)))
+       ;; (jit-ldxi r1 (local-ref st proc) (imm (* 2 (sizeof '*))))
+       (jit-ldxi r1 r0 (imm (* 2 (sizeof '*))))
        expr
 
        (jit-link l2)))))
@@ -376,6 +310,8 @@ argument in VM operation."
     (jit-pushargr (local-ref st proc))
     (jit-pushargr r1)
     (jit-calli %call-lightning)
+
+    ;; XXX: Add test for SCM_VALUESP.
     (jit-retval reg-retval)))
 
 (define-syntax compile-callee
@@ -393,22 +329,21 @@ argument in VM operation."
                      (compile-lightning st2 (jit-forward))))
 
     ((_ st1 st2 proc nlocals callee-addr body)
-     (let ((args (current-callee-args st1)))
-       (cond
-        ((program->trace callee-addr nlocals args)
-         =>
-         (lambda (trace)
-           (let ((st2 (make-lightning trace
-                                      (lightning-nodes st1)
-                                      (lightning-fp st1)
-                                      nlocals
-                                      args
-                                      callee-addr
-                                      (+ 2 (lightning-indent st1)))))
-             body)))
-        (else
-         (debug 1 ";;; Trace failed, calling 0x~x at runtime.~%" callee-addr)
-         (call-runtime st1 proc nlocals)))))))
+     (cond
+      ((program->trace callee-addr nlocals)
+       =>
+       (lambda (trace)
+         (let ((st2 (make-lightning trace
+                                    (lightning-nodes st1)
+                                    (lightning-fp st1)
+                                    nlocals
+                                    #f
+                                    (ensure-program-addr callee-addr)
+                                    (+ 2 (lightning-indent st1)))))
+           body)))
+      (else
+       (debug 1 ";;; Trace failed, calling 0x~x at runtime.~%" callee-addr)
+       (call-runtime st1 proc nlocals))))))
 
 (define-syntax-rule (in-same-procedure? st label)
   ;; XXX: Could look the last IP of current procedure.  Instead, looking
@@ -416,23 +351,43 @@ argument in VM operation."
   (and (<= 0 (+ (lightning-ip st) label))
        (< label 0)))
 
-(define-syntax-rule (recursion? st proc)
-  (and (procedure? proc)
-       (= (lightning-pc st) (ensure-program-addr proc))))
-
-;; Currently, higher order procedures are recompiled every time.
-(define-syntax-rule (reusable? v)
-  (let lp ((n (- (vector-length v) 1)))
-    (cond ((< n 1) #t)
-          ((procedure? (vector-ref v n)) #f)
-          ;; ((unknown? (vector-ref v n)) #f)
-          (else (lp (- n 1))))))
-
 (define-syntax-rule (compiled-node st addr)
   (hashq-ref (lightning-nodes st) addr))
 
 (define-syntax-rule (define-label l body ...)
   (begin (jit-link l) body ...))
+
+
+;;;
+;;; Assertion, validation, and error messages
+;;;
+
+;; Define pointer to strings used in error messages as top-level, to
+;; avoid garbage collection.
+
+(define-syntax define-string-pointer
+  (lambda (x)
+    (define (string-name obj)
+      (string->symbol
+       (string-append "*"
+                      (symbol->string (syntax->datum obj))
+                      "-string")))
+    (syntax-case x ()
+      ((_ sym)
+       #`(define #,(datum->syntax x (string-name #'sym))
+           (string->pointer (symbol->string 'sym)))))))
+
+(define-string-pointer pair)
+(define-string-pointer car)
+(define-string-pointer cdr)
+(define-string-pointer set-car!)
+(define-string-pointer set-cdr!)
+(define-string-pointer vector)
+(define-string-pointer vector-length)
+(define-string-pointer vector-ref)
+(define-string-pointer vector-ref/immediate)
+(define-string-pointer vector-set!)
+(define-string-pointer vector-set!/immediate)
 
 (define-syntax error-wrong-type-arg-msg
   (syntax-rules ()
@@ -477,6 +432,49 @@ argument in VM operation."
     (jit-link l1)
     (error-wrong-type-arg-msg subr pos r0 *pair-string)
     (jit-link l2)))
+
+(define-syntax-rule (validate-vector vec cell-obj tag subr)
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+    (jit-patch-at (jit-bmsi vec (imm 6)) l1)
+    (jit-ldr cell-obj vec)
+    (jit-andi tag cell-obj (imm #x7f))
+    (jit-patch-at (jit-beqi tag (imm tc7-vector)) l2)
+    (jit-link l1)
+    (error-wrong-type-arg-msg subr 1 vec *vector-string)
+    (jit-link l2)))
+
+(define-syntax-rule (validate-vector-range vec idx tmp1 tmp2 subr)
+  ;; Registers `vec' and `tmp' will get dirty after the validation.
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+    (jit-patch-at (jit-bmci idx (imm 2)) l1)
+
+    (scm-i-inumr tmp1 idx)
+    (jit-patch-at (jit-blti tmp1 (imm 0)) l1)
+    (scm-i-vector-length tmp2 vec)
+    (jit-patch-at (jit-bltr tmp1 tmp2) l2)
+
+    ;; (jit-patch-at (jit-blti idx (imm 2)) l1)
+    ;; (scm-i-vector-length tmp vec)
+    ;; (scm-makinumr tmp tmp)
+    ;; (jit-patch-at (jit-bltr idx tmp) l2)
+
+    (jit-link l1)
+    (error-out-of-range subr (jit-pushargr idx))
+    (jit-link l2)))
+
+(define-syntax-rule (validate-vector-range/immediate vec idx tmp subr)
+  (let ((l1 (jit-forward)))
+    (scm-i-vector-length tmp vec)
+    (jit-patch-at (jit-bgti tmp (imm idx)) l1)
+    (error-out-of-range subr (jit-pushargi (scm-makinumi idx)))
+    (jit-link l1)))
+
+
+;;;
+;;; Top-level syntax for specific VM operations
+;;;
 
 (define-syntax define-br-nargs-op
   (syntax-rules ()
@@ -769,49 +767,12 @@ argument in VM operation."
 ;;; Call and return
 ;;; ---------------
 
-;;; XXX: Ensure enough space allocated for nlocals? How?
+;;; XXX: Any way to ensure enough space allocated for nlocals?
 
 (define-vm-op (call st proc nlocals)
   (vm-handle-interrupts st)
   (jit-movi reg-nargs (imm nlocals))
-  (let ((callee (current-callee st)))
-    (debug 1 ";;; call: callee=~a (~x)~%"
-           callee (or (and (program? callee) (program-code callee)) 0))
-    (cond
-     ((builtin? callee)
-      (case (builtin-name callee)
-        ((apply) (call-apply st proc nlocals))))
-     ((primitive? callee)
-      (call-primitive st proc nlocals callee))
-     ((closure? callee)
-      ;; (cond
-      ;;  ((and (reusable? (current-callee-args st))
-      ;;        (compiled-node st (closure-addr callee)))
-      ;;   =>
-      ;;   (with-frame st proc (call-scm st (closure-addr callee))))
-      ;;  (else
-      ;;   (compile-callee st proc nlocals (closure-addr callee) #f)))
-      (call-local st proc nlocals #f))
-     ;; ((recursion? st callee)
-     ;;  (with-frame st proc (call-scm st callee)))
-     ;; ((jit-compiled-code callee)
-     ;;  =>
-     ;;  (lambda (code)
-     ;;    (debug 1 ";;; call: found jit compiled-code at 0x~x~%" code)
-     ;;    (with-frame st proc (begin (jit-movi r1 (imm code))
-     ;;                               (jit-jmpr r1)))))
-     ;; ((and (reusable? (current-callee-args st))
-     ;;       (compiled-node st (ensure-program-addr callee)))
-     ;;  =>
-     ;;  (lambda (node)
-     ;;    (with-frame st proc (jit-patch-at (jit-jmpi) node))))
-
-     ;; XXX: Inlined procedure will not work when the procedure redefined.
-     ;; ((procedure? callee)
-     ;;  (compile-callee st proc nlocals (ensure-program-addr callee) #f))
-
-     (else
-      (call-local st proc nlocals #f)))))
+  (call-local st proc nlocals #f))
 
 (define-vm-op (call-label st proc nlocals label)
   (vm-handle-interrupts st)
@@ -827,57 +788,11 @@ argument in VM operation."
      (else
       (compile-callee st proc nlocals addr #f)))))
 
-(define-syntax-rule (call-abort-to-prompt st nlocals)
-  *unspecified*)
-
 (define-vm-op (tail-call st nlocals)
   (vm-handle-interrupts st)
   (jit-movi reg-nargs (imm nlocals))
-  (let ((callee (current-callee st)))
-    (debug 1  ";;; tail-call: callee=~a (~x)~%"
-           callee (or (and (program? callee) (program-code callee)) 0))
-    (cond
-     ((builtin? callee)
-      (case (builtin-name callee)
-        ((apply) (call-apply st 0 nlocals))
-        ((abort-to-prompt) (call-abort-to-prompt st nlocals))))
-     ((primitive? callee)
-      (call-primitive st 0 nlocals callee)
-      (return-jmp st))
-     ((closure? callee)
-      ;; (cond
-      ;;  ((and (reusable? (current-callee-args st))
-      ;;        (compiled-node st (closure-addr callee)))
-      ;;   =>
-      ;;   (call-scm st (closure-addr callee)))
-      ;;  ((closure-addr callee)
-      ;;   =>
-      ;;   (lambda (addr)
-      ;;     (compile-callee st 0 nlocals addr #t)))
-      ;;  (else
-      ;;   (call-local st 0 nlocals #f)
-      ;;   (return-jmp st)))
-      (call-local st 0 nlocals #t)
-      (return-jmp st))
-     ;; ((recursion? st callee)
-     ;;  (call-scm st callee))
-     ;; ((jit-compiled-code callee)
-     ;;  =>
-     ;;  (lambda (code)
-     ;;    (debug 1 ";;; tail-call: found jit compiled-code at ~x~%" code)
-     ;;    (jit-movi r0 (imm code))
-     ;;    (jit-jmpr r0)))
-     ;; ((and (reusable? (current-callee-args st))
-     ;;       (compiled-node st (ensure-program-addr callee)))
-     ;;  =>
-     ;;  (lambda (node)
-     ;;    (jit-patch-at (jit-jmpi) node)))
-     ;; ((procedure? callee)
-     ;;  (compile-callee st 0 nlocals (ensure-program-addr callee) #t)
-     ;;  (return-jmp st))
-     (else
-      (call-local st 0 nlocals #t)
-      (return-jmp st)))))
+  (call-local st 0 nlocals #t)
+  (return-jmp st))
 
 (define-vm-op (tail-call-label st nlocals label)
   (vm-handle-interrupts st)
@@ -911,6 +826,120 @@ argument in VM operation."
 
 ;;; Specialized call stubs
 ;;; ----------------------
+
+(define-vm-op (subr-call st ptr-idx)
+  (let ((l1 (jit-forward)))
+    (scm-program-free-variable-ref r0 (local-ref st 0) ptr-idx)
+    (scm-pointer-value r1 r0)
+    (jit-prepare)
+
+    ;; `subr-call' accepts up to 10 arguments.
+    (for-each (lambda (n)
+                (jit-patch-at (jit-blei reg-nargs (imm (+ n 1))) l1)
+                (jit-pushargr (local-ref st (+ n 1))))
+              (iota 10))
+
+    (jit-link l1)
+    (jit-callr r1)
+    (jit-retval reg-retval)
+
+    ;;; XXX: Add test for SCM_VALUESP.
+    (local-set! st 1 reg-retval)
+
+    (jit-movi reg-nretvals (imm 1))
+    (return-jmp st)))
+
+;;; XXX: foreign-call
+;;; XXX: continuation-call
+;;; XXX: compose-continuation
+
+(define-vm-op (tail-apply st)
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward))
+        (l3 (jit-forward))
+        (l4 (jit-forward))
+        (l5 (jit-forward))
+        (l6 (jit-forward))
+        (l7 (jit-forward)))
+
+    ;; Last local, a list containing rest of arguments.
+    (jit-movr r0 reg-nargs)
+    (jit-subi r0 r0 (imm 1))
+    (jit-muli r0 r0 (imm (sizeof '*)))
+    (jit-movi r1 (imm (lightning-fp st)))
+    (jit-subr r1 r1 r0)
+    (jit-ldxr r0 (jit-fp) r1)
+
+    ;; Test whether the procedure has JIT compiled code.
+    (jit-ldr f0 (local-ref st 1 r2))
+    (jit-subi reg-nargs reg-nargs (imm 2))
+    (jit-patch-at (jit-bmsi f0 (imm program-is-jit-compiled)) l3)
+
+    ;; No JIT code, making argument list.
+    (jit-link l1)
+    (jit-patch-at
+     (jit-bgei r1 (imm (- (lightning-fp st) (* 2 (sizeof '*)))))
+     l2)
+    (jit-addi r1 r1 (imm (sizeof '*)))
+    (jit-ldxr r2 (jit-fp) r1)
+    (jit-prepare)
+    (jit-pushargr reg-thread)
+    (jit-pushargr r2)
+    (jit-pushargr r0)
+    (jit-calli (c-pointer "scm_do_inline_cons"))
+    (jit-retval r0)
+    (jit-patch-at (jit-jmpi) l1)
+
+    ;; Call `%call-lightning' with thread, proc, and argument list.
+    (jit-link l2)
+    (jit-prepare)
+    (jit-pushargr reg-thread)
+    (jit-pushargr (local-ref st 1 r1))
+    (jit-pushargr r0)
+    (jit-calli %call-lightning)
+    ;; XXX: Add test for SCM_VALUESP.
+    (jit-retval reg-retval)
+    (jit-movi reg-nretvals (imm 1))
+    (jit-patch-at (jit-jmpi) l7)
+
+    ;; Has jit compiled code.
+    (jit-link l3)
+
+    ;; Local offset for shifting.
+    (jit-movr f2 reg-nargs)
+    (jit-subi f2 f2 (imm 1))
+    (jit-muli f2 f2 (imm (sizeof '*)))
+    (jit-movi f1 (imm (lightning-fp st)))
+    (jit-subr f1 f1 f2)
+    (jit-movi f2 (imm (lightning-fp st)))
+
+    ;; Shift non-list locals.
+    (jit-link l4)
+    (jit-subi f0 f2 (imm (sizeof '*)))
+    (jit-ldxr f0 (jit-fp) f0)
+    (jit-stxr f2 (jit-fp) f0)
+    (jit-subi f2 f2 (imm (sizeof '*)))
+    (jit-patch-at (jit-bger f2 f1) l4)
+
+    ;; Expand list contents to local.
+    (jit-link l5)
+    (jit-patch-at (jit-beqi r0 (scm->pointer '())) l6)
+    (jit-ldr f0 r0)
+    (jit-stxr f2 (jit-fp) f0)
+    (jit-ldxi r0 r0 (imm (sizeof '*)))
+    (jit-subi f2 f2 (imm (sizeof '*)))
+    (jit-addi reg-nargs reg-nargs (imm 1))
+    (jit-patch-at (jit-jmpi) l5)
+
+    ;; Jump to the JIT compiled code.
+    (jit-link l6)
+    (jit-ldxi r0 r2 (imm (* 2 (sizeof '*))))
+    (jit-jmpr r0)
+
+    (jit-link l7)))
+
+;;; XXX: call/cc
+;;; XXX: abort
 
 (define-vm-op (builtin-ref st dst src)
   (jit-prepare)
@@ -950,20 +979,33 @@ argument in VM operation."
 
 (define-vm-op (bind-rest st dst)
   (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
+        (l2 (jit-forward))
+        (l3 (jit-forward)))
 
     (jit-movi r1 (imm (lightning-fp st)))
     (jit-movr r0 reg-nargs)
     (jit-subi r0 r0 (imm 1))
     (jit-muli r0 r0 (imm (sizeof '*)))
-    (jit-subr r1 r1 r0)                 ; r1 = initial arg index.
-
+    (jit-subr r1 r1 r0)                 ; r1 = initial local index.
     (jit-movi r0 (scm->pointer '()))    ; r0 = initial list.
 
+    (jit-patch-at (jit-bgei reg-nargs (imm dst)) l2)
+
+    ;; Refill the locals with SCM_UNDEFINED.
+    (jit-movi f0 scm-undefined)
     (jit-link l1)
+    (jit-subi r1 r1 (imm (sizeof '*)))
+    (jit-stxr r1 (jit-fp) f0)
+    (jit-patch-at
+     (jit-blei r1 (imm (- (lightning-fp st) (* dst (sizeof '*)))))
+     l3)
+    (jit-patch-at (jit-jmpi) l1)
+
+    ;; Create a list.
+    (jit-link l2)
     (jit-patch-at
      (jit-bgti r1 (imm (- (lightning-fp st) (* dst (sizeof '*)))))
-     l2)
+     l3)
     (jit-prepare)
     (jit-pushargr reg-thread)
     (jit-ldxr r2 (jit-fp) r1)
@@ -972,15 +1014,14 @@ argument in VM operation."
     (jit-calli (c-pointer "scm_do_inline_cons"))
     (jit-retval r0)
     (jit-addi r1 r1 (imm (sizeof '*)))
-    (jit-patch-at (jit-jmpi) l1)
+    (jit-patch-at (jit-jmpi) l2)
 
-    (jit-link l2)
+    (jit-link l3)
+    (local-set! st dst r0)
 
     ;; Updating nargs to prevent following `alloc-frame' to override
     ;; the rest list with #<unspecified>.
-    (jit-movi reg-nargs (imm (+ dst 1)))
-
-    (local-set! st dst r0)))
+    (jit-movi reg-nargs (imm (+ dst 1)))))
 
 (define-vm-op (assert-nargs-ee st expected)
   (assert-wrong-num-args st jit-beqi expected 0))
@@ -1011,14 +1052,10 @@ argument in VM operation."
     (jit-addi r1 r1 (imm 1))
     (jit-patch-at (jit-jmpi) l1)
 
-    (jit-link l2)))
+    (jit-link l2)
+    (jit-movi reg-nargs (imm nlocals))))
 
-;; XXX: Modify to manage (jit-fp) with absolute value of nlocal?
-;;
-;; Caching was once causing infinite loops and disabled. Brought back
-;; after running `run-nfa' procedure, locals were mixed up from callee.
 (define-vm-op (reset-frame st nlocals)
-  ;; *unspecified*
   (jit-movi reg-nretvals (imm nlocals)))
 
 
@@ -1130,8 +1167,8 @@ argument in VM operation."
   (jit-movi r1 (imm (offset-addr st offset)))
   (jit-stxi (imm (sizeof '*)) r0 r1)
 
-  ;; XXX: Storing JIT compiled code. Could fill in the address if
-  ;; already compiled, but not done yet.
+  ;; XXX: Storing JIT compiled code. Could fill in the address with
+  ;; already compiled code, but not done yet.
   (jit-movi r1 scm-undefined)
   (jit-stxi (imm (* 2 (sizeof '*))) r0 r1)
 
@@ -1142,7 +1179,8 @@ argument in VM operation."
   (local-set! st dst r0))
 
 (define-vm-op (free-ref st dst src idx)
-  (jit-ldxi r0 (local-ref st src) (imm (* (sizeof '*) (+ idx 3))))
+  (local-ref st src r0)
+  (scm-program-free-variable-ref r0 r0 idx)
   (local-set! st dst r0))
 
 (define-vm-op (free-set! st dst src idx)
@@ -1384,12 +1422,6 @@ argument in VM operation."
 ;;; Pairs
 ;;; -----
 
-(define *pair-string (string->pointer "pair"))
-(define *car-string (string->pointer "car"))
-(define *cdr-string (string->pointer "cdr"))
-(define *set-car!-string (string->pointer "set-car!"))
-(define *set-cdr!-string (string->pointer "set-cdr!"))
-
 (define-vm-op (cons st dst car cdr)
   (jit-prepare)
   (jit-pushargr reg-thread)
@@ -1466,24 +1498,6 @@ argument in VM operation."
   (jit-retval r0)
   (local-set! st dst r0))
 
-(define *vector-string
-  (string->pointer "vector"))
-
-(define *vector-length-string
-  (string->pointer "vector-length"))
-
-(define *vector-ref-string
-  (string->pointer "vector-ref"))
-
-(define *vector-ref/immediate-string
-  (string->pointer "vector-ref/immediate"))
-
-(define *vector-set!-string
-  (string->pointer "vector-set!"))
-
-(define *vector-set!/immediate-string
-  (string->pointer "vector-set!/immediate"))
-
 (define-vm-op (make-vector/immediate st dst length init)
   (jit-prepare)
   (jit-pushargr reg-thread)
@@ -1496,52 +1510,6 @@ argument in VM operation."
               (jit-stxi (imm (* (+ n 1) (sizeof '*))) r0 r1))
             (iota length))
   (local-set! st dst r0))
-
-(define-syntax-rule (validate-vector vec cell-obj tag subr)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
-    (jit-patch-at (jit-bmsi vec (imm 6)) l1)
-    (jit-ldr cell-obj vec)
-    (jit-andi tag cell-obj (imm #x7f))
-    (jit-patch-at (jit-beqi tag (imm tc7-vector)) l2)
-    (jit-link l1)
-    (error-wrong-type-arg-msg subr 1 vec *vector-string)
-    (jit-link l2)))
-
-(define-syntax-rule (scm-i-vector-length dst src)
-  (begin
-    (jit-ldr dst src)
-    (jit-rshi dst dst (imm 8))))
-
-(define-syntax-rule (scm-i-inumr dst src)
-  (jit-rshi dst src (imm 2)))
-
-(define-syntax-rule (validate-vector-range vec idx tmp1 tmp2 subr)
-  ;; Registers `vec' and `tmp' will get dirty after the validation.
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
-    (jit-patch-at (jit-bmci idx (imm 2)) l1)
-
-    (scm-i-inumr tmp1 idx)
-    (jit-patch-at (jit-blti tmp1 (imm 0)) l1)
-    (scm-i-vector-length tmp2 vec)
-    (jit-patch-at (jit-bltr tmp1 tmp2) l2)
-
-    ;; (jit-patch-at (jit-blti idx (imm 2)) l1)
-    ;; (scm-i-vector-length tmp vec)
-    ;; (scm-makinumr tmp tmp)
-    ;; (jit-patch-at (jit-bltr idx tmp) l2)
-
-    (jit-link l1)
-    (error-out-of-range subr (jit-pushargr idx))
-    (jit-link l2)))
-
-(define-syntax-rule (validate-vector-range/immediate vec idx tmp subr)
-  (let ((l1 (jit-forward)))
-    (scm-i-vector-length tmp vec)
-    (jit-patch-at (jit-bgti tmp (imm idx)) l1)
-    (error-out-of-range subr (jit-pushargi (scm-makinumi idx)))
-    (jit-link l1)))
 
 (define-vm-op (vector-length st dst src)
   (local-ref st src r0)
@@ -1607,6 +1575,7 @@ argument in VM operation."
   (local-set! st dst r0))
 
 (define-vm-op (struct-ref st dst src idx)
+  ;; XXX: Validate struct.
   (local-ref st src r0)
   (local-ref st idx r1)
   (jit-rshi r1 r1 (imm 2))
@@ -1616,12 +1585,14 @@ argument in VM operation."
   (local-set! st dst r0))
 
 (define-vm-op (struct-ref/immediate st dst src idx)
+  ;; XXX: Validate struct.
   (local-ref st src r0)
   (jit-ldxi r0 r0 (imm (sizeof '*)))
   (jit-ldxi r0 r0 (imm (* idx (sizeof '*))))
   (local-set! st dst r0))
 
 (define-vm-op (struct-set!/immediate st dst idx src)
+  ;; XXX: Validate struct.
   (local-ref st dst r0)
   (local-ref st src r1)
   (jit-ldxi r0 r0 (imm (sizeof '*)))
@@ -1662,7 +1633,6 @@ argument in VM operation."
 ;;; Compilation
 ;;;
 
-
 (define (compile-lightning st entry)
   "Compile <lightning> data specified by ST to native code using
 lightning, with ENTRY as lightning's node to itself."
@@ -1686,7 +1656,7 @@ lightning, with ENTRY as lightning's node to itself."
                (lambda (label)
                  (jit-link label))))
         (or (and emitter (apply emitter st args))
-            (format #t "compile-lightning: VM op not found `~a'~%" instr)))))
+            (debug 0 "compile-lightning: VM op not found `~a'~%" instr)))))
 
   (let* ((program-or-addr (lightning-pc st))
          (args (lightning-args st))
@@ -1704,7 +1674,6 @@ lightning, with ENTRY as lightning's node to itself."
     (for-each (lambda (chunk)
                 (assemble-one st chunk))
               (trace-ops trace))
-    (set-lightning-nretvals! st (trace-nretvals (lightning-trace st)))
     (debug 1 ";;; compile-lightning: Finished compiling ~a (~x)~%" name addr)
 
     entry))
@@ -1740,16 +1709,16 @@ values. Returned value of this procedure is a pointer to scheme value."
 (define %call-lightning
   (procedure->pointer '* c-call-lightning* '(* * *)))
 
-(define (c-call-lightning thread proc args)
-  "Compile PROC with lightning and run with ARGS, within THREAD."
-
-  (define-syntax-rule (with-jit-state . expr)
+(define-syntax-rule (with-jit-state . expr)
     (parameterize ((jit-state (jit-new-state)))
       (call-with-values
           (lambda () . expr)
         (lambda vals
           (jit-destroy-state)
           (apply values vals)))))
+
+(define (c-call-lightning thread proc args)
+  "Compile PROC with lightning and run with ARGS, within THREAD."
 
   (define-syntax-rule (offset->addr offset)
     ;; `make-pointer' does not accept negative values.
@@ -1792,12 +1761,15 @@ values. Returned value of this procedure is a pointer to scheme value."
          (jit-movi reg-thread thread)
          (jit-movi reg-retval (scm->pointer *unspecified*))
 
+         ;; Do the work.
          expr
 
          ;; Link the return address.
          (jit-patch return-address)))))
 
-  (define-syntax-rule (vm-epilog nretvals)
+  ;; Check number of return values, call C function `scm_values' if
+  ;; 1 < number of values.
+  (define-syntax-rule (vm-epilog)
     (let ((l1 (jit-forward))
           (l2 (jit-forward))
           (l3 (jit-forward)))
@@ -1831,36 +1803,8 @@ values. Returned value of this procedure is a pointer to scheme value."
       (jit-link l3)
       (jit-retr reg-retval)))
 
-  ;; Check number of return values, call C function `scm_values' if
-  ;; 1 < number of values.
-  ;;
-  ;; (define-syntax-rule (vm-epilog nretvals)
-  ;;   (cond
-  ;;    ((<= nretvals 1)
-  ;;     (jit-retr reg-retval))
-  ;;    (else
-  ;;     (jit-prepare)
-  ;;     (jit-movi r1 (offset->addr 4))
-  ;;     (for-each (lambda (n)
-  ;;                 (jit-ldxi r0 (jit-fp) (offset->addr (+ 4 n)))
-  ;;                 (jit-pushargr r0))
-  ;;               (iota nretvals))
-  ;;     (jit-pushargi scm-undefined)
-  ;;     (jit-calli (c-pointer "scm_list_n"))
-  ;;     (jit-retval r1)
-  ;;     (jit-prepare)
-  ;;     (jit-pushargr r1)
-  ;;     (jit-calli (c-pointer "scm_values"))
-  ;;     (jit-retval r0)
-  ;;     (jit-retr r0))))
-
-  (let ((addr2 (ensure-program-addr proc))
-        (args2 (apply vector proc args)))
+  (let ((args2 (apply vector proc args)))
     (cond
-     ((primitive? proc)
-      (debug 1 ";;; calling primitive: ~a, args=~a~%" proc args)
-      (apply proc args))
-
      ((jit-compiled-code proc)
       =>
       (lambda (compiled)
@@ -1870,7 +1814,7 @@ values. Returned value of this procedure is a pointer to scheme value."
          (vm-prolog (let ((entry (make-pointer compiled)))
                       (jit-movi r0 entry)
                       (jit-jmpr r0)))
-         (vm-epilog (program-nretvals proc))
+         (vm-epilog)
          (jit-epilog)
          (jit-realize)
          (let* ((fptr (jit-emit))
@@ -1880,8 +1824,7 @@ values. Returned value of this procedure is a pointer to scheme value."
                (jit-print)
                (jit-clear-state)))
            (pointer->scm (thunk))))))
-
-     ((program->trace addr2 (+ (length args) 1) #f)
+     ((program->trace proc (+ (length args) 1))
       =>
       (lambda (trace)
         (with-jit-state
@@ -1897,18 +1840,12 @@ values. Returned value of this procedure is a pointer to scheme value."
                                                  fp0
                                                  nargs
                                                  args
-                                                 addr2
+                                                 (ensure-program-addr proc)
                                                  0)))
                         (set! lightning st)
                         (compile-lightning lightning entry)))
 
-           ;; XXX: Storing number of return values with object
-           ;; property. When the program has variable number of return
-           ;; values, (e.g: when calling `values' with `apply'), this
-           ;; approach may not work.
-           (set! (program-nretvals proc) (lightning-nretvals lightning))
-
-           (vm-epilog (lightning-nretvals lightning))
+           (vm-epilog)
            (jit-epilog)
            (jit-realize)
 
@@ -1936,6 +1873,7 @@ values. Returned value of this procedure is a pointer to scheme value."
                   (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
                  (jit-print)
                  (jit-clear-state)))
+
              (debug 1 ";;; set jit compiled code of ~a to ~a~%"
                     proc (jit-address entry))
 
@@ -1949,7 +1887,7 @@ values. Returned value of this procedure is a pointer to scheme value."
           (lambda () (set-vm-engine! engine))))))))
 
 
-;;; This procedure is called from C function `vm_lightning'.
+;; This procedure is called from C function `vm_lightning'.
 (define (vm-lightning thread fp registers nargs resume)
   (let* ((addr->scm
           (lambda (addr)
