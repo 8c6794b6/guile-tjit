@@ -609,24 +609,10 @@ argument in VM operation."
                (lambda (offset)
                  (make-pointer (+ base (* 4 (+ current offset))))))
               (var (dereference-scm (offset->pointer var-offset))))
-         (if (variable? var)
-             (local-set-immediate! st dst (scm->pointer var))
-             (let ((resolved resolver ...))
-
-               ;; XXX: In past, vm-regular was updating the offset
-               ;; pointer of var. Though may better to do this in
-               ;; lightning when updating procedure definition already
-               ;; running in another thread.
-               ;;
-               ;; (local-set-immediate! st dst (scm->pointer resolved))
-               ;;
-               ;; Currently JIT code updates the contents of variable
-               ;; offset.
-
-               (jit-movi r0 (scm->pointer resolved))
-               (jit-movi r1 (offset->pointer var-offset))
-               (jit-str r1 r0)
-               (local-set! st dst r0))))))))
+         (let ((resolved (if (variable? var)
+                             var
+                             resolver ...)))
+           (local-set-immediate! st dst (scm->pointer resolved))))))))
 
 (define-syntax define-vm-add-sub-op
   (syntax-rules ()
