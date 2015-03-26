@@ -752,15 +752,12 @@
                (lambda (s)
                  (k (+ s n))))))
 
-;;; XXX: CPS style sum soon reaches to stack limit, running with n=1000
-;;; causing "Unwind-only `stack-overflow'.
-;; (test-skip 1)
-;; (define-test (sum-cps-1000 n k) (1000 (lambda (a) a))
-;;   (if (< n 0)
-;;       (k 0)
-;;       (sum-cps (- n 1)
-;;                (lambda (s)
-;;                  (k (+ s n))))))
+(define-test (sum-cps-1000 n k) (1000 (lambda (a) a))
+  (if (< n 0)
+      (k 0)
+      (sum-cps (- n 1)
+               (lambda (s)
+                 (k (+ s n))))))
 
 (define-test (fib1 n) (30)
   (let lp ((n n))
@@ -785,7 +782,8 @@
   (map + xs ys zs))
 
 (test-skip 1)
-(define-test (call-map3-lambda xs ys zs) ('(1 2 3) '(10 20 30) '(100 200 300))
+(define-test (call-map3-lambda xs ys zs)
+  ('(1 2 3) '(10 20 30) '(100 200 300))
   (map (lambda (x y z) (+ x y z)) xs ys zs))
 
 (define-test (nqueens n) (8)

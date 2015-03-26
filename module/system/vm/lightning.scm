@@ -55,7 +55,7 @@
 
 ;; State used during compilation.
 (define-record-type <lightning>
-  (%make-lightning trace nodes ip labels pc fp nargs args nretvals indent)
+  (%make-lightning trace nodes ip labels pc fp args nretvals indent)
   lightning?
 
   ;; State from bytecode trace.
@@ -79,16 +79,13 @@
   ;; Arguments.
   (args lightning-args)
 
-  ;; Number of arguments.
-  (nargs lightning-nargs)
-
   ;; Number of return values.
   (nretvals lightning-nretvals set-lightning-nretvals!)
 
   ;; Indentation level for debug message.
   (indent lightning-indent))
 
-(define* (make-lightning trace nodes fp nargs args pc
+(define* (make-lightning trace nodes fp args pc
                          indent
                          #:optional
                          (nretvals 1)
@@ -97,8 +94,7 @@
   (for-each (lambda (labeled-ip)
               (hashq-set! labels labeled-ip (jit-forward)))
             (trace-labeled-ips trace))
-  (%make-lightning trace nodes ip labels pc fp nargs args nretvals
-                   indent))
+  (%make-lightning trace nodes ip labels pc fp args nretvals indent))
 
 (define jit-code-guardian (make-guardian))
 
@@ -410,13 +406,12 @@ argument in VM operation."
 
     ((_ st1 st2 proc nlocals callee-addr body)
      (cond
-      ((program->trace callee-addr nlocals)
+      ((program->trace callee-addr)
        =>
        (lambda (trace)
          (let ((st2 (make-lightning trace
                                     (lightning-nodes st1)
                                     (lightning-fp st1)
-                                    nlocals
                                     #f
                                     (ensure-program-addr callee-addr)
                                     (+ 2 (lightning-indent st1)))))
@@ -442,7 +437,7 @@ argument in VM operation."
 ;;; Assertion, validation, and error messages
 ;;;
 
-;; Define pointer to strings used in error messages as top-level, to
+;; Defining pointer to strings used in error messages as top-level, to
 ;; avoid garbage collection.
 
 (define-syntax define-string-pointer
@@ -530,7 +525,7 @@ argument in VM operation."
     (jit-link l2)))
 
 (define-syntax-rule (validate-vector-range vec idx tmp1 tmp2 subr)
-  ;; Registers `vec' and `tmp' will get dirty after the validation.
+  ;; Registers `tmp1' and `tmp2' will get dirty after the validation.
   (let ((l1 (jit-forward))
         (l2 (jit-forward)))
     (jump (scm-not-inump idx) l1)
@@ -538,11 +533,6 @@ argument in VM operation."
     (jump (jit-blti tmp1 (imm 0)) l1)
     (scm-i-vector-length tmp2 vec)
     (jump (jit-bltr tmp1 tmp2) l2)
-
-    ;; (jit-patch-at (jit-blti idx (imm 2)) l1)
-    ;; (scm-i-vector-length tmp vec)
-    ;; (scm-makinumr tmp tmp)
-    ;; (jit-patch-at (jit-bltr idx tmp) l2)
 
     (jit-link l1)
     (error-out-of-range subr (jit-pushargr idx))
@@ -702,7 +692,7 @@ argument in VM operation."
              (rega (local-ref st a r1))
              (regb (local-ref st b r2)))
 
-         ;; Entry: a == small fixnum && b == small fixnum
+         ;; Entry: small fixnum + small fixnum
          (jump (scm-not-inump rega) l2)
          (jump (scm-not-inump regb) l1)
          (jit-movr r0 rega)
@@ -916,6 +906,8 @@ argument in VM operation."
 ;;; XXX: continuation-call
 ;;; XXX: compose-continuation
 
+;;; XXX: Calling anonymous procedure second time not working with
+;;; byte-compiled code.
 (define-vm-op (tail-apply st)
   (let ((l1 (jit-forward))
         (l2 (jit-forward))
@@ -1208,27 +1200,42 @@ argument in VM operation."
   (scm-set-cell-object r0 1 r1))
 
 (define-vm-op (make-closure st dst offset nfree)
-  (jit-prepare)
-  (jit-pushargr reg-thread)
-  (jit-pushargi (imm (logior tc7-program (ash nfree 16))))
-  (jit-pushargi (imm (+ nfree 3)))
-  (call-c "scm_do_inline_words")
-  (jit-retval r0)
+  (let ((l1 (jit-forward)))
+    (jit-prepare)
+    (jit-pushargr reg-thread)
+    (jit-pushargi (imm (logior tc7-program
+                               f-program-is-jit-compiled
+                               (ash nfree 16))))
+    (jit-pushargi (imm (+ nfree 3)))
+    (call-c "scm_do_inline_words")
+    (jit-retval r0)
 
-  ;; Storing address of byte-compiled program code.
-  (jit-movi r1 (imm (offset-addr st offset)))
-  (scm-set-cell-object r0 1 r1)
+    ;; Storing address of byte-compiled code.
+    (jit-movi r1 (imm (offset-addr st offset)))
+    (scm-set-cell-object r0 1 r1)
 
-  ;; XXX: Storing JIT compiled code. Could fill in the address with
-  ;; already compiled code, but not done yet.
-  (jit-movi r1 scm-undefined)
-  (scm-set-cell-object r0 2 r1)
+    ;; Storing address of JIT compiled code.
+    (let ((addr (jit-movi r1 (imm 0))))
+      (scm-set-cell-object r0 2 r1)
+      (jump l1)
 
-  (jit-movi r1 (scm->pointer #f))
-  (for-each (lambda (n)
-              (scm-program-free-variable-set r0 n r1))
-            (iota nfree))
-  (local-set! st dst r0))
+      ;; Do the JIT compilation at the time of closure creation.
+      (let* ((trace (program->trace (offset-addr st offset)))
+             (lightning (make-lightning trace
+                                        (lightning-nodes st)
+                                        (lightning-fp st)
+                                        #f
+                                        (offset-addr st offset)
+                                        0)))
+        (jit-patch addr)
+        (compile-lightning lightning (jit-forward))))
+
+    (jit-link l1)
+    (jit-movi r1 (scm->pointer #f))
+    (for-each (lambda (n)
+                (scm-program-free-variable-set r0 n r1))
+              (iota nfree))
+    (local-set! st dst r0)))
 
 (define-vm-op (free-ref st dst src idx)
   (local-ref st src r0)
@@ -1718,7 +1725,7 @@ lightning, with ENTRY as lightning's node to itself."
   (let* ((program-or-addr (lightning-pc st))
          (addr (ensure-program-addr program-or-addr))
          (trace (lightning-trace st))
-         (name (program-name program-or-addr)))
+         (name (program-name addr)))
 
     (hashq-set! (lightning-nodes st) addr entry)
     (jit-note name addr)
@@ -1739,14 +1746,6 @@ lightning, with ENTRY as lightning's node to itself."
 ;;; Code generation and execution
 ;;;
 
-(define (unwrap-non-program args program-or-addr)
-  (cond
-   ((struct? program-or-addr)
-    (vector-set! args 0 (struct-ref program-or-addr 0))
-    args)
-   (else
-    args)))
-
 (define (write-code-to-file file pointer)
   (call-with-output-file file
     (lambda (port)
@@ -1756,14 +1755,13 @@ lightning, with ENTRY as lightning's node to itself."
   "Compile PROC with lightning, and run with ARGS."
   (c-call-lightning (thread-i-data (current-thread)) proc args))
 
-(define (c-call-lightning* thread proc args)
-  "Like `c-call-lightning', but ARGS and PROC are pointers to scheme
-values. Returned value of this procedure is a pointer to scheme value."
-  (scm->pointer
-   (c-call-lightning thread (pointer->scm proc) (pointer->scm args))))
-
 (define %call-lightning
-  (procedure->pointer '* c-call-lightning* '(* * *)))
+  (let ((f (lambda (thread proc args)
+             (scm->pointer
+              (c-call-lightning thread
+                                (pointer->scm proc)
+                                (pointer->scm args))))))
+    (procedure->pointer '* f '(* * *))))
 
 (define-syntax-rule (with-jit-state . expr)
     (parameterize ((jit-state (jit-new-state)))
@@ -1847,6 +1845,7 @@ values. Returned value of this procedure is a pointer to scheme value."
       (jit-link l3)
       (jit-retr reg-retval)))
 
+  (debug 1 ";;; c-call-lightning: proc=~a args=~a~%" proc args)
   (cond
    ((jit-compiled-code proc)
     =>
@@ -1870,7 +1869,7 @@ values. Returned value of this procedure is a pointer to scheme value."
              (jit-print)
              (jit-clear-state)))
          (pointer->scm (thunk))))))
-   ((program->trace proc (+ (length args) 1))
+   ((program->trace proc)
     =>
     (lambda (trace)
       (with-jit-state
@@ -1883,7 +1882,6 @@ values. Returned value of this procedure is a pointer to scheme value."
               (lightning (make-lightning trace
                                          (make-hash-table)
                                          fp0
-                                         nargs
                                          args
                                          (ensure-program-addr proc)
                                          0))

@@ -36,7 +36,7 @@
   #:use-module (system vm program)
   #:autoload (system vm lightning) (call-lightning)
   #:export (program->trace
-            make-trace trace? trace-last-ip trace-name trace-nargs
+            make-trace trace? trace-last-ip trace-name
             trace-ops trace-labeled-ips
 
             program->entries entries-ops entries-table
@@ -295,19 +295,14 @@
 ;;;
 
 (define-record-type <trace>
-  (make-trace name nargs cfg)
+  (make-trace name cfg)
   trace?
-
   ;; Name of procedure.
   (name trace-name)
-
-  ;; Number of arguments.
-  (nargs trace-nargs)
-
   ;; The <cfg> used by this trace.
   (cfg trace-cfg))
 
-(define (program->trace program-or-addr nargs)
+(define (program->trace program-or-addr)
   "Make <trace> from PROGRAM-OR-ADDR and NARGS."
   (let ((name (program-name program-or-addr))
         (addr (ensure-program-addr program-or-addr)))
@@ -316,7 +311,7 @@
     (let ((cfg (program->cfg program-or-addr)))
       (debug 1 ";;; trace: Finished tracing ~a (~x)~%"
              name (or (and (integer? addr) addr) 0))
-      (make-trace name nargs cfg))))
+      (make-trace name cfg))))
 
 (define (trace-ops trace)
   "Returns a list of ip and vm-operation in TRACE."
