@@ -1,5 +1,5 @@
 ;;; Functional name maps
-;;; Copyright (C) 2014 Free Software Foundation, Inc.
+;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software: you can redistribute it and/or modify
 ;;; it under the terms of the GNU Lesser General Public License as
@@ -102,7 +102,10 @@
          ;; Shouldn't be reached...
          (else empty-intmap)))))
 
-(define (intmap-add bs i val meet)
+(define (meet-error old new)
+  (error "Multiple differing values and no meet procedure defined" old new))
+
+(define* (intmap-add bs i val #:optional (meet meet-error))
   (define (adjoin i shift root)
     (cond
      ((zero? shift)
@@ -209,7 +212,7 @@
             (let ((i (visit-node root shift i)))
               (and i (+ min i))))))))
 
-(define (intmap-union a b meet)
+(define* (intmap-union a b #:optional (meet meet-error))
   ;; Union A and B from index I; the result will be fresh.
   (define (union-branches/fresh shift a b i fresh)
     (let lp ((i 0))
@@ -288,7 +291,7 @@
           ((eq? root b-root) b)
           (else (make-intmap a-min a-shift root)))))))))
 
-(define (intmap-intersect a b meet)
+(define* (intmap-intersect a b #:optional (meet meet-error))
   ;; Intersect A and B from index I; the result will be fresh.
   (define (intersect-branches/fresh shift a b i fresh)
     (let lp ((i 0))
