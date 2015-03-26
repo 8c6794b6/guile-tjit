@@ -859,4 +859,14 @@
                       (deriv (caddr a))))))
    (else 'error)))
 
+;;;
+;;; Procedures from module (guile)
+;;;
+
+(define-test (t-macroexpand expr) ('(+ 1 2 3))
+  (macroexpand expr))
+
+(define-test (t-format-1 str arg1 arg2) ("~x is ~a~%" 100 #f)
+  (format #f str arg1 arg2))
+
 (test-end "vm-lightning-test")
