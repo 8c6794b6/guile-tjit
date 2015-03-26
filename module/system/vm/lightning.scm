@@ -117,7 +117,7 @@
 (define-inline tc7-vector 13)
 (define-inline tc7-program 69)
 (define-inline tc16-real 535)
-(define-inline program-is-jit-compiled #x4000)
+(define-inline f-program-is-jit-compiled #x4000)
 (define-inline scm-undefined (make-pointer #x904))
 
 
@@ -142,6 +142,36 @@
 ;;; SCM macros
 ;;;
 
+(define-syntax-rule (scm-cell-object dst obj n)
+  (jit-ldxi dst obj (imm (* n (sizeof '*)))))
+
+(define-syntax-rule (scm-cell-object-0 dst obj)
+  (jit-ldr dst obj))
+
+(define-syntax-rule (scm-cell-object-1 dst obj)
+  (jit-ldxi dst obj (imm (sizeof '*))))
+
+(define-syntax-rule (scm-cell-object-2 dst obj)
+  (jit-ldxi dst obj (imm (* 2 (sizeof '*)))))
+
+(define-syntax-rule (scm-cell-object-r dst obj reg-offset)
+  (jit-ldxr dst obj reg-offset))
+
+(define-syntax-rule (scm-set-cell-object obj n val)
+  (jit-stxi (imm (* n (sizeof '*))) obj val))
+
+(define-syntax-rule (scm-set-cell-object-0 obj val)
+  (jit-str obj val))
+
+(define-syntax-rule (scm-set-cell-object-1 obj val)
+  (jit-stxi (imm (sizeof '*)) obj val))
+
+(define-syntax-rule (scm-set-cell-object-2 obj val)
+  (scm-set-cell-object obj 2 val))
+
+(define-syntax-rule (scm-set-cell-object-r obj reg-offset val)
+  (jit-stxr reg-offset obj val))
+
 (define-syntax-rule (scm-thread-dynamic-state st)
   (jit-ldxi r0 reg-thread (imm #xd8)))
 
@@ -165,13 +195,15 @@
   (jit-ldxi dst src (imm (* (+ index 3) (sizeof '*)))))
 
 (define-syntax-rule (scm-pointer-value dst src)
-  (jit-ldxi dst src (imm (sizeof '*))))
+  (scm-cell-object-1 dst src))
 
 (define-syntax-rule (scm-i-vector-length dst src)
   (begin
     (jit-ldr dst src)
     (jit-rshi dst dst (imm 8))))
 
+(define-syntax-rule (scm-program-is-jit-compiled obj)
+  (jit-bmsi obj (imm f-program-is-jit-compiled)))
 
 ;;;
 ;;; VM op syntaxes
@@ -219,6 +251,14 @@ argument in VM operation."
 (define-syntax-rule (offset-addr st offset)
   (+ (lightning-pc st) (* 4 (+ (lightning-ip st) offset))))
 
+(define-syntax-rule (last-arg-offset st dst tmp)
+  (begin
+    (jit-movr tmp reg-nargs)
+    (jit-subi tmp tmp (imm 1))
+    (jit-muli tmp tmp (imm (sizeof '*)))
+    (jit-movi dst (imm (lightning-fp st)))
+    (jit-subr dst dst tmp)))
+
 (define-syntax-rule (c-pointer name)
   (dynamic-func name (dynamic-link)))
 
@@ -230,6 +270,13 @@ argument in VM operation."
     (jit-prepare)
     (jit-calli (c-pointer "scm_async_tick"))
     (jit-link l1)))
+
+(define-syntax jump
+  (syntax-rules ()
+    ((_ label)
+     (jit-patch-at (jit-jmpi) label))
+    ((_ condition label)
+     (jit-patch-at condition label))))
 
 (define-syntax return-jmp
   (syntax-rules ()
@@ -275,23 +322,19 @@ argument in VM operation."
      (let ((l1 (jit-forward))
            (l2 (jit-forward)))
 
-       (jit-ldr r2 (local-ref st proc r0))
-       (jit-patch-at (jit-bmsi r2 (imm program-is-jit-compiled)) l1)
+       (local-ref st proc r0)
+       (scm-cell-object-0 r2 r0)
+       (jump (scm-program-is-jit-compiled r2) l1)
 
        ;; Does not have compiled code.
-       ;;
-       ;; XXX: Add test for boot, primitive, primitive generic,
-       ;; continuation, partial continuation, and foreign, inline the
-       ;; call.
        (call-runtime st proc nlocals)
        ;; XXX: Handle multiple values.
        (local-set! st (+ proc 1) reg-retval)
-       (jit-patch-at (jit-jmpi) l2)
+       (jump l2)
 
        ;; Has compiled code.
        (jit-link l1)
-       ;; (jit-ldxi r1 (local-ref st proc) (imm (* 2 (sizeof '*))))
-       (jit-ldxi r1 r0 (imm (* 2 (sizeof '*))))
+       (scm-cell-object-2 r1 r0)
        expr
 
        (jit-link l2)))))
@@ -354,8 +397,8 @@ argument in VM operation."
 (define-syntax-rule (compiled-node st addr)
   (hashq-ref (lightning-nodes st) addr))
 
-(define-syntax-rule (define-label l body ...)
-  (begin (jit-link l) body ...))
+(define-syntax-rule (define-link l . body)
+  (begin (jit-link l) . body))
 
 
 ;;;
@@ -422,23 +465,23 @@ argument in VM operation."
        (jit-reti (scm->pointer *unspecified*))
        (jit-link l1)))))
 
-(define-syntax-rule (validate-pair pair cell-obj subr pos)
+(define-syntax-rule (validate-pair pair cell-0 subr pos)
   (let ((l1 (jit-forward))
         (l2 (jit-forward)))
     (jit-patch-at (jit-bmsi pair (imm 6)) l1)
-    (jit-ldr cell-obj pair)
-    (jit-patch-at (jit-bmsi cell-obj (imm 1)) l1)
+    (scm-cell-object-0 cell-0 pair)
+    (jit-patch-at (jit-bmsi cell-0 (imm 1)) l1)
     (jit-patch-at (jit-jmpi) l2)
     (jit-link l1)
     (error-wrong-type-arg-msg subr pos r0 *pair-string)
     (jit-link l2)))
 
-(define-syntax-rule (validate-vector vec cell-obj tag subr)
+(define-syntax-rule (validate-vector vec cell-0 tag subr)
   (let ((l1 (jit-forward))
         (l2 (jit-forward)))
     (jit-patch-at (jit-bmsi vec (imm 6)) l1)
-    (jit-ldr cell-obj vec)
-    (jit-andi tag cell-obj (imm #x7f))
+    (scm-cell-object-0 cell-0 vec)
+    (jit-andi tag cell-0 (imm #x7f))
     (jit-patch-at (jit-beqi tag (imm tc7-vector)) l2)
     (jit-link l1)
     (error-wrong-type-arg-msg subr 1 vec *vector-string)
@@ -502,7 +545,7 @@ argument in VM operation."
          (local-ref st a reg)
          (jit-patch-at (jit-bmsi reg (imm 6))
                        (if invert (resolve-dst st offset) l1))
-         (jit-ldr reg reg)
+         (scm-cell-object-0 reg reg)
          (jit-patch-at expr
                        (if invert (resolve-dst st offset) l1))
          ;; XXX: Any other way?
@@ -815,10 +858,7 @@ argument in VM operation."
 
 (define-vm-op (subr-call st ptr-idx)
   (let ((l1 (jit-forward)))
-    (scm-program-free-variable-ref r0 (local-ref st 0) ptr-idx)
-    (scm-pointer-value r1 r0)
     (jit-prepare)
-
     ;; `subr-call' accepts up to 10 arguments.
     (for-each (lambda (n)
                 (jit-patch-at (jit-blei reg-nargs (imm (+ n 1))) l1)
@@ -826,11 +866,14 @@ argument in VM operation."
               (iota 10))
 
     (jit-link l1)
+    (local-ref st 0 r0)
+    (scm-program-free-variable-ref r0 r0 ptr-idx)
+    (scm-pointer-value r1 r0)
     (jit-callr r1)
     (jit-retval reg-retval)
 
-    ;;; XXX: Add test for SCM_VALUESP.
-    (local-set! st 1 reg-retval)
+    ;; XXX: Add test for SCM_VALUESP.
+    ;; (local-set! st 1 reg-retval)
 
     (jit-movi reg-nretvals (imm 1))
     (return-jmp st)))
@@ -849,25 +892,21 @@ argument in VM operation."
         (l7 (jit-forward)))
 
     ;; Last local, a list containing rest of arguments.
-    (jit-movr r0 reg-nargs)
-    (jit-subi r0 r0 (imm 1))
-    (jit-muli r0 r0 (imm (sizeof '*)))
-    (jit-movi r1 (imm (lightning-fp st)))
-    (jit-subr r1 r1 r0)
-    (jit-ldxr r0 (jit-fp) r1)
+    (last-arg-offset st f5 r0)
+    (jit-ldxr r0 (jit-fp) f5)
 
     ;; Test whether the procedure has JIT compiled code.
     (jit-ldr f0 (local-ref st 1 r2))
     (jit-subi reg-nargs reg-nargs (imm 2))
-    (jit-patch-at (jit-bmsi f0 (imm program-is-jit-compiled)) l3)
+    (jit-patch-at (scm-program-is-jit-compiled f0) l3)
 
     ;; No JIT code, making argument list.
     (jit-link l1)
     (jit-patch-at
-     (jit-bgei r1 (imm (- (lightning-fp st) (* 2 (sizeof '*)))))
+     (jit-bgei f5 (imm (- (lightning-fp st) (* 2 (sizeof '*)))))
      l2)
-    (jit-addi r1 r1 (imm (sizeof '*)))
-    (jit-ldxr r2 (jit-fp) r1)
+    (jit-addi f5 f5 (imm (sizeof '*)))
+    (jit-ldxr r2 (jit-fp) f5)
     (jit-prepare)
     (jit-pushargr reg-thread)
     (jit-pushargr r2)
@@ -880,7 +919,7 @@ argument in VM operation."
     (jit-link l2)
     (jit-prepare)
     (jit-pushargr reg-thread)
-    (jit-pushargr (local-ref st 1 r1))
+    (jit-pushargr (local-ref st 1 f5))
     (jit-pushargr r0)
     (jit-calli %call-lightning)
     ;; XXX: Add test for SCM_VALUESP.
@@ -892,28 +931,24 @@ argument in VM operation."
     (jit-link l3)
 
     ;; Local offset for shifting.
-    (jit-movr f2 reg-nargs)
-    (jit-subi f2 f2 (imm 1))
-    (jit-muli f2 f2 (imm (sizeof '*)))
-    (jit-movi f1 (imm (lightning-fp st)))
-    (jit-subr f1 f1 f2)
-    (jit-movi f2 (imm (lightning-fp st)))
+    (last-arg-offset st f1 r1)
+    (jit-movi r1 (imm (lightning-fp st)))
 
     ;; Shift non-list locals.
     (jit-link l4)
-    (jit-subi f0 f2 (imm (sizeof '*)))
+    (jit-subi f0 r1 (imm (sizeof '*)))
     (jit-ldxr f0 (jit-fp) f0)
-    (jit-stxr f2 (jit-fp) f0)
-    (jit-subi f2 f2 (imm (sizeof '*)))
-    (jit-patch-at (jit-bger f2 f1) l4)
+    (jit-stxr r1 (jit-fp) f0)
+    (jit-subi r1 r1 (imm (sizeof '*)))
+    (jit-patch-at (jit-bger r1 f1) l4)
 
     ;; Expand list contents to local.
     (jit-link l5)
     (jit-patch-at (jit-beqi r0 (scm->pointer '())) l6)
     (jit-ldr f0 r0)
-    (jit-stxr f2 (jit-fp) f0)
+    (jit-stxr r1 (jit-fp) f0)
     (jit-ldxi r0 r0 (imm (sizeof '*)))
-    (jit-subi f2 f2 (imm (sizeof '*)))
+    (jit-subi r1 r1 (imm (sizeof '*)))
     (jit-addi reg-nargs reg-nargs (imm 1))
     (jit-patch-at (jit-jmpi) l5)
 
@@ -968,38 +1003,38 @@ argument in VM operation."
         (l2 (jit-forward))
         (l3 (jit-forward)))
 
-    (jit-movi r1 (imm (lightning-fp st)))
-    (jit-movr r0 reg-nargs)
-    (jit-subi r0 r0 (imm 1))
-    (jit-muli r0 r0 (imm (sizeof '*)))
-    (jit-subr r1 r1 r0)                 ; r1 = initial local index.
+    (last-arg-offset st f5 r0)        ; f5 = initial local index.
     (jit-movi r0 (scm->pointer '()))    ; r0 = initial list.
+    (jit-movi f0 scm-undefined)
 
-    (jit-patch-at (jit-bgei reg-nargs (imm dst)) l2)
+    (jit-patch-at (jit-bgti reg-nargs (imm dst)) l2)
 
     ;; Refill the locals with SCM_UNDEFINED.
-    (jit-movi f0 scm-undefined)
     (jit-link l1)
-    (jit-subi r1 r1 (imm (sizeof '*)))
-    (jit-stxr r1 (jit-fp) f0)
+    (jit-subi f5 f5 (imm (sizeof '*)))
+    (jit-stxr f5 (jit-fp) f0)
     (jit-patch-at
-     (jit-blei r1 (imm (- (lightning-fp st) (* dst (sizeof '*)))))
+     (jit-blei f5 (imm (- (lightning-fp st) (* dst (sizeof '*)))))
      l3)
     (jit-patch-at (jit-jmpi) l1)
 
-    ;; Create a list.
+    ;; Create a list.  Using register f5 to preserve the register
+    ;; contents from callee C function "scm_do_inline_cons" and other
+    ;; bookkeepings done in lightning.
     (jit-link l2)
-    (jit-patch-at
-     (jit-bgti r1 (imm (- (lightning-fp st) (* dst (sizeof '*)))))
-     l3)
     (jit-prepare)
     (jit-pushargr reg-thread)
-    (jit-ldxr r2 (jit-fp) r1)
+    (jit-ldxr r2 (jit-fp) f5)
+    (jit-stxr (jit-fp) f5 f0)
     (jit-pushargr r2)
     (jit-pushargr r0)
     (jit-calli (c-pointer "scm_do_inline_cons"))
     (jit-retval r0)
-    (jit-addi r1 r1 (imm (sizeof '*)))
+    (jit-addi f5 f5 (imm (sizeof '*)))
+    (jit-patch-at
+     (jit-bgti f5 (imm (- (lightning-fp st) (* dst (sizeof '*)))))
+     l3)
+
     (jit-patch-at (jit-jmpi) l2)
 
     (jit-link l3)
@@ -1135,11 +1170,14 @@ argument in VM operation."
   (local-set! st dst r0))
 
 (define-vm-op (box-ref st dst src)
-  (jit-ldxi r0 (local-ref st src) (imm (sizeof '*)))
+  (local-ref st src r0)
+  (scm-cell-object-1 r0 r0)
   (local-set! st dst r0))
 
 (define-vm-op (box-set! st dst src)
-  (jit-stxi (imm (sizeof '*)) (local-ref st dst r0) (local-ref st src r1)))
+  (local-ref st dst r0)
+  (local-ref st src r1)
+  (scm-set-cell-object-1 r0 r1))
 
 (define-vm-op (make-closure st dst offset nfree)
   (jit-prepare)
@@ -1151,12 +1189,12 @@ argument in VM operation."
 
   ;; Storing address of byte-compiled program code.
   (jit-movi r1 (imm (offset-addr st offset)))
-  (jit-stxi (imm (sizeof '*)) r0 r1)
+  (scm-set-cell-object-1 r0 r1)
 
   ;; XXX: Storing JIT compiled code. Could fill in the address with
   ;; already compiled code, but not done yet.
   (jit-movi r1 scm-undefined)
-  (jit-stxi (imm (* 2 (sizeof '*))) r0 r1)
+  (scm-set-cell-object-2 r0 r1)
 
   (jit-movi r1 (scm->pointer #f))
   (for-each (lambda (n)
@@ -1425,18 +1463,20 @@ argument in VM operation."
 (define-vm-op (cdr st dst src)
   (local-ref st src r0)
   (validate-pair r0 r1 *cdr-string 1)
-  (jit-ldxi r0 r0 (imm (sizeof '*)))
+  (scm-cell-object-1 r0 r0)
   (local-set! st dst r0))
 
 (define-vm-op (set-car! st pair car)
   (local-ref st pair r0)
   (validate-pair r0 r1 *set-car!-string 1)
-  (jit-str r0 (local-ref st car r1)))
+  (local-ref st car r1)
+  (scm-set-cell-object-0 r0 r1))
 
 (define-vm-op (set-cdr! st pair cdr)
   (local-ref st pair r0)
   (validate-pair r0 r1 *set-cdr!-string 1)
-  (jit-stxi (imm (sizeof '*)) r0 (local-ref st cdr r1)))
+  (local-ref st cdr r1)
+  (scm-set-cell-object-1 r0 r1))
 
 
 ;;; Numeric operations
@@ -1519,7 +1559,7 @@ argument in VM operation."
   (local-ref st src r0)
   (validate-vector r0 r1 r2 *vector-ref/immediate-string)
   (validate-vector-range/immediate r0 idx r1 *vector-ref/immediate-string)
-  (jit-ldxi r0 r0 (imm (* (+ idx 1) (sizeof '*))))
+  (scm-cell-object r0 r0 (+ idx 1))
   (local-set! st dst r0))
 
 (define-vm-op (vector-set! st dst idx src)
@@ -1527,18 +1567,18 @@ argument in VM operation."
   (validate-vector r0 r1 r2 *vector-set!-string)
   (local-ref st idx r1)
   (validate-vector-range r0 r1 r2 f0 *vector-set!-string)
-  (local-ref st src r2)
   (jit-rshi r1 r1 (imm 2))
   (jit-addi r1 r1 (imm 1))
   (jit-muli r1 r1 (imm (sizeof '*)))
-  (jit-stxr r1 r0 r2))
+  (local-ref st src r2)
+  (scm-set-cell-object-r r0 r1 r2))
 
 (define-vm-op (vector-set!/immediate st dst idx src)
   (local-ref st dst r0)
   (validate-vector r0 r1 r2 *vector-set!/immediate-string)
   (validate-vector-range/immediate r0 idx r1 *vector-set!/immediate-string)
   (local-ref st src r1)
-  (jit-stxi (imm (* (+ idx 1) (sizeof '*))) r0 r1))
+  (scm-set-cell-object r0 (+ idx 1) r1))
 
 
 ;;; Structs and GOOPS
@@ -1546,9 +1586,9 @@ argument in VM operation."
 
 (define-vm-op (struct-vtable st dst src)
   (local-ref st src r0)
-  (jit-ldr r0 r0)
+  (scm-cell-object-0 r0 r0)
   (jit-subi r0 r0 (imm tc3-struct))
-  (jit-ldxi r0 r0 (imm (* 2 (sizeof '*))))
+  (scm-cell-object-2 r0 r0)
   (local-set! st dst r0))
 
 (define-vm-op (allocate-struct/immediate st dst vtable nfields)
@@ -1566,23 +1606,23 @@ argument in VM operation."
   (local-ref st idx r1)
   (jit-rshi r1 r1 (imm 2))
   (jit-muli r1 r1 (imm (sizeof '*)))
-  (jit-ldxi r0 r0 (imm (sizeof '*)))
-  (jit-ldxr r0 r0 r1)
+  (scm-cell-object-1 r0 r0)
+  (scm-cell-object-r r0 r0 r1)
   (local-set! st dst r0))
 
 (define-vm-op (struct-ref/immediate st dst src idx)
   ;; XXX: Validate struct.
   (local-ref st src r0)
-  (jit-ldxi r0 r0 (imm (sizeof '*)))
-  (jit-ldxi r0 r0 (imm (* idx (sizeof '*))))
+  (scm-cell-object-1 r0 r0)
+  (scm-cell-object r0 r0 idx)
   (local-set! st dst r0))
 
 (define-vm-op (struct-set!/immediate st dst idx src)
   ;; XXX: Validate struct.
   (local-ref st dst r0)
   (local-ref st src r1)
-  (jit-ldxi r0 r0 (imm (sizeof '*)))
-  (jit-stxi (imm (* idx (sizeof '*))) r0 r1))
+  (scm-cell-object-1 r0 r0)
+  (scm-set-cell-object r0 idx r1))
 
 ;;; XXX: class-of
 ;;; XXX: allocate-struct
@@ -1645,7 +1685,6 @@ lightning, with ENTRY as lightning's node to itself."
             (debug 0 "compile-lightning: VM op not found `~a'~%" instr)))))
 
   (let* ((program-or-addr (lightning-pc st))
-         (args (lightning-args st))
          (addr (ensure-program-addr program-or-addr))
          (trace (lightning-trace st))
          (name (program-name program-or-addr)))
@@ -1710,48 +1749,36 @@ values. Returned value of this procedure is a pointer to scheme value."
     ;; `make-pointer' does not accept negative values.
     (imm (- (+ #xffffffffffffffff 1) (* offset (sizeof '*)))))
 
-  (define-syntax vm-prolog
-    (syntax-rules ()
-      ((_ expr)
-       (vm-prolog fp-addr expr))
+  (define-syntax-rule (fp->addr fp)
+    (logxor #xffffffff00000000 (pointer-address fp)))
 
-      ((_ fp-addr expr)
-       ;; XXX: Use vp->sp?
-       (let* ((fp (jit-allocai (imm (* (sizeof '*) (+ 3 (length args))))))
-              (fp-addr (logxor #xffffffff00000000 (pointer-address fp)))
-              (return-address (jit-movi r1 (imm 0))))
+  (define-syntax-rule (vm-prolog ra-reg)
+    (begin
+      ;; XXX: Allocating constant amount at beginning of function call.
+      ;; Might better to allocate at compile time or runtime.
+      (jit-frame (imm (* 4 4096)))
 
-         ;; XXX: Allocating constant amount at beginning of function call.
-         ;; Might better to allocate at compile time or runtime.
-         (jit-frame (imm (* 4 4096)))
+      ;; Initial dynamic link, frame pointer.
+      (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
 
-         ;; Initial dynamic link, frame pointer.
-         (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
+      ;; Return address.
+      (jit-stxi (offset->addr 2) (jit-fp) ra-reg)
 
-         ;; Return address.
-         (jit-stxi (offset->addr 2) (jit-fp) r1)
+      ;; Argument 0, self procedure.
+      (jit-movi r0 (scm->pointer proc))
+      (jit-stxi (offset->addr 3) (jit-fp) r0)
 
-         ;; Argument 0, self procedure.
-         (jit-movi r0 (scm->pointer proc))
-         (jit-stxi (offset->addr 3) (jit-fp) r0)
+      ;; Pointers of given args.
+      (let lp ((args args) (offset 4))
+        (unless (null? args)
+          (jit-movi r0 (scm->pointer (car args)))
+          (jit-stxi (offset->addr offset) (jit-fp) r0)
+          (lp (cdr args) (+ offset 1))))
 
-         ;; Pointers of given args.
-         (let lp ((args args) (offset 4))
-           (unless (null? args)
-             (jit-movi r0 (scm->pointer (car args)))
-             (jit-stxi (offset->addr offset) (jit-fp) r0)
-             (lp (cdr args) (+ offset 1))))
-
-         ;; Initialize registers.
-         (jit-movi reg-nargs (imm (+ (length args) 1)))
-         (jit-movi reg-thread thread)
-         (jit-movi reg-retval (scm->pointer *unspecified*))
-
-         ;; Do the work.
-         expr
-
-         ;; Link the return address.
-         (jit-patch return-address)))))
+      ;; Initialize registers.
+      (jit-movi reg-nargs (imm (+ (length args) 1)))
+      (jit-movi reg-thread thread)
+      (jit-movi reg-retval (scm->pointer *unspecified*))))
 
   ;; Check number of return values, call C function `scm_values' if
   ;; 1 < number of values.
@@ -1789,88 +1816,90 @@ values. Returned value of this procedure is a pointer to scheme value."
       (jit-link l3)
       (jit-retr reg-retval)))
 
-  (let ((args2 (apply vector proc args)))
-    (cond
-     ((jit-compiled-code proc)
-      =>
-      (lambda (compiled)
-        (debug 1 ";;; found jit compiled code of ~a at 0x~x.~%" proc compiled)
-        (with-jit-state
-         (jit-prolog)
-         (vm-prolog (let ((entry (make-pointer compiled)))
-                      (jit-movi r0 entry)
-                      (jit-jmpr r0)))
+  (cond
+   ((jit-compiled-code proc)
+    =>
+    (lambda (compiled)
+      (debug 1 ";;; found jit compiled code of ~a at 0x~x.~%" proc compiled)
+      (with-jit-state
+       (jit-prolog)
+       (let* ((fp (jit-allocai (imm (* (+ 3 (length args)) (sizeof '*)))))
+              (return-address (jit-movi r1 (imm 0))))
+         (vm-prolog r1)
+         (jit-movi r0 (make-pointer compiled))
+         (jit-jmpr r0)
+         (jit-patch return-address))
+       (vm-epilog)
+       (jit-epilog)
+       (jit-realize)
+       (let* ((fptr (jit-emit))
+              (thunk (pointer->procedure '* fptr '())))
+         (let ((verbosity (lightning-verbosity)))
+           (when (and verbosity (<= 3 verbosity))
+             (jit-print)
+             (jit-clear-state)))
+         (pointer->scm (thunk))))))
+   ((program->trace proc (+ (length args) 1))
+    =>
+    (lambda (trace)
+      (with-jit-state
+       (jit-prolog)
+       (let* ((entry (jit-forward))
+              (fp (jit-allocai (imm (* (+ 3 (length args)) (sizeof '*)))))
+              (nargs (+ (length args) 1))
+              (args (apply vector proc args))
+              (fp0 (+ (fp->addr fp) (* (sizeof '*) nargs)))
+              (lightning (make-lightning trace
+                                         (make-hash-table)
+                                         fp0
+                                         nargs
+                                         args
+                                         (ensure-program-addr proc)
+                                         0))
+              (return-address (jit-movi r1 (imm 0))))
+         (vm-prolog r1)
+         (compile-lightning lightning entry)
+         (jit-patch return-address)
          (vm-epilog)
          (jit-epilog)
          (jit-realize)
-         (let* ((fptr (jit-emit))
+
+         ;; Emit and call the thunk.
+         (let* ((estimated-code-size (jit-code-size))
+                (bv (make-bytevector estimated-code-size))
+                (_ (jit-set-code (bytevector->pointer bv)
+                                 (imm estimated-code-size)))
+                (fptr (jit-emit))
                 (thunk (pointer->procedure '* fptr '())))
+
+           ;; XXX: Any where else to store `bv'?
+           (jit-code-guardian bv)
+           (set-jit-compiled-code! proc (jit-address entry))
+           (make-bytevector-executable! bv)
+
            (let ((verbosity (lightning-verbosity)))
+             (when (and verbosity (<= 2 verbosity))
+               (format #t ";;; nodes:~%")
+               (hash-for-each (lambda (k v)
+                                (format #t ";;;   0x~x => ~a~%" k v))
+                              (lightning-nodes lightning)))
              (when (and verbosity (<= 3 verbosity))
+               (write-code-to-file
+                (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
                (jit-print)
                (jit-clear-state)))
-           (pointer->scm (thunk))))))
-     ((program->trace proc (+ (length args) 1))
-      =>
-      (lambda (trace)
-        (with-jit-state
-         (jit-prolog)
-         (let* ((entry (jit-forward))
-                (lightning #f))
-           (vm-prolog fp-addr
-                      (let* ((nargs (+ (length args) 1))
-                             (args (apply vector proc args))
-                             (fp0 (+ fp-addr (* (sizeof '*) nargs)))
-                             (st (make-lightning trace
-                                                 (make-hash-table)
-                                                 fp0
-                                                 nargs
-                                                 args
-                                                 (ensure-program-addr proc)
-                                                 0)))
-                        (set! lightning st)
-                        (compile-lightning lightning entry)))
 
-           (vm-epilog)
-           (jit-epilog)
-           (jit-realize)
+           (debug 1 ";;; set jit compiled code of ~a to ~a~%"
+                  proc (jit-address entry))
 
-           ;; Emit and call the thunk.
-           (let* ((estimated-code-size (jit-code-size))
-                  (bv (make-bytevector estimated-code-size))
-                  (_ (jit-set-code (bytevector->pointer bv)
-                                   (imm estimated-code-size)))
-                  (fptr (jit-emit))
-                  (thunk (pointer->procedure '* fptr '())))
-
-             ;; XXX: Any where else to store `bv'?
-             (jit-code-guardian bv)
-             (set-jit-compiled-code! proc (jit-address entry))
-             (make-bytevector-executable! bv)
-
-             (let ((verbosity (lightning-verbosity)))
-               (when (and verbosity (<= 2 verbosity))
-                 (format #t ";;; nodes:~%")
-                 (hash-for-each (lambda (k v)
-                                  (format #t ";;;   0x~x => ~a~%" k v))
-                                (lightning-nodes lightning)))
-               (when (and verbosity (<= 3 verbosity))
-                 (write-code-to-file
-                  (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
-                 (jit-print)
-                 (jit-clear-state)))
-
-             (debug 1 ";;; set jit compiled code of ~a to ~a~%"
-                    proc (jit-address entry))
-
-             (pointer->scm (thunk)))))))
-     (else
-      (debug 0 ";;; Trace failed, interpreting: ~a~%" (cons proc args))
-      (let ((engine (vm-engine)))
-        (dynamic-wind
-          (lambda () (set-vm-engine! 'regular))
-          (lambda () (apply proc args))
-          (lambda () (set-vm-engine! engine))))))))
+           (pointer->scm (thunk)))))))
+   (else
+    (debug 0 ";;; Trace failed, interpreting: ~a~%" (cons proc args))
+    (let ((engine (vm-engine)))
+      (dynamic-wind
+        (lambda () (set-vm-engine! 'regular))
+        (lambda () (apply proc args))
+        (lambda () (set-vm-engine! engine)))))))
 
 
 ;; This procedure is called from C function `vm_lightning'.
