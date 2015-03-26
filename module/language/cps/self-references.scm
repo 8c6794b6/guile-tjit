@@ -54,8 +54,8 @@
   (define (visit-exp exp)
     (rewrite-cps-exp exp
       ((or ($ $const) ($ $prim)) ,exp)
-      (($ $fun free body)
-       ($fun free ,(resolve-self-references body env)))
+      (($ $fun body)
+       ($fun ,(resolve-self-references body env)))
       (($ $rec names vars funs)
        ($rec names vars (map visit-recursive-fun funs vars)))
       (($ $call proc args)
@@ -73,7 +73,7 @@
 
   (define (visit-recursive-fun fun var)
     (rewrite-cps-exp fun
-      (($ $fun free (and cont ($ $cont _ ($ $kfun src meta self))))
-       ($fun free ,(resolve-self-references cont (acons var self env))))))
+      (($ $fun (and cont ($ $cont _ ($ $kfun src meta self))))
+       ($fun ,(resolve-self-references cont (acons var self env))))))
 
   (visit-cont fun))

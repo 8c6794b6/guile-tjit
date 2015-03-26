@@ -127,8 +127,7 @@
 
   (define (visit-fun fun k-env v-env)
     (match fun
-      (($ $fun (free ...) entry)
-       (for-each (cut check-var <> v-env) free)
+      (($ $fun entry)
        (visit-entry entry '() v-env))
       (_
        (error "unexpected $fun" fun))))

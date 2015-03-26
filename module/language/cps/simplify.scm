@@ -61,7 +61,7 @@
          #f)))
     (define (visit-fun fun)
       (match fun
-        (($ $fun free body)
+        (($ $fun body)
          (visit-cont body))))
     (visit-cont fun)
     table))
@@ -139,8 +139,8 @@
          ($continue (reduce k scope) src ,exp))))
     (define (visit-fun fun)
       (rewrite-cps-exp fun
-        (($ $fun free body)
-         ($fun free ,(visit-cont body #f)))))
+        (($ $fun body)
+         ($fun ,(visit-cont body #f)))))
     (visit-cont fun #f)))
 
 (define (compute-beta-reductions fun)
@@ -189,7 +189,7 @@
          #f)))
     (define (visit-fun fun)
       (match fun
-        (($ $fun free body)
+        (($ $fun body)
          (visit-cont body))))
     (visit-cont fun)
     (values var-table k-table)))
@@ -253,8 +253,8 @@
          (build-cps-exp ($prompt escape? (subst tag) handler)))))
     (define (visit-fun fun)
       (rewrite-cps-exp fun
-        (($ $fun free body)
-         ($fun (map subst free) ,(must-visit-cont body)))))
+        (($ $fun body)
+         ($fun ,(must-visit-cont body)))))
     (must-visit-cont fun)))
 
 ;; Rewrite the scope tree to reflect the dominator tree.  Precondition:
@@ -281,12 +281,12 @@
 
     (define (visit-fun fun)
       (rewrite-cps-exp fun
-        (($ $fun free body)
-         ($fun free ,(visit-fun-cont body)))))
+        (($ $fun body)
+         ($fun ,(visit-fun-cont body)))))
 
     (define (visit-exp k src exp)
       (rewrite-cps-term exp
-        (($ $fun free body)
+        (($ $fun body)
          ($continue k src ,(visit-fun exp)))
         (($ $rec names syms funs)
          ($continue k src ($rec names syms (map visit-fun funs))))

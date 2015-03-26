@@ -94,8 +94,8 @@
        ,term)))
   (define (visit-fun fun)
     (rewrite-cps-exp fun
-      (($ $fun free body)
-       ($fun free ,(inline-constructors* body)))))
+      (($ $fun body)
+       ($fun ,(inline-constructors* body)))))
 
   (visit-cont fun))
 

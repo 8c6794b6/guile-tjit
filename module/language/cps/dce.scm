@@ -199,13 +199,13 @@
                          (match exp
                            ((or ($ $const) ($ $prim))
                             #f)
-                           (($ $fun free body)
+                           (($ $fun body)
                             (visit-fun body))
                            (($ $rec names syms funs)
                             (for-each (lambda (sym fun)
                                         (when (value-live? sym)
                                           (match fun
-                                            (($ $fun free body)
+                                            (($ $fun body)
                                              (visit-fun body)))))
                                       syms funs))
                            (($ $prompt escape? tag handler)
@@ -320,20 +320,20 @@
            (($ $continue k src exp)
             (if (bitvector-ref live-conts (label->idx term-k))
                 (match exp
-                  (($ $fun free body)
+                  (($ $fun body)
                    (build-cps-term
-                     ($continue k src ($fun free ,(visit-fun body)))))
+                     ($continue k src ($fun ,(visit-fun body)))))
                   (($ $rec names syms funs)
                    (rewrite-cps-term
                        (filter-map
                         (lambda (name sym fun)
                           (and (value-live? sym)
                                (match fun
-                                 (($ $fun free body)
+                                 (($ $fun body)
                                   (list name
                                         sym
                                         (build-cps-exp
-                                          ($fun free ,(visit-fun body))))))))
+                                          ($fun ,(visit-fun body))))))))
                         names syms funs)
                      (()
                       ($continue k src ($values ())))

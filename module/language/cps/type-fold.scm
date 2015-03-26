@@ -430,8 +430,8 @@
              (_ ,term)))
          (define (visit-fun fun)
            (rewrite-cps-exp fun
-             (($ $fun free body)
-              ($fun free ,(fold-constants* body dfg)))))
+             (($ $fun body)
+              ($fun ,(fold-constants* body dfg)))))
          (rewrite-cps-cont fun
            (($ $cont kfun ($ $kfun src meta self tail clause))
             (kfun ($kfun src meta self ,tail ,(visit-cont clause))))))))))

@@ -71,7 +71,7 @@
 ;;;     That's to say that a $fun can be matched like this:
 ;;;
 ;;;     (match f
-;;;       (($ $fun free
+;;;       (($ $fun
 ;;;           ($ $cont kfun
 ;;;              ($ $kfun src meta self ($ $cont ktail ($ $ktail))
 ;;;                 ($ $kclause arity
@@ -189,7 +189,7 @@
 ;; Expressions.
 (define-cps-type $const val)
 (define-cps-type $prim name)
-(define-cps-type $fun free body) ; Higher-order.
+(define-cps-type $fun body) ; Higher-order.
 (define-cps-type $rec names syms funs) ; Higher-order.
 (define-cps-type $closure label nfree) ; First-order.
 (define-cps-type $branch k exp)
@@ -268,7 +268,7 @@
     ((_ (unquote exp)) exp)
     ((_ ($const val)) (make-$const val))
     ((_ ($prim name)) (make-$prim name))
-    ((_ ($fun free body)) (make-$fun free (build-cps-cont body)))
+    ((_ ($fun body)) (make-$fun (build-cps-cont body)))
     ((_ ($rec names gensyms funs)) (make-$rec names gensyms funs))
     ((_ ($closure k nfree)) (make-$closure k nfree))
     ((_ ($call proc (unquote args))) (make-$call proc args))
@@ -381,8 +381,8 @@
      (build-cps-exp ($const exp)))
     (('prim name)
      (build-cps-exp ($prim name)))
-    (('fun free body)
-     (build-cps-exp ($fun free ,(parse-cps body))))
+    (('fun body)
+     (build-cps-exp ($fun ,(parse-cps body))))
     (('closure k nfree)
      (build-cps-exp ($closure k nfree)))
     (('rec (name sym fun) ...)
@@ -439,8 +439,8 @@
      `(const ,val))
     (($ $prim name)
      `(prim ,name))
-    (($ $fun free body)
-     `(fun ,free ,(unparse-cps body)))
+    (($ $fun body)
+     `(fun ,(unparse-cps body)))
     (($ $closure k nfree)
      `(closure ,k ,nfree))
     (($ $rec names syms funs)
@@ -490,7 +490,7 @@
 
     (define (fun-folder fun seed ...)
       (match fun
-        (($ $fun free body)
+        (($ $fun body)
          (cont-folder body seed ...))))
 
     (define (term-folder term seed ...)

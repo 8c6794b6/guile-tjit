@@ -98,8 +98,8 @@
        ,term)))
   (define (visit-fun fun)
     (rewrite-cps-exp fun
-      (($ $fun free cont)
-       ($fun free ,(visit-cont cont)))))
+      (($ $fun cont)
+       ($fun ,(visit-cont cont)))))
 
   (visit-cont fun))
 

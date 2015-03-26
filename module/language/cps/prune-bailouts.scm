@@ -87,8 +87,8 @@
 
   (define (visit-fun fun)
     (rewrite-cps-exp fun
-      (($ $fun free body)
-       ($fun free ,(prune-bailouts* body)))))
+      (($ $fun body)
+       ($fun ,(prune-bailouts* body)))))
 
   (rewrite-cps-cont fun
     (($ $cont kfun

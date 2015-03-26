@@ -660,7 +660,7 @@ body continuation in the prompt."
             (($ $prompt escape? tag handler)
              (use! tag)
              (link-blocks! label handler))
-            (($ $fun free body)
+            (($ $fun body)
              (when global?
                (visit-fun body)))
             (($ $rec names syms funs)
@@ -668,7 +668,7 @@ body continuation in the prompt."
                (error "$rec should not be present when building a local DFG"))
              (for-each (lambda (fun)
                          (match fun
-                           (($ $fun free body)
+                           (($ $fun body)
                             (visit-fun body))))
                        funs))))
 
@@ -748,7 +748,7 @@ body continuation in the prompt."
                   (match exp
                     (($ $const val) (format port "const ~@y" val))
                     (($ $prim name) (format port "prim ~a" name))
-                    (($ $fun free ($ $cont kbody)) (format port "fun k~a" kbody))
+                    (($ $fun ($ $cont kbody)) (format port "fun k~a" kbody))
                     (($ $rec names syms funs) (format port "rec~{ v~a~}" syms))
                     (($ $closure label nfree) (format port "closure k~a (~a free)" label nfree))
                     (($ $call proc args) (format port "call~{ v~a~}" (cons proc args)))

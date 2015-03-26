@@ -99,14 +99,14 @@
                  (union (visit-cont cont bound) free))
                (visit-term body bound)
                conts))
-        (($ $continue k src ($ $fun () body))
+        (($ $continue k src ($ $fun body))
          (match (lookup-predecessors k dfg)
            ((_) (match (lookup-cont k dfg)
                   (($ $kargs (name) (var))
                    (add-named-fun! var body))))
            (_ #f))
          (visit-cont body bound))
-        (($ $continue k src ($ $rec names vars (($ $fun () cont) ...)))
+        (($ $continue k src ($ $rec names vars (($ $fun cont) ...)))
          (hashq-set! letrec-conts k (lookup-cont k dfg))
          (let ((bound (append vars bound)))
            (for-each add-named-fun! vars cont)
@@ -443,7 +443,7 @@ bound to @var{var}, and continue with @var{body}."
         (($ $continue k src (or ($ $const) ($ $prim)))
          term)
 
-        (($ $continue k src ($ $fun () ($ $cont kfun)))
+        (($ $continue k src ($ $fun ($ $cont kfun)))
          (let ((fun-free (hashq-ref free-vars kfun)))
            (match (cons (well-known? kfun) fun-free)
              ((known?)
@@ -479,7 +479,7 @@ bound to @var{var}, and continue with @var{body}."
                            (visit-term body)))))
            (match in
              (() (bindings body))
-             (((name var ($ $fun ()
+             (((name var ($ $fun
                             (and fun-body
                                  ($ $cont kfun ($ $kfun src))))) . in)
               (let ((fun-free (hashq-ref free-vars kfun)))

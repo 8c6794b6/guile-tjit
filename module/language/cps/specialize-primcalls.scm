@@ -101,7 +101,7 @@
 
       (define (visit-fun fun)
         (rewrite-cps-exp fun
-          (($ $fun free body)
-           ($fun free ,(visit-cont body)))))
+          (($ $fun body)
+           ($fun ,(visit-cont body)))))
 
       (visit-cont fun))))

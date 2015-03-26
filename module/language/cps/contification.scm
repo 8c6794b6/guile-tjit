@@ -216,7 +216,7 @@
 
     (define (visit-fun term)
       (match term
-        (($ $fun free body)
+        (($ $fun body)
          (visit-cont body))))
     (define (visit-cont cont)
       (match cont
@@ -236,7 +236,7 @@
          (visit-term body term-k))
         (($ $continue k src exp)
          (match exp
-           (($ $fun free
+           (($ $fun
                ($ $cont fun-k
                   ($ $kfun src meta self ($ $cont tail-k ($ $ktail)) clause)))
             (if (and=> (bound-symbol k)
@@ -261,7 +261,7 @@
                    (if (null? rec)
                        '()
                        (list rec)))
-                  (((and elt (n s ($ $fun free ($ $cont kfun))))
+                  (((and elt (n s ($ $fun ($ $cont kfun))))
                     . nsf)
                    (if (recursive? kfun)
                        (lp nsf (cons elt rec))
@@ -273,7 +273,7 @@
               (match component
                 (((name sym fun) ...)
                  (match fun
-                   ((($ $fun free
+                   ((($ $fun
                         ($ $cont fun-k
                            ($ $kfun src meta self ($ $cont tail-k ($ $ktail))
                               clause)))
@@ -342,8 +342,8 @@
               ,body)))))))
   (define (visit-fun term)
     (rewrite-cps-exp term
-      (($ $fun free body)
-       ($fun free ,(visit-cont body)))))
+      (($ $fun body)
+       ($fun ,(visit-cont body)))))
   (define (visit-cont cont)
     (rewrite-cps-cont cont
       (($ $cont label ($ $kargs names syms body))
@@ -381,7 +381,7 @@
        (splice-continuations
         term-k
         (match exp
-          (($ $fun free 
+          (($ $fun 
               ($ $cont fun-k ($ $kfun src meta self ($ $cont tail-k))))
            ;; If the function's tail continuation has been substituted,
            ;; that means it has been contified.

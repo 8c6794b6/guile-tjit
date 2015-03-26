@@ -296,7 +296,7 @@
            (let-fresh (kfun ktail) (self)
              (build-cps-term
                ($continue k fun-src
-                 ($fun '()
+                 ($fun
                    (kfun ($kfun fun-src meta self (ktail ($ktail))
                              ,(convert-clauses body ktail)))))))
            (let ((scope-id (fresh-scope-id)))

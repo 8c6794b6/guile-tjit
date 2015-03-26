@@ -219,14 +219,14 @@
               (($ $letk conts body)
                (for-each visit-cont conts)
                (visit-term body reachable?))
-              (($ $continue k src ($ $fun free body))
+              (($ $continue k src ($ $fun body))
                (when reachable?
                  (set! queue (cons body queue))))
               (($ $continue k src ($ $rec names syms funs))
                (when reachable?
                  (set! queue (fold (lambda (fun queue)
                                      (match fun
-                                       (($ $fun free body)
+                                       (($ $fun body)
                                         (cons body queue))))
                                    queue
                                    funs))))
@@ -327,8 +327,8 @@
          ($prompt escape? (rename tag) (relabel handler))))))
   (define (visit-fun fun)
     (rewrite-cps-exp fun
-      (($ $fun free body)
-       ($fun (map rename free) ,(must-visit-cont body)))))
+      (($ $fun body)
+       ($fun ,(must-visit-cont body)))))
 
   (match term
     (($ $cont)

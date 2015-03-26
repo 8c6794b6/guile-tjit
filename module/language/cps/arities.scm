@@ -133,16 +133,16 @@
              ($ $prim)
              ($ $values (_)))
          ,(adapt-exp 1 k src exp))
-        (($ $fun free body)
+        (($ $fun body)
          ,(adapt-exp 1 k src (build-cps-exp
-                               ($fun free ,(fix-arities* body dfg)))))
+                               ($fun ,(fix-arities* body dfg)))))
         (($ $rec names syms funs)
          ;; Assume $rec expressions have the correct arity.
          ($continue k src
            ($rec names syms (map (lambda (fun)
                                    (rewrite-cps-exp fun
-                                     (($ $fun free body)
-                                      ($fun free ,(fix-arities* body dfg)))))
+                                     (($ $fun body)
+                                      ($fun ,(fix-arities* body dfg)))))
                                  funs))))
         ((or ($ $call) ($ $callk))
          ;; In general, calls have unknown return arity.  For that

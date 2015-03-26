@@ -81,7 +81,7 @@
            (_ #t)))))
     (define (visit-fun fun)
       (match fun
-        (($ $fun free body)
+        (($ $fun body)
          (visit-cont body))))
 
     (visit-cont fun)

@@ -287,7 +287,7 @@ could be that both true and false proofs are available."
         (match exp
           (($ $const val) (cons 'const val))
           (($ $prim name) (cons 'prim name))
-          (($ $fun free body) #f)
+          (($ $fun body) #f)
           (($ $rec names syms funs) #f)
           (($ $call proc args) #f)
           (($ $callk k proc args) #f)
@@ -469,8 +469,8 @@ could be that both true and false proofs are available."
 
     (define (visit-fun fun)
       (rewrite-cps-exp fun
-        (($ $fun free body)
-         ($fun (map subst-var free) ,(cse body dfg)))))
+        (($ $fun body)
+         ($fun ,(cse body dfg)))))
 
     (define (visit-exp* k src exp)
       (match exp
