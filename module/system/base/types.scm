@@ -444,7 +444,7 @@ using BACKEND."
                                                 ('big "UTF-32BE")))))
           (((_ & #x7f = %tc7-bytevector) len address)
            (let ((bv-port (memory-port backend address len)))
-             (get-bytevector-all bv-port)))
+             (get-bytevector-n bv-port len)))
           ((((len << 8) || %tc7-vector))
            (let ((words  (get-bytevector-n port (* len %word-size)))
                  (vector (make-vector len)))
