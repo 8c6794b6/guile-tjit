@@ -26,7 +26,7 @@
 
 (define-module (system vm lightning debug)
   #:use-module (system vm debug)
-  #:export (lightning-verbosity debug program-name))
+  #:export (lightning-verbosity debug try-program-name))
 
 ;; Parameter to control verbosity level.
 ;;
@@ -44,7 +44,7 @@
     (when (and verbosity (<= n verbosity))
       (format #t args ...))))
 
-(define-syntax-rule (program-name program-or-addr)
+(define-syntax-rule (try-program-name program-or-addr)
   (let ((name (cond
                ((integer? program-or-addr)
                 (and=> (find-program-debug-info program-or-addr)
@@ -52,6 +52,6 @@
                ((procedure? program-or-addr)
                 (procedure-name program-or-addr))
                (else
-                (error "program-name: got " program-or-addr)))))
+                (error "try-program-name: got " program-or-addr)))))
     (or (and=> name symbol->string)
         "anonymous")))

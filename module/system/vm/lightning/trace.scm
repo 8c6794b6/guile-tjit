@@ -304,7 +304,7 @@
 
 (define (program->trace program-or-addr)
   "Make <trace> from PROGRAM-OR-ADDR and NARGS."
-  (let ((name (program-name program-or-addr))
+  (let ((name (try-program-name program-or-addr))
         (addr (ensure-program-addr program-or-addr)))
     (debug 1 ";;; trace: Start tracing ~a (~x)~%"
            name (or (and (integer? addr) addr) 0))

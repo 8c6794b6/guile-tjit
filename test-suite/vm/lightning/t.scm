@@ -165,6 +165,7 @@
 (define (sum-and-product x y)
   (values (+ x y) (* x y)))
 
+(test-skip 1)
 (define-test (call-sum-and-product x y) (12 34)
   (call-with-values
       (lambda ()

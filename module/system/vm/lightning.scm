@@ -256,10 +256,6 @@ argument in VM operation."
 (define-syntax-rule (dereference-scm pointer)
   (pointer->scm (dereference-pointer pointer)))
 
-(define-syntax-rule (reg=? a b)
-  "Compare pointer address of register A and B."
-  (= (pointer-address a) (pointer-address b)))
-
 (define-syntax-rule (stored-ref st n)
   "Memory address of ST's local N."
   (imm (- (lightning-fp st) (* n (sizeof '*)))))
@@ -500,11 +496,10 @@ argument in VM operation."
 (define-syntax-rule (validate-pair pair cell-0 subr pos)
   (let ((l1 (jit-forward))
         (l2 (jit-forward)))
-
     (jump (scm-imp pair) l1)
     (scm-cell-object cell-0 pair 0)
     (jump (jit-bmsi cell-0 (imm 1)) l1)
-    (jump (jit-jmpi) l2)
+    (jump l2)
 
     (jit-link l1)
     (error-wrong-type-arg-msg subr pos r0 *pair-string)
@@ -575,12 +570,11 @@ argument in VM operation."
          (vm-handle-interrupts st))
        (let ((l1 (jit-forward)))
          (local-ref st a reg)
-         (jump (jit-bmsi reg (imm 6)) (if invert (resolve-dst st offset) l1))
+         (jump (scm-imp reg) (if invert (resolve-dst st offset) l1))
          (scm-cell-object reg reg 0)
          (jump expr (if invert (resolve-dst st offset) l1))
-         ;; XXX: Any other way?
          (when (not invert)
-           (jump (jit-jmpi) (resolve-dst st offset)))
+           (jump (resolve-dst st offset)))
          (jit-link l1))))))
 
 (define-syntax define-vm-br-binary-op
@@ -929,7 +923,7 @@ argument in VM operation."
 
     ;; No JIT code, making argument list.
     (jit-link l1)
-    (jump (jit-bgei f5 (imm (- (lightning-fp st) (* 2 (sizeof '*))))) l2)
+    (jump (jit-bgei f5 (stored-ref st 2)) l2)
     (jit-addi f5 f5 (imm (sizeof '*)))
     (jit-ldxr r2 (jit-fp) f5)
     (jit-prepare)
@@ -944,7 +938,7 @@ argument in VM operation."
     (jit-link l2)
     (jit-prepare)
     (jit-pushargr reg-thread)
-    (jit-pushargr (local-ref st 1 f5))
+    (jit-pushargr (local-ref st 1 r1))
     (jit-pushargr r0)
     (jit-calli %call-lightning)
     ;; XXX: Add test for SCM_VALUESP.
@@ -1038,8 +1032,7 @@ argument in VM operation."
     (jit-link l1)
     (jit-subi f5 f5 (imm (sizeof '*)))
     (jit-stxr f5 (jit-fp) f0)
-    (jump (jit-blei f5 (imm (- (lightning-fp st) (* dst (sizeof '*)))))
-          l3)
+    (jump (jit-blei f5 (stored-ref st dst)) l3)
     (jump l1)
 
     ;; Create a list.  Using register f5 to preserve the register
@@ -1055,8 +1048,7 @@ argument in VM operation."
     (call-c "scm_do_inline_cons")
     (jit-retval r0)
     (jit-addi f5 f5 (imm (sizeof '*)))
-    (jump (jit-bgti f5 (imm (- (lightning-fp st) (* dst (sizeof '*)))))
-          l3)
+    (jump (jit-bgti f5 (stored-ref st dst)) l3)
     (jump l2)
 
     (jit-link l3)
@@ -1272,6 +1264,9 @@ argument in VM operation."
   (jit-ldi r0 (imm (offset-addr st offset)))
   (local-set! st dst r0))
 
+;;; XXX: static-set!
+;;; XXX: static-patch!
+
 
 ;;; Mutable top-level bindings
 ;;; --------------------------
@@ -1281,6 +1276,9 @@ argument in VM operation."
   (call-c "scm_current_module")
   (jit-retval r0)
   (local-set! st dst r0))
+
+;;; XXX: resolve
+;;; XXX: define!
 
 (define-vm-box-op (toplevel-box st mod-offset sym-offset)
   (module-variable
@@ -1537,6 +1535,7 @@ argument in VM operation."
 (define-vm-mul-div-op (div st dst a b)
   jit-divr-d "scm_divide")
 
+;;; XXX: Rewrite with lightning
 (define-vm-op (quo st dst a b)
   (jit-prepare)
   (jit-pushargr (local-ref st a))
@@ -1545,6 +1544,7 @@ argument in VM operation."
   (jit-retval r0)
   (local-set! st dst r0))
 
+;;; XXX: Rewrite with lightning
 (define-vm-op (rem st dst a b)
   (jit-prepare)
   (jit-pushargr (local-ref st a))
@@ -1552,6 +1552,12 @@ argument in VM operation."
   (call-c "scm_remainder")
   (jit-retval r0)
   (local-set! st dst r0))
+
+;;; XXX: mod
+;;; XXX: ash
+;;; XXX: logand
+;;; XXX: logior
+;;; XXX: logxor
 
 (define-vm-op (make-vector st dst length init)
   (jit-prepare)
@@ -1670,28 +1676,28 @@ argument in VM operation."
 ;;; Arrays, packed uniform arrays, and bytevectors
 ;;; ----------------------------------------------
 
-;;; load-typed-array
-;;; make-array
-;;; bv-u8-ref
-;;; bv-s8-ref
-;;; bv-u16-ref
-;;; bv-s16-ref
-;;; bv-u32-ref
-;;; bv-s32-ref
-;;; bv-u64-ref
-;;; bv-s64-ref
-;;; bv-f32-ref
-;;; bv-f64-ref
-;;; bv-u8-set!
-;;; bv-s8-set!
-;;; bv-u16-set!
-;;; bv-s16-set!
-;;; bv-u32-set!
-;;; bv-s32-set!
-;;; bv-u64-set!
-;;; bv-s64-set!
-;;; bv-f32-set!
-;;; bv-f64-set!
+;;; XXX: load-typed-array
+;;; XXX: make-array
+;;; XXX: bv-u8-ref
+;;; XXX: bv-s8-ref
+;;; XXX: bv-u16-ref
+;;; XXX: bv-s16-ref
+;;; XXX: bv-u32-ref
+;;; XXX: bv-s32-ref
+;;; XXX: bv-u64-ref
+;;; XXX: bv-s64-ref
+;;; XXX: bv-f32-ref
+;;; XXX: bv-f64-ref
+;;; XXX: bv-u8-set!
+;;; XXX: bv-s8-set!
+;;; XXX: bv-u16-set!
+;;; XXX: bv-s16-set!
+;;; XXX: bv-u32-set!
+;;; XXX: bv-s32-set!
+;;; XXX: bv-u64-set!
+;;; XXX: bv-s64-set!
+;;; XXX: bv-f32-set!
+;;; XXX: bv-f64-set!
 
 ;;;
 ;;; Compilation
@@ -1712,8 +1718,6 @@ lightning, with ENTRY as lightning's node to itself."
       (set-lightning-ip! st ip)
       (let ((emitter (hashq-ref *vm-instr* instr)))
         (jit-note (format #f "~a" op) (lightning-ip st))
-        ;; (debug 2 (make-string (lightning-indent st) #\space))
-        ;; (debug 2 "~3d: ~a~%" ip op)
         ;; Link if this bytecode intruction is labeled as destination.
         (cond ((destination-label st)
                =>
@@ -1725,7 +1729,7 @@ lightning, with ENTRY as lightning's node to itself."
   (let* ((program-or-addr (lightning-pc st))
          (addr (ensure-program-addr program-or-addr))
          (trace (lightning-trace st))
-         (name (program-name addr)))
+         (name (trace-name trace)))
 
     (hashq-set! (lightning-nodes st) addr entry)
     (jit-note name addr)
@@ -1816,7 +1820,7 @@ lightning, with ENTRY as lightning's node to itself."
           (l2 (jit-forward))
           (l3 (jit-forward)))
 
-      (jit-patch-at (jit-blei reg-nretvals (imm 1)) l3)
+      (jump (jit-blei reg-nretvals (imm 1)) l3)
 
       (jit-movi r0 (scm->pointer '()))
       (jit-subi reg-nargs reg-nargs (imm 2))
@@ -1834,7 +1838,7 @@ lightning, with ENTRY as lightning's node to itself."
       (call-c "scm_do_inline_cons")
       (jit-retval r0)
       (jit-addi r1 r1 (imm (sizeof '*)))
-      (jit-patch-at (jit-blei r1 (offset->addr 4)) l1)
+      (jump (jit-blei r1 (offset->addr 4)) l1)
 
       (jit-link l2)
       (jit-prepare)
