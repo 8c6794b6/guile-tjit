@@ -115,7 +115,7 @@
    jit-extr-i jit-extr-ui ;; x86-64
 
    jit-htonr-us jit-ntohr-us jit-ntohr-ui jit-ntohr-ui
-   ;; jit-htonr jit-ntohr ; x86-64
+   jit-htonr jit-ntohr ; x86-64
 
    jit-ldr jit-ldi
    jit-ldr-c jit-ldi-c jit-ldr-uc jit-ldi-uc
@@ -226,6 +226,14 @@
 
    jit-code-size
    make-bytevector-executable!))
+
+;;; To silent warning messages. These top-levels are re-bound with
+;;; following load-extension.
+(define %jit-r #f)
+(define %jit-v #f)
+(define %jit-f #f)
+(define %jit-fp #f)
+(define %jit-code-size #f)
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_lightning")
