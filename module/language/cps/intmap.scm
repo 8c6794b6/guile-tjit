@@ -39,6 +39,7 @@
             intmap-remove
             intmap-ref
             intmap-next
+            intmap-prev
             intmap-union
             intmap-intersect))
 
@@ -191,7 +192,7 @@
                                                *branch-mask*)))
                              (lp (vector-ref node idx) shift)))))))))))
 
-(define (intmap-next bs i)
+(define* (intmap-next bs #:optional i)
   (define (visit-branch node shift i)
     (let lp ((i i) (idx (logand (ash i (- shift)) *branch-mask*)))
       (and (< idx *branch-size*)
@@ -209,6 +210,26 @@
                   (- i min)
                   0)))
        (and (< i (ash 1 shift))
+            (let ((i (visit-node root shift i)))
+              (and i (+ min i))))))))
+
+(define* (intmap-prev bs #:optional i)
+  (define (visit-branch node shift i)
+    (let lp ((i i) (idx (logand (ash i (- shift)) *branch-mask*)))
+      (and (<= 0 idx)
+           (or (visit-node (vector-ref node idx) shift i)
+               (lp (1- (round-down i shift)) (1- idx))))))
+  (define (visit-node node shift i)
+    (and node
+         (if (zero? shift)
+             i
+             (visit-branch node (- shift *branch-bits*) i))))
+  (match bs
+    (($ <intmap> min shift root)
+     (let* ((i (if (and i (< i (+ min (ash 1 shift))))
+                   (- i min)
+                   (1- (ash 1 shift)))))
+       (and (<= 0 i)
             (let ((i (visit-node root shift i)))
               (and i (+ min i))))))))
 
