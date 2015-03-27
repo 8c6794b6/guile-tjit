@@ -175,16 +175,18 @@
 (define (intmap-ref bs i)
   (match bs
     (($ <intmap> min shift root)
-     (and (<= min i) (< i (+ min (ash 1 shift)))
-          (let ((i (- i min)))
-            (let lp ((node root) (shift shift))
-              (and node
-                   (if (= shift *branch-bits*)
-                       (vector-ref node (logand i *branch-mask*))
-                       (let* ((shift (- shift *branch-bits*))
-                              (idx (logand (ash i (- shift))
-                                           *branch-mask*)))
-                         (lp (vector-ref node idx) shift))))))))))
+     (if (zero? shift)
+         (and (= i min) root)
+         (and (<= min i) (< i (+ min (ash 1 shift)))
+              (let ((i (- i min)))
+                (let lp ((node root) (shift shift))
+                  (and node
+                       (if (= shift *branch-bits*)
+                           (vector-ref node (logand i *branch-mask*))
+                           (let* ((shift (- shift *branch-bits*))
+                                  (idx (logand (ash i (- shift))
+                                               *branch-mask*)))
+                             (lp (vector-ref node idx) shift)))))))))))
 
 (define (intmap-next bs i)
   (define (visit-branch node shift i)
