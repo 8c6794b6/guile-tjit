@@ -550,9 +550,8 @@ argument in VM operation."
   (syntax-rules ()
     ((_ (name st expected offset) jit-op)
      (define-vm-op (name st expected offset)
-       (jit-patch-at
-        (jit-op reg-nargs (imm expected))
-        (resolve-dst st offset))))))
+       (jump (jit-op reg-nargs (imm expected))
+             (resolve-dst st offset))))))
 
 (define-syntax define-vm-br-unary-immediate-op
   (syntax-rules ()
@@ -560,7 +559,7 @@ argument in VM operation."
      (define-vm-op (name st a invert offset)
        (when (< offset 0)
          (vm-handle-interrupts st))
-       (jit-patch-at expr (resolve-dst st offset))))))
+       (jump expr (resolve-dst st offset))))))
 
 (define-syntax define-vm-br-unary-heap-object-op
   (syntax-rules ()
@@ -647,9 +646,8 @@ argument in VM operation."
          (jit-pushargr regb)
          (call-c cname)
          (jit-retval r0)
-         (jit-patch-at
-          ((if invert jit-beqi jit-bnei) r0 (scm->pointer #f))
-          (resolve-dst st offset))
+         (jump (if invert (scm-is-false r0) (scm-is-true r0))
+               (resolve-dst st offset))
 
          (jit-link l4))))))
 
@@ -776,7 +774,7 @@ argument in VM operation."
 
          (jump (scm-not-inump reg) l1)
          (jit-movr r0 reg)
-         (jit-patch-at (fx-op r0 (imm 4)) l1)
+         (jump (fx-op r0 (imm 4)) l1)
          (jump l3)
 
          (jit-link l1)
@@ -908,8 +906,7 @@ argument in VM operation."
         (l3 (jit-forward))
         (l4 (jit-forward))
         (l5 (jit-forward))
-        (l6 (jit-forward))
-        (l7 (jit-forward)))
+        (l6 (jit-forward)))
 
     ;; Last local, a list containing rest of arguments.
     (last-arg-offset st f5 r0)
@@ -944,7 +941,7 @@ argument in VM operation."
     ;; XXX: Add test for SCM_VALUESP.
     (jit-retval reg-retval)
     (jit-movi reg-nretvals (imm 1))
-    (jump l7)
+    (return-jmp st)
 
     ;; Has jit compiled code.
     (jit-link l3)
@@ -974,9 +971,7 @@ argument in VM operation."
     ;; Jump to the JIT compiled code.
     (jit-link l6)
     (scm-cell-object r0 r2 2)
-    (jit-jmpr r0)
-
-    (jit-link l7)))
+    (jit-jmpr r0)))
 
 ;;; XXX: call/cc
 ;;; XXX: abort
@@ -1144,11 +1139,10 @@ argument in VM operation."
 (define-vm-op (br-if-eq st a b invert offset)
   (when (< offset 0)
     (vm-handle-interrupts st))
-  (jit-patch-at
-   ((if invert jit-bner jit-beqr)
-    (local-ref st a r0)
-    (local-ref st b r1))
-   (resolve-dst st offset)))
+  (jump ((if invert jit-bner jit-beqr)
+         (local-ref st a r0)
+         (local-ref st b r1))
+        (resolve-dst st offset)))
 
 (define-vm-br-binary-op (br-if-eqv st a b invert offset)
   "scm_eqv_p")
@@ -1367,18 +1361,18 @@ argument in VM operation."
 ;;; `SCM_I_SETJMP' is called at near the end of `scm_call_n', just
 ;;; before calling the implementation.
 
-(define-vm-op (prompt st tag escape-only? proc-slot handler-offset)
-  (jit-prepare)
-  (jit-pushargr reg-thread)
-  ;; Pushing SCM_DYNSTACK_PROMPT_ESCAPE_ONLY
-  (jit-pushargi (if escape-only? (imm 16) (imm 0)))
-  (jit-pushargr (local-ref st tag))
-  (jit-pushargr (jit-fp))
-  (jit-pushargr (jit-fp))
-  (jit-pushargi (imm (+ (lightning-pc st)
-                        (* (+ (lightning-ip st) handler-offset) 4))))
-  (jit-pushargi (imm 0))
-  (call-c "scm_do_dynstack_push_prompt"))
+;; (define-vm-op (prompt st tag escape-only? proc-slot handler-offset)
+;;   (jit-prepare)
+;;   (jit-pushargr reg-thread)
+;;   ;; Pushing SCM_DYNSTACK_PROMPT_ESCAPE_ONLY
+;;   (jit-pushargi (if escape-only? (imm 16) (imm 0)))
+;;   (jit-pushargr (local-ref st tag))
+;;   (jit-pushargr (jit-fp))
+;;   (jit-pushargr (jit-fp))
+;;   (jit-pushargi (imm (+ (lightning-pc st)
+;;                         (* (+ (lightning-ip st) handler-offset) 4))))
+;;   (jit-pushargi (imm 0))
+;;   (call-c "scm_do_dynstack_push_prompt"))
 
 (define-vm-op (wind st winder unwinder)
   (jit-prepare)
@@ -1849,7 +1843,7 @@ lightning, with ENTRY as lightning's node to itself."
       (jit-link l3)
       (jit-retr reg-retval)))
 
-  (debug 1 ";;; c-call-lightning: proc=~a args=~a~%" proc args)
+  (debug 1 "~%;;; Entering c-call-lightning:~%")
   (cond
    ((jit-compiled-code proc)
     =>

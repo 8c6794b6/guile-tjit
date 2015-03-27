@@ -531,7 +531,6 @@
                           (fluid-ref f01)))))
     (list (fluid-ref f01) a)))
 
-(test-skip 1)
 (define-test (t-wind-unwind x) (100)
   (let ((ret '()))
     (dynamic-wind
@@ -782,7 +781,6 @@
 (define-test (call-map3 xs ys zs) ('(1 2 3) '(10 20 30) '(100 200 300))
   (map + xs ys zs))
 
-(test-skip 1)
 (define-test (call-map3-lambda xs ys zs)
   ('(1 2 3) '(10 20 30) '(100 200 300))
   (map (lambda (x y z) (+ x y z)) xs ys zs))
