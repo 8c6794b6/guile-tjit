@@ -135,8 +135,9 @@
 (define applicable-struct (make-applicable-struct))
 
 ;; XXX: Getting segfault.
-;; (define-test (call-applicable-struct n) (99)
-;;   (applicable-struct n))
+(test-skip 1)
+(define-test (call-applicable-struct n) (99)
+  (applicable-struct n))
 
 (define-test (call-branched-a x) (#f)
   ((or x *) 20 30))
@@ -167,6 +168,14 @@
 
 (test-skip 1)
 (define-test (call-sum-and-product x y) (12 34)
+  (call-with-values
+      (lambda ()
+        (sum-and-product x y))
+    (lambda (a b)
+      (cons a b))))
+
+(test-skip 1)
+(define-test (call-sum-and-product-again x y) (12 34)
   (call-with-values
       (lambda ()
         (sum-and-product x y))

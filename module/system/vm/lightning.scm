@@ -55,7 +55,7 @@
 
 ;; State used during compilation.
 (define-record-type <lightning>
-  (%make-lightning trace nodes ip labels pc fp args nretvals indent)
+  (%make-lightning trace nodes ip labels pc fp args indent)
   lightning?
 
   ;; State from bytecode trace.
@@ -79,22 +79,18 @@
   ;; Arguments.
   (args lightning-args)
 
-  ;; Number of return values.
-  (nretvals lightning-nretvals set-lightning-nretvals!)
-
   ;; Indentation level for debug message.
   (indent lightning-indent))
 
 (define* (make-lightning trace nodes fp args pc
                          indent
                          #:optional
-                         (nretvals 1)
                          (ip 0)
                          (labels (make-hash-table)))
   (for-each (lambda (labeled-ip)
               (hashq-set! labels labeled-ip (jit-forward)))
             (trace-labeled-ips trace))
-  (%make-lightning trace nodes ip labels pc fp args nretvals indent))
+  (%make-lightning trace nodes ip labels pc fp args indent))
 
 (define jit-code-guardian (make-guardian))
 
@@ -113,7 +109,12 @@
 (define-inline tc7-vector 13)
 (define-inline tc7-program 69)
 (define-inline tc16-real 535)
+
 (define-inline f-program-is-jit-compiled #x4000)
+
+(define-inline scm-vtable-index-self 2)
+(define-inline scm-vtable-index-size 6)
+
 (define-inline scm-undefined (make-pointer #x904))
 
 
@@ -135,7 +136,7 @@
 
 
 ;;;
-;;; SCM macros
+;;; SCM macros for register read/write
 ;;;
 
 (define-syntax scm-cell-object
@@ -181,8 +182,14 @@
 (define-syntax-rule (scm-i-inumr dst src)
   (jit-rshi dst src (imm 2)))
 
+(define-syntax-rule (scm-typ3 dst obj)
+  (jit-andi dst obj (imm 7)))
+
 (define-syntax-rule (scm-typ7 dst obj)
   (jit-andi dst obj (imm #x7f)))
+
+(define-syntax-rule (scm-cell-type dst src)
+  (scm-cell-object dst src 0))
 
 (define-syntax-rule (scm-program-free-variable-ref dst src index)
   (scm-cell-object dst src (+ index 3)))
@@ -200,6 +207,32 @@
   (begin
     (scm-cell-object dst src 0)
     (jit-rshi dst dst (imm 8))))
+
+(define-syntax-rule (scm-struct-slots dst obj)
+  (scm-cell-object dst obj 1))
+
+(define-syntax-rule (scm-struct-data dst obj)
+  (scm-cell-object dst obj 1))
+
+(define-syntax-rule (scm-struct-data-ref dst obj i)
+  (begin
+    (scm-struct-data dst dst)
+    (scm-cell-object dst obj i)))
+
+(define-syntax-rule (scm-struct-vtable dst obj)
+  (begin
+    (scm-struct-vtable-slots dst obj)
+    (scm-cell-object dst dst scm-vtable-index-self)))
+
+(define-syntax-rule (scm-struct-vtable-slots dst obj)
+  (begin
+    (scm-cell-object dst obj 0)
+    (jit-subi dst dst (imm tc3-struct))))
+
+
+;;;
+;;; SCM macros for control flow condition
+;;;
 
 (define-syntax-rule (scm-imp obj)
   (jit-bmsi obj (imm 6)))
@@ -222,12 +255,6 @@
 (define-syntax-rule (scm-program-is-jit-compiled obj)
   (jit-bmsi obj (imm f-program-is-jit-compiled)))
 
-(define-syntax-rule (scm-is-eqi obj val)
-  (jit-beqi obj (imm val)))
-
-(define-syntax-rule (scm-is-nei obj val)
-  (jit-bnei obj (imm val)))
-
 (define-syntax-rule (scm-is-false obj)
   (jit-beqi obj (scm->pointer #f)))
 
@@ -236,6 +263,12 @@
 
 (define-syntax-rule (scm-is-null obj)
   (jit-beqi obj (scm->pointer '())))
+
+(define-syntax-rule (scm-is-eqi obj val)
+  (jit-beqi obj (imm val)))
+
+(define-syntax-rule (scm-is-nei obj val)
+  (jit-bnei obj (imm val)))
 
 
 ;;;
@@ -356,7 +389,6 @@ argument in VM operation."
        (jump (scm-program-is-jit-compiled r2) l1)
 
        ;; Does not have compiled code.
-       ;; XXX: Handle multiple values.
        (call-runtime st proc nlocals)
        (local-set! st (+ proc 1) reg-retval)
        (jump l2)
@@ -456,9 +488,11 @@ argument in VM operation."
 (define-string-pointer vector)
 (define-string-pointer vector-length)
 (define-string-pointer vector-ref)
-(define-string-pointer vector-ref/immediate)
 (define-string-pointer vector-set!)
-(define-string-pointer vector-set!/immediate)
+(define-string-pointer struct)
+(define-string-pointer struct-vtable)
+(define-string-pointer struct-ref)
+(define-string-pointer struct-set)
 
 (define-syntax error-wrong-type-arg-msg
   (syntax-rules ()
@@ -497,7 +531,7 @@ argument in VM operation."
   (let ((l1 (jit-forward))
         (l2 (jit-forward)))
     (jump (scm-imp pair) l1)
-    (scm-cell-object cell-0 pair 0)
+    (scm-cell-type cell-0 pair)
     (jump (jit-bmsi cell-0 (imm 1)) l1)
     (jump l2)
 
@@ -510,7 +544,7 @@ argument in VM operation."
   (let ((l1 (jit-forward))
         (l2 (jit-forward)))
     (jump (scm-imp vec) l1)
-    (scm-cell-object cell-0 vec 0)
+    (scm-cell-type cell-0 vec)
     (scm-typ7 tag cell-0)
     (jump (scm-is-eqi tag tc7-vector) l2)
 
@@ -541,6 +575,18 @@ argument in VM operation."
     (error-out-of-range subr (jit-pushargi (scm-makinumi idx)))
     (jit-link l1)))
 
+(define-syntax-rule (validate-struct obj tmp subr)
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+    (jump (scm-imp obj) l1)
+    (scm-cell-type tmp obj)
+    (scm-typ3 tmp tmp)
+    (jump (scm-is-eqi tmp tc3-struct) l2)
+
+    (jit-link l1)
+    (error-wrong-type-arg-msg subr 1 obj *struct-string)
+
+    (jit-link l2)))
 
 ;;;
 ;;; Top-level syntax for specific VM operations
@@ -628,10 +674,10 @@ argument in VM operation."
          ;; flonum x flonum
          (jit-link l2)
          (jump (scm-imp rega) l3)
-         (scm-cell-object r0 rega 0)
+         (scm-cell-type r0 rega)
          (jump (scm-is-nei r0 tc16-real) l3)
          (jump (scm-imp regb) l3)
-         (scm-cell-object r0 regb 0)
+         (scm-cell-type r0 regb)
          (jump (scm-is-nei r0 tc16-real) l3)
          (scm-real-value f0 rega)
          (scm-real-value f1 regb)
@@ -699,10 +745,10 @@ argument in VM operation."
          ;; L2: flonum + flonum
          (jit-link l2)
          (jump (scm-imp rega) l3)
-         (scm-cell-object r0 rega 0)
+         (scm-cell-type r0 rega)
          (jump (scm-is-nei r0 tc16-real) l3)
          (jump (scm-imp regb) l3)
-         (scm-cell-object r0 regb 0)
+         (scm-cell-type r0 regb)
          (jump (scm-is-nei r0 tc16-real) l3)
          (scm-real-value f0 rega)
          (scm-real-value f1 regb)
@@ -739,9 +785,9 @@ argument in VM operation."
          (jump (scm-inump regb) l2)
 
          (jit-link l1)
-         (scm-cell-object r0 rega 0)
+         (scm-cell-type r0 rega)
          (jump (scm-is-nei r0 tc16-real) l2)
-         (scm-cell-object r0 regb 0)
+         (scm-cell-type r0 regb)
          (jump (scm-is-nei r0 tc16-real) l2)
          (scm-real-value f0 rega)
          (scm-real-value f1 regb)
@@ -778,7 +824,7 @@ argument in VM operation."
          (jump l3)
 
          (jit-link l1)
-         (scm-cell-object r0 reg 0)
+         (scm-cell-type r0 reg)
          (jump (scm-is-nei r0 tc16-real) l2)
          (scm-real-value f0 reg)
          (jit-movi r0 (imm 1))
@@ -1129,7 +1175,7 @@ argument in VM operation."
   (let ((l1 (jit-forward)))
     (local-ref st a r0)
     (jump (scm-imp r0) (if invert (resolve-dst st offset) l1))
-    (scm-cell-object r0 r0 0)
+    (scm-cell-type r0 r0)
     (scm-typ7 r0 r0)
     (jump (scm-is-nei r0 tc7) (if invert (resolve-dst st offset) l1))
     (when (not invert)
@@ -1201,7 +1247,7 @@ argument in VM operation."
     (scm-set-cell-object r0 1 r1)
 
     ;; Storing address of JIT compiled code.
-    (let ((addr (jit-movi r1 (imm 0))))
+    (let ((closure-addr (jit-movi r1 (imm 0))))
       (scm-set-cell-object r0 2 r1)
       (jump l1)
 
@@ -1213,7 +1259,7 @@ argument in VM operation."
                                         #f
                                         (offset-addr st offset)
                                         0)))
-        (jit-patch addr)
+        (jit-patch closure-addr)
         (compile-lightning lightning (jit-forward))))
 
     (jit-link l1)
@@ -1293,7 +1339,7 @@ argument in VM operation."
 ;;; XXX: prompt
 ;;;
 ;;; In vm-regular, prompt is pushed to dynstack with VM operation
-;;; "prompt" The pushed dynstack has flag, tag, fp offset, sp offset,
+;;; "prompt".  The pushed dynstack has flag, tag, fp offset, sp offset,
 ;;; handler's IP, and register.  The C function doing the actual work
 ;;; for push is `scm_dynstack_push_prompt', written in "dynstack.c".
 ;;;
@@ -1304,8 +1350,8 @@ argument in VM operation."
 ;;;
 ;;; In `scm_c_abort', if the prompt is not escape only, continuation is
 ;;; reified with `reify_partial_continuation'. Also, vp->fp, vp->sp, and
-;;; vp->ip are set from prompt's value. Then doing SCM_I_LONGJMP with
-;;; `regisers' value.
+;;; vp->ip are set from prompt's value. Then the function does
+;;; SCM_I_LONGJMP with `regisers' value.
 ;;;
 ;;; * C functions in VM operation "prompt":
 ;;;
@@ -1586,7 +1632,6 @@ argument in VM operation."
   (validate-vector r0 r1 r2 *vector-ref-string)
   (local-ref st idx r1)
   (validate-vector-range r0 r1 r2 f0 *vector-ref-string)
-  ;; (jit-rshi r1 r1 (imm 2))
   (scm-i-inumr r1 r1)
   (jit-addi r1 r1 (imm 1))
   (jit-muli r1 r1 (imm (sizeof '*)))
@@ -1595,8 +1640,8 @@ argument in VM operation."
 
 (define-vm-op (vector-ref/immediate st dst src idx)
   (local-ref st src r0)
-  (validate-vector r0 r1 r2 *vector-ref/immediate-string)
-  (validate-vector-range/immediate r0 idx r1 *vector-ref/immediate-string)
+  (validate-vector r0 r1 r2 *vector-ref-string)
+  (validate-vector-range/immediate r0 idx r1 *vector-ref-string)
   (scm-cell-object r0 r0 (+ idx 1))
   (local-set! st dst r0))
 
@@ -1613,8 +1658,8 @@ argument in VM operation."
 
 (define-vm-op (vector-set!/immediate st dst idx src)
   (local-ref st dst r0)
-  (validate-vector r0 r1 r2 *vector-set!/immediate-string)
-  (validate-vector-range/immediate r0 idx r1 *vector-set!/immediate-string)
+  (validate-vector r0 r1 r2 *vector-set!-string)
+  (validate-vector-range/immediate r0 idx r1 *vector-set!-string)
   (local-ref st src r1)
   (scm-set-cell-object r0 (+ idx 1) r1))
 
@@ -1622,11 +1667,33 @@ argument in VM operation."
 ;;; Structs and GOOPS
 ;;; -----------------
 
+;;; XXX: Not working.
+
+;; (define-syntax-rule (validate-struct-ref obj idx tmp1 tmp2 subr)
+;;   (let ((l1 (jit-forward))
+;;         (l2 (jit-forward)))
+;;     (validate-struct obj tmp1 subr)
+;;     (jump (scm-not-inump idx) l1)
+;;     (scm-i-inumr tmp1 idx)
+;;     (jump (jit-bmsi tmp1 tmp1) l1)
+
+;;     (scm-struct-vtable tmp2 obj)
+;;     (scm-struct-data-ref tmp2 tmp2 scm-vtable-index-size)
+
+;;     (jump (jit-bltr tmp2 tmp1) l2)
+
+;;     (jit-link l1)
+;;     (jit-prepare)
+;;     (jit-pushargr obj)
+;;     (jit-pushargr idx)
+;;     (call-c "scm_struct_ref")
+
+;;     (jit-link l2)))
+
 (define-vm-op (struct-vtable st dst src)
   (local-ref st src r0)
-  (scm-cell-object r0 r0 0)
-  (jit-subi r0 r0 (imm tc3-struct))
-  (scm-cell-object r0 r0 2)
+  (validate-struct r0 r1 *struct-vtable-string)
+  (scm-struct-vtable r0 r0)
   (local-set! st dst r0))
 
 (define-vm-op (allocate-struct/immediate st dst vtable nfields)
@@ -1639,25 +1706,28 @@ argument in VM operation."
   (local-set! st dst r0))
 
 (define-vm-op (struct-ref st dst src idx)
-  ;; XXX: Validate struct.
+  ;; XXX: Validate struct flag.
   (local-ref st src r0)
+  (validate-struct r0 r1 *struct-ref-string)
   (local-ref st idx r1)
   (scm-i-inumr r1 r1)
   (jit-muli r1 r1 (imm (sizeof '*)))
-  (scm-cell-object r0 r0 1)
+  (scm-struct-slots r0 r0)
   (scm-cell-object-r r0 r0 r1)
   (local-set! st dst r0))
 
 (define-vm-op (struct-ref/immediate st dst src idx)
-  ;; XXX: Validate struct.
+  ;; XXX: Validate struct flag.
   (local-ref st src r0)
-  (scm-cell-object r0 r0 1)
+  (validate-struct r0 r1 *struct-ref-string)
+  (scm-struct-slots r0 r0)
   (scm-cell-object r0 r0 idx)
   (local-set! st dst r0))
 
 (define-vm-op (struct-set!/immediate st dst idx src)
-  ;; XXX: Validate struct.
+  ;; XXX: Validate struct flag.
   (local-ref st dst r0)
+  (validate-struct r0 r1 *struct-ref-string)
   (local-ref st src r1)
   (scm-cell-object r0 r0 1)
   (scm-set-cell-object r0 idx r1))
