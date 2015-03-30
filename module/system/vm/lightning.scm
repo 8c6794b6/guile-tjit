@@ -504,7 +504,7 @@ argument in VM operation."
 (define-string-pointer struct)
 (define-string-pointer struct-vtable)
 (define-string-pointer struct-ref)
-(define-string-pointer struct-set)
+(define-string-pointer struct-set!)
 
 (define-syntax error-wrong-type-arg-msg
   (syntax-rules ()
@@ -1792,7 +1792,15 @@ argument in VM operation."
   (scm-struct-vtable r0 r0)
   (local-set! st dst r0))
 
-;;; XXX: allocate-struct
+(define-vm-op (allocate-struct st dst vtable nfields)
+  (local-ref st vtable r0)
+  (local-ref st vtable r1)
+  (jit-prepare)
+  (jit-pushargr r0)
+  (jit-pushargr r1)
+  (jit-calli (program-free-variable-ref allocate-struct 0))
+  (jit-retval r0)
+  (local-set! st dst r0))
 
 (define-vm-op (allocate-struct/immediate st dst vtable nfields)
   (local-ref st vtable r0)
@@ -1822,18 +1830,30 @@ argument in VM operation."
   (scm-cell-object r0 r0 idx)
   (local-set! st dst r0))
 
-;;; XXX: struct-set!
+(define-vm-op (struct-set! st dst idx src)
+  (local-ref st dst r0)
+  (validate-struct r0 r1 *struct-set!-string)
+  (local-ref st src r1)
+  (local-ref st idx r2)
+  (scm-cell-object r0 r0 1)
+  (scm-set-cell-object-r r0 r2 r1))
 
 (define-vm-op (struct-set!/immediate st dst idx src)
   ;; XXX: Validate struct flag.
   (local-ref st dst r0)
-  (validate-struct r0 r1 *struct-ref-string)
+  (validate-struct r0 r1 *struct-set!-string)
   (local-ref st src r1)
   (scm-cell-object r0 r0 1)
   (scm-set-cell-object r0 idx r1))
 
-;;; XXX: class-of
-
+;;; XXX: Inline SCM_INSTANCEP.
+(define-vm-op (class-of st dst type)
+  (local-ref st type r0)
+  (jit-prepare)
+  (jit-pushargr r0)
+  (call-c "scm_class_of")
+  (jit-retval r0)
+  (local-set! st dst r0))
 
 ;;; Arrays, packed uniform arrays, and bytevectors
 ;;; ----------------------------------------------

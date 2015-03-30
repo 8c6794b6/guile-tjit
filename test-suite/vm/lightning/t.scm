@@ -21,7 +21,8 @@
 
 ;;; Code:
 
-(use-modules (srfi srfi-9)
+(use-modules (oop goops)
+             (srfi srfi-9)
              (srfi srfi-64)
              (system vm program)
              (system vm lightning)
@@ -832,14 +833,26 @@
 
 (define r02-a (make-r02 123 456))
 
-(define-test (t-struct-set-immediate x y) (1 2)
-  (make-r02 x y))
+(define-test (t-struct-ref x) (<r02>)
+  (record-type-name x))
 
 (define-test (t-struct-ref-immediate r) (r02-a)
   (struct-ref r 0))
 
-(define-test (t-struct-ref x) (<r02>)
-  (record-type-name x))
+(define-test (t-struct-set! x pos val) (r02-a 0 'foo)
+  (struct-set! x pos val))
+
+(define-test (t-struct-set-immediate x y) (1 2)
+  (make-r02 x y))
+
+(define-test (t-class-of-real x) (0.125)
+  (class-of x))
+
+(define-test (t-class-of-vector x) (0.125)
+  (class-of x))
+
+(define-test (t-class-of-class-of x) (class-of)
+  (class-of x))
 
 ;;; Arrays, packed uniform arrays, and bytevectors
 
