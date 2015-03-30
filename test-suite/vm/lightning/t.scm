@@ -391,6 +391,11 @@
 (define-test (t-if-zero x) (0)
   (zero? x))
 
+(define-test (t-if-logtest-true a b) (#b1011 #b0101)
+  (logtest a b))
+
+(define-test (t-if-logtest-false a b) (#b1011 #b0100)
+  (logtest a b))
 
 ;;; Lexical binding instructions
 

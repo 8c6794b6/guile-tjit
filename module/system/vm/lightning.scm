@@ -887,7 +887,6 @@ argument in VM operation."
    (else
     (compile-callee st 0 nlocals (offset-addr st label) #t))))
 
-;; Return value stored in reg-retval by callee.
 (define-vm-op (receive st dst proc nlocals)
   (local-set! st dst reg-retval))
 
@@ -1143,13 +1142,23 @@ argument in VM operation."
    (local-ref st a)
    (scm->pointer '())))
 
-;; XXX: br-if-nil
+(define-vm-op (br-if-nil st a invert offset)
+  (when (< offset 0)
+    (vm-handle-interrupts st))
+  (let ((l1 (jit-forward)))
+    (local-ref st a r0)
+    (jit-movi r1 (imm (logior (pointer-address (scm->pointer #f))
+                              (pointer-address (scm->pointer '())))))
+    (jit-comr r1 r1)
+    (jit-andr r1 r0 r1)
+    (jump ((if invert jit-bnei jit-beqi) r1 (scm->pointer #f))
+          (resolve-dst st offset))))
 
 (define-vm-br-unary-heap-object-op (br-if-pair st a invert offset)
   r0 (jit-bmsi r0 (imm 1)))
 
 (define-vm-br-unary-heap-object-op (br-if-struct st a invert offset)
-  r0 (begin (jit-andi r0 r0 (imm 7))
+  r0 (begin (scm-typ3 r0 r0)
             (jit-bnei r0 (imm 1))))
 
 (define-vm-br-unary-immediate-op (br-if-char st a invert offset)
@@ -1195,7 +1204,30 @@ argument in VM operation."
 (define-vm-br-arithmetic-op (br-if-= st a b invert offset)
   jit-beqr jit-bner jit-beqr-d jit-bner-d "scm_num_eq_p")
 
-;;; XXX: br-if-logtest
+(define-vm-op (br-if-logtest st a b invert offset)
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+    (local-ref st a r0)
+    (local-ref st b r1)
+    (jump (scm-not-inump r0) l1)
+    (jump (scm-not-inump r1) l1)
+    (jit-andr r0 r0 r1)
+    (jit-andi r0 r0 (imm #xfffffffffffffffd))
+    (jump ((if invert jit-beqi jit-bnei) r0 (imm 0))
+          (resolve-dst st offset))
+    (jump l2)
+
+    (jit-link l1)
+    (jit-prepare)
+    (jit-pushargr r0)
+    (jit-pushargr r1)
+    (call-c "scm_logtest")
+    (jit-retval r0)
+    (jump (if invert (scm-is-false r0) (scm-is-true r0))
+          (resolve-dst st offset))
+
+    (jit-link l2)))
+
 
 ;;; Lexical binding instructions
 ;;; ----------------------------
