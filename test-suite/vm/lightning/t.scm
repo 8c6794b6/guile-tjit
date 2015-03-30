@@ -649,6 +649,120 @@
 (define-test (t-div-gmp x y) (1.23 9999999999999999999999999999)
   (/ x y))
 
+(define-test (t-quo-pos-pos a b) (100 3)
+  (quotient a b))
+
+(define-test (t-quo-neg-pos a b) (-100 3)
+  (quotient a b))
+
+(define-test (t-quo-pos-neg a b) (100 -3)
+  (quotient a b))
+
+(define-test (t-quo-neg-neg a b) (-100 -3)
+  (quotient a b))
+
+(define-test (t-rem-pos-pos a b) (100 3)
+  (remainder a b))
+
+(define-test (t-rem-neg-pos a b) (-100 3)
+  (remainder a b))
+
+(define-test (t-rem-pos-neg a b) (100 -3)
+  (remainder a b))
+
+(define-test (t-rem-neg-neg a b) (-100 -3)
+  (remainder a b))
+
+(define-test (t-mod-pos-pos a b) (100 3)
+  (modulo a b))
+
+(define-test (t-mod-neg-pos a b) (-100 3)
+  (modulo a b))
+
+(define-test (t-mod-pos-neg a b) (100 -3)
+  (modulo a b))
+
+(define-test (t-mod-neg-neg a b) (-100 -3)
+  (modulo a b))
+
+(define-test (t-ash-r-pos a b) (8192 24)
+  (ash a b))
+
+(define-test (t-ash-r-neg a b) (-8192 24)
+  (ash a b))
+
+(define-test (t-ash-r-shift-1024 a b) (1 1024)
+  (ash a b))
+
+(define-test (t-ash-r-most-positive a b) (most-positive-fixnum 1)
+  (ash a b))
+
+(define-test (t-ash-r-most-negative a b) (most-negative-fixnum 1)
+  (ash a b))
+
+(define-test (t-ash-l-pos a b) (8192 -24)
+  (ash a b))
+
+(define-test (t-ash-l-neg a b) (-8192 -24)
+  (ash a b))
+
+(define-test (t-ash-l-shift-1024 a b) (1 -1024)
+  (ash a b))
+
+(define-test (t-ash-l-most-positive a b) (most-positive-fixnum -1)
+  (ash a b))
+
+(define-test (t-ash-l-most-negative a b) (most-negative-fixnum -1)
+  (ash a b))
+
+(define-test (t-logandr-fx-fx a b) (256 128)
+  (logand a b))
+
+(define-test (t-logandr-bignum-fx a b)
+  (340282366920938463463374607431768211456 128)
+  (logand a b))
+
+(define-test (t-logandr-fx-bignum a b)
+  (128 340282366920938463463374607431768211456)
+  (logand a b))
+
+(define-test (t-logandr-bignum-bignum a b)
+  (170141183460469231731687303715884105728
+   340282366920938463463374607431768211456)
+  (logand a b))
+
+(define-test (t-logior-fx-fx a b) (256 128)
+  (logior a b))
+
+(define-test (t-logior-bignum-fx a b)
+  (340282366920938463463374607431768211456 128)
+  (logior a b))
+
+(define-test (t-logior-fx-bignum a b)
+  (128 340282366920938463463374607431768211456)
+  (logior a b))
+
+(define-test (t-logior-bignum-bignum a b)
+  (170141183460469231731687303715884105728
+   340282366920938463463374607431768211456)
+  (logior a b))
+
+(define-test (t-logxor-fx-fx a b) (256 128)
+  (logxor a b))
+
+(define-test (t-logxor-bignum-fx a b)
+  (340282366920938463463374607431768211456 128)
+  (logxor a b))
+
+(define-test (t-logxor-fx-bignum a b)
+  (128 340282366920938463463374607431768211456)
+  (logxor a b))
+
+(define-test (t-logxor-bignum-bignum a b)
+  (170141183460469231731687303715884105728
+   340282366920938463463374607431768211456)
+  (logxor a b))
+
 (define-test (t-make-vector len fill) (16 'foo)
   (make-vector len fill))
 

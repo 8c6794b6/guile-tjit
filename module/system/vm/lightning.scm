@@ -20,7 +20,8 @@
 
 ;;; Commentary:
 
-;;; JIT compiler written with lightning, from bytecode to native code.
+;;; JIT compiler from VM bytecode to native code, written with
+;;; lightning.
 
 ;;; Code:
 
@@ -110,6 +111,8 @@
 (define-inline tc7-program 69)
 (define-inline tc16-real 535)
 
+(define-inline scm-i-fixnum-bit (- (* (sizeof long) 8) 2))
+
 (define-inline f-program-is-jit-compiled #x4000)
 
 (define-inline scm-vtable-index-self 2)
@@ -188,6 +191,9 @@
 (define-syntax-rule (scm-typ7 dst obj)
   (jit-andi dst obj (imm #x7f)))
 
+(define-syntax-rule (scm-typ16 dst obj)
+  (jit-andi dst obj (imm #xffff)))
+
 (define-syntax-rule (scm-cell-type dst src)
   (scm-cell-object dst src 0))
 
@@ -251,6 +257,12 @@
 
 (define-syntax-rule (scm-not-inump obj)
   (jit-bmci obj (imm 2)))
+
+(define-syntax-rule (scm-realp tag)
+  (jit-beqi tag (imm tc16-real)))
+
+(define-syntax-rule (scm-not-realp tag)
+  (jit-bnei tag (imm tc16-real)))
 
 (define-syntax-rule (scm-program-is-jit-compiled obj)
   (jit-bmsi obj (imm f-program-is-jit-compiled)))
@@ -449,8 +461,8 @@ argument in VM operation."
        (call-runtime st1 proc nlocals))))))
 
 (define-syntax-rule (in-same-procedure? st label)
-  ;; XXX: Could look the last IP of current procedure.  Instead, looking
-  ;; for backward jump at the moment.
+  ;; Could look the last IP of current procedure.  Instead, looking for
+  ;; backward jump.
   (and (<= 0 (+ (lightning-ip st) label))
        (< label 0)))
 
@@ -675,9 +687,11 @@ argument in VM operation."
          (jit-link l2)
          (jump (scm-imp rega) l3)
          (scm-cell-type r0 rega)
+         (scm-typ16 r0 r0)
          (jump (scm-is-nei r0 tc16-real) l3)
          (jump (scm-imp regb) l3)
          (scm-cell-type r0 regb)
+         (scm-typ16 r0 r0)
          (jump (scm-is-nei r0 tc16-real) l3)
          (scm-real-value f0 rega)
          (scm-real-value f1 regb)
@@ -719,99 +733,75 @@ argument in VM operation."
                              resolver ...)))
            (local-set!/immediate st dst (scm->pointer resolved))))))))
 
-(define-syntax define-vm-add-sub-op
+(define-syntax define-vm-binary-numeric-op
   (syntax-rules ()
-    ((_ (name st dst a b) fx-op-1 fx-op-2 fl-op cname)
+    ((_ (name st dst a b)
+        cname lcall rega regb <inum-expr>)
      (define-vm-op (name st dst a b)
-       (let ((l1 (jit-forward))
-             (l2 (jit-forward))
-             (l3 (jit-forward))
-             (l4 (jit-forward))
-             (rega (local-ref st a r1))
-             (regb (local-ref st b r2)))
+       (let ((lcall (jit-forward))
+             (lexit (jit-forward)))
+         (local-ref st a rega)
+         (local-ref st b regb)
+         (jump (scm-not-inump rega) lcall)
+         (jump (scm-not-inump regb) lcall)
+         <inum-expr>
+         (jump lexit)
 
-         ;; Entry: small fixnum + small fixnum
-         (jump (scm-not-inump rega) l2)
-         (jump (scm-not-inump regb) l1)
-         (jit-movr r0 rega)
-         (jump (fx-op-1 r0 regb) l3)
-         (fx-op-2 r0 r0 (imm 2))
-         (jump l4)
-
-         ;; L1: Check for (a == small fixnum && b == flonm)
-         (jit-link l1)
-         (jump (scm-inump rega) l3)
-
-         ;; L2: flonum + flonum
-         (jit-link l2)
-         (jump (scm-imp rega) l3)
-         (scm-cell-type r0 rega)
-         (jump (scm-is-nei r0 tc16-real) l3)
-         (jump (scm-imp regb) l3)
-         (scm-cell-type r0 regb)
-         (jump (scm-is-nei r0 tc16-real) l3)
-         (scm-real-value f0 rega)
-         (scm-real-value f1 regb)
-         (fl-op f0 f0 f1)
-         (jit-prepare)
-         (jit-pushargr reg-thread)
-         (jit-pushargr-d f0)
-         (call-c "scm_do_inline_from_double")
-         (jit-retval r0)
-         (jump l4)
-
-         ;; L3: Call C function
-         (jit-link l3)
+         (jit-link lcall)
          (jit-prepare)
          (jit-pushargr rega)
          (jit-pushargr regb)
          (call-c cname)
          (jit-retval r0)
 
-         (jit-link l4)
-         (local-set! st dst r0))))))
+         (jit-link lexit)
+         (local-set! st dst r0))))
 
-(define-syntax define-vm-mul-div-op
-  (syntax-rules ()
-    ((_  (name st dst a b) fl-op cname)
+    ((_ (name st dst a b)
+        cname lcall rega regb xmma xmmb <inum-expr> <real-expr>)
      (define-vm-op (name st dst a b)
-       (let ((l1 (jit-forward))
-             (l2 (jit-forward))
-             (l3 (jit-forward))
-             (rega (local-ref st a r1))
-             (regb (local-ref st b r2)))
+       (let ((lreal (jit-forward))
+             (lcall (jit-forward))
+             (lexit (jit-forward)))
+         (local-ref st a rega)
+         (local-ref st b regb)
+         (jump (scm-not-inump rega) lreal)
+         (jump (scm-not-inump regb) lreal)
+         <inum-expr>
+         (jump lexit)
 
-         (jump (scm-inump rega) l2)
-         (jump (scm-inump regb) l2)
-
-         (jit-link l1)
+         (jit-link lreal)
+         (jump (scm-imp rega) lcall)
          (scm-cell-type r0 rega)
-         (jump (scm-is-nei r0 tc16-real) l2)
+         (scm-typ16 r0 r0)
+         (jump (scm-not-realp r0) lcall)
+         (jump (scm-imp regb) lcall)
          (scm-cell-type r0 regb)
-         (jump (scm-is-nei r0 tc16-real) l2)
-         (scm-real-value f0 rega)
-         (scm-real-value f1 regb)
-         (fl-op f0 f0 f1)
+         (scm-typ16 r0 r0)
+         (jump (scm-not-realp r0) lcall)
+         (scm-real-value xmma rega)
+         (scm-real-value xmmb regb)
+         <real-expr>
          (jit-prepare)
          (jit-pushargr reg-thread)
          (jit-pushargr-d f0)
          (call-c "scm_do_inline_from_double")
          (jit-retval r0)
-         (jump l3)
+         (jump lexit)
 
-         (jit-link l2)
+         (jit-link lcall)
          (jit-prepare)
          (jit-pushargr rega)
          (jit-pushargr regb)
          (call-c cname)
          (jit-retval r0)
 
-         (jit-link l3)
+         (jit-link lexit)
          (local-set! st dst r0))))))
 
 (define-syntax define-vm-unary-step-op
   (syntax-rules ()
-    ((_ (name st dst src) fx-op fl-op cname)
+    ((_ (name st dst src) cname fx-op fl-op)
      (define-vm-op (name st dst src)
        (let ((l1 (jit-forward))
              (l2 (jit-forward))
@@ -1205,6 +1195,7 @@ argument in VM operation."
 (define-vm-br-arithmetic-op (br-if-= st a b invert offset)
   jit-beqr jit-bner jit-beqr-d jit-bner-d "scm_num_eq_p")
 
+;;; XXX: br-if-logtest
 
 ;;; Lexical binding instructions
 ;;; ----------------------------
@@ -1557,47 +1548,152 @@ argument in VM operation."
 ;;; Numeric operations
 ;;; ------------------
 
-(define-vm-add-sub-op (add st dst a b)
-  jit-boaddr jit-subi jit-addr-d "scm_sum")
+(define-vm-binary-numeric-op (add st dst a b)
+  "scm_sum" lcall r1 r2 f0 f1
+  (begin
+    (jit-movr r0 r1)
+    (jump (jit-boaddr r0 r2) lcall)
+    (jit-subi r0 r0 (imm 2)))
+  (jit-addr-d f0 f0 f1))
 
 (define-vm-unary-step-op (add1 st dst src)
-  jit-boaddi jit-addr-d "scm_sum")
+  "scm_sum" jit-boaddi jit-addr-d)
 
-(define-vm-add-sub-op (sub st dst a b)
-  jit-bosubr jit-addi jit-subr-d "scm_difference")
+(define-vm-binary-numeric-op (sub st dst a b)
+  "scm_difference" lcall r1 r2 f0 f1
+  (begin
+    (jit-movr r0 r1)
+    (jump (jit-bosubr r0 r2) lcall)
+    (jit-addi r0 r0 (imm 2)))
+  (jit-subr-d f0 f0 f1))
 
 (define-vm-unary-step-op (sub1 st dst src)
-  jit-bosubi jit-subr-d "scm_difference")
+  "scm_difference" jit-bosubi jit-subr-d)
 
-(define-vm-mul-div-op (mul st dst a b)
-  jit-mulr-d "scm_product")
+(define-vm-binary-numeric-op (mul st dst a b)
+  "scm_product" lcall r1 r2 f0 f1
+  (begin
+    (scm-i-inumr r0 r1)
+    (scm-i-inumr f0 r2)
+    (jit-qmulr r0 f0 r0 f0)
+    (jump (jit-bnei f0 (imm 0)) lcall)
+    (jump (jit-bgti r0 (imm most-positive-fixnum)) lcall)
+    (scm-makinumr r0 r0))
+  (jit-mulr-d f0 f0 f1))
 
-(define-vm-mul-div-op (div st dst a b)
-  jit-divr-d "scm_divide")
+(define-vm-binary-numeric-op (div st dst a b)
+  "scm_divide" lcall r1 r2 f0 f1
+  (begin
+    (scm-i-inumr r0 r1)
+    (scm-i-inumr f0 r2)
+    (jit-qdivr r0 f0 r0 f0)
+    (jump (jit-bnei f0 (imm 0)) lcall)
+    (scm-makinumr r0 r0))
+  (jit-divr-d f0 f0 f1))
 
-;;; XXX: Rewrite with lightning
-(define-vm-op (quo st dst a b)
-  (jit-prepare)
-  (jit-pushargr (local-ref st a))
-  (jit-pushargr (local-ref st b))
-  (call-c "scm_quotient")
-  (jit-retval r0)
-  (local-set! st dst r0))
+(define-vm-binary-numeric-op (quo st dst a b)
+  "scm_quotient" lcall r0 r1
+  (begin
+    (scm-i-inumr r0 r0)
+    (scm-i-inumr r1 r1)
+    (jit-divr r0 r0 r1)
+    (scm-makinumr r0 r0)))
 
-;;; XXX: Rewrite with lightning
-(define-vm-op (rem st dst a b)
-  (jit-prepare)
-  (jit-pushargr (local-ref st a))
-  (jit-pushargr (local-ref st b))
-  (call-c "scm_remainder")
-  (jit-retval r0)
-  (local-set! st dst r0))
+(define-vm-binary-numeric-op (rem st dst a b)
+  "scm_remainder" lcall r0 r1
+  (begin
+    (scm-i-inumr r0 r0)
+    (scm-i-inumr r1 r1)
+    (jit-remr r0 r0 r1)
+    (scm-makinumr r0 r0)))
 
-;;; XXX: mod
-;;; XXX: ash
-;;; XXX: logand
-;;; XXX: logior
-;;; XXX: logxor
+(define-vm-binary-numeric-op (mod st dst a b)
+  "scm_modulo" lcall r0 r1
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward))
+        (l3 (jit-forward)))
+    (scm-i-inumr r0 r0)
+    (scm-i-inumr r1 r1)
+    (jit-remr r0 r0 r1)
+    (jump (jit-bgti r0 (imm 0)) l1)
+    (jump l2)
+
+    (jit-link l1)
+    (jump (jit-bgti r1 (imm 0)) l3)
+    (jit-addr r0 r0 r1)
+    (jump l3)
+
+    (jit-link l2)
+    (jump (jit-blti r1 (imm 0)) l3)
+    (jit-addr r0 r0 r1)
+    (jump l3)
+
+    (jit-link l3)
+    (scm-makinumr r0 r0)))
+
+(define-vm-binary-numeric-op (ash st dst a b)
+  "scm_ash" lcall r0 r1
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward))
+        (l3 (jit-forward))
+        (l4 (jit-forward))
+        (l5 (jit-forward)))
+    (scm-i-inumr r0 r0)
+    (scm-i-inumr r1 r1)
+    (jump (jit-bgti r1 (imm 0)) l2)
+
+    (jit-negr r1 r1)
+    (jump (jit-bgei r1 (imm (- scm-i-fixnum-bit 1))) l1)
+    (jit-rshr r0 r0 r1)
+    (scm-makinumr r0 r0)
+    (jump l5)
+
+    (jit-link l1)
+    (jit-rshi r0 r0 (imm (- scm-i-fixnum-bit 1)))
+    (scm-makinumr r0 r0)
+    (jump l5)
+
+    (jit-link l2)
+    (jump (jit-bgei r1 (imm (- scm-i-fixnum-bit 1))) l4)
+    (jit-movi r2 (imm (- scm-i-fixnum-bit 1)))
+    (jit-subr r2 r2 r1)
+    (jit-rshr-u r2 r0 r2)
+    (jump (jit-bgti r2 (imm 0)) l4)
+    (jump (jit-blti r0 (imm 0)) l3)
+    (jit-lshr r0 r0 r1)
+    (scm-makinumr r0 r0)
+    (jump l5)
+
+    (jit-link l3)
+    (jit-negr r0 r0)
+    (jit-lshr r0 r0 r1)
+    (jit-negr r0 r0)
+    (scm-makinumr r0 r0)
+    (jump l5)
+
+    (jit-link l4)
+    (local-ref st a r0)
+    (local-ref st b r1)
+    (jump lcall)
+
+    (jit-link l5)
+    (local-set! st dst r0)))
+
+(define-vm-binary-numeric-op (logand st dst a b)
+  "scm_logand" lcall r0 r1
+  (jit-andr r0 r0 r1))
+
+(define-vm-binary-numeric-op (logior st dst a b)
+  "scm_logior" lcall r0 r1
+  (jit-orr r0 r0 r1))
+
+(define-vm-binary-numeric-op (logxor st dst a b)
+  "scm_logxor" lcall r0 r1
+  (begin
+    (scm-i-inumr r0 r0)
+    (scm-i-inumr r1 r1)
+    (jit-orr r0 r0 r1)
+    (scm-makinumr r0 r0)))
 
 (define-vm-op (make-vector st dst length init)
   (jit-prepare)
@@ -1696,6 +1792,8 @@ argument in VM operation."
   (scm-struct-vtable r0 r0)
   (local-set! st dst r0))
 
+;;; XXX: allocate-struct
+
 (define-vm-op (allocate-struct/immediate st dst vtable nfields)
   (local-ref st vtable r0)
   (jit-prepare)
@@ -1724,6 +1822,8 @@ argument in VM operation."
   (scm-cell-object r0 r0 idx)
   (local-set! st dst r0))
 
+;;; XXX: struct-set!
+
 (define-vm-op (struct-set!/immediate st dst idx src)
   ;; XXX: Validate struct flag.
   (local-ref st dst r0)
@@ -1733,8 +1833,6 @@ argument in VM operation."
   (scm-set-cell-object r0 idx r1))
 
 ;;; XXX: class-of
-;;; XXX: allocate-struct
-;;; XXX: struct-set!
 
 
 ;;; Arrays, packed uniform arrays, and bytevectors
