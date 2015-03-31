@@ -859,6 +859,14 @@
 (define-test (t-class-of-class-of x) (class-of)
   (class-of x))
 
+(define-class <class01> ()
+  x y)
+
+(define instance01 (make <class01>))
+
+(define-test (t-class-of-instance x) (instance01)
+  (class-of x))
+
 ;;; Arrays, packed uniform arrays, and bytevectors
 
 ;;;

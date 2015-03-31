@@ -115,8 +115,11 @@
 
 (define-inline f-program-is-jit-compiled #x4000)
 
+(define-inline scm-vtable-index-flags 1)
 (define-inline scm-vtable-index-self 2)
 (define-inline scm-vtable-index-size 6)
+
+(define-inline scm-classf-goops 4096)
 
 (define-inline scm-undefined (make-pointer #x904))
 
@@ -1878,14 +1881,29 @@ argument in VM operation."
   (scm-cell-object r0 r0 1)
   (scm-set-cell-object r0 idx r1))
 
-;;; XXX: Inline SCM_INSTANCEP.
 (define-vm-op (class-of st dst type)
-  (local-ref st type r0)
-  (jit-prepare)
-  (jit-pushargr r0)
-  (call-c "scm_class_of")
-  (jit-retval r0)
-  (local-set! st dst r0))
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+    (local-ref st type r0)
+    (jump (scm-imp r0) l1)
+    (scm-cell-type r1 r0)
+    (scm-typ3 r1 r1)
+    (jump (scm-is-nei r1 tc3-struct) l1)
+    (scm-struct-vtable-slots r1 r0)
+    (scm-cell-object r2 r1 scm-vtable-index-flags)
+    (jit-andi r2 r2 (imm scm-classf-goops))
+    (jump (jit-beqi r2 (imm 0)) l1)
+    (scm-cell-object r0 r1 scm-vtable-index-self)
+    (jump l2)
+
+    (jit-link l1)
+    (jit-prepare)
+    (jit-pushargr r0)
+    (call-c "scm_class_of")
+    (jit-retval r0)
+
+    (jit-link l2)
+    (local-set! st dst r0)))
 
 ;;; Arrays, packed uniform arrays, and bytevectors
 ;;; ----------------------------------------------
@@ -1938,7 +1956,7 @@ lightning, with ENTRY as lightning's node to itself."
                (lambda (label)
                  (jit-link label))))
         (or (and emitter (apply emitter st args))
-            (debug 0 "compile-lightning: VM op not found `~a'~%" instr)))))
+            (debug 0 "compile-lightning: VM op `~a' not found~%" instr)))))
 
   (let* ((program-or-addr (lightning-pc st))
          (addr (ensure-program-addr program-or-addr))
