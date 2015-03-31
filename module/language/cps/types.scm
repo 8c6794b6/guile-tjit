@@ -723,12 +723,44 @@ minimum, and maximum."
       (restrict! a &number min max)
       (restrict! b &number min max))))
 
+(define (restricted-comparison-ranges op type0 min0 max0 type1 min1 max1)
+  (define (infer-integer-ranges)
+    (match op
+      ('< (values min0 (min max0 (1- max1)) (max (1+ min0) min1) max1))
+      ('<= (values min0 (min max0 max1) (max min0 min1) max1))
+      ('>= (values (max min0 min1) max0 min1 (min max0 max1)))
+      ('> (values (max min0 (1+ min1)) max0 min1 (min (1- max0) max1)))))
+  (define (infer-real-ranges)
+    (match op
+      ((or '< '<=) (values min0 (min max0 max1) (max min0 min1) max1))
+      ((or '> '>=) (values (max min0 min1) max0 min1 (min max0 max1)))))
+  (if (= (logior type0 type1) &exact-integer)
+      (infer-integer-ranges)
+      (infer-real-ranges)))
+
+(define-syntax-rule (define-comparison-inferrer (op inverse))
+  (define-predicate-inferrer (op a b true?)
+    (when (zero? (logand (logior (&type a) (&type b)) (lognot &number)))
+      (call-with-values
+          (lambda ()
+            (restricted-comparison-ranges (if true? 'op 'inverse)
+                                          (&type a) (&min a) (&max a)
+                                          (&type b) (&min b) (&max b)))
+        (lambda (min0 max0 min1 max1)
+          (restrict! a &real min0 max0)
+          (restrict! b &real min1 max1))))))
+
 (define-simple-type-checker (< &real &real))
-(define-predicate-inferrer (< a b true?)
-  (when (zero? (logand (logior (&type a) (&type b)) (lognot &number)))
-    (restrict! a &real -inf.0 +inf.0)
-    (restrict! b &real -inf.0 +inf.0)))
-(define-type-aliases < <= > >=)
+(define-comparison-inferrer (< >=))
+
+(define-simple-type-checker (<= &real &real))
+(define-comparison-inferrer (<= >))
+
+(define-simple-type-checker (>= &real &real))
+(define-comparison-inferrer (>= <))
+
+(define-simple-type-checker (> &real &real))
+(define-comparison-inferrer (> <=))
 
 ;; Arithmetic.
 (define-syntax-rule (define-unary-result! a result min max)
