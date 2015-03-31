@@ -39,7 +39,7 @@
   #:use-module (system vm program)
   #:use-module (system vm vm)
   #:export (compile-lightning
-            call-lightning c-call-lightning
+            call-lightning
             jit-code-guardian)
   #:re-export (lightning-verbosity))
 
@@ -51,6 +51,7 @@
 ;; Modified later by function defined in "vm-lightning.c". Defined with
 ;; dummy body to silent warning message.
 (define thread-i-data *unspecified*)
+(define smob-apply-trampoline *unspecified*)
 
 (define *vm-instr* (make-hash-table))
 
@@ -108,16 +109,21 @@
 (define-inline tc3-struct 1)
 (define-inline tc7-variable 7)
 (define-inline tc7-vector 13)
+(define-inline tc7-string 21)
 (define-inline tc7-program 69)
+(define-inline tc7-smob 127)
 (define-inline tc16-real 535)
 
 (define-inline scm-i-fixnum-bit (- (* (sizeof long) 8) 2))
 
-(define-inline f-program-is-jit-compiled #x4000)
+(define-inline scm-f-program-is-jit-compiled #x4000)
 
 (define-inline scm-vtable-index-flags 1)
 (define-inline scm-vtable-index-self 2)
 (define-inline scm-vtable-index-size 6)
+(define-inline scm-vtable-flag-applicable 8)
+
+(define-inline scm-applicable-struct-index-procedure 0)
 
 (define-inline scm-classf-goops 4096)
 
@@ -217,6 +223,9 @@
     (scm-cell-object dst src 0)
     (jit-rshi dst dst (imm 8))))
 
+(define-syntax-rule (scm-i-string-length dst obj)
+  (scm-cell-object dst obj 3))
+
 (define-syntax-rule (scm-struct-slots dst obj)
   (scm-cell-object dst obj 1))
 
@@ -267,8 +276,39 @@
 (define-syntax-rule (scm-not-realp tag)
   (jit-bnei tag (imm tc16-real)))
 
+(define-syntax-rule (scm-program-p tag)
+  (jit-beqi tag (imm tc7-program)))
+
+(define-syntax-rule (scm-not-program-p tag)
+  (jit-bnei tag (imm tc7-program)))
+
 (define-syntax-rule (scm-program-is-jit-compiled obj)
-  (jit-bmsi obj (imm f-program-is-jit-compiled)))
+  (jit-bmsi obj (imm scm-f-program-is-jit-compiled)))
+
+(define-syntax-rule (scm-is-string tc7)
+  (jit-beqi tc7 (imm tc7-string)))
+
+(define-syntax-rule (scm-is-not-string tc7)
+  (jit-bnei tc7 (imm tc7-string)))
+
+(define-syntax-rule (scm-structp tc3)
+  (jit-beqi tc3 (imm tc3-struct)))
+
+(define-syntax-rule (scm-not-structp tc3)
+  (jit-bnei tc3 (imm tc3-struct)))
+
+(define-syntax-rule (scm-not-struct-applicable-p obj tmp)
+  (begin
+    (scm-cell-type tmp obj)
+    (jit-addi tmp tmp (imm (- (sizeof '*) tc3-struct)))
+    (jit-ldr tmp tmp)
+    (jit-bmci tmp (imm scm-vtable-flag-applicable))))
+
+(define-syntax-rule (scm-smobp tc7)
+  (jit-beqi tc7 (imm tc7-smob)))
+
+(define-syntax-rule (scm-not-smobp tc7)
+  (jit-bnei tc7 (imm tc7-smob)))
 
 (define-syntax-rule (scm-is-false obj)
   (jit-beqi obj (scm->pointer #f)))
@@ -304,9 +344,14 @@ argument in VM operation."
 (define-syntax-rule (dereference-scm pointer)
   (pointer->scm (dereference-pointer pointer)))
 
-(define-syntax-rule (stored-ref st n)
-  "Memory address of ST's local N."
-  (imm (- (lightning-fp st) (* n (sizeof '*)))))
+(define-syntax stored-ref
+  (syntax-rules ()
+    ((_ st 0)
+     (imm (lightning-fp st)))
+    ((_ st 1)
+     (imm (- (lightning-fp st) (sizeof '*))))
+    ((_ st n)
+     (imm (- (lightning-fp st) (* n (sizeof '*)))))))
 
 (define-syntax local-ref
   (syntax-rules ()
@@ -359,7 +404,6 @@ argument in VM operation."
        ;; ... then jump to return address.
        (jit-jmpr reg)))))
 
-;; XXX: Add pre and post as in vm-engine.c?
 (define-syntax-rule (vm-handle-interrupts st)
   (let ((l1 (jit-forward)))
     (scm-thread-pending-asyncs r0)
@@ -387,6 +431,8 @@ argument in VM operation."
        body
        (jit-patch ra)))))
 
+;; Apply trampoline for smob is not inlined with lightning, calling C
+;; functions.
 (define-syntax call-local
   (syntax-rules ()
     ((_ st proc nlocals #f)
@@ -395,25 +441,89 @@ argument in VM operation."
     ((_ st proc nlocals #t)
      (call-local st proc nlocals (jit-jmpr r1)))
 
-    ((_ st proc nlocals expr)
+    ((_ st proc nlocals <expr>)
      (let ((l1 (jit-forward))
-           (l2 (jit-forward)))
+           (l2 (jit-forward))
+           (l3 (jit-forward))
+           (lunwrap (jit-forward))
+           (lsmob (jit-forward))
+           (lsmobrt (jit-forward))
+           (lshuffle (jit-forward))
+           (lerror (jit-forward)))
 
+       (jit-movi f0 (imm 0))            ; A flag for runtime smob call.
        (local-ref st proc r0)
-       (scm-cell-object r2 r0 0)
-       (jump (scm-program-is-jit-compiled r2) l1)
+
+       ;; Unwrap local to get procedure. Doing similar work done in
+       ;; vm-engine's label statement `apply:'.
+       (define-link lunwrap)
+       (jump (scm-imp r0) l2)
+       (scm-cell-type r2 r0)
+       (scm-typ7 r1 r2)
+       (jump (scm-program-p r1) l1)
+
+       ;; Test for applicable struct.
+       (scm-typ3 r1 r2)
+       (jump (scm-not-structp r1) lsmob)
+       (jump (scm-not-struct-applicable-p r0 r1) lerror)
+       (scm-struct-data-ref r0 r0 0)
+       (local-set! st proc r0)
+       (jump lunwrap)
+
+       ;; Test for applicable smob.
+       (jit-link lsmob)
+       (scm-typ7 r1 r2)
+       (jump (scm-not-smobp r1) lerror)
+       (jit-movr f5 r0)
+       (jit-prepare)
+       (jit-pushargr r0)
+       (call-c "scm_do_smob_applicable_p")
+       (jit-retval r0)
+       (jump (jit-beqi r0 (imm 0)) lerror)
+       (jit-addi reg-nargs reg-nargs (imm 1))
+       (last-arg-offset st r1 r2)
+
+       (jit-link lshuffle)
+       (jit-ldxr r2 (jit-fp) r1)
+       (jit-subi r1 r1 (imm (sizeof '*)))
+       (jit-stxr r1 (jit-fp) r2)
+       (jit-addi r1 r1 (imm (* 2 (sizeof '*))))
+       (jump (jit-blei r1 (stored-ref st 0)) lshuffle)
+       (jit-prepare)
+       (jit-pushargr f5)
+       (call-c "scm_do_smob_apply_trampoline")
+       (jit-retval r0)
+       (local-set! st proc r0)
+       (jit-movi f0 (imm 1))
+       (jump lunwrap)
+
+       ;; Show error message.
+       (jit-link lerror)
+       (error-wrong-type-apply r0)
+
+       ;; Local is program, look for JIT compiled code.
+       (jit-link l1)
+       (jump (scm-program-is-jit-compiled r2) l2)
 
        ;; Does not have compiled code.
+       (jump (scm-is-eqi f0 1) lsmobrt)
        (call-runtime st proc nlocals)
        (local-set! st (+ proc 1) reg-retval)
-       (jump l2)
+       (jump l3)
+
+       ;; Does not have compiled code, for calling smob.
+       ;; Number of locals is increased by 1.
+       (jit-link lsmobrt)
+       (call-runtime st proc (+ nlocals 1))
+       (local-set! st (+ proc 1) reg-retval)
+       (jump l3)
 
        ;; Has compiled code.
-       (jit-link l1)
+       (jit-link l2)
        (scm-cell-object r1 r0 2)
-       expr
+       <expr>
 
-       (jit-link l2)))))
+       (jit-link l3)))))
 
 (define-syntax-rule (call-runtime st proc nlocals)
   (begin
@@ -508,6 +618,25 @@ argument in VM operation."
 (define-string-pointer struct-vtable)
 (define-string-pointer struct-ref)
 (define-string-pointer struct-set!)
+(define-string-pointer procedure)
+(define-string-pointer apply)
+
+(define (wrong-type-apply proc)
+  (scm-error 'wrong-type-arg #f "Wrong type to apply: ~S" `(,proc) `(,proc)))
+
+(define %error-wrong-type-apply
+  (let ((f (lambda (proc)
+             (wrong-type-apply (pointer->scm proc)))))
+    (procedure->pointer '* f '(*))))
+
+(define-syntax error-wrong-type-apply
+  (syntax-rules ()
+    ((_ proc)
+     (begin
+       (jit-prepare)
+       (jit-pushargr proc)
+       (jit-calli %error-wrong-type-apply)
+       (jit-reti (scm->pointer *unspecified*))))))
 
 (define-syntax error-wrong-type-arg-msg
   (syntax-rules ()
@@ -596,7 +725,7 @@ argument in VM operation."
     (jump (scm-imp obj) l1)
     (scm-cell-type tmp obj)
     (scm-typ3 tmp tmp)
-    (jump (scm-is-eqi tmp tc3-struct) l2)
+    (jump (scm-structp tmp) l2)
 
     (jit-link l1)
     (error-wrong-type-arg-msg subr 1 obj *struct-string)
@@ -667,43 +796,34 @@ argument in VM operation."
      (define-vm-op (name st a b invert offset)
        (when (< offset 0)
          (vm-handle-interrupts st))
-       (let ((l1 (jit-forward))
-             (l2 (jit-forward))
-             (l3 (jit-forward))
-             (l4 (jit-forward))
+       (let ((lreal (jit-forward))
+             (lcall (jit-forward))
+             (lexit (jit-forward))
              (rega (local-ref st a r1))
              (regb (local-ref st b r2)))
 
-         ;; fixnum x fixnum
-         (jump (scm-not-inump rega) l2)
-         (jump (scm-not-inump regb) l1)
+         (jump (scm-not-inump rega) lreal)
+         (jump (scm-not-inump regb) lreal)
          (jump ((if invert fx-invert-op fx-op) rega regb)
                (resolve-dst st offset))
-         (jump l4)
+         (jump lexit)
 
-         ;; XXX: Convert fixnum to flonum when one of the argument is fixnum,
-         ;; and the other flonum.
-         (jit-link l1)
-         (jump (scm-inump rega) l3)
-
-         ;; flonum x flonum
-         (jit-link l2)
-         (jump (scm-imp rega) l3)
+         (jit-link lreal)
+         (jump (scm-imp rega) lcall)
          (scm-cell-type r0 rega)
          (scm-typ16 r0 r0)
-         (jump (scm-is-nei r0 tc16-real) l3)
-         (jump (scm-imp regb) l3)
+         (jump (scm-is-nei r0 tc16-real) lcall)
+         (jump (scm-imp regb) lcall)
          (scm-cell-type r0 regb)
          (scm-typ16 r0 r0)
-         (jump (scm-is-nei r0 tc16-real) l3)
+         (jump (scm-is-nei r0 tc16-real) lcall)
          (scm-real-value f0 rega)
          (scm-real-value f1 regb)
          (jump ((if invert fl-invert-op fl-op) f0 f1)
                (resolve-dst st offset))
-         (jump l4)
+         (jump lexit)
 
-         ;; else
-         (jit-link l3)
+         (jit-link lcall)
          (jit-prepare)
          (jit-pushargr rega)
          (jit-pushargr regb)
@@ -712,7 +832,7 @@ argument in VM operation."
          (jump (if invert (scm-is-false r0) (scm-is-true r0))
                (resolve-dst st offset))
 
-         (jit-link l4))))))
+         (jit-link lexit))))))
 
 ;; If var is not variable, resolve with `resolver' and move the resolved value
 ;; to var's address. Otherwise, var is `variable', move it to dst.
@@ -1075,7 +1195,7 @@ argument in VM operation."
     (jit-prepare)
     (jit-pushargr reg-thread)
     (jit-ldxr r2 (jit-fp) f5)
-    (jit-stxr (jit-fp) f5 f0)
+    (jit-stxr f5 (jit-fp) f0)
     (jit-pushargr r2)
     (jit-pushargr r0)
     (call-c "scm_do_inline_cons")
@@ -1262,7 +1382,7 @@ argument in VM operation."
     (jit-prepare)
     (jit-pushargr reg-thread)
     (jit-pushargi (imm (logior tc7-program
-                               f-program-is-jit-compiled
+                               scm-f-program-is-jit-compiled
                                (ash nfree 16))))
     (jit-pushargi (imm (+ nfree 3)))
     (call-c "scm_do_inline_words")
@@ -1506,17 +1626,35 @@ argument in VM operation."
 ;;; -----------------------------
 
 (define-vm-op (string-length st dst src)
-  ;; XXX: Validate string.
-  (local-ref st src r0)
-  (scm-cell-object r0 r0 3)
-  (scm-makinumr r0 r0)
-  (local-set! st dst r0))
+  (let ((l1 (jit-forward))
+        (l2 (jit-forward)))
+    (local-ref st src r0)
+    (jump (scm-imp r0) l1)
+    (scm-cell-type r1 r0)
+    (scm-typ7 r1 r1)
+    (jump (scm-is-not-string r1) l1)
+    (scm-i-string-length r0 r0)
+    (scm-makinumr r0 r0)
+    (jump l2)
+
+    (jit-link l1)
+    (jit-pushargr r0)
+    (call-c "scm_string_length")
+    (jit-retval r0)
+
+    (jit-link l2)
+    (local-set! st dst r0)))
 
 ;;; XXX: Inline JIT code.
+;;;
+;;; Add test to see string width, test to see whether string is shared,
+;;; do `get_str_buf_start', ...etc.
 (define-vm-op (string-ref st dst src idx)
+  (local-ref st src r0)
+  (local-ref st idx r1)
   (jit-prepare)
-  (jit-pushargr (local-ref st src))
-  (jit-pushargr (local-ref st idx))
+  (jit-pushargr r0)
+  (jit-pushargr r1)
   (call-c "scm_string_ref")
   (jit-retval r0)
   (local-set! st dst r0))
@@ -1866,6 +2004,7 @@ argument in VM operation."
   (local-set! st dst r0))
 
 (define-vm-op (struct-set! st dst idx src)
+  ;; XXX: Validate struct flag.
   (local-ref st dst r0)
   (validate-struct r0 r1 *struct-set!-string)
   (local-ref st src r1)
@@ -1888,7 +2027,7 @@ argument in VM operation."
     (jump (scm-imp r0) l1)
     (scm-cell-type r1 r0)
     (scm-typ3 r1 r1)
-    (jump (scm-is-nei r1 tc3-struct) l1)
+    (jump (scm-not-structp r1) l1)
     (scm-struct-vtable-slots r1 r0)
     (scm-cell-object r2 r1 scm-vtable-index-flags)
     (jit-andi r2 r2 (imm scm-classf-goops))
@@ -1939,10 +2078,10 @@ argument in VM operation."
   "Compile <lightning> data specified by ST to native code using
 lightning, with ENTRY as lightning's node to itself."
 
-  (define (destination-label st)
+  (define-syntax-rule (destination-label st)
     (hashq-ref (lightning-labels st) (lightning-ip st)))
 
-  (define (assemble-one st ip-x-op)
+  (define-syntax-rule (assemble-one st ip-x-op)
     (let* ((ip (car ip-x-op))
            (op (cdr ip-x-op))
            (instr (car op))
@@ -2007,6 +2146,8 @@ lightning, with ENTRY as lightning's node to itself."
           (jit-destroy-state)
           (apply values vals)))))
 
+
+
 (define (c-call-lightning thread proc args)
   "Compile PROC with lightning and run with ARGS, within THREAD."
 
@@ -2016,6 +2157,29 @@ lightning, with ENTRY as lightning's node to itself."
 
   (define-syntax-rule (fp->addr fp)
     (logxor #xffffffff00000000 (pointer-address fp)))
+
+  (define-syntax-rule (smob? obj)
+    (let ((*obj (scm->pointer obj)))
+      (cond
+       ((< 0 (logand (pointer-address *obj) 6))
+        #f)
+       (else
+        (= 127 (logand (pointer-address (dereference-pointer *obj)) #x7f))))))
+
+  (define-syntax-rule (struct-applicable? obj)
+    (let* ((cell0 (dereference-pointer (scm->pointer obj)))
+           (vtable-data-addr (- (pointer-address cell0) 1)))
+      (< 0 (logand (pointer-address
+                    (dereference-pointer
+                     (make-pointer (+ vtable-data-addr (sizeof '*)))))
+                   scm-vtable-flag-applicable))))
+
+  (define %smob-applicable?
+    (pointer->procedure
+     '* (dynamic-func "scm_do_smob_applicable_p" (dynamic-link)) '(*)))
+
+  (define-syntax-rule (smob-applicable? obj)
+    (not (eq? %null-pointer (%smob-applicable? (scm->pointer obj)))))
 
   (define-syntax-rule (vm-prolog ra-reg)
     (begin
@@ -2083,6 +2247,16 @@ lightning, with ENTRY as lightning's node to itself."
 
   (debug 1 "~%;;; Entering c-call-lightning:~%")
   (cond
+   ((not (program? proc))
+    (cond
+     ((and (struct? proc)
+           (struct-applicable? proc))
+      (c-call-lightning thread (struct-ref proc 0) args))
+     ((and (smob? proc)
+           (smob-applicable? proc))
+      (c-call-lightning thread (smob-apply-trampoline proc) (cons proc args)))
+     (else
+      (wrong-type-apply proc))))
    ((jit-compiled-code proc)
     =>
     (lambda (compiled)

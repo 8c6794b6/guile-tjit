@@ -126,19 +126,25 @@
   (append (my-map add-one xs)
           (my-map mul-two xs)))
 
-(define (make-applicable-struct)
+(define param01 (make-parameter 100))
+
+(define-test (call-parameter x) (100)
+  (param01))
+
+(define procedure-with-setter
   (make-procedure-with-setter
    (lambda (obj)
      (+ obj 1))
    (lambda (obj val)
      (list obj val))))
 
-(define applicable-struct (make-applicable-struct))
+(define-test (call-procedure-with-setter n) (99)
+  (procedure-with-setter n))
 
-;; XXX: Getting segfault.
-(test-skip 1)
-(define-test (call-applicable-struct n) (99)
-  (applicable-struct n))
+(define g01 (make-guardian))
+
+(define-test (call-guardian) ()
+  (g01))
 
 (define-test (call-branched-a x) (#f)
   ((or x *) 20 30))

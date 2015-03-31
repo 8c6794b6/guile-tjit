@@ -69,6 +69,18 @@ scm_do_thread_i_data (SCM thread)
   return scm_from_pointer (SCM_I_THREAD_DATA (thread), NULL);
 }
 
+scm_t_subr
+scm_do_smob_applicable_p (SCM smob)
+{
+  return SCM_SMOB_APPLICABLE_P (smob);
+}
+
+SCM
+scm_do_smob_apply_trampoline (SCM smob)
+{
+  return SCM_SMOB_DESCRIPTOR (smob).apply_trampoline;
+}
+
 void
 scm_do_dynstack_push_fluid (scm_i_thread *thread, SCM fluid, SCM value)
 {
@@ -209,6 +221,8 @@ void
 scm_init_vm_lightning (void)
 {
   scm_c_define_gsubr ("thread-i-data", 1, 0, 0, scm_do_thread_i_data);
+  scm_c_define_gsubr ("smob-apply-trampoline", 1, 0, 0,
+                      scm_do_smob_apply_trampoline);
   vm_lightning_var = SCM_VARIABLE_REF (scm_c_lookup ("vm-lightning"));
 }
 
