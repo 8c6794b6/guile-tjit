@@ -49,7 +49,7 @@
 (define-syntax-rule (define-inline name val)
   (define-syntax name (identifier-syntax val)))
 
-(define-inline *branch-bits* 4)
+(define-inline *branch-bits* 5)
 (define-inline *branch-size* (ash 1 *branch-bits*))
 (define-inline *branch-mask* (1- *branch-size*))
 
