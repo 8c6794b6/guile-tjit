@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -43,14 +43,11 @@
          (scope-table (make-hash-table))
          (call-substs '())
          (cont-substs '())
-         (fun-elisions '())
          (cont-splices (make-hash-table)))
     (define (subst-call! sym arities body-ks)
       (set! call-substs (acons sym (map cons arities body-ks) call-substs)))
     (define (subst-return! old-tail new-tail)
       (set! cont-substs (acons old-tail new-tail cont-substs)))
-    (define (elide-function! k cont)
-      (set! fun-elisions (acons k cont fun-elisions)))
     (define (splice-conts! scope conts)
       (for-each (match-lambda
                  (($ $cont k) (hashq-set! scope-table k scope)))
@@ -237,45 +234,6 @@
         (($ $letk conts body)
          (for-each visit-cont conts)
          (visit-term body term-k))
-        (($ $letrec names syms funs body)
-         (define (split-components nsf)
-           ;; FIXME: Compute strongly-connected components.  Currently
-           ;; we just put non-recursive functions in their own
-           ;; components, and lump everything else in the remaining
-           ;; component.
-           (define (recursive? k)
-             (or-map (cut variable-free-in? <> k dfg) syms))
-           (let lp ((nsf nsf) (rec '()))
-             (match nsf
-               (()
-                (if (null? rec)
-                    '()
-                    (list rec)))
-               (((and elt (n s ($ $fun free ($ $cont kfun))))
-                 . nsf)
-                (if (recursive? kfun)
-                    (lp nsf (cons elt rec))
-                    (cons (list elt) (lp nsf rec)))))))
-         (define (extract-arities+bodies clauses)
-           (values (map extract-arities clauses)
-                   (map extract-bodies clauses)))
-         (define (visit-component component)
-           (match component
-             (((name sym fun) ...)
-              (match fun
-                ((($ $fun free
-                     ($ $cont fun-k
-                        ($ $kfun src meta self ($ $cont tail-k ($ $ktail))
-                           clause)))
-                  ...)
-                 (call-with-values (lambda () (extract-arities+bodies clause))
-                   (lambda (arities bodies)
-                     (if (contify-funs term-k sym self tail-k arities bodies)
-                         (for-each (cut for-each visit-cont <>) bodies)
-                         (for-each visit-fun fun)))))))))
-         (visit-term body term-k)
-         (for-each visit-component
-                   (split-components (map list names syms funs))))
         (($ $continue k src exp)
          (match exp
            (($ $fun free
@@ -287,15 +245,60 @@
                                       (extract-arities clause)
                                       (extract-bodies clause))))
                 (begin
-                  (elide-function! k (lookup-cont k dfg))
                   (for-each visit-cont (extract-bodies clause)))
                 (visit-fun exp)))
+           (($ $rec names syms funs)
+            (define (split-components nsf)
+              ;; FIXME: Compute strongly-connected components.  Currently
+              ;; we just put non-recursive functions in their own
+              ;; components, and lump everything else in the remaining
+              ;; component.
+              (define (recursive? k)
+                (or-map (cut variable-free-in? <> k dfg) syms))
+              (let lp ((nsf nsf) (rec '()))
+                (match nsf
+                  (()
+                   (if (null? rec)
+                       '()
+                       (list rec)))
+                  (((and elt (n s ($ $fun free ($ $cont kfun))))
+                    . nsf)
+                   (if (recursive? kfun)
+                       (lp nsf (cons elt rec))
+                       (cons (list elt) (lp nsf rec)))))))
+            (define (extract-arities+bodies clauses)
+              (values (map extract-arities clauses)
+                      (map extract-bodies clauses)))
+            (define (visit-component component)
+              (match component
+                (((name sym fun) ...)
+                 (match fun
+                   ((($ $fun free
+                        ($ $cont fun-k
+                           ($ $kfun src meta self ($ $cont tail-k ($ $ktail))
+                              clause)))
+                     ...)
+                    (call-with-values (lambda () (extract-arities+bodies clause))
+                      (lambda (arities bodies)
+                        ;; Technically the procedures are created in
+                        ;; term-k but bound for use in k.  But, there is
+                        ;; a tight link between term-k and k, as they
+                        ;; are in the same block.  Mark k as the
+                        ;; contification scope, because that's where
+                        ;; they'll be used.  Perhaps we can fix this
+                        ;; with the new CPS dialect that doesn't have
+                        ;; $letk.
+                        (if (contify-funs k sym self tail-k arities bodies)
+                            (for-each (cut for-each visit-cont <>) bodies)
+                            (for-each visit-fun fun)))))))))
+            (for-each visit-component
+                      (split-components (map list names syms funs))))
            (_ #t)))))
 
     (visit-cont fun)
-    (values call-substs cont-substs fun-elisions cont-splices)))
+    (values call-substs cont-substs cont-splices)))
 
-(define (apply-contification fun call-substs cont-substs fun-elisions cont-splices)
+(define (apply-contification fun call-substs cont-substs cont-splices)
   (define (contify-call src proc args)
     (and=> (assq-ref call-substs proc)
            (lambda (clauses)
@@ -331,8 +334,6 @@
       ((cont ...)
        (let lp ((term term))
          (rewrite-cps-term term
-           (($ $letrec names syms funs body)
-            ($letrec names syms funs ,(lp body)))
            (($ $letk conts* body)
             ($letk ,(append conts* (filter-map visit-cont cont))
               ,body))
@@ -345,16 +346,18 @@
        ($fun free ,(visit-cont body)))))
   (define (visit-cont cont)
     (rewrite-cps-cont cont
-      (($ $cont (? (cut assq <> fun-elisions)))
-       ;; This cont gets inlined in place of the $fun.
-       ,#f)
-      (($ $cont sym ($ $kargs names syms body))
-       (sym ($kargs names syms ,(visit-term body sym))))
-      (($ $cont sym ($ $kfun src meta self tail clause))
-       (sym ($kfun src meta self ,tail ,(and clause (visit-cont clause)))))
-      (($ $cont sym ($ $kclause arity body alternate))
-       (sym ($kclause ,arity ,(visit-cont body)
-                      ,(and alternate (visit-cont alternate)))))
+      (($ $cont label ($ $kargs names syms body))
+       ;; Remove bindings for functions that have been contified.
+       ,(rewrite-cps-cont (filter (match-lambda
+                                   ((name sym) (not (assq sym call-substs))))
+                                  (map list names syms))
+          (((names syms) ...)
+           (label ($kargs names syms ,(visit-term body label))))))
+      (($ $cont label ($ $kfun src meta self tail clause))
+       (label ($kfun src meta self ,tail ,(and clause (visit-cont clause)))))
+      (($ $cont label ($ $kclause arity body alternate))
+       (label ($kclause ,arity ,(visit-cont body)
+                        ,(and alternate (visit-cont alternate)))))
       (($ $cont)
        ,cont)))
   (define (visit-term term term-k)
@@ -364,37 +367,37 @@
        (let lp ((body (visit-term body term-k)))
          ;; Because we attach contified functions on a particular
          ;; term-k, and one term-k can correspond to an arbitrarily
-         ;; nested sequence of $letrec and $letk instances, normalize
-         ;; so that all continuations are bound by one $letk --
-         ;; guaranteeing that they are in the same scope.
+         ;; nested sequence of $letk instances, normalize so that all
+         ;; continuations are bound by one $letk -- guaranteeing that
+         ;; they are in the same scope.
          (rewrite-cps-term body
-           (($ $letrec names syms funs body)
-            ($letrec names syms funs ,(lp body)))
            (($ $letk conts* body)
             ($letk ,(append conts* (filter-map visit-cont conts))
               ,body))
            (body
             ($letk ,(filter-map visit-cont conts)
               ,body)))))
-      (($ $letrec names syms funs body)
-       (rewrite-cps-term (filter (match-lambda
-                                  ((n s f) (not (assq s call-substs))))
-                                 (map list names syms funs))
-         (((names syms funs) ...)
-          ($letrec names syms (map visit-fun funs)
-                   ,(visit-term body term-k)))))
       (($ $continue k src exp)
        (splice-continuations
         term-k
         (match exp
-          (($ $fun)
-           (cond
-            ((assq-ref fun-elisions k)
-             => (match-lambda
-                 (($ $kargs (_) (_) body)
-                  (visit-term body k))))
-            (else
-             (continue k src (visit-fun exp)))))
+          (($ $fun free 
+              ($ $cont fun-k ($ $kfun src meta self ($ $cont tail-k))))
+           ;; If the function's tail continuation has been substituted,
+           ;; that means it has been contified.
+           (continue k src
+                     (if (assq tail-k cont-substs)
+                         (build-cps-exp ($values ()))
+                         (visit-fun exp))))
+          (($ $rec names syms funs)
+           (match (filter (match-lambda
+                           ((n s f) (not (assq s call-substs))))
+                          (map list names syms funs))
+             (() (continue k src (build-cps-exp ($values ()))))
+             (((names syms funs) ...)
+              (continue k src
+                        (build-cps-exp
+                          ($rec names syms (map visit-fun funs)))))))
           (($ $call proc args)
            (or (contify-call src proc args)
                (continue k src exp)))
@@ -403,9 +406,9 @@
 
 (define (contify fun)
   (call-with-values (lambda () (compute-contification fun))
-    (lambda (call-substs cont-substs fun-elisions cont-splices)
+    (lambda (call-substs cont-substs cont-splices)
       (if (null? call-substs)
           fun
           ;; Iterate to fixed point.
           (contify
-           (apply-contification fun call-substs cont-substs fun-elisions cont-splices))))))
+           (apply-contification fun call-substs cont-substs cont-splices))))))

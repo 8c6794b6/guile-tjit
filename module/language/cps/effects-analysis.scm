@@ -443,7 +443,7 @@ is or might be a read or a write to the same location as A."
   (match exp
     ((or ($ $const) ($ $prim) ($ $values))
      &no-effects)
-    (($ $fun)
+    ((or ($ $fun) ($ $rec))
      (&allocate &unknown-memory-kinds))
     (($ $prompt)
      (&write-object &prompt))

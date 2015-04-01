@@ -52,7 +52,6 @@
            (let lp ((body body))
              (match body
                (($ $letk conts body) (lp body))
-               (($ $letrec names syms funs body) (lp body))
                (($ $continue k src exp)
                 (match exp
                   (($ $prompt escape? tag handler)
@@ -168,8 +167,6 @@
                    (visit-cont (car conts))
                    (lp (cdr conts))))
                (visit-term body label))
-              (($ $letrec names syms funs body)
-               (visit-term body label))
               (($ $continue k src exp)
                (add-predecessor! label k)
                (match exp
@@ -222,19 +219,17 @@
               (($ $letk conts body)
                (for-each visit-cont conts)
                (visit-term body reachable?))
-              (($ $letrec names syms funs body)
+              (($ $continue k src ($ $fun free body))
                (when reachable?
-                 (for-each rename! syms)
+                 (set! queue (cons body queue))))
+              (($ $continue k src ($ $rec names syms funs))
+               (when reachable?
                  (set! queue (fold (lambda (fun queue)
                                      (match fun
                                        (($ $fun free body)
                                         (cons body queue))))
                                    queue
-                                   funs)))
-               (visit-term body reachable?))
-              (($ $continue k src ($ $fun free body))
-               (when reachable?
-                 (set! queue (cons body queue))))
+                                   funs))))
               (($ $continue) #f)))
 
           (match fun
@@ -301,9 +296,6 @@
        ,(match (visit-conts conts)
           (() (visit-term body))
           (conts (build-cps-term ($letk ,conts ,(visit-term body))))))
-      (($ $letrec names vars funs body)
-       ($letrec names (map rename vars) (map visit-fun funs)
-         ,(visit-term body)))
       (($ $continue k src exp)
        ($continue (relabel k) src ,(visit-exp exp)))))
   (define (visit-exp exp)
@@ -314,6 +306,8 @@
        (build-cps-exp ($closure (relabel k) nfree)))
       (($ $fun)
        (visit-fun exp))
+      (($ $rec names vars funs)
+       (build-cps-exp ($rec names (map rename vars) (map visit-fun funs))))
       (($ $values args)
        (let ((args (map rename args)))
          (build-cps-exp ($values args))))

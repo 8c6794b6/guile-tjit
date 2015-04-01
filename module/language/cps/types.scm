@@ -1304,6 +1304,9 @@ mapping symbols to types."
             (propagate! 0 k types))))
         ((or ($ $call) ($ $callk))
          (propagate! 0 k types))
+        (($ $rec names vars funs)
+         (let ((proc-type (make-type-entry &procedure -inf.0 +inf.0)))
+           (propagate! 0 k (adjoin-vars types vars proc-type))))
         (_
          (match (lookup-cont k dfg)
            (($ $kargs (_) (var))
@@ -1333,11 +1336,6 @@ mapping symbols to types."
             (($ $kargs names vars term)
              (let visit-term ((term term) (types types))
                (match term
-                 (($ $letrec names vars funs term)
-                  (visit-term term
-                              (adjoin-vars types vars
-                                           (make-type-entry &procedure
-                                                            -inf.0 +inf.0))))
                  (($ $letk conts term)
                   (visit-term term types))
                  (($ $continue k src exp)

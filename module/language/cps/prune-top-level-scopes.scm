@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -53,12 +53,11 @@
         (($ $letk conts body)
          (for-each visit-cont conts)
          (visit-term body))
-        (($ $letrec names syms funs body)
-         (for-each visit-fun funs)
-         (visit-term body))
         (($ $continue k src exp)
          (match exp
            (($ $fun) (visit-fun exp))
+           (($ $rec names syms funs)
+            (for-each visit-fun funs))
            (($ $primcall 'cached-toplevel-box (scope name bound?))
             (hashq-set! scope-var->used? scope #t))
            (($ $primcall 'cache-current-module! (module scope))
@@ -105,8 +104,6 @@
       (rewrite-cps-term term
         (($ $letk conts body)
          ($letk ,(map visit-cont conts) ,(visit-term body)))
-        (($ $letrec names syms funs body)
-         ($letrec names syms funs ,(visit-term body)))
         (($ $continue k src
             (and ($ $primcall 'cache-current-module! (module scope))
                  (? (lambda _

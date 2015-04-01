@@ -524,16 +524,18 @@
     (($ <fix> src names gensyms funs body)
      ;; Some letrecs can be contified; that happens later.
      (if (current-topbox-scope)
-         (let-fresh () (self)
-           (build-cps-term
-             ($letrec names
-                      (map bound-var gensyms)
-                      (map (lambda (fun)
-                             (match (convert fun k subst)
-                               (($ $continue _ _ (and fun ($ $fun)))
-                                fun)))
-                           funs)
-                      ,(convert body k subst))))
+         (let ((vars (map bound-var gensyms)))
+           (let-fresh (krec) ()
+             (build-cps-term
+               ($letk ((krec ($kargs names vars
+                               ,(convert body k subst))))
+                 ($continue krec src
+                   ($rec names vars
+                         (map (lambda (fun)
+                                (match (convert fun k subst)
+                                  (($ $continue _ _ (and fun ($ $fun)))
+                                   fun)))
+                              funs)))))))
          (let ((scope-id (fresh-scope-id)))
            (let-fresh (kscope) ()
              (build-cps-term

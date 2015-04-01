@@ -113,7 +113,7 @@
             make-$arity
 
             ;; Terms.
-            $letk $continue $letrec
+            $letk $continue
 
             ;; Continuations.
             $cont
@@ -122,7 +122,7 @@
             $kreceive $kargs $kfun $ktail $kclause
 
             ;; Expressions.
-            $const $prim $fun $closure $branch
+            $const $prim $fun $rec $closure $branch
             $call $callk $primcall $values $prompt
 
             ;; First-order CPS root.
@@ -177,7 +177,6 @@
 ;; Terms.
 (define-cps-type $letk conts body)
 (define-cps-type $continue k src exp)
-(define-cps-type $letrec names syms funs body) ; Higher-order.
 
 ;; Continuations
 (define-cps-type $cont k cont)
@@ -191,6 +190,7 @@
 (define-cps-type $const val)
 (define-cps-type $prim name)
 (define-cps-type $fun free body) ; Higher-order.
+(define-cps-type $rec names syms funs) ; Higher-order.
 (define-cps-type $closure label nfree) ; First-order.
 (define-cps-type $branch k exp)
 (define-cps-type $call proc args)
@@ -263,12 +263,13 @@
 
 (define-syntax build-cps-exp
   (syntax-rules (unquote
-                 $const $prim $fun $closure $branch
+                 $const $prim $fun $rec $closure $branch
                  $call $callk $primcall $values $prompt)
     ((_ (unquote exp)) exp)
     ((_ ($const val)) (make-$const val))
     ((_ ($prim name)) (make-$prim name))
     ((_ ($fun free body)) (make-$fun free (build-cps-cont body)))
+    ((_ ($rec names gensyms funs)) (make-$rec names gensyms funs))
     ((_ ($closure k nfree)) (make-$closure k nfree))
     ((_ ($call proc (unquote args))) (make-$call proc args))
     ((_ ($call proc (arg ...))) (make-$call proc (list arg ...)))
@@ -287,7 +288,7 @@
      (make-$prompt escape? tag handler))))
 
 (define-syntax build-cps-term
-  (syntax-rules (unquote $letk $letk* $letconst $letrec $program $continue)
+  (syntax-rules (unquote $letk $letk* $letconst $program $continue)
     ((_ (unquote exp))
      exp)
     ((_ ($letk (unquote conts) body))
@@ -308,8 +309,6 @@
            ($continue kconst (let ((props (source-properties val)))
                                (and (pair? props) props))
              ($const val))))))
-    ((_ ($letrec names gensyms funs body))
-     (make-$letrec names gensyms funs (build-cps-term body)))
     ((_ ($program (unquote conts)))
      (make-$program conts))
     ((_ ($program (cont ...)))
@@ -386,9 +385,8 @@
      (build-cps-exp ($fun free ,(parse-cps body))))
     (('closure k nfree)
      (build-cps-exp ($closure k nfree)))
-    (('letrec ((name sym fun) ...) body)
-     (build-cps-term
-       ($letrec name sym (map parse-cps fun) ,(parse-cps body))))
+    (('rec (name sym fun) ...)
+     (build-cps-exp ($rec name sym (map parse-cps fun))))
     (('program (cont ...))
      (build-cps-term ($program ,(map parse-cps cont))))
     (('call proc arg ...)
@@ -445,11 +443,10 @@
      `(fun ,free ,(unparse-cps body)))
     (($ $closure k nfree)
      `(closure ,k ,nfree))
-    (($ $letrec names syms funs body)
-     `(letrec ,(map (lambda (name sym fun)
-                      (list name sym (unparse-cps fun)))
-                    names syms funs)
-        ,(unparse-cps body)))
+    (($ $rec names syms funs)
+     `(rec ,@(map (lambda (name sym fun)
+                    (list name sym (unparse-cps fun)))
+                  names syms funs)))
     (($ $program conts)
      `(program ,(map unparse-cps conts)))
     (($ $call proc args)
@@ -509,15 +506,13 @@
         (($ $continue k src exp)
          (match exp
            (($ $fun) (fun-folder exp seed ...))
-           (_ (values seed ...))))
-
-        (($ $letrec names syms funs body)
-         (let-values (((seed ...) (term-folder body seed ...)))
-           (let lp ((funs funs) (seed seed) ...)
-             (if (null? funs)
-                 (values seed ...)
-                 (let-values (((seed ...) (fun-folder (car funs) seed ...)))
-                   (lp (cdr funs) seed ...))))))))
+           (($ $rec names syms funs)
+            (let lp ((funs funs) (seed seed) ...)
+              (if (null? funs)
+                  (values seed ...)
+                  (let-values (((seed ...) (fun-folder (car funs) seed ...)))
+                    (lp (cdr funs) seed ...)))))
+           (_ (values seed ...))))))
 
     (cont-folder cont seed ...)))
 
@@ -541,7 +536,6 @@
                ((cont . conts)
                 (let-values (((seed ...) (cont-folder cont seed ...)))
                   (lp conts seed ...)))))))
-        (($ $letrec names syms funs body) (term-folder body seed ...))
         (_ (values seed ...))))
     (define (clause-folder clause seed ...)
       (match clause
@@ -567,12 +561,7 @@
         (values (max label max-label)
                 (match cont
                   (($ $kargs names vars body)
-                   (let lp ((body body) (max-var (fold max max-var vars)))
-                     (match body
-                       (($ $letk conts body) (lp body max-var))
-                       (($ $letrec names vars funs body)
-                        (lp body (fold max max-var vars)))
-                       (_ max-var))))
+                   (fold max max-var vars))
                   (($ $kfun src meta self)
                    (max self max-var))
                   (_ max-var))))
@@ -612,7 +601,6 @@
      (let lp ((body body))
        (match body
          (($ $letk conts body) (lp body))
-         (($ $letrec names vars funs body) (lp body))
          (($ $continue k src exp)
           (match exp
             (($ $prompt escape? tag handler) (proc k handler))

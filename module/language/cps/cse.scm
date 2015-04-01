@@ -39,7 +39,6 @@
      (let lp ((body body))
        (match body
          (($ $letk conts body) (lp body))
-         (($ $letrec names vars funs body) (lp body))
          (($ $continue k src exp)
           (match exp
             (($ $prompt escape? tag handler) (list k handler))
@@ -246,16 +245,8 @@ could be that both true and false proofs are available."
               (label-count (1+ label-count)))
           (match cont
             (($ $kargs names vars body)
-             (let lp ((body body)
-                      (min-var (fold min min-var vars))
-                      (var-count (+ var-count (length vars))))
-               (match body
-                 (($ $letrec names vars funs body)
-                  (lp body
-                      (fold min min-var vars)
-                      (+ var-count (length vars))))
-                 (($ $letk conts body) (lp body min-var var-count))
-                 (_ (values min-label label-count min-var var-count)))))
+             (values min-label label-count
+                     (fold min min-var vars) (+ var-count (length vars))))
             (($ $kfun src meta self)
              (values min-label label-count (min self min-var) (1+ var-count)))
             (_
@@ -297,6 +288,7 @@ could be that both true and false proofs are available."
           (($ $const val) (cons 'const val))
           (($ $prim name) (cons 'prim name))
           (($ $fun free body) #f)
+          (($ $rec names syms funs) #f)
           (($ $call proc args) #f)
           (($ $callk k proc args) #f)
           (($ $primcall name args)
@@ -475,12 +467,19 @@ could be that both true and false proofs are available."
         (($ $prompt escape? tag handler)
          ($prompt escape? (subst-var tag) handler))))
 
+    (define (visit-fun fun)
+      (rewrite-cps-exp fun
+        (($ $fun free body)
+         ($fun (map subst-var free) ,(cse body dfg)))))
+
     (define (visit-exp* k src exp)
       (match exp
-        (($ $fun free body)
+        (($ $fun)
          (build-cps-term
-           ($continue k src
-             ($fun (map subst-var free) ,(cse body dfg)))))
+           ($continue k src ,(visit-fun exp))))
+        (($ $rec names syms funs)
+         (build-cps-term
+           ($continue k src ($rec names syms (map visit-fun funs)))))
         (_
          (cond
           ((vector-ref equiv-labels (label->idx label))
@@ -523,14 +522,6 @@ could be that both true and false proofs are available."
     (rewrite-cps-term term
       (($ $letk conts body)
        ,(visit-term body label))
-      (($ $letrec names syms funs body)
-       ($letrec names syms
-                (map (lambda (fun)
-                       (rewrite-cps-exp fun
-                         (($ $fun free body)
-                          ($fun (map subst-var free) ,(cse body dfg)))))
-                     funs)
-         ,(visit-term body label)))
       (($ $continue k src exp)
        ,(let ((conts (append-map visit-dom-conts
                                  (vector-ref doms (label->idx label)))))

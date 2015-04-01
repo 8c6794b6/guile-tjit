@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  2008, 2009, 2010, 2011, 2012, 2013, 2014
+@c Copyright (C)  2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -659,13 +659,24 @@ and @var{syms} are lists of symbols, and @var{funs} is a list of
 @code{$fun} values.  @var{syms} are globally unique.
 @end deftp
 
+A higher-order CPS program is a @code{$cont} containing a @code{$kfun}
+(see below), and the @code{$kfun} which contains clauses and those
+clauses contain terms.  A first-order CPS program, on the other hand, is
+the result of closure conversion and does not contain nested functions.
+Closure conversion lifts code for all functions up to the top, collects
+their entry continuations as a list of @code{$cont} @code{$kfun}
+instances and binds them in a @code{$program}.
+
+@deftp {CPS Term} $program funs
+A first-order CPS term declaring a recursive scope for first-order
+functions in a compilation unit.  @var{funs} is a list of @code{$cont}
+@code{$kfun} instances.  The first entry in the list is the entry
+function for the program.
+@end deftp
+
 Here is an inventory of the kinds of expressions in Guile's CPS
 language.  Recall that all expressions are wrapped in a @code{$continue}
 term which specifies their continuation.
-
-@deftp {CPS Expression} $void
-Continue with the unspecified value.
-@end deftp
 
 @deftp {CPS Expression} $const val
 Continue with the constant value @var{val}.
@@ -676,15 +687,26 @@ Continue with the procedure that implements the primitive operation
 named by @var{name}.
 @end deftp
 
-@deftp {CPS Expression} $fun src meta free body
-Continue with a procedure.  @var{src} identifies the source information
-for the procedure declaration, and @var{meta} is the metadata alist as
-described above in Tree-IL's @code{<lambda>}.  @var{free} is a list of
-free variables accessed by the procedure.  Early CPS uses an empty list
-for @var{free}; only after closure conversion is it correctly populated.
-Finally, @var{body} is the @code{$kentry} @code{$cont} of the procedure
-entry.
+@deftp {CPS Expression} $fun free body
+Continue with a procedure.  @var{free} is a list of free variables
+accessed by the procedure.  Early CPS uses an empty list for @var{free};
+only after closure conversion is it correctly populated.  Finally,
+@var{body} is the @code{$kfun} @code{$cont} of the procedure entry.
 @end deftp
+
+@code{$fun} is part of higher-level CPS.  After closure conversion,
+@code{$fun} instances are given a concrete representation.  By default,
+a closure is represented as an object built by a @code{$closure}
+expression
+
+@deftp {CPS Expression} $closure label nfree
+Build a closure that joins the code at the continuation named
+@var{label} with space for @var{nfree} free variables.  The variables
+will be initialized later via @code{free-variable-set!} primcalls.
+@end deftp
+
+If the closure can be proven to never escape its scope then other
+lighter-weight representations can be chosen.
 
 @deftp {CPS Expression} $call proc args
 @deftpx {CPS Expression} $callk label proc args
@@ -710,6 +732,21 @@ for details.
 
 @deftp {CPS Expression} $values args
 Pass the values named by the list @var{args} to the continuation.
+@end deftp
+
+@deftp {CPS Expression} $branch kt exp
+Evaluate the branching expression @var{exp}, and continue to @var{kt}
+with zero values if the test evaluates to true.  Otherwise, in the false
+
+Only certain expressions are valid in a @var{$branch}.  Compiling a
+@code{$branch} avoids allocating space for the test variable, so the
+expression should be evaluatable without temporary values.  In practice
+this condition is true for @code{$primcall}s to @code{null?}, @code{=},
+and similar primitives that have corresponding @code{br-if-@var{foo}} VM
+operations; see the source code for full details.  When in doubt, bind
+the test expression to a variable, and reference the variable in the
+@code{$branch} expression.  The optimizer should inline the reference if
+possible.
 @end deftp
 
 @deftp {CPS Expression} $prompt escape? tag handler
@@ -741,32 +778,10 @@ names @var{names}, and then evaluate the sub-term @var{body}.
 @end deftp
 
 Variable names (the names in the @var{syms} of a @code{$kargs}) should
-be globally unique, and also disjoint from continuation labels.  To bind
-a value to a variable and then evaluate some term, you would continue
-with the value to a @code{$kargs} that declares one variable.  The bound
-value would then be available for use within the body of the
-@code{$kargs}.
-
-@deftp {CPS Continuation} $kif kt kf
-Receive one value.  If it is true for the purposes of Scheme, branch to
-the continuation labelled @var{kt}, passing no values; otherwise, branch
-to @var{kf}.
-@end deftp
-
-For internal reasons, only certain terms may continue to a @code{$kif}.
-Compiling @code{$kif} avoids allocating space for the test variable, so
-it needs to be preceded by expressions that can test-and-branch without
-temporary values.  In practice this condition is true for
-@code{$primcall}s to @code{null?}, @code{=}, and similar primitives that
-have corresponding @code{br-if-@var{foo}} VM operations; see the source
-code for full details.  When in doubt, bind the test expression to a
-variable, and continue to the @code{$kif} with a @code{$values}
-expression.  The optimizer should elide the @code{$values} if it is not
-needed.
-
-Calls out to other functions need to be wrapped in a @code{$kreceive}
-continuation in order to adapt the returned values to their uses in the
-calling function, if any.
+be unique among all other variable names.  To bind a value to a variable
+and then evaluate some term, you would continue with the value to a
+@code{$kargs} that declares one variable.  The bound value would then be
+available for use within the body of the @code{$kargs}.
 
 @deftp {CPS Continuation} $kreceive arity k
 Receive values on the stack.  Parse them according to @var{arity}, and
@@ -794,24 +809,29 @@ Note that all of these names with the exception of the @var{var}s in the
 Additionally, there are three specific kinds of continuations that can
 only be declared at function entries.
 
-@deftp {CPS Continuation} $kentry self tail clauses
-Declare a function entry.  @var{self} is a variable bound to the
-procedure being called, and which may be used for self-references.
+@deftp {CPS Continuation} $kfun src meta self tail clauses
+Declare a function entry.  @var{src} is the source information for the
+procedure declaration, and @var{meta} is the metadata alist as described
+above in Tree-IL's @code{<lambda>}.  @var{self} is a variable bound to
+the procedure being called, and which may be used for self-references.
 @var{tail} declares the @code{$cont} wrapping the @code{$ktail} for this
 function, corresponding to the function's tail continuation.
-@var{clauses} is a list of @code{$kclause} @code{$cont} instances.
+@var{clause} is the first @code{$kclause} @code{$cont} instance for the
+first @code{case-lambda} clause in the function, or otherwise @code{#f}.
 @end deftp
 
 @deftp {CPS Continuation} $ktail
 A tail continuation.
 @end deftp
 
-@deftp {CPS Continuation} $kclause arity cont
+@deftp {CPS Continuation} $kclause arity cont alternate
 A clause of a function with a given arity.  Applications of a function
 with a compatible set of actual arguments will continue to @var{cont}, a
-@code{$kargs} @code{$cont} instance representing the clause body.
+@code{$kargs} @code{$cont} instance representing the clause body.  If
+the arguments are incompatible, control proceeds to @var{alternate},
+which is a @code{$kclause} @code{$cont} for the next clause, or
+@code{#f} if there is no next clause.
 @end deftp
-
 
 @node Building CPS
 @subsubsection Building CPS
@@ -836,8 +856,8 @@ see the specifications below for full details.
 @deffnx {Scheme Syntax} build-cps-term ($letk (cont ...) term)
 @deffnx {Scheme Syntax} build-cps-term ($letrec names syms funs term)
 @deffnx {Scheme Syntax} build-cps-term ($continue k src exp)
+@deffnx {Scheme Syntax} build-cps-term ($program conts)
 @deffnx {Scheme Syntax} build-cps-exp ,val
-@deffnx {Scheme Syntax} build-cps-exp ($void)
 @deffnx {Scheme Syntax} build-cps-exp ($const val)
 @deffnx {Scheme Syntax} build-cps-exp ($prim name)
 @deffnx {Scheme Syntax} build-cps-exp ($fun src meta free body)

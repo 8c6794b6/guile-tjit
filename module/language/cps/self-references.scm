@@ -45,9 +45,6 @@
 
   (define (visit-term term)
     (rewrite-cps-term term
-      (($ $letrec names vars funs body)
-       ($letrec names vars (map visit-recursive-fun funs vars)
-         ,(visit-term body)))
       (($ $letk conts body)
        ($letk ,(map visit-cont conts)
          ,(visit-term body)))
@@ -59,6 +56,8 @@
       ((or ($ $const) ($ $prim)) ,exp)
       (($ $fun free body)
        ($fun free ,(resolve-self-references body env)))
+      (($ $rec names vars funs)
+       ($rec names vars (map visit-recursive-fun funs vars)))
       (($ $call proc args)
        ($call (subst proc) ,(map subst args)))
       (($ $callk k proc args)

@@ -50,14 +50,13 @@
         (($ $letk conts body)
          (for-each visit-cont conts)
          (visit-term body term-k term-args))
-        (($ $letrec names syms funs body)
-         (for-each visit-fun funs)
-         (visit-term body term-k term-args))
         (($ $continue k src ($ $values args))
          (when (and (equal? term-args args) (not (eq? k term-k)))
            (hashq-set! table term-k k)))
         (($ $continue k src (and fun ($ $fun)))
          (visit-fun fun))
+        (($ $continue k src ($ $rec names syms funs))
+         (for-each visit-fun funs))
         (($ $continue k src _)
          #f)))
     (define (visit-fun fun)
@@ -126,13 +125,12 @@
         (($ $letk conts body)
          ($letk ,(map (cut visit-cont <> scope) conts)
            ,(visit-term body scope)))
-        (($ $letrec names syms funs body)
-         ($letrec names syms (map visit-fun funs)
-           ,(visit-term body scope)))
         (($ $continue k src ($ $values args))
          ($continue (reduce-values k scope) src ($values args)))
         (($ $continue k src (and fun ($ $fun)))
          ($continue (reduce k scope) src ,(visit-fun fun)))
+        (($ $continue k src ($ $rec names syms funs))
+         ($continue k src ($rec names syms (map visit-fun funs))))
         (($ $continue k src ($ $const const))
          ,(let ((k (reduce k scope)))
             (or (reduce-const k src scope const)
@@ -168,9 +166,6 @@
         (($ $letk conts body)
          (for-each visit-cont conts)
          (visit-term body))
-        (($ $letrec names syms funs body)
-         (for-each visit-fun funs)
-         (visit-term body))
         (($ $continue k src ($ $values args))
          (match (lookup-cont k dfg)
            (($ $kargs names syms body)
@@ -188,6 +183,8 @@
            (_ #f)))
         (($ $continue k src (and fun ($ $fun)))
          (visit-fun fun))
+        (($ $continue k src ($ $rec names syms funs))
+         (for-each visit-fun funs))
         (($ $continue k src _)
          #f)))
     (define (visit-fun fun)
@@ -227,10 +224,6 @@
            (() (visit-term body))
            (conts (build-cps-term
                     ($letk ,conts ,(visit-term body))))))
-        (($ $letrec names syms funs body)
-         (build-cps-term
-           ($letrec names syms (map visit-fun funs)
-                    ,(visit-term body))))
         (($ $continue k src exp)
          (cond
           ((hashq-ref k-table k) => visit-term)
@@ -240,6 +233,8 @@
       (match exp
         ((or ($ $const) ($ $prim)) exp)
         (($ $fun) (visit-fun exp))
+        (($ $rec names syms funs)
+         (build-cps-exp ($rec names (map subst syms) (map visit-fun funs))))
         (($ $call proc args)
          (let ((args (map subst args)))
            (build-cps-exp ($call (subst proc) args))))
@@ -284,10 +279,17 @@
          (label ($kargs names vars ,(visit-term body label))))
         (_ (label ,cont))))
 
+    (define (visit-fun fun)
+      (rewrite-cps-exp fun
+        (($ $fun free body)
+         ($fun free ,(visit-fun-cont body)))))
+
     (define (visit-exp k src exp)
       (rewrite-cps-term exp
         (($ $fun free body)
-         ($continue k src ($fun free ,(visit-fun-cont body))))
+         ($continue k src ,(visit-fun exp)))
+        (($ $rec names syms funs)
+         ($continue k src ($rec names syms (map visit-fun funs))))
         (_
          ($continue k src ,exp))))
 
@@ -311,15 +313,6 @@
       (rewrite-cps-term term
         (($ $letk conts body)
          ,(visit-term body label))
-        (($ $letrec names syms funs body)
-         ($letrec names syms (let lp ((funs funs))
-                               (match funs
-                                 (() '())
-                                 ((($ $fun free body) . funs)
-                                  (cons (build-cps-exp
-                                          ($fun free ,(visit-fun-cont body)))
-                                        (lp funs)))))
-           ,(visit-term body label)))
         (($ $continue k src exp)
          ,(let ((conts (visit-dom-conts* (vector-ref doms label))))
             (if (null? conts)

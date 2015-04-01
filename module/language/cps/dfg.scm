@@ -566,32 +566,14 @@ body continuation in the prompt."
                     min-var max-var var-count)
        (let ((min-label (min* label min-label))
              (max-label (max label max-label)))
-         (define (visit-letrec body min-var max-var var-count)
-           (match body
-             (($ $letk conts body)
-              (visit-letrec body min-var max-var var-count))
-             (($ $letrec names vars funs body)
-              (visit-letrec body
-                            (cond (min-var (fold min min-var vars))
-                                  ((pair? vars) (fold min (car vars) (cdr vars)))
-                                  (else min-var))
-                            (fold max max-var vars)
-                            (+ var-count (length vars))))
-             (($ $continue) (values min-var max-var var-count))))
          (match cont
            (($ $kargs names vars body)
-            (call-with-values
-                (lambda ()
-                  (if global?
-                      (visit-letrec body min-var max-var var-count)
-                      (values min-var max-var var-count)))
-              (lambda (min-var max-var var-count)
-                (values min-label max-label (1+ label-count)
-                        (cond (min-var (fold min min-var vars))
-                              ((pair? vars) (fold min (car vars) (cdr vars)))
-                              (else min-var))
-                        (fold max max-var vars)
-                        (+ var-count (length vars))))))
+            (values min-label max-label (1+ label-count)
+                    (cond (min-var (fold min min-var vars))
+                          ((pair? vars) (fold min (car vars) (cdr vars)))
+                          (else min-var))
+                    (fold max max-var vars)
+                    (+ var-count (length vars))))
            (($ $kfun src meta self)
             (values min-label max-label (1+ label-count)
                     (min* self min-var) (max self max-var) (1+ var-count)))
@@ -653,16 +635,6 @@ body continuation in the prompt."
                          cont k)
              (for-each/2 visit-cont cont k)
              (visit-term body label))
-            (($ $letrec names syms funs body)
-             (unless global?
-               (error "$letrec should not be present when building a local DFG"))
-             (for-each (cut add-def! <> label) syms)
-             (for-each (lambda (fun)
-                         (match fun
-                           (($ $fun free body)
-                            (visit-fun body))))
-                       funs)
-             (visit-term body label))
             (($ $continue k src exp)
              (link-blocks! label k)
              (visit-exp exp label))))
@@ -690,7 +662,15 @@ body continuation in the prompt."
              (link-blocks! label handler))
             (($ $fun free body)
              (when global?
-               (visit-fun body)))))
+               (visit-fun body)))
+            (($ $rec names syms funs)
+             (unless global?
+               (error "$rec should not be present when building a local DFG"))
+             (for-each (lambda (fun)
+                         (match fun
+                           (($ $fun free body)
+                            (visit-fun body))))
+                       funs))))
 
         (define (visit-clause clause kfun)
           (match clause
@@ -769,6 +749,7 @@ body continuation in the prompt."
                     (($ $const val) (format port "const ~@y" val))
                     (($ $prim name) (format port "prim ~a" name))
                     (($ $fun free ($ $cont kbody)) (format port "fun k~a" kbody))
+                    (($ $rec names syms funs) (format port "rec~{ v~a~}" syms))
                     (($ $closure label nfree) (format port "closure k~a (~a free)" label nfree))
                     (($ $call proc args) (format port "call~{ v~a~}" (cons proc args)))
                     (($ $callk k proc args) (format port "callk k~a~{ v~a~}" k (cons proc args)))
@@ -820,7 +801,6 @@ body continuation in the prompt."
   (match term
     (($ $kargs names syms body) (find-call body))
     (($ $letk conts body) (find-call body))
-    (($ $letrec names syms funs body) (find-call body))
     (($ $continue) term)))
 
 (define (call-expression call)

@@ -1,6 +1,6 @@
 ;;; Continuation-passing style (CPS) intermediate language (IL)
 
-;; Copyright (C) 2013, 2014 Free Software Foundation, Inc.
+;; Copyright (C) 2013, 2014, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -52,9 +52,6 @@
       (($ $letk conts body)
        ($letk ,(map visit-cont conts)
          ,(visit-term body)))
-      (($ $letrec names syms funs body)
-       ($letrec names syms (map visit-fun funs)
-         ,(visit-term body)))
       (($ $continue k src ($ $primcall 'values vals))
        ,(rewrite-cps-term (vector-ref conts k)
           (($ $ktail)
@@ -95,6 +92,8 @@
                     ($continue k src ($values vals))))))))
       (($ $continue k src (and fun ($ $fun)))
        ($continue k src ,(visit-fun fun)))
+      (($ $continue k src ($ $rec names syms funs))
+       ($continue k src ($rec names syms (map visit-fun funs))))
       (($ $continue)
        ,term)))
   (define (visit-fun fun)

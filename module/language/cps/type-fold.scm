@@ -1,5 +1,5 @@
 ;;; Abstract constant folding on CPS
-;;; Copyright (C) 2014 Free Software Foundation, Inc.
+;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software: you can redistribute it and/or modify
 ;;; it under the terms of the GNU Lesser General Public License as
@@ -356,8 +356,6 @@
         (($ $letk conts body)
          (for-each visit-cont conts)
          (visit-term body label))
-        (($ $letrec _ _ _ body)
-         (visit-term body label))
         (($ $continue k src ($ $primcall name args))
          ;; We might be able to fold primcalls that define a value.
          (match (lookup-cont k dfg)
@@ -402,11 +400,10 @@
              (($ $letk conts body)
               ($letk ,(map visit-cont conts)
                 ,(visit-term body label)))
-             (($ $letrec names vars funs body)
-              ($letrec names vars (map visit-fun funs)
-                ,(visit-term body label)))
              (($ $continue k src (and fun ($ $fun)))
               ($continue k src ,(visit-fun fun)))
+             (($ $continue k src ($ $rec names vars funs))
+              ($continue k src ($rec names vars (map visit-fun funs))))
              (($ $continue k src (and primcall ($ $primcall name args)))
               ,(cond
                 ((bitvector-ref folded? (label->idx label))

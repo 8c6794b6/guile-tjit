@@ -40,13 +40,6 @@
       (rewrite-cps-term term
         (($ $letk conts body)
          ($letk ,(map visit-cont conts) ,(visit-term body)))
-        (($ $letrec names syms funs body)
-         ($letrec names syms (map (lambda (fun)
-                                    (rewrite-cps-exp fun
-                                      (($ $fun free body)
-                                       ($fun free ,(fix-arities* body dfg)))))
-                                  funs)
-           ,(visit-term body)))
         (($ $continue k src exp)
          ,(visit-exp k src exp))))
 
@@ -143,6 +136,14 @@
         (($ $fun free body)
          ,(adapt-exp 1 k src (build-cps-exp
                                ($fun free ,(fix-arities* body dfg)))))
+        (($ $rec names syms funs)
+         ;; Assume $rec expressions have the correct arity.
+         ($continue k src
+           ($rec names syms (map (lambda (fun)
+                                   (rewrite-cps-exp fun
+                                     (($ $fun free body)
+                                      ($fun free ,(fix-arities* body dfg)))))
+                                 funs))))
         ((or ($ $call) ($ $callk))
          ;; In general, calls have unknown return arity.  For that
          ;; reason every non-tail call has a $kreceive continuation to

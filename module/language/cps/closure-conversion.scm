@@ -23,15 +23,16 @@
 ;;; make-closure primcalls, and free variables are referenced through
 ;;; the closure.
 ;;;
-;;; Closure conversion also removes any $letrec forms that contification
-;;; did not handle.  See (language cps) for a further discussion of
-;;; $letrec.
+;;; Closure conversion also removes any $rec expressions that
+;;; contification did not handle.  See (language cps) for a further
+;;; discussion of $rec.
 ;;;
 ;;; Code:
 
 (define-module (language cps closure-conversion)
   #:use-module (ice-9 match)
   #:use-module ((srfi srfi-1) #:select (fold
+                                        filter-map
                                         lset-union lset-difference
                                         list-index))
   #:use-module (srfi srfi-9)
@@ -48,7 +49,8 @@
   (let ((bound-vars (make-hash-table))
         (free-vars (make-hash-table))
         (named-funs (make-hash-table))
-        (well-known-vars (make-bitvector (var-counter) #t)))
+        (well-known-vars (make-bitvector (var-counter) #t))
+        (letrec-conts (make-hash-table)))
     (define (add-named-fun! var cont)
       (hashq-set! named-funs var cont)
       (match cont
@@ -97,13 +99,6 @@
                  (union (visit-cont cont bound) free))
                (visit-term body bound)
                conts))
-        (($ $letrec names vars (($ $fun () cont) ...) body)
-         (let ((bound (append vars bound)))
-           (for-each add-named-fun! vars cont)
-           (fold (lambda (cont free)
-                   (union (visit-cont cont bound) free))
-                 (visit-term body bound)
-                 cont)))
         (($ $continue k src ($ $fun () body))
          (match (lookup-predecessors k dfg)
            ((_) (match (lookup-cont k dfg)
@@ -111,6 +106,14 @@
                    (add-named-fun! var body))))
            (_ #f))
          (visit-cont body bound))
+        (($ $continue k src ($ $rec names vars (($ $fun () cont) ...)))
+         (hashq-set! letrec-conts k (lookup-cont k dfg))
+         (let ((bound (append vars bound)))
+           (for-each add-named-fun! vars cont)
+           (fold (lambda (cont free)
+                   (union (visit-cont cont bound) free))
+                 '()
+                 cont)))
         (($ $continue k src exp)
          (visit-exp exp bound))))
     (define (visit-exp exp bound)
@@ -138,7 +141,8 @@
     (let ((free (visit-cont exp '())))
       (unless (null? free)
         (error "Expected no free vars in toplevel thunk" free exp))
-      (values bound-vars free-vars named-funs (compute-well-known-labels)))))
+      (values bound-vars free-vars named-funs (compute-well-known-labels)
+              letrec-conts))))
 
 (define (prune-free-vars free-vars named-funs well-known var-aliases)
   (define (well-known? label)
@@ -229,7 +233,8 @@
                             (vector-set! var-aliases var alias))))))
                    named-funs)))
 
-(define (convert-one bound label fun free-vars named-funs well-known aliases)
+(define (convert-one bound label fun free-vars named-funs well-known aliases
+                     letrec-conts)
   (define (well-known? label)
     (bitvector-ref well-known label))
 
@@ -422,31 +427,18 @@ bound to @var{var}, and continue with @var{body}."
          (label ($kclause ,arity ,(visit-cont body)
                           ,(and alternate (visit-cont alternate)))))
         (($ $cont) ,cont)))
+    (define (maybe-visit-cont cont)
+      (match cont
+        ;; We will inline the $kargs that binds letrec vars in place of
+        ;; the $rec expression.
+        (($ $cont label)
+         (and (not (hashq-ref letrec-conts label))
+              (visit-cont cont)))))
     (define (visit-term term)
       (match term
         (($ $letk conts body)
          (build-cps-term
-           ($letk ,(map visit-cont conts) ,(visit-term body))))
-
-        ;; Remove letrec.
-        (($ $letrec names vars funs body)
-         (let lp ((in (map list names vars funs))
-                  (bindings (lambda (body) body))
-                  (body (visit-term body)))
-           (match in
-             (() (bindings body))
-             (((name var ($ $fun ()
-                            (and fun-body
-                                 ($ $cont kfun ($ $kfun src))))) . in)
-              (let ((fun-free (hashq-ref free-vars kfun)))
-                (lp in
-                    (lambda (body)
-                      (allocate-closure
-                       src name var kfun (well-known? kfun) fun-free
-                       (bindings body)))
-                    (init-closure
-                     src var (well-known? kfun) fun-free
-                     body)))))))
+           ($letk ,(filter-map maybe-visit-cont conts) ,(visit-term body))))
 
         (($ $continue k src (or ($ $const) ($ $prim)))
          term)
@@ -474,6 +466,31 @@ bound to @var{var}, and continue with @var{body}."
                  (init-closure
                   src var (well-known? kfun) fun-free
                   (build-cps-term ($continue k src ($values (var)))))))))))
+
+        ;; Remove letrec.
+        (($ $continue k src ($ $rec names vars funs))
+         (let lp ((in (map list names vars funs))
+                  (bindings (lambda (body) body))
+                  (body (match (hashq-ref letrec-conts k)
+                          ;; Remove these letrec bindings, as we're
+                          ;; going to inline the body after building
+                          ;; each closure separately.
+                          (($ $kargs names syms body)
+                           (visit-term body)))))
+           (match in
+             (() (bindings body))
+             (((name var ($ $fun ()
+                            (and fun-body
+                                 ($ $cont kfun ($ $kfun src))))) . in)
+              (let ((fun-free (hashq-ref free-vars kfun)))
+                (lp in
+                    (lambda (body)
+                      (allocate-closure
+                       src name var kfun (well-known? kfun) fun-free
+                       (bindings body)))
+                    (init-closure
+                     src var (well-known? kfun) fun-free
+                     body)))))))
 
         (($ $continue k src ($ $call proc args))
          (match (hashq-ref named-funs proc)
@@ -534,7 +551,7 @@ and allocate and initialize flat closures."
   (let ((dfg (compute-dfg fun)))
     (with-fresh-name-state-from-dfg dfg
       (call-with-values (lambda () (analyze-closures fun dfg))
-        (lambda (bound-vars free-vars named-funs well-known)
+        (lambda (bound-vars free-vars named-funs well-known letrec-conts)
           (let ((labels (sort (hash-map->list (lambda (k v) k) free-vars) <))
                 (aliases (make-vector (var-counter) #f)))
             (prune-free-vars free-vars named-funs well-known aliases)
@@ -543,5 +560,6 @@ and allocate and initialize flat closures."
                ,(map (lambda (label)
                        (convert-one (hashq-ref bound-vars label) label
                                     (lookup-cont label dfg)
-                                    free-vars named-funs well-known aliases))
+                                    free-vars named-funs well-known aliases
+                                    letrec-conts))
                      labels)))))))))

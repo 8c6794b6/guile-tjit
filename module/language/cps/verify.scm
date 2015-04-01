@@ -143,6 +143,13 @@
        #t)
       (($ $fun)
        (visit-fun exp k-env v-env))
+      (($ $rec (name ...) (sym ...) (fun ...))
+       (unless (= (length name) (length sym) (length fun))
+         (error "letrec syms, names, and funs not same length" term))
+       ;; FIXME: syms added in two places (here in $rec versus also in
+       ;; target $kargs)
+       (let ((v-env (add-vars sym v-env)))
+         (for-each (cut visit-fun <> k-env v-env) fun)))
       (($ $call proc (arg ...))
        (check-var proc v-env)
        (for-each (cut check-var <> v-env) arg))
@@ -175,13 +182,6 @@
       (($ $letk (($ $cont k cont) ...) body)
        (let ((k-env (add-labels k k-env)))
          (for-each (cut visit-cont-body <> k-env v-env) cont)
-         (visit-term body k-env v-env)))
-
-      (($ $letrec (name ...) (sym ...) (fun ...) body)
-       (unless (= (length name) (length sym) (length fun))
-         (error "letrec syms, names, and funs not same length" term))
-       (let ((v-env (add-vars sym v-env)))
-         (for-each (cut visit-fun <> k-env v-env) fun)
          (visit-term body k-env v-env)))
 
       (($ $continue k src exp)

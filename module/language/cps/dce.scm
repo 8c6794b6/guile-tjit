@@ -190,14 +190,6 @@
                   (let lp ((body body))
                     (match body
                       (($ $letk conts body) (lp body))
-                      (($ $letrec names syms funs body)
-                       (lp body)
-                       (for-each (lambda (sym fun)
-                                   (when (value-live? sym)
-                                     (match fun
-                                       (($ $fun free body)
-                                        (visit-fun body)))))
-                                 syms funs))
                       (($ $continue k src exp)
                        (unless (bitvector-ref live-conts n)
                          (when (visit-grey-exp n exp)
@@ -209,6 +201,13 @@
                             #f)
                            (($ $fun free body)
                             (visit-fun body))
+                           (($ $rec names syms funs)
+                            (for-each (lambda (sym fun)
+                                        (when (value-live? sym)
+                                          (match fun
+                                            (($ $fun free body)
+                                             (visit-fun body)))))
+                                      syms funs))
                            (($ $prompt escape? tag handler)
                             (mark-live! tag))
                            (($ $call proc args)
@@ -309,22 +308,6 @@
               (match (visit-conts conts)
                 (() body)
                 (conts (build-cps-term ($letk ,conts ,body))))))
-           (($ $letrec names syms funs body)
-            (let ((body (visit-term body term-k)))
-              (match (filter-map
-                      (lambda (name sym fun)
-                        (and (value-live? sym)
-                             (match fun
-                               (($ $fun free body)
-                                (list name
-                                      sym
-                                      (build-cps-exp
-                                        ($fun free ,(visit-fun body))))))))
-                      names syms funs)
-                (() body)
-                (((names syms funs) ...)
-                 (build-cps-term
-                   ($letrec names syms funs ,body))))))
            (($ $continue k src ($ $values args))
             (match (vector-ref defs (label->idx term-k))
               (#f term)
@@ -336,19 +319,36 @@
                     ($continue k src ($values args)))))))
            (($ $continue k src exp)
             (if (bitvector-ref live-conts (label->idx term-k))
-                (rewrite-cps-term exp
+                (match exp
                   (($ $fun free body)
-                   ($continue k src ($fun free ,(visit-fun body))))
+                   (build-cps-term
+                     ($continue k src ($fun free ,(visit-fun body)))))
+                  (($ $rec names syms funs)
+                   (rewrite-cps-term
+                       (filter-map
+                        (lambda (name sym fun)
+                          (and (value-live? sym)
+                               (match fun
+                                 (($ $fun free body)
+                                  (list name
+                                        sym
+                                        (build-cps-exp
+                                          ($fun free ,(visit-fun body))))))))
+                        names syms funs)
+                     (()
+                      ($continue k src ($values ())))
+                     (((names syms funs) ...)
+                      ($continue k src ($rec names syms funs)))))
                   (_
-                   ,(match (vector-ref defs (label->idx term-k))
-                      ((or #f ((? value-live?) ...))
-                       (build-cps-term
-                         ($continue k src ,exp)))
-                      (syms
-                       (let-fresh (adapt) ()
-                         (build-cps-term
-                           ($letk (,(make-adaptor adapt k syms))
-                             ($continue adapt src ,exp))))))))
+                   (match (vector-ref defs (label->idx term-k))
+                     ((or #f ((? value-live?) ...))
+                      (build-cps-term
+                        ($continue k src ,exp)))
+                     (syms
+                      (let-fresh (adapt) ()
+                        (build-cps-term
+                          ($letk (,(make-adaptor adapt k syms))
+                            ($continue adapt src ,exp))))))))
                 (build-cps-term ($continue k src ($values ())))))))
        (visit-cont fun))))
   (visit-fun fun))
