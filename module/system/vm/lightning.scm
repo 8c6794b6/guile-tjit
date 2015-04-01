@@ -1088,7 +1088,21 @@ argument in VM operation."
     (return-value-list st 0 r0 r1 r2)
     (return-jmp st)))
 
-;;; XXX: foreign-call
+(define-vm-op (foreign-call st cif-idx ptr-idx)
+  (local-ref st 0 r0)
+  (scm-program-free-variable-ref r1 r0 cif-idx)
+  (scm-program-free-variable-ref r2 r0 ptr-idx)
+  (jit-addi r0 (jit-fp) (stored-ref st 1))
+  (jit-prepare)
+  (jit-pushargr reg-thread)
+  (jit-pushargr r1)
+  (jit-pushargr r2)
+  (jit-pushargr r0)
+  (call-c "scm_do_foreign_call")
+  (jit-retval reg-retval)
+  (jit-movi reg-nretvals (imm 1))
+  (return-jmp st))
+
 ;;; XXX: continuation-call
 ;;; XXX: compose-continuation
 

@@ -81,6 +81,13 @@ scm_do_smob_apply_trampoline (SCM smob)
   return SCM_SMOB_DESCRIPTOR (smob).apply_trampoline;
 }
 
+SCM
+scm_do_foreign_call (scm_i_thread *thread, SCM cif, SCM pointer,
+                     const SCM *loc)
+{
+  return scm_i_foreign_call (scm_inline_cons (thread, cif, pointer), loc);
+}
+
 void
 scm_do_dynstack_push_fluid (scm_i_thread *thread, SCM fluid, SCM value)
 {

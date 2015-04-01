@@ -103,6 +103,11 @@
   ;; Last IP of program.
   (last-ip entries-last-ip))
 
+(define (foreign-procedure? obj)
+  (and (procedure? obj)
+       (< 0 (logand #x2000 (pointer-address (dereference-pointer
+                                             (scm->pointer obj)))))))
+
 (define disassemble-one
   (@@ (system vm disassembler) disassemble-one))
 
@@ -147,6 +152,7 @@
                  call-with-current-continuation)))
     (let ((ops (cond
                 ((or (primitive? program-or-addr)
+                     (foreign-procedure? program-or-addr)
                      (memq (ensure-program-addr program-or-addr)
                            builtin-addrs))
                  (fold-primitive-code entries-one '() program-or-addr))
