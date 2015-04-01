@@ -57,7 +57,7 @@
 
 ;; State used during compilation.
 (define-record-type <lightning>
-  (%make-lightning trace nodes ip labels pc fp args indent)
+  (%make-lightning trace nodes ip labels pc fp)
   lightning?
 
   ;; State from bytecode trace.
@@ -76,23 +76,16 @@
   (pc lightning-pc)
 
   ;; Frame pointer
-  (fp lightning-fp)
+  (fp lightning-fp))
 
-  ;; Arguments.
-  (args lightning-args)
-
-  ;; Indentation level for debug message.
-  (indent lightning-indent))
-
-(define* (make-lightning trace nodes fp args pc
-                         indent
+(define* (make-lightning trace nodes fp pc
                          #:optional
                          (ip 0)
                          (labels (make-hash-table)))
   (for-each (lambda (labeled-ip)
               (hashq-set! labels labeled-ip (jit-forward)))
             (trace-labeled-ips trace))
-  (%make-lightning trace nodes ip labels pc fp args indent))
+  (%make-lightning trace nodes ip labels pc fp))
 
 (define jit-code-guardian (make-guardian))
 
@@ -206,6 +199,12 @@
 (define-syntax-rule (scm-cell-type dst src)
   (scm-cell-object dst src 0))
 
+(define (scm-car dst obj)
+  (scm-cell-object dst obj 0))
+
+(define (scm-cdr dst obj)
+  (scm-cell-object dst obj 1))
+
 (define-syntax-rule (scm-program-free-variable-ref dst src index)
   (scm-cell-object dst src (+ index 3)))
 
@@ -310,6 +309,16 @@
 (define-syntax-rule (scm-not-smobp tc7)
   (jit-bnei tc7 (imm tc7-smob)))
 
+(define *values-vtable
+  (dereference-pointer
+   (dynamic-pointer "scm_values_vtable" (dynamic-link))))
+
+(define-syntax-rule (scm-valuesp vt)
+  (jit-beqi vt *values-vtable))
+
+(define-syntax-rule (scm-not-valuesp vt)
+  (jit-bnei vt *values-vtable))
+
 (define-syntax-rule (scm-is-false obj)
   (jit-beqi obj (scm->pointer #f)))
 
@@ -318,6 +327,9 @@
 
 (define-syntax-rule (scm-is-null obj)
   (jit-beqi obj (scm->pointer '())))
+
+(define-syntax-rule (scm-is-not-null obj)
+  (jit-bnei obj (scm->pointer '())))
 
 (define-syntax-rule (scm-is-eqi obj val)
   (jit-beqi obj (imm val)))
@@ -525,6 +537,38 @@ argument in VM operation."
 
        (jit-link l3)))))
 
+(define-syntax-rule (return-value-list st proc tmp1 tmp2 tmp3)
+  (let ((lexit (jit-forward))
+        (lshuffle (jit-forward)))
+
+    (jit-movi reg-nretvals (imm 1))
+    (jump (scm-imp reg-retval) lexit)
+
+    (scm-cell-type tmp1 reg-retval)
+    (scm-typ3 tmp2 tmp1)
+    (jump (scm-not-structp tmp2) lexit)
+
+    (jit-subi tmp2 tmp1 (imm tc3-struct))
+    (scm-cell-object tmp2 tmp2 scm-vtable-index-self)
+    (jump (scm-not-valuesp tmp2) lexit)
+
+    (scm-struct-slots tmp1 reg-retval)
+    (scm-cell-object tmp1 tmp1 0)
+    (scm-car reg-retval tmp1)
+    (local-set! st (+ proc 1) reg-retval)
+    (jit-movi tmp2 (stored-ref st (+ proc 1)))
+
+    (jit-link lshuffle)
+    (scm-car tmp3 tmp1)
+    (jit-stxr tmp2 (jit-fp) tmp3)
+    (jit-subi tmp2 tmp2 (imm (sizeof '*)))
+    (jit-addi reg-nretvals reg-nretvals (imm 1))
+    (scm-cdr tmp1 tmp1)
+    (jump (scm-is-not-null tmp1) lshuffle)
+
+    (jit-link lexit)))
+
+;;; XXX: Compile the callee instead of calling `%call-lighting'.
 (define-syntax-rule (call-runtime st proc nlocals)
   (begin
     (jit-prepare)
@@ -539,9 +583,8 @@ argument in VM operation."
     (jit-pushargr (local-ref st proc))
     (jit-pushargr r1)
     (jit-calli %call-lightning)
-
-    ;; XXX: Add test for SCM_VALUESP.
-    (jit-retval reg-retval)))
+    (jit-retval reg-retval)
+    (return-value-list st proc r0 r1 r2)))
 
 (define-syntax compile-callee
   (syntax-rules (compile-lightning with-frame)
@@ -565,9 +608,7 @@ argument in VM operation."
          (let ((st2 (make-lightning trace
                                     (lightning-nodes st1)
                                     (lightning-fp st1)
-                                    #f
-                                    (ensure-program-addr callee-addr)
-                                    (+ 2 (lightning-indent st1)))))
+                                    (ensure-program-addr callee-addr))))
            body)))
       (else
        (debug 1 ";;; Trace failed, calling 0x~x at runtime.~%" callee-addr)
@@ -972,7 +1013,6 @@ argument in VM operation."
 ;;; ---------------
 
 ;;; XXX: Any way to ensure enough space allocated for nlocals?
-
 (define-vm-op (call st proc nlocals)
   (vm-handle-interrupts st)
   (jit-movi reg-nargs (imm nlocals))
@@ -1045,19 +1085,14 @@ argument in VM operation."
     (scm-pointer-value r1 r0)
     (jit-callr r1)
     (jit-retval reg-retval)
-
-    ;; XXX: Add test for SCM_VALUESP.
-    ;; (local-set! st 1 reg-retval)
-
-    (jit-movi reg-nretvals (imm 1))
+    (return-value-list st 0 r0 r1 r2)
     (return-jmp st)))
 
 ;;; XXX: foreign-call
 ;;; XXX: continuation-call
 ;;; XXX: compose-continuation
 
-;;; XXX: Calling anonymous procedure second time not working with
-;;; byte-compiled code.
+;;; XXX: Compile the callee instead of calling `%call-lightning'.
 (define-vm-op (tail-apply st)
   (let ((l1 (jit-forward))
         (l2 (jit-forward))
@@ -1096,9 +1131,8 @@ argument in VM operation."
     (jit-pushargr (local-ref st 1 r1))
     (jit-pushargr r0)
     (jit-calli %call-lightning)
-    ;; XXX: Add test for SCM_VALUESP.
     (jit-retval reg-retval)
-    (jit-movi reg-nretvals (imm 1))
+    (return-value-list st 0 r0 r1 r2)
     (return-jmp st)
 
     ;; Has jit compiled code.
@@ -1119,9 +1153,9 @@ argument in VM operation."
     ;; Expand list contents to local.
     (jit-link l5)
     (jump (scm-is-null r0) l6)
-    (scm-cell-object f0 r0 0)
+    (scm-car f0 r0)
     (jit-stxr r1 (jit-fp) f0)
-    (scm-cell-object r0 r0 1)
+    (scm-cdr r0 r0)
     (jit-subi r1 r1 (imm (sizeof '*)))
     (jit-addi reg-nargs reg-nargs (imm 1))
     (jump l5)
@@ -1402,9 +1436,7 @@ argument in VM operation."
              (lightning (make-lightning trace
                                         (lightning-nodes st)
                                         (lightning-fp st)
-                                        #f
-                                        (offset-addr st offset)
-                                        0)))
+                                        (offset-addr st offset))))
         (jit-patch closure-addr)
         (compile-lightning lightning (jit-forward))))
 
@@ -1702,7 +1734,7 @@ argument in VM operation."
 (define-vm-op (cdr st dst src)
   (local-ref st src r0)
   (validate-pair r0 r1 *cdr-string 1)
-  (scm-cell-object r0 r0 1)
+  (scm-cdr r0 r0)
   (local-set! st dst r0))
 
 (define-vm-op (set-car! st pair car)
@@ -2128,14 +2160,14 @@ lightning, with ENTRY as lightning's node to itself."
 
 (define (call-lightning proc . args)
   "Compile PROC with lightning, and run with ARGS."
-  (c-call-lightning (thread-i-data (current-thread)) proc args))
+  (pointer->scm
+   (c-call-lightning (thread-i-data (current-thread)) proc args)))
 
 (define %call-lightning
   (let ((f (lambda (thread proc args)
-             (scm->pointer
-              (c-call-lightning thread
-                                (pointer->scm proc)
-                                (pointer->scm args))))))
+             (c-call-lightning thread
+                               (pointer->scm proc)
+                               (pointer->scm args)))))
     (procedure->pointer '* f '(* * *))))
 
 (define-syntax-rule (with-jit-state . expr)
@@ -2145,8 +2177,6 @@ lightning, with ENTRY as lightning's node to itself."
         (lambda vals
           (jit-destroy-state)
           (apply values vals)))))
-
-
 
 (define (c-call-lightning thread proc args)
   "Compile PROC with lightning and run with ARGS, within THREAD."
@@ -2278,7 +2308,7 @@ lightning, with ENTRY as lightning's node to itself."
            (when (and verbosity (<= 3 verbosity))
              (jit-print)
              (jit-clear-state)))
-         (pointer->scm (thunk))))))
+         (thunk)))))
    ((program->trace proc)
     =>
     (lambda (trace)
@@ -2292,9 +2322,7 @@ lightning, with ENTRY as lightning's node to itself."
               (lightning (make-lightning trace
                                          (make-hash-table)
                                          fp0
-                                         args
-                                         (ensure-program-addr proc)
-                                         0))
+                                         (ensure-program-addr proc)))
               (return-address (jit-movi r1 (imm 0))))
          (vm-prolog r1)
          (compile-lightning lightning entry)
@@ -2331,7 +2359,7 @@ lightning, with ENTRY as lightning's node to itself."
            (debug 1 ";;; set jit compiled code of ~a to ~a~%"
                   proc (jit-address entry))
 
-           (pointer->scm (thunk)))))))
+           (thunk))))))
    (else
     (debug 0 ";;; Trace failed, interpreting: ~a~%" (cons proc args))
     (let ((engine (vm-engine)))
@@ -2354,7 +2382,8 @@ lightning, with ENTRY as lightning's node to itself."
                      (lp (- n 1)
                          (cons (addr->scm (+ fp (* n (sizeof '*))))
                                acc))))))
-    (c-call-lightning (make-pointer thread) (addr->scm fp) args)))
+    (pointer->scm
+     (c-call-lightning (make-pointer thread) (addr->scm fp) args))))
 
 
 ;;;

@@ -173,7 +173,6 @@
 (define (sum-and-product x y)
   (values (+ x y) (* x y)))
 
-(test-skip 1)
 (define-test (call-sum-and-product x y) (12 34)
   (call-with-values
       (lambda ()
@@ -181,7 +180,6 @@
     (lambda (a b)
       (cons a b))))
 
-(test-skip 1)
 (define-test (call-sum-and-product-again x y) (12 34)
   (call-with-values
       (lambda ()
@@ -1015,7 +1013,7 @@
 ;;; Procedures from module (guile)
 ;;;
 
-(define-test (t-macroexpand expr) ('(+ 1 2 3))
+(define-test (t-macroexpand-1 expr) ('(+ 1 2 3))
   (macroexpand expr))
 
 (define-test (t-format-1 str arg1 arg2) ("~x is ~a~%" 100 #f)
