@@ -40,6 +40,7 @@
             intmap-ref
             intmap-next
             intmap-prev
+            intmap-fold
             intmap-union
             intmap-intersect))
 
@@ -232,6 +233,33 @@
        (and (<= 0 i)
             (let ((i (visit-node root shift i)))
               (and i (+ min i))))))))
+
+(define (intmap-fold f map seed)
+  (define (visit-branch node shift min seed)
+    (let ((shift (- shift *branch-bits*)))
+      (if (zero? shift)
+          (let lp ((i 0) (seed seed))
+            (if (< i *branch-size*)
+                (let ((elt (vector-ref node i)))
+                  (lp (1+ i)
+                      (if elt
+                          (f (+ i min) elt seed)
+                          seed)))
+                seed))
+          (let lp ((i 0) (seed seed))
+            (if (< i *branch-size*)
+                (let ((elt (vector-ref node i)))
+                  (lp (1+ i)
+                      (if elt
+                          (visit-branch elt shift (+ min (ash i shift)) seed)
+                          seed)))
+                seed)))))
+  (match map
+    (($ <intmap> min shift root)
+     (cond
+      ((not root) seed)
+      ((zero? shift) (f min root seed))
+      (else (visit-branch root shift min seed))))))
 
 (define* (intmap-union a b #:optional (meet meet-error))
   ;; Union A and B from index I; the result will be fresh.
