@@ -30,7 +30,11 @@
   #:use-module (ice-9 match)
   #:export (empty-intset
             intset?
+            transient-intset?
+            persistent-intset
+            transient-intset
             intset-add
+            intset-add!
             intset-remove
             intset-ref
             intset-next
@@ -64,10 +68,20 @@
  ((eqv? (target-word-size) 8)
   (define-inline *leaf-bits* 5)))
 
+;; FIXME: This should make an actual atomic reference.
+(define-inlinable (make-atomic-reference value)
+  (list value))
+(define-inlinable (get-atomic-reference reference)
+  (car reference))
+(define-inlinable (set-atomic-reference! reference value)
+  (set-car! reference value))
+
 (define-inline *leaf-size* (ash 1 *leaf-bits*))
 (define-inline *leaf-mask* (1- *leaf-size*))
 (define-inline *branch-bits* 3)
 (define-inline *branch-size* (ash 1 *branch-bits*))
+(define-inline *branch-size-with-edit* (1+ *branch-size*))
+(define-inline *edit-index* *branch-size*)
 (define-inline *branch-mask* (1- *branch-size*))
 
 (define-record-type <intset>
@@ -76,6 +90,14 @@
   (min intset-min)
   (shift intset-shift)
   (root intset-root))
+
+(define-record-type <transient-intset>
+  (make-transient-intset min shift root edit)
+  transient-intset?
+  (min transient-intset-min set-transient-intset-min!)
+  (shift transient-intset-shift set-transient-intset-shift!)
+  (root transient-intset-root set-transient-intset-root!)
+  (edit transient-intset-edit set-transient-intset-edit!))
 
 (define (new-leaf) 0)
 (define-inlinable (clone-leaf-and-set leaf i val)
@@ -89,13 +111,23 @@
 (define (leaf-empty? leaf)
   (zero? leaf))
 
-(define (new-branch)
-  (make-vector *branch-size* #f))
+(define-inlinable (new-branch edit)
+  (let ((vec (make-vector *branch-size-with-edit* #f)))
+    (when edit (vector-set! vec *edit-index* edit))
+    vec))
 (define (clone-branch-and-set branch i elt)
-  (let ((new (new-branch)))
+  (let ((new (new-branch #f)))
     (when branch (vector-move-left! branch 0 *branch-size* new 0))
     (vector-set! new i elt)
     new))
+(define-inlinable (assert-readable! root-edit)
+  (unless (eq? (get-atomic-reference root-edit) (current-thread))
+    (error "Transient intset owned by another thread" root-edit)))
+(define-inlinable (writable-branch branch root-edit)
+  (let ((edit (vector-ref branch *edit-index*)))
+    (if (eq? root-edit edit)
+        branch
+        (clone-branch-and-set branch *edit-index* root-edit))))
 (define (branch-empty? branch)
   (let lp ((i 0))
     (or (= i *branch-size*)
@@ -135,6 +167,91 @@
                              (vector-ref root elt))))
        ;; Shouldn't be reached...
        (else empty-intset))))))
+
+(define* (transient-intset #:optional (source empty-intset))
+  (match source
+    (($ <transient-intset> min shift root edit)
+     (assert-readable! edit)
+     source)
+    (($ <intset> min shift root)
+     (let ((edit (make-atomic-reference (current-thread))))
+       (make-transient-intset min shift root edit)))))
+
+(define* (persistent-intset #:optional (source empty-intset))
+  (match source
+    (($ <transient-intset> min shift root edit)
+     (assert-readable! edit)
+     ;; Make a fresh reference, causing any further operations on this
+     ;; transient to clone its root afresh.
+     (set-transient-intset-edit! source
+                                 (make-atomic-reference (current-thread)))
+     ;; Clear the reference to the current thread, causing our edited
+     ;; data structures to be persistent again.
+     (set-atomic-reference! edit #f)
+     (if min
+         (make-intset min shift root)
+         empty-intset))
+    (($ <intset>)
+     source)))
+
+(define (intset-add! bs i)
+  (define (adjoin-leaf i root)
+    (clone-leaf-and-set root (logand i *leaf-mask*) #t))
+  (define (ensure-branch! root idx)
+    (let ((edit (vector-ref root *edit-index*)))
+      (match (vector-ref root idx)
+        (#f (let ((v (new-branch edit)))
+              (vector-set! root idx v)
+              v))
+        (v (writable-branch v edit)))))
+  (define (adjoin-branch! i shift root)
+    (let* ((shift (- shift *branch-bits*))
+           (idx (logand (ash i (- shift)) *branch-mask*)))
+      (cond
+       ((= shift *leaf-bits*)
+        (vector-set! root idx (adjoin-leaf i (vector-ref root idx))))
+       (else
+        (adjoin-branch! i shift (ensure-branch! root idx))))))
+  (match bs
+    (($ <transient-intset> min shift root edit)
+     (assert-readable! edit)
+     (cond
+      ((< i 0)
+       ;; The power-of-two spanning trick doesn't work across 0.
+       (error "Intsets can only hold non-negative integers." i))
+      ((not root)
+       ;; Add first element.
+       (let ((min (round-down i shift)))
+         (set-transient-intset-min! bs min)
+         (set-transient-intset-shift! bs *leaf-bits*)
+         (set-transient-intset-root! bs (adjoin-leaf (- i min) root))))
+      ((and (<= min i) (< i (+ min (ash 1 shift))))
+       ;; Add element to set; level will not change.
+       (if (= shift *leaf-bits*)
+           (set-transient-intset-root! bs (adjoin-leaf (- i min) root))
+           (adjoin-branch! (- i min) shift root)))
+      (else
+       (let lp ((min min)
+                (shift shift)
+                (root (if (eqv? shift *leaf-bits*)
+                          root
+                          (writable-branch root edit))))
+         (let* ((shift* (+ shift *branch-bits*))
+                (min* (round-down min shift*))
+                (idx (logand (ash (- min min*) (- shift)) *branch-mask*))
+                (root* (new-branch edit)))
+           (vector-set! root* idx root)
+           (cond
+            ((and (<= min* i) (< i (+ min* (ash 1 shift*))))
+             (set-transient-intset-min! bs min*)
+             (set-transient-intset-shift! bs shift*)
+             (set-transient-intset-root! bs root*)
+             (adjoin-branch! (- i min*) shift* root*))
+            (else
+             (lp min* shift* root*)))))))
+     bs)
+    (($ <intset>)
+     (intset-add! (transient-intset bs) i))))
 
 (define (intset-add bs i)
   (define (adjoin i shift root)
@@ -213,17 +330,22 @@
       (else bs)))))
 
 (define (intset-ref bs i)
+  (define (ref min shift root)
+    (and (<= min i) (< i (+ min (ash 1 shift)))
+         (let ((i (- i min)))
+           (let lp ((node root) (shift shift))
+             (and node
+                  (if (= shift *leaf-bits*)
+                      (logbit? (logand i *leaf-mask*) node)
+                      (let* ((shift (- shift *branch-bits*))
+                             (idx (logand (ash i (- shift)) *branch-mask*)))
+                        (lp (vector-ref node idx) shift))))))))
   (match bs
     (($ <intset> min shift root)
-     (and (<= min i) (< i (+ min (ash 1 shift)))
-          (let ((i (- i min)))
-            (let lp ((node root) (shift shift))
-              (and node
-                   (if (= shift *leaf-bits*)
-                       (logbit? (logand i *leaf-mask*) node)
-                       (let* ((shift (- shift *branch-bits*))
-                              (idx (logand (ash i (- shift)) *branch-mask*)))
-                         (lp (vector-ref node idx) shift))))))))))
+     (ref min shift root))
+    (($ <transient-intset> min shift root edit)
+     (assert-readable! edit)
+     (ref min shift root))))
 
 (define (intset-next bs i)
   (define (visit-leaf node i)
@@ -244,14 +366,19 @@
     (if (= shift *leaf-bits*)
         (visit-leaf node i)
         (visit-branch node (- shift *branch-bits*) i)))
+  (define (next min shift root)
+    (let ((i (if (and i (< min i))
+                 (- i min)
+                 0)))
+      (and root (< i (ash 1 shift))
+           (let ((i (visit-node root shift i)))
+             (and i (+ min i))))))
   (match bs
     (($ <intset> min shift root)
-     (let ((i (if (and i (< min i))
-                  (- i min)
-                  0)))
-       (and root (< i (ash 1 shift))
-            (let ((i (visit-node root shift i)))
-              (and i (+ min i))))))))
+     (next min shift root))
+    (($ <transient-intset> min shift root edit)
+     (assert-readable! edit)
+     (next min shift root))))
 
 (define (intset-fold f set seed)
   (define (visit-branch node shift min seed)
@@ -278,7 +405,9 @@
     (($ <intset> min shift root)
      (cond
       ((not root) seed)
-      (else (visit-branch root shift min seed))))))
+      (else (visit-branch root shift min seed))))
+    (($ <transient-intset>)
+     (intset-fold f (persistent-intset set) seed))))
 
 (define (intset-fold2 f set s0 s1)
   (define (visit-branch node shift min s0 s1)
@@ -309,7 +438,9 @@
     (($ <intset> min shift root)
      (cond
       ((not root) (values s0 s1))
-      (else (visit-branch root shift min s0 s1))))))
+      (else (visit-branch root shift min s0 s1))))
+    (($ <transient-intset>)
+     (intset-fold2 f (persistent-intset set) s0 s1))))
 
 (define (intset-size shift root)
   (cond
