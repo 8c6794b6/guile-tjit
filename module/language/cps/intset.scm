@@ -1,5 +1,5 @@
 ;;; Functional name maps
-;;; Copyright (C) 2014 Free Software Foundation, Inc.
+;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software: you can redistribute it and/or modify
 ;;; it under the terms of the GNU Lesser General Public License as
@@ -34,6 +34,8 @@
             intset-remove
             intset-ref
             intset-next
+            intset-fold
+            intset-fold2
             intset-union
             intset-intersect
             intset-subtract
@@ -250,6 +252,64 @@
        (and (< i (ash 1 shift))
             (let ((i (visit-node root shift i)))
               (and i (+ min i))))))))
+
+(define (intset-fold f set seed)
+  (define (visit-branch node shift min seed)
+    (cond
+     ((= shift *leaf-bits*)
+      (let lp ((i 0) (seed seed))
+        (if (< i *leaf-size*)
+            (lp (1+ i)
+                (if (logbit? i node)
+                    (f (+ i min) seed)
+                    seed))
+            seed)))
+     (else
+      (let ((shift (- shift *branch-bits*)))
+        (let lp ((i 0) (seed seed))
+          (if (< i *branch-size*)
+              (let ((elt (vector-ref node i)))
+                (lp (1+ i)
+                    (if elt
+                        (visit-branch elt shift (+ min (ash i shift)) seed)
+                        seed)))
+              seed))))))
+  (match set
+    (($ <intset> min shift root)
+     (cond
+      ((not root) seed)
+      (else (visit-branch root shift min seed))))))
+
+(define (intset-fold2 f set s0 s1)
+  (define (visit-branch node shift min s0 s1)
+    (cond
+     ((= shift *leaf-bits*)
+      (let lp ((i 0) (s0 s0) (s1 s1))
+        (if (< i *leaf-size*)
+            (if (logbit? i node)
+                (call-with-values (lambda () (f (+ i min) s0 s1))
+                  (lambda (s0 s1)
+                    (lp (1+ i) s0 s1)))
+                (lp (1+ i) s0 s1))
+            (values s0 s1))))
+     (else
+      (let ((shift (- shift *branch-bits*)))
+        (let lp ((i 0) (s0 s0) (s1 s1))
+          (if (< i *branch-size*)
+              (let ((elt (vector-ref node i)))
+                (if elt
+                    (call-with-values
+                        (lambda ()
+                          (visit-branch elt shift (+ min (ash i shift)) s0 s1))
+                      (lambda (s0 s1)
+                        (lp (1+ i) s0 s1)))
+                    (lp (1+ i) s0 s1)))
+              (values s0 s1)))))))
+  (match set
+    (($ <intset> min shift root)
+     (cond
+      ((not root) (values s0 s1))
+      (else (visit-branch root shift min s0 s1))))))
 
 (define (intset-size shift root)
   (cond
