@@ -24,6 +24,7 @@
 (use-modules (oop goops)
              (srfi srfi-9)
              (srfi srfi-64)
+             (system foreign)
              (system vm program)
              (system vm lightning)
              (system vm vm))
@@ -64,39 +65,6 @@
 
 (define-test (t-call n) (98)
   (+ 1 (callee n)))
-
-(define-test (t-call-simple-prim x y) ('(a b c) '(d e f g h))
-  (+ (length x) (length y)))
-
-(define-test (t-call-rest-prim x y) ('(a b c) '(d e f g h))
-  (append x y))
-
-(define-test (t-call-opt-rest-prim-1 a) (#\a)
-  (char=? a))
-
-(define-test (t-call-opt-rest-prim-2a a b) (#\a #\a)
-  (char=? a b))
-
-(define-test (t-call-opt-rest-prim-2b a b) (#\a #\b)
-  (char=? a b))
-
-(define-test (t-call-opt-rest-prim-3a a b c) (#\a #\a #\a)
-  (char=? a b c))
-
-(define-test (t-call-opt-rest-prim-3b a b c) (#\a #\a #\b)
-  (char=? a b c))
-
-(define-test (t-call-opt-rest-prim-4 a b c d) (#\a #\a #\a #\a)
-  (char=? a b c d))
-
-(define-test (t-call-string->list str) ("foo-bar-buzz")
-  (string->list str))
-
-(define-test (t-call-string-append str1 str2) ("foo" "bar")
-  (string-append str1 str2))
-
-(define-test (t-call-make-string n fill) (113 #\a)
-  (make-string n fill))
 
 (define-test (t-call-arg0 f x) ((lambda (a) (+ a 100)) 23)
   (f x))
@@ -201,6 +169,65 @@
 
 ;;; Specialized call stubs
 
+(define-test (t-subr-call-length x y) ('(a b c) '(d e f g h))
+  (+ (length x) (length y)))
+
+(define-test (t-subr-call-append x y) ('(a b c) '(d e f g h))
+  (append x y))
+
+(define-test (t-subr-call-opt-rest-1 a) (#\a)
+  (char=? a))
+
+(define-test (t-subr-call-opt-rest-2a a b) (#\a #\a)
+  (char=? a b))
+
+(define-test (t-subr-call-opt-rest-2b a b) (#\a #\b)
+  (char=? a b))
+
+(define-test (t-subr-call-opt-rest-3a a b c) (#\a #\a #\a)
+  (char=? a b c))
+
+(define-test (t-subr-call-opt-rest-3b a b c) (#\a #\a #\b)
+  (char=? a b c))
+
+(define-test (t-subr-call-opt-rest-4 a b c d) (#\a #\a #\a #\a)
+  (char=? a b c d))
+
+(define-test (t-subr-call-string->list str) ("foo-bar-buzz")
+  (string->list str))
+
+(define-test (t-subr-call-string-append str1 str2) ("foo" "bar")
+  (string-append str1 str2))
+
+(define-test (t-subr-call-make-string n fill) (113 #\a)
+  (make-string n fill))
+
+(define (scm-sum x y)
+  (define %scm-sum
+    (pointer->procedure '*
+                        (dynamic-func "scm_sum" (dynamic-link))
+                        '(* *)))
+  (pointer->scm (%scm-sum (scm->pointer x) (scm->pointer y))))
+
+(define-test (t-foreigncall-scm-sum x y) (100 200)
+  (scm-sum x y))
+
+(define j0
+  (pointer->procedure double
+                      (dynamic-func "j0" (dynamic-link "libm"))
+                      (list double)))
+
+(define-test (t-foreign-call-j0 x) (1.234)
+  (j0 x))
+
+(define fmod
+  (pointer->procedure double
+                      (dynamic-func "fmod" (dynamic-link "libm"))
+                      (list double double)))
+
+(define-test (t-foreign-call-fmod x y) (1.2 0.25)
+  (fmod x y))
+
 (define-test (return-builtin-apply) ()
   apply)
 
@@ -233,6 +260,7 @@
 
 (define-test (return-builtin-call-with-current-continuation) ()
   call-with-current-continuation)
+
 
 ;;; Function prologues
 
@@ -693,6 +721,9 @@
   (modulo a b))
 
 (define-test (t-mod-neg-neg a b) (-100 -3)
+  (modulo a b))
+
+(define-test (t-mod-zero a b) (100 5)
   (modulo a b))
 
 (define-test (t-ash-r-pos a b) (8192 24)

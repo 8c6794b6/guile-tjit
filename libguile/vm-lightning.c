@@ -149,8 +149,8 @@ scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
       }                                   \
   } while (0)
 
-#define LOCAL_REF(i) (SCM)(fp[(offset / 8) - (i)])
-#define LOCAL_SET(i,o) *(fp + (offset / 8) - (i)) = (scm_t_bits)(o)
+#define LOCAL_REF(i) (SCM)(fp[(offset / 8) + (i)])
+#define LOCAL_SET(i,o) *(fp + (offset / 8) + (i)) = (scm_t_bits)(o)
 
   allow_other_keys = flags & 0x1;
   has_rest = flags & 0x2;

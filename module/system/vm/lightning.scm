@@ -337,6 +337,15 @@
 (define-syntax-rule (scm-is-nei obj val)
   (jit-bnei obj (imm val)))
 
+(define-syntax-rule (scm-inline-cons dst car cdr)
+  (begin
+    (jit-prepare)
+    (jit-pushargr reg-thread)
+    (jit-pushargr car)
+    (jit-pushargr cdr)
+    (call-c "scm_do_inline_cons")
+    (jit-retval dst)))
+
 
 ;;;
 ;;; VM op syntaxes
@@ -348,22 +357,16 @@
      (hashq-set! *vm-instr* 'op (lambda (st . args)
                                   body ...)))))
 
-(define-syntax-rule (resolve-dst st offset)
-  "Resolve jump destination with <lightning> state ST and OFFSET given as
-argument in VM operation."
-  (hashq-ref (lightning-labels st) (+ (lightning-ip st) offset)))
-
 (define-syntax-rule (dereference-scm pointer)
   (pointer->scm (dereference-pointer pointer)))
 
-(define-syntax stored-ref
-  (syntax-rules ()
-    ((_ st 0)
-     (imm (lightning-fp st)))
-    ((_ st 1)
-     (imm (- (lightning-fp st) (sizeof '*))))
-    ((_ st n)
-     (imm (- (lightning-fp st) (* n (sizeof '*)))))))
+(define-syntax-rule (frame-local offset)
+  (imm (* offset (sizeof '*))))
+
+;; Stored ref 0 is frame local 2. Frame local 0 contains previous
+;; (jit-fp), frame local 1 contains return address.
+(define-syntax-rule (stored-ref st n)
+  (frame-local (+ n 2)))
 
 (define-syntax local-ref
   (syntax-rules ()
@@ -390,11 +393,15 @@ argument in VM operation."
     (jit-movr tmp reg-nargs)
     (jit-subi tmp tmp (imm 1))
     (jit-muli tmp tmp (imm (sizeof '*)))
-    (jit-movi dst (imm (lightning-fp st)))
-    (jit-subr dst dst tmp)))
+    (jit-addi dst tmp (stored-ref st 0))))
 
 (define-syntax-rule (call-c name)
   (jit-calli (dynamic-func name (dynamic-link))))
+
+(define-syntax-rule (resolve-dst st offset)
+  "Resolve jump destination with <lightning> state ST and OFFSET given as
+argument in VM operation."
+  (hashq-ref (lightning-labels st) (+ (lightning-ip st) offset)))
 
 (define-syntax jump
   (syntax-rules ()
@@ -417,12 +424,12 @@ argument in VM operation."
        (jit-jmpr reg)))))
 
 (define-syntax-rule (vm-handle-interrupts st)
-  (let ((l1 (jit-forward)))
+  (let ((lexit (jit-forward)))
     (scm-thread-pending-asyncs r0)
-    (jump (jit-bmci r0 (imm 1)) l1)
+    (jump (jit-bmci r0 (imm 1)) lexit)
     (jit-prepare)
     (call-c "scm_async_tick")
-    (jit-link l1)))
+    (jit-link lexit)))
 
 (define-syntax with-frame
   ;; Stack poionter stored in (jit-fp), decreasing for `proc * word' size to
@@ -439,7 +446,7 @@ argument in VM operation."
        ;; Store dynamic link.
        (jit-stxi (stored-ref st (- proc 2)) (jit-fp) (jit-fp))
        ;; Shift the frame pointer register.
-       (jit-subi (jit-fp) (jit-fp) (imm (* (sizeof '*) proc)))
+       (jit-addi (jit-fp) (jit-fp) (imm (* (sizeof '*) proc)))
        body
        (jit-patch ra)))))
 
@@ -454,9 +461,9 @@ argument in VM operation."
      (call-local st proc nlocals (jit-jmpr r1)))
 
     ((_ st proc nlocals <expr>)
-     (let ((l1 (jit-forward))
-           (l2 (jit-forward))
-           (l3 (jit-forward))
+     (let ((lprogram (jit-forward))
+           (lcompiled (jit-forward))
+           (lexit (jit-forward))
            (lunwrap (jit-forward))
            (lsmob (jit-forward))
            (lsmobrt (jit-forward))
@@ -469,10 +476,10 @@ argument in VM operation."
        ;; Unwrap local to get procedure. Doing similar work done in
        ;; vm-engine's label statement `apply:'.
        (define-link lunwrap)
-       (jump (scm-imp r0) l2)
+       (jump (scm-imp r0) lerror)
        (scm-cell-type r2 r0)
        (scm-typ7 r1 r2)
-       (jump (scm-program-p r1) l1)
+       (jump (scm-program-p r1) lprogram)
 
        ;; Test for applicable struct.
        (scm-typ3 r1 r2)
@@ -497,10 +504,10 @@ argument in VM operation."
 
        (jit-link lshuffle)
        (jit-ldxr r2 (jit-fp) r1)
-       (jit-subi r1 r1 (imm (sizeof '*)))
+       (jit-addi r1 r1 (imm (sizeof '*)))
        (jit-stxr r1 (jit-fp) r2)
-       (jit-addi r1 r1 (imm (* 2 (sizeof '*))))
-       (jump (jit-blei r1 (stored-ref st 0)) lshuffle)
+       (jit-subi r1 r1 (imm (* 2 (sizeof '*))))
+       (jump (jit-bgei r1 (stored-ref st 0)) lshuffle)
        (jit-prepare)
        (jit-pushargr f5)
        (call-c "scm_do_smob_apply_trampoline")
@@ -514,28 +521,28 @@ argument in VM operation."
        (error-wrong-type-apply r0)
 
        ;; Local is program, look for JIT compiled code.
-       (jit-link l1)
-       (jump (scm-program-is-jit-compiled r2) l2)
+       (jit-link lprogram)
+       (jump (scm-program-is-jit-compiled r2) lcompiled)
 
        ;; Does not have compiled code.
        (jump (scm-is-eqi f0 1) lsmobrt)
        (call-runtime st proc nlocals)
        (local-set! st (+ proc 1) reg-retval)
-       (jump l3)
+       (jump lexit)
 
        ;; Does not have compiled code, for calling smob.
        ;; Number of locals is increased by 1.
        (jit-link lsmobrt)
        (call-runtime st proc (+ nlocals 1))
        (local-set! st (+ proc 1) reg-retval)
-       (jump l3)
+       (jump lexit)
 
        ;; Has compiled code.
-       (jit-link l2)
+       (jit-link lcompiled)
        (scm-cell-object r1 r0 2)
        <expr>
 
-       (jit-link l3)))))
+       (jit-link lexit)))))
 
 (define-syntax-rule (return-value-list st proc tmp1 tmp2 tmp3)
   (let ((lexit (jit-forward))
@@ -561,7 +568,7 @@ argument in VM operation."
     (jit-link lshuffle)
     (scm-car tmp3 tmp1)
     (jit-stxr tmp2 (jit-fp) tmp3)
-    (jit-subi tmp2 tmp2 (imm (sizeof '*)))
+    (jit-addi tmp2 tmp2 (imm (sizeof '*)))
     (jit-addi reg-nretvals reg-nretvals (imm 1))
     (scm-cdr tmp1 tmp1)
     (jump (scm-is-not-null tmp1) lshuffle)
@@ -704,74 +711,74 @@ argument in VM operation."
 (define-syntax assert-wrong-num-args
   (syntax-rules ()
     ((_ st jit-op expected local)
-     (let ((l1 (jit-forward)))
-       (jump (jit-op reg-nargs (imm expected)) l1)
+     (let ((lexit (jit-forward)))
+       (jump (jit-op reg-nargs (imm expected)) lexit)
        (jit-prepare)
        (jit-pushargr (local-ref st 0))
        (call-c "scm_wrong_num_args")
        (jit-reti (scm->pointer *unspecified*))
-       (jit-link l1)))))
+       (jit-link lexit)))))
 
 (define-syntax-rule (validate-pair pair cell-0 subr pos)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
-    (jump (scm-imp pair) l1)
+  (let ((lerror (jit-forward))
+        (lexit (jit-forward)))
+    (jump (scm-imp pair) lerror)
     (scm-cell-type cell-0 pair)
-    (jump (jit-bmsi cell-0 (imm 1)) l1)
-    (jump l2)
+    (jump (jit-bmsi cell-0 (imm 1)) lerror)
+    (jump lexit)
 
-    (jit-link l1)
+    (jit-link lerror)
     (error-wrong-type-arg-msg subr pos r0 *pair-string)
 
-    (jit-link l2)))
+    (jit-link lexit)))
 
 (define-syntax-rule (validate-vector vec cell-0 tag subr)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
-    (jump (scm-imp vec) l1)
+  (let ((lerror (jit-forward))
+        (lexit (jit-forward)))
+    (jump (scm-imp vec) lerror)
     (scm-cell-type cell-0 vec)
     (scm-typ7 tag cell-0)
-    (jump (scm-is-eqi tag tc7-vector) l2)
+    (jump (scm-is-eqi tag tc7-vector) lexit)
 
-    (jit-link l1)
+    (jit-link lerror)
     (error-wrong-type-arg-msg subr 1 vec *vector-string)
 
-    (jit-link l2)))
+    (jit-link lexit)))
 
 (define-syntax-rule (validate-vector-range vec idx tmp1 tmp2 subr)
   ;; Registers `tmp1' and `tmp2' will get dirty after the validation.
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
-    (jump (scm-not-inump idx) l1)
+  (let ((lerror (jit-forward))
+        (lexit (jit-forward)))
+    (jump (scm-not-inump idx) lerror)
     (scm-i-inumr tmp1 idx)
-    (jump (jit-blti tmp1 (imm 0)) l1)
+    (jump (jit-blti tmp1 (imm 0)) lerror)
     (scm-i-vector-length tmp2 vec)
-    (jump (jit-bltr tmp1 tmp2) l2)
+    (jump (jit-bltr tmp1 tmp2) lexit)
 
-    (jit-link l1)
+    (jit-link lerror)
     (error-out-of-range subr (jit-pushargr idx))
 
-    (jit-link l2)))
+    (jit-link lexit)))
 
 (define-syntax-rule (validate-vector-range/immediate vec idx tmp subr)
-  (let ((l1 (jit-forward)))
+  (let ((lexit (jit-forward)))
     (scm-i-vector-length tmp vec)
-    (jump (jit-bgti tmp (imm idx)) l1)
+    (jump (jit-bgti tmp (imm idx)) lexit)
     (error-out-of-range subr (jit-pushargi (scm-makinumi idx)))
-    (jit-link l1)))
+    (jit-link lexit)))
 
 (define-syntax-rule (validate-struct obj tmp subr)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
-    (jump (scm-imp obj) l1)
+  (let ((lerror (jit-forward))
+        (lexit (jit-forward)))
+    (jump (scm-imp obj) lerror)
     (scm-cell-type tmp obj)
     (scm-typ3 tmp tmp)
-    (jump (scm-structp tmp) l2)
+    (jump (scm-structp tmp) lexit)
 
-    (jit-link l1)
+    (jit-link lerror)
     (error-wrong-type-arg-msg subr 1 obj *struct-string)
 
-    (jit-link l2)))
+    (jit-link lexit)))
 
 ;;;
 ;;; Top-level syntax for specific VM operations
@@ -798,14 +805,14 @@ argument in VM operation."
      (define-vm-op (name st a invert offset)
        (when (< offset 0)
          (vm-handle-interrupts st))
-       (let ((l1 (jit-forward)))
+       (let ((lexit (jit-forward)))
          (local-ref st a reg)
-         (jump (scm-imp reg) (if invert (resolve-dst st offset) l1))
+         (jump (scm-imp reg) (if invert (resolve-dst st offset) lexit))
          (scm-cell-object reg reg 0)
-         (jump expr (if invert (resolve-dst st offset) l1))
+         (jump expr (if invert (resolve-dst st offset) lexit))
          (when (not invert)
            (jump (resolve-dst st offset)))
-         (jit-link l1))))))
+         (jit-link lexit))))))
 
 (define-syntax define-vm-br-binary-op
   (syntax-rules ()
@@ -813,22 +820,22 @@ argument in VM operation."
      (define-vm-op (name st a b invert offset)
        (when (< offset 0)
          (vm-handle-interrupts st))
-       (let ((l1 (jit-forward)))
+       (let ((lexit (jit-forward)))
          (local-ref st a r0)
          (local-ref st b r1)
-         (jump (jit-beqr r0 r1) (if invert l1 (resolve-dst st offset)))
+         (jump (jit-beqr r0 r1) (if invert lexit (resolve-dst st offset)))
 
          (jit-prepare)
          (jit-pushargr r0)
          (jit-pushargr r1)
          (call-c cname)
          (jit-retval r0)
-         (jump (scm-is-false r0) (if invert (resolve-dst st offset) l1))
+         (jump (scm-is-false r0) (if invert (resolve-dst st offset) lexit))
 
          (when (not invert)
            (jump (resolve-dst st offset)))
 
-         (jit-link l1))))))
+         (jit-link lexit))))))
 
 (define-syntax define-vm-br-arithmetic-op
   (syntax-rules ()
@@ -857,7 +864,7 @@ argument in VM operation."
          (jump (scm-imp regb) lcall)
          (scm-cell-type r0 regb)
          (scm-typ16 r0 r0)
-         (jump (scm-is-nei r0 tc16-real) lcall)
+         (jump (scm-not-realp r0) lcall)
          (scm-real-value f0 rega)
          (scm-real-value f1 regb)
          (jump ((if invert fl-invert-op fl-op) f0 f1)
@@ -967,19 +974,19 @@ argument in VM operation."
   (syntax-rules ()
     ((_ (name st dst src) cname fx-op fl-op)
      (define-vm-op (name st dst src)
-       (let ((l1 (jit-forward))
-             (l2 (jit-forward))
-             (l3 (jit-forward))
+       (let ((lreal (jit-forward))
+             (lcall (jit-forward))
+             (lexit (jit-forward))
              (reg (local-ref st src r1)))
 
-         (jump (scm-not-inump reg) l1)
+         (jump (scm-not-inump reg) lreal)
          (jit-movr r0 reg)
-         (jump (fx-op r0 (imm 4)) l1)
-         (jump l3)
+         (jump (fx-op r0 (imm 4)) lreal)
+         (jump lexit)
 
-         (jit-link l1)
+         (jit-link lreal)
          (scm-cell-type r0 reg)
-         (jump (scm-is-nei r0 tc16-real) l2)
+         (jump (scm-is-nei r0 tc16-real) lcall)
          (scm-real-value f0 reg)
          (jit-movi r0 (imm 1))
          (jit-extr-d f1 r0)
@@ -989,16 +996,16 @@ argument in VM operation."
          (jit-pushargr-d f0)
          (call-c "scm_do_inline_from_double")
          (jit-retval r0)
-         (jump l3)
+         (jump lexit)
 
-         (jit-link l2)
+         (jit-link lcall)
          (jit-prepare)
          (jit-pushargr reg)
          (jit-pushargi (imm 6))
          (call-c cname)
          (jit-retval r0)
 
-         (jit-link l3)
+         (jit-link lexit)
          (local-set! st dst r0))))))
 
 
@@ -1070,16 +1077,16 @@ argument in VM operation."
 ;;; ----------------------
 
 (define-vm-op (subr-call st ptr-idx)
-  (let ((l1 (jit-forward)))
+  (let ((lcall (jit-forward)))
 
     ;; `subr-call' accepts up to 10 arguments only.
     (jit-prepare)
     (for-each (lambda (n)
-                (jump (jit-blei reg-nargs (imm (+ n 1))) l1)
+                (jump (jit-blei reg-nargs (imm (+ n 1))) lcall)
                 (jit-pushargr (local-ref st (+ n 1))))
               (iota 10))
 
-    (jit-link l1)
+    (jit-link lcall)
     (local-ref st 0 r0)
     (scm-program-free-variable-ref r0 r0 ptr-idx)
     (scm-pointer-value r1 r0)
@@ -1108,12 +1115,12 @@ argument in VM operation."
 
 ;;; XXX: Compile the callee instead of calling `%call-lightning'.
 (define-vm-op (tail-apply st)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward))
-        (l3 (jit-forward))
-        (l4 (jit-forward))
-        (l5 (jit-forward))
-        (l6 (jit-forward)))
+  (let ((lcons (jit-forward))
+        (lrt (jit-forward))
+        (lcompiled (jit-forward))
+        (lshift (jit-forward))
+        (lshuffle (jit-forward))
+        (ljitcall (jit-forward)))
 
     ;; Last local, a list containing rest of arguments.
     (last-arg-offset st f5 r0)
@@ -1123,23 +1130,18 @@ argument in VM operation."
     (local-ref st 1 r2)
     (scm-cell-object f0 r2 0)
     (jit-subi reg-nargs reg-nargs (imm 2))
-    (jump (scm-program-is-jit-compiled f0) l3)
+    (jump (scm-program-is-jit-compiled f0) lcompiled)
 
     ;; No JIT code, making argument list.
-    (jit-link l1)
-    (jump (jit-bgei f5 (stored-ref st 2)) l2)
-    (jit-addi f5 f5 (imm (sizeof '*)))
+    (jit-link lcons)
+    (jump (jit-blei f5 (stored-ref st 2)) lrt)
+    (jit-subi f5 f5 (imm (sizeof '*)))
     (jit-ldxr r2 (jit-fp) f5)
-    (jit-prepare)
-    (jit-pushargr reg-thread)
-    (jit-pushargr r2)
-    (jit-pushargr r0)
-    (call-c "scm_do_inline_cons")
-    (jit-retval r0)
-    (jump l1)
+    (scm-inline-cons r0 r2 r0)
+    (jump lcons)
 
     ;; Call `%call-lightning' with thread, proc, and argument list.
-    (jit-link l2)
+    (jit-link lrt)
     (jit-prepare)
     (jit-pushargr reg-thread)
     (jit-pushargr (local-ref st 1 r1))
@@ -1150,32 +1152,32 @@ argument in VM operation."
     (return-jmp st)
 
     ;; Has jit compiled code.
-    (jit-link l3)
+    (jit-link lcompiled)
 
     ;; Local offset for shifting.
     (last-arg-offset st f1 r1)
-    (jit-movi r1 (imm (lightning-fp st)))
+    (jit-movi r1 (stored-ref st 0))
 
     ;; Shift non-list locals.
-    (jit-link l4)
-    (jit-subi f0 r1 (imm (sizeof '*)))
+    (jit-link lshift)
+    (jit-addi f0 r1 (imm (sizeof '*)))
     (jit-ldxr f0 (jit-fp) f0)
     (jit-stxr r1 (jit-fp) f0)
-    (jit-subi r1 r1 (imm (sizeof '*)))
-    (jump (jit-bger r1 f1) l4)
+    (jit-addi r1 r1 (imm (sizeof '*)))
+    (jump (jit-bler r1 f1) lshift)
 
     ;; Expand list contents to local.
-    (jit-link l5)
-    (jump (scm-is-null r0) l6)
+    (jit-link lshuffle)
+    (jump (scm-is-null r0) ljitcall)
     (scm-car f0 r0)
     (jit-stxr r1 (jit-fp) f0)
     (scm-cdr r0 r0)
-    (jit-subi r1 r1 (imm (sizeof '*)))
+    (jit-addi r1 r1 (imm (sizeof '*)))
     (jit-addi reg-nargs reg-nargs (imm 1))
-    (jump l5)
+    (jump lshuffle)
 
     ;; Jump to the JIT compiled code.
-    (jit-link l6)
+    (jit-link ljitcall)
     (scm-cell-object r0 r2 2)
     (jit-jmpr r0)))
 
@@ -1208,7 +1210,7 @@ argument in VM operation."
 (define-vm-op (bind-kwargs st nreq flags nreq-and-opt ntotal kw-offset)
   (jit-prepare)
   (jit-pushargr (jit-fp))
-  (jit-pushargi (imm (lightning-fp st)))
+  (jit-pushargi (stored-ref st 0))
   (jit-pushargr reg-nargs)
   (jit-pushargi (imm (+ (lightning-pc st) (* (lightning-ip st) 4))))
   (jit-pushargi (imm nreq))
@@ -1219,40 +1221,35 @@ argument in VM operation."
   (call-c "scm_do_bind_kwargs"))
 
 (define-vm-op (bind-rest st dst)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward))
-        (l3 (jit-forward)))
+  (let ((lrefill (jit-forward))
+        (lcons (jit-forward))
+        (lexit (jit-forward)))
 
     (last-arg-offset st f5 r0)          ; f5 = initial local index.
     (jit-movi r0 (scm->pointer '()))    ; r0 = initial list.
     (jit-movi f0 scm-undefined)
 
-    (jump (jit-bgti reg-nargs (imm dst)) l2)
+    (jump (jit-bgti reg-nargs (imm dst)) lcons)
 
     ;; Refill the locals with SCM_UNDEFINED.
-    (jit-link l1)
-    (jit-subi f5 f5 (imm (sizeof '*)))
+    (jit-link lrefill)
+    (jit-addi f5 f5 (imm (sizeof '*)))
     (jit-stxr f5 (jit-fp) f0)
-    (jump (jit-blei f5 (stored-ref st dst)) l3)
-    (jump l1)
+    (jump (jit-bgei f5 (stored-ref st dst)) lexit)
+    (jump lrefill)
 
     ;; Create a list.  Using register f5 to preserve the register
     ;; contents from callee C function "scm_do_inline_cons" and other
     ;; bookkeepings done in lightning.
-    (jit-link l2)
-    (jit-prepare)
-    (jit-pushargr reg-thread)
+    (jit-link lcons)
     (jit-ldxr r2 (jit-fp) f5)
     (jit-stxr f5 (jit-fp) f0)
-    (jit-pushargr r2)
-    (jit-pushargr r0)
-    (call-c "scm_do_inline_cons")
-    (jit-retval r0)
-    (jit-addi f5 f5 (imm (sizeof '*)))
-    (jump (jit-bgti f5 (stored-ref st dst)) l3)
-    (jump l2)
+    (scm-inline-cons r0 r2 r0)
+    (jit-subi f5 f5 (imm (sizeof '*)))
+    (jump (jit-blti f5 (stored-ref st dst)) lexit)
+    (jump lcons)
 
-    (jit-link l3)
+    (jit-link lexit)
     (local-set! st dst r0)
 
     ;; Updating nargs to prevent following `alloc-frame' to override
@@ -1269,26 +1266,26 @@ argument in VM operation."
   (assert-wrong-num-args st jit-blei expected 0))
 
 (define-vm-op (alloc-frame st nlocals)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
+  (let ((lshuffle (jit-forward))
+        (lexit (jit-forward)))
 
     (jit-movr r1 reg-nargs)
     (jit-movi f0 scm-undefined)
 
-    (jit-link l1)
-    (jump (jit-bgei r1 (imm nlocals)) l2)
+    (jit-link lshuffle)
+    (jump (jit-bgei r1 (imm nlocals)) lexit)
 
     ;; Doing similar things to `stored-ref' in generated code. Using r2
     ;; as offset of location to store.
-    (jit-movi r2 (imm (lightning-fp st)))
+    (jit-movi r2 (stored-ref st 0))
     (jit-movr r0 r1)
     (jit-muli r0 r0 (* (imm (sizeof '*))))
-    (jit-subr r2 r2 r0)
+    (jit-addr r2 r2 r0)
     (jit-stxr r2 (jit-fp) f0)
     (jit-addi r1 r1 (imm 1))
-    (jump l1)
+    (jump lshuffle)
 
-    (jit-link l2)
+    (jit-link lexit)
     (jit-movi reg-nargs (imm nlocals))))
 
 (define-vm-op (reset-frame st nlocals)
@@ -1316,14 +1313,13 @@ argument in VM operation."
 (define-vm-op (br-if-nil st a invert offset)
   (when (< offset 0)
     (vm-handle-interrupts st))
-  (let ((l1 (jit-forward)))
-    (local-ref st a r0)
-    (jit-movi r1 (imm (logior (pointer-address (scm->pointer #f))
-                              (pointer-address (scm->pointer '())))))
-    (jit-comr r1 r1)
-    (jit-andr r1 r0 r1)
-    (jump ((if invert jit-bnei jit-beqi) r1 (scm->pointer #f))
-          (resolve-dst st offset))))
+  (local-ref st a r0)
+  (jit-movi r1 (imm (logior (pointer-address (scm->pointer #f))
+                            (pointer-address (scm->pointer '())))))
+  (jit-comr r1 r1)
+  (jit-andr r1 r0 r1)
+  (jump ((if invert jit-bnei jit-beqi) r1 (scm->pointer #f))
+        (resolve-dst st offset)))
 
 (define-vm-br-unary-heap-object-op (br-if-pair st a invert offset)
   r0 (jit-bmsi r0 (imm 1)))
@@ -1342,15 +1338,15 @@ argument in VM operation."
 (define-vm-op (br-if-tc7 st a invert tc7 offset)
   (when (< offset 0)
     (vm-handle-interrupts st))
-  (let ((l1 (jit-forward)))
+  (let ((lexit (jit-forward)))
     (local-ref st a r0)
-    (jump (scm-imp r0) (if invert (resolve-dst st offset) l1))
+    (jump (scm-imp r0) (if invert (resolve-dst st offset) lexit))
     (scm-cell-type r0 r0)
     (scm-typ7 r0 r0)
-    (jump (scm-is-nei r0 tc7) (if invert (resolve-dst st offset) l1))
+    (jump (scm-is-nei r0 tc7) (if invert (resolve-dst st offset) lexit))
     (when (not invert)
       (jump (resolve-dst st offset)))
-    (jit-link l1)))
+    (jit-link lexit)))
 
 (define-vm-op (br-if-eq st a b invert offset)
   (when (< offset 0)
@@ -1376,19 +1372,19 @@ argument in VM operation."
   jit-beqr jit-bner jit-beqr-d jit-bner-d "scm_num_eq_p")
 
 (define-vm-op (br-if-logtest st a b invert offset)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
+  (let ((lcall (jit-forward))
+        (lexit (jit-forward)))
     (local-ref st a r0)
     (local-ref st b r1)
-    (jump (scm-not-inump r0) l1)
-    (jump (scm-not-inump r1) l1)
+    (jump (scm-not-inump r0) lcall)
+    (jump (scm-not-inump r1) lcall)
     (jit-andr r0 r0 r1)
     (jit-andi r0 r0 (imm #xfffffffffffffffd))
     (jump ((if invert jit-beqi jit-bnei) r0 (imm 0))
           (resolve-dst st offset))
-    (jump l2)
+    (jump lexit)
 
-    (jit-link l1)
+    (jit-link lcall)
     (jit-prepare)
     (jit-pushargr r0)
     (jit-pushargr r1)
@@ -1397,7 +1393,7 @@ argument in VM operation."
     (jump (if invert (scm-is-false r0) (scm-is-true r0))
           (resolve-dst st offset))
 
-    (jit-link l2)))
+    (jit-link lexit)))
 
 
 ;;; Lexical binding instructions
@@ -1426,7 +1422,7 @@ argument in VM operation."
   (scm-set-cell-object r0 1 r1))
 
 (define-vm-op (make-closure st dst offset nfree)
-  (let ((l1 (jit-forward)))
+  (let ((lnext (jit-forward)))
     (jit-prepare)
     (jit-pushargr reg-thread)
     (jit-pushargi (imm (logior tc7-program
@@ -1443,7 +1439,7 @@ argument in VM operation."
     ;; Storing address of JIT compiled code.
     (let ((closure-addr (jit-movi r1 (imm 0))))
       (scm-set-cell-object r0 2 r1)
-      (jump l1)
+      (jump lnext)
 
       ;; Do the JIT compilation at the time of closure creation.
       (let* ((trace (program->trace (offset-addr st offset)))
@@ -1454,7 +1450,7 @@ argument in VM operation."
         (jit-patch closure-addr)
         (compile-lightning lightning (jit-forward))))
 
-    (jit-link l1)
+    (jit-link lnext)
     (jit-movi r1 (scm->pointer #f))
     (for-each (lambda (n)
                 (scm-program-free-variable-set r0 n r1))
@@ -1637,7 +1633,7 @@ argument in VM operation."
   (call-c "scm_do_unwind_fluid"))
 
 (define-vm-op (fluid-ref st dst src)
-  (let ((l1 (jit-forward)))
+  (let ((lexit (jit-forward)))
     (local-ref st src r0)
 
     ;; r0 = fluids, in thread:
@@ -1660,10 +1656,10 @@ argument in VM operation."
     (jit-ldxr r0 r0 r2)
 
     ;; Load default value from local fluid if not set.
-    (jump (scm-not-unbndp r0) l1)
+    (jump (scm-not-unbndp r0) lexit)
     (scm-cell-object r0 r1 1)
 
-    (jit-link l1)
+    (jit-link lexit)
     (local-set! st dst r0)))
 
 ;;; XXX: fluid-set
@@ -1672,29 +1668,28 @@ argument in VM operation."
 ;;; -----------------------------
 
 (define-vm-op (string-length st dst src)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
+  (let ((lcall (jit-forward))
+        (lexit (jit-forward)))
     (local-ref st src r0)
-    (jump (scm-imp r0) l1)
+    (jump (scm-imp r0) lcall)
     (scm-cell-type r1 r0)
     (scm-typ7 r1 r1)
-    (jump (scm-is-not-string r1) l1)
+    (jump (scm-is-not-string r1) lcall)
     (scm-i-string-length r0 r0)
     (scm-makinumr r0 r0)
-    (jump l2)
+    (jump lexit)
 
-    (jit-link l1)
+    (jit-link lcall)
     (jit-pushargr r0)
     (call-c "scm_string_length")
     (jit-retval r0)
 
-    (jit-link l2)
+    (jit-link lexit)
     (local-set! st dst r0)))
 
-;;; XXX: Inline JIT code.
-;;;
-;;; Add test to see string width, test to see whether string is shared,
-;;; do `get_str_buf_start', ...etc.
+;;; XXX: JIT code not inlined. Need to add test to see string width,
+;;; test to see whether string is shared, do `get_str_buf_start',
+;;; ...etc.
 (define-vm-op (string-ref st dst src idx)
   (local-ref st src r0)
   (local-ref st idx r1)
@@ -1732,12 +1727,9 @@ argument in VM operation."
 ;;; -----
 
 (define-vm-op (cons st dst car cdr)
-  (jit-prepare)
-  (jit-pushargr reg-thread)
-  (jit-pushargr (local-ref st car))
-  (jit-pushargr (local-ref st cdr))
-  (call-c "scm_do_inline_cons")
-  (jit-retval r0)
+  (local-ref st car r0)
+  (local-ref st cdr r1)
+  (scm-inline-cons r0 r0 r1)
   (local-set! st dst r0))
 
 (define-vm-op (car st dst src)
@@ -1828,74 +1820,74 @@ argument in VM operation."
 
 (define-vm-binary-numeric-op (mod st dst a b)
   "scm_modulo" lcall r0 r1
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward))
-        (l3 (jit-forward)))
+  (let ((lpositive (jit-forward))
+        (lnegative (jit-forward))
+        (lexit (jit-forward)))
     (scm-i-inumr r0 r0)
     (scm-i-inumr r1 r1)
     (jit-remr r0 r0 r1)
-    (jump (jit-bgti r0 (imm 0)) l1)
-    (jump l2)
+    (jump (jit-bgei r0 (imm 0)) lpositive)
+    (jump lnegative)
 
-    (jit-link l1)
-    (jump (jit-bgti r1 (imm 0)) l3)
+    (jit-link lpositive)
+    (jump (jit-bgei r1 (imm 0)) lexit)
     (jit-addr r0 r0 r1)
-    (jump l3)
+    (jump lexit)
 
-    (jit-link l2)
-    (jump (jit-blti r1 (imm 0)) l3)
+    (jit-link lnegative)
+    (jump (jit-blti r1 (imm 0)) lexit)
     (jit-addr r0 r0 r1)
-    (jump l3)
+    (jump lexit)
 
-    (jit-link l3)
+    (jit-link lexit)
     (scm-makinumr r0 r0)))
 
 (define-vm-binary-numeric-op (ash st dst a b)
   "scm_ash" lcall r0 r1
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward))
-        (l3 (jit-forward))
-        (l4 (jit-forward))
-        (l5 (jit-forward)))
+  (let ((lright (jit-forward))
+        (lleft (jit-forward))
+        (ladjust (jit-forward))
+        (lprepare (jit-forward))
+        (lexit (jit-forward)))
     (scm-i-inumr r0 r0)
     (scm-i-inumr r1 r1)
-    (jump (jit-bgti r1 (imm 0)) l2)
+    (jump (jit-bgti r1 (imm 0)) lleft)
 
     (jit-negr r1 r1)
-    (jump (jit-bgei r1 (imm (- scm-i-fixnum-bit 1))) l1)
+    (jump (jit-bgei r1 (imm (- scm-i-fixnum-bit 1))) lright)
     (jit-rshr r0 r0 r1)
     (scm-makinumr r0 r0)
-    (jump l5)
+    (jump lexit)
 
-    (jit-link l1)
+    (jit-link lright)
     (jit-rshi r0 r0 (imm (- scm-i-fixnum-bit 1)))
     (scm-makinumr r0 r0)
-    (jump l5)
+    (jump lexit)
 
-    (jit-link l2)
-    (jump (jit-bgei r1 (imm (- scm-i-fixnum-bit 1))) l4)
+    (jit-link lleft)
+    (jump (jit-bgei r1 (imm (- scm-i-fixnum-bit 1))) lprepare)
     (jit-movi r2 (imm (- scm-i-fixnum-bit 1)))
     (jit-subr r2 r2 r1)
     (jit-rshr-u r2 r0 r2)
-    (jump (jit-bgti r2 (imm 0)) l4)
-    (jump (jit-blti r0 (imm 0)) l3)
+    (jump (jit-bgti r2 (imm 0)) lprepare)
+    (jump (jit-blti r0 (imm 0)) ladjust)
     (jit-lshr r0 r0 r1)
     (scm-makinumr r0 r0)
-    (jump l5)
+    (jump lexit)
 
-    (jit-link l3)
+    (jit-link ladjust)
     (jit-negr r0 r0)
     (jit-lshr r0 r0 r1)
     (jit-negr r0 r0)
     (scm-makinumr r0 r0)
-    (jump l5)
+    (jump lexit)
 
-    (jit-link l4)
+    (jit-link lprepare)
     (local-ref st a r0)
     (local-ref st b r1)
     (jump lcall)
 
-    (jit-link l5)
+    (jit-link lexit)
     (local-set! st dst r0)))
 
 (define-vm-binary-numeric-op (logand st dst a b)
@@ -2067,27 +2059,27 @@ argument in VM operation."
   (scm-set-cell-object r0 idx r1))
 
 (define-vm-op (class-of st dst type)
-  (let ((l1 (jit-forward))
-        (l2 (jit-forward)))
+  (let ((lcall (jit-forward))
+        (lexit (jit-forward)))
     (local-ref st type r0)
-    (jump (scm-imp r0) l1)
+    (jump (scm-imp r0) lcall)
     (scm-cell-type r1 r0)
     (scm-typ3 r1 r1)
-    (jump (scm-not-structp r1) l1)
+    (jump (scm-not-structp r1) lcall)
     (scm-struct-vtable-slots r1 r0)
     (scm-cell-object r2 r1 scm-vtable-index-flags)
     (jit-andi r2 r2 (imm scm-classf-goops))
-    (jump (jit-beqi r2 (imm 0)) l1)
+    (jump (jit-beqi r2 (imm 0)) lcall)
     (scm-cell-object r0 r1 scm-vtable-index-self)
-    (jump l2)
+    (jump lexit)
 
-    (jit-link l1)
+    (jit-link lcall)
     (jit-prepare)
     (jit-pushargr r0)
     (call-c "scm_class_of")
     (jit-retval r0)
 
-    (jit-link l2)
+    (jit-link lexit)
     (local-set! st dst r0)))
 
 ;;; Arrays, packed uniform arrays, and bytevectors
@@ -2134,7 +2126,9 @@ lightning, with ENTRY as lightning's node to itself."
            (args (cdr op)))
       (set-lightning-ip! st ip)
       (let ((emitter (hashq-ref *vm-instr* instr)))
-        (jit-note (format #f "~a" op) (lightning-ip st))
+        (let ((verbosity (lightning-verbosity)))
+          (when (and verbosity (<= 3 verbosity))
+            (jit-note (format #f "~a" op) (lightning-ip st))))
         ;; Link if this bytecode intruction is labeled as destination.
         (cond ((destination-label st)
                =>
@@ -2155,9 +2149,10 @@ lightning, with ENTRY as lightning's node to itself."
     (jit-link entry)
     (jit-patch entry)
     (debug 1 ";;; compile-lightning: Start compiling ~a (~x)~%" name addr)
-    (for-each (lambda (chunk)
-                (assemble-one st chunk))
-              (trace-ops trace))
+    (let lp ((ops (trace-ops trace)))
+      (unless (null? ops)
+        (assemble-one st (car ops))
+        (lp (cdr ops))))
     (debug 1 ";;; compile-lightning: Finished compiling ~a (~x)~%" name addr)
 
     entry))
@@ -2195,12 +2190,8 @@ lightning, with ENTRY as lightning's node to itself."
 (define (c-call-lightning thread proc args)
   "Compile PROC with lightning and run with ARGS, within THREAD."
 
-  (define-syntax-rule (offset->addr offset)
-    ;; `make-pointer' does not accept negative values.
-    (imm (- (+ #xffffffffffffffff 1) (* offset (sizeof '*)))))
-
-  (define-syntax-rule (fp->addr fp)
-    (logxor #xffffffff00000000 (pointer-address fp)))
+  (define-syntax stack-size
+    (identifier-syntax (* 12 4096 (sizeof '*))))
 
   (define-syntax-rule (smob? obj)
     (let ((*obj (scm->pointer obj)))
@@ -2228,24 +2219,25 @@ lightning, with ENTRY as lightning's node to itself."
   (define-syntax-rule (vm-prolog ra-reg)
     (begin
       ;; XXX: Allocating constant amount at beginning of function call.
-      ;; Might better to allocate at compile time or runtime.
-      (jit-frame (imm (* 4 4096)))
+      ;; Might better to allocate at runtime.
+      (jit-allocai (imm stack-size))
 
       ;; Initial dynamic link, frame pointer.
-      (jit-stxi (offset->addr 1) (jit-fp) (jit-fp))
+      (jit-subi (jit-fp) (jit-fp) (imm stack-size))
+      (jit-stxi (frame-local 0) (jit-fp) (jit-fp))
 
       ;; Return address.
-      (jit-stxi (offset->addr 2) (jit-fp) ra-reg)
+      (jit-stxi (frame-local 1) (jit-fp) ra-reg)
 
       ;; Argument 0, self procedure.
       (jit-movi r0 (scm->pointer proc))
-      (jit-stxi (offset->addr 3) (jit-fp) r0)
+      (jit-stxi (frame-local 2) (jit-fp) r0)
 
       ;; Pointers of given args.
-      (let lp ((args args) (offset 4))
+      (let lp ((args args) (offset 3))
         (unless (null? args)
           (jit-movi r0 (scm->pointer (car args)))
-          (jit-stxi (offset->addr offset) (jit-fp) r0)
+          (jit-stxi (frame-local offset) (jit-fp) r0)
           (lp (cdr args) (+ offset 1))))
 
       ;; Initialize registers.
@@ -2256,37 +2248,31 @@ lightning, with ENTRY as lightning's node to itself."
   ;; Check number of return values, call C function `scm_values' if
   ;; 1 < number of values.
   (define-syntax-rule (vm-epilog)
-    (let ((l1 (jit-forward))
-          (l2 (jit-forward))
-          (l3 (jit-forward)))
+    (let ((lshuffle (jit-forward))
+          (lexit (jit-forward)))
 
-      (jump (jit-blei reg-nretvals (imm 1)) l3)
+      (jump (jit-blei reg-nretvals (imm 1)) lexit)
 
       (jit-movi r0 (scm->pointer '()))
       (jit-subi reg-nargs reg-nargs (imm 2))
       (jit-movr r2 reg-nargs)
       (jit-muli r2 r2 (imm (sizeof '*)))
-      (jit-movi r1 (offset->addr 4))
-      (jit-subr r1 r1 r2)
+      (jit-movi r1 (frame-local 3))
+      (jit-addr r1 r1 r2)
 
-      (jit-link l1)
-      (jit-prepare)
-      (jit-pushargr reg-thread)
+      (jit-link lshuffle)
       (jit-ldxr r2 (jit-fp) r1)
-      (jit-pushargr r2)
-      (jit-pushargr r0)
-      (call-c "scm_do_inline_cons")
-      (jit-retval r0)
-      (jit-addi r1 r1 (imm (sizeof '*)))
-      (jump (jit-blei r1 (offset->addr 4)) l1)
+      (scm-inline-cons r0 r2 r0)
+      (jit-subi r1 r1 (imm (sizeof '*)))
+      (jump (jit-bgei r1 (frame-local 3)) lshuffle)
 
-      (jit-link l2)
       (jit-prepare)
       (jit-pushargr r0)
       (call-c "scm_values")
       (jit-retval reg-retval)
 
-      (jit-link l3)
+      (jit-link lexit)
+      (jit-addi (jit-fp) (jit-fp) (imm stack-size))
       (jit-retr reg-retval)))
 
   (debug 1 "~%;;; Entering c-call-lightning:~%")
@@ -2307,8 +2293,7 @@ lightning, with ENTRY as lightning's node to itself."
       (debug 1 ";;; found jit compiled code of ~a at 0x~x.~%" proc compiled)
       (with-jit-state
        (jit-prolog)
-       (let* ((fp (jit-allocai (imm (* (+ 3 (length args)) (sizeof '*)))))
-              (return-address (jit-movi r1 (imm 0))))
+       (let ((return-address (jit-movi r1 (imm 0))))
          (vm-prolog r1)
          (jit-movi r0 (make-pointer compiled))
          (jit-jmpr r0)
@@ -2329,10 +2314,9 @@ lightning, with ENTRY as lightning's node to itself."
       (with-jit-state
        (jit-prolog)
        (let* ((entry (jit-forward))
-              (fp (jit-allocai (imm (* (+ 3 (length args)) (sizeof '*)))))
               (nargs (+ (length args) 1))
               (args (apply vector proc args))
-              (fp0 (+ (fp->addr fp) (* (sizeof '*) nargs)))
+              (fp0 (* 3 (sizeof '*)))
               (lightning (make-lightning trace
                                          (make-hash-table)
                                          fp0
