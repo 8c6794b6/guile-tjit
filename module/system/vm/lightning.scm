@@ -363,9 +363,9 @@
 (define-syntax-rule (frame-local offset)
   (imm (* offset (sizeof '*))))
 
-;; Stored ref 0 is frame local 2. Frame local 0 contains previous
-;; (jit-fp), frame local 1 contains return address.
 (define-syntax-rule (stored-ref st n)
+  "Stored ref 0 is frame local 2. Frame local 0 contains previous (jit-fp),
+frame local 1 contains return address."
   (frame-local (+ n 2)))
 
 (define-syntax local-ref
@@ -432,10 +432,10 @@ argument in VM operation."
     (jit-link lexit)))
 
 (define-syntax with-frame
-  ;; Stack poionter stored in (jit-fp), decreasing for `proc * word' size to
-  ;; shift the locals.  Then patching the address after the jmp, so that
-  ;; called procedure can jump back. Two locals below proc get overwritten by
-  ;; callee.
+  ;; Stack poionter stored in (jit-fp) increased for `proc * word' size
+  ;; to shift the locals.  Then patch the address after the jump, so
+  ;; that callee can jump back. Two locals below proc get overwritten by
+  ;; the callee.
   (syntax-rules ()
     ((_ st proc body)
      (with-frame st r0 proc body))
@@ -452,6 +452,9 @@ argument in VM operation."
 
 ;; Apply trampoline for smob is not inlined with lightning, calling C
 ;; functions.
+;;
+;; XXX: Move the codes for unwrap block to common place, it's too much
+;; work for re-generating every time.
 (define-syntax call-local
   (syntax-rules ()
     ((_ st proc nlocals #f)
@@ -1127,6 +1130,7 @@ argument in VM operation."
     (jit-ldxr r0 (jit-fp) f5)
 
     ;; Test whether the procedure has JIT compiled code.
+    ;; XXX: Unwrap callee as done in `call-local'
     (local-ref st 1 r2)
     (scm-cell-object f0 r2 0)
     (jit-subi reg-nargs reg-nargs (imm 2))
@@ -1204,8 +1208,42 @@ argument in VM operation."
 (define-br-nargs-op (br-if-nargs-gt st expected offset)
   jit-bgti)
 
-(define-vm-op (assert-nargs-ee/locals st expected locals)
+(define-vm-op (assert-nargs-ee st expected)
   (assert-wrong-num-args st jit-beqi expected 0))
+
+(define-vm-op (assert-nargs-ge st expected)
+  (assert-wrong-num-args st jit-bgei expected 0))
+
+(define-vm-op (assert-nargs-le st expected)
+  (assert-wrong-num-args st jit-blei expected 0))
+
+(define-vm-op (alloc-frame st nlocals)
+  (let ((lshuffle (jit-forward))
+        (lexit (jit-forward)))
+
+    (jit-movi f0 scm-undefined)
+    (jit-movr r1 reg-nargs)
+    (jit-addi r1 r1 (imm 1))
+    (jit-muli r1 r1 (imm (sizeof '*)))
+
+    ;; Using r1 as offset of location to store.
+    (jit-link lshuffle)
+    (jump (jit-bgei r1 (stored-ref st nlocals)) lexit)
+    (jit-addi r1 r1 (imm (sizeof '*)))
+    (jit-stxr r1 (jit-fp) f0)
+    (jump lshuffle)
+
+    (jit-link lexit)
+    (jit-movi reg-nargs (imm nlocals))))
+
+(define-vm-op (reset-frame st nlocals)
+  (jit-movi reg-nretvals (imm nlocals)))
+
+(define-vm-op (assert-nargs-ee/locals st expected locals)
+  ;; XXX: Refill SCM_UNDEFINED?
+  (assert-wrong-num-args st jit-beqi expected 0))
+
+;;; XXX: br-if-npos-gt
 
 (define-vm-op (bind-kwargs st nreq flags nreq-and-opt ntotal kw-offset)
   (jit-prepare)
@@ -1255,41 +1293,6 @@ argument in VM operation."
     ;; Updating nargs to prevent following `alloc-frame' to override
     ;; the rest list with #<unspecified>.
     (jit-movi reg-nargs (imm (+ dst 1)))))
-
-(define-vm-op (assert-nargs-ee st expected)
-  (assert-wrong-num-args st jit-beqi expected 0))
-
-(define-vm-op (assert-nargs-ge st expected)
-  (assert-wrong-num-args st jit-bgei expected 0))
-
-(define-vm-op (assert-nargs-le st expected)
-  (assert-wrong-num-args st jit-blei expected 0))
-
-(define-vm-op (alloc-frame st nlocals)
-  (let ((lshuffle (jit-forward))
-        (lexit (jit-forward)))
-
-    (jit-movr r1 reg-nargs)
-    (jit-movi f0 scm-undefined)
-
-    (jit-link lshuffle)
-    (jump (jit-bgei r1 (imm nlocals)) lexit)
-
-    ;; Doing similar things to `stored-ref' in generated code. Using r2
-    ;; as offset of location to store.
-    (jit-movi r2 (stored-ref st 0))
-    (jit-movr r0 r1)
-    (jit-muli r0 r0 (* (imm (sizeof '*))))
-    (jit-addr r2 r2 r0)
-    (jit-stxr r2 (jit-fp) f0)
-    (jit-addi r1 r1 (imm 1))
-    (jump lshuffle)
-
-    (jit-link lexit)
-    (jit-movi reg-nargs (imm nlocals))))
-
-(define-vm-op (reset-frame st nlocals)
-  (jit-movi reg-nretvals (imm nlocals)))
 
 
 ;;; Branching instructions
@@ -1362,14 +1365,14 @@ argument in VM operation."
 (define-vm-br-binary-op (br-if-equal st a b invert offset)
   "scm_equal_p")
 
+(define-vm-br-arithmetic-op (br-if-= st a b invert offset)
+  jit-beqr jit-bner jit-beqr-d jit-bner-d "scm_num_eq_p")
+
 (define-vm-br-arithmetic-op (br-if-< st a b invert offset)
   jit-bltr jit-bger jit-bltr-d jit-bunltr-d "scm_less_p")
 
 (define-vm-br-arithmetic-op (br-if-<= st a b invert offset)
   jit-bler jit-bgtr jit-bler-d jit-bunler-d "scm_leq_p")
-
-(define-vm-br-arithmetic-op (br-if-= st a b invert offset)
-  jit-beqr jit-bner jit-beqr-d jit-bner-d "scm_num_eq_p")
 
 (define-vm-op (br-if-logtest st a b invert offset)
   (let ((lcall (jit-forward))
@@ -1401,6 +1404,8 @@ argument in VM operation."
 
 (define-vm-op (mov st dst src)
   (local-set! st dst (local-ref st src)))
+
+;;; XXX: long-mov
 
 (define-vm-op (box st dst src)
   (jit-prepare)
