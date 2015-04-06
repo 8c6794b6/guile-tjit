@@ -44,10 +44,12 @@
        (define (name . vars)
          body ...)
        (format #t ";;; Test: ~a ...~%" '(name . vars))
-       (test-equal (symbol->string (procedure-name name))
-         (name . args)
-         ;; (call-lightning name . args)
-         (with-lightning name . args))))))
+       (test-equal
+        (symbol->string (procedure-name name))
+        (call-with-values (lambda () (name . args))
+          (lambda vs vs))
+        (call-with-values (lambda () (with-lightning name . args))
+          (lambda vs vs)))))))
 
 (lightning-verbosity 0)
 
@@ -166,6 +168,19 @@
 (define-test (call-two-values-false x) ('(1 2 3))
   (if (two-values x) 'true-branch 'false-branch))
 
+(define fluid-tmp (make-fluid))
+
+(test-skip 1)
+(define-test (t-recursive-values-apply e acc) (10 '())
+  (with-fluids ((fluid-tmp 123))
+    (if (< 0 e)
+        (call-with-values (lambda () (values e (+ e 1)))
+          (lambda (a b)
+            (t-recursive-values-apply (- e 1) (cons (+ a b) acc))))
+        (values e acc))))
+
+(define-test (return-no-values) ()
+  (values))
 
 ;;; Specialized call stubs
 
@@ -248,6 +263,9 @@
 
 (define-test (t-apply-tail-c f rest) (+ '(1 2 3 4 5))
   (apply f rest))
+
+(define-test (t-apply-empty-list-to-values f g) (apply values)
+  (f g '()))
 
 (define-test (return-builtin-values) ()
   values)
@@ -1049,5 +1067,17 @@
 
 (define-test (t-format-1 str arg1 arg2) ("~x is ~a~%" 100 #f)
   (format #f str arg1 arg2))
+
+(define-test (t-primitive-eval-1 expr) ('(+ 1 (* 2 3)))
+  (primitive-eval expr))
+
+(define-test (t-primitive-eval-2 expr)
+  ('(letrec ((fib (lambda (n)
+                    (if (< n 2)
+                        n
+                        (+ (fib (- n 1))
+                           (fib (- n 2)))))))
+      (fib 10)))
+  (primitive-eval expr))
 
 (test-end "vm-lightning-test")

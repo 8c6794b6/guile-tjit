@@ -38,7 +38,8 @@
   #:use-module (system vm lightning trace)
   #:use-module (system vm program)
   #:use-module (system vm vm)
-  #:export (compile-lightning
+  #:export (compile-procedure
+            compile-lightning
             call-lightning
             jit-code-guardian)
   #:re-export (lightning-verbosity))
@@ -57,7 +58,7 @@
 
 ;; State used during compilation.
 (define-record-type <lightning>
-  (%make-lightning trace nodes ip labels pc fp)
+  (%make-lightning trace nodes ip labels pc)
   lightning?
 
   ;; State from bytecode trace.
@@ -73,19 +74,16 @@
   (labels lightning-labels)
 
   ;; Address of byte-compiled program code.
-  (pc lightning-pc)
+  (pc lightning-pc))
 
-  ;; Frame pointer
-  (fp lightning-fp))
-
-(define* (make-lightning trace nodes fp pc
+(define* (make-lightning trace nodes pc
                          #:optional
                          (ip 0)
                          (labels (make-hash-table)))
   (for-each (lambda (labeled-ip)
               (hashq-set! labels labeled-ip (jit-forward)))
             (trace-labeled-ips trace))
-  (%make-lightning trace nodes ip labels pc fp))
+  (%make-lightning trace nodes ip labels pc))
 
 (define jit-code-guardian (make-guardian))
 
@@ -127,14 +125,11 @@
 ;;; Registers with specific use
 ;;;
 
-;; Number of arguments.
-(define-inline reg-nargs v0)
+;; Number of locals.
+(define-inline reg-nlocals v0)
 
 ;; Return value.
 (define-inline reg-retval v1)
-
-;; Number of return values, shared with number of arguments.
-(define-inline reg-nretvals v0)
 
 ;; Current thread.
 (define-inline reg-thread v2)
@@ -390,7 +385,7 @@ frame local 1 contains return address."
 
 (define-syntax-rule (last-arg-offset st dst tmp)
   (begin
-    (jit-movr tmp reg-nargs)
+    (jit-movr tmp reg-nlocals)
     (jit-subi tmp tmp (imm 1))
     (jit-muli tmp tmp (imm (sizeof '*)))
     (jit-addi dst tmp (stored-ref st 0))))
@@ -450,11 +445,44 @@ argument in VM operation."
        body
        (jit-patch ra)))))
 
+(define-syntax-rule (return-value-list st proc tmp1 tmp2 tmp3)
+  (let ((lexit (jit-forward))
+        (lshuffle (jit-forward)))
+
+    (jit-movi reg-nlocals (imm 2))
+    (jump (scm-imp reg-retval) lexit)
+
+    (scm-cell-type tmp1 reg-retval)
+    (scm-typ3 tmp2 tmp1)
+    (jump (scm-not-structp tmp2) lexit)
+
+    (jit-subi tmp2 tmp1 (imm tc3-struct))
+    (scm-cell-object tmp2 tmp2 scm-vtable-index-self)
+    (jump (scm-not-valuesp tmp2) lexit)
+
+    (scm-struct-slots tmp1 reg-retval)
+    (scm-cell-object tmp1 tmp1 0)
+    (scm-car reg-retval tmp1)
+    (local-set! st (+ proc 1) reg-retval)
+    (jit-movi tmp2 (stored-ref st (+ proc 1)))
+
+    ;; (jit-subi reg-nlocals reg-nlocals (imm 1))
+    (jit-movi reg-nlocals (imm 1))
+    (jit-link lshuffle)
+    (scm-car tmp3 tmp1)
+    (jit-stxr tmp2 (jit-fp) tmp3)
+    (jit-addi tmp2 tmp2 (imm (sizeof '*)))
+    (jit-addi reg-nlocals reg-nlocals (imm 1))
+    (scm-cdr tmp1 tmp1)
+    (jump (scm-is-not-null tmp1) lshuffle)
+
+    (jit-link lexit)))
+
 ;; Apply trampoline for smob is not inlined with lightning, calling C
 ;; functions.
 ;;
-;; XXX: Move the codes for unwrap block to common place, it's too much
-;; work for re-generating every time.
+;; XXX: Move the codes for unwrapping procedure to common place, it's
+;; too much work to generate every call.
 (define-syntax call-local
   (syntax-rules ()
     ((_ st proc nlocals #f)
@@ -473,12 +501,11 @@ argument in VM operation."
            (lshuffle (jit-forward))
            (lerror (jit-forward)))
 
-       (jit-movi f0 (imm 0))            ; A flag for runtime smob call.
        (local-ref st proc r0)
 
        ;; Unwrap local to get procedure. Doing similar work done in
        ;; vm-engine's label statement `apply:'.
-       (define-link lunwrap)
+       (jit-link lunwrap)
        (jump (scm-imp r0) lerror)
        (scm-cell-type r2 r0)
        (scm-typ7 r1 r2)
@@ -502,7 +529,7 @@ argument in VM operation."
        (call-c "scm_do_smob_applicable_p")
        (jit-retval r0)
        (jump (jit-beqi r0 (imm 0)) lerror)
-       (jit-addi reg-nargs reg-nargs (imm 1))
+       (jit-addi reg-nlocals reg-nlocals (imm 1))
        (last-arg-offset st r1 r2)
 
        (jit-link lshuffle)
@@ -516,7 +543,6 @@ argument in VM operation."
        (call-c "scm_do_smob_apply_trampoline")
        (jit-retval r0)
        (local-set! st proc r0)
-       (jit-movi f0 (imm 1))
        (jump lunwrap)
 
        ;; Show error message.
@@ -527,18 +553,11 @@ argument in VM operation."
        (jit-link lprogram)
        (jump (scm-program-is-jit-compiled r2) lcompiled)
 
-       ;; Does not have compiled code.
-       (jump (scm-is-eqi f0 1) lsmobrt)
-       (call-runtime st proc nlocals)
-       (local-set! st (+ proc 1) reg-retval)
-       (jump lexit)
-
-       ;; Does not have compiled code, for calling smob.
-       ;; Number of locals is increased by 1.
-       (jit-link lsmobrt)
-       (call-runtime st proc (+ nlocals 1))
-       (local-set! st (+ proc 1) reg-retval)
-       (jump lexit)
+       ;; Does not have compiled code, compile the callee procedure.
+       (jit-prepare)
+       (jit-pushargr r0)
+       (jit-calli %compile-procedure)
+       (local-ref st proc r0)
 
        ;; Has compiled code.
        (jit-link lcompiled)
@@ -547,82 +566,25 @@ argument in VM operation."
 
        (jit-link lexit)))))
 
-(define-syntax-rule (return-value-list st proc tmp1 tmp2 tmp3)
-  (let ((lexit (jit-forward))
-        (lshuffle (jit-forward)))
-
-    (jit-movi reg-nretvals (imm 1))
-    (jump (scm-imp reg-retval) lexit)
-
-    (scm-cell-type tmp1 reg-retval)
-    (scm-typ3 tmp2 tmp1)
-    (jump (scm-not-structp tmp2) lexit)
-
-    (jit-subi tmp2 tmp1 (imm tc3-struct))
-    (scm-cell-object tmp2 tmp2 scm-vtable-index-self)
-    (jump (scm-not-valuesp tmp2) lexit)
-
-    (scm-struct-slots tmp1 reg-retval)
-    (scm-cell-object tmp1 tmp1 0)
-    (scm-car reg-retval tmp1)
-    (local-set! st (+ proc 1) reg-retval)
-    (jit-movi tmp2 (stored-ref st (+ proc 1)))
-
-    (jit-link lshuffle)
-    (scm-car tmp3 tmp1)
-    (jit-stxr tmp2 (jit-fp) tmp3)
-    (jit-addi tmp2 tmp2 (imm (sizeof '*)))
-    (jit-addi reg-nretvals reg-nretvals (imm 1))
-    (scm-cdr tmp1 tmp1)
-    (jump (scm-is-not-null tmp1) lshuffle)
-
-    (jit-link lexit)))
-
-;;; XXX: Compile the callee instead of calling `%call-lighting'.
-(define-syntax-rule (call-runtime st proc nlocals)
-  (begin
-    (jit-prepare)
-    (for-each (lambda (n)
-                (jit-pushargr (local-ref st (+ proc n 1))))
-              (iota (- nlocals 1)))
-    (jit-pushargi scm-undefined)
-    (call-c "scm_list_n")
-    (jit-retval r1)
-    (jit-prepare)
-    (jit-pushargr reg-thread)
-    (jit-pushargr (local-ref st proc))
-    (jit-pushargr r1)
-    (jit-calli %call-lightning)
-    (jit-retval reg-retval)
-    (return-value-list st proc r0 r1 r2)))
-
-(define-syntax compile-callee
+(define-syntax compile-label
   (syntax-rules (compile-lightning with-frame)
 
     ;; Non tail call
     ((_ st1 proc nlocals callee-addr #f)
-     (compile-callee st1 st2 proc nlocals callee-addr
-                     (with-frame st2 proc
-                                 (compile-lightning st2 (jit-forward)))))
+     (compile-label st1 st2 proc nlocals callee-addr
+                    (with-frame st2 proc
+                                (compile-lightning st2 (jit-forward)))))
 
     ;; Tail call
     ((_ st1 proc nlocals callee-addr #t)
-     (compile-callee st1 st2 proc nlocals callee-addr
-                     (compile-lightning st2 (jit-forward))))
+     (compile-label st1 st2 proc nlocals callee-addr
+                    (compile-lightning st2 (jit-forward))))
 
     ((_ st1 st2 proc nlocals callee-addr body)
-     (cond
-      ((program->trace callee-addr)
-       =>
-       (lambda (trace)
-         (let ((st2 (make-lightning trace
-                                    (lightning-nodes st1)
-                                    (lightning-fp st1)
-                                    (ensure-program-addr callee-addr))))
-           body)))
-      (else
-       (debug 1 ";;; Trace failed, calling 0x~x at runtime.~%" callee-addr)
-       (call-runtime st1 proc nlocals))))))
+     (let ((st2 (make-lightning (program->trace callee-addr)
+                                (lightning-nodes st1)
+                                (ensure-program-addr callee-addr))))
+       body))))
 
 (define-syntax-rule (in-same-procedure? st label)
   ;; Could look the last IP of current procedure.  Instead, looking for
@@ -715,7 +677,7 @@ argument in VM operation."
   (syntax-rules ()
     ((_ st jit-op expected local)
      (let ((lexit (jit-forward)))
-       (jump (jit-op reg-nargs (imm expected)) lexit)
+       (jump (jit-op reg-nlocals (imm expected)) lexit)
        (jit-prepare)
        (jit-pushargr (local-ref st 0))
        (call-c "scm_wrong_num_args")
@@ -791,7 +753,7 @@ argument in VM operation."
   (syntax-rules ()
     ((_ (name st expected offset) jit-op)
      (define-vm-op (name st expected offset)
-       (jump (jit-op reg-nargs (imm expected))
+       (jump (jit-op reg-nlocals (imm expected))
              (resolve-dst st offset))))))
 
 (define-syntax define-vm-br-unary-immediate-op
@@ -1022,15 +984,14 @@ argument in VM operation."
 ;;; Call and return
 ;;; ---------------
 
-;;; XXX: Any way to ensure enough space allocated for nlocals?
 (define-vm-op (call st proc nlocals)
   (vm-handle-interrupts st)
-  (jit-movi reg-nargs (imm nlocals))
+  (jit-movi reg-nlocals (imm nlocals))
   (call-local st proc nlocals #f))
 
 (define-vm-op (call-label st proc nlocals label)
   (vm-handle-interrupts st)
-  (jit-movi reg-nargs (imm nlocals))
+  (jit-movi reg-nlocals (imm nlocals))
   (cond
    ((in-same-procedure? st label)
     (with-frame st proc (jump (resolve-dst st label))))
@@ -1039,17 +1000,16 @@ argument in VM operation."
     (lambda (node)
       (with-frame st proc (jump node))))
    (else
-    (compile-callee st proc nlocals (offset-addr st label) #f))))
+    (compile-label st proc nlocals (offset-addr st label) #f))))
 
 (define-vm-op (tail-call st nlocals)
   (vm-handle-interrupts st)
-  (jit-movi reg-nargs (imm nlocals))
-  (call-local st 0 nlocals #t)
-  (return-jmp st))
+  (jit-movi reg-nlocals (imm nlocals))
+  (call-local st 0 nlocals #t))
 
 (define-vm-op (tail-call-label st nlocals label)
   (vm-handle-interrupts st)
-  (jit-movi reg-nargs (imm nlocals))
+  (jit-movi reg-nlocals (imm nlocals))
   (cond
    ((in-same-procedure? st label)
     (jump (resolve-dst st label)))
@@ -1058,7 +1018,7 @@ argument in VM operation."
     (lambda (node)
       (jump node)))
    (else
-    (compile-callee st 0 nlocals (offset-addr st label) #t))))
+    (compile-label st 0 nlocals (offset-addr st label) #t))))
 
 (define-vm-op (receive st dst proc nlocals)
   (local-set! st dst reg-retval))
@@ -1068,7 +1028,7 @@ argument in VM operation."
 
 (define-vm-op (return st dst)
   (local-ref st dst reg-retval)
-  (jit-movi reg-nretvals (imm 1))
+  (jit-movi reg-nlocals (imm 2))
   (return-jmp st))
 
 (define-vm-op (return-values st)
@@ -1085,7 +1045,7 @@ argument in VM operation."
     ;; `subr-call' accepts up to 10 arguments only.
     (jit-prepare)
     (for-each (lambda (n)
-                (jump (jit-blei reg-nargs (imm (+ n 1))) lcall)
+                (jump (jit-blei reg-nlocals (imm (+ n 1))) lcall)
                 (jit-pushargr (local-ref st (+ n 1))))
               (iota 10))
 
@@ -1110,13 +1070,12 @@ argument in VM operation."
   (jit-pushargr r0)
   (call-c "scm_do_foreign_call")
   (jit-retval reg-retval)
-  (jit-movi reg-nretvals (imm 1))
+  (return-value-list st 0 r0 r1 r2)
   (return-jmp st))
 
 ;;; XXX: continuation-call
 ;;; XXX: compose-continuation
 
-;;; XXX: Compile the callee instead of calling `%call-lightning'.
 (define-vm-op (tail-apply st)
   (let ((lcons (jit-forward))
         (lrt (jit-forward))
@@ -1127,35 +1086,21 @@ argument in VM operation."
 
     ;; Last local, a list containing rest of arguments.
     (last-arg-offset st f5 r0)
-    (jit-ldxr r0 (jit-fp) f5)
 
-    ;; Test whether the procedure has JIT compiled code.
-    ;; XXX: Unwrap callee as done in `call-local'
+    ;; Test whether callee has JIT compiled code.
     (local-ref st 1 r2)
     (scm-cell-object f0 r2 0)
-    (jit-subi reg-nargs reg-nargs (imm 2))
+    (jit-subi reg-nlocals reg-nlocals (imm 2))
+    ;; XXX: Unwrap callee as done in `call-local'
     (jump (scm-program-is-jit-compiled f0) lcompiled)
 
-    ;; No JIT code, making argument list.
-    (jit-link lcons)
-    (jump (jit-blei f5 (stored-ref st 2)) lrt)
-    (jit-subi f5 f5 (imm (sizeof '*)))
-    (jit-ldxr r2 (jit-fp) f5)
-    (scm-inline-cons r0 r2 r0)
-    (jump lcons)
-
-    ;; Call `%call-lightning' with thread, proc, and argument list.
-    (jit-link lrt)
+    ;; No JIT compiled code, compile the callee.
     (jit-prepare)
-    (jit-pushargr reg-thread)
-    (jit-pushargr (local-ref st 1 r1))
-    (jit-pushargr r0)
-    (jit-calli %call-lightning)
-    (jit-retval reg-retval)
-    (return-value-list st 0 r0 r1 r2)
-    (return-jmp st)
+    (jit-pushargr r2)
+    (jit-calli %compile-procedure)
+    (local-ref st 1 r2)
 
-    ;; Has jit compiled code.
+    ;; Has JIT compiled code.
     (jit-link lcompiled)
 
     ;; Local offset for shifting.
@@ -1170,6 +1115,9 @@ argument in VM operation."
     (jit-addi r1 r1 (imm (sizeof '*)))
     (jump (jit-bler r1 f1) lshift)
 
+    ;; Load last local.
+    (jit-ldxr r0 (jit-fp) f5)
+
     ;; Expand list contents to local.
     (jit-link lshuffle)
     (jump (scm-is-null r0) ljitcall)
@@ -1177,7 +1125,7 @@ argument in VM operation."
     (jit-stxr r1 (jit-fp) f0)
     (scm-cdr r0 r0)
     (jit-addi r1 r1 (imm (sizeof '*)))
-    (jit-addi reg-nargs reg-nargs (imm 1))
+    (jit-addi reg-nlocals reg-nlocals (imm 1))
     (jump lshuffle)
 
     ;; Jump to the JIT compiled code.
@@ -1217,12 +1165,13 @@ argument in VM operation."
 (define-vm-op (assert-nargs-le st expected)
   (assert-wrong-num-args st jit-blei expected 0))
 
+;;; XXX: Any way to ensure enough space allocated for nlocals?
 (define-vm-op (alloc-frame st nlocals)
   (let ((lshuffle (jit-forward))
         (lexit (jit-forward)))
 
     (jit-movi f0 scm-undefined)
-    (jit-movr r1 reg-nargs)
+    (jit-movr r1 reg-nlocals)
     (jit-addi r1 r1 (imm 1))
     (jit-muli r1 r1 (imm (sizeof '*)))
 
@@ -1234,14 +1183,15 @@ argument in VM operation."
     (jump lshuffle)
 
     (jit-link lexit)
-    (jit-movi reg-nargs (imm nlocals))))
+    (jit-movi reg-nlocals (imm nlocals))))
 
 (define-vm-op (reset-frame st nlocals)
-  (jit-movi reg-nretvals (imm nlocals)))
+  (jit-movi reg-nlocals (imm nlocals)))
 
 (define-vm-op (assert-nargs-ee/locals st expected locals)
   ;; XXX: Refill SCM_UNDEFINED?
-  (assert-wrong-num-args st jit-beqi expected 0))
+  (assert-wrong-num-args st jit-beqi expected 0)
+  (jit-movi reg-nlocals (imm (+ expected locals))))
 
 ;;; XXX: br-if-npos-gt
 
@@ -1249,7 +1199,7 @@ argument in VM operation."
   (jit-prepare)
   (jit-pushargr (jit-fp))
   (jit-pushargi (stored-ref st 0))
-  (jit-pushargr reg-nargs)
+  (jit-pushargr reg-nlocals)
   (jit-pushargi (imm (+ (lightning-pc st) (* (lightning-ip st) 4))))
   (jit-pushargi (imm nreq))
   (jit-pushargi (imm flags))
@@ -1267,7 +1217,7 @@ argument in VM operation."
     (jit-movi r0 (scm->pointer '()))    ; r0 = initial list.
     (jit-movi f0 scm-undefined)
 
-    (jump (jit-bgti reg-nargs (imm dst)) lcons)
+    (jump (jit-bgti reg-nlocals (imm dst)) lcons)
 
     ;; Refill the locals with SCM_UNDEFINED.
     (jit-link lrefill)
@@ -1292,7 +1242,7 @@ argument in VM operation."
 
     ;; Updating nargs to prevent following `alloc-frame' to override
     ;; the rest list with #<unspecified>.
-    (jit-movi reg-nargs (imm (+ dst 1)))))
+    (jit-movi reg-nlocals (imm (+ dst 1)))))
 
 
 ;;; Branching instructions
@@ -1450,7 +1400,6 @@ argument in VM operation."
       (let* ((trace (program->trace (offset-addr st offset)))
              (lightning (make-lightning trace
                                         (lightning-nodes st)
-                                        (lightning-fp st)
                                         (offset-addr st offset))))
         (jit-patch closure-addr)
         (compile-lightning lightning (jit-forward))))
@@ -2113,9 +2062,18 @@ argument in VM operation."
 ;;; XXX: bv-f32-set!
 ;;; XXX: bv-f64-set!
 
+
 ;;;
 ;;; Compilation
 ;;;
+
+(define-syntax-rule (with-jit-state . expr)
+    (parameterize ((jit-state (jit-new-state)))
+      (call-with-values
+          (lambda () . expr)
+        (lambda vals
+          (jit-destroy-state)
+          (apply values vals)))))
 
 (define (compile-lightning st entry)
   "Compile <lightning> data specified by ST to native code using
@@ -2162,6 +2120,46 @@ lightning, with ENTRY as lightning's node to itself."
 
     entry))
 
+(define-syntax-rule (compile-procedure proc)
+  "Compile bytecode of procedure PROC to native code, and save the
+compiled result."
+  (with-jit-state
+   (jit-prolog)
+   (let ((entry (jit-forward))
+         (lightning (make-lightning (program->trace proc)
+                                    (make-hash-table)
+                                    (ensure-program-addr proc))))
+     (compile-lightning lightning entry)
+     (jit-epilog)
+     (jit-realize)
+     (let* ((estimated-code-size (jit-code-size))
+            (bv (make-bytevector estimated-code-size)))
+       (jit-set-code (bytevector->pointer bv)
+                     (imm estimated-code-size))
+       (jit-emit)
+       (jit-code-guardian bv)
+       (set-jit-compiled-code! proc (jit-address entry))
+       (make-bytevector-executable! bv)
+
+       ;; Debug output.
+       (let ((verbosity (lightning-verbosity)))
+         (when (and verbosity (<= 2 verbosity))
+           (format #t ";;; nodes:~%")
+           (hash-for-each (lambda (k v)
+                            (format #t ";;;   0x~x => ~a~%" k v))
+                          (lightning-nodes lightning)))
+         (when (and verbosity (<= 3 verbosity))
+           (write-code-to-file (format #f "/tmp/~a.o" (procedure-name proc))
+                               (bytevector->pointer bv))
+           (jit-print)
+           (jit-clear-state)))))))
+
+(define %compile-procedure
+  (let ((f (lambda (proc*)
+             (let ((proc (pointer->scm proc*)))
+               (compile-procedure proc)))))
+    (procedure->pointer void f '(*))))
+
 
 ;;;
 ;;; Code generation and execution
@@ -2176,21 +2174,6 @@ lightning, with ENTRY as lightning's node to itself."
   "Compile PROC with lightning, and run with ARGS."
   (pointer->scm
    (c-call-lightning (thread-i-data (current-thread)) proc args)))
-
-(define %call-lightning
-  (let ((f (lambda (thread proc args)
-             (c-call-lightning thread
-                               (pointer->scm proc)
-                               (pointer->scm args)))))
-    (procedure->pointer '* f '(* * *))))
-
-(define-syntax-rule (with-jit-state . expr)
-    (parameterize ((jit-state (jit-new-state)))
-      (call-with-values
-          (lambda () . expr)
-        (lambda vals
-          (jit-destroy-state)
-          (apply values vals)))))
 
 (define (c-call-lightning thread proc args)
   "Compile PROC with lightning and run with ARGS, within THREAD."
@@ -2224,8 +2207,9 @@ lightning, with ENTRY as lightning's node to itself."
   (define-syntax-rule (vm-prolog ra-reg)
     (begin
       ;; XXX: Allocating constant amount at beginning of function call.
-      ;; Might better to allocate at runtime.
-      (jit-allocai (imm stack-size))
+      ;; Stack size not expanded at runtime.
+      ;; (jit-allocai (imm stack-size))
+      (jit-frame (imm stack-size))
 
       ;; Initial dynamic link, frame pointer.
       (jit-subi (jit-fp) (jit-fp) (imm stack-size))
@@ -2246,31 +2230,35 @@ lightning, with ENTRY as lightning's node to itself."
           (lp (cdr args) (+ offset 1))))
 
       ;; Initialize registers.
-      (jit-movi reg-nargs (imm (+ (length args) 1)))
+      (jit-movi reg-nlocals (imm (+ (length args) 1)))
       (jit-movi reg-thread thread)
-      (jit-movi reg-retval (scm->pointer *unspecified*))))
+      (jit-movi reg-retval scm-undefined)))
 
   ;; Check number of return values, call C function `scm_values' if
   ;; 1 < number of values.
   (define-syntax-rule (vm-epilog)
     (let ((lshuffle (jit-forward))
+          (lvalues (jit-forward))
+          (lcall (jit-forward))
           (lexit (jit-forward)))
 
-      (jump (jit-blei reg-nretvals (imm 1)) lexit)
+      (jump (jit-beqi reg-nlocals (imm 2)) lexit)
 
+      ;; XXX: Fix the management of number of returned values.
+      (jit-link lvalues)
       (jit-movi r0 (scm->pointer '()))
-      (jit-subi reg-nargs reg-nargs (imm 2))
-      (jit-movr r2 reg-nargs)
-      (jit-muli r2 r2 (imm (sizeof '*)))
-      (jit-movi r1 (frame-local 3))
-      (jit-addr r1 r1 r2)
+      (jit-subi r1 reg-nlocals (imm 1))
+      (jit-muli r1 r1 (imm (sizeof '*)))
+      (jit-addi r1 r1 (frame-local 3))
 
       (jit-link lshuffle)
+      (jump (jit-blei r1 (frame-local 3)) lcall)
+      (jit-subi r1 r1 (imm (sizeof '*)))
       (jit-ldxr r2 (jit-fp) r1)
       (scm-inline-cons r0 r2 r0)
-      (jit-subi r1 r1 (imm (sizeof '*)))
-      (jump (jit-bgei r1 (frame-local 3)) lshuffle)
+      (jump lshuffle)
 
+      (jit-link lcall)
       (jit-prepare)
       (jit-pushargr r0)
       (call-c "scm_values")
@@ -2280,7 +2268,6 @@ lightning, with ENTRY as lightning's node to itself."
       (jit-addi (jit-fp) (jit-fp) (imm stack-size))
       (jit-retr reg-retval)))
 
-  (debug 1 "~%;;; Entering c-call-lightning:~%")
   (cond
    ((not (program? proc))
     (cond
@@ -2295,7 +2282,7 @@ lightning, with ENTRY as lightning's node to itself."
    ((jit-compiled-code proc)
     =>
     (lambda (compiled)
-      (debug 1 ";;; found jit compiled code of ~a at 0x~x.~%" proc compiled)
+      (debug 1 ";;; calling jit compiled code of ~a at 0x~x.~%" proc compiled)
       (with-jit-state
        (jit-prolog)
        (let ((return-address (jit-movi r1 (imm 0))))
@@ -2313,63 +2300,9 @@ lightning, with ENTRY as lightning's node to itself."
              (jit-print)
              (jit-clear-state)))
          (thunk)))))
-   ((program->trace proc)
-    =>
-    (lambda (trace)
-      (with-jit-state
-       (jit-prolog)
-       (let* ((entry (jit-forward))
-              (nargs (+ (length args) 1))
-              (args (apply vector proc args))
-              (fp0 (* 3 (sizeof '*)))
-              (lightning (make-lightning trace
-                                         (make-hash-table)
-                                         fp0
-                                         (ensure-program-addr proc)))
-              (return-address (jit-movi r1 (imm 0))))
-         (vm-prolog r1)
-         (compile-lightning lightning entry)
-         (jit-patch return-address)
-         (vm-epilog)
-         (jit-epilog)
-         (jit-realize)
-
-         ;; Emit and call the thunk.
-         (let* ((estimated-code-size (jit-code-size))
-                (bv (make-bytevector estimated-code-size))
-                (_ (jit-set-code (bytevector->pointer bv)
-                                 (imm estimated-code-size)))
-                (fptr (jit-emit))
-                (thunk (pointer->procedure '* fptr '())))
-
-           ;; XXX: Any where else to store `bv'?
-           (jit-code-guardian bv)
-           (set-jit-compiled-code! proc (jit-address entry))
-           (make-bytevector-executable! bv)
-
-           (let ((verbosity (lightning-verbosity)))
-             (when (and verbosity (<= 2 verbosity))
-               (format #t ";;; nodes:~%")
-               (hash-for-each (lambda (k v)
-                                (format #t ";;;   0x~x => ~a~%" k v))
-                              (lightning-nodes lightning)))
-             (when (and verbosity (<= 3 verbosity))
-               (write-code-to-file
-                (format #f "/tmp/~a.o" (procedure-name proc)) fptr)
-               (jit-print)
-               (jit-clear-state)))
-
-           (debug 1 ";;; set jit compiled code of ~a to ~a~%"
-                  proc (jit-address entry))
-
-           (thunk))))))
    (else
-    (debug 0 ";;; Trace failed, interpreting: ~a~%" (cons proc args))
-    (let ((engine (vm-engine)))
-      (dynamic-wind
-        (lambda () (set-vm-engine! 'regular))
-        (lambda () (apply proc args))
-        (lambda () (set-vm-engine! engine)))))))
+    (compile-procedure proc)
+    (c-call-lightning thread proc args))))
 
 
 ;; This procedure is called from C function `vm_lightning'.
