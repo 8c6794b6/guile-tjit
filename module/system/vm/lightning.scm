@@ -20,8 +20,8 @@
 
 ;;; Commentary:
 
-;;; JIT compiler from VM bytecode to native code, written with
-;;; lightning.
+;;; A VM written in scheme. Contains JIT compiler from bytecode to
+;;; native code, written with GNU Lightning.
 
 ;;; Code:
 
@@ -127,9 +127,6 @@
 
 ;; Number of locals.
 (define-inline reg-nlocals v0)
-
-;; Return value.
-(define-inline reg-retval v1)
 
 ;; Current thread.
 (define-inline reg-thread v2)
@@ -448,14 +445,14 @@ argument in VM operation."
        body
        (jit-patch ra)))))
 
-(define-syntax-rule (return-value-list st proc tmp1 tmp2 tmp3)
+(define-syntax-rule (return-value-list st proc rval tmp1 tmp2 tmp3)
   (let ((lexit (jit-forward))
         (lshuffle (jit-forward)))
 
     (jit-movi reg-nlocals (imm 2))
-    (jump (scm-imp reg-retval) lexit)
+    (jump (scm-imp rval) lexit)
 
-    (scm-cell-type tmp1 reg-retval)
+    (scm-cell-type tmp1 rval)
     (scm-typ3 tmp2 tmp1)
     (jump (scm-not-structp tmp2) lexit)
 
@@ -463,10 +460,10 @@ argument in VM operation."
     (scm-cell-object tmp2 tmp2 scm-vtable-index-self)
     (jump (scm-not-valuesp tmp2) lexit)
 
-    (scm-struct-slots tmp1 reg-retval)
+    (scm-struct-slots tmp1 rval)
     (scm-cell-object tmp1 tmp1 0)
-    (scm-car reg-retval tmp1)
-    (local-set! st (+ proc 1) reg-retval)
+    (scm-car rval tmp1)
+    (local-set! st (+ proc 1) rval)
     (jit-movi tmp2 (stored-ref st (+ proc 1)))
 
     ;; (jit-subi reg-nlocals reg-nlocals (imm 1))
@@ -1022,15 +1019,16 @@ argument in VM operation."
     (compile-label st 0 nlocals (offset-addr st label) #t))))
 
 (define-vm-op (receive st dst proc nlocals)
-  (local-set! st dst reg-retval))
+  (local-ref st (+ proc 1) r0)
+  (local-set! st dst r0))
 
 (define-vm-op (receive-values st proc allow-extra? nvalues)
-  (local-set! st (+ proc 1) reg-retval))
+  *unspecified*)
 
 (define-vm-op (return st dst)
   (let ((lexit (jit-forward)))
-    (local-ref st dst reg-retval)
-    (local-set! st 1 reg-retval)
+    (local-ref st dst r0)
+    (local-set! st 1 r0)
     (jit-movi reg-nlocals (imm 2))
 
     (local-ref st -2 r1)
@@ -1044,8 +1042,6 @@ argument in VM operation."
 
 (define-vm-op (return-values st)
   (let ((lexit (jit-forward)))
-    (local-ref st 1 reg-retval)
-
     (local-ref st -2 r1)
     (jump (jit-beqr r1 (jit-fp)) lexit)
     (jit-subr r1 (jit-fp) r1)
@@ -1074,8 +1070,9 @@ argument in VM operation."
     (scm-program-free-variable-ref r0 r0 ptr-idx)
     (scm-pointer-value r1 r0)
     (jit-callr r1)
-    (jit-retval reg-retval)
-    (return-value-list st 0 r0 r1 r2)
+    (jit-retval r0)
+    (local-set! st 1 r0)
+    (return-value-list st 0 r0 r1 r2 f0)
     (return-jmp st)))
 
 (define-vm-op (foreign-call st cif-idx ptr-idx)
@@ -1089,8 +1086,9 @@ argument in VM operation."
   (jit-pushargr r2)
   (jit-pushargr r0)
   (call-c "scm_do_foreign_call")
-  (jit-retval reg-retval)
-  (return-value-list st 0 r0 r1 r2)
+  (jit-retval r0)
+  (local-set! st 1 r0)
+  (return-value-list st 0 r0 r1 r2 f0)
   (return-jmp st))
 
 ;;; XXX: continuation-call
@@ -2249,8 +2247,7 @@ compiled result."
 
       ;; Initialize registers.
       (jit-movi reg-nlocals (imm (+ (length args) 1)))
-      (jit-movi reg-thread thread)
-      (jit-movi reg-retval scm-undefined)))
+      (jit-movi reg-thread thread)))
 
   (define epilog-string
     (string->pointer "vm-epilog: r1=%d\n"))
@@ -2263,6 +2260,7 @@ compiled result."
           (lcall (jit-forward))
           (lexit (jit-forward)))
 
+      (jit-ldxi r0 (jit-fp) (frame-local 3))
       (jump (jit-beqi reg-nlocals (imm 2)) lexit)
 
       (jit-link lvalues)
@@ -2282,11 +2280,11 @@ compiled result."
       (jit-prepare)
       (jit-pushargr r0)
       (call-c "scm_values")
-      (jit-retval reg-retval)
+      (jit-retval r0)
 
       (jit-link lexit)
       (jit-addi (jit-fp) (jit-fp) (imm stack-size))
-      (jit-retr reg-retval)))
+      (jit-retr r0)))
 
   (cond
    ((not (program? proc))
