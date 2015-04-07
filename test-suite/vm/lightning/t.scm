@@ -178,8 +178,17 @@
             (t-recursive-values-apply (- n 1) (cons a acc))))
         (values n acc))))
 
+(define-test (t-recursive-values-apply-single x) (10)
+  (define (lp x acc)
+    (if (< 0 x)
+        (cons x (lp (- x 1) acc))
+        acc))
+  (with-fluids ((fluid-tmp 123))
+    (lp x '())))
+
 (define-test (return-no-values) ()
   (values))
+
 
 ;;; Specialized call stubs
 
@@ -1057,8 +1066,9 @@
                       (deriv (caddr a))))))
    (else 'error)))
 
+
 ;;;
-;;; Procedures from module (guile)
+;;; Procedures found in module (guile)
 ;;;
 
 (define-test (t-macroexpand-1 expr) ('(+ 1 2 3))
@@ -1066,6 +1076,24 @@
 
 (define-test (t-format-1 str arg1 arg2) ("~x is ~a~%" 100 #f)
   (format #f str arg1 arg2))
+
+(define-syntax my-syntax-01
+  (syntax-rules ()
+    ((_)
+     (my-syntax-01 100 100))
+    ((_ x)
+     (my-syntax-01 x 100))
+    ((_ x y)
+     (list x y))))
+
+(define-test (t-macroexpand-1 expr) ('(my-syntax))
+  (macroexpand expr))
+
+(define-test (t-macroexpand-2 expr) ('(my-syntax 99))
+  (macroexpand expr))
+
+(define-test (t-macroexpand-3 expr) ('(my-syntax 98 99))
+  (macroexpand expr))
 
 (define-test (t-primitive-eval-1 expr) ('(+ 1 (* 2 3)))
   (primitive-eval expr))

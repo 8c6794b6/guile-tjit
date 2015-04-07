@@ -1030,6 +1030,7 @@ argument in VM operation."
 (define-vm-op (return st dst)
   (let ((lexit (jit-forward)))
     (local-ref st dst reg-retval)
+    (local-set! st 1 reg-retval)
     (jit-movi reg-nlocals (imm 2))
 
     (local-ref st -2 r1)
@@ -2051,6 +2052,7 @@ argument in VM operation."
 
     (jit-link lexit)
     (local-set! st dst r0)))
+
 
 ;;; Arrays, packed uniform arrays, and bytevectors
 ;;; ----------------------------------------------
