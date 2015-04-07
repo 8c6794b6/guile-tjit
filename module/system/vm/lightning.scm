@@ -191,10 +191,10 @@
 (define-syntax-rule (scm-cell-type dst src)
   (scm-cell-object dst src 0))
 
-(define (scm-car dst obj)
+(define-syntax-rule (scm-car dst obj)
   (scm-cell-object dst obj 0))
 
-(define (scm-cdr dst obj)
+(define-syntax-rule (scm-cdr dst obj)
   (scm-cell-object dst obj 1))
 
 (define-syntax-rule (scm-program-jit-compiled-code dst src)
@@ -671,6 +671,61 @@ argument in VM operation."
        (call-c "scm_out_of_range")
        (jit-reti (scm->pointer *unspecified*))))))
 
+(define %error-wrong-num-values
+  (procedure->pointer
+   '*
+   (lambda (nvalues)
+     (scm-error 'vm-error
+                'vm-run
+                "Wrong number of values returned to continuation (expected ~a)"
+                `(,nvalues) `(,nvalues)))
+   `(,int)))
+
+(define-syntax error-wrong-num-values
+  (syntax-rules ()
+    ((_ nvalues)
+     (begin
+       (jit-prepare)
+       (jit-pushargi (imm nvalues))
+       (jit-calli %error-wrong-num-values)
+       (jit-reti (scm->pointer *unspecified*))))))
+
+(define %error-too-few-values
+  (procedure->pointer
+   '*
+   (lambda ()
+     (scm-error 'vm-error
+                'vm-run
+                "Too few values returned to continuation"
+                '() '()))
+   '()))
+
+(define-syntax error-too-few-values
+  (syntax-rules ()
+    ((_)
+     (begin
+       (jit-prepare)
+       (jit-calli %error-too-few-values)
+       (jit-reti (scm->pointer *unspecified*))))))
+
+(define %error-no-values
+  (procedure->pointer
+   '*
+   (lambda ()
+     (scm-error 'vm-error
+                'vm-run
+                "Zero values returned to single-valued continuation"
+                '() '()))
+   '()))
+
+(define-syntax error-no-values
+  (syntax-rules ()
+    ((_)
+     (begin
+       (jit-prepare)
+       (jit-calli %error-no-values)
+       (jit-reti (scm->pointer *unspecified*))))))
+
 (define-syntax assert-wrong-num-args
   (syntax-rules ()
     ((_ st jit-op expected local)
@@ -1018,12 +1073,22 @@ argument in VM operation."
    (else
     (compile-label st 0 nlocals (offset-addr st label) #t))))
 
+;;; XXX: No assertion for number of returned values. Show error with
+;;; `error-no-values' somehow.
 (define-vm-op (receive st dst proc nlocals)
   (local-ref st (+ proc 1) r0)
   (local-set! st dst r0))
 
 (define-vm-op (receive-values st proc allow-extra? nvalues)
-  *unspecified*)
+  (let ((lexit (jit-forward)))
+    (if allow-extra?
+        (begin
+          (jump (jit-bgti reg-nlocals (imm (+ proc nvalues))) lexit)
+          (error-too-few-values))
+        (begin
+          (jump (jit-beqi reg-nlocals (imm (+ proc 1 nvalues))) lexit)
+          (error-wrong-num-values nvalues)))
+    (jit-link lexit)))
 
 (define-vm-op (return st dst)
   (let ((lexit (jit-forward)))
@@ -1031,22 +1096,26 @@ argument in VM operation."
     (local-set! st 1 r0)
     (jit-movi reg-nlocals (imm 2))
 
-    (local-ref st -2 r1)
-    (jump (jit-beqr r1 (jit-fp)) lexit)
-    (jit-subr r1 (jit-fp) r1)
-    (jit-divi r1 r1 (imm (sizeof '*)))
-    (jit-addr reg-nlocals reg-nlocals r1)
+    ;; Adding extra locals to support VM op `bind-rest'.  In some place,
+    ;; `bind-rest' appears after `call' related VM operations.
+    (local-ref st -2 r0)
+    (jump (jit-beqr r0 (jit-fp)) lexit)
+    (jit-subr r0 (jit-fp) r0)
+    (jit-divi r0 r0 (imm (sizeof '*)))
+    (jit-addr reg-nlocals reg-nlocals r0)
 
     (jit-link lexit)
     (return-jmp st)))
 
 (define-vm-op (return-values st)
   (let ((lexit (jit-forward)))
-    (local-ref st -2 r1)
-    (jump (jit-beqr r1 (jit-fp)) lexit)
-    (jit-subr r1 (jit-fp) r1)
-    (jit-divi r1 r1 (imm (sizeof '*)))
-    (jit-addr reg-nlocals reg-nlocals r1)
+
+    ;; Adding extra locals, as done in VM operation `return'.
+    (local-ref st -2 r0)
+    (jump (jit-beqr r0 (jit-fp)) lexit)
+    (jit-subr r0 (jit-fp) r0)
+    (jit-divi r0 r0 (imm (sizeof '*)))
+    (jit-addr reg-nlocals reg-nlocals r0)
 
     (jit-link lexit)
     (return-jmp st)))
@@ -2223,8 +2292,7 @@ compiled result."
   (define-syntax-rule (vm-prolog ra-reg)
     (begin
       ;; XXX: Allocating constant amount at beginning of function call.
-      ;; Stack size not expanded at runtime.
-      ;; (jit-allocai (imm stack-size))
+      ;; Stack not expanded at runtime.
       (jit-frame (imm stack-size))
 
       ;; Initial dynamic link, frame pointer.
@@ -2307,10 +2375,10 @@ compiled result."
          (vm-prolog r1)
          (jit-movi r0 (make-pointer compiled))
          (jit-jmpr r0)
-         (jit-patch return-address))
-       (vm-epilog)
-       (jit-epilog)
-       (jit-realize)
+         (jit-patch return-address)
+         (vm-epilog)
+         (jit-epilog)
+         (jit-realize))
        (let* ((fptr (jit-emit))
               (thunk (pointer->procedure '* fptr '())))
          (let ((verbosity (lightning-verbosity)))
