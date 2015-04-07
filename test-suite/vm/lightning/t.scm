@@ -170,14 +170,13 @@
 
 (define fluid-tmp (make-fluid))
 
-(test-skip 1)
-(define-test (t-recursive-values-apply e acc) (10 '())
+(define-test (t-recursive-values-apply n acc) (10 '())
   (with-fluids ((fluid-tmp 123))
-    (if (< 0 e)
-        (call-with-values (lambda () (values e (+ e 1)))
-          (lambda (a b)
-            (t-recursive-values-apply (- e 1) (cons (+ a b) acc))))
-        (values e acc))))
+    (if (< 0 n)
+        (call-with-values (lambda () (values n))
+          (lambda (a)
+            (t-recursive-values-apply (- n 1) (cons a acc))))
+        (values n acc))))
 
 (define-test (return-no-values) ()
   (values))

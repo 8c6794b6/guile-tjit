@@ -200,6 +200,9 @@
 (define (scm-cdr dst obj)
   (scm-cell-object dst obj 1))
 
+(define-syntax-rule (scm-program-jit-compiled-code dst src)
+  (scm-cell-object dst src 2))
+
 (define-syntax-rule (scm-program-free-variable-ref dst src index)
   (scm-cell-object dst src (+ index 3)))
 
@@ -494,7 +497,6 @@ argument in VM operation."
     ((_ st proc nlocals <expr>)
      (let ((lprogram (jit-forward))
            (lcompiled (jit-forward))
-           (lexit (jit-forward))
            (lunwrap (jit-forward))
            (lsmob (jit-forward))
            (lsmobrt (jit-forward))
@@ -538,6 +540,7 @@ argument in VM operation."
        (jit-stxr r1 (jit-fp) r2)
        (jit-subi r1 r1 (imm (* 2 (sizeof '*))))
        (jump (jit-bgei r1 (stored-ref st 0)) lshuffle)
+
        (jit-prepare)
        (jit-pushargr f5)
        (call-c "scm_do_smob_apply_trampoline")
@@ -561,10 +564,8 @@ argument in VM operation."
 
        ;; Has compiled code.
        (jit-link lcompiled)
-       (scm-cell-object r1 r0 2)
-       <expr>
-
-       (jit-link lexit)))))
+       (scm-program-jit-compiled-code r1 r0)
+       <expr>))))
 
 (define-syntax compile-label
   (syntax-rules (compile-lightning with-frame)
@@ -1027,13 +1028,31 @@ argument in VM operation."
   (local-set! st (+ proc 1) reg-retval))
 
 (define-vm-op (return st dst)
-  (local-ref st dst reg-retval)
-  (jit-movi reg-nlocals (imm 2))
-  (return-jmp st))
+  (let ((lexit (jit-forward)))
+    (local-ref st dst reg-retval)
+    (jit-movi reg-nlocals (imm 2))
+
+    (local-ref st -2 r1)
+    (jump (jit-beqr r1 (jit-fp)) lexit)
+    (jit-subr r1 (jit-fp) r1)
+    (jit-divi r1 r1 (imm (sizeof '*)))
+    (jit-addr reg-nlocals reg-nlocals r1)
+
+    (jit-link lexit)
+    (return-jmp st)))
 
 (define-vm-op (return-values st)
-  (local-ref st 1 reg-retval)
-  (return-jmp st))
+  (let ((lexit (jit-forward)))
+    (local-ref st 1 reg-retval)
+
+    (local-ref st -2 r1)
+    (jump (jit-beqr r1 (jit-fp)) lexit)
+    (jit-subr r1 (jit-fp) r1)
+    (jit-divi r1 r1 (imm (sizeof '*)))
+    (jit-addr reg-nlocals reg-nlocals r1)
+
+    (jit-link lexit)
+    (return-jmp st)))
 
 
 ;;; Specialized call stubs
@@ -1084,17 +1103,13 @@ argument in VM operation."
         (lshuffle (jit-forward))
         (ljitcall (jit-forward)))
 
-    ;; Last local, a list containing rest of arguments.
-    (last-arg-offset st f5 r0)
-
     ;; Test whether callee has JIT compiled code.
     (local-ref st 1 r2)
-    (scm-cell-object f0 r2 0)
-    (jit-subi reg-nlocals reg-nlocals (imm 2))
+    (scm-cell-object r0 r2 0)
     ;; XXX: Unwrap callee as done in `call-local'
-    (jump (scm-program-is-jit-compiled f0) lcompiled)
+    (jump (scm-program-is-jit-compiled r0) lcompiled)
 
-    ;; No JIT compiled code, compile the callee.
+    ;; No JIT compiled code.
     (jit-prepare)
     (jit-pushargr r2)
     (jit-calli %compile-procedure)
@@ -1102,6 +1117,10 @@ argument in VM operation."
 
     ;; Has JIT compiled code.
     (jit-link lcompiled)
+
+    ;; Index for last local, a list containing rest of arguments.
+    (last-arg-offset st f5 r0)
+    (jit-subi reg-nlocals reg-nlocals (imm 2))
 
     ;; Local offset for shifting.
     (last-arg-offset st f1 r1)
@@ -1130,8 +1149,8 @@ argument in VM operation."
 
     ;; Jump to the JIT compiled code.
     (jit-link ljitcall)
-    (scm-cell-object r0 r2 2)
-    (jit-jmpr r0)))
+    (scm-program-jit-compiled-code r1 r2)
+    (jit-jmpr r1)))
 
 ;;; XXX: call/cc
 ;;; XXX: abort
@@ -1234,15 +1253,11 @@ argument in VM operation."
     (jit-stxr f5 (jit-fp) f0)
     (scm-inline-cons r0 r2 r0)
     (jit-subi f5 f5 (imm (sizeof '*)))
-    (jump (jit-blti f5 (stored-ref st dst)) lexit)
-    (jump lcons)
+    (jump (jit-bgei f5 (stored-ref st dst)) lcons)
 
     (jit-link lexit)
-    (local-set! st dst r0)
-
-    ;; Updating nargs to prevent following `alloc-frame' to override
-    ;; the rest list with #<unspecified>.
-    (jit-movi reg-nlocals (imm (+ dst 1)))))
+    (jit-movi reg-nlocals (imm (+ dst 1)))
+    (local-set! st dst r0)))
 
 
 ;;; Branching instructions
@@ -1405,10 +1420,11 @@ argument in VM operation."
         (compile-lightning lightning (jit-forward))))
 
     (jit-link lnext)
-    (jit-movi r1 (scm->pointer #f))
-    (for-each (lambda (n)
-                (scm-program-free-variable-set r0 n r1))
-              (iota nfree))
+    (when (< 0 nfree)
+      (jit-movi r1 (scm->pointer #f))
+      (for-each (lambda (n)
+                  (scm-program-free-variable-set r0 n r1))
+                (iota nfree)))
     (local-set! st dst r0)))
 
 (define-vm-op (free-ref st dst src idx)
@@ -2234,6 +2250,9 @@ compiled result."
       (jit-movi reg-thread thread)
       (jit-movi reg-retval scm-undefined)))
 
+  (define epilog-string
+    (string->pointer "vm-epilog: r1=%d\n"))
+
   ;; Check number of return values, call C function `scm_values' if
   ;; 1 < number of values.
   (define-syntax-rule (vm-epilog)
@@ -2244,18 +2263,17 @@ compiled result."
 
       (jump (jit-beqi reg-nlocals (imm 2)) lexit)
 
-      ;; XXX: Fix the management of number of returned values.
       (jit-link lvalues)
       (jit-movi r0 (scm->pointer '()))
       (jit-subi r1 reg-nlocals (imm 1))
       (jit-muli r1 r1 (imm (sizeof '*)))
-      (jit-addi r1 r1 (frame-local 3))
+      (jit-addi r1 r1 (frame-local 2))
 
       (jit-link lshuffle)
-      (jump (jit-blei r1 (frame-local 3)) lcall)
-      (jit-subi r1 r1 (imm (sizeof '*)))
+      (jump (jit-blei r1 (frame-local 2)) lcall)
       (jit-ldxr r2 (jit-fp) r1)
       (scm-inline-cons r0 r2 r0)
+      (jit-subi r1 r1 (imm (sizeof '*)))
       (jump lshuffle)
 
       (jit-link lcall)
