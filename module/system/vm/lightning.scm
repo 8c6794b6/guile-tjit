@@ -51,8 +51,10 @@
 
 ;; Modified later by function defined in "vm-lightning.c". Defined with
 ;; dummy body to silent warning message.
-;; (define thread-i-data *unspecified*)
 (define smob-apply-trampoline *unspecified*)
+
+;;; Not in use, commented out for now.
+;; (define thread-i-data *unspecified*)
 
 (define *vm-instr* (make-hash-table))
 
@@ -125,14 +127,8 @@
 ;;; Registers with specific use
 ;;;
 
-;; Number of locals.
-;;
-;; XXX: Unlike vm-regular, not using stack pointer.  Try out the
-;; approach taken by vm-regular, which will add RESET_FRAME(), call it
-;; properly, and count locals with stack pointer and frame pointer.
-;; Currently there is no way to show error for no values, and workaround
-;; code exists in `return' and `return-values' to support `bind-rest'.
-(define-inline reg-nlocals v0)
+;; Stack pointer.
+(define-inline reg-sp v0)
 
 ;; Seems like, register v1 is reserved by vm-regular when compiled with
 ;; gcc on x86-64 machines, skipping.
@@ -367,6 +363,12 @@
 (define-syntax-rule (frame-local offset)
   (imm (* offset (sizeof '*))))
 
+(define-syntax-rule (frame-locals-count dst)
+  (begin
+    (jit-subr dst reg-sp (jit-fp))
+    (jit-divi dst dst (imm (sizeof '*)))
+    (jit-addi dst dst (imm 1))))
+
 (define-syntax-rule (stored-ref st n)
   "Stored ref 0 is frame local 2. Frame local 0 contains previous (jit-fp),
 frame local 1 contains return address."
@@ -394,7 +396,7 @@ frame local 1 contains return address."
 
 (define-syntax-rule (last-arg-offset st dst tmp)
   (begin
-    (jit-movr tmp reg-nlocals)
+    (frame-locals-count tmp)
     (jit-subi tmp tmp (imm 1))
     (jit-muli tmp tmp (imm (sizeof '*)))
     (jit-addi dst tmp (stored-ref st 0))))
@@ -435,22 +437,38 @@ argument in VM operation."
     (call-c "scm_async_tick")
     (jit-link lexit)))
 
+(define-syntax vm-reset-frame
+  (syntax-rules ()
+    ((_ 0)
+     (error "Reset frame expects > 0"))
+    ((_ 1)
+     (jit-movr reg-sp (jit-fp)))
+    ((_ 2)
+     (jit-addi reg-sp (jit-fp) (imm (sizeof '*))))
+    ((_ n)
+     (jit-addi reg-sp (jit-fp) (imm (* (- n 1) (sizeof '*)))))))
+
+(define-syntax-rule (vm-alloc-frame n)
+  (vm-reset-frame n))
+
 (define-syntax with-frame
   ;; Stack poionter stored in (jit-fp) increased for `proc * word' size
   ;; to shift the locals.  Then patch the address after the jump, so
   ;; that callee can jump back. Two locals below proc get overwritten by
   ;; the callee.
   (syntax-rules ()
-    ((_ st proc body)
-     (with-frame st r0 proc body))
-    ((_ st reg proc body)
+    ((_ st proc nlocals body)
+     (with-frame st r0 proc nlocals body))
+    ((_ st reg proc nlocals body)
      (let ((ra (jit-movi reg (imm 0))))
        ;; Store return address.
        (jit-stxi (stored-ref st (- proc 1)) (jit-fp) reg)
        ;; Store dynamic link.
        (jit-stxi (stored-ref st (- proc 2)) (jit-fp) (jit-fp))
-       ;; Shift the frame pointer register.
+       ;; Shift frame pointer.
        (jit-addi (jit-fp) (jit-fp) (imm (* (sizeof '*) proc)))
+       ;; Shift stack pointer.
+       (vm-reset-frame nlocals)
        body
        (jit-patch ra)))))
 
@@ -458,7 +476,7 @@ argument in VM operation."
   (let ((lexit (jit-forward))
         (lshuffle (jit-forward)))
 
-    (jit-movi reg-nlocals (imm 2))
+    (vm-reset-frame 2)
     (jump (scm-imp rval) lexit)
 
     (scm-cell-type tmp1 rval)
@@ -476,14 +494,19 @@ argument in VM operation."
     (jit-movi tmp2 (stored-ref st (+ proc 1)))
 
     ;; (jit-subi reg-nlocals reg-nlocals (imm 1))
-    (jit-movi reg-nlocals (imm 1))
+    ;; (jit-movi reg-nlocals (imm 1))
+    (jit-movi rval (imm 1))
     (jit-link lshuffle)
     (scm-car tmp3 tmp1)
     (jit-stxr tmp2 (jit-fp) tmp3)
     (jit-addi tmp2 tmp2 (imm (sizeof '*)))
-    (jit-addi reg-nlocals reg-nlocals (imm 1))
+    ;; (jit-addi reg-nlocals reg-nlocals (imm 1))
+    (jit-addi rval rval (imm 1))
     (scm-cdr tmp1 tmp1)
     (jump (scm-is-not-null tmp1) lshuffle)
+    ;; (reset-frame rval)
+    (jit-muli rval rval (imm (sizeof '*)))
+    (jit-addr reg-sp (jit-fp) rval)
 
     (jit-link lexit)))
 
@@ -491,8 +514,8 @@ argument in VM operation."
 ;; functions.
 (define-syntax call-local
   (syntax-rules ()
-    ((_ st proc #f)
-     (call-local st proc (with-frame st proc (jit-jmpr r1))))
+    ((_ st proc #f nlocals)
+     (call-local st proc (with-frame st proc nlocals (jit-jmpr r1))))
 
     ((_ st proc #t)
      (call-local st proc (jit-jmpr r1)))
@@ -534,7 +557,7 @@ argument in VM operation."
        (call-c "scm_do_smob_applicable_p")
        (jit-retval r0)
        (jump (jit-beqi r0 (imm 0)) lerror)
-       (jit-addi reg-nlocals reg-nlocals (imm 1))
+       (jit-addi reg-sp reg-sp (imm (sizeof '*)))
        (last-arg-offset st r1 r2)
 
        (jit-link lshuffle)
@@ -576,7 +599,7 @@ argument in VM operation."
     ;; Non tail call
     ((_ st1 proc nlocals callee-addr #f)
      (compile-label st1 st2 proc nlocals callee-addr
-                    (with-frame st2 proc
+                    (with-frame st2 proc nlocals
                                 (compile-lightning st2 (jit-forward)))))
 
     ;; Tail call
@@ -722,7 +745,8 @@ argument in VM operation."
 
 (define-syntax-rule (assert-wrong-num-args st jit-op expected local)
   (let ((lexit (jit-forward)))
-    (jump (jit-op reg-nlocals (imm expected)) lexit)
+    (frame-locals-count r0)
+    (jump (jit-op r0 (imm expected)) lexit)
     (jit-prepare)
     (jit-pushargr (local-ref st 0))
     (call-c "scm_wrong_num_args")
@@ -798,7 +822,8 @@ argument in VM operation."
   (syntax-rules ()
     ((_ (name st expected offset) jit-op)
      (define-vm-op (name st expected offset)
-       (jump (jit-op reg-nlocals (imm expected))
+       (frame-locals-count r1)
+       (jump (jit-op r1 (imm expected))
              (resolve-dst st offset))))))
 
 (define-syntax define-vm-br-unary-immediate-op
@@ -1031,30 +1056,28 @@ argument in VM operation."
 
 (define-vm-op (call st proc nlocals)
   (vm-handle-interrupts st)
-  (jit-movi reg-nlocals (imm nlocals))
-  (call-local st proc #f))
+  (call-local st proc #f nlocals))
 
 (define-vm-op (call-label st proc nlocals label)
   (vm-handle-interrupts st)
-  (jit-movi reg-nlocals (imm nlocals))
   (cond
    ((in-same-procedure? st label)
-    (with-frame st proc (jump (resolve-dst st label))))
+    (with-frame st proc nlocals (jump (resolve-dst st label))))
    ((compiled-node st (offset-addr st label))
     =>
     (lambda (node)
-      (with-frame st proc (jump node))))
+      (with-frame st proc nlocals (jump node))))
    (else
     (compile-label st proc nlocals (offset-addr st label) #f))))
 
 (define-vm-op (tail-call st nlocals)
   (vm-handle-interrupts st)
-  (jit-movi reg-nlocals (imm nlocals))
+  (vm-reset-frame nlocals)
   (call-local st 0 #t))
 
 (define-vm-op (tail-call-label st nlocals label)
   (vm-handle-interrupts st)
-  (jit-movi reg-nlocals (imm nlocals))
+  (vm-reset-frame nlocals)
   (cond
    ((in-same-procedure? st label)
     (jump (resolve-dst st label)))
@@ -1065,52 +1088,40 @@ argument in VM operation."
    (else
     (compile-label st 0 nlocals (offset-addr st label) #t))))
 
-;;; XXX: No assertion for number of returned values. Show error with
-;;; `error-no-values' somehow.
 (define-vm-op (receive st dst proc nlocals)
-  (local-ref st (+ proc 1) r0)
-  (local-set! st dst r0))
+  (let ((lexit (jit-forward)))
+    (frame-locals-count r0)
+    (jump (jit-bgti r0 (imm (+ proc 1))) lexit)
+    (error-no-values)
+
+    (jit-link lexit)
+    (vm-reset-frame nlocals)
+    (local-ref st (+ proc 1) r0)
+    (local-set! st dst r0)))
 
 (define-vm-op (receive-values st proc allow-extra? nvalues)
   (let ((lexit (jit-forward)))
+    (frame-locals-count r1)
     (if allow-extra?
         (begin
-          (jump (jit-bgti reg-nlocals (imm (+ proc nvalues))) lexit)
+          (jump (jit-bgti r1 (imm (+ proc nvalues))) lexit)
           (error-too-few-values))
         (begin
-          (jump (jit-beqi reg-nlocals (imm (+ proc 1 nvalues))) lexit)
+          (jump (jit-beqi r1 (imm (+ proc 1 nvalues))) lexit)
           (error-wrong-num-values nvalues)))
     (jit-link lexit)))
 
 (define-vm-op (return st dst)
-  (let ((lexit (jit-forward)))
-    (local-ref st dst r0)
-    (local-set! st 1 r0)
-    (jit-movi reg-nlocals (imm 2))
+  (local-ref st dst r0)
+  (local-set! st 1 r0)
+  (jit-addi reg-sp (jit-fp) (imm (sizeof '*)))
 
-    ;; Adding extra locals to support VM op `bind-rest'.  In some place,
-    ;; `bind-rest' appears after `call' related VM operations.
-    (local-ref st -2 r0)
-    (jump (jit-beqr r0 (jit-fp)) lexit)
-    (jit-subr r0 (jit-fp) r0)
-    (jit-divi r0 r0 (imm (sizeof '*)))
-    (jit-addr reg-nlocals reg-nlocals r0)
-
-    (jit-link lexit)
-    (return-jmp st)))
+  (jit-ldxi r0 (jit-fp) (stored-ref st -1))
+  (jit-ldxi (jit-fp) (jit-fp) (stored-ref st -2))
+  (jit-jmpr r0))
 
 (define-vm-op (return-values st)
-  (let ((lexit (jit-forward)))
-
-    ;; Adding extra locals, as done in VM operation `return'.
-    (local-ref st -2 r0)
-    (jump (jit-beqr r0 (jit-fp)) lexit)
-    (jit-subr r0 (jit-fp) r0)
-    (jit-divi r0 r0 (imm (sizeof '*)))
-    (jit-addr reg-nlocals reg-nlocals r0)
-
-    (jit-link lexit)
-    (return-jmp st)))
+  (return-jmp st))
 
 
 ;;; Specialized call stubs
@@ -1121,8 +1132,9 @@ argument in VM operation."
 
     ;; `subr-call' accepts up to 10 arguments only.
     (jit-prepare)
+    (frame-locals-count r1)
     (for-each (lambda (n)
-                (jump (jit-blei reg-nlocals (imm (+ n 1))) lcall)
+                (jump (jit-blei r1 (imm (+ n 1))) lcall)
                 (jit-pushargr (local-ref st (+ n 1))))
               (iota 10))
 
@@ -1165,7 +1177,7 @@ argument in VM operation."
 
     ;; Index for last local, a list containing rest of arguments.
     (last-arg-offset st f5 r0)
-    (jit-subi reg-nlocals reg-nlocals (imm 2))
+    (jit-subi reg-sp reg-sp (imm (* 2 (sizeof '*))))
 
     ;; Local offset for shifting.
     (last-arg-offset st f1 r1)
@@ -1189,7 +1201,7 @@ argument in VM operation."
     (jit-stxr r1 (jit-fp) f0)
     (scm-cdr r0 r0)
     (jit-addi r1 r1 (imm (sizeof '*)))
-    (jit-addi reg-nlocals reg-nlocals (imm 1))
+    (jit-addi reg-sp reg-sp (imm (sizeof '*)))
     (jump lshuffle)
 
     ;; Jump to callee.
@@ -1234,7 +1246,7 @@ argument in VM operation."
         (lexit (jit-forward)))
 
     (jit-movi f0 scm-undefined)
-    (jit-movr r1 reg-nlocals)
+    (frame-locals-count r1)
     (jit-addi r1 r1 (imm 1))
     (jit-muli r1 r1 (imm (sizeof '*)))
 
@@ -1246,23 +1258,24 @@ argument in VM operation."
     (jump lshuffle)
 
     (jit-link lexit)
-    (jit-movi reg-nlocals (imm nlocals))))
+    (vm-alloc-frame nlocals)))
 
 (define-vm-op (reset-frame st nlocals)
-  (jit-movi reg-nlocals (imm nlocals)))
+  (vm-reset-frame nlocals))
 
 (define-vm-op (assert-nargs-ee/locals st expected locals)
   ;; XXX: Refill SCM_UNDEFINED?
   (assert-wrong-num-args st jit-beqi expected 0)
-  (jit-movi reg-nlocals (imm (+ expected locals))))
+  (vm-alloc-frame (+ expected locals)))
 
 ;;; XXX: br-if-npos-gt
 
 (define-vm-op (bind-kwargs st nreq flags nreq-and-opt ntotal kw-offset)
+  (frame-locals-count r1)
   (jit-prepare)
   (jit-pushargr (jit-fp))
   (jit-pushargi (stored-ref st 0))
-  (jit-pushargr reg-nlocals)
+  (jit-pushargr r1)
   (jit-pushargi (imm (+ (lightning-pc st) (* (lightning-ip st) 4))))
   (jit-pushargi (imm nreq))
   (jit-pushargi (imm flags))
@@ -1280,7 +1293,8 @@ argument in VM operation."
     (jit-movi r0 (scm->pointer '()))    ; r0 = initial list.
     (jit-movi f0 scm-undefined)
 
-    (jump (jit-bgti reg-nlocals (imm dst)) lcons)
+    (frame-locals-count r1)
+    (jump (jit-bgti r1 (imm dst)) lcons)
 
     ;; Refill the locals with SCM_UNDEFINED.
     (jit-link lrefill)
@@ -1300,7 +1314,7 @@ argument in VM operation."
     (jump (jit-bgei f5 (stored-ref st dst)) lcons)
 
     (jit-link lexit)
-    (jit-movi reg-nlocals (imm (+ dst 1)))
+    (vm-reset-frame (+ dst 1))
     (local-set! st dst r0)))
 
 
@@ -2278,7 +2292,8 @@ compiled result."
 
       ;; Initial dynamic link, frame pointer.
       (jit-subi (jit-fp) (jit-fp) (imm stack-size))
-      (jit-stxi (frame-local 0) (jit-fp) (jit-fp))
+      (jit-addi r0 (jit-fp) (imm (* 2 (sizeof '*))))
+      (jit-stxi (frame-local 0) (jit-fp) r0)
 
       ;; Return address.
       (jit-stxi (frame-local 1) (jit-fp) ra-reg)
@@ -2295,7 +2310,7 @@ compiled result."
           (lp (cdr args) (+ offset 1))))
 
       ;; Initialize registers.
-      (jit-movi reg-nlocals (imm (+ (length args) 1)))
+      (jit-addi reg-sp (jit-fp) (imm (* (length args) (sizeof '*))))
       (jit-movi reg-thread thread)))
 
   ;; Check number of return values, call C function `scm_values' if
@@ -2306,17 +2321,18 @@ compiled result."
           (lcall (jit-forward))
           (lexit (jit-forward)))
 
-      (jit-ldxi r0 (jit-fp) (frame-local 3))
-      (jump (jit-beqi reg-nlocals (imm 2)) lexit)
+      (jit-ldxi r0 (jit-fp) (frame-local 1))
+      (frame-locals-count r2)
+      (jump (jit-beqi r2 (imm 0)) lexit)
 
       (jit-link lvalues)
       (jit-movi r0 (scm->pointer '()))
-      (jit-subi r1 reg-nlocals (imm 1))
+      (jit-addi r1 r2 (imm 1))
       (jit-muli r1 r1 (imm (sizeof '*)))
-      (jit-addi r1 r1 (frame-local 2))
+      (jit-addi r1 r1 (frame-local 0))
 
       (jit-link lshuffle)
-      (jump (jit-blei r1 (frame-local 2)) lcall)
+      (jump (jit-blei r1 (frame-local 0)) lcall)
       (jit-ldxr r2 (jit-fp) r1)
       (scm-inline-cons r0 r2 r0)
       (jit-subi r1 r1 (imm (sizeof '*)))
@@ -2330,6 +2346,7 @@ compiled result."
 
       (jit-link lexit)
       (jit-addi (jit-fp) (jit-fp) (imm stack-size))
+      (jit-subi (jit-fp) (jit-fp) (imm (* 2 (sizeof '*))))
       (jit-retr r0)))
 
   (cond
