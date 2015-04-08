@@ -98,8 +98,11 @@
 
 (define param01 (make-parameter 100))
 
-(define-test (call-parameter x) (100)
+(define-test (t-call-parameter x) (100)
   (param01))
+
+(define-test (t-apply-parameter f xs) (param01 '())
+  (apply f xs))
 
 (define procedure-with-setter
   (make-procedure-with-setter

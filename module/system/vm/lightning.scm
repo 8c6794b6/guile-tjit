@@ -51,7 +51,7 @@
 
 ;; Modified later by function defined in "vm-lightning.c". Defined with
 ;; dummy body to silent warning message.
-(define thread-i-data *unspecified*)
+;; (define thread-i-data *unspecified*)
 (define smob-apply-trampoline *unspecified*)
 
 (define *vm-instr* (make-hash-table))
@@ -126,7 +126,16 @@
 ;;;
 
 ;; Number of locals.
+;;
+;; XXX: Unlike vm-regular, not using stack pointer.  Try out the
+;; approach taken by vm-regular, which will add RESET_FRAME(), call it
+;; properly, and count locals with stack pointer and frame pointer.
+;; Currently there is no way to show error for no values, and workaround
+;; code exists in `return' and `return-values' to support `bind-rest'.
 (define-inline reg-nlocals v0)
+
+;; Seems like, register v1 is reserved by vm-regular when compiled with
+;; gcc on x86-64 machines, skipping.
 
 ;; Current thread.
 (define-inline reg-thread v2)
@@ -480,18 +489,15 @@ argument in VM operation."
 
 ;; Apply trampoline for smob is not inlined with lightning, calling C
 ;; functions.
-;;
-;; XXX: Move the codes for unwrapping procedure to common place, it's
-;; too much work to generate every call.
 (define-syntax call-local
   (syntax-rules ()
-    ((_ st proc nlocals #f)
-     (call-local st proc nlocals (with-frame st proc (jit-jmpr r1))))
+    ((_ st proc #f)
+     (call-local st proc (with-frame st proc (jit-jmpr r1))))
 
-    ((_ st proc nlocals #t)
-     (call-local st proc nlocals (jit-jmpr r1)))
+    ((_ st proc #t)
+     (call-local st proc (jit-jmpr r1)))
 
-    ((_ st proc nlocals <expr>)
+    ((_ st proc <expr>)
      (let ((lprogram (jit-forward))
            (lcompiled (jit-forward))
            (lunwrap (jit-forward))
@@ -640,36 +646,30 @@ argument in VM operation."
              (wrong-type-apply (pointer->scm proc)))))
     (procedure->pointer '* f '(*))))
 
-(define-syntax error-wrong-type-apply
-  (syntax-rules ()
-    ((_ proc)
-     (begin
-       (jit-prepare)
-       (jit-pushargr proc)
-       (jit-calli %error-wrong-type-apply)
-       (jit-reti (scm->pointer *unspecified*))))))
+(define-syntax-rule (error-wrong-type-apply proc)
+  (begin
+    (jit-prepare)
+    (jit-pushargr proc)
+    (jit-calli %error-wrong-type-apply)
+    (jit-reti (scm->pointer *unspecified*))))
 
-(define-syntax error-wrong-type-arg-msg
-  (syntax-rules ()
-    ((_ subr pos reg expected)
-     (begin
-       (jit-prepare)
-       (jit-pushargi subr)
-       (jit-pushargi (imm pos))
-       (jit-pushargr reg)
-       (jit-pushargi expected)
-       (call-c "scm_wrong_type_arg_msg")
-       (jit-reti (scm->pointer *unspecified*))))))
+(define-syntax-rule (error-wrong-type-arg-msg subr pos reg expected)
+  (begin
+    (jit-prepare)
+    (jit-pushargi subr)
+    (jit-pushargi (imm pos))
+    (jit-pushargr reg)
+    (jit-pushargi expected)
+    (call-c "scm_wrong_type_arg_msg")
+    (jit-reti (scm->pointer *unspecified*))))
 
-(define-syntax error-out-of-range
-  (syntax-rules ()
-    ((_ subr expr)
-     (begin
-       (jit-prepare)
-       (jit-pushargi subr)
-       expr
-       (call-c "scm_out_of_range")
-       (jit-reti (scm->pointer *unspecified*))))))
+(define-syntax-rule (error-out-of-range subr expr)
+  (begin
+    (jit-prepare)
+    (jit-pushargi subr)
+    expr
+    (call-c "scm_out_of_range")
+    (jit-reti (scm->pointer *unspecified*))))
 
 (define %error-wrong-num-values
   (procedure->pointer
@@ -681,14 +681,12 @@ argument in VM operation."
                 `(,nvalues) `(,nvalues)))
    `(,int)))
 
-(define-syntax error-wrong-num-values
-  (syntax-rules ()
-    ((_ nvalues)
-     (begin
-       (jit-prepare)
-       (jit-pushargi (imm nvalues))
-       (jit-calli %error-wrong-num-values)
-       (jit-reti (scm->pointer *unspecified*))))))
+(define-syntax-rule (error-wrong-num-values nvalues)
+  (begin
+    (jit-prepare)
+    (jit-pushargi (imm nvalues))
+    (jit-calli %error-wrong-num-values)
+    (jit-reti (scm->pointer *unspecified*))))
 
 (define %error-too-few-values
   (procedure->pointer
@@ -700,13 +698,11 @@ argument in VM operation."
                 '() '()))
    '()))
 
-(define-syntax error-too-few-values
-  (syntax-rules ()
-    ((_)
-     (begin
-       (jit-prepare)
-       (jit-calli %error-too-few-values)
-       (jit-reti (scm->pointer *unspecified*))))))
+(define-syntax-rule (error-too-few-values)
+  (begin
+    (jit-prepare)
+    (jit-calli %error-too-few-values)
+    (jit-reti (scm->pointer *unspecified*))))
 
 (define %error-no-values
   (procedure->pointer
@@ -718,24 +714,20 @@ argument in VM operation."
                 '() '()))
    '()))
 
-(define-syntax error-no-values
-  (syntax-rules ()
-    ((_)
-     (begin
-       (jit-prepare)
-       (jit-calli %error-no-values)
-       (jit-reti (scm->pointer *unspecified*))))))
+(define-syntax-rule (error-no-values)
+  (begin
+    (jit-prepare)
+    (jit-calli %error-no-values)
+    (jit-reti (scm->pointer *unspecified*))))
 
-(define-syntax assert-wrong-num-args
-  (syntax-rules ()
-    ((_ st jit-op expected local)
-     (let ((lexit (jit-forward)))
-       (jump (jit-op reg-nlocals (imm expected)) lexit)
-       (jit-prepare)
-       (jit-pushargr (local-ref st 0))
-       (call-c "scm_wrong_num_args")
-       (jit-reti (scm->pointer *unspecified*))
-       (jit-link lexit)))))
+(define-syntax-rule (assert-wrong-num-args st jit-op expected local)
+  (let ((lexit (jit-forward)))
+    (jump (jit-op reg-nlocals (imm expected)) lexit)
+    (jit-prepare)
+    (jit-pushargr (local-ref st 0))
+    (call-c "scm_wrong_num_args")
+    (jit-reti (scm->pointer *unspecified*))
+    (jit-link lexit)))
 
 (define-syntax-rule (validate-pair pair cell-0 subr pos)
   (let ((lerror (jit-forward))
@@ -1040,7 +1032,7 @@ argument in VM operation."
 (define-vm-op (call st proc nlocals)
   (vm-handle-interrupts st)
   (jit-movi reg-nlocals (imm nlocals))
-  (call-local st proc nlocals #f))
+  (call-local st proc #f))
 
 (define-vm-op (call-label st proc nlocals label)
   (vm-handle-interrupts st)
@@ -1058,7 +1050,7 @@ argument in VM operation."
 (define-vm-op (tail-call st nlocals)
   (vm-handle-interrupts st)
   (jit-movi reg-nlocals (imm nlocals))
-  (call-local st 0 nlocals #t))
+  (call-local st 0 #t))
 
 (define-vm-op (tail-call-label st nlocals label)
   (vm-handle-interrupts st)
@@ -1171,21 +1163,6 @@ argument in VM operation."
         (lshuffle (jit-forward))
         (ljitcall (jit-forward)))
 
-    ;; Test whether callee has JIT compiled code.
-    (local-ref st 1 r2)
-    (scm-cell-object r0 r2 0)
-    ;; XXX: Unwrap callee as done in `call-local'
-    (jump (scm-program-is-jit-compiled r0) lcompiled)
-
-    ;; No JIT compiled code.
-    (jit-prepare)
-    (jit-pushargr r2)
-    (jit-calli %compile-procedure)
-    (local-ref st 1 r2)
-
-    ;; Has JIT compiled code.
-    (jit-link lcompiled)
-
     ;; Index for last local, a list containing rest of arguments.
     (last-arg-offset st f5 r0)
     (jit-subi reg-nlocals reg-nlocals (imm 2))
@@ -1215,10 +1192,9 @@ argument in VM operation."
     (jit-addi reg-nlocals reg-nlocals (imm 1))
     (jump lshuffle)
 
-    ;; Jump to the JIT compiled code.
+    ;; Jump to callee.
     (jit-link ljitcall)
-    (scm-program-jit-compiled-code r1 r2)
-    (jit-jmpr r1)))
+    (call-local st 0 #t)))
 
 ;;; XXX: call/cc
 ;;; XXX: abort
@@ -2256,9 +2232,14 @@ compiled result."
       (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
 
 (define (call-lightning proc . args)
-  "Compile PROC with lightning, and run with ARGS."
-  (pointer->scm
-   (c-call-lightning (thread-i-data (current-thread)) proc args)))
+  "Compile procedure PROC with lightning, and run with arguments ARGS."
+  (let ((current-engine (vm-engine)))
+    (call-with-values (lambda ()
+                        (set-vm-engine! 'lightning)
+                        (apply call-with-vm proc args))
+      (lambda vals
+        (set-vm-engine! current-engine)
+        (apply values vals)))))
 
 (define (c-call-lightning thread proc args)
   "Compile PROC with lightning and run with ARGS, within THREAD."
@@ -2316,9 +2297,6 @@ compiled result."
       ;; Initialize registers.
       (jit-movi reg-nlocals (imm (+ (length args) 1)))
       (jit-movi reg-thread thread)))
-
-  (define epilog-string
-    (string->pointer "vm-epilog: r1=%d\n"))
 
   ;; Check number of return values, call C function `scm_values' if
   ;; 1 < number of values.
