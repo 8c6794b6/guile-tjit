@@ -20,8 +20,8 @@
 
 ;;; Commentary:
 
-;;; A VM written in scheme. Contains JIT compiler from bytecode to
-;;; native code, written with GNU Lightning.
+;;; A VM with method JIT compiler. Compiles from bytecode to native code
+;;; with GNU Lightning.
 
 ;;; Code:
 
@@ -127,14 +127,27 @@
 ;;; Registers with specific use
 ;;;
 
+;; Frame pointer.
+(define reg-fp (jit-fp))
+
 ;; Stack pointer.
 (define-inline reg-sp v0)
 
-;; Seems like, register v1 is reserved by vm-regular when compiled with
+;; Seems like, register `v1' is reserved by vm-regular when compiled with
 ;; gcc on x86-64 machines, skipping.
 
 ;; Current thread.
 (define-inline reg-thread v2)
+
+
+;;;
+;;; The word size
+;;;
+
+(define-syntax word-size
+  (lambda (x)
+    (syntax-case x ()
+      #'(datum->syntax x (sizeof '*)))))
 
 
 ;;;
@@ -146,9 +159,9 @@
     ((_ dst obj 0)
      (jit-ldr dst obj))
     ((_ dst obj 1)
-     (jit-ldxi dst obj (imm (sizeof '*))))
+     (jit-ldxi dst obj (imm word-size)))
     ((_ dst obj n)
-     (jit-ldxi dst obj (imm (* n (sizeof '*)))))))
+     (jit-ldxi dst obj (imm (* n word-size))))))
 
 (define-syntax-rule (scm-cell-object-r dst obj reg-offset)
   (jit-ldxr dst obj reg-offset))
@@ -158,9 +171,9 @@
     ((_ obj 0 src)
      (jit-str obj src))
     ((_ obj 1 src)
-     (jit-stxi (imm (sizeof '*)) obj src))
+     (jit-stxi (imm word-size) obj src))
     ((_ obj n src)
-     (jit-stxi (imm (* n (sizeof '*))) obj src))))
+     (jit-stxi (imm (* n word-size)) obj src))))
 
 (define-syntax-rule (scm-set-cell-object-r obj reg-offset val)
   (jit-stxr reg-offset obj val))
@@ -215,7 +228,7 @@
   (scm-cell-object dst src 1))
 
 (define-syntax-rule (scm-real-value dst src)
-  (jit-ldxi-d dst src (imm (* 2 (sizeof '*)))))
+  (jit-ldxi-d dst src (imm (* 2 word-size))))
 
 (define-syntax-rule (scm-i-vector-length dst src)
   (begin
@@ -299,7 +312,7 @@
 (define-syntax-rule (scm-not-struct-applicable-p obj tmp)
   (begin
     (scm-cell-type tmp obj)
-    (jit-addi tmp tmp (imm (- (sizeof '*) tc3-struct)))
+    (jit-addi tmp tmp (imm (- word-size tc3-struct)))
     (jit-ldr tmp tmp)
     (jit-bmci tmp (imm scm-vtable-flag-applicable))))
 
@@ -361,16 +374,16 @@
   (pointer->scm (dereference-pointer pointer)))
 
 (define-syntax-rule (frame-local offset)
-  (imm (* offset (sizeof '*))))
+  (imm (* offset word-size)))
 
 (define-syntax-rule (frame-locals-count dst)
   (begin
-    (jit-subr dst reg-sp (jit-fp))
-    (jit-divi dst dst (imm (sizeof '*)))
+    (jit-subr dst reg-sp reg-fp)
+    (jit-divi dst dst (imm word-size))
     (jit-addi dst dst (imm 1))))
 
 (define-syntax-rule (stored-ref st n)
-  "Stored ref 0 is frame local 2. Frame local 0 contains previous (jit-fp),
+  "Stored ref 0 is frame local 2. Frame local 0 contains previous reg-fp,
 frame local 1 contains return address."
   (frame-local (+ n 2)))
 
@@ -380,16 +393,16 @@ frame local 1 contains return address."
      (local-ref st n r0))
     ((local-ref st n reg)
      (begin
-       (jit-ldxi reg (jit-fp) (stored-ref st n))
+       (jit-ldxi reg reg-fp (stored-ref st n))
        reg))))
 
 (define-syntax-rule (local-set! st dst reg)
-  (jit-stxi (stored-ref st dst) (jit-fp) reg))
+  (jit-stxi (stored-ref st dst) reg-fp reg))
 
 (define-syntax-rule (local-set!/immediate st dst val)
   (begin
     (jit-movi r0 val)
-    (jit-stxi (stored-ref st dst) (jit-fp) r0)))
+    (jit-stxi (stored-ref st dst) reg-fp r0)))
 
 (define-syntax-rule (offset-addr st offset)
   (+ (lightning-pc st) (* 4 (+ (lightning-ip st) offset))))
@@ -398,7 +411,7 @@ frame local 1 contains return address."
   (begin
     (frame-locals-count tmp)
     (jit-subi tmp tmp (imm 1))
-    (jit-muli tmp tmp (imm (sizeof '*)))
+    (jit-muli tmp tmp (imm word-size))
     (jit-addi dst tmp (stored-ref st 0))))
 
 (define-syntax-rule (call-c name)
@@ -416,16 +429,16 @@ argument in VM operation."
     ((_ condition label)
      (jit-patch-at condition label))))
 
-(define-syntax return-jmp
+(define-syntax vm-return
   (syntax-rules ()
     ((_ st)
-     (return-jmp st r0))
+     (vm-return st r0))
     ((_ st reg)
      (begin
        ;; Get return address to jump
-       (jit-ldxi reg (jit-fp) (stored-ref st -1))
+       (jit-ldxi reg reg-fp (stored-ref st -1))
        ;; Restore previous dynamic link to current frame pointer
-       (jit-ldxi (jit-fp) (jit-fp) (stored-ref st -2))
+       (jit-ldxi reg-fp reg-fp (stored-ref st -2))
        ;; ... then jump to return address.
        (jit-jmpr reg)))))
 
@@ -442,17 +455,17 @@ argument in VM operation."
     ((_ 0)
      (error "Reset frame expects > 0"))
     ((_ 1)
-     (jit-movr reg-sp (jit-fp)))
+     (jit-movr reg-sp reg-fp))
     ((_ 2)
-     (jit-addi reg-sp (jit-fp) (imm (sizeof '*))))
+     (jit-addi reg-sp reg-fp (imm word-size)))
     ((_ n)
-     (jit-addi reg-sp (jit-fp) (imm (* (- n 1) (sizeof '*)))))))
+     (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size))))))
 
 (define-syntax-rule (vm-alloc-frame n)
   (vm-reset-frame n))
 
 (define-syntax with-frame
-  ;; Stack poionter stored in (jit-fp) increased for `proc * word' size
+  ;; Stack poionter stored in reg-fp increased for `proc * word' size
   ;; to shift the locals.  Then patch the address after the jump, so
   ;; that callee can jump back. Two locals below proc get overwritten by
   ;; the callee.
@@ -462,11 +475,11 @@ argument in VM operation."
     ((_ st reg proc nlocals body)
      (let ((ra (jit-movi reg (imm 0))))
        ;; Store return address.
-       (jit-stxi (stored-ref st (- proc 1)) (jit-fp) reg)
+       (jit-stxi (stored-ref st (- proc 1)) reg-fp reg)
        ;; Store dynamic link.
-       (jit-stxi (stored-ref st (- proc 2)) (jit-fp) (jit-fp))
+       (jit-stxi (stored-ref st (- proc 2)) reg-fp reg-fp)
        ;; Shift frame pointer.
-       (jit-addi (jit-fp) (jit-fp) (imm (* (sizeof '*) proc)))
+       (jit-addi reg-fp reg-fp (imm (* word-size proc)))
        ;; Shift stack pointer.
        (vm-reset-frame nlocals)
        body
@@ -493,20 +506,16 @@ argument in VM operation."
     (local-set! st (+ proc 1) rval)
     (jit-movi tmp2 (stored-ref st (+ proc 1)))
 
-    ;; (jit-subi reg-nlocals reg-nlocals (imm 1))
-    ;; (jit-movi reg-nlocals (imm 1))
     (jit-movi rval (imm 1))
     (jit-link lshuffle)
     (scm-car tmp3 tmp1)
-    (jit-stxr tmp2 (jit-fp) tmp3)
-    (jit-addi tmp2 tmp2 (imm (sizeof '*)))
-    ;; (jit-addi reg-nlocals reg-nlocals (imm 1))
+    (jit-stxr tmp2 reg-fp tmp3)
+    (jit-addi tmp2 tmp2 (imm word-size))
     (jit-addi rval rval (imm 1))
     (scm-cdr tmp1 tmp1)
     (jump (scm-is-not-null tmp1) lshuffle)
-    ;; (reset-frame rval)
-    (jit-muli rval rval (imm (sizeof '*)))
-    (jit-addr reg-sp (jit-fp) rval)
+    (jit-muli rval rval (imm word-size))
+    (jit-addr reg-sp reg-fp rval)
 
     (jit-link lexit)))
 
@@ -557,14 +566,14 @@ argument in VM operation."
        (call-c "scm_do_smob_applicable_p")
        (jit-retval r0)
        (jump (jit-beqi r0 (imm 0)) lerror)
-       (jit-addi reg-sp reg-sp (imm (sizeof '*)))
+       (jit-addi reg-sp reg-sp (imm word-size))
        (last-arg-offset st r1 r2)
 
        (jit-link lshuffle)
-       (jit-ldxr r2 (jit-fp) r1)
-       (jit-addi r1 r1 (imm (sizeof '*)))
-       (jit-stxr r1 (jit-fp) r2)
-       (jit-subi r1 r1 (imm (* 2 (sizeof '*))))
+       (jit-ldxr r2 reg-fp r1)
+       (jit-addi r1 r1 (imm word-size))
+       (jit-stxr r1 reg-fp r2)
+       (jit-subi r1 r1 (imm (* 2 word-size)))
        (jump (jit-bgei r1 (stored-ref st 0)) lshuffle)
 
        (jit-prepare)
@@ -917,13 +926,9 @@ argument in VM operation."
 
          (jit-link lexit))))))
 
-;; If var is not variable, resolve with `resolver' and move the resolved value
-;; to var's address. Otherwise, var is `variable', move it to dst.
-;;
-;; At the moment, the variable is resolved at compilation time. May better to do
-;; this variable resolution at run time when lightning code get preserved per
-;; scheme procedure. Otherwise there is no way to update the procedure once it's
-;; started.
+;; If var is not variable, resolve with `resolver' and move the resolved
+;; value to var's address. Otherwise, var is `variable', move it to dst.
+;; Currently, the variable is resolved at JIT compilation time.
 (define-syntax define-vm-box-op
   (syntax-rules ()
     ((_ (name st mod-offset sym-offset) resolver ...)
@@ -1114,14 +1119,11 @@ argument in VM operation."
 (define-vm-op (return st dst)
   (local-ref st dst r0)
   (local-set! st 1 r0)
-  (jit-addi reg-sp (jit-fp) (imm (sizeof '*)))
-
-  (jit-ldxi r0 (jit-fp) (stored-ref st -1))
-  (jit-ldxi (jit-fp) (jit-fp) (stored-ref st -2))
-  (jit-jmpr r0))
+  (jit-addi reg-sp reg-fp (imm word-size))
+  (vm-return st))
 
 (define-vm-op (return-values st)
-  (return-jmp st))
+  (vm-return st))
 
 
 ;;; Specialized call stubs
@@ -1146,13 +1148,13 @@ argument in VM operation."
     (jit-retval r0)
     (local-set! st 1 r0)
     (return-value-list st 0 r0 r1 r2 f0)
-    (return-jmp st)))
+    (vm-return st)))
 
 (define-vm-op (foreign-call st cif-idx ptr-idx)
   (local-ref st 0 r0)
   (scm-program-free-variable-ref r1 r0 cif-idx)
   (scm-program-free-variable-ref r2 r0 ptr-idx)
-  (jit-addi r0 (jit-fp) (stored-ref st 1))
+  (jit-addi r0 reg-fp (stored-ref st 1))
   (jit-prepare)
   (jit-pushargr reg-thread)
   (jit-pushargr r1)
@@ -1162,7 +1164,7 @@ argument in VM operation."
   (jit-retval r0)
   (local-set! st 1 r0)
   (return-value-list st 0 r0 r1 r2 f0)
-  (return-jmp st))
+  (vm-return st))
 
 ;;; XXX: continuation-call
 ;;; XXX: compose-continuation
@@ -1177,7 +1179,7 @@ argument in VM operation."
 
     ;; Index for last local, a list containing rest of arguments.
     (last-arg-offset st f5 r0)
-    (jit-subi reg-sp reg-sp (imm (* 2 (sizeof '*))))
+    (jit-subi reg-sp reg-sp (imm (* 2 word-size)))
 
     ;; Local offset for shifting.
     (last-arg-offset st f1 r1)
@@ -1185,23 +1187,23 @@ argument in VM operation."
 
     ;; Shift non-list locals.
     (jit-link lshift)
-    (jit-addi f0 r1 (imm (sizeof '*)))
-    (jit-ldxr f0 (jit-fp) f0)
-    (jit-stxr r1 (jit-fp) f0)
-    (jit-addi r1 r1 (imm (sizeof '*)))
+    (jit-addi f0 r1 (imm word-size))
+    (jit-ldxr f0 reg-fp f0)
+    (jit-stxr r1 reg-fp f0)
+    (jit-addi r1 r1 (imm word-size))
     (jump (jit-bler r1 f1) lshift)
 
     ;; Load last local.
-    (jit-ldxr r0 (jit-fp) f5)
+    (jit-ldxr r0 reg-fp f5)
 
     ;; Expand list contents to local.
     (jit-link lshuffle)
     (jump (scm-is-null r0) ljitcall)
     (scm-car f0 r0)
-    (jit-stxr r1 (jit-fp) f0)
+    (jit-stxr r1 reg-fp f0)
     (scm-cdr r0 r0)
-    (jit-addi r1 r1 (imm (sizeof '*)))
-    (jit-addi reg-sp reg-sp (imm (sizeof '*)))
+    (jit-addi r1 r1 (imm word-size))
+    (jit-addi reg-sp reg-sp (imm word-size))
     (jump lshuffle)
 
     ;; Jump to callee.
@@ -1248,13 +1250,13 @@ argument in VM operation."
     (jit-movi f0 scm-undefined)
     (frame-locals-count r1)
     (jit-addi r1 r1 (imm 1))
-    (jit-muli r1 r1 (imm (sizeof '*)))
+    (jit-muli r1 r1 (imm word-size))
 
     ;; Using r1 as offset of location to store.
     (jit-link lshuffle)
     (jump (jit-bgei r1 (stored-ref st nlocals)) lexit)
-    (jit-addi r1 r1 (imm (sizeof '*)))
-    (jit-stxr r1 (jit-fp) f0)
+    (jit-addi r1 r1 (imm word-size))
+    (jit-stxr r1 reg-fp f0)
     (jump lshuffle)
 
     (jit-link lexit)
@@ -1273,7 +1275,7 @@ argument in VM operation."
 (define-vm-op (bind-kwargs st nreq flags nreq-and-opt ntotal kw-offset)
   (frame-locals-count r1)
   (jit-prepare)
-  (jit-pushargr (jit-fp))
+  (jit-pushargr reg-fp)
   (jit-pushargi (stored-ref st 0))
   (jit-pushargr r1)
   (jit-pushargi (imm (+ (lightning-pc st) (* (lightning-ip st) 4))))
@@ -1298,8 +1300,8 @@ argument in VM operation."
 
     ;; Refill the locals with SCM_UNDEFINED.
     (jit-link lrefill)
-    (jit-addi f5 f5 (imm (sizeof '*)))
-    (jit-stxr f5 (jit-fp) f0)
+    (jit-addi f5 f5 (imm word-size))
+    (jit-stxr f5 reg-fp f0)
     (jump (jit-bgei f5 (stored-ref st dst)) lexit)
     (jump lrefill)
 
@@ -1307,10 +1309,10 @@ argument in VM operation."
     ;; contents from callee C function "scm_do_inline_cons" and other
     ;; bookkeepings done in lightning.
     (jit-link lcons)
-    (jit-ldxr r2 (jit-fp) f5)
-    (jit-stxr f5 (jit-fp) f0)
+    (jit-ldxr r2 reg-fp f5)
+    (jit-stxr f5 reg-fp f0)
     (scm-inline-cons r0 r2 r0)
-    (jit-subi f5 f5 (imm (sizeof '*)))
+    (jit-subi f5 f5 (imm word-size))
     (jump (jit-bgei f5 (stored-ref st dst)) lcons)
 
     (jit-link lexit)
@@ -1629,8 +1631,8 @@ argument in VM operation."
 ;;   ;; Pushing SCM_DYNSTACK_PROMPT_ESCAPE_ONLY
 ;;   (jit-pushargi (if escape-only? (imm 16) (imm 0)))
 ;;   (jit-pushargr (local-ref st tag))
-;;   (jit-pushargr (jit-fp))
-;;   (jit-pushargr (jit-fp))
+;;   (jit-pushargr reg-fp)
+;;   (jit-pushargr reg-fp)
 ;;   (jit-pushargi (imm (+ (lightning-pc st)
 ;;                         (* (+ (lightning-ip st) handler-offset) 4))))
 ;;   (jit-pushargi (imm 0))
@@ -1969,7 +1971,7 @@ argument in VM operation."
   (validate-vector-range r0 r1 r2 f0 *vector-ref-string)
   (scm-i-inumr r1 r1)
   (jit-addi r1 r1 (imm 1))
-  (jit-muli r1 r1 (imm (sizeof '*)))
+  (jit-muli r1 r1 (imm word-size))
   (scm-cell-object-r r0 r0 r1)
   (local-set! st dst r0))
 
@@ -1987,7 +1989,7 @@ argument in VM operation."
   (validate-vector-range r0 r1 r2 f0 *vector-set!-string)
   (scm-i-inumr r1 r1)
   (jit-addi r1 r1 (imm 1))
-  (jit-muli r1 r1 (imm (sizeof '*)))
+  (jit-muli r1 r1 (imm word-size))
   (local-ref st src r2)
   (scm-set-cell-object-r r0 r1 r2))
 
@@ -2056,7 +2058,7 @@ argument in VM operation."
   (validate-struct r0 r1 *struct-ref-string)
   (local-ref st idx r1)
   (scm-i-inumr r1 r1)
-  (jit-muli r1 r1 (imm (sizeof '*)))
+  (jit-muli r1 r1 (imm word-size))
   (scm-struct-slots r0 r0)
   (scm-cell-object-r r0 r0 r1)
   (local-set! st dst r0))
@@ -2259,7 +2261,7 @@ compiled result."
   "Compile PROC with lightning and run with ARGS, within THREAD."
 
   (define-syntax stack-size
-    (identifier-syntax (* 12 4096 (sizeof '*))))
+    (identifier-syntax (* 12 4096 word-size)))
 
   (define-syntax-rule (smob? obj)
     (let ((*obj (scm->pointer obj)))
@@ -2274,7 +2276,7 @@ compiled result."
            (vtable-data-addr (- (pointer-address cell0) 1)))
       (< 0 (logand (pointer-address
                     (dereference-pointer
-                     (make-pointer (+ vtable-data-addr (sizeof '*)))))
+                     (make-pointer (+ vtable-data-addr word-size))))
                    scm-vtable-flag-applicable))))
 
   (define %smob-applicable?
@@ -2291,26 +2293,26 @@ compiled result."
       (jit-frame (imm stack-size))
 
       ;; Initial dynamic link, frame pointer.
-      (jit-subi (jit-fp) (jit-fp) (imm stack-size))
-      (jit-addi r0 (jit-fp) (imm (* 2 (sizeof '*))))
-      (jit-stxi (frame-local 0) (jit-fp) r0)
+      (jit-subi reg-fp reg-fp (imm stack-size))
+      (jit-addi r0 reg-fp (imm (* 2 word-size)))
+      (jit-stxi (frame-local 0) reg-fp r0)
 
       ;; Return address.
-      (jit-stxi (frame-local 1) (jit-fp) ra-reg)
+      (jit-stxi (frame-local 1) reg-fp ra-reg)
 
       ;; Argument 0, self procedure.
       (jit-movi r0 (scm->pointer proc))
-      (jit-stxi (frame-local 2) (jit-fp) r0)
+      (jit-stxi (frame-local 2) reg-fp r0)
 
       ;; Pointers of given args.
       (let lp ((args args) (offset 3))
         (unless (null? args)
           (jit-movi r0 (scm->pointer (car args)))
-          (jit-stxi (frame-local offset) (jit-fp) r0)
+          (jit-stxi (frame-local offset) reg-fp r0)
           (lp (cdr args) (+ offset 1))))
 
       ;; Initialize registers.
-      (jit-addi reg-sp (jit-fp) (imm (* (length args) (sizeof '*))))
+      (jit-addi reg-sp reg-fp (imm (* (length args) word-size)))
       (jit-movi reg-thread thread)))
 
   ;; Check number of return values, call C function `scm_values' if
@@ -2321,21 +2323,21 @@ compiled result."
           (lcall (jit-forward))
           (lexit (jit-forward)))
 
-      (jit-ldxi r0 (jit-fp) (frame-local 1))
+      (jit-ldxi r0 reg-fp (frame-local 1))
       (frame-locals-count r2)
       (jump (jit-beqi r2 (imm 0)) lexit)
 
       (jit-link lvalues)
       (jit-movi r0 (scm->pointer '()))
       (jit-addi r1 r2 (imm 1))
-      (jit-muli r1 r1 (imm (sizeof '*)))
+      (jit-muli r1 r1 (imm word-size))
       (jit-addi r1 r1 (frame-local 0))
 
       (jit-link lshuffle)
       (jump (jit-blei r1 (frame-local 0)) lcall)
-      (jit-ldxr r2 (jit-fp) r1)
+      (jit-ldxr r2 reg-fp r1)
       (scm-inline-cons r0 r2 r0)
-      (jit-subi r1 r1 (imm (sizeof '*)))
+      (jit-subi r1 r1 (imm word-size))
       (jump lshuffle)
 
       (jit-link lcall)
@@ -2345,8 +2347,8 @@ compiled result."
       (jit-retval r0)
 
       (jit-link lexit)
-      (jit-addi (jit-fp) (jit-fp) (imm stack-size))
-      (jit-subi (jit-fp) (jit-fp) (imm (* 2 (sizeof '*))))
+      (jit-addi reg-fp reg-fp (imm stack-size))
+      (jit-subi reg-fp reg-fp (imm (* 2 word-size)))
       (jit-retr r0)))
 
   (cond
@@ -2385,9 +2387,8 @@ compiled result."
     (compile-procedure proc)
     (c-call-lightning thread proc args))))
 
-
-;; This procedure is called from C function `vm_lightning'.
 (define (vm-lightning thread fp registers nargs resume)
+  "Scheme side entry point of VM.  This procedure is called from C."
   (let* ((addr->scm
           (lambda (addr)
             (pointer->scm (dereference-pointer (make-pointer addr)))))
@@ -2397,7 +2398,7 @@ compiled result."
                  (if (< n 1)
                      acc
                      (lp (- n 1)
-                         (cons (addr->scm (+ fp (* n (sizeof '*))))
+                         (cons (addr->scm (+ fp (* n word-size)))
                                acc))))))
     (pointer->scm
      (c-call-lightning (make-pointer thread) (addr->scm fp) args))))
