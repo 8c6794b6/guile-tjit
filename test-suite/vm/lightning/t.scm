@@ -278,6 +278,23 @@
 (define-test (t-apply-empty-list-to-values f g) (apply values)
   (f g '()))
 
+(define (my-call-ec proc)
+  (call-with-prompt
+   'foo
+   (lambda ()
+     (proc (lambda () (abort-to-prompt 'foo))))
+   (lambda (k) 'aborted)))
+
+(define-test (t-abort-negative-1 x) (1)
+  (my-call-ec
+   (lambda (return)
+     (if (< 0 x) x (return)))))
+
+(define-test (t-abort-negative-2 x) (-1)
+  (my-call-ec
+   (lambda (return)
+     (if (< 0 x) x (return)))))
+
 (define-test (return-builtin-values) ()
   values)
 

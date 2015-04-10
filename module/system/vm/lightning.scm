@@ -41,6 +41,7 @@
   #:export (compile-procedure
             compile-lightning
             call-lightning
+            vm-lightning
             jit-code-guardian)
   #:re-export (lightning-verbosity))
 
@@ -60,7 +61,7 @@
 
 ;; State used during compilation.
 (define-record-type <lightning>
-  (%make-lightning trace nodes ip labels pc)
+  (%make-lightning trace nodes pc ip labels handlers)
   lightning?
 
   ;; State from bytecode trace.
@@ -69,23 +70,27 @@
   ;; Hash table containing compiled nodes.
   (nodes lightning-nodes)
 
+  ;; Address of byte-compiled program code.
+  (pc lightning-pc)
+
   ;; Current bytecode IP.
   (ip lightning-ip set-lightning-ip!)
 
   ;; Label objects used by lightning.
   (labels lightning-labels)
 
-  ;; Address of byte-compiled program code.
-  (pc lightning-pc))
+  ;; Handlers for prompt.
+  (handlers lightning-handlers))
 
 (define* (make-lightning trace nodes pc
                          #:optional
                          (ip 0)
-                         (labels (make-hash-table)))
+                         (labels (make-hash-table))
+                         (handlers (make-hash-table)))
   (for-each (lambda (labeled-ip)
               (hashq-set! labels labeled-ip (jit-forward)))
             (trace-labeled-ips trace))
-  (%make-lightning trace nodes ip labels pc))
+  (%make-lightning trace nodes pc ip labels handlers))
 
 (define jit-code-guardian (make-guardian))
 
@@ -117,6 +122,8 @@
 (define-inline scm-vtable-flag-applicable 8)
 
 (define-inline scm-applicable-struct-index-procedure 0)
+
+(define-inline scm-dynstack-prompt-escape-only 16)
 
 (define-inline scm-classf-goops 4096)
 
@@ -1211,7 +1218,25 @@ argument in VM operation."
     (call-local st 0 #t)))
 
 ;;; XXX: call/cc
-;;; XXX: abort
+
+(define-vm-op (abort st)
+  (jit-prepare)
+  (local-ref st 1 r0)
+  (jit-pushargr r0)
+  (jit-pushargr reg-fp)
+  (call-c "scm_do_abort")
+
+  ;; Load local values set in c function: reg-sp, reg-fp, and address of
+  ;; handler.
+  (local-ref st 0 r0)
+  (local-ref st 1 reg-sp)
+  (local-ref st 2 reg-fp)
+
+  ;; XXX: Manage stack count as done in vm-regular.
+  (vm-reset-frame 2)
+
+  ;; Jump to the handler found in prompt.
+  (jit-jmpr r0))
 
 (define-vm-op (builtin-ref st dst src)
   (jit-prepare)
@@ -1585,9 +1610,9 @@ argument in VM operation."
 ;;; In vm-engine.c, arguments `dynstack', `flags', `key' are not so
 ;;; difficult, not much differ from other VM ops.  `fp_offset' is `fp -
 ;;; vp->stack_base', and `sp_offset' is `LOCAL_ADDRESS (proc_slot) -
-;;; vp->stack_base'. ip is `ip + offset', which is easy to handle in
+;;; vp->stack_base'. ip is `ip + offset', which is next IP to jump in
 ;;; vm-regular interpreter, but fragment of code to compile in
-;;; vm-lightning. `registers', is argument passed from `scm_call_n'.
+;;; vm-lightning. `registers' is the one passed from `scm_call_n'.
 ;;;
 ;;; * C functions in VM operation "abort":
 ;;;
@@ -1625,18 +1650,26 @@ argument in VM operation."
 ;;; `SCM_I_SETJMP' is called at near the end of `scm_call_n', just
 ;;; before calling the implementation.
 
-;; (define-vm-op (prompt st tag escape-only? proc-slot handler-offset)
-;;   (jit-prepare)
-;;   (jit-pushargr reg-thread)
-;;   ;; Pushing SCM_DYNSTACK_PROMPT_ESCAPE_ONLY
-;;   (jit-pushargi (if escape-only? (imm 16) (imm 0)))
-;;   (jit-pushargr (local-ref st tag))
-;;   (jit-pushargr reg-fp)
-;;   (jit-pushargr reg-fp)
-;;   (jit-pushargi (imm (+ (lightning-pc st)
-;;                         (* (+ (lightning-ip st) handler-offset) 4))))
-;;   (jit-pushargi (imm 0))
-;;   (call-c "scm_do_dynstack_push_prompt"))
+(define-vm-op (prompt st tag escape-only? proc-slot handler-offset)
+  (let ((handler-addr (jit-movi r1 (imm 0))))
+
+    ;; Store address of handler-offset's bytecode IP.
+    (hashq-set! (lightning-handlers st)
+                (+ (lightning-ip st) handler-offset)
+                handler-addr)
+
+    (jit-prepare)
+    (jit-pushargr reg-thread)
+    (jit-pushargi (if escape-only?
+                      (imm scm-dynstack-prompt-escape-only)
+                      (imm 0)))
+    (jit-pushargr (local-ref st tag))
+    (jit-pushargr reg-fp)
+    (jit-addi r0 reg-fp (stored-ref st proc-slot))
+    (jit-pushargr r0)
+    (jit-pushargr r1)
+    (jit-pushargi (imm 0))
+    (call-c "scm_do_dynstack_push_prompt")))
 
 (define-vm-op (wind st winder unwinder)
   (jit-prepare)
@@ -2159,6 +2192,9 @@ lightning, with ENTRY as lightning's node to itself."
   (define-syntax-rule (destination-label st)
     (hashq-ref (lightning-labels st) (lightning-ip st)))
 
+  (define-syntax-rule (destination-handler st)
+    (hashq-ref (lightning-handlers st) (lightning-ip st)))
+
   (define-syntax-rule (assemble-one st ip-x-op)
     (let* ((ip (car ip-x-op))
            (op (cdr ip-x-op))
@@ -2169,11 +2205,14 @@ lightning, with ENTRY as lightning's node to itself."
         (let ((verbosity (lightning-verbosity)))
           (when (and verbosity (<= 3 verbosity))
             (jit-note (format #f "~a" op) (lightning-ip st))))
-        ;; Link if this bytecode intruction is labeled as destination.
+        ;; Link if this bytecode intruction is labeled as destination,
+        ;; or patch it for prompt handler.
         (cond ((destination-label st)
                =>
-               (lambda (label)
-                 (jit-link label))))
+               (lambda (node) (jit-link node)))
+              ((destination-handler st)
+               =>
+               (lambda (node) (jit-patch node))))
         (or (and emitter (apply emitter st args))
             (debug 0 "compile-lightning: VM op `~a' not found~%" instr)))))
 
@@ -2188,12 +2227,11 @@ lightning, with ENTRY as lightning's node to itself."
     ;; Link and compile the entry point.
     (jit-link entry)
     (jit-patch entry)
-    (debug 1 ";;; compile-lightning: Start compiling ~a (~x)~%" name addr)
+    (debug 1 ";;; compiling ~a (~x)~%" name addr)
     (let lp ((ops (trace-ops trace)))
       (unless (null? ops)
         (assemble-one st (car ops))
         (lp (cdr ops))))
-    (debug 1 ";;; compile-lightning: Finished compiling ~a (~x)~%" name addr)
 
     entry))
 
@@ -2392,8 +2430,6 @@ compiled result."
   (let* ((addr->scm
           (lambda (addr)
             (pointer->scm (dereference-pointer (make-pointer addr)))))
-         (deref (lambda (addr)
-                  (dereference-pointer (make-pointer addr))))
          (args (let lp ((n (- nargs 1)) (acc '()))
                  (if (< n 1)
                      acc

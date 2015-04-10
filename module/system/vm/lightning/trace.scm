@@ -312,12 +312,7 @@
   "Make <trace> from PROGRAM-OR-ADDR and NARGS."
   (let ((name (try-program-name program-or-addr))
         (addr (ensure-program-addr program-or-addr)))
-    (debug 1 ";;; trace: Start tracing ~a (~x)~%"
-           name (or (and (integer? addr) addr) 0))
-    (let ((cfg (program->cfg program-or-addr)))
-      (debug 1 ";;; trace: Finished tracing ~a (~x)~%"
-             name (or (and (integer? addr) addr) 0))
-      (make-trace name cfg))))
+    (make-trace name (program->cfg program-or-addr))))
 
 (define (trace-ops trace)
   "Returns a list of ip and vm-operation in TRACE."

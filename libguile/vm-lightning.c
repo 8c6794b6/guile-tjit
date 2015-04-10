@@ -129,6 +129,36 @@ scm_do_unwind_fluid (scm_i_thread *thread)
 }
 
 void
+scm_do_abort (SCM tag, scm_t_uintptr *current_fp)
+{
+  scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
+  scm_t_bits *prompt;
+  scm_t_dynstack_prompt_flags flags;
+  scm_i_jmp_buf *registers;
+  scm_t_ptrdiff fp, sp;
+  scm_t_uint32 *ip;
+
+#define LOCAL_SET(i,o) *(current_fp + 2 + (i)) = (scm_t_bits)(o)
+
+  prompt = scm_dynstack_find_prompt (dynstack, tag,
+                                     &flags, &fp, &sp, &ip,
+                                     &registers);
+
+  if (!prompt)
+    scm_misc_error ("abort", "Abort to unknown prompt", scm_list_1 (tag));
+
+  /* Unwind.  */
+  scm_dynstack_unwind (dynstack, prompt);
+
+  /* Store address of prompt handler and VM regs. */
+  LOCAL_SET (0, ip);
+  LOCAL_SET (1, sp);
+  LOCAL_SET (2, fp);
+
+#undef LOCAL_SET
+}
+
+void
 scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
                     scm_t_uint32 nargs, scm_t_uint32 *ip,
                     scm_t_uint32 nreq, char flags,
