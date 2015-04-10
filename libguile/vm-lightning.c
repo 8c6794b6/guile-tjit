@@ -123,7 +123,7 @@ scm_do_unwind_fluid (scm_i_thread *thread)
 }
 
 void
-scm_do_abort (SCM tag, scm_t_uintptr *current_fp)
+scm_do_abort (SCM tag, size_t nstack, scm_t_uintptr *current_fp)
 {
   scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
   scm_t_bits *prompt;

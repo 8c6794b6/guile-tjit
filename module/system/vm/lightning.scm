@@ -127,23 +127,6 @@
 
 
 ;;;
-;;; Registers with specific use
-;;;
-
-;; Frame pointer.
-(define reg-fp (jit-fp))
-
-;; Stack pointer.
-(define-inline reg-sp v0)
-
-;; Seems like, register `v1' is reserved by vm-regular when compiled with
-;; gcc on x86-64 machines, skipping.
-
-;; Current thread.
-(define-inline reg-thread v2)
-
-
-;;;
 ;;; The word size
 ;;;
 
@@ -361,6 +344,23 @@
     (jit-pushargr cdr)
     (call-c "scm_do_inline_cons")
     (jit-retval dst)))
+
+
+;;;
+;;; VM registers with specific use
+;;;
+
+;; Frame pointer.
+(define reg-fp (jit-fp))
+
+;; Stack pointer.
+(define-inline reg-sp v0)
+
+;; Seems like, register `v1' is reserved by vm-regular when compiled with
+;; gcc on x86-64 machines, skipping.
+
+;; Current thread.
+(define-inline reg-thread v2)
 
 
 ;;;
@@ -1219,6 +1219,9 @@ argument in VM operation."
   (jit-prepare)
   (local-ref st 1 r0)
   (jit-pushargr r0)
+  (frame-locals-count r0)
+  (jit-subi r0 r0 (imm 2))
+  (jit-pushargr r0)
   (jit-pushargr reg-fp)
   (call-c "scm_do_abort")
 
@@ -1227,9 +1230,6 @@ argument in VM operation."
   (local-ref st 0 r0)
   (local-ref st 1 reg-sp)
   (local-ref st 2 reg-fp)
-
-  ;; XXX: Manage stack count as done in vm-regular.
-  (vm-reset-frame 2)
 
   ;; Jump to the handler found in prompt.
   (jit-jmpr r0))
@@ -1661,7 +1661,7 @@ argument in VM operation."
                       (imm 0)))
     (jit-pushargr (local-ref st tag))
     (jit-pushargr reg-fp)
-    (jit-addi r0 reg-fp (stored-ref st proc-slot))
+    (jit-addi r0 reg-fp (stored-ref st (- proc-slot 1)))
     (jit-pushargr r0)
     (jit-pushargr r1)
     (jit-pushargi (imm 0))

@@ -295,6 +295,13 @@
    (lambda (return)
      (if (< 0 x) x (return)))))
 
+(define-test (t-abort-and-return-arg2 proc x) ((lambda (re) (re)) 'bar)
+  (call-with-prompt
+   'foo
+   (lambda ()
+     (proc (lambda () (abort-to-prompt 'foo))))
+   (lambda (k) x)))
+
 (define-test (return-builtin-values) ()
   values)
 
