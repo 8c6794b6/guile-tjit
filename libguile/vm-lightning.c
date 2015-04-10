@@ -63,12 +63,6 @@ scm_do_vm_builtin_ref (unsigned idx)
   return scm_vm_builtin_ref (idx);
 }
 
-SCM
-scm_do_thread_i_data (SCM thread)
-{
-  return scm_from_pointer (SCM_I_THREAD_DATA (thread), NULL);
-}
-
 scm_t_subr
 scm_do_smob_applicable_p (SCM smob)
 {
@@ -257,7 +251,6 @@ scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
 void
 scm_init_vm_lightning (void)
 {
-  scm_c_define_gsubr ("thread-i-data", 1, 0, 0, scm_do_thread_i_data);
   scm_c_define_gsubr ("smob-apply-trampoline", 1, 0, 0,
                       scm_do_smob_apply_trampoline);
   vm_lightning_var = SCM_VARIABLE_REF (scm_c_lookup ("vm-lightning"));

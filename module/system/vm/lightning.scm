@@ -39,7 +39,6 @@
   #:use-module (system vm program)
   #:use-module (system vm vm)
   #:export (compile-procedure
-            compile-lightning
             call-lightning
             vm-lightning
             jit-code-guardian)
@@ -53,9 +52,6 @@
 ;; Modified later by function defined in "vm-lightning.c". Defined with
 ;; dummy body to silent warning message.
 (define smob-apply-trampoline *unspecified*)
-
-;;; Not in use, commented out for now.
-;; (define thread-i-data *unspecified*)
 
 (define *vm-instr* (make-hash-table))
 

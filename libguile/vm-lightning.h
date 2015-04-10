@@ -29,7 +29,6 @@ SCM_API SCM scm_do_inline_from_double (scm_i_thread *thread, double val);
 SCM_API SCM scm_do_inline_words (scm_i_thread *thread, scm_t_bits car,
                                  scm_t_uint32 n_words);
 SCM_API SCM scm_do_vm_builtin_ref (unsigned idx);
-SCM_API SCM scm_do_thread_i_data (SCM thread);
 SCM_API scm_t_subr scm_do_smob_applicable_p (SCM smob);
 SCM_API SCM scm_do_smob_apply_trampoline (SCM smob);
 SCM_API SCM scm_do_foreign_call (scm_i_thread *thread, SCM cif, SCM pointer,
