@@ -1348,16 +1348,18 @@ vm_engine_to_symbol (int engine, const char *FUNC_NAME)
       return sym_regular;
     case SCM_VM_DEBUG_ENGINE:
       return sym_debug;
+    case SCM_VM_LIGHTNING_ENGINE:
+      return sym_lightning;
     default:
       /* ? */
       SCM_MISC_ERROR ("Unknown VM engine: ~a",
                       scm_list_1 (scm_from_int (engine)));
     }
 }
-  
+
 SCM_DEFINE (scm_vm_engine, "vm-engine", 0, 0, 0,
-	    (void),
-	    "")
+           (void),
+           "")
 #define FUNC_NAME s_scm_vm_engine
 {
   return vm_engine_to_symbol (scm_the_vm ()->engine, FUNC_NAME);
