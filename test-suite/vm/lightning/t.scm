@@ -302,6 +302,20 @@
      (proc (lambda () (abort-to-prompt 'foo))))
    (lambda (k) x)))
 
+(define-test (t-abort-arg1 x) ('bar)
+  (call-with-prompt
+   'foo
+   (lambda ()
+     (abort-to-prompt 'foo x))
+   (lambda (_ arg1) arg1)))
+
+(define-test (t-abort-rest a b c) (1 2 3)
+  (call-with-prompt
+   'foo
+   (lambda ()
+     (abort-to-prompt 'foo a b c))
+   (lambda (_ . rest) (apply + rest))))
+
 (define-test (return-builtin-values) ()
   values)
 

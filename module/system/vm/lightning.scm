@@ -1217,22 +1217,25 @@ argument in VM operation."
 
 (define-vm-op (abort st)
   (jit-prepare)
+  (jit-pushargr reg-thread)
   (local-ref st 1 r0)
   (jit-pushargr r0)
   (frame-locals-count r0)
   (jit-subi r0 r0 (imm 2))
   (jit-pushargr r0)
-  (jit-pushargr reg-fp)
+  (jit-addi r0 reg-fp (imm (* 2 word-size)))
+  (jit-pushargr r0)
   (call-c "scm_do_abort")
+  (jit-retval r0)
 
-  ;; Load local values set in c function: reg-sp, reg-fp, and address of
-  ;; handler.
-  (local-ref st 0 r0)
-  (local-ref st 1 reg-sp)
-  (local-ref st 2 reg-fp)
+  ;; Load values set in C function: address of handler, reg-sp, and
+  ;; reg-fp.
+  (scm-cell-object r1 r0 0)
+  (scm-cell-object reg-sp r0 1)
+  (scm-cell-object reg-fp r0 2)
 
-  ;; Jump to the handler found in prompt.
-  (jit-jmpr r0))
+  ;; Jump to the handler.
+  (jit-jmpr r1))
 
 (define-vm-op (builtin-ref st dst src)
   (jit-prepare)
@@ -1315,7 +1318,6 @@ argument in VM operation."
     (last-arg-offset st f5 r0)          ; f5 = initial local index.
     (jit-movi r0 (scm->pointer '()))    ; r0 = initial list.
     (jit-movi f0 scm-undefined)
-
     (frame-locals-count r1)
     (jump (jit-bgti r1 (imm dst)) lcons)
 

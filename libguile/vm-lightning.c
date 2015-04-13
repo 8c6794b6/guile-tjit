@@ -122,17 +122,18 @@ scm_do_unwind_fluid (scm_i_thread *thread)
                              thread->dynamic_state);
 }
 
-void
-scm_do_abort (SCM tag, size_t nstack, scm_t_uintptr *current_fp)
+SCM *
+scm_do_abort (scm_i_thread *thread, SCM tag, size_t nstack,
+              scm_t_uintptr *current_fp)
 {
-  scm_t_dynstack *dynstack = &SCM_I_CURRENT_THREAD->dynstack;
+  scm_t_dynstack *dynstack = &thread->dynstack;
   scm_t_bits *prompt;
   scm_t_dynstack_prompt_flags flags;
   scm_i_jmp_buf *registers;
   scm_t_ptrdiff fp, sp;
   scm_t_uint32 *ip;
 
-#define LOCAL_SET(i,o) *(current_fp + 2 + (i)) = (scm_t_bits)(o)
+#define LOCAL_REF(i) SCM_PACK (current_fp[i])
 
   prompt = scm_dynstack_find_prompt (dynstack, tag,
                                      &flags, &fp, &sp, &ip,
@@ -141,15 +142,38 @@ scm_do_abort (SCM tag, size_t nstack, scm_t_uintptr *current_fp)
   if (!prompt)
     scm_misc_error ("abort", "Abort to unknown prompt", scm_list_1 (tag));
 
-  /* Unwind.  */
-  scm_dynstack_unwind (dynstack, prompt);
+  {
+    SCM *ret;
+    SCM *local = ((SCM *) fp) + 2;
+    size_t i;
 
-  /* Store address of prompt handler and VM regs. */
-  LOCAL_SET (0, ip);
-  LOCAL_SET (1, sp);
-  LOCAL_SET (2, fp);
+    /* XXX: Refill reified continuation if `escape-only?' is false. */
+    if (flags & SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY)
+      local[1] = SCM_BOOL_F;
+    else
+      {
+        printf (";;; Reifying continuation not yet supported.\n");
+        local[1] = SCM_BOOL_F;
+      }
 
-#undef LOCAL_SET
+    /* Unwind.  */
+    scm_dynstack_unwind (dynstack, prompt);
+
+    for (i = 0; i < nstack; i++)
+      local[2 + i] = LOCAL_REF (2 + i);
+
+    sp += nstack * sizeof (SCM);
+
+    /* Store address of prompt handler and VM regs. */
+    ret = alloca (3 * sizeof (SCM));
+    ret[0] = SCM_PACK (ip);
+    ret[1] = SCM_PACK (sp);
+    ret[2] = SCM_PACK (fp);
+
+    return ret;
+  }
+
+#undef LOCAL_REF
 }
 
 void
@@ -173,8 +197,8 @@ scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
       }                                   \
   } while (0)
 
-#define LOCAL_REF(i) (SCM)(fp[(offset / 8) + (i)])
-#define LOCAL_SET(i,o) *(fp + (offset / 8) + (i)) = (scm_t_bits)(o)
+#define LOCAL_REF(i) SCM_PACK (fp[(offset / 8) + (i)])
+#define LOCAL_SET(i,o) fp[(offset / 8) + (i)] = SCM_UNPACK (o)
 
   allow_other_keys = flags & 0x1;
   has_rest = flags & 0x2;

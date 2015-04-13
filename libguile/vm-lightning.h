@@ -52,7 +52,8 @@ SCM_API void scm_do_dynstack_push_dynwind (scm_i_thread *thread,
                                            SCM winder, SCM unwinder);
 SCM_API void scm_do_dynstack_pop (scm_i_thread *thread);
 SCM_API void scm_do_unwind_fluid (scm_i_thread *thread);
-SCM_API void scm_do_abort (SCM key, size_t nstack, scm_t_uintptr *current_fp);
+SCM_API SCM* scm_do_abort (scm_i_thread *thread, SCM key, size_t nstack,
+                           scm_t_uintptr *current_fp);
 
 SCM_API void scm_init_vm_lightning (void);
 
