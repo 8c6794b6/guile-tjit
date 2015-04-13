@@ -144,21 +144,23 @@ scm_do_abort (scm_i_thread *thread, SCM tag, size_t nstack,
 
   {
     SCM *ret;
+    SCM cont;
     SCM *local = ((SCM *) fp) + 2;
     size_t i;
 
     /* XXX: Refill reified continuation if `escape-only?' is false. */
     if (flags & SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY)
-      local[1] = SCM_BOOL_F;
+      cont = SCM_BOOL_F;
     else
       {
         printf (";;; Reifying continuation not yet supported.\n");
-        local[1] = SCM_BOOL_F;
+        cont = SCM_BOOL_F;
       }
 
     /* Unwind.  */
     scm_dynstack_unwind (dynstack, prompt);
 
+    local[1] = cont;
     for (i = 0; i < nstack; i++)
       local[2 + i] = LOCAL_REF (2 + i);
 
@@ -272,14 +274,6 @@ scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
 #undef LOCAL_REF
 }
 
-void
-scm_init_vm_lightning (void)
-{
-  scm_c_define_gsubr ("smob-apply-trampoline", 1, 0, 0,
-                      scm_do_smob_apply_trampoline);
-  vm_lightning_var = SCM_VARIABLE_REF (scm_c_lookup ("vm-lightning"));
-}
-
 
 /*
  * Main function for vm-lightning
@@ -317,6 +311,14 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   return ret;
 }
 #undef FUNC_NAME
+
+void
+scm_init_vm_lightning (void)
+{
+  scm_c_define_gsubr ("smob-apply-trampoline", 1, 0, 0,
+                      scm_do_smob_apply_trampoline);
+  vm_lightning_var = SCM_VARIABLE_REF (scm_c_lookup ("vm-lightning"));
+}
 
 #else
 

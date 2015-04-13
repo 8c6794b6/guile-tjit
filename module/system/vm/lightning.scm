@@ -364,6 +364,37 @@
 
 
 ;;;
+;;; Auxiliary
+;;;
+
+(define-syntax-rule (smob? obj)
+  (let ((*obj (scm->pointer obj)))
+    (cond
+     ((< 0 (logand (pointer-address *obj) 6))
+      #f)
+     (else
+      (= 127 (logand (pointer-address (dereference-pointer *obj)) #x7f))))))
+
+(define-syntax-rule (struct-applicable? obj)
+  (let* ((cell0 (dereference-pointer (scm->pointer obj)))
+         (vtable-data-addr (- (pointer-address cell0) 1)))
+    (< 0 (logand (pointer-address
+                  (dereference-pointer
+                   (make-pointer (+ vtable-data-addr word-size))))
+                 scm-vtable-flag-applicable))))
+
+(define %smob-applicable?
+  (pointer->procedure
+   '* (dynamic-func "scm_do_smob_applicable_p" (dynamic-link)) '(*)))
+
+(define-syntax-rule (smob-applicable? obj)
+  (not (eq? %null-pointer (%smob-applicable? (scm->pointer obj)))))
+
+(define-syntax-rule (dereference-scm pointer)
+  (pointer->scm (dereference-pointer pointer)))
+
+
+;;;
 ;;; VM op syntaxes
 ;;;
 
@@ -372,9 +403,6 @@
     ((_ (op st . args) body ...)
      (hashq-set! *vm-instr* 'op (lambda (st . args)
                                   body ...)))))
-
-(define-syntax-rule (dereference-scm pointer)
-  (pointer->scm (dereference-pointer pointer)))
 
 (define-syntax-rule (frame-local offset)
   (imm (* offset word-size)))
@@ -2225,7 +2253,6 @@ lightning, with ENTRY as lightning's node to itself."
     ;; Link and compile the entry point.
     (jit-link entry)
     (jit-patch entry)
-    (debug 1 ";;; compiling ~a (~x)~%" name addr)
     (let lp ((ops (trace-ops trace)))
       (unless (null? ops)
         (assemble-one st (car ops))
@@ -2233,9 +2260,11 @@ lightning, with ENTRY as lightning's node to itself."
 
     entry))
 
-(define-syntax-rule (compile-procedure proc)
+(define (compile-procedure proc)
   "Compile bytecode of procedure PROC to native code, and save the
 compiled result."
+  (debug 1 ";;; compiling ~a (0x~x)~%"
+         (try-program-name proc) (ensure-program-addr proc))
   (with-jit-state
    (jit-prolog)
    (let ((entry (jit-forward))
@@ -2284,7 +2313,8 @@ compiled result."
       (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
 
 (define (call-lightning proc . args)
-  "Compile procedure PROC with lightning, and run with arguments ARGS."
+  "Temporary switch to vm-lightning, run procedure PROC with arguments
+ARGS."
   (let ((current-engine (vm-engine)))
     (call-with-values (lambda ()
                         (set-vm-engine! 'lightning)
@@ -2293,48 +2323,25 @@ compiled result."
         (set-vm-engine! current-engine)
         (apply values vals)))))
 
-(define (c-call-lightning thread proc args)
-  "Compile PROC with lightning and run with ARGS, within THREAD."
+(define (run-lightning thread proc args)
+  "Compile procedure PROC with lightning and run with ARGS in THREAD."
 
   (define-syntax stack-size
     (identifier-syntax (* 12 4096 word-size)))
 
-  (define-syntax-rule (smob? obj)
-    (let ((*obj (scm->pointer obj)))
-      (cond
-       ((< 0 (logand (pointer-address *obj) 6))
-        #f)
-       (else
-        (= 127 (logand (pointer-address (dereference-pointer *obj)) #x7f))))))
-
-  (define-syntax-rule (struct-applicable? obj)
-    (let* ((cell0 (dereference-pointer (scm->pointer obj)))
-           (vtable-data-addr (- (pointer-address cell0) 1)))
-      (< 0 (logand (pointer-address
-                    (dereference-pointer
-                     (make-pointer (+ vtable-data-addr word-size))))
-                   scm-vtable-flag-applicable))))
-
-  (define %smob-applicable?
-    (pointer->procedure
-     '* (dynamic-func "scm_do_smob_applicable_p" (dynamic-link)) '(*)))
-
-  (define-syntax-rule (smob-applicable? obj)
-    (not (eq? %null-pointer (%smob-applicable? (scm->pointer obj)))))
-
-  (define-syntax-rule (vm-prolog ra-reg)
+  (define-syntax-rule (vm-prolog reg-ra)
     (begin
       ;; XXX: Allocating constant amount at beginning of function call.
       ;; Stack not expanded at runtime.
       (jit-frame (imm stack-size))
-
-      ;; Initial dynamic link, frame pointer.
       (jit-subi reg-fp reg-fp (imm stack-size))
       (jit-addi r0 reg-fp (imm (* 2 word-size)))
-      (jit-stxi (frame-local 0) reg-fp r0)
+
+      ;; Initial dynamic link, frame pointer.
+      (jit-str reg-fp r0)
 
       ;; Return address.
-      (jit-stxi (frame-local 1) reg-fp ra-reg)
+      (jit-stxi (frame-local 1) reg-fp reg-ra)
 
       ;; Argument 0, self procedure.
       (jit-movi r0 (scm->pointer proc))
@@ -2351,9 +2358,8 @@ compiled result."
       (jit-addi reg-sp reg-fp (imm (* (length args) word-size)))
       (jit-movi reg-thread thread)))
 
-  ;; Check number of return values, call C function `scm_values' if
-  ;; 1 < number of values.
   (define-syntax-rule (vm-epilog)
+    ;; Returned from procedure, shuffle return values and exit.
     (let ((lshuffle (jit-forward))
           (lvalues (jit-forward))
           (lcall (jit-forward))
@@ -2392,26 +2398,33 @@ compiled result."
     (cond
      ((and (struct? proc)
            (struct-applicable? proc))
-      (c-call-lightning thread (struct-ref proc 0) args))
+      (run-lightning thread (struct-ref proc 0) args))
      ((and (smob? proc)
            (smob-applicable? proc))
-      (c-call-lightning thread (smob-apply-trampoline proc) (cons proc args)))
+      (run-lightning thread (smob-apply-trampoline proc) (cons proc args)))
      (else
       (wrong-type-apply proc))))
    ((jit-compiled-code proc)
     =>
     (lambda (compiled)
-      (debug 1 ";;; calling jit compiled code of ~a at 0x~x.~%" proc compiled)
+      (debug 1 ";;; calling JIT compiled code of ~a (0x~x)~%"
+             proc compiled)
       (with-jit-state
        (jit-prolog)
        (let ((return-address (jit-movi r1 (imm 0))))
          (vm-prolog r1)
+
+         ;; Jump to JIT compiled procedure.
          (jit-movi r0 (make-pointer compiled))
          (jit-jmpr r0)
          (jit-patch return-address)
-         (vm-epilog)
-         (jit-epilog)
-         (jit-realize))
+
+         ;; Returned from JIT compiled procedure.
+         (vm-epilog))
+       (jit-epilog)
+       (jit-realize)
+
+       ;; Emit and run the thunk.
        (let* ((fptr (jit-emit))
               (thunk (pointer->procedure '* fptr '())))
          (let ((verbosity (lightning-verbosity)))
@@ -2421,7 +2434,7 @@ compiled result."
          (thunk)))))
    (else
     (compile-procedure proc)
-    (c-call-lightning thread proc args))))
+    (run-lightning thread proc args))))
 
 (define (vm-lightning thread fp registers nargs resume)
   "Scheme side entry point of VM.  This procedure is called from C."
@@ -2435,7 +2448,7 @@ compiled result."
                          (cons (addr->scm (+ fp (* n word-size)))
                                acc))))))
     (pointer->scm
-     (c-call-lightning (make-pointer thread) (addr->scm fp) args))))
+     (run-lightning (make-pointer thread) (addr->scm fp) args))))
 
 
 ;;;
