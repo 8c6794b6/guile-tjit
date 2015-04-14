@@ -224,8 +224,8 @@ scm_t_bits scm_do_reinstate_partial_continuation (scm_i_thread *thread,
 }
 
 /* XXX: Mostly duplicating with vm-engine.c  */
-void
-scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
+scm_t_uint32
+scm_do_bind_kwargs (scm_t_uintptr *fp,
                     scm_t_uint32 nargs, scm_t_uint32 *ip,
                     scm_t_uint32 nreq, char flags,
                     scm_t_uint32 nreq_and_opt, scm_t_uint32 ntotal,
@@ -245,8 +245,8 @@ scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
       }                                   \
   } while (0)
 
-#define LOCAL_REF(i) SCM_PACK (fp[(offset / 8) + (i)])
-#define LOCAL_SET(i,o) fp[(offset / 8) + (i)] = SCM_UNPACK (o)
+#define LOCAL_REF(i) SCM_PACK (fp[2 + (i)])
+#define LOCAL_SET(i,o) fp[2 + (i)] = SCM_UNPACK (o)
 
   allow_other_keys = flags & 0x1;
   has_rest = flags & 0x2;
@@ -314,6 +314,8 @@ scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
         /* rest = scm_inline_cons (thread, LOCAL_REF (ntotal + n), rest); */
       LOCAL_SET (nreq_and_opt, rest);
     }
+
+  return ntotal + nkw;
 
 #undef VM_ASSERT
 #undef LOCAL_SET

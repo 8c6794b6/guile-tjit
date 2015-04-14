@@ -384,38 +384,56 @@
             (br-nargs-1 99)
             (call-lightning br-nargs-1 99))
 
-(define* (call-bind-kwargs-01 #:key (x 100))
+(define* (bind-kwargs-01 #:key (x 100))
   x)
 
 (define-test (t-bind-kwargs-01-default) ()
-  (call-bind-kwargs-01))
+  (bind-kwargs-01))
 
 (define-test (t-bind-kwargs-01-with-x x) (123)
-  (call-bind-kwargs-01 #:x x))
+  (bind-kwargs-01 #:x x))
 
-(define* (call-bind-kwargs-02 a #:key (b 2) (c 3))
+(define* (bind-kwargs-02 a #:key (b 2) (c 3))
   (+ (* a b) c))
 
 (define-test (t-bind-kwargs-02-default x) (10)
-  (call-bind-kwargs-02 x))
+  (bind-kwargs-02 x))
 
 (define-test (t-bind-kwargs-02-with-b x) (10)
-  (call-bind-kwargs-02 x #:b x))
+  (bind-kwargs-02 x #:b x))
 
-(define-test (t-bind-kwargs-02-with-c x) (10)
-  (call-bind-kwargs-02 x #:c x))
+(define-test (tbind-kwargs-02-with-c x) (10)
+  (bind-kwargs-02 x #:c x))
 
 (define-test (t-bind-kwargs-02-with-b-and-c x) (10)
-  (call-bind-kwargs-02 x #:b x #:c x))
+  (bind-kwargs-02 x #:b x #:c x))
 
-(define* (call-bind-kwargs-03 a #:key (b 2) . rest)
+(define* (bind-kwargs-03 a #:key (b 2) . rest)
   (+ (* a (length rest)) b))
 
 (define-test (t-bind-kwargs-03 x) (100)
-  (call-bind-kwargs-03 x 'foo 'bar 'buzz))
+  (bind-kwargs-03 x 'foo 'bar 'buzz))
 
 (define-test (t-bind-kwargs-03-with-b x) (100)
-  (call-bind-kwargs-03 x #:b 23 'foo 'bar 'buzz))
+  (bind-kwargs-03 x #:b 23 'foo 'bar 'buzz))
+
+(define* (bind-kwargs-04 a #:key (b 2) (c 3) (d 4) (e 5) (f 6))
+  (+ a b c d e f))
+
+(define-test (t-bind-kwargs-04-with-b x) (100)
+  (bind-kwargs-04 1 #:b x))
+
+(define-test (t-bind-kwargs-04-with-c x) (100)
+  (bind-kwargs-04 1 #:c x))
+
+(define-test (t-bind-kwargs-04-with-d x) (100)
+  (bind-kwargs-04 1 #:d x))
+
+(define-test (t-bind-kwargs-04-with-e x) (100)
+  (bind-kwargs-04 1 #:e x))
+
+(define-test (t-bind-kwargs-04-with-f x) (100)
+  (bind-kwargs-04 1 #:f x))
 
 
 ;;; Branching instructions

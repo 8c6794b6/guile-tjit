@@ -1350,18 +1350,22 @@ argument in VM operation."
 ;;; XXX: br-if-npos-gt
 
 (define-vm-op (bind-kwargs st nreq flags nreq-and-opt ntotal kw-offset)
-  (frame-locals-count r1)
   (jit-prepare)
   (jit-pushargr reg-fp)
-  (jit-pushargi (stored-ref st 0))
-  (jit-pushargr r1)
+  (frame-locals-count r0)
+  (jit-pushargr r0)
   (jit-pushargi (imm (+ (lightning-pc st) (* (lightning-ip st) 4))))
   (jit-pushargi (imm nreq))
   (jit-pushargi (imm flags))
   (jit-pushargi (imm nreq-and-opt))
   (jit-pushargi (imm ntotal))
   (jit-pushargi (imm kw-offset))
-  (call-c "scm_do_bind_kwargs"))
+  (call-c "scm_do_bind_kwargs")
+  (jit-retval r0)
+
+  ;; Allocate frame with returned value.
+  (jit-muli r0 r0 (imm word-size))
+  (jit-addr reg-sp reg-fp r0))
 
 (define-vm-op (bind-rest st dst)
   (let ((lrefill (jit-forward))
