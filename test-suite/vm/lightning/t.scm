@@ -1161,13 +1161,25 @@
 (define-test (t-primitive-eval-1 expr) ('(+ 1 (* 2 3)))
   (primitive-eval expr))
 
-(define-test (t-primitive-eval-2 expr)
-  ('(letrec ((fib (lambda (n)
-                    (if (< n 2)
-                        n
-                        (+ (fib (- n 1))
-                           (fib (- n 2)))))))
-      (fib 10)))
+(define letrec-fib-expr
+  '(letrec ((fib (lambda (n)
+                   (if (< n 2)
+                       n
+                       (+ (fib (- n 1))
+                          (fib (- n 2)))))))
+     (fib 10)))
+
+(define-test (t-primitive-eval-2 expr) (letrec-fib-expr)
   (primitive-eval expr))
+
+(define-test (t-compile-tree-il-1 expr) ('(+ 1 2 3))
+  (compile expr #:to 'tree-il))
+
+(define-test (t-compile-cps-1 expr) ('(+ 1 2 3))
+  (compile expr #:to 'cps))
+
+(test-skip 1)
+(define-test (t-compile-cps-1 expr) ('(+ 1 2 3))
+  (compile expr #:to 'value))
 
 (test-end "vm-lightning-test")
