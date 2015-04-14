@@ -122,21 +122,58 @@ scm_do_unwind_fluid (scm_i_thread *thread)
                              thread->dynamic_state);
 }
 
+/* XXX: Duplicate with control.c  */
+static const scm_t_uint32 compose_continuation_code[] =
+  {
+    SCM_PACK_OP_24 (compose_continuation, 0)
+  };
+
+/* XXX: Duplicate with control.c  */
+static inline SCM
+make_partial_continuation (SCM vm_cont)
+{
+  scm_t_bits nfree = 1;
+  scm_t_bits flags = SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION;
+  SCM ret;
+
+  ret = scm_words (scm_tc7_program | (nfree << 16) | flags, nfree + 3);
+  SCM_SET_CELL_WORD_1 (ret, compose_continuation_code);
+  SCM_PROGRAM_FREE_VARIABLE_SET (ret, 0, vm_cont);
+
+  return ret;
+}
+
+static inline SCM
+do_reify_partial_continuation (SCM *saved_fp,
+                               scm_t_uint32 *saved_ip,
+                               scm_t_dynstack *dynstack,
+                               scm_t_uint32 *ra)
+{
+  SCM vm_cont;
+  /* scm_t_uint32 flags; */
+
+  /* /\* XXX: Non-rewindable continuation ignored. *\/ */
+  /* flags = SCM_F_VM_CONT_PARTIAL | SCM_F_VM_CONT_REWINDABLE; */
+  vm_cont = scm_cell (scm_tc7_vm_cont, (scm_t_bits) ra);
+
+  return make_partial_continuation (vm_cont);
+}
+
 SCM *
 scm_do_abort (scm_i_thread *thread, SCM tag, size_t nstack,
-              scm_t_uintptr *current_fp)
+              scm_t_uintptr *current_fp, scm_t_uint32 *ra)
 {
   scm_t_dynstack *dynstack = &thread->dynstack;
   scm_t_bits *prompt;
   scm_t_dynstack_prompt_flags flags;
   scm_i_jmp_buf *registers;
-  scm_t_ptrdiff fp, sp;
+  scm_t_ptrdiff fp, sp, local_offset;
   scm_t_uint32 *ip;
 
 #define LOCAL_REF(i) SCM_PACK (current_fp[i])
 
   prompt = scm_dynstack_find_prompt (dynstack, tag,
-                                     &flags, &fp, &sp, &ip,
+                                     &flags, &fp, &local_offset, &ip,
                                      &registers);
 
   if (!prompt)
@@ -144,27 +181,28 @@ scm_do_abort (scm_i_thread *thread, SCM tag, size_t nstack,
 
   {
     SCM *ret;
+    SCM *local = (SCM *)(fp + local_offset);
     SCM cont;
-    SCM *local = ((SCM *) fp) + 2;
     size_t i;
 
-    /* XXX: Refill reified continuation if `escape-only?' is false. */
     if (flags & SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY)
       cont = SCM_BOOL_F;
     else
       {
-        printf (";;; Reifying continuation not yet supported.\n");
-        cont = SCM_BOOL_F;
+        scm_t_dynstack *captured;
+
+        captured = scm_dynstack_capture (dynstack, SCM_DYNSTACK_NEXT (prompt));
+        cont = do_reify_partial_continuation ((SCM *) fp, ip, captured, ra);
       }
 
-    /* Unwind.  */
+    /* Unwind. */
     scm_dynstack_unwind (dynstack, prompt);
 
     local[1] = cont;
     for (i = 0; i < nstack; i++)
       local[2 + i] = LOCAL_REF (2 + i);
 
-    sp += nstack * sizeof (SCM);
+    sp = fp + local_offset + ((nstack - 1) * sizeof (SCM));
 
     /* Store address of prompt handler and VM regs. */
     ret = alloca (3 * sizeof (SCM));
@@ -178,6 +216,14 @@ scm_do_abort (scm_i_thread *thread, SCM tag, size_t nstack,
 #undef LOCAL_REF
 }
 
+scm_t_bits scm_do_reinstate_partial_continuation (scm_i_thread *thread,
+                                                  SCM cont, size_t n, SCM *argv)
+{
+  /* XXX: Update locals. */
+  return SCM_UNPACK (SCM_CELL_OBJECT_1 (cont));
+}
+
+/* XXX: Mostly duplicating with vm-engine.c  */
 void
 scm_do_bind_kwargs (scm_t_uintptr *fp, scm_t_uintptr offset,
                     scm_t_uint32 nargs, scm_t_uint32 *ip,

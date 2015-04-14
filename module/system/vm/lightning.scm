@@ -20,8 +20,8 @@
 
 ;;; Commentary:
 
-;;; A VM with method JIT compiler. Compiles from bytecode to native code
-;;; with GNU Lightning.
+;;; A virtual machine with method JIT compiler from bytecode to native
+;;; code. Compiler is written with GNU Lightning.
 
 ;;; Code:
 
@@ -347,23 +347,6 @@
 
 
 ;;;
-;;; VM registers with specific use
-;;;
-
-;; Frame pointer.
-(define reg-fp (jit-fp))
-
-;; Stack pointer.
-(define-inline reg-sp v0)
-
-;; Seems like, register `v1' is reserved by vm-regular when compiled with
-;; gcc on x86-64 machines, skipping.
-
-;; Current thread.
-(define-inline reg-thread v2)
-
-
-;;;
 ;;; Auxiliary
 ;;;
 
@@ -392,6 +375,23 @@
 
 (define-syntax-rule (dereference-scm pointer)
   (pointer->scm (dereference-pointer pointer)))
+
+
+;;;
+;;; VM registers with specific use
+;;;
+
+;; Frame pointer.
+(define reg-fp (jit-fp))
+
+;; Stack pointer.
+(define-inline reg-sp v0)
+
+;; Seems like, register `v1' is reserved by vm-regular when compiled with
+;; gcc on x86-64 machines, skipping.
+
+;; Current thread.
+(define-inline reg-thread v2)
 
 
 ;;;
@@ -618,7 +618,7 @@ argument in VM operation."
        (jit-link lerror)
        (error-wrong-type-apply r0)
 
-       ;; Local is program, look for JIT compiled code.
+       ;; Local is program, look for native code.
        (jit-link lprogram)
        (jump (scm-program-is-jit-compiled r2) lcompiled)
 
@@ -1124,6 +1124,8 @@ argument in VM operation."
    (else
     (compile-label st 0 nlocals (offset-addr st label) #t))))
 
+;;; XXX: tail-call/shuffle
+
 (define-vm-op (receive st dst proc nlocals)
   (let ((lexit (jit-forward)))
     (frame-locals-count r0)
@@ -1198,7 +1200,23 @@ argument in VM operation."
   (vm-return st))
 
 ;;; XXX: continuation-call
-;;; XXX: compose-continuation
+
+(define-vm-op (compose-continuation st cont)
+  (local-ref st cont r0)
+  (scm-program-free-variable-ref r0 r0 0)
+  (frame-locals-count r1)
+  (jit-subi r1 r1 (imm 1))
+
+  (jit-prepare)
+  (jit-pushargr reg-thread)
+  (jit-pushargr r0)
+  (jit-pushargr r1)
+  (jit-pushargi (stored-ref st 1))
+  (call-c "scm_do_reinstate_partial_continuation")
+  (jit-retval r0)
+
+  ;; Jump to the adress stored in `vm-cont'.
+  (jit-jmpr r0))
 
 (define-vm-op (tail-apply st)
   (let ((lcons (jit-forward))
@@ -1244,26 +1262,33 @@ argument in VM operation."
 ;;; XXX: call/cc
 
 (define-vm-op (abort st)
-  (jit-prepare)
-  (jit-pushargr reg-thread)
-  (local-ref st 1 r0)
-  (jit-pushargr r0)
-  (frame-locals-count r0)
-  (jit-subi r0 r0 (imm 2))
-  (jit-pushargr r0)
-  (jit-addi r0 reg-fp (imm (* 2 word-size)))
-  (jit-pushargr r0)
-  (call-c "scm_do_abort")
-  (jit-retval r0)
+  ;; Retuan address for partial continuation, used when reifying
+  ;; the continuation.
+  (let ((ra (jit-movi r1 (imm 0))))
+    (jit-prepare)
+    (jit-pushargr reg-thread)
+    (local-ref st 1 r0)
+    (jit-pushargr r0)
+    (frame-locals-count r0)
+    (jit-subi r0 r0 (imm 2))
+    (jit-pushargr r0)
+    (jit-addi r0 reg-fp (imm (* 2 word-size)))
+    (jit-pushargr r0)
+    (jit-pushargr r1)
+    (call-c "scm_do_abort")
+    (jit-retval r0)
 
-  ;; Load values set in C function: address of handler, reg-sp, and
-  ;; reg-fp.
-  (scm-cell-object r1 r0 0)
-  (scm-cell-object reg-sp r0 1)
-  (scm-cell-object reg-fp r0 2)
+    ;; Load values set in C function: address of handler, reg-sp, and
+    ;; reg-fp.
+    (scm-cell-object r1 r0 0)
+    (scm-cell-object reg-sp r0 1)
+    (scm-cell-object reg-fp r0 2)
 
-  ;; Jump to the handler.
-  (jit-jmpr r1))
+    ;; Jump to the handler.
+    (jit-jmpr r1)
+
+    ;; The address for partial continuation to return.
+    (jit-patch ra)))
 
 (define-vm-op (builtin-ref st dst src)
   (jit-prepare)
@@ -1517,7 +1542,7 @@ argument in VM operation."
     (jit-movi r1 (imm (offset-addr st offset)))
     (scm-set-cell-object r0 1 r1)
 
-    ;; Storing address of JIT compiled code.
+    ;; Storing address of native code.
     (let ((closure-addr (jit-movi r1 (imm 0))))
       (scm-set-cell-object r0 2 r1)
       (jump lnext)
@@ -1691,8 +1716,7 @@ argument in VM operation."
                       (imm 0)))
     (jit-pushargr (local-ref st tag))
     (jit-pushargr reg-fp)
-    (jit-addi r0 reg-fp (stored-ref st (- proc-slot 1)))
-    (jit-pushargr r0)
+    (jit-pushargi (stored-ref st proc-slot))
     (jit-pushargr r1)
     (jit-pushargi (imm 0))
     (call-c "scm_do_dynstack_push_prompt")))
@@ -2263,7 +2287,7 @@ lightning, with ENTRY as lightning's node to itself."
 (define (compile-procedure proc)
   "Compile bytecode of procedure PROC to native code, and save the
 compiled result."
-  (debug 1 ";;; compiling ~a (0x~x)~%"
+  (debug 1 ";;; compiling ~a (~a)~%"
          (try-program-name proc) (ensure-program-addr proc))
   (with-jit-state
    (jit-prolog)
@@ -2288,7 +2312,7 @@ compiled result."
          (when (and verbosity (<= 2 verbosity))
            (format #t ";;; nodes:~%")
            (hash-for-each (lambda (k v)
-                            (format #t ";;;   0x~x => ~a~%" k v))
+                            (format #t ";;;   ~a => ~a~%" k v))
                           (lightning-nodes lightning)))
          (when (and verbosity (<= 3 verbosity))
            (write-code-to-file (format #f "/tmp/~a.o" (procedure-name proc))
@@ -2407,19 +2431,19 @@ ARGS."
    ((jit-compiled-code proc)
     =>
     (lambda (compiled)
-      (debug 1 ";;; calling JIT compiled code of ~a (0x~x)~%"
+      (debug 1 ";;; calling native code of ~a (~a)~%"
              proc compiled)
       (with-jit-state
        (jit-prolog)
        (let ((return-address (jit-movi r1 (imm 0))))
          (vm-prolog r1)
 
-         ;; Jump to JIT compiled procedure.
+         ;; Jump to native procedure.
          (jit-movi r0 (make-pointer compiled))
          (jit-jmpr r0)
          (jit-patch return-address)
 
-         ;; Returned from JIT compiled procedure.
+         ;; Returned from native procedure.
          (vm-epilog))
        (jit-epilog)
        (jit-realize)

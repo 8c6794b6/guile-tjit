@@ -72,10 +72,15 @@
     br-if-eq br-if-eqv br-if-equal
     br-if-= br-if-< br-if-<= br-if-logtest))
 
+(define *specialized-call-ops*
+  '(return-values
+    subr-call foreign-call
+    compose-continuation tail-apply tail-call/shuffle call/cc))
+
 (define *return-ops*
-  '(return
-    return-values tail-call tail-call-label tail-call/shuffle
-    subr-call foreign-call tail-apply call/cc abort))
+  (append '(return
+            tail-call tail-call-label tail-call/shuffle)
+          *specialized-call-ops*))
 
 (define *ignored-ops*
   '(bind-kwargs
@@ -103,10 +108,23 @@
   ;; Last IP of program.
   (last-ip entries-last-ip))
 
+(define-syntax scm-f-program-is-partial-continuation
+  (identifier-syntax #x1000))
+
+(define-syntax scm-f-program-is-foreign
+  (identifier-syntax #x2000))
+
+(define (partial-continuation? obj)
+  (and (procedure? obj)
+       (< 0 (logand (pointer-address (dereference-pointer
+                                      (scm->pointer obj)))
+                    scm-f-program-is-partial-continuation))))
+
 (define (foreign-procedure? obj)
   (and (procedure? obj)
-       (< 0 (logand #x2000 (pointer-address (dereference-pointer
-                                             (scm->pointer obj)))))))
+       (< 0 (logand (pointer-address (dereference-pointer
+                                      (scm->pointer obj)))
+                    scm-f-program-is-foreign))))
 
 (define disassemble-one
   (@@ (system vm disassembler) disassemble-one))
@@ -115,7 +133,7 @@
   (let ((bv (pointer->bytevector (make-pointer (program-code primitive)) 32))
         (last-ops '(return-values
                     subr-call foreign-call
-                    tail-apply tail-call/shuffle
+                    compose-continuation tail-apply tail-call/shuffle
                     call/cc)))
     (let lp ((acc '()) (offset 0))
       (call-with-values
@@ -153,6 +171,7 @@
     (let ((ops (cond
                 ((or (primitive? program-or-addr)
                      (foreign-procedure? program-or-addr)
+                     (partial-continuation? program-or-addr)
                      (memq (ensure-program-addr program-or-addr)
                            builtin-addrs))
                  (fold-primitive-code entries-one '() program-or-addr))

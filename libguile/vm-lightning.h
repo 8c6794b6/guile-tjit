@@ -34,11 +34,6 @@ SCM_API SCM scm_do_smob_apply_trampoline (SCM smob);
 SCM_API SCM scm_do_foreign_call (scm_i_thread *thread, SCM cif, SCM pointer,
                                  const SCM *loc);
 
-SCM_API void scm_do_bind_kwargs(scm_t_uintptr *fp, scm_t_uintptr offset,
-                                scm_t_uint32 nargs, scm_t_uint32 *ip,
-                                scm_t_uint32 nreq, char flags,
-                                scm_t_uint32 nreq_and_opt, scm_t_uint32 ntotal,
-                                scm_t_int32 kw_offset);
 SCM_API void scm_do_dynstack_push_fluid (scm_i_thread *thread, SCM fluid,
                                          SCM value);
 SCM_API void scm_do_dynstack_push_prompt (scm_i_thread *thread,
@@ -52,8 +47,18 @@ SCM_API void scm_do_dynstack_push_dynwind (scm_i_thread *thread,
                                            SCM winder, SCM unwinder);
 SCM_API void scm_do_dynstack_pop (scm_i_thread *thread);
 SCM_API void scm_do_unwind_fluid (scm_i_thread *thread);
+
 SCM_API SCM* scm_do_abort (scm_i_thread *thread, SCM key, size_t nstack,
-                           scm_t_uintptr *current_fp);
+                           scm_t_uintptr *current_fp, scm_t_uint32 *ra);
+SCM_API scm_t_bits scm_do_reinstate_partial_continuation (scm_i_thread *thread,
+                                                          SCM cont, size_t n,
+                                                          SCM *argv);
+
+SCM_API void scm_do_bind_kwargs(scm_t_uintptr *fp, scm_t_uintptr offset,
+                                scm_t_uint32 nargs, scm_t_uint32 *ip,
+                                scm_t_uint32 nreq, char flags,
+                                scm_t_uint32 nreq_and_opt, scm_t_uint32 ntotal,
+                                scm_t_int32 kw_offset);
 
 SCM_API void scm_init_vm_lightning (void);
 

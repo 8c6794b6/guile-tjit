@@ -29,12 +29,6 @@
              (system vm lightning)
              (system vm vm))
 
-(define-syntax-rule (with-lightning proc . args)
-  (dynamic-wind
-    (lambda () (set-vm-engine! 'lightning))
-    (lambda () (call-with-vm proc . args))
-    (lambda () (set-vm-engine! 'regular))))
-
 ;; Define and run a procedure with guile vm and lightning, and compare the
 ;; results with test-equal.
 (define-syntax define-test
@@ -48,7 +42,7 @@
         (symbol->string (procedure-name name))
         (call-with-values (lambda () (name . args))
           (lambda vs vs))
-        (call-with-values (lambda () (with-lightning name . args))
+        (call-with-values (lambda () (call-lightning name . args))
           (lambda vs vs)))))))
 
 (lightning-verbosity 0)
@@ -316,6 +310,16 @@
      (abort-to-prompt 'foo a b c))
    (lambda (_ . rest) (apply + rest))))
 
+(define-test (t-prompt-capture x) (-56)
+  (+ (call-with-prompt 'foo
+                       (lambda ()
+                         (if (< x 0)
+                             (abort-to-prompt 'foo)
+                             123))
+                       (lambda (k)
+                         (k 456)))
+     x))
+
 (define-test (return-builtin-values) ()
   values)
 
@@ -357,15 +361,15 @@
 
 (test-equal "t-sum-optional-one"
             (sum-optional 1)
-            (with-lightning sum-optional 1))
+            (call-lightning sum-optional 1))
 
 (test-equal "t-sum-optional-two"
             (sum-optional 1 2)
-            (with-lightning sum-optional 1 2))
+            (call-lightning sum-optional 1 2))
 
 (test-equal "t-sum-optional-two"
             (sum-optional 1 2 3)
-            (with-lightning sum-optional 1 2 3))
+            (call-lightning sum-optional 1 2 3))
 
 (define br-nargs-1
   (case-lambda
@@ -374,11 +378,11 @@
 
 (test-equal "t-br-if-nargs-1-0"
             (br-nargs-1)
-            (with-lightning br-nargs-1))
+            (call-lightning br-nargs-1))
 
 (test-equal "t-br-if-nargs-1-1"
             (br-nargs-1 99)
-            (with-lightning br-nargs-1 99))
+            (call-lightning br-nargs-1 99))
 
 (define* (call-bind-kwargs-01 #:key (x 100))
   x)
@@ -1112,11 +1116,11 @@
 ;;; Procedures found in module (guile)
 ;;;
 
-(define-test (t-macroexpand-1 expr) ('(+ 1 2 3))
-  (macroexpand expr))
-
 (define-test (t-format-1 str arg1 arg2) ("~x is ~a~%" 100 #f)
   (format #f str arg1 arg2))
+
+(define-test (t-macroexpand-1 expr) ('(+ 1 2 3))
+  (macroexpand expr))
 
 (define-syntax my-syntax-01
   (syntax-rules ()
@@ -1127,13 +1131,13 @@
     ((_ x y)
      (list x y))))
 
-(define-test (t-macroexpand-1 expr) ('(my-syntax))
+(define-test (t-macroexpand-2 expr) ('(my-syntax))
   (macroexpand expr))
 
-(define-test (t-macroexpand-2 expr) ('(my-syntax 99))
+(define-test (t-macroexpand-3 expr) ('(my-syntax 99))
   (macroexpand expr))
 
-(define-test (t-macroexpand-3 expr) ('(my-syntax 98 99))
+(define-test (t-macroexpand-4 expr) ('(my-syntax 98 99))
   (macroexpand expr))
 
 (define-test (t-primitive-eval-1 expr) ('(+ 1 (* 2 3)))
