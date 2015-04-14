@@ -35,10 +35,10 @@
   #:use-module (system vm debug)
   #:use-module (system vm lightning binding)
   #:use-module (system vm lightning debug)
-  #:use-module (system vm lightning trace)
+  #:use-module (system vm lightning cfg)
   #:use-module (system vm program)
   #:use-module (system vm vm)
-  #:export (compile-procedure
+  #:export (compile-lightning
             call-lightning
             vm-lightning
             jit-code-guardian)
@@ -57,11 +57,11 @@
 
 ;; State used during compilation.
 (define-record-type <lightning>
-  (%make-lightning trace nodes pc ip labels handlers)
+  (%make-lightning cfg nodes pc ip labels handlers)
   lightning?
 
-  ;; State from bytecode trace.
-  (trace lightning-trace set-lightning-trace!)
+  ;; State from bytecode control flow graph.
+  (cfg lightning-cfg set-lightning-cfg!)
 
   ;; Hash table containing compiled nodes.
   (nodes lightning-nodes)
@@ -78,15 +78,15 @@
   ;; Handlers for prompt.
   (handlers lightning-handlers))
 
-(define* (make-lightning trace nodes pc
+(define* (make-lightning cfg nodes pc
                          #:optional
                          (ip 0)
                          (labels (make-hash-table))
                          (handlers (make-hash-table)))
   (for-each (lambda (labeled-ip)
               (hashq-set! labels labeled-ip (jit-forward)))
-            (trace-labeled-ips trace))
-  (%make-lightning trace nodes pc ip labels handlers))
+            (cfg-labeled-ips cfg))
+  (%make-lightning cfg nodes pc ip labels handlers))
 
 (define jit-code-guardian (make-guardian))
 
@@ -625,7 +625,7 @@ argument in VM operation."
        ;; Does not have compiled code, compile the callee procedure.
        (jit-prepare)
        (jit-pushargr r0)
-       (jit-calli %compile-procedure)
+       (jit-calli %compile-lightning)
        (local-ref st proc r0)
 
        ;; Has compiled code.
@@ -634,21 +634,21 @@ argument in VM operation."
        <expr>))))
 
 (define-syntax compile-label
-  (syntax-rules (compile-lightning with-frame)
+  (syntax-rules (assemble-lightning with-frame)
 
     ;; Non tail call
     ((_ st1 proc nlocals callee-addr #f)
      (compile-label st1 st2 proc nlocals callee-addr
                     (with-frame st2 proc nlocals
-                                (compile-lightning st2 (jit-forward)))))
+                                (assemble-lightning st2 (jit-forward)))))
 
     ;; Tail call
     ((_ st1 proc nlocals callee-addr #t)
      (compile-label st1 st2 proc nlocals callee-addr
-                    (compile-lightning st2 (jit-forward))))
+                    (assemble-lightning st2 (jit-forward))))
 
     ((_ st1 st2 proc nlocals callee-addr body)
-     (let ((st2 (make-lightning (program->trace callee-addr)
+     (let ((st2 (make-lightning (procedure->cfg callee-addr)
                                 (lightning-nodes st1)
                                 (ensure-program-addr callee-addr))))
        body))))
@@ -1552,12 +1552,12 @@ argument in VM operation."
       (jump lnext)
 
       ;; Do the JIT compilation at the time of closure creation.
-      (let* ((trace (program->trace (offset-addr st offset)))
-             (lightning (make-lightning trace
+      (let* ((cfg (procedure->cfg (offset-addr st offset)))
+             (lightning (make-lightning cfg
                                         (lightning-nodes st)
                                         (offset-addr st offset))))
         (jit-patch closure-addr)
-        (compile-lightning lightning (jit-forward))))
+        (assemble-lightning lightning (jit-forward))))
 
     (jit-link lnext)
     (when (< 0 nfree)
@@ -2239,10 +2239,8 @@ argument in VM operation."
           (jit-destroy-state)
           (apply values vals)))))
 
-(define (compile-lightning st entry)
-  "Compile <lightning> data specified by ST to native code using
-lightning, with ENTRY as lightning's node to itself."
-
+(define (assemble-lightning st entry)
+  "Assemble with STATE, using ENTRY as entry of the result."
   (define-syntax-rule (destination-label st)
     (hashq-ref (lightning-labels st) (lightning-ip st)))
 
@@ -2272,8 +2270,8 @@ lightning, with ENTRY as lightning's node to itself."
 
   (let* ((program-or-addr (lightning-pc st))
          (addr (ensure-program-addr program-or-addr))
-         (trace (lightning-trace st))
-         (name (trace-name trace)))
+         (cfg (lightning-cfg st))
+         (name (cfg-name cfg)))
 
     (hashq-set! (lightning-nodes st) addr entry)
     (jit-note name addr)
@@ -2281,14 +2279,14 @@ lightning, with ENTRY as lightning's node to itself."
     ;; Link and compile the entry point.
     (jit-link entry)
     (jit-patch entry)
-    (let lp ((ops (trace-ops trace)))
+    (let lp ((ops (cfg-ops cfg)))
       (unless (null? ops)
         (assemble-one st (car ops))
         (lp (cdr ops))))
 
     entry))
 
-(define (compile-procedure proc)
+(define (compile-lightning proc)
   "Compile bytecode of procedure PROC to native code, and save the
 compiled result."
   (debug 1 ";;; compiling ~a (~a)~%"
@@ -2296,10 +2294,10 @@ compiled result."
   (with-jit-state
    (jit-prolog)
    (let ((entry (jit-forward))
-         (lightning (make-lightning (program->trace proc)
+         (lightning (make-lightning (procedure->cfg proc)
                                     (make-hash-table)
                                     (ensure-program-addr proc))))
-     (compile-lightning lightning entry)
+     (assemble-lightning lightning entry)
      (jit-epilog)
      (jit-realize)
      (let* ((estimated-code-size (jit-code-size))
@@ -2324,10 +2322,10 @@ compiled result."
            (jit-print)
            (jit-clear-state)))))))
 
-(define %compile-procedure
+(define %compile-lightning
   (let ((f (lambda (proc*)
              (let ((proc (pointer->scm proc*)))
-               (compile-procedure proc)))))
+               (compile-lightning proc)))))
     (procedure->pointer void f '(*))))
 
 
@@ -2461,7 +2459,7 @@ ARGS."
              (jit-clear-state)))
          (thunk)))))
    (else
-    (compile-procedure proc)
+    (compile-lightning proc)
     (run-lightning thread proc args))))
 
 (define (vm-lightning thread fp registers nargs resume)

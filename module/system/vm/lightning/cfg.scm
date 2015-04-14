@@ -20,11 +20,12 @@
 
 ;;; Commentary:
 
-;;; Traces bytecode, to get intermediate representation for compilation.
+;;; Module containing codes to for converting bytecode to control flow
+;;; graph, for further compilation.
 
 ;;; Code:
 
-(define-module (system vm lightning trace)
+(define-module (system vm lightning cfg)
   #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
@@ -35,9 +36,10 @@
   #:use-module (system vm lightning debug)
   #:use-module (system vm program)
   #:autoload (system vm lightning) (call-lightning)
-  #:export (program->trace
-            make-trace trace? trace-last-ip trace-name
-            trace-ops trace-labeled-ips
+  #:export (procedure->cfg
+            make-cfg cfg?
+            cfg-last-ip cfg-name
+            cfg-ops cfg-labeled-ips
 
             program->entries entries-ops entries-table
             program->cfg dump-cfg
@@ -199,8 +201,10 @@
   (ops bb-ops set-bb-ops!))
 
 (define-record-type <cfg>
-  (make-cfg current-bb bbs nenters entries)
+  (make-cfg name current-bb bbs nenters entries)
   cfg?
+  ;; Name of procedure.
+  (name cfg-name)
   ;; Current <bb>.
   (current-bb cfg-current-bb set-cfg-current-bb!)
   ;; List of <bb>s.
@@ -211,7 +215,7 @@
   ;; The <entries> used by cfg.
   (entries cfg-entries))
 
-(define (program->cfg program)
+(define (program->cfg name program)
   (define entries (program->entries program))
   (define entries-t (entries-table entries))
   (define (add-bb-op ip op bb)
@@ -259,7 +263,8 @@
         (set-bb-ops! bb (add-bb-op ip op bb))))
       cfg))
   (define (make-fresh-cfg)
-    (make-cfg (make-bb 0 '() '())
+    (make-cfg name
+              (make-bb 0 '() '())
               '()
               (make-hash-table)
               entries))
@@ -314,35 +319,20 @@
                   (program-code ref))))
       program-or-addr))
 
+(define (procedure->cfg program-or-addr)
+  "Make <cfg> from PROGRAM-OR-ADDR and NARGS."
+  (program->cfg (try-program-name program-or-addr) program-or-addr))
 
-;;;
-;;; Trace record type
-;;;
+(define (cfg-ops cfg)
+  "Returns a list of ip and vm-operation in CFG."
+  (entries-ops (cfg-entries cfg)))
 
-(define-record-type <trace>
-  (make-trace name cfg)
-  trace?
-  ;; Name of procedure.
-  (name trace-name)
-  ;; The <cfg> used by this trace.
-  (cfg trace-cfg))
-
-(define (program->trace program-or-addr)
-  "Make <trace> from PROGRAM-OR-ADDR and NARGS."
-  (let ((name (try-program-name program-or-addr))
-        (addr (ensure-program-addr program-or-addr)))
-    (make-trace name (program->cfg program-or-addr))))
-
-(define (trace-ops trace)
-  "Returns a list of ip and vm-operation in TRACE."
-  (entries-ops (cfg-entries (trace-cfg trace))))
-
-(define (trace-labeled-ips trace)
-  "Returns a list of labeld ips in TRACE."
+(define (cfg-labeled-ips cfg)
+  "Returns a list of labeld ips in CFG."
   (hash-fold (lambda (k v acc) (cons k acc))
              '()
-             (cfg-nenters (trace-cfg trace))))
+             (cfg-nenters cfg)))
 
-(define (trace-last-ip trace)
-  "Returns last ip of TRACE."
-  (entries-last-ip (cfg-entries (trace-cfg trace))))
+(define (cfg-last-ip cfg)
+  "Returns last ip of CFG."
+  (entries-last-ip (cfg-entries cfg)))
