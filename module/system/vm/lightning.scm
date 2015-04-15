@@ -1124,7 +1124,30 @@ argument in VM operation."
    (else
     (compile-label st 0 nlocals (offset-addr st label) #t))))
 
-;;; XXX: tail-call/shuffle
+(define-vm-op (tail-call/shuffle st from)
+  (let ((lshuffle (jit-forward))
+        (lexit (jit-forward)))
+    (vm-handle-interrupts st)
+
+    ;; r2 used to stop the loop in lshuffle.
+    (jit-subr r2 reg-sp reg-fp)
+    (jit-subi r2 r2 (imm (* (- from 3) word-size)))
+
+    ;; r0 used as local index.
+    (jit-movi r0 (imm (* 2 word-size)))
+
+    (jit-link lshuffle)
+    (jump (jit-bger r0 r2) lexit)
+    (jit-addi r1 r0 (imm (* from word-size)))
+    (jit-addi r0 r0 (imm word-size))
+    (jit-ldxr f0 reg-fp r1)
+    (jit-stxr r0 reg-fp f0)
+    (jump lshuffle)
+
+    (jit-link lexit)
+    (jit-subi r0 r0 (imm (* 2 word-size)))
+    (jit-addr reg-sp reg-fp r0)
+    (call-local st 0 #t)))
 
 (define-vm-op (receive st dst proc nlocals)
   (let ((lexit (jit-forward)))

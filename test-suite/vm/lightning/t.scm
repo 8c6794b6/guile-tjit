@@ -105,64 +105,72 @@
    (lambda (obj val)
      (list obj val))))
 
-(define-test (call-procedure-with-setter n) (99)
+(define-test (t-call-procedure-with-setter n) (99)
   (procedure-with-setter n))
 
 (define g01 (make-guardian))
 
-(define-test (call-guardian) ()
+(define-test (t-call-guardian) ()
   (g01))
 
-(define-test (call-branched-a x) (#f)
+(define-test (t-call-branched-a x) (#f)
   ((or x *) 20 30))
 
-(define-test (call-branched-b x) (+)
+(define-test (t-call-branched-b x) (+)
   ((or x *) 20 30))
 
 (define (call-branched x)
   ((or x *) 20 30))
 
-(define-test (call-branched-c x) (#f)
+(define-test (t-call-branched-c x) (#f)
   (call-branched x))
 
-(define-test (call-branched-d x) (+)
+(define-test (t-call-branched-d x) (+)
   (call-branched x))
 
 (define (call-branched-prim x)
   ((if (even? x) + *) 20 30))
 
-(define-test (call-branched-prim-a x) (1)
+(define-test (t-call-branched-prim-a x) (1)
   (call-branched-prim x))
 
-(define-test (call-branched-prim-b x) (2)
+(define-test (t-call-branched-prim-b x) (2)
   (call-branched-prim x))
 
 (define (sum-and-product x y)
   (values (+ x y) (* x y)))
 
-(define-test (call-sum-and-product x y) (12 34)
+(define-test (t-call-sum-and-product x y) (12 34)
   (call-with-values
       (lambda ()
         (sum-and-product x y))
     (lambda (a b)
       (cons a b))))
 
-(define-test (call-sum-and-product-again x y) (12 34)
+(define-test (t-call-sum-and-product-again x y) (12 34)
   (call-with-values
       (lambda ()
         (sum-and-product x y))
     (lambda (a b)
       (cons a b))))
+
+(test-equal "t-tail-call-shuffle"
+            (call-with-values
+                (lambda () (values 1 2 3))
+              (lambda (a b c) (+ a b c)))
+            (call-lightning call-with-values
+                            (lambda () (values 1 2 3))
+                            (lambda (a b c) (+ a b c))))
 
 (define (two-values x)
   (if (null? x)
       (values #f x)
       (car x)))
 
-(define-test (call-two-values-true x) ('())
+(define-test (t-call-two-values-true x) ('())
   (if (two-values x) 'true-branch 'false-branch))
 
-(define-test (call-two-values-false x) ('(1 2 3))
+(define-test (t-call-two-values-false x) ('(1 2 3))
   (if (two-values x) 'true-branch 'false-branch))
 
 (define fluid-tmp (make-fluid))
@@ -1172,14 +1180,21 @@
 (define-test (t-primitive-eval-2 expr) (letrec-fib-expr)
   (primitive-eval expr))
 
-(define-test (t-compile-tree-il-1 expr) ('(+ 1 2 3))
+(define-test (t-compile-tree-il expr) ('(+ 1 2 3))
   (compile expr #:to 'tree-il))
 
 (define-test (t-compile-cps-1 expr) ('(+ 1 2 3))
   (compile expr #:to 'cps))
 
+(define-test (t-compile-cps-2 expr) (letrec-fib-expr)
+  (compile expr #:to 'cps))
+
 (test-skip 1)
-(define-test (t-compile-cps-1 expr) ('(+ 1 2 3))
+(define-test (t-compile-value-1 expr) ('(+ 1 2 3))
+  (compile expr #:to 'value))
+
+(test-skip 1)
+(define-test (t-compile-value-1 expr) (letrec-fib-expr)
   (compile expr #:to 'value))
 
 (test-end "vm-lightning-test")
