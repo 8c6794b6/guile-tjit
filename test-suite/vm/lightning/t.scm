@@ -22,6 +22,7 @@
 ;;; Code:
 
 (use-modules (oop goops)
+             (rnrs bytevectors)
              (srfi srfi-9)
              (srfi srfi-64)
              (system foreign)
@@ -46,6 +47,7 @@
           (lambda vs vs)))))))
 
 (lightning-verbosity 0)
+
 
 ;;;
 ;;; VM operation
@@ -83,10 +85,10 @@
         '()
         (cons (f (car xs)) (my-map f (cdr xs))))))
 
-(define-test (call-my-map xs) ('(1 2 3 4 5))
+(define-test (t-call-my-map xs) ('(1 2 3 4 5))
   (my-map add-one xs))
 
-(define-test (call-my-map-twice xs) ('(1 2 3 4 5))
+(define-test (t-call-my-map-twice xs) ('(1 2 3 4 5))
   (append (my-map add-one xs)
           (my-map mul-two xs)))
 
@@ -191,7 +193,7 @@
   (with-fluids ((fluid-tmp 123))
     (lp x '())))
 
-(define-test (return-no-values) ()
+(define-test (t-return-no-values) ()
   (values))
 
 
@@ -256,7 +258,7 @@
 (define-test (t-foreign-call-fmod x y) (1.2 0.25)
   (fmod x y))
 
-(define-test (return-builtin-apply) ()
+(define-test (t-return-builtin-apply) ()
   apply)
 
 (define-test (t-apply-a f a b rest) (+ 1 2 '(3 4 5))
@@ -328,16 +330,16 @@
                          (k 456)))
      x))
 
-(define-test (return-builtin-values) ()
+(define-test (t-return-builtin-values) ()
   values)
 
-(define-test (return-builtin-abort) ()
+(define-test (t-return-builtin-abort) ()
   abort-to-prompt)
 
-(define-test (return-builtin-call-with-values) ()
+(define-test (t-return-builtin-call-with-values) ()
   call-with-values)
 
-(define-test (return-builtin-call-with-current-continuation) ()
+(define-test (t-return-builtin-call-with-current-continuation) ()
   call-with-current-continuation)
 
 
@@ -558,18 +560,18 @@
     (closure01-vm 100)
     (closure01-lightning 100)))
 
-(define-test (closure02 x) (23)
+(define-test (t-closure02 x) (23)
   ((closure01 x) 100))
 
 (define (closure03 n)
   (lambda ()
     (+ n 1)))
 
-(define-test (call-closure03 x) (23)
+(define-test (t-call-closure03 x) (23)
   ((closure03 (+ ((closure03 x))
                  ((closure03 10))))))
 
-(define-test (call-closure03-b x) (12345)
+(define-test (t-call-closure03-b x) (12345)
   (cons ((closure03 (+ x 100))) 23))
 
 (define (closure04 n)
@@ -579,13 +581,13 @@
           acc
           (lp (- n 1) (+ acc n))))))
 
-(define-test (call-closure04 n) (100)
+(define-test (t-call-closure04 n) (100)
   ((closure04 n)))
 
-(define-test (call-closure05 x) (10)
+(define-test (t-call-closure05 x) (10)
   (let ((l (list (closure03 x)
-                 (call-closure03 x)
-                 (call-closure03-b x))))
+                 (t-call-closure03 x)
+                 (t-call-closure03-b x))))
     ((car l))))
 
 (define (addk x y k)
@@ -594,12 +596,12 @@
 (define (mulk x y k)
   (k (* x y)))
 
-(define-test (muladdk x y z k) (3 4 5 (lambda (a) a))
+(define-test (t-muladdk x y z k) (3 4 5 (lambda (a) a))
   (mulk x y
         (lambda (xy)
           (addk xy z k))))
 
-(define-test (pythk2 x y k) (3 4 (lambda (a) a))
+(define-test (t-pythk2 x y k) (3 4 (lambda (a) a))
   (mulk x x
         (lambda (x2)
           (mulk y y
@@ -907,48 +909,51 @@
 (define-test (t-make-vector-immediate fill) ('foo)
   (make-vector 10 fill))
 
-(define-test (t-vector-length v) (#(1 2 3 4 5))
+(define (make-vec)
+  (list->vector '(1 2 3 4 5)))
+
+(define-test (t-vector-length v) ((make-vec))
   (vector-length v))
 
-(define-test (t-vector-ref v idx) (#(1 2 3 4 5) 3)
+(define-test (t-vector-ref v idx) ((make-vec) 3)
   (vector-ref v idx))
 
-(define-test (t-vector-ref-min v idx) (#(1 2 3 4 5) 0)
+(define-test (t-vector-ref-min v idx) ((make-vec) 0)
   (vector-ref v idx))
 
-(define-test (t-vector-ref-max v idx) (#(1 2 3 4 5) 4)
+(define-test (t-vector-ref-max v idx) ((make-vec) 4)
   (vector-ref v idx))
 
-(define-test (t-vector-ref-immediate v) (#(1 2 3 4 5))
+(define-test (t-vector-ref-immediate v) ((make-vec))
   (vector-ref v 3))
 
-(define-test (t-vector-ref-immediate-min v) (#(1 2 3 4 5))
+(define-test (t-vector-ref-immediate-min v) ((make-vec))
   (vector-ref v 0))
 
-(define-test (t-vector-ref-immediate-max v) (#(1 2 3 4 5))
+(define-test (t-vector-ref-immediate-max v) ((make-vec))
   (vector-ref v 4))
 
-(define-test (t-vector-set! v idx) (#(1 2 3 4 5) 3)
+(define-test (t-vector-set! v idx) ((make-vec) 3)
   (vector-set! v idx 999)
   v)
 
-(define-test (t-vector-set!-min v idx) (#(1 2 3 4 5) 0)
+(define-test (t-vector-set!-min v idx) ((make-vec) 0)
   (vector-set! v idx 999)
   v)
 
-(define-test (t-vector-set!-max v idx) (#(1 2 3 4 5) 4)
+(define-test (t-vector-set!-max v idx) ((make-vec) 4)
   (vector-set! v idx 999)
   v)
 
-(define-test (t-vector-set!-immediate v) (#(1 2 3 4 5))
+(define-test (t-vector-set!-immediate v) ((make-vec))
   (vector-set! v 3 999)
   v)
 
-(define-test (t-vector-set!-immediate-min v) (#(1 2 3 4 5))
+(define-test (t-vector-set!-immediate-min v) ((make-vec))
   (vector-set! v 0 999)
   v)
 
-(define-test (t-vector-set!-immediate-max v) (#(1 2 3 4 5))
+(define-test (t-vector-set!-immediate-max v) ((make-vec))
   (vector-set! v 4 999)
   v)
 
@@ -999,7 +1004,107 @@
 (define-test (t-class-of-instance x) (instance01)
   (class-of x))
 
+
 ;;; Arrays, packed uniform arrays, and bytevectors
+
+(define bv01
+  (u8-list->bytevector
+   (map (lambda (x) (+ x 128))
+        '(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16))))
+
+(define-test (t-u8-ref bv) (bv01)
+  (cons (bytevector-u8-ref bv 0)
+        (bytevector-u8-ref bv 1)))
+
+(define-test (t-s8-ref bv) (bv01)
+  (cons (bytevector-s8-ref bv 0)
+        (bytevector-s8-ref bv 1)))
+
+(define-test (t-u16-ref bv) (bv01)
+  (cons (bytevector-u16-native-ref bv 0)
+        (bytevector-u16-native-ref bv 1)))
+
+(define-test (t-s16-ref bv) (bv01)
+  (cons (bytevector-s16-native-ref bv 0)
+        (bytevector-s16-native-ref bv 1)))
+
+(define-test (t-u32-ref bv) (bv01)
+  (cons (bytevector-u32-native-ref bv 0)
+        (bytevector-u32-native-ref bv 1)))
+
+(define-test (t-s32-ref bv) (bv01)
+  (cons (bytevector-s32-native-ref bv 0)
+        (bytevector-s32-native-ref bv 1)))
+
+(define-test (t-u64-ref bv) (bv01)
+  (cons (bytevector-u32-native-ref bv 0)
+        (bytevector-u32-native-ref bv 1)))
+
+(define-test (t-s64-ref bv) (bv01)
+  (cons (bytevector-s32-native-ref bv 0)
+        (bytevector-s32-native-ref bv 1)))
+
+(define-test (t-f32-ref bv) (bv01)
+  (cons (bytevector-ieee-single-native-ref bv 0)
+        (bytevector-ieee-single-native-ref bv 1)))
+
+(define-test (t-f64-ref bv) (bv01)
+  (cons (bytevector-ieee-double-native-ref bv 0)
+        (bytevector-ieee-double-native-ref bv 1)))
+
+(define (make-bv)
+  (u8-list->bytevector '(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16)))
+
+(define-test (t-u8-set! bv v) ((make-bv) 255)
+  (bytevector-u8-set! bv 0 v)
+  (bytevector-u8-set! bv 1 v)
+  bv)
+
+(define-test (t-s8-set! bv v) ((make-bv) -1)
+  (bytevector-s8-set! bv 0 v)
+  (bytevector-s8-set! bv 1 v)
+  bv)
+
+(define-test (t-u16-set! bv v) ((make-bv) 65280)
+  (bytevector-u16-native-set! bv 0 v)
+  (bytevector-u16-native-set! bv 2 v)
+  bv)
+
+(define-test (t-s16-set! bv v) ((make-bv) -32768)
+  (bytevector-s16-native-set! bv 0 v)
+  (bytevector-s16-native-set! bv 2 v)
+  bv)
+
+(define-test (t-u32-set! bv v) ((make-bv) 65535)
+  (bytevector-u32-native-set! bv 0 v)
+  (bytevector-u32-native-set! bv 4 v)
+  bv)
+
+(define-test (t-s32-set! bv v) ((make-bv) -65536)
+  (bytevector-s32-native-set! bv 0 v)
+  (bytevector-s32-native-set! bv 4 v)
+  bv)
+
+(define-test (t-u64-set! bv v) ((make-bv) (expt 2 61))
+  (bytevector-u64-native-set! bv 0 v)
+  (bytevector-u64-native-set! bv 4 v)
+  bv)
+
+(define-test (t-s64-set! bv v) ((make-bv) (expt 2 61))
+  (bytevector-s64-native-set! bv 0 v)
+  (bytevector-s64-native-set! bv 4 v)
+  bv)
+
+(define-test (t-f32-set! bv v) ((make-bv) -1.52587890625e-5)
+  (bytevector-ieee-single-native-set! bv 0 v)
+  (bytevector-ieee-single-native-set! bv 4 v)
+  bv)
+
+(define-test (t-f64-set! bv v) ((make-bv) -1.52587890625e-5)
+  (bytevector-ieee-double-native-set! bv 0 v)
+  (bytevector-ieee-double-native-set! bv 4 v)
+  bv)
+
 
 ;;;
 ;;; Simple procedures
@@ -1009,64 +1114,64 @@
   (let lp ((n n))
     (if (< 0 n) (lp (- n 1)) n)))
 
-(define-test (sum-tail-call x) (1000)
+(define-test (t-sum-tail-call x) (1000)
   (let lp ((n x) (acc 0))
     (if (< n 0)
         acc
         (lp (- n 1) (+ acc n)))))
 
-(define-test (sum-non-tail-call x) (1000)
+(define-test (t-sum-non-tail-call x) (1000)
   (let lp ((n x))
     (if (< n 0)
         0
         (+ n (lp (- n 1))))))
 
-(define-test (sum-toplevel n acc) (1000 0)
+(define-test (t-sum-toplevel n acc) (1000 0)
   (if (= n 0)
       acc
-      (sum-toplevel (- n 1) (+ n acc))))
+      (t-sum-toplevel (- n 1) (+ n acc))))
 
-(define-test (sum-cps n k) (10 (lambda (a) a))
+(define-test (t-sum-cps n k) (10 (lambda (a) a))
   (if (< n 0)
       (k 0)
-      (sum-cps (- n 1)
-               (lambda (s)
-                 (k (+ s n))))))
+      (t-sum-cps (- n 1)
+                 (lambda (s)
+                   (k (+ s n))))))
 
-(define-test (sum-cps-1000 n k) (1000 (lambda (a) a))
+(define-test (t-sum-cps-1000 n k) (1000 (lambda (a) a))
   (if (< n 0)
       (k 0)
-      (sum-cps (- n 1)
-               (lambda (s)
-                 (k (+ s n))))))
+      (t-sum-cps (- n 1)
+                 (lambda (s)
+                   (k (+ s n))))))
 
-(define-test (fib1 n) (30)
+(define-test (t-fib1 n) (30)
   (let lp ((n n))
     (if (< n 2)
         n
         (+ (lp (- n 1))
            (lp (- n 2))))))
 
-(define-test (fib2 n) (30)
+(define-test (t-fib2 n) (30)
   (if (< n 2)
       n
-      (+ (fib2 (- n 1))
-         (fib2 (- n 2)))))
+      (+ (t-fib2 (- n 1))
+         (t-fib2 (- n 2)))))
 
-(define-test (call-map1 xs) ('(1 2 3))
+(define-test (t-call-map1 xs) ('(1 2 3))
   (map (lambda (x) (+ x 1)) xs))
 
-(define-test (call-map2 xs ys) ('(1 2 3) '(10 20 30))
+(define-test (t-call-map2 xs ys) ('(1 2 3) '(10 20 30))
   (map (lambda (x y) (+ x y)) xs ys))
 
-(define-test (call-map3 xs ys zs) ('(1 2 3) '(10 20 30) '(100 200 300))
+(define-test (t-call-map3 xs ys zs) ('(1 2 3) '(10 20 30) '(100 200 300))
   (map + xs ys zs))
 
-(define-test (call-map3-lambda xs ys zs)
+(define-test (t-call-map3-lambda xs ys zs)
   ('(1 2 3) '(10 20 30) '(100 200 300))
   (map (lambda (x y z) (+ x y z)) xs ys zs))
 
-(define-test (nqueens n) (8)
+(define-test (t-nqueens n) (8)
   (define (one-to n)
     (let loop ((i n) (l '()))
       (if (= i 0) l (loop (- i 1) (cons i l)))))
@@ -1085,14 +1190,14 @@
            (try-it (cdr x) (cons (car x) y) z))))
   (try-it (one-to n) '() '()))
 
-(define-test (tak x y z) (18 12 6)
+(define-test (t-tak x y z) (18 12 6)
   (if (not (< y x))
       z
-      (tak (tak (- x 1) y z)
-           (tak (- y 1) z x)
-           (tak (- z 1) x y))))
+      (t-tak (t-tak (- x 1) y z)
+             (t-tak (- y 1) z x)
+             (t-tak (- z 1) x y))))
 
-(define-test (sieve n) (500)
+(define-test (t-sieve n) (500)
   (let ((root (round (sqrt n)))
         (a (make-vector n #f)))
     (define (cross-out t to dt)
@@ -1111,15 +1216,15 @@
                                (cons i result))))))
     (iter 3 (list 2))))
 
-(define-test (deriv a) ('(+ (* 3 x x) (* a x x) (* b x) 5))
-  (define (deriv-aux a) (list '/ (deriv a) a))
+(define-test (t-deriv a) ('(+ (* 3 x x) (* a x x) (* b x) 5))
+  (define (deriv-aux a) (list '/ (t-deriv a) a))
   (cond
    ((not (pair? a))
     (cond ((eq? a 'x) 1) (else 0)))
    ((eq? (car a) '+)
-    (cons '+ (map deriv (cdr a))))
+    (cons '+ (map t-deriv (cdr a))))
    ((eq? (car a) '-)
-    (cons '- (map deriv (cdr a))))
+    (cons '- (map t-deriv (cdr a))))
    ((eq? (car a) '*)
     (list '*
           a
@@ -1127,14 +1232,14 @@
    ((eq? (car a) '/)
     (list '-
           (list '/
-                (deriv (cadr a))
+                (t-deriv (cadr a))
                 (caddr a))
           (list '/
                 (cadr a)
                 (list '*
                       (caddr a)
                       (caddr a)
-                      (deriv (caddr a))))))
+                      (t-deriv (caddr a))))))
    (else 'error)))
 
 

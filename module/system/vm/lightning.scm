@@ -245,6 +245,9 @@
     (scm-cell-object dst obj 0)
     (jit-subi dst dst (imm tc3-struct))))
 
+(define-syntax-rule (scm-bytevector-contents dst obj)
+  (scm-cell-object dst obj 2))
+
 
 ;;;
 ;;; SCM macros for control flow condition
@@ -343,6 +346,14 @@
     (jit-pushargr car)
     (jit-pushargr cdr)
     (call-c "scm_do_inline_cons")
+    (jit-retval dst)))
+
+(define-syntax-rule (scm-inline-from-double dst obj)
+  (begin
+    (jit-prepare)
+    (jit-pushargr reg-thread)
+    (jit-pushargr-d obj)
+    (call-c "scm_do_inline_from_double")
     (jit-retval dst)))
 
 
@@ -854,6 +865,7 @@ argument in VM operation."
 
     (jit-link lexit)))
 
+
 ;;;
 ;;; Top-level syntax for specific VM operations
 ;;;
@@ -1024,11 +1036,7 @@ argument in VM operation."
          (scm-real-value xmma rega)
          (scm-real-value xmmb regb)
          <real-expr>
-         (jit-prepare)
-         (jit-pushargr reg-thread)
-         (jit-pushargr-d f0)
-         (call-c "scm_do_inline_from_double")
-         (jit-retval r0)
+         (scm-inline-from-double r0 f0)
          (jump lexit)
 
          (jit-link lcall)
@@ -1062,11 +1070,7 @@ argument in VM operation."
          (jit-movi r0 (imm 1))
          (jit-extr-d f1 r0)
          (fl-op f0 f0 f1)
-         (jit-prepare)
-         (jit-pushargr reg-thread)
-         (jit-pushargr-d f0)
-         (call-c "scm_do_inline_from_double")
-         (jit-retval r0)
+         (scm-inline-from-double r0 f0)
          (jump lexit)
 
          (jit-link lcall)
@@ -1078,6 +1082,98 @@ argument in VM operation."
 
          (jit-link lexit)
          (local-set! st dst r0))))))
+
+(define-syntax define-vm-bv-ref-op
+  (syntax-rules ()
+    ((_ (name st dst src idx) <expr>)
+     (define-vm-op (name st dst src idx)
+       (local-ref st src r0)
+       (local-ref st idx r2)
+       (scm-i-inumr r1 r2)
+       (scm-bytevector-contents r0 r0)
+       <expr>
+       (local-set! st dst r0)))
+
+    ((_ name "float")
+     (define-vm-bv-ref-op (name st dst src idx)
+       (begin
+         (jit-ldxr-f f0 r0 r1)
+         (jit-extr-f-d f0 f0)
+         (scm-inline-from-double r0 f0))))
+
+    ((_ name "double")
+     (define-vm-bv-ref-op (name st dst src idx)
+       (begin
+         (jit-ldxr-d f0 r0 r1)
+         (scm-inline-from-double r0 f0))))
+
+    ((_ name jit-op cname)
+     (define-vm-bv-ref-op (name st dst src idx)
+       (let ((lcall (jit-forward))
+             (lexit (jit-forward)))
+         (jit-ldxr r0 r0 r1)
+         (jump (jit-bgei r0 (imm most-positive-fixnum)) lcall)
+         (jump (jit-blei r0 (imm (logand #xffffffffffffffff
+                                         most-negative-fixnum)))
+               lcall)
+         (scm-makinumr r0 r0)
+         (jump lexit)
+
+         (jit-link lcall)
+         (jit-prepare)
+         (jit-pushargr r0)
+         (call-c cname)
+         (jit-retval r0)
+
+         (jit-link lexit))))
+
+    ((_ name jit-op)
+     (define-vm-bv-ref-op (name st dst src idx)
+       (begin
+         (jit-op r0 r0 r1)
+         (scm-makinumr r0 r0))))))
+
+(define-syntax define-vm-bv-set-op
+  (syntax-rules ()
+    ((_ (name st dst idx src) <expr>)
+     (define-vm-op (name st dst idx src)
+       (local-ref st dst r0)
+       (local-ref st idx r2)
+       (scm-i-inumr r1 r2)
+       (local-ref st src f1)
+       (scm-bytevector-contents r0 r0)
+       <expr>))
+
+    ((_ name "float")
+     (define-vm-bv-set-op (name st dst idx src)
+       (begin
+         (scm-real-value f1 f1)
+         (jit-extr-d-f f1 f1)
+         (jit-stxr-f r1 r0 f1))))
+
+    ((_ name "double")
+     (define-vm-bv-set-op (name st dst idx src)
+       (begin
+         (scm-real-value f1 f1)
+         (jit-stxr-d r1 r0 f1))))
+
+    ((_ name jit-op cname)
+     (define-vm-bv-set-op (name st dst idx src)
+       (begin
+         (jit-movr r2 f1)
+         (jit-movr f0 r0)
+         (jit-movr f1 r1)
+         (jit-prepare)
+         (jit-pushargr r2)
+         (call-c cname)
+         (jit-retval r0)
+         (jit-op f1 f0 r0))))
+
+    ((_ name jit-op)
+     (define-vm-bv-set-op (name st dst idx src)
+       (begin
+         (scm-i-inumr f1 f1)
+         (jit-op r1 r0 f1))))))
 
 
 ;;;
@@ -1227,12 +1323,13 @@ argument in VM operation."
 (define-vm-op (compose-continuation st cont)
   (local-ref st cont r0)
   (scm-program-free-variable-ref r0 r0 0)
-  (frame-locals-count r1)
-  (jit-subi r1 r1 (imm 1))
 
+  ;; XXX: Call to C function not yet complete.
   (jit-prepare)
   (jit-pushargr reg-thread)
   (jit-pushargr r0)
+  (frame-locals-count r1)
+  (jit-subi r1 r1 (imm 1))
   (jit-pushargr r1)
   (jit-pushargi (stored-ref st 1))
   (call-c "scm_do_reinstate_partial_continuation")
@@ -1827,7 +1924,7 @@ argument in VM operation."
     (jit-link lexit)
     (local-set! st dst r0)))
 
-;;; XXX: JIT code not inlined. Need to add test to see string width,
+;;; XXX: Native code not inlined. Need to add test to see string width,
 ;;; test to see whether string is shared, do `get_str_buf_start',
 ;;; ...etc.
 (define-vm-op (string-ref st dst src idx)
@@ -2114,29 +2211,6 @@ argument in VM operation."
 ;;; Structs and GOOPS
 ;;; -----------------
 
-;;; XXX: Not working.
-
-;; (define-syntax-rule (validate-struct-ref obj idx tmp1 tmp2 subr)
-;;   (let ((l1 (jit-forward))
-;;         (l2 (jit-forward)))
-;;     (validate-struct obj tmp1 subr)
-;;     (jump (scm-not-inump idx) l1)
-;;     (scm-i-inumr tmp1 idx)
-;;     (jump (jit-bmsi tmp1 tmp1) l1)
-
-;;     (scm-struct-vtable tmp2 obj)
-;;     (scm-struct-data-ref tmp2 tmp2 scm-vtable-index-size)
-
-;;     (jump (jit-bltr tmp2 tmp1) l2)
-
-;;     (jit-link l1)
-;;     (jit-prepare)
-;;     (jit-pushargr obj)
-;;     (jit-pushargr idx)
-;;     (call-c "scm_struct_ref")
-
-;;     (jit-link l2)))
-
 (define-vm-op (struct-vtable st dst src)
   (local-ref st src r0)
   (validate-struct r0 r1 *struct-vtable-string)
@@ -2228,26 +2302,30 @@ argument in VM operation."
 
 ;;; XXX: load-typed-array
 ;;; XXX: make-array
-;;; XXX: bv-u8-ref
-;;; XXX: bv-s8-ref
-;;; XXX: bv-u16-ref
-;;; XXX: bv-s16-ref
-;;; XXX: bv-u32-ref
-;;; XXX: bv-s32-ref
-;;; XXX: bv-u64-ref
-;;; XXX: bv-s64-ref
-;;; XXX: bv-f32-ref
-;;; XXX: bv-f64-ref
-;;; XXX: bv-u8-set!
-;;; XXX: bv-s8-set!
-;;; XXX: bv-u16-set!
-;;; XXX: bv-s16-set!
-;;; XXX: bv-u32-set!
-;;; XXX: bv-s32-set!
-;;; XXX: bv-u64-set!
-;;; XXX: bv-s64-set!
-;;; XXX: bv-f32-set!
-;;; XXX: bv-f64-set!
+
+;;; XXX: u64 and s64 ops are for 64bit architectures only.
+
+(define-vm-bv-ref-op bv-u8-ref jit-ldxr-uc)
+(define-vm-bv-ref-op bv-s8-ref jit-ldxr-c)
+(define-vm-bv-ref-op bv-u16-ref jit-ldxr-us)
+(define-vm-bv-ref-op bv-s16-ref jit-ldxr-s)
+(define-vm-bv-ref-op bv-u32-ref jit-ldxr-ui)
+(define-vm-bv-ref-op bv-s32-ref jit-ldxr-i)
+(define-vm-bv-ref-op bv-u64-ref jit-ldxr-l "scm_from_uint64")
+(define-vm-bv-ref-op bv-s64-ref jit-ldxr-l "scm_from_int64")
+(define-vm-bv-ref-op bv-f32-ref "float")
+(define-vm-bv-ref-op bv-f64-ref "double")
+
+(define-vm-bv-set-op bv-u8-set! jit-stxr-c)
+(define-vm-bv-set-op bv-s8-set! jit-stxr-c)
+(define-vm-bv-set-op bv-u16-set! jit-stxr-s)
+(define-vm-bv-set-op bv-s16-set! jit-stxr-s)
+(define-vm-bv-set-op bv-u32-set! jit-stxr-i)
+(define-vm-bv-set-op bv-s32-set! jit-stxr-i)
+(define-vm-bv-set-op bv-u64-set! jit-stxr-l "scm_to_uint64")
+(define-vm-bv-set-op bv-s64-set! jit-stxr-l "scm_to_int64")
+(define-vm-bv-set-op bv-f32-set! "float")
+(define-vm-bv-set-op bv-f64-set! "double")
 
 
 ;;;
@@ -2373,7 +2451,7 @@ ARGS."
         (apply values vals)))))
 
 (define (run-lightning thread proc args)
-  "Compile procedure PROC with lightning and run with ARGS in THREAD."
+  "Run procedure PROC with lightning with ARGS in THREAD."
 
   (define-syntax stack-size
     (identifier-syntax (* 12 4096 word-size)))
