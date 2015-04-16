@@ -548,16 +548,16 @@ argument in VM operation."
     (local-set! st (+ proc 1) rval)
     (jit-movi tmp2 (stored-ref st (+ proc 1)))
 
-    (jit-movi rval (imm 1))
+    ;; Reset frame, increment while shuffling with VALUES struct.
+    (vm-reset-frame 1)
+
     (jit-link lshuffle)
     (scm-car tmp3 tmp1)
     (jit-stxr tmp2 reg-fp tmp3)
     (jit-addi tmp2 tmp2 (imm word-size))
-    (jit-addi rval rval (imm 1))
+    (jit-addi reg-sp reg-sp (imm word-size))
     (scm-cdr tmp1 tmp1)
     (jump (scm-is-not-null tmp1) lshuffle)
-    (jit-muli rval rval (imm word-size))
-    (jit-addr reg-sp reg-fp rval)
 
     (jit-link lexit)))
 
