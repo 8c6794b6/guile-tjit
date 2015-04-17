@@ -21,9 +21,11 @@
 
 ;;; Code:
 
-(use-modules (oop goops)
+(use-modules (ice-9 binary-ports)
+             (oop goops)
              (rnrs bytevectors)
              (srfi srfi-9)
+             (srfi srfi-11)
              (srfi srfi-64)
              (system foreign)
              (system vm program)
@@ -114,6 +116,10 @@
 
 (define-test (t-call-guardian) ()
   (g01))
+
+(define-test (t-call-smob0 x) ('apply-smob/0)
+  (let-values (((names-port get-name-bv) (open-bytevector-output-port)))
+    (values x (get-name-bv))))
 
 (define-test (t-call-branched-a x) (#f)
   ((or x *) 20 30))

@@ -53,8 +53,6 @@
 ;; dummy body to silent warning message.
 (define smob-apply-trampoline *unspecified*)
 
-(define *vm-instr* (make-hash-table))
-
 ;; State used during compilation.
 (define-record-type <lightning>
   (%make-lightning cfg nodes pc ip labels handlers)
@@ -100,6 +98,7 @@
     ((_ name val)
      (define-syntax name (identifier-syntax val)))))
 
+;;; XXX: Use values from (system base types).
 (define-inline tc3-struct 1)
 (define-inline tc7-variable 7)
 (define-inline tc7-vector 13)
@@ -109,20 +108,14 @@
 (define-inline tc16-real 535)
 
 (define-inline scm-i-fixnum-bit (- (* (sizeof long) 8) 2))
-
 (define-inline scm-f-program-is-jit-compiled #x4000)
-
 (define-inline scm-vtable-index-flags 1)
 (define-inline scm-vtable-index-self 2)
 (define-inline scm-vtable-index-size 6)
 (define-inline scm-vtable-flag-applicable 8)
-
 (define-inline scm-applicable-struct-index-procedure 0)
-
 (define-inline scm-dynstack-prompt-escape-only 16)
-
 (define-inline scm-classf-goops 4096)
-
 (define-inline scm-undefined (make-pointer #x904))
 
 
@@ -409,6 +402,8 @@
 ;;; VM op syntaxes
 ;;;
 
+(define *vm-instr* (make-hash-table))
+
 (define-syntax define-vm-op
   (syntax-rules ()
     ((_ (op st . args) body ...)
@@ -565,18 +560,17 @@ argument in VM operation."
 ;; functions.
 (define-syntax call-local
   (syntax-rules ()
-    ((_ st proc #f nlocals)
-     (call-local st proc (with-frame st proc nlocals (jit-jmpr r1))))
+    ((_ st proc)
+     (call-local st proc (jit-jmpr r1) #t))
 
-    ((_ st proc #t)
-     (call-local st proc (jit-jmpr r1)))
+    ((_ st proc nlocals)
+     (with-frame st proc nlocals (call-local st 0 (jit-jmpr r1) #t)))
 
-    ((_ st proc <expr>)
+    ((_ st proc <expr> #t)
      (let ((lprogram (jit-forward))
            (lcompiled (jit-forward))
            (lunwrap (jit-forward))
            (lsmob (jit-forward))
-           (lsmobrt (jit-forward))
            (lshuffle (jit-forward))
            (lerror (jit-forward)))
 
@@ -608,8 +602,8 @@ argument in VM operation."
        (call-c "scm_do_smob_applicable_p")
        (jit-retval r0)
        (jump (jit-beqi r0 (imm 0)) lerror)
-       (jit-addi reg-sp reg-sp (imm word-size))
        (last-arg-offset st r1 r2)
+       (jit-addi reg-sp reg-sp (imm word-size))
 
        (jit-link lshuffle)
        (jit-ldxr r2 reg-fp r1)
@@ -709,8 +703,26 @@ argument in VM operation."
 (define-string-pointer struct-vtable)
 (define-string-pointer struct-ref)
 (define-string-pointer struct-set!)
-(define-string-pointer procedure)
-(define-string-pointer apply)
+(define-string-pointer bv-u8-ref)
+(define-string-pointer bv-s8-ref)
+(define-string-pointer bv-u16-ref)
+(define-string-pointer bv-s16-ref)
+(define-string-pointer bv-u32-ref)
+(define-string-pointer bv-s32-ref)
+(define-string-pointer bv-u64-ref)
+(define-string-pointer bv-s64-ref)
+(define-string-pointer bv-f32-ref)
+(define-string-pointer bv-f64-ref)
+(define-string-pointer bv-u8-set!)
+(define-string-pointer bv-s8-set!)
+(define-string-pointer bv-u16-set!)
+(define-string-pointer bv-s16-set!)
+(define-string-pointer bv-u32-set!)
+(define-string-pointer bv-s32-set!)
+(define-string-pointer bv-u64-set!)
+(define-string-pointer bv-s64-set!)
+(define-string-pointer bv-f32-set!)
+(define-string-pointer bv-f64-set!)
 
 (define (wrong-type-apply proc)
   (scm-error 'wrong-type-arg #f "Wrong type to apply: ~S" `(,proc) `(,proc)))
@@ -750,7 +762,7 @@ argument in VM operation."
    '*
    (lambda (nvalues)
      (scm-error 'vm-error
-                'vm-run
+                'vm-lightning
                 "Wrong number of values returned to continuation (expected ~a)"
                 `(,nvalues) `(,nvalues)))
    `(,int)))
@@ -767,7 +779,7 @@ argument in VM operation."
    '*
    (lambda ()
      (scm-error 'vm-error
-                'vm-run
+                'vm-lightning
                 "Too few values returned to continuation"
                 '() '()))
    '()))
@@ -783,7 +795,7 @@ argument in VM operation."
    '*
    (lambda ()
      (scm-error 'vm-error
-                'vm-run
+                'vm-lightning
                 "Zero values returned to single-valued continuation"
                 '() '()))
    '()))
@@ -1188,7 +1200,7 @@ argument in VM operation."
 
 (define-vm-op (call st proc nlocals)
   (vm-handle-interrupts st)
-  (call-local st proc #f nlocals))
+  (call-local st proc nlocals))
 
 (define-vm-op (call-label st proc nlocals label)
   (vm-handle-interrupts st)
@@ -1205,7 +1217,7 @@ argument in VM operation."
 (define-vm-op (tail-call st nlocals)
   (vm-handle-interrupts st)
   (vm-reset-frame nlocals)
-  (call-local st 0 #t))
+  (call-local st 0))
 
 (define-vm-op (tail-call-label st nlocals label)
   (vm-handle-interrupts st)
@@ -1243,7 +1255,7 @@ argument in VM operation."
     (jit-link lexit)
     (jit-subi r0 r0 (imm (* 2 word-size)))
     (jit-addr reg-sp reg-fp r0)
-    (call-local st 0 #t)))
+    (call-local st 0)))
 
 (define-vm-op (receive st dst proc nlocals)
   (let ((lexit (jit-forward)))
@@ -1271,7 +1283,7 @@ argument in VM operation."
 (define-vm-op (return st dst)
   (local-ref st dst r0)
   (local-set! st 1 r0)
-  (jit-addi reg-sp reg-fp (imm word-size))
+  (vm-reset-frame 2)
   (vm-return st))
 
 (define-vm-op (return-values st)
@@ -1377,7 +1389,7 @@ argument in VM operation."
 
     ;; Jump to callee.
     (jit-link ljitcall)
-    (call-local st 0 #t)))
+    (call-local st 0)))
 
 ;;; XXX: call/cc
 
@@ -2451,7 +2463,7 @@ ARGS."
         (apply values vals)))))
 
 (define (run-lightning thread proc args)
-  "Run procedure PROC with lightning with ARGS in THREAD."
+  "Run procedure PROC with ARGS, in THREAD."
 
   (define-syntax stack-size
     (identifier-syntax (* 12 4096 word-size)))
@@ -2464,7 +2476,7 @@ ARGS."
       (jit-subi reg-fp reg-fp (imm stack-size))
       (jit-addi r0 reg-fp (imm (* 2 word-size)))
 
-      ;; Initial dynamic link, frame pointer.
+      ;; Initial dynamic link.
       (jit-str reg-fp r0)
 
       ;; Return address.

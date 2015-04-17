@@ -221,7 +221,7 @@
   (define (add-bb-op ip op bb)
     (cons (cons ip op) (bb-ops bb)))
   (define (new-bb! cfg ip op bb)
-    (set-bb-ops! bb (reverse (add-bb-op ip op bb)))
+    (set-bb-ops! bb (reverse! (add-bb-op ip op bb)))
     (set-cfg-bbs! cfg (cons bb (cfg-bbs cfg)))
     (set-cfg-current-bb! cfg (make-bb (+ ip (opsize op)) '() '())))
   (define (push-nenters! cfg bb key)
