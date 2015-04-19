@@ -40,7 +40,7 @@
   #:use-module (system vm vm)
   #:export (compile-lightning
             call-lightning
-            vm-lightning
+            run-lightning
             jit-code-guardian)
   #:re-export (lightning-verbosity))
 
@@ -556,87 +556,79 @@ argument in VM operation."
 
     (jit-link lexit)))
 
-;; Apply trampoline for smob is not inlined with lightning, calling C
-;; functions.
-(define-syntax call-local
-  (syntax-rules ()
-    ((_ st proc)
-     (call-local st proc (jit-jmpr r1) #t))
+(define-syntax-rule (vm-apply)
+  (let ((lprogram (jit-forward))
+        (lcompiled (jit-forward))
+        (lunwrap (jit-forward))
+        (lsmob (jit-forward))
+        (lshuffle (jit-forward))
+        (lerror (jit-forward)))
 
-    ((_ st proc nlocals)
-     (with-frame st proc nlocals (call-local st 0 (jit-jmpr r1) #t)))
+    (jit-ldxi r0 reg-fp (frame-local 2))
 
-    ((_ st proc <expr> #t)
-     (let ((lprogram (jit-forward))
-           (lcompiled (jit-forward))
-           (lunwrap (jit-forward))
-           (lsmob (jit-forward))
-           (lshuffle (jit-forward))
-           (lerror (jit-forward)))
+    ;; Unwrap local to get procedure. Doing similar work done in
+    ;; vm-engine's label statement `apply:'.
+    (jit-link lunwrap)
+    (jump (scm-imp r0) lerror)
+    (scm-cell-type r2 r0)
+    (scm-typ7 r1 r2)
+    (jump (scm-program-p r1) lprogram)
 
-       (local-ref st proc r0)
+    ;; Test for applicable struct.
+    (scm-typ3 r1 r2)
+    (jump (scm-not-structp r1) lsmob)
+    (jump (scm-not-struct-applicable-p r0 r1) lerror)
+    (scm-struct-data-ref r0 r0 0)
+    (jit-stxi (frame-local 2) reg-fp r0)
+    (jump lunwrap)
 
-       ;; Unwrap local to get procedure. Doing similar work done in
-       ;; vm-engine's label statement `apply:'.
-       (jit-link lunwrap)
-       (jump (scm-imp r0) lerror)
-       (scm-cell-type r2 r0)
-       (scm-typ7 r1 r2)
-       (jump (scm-program-p r1) lprogram)
+    ;; Test for applicable smob.  Apply trampoline for smob is not
+    ;; inlined with lightning, calling C functions.
+    (jit-link lsmob)
+    (scm-typ7 r1 r2)
+    (jump (scm-not-smobp r1) lerror)
+    (jit-movr f5 r0)
+    (jit-prepare)
+    (jit-pushargr r0)
+    (call-c "scm_do_smob_applicable_p")
+    (jit-retval r0)
+    (jump (jit-beqi r0 (imm 0)) lerror)
+    (last-arg-offset st r1 r2)
+    (jit-addi reg-sp reg-sp (imm word-size))
 
-       ;; Test for applicable struct.
-       (scm-typ3 r1 r2)
-       (jump (scm-not-structp r1) lsmob)
-       (jump (scm-not-struct-applicable-p r0 r1) lerror)
-       (scm-struct-data-ref r0 r0 0)
-       (local-set! st proc r0)
-       (jump lunwrap)
+    (jit-link lshuffle)
+    (jit-ldxr r2 reg-fp r1)
+    (jit-addi r1 r1 (imm word-size))
+    (jit-stxr r1 reg-fp r2)
+    (jit-subi r1 r1 (imm (* 2 word-size)))
+    (jump (jit-bgei r1 (stored-ref st 0)) lshuffle)
 
-       ;; Test for applicable smob.
-       (jit-link lsmob)
-       (scm-typ7 r1 r2)
-       (jump (scm-not-smobp r1) lerror)
-       (jit-movr f5 r0)
-       (jit-prepare)
-       (jit-pushargr r0)
-       (call-c "scm_do_smob_applicable_p")
-       (jit-retval r0)
-       (jump (jit-beqi r0 (imm 0)) lerror)
-       (last-arg-offset st r1 r2)
-       (jit-addi reg-sp reg-sp (imm word-size))
+    (jit-prepare)
+    (jit-pushargr f5)
+    (call-c "scm_do_smob_apply_trampoline")
+    (jit-retval r0)
+    (jit-stxi (frame-local 2) reg-fp r0)
+    (jump lunwrap)
 
-       (jit-link lshuffle)
-       (jit-ldxr r2 reg-fp r1)
-       (jit-addi r1 r1 (imm word-size))
-       (jit-stxr r1 reg-fp r2)
-       (jit-subi r1 r1 (imm (* 2 word-size)))
-       (jump (jit-bgei r1 (stored-ref st 0)) lshuffle)
+    ;; Show error message.
+    (jit-link lerror)
+    (error-wrong-type-apply r0)
 
-       (jit-prepare)
-       (jit-pushargr f5)
-       (call-c "scm_do_smob_apply_trampoline")
-       (jit-retval r0)
-       (local-set! st proc r0)
-       (jump lunwrap)
+    ;; Local is program, look for native code.
+    (jit-link lprogram)
+    (jump (scm-program-is-jit-compiled r2) lcompiled)
 
-       ;; Show error message.
-       (jit-link lerror)
-       (error-wrong-type-apply r0)
+    ;; Does not have compiled code, compile the callee procedure.
+    (jit-prepare)
+    (jit-pushargr r0)
+    ;; (jit-calli %compile-lightning)
+    (call-c "scm_compile_lightning")
+    (jit-ldxi r0 reg-fp (frame-local 2))
 
-       ;; Local is program, look for native code.
-       (jit-link lprogram)
-       (jump (scm-program-is-jit-compiled r2) lcompiled)
-
-       ;; Does not have compiled code, compile the callee procedure.
-       (jit-prepare)
-       (jit-pushargr r0)
-       (jit-calli %compile-lightning)
-       (local-ref st proc r0)
-
-       ;; Has compiled code.
-       (jit-link lcompiled)
-       (scm-program-jit-compiled-code r1 r0)
-       <expr>))))
+    ;; Has compiled code.
+    (jit-link lcompiled)
+    (scm-program-jit-compiled-code r1 r0)
+    (jit-jmpr r1)))
 
 (define-syntax compile-label
   (syntax-rules (assemble-lightning with-frame)
@@ -1200,7 +1192,7 @@ argument in VM operation."
 
 (define-vm-op (call st proc nlocals)
   (vm-handle-interrupts st)
-  (call-local st proc nlocals))
+  (with-frame st proc nlocals (vm-apply)))
 
 (define-vm-op (call-label st proc nlocals label)
   (vm-handle-interrupts st)
@@ -1217,7 +1209,7 @@ argument in VM operation."
 (define-vm-op (tail-call st nlocals)
   (vm-handle-interrupts st)
   (vm-reset-frame nlocals)
-  (call-local st 0))
+  (vm-apply))
 
 (define-vm-op (tail-call-label st nlocals label)
   (vm-handle-interrupts st)
@@ -1255,7 +1247,7 @@ argument in VM operation."
     (jit-link lexit)
     (jit-subi r0 r0 (imm (* 2 word-size)))
     (jit-addr reg-sp reg-fp r0)
-    (call-local st 0)))
+    (vm-apply)))
 
 (define-vm-op (receive st dst proc nlocals)
   (let ((lexit (jit-forward)))
@@ -1389,7 +1381,7 @@ argument in VM operation."
 
     ;; Jump to callee.
     (jit-link ljitcall)
-    (call-local st 0)))
+    (vm-apply)))
 
 ;;; XXX: call/cc
 
@@ -2443,7 +2435,7 @@ compiled result."
 
 
 ;;;
-;;; Code generation and execution
+;;; Runtime
 ;;;
 
 (define (write-code-to-file file pointer)
@@ -2452,8 +2444,8 @@ compiled result."
       (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
 
 (define (call-lightning proc . args)
-  "Temporary switch to vm-lightning, run procedure PROC with arguments
-ARGS."
+  "Switch vm engine to vm-lightning temporary, run procedure PROC with
+arguments ARGS."
   (let ((current-engine (vm-engine)))
     (call-with-values (lambda ()
                         (set-vm-engine! 'lightning)
@@ -2462,14 +2454,26 @@ ARGS."
         (set-vm-engine! current-engine)
         (apply values vals)))))
 
-(define (run-lightning thread proc args)
-  "Run procedure PROC with ARGS, in THREAD."
+(define-inline run-lightning-code-size 4096)
+
+;;; Bytevector to contain generated native code of `run-lightning'.
+(define run-lightning-code
+  (make-bytevector run-lightning-code-size 0))
+
+(define (emit-run-lightning)
+  "Emit native code used for vm-lightning runtime."
 
   (define-syntax stack-size
     (identifier-syntax (* 12 4096 word-size)))
 
   (define-syntax-rule (vm-prolog reg-ra)
-    (begin
+    (let ((lshuffle (jit-forward)))
+
+      ;; Get arguments.
+      (jit-getarg reg-thread (jit-arg)) ; thread
+      (jit-getarg f0 (jit-arg))         ; vp->fp
+      (jit-getarg r2 (jit-arg))         ; nargs
+
       ;; XXX: Allocating constant amount at beginning of function call.
       ;; Stack not expanded at runtime.
       (jit-frame (imm stack-size))
@@ -2482,20 +2486,22 @@ ARGS."
       ;; Return address.
       (jit-stxi (frame-local 1) reg-fp reg-ra)
 
-      ;; Argument 0, self procedure.
-      (jit-movi r0 (scm->pointer proc))
-      (jit-stxi (frame-local 2) reg-fp r0)
+      ;; Prepare index and reg-fp for shuffling.
+      (jit-movi r1 (imm 0))
+      (jit-muli r2 r2 (imm word-size))
+      (jit-addi reg-fp reg-fp (imm (* 2 word-size)))
 
-      ;; Pointers of given args.
-      (let lp ((args args) (offset 3))
-        (unless (null? args)
-          (jit-movi r0 (scm->pointer (car args)))
-          (jit-stxi (frame-local offset) reg-fp r0)
-          (lp (cdr args) (+ offset 1))))
+      ;; Shuffle arguments from vp->fp to native frame.
+      (jit-link lshuffle)
+      (jit-ldxr r0 r1 f0)
+      (jit-stxr r1 reg-fp r0)
+      (jit-addi r1 r1 (imm word-size))
+      (jump (jit-bler r1 r2) lshuffle)
+      (jit-subi reg-fp reg-fp (imm (* 2 word-size)))
 
-      ;; Initialize registers.
-      (jit-addi reg-sp reg-fp (imm (* (length args) word-size)))
-      (jit-movi reg-thread thread)))
+      ;; Initialize register for stack pointer.
+      (jit-subi r2 r2 (imm word-size))
+      (jit-addr reg-sp reg-fp r2)))
 
   (define-syntax-rule (vm-epilog)
     ;; Returned from procedure, shuffle return values and exit.
@@ -2532,62 +2538,32 @@ ARGS."
       (jit-subi reg-fp reg-fp (imm (* 2 word-size)))
       (jit-retr r0)))
 
-  (cond
-   ((not (program? proc))
-    (cond
-     ((and (struct? proc)
-           (struct-applicable? proc))
-      (run-lightning thread (struct-ref proc 0) args))
-     ((and (smob? proc)
-           (smob-applicable? proc))
-      (run-lightning thread (smob-apply-trampoline proc) (cons proc args)))
-     (else
-      (wrong-type-apply proc))))
-   ((jit-compiled-code proc)
-    =>
-    (lambda (compiled)
-      (debug 1 ";;; calling native code of ~a (~a)~%"
-             proc compiled)
-      (with-jit-state
-       (jit-prolog)
-       (let ((return-address (jit-movi r1 (imm 0))))
-         (vm-prolog r1)
+  (with-jit-state
+   (jit-prolog)
+   (let ((return-address (jit-movi r1 (imm 0))))
+     ;; Initialize arguments.
+     (vm-prolog r1)
 
-         ;; Jump to native procedure.
-         (jit-movi r0 (make-pointer compiled))
-         (jit-jmpr r0)
-         (jit-patch return-address)
+     ;; Jump to native procedure.
+     (vm-apply)
+     (jit-patch return-address)
 
-         ;; Returned from native procedure.
-         (vm-epilog))
-       (jit-epilog)
-       (jit-realize)
+     ;; Returned from native procedure.
+     (vm-epilog))
+   (jit-epilog)
+   (jit-realize)
+   (jit-set-code (bytevector->pointer run-lightning-code)
+                 (imm run-lightning-code-size))
 
-       ;; Emit and run the thunk.
-       (let* ((fptr (jit-emit))
-              (thunk (pointer->procedure '* fptr '())))
-         (let ((verbosity (lightning-verbosity)))
-           (when (and verbosity (<= 3 verbosity))
-             (jit-print)
-             (jit-clear-state)))
-         (thunk)))))
-   (else
-    (compile-lightning proc)
-    (run-lightning thread proc args))))
+   ;; Emit and set executable flag.
+   (let* ((fptr (jit-emit)))
+     (make-bytevector-executable! run-lightning-code))))
 
-(define (vm-lightning thread fp registers nargs resume)
-  "Scheme side entry point of VM.  This procedure is called from C."
-  (let* ((addr->scm
-          (lambda (addr)
-            (pointer->scm (dereference-pointer (make-pointer addr)))))
-         (args (let lp ((n (- nargs 1)) (acc '()))
-                 (if (< n 1)
-                     acc
-                     (lp (- n 1)
-                         (cons (addr->scm (+ fp (* n word-size)))
-                               acc))))))
-    (pointer->scm
-     (run-lightning (make-pointer thread) (addr->scm fp) args))))
+(emit-run-lightning)
+
+(define run-lightning
+  (pointer->procedure
+   '* (bytevector->pointer run-lightning-code) '(* * *)))
 
 
 ;;;

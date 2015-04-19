@@ -22,8 +22,6 @@
  * Auxiliary
  */
 
-static SCM vm_lightning_var;
-
 SCM
 scm_do_inline_cell (scm_i_thread *thread, scm_t_bits car, scm_t_bits cdr)
 {
@@ -322,10 +320,26 @@ scm_do_bind_kwargs (scm_t_uintptr *fp,
 #undef LOCAL_REF
 }
 
+static SCM compile_lightning_var;
+
+SCM_API void scm_compile_lightning (SCM proc);
+
+SCM_API void
+scm_compile_lightning (SCM proc)
+{
+  scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
+  scm_call_1 (compile_lightning_var, proc);
+  scm_c_set_vm_engine_x (SCM_VM_LIGHTNING_ENGINE);
+}
+
 
 /*
  * Main function for vm-lightning
  */
+
+/* VM runtime. */
+typedef void* (*scm_i_vmrt) (scm_i_thread *, SCM *, size_t);
+static scm_i_vmrt scm_run_lightning;
 
 static SCM
 VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
@@ -333,18 +347,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 #define FUNC_NAME "vm-lightning-engine"
 {
   SCM ret;
-  SCM argv[] = {
-    scm_from_uintptr_t ((scm_t_uintptr) thread),
-    scm_from_uintptr_t ((scm_t_uintptr) vp->fp),
-    scm_from_uintptr_t ((scm_t_uintptr) registers),
-    scm_from_int (vp->sp + 1 - &SCM_FRAME_LOCAL (vp->fp, 0)),
-    scm_from_int (resume)
-  };
+  size_t nargs = vp->sp + 1 - &SCM_FRAME_LOCAL (vp->fp, 0);
 
-  /* Call scheme procedure `vm_lightning' with vm-regular engine. */
-  scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  ret = scm_call_n (vm_lightning_var, argv, 5);
-  scm_c_set_vm_engine_x (SCM_VM_LIGHTNING_ENGINE);
+  /* Call generated code runtime code. */
+  ret = SCM_PACK (scm_run_lightning (thread, vp->fp, nargs));
 
   /* Move vp->fp, once for passed procedure  */
   vp->ip = SCM_FRAME_RETURN_ADDRESS (vp->fp);
@@ -365,7 +371,10 @@ scm_init_vm_lightning (void)
 {
   scm_c_define_gsubr ("smob-apply-trampoline", 1, 0, 0,
                       scm_do_smob_apply_trampoline);
-  vm_lightning_var = SCM_VARIABLE_REF (scm_c_lookup ("vm-lightning"));
+  compile_lightning_var = SCM_VARIABLE_REF (scm_c_lookup ("compile-lightning"));
+  scm_run_lightning = (scm_i_vmrt) (SCM_BYTEVECTOR_CONTENTS
+                                    (SCM_VARIABLE_REF
+                                     (scm_c_lookup ("run-lightning-code"))));
 }
 
 #else
