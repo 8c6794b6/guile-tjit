@@ -22,6 +22,8 @@
 #include <libguile.h>
 #include <ffi.h>
 
+SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp, SCM *new_sp);
+
 SCM_API SCM scm_do_inline_cell (scm_i_thread *thread, scm_t_bits car,
                                 scm_t_bits cdr);
 SCM_API SCM scm_do_inline_cons (scm_i_thread *thread, SCM car, SCM cdr);
@@ -37,7 +39,7 @@ SCM_API SCM scm_do_foreign_call (scm_i_thread *thread, SCM cif, SCM pointer,
 SCM_API void scm_do_dynstack_push_fluid (scm_i_thread *thread, SCM fluid,
                                          SCM value);
 SCM_API void scm_do_dynstack_push_prompt (scm_i_thread *thread,
-                                          scm_t_dynstack_prompt_flags,
+                                          scm_t_dynstack_prompt_flags flags,
                                           SCM key,
                                           scm_t_ptrdiff fp_offset,
                                           scm_t_ptrdiff sp_offset,

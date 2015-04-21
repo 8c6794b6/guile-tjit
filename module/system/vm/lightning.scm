@@ -21,7 +21,7 @@
 ;;; Commentary:
 
 ;;; A virtual machine with method JIT compiler from bytecode to native
-;;; code. Compiler is written with GNU Lightning.
+;;; code. Compiler is written in scheme, with GNU Lightning.
 
 ;;; Code:
 
@@ -40,7 +40,6 @@
   #:use-module (system vm vm)
   #:export (compile-lightning
             call-lightning
-            run-lightning
             jit-code-guardian)
   #:re-export (lightning-verbosity))
 
@@ -48,10 +47,6 @@
 ;;;
 ;;; Auxiliary
 ;;;
-
-;; Modified later by function defined in "vm-lightning.c". Defined with
-;; dummy body to silent warning message.
-(define smob-apply-trampoline *unspecified*)
 
 ;; State used during compilation.
 (define-record-type <lightning>
@@ -128,6 +123,12 @@
     (syntax-case x ()
       #'(datum->syntax x (sizeof '*)))))
 
+(define-syntax word-size-length
+  (lambda (x)
+    (syntax-case x ()
+      #'(datum->syntax x (inexact->exact
+                          (/ (log (sizeof '*)) (log 2)))))))
+
 
 ;;;
 ;;; SCM macros for register read/write
@@ -156,12 +157,6 @@
 
 (define-syntax-rule (scm-set-cell-object-r obj reg-offset val)
   (jit-stxr reg-offset obj val))
-
-(define-syntax-rule (scm-thread-dynamic-state st)
-  (jit-ldxi r0 reg-thread (imm #xd8)))
-
-(define-syntax-rule (scm-thread-pending-asyncs st)
-  (jit-ldxi r0 reg-thread (imm #x104)))
 
 (define-syntax-rule (scm-makinumi n)
   "Make scheme small fixnum from N."
@@ -354,28 +349,8 @@
 ;;; Auxiliary
 ;;;
 
-(define-syntax-rule (smob? obj)
-  (let ((*obj (scm->pointer obj)))
-    (cond
-     ((< 0 (logand (pointer-address *obj) 6))
-      #f)
-     (else
-      (= 127 (logand (pointer-address (dereference-pointer *obj)) #x7f))))))
-
-(define-syntax-rule (struct-applicable? obj)
-  (let* ((cell0 (dereference-pointer (scm->pointer obj)))
-         (vtable-data-addr (- (pointer-address cell0) 1)))
-    (< 0 (logand (pointer-address
-                  (dereference-pointer
-                   (make-pointer (+ vtable-data-addr word-size))))
-                 scm-vtable-flag-applicable))))
-
-(define %smob-applicable?
-  (pointer->procedure
-   '* (dynamic-func "scm_do_smob_applicable_p" (dynamic-link)) '(*)))
-
-(define-syntax-rule (smob-applicable? obj)
-  (not (eq? %null-pointer (%smob-applicable? (scm->pointer obj)))))
+(define-syntax-rule (make-negative-pointer n)
+  (make-pointer (- (expt 2 (* 8 word-size)) n)))
 
 (define-syntax-rule (dereference-scm pointer)
   (pointer->scm (dereference-pointer pointer)))
@@ -391,11 +366,45 @@
 ;; Stack pointer.
 (define-inline reg-sp v0)
 
-;; Seems like, register `v1' is reserved by vm-regular when compiled with
-;; gcc on x86-64 machines, skipping.
+;; Register `v1' is used for storeing previous value of `jit-fp'.
 
 ;; Current thread.
 (define-inline reg-thread v2)
+
+;; Pointer to current scm_vm.
+(define-inline reg-vp v3)
+
+
+;;;
+;;; Macros for specific registers
+;;;
+
+(define-syntax-rule (vm-thread-dynamic-state dst)
+  (jit-ldxi dst reg-thread (imm #xd8)))
+
+(define-syntax-rule (vm-thread-pending-asyncs dst)
+  (jit-ldxi dst reg-thread (imm #x104)))
+
+(define-syntax-rule (vm-sp-max-since-gc dst)
+  (jit-ldxi dst reg-vp (imm #x28)))
+
+(define-syntax-rule (vm-set-sp-max-since-gc src)
+  (jit-stxi (imm #x28) reg-vp src))
+
+(define-syntax-rule (vm-stack-limit dst)
+  (jit-ldxi dst reg-vp (imm #x18)))
+
+(define-syntax-rule (vm-cache-fp)
+  (jit-ldxi reg-fp reg-vp (imm #x10)))
+
+(define-syntax-rule (vm-cache-sp)
+  (jit-ldxi reg-sp reg-vp (imm #x8)))
+
+(define-syntax-rule (vm-sync-fp)
+  (jit-stxi (imm #x10) reg-vp reg-fp))
+
+(define-syntax-rule (vm-sync-sp)
+  (jit-stxi (imm #x8) reg-vp reg-sp))
 
 
 ;;;
@@ -410,19 +419,24 @@
      (hashq-set! *vm-instr* 'op (lambda (st . args)
                                   body ...)))))
 
-(define-syntax-rule (frame-local offset)
-  (imm (* offset word-size)))
+(define-syntax-rule (frame-local n)
+  (imm (* n word-size)))
+
+(define-syntax-rule (frame-locals-count-from dst n)
+  (begin
+    (jit-subr dst reg-sp reg-fp)
+    (jit-subi dst dst (imm (* n word-size)))
+    (jit-rshi dst dst (imm word-size-length))))
 
 (define-syntax-rule (frame-locals-count dst)
   (begin
     (jit-subr dst reg-sp reg-fp)
-    (jit-divi dst dst (imm word-size))
+    (jit-rshi dst dst (imm word-size-length))
     (jit-addi dst dst (imm 1))))
 
 (define-syntax-rule (stored-ref st n)
-  "Stored ref 0 is frame local 2. Frame local 0 contains previous reg-fp,
-frame local 1 contains return address."
-  (frame-local (+ n 2)))
+  "Stored reference of address of local N."
+  (frame-local n))
 
 (define-syntax local-ref
   (syntax-rules ()
@@ -448,7 +462,7 @@ frame local 1 contains return address."
   (begin
     (frame-locals-count tmp)
     (jit-subi tmp tmp (imm 1))
-    (jit-muli tmp tmp (imm word-size))
+    (jit-lshi tmp tmp (imm word-size-length))
     (jit-addi dst tmp (stored-ref st 0))))
 
 (define-syntax-rule (call-c name)
@@ -473,40 +487,74 @@ argument in VM operation."
     ((_ st reg)
      (begin
        ;; Get return address to jump
-       (jit-ldxi reg reg-fp (stored-ref st -1))
+       (jit-ldxi reg reg-fp (make-negative-pointer word-size))
        ;; Restore previous dynamic link to current frame pointer
-       (jit-ldxi reg-fp reg-fp (stored-ref st -2))
+       (jit-ldxi reg-fp reg-fp (make-negative-pointer (* 2 word-size)))
        ;; ... then jump to return address.
        (jit-jmpr reg)))))
 
-(define-syntax-rule (vm-handle-interrupts st)
-  (let ((lexit (jit-forward)))
-    (scm-thread-pending-asyncs r0)
-    (jump (jit-bmci r0 (imm 1)) lexit)
-    (jit-prepare)
-    (call-c "scm_async_tick")
-    (jit-link lexit)))
+(define-syntax vm-handle-interrupts
+  (syntax-rules ()
+    ((_)
+     (vm-handle-interrupts r0))
+    ((_ tmp)
+     (let ((lexit (jit-forward)))
+       (vm-thread-pending-asyncs tmp)
+       (jump (jit-bmci tmp (imm 1)) lexit)
+       (jit-prepare)
+       (call-c "scm_async_tick")
+       (jit-link lexit)))))
 
 (define-syntax vm-reset-frame
   (syntax-rules ()
-    ((_ 0)
-     (error "Reset frame expects > 0"))
-    ((_ 1)
-     (jit-movr reg-sp reg-fp))
-    ((_ 2)
-     (jit-addi reg-sp reg-fp (imm word-size)))
     ((_ n)
-     (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size))))))
+     (begin
+       (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
+       (vm-sync-sp))
+     ;; (let ((lexit (jit-forward)))
+     ;;   (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
+     ;;   (vm-sync-sp)
+     ;;   (vm-sp-max-since-gc r0)
+     ;;   (jump (jit-bger r0 reg-sp) lexit)
+     ;;   (vm-set-sp-max-since-gc reg-sp)
+     ;;   (jit-link lexit))
+     )))
 
-(define-syntax-rule (vm-alloc-frame n)
-  (vm-reset-frame n))
+(define-syntax vm-alloc-frame
+  (syntax-rules ()
+    ((_ tmp)
+     (let ((lexit (jit-forward))
+           (lexpand (jit-forward)))
+       (vm-sp-max-since-gc tmp)
+       (jump (jit-bger tmp reg-sp) lexit)
+       (vm-stack-limit tmp)
+       (jump (jit-bgtr tmp reg-sp) lexpand)
+
+       (jit-prepare)
+       (jit-pushargr reg-vp)
+       (jit-pushargr reg-sp)
+       (call-c "scm_do_vm_expand_stack")
+       (vm-cache-fp)
+       (jump lexit)
+
+       (jit-link lexpand)
+       (vm-set-sp-max-since-gc reg-sp)
+
+       (jit-link lexit)
+       (vm-sync-sp)))
+
+    ((_ tmp n)
+     (begin
+       (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
+       (vm-alloc-frame tmp)))))
 
 (define-syntax with-frame
-  ;; Stack poionter stored in reg-fp increased for `proc * word' size
-  ;; to shift the locals.  Then patch the address after the jump, so
-  ;; that callee can jump back. Two locals below proc get overwritten by
-  ;; the callee.
   (syntax-rules ()
+  "Run body expression with new frame.
+
+Stack poionter stored in reg-fp increased for `proc * word' size to
+shift the locals.  Then patch the address after the jump, so that callee
+can jump back. Two locals below proc get overwritten by the callee."
     ((_ st proc nlocals body)
      (with-frame st r0 proc nlocals body))
     ((_ st reg proc nlocals body)
@@ -564,7 +612,7 @@ argument in VM operation."
         (lshuffle (jit-forward))
         (lerror (jit-forward)))
 
-    (jit-ldxi r0 reg-fp (frame-local 2))
+    (jit-ldxi r0 reg-fp (frame-local 0))
 
     ;; Unwrap local to get procedure. Doing similar work done in
     ;; vm-engine's label statement `apply:'.
@@ -579,7 +627,7 @@ argument in VM operation."
     (jump (scm-not-structp r1) lsmob)
     (jump (scm-not-struct-applicable-p r0 r1) lerror)
     (scm-struct-data-ref r0 r0 0)
-    (jit-stxi (frame-local 2) reg-fp r0)
+    (jit-stxi (frame-local 0) reg-fp r0)
     (jump lunwrap)
 
     ;; Test for applicable smob.  Apply trampoline for smob is not
@@ -587,7 +635,7 @@ argument in VM operation."
     (jit-link lsmob)
     (scm-typ7 r1 r2)
     (jump (scm-not-smobp r1) lerror)
-    (jit-movr f5 r0)
+    (jit-movr f0 r0)
     (jit-prepare)
     (jit-pushargr r0)
     (call-c "scm_do_smob_applicable_p")
@@ -595,6 +643,7 @@ argument in VM operation."
     (jump (jit-beqi r0 (imm 0)) lerror)
     (last-arg-offset st r1 r2)
     (jit-addi reg-sp reg-sp (imm word-size))
+    (vm-sync-sp)
 
     (jit-link lshuffle)
     (jit-ldxr r2 reg-fp r1)
@@ -604,10 +653,10 @@ argument in VM operation."
     (jump (jit-bgei r1 (stored-ref st 0)) lshuffle)
 
     (jit-prepare)
-    (jit-pushargr f5)
+    (jit-pushargr f0)
     (call-c "scm_do_smob_apply_trampoline")
     (jit-retval r0)
-    (jit-stxi (frame-local 2) reg-fp r0)
+    (jit-stxi (frame-local 0) reg-fp r0)
     (jump lunwrap)
 
     ;; Show error message.
@@ -623,7 +672,7 @@ argument in VM operation."
     (jit-pushargr r0)
     ;; (jit-calli %compile-lightning)
     (call-c "scm_compile_lightning")
-    (jit-ldxi r0 reg-fp (frame-local 2))
+    (jit-ldxi r0 reg-fp (frame-local 0))
 
     ;; Has compiled code.
     (jit-link lcompiled)
@@ -887,7 +936,7 @@ argument in VM operation."
     ((_ (name st a invert offset) expr)
      (define-vm-op (name st a invert offset)
        (when (< offset 0)
-         (vm-handle-interrupts st))
+         (vm-handle-interrupts))
        (jump expr (resolve-dst st offset))))))
 
 (define-syntax define-vm-br-unary-heap-object-op
@@ -895,7 +944,7 @@ argument in VM operation."
     ((_ (name st a invert offset) reg expr)
      (define-vm-op (name st a invert offset)
        (when (< offset 0)
-         (vm-handle-interrupts st))
+         (vm-handle-interrupts))
        (let ((lexit (jit-forward)))
          (local-ref st a reg)
          (jump (scm-imp reg) (if invert (resolve-dst st offset) lexit))
@@ -910,7 +959,7 @@ argument in VM operation."
     ((_ (name st a b invert offset) cname)
      (define-vm-op (name st a b invert offset)
        (when (< offset 0)
-         (vm-handle-interrupts st))
+         (vm-handle-interrupts))
        (let ((lexit (jit-forward)))
          (local-ref st a r0)
          (local-ref st b r1)
@@ -934,7 +983,7 @@ argument in VM operation."
         fx-op fx-invert-op fl-op fl-invert-op cname)
      (define-vm-op (name st a b invert offset)
        (when (< offset 0)
-         (vm-handle-interrupts st))
+         (vm-handle-interrupts))
        (let ((lreal (jit-forward))
              (lcall (jit-forward))
              (lexit (jit-forward))
@@ -1191,11 +1240,11 @@ argument in VM operation."
 ;;; ---------------
 
 (define-vm-op (call st proc nlocals)
-  (vm-handle-interrupts st)
+  (vm-handle-interrupts)
   (with-frame st proc nlocals (vm-apply)))
 
 (define-vm-op (call-label st proc nlocals label)
-  (vm-handle-interrupts st)
+  (vm-handle-interrupts)
   (cond
    ((in-same-procedure? st label)
     (with-frame st proc nlocals (jump (resolve-dst st label))))
@@ -1207,12 +1256,12 @@ argument in VM operation."
     (compile-label st proc nlocals (offset-addr st label) #f))))
 
 (define-vm-op (tail-call st nlocals)
-  (vm-handle-interrupts st)
+  (vm-handle-interrupts)
   (vm-reset-frame nlocals)
   (vm-apply))
 
 (define-vm-op (tail-call-label st nlocals label)
-  (vm-handle-interrupts st)
+  (vm-handle-interrupts)
   (vm-reset-frame nlocals)
   (cond
    ((in-same-procedure? st label)
@@ -1227,14 +1276,14 @@ argument in VM operation."
 (define-vm-op (tail-call/shuffle st from)
   (let ((lshuffle (jit-forward))
         (lexit (jit-forward)))
-    (vm-handle-interrupts st)
+    (vm-handle-interrupts)
 
     ;; r2 used to stop the loop in lshuffle.
     (jit-subr r2 reg-sp reg-fp)
     (jit-subi r2 r2 (imm (* (- from 3) word-size)))
 
     ;; r0 used as local index.
-    (jit-movi r0 (imm (* 2 word-size)))
+    (jit-movi r0 (imm 0))
 
     (jit-link lshuffle)
     (jump (jit-bger r0 r2) lexit)
@@ -1343,19 +1392,16 @@ argument in VM operation."
   (jit-jmpr r0))
 
 (define-vm-op (tail-apply st)
-  (let ((lcons (jit-forward))
-        (lrt (jit-forward))
-        (lcompiled (jit-forward))
-        (lshift (jit-forward))
+  (let ((lshift (jit-forward))
         (lshuffle (jit-forward))
-        (ljitcall (jit-forward)))
+        (lapply (jit-forward)))
 
     ;; Index for last local, a list containing rest of arguments.
-    (last-arg-offset st f5 r0)
+    (last-arg-offset st r2 r0)
     (jit-subi reg-sp reg-sp (imm (* 2 word-size)))
 
     ;; Local offset for shifting.
-    (last-arg-offset st f1 r1)
+    (last-arg-offset st r0 r1)
     (jit-movi r1 (stored-ref st 0))
 
     ;; Shift non-list locals.
@@ -1364,14 +1410,14 @@ argument in VM operation."
     (jit-ldxr f0 reg-fp f0)
     (jit-stxr r1 reg-fp f0)
     (jit-addi r1 r1 (imm word-size))
-    (jump (jit-bler r1 f1) lshift)
+    (jump (jit-bler r1 r0) lshift)
 
     ;; Load last local.
-    (jit-ldxr r0 reg-fp f5)
+    (jit-ldxr r0 reg-fp r2)
 
     ;; Expand list contents to local.
     (jit-link lshuffle)
-    (jump (scm-is-null r0) ljitcall)
+    (jump (scm-is-null r0) lapply)
     (scm-car f0 r0)
     (jit-stxr r1 reg-fp f0)
     (scm-cdr r0 r0)
@@ -1379,8 +1425,9 @@ argument in VM operation."
     (jit-addi reg-sp reg-sp (imm word-size))
     (jump lshuffle)
 
-    ;; Jump to callee.
-    (jit-link ljitcall)
+    ;; Jump to the callee.
+    (jit-link lapply)
+    (vm-alloc-frame r0)
     (vm-apply)))
 
 ;;; XXX: call/cc
@@ -1443,25 +1490,25 @@ argument in VM operation."
 (define-vm-op (assert-nargs-le st expected)
   (assert-wrong-num-args st jit-blei expected 0))
 
-;;; XXX: Any way to ensure enough space allocated for nlocals?
 (define-vm-op (alloc-frame st nlocals)
   (let ((lshuffle (jit-forward))
         (lexit (jit-forward)))
 
-    (jit-movi f0 scm-undefined)
     (frame-locals-count r1)
-    (jit-addi r1 r1 (imm 1))
-    (jit-muli r1 r1 (imm word-size))
+    (jit-lshi r1 r1 (imm word-size-length))
+    (jit-movi r2 (imm nlocals))
+    (jit-lshi r2 r2 (imm word-size-length))
+    (vm-alloc-frame r0 nlocals)
+    (jit-movi r0 scm-undefined)
 
-    ;; Using r1 as offset of location to store.
+    ;; Using r2 as offset of location to store.
     (jit-link lshuffle)
-    (jump (jit-bgei r1 (stored-ref st nlocals)) lexit)
-    (jit-addi r1 r1 (imm word-size))
-    (jit-stxr r1 reg-fp f0)
+    (jump (jit-bger r1 r2) lexit)
+    (jit-subi r2 r2 (imm word-size))
+    (jit-stxr r2 reg-fp r0)
     (jump lshuffle)
 
-    (jit-link lexit)
-    (vm-alloc-frame nlocals)))
+    (jit-link lexit)))
 
 (define-vm-op (reset-frame st nlocals)
   (vm-reset-frame nlocals))
@@ -1469,7 +1516,7 @@ argument in VM operation."
 (define-vm-op (assert-nargs-ee/locals st expected locals)
   ;; XXX: Refill SCM_UNDEFINED?
   (assert-wrong-num-args st jit-beqi expected 0)
-  (vm-alloc-frame (+ expected locals)))
+  (vm-alloc-frame r0 (+ expected locals)))
 
 ;;; XXX: br-if-npos-gt
 
@@ -1488,39 +1535,40 @@ argument in VM operation."
   (jit-retval r0)
 
   ;; Allocate frame with returned value.
-  (jit-muli r0 r0 (imm word-size))
-  (jit-addr reg-sp reg-fp r0))
+  (jit-lshi r0 r0 (imm word-size-length))
+  (jit-addr reg-sp reg-fp r0)
+  (vm-alloc-frame r0))
 
 (define-vm-op (bind-rest st dst)
   (let ((lrefill (jit-forward))
         (lcons (jit-forward))
         (lexit (jit-forward)))
 
-    (last-arg-offset st f5 r0)          ; f5 = initial local index.
-    (jit-movi r0 (scm->pointer '()))    ; r0 = initial list.
-    (jit-movi f0 scm-undefined)
+    (last-arg-offset st r2 r0)          ; r2 = initial local index.
     (frame-locals-count r1)
+    (jit-movi f0 scm-undefined)
+    (jit-movi r0 (scm->pointer '()))    ; r0 = initial list.
     (jump (jit-bgti r1 (imm dst)) lcons)
+
+    (vm-alloc-frame r1 (+ dst 1))
 
     ;; Refill the locals with SCM_UNDEFINED.
     (jit-link lrefill)
-    (jit-addi f5 f5 (imm word-size))
-    (jit-stxr f5 reg-fp f0)
-    (jump (jit-bgei f5 (stored-ref st dst)) lexit)
+    (jit-addi r2 r2 (imm word-size))
+    (jit-stxr r2 reg-fp f0)
+    (jump (jit-bgei r2 (stored-ref st dst)) lexit)
     (jump lrefill)
 
-    ;; Create a list.  Using register f5 to preserve the register
-    ;; contents from callee C function "scm_do_inline_cons" and other
-    ;; bookkeepings done in lightning.
+    ;; Create a list.
     (jit-link lcons)
-    (jit-ldxr r2 reg-fp f5)
-    (jit-stxr f5 reg-fp f0)
-    (scm-inline-cons r0 r2 r0)
-    (jit-subi f5 f5 (imm word-size))
-    (jump (jit-bgei f5 (stored-ref st dst)) lcons)
+    (jit-ldxr r1 reg-fp r2)
+    (jit-stxr r2 reg-fp f0)
+    (scm-inline-cons r0 r1 r0)
+    (jit-subi r2 r2 (imm word-size))
+    (jump (jit-bgei r2 (stored-ref st dst)) lcons)
+    (vm-reset-frame (+ dst 1))
 
     (jit-link lexit)
-    (vm-reset-frame (+ dst 1))
     (local-set! st dst r0)))
 
 
@@ -1529,7 +1577,7 @@ argument in VM operation."
 
 (define-vm-op (br st dst)
   (when (< dst 0)
-    (vm-handle-interrupts st))
+    (vm-handle-interrupts))
   (jump (resolve-dst st dst)))
 
 (define-vm-br-unary-immediate-op (br-if-true st a invert offset)
@@ -1544,7 +1592,7 @@ argument in VM operation."
 
 (define-vm-op (br-if-nil st a invert offset)
   (when (< offset 0)
-    (vm-handle-interrupts st))
+    (vm-handle-interrupts))
   (local-ref st a r0)
   (jit-movi r1 (imm (logior (pointer-address (scm->pointer #f))
                             (pointer-address (scm->pointer '())))))
@@ -1569,7 +1617,7 @@ argument in VM operation."
 
 (define-vm-op (br-if-tc7 st a invert tc7 offset)
   (when (< offset 0)
-    (vm-handle-interrupts st))
+    (vm-handle-interrupts))
   (let ((lexit (jit-forward)))
     (local-ref st a r0)
     (jump (scm-imp r0) (if invert (resolve-dst st offset) lexit))
@@ -1582,7 +1630,7 @@ argument in VM operation."
 
 (define-vm-op (br-if-eq st a b invert offset)
   (when (< offset 0)
-    (vm-handle-interrupts st))
+    (vm-handle-interrupts))
   (jump ((if invert jit-bner jit-beqr)
          (local-ref st a r0)
          (local-ref st b r1))
@@ -1881,7 +1929,7 @@ argument in VM operation."
     ;;   thread->dynamic_state, then
     ;;   SCM_I_DYNAMIC_STATE_FLUIDS (dynstack)
     ;;   (i.e. SCM_CELL_WORD_1 (dynstack))
-    (scm-thread-dynamic-state r0)
+    (vm-thread-dynamic-state r0)
     (scm-cell-object r0 r0 1)
 
     ;; r1 = fluid, from local:
@@ -1891,7 +1939,8 @@ argument in VM operation."
     (scm-cell-object r2 r1 0)
     (jit-rshi r2 r2 (imm 8))
     (jit-addi r2 r2 (imm 1))
-    (jit-muli r2 r2 (imm 8))
+    ;; (jit-muli r2 r2 (imm 8))
+    (jit-lshi r2 r2 (imm 3))
 
     ;; r0 = fluid value
     (jit-ldxr r0 r0 r2)
@@ -2182,7 +2231,7 @@ argument in VM operation."
   (validate-vector-range r0 r1 r2 f0 *vector-ref-string)
   (scm-i-inumr r1 r1)
   (jit-addi r1 r1 (imm 1))
-  (jit-muli r1 r1 (imm word-size))
+  (jit-lshi r1 r1 (imm word-size-length))
   (scm-cell-object-r r0 r0 r1)
   (local-set! st dst r0))
 
@@ -2200,7 +2249,7 @@ argument in VM operation."
   (validate-vector-range r0 r1 r2 f0 *vector-set!-string)
   (scm-i-inumr r1 r1)
   (jit-addi r1 r1 (imm 1))
-  (jit-muli r1 r1 (imm word-size))
+  (jit-lshi r1 r1 (imm word-size-length))
   (local-ref st src r2)
   (scm-set-cell-object-r r0 r1 r2))
 
@@ -2246,7 +2295,7 @@ argument in VM operation."
   (validate-struct r0 r1 *struct-ref-string)
   (local-ref st idx r1)
   (scm-i-inumr r1 r1)
-  (jit-muli r1 r1 (imm word-size))
+  (jit-lshi r1 r1 (imm word-size-length))
   (scm-struct-slots r0 r0)
   (scm-cell-object-r r0 r0 r1)
   (local-set! st dst r0))
@@ -2344,6 +2393,11 @@ argument in VM operation."
           (jit-destroy-state)
           (apply values vals)))))
 
+(define-syntax-rule (write-code-to-file file pointer)
+  (call-with-output-file file
+    (lambda (port)
+      (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
+
 (define (assemble-lightning st entry)
   "Assemble with STATE, using ENTRY as entry of the result."
   (define-syntax-rule (destination-label st)
@@ -2379,7 +2433,10 @@ argument in VM operation."
          (name (cfg-name cfg)))
 
     (hashq-set! (lightning-nodes st) addr entry)
-    (jit-note name addr)
+
+    (let ((verbosity (lightning-verbosity)))
+      (when (and verbosity (<= 3 verbosity))
+        (jit-note name addr)))
 
     ;; Link and compile the entry point.
     (jit-link entry)
@@ -2438,10 +2495,85 @@ compiled result."
 ;;; Runtime
 ;;;
 
-(define (write-code-to-file file pointer)
-  (call-with-output-file file
-    (lambda (port)
-      (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
+(define-syntax-rule (halt)
+  "Exit from procedure call. Shuffle values in frame when necessary."
+  (let ((lshuffle (jit-forward))
+        (lvalues (jit-forward))
+        (lcall (jit-forward))
+        (lexit (jit-forward)))
+
+    (jit-ldxi r0 reg-fp (frame-local 4))
+    (frame-locals-count-from r2 4)
+    (jump (jit-beqi r2 (imm 0)) lexit)
+
+    (jit-link lvalues)
+    (jit-movi r0 (scm->pointer '()))
+    (jit-addi r1 r2 (imm 1))
+    (jit-lshi r1 r1 (imm word-size-length))
+    (jit-addi r1 r1 (frame-local 3))
+
+    (jit-link lshuffle)
+    (jump (jit-blei r1 (frame-local 3)) lcall)
+    (jit-ldxr r2 reg-fp r1)
+    (scm-inline-cons r0 r2 r0)
+    (jit-subi r1 r1 (imm word-size))
+    (jump lshuffle)
+
+    (jit-link lcall)
+    (jit-prepare)
+    (jit-pushargr r0)
+    (call-c "scm_values")
+    (jit-retval r0)
+
+    (jit-link lexit)
+    (jit-movr reg-fp v1)
+    (jit-retr r0)))
+
+;;; Size of bytevector to contain native code for `run-lightning'.
+(define-inline run-lightning-code-size 4096)
+
+;;; Bytevector to contain native code for `run-lightning'.
+(define run-lightning-code
+  (make-bytevector run-lightning-code-size 0))
+
+(define (emit-run-lightning)
+  "Emit native code used for vm-lightning runtime."
+
+  (with-jit-state
+   (jit-prolog)
+   (let ((return-address (jit-movi r1 (imm 0))))
+
+     ;; Get arguments.
+     (jit-getarg reg-thread (jit-arg)) ; thread
+     (jit-getarg reg-vp (jit-arg))     ; vp
+
+     ;; Save frame pointer before caching registers.
+     (jit-movr v1 reg-fp)
+     ;; (jit-movr r0 reg-fp)
+
+     ;; Cache registers.
+     (vm-cache-fp)
+     (vm-cache-sp)
+
+     ;; ;; Dynamic link.
+     ;; (jit-stxi (make-negative-pointer (* 2 word-size)) reg-fp r0)
+
+     ;; Return address.
+     (jit-stxi (make-negative-pointer word-size) reg-fp r1)
+
+     ;; Apply the procedure.
+     (vm-apply)
+     (jit-patch return-address)
+     (halt))
+   (jit-epilog)
+   (jit-realize)
+   (jit-set-code (bytevector->pointer run-lightning-code)
+                 (imm run-lightning-code-size))
+
+   ;; Emit and set executable flag.
+   (let ((fptr (jit-emit)))
+     (make-bytevector-executable! run-lightning-code)
+     fptr)))
 
 (define (call-lightning proc . args)
   "Switch vm engine to vm-lightning temporary, run procedure PROC with
@@ -2454,122 +2586,13 @@ arguments ARGS."
         (set-vm-engine! current-engine)
         (apply values vals)))))
 
-(define-inline run-lightning-code-size 4096)
-
-;;; Bytevector to contain generated native code of `run-lightning'.
-(define run-lightning-code
-  (make-bytevector run-lightning-code-size 0))
-
-(define (emit-run-lightning)
-  "Emit native code used for vm-lightning runtime."
-
-  (define-syntax stack-size
-    (identifier-syntax (* 12 4096 word-size)))
-
-  (define-syntax-rule (vm-prolog reg-ra)
-    (let ((lshuffle (jit-forward)))
-
-      ;; Get arguments.
-      (jit-getarg reg-thread (jit-arg)) ; thread
-      (jit-getarg f0 (jit-arg))         ; vp->fp
-      (jit-getarg r2 (jit-arg))         ; nargs
-
-      ;; XXX: Allocating constant amount at beginning of function call.
-      ;; Stack not expanded at runtime.
-      (jit-frame (imm stack-size))
-      (jit-subi reg-fp reg-fp (imm stack-size))
-      (jit-addi r0 reg-fp (imm (* 2 word-size)))
-
-      ;; Initial dynamic link.
-      (jit-str reg-fp r0)
-
-      ;; Return address.
-      (jit-stxi (frame-local 1) reg-fp reg-ra)
-
-      ;; Prepare index and reg-fp for shuffling.
-      (jit-movi r1 (imm 0))
-      (jit-muli r2 r2 (imm word-size))
-      (jit-addi reg-fp reg-fp (imm (* 2 word-size)))
-
-      ;; Shuffle arguments from vp->fp to native frame.
-      (jit-link lshuffle)
-      (jit-ldxr r0 r1 f0)
-      (jit-stxr r1 reg-fp r0)
-      (jit-addi r1 r1 (imm word-size))
-      (jump (jit-bler r1 r2) lshuffle)
-      (jit-subi reg-fp reg-fp (imm (* 2 word-size)))
-
-      ;; Initialize register for stack pointer.
-      (jit-subi r2 r2 (imm word-size))
-      (jit-addr reg-sp reg-fp r2)))
-
-  (define-syntax-rule (vm-epilog)
-    ;; Returned from procedure, shuffle return values and exit.
-    (let ((lshuffle (jit-forward))
-          (lvalues (jit-forward))
-          (lcall (jit-forward))
-          (lexit (jit-forward)))
-
-      (jit-ldxi r0 reg-fp (frame-local 1))
-      (frame-locals-count r2)
-      (jump (jit-beqi r2 (imm 0)) lexit)
-
-      (jit-link lvalues)
-      (jit-movi r0 (scm->pointer '()))
-      (jit-addi r1 r2 (imm 1))
-      (jit-muli r1 r1 (imm word-size))
-      (jit-addi r1 r1 (frame-local 0))
-
-      (jit-link lshuffle)
-      (jump (jit-blei r1 (frame-local 0)) lcall)
-      (jit-ldxr r2 reg-fp r1)
-      (scm-inline-cons r0 r2 r0)
-      (jit-subi r1 r1 (imm word-size))
-      (jump lshuffle)
-
-      (jit-link lcall)
-      (jit-prepare)
-      (jit-pushargr r0)
-      (call-c "scm_values")
-      (jit-retval r0)
-
-      (jit-link lexit)
-      (jit-addi reg-fp reg-fp (imm stack-size))
-      (jit-subi reg-fp reg-fp (imm (* 2 word-size)))
-      (jit-retr r0)))
-
-  (with-jit-state
-   (jit-prolog)
-   (let ((return-address (jit-movi r1 (imm 0))))
-     ;; Initialize arguments.
-     (vm-prolog r1)
-
-     ;; Jump to native procedure.
-     (vm-apply)
-     (jit-patch return-address)
-
-     ;; Returned from native procedure.
-     (vm-epilog))
-   (jit-epilog)
-   (jit-realize)
-   (jit-set-code (bytevector->pointer run-lightning-code)
-                 (imm run-lightning-code-size))
-
-   ;; Emit and set executable flag.
-   (let* ((fptr (jit-emit)))
-     (make-bytevector-executable! run-lightning-code))))
-
-(emit-run-lightning)
-
-(define run-lightning
-  (pointer->procedure
-   '* (bytevector->pointer run-lightning-code) '(* * *)))
-
 
 ;;;
 ;;; Initialization
 ;;;
 
 (init-jit "")
+(emit-run-lightning)
+
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_lightning")

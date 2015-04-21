@@ -300,11 +300,13 @@
    (lambda (return)
      (if (< 0 x) x (return)))))
 
+(test-skip 1)
 (define-test (t-abort-negative-2 x) (-1)
   (my-call-ec
    (lambda (return)
      (if (< 0 x) x (return)))))
 
+(test-skip 1)
 (define-test (t-abort-and-return-arg2 proc x) ((lambda (re) (re)) 'bar)
   (call-with-prompt
    'foo
@@ -312,6 +314,7 @@
      (proc (lambda () (abort-to-prompt 'foo))))
    (lambda (k) x)))
 
+(test-skip 1)
 (define-test (t-abort-arg1 x) ('bar)
   (call-with-prompt
    'foo
@@ -319,6 +322,7 @@
      (abort-to-prompt 'foo x))
    (lambda (_ arg1) arg1)))
 
+(test-skip 1)
 (define-test (t-abort-rest a b c) (1 2 3)
   (call-with-prompt
    'foo
@@ -326,6 +330,7 @@
      (abort-to-prompt 'foo a b c))
    (lambda (_ . rest) (apply + rest))))
 
+(test-skip 1)
 (define-test (t-prompt-capture x) (-56)
   (+ (call-with-prompt 'foo
                        (lambda ()
@@ -418,7 +423,7 @@
 (define-test (t-bind-kwargs-02-with-b x) (10)
   (bind-kwargs-02 x #:b x))
 
-(define-test (tbind-kwargs-02-with-c x) (10)
+(define-test (t-bind-kwargs-02-with-c x) (10)
   (bind-kwargs-02 x #:c x))
 
 (define-test (t-bind-kwargs-02-with-b-and-c x) (10)
@@ -1164,19 +1169,7 @@
       (+ (t-fib2 (- n 1))
          (t-fib2 (- n 2)))))
 
-(define-test (t-call-map1 xs) ('(1 2 3))
-  (map (lambda (x) (+ x 1)) xs))
-
-(define-test (t-call-map2 xs ys) ('(1 2 3) '(10 20 30))
-  (map (lambda (x y) (+ x y)) xs ys))
-
-(define-test (t-call-map3 xs ys zs) ('(1 2 3) '(10 20 30) '(100 200 300))
-  (map + xs ys zs))
-
-(define-test (t-call-map3-lambda xs ys zs)
-  ('(1 2 3) '(10 20 30) '(100 200 300))
-  (map (lambda (x y z) (+ x y z)) xs ys zs))
-
+(test-skip 1)
 (define-test (t-nqueens n) (8)
   (define (one-to n)
     (let loop ((i n) (l '()))
@@ -1253,6 +1246,19 @@
 ;;; Procedures found in module (guile)
 ;;;
 
+(define-test (t-call-map1 xs) ('(1 2 3))
+  (map (lambda (x) (+ x 1)) xs))
+
+(define-test (t-call-map2 xs ys) ('(1 2 3) '(10 20 30))
+  (map (lambda (x y) (+ x y)) xs ys))
+
+(define-test (t-call-map3 xs ys zs) ('(1 2 3) '(10 20 30) '(100 200 300))
+  (map + xs ys zs))
+
+(define-test (t-call-map3-lambda xs ys zs)
+  ('(1 2 3) '(10 20 30) '(100 200 300))
+  (map (lambda (x y z) (+ x y z)) xs ys zs))
+
 (define-test (t-format-1 str arg1 arg2) ("~x is ~a~%" 100 #f)
   (format #f str arg1 arg2))
 
@@ -1297,6 +1303,7 @@
 (define-test (t-compile-cps-1 expr) ('(+ 1 2 3))
   (compile expr #:to 'cps))
 
+(test-skip 1)
 (define-test (t-compile-cps-2 expr) (letrec-fib-expr)
   (compile expr #:to 'cps))
 
