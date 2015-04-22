@@ -371,6 +371,7 @@
 ;; Current thread.
 (define-inline reg-thread v2)
 
+;;; XXX: Will not work when `jit_v_num() < 4'.
 ;; Pointer to current scm_vm.
 (define-inline reg-vp v3)
 
@@ -385,15 +386,6 @@
 (define-syntax-rule (vm-thread-pending-asyncs dst)
   (jit-ldxi dst reg-thread (imm #x104)))
 
-(define-syntax-rule (vm-sp-max-since-gc dst)
-  (jit-ldxi dst reg-vp (imm #x28)))
-
-(define-syntax-rule (vm-set-sp-max-since-gc src)
-  (jit-stxi (imm #x28) reg-vp src))
-
-(define-syntax-rule (vm-stack-limit dst)
-  (jit-ldxi dst reg-vp (imm #x18)))
-
 (define-syntax-rule (vm-cache-fp)
   (jit-ldxi reg-fp reg-vp (imm #x10)))
 
@@ -405,6 +397,15 @@
 
 (define-syntax-rule (vm-sync-sp)
   (jit-stxi (imm #x8) reg-vp reg-sp))
+
+(define-syntax-rule (vm-sp-max-since-gc dst)
+  (jit-ldxi dst reg-vp (imm #x28)))
+
+(define-syntax-rule (vm-set-sp-max-since-gc src)
+  (jit-stxi (imm #x28) reg-vp src))
+
+(define-syntax-rule (vm-stack-limit dst)
+  (jit-ldxi dst reg-vp (imm #x18)))
 
 
 ;;;
@@ -462,8 +463,7 @@
   (begin
     (frame-locals-count tmp)
     (jit-subi tmp tmp (imm 1))
-    (jit-lshi tmp tmp (imm word-size-length))
-    (jit-addi dst tmp (stored-ref st 0))))
+    (jit-lshi dst tmp (imm word-size-length))))
 
 (define-syntax-rule (call-c name)
   (jit-calli (dynamic-func name (dynamic-link))))
@@ -501,34 +501,43 @@ argument in VM operation."
      (let ((lexit (jit-forward)))
        (vm-thread-pending-asyncs tmp)
        (jump (jit-bmci tmp (imm 1)) lexit)
+       ;; (vm-sync-fp)
+       ;; (vm-sync-sp)
+       ;; (vm-set-sp-max-since-gc reg-sp)
        (jit-prepare)
        (call-c "scm_async_tick")
+       ;; (vm-cache-fp)
+       ;; (vm-cache-sp)
        (jit-link lexit)))))
 
 (define-syntax vm-reset-frame
   (syntax-rules ()
     ((_ n)
+     (vm-reset-frame n r0))
+    ((_ n tmp)
      (begin
        (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
        (vm-sync-sp))
+     ;;; VM regular is updating vp->sp-max-since-gc.
      ;; (let ((lexit (jit-forward)))
      ;;   (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
      ;;   (vm-sync-sp)
-     ;;   (vm-sp-max-since-gc r0)
-     ;;   (jump (jit-bger r0 reg-sp) lexit)
+     ;;   (vm-sp-max-since-gc tmp)
+     ;;   (jump (jit-bger tmp reg-sp) lexit)
      ;;   (vm-set-sp-max-since-gc reg-sp)
      ;;   (jit-link lexit))
      )))
 
 (define-syntax vm-alloc-frame
   (syntax-rules ()
-    ((_ tmp)
+    ((_)
      (let ((lexit (jit-forward))
-           (lexpand (jit-forward)))
-       (vm-sp-max-since-gc tmp)
-       (jump (jit-bger tmp reg-sp) lexit)
-       (vm-stack-limit tmp)
-       (jump (jit-bgtr tmp reg-sp) lexpand)
+           (lincr (jit-forward)))
+       ;; Using r0 as temporary register.
+       (vm-sp-max-since-gc r0)
+       (jump (jit-bger r0 reg-sp) lexit)
+       (vm-stack-limit r0)
+       (jump (jit-bgtr r0 reg-sp) lincr)
 
        (jit-prepare)
        (jit-pushargr reg-vp)
@@ -537,16 +546,16 @@ argument in VM operation."
        (vm-cache-fp)
        (jump lexit)
 
-       (jit-link lexpand)
+       (jit-link lincr)
        (vm-set-sp-max-since-gc reg-sp)
 
        (jit-link lexit)
        (vm-sync-sp)))
 
-    ((_ tmp n)
+    ((_ n)
      (begin
        (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
-       (vm-alloc-frame tmp)))))
+       (vm-alloc-frame)))))
 
 (define-syntax with-frame
   (syntax-rules ()
@@ -557,16 +566,16 @@ shift the locals.  Then patch the address after the jump, so that callee
 can jump back. Two locals below proc get overwritten by the callee."
     ((_ st proc nlocals body)
      (with-frame st r0 proc nlocals body))
-    ((_ st reg proc nlocals body)
-     (let ((ra (jit-movi reg (imm 0))))
+    ((_ st tmp proc nlocals body)
+     (let ((ra (jit-movi tmp (imm 0))))
        ;; Store return address.
-       (jit-stxi (stored-ref st (- proc 1)) reg-fp reg)
+       (jit-stxi (stored-ref st (- proc 1)) reg-fp tmp)
        ;; Store dynamic link.
        (jit-stxi (stored-ref st (- proc 2)) reg-fp reg-fp)
        ;; Shift frame pointer.
        (jit-addi reg-fp reg-fp (imm (* word-size proc)))
        ;; Shift stack pointer.
-       (vm-reset-frame nlocals)
+       (vm-reset-frame nlocals tmp)
        body
        (jit-patch ra)))))
 
@@ -574,7 +583,7 @@ can jump back. Two locals below proc get overwritten by the callee."
   (let ((lexit (jit-forward))
         (lshuffle (jit-forward)))
 
-    (vm-reset-frame 2)
+    (vm-reset-frame 2 tmp1)
     (jump (scm-imp rval) lexit)
 
     (scm-cell-type tmp1 rval)
@@ -592,7 +601,7 @@ can jump back. Two locals below proc get overwritten by the callee."
     (jit-movi tmp2 (stored-ref st (+ proc 1)))
 
     ;; Reset frame, increment while shuffling with VALUES struct.
-    (vm-reset-frame 1)
+    (vm-reset-frame 1 tmp3)
 
     (jit-link lshuffle)
     (scm-car tmp3 tmp1)
@@ -1349,8 +1358,13 @@ can jump back. Two locals below proc get overwritten by the callee."
     (local-ref st 0 r0)
     (scm-program-free-variable-ref r0 r0 ptr-idx)
     (scm-pointer-value r1 r0)
+    ;; (vm-sync-fp)
+    ;; (vm-sync-sp)
+    ;; (vm-set-sp-max-since-gc reg-sp)
     (jit-callr r1)
     (jit-retval r0)
+    ;; (vm-cache-fp)
+    ;; (vm-cache-sp)
     (local-set! st 1 r0)
     (return-value-list st 0 r0 r1 r2 f0)
     (vm-return st)))
@@ -1427,7 +1441,7 @@ can jump back. Two locals below proc get overwritten by the callee."
 
     ;; Jump to the callee.
     (jit-link lapply)
-    (vm-alloc-frame r0)
+    (vm-alloc-frame)
     (vm-apply)))
 
 ;;; XXX: call/cc
@@ -1496,9 +1510,8 @@ can jump back. Two locals below proc get overwritten by the callee."
 
     (frame-locals-count r1)
     (jit-lshi r1 r1 (imm word-size-length))
-    (jit-movi r2 (imm nlocals))
-    (jit-lshi r2 r2 (imm word-size-length))
-    (vm-alloc-frame r0 nlocals)
+    (jit-movi r2 (imm (* nlocals word-size)))
+    (vm-alloc-frame nlocals)
     (jit-movi r0 scm-undefined)
 
     ;; Using r2 as offset of location to store.
@@ -1516,7 +1529,7 @@ can jump back. Two locals below proc get overwritten by the callee."
 (define-vm-op (assert-nargs-ee/locals st expected locals)
   ;; XXX: Refill SCM_UNDEFINED?
   (assert-wrong-num-args st jit-beqi expected 0)
-  (vm-alloc-frame r0 (+ expected locals)))
+  (vm-alloc-frame (+ expected locals)))
 
 ;;; XXX: br-if-npos-gt
 
@@ -1537,39 +1550,43 @@ can jump back. Two locals below proc get overwritten by the callee."
   ;; Allocate frame with returned value.
   (jit-lshi r0 r0 (imm word-size-length))
   (jit-addr reg-sp reg-fp r0)
-  (vm-alloc-frame r0))
+  (vm-alloc-frame))
 
 (define-vm-op (bind-rest st dst)
   (let ((lrefill (jit-forward))
         (lcons (jit-forward))
+        (lreset (jit-forward))
         (lexit (jit-forward)))
 
-    (last-arg-offset st r2 r0)          ; r2 = initial local index.
-    (frame-locals-count r1)
+    (frame-locals-count r2)
+    (jit-lshi r2 r2 (imm word-size-length)) ; r2 = last local index.
+    (jit-movi r1 (scm->pointer '()))        ; r1 = initial list.
     (jit-movi f0 scm-undefined)
-    (jit-movi r0 (scm->pointer '()))    ; r0 = initial list.
-    (jump (jit-bgti r1 (imm dst)) lcons)
-
-    (vm-alloc-frame r1 (+ dst 1))
+    (jump (jit-bgti r2 (imm (* dst word-size))) lcons)
 
     ;; Refill the locals with SCM_UNDEFINED.
+    (vm-alloc-frame (+ dst 1))
+
     (jit-link lrefill)
-    (jit-addi r2 r2 (imm word-size))
+    (jump (jit-bgei r2 (imm (* dst word-size))) lexit)
     (jit-stxr r2 reg-fp f0)
-    (jump (jit-bgei r2 (stored-ref st dst)) lexit)
+    (jit-addi r2 r2 (imm word-size))
     (jump lrefill)
 
     ;; Create a list.
     (jit-link lcons)
-    (jit-ldxr r1 reg-fp r2)
-    (jit-stxr r2 reg-fp f0)
-    (scm-inline-cons r0 r1 r0)
+    (jump (jit-blei r2 (imm (* dst word-size))) lreset)
     (jit-subi r2 r2 (imm word-size))
-    (jump (jit-bgei r2 (stored-ref st dst)) lcons)
+    (jit-ldxr r0 reg-fp r2)
+    (jit-stxr r2 reg-fp f0)
+    (scm-inline-cons r1 r0 r1)
+    (jump lcons)
+
+    (jit-link lreset)
     (vm-reset-frame (+ dst 1))
 
     (jit-link lexit)
-    (local-set! st dst r0)))
+    (local-set! st dst r1)))
 
 
 ;;; Branching instructions
@@ -2386,12 +2403,11 @@ can jump back. Two locals below proc get overwritten by the callee."
 ;;;
 
 (define-syntax-rule (with-jit-state . expr)
-    (parameterize ((jit-state (jit-new-state)))
-      (call-with-values
-          (lambda () . expr)
-        (lambda vals
-          (jit-destroy-state)
-          (apply values vals)))))
+  (parameterize ((jit-state (jit-new-state)))
+    (call-with-values (lambda () . expr)
+      (lambda vals
+        (jit-destroy-state)
+        (apply values vals)))))
 
 (define-syntax-rule (write-code-to-file file pointer)
   (call-with-output-file file
@@ -2415,7 +2431,16 @@ can jump back. Two locals below proc get overwritten by the callee."
       (let ((emitter (hashq-ref *vm-instr* instr)))
         (let ((verbosity (lightning-verbosity)))
           (when (and verbosity (<= 3 verbosity))
-            (jit-note (format #f "~a" op) (lightning-ip st))))
+            (jit-note (format #f "~a" op) (lightning-ip st)))
+          (when (and verbosity (<= 5 verbosity))
+            (jit-prepare)
+            (jit-pushargi (scm->pointer op))
+            (jit-pushargi scm-undefined)
+            (call-c "scm_display")
+            (jit-prepare)
+            (jit-pushargi scm-undefined)
+            (call-c "scm_newline")))
+
         ;; Link if this bytecode intruction is labeled as destination,
         ;; or patch it for prompt handler.
         (cond ((destination-label st)
@@ -2467,7 +2492,10 @@ compiled result."
        (jit-set-code (bytevector->pointer bv)
                      (imm estimated-code-size))
        (jit-emit)
+
+       ;; XXX: Generated codes never get freed.
        (jit-code-guardian bv)
+
        (set-jit-compiled-code! proc (jit-address entry))
        (make-bytevector-executable! bv)
 
