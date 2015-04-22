@@ -343,8 +343,14 @@ scm_compile_lightning (SCM proc)
  * Main function for vm-lightning
  */
 
-typedef SCM* (*scm_i_vm_rt) (scm_i_thread *, struct scm_vm *,
-                             scm_i_jmp_buf *registers, int resume);
+/* Type of function pointer containing runtime function */
+typedef SCM (*scm_i_vm_rt) (scm_i_thread *, struct scm_vm *,
+                            scm_i_jmp_buf *registers, int resume);
+
+/* Function pointer of runtime function. This variable will be filled in
+   with JIT compiled code in scheme during initialization.  Note that
+   VM_NAME function need to be constant, the wrapper function below is
+   to satisfy this need. */
 static scm_i_vm_rt scm_run_lightning;
 
 static SCM
@@ -352,19 +358,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
          scm_i_jmp_buf *registers, int resume)
 #define FUNC_NAME "vm-lightning-engine"
 {
-  SCM ret;
-
-  /* Run the native code. */
-  ret = SCM_PACK (scm_run_lightning (thread, vp, registers, resume));
-
-  /* Move vp->fp twice, once for current procedure, again for boot
-     continuation added in `scm_call_n'. */
-  vp->fp = SCM_FRAME_DYNAMIC_LINK (vp->fp);
-  vp->fp = SCM_FRAME_DYNAMIC_LINK (vp->fp);
-  vp->sp = SCM_FRAME_PREVIOUS_SP (vp->fp);
-  vp->ip = SCM_FRAME_RETURN_ADDRESS (vp->fp);
-
-  return ret;
+  return scm_run_lightning (thread, vp, registers, resume);
 }
 #undef FUNC_NAME
 
