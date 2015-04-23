@@ -236,24 +236,6 @@
 (define-syntax-rule (scm-bytevector-contents dst obj)
   (scm-cell-object dst obj 2))
 
-(define-syntax-rule (scm-frame-dynamic-link dst)
-  (jit-ldxi dst reg-fp (make-negative-pointer (* 2 word-size))))
-
-(define-syntax-rule (scm-set-frame-dynamic-link src)
-  (jit-stxi (make-negative-pointer (* 2 word-size)) reg-fp src))
-
-(define-syntax-rule (scm-frame-previous-sp dst)
-  (jit-subi dst reg-fp (imm (* 3 word-size))))
-
-(define-syntax-rule (scm-set-frame-previous-sp src)
-  (jit-stxi (imm #x8) reg-fp src))
-
-(define-syntax-rule (scm-frame-return-address dst)
-  (jit-ldxi dst reg-fp (make-negative-pointer word-size)))
-
-(define-syntax-rule (scm-set-frame-return-address src)
-  (jit-stxi (make-negative-pointer word-size) reg-fp src))
-
 
 ;;;
 ;;; SCM macros for control flow condition
@@ -389,8 +371,10 @@
 ;; Current thread.
 (define-inline reg-thread v2)
 
-;;; XXX: Will not work when `jit_v_num() < 4'.
 ;; Pointer to current scm_vm.
+;;
+;; XXX: Will not work in architectures having "jit_v_num() < 4"
+;;
 (define-inline reg-vp v3)
 
 
@@ -424,6 +408,24 @@
 
 (define-syntax-rule (vm-stack-limit dst)
   (jit-ldxi dst reg-vp (imm #x18)))
+
+(define-syntax-rule (scm-frame-dynamic-link dst)
+  (jit-ldxi dst reg-fp (make-negative-pointer (* 2 word-size))))
+
+(define-syntax-rule (scm-set-frame-dynamic-link src)
+  (jit-stxi (make-negative-pointer (* 2 word-size)) reg-fp src))
+
+(define-syntax-rule (scm-frame-previous-sp dst)
+  (jit-subi dst reg-fp (imm (* 3 word-size))))
+
+(define-syntax-rule (scm-set-frame-previous-sp src)
+  (jit-stxi (imm #x8) reg-fp src))
+
+(define-syntax-rule (scm-frame-return-address dst)
+  (jit-ldxi dst reg-fp (make-negative-pointer word-size)))
+
+(define-syntax-rule (scm-set-frame-return-address src)
+  (jit-stxi (make-negative-pointer word-size) reg-fp src))
 
 
 ;;;
@@ -461,13 +463,21 @@
   (syntax-rules ()
     ((local-ref st n)
      (local-ref st n r0))
+    ((local-ref st 0 reg)
+     (begin
+       (jit-ldr reg reg-fp)
+       reg))
     ((local-ref st n reg)
      (begin
        (jit-ldxi reg reg-fp (stored-ref st n))
        reg))))
 
-(define-syntax-rule (local-set! st dst reg)
-  (jit-stxi (stored-ref st dst) reg-fp reg))
+(define-syntax local-set!
+  (syntax-rules ()
+    ((_ st 0 reg)
+     (jit-str reg-fp reg))
+    ((_ st dst reg)
+     (jit-stxi (stored-ref st dst) reg-fp reg))))
 
 (define-syntax-rule (local-set!/immediate st dst val)
   (begin
@@ -531,17 +541,13 @@ argument in VM operation."
     ((_ n)
      (vm-reset-frame n r0))
     ((_ n tmp)
-     ;; (begin
-     ;;   (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
-     ;;   (vm-sync-sp))
      (let ((lexit (jit-forward)))
        (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
        (vm-sync-sp)
        (vm-sp-max-since-gc tmp)
        (jump (jit-bger tmp reg-sp) lexit)
        (vm-set-sp-max-since-gc reg-sp)
-       (jit-link lexit))
-     )))
+       (jit-link lexit)))))
 
 (define-syntax vm-alloc-frame
   (syntax-rules ()
@@ -632,6 +638,11 @@ can jump back. Two locals below proc get overwritten by the callee."
     (jit-link lexit)))
 
 (define-syntax-rule (vm-apply)
+  "Apply the procedure in local 0.
+
+Uses remaining locals as arguments passed to the local.  When local 0 is
+not a program, unwraps until it get a program, or show error.  This
+behaviour is similar to the `apply' label in vm-regular engine."
   (let ((lprogram (jit-forward))
         (lcompiled (jit-forward))
         (lunwrap (jit-forward))
@@ -641,8 +652,7 @@ can jump back. Two locals below proc get overwritten by the callee."
 
     (jit-ldxi r0 reg-fp (frame-local 0))
 
-    ;; Unwrap local to get procedure. Doing similar work done in
-    ;; vm-engine's label statement `apply:'.
+    ;; Unwrap local 0.
     (jit-link lunwrap)
     (jump (scm-imp r0) lerror)
     (scm-cell-type r2 r0)
@@ -699,8 +709,8 @@ can jump back. Two locals below proc get overwritten by the callee."
     (jit-pushargr r0)
     ;; (jit-calli %compile-lightning)
     (call-c "scm_compile_lightning")
-    (vm-cache-fp)
-    (vm-cache-fp)
+    ;; (vm-cache-fp)
+    ;; (vm-cache-sp)
     (jit-ldxi r0 reg-fp (frame-local 0))
 
     ;; Has compiled code.
@@ -739,8 +749,8 @@ can jump back. Two locals below proc get overwritten by the callee."
 
     (jit-link lexit)
 
-    ;; Move vp->fp once for boot continuation added in `scm_call_n',
-    ;; then reset the stack pointer and return address.
+    ;; Move `vp->fp' once for boot continuation, which was added in
+    ;; `scm_call_n', then reset the stack pointer and return address.
     (scm-frame-dynamic-link reg-fp)
     (vm-sync-fp)
     (scm-frame-previous-sp reg-sp)
@@ -1350,6 +1360,7 @@ can jump back. Two locals below proc get overwritten by the callee."
 
 (define-vm-op (tail-call/shuffle st from)
   (let ((lshuffle (jit-forward))
+        (lreset (jit-forward))
         (lexit (jit-forward)))
     (vm-handle-interrupts)
 
@@ -1361,16 +1372,25 @@ can jump back. Two locals below proc get overwritten by the callee."
     (jit-movi r0 (imm 0))
 
     (jit-link lshuffle)
-    (jump (jit-bger r0 r2) lexit)
+    (jump (jit-bger r0 r2) lreset)
     (jit-addi r1 r0 (imm (* from word-size)))
     (jit-addi r0 r0 (imm word-size))
     (jit-ldxr f0 reg-fp r1)
     (jit-stxr r0 reg-fp f0)
     (jump lshuffle)
 
-    (jit-link lexit)
+    (jit-link lreset)
     (jit-subi r0 r0 (imm (* 2 word-size)))
     (jit-addr reg-sp reg-fp r0)
+
+    ;; Doing similar thing to `vm-reset-frame', but reg-sp is already
+    ;; set to new value.
+    (vm-sync-sp)
+    (vm-sp-max-since-gc r0)
+    (jump (jit-bger r0 reg-sp) lexit)
+    (vm-set-sp-max-since-gc reg-sp)
+
+    (jit-link lexit)
     (vm-apply)))
 
 (define-vm-op (receive st dst proc nlocals)
@@ -1470,7 +1490,9 @@ can jump back. Two locals below proc get overwritten by the callee."
   (jit-jmpr r0))
 
 (define-vm-op (tail-apply st)
-  (let ((lshift (jit-forward))
+  (let ((llength (jit-forward))
+        (lalloc (jit-forward))
+        (lshift (jit-forward))
         (lshuffle (jit-forward))
         (lapply (jit-forward)))
 
@@ -1479,16 +1501,31 @@ can jump back. Two locals below proc get overwritten by the callee."
     (jit-subi reg-sp reg-sp (imm (* 2 word-size)))
 
     ;; Local offset for shifting.
-    (last-arg-offset st r0 r1)
-    (jit-movi r1 (stored-ref st 0))
+    (last-arg-offset st f0 r1)
+
+    ;; Load last local.
+    (jit-ldxr r0 reg-fp r2)
+
+    ;; Get list length, increase SP.
+    (jit-link llength)
+    (jump (scm-is-null r0) lalloc)
+    (jit-addi reg-sp reg-sp (imm word-size))
+    (scm-cdr r0 r0)
+    (jump llength)
+
+    (jit-link lalloc)
+    (vm-sync-sp)
+    (vm-alloc-frame)
+
+    (jit-movi r1 (imm 0))
 
     ;; Shift non-list locals.
     (jit-link lshift)
-    (jit-addi f0 r1 (imm word-size))
-    (jit-ldxr f0 reg-fp f0)
-    (jit-stxr r1 reg-fp f0)
+    (jit-addi r0 r1 (imm word-size))
+    (jit-ldxr r0 reg-fp r0)
+    (jit-stxr r1 reg-fp r0)
     (jit-addi r1 r1 (imm word-size))
-    (jump (jit-bler r1 r0) lshift)
+    (jump (jit-bler r1 f0) lshift)
 
     ;; Load last local.
     (jit-ldxr r0 reg-fp r2)
@@ -1500,12 +1537,10 @@ can jump back. Two locals below proc get overwritten by the callee."
     (jit-stxr r1 reg-fp f0)
     (scm-cdr r0 r0)
     (jit-addi r1 r1 (imm word-size))
-    (jit-addi reg-sp reg-sp (imm word-size))
     (jump lshuffle)
 
     ;; Jump to the callee.
     (jit-link lapply)
-    (vm-alloc-frame)
     (vm-apply)))
 
 ;;; XXX: call/cc
@@ -2596,7 +2631,6 @@ compiled result."
 
 (define (emit-run-lightning)
   "Emit native code used for vm-lightning runtime."
-
   (with-jit-state
    (jit-prolog)
    (let ((return-address (jit-movi r1 (imm 0))))
@@ -2613,11 +2647,9 @@ compiled result."
      (vm-cache-fp)
      (vm-cache-sp)
 
-     ;; ;; Dynamic link.
-     ;; (jit-stxi (make-negative-pointer (* 2 word-size)) reg-fp r0)
-
-     ;; Return address.
-     (jit-stxi (make-negative-pointer word-size) reg-fp r1)
+     ;; Initialize frame.
+     ;; (scm-set-frame-dynamic-link r0)
+     (scm-set-frame-return-address r1)
 
      ;; Apply the procedure.
      (vm-apply)
@@ -2629,9 +2661,8 @@ compiled result."
                  (imm run-lightning-code-size))
 
    ;; Emit and set executable flag.
-   (let ((fptr (jit-emit)))
-     (make-bytevector-executable! run-lightning-code)
-     fptr)))
+   (jit-emit)
+   (make-bytevector-executable! run-lightning-code)))
 
 (define (call-lightning proc . args)
   "Switch vm engine to vm-lightning temporary, run procedure PROC with

@@ -343,14 +343,14 @@ scm_compile_lightning (SCM proc)
  * Main function for vm-lightning
  */
 
-/* Type of function pointer containing runtime function */
+/* Type of function pointer of runtime function. */
 typedef SCM (*scm_i_vm_rt) (scm_i_thread *, struct scm_vm *,
                             scm_i_jmp_buf *registers, int resume);
 
-/* Function pointer of runtime function. This variable will be filled in
-   with JIT compiled code in scheme during initialization.  Note that
-   VM_NAME function need to be constant, the wrapper function below is
-   to satisfy this need. */
+/* Function pointer of runtime function. During initialization, this
+   variable will be filled in with JIT compiled code in scheme.  Note
+   that the VM_NAME function need to be constant, the wrapper function
+   below is to satisfy this need. */
 static scm_i_vm_rt scm_run_lightning;
 
 static SCM
