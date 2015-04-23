@@ -111,7 +111,10 @@
 (define-inline scm-applicable-struct-index-procedure 0)
 (define-inline scm-dynstack-prompt-escape-only 16)
 (define-inline scm-classf-goops 4096)
+
 (define-inline scm-undefined (make-pointer #x904))
+(define-inline scm-eol (scm->pointer '()))
+(define-inline scm-false (scm->pointer #f))
 
 
 ;;;
@@ -310,16 +313,16 @@
   (jit-bnei vt *values-vtable))
 
 (define-syntax-rule (scm-is-false obj)
-  (jit-beqi obj (scm->pointer #f)))
+  (jit-beqi obj scm-false))
 
 (define-syntax-rule (scm-is-true obj)
-  (jit-bnei obj (scm->pointer #f)))
+  (jit-bnei obj scm-false))
 
 (define-syntax-rule (scm-is-null obj)
-  (jit-beqi obj (scm->pointer '())))
+  (jit-beqi obj scm-eol))
 
 (define-syntax-rule (scm-is-not-null obj)
-  (jit-bnei obj (scm->pointer '())))
+  (jit-bnei obj scm-eol))
 
 (define-syntax-rule (scm-is-eqi obj val)
   (jit-beqi obj (imm val)))
@@ -508,20 +511,6 @@ argument in VM operation."
     ((_ condition label)
      (jit-patch-at condition label))))
 
-(define-syntax vm-return
-  (syntax-rules ()
-    ((_ st)
-     (vm-return st r0))
-    ((_ st reg)
-     (begin
-       ;; Get return address to jump
-       (jit-ldxi reg reg-fp (make-negative-pointer word-size))
-       ;; Restore previous dynamic link to current frame pointer
-       (jit-ldxi reg-fp reg-fp (make-negative-pointer (* 2 word-size)))
-       (vm-sync-fp)
-       ;; ... then jump to return address.
-       (jit-jmpr reg)))))
-
 (define-syntax vm-handle-interrupts
   (syntax-rules ()
     ((_)
@@ -530,11 +519,27 @@ argument in VM operation."
      (let ((lexit (jit-forward)))
        (vm-thread-pending-asyncs tmp)
        (jump (jit-bmci tmp (imm 1)) lexit)
+       ;; (jump (jit-bnei tmp (imm 1)) lexit)
        (jit-prepare)
        (call-c "scm_async_tick")
+       ;; (jit-retval tmp)
        (vm-cache-fp)
        (vm-cache-sp)
        (jit-link lexit)))))
+
+(define-syntax vm-return
+  (syntax-rules ()
+    ((_ st)
+     (vm-return st r0))
+    ((_ st tmp)
+     (begin
+       ;; Get return address to jump.
+       (scm-frame-return-address tmp)
+       ;; Restore previous dynamic link to current frame pointer.
+       (scm-frame-dynamic-link reg-fp)
+       (vm-sync-fp)
+       ;; ... then jump to return address.
+       (jit-jmpr tmp)))))
 
 (define-syntax vm-reset-frame
   (syntax-rules ()
@@ -633,9 +638,14 @@ can jump back. Two locals below proc get overwritten by the callee."
     (jit-addi reg-sp reg-sp (imm word-size))
     (scm-cdr tmp1 tmp1)
     (jump (scm-is-not-null tmp1) lshuffle)
-    (vm-sync-sp)
 
-    (jit-link lexit)))
+    (vm-sync-sp)
+    (vm-sp-max-since-gc r0)
+    (jump (jit-bger r0 reg-sp) lexit)
+    (vm-set-sp-max-since-gc reg-sp)
+
+    (jit-link lexit)
+    (vm-return st)))
 
 (define-syntax-rule (vm-apply)
   "Apply the procedure in local 0.
@@ -643,6 +653,7 @@ can jump back. Two locals below proc get overwritten by the callee."
 Uses remaining locals as arguments passed to the local.  When local 0 is
 not a program, unwraps until it get a program, or show error.  This
 behaviour is similar to the `apply' label in vm-regular engine."
+
   (let ((lprogram (jit-forward))
         (lcompiled (jit-forward))
         (lunwrap (jit-forward))
@@ -709,7 +720,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-pushargr r0)
     ;; (jit-calli %compile-lightning)
     (call-c "scm_compile_lightning")
-    ;; (vm-cache-fp)
+    (vm-cache-fp)
     ;; (vm-cache-sp)
     (jit-ldxi r0 reg-fp (frame-local 0))
 
@@ -729,7 +740,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jump (jit-beqi r2 (imm 0)) lexit)
 
     (jit-link lvalues)
-    (jit-movi r0 (scm->pointer '()))
+    (jit-movi r0 scm-eol)
     (jit-addi r1 r2 (imm 1))
     (jit-lshi r1 r1 (imm word-size-length))
     (jit-addi r1 r1 (frame-local 3))
@@ -853,10 +864,11 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define (wrong-type-apply proc)
   (scm-error 'wrong-type-arg #f "Wrong type to apply: ~S" `(,proc) `(,proc)))
 
+(define (%error-wrong-type-apply-proc proc)
+  (wrong-type-apply (pointer->scm proc)))
+
 (define %error-wrong-type-apply
-  (let ((f (lambda (proc)
-             (wrong-type-apply (pointer->scm proc)))))
-    (procedure->pointer '* f '(*))))
+  (procedure->pointer '* %error-wrong-type-apply-proc '(*)))
 
 (define-syntax-rule (error-wrong-type-apply proc)
   (begin
@@ -883,15 +895,14 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (call-c "scm_out_of_range")
     (jit-reti (scm->pointer *unspecified*))))
 
+(define (%error-wrong-num-values-proc nvalues)
+  (scm-error 'vm-error
+             'vm-lightning
+             "Wrong number of values returned to continuation (expected ~a)"
+             `(,nvalues) `(,nvalues)))
+
 (define %error-wrong-num-values
-  (procedure->pointer
-   '*
-   (lambda (nvalues)
-     (scm-error 'vm-error
-                'vm-lightning
-                "Wrong number of values returned to continuation (expected ~a)"
-                `(,nvalues) `(,nvalues)))
-   `(,int)))
+  (procedure->pointer '* %error-wrong-num-values-proc `(,int)))
 
 (define-syntax-rule (error-wrong-num-values nvalues)
   (begin
@@ -900,15 +911,14 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-calli %error-wrong-num-values)
     (jit-reti (scm->pointer *unspecified*))))
 
+(define (%error-too-few-values-proc)
+  (scm-error 'vm-error
+             'vm-lightning
+             "Too few values returned to continuation"
+             '() '()))
+
 (define %error-too-few-values
-  (procedure->pointer
-   '*
-   (lambda ()
-     (scm-error 'vm-error
-                'vm-lightning
-                "Too few values returned to continuation"
-                '() '()))
-   '()))
+  (procedure->pointer '* %error-too-few-values-proc '()))
 
 (define-syntax-rule (error-too-few-values)
   (begin
@@ -916,15 +926,14 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-calli %error-too-few-values)
     (jit-reti (scm->pointer *unspecified*))))
 
+(define (%error-no-values-proc)
+  (scm-error 'vm-error
+             'vm-lightning
+             "Zero values returned to single-valued continuation"
+             '() '()))
+
 (define %error-no-values
-  (procedure->pointer
-   '*
-   (lambda ()
-     (scm-error 'vm-error
-                'vm-lightning
-                "Zero values returned to single-valued continuation"
-                '() '()))
-   '()))
+  (procedure->pointer '* %error-no-values-proc '()))
 
 (define-syntax-rule (error-no-values)
   (begin
@@ -1448,8 +1457,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (vm-cache-fp)
     (vm-cache-sp)
     (local-set! st 1 r0)
-    (return-value-list st 0 r0 r1 r2 f0)
-    (vm-return st)))
+    (return-value-list st 0 r0 r1 r2 f0)))
 
 (define-vm-op (foreign-call st cif-idx ptr-idx)
   (local-ref st 0 r0)
@@ -1466,8 +1474,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (vm-cache-fp)
   (vm-cache-sp)
   (local-set! st 1 r0)
-  (return-value-list st 0 r0 r1 r2 f0)
-  (vm-return st))
+  (return-value-list st 0 r0 r1 r2 f0))
 
 ;;; XXX: continuation-call
 
@@ -1495,6 +1502,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lshift (jit-forward))
         (lshuffle (jit-forward))
         (lapply (jit-forward)))
+
+    ;; (vm-handle-interrupts)
 
     ;; Index for last local, a list containing rest of arguments.
     (last-arg-offset st r2 r0)
@@ -1527,7 +1536,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-addi r1 r1 (imm word-size))
     (jump (jit-bler r1 f0) lshift)
 
-    ;; Load last local.
+    ;; Load last local again.
     (jit-ldxr r0 reg-fp r2)
 
     ;; Expand list contents to local.
@@ -1634,6 +1643,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (bind-kwargs st nreq flags nreq-and-opt ntotal kw-offset)
   (jit-prepare)
+  (jit-pushargr reg-thread)
   (jit-pushargr reg-fp)
   (frame-locals-count r0)
   (jit-pushargr r0)
@@ -1649,6 +1659,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   ;; Allocate frame with returned value.
   (jit-lshi r0 r0 (imm word-size-length))
   (jit-addr reg-sp reg-fp r0)
+  ;; (vm-sync-sp)
   (vm-alloc-frame))
 
 (define-vm-op (bind-rest st dst)
@@ -1657,9 +1668,9 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lreset (jit-forward))
         (lexit (jit-forward)))
 
-    (frame-locals-count r2)
-    (jit-lshi r2 r2 (imm word-size-length)) ; r2 = last local index.
-    (jit-movi r1 (scm->pointer '()))        ; r1 = initial list.
+    (jit-subr r2 reg-sp reg-fp)
+    (jit-addi r2 r2 (imm word-size)) ; r2 = last local index.
+    (jit-movi r1 scm-eol)            ; r1 = initial list.
     (jit-movi f0 scm-undefined)
     (jump (jit-bgti r2 (imm (* dst word-size))) lcons)
 
@@ -1699,22 +1710,22 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define-vm-br-unary-immediate-op (br-if-true st a invert offset)
   ((if invert jit-beqi jit-bnei)
    (local-ref st a)
-   (scm->pointer #f)))
+   scm-false))
 
 (define-vm-br-unary-immediate-op (br-if-null st a invert offset)
   ((if invert jit-bnei jit-beqi)
    (local-ref st a)
-   (scm->pointer '())))
+   scm-eol))
 
 (define-vm-op (br-if-nil st a invert offset)
   (when (< offset 0)
     (vm-handle-interrupts))
   (local-ref st a r0)
-  (jit-movi r1 (imm (logior (pointer-address (scm->pointer #f))
-                            (pointer-address (scm->pointer '())))))
+  (jit-movi r1 (imm (logior (pointer-address scm-false)
+                            (pointer-address scm-eol))))
   (jit-comr r1 r1)
   (jit-andr r1 r0 r1)
-  (jump ((if invert jit-bnei jit-beqi) r1 (scm->pointer #f))
+  (jump ((if invert jit-bnei jit-beqi) r1 scm-false)
         (resolve-dst st offset)))
 
 (define-vm-br-unary-heap-object-op (br-if-pair st a invert offset)
@@ -1849,7 +1860,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (jit-link lnext)
     (when (< 0 nfree)
-      (jit-movi r1 (scm->pointer #f))
+      (jit-movi r1 scm-false)
       (for-each (lambda (n)
                   (scm-program-free-variable-set r0 n r1))
                 (iota nfree)))
@@ -2513,6 +2524,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (lambda (port)
       (put-bytevector port (pointer->bytevector pointer (jit-code-size))))))
 
+(define space-string ": ")
+
 (define (assemble-lightning st entry)
   "Assemble with STATE, using ENTRY as entry of the result."
   (define-syntax-rule (destination-label st)
@@ -2520,6 +2533,13 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
   (define-syntax-rule (destination-handler st)
     (hashq-ref (lightning-handlers st) (lightning-ip st)))
+
+  (define-syntax-rule (scm-display obj)
+    (begin
+      (jit-prepare)
+      (jit-pushargi (scm->pointer obj))
+      (jit-pushargi scm-undefined)
+      (call-c "scm_display")))
 
   (define-syntax-rule (assemble-one st ip-x-op)
     (let* ((ip (car ip-x-op))
@@ -2531,11 +2551,11 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (let ((verbosity (lightning-verbosity)))
           (when (and verbosity (<= 3 verbosity))
             (jit-note (format #f "~a" op) (lightning-ip st)))
+
           (when (and verbosity (<= 5 verbosity))
-            (jit-prepare)
-            (jit-pushargi (scm->pointer op))
-            (jit-pushargi scm-undefined)
-            (call-c "scm_display")
+            (scm-display (offset-addr st 0))
+            (scm-display space-string)
+            (scm-display op)
             (jit-prepare)
             (jit-pushargi scm-undefined)
             (call-c "scm_newline")))
@@ -2636,8 +2656,10 @@ compiled result."
    (let ((return-address (jit-movi r1 (imm 0))))
 
      ;; Get arguments.
-     (jit-getarg reg-thread (jit-arg)) ; thread
-     (jit-getarg reg-vp (jit-arg))     ; vp
+     (jit-getarg reg-thread (jit-arg))  ; thread
+     (jit-getarg reg-vp (jit-arg))      ; vp
+     (jit-getarg r0 (jit-arg))          ; registers, currently unused.
+     (jit-getarg r0 (jit-arg))          ; resume, currently unused.
 
      ;; Save frame pointer before caching registers.
      (jit-movr v1 reg-fp)
@@ -2659,10 +2681,7 @@ compiled result."
    (jit-realize)
    (jit-set-code (bytevector->pointer run-lightning-code)
                  (imm run-lightning-code-size))
-
-   ;; Emit and set executable flag.
-   (jit-emit)
-   (make-bytevector-executable! run-lightning-code)))
+   (jit-emit)))
 
 (define (call-lightning proc . args)
   "Switch vm engine to vm-lightning temporary, run procedure PROC with
@@ -2682,6 +2701,7 @@ arguments ARGS."
 
 (init-jit "")
 (emit-run-lightning)
+(make-bytevector-executable! run-lightning-code)
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_lightning")

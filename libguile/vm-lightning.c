@@ -229,7 +229,7 @@ scm_t_bits scm_do_reinstate_partial_continuation (scm_i_thread *thread,
 
 /* XXX: Mostly duplicating with vm-engine.c  */
 scm_t_uint32
-scm_do_bind_kwargs (scm_t_uintptr *fp,
+scm_do_bind_kwargs (scm_i_thread *thread, scm_t_uintptr *fp,
                     scm_t_uint32 nargs, scm_t_uint32 *ip,
                     scm_t_uint32 nreq, char flags,
                     scm_t_uint32 nreq_and_opt, scm_t_uint32 ntotal,
@@ -314,8 +314,7 @@ scm_do_bind_kwargs (scm_t_uintptr *fp,
       SCM rest = SCM_EOL;
       n = nkw;
       while (n--)
-        rest = scm_cons (LOCAL_REF (ntotal + n), rest);
-        /* rest = scm_inline_cons (thread, LOCAL_REF (ntotal + n), rest); */
+        rest = scm_inline_cons (thread, LOCAL_REF (ntotal + n), rest);
       LOCAL_SET (nreq_and_opt, rest);
     }
 
@@ -344,7 +343,7 @@ scm_compile_lightning (SCM proc)
  */
 
 /* Type of function pointer of runtime function. */
-typedef SCM (*scm_i_vm_rt) (scm_i_thread *, struct scm_vm *,
+typedef SCM (*scm_i_vm_rt) (scm_i_thread *thread, struct scm_vm *vp,
                             scm_i_jmp_buf *registers, int resume);
 
 /* Function pointer of runtime function. During initialization, this

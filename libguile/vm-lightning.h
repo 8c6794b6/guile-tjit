@@ -56,7 +56,8 @@ SCM_API scm_t_bits scm_do_reinstate_partial_continuation (scm_i_thread *thread,
                                                           SCM cont, size_t n,
                                                           SCM *argv);
 
-SCM_API scm_t_uint32 scm_do_bind_kwargs(scm_t_uintptr *fp,
+SCM_API scm_t_uint32 scm_do_bind_kwargs(scm_i_thread *thread,
+                                        scm_t_uintptr *fp,
                                         scm_t_uint32 nargs, scm_t_uint32 *ip,
                                         scm_t_uint32 nreq, char flags,
                                         scm_t_uint32 nreq_and_opt,

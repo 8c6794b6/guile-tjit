@@ -1315,4 +1315,8 @@
 (define-test (t-compile-value-1 expr) (letrec-fib-expr)
   (compile expr #:to 'value))
 
+;;;
+;;; GC tests
+;;;
+
 (test-end "vm-lightning-test")
