@@ -112,9 +112,9 @@
 (define-inline scm-dynstack-prompt-escape-only 16)
 (define-inline scm-classf-goops 4096)
 
-(define-inline scm-undefined (make-pointer #x904))
-(define-inline scm-eol (scm->pointer '()))
-(define-inline scm-false (scm->pointer #f))
+(define scm-undefined (make-pointer #x904))
+(define scm-eol (scm->pointer '()))
+(define scm-false (scm->pointer #f))
 
 
 ;;;
@@ -369,16 +369,11 @@
 ;; Stack pointer.
 (define-inline reg-sp v0)
 
-;; Register `v1' is used for storeing previous value of `jit-fp'.
+;; Pointer to current `struct scm_vm* vp'.
+(define-inline reg-vp v1)
 
 ;; Current thread.
 (define-inline reg-thread v2)
-
-;; Pointer to current scm_vm.
-;;
-;; XXX: Will not work in architectures having "jit_v_num() < 4"
-;;
-(define-inline reg-vp v3)
 
 
 ;;;
@@ -519,10 +514,8 @@ argument in VM operation."
      (let ((lexit (jit-forward)))
        (vm-thread-pending-asyncs tmp)
        (jump (jit-bmci tmp (imm 1)) lexit)
-       ;; (jump (jit-bnei tmp (imm 1)) lexit)
        (jit-prepare)
        (call-c "scm_async_tick")
-       ;; (jit-retval tmp)
        (vm-cache-fp)
        (vm-cache-sp)
        (jit-link lexit)))))
@@ -590,7 +583,7 @@ argument in VM operation."
 
 Stack poionter stored in reg-fp increased for `proc * word' size to
 shift the locals.  Then patch the address after the jump, so that callee
-can jump back. Two locals below proc get overwritten by the callee."
+can jump back.  Two locals below proc get overwritten by the callee."
     ((_ st proc nlocals body)
      (with-frame st r0 proc nlocals body))
     ((_ st tmp proc nlocals body)
@@ -600,7 +593,7 @@ can jump back. Two locals below proc get overwritten by the callee."
        ;; Store dynamic link.
        (jit-stxi (stored-ref st (- proc 2)) reg-fp reg-fp)
        ;; Shift frame pointer.
-       (jit-addi reg-fp reg-fp (imm (* word-size proc)))
+       (jit-addi reg-fp reg-fp (imm (* proc word-size)))
        (vm-sync-fp)
        ;; Shift stack pointer.
        (vm-reset-frame nlocals tmp)
@@ -692,6 +685,9 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (last-arg-offset st r1 r2)
     (jit-addi reg-sp reg-sp (imm word-size))
     (vm-sync-sp)
+    (vm-sp-max-since-gc r0)
+    (jump (jit-bger r0 reg-sp) lshuffle)
+    (vm-set-sp-max-since-gc reg-sp)
 
     (jit-link lshuffle)
     (jit-ldxr r2 reg-fp r1)
@@ -711,17 +707,17 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-link lerror)
     (error-wrong-type-apply r0)
 
-    ;; Local is program, look for native code.
+    ;; Local is program, test for native code.
     (jit-link lprogram)
     (jump (scm-program-is-jit-compiled r2) lcompiled)
 
-    ;; Does not have compiled code, compile the callee procedure.
+    ;; Does not have native code, compile the callee procedure.
     (jit-prepare)
     (jit-pushargr r0)
     ;; (jit-calli %compile-lightning)
     (call-c "scm_compile_lightning")
     (vm-cache-fp)
-    ;; (vm-cache-sp)
+    (vm-cache-sp)
     (jit-ldxi r0 reg-fp (frame-local 0))
 
     ;; Has compiled code.
@@ -760,8 +756,11 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (jit-link lexit)
 
-    ;; Move `vp->fp' once for boot continuation, which was added in
-    ;; `scm_call_n', then reset the stack pointer and return address.
+    ;; Original contents of jit-fp, used by lightning.
+    (jit-ldr r2 reg-fp)
+
+    ;; Move `vp->fp' once for boot continuation added in `scm_call_n',
+    ;; then reset the stack pointer and return address.
     (scm-frame-dynamic-link reg-fp)
     (vm-sync-fp)
     (scm-frame-previous-sp reg-sp)
@@ -770,7 +769,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (scm-set-frame-return-address r1)
 
     ;; Restore frame pointer for lightning.
-    (jit-movr reg-fp v1)
+    (jit-movr reg-fp r2)
 
     ;; Return from native code.
     (jit-retr r0)))
@@ -1478,23 +1477,23 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 ;;; XXX: continuation-call
 
-(define-vm-op (compose-continuation st cont)
-  (local-ref st cont r0)
-  (scm-program-free-variable-ref r0 r0 0)
+;; (define-vm-op (compose-continuation st cont)
+;;   (local-ref st cont r0)
+;;   (scm-program-free-variable-ref r0 r0 0)
 
-  ;; XXX: Call to C function not yet complete.
-  (jit-prepare)
-  (jit-pushargr reg-thread)
-  (jit-pushargr r0)
-  (frame-locals-count r1)
-  (jit-subi r1 r1 (imm 1))
-  (jit-pushargr r1)
-  (jit-pushargi (stored-ref st 1))
-  (call-c "scm_do_reinstate_partial_continuation")
-  (jit-retval r0)
+;;   ;; XXX: Call to C function not yet complete.
+;;   (jit-prepare)
+;;   (jit-pushargr reg-thread)
+;;   (jit-pushargr r0)
+;;   (frame-locals-count r1)
+;;   (jit-subi r1 r1 (imm 1))
+;;   (jit-pushargr r1)
+;;   (jit-pushargi (stored-ref st 1))
+;;   (call-c "scm_do_reinstate_partial_continuation")
+;;   (jit-retval r0)
 
-  ;; Jump to the adress stored in `vm-cont'.
-  (jit-jmpr r0))
+;;   ;; Jump to the adress stored in `vm-cont'.
+;;   (jit-jmpr r0))
 
 (define-vm-op (tail-apply st)
   (let ((llength (jit-forward))
@@ -1503,7 +1502,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lshuffle (jit-forward))
         (lapply (jit-forward)))
 
-    ;; (vm-handle-interrupts)
+    (vm-handle-interrupts)
 
     ;; Index for last local, a list containing rest of arguments.
     (last-arg-offset st r2 r0)
@@ -1554,34 +1553,34 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 ;;; XXX: call/cc
 
-(define-vm-op (abort st)
-  ;; Retuan address for partial continuation, used when reifying
-  ;; the continuation.
-  (let ((ra (jit-movi r1 (imm 0))))
-    (jit-prepare)
-    (jit-pushargr reg-thread)
-    (local-ref st 1 r0)
-    (jit-pushargr r0)
-    (frame-locals-count r0)
-    (jit-subi r0 r0 (imm 2))
-    (jit-pushargr r0)
-    (jit-addi r0 reg-fp (imm (* 2 word-size)))
-    (jit-pushargr r0)
-    (jit-pushargr r1)
-    (call-c "scm_do_abort")
-    (jit-retval r0)
+;; (define-vm-op (abort st)
+;;   ;; Retuan address for partial continuation, used when reifying
+;;   ;; the continuation.
+;;   (let ((ra (jit-movi r1 (imm 0))))
+;;     (jit-prepare)
+;;     (jit-pushargr reg-thread)
+;;     (local-ref st 1 r0)
+;;     (jit-pushargr r0)
+;;     (frame-locals-count r0)
+;;     (jit-subi r0 r0 (imm 2))
+;;     (jit-pushargr r0)
+;;     (jit-addi r0 reg-fp (imm (* 2 word-size)))
+;;     (jit-pushargr r0)
+;;     (jit-pushargr r1)
+;;     (call-c "scm_do_abort")
+;;     (jit-retval r0)
 
-    ;; Load values set in C function: address of handler, reg-sp, and
-    ;; reg-fp.
-    (scm-cell-object r1 r0 0)
-    (scm-cell-object reg-sp r0 1)
-    (scm-cell-object reg-fp r0 2)
+;;     ;; Load values set in C function: address of handler, reg-sp, and
+;;     ;; reg-fp.
+;;     (scm-cell-object r1 r0 0)
+;;     (scm-cell-object reg-sp r0 1)
+;;     (scm-cell-object reg-fp r0 2)
 
-    ;; Jump to the handler.
-    (jit-jmpr r1)
+;;     ;; Jump to the handler.
+;;     (jit-jmpr r1)
 
-    ;; The address for partial continuation to return.
-    (jit-patch ra)))
+;;     ;; The address for partial continuation to return.
+;;     (jit-patch ra)))
 
 (define-vm-op (builtin-ref st dst src)
   (jit-prepare)
@@ -1617,9 +1616,9 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lexit (jit-forward)))
 
     (frame-locals-count r1)
+    (vm-alloc-frame nlocals)
     (jit-lshi r1 r1 (imm word-size-length))
     (jit-movi r2 (imm (* nlocals word-size)))
-    (vm-alloc-frame nlocals)
     (jit-movi r0 scm-undefined)
 
     ;; Using r2 as offset of location to store.
@@ -1659,20 +1658,22 @@ behaviour is similar to the `apply' label in vm-regular engine."
   ;; Allocate frame with returned value.
   (jit-lshi r0 r0 (imm word-size-length))
   (jit-addr reg-sp reg-fp r0)
-  ;; (vm-sync-sp)
+  (vm-sync-sp)
   (vm-alloc-frame))
 
 (define-vm-op (bind-rest st dst)
   (let ((lrefill (jit-forward))
+        (lprecons (jit-forward))
         (lcons (jit-forward))
         (lreset (jit-forward))
         (lexit (jit-forward)))
 
+    ;; Initialize some values.
     (jit-subr r2 reg-sp reg-fp)
     (jit-addi r2 r2 (imm word-size)) ; r2 = last local index.
     (jit-movi r1 scm-eol)            ; r1 = initial list.
     (jit-movi f0 scm-undefined)
-    (jump (jit-bgti r2 (imm (* dst word-size))) lcons)
+    (jump (jit-bgti r2 (imm (* dst word-size))) lprecons)
 
     ;; Refill the locals with SCM_UNDEFINED.
     (vm-alloc-frame (+ dst 1))
@@ -1684,15 +1685,20 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jump lrefill)
 
     ;; Create a list.
+    (jit-link lprecons)
+    (jit-movr r0 r1)
+    (jit-movi r1 scm-false)
+
     (jit-link lcons)
     (jump (jit-blei r2 (imm (* dst word-size))) lreset)
     (jit-subi r2 r2 (imm word-size))
-    (jit-ldxr r0 reg-fp r2)
+    (jit-ldxr r1 reg-fp r2)
+    (scm-inline-cons r0 r1 r0)
     (jit-stxr r2 reg-fp f0)
-    (scm-inline-cons r1 r0 r1)
     (jump lcons)
 
     (jit-link lreset)
+    (jit-movr r1 r0)
     (vm-reset-frame (+ dst 1))
 
     (jit-link lexit)
@@ -2004,25 +2010,25 @@ behaviour is similar to the `apply' label in vm-regular engine."
 ;;; `SCM_I_SETJMP' is called at near the end of `scm_call_n', just
 ;;; before calling the implementation.
 
-(define-vm-op (prompt st tag escape-only? proc-slot handler-offset)
-  (let ((handler-addr (jit-movi r1 (imm 0))))
+;; (define-vm-op (prompt st tag escape-only? proc-slot handler-offset)
+;;   (let ((handler-addr (jit-movi r1 (imm 0))))
 
-    ;; Store address of handler-offset's bytecode IP.
-    (hashq-set! (lightning-handlers st)
-                (+ (lightning-ip st) handler-offset)
-                handler-addr)
+;;     ;; Store address of handler-offset's bytecode IP.
+;;     (hashq-set! (lightning-handlers st)
+;;                 (+ (lightning-ip st) handler-offset)
+;;                 handler-addr)
 
-    (jit-prepare)
-    (jit-pushargr reg-thread)
-    (jit-pushargi (if escape-only?
-                      (imm scm-dynstack-prompt-escape-only)
-                      (imm 0)))
-    (jit-pushargr (local-ref st tag))
-    (jit-pushargr reg-fp)
-    (jit-pushargi (stored-ref st proc-slot))
-    (jit-pushargr r1)
-    (jit-pushargi (imm 0))
-    (call-c "scm_do_dynstack_push_prompt")))
+;;     (jit-prepare)
+;;     (jit-pushargr reg-thread)
+;;     (jit-pushargi (if escape-only?
+;;                       (imm scm-dynstack-prompt-escape-only)
+;;                       (imm 0)))
+;;     (jit-pushargr (local-ref st tag))
+;;     (jit-pushargr reg-fp)
+;;     (jit-pushargi (stored-ref st proc-slot))
+;;     (jit-pushargr r1)
+;;     (jit-pushargi (imm 0))
+;;     (call-c "scm_do_dynstack_push_prompt")))
 
 (define-vm-op (wind st winder unwinder)
   (jit-prepare)
@@ -2662,20 +2668,27 @@ compiled result."
      (jit-getarg r0 (jit-arg))          ; resume, currently unused.
 
      ;; Save frame pointer before caching registers.
-     (jit-movr v1 reg-fp)
-     ;; (jit-movr r0 reg-fp)
+     (jit-movr r0 reg-fp)
 
      ;; Cache registers.
      (vm-cache-fp)
      (vm-cache-sp)
 
-     ;; Initialize frame.
-     ;; (scm-set-frame-dynamic-link r0)
+     ;; Store original contents of jit-fp to the address used for
+     ;; vm_boot_continuation_code, since boot continuation code is not
+     ;; used by this engine.
+     (jit-stxi (make-negative-pointer (* 3 word-size)) reg-fp r0)
+
+     ;; Store return address.
      (scm-set-frame-return-address r1)
 
      ;; Apply the procedure.
      (vm-apply)
+
+     ;; Mark the return address for callee to return.
      (jit-patch return-address)
+
+     ;; Back from native code, return the values and halt.
      (halt))
    (jit-epilog)
    (jit-realize)

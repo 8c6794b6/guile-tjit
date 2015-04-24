@@ -329,7 +329,7 @@ static SCM compile_lightning_var;
 
 SCM_API void scm_compile_lightning (SCM proc);
 
-SCM_API void
+void
 scm_compile_lightning (SCM proc)
 {
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
@@ -342,16 +342,16 @@ scm_compile_lightning (SCM proc)
  * Main function for vm-lightning
  */
 
-/* Type of function pointer of runtime function. */
 typedef SCM (*scm_i_vm_rt) (scm_i_thread *thread, struct scm_vm *vp,
                             scm_i_jmp_buf *registers, int resume);
 
 /* Function pointer of runtime function. During initialization, this
-   variable will be filled in with JIT compiled code in scheme.  Note
-   that the VM_NAME function need to be constant, the wrapper function
-   below is to satisfy this need. */
+   variable will be filled in with JIT compiled native code in
+   scheme.  */
 static scm_i_vm_rt scm_run_lightning;
 
+/* Since it is a member of constant array for VM engines, function
+   VM_NAME need to be a constant. */
 static SCM
 VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
          scm_i_jmp_buf *registers, int resume)

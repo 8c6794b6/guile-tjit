@@ -295,6 +295,7 @@
      (proc (lambda () (abort-to-prompt 'foo))))
    (lambda (k) 'aborted)))
 
+(test-skip 1)
 (define-test (t-abort-negative-1 x) (1)
   (my-call-ec
    (lambda (return)
@@ -1274,15 +1275,19 @@
     ((_ x y)
      (list x y))))
 
+(test-skip 1)
 (define-test (t-macroexpand-2 expr) ('(my-syntax))
   (macroexpand expr))
 
+(test-skip 1)
 (define-test (t-macroexpand-3 expr) ('(my-syntax 99))
   (macroexpand expr))
 
+(test-skip 1)
 (define-test (t-macroexpand-4 expr) ('(my-syntax 98 99))
   (macroexpand expr))
 
+(test-skip 1)
 (define-test (t-primitive-eval-1 expr) ('(+ 1 (* 2 3)))
   (primitive-eval expr))
 
@@ -1294,12 +1299,15 @@
                           (fib (- n 2)))))))
      (fib 10)))
 
+(test-skip 1)
 (define-test (t-primitive-eval-2 expr) (letrec-fib-expr)
   (primitive-eval expr))
 
+(test-skip 1)
 (define-test (t-compile-tree-il expr) ('(+ 1 2 3))
   (compile expr #:to 'tree-il))
 
+(test-skip 1)
 (define-test (t-compile-cps-1 expr) ('(+ 1 2 3))
   (compile expr #:to 'cps))
 
@@ -1314,6 +1322,7 @@
 (test-skip 1)
 (define-test (t-compile-value-1 expr) (letrec-fib-expr)
   (compile expr #:to 'value))
+
 
 ;;;
 ;;; GC tests
