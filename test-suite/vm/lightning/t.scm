@@ -295,7 +295,6 @@
      (proc (lambda () (abort-to-prompt 'foo))))
    (lambda (k) 'aborted)))
 
-(test-skip 1)
 (define-test (t-abort-negative-1 x) (1)
   (my-call-ec
    (lambda (return)

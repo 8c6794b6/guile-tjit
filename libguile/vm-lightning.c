@@ -220,6 +220,18 @@ scm_do_abort (scm_i_thread *thread, SCM tag, size_t nstack,
 #undef LOCAL_REF
 }
 
+SCM_API void scm_do_vm_abort (struct scm_vm *vp, SCM tag,
+                              size_t nstack, SCM *stack_args, SCM tail,
+                              SCM *sp, scm_i_jmp_buf *current_registers);
+
+void
+scm_do_vm_abort (struct scm_vm *vp, SCM tag,
+                 size_t nstack, SCM *stack_args, SCM tail,
+                 SCM *sp, scm_i_jmp_buf *current_registers)
+{
+  vm_abort (vp, tag, nstack, stack_args, tail, sp, current_registers);
+}
+
 scm_t_bits scm_do_reinstate_partial_continuation (scm_i_thread *thread,
                                                   SCM cont, size_t n, SCM *argv)
 {

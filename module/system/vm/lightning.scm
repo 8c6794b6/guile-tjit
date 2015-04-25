@@ -375,6 +375,9 @@
 ;; Current thread.
 (define-inline reg-thread v2)
 
+;; Registers, used by prompt.
+(define-inline reg-registers f4)
+
 
 ;;;
 ;;; Macros for specific registers
@@ -403,6 +406,9 @@
 
 (define-syntax-rule (vm-set-sp-max-since-gc src)
   (jit-stxi (imm #x28) reg-vp src))
+
+(define-syntax-rule (vm-stack-base dst)
+  (jit-ldxi dst reg-vp (imm #x38)))
 
 (define-syntax-rule (vm-stack-limit dst)
   (jit-ldxi dst reg-vp (imm #x18)))
@@ -1553,6 +1559,21 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 ;;; XXX: call/cc
 
+(define-vm-op (abort st)
+  (jit-prepare)
+  (jit-pushargr reg-vp)        ; *vp
+  (local-ref st 1 r0)
+  (jit-pushargr r0)            ; tag
+  (frame-locals-count r0)
+  (jit-subi r0 r0 (imm 2))
+  (jit-pushargr r0)            ; nstack
+  (jit-addi r0 reg-fp (imm (* 2 word-size)))
+  (jit-pushargr r0)            ; *stack_args
+  (jit-pushargi scm-eol)       ; tail
+  (jit-pushargi reg-fp)        ; *sp
+  (jit-pushargr reg-registers) ; registers
+  (call-c "scm_do_vm_abort"))
+
 ;; (define-vm-op (abort st)
 ;;   ;; Retuan address for partial continuation, used when reifying
 ;;   ;; the continuation.
@@ -2010,25 +2031,31 @@ behaviour is similar to the `apply' label in vm-regular engine."
 ;;; `SCM_I_SETJMP' is called at near the end of `scm_call_n', just
 ;;; before calling the implementation.
 
-;; (define-vm-op (prompt st tag escape-only? proc-slot handler-offset)
-;;   (let ((handler-addr (jit-movi r1 (imm 0))))
+(define-vm-op (prompt st tag escape-only? proc-slot handler-offset)
+  (let ((handler-addr (jit-movi r1 (imm 0)))
+        (flags (if escape-only?
+                   scm-dynstack-prompt-escape-only
+                   0)))
 
-;;     ;; Store address of handler-offset's bytecode IP.
-;;     (hashq-set! (lightning-handlers st)
-;;                 (+ (lightning-ip st) handler-offset)
-;;                 handler-addr)
+    ;; Store address of handler-offset's bytecode IP.
+    (hashq-set! (lightning-handlers st)
+                (+ (lightning-ip st) handler-offset)
+                handler-addr)
 
-;;     (jit-prepare)
-;;     (jit-pushargr reg-thread)
-;;     (jit-pushargi (if escape-only?
-;;                       (imm scm-dynstack-prompt-escape-only)
-;;                       (imm 0)))
-;;     (jit-pushargr (local-ref st tag))
-;;     (jit-pushargr reg-fp)
-;;     (jit-pushargi (stored-ref st proc-slot))
-;;     (jit-pushargr r1)
-;;     (jit-pushargi (imm 0))
-;;     (call-c "scm_do_dynstack_push_prompt")))
+    (jit-prepare)
+    (jit-pushargr reg-thread)           ; thread
+    (jit-pushargi (imm flags))          ; flags
+    (local-ref st tag r0)
+    (jit-pushargr r0)                   ; key
+    (vm-stack-base r2)
+    (jit-subr r0 reg-fp r2)
+    (jit-pushargr r0)                   ; fp_offset
+    (jit-addi r0 reg-fp (stored-ref st proc-slot))
+    (jit-subr r0 r0 r2)
+    (jit-pushargr r0)                   ; sp_offset
+    (jit-pushargr r1)                   ; ip
+    (jit-pushargr reg-registers)        ; `registers', from arguments.
+    (call-c "scm_do_dynstack_push_prompt")))
 
 (define-vm-op (wind st winder unwinder)
   (jit-prepare)
@@ -2659,24 +2686,35 @@ compiled result."
   "Emit native code used for vm-lightning runtime."
   (with-jit-state
    (jit-prolog)
-   (let ((return-address (jit-movi r1 (imm 0))))
+   (let ((lgo (jit-forward))
+         (return-address (jit-movi r1 (imm 0))))
 
      ;; Get arguments.
-     (jit-getarg reg-thread (jit-arg))  ; thread
-     (jit-getarg reg-vp (jit-arg))      ; vp
-     (jit-getarg r0 (jit-arg))          ; registers, currently unused.
-     (jit-getarg r0 (jit-arg))          ; resume, currently unused.
+     (jit-getarg reg-thread (jit-arg))    ; thread
+     (jit-getarg reg-vp (jit-arg))        ; vp
+     (jit-getarg reg-registers (jit-arg)) ; registers, for prompt.
+     (jit-getarg r2 (jit-arg))            ; resume.
 
-     ;; Save frame pointer before caching registers.
+     ;; Test for resume from non-local exit.  When resumed from
+     ;; non-local exit, jump to the handler.
+     (jump (jit-bmci r2 (imm 1)) lgo)
+     (vm-cache-fp)
+     (vm-cache-sp)
+     (jit-ldr r0 reg-vp)
+     (jit-jmpr r0)
+
+     ;; Procedure application, do the work with callee procedure.
+     (jit-link lgo)
+
+     ;; Before caching registers from the argument `vp', save the
+     ;; original frame pointer used by lightning.
      (jit-movr r0 reg-fp)
-
-     ;; Cache registers.
      (vm-cache-fp)
      (vm-cache-sp)
 
      ;; Store original contents of jit-fp to the address used for
-     ;; vm_boot_continuation_code, since boot continuation code is not
-     ;; used by this engine.
+     ;; vm_boot_continuation_code, boot continuation code is unused in
+     ;; this engine.
      (jit-stxi (make-negative-pointer (* 3 word-size)) reg-fp r0)
 
      ;; Store return address.
@@ -2685,10 +2723,10 @@ compiled result."
      ;; Apply the procedure.
      (vm-apply)
 
-     ;; Mark the return address for callee to return.
+     ;; Path the address for callee to return.
      (jit-patch return-address)
 
-     ;; Back from native code, return the values and halt.
+     ;; Back from callee, return the values and halt.
      (halt))
    (jit-epilog)
    (jit-realize)
