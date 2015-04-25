@@ -392,11 +392,11 @@
 (define-syntax-rule (vm-cache-fp)
   (jit-ldxi reg-fp reg-vp (imm #x10)))
 
-(define-syntax-rule (vm-cache-sp)
-  (jit-ldxi reg-sp reg-vp (imm #x8)))
-
 (define-syntax-rule (vm-sync-fp)
   (jit-stxi (imm #x10) reg-vp reg-fp))
+
+(define-syntax-rule (vm-cache-sp)
+  (jit-ldxi reg-sp reg-vp (imm #x8)))
 
 (define-syntax-rule (vm-sync-sp)
   (jit-stxi (imm #x8) reg-vp reg-sp))
@@ -1570,9 +1570,13 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-addi r0 reg-fp (imm (* 2 word-size)))
   (jit-pushargr r0)            ; *stack_args
   (jit-pushargi scm-eol)       ; tail
-  (jit-pushargi reg-fp)        ; *sp
+  (jit-pushargr reg-fp)        ; *sp
   (jit-pushargr reg-registers) ; registers
-  (call-c "scm_do_vm_abort"))
+  (call-c "scm_do_vm_abort")
+
+  ;; Should not reach here.
+  (jit-prepare)
+  (call-c "abort"))
 
 ;; (define-vm-op (abort st)
 ;;   ;; Retuan address for partial continuation, used when reifying
@@ -2049,9 +2053,9 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-pushargr r0)                   ; key
     (vm-stack-base r2)
     (jit-subr r0 reg-fp r2)
+    (jit-rshi r0 r0 (imm word-size-length))
     (jit-pushargr r0)                   ; fp_offset
-    (jit-addi r0 reg-fp (stored-ref st proc-slot))
-    (jit-subr r0 r0 r2)
+    (jit-addi r0 r0 (imm proc-slot))
     (jit-pushargr r0)                   ; sp_offset
     (jit-pushargr r1)                   ; ip
     (jit-pushargr reg-registers)        ; `registers', from arguments.
@@ -2686,35 +2690,34 @@ compiled result."
   "Emit native code used for vm-lightning runtime."
   (with-jit-state
    (jit-prolog)
-   (let ((lgo (jit-forward))
+   (let ((lapply (jit-forward))
          (return-address (jit-movi r1 (imm 0))))
 
      ;; Get arguments.
      (jit-getarg reg-thread (jit-arg))    ; thread
      (jit-getarg reg-vp (jit-arg))        ; vp
      (jit-getarg reg-registers (jit-arg)) ; registers, for prompt.
-     (jit-getarg r2 (jit-arg))            ; resume.
+     (jit-getarg r0 (jit-arg))            ; resume.
 
-     ;; Test for resume from non-local exit.  When resumed from
-     ;; non-local exit, jump to the handler.
-     (jump (jit-bmci r2 (imm 1)) lgo)
+     ;; Test for resume.
+     (jump (jit-bmci r0 (imm 1)) lapply)
+
+     ;; Resuming from non-local exit, jump to the handler.
      (vm-cache-fp)
      (vm-cache-sp)
      (jit-ldr r0 reg-vp)
      (jit-jmpr r0)
 
-     ;; Procedure application, do the work with callee procedure.
-     (jit-link lgo)
+     ;; Procedure application.
+     (jit-link lapply)
 
      ;; Before caching registers from the argument `vp', save the
-     ;; original frame pointer used by lightning.
+     ;; original frame pointer used by lightning, then store to the
+     ;; address used for vm_boot_continuation_code, boot continuation
+     ;; code is unused in this engine.
      (jit-movr r0 reg-fp)
      (vm-cache-fp)
      (vm-cache-sp)
-
-     ;; Store original contents of jit-fp to the address used for
-     ;; vm_boot_continuation_code, boot continuation code is unused in
-     ;; this engine.
      (jit-stxi (make-negative-pointer (* 3 word-size)) reg-fp r0)
 
      ;; Store return address.
@@ -2723,7 +2726,7 @@ compiled result."
      ;; Apply the procedure.
      (vm-apply)
 
-     ;; Path the address for callee to return.
+     ;; Patch the address for callee to return.
      (jit-patch return-address)
 
      ;; Back from callee, return the values and halt.

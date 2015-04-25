@@ -300,13 +300,11 @@
    (lambda (return)
      (if (< 0 x) x (return)))))
 
-(test-skip 1)
 (define-test (t-abort-negative-2 x) (-1)
   (my-call-ec
    (lambda (return)
      (if (< 0 x) x (return)))))
 
-(test-skip 1)
 (define-test (t-abort-and-return-arg2 proc x) ((lambda (re) (re)) 'bar)
   (call-with-prompt
    'foo
@@ -314,7 +312,6 @@
      (proc (lambda () (abort-to-prompt 'foo))))
    (lambda (k) x)))
 
-(test-skip 1)
 (define-test (t-abort-arg1 x) ('bar)
   (call-with-prompt
    'foo
@@ -322,7 +319,6 @@
      (abort-to-prompt 'foo x))
    (lambda (_ arg1) arg1)))
 
-(test-skip 1)
 (define-test (t-abort-rest a b c) (1 2 3)
   (call-with-prompt
    'foo
@@ -1274,19 +1270,15 @@
     ((_ x y)
      (list x y))))
 
-(test-skip 1)
 (define-test (t-macroexpand-2 expr) ('(my-syntax))
   (macroexpand expr))
 
-(test-skip 1)
 (define-test (t-macroexpand-3 expr) ('(my-syntax 99))
   (macroexpand expr))
 
-(test-skip 1)
 (define-test (t-macroexpand-4 expr) ('(my-syntax 98 99))
   (macroexpand expr))
 
-(test-skip 1)
 (define-test (t-primitive-eval-1 expr) ('(+ 1 (* 2 3)))
   (primitive-eval expr))
 
