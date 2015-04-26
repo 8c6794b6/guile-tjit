@@ -326,7 +326,6 @@
      (abort-to-prompt 'foo a b c))
    (lambda (_ . rest) (apply + rest))))
 
-(test-skip 1)
 (define-test (t-prompt-capture x) (-56)
   (+ (call-with-prompt 'foo
                        (lambda ()

@@ -376,7 +376,7 @@
 (define-inline reg-thread v2)
 
 ;; Registers, used by prompt.
-(define-inline reg-registers f4)
+(define reg-registers (jit-f (- (jit-f-num) 1)))
 
 
 ;;;
@@ -762,7 +762,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (jit-link lexit)
 
-    ;; Original contents of jit-fp, used by lightning.
+    ;; Original contents of jit-fp used by lightning.
     (jit-ldr r2 reg-fp)
 
     ;; Move `vp->fp' once for boot continuation added in `scm_call_n',
@@ -774,7 +774,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (scm-frame-return-address r1)
     (scm-set-frame-return-address r1)
 
-    ;; Restore frame pointer for lightning.
+    ;; Restore the original frame pointer.
     (jit-movr reg-fp r2)
 
     ;; Return from native code.
@@ -1483,6 +1483,28 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 ;;; XXX: continuation-call
 
+(define-vm-op (compose-continuation st cont)
+  (local-ref st 0 r0)
+  (scm-program-free-variable-ref r0 r0 cont)
+
+  ;; XXX: Add assertion for rewindable vmcont.
+  (jit-prepare)
+  (jit-pushargr reg-vp)                 ; vp
+  (jit-pushargr r0)                     ; cont
+  (frame-locals-count r0)
+  (jit-subi r0 r0 (imm 1))
+  (jit-pushargr r0)                     ; n
+  (jit-addi r0 reg-fp (imm word-size))
+  (jit-pushargr r0)                     ; argv
+  (jit-pushargr reg-thread)             ; thread
+  (jit-pushargr reg-registers)          ; registers
+  (call-c "scm_do_vm_reinstate_partial_continuation")
+
+  (vm-cache-fp)
+  (vm-cache-sp)
+  (jit-ldr r0 reg-vp)
+  (jit-jmpr r0))
+
 ;; (define-vm-op (compose-continuation st cont)
 ;;   (local-ref st cont r0)
 ;;   (scm-program-free-variable-ref r0 r0 0)
@@ -1560,23 +1582,29 @@ behaviour is similar to the `apply' label in vm-regular engine."
 ;;; XXX: call/cc
 
 (define-vm-op (abort st)
-  (jit-prepare)
-  (jit-pushargr reg-vp)        ; *vp
-  (local-ref st 1 r0)
-  (jit-pushargr r0)            ; tag
-  (frame-locals-count r0)
-  (jit-subi r0 r0 (imm 2))
-  (jit-pushargr r0)            ; nstack
-  (jit-addi r0 reg-fp (imm (* 2 word-size)))
-  (jit-pushargr r0)            ; *stack_args
-  (jit-pushargi scm-eol)       ; tail
-  (jit-pushargr reg-fp)        ; *sp
-  (jit-pushargr reg-registers) ; registers
-  (call-c "scm_do_vm_abort")
+  (let ((ra (jit-movi r0 (imm 0))))
+    (jit-str reg-vp r0)
 
-  ;; Should not reach here.
-  (jit-prepare)
-  (call-c "abort"))
+    (jit-prepare)
+    (jit-pushargr reg-vp)               ; *vp
+    (local-ref st 1 r0)
+    (jit-pushargr r0)                   ; tag
+    (frame-locals-count r0)
+    (jit-subi r0 r0 (imm 2))
+    (jit-pushargr r0)                   ; nstack
+    (jit-addi r0 reg-fp (imm (* 2 word-size)))
+    (jit-pushargr r0)                   ; *stack_args
+    (jit-pushargi scm-eol)              ; tail
+    (jit-pushargr reg-fp)               ; *sp
+    (jit-pushargr reg-registers)        ; registers
+    (call-c "scm_do_vm_abort")
+
+    ;; Should not reach here.
+    (jit-prepare)
+    (call-c "abort")
+
+    ;; Return address for captured vmcont.
+    (jit-patch ra)))
 
 ;; (define-vm-op (abort st)
 ;;   ;; Retuan address for partial continuation, used when reifying
@@ -2713,8 +2741,8 @@ compiled result."
 
      ;; Before caching registers from the argument `vp', save the
      ;; original frame pointer used by lightning, then store to the
-     ;; address used for vm_boot_continuation_code, boot continuation
-     ;; code is unused in this engine.
+     ;; address used for vm_boot_continuation_code, since boot
+     ;; continuation code is unused in this engine.
      (jit-movr r0 reg-fp)
      (vm-cache-fp)
      (vm-cache-sp)
@@ -2729,7 +2757,7 @@ compiled result."
      ;; Patch the address for callee to return.
      (jit-patch return-address)
 
-     ;; Back from callee, return the values and halt.
+     ;; Back from callee, return the value(s) and halt.
      (halt))
    (jit-epilog)
    (jit-realize)

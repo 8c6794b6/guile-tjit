@@ -239,6 +239,22 @@ scm_t_bits scm_do_reinstate_partial_continuation (scm_i_thread *thread,
   return SCM_UNPACK (SCM_CELL_OBJECT_1 (cont));
 }
 
+SCM_API void
+scm_do_vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
+                                          size_t n, SCM *argv,
+                                          scm_i_thread *thread,
+                                          scm_i_jmp_buf *registers);
+
+void
+scm_do_vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
+                                          size_t n, SCM *argv,
+                                          scm_i_thread *thread,
+                                          scm_i_jmp_buf *registers)
+{
+  vm_reinstate_partial_continuation (vp, cont, n, argv,
+                                     &thread->dynstack, registers);
+}
+
 /* XXX: Mostly duplicating with vm-engine.c  */
 scm_t_uint32
 scm_do_bind_kwargs (scm_i_thread *thread, scm_t_uintptr *fp,
