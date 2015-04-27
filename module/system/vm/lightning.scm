@@ -23,6 +23,78 @@
 ;;; A virtual machine with method JIT compiler from bytecode to native
 ;;; code. Compiler is written in scheme, with GNU Lightning.
 
+;;; Note for prompt
+;;; ---------------
+;;;
+;;; In vm-regular, prompt is pushed to dynstack with VM operation
+;;; "prompt".  The pushed dynstack has flag, tag, fp offset, sp offset,
+;;; handler's IP, and register.  The C function doing the actual work
+;;; for push is `scm_dynstack_push_prompt', written in "dynstack.c".
+;;;
+;;; Pushed prompt is referred from VM operation "abort", which is
+;;; written in VM builtin code `abort-to-prompt'. The pushed dynstack
+;;; entry is retrieved via `scm_dynstack_find_prompt', which is called
+;;; from `scm_c_abort', which is called from `vm_abort'.
+;;;
+;;; In `scm_c_abort', if the prompt is not escape only, continuation is
+;;; reified with `reify_partial_continuation'. Also, vp->fp, vp->sp, and
+;;; vp->ip are set from prompt's value. Then the function does
+;;; SCM_I_LONGJMP with `regisers' value.
+;;;
+;;; * C functions in VM operation "prompt":
+;;;
+;;; - dynstack.c:
+;;;   scm_dynstack_push_prompt (scm_t_dynstack *dynstack,
+;;;                             scm_t_dynstack_prompt_flags flags,
+;;;                             SCM key,
+;;;                             scm_t_ptrdiff fp_offset,
+;;;                             scm_t_ptrdiff sp_offset,
+;;;                             scm_t_uint32 *ip,
+;;;                             scm_i_jmp_buf *registers);
+;;;
+;;; In vm-engine.c, arguments `dynstack', `flags', `key' are not so
+;;; difficult, not much differ from other VM ops.  `fp_offset' is `fp -
+;;; vp->stack_base', and `sp_offset' is `LOCAL_ADDRESS (proc_slot) -
+;;; vp->stack_base'. ip is `ip + offset', which is next IP to jump in
+;;; vm-regular interpreter, but fragment of code to compile in
+;;; vm-lightning. `registers' is the one passed from `scm_call_n'.
+;;;
+;;; * C functions in VM operation "abort":
+;;;
+;;; - vm.c:
+;;;   vm_abort (struct scm_vm *vp,
+;;;             SCM tag,
+;;;             size_t nstack,
+;;;             SCM *stack_args,
+;;;             SCM tail,
+;;;             SCM *sp,
+;;;             scm_i_jmp_buf *current_registers)
+;;;
+;;; `vm_abort' is called in VM operation "abort". The first argument
+;;; `*vp' is `vp' in "vm-engine.c".  `tag' is in vm's local.  nstack is
+;;; referred from FRAME_LOCALS_COUNT. `*stack_args' is `LOCAL_ADDRESS
+;;; (2)'. `tail' is SCM_EOL, `*sp' is `LOCAL_ADDRESS (0)'. Finally,
+;;; `*current_registers' is `registers'.
+;;;
+;;; - control.c:
+;;;   scm_c_abort (struct scm_vm *vp,
+;;;                SCM tag,
+;;;                size_t n,
+;;;                SCM *argv,
+;;;                scm_i_jmp_buf *current_registers)
+;;;
+;;; `scm_c_abort' is called from `vm_abort'. `*vp', `tag', and
+;;; `*current_registers' are the same argument passed to 'vm_abort' from
+;;; vm-engine, `n' is `nstack' in vm_abort + length of tail, `argv' is
+;;; an array constructed from `stack_args' in "vm_abort". `vp->sp' is
+;;; set to `sp' in "vm_abort"'s argument before calling "scm_c_abort".
+;;;
+;;; * SCM_I_LONGJMP
+;;;
+;;; `SCM_I_LONGJMP' is called in the end of `scm_c_abort'.
+;;; `SCM_I_SETJMP' is called at near the end of `scm_call_n', just
+;;; before calling the implementation.
+
 ;;; Code:
 
 (define-module (system vm lightning)
@@ -1505,24 +1577,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-ldr r0 reg-vp)
   (jit-jmpr r0))
 
-;; (define-vm-op (compose-continuation st cont)
-;;   (local-ref st cont r0)
-;;   (scm-program-free-variable-ref r0 r0 0)
-
-;;   ;; XXX: Call to C function not yet complete.
-;;   (jit-prepare)
-;;   (jit-pushargr reg-thread)
-;;   (jit-pushargr r0)
-;;   (frame-locals-count r1)
-;;   (jit-subi r1 r1 (imm 1))
-;;   (jit-pushargr r1)
-;;   (jit-pushargi (stored-ref st 1))
-;;   (call-c "scm_do_reinstate_partial_continuation")
-;;   (jit-retval r0)
-
-;;   ;; Jump to the adress stored in `vm-cont'.
-;;   (jit-jmpr r0))
-
 (define-vm-op (tail-apply st)
   (let ((llength (jit-forward))
         (lalloc (jit-forward))
@@ -1605,35 +1659,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     ;; Return address for captured vmcont.
     (jit-patch ra)))
-
-;; (define-vm-op (abort st)
-;;   ;; Retuan address for partial continuation, used when reifying
-;;   ;; the continuation.
-;;   (let ((ra (jit-movi r1 (imm 0))))
-;;     (jit-prepare)
-;;     (jit-pushargr reg-thread)
-;;     (local-ref st 1 r0)
-;;     (jit-pushargr r0)
-;;     (frame-locals-count r0)
-;;     (jit-subi r0 r0 (imm 2))
-;;     (jit-pushargr r0)
-;;     (jit-addi r0 reg-fp (imm (* 2 word-size)))
-;;     (jit-pushargr r0)
-;;     (jit-pushargr r1)
-;;     (call-c "scm_do_abort")
-;;     (jit-retval r0)
-
-;;     ;; Load values set in C function: address of handler, reg-sp, and
-;;     ;; reg-fp.
-;;     (scm-cell-object r1 r0 0)
-;;     (scm-cell-object reg-sp r0 1)
-;;     (scm-cell-object reg-fp r0 2)
-
-;;     ;; Jump to the handler.
-;;     (jit-jmpr r1)
-
-;;     ;; The address for partial continuation to return.
-;;     (jit-patch ra)))
 
 (define-vm-op (builtin-ref st dst src)
   (jit-prepare)
@@ -1991,77 +2016,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 ;;; The dynamic environment
 ;;; -----------------------
-
-;;; XXX: prompt
-;;;
-;;; In vm-regular, prompt is pushed to dynstack with VM operation
-;;; "prompt".  The pushed dynstack has flag, tag, fp offset, sp offset,
-;;; handler's IP, and register.  The C function doing the actual work
-;;; for push is `scm_dynstack_push_prompt', written in "dynstack.c".
-;;;
-;;; Pushed prompt is referred from VM operation "abort", which is
-;;; written in VM builtin code `abort-to-prompt'. The pushed dynstack
-;;; entry is retrieved via `scm_dynstack_find_prompt', which is called
-;;; from `scm_c_abort', which is called from `vm_abort'.
-;;;
-;;; In `scm_c_abort', if the prompt is not escape only, continuation is
-;;; reified with `reify_partial_continuation'. Also, vp->fp, vp->sp, and
-;;; vp->ip are set from prompt's value. Then the function does
-;;; SCM_I_LONGJMP with `regisers' value.
-;;;
-;;; * C functions in VM operation "prompt":
-;;;
-;;; - dynstack.c:
-;;;   scm_dynstack_push_prompt (scm_t_dynstack *dynstack,
-;;;                             scm_t_dynstack_prompt_flags flags,
-;;;                             SCM key,
-;;;                             scm_t_ptrdiff fp_offset,
-;;;                             scm_t_ptrdiff sp_offset,
-;;;                             scm_t_uint32 *ip,
-;;;                             scm_i_jmp_buf *registers);
-;;;
-;;; In vm-engine.c, arguments `dynstack', `flags', `key' are not so
-;;; difficult, not much differ from other VM ops.  `fp_offset' is `fp -
-;;; vp->stack_base', and `sp_offset' is `LOCAL_ADDRESS (proc_slot) -
-;;; vp->stack_base'. ip is `ip + offset', which is next IP to jump in
-;;; vm-regular interpreter, but fragment of code to compile in
-;;; vm-lightning. `registers' is the one passed from `scm_call_n'.
-;;;
-;;; * C functions in VM operation "abort":
-;;;
-;;; - vm.c:
-;;;   vm_abort (struct scm_vm *vp,
-;;;             SCM tag,
-;;;             size_t nstack,
-;;;             SCM *stack_args,
-;;;             SCM tail,
-;;;             SCM *sp,
-;;;             scm_i_jmp_buf *current_registers)
-;;;
-;;; `vm_abort' is called in VM operation "abort". The first argument
-;;; `*vp' is `vp' in "vm-engine.c".  `tag' is in vm's local.  nstack is
-;;; referred from FRAME_LOCALS_COUNT. `*stack_args' is `LOCAL_ADDRESS
-;;; (2)'. `tail' is SCM_EOL, `*sp' is `LOCAL_ADDRESS (0)'. Finally,
-;;; `*current_registers' is `registers'.
-;;;
-;;; - control.c:
-;;;   scm_c_abort (struct scm_vm *vp,
-;;;                SCM tag,
-;;;                size_t n,
-;;;                SCM *argv,
-;;;                scm_i_jmp_buf *current_registers)
-;;;
-;;; `scm_c_abort' is called from `vm_abort'. `*vp', `tag', and
-;;; `*current_registers' are the same argument passed to 'vm_abort' from
-;;; vm-engine, `n' is `nstack' in vm_abort + length of tail, `argv' is
-;;; an array constructed from `stack_args' in "vm_abort". `vp->sp' is
-;;; set to `sp' in "vm_abort"'s argument before calling "scm_c_abort".
-;;;
-;;; * SCM_I_LONGJMP
-;;;
-;;; `SCM_I_LONGJMP' is called in the end of `scm_c_abort'.
-;;; `SCM_I_SETJMP' is called at near the end of `scm_call_n', just
-;;; before calling the implementation.
 
 (define-vm-op (prompt st tag escape-only? proc-slot handler-offset)
   (let ((handler-addr (jit-movi r1 (imm 0)))

@@ -126,104 +126,6 @@ scm_do_unwind_fluid (scm_i_thread *thread)
                              thread->dynamic_state);
 }
 
-/* XXX: Duplicate with control.c  */
-static const scm_t_uint32 compose_continuation_code[] =
-  {
-    SCM_PACK_OP_24 (compose_continuation, 0)
-  };
-
-/* XXX: Duplicate with control.c  */
-static inline SCM
-make_partial_continuation (SCM vm_cont)
-{
-  scm_t_bits nfree = 1;
-  scm_t_bits flags = SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION;
-  SCM ret;
-
-  ret = scm_words (scm_tc7_program | (nfree << 16) | flags, nfree + 3);
-  SCM_SET_CELL_WORD_1 (ret, compose_continuation_code);
-  SCM_PROGRAM_FREE_VARIABLE_SET (ret, 0, vm_cont);
-
-  return ret;
-}
-
-static inline SCM
-do_reify_partial_continuation (SCM *saved_fp,
-                               scm_t_uint32 *saved_ip,
-                               scm_t_dynstack *dynstack,
-                               scm_t_uint32 *ra)
-{
-  SCM vm_cont;
-  /* scm_t_uint32 flags; */
-
-  /* /\* XXX: Non-rewindable continuation ignored. *\/ */
-  /* flags = SCM_F_VM_CONT_PARTIAL | SCM_F_VM_CONT_REWINDABLE; */
-  vm_cont = scm_cell (scm_tc7_vm_cont, (scm_t_bits) ra);
-
-  return make_partial_continuation (vm_cont);
-}
-
-SCM *
-scm_do_abort (scm_i_thread *thread, SCM tag, size_t nstack,
-              scm_t_uintptr *current_fp, scm_t_uint32 *ra)
-{
-  scm_t_dynstack *dynstack = &thread->dynstack;
-  scm_t_bits *prompt;
-  scm_t_dynstack_prompt_flags flags;
-  scm_i_jmp_buf *registers;
-  scm_t_ptrdiff fp, sp, local_offset;
-  scm_t_uint32 *ip;
-
-#define LOCAL_REF(i) SCM_PACK (current_fp[i])
-
-  prompt = scm_dynstack_find_prompt (dynstack, tag,
-                                     &flags, &fp, &local_offset, &ip,
-                                     &registers);
-
-  if (!prompt)
-    scm_misc_error ("abort", "Abort to unknown prompt", scm_list_1 (tag));
-
-  {
-    SCM *ret;
-    SCM *local = (SCM *)(fp + local_offset);
-    SCM cont;
-    size_t i;
-
-    if (flags & SCM_F_DYNSTACK_PROMPT_ESCAPE_ONLY)
-      cont = SCM_BOOL_F;
-    else
-      {
-        scm_t_dynstack *captured;
-
-        captured = scm_dynstack_capture (dynstack, SCM_DYNSTACK_NEXT (prompt));
-        cont = do_reify_partial_continuation ((SCM *) fp, ip, captured, ra);
-      }
-
-    /* Unwind. */
-    scm_dynstack_unwind (dynstack, prompt);
-
-    local[1] = cont;
-    for (i = 0; i < nstack; i++)
-      local[2 + i] = LOCAL_REF (2 + i);
-
-    sp = fp + local_offset + ((nstack - 1) * sizeof (SCM));
-
-    /* Store address of prompt handler and VM regs. */
-    ret = alloca (3 * sizeof (SCM));
-    ret[0] = SCM_PACK (ip);
-    ret[1] = SCM_PACK (sp);
-    ret[2] = SCM_PACK (fp);
-
-    return ret;
-  }
-
-#undef LOCAL_REF
-}
-
-SCM_API void scm_do_vm_abort (struct scm_vm *vp, SCM tag,
-                              size_t nstack, SCM *stack_args, SCM tail,
-                              SCM *sp, scm_i_jmp_buf *current_registers);
-
 void
 scm_do_vm_abort (struct scm_vm *vp, SCM tag,
                  size_t nstack, SCM *stack_args, SCM tail,
@@ -231,19 +133,6 @@ scm_do_vm_abort (struct scm_vm *vp, SCM tag,
 {
   vm_abort (vp, tag, nstack, stack_args, tail, sp, current_registers);
 }
-
-scm_t_bits scm_do_reinstate_partial_continuation (scm_i_thread *thread,
-                                                  SCM cont, size_t n, SCM *argv)
-{
-  /* XXX: Update locals. */
-  return SCM_UNPACK (SCM_CELL_OBJECT_1 (cont));
-}
-
-SCM_API void
-scm_do_vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
-                                          size_t n, SCM *argv,
-                                          scm_i_thread *thread,
-                                          scm_i_jmp_buf *registers);
 
 void
 scm_do_vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
@@ -355,8 +244,6 @@ scm_do_bind_kwargs (scm_i_thread *thread, scm_t_uintptr *fp,
 
 static SCM compile_lightning_var;
 
-SCM_API void scm_compile_lightning (SCM proc);
-
 void
 scm_compile_lightning (SCM proc)
 {
@@ -378,8 +265,9 @@ typedef SCM (*scm_i_vm_rt) (scm_i_thread *thread, struct scm_vm *vp,
    scheme.  */
 static scm_i_vm_rt scm_run_lightning;
 
-/* Since it is a member of constant array for VM engines, function
-   VM_NAME need to be a constant. */
+/* Since vm-lightning-engine is a member of the constant array used for
+   VM engines, VM_NAME need to be a constant function, not a dynamically
+   generated function pointer. */
 static SCM
 VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
          scm_i_jmp_buf *registers, int resume)

@@ -50,11 +50,14 @@ SCM_API void scm_do_dynstack_push_dynwind (scm_i_thread *thread,
 SCM_API void scm_do_dynstack_pop (scm_i_thread *thread);
 SCM_API void scm_do_unwind_fluid (scm_i_thread *thread);
 
-SCM_API SCM* scm_do_abort (scm_i_thread *thread, SCM key, size_t nstack,
-                           scm_t_uintptr *current_fp, scm_t_uint32 *ra);
-SCM_API scm_t_bits scm_do_reinstate_partial_continuation (scm_i_thread *thread,
-                                                          SCM cont, size_t n,
-                                                          SCM *argv);
+SCM_API void scm_do_vm_abort (struct scm_vm *vp, SCM tag,
+                              size_t nstack, SCM *stack_args, SCM tail,
+                              SCM *sp, scm_i_jmp_buf *current_registers);
+SCM_API void
+scm_do_vm_reinstate_partial_continuation (struct scm_vm *vp, SCM cont,
+                                          size_t n, SCM *argv,
+                                          scm_i_thread *thread,
+                                          scm_i_jmp_buf *registers);
 
 SCM_API scm_t_uint32 scm_do_bind_kwargs(scm_i_thread *thread,
                                         scm_t_uintptr *fp,
@@ -63,6 +66,8 @@ SCM_API scm_t_uint32 scm_do_bind_kwargs(scm_i_thread *thread,
                                         scm_t_uint32 nreq_and_opt,
                                         scm_t_uint32 ntotal,
                                         scm_t_int32 kw_offset);
+
+SCM_API void scm_compile_lightning (SCM proc);
 
 SCM_API void scm_init_vm_lightning (void);
 
