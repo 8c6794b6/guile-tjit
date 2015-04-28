@@ -32,6 +32,8 @@
 
 #if BUILD_VM_LIGHTNING == 1
 
+static size_t page_size;
+
 SCM_DEFINE (scm_jit_r, "%jit-r", 1, 0, 0, (SCM i), "Get R register.")
 #define FUNC_NAME s_scm_jit_r
 {
@@ -89,34 +91,33 @@ SCM_DEFINE (scm_jit_code_size, "%jit-code-size", 1, 0, 0, (SCM jit),
 #define FUNC_NAME s_scm_jit_code_size
 {
   jit_word_t code_size;
-  _jit_get_code ((jit_state_t *) scm_to_pointer(jit), &code_size);
+  _jit_get_code ((jit_state_t *) scm_to_pointer (jit), &code_size);
   return scm_from_int (code_size);
 }
 #undef FUNC_NAME
 
 #define ERRMSG "could not set execution flag on memory\n"
 
-const int page_size = 4096;
-
-static inline void set_flag (unsigned char *bv, size_t n)
+static inline void
+set_flag (signed char *bv, size_t n)
 {
-  char *start = (char *) ((((scm_t_bits ) bv) / page_size) * page_size);
+  char *start = (char *) ((((scm_t_bits) bv) / page_size) * page_size);
   int len = (scm_t_bits) bv + n - (scm_t_bits) start;
-  if(mprotect (start, len, PROT_READ | PROT_EXEC))
+  if (mprotect (start, len, PROT_READ | PROT_EXEC))
     {
-      printf("ERROR: ");
-      if(errno == EINVAL)
-        printf("%s addr is not a valid pointer or not a multiple of PAGESIZE\n"
-               ,ERRMSG);
-      if(errno == EFAULT)
-        printf("%s memory cannot be accessed\n"
-               ,ERRMSG);
-      if(errno == EACCES)
-        printf("%s the memory cannot be given the spicified access\n"
-               ,ERRMSG);
-      if(errno == ENOMEM)
-        printf("%s internal memory structurs could not be constructed\n"
-               ,ERRMSG);
+      printf ("ERROR: ");
+      if (errno == EINVAL)
+        printf ("%s addr is not a valid pointer or not a multiple of PAGESIZE\n"
+                ,ERRMSG);
+      if (errno == EFAULT)
+        printf ("%s memory cannot be accessed\n"
+                ,ERRMSG);
+      if (errno == EACCES)
+        printf ("%s the memory cannot be given the spicified access\n"
+                ,ERRMSG);
+      if (errno == ENOMEM)
+        printf ("%s internal memory structurs could not be constructed\n"
+                ,ERRMSG);
     }
 }
 #undef ERRMSG
@@ -127,10 +128,7 @@ SCM_DEFINE (scm_make_bytevector_executable_x, "make-bytevector-executable!",
 #define FUNC_NAME s_scm_make_bytevector_executable_x
 {
   if (scm_is_bytevector(bv))
-    {
-      set_flag((unsigned char *) SCM_BYTEVECTOR_CONTENTS (bv),
-               SCM_BYTEVECTOR_LENGTH (bv));
-    }
+    set_flag (SCM_BYTEVECTOR_CONTENTS (bv), SCM_BYTEVECTOR_LENGTH (bv));
   return SCM_UNSPECIFIED;
 }
 
@@ -140,6 +138,7 @@ scm_init_lightning (void)
 #ifndef SCM_MAGIC_SNARFER
 #include "lightning-binding.x"
 #endif
+  page_size = getpagesize ();
 }
 
 #endif /* BUILD_VM_LIGHTNING == 1 */

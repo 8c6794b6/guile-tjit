@@ -112,8 +112,9 @@
   #:use-module (system vm vm)
   #:export (compile-lightning
             call-lightning
-            jit-code-guardian)
-  #:re-export (lightning-verbosity))
+            native-code-guardian)
+  #:re-export (lightning-verbosity
+               lightning-trace))
 
 
 ;;;
@@ -153,7 +154,7 @@
             (cfg-labeled-ips cfg))
   (%make-lightning cfg nodes pc ip labels handlers))
 
-(define jit-code-guardian (make-guardian))
+(define native-code-guardian (make-guardian))
 
 
 ;;;
@@ -448,7 +449,8 @@
 (define-inline reg-thread v2)
 
 ;; Registers, used by prompt.
-(define reg-registers (jit-f (- (jit-f-num) 1)))
+;; (define reg-registers (jit-f (- (jit-f-num) 1)))
+(define-inline reg-registers v3)
 
 
 ;;;
@@ -592,7 +594,6 @@ argument in VM operation."
      (let ((lexit (jit-forward)))
        (vm-thread-pending-asyncs tmp)
        (jump (jit-bmci tmp (imm 1)) lexit)
-       (jit-prepare)
        (call-c "scm_async_tick")
        (vm-cache-fp)
        (vm-cache-sp)
@@ -611,19 +612,6 @@ argument in VM operation."
        (vm-sync-fp)
        ;; ... then jump to return address.
        (jit-jmpr tmp)))))
-
-(define-syntax vm-reset-frame
-  (syntax-rules ()
-    ((_ n)
-     (vm-reset-frame n r0))
-    ((_ n tmp)
-     (let ((lexit (jit-forward)))
-       (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
-       (vm-sync-sp)
-       (vm-sp-max-since-gc tmp)
-       (jump (jit-bger tmp reg-sp) lexit)
-       (vm-set-sp-max-since-gc reg-sp)
-       (jit-link lexit)))))
 
 (define-syntax vm-alloc-frame
   (syntax-rules ()
@@ -654,6 +642,19 @@ argument in VM operation."
        (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
        (vm-sync-sp)
        (vm-alloc-frame)))))
+
+(define-syntax vm-reset-frame
+  (syntax-rules ()
+    ((_ n)
+     (vm-reset-frame n r0))
+    ((_ n tmp)
+     (let ((lexit (jit-forward)))
+       (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
+       (vm-sync-sp)
+       (vm-sp-max-since-gc tmp)
+       (jump (jit-bger tmp reg-sp) lexit)
+       (vm-set-sp-max-since-gc reg-sp)
+       (jit-link lexit)))))
 
 (define-syntax with-frame
   (syntax-rules ()
@@ -1765,7 +1766,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
     ;; Create a list.
     (jit-link lprecons)
     (jit-movr r0 r1)
-    (jit-movi r1 scm-false)
 
     (jit-link lcons)
     (jump (jit-blei r2 (imm (* dst word-size))) lreset)
@@ -1934,7 +1934,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
       (scm-set-cell-object r0 2 r1)
       (jump lnext)
 
-      ;; Do the JIT compilation at the time of closure creation.
+      ;; Do the compilation at the time of closure creation.
       (let* ((cfg (procedure->cfg (offset-addr st offset)))
              (lightning (make-lightning cfg
                                         (lightning-nodes st)
@@ -2560,6 +2560,12 @@ behaviour is similar to the `apply' label in vm-regular engine."
       (jit-pushargi scm-undefined)
       (call-c "scm_display")))
 
+  (define-syntax-rule (scm-newline)
+    (begin
+      (jit-prepare)
+      (jit-pushargi scm-undefined)
+      (call-c "scm_newline")))
+
   (define-syntax-rule (assemble-one st ip-x-op)
     (let* ((ip (car ip-x-op))
            (op (cdr ip-x-op))
@@ -2571,13 +2577,11 @@ behaviour is similar to the `apply' label in vm-regular engine."
           (when (and verbosity (<= 3 verbosity))
             (jit-note (format #f "~a" op) (lightning-ip st)))
 
-          (when (and verbosity (<= 5 verbosity))
+          (when (lightning-trace)
             (scm-display (offset-addr st 0))
             (scm-display space-string)
             (scm-display op)
-            (jit-prepare)
-            (jit-pushargi scm-undefined)
-            (call-c "scm_newline")))
+            (scm-newline)))
 
         ;; Link if this bytecode intruction is labeled as destination,
         ;; or patch it for prompt handler.
@@ -2627,12 +2631,14 @@ compiled result."
      (jit-realize)
      (let* ((estimated-code-size (jit-code-size))
             (bv (make-bytevector estimated-code-size)))
+
+       ;; Generated codes never get freed, no way to decide whether the
+       ;; procedure never called again or not.
+       (native-code-guardian bv)
+
        (jit-set-code (bytevector->pointer bv)
                      (imm estimated-code-size))
        (jit-emit)
-
-       ;; XXX: Generated codes never get freed.
-       (jit-code-guardian bv)
 
        (set-jit-compiled-code! proc (jit-address entry))
        (make-bytevector-executable! bv)
@@ -2643,7 +2649,8 @@ compiled result."
            (format #t ";;; nodes:~%")
            (hash-for-each (lambda (k v)
                             (format #t ";;;   ~a => ~a~%" k v))
-                          (lightning-nodes lightning)))
+                          (lightning-nodes lightning))
+           (format #t ";;;~%"))
          (when (and verbosity (<= 3 verbosity))
            (write-code-to-file (format #f "/tmp/~a.o" (procedure-name proc))
                                (bytevector->pointer bv))
@@ -2678,8 +2685,8 @@ compiled result."
      ;; Get arguments.
      (jit-getarg reg-thread (jit-arg))    ; thread
      (jit-getarg reg-vp (jit-arg))        ; vp
-     (jit-getarg reg-registers (jit-arg)) ; registers, for prompt.
-     (jit-getarg r0 (jit-arg))            ; resume.
+     (jit-getarg reg-registers (jit-arg)) ; registers, for prompt
+     (jit-getarg r0 (jit-arg))            ; resume
 
      ;; Test for resume.
      (jump (jit-bmci r0 (imm 1)) lapply)
@@ -2694,9 +2701,10 @@ compiled result."
      (jit-link lapply)
 
      ;; Before caching registers from the argument `vp', save the
-     ;; original frame pointer used by lightning, then store to the
-     ;; address used for vm_boot_continuation_code, since boot
-     ;; continuation code is unused in this engine.
+     ;; original frame pointer contents used by lightning. The original
+     ;; frame pointer is then stored to the address used for
+     ;; `vm_boot_continuation_code', since boot continuation code is not
+     ;; used by this vm engine.
      (jit-movr r0 reg-fp)
      (vm-cache-fp)
      (vm-cache-sp)

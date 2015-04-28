@@ -22,12 +22,6 @@
  * Auxiliary
  */
 
-void
-scm_do_vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
-{
-  vm_expand_stack (vp, new_sp);
-}
-
 SCM
 scm_do_inline_cell (scm_i_thread *thread, scm_t_bits car, scm_t_bits cdr)
 {
@@ -124,6 +118,12 @@ scm_do_unwind_fluid (scm_i_thread *thread)
 {
   scm_dynstack_unwind_fluid (&thread->dynstack,
                              thread->dynamic_state);
+}
+
+void
+scm_do_vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
+{
+  vm_expand_stack (vp, new_sp);
 }
 
 void
@@ -262,7 +262,7 @@ typedef SCM (*scm_i_vm_rt) (scm_i_thread *thread, struct scm_vm *vp,
 
 /* Function pointer of runtime function. During initialization, this
    variable will be filled in with JIT compiled native code in
-   scheme.  */
+   scheme. */
 static scm_i_vm_rt scm_run_lightning;
 
 /* Since vm-lightning-engine is a member of the constant array used for
@@ -302,3 +302,9 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 #undef FUNC_NAME
 
 #endif /* BUILD_VM_LIGHTNING */
+
+/*
+  Local Variables:
+  c-file-style: "gnu"
+  End:
+*/

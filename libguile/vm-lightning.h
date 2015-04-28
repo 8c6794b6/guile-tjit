@@ -22,8 +22,6 @@
 #include <libguile.h>
 #include <ffi.h>
 
-SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp, SCM *new_sp);
-
 SCM_API SCM scm_do_inline_cell (scm_i_thread *thread, scm_t_bits car,
                                 scm_t_bits cdr);
 SCM_API SCM scm_do_inline_cons (scm_i_thread *thread, SCM car, SCM cdr);
@@ -50,6 +48,7 @@ SCM_API void scm_do_dynstack_push_dynwind (scm_i_thread *thread,
 SCM_API void scm_do_dynstack_pop (scm_i_thread *thread);
 SCM_API void scm_do_unwind_fluid (scm_i_thread *thread);
 
+SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp, SCM *new_sp);
 SCM_API void scm_do_vm_abort (struct scm_vm *vp, SCM tag,
                               size_t nstack, SCM *stack_args, SCM tail,
                               SCM *sp, scm_i_jmp_buf *current_registers);

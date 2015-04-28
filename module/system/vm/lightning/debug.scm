@@ -26,7 +26,7 @@
 
 (define-module (system vm lightning debug)
   #:use-module (system vm debug)
-  #:export (lightning-verbosity debug try-program-name))
+  #:export (lightning-verbosity lightning-trace debug try-program-name))
 
 ;; Parameter to control verbosity level.
 ;;
@@ -38,6 +38,8 @@
 ;; -  3 : All of the above, and dump from lightning C library.
 ;;
 (define lightning-verbosity (make-parameter 0))
+
+(define lightning-trace (make-parameter #f))
 
 (define-syntax-rule (debug n args ...)
   (let ((verbosity (lightning-verbosity)))
