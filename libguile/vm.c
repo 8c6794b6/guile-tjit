@@ -754,14 +754,14 @@ scm_i_call_with_current_continuation (SCM proc)
 #undef VM_USE_HOOKS
 #undef VM_NAME
 
+typedef SCM (*scm_t_vm_engine) (scm_i_thread *current_thread, struct scm_vm *vp,
+                                scm_i_jmp_buf *registers, int resume);
+
 #define VM_NAME vm_lightning_engine
 #define VM_USE_HOOKS 0
 #include "vm-lightning.c"
 #undef VM_USE_HOOKS
 #undef VM_NAME
-
-typedef SCM (*scm_t_vm_engine) (scm_i_thread *current_thread, struct scm_vm *vp,
-                                scm_i_jmp_buf *registers, int resume);
 
 static const scm_t_vm_engine vm_engines[SCM_VM_NUM_ENGINES] =
   { vm_regular_engine, vm_debug_engine, vm_lightning_engine };

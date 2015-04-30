@@ -257,13 +257,9 @@ scm_compile_lightning (SCM proc)
  * Main function for vm-lightning
  */
 
-typedef SCM (*scm_i_vm_rt) (scm_i_thread *thread, struct scm_vm *vp,
-                            scm_i_jmp_buf *registers, int resume);
-
 /* Function pointer of runtime function. During initialization, this
-   variable will be filled in with JIT compiled native code in
-   scheme. */
-static scm_i_vm_rt scm_run_lightning;
+   variable get filled with JIT compiled native code in scheme. */
+static scm_t_vm_engine scm_run_lightning;
 
 /* Since vm-lightning-engine is a member of the constant array used for
    VM engines, VM_NAME need to be a constant function, not a dynamically
@@ -284,8 +280,9 @@ scm_init_vm_lightning (void)
     SCM_VARIABLE_REF (scm_c_lookup ("compile-lightning"));
 
   scm_run_lightning =
-    (scm_i_vm_rt) (SCM_BYTEVECTOR_CONTENTS
-                   (SCM_VARIABLE_REF (scm_c_lookup ("run-lightning-code"))));
+    (scm_t_vm_engine) (SCM_BYTEVECTOR_CONTENTS
+                       (SCM_VARIABLE_REF
+                        (scm_c_lookup ("run-lightning-code"))));
 }
 
 #else

@@ -127,10 +127,11 @@ SCM_DEFINE (scm_make_bytevector_executable_x, "make-bytevector-executable!",
            (SCM bv), "Make bytevector as executable.")
 #define FUNC_NAME s_scm_make_bytevector_executable_x
 {
-  if (scm_is_bytevector(bv))
+  if (scm_is_bytevector (bv))
     set_flag (SCM_BYTEVECTOR_CONTENTS (bv), SCM_BYTEVECTOR_LENGTH (bv));
   return SCM_UNSPECIFIED;
 }
+#undef FUNC_NAME
 
 void
 scm_init_lightning (void)
