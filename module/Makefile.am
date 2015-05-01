@@ -59,6 +59,7 @@ SOURCES =					\
 						\
   language/tree-il.scm				\
   $(TREE_IL_LANG_SOURCES)			\
+  $(CPS2_LANG_SOURCES)				\
   $(CPS_LANG_SOURCES)				\
   $(BYTECODE_LANG_SOURCES)			\
   $(VALUE_LANG_SOURCES)				\
@@ -146,6 +147,12 @@ CPS_LANG_SOURCES =						\
   language/cps/specialize-primcalls.scm				\
   language/cps/type-fold.scm					\
   language/cps/verify.scm
+
+CPS2_LANG_SOURCES =						\
+  language/cps2.scm						\
+  language/cps2/compile-cps.scm					\
+  language/cps2/renumber.scm					\
+  language/cps2/utils.scm
 
 BYTECODE_LANG_SOURCES =						\
   language/bytecode.scm						\
