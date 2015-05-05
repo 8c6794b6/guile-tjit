@@ -19,7 +19,6 @@
 #ifndef _SCM_VM_LIGHTNING_H_
 #define _SCM_VM_LIGHTNING_H_
 
-#include <libguile.h>
 #include <ffi.h>
 
 SCM_API SCM scm_do_inline_cell (scm_i_thread *thread, scm_t_bits car,

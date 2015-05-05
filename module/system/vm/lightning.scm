@@ -605,12 +605,18 @@ argument in VM operation."
      (vm-return st r0))
     ((_ st tmp)
      (begin
+       (vm-handle-interrupts tmp)
        ;; Get return address to jump.
        (scm-frame-return-address tmp)
+       (jit-movr f1 reg-fp)
        ;; Restore previous dynamic link to current frame pointer.
        (scm-frame-dynamic-link reg-fp)
        (vm-sync-fp)
-       ;; ... then jump to return address.
+       ;; Clear frame
+       (jit-movi f0 scm-false)
+       (jit-stxi (make-negative-pointer word-size) f1 f0)
+       (jit-stxi (make-negative-pointer (* 2 word-size)) f1 f0)
+       ;; Jump to return address.
        (jit-jmpr tmp)))))
 
 (define-syntax vm-alloc-frame
@@ -664,8 +670,8 @@ Stack poionter stored in reg-fp increased for `proc * word' size to
 shift the locals.  Then patch the address after the jump, so that callee
 can jump back.  Two locals below proc get overwritten by the callee."
     ((_ st proc nlocals body)
-     (with-frame st r0 proc nlocals body))
-    ((_ st tmp proc nlocals body)
+     (with-frame st proc nlocals body r0))
+    ((_ st proc nlocals body tmp)
      (let ((ra (jit-movi tmp (imm 0))))
        ;; Store return address.
        (jit-stxi (stored-ref st (- proc 1)) reg-fp tmp)
@@ -1712,10 +1718,29 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define-vm-op (reset-frame st nlocals)
   (vm-reset-frame nlocals))
 
-(define-vm-op (assert-nargs-ee/locals st expected locals)
-  ;; XXX: Refill SCM_UNDEFINED?
+(define-vm-op (assert-nargs-ee/locals st expected nlocals)
   (assert-wrong-num-args st jit-beqi expected 0)
-  (vm-alloc-frame (+ expected locals)))
+  (vm-alloc-frame (+ expected nlocals))
+
+  ;; (let ((lrefill (jit-forward))
+  ;;       (lexit (jit-forward)))
+
+  ;;   (assert-wrong-num-args st jit-beqi expected 0)
+  ;;   (vm-alloc-frame (+ expected nlocals))
+
+  ;;   (jit-movi f0 scm-undefined)
+  ;;   (jit-movi r0 (imm (* (+ expected nlocals) word-size)))
+  ;;   (jit-movi r1 (imm (* expected word-size)))
+
+  ;;   ;; Initialize locals with SCM_UNDEFINED.
+  ;;   (jit-link lrefill)
+  ;;   (jump (jit-bler r0 r1) lexit)
+  ;;   (jit-stxr r0 reg-fp f0)
+  ;;   (jit-subi r0 r0 (imm word-size))
+  ;;   (jump lrefill)
+
+  ;;   (jit-link lexit))
+  )
 
 ;;; XXX: br-if-npos-gt
 

@@ -19,16 +19,12 @@
 #ifndef _SCM_LIGHTNING_BINDING_
 #define _SCM_LIGHTNING_BINDING_
 
-#if HAVE_CONFIG_H
-#  include <config.h>
-#endif
-
-#include "libguile/_scm.h"
-#include "gc-inline.h"
-#include "lightning-binding.h"
 #include <errno.h>
 #include <lightning.h>
 #include <sys/mman.h>
+
+#include "libguile/_scm.h"
+#include "libguile/lightning-binding.h"
 
 #if BUILD_VM_LIGHTNING == 1
 
@@ -96,10 +92,9 @@ SCM_DEFINE (scm_jit_code_size, "%jit-code-size", 1, 0, 0, (SCM jit),
 }
 #undef FUNC_NAME
 
-#define ERRMSG "could not set execution flag on memory\n"
-
 static inline void
 set_flag (signed char *bv, size_t n)
+#define ERRMSG "could not set execution flag on memory\n"
 {
   char *start = (char *) ((((scm_t_bits) bv) / page_size) * page_size);
   int len = (scm_t_bits) bv + n - (scm_t_bits) start;
@@ -133,6 +128,21 @@ SCM_DEFINE (scm_make_bytevector_executable_x, "make-bytevector-executable!",
 }
 #undef FUNC_NAME
 
+static void* scm_lightning_malloc (size_t size)
+{
+  return scm_gc_malloc (size, "lightning");
+}
+
+static void* scm_lightning_realloc (void* mem, size_t size)
+{
+  return scm_gc_realloc (mem, 0, size, "lightning");
+}
+
+static void scm_lightning_free (void *mem)
+{
+  scm_gc_free (mem, 0, "lightning");
+}
+
 void
 scm_init_lightning (void)
 {
@@ -140,6 +150,9 @@ scm_init_lightning (void)
 #include "lightning-binding.x"
 #endif
   page_size = getpagesize ();
+  jit_set_memory_functions (scm_lightning_malloc,
+                            scm_lightning_realloc,
+                            scm_lightning_free);
 }
 
 #endif /* BUILD_VM_LIGHTNING == 1 */

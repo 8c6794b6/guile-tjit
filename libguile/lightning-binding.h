@@ -19,7 +19,7 @@
 #ifndef _SCM_LIGHTNING_BINDING_H_
 #define _SCM_LIGHTNING_BINDING_H_
 
-#include "libguile/__scm.h"
+#include "libguile/_scm.h"
 
 SCM_API SCM scm_jit_r (SCM i);
 SCM_API SCM scm_jit_v (SCM i);

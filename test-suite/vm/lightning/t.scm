@@ -1241,6 +1241,10 @@
 ;;; Procedures found in module (guile)
 ;;;
 
+(test-skip 1)
+(define-test (t-gc) ()
+  (gc))
+
 (define-test (t-call-map1 xs) ('(1 2 3))
   (map (lambda (x) (+ x 1)) xs))
 
