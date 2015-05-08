@@ -61,7 +61,7 @@
   #:use-module (language tree-il optimize)
   #:use-module (language tree-il)
   #:use-module (language cps intmap)
-  #:export (compile-cps))
+  #:export (compile-cps2))
 
 ;;; Guile's semantics are that a toplevel lambda captures a reference on
 ;;; the current module, and that all contained lambdas use that module
@@ -878,7 +878,7 @@ integer."
        (_ exp)))
    exp))
 
-(define (compile-cps exp env opts)
+(define (compile-cps2 exp env opts)
   (values (cps-convert/thunk
            (canonicalize (optimize-tree-il exp env opts)))
           env

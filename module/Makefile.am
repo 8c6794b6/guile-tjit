@@ -153,6 +153,7 @@ CPS2_LANG_SOURCES =						\
   language/cps2.scm						\
   language/cps2/compile-cps.scm					\
   language/cps2/renumber.scm					\
+  language/cps2/spec.scm					\
   language/cps2/utils.scm
 
 BYTECODE_LANG_SOURCES =						\
