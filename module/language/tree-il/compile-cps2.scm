@@ -499,7 +499,7 @@
          (lambda (cps args)
            (with-cps cps
              (letk kt ($kargs () () ($continue k src ($const #f))))
-             (letk kf ($kargs () () ($continue k src ($const #f))))
+             (letk kf ($kargs () () ($continue k src ($const #t))))
              (build-term ($continue kf src
                            ($branch kt ($values args))))))))
       ((and (eq? name 'list)
