@@ -310,7 +310,7 @@
     (('values arg ...)
      (build-exp ($values arg)))
     (('prompt escape? tag handler)
-     (build-cps-exp ($prompt escape? tag handler)))
+     (build-exp ($prompt escape? tag handler)))
     (_
      (error "unexpected cps" exp))))
 
