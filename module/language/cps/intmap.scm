@@ -32,6 +32,7 @@
 
 (define-module (language cps intmap)
   #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-9 gnu)
   #:use-module (srfi srfi-18)
   #:use-module (ice-9 match)
   #:export (empty-intmap
@@ -590,3 +591,14 @@
           ((eq? root a-root) a)
           ((eq? root b-root) b)
           (else (make-intmap/prune a-min a-shift root)))))))))
+
+(define (intmap->alist intmap)
+  (reverse (intmap-fold acons intmap '())))
+
+(define (print-intmap intmap port)
+  (format port "#<intmap ~a>" (intmap->alist intmap)))
+(define (print-transient-intmap intmap port)
+  (format port "#<transient-intmap ~a>" (intmap->alist intmap)))
+
+(set-record-type-printer! <intmap> print-intmap)
+(set-record-type-printer! <transient-intmap> print-transient-intmap)
