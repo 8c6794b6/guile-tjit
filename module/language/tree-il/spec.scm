@@ -43,7 +43,5 @@
   #:printer	write-tree-il
   #:parser      parse-tree-il
   #:joiner      join
-  #:compilers   `((cps . ,compile-cps)
-                  (cps2 . ,compile-cps2))
-  #:for-humans? #f
-  )
+  #:compilers   `((cps2 . ,compile-cps2))
+  #:for-humans? #f)
