@@ -309,6 +309,119 @@
                  (letk kunbound ($kargs () () ,init))
                  ($ (unbound? src orig-var kunbound kbound)))))))))))
 
+;;; The conversion from Tree-IL to CPS essentially wraps every
+;;; expression in a $kreceive, which models the Tree-IL semantics that
+;;; extra values are simply truncated.  In CPS, this means that the
+;;; $kreceive has a rest argument after the required arguments, if any,
+;;; and that the rest argument is unused.
+;;;
+;;; All CPS expressions that can return a variable number of values
+;;; (i.e., $call and $abort) must continue to $kreceive, which checks
+;;; the return arity and on success passes the parsed values along to a
+;;; $kargs.  If the $call or $abort is in tail position they continue to
+;;; $ktail instead, and then the values are parsed by the $kreceive of
+;;; the non-tail caller.
+;;;
+;;; Other CPS terms like $values, $const, and the like all have a
+;;; specific return arity, and must continue to $kargs instead of
+;;; $kreceive or $ktail.  This allows the compiler to reason precisely
+;;; about their result values.  To make sure that this is the case,
+;;; whenever the CPS conversion would reify one of these terms it needs
+;;; to ensure that the continuation actually accepts the return arity of
+;;; the primcall.
+;;;
+;;; Some Tree-IL primcalls residualize CPS primcalls that return zero
+;;; values, for example box-set!.  In this case the Tree-IL semantics
+;;; are that the result of the expression is the undefined value.  That
+;;; is to say, the result of this expression is #t:
+;;;
+;;;   (let ((x 30)) (eq? (set! x 10) (if #f #f)))
+;;;
+;;; So in the case that the continuation expects a value but the
+;;; primcall produces zero values, we insert the "unspecified" value.
+;;;
+(define (adapt-arity cps k src nvals)
+  (match nvals
+    (0
+     ;; As mentioned above, in the Tree-IL semantics the primcall
+     ;; produces the unspecified value, but in CPS it produces no
+     ;; values.  Therefore we plug the unspecified value into the
+     ;; continuation.
+     (match (intmap-ref cps k)
+       (($ $ktail)
+        (with-cps cps
+          (let$ body (with-cps-constants ((unspecified *unspecified*))
+                       (build-term
+                         ($continue k src ($primcall 'return (unspecified))))))
+          (letk kvoid ($kargs () () ,body))
+          kvoid))
+       (($ $kreceive arity kargs)
+        (match arity
+          (($ $arity () () (not #f) () #f)
+           (with-cps cps
+             (letk kvoid ($kargs () () ($continue kargs src ($const '()))))
+             kvoid))
+          (($ $arity (_) () #f () #f)
+           (with-cps cps
+             (letk kvoid ($kargs () ()
+                           ($continue kargs src ($const *unspecified*))))
+             kvoid))
+          (($ $arity (_) () _ () #f)
+           (with-cps cps
+             (let$ void (with-cps-constants ((unspecified *unspecified*)
+                                             (rest '()))
+                          (build-term
+                            ($continue kargs src
+                              ($values (unspecified rest))))))
+             (letk kvoid ($kargs () () ,void))
+             kvoid))
+          (_
+           ;; Arity mismatch.  Serialize a values call.
+           (with-cps cps
+             (let$ void (with-cps-constants ((unspecified *unspecified*))
+                          (build-term
+                            ($continue k src
+                              ($primcall 'values (unspecified))))))
+             (letk kvoid ($kargs () () ,void))
+             kvoid))))))
+    (1
+     (match (intmap-ref cps k)
+       (($ $ktail)
+        (with-cps cps
+          (letv val)
+          (letk kval ($kargs ('val) (val)
+                       ($continue k src ($primcall 'return (val)))))
+          kval))
+       (($ $kreceive arity kargs)
+        (match arity
+          (($ $arity () () (not #f) () #f)
+           (with-cps cps
+             (letv val)
+             (let$ body (with-cps-constants ((nil '()))
+                          (build-term
+                            ($continue kargs src ($primcall 'cons (val nil))))))
+             (letk kval ($kargs ('val) (val) ,body))
+             kval))
+          (($ $arity (_) () #f () #f)
+           (with-cps cps
+             kargs))
+          (($ $arity (_) () _ () #f)
+           (with-cps cps
+             (letv val)
+             (let$ body (with-cps-constants ((rest '()))
+                          (build-term
+                            ($continue kargs src ($values (val rest))))))
+             (letk kval ($kargs ('val) (val) ,body))
+             kval))
+          (_
+           ;; Arity mismatch.  Serialize a values call.
+           (with-cps cps
+             (letv val)
+             (letk kval ($kargs ('val) (val)
+                          ($continue k src
+                            ($primcall 'values (val)))))
+             kval))))))))
+
 ;; cps exp k-name alist -> cps term
 (define (convert cps exp k subst)
   ;; exp (v-name -> term) -> term
@@ -364,6 +477,7 @@
   (match exp
     (($ <lexical-ref> src name sym)
      (with-cps cps
+       (let$ k (adapt-arity k src 1))
        (rewrite-term (hashq-ref subst sym)
          ((orig-var box #t) ($continue k src ($primcall 'box-ref (box))))
          ((orig-var subst-var #f) ($continue k src ($values (subst-var))))
@@ -371,14 +485,17 @@
 
     (($ <void> src)
      (with-cps cps
+       (let$ k (adapt-arity k src 1))
        (build-term ($continue k src ($const *unspecified*)))))
 
     (($ <const> src exp)
      (with-cps cps
+       (let$ k (adapt-arity k src 1))
        (build-term ($continue k src ($const exp)))))
 
     (($ <primitive-ref> src name)
      (with-cps cps
+       (let$ k (adapt-arity k src 1))
        (build-term ($continue k src ($prim name)))))
 
     (($ <lambda> fun-src meta body)
@@ -426,6 +543,7 @@
              (letk ktail ($ktail))
              (let$ kclause (convert-clauses body ktail))
              (letk kfun ($kfun fun-src meta self ktail kclause))
+             (let$ k (adapt-arity k fun-src 1))
              (build-term ($continue k fun-src ($fun kfun))))
            (let ((scope-id (fresh-scope-id)))
              (with-cps cps
@@ -440,6 +558,7 @@
       cps src mod name public? #t
       (lambda (cps box)
         (with-cps cps
+          (let$ k (adapt-arity k src 1))
           (build-term ($continue k src ($primcall 'box-ref (box))))))))
 
     (($ <module-set> src mod name public? exp)
@@ -449,6 +568,7 @@
           cps src mod name public? #t
           (lambda (cps box)
             (with-cps cps
+              (let$ k (adapt-arity k src 0))
               (build-term
                 ($continue k src ($primcall 'box-set! (box val))))))))))
 
@@ -457,6 +577,7 @@
       cps src name #t
       (lambda (cps box)
         (with-cps cps
+          (let$ k (adapt-arity k src 1))
           (build-term ($continue k src ($primcall 'box-ref (box))))))))
 
     (($ <toplevel-set> src name exp)
@@ -466,6 +587,7 @@
           cps src name #f
           (lambda (cps box)
             (with-cps cps
+              (let$ k (adapt-arity k src 0))
               (build-term
                 ($continue k src ($primcall 'box-set! (box val))))))))))
 
@@ -473,6 +595,7 @@
      (convert-arg cps exp
        (lambda (cps val)
          (with-cps cps
+           (let$ k (adapt-arity k src 0))
            ($ (with-cps-constants ((name name))
                 (build-term
                   ($continue k src ($primcall 'define! (name val))))))))))
@@ -490,6 +613,7 @@
        (convert-args cps args
          (lambda (cps args)
            (with-cps cps
+             (let$ k (adapt-arity k src 1))
              (letk kt ($kargs () () ($continue k src ($const #t))))
              (letk kf ($kargs () () ($continue k src ($const #f))))
              (build-term ($continue kf src
@@ -498,6 +622,7 @@
        (convert-args cps args
          (lambda (cps args)
            (with-cps cps
+             (let$ k (adapt-arity k src 1))
              (letk kt ($kargs () () ($continue k src ($const #f))))
              (letk kf ($kargs () () ($continue k src ($const #t))))
              (build-term ($continue kf src
@@ -512,26 +637,56 @@
                      args))
        ;; See note below in `canonicalize' about `vector'.  The same
        ;; thing applies to `list'.
-       (let lp ((cps cps) (args args) (k k))
-         (match args
-           (()
-            (with-cps cps
-              (build-term ($continue k src ($const '())))))
-           ((arg . args)
-            (with-cps cps
-              (letv tail)
-              (let$ body (convert-arg arg
-                           (lambda (cps head)
-                             (with-cps cps
-                               (build-term ($continue k src
-                                             ($primcall 'cons (head tail))))))))
-              (letk ktail ($kargs ('tail) (tail) ,body))
-              ($ (lp args ktail)))))))
+       (with-cps cps
+         (let$ k (adapt-arity k src 1))
+         ($ ((lambda (cps)
+               (let lp ((cps cps) (args args) (k k))
+                 (match args
+                   (()
+                    (with-cps cps
+                      (build-term ($continue k src ($const '())))))
+                   ((arg . args)
+                    (with-cps cps
+                      (letv tail)
+                      (let$ body (convert-arg arg
+                                   (lambda (cps head)
+                                     (with-cps cps
+                                       (build-term
+                                         ($continue k src
+                                           ($primcall 'cons (head tail))))))))
+                      (letk ktail ($kargs ('tail) (tail) ,body))
+                      ($ (lp args ktail)))))))))))
+      ((prim-instruction name)
+       => (lambda (name)
+            (convert-args cps args
+              (lambda (cps args)
+                ;; Tree-IL primcalls are sloppy, in that it could be
+                ;; that they are called with too many or too few
+                ;; arguments.  In CPS we are more strict and only
+                ;; residualize a $primcall if the argument count
+                ;; matches.
+                (match (prim-arity name)
+                  ((out . in)
+                   (if (= in (length args))
+                       (with-cps cps
+                         (let$ k (adapt-arity k src out))
+                         (build-term
+                           ($continue k src
+                             ($primcall name args))))
+                       (with-cps cps
+                         (letv prim)
+                         (letk kprim ($kargs ('prim) (prim)
+                                       ($continue k src ($call prim args))))
+                         (build-term ($continue kprim src ($prim name)))))))))))
       (else
+       ;; We have something that's a primcall for Tree-IL but not for
+       ;; CPS, which will get compiled as a call and so the right thing
+       ;; to do is to continue to the given $ktail or $kreceive.
        (convert-args cps args
          (lambda (cps args)
            (with-cps cps
-             (build-term ($continue k src ($primcall name args)))))))))
+             (build-term
+               ($continue k src ($primcall name args)))))))))
 
     ;; Prompts with inline handlers.
     (($ <prompt> src escape-only? tag body
@@ -627,6 +782,7 @@
          (match (hashq-ref subst gensym)
            ((orig-var box #t)
             (with-cps cps
+              (let$ k (adapt-arity k src 0))
               (build-term
                 ($continue k src ($primcall 'box-set! (box exp))))))))))
 
@@ -885,7 +1041,7 @@ integer."
           env))
 
 ;;; Local Variables:
-;;; eval: (put 'with-cps 'scheme-indent-function 2)
+;;; eval: (put 'with-cps 'scheme-indent-function 1)
 ;;; eval: (put 'with-cps-constants 'scheme-indent-function 1)
 ;;; eval: (put 'convert-arg 'scheme-indent-function 2)
 ;;; eval: (put 'convert-args 'scheme-indent-function 2)
