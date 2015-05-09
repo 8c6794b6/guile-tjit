@@ -219,10 +219,11 @@
 ;; it immediately dominates.  These are the "D" edges in the DJ tree.
 (define (compute-dom-edges idoms)
   (define (snoc cdr car) (cons car cdr))
-  (intmap-fold (lambda (label idom doms)
-                 (let ((doms (intmap-add! doms label '())))
-                   (cond
-                    ((< idom 0) doms) ;; No edge to entry.
-                    (else (intmap-add! doms idom label snoc)))))
-               idoms
-               empty-intmap))
+  (persistent-intmap
+   (intmap-fold (lambda (label idom doms)
+                  (let ((doms (intmap-add! doms label '())))
+                    (cond
+                     ((< idom 0) doms) ;; No edge to entry.
+                     (else (intmap-add! doms idom label snoc)))))
+                idoms
+                empty-intmap)))
