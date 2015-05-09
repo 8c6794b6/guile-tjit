@@ -232,7 +232,10 @@
        ;; Add element to set; level will not change.
        (if (= shift *leaf-bits*)
            (set-transient-intset-root! bs (adjoin-leaf (- i min) root))
-           (adjoin-branch! (- i min) shift root)))
+           (let ((root* (writable-branch root edit)))
+             (unless (eq? root root*)
+               (set-transient-intset-root! bs root*))
+             (adjoin-branch! (- i min) shift root*))))
       (else
        (let lp ((min min)
                 (shift shift)
