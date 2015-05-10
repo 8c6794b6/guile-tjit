@@ -22,10 +22,6 @@
 #include <libguile.h>
 #include <libguile/programs.h>
 
-#if BUILD_VM_LIGHTNING == 1
-#include <libguile/vm-lightning.h>
-#endif
-
 enum {
   SCM_VM_APPLY_HOOK,
   SCM_VM_PUSH_CONTINUATION_HOOK,

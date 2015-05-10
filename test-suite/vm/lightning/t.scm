@@ -1164,7 +1164,6 @@
       (+ (t-fib2 (- n 1))
          (t-fib2 (- n 2)))))
 
-(test-skip 1)
 (define-test (t-nqueens n) (8)
   (define (one-to n)
     (let loop ((i n) (l '()))
@@ -1241,7 +1240,6 @@
 ;;; Procedures found in module (guile)
 ;;;
 
-(test-skip 1)
 (define-test (t-gc) ()
   (gc))
 
@@ -1321,5 +1319,28 @@
 ;;;
 ;;; GC tests
 ;;;
+
+(define-test (list-copy-lp n a) (#e1e7 '(1 2 3 4 5))
+  (let lp ((n n) (v '()))
+    (if (< n 0)
+        v
+        (lp (- n 1) (list-copy a)))))
+
+(test-skip 1)
+(define-test (t-cons-loop n a b) (#e1e7 'foo 'bar)
+  (let lp ((n n) (v #f))
+    (if (< n 0)
+        v
+        (lp (- n 1) (cons a b)))))
+
+(define (binder . rest)
+  rest)
+
+(test-skip 1)
+(define-test (binder-lp n a b) (#e1e7 'foo 'bar)
+  (let lp ((n n) (v #f))
+    (if (< n 0)
+        v
+        (lp (- n 1) (binder a b)))))
 
 (test-end "vm-lightning-test")

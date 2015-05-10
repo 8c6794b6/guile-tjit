@@ -375,15 +375,15 @@
 (define-syntax-rule (scm-not-smobp tc7)
   (jit-bnei tc7 (imm tc7-smob)))
 
-(define *values-vtable
+(define *values-vtable*
   (dereference-pointer
    (dynamic-pointer "scm_values_vtable" (dynamic-link))))
 
 (define-syntax-rule (scm-valuesp vt)
-  (jit-beqi vt *values-vtable))
+  (jit-beqi vt *values-vtable*))
 
 (define-syntax-rule (scm-not-valuesp vt)
-  (jit-bnei vt *values-vtable))
+  (jit-bnei vt *values-vtable*))
 
 (define-syntax-rule (scm-is-false obj)
   (jit-beqi obj scm-false))
@@ -463,6 +463,15 @@
 (define-syntax-rule (vm-thread-pending-asyncs dst)
   (jit-ldxi dst reg-thread (imm #x104)))
 
+(define-syntax vm-sync-ip
+  (syntax-rules ()
+    ((_ st)
+     (vm-sync-ip st r0))
+    ((_ st tmp)
+     (begin
+       (jit-movi tmp (imm (+ (lightning-pc st) (* 4 (lightning-ip st)))))
+       (jit-str reg-vp tmp)))))
+
 (define-syntax-rule (vm-cache-fp)
   (jit-ldxi reg-fp reg-vp (imm #x10)))
 
@@ -486,6 +495,9 @@
 
 (define-syntax-rule (vm-stack-limit dst)
   (jit-ldxi dst reg-vp (imm #x18)))
+
+(define-syntax-rule (vm-stack-size dst)
+  (jit-ldxi dst reg-vp (imm #x30)))
 
 (define-syntax-rule (scm-frame-dynamic-link dst)
   (jit-ldxi dst reg-fp (make-negative-pointer (* 2 word-size))))
@@ -588,12 +600,14 @@ argument in VM operation."
 
 (define-syntax vm-handle-interrupts
   (syntax-rules ()
-    ((_)
-     (vm-handle-interrupts r0))
-    ((_ tmp)
+    ((_ st)
+     (vm-handle-interrupts st r0))
+    ((_ st tmp)
      (let ((lexit (jit-forward)))
        (vm-thread-pending-asyncs tmp)
        (jump (jit-bmci tmp (imm 1)) lexit)
+       (vm-sync-ip st tmp)
+       (jit-prepare)
        (call-c "scm_async_tick")
        (vm-cache-fp)
        (vm-cache-sp)
@@ -605,7 +619,7 @@ argument in VM operation."
      (vm-return st r0))
     ((_ st tmp)
      (begin
-       (vm-handle-interrupts tmp)
+       (vm-handle-interrupts st tmp)
        ;; Get return address to jump.
        (scm-frame-return-address tmp)
        (jit-movr f1 reg-fp)
@@ -621,7 +635,7 @@ argument in VM operation."
 
 (define-syntax vm-alloc-frame
   (syntax-rules ()
-    ((_)
+    ((_ st)
      (let ((lexit (jit-forward))
            (lincr (jit-forward)))
        ;; Using r0 as temporary register.
@@ -630,6 +644,7 @@ argument in VM operation."
        (vm-stack-limit r0)
        (jump (jit-bgtr r0 reg-sp) lincr)
 
+       (vm-sync-ip st r0)
        (jit-prepare)
        (jit-pushargr reg-vp)
        (jit-pushargr reg-sp)
@@ -643,11 +658,11 @@ argument in VM operation."
 
        (jit-link lexit)))
 
-    ((_ n)
+    ((_ st n)
      (begin
        (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
        (vm-sync-sp)
-       (vm-alloc-frame)))))
+       (vm-alloc-frame st)))))
 
 (define-syntax vm-reset-frame
   (syntax-rules ()
@@ -685,20 +700,38 @@ can jump back.  Two locals below proc get overwritten by the callee."
        body
        (jit-patch ra)))))
 
+(define-syntax-rule (return-one-value st val tmp1 tmp2 tmp3)
+  (begin
+    (vm-handle-interrupts st tmp1)
+    (jit-movr tmp1 reg-fp)
+    (scm-frame-return-address tmp2)
+    (scm-frame-dynamic-link reg-fp)
+    (vm-sync-fp)
+    ;; Clear frame.
+    (jit-movi tmp3 scm-false)
+    (jit-stxi (make-negative-pointer word-size) tmp1 tmp3)
+    (jit-stxi (make-negative-pointer (* 2 word-size)) tmp1 tmp3)
+    ;; Leave proc.
+    (jit-stxi (imm word-size) tmp1 val)
+    (jit-addi tmp1 tmp1 (imm word-size))
+    (jit-movr reg-sp tmp1)
+    (vm-sync-sp)
+    (jit-jmpr tmp2)))
+
 (define-syntax-rule (return-value-list st proc rval tmp1 tmp2 tmp3)
-  (let ((lexit (jit-forward))
+  (let ((lone (jit-forward))
+        (lexit (jit-forward))
         (lshuffle (jit-forward)))
 
-    (vm-reset-frame 2 tmp1)
-    (jump (scm-imp rval) lexit)
+    (jump (scm-imp rval) lone)
 
     (scm-cell-type tmp1 rval)
     (scm-typ3 tmp2 tmp1)
-    (jump (scm-not-structp tmp2) lexit)
+    (jump (scm-not-structp tmp2) lone)
 
     (jit-subi tmp2 tmp1 (imm tc3-struct))
     (scm-cell-object tmp2 tmp2 scm-vtable-index-self)
-    (jump (scm-not-valuesp tmp2) lexit)
+    (jump (scm-not-valuesp tmp2) lone)
 
     (scm-struct-slots tmp1 rval)
     (scm-cell-object tmp1 tmp1 0)
@@ -723,7 +756,10 @@ can jump back.  Two locals below proc get overwritten by the callee."
     (vm-set-sp-max-since-gc reg-sp)
 
     (jit-link lexit)
-    (vm-return st)))
+    (vm-return st)
+
+    (jit-link lone)
+    (return-one-value st rval tmp1 tmp2 tmp3)))
 
 (define-syntax-rule (vm-apply)
   "Apply the procedure in local 0.
@@ -1114,7 +1150,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     ((_ (name st a invert offset) expr)
      (define-vm-op (name st a invert offset)
        (when (< offset 0)
-         (vm-handle-interrupts))
+         (vm-handle-interrupts st))
        (jump expr (resolve-dst st offset))))))
 
 (define-syntax define-vm-br-unary-heap-object-op
@@ -1122,7 +1158,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     ((_ (name st a invert offset) reg expr)
      (define-vm-op (name st a invert offset)
        (when (< offset 0)
-         (vm-handle-interrupts))
+         (vm-handle-interrupts st))
        (let ((lexit (jit-forward)))
          (local-ref st a reg)
          (jump (scm-imp reg) (if invert (resolve-dst st offset) lexit))
@@ -1137,7 +1173,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     ((_ (name st a b invert offset) cname)
      (define-vm-op (name st a b invert offset)
        (when (< offset 0)
-         (vm-handle-interrupts))
+         (vm-handle-interrupts st))
        (let ((lexit (jit-forward)))
          (local-ref st a r0)
          (local-ref st b r1)
@@ -1161,17 +1197,17 @@ behaviour is similar to the `apply' label in vm-regular engine."
         fx-op fx-invert-op fl-op fl-invert-op cname)
      (define-vm-op (name st a b invert offset)
        (when (< offset 0)
-         (vm-handle-interrupts))
+         (vm-handle-interrupts st))
        (let ((lreal (jit-forward))
              (lcall (jit-forward))
              (lexit (jit-forward))
+             (dest (resolve-dst st offset))
              (rega (local-ref st a r1))
              (regb (local-ref st b r2)))
 
          (jump (scm-not-inump rega) lreal)
          (jump (scm-not-inump regb) lreal)
-         (jump ((if invert fx-invert-op fx-op) rega regb)
-               (resolve-dst st offset))
+         (jump ((if invert fx-invert-op fx-op) rega regb) dest)
          (jump lexit)
 
          (jit-link lreal)
@@ -1185,8 +1221,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
          (jump (scm-not-realp r0) lcall)
          (scm-real-value f0 rega)
          (scm-real-value f1 regb)
-         (jump ((if invert fl-invert-op fl-op) f0 f1)
-               (resolve-dst st offset))
+         (jump ((if invert fl-invert-op fl-op) f0 f1) dest)
          (jump lexit)
 
          (jit-link lcall)
@@ -1195,8 +1230,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
          (jit-pushargr regb)
          (call-c cname)
          (jit-retval r0)
-         (jump (if invert (scm-is-false r0) (scm-is-true r0))
-               (resolve-dst st offset))
+         (jump (if invert (scm-is-false r0) (scm-is-true r0)) dest)
 
          (jit-link lexit))))))
 
@@ -1291,7 +1325,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
          (jump (scm-not-inump reg) lreal)
          (jit-movr r0 reg)
-         (jump (fx-op r0 (imm 4)) lreal)
+         (jump (fx-op r0 (imm 4)) lcall)
          (jump lexit)
 
          (jit-link lreal)
@@ -1418,11 +1452,11 @@ behaviour is similar to the `apply' label in vm-regular engine."
 ;;; ---------------
 
 (define-vm-op (call st proc nlocals)
-  (vm-handle-interrupts)
+  (vm-handle-interrupts st)
   (with-frame st proc nlocals (vm-apply)))
 
 (define-vm-op (call-label st proc nlocals label)
-  (vm-handle-interrupts)
+  (vm-handle-interrupts st)
   (cond
    ((in-same-procedure? st label)
     (with-frame st proc nlocals (jump (resolve-dst st label))))
@@ -1434,12 +1468,12 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (compile-label st proc nlocals (offset-addr st label) #f))))
 
 (define-vm-op (tail-call st nlocals)
-  (vm-handle-interrupts)
+  (vm-handle-interrupts st)
   (vm-reset-frame nlocals)
   (vm-apply))
 
 (define-vm-op (tail-call-label st nlocals label)
-  (vm-handle-interrupts)
+  (vm-handle-interrupts st)
   (vm-reset-frame nlocals)
   (cond
    ((in-same-procedure? st label)
@@ -1455,7 +1489,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (let ((lshuffle (jit-forward))
         (lreset (jit-forward))
         (lexit (jit-forward)))
-    (vm-handle-interrupts)
+    (vm-handle-interrupts st)
 
     ;; r2 used to stop the loop in lshuffle.
     (jit-subr r2 reg-sp reg-fp)
@@ -1509,11 +1543,9 @@ behaviour is similar to the `apply' label in vm-regular engine."
           (error-wrong-num-values nvalues)))
     (jit-link lexit)))
 
-(define-vm-op (return st dst)
-  (local-ref st dst r0)
-  (local-set! st 1 r0)
-  (vm-reset-frame 2)
-  (vm-return st))
+(define-vm-op (return st src)
+  (local-ref st src r0)
+  (return-one-value st r0 r1 r2 f0))
 
 (define-vm-op (return-values st)
   (vm-return st))
@@ -1591,7 +1623,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lshuffle (jit-forward))
         (lapply (jit-forward)))
 
-    (vm-handle-interrupts)
+    (vm-handle-interrupts st)
 
     ;; Index for last local, a list containing rest of arguments.
     (last-arg-offset st r2 r0)
@@ -1612,7 +1644,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (jit-link lalloc)
     (vm-sync-sp)
-    (vm-alloc-frame)
+    (vm-alloc-frame st)
 
     (jit-movi r1 (imm 0))
 
@@ -1624,7 +1656,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-addi r1 r1 (imm word-size))
     (jump (jit-bler r1 f0) lshift)
 
-    ;; Load last local again.
+    ;; Load last local, again.
     (jit-ldxr r0 reg-fp r2)
 
     ;; Expand list contents to local.
@@ -1701,7 +1733,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lexit (jit-forward)))
 
     (frame-locals-count r1)
-    (vm-alloc-frame nlocals)
+    (vm-alloc-frame st nlocals)
     (jit-lshi r1 r1 (imm word-size-length))
     (jit-movi r2 (imm (* nlocals word-size)))
     (jit-movi r0 scm-undefined)
@@ -1720,13 +1752,13 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (assert-nargs-ee/locals st expected nlocals)
   (assert-wrong-num-args st jit-beqi expected 0)
-  (vm-alloc-frame (+ expected nlocals))
+  (vm-alloc-frame st (+ expected nlocals))
 
   ;; (let ((lrefill (jit-forward))
   ;;       (lexit (jit-forward)))
 
   ;;   (assert-wrong-num-args st jit-beqi expected 0)
-  ;;   (vm-alloc-frame (+ expected nlocals))
+  ;;   (vm-alloc-frame st (+ expected nlocals))
 
   ;;   (jit-movi f0 scm-undefined)
   ;;   (jit-movi r0 (imm (* (+ expected nlocals) word-size)))
@@ -1763,7 +1795,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-lshi r0 r0 (imm word-size-length))
   (jit-addr reg-sp reg-fp r0)
   (vm-sync-sp)
-  (vm-alloc-frame))
+  (vm-alloc-frame st))
 
 (define-vm-op (bind-rest st dst)
   (let ((lrefill (jit-forward))
@@ -1772,15 +1804,15 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lreset (jit-forward))
         (lexit (jit-forward)))
 
-    ;; Initialize some values.
+    ;; Initialize values.
     (jit-subr r2 reg-sp reg-fp)
     (jit-addi r2 r2 (imm word-size)) ; r2 = last local index.
     (jit-movi r1 scm-eol)            ; r1 = initial list.
-    (jit-movi f0 scm-undefined)
+    (jit-movi f0 scm-undefined)      ; f0 = undefined, for refill.
     (jump (jit-bgti r2 (imm (* dst word-size))) lprecons)
 
     ;; Refill the locals with SCM_UNDEFINED.
-    (vm-alloc-frame (+ dst 1))
+    (vm-alloc-frame st (+ dst 1))
 
     (jit-link lrefill)
     (jump (jit-bgei r2 (imm (* dst word-size))) lexit)
@@ -1813,7 +1845,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (br st dst)
   (when (< dst 0)
-    (vm-handle-interrupts))
+    (vm-handle-interrupts st))
   (jump (resolve-dst st dst)))
 
 (define-vm-br-unary-immediate-op (br-if-true st a invert offset)
@@ -1828,7 +1860,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (br-if-nil st a invert offset)
   (when (< offset 0)
-    (vm-handle-interrupts))
+    (vm-handle-interrupts st))
   (local-ref st a r0)
   (jit-movi r1 (imm (logior (pointer-address scm-false)
                             (pointer-address scm-eol))))
@@ -1853,7 +1885,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (br-if-tc7 st a invert tc7 offset)
   (when (< offset 0)
-    (vm-handle-interrupts))
+    (vm-handle-interrupts st))
   (let ((lexit (jit-forward)))
     (local-ref st a r0)
     (jump (scm-imp r0) (if invert (resolve-dst st offset) lexit))
@@ -1866,7 +1898,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (br-if-eq st a b invert offset)
   (when (< offset 0)
-    (vm-handle-interrupts))
+    (vm-handle-interrupts st))
   (jump ((if invert jit-bner jit-beqr)
          (local-ref st a r0)
          (local-ref st b r1))
@@ -1916,7 +1948,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
 ;;; ----------------------------
 
 (define-vm-op (mov st dst src)
-  (local-set! st dst (local-ref st src)))
+  (local-ref st src r0)
+  (local-set! st dst r0))
 
 ;;; XXX: long-mov
 
@@ -1990,10 +2023,12 @@ behaviour is similar to the `apply' label in vm-regular engine."
 ;;; --------------------------------------------------
 
 (define-vm-op (make-short-immediate st dst a)
-  (local-set!/immediate st dst (imm a)))
+  (jit-movi r0 (imm a))
+  (local-set! st dst r0))
 
 (define-vm-op (make-long-immediate st dst a)
-  (local-set!/immediate st dst (imm a)))
+  (jit-movi r0 (imm a))
+  (local-set! st dst r0))
 
 (define-vm-op (make-long-long-immediate st dst hi lo)
   (jit-movi r0 (imm hi))
@@ -2682,25 +2717,27 @@ compiled result."
            (jit-print)
            (jit-clear-state)))))))
 
-(define %compile-lightning
-  (let ((f (lambda (proc*)
-             (let ((proc (pointer->scm proc*)))
-               (compile-lightning proc)))))
-    (procedure->pointer void f '(*))))
+;; (define %compile-lightning
+;;   (let ((f (lambda (proc*)
+;;              (let ((proc (pointer->scm proc*)))
+;;                (compile-lightning proc)))))
+;;     (procedure->pointer void f '(*))))
 
 
 ;;;
 ;;; Runtime
 ;;;
 
-;;; Size of bytevector to contain native code for `run-lightning'.
-(define-inline run-lightning-code-size 4096)
+;;; Size of bytevector to contain native code for `lightning-main'.
+(define-inline lightning-main-code-size 4096)
 
-;;; Bytevector to contain native code for `run-lightning'.
-(define run-lightning-code
-  (make-bytevector run-lightning-code-size 0))
+;;; Bytevector to contain native code of `lightning-main'. This top
+;;; level variable get filled in with actual value at the end of this
+;;; file, and referenced from C code.
+(define lightning-main-code
+  (make-bytevector lightning-main-code-size 0))
 
-(define (emit-run-lightning)
+(define (emit-lightning-main)
   "Emit native code used for vm-lightning runtime."
   (with-jit-state
    (jit-prolog)
@@ -2728,8 +2765,8 @@ compiled result."
      ;; Before caching registers from the argument `vp', save the
      ;; original frame pointer contents used by lightning. The original
      ;; frame pointer is then stored to the address used for
-     ;; `vm_boot_continuation_code', since boot continuation code is not
-     ;; used by this vm engine.
+     ;; `vm_boot_continuation_code', since boot continuation code itself
+     ;; is not used by this vm engine.
      (jit-movr r0 reg-fp)
      (vm-cache-fp)
      (vm-cache-sp)
@@ -2748,8 +2785,8 @@ compiled result."
      (halt))
    (jit-epilog)
    (jit-realize)
-   (jit-set-code (bytevector->pointer run-lightning-code)
-                 (imm run-lightning-code-size))
+   (jit-set-code (bytevector->pointer lightning-main-code)
+                 (imm lightning-main-code-size))
    (jit-emit)))
 
 (define (call-lightning proc . args)
@@ -2769,8 +2806,8 @@ arguments ARGS."
 ;;;
 
 (init-jit "")
-(emit-run-lightning)
-(make-bytevector-executable! run-lightning-code)
+(emit-lightning-main)
+(make-bytevector-executable! lightning-main-code)
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_lightning")
