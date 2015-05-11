@@ -144,7 +144,7 @@
        (with-cps cps clause ...)))
     ((_ cps (letk label cont) clause ...)
      (let-fresh (label) ()
-       (with-cps (intmap-add cps label (build-cont cont))
+       (with-cps (intmap-add! cps label (build-cont cont))
          clause ...)))
     ((_ cps (letv v ...) clause ...)
      (let-fresh () (v ...)
@@ -759,7 +759,7 @@ integer."
       ($ ((lambda (cps)
             (let ((init (build-cont
                           ($kfun (tree-il-src exp) '() init ktail kclause))))
-              (with-cps (intmap-add cps kinit init)
+              (with-cps (persistent-intmap (intmap-add! cps kinit init))
                 kinit))))))))
 
 (define *comp-module* (make-fluid))
