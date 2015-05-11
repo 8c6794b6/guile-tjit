@@ -27,7 +27,6 @@
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
   #:use-module (language cps)
-  #:use-module (language cps arities)
   #:use-module (language cps closure-conversion)
   #:use-module (language cps contification)
   #:use-module (language cps constructors)
@@ -508,7 +507,6 @@
 
 (define (compile-bytecode exp env opts)
   ;; See comment in `optimize' about the use of set!.
-  (set! exp (fix-arities exp))
   (set! exp (optimize exp opts))
   (set! exp (convert-closures exp))
   ;; first-order optimization should go here

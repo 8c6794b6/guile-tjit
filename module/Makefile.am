@@ -117,13 +117,11 @@ TREE_IL_LANG_SOURCES =						\
   language/tree-il/analyze.scm					\
   language/tree-il/inline.scm 					\
   language/tree-il/compile-cps2.scm 				\
-  language/tree-il/compile-cps.scm 				\
   language/tree-il/debug.scm 					\
   language/tree-il/spec.scm
 
 CPS_LANG_SOURCES =						\
   language/cps.scm						\
-  language/cps/arities.scm					\
   language/cps/closure-conversion.scm				\
   language/cps/compile-bytecode.scm				\
   language/cps/constructors.scm					\

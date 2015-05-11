@@ -22,7 +22,6 @@
   #:use-module (system base language)
   #:use-module (system base pmatch)
   #:use-module (language tree-il)
-  #:use-module (language tree-il compile-cps)
   #:use-module (language tree-il compile-cps2)
   #:export (tree-il))
 
