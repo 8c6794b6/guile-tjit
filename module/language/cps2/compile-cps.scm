@@ -27,6 +27,7 @@
   #:use-module (language cps2)
   #:use-module ((language cps) #:prefix cps:)
   #:use-module (language cps2 utils)
+  #:use-module (language cps2 optimize)
   #:use-module (language cps2 renumber)
   #:use-module (language cps intmap)
   #:export (compile-cps))
@@ -99,4 +100,5 @@
   (convert-fun 0))
 
 (define (compile-cps exp env opts)
-  (values (conts->fun (renumber exp)) env env))
+  (let ((exp (renumber (optimize exp opts))))
+    (values (conts->fun exp) env env)))

@@ -141,7 +141,6 @@ CPS_LANG_SOURCES =						\
   language/cps/self-references.scm				\
   language/cps/slot-allocation.scm				\
   language/cps/simplify.scm					\
-  language/cps/simplify2.scm					\
   language/cps/spec.scm						\
   language/cps/specialize-primcalls.scm				\
   language/cps/type-fold.scm					\
@@ -151,6 +150,8 @@ CPS2_LANG_SOURCES =						\
   language/cps2.scm						\
   language/cps2/compile-cps.scm					\
   language/cps2/renumber.scm					\
+  language/cps2/optimize.scm					\
+  language/cps2/simplify.scm					\
   language/cps2/spec.scm					\
   language/cps2/utils.scm
 
