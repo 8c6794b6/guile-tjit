@@ -37,13 +37,15 @@
 
             ;; Various utilities.
             fold1 fold2
+            intmap-map
             intset->intmap
             worklist-fold
             fixpoint
 
             ;; Flow analysis.
-            compute-predecessors
+            compute-constant-values
             compute-function-body
+            compute-predecessors
             compute-idoms
             compute-dom-edges
             ))
@@ -102,6 +104,14 @@
          (lambda (s0 s1)
            (lp l s0 s1)))))))
 
+(define (intmap-map proc map)
+  (persistent-intmap
+   (intmap-fold (lambda (k v out)
+                  (intmap-add! out k (proc k v)
+                               (lambda (old new) new)))
+                map
+                map)))
+
 (define (intset->intmap f set)
   (persistent-intmap
    (intset-fold (lambda (label preds)
@@ -134,6 +144,33 @@
            (if (and (eq? x0 x0*) (eq? x1 x1*))
                (values x0* x1*)
                (lp x0* x1*))))))))
+
+(define (compute-defining-expressions conts)
+  (define (meet-defining-expressions old new)
+    ;; If there are multiple definitions, punt and
+    ;; record #f.
+    #f)
+  (persistent-intmap
+   (intmap-fold (lambda (label cont defs)
+                  (match cont
+                    (($ $kargs _ _ ($continue k exp))
+                     (match (intmap-ref conts k)
+                       (($ $kargs (_) (var))
+                        (intmap-add! defs var exp meet-defining-expressions))
+                       (_ defs)))
+                    (_ defs)))
+                conts
+                empty-intmap)))
+
+(define (compute-constant-values conts)
+  (persistent-intmap
+   (intmap-fold (lambda (var exp out)
+                  (match exp
+                    (($ $const val)
+                     (intmap-add! out var val))
+                    (_ out)))
+                (compute-defining-expressions conts)
+                empty-intmap)))
 
 (define (compute-function-body conts kfun)
   (persistent-intset

@@ -149,6 +149,7 @@ CPS_LANG_SOURCES =						\
 CPS2_LANG_SOURCES =						\
   language/cps2.scm						\
   language/cps2/compile-cps.scm					\
+  language/cps2/effects-analysis.scm				\
   language/cps2/renumber.scm					\
   language/cps2/optimize.scm					\
   language/cps2/simplify.scm					\
