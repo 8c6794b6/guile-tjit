@@ -84,13 +84,22 @@
   (root transient-intmap-root set-transient-intmap-root!)
   (edit transient-intmap-edit set-transient-intmap-edit!))
 
+(define *absent* (list 'absent))
+(define-inlinable (absent? x)
+  (eq? x *absent*))
+(define-inlinable (present? x)
+  (not (absent? x)))
+
 (define-inlinable (new-branch edit)
-  (let ((vec (make-vector *branch-size-with-edit* #f)))
-    (when edit (vector-set! vec *edit-index* edit))
+  (let ((vec (make-vector *branch-size-with-edit* *absent*)))
+    (vector-set! vec *edit-index* edit)
     vec))
+(define-inlinable (clone-branch-with-edit branch edit)
+  (let ((new (vector-copy branch)))
+    (vector-set! new *edit-index* edit)
+    new))
 (define (clone-branch-and-set branch i elt)
-  (let ((new (new-branch #f)))
-    (when branch (vector-move-left! branch 0 *branch-size* new 0))
+  (let ((new (clone-branch-with-edit branch #f)))
     (vector-set! new i elt)
     new))
 (define-inlinable (assert-readable! root-edit)
@@ -100,24 +109,26 @@
   (let ((edit (vector-ref branch *edit-index*)))
     (if (eq? root-edit edit)
         branch
-        (clone-branch-and-set branch *edit-index* root-edit))))
+        (clone-branch-with-edit branch root-edit))))
 (define (branch-empty? branch)
   (let lp ((i 0))
     (or (= i *branch-size*)
-        (and (not (vector-ref branch i))
+        (and (absent? (vector-ref branch i))
              (lp (1+ i))))))
 
 (define-inlinable (round-down min shift)
   (logand min (lognot (1- (ash 1 shift)))))
 
-(define empty-intmap (make-intmap 0 0 #f))
+(define empty-intmap (make-intmap 0 0 *absent*))
 
 (define (add-level min shift root)
   (let* ((shift* (+ shift *branch-bits*))
          (min* (round-down min shift*))
          (idx (logand (ash (- min min*) (- shift))
-                      *branch-mask*)))
-    (make-intmap min* shift* (clone-branch-and-set #f idx root))))
+                      *branch-mask*))
+         (root* (new-branch #f)))
+    (vector-set! root* idx root)
+    (make-intmap min* shift* root*)))
 
 (define (make-intmap/prune min shift root)
   (if (zero? shift)
@@ -125,7 +136,7 @@
       (let lp ((i 0) (elt #f))
         (cond
          ((< i *branch-size*)
-          (if (vector-ref root i)
+          (if (present? (vector-ref root i))
               (if elt
                   (make-intmap min shift root)
                   (lp (1+ i) i))
@@ -169,25 +180,24 @@
 
 (define* (intmap-add! map i val #:optional (meet meet-error))
   (define (ensure-branch! root idx)
-    (let ((edit (vector-ref root *edit-index*)))
-      (match (vector-ref root idx)
-        (#f (let ((v (new-branch edit)))
-              (vector-set! root idx v)
-              v))
-        (v (let ((v* (writable-branch v edit)))
-             (unless (eq? v v*)
-               (vector-set! root idx v*))
-             v*)))))
+    (let ((edit (vector-ref root *edit-index*))
+          (v (vector-ref root idx)))
+      (if (absent? v)
+          (let ((v (new-branch edit)))
+            (vector-set! root idx v)
+            v)
+          (let ((v* (writable-branch v edit)))
+            (unless (eq? v v*)
+              (vector-set! root idx v*))
+            v*))))
   (define (adjoin! i shift root)
     (let* ((shift (- shift *branch-bits*))
            (idx (logand (ash i (- shift)) *branch-mask*)))
-      (cond
-       ((zero? shift)
-        (let ((node (vector-ref root idx)))
-          (unless (eq? node val)
-            (vector-set! root idx (if node (meet node val) val)))))
-       (else
-        (adjoin! i shift (ensure-branch! root idx))))))
+      (if (zero? shift)
+          (let ((node (vector-ref root idx)))
+            (unless (eq? node val)
+              (vector-set! root idx (if (present? node) (meet node val) val))))
+          (adjoin! i shift (ensure-branch! root idx)))))
   (match map
     (($ <transient-intmap> min shift root edit)
      (assert-readable! edit)
@@ -195,7 +205,7 @@
       ((< i 0)
        ;; The power-of-two spanning trick doesn't work across 0.
        (error "Intmaps can only map non-negative integers." i))
-      ((not root)
+      ((absent? root)
        (set-transient-intmap-min! map i)
        (set-transient-intmap-shift! map 0)
        (set-transient-intmap-root! map val))
@@ -230,30 +240,32 @@
     (($ <intmap>)
      (intmap-add! (transient-intmap map) i val meet))))
 
-(define* (intmap-add bs i val #:optional (meet meet-error))
+(define* (intmap-add map i val #:optional (meet meet-error))
   (define (adjoin i shift root)
-    (cond
-     ((zero? shift)
-      (cond
-       ((eq? root val) root)
-       ((not root) val)
-       (else (meet root val))))
-     (else
-      (let* ((shift (- shift *branch-bits*))
-             (idx (logand (ash i (- shift)) *branch-mask*))
-             (node (and root (vector-ref root idx)))
-             (new-node (adjoin i shift node)))
-        (if (eq? node new-node)
-            root
-            (clone-branch-and-set root idx new-node))))))
-  (match bs
+    (if (zero? shift)
+        (cond
+         ((eq? root val) root)
+         ((absent? root) val)
+         (else (meet root val)))
+        (let* ((shift (- shift *branch-bits*))
+               (idx (logand (ash i (- shift)) *branch-mask*)))
+          (if (absent? root)
+              (let ((root* (new-branch #f))
+                    (node* (adjoin i shift root)))
+                (vector-set! root* idx node*)
+                root*)
+              (let* ((node (vector-ref root idx))
+                     (node* (adjoin i shift node)))
+                (if (eq? node node*)
+                    root
+                    (clone-branch-and-set root idx node*)))))))
+  (match map
     (($ <intmap> min shift root)
      (cond
       ((< i 0)
        ;; The power-of-two spanning trick doesn't work across 0.
        (error "Intmaps can only map non-negative integers." i))
-      ((not val) (intmap-remove bs i))
-      ((not root)
+      ((absent? root)
        ;; Add first element.
        (make-intmap i 0 val))
       ((and (<= min i) (< i (+ min (ash 1 shift))))
@@ -261,71 +273,75 @@
        (let ((old-root root)
              (root (adjoin (- i min) shift root)))
          (if (eq? root old-root)
-             bs
+             map
              (make-intmap min shift root))))
       ((< i min)
        ;; Rebuild the tree by unioning two intmaps.
-       (intmap-union (intmap-add empty-intmap i val error) bs error))
+       (intmap-union (intmap-add empty-intmap i val error) map error))
       (else
        ;; Add a new level and try again.
        (intmap-add (add-level min shift root) i val error))))
     (($ <transient-intmap>)
-     (intmap-add (persistent-intmap bs) i val meet))))
+     (intmap-add (persistent-intmap map) i val meet))))
 
-(define (intmap-remove bs i)
+(define (intmap-remove map i)
   (define (remove i shift root)
     (cond
-     ((zero? shift) #f)
+     ((zero? shift) *absent*)
      (else
       (let* ((shift (- shift *branch-bits*))
-             (idx (logand (ash i (- shift)) *branch-mask*)))
-        (cond
-         ((vector-ref root idx)
-          => (lambda (node)
-               (let ((new-node (remove i shift node)))
-                 (if (eq? node new-node)
-                     root
-                     (let ((root (clone-branch-and-set root idx new-node)))
-                       (and (or new-node (not (branch-empty? root)))
-                            root))))))
-         (else root))))))
-  (match bs
+             (idx (logand (ash i (- shift)) *branch-mask*))
+             (node (vector-ref root idx)))
+        (if (absent? node)
+            root
+            (let ((node* (remove i shift node)))
+              (if (eq? node node*)
+                  root
+                  (clone-branch-and-set root idx node*))))))))
+  (match map
     (($ <intmap> min shift root)
      (cond
-      ((not root) bs)
+      ((absent? root) map)
       ((and (<= min i) (< i (+ min (ash 1 shift))))
        ;; Add element to map; level will not change.
-       (let ((old-root root)
-             (root (remove (- i min) shift root)))
-         (if (eq? root old-root)
-             bs
-             (make-intmap/prune min shift root))))
-      (else bs)))
+       (let ((root* (remove (- i min) shift root)))
+         (if (eq? root root*)
+             map
+             (make-intmap/prune min shift root*))))
+      (else map)))
     (($ <transient-intmap>)
-     (intmap-remove (persistent-intmap bs) i))))
+     (intmap-remove (persistent-intmap map) i))))
 
-(define (intmap-ref bs i)
+(define* (intmap-ref map i #:optional (not-found (lambda (i)
+                                                   (error "not found" i))))
   (define (ref min shift root)
     (if (zero? shift)
-        (and (= i min) root)
-        (and (<= min i) (< i (+ min (ash 1 shift)))
-             (let ((i (- i min)))
-               (let lp ((node root) (shift shift))
-                 (and node
-                      (if (= shift *branch-bits*)
-                          (vector-ref node (logand i *branch-mask*))
-                          (let* ((shift (- shift *branch-bits*))
-                                 (idx (logand (ash i (- shift))
-                                              *branch-mask*)))
-                            (lp (vector-ref node idx) shift)))))))))
-  (match bs
+        (if (and min (= i min) (present? root))
+            root
+            (not-found i))
+        (if (and (<= min i) (< i (+ min (ash 1 shift))))
+            (let ((i (- i min)))
+              (let lp ((node root) (shift shift))
+                (if (present? node)
+                    (if (= shift *branch-bits*)
+                        (let ((node (vector-ref node (logand i *branch-mask*))))
+                          (if (present? node)
+                              node
+                              (not-found i)))
+                        (let* ((shift (- shift *branch-bits*))
+                               (idx (logand (ash i (- shift))
+                                            *branch-mask*)))
+                          (lp (vector-ref node idx) shift)))
+                    (not-found i))))
+            (not-found i))))
+  (match map
     (($ <intmap> min shift root)
      (ref min shift root))
     (($ <transient-intmap> min shift root edit)
      (assert-readable! edit)
      (ref min shift root))))
 
-(define* (intmap-next bs #:optional i)
+(define* (intmap-next map #:optional i)
   (define (visit-branch node shift i)
     (let lp ((i i) (idx (logand (ash i (- shift)) *branch-mask*)))
       (and (< idx *branch-size*)
@@ -333,7 +349,7 @@
                (let ((inc (ash 1 shift)))
                  (lp (+ (round-down i shift) inc) (1+ idx)))))))
   (define (visit-node node shift i)
-    (and node
+    (and (present? node)
          (if (zero? shift)
              i
              (visit-branch node (- shift *branch-bits*) i))))
@@ -344,21 +360,21 @@
       (and (< i (ash 1 shift))
            (let ((i (visit-node root shift i)))
              (and i (+ min i))))))
-  (match bs
+  (match map
     (($ <intmap> min shift root)
      (next min shift root))
     (($ <transient-intmap> min shift root edit)
      (assert-readable! edit)
      (next min shift root))))
 
-(define* (intmap-prev bs #:optional i)
+(define* (intmap-prev map #:optional i)
   (define (visit-branch node shift i)
     (let lp ((i i) (idx (logand (ash i (- shift)) *branch-mask*)))
       (and (<= 0 idx)
            (or (visit-node (vector-ref node idx) shift i)
                (lp (1- (round-down i shift)) (1- idx))))))
   (define (visit-node node shift i)
-    (and node
+    (and (present? node)
          (if (zero? shift)
              i
              (visit-branch node (- shift *branch-bits*) i))))
@@ -369,7 +385,7 @@
       (and (<= 0 i)
            (let ((i (visit-node root shift i)))
              (and i (+ min i))))))
-  (match bs
+  (match map
     (($ <intmap> min shift root)
      (prev min shift root))
     (($ <transient-intmap> min shift root edit)
@@ -384,7 +400,7 @@
             (if (< i *branch-size*)
                 (let ((elt (vector-ref node i)))
                   (lp (1+ i)
-                      (if elt
+                      (if (present? elt)
                           (f (+ i min) elt seed)
                           seed)))
                 seed))
@@ -392,14 +408,14 @@
             (if (< i *branch-size*)
                 (let ((elt (vector-ref node i)))
                   (lp (1+ i)
-                      (if elt
+                      (if (present? elt)
                           (visit-branch elt shift (+ min (ash i shift)) seed)
                           seed)))
                 seed)))))
   (match map
     (($ <intmap> min shift root)
      (cond
-      ((not root) seed)
+      ((absent? root) seed)
       ((zero? shift) (f min root seed))
       (else (visit-branch root shift min seed))))
     (($ <transient-intmap>)
@@ -455,8 +471,8 @@
        (else a))))
   (define (union shift a-node b-node)
     (cond
-     ((not a-node) b-node)
-     ((not b-node) a-node)
+     ((absent? a-node) b-node)
+     ((absent? b-node) a-node)
      ((eq? a-node b-node) a-node)
      ((zero? shift) (meet a-node b-node))
      (else (union-branches (- shift *branch-bits*) a-node b-node))))
@@ -494,7 +510,7 @@
                (b-child (vector-ref b i)))
           (vector-set! fresh i (intersect shift a-child b-child))
           (lp (1+ i))))
-       ((branch-empty? fresh) #f)
+       ((branch-empty? fresh) *absent*)
        (else fresh))))
   ;; Intersect A and B from index I; the result may be eq? to A.
   (define (intersect-branches/a shift a b i)
@@ -535,7 +551,7 @@
        (else a))))
   (define (intersect shift a-node b-node)
     (cond
-     ((or (not a-node) (not b-node)) #f)
+     ((or (absent? a-node) (absent? b-node)) *absent*)
      ((eq? a-node b-node) a-node)
      ((zero? shift) (meet a-node b-node))
      (else (intersect-branches (- shift *branch-bits*) a-node b-node))))
@@ -550,31 +566,29 @@
      (else
       (let* ((lo-shift (- lo-shift *branch-bits*))
              (lo-idx (ash (- hi-min lo-min) (- lo-shift))))
-        (cond
-         ((>= lo-idx *branch-size*)
-          ;; HI has a lower shift, but it not within LO.
-          empty-intmap)
-         ((vector-ref lo-root lo-idx)
-          => (lambda (lo-root)
-               (let ((lo (make-intmap (+ lo-min (ash lo-idx lo-shift))
-                                      lo-shift
-                                      lo-root)))
-                 (if lo-is-a?
-                     (intmap-intersect lo hi meet)
-                     (intmap-intersect hi lo meet)))))
-         (else empty-intmap))))))
+        (if (>= lo-idx *branch-size*)
+            ;; HI has a lower shift, but it not within LO.
+            empty-intmap
+            (let ((lo-root (vector-ref lo-root lo-idx)))
+              (if (absent? lo-root)
+                  empty-intmap
+                  (let ((lo (make-intmap (+ lo-min (ash lo-idx lo-shift))
+                                         lo-shift
+                                         lo-root)))
+                    (if lo-is-a?
+                        (intmap-intersect lo hi meet)
+                        (intmap-intersect hi lo meet))))))))))
 
   (define (different-shifts-same-min min hi-shift hi-root lo lo-is-a?)
-    (cond
-     ((vector-ref hi-root 0)
-      => (lambda (hi-root)
-           (let ((hi (make-intmap min
-                                  (- hi-shift *branch-bits*)
-                                  hi-root)))
-             (if lo-is-a?
-                 (intmap-intersect lo hi meet)
-                 (intmap-intersect hi lo meet)))))
-     (else empty-intmap)))
+    (let ((hi-root (vector-ref hi-root 0)))
+      (if (absent? hi-root)
+          empty-intmap
+          (let ((hi (make-intmap min
+                                 (- hi-shift *branch-bits*)
+                                 hi-root)))
+            (if lo-is-a?
+                (intmap-intersect lo hi meet)
+                (intmap-intersect hi lo meet))))))
 
   (match (cons a b)
     ((($ <intmap> a-min a-shift a-root) . ($ <intmap> b-min b-shift b-root))

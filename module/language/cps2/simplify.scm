@@ -197,7 +197,7 @@
   (let* ((label-set (compute-beta-reductions conts kfun))
          (var-map (compute-beta-var-substitutions conts label-set)))
     (define (subst var)
-      (match (intmap-ref var-map var)
+      (match (intmap-ref var-map var (lambda (_) #f))
         (#f var)
         (val (subst val))))
     (define (transform-exp label k src exp)

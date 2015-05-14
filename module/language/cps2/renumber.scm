@@ -43,7 +43,7 @@
   (define (compute-next labels lengths)
     (intset-fold (lambda (label labels)
                    (fold1 (lambda (pred labels)
-                            (if (intmap-ref lengths pred)
+                            (if (intmap-ref lengths pred (lambda (_) #f))
                                 labels
                                 (intset-add! labels pred)))
                           (intmap-ref preds label)
@@ -78,8 +78,10 @@
               ;; to the tail first, so that if the branches are
               ;; unsorted, the longer path length will appear
               ;; first.  This will move a loop exit out of a loop.
-              (let ((k-len (intmap-ref path-lengths k))
-                    (kt-len (intmap-ref path-lengths kt)))
+              (let ((k-len (intmap-ref path-lengths k
+                                       (lambda (_) #f)))
+                    (kt-len (intmap-ref path-lengths kt
+                                        (lambda (_) #f))))
                 (cond
                  ((if kt-len
                       (or (not k-len)
@@ -159,10 +161,8 @@
 
 (define* (renumber conts #:optional (kfun 0))
   (let-values (((label-map var-map) (compute-renaming conts kfun)))
-    (define (rename-label label)
-      (or (intmap-ref label-map label) (error "what" label)))
-    (define (rename-var var)
-      (or (intmap-ref var-map var) (error "what2" var)))
+    (define (rename-label label) (intmap-ref label-map label))
+    (define (rename-var var) (intmap-ref var-map var))
     (define (rename-exp exp)
       (rewrite-exp exp
         ((or ($ $const) ($ $prim)) ,exp)

@@ -915,7 +915,8 @@ integer."
       ($ ((lambda (cps)
             (let ((init (build-cont
                           ($kfun (tree-il-src exp) '() init ktail kclause))))
-              (with-cps (persistent-intmap (intmap-add! cps kinit init))
+              (with-cps (persistent-intmap (intmap-add! cps kinit init
+                                                        (lambda (old new) new)))
                 kinit))))))))
 
 (define *comp-module* (make-fluid))

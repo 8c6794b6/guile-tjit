@@ -228,7 +228,7 @@
 (define all-types-entry (make-type-entry &all-types -inf.0 +inf.0))
 
 (define* (var-type-entry typeset var #:optional (default all-types-entry))
-  (or (intmap-ref typeset var) default))
+  (intmap-ref typeset var (lambda (_) default)))
 
 (define (var-type typeset var)
   (type-entry-type (var-type-entry typeset var)))
