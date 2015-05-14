@@ -261,9 +261,9 @@ scm_compile_lightning (SCM proc)
    variable get filled with JIT compiled native code in scheme. */
 static scm_t_vm_engine scm_lightning_main;
 
-/* Since vm-lightning-engine is a member of the constant array used for
-   VM engines, VM_NAME need to be a constant function, not a dynamically
-   generated function pointer. */
+/* Since vm-lightning-engine is a member of the constant array used to
+   hold VM engines, VM_NAME need to be a constant function, not a
+   variable to dynamically generated function pointer. */
 static SCM
 VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
          scm_i_jmp_buf *registers, int resume)

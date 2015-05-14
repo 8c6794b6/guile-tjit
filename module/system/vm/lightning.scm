@@ -187,7 +187,7 @@
 
 (define scm-undefined (make-pointer #x904))
 (define scm-eol (scm->pointer '()))
-(define scm-false (scm->pointer #f))
+(define scm-bool-f (scm->pointer #f))
 
 
 ;;;
@@ -386,10 +386,10 @@
   (jit-bnei vt *values-vtable*))
 
 (define-syntax-rule (scm-is-false obj)
-  (jit-beqi obj scm-false))
+  (jit-beqi obj scm-bool-f))
 
 (define-syntax-rule (scm-is-true obj)
-  (jit-bnei obj scm-false))
+  (jit-bnei obj scm-bool-f))
 
 (define-syntax-rule (scm-is-null obj)
   (jit-beqi obj scm-eol))
@@ -463,6 +463,9 @@
 (define-syntax-rule (vm-thread-pending-asyncs dst)
   (jit-ldxi dst reg-thread (imm #x104)))
 
+(define-syntax-rule (vm-cache-ip dst)
+  (jit-ldr dst reg-vp))
+
 (define-syntax vm-sync-ip
   (syntax-rules ()
     ((_ st)
@@ -472,17 +475,17 @@
        (jit-movi tmp (imm (+ (lightning-pc st) (* 4 (lightning-ip st)))))
        (jit-str reg-vp tmp)))))
 
-(define-syntax-rule (vm-cache-fp)
-  (jit-ldxi reg-fp reg-vp (imm #x10)))
-
-(define-syntax-rule (vm-sync-fp)
-  (jit-stxi (imm #x10) reg-vp reg-fp))
-
 (define-syntax-rule (vm-cache-sp)
   (jit-ldxi reg-sp reg-vp (imm #x8)))
 
 (define-syntax-rule (vm-sync-sp)
   (jit-stxi (imm #x8) reg-vp reg-sp))
+
+(define-syntax-rule (vm-cache-fp)
+  (jit-ldxi reg-fp reg-vp (imm #x10)))
+
+(define-syntax-rule (vm-sync-fp)
+  (jit-stxi (imm #x10) reg-vp reg-fp))
 
 (define-syntax-rule (vm-sp-max-since-gc dst)
   (jit-ldxi dst reg-vp (imm #x28)))
@@ -583,8 +586,18 @@
     (jit-subi tmp tmp (imm 1))
     (jit-lshi dst tmp (imm word-size-length))))
 
-(define-syntax-rule (call-c name)
-  (jit-calli (dynamic-func name (dynamic-link))))
+(define-syntax call-c
+  (syntax-rules ()
+    ((_ name)
+     (call-c name r0))
+    ((_ name tmp)
+     ;; Explicitly moving the address to a register.  In x86-64,
+     ;; lightning's `jit-calli' function is moving the absolute address
+     ;; to register, then emitting `call' opcode, which sometimes
+     ;; overwrite non-volatile register used in VM.
+     (begin
+       (jit-movi tmp (dynamic-func name (dynamic-link)))
+       (jit-callr tmp)))))
 
 (define-syntax-rule (resolve-dst st offset)
   "Resolve jump destination with <lightning> state ST and OFFSET given as
@@ -608,7 +621,7 @@ argument in VM operation."
        (jump (jit-bmci tmp (imm 1)) lexit)
        (vm-sync-ip st tmp)
        (jit-prepare)
-       (call-c "scm_async_tick")
+       (call-c "scm_async_tick" tmp)
        (vm-cache-fp)
        (vm-cache-sp)
        (jit-link lexit)))))
@@ -627,7 +640,7 @@ argument in VM operation."
        (scm-frame-dynamic-link reg-fp)
        (vm-sync-fp)
        ;; Clear frame
-       (jit-movi f0 scm-false)
+       (jit-movi f0 scm-bool-f)
        (jit-stxi (make-negative-pointer word-size) f1 f0)
        (jit-stxi (make-negative-pointer (* 2 word-size)) f1 f0)
        ;; Jump to return address.
@@ -708,12 +721,12 @@ can jump back.  Two locals below proc get overwritten by the callee."
     (scm-frame-dynamic-link reg-fp)
     (vm-sync-fp)
     ;; Clear frame.
-    (jit-movi tmp3 scm-false)
+    (jit-movi tmp3 scm-bool-f)
     (jit-stxi (make-negative-pointer word-size) tmp1 tmp3)
     (jit-stxi (make-negative-pointer (* 2 word-size)) tmp1 tmp3)
     ;; Leave proc.
-    (jit-stxi (imm word-size) tmp1 val)
     (jit-addi tmp1 tmp1 (imm word-size))
+    (jit-str tmp1 val)
     (jit-movr reg-sp tmp1)
     (vm-sync-sp)
     (jit-jmpr tmp2)))
@@ -775,7 +788,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lshuffle (jit-forward))
         (lerror (jit-forward)))
 
-    (jit-ldxi r0 reg-fp (frame-local 0))
+    ;; Load local 0.
+    (jit-ldr r0 reg-fp)
 
     ;; Unwrap local 0.
     (jit-link lunwrap)
@@ -789,7 +803,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jump (scm-not-structp r1) lsmob)
     (jump (scm-not-struct-applicable-p r0 r1) lerror)
     (scm-struct-data-ref r0 r0 0)
-    (jit-stxi (frame-local 0) reg-fp r0)
+    (jit-str reg-fp r0)
     (jump lunwrap)
 
     ;; Test for applicable smob.  Apply trampoline for smob is not
@@ -821,7 +835,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-pushargr f0)
     (call-c "scm_do_smob_apply_trampoline")
     (jit-retval r0)
-    (jit-stxi (frame-local 0) reg-fp r0)
+    (jit-str reg-fp r0)
     (jump lunwrap)
 
     ;; Show error message.
@@ -839,7 +853,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (call-c "scm_compile_lightning")
     (vm-cache-fp)
     (vm-cache-sp)
-    (jit-ldxi r0 reg-fp (frame-local 0))
+    (jit-ldr r0 reg-fp)
 
     ;; Has compiled code.
     (jit-link lcompiled)
@@ -882,12 +896,12 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     ;; Move `vp->fp' once for boot continuation added in `scm_call_n',
     ;; then reset the stack pointer and return address.
-    (scm-frame-dynamic-link reg-fp)
-    (vm-sync-fp)
+    (scm-frame-return-address r1)
+    (jit-str reg-vp r1)
     (scm-frame-previous-sp reg-sp)
     (vm-sync-sp)
-    (scm-frame-return-address r1)
-    (scm-set-frame-return-address r1)
+    (scm-frame-dynamic-link reg-fp)
+    (vm-sync-fp)
 
     ;; Restore the original frame pointer.
     (jit-movr reg-fp r2)
@@ -1613,7 +1627,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
   (vm-cache-fp)
   (vm-cache-sp)
-  (jit-ldr r0 reg-vp)
+  (vm-cache-ip r0)
   (jit-jmpr r0))
 
 (define-vm-op (tail-apply st)
@@ -1851,7 +1865,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define-vm-br-unary-immediate-op (br-if-true st a invert offset)
   ((if invert jit-beqi jit-bnei)
    (local-ref st a)
-   scm-false))
+   scm-bool-f))
 
 (define-vm-br-unary-immediate-op (br-if-null st a invert offset)
   ((if invert jit-bnei jit-beqi)
@@ -1862,11 +1876,11 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (when (< offset 0)
     (vm-handle-interrupts st))
   (local-ref st a r0)
-  (jit-movi r1 (imm (logior (pointer-address scm-false)
+  (jit-movi r1 (imm (logior (pointer-address scm-bool-f)
                             (pointer-address scm-eol))))
   (jit-comr r1 r1)
   (jit-andr r1 r0 r1)
-  (jump ((if invert jit-bnei jit-beqi) r1 scm-false)
+  (jump ((if invert jit-bnei jit-beqi) r1 scm-bool-f)
         (resolve-dst st offset)))
 
 (define-vm-br-unary-heap-object-op (br-if-pair st a invert offset)
@@ -2002,7 +2016,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (jit-link lnext)
     (when (< 0 nfree)
-      (jit-movi r1 scm-false)
+      (jit-movi r1 scm-bool-f)
       (for-each (lambda (n)
                   (scm-program-free-variable-set r0 n r1))
                 (iota nfree)))
@@ -2176,6 +2190,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jump lexit)
 
     (jit-link lcall)
+    (jit-prepare)
     (jit-pushargr r0)
     (call-c "scm_string_length")
     (jit-retval r0)
@@ -2606,7 +2621,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define space-string ": ")
 
 (define (assemble-lightning st entry)
-  "Assemble with STATE, using ENTRY as entry of the result."
+  "Assemble with state ST, using ENTRY as entry of the result."
   (define-syntax-rule (destination-label st)
     (hashq-ref (lightning-labels st) (lightning-ip st)))
 
@@ -2753,20 +2768,21 @@ compiled result."
      ;; Test for resume.
      (jump (jit-bmci r0 (imm 1)) lapply)
 
-     ;; Resuming from non-local exit, jump to the handler.
+     ;; Resuming from non-local exit, jump to the handler. The native
+     ;; code address of handler is stored in vp->ip.
      (vm-cache-fp)
      (vm-cache-sp)
-     (jit-ldr r0 reg-vp)
+     (vm-cache-ip r0)
      (jit-jmpr r0)
 
      ;; Procedure application.
      (jit-link lapply)
 
      ;; Before caching registers from the argument `vp', save the
-     ;; original frame pointer contents used by lightning. The original
+     ;; original frame pointer contents used by lightning.  The original
      ;; frame pointer is then stored to the address used for
-     ;; `vm_boot_continuation_code', since boot continuation code itself
-     ;; is not used by this vm engine.
+     ;; `vm_boot_continuation_code', since boot continuation code is not
+     ;; used by this vm engine.
      (jit-movr r0 reg-fp)
      (vm-cache-fp)
      (vm-cache-sp)

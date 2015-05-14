@@ -1164,6 +1164,7 @@
       (+ (t-fib2 (- n 1))
          (t-fib2 (- n 2)))))
 
+(test-skip 1)
 (define-test (t-nqueens n) (8)
   (define (one-to n)
     (let loop ((i n) (l '()))
@@ -1326,7 +1327,6 @@
         v
         (lp (- n 1) (list-copy a)))))
 
-(test-skip 1)
 (define-test (t-cons-loop n a b) (#e1e7 'foo 'bar)
   (let lp ((n n) (v #f))
     (if (< n 0)
