@@ -40,7 +40,7 @@
      (begin
        (define (name . vars)
          body ...)
-       (format #t ";;; Test: ~a ...~%" '(name . vars))
+       (format #t ";;; Test: ~a~%" '(name . vars))
        (test-equal
         (symbol->string (procedure-name name))
         (call-with-values (lambda () (name . args))
@@ -1164,7 +1164,6 @@
       (+ (t-fib2 (- n 1))
          (t-fib2 (- n 2)))))
 
-(test-skip 1)
 (define-test (t-nqueens n) (8)
   (define (one-to n)
     (let loop ((i n) (l '()))
@@ -1292,27 +1291,21 @@
                           (fib (- n 2)))))))
      (fib 10)))
 
-(test-skip 1)
 (define-test (t-primitive-eval-2 expr) (letrec-fib-expr)
   (primitive-eval expr))
 
-(test-skip 1)
 (define-test (t-compile-tree-il expr) ('(+ 1 2 3))
   (compile expr #:to 'tree-il))
 
-(test-skip 1)
 (define-test (t-compile-cps-1 expr) ('(+ 1 2 3))
   (compile expr #:to 'cps))
 
-(test-skip 1)
 (define-test (t-compile-cps-2 expr) (letrec-fib-expr)
   (compile expr #:to 'cps))
 
-(test-skip 1)
 (define-test (t-compile-value-1 expr) ('(+ 1 2 3))
   (compile expr #:to 'value))
 
-(test-skip 1)
 (define-test (t-compile-value-1 expr) (letrec-fib-expr)
   (compile expr #:to 'value))
 
@@ -1336,11 +1329,17 @@
 (define (binder . rest)
   rest)
 
-(test-skip 1)
 (define-test (binder-lp n a b) (#e1e7 'foo 'bar)
   (let lp ((n n) (v #f))
     (if (< n 0)
         v
         (lp (- n 1) (binder a b)))))
+
+(test-skip 1)
+(define-test (macroexpand-lp n expr) (#e1e4 letrec-fib-expr)
+  (let lp ((n n) (v #f))
+    (if (< n 0)
+        v
+        (lp (- n 1) (macroexpand expr)))))
 
 (test-end "vm-lightning-test")

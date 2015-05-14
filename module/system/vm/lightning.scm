@@ -505,19 +505,19 @@
 (define-syntax-rule (scm-frame-dynamic-link dst)
   (jit-ldxi dst reg-fp (make-negative-pointer (* 2 word-size))))
 
-(define-syntax-rule (scm-set-frame-dynamic-link src)
+(define-syntax-rule (scm-frame-set-dynamic-link src)
   (jit-stxi (make-negative-pointer (* 2 word-size)) reg-fp src))
 
 (define-syntax-rule (scm-frame-previous-sp dst)
   (jit-subi dst reg-fp (imm (* 3 word-size))))
 
-(define-syntax-rule (scm-set-frame-previous-sp src)
+(define-syntax-rule (scm-frame-set-previous-sp src)
   (jit-stxi (imm #x8) reg-fp src))
 
 (define-syntax-rule (scm-frame-return-address dst)
   (jit-ldxi dst reg-fp (make-negative-pointer word-size)))
 
-(define-syntax-rule (scm-set-frame-return-address src)
+(define-syntax-rule (scm-frame-set-return-address src)
   (jit-stxi (make-negative-pointer word-size) reg-fp src))
 
 
@@ -651,6 +651,7 @@ argument in VM operation."
     ((_ st)
      (let ((lexit (jit-forward))
            (lincr (jit-forward)))
+
        ;; Using r0 as temporary register.
        (vm-sp-max-since-gc r0)
        (jump (jit-bger r0 reg-sp) lexit)
@@ -697,20 +698,20 @@ argument in VM operation."
 Stack poionter stored in reg-fp increased for `proc * word' size to
 shift the locals.  Then patch the address after the jump, so that callee
 can jump back.  Two locals below proc get overwritten by the callee."
-    ((_ st proc nlocals body)
-     (with-frame st proc nlocals body r0))
-    ((_ st proc nlocals body tmp)
-     (let ((ra (jit-movi tmp (imm 0))))
-       ;; Store return address.
-       (jit-stxi (stored-ref st (- proc 1)) reg-fp tmp)
-       ;; Store dynamic link.
-       (jit-stxi (stored-ref st (- proc 2)) reg-fp reg-fp)
-       ;; Shift frame pointer.
-       (jit-addi reg-fp reg-fp (imm (* proc word-size)))
+    ((_ st proc nlocals <body>)
+     (with-frame st proc nlocals <body> r0 r1))
+    ((_ st proc nlocals <body> tmp1 tmp2)
+     (let ((ra (jit-movi tmp1 (imm 0))))
+
+       (jit-movr tmp2 reg-fp)
+       (jit-addi reg-fp tmp2 (imm (* proc word-size)))
        (vm-sync-fp)
-       ;; Shift stack pointer.
-       (vm-reset-frame nlocals tmp)
-       body
+       (scm-frame-set-dynamic-link tmp2)
+       (scm-frame-set-return-address tmp1)
+
+       (vm-reset-frame nlocals tmp1)
+
+       <body>
        (jit-patch ra)))))
 
 (define-syntax-rule (return-one-value st val tmp1 tmp2 tmp3)
@@ -1767,26 +1768,11 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define-vm-op (assert-nargs-ee/locals st expected nlocals)
   (assert-wrong-num-args st jit-beqi expected 0)
   (vm-alloc-frame st (+ expected nlocals))
-
-  ;; (let ((lrefill (jit-forward))
-  ;;       (lexit (jit-forward)))
-
-  ;;   (assert-wrong-num-args st jit-beqi expected 0)
-  ;;   (vm-alloc-frame st (+ expected nlocals))
-
-  ;;   (jit-movi f0 scm-undefined)
-  ;;   (jit-movi r0 (imm (* (+ expected nlocals) word-size)))
-  ;;   (jit-movi r1 (imm (* expected word-size)))
-
-  ;;   ;; Initialize locals with SCM_UNDEFINED.
-  ;;   (jit-link lrefill)
-  ;;   (jump (jit-bler r0 r1) lexit)
-  ;;   (jit-stxr r0 reg-fp f0)
-  ;;   (jit-subi r0 r0 (imm word-size))
-  ;;   (jump lrefill)
-
-  ;;   (jit-link lexit))
-  )
+  (when (< 0 nlocals)
+    (jit-movi r0 scm-undefined)
+    (for-each (lambda (n)
+                (local-set! st (+ expected n) r0))
+              (iota nlocals))))
 
 ;;; XXX: br-if-npos-gt
 
@@ -1819,31 +1805,37 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lexit (jit-forward)))
 
     ;; Initialize values.
-    (jit-subr r2 reg-sp reg-fp)
-    (jit-addi r2 r2 (imm word-size)) ; r2 = last local index.
+    (jit-subr f4 reg-sp reg-fp)
+    (jit-addi f4 f4 (imm word-size)) ; f4 = last local index.
     (jit-movi r1 scm-eol)            ; r1 = initial list.
     (jit-movi f0 scm-undefined)      ; f0 = undefined, for refill.
-    (jump (jit-bgti r2 (imm (* dst word-size))) lprecons)
+    (jump (jit-bgti f4 (imm (* dst word-size))) lprecons)
 
     ;; Refill the locals with SCM_UNDEFINED.
     (vm-alloc-frame st (+ dst 1))
 
     (jit-link lrefill)
-    (jump (jit-bgei r2 (imm (* dst word-size))) lexit)
-    (jit-stxr r2 reg-fp f0)
-    (jit-addi r2 r2 (imm word-size))
+    (jump (jit-bgei f4 (imm (* dst word-size))) lexit)
+    (jit-stxr f4 reg-fp f0)
+    (jit-addi f4 f4 (imm word-size))
     (jump lrefill)
 
     ;; Create a list.
     (jit-link lprecons)
     (jit-movr r0 r1)
 
+    ;; There are chances for `scm-inline-cons' to call `GC_malloc_many',
+    ;; which overwrite registers during `lcons' loop.  Thus moving
+    ;; constant value `scm-undefined' to register f0 every time before
+    ;; storing to local.  Register f4 seems working under x86-64 when
+    ;; guile compiled with 'gcc -O2'.
     (jit-link lcons)
-    (jump (jit-blei r2 (imm (* dst word-size))) lreset)
-    (jit-subi r2 r2 (imm word-size))
-    (jit-ldxr r1 reg-fp r2)
+    (jump (jit-blei f4 (imm (* dst word-size))) lreset)
+    (jit-subi f4 f4 (imm word-size))
+    (jit-ldxr r1 reg-fp f4)
     (scm-inline-cons r0 r1 r0)
-    (jit-stxr r2 reg-fp f0)
+    (jit-movi f0 scm-undefined)
+    (jit-stxr f4 reg-fp f0)
     (jump lcons)
 
     (jit-link lreset)
@@ -2789,7 +2781,7 @@ compiled result."
      (jit-stxi (make-negative-pointer (* 3 word-size)) reg-fp r0)
 
      ;; Store return address.
-     (scm-set-frame-return-address r1)
+     (scm-frame-set-return-address r1)
 
      ;; Apply the procedure.
      (vm-apply)
