@@ -133,7 +133,7 @@
   (@@ (system vm disassembler) disassemble-one))
 
 (define (fold-primitive-code f acc primitive)
-  (let ((bv (pointer->bytevector (make-pointer (program-code primitive)) 32))
+  (let ((bv (pointer->bytevector (make-pointer (program-code primitive)) 64))
         (last-ops '(return-values
                     subr-call foreign-call
                     compose-continuation tail-apply tail-call/shuffle
@@ -151,23 +151,30 @@
             (lp (f elt acc) (+ offset len)))))))))
 
 (define (fold-init-code f acc program-or-addr)
-  ;; XXX: Assuming that init code is shorter than 256 bytes. Obviously
-  ;; won't work with init code greater than 256 bytes.  Get the size of
-  ;; byte code from somewhere related to given procedure.  Might add
-  ;; another field to program to hold the size of bytecode.
-  (let* ((bufsize 256)
-         (bv (pointer->bytevector
-              (make-pointer (ensure-program-addr program-or-addr))
-              bufsize)))
-    (let lp ((acc acc) (offset 0))
+  (let ((bufsize 1024)
+        (base (ensure-program-addr program-or-addr))
+        (max-vm-op-size 5))
+    (let lp ((bv (pointer->bytevector (make-pointer base)
+                                      bufsize))
+             (base base)
+             (acc acc)
+             (offset 0))
       (call-with-values
-          (lambda () (disassemble-one bv offset))
+          (lambda ()
+            (disassemble-one bv offset))
         (lambda (len elt)
           (cond
            ((eq? (car elt) 'return)
             (f elt acc))
            (else
-            (lp (f elt acc) (+ offset len)))))))))
+            (if (< (- bufsize (* 4 max-vm-op-size)) (* 4 (+ offset len)))
+                (lp (pointer->bytevector (make-pointer
+                                          (+ base (* 4 (+ offset len))))
+                                         bufsize)
+                    (+ base (* 4 (+ offset len)))
+                    (f elt acc)
+                    0)
+                (lp bv base (f elt acc) (+ offset len))))))))))
 
 (define (program->entries program-or-addr)
   "Create hash-table containing key=entry IP, val=#t from PROGRAM."

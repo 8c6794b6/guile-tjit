@@ -1251,7 +1251,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 ;; If var is not variable, resolve with `resolver' and move the resolved
 ;; value to var's address. Otherwise, var is `variable', move it to dst.
-;; Currently, the variable is resolved at JIT compilation time.
+;; The variable is resolved at compilation time of native code.
 (define-syntax define-vm-box-op
   (syntax-rules ()
     ((_ (name st mod-offset sym-offset) resolver ...)
@@ -2689,8 +2689,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (or (and emitter (apply emitter st args))
             (debug 0 "compile-lightning: VM op `~a' not found~%" instr)))))
 
-  (let* ((program-or-addr (lightning-pc st))
-         (addr (ensure-program-addr program-or-addr))
+  (let* ((addr (ensure-program-addr (lightning-pc st)))
          (cfg (lightning-cfg st))
          (name (cfg-name cfg)))
 
@@ -2727,8 +2726,8 @@ compiled result."
      (let* ((estimated-code-size (jit-code-size))
             (bv (make-bytevector estimated-code-size)))
 
-       ;; Generated codes never get freed, no way to decide whether the
-       ;; procedure never called again or not.
+       ;; Generated codes persist until guile shutdown, no way to decide
+       ;; whether the procedure never called again or not.
        (native-code-guardian bv)
 
        (jit-set-code (bytevector->pointer bv)
