@@ -120,22 +120,25 @@
    jit-ldr jit-ldi
    jit-ldr-c jit-ldi-c jit-ldr-uc jit-ldi-uc
    jit-ldr-s jit-ldi-s jit-ldr-us jit-ldi-us
-   jit-ldr-i jit-ldi-i
-   jit-ldr jit-ldr-i
-   jit-ldr-ui jit-ldi-ui jit-ldr-l jit-ldi-l ;; x86-64
+   jit-ldr-i jit-ldi-i jit-ldr-ui jit-ldi-ui
+   jit-ldr-l jit-ldi-l ;; x86-64
 
+   jit-ldxr jit-ldxi
    jit-ldxr-c jit-ldxi-c jit-ldxr-uc jit-ldxi-uc
    jit-ldxr-s jit-ldxi-s jit-ldxr-us jit-ldxi-us
    jit-ldxr-i jit-ldxi-i
-   jit-ldxr jit-ldxi
    jit-ldxr-ui jit-ldxi-ui jit-ldxr-l jit-ldxi-l ;; x86-64
 
    jit-str jit-sti
-   jit-str-c jit-sti-c jit-str-s jit-sti-s
+   jit-str-c jit-sti-c jit-str-uc jit-sti-uc
+   jit-str-s jit-sti-s jit-str-us jit-sti-us
+   jit-str-i jit-sti-i jit-str-ui jit-sti-ui
    jit-str-l jit-sti-l ;; x86-64
 
    jit-stxr jit-stxi
-   jit-stxr-c jit-stxi-c jit-stxr-s jit-stxi-s jit-stxr-i jit-stxi-i
+   jit-stxr-c jit-stxi-c jit-stxr-uc jit-stxi-uc
+   jit-stxr-s jit-stxi-s jit-stxr-us jit-stxi-us
+   jit-stxr-i jit-stxi-i jit-stxr-ui jit-stxi-ui
    jit-stxr-l jit-stxi-l ;; x86-64
 
    jit-bltr jit-blti jit-bltr-u jit-blti-u
