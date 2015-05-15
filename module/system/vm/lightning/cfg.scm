@@ -32,6 +32,7 @@
   #:use-module (language bytecode)
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
+  #:use-module (system vm debug)
   #:use-module (system vm disassembler)
   #:use-module (system vm lightning debug)
   #:use-module (system vm program)
@@ -137,7 +138,7 @@
                     subr-call foreign-call
                     compose-continuation tail-apply tail-call/shuffle
                     call/cc)))
-    (let lp ((acc '()) (offset 0))
+    (let lp ((acc acc) (offset 0))
       (call-with-values
           (lambda () (disassemble-one bv offset))
         (lambda (len elt)
@@ -145,6 +146,25 @@
            ((eq? (car elt) 'halt)
             acc)
            ((memq (car elt) last-ops)
+            (f elt acc))
+           (else
+            (lp (f elt acc) (+ offset len)))))))))
+
+(define (fold-init-code f acc program-or-addr)
+  ;; XXX: Assuming that init code is shorter than 256 bytes. Obviously
+  ;; won't work with init code greater than 256 bytes.  Get the size of
+  ;; byte code from somewhere related to given procedure.  Might add
+  ;; another field to program to hold the size of bytecode.
+  (let* ((bufsize 256)
+         (bv (pointer->bytevector
+              (make-pointer (ensure-program-addr program-or-addr))
+              bufsize)))
+    (let lp ((acc acc) (offset 0))
+      (call-with-values
+          (lambda () (disassemble-one bv offset))
+        (lambda (len elt)
+          (cond
+           ((eq? (car elt) 'return)
             (f elt acc))
            (else
             (lp (f elt acc) (+ offset len)))))))))
@@ -170,6 +190,8 @@
       (map program-code
            (list apply values abort-to-prompt call-with-values
                  call-with-current-continuation)))
+    (define (maybe-init-code? program-or-addr)
+      (not (find-program-debug-info (ensure-program-addr program-or-addr))))
     (let ((ops (cond
                 ((or (primitive? program-or-addr)
                      (foreign-procedure? program-or-addr)
@@ -177,6 +199,8 @@
                      (memq (ensure-program-addr program-or-addr)
                            builtin-addrs))
                  (fold-primitive-code entries-one '() program-or-addr))
+                ((maybe-init-code? program-or-addr)
+                 (fold-init-code entries-one '() program-or-addr))
                 (else
                  (fold-program-code entries-one '() program-or-addr
                                     #:raw? #t)))))

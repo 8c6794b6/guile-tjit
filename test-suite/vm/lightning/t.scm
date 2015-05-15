@@ -22,6 +22,7 @@
 ;;; Code:
 
 (use-modules (ice-9 binary-ports)
+             (ice-9 format)
              (oop goops)
              (rnrs bytevectors)
              (srfi srfi-9)
@@ -30,6 +31,7 @@
              (system foreign)
              (system vm program)
              (system vm lightning)
+             (system vm loader)
              (system vm vm))
 
 ;; Define and run a procedure with guile vm and lightning, and compare the
@@ -627,6 +629,31 @@
 
 (define-test (t-static-ref) ()
   0.5)
+
+;; Testing `static-set!' and `static-patch!' with `load' procedure.
+;; Init section in compiled file contains these VM ops.
+(define source-file
+  (let ((port (mkstemp! (string-copy "/tmp/ccXXXXXX"))))
+    (with-output-to-port port
+      (lambda ()
+        (write '(define (blah a b)
+                  (* a b)))
+        (write '(blah 123 456))
+        (display #\newline)))
+    (port-filename port)))
+
+(define compiled-file (compile-file source-file))
+
+(define-test (t-static-xxx! path) (compiled-file)
+  (let ((thunk (load-thunk-from-file path)))
+    (thunk)))
+
+(define (my-define! sym val)
+  (define! sym val))
+
+(begin
+  (call-lightning my-define! 'var1 123)
+  (test-equal "t-define!" 123 var1))
 
 ;;; Mutable top-level bindings
 

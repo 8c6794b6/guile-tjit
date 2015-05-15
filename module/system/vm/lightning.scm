@@ -1826,7 +1826,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     ;; There are chances for `scm-inline-cons' to call `GC_malloc_many',
     ;; which overwrite registers during `lcons' loop.  Thus moving
-    ;; constant value `scm-undefined' to register f0 every time before
+    ;; constant value `scm-undefined' to register r1 every time before
     ;; storing to local.  Register f4 seems working under x86-64 when
     ;; guile compiled with 'gcc -O2'.
     (jit-link lcons)
@@ -1834,8 +1834,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-subi f4 f4 (imm word-size))
     (jit-ldxr r1 reg-fp f4)
     (scm-inline-cons r0 r1 r0)
-    (jit-movi f0 scm-undefined)
-    (jit-stxr f4 reg-fp f0)
+    (jit-movi r1 scm-undefined)
+    (jit-stxr f4 reg-fp r1)
     (jump lcons)
 
     (jit-link lreset)
@@ -2048,11 +2048,19 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (local-set! st dst r0))
 
 (define-vm-op (static-ref st dst offset)
+  ;; XXX: Add assertion for align.
   (jit-ldi r0 (imm (offset-addr st offset)))
   (local-set! st dst r0))
 
-;;; XXX: static-set!
-;;; XXX: static-patch!
+(define-vm-op (static-set! st src offset)
+  ;; XXX: Add assertion for align.
+  (local-ref st src r0)
+  (jit-sti (imm (offset-addr st offset)) r0))
+
+(define-vm-op (static-patch! st dst-offset src-offset)
+  ;; XXX: Add assertion for align.
+  (jit-movi r0 (imm (offset-addr st src-offset)))
+  (jit-sti (imm (offset-addr st dst-offset)) r0))
 
 
 ;;; Mutable top-level bindings
@@ -2064,8 +2072,28 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-retval r0)
   (local-set! st dst r0))
 
-;;; XXX: resolve
-;;; XXX: define!
+(define-vm-op (resolve st dst bound? sym)
+  ;;; XXX: Assert with `bound?'.
+  (vm-sync-ip st r0)
+  (local-ref st sym r0)
+  (jit-prepare)
+  (jit-pushargr r0)
+  (call-c "scm_lookup")
+  (jit-retval r0)
+  (vm-cache-fp)
+  (vm-cache-sp)
+  (local-set! st dst r0))
+
+(define-vm-op (define! st sym val)
+  (vm-sync-ip st r0)
+  (jit-prepare)
+  (local-ref st sym r0)
+  (jit-pushargr r0)
+  (local-ref st val r0)
+  (jit-pushargr r0)
+  (call-c "scm_define")
+  (vm-cache-fp)
+  (vm-cache-sp))
 
 (define-vm-box-op (toplevel-box st mod-offset sym-offset)
   (module-variable
