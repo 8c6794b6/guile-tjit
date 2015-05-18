@@ -124,7 +124,7 @@
 
 (define (fixpoint f x)
   (let ((x* (f x)))
-    (if (eq? x x*) x* (f x*))))
+    (if (eq? x x*) x* (fixpoint f x*))))
 
 (define (compute-function-body conts kfun)
   (persistent-intset
