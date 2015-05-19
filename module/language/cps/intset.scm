@@ -39,7 +39,6 @@
             intset-ref
             intset-next
             intset-fold
-            intset-fold2
             intset-union
             intset-intersect
             intset-subtract
@@ -386,67 +385,48 @@
      (assert-readable! edit)
      (next min shift root))))
 
-(define (intset-fold f set seed)
-  (define (visit-branch node shift min seed)
-    (cond
-     ((= shift *leaf-bits*)
-      (let lp ((i 0) (seed seed))
-        (if (< i *leaf-size*)
-            (lp (1+ i)
-                (if (logbit? i node)
-                    (f (+ i min) seed)
-                    seed))
-            seed)))
-     (else
-      (let ((shift (- shift *branch-bits*)))
-        (let lp ((i 0) (seed seed))
-          (if (< i *branch-size*)
-              (let ((elt (vector-ref node i)))
-                (lp (1+ i)
-                    (if elt
-                        (visit-branch elt shift (+ min (ash i shift)) seed)
-                        seed)))
-              seed))))))
-  (match set
-    (($ <intset> min shift root)
-     (cond
-      ((not root) seed)
-      (else (visit-branch root shift min seed))))
-    (($ <transient-intset>)
-     (intset-fold f (persistent-intset set) seed))))
+(define-syntax-rule (make-intset-folder seed ...)
+  (lambda (f set seed ...)
+    (define (visit-branch node shift min seed ...)
+      (cond
+       ((= shift *leaf-bits*)
+        (let lp ((i 0) (seed seed) ...)
+          (if (< i *leaf-size*)
+              (if (logbit? i node)
+                  (call-with-values (lambda () (f (+ i min) seed ...))
+                    (lambda (seed ...)
+                      (lp (1+ i) seed ...)))
+                  (lp (1+ i) seed ...))
+              (values seed ...))))
+       (else
+        (let ((shift (- shift *branch-bits*)))
+          (let lp ((i 0) (seed seed) ...)
+            (if (< i *branch-size*)
+                (let ((elt (vector-ref node i)))
+                  (if elt
+                      (call-with-values
+                          (lambda ()
+                            (visit-branch elt shift (+ min (ash i shift)) seed ...))
+                        (lambda (seed ...)
+                          (lp (1+ i) seed ...)))
+                      (lp (1+ i) seed ...)))
+                (values seed ...)))))))
+    (match set
+      (($ <intset> min shift root)
+       (cond
+        ((not root) (values seed ...))
+        (else (visit-branch root shift min seed ...))))
+      (($ <transient-intset>)
+       (intset-fold f (persistent-intset set) seed ...)))))
 
-(define (intset-fold2 f set s0 s1)
-  (define (visit-branch node shift min s0 s1)
-    (cond
-     ((= shift *leaf-bits*)
-      (let lp ((i 0) (s0 s0) (s1 s1))
-        (if (< i *leaf-size*)
-            (if (logbit? i node)
-                (call-with-values (lambda () (f (+ i min) s0 s1))
-                  (lambda (s0 s1)
-                    (lp (1+ i) s0 s1)))
-                (lp (1+ i) s0 s1))
-            (values s0 s1))))
-     (else
-      (let ((shift (- shift *branch-bits*)))
-        (let lp ((i 0) (s0 s0) (s1 s1))
-          (if (< i *branch-size*)
-              (let ((elt (vector-ref node i)))
-                (if elt
-                    (call-with-values
-                        (lambda ()
-                          (visit-branch elt shift (+ min (ash i shift)) s0 s1))
-                      (lambda (s0 s1)
-                        (lp (1+ i) s0 s1)))
-                    (lp (1+ i) s0 s1)))
-              (values s0 s1)))))))
-  (match set
-    (($ <intset> min shift root)
-     (cond
-      ((not root) (values s0 s1))
-      (else (visit-branch root shift min s0 s1))))
-    (($ <transient-intset>)
-     (intset-fold2 f (persistent-intset set) s0 s1))))
+(define intset-fold
+  (case-lambda
+    ((f set seed)
+     ((make-intset-folder seed) f set seed))
+    ((f set s0 s1)
+     ((make-intset-folder s0 s1) f set s0 s1))
+    ((f set s0 s1 s2)
+     ((make-intset-folder s0 s1 s2) f set s0 s1 s2))))
 
 (define (intset-size shift root)
   (cond

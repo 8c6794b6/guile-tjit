@@ -95,9 +95,9 @@
            (values (intset-add*! nested-funs kfun) eta))
           (_
            (values nested-funs eta))))
-      (intset-fold2 visit-cont body nested-funs eta)))
+      (intset-fold visit-cont body nested-funs eta)))
   (define (visit-funs worklist eta)
-    (intset-fold2 visit-fun worklist empty-intset eta))
+    (intset-fold visit-fun worklist empty-intset eta))
   (persistent-intset
    (worklist-fold visit-funs (intset-add empty-intset kfun) empty-intset)))
 
@@ -150,7 +150,7 @@
       (($ $kargs names syms ($ $continue k src exp))
        (ref2 k (match exp (($ $branch k) k) (($ $prompt _ _ k) k) (_ #f))))))
   (let*-values (((single multiple) (values empty-intset empty-intset))
-                ((single multiple) (intset-fold2 add-ref body single multiple)))
+                ((single multiple) (intset-fold add-ref body single multiple)))
     (intset-subtract (persistent-intset single)
                      (persistent-intset multiple))))
 
@@ -176,9 +176,9 @@
            (values (intset-add* nested-funs kfun) beta))
           (_
            (values nested-funs beta))))
-      (intset-fold2 visit-cont body nested-funs beta)))
+      (intset-fold visit-cont body nested-funs beta)))
   (define (visit-funs worklist beta)
-    (intset-fold2 visit-fun worklist empty-intset beta))
+    (intset-fold visit-fun worklist empty-intset beta))
   (persistent-intset
    (worklist-fold visit-funs (intset-add empty-intset kfun) empty-intset)))
 
