@@ -122,9 +122,19 @@
         (lambda (in out0 out1)
           (worklist-fold2 f in out0 out1)))))
 
-(define (fixpoint f x)
-  (let ((x* (f x)))
-    (if (eq? x x*) x* (fixpoint f x*))))
+(define fixpoint
+  (case-lambda
+    ((f x)
+     (let lp ((x x))
+       (let ((x* (f x)))
+         (if (eq? x x*) x* (lp x*)))))
+    ((f x0 x1)
+     (let lp ((x0 x0) (x1 x1))
+       (call-with-values (lambda () (f x0 x1))
+         (lambda (x0* x1*)
+           (if (and (eq? x0 x0*) (eq? x1 x1*))
+               (values x0* x1*)
+               (lp x0* x1*))))))))
 
 (define (compute-function-body conts kfun)
   (persistent-intset
