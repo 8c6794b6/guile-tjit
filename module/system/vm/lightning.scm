@@ -188,6 +188,8 @@
 (define scm-undefined (make-pointer #x904))
 (define scm-eol (scm->pointer '()))
 (define scm-bool-f (scm->pointer #f))
+(define scm-builtin-apply (scm->pointer apply))
+(define scm-builtin-values (scm->pointer values))
 
 
 ;;;
@@ -439,18 +441,14 @@
 ;; Frame pointer.
 (define reg-fp (jit-fp))
 
-;; Stack pointer.
-(define-inline reg-sp v0)
-
 ;; Pointer to current `struct scm_vm* vp'.
-(define-inline reg-vp v1)
+(define-inline reg-vp v0)
 
 ;; Current thread.
-(define-inline reg-thread v2)
+(define-inline reg-thread v1)
 
 ;; Registers, used by prompt.
-;; (define reg-registers (jit-f (- (jit-f-num) 1)))
-(define-inline reg-registers v3)
+(define-inline reg-registers v2)
 
 
 ;;;
@@ -475,11 +473,11 @@
        (jit-movi tmp (imm (+ (lightning-pc st) (* 4 (lightning-ip st)))))
        (jit-str reg-vp tmp)))))
 
-(define-syntax-rule (vm-cache-sp)
-  (jit-ldxi reg-sp reg-vp (imm #x8)))
+(define-syntax-rule (vm-cache-sp dst)
+  (jit-ldxi dst reg-vp (imm #x8)))
 
-(define-syntax-rule (vm-sync-sp)
-  (jit-stxi (imm #x8) reg-vp reg-sp))
+(define-syntax-rule (vm-sync-sp src)
+  (jit-stxi (imm #x8) reg-vp src))
 
 (define-syntax-rule (vm-cache-fp)
   (jit-ldxi reg-fp reg-vp (imm #x10)))
@@ -538,13 +536,15 @@
 
 (define-syntax-rule (frame-locals-count-from dst n)
   (begin
-    (jit-subr dst reg-sp reg-fp)
+    (vm-cache-sp dst)
+    (jit-subr dst dst reg-fp)
     (jit-subi dst dst (imm (* n word-size)))
     (jit-rshi dst dst (imm word-size-length))))
 
 (define-syntax-rule (frame-locals-count dst)
   (begin
-    (jit-subr dst reg-sp reg-fp)
+    (vm-cache-sp dst)
+    (jit-subr dst dst reg-fp)
     (jit-rshi dst dst (imm word-size-length))
     (jit-addi dst dst (imm 1))))
 
@@ -623,7 +623,6 @@ argument in VM operation."
        (jit-prepare)
        (call-c "scm_async_tick" tmp)
        (vm-cache-fp)
-       (vm-cache-sp)
        (jit-link lexit)))))
 
 (define-syntax vm-return
@@ -654,41 +653,42 @@ argument in VM operation."
 
        ;; Using r0 as temporary register.
        (vm-sp-max-since-gc r0)
-       (jump (jit-bger r0 reg-sp) lexit)
+       (vm-cache-sp r1)
+       (jump (jit-bger r0 r1) lexit)
        (vm-stack-limit r0)
-       (jump (jit-bgtr r0 reg-sp) lincr)
+       (jump (jit-bgtr r0 r1) lincr)
 
        (vm-sync-ip st r0)
        (jit-prepare)
        (jit-pushargr reg-vp)
-       (jit-pushargr reg-sp)
+       (jit-pushargr r1)
        (call-c "scm_do_vm_expand_stack")
        (vm-cache-fp)
-       (vm-cache-sp)
        (jump lexit)
 
        (jit-link lincr)
-       (vm-set-sp-max-since-gc reg-sp)
+       (vm-set-sp-max-since-gc r1)
 
        (jit-link lexit)))
 
     ((_ st n)
      (begin
-       (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
-       (vm-sync-sp)
+       (jit-addi r0 reg-fp (imm (* (- n 1) word-size)))
+       ;;; XXX: Move sync-sp to end of alloc-frame.
+       (vm-sync-sp r0)
        (vm-alloc-frame st)))))
 
 (define-syntax vm-reset-frame
   (syntax-rules ()
     ((_ n)
-     (vm-reset-frame n r0))
-    ((_ n tmp)
+     (vm-reset-frame n r0 r1))
+    ((_ n tmp1 tmp2)
      (let ((lexit (jit-forward)))
-       (jit-addi reg-sp reg-fp (imm (* (- n 1) word-size)))
-       (vm-sync-sp)
-       (vm-sp-max-since-gc tmp)
-       (jump (jit-bger tmp reg-sp) lexit)
-       (vm-set-sp-max-since-gc reg-sp)
+       (jit-addi tmp1 reg-fp (imm (* (- n 1) word-size)))
+       (vm-sync-sp tmp1)
+       (vm-sp-max-since-gc tmp2)
+       (jump (jit-bger tmp2 tmp1) lexit)
+       (vm-set-sp-max-since-gc tmp1)
        (jit-link lexit)))))
 
 (define-syntax with-frame
@@ -709,7 +709,7 @@ can jump back.  Two locals below proc get overwritten by the callee."
        (scm-frame-set-dynamic-link tmp2)
        (scm-frame-set-return-address tmp1)
 
-       (vm-reset-frame nlocals tmp1)
+       (vm-reset-frame nlocals tmp1 tmp2)
 
        <body>
        (jit-patch ra)))))
@@ -728,14 +728,11 @@ can jump back.  Two locals below proc get overwritten by the callee."
     ;; Leave proc.
     (jit-addi tmp1 tmp1 (imm word-size))
     (jit-str tmp1 val)
-    (jit-movr reg-sp tmp1)
-    (vm-sync-sp)
+    (vm-sync-sp tmp1)
     (jit-jmpr tmp2)))
 
-(define-syntax-rule (return-value-list st proc rval tmp1 tmp2 tmp3)
-  (let ((lone (jit-forward))
-        (lexit (jit-forward))
-        (lshuffle (jit-forward)))
+(define-syntax-rule (return-value-list st rval tmp1 tmp2 tmp3)
+  (let ((lone (jit-forward)))
 
     (jump (scm-imp rval) lone)
 
@@ -747,31 +744,16 @@ can jump back.  Two locals below proc get overwritten by the callee."
     (scm-cell-object tmp2 tmp2 scm-vtable-index-self)
     (jump (scm-not-valuesp tmp2) lone)
 
+    ;; Delegate the work to `vm-apply' with builtin `values'.
     (scm-struct-slots tmp1 rval)
     (scm-cell-object tmp1 tmp1 0)
-    (scm-car rval tmp1)
-    (local-set! st (+ proc 1) rval)
-    (jit-movi tmp2 (stored-ref st (+ proc 1)))
-
-    ;; Reset frame, increment while shuffling with VALUES struct.
-    (vm-reset-frame 1 tmp3)
-
-    (jit-link lshuffle)
-    (scm-car tmp3 tmp1)
-    (jit-stxr tmp2 reg-fp tmp3)
-    (jit-addi tmp2 tmp2 (imm word-size))
-    (jit-addi reg-sp reg-sp (imm word-size))
-    (scm-cdr tmp1 tmp1)
-    (jump (scm-is-not-null tmp1) lshuffle)
-
-    ;; Doing similar thing done in `vm-reset-frame'.
-    (vm-sync-sp)
-    (vm-sp-max-since-gc r0)
-    (jump (jit-bger r0 reg-sp) lexit)
-    (vm-set-sp-max-since-gc reg-sp)
-
-    (jit-link lexit)
-    (vm-return st)
+    (jit-movi tmp2 scm-builtin-apply)
+    (local-set! st 0 tmp2)
+    (jit-movi tmp2 scm-builtin-values)
+    (local-set! st 1 tmp2)
+    (local-set! st 2 tmp1)
+    (vm-reset-frame 3)
+    (vm-apply)
 
     (jit-link lone)
     (return-one-value st rval tmp1 tmp2 tmp3)))
@@ -820,11 +802,12 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-retval r0)
     (jump (jit-beqi r0 (imm 0)) lerror)
     (last-arg-offset st r1 r2)
-    (jit-addi reg-sp reg-sp (imm word-size))
-    (vm-sync-sp)
+    (vm-cache-sp r2)
+    (jit-addi r2 r2 (imm word-size))
+    (vm-sync-sp r2)
     (vm-sp-max-since-gc r0)
-    (jump (jit-bger r0 reg-sp) lshuffle)
-    (vm-set-sp-max-since-gc reg-sp)
+    (jump (jit-bger r0 r2) lshuffle)
+    (vm-set-sp-max-since-gc r2)
 
     (jit-link lshuffle)
     (jit-ldxr r2 reg-fp r1)
@@ -853,7 +836,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-pushargr r0)
     (call-c "scm_compile_lightning")
     (vm-cache-fp)
-    (vm-cache-sp)
     (jit-ldr r0 reg-fp)
 
     ;; Has compiled code.
@@ -899,8 +881,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
     ;; once for boot continuation added in `scm_call_n',
     (scm-frame-return-address r1)
     (jit-str reg-vp r1)
-    (scm-frame-previous-sp reg-sp)
-    (vm-sync-sp)
+    (scm-frame-previous-sp r1)
+    (vm-sync-sp r1)
     (scm-frame-dynamic-link reg-fp)
     (vm-sync-fp)
 
@@ -1507,7 +1489,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (vm-handle-interrupts st)
 
     ;; r2 used to stop the loop in lshuffle.
-    (jit-subr r2 reg-sp reg-fp)
+    (vm-cache-sp r2)
+    (jit-subr r2 r2 reg-fp)
     (jit-subi r2 r2 (imm (* (- from 3) word-size)))
 
     ;; r0 used as local index.
@@ -1523,14 +1506,14 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (jit-link lreset)
     (jit-subi r0 r0 (imm (* 2 word-size)))
-    (jit-addr reg-sp reg-fp r0)
+    (jit-addr r1 reg-fp r0)
 
     ;; Doing similar thing to `vm-reset-frame', but reg-sp is already
     ;; set to new value.
-    (vm-sync-sp)
+    (vm-sync-sp r1)
     (vm-sp-max-since-gc r0)
-    (jump (jit-bger r0 reg-sp) lexit)
-    (vm-set-sp-max-since-gc reg-sp)
+    (jump (jit-bger r0 r1) lexit)
+    (vm-set-sp-max-since-gc r1)
 
     (jit-link lexit)
     (vm-apply)))
@@ -1542,7 +1525,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (error-no-values)
 
     (jit-link lexit)
-    (vm-reset-frame nlocals)
+    (vm-reset-frame nlocals r1 r2)
     (local-ref st (+ proc 1) r0)
     (local-set! st dst r0)))
 
@@ -1588,9 +1571,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-callr r1)
     (jit-retval r0)
     (vm-cache-fp)
-    (vm-cache-sp)
     (local-set! st 1 r0)
-    (return-value-list st 0 r0 r1 r2 f0)))
+    (return-value-list st r0 r1 r2 f0)))
 
 (define-vm-op (foreign-call st cif-idx ptr-idx)
   (vm-sync-ip st r0)
@@ -1606,9 +1588,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (call-c "scm_do_foreign_call")
   (jit-retval r0)
   (vm-cache-fp)
-  (vm-cache-sp)
   (local-set! st 1 r0)
-  (return-value-list st 0 r0 r1 r2 f0))
+  (return-value-list st r0 r1 r2 f0))
 
 ;;; XXX: continuation-call
 
@@ -1630,7 +1611,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (call-c "scm_do_vm_reinstate_partial_continuation")
 
   (vm-cache-fp)
-  (vm-cache-sp)
   (vm-cache-ip r0)
   (jit-jmpr r0))
 
@@ -1645,7 +1625,9 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     ;; Index for last local, a list containing rest of arguments.
     (last-arg-offset st r2 r0)
-    (jit-subi reg-sp reg-sp (imm (* 2 word-size)))
+    (vm-cache-sp r1)
+    (jit-subi r1 r1 (imm (* 2 word-size)))
+    (vm-sync-sp r1)
 
     ;; Local offset for shifting.
     (last-arg-offset st f0 r1)
@@ -1653,15 +1635,18 @@ behaviour is similar to the `apply' label in vm-regular engine."
     ;; Load last local.
     (jit-ldxr r0 reg-fp r2)
 
+    ;; Load sp
+    (vm-cache-sp r1)
+
     ;; Get list length, increase SP.
     (jit-link llength)
     (jump (scm-is-null r0) lalloc)
-    (jit-addi reg-sp reg-sp (imm word-size))
+    (jit-addi r1 r1 (imm word-size))
     (scm-cdr r0 r0)
     (jump llength)
 
     (jit-link lalloc)
-    (vm-sync-sp)
+    (vm-sync-sp r1)
     (vm-alloc-frame st)
 
     (jit-movi r1 (imm 0))
@@ -1751,17 +1736,17 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (let ((lshuffle (jit-forward))
         (lexit (jit-forward)))
 
-    (frame-locals-count r1)
+    (frame-locals-count r2)
     (vm-alloc-frame st nlocals)
-    (jit-lshi r1 r1 (imm word-size-length))
-    (jit-movi r2 (imm (* nlocals word-size)))
+    (jit-lshi r2 r2 (imm word-size-length))
+    (jit-movi r1 (imm (* nlocals word-size)))
     (jit-movi r0 scm-undefined)
 
-    ;; Using r2 as offset of location to store.
+    ;; Using r1 as offset of location to store.
     (jit-link lshuffle)
-    (jump (jit-bger r1 r2) lexit)
-    (jit-subi r2 r2 (imm word-size))
-    (jit-stxr r2 reg-fp r0)
+    (jump (jit-bger r2 r1) lexit)
+    (jit-subi r1 r1 (imm word-size))
+    (jit-stxr r1 reg-fp r0)
     (jump lshuffle)
 
     (jit-link lexit)))
@@ -1797,8 +1782,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
   ;; Allocate frame with returned value.
   (jit-lshi r0 r0 (imm word-size-length))
-  (jit-addr reg-sp reg-fp r0)
-  (vm-sync-sp)
+  (jit-addr r0 reg-fp r0)
+  (vm-sync-sp r0)
   (vm-alloc-frame st))
 
 (define-vm-op (bind-rest st dst)
@@ -1809,9 +1794,10 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lexit (jit-forward)))
 
     ;; Initialize values.
-    (jit-subr f4 reg-sp reg-fp)
+    (vm-cache-sp f4)
+    (jit-subr f4 f4 reg-fp)
     (jit-addi f4 f4 (imm word-size)) ; f4 = last local index.
-    (jit-movi r1 scm-eol)            ; r1 = initial list.
+    (jit-movi r2 scm-eol)            ; r2 = initial list.
     (jit-movi f0 scm-undefined)      ; f0 = undefined, for refill.
     (jump (jit-bgti f4 (imm (* dst word-size))) lprecons)
 
@@ -1826,28 +1812,28 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     ;; Create a list.
     (jit-link lprecons)
-    (jit-movr r0 r1)
+    (jit-movr r0 r2)
 
     ;; There are chances for `scm-inline-cons' to call `GC_malloc_many',
     ;; which overwrite registers during `lcons' loop.  Thus moving
-    ;; constant value `scm-undefined' to register r1 every time before
+    ;; constant value `scm-undefined' to register r2 every time before
     ;; storing to local.  Register f4 seems working under x86-64 when
     ;; guile compiled with 'gcc -O2'.
     (jit-link lcons)
     (jump (jit-blei f4 (imm (* dst word-size))) lreset)
     (jit-subi f4 f4 (imm word-size))
-    (jit-ldxr r1 reg-fp f4)
-    (scm-inline-cons r0 r1 r0)
-    (jit-movi r1 scm-undefined)
-    (jit-stxr f4 reg-fp r1)
+    (jit-ldxr r2 reg-fp f4)
+    (scm-inline-cons r0 r2 r0)
+    (jit-movi r2 scm-undefined)
+    (jit-stxr f4 reg-fp r2)
     (jump lcons)
 
     (jit-link lreset)
-    (jit-movr r1 r0)
+    (jit-movr r2 r0)
     (vm-reset-frame (+ dst 1))
 
     (jit-link lexit)
-    (local-set! st dst r1)))
+    (local-set! st dst r2)))
 
 
 ;;; Branching instructions
@@ -2085,7 +2071,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (call-c "scm_lookup")
   (jit-retval r0)
   (vm-cache-fp)
-  (vm-cache-sp)
   (local-set! st dst r0))
 
 (define-vm-op (define! st sym val)
@@ -2096,8 +2081,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (local-ref st val r0)
   (jit-pushargr r0)
   (call-c "scm_define")
-  (vm-cache-fp)
-  (vm-cache-sp))
+  (vm-cache-fp))
 
 (define-vm-box-op (toplevel-box st mod-offset sym-offset)
   (module-variable
@@ -2788,7 +2772,6 @@ compiled result."
      ;; Resuming from non-local exit, jump to the handler. The native
      ;; code address of handler is stored in vp->ip.
      (vm-cache-fp)
-     (vm-cache-sp)
      (vm-cache-ip r0)
      (jit-jmpr r0)
 
@@ -2802,7 +2785,6 @@ compiled result."
      ;; used by this vm engine.
      (jit-movr r0 reg-fp)
      (vm-cache-fp)
-     (vm-cache-sp)
      (jit-stxi (make-negative-pointer (* 3 word-size)) reg-fp r0)
 
      ;; Store return address.
