@@ -55,7 +55,7 @@
       (values (compute-next labels lengths) lengths (1+ length))))
   (match (intmap-ref conts kfun)
     (($ $kfun src meta self tail clause)
-     (worklist-fold2 visit (intset-add empty-intset tail) empty-intmap 0))))
+     (worklist-fold visit (intset-add empty-intset tail) empty-intmap 0))))
 
 ;; Topologically sort the continuation tree starting at k0, using
 ;; reverse post-order numbering.

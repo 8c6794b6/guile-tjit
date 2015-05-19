@@ -38,7 +38,7 @@
             ;; Various utilities.
             fold1 fold2
             intset->intmap
-            worklist-fold worklist-fold2
+            worklist-fold
             fixpoint
 
             ;; Flow analysis.
@@ -108,19 +108,18 @@
                   (intmap-add! preds label (f label)))
                 set empty-intmap)))
 
-(define (worklist-fold f in out)
-  (if (eq? in empty-intset)
-      out
-      (call-with-values (lambda () (f in out))
-        (lambda (in out)
-          (worklist-fold f in out)))))
-
-(define (worklist-fold2 f in out0 out1)
-  (if (eq? in empty-intset)
-      (values out0 out1)
-      (call-with-values (lambda () (f in out0 out1))
-        (lambda (in out0 out1)
-          (worklist-fold2 f in out0 out1)))))
+(define worklist-fold
+  (case-lambda
+    ((f in out)
+     (let lp ((in in) (out out))
+       (if (eq? in empty-intset)
+           out
+           (call-with-values (lambda () (f in out)) lp))))
+    ((f in out0 out1)
+     (let lp ((in in) (out0 out0) (out1 out1))
+       (if (eq? in empty-intset)
+           (values out0 out1)
+           (call-with-values (lambda () (f in out0 out1)) lp))))))
 
 (define fixpoint
   (case-lambda
