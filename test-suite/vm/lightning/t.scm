@@ -1341,7 +1341,7 @@
 ;;; GC tests
 ;;;
 
-(define-test (list-copy-lp n a) (#e1e7 '(1 2 3 4 5))
+(define-test (t-list-copy-loop n a) (#e1e7 '(1 2 3 4 5))
   (let lp ((n n) (v '()))
     (if (< n 0)
         v
@@ -1356,14 +1356,35 @@
 (define (binder . rest)
   rest)
 
-(define-test (binder-lp n a b) (#e1e7 'foo 'bar)
+(define-test (t-binder-loop n a b) (#e1e7 'foo 'bar)
   (let lp ((n n) (v #f))
     (if (< n 0)
         v
         (lp (- n 1) (binder a b)))))
 
+;; Apply procedure `f' to `a' and `b', compare the result with
+;; `expected' with `equal?'.  Test to see that GC will not overwrite the
+;; result during loops.
+(define (equal?-loop f a b expected)
+  (let lp ((n 0) (v #f) (nincorrect 0))
+    (if (< #e1e6 n)
+        nincorrect
+        (let ((result (f a b)))
+          (if (equal? result expected)
+              (lp (+ n 1) result nincorrect)
+              (lp (+ n 1) result (+ nincorrect 1)))))))
+
 (test-skip 1)
-(define-test (macroexpand-lp n expr) (#e1e4 letrec-fib-expr)
+(define-test (t-cons-equal-loop a b expected) (12 34 '(12 . 34))
+  (equal?-loop cons a b expected))
+
+(test-skip 1)
+(define-test (t-append-equal-loop a b expected)
+  ('(1 2 3) '(4 5 6) '(1 2 3 4 5 6))
+  (equal?-loop append a b expected))
+
+(test-skip 1)
+(define-test (t-macroexpand-loop n expr) (#e1e4 letrec-fib-expr)
   (let lp ((n n) (v #f))
     (if (< n 0)
         v

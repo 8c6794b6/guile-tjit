@@ -764,6 +764,7 @@ can jump back.  Two locals below proc get overwritten by the callee."
     (scm-cdr tmp1 tmp1)
     (jump (scm-is-not-null tmp1) lshuffle)
 
+    ;; Doing similar thing done in `vm-reset-frame'.
     (vm-sync-sp)
     (vm-sp-max-since-gc r0)
     (jump (jit-bger r0 reg-sp) lexit)
@@ -850,7 +851,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
     ;; Does not have native code, compile the callee procedure.
     (jit-prepare)
     (jit-pushargr r0)
-    ;; (jit-calli %compile-lightning)
     (call-c "scm_compile_lightning")
     (vm-cache-fp)
     (vm-cache-sp)
@@ -895,8 +895,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
     ;; Original contents of jit-fp used by lightning.
     (jit-ldr r2 reg-fp)
 
-    ;; Move `vp->fp' once for boot continuation added in `scm_call_n',
-    ;; then reset the stack pointer and return address.
+    ;; Reset the stack pointer and return address.  Then move `vp->fp'
+    ;; once for boot continuation added in `scm_call_n',
     (scm-frame-return-address r1)
     (jit-str reg-vp r1)
     (scm-frame-previous-sp reg-sp)
@@ -1571,6 +1571,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (subr-call st ptr-idx)
   (let ((lcall (jit-forward)))
+    (vm-sync-ip st r0)
+
     ;; `subr-call' accepts up to 10 arguments.
     (jit-prepare)
     (frame-locals-count r1)
@@ -1591,6 +1593,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (return-value-list st 0 r0 r1 r2 f0)))
 
 (define-vm-op (foreign-call st cif-idx ptr-idx)
+  (vm-sync-ip st r0)
   (local-ref st 0 r0)
   (scm-program-free-variable-ref r1 r0 cif-idx)
   (scm-program-free-variable-ref r2 r0 ptr-idx)
@@ -1691,6 +1694,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (abort st)
   (let ((ra (jit-movi r0 (imm 0))))
+    ;; Store return address to `vp->ip'.
     (jit-str reg-vp r0)
 
     (jit-prepare)
@@ -2750,12 +2754,6 @@ compiled result."
                                (bytevector->pointer bv))
            (jit-print)
            (jit-clear-state)))))))
-
-;; (define %compile-lightning
-;;   (let ((f (lambda (proc*)
-;;              (let ((proc (pointer->scm proc*)))
-;;                (compile-lightning proc)))))
-;;     (procedure->pointer void f '(*))))
 
 
 ;;;
