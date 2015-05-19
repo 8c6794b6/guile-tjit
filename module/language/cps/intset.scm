@@ -27,6 +27,7 @@
 (define-module (language cps intset)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-9 gnu)
   #:use-module (ice-9 match)
   #:export (empty-intset
             intset?
@@ -731,3 +732,45 @@
         (let ((min* (round-down pos *leaf-bits*)))
           (lp (finish-tail out min tail)
               min* pos (ash 1 (- pos min*)))))))))
+
+(define (intset-key-ranges intset)
+  (call-with-values
+      (lambda ()
+        (intset-fold (lambda (k start end closed)
+                       (cond
+                        ((not start) (values k k closed))
+                        ((= k (1+ end)) (values start k closed))
+                        (else (values k k (acons start end closed)))))
+                     intset #f #f '()))
+    (lambda (start end closed)
+      (reverse (if start (acons start end closed) closed)))))
+
+(define (range-string ranges)
+  (string-join (map (match-lambda
+                      ((start . start)
+                       (format #f "~a" start))
+                      ((start . end)
+                       (format #f "~a-~a" start end)))
+                    ranges)
+               ","))
+
+(define (print-helper port tag intset)
+  (let ((ranges (intset-key-ranges intset)))
+    (match ranges
+      (()
+       (format port "#<~a>" tag))
+      (((0 . _) . _)
+       (format port "#<~a ~a>" tag (range-string ranges)))
+      (((min . end) . ranges)
+       (let ((ranges (map (match-lambda
+                            ((start . end) (cons (- start min) (- end min))))
+                          (acons min end ranges))))
+         (format port "#<~a ~a+~a>" tag min (range-string ranges)))))))
+
+(define (print-intset intset port)
+  (print-helper port "intset" intset))
+(define (print-transient-intset intset port)
+  (print-helper port "transient-intset" intset))
+
+(set-record-type-printer! <intset> print-intset)
+(set-record-type-printer! <transient-intset> print-transient-intset)

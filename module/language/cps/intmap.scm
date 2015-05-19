@@ -629,10 +629,44 @@
 (define (intmap->alist intmap)
   (reverse (intmap-fold acons intmap '())))
 
+(define (intmap-key-ranges intmap)
+  (call-with-values
+      (lambda ()
+        (intmap-fold (lambda (k v start end closed)
+                       (cond
+                        ((not start) (values k k closed))
+                        ((= k (1+ end)) (values start k closed))
+                        (else (values k k (acons start end closed)))))
+                     intmap #f #f '()))
+    (lambda (start end closed)
+      (reverse (if start (acons start end closed) closed)))))
+
+(define (range-string ranges)
+  (string-join (map (match-lambda
+                      ((start . start)
+                       (format #f "~a" start))
+                      ((start . end)
+                       (format #f "~a-~a" start end)))
+                    ranges)
+               ","))
+
+(define (print-helper port tag intmap)
+  (let ((ranges (intmap-key-ranges intmap)))
+    (match ranges
+      (()
+       (format port "#<~a>" tag))
+      (((0 . _) . _)
+       (format port "#<~a ~a>" tag (range-string ranges)))
+      (((min . end) . ranges)
+       (let ((ranges (map (match-lambda
+                            ((start . end) (cons (- start min) (- end min))))
+                          (acons min end ranges))))
+         (format port "#<~a ~a+~a>" tag min (range-string ranges)))))))
+
 (define (print-intmap intmap port)
-  (format port "#<intmap ~a>" (intmap->alist intmap)))
+  (print-helper port "intmap" intmap))
 (define (print-transient-intmap intmap port)
-  (format port "#<transient-intmap ~a>" (intmap->alist intmap)))
+  (print-helper port "transient-intmap" intmap))
 
 (set-record-type-printer! <intmap> print-intmap)
 (set-record-type-printer! <transient-intmap> print-transient-intmap)
