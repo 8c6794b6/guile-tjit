@@ -24,6 +24,7 @@
 
 (define-module (language cps2 optimize)
   #:use-module (ice-9 match)
+  #:use-module (language cps2 dce)
   #:use-module (language cps2 simplify)
   #:export (optimize))
 
@@ -51,6 +52,7 @@
   ;; any case, though currently it does not because it doesn't do escape
   ;; analysis on the box created for the set!.
 
+  (run-pass! eliminate-dead-code #:dce2? #t)
   (run-pass! simplify #:simplify? #t)
 
   program)
