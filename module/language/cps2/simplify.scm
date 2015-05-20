@@ -53,13 +53,14 @@
       (((x1 . l1) . (x2 . l2)) (lp l1 l2 (f x1 x2 seed))))))
 
 (define (transform-conts f conts)
-  (intmap-fold (lambda (k v out)
-                 (let ((v* (f k v)))
-                   (if (equal? v v*)
-                       out
-                       (intmap-add! out k v* (lambda (old new) new)))))
-               conts
-               conts))
+  (persistent-intmap
+   (intmap-fold (lambda (k v out)
+                  (let ((v* (f k v)))
+                    (if (equal? v v*)
+                        out
+                        (intmap-add! out k v* (lambda (old new) new)))))
+                conts
+                conts)))
 
 ;;; Continuations that simply forward their values to another may be
 ;;; elided via eta reduction over labels.
