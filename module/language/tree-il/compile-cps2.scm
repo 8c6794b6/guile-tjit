@@ -657,7 +657,7 @@
                       (letk ktail ($kargs ('tail) (tail) ,body))
                       ($ (lp args ktail)))))))))))
       ((prim-instruction name)
-       => (lambda (name)
+       => (lambda (instruction)
             (convert-args cps args
               (lambda (cps args)
                 ;; Tree-IL primcalls are sloppy, in that it could be
@@ -665,14 +665,14 @@
                 ;; arguments.  In CPS we are more strict and only
                 ;; residualize a $primcall if the argument count
                 ;; matches.
-                (match (prim-arity name)
+                (match (prim-arity instruction)
                   ((out . in)
                    (if (= in (length args))
                        (with-cps cps
                          (let$ k (adapt-arity k src out))
                          (build-term
                            ($continue k src
-                             ($primcall name args))))
+                             ($primcall instruction args))))
                        (with-cps cps
                          (letv prim)
                          (letk kprim ($kargs ('prim) (prim)
