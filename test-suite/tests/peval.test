@@ -1372,9 +1372,35 @@
         (if (pair? arg)
             (set! l arg))
         (apply f l))
-    (let (l) (_) ((const ()))
+      (let (l) (_) ((const ()))
          (seq
            (if (primcall pair? (toplevel arg))
                (set! (lexical l _) (toplevel arg))
                (void))
-           (primcall apply (toplevel f) (lexical l _))))))
+           (primcall apply (toplevel f) (lexical l _)))))
+
+  (pass-if-peval
+      (lambda (f x)
+        (let lp ((x x))
+          (let ((x* (f x)))
+            (if (eq? x x*) x* (lp x*)))))
+    (lambda ()
+      (lambda-case
+       (((f x) #f #f #f () (_ _))
+        (letrec (lp)
+          (_)
+          ((lambda ((name . lp))
+             (lambda-case
+              (((x) #f #f #f () (_))
+               (let (x*)
+                 (_)
+                 ((call (lexical f _) (lexical x _)))
+                 (if (primcall
+                      eq?
+                      (lexical x _)
+                      (lexical x* _))
+                     (lexical x* _)
+                     (call (lexical lp _)
+                           (lexical x* _))))))))
+          (call (lexical lp _)
+                (lexical x _))))))))

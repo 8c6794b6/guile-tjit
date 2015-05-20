@@ -275,7 +275,7 @@
 ;; 
 (define-record-type <operand>
   (%make-operand var sym visit source visit-count use-count
-                 copyable? residual-value constant-value alias-value)
+                 copyable? residual-value constant-value alias)
   operand?
   (var operand-var)
   (sym operand-sym)
@@ -286,7 +286,7 @@
   (copyable? operand-copyable? set-operand-copyable?!)
   (residual-value operand-residual-value %set-operand-residual-value!)
   (constant-value operand-constant-value set-operand-constant-value!)
-  (alias-value operand-alias-value set-operand-alias-value!))
+  (alias operand-alias set-operand-alias!))
 
 (define* (make-operand var sym #:optional source visit alias)
   ;; Bind SYM to VAR, with value SOURCE.  Unassigned bound operands are
@@ -787,16 +787,16 @@ top-level bindings from ENV and return the resulting expression."
          (else exp)))
       (($ <lexical-ref> _ _ gensym)
        (log 'begin-copy gensym)
-       (let ((op (lookup gensym)))
+       (let lp ((op (lookup gensym)))
          (cond
           ((eq? ctx 'effect)
            (log 'lexical-for-effect gensym)
            (make-void #f))
-          ((operand-alias-value op)
+          ((operand-alias op)
            ;; This is an unassigned operand that simply aliases some
            ;; other operand.  Recurse to avoid residualizing the leaf
            ;; binding.
-           => for-tail)
+           => lp)
           ((eq? ctx 'call)
            ;; Don't propagate copies if we are residualizing a call.
            (log 'residualize-lexical-call gensym op)
@@ -913,7 +913,7 @@ top-level bindings from ENV and return the resulting expression."
                              (map (cut make-lexical-ref #f <> <>)
                                   tmps tmp-syms)))))))
       (($ <let> src names gensyms vals body)
-       (define (compute-alias exp)
+       (define (lookup-alias exp)
          ;; It's very common for macros to introduce something like:
          ;;
          ;;   ((lambda (x y) ...) x-exp y-exp)
@@ -933,9 +933,7 @@ top-level bindings from ENV and return the resulting expression."
          (match exp
            (($ <lexical-ref> _ _ sym)
             (let ((op (lookup sym)))
-              (and (not (var-set? (operand-var op)))
-                   (or (operand-alias-value op)
-                       exp))))
+              (and (not (var-set? (operand-var op))) op)))
            (_ #f)))
 
        (let* ((vars (map lookup-var gensyms))
@@ -943,7 +941,7 @@ top-level bindings from ENV and return the resulting expression."
               (ops (make-bound-operands vars new vals
                                         (lambda (exp counter ctx)
                                           (loop exp env counter ctx))
-                                        (map compute-alias vals)))
+                                        (map lookup-alias vals)))
               (env (fold extend-env env gensyms ops))
               (body (loop body env counter ctx)))
          (cond
@@ -1397,8 +1395,8 @@ top-level bindings from ENV and return the resulting expression."
                                    (list (make-primcall
                                           #f 'list
                                           (drop orig-args (+ nreq nopt)))))
-                                  (rest (list (make-const #f '())))
-                                  (else '()))))
+                                  ((null? rest) '())
+                                  (else (list (make-const #f '()))))))
                   (if (>= nargs (+ nreq nopt))
                       (make-let src
                                 (append req opt rest)
