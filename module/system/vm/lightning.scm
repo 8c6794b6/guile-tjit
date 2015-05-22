@@ -191,6 +191,10 @@
 (define scm-builtin-apply (scm->pointer apply))
 (define scm-builtin-values (scm->pointer values))
 
+(define (scm-module-system-booted-p)
+  (dereference-pointer
+   (dynamic-pointer "scm_module_system_booted_p" (dynamic-link))))
+
 
 ;;;
 ;;; The word size
@@ -236,11 +240,11 @@
 (define-syntax-rule (scm-set-cell-object-r obj reg-offset val)
   (jit-stxr reg-offset obj val))
 
-(define-syntax-rule (scm-makinumi n)
+(define-syntax-rule (scm-i-makinumi n)
   "Make scheme small fixnum from N."
   (imm (+ (ash n 2) 2)))
 
-(define-syntax-rule (scm-makinumr dst src)
+(define-syntax-rule (scm-i-makinumr dst src)
   "Make scheme small fixnum from SRC and store to DST."
   (begin
     (jit-lshi dst src (imm 2))
@@ -311,6 +315,9 @@
     (scm-cell-object dst obj 0)
     (jit-subi dst dst (imm tc3-struct))))
 
+(define-syntax-rule (scm-class-of dst obj)
+  (scm-cell-object dst obj scm-vtable-index-self))
+
 (define-syntax-rule (scm-bytevector-contents dst obj)
   (scm-cell-object dst obj 2))
 
@@ -357,6 +364,9 @@
 
 (define-syntax-rule (scm-is-not-string tc7)
   (jit-bnei tc7 (imm tc7-string)))
+
+(define-syntax-rule (scm-variablep tc7)
+  (jit-beqi tc7 (imm tc7-variable)))
 
 (define-syntax-rule (scm-structp tc3)
   (jit-beqi tc3 (imm tc3-struct)))
@@ -421,6 +431,26 @@
     (jit-pushargr-d obj)
     (call-c "scm_do_inline_from_double")
     (jit-retval dst)))
+
+(define-syntax-rule (scm-displayr reg)
+  (begin
+    (jit-prepare)
+    (jit-pushargr reg)
+    (jit-pushargi scm-undefined)
+    (call-c "scm_display")))
+
+(define-syntax-rule (scm-displayi obj)
+  (begin
+    (jit-prepare)
+    (jit-pushargi (scm->pointer obj))
+    (jit-pushargi scm-undefined)
+    (call-c "scm_display")))
+
+(define-syntax-rule (scm-newline)
+  (begin
+    (jit-prepare)
+    (jit-pushargi scm-undefined)
+    (call-c "scm_newline")))
 
 
 ;;;
@@ -571,11 +601,6 @@
      (jit-str reg-fp reg))
     ((_ st dst reg)
      (jit-stxi (stored-ref st dst) reg-fp reg))))
-
-(define-syntax-rule (local-set!/immediate st dst val)
-  (begin
-    (jit-movi r0 val)
-    (jit-stxi (stored-ref st dst) reg-fp r0)))
 
 (define-syntax-rule (offset-addr st offset)
   (+ (lightning-pc st) (* 4 (+ (lightning-ip st) offset))))
@@ -745,6 +770,7 @@ can jump back.  Two locals below proc get overwritten by the callee."
     (jump (scm-not-valuesp tmp2) lone)
 
     ;; Delegate the work to `vm-apply' with builtin `values'.
+    (vm-handle-interrupts st tmp1)
     (scm-struct-slots tmp1 rval)
     (scm-cell-object tmp1 tmp1 0)
     (jit-movi tmp2 scm-builtin-apply)
@@ -1113,7 +1139,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (let ((lexit (jit-forward)))
     (scm-i-vector-length tmp vec)
     (jump (jit-bgti tmp (imm idx)) lexit)
-    (error-out-of-range subr (jit-pushargi (scm-makinumi idx)))
+    (error-out-of-range subr (jit-pushargi (scm-i-makinumi idx)))
     (jit-link lexit)))
 
 (define-syntax-rule (validate-struct obj tmp subr)
@@ -1169,22 +1195,29 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (syntax-rules ()
     ((_ (name st a b invert offset) cname)
      (define-vm-op (name st a b invert offset)
-       (when (< offset 0)
-         (vm-handle-interrupts st))
-       (let ((lexit (jit-forward)))
+       (let ((lexit (jit-forward))
+             (ljump (jit-forward)))
          (local-ref st a r0)
          (local-ref st b r1)
-         (jump (jit-beqr r0 r1) (if invert lexit (resolve-dst st offset)))
+         (jump (jit-beqr r0 r1) (if invert lexit ljump))
 
          (jit-prepare)
          (jit-pushargr r0)
          (jit-pushargr r1)
          (call-c cname)
          (jit-retval r0)
-         (jump (scm-is-false r0) (if invert (resolve-dst st offset) lexit))
+         (vm-cache-fp)
+         (jump (scm-is-false r0) (if invert ljump lexit))
 
-         (when (not invert)
-           (jump (resolve-dst st offset)))
+         (when (< offset 0)
+           (vm-handle-interrupts st))
+
+         (if (not invert)
+             (jump (resolve-dst st offset))
+             (jump lexit))
+
+         (jit-link ljump)
+         (jump (resolve-dst st offset))
 
          (jit-link lexit))))))
 
@@ -1236,7 +1269,9 @@ behaviour is similar to the `apply' label in vm-regular engine."
 ;; The variable is resolved at compilation time of native code.
 (define-syntax define-vm-box-op
   (syntax-rules ()
-    ((_ (name st mod-offset sym-offset) resolver ...)
+    ((_ (name st dst var-offset mod-offset sym-offset bound?)
+        <compile-time-resolver>
+        <runtime-resolver>)
      (define-vm-op (name st dst var-offset mod-offset sym-offset bound?)
        (let* ((current (lightning-ip st))
               (base (lightning-pc st))
@@ -1246,8 +1281,14 @@ behaviour is similar to the `apply' label in vm-regular engine."
               (var (dereference-scm (offset->pointer var-offset))))
          (let ((resolved (if (variable? var)
                              var
-                             resolver ...)))
-           (local-set!/immediate st dst (scm->pointer resolved))))))))
+                             <compile-time-resolver>)))
+           ;; Box may needs to be resolved at runtime, e.g: a top level
+           ;; call creating a record type defined in same module.
+           (if (variable? resolved)
+               (begin
+                 (jit-movi r0 (scm->pointer resolved))
+                 (local-set! st dst r0))
+               <runtime-resolver>)))))))
 
 (define-syntax define-vm-binary-numeric-op
   (syntax-rules ()
@@ -1378,7 +1419,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
          (jump (jit-blei r0 (imm (logand #xffffffffffffffff
                                          most-negative-fixnum)))
                lcall)
-         (scm-makinumr r0 r0)
+         (scm-i-makinumr r0 r0)
          (jump lexit)
 
          (jit-link lcall)
@@ -1393,7 +1434,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
      (define-vm-bv-ref-op (name st dst src idx)
        (begin
          (jit-op r0 r0 r1)
-         (scm-makinumr r0 r0))))))
+         (scm-i-makinumr r0 r0))))))
 
 (define-syntax define-vm-bv-set-op
   (syntax-rules ()
@@ -1895,10 +1936,9 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define-vm-op (br-if-eq st a b invert offset)
   (when (< offset 0)
     (vm-handle-interrupts st))
-  (jump ((if invert jit-bner jit-beqr)
-         (local-ref st a r0)
-         (local-ref st b r1))
-        (resolve-dst st offset)))
+  (local-ref st a r0)
+  (local-ref st b r1)
+  (jump ((if invert jit-bner jit-beqr) r0 r1) (resolve-dst st offset)))
 
 (define-vm-br-binary-op (br-if-eqv st a b invert offset)
   "scm_eqv_p")
@@ -2083,17 +2123,90 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (call-c "scm_define")
   (vm-cache-fp))
 
-(define-vm-box-op (toplevel-box st mod-offset sym-offset)
-  (module-variable
-   (or (dereference-scm (make-pointer (offset-addr st mod-offset)))
-       the-root-module)
-   (dereference-scm (make-pointer (offset-addr st sym-offset)))))
+(define-vm-box-op (toplevel-box st dst var-offset mod-offset sym-offset bound?)
+  (module-variable (or (dereference-scm
+                        (make-pointer (offset-addr st mod-offset)))
+                       the-root-module)
+                   (dereference-scm
+                    (make-pointer (offset-addr st sym-offset))))
+  (let ((lunresolved (jit-forward))
+        (llookup (jit-forward))
+        (lexit (jit-forward)))
 
-(define-vm-box-op (module-box st mod-offset sym-offset)
-  (module-variable
-   (resolve-module
-    (cdr (pointer->scm (make-pointer (offset-addr st mod-offset)))))
-   (dereference-scm (make-pointer (offset-addr st sym-offset)))))
+    (debug 1 "Unresolved toplevel-box, ip: ~a, var: ~a, mod: ~a, sym: ~a~%"
+           (lightning-ip st) var-offset mod-offset sym-offset)
+
+    (jit-ldi r0 (imm (offset-addr st var-offset)))
+    (jump (scm-imp r0) lunresolved)
+    (scm-cell-type r1 r0)
+    (scm-typ7 r1 r1)
+    (jump (scm-variablep r1) lexit)
+
+    (jit-link lunresolved)
+    (jit-ldi r0 (imm (offset-addr st mod-offset)))
+    (jump (scm-is-true r0) llookup)
+    (jit-prepare)
+    (call-c "scm_the_root_module")
+    (jit-retval r0)
+
+    (jit-link llookup)
+    (vm-sync-ip st r1)
+    (jit-ldi r1 (imm (offset-addr st sym-offset)))
+    (jit-prepare)
+    (jit-pushargr r0)
+    (jit-pushargr r1)
+    (call-c "scm_module_lookup")
+    (jit-retval r0)
+    (vm-cache-fp)
+    (jit-sti (imm (offset-addr st var-offset)) r0)
+
+    (jit-link lexit)
+    (local-set! st dst r0)))
+
+(define-vm-box-op (module-box st dst var-offset mod-offset sym-offset bound?)
+  ;; XXX: Separate public and private lookup.
+  (module-variable (resolve-module
+                    (cdr (pointer->scm
+                          (make-pointer (offset-addr st mod-offset)))))
+                   (dereference-scm
+                    (make-pointer (offset-addr st sym-offset))))
+  (let ((lunresolved (jit-forward))
+        (lbooted (jit-forward))
+        (lsave (jit-forward))
+        (lexit (jit-forward)))
+
+    (debug 1 "Unresolved module-box, ip: ~a, mod: ~a, sym: ~a~%"
+           (lightning-ip st) mod-offset sym-offset)
+
+    (jit-ldi r0 (imm (offset-addr st var-offset)))
+    (jump (scm-imp r0) lunresolved)
+    (scm-cell-type r1 r0)
+    (jump (scm-variablep r1) lexit)
+
+    (jit-link lunresolved)
+    (jit-movi r1 (scm-module-system-booted-p))
+    (jump (jit-bmsi r1 (imm 1)) lbooted)
+    (jit-prepare)
+    (jit-pushargi (imm (offset-addr st sym-offset)))
+    (call-c "scm_lookup")
+    (jit-retval r0)
+    (jump lsave)
+
+    (jit-link lbooted)
+    (jit-movi r1 (imm (offset-addr st mod-offset)))
+    (scm-cdr r1 r1)
+    (jit-prepare)
+    (jit-pushargr r1)
+    (jit-pushargi (imm (offset-addr st sym-offset)))
+    (call-c "scm_private_lookup")
+    (jit-retval r0)
+
+    (jit-link lsave)
+    (vm-cache-fp)
+    (jit-sti (imm (offset-addr st var-offset)) r0)
+
+    (jit-link lexit)
+    (local-set! st dst r0)))
 
 
 ;;; The dynamic environment
@@ -2194,7 +2307,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (scm-typ7 r1 r1)
     (jump (scm-is-not-string r1) lcall)
     (scm-i-string-length r0 r0)
-    (scm-makinumr r0 r0)
+    (scm-i-makinumr r0 r0)
     (jump lexit)
 
     (jit-link lcall)
@@ -2308,7 +2421,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-qmulr r0 f0 r0 f0)
     (jump (jit-bnei f0 (imm 0)) lcall)
     (jump (jit-bgti r0 (imm most-positive-fixnum)) lcall)
-    (scm-makinumr r0 r0))
+    (scm-i-makinumr r0 r0))
   (jit-mulr-d f0 f0 f1))
 
 (define-vm-binary-numeric-op (div st dst a b)
@@ -2318,7 +2431,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (scm-i-inumr f0 r2)
     (jit-qdivr r0 f0 r0 f0)
     (jump (jit-bnei f0 (imm 0)) lcall)
-    (scm-makinumr r0 r0))
+    (scm-i-makinumr r0 r0))
   (jit-divr-d f0 f0 f1))
 
 (define-vm-binary-numeric-op (quo st dst a b)
@@ -2327,7 +2440,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (scm-i-inumr r0 r0)
     (scm-i-inumr r1 r1)
     (jit-divr r0 r0 r1)
-    (scm-makinumr r0 r0)))
+    (scm-i-makinumr r0 r0)))
 
 (define-vm-binary-numeric-op (rem st dst a b)
   "scm_remainder" lcall r0 r1
@@ -2335,7 +2448,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (scm-i-inumr r0 r0)
     (scm-i-inumr r1 r1)
     (jit-remr r0 r0 r1)
-    (scm-makinumr r0 r0)))
+    (scm-i-makinumr r0 r0)))
 
 (define-vm-binary-numeric-op (mod st dst a b)
   "scm_modulo" lcall r0 r1
@@ -2359,7 +2472,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jump lexit)
 
     (jit-link lexit)
-    (scm-makinumr r0 r0)))
+    (scm-i-makinumr r0 r0)))
 
 (define-vm-binary-numeric-op (ash st dst a b)
   "scm_ash" lcall r0 r1
@@ -2375,12 +2488,12 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-negr r1 r1)
     (jump (jit-bgei r1 (imm (- scm-i-fixnum-bit 1))) lright)
     (jit-rshr r0 r0 r1)
-    (scm-makinumr r0 r0)
+    (scm-i-makinumr r0 r0)
     (jump lexit)
 
     (jit-link lright)
     (jit-rshi r0 r0 (imm (- scm-i-fixnum-bit 1)))
-    (scm-makinumr r0 r0)
+    (scm-i-makinumr r0 r0)
     (jump lexit)
 
     (jit-link lleft)
@@ -2391,14 +2504,14 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jump (jit-bgti r2 (imm 0)) lprepare)
     (jump (jit-blti r0 (imm 0)) ladjust)
     (jit-lshr r0 r0 r1)
-    (scm-makinumr r0 r0)
+    (scm-i-makinumr r0 r0)
     (jump lexit)
 
     (jit-link ladjust)
     (jit-negr r0 r0)
     (jit-lshr r0 r0 r1)
     (jit-negr r0 r0)
-    (scm-makinumr r0 r0)
+    (scm-i-makinumr r0 r0)
     (jump lexit)
 
     (jit-link lprepare)
@@ -2423,7 +2536,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (scm-i-inumr r0 r0)
     (scm-i-inumr r1 r1)
     (jit-orr r0 r0 r1)
-    (scm-makinumr r0 r0)))
+    (scm-i-makinumr r0 r0)))
 
 (define-vm-op (make-vector st dst length init)
   (jit-prepare)
@@ -2450,7 +2563,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (local-ref st src r0)
   (validate-vector r0 r1 r2 *vector-length-string)
   (jit-rshi r1 r1 (imm 8))
-  (scm-makinumr r1 r1)
+  (scm-i-makinumr r1 r1)
   (local-set! st dst r1))
 
 (define-vm-op (vector-ref st dst src idx)
@@ -2501,11 +2614,11 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (allocate-struct st dst vtable nfields)
   (local-ref st vtable r0)
-  (local-ref st vtable r1)
+  (local-ref st nfields r1)
   (jit-prepare)
   (jit-pushargr r0)
   (jit-pushargr r1)
-  (jit-calli (program-free-variable-ref allocate-struct 0))
+  (call-c "scm_do_allocate_struct")
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -2513,28 +2626,38 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (local-ref st vtable r0)
   (jit-prepare)
   (jit-pushargr r0)
-  (jit-pushargi (scm-makinumi nfields))
-  (jit-calli (program-free-variable-ref allocate-struct 0))
+  (jit-pushargi (scm-i-makinumi nfields))
+  (call-c "scm_do_allocate_struct")
   (jit-retval r0)
   (local-set! st dst r0))
 
 (define-vm-op (struct-ref st dst src idx)
   ;; XXX: Validate struct flag.
   (local-ref st src r0)
-  (validate-struct r0 r1 *struct-ref-string)
+  ;; (validate-struct r0 r1 *struct-ref-string)
   (local-ref st idx r1)
-  (scm-i-inumr r1 r1)
-  (jit-lshi r1 r1 (imm word-size-length))
-  (scm-struct-slots r0 r0)
-  (scm-cell-object-r r0 r0 r1)
+  ;; (scm-i-inumr r1 r1)
+  ;; (jit-lshi r1 r1 (imm word-size-length))
+  ;; (scm-struct-slots r0 r0)
+  ;; (scm-cell-object-r r0 r0 r1)
+  (jit-prepare)
+  (jit-pushargr r0)
+  (jit-pushargr r1)
+  (call-c "scm_struct_ref")
+  (jit-retval r0)
   (local-set! st dst r0))
 
 (define-vm-op (struct-ref/immediate st dst src idx)
   ;; XXX: Validate struct flag.
   (local-ref st src r0)
-  (validate-struct r0 r1 *struct-ref-string)
-  (scm-struct-slots r0 r0)
-  (scm-cell-object r0 r0 idx)
+  ;; (validate-struct r0 r1 *struct-ref-string)
+  ;; (scm-struct-slots r0 r0)
+  ;; (scm-cell-object r0 r0 idx)
+  (jit-prepare)
+  (jit-pushargr r0)
+  (jit-pushargi (scm-i-makinumi idx))
+  (call-c "scm_struct_ref")
+  (jit-retval r0)
   (local-set! st dst r0))
 
 (define-vm-op (struct-set! st dst idx src)
@@ -2554,26 +2677,31 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (scm-cell-object r0 r0 1)
   (scm-set-cell-object r0 idx r1))
 
+;;; XXX: `class-of' for structs not working yet. `class-of' is calling
+;;; Scheme procedure `make-standard-class'.
 (define-vm-op (class-of st dst type)
   (let ((lcall (jit-forward))
         (lexit (jit-forward)))
     (local-ref st type r0)
     (jump (scm-imp r0) lcall)
     (scm-cell-type r1 r0)
-    (scm-typ3 r1 r1)
-    (jump (scm-not-structp r1) lcall)
+    (scm-typ3 r2 r1)
+    (jump (scm-not-structp r2) lcall)
+
+    (jit-ldxi r2 r1 (imm #x7))
+    (jit-rshi r2 r2 (imm #xc))
+    (jit-andi r2 r2 (imm 1))
+    (jump (jit-bnei r2 (imm 1)) lcall)
+
     (scm-struct-vtable-slots r1 r0)
-    (scm-cell-object r2 r1 scm-vtable-index-flags)
-    (jit-andi r2 r2 (imm scm-classf-goops))
-    (jump (jit-beqi r2 (imm 0)) lcall)
-    (scm-cell-object r0 r1 scm-vtable-index-self)
+    (scm-class-of r0 r1)
     (jump lexit)
 
     (jit-link lcall)
+    (vm-sync-ip st r1)
     (jit-prepare)
     (jit-pushargr r0)
     (call-c "scm_class_of")
-    (jit-retval r0)
 
     (jit-link lexit)
     (local-set! st dst r0)))
@@ -2636,19 +2764,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (define-syntax-rule (destination-handler st)
     (hashq-ref (lightning-handlers st) (lightning-ip st)))
 
-  (define-syntax-rule (scm-display obj)
-    (begin
-      (jit-prepare)
-      (jit-pushargi (scm->pointer obj))
-      (jit-pushargi scm-undefined)
-      (call-c "scm_display")))
-
-  (define-syntax-rule (scm-newline)
-    (begin
-      (jit-prepare)
-      (jit-pushargi scm-undefined)
-      (call-c "scm_newline")))
-
   (define-syntax-rule (assemble-one st ip-x-op)
     (let* ((ip (car ip-x-op))
            (op (cdr ip-x-op))
@@ -2661,9 +2776,9 @@ behaviour is similar to the `apply' label in vm-regular engine."
             (jit-note (format #f "~a" op) (lightning-ip st)))
 
           (when (lightning-trace)
-            (scm-display (offset-addr st 0))
-            (scm-display space-string)
-            (scm-display op)
+            (scm-displayi (offset-addr st 0))
+            (scm-displayi space-string)
+            (scm-displayi op)
             (scm-newline)))
 
         ;; Link if this bytecode intruction is labeled as destination,

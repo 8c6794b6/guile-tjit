@@ -515,17 +515,35 @@
 (define-test (t-if-tc7-string-heap-object x) ('(1 2 3))
   (string? x))
 
-(define-test (t-eqv?-1 a b) (2.13 2.13)
-  (eqv? a b))
+(define-test (t-eqv?-1 a b c) (1 1 1)
+  (if (not (eqv? a b))
+      (if (eqv? b c) 1 2)
+      3))
 
-(define-test (t-eqv?-2 a b) (2.14 2.13)
-  (eqv? a b))
+(define-test (t-eqv?-2 a b c) (1 2 2)
+  (if (not (eqv? a b))
+      (if (eqv? b c) 1 2)
+      3))
 
-(define-test (t-equal?-1 a b) ('(1 2 3) '(1 2 3))
-  (equal? a b))
+(define-test (t-eqv?-3 a b c) (1 2 3)
+  (if (not (eqv? a b))
+      (if (eqv? b c) 1 2)
+      3))
 
-(define-test (t-equal?-2 a b) ('(1 2 3) '(1 2 3.3))
-  (equal? a b))
+(define-test (t-equal?-1 a b c) ('(1 2 3) '(1 2 3) '(1 2 3))
+  (if (not (equal? a b))
+      (if (equal? b c) 1 2)
+      3))
+
+(define-test (t-equal?-2 a b c) ('(1 2 3) '(4 5 6) '(4 5 6))
+  (if (not (equal? a b))
+      (if (equal? b c) 1 2)
+      3))
+
+(define-test (t-equal?-2 a b c) ('(1 2 3) '(4 5 6) '(7 8 9))
+  (if (not (equal? a b))
+      (if (equal? b c) 1 2)
+      3))
 
 (define-test (t-if-zero x) (0)
   (zero? x))
@@ -994,11 +1012,12 @@
 ;;; Structs and GOOPS
 
 (define-record-type <r01>
-  (make-r01)
-  r01?)
+  (make-r01 field1)
+  r01?
+  (field1 r01-field1 set-r01-field1!))
 
-(define-test (t-allocate-struct) ()
-  (make-r01))
+(define-test (t-allocate-struct x) (100)
+  (make-r01 x))
 
 (define-record-type <r02>
   (make-r02 x y)
@@ -1008,11 +1027,14 @@
 
 (define r02-a (make-r02 123 456))
 
+(define-test (t-vtable x) (r02-a)
+  (struct-vtable x))
+
 (define-test (t-struct-ref x) (<r02>)
   (record-type-name x))
 
 (define-test (t-struct-ref-immediate r) (r02-a)
-  (struct-ref r 0))
+  (struct-ref r 1))
 
 (define-test (t-struct-set! x pos val) (r02-a 0 'foo)
   (struct-set! x pos val))
@@ -1027,6 +1049,13 @@
   (class-of x))
 
 (define-test (t-class-of-class-of x) (class-of)
+  (class-of x))
+
+(define-test (t-class-name x) (<class>)
+  (class-name x))
+
+(test-skip 1)
+(define-test (t-class-of-parameter x) (param01)
   (class-of x))
 
 (define-class <class01> ()
@@ -1333,7 +1362,7 @@
 (define-test (t-compile-value-1 expr) ('(+ 1 2 3))
   (compile expr #:to 'value))
 
-(define-test (t-compile-value-1 expr) (letrec-fib-expr)
+(define-test (t-compile-value-2 expr) (letrec-fib-expr)
   (compile expr #:to 'value))
 
 

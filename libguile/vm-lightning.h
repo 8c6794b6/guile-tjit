@@ -46,6 +46,7 @@ SCM_API void scm_do_dynstack_push_dynwind (scm_i_thread *thread,
                                            SCM winder, SCM unwinder);
 SCM_API void scm_do_dynstack_pop (scm_i_thread *thread);
 SCM_API void scm_do_unwind_fluid (scm_i_thread *thread);
+SCM_API SCM scm_do_allocate_struct (SCM vtable, SCM nfields);
 
 SCM_API void scm_do_vm_expand_stack (struct scm_vm *vp, SCM *new_sp);
 SCM_API void scm_do_vm_abort (struct scm_vm *vp, SCM tag,

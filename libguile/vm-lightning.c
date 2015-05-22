@@ -120,6 +120,11 @@ scm_do_unwind_fluid (scm_i_thread *thread)
                              thread->dynamic_state);
 }
 
+SCM scm_do_allocate_struct (SCM vtable, SCM nfields)
+{
+  return scm_allocate_struct (vtable, nfields);
+}
+
 void
 scm_do_vm_expand_stack (struct scm_vm *vp, SCM *new_sp)
 {
