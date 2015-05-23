@@ -1030,17 +1030,32 @@
 (define-test (t-vtable x) (r02-a)
   (struct-vtable x))
 
-(define-test (t-struct-ref x) (<r02>)
-  (record-type-name x))
+(define-test (t-struct-ref-immediate-0 r) (r02-a)
+  (struct-ref r 0))
 
-(define-test (t-struct-ref-immediate r) (r02-a)
+(define-test (t-struct-ref-immediate-1 r) (r02-a)
   (struct-ref r 1))
+
+(define-test (t-struct-ref-0 x n) (r02-a 0)
+  (struct-ref x n))
+
+(define-test (t-struct-ref-1 x n) (r02-a 1)
+  (struct-ref x n))
+
+(define (my-struct-ref obj i)
+  (struct-ref obj i))
+
+(define-test (t-struct-ref-complicated x) ((struct-vtable <class>))
+  (my-struct-ref x 1))
 
 (define-test (t-struct-set! x pos val) (r02-a 0 'foo)
   (struct-set! x pos val))
 
 (define-test (t-struct-set-immediate x y) (1 2)
   (make-r02 x y))
+
+(define-test (t-class-name x) (<class>)
+  (class-name x))
 
 (define-test (t-class-of-real x) (0.125)
   (class-of x))
@@ -1050,9 +1065,6 @@
 
 (define-test (t-class-of-class-of x) (class-of)
   (class-of x))
-
-(define-test (t-class-name x) (<class>)
-  (class-name x))
 
 (test-skip 1)
 (define-test (t-class-of-parameter x) (param01)

@@ -181,6 +181,7 @@
 (define-inline scm-vtable-index-self 2)
 (define-inline scm-vtable-index-size 6)
 (define-inline scm-vtable-flag-applicable 8)
+(define-inline scm-vtable-flag-simple 64)
 (define-inline scm-applicable-struct-index-procedure 0)
 (define-inline scm-dynstack-prompt-escape-only 16)
 (define-inline scm-classf-goops 4096)
@@ -297,13 +298,18 @@
 (define-syntax-rule (scm-struct-slots dst obj)
   (scm-cell-object dst obj 1))
 
+(define-syntax-rule (scm-struct-slot-ref dst obj i)
+  (begin
+    (scm-struct-slots dst obj)
+    (scm-cell-object dst dst i)))
+
 (define-syntax-rule (scm-struct-data dst obj)
   (scm-cell-object dst obj 1))
 
 (define-syntax-rule (scm-struct-data-ref dst obj i)
   (begin
-    (scm-struct-data dst dst)
-    (scm-cell-object dst obj i)))
+    (scm-struct-data dst obj)
+    (scm-cell-object dst dst i)))
 
 (define-syntax-rule (scm-struct-vtable dst obj)
   (begin
@@ -2613,6 +2619,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (local-set! st dst r0))
 
 (define-vm-op (allocate-struct st dst vtable nfields)
+  (vm-sync-ip st r0)
   (local-ref st vtable r0)
   (local-ref st nfields r1)
   (jit-prepare)
@@ -2623,6 +2630,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (local-set! st dst r0))
 
 (define-vm-op (allocate-struct/immediate st dst vtable nfields)
+  (vm-sync-ip st r0)
   (local-ref st vtable r0)
   (jit-prepare)
   (jit-pushargr r0)
@@ -2632,50 +2640,122 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (local-set! st dst r0))
 
 (define-vm-op (struct-ref st dst src idx)
-  ;; XXX: Validate struct flag.
-  (local-ref st src r0)
-  ;; (validate-struct r0 r1 *struct-ref-string)
-  (local-ref st idx r1)
-  ;; (scm-i-inumr r1 r1)
-  ;; (jit-lshi r1 r1 (imm word-size-length))
-  ;; (scm-struct-slots r0 r0)
-  ;; (scm-cell-object-r r0 r0 r1)
-  (jit-prepare)
-  (jit-pushargr r0)
-  (jit-pushargr r1)
-  (call-c "scm_struct_ref")
-  (jit-retval r0)
-  (local-set! st dst r0))
+  (let ((lcall (jit-forward))
+        (lexit (jit-forward)))
+
+    ;; Load object.
+    (local-ref st src r0)
+
+    ;; Test struct type.
+    (jump (scm-imp r0) lcall)
+    (scm-cell-type r1 r0)
+    (scm-typ3 r1 r1)
+    (jump (scm-not-structp r1) lcall)
+
+    ;; Test vtable flag is set for SCM_VTABLE_FLAG_SIMPLE.
+    (scm-struct-vtable-slots r1 r0)
+    (scm-cell-object r2 r1 scm-vtable-index-flags)
+    (jit-andi r2 r2 (imm scm-vtable-flag-simple))
+    (jump (jit-bmci r2 (imm 1)) lcall)
+
+    ;; Load index.
+    (local-ref st idx r2)
+
+    ;; Test index is positive inum.
+    (jump (scm-not-inump r2) lcall)
+    (scm-i-inumr r2 r2)
+    (jump (jit-blti r2 (imm 0)) lcall)
+
+    ;; Test index range.
+    (scm-cell-object r1 r1 scm-vtable-index-self)
+    (scm-struct-data-ref r1 r1 scm-vtable-index-size)
+    (jump (jit-bler r1 r2) lcall)
+
+    ;; Load from struct slot.
+    (scm-struct-slots r0 r0)
+    (scm-cell-object-r r0 r0 r2)
+    (jump lexit)
+
+    ;; Call C function.
+    (jit-link lcall)
+    (jit-prepare)
+    (jit-pushargr r0)
+    (local-ref st idx r0)
+    (jit-pushargr r0)
+    (call-c "scm_struct_ref")
+    (jit-retval r0)
+
+    (jit-link lexit)
+    (local-set! st dst r0)))
 
 (define-vm-op (struct-ref/immediate st dst src idx)
-  ;; XXX: Validate struct flag.
-  (local-ref st src r0)
-  ;; (validate-struct r0 r1 *struct-ref-string)
-  ;; (scm-struct-slots r0 r0)
-  ;; (scm-cell-object r0 r0 idx)
-  (jit-prepare)
-  (jit-pushargr r0)
-  (jit-pushargi (scm-i-makinumi idx))
-  (call-c "scm_struct_ref")
-  (jit-retval r0)
-  (local-set! st dst r0))
+  (let ((lcall (jit-forward))
+        (lexit (jit-forward)))
+
+    ;; Load object.
+    (local-ref st src r0)
+
+    ;; Test struct type.
+    (jump (scm-imp r0) lcall)
+    (scm-cell-type r1 r0)
+    (scm-typ3 r1 r1)
+    (jump (scm-not-structp r1) lcall)
+
+    ;; Test vtable flag is set for SCM_VTABLE_FLAG_SIMPLE.
+    (scm-struct-vtable-slots r1 r0)
+    (scm-cell-object r2 r1 scm-vtable-index-flags)
+    (jit-andi r2 r2 (imm scm-vtable-flag-simple))
+    (jump (jit-bmci r2 (imm 1)) lcall)
+
+    ;; Test index range.
+    (scm-cell-object r1 r1 scm-vtable-index-self)
+    (scm-struct-data-ref r1 r1 scm-vtable-index-size)
+    (jump (jit-bgti r1 (imm idx)) lcall)
+
+    ;; Load from struct slot.
+    (scm-struct-slot-ref r0 r0 idx)
+    (jump lexit)
+
+    ;; Call C function.
+    (jit-link lcall)
+    (jit-prepare)
+    (jit-pushargr r0)
+    (jit-pushargi (scm-i-makinumi idx))
+    (call-c "scm_struct_ref")
+    (jit-retval r0)
+
+    (jit-link lexit)
+    (local-set! st dst r0)))
 
 (define-vm-op (struct-set! st dst idx src)
   ;; XXX: Validate struct flag.
+  (jit-prepare)
   (local-ref st dst r0)
-  (validate-struct r0 r1 *struct-set!-string)
-  (local-ref st src r1)
-  (local-ref st idx r2)
-  (scm-cell-object r0 r0 1)
-  (scm-set-cell-object-r r0 r2 r1))
+  ;; (validate-struct r0 r1 *struct-set!-string)
+  ;; (local-ref st src r1)
+  ;; (local-ref st idx r2)
+  ;; (scm-cell-object r0 r0 1)
+  ;; (scm-set-cell-object-r r0 r2 r1)
+  (jit-pushargr r0)
+  (local-ref st idx r0)
+  (jit-pushargr r0)
+  (local-ref st src r0)
+  (jit-pushargr r0)
+  (call-c "scm_struct_set_x"))
 
 (define-vm-op (struct-set!/immediate st dst idx src)
   ;; XXX: Validate struct flag.
+  (jit-prepare)
   (local-ref st dst r0)
-  (validate-struct r0 r1 *struct-set!-string)
-  (local-ref st src r1)
-  (scm-cell-object r0 r0 1)
-  (scm-set-cell-object r0 idx r1))
+  ;; (validate-struct r0 r1 *struct-set!-string)
+  ;; (local-ref st src r1)
+  ;; (scm-cell-object r0 r0 1)
+  ;; (scm-set-cell-object r0 idx r1)
+  (jit-pushargr r0)
+  (jit-pushargi (scm-i-makinumi idx))
+  (local-ref st src r0)
+  (jit-pushargr r0)
+  (call-c "scm_struct_set_x"))
 
 ;;; XXX: `class-of' for structs not working yet. `class-of' is calling
 ;;; Scheme procedure `make-standard-class'.

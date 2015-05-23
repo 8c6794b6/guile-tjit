@@ -100,17 +100,6 @@
 ;;; For entries in bytecode basic blocks
 ;;;
 
-(define-record-type <entries>
-  (make-entries table ops last-ip)
-  entries?
-  ;; Hash table containing IP used as jump destination. All values are
-  ;; set to #t.
-  (table entries-table)
-  ;; VM operation from `fold-program-code'.
-  (ops entries-ops set-entries-ops!)
-  ;; Last IP of program.
-  (last-ip entries-last-ip))
-
 (define-syntax scm-f-program-is-partial-continuation
   (identifier-syntax #x1000))
 
@@ -154,8 +143,7 @@
   (let ((bufsize 1024)
         (base (ensure-program-addr program-or-addr))
         (max-vm-op-size 5))
-    (let lp ((bv (pointer->bytevector (make-pointer base)
-                                      bufsize))
+    (let lp ((bv (pointer->bytevector (make-pointer base) bufsize))
              (base base)
              (acc acc)
              (offset 0))
@@ -167,14 +155,25 @@
            ((eq? (car elt) 'return)
             (f elt acc))
            (else
-            (if (< (- bufsize (* 4 max-vm-op-size)) (* 4 (+ offset len)))
-                (lp (pointer->bytevector (make-pointer
-                                          (+ base (* 4 (+ offset len))))
-                                         bufsize)
-                    (+ base (* 4 (+ offset len)))
-                    (f elt acc)
-                    0)
-                (lp bv base (f elt acc) (+ offset len))))))))))
+            (let ((offset-byte (* 4 (+ offset len))))
+              (if (< (- bufsize (* 4 max-vm-op-size)) offset-byte)
+                  (lp (pointer->bytevector (make-pointer (+ base offset-byte))
+                                           bufsize)
+                      (+ base offset-byte)
+                      (f elt acc)
+                      0)
+                  (lp bv base (f elt acc) (+ offset len)))))))))))
+
+(define-record-type <entries>
+  (make-entries table ops last-ip)
+  entries?
+  ;; Hash table containing IP used as jump destination. All values are
+  ;; set to #t.
+  (table entries-table)
+  ;; VM operation from `fold-program-code'.
+  (ops entries-ops set-entries-ops!)
+  ;; Last IP of program.
+  (last-ip entries-last-ip))
 
 (define (program->entries program-or-addr)
   "Create hash-table containing key=entry IP, val=#t from PROGRAM."
@@ -188,6 +187,9 @@
       (cond
        ((memq (car op) *br-ops*)
         (add-entries (+ ip (opsize op)) (+ ip (br-op-dst op))))
+       ;; ((or (memq (car op) *br-ops*)
+       ;;      (memq (car op) *label-call-ops*))
+       ;;  (add-entries (+ ip (br-op-dst op))))
        ((memq (car op) *return-ops*)
         (add-entries (+ ip (opsize op)))))
       (let ((last-ip ip))
@@ -211,8 +213,6 @@
                 (else
                  (fold-program-code entries-one '() program-or-addr
                                     #:raw? #t)))))
-      (debug 2 ";;; entries: ~a~%"
-             (hash-fold (lambda (k v acc) (cons k acc)) '() entries))
       (make-entries entries (reverse! ops) ip))))
 
 
@@ -221,13 +221,11 @@
 ;;;
 
 (define-record-type <bb>
-  (make-bb entry exits ops)
+  (make-bb entry ops)
   bb?
   ;; Entry IP of this block.
   (entry bb-entry)
-  ;; List of exit IPs. Empty list when the block end with one of the
-  ;; return operations.
-  (exits bb-exits set-bb-exits!)
+
   ;; List of operations in this block.
   (ops bb-ops set-bb-ops!))
 
@@ -254,7 +252,7 @@
   (define (new-bb! cfg ip op bb)
     (set-bb-ops! bb (reverse! (add-bb-op ip op bb)))
     (set-cfg-bbs! cfg (cons bb (cfg-bbs cfg)))
-    (set-cfg-current-bb! cfg (make-bb (+ ip (opsize op)) '() '())))
+    (set-cfg-current-bb! cfg (make-bb (+ ip (opsize op)) '())))
   (define (push-nenters! cfg bb key)
     (let ((t (cfg-nenters cfg)))
       (when (<= 0 key (entries-last-ip entries))
@@ -270,24 +268,22 @@
            (op (cdr ip-x-op))
            (bb (cfg-current-bb cfg))
            (next-ip (+ ip (opsize op))))
+      ;; Might remove this `when'.
       (when (memq (car op) *label-call-ops*)
         (push-nenters! cfg bb (+ ip (br-op-dst op))))
       (cond
        ((hashq-ref entries-t next-ip)
         (cond
          ((eq? (car op) 'br)
-          (set-bb-exits! bb `(,(+ ip (br-op-dst op))))
           (push-nenters! cfg bb (+ ip (br-op-dst op)))
           (new-bb! cfg ip op bb))
          ((memq (car op) *br-ops*)
-          (set-bb-exits! bb (list (+ ip (br-op-dst op)) next-ip))
-          (push-nenters! cfg bb next-ip)
+          (push-nenters! cfg bb next-ip) ; Might remove this line.
           (push-nenters! cfg bb (+ ip (br-op-dst op)))
           (new-bb! cfg ip op bb))
          ((memq (car op) *return-ops*)
           (new-bb! cfg ip op bb))
          (else
-          (set-bb-exits! bb (list next-ip))
           (push-nenters! cfg bb next-ip)
           (new-bb! cfg ip op bb))))
        (else
@@ -295,7 +291,7 @@
       cfg))
   (define (make-fresh-cfg)
     (make-cfg name
-              (make-bb 0 '() '())
+              (make-bb 0 '())
               '()
               (make-hash-table)
               entries))
@@ -317,7 +313,7 @@
   (format #t ";;;~%")
   (for-each
    (lambda (bb)
-     (format #t ";;;   <bb> ~a => ~a~%" (bb-entry bb) (bb-exits bb))
+     (format #t ";;;   <bb>:~%")
      (for-each
       (lambda (op)
         (format #t ";;; ~5@a: ~a~%" (car op) (cdr op)))
@@ -351,7 +347,7 @@
       program-or-addr))
 
 (define (procedure->cfg program-or-addr)
-  "Make <cfg> from PROGRAM-OR-ADDR and NARGS."
+  "Make <cfg> from PROGRAM-OR-ADDR."
   (program->cfg (try-program-name program-or-addr) program-or-addr))
 
 (define (cfg-ops cfg)
@@ -362,7 +358,9 @@
   "Returns a list of labeld ips in CFG."
   (hash-fold (lambda (k v acc) (cons k acc))
              '()
-             (cfg-nenters cfg)))
+             (cfg-nenters cfg)
+             ;; (entries-table (cfg-entries cfg))
+             ))
 
 (define (cfg-last-ip cfg)
   "Returns last ip of CFG."
