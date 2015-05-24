@@ -44,8 +44,7 @@ KFUN where we can prove that no assertion will be raised at run-time."
   (let ((types (infer-types conts kfun)))
     (define (visit-primcall effects fx label name args)
       (if (primcall-types-check? types label name args)
-          (intmap-add! effects label (logand fx (lognot &type-check))
-                       (lambda (old new) new))
+          (intmap-replace! effects label (logand fx (lognot &type-check)))
           effects))
     (persistent-intmap
      (intmap-fold (lambda (label types effects)

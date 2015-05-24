@@ -106,9 +106,7 @@
 
 (define (intmap-map proc map)
   (persistent-intmap
-   (intmap-fold (lambda (k v out)
-                  (intmap-add! out k (proc k v)
-                               (lambda (old new) new)))
+   (intmap-fold (lambda (k v out) (intmap-replace! out k (proc k v)))
                 map
                 map)))
 

@@ -58,7 +58,7 @@
                   (let ((v* (f k v)))
                     (if (equal? v v*)
                         out
-                        (intmap-add! out k v* (lambda (old new) new)))))
+                        (intmap-replace! out k v*))))
                 conts
                 conts)))
 

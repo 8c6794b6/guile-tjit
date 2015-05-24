@@ -43,6 +43,7 @@
             intmap-add
             intmap-add!
             intmap-replace
+            intmap-replace!
             intmap-remove
             intmap-ref
             intmap-next
@@ -285,20 +286,61 @@
     (($ <transient-intmap>)
      (intmap-add (persistent-intmap map) i val meet))))
 
+(define* (intmap-replace! map i val #:optional (meet (lambda (old new) new)))
+  "Like intmap-add!, but requires that @var{i} was present in the map
+already, and always calls the meet procedure."
+  (define (not-found)
+    (error "not found" i))
+  (define (ensure-branch! root idx)
+    (let ((edit (vector-ref root *edit-index*))
+          (v (vector-ref root idx)))
+      (when (absent? v) (not-found))
+      (let ((v* (writable-branch v edit)))
+        (unless (eq? v v*)
+          (vector-set! root idx v*))
+        v*)))
+  (define (adjoin! i shift root)
+    (let* ((shift (- shift *branch-bits*))
+           (idx (logand (ash i (- shift)) *branch-mask*)))
+      (if (zero? shift)
+          (let ((node (vector-ref root idx)))
+            (when (absent? node) (not-found))
+            (vector-set! root idx (meet node val)))
+          (adjoin! i shift (ensure-branch! root idx)))))
+  (match map
+    (($ <transient-intmap> min shift root edit)
+     (assert-readable! edit)
+     (cond
+      ((< i 0)
+       ;; The power-of-two spanning trick doesn't work across 0.
+       (error "Intmaps can only map non-negative integers." i))
+      ((and (present? root) (<= min i) (< i (+ min (ash 1 shift))))
+       (if (zero? shift)
+           (set-transient-intmap-root! map (meet root val))
+           (let ((root* (writable-branch root edit)))
+             (unless (eq? root root*)
+               (set-transient-intmap-root! map root*))
+             (adjoin! (- i min) shift root*))))
+      (else
+       (not-found)))
+     map)
+    (($ <intmap>)
+     (intmap-add! (transient-intmap map) i val meet))))
+
 (define* (intmap-replace map i val #:optional (meet (lambda (old new) new)))
   "Like intmap-add, but requires that @var{i} was present in the map
 already, and always calls the meet procedure."
-  (define (not-found i)
+  (define (not-found)
     (error "not found" i))
   (define (adjoin i shift root)
     (if (zero? shift)
         (if (absent? root)
-            (not-found i)
+            (not-found)
             (meet root val))
         (let* ((shift (- shift *branch-bits*))
                (idx (logand (ash i (- shift)) *branch-mask*)))
           (if (absent? root)
-              (not-found i)
+              (not-found)
               (let* ((node (vector-ref root idx))
                      (node* (adjoin i shift node)))
                 (if (eq? node node*)
@@ -316,8 +358,7 @@ already, and always calls the meet procedure."
          (if (eq? root old-root)
              map
              (make-intmap min shift root))))
-      (else
-       (not-found i))))
+      (else (not-found))))
     (($ <transient-intmap>)
      (intmap-replace (persistent-intmap map) i val meet))))
 
