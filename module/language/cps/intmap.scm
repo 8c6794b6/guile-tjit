@@ -42,6 +42,7 @@
             transient-intmap
             intmap-add
             intmap-add!
+            intmap-replace
             intmap-remove
             intmap-ref
             intmap-next
@@ -283,6 +284,42 @@
        (intmap-add (add-level min shift root) i val error))))
     (($ <transient-intmap>)
      (intmap-add (persistent-intmap map) i val meet))))
+
+(define* (intmap-replace map i val #:optional (meet (lambda (old new) new)))
+  "Like intmap-add, but requires that @var{i} was present in the map
+already, and always calls the meet procedure."
+  (define (not-found i)
+    (error "not found" i))
+  (define (adjoin i shift root)
+    (if (zero? shift)
+        (if (absent? root)
+            (not-found i)
+            (meet root val))
+        (let* ((shift (- shift *branch-bits*))
+               (idx (logand (ash i (- shift)) *branch-mask*)))
+          (if (absent? root)
+              (not-found i)
+              (let* ((node (vector-ref root idx))
+                     (node* (adjoin i shift node)))
+                (if (eq? node node*)
+                    root
+                    (clone-branch-and-set root idx node*)))))))
+  (match map
+    (($ <intmap> min shift root)
+     (cond
+      ((< i 0)
+       ;; The power-of-two spanning trick doesn't work across 0.
+       (error "Intmaps can only map non-negative integers." i))
+      ((and (present? root) (<= min i) (< i (+ min (ash 1 shift))))
+       (let ((old-root root)
+             (root (adjoin (- i min) shift root)))
+         (if (eq? root old-root)
+             map
+             (make-intmap min shift root))))
+      (else
+       (not-found i))))
+    (($ <transient-intmap>)
+     (intmap-replace (persistent-intmap map) i val meet))))
 
 (define (intmap-remove map i)
   (define (remove i shift root)
