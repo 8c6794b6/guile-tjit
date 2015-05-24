@@ -327,7 +327,6 @@
      (cond
       ((not root) bs)
       ((and (<= min i) (< i (+ min (ash 1 shift))))
-       ;; Add element to set; level will not change.
        (let ((old-root root)
              (root (remove (- i min) shift root)))
          (if (eq? root old-root)
@@ -353,7 +352,7 @@
      (assert-readable! edit)
      (ref min shift root))))
 
-(define (intset-next bs i)
+(define* (intset-next bs #:optional i)
   (define (visit-leaf node i)
     (let lp ((idx (logand i *leaf-mask*)))
       (if (logbit? idx node)
