@@ -151,6 +151,7 @@ CPS2_LANG_SOURCES =						\
   language/cps2/compile-cps.scm					\
   language/cps2/dce.scm						\
   language/cps2/effects-analysis.scm				\
+  language/cps2/prune-top-level-scopes.scm			\
   language/cps2/renumber.scm					\
   language/cps2/optimize.scm					\
   language/cps2/simplify.scm					\
