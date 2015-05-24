@@ -32,42 +32,48 @@
   #:use-module (language cps2)
   #:use-module (language cps2 effects-analysis)
   #:use-module (language cps2 renumber)
-  ;; #:use-module (language cps2 types)
+  #:use-module (language cps2 types)
   #:use-module (language cps2 utils)
   #:use-module (language cps intmap)
   #:use-module (language cps intset)
   #:export (eliminate-dead-code))
 
-(define (elide-type-checks conts effects)
-  "Given CONTS, an intmap of the conts in one local function, remove any
-&type-check effect from EFFECTS where we can prove that no assertion
-will be raised at run-time."
-  #;
-  (let ((types (infer-types conts)))
+(define (elide-type-checks conts kfun effects)
+  "Elide &type-check effects from EFFECTS for the function starting at
+KFUN where we can prove that no assertion will be raised at run-time."
+  (let ((types (infer-types conts kfun)))
     (define (visit-primcall effects fx label name args)
       (if (primcall-types-check? types label name args)
           (intmap-add! effects label (logand fx (lognot &type-check))
                        (lambda (old new) new))
           effects))
     (persistent-intmap
-     (intmap-fold (lambda (label cont effects)
+     (intmap-fold (lambda (label types effects)
                     (let ((fx (intmap-ref effects label)))
                       (cond
                        ((causes-all-effects? fx) effects)
                        ((causes-effect? fx &type-check)
-                        (match cont
+                        (match (intmap-ref conts label)
                           (($ $kargs _ _ exp)
                            (match exp
                              (($ $continue k src ($ $primcall name args))
                               (visit-primcall effects fx label name args))
-                             (($ $continue k src ($ $branch _ ($primcall name args)))
+                             (($ $continue k src
+                                 ($ $branch _ ($primcall name args)))
                               (visit-primcall effects fx label name args))
                              (_ effects)))
                           (_ effects)))
                        (else effects))))
-                  conts
-                  effects)))
-  effects)
+                  types
+                  effects))))
+
+(define (compute-effects/elide-type-checks conts)
+  (intmap-fold (lambda (label cont effects)
+                 (match cont
+                   (($ $kfun) (elide-type-checks conts label effects))
+                   (_ effects)))
+               conts
+               (compute-effects conts)))
 
 (define (fold-local-conts proc conts label seed)
   (match (intmap-ref conts label)
@@ -88,34 +94,6 @@ will be raised at run-time."
                  (lambda (seed0 seed1)
                    (lp (1- label) seed0 seed1))))
              (values seed0 seed1)))))))
-
-(define (fold-nested-functions proc conts seed)
-  "Given the renumbered program CONTS, fold PROC over subsets of
-CONTS that correspond to each function in the program."
-  (define (visit-fun label seed)
-    (call-with-values
-        (lambda ()
-          (postorder-fold-local-conts2
-           (lambda (label cont body nested)
-             (values (intmap-add! body label cont)
-                     (match cont
-                       (($ $kargs names vars ($ $continue k src exp))
-                        (match exp
-                          (($ $fun kfun)
-                           (intset-add! nested kfun))
-                          (($ $rec names vars (($ $fun kfun) ...))
-                           (fold1 (lambda (kfun nested)
-                                    (intset-add! nested kfun))
-                                  kfun
-                                  nested))
-                          (_ nested)))
-                       (_ nested))))
-           conts label empty-intmap empty-intset))
-      (lambda (body nested)
-        (intset-fold visit-fun
-                     nested
-                     (proc (persistent-intmap body) seed)))))
-  (visit-fun 0 seed))
 
 (define (compute-known-allocations conts effects)
   "Compute the variables bound in CONTS that have known allocation
@@ -161,9 +139,7 @@ sites."
                     empty-intset)))))
 
 (define (compute-live-code conts)
-  (let* ((effects (fold-nested-functions elide-type-checks
-                                         conts
-                                         (compute-effects conts)))
+  (let* ((effects (compute-effects/elide-type-checks conts))
          (known-allocations (compute-known-allocations conts effects)))
     (define (adjoin-var var set)
       (intset-add set var))
