@@ -151,7 +151,7 @@
   (persistent-intmap
    (intmap-fold (lambda (label cont defs)
                   (match cont
-                    (($ $kargs _ _ ($continue k exp))
+                    (($ $kargs _ _ ($ $continue k src exp))
                      (match (intmap-ref conts k)
                        (($ $kargs (_) (var))
                         (intmap-add! defs var exp meet-defining-expressions))
