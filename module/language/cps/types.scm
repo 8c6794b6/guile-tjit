@@ -825,10 +825,10 @@ minimum, and maximum."
       ;; If we have inferred that the arguments are not flonums and not
       ;; compnums, then the result of (* +inf.0 0) at range inference
       ;; time is 0 and not +nan.0.
-      (if (or (and (inf? a) (zero? b))
-              (and (zero? a) (inf? b))
-              (not (logtest (logior (&type a) (&type b))
-                            (logior &flonum &complex))))
+      (if (and (or (and (inf? a) (zero? b))
+                   (and (zero? a) (inf? b)))
+               (not (logtest (logior (&type a) (&type b))
+                             (logior &flonum &complex))))
           0 
           (* a b)))
     (let ((-- (nan* min-a min-b))
