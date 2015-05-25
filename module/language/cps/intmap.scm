@@ -49,6 +49,7 @@
             intmap-next
             intmap-prev
             intmap-fold
+            intmap-fold-right
             intmap-union
             intmap-intersect))
 
@@ -470,23 +471,23 @@ already, and always calls the meet procedure."
      (assert-readable! edit)
      (prev min shift root))))
 
-(define-syntax-rule (make-intmap-folder seed ...)
+(define-syntax-rule (make-intmap-folder forward? seed ...)
   (lambda (f map seed ...)
     (define (visit-branch node shift min seed ...)
       (let ((shift (- shift *branch-bits*)))
         (if (zero? shift)
-            (let lp ((i 0) (seed seed) ...)
-              (if (< i *branch-size*)
+            (let lp ((i (if forward? 0 (1- *branch-size*))) (seed seed) ...)
+              (if (if forward? (< i *branch-size*) (<= 0 i))
                   (let ((elt (vector-ref node i)))
                     (call-with-values (lambda ()
                                         (if (present? elt)
                                             (f (+ i min) elt seed ...)
                                             (values seed ...)))
                       (lambda (seed ...)
-                        (lp (1+ i) seed ...))))
+                        (lp (if forward? (1+ i) (1- i)) seed ...))))
                   (values seed ...)))
-            (let lp ((i 0) (seed seed) ...)
-              (if (< i *branch-size*)
+            (let lp ((i (if forward? 0 (1- *branch-size*))) (seed seed) ...)
+              (if (if forward? (< i *branch-size*) (<= 0 i))
                   (let ((elt (vector-ref node i)))
                     (call-with-values
                         (lambda ()
@@ -495,7 +496,7 @@ already, and always calls the meet procedure."
                                             seed ...)
                               (values seed ...)))
                       (lambda (seed ...)
-                        (lp (1+ i) seed ...))))
+                        (lp (if forward? (1+ i) (1- i)) seed ...))))
                   (values seed ...))))))
     (let fold ((map map))
       (match map
@@ -510,11 +511,20 @@ already, and always calls the meet procedure."
 (define intmap-fold
   (case-lambda
     ((f map seed)
-     ((make-intmap-folder seed) f map seed))
+     ((make-intmap-folder #t seed) f map seed))
     ((f map seed0 seed1)
-     ((make-intmap-folder seed0 seed1) f map seed0 seed1))
+     ((make-intmap-folder #t seed0 seed1) f map seed0 seed1))
     ((f map seed0 seed1 seed2)
-     ((make-intmap-folder seed0 seed1 seed2) f map seed0 seed1 seed2))))
+     ((make-intmap-folder #t seed0 seed1 seed2) f map seed0 seed1 seed2))))
+
+(define intmap-fold-right
+  (case-lambda
+    ((f map seed)
+     ((make-intmap-folder #f seed) f map seed))
+    ((f map seed0 seed1)
+     ((make-intmap-folder #f seed0 seed1) f map seed0 seed1))
+    ((f map seed0 seed1 seed2)
+     ((make-intmap-folder #f seed0 seed1 seed2) f map seed0 seed1 seed2))))
 
 (define* (intmap-union a b #:optional (meet meet-error))
   ;; Union A and B from index I; the result will be fresh.
