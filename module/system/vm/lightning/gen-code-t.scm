@@ -153,7 +153,7 @@
          (vars (c-args->scm-vars args-list))
          (enum-code-str (under-score->hyphen (cadr (cadr args-list))))
          (scm-name (enum->proc-name enum-code-str)))
-    (format #t "(define (~a ~a)~%  (~a (make-pointer ~a) ~a))~%~%"
+    (format #t "(define (~a ~a)~%  (~a ~a ~a))~%~%"
             scm-name args new-node-s-name enum-code-str vars)))
 
 (define (print-procs peg-tree)

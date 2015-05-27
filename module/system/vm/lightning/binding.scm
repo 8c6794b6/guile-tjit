@@ -227,217 +227,22 @@
    jit-r jit-v jit-f jit-r-num jit-v-num jit-f-num
    imm null
 
-   jit-code-size
-   make-bytevector-executable!))
+   ;;
+   ;; Miscellaneous
+   ;;
 
-;;; To silent warning messages. These top-levels are re-bound with
-;;; following load-extension.
-(define %jit-r #f)
-(define %jit-v #f)
-(define %jit-f #f)
-(define %jit-fp #f)
-(define %jit-code-size #f)
+   jit-code-size
+   make-bytevector-executable!
+   with-jit-state))
+
+;;; To silent warning messages for `possibly unbound variable'.
+(define %jit-state #f)
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_lightning")
 
-;;;
-;;; Auxiliary
-;;;
-
-(eval-when (compile load expand)
-
-  (define lightning
-    (dynamic-link "liblightning"))
-
-  (define jit-state
-    (make-parameter %null-pointer))
-
-  (define (header-name name private?)
-    (let ((str (symbol->string (syntax->datum name))))
-      (string-append
-       (if private? "_" "")
-       (regexp-substitute/global #f "-" str 'pre "_" 'post))))
-
-  (define (scm-c-name name)
-    (string->symbol
-     (string-append "%" (symbol->string (syntax->datum name))))))
-
-
-;;;
-;;; Syntax
-;;;
-
-(define-syntax define-lightning
-  (syntax-rules ()
-    ((_ ret scheme-name c-name args)
-     (define scheme-name
-       (pointer->procedure ret (dynamic-func c-name lightning) args)))))
-
-(define-syntax define-lightning/no-arg
-  (lambda (x)
-    (syntax-case x ()
-      ((_ ret name)
-       (let ((h-name (datum->syntax x (header-name #'name #f))))
-         #`(define-lightning ret name #,h-name '()))))))
-
-(define-syntax define-lightning/state
-  (lambda (x)
-    (define (arg-ptr args)
-      (cons '* (map (lambda (_) '*) (syntax->datum args))))
-    (syntax-case x ()
-      ((_ ret name . args)
-       (let ((h-name (datum->syntax x (header-name #'name #t)))
-             (c-name (datum->syntax x (scm-c-name #'name)))
-             (args* (datum->syntax x (arg-ptr #'args))))
-         #`(begin
-             (define-lightning ret #,c-name #,h-name '#,args*)
-             (define (name . args)
-               (#,c-name (jit-state) . args))))))))
-
-(define-syntax begin-define-lightning/state
-  (syntax-rules ()
-    ((_ formal ...)
-     (begin
-       (define-lightning/state . formal) ...))))
-
-
-;;;
-;;; Prototypes
-;;;
-
-(define-lightning void %init-jit "init_jit" '(*))
-
-(define-lightning/no-arg void finish-jit)
-
-(define-lightning/no-arg '* jit-new-state)
-
-(begin-define-lightning/state
- (void jit-clear-state)
- (void jit-destroy-state)
-
- ('*   jit-address node)
-
- ;; "jit-name" and "jit-note" are defined below.
- ;; ('*   jit-name char)
- ;; ('*   jit-note char int)
-
- ('*   jit-label)
- ('*   jit-forward)
- ('*   jit-indirect)
- (void jit-link u)
- ('*   jit-forward-p u)
- ('*   jit-indirect-p u)
- ('*   jit-target-p u)
-
- (void jit-prolog)
-
- ('*   jit-allocai u)
- (void jit-ellipsis)
-
- ('*   jit-arg)
- (void jit-getarg-c u v)
- (void jit-getarg-uc u v)
- (void jit-getarg-s u v)
- (void jit-getarg-us u v)
- (void jit-getarg-i u v)
- ;; XXX: #if __WORDSIZE == 64
- (void jit-getarg-ui u v)
- (void jit-getarg-l u v)
- ;; XXX: #endif
-
- (void jit-prepare)
- (void jit-pushargr u)
- (void jit-pushargi u)
- (void jit-pushargi u)
- (void jit-finishr u)
- ('*   jit-finishi u)
- (void jit-ret)
- (void jit-retr u)
- (void jit-reti u)
- (void jit-retval-c u)
- (void jit-retval-uc u)
- (void jit-retval-s u)
- (void jit-retval-us u)
- (void jit-retval-i u)
- ;; XXX: #if __WORDSIZE == 64
- (void jit-retval-ui u)
- (void jit-retval-l u)
- ;; XXX: #endif
- (void jit-epilog)
-
- (void jit-patch u)
- (void jit-patch-at u v)
- (void jit-patch-abs u v)
- (void jit-realize)
- ('*   jit-get-code u)
- (void jit-set-code u v)
- ('*   jit-get-data u v)
- (void jit-set-data u v w)
- (void jit-frame u)
- (void jit-tramp u)
- ('*   jit-emit)
-
- (void jit-print)
-
- ('*   jit-arg-f)
- (void jit-getarg-f u v)
- (void jit-pushargr-f u)
- (void jit-pushargi-f u)
- (void jit-retr-f u)
- (void jit-reti-f u)
- (void jit-retval-f u)
-
- ('*   jit-arg-d)
- (void jit-getarg-d u v)
- (void jit-pushargr-d u)
- (void jit-pushargi-d u)
- (void jit-retr-d u)
- (void jit-reti-d u)
- (void jit-retval-d u)
-
- ('*   jit-new-node c)
- ('*   jit-new-node-w c u)
- ('*   jit-new-node-p c u)
- ('*   jit-new-node-ww c u v)
- ('*   jit-new-node-wp c u v)
- ('*   jit-new-node-pw c u v)
- ('*   jit-new-node-wf c u f)
- ('*   jit-new-node-wd c u f)
- ('*   jit-new-node-www c u v w)
- ('*   jit-new-node-qww c l h v w)
- ('*   jit-new-node-wwf c u v w)
- ('*   jit-new-node-wwd c u v w)
- ('*   jit-new-node-pww c u v w)
- ('*   jit-new-node-pwf c u v w)
- ('*   jit-new-node-pwd c u v w)
-
- ('*   jit-callee-save-p u)
- ('*   jit-pointer-p u)
- ('*   jit-get-note n u v w)
- (void jit-disassemble))
-
-(define-lightning
-  void %jit-set-memory-functions "jit_set_memory_functions" '(* * *))
-
-(define-lightning
-  void %jit-get-memory-functions "jit_get_memory_functions" '(* * *))
-
-;;; Redefining procedures taking C strings
-
-(define (init-jit arg)
-  (%init-jit (string->pointer arg)))
-
-(define-lightning/state '* jit-name char)
-(define (jit-name name)
-  (%jit-name (jit-state) (string->pointer name)))
-
-(define-lightning/state '* jit-note char int)
-(define (jit-note name int)
-  (%jit-note (jit-state) (string->pointer name) (make-pointer int)))
-
-(define (jit-code-size)
-  (%jit-code-size (jit-state)))
+;;; Fluid to contain jit state.
+(define jit-state (%jit-state))
 
 
 ;;;
@@ -446,10 +251,6 @@
 
 ;; Interfaces for C wrapper code containing functions for C macros: JIT_R(),
 ;; JIT_V(), and JIT_F().
-
-(define (jit-r i) (make-pointer (%jit-r i)))
-(define (jit-v i) (make-pointer (%jit-v i)))
-(define (jit-f i) (make-pointer (%jit-f i)))
 
 (define r0 (jit-r 0))
 (define r1 (jit-r 1))
@@ -470,13 +271,22 @@
 (define f6 (jit-f 6))
 (define f7 (jit-f 7))
 
-(define (jit-fp)
-  (make-pointer (%jit-fp)))
-
-;; Aliases for immediate values
-
 (define imm make-pointer)
 (define null %null-pointer)
+
+
+;;;
+;;; Miscellaneous
+;;;
+
+(define-syntax-rule (with-jit-state . expr)
+  (with-fluid* jit-state
+    (jit-new-state)
+    (lambda ()
+      (call-with-values (lambda () . expr)
+        (lambda vals
+          (jit-destroy-state)
+          (apply values vals))))))
 
 
 ;;;

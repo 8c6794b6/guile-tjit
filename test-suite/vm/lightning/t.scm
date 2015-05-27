@@ -1066,9 +1066,8 @@
 (define-test (t-class-of-class-of x) (class-of)
   (class-of x))
 
-(test-skip 1)
 (define-test (t-class-of-parameter x) (param01)
-  (class-of x))
+  (class-name (class-of x)))
 
 (define-class <class01> ()
   x y)

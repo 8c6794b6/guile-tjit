@@ -906,7 +906,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (jit-link lexit)
 
-    ;; Original contents of jit-fp used by lightning.
+    ;; Original value of jit-fp used by lightning.
     (jit-ldr r2 reg-fp)
 
     ;; Reset the stack pointer and return address.  Then move `vp->fp'
@@ -927,18 +927,18 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define-syntax compile-label
   (syntax-rules (assemble-lightning with-frame)
 
+    ;; Tail call
+    ((_ st1 nlocals callee-addr)
+     (compile-label st1 st2 nlocals callee-addr
+                    (assemble-lightning st2 (jit-forward))))
+
     ;; Non tail call
-    ((_ st1 proc nlocals callee-addr #f)
-     (compile-label st1 st2 proc nlocals callee-addr
+    ((_ st1 nlocals callee-addr proc)
+     (compile-label st1 st2 nlocals callee-addr
                     (with-frame st2 proc nlocals
                                 (assemble-lightning st2 (jit-forward)))))
 
-    ;; Tail call
-    ((_ st1 proc nlocals callee-addr #t)
-     (compile-label st1 st2 proc nlocals callee-addr
-                    (assemble-lightning st2 (jit-forward))))
-
-    ((_ st1 st2 proc nlocals callee-addr body)
+    ((_ st1 st2 nlocals callee-addr body)
      (let ((st2 (make-lightning (procedure->cfg callee-addr)
                                 (lightning-nodes st1)
                                 (ensure-program-addr callee-addr))))
@@ -1095,7 +1095,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (frame-locals-count r0)
     (jump (jit-op r0 (imm expected)) lexit)
     (jit-prepare)
-    (jit-pushargr (local-ref st 0))
+    (local-ref st 0 r0)
+    (jit-pushargr r0)
     (call-c "scm_wrong_num_args")
     (jit-reti (scm->pointer *unspecified*))
     (jit-link lexit)))
@@ -1509,7 +1510,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (lambda (node)
       (with-frame st proc nlocals (jump node))))
    (else
-    (compile-label st proc nlocals (offset-addr st label) #f))))
+    (compile-label st nlocals (offset-addr st label) proc))))
 
 (define-vm-op (tail-call st nlocals)
   (vm-handle-interrupts st)
@@ -1527,7 +1528,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (lambda (node)
       (jump node)))
    (else
-    (compile-label st 0 nlocals (offset-addr st label) #t))))
+    (compile-label st nlocals (offset-addr st label)))))
 
 (define-vm-op (tail-call/shuffle st from)
   (let ((lshuffle (jit-forward))
@@ -2090,6 +2091,11 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (static-set! st src offset)
   ;; XXX: Add assertion for align.
+  ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;; (local-ref st src r0)
+  ;; (scm-displayr r0)
+  ;; (scm-newline)
+  ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   (local-ref st src r0)
   (jit-sti (imm (offset-addr st offset)) r0))
 
@@ -2347,6 +2353,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (local-set! st dst r0))
 
 (define-vm-op (string->symbol st dst src)
+  (vm-sync-ip st r0)
   (jit-prepare)
   (jit-pushargr (local-ref st src))
   (call-c "scm_string_to_symbol")
@@ -2822,13 +2829,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
 ;;; Compilation
 ;;;
 
-(define-syntax-rule (with-jit-state . expr)
-  (parameterize ((jit-state (jit-new-state)))
-    (call-with-values (lambda () . expr)
-      (lambda vals
-        (jit-destroy-state)
-        (apply values vals)))))
-
 (define-syntax-rule (write-code-to-file file pointer)
   (call-with-output-file file
     (lambda (port)
@@ -2880,7 +2880,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (let ((verbosity (lightning-verbosity)))
       (when (and verbosity (<= 3 verbosity))
-        (jit-note name addr)))
+        (jit-note name 0)))
 
     ;; Link and compile the entry point.
     (jit-link entry)
@@ -2910,7 +2910,7 @@ compiled result."
             (bv (make-bytevector estimated-code-size)))
 
        ;; Generated codes persist until guile shutdown, no way to decide
-       ;; whether the procedure never called again or not.
+       ;; whether the compiled result called again or not.
        (native-code-guardian bv)
 
        (jit-set-code (bytevector->pointer bv)
@@ -2929,7 +2929,7 @@ compiled result."
                           (lightning-nodes lightning))
            (format #t ";;;~%"))
          (when (and verbosity (<= 3 verbosity))
-           (write-code-to-file (format #f "/tmp/~a.o" (procedure-name proc))
+           (write-code-to-file (format #f "/tmp/~a.o" (try-program-name proc))
                                (bytevector->pointer bv))
            (jit-print)
            (jit-clear-state)))))))
@@ -2996,7 +2996,7 @@ compiled result."
    (jit-epilog)
    (jit-realize)
    (jit-set-code (bytevector->pointer lightning-main-code)
-                 (imm lightning-main-code-size))
+                 (make-pointer lightning-main-code-size))
    (jit-emit)))
 
 (define (call-lightning proc . args)
