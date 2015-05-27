@@ -212,6 +212,88 @@
       #'(datum->syntax x (inexact->exact
                           (/ (log (sizeof '*)) (log 2)))))))
 
+;;;
+;;; Pointers to C function
+;;;
+
+(eval-when (compile)
+  (use-modules (ice-9 regex)))
+
+(define-syntax define-cfunc
+  (lambda (x)
+    (define (sname cname)
+      (let ((sname (regexp-substitute/global #f "_" (syntax->datum cname)
+                                             'pre "-" 'post)))
+        (string->symbol (string-append/shared "%" sname))))
+    (syntax-case x ()
+      ((_ cname)
+       #`(define #,(datum->syntax x (sname #'cname))
+           (dynamic-pointer cname (dynamic-link)))))))
+
+(define-cfunc "scm_do_inline_cons")
+(define-cfunc "scm_do_inline_from_double")
+(define-cfunc "scm_display")
+(define-cfunc "scm_newline")
+(define-cfunc "scm_async_tick")
+(define-cfunc "scm_do_vm_expand_stack")
+(define-cfunc "scm_do_smob_applicable_p")
+(define-cfunc "scm_do_smob_apply_trampoline")
+(define-cfunc "scm_compile_lightning")
+(define-cfunc "scm_values")
+(define-cfunc "scm_do_foreign_call")
+(define-cfunc "scm_do_vm_reinstate_partial_continuation")
+(define-cfunc "scm_do_vm_abort")
+(define-cfunc "abort")
+(define-cfunc "scm_do_vm_builtin_ref")
+(define-cfunc "scm_do_bind_kwargs")
+(define-cfunc "scm_logtest")
+(define-cfunc "scm_do_inline_cell")
+(define-cfunc "scm_do_inline_words")
+(define-cfunc "scm_current_module")
+(define-cfunc "scm_lookup")
+(define-cfunc "scm_define")
+(define-cfunc "scm_the_root_module")
+(define-cfunc "scm_module_lookup")
+(define-cfunc "scm_private_lookup")
+(define-cfunc "scm_do_dynstack_push_prompt")
+(define-cfunc "scm_do_dynstack_push_dynwind")
+(define-cfunc "scm_do_dynstack_pop")
+(define-cfunc "scm_do_dynstack_push_fluid")
+(define-cfunc "scm_do_unwind_fluid")
+(define-cfunc "scm_string_length")
+(define-cfunc "scm_string_ref")
+(define-cfunc "scm_string_to_number")
+(define-cfunc "scm_string_to_symbol")
+(define-cfunc "scm_symbol_to_keyword")
+(define-cfunc "scm_eqv_p")
+(define-cfunc "scm_equal_p")
+(define-cfunc "scm_num_eq_p")
+(define-cfunc "scm_less_p")
+(define-cfunc "scm_leq_p")
+(define-cfunc "scm_sum")
+(define-cfunc "scm_difference")
+(define-cfunc "scm_product")
+(define-cfunc "scm_divide")
+(define-cfunc "scm_quotient")
+(define-cfunc "scm_remainder")
+(define-cfunc "scm_modulo")
+(define-cfunc "scm_ash")
+(define-cfunc "scm_logand")
+(define-cfunc "scm_logior")
+(define-cfunc "scm_logxor")
+(define-cfunc "scm_make_vector")
+(define-cfunc "scm_do_allocate_struct")
+(define-cfunc "scm_struct_ref")
+(define-cfunc "scm_struct_set_x")
+(define-cfunc "scm_class_of")
+(define-cfunc "scm_from_uint64")
+(define-cfunc "scm_from_int64")
+(define-cfunc "scm_to_uint64")
+(define-cfunc "scm_to_int64")
+
+(define-cfunc "scm_wrong_type_arg_msg")
+(define-cfunc "scm_out_of_range")
+(define-cfunc "scm_wrong_num_args")
 
 ;;;
 ;;; SCM macros for register read/write
@@ -427,7 +509,7 @@
     (jit-pushargr reg-thread)
     (jit-pushargr car)
     (jit-pushargr cdr)
-    (call-c "scm_do_inline_cons")
+    (call-c %scm-do-inline-cons)
     (jit-retval dst)))
 
 (define-syntax-rule (scm-inline-from-double dst obj)
@@ -435,7 +517,7 @@
     (jit-prepare)
     (jit-pushargr reg-thread)
     (jit-pushargr-d obj)
-    (call-c "scm_do_inline_from_double")
+    (call-c %scm-do-inline-from-double)
     (jit-retval dst)))
 
 (define-syntax-rule (scm-displayr reg)
@@ -443,20 +525,20 @@
     (jit-prepare)
     (jit-pushargr reg)
     (jit-pushargi scm-undefined)
-    (call-c "scm_display")))
+    (call-c %scm-display)))
 
 (define-syntax-rule (scm-displayi obj)
   (begin
     (jit-prepare)
     (jit-pushargi (scm->pointer obj))
     (jit-pushargi scm-undefined)
-    (call-c "scm_display")))
+    (call-c %scm-display)))
 
 (define-syntax-rule (scm-newline)
   (begin
     (jit-prepare)
     (jit-pushargi scm-undefined)
-    (call-c "scm_newline")))
+    (call-c %scm-newline)))
 
 
 ;;;
@@ -619,15 +701,15 @@
 
 (define-syntax call-c
   (syntax-rules ()
-    ((_ name)
-     (call-c name r0))
-    ((_ name tmp)
+    ((_ cfunc)
+     (call-c cfunc r0))
+    ((_ cfunc tmp)
      ;; Explicitly moving the address to a register.  In x86-64,
      ;; lightning's `jit-calli' function is moving the absolute address
      ;; to register, then emitting `call' opcode, which sometimes
      ;; overwrite non-volatile register used in VM.
      (begin
-       (jit-movi tmp (dynamic-func name (dynamic-link)))
+       (jit-movi tmp cfunc)
        (jit-callr tmp)))))
 
 (define-syntax-rule (resolve-dst st offset)
@@ -652,7 +734,7 @@ argument in VM operation."
        (jump (jit-bmci tmp (imm 1)) lexit)
        (vm-sync-ip st tmp)
        (jit-prepare)
-       (call-c "scm_async_tick" tmp)
+       (call-c %scm-async-tick tmp)
        (vm-cache-fp)
        (jit-link lexit)))))
 
@@ -693,7 +775,7 @@ argument in VM operation."
        (jit-prepare)
        (jit-pushargr reg-vp)
        (jit-pushargr r1)
-       (call-c "scm_do_vm_expand_stack")
+       (call-c %scm-do-vm-expand-stack)
        (vm-cache-fp)
        (jump lexit)
 
@@ -830,7 +912,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-movr f0 r0)
     (jit-prepare)
     (jit-pushargr r0)
-    (call-c "scm_do_smob_applicable_p")
+    (call-c %scm-do-smob-applicable-p)
     (jit-retval r0)
     (jump (jit-beqi r0 (imm 0)) lerror)
     (last-arg-offset st r1 r2)
@@ -850,7 +932,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (jit-prepare)
     (jit-pushargr f0)
-    (call-c "scm_do_smob_apply_trampoline")
+    (call-c %scm-do-smob-apply-trampoline)
     (jit-retval r0)
     (jit-str reg-fp r0)
     (jump lunwrap)
@@ -866,7 +948,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     ;; Does not have native code, compile the callee procedure.
     (jit-prepare)
     (jit-pushargr r0)
-    (call-c "scm_compile_lightning")
+    (call-c %scm-compile-lightning)
     (vm-cache-fp)
     (jit-ldr r0 reg-fp)
 
@@ -901,7 +983,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-link lcall)
     (jit-prepare)
     (jit-pushargr r0)
-    (call-c "scm_values")
+    (call-c %scm-values)
     (jit-retval r0)
 
     (jit-link lexit)
@@ -1033,7 +1115,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-pushargi (imm pos))
     (jit-pushargr reg)
     (jit-pushargi expected)
-    (call-c "scm_wrong_type_arg_msg")
+    (call-c %scm-wrong-type-arg-msg)
     (jit-reti (scm->pointer *unspecified*))))
 
 (define-syntax-rule (error-out-of-range subr expr)
@@ -1041,7 +1123,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-prepare)
     (jit-pushargi subr)
     expr
-    (call-c "scm_out_of_range")
+    (call-c %scm-out-of-range)
     (jit-reti (scm->pointer *unspecified*))))
 
 (define (%error-wrong-num-values-proc nvalues)
@@ -1097,7 +1179,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-prepare)
     (local-ref st 0 r0)
     (jit-pushargr r0)
-    (call-c "scm_wrong_num_args")
+    (call-c %scm-wrong-num-args)
     (jit-reti (scm->pointer *unspecified*))
     (jit-link lexit)))
 
@@ -1633,7 +1715,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-pushargr r1)
   (jit-pushargr r2)
   (jit-pushargr r0)
-  (call-c "scm_do_foreign_call")
+  (call-c %scm-do-foreign-call)
   (jit-retval r0)
   (vm-cache-fp)
   (local-set! st 1 r0)
@@ -1656,7 +1738,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-pushargr r0)                     ; argv
   (jit-pushargr reg-thread)             ; thread
   (jit-pushargr reg-registers)          ; registers
-  (call-c "scm_do_vm_reinstate_partial_continuation")
+  (call-c %scm-do-vm-reinstate-partial-continuation)
 
   (vm-cache-fp)
   (vm-cache-ip r0)
@@ -1742,11 +1824,11 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-pushargi scm-eol)              ; tail
     (jit-pushargr reg-fp)               ; *sp
     (jit-pushargr reg-registers)        ; registers
-    (call-c "scm_do_vm_abort")
+    (call-c %scm-do-vm-abort)
 
     ;; Should not reach here.
     (jit-prepare)
-    (call-c "abort")
+    (call-c %abort)
 
     ;; Return address for captured vmcont.
     (jit-patch ra)))
@@ -1754,7 +1836,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define-vm-op (builtin-ref st dst src)
   (jit-prepare)
   (jit-pushargi (imm src))
-  (call-c "scm_do_vm_builtin_ref")
+  (call-c %scm-do-vm-builtin-ref)
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -1825,7 +1907,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-pushargi (imm nreq-and-opt))
   (jit-pushargi (imm ntotal))
   (jit-pushargi (imm kw-offset))
-  (call-c "scm_do_bind_kwargs")
+  (call-c %scm-do-bind-kwargs)
   (jit-retval r0)
 
   ;; Allocate frame with returned value.
@@ -1948,19 +2030,19 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jump ((if invert jit-bner jit-beqr) r0 r1) (resolve-dst st offset)))
 
 (define-vm-br-binary-op (br-if-eqv st a b invert offset)
-  "scm_eqv_p")
+  %scm-eqv-p)
 
 (define-vm-br-binary-op (br-if-equal st a b invert offset)
-  "scm_equal_p")
+  %scm-equal-p)
 
 (define-vm-br-arithmetic-op (br-if-= st a b invert offset)
-  jit-beqr jit-bner jit-beqr-d jit-bner-d "scm_num_eq_p")
+  jit-beqr jit-bner jit-beqr-d jit-bner-d %scm-num-eq-p)
 
 (define-vm-br-arithmetic-op (br-if-< st a b invert offset)
-  jit-bltr jit-bger jit-bltr-d jit-bunltr-d "scm_less_p")
+  jit-bltr jit-bger jit-bltr-d jit-bunltr-d %scm-less-p)
 
 (define-vm-br-arithmetic-op (br-if-<= st a b invert offset)
-  jit-bler jit-bgtr jit-bler-d jit-bunler-d "scm_leq_p")
+  jit-bler jit-bgtr jit-bler-d jit-bunler-d %scm-leq-p)
 
 (define-vm-op (br-if-logtest st a b invert offset)
   (let ((lcall (jit-forward))
@@ -1979,7 +2061,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-prepare)
     (jit-pushargr r0)
     (jit-pushargr r1)
-    (call-c "scm_logtest")
+    (call-c %scm-logtest)
     (jit-retval r0)
     (jump (if invert (scm-is-false r0) (scm-is-true r0))
           (resolve-dst st offset))
@@ -2001,7 +2083,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-pushargr reg-thread)
   (jit-pushargi (imm tc7-variable))
   (jit-pushargr (local-ref st src))
-  (call-c "scm_do_inline_cell")
+  (call-c %scm-do-inline-cell)
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -2023,7 +2105,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
                                scm-f-program-is-jit-compiled
                                (ash nfree 16))))
     (jit-pushargi (imm (+ nfree 3)))
-    (call-c "scm_do_inline_words")
+    (call-c %scm-do-inline-words)
     (jit-retval r0)
 
     ;; Storing address of byte-compiled code.
@@ -2110,7 +2192,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (current-module st dst)
   (jit-prepare)
-  (call-c "scm_current_module")
+  (call-c %scm-current-module)
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -2120,7 +2202,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (local-ref st sym r0)
   (jit-prepare)
   (jit-pushargr r0)
-  (call-c "scm_lookup")
+  (call-c %scm-lookup)
   (jit-retval r0)
   (vm-cache-fp)
   (local-set! st dst r0))
@@ -2132,7 +2214,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-pushargr r0)
   (local-ref st val r0)
   (jit-pushargr r0)
-  (call-c "scm_define")
+  (call-c %scm-define)
   (vm-cache-fp))
 
 (define-vm-box-op (toplevel-box st dst var-offset mod-offset sym-offset bound?)
@@ -2158,7 +2240,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-ldi r0 (imm (offset-addr st mod-offset)))
     (jump (scm-is-true r0) llookup)
     (jit-prepare)
-    (call-c "scm_the_root_module")
+    (call-c %scm-the-root-module)
     (jit-retval r0)
 
     (jit-link llookup)
@@ -2167,7 +2249,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-prepare)
     (jit-pushargr r0)
     (jit-pushargr r1)
-    (call-c "scm_module_lookup")
+    (call-c %scm-module-lookup)
     (jit-retval r0)
     (vm-cache-fp)
     (jit-sti (imm (offset-addr st var-offset)) r0)
@@ -2200,7 +2282,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jump (jit-bmsi r1 (imm 1)) lbooted)
     (jit-prepare)
     (jit-pushargi (imm (offset-addr st sym-offset)))
-    (call-c "scm_lookup")
+    (call-c %scm-lookup)
     (jit-retval r0)
     (jump lsave)
 
@@ -2210,7 +2292,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-prepare)
     (jit-pushargr r1)
     (jit-pushargi (imm (offset-addr st sym-offset)))
-    (call-c "scm_private_lookup")
+    (call-c %scm-private-lookup)
     (jit-retval r0)
 
     (jit-link lsave)
@@ -2248,31 +2330,31 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-pushargr r0)                   ; sp_offset
     (jit-pushargr r1)                   ; ip
     (jit-pushargr reg-registers)        ; `registers', from arguments.
-    (call-c "scm_do_dynstack_push_prompt")))
+    (call-c %scm-do-dynstack-push-prompt)))
 
 (define-vm-op (wind st winder unwinder)
   (jit-prepare)
   (jit-pushargr reg-thread)
   (jit-pushargr (local-ref st winder))
   (jit-pushargr (local-ref st unwinder))
-  (call-c "scm_do_dynstack_push_dynwind"))
+  (call-c %scm-do-dynstack-push-dynwind))
 
 (define-vm-op (unwind st)
   (jit-prepare)
   (jit-pushargr reg-thread)
-  (call-c "scm_do_dynstack_pop"))
+  (call-c %scm-do-dynstack-pop))
 
 (define-vm-op (push-fluid st fluid value)
   (jit-prepare)
   (jit-pushargr reg-thread)
   (jit-pushargr (local-ref st fluid))
   (jit-pushargr (local-ref st value))
-  (call-c "scm_do_dynstack_push_fluid"))
+  (call-c %scm-do-dynstack-push-fluid))
 
 (define-vm-op (pop-fluid st)
   (jit-prepare)
   (jit-pushargr reg-thread)
-  (call-c "scm_do_unwind_fluid"))
+  (call-c %scm-do-unwind-fluid))
 
 (define-vm-op (fluid-ref st dst src)
   (let ((lexit (jit-forward)))
@@ -2325,7 +2407,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-link lcall)
     (jit-prepare)
     (jit-pushargr r0)
-    (call-c "scm_string_length")
+    (call-c %scm-string-length)
     (jit-retval r0)
 
     (jit-link lexit)
@@ -2340,7 +2422,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-prepare)
   (jit-pushargr r0)
   (jit-pushargr r1)
-  (call-c "scm_string_ref")
+  (call-c %scm-string-ref)
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -2348,7 +2430,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-prepare)
   (jit-pushargr (local-ref st src))
   (jit-pushargi scm-undefined)
-  (call-c "scm_string_to_number")
+  (call-c %scm-string-to-number)
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -2356,14 +2438,14 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (vm-sync-ip st r0)
   (jit-prepare)
   (jit-pushargr (local-ref st src))
-  (call-c "scm_string_to_symbol")
+  (call-c %scm-string-to-symbol)
   (jit-retval r0)
   (local-set! st dst r0))
 
 (define-vm-op (symbol->keyword st dst src)
   (jit-prepare)
   (jit-pushargr (local-ref st src))
-  (call-c "scm_symbol_to_keyword")
+  (call-c %scm-symbol-to-keyword)
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -2405,7 +2487,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 ;;; ------------------
 
 (define-vm-binary-numeric-op (add st dst a b)
-  "scm_sum" lcall r1 r2 f0 f1
+  %scm-sum lcall r1 r2 f0 f1
   (begin
     (jit-movr r0 r1)
     (jump (jit-boaddr r0 r2) lcall)
@@ -2413,10 +2495,10 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-addr-d f0 f0 f1))
 
 (define-vm-unary-step-op (add1 st dst src)
-  "scm_sum" jit-boaddi jit-addr-d)
+  %scm-sum jit-boaddi jit-addr-d)
 
 (define-vm-binary-numeric-op (sub st dst a b)
-  "scm_difference" lcall r1 r2 f0 f1
+  %scm-difference lcall r1 r2 f0 f1
   (begin
     (jit-movr r0 r1)
     (jump (jit-bosubr r0 r2) lcall)
@@ -2424,10 +2506,10 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-subr-d f0 f0 f1))
 
 (define-vm-unary-step-op (sub1 st dst src)
-  "scm_difference" jit-bosubi jit-subr-d)
+  %scm-difference jit-bosubi jit-subr-d)
 
 (define-vm-binary-numeric-op (mul st dst a b)
-  "scm_product" lcall r1 r2 f0 f1
+  %scm-product lcall r1 r2 f0 f1
   (begin
     (scm-i-inumr r0 r1)
     (scm-i-inumr f0 r2)
@@ -2438,7 +2520,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-mulr-d f0 f0 f1))
 
 (define-vm-binary-numeric-op (div st dst a b)
-  "scm_divide" lcall r1 r2 f0 f1
+  %scm-divide lcall r1 r2 f0 f1
   (begin
     (scm-i-inumr r0 r1)
     (scm-i-inumr f0 r2)
@@ -2448,7 +2530,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-divr-d f0 f0 f1))
 
 (define-vm-binary-numeric-op (quo st dst a b)
-  "scm_quotient" lcall r0 r1
+  %scm-quotient lcall r0 r1
   (begin
     (scm-i-inumr r0 r0)
     (scm-i-inumr r1 r1)
@@ -2456,7 +2538,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (scm-i-makinumr r0 r0)))
 
 (define-vm-binary-numeric-op (rem st dst a b)
-  "scm_remainder" lcall r0 r1
+  %scm-remainder lcall r0 r1
   (begin
     (scm-i-inumr r0 r0)
     (scm-i-inumr r1 r1)
@@ -2464,7 +2546,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (scm-i-makinumr r0 r0)))
 
 (define-vm-binary-numeric-op (mod st dst a b)
-  "scm_modulo" lcall r0 r1
+  %scm-modulo lcall r0 r1
   (let ((lpositive (jit-forward))
         (lnegative (jit-forward))
         (lexit (jit-forward)))
@@ -2488,7 +2570,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (scm-i-makinumr r0 r0)))
 
 (define-vm-binary-numeric-op (ash st dst a b)
-  "scm_ash" lcall r0 r1
+  %scm-ash lcall r0 r1
   (let ((lright (jit-forward))
         (lleft (jit-forward))
         (ladjust (jit-forward))
@@ -2536,15 +2618,15 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (local-set! st dst r0)))
 
 (define-vm-binary-numeric-op (logand st dst a b)
-  "scm_logand" lcall r0 r1
+  %scm-logand lcall r0 r1
   (jit-andr r0 r0 r1))
 
 (define-vm-binary-numeric-op (logior st dst a b)
-  "scm_logior" lcall r0 r1
+  %scm-logior lcall r0 r1
   (jit-orr r0 r0 r1))
 
 (define-vm-binary-numeric-op (logxor st dst a b)
-  "scm_logxor" lcall r0 r1
+  %scm-logxor lcall r0 r1
   (begin
     (scm-i-inumr r0 r0)
     (scm-i-inumr r1 r1)
@@ -2555,7 +2637,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-prepare)
   (jit-pushargr (local-ref st length))
   (jit-pushargr (local-ref st init))
-  (call-c "scm_make_vector")
+  (call-c %scm-make-vector)
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -2564,7 +2646,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-pushargr reg-thread)
   (jit-pushargi (imm (logior tc7-vector (ash length 8))))
   (jit-pushargi (imm (+ length 1)))
-  (call-c "scm_do_inline_words")
+  (call-c %scm-do-inline-words)
   (jit-retval r0)
   (local-ref st init r1)
   (for-each (lambda (n)
@@ -2632,7 +2714,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-prepare)
   (jit-pushargr r0)
   (jit-pushargr r1)
-  (call-c "scm_do_allocate_struct")
+  (call-c %scm-do-allocate-struct)
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -2642,7 +2724,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-prepare)
   (jit-pushargr r0)
   (jit-pushargi (scm-i-makinumi nfields))
-  (call-c "scm_do_allocate_struct")
+  (call-c %scm-do-allocate-struct)
   (jit-retval r0)
   (local-set! st dst r0))
 
@@ -2689,7 +2771,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-pushargr r0)
     (local-ref st idx r0)
     (jit-pushargr r0)
-    (call-c "scm_struct_ref")
+    (call-c %scm-struct-ref)
     (jit-retval r0)
 
     (jit-link lexit)
@@ -2728,7 +2810,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-prepare)
     (jit-pushargr r0)
     (jit-pushargi (scm-i-makinumi idx))
-    (call-c "scm_struct_ref")
+    (call-c %scm-struct-ref)
     (jit-retval r0)
 
     (jit-link lexit)
@@ -2748,7 +2830,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-pushargr r0)
   (local-ref st src r0)
   (jit-pushargr r0)
-  (call-c "scm_struct_set_x"))
+  (call-c %scm-struct-set-x))
 
 (define-vm-op (struct-set!/immediate st dst idx src)
   ;; XXX: Validate struct flag.
@@ -2762,7 +2844,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-pushargi (scm-i-makinumi idx))
   (local-ref st src r0)
   (jit-pushargr r0)
-  (call-c "scm_struct_set_x"))
+  (call-c %scm-struct-set-x))
 
 ;;; XXX: `class-of' for structs not working yet. `class-of' is calling
 ;;; Scheme procedure `make-standard-class'.
@@ -2782,13 +2864,14 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (scm-struct-vtable-slots r1 r0)
     (scm-class-of r0 r1)
+    ;; (scm-cell-object r0 r1 scm-vtable-index-self)
     (jump lexit)
 
     (jit-link lcall)
     (vm-sync-ip st r1)
     (jit-prepare)
     (jit-pushargr r0)
-    (call-c "scm_class_of")
+    (call-c %scm-class-of)
 
     (jit-link lexit)
     (local-set! st dst r0)))
@@ -2808,8 +2891,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define-vm-bv-ref-op bv-s16-ref jit-ldxr-s)
 (define-vm-bv-ref-op bv-u32-ref jit-ldxr-ui)
 (define-vm-bv-ref-op bv-s32-ref jit-ldxr-i)
-(define-vm-bv-ref-op bv-u64-ref jit-ldxr-l "scm_from_uint64")
-(define-vm-bv-ref-op bv-s64-ref jit-ldxr-l "scm_from_int64")
+(define-vm-bv-ref-op bv-u64-ref jit-ldxr-l %scm-from-uint64)
+(define-vm-bv-ref-op bv-s64-ref jit-ldxr-l %scm-from-int64)
 (define-vm-bv-ref-op bv-f32-ref "float")
 (define-vm-bv-ref-op bv-f64-ref "double")
 
@@ -2819,8 +2902,8 @@ behaviour is similar to the `apply' label in vm-regular engine."
 (define-vm-bv-set-op bv-s16-set! jit-stxr-s)
 (define-vm-bv-set-op bv-u32-set! jit-stxr-i)
 (define-vm-bv-set-op bv-s32-set! jit-stxr-i)
-(define-vm-bv-set-op bv-u64-set! jit-stxr-l "scm_to_uint64")
-(define-vm-bv-set-op bv-s64-set! jit-stxr-l "scm_to_int64")
+(define-vm-bv-set-op bv-u64-set! jit-stxr-l %scm-to-uint64)
+(define-vm-bv-set-op bv-s64-set! jit-stxr-l %scm-to-int64)
 (define-vm-bv-set-op bv-f32-set! "float")
 (define-vm-bv-set-op bv-f64-set! "double")
 
