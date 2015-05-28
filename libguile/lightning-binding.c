@@ -83,52 +83,49 @@ SCM_DEFINE (scm_jit_code_size, "jit-code-size", 0, 0, 0, (SCM jit), "")
 SCM_DEFINE (scm_jit_r, "jit-r", 1, 0, 0, (SCM i), "")
 #define FUNC_NAME s_scm_jit_r
 {
-  return scm_from_pointer (SCM_PACK_POINTER (jit_r (SCM_I_INUM (i))),
-                           NULL);
+  return scm_from_pointer (SCM_PACK (jit_r (SCM_I_INUM (i))), NULL);
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_jit_v, "jit-v", 1, 0, 0, (SCM i), "")
 #define FUNC_NAME s_scm_jit_v
 {
-  return scm_from_pointer (SCM_PACK_POINTER (jit_v (SCM_I_INUM (i))),
-                           NULL);
+  return scm_from_pointer (SCM_PACK (jit_v (SCM_I_INUM (i))), NULL);
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_jit_f, "jit-f", 1, 0, 0, (SCM i), "")
 #define FUNC_NAME s_scm_jit_f
 {
-  return scm_from_pointer (SCM_PACK_POINTER (jit_f (SCM_I_INUM (i))),
-                           NULL);
+  return scm_from_pointer (SCM_PACK (jit_f (SCM_I_INUM (i))), NULL);
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_jit_fp, "jit-fp", 0, 0, 0, (), "")
 #define FUNC_NAME s_scm_jit_fp
 {
-  return scm_from_pointer (SCM_PACK_POINTER (JIT_FP), NULL);
+  return scm_from_pointer (SCM_PACK (JIT_FP), NULL);
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_jit_r_num, "jit-r-num", 0, 0, 0, (), "")
 #define FUNC_NAME s_scm_jit_r_num
 {
-  return scm_from_int (jit_r_num());
+  return SCM_I_MAKINUM (jit_r_num());
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_jit_v_num, "jit-v-num", 0, 0, 0, (), "")
 #define FUNC_NAME s_scm_jit_v_num
 {
-  return scm_from_int (jit_v_num());
+  return SCM_I_MAKINUM (jit_v_num());
 }
 #undef FUNC_NAME
 
 SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
 #define FUNC_NAME s_scm_jit_f_num
 {
-  return scm_from_int (jit_f_num());
+  return SCM_I_MAKINUM (jit_f_num());
 }
 #undef FUNC_NAME
 
@@ -139,58 +136,58 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
 
 /* Macros for lightning function with void return type. */
 
-#define VOID_0(cname, sname)             \
+#define VOID_0(cname, sname)                       \
   SCM_DEFINE (scm_##cname, sname, 0, 0, 0, (), "") \
   {                                                \
     _##cname (SCM_JIT_STATE);                      \
     return SCM_UNSPECIFIED;                        \
   }                                                \
 
-#define VOID_1(cname, sname, s1, c1)           \
+#define VOID_1(cname, sname, s1, c1)                     \
   SCM_DEFINE (scm_##cname, sname, 1, 0, 0, (SCM s1), "") \
   {                                                      \
     _##cname (SCM_JIT_STATE, c1);                        \
     return SCM_UNSPECIFIED;                              \
   }                                                      \
 
-#define VOID_2(cname, sname, s1, s2, c1, c2)            \
-  SCM_DEFINE (scm_##cname, sname, 2, 0, 0, (SCM s1, SCM s2), "")  \
-  {                                                               \
-    _##cname (SCM_JIT_STATE, c1, c2);                             \
-    return SCM_UNSPECIFIED;                                       \
-  }                                                               \
+#define VOID_2(cname, sname, s1, s2, c1, c2)                     \
+  SCM_DEFINE (scm_##cname, sname, 2, 0, 0, (SCM s1, SCM s2), "") \
+  {                                                              \
+    _##cname (SCM_JIT_STATE, c1, c2);                            \
+    return SCM_UNSPECIFIED;                                      \
+  }                                                              \
 
-#define VOID_3(cname, sname, s1, s2, s3, c1, c2, c3) \
-  SCM_DEFINE (scm_##cname, sname, 1, 0, 0,                     \
-              (SCM s1, SCM s2, SCM s3), "")                    \
-  {                                                            \
-    _##cname (SCM_JIT_STATE, c1, c2, c3);                      \
-    return SCM_UNSPECIFIED;                                    \
-  }                                                            \
+#define VOID_3(cname, sname, s1, s2, s3, c1, c2, c3)    \
+  SCM_DEFINE (scm_##cname, sname, 1, 0, 0,              \
+              (SCM s1, SCM s2, SCM s3), "")             \
+  {                                                     \
+    _##cname (SCM_JIT_STATE, c1, c2, c3);               \
+    return SCM_UNSPECIFIED;                             \
+  } \
 
 
-#define NODE_0(cname, sname)                          \
+#define NODE_0(cname, sname)                                    \
   SCM_DEFINE (scm_##cname, sname, 0, 0, 0, (), "")              \
   {                                                             \
     return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE), \
                              NULL);                             \
   }                                                             \
 
-#define NODE_1(cname, sname, s1, c1)                          \
+#define NODE_1(cname, sname, s1, c1)                                    \
   SCM_DEFINE (scm_##cname, sname, 1, 0, 0, (SCM s1), "")                \
   {                                                                     \
     return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE, c1),     \
                              NULL);                                     \
   }                                                                     \
 
-#define NODE_2(cname, sname, s1, s2, c1, c2)                  \
+#define NODE_2(cname, sname, s1, s2, c1, c2)                            \
   SCM_DEFINE (scm_##cname, sname, 2, 0, 0, (SCM s1, SCM s2), "")        \
   {                                                                     \
     return scm_from_pointer ((void *) _##cname (SCM_JIT_STATE, c1, c2), \
                              NULL);                                     \
   }                                                                     \
 
-#define NODE_3(cname, sname, s1, s2, s3, c1, c2, c3)          \
+#define NODE_3(cname, sname, s1, s2, s3, c1, c2, c3)                    \
   SCM_DEFINE (scm_##cname, sname, 3, 0, 0,                              \
               (SCM s1, SCM s2, SCM s3), "")                             \
   {                                                                     \
@@ -199,7 +196,7 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
                              NULL);                                     \
   }                                                                     \
 
-#define NODE_4(cname, sname, s1, s2, s3, s4, c1, c2, c3, c4)  \
+#define NODE_4(cname, sname, s1, s2, s3, s4, c1, c2, c3, c4)            \
   SCM_DEFINE (scm_##cname, sname, 4, 0, 0,                              \
               (SCM s1, SCM s2, SCM s3, SCM s4), "")                     \
   {                                                                     \
@@ -208,7 +205,7 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
                              NULL);                                     \
   }                                                                     \
 
-#define NODE_5(cname, sname, s1, s2, s3, s4, s5, c1, c2, c3, c4, c5) \
+#define NODE_5(cname, sname, s1, s2, s3, s4, s5, c1, c2, c3, c4, c5)    \
   SCM_DEFINE (scm_##cname, sname, 5, 0, 0,                              \
               (SCM s1, SCM s2, SCM s3, SCM s4, SCM s5), "")             \
   {                                                                     \
@@ -217,23 +214,32 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
                              NULL);                                     \
   }                                                                     \
 
-#define BOOL_0(cname, sname)              \
-  SCM_DEFINE (scm_##cname, sname, 0, 0, 0, (), "")  \
-  {                                                 \
-    return scm_from_int (_##cname (SCM_JIT_STATE)); \
-  }                                                 \
-
-#define BOOL_1(cname, sname, s1, c1)           \
-  SCM_DEFINE (scm_##cname, sname, 1, 0, 0, (SCM s1), "") \
-  {                                                      \
-    return scm_from_int (_##cname (SCM_JIT_STATE, c1));  \
-  }                                                      \
-
-#define BOOL_2(cname, sname, s1, s2, c1, c2)           \
-  SCM_DEFINE (scm_##cname, sname, 2, 0, 0, (SCM s1, SCM s2), "") \
+#define BOOL_0(cname, sname)                                     \
+  SCM_DEFINE (scm_##cname, sname, 0, 0, 0, (), "")               \
   {                                                              \
-    return scm_from_int (_##cname (SCM_JIT_STATE, c1, c2));      \
+    return (_##cname (SCM_JIT_STATE)) ? SCM_BOOL_T : SCM_BOOL_F; \
   }                                                              \
+
+#define BOOL_1(cname, sname, s1, c1)                                 \
+  SCM_DEFINE (scm_##cname, sname, 1, 0, 0, (SCM s1), "")             \
+  {                                                                  \
+    return (_##cname (SCM_JIT_STATE, c1)) ? SCM_BOOL_T : SCM_BOOL_F; \
+  }                                                                  \
+
+#define BOOL_2(cname, sname, s1, s2, c1, c2)                            \
+  SCM_DEFINE (scm_##cname, sname, 2, 0, 0, (SCM s1, SCM s2), "")        \
+  {                                                                     \
+    return (_##cname (SCM_JIT_STATE, c1, c2)) ? SCM_BOOL_T : SCM_BOOL_F; \
+  }                                                                     \
+
+#define BOOL_4(cname, sname, s1, s2, s3, s4, c1, c2, c3, c4) \
+  SCM_DEFINE (scm_##cname, sname, 2, 0, 0,                   \
+              (SCM s1, SCM s2, SCM s3, SCM s4), "")          \
+  {                                                          \
+    return (_##cname (SCM_JIT_STATE, c1, c2, c3, c4)) ?      \
+      SCM_BOOL_T : SCM_BOOL_F ;                              \
+  }                                                          \
+
 
 #define JIT_NODE(u) (SCM_POINTER_VALUE (u))
 #define JIT_GPR(u) ((intptr_t) SCM_POINTER_VALUE (u))
@@ -362,9 +368,10 @@ NODE_4 (jit_new_node_pwd, "jit-new-node-pwd", c, u, v, w,
 BOOL_1 (jit_arg_register_p, "jit-arg-register-p", u, JIT_NODE (u))
 BOOL_1 (jit_callee_save_p, "jit-callee-save-p", u, JIT_INT32 (u))
 BOOL_1 (jit_pointer_p, "jit-pointer-p", u, JIT_PTR (u))
-/* BOOL_4 (jit_get_note, "jit-get-note", n, u, v, w, */
-/*         JIT_PTR (n), JIT_PTR (u), JIT_PTR (v), JIT_PTR (w)) */
+BOOL_4 (jit_get_note, "jit-get-note", n, u, v, w,
+        JIT_PTR (n), JIT_PTR (u), JIT_PTR (v), JIT_PTR (w))
 VOID_0 (jit_disassemble, "jit-disassemble")
+
 
 /*
  * Executable bytevector

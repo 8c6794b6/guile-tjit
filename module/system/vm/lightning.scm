@@ -738,26 +738,6 @@ argument in VM operation."
        (vm-cache-fp)
        (jit-link lexit)))))
 
-(define-syntax vm-return
-  (syntax-rules ()
-    ((_ st)
-     (vm-return st r0))
-    ((_ st tmp)
-     (begin
-       (vm-handle-interrupts st tmp)
-       ;; Get return address to jump.
-       (scm-frame-return-address tmp)
-       (jit-movr f1 reg-fp)
-       ;; Restore previous dynamic link to current frame pointer.
-       (scm-frame-dynamic-link reg-fp)
-       (vm-sync-fp)
-       ;; Clear frame
-       (jit-movi f0 scm-bool-f)
-       (jit-stxi (make-negative-pointer word-size) f1 f0)
-       (jit-stxi (make-negative-pointer (* 2 word-size)) f1 f0)
-       ;; Jump to return address.
-       (jit-jmpr tmp)))))
-
 (define-syntax vm-alloc-frame
   (syntax-rules ()
     ((_ st)
@@ -1676,7 +1656,19 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (return-one-value st r0 r1 r2 f0))
 
 (define-vm-op (return-values st)
-  (vm-return st))
+  (vm-handle-interrupts st r0)
+  ;; Get return address to jump.
+  (scm-frame-return-address r0)
+  (jit-movr r1 reg-fp)
+  ;; Restore previous dynamic link to current frame pointer.
+  (scm-frame-dynamic-link reg-fp)
+  (vm-sync-fp)
+  ;; Clear frame
+  (jit-movi r2 scm-bool-f)
+  (jit-stxi (make-negative-pointer word-size) r1 r2)
+  (jit-stxi (make-negative-pointer (* 2 word-size)) r1 r2)
+  ;; Jump to return address.
+  (jit-jmpr r0))
 
 
 ;;; Specialized call stubs
