@@ -412,6 +412,15 @@ If FILE begins with `-' the -s switch is mandatory.
             (set! lightning? #t)
             (parse args out))
 
+           ((string-prefix? "--lightning-verbosity=" arg)
+            (use-modules (system vm lightning debug))
+            (parse args
+                   (cons `(lightning-verbosity
+                           ,(string->number
+                             (substring arg
+                                        (string-length "--lightning-verbosity="))))
+                         out)))
+
            (else
             (error "unrecognized switch ~a" arg)))))))
 

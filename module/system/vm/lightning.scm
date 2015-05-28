@@ -807,51 +807,6 @@ can jump back.  Two locals below proc get overwritten by the callee."
        <body>
        (jit-patch ra)))))
 
-(define-syntax-rule (return-one-value st val tmp1 tmp2 tmp3)
-  (begin
-    (vm-handle-interrupts st tmp1)
-    (jit-movr tmp1 reg-fp)
-    (scm-frame-return-address tmp2)
-    (scm-frame-dynamic-link reg-fp)
-    (vm-sync-fp)
-    ;; Clear frame.
-    (jit-movi tmp3 scm-bool-f)
-    (jit-stxi (make-negative-pointer word-size) tmp1 tmp3)
-    (jit-stxi (make-negative-pointer (* 2 word-size)) tmp1 tmp3)
-    ;; Leave proc.
-    (jit-addi tmp1 tmp1 (imm word-size))
-    (jit-str tmp1 val)
-    (vm-sync-sp tmp1)
-    (jit-jmpr tmp2)))
-
-(define-syntax-rule (return-value-list st rval tmp1 tmp2 tmp3)
-  (let ((lone (jit-forward)))
-
-    (jump (scm-imp rval) lone)
-
-    (scm-cell-type tmp1 rval)
-    (scm-typ3 tmp2 tmp1)
-    (jump (scm-not-structp tmp2) lone)
-
-    (jit-subi tmp2 tmp1 (imm tc3-struct))
-    (scm-cell-object tmp2 tmp2 scm-vtable-index-self)
-    (jump (scm-not-valuesp tmp2) lone)
-
-    ;; Delegate the work to `vm-apply' with builtin `values'.
-    (vm-handle-interrupts st tmp1)
-    (scm-struct-slots tmp1 rval)
-    (scm-cell-object tmp1 tmp1 0)
-    (jit-movi tmp2 scm-builtin-apply)
-    (local-set! st 0 tmp2)
-    (jit-movi tmp2 scm-builtin-values)
-    (local-set! st 1 tmp2)
-    (local-set! st 2 tmp1)
-    (vm-reset-frame 3)
-    (vm-apply)
-
-    (jit-link lone)
-    (return-one-value st rval tmp1 tmp2 tmp3)))
-
 (define-syntax-rule (vm-apply)
   "Apply the procedure in local 0.
 
@@ -936,6 +891,51 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-link lcompiled)
     (scm-program-jit-compiled-code r1 r0)
     (jit-jmpr r1)))
+
+(define-syntax-rule (return-one-value st val tmp1 tmp2 tmp3)
+  (begin
+    (vm-handle-interrupts st tmp1)
+    (jit-movr tmp1 reg-fp)
+    (scm-frame-return-address tmp2)
+    (scm-frame-dynamic-link reg-fp)
+    (vm-sync-fp)
+    ;; Clear frame.
+    (jit-movi tmp3 scm-bool-f)
+    (jit-stxi (make-negative-pointer word-size) tmp1 tmp3)
+    (jit-stxi (make-negative-pointer (* 2 word-size)) tmp1 tmp3)
+    ;; Leave proc.
+    (jit-addi tmp1 tmp1 (imm word-size))
+    (jit-str tmp1 val)
+    (vm-sync-sp tmp1)
+    (jit-jmpr tmp2)))
+
+(define-syntax-rule (return-value-list st rval tmp1 tmp2 tmp3)
+  (let ((lone (jit-forward)))
+
+    (jump (scm-imp rval) lone)
+
+    (scm-cell-type tmp1 rval)
+    (scm-typ3 tmp2 tmp1)
+    (jump (scm-not-structp tmp2) lone)
+
+    (jit-subi tmp2 tmp1 (imm tc3-struct))
+    (scm-cell-object tmp2 tmp2 scm-vtable-index-self)
+    (jump (scm-not-valuesp tmp2) lone)
+
+    ;; Delegate the work to `vm-apply' with builtin `values'.
+    (vm-handle-interrupts st tmp1)
+    (scm-struct-slots tmp1 rval)
+    (scm-cell-object tmp1 tmp1 0)
+    (jit-movi tmp2 scm-builtin-apply)
+    (local-set! st 0 tmp2)
+    (jit-movi tmp2 scm-builtin-values)
+    (local-set! st 1 tmp2)
+    (local-set! st 2 tmp1)
+    (vm-reset-frame 3)
+    (vm-apply)
+
+    (jit-link lone)
+    (return-one-value st rval tmp1 tmp2 tmp3)))
 
 (define-syntax-rule (halt)
   (let ((lshuffle (jit-forward))
@@ -2974,6 +2974,7 @@ compiled result."
          (try-program-name proc) (ensure-program-addr proc))
   (with-jit-state
    (jit-prolog)
+   (jit-tramp (imm #x10))
    (let ((entry (jit-forward))
          (lightning (make-lightning (procedure->cfg proc)
                                     (make-hash-table)
