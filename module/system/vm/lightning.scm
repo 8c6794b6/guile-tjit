@@ -2219,7 +2219,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (llookup (jit-forward))
         (lexit (jit-forward)))
 
-    (debug 1 "Unresolved toplevel-box, ip: ~a, var: ~a, mod: ~a, sym: ~a~%"
+    (debug 1 ";;; Unresolved toplevel-box, ip: ~a, var: ~a, mod: ~a, sym: ~a~%"
            (lightning-ip st) var-offset mod-offset sym-offset)
 
     (jit-ldi r0 (imm (offset-addr st var-offset)))
@@ -2261,7 +2261,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
         (lsave (jit-forward))
         (lexit (jit-forward)))
 
-    (debug 1 "Unresolved module-box, ip: ~a, mod: ~a, sym: ~a~%"
+    (debug 1 ";;; Unresolved module-box, ip: ~a, mod: ~a, sym: ~a~%"
            (lightning-ip st) mod-offset sym-offset)
 
     (jit-ldi r0 (imm (offset-addr st var-offset)))

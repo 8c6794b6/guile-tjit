@@ -209,7 +209,11 @@
                            builtin-addrs))
                  (fold-primitive-code entries-one '() program-or-addr))
                 ((maybe-init-code? program-or-addr)
-                 (fold-init-code entries-one '() program-or-addr))
+                 ;; Invoke the thunk from init code without compiling to
+                 ;; native code, then return a single VM op `return'.
+                 (and (procedure? program-or-addr)
+                      (program-or-addr))
+                 '((0 return 0)))
                 (else
                  (fold-program-code entries-one '() program-or-addr
                                     #:raw? #t)))))
