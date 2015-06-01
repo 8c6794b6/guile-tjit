@@ -236,6 +236,8 @@
   ;; Kennedy's "A Simple, Fast Dominance Algorithm", 2001.
   (let ((preds-map (compute-predecessors conts kfun)))
     (define (compute-idom idoms preds)
+      (define (idom-ref label)
+        (intmap-ref idoms label (lambda (_) #f)))
       (match preds
         (() -1)
         ((pred) pred)                   ; Shortcut.
@@ -250,8 +252,8 @@
               ((not d0) d1)
               ((not d1) d0)
               ((= d0 d1) d0)
-              ((< d0 d1) (lp d0 (intmap-ref idoms d1)))
-              (else (lp (intmap-ref idoms d0) d1)))))
+              ((< d0 d1) (lp d0 (idom-ref d1)))
+              (else (lp (idom-ref d0) d1)))))
          (fold1 common-idom preds pred))))
     (define (adjoin-idom label preds idoms)
       (let ((idom (compute-idom idoms preds)))
