@@ -24,6 +24,7 @@
 
 (define-module (language cps2 optimize)
   #:use-module (ice-9 match)
+  #:use-module (language cps2 contification)
   #:use-module (language cps2 dce)
   #:use-module (language cps2 prune-top-level-scopes)
   #:use-module (language cps2 simplify)
@@ -34,7 +35,7 @@
     ((_ val . _) val)
     (_ default)))
 
-(define (optimize program opts)
+(define* (optimize program #:optional (opts '()))
   (define (run-pass! pass kw default)
     (set! program
           (if (kw-arg-ref opts kw default)
@@ -56,5 +57,6 @@
   (run-pass! eliminate-dead-code #:dce2? #t)
   (run-pass! prune-top-level-scopes #:prune-top-level-scopes? #t)
   (run-pass! simplify #:simplify? #t)
+  (run-pass! contify #:contify? #t)
 
   program)
