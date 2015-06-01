@@ -20,8 +20,8 @@
 
 ;;; Commentary:
 
-;;; A virtual machine with method JIT compiler from bytecode to native
-;;; code. Compiler is written in scheme, with GNU Lightning.
+;;; A virtual machine with whole-method JIT compiler from bytecode to
+;;; native code. Compiler is written in scheme, with GNU Lightning.
 
 ;;; Note for prompt
 ;;; ---------------
@@ -110,9 +110,11 @@
   #:use-module (system vm lightning cfg)
   #:use-module (system vm program)
   #:use-module (system vm vm)
+  #:autoload (ice-9 regex) (regexp-substitute/global)
   #:export (compile-lightning
             call-lightning
-            native-code-guardian)
+            native-code-guardian
+            init-vm-lightning)
   #:re-export (lightning-verbosity
                lightning-trace))
 
@@ -191,10 +193,11 @@
 (define scm-bool-f (scm->pointer #f))
 (define scm-builtin-apply (scm->pointer apply))
 (define scm-builtin-values (scm->pointer values))
+(define scm-module-system-booted-p-ptr
+  (dynamic-pointer "scm_module_system_booted_p" (dynamic-link)))
 
 (define (scm-module-system-booted-p)
-  (dereference-pointer
-   (dynamic-pointer "scm_module_system_booted_p" (dynamic-link))))
+  (dereference-pointer scm-module-system-booted-p-ptr))
 
 
 ;;;
@@ -215,9 +218,6 @@
 ;;;
 ;;; Pointers to C function
 ;;;
-
-(eval-when (compile)
-  (use-modules (ice-9 regex)))
 
 (define-syntax define-cfunc
   (lambda (x)
@@ -2165,11 +2165,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define-vm-op (static-set! st src offset)
   ;; XXX: Add assertion for align.
-  ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-  ;; (local-ref st src r0)
-  ;; (scm-displayr r0)
-  ;; (scm-newline)
-  ;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   (local-ref st src r0)
   (jit-sti (imm (offset-addr st offset)) r0))
 
@@ -2838,8 +2833,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
   (jit-pushargr r0)
   (call-c %scm-struct-set-x))
 
-;;; XXX: `class-of' for structs not working yet. `class-of' is calling
-;;; Scheme procedure `make-standard-class'.
 (define-vm-op (class-of st dst type)
   (let ((lcall (jit-forward))
         (lexit (jit-forward)))
@@ -2856,7 +2849,6 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     (scm-struct-vtable-slots r1 r0)
     (scm-class-of r0 r1)
-    ;; (scm-cell-object r0 r1 scm-vtable-index-self)
     (jump lexit)
 
     (jit-link lcall)
@@ -3090,6 +3082,12 @@ arguments ARGS."
 ;;;
 ;;; Initialization
 ;;;
+
+(define (init-vm-lightning interactive?)
+  "Do some warming up compilations when INTERACTIVE? is true."
+  (when interactive?
+    (call-lightning (@@ (system base compile) compile)
+                    '(lambda (x) (display "")))))
 
 (init-jit "")
 (emit-lightning-main)

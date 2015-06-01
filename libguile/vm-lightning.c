@@ -18,6 +18,8 @@
 
 #if BUILD_VM_LIGHTNING == 1
 
+#define LIGHTNING_HEAP_SIZE (8 * 1024 * 1024 * SIZEOF_SCM_T_BITS)
+
 /*
  * Auxiliary
  */
@@ -288,6 +290,11 @@ scm_init_vm_lightning (void)
     (scm_t_vm_engine) (SCM_BYTEVECTOR_CONTENTS
                        (SCM_VARIABLE_REF
                         (scm_c_lookup ("lightning-main-code"))));
+
+  /* As done in "libguile/gc.h", this should be about the size of result
+     of 'guile -c "(display (assq-ref (gc-stats) 'heap-allocated))"',
+     but with `vm-lightning' engine on startup. */
+  GC_expand_hp (LIGHTNING_HEAP_SIZE);
 }
 
 #else /* !BUILD_VM_LIGHTNING */

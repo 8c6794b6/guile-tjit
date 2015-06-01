@@ -33,6 +33,7 @@
 
 (define-module (ice-9 command-line)
   #:autoload (system vm vm) (set-default-vm-engine! set-vm-engine!)
+  #:autoload (system vm lightning) (init-vm-lightning)
   #:export (compile-shell-switches
             version-etc
             *GPLv3+*
@@ -436,14 +437,16 @@ If FILE begins with `-' the -s switch is mandatory.
       ;; If debugging was requested, or we are interactive and debugging
       ;; was not explicitly turned off, use the debug engine.
       (if (or turn-on-debugging?
-              (and interactive? (not turn-off-debugging?)))
+              (and interactive?
+                   (not turn-off-debugging?)
+                   (not lightning?)))
           (begin
             (set-default-vm-engine! 'debug)
             (set-vm-engine! 'debug)))
 
       ;; Use vm-lightning engine
       (when lightning?
-        (use-modules (system vm lightning))
+        (init-vm-lightning interactive?)
         (set-default-vm-engine! 'lightning)
         (set-vm-engine! 'lightning))
 

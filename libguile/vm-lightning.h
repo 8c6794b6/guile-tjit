@@ -20,6 +20,7 @@
 #define _SCM_VM_LIGHTNING_H_
 
 #include <ffi.h>
+#include <libguile/bdw-gc.h>
 
 SCM_API SCM scm_do_inline_cell (scm_i_thread *thread, scm_t_bits car,
                                 scm_t_bits cdr);

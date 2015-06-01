@@ -34,7 +34,7 @@ static size_t page_size;
 static SCM the_jit_state;
 
 #define SCM_JIT_STATE \
-  ((jit_state_t *) scm_to_pointer (scm_fluid_ref (the_jit_state)))
+  ((jit_state_t *) SCM_POINTER_VALUE (scm_fluid_ref (the_jit_state)))
 
 SCM_DEFINE (scm_init_jit, "init-jit", 1, 0, 0, (SCM arg), "")
 #define FUNC_NAME s_scm_init_jit
@@ -131,10 +131,8 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
 
 
 /*
- * Functions taking JIT state as first argument
+ * Macros for lightning functions taking JIT state
  */
-
-/* Macros for lightning function with void return type. */
 
 #define VOID_0(cname, sname)                       \
   SCM_DEFINE (scm_##cname, sname, 0, 0, 0, (), "") \
@@ -240,6 +238,10 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
       SCM_BOOL_T : SCM_BOOL_F ;                              \
   }                                                          \
 
+
+/*
+ * Macros for argument in lightning functions
+ */
 
 #define JIT_NODE(u) (SCM_POINTER_VALUE (u))
 #define JIT_GPR(u) ((intptr_t) SCM_POINTER_VALUE (u))
