@@ -2997,8 +2997,11 @@ compiled result."
                           (lightning-nodes lightning))
            (format #t ";;;~%"))
          (when (and verbosity (<= 3 verbosity))
-           (write-code-to-file (format #f "/tmp/~a.o" (try-program-name proc))
-                               (bytevector->pointer bv))
+           (let* ((name (try-program-name proc))
+                  (escaped-name (regexp-substitute/global #f "/" name
+                                                          'pre "_" 'post)))
+             (write-code-to-file (format #f "/tmp/~a.o" escaped-name)
+                                 (bytevector->pointer bv)))
            (jit-print)
            (jit-clear-state)))))))
 
