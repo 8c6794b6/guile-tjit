@@ -17,7 +17,7 @@
 
 ;;; Commentary:
 
-;;; Tests for vm-lightning
+;;; Tests for vm-mjit
 
 ;;; Code:
 
@@ -30,12 +30,12 @@
              (srfi srfi-64)
              (system foreign)
              (system vm program)
-             (system vm lightning)
+             (system vm native mjit)
              (system vm loader)
              (system vm vm))
 
-;; Define and run a procedure with guile vm and lightning, and compare the
-;; results with test-equal.
+;; Define and run a procedure with vm-regular and vm-mjit, and compare
+;; the results with test-equal.
 (define-syntax define-test
   (syntax-rules ()
     ((_ (name . vars) args body ...)
@@ -47,7 +47,7 @@
         (symbol->string (procedure-name name))
         (call-with-values (lambda () (name . args))
           (lambda vs vs))
-        (call-with-values (lambda () (call-lightning name . args))
+        (call-with-values (lambda () (call-mjit name . args))
           (lambda vs vs)))))))
 
 (lightning-verbosity 0)
@@ -57,7 +57,7 @@
 ;;; VM operation
 ;;;
 
-(test-begin "vm-lightning-test")
+(test-begin "vm-mjit-test")
 
 
 ;;; Call and return
@@ -168,7 +168,7 @@
             (call-with-values
                 (lambda () (values 1 2 3))
               (lambda (a b c) (+ a b c)))
-            (call-lightning call-with-values
+            (call-mjit call-with-values
                             (lambda () (values 1 2 3))
                             (lambda (a b c) (+ a b c))))
 
@@ -379,15 +379,15 @@
 
 (test-equal "t-sum-optional-one"
             (sum-optional 1)
-            (call-lightning sum-optional 1))
+            (call-mjit sum-optional 1))
 
 (test-equal "t-sum-optional-two"
             (sum-optional 1 2)
-            (call-lightning sum-optional 1 2))
+            (call-mjit sum-optional 1 2))
 
 (test-equal "t-sum-optional-two"
             (sum-optional 1 2 3)
-            (call-lightning sum-optional 1 2 3))
+            (call-mjit sum-optional 1 2 3))
 
 (define br-nargs-1
   (case-lambda
@@ -396,11 +396,11 @@
 
 (test-equal "t-br-if-nargs-1-0"
             (br-nargs-1)
-            (call-lightning br-nargs-1))
+            (call-mjit br-nargs-1))
 
 (test-equal "t-br-if-nargs-1-1"
             (br-nargs-1 99)
-            (call-lightning br-nargs-1 99))
+            (call-mjit br-nargs-1 99))
 
 (define* (bind-kwargs-01 #:key (x 100))
   x)
@@ -569,22 +569,22 @@
 
 (test-equal "closure01-program-code"
   (program-code (closure01 100))
-  (program-code (call-lightning closure01 100)))
+  (program-code (call-mjit closure01 100)))
 
-(let ((closure01-vm (closure01 23))
-      (closure01-lightning (call-lightning closure01 23)))
+(let ((closure01-regular (closure01 23))
+      (closure01-mjit (call-mjit closure01 23)))
 
   (test-equal "closure01-call-01"
-    (closure01-vm 100)
-    (call-lightning closure01-vm 100))
+    (closure01-regular 100)
+    (call-mjit closure01-regular 100))
 
   (test-equal "closure01-call-02"
-    (closure01-vm 100)
-    (call-lightning closure01-lightning 100))
+    (closure01-regular 100)
+    (call-mjit closure01-mjit 100))
 
   (test-equal "closure01-call-03"
-    (closure01-vm 100)
-    (closure01-lightning 100)))
+    (closure01-regular 100)
+    (closure01-mjit 100)))
 
 (define-test (t-closure02 x) (23)
   ((closure01 x) 100))
@@ -670,7 +670,7 @@
   (define! sym val))
 
 (begin
-  (call-lightning my-define! 'var1 123)
+  (call-mjit my-define! 'var1 123)
   (test-equal "t-define!" 123 var1))
 
 ;;; Mutable top-level bindings
@@ -691,8 +691,8 @@
 ;; without using define-test macro. The macro runs bytecode procedure first, and
 ;; variable get cached when bytecode procedure runs.
 (test-equal "resolve-toplevel-var"
-  (call-lightning add-toplevel-ref 100)
-  (call-lightning add-toplevel-ref 100))
+  (call-mjit add-toplevel-ref 100)
+  (call-mjit add-toplevel-ref 100))
 
 (define-test (t-module-box) ()
   length)
@@ -702,7 +702,7 @@
 
 (test-equal "resolve-module-box-var"
   'length
-  (procedure-name (call-lightning get-from-module-box)))
+  (procedure-name (call-mjit get-from-module-box)))
 
 ;;; The dynamic environment
 
@@ -1430,4 +1430,4 @@
         v
         (lp (- n 1) (macroexpand expr)))))
 
-(test-end "vm-lightning-test")
+(test-end "vm-mjit-test")

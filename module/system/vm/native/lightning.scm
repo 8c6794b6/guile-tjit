@@ -22,7 +22,7 @@
 
 ;;; FFI binding of lightning for guile.
 
-(define-module (system vm lightning binding)
+(define-module (system vm native lightning)
   #:use-module (ice-9 regex)
   #:use-module (system foreign)
   #:export

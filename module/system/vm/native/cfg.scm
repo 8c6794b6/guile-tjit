@@ -21,11 +21,11 @@
 ;;; Commentary:
 
 ;;; Module containing codes to for converting bytecode to control flow
-;;; graph, for further compilation.
+;;; graph, for further compilation in method JIT VM.
 
 ;;; Code:
 
-(define-module (system vm lightning cfg)
+(define-module (system vm native cfg)
   #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
@@ -34,9 +34,8 @@
   #:use-module (system foreign)
   #:use-module (system vm debug)
   #:use-module (system vm disassembler)
-  #:use-module (system vm lightning debug)
+  #:use-module (system vm native debug)
   #:use-module (system vm program)
-  #:autoload (system vm lightning) (call-lightning)
   #:export (procedure->cfg
             make-cfg cfg?
             cfg-last-ip cfg-name

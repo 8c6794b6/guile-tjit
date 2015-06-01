@@ -57,7 +57,7 @@
 ;;; vp->stack_base', and `sp_offset' is `LOCAL_ADDRESS (proc_slot) -
 ;;; vp->stack_base'. ip is `ip + offset', which is next IP to jump in
 ;;; vm-regular interpreter, but fragment of code to compile in
-;;; vm-lightning. `registers' is the one passed from `scm_call_n'.
+;;; vm-mjit. `registers' is the one passed from `scm_call_n'.
 ;;;
 ;;; * C functions in VM operation "abort":
 ;;;
@@ -97,7 +97,7 @@
 
 ;;; Code:
 
-(define-module (system vm lightning)
+(define-module (system vm native mjit)
   #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 format)
   #:use-module (language bytecode)
@@ -105,16 +105,16 @@
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
   #:use-module (system vm debug)
-  #:use-module (system vm lightning binding)
-  #:use-module (system vm lightning debug)
-  #:use-module (system vm lightning cfg)
+  #:use-module (system vm native lightning)
+  #:use-module (system vm native debug)
+  #:use-module (system vm native cfg)
   #:use-module (system vm program)
   #:use-module (system vm vm)
   #:autoload (ice-9 regex) (regexp-substitute/global)
-  #:export (compile-lightning
-            call-lightning
+  #:export (compile-mjit
+            call-mjit
             native-code-guardian
-            init-vm-lightning)
+            init-vm-mjit)
   #:re-export (lightning-verbosity
                lightning-trace))
 
@@ -238,7 +238,7 @@
 (define-cfunc "scm_do_vm_expand_stack")
 (define-cfunc "scm_do_smob_applicable_p")
 (define-cfunc "scm_do_smob_apply_trampoline")
-(define-cfunc "scm_compile_lightning")
+(define-cfunc "scm_compile_mjit")
 (define-cfunc "scm_values")
 (define-cfunc "scm_do_foreign_call")
 (define-cfunc "scm_do_vm_reinstate_partial_continuation")
@@ -786,7 +786,7 @@ argument in VM operation."
 
 (define-syntax with-frame
   (syntax-rules ()
-  "Run body expression with new frame.
+    "Run body expression with new frame.
 
 Stack poionter stored in reg-fp increased for `proc * word' size to
 shift the locals.  Then patch the address after the jump, so that callee
@@ -883,7 +883,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     ;; Does not have native code, compile the callee procedure.
     (jit-prepare)
     (jit-pushargr r0)
-    (call-c %scm-compile-lightning)
+    (call-c %scm-compile-mjit)
     (vm-cache-fp)
     (jit-ldr r0 reg-fp)
 
@@ -1108,7 +1108,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define (%error-wrong-num-values-proc nvalues)
   (scm-error 'vm-error
-             'vm-lightning
+             'vm-mjit
              "Wrong number of values returned to continuation (expected ~a)"
              `(,nvalues) `(,nvalues)))
 
@@ -1124,7 +1124,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define (%error-too-few-values-proc)
   (scm-error 'vm-error
-             'vm-lightning
+             'vm-mjit
              "Too few values returned to continuation"
              '() '()))
 
@@ -1139,7 +1139,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
 (define (%error-no-values-proc)
   (scm-error 'vm-error
-             'vm-lightning
+             'vm-mjit
              "Zero values returned to single-valued continuation"
              '() '()))
 
@@ -2937,7 +2937,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
                =>
                (lambda (node) (jit-patch node))))
         (or (and emitter (apply emitter st args))
-            (debug 0 "compile-lightning: VM op `~a' not found~%" instr)))))
+            (debug 0 "compile-mjit: VM op `~a' not found~%" instr)))))
 
   (let* ((addr (ensure-program-addr (lightning-pc st)))
          (cfg (lightning-cfg st))
@@ -2959,7 +2959,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     entry))
 
-(define (compile-lightning proc)
+(define (compile-mjit proc)
   "Compile bytecode of procedure PROC to native code, and save the
 compiled result."
   (debug 1 ";;; compiling ~a (~a)~%"
@@ -3010,17 +3010,17 @@ compiled result."
 ;;; Runtime
 ;;;
 
-;;; Size of bytevector to contain native code for `lightning-main'.
-(define-inline lightning-main-code-size 4096)
+;;; Size of bytevector to contain native code for `mjit-main'.
+(define-inline mjit-main-code-size 4096)
 
-;;; Bytevector to contain native code of `lightning-main'. This top
+;;; Bytevector to contain native code of `mjit-main'. This top
 ;;; level variable get filled in with actual value at the end of this
 ;;; file, and referenced from C code.
-(define lightning-main-code
-  (make-bytevector lightning-main-code-size 0))
+(define mjit-main-code
+  (make-bytevector mjit-main-code-size 0))
 
-(define (emit-lightning-main)
-  "Emit native code used for vm-lightning runtime."
+(define (emit-mjit-main)
+  "Emit native code used for vm-mjit runtime."
   (with-jit-state
    (jit-prolog)
    (let ((lapply (jit-forward))
@@ -3066,16 +3066,16 @@ compiled result."
      (halt))
    (jit-epilog)
    (jit-realize)
-   (jit-set-code (bytevector->pointer lightning-main-code)
-                 (make-pointer lightning-main-code-size))
+   (jit-set-code (bytevector->pointer mjit-main-code)
+                 (make-pointer mjit-main-code-size))
    (jit-emit)))
 
-(define (call-lightning proc . args)
-  "Switch vm engine to vm-lightning temporary, run procedure PROC with
+(define (call-mjit proc . args)
+  "Switch vm engine to vm-mjit temporary, run procedure PROC with
 arguments ARGS."
   (let ((current-engine (vm-engine)))
     (call-with-values (lambda ()
-                        (set-vm-engine! 'lightning)
+                        (set-vm-engine! 'mjit)
                         (apply call-with-vm proc args))
       (lambda vals
         (set-vm-engine! current-engine)
@@ -3086,15 +3086,15 @@ arguments ARGS."
 ;;; Initialization
 ;;;
 
-(define (init-vm-lightning interactive?)
+(define (init-vm-mjit interactive?)
   "Do some warming up compilations when INTERACTIVE? is true."
   (when interactive?
-    (call-lightning (@@ (system base compile) compile)
-                    '(lambda (x) (display "")))))
+    (call-mjit (@@ (system base compile) compile)
+               '(lambda (x) (display "")))))
 
 (init-jit "")
-(emit-lightning-main)
-(make-bytevector-executable! lightning-main-code)
+(emit-mjit-main)
+(make-bytevector-executable! mjit-main-code)
 
 (load-extension (string-append "libguile-" (effective-version))
-                "scm_init_vm_lightning")
+                "scm_init_vm_mjit")

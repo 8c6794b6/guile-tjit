@@ -18,7 +18,7 @@
 
 #if BUILD_VM_LIGHTNING == 1
 
-#define LIGHTNING_HEAP_SIZE (8 * 1024 * 1024 * SIZEOF_SCM_T_BITS)
+#define MJIT_HEAP_SIZE (8 * 1024 * 1024 * SIZEOF_SCM_T_BITS)
 
 /*
  * Auxiliary
@@ -249,52 +249,52 @@ scm_do_bind_kwargs (scm_i_thread *thread, scm_t_uintptr *fp,
 #undef LOCAL_REF
 }
 
-static SCM compile_lightning_var;
+static SCM compile_mjit_var;
 
 void
-scm_compile_lightning (SCM proc)
+scm_compile_mjit (SCM proc)
 {
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  scm_call_1 (compile_lightning_var, proc);
-  scm_c_set_vm_engine_x (SCM_VM_LIGHTNING_ENGINE);
+  scm_call_1 (compile_mjit_var, proc);
+  scm_c_set_vm_engine_x (SCM_VM_MJIT_ENGINE);
 }
 
 
 /*
- * Main function for vm-lightning
+ * Main function for vm-mjit
  */
 
 /* Function pointer of runtime function. During initialization, this
    variable get filled with JIT compiled native code in scheme. */
-static scm_t_vm_engine scm_lightning_main;
+static scm_t_vm_engine scm_mjit_main;
 
-/* Since vm-lightning-engine is a member of the constant array used to
+/* Since vm-mjit-engine is a member of the constant array used to
    hold VM engines, VM_NAME need to be a constant function, not a
    variable to dynamically generated function pointer. */
 static SCM
 VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
          scm_i_jmp_buf *registers, int resume)
-#define FUNC_NAME "vm-lightning-engine"
+#define FUNC_NAME "vm-mjit-engine"
 {
-  return scm_lightning_main (thread, vp, registers, resume);
+  return scm_mjit_main (thread, vp, registers, resume);
 }
 #undef FUNC_NAME
 
 void
-scm_init_vm_lightning (void)
+scm_init_vm_mjit (void)
 {
-  compile_lightning_var =
-    SCM_VARIABLE_REF (scm_c_lookup ("compile-lightning"));
+  compile_mjit_var =
+    SCM_VARIABLE_REF (scm_c_lookup ("compile-mjit"));
 
-  scm_lightning_main =
+  scm_mjit_main =
     (scm_t_vm_engine) (SCM_BYTEVECTOR_CONTENTS
                        (SCM_VARIABLE_REF
-                        (scm_c_lookup ("lightning-main-code"))));
+                        (scm_c_lookup ("mjit-main-code"))));
 
   /* As done in "libguile/gc.h", this should be about the size of result
      of 'guile -c "(display (assq-ref (gc-stats) 'heap-allocated))"',
-     but with `vm-lightning' engine on startup. */
-  GC_expand_hp (LIGHTNING_HEAP_SIZE);
+     but with `vm-mjit' engine on startup. */
+  GC_expand_hp (MJIT_HEAP_SIZE);
 }
 
 #else /* !BUILD_VM_LIGHTNING */
@@ -302,7 +302,7 @@ scm_init_vm_lightning (void)
 static SCM
 VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
          scm_i_jmp_buf *registers, int resume)
-#define FUNC_NAME "vm-lightning-engine"
+#define FUNC_NAME "vm-mjit-engine"
 {
   scm_puts_unlocked ("NOTE: Run configure with --enable-lightning.\n",
                      scm_current_output_port ());

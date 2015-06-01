@@ -33,7 +33,7 @@
 
 (define-module (ice-9 command-line)
   #:autoload (system vm vm) (set-default-vm-engine! set-vm-engine!)
-  #:autoload (system vm lightning) (init-vm-lightning)
+  #:autoload (system vm native mjit) (init-vm-mjit)
   #:export (compile-shell-switches
             version-etc
             *GPLv3+*
@@ -129,7 +129,7 @@ If FILE begins with `-' the -s switch is mandatory.
   --no-debug     start with the normal VM engine (backtraces but
                  no breakpoints); default is --debug for interactive
                  use, but not for `-s' and `-c'.
-  --lightning    start with the \"lightning\" VM engine (EXPERIMENTAL)
+  --mjit         start with the \"mjit\" VM engine (EXPERIMENTAL)
   --auto-compile compile source files automatically
   --fresh-auto-compile  invalidate auto-compilation cache
   --no-auto-compile  disable automatic source file compilation;
@@ -204,7 +204,7 @@ If FILE begins with `-' the -s switch is mandatory.
         (inhibit-user-init? #f)
         (turn-on-debugging? #f)
         (turn-off-debugging? #f)
-        (lightning? #f))
+        (mjit? #f))
 
     (define (error fmt . args)
       (apply shell-usage usage-name #t
@@ -409,17 +409,17 @@ If FILE begins with `-' the -s switch is mandatory.
                          (assq-ref %guile-build-info 'packager-version))
             (exit 0))
 
-           ((string=? arg "--lightning")
-            (set! lightning? #t)
+           ((string=? arg "--mjit")
+            (set! mjit? #t)
             (parse args out))
 
-           ((string-prefix? "--lightning-verbosity=" arg)
-            (use-modules (system vm lightning debug))
+           ((string-prefix? "--mjit-verbosity=" arg)
+            (use-modules (system vm native debug))
             (parse args
                    (cons `(lightning-verbosity
                            ,(string->number
                              (substring arg
-                                        (string-length "--lightning-verbosity="))))
+                                        (string-length "--mjit-verbosity="))))
                          out)))
 
            (else
@@ -439,16 +439,16 @@ If FILE begins with `-' the -s switch is mandatory.
       (if (or turn-on-debugging?
               (and interactive?
                    (not turn-off-debugging?)
-                   (not lightning?)))
+                   (not mjit?)))
           (begin
             (set-default-vm-engine! 'debug)
             (set-vm-engine! 'debug)))
 
-      ;; Use vm-lightning engine
-      (when lightning?
-        (init-vm-lightning interactive?)
-        (set-default-vm-engine! 'lightning)
-        (set-vm-engine! 'lightning))
+      ;; Use vm-mjit engine
+      (when mjit?
+        (init-vm-mjit interactive?)
+        (set-default-vm-engine! 'mjit)
+        (set-vm-engine! 'mjit))
 
       ;; Return this value.
       `(;; It would be nice not to load up (ice-9 control), but the

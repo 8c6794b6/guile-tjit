@@ -140,7 +140,7 @@ AC_ARG_ENABLE(guile-debug,
   fi)
 
 AC_ARG_ENABLE(lightning,
-  [  --enable-lightning      build vm-lightning (experimental)],,
+  [  --enable-lightning      build vm with Lightning (experimental)],,
   enable_lightning=no)
 
 AC_ARG_ENABLE(posix,
@@ -1319,11 +1319,11 @@ fi
 
 #--------------------------------------------------------------------
 #
-# GNU Lightning - JIT library
+# Lightning - JIT library
 #
 #--------------------------------------------------------------------
 if test "$enable_lightning" = yes || test "$enable_lightning" = ""; then
-    AC_DEFINE([BUILD_VM_LIGHTNING], 1, [Build VM lightning.])
+    AC_DEFINE([BUILD_VM_LIGHTNING], 1, [Build VM with Lightning.])
     PKG_CHECK_MODULES([LIGHTNING],[lightning >= 2.0])
     save_LIBS="$LIBS"
     LIBS="$LIGHTNING_LIBS $LIBS"

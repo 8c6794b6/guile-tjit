@@ -16,8 +16,8 @@
  * 02110-1301 USA
  */
 
-#ifndef _SCM_VM_LIGHTNING_H_
-#define _SCM_VM_LIGHTNING_H_
+#ifndef _SCM_VM_MJIT_H_
+#define _SCM_VM_MJIT_H_
 
 #include <ffi.h>
 #include <libguile/bdw-gc.h>
@@ -67,11 +67,11 @@ SCM_API scm_t_uint32 scm_do_bind_kwargs(scm_i_thread *thread,
                                         scm_t_uint32 ntotal,
                                         scm_t_int32 kw_offset);
 
-SCM_API void scm_compile_lightning (SCM proc);
+SCM_API void scm_compile_mjit (SCM proc);
 
-SCM_API void scm_init_vm_lightning (void);
+SCM_API void scm_init_vm_mjit (void);
 
-#endif /* _SCM_VM_LIGHTNING_H_ */
+#endif /* _SCM_VM_MJIT_H_ */
 
 /*
   Local Variables:

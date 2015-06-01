@@ -24,7 +24,7 @@
 
 ;;; Code:
 
-(define-module (system vm lightning debug)
+(define-module (system vm native debug)
   #:use-module (system vm debug)
   #:export (lightning-verbosity lightning-trace debug try-program-name))
 

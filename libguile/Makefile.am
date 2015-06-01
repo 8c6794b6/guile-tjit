@@ -510,7 +510,7 @@ noinst_HEADERS = conv-integer.i.c conv-uinteger.i.c		\
 		 private-options.h ports-internal.h
 
 # vm instructions
-noinst_HEADERS += vm-engine.c vm-lightning.c
+noinst_HEADERS += vm-engine.c vm-mjit.c
 
 libguile_@GUILE_EFFECTIVE_VERSION@_la_DEPENDENCIES = @LIBLOBJS@
 
