@@ -56,9 +56,10 @@
   (persistent-intmap
    (intmap-fold (lambda (k v out)
                   (let ((v* (f k v)))
-                    (if (equal? v v*)
-                        out
-                        (intmap-replace! out k v*))))
+                    (cond
+                     ((equal? v v*) out)
+                     (v* (intmap-replace! out k v*))
+                     (else (intmap-remove out k)))))
                 conts
                 conts)))
 

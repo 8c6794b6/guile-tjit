@@ -34,6 +34,7 @@
             transient-intset?
             persistent-intset
             transient-intset
+            intset
             intset-add
             intset-add!
             intset-remove
@@ -299,6 +300,11 @@
       (else
        ;; Add a new level and try again.
        (intset-add (add-level min shift root) i))))))
+
+(define-syntax intset
+  (syntax-rules ()
+    ((intset) empty-intset)
+    ((intset x x* ...) (intset-add (intset x* ...) x))))
 
 (define (intset-remove bs i)
   (define (remove i shift root)
