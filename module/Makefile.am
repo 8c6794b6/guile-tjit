@@ -158,7 +158,8 @@ CPS2_LANG_SOURCES =						\
   language/cps2/simplify.scm					\
   language/cps2/spec.scm					\
   language/cps2/types.scm					\
-  language/cps2/utils.scm
+  language/cps2/utils.scm					\
+  language/cps2/with-cps.scm
 
 BYTECODE_LANG_SOURCES =						\
   language/bytecode.scm						\

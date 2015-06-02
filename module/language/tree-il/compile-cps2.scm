@@ -56,6 +56,7 @@
   #:use-module ((system foreign) #:select (make-pointer pointer->scm))
   #:use-module (language cps2)
   #:use-module (language cps2 utils)
+  #:use-module (language cps2 with-cps)
   #:use-module (language cps primitives)
   #:use-module (language tree-il analyze)
   #:use-module (language tree-il optimize)
@@ -83,110 +84,6 @@
   (let ((scope-id (scope-counter)))
     (scope-counter (1+ scope-id))
     scope-id))
-
-;;; We will traverse the nested Tree-IL expression to build the
-;;; label->cont mapping for the result.  When visiting any particular
-;;; expression, we usually already know the label and the $kargs wrapper
-;;; for the cont, and just need to know the body of that cont.  However
-;;; when building the body of that possibly nested Tree-IL expression we
-;;; will also need to add conts to the result, so really it's a process
-;;; that takes an incoming program, adds conts to that program, and
-;;; returns the result program and the result term.
-;;; 
-;;; It's a bit treacherous to do in a functional style as once you start
-;;; adding to a program, you shouldn't add to previous versions of that
-;;; program.  Getting that right in the context of this program seed
-;;; that is threaded through the conversion requires the use of a
-;;; pattern, with-cps.
-;;;
-;;; with-cps goes like this:
-;;;
-;;;   (with-cps cps clause ... tail-clause)
-;;;
-;;; Valid clause kinds are:
-;;;
-;;;   (letk LABEL CONT)
-;;;   (letv VAR ...)
-;;;   (let$ X (PROC ARG ...))
-;;;
-;;; letk and letv create fresh CPS labels and variable names,
-;;; respectively.  Labels and vars bound by letk and letv are in scope
-;;; from their point of definition onward.  letv just creates fresh
-;;; variable names for use in other parts of with-cps, while letk binds
-;;; fresh labels to values and adds them to the resulting program.  The
-;;; right-hand-side of letk, CONT, is passed to build-cont, so it should
-;;; be a valid production of that language.
-;;;
-;;; let$ delegates processing to a sub-computation.  The form (PROC ARG
-;;; ...) is syntactically altered to be (PROC CPS ARG ...), where CPS is
-;;; the value of the program being built, at that point in the
-;;; left-to-right with-cps execution.  That form is is expected to
-;;; evaluate to two values: the new CPS term, and the value to bind to
-;;; X.  X is in scope for the following with-cps clauses.  The name was
-;;; chosen because the $ is reminiscent of the $ in CPS data types.
-;;;
-;;; The result of the with-cps form is determined by the tail clause,
-;;; which may be of these two kinds:
-;;;
-;;;   ($ (PROC ARG ...))
-;;;   EXP
-;;;
-;;; $ is like let$, but in tail position.  Otherwise EXP is any kind of
-;;; expression, which should not add to the resulting program.  Ending
-;;; the with-cps with EXP is equivalant to returning (values CPS EXP).
-;;;
-;;; It's a bit of a monad, innit?  Don't tell anyone though!
-;;;
-(define-syntax with-cps
-  (syntax-rules (letk letv let$ $)
-    ((_ (exp ...) clause ...)
-     (let ((cps (exp ...)))
-       (with-cps cps clause ...)))
-    ((_ cps (letk label cont) clause ...)
-     (let-fresh (label) ()
-       (with-cps (intmap-add! cps label (build-cont cont))
-         clause ...)))
-    ((_ cps (letv v ...) clause ...)
-     (let-fresh () (v ...)
-       (with-cps cps clause ...)))
-    ((_ cps (let$ var (proc arg ...)) clause ...)
-     (call-with-values (lambda () (proc cps arg ...))
-       (lambda (cps var)
-         (with-cps cps clause ...))))
-    ((_ cps ($ (proc arg ...)))
-     (proc cps arg ...))
-    ((_ cps exp)
-     (values cps exp))))
-
-;;; Sometimes you need to just bind some constants to CPS values.
-;;; with-cps-constants is there for you.  For example:
-;;;
-;;;   (with-cps-constants cps ((foo 34))
-;;;     (build-term ($values (foo))))
-;;;
-;;; The body of with-cps-constants is a with-cps clause, or a sequence
-;;; of such clauses.  But usually you will want with-cps-constants
-;;; inside a with-cps, so it usually looks like this:
-;;;
-;;;   (with-cps cps
-;;;     ...
-;;;     ($ (with-cps-constants ((foo 34))
-;;;          (build-term ($values (foo))))))
-;;;
-;;; which is to say that the $ or the let$ adds the CPS argument for us.
-;;;
-(define-syntax with-cps-constants
-  (syntax-rules ()
-    ((_ cps () clause ...)
-     (with-cps cps clause ...))
-    ((_ cps ((var val) (var* val*) ...) clause ...)
-     (let ((x val))
-       (with-cps cps
-         (letv var)
-         (let$ body (with-cps-constants ((var* val*) ...)
-                      clause ...))
-         (letk label ($kargs ('var) (var) ,body))
-         (build-term ($continue label #f ($const x))))))))
 
 (define (toplevel-box cps src name bound? val-proc)
   (define (lookup cps name bound? k)
@@ -1041,8 +938,6 @@ integer."
           env))
 
 ;;; Local Variables:
-;;; eval: (put 'with-cps 'scheme-indent-function 1)
-;;; eval: (put 'with-cps-constants 'scheme-indent-function 1)
 ;;; eval: (put 'convert-arg 'scheme-indent-function 2)
 ;;; eval: (put 'convert-args 'scheme-indent-function 2)
 ;;; End:
