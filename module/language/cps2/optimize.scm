@@ -29,6 +29,7 @@
   #:use-module (language cps2 dce)
   #:use-module (language cps2 prune-top-level-scopes)
   #:use-module (language cps2 simplify)
+  #:use-module (language cps2 specialize-primcalls)
   #:export (optimize))
 
 (define (kw-arg-ref args kw default)
@@ -60,7 +61,7 @@
   (run-pass! simplify #:simplify? #t)
   (run-pass! contify #:contify? #t)
   (run-pass! inline-constructors #:inline-constructors? #t)
-  ;; (run-pass! specialize-primcalls #:specialize-primcalls? #t)
+  (run-pass! specialize-primcalls #:specialize-primcalls? #t)
   ;; (run-pass! elide-values #:elide-values? #t)
   ;; (run-pass! prune-bailouts #:prune-bailouts? #t)
   ;; (run-pass! eliminate-common-subexpressions #:cse? #t)
