@@ -23,78 +23,6 @@
 ;;; A virtual machine with whole-method JIT compiler from bytecode to
 ;;; native code. Compiler is written in scheme, with GNU Lightning.
 
-;;; Note for prompt
-;;; ---------------
-;;;
-;;; In vm-regular, prompt is pushed to dynstack with VM operation
-;;; "prompt".  The pushed dynstack has flag, tag, fp offset, sp offset,
-;;; handler's IP, and register.  The C function doing the actual work
-;;; for push is `scm_dynstack_push_prompt', written in "dynstack.c".
-;;;
-;;; Pushed prompt is referred from VM operation "abort", which is
-;;; written in VM builtin code `abort-to-prompt'. The pushed dynstack
-;;; entry is retrieved via `scm_dynstack_find_prompt', which is called
-;;; from `scm_c_abort', which is called from `vm_abort'.
-;;;
-;;; In `scm_c_abort', if the prompt is not escape only, continuation is
-;;; reified with `reify_partial_continuation'. Also, vp->fp, vp->sp, and
-;;; vp->ip are set from prompt's value. Then the function does
-;;; SCM_I_LONGJMP with `regisers' value.
-;;;
-;;; * C functions in VM operation "prompt":
-;;;
-;;; - dynstack.c:
-;;;   scm_dynstack_push_prompt (scm_t_dynstack *dynstack,
-;;;                             scm_t_dynstack_prompt_flags flags,
-;;;                             SCM key,
-;;;                             scm_t_ptrdiff fp_offset,
-;;;                             scm_t_ptrdiff sp_offset,
-;;;                             scm_t_uint32 *ip,
-;;;                             scm_i_jmp_buf *registers);
-;;;
-;;; In vm-engine.c, arguments `dynstack', `flags', `key' are not so
-;;; difficult, not much differ from other VM ops.  `fp_offset' is `fp -
-;;; vp->stack_base', and `sp_offset' is `LOCAL_ADDRESS (proc_slot) -
-;;; vp->stack_base'. ip is `ip + offset', which is next IP to jump in
-;;; vm-regular interpreter, but fragment of code to compile in
-;;; vm-mjit. `registers' is the one passed from `scm_call_n'.
-;;;
-;;; * C functions in VM operation "abort":
-;;;
-;;; - vm.c:
-;;;   vm_abort (struct scm_vm *vp,
-;;;             SCM tag,
-;;;             size_t nstack,
-;;;             SCM *stack_args,
-;;;             SCM tail,
-;;;             SCM *sp,
-;;;             scm_i_jmp_buf *current_registers)
-;;;
-;;; `vm_abort' is called in VM operation "abort". The first argument
-;;; `*vp' is `vp' in "vm-engine.c".  `tag' is in vm's local.  nstack is
-;;; referred from FRAME_LOCALS_COUNT. `*stack_args' is `LOCAL_ADDRESS
-;;; (2)'. `tail' is SCM_EOL, `*sp' is `LOCAL_ADDRESS (0)'. Finally,
-;;; `*current_registers' is `registers'.
-;;;
-;;; - control.c:
-;;;   scm_c_abort (struct scm_vm *vp,
-;;;                SCM tag,
-;;;                size_t n,
-;;;                SCM *argv,
-;;;                scm_i_jmp_buf *current_registers)
-;;;
-;;; `scm_c_abort' is called from `vm_abort'. `*vp', `tag', and
-;;; `*current_registers' are the same argument passed to 'vm_abort' from
-;;; vm-engine, `n' is `nstack' in vm_abort + length of tail, `argv' is
-;;; an array constructed from `stack_args' in "vm_abort". `vp->sp' is
-;;; set to `sp' in "vm_abort"'s argument before calling "scm_c_abort".
-;;;
-;;; * SCM_I_LONGJMP
-;;;
-;;; `SCM_I_LONGJMP' is called in the end of `scm_c_abort'.
-;;; `SCM_I_SETJMP' is called at near the end of `scm_call_n', just
-;;; before calling the implementation.
-
 ;;; Code:
 
 (define-module (system vm native mjit)
@@ -178,7 +106,7 @@
 (define-inline tc16-real 535)
 
 (define-inline scm-i-fixnum-bit (- (* (sizeof long) 8) 2))
-(define-inline scm-f-program-is-jit-compiled #x4000)
+(define-inline scm-f-program-is-native #x4000)
 (define-inline scm-vtable-index-flags 1)
 (define-inline scm-vtable-index-self 2)
 (define-inline scm-vtable-index-size 6)
@@ -354,7 +282,7 @@
 (define-syntax-rule (scm-cdr dst obj)
   (scm-cell-object dst obj 1))
 
-(define-syntax-rule (scm-program-jit-compiled-code dst src)
+(define-syntax-rule (scm-program-native-code dst src)
   (scm-cell-object dst src 2))
 
 (define-syntax-rule (scm-program-free-variable-ref dst src index)
@@ -444,8 +372,8 @@
 (define-syntax-rule (scm-not-program-p tag)
   (jit-bnei tag (imm tc7-program)))
 
-(define-syntax-rule (scm-program-is-jit-compiled obj)
-  (jit-bmsi obj (imm scm-f-program-is-jit-compiled)))
+(define-syntax-rule (scm-program-is-native obj)
+  (jit-bmsi obj (imm scm-f-program-is-native)))
 
 (define-syntax-rule (scm-is-string tc7)
   (jit-beqi tc7 (imm tc7-string)))
@@ -878,7 +806,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     ;; Local is program, test for native code.
     (jit-link lprogram)
-    (jump (scm-program-is-jit-compiled r2) lcompiled)
+    (jump (scm-program-is-native r2) lcompiled)
 
     ;; Does not have native code, compile the callee procedure.
     (jit-prepare)
@@ -889,7 +817,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
 
     ;; Has compiled code.
     (jit-link lcompiled)
-    (scm-program-jit-compiled-code r1 r0)
+    (scm-program-native-code r1 r0)
     (jit-jmpr r1)))
 
 (define-syntax-rule (return-one-value st val tmp1 tmp2 tmp3)
@@ -2094,7 +2022,7 @@ behaviour is similar to the `apply' label in vm-regular engine."
     (jit-prepare)
     (jit-pushargr reg-thread)
     (jit-pushargi (imm (logior tc7-program
-                               scm-f-program-is-jit-compiled
+                               scm-f-program-is-native
                                (ash nfree 16))))
     (jit-pushargi (imm (+ nfree 3)))
     (call-c %scm-do-inline-words)
@@ -2985,7 +2913,7 @@ compiled result."
                      (imm estimated-code-size))
        (jit-emit)
 
-       (set-jit-compiled-code! proc (jit-address entry))
+       (set-native-code! proc (jit-address entry))
        (make-bytevector-executable! bv)
 
        ;; Debug output.

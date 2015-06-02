@@ -39,7 +39,7 @@
 #define SCM_F_PROGRAM_IS_CONTINUATION 0x800
 #define SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION 0x1000
 #define SCM_F_PROGRAM_IS_FOREIGN 0x2000
-#define SCM_F_PROGRAM_IS_JIT_COMPILED 0x4000
+#define SCM_F_PROGRAM_IS_NATIVE 0x4000
 
 #define SCM_PROGRAM_IS_BOOT(x)	(SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_BOOT)
 #define SCM_PROGRAM_IS_PRIMITIVE(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_PRIMITIVE)
@@ -47,9 +47,9 @@
 #define SCM_PROGRAM_IS_CONTINUATION(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_CONTINUATION)
 #define SCM_PROGRAM_IS_PARTIAL_CONTINUATION(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION)
 #define SCM_PROGRAM_IS_FOREIGN(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_FOREIGN)
-#define SCM_PROGRAM_IS_JIT_COMPILED(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_JIT_COMPILED)
+#define SCM_PROGRAM_IS_NATIVE(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_NATIVE)
 
-#define SCM_JIT_COMPILED_CODE_UNDEFINED SCM_UNDEFINED
+#define SCM_INITIAL_NATIVE_CODE SCM_BOOL_F
 
 #ifdef BUILDING_LIBGUILE
 static inline SCM
@@ -57,7 +57,7 @@ scm_i_make_program (const scm_t_uint32 *bytecode)
 {
   SCM cell = scm_words (scm_tc7_program, 3);
   SCM_SET_CELL_WORD_1 (cell, (scm_t_bits) bytecode);
-  SCM_SET_CELL_WORD_2 (cell, SCM_JIT_COMPILED_CODE_UNDEFINED);
+  SCM_SET_CELL_WORD_2 (cell, SCM_INITIAL_NATIVE_CODE);
   return cell;
 }
 #endif
@@ -86,8 +86,8 @@ SCM_INTERNAL void scm_i_program_print (SCM program, SCM port,
 SCM_INTERNAL void scm_bootstrap_programs (void);
 SCM_INTERNAL void scm_init_programs (void);
 
-SCM_API SCM scm_set_jit_compiled_code_x (SCM program, SCM code);
-SCM_API SCM scm_jit_compiled_code (SCM program);
+SCM_API SCM scm_set_native_code_x (SCM program, SCM code);
+SCM_API SCM scm_native_code (SCM program);
 
 #endif /* _SCM_PROGRAMS_H_ */
 
