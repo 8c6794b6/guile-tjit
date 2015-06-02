@@ -154,6 +154,7 @@ CPS2_LANG_SOURCES =						\
   language/cps2/dce.scm						\
   language/cps2/effects-analysis.scm				\
   language/cps2/elide-values.scm				\
+  language/cps2/prune-bailouts.scm				\
   language/cps2/prune-top-level-scopes.scm			\
   language/cps2/renumber.scm					\
   language/cps2/optimize.scm					\

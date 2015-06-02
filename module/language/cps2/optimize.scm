@@ -29,6 +29,7 @@
   #:use-module (language cps2 dce)
   #:use-module (language cps2 elide-values)
   #:use-module (language cps2 prune-top-level-scopes)
+  #:use-module (language cps2 prune-bailouts)
   #:use-module (language cps2 simplify)
   #:use-module (language cps2 specialize-primcalls)
   #:export (optimize))
@@ -45,7 +46,7 @@
               (pass program)
               program)))
 
-  ;; This series of assignments to `env' used to be a series of let*
+  ;; This series of assignments to `program' used to be a series of let*
   ;; bindings of `program', as you would imagine.  In compiled code this
   ;; is fine because the compiler is able to allocate all let*-bound
   ;; variable to the same slot, which also means that the garbage
@@ -64,7 +65,7 @@
   (run-pass! inline-constructors #:inline-constructors? #t)
   (run-pass! specialize-primcalls #:specialize-primcalls? #t)
   (run-pass! elide-values #:elide-values? #t)
-  ;; (run-pass! prune-bailouts #:prune-bailouts? #t)
+  (run-pass! prune-bailouts #:prune-bailouts? #t)
   ;; (run-pass! eliminate-common-subexpressions #:cse? #t)
   ;; (run-pass! type-fold #:type-fold? #t)
   ;; (run-pass! resolve-self-references #:resolve-self-references? #t)
