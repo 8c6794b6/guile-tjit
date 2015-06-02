@@ -24,6 +24,7 @@
 
 (define-module (language cps2 optimize)
   #:use-module (ice-9 match)
+  #:use-module (language cps2 constructors)
   #:use-module (language cps2 contification)
   #:use-module (language cps2 dce)
   #:use-module (language cps2 prune-top-level-scopes)
@@ -43,8 +44,8 @@
               program)))
 
   ;; This series of assignments to `env' used to be a series of let*
-  ;; bindings of `env', as you would imagine.  In compiled code this is
-  ;; fine because the compiler is able to allocate all let*-bound
+  ;; bindings of `program', as you would imagine.  In compiled code this
+  ;; is fine because the compiler is able to allocate all let*-bound
   ;; variable to the same slot, which also means that the garbage
   ;; collector doesn't have to retain so many copies of the term being
   ;; optimized.  However during bootstrap, the interpreter doesn't do
@@ -58,5 +59,14 @@
   (run-pass! prune-top-level-scopes #:prune-top-level-scopes? #t)
   (run-pass! simplify #:simplify? #t)
   (run-pass! contify #:contify? #t)
+  (run-pass! inline-constructors #:inline-constructors? #t)
+  ;; (run-pass! specialize-primcalls #:specialize-primcalls? #t)
+  ;; (run-pass! elide-values #:elide-values? #t)
+  ;; (run-pass! prune-bailouts #:prune-bailouts? #t)
+  ;; (run-pass! eliminate-common-subexpressions #:cse? #t)
+  ;; (run-pass! type-fold #:type-fold? #t)
+  ;; (run-pass! resolve-self-references #:resolve-self-references? #t)
+  ;; (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
+  ;; (run-pass! simplify #:simplify? #t)
 
   program)
