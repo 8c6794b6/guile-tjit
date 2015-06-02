@@ -57,7 +57,7 @@
                                 (let ((val (intmap-ref constants scope)))
                                   (not (intset-ref used-scopes val)))))))))
           (build-cont ($kargs names vars
-                        ($continue k src ($primcall 'values ())))))
+                        ($continue k src ($values ())))))
          (_
           cont)))
      conts)))
