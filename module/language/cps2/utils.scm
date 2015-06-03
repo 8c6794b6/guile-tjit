@@ -197,8 +197,6 @@
             (visit-cont k (match exp
                             (($ $branch k)
                              (visit-cont k labels))
-                            (($ $callk k)
-                             (visit-cont k labels))
                             (($ $prompt escape? tag k)
                              (visit-cont k labels))
                             (_ labels)))))))))))
@@ -219,7 +217,7 @@
             (($ $kargs names vars ($ $continue k src exp))
              (match exp
                (($ $branch kt) (propagate2 k kt))
-               (($ $prompt escape? handler) (propagate2 k handler))
+               (($ $prompt escape? tag handler) (propagate2 k handler))
                (_ (propagate1 k))))
             (($ $kreceive arity k)
              (propagate1 k))
