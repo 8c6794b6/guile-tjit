@@ -43,6 +43,7 @@
 ;;; Valid clause kinds are:
 ;;;
 ;;;   (letk LABEL CONT)
+;;;   (setk LABEL CONT)
 ;;;   (letv VAR ...)
 ;;;   (let$ X (PROC ARG ...))
 ;;;
@@ -52,7 +53,8 @@
 ;;; variable names for use in other parts of with-cps, while letk binds
 ;;; fresh labels to values and adds them to the resulting program.  The
 ;;; right-hand-side of letk, CONT, is passed to build-cont, so it should
-;;; be a valid production of that language.
+;;; be a valid production of that language.  setk is like letk but it
+;;; doesn't create a fresh label name.
 ;;;
 ;;; let$ delegates processing to a sub-computation.  The form (PROC ARG
 ;;; ...) is syntactically altered to be (PROC CPS ARG ...), where CPS is
@@ -63,14 +65,17 @@
 ;;; chosen because the $ is reminiscent of the $ in CPS data types.
 ;;;
 ;;; The result of the with-cps form is determined by the tail clause,
-;;; which may be of these two kinds:
+;;; which may be of these kinds:
 ;;;
 ;;;   ($ (PROC ARG ...))
+;;;   (setk LABEL CONT)
 ;;;   EXP
 ;;;
-;;; $ is like let$, but in tail position.  Otherwise EXP is any kind of
-;;; expression, which should not add to the resulting program.  Ending
-;;; the with-cps with EXP is equivalant to returning (values CPS EXP).
+;;; $ is like let$, but in tail position.  If the tail clause is setk,
+;;; then only one value is returned, the resulting CPS program.
+;;; Otherwise EXP is any kind of expression, which should not add to the
+;;; resulting program.  Ending the with-cps with EXP is equivalant to
+;;; returning (values CPS EXP).
 ;;;
 ;;; It's a bit of a monad, innit?  Don't tell anyone though!
 ;;;
@@ -100,7 +105,7 @@
   #:export (with-cps with-cps-constants))
 
 (define-syntax with-cps
-  (syntax-rules (letk letv let$ $)
+  (syntax-rules (letk setk letv let$ $)
     ((_ (exp ...) clause ...)
      (let ((cps (exp ...)))
        (with-cps cps clause ...)))
@@ -108,6 +113,12 @@
      (let-fresh (label) ()
        (with-cps (intmap-add! cps label (build-cont cont))
          clause ...)))
+    ((_ cps (setk label cont))
+     (intmap-add! cps label (build-cont cont)
+                  (lambda (old new) new)))
+    ((_ cps (setk label cont) clause ...)
+     (with-cps (with-cps cps (setk label cont))
+       clause ...))
     ((_ cps (letv v ...) clause ...)
      (let-fresh () (v ...)
        (with-cps cps clause ...)))
