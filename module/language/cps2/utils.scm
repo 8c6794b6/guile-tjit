@@ -45,7 +45,11 @@
             ;; Flow analysis.
             compute-constant-values
             compute-function-body
+            compute-successors
+            invert-graph
             compute-predecessors
+            compute-reverse-post-order
+            compute-strongly-connected-components
             compute-idoms
             compute-dom-edges
             ))
@@ -199,6 +203,37 @@
                              (visit-cont k labels))
                             (_ labels)))))))))))
 
+(define (compute-successors conts kfun)
+  (define (visit label succs)
+    (let visit ((label kfun) (succs empty-intmap))
+      (define (propagate0)
+        (intmap-add! succs label empty-intset))
+      (define (propagate1 succ)
+        (visit succ (intmap-add! succs label (intset succ))))
+      (define (propagate2 succ0 succ1)
+        (let ((succs (intmap-add! succs label (intset succ0 succ1))))
+          (visit succ1 (visit succ0 succs))))
+      (if (intmap-ref succs label (lambda (_) #f))
+          succs
+          (match (intmap-ref conts label)
+            (($ $kargs names vars ($ $continue k src exp))
+             (match exp
+               (($ $branch kt) (propagate2 k kt))
+               (($ $prompt escape? handler) (propagate2 k handler))
+               (_ (propagate1 k))))
+            (($ $kreceive arity k)
+             (propagate1 k))
+            (($ $kfun src meta self tail clause)
+             (if clause
+                 (propagate1 clause)
+                 (propagate0)))
+            (($ $kclause arity kbody kalt)
+             (if kalt
+                 (propagate2 kbody kalt)
+                 (propagate1 kbody)))
+            (($ $ktail) (propagate0))))))
+  (persistent-intmap (visit kfun empty-intmap)))
+
 (define* (compute-predecessors conts kfun #:key
                                (labels (compute-function-body conts kfun)))
   (define (meet cdr car)
@@ -224,6 +259,53 @@
   (persistent-intmap
    (intset-fold add-preds labels
                 (intset->intmap (lambda (label) '()) labels))))
+
+(define (compute-reverse-post-order succs start)
+  "Compute a reverse post-order numbering for a depth-first walk over
+nodes reachable from the start node."
+  (let visit ((label start) (order '()) (visited empty-intset))
+    (call-with-values
+        (lambda ()
+          (intset-fold (lambda (succ order visited)
+                         (if (intset-ref visited succ)
+                             (values order visited)
+                             (visit succ order visited)))
+                       (intmap-ref succs label)
+                       order
+                       (intset-add! visited label)))
+      (lambda (order visited)
+        ;; After visiting successors, add label to the reverse post-order.
+        (values (cons label order) visited)))))
+
+(define (invert-graph succs)
+  "Given a graph PRED->SUCC..., where PRED is a label and SUCC... is an
+intset of successors, return a graph SUCC->PRED...."
+  (intmap-fold (lambda (pred succs preds)
+                 (intset-fold
+                  (lambda (succ preds)
+                    (intmap-add preds succ pred intset-add))
+                  succs
+                  preds))
+               succs
+               (intmap-map (lambda (label _) empty-intset) succs)))
+
+(define (compute-strongly-connected-components succs start)
+  "Given a LABEL->SUCCESSOR... graph, compute a SCC->LABEL... map
+partitioning the labels into strongly connected components (SCCs)."
+  (let ((preds (invert-graph succs)))
+    (define (visit-scc scc sccs-by-label)
+      (let visit ((label scc) (sccs-by-label sccs-by-label))
+        (if (intmap-ref sccs-by-label label (lambda (_) #f))
+            sccs-by-label
+            (intset-fold visit
+                         (intmap-ref preds label)
+                         (intmap-add sccs-by-label label scc)))))
+    (intmap-fold
+     (lambda (label scc sccs)
+       (let ((labels (intset-add empty-intset label)))
+         (intmap-add sccs scc labels intset-union)))
+     (fold visit-scc empty-intmap (compute-reverse-post-order succs start))
+     empty-intmap)))
 
 ;; Precondition: For each function in CONTS, the continuation names are
 ;; topologically sorted.

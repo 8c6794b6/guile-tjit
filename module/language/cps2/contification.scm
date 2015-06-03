@@ -257,49 +257,6 @@ function set."
      (intset->intmap (lambda (label) empty-intset) (intset-add labels 0))
      (intset->intmap (lambda (label) empty-intset) labels))))
 
-(define (sort-nodes succs start)
-  "Compute a reverse post-order numbering for a depth-first walk over
-nodes reachable from the start node."
-  (let visit ((label start) (order '()) (visited empty-intset))
-    (call-with-values
-        (lambda ()
-          (intset-fold (lambda (succ order visited)
-                         (if (intset-ref visited succ)
-                             (values order visited)
-                             (visit succ order visited)))
-                       (intmap-ref succs label)
-                       order
-                       (intset-add! visited label)))
-      (lambda (order visited)
-        ;; After visiting successors, add label to the reverse post-order.
-        (values (cons label order) visited)))))
-
-(define (compute-sccs succs start)
-  "Given a LABEL->SUCCESSOR... graph, compute a SCC->LABEL... map
-partitioning the labels into strongly connected components (SCCs)."
-  (let ((preds (intmap-fold
-                 (lambda (pred succs preds)
-                   (intset-fold
-                    (lambda (succ preds)
-                      (intmap-add preds succ pred intset-add))
-                    succs
-                    preds))
-                 succs
-                 (intmap-map (lambda (label _) empty-intset) succs))))
-    (define (visit-scc scc sccs-by-label)
-      (let visit ((label scc) (sccs-by-label sccs-by-label))
-        (if (intmap-ref sccs-by-label label (lambda (_) #f))
-            sccs-by-label
-            (intset-fold visit
-                         (intmap-ref preds label)
-                         (intmap-add sccs-by-label label scc)))))
-    (intmap-fold
-     (lambda (label scc sccs)
-       (let ((labels (intset-add empty-intset label)))
-         (intmap-add sccs scc labels intset-union)))
-     (fold visit-scc empty-intmap (sort-nodes succs start))
-     empty-intmap)))
-
 (define (tail-label conts label)
   (match (intmap-ref conts label)
     (($ $kfun src meta self tail body)
@@ -374,7 +331,9 @@ partitioning the labels into strongly connected components (SCCs)."
        ;; has no predecessors.
        ;;
        ;; id -> label...
-       ((groups) (intmap-remove (compute-sccs calls 0) 0)))
+       ((groups) (intmap-remove
+                  (compute-strongly-connected-components calls 0)
+                  0)))
     ;; todo: thread groups through contification
     (define (attempt-contification labels contified return-substs)
       (let ((returns (compute-return-labels labels tails returns
