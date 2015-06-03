@@ -31,6 +31,7 @@
   #:use-module (language cps2 elide-values)
   #:use-module (language cps2 prune-top-level-scopes)
   #:use-module (language cps2 prune-bailouts)
+  #:use-module (language cps2 self-references)
   #:use-module (language cps2 simplify)
   #:use-module (language cps2 specialize-primcalls)
   #:use-module (language cps2 type-fold)
@@ -70,7 +71,7 @@
   (run-pass! prune-bailouts #:prune-bailouts? #t)
   (run-pass! eliminate-common-subexpressions #:cse? #t)
   (run-pass! type-fold #:type-fold? #t)
-  ;; (run-pass! resolve-self-references #:resolve-self-references? #t)
+  (run-pass! resolve-self-references #:resolve-self-references? #t)
   ;; (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
   ;; (run-pass! simplify #:simplify? #t)
 
