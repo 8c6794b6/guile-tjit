@@ -78,7 +78,10 @@
   ;; analysis on the box created for the set!.
 
   (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
-  (run-pass! prune-top-level-scopes #:prune-top-level-scopes? #t)
+  ;; The prune-top-level-scopes pass doesn't work if CSE has run
+  ;; beforehand.  Since hopefully we will be able to just remove all the
+  ;; old CPS stuff, let's just disable the pass for now.
+  ;; (run-pass! prune-top-level-scopes #:prune-top-level-scopes? #t)
   (run-pass! simplify #:simplify? #t)
   (run-pass! contify #:contify? #t)
   (run-pass! inline-constructors #:inline-constructors? #t)
