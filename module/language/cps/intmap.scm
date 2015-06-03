@@ -393,11 +393,12 @@ already, and always calls the meet procedure."
 
 (define* (intmap-ref map i #:optional (not-found (lambda (i)
                                                    (error "not found" i))))
+  (define (absent) (not-found i))
   (define (ref min shift root)
     (if (zero? shift)
         (if (and min (= i min) (present? root))
             root
-            (not-found i))
+            (absent))
         (if (and (<= min i) (< i (+ min (ash 1 shift))))
             (let ((i (- i min)))
               (let lp ((node root) (shift shift))
@@ -406,13 +407,13 @@ already, and always calls the meet procedure."
                         (let ((node (vector-ref node (logand i *branch-mask*))))
                           (if (present? node)
                               node
-                              (not-found i)))
+                              (absent)))
                         (let* ((shift (- shift *branch-bits*))
                                (idx (logand (ash i (- shift))
                                             *branch-mask*)))
                           (lp (vector-ref node idx) shift)))
-                    (not-found i))))
-            (not-found i))))
+                    (absent))))
+            (absent))))
   (match map
     (($ <intmap> min shift root)
      (ref min shift root))
