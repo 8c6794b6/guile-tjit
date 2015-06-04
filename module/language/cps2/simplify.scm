@@ -63,8 +63,42 @@
                 conts
                 conts)))
 
-;;; Continuations that simply forward their values to another may be
-;;; elided via eta reduction over labels.
+(define (compute-singly-referenced-vars conts)
+  (define (visit label cont single multiple)
+    (define (add-ref var single multiple)
+      (if (intset-ref single var)
+          (values single (intset-add! multiple var))
+          (values (intset-add! single var) multiple)))
+    (define (ref var) (add-ref var single multiple))
+    (define (ref* vars) (fold2 add-ref vars single multiple))
+    (match cont
+      (($ $kargs _ _ ($ $continue _ _ exp))
+       (match exp
+         ((or ($ $const) ($ $prim) ($ $fun) ($ $rec))
+          (values single multiple))
+         (($ $call proc args)
+          (ref* (cons proc args)))
+         (($ $callk k proc args)
+          (ref* (cons proc args)))
+         (($ $primcall name args)
+          (ref* args))
+         (($ $values args)
+          (ref* args))
+         (($ $branch kt ($ $values (var)))
+          (ref var))
+         (($ $branch kt ($ $primcall name args))
+          (ref* args))
+         (($ $prompt escape? tag handler)
+          (ref tag))))
+      (_
+       (values single multiple))))
+  (let*-values (((single multiple) (values empty-intset empty-intset))
+                ((single multiple) (intmap-fold visit conts single multiple)))
+    (intset-subtract (persistent-intset single)
+                     (persistent-intset multiple))))
+
+;;; Continuations whose values are simply forwarded to another and not
+;;; used in any other way may be elided via eta reduction over labels.
 ;;;
 ;;; There is an exception however: we must exclude strongly-connected
 ;;; components (SCCs).  The only kind of SCC we can build out of $values
@@ -78,30 +112,36 @@
 ;;; optimal if labels are sorted.  If the labels aren't sorted it's
 ;;; suboptimal but cheap.
 (define (compute-eta-reductions conts kfun)
-  (define (visit-fun kfun nested-funs eta)
-    (let ((body (compute-function-body conts kfun)))
-      (define (visit-cont label nested-funs eta)
-        (match (intmap-ref conts label)
-          (($ $kargs names vars ($ $continue k src ($ $values vars)))
-           (values nested-funs
-                   (intset-maybe-add! eta label
-                                      (match (intmap-ref conts k)
-                                        (($ $kargs)
-                                         (and (not (eqv? label k)) ; A
-                                              (not (intset-ref eta label)) ; B
-                                              ))
-                                        (_ #f)))))
-          (($ $kargs _ _ ($ $continue _ _ ($ $fun kfun)))
-           (values (intset-add! nested-funs kfun) eta))
-          (($ $kargs _ _ ($ $continue _ _ ($ $rec _ _ (($ $fun kfun) ...))))
-           (values (intset-add*! nested-funs kfun) eta))
-          (_
-           (values nested-funs eta))))
-      (intset-fold visit-cont body nested-funs eta)))
-  (define (visit-funs worklist eta)
-    (intset-fold visit-fun worklist empty-intset eta))
-  (persistent-intset
-   (worklist-fold visit-funs (intset-add empty-intset kfun) empty-intset)))
+  (let ((singly-used (compute-singly-referenced-vars conts)))
+    (define (singly-used? vars)
+      (match vars
+        (() #t)
+        ((var . vars)
+         (and (intset-ref singly-used var) (singly-used? vars)))))
+    (define (visit-fun kfun nested-funs eta)
+      (let ((body (compute-function-body conts kfun)))
+        (define (visit-cont label nested-funs eta)
+          (match (intmap-ref conts label)
+            (($ $kargs names vars ($ $continue k src ($ $values vars)))
+             (values nested-funs
+                     (intset-maybe-add! eta label
+                                        (match (intmap-ref conts k)
+                                          (($ $kargs)
+                                           (and (not (eqv? label k)) ; A
+                                                (not (intset-ref eta label)) ; B
+                                                (singly-used? vars)))
+                                          (_ #f)))))
+            (($ $kargs _ _ ($ $continue _ _ ($ $fun kfun)))
+             (values (intset-add! nested-funs kfun) eta))
+            (($ $kargs _ _ ($ $continue _ _ ($ $rec _ _ (($ $fun kfun) ...))))
+             (values (intset-add*! nested-funs kfun) eta))
+            (_
+             (values nested-funs eta))))
+        (intset-fold visit-cont body nested-funs eta)))
+    (define (visit-funs worklist eta)
+      (intset-fold visit-fun worklist empty-intset eta))
+    (persistent-intset
+     (worklist-fold visit-funs (intset-add empty-intset kfun) empty-intset))))
 
 (define (eta-reduce conts kfun)
   (let ((label-set (compute-eta-reductions conts kfun)))
