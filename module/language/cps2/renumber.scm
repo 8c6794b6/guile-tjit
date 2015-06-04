@@ -60,67 +60,54 @@
 ;; Topologically sort the continuation tree starting at k0, using
 ;; reverse post-order numbering.
 (define (sort-labels-locally conts k0 path-lengths)
+  (define (visit-kf-first? kf kt)
+    ;; Visit the successor of a branch with the shortest path length to
+    ;; the tail first, so that if the branches are unsorted, the longer
+    ;; path length will appear first.  This will move a loop exit out of
+    ;; a loop.
+    (let ((kf-len (intmap-ref path-lengths kf (lambda (_) #f)))
+          (kt-len (intmap-ref path-lengths kt (lambda (_) #f))))
+      (if kt-len
+          (or (not kf-len) (< kf-len kt-len)
+              ;; If the path lengths are the same, preserve original
+              ;; order to avoid squirreliness.
+              (and (= kf-len kt-len) (< kt kf)))
+          (if kf-len #f (< kt kf)))))
   (let ((order '())
         (visited empty-intset))
-    (define (visit k)
-      (define (maybe-visit k)
-        (unless (intset-ref visited k)
-          (visit k)))
-      (define (visit-successors k)
-        (match (intmap-ref conts k)
-          (($ $kargs names syms ($ $continue k src exp))
-           (match exp
-             (($ $prompt escape? tag handler)
-              (maybe-visit handler)
-              (maybe-visit k))
-             (($ $branch kt)
-              ;; Visit the successor with the shortest path length
-              ;; to the tail first, so that if the branches are
-              ;; unsorted, the longer path length will appear
-              ;; first.  This will move a loop exit out of a loop.
-              (let ((k-len (intmap-ref path-lengths k
-                                       (lambda (_) #f)))
-                    (kt-len (intmap-ref path-lengths kt
-                                        (lambda (_) #f))))
-                (cond
-                 ((if kt-len
-                      (or (not k-len)
-                          (< k-len kt-len)
-                          ;; If the path lengths are the
-                          ;; same, preserve original order
-                          ;; to avoid squirreliness.
-                          (and (= k-len kt-len) (< kt k)))
-                      (if k-len #f (< kt k)))
-                  (maybe-visit k)
-                  (maybe-visit kt))
-                 (else
-                  (maybe-visit kt)
-                  (maybe-visit k)))))
-             (_
-              (maybe-visit k))))
-          (($ $kreceive arity k) (maybe-visit k))
-          (($ $kclause arity kbody kalt)
-           (when kalt (visit kalt))
-           (maybe-visit kbody))
-          (($ $kfun src meta self tail clause)
-           (visit tail)
-           (when clause (visit clause)))
-          (_ #f)))
-
-      ;; Mark this continuation as visited.
-      (set! visited (intset-add! visited k))
-
-      ;; Visit unvisited successors.
-      (visit-successors k)
-
-      ;; Add k to the reverse post-order.
-      (set! order (cons k order)))
-
-    ;; Recursively visit all continuations reachable from k0.
-    (visit k0)
-
-    ;; Return the sorted order.
-    order))
+    (let visit ((k k0) (order '()) (visited empty-intset))
+      (define (visit2 k0 k1 order visited)
+        (let-values (((order visited) (visit k0 order visited)))
+          (visit k1 order visited)))
+      (if (intset-ref visited k)
+          (values order visited)
+          (let ((visited (intset-add visited k)))
+            (call-with-values
+                (lambda ()
+                  (match (intmap-ref conts k)
+                    (($ $kargs names syms ($ $continue k src exp))
+                     (match exp
+                       (($ $prompt escape? tag handler)
+                        (visit2 k handler order visited))
+                       (($ $branch kt)
+                        (if (visit-kf-first? k kt)
+                            (visit2 k kt order visited)
+                            (visit2 kt k order visited)))
+                       (_
+                        (visit k order visited))))
+                    (($ $kreceive arity k) (visit k order visited))
+                    (($ $kclause arity kbody kalt)
+                     (if kalt
+                         (visit2 kalt kbody order visited)
+                         (visit kbody order visited)))
+                    (($ $kfun src meta self tail clause)
+                     (if clause
+                         (visit2 tail clause order visited)
+                         (visit tail order visited)))
+                    (($ $ktail) (values order visited))))
+              (lambda (order visited)
+                ;; Add k to the reverse post-order.
+                (values (cons k order) visited))))))))
 
 (define (compute-renaming conts kfun)
   ;; labels := old -> new
