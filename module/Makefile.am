@@ -48,8 +48,9 @@ ice-9/match.go: ice-9/match.scm ice-9/match.upstream.scm
 # boot-9 first, then the compiler itself, then the rest of the code.
 SOURCES =					\
   ice-9/boot-9.scm				\
+  language/cps/intmap.scm			\
+  language/cps/intset.scm			\
   language/tree-il/peval.scm                    \
-  language/cps/types.scm			\
   system/vm/elf.scm				\
   ice-9/vlist.scm                               \
   srfi/srfi-1.scm                               \
@@ -131,8 +132,6 @@ CPS_LANG_SOURCES =						\
   language/cps/dfg.scm						\
   language/cps/effects-analysis.scm				\
   language/cps/elide-values.scm					\
-  language/cps/intmap.scm					\
-  language/cps/intset.scm					\
   language/cps/primitives.scm					\
   language/cps/prune-bailouts.scm				\
   language/cps/prune-top-level-scopes.scm			\
@@ -144,6 +143,7 @@ CPS_LANG_SOURCES =						\
   language/cps/spec.scm						\
   language/cps/specialize-primcalls.scm				\
   language/cps/type-fold.scm					\
+  language/cps/types.scm					\
   language/cps/verify.scm
 
 CPS2_LANG_SOURCES =						\
