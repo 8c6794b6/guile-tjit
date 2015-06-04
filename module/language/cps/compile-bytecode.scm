@@ -510,7 +510,13 @@
 
 (define (compile-bytecode exp env opts)
   ;; See comment in `optimize' about the use of set!.
-  (set! exp (optimize exp opts))
+
+  ;; Since CPS2's optimization pass replaces CPS and uses less memory,
+  ;; we disable the optimization pass for now.  We'll remove it once
+  ;; we're sure.
+  ;;
+  ;; (set! exp (optimize exp opts))
+
   (set! exp (convert-closures exp))
   ;; first-order optimization should go here
   (set! exp (reify-primitives exp))
