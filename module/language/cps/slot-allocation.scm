@@ -459,10 +459,21 @@ are comparable with eqv?.  A tmp slot may be used."
                        ;; assumptions that slots not allocated are not
                        ;; used.
                        ($ $values (or () (_))))
+                   (define (intset-empty? intset) (not (intset-next intset)))
                    (let ((killed (intset-subtract (live-before n) (live-after n))))
-                     (if (intset-next (intset-intersect killed needs-slot) #f)
-                         (finish-hints n (live-before n) args)
-                         (scan-for-hints (1- n) args))))
+                     ;; If the expression kills no values needing slots,
+                     ;; and defines no value needing a slot that's not
+                     ;; in our args, then we keep on trucking.
+                     (if (intset-empty? (intset-intersect
+                                         (fold (lambda (def clobber)
+                                                 (if (intset-ref args def)
+                                                     clobber
+                                                     (intset-add clobber def)))
+                                               killed
+                                               (vector-ref defv n))
+                                         needs-slot))
+                         (scan-for-hints (1- n) args)
+                         (finish-hints n (live-before n) args))))
                   ((or ($ $call) ($ $callk) ($ $values) ($ $branch))
                    (finish-hints n (live-before n) args))))
                ;; Otherwise we kill uses of the block entry.
