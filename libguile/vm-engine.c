@@ -259,6 +259,7 @@
     SCM val = ret;                                      \
     SCM *old_fp;                                        \
     VM_HANDLE_INTERRUPTS;                               \
+    ALLOC_FRAME (2);					\
     old_fp = fp;                                        \
     ip = SCM_FRAME_RETURN_ADDRESS (fp);                 \
     fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);          \
@@ -278,10 +279,10 @@
   do {                                                  \
     SCM vals = vals_;                                   \
     VM_HANDLE_INTERRUPTS;                               \
+    ALLOC_FRAME (3);					\
     fp[0] = vm_builtin_apply;                           \
     fp[1] = vm_builtin_values;                          \
     fp[2] = vals;                                       \
-    RESET_FRAME (3);                                    \
     ip = (scm_t_uint32 *) vm_builtin_apply_code;        \
     goto op_tail_apply;                                 \
   } while (0)
