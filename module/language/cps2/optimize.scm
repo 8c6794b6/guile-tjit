@@ -82,7 +82,7 @@
   (run-pass! eliminate-common-subexpressions #:cse? #t)
   (run-pass! type-fold #:type-fold? #t)
   (run-pass! resolve-self-references #:resolve-self-references? #t)
-  ;; (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
-  ;; (run-pass! simplify #:simplify? #t)
+  (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
+  (run-pass! simplify #:simplify? #t)
 
   (verify program))
