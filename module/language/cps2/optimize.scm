@@ -35,6 +35,7 @@
   #:use-module (language cps2 simplify)
   #:use-module (language cps2 specialize-primcalls)
   #:use-module (language cps2 type-fold)
+  #:use-module (language cps2 verify)
   #:export (optimize))
 
 (define (kw-arg-ref args kw default)
@@ -42,12 +43,21 @@
     ((_ val . _) val)
     (_ default)))
 
+(define *debug?* #f)
+
+(define (maybe-verify program)
+  (if *debug?*
+      (verify program)
+      program))
+
 (define* (optimize program #:optional (opts '()))
   (define (run-pass! pass kw default)
     (set! program
           (if (kw-arg-ref opts kw default)
-              (pass program)
+              (maybe-verify (pass program))
               program)))
+
+  (maybe-verify program)
 
   ;; This series of assignments to `program' used to be a series of let*
   ;; bindings of `program', as you would imagine.  In compiled code this
@@ -75,4 +85,4 @@
   ;; (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
   ;; (run-pass! simplify #:simplify? #t)
 
-  program)
+  (verify program))
