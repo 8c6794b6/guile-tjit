@@ -258,7 +258,7 @@ VOID_0 (jit_destroy_state, "jit-destroy-state")
 
 NODE_1 (jit_address, "jit-address", arg1, JIT_NODE (arg1))
 NODE_2 (jit_note, "jit-note", name, pos,
-        scm_to_latin1_string (name), scm_to_int (pos))
+        scm_to_latin1_string (name), SCM_I_INUM (pos))
 NODE_1 (jit_name, "jit-name", name, scm_to_latin1_string (name))
 NODE_0 (jit_label, "jit-label")
 NODE_0 (jit_forward, "jit-forward")

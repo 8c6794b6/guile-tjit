@@ -34,6 +34,7 @@
 (define-module (ice-9 command-line)
   #:autoload (system vm vm) (set-default-vm-engine! set-vm-engine!)
   #:autoload (system vm native mjit) (init-vm-mjit)
+  #:autoload (system vm native tjit) (init-vm-tjit)
   #:export (compile-shell-switches
             version-etc
             *GPLv3+*
@@ -130,6 +131,7 @@ If FILE begins with `-' the -s switch is mandatory.
                  no breakpoints); default is --debug for interactive
                  use, but not for `-s' and `-c'.
   --mjit         start with the \"mjit\" VM engine (EXPERIMENTAL)
+  --tjit         start with the \"tjit\" VM engine (EXPERIMENTAL)
   --auto-compile compile source files automatically
   --fresh-auto-compile  invalidate auto-compilation cache
   --no-auto-compile  disable automatic source file compilation;
@@ -204,7 +206,8 @@ If FILE begins with `-' the -s switch is mandatory.
         (inhibit-user-init? #f)
         (turn-on-debugging? #f)
         (turn-off-debugging? #f)
-        (mjit? #f))
+        (mjit? #f)
+        (tjit? #f))
 
     (define (error fmt . args)
       (apply shell-usage usage-name #t
@@ -413,6 +416,10 @@ If FILE begins with `-' the -s switch is mandatory.
             (set! mjit? #t)
             (parse args out))
 
+           ((string=? arg "--tjit")
+            (set! tjit? #t)
+            (parse args out))
+
            ((string-prefix? "--mjit-verbosity=" arg)
             (use-modules (system vm native debug))
             (parse args
@@ -439,7 +446,8 @@ If FILE begins with `-' the -s switch is mandatory.
       (if (or turn-on-debugging?
               (and interactive?
                    (not turn-off-debugging?)
-                   (not mjit?)))
+                   (not mjit?)
+                   (not tjit?)))
           (begin
             (set-default-vm-engine! 'debug)
             (set-vm-engine! 'debug)))
@@ -449,6 +457,12 @@ If FILE begins with `-' the -s switch is mandatory.
         (init-vm-mjit interactive?)
         (set-default-vm-engine! 'mjit)
         (set-vm-engine! 'mjit))
+
+      ;; Use vm-tjit engine
+      (when tjit?
+        (init-vm-tjit interactive?)
+        (set-default-vm-engine! 'tjit)
+        (set-vm-engine! 'tjit))
 
       ;; Return this value.
       `(;; It would be nice not to load up (ice-9 control), but the
