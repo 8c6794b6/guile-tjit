@@ -466,5 +466,10 @@ function set."
     conts)))
 
 (define (contify conts)
-  (let-values (((call-substs return-substs) (compute-contification conts)))
-    (apply-contification conts call-substs return-substs)))
+  ;; FIXME: Renumbering isn't really needed but dead continuations may
+  ;; cause compute-singly-referenced-labels to spuriously mark some
+  ;; conts as irreducible.  For now we punt and renumber so that there
+  ;; are only live conts.
+  (let ((conts (renumber conts)))
+    (let-values (((call-substs return-substs) (compute-contification conts)))
+      (apply-contification conts call-substs return-substs))))
