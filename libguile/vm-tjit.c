@@ -68,7 +68,7 @@ typedef scm_t_uint32* (*scm_t_native_code) (scm_i_thread *thread,
  */
 
 static SCM ip_counter_table;
-static SCM native_code_table;
+static SCM code_cache_table;
 static SCM compile_tjit_var;
 
 
@@ -87,40 +87,68 @@ scm_compile_tjit (SCM bc_ptr, SCM bc_len, SCM ip_ptr, SCM ip_len)
 }
 
 static inline scm_t_uint32*
-scm_tjit_enter (scm_t_uint32 *ip, scm_t_int32 jump, size_t *state,
+scm_tjit_enter (scm_t_uint32 *ip, size_t *state, scm_t_int32 jump,
                 scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
                 scm_i_thread *thread, struct scm_vm *vp,
                 scm_i_jmp_buf *registers, int resume)
 {
-  SCM scm_ip, current_count, new_count, code;
+  SCM scm_ip, code;
 
   scm_ip = SCM_I_MAKINUM (ip + jump);
-  current_count = scm_hashq_ref (ip_counter_table, scm_ip, SCM_INUM0);
-  new_count = SCM_PACK (SCM_UNPACK (current_count) + INUM_STEP);
-  scm_hashq_set_x (ip_counter_table, scm_ip, new_count);
-  code = scm_hashq_ref (native_code_table, scm_ip, SCM_BOOL_F);
+  code = scm_hashq_ref (code_cache_table, scm_ip, SCM_BOOL_F);
 
-  if (tjit_hot_count < new_count && scm_is_false (code))
+  if (scm_is_true (code))
     {
-      *state = SCM_TJIT_STATE_TRACE;
-      *loop_start = (scm_t_uintptr) (ip + jump);
-      *loop_end = (scm_t_uintptr) ip;
-      scm_hashq_set_x (native_code_table, scm_ip, SCM_BOOL_T);
+      /* Found compiled native code for this bytecode in cache, run it.
+         Set next IP to the one returned from failed guard. */
+
+      scm_t_native_code func;
+
+      func = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
+      ip = func (thread, vp, registers, resume);
+    }
+  else
+    {
+      SCM current_count, new_count;
+
+      /* Increment the loop counter. */
+      current_count = scm_hashq_ref (ip_counter_table, scm_ip, SCM_INUM0);
+      new_count = SCM_PACK (SCM_UNPACK (current_count) + INUM_STEP);
+      scm_hashq_set_x (ip_counter_table, scm_ip, new_count);
+
+      /* If loop is hot, start tracing the bytecodes from next IP. */
+      if (tjit_hot_count < new_count)
+        {
+          *state = SCM_TJIT_STATE_RECORD;
+          *loop_start = (scm_t_uintptr) (ip + jump);
+          *loop_end = (scm_t_uintptr) ip;
+        }
+
+      /* Next IP is jump destination specified in bytecode. */
+      ip += jump;
     }
 
   return ip;
 }
 
-static inline scm_t_uint32*
-scm_tjit_merge (scm_t_uint32 *ip, SCM *fp, size_t *state,
+static inline void
+scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
                 scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
+                struct scm_vm *vp, SCM *fp,
                 scm_t_uint32 *bc_idx, scm_t_uint32 *bytecode,
-                scm_t_uint32 *ips_idx, scm_t_uintptr *ips,
-                scm_i_thread *thread, struct scm_vm *vp,
-                scm_i_jmp_buf *registers, int resume)
+                scm_t_uint32 *ips_idx, scm_t_uintptr *ips)
 {
 #define SYNC_IP() vp->ip = (ip)
 #define CACHE_FP() fp = (vp->fp)
+
+#define IP_REACHED_TO(target) ip == ((scm_t_uint32 *) *target)
+
+#define CLEANUP_STATES()                        \
+  do {                                          \
+    *state = SCM_TJIT_STATE_INTERPRET;          \
+    *bc_idx = 0;                                \
+    *ips_idx = 0;                               \
+  } while (0)
 
   int op, op_size, i;
 
@@ -136,49 +164,35 @@ scm_tjit_merge (scm_t_uint32 *ip, SCM *fp, size_t *state,
     bytecode[*bc_idx + i] = ip[i];
   *bc_idx += op_sizes[op];
 
-  if (ip != ((scm_t_uint32 *) *loop_end))
+  if (IP_REACHED_TO (loop_end))
     {
-      if (SCM_I_INUM (tjit_max_record) < *bc_idx)
-        {
-          /* XXX: Log the abort for too long trace. */
-          *state = SCM_TJIT_STATE_INTERPRET;
-          *bc_idx = 0;
-          *ips_idx = 0;
+      SCM code, s_bytecode, s_bc_idx, s_ips, s_ips_idx;
 
-          return ip;
-        }
-    }
-  else
-    {
-      SCM code;
-      scm_t_native_code func;
+      s_bytecode = scm_from_pointer (bytecode, NULL);
+      s_bc_idx = SCM_I_MAKINUM (*bc_idx * sizeof (scm_t_uint32));
+      s_ips = scm_from_pointer (ips, NULL);
+      s_ips_idx = SCM_I_MAKINUM (*ips_idx);
 
       /* Compile the traced bytecode. */
       SYNC_IP ();
-      code =
-        scm_compile_tjit (scm_from_pointer (bytecode, NULL),
-                          SCM_I_MAKINUM (*bc_idx * sizeof (scm_t_uint32)),
-                          scm_from_pointer (ips, NULL),
-                          SCM_I_MAKINUM (*ips_idx));
+      code = scm_compile_tjit (s_bytecode, s_bc_idx, s_ips, s_ips_idx);
       CACHE_FP ();
 
       /* Cache the native code. */
-      scm_hashq_set_x (native_code_table, SCM_I_MAKINUM (*loop_start),
-                       code);
+      scm_hashq_set_x (code_cache_table, SCM_I_MAKINUM (*loop_start), code);
 
-      /* Run compiled native code. Then update the IP to the place
-         where guard failed. */
-      func = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
-      ip = func (thread, vp, registers, resume);
-
-      /* Cleanup tracing states. */
-      *state = SCM_TJIT_STATE_INTERPRET;
-      *bc_idx = 0;
-      *ips_idx = 0;
+      CLEANUP_STATES ();
+    }
+  else if (SCM_I_INUM (tjit_max_record) < *bc_idx)
+    {
+      /* XXX: Log the abort for too long trace. */
+      CLEANUP_STATES ();
     }
 
-  return ip;
-
+#undef SYNC_IP
+#undef CACHE_FP
+#undef IP_REACHED_TO
+#undef CLEANUP_STATES
 }
 
 
@@ -224,7 +238,7 @@ void
 scm_init_vm_tjit (void)
 {
   ip_counter_table = scm_c_make_hash_table (255);
-  native_code_table = scm_c_make_hash_table (255);
+  code_cache_table = scm_c_make_hash_table (255);
   compile_tjit_var = SCM_VARIABLE_REF (scm_c_lookup ("compile-tjit"));
 
   GC_expand_hp (4 * 1024 * 1024 * SIZEOF_SCM_T_BITS);

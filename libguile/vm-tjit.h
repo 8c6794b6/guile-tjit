@@ -23,7 +23,7 @@
 
 enum {
   SCM_TJIT_STATE_INTERPRET,
-  SCM_TJIT_STATE_TRACE,
+  SCM_TJIT_STATE_RECORD,
 };
 
 SCM_API SCM scm_tjit_ip_counter (void);

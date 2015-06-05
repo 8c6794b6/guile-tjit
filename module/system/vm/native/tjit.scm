@@ -38,7 +38,7 @@
 
 
 ;;;
-;;; Compiler
+;;; Fetching bytecodes
 ;;;
 
 (define disassemble-one
@@ -58,6 +58,11 @@
                     (+ bytecode-offset len)
                     (+ ips-offset (sizeof '*))))))
           (reverse! acc)))))
+
+
+;;;
+;;; Generating native code
+;;;
 
 (define reg-thread v0)
 (define reg-vp v1)
@@ -119,6 +124,10 @@
      (jit-movi r0 (imm low-bits))
      (local-set! dst r0))
 
+    (('make-short-immediate dst low-bits)
+     (jit-movi r0 (imm low-bits))
+     (local-set! dst r0))
+
     (('br-if-= a b invert? offset)
      (br-binary-arithmetic a b invert? offset ip jit-beqr jit-bner))
 
@@ -133,8 +142,8 @@
      (local-set! dst r0))
 
     ;; XXX: Arithmetic ops work for small fixnums only, no overflow
-    ;; check. Observe the types from traced bytecodes, emit arithmetic
-    ;; ops with the type.
+    ;; check. Modify to observe the types from traced bytecodes, and
+    ;; then emit arithmetic ops with those types.
 
     (('add dst a b)
      (local-ref r0 a)
@@ -163,10 +172,7 @@
      (local-set! dst r0))
 
     (_
-     ;; (format #t ";;; NYI: ~a~%" (car op))
      #f)))
-
-(define native-code-guardian (make-guardian))
 
 (define (compile-tjit bytecode-ptr bytecode-len ips-ptr ips-len)
   (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len ips-ptr ips-len))
@@ -191,7 +197,7 @@
        (let lp ((ip-x-ops ip-x-ops))
          (match ip-x-ops
            (((ip . op) . ip-x-ops)
-            (debug 2 "#x~x: ~a~%" ip op)
+            (debug 2 "#x~x  ~a~%" ip op)
             (assemble-tjit ip op)
             (lp ip-x-ops))
            (()
@@ -201,21 +207,22 @@
      (jit-realize)
      (let* ((estimated-code-size (jit-code-size))
             (code (make-bytevector estimated-code-size)))
-       (debug 2 ";;; estimated-code-size: ~a~%" estimated-code-size)
-       ;; (native-code-guardian code)
        (jit-set-code (bytevector->pointer code)
                      (imm estimated-code-size))
 
-       ;; (jit-print)
+       (when (and verbosity (<= 3 verbosity))
+         (jit-print))
 
        (jit-emit)
        (make-bytevector-executable! code)
 
        (let* ((size (jit-code-size)))
-         (debug 2 ";;; actual-code-size:    ~a~%" size)
-         ;; (call-with-output-file "/tmp/trace.o"
-         ;;   (lambda (port)
-         ;;     (put-bytevector port code)))
+         (debug 2 "estimated-code-size: ~a~%" estimated-code-size)
+         (debug 2 "actual-code-size: ~a~%" size)
+         (when (and verbosity (<= 3 verbosity))
+           (call-with-output-file "/tmp/trace.o"
+             (lambda (port)
+               (put-bytevector port code))))
          code)))))
 
 
