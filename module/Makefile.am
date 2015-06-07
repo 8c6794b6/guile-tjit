@@ -163,6 +163,7 @@ CPS2_LANG_SOURCES =						\
   language/cps2/self-references.scm				\
   language/cps2/spec.scm					\
   language/cps2/specialize-primcalls.scm			\
+  language/cps2/split-rec.scm					\
   language/cps2/type-fold.scm					\
   language/cps2/types.scm					\
   language/cps2/utils.scm					\

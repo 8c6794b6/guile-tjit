@@ -34,6 +34,7 @@
   #:use-module (language cps2 self-references)
   #:use-module (language cps2 simplify)
   #:use-module (language cps2 specialize-primcalls)
+  #:use-module (language cps2 split-rec)
   #:use-module (language cps2 type-fold)
   #:use-module (language cps2 verify)
   #:export (optimize))
@@ -71,7 +72,8 @@
   ;; any case, though currently it does not because it doesn't do escape
   ;; analysis on the box created for the set!.
 
-  (run-pass! eliminate-dead-code #:dce2? #t)
+  (run-pass! split-rec #:split-rec? #t)
+  (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
   (run-pass! prune-top-level-scopes #:prune-top-level-scopes? #t)
   (run-pass! simplify #:simplify? #t)
   (run-pass! contify #:contify? #t)
