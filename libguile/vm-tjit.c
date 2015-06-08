@@ -20,15 +20,21 @@
 #include "vm-tjit.h"
 #include "bdw-gc.h"
 
+
+#define SCM_INCR(n) SCM_PACK (SCM_UNPACK (n) + INUM_STEP)
+
 /*
  * Configurable parameters
  */
 
 /* Number of iterations to decide a hot loop. */
-static SCM tjit_hot_count = SCM_I_MAKINUM (1024);
+static SCM tjit_hot_count = SCM_I_MAKINUM (80);
 
 /* Maximum length of traced bytecodes. */
 static SCM tjit_max_record = SCM_I_MAKINUM (8000);
+
+/* Maximum count of retries for failed compilation. */
+static SCM tjit_max_retries = SCM_I_MAKINUM (1);
 
 
 /*
@@ -69,6 +75,7 @@ typedef scm_t_uint32* (*scm_t_native_code) (scm_i_thread *thread,
 
 static SCM ip_counter_table;
 static SCM code_cache_table;
+static SCM failed_ip_table;
 static SCM compile_tjit_var;
 
 
@@ -80,9 +87,9 @@ static inline SCM
 scm_compile_tjit (SCM bc_ptr, SCM bc_len, SCM ip_ptr, SCM ip_len)
 {
   SCM result;
-  /* scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE); */
+  scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
   result = scm_call_4 (compile_tjit_var, bc_ptr, bc_len, ip_ptr, ip_len);
-  /* scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE); */
+  scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
   return result;
 }
 
@@ -99,9 +106,8 @@ scm_tjit_enter (scm_t_uint32 *ip, size_t *state, scm_t_int32 jump,
 
   if (scm_is_true (code))
     {
-      /* Found compiled native code for this bytecode in cache, run it.
-         Set next IP to the one returned from failed guard. */
-
+      /* Run compiled native code of this bytecode.  Set next IP to the
+         one returned from failed guard. */
       scm_t_native_code func;
 
       func = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
@@ -109,19 +115,25 @@ scm_tjit_enter (scm_t_uint32 *ip, size_t *state, scm_t_int32 jump,
     }
   else
     {
-      SCM current_count, new_count;
-
-      /* Increment the loop counter. */
+      SCM current_count;
       current_count = scm_hashq_ref (ip_counter_table, scm_ip, SCM_INUM0);
-      new_count = SCM_PACK (SCM_UNPACK (current_count) + INUM_STEP);
-      scm_hashq_set_x (ip_counter_table, scm_ip, new_count);
 
-      /* If loop is hot, start tracing the bytecodes from next IP. */
-      if (tjit_hot_count < new_count)
+      if (tjit_hot_count < current_count &&
+          scm_hashq_ref (failed_ip_table, scm_ip, SCM_INUM0) < tjit_max_retries)
         {
+          /* Loops is hot and could be compiled. Start tracing the
+             bytecodes from next IP */
           *state = SCM_TJIT_STATE_RECORD;
           *loop_start = (scm_t_uintptr) (ip + jump);
           *loop_end = (scm_t_uintptr) ip;
+        }
+      else
+        {
+          /* Increment the loop counter. */
+          SCM new_count;
+
+          new_count = SCM_INCR (current_count);
+          scm_hashq_set_x (ip_counter_table, scm_ip, new_count);
         }
 
       /* Next IP is jump destination specified in bytecode. */
@@ -140,9 +152,7 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
 {
 #define SYNC_IP() vp->ip = (ip)
 #define CACHE_FP() fp = (vp->fp)
-
 #define IP_REACHED_TO(target) ip == ((scm_t_uint32 *) *target)
-
 #define CLEANUP_STATES()                        \
   do {                                          \
     *state = SCM_TJIT_STATE_INTERPRET;          \
@@ -150,7 +160,10 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
     *ips_idx = 0;                               \
   } while (0)
 
+  SCM s_loop_start;
   int op, op_size, i;
+
+  s_loop_start = SCM_I_MAKINUM (*loop_start);
 
   op = *ip & 0xff;
   op_size = op_sizes[op];
@@ -178,14 +191,23 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
       code = scm_compile_tjit (s_bytecode, s_bc_idx, s_ips, s_ips_idx);
       CACHE_FP ();
 
-      /* Cache the native code. */
-      scm_hashq_set_x (code_cache_table, SCM_I_MAKINUM (*loop_start), code);
+
+      /* Cache the native code on compilation success. */
+      if (scm_is_true (code))
+        scm_hashq_set_x (code_cache_table, s_loop_start, code);
+      else
+        {
+          SCM retries;
+          retries = scm_hashq_ref (failed_ip_table, s_loop_start, SCM_INUM0);
+          scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INCR (retries));
+        }
 
       CLEANUP_STATES ();
     }
   else if (SCM_I_INUM (tjit_max_record) < *bc_idx)
     {
       /* XXX: Log the abort for too long trace. */
+      scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INUM1);
       CLEANUP_STATES ();
     }
 
@@ -227,8 +249,6 @@ SCM_DEFINE (scm_set_tjit_hot_count_x, "set-tjit-hot-count!", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-/* XXX: scm_set_tjit_native_code_x */
-
 
 /*
  * Initialization
@@ -239,12 +259,15 @@ scm_init_vm_tjit (void)
 {
   ip_counter_table = scm_c_make_hash_table (255);
   code_cache_table = scm_c_make_hash_table (255);
+  failed_ip_table = scm_c_make_hash_table (255);
   compile_tjit_var = SCM_VARIABLE_REF (scm_c_lookup ("compile-tjit"));
 
-  GC_expand_hp (4 * 1024 * 1024 * SIZEOF_SCM_T_BITS);
+  GC_expand_hp (2 * 1024 * 1024 * SIZEOF_SCM_T_BITS);
 
 #include "libguile/vm-tjit.x"
 }
+
+#undef SCM_INCR
 
 /*
   Local Variables:

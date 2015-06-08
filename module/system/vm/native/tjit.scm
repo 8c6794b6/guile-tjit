@@ -23,11 +23,13 @@
 ;;; JIT compiler for `vm-tjit' engine.
 
 (define-module (system vm native tjit)
+  #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (ice-9 binary-ports)
   #:use-module (rnrs bytevectors)
   #:use-module (system foreign)
+  #:use-module (system vm debug)
   #:use-module (system vm native lightning)
   #:use-module (system vm native debug)
   #:export (tjit-ip-counter
@@ -106,33 +108,33 @@
 (define-syntax-rule (scm-i-inumr dst src)
   (jit-rshi dst src (imm 2)))
 
-(define-syntax-rule (br-binary-arithmetic a b invert? offset ip <op1> <op2>)
+(define-syntax-rule (br-binary-arithmetic a b ip op)
   (let ((lnext (jit-forward)))
     (local-ref r0 a)
     (local-ref r1 b)
-    (cond (invert?
-           (jump (<op1> r0 r1) lnext))
-          (else
-           (jump (<op2> r0 r1) lnext)))
-    (jit-reti (imm (+ ip (* offset 4))))
-
+    (jump (op r0 r1) lnext)
+    (jit-reti (imm ip))
     (jit-link lnext)))
 
-(define-syntax-rule (assemble-tjit ip op)
+(define-syntax-rule (assemble-tjit-one escape ip op)
   (match op
     (('make-short-immediate dst low-bits)
      (jit-movi r0 (imm low-bits))
      (local-set! dst r0))
 
-    (('make-short-immediate dst low-bits)
+    (('make-long-immediate dst low-bits)
      (jit-movi r0 (imm low-bits))
      (local-set! dst r0))
 
     (('br-if-= a b invert? offset)
-     (br-binary-arithmetic a b invert? offset ip jit-beqr jit-bner))
+     (if invert?
+         (br-binary-arithmetic a b (+ ip (* offset 4)) jit-beqr)
+         (br-binary-arithmetic a b (+ ip (* offset 4)) jit-bner)))
 
     (('br-if-< a b invert? offset)
-     (br-binary-arithmetic a b invert? offset ip jit-bltr jit-bger))
+     (if invert?
+         (br-binary-arithmetic a b (+ ip (* offset 4)) jit-bltr)
+         (br-binary-arithmetic b a (+ ip (* offset 4)) jit-bltr)))
 
     (('br dst)
      *unspecified*)
@@ -162,24 +164,46 @@
      (jit-subi r0 r0 (imm 4))
      (local-set! dst r0))
 
-    ;; No index bound check.
-    (('bv-u8-ref dst src idx)
-     (local-ref r0 src)
-     (local-ref r1 idx)
-     (scm-i-inumr r1 r1)
-     (scm-bytevector-contents r0 r0)
-     (jit-ldxr-uc r0 r0 r1)
-     (local-set! dst r0))
-
     (_
-     #f)))
+     (escape (format #f "#x~x ~a" ip op)))))
 
-(define (compile-tjit bytecode-ptr bytecode-len ips-ptr ips-len)
-  (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len ips-ptr ips-len))
+(define (compile-tjit bytecode-ptr bytecode-len ip-ptr ip-len)
+  (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len ip-ptr ip-len))
         (verbosity (lightning-verbosity)))
+
     (define-syntax-rule (debug n fmt . args)
       (when (and verbosity (<= n verbosity))
         (format #t fmt . args)))
+
+    (define-syntax-rule (ip-ptr->source-line addr)
+      (and=>
+       (find-source-for-addr
+        (pointer-address (dereference-pointer ip-ptr)))
+       (lambda (source)
+         (format #f "~a:~d"
+                 (or (source-file source)
+                     "(unknown file)")
+                 (source-line-for-user source)))))
+
+    (define-syntax-rule (assemble-tjit loop-start ip-x-ops)
+      (call-with-escape-continuation
+       (lambda (escape)
+         (let lp ((ip-x-ops ip-x-ops))
+           (match ip-x-ops
+             (((ip . op) . ip-x-ops)
+              (assemble-tjit-one escape ip op)
+              (lp ip-x-ops))
+             (()
+              (jump loop-start)
+              #f))))))
+
+    (debug 1 "~a: ~a~%" (yellow "trace") (ip-ptr->source-line ip-ptr))
+    (when (and verbosity (<= 2 verbosity))
+      (for-each (match-lambda
+                 ((ip . op)
+                  (format #t "#x~x  ~a~%" ip op)))
+                ip-x-ops))
+
     (with-jit-state
      (jit-prolog)
 
@@ -193,37 +217,34 @@
      (jit-ldxi reg-fp reg-vp (imm #x10))
 
      (let ((loop-start (jit-label)))
-       (debug 2 ";;; Traced bytecode:\n")
-       (let lp ((ip-x-ops ip-x-ops))
-         (match ip-x-ops
-           (((ip . op) . ip-x-ops)
-            (debug 2 "#x~x  ~a~%" ip op)
-            (assemble-tjit ip op)
-            (lp ip-x-ops))
-           (()
-            (jump loop-start)))))
+       (cond
+        ((assemble-tjit loop-start ip-x-ops)
+         =>
+         (lambda (msg)
+           (debug 1 "~a: ~a~%" (red "abort") msg)
+           #f))
 
-     (jit-epilog)
-     (jit-realize)
-     (let* ((estimated-code-size (jit-code-size))
-            (code (make-bytevector estimated-code-size)))
-       (jit-set-code (bytevector->pointer code)
-                     (imm estimated-code-size))
+        (else
+         (jit-epilog)
+         (jit-realize)
+         (let* ((estimated-code-size (jit-code-size))
+                (code (make-bytevector estimated-code-size)))
+           (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
+           (jit-emit)
+           (make-bytevector-executable! code)
 
-       (when (and verbosity (<= 3 verbosity))
-         (jit-print))
-
-       (jit-emit)
-       (make-bytevector-executable! code)
-
-       (let* ((size (jit-code-size)))
-         (debug 2 "estimated-code-size: ~a~%" estimated-code-size)
-         (debug 2 "actual-code-size: ~a~%" size)
-         (when (and verbosity (<= 3 verbosity))
-           (call-with-output-file "/tmp/trace.o"
-             (lambda (port)
-               (put-bytevector port code))))
-         code)))))
+           (let* ((code-size (jit-code-size)))
+             (debug 1 "~a: size=~a~%" (green "mcode") code-size)
+             (when (and verbosity (<= 3 verbosity))
+               (jit-print)
+               (call-with-output-file
+                   (format #f "/tmp/trace-~x.o"
+                           (pointer-address (dereference-pointer ip-ptr)))
+                 (lambda (port)
+                   (let ((code-copy (make-bytevector code-size)))
+                     (bytevector-copy! code 0 code-copy 0 code-size)
+                     (put-bytevector port code-copy)))))
+             code))))))))
 
 
 ;;;
@@ -239,7 +260,7 @@
 
 
 ;;;
-;;; Debugging
+;;; Statistics
 ;;;
 
 (define (tjit-stats)

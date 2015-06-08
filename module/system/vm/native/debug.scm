@@ -26,7 +26,10 @@
 
 (define-module (system vm native debug)
   #:use-module (system vm debug)
-  #:export (lightning-verbosity lightning-trace debug try-program-name))
+  #:export (debug
+            lightning-verbosity lightning-trace
+            try-program-name
+            red green yellow))
 
 ;; Parameter to control verbosity level.
 ;;
@@ -57,3 +60,16 @@
                 (error "try-program-name: got " program-or-addr)))))
     (or (and=> name symbol->string)
         "anonymous")))
+
+
+;;;
+;;; ANSI escape sequence for messages
+;;;
+
+(define-syntax-rule (define-coloured name num)
+  (define (name str)
+    (string-append "\x1b[" (number->string num) ";2m" str "\x1b[0m")))
+
+(define-coloured red 31)
+(define-coloured green 32)
+(define-coloured yellow 33)

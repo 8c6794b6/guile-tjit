@@ -420,13 +420,12 @@ If FILE begins with `-' the -s switch is mandatory.
             (set! tjit? #t)
             (parse args out))
 
-           ((string-prefix? "--mjit-verbosity=" arg)
+           ((string-prefix? "--jit-debug=" arg)
             (use-modules (system vm native debug))
             (parse args
                    (cons `(lightning-verbosity
                            ,(string->number
-                             (substring arg
-                                        (string-length "--mjit-verbosity="))))
+                             (substring arg (string-length "--jit-debug="))))
                          out)))
 
            (else
