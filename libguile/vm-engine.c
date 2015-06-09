@@ -210,27 +210,28 @@
 
 /* Macros for tracing JIT */
 #ifdef VM_TJIT
-# define TJIT_MERGE(n)                          \
-  if (tjit_state == SCM_TJIT_STATE_RECORD)      \
-    {                                           \
-      scm_tjit_merge (ip, &tjit_state,          \
-                      &loop_start, &loop_end,   \
-                      vp, fp,                   \
-                      &tjit_bc_idx, tjit_bcs,   \
-                      &tjit_ips_idx, tjit_ips); \
-    }
+# define TJIT_MERGE(n)                                  \
+  do {                                                  \
+    if (tjit_state == SCM_TJIT_STATE_RECORD)            \
+      scm_tjit_merge (ip, &tjit_state,                  \
+                      &loop_start, &loop_end,           \
+                      vp, fp, thread,                   \
+                      &tjit_bc_idx, tjit_bytecode,      \
+                      &tjit_ips_idx, &tjit_ips);        \
+  } while (0)
 # define TJIT_ENTER(n)                                          \
-  if (n < 0 && tjit_state == SCM_TJIT_STATE_INTERPRET)          \
-    {                                                           \
-      ip = scm_tjit_enter (ip, &tjit_state, n,                  \
-                           &loop_start, &loop_end,              \
-                           thread, vp, registers, resume);      \
-      NEXT (0);                                                 \
-    }                                                           \
-  else                                                          \
-    {                                                           \
+  do {                                                          \
+    if (n < 0 && tjit_state == SCM_TJIT_STATE_INTERPRET)        \
+      {                                                         \
+        ip = scm_tjit_enter (ip, &tjit_state, n,                \
+                             &loop_start, &loop_end,            \
+                             thread, vp, registers, resume);    \
+        NEXT (0);                                               \
+      }                                                         \
+    else                                                        \
       NEXT (n);                                                 \
-    }
+  } while (0)
+
 #else
 # define TJIT_MERGE(n) /* */
 # define TJIT_ENTER(n) NEXT (n)
@@ -522,13 +523,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   scm_t_uint32 tjit_bc_idx = 0;
 
   /* Buffer to contain traced bytecode. */
-  scm_t_uint32 *tjit_bcs = scm_tjit_bytecode_buffer ();
+  scm_t_uint32 *tjit_bytecode = scm_tjit_bytecode_buffer ();
 
   /* Current index of traced IPs. */
   scm_t_uint32 tjit_ips_idx = 0;
 
-  /* Buffer to contain traced IPs. */
-  scm_t_uintptr *tjit_ips = scm_tjit_ip_buffer ();
+  /* List of traced IPs. */
+  SCM tjit_ips = SCM_EOL;
 
 #endif
 

@@ -46,19 +46,22 @@
 (define disassemble-one
   (@@ (system vm disassembler) disassemble-one))
 
-(define (traced-ops bytecode-ptr bytecode-len ips-ptr ips-len)
+(define (traced-ops bytecode-ptr bytecode-len ips)
   (let ((bytecode (pointer->bytevector bytecode-ptr bytecode-len))
-        (ips (pointer->bytevector ips-ptr (* ips-len (sizeof '*) 2)))
         (end (/ bytecode-len 4)))
-    (let lp ((acc '()) (bytecode-offset 0) (ips-offset 0))
-      (if (< bytecode-offset end)
+    (let lp ((acc '()) (bytecode-offset 0) (ips (reverse! ips)))
+      (if (not (null? ips)) ;; (< bytecode-offset end)
           (call-with-values
               (lambda () (disassemble-one bytecode bytecode-offset))
             (lambda (len elt)
-              (let ((ip (bytevector-u64-native-ref ips ips-offset)))
-                (lp (cons (cons ip elt) acc)
+              (let* ((env (car ips))
+                     ;; (ip (car (car ips)))
+                     ;; (locals (cdr (car ips)))
+                     )
+                ;; (format #t "locals: ~a~%" locals)
+                (lp (cons (cons elt env) acc)
                     (+ bytecode-offset len)
-                    (+ ips-offset (sizeof '*))))))
+                    (cdr ips)))))
           (reverse! acc)))))
 
 
@@ -116,7 +119,7 @@
     (jit-reti (imm ip))
     (jit-link lnext)))
 
-(define-syntax-rule (assemble-tjit-one escape ip op)
+(define-syntax-rule (assemble-tjit-one escape op ip locals)
   (match op
     (('make-short-immediate dst low-bits)
      (jit-movi r0 (imm low-bits))
@@ -167,8 +170,8 @@
     (_
      (escape (format #f "#x~x ~a" ip op)))))
 
-(define (compile-tjit bytecode-ptr bytecode-len ip-ptr ip-len)
-  (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len ip-ptr ip-len))
+(define (compile-tjit bytecode-ptr bytecode-len ips)
+  (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len ips))
         (verbosity (lightning-verbosity)))
 
     (define-syntax-rule (debug n fmt . args)
@@ -177,8 +180,7 @@
 
     (define-syntax-rule (ip-ptr->source-line addr)
       (and=>
-       (find-source-for-addr
-        (pointer-address (dereference-pointer ip-ptr)))
+       (find-source-for-addr addr)
        (lambda (source)
          (format #f "~a:~d"
                  (or (source-file source)
@@ -190,18 +192,22 @@
        (lambda (escape)
          (let lp ((ip-x-ops ip-x-ops))
            (match ip-x-ops
-             (((ip . op) . ip-x-ops)
-              (assemble-tjit-one escape ip op)
+             (((op ip . locals) . ip-x-ops)
+              (assemble-tjit-one escape op ip locals)
               (lp ip-x-ops))
              (()
               (jump loop-start)
               #f))))))
 
-    (debug 1 "~a: ~a~%" (yellow "trace") (ip-ptr->source-line ip-ptr))
+    (let ((sline (ip-ptr->source-line (car (car ips)))))
+      (debug 1 "~a: ~a~%" (yellow "trace") sline))
+
     (when (and verbosity (<= 2 verbosity))
       (for-each (match-lambda
-                 ((ip . op)
-                  (format #t "#x~x  ~a~%" ip op)))
+                 ((op ip . locals)
+                  (when (<= 3 verbosity)
+                    (format #t "~a~%" locals))
+                  (format #t "#x~x  ~a~%" ip op )))
                 ip-x-ops))
 
     (with-jit-state
@@ -238,13 +244,12 @@
              (when (and verbosity (<= 3 verbosity))
                (jit-print)
                (call-with-output-file
-                   (format #f "/tmp/trace-~x.o"
-                           (pointer-address (dereference-pointer ip-ptr)))
+                   (format #f "/tmp/trace-~x.o" (car (car ips)))
                  (lambda (port)
                    (let ((code-copy (make-bytevector code-size)))
                      (bytevector-copy! code 0 code-copy 0 code-size)
-                     (put-bytevector port code-copy)))))
-             code))))))))
+                     (put-bytevector port code-copy))))))
+           code)))))))
 
 
 ;;;

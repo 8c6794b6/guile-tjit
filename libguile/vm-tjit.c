@@ -73,7 +73,6 @@ static SCM ip_counter_table;
 static SCM code_cache_table;
 static SCM failed_ip_table;
 static SCM bytecode_buffer_fluid;
-static SCM ip_buffer_fluid;
 static SCM compile_tjit_var;
 
 
@@ -82,11 +81,11 @@ static SCM compile_tjit_var;
  */
 
 static inline SCM
-scm_compile_tjit (SCM bc_ptr, SCM bc_len, SCM ip_ptr, SCM ip_len)
+scm_compile_tjit (SCM bc_ptr, SCM bc_len, SCM ip_ptr)
 {
   SCM result;
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  result = scm_call_4 (compile_tjit_var, bc_ptr, bc_len, ip_ptr, ip_len);
+  result = scm_call_3 (compile_tjit_var, bc_ptr, bc_len, ip_ptr);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
   return result;
 }
@@ -144,21 +143,28 @@ scm_tjit_enter (scm_t_uint32 *ip, size_t *state, scm_t_int32 jump,
 static inline void
 scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
                 scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
-                struct scm_vm *vp, SCM *fp,
+                struct scm_vm *vp, SCM *fp, scm_i_thread *thread,
                 scm_t_uint32 *bc_idx, scm_t_uint32 *bytecode,
-                scm_t_uint32 *ips_idx, scm_t_uintptr *ips)
+                scm_t_uint32 *ips_idx, SCM *ips)
 {
 #define SYNC_IP() vp->ip = (ip)
 #define CACHE_FP() fp = (vp->fp)
+
+#define LOCAL_ADDRESS(i)	(&SCM_FRAME_LOCAL (fp, i))
+#define LOCAL_REF(i)            SCM_FRAME_LOCAL (fp, i)
+
 #define IP_REACHED_TO(target) ip == ((scm_t_uint32 *) *target)
 #define CLEANUP_STATES()                        \
   do {                                          \
     *state = SCM_TJIT_STATE_INTERPRET;          \
     *ips_idx = 0;                               \
+    *ips = SCM_EOL;                             \
     *bc_idx = 0;                                \
   } while (0)
 
   SCM s_loop_start;
+  SCM locals, env;
+  int num_locals;
   int op, op_size, i;
 
   s_loop_start = SCM_I_MAKINUM (*loop_start);
@@ -166,27 +172,34 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
   op = *ip & 0xff;
   op_size = op_sizes[op];
 
-  /* Store current IP. */
-  ips[*ips_idx] = (scm_t_uintptr) ip;
+  /* Store current IP and frame locals. Copying the local contents to
+     vector manually, to get updated information from *fp, not from
+     *vp which may not in sync. */
+  num_locals = FRAME_LOCALS_COUNT ();
+  locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);
+  for (i = 0; i < num_locals; ++i)
+    scm_c_vector_set_x (locals, i, LOCAL_REF (i));
+  env = scm_inline_cons (thread, SCM_I_MAKINUM (ip), locals);
+
+  *ips = scm_inline_cons (thread, env, *ips);
   *ips_idx += 1;
 
   /* Store current bytecode. */
   for (i = 0; i < op_size; ++i)
     bytecode[*bc_idx + i] = ip[i];
+
   *bc_idx += op_sizes[op];
 
   if (IP_REACHED_TO (loop_end))
     {
-      SCM code, s_bytecode, s_bc_idx, s_ips, s_ips_idx;
+      SCM code, s_bytecode, s_bc_idx;
 
       s_bytecode = scm_from_pointer (bytecode, NULL);
       s_bc_idx = SCM_I_MAKINUM (*bc_idx * sizeof (scm_t_uint32));
-      s_ips = scm_from_pointer (ips, NULL);
-      s_ips_idx = SCM_I_MAKINUM (*ips_idx);
 
       /* Compile the traced bytecode. */
       SYNC_IP ();
-      code = scm_compile_tjit (s_bytecode, s_bc_idx, s_ips, s_ips_idx);
+      code = scm_compile_tjit (s_bytecode, s_bc_idx, *ips);
       CACHE_FP ();
 
       /* Cache the native code on compilation success. */
@@ -210,6 +223,8 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
 
 #undef SYNC_IP
 #undef CACHE_FP
+#undef LOCAL_ADDRESS
+#undef LOCAL_REF
 #undef IP_REACHED_TO
 #undef CLEANUP_STATES
 }
@@ -218,13 +233,6 @@ static inline
 scm_t_uint32* scm_tjit_bytecode_buffer (void)
 {
   return (scm_t_uint32 *) SCM_UNPACK (scm_fluid_ref (bytecode_buffer_fluid));
-
-}
-
-static inline
-scm_t_uintptr* scm_tjit_ip_buffer (void)
-{
-  return (scm_t_uintptr *) SCM_UNPACK (scm_fluid_ref (ip_buffer_fluid));
 }
 
 
@@ -265,22 +273,15 @@ SCM_DEFINE (scm_set_tjit_hot_count_x, "set-tjit-hot-count!", 1, 0, 0,
  */
 
 static inline
-void scm_init_buffers (void)
+void scm_init_buffer (void)
 {
-  void *bytecode_buf;
-  void *ip_buf;
+  void *buffer;
   size_t bytes;
 
   bytecode_buffer_fluid = scm_make_fluid ();
-  bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record) * 4;
-  bytecode_buf =
-    scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
-  scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (bytecode_buf));
-
-  ip_buffer_fluid = scm_make_fluid ();
-  bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record);
-  ip_buf = scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
-  scm_fluid_set_x (ip_buffer_fluid, SCM_PACK (ip_buf));
+  bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record) * 5;
+  buffer = scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
+  scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (buffer));
 }
 
 void
@@ -291,9 +292,9 @@ scm_init_vm_tjit (void)
   failed_ip_table = scm_c_make_hash_table (255);
   compile_tjit_var = SCM_VARIABLE_REF (scm_c_lookup ("compile-tjit"));
 
-  scm_init_buffers ();
+  scm_init_buffer ();
 
-  GC_expand_hp (2 * 1024 * 1024 * SIZEOF_SCM_T_BITS);
+  GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
 
 #include "libguile/vm-tjit.x"
 }
