@@ -29,7 +29,7 @@
   #:export (debug
             lightning-verbosity lightning-trace
             try-program-name
-            red green yellow))
+            black red green yellow blue magenta cyan white))
 
 ;; Parameter to control verbosity level.
 ;;
@@ -70,6 +70,11 @@
   (define (name str)
     (string-append "\x1b[" (number->string num) ";2m" str "\x1b[0m")))
 
+(define-coloured black 30)
 (define-coloured red 31)
 (define-coloured green 32)
 (define-coloured yellow 33)
+(define-coloured blue 34)
+(define-coloured magenta 35)
+(define-coloured cyan 36)
+(define-coloured white 37)

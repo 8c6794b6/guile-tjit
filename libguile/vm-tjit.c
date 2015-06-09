@@ -23,15 +23,16 @@
 
 #define SCM_INCR(n) SCM_PACK (SCM_UNPACK (n) + INUM_STEP)
 
+
 /*
  * Configurable parameters
  */
 
 /* Number of iterations to decide a hot loop. */
-static SCM tjit_hot_count = SCM_I_MAKINUM (80);
+static SCM tjit_hot_count = SCM_I_MAKINUM (60);
 
 /* Maximum length of traced bytecodes. */
-static SCM tjit_max_record = SCM_I_MAKINUM (8000);
+static SCM tjit_max_record = SCM_I_MAKINUM (6000);
 
 /* Maximum count of retries for failed compilation. */
 static SCM tjit_max_retries = SCM_I_MAKINUM (1);
@@ -63,11 +64,6 @@ static const int op_sizes[256] = {
 #undef OP_DST
 #undef NOP
 
-typedef scm_t_uint32* (*scm_t_native_code) (scm_i_thread *thread,
-                                            struct scm_vm *vp,
-                                            scm_i_jmp_buf *registers,
-                                            int resume);
-
 
 /*
  *  Internal variables
@@ -76,6 +72,8 @@ typedef scm_t_uint32* (*scm_t_native_code) (scm_i_thread *thread,
 static SCM ip_counter_table;
 static SCM code_cache_table;
 static SCM failed_ip_table;
+static SCM bytecode_buffer_fluid;
+static SCM ip_buffer_fluid;
 static SCM compile_tjit_var;
 
 
@@ -156,8 +154,8 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
 #define CLEANUP_STATES()                        \
   do {                                          \
     *state = SCM_TJIT_STATE_INTERPRET;          \
-    *bc_idx = 0;                                \
     *ips_idx = 0;                               \
+    *bc_idx = 0;                                \
   } while (0)
 
   SCM s_loop_start;
@@ -191,7 +189,6 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
       code = scm_compile_tjit (s_bytecode, s_bc_idx, s_ips, s_ips_idx);
       CACHE_FP ();
 
-
       /* Cache the native code on compilation success. */
       if (scm_is_true (code))
         scm_hashq_set_x (code_cache_table, s_loop_start, code);
@@ -215,6 +212,19 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
 #undef CACHE_FP
 #undef IP_REACHED_TO
 #undef CLEANUP_STATES
+}
+
+static inline
+scm_t_uint32* scm_tjit_bytecode_buffer (void)
+{
+  return (scm_t_uint32 *) SCM_UNPACK (scm_fluid_ref (bytecode_buffer_fluid));
+
+}
+
+static inline
+scm_t_uintptr* scm_tjit_ip_buffer (void)
+{
+  return (scm_t_uintptr *) SCM_UNPACK (scm_fluid_ref (ip_buffer_fluid));
 }
 
 
@@ -254,6 +264,25 @@ SCM_DEFINE (scm_set_tjit_hot_count_x, "set-tjit-hot-count!", 1, 0, 0,
  * Initialization
  */
 
+static inline
+void scm_init_buffers (void)
+{
+  void *bytecode_buf;
+  void *ip_buf;
+  size_t bytes;
+
+  bytecode_buffer_fluid = scm_make_fluid ();
+  bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record) * 4;
+  bytecode_buf =
+    scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
+  scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (bytecode_buf));
+
+  ip_buffer_fluid = scm_make_fluid ();
+  bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record);
+  ip_buf = scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
+  scm_fluid_set_x (ip_buffer_fluid, SCM_PACK (ip_buf));
+}
+
 void
 scm_init_vm_tjit (void)
 {
@@ -261,6 +290,8 @@ scm_init_vm_tjit (void)
   code_cache_table = scm_c_make_hash_table (255);
   failed_ip_table = scm_c_make_hash_table (255);
   compile_tjit_var = SCM_VARIABLE_REF (scm_c_lookup ("compile-tjit"));
+
+  scm_init_buffers ();
 
   GC_expand_hp (2 * 1024 * 1024 * SIZEOF_SCM_T_BITS);
 

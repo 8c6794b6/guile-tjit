@@ -522,19 +522,13 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   scm_t_uint32 tjit_bc_idx = 0;
 
   /* Buffer to contain traced bytecode. */
-  scm_t_uint32 *tjit_bcs =
-    scm_inline_gc_malloc_pointerless (thread,
-                                      sizeof (scm_t_uint32 *) *
-                                      SCM_I_INUM (tjit_max_record) * 5);
+  scm_t_uint32 *tjit_bcs = scm_tjit_bytecode_buffer ();
 
   /* Current index of traced IPs. */
   scm_t_uint32 tjit_ips_idx = 0;
 
   /* Buffer to contain traced IPs. */
-  scm_t_uintptr *tjit_ips =
-    scm_inline_gc_malloc_pointerless (thread,
-                                      sizeof (scm_t_uint32 *) *
-                                      SCM_I_INUM (tjit_max_record));
+  scm_t_uintptr *tjit_ips = scm_tjit_ip_buffer ();
 
 #endif
 

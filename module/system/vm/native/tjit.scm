@@ -48,7 +48,7 @@
 
 (define (traced-ops bytecode-ptr bytecode-len ips-ptr ips-len)
   (let ((bytecode (pointer->bytevector bytecode-ptr bytecode-len))
-        (ips (pointer->bytevector ips-ptr (* ips-len (sizeof '*))))
+        (ips (pointer->bytevector ips-ptr (* ips-len (sizeof '*) 2)))
         (end (/ bytecode-len 4)))
     (let lp ((acc '()) (bytecode-offset 0) (ips-offset 0))
       (if (< bytecode-offset end)
