@@ -105,10 +105,10 @@ scm_tjit_enter (scm_t_uint32 *ip, size_t *state, scm_t_int32 jump,
     {
       /* Run compiled native code of this bytecode.  Set next IP to the
          one returned from failed guard. */
-      scm_t_native_code func;
+      scm_t_native_code fn;
 
-      func = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
-      ip = func (thread, vp, registers, resume);
+      fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
+      ip = fn (thread, vp, registers, resume);
     }
   else
     {
@@ -281,20 +281,21 @@ void scm_init_buffer (void)
   bytecode_buffer_fluid = scm_make_fluid ();
   bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record) * 5;
   buffer = scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
+  scm_gc_protect_object (buffer);
   scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (buffer));
 }
 
 void
 scm_init_vm_tjit (void)
 {
-  ip_counter_table = scm_c_make_hash_table (255);
-  code_cache_table = scm_c_make_hash_table (255);
-  failed_ip_table = scm_c_make_hash_table (255);
+  ip_counter_table = scm_c_make_hash_table (31);
+  code_cache_table = scm_c_make_hash_table (31);
+  failed_ip_table = scm_c_make_hash_table (31);
   compile_tjit_var = SCM_VARIABLE_REF (scm_c_lookup ("compile-tjit"));
 
   scm_init_buffer ();
 
-  GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
+  GC_expand_hp (8 * 1024 * 1024 * SIZEOF_SCM_T_BITS);
 
 #include "libguile/vm-tjit.x"
 }
