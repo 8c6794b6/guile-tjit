@@ -25,6 +25,7 @@
 ;;; Code:
 
 (define-module (system vm native debug)
+  #:use-module (ice-9 format)
   #:use-module (system vm debug)
   #:export (debug
             lightning-verbosity lightning-trace

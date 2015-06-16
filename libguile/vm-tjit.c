@@ -164,10 +164,16 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
 
   SCM s_loop_start;
   SCM locals, env;
+  SCM code, scm_ip;
   int num_locals;
   int op, op_size, i;
 
   s_loop_start = SCM_I_MAKINUM (*loop_start);
+
+  scm_ip = SCM_I_MAKINUM (ip);
+  code = scm_hashq_ref (code_cache_table, scm_ip, SCM_BOOL_F);
+  if (scm_is_true (code))
+    printf ("Found native code at %p while recording trace.\n", ip);
 
   op = *ip & 0xff;
   op_size = op_sizes[op];
@@ -190,7 +196,13 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
 
   *bc_idx += op_sizes[op];
 
-  if (IP_REACHED_TO (loop_end))
+  if (SCM_I_INUM (tjit_max_record) < *bc_idx)
+    {
+      /* XXX: Log the abort for too long trace. */
+      scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INUM1);
+      CLEANUP_STATES ();
+    }
+  else if (IP_REACHED_TO (loop_end))
     {
       SCM code, s_bytecode, s_bc_idx;
 
@@ -212,12 +224,6 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
           scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INCR (retries));
         }
 
-      CLEANUP_STATES ();
-    }
-  else if (SCM_I_INUM (tjit_max_record) < *bc_idx)
-    {
-      /* XXX: Log the abort for too long trace. */
-      scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INUM1);
       CLEANUP_STATES ();
     }
 
