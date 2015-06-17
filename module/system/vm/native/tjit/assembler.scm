@@ -82,22 +82,94 @@
     ((_ n src)
      (jit-stxi (imm (* n word-size)) reg-fp src))))
 
-(define (register sym)
-  (case sym
-    ((v0) r0)
-    ((v1) r1)
-    ((v2) r2)
-    ((v3) r3)
-    ((v4) f4)
-    ;; ((v4) f3)
-    ;; ((v5) f7)
-    ;; ((v4) f3)
-    ;; ((v5) f4)
-    ;; ((v6) f5)
-    ;; ((v7) f6)
-    ;; ((v8) f7)
-    (else
-     (error "register: unknown register ~s" sym))))
+;;;
+;;; Variable
+;;;
+
+(define (ref-value x)
+  (cdr x))
+
+(define (ref-type x)
+  (car x))
+
+(define (const? x)
+  (eq? 'const (ref-type x)))
+
+(define (reg? x)
+  (eq? 'reg (ref-type x)))
+
+(define (const x)
+  (imm (ref-value x)))
+
+(define (register var)
+  ;; XXX: Lightning has it's own register management policy, not sure
+  ;; how the policy works under other architecture than x86-64 linux.
+  (match var
+    (('reg . sym)
+     (match sym
+       ('v0 r0)
+       ('v1 r1)
+       ('v2 r2)
+       ('v3 r3)
+       ('v4 f5)
+       ('v5 f6)
+       ;; ('v6 f7)
+       (_ (error "register: unknown register ~s" sym))))
+    (_ (error "register: not a register ~s" var))))
+
+(define (resolve-vars cps max-var)
+  (define (resolve-cont cps env reqs inits args k)
+    (match (intmap-ref cps k)
+      (($ $kreceive _ knext)
+       (resolve-cont cps env reqs inits '() knext))
+      (($ $kargs names syms ($ $continue knext _ exp))
+       (cond
+        ((equal? names reqs)
+         (for-each (lambda (sym name)
+                     (vector-set! env sym (cons 'reg name)))
+                   syms names)
+         (resolve-exp exp cps env reqs syms knext))
+        ((and (not (null? args)) (not (null? names)))
+         (for-each (lambda (sym arg)
+                     (vector-set! env sym arg))
+                   syms args)
+         (resolve-exp exp cps env reqs inits knext))
+        (else
+         (resolve-exp exp cps env reqs inits knext))))
+      (($ $kfun _ _ self _ knext)
+       (vector-set! env self '(proc . self))
+       (resolve-cont cps env reqs inits '() knext))
+      (($ $ktail)
+       (values inits env))
+      (($ $kclause ($ $arity reqs _ _ _ _) knext _)
+       (resolve-cont cps env reqs inits '() knext))))
+
+  (define (resolve-exp exp cps env reqs inits k)
+    (match exp
+      (($ $const val)
+       (resolve-cont cps env reqs inits (list (cons 'const val)) k))
+      (($ $branch kt exp)
+       (resolve-exp exp cps env reqs inits kt)
+       (resolve-cont cps env reqs inits '() k))
+      (($ $call proc args)
+       (when (= proc 0)
+         ;; Calling self, jumping back to beginning of this procedure.
+         (let lp ((inits inits) (args args))
+           (unless (null? inits)
+             ;; Variable registers could be shared between arguments in
+             ;; this call and initial call.
+             (let ((init (car inits))
+                   (arg (car args)))
+               (vector-set! env arg (vector-ref env init)))
+             (lp (cdr inits) (cdr args)))))
+       (resolve-cont cps env reqs inits '() k))
+      (($ $primcall name args)
+       (resolve-cont cps env reqs inits (list exp) k))
+      (_
+       (resolve-cont cps env reqs inits '() k))))
+
+  (resolve-cont cps (make-vector (+ max-var 1)) '() '() '() 0))
+
 
 ;;;
 ;;; Code generation
@@ -118,26 +190,30 @@
   (local-ref r0 0)
   (local-ref r1 1)
   (local-ref r2 2)
-  (local-ref r3 3))
+  (local-ref r3 3)
+  (local-ref f5 4)
+  (local-ref f6 5))
 
 (define (assemble-cps initial-node cps)
   (define (assemble-cont cps env inits arg label kcurrent)
-    ;; (debug 1 "~4,,,'0@a  arg=~a~%" kcurrent arg)
+    ;; (debug 1 "~4,,,'0@a  ~a~%" kcurrent
+    ;;        (or (and (null? arg) arg)
+    ;;            (unparse-cps arg)))
     (match (intmap-ref cps kcurrent)
       (($ $kreceive ($ $arity reqs _ _ _ _) knext)
        ;; (debug 1 "kreceive ~a ~a~%" reqs arg)
        (assemble-cont cps env inits arg label knext))
 
-      (($ $kargs names vars ($ $continue knext _ ($ $branch kt exp)))
+      (($ $kargs _ _ ($ $continue knext _ ($ $branch kt exp)))
        ;; (debug 1 "kargs ~a ~a ~a~%" names vars arg)
        (let ((label (jit-forward)))
          ;; (debug 1 "--- forward: ~a~%" label)
          (assemble-cont cps env inits exp label kt)
          (assemble-cont cps env inits arg #f knext)))
 
-      (($ $kargs names vars ($ $continue knext _ exp))
+      (($ $kargs names syms ($ $continue knext _ exp))
        ;; (debug 1 "kargs ~a ~a ~a~%" names vars arg)
-       (assemble-exp arg vars env inits label)
+       (assemble-exp arg syms env inits label)
        (assemble-cont cps env inits exp label knext))
 
       (($ $kfun _ _ self _ knext)
@@ -161,7 +237,6 @@
     (define (ref i)
       (vector-ref env i))
     ;; (debug 1 "dst=~a exp=~a~%" dst exp)
-    ;; XXX: Check types.
     (match exp
       (($ $primcall 'return (arg1))
        ;; XXX: Recover the frame with analyzed locals.
@@ -169,10 +244,25 @@
        (local-set! 1 r1)
        (local-set! 2 r2)
        (local-set! 3 r3)
-       (jit-reti (imm (ref arg1))))
+       (local-set! 4 f5)
+       (local-set! 5 f6)
+       (let ((a (ref arg1)))
+         (cond
+          ((reg? a)
+           (jit-retr (ref-value a)))
+          ((const? a)
+           (jit-reti (imm (ref-value a)))))))
 
       (($ $primcall '< (arg1 arg2))
-       (jump (jit-bltr (register (ref arg2)) (register (ref arg1))) label))
+       (let ((a (ref arg1))
+             (b (ref arg2)))
+         (cond
+          ((and (const? a) (reg? b))
+           (jump (jit-blti (register b) (const a)) label))
+          ((and (reg? a) (const? b))
+           (jump (jit-bgei (register a) (const b)) label))
+          ((and (reg? a) (reg? b))
+           (jump (jit-bltr (register b) (register a)) label)))))
 
       (($ $primcall '= (arg1 arg2))
        (jump (jit-bner (register (ref arg1)) (register (ref arg2))) label))
@@ -222,54 +312,3 @@
         (lambda (inits env)
           (debug 2 "env: ~a~%" env)
           (assemble-cont cps env inits '() #f 0))))))
-
-(define (resolve-vars cps max-var)
-  (define (resolve-cont cps env reqs inits args k)
-    (match (intmap-ref cps k)
-      (($ $kreceive _ knext)
-       (resolve-cont cps env reqs inits '() knext))
-      (($ $kargs names syms ($ $continue knext _ exp))
-       (cond
-        ((equal? names reqs)
-         (for-each (lambda (sym name) (vector-set! env sym name))
-                   syms names)
-         (resolve-exp exp cps env reqs syms knext))
-        ((and (not (null? args)) (not (null? names)))
-         (for-each (lambda (sym arg) (vector-set! env sym arg))
-                   syms args)
-         (resolve-exp exp cps env reqs inits knext))
-        (else
-         (resolve-exp exp cps env reqs inits knext))))
-      (($ $kfun _ _ self _ knext)
-       (vector-set! env self 'self)
-       (resolve-cont cps env reqs inits '() knext))
-      (($ $ktail)
-       (values inits env))
-      (($ $kclause ($ $arity reqs _ _ _ _) knext _)
-       (resolve-cont cps env reqs inits '() knext))))
-
-  (define (resolve-exp exp cps env reqs inits k)
-    (match exp
-      (($ $const val)
-       (resolve-cont cps env reqs inits (list val) k))
-      (($ $branch kt exp)
-       (resolve-exp exp cps env reqs inits kt)
-       (resolve-cont cps env reqs inits '() k))
-      (($ $call proc args)
-       (when (= proc 0)
-         ;; Calling self, jumping back to beginning of this procedure.
-         (let lp ((inits inits) (args args))
-           (unless (null? inits)
-             ;; Variable registers could be shared between arguments in
-             ;; this call and initial call.
-             (let ((init (car inits))
-                   (arg (car args)))
-               (vector-set! env arg (vector-ref env init)))
-             (lp (cdr inits) (cdr args)))))
-       (resolve-cont cps env reqs inits '() k))
-      (($ $primcall name args)
-       (resolve-cont cps env reqs inits (list exp) k))
-      (_
-       (resolve-cont cps env reqs inits '() k))))
-
-  (resolve-cont cps (make-vector (+ max-var 1)) '() '() '() 0))

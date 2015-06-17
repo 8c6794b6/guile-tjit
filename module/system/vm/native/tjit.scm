@@ -23,10 +23,10 @@
 ;;; JIT compiler for `vm-tjit' engine.
 
 (define-module (system vm native tjit)
+  #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
-  #:use-module (ice-9 binary-ports)
   #:use-module (language cps intmap)
   #:use-module (language cps2)
   #:use-module (language cps2 optimize)
@@ -38,7 +38,6 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit ir)
-  #:autoload (ice-9 regex) (regexp-substitute/global)
   #:export (compile-tjit
             tjit-ip-counter
             tjit-hot-count
@@ -90,32 +89,10 @@
                      "(unknown file)")
                  (source-line-for-user source)))))
 
-    (let ((sline (ip-ptr->source-line (car (car ips)))))
-      (debug 1 "~a: ~a~%" (yellow "trace") sline))
-
-    (when (and verbosity (<= 2 verbosity))
-      (display ";;;; bytecode\n")
-      (for-each (match-lambda
-                 ((op ip . locals)
-                  (when (<= 3 verbosity)
-                    (format #t "~a~%" locals))
-                  (format #t "#x~x  ~a~%" ip op)))
-                ip-x-ops))
-
     (with-jit-state
      (jit-prolog)
 
      (let ((cps (trace->cps ip-x-ops)))
-       (debug 2 ";;;; cps~%~{~4,,,'0@a  ~a~%~}"
-              (or (and cps (reverse! (intmap-fold
-                                      (lambda (i k acc)
-                                        (cons (unparse-cps k)
-                                              (cons i acc)))
-                                      cps
-                                      '())))
-                  '()))
-       ;; (debug 2 ";;;; locals~%~a~%" (cddar ip-x-ops))
-
        (vm-prolog cps)
        (cond
         ((let ((start (jit-label)))
@@ -124,7 +101,8 @@
                "CPS conversion failed"))
          =>
          (lambda (msg)
-           (debug 1 "~a: ~a~%" (red "abort") msg)
+           (let ((sline (ip-ptr->source-line (car (car ips)))))
+             (debug 1 "trace: ~a ~a ~a~%" sline (red "abort") msg))
            #f))
 
         (else
@@ -133,19 +111,40 @@
          (let* ((estimated-code-size (jit-code-size))
                 (code (make-bytevector estimated-code-size)))
            (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
-           (let ((fptr (jit-emit)))
+           (let* ((fptr (jit-emit))
+                  (code-size (jit-code-size)))
+
              (make-bytevector-executable! code)
-             (let* ((code-size (jit-code-size)))
-               (debug 1 "~a: addr=#x~x, size=~a~%" (green "ncode")
-                      (pointer-address fptr) code-size)
-               (when (and verbosity (<= 3 verbosity))
-                 (jit-print)
-                 (call-with-output-file
-                     (format #f "/tmp/trace-~x.o" (car (car ips)))
-                   (lambda (port)
-                     (let ((code-copy (make-bytevector code-size)))
-                       (bytevector-copy! code 0 code-copy 0 code-size)
-                       (put-bytevector port code-copy)))))))
+
+             (when (and verbosity (<= 1 verbosity))
+               (let ((sline (ip-ptr->source-line (car (car ips)))))
+                 (format #t ";;; trace: ~a size=~a~%"
+                         sline (number->string code-size)))
+               (when (<= 2 verbosity)
+                 ;; (display ";;; locals~%~a~%" (cddar ip-x-ops))
+                 (display ";;; bytecode\n")
+                 (for-each (match-lambda
+                            ((op ip . locals)
+                             (when (<= 3 verbosity)
+                               (format #t "~a~%" locals))
+                             (format #t "~x  ~a~%" ip op)))
+                           ip-x-ops)
+                 (format #t ";;; cps~%~{~4,,,'0@a  ~a~%~}"
+                         (or (and cps (reverse! (intmap-fold
+                                                 (lambda (i k acc)
+                                                   (cons (unparse-cps k)
+                                                         (cons i acc)))
+                                                 cps
+                                                 '())))
+                             '()))
+                 (when (<= 3 verbosity)
+                   (jit-print)
+                   (call-with-output-file
+                       (format #f "/tmp/trace-~x.o" (car (car ips)))
+                     (lambda (port)
+                       (let ((code-copy (make-bytevector code-size)))
+                         (bytevector-copy! code 0 code-copy 0 code-size)
+                         (put-bytevector port code-copy))))))))
            code)))))))
 
 

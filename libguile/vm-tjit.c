@@ -140,10 +140,12 @@ scm_tjit_enter (scm_t_uint32 *ip, size_t *state, scm_t_int32 jump,
   return ip;
 }
 
-static inline void
+static inline scm_t_uint32*
 scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
                 scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
-                struct scm_vm *vp, SCM *fp, scm_i_thread *thread,
+                scm_i_thread *thread, struct scm_vm *vp,
+                scm_i_jmp_buf *registers, int resume,
+                SCM *fp,
                 scm_t_uint32 *bc_idx, scm_t_uint32 *bytecode,
                 scm_t_uint32 *ips_idx, SCM *ips)
 {
@@ -172,11 +174,37 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
 
   scm_ip = SCM_I_MAKINUM (ip);
   code = scm_hashq_ref (code_cache_table, scm_ip, SCM_BOOL_F);
-  if (scm_is_true (code))
-    printf ("Found native code at %p while recording trace.\n", ip);
 
-  op = *ip & 0xff;
-  op_size = op_sizes[op];
+  if (scm_is_true (code))
+    {
+      scm_t_native_code fn;
+
+      fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
+      ip = fn (thread, vp, registers, resume);
+
+      /* XXX: Add new bytecode and insert here, for calling native code
+         with current vp, thread, registers, and resume.  Need to take
+         snapshot of current frame data and pass it from CPS IR in
+         Scheme. OFFSET could be expected IP returned from native
+         code. If different IP returned, native code did a side exit. */
+
+      /* op = (scm_t_uint32 *) SCM_PACK_OP_24 (native_call, offset); */
+      /* op_size = 4; */
+
+      printf ("Found native code at %p while recording trace.\n", ip);
+    }
+  else
+    {
+      op = *ip & 0xff;
+      op_size = op_sizes[op];
+
+      /* Store current bytecode. */
+      for (i = 0; i < op_size; ++i)
+        bytecode[*bc_idx + i] = ip[i];
+
+      *bc_idx += op_sizes[op];
+    }
+
 
   /* Store current IP and frame locals. Copying the local contents to
      vector manually, to get updated information from *fp, not from
@@ -189,12 +217,6 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
 
   *ips = scm_inline_cons (thread, env, *ips);
   *ips_idx += 1;
-
-  /* Store current bytecode. */
-  for (i = 0; i < op_size; ++i)
-    bytecode[*bc_idx + i] = ip[i];
-
-  *bc_idx += op_sizes[op];
 
   if (SCM_I_INUM (tjit_max_record) < *bc_idx)
     {
@@ -226,6 +248,8 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
 
       CLEANUP_STATES ();
     }
+
+  return ip;
 
 #undef SYNC_IP
 #undef CACHE_FP

@@ -210,15 +210,16 @@
 
 /* Macros for tracing JIT */
 #ifdef VM_TJIT
-# define TJIT_MERGE(n)                                  \
-  do {                                                  \
-    if (tjit_state == SCM_TJIT_STATE_RECORD)            \
-      scm_tjit_merge (ip, &tjit_state,                  \
-                      &loop_start, &loop_end,           \
-                      vp, fp, thread,                   \
-                      &tjit_bc_idx, tjit_bytecode,      \
-                      &tjit_ips_idx, &tjit_ips);        \
-  } while (0)
+# define TJIT_MERGE(n)                                          \
+  if (tjit_state == SCM_TJIT_STATE_RECORD)                      \
+    {                                                           \
+      ip = scm_tjit_merge (ip, &tjit_state,                     \
+                           &loop_start, &loop_end,              \
+                           thread, vp, registers, resume,       \
+                           fp,                                  \
+                           &tjit_bc_idx, tjit_bytecode,         \
+                           &tjit_ips_idx, &tjit_ips);           \
+    }
 # define TJIT_ENTER(n)                                          \
   do {                                                          \
     if (n < 0 && tjit_state == SCM_TJIT_STATE_INTERPRET)        \

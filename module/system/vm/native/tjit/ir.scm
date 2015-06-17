@@ -52,12 +52,6 @@
     (add! (add! st i) j))
   (define-syntax-rule (add3! st i j k)
     (add! (add2! st i j) k))
-  (define (acc st ops)
-    (match ops
-      (((op ip . locals) . rest)
-       (acc-one st op rest))
-      (()
-       st)))
   (define (acc-one st op rest)
     (match op
       ((op a1)
@@ -105,6 +99,12 @@
        (acc st rest))
       (_
        (error (format #f "ir:accumulate-locals: ~a" ops)))))
+  (define (acc st ops)
+    (match ops
+      (((op ip . locals) . rest)
+       (acc-one st op rest))
+      (()
+       st)))
 
   (intset-fold cons (acc empty-intset ops) '()))
 
@@ -183,7 +183,7 @@
        (convert st escape rest))
 
       (op
-       (debug 2 "ir.scm:convert: NYI ~a~%" (car op))
+       (debug 2 "ir:convert: NYI ~a~%" (car op))
        (escape #f))))
 
   (define (convert st escape ops)
