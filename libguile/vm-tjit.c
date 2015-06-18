@@ -84,9 +84,11 @@ static inline SCM
 scm_compile_tjit (SCM bc_ptr, SCM bc_len, SCM ip_ptr)
 {
   SCM result;
+
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
   result = scm_call_3 (compile_tjit_var, bc_ptr, bc_len, ip_ptr);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
+
   return result;
 }
 
@@ -118,8 +120,7 @@ scm_tjit_enter (scm_t_uint32 *ip, size_t *state, scm_t_int32 jump,
       if (tjit_hot_count < current_count &&
           scm_hashq_ref (failed_ip_table, scm_ip, SCM_INUM0) < tjit_max_retries)
         {
-          /* Loops is hot and could be compiled. Start tracing the
-             bytecodes from next IP */
+          /* Loops is hot, start tracing the bytecodes from next IP. */
           *state = SCM_TJIT_STATE_RECORD;
           *loop_start = (scm_t_uintptr) (ip + jump);
           *loop_end = (scm_t_uintptr) ip;

@@ -108,6 +108,26 @@
 
   (intset-fold cons (acc empty-intset ops) '()))
 
+;; XXX: Invoke functions in lightning to get this number.
+(define *num-registers* 6)
+
+(define (allocate-registers nlocals is)
+  ;; Naive procedure to assign registers to locals. Does nothing
+  ;; intellectual such as graph-coloring, linear-scan or bin-pack.
+  (let lp ((is is)
+           (regs (iota *num-registers*))
+           (acc (make-vector nlocals #f)))
+    (cond
+     ((null? is)
+      acc)
+     ((null? regs)
+      (debug 2 "local[~a]=~a~%" (car is) #f)
+      (lp (cdr is) regs acc))
+     (else
+      (debug 2 "local[~a]=reg~a~%" (car is) (car regs))
+      (vector-set! acc (car is) (car regs))
+      (lp (cdr is) (cdr regs) acc)))))
+
 (define (trace->scm ops)
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
@@ -119,6 +139,10 @@
 
       (('make-long-immediate dst low-bits)
        `(let ((,(vector-ref st dst) ,low-bits))
+          ,(convert st escape rest)))
+
+      (('static-ref dst offset)
+       `(let ((,(vector-ref st dst) ,(dereference-scm (+ ip (* 4 offset)))))
           ,(convert st escape rest)))
 
       (('br-if-< a b invert? offset)
@@ -160,6 +184,12 @@
          `(let ((,vdst (+ ,va ,vb)))
             ,(convert st escape rest))))
 
+      (('add1 dst src)
+       (let ((vdst (vector-ref st dst))
+             (vsrc (vector-ref st src)))
+         `(let ((,vdst (+ ,vsrc 1)))
+            ,(convert st escape rest))))
+
       (('sub dst a b)
        (let ((vdst (vector-ref st dst))
              (va (vector-ref st a))
@@ -167,17 +197,18 @@
          `(let ((,vdst (- ,va ,vb)))
             ,(convert st escape rest))))
 
-      (('add1 dst src)
-       (let ((vdst (vector-ref st dst))
-             (vsrc (vector-ref st src)))
-         `(let ((,vdst (+ ,vsrc 1)))
-            ,(convert st escape rest))))
-
       (('sub1 dst src)
        (let ((vdst (vector-ref st dst))
              (vsrc (vector-ref st src)))
          `(let ((,vdst (- ,vsrc 1)))
             ,(convert st escape rest))))
+
+      ;; (('mul dst a b)
+      ;;  (let ((vdst (vector-ref st dst))
+      ;;        (va (vector-ref st a))
+      ;;        (vb (vector-ref st b)))
+      ;;    `(let ((,vdst (* ,va ,vb)))
+      ;;       ,(convert st escape rest))))
 
       (('br offset)
        (convert st escape rest))
@@ -191,7 +222,7 @@
       (((op ip . locals) . rest)
        (convert-one st escape ip op rest))
       (()
-       `(rec ,@(filter identity (vector->list st))))))
+       `(loop ,@(filter identity (vector->list st))))))
 
   (define (make-var index)
     (string->symbol (string-append "v" (number->string index))))
@@ -211,18 +242,21 @@
   (let* ((locals (accumulate-locals ops))
          (max-local-num (or (and (null? locals) 0)
                             (apply max locals)))
+         (regs (allocate-registers (+ max-local-num 1) (reverse locals)))
          (args (map (lambda (i) (make-var i))
                     (reverse locals)))
-         (vars (make-vars max-local-num locals)))
-    ;; (debug 2 "locals: ~a~%" locals)
-    (call-with-escape-continuation
-     (lambda (cont)
-       `(letrec ((rec (lambda ,args
-                         ,(convert vars cont ops))))
-          rec)))))
+         (vars (make-vars max-local-num locals))
+         (scm (call-with-escape-continuation
+               (lambda (cont)
+                 `(letrec ((loop (lambda ,args
+                                   ,(convert vars cont ops))))
+                    loop)))))
+    (debug 2 "locals: ~a~%" locals)
+    (debug 2 "regs: ~a~%" regs)
+    (values regs scm)))
 
 (define (scm->cps scm)
-  (define (rec-body cps)
+  (define (loop-body cps)
     (define (go cps k)
       (match (intmap-ref cps k)
         (($ $kfun _ _ _ _ next)
@@ -234,7 +268,7 @@
         (($ $ktail)
          (values (+ k 1) (intmap-remove cps k)))
         (_
-         (error "rec-body: got ~a" (intmap-ref cps k)))))
+         (error "loop-body: got ~a" (intmap-ref cps k)))))
     (call-with-values
         (lambda ()
           (set! cps (optimize cps))
@@ -251,8 +285,10 @@
     ;;                  (lambda (port)
     ;;                    (pretty-print (cadr (caadr scm)) #:port port))))
     ;;            "failed\n"))
-    (set! cps (and cps (rec-body cps)))
+    (set! cps (and cps (loop-body cps)))
     cps))
 
 (define (trace->cps trace)
-  (scm->cps (trace->scm trace)))
+  (call-with-values (lambda () (trace->scm trace))
+    (lambda (regs scm)
+      (values regs (scm->cps scm)))))

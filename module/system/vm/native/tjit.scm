@@ -32,6 +32,7 @@
   #:use-module (language cps2 optimize)
   #:use-module (language cps2 renumber)
   #:use-module (rnrs bytevectors)
+  #:use-module (srfi srfi-11)
   #:use-module (system foreign)
   #:use-module (system vm debug)
   #:use-module (system vm native lightning)
@@ -92,13 +93,9 @@
     (with-jit-state
      (jit-prolog)
 
-     (let ((cps (trace->cps ip-x-ops)))
-       (vm-prolog cps)
+     (let-values (((regs cps) (trace->cps ip-x-ops)))
        (cond
-        ((let ((start (jit-label)))
-           (if cps
-               (assemble-cps start cps)
-               "CPS conversion failed"))
+        ((if cps (assemble-cps regs cps) "CPS conversion failed")
          =>
          (lambda (msg)
            (let ((sline (ip-ptr->source-line (car (car ips)))))
