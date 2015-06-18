@@ -39,19 +39,43 @@
   #:use-module (system base compile)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
+  #:use-module (system vm native tjit primitives)
   #:export (trace->cps
             trace->scm
-            scm->cps))
+            scm->cps
+            accumulate-locals))
+
+
+;;;
+;;; Type check
+;;;
+
+(define (fixnums? a b)
+  (define (fixnum? n)
+    (and (exact? n)
+         (< n most-positive-fixnum)
+         (> n most-negative-fixnum)))
+  (and (fixnum? a) (fixnum? b)))
+
+(define (inexacts? a b)
+  (and (inexact? a) (inexact? b)))
+
+
+;;;
+;;; Locals
+;;;
 
 (define (accumulate-locals ops)
   (define (nyi op)
     (debug 2 "ir:accumulate-locals: NYI ~a~%" op))
+
   (define-syntax-rule (add! st i)
     (intset-add! st i))
   (define-syntax-rule (add2! st i j)
     (add! (add! st i) j))
   (define-syntax-rule (add3! st i j k)
     (add! (add2! st i j) k))
+
   (define (acc-one st op rest)
     (match op
       ((op a1)
@@ -99,6 +123,7 @@
        (acc st rest))
       (_
        (error (format #f "ir:accumulate-locals: ~a" ops)))))
+
   (define (acc st ops)
     (match ops
       (((op ip . locals) . rest)
@@ -108,29 +133,23 @@
 
   (intset-fold cons (acc empty-intset ops) '()))
 
-;; XXX: Invoke functions in lightning to get this number.
-(define *num-registers* 6)
-
-(define (allocate-registers nlocals is)
-  ;; Naive procedure to assign registers to locals. Does nothing
-  ;; intellectual such as graph-coloring, linear-scan or bin-pack.
-  (let lp ((is is)
-           (regs (iota *num-registers*))
-           (acc (make-vector nlocals #f)))
-    (cond
-     ((null? is)
-      acc)
-     ((null? regs)
-      (debug 2 "local[~a]=~a~%" (car is) #f)
-      (lp (cdr is) regs acc))
-     (else
-      (debug 2 "local[~a]=reg~a~%" (car is) (car regs))
-      (vector-set! acc (car is) (car regs))
-      (lp (cdr is) (cdr regs) acc)))))
-
 (define (trace->scm ops)
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
+
+  (define (take-frame-snapshot! vars)
+    (let ((end (vector-length vars)))
+      (let lp ((i 0) (acc '()))
+        (cond
+         ((= i end)
+          (reverse! acc))
+         ((vector-ref vars i)
+          =>
+          (lambda (var)
+            (lp (+ i 1) (cons `(%frame-set! ,i ,var) acc))))
+         (else
+          (lp (+ i 1) acc))))))
+
   (define (convert-one st escape ip op rest)
     (match op
       (('make-short-immediate dst low-bits)
@@ -149,14 +168,18 @@
        (let ((va (vector-ref st a))
              (vb (vector-ref st b)))
          `(if ,(if invert? `(< ,vb ,va) `(< ,va ,vb))
-              ,ip
+              (begin
+                ,@(take-frame-snapshot! st)
+                ,ip)
               ,(convert st escape rest))))
 
       (('br-if-= a b invert? offset)
        (let ((va (vector-ref st a))
              (vb (vector-ref st b)))
          `(if ,(if invert? `(not (= ,va ,vb)) `(= ,va ,vb))
-              ,ip
+              (begin
+                ,@(take-frame-snapshot! st)
+                ,ip)
               ,(convert st escape rest))))
 
       (('mov dst src)
@@ -242,18 +265,15 @@
   (let* ((locals (accumulate-locals ops))
          (max-local-num (or (and (null? locals) 0)
                             (apply max locals)))
-         (regs (allocate-registers (+ max-local-num 1) (reverse locals)))
-         (args (map (lambda (i) (make-var i))
-                    (reverse locals)))
+         (args (map make-var (reverse locals)))
          (vars (make-vars max-local-num locals))
          (scm (call-with-escape-continuation
                (lambda (cont)
                  `(letrec ((loop (lambda ,args
                                    ,(convert vars cont ops))))
                     loop)))))
-    (debug 2 "locals: ~a~%" locals)
-    (debug 2 "regs: ~a~%" regs)
-    (values regs scm)))
+    (debug 2 "locals: ~a~%" (sort locals <))
+    (values locals scm)))
 
 (define (scm->cps scm)
   (define (loop-body cps)
@@ -279,16 +299,16 @@
         cps)))
 
   (let ((cps (and scm (compile scm #:from 'scheme #:to 'cps2))))
-    ;; (debug 2 ";;;; scm~%~a"
-    ;;        (or (and scm
-    ;;                 (call-with-output-string
-    ;;                  (lambda (port)
-    ;;                    (pretty-print (cadr (caadr scm)) #:port port))))
-    ;;            "failed\n"))
     (set! cps (and cps (loop-body cps)))
     cps))
 
 (define (trace->cps trace)
   (call-with-values (lambda () (trace->scm trace))
-    (lambda (regs scm)
-      (values regs (scm->cps scm)))))
+    (lambda (locals scm)
+      (debug 2 ";;;; scm~%~a"
+             (or (and scm
+                      (call-with-output-string
+                       (lambda (port)
+                         (pretty-print (cadr (caadr scm)) #:port port))))
+                 "failed\n"))
+      (values locals (scm->cps scm)))))

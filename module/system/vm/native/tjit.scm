@@ -39,6 +39,7 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit primitives)
   #:export (compile-tjit
             tjit-ip-counter
             tjit-hot-count
@@ -48,32 +49,29 @@
 
 
 ;;;
-;;; Fetching bytecodes
-;;;
-
-(define disassemble-one
-  (@@ (system vm disassembler) disassemble-one))
-
-(define (traced-ops bytecode-ptr bytecode-len ips)
-  (let ((bytecode (pointer->bytevector bytecode-ptr bytecode-len))
-        (end (/ bytecode-len 4)))
-    (let lp ((acc '()) (bytecode-offset 0) (ips (reverse! ips)))
-      (if (< bytecode-offset end) ;; (not (null? ips))
-          (call-with-values
-              (lambda () (disassemble-one bytecode bytecode-offset))
-            (lambda (len elt)
-              (let* ((env (car ips)))
-                (lp (cons (cons elt env) acc)
-                    (+ bytecode-offset len)
-                    (cdr ips)))))
-          (reverse! acc)))))
-
-
-;;;
 ;;; Compilation
 ;;;
 
 (define (compile-tjit bytecode-ptr bytecode-len ips)
+  (define disassemble-one
+    (@@ (system vm disassembler) disassemble-one))
+
+  (define (traced-ops bytecode-ptr bytecode-len ips)
+    (let ((bytecode (pointer->bytevector bytecode-ptr bytecode-len))
+          (end (/ bytecode-len 4)))
+      (let lp ((acc '())
+               (bytecode-offset 0)
+               (ips (reverse! ips)))
+        (if (< bytecode-offset end) ;; (not (null? ips))
+            (call-with-values
+                (lambda () (disassemble-one bytecode bytecode-offset))
+              (lambda (len elt)
+                (let* ((env (car ips)))
+                  (lp (cons (cons elt env) acc)
+                      (+ bytecode-offset len)
+                      (cdr ips)))))
+            (reverse! acc)))))
+
   (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len ips))
         (verbosity (lightning-verbosity)))
 
@@ -90,18 +88,43 @@
                      "(unknown file)")
                  (source-line-for-user source)))))
 
+    (define-syntax-rule (show-debug-messages cps code code-size)
+      (when (<= 2 verbosity)
+        (display ";;; bytecode\n")
+        (for-each (match-lambda
+                   ((op ip . locals)
+                    (when (<= 3 verbosity)
+                      (format #t "~a~%" locals))
+                    (format #t "~x  ~a~%" ip op)))
+                  ip-x-ops)
+        (format #t ";;; cps~%~{~4,,,'0@a  ~a~%~}"
+                (or (and cps (reverse! (intmap-fold
+                                        (lambda (i k acc)
+                                          (cons (unparse-cps k)
+                                                (cons i acc)))
+                                        cps
+                                        '())))
+                    '()))
+        (when (and code (<= 3 verbosity))
+          (jit-print)
+          (call-with-output-file
+              (format #f "/tmp/trace-~x.o" (car (car ips)))
+            (lambda (port)
+              (let ((code-copy (make-bytevector code-size)))
+                (bytevector-copy! code 0 code-copy 0 code-size)
+                (put-bytevector port code-copy)))))))
+
     (with-jit-state
      (jit-prolog)
-
-     (let-values (((regs cps) (trace->cps ip-x-ops)))
+     (let-values (((locals cps) (trace->cps ip-x-ops)))
        (cond
-        ((if cps (assemble-cps regs cps) "CPS conversion failed")
+        ((if cps (assemble-cps locals cps) "CPS conversion failed")
          =>
          (lambda (msg)
            (let ((sline (ip-ptr->source-line (car (car ips)))))
-             (debug 1 "trace: ~a ~a ~a~%" sline (red "abort") msg))
+             (debug 1 "trace: ~a ~a ~a~%" sline (red "abort") msg)
+             (show-debug-messages #f #f #f))
            #f))
-
         (else
          (jit-epilog)
          (jit-realize)
@@ -117,31 +140,7 @@
                (let ((sline (ip-ptr->source-line (car (car ips)))))
                  (format #t ";;; trace: ~a size=~a~%"
                          sline (number->string code-size)))
-               (when (<= 2 verbosity)
-                 ;; (display ";;; locals~%~a~%" (cddar ip-x-ops))
-                 (display ";;; bytecode\n")
-                 (for-each (match-lambda
-                            ((op ip . locals)
-                             (when (<= 3 verbosity)
-                               (format #t "~a~%" locals))
-                             (format #t "~x  ~a~%" ip op)))
-                           ip-x-ops)
-                 (format #t ";;; cps~%~{~4,,,'0@a  ~a~%~}"
-                         (or (and cps (reverse! (intmap-fold
-                                                 (lambda (i k acc)
-                                                   (cons (unparse-cps k)
-                                                         (cons i acc)))
-                                                 cps
-                                                 '())))
-                             '()))
-                 (when (<= 3 verbosity)
-                   (jit-print)
-                   (call-with-output-file
-                       (format #f "/tmp/trace-~x.o" (car (car ips)))
-                     (lambda (port)
-                       (let ((code-copy (make-bytevector code-size)))
-                         (bytevector-copy! code 0 code-copy 0 code-size)
-                         (put-bytevector port code-copy))))))))
+               (show-debug-messages cps code code-size)))
            code)))))))
 
 
@@ -155,6 +154,11 @@
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_tjit")
+
+;;; Need to call `initialize-tjit-primitives' after `loading-extension'
+;;; above.  The call to `scm_init_vm_tjit' requires scheme procedure
+;;; `compile-tjit' to be defined.
+(initialize-tjit-primitives)
 
 
 ;;;

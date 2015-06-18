@@ -300,6 +300,30 @@ SCM_DEFINE (scm_set_tjit_hot_count_x, "set-tjit-hot-count!", 1, 0, 0,
 
 
 /*
+ * Dummy functions
+ *
+ * These functions are used by Scheme during compilation from tree-il to
+ * cps.  During compilation from tree-il to cps, some of the toplevel
+ * references in tree-il are converted to $primcall in cps.  These
+ * conversions require Scheme procedure defined as C function, hence the
+ * definitions of dummy functions with names corresponding to primitives
+ * used in vm-tjit engine.
+ */
+
+#define TJIT_PRIMITIVE(c_name, scm_name, req, opt, rest, args) \
+  SCM_DEFINE (c_name, scm_name, req, opt, rest, args, "")      \
+  {                                                            \
+    return SCM_BOOL_F;                                         \
+  }
+
+TJIT_PRIMITIVE (scm_frame_set_x, "%%frame-set!", 2, 0, 0, (SCM dst, SCM src))
+TJIT_PRIMITIVE (scm_fxadd, "%%fxadd", 2, 0, 0, (SCM a, SCM b))
+TJIT_PRIMITIVE (scm_fxadd1, "%%fxadd1", 1, 0, 0, (SCM src))
+TJIT_PRIMITIVE (scm_fxsub, "%%fxsub", 1, 0, 0, (SCM a, SCM b))
+TJIT_PRIMITIVE (scm_fxsub1, "%%fxsub1", 1, 0, 0, (SCM src))
+
+
+/*
  * Initialization
  */
 
