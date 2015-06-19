@@ -192,7 +192,11 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
       /* op = (scm_t_uint32 *) SCM_PACK_OP_24 (native_call, offset); */
       /* op_size = 4; */
 
-      printf ("Found native code at %p while recording trace.\n", ip);
+      scm_puts ("Found native code at #x", scm_current_output_port ());
+      scm_display (scm_number_to_string (SCM_I_MAKINUM (ip),
+                                         SCM_I_MAKINUM (16)),
+                   scm_current_output_port ());
+      scm_puts (" while recording trace.\n", scm_current_output_port ());
     }
   else
     {
@@ -297,30 +301,6 @@ SCM_DEFINE (scm_set_tjit_hot_count_x, "set-tjit-hot-count!", 1, 0, 0,
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
-
-
-/*
- * Dummy functions
- *
- * These functions are used by Scheme during compilation from tree-il to
- * cps.  During compilation from tree-il to cps, some of the toplevel
- * references in tree-il are converted to $primcall in cps.  These
- * conversions require Scheme procedure defined as C function, hence the
- * definitions of dummy functions with names corresponding to primitives
- * used in vm-tjit engine.
- */
-
-#define TJIT_PRIMITIVE(c_name, scm_name, req, opt, rest, args) \
-  SCM_DEFINE (c_name, scm_name, req, opt, rest, args, "")      \
-  {                                                            \
-    return SCM_BOOL_F;                                         \
-  }
-
-TJIT_PRIMITIVE (scm_frame_set_x, "%%frame-set!", 2, 0, 0, (SCM dst, SCM src))
-TJIT_PRIMITIVE (scm_fxadd, "%%fxadd", 2, 0, 0, (SCM a, SCM b))
-TJIT_PRIMITIVE (scm_fxadd1, "%%fxadd1", 1, 0, 0, (SCM src))
-TJIT_PRIMITIVE (scm_fxsub, "%%fxsub", 1, 0, 0, (SCM a, SCM b))
-TJIT_PRIMITIVE (scm_fxsub1, "%%fxsub1", 1, 0, 0, (SCM src))
 
 
 /*

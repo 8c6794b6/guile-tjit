@@ -118,7 +118,7 @@
      (jit-prolog)
      (let-values (((locals cps) (trace->cps ip-x-ops)))
        (cond
-        ((if cps (assemble-cps locals cps) "CPS conversion failed")
+        ((if cps (assemble-tjit locals cps) "CPS conversion failed")
          =>
          (lambda (msg)
            (let ((sline (ip-ptr->source-line (car (car ips)))))
@@ -133,9 +133,7 @@
            (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
            (let* ((fptr (jit-emit))
                   (code-size (jit-code-size)))
-
              (make-bytevector-executable! code)
-
              (when (and verbosity (<= 1 verbosity))
                (let ((sline (ip-ptr->source-line (car (car ips)))))
                  (format #t ";;; trace: ~a size=~a~%"
@@ -155,9 +153,6 @@
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_tjit")
 
-;;; Need to call `initialize-tjit-primitives' after `loading-extension'
-;;; above.  The call to `scm_init_vm_tjit' requires scheme procedure
-;;; `compile-tjit' to be defined.
 (initialize-tjit-primitives)
 
 

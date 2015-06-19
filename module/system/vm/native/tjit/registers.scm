@@ -20,7 +20,9 @@
 
 ;;; Commentary:
 
-;;; Register allocation and CPS variable resolution.
+;;; Register allocation and CPS variable resolution.  Applying naive strategy to
+;;; assign registers to locals. Does nothing intellectual such as
+;;; graph-coloring, linear-scan or binpack.
 
 ;;; Code:
 
@@ -54,14 +56,26 @@
 (define (ref-type x)
   (and (ref? x) (car x)))
 
+(define (make-constant x)
+  (cons 'const x))
+
 (define (constant? x)
   (eq? 'const (ref-type x)))
+
+(define (constant x)
+  (imm (ref-value x)))
+
+(define (make-register x)
+  (cons 'reg x))
 
 (define (register? x)
   (eq? 'reg (ref-type x)))
 
-(define (constant x)
-  (imm (ref-value x)))
+(define (make-memory x)
+  (cons 'mem x))
+
+(define (memory? x)
+  (eq? 'mem (ref-type x)))
 
 
 ;;;
@@ -72,96 +86,83 @@
   ;; Architecture dependent temporary registers.  Lightning has it's own
   ;; register management policy, not sure how the policy works under
   ;; other architecture than x86-64 linux.
-  `#(,r0 ,r1 ,r2 ,r3 ,f5 ,f6))
+  `#(,r1 ,r2 ,r3 ,f5 ,f6))
+
+(define *num-registers*
+  (+ (vector-length *tmp-registers*) 1))
 
 (define (register-ref i)
   (vector-ref *tmp-registers* i))
 
-;; XXX: Invoke functions in lightning to get this number.
-(define *num-registers* 6)
-
-(define (allocate-registers nlocals is)
-  ;; Naive procedure to assign registers to locals. Does nothing
-  ;; intellectual such as graph-coloring, linear-scan or bin-pack.
-  (let lp ((is (reverse is))
-           (regs (iota *num-registers*))
-           (acc (make-vector nlocals #f)))
-    (cond
-     ((null? is)
-      acc)
-     ((null? regs)
-      (debug 2 "local[~a]=~a~%" (car is) #f)
-      (lp (cdr is) regs acc))
-     (else
-      (debug 2 "local[~a]=reg~a~%" (car is) (car regs))
-      (vector-set! acc (car is) (car regs))
-      (lp (cdr is) (cdr regs) acc)))))
-
 (define (resolve-vars cps locals max-var)
-  (define nlocals (or (and (null? locals) 0)
-                      (apply max locals)))
-  (define registers (allocate-registers (+ nlocals 1) locals))
-  (define (resolve-cont cps env reqs inits args k)
+  (define (local-var-alist locals vars)
+    (let lp ((locals (reverse locals)) (vars vars) (acc '()))
+      (cond
+       ((and (null? locals) (null? vars))
+        (reverse acc))
+       ((or (null? locals) (null? vars))
+        (error "local and initial var length mismatch" locals vars))
+       (else
+        (lp (cdr locals) (cdr vars) (acons (car locals) (car vars) acc))))))
+  (define (resolve-cont cps env reqs init-syms args k)
     (match (intmap-ref cps k)
       (($ $kreceive _ knext)
-       (resolve-cont cps env reqs inits '() knext))
+       (resolve-cont cps env reqs init-syms '() knext))
 
       (($ $kargs names syms ($ $continue knext _ exp))
        (cond
         ((equal? names reqs)
          (for-each
           (lambda (sym name)
-            (let ((current (vector-ref env sym)))
-              (when (not (constant? current))
-                (let ((idx (string->number
-                            (substring (symbol->string name) 1))))
-                  (vector-set! env sym
-                               (cons 'reg (vector-ref registers idx)))))))
+            (cond
+             ((< sym *num-registers*)
+              ;; sym 0 is used for loop procedure itself, shifting by 1.
+              (vector-set! env sym (make-register (- sym 1))))
+             (else
+              ;; XXX: Constantly using `1'.
+              (vector-set! env sym (make-memory 1)))))
           syms names)
          (resolve-exp exp cps env reqs syms knext))
         ((and (not (null? args)) (not (null? names)))
          (for-each (lambda (sym arg)
                      (vector-set! env sym arg))
                    syms args)
-         (resolve-exp exp cps env reqs inits knext))
+         (resolve-exp exp cps env reqs init-syms knext))
         (else
-         (resolve-exp exp cps env reqs inits knext))))
+         (resolve-exp exp cps env reqs init-syms knext))))
 
       (($ $kfun _ _ self _ knext)
        (vector-set! env self '(proc . self))
-       (resolve-cont cps env reqs inits '() knext))
+       (resolve-cont cps env reqs init-syms '() knext))
 
       (($ $ktail)
-       (values env inits registers))
+       (values env (local-var-alist locals init-syms)))
 
       (($ $kclause ($ $arity reqs _ _ _ _) knext _)
-       (resolve-cont cps env reqs inits '() knext))))
+       (resolve-cont cps env reqs init-syms '() knext))))
 
-  (define (resolve-exp exp cps env reqs inits k)
+  (define (resolve-exp exp cps env reqs init-syms k)
     (match exp
       (($ $const val)
-       (resolve-cont cps env reqs inits (list (cons 'const val)) k))
+       (resolve-cont cps env reqs init-syms (list (make-constant val)) k))
 
       (($ $branch kt exp)
-       (resolve-exp exp cps env reqs inits kt)
-       (resolve-cont cps env reqs inits '() k))
+       (resolve-exp exp cps env reqs init-syms kt)
+       (resolve-cont cps env reqs init-syms '() k))
 
       (($ $call 0 args)
        ;; Calling self, jumping back to beginning of this procedure.
-       (let lp ((inits inits) (args args))
-         (unless (null? inits)
-           ;; Variable registers could be shared between arguments in
-           ;; this call and initial call.
-           (let ((init (car inits))
+       (let lp ((init-syms init-syms) (args args))
+         (unless (null? init-syms)
+           ;; Variables could be shared between arguments in this call and
+           ;; initial call.
+           (let ((init (car init-syms))
                  (arg (car args)))
              (vector-set! env arg (vector-ref env init)))
-           (lp (cdr inits) (cdr args))))
-       (resolve-cont cps env reqs inits '() k))
-
-      (($ $primcall name args)
-       (resolve-cont cps env reqs inits (list exp) k))
+           (lp (cdr init-syms) (cdr args))))
+       (resolve-cont cps env reqs init-syms '() k))
 
       (_
-       (resolve-cont cps env reqs inits '() k))))
+       (resolve-cont cps env reqs init-syms '() k))))
 
   (resolve-cont cps (make-vector (+ max-var 1)) '() '() '() 0))

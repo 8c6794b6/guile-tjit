@@ -137,7 +137,7 @@
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
 
-  (define (take-frame-snapshot! vars)
+  (define (restore-frame! vars)
     (let ((end (vector-length vars)))
       (let lp ((i 0) (acc '()))
         (cond
@@ -169,7 +169,7 @@
              (vb (vector-ref st b)))
          `(if ,(if invert? `(< ,vb ,va) `(< ,va ,vb))
               (begin
-                ,@(take-frame-snapshot! st)
+                ,@(restore-frame! st)
                 ,ip)
               ,(convert st escape rest))))
 
@@ -178,7 +178,7 @@
              (vb (vector-ref st b)))
          `(if ,(if invert? `(not (= ,va ,vb)) `(= ,va ,vb))
               (begin
-                ,@(take-frame-snapshot! st)
+                ,@(restore-frame! st)
                 ,ip)
               ,(convert st escape rest))))
 

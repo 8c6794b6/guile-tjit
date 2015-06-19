@@ -35,12 +35,6 @@ SCM_API SCM scm_tjit_ip_counter (void);
 SCM_API SCM scm_tjit_hot_count (void);
 SCM_API SCM scm_set_tjit_hot_count_x (SCM count);
 
-SCM_API SCM scm_frame_set_x (SCM dst, SCM src);
-SCM_API SCM scm_fxadd (SCM a, SCM b);
-SCM_API SCM scm_fxadd1 (SCM a);
-SCM_API SCM scm_fxsub (SCM a, SCM b);
-SCM_API SCM scm_fxsub1 (SCM a);
-
 SCM_API void scm_init_vm_tjit (void);
 
 #endif /* _SCM_VM_MJIT_H_ */

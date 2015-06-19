@@ -36,7 +36,7 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit registers)
-  #:export (assemble-cps))
+  #:export (assemble-tjit))
 
 
 ;;;
@@ -97,132 +97,127 @@
                                   '())))
               '())))
 
-(define (assemble-cps locals cps)
-  (define (assemble cps env inits registers loop-start)
+(define (assemble-cps cps env initial-args loop-start)
+  (define (reg x)
+    (register-ref (ref-value x)))
 
-    (define (reg x)
-      (register-ref (ref-value x)))
+  (define (assemble-cont cps arg label kcurrent)
+    ;; (debug 1 "~4,,,'0@a  ~a~%" kcurrent
+    ;;        (or (and (null? arg) arg)
+    ;;            (unparse-cps arg)))
+    (match (intmap-ref cps kcurrent)
+      (($ $kreceive ($ $arity reqs _ _ _ _) knext)
+       (assemble-cont cps  arg label knext))
 
-    (define (assemble-cont cps arg label kcurrent)
-      ;; (debug 1 "~4,,,'0@a  ~a~%" kcurrent
-      ;;        (or (and (null? arg) arg)
-      ;;            (unparse-cps arg)))
-      (match (intmap-ref cps kcurrent)
-        (($ $kreceive ($ $arity reqs _ _ _ _) knext)
-         (assemble-cont cps  arg label knext))
+      (($ $kargs _ _ ($ $continue knext _ ($ $branch kt exp)))
+       (let ((label (jit-forward)))
+         (assemble-cont cps  exp label kt)
+         (assemble-cont cps arg #f knext)))
 
-        (($ $kargs _ _ ($ $continue knext _ ($ $branch kt exp)))
-         (let ((label (jit-forward)))
-           (assemble-cont cps  exp label kt)
-           (assemble-cont cps arg #f knext)))
+      (($ $kargs names syms ($ $continue knext _ exp))
+       (assemble-exp arg syms label)
+       (assemble-cont cps exp label knext))
 
-        (($ $kargs names syms ($ $continue knext _ exp))
-         (assemble-exp arg syms label)
-         (assemble-cont cps exp label knext))
+      (($ $kfun _ _ self _ knext)
+       ;; (vector-set! env self 'self)
+       (assemble-cont cps arg label knext))
 
-        (($ $kfun _ _ self _ knext)
-         ;; (vector-set! env self 'self)
-         (assemble-cont cps arg label knext))
+      (($ $ktail)
+       (assemble-exp arg '() label)
+       (when label
+         (jit-link label))
+       #f)
 
-        (($ $ktail)
-         (assemble-exp arg '() label)
-         (when label
-           (jit-link label))
-         #f)
+      (($ $kclause ($ $arity reqs _ _ _ _) knext)
+       (assemble-cont cps arg label knext))))
 
-        (($ $kclause ($ $arity reqs _ _ _ _) knext)
-         (assemble-cont cps arg label knext))))
+  (define (assemble-exp exp dst label)
+    (define (env-ref i)
+      (vector-ref env i))
+    (match exp
+      (($ $primcall 'return (arg1))
+       (let ((a (env-ref arg1)))
+         (cond
+          ((register? a) (jit-retr (ref-value a)))
+          ((constant? a) (jit-reti (imm (ref-value a)))))))
 
-    (define (assemble-exp exp dst label)
-      (define (env-ref i)
-        (vector-ref env i))
-      (match exp
-        (($ $primcall 'return (arg1))
-         (let ((a (env-ref arg1)))
-           (cond
-            ((register? a) (jit-retr (ref-value a)))
-            ((constant? a) (jit-reti (imm (ref-value a)))))))
+      (($ $primcall '< (arg1 arg2))
+       (let ((a (env-ref arg1))
+             (b (env-ref arg2)))
+         (cond
+          ((and (constant? a) (register? b))
+           (jump (jit-blti (reg b) (constant a)) label))
+          ((and (register? a) (constant? b))
+           (jump (jit-bgei (reg a) (constant b)) label))
+          ((and (register? a) (register? b))
+           (jump (jit-bltr (reg b) (reg a)) label)))))
 
-        (($ $primcall '< (arg1 arg2))
-         (let ((a (env-ref arg1))
-               (b (env-ref arg2)))
-           (cond
-            ((and (constant? a) (register? b))
-             (jump (jit-blti (reg b) (constant a)) label))
-            ((and (register? a) (constant? b))
-             (jump (jit-bgei (reg a) (constant b)) label))
-            ((and (register? a) (register? b))
-             (jump (jit-bltr (reg b) (reg a)) label)))))
+      (($ $primcall '= (arg1 arg2))
+       (let ((a (env-ref arg1))
+             (b (env-ref arg2)))
+         (jump (jit-bner (reg a) (reg b)) label)))
 
-        (($ $primcall '= (arg1 arg2))
-         (let ((a (env-ref arg1))
-               (b (env-ref arg2)))
-           (jump (jit-bner (reg a) (reg b)) label)))
+      (($ $primcall 'add1 (arg1))
+       (let ((v0 (reg (env-ref (car dst))))
+             (v1 (reg (env-ref arg1))))
+         (jit-addi v0 v1 (imm 4))))
 
-        (($ $primcall 'add1 (arg1))
-         (let ((v0 (reg (env-ref (car dst))))
-               (v1 (reg (env-ref arg1))))
-           (jit-addi v0 v1 (imm 4))))
+      (($ $primcall 'add (arg1 arg2))
+       (let ((v0 (reg (env-ref (car dst))))
+             (v1 (reg (env-ref arg1)))
+             (v2 (reg (env-ref arg2))))
+         (jit-addr v0 v1 v2)
+         (jit-subi v0 v0 (imm 2))))
 
-        (($ $primcall 'add (arg1 arg2))
-         (let ((v0 (reg (env-ref (car dst))))
-               (v1 (reg (env-ref arg1)))
-               (v2 (reg (env-ref arg2))))
-           (jit-addr v0 v1 v2)
-           (jit-subi v0 v0 (imm 2))))
+      (($ $primcall 'sub1 (arg1))
+       (let ((v0 (env-ref (car dst)))
+             (v1 (env-ref arg1)))
+         (jit-subi (reg v0) (reg v1) (imm 4))))
 
-        (($ $primcall 'sub1 (arg1))
-         (let ((v0 (env-ref (car dst)))
-               (v1 (env-ref arg1)))
-           (jit-subi (reg v0) (reg v1) (imm 4))))
+      (($ $primcall '%frame-set! (arg1 arg2))
+       (let ((idx (env-ref arg1))
+             (src (env-ref arg2)))
+         (cond
+          ((and (constant? idx) (register? src))
+           (local-set! (ref-value idx) (reg src)))
+          ((and (constant? idx) (constant? src))
+           (local-set!/immediate (ref-value idx) (constant src)))
+          (else
+           (debug 2 "*** %frame-set!: type mismatch: idx=~a, src=~a~%"
+                  idx src)))))
 
-        (($ $primcall '%frame-set! (arg1 arg2))
-         (let ((idx (env-ref arg1))
-               (src (env-ref arg2)))
-           (cond
-            ((and (constant? idx) (register? src))
-             (local-set! (ref-value idx) (reg src)))
-            ((and (constant? idx) (constant? src))
-             (local-set!/immediate (ref-value idx) (constant src)))
-            (else
-             (debug 2 "*** %frame-set!: type mismatch: idx=~a, src=~a~%"
-                    idx src)))))
+      (($ $primcall name args)
+       (debug 2 "*** Unhandled primcall: ~a~%" name))
 
-        (($ $primcall name args)
-         (debug 2 "*** Unhandled primcall: ~a~%" name))
+      (($ $call 0 new-args)
+       (for-each
+        (lambda (old new)
+          (when (not (eq? old new))
+            (let ((v0 (env-ref old))
+                  (v1 (env-ref new)))
+              (when (not (eq? v0 v1))
+                (jit-movr (reg v0) (reg v1))))))
+        initial-args new-args)
+       (jump loop-start))
 
-        (($ $call 0 args)
-         (for-each (lambda (old new)
-                     (when (not (eq? old new))
-                       (let ((v0 (env-ref old))
-                             (v1 (env-ref new)))
-                         (when (not (eq? v0 v1))
-                           (jit-movr (reg v0) (reg v1))))))
-                   inits args)
-         (jump loop-start))
+      (($ $call proc args)
+       (debug 2 "      exp:call ~a ~a~%" proc args))
 
-        (($ $call proc args)
-         (debug 2 "      exp:call ~a ~a~%" proc args))
+      (_
+       ;; (debug 1 "      exp:~a~%" exp)
+       #f)))
 
-        (_
-         ;; (debug 1 "      exp:~a~%" exp)
-         #f)))
+  (assemble-cont cps '() #f 0))
 
-    (assemble-cont cps '() #f 0))
-
-  (define (load-locals registers)
-    (let lp ((local-idx 0) (end (vector-length registers)))
-      (when (< local-idx end)
-        (cond ((vector-ref registers local-idx)
-               =>
-               (lambda (reg-idx)
-                 (let ((r (register-ref reg-idx)))
-                   (local-ref r local-idx)))))
-        (lp (+ local-idx 1) end))))
-
-  ;; Resolve variables in cps.
+(define (assemble-tjit locals cps)
   (let*-values (((max-label max-var) (compute-max-label-and-var cps))
-                ((env inits registers) (resolve-vars cps locals max-var)))
+                ((env initial-locals) (resolve-vars cps locals max-var)))
+
+    (let ((verbosity (lightning-verbosity)))
+      (when (and verbosity (<= 2 verbosity))
+        (dump-cps2 "dump" cps)
+        (display ";;; cps env\n")
+        (pretty-print env)))
 
     ;; Get arguments.
     (jit-getarg reg-thread (jit-arg))    ; *thread
@@ -230,17 +225,22 @@
     (jit-getarg reg-registers (jit-arg)) ; registers, for prompt
     (jit-getarg r0 (jit-arg))            ; resume
 
-    ;; Load vp->fp to register, then load locals to temporary registers.
+    ;; Load vp->fp to register.
     (jit-ldxi reg-fp reg-vp (imm #x10))
 
-    ;; Initialize registers with locals.
-    (load-locals registers)
+    ;; Load initial locals.
+    (for-each
+     (match-lambda
+      ((local-idx . var-idx)
+       (let ((var (vector-ref env var-idx)))
+         (cond
+          ((register? var)
+           (local-ref (register-ref (ref-value var)) local-idx))
+          (else
+           (debug 2 "NYI: non-register initial argument ~a~%" var))))))
+     initial-locals)
 
     ;; Assemble the loop.
-    (let ((loop-start (jit-label)))
-      (let ((verbosity (lightning-verbosity)))
-        (when (and verbosity (<= 2 verbosity))
-          (dump-cps2 "dump" cps)
-          (display ";;; cps env\n")
-          (pretty-print env))
-        (assemble cps env inits registers loop-start)))))
+    (let ((loop-start (jit-label))
+          (initial-args (map cdr initial-locals)))
+      (assemble-cps cps env initial-args loop-start))))

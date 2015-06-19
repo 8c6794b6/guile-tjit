@@ -40,19 +40,14 @@
     (%fxsub1 . (1 . 1))))
 
 (define (initialize-tjit-primitives)
-  (define (add-to-root-module! name)
-    (let* ((c-name (string->symbol (string-append "%" (symbol->string name))))
-           (c-func (module-ref (current-module) c-name)))
-      (module-add! the-root-module name (make-variable c-func))))
   (define (add-cps-primitive! name arity)
+    (module-add! the-root-module name (make-variable #f))
+    (add-interesting-primitive! name)
     (hashq-set! (force (@@ (language cps primitives) *prim-instructions*))
                 name name)
     (hashq-set! (@@ (language cps primitives) *prim-arities*)
                 name arity))
-  (for-each
-   (match-lambda
-    ((name . arity)
-     (add-to-root-module! name)
-     (add-interesting-primitive! name)
-     (add-cps-primitive! name arity)))
-   *native-primitives*))
+  (for-each (match-lambda
+             ((name . arity)
+              (add-cps-primitive! name arity)))
+            *native-primitives*))
