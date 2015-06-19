@@ -421,11 +421,9 @@ If FILE begins with `-' the -s switch is mandatory.
             (parse args out))
 
            ((string-prefix? "--jit-debug=" arg)
-            (use-modules (system vm native debug))
             (parse args
-                   (cons `(lightning-verbosity
-                           ,(string->number
-                             (substring arg (string-length "--jit-debug="))))
+                   (cons `((@ (system vm native debug) lightning-verbosity)
+                           ,(string->number (substring arg 12)))
                          out)))
 
            (else

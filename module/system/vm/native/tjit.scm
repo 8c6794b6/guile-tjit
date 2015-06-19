@@ -84,8 +84,7 @@
        (find-source-for-addr addr)
        (lambda (source)
          (format #f "~a:~d"
-                 (or (source-file source)
-                     "(unknown file)")
+                 (or (source-file source) "(unknown file)")
                  (source-line-for-user source)))))
 
     (define-syntax-rule (show-debug-messages cps code code-size)
@@ -122,7 +121,8 @@
          =>
          (lambda (msg)
            (let ((sline (ip-ptr->source-line (car (car ips)))))
-             (debug 1 "trace: ~a ~a ~a~%" sline (red "abort") msg)
+             (debug 1 ";;; trace: ~a ~a~%" sline "abort")
+             (debug 2 ";;; msg: ~a~%" msg)
              (show-debug-messages #f #f #f))
            #f))
         (else

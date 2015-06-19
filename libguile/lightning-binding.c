@@ -212,6 +212,14 @@ SCM_DEFINE (scm_jit_f_num, "jit-f-num", 0, 0, 0, (), "")
                              NULL);                                     \
   }                                                                     \
 
+
+#define I32T_1(cname, sname, s1, c1)                            \
+  SCM_DEFINE (scm_##cname, sname, 1, 0, 0, (SCM s1), "")        \
+  {                                                             \
+    return scm_from_int32 (_##cname (SCM_JIT_STATE, c1));       \
+  }                                                             \
+
+
 #define BOOL_0(cname, sname)                                     \
   SCM_DEFINE (scm_##cname, sname, 0, 0, 0, (), "")               \
   {                                                              \
@@ -270,7 +278,7 @@ BOOL_1 (jit_target_p, "jit-target-p", u, JIT_NODE (u))
 
 VOID_0 (jit_prolog, "jit-prolog")
 
-BOOL_1 (jit_allocai, "jit-allocai", u, JIT_INT32 (u))
+I32T_1 (jit_allocai, "jit-allocai", u, JIT_INT32 (u))
 VOID_0 (jit_ellipsis, "jit-ellispsis")
 
 NODE_0 (jit_arg, "jit-arg")

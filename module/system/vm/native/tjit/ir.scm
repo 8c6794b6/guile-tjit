@@ -268,11 +268,11 @@
          (args (map make-var (reverse locals)))
          (vars (make-vars max-local-num locals))
          (scm (call-with-escape-continuation
-               (lambda (cont)
+               (lambda (escape)
                  `(letrec ((loop (lambda ,args
-                                   ,(convert vars cont ops))))
+                                   ,(convert vars escape ops))))
                     loop)))))
-    (debug 2 "locals: ~a~%" (sort locals <))
+    (debug 2 ";;; locals: ~a~%" (sort locals <))
     (values locals scm)))
 
 (define (scm->cps scm)
@@ -305,7 +305,7 @@
 (define (trace->cps trace)
   (call-with-values (lambda () (trace->scm trace))
     (lambda (locals scm)
-      (debug 2 ";;;; scm~%~a"
+      (debug 2 ";;; scm~%~a"
              (or (and scm
                       (call-with-output-string
                        (lambda (port)

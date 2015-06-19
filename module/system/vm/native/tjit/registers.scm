@@ -39,6 +39,7 @@
             ref-type
             constant?
             register?
+            memory?
             constant
             register-ref))
 
@@ -95,6 +96,10 @@
   (vector-ref *tmp-registers* i))
 
 (define (resolve-vars cps locals max-var)
+  "Resolve variables in CPS using local variables from LOCALS and MAX-VAR.
+
+Returns 2 values: vector containing resolved variables, and an accos list for
+locals and initial arguments."
   (define (local-var-alist locals vars)
     (let lp ((locals (reverse locals)) (vars vars) (acc '()))
       (cond
@@ -104,65 +109,79 @@
         (error "local and initial var length mismatch" locals vars))
        (else
         (lp (cdr locals) (cdr vars) (acons (car locals) (car vars) acc))))))
-  (define (resolve-cont cps env reqs init-syms args k)
+  (define (resolve-cont cps env reqs init-syms args mem-idx k)
     (match (intmap-ref cps k)
       (($ $kreceive _ knext)
-       (resolve-cont cps env reqs init-syms '() knext))
+       (resolve-cont cps env reqs init-syms '() mem-idx knext))
 
       (($ $kargs names syms ($ $continue knext _ exp))
        (cond
         ((equal? names reqs)
-         (for-each
-          (lambda (sym name)
-            (cond
-             ((< sym *num-registers*)
-              ;; sym 0 is used for loop procedure itself, shifting by 1.
-              (vector-set! env sym (make-register (- sym 1))))
-             (else
-              ;; XXX: Constantly using `1'.
-              (vector-set! env sym (make-memory 1)))))
-          syms names)
-         (resolve-exp exp cps env reqs syms knext))
-        ((and (not (null? args)) (not (null? names)))
-         (for-each (lambda (sym arg)
-                     (vector-set! env sym arg))
-                   syms args)
-         (resolve-exp exp cps env reqs init-syms knext))
+         (let lp ((syms-tmp syms) (mem-idx mem-idx))
+           (match syms-tmp
+             ((sym . rest)
+              (cond
+               ((< sym *num-registers*)
+                (vector-set! env sym (make-register (- sym 1)))
+                (lp rest mem-idx))
+               (else
+                (vector-set! env sym (make-memory mem-idx))
+                (lp rest (+ mem-idx 1)))))
+             (()
+              (resolve-exp exp cps env reqs syms mem-idx knext)))))
+
+        ((and (not (null? args)) (not (null? syms)))
+         (let lp ((syms syms) (args args) (mem-idx mem-idx))
+           (match (cons syms args)
+             (((sym . syms) . (arg . args))
+              (cond
+               ((constant? arg)
+                (vector-set! env sym arg)
+                (lp syms args mem-idx))
+               ((< sym *num-registers*)
+                (vector-set! env sym (make-register (- sym 1)))
+                (lp syms args mem-idx))
+               (else
+                (vector-set! env sym (make-memory mem-idx))
+                (lp syms args (+ mem-idx 1)))))
+             (_
+              (resolve-exp exp cps env reqs init-syms mem-idx knext)))))
         (else
-         (resolve-exp exp cps env reqs init-syms knext))))
+         (resolve-exp exp cps env reqs init-syms mem-idx knext))))
 
       (($ $kfun _ _ self _ knext)
        (vector-set! env self '(proc . self))
-       (resolve-cont cps env reqs init-syms '() knext))
+       (resolve-cont cps env reqs init-syms '() mem-idx knext))
 
       (($ $ktail)
        (values env (local-var-alist locals init-syms)))
 
       (($ $kclause ($ $arity reqs _ _ _ _) knext _)
-       (resolve-cont cps env reqs init-syms '() knext))))
+       (resolve-cont cps env reqs init-syms '() mem-idx knext))))
 
-  (define (resolve-exp exp cps env reqs init-syms k)
+  (define (resolve-exp exp cps env reqs init-syms mem-idx k)
     (match exp
       (($ $const val)
-       (resolve-cont cps env reqs init-syms (list (make-constant val)) k))
+       (resolve-cont cps env reqs init-syms
+                     (list (make-constant val))
+                     mem-idx k))
 
       (($ $branch kt exp)
-       (resolve-exp exp cps env reqs init-syms kt)
-       (resolve-cont cps env reqs init-syms '() k))
+       (resolve-exp exp cps env reqs init-syms mem-idx kt)
+       (resolve-cont cps env reqs init-syms '() mem-idx k))
 
       (($ $call 0 args)
-       ;; Calling self, jumping back to beginning of this procedure.
-       (let lp ((init-syms init-syms) (args args))
-         (unless (null? init-syms)
-           ;; Variables could be shared between arguments in this call and
-           ;; initial call.
-           (let ((init (car init-syms))
-                 (arg (car args)))
-             (vector-set! env arg (vector-ref env init)))
-           (lp (cdr init-syms) (cdr args))))
-       (resolve-cont cps env reqs init-syms '() k))
+       ;; Jumping back to beginning of this procedure.  Variables could be
+       ;; shared between arguments in this call and initial call.
+       (for-each (lambda (init arg)
+                   (vector-set! env arg (vector-ref env init)))
+                 init-syms args)
+       (resolve-cont cps env reqs init-syms '() mem-idx k))
+
+      (($ $primcall _ _)
+       (resolve-cont cps env reqs init-syms (list exp) mem-idx k))
 
       (_
-       (resolve-cont cps env reqs init-syms '() k))))
+       (resolve-cont cps env reqs init-syms '() mem-idx k))))
 
-  (resolve-cont cps (make-vector (+ max-var 1)) '() '() '() 0))
+  (resolve-cont cps (make-vector (+ max-var 1)) '() '() '() 0 0))
