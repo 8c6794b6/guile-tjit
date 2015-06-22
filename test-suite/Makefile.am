@@ -20,7 +20,7 @@
 ##   write to the Free Software Foundation, Inc., 51 Franklin Street,
 ##   Fifth Floor, Boston, MA 02110-1301 USA
 
-SUBDIRS = standalone vm
+SUBDIRS = standalone vm tjit
 
 SCM_TESTS = tests/00-initial-env.test		\
 	    tests/00-socket.test		\

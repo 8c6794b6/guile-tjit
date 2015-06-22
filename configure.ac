@@ -1322,13 +1322,17 @@ fi
 # Lightning - JIT library
 #
 #--------------------------------------------------------------------
-if test "$enable_lightning" = yes || test "$enable_lightning" = ""; then
+if test "$enable_lightning" = yes || test "$enable_lightning" = y; then
     AC_DEFINE([BUILD_VM_LIGHTNING], 1, [Build VM with Lightning.])
     PKG_CHECK_MODULES([LIGHTNING],[lightning >= 2.0])
     save_LIBS="$LIBS"
     LIBS="$LIGHTNING_LIBS $LIBS"
     CFLAGS="$LIGHTNING_CFLAGS $CFLAGS"
 fi
+
+AM_CONDITIONAL([BUILD_VM_LIGHTNING],
+  [test "x$enable_lightning" = "xyes"])
+
 
 
 #--------------------------------------------------------------------
@@ -1668,6 +1672,7 @@ AC_CONFIG_FILES([
   test-suite/Makefile
   test-suite/standalone/Makefile
   test-suite/vm/Makefile
+  test-suite/tjit/Makefile
   meta/Makefile
   bootstrap/Makefile
   module/Makefile
