@@ -62,11 +62,11 @@
       (let lp ((acc '())
                (bytecode-offset 0)
                (ips (reverse! ips)))
-        (if (< bytecode-offset end) ;; (not (null? ips))
+        (if (not (null? ips)) ;; (< bytecode-offset end)
             (call-with-values
                 (lambda () (disassemble-one bytecode bytecode-offset))
               (lambda (len elt)
-                (let* ((env (car ips)))
+                (let ((env (car ips)))
                   (lp (cons (cons elt env) acc)
                       (+ bytecode-offset len)
                       (cdr ips)))))
@@ -92,8 +92,8 @@
         (display ";;; bytecode\n")
         (for-each (match-lambda
                    ((op ip . locals)
-                    (when (<= 3 verbosity)
-                      (format #t "~a~%" locals))
+                    ;; (when (<= 3 verbosity)
+                    ;;   (format #t "~a~%" locals))
                     (format #t "~x  ~a~%" ip op)))
                   ip-x-ops)
         (format #t ";;; cps~%~{~4,,,'0@a  ~a~%~}"

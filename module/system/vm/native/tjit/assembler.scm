@@ -80,17 +80,6 @@
     ((_ n src)
      (jit-stxi (imm (* n word-size)) reg-fp src))))
 
-(define-syntax local-set!/immediate
-  (syntax-rules ()
-    ((_ 0 val)
-     (begin
-       (jit-movi r0 val)
-       (jit-str reg-fp r0)))
-    ((_ n val)
-     (begin
-       (jit-movi r0 val)
-       (jit-stxi (imm (* n word-size)) reg-fp r0)))))
-
 
 ;;;
 ;;; Code generation
@@ -120,11 +109,11 @@
     ;;            (unparse-cps arg)))
     (match (intmap-ref cps kcurrent)
       (($ $kreceive ($ $arity reqs _ _ _ _) knext)
-       (assemble-cont cps  arg label knext))
+       (assemble-cont cps arg label knext))
 
       (($ $kargs _ _ ($ $continue knext _ ($ $branch kt exp)))
        (let ((label (jit-forward)))
-         (assemble-cont cps  exp label kt)
+         (assemble-cont cps exp label kt)
          (assemble-cont cps arg #f knext)))
 
       (($ $kargs names syms ($ $continue knext _ exp))
@@ -132,7 +121,6 @@
        (assemble-cont cps exp label knext))
 
       (($ $kfun _ _ self _ knext)
-       ;; (vector-set! env self 'self)
        (assemble-cont cps arg label knext))
 
       (($ $ktail)
@@ -154,8 +142,10 @@
       (($ $primcall 'return (arg1))
        (let ((a (env-ref arg1)))
          (cond
-          ((register? a) (jit-retr (ref-value a)))
-          ((constant? a) (jit-reti (imm (ref-value a)))))))
+          ((register? a)
+           (jit-retr (reg a)))
+          ((constant? a)
+           (jit-reti (constant a))))))
 
       (($ $primcall '< (arg1 arg2))
        (let ((a (env-ref arg1))
@@ -168,7 +158,8 @@
            (jump (jit-blti r0 (constant a)) label))
 
           ((and (register? a) (constant? b))
-           (jump (jit-bgei (reg a) (constant b)) label))
+           (jit-movi r0 (constant b))
+           (jump (jit-bltr r0 (reg a)) label))
           ((and (register? a) (register? b))
            (jump (jit-bltr (reg b) (reg a)) label))
           ((and (register? a) (memory? b))
@@ -177,7 +168,8 @@
 
           ((and (memory? a) (constant? b))
            (jit-ldxi r0 fp (moffs a))
-           (jump (jit-bgei r0 (constant b)) label))
+           (jit-movi f0 (constant b))
+           (jump (jit-bltr f0 r0) label))
           ((and (memory? a) (register? b))
            (jit-ldxi r0 fp (moffs a))
            (jump (jit-bltr r0 (reg a)) label))
@@ -272,7 +264,8 @@
                   idx src))
          (cond
           ((constant? src)
-           (local-set!/immediate (ref-value idx) (constant src)))
+           (jit-movi r0 (constant src))
+           (local-set! (ref-value idx) r0))
           ((register? src)
            (local-set! (ref-value idx) (reg src)))
           ((memory? src)
@@ -322,7 +315,7 @@
                 ((env initial-locals) (resolve-vars cps locals max-var)))
     (let ((verbosity (lightning-verbosity)))
       (when (and verbosity (<= 2 verbosity))
-        (dump-cps2 "dump" cps)
+        ;; (dump-cps2 "dump" cps)
         (display ";;; cps env\n")
         (pretty-print env)))
 
@@ -350,10 +343,9 @@
             ((register? var)
              (local-ref (register-ref (ref-value var)) local-idx))
             ((memory? var)
-             (local-ref r0 local-idx)
-             (jit-stxi (make-offset-pointer fp-offset
-                                            (* (ref-value var) word-size))
-                       fp r0))
+             (let ((offset (* (ref-value var) word-size)))
+               (local-ref r0 local-idx)
+               (jit-stxi (make-offset-pointer fp-offset offset) fp r0)))
             (else
              (debug 2 "Unknown initial argument: ~a~%" var))))))
        initial-locals)

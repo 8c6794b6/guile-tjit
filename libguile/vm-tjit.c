@@ -183,33 +183,35 @@ scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
       fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
       ip = fn (thread, vp, registers, resume);
 
-      /* XXX: Add new bytecode and insert here, for calling native code
-         with current vp, thread, registers, and resume.  Need to take
-         snapshot of current frame data and pass it from CPS IR in
-         Scheme. OFFSET could be expected IP returned from native
-         code. If different IP returned, native code did a side exit. */
+      /* XXX: Call native code with current vp, thread, registers, and
+         resume.
 
-      /* op = (scm_t_uint32 *) SCM_PACK_OP_24 (native_call, offset); */
-      /* op_size = 4; */
+         Need to take snapshot of current frame data and pass it from
+         CPS IR in Scheme. OFFSET could be expected IP returned from
+         native code. If different IP returned, native code did a side
+         exit.  Could add new bytecode for doing this, e.g.:
 
+           op = (scm_t_uint32 *) SCM_PACK_OP_24 (native_call, offset);
+           op_size = 4;
+
+         Alternatively, add compiled native code to env, invoke the
+         native function without adding extra bytecode.
+      */
       scm_puts ("Found native code at #x", scm_current_output_port ());
       scm_display (scm_number_to_string (SCM_I_MAKINUM (ip),
                                          SCM_I_MAKINUM (16)),
                    scm_current_output_port ());
       scm_puts (" while recording trace.\n", scm_current_output_port ());
     }
-  else
-    {
-      op = *ip & 0xff;
-      op_size = op_sizes[op];
 
-      /* Store current bytecode. */
-      for (i = 0; i < op_size; ++i)
-        bytecode[*bc_idx + i] = ip[i];
+  op = *ip & 0xff;
+  op_size = op_sizes[op];
 
-      *bc_idx += op_sizes[op];
-    }
+  /* Store current bytecode. */
+  for (i = 0; i < op_size; ++i)
+    bytecode[*bc_idx + i] = ip[i];
 
+  *bc_idx += op_sizes[op];
 
   /* Store current IP and frame locals. Copying the local contents to
      vector manually, to get updated information from *fp, not from
