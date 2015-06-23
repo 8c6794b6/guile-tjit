@@ -105,8 +105,8 @@ scm_tjit_enter (scm_t_uint32 *ip, size_t *state, scm_t_int32 jump,
 
   if (scm_is_true (code))
     {
-      /* Run compiled native code of this bytecode.  Set next IP to the
-         one returned from failed guard. */
+      /* Run compiled native code of this bytecode.  Set next IP to
+         returned value from failed guard. */
       scm_t_native_code fn;
 
       fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);

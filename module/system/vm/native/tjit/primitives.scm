@@ -34,20 +34,38 @@
 
 (define *native-primitives*
   '((%frame-set! . (0 . 2))
+    (%guard-fx . (0 . 2))
     (%fxadd . (1 . 2))
     (%fxadd1 . (1 . 1))
     (%fxsub . (1 . 2))
     (%fxsub1 . (1 . 1))))
 
+(define *native-branching-primcall-arities*
+  '((%fx< . (1 . 2))
+    (%fx= . (1 . 2))))
+
+;;; Procedure (@@ (language cps primitives) branching-primitives?) extended with
+;;; CPS primitives used in vm-tjit.  Branching primitives are merged to CPS term
+;;; during compilation from tree-il to cps, by applying the procedure (@@
+;;; (language cps primitives) branching-primitives?).
 (define (initialize-tjit-primitives)
-  (define (add-cps-primitive! name arity)
-    (module-add! the-root-module name (make-variable #f))
-    (add-interesting-primitive! name)
-    (hashq-set! (force (@@ (language cps primitives) *prim-instructions*))
-                name name)
-    (hashq-set! (@@ (language cps primitives) *prim-arities*)
-                name arity))
-  (for-each (match-lambda
-             ((name . arity)
-              (add-cps-primitive! name arity)))
-            *native-primitives*))
+  (define (branching-primitive? name)
+    (let ((cps-branching-primcall-arities
+           (@@ (language cps primitives) *branching-primcall-arities*)))
+      (or (and (assq name cps-branching-primcall-arities) #t)
+          (and (assq name *native-branching-primcall-arities*) #t))))
+  (for-each
+   (match-lambda
+    ((name . arity)
+     (module-add! the-root-module name (make-variable #f))
+     (add-interesting-primitive! name)
+     (hashq-set! (force (@@ (language cps primitives) *prim-instructions*))
+                 name name)
+     (hashq-set! (@@ (language cps primitives) *prim-arities*) name arity)))
+   (append *native-primitives*
+           *native-branching-primcall-arities*))
+
+  ;; XXX: Overwriting private procedure.
+  (module-define! (resolve-module '(language cps primitives))
+                  'branching-primitive?
+                  branching-primitive?))

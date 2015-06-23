@@ -38,6 +38,16 @@
   #:use-module (system vm native tjit registers)
   #:export (assemble-tjit))
 
+;;;
+;;; Raw Scheme, relates to C macro
+;;;
+
+(define-syntax-rule (scm-inump obj)
+  (jit-bmsi obj (imm 2)))
+
+(define-syntax-rule (scm-not-inump obj)
+  (jit-bmci obj (imm 2)))
+
 
 ;;;
 ;;; Auxiliary
@@ -127,17 +137,20 @@
        (assemble-exp arg '() label)
        (when label
          (jit-link label))
+       ;; (when (and label (jit-forward-p label))
+       ;;   (format #t "jit-forward-p: ~a~%" (jit-forward-p label))
+       ;;   (jit-link label))
        #f)
 
       (($ $kclause ($ $arity reqs _ _ _ _) knext)
        (assemble-cont cps arg label knext))))
 
   (define (assemble-exp exp dst label)
+    ;; Need at least 3 scratch registers. Currently using R0, F0, and
+    ;; F1.  Might use F2 as whell, when double numbers get involved.
     (define (env-ref i)
       (vector-ref env i))
 
-    ;; Need at least 3 scratch registers. Currently using R0, F0, and
-    ;; F1.  Might use F2 as whell, when double numbers get involved.
     (match exp
       (($ $primcall 'return (arg1))
        (let ((a (env-ref arg1)))
@@ -147,7 +160,7 @@
           ((constant? a)
            (jit-reti (constant a))))))
 
-      (($ $primcall '< (arg1 arg2))
+      (($ $primcall '%fx< (arg1 arg2))
        (let ((a (env-ref arg1))
              (b (env-ref arg2)))
          (cond
@@ -183,26 +196,7 @@
              (b (env-ref arg2)))
          (jump (jit-bner (reg a) (reg b)) label)))
 
-      (($ $primcall 'add1 (arg1))
-       (let ((dst (env-ref (car dst)))
-             (src (env-ref arg1)))
-         (cond
-          ((and (register? dst) (register? src))
-           (jit-addi (reg dst) (reg src) (imm 4)))
-          ((and (register? dst) (memory? src))
-           (jit-ldxi r0 fp (moffs src))
-           (jit-addi (reg dst) r0 (imm 4)))
-
-          ((and (memory? dst) (register? src))
-           (jit-ldxi r0 fp (moffs dst))
-           (jit-addi r0 r0 (imm 4))
-           (jit-stxi (moffs dst) fp r0))
-          ((and (memory? dst) (memory? src))
-           (jit-ldxi r0 fp (moffs dst))
-           (jit-addi r0 r0 (imm 4))
-           (jit-stxi (moffs dst) fp r0)))))
-
-      (($ $primcall 'add (arg1 arg2))
+      (($ $primcall '%fxadd (arg1 arg2))
        (let ((a (env-ref arg1))
              (b (env-ref arg2))
              (dst (env-ref (car dst))))
@@ -249,9 +243,28 @@
            (jit-subi r0 r0 (imm 2))
            (jit-stxi (moffs dst) fp r0))
           (else
-           (error "add: dst=~a, a=~a, b=~a~%" dst a b)))))
+           (error "assemble-exp: add: ~a ~a ~a~%" dst a b)))))
 
-      (($ $primcall 'sub1 (arg1))
+      (($ $primcall '%fxadd1 (arg1))
+       (let ((dst (env-ref (car dst)))
+             (src (env-ref arg1)))
+         (cond
+          ((and (register? dst) (register? src))
+           (jit-addi (reg dst) (reg src) (imm 4)))
+          ((and (register? dst) (memory? src))
+           (jit-ldxi r0 fp (moffs src))
+           (jit-addi (reg dst) r0 (imm 4)))
+
+          ((and (memory? dst) (register? src))
+           (jit-ldxi r0 fp (moffs dst))
+           (jit-addi r0 r0 (imm 4))
+           (jit-stxi (moffs dst) fp r0))
+          ((and (memory? dst) (memory? src))
+           (jit-ldxi r0 fp (moffs dst))
+           (jit-addi r0 r0 (imm 4))
+           (jit-stxi (moffs dst) fp r0)))))
+
+      (($ $primcall '%fxsub1 (arg1))
        (let ((v0 (env-ref (car dst)))
              (v1 (env-ref arg1)))
          (jit-subi (reg v0) (reg v1) (imm 4))))
@@ -259,10 +272,9 @@
       (($ $primcall '%frame-set! (arg1 arg2))
        (let ((idx (env-ref arg1))
              (src (env-ref arg2)))
-         (when (not (constant? idx))
-           (debug 2 "*** %frame-set!: type mismatch: idx=~a, src=~a~%"
-                  idx src))
          (cond
+          ((not (constant? idx))
+           (debug 2 "*** %frame-set!: type mismatch ~a ~a~%" idx src))
           ((constant? src)
            (jit-movi r0 (constant src))
            (local-set! (ref-value idx) r0))
@@ -272,7 +284,28 @@
            (jit-ldxi r0 fp (moffs src))
            (local-set! (ref-value idx) r0))
           (else
-           (debug 2 "*** %frame-set!: Unknown args ~a ~a~%" idx src)))))
+           (debug 2 "*** %frame-set!: unknown args ~a ~a~%" idx src)))))
+
+      (($ $primcall '%guard-fx (arg1 arg2))
+       (let ((obj (env-ref arg1))
+             (ip (env-ref arg2)))
+         (cond
+          ((constant? obj)              ; Guard to constant could be
+                                        ; removed.
+           #f)
+          ((not (constant? ip))
+           (debug 2 "*** %guard-fx: not a contant ~a ~a~%" v0 v1))
+          ((register? obj)
+           (let ((lnext (jit-forward)))
+             (jump (scm-inump (reg obj)) lnext)
+             (jit-reti (constant ip))
+             (jit-link lnext)))
+          ((memory? obj)
+           (let ((lnext (jit-forward)))
+             (jit-ldxi r0 fp (moffs obj))
+             (jump (scm-inump r0) lnext)
+             (jit-reti (constant ip))
+             (jit-link lnext))))))
 
       (($ $primcall name args)
        (debug 2 "*** Unhandled primcall: ~a~%" name))
@@ -317,7 +350,10 @@
       (when (and verbosity (<= 2 verbosity))
         ;; (dump-cps2 "dump" cps)
         (display ";;; cps env\n")
-        (pretty-print env)))
+        (let lp ((n 0) (end (vector-length env)))
+          (when (< n end)
+            (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
+            (lp (+ n 1) end)))))
 
     ;; Allocate space for spilled variables, if any.
     (let* ((nspills (max-moffs env))

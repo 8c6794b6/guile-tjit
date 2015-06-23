@@ -36,6 +36,7 @@
   #:use-module (language cps2 optimize)
   #:use-module (language cps2 renumber)
   #:use-module (language scheme spec)
+  #:use-module ((srfi srfi-1) #:select (every))
   #:use-module (system base compile)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
@@ -50,12 +51,12 @@
 ;;; Type check
 ;;;
 
-(define (fixnums? a b)
+(define (fixnums? . args)
   (define (fixnum? n)
     (and (exact? n)
          (< n most-positive-fixnum)
          (> n most-negative-fixnum)))
-  (and (fixnum? a) (fixnum? b)))
+  (every fixnum? args))
 
 (define (inexacts? a b)
   (and (inexact? a) (inexact? b)))
@@ -76,58 +77,55 @@
   (define-syntax-rule (add3! st i j k)
     (add! (add2! st i j) k))
 
-  (define (acc-one st op rest)
+  (define (acc-one st op)
     (match op
       ((op a1)
        (case op
-         ((br)
-          (acc st rest))
-         (else
-          (nyi op)
-          (acc st rest))))
+         ((br) st)
+         (else st)))
       ((op a1 a2)
        (case op
          ((make-short-immediate
            make-long-immediate
            make-long-long-immediate
            static-ref)
-          (acc (add! st a1) rest))
+          (add! st a1))
          ((mov sub1 add1 box-ref)
-          (acc (add2! st a1 a2) rest))
+          (add2! st a1 a2))
          (else
           (nyi op)
-          (acc st rest))))
+          st)))
       ((op a1 a2 a3)
        (case op
          ((add sub mul div quo)
-          (acc (add3! st a1 a2 a3) rest))
+          (add3! st a1 a2 a3))
          (else
           (nyi op)
-          (acc st rest))))
+          st)))
       ((op a1 a2 a3 a4)
        (case op
          ((br-if-< br-if-= br-if-<=)
-          (acc (add2! st a1 a2) rest))
+          (add2! st a1 a2))
          (else
           (nyi op)
-          (acc st rest))))
+          st)))
       ((op a1 a2 a3 a4 a5)
        (case op
          ((toplevel-box)
-          (acc (add! st a1) rest))
+          (add! st a1))
          (else
           (nyi op)
-          (acc st rest))))
+          st)))
       (op
        (nyi op)
-       (acc st rest))
+       st)
       (_
        (error (format #f "ir:accumulate-locals: ~a" ops)))))
 
   (define (acc st ops)
     (match ops
       (((op ip . locals) . rest)
-       (acc-one st op rest))
+       (acc (acc-one st op) rest))
       (()
        st)))
 
@@ -150,7 +148,9 @@
          (else
           (lp (+ i 1) acc))))))
 
-  (define (convert-one st escape ip op rest)
+  ;; XXX: Add prologue for native functio, move calls to `%guard-fx' in <, add,
+  ;; add1, sub ... etc to the prologue.
+  (define (convert-one st escape op ip locals rest)
     (match op
       (('make-short-immediate dst low-bits)
        `(let ((,(vector-ref st dst) ,low-bits))
@@ -165,13 +165,20 @@
           ,(convert st escape rest)))
 
       (('br-if-< a b invert? offset)
-       (let ((va (vector-ref st a))
+       (let ((ra (vector-ref locals a))
+             (rb (vector-ref locals b))
+             (va (vector-ref st a))
              (vb (vector-ref st b)))
-         `(if ,(if invert? `(< ,vb ,va) `(< ,va ,vb))
-              (begin
-                ,@(restore-frame! st)
-                ,ip)
-              ,(convert st escape rest))))
+         (cond
+          ((fixnums? ra rb)
+           `(if ,(if invert? `(%fx< ,vb ,va) `(%fx< ,va ,vb))
+                (begin
+                  ,@(restore-frame! st)
+                  ,ip)
+                ,(convert st escape rest)))
+          (else
+           (debug 2 "ir:convert < ~a ~a~%" ra rb)
+           (escape #f)))))
 
       (('br-if-= a b invert? offset)
        (let ((va (vector-ref st a))
@@ -201,30 +208,60 @@
             ,(convert st escape rest))))
 
       (('add dst a b)
-       (let ((vdst (vector-ref st dst))
+       (let ((rdst (vector-ref locals dst))
+             (ra (vector-ref locals a))
+             (rb (vector-ref locals b))
+             (vdst (vector-ref st dst))
              (va (vector-ref st a))
              (vb (vector-ref st b)))
-         `(let ((,vdst (+ ,va ,vb)))
-            ,(convert st escape rest))))
+         (cond
+          ((fixnums? rdst ra rb)
+           `(let ((,vdst (%fxadd ,va ,vb)))
+              ,(convert st escape rest)))
+          (else
+           (debug 2 "ir:convert add ~a ~a ~a" rdst ra rb)
+           (escape #f)))))
 
       (('add1 dst src)
-       (let ((vdst (vector-ref st dst))
+       (let ((rdst (vector-ref locals dst))
+             (rsrc (vector-ref locals src))
+             (vdst (vector-ref st dst))
              (vsrc (vector-ref st src)))
-         `(let ((,vdst (+ ,vsrc 1)))
-            ,(convert st escape rest))))
+         (cond
+          ((fixnums? rdst rsrc)
+           `(let ((,vdst (%fxadd1 ,vsrc)))
+              ,(convert st escape rest)))
+          (else
+           (debug 2 "ir:convert add1 ~a ~a" rdst rsrc)
+           (escape #f)))))
 
       (('sub dst a b)
-       (let ((vdst (vector-ref st dst))
+       (let ((rdst (vector-ref locals dst))
+             (ra (vector-ref locals a))
+             (rb (vector-ref locals b))
+             (vdst (vector-ref st dst))
              (va (vector-ref st a))
              (vb (vector-ref st b)))
-         `(let ((,vdst (- ,va ,vb)))
-            ,(convert st escape rest))))
+         (cond
+          ((fixnums? rdst ra rb)
+           `(let ((,vdst (%fxsub ,va ,vb)))
+              ,(convert st escape rest)))
+          (else
+           (debug 2 "ir:convert sub ~a ~a ~a~%" rdst ra rb)
+           (escape #f)))))
 
       (('sub1 dst src)
-       (let ((vdst (vector-ref st dst))
+       (let ((rdst (vector-ref locals dst))
+             (rsrc (vector-ref locals src))
+             (vdst (vector-ref st dst))
              (vsrc (vector-ref st src)))
-         `(let ((,vdst (- ,vsrc 1)))
-            ,(convert st escape rest))))
+         (cond
+          ((fixnums? rdst rsrc)
+           `(let ((,vdst (%fxsub1 ,vsrc)))
+              ,(convert st escape rest)))
+          (else
+           (debug 2 "ir:convert sub1 ~a ~a" rdst rsrc)
+           (escape #f)))))
 
       ;; (('mul dst a b)
       ;;  (let ((vdst (vector-ref st dst))
@@ -240,10 +277,10 @@
        (debug 2 "ir:convert: NYI ~a~%" (car op))
        (escape #f))))
 
-  (define (convert st escape ops)
-    (match ops
+  (define (convert st escape env)
+    (match env
       (((op ip . locals) . rest)
-       (convert-one st escape ip op rest))
+       (convert-one st escape op ip locals rest))
       (()
        `(loop ,@(filter identity (vector->list st))))))
 
@@ -276,7 +313,7 @@
     (values locals scm)))
 
 (define (scm->cps scm)
-  (define (loop-body cps)
+  (define (body-fun cps)
     (define (go cps k)
       (match (intmap-ref cps k)
         (($ $kfun _ _ _ _ next)
@@ -288,7 +325,7 @@
         (($ $ktail)
          (values (+ k 1) (intmap-remove cps k)))
         (_
-         (error "loop-body: got ~a" (intmap-ref cps k)))))
+         (error "body-fun: got ~a" (intmap-ref cps k)))))
     (call-with-values
         (lambda ()
           (set! cps (optimize cps))
@@ -299,7 +336,7 @@
         cps)))
 
   (let ((cps (and scm (compile scm #:from 'scheme #:to 'cps2))))
-    (set! cps (and cps (loop-body cps)))
+    (set! cps (and cps (body-fun cps)))
     cps))
 
 (define (trace->cps trace)
@@ -309,6 +346,6 @@
              (or (and scm
                       (call-with-output-string
                        (lambda (port)
-                         (pretty-print (cadr (caadr scm)) #:port port))))
+                         (pretty-print scm #:port port))))
                  "failed\n"))
       (values locals (scm->cps scm)))))
