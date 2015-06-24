@@ -218,8 +218,7 @@
       SCM_TJIT_MERGE (ip, &tjit_state, fp,                      \
                       &loop_start, &loop_end,                   \
                       thread, vp, registers, resume,            \
-                      &tjit_bc_idx, tjit_bytecode,              \
-                      &tjit_ips_idx, &tjit_ips);                \
+                      &tjit_bc_idx, tjit_bytecode, &tjit_ips);  \
     }
 #  define TJIT_ENTER(n)                                         \
   do {                                                          \
@@ -531,9 +530,6 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
 
   /* Buffer to contain traced bytecode. */
   scm_t_uint32 *tjit_bytecode = scm_tjit_bytecode_buffer ();
-
-  /* Current index of traced IPs. */
-  scm_t_uint32 tjit_ips_idx = 0;
 
   /* List of traced IPs. */
   SCM tjit_ips = SCM_EOL;

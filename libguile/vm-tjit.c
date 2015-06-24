@@ -90,11 +90,9 @@ scm_compile_tjit (SCM bc_ptr, SCM bc_len, SCM ip_ptr)
 }
 
 static inline void
-cleanup_states (size_t *state, scm_t_uint32 *ips_idx,
-                SCM *ips, scm_t_uint32 *bc_idx)
+cleanup_states (size_t *state, SCM *ips, scm_t_uint32 *bc_idx)
 {
   *state = SCM_TJIT_STATE_INTERPRET;
-  *ips_idx = 0;
   *ips = SCM_EOL;
   *bc_idx = 0;
 }
@@ -164,7 +162,7 @@ scm_t_uint32* scm_tjit_bytecode_buffer (void)
 
 #define SCM_TJIT_MERGE(ip, state, fp, loop_start, loop_end,             \
                        thread, vp, registers, resume,                   \
-                       bc_idx, bytecode, ips_idx, ips)                  \
+                       bc_idx, bytecode, ips)                           \
   do {                                                                  \
       SCM s_loop_start;                                                 \
       SCM locals, env;                                                  \
@@ -212,13 +210,12 @@ scm_t_uint32* scm_tjit_bytecode_buffer (void)
       env = scm_inline_cons (thread, SCM_I_MAKINUM (ip), locals);       \
                                                                         \
       *ips = scm_inline_cons (thread, env, *ips);                       \
-      *ips_idx += 1;                                                    \
                                                                         \
       if (SCM_I_INUM (tjit_max_record) < *bc_idx)                       \
         {                                                               \
           /* XXX: Log the abort for too long trace. */                  \
           scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INUM1);   \
-          cleanup_states (state, ips_idx, ips, bc_idx);                 \
+          cleanup_states (state, ips, bc_idx);                          \
         }                                                               \
       else if (ip == ((scm_t_uint32 *) *loop_end))                      \
         {                                                               \
@@ -245,7 +242,7 @@ scm_t_uint32* scm_tjit_bytecode_buffer (void)
               scm_hashq_set_x (failed_ip_table, s_loop_start, retries); \
             }                                                           \
                                                                         \
-          cleanup_states (state, ips_idx, ips, bc_idx);                 \
+          cleanup_states (state, ips, bc_idx);                          \
         }                                                               \
       } while (0)
 
