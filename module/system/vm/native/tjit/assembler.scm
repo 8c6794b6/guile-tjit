@@ -177,9 +177,9 @@
                (assemble-exp arg syms br-label)
                (assemble-cont cps exp br-label loop-label seen knext)))
             ((< knext k)
+             ;; Jumping back to loop start.
              (assemble-exp arg syms br-label)
              ;; (assemble-cont cps exp br-label loop-label knext)
-             ;; Jumping back to loop start.
              (maybe-move exp)
              (jump loop-label)
              #f)
@@ -205,8 +205,6 @@
   (define (assemble-exp exp dst label)
     ;; Need at least 3 scratch registers. Currently using R0, F0, and
     ;; F1.  Might use F2 as whell, when double numbers get involved.
-
-
     (match exp
       (($ $primcall 'return (arg1))
        (let ((a (env-ref arg1)))
@@ -415,6 +413,7 @@
     (let* ((nspills (max-moffs env))
            (fp-offset (or (and (<= nspills 0) 0)
                           (jit-allocai (imm (* nspills word-size))))))
+
       ;; (debug 2 ";;; nspills: ~a, fp-offset: ~a~%" nspills fp-offset)
       ;; (debug 2 ";;; initial-locals: ~a~%" initial-locals)
 

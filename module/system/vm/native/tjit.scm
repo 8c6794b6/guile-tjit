@@ -38,14 +38,12 @@
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit primitives)
   #:use-module (system vm native tjit variables)
   #:export (compile-tjit
-            tjit-ip-counter
-            tjit-hot-count
-            set-tjit-hot-count!
-            tjit-stats
-            init-vm-tjit))
+            init-vm-tjit)
+  #:re-export (tjit-stats))
 
 
 ;;;
@@ -88,15 +86,9 @@
                  (source-line-for-user source)))))
 
     (define (mark-guard-cont cont)
-      (define (mark-guard-exp exp)
-        (match exp
-          (($ $branch _ exp)
-           ">")
-          (_
-           " ")))
       (match cont
-        (($ $kargs _ _ ($ $continue _ _ exp))
-         (mark-guard-exp exp))
+        (($ $kargs _ _ ($ $continue _ _ ($ $branch _ _)))
+         ">")
         (_
          " ")))
 
@@ -189,23 +181,4 @@
   #t)
 
 (load-extension (string-append "libguile-" (effective-version))
-                "scm_init_vm_tjit")
-
-
-;;;
-;;; Statistics
-;;;
-
-(define (tjit-stats)
-  (let ((num-loops 0)
-        (num-hot-loops 0)
-        (hot-count (tjit-hot-count)))
-    (hash-fold (lambda (k v acc)
-                 (set! num-loops (+ num-loops 1))
-                 (when (< hot-count v)
-                   (set! num-hot-loops (+ num-hot-loops 1))))
-               '()
-               (tjit-ip-counter))
-    (list `(hot-count . ,hot-count)
-          `(num-loops . ,num-loops)
-          `(num-hot-loops . ,num-hot-loops))))
+                "scm_bootstrap_vm_tjit")

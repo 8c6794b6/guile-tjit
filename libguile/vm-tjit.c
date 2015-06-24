@@ -296,7 +296,7 @@ void scm_init_buffer (void)
 }
 
 void
-scm_init_vm_tjit (void)
+scm_bootstrap_vm_tjit(void)
 {
   ip_counter_table = scm_c_make_hash_table (31);
   code_cache_table = scm_c_make_hash_table (31);
@@ -306,8 +306,14 @@ scm_init_vm_tjit (void)
   scm_init_buffer ();
 
   GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
+}
 
+void
+scm_init_vm_tjit (void)
+{
+#ifndef SCM_MAGIC_SNARFER
 #include "libguile/vm-tjit.x"
+#endif
 }
 
 /*
