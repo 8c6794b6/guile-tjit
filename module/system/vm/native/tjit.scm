@@ -90,10 +90,8 @@
     (define (mark-guard-cont cont)
       (define (mark-guard-exp exp)
         (match exp
-          (($ $primcall '%fx< _)
-           ">")
           (($ $branch _ exp)
-           (mark-guard-exp exp))
+           ">")
           (_
            " ")))
       (match cont

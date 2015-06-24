@@ -110,14 +110,14 @@ locals and initial arguments."
 
   (define (resolve-cont env reqs init-syms loop-syms args mem-idx seen k)
     (cond
-     ((intset-ref seen k)
-      ;; Jumping back to beginning of this procedure.  Variables could be
-      ;; shared between arguments in this call and initial call.
+     ((and (intset-ref seen k)
+           (= k start))
+      ;; Jumping back to beginning of loop.  Variables could be shared between
+      ;; arguments in this call and initial call.
       (for-each (lambda (arg loop)
                   (vector-set! env arg (vector-ref env loop)))
                 args loop-syms)
       (values env (local-var-alist locals init-syms)))
-
      (else
       (let ((seen (intset-add! seen k)))
         (match (intmap-ref cps k)

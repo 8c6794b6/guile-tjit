@@ -145,11 +145,12 @@
           initial-args new-args)))))
 
   (define (assemble-cont cps arg br-label loop-label seen k)
-    ;; (debug 1 "~4,,,'0@a  ~a~%" k
-    ;;        (or (and (null? arg) arg)
-    ;;            (unparse-cps arg)))
+    ;; (debug 1 "~4,,,'0@a  ~a~%" k (or (and (null? arg) arg)
+    ;;                                  (unparse-cps arg)))
     (cond
-     ((intset-ref seen k)
+     ((and (intset-ref seen k)
+           (= k start))
+      ;; End of the loop.
       #f)
      (else
       (let ((seen (intset-add! seen k)))
