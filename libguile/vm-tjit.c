@@ -21,9 +21,6 @@
 #include "bdw-gc.h"
 
 
-#define SCM_INCR(n) SCM_PACK (SCM_UNPACK (n) + INUM_STEP)
-
-
 /*
  * Configurable parameters
  */
@@ -92,178 +89,14 @@ scm_compile_tjit (SCM bc_ptr, SCM bc_len, SCM ip_ptr)
   return result;
 }
 
-static inline scm_t_uint32*
-scm_tjit_enter (scm_t_uint32 *ip, size_t *state, scm_t_int32 jump,
-                scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
-                scm_i_thread *thread, struct scm_vm *vp,
-                scm_i_jmp_buf *registers, int resume)
+static inline void
+cleanup_states (size_t *state, scm_t_uint32 *ips_idx,
+                SCM *ips, scm_t_uint32 *bc_idx)
 {
-  SCM scm_ip, code;
-
-  scm_ip = SCM_I_MAKINUM (ip + jump);
-  code = scm_hashq_ref (code_cache_table, scm_ip, SCM_BOOL_F);
-
-  if (scm_is_true (code))
-    {
-      /* Run compiled native code of this bytecode.  Set next IP to
-         returned value from failed guard. */
-      scm_t_native_code fn;
-
-      fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
-      ip = fn (thread, vp, registers, resume);
-    }
-  else
-    {
-      SCM current_count;
-      current_count = scm_hashq_ref (ip_counter_table, scm_ip, SCM_INUM0);
-
-      if (tjit_hot_count < current_count &&
-          scm_hashq_ref (failed_ip_table, scm_ip, SCM_INUM0) < tjit_max_retries)
-        {
-          /* Loops is hot, start tracing the bytecodes from next IP. */
-          *state = SCM_TJIT_STATE_RECORD;
-          *loop_start = (scm_t_uintptr) (ip + jump);
-          *loop_end = (scm_t_uintptr) ip;
-        }
-      else
-        {
-          /* Increment the loop counter. */
-          SCM new_count;
-
-          new_count = SCM_INCR (current_count);
-          scm_hashq_set_x (ip_counter_table, scm_ip, new_count);
-        }
-
-      /* Next IP is jump destination specified in bytecode. */
-      ip += jump;
-    }
-
-  return ip;
-}
-
-static inline scm_t_uint32*
-scm_tjit_merge (scm_t_uint32 *ip, size_t *state,
-                scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
-                scm_i_thread *thread, struct scm_vm *vp,
-                scm_i_jmp_buf *registers, int resume,
-                SCM *fp,
-                scm_t_uint32 *bc_idx, scm_t_uint32 *bytecode,
-                scm_t_uint32 *ips_idx, SCM *ips)
-{
-#define SYNC_IP() vp->ip = (ip)
-#define CACHE_FP() fp = (vp->fp)
-
-#define LOCAL_ADDRESS(i)	(&SCM_FRAME_LOCAL (fp, i))
-#define LOCAL_REF(i)            SCM_FRAME_LOCAL (fp, i)
-
-#define IP_REACHED_TO(target) ip == ((scm_t_uint32 *) *target)
-#define CLEANUP_STATES()                        \
-  do {                                          \
-    *state = SCM_TJIT_STATE_INTERPRET;          \
-    *ips_idx = 0;                               \
-    *ips = SCM_EOL;                             \
-    *bc_idx = 0;                                \
-  } while (0)
-
-  SCM s_loop_start;
-  SCM locals, env;
-  SCM code, scm_ip;
-  int num_locals;
-  int op, op_size, i;
-
-  s_loop_start = SCM_I_MAKINUM (*loop_start);
-
-  scm_ip = SCM_I_MAKINUM (ip);
-  code = scm_hashq_ref (code_cache_table, scm_ip, SCM_BOOL_F);
-
-  if (scm_is_true (code))
-    {
-      scm_t_native_code fn;
-
-      fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
-      ip = fn (thread, vp, registers, resume);
-
-      /* XXX: Call native code with current vp, thread, registers, and
-         resume.
-
-         Need to take snapshot of current frame data and pass it from
-         CPS IR in Scheme. OFFSET could be expected IP returned from
-         native code. If different IP returned, native code did a side
-         exit.  Could add new bytecode for doing this, e.g.:
-
-           op = (scm_t_uint32 *) SCM_PACK_OP_24 (native_call, offset);
-           op_size = 4;
-
-         Alternatively, add compiled native code to env, invoke the
-         native function without adding extra bytecode.
-      */
-      scm_puts ("Found native code at #x", scm_current_output_port ());
-      scm_display (scm_number_to_string (SCM_I_MAKINUM (ip),
-                                         SCM_I_MAKINUM (16)),
-                   scm_current_output_port ());
-      scm_puts (" while recording trace.\n", scm_current_output_port ());
-    }
-
-  op = *ip & 0xff;
-  op_size = op_sizes[op];
-
-  /* Store current bytecode. */
-  for (i = 0; i < op_size; ++i)
-    bytecode[*bc_idx + i] = ip[i];
-
-  *bc_idx += op_sizes[op];
-
-  /* Store current IP and frame locals. Copying the local contents to
-     vector manually, to get updated information from *fp, not from
-     *vp which may not in sync. */
-  num_locals = FRAME_LOCALS_COUNT ();
-  locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);
-  for (i = 0; i < num_locals; ++i)
-    scm_c_vector_set_x (locals, i, LOCAL_REF (i));
-  env = scm_inline_cons (thread, SCM_I_MAKINUM (ip), locals);
-
-  *ips = scm_inline_cons (thread, env, *ips);
-  *ips_idx += 1;
-
-  if (SCM_I_INUM (tjit_max_record) < *bc_idx)
-    {
-      /* XXX: Log the abort for too long trace. */
-      scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INUM1);
-      CLEANUP_STATES ();
-    }
-  else if (IP_REACHED_TO (loop_end))
-    {
-      SCM code, s_bytecode, s_bc_idx;
-
-      s_bytecode = scm_from_pointer (bytecode, NULL);
-      s_bc_idx = SCM_I_MAKINUM (*bc_idx * sizeof (scm_t_uint32));
-
-      /* Compile the traced bytecode. */
-      SYNC_IP ();
-      code = scm_compile_tjit (s_bytecode, s_bc_idx, *ips);
-      CACHE_FP ();
-
-      /* Cache the native code on compilation success. */
-      if (scm_is_true (code))
-        scm_hashq_set_x (code_cache_table, s_loop_start, code);
-      else
-        {
-          SCM retries;
-          retries = scm_hashq_ref (failed_ip_table, s_loop_start, SCM_INUM0);
-          scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INCR (retries));
-        }
-
-      CLEANUP_STATES ();
-    }
-
-  return ip;
-
-#undef SYNC_IP
-#undef CACHE_FP
-#undef LOCAL_ADDRESS
-#undef LOCAL_REF
-#undef IP_REACHED_TO
-#undef CLEANUP_STATES
+  *state = SCM_TJIT_STATE_INTERPRET;
+  *ips_idx = 0;
+  *ips = SCM_EOL;
+  *bc_idx = 0;
 }
 
 static inline
@@ -271,6 +104,150 @@ scm_t_uint32* scm_tjit_bytecode_buffer (void)
 {
   return (scm_t_uint32 *) SCM_UNPACK (scm_fluid_ref (bytecode_buffer_fluid));
 }
+
+
+/* C Macros for vm-tjit engine */
+
+/* These two macros were once defined as static inline functions. Though */
+/* the static functions had some problems with garbage collector, */
+/* sometimes fp was gabage collected after invoking native function. */
+/* Hence rewritten as C macro to avoid this issue. */
+
+#define SCM_TJIT_ENTER(ip, state, jump, loop_start, loop_end,           \
+                       thread, vp, registers, resume)                   \
+  do {                                                                  \
+    SCM scm_ip, code;                                                   \
+                                                                        \
+    scm_ip = SCM_I_MAKINUM (ip + jump);                                 \
+    code = scm_hashq_ref (code_cache_table, scm_ip, SCM_BOOL_F);        \
+                                                                        \
+    if (scm_is_true (code))                                             \
+      {                                                                 \
+        /* Run compiled native code of this bytecode. Set next IP to */ \
+        /* returned value from failed guard. */                         \
+        scm_t_native_code fn;                                           \
+                                                                        \
+        fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);        \
+        ip = fn (thread, vp, registers, resume);                        \
+      }                                                                 \
+    else                                                                \
+      {                                                                 \
+        SCM current_count;                                              \
+        current_count = scm_hashq_ref (ip_counter_table, scm_ip,        \
+                                       SCM_INUM0);                      \
+                                                                        \
+        if (tjit_hot_count < current_count &&                           \
+            scm_hashq_ref (failed_ip_table, scm_ip, SCM_INUM0) <        \
+            tjit_max_retries)                                           \
+          {                                                             \
+            /* Loops is hot, trace the bytecodes from next IP. */       \
+            *state = SCM_TJIT_STATE_RECORD;                             \
+            *loop_start = (scm_t_uintptr) (ip + jump);                  \
+            *loop_end = (scm_t_uintptr) ip;                             \
+          }                                                             \
+        else                                                            \
+          {                                                             \
+            /* Increment the loop counter. */                           \
+            SCM new_count;                                              \
+                                                                        \
+            new_count = SCM_PACK (SCM_UNPACK (current_count) +          \
+                                  INUM_STEP);                           \
+            scm_hashq_set_x (ip_counter_table, scm_ip, new_count);      \
+          }                                                             \
+                                                                        \
+        /* Next IP is jump destination specified in bytecode. */        \
+        ip += jump;                                                     \
+      }                                                                 \
+                                                                        \
+  } while (0)
+
+
+#define SCM_TJIT_MERGE(ip, state, fp, loop_start, loop_end,             \
+                       thread, vp, registers, resume,                   \
+                       bc_idx, bytecode, ips_idx, ips)                  \
+  do {                                                                  \
+      SCM s_loop_start;                                                 \
+      SCM locals, env;                                                  \
+      SCM code, scm_ip;                                                 \
+      int num_locals;                                                   \
+      int op, op_size, i;                                               \
+                                                                        \
+      s_loop_start = SCM_I_MAKINUM (*loop_start);                       \
+                                                                        \
+      scm_ip = SCM_I_MAKINUM (ip);                                      \
+      code = scm_hashq_ref (code_cache_table, scm_ip, SCM_BOOL_F);      \
+                                                                        \
+      if (scm_is_true (code))                                           \
+        {                                                               \
+         scm_t_native_code fn;                                          \
+         SCM port = scm_current_output_port ();                         \
+                                                                        \
+         fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);       \
+         ip = fn (thread, vp, registers, resume);                       \
+                                                                        \
+         /* XXX: Call native code from native codde. */                 \
+         scm_puts ("Found native code at #x", port);                    \
+         scm_display (scm_number_to_string (SCM_I_MAKINUM (ip),         \
+                                            SCM_I_MAKINUM (16)),        \
+                      port);                                            \
+         scm_puts (" while recording trace.\n", port);                  \
+        }                                                               \
+                                                                        \
+      op = *ip & 0xff;                                                  \
+      op_size = op_sizes[op];                                           \
+                                                                        \
+      /* Store current bytecode. */                                     \
+      for (i = 0; i < op_size; ++i)                                     \
+        bytecode[*bc_idx + i] = ip[i];                                  \
+                                                                        \
+      *bc_idx += op_sizes[op];                                          \
+                                                                        \
+      /* Store current IP and frame locals. Copying the local    */     \
+      /* contents to vector manually, to get updated information */     \
+      /* from *fp, not from *vp which may out of sync.           */     \
+      num_locals = FRAME_LOCALS_COUNT ();                               \
+      locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);           \
+      for (i = 0; i < num_locals; ++i)                                  \
+        scm_c_vector_set_x (locals, i, LOCAL_REF (i));                  \
+      env = scm_inline_cons (thread, SCM_I_MAKINUM (ip), locals);       \
+                                                                        \
+      *ips = scm_inline_cons (thread, env, *ips);                       \
+      *ips_idx += 1;                                                    \
+                                                                        \
+      if (SCM_I_INUM (tjit_max_record) < *bc_idx)                       \
+        {                                                               \
+          /* XXX: Log the abort for too long trace. */                  \
+          scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INUM1);   \
+          cleanup_states (state, ips_idx, ips, bc_idx);                 \
+        }                                                               \
+      else if (ip == ((scm_t_uint32 *) *loop_end))                      \
+        {                                                               \
+          SCM code, s_bytecode, s_bc_idx;                               \
+                                                                        \
+          s_bytecode = scm_from_pointer (bytecode, NULL);               \
+          s_bc_idx = SCM_I_MAKINUM (*bc_idx * sizeof (scm_t_uint32));   \
+                                                                        \
+          /* Compile the traced bytecode. */                            \
+          SYNC_IP ();                                                   \
+          code = scm_compile_tjit (s_bytecode, s_bc_idx, *ips);         \
+          CACHE_FP ();                                                  \
+                                                                        \
+          /* Cache the native code on compilation success. */           \
+          if (scm_is_true (code))                                       \
+            scm_hashq_set_x (code_cache_table, s_loop_start, code);     \
+          else                                                          \
+            {                                                           \
+              SCM retries;                                              \
+                                                                        \
+              retries = scm_hashq_ref (failed_ip_table, s_loop_start,   \
+                                       SCM_INUM0);                      \
+              retries = SCM_PACK (SCM_UNPACK (retries) + INUM_STEP);    \
+              scm_hashq_set_x (failed_ip_table, s_loop_start, retries); \
+            }                                                           \
+                                                                        \
+          cleanup_states (state, ips_idx, ips, bc_idx);                 \
+        }                                                               \
+      } while (0)
 
 
 /*
@@ -318,7 +295,6 @@ void scm_init_buffer (void)
   bytecode_buffer_fluid = scm_make_fluid ();
   bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record) * 5;
   buffer = scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
-  scm_gc_protect_object (buffer);
   scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (buffer));
 }
 
@@ -332,12 +308,10 @@ scm_init_vm_tjit (void)
 
   scm_init_buffer ();
 
-  GC_expand_hp (8 * 1024 * 1024 * SIZEOF_SCM_T_BITS);
+  GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
 
 #include "libguile/vm-tjit.x"
 }
-
-#undef SCM_INCR
 
 /*
   Local Variables:

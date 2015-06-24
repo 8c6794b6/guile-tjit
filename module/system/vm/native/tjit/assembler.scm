@@ -29,13 +29,14 @@
   #:use-module (ice-9 match)
   #:use-module (ice-9 pretty-print)
   #:use-module (language cps intmap)
+  #:use-module (language cps intset)
   #:use-module (language cps2)
   #:use-module (language cps2 utils)
   #:use-module (srfi srfi-11)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
-  #:use-module (system vm native tjit registers)
+  #:use-module (system vm native tjit variables)
   #:export (assemble-tjit))
 
 ;;;
@@ -106,50 +107,104 @@
                                   '())))
               '())))
 
-(define (assemble-cps cps env initial-args fp-offset loop-start)
+(define (assemble-cps cps env initial-args fp-offset)
+  (define (env-ref i)
+    (vector-ref env i))
+
   (define (reg x)
     (register-ref (ref-value x)))
 
   (define (moffs x)
     (make-offset-pointer fp-offset (* (ref-value x) word-size)))
 
-  (define (assemble-cont cps arg label kcurrent)
-    ;; (debug 1 "~4,,,'0@a  ~a~%" kcurrent
+  (define start (loop-start cps))
+
+  (define (maybe-move exp)
+    (match exp
+      (($ $values new-args)
+       (when (= (length initial-args) (length new-args))
+         (for-each
+          (lambda (old new)
+            (when (not (eq? old new))
+              (let ((v0 (env-ref old))
+                    (v1 (env-ref new)))
+                (when (not (eq? v0 v1))
+                  (cond
+                   ((and (register? v0) (register? v1))
+                    (jit-movr (reg v0) (reg v1)))
+                   ((and (register? v0) (memory? v1))
+                    (jit-ldxi r0 fp (moffs v1))
+                    (jit-movr (reg v0) r0))
+                   ((and (memory? v0) (register? v1))
+                    (jit-stxi (moffs v0) fp (reg v1)))
+                   ((and (memory? v0) (memory? v1))
+                    (jit-ldxi r0 fp (moffs v1))
+                    (jit-stxi (moffs v1) fp r0))
+                   (else
+                    (error "NYI: moving arguments: ~a ~a" v0 v1)))))))
+          initial-args new-args)))))
+
+  (define (assemble-cont cps arg br-label loop-label seen k)
+    ;; (debug 1 "~4,,,'0@a  ~a~%" k
     ;;        (or (and (null? arg) arg)
     ;;            (unparse-cps arg)))
-    (match (intmap-ref cps kcurrent)
-      (($ $kreceive ($ $arity reqs _ _ _ _) knext)
-       (assemble-cont cps arg label knext))
+    (cond
+     ((intset-ref seen k)
+      #f)
+     (else
+      (let ((seen (intset-add! seen k)))
+        (match (intmap-ref cps k)
+          (($ $kreceive ($ $arity reqs _ _ _ _) knext)
+           (assemble-cont cps arg br-label loop-label seen knext))
 
-      (($ $kargs _ _ ($ $continue knext _ ($ $branch kt exp)))
-       (let ((label (jit-forward)))
-         (assemble-cont cps exp label kt)
-         (assemble-cont cps arg #f knext)))
+          (($ $kargs _ _ ($ $continue knext _ ($ $branch kt exp)))
+           (cond
+            ((= k start)
+             (let ((loop-label (jit-label))
+                   (br-label (jit-forward)))
+               (assemble-cont cps exp br-label loop-label seen kt)
+               (assemble-cont cps arg #f loop-label seen knext)))
+            (else
+             (let ((br-label (jit-forward)))
+               (assemble-cont cps exp br-label loop-label seen kt)
+               (assemble-cont cps arg #f loop-label seen knext)))))
 
-      (($ $kargs names syms ($ $continue knext _ exp))
-       (assemble-exp arg syms label)
-       (assemble-cont cps exp label knext))
+          (($ $kargs names syms ($ $continue knext _ exp))
+           (cond
+            ((= k start)
+             (let ((loop-label (jit-label)))
+               (assemble-exp arg syms br-label)
+               (assemble-cont cps exp br-label loop-label seen knext)))
+            ((< knext k)
+             (assemble-exp arg syms br-label)
+             ;; (assemble-cont cps exp br-label loop-label knext)
+             ;; Jumping back to loop start.
+             (maybe-move exp)
+             (jump loop-label)
+             #f)
+            (else
+             (assemble-exp arg syms br-label)
+             (assemble-cont cps exp br-label loop-label seen knext))))
 
-      (($ $kfun _ _ self _ knext)
-       (assemble-cont cps arg label knext))
+          (($ $kfun _ _ self _ knext)
+           (assemble-cont cps arg br-label loop-label seen knext))
 
-      (($ $ktail)
-       (assemble-exp arg '() label)
-       (when label
-         (jit-link label))
-       ;; (when (and label (jit-forward-p label))
-       ;;   (format #t "jit-forward-p: ~a~%" (jit-forward-p label))
-       ;;   (jit-link label))
-       #f)
+          (($ $ktail)
+           (assemble-exp arg '() br-label)
+           (when br-label
+             (jit-link br-label))
+           ;; (when (and br-label (jit-forward-p br-label))
+           ;;   (format #t "jit-forward-p: ~a~%" (jit-forward-p br-label))
+           ;;   (jit-link br-label))
+           #f)
 
-      (($ $kclause ($ $arity reqs _ _ _ _) knext)
-       (assemble-cont cps arg label knext))))
+          (($ $kclause ($ $arity reqs _ _ _ _) knext)
+           (assemble-cont cps arg br-label loop-label seen knext)))))))
 
   (define (assemble-exp exp dst label)
     ;; Need at least 3 scratch registers. Currently using R0, F0, and
     ;; F1.  Might use F2 as whell, when double numbers get involved.
-    (define (env-ref i)
-      (vector-ref env i))
+
 
     (match exp
       (($ $primcall 'return (arg1))
@@ -310,20 +365,20 @@
       (($ $primcall name args)
        (debug 2 "*** Unhandled primcall: ~a~%" name))
 
-      (($ $call 0 new-args)
-       (for-each
-        (lambda (old new)
-          (when (not (eq? old new))
-            (let ((v0 (env-ref old))
-                  (v1 (env-ref new)))
-              (when (not (eq? v0 v1))
-                (cond
-                 ((and (register? v0) (register? v1))
-                  (jit-movr (reg v0) (reg v1)))
-                 (else
-                  (error "NYI: call to self: ~a ~a~%" v0 v1)))))))
-        initial-args new-args)
-       (jump loop-start))
+      ;; (($ $call 0 new-args)
+      ;;  (for-each
+      ;;   (lambda (old new)
+      ;;     (when (not (eq? old new))
+      ;;       (let ((v0 (env-ref old))
+      ;;             (v1 (env-ref new)))
+      ;;         (when (not (eq? v0 v1))
+      ;;           (cond
+      ;;            ((and (register? v0) (register? v1))
+      ;;             (jit-movr (reg v0) (reg v1)))
+      ;;            (else
+      ;;             (error "NYI: call to self: ~a ~a~%" v0 v1)))))))
+      ;;   initial-args new-args)
+      ;;  (jump loop-start))
 
       (($ $call proc args)
        (debug 2 "      exp:call ~a ~a~%" proc args))
@@ -332,7 +387,7 @@
        ;; (debug 1 "      exp:~a~%" exp)
        #f)))
 
-  (assemble-cont cps '() #f 0))
+  (assemble-cont cps '() #f #f empty-intset 0))
 
 (define (assemble-tjit locals cps)
   (define (max-moffs env)
@@ -346,20 +401,21 @@
 
   (let*-values (((max-label max-var) (compute-max-label-and-var cps))
                 ((env initial-locals) (resolve-vars cps locals max-var)))
-    (let ((verbosity (lightning-verbosity)))
-      (when (and verbosity (<= 2 verbosity))
-        ;; (dump-cps2 "dump" cps)
-        (display ";;; cps env\n")
-        (let lp ((n 0) (end (vector-length env)))
-          (when (< n end)
-            (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
-            (lp (+ n 1) end)))))
+    ;; (let ((verbosity (lightning-verbosity)))
+    ;;   (when (and verbosity (<= 2 verbosity))
+    ;;     ;; (dump-cps2 "dump" cps)
+    ;;     (display ";;; cps env\n")
+    ;;     (let lp ((n 0) (end (vector-length env)))
+    ;;       (when (< n end)
+    ;;         (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
+    ;;         (lp (+ n 1) end)))))
 
     ;; Allocate space for spilled variables, if any.
     (let* ((nspills (max-moffs env))
            (fp-offset (or (and (<= nspills 0) 0)
                           (jit-allocai (imm (* nspills word-size))))))
-      (debug 2 ";;; nspills: ~a, fp-offset: ~a~%" nspills fp-offset)
+      ;; (debug 2 ";;; nspills: ~a, fp-offset: ~a~%" nspills fp-offset)
+      ;; (debug 2 ";;; initial-locals: ~a~%" initial-locals)
 
       ;; Get arguments.
       (jit-getarg reg-thread (jit-arg))    ; *thread
@@ -387,6 +443,5 @@
        initial-locals)
 
       ;; Assemble the loop.
-      (let ((loop-start (jit-label))
-            (initial-args (map cdr initial-locals)))
-        (assemble-cps cps env initial-args fp-offset loop-start)))))
+      (let ((initial-args (map cdr initial-locals)))
+        (assemble-cps cps env initial-args fp-offset)))))

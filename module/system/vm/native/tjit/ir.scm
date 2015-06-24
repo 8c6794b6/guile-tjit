@@ -53,7 +53,8 @@
 
 (define (fixnums? . args)
   (define (fixnum? n)
-    (and (exact? n)
+    (and (number? n)
+         (exact? n)
          (< n most-positive-fixnum)
          (> n most-negative-fixnum)))
   (every fixnum? args))
@@ -68,7 +69,9 @@
 
 (define (accumulate-locals ops)
   (define (nyi op)
-    (debug 2 "ir:accumulate-locals: NYI ~a~%" op))
+    ;; (debug 2 "ir:accumulate-locals: NYI ~a~%" op)
+    #f
+    )
 
   (define-syntax-rule (add! st i)
     (intset-add! st i))
@@ -135,7 +138,7 @@
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
 
-  (define (restore-frame! vars)
+  (define (save-frame! vars)
     (let ((end (vector-length vars)))
       (let lp ((i 0) (acc '()))
         (cond
@@ -173,7 +176,7 @@
           ((fixnums? ra rb)
            `(if ,(if invert? `(%fx< ,vb ,va) `(%fx< ,va ,vb))
                 (begin
-                  ,@(restore-frame! st)
+                  ,@(save-frame! st)
                   ,ip)
                 ,(convert st escape rest)))
           (else
@@ -185,7 +188,7 @@
              (vb (vector-ref st b)))
          `(if ,(if invert? `(not (= ,va ,vb)) `(= ,va ,vb))
               (begin
-                ,@(restore-frame! st)
+                ,@(save-frame! st)
                 ,ip)
               ,(convert st escape rest))))
 
@@ -305,12 +308,26 @@
          (args (map make-var (reverse locals)))
          (vars (make-vars max-local-num locals))
          (scm (call-with-escape-continuation
-               (lambda (escape)
-                 `(letrec ((loop (lambda ,args
-                                   ,(convert vars escape ops))))
-                    loop)))))
-    (debug 2 ";;; locals: ~a~%" (sort locals <))
+                (lambda (escape)
+                  `(letrec ((entry (lambda ,args
+                                     ;; XXX: Add initial guards.
+                                     (loop ,@args)))
+                            (loop (lambda ,args
+                                    ,(convert vars escape ops))))
+                     entry)))))
+    ;; (debug 2 ";;; locals: ~a~%" (sort locals <))
     (values locals scm)))
+
+(define (dump-cps2 title cps)
+  (format #t ";;; ~a~%~{~4,,,'0@a  ~a~%~}"
+          title
+          (or (and cps (reverse! (intmap-fold
+                                  (lambda (i k acc)
+                                    (cons (unparse-cps k)
+                                          (cons i acc)))
+                                  cps
+                                  '())))
+              '())))
 
 (define (scm->cps scm)
   (define (body-fun cps)
@@ -342,10 +359,10 @@
 (define (trace->cps trace)
   (call-with-values (lambda () (trace->scm trace))
     (lambda (locals scm)
-      (debug 2 ";;; scm~%~a"
-             (or (and scm
-                      (call-with-output-string
-                       (lambda (port)
-                         (pretty-print scm #:port port))))
-                 "failed\n"))
-      (values locals (scm->cps scm)))))
+      ;; (debug 2 ";;; scm~%~a"
+      ;;        (or (and scm
+      ;;                 (call-with-output-string
+      ;;                  (lambda (port)
+      ;;                    (pretty-print scm #:port port))))
+      ;;            "failed\n"))
+      (values locals scm (scm->cps scm)))))

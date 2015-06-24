@@ -27,19 +27,19 @@
   #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+  #:use-module (ice-9 pretty-print)
   #:use-module (language cps intmap)
   #:use-module (language cps2)
-  #:use-module (language cps2 optimize)
-  #:use-module (language cps2 renumber)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-11)
   #:use-module (system foreign)
   #:use-module (system vm debug)
-  #:use-module (system vm native lightning)
   #:use-module (system vm native debug)
+  #:use-module (system vm native lightning)
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit primitives)
+  #:use-module (system vm native tjit variables)
   #:export (compile-tjit
             tjit-ip-counter
             tjit-hot-count
@@ -87,7 +87,22 @@
                  (or (source-file source) "(unknown file)")
                  (source-line-for-user source)))))
 
-    (define-syntax-rule (show-debug-messages cps code code-size)
+    (define (mark-guard-cont cont)
+      (define (mark-guard-exp exp)
+        (match exp
+          (($ $primcall '%fx< _)
+           ">")
+          (($ $branch _ exp)
+           (mark-guard-exp exp))
+          (_
+           " ")))
+      (match cont
+        (($ $kargs _ _ ($ $continue _ _ exp))
+         (mark-guard-exp exp))
+        (_
+         " ")))
+
+    (define-syntax-rule (show-debug-messages scm cps code code-size)
       (when (<= 2 verbosity)
         (display ";;; bytecode\n")
         (for-each (match-lambda
@@ -96,14 +111,38 @@
                     ;;   (format #t "~a~%" locals))
                     (format #t "~x  ~a~%" ip op)))
                   ip-x-ops)
-        (format #t ";;; cps~%~{~4,,,'0@a  ~a~%~}"
-                (or (and cps (reverse! (intmap-fold
-                                        (lambda (i k acc)
-                                          (cons (unparse-cps k)
-                                                (cons i acc)))
-                                        cps
-                                        '())))
-                    '()))
+        (format #t ";;; scm:~%~a"
+                (call-with-output-string
+                 (lambda (port) (pretty-print scm #:port port))))
+        (display ";;; cps\n")
+        (cond
+         ((not cps)
+          (display "#f\n"))
+         (else
+          (let ((kstart (loop-start cps)))
+            (let lp ((conts (reverse! (intmap-fold acons cps '()))))
+              (match conts
+                (((k . cont) . conts)
+                 (and (= k kstart) (format #t "---- loop:~%"))
+                 (format #t "~4,,,'0@a  ~a ~a~%"
+                         k (mark-guard-cont cont) (unparse-cps cont))
+                 (match cont
+                   (($ $kargs _ _ ($ $continue knext _ _))
+                    (when (< knext k)
+                      (format #t "---- ->loop~%")))
+                   (_
+                    #f))
+                 (lp conts))
+                (()
+                 #f))))))
+        ;; (format #t ";;; cps~%~{~4,,,'0@a  ~a~%~}"
+        ;;         (or (and cps (reverse! (intmap-fold
+        ;;                                 (lambda (i k acc)
+        ;;                                   (cons (unparse-cps k)
+        ;;                                         (cons i acc)))
+        ;;                                 cps
+        ;;                                 '())))
+        ;;             '()))
         (when (and code (<= 3 verbosity))
           (jit-print)
           (call-with-output-file
@@ -115,7 +154,7 @@
 
     (with-jit-state
      (jit-prolog)
-     (let-values (((locals cps) (trace->cps ip-x-ops)))
+     (let-values (((locals scm cps) (trace->cps ip-x-ops)))
        (cond
         ((if cps (assemble-tjit locals cps) "CPS conversion failed")
          =>
@@ -123,7 +162,7 @@
            (let ((sline (ip-ptr->source-line (car (car ips)))))
              (debug 1 ";;; trace: ~a ~a~%" sline "abort")
              (debug 2 ";;; msg: ~a~%" msg)
-             (show-debug-messages #f #f #f))
+             (show-debug-messages scm cps #f #f))
            #f))
         (else
          (jit-epilog)
@@ -138,7 +177,7 @@
                (let ((sline (ip-ptr->source-line (car (car ips)))))
                  (format #t ";;; trace: ~a size=~a~%"
                          sline (number->string code-size)))
-               (show-debug-messages cps code code-size)))
+               (show-debug-messages scm cps code code-size)))
            code)))))))
 
 
@@ -148,12 +187,11 @@
 
 (define (init-vm-tjit interactive?)
   "Dummy procedure for @code{autoload}."
+  (initialize-tjit-primitives)
   #t)
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_tjit")
-
-(initialize-tjit-primitives)
 
 
 ;;;

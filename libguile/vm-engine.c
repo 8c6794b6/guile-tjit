@@ -209,25 +209,25 @@
   } while (0)
 
 /* Macros for tracing JIT */
+
 #ifdef VM_TJIT
 # if BUILD_VM_LIGHTNING == 1
 #  define TJIT_MERGE(n)                                         \
   if (tjit_state == SCM_TJIT_STATE_RECORD)                      \
     {                                                           \
-      ip = scm_tjit_merge (ip, &tjit_state,                     \
-                           &loop_start, &loop_end,              \
-                           thread, vp, registers, resume,       \
-                           fp,                                  \
-                           &tjit_bc_idx, tjit_bytecode,         \
-                           &tjit_ips_idx, &tjit_ips);           \
+      SCM_TJIT_MERGE (ip, &tjit_state, fp,                      \
+                      &loop_start, &loop_end,                   \
+                      thread, vp, registers, resume,            \
+                      &tjit_bc_idx, tjit_bytecode,              \
+                      &tjit_ips_idx, &tjit_ips);                \
     }
 #  define TJIT_ENTER(n)                                         \
   do {                                                          \
     if (n < 0 && tjit_state == SCM_TJIT_STATE_INTERPRET)        \
       {                                                         \
-        ip = scm_tjit_enter (ip, &tjit_state, n,                \
-                             &loop_start, &loop_end,            \
-                             thread, vp, registers, resume);    \
+        SCM_TJIT_ENTER (ip, &tjit_state, n,                     \
+                        &loop_start, &loop_end,                 \
+                        thread, vp, registers, resume);         \
         NEXT (0);                                               \
       }                                                         \
     else                                                        \
