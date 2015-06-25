@@ -49,13 +49,18 @@
   (let ((thunk (compile-file-to-thunk path)))
     (let ((result-regular (thunk))
           (result-tjit (call-with-vm-tjit thunk)))
-      (equal? result-regular result-tjit))))
+      (if (equal? result-regular result-tjit)
+          #f
+          (list result-regular result-tjit)))))
 
 (define (run-tjit-tests paths)
   (init-vm-tjit #t)
-  (cond
-   ((and (every identity (map run-tjit-test paths))
-         (< 0 (assq-ref (tjit-stats) 'num-hot-loops)))
-    (exit 0))
-   (else
-    (exit 1))))
+  (let ((results (map run-tjit-test paths)))
+    (cond
+     ((and (every not results)
+           (< 0 (assq-ref (tjit-stats) 'num-hot-loops)))
+      (exit 0))
+     (else
+      (format #t "vm-regular: ~a~%vm-tjit:    ~a~%"
+              (caar results) (cadar results))
+      (exit 1)))))
