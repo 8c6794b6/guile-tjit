@@ -32,8 +32,9 @@
   #:use-module (language cps intmap)
   #:use-module (language cps intset)
   #:use-module (language cps2)
+  #:use-module (system foreign)
   #:use-module (system vm native debug)
-  #:use-module (system vm native lightning)
+  #:use-module (system vm native tjit registers)
   #:export (resolve-vars
             loop-start
             ref?
@@ -42,8 +43,7 @@
             constant?
             register?
             memory?
-            constant
-            register-ref))
+            constant))
 
 ;;;
 ;;; Variable
@@ -66,7 +66,7 @@
   (eq? 'const (ref-type x)))
 
 (define (constant x)
-  (imm (ref-value x)))
+  (make-pointer (ref-value x)))
 
 (define (make-register x)
   (cons 'reg x))
@@ -79,23 +79,6 @@
 
 (define (memory? x)
   (eq? 'mem (ref-type x)))
-
-
-;;;
-;;; The registers
-;;;
-
-(define *tmp-registers*
-  ;; Architecture dependent temporary registers.  Lightning has it's own
-  ;; register management policy, not sure how it works under other architecture
-  ;; than x86-64 linux.
-  `#(,r3 ,f5 ,f6))
-
-(define *num-registers*
-  (+ (vector-length *tmp-registers*) 1))
-
-(define (register-ref i)
-  (vector-ref *tmp-registers* i))
 
 (define (resolve-vars cps locals max-var)
   "Resolve variables in CPS using local variables from LOCALS and MAX-VAR.
@@ -242,13 +225,4 @@ locals and initial arguments."
        #f)
       (($ $kreceive _ _ next)
        (go next))))
-  ;; (format #t ";;; ~a~%~{~4,,,'0@a  ~a~%~}"
-  ;;         "resolve-vars"
-  ;;         (or (and cps (reverse! (intmap-fold
-  ;;                                 (lambda (i k acc)
-  ;;                                   (cons (unparse-cps k)
-  ;;                                         (cons i acc)))
-  ;;                                 cps
-  ;;                                 '())))
-  ;;             '()))
   (go kfun))

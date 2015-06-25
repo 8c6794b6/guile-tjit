@@ -38,11 +38,15 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit variables)
+  #:use-module (system vm native tjit registers)
   #:export (assemble-tjit))
+
 
 ;;;
 ;;; Raw Scheme, relates to C macro
 ;;;
+
+(define *inum-step* (imm 4))
 
 (define-syntax-rule (scm-inump obj)
   (jit-bmsi obj (imm 2)))
@@ -56,11 +60,14 @@
 ;;;
 
 (define reg-thread v0)
-(define reg-vp v1)
-(define reg-registers v2)
-(define reg-fp v3)
 
 (define fp (jit-fp))
+
+(define vp->fp-offset
+  (make-pointer (+ (expt 2 (* 8 %word-size)) (- %word-size))))
+
+(define register-offset
+  (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 2 %word-size)))))
 
 (define (make-offset-pointer offset n)
   (let ((addr (+ offset n)))
@@ -80,32 +87,29 @@
 (define-syntax local-ref
   (syntax-rules ()
     ((_ dst 0)
-     (jit-ldr dst reg-fp))
+     (let ((vp->fp (if (eq? dst r0) r1 r0)))
+       (jit-ldxi vp->fp fp vp->fp-offset)
+       (jit-ldr dst vp->fp)))
     ((_ dst n)
-     (jit-ldxi dst reg-fp (imm (* n %word-size))))))
+     (let ((vp->fp (if (eq? dst r0) r1 r0)))
+       (jit-ldxi vp->fp fp vp->fp-offset)
+       (jit-ldxi dst vp->fp (imm (* n %word-size)))))))
 
 (define-syntax local-set!
   (syntax-rules ()
     ((_ 0 src)
-     (jit-str reg-fp src))
+     (let ((vp->fp (if (eq? src r0) r1 r0)))
+      (jit-ldxi vp->fp fp vp->fp-offset)
+      (jit-str vp->fp src)))
     ((_ n src)
-     (jit-stxi (imm (* n %word-size)) reg-fp src))))
+     (let ((vp->fp (if (eq? src r0) r1 r0)))
+       (jit-ldxi vp->fp fp vp->fp-offset)
+       (jit-stxi (imm (* n %word-size)) vp->fp src)))))
 
 
 ;;;
 ;;; Code generation
 ;;;
-
-(define (dump-cps2 title cps)
-  (format #t ";;; ~a~%~{~4,,,'0@a  ~a~%~}"
-          title
-          (or (and cps (reverse! (intmap-fold
-                                  (lambda (i k acc)
-                                    (cons (unparse-cps k)
-                                          (cons i acc)))
-                                  cps
-                                  '())))
-              '())))
 
 (define (assemble-cps cps env initial-args fp-offset)
   (define (env-ref i)
@@ -144,7 +148,7 @@
                     (error "NYI: moving arguments: ~a ~a" v0 v1)))))))
           initial-args new-args)))))
 
-  (define (assemble-cont cps arg br-label loop-label seen k)
+  (define (assemble-cont cps dsts br-label loop-label seen k)
     ;; (debug 1 "~4,,,'0@a  ~a~%" k (or (and (null? arg) arg)
     ;;                                  (unparse-cps arg)))
     (cond
@@ -155,52 +159,39 @@
      (else
       (let ((seen (intset-add! seen k)))
         (match (intmap-ref cps k)
-          (($ $kreceive ($ $arity reqs _ _ _ _) knext)
-           (assemble-cont cps arg br-label loop-label seen knext))
+          (($ $kreceive _ knext)
+           (assemble-cont cps dsts br-label loop-label seen knext))
+
+          (($ $kclause _ knext)
+           (assemble-cont cps dsts br-label loop-label seen knext))
+
+          (($ $kfun _ _ _ _ knext)
+           (assemble-cont cps dsts br-label loop-label seen knext))
 
           (($ $kargs _ _ ($ $continue knext _ ($ $branch kt exp)))
-           (cond
-            ((= k start)
-             (let ((loop-label (jit-label))
-                   (br-label (jit-forward)))
-               (assemble-cont cps exp br-label loop-label seen kt)
-               (assemble-cont cps arg #f loop-label seen knext)))
-            (else
-             (let ((br-label (jit-forward)))
-               (assemble-cont cps exp br-label loop-label seen kt)
-               (assemble-cont cps arg #f loop-label seen knext)))))
+           (let ((br-label (jit-forward))
+                 (loop-label (if (= k start) (jit-label) loop-label)))
+             (assemble-cont cps exp br-label loop-label seen kt)
+             (assemble-cont cps dsts #f loop-label seen knext)))
 
-          (($ $kargs names syms ($ $continue knext _ exp))
+          (($ $kargs _ syms ($ $continue knext _ exp))
            (cond
-            ((= k start)
-             (let ((loop-label (jit-label)))
-               (assemble-exp arg syms br-label)
-               (assemble-cont cps exp br-label loop-label seen knext)))
             ((< knext k)
-             ;; Jumping back to loop start.
-             (assemble-exp arg syms br-label)
-             ;; (assemble-cont cps exp br-label loop-label knext)
+             ;; Jumping back to the loop start.
+             (assemble-exp dsts syms br-label)
              (maybe-move exp)
              (jump loop-label)
              #f)
             (else
-             (assemble-exp arg syms br-label)
-             (assemble-cont cps exp br-label loop-label seen knext))))
-
-          (($ $kfun _ _ self _ knext)
-           (assemble-cont cps arg br-label loop-label seen knext))
+             (let ((loop-label (if (= k start) (jit-label) loop-label)))
+               (assemble-exp dsts syms br-label)
+               (assemble-cont cps exp br-label loop-label seen knext)))))
 
           (($ $ktail)
-           (assemble-exp arg '() br-label)
-           (when br-label
+           (assemble-exp dsts '() br-label)
+           (when (and br-label (jit-forward-p br-label))
              (jit-link br-label))
-           ;; (when (and br-label (jit-forward-p br-label))
-           ;;   (format #t "jit-forward-p: ~a~%" (jit-forward-p br-label))
-           ;;   (jit-link br-label))
-           #f)
-
-          (($ $kclause ($ $arity reqs _ _ _ _) knext)
-           (assemble-cont cps arg br-label loop-label seen knext)))))))
+           #f))))))
 
   (define (assemble-exp exp dst label)
     ;; Need at least 3 scratch registers. Currently using R0, R1, and
@@ -325,17 +316,17 @@
              (src (env-ref arg1)))
          (cond
           ((and (register? dst) (register? src))
-           (jit-addi (reg dst) (reg src) (imm 4)))
+           (jit-addi (reg dst) (reg src) *inum-step*))
           ((and (register? dst) (memory? src))
            (jit-ldxi r0 fp (moffs src))
-           (jit-addi (reg dst) r0 (imm 4)))
+           (jit-addi (reg dst) r0 *inum-step*))
 
           ((and (memory? dst) (register? src))
-           (jit-addi r0 (reg src) (imm 4))
+           (jit-addi r0 (reg src) *inum-step*)
            (jit-stxi (moffs dst) fp r0))
           ((and (memory? dst) (memory? src))
            (jit-ldxi r0 fp (moffs src))
-           (jit-addi r0 r0 (imm 4))
+           (jit-addi r0 r0 *inum-step*)
            (jit-stxi (moffs dst) fp r0)))))
 
       (($ $primcall '%fxsub1 (arg1))
@@ -343,17 +334,17 @@
              (src (env-ref arg1)))
          (cond
           ((and (register? dst) (register? src))
-           (jit-subi (reg dst) (reg src) (imm 4)))
+           (jit-subi (reg dst) (reg src) *inum-step*))
           ((and (register? dst) (memory? src))
            (jit-ldxi r0 fp (moffs src))
-           (jit-subi (reg dst) r0 (imm 4)))
+           (jit-subi (reg dst) r0 *inum-step*))
 
           ((and (memory? dst) (register? src))
-           (jit-subi r0 (reg src) (imm 4))
+           (jit-subi r0 (reg src) *inum-step*)
            (jit-stxi (moffs dst) fp r0))
           ((and (memory? dst) (memory? src))
            (jit-ldxi r0 fp (moffs src))
-           (jit-subi r0 r0 (imm 4))
+           (jit-subi r0 r0 *inum-step*)
            (jit-stxi (moffs dst) fp r0)))))
 
       (($ $primcall '%frame-set! (arg1 arg2))
@@ -415,29 +406,34 @@
 
     (let ((verbosity (lightning-verbosity)))
       (when (and verbosity (<= 2 verbosity))
-        ;; (dump-cps2 "dump" cps)
         (display ";;; cps env\n")
         (let lp ((n 0) (end (vector-length env)))
           (when (< n end)
             (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
             (lp (+ n 1) end)))))
 
-    ;; Allocate space for spilled variables, if any.
+    ;; Allocate space for spilled variables.  Allocating extra two words
+    ;; for arguments passed in C code, one for `vp->fp', and another for
+    ;; `*registers'.
     (let* ((nspills (max-moffs env))
-           (fp-offset (or (and (<= nspills 0) 0)
-                          (jit-allocai (imm (* nspills %word-size))))))
+           (fp-offset (jit-allocai (imm (* (+ nspills 2) %word-size)))))
 
       ;; (debug 2 ";;; nspills: ~a, fp-offset: ~a~%" nspills fp-offset)
       ;; (debug 2 ";;; initial-locals: ~a~%" initial-locals)
 
       ;; Get arguments.
-      (jit-getarg reg-thread (jit-arg))    ; *thread
-      (jit-getarg reg-vp (jit-arg))        ; *vp
-      (jit-getarg reg-registers (jit-arg)) ; registers, for prompt
-      (jit-getarg r0 (jit-arg))            ; resume
+      (jit-getarg reg-thread (jit-arg)) ; *thread
+      (jit-getarg r0 (jit-arg))         ; *vp
+      (jit-getarg r1 (jit-arg))         ; registers, for prompt
+      (jit-getarg r2 (jit-arg))         ; resume
 
-      ;; Load vp->fp to register.
-      (jit-ldxi reg-fp reg-vp (imm #x10))
+      ;; Load `vp->fp' to r2, then store to vp->fp-offset. After this
+      ;; point, value of `resume' will be gone.
+      (jit-ldxi r2 r0 (imm #x10))
+      (jit-stxi vp->fp-offset fp r2)
+
+      ;; Load registers for prompt, store to register-offset.
+      (jit-stxi register-offset fp r1)
 
       ;; Load initial locals.
       (for-each

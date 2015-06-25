@@ -114,8 +114,8 @@ scm_t_uint32* scm_tjit_bytecode_buffer (void)
   sometimes fp was gabage collected after invoking native function.
   Hence rewritten as C macro to avoid this issue.  This file is included
   by "libguile/vm.c", shares common variable defined in
-  "libguile/vm-engine.c". Following two macros shares common value such
-  as thread, vp, ip, ... etc.
+  "libguile/vm-engine.c". Following two macros share common variables
+  such as thread, vp, ip, ... etc.
 */
 
 #define SCM_TJIT_ENTER(state, loop_start, loop_end, jump)               \

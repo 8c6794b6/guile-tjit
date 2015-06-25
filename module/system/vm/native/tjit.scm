@@ -112,6 +112,7 @@
           (let ((kstart (loop-start cps)))
             (let lp ((conts (reverse! (intmap-fold acons cps '()))))
               (match conts
+                (() #f)
                 (((k . cont) . conts)
                  (and (= k kstart) (format #t "---- loop:~%"))
                  (format #t "~4,,,'0@a  ~a ~a~%"
@@ -120,11 +121,13 @@
                    (($ $kargs _ _ ($ $continue knext _ _))
                     (when (< knext k)
                       (format #t "---- ->loop~%")))
-                   (_
-                    #f))
-                 (lp conts))
-                (()
-                 #f))))))
+                   (_ #f))
+                 (lp conts)))))
+          ;; (display ";;; dfg")
+          ;; ((@@ (language cps dfg) dump-dfg)
+          ;;  ((@@ (language cps dfg) compute-dfg)
+          ;;   ((@@ (system base compile) compile) cps #:from 'cps2 #:to 'cps)))
+          ))
         ;; (format #t ";;; cps~%~{~4,,,'0@a  ~a~%~}"
         ;;         (or (and cps (reverse! (intmap-fold
         ;;                                 (lambda (i k acc)
