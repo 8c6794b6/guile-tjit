@@ -248,6 +248,7 @@
              (vsrc (var-ref src)))
          (cond
           ((fixnums? rdst rsrc)
+           (vector-set! types src &exact-integer)
            `(let ((,vdst (%fxadd1 ,vsrc)))
               ,(convert vars types escape rest)))
           (else
@@ -276,6 +277,7 @@
              (vsrc (var-ref src)))
          (cond
           ((fixnums? rdst rsrc)
+           (vector-set! types src &exact-integer)
            `(let ((,vdst (%fxsub1 ,vsrc)))
               ,(convert vars types escape rest)))
           (else
@@ -334,17 +336,16 @@
                  (guard (and op (list op (vector-ref vars i) ip)))
                  (acc (or (and guard (cons guard acc)) acc)))
             (lp (+ i 1) end acc))
-          acc)))
+          (reverse! acc))))
 
   (define (make-entry-body guards end)
     (define (go guards)
       (match guards
+        (() end)
         (((op var ip) . rest)
          `(if (,op ,var)
               ,ip
-              ,(go rest)))
-        (_
-         end)))
+              ,(go rest)))))
     (go guards))
 
   (define (initial-ip ops)

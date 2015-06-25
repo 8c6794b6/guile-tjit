@@ -148,50 +148,42 @@
                     (error "NYI: moving arguments: ~a ~a" v0 v1)))))))
           initial-args new-args)))))
 
-  (define (assemble-cont cps dsts br-label loop-label seen k)
-    ;; (debug 1 "~4,,,'0@a  ~a~%" k (or (and (null? arg) arg)
-    ;;                                  (unparse-cps arg)))
-    (cond
-     ((and (intset-ref seen k)
-           (= k start))
-      ;; End of the loop.
-      #f)
-     (else
-      (let ((seen (intset-add! seen k)))
-        (match (intmap-ref cps k)
-          (($ $kreceive _ knext)
-           (assemble-cont cps dsts br-label loop-label seen knext))
+  (define (assemble-cont cps exp br-label loop-label k)
+    ;; (debug 1 "~4,,,'0@a  ~a~%" k (or (and (null? exp) exp
+    ;;                                  (unparse-cps exp)))
+    (match (intmap-ref cps k)
+      (($ $kreceive _ knext)
+       (assemble-cont cps exp br-label loop-label knext))
 
-          (($ $kclause _ knext)
-           (assemble-cont cps dsts br-label loop-label seen knext))
+      (($ $kclause _ knext)
+       (assemble-cont cps exp br-label loop-label knext))
 
-          (($ $kfun _ _ _ _ knext)
-           (assemble-cont cps dsts br-label loop-label seen knext))
+      (($ $kfun _ _ _ _ knext)
+       (assemble-cont cps exp br-label loop-label knext))
 
-          (($ $kargs _ _ ($ $continue knext _ ($ $branch kt exp)))
-           (let ((br-label (jit-forward))
-                 (loop-label (if (= k start) (jit-label) loop-label)))
-             (assemble-cont cps exp br-label loop-label seen kt)
-             (assemble-cont cps dsts #f loop-label seen knext)))
+      (($ $kargs _ _ ($ $continue knext _ ($ $branch kt next-exp)))
+       (let ((br-label (jit-forward))
+             (loop-label (if (= k start) (jit-label) loop-label)))
+         (assemble-cont cps next-exp br-label loop-label kt)
+         (assemble-cont cps exp #f loop-label knext)))
 
-          (($ $kargs _ syms ($ $continue knext _ exp))
-           (cond
-            ((< knext k)
-             ;; Jumping back to the loop start.
-             (assemble-exp dsts syms br-label)
-             (maybe-move exp)
-             (jump loop-label)
-             #f)
-            (else
-             (let ((loop-label (if (= k start) (jit-label) loop-label)))
-               (assemble-exp dsts syms br-label)
-               (assemble-cont cps exp br-label loop-label seen knext)))))
+      (($ $kargs _ syms ($ $continue knext _ next-exp))
+       (cond
+        ((< knext k)                   ; Jump to the loop start.
+         (assemble-exp exp syms br-label)
+         (maybe-move next-exp)
+         (jump loop-label)
+         #f)
+        (else
+         (let ((loop-label (if (= k start) (jit-label) loop-label)))
+           (assemble-exp exp syms br-label)
+           (assemble-cont cps next-exp br-label loop-label knext)))))
 
-          (($ $ktail)
-           (assemble-exp dsts '() br-label)
-           (when (and br-label (jit-forward-p br-label))
-             (jit-link br-label))
-           #f))))))
+      (($ $ktail)
+       (assemble-exp exp '() br-label)
+       (when (and br-label (jit-forward-p br-label))
+         (jit-link br-label))
+       #f)))
 
   (define (assemble-exp exp dst label)
     ;; Need at least 3 scratch registers. Currently using R0, R1, and
@@ -389,7 +381,7 @@
        ;; (debug 1 "      exp:~a~%" exp)
        #f)))
 
-  (assemble-cont cps '() #f #f empty-intset 0))
+  (assemble-cont cps '() #f #f 0))
 
 (define (assemble-tjit locals cps)
   (define (max-moffs env)
@@ -404,13 +396,13 @@
   (let*-values (((max-label max-var) (compute-max-label-and-var cps))
                 ((env initial-locals) (resolve-vars cps locals max-var)))
 
-    (let ((verbosity (lightning-verbosity)))
-      (when (and verbosity (<= 2 verbosity))
-        (display ";;; cps env\n")
-        (let lp ((n 0) (end (vector-length env)))
-          (when (< n end)
-            (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
-            (lp (+ n 1) end)))))
+    ;; (let ((verbosity (lightning-verbosity)))
+    ;;   (when (and verbosity (<= 2 verbosity))
+    ;;     (display ";;; cps env\n")
+    ;;     (let lp ((n 0) (end (vector-length env)))
+    ;;       (when (< n end)
+    ;;         (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
+    ;;         (lp (+ n 1) end)))))
 
     ;; Allocate space for spilled variables.  Allocating extra two words
     ;; for arguments passed in C code, one for `vp->fp', and another for
