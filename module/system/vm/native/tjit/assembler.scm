@@ -33,6 +33,7 @@
   #:use-module (language cps2)
   #:use-module (language cps2 utils)
   #:use-module (srfi srfi-11)
+  #:use-module ((system base types) #:select (%word-size))
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
@@ -58,7 +59,6 @@
 (define reg-vp v1)
 (define reg-registers v2)
 (define reg-fp v3)
-(define word-size (sizeof '*))
 
 (define fp (jit-fp))
 
@@ -68,7 +68,7 @@
      ((<= 0 addr)
       (make-pointer addr))
      (else
-      (make-pointer (+ (expt 2 (* 8 word-size)) addr))))))
+      (make-pointer (+ (expt 2 (* 8 %word-size)) addr))))))
 
 (define-syntax jump
   (syntax-rules ()
@@ -82,14 +82,14 @@
     ((_ dst 0)
      (jit-ldr dst reg-fp))
     ((_ dst n)
-     (jit-ldxi dst reg-fp (imm (* n word-size))))))
+     (jit-ldxi dst reg-fp (imm (* n %word-size))))))
 
 (define-syntax local-set!
   (syntax-rules ()
     ((_ 0 src)
      (jit-str reg-fp src))
     ((_ n src)
-     (jit-stxi (imm (* n word-size)) reg-fp src))))
+     (jit-stxi (imm (* n %word-size)) reg-fp src))))
 
 
 ;;;
@@ -115,7 +115,7 @@
     (register-ref (ref-value x)))
 
   (define (moffs x)
-    (make-offset-pointer fp-offset (* (ref-value x) word-size)))
+    (make-offset-pointer fp-offset (* (ref-value x) %word-size)))
 
   (define start (loop-start cps))
 
@@ -203,16 +203,24 @@
            (assemble-cont cps arg br-label loop-label seen knext)))))))
 
   (define (assemble-exp exp dst label)
-    ;; Need at least 3 scratch registers. Currently using R0, F0, and
-    ;; F1.  Might use F2 as whell, when double numbers get involved.
+    ;; Need at least 3 scratch registers. Currently using R0, R1, and
+    ;; R2.  Might use floating point registers as whell, when double
+    ;; numbers get involved.
     (match exp
       (($ $primcall 'return (arg1))
        (let ((a (env-ref arg1)))
          (cond
+          ((constant? a)
+           (jit-reti (constant a)))
           ((register? a)
            (jit-retr (reg a)))
-          ((constant? a)
-           (jit-reti (constant a))))))
+          ((memory? a)
+           (jit-ldxi r0 fp (moffs a))
+           (jit-retr r0)))))
+
+      ;;
+      ;; guards
+      ;;
 
       (($ $primcall '%fx< (arg1 arg2))
        (let ((a (env-ref arg1))
@@ -235,20 +243,33 @@
 
           ((and (memory? a) (constant? b))
            (jit-ldxi r0 fp (moffs a))
-           (jit-movi f0 (constant b))
-           (jump (jit-bltr f0 r0) label))
+           (jit-movi r1 (constant b))
+           (jump (jit-bltr r1 r0) label))
           ((and (memory? a) (register? b))
            (jit-ldxi r0 fp (moffs a))
            (jump (jit-bltr r0 (reg a)) label))
           ((and (memory? a) (memory? b))
            (jit-ldxi r0 fp (moffs a))
-           (jit-ldxi f0 fp (moffs b))
-           (jump (jit-bltr f0 r0) label)))))
+           (jit-ldxi r1 fp (moffs b))
+           (jump (jit-bltr r1 r0) label)))))
 
       (($ $primcall '= (arg1 arg2))
        (let ((a (env-ref arg1))
              (b (env-ref arg2)))
          (jump (jit-bner (reg a) (reg b)) label)))
+
+      (($ $primcall '%guard-fx (arg1))
+       (let ((obj (env-ref arg1)))
+         (cond
+          ((register? obj)
+           (jump (scm-inump (reg obj)) label))
+          ((memory? obj)
+           (jit-ldxi r0 fp (moffs obj))
+           (jump (scm-inump r0) label)))))
+
+      ;;
+      ;; exact-integer
+      ;;
 
       (($ $primcall '%fxadd (arg1 arg2))
        (let ((a (env-ref arg1))
@@ -268,8 +289,8 @@
            (jit-subi (reg dst) (reg dst) (imm 2)))
           ((and (register? dst) (memory? a) (memory? b))
            (jit-ldxi r0 fp (moffs a))
-           (jit-ldxi f0 fp (moffs b))
-           (jit-addr (reg dst) r0 f0)
+           (jit-ldxi r1 fp (moffs b))
+           (jit-addr (reg dst) r0 r1)
            (jit-subi (reg dst) (reg dst) (imm 2)))
 
           ((and (memory? dst) (register? a) (register? b))
@@ -279,21 +300,21 @@
            (jit-stxi (moffs dst) fp r0))
           ((and (memory? dst) (memory? a) (register? b))
            (jit-ldxi r0 fp (moffs dst))
-           (jit-ldxi f0 fp (moffs a))
-           (jit-addr r0 f0 (reg b))
+           (jit-ldxi r1 fp (moffs a))
+           (jit-addr r0 r1 (reg b))
            (jit-subi r0 r0 (imm 2))
            (jit-stxi (moffs dst) fp r0))
           ((and (memory? dst) (register? a) (memory? b))
            (jit-ldxi r0 fp (moffs dst))
-           (jit-ldxi f0 fp (moffs b))
-           (jit-addr r0 (reg a) f0)
+           (jit-ldxi r1 fp (moffs b))
+           (jit-addr r0 (reg a) r1)
            (jit-subi r0 r0 (imm 2))
            (jit-stxi (moffs dst) fp r0))
           ((and (memory? dst) (memory? a) (memory? b))
            (jit-ldxi r0 fp (moffs dst))
-           (jit-ldxi f0 fp (moffs a))
-           (jit-ldxi f1 fp (moffs b))
-           (jit-addr r0 f0 f1)
+           (jit-ldxi r1 fp (moffs a))
+           (jit-ldxi r2 fp (moffs b))
+           (jit-addr r0 r1 r2)
            (jit-subi r0 r0 (imm 2))
            (jit-stxi (moffs dst) fp r0))
           (else
@@ -310,18 +331,30 @@
            (jit-addi (reg dst) r0 (imm 4)))
 
           ((and (memory? dst) (register? src))
-           (jit-ldxi r0 fp (moffs dst))
-           (jit-addi r0 r0 (imm 4))
+           (jit-addi r0 (reg src) (imm 4))
            (jit-stxi (moffs dst) fp r0))
           ((and (memory? dst) (memory? src))
-           (jit-ldxi r0 fp (moffs dst))
+           (jit-ldxi r0 fp (moffs src))
            (jit-addi r0 r0 (imm 4))
            (jit-stxi (moffs dst) fp r0)))))
 
       (($ $primcall '%fxsub1 (arg1))
-       (let ((v0 (env-ref (car dst)))
-             (v1 (env-ref arg1)))
-         (jit-subi (reg v0) (reg v1) (imm 4))))
+       (let ((dst (env-ref (car dst)))
+             (src (env-ref arg1)))
+         (cond
+          ((and (register? dst) (register? src))
+           (jit-subi (reg dst) (reg src) (imm 4)))
+          ((and (register? dst) (memory? src))
+           (jit-ldxi r0 fp (moffs src))
+           (jit-subi (reg dst) r0 (imm 4)))
+
+          ((and (memory? dst) (register? src))
+           (jit-subi r0 (reg src) (imm 4))
+           (jit-stxi (moffs dst) fp r0))
+          ((and (memory? dst) (memory? src))
+           (jit-ldxi r0 fp (moffs src))
+           (jit-subi r0 r0 (imm 4))
+           (jit-stxi (moffs dst) fp r0)))))
 
       (($ $primcall '%frame-set! (arg1 arg2))
        (let ((idx (env-ref arg1))
@@ -339,27 +372,6 @@
            (local-set! (ref-value idx) r0))
           (else
            (debug 2 "*** %frame-set!: unknown args ~a ~a~%" idx src)))))
-
-      (($ $primcall '%guard-fx (arg1 arg2))
-       (let ((obj (env-ref arg1))
-             (ip (env-ref arg2)))
-         (cond
-          ((constant? obj)              ; Guard to constant could be
-                                        ; removed.
-           #f)
-          ((not (constant? ip))
-           (debug 2 "*** %guard-fx: not a contant ~a ~a~%" v0 v1))
-          ((register? obj)
-           (let ((lnext (jit-forward)))
-             (jump (scm-inump (reg obj)) lnext)
-             (jit-reti (constant ip))
-             (jit-link lnext)))
-          ((memory? obj)
-           (let ((lnext (jit-forward)))
-             (jit-ldxi r0 fp (moffs obj))
-             (jump (scm-inump r0) lnext)
-             (jit-reti (constant ip))
-             (jit-link lnext))))))
 
       (($ $primcall name args)
        (debug 2 "*** Unhandled primcall: ~a~%" name))
@@ -400,19 +412,20 @@
 
   (let*-values (((max-label max-var) (compute-max-label-and-var cps))
                 ((env initial-locals) (resolve-vars cps locals max-var)))
-    ;; (let ((verbosity (lightning-verbosity)))
-    ;;   (when (and verbosity (<= 2 verbosity))
-    ;;     ;; (dump-cps2 "dump" cps)
-    ;;     (display ";;; cps env\n")
-    ;;     (let lp ((n 0) (end (vector-length env)))
-    ;;       (when (< n end)
-    ;;         (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
-    ;;         (lp (+ n 1) end)))))
+
+    (let ((verbosity (lightning-verbosity)))
+      (when (and verbosity (<= 2 verbosity))
+        ;; (dump-cps2 "dump" cps)
+        (display ";;; cps env\n")
+        (let lp ((n 0) (end (vector-length env)))
+          (when (< n end)
+            (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
+            (lp (+ n 1) end)))))
 
     ;; Allocate space for spilled variables, if any.
     (let* ((nspills (max-moffs env))
            (fp-offset (or (and (<= nspills 0) 0)
-                          (jit-allocai (imm (* nspills word-size))))))
+                          (jit-allocai (imm (* nspills %word-size))))))
 
       ;; (debug 2 ";;; nspills: ~a, fp-offset: ~a~%" nspills fp-offset)
       ;; (debug 2 ";;; initial-locals: ~a~%" initial-locals)
@@ -435,7 +448,7 @@
             ((register? var)
              (local-ref (register-ref (ref-value var)) local-idx))
             ((memory? var)
-             (let ((offset (* (ref-value var) word-size)))
+             (let ((offset (* (ref-value var) %word-size)))
                (local-ref r0 local-idx)
                (jit-stxi (make-offset-pointer fp-offset offset) fp r0)))
             (else

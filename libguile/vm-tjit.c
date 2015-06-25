@@ -71,6 +71,7 @@ static SCM code_cache_table;
 static SCM failed_ip_table;
 static SCM bytecode_buffer_fluid;
 static SCM compile_tjit_var;
+static int trace_id = 1;
 
 
 /*
@@ -81,9 +82,11 @@ static inline SCM
 scm_compile_tjit (SCM bc_ptr, SCM bc_len, SCM ip_ptr)
 {
   SCM result;
+  SCM s_id;
 
+  s_id = SCM_I_MAKINUM (trace_id);
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  result = scm_call_3 (compile_tjit_var, bc_ptr, bc_len, ip_ptr);
+  result = scm_call_4 (compile_tjit_var, s_id, bc_ptr, bc_len, ip_ptr);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
 
   return result;
@@ -104,15 +107,18 @@ scm_t_uint32* scm_tjit_bytecode_buffer (void)
 }
 
 
-/* C Macros for vm-tjit engine */
+/* C macros for vm-tjit engine
 
-/* These two macros were once defined as static inline functions. Though */
-/* the static functions had some problems with garbage collector, */
-/* sometimes fp was gabage collected after invoking native function. */
-/* Hence rewritten as C macro to avoid this issue. */
+  These two macros were once defined as static inline functions.  Though
+  the static functions had some problems with garbage collector,
+  sometimes fp was gabage collected after invoking native function.
+  Hence rewritten as C macro to avoid this issue.  This file is included
+  by "libguile/vm.c", shares common variable defined in
+  "libguile/vm-engine.c". Following two macros shares common value such
+  as thread, vp, ip, ... etc.
+*/
 
-#define SCM_TJIT_ENTER(ip, state, jump, loop_start, loop_end,           \
-                       thread, vp, registers, resume)                   \
+#define SCM_TJIT_ENTER(state, loop_start, loop_end, jump)               \
   do {                                                                  \
     SCM scm_ip, code;                                                   \
                                                                         \
@@ -154,14 +160,13 @@ scm_t_uint32* scm_tjit_bytecode_buffer (void)
           }                                                             \
                                                                         \
         /* Next IP is jump destination specified in bytecode. */        \
-        ip += jump;                                                     \
+        ip +=  jump;                                                    \
       }                                                                 \
                                                                         \
   } while (0)
 
 
-#define SCM_TJIT_MERGE(ip, state, fp, loop_start, loop_end,             \
-                       thread, vp, registers, resume,                   \
+#define SCM_TJIT_MERGE(state, loop_start, loop_end,                     \
                        bc_idx, bytecode, ips)                           \
   do {                                                                  \
       SCM s_loop_start;                                                 \
@@ -228,6 +233,7 @@ scm_t_uint32* scm_tjit_bytecode_buffer (void)
           SYNC_IP ();                                                   \
           code = scm_compile_tjit (s_bytecode, s_bc_idx, *ips);         \
           CACHE_FP ();                                                  \
+          ++trace_id;                                                   \
                                                                         \
           /* Cache the native code on compilation success. */           \
           if (scm_is_true (code))                                       \
@@ -283,8 +289,8 @@ SCM_DEFINE (scm_set_tjit_hot_count_x, "set-tjit-hot-count!", 1, 0, 0,
  * Initialization
  */
 
-static inline
-void scm_init_buffer (void)
+void
+scm_bootstrap_vm_tjit(void)
 {
   void *buffer;
   size_t bytes;
@@ -293,17 +299,11 @@ void scm_init_buffer (void)
   bytes = sizeof (scm_t_uint32 *) * SCM_I_INUM (tjit_max_record) * 5;
   buffer = scm_inline_gc_malloc_pointerless (SCM_I_CURRENT_THREAD, bytes);
   scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (buffer));
-}
 
-void
-scm_bootstrap_vm_tjit(void)
-{
   ip_counter_table = scm_c_make_hash_table (31);
   code_cache_table = scm_c_make_hash_table (31);
   failed_ip_table = scm_c_make_hash_table (31);
   compile_tjit_var = SCM_VARIABLE_REF (scm_c_lookup ("compile-tjit"));
-
-  scm_init_buffer ();
 
   GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
 }

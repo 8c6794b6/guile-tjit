@@ -50,7 +50,7 @@
 ;;; Compilation
 ;;;
 
-(define (compile-tjit bytecode-ptr bytecode-len ips)
+(define (compile-tjit trace-id bytecode-ptr bytecode-len ips)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
 
@@ -85,7 +85,7 @@
                  (or (source-file source) "(unknown file)")
                  (source-line-for-user source)))))
 
-    (define (mark-guard-cont cont)
+    (define (mark-branch cont)
       (match cont
         (($ $kargs _ _ ($ $continue _ _ ($ $branch _ _)))
          ">")
@@ -115,7 +115,7 @@
                 (((k . cont) . conts)
                  (and (= k kstart) (format #t "---- loop:~%"))
                  (format #t "~4,,,'0@a  ~a ~a~%"
-                         k (mark-guard-cont cont) (unparse-cps cont))
+                         k (mark-branch cont) (unparse-cps cont))
                  (match cont
                    (($ $kargs _ _ ($ $continue knext _ _))
                     (when (< knext k)
@@ -150,7 +150,7 @@
          =>
          (lambda (msg)
            (let ((sline (ip-ptr->source-line (car (car ips)))))
-             (debug 1 ";;; trace: ~a ~a~%" sline "abort")
+             (debug 1 ";;; trace ~a: ~a ~a~%" trace-id sline "abort")
              (debug 2 ";;; msg: ~a~%" msg)
              (show-debug-messages scm cps #f #f))
            #f))
@@ -165,8 +165,8 @@
              (make-bytevector-executable! code)
              (when (and verbosity (<= 1 verbosity))
                (let ((sline (ip-ptr->source-line (car (car ips)))))
-                 (format #t ";;; trace: ~a size=~a~%"
-                         sline (number->string code-size)))
+                 (format #t ";;; trace ~a: ~a size=~a~%"
+                         trace-id sline (number->string code-size)))
                (show-debug-messages scm cps code code-size)))
            code)))))))
 

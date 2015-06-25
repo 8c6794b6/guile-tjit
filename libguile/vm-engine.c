@@ -215,22 +215,18 @@
 #  define TJIT_MERGE(n)                                         \
   if (tjit_state == SCM_TJIT_STATE_RECORD)                      \
     {                                                           \
-      SCM_TJIT_MERGE (ip, &tjit_state, fp,                      \
-                      &loop_start, &loop_end,                   \
-                      thread, vp, registers, resume,            \
+      SCM_TJIT_MERGE (&tjit_state, &loop_start, &loop_end,      \
                       &tjit_bc_idx, tjit_bytecode, &tjit_ips);  \
     }
-#  define TJIT_ENTER(n)                                         \
-  do {                                                          \
-    if (n < 0 && tjit_state == SCM_TJIT_STATE_INTERPRET)        \
-      {                                                         \
-        SCM_TJIT_ENTER (ip, &tjit_state, n,                     \
-                        &loop_start, &loop_end,                 \
-                        thread, vp, registers, resume);         \
-        NEXT (0);                                               \
-      }                                                         \
-    else                                                        \
-      NEXT (n);                                                 \
+#  define TJIT_ENTER(n)                                                 \
+  do {                                                                  \
+    if (n < 0 && tjit_state == SCM_TJIT_STATE_INTERPRET)                \
+      {                                                                 \
+        SCM_TJIT_ENTER (&tjit_state, &loop_start, &loop_end, n);        \
+        NEXT (0);                                                       \
+      }                                                                 \
+    else                                                                \
+      NEXT (n);                                                         \
   } while (0)
 
 # endif

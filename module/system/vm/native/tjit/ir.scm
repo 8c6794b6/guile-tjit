@@ -35,6 +35,7 @@
   #:use-module (language cps2)
   #:use-module (language cps2 optimize)
   #:use-module (language cps2 renumber)
+  #:use-module (language cps2 types)
   #:use-module (language scheme spec)
   #:use-module ((srfi srfi-1) #:select (every))
   #:use-module (system base compile)
@@ -151,141 +152,156 @@
          (else
           (lp (+ i 1) acc))))))
 
-  ;; XXX: Add prologue for native functio, move calls to `%guard-fx' in <, add,
-  ;; add1, sub ... etc to the prologue.
-  (define (convert-one st escape op ip locals rest)
+  (define (convert-one vars types escape op ip locals rest)
+    (define (local-ref i)
+      (vector-ref locals i))
+    (define (var-ref i)
+      (vector-ref vars i))
     (match op
       (('make-short-immediate dst low-bits)
-       `(let ((,(vector-ref st dst) ,low-bits))
-          ,(convert st escape rest)))
+       `(let ((,(var-ref dst) ,low-bits))
+          ,(convert vars types escape rest)))
 
       (('make-long-immediate dst low-bits)
-       `(let ((,(vector-ref st dst) ,low-bits))
-          ,(convert st escape rest)))
+       `(let ((,(var-ref dst) ,low-bits))
+          ,(convert vars types escape rest)))
 
       (('static-ref dst offset)
-       `(let ((,(vector-ref st dst) ,(dereference-scm (+ ip (* 4 offset)))))
-          ,(convert st escape rest)))
+       `(let ((,(var-ref dst) ,(dereference-scm (+ ip (* 4 offset)))))
+          ,(convert vars types escape rest)))
 
       (('br-if-< a b invert? offset)
-       (let ((ra (vector-ref locals a))
-             (rb (vector-ref locals b))
-             (va (vector-ref st a))
-             (vb (vector-ref st b)))
+       (let ((ra (local-ref a))
+             (rb (local-ref b))
+             (va (var-ref a))
+             (vb (var-ref b)))
          (cond
           ((fixnums? ra rb)
+           (vector-set! types a &exact-integer)
+           (vector-set! types b &exact-integer)
            `(if ,(if invert? `(%fx< ,vb ,va) `(%fx< ,va ,vb))
                 (begin
-                  ,@(save-frame! st)
+                  ,@(save-frame! vars)
                   ,ip)
-                ,(convert st escape rest)))
+                ,(convert vars types escape rest)))
           (else
            (debug 2 "ir:convert < ~a ~a~%" ra rb)
            (escape #f)))))
 
       (('br-if-= a b invert? offset)
-       (let ((va (vector-ref st a))
-             (vb (vector-ref st b)))
-         `(if ,(if invert? `(not (= ,va ,vb)) `(= ,va ,vb))
-              (begin
-                ,@(save-frame! st)
-                ,ip)
-              ,(convert st escape rest))))
+       (let ((ra (local-ref a))
+             (rb (local-ref b))
+             (va (var-ref a))
+             (vb (var-ref b)))
+         (cond
+          ((fixnums? ra rb)
+           (vector-set! types a &exact-integer)
+           (vector-set! types b &exact-integer)
+           `(if ,(if invert? `(not (= ,va ,vb)) `(= ,va ,vb))
+                (begin
+                  ,@(save-frame! vars)
+                  ,ip)
+                ,(convert vars types escape rest)))
+          (else
+           (debug 2 "ir:convert = ~a ~a~%" ra rb)
+           (escape #f)))))
 
       (('mov dst src)
-       (let ((vdst (vector-ref st dst))
-             (vsrc (vector-ref st src)))
+       (let ((vdst (var-ref dst))
+             (vsrc (var-ref src)))
          `(let ((,vdst ,vsrc))
-            ,(convert st escape rest))))
+            ,(convert vars types escape rest))))
 
       (('box-ref dst src)
-       (let ((vdst (vector-ref st dst))
-             (vsrc (vector-ref st src)))
+       (let ((vdst (var-ref dst))
+             (vsrc (var-ref src)))
          `(let ((,vdst (variable-ref ,vsrc)))
-            ,(convert st escape rest))))
+            ,(convert vars types escape rest))))
 
       (('toplevel-box dst var-offset mod-offset sym-offset bound?)
-       (let ((vdst (vector-ref st dst))
+       (let ((vdst (var-ref dst))
              (var (dereference-scm (+ ip (* var-offset 4)))))
          `(let ((,vdst (make-variable ,(variable-ref var))))
-            ,(convert st escape rest))))
+            ,(convert vars types escape rest))))
 
       (('add dst a b)
-       (let ((rdst (vector-ref locals dst))
-             (ra (vector-ref locals a))
-             (rb (vector-ref locals b))
-             (vdst (vector-ref st dst))
-             (va (vector-ref st a))
-             (vb (vector-ref st b)))
+       (let ((rdst (local-ref dst))
+             (ra (local-ref a))
+             (rb (local-ref b))
+             (vdst (var-ref dst))
+             (va (var-ref a))
+             (vb (var-ref b)))
          (cond
           ((fixnums? rdst ra rb)
+           (vector-set! types a &exact-integer)
+           (vector-set! types b &exact-integer)
            `(let ((,vdst (%fxadd ,va ,vb)))
-              ,(convert st escape rest)))
+              ,(convert vars types escape rest)))
           (else
            (debug 2 "ir:convert add ~a ~a ~a" rdst ra rb)
            (escape #f)))))
 
       (('add1 dst src)
-       (let ((rdst (vector-ref locals dst))
-             (rsrc (vector-ref locals src))
-             (vdst (vector-ref st dst))
-             (vsrc (vector-ref st src)))
+       (let ((rdst (local-ref dst))
+             (rsrc (local-ref src))
+             (vdst (var-ref dst))
+             (vsrc (var-ref src)))
          (cond
           ((fixnums? rdst rsrc)
            `(let ((,vdst (%fxadd1 ,vsrc)))
-              ,(convert st escape rest)))
+              ,(convert vars types escape rest)))
           (else
            (debug 2 "ir:convert add1 ~a ~a" rdst rsrc)
            (escape #f)))))
 
       (('sub dst a b)
-       (let ((rdst (vector-ref locals dst))
-             (ra (vector-ref locals a))
-             (rb (vector-ref locals b))
-             (vdst (vector-ref st dst))
-             (va (vector-ref st a))
-             (vb (vector-ref st b)))
+       (let ((rdst (local-ref dst))
+             (ra (local-ref a))
+             (rb (local-ref b))
+             (vdst (var-ref dst))
+             (va (var-ref a))
+             (vb (var-ref b)))
          (cond
           ((fixnums? rdst ra rb)
            `(let ((,vdst (%fxsub ,va ,vb)))
-              ,(convert st escape rest)))
+              ,(convert vars types escape rest)))
           (else
            (debug 2 "ir:convert sub ~a ~a ~a~%" rdst ra rb)
            (escape #f)))))
 
       (('sub1 dst src)
-       (let ((rdst (vector-ref locals dst))
-             (rsrc (vector-ref locals src))
-             (vdst (vector-ref st dst))
-             (vsrc (vector-ref st src)))
+       (let ((rdst (local-ref dst))
+             (rsrc (local-ref src))
+             (vdst (var-ref dst))
+             (vsrc (var-ref src)))
          (cond
           ((fixnums? rdst rsrc)
            `(let ((,vdst (%fxsub1 ,vsrc)))
-              ,(convert st escape rest)))
+              ,(convert vars types escape rest)))
           (else
            (debug 2 "ir:convert sub1 ~a ~a" rdst rsrc)
            (escape #f)))))
 
       ;; (('mul dst a b)
-      ;;  (let ((vdst (vector-ref st dst))
-      ;;        (va (vector-ref st a))
-      ;;        (vb (vector-ref st b)))
+      ;;  (let ((vdst (var-ref dst))
+      ;;        (va (var-ref a))
+      ;;        (vb (var-ref b)))
       ;;    `(let ((,vdst (* ,va ,vb)))
-      ;;       ,(convert st escape rest))))
+      ;;       ,(convert vars types escape rest))))
 
       (('br offset)
-       (convert st escape rest))
+       (convert vars types escape rest))
 
       (op
        (debug 2 "ir:convert: NYI ~a~%" (car op))
        (escape #f))))
 
-  (define (convert st escape env)
+  (define (convert vars types escape env)
     (match env
       (((op ip . locals) . rest)
-       (convert-one st escape op ip locals rest))
+       (convert-one vars types escape op ip locals rest))
       (()
-       `(loop ,@(filter identity (vector->list st))))))
+       `(loop ,@(filter identity (vector->list vars))))))
 
   (define (make-var index)
     (string->symbol (string-append "v" (number->string index))))
@@ -302,20 +318,64 @@
        (else
         (lp (- i 1) locals (cons #f acc))))))
 
+  (define (make-types vars)
+    (let ((num-vars (vector-length vars)))
+      (make-vector num-vars #f)))
+
+  (define (make-entry-guards ip vars types)
+    (define (type-guard-op type)
+      (cond
+       ((eq? type &exact-integer) '%guard-fx)
+       (else #f)))
+    (let lp ((i 0) (end (vector-length types)) (acc '()))
+      (if (< i end)
+          (let* ((type (vector-ref types i))
+                 (op (and type (type-guard-op type)))
+                 (guard (and op (list op (vector-ref vars i) ip)))
+                 (acc (or (and guard (cons guard acc)) acc)))
+            (lp (+ i 1) end acc))
+          acc)))
+
+  (define (make-entry-body guards end)
+    (define (go guards)
+      (match guards
+        (((op var ip) . rest)
+         `(if (,op ,var)
+              ,ip
+              ,(go rest)))
+        (_
+         end)))
+    (go guards))
+
+  (define (initial-ip ops)
+    (cadr (car ops)))
+
   (let* ((locals (accumulate-locals ops))
-         (max-local-num (or (and (null? locals) 0)
-                            (apply max locals)))
+         (max-local-num (or (and (null? locals) 0) (apply max locals)))
          (args (map make-var (reverse locals)))
          (vars (make-vars max-local-num locals))
-         (scm (call-with-escape-continuation
-                (lambda (escape)
-                  `(letrec ((entry (lambda ,args
-                                     ;; XXX: Add initial guards.
-                                     (loop ,@args)))
-                            (loop (lambda ,args
-                                    ,(convert vars escape ops))))
-                     entry)))))
+         (types (make-types vars))
+         (loop-body (call-with-escape-continuation
+                     (lambda (escape)
+                       (convert vars types escape ops))))
+         (entry-guards (make-entry-guards (initial-ip ops) vars types))
+         (entry-body (make-entry-body entry-guards `(loop ,@args)))
+         (scm (and entry-body
+                   loop-body
+                   `(letrec ((entry (lambda ,args
+                                      ,entry-body))
+                             (loop (lambda ,args
+                                     ,loop-body)))
+                      entry))))
     ;; (debug 2 ";;; locals: ~a~%" (sort locals <))
+    ;; (let lp ((i 0) (end (vector-length types)))
+    ;;   (when (< i end)
+    ;;     (format #t "ty~a => ~a~%" i (vector-ref types i))
+    ;;     (lp (+ i 1) end)))
+    ;; (debug 2 ";;; entry-guards: ~a~%" entry-guards)
+    ;; (format #t ";;; scm:~%~a"
+    ;;         (call-with-output-string
+    ;;          (lambda (port) (pretty-print scm #:port port))))
     (values locals scm)))
 
 (define (dump-cps2 title cps)

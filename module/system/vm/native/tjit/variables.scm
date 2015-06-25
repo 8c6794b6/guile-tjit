@@ -89,7 +89,7 @@
   ;; Architecture dependent temporary registers.  Lightning has it's own
   ;; register management policy, not sure how it works under other architecture
   ;; than x86-64 linux.
-  `#(,r1 ,r2 ,r3 ,f5 ,f6))
+  `#(,r3 ,f5 ,f6))
 
 (define *num-registers*
   (+ (vector-length *tmp-registers*) 1))
@@ -120,12 +120,19 @@ locals and initial arguments."
       (values env (local-var-alist locals init-syms)))
      (else
       (let ((seen (intset-add! seen k)))
+
         (match (intmap-ref cps k)
           (($ $kreceive _ knext)
            (resolve-cont env reqs init-syms loop-syms '() mem-idx seen knext))
 
           (($ $kargs names syms ($ $continue knext _ exp))
            (cond
+            ((= k start)
+             (for-each (lambda (arg sym)
+                         (vector-set! env sym (vector-ref env arg)))
+                       args syms)
+             (resolve-exp exp env reqs init-syms syms mem-idx seen knext))
+
             ((equal? names reqs)
              (let lp ((syms-tmp syms) (mem-idx mem-idx))
                (match syms-tmp
@@ -138,18 +145,7 @@ locals and initial arguments."
                     (vector-set! env sym (make-memory mem-idx))
                     (lp rest (+ mem-idx 1)))))
                  (()
-                  (cond
-                   ((= k start)
-                    (resolve-exp exp env reqs syms syms mem-idx seen knext))
-                   (else
-                    (resolve-exp exp env reqs syms loop-syms mem-idx seen
-                                 knext)))))))
-
-            ((= k start)
-             (for-each (lambda (arg sym)
-                         (vector-set! env sym (vector-ref env arg)))
-                       args syms)
-             (resolve-exp exp env reqs init-syms syms mem-idx seen knext))
+                  (resolve-exp exp env reqs syms loop-syms mem-idx seen knext)))))
 
             ((and (not (null? args)) (not (null? syms)))
              (let lp ((syms syms) (args args) (mem-idx mem-idx))
@@ -195,6 +191,12 @@ locals and initial arguments."
        (resolve-exp exp env reqs init-syms loop-syms mem-idx seen kt)
        (resolve-cont env reqs init-syms loop-syms '() mem-idx seen k))
 
+      (($ $primcall _ _)
+       (resolve-cont env reqs init-syms loop-syms (list exp) mem-idx seen k))
+
+      (($ $values args)
+       (resolve-cont env reqs init-syms loop-syms args mem-idx seen k))
+
       ;; (($ $call 0 args)
       ;;  ;; Jumping back to beginning of this procedure.  Variables could be
       ;;  ;; shared between arguments in this call and initial call.
@@ -202,12 +204,6 @@ locals and initial arguments."
       ;;              (vector-set! env arg (vector-ref env init)))
       ;;            init-syms args)
       ;;  (resolve-cont env reqs init-syms loop-syms '() mem-idx seen k))
-
-      (($ $primcall _ _)
-       (resolve-cont env reqs init-syms loop-syms (list exp) mem-idx seen k))
-
-      (($ $values args)
-       (resolve-cont env reqs init-syms loop-syms args mem-idx seen k))
 
       (_
        (resolve-cont env reqs init-syms loop-syms '() mem-idx seen k))))
