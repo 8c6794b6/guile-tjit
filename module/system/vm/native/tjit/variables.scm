@@ -103,7 +103,6 @@ locals and initial arguments."
       (values env (local-var-alist locals init-syms)))
      (else
       (let ((seen (intset-add! seen k)))
-
         (match (intmap-ref cps k)
           (($ $kreceive _ knext)
            (resolve-cont env reqs init-syms loop-syms '() mem-idx seen knext))

@@ -38,7 +38,8 @@ TESTS = \
 	t-micro-deca.scm \
 	t-sum-tailcall.scm \
 	t-ssa.scm \
-	t-micro-twice.scm
+	t-micro-twice.scm \
+	t-toplevel-box-1.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
 

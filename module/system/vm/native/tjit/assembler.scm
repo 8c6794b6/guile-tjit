@@ -356,6 +356,18 @@
           (else
            (debug 2 "*** %frame-set!: unknown args ~a ~a~%" idx src)))))
 
+      (($ $primcall '%address-ref (arg1))
+       (let ((dst (env-ref (car dst)))
+             (src (env-ref arg1)))
+         (cond
+          ((and (register? dst) (constant? src))
+           (jit-ldi (reg dst) (constant src)))
+          ((and (memory? dst) (register? src))
+           (jit-ldi r0 (constant src))
+           (jit-stxi (moffs dst) fp r0))
+          (else
+           (debug 2 "*** %box-ref: ~a ~a~%" dst src)))))
+
       (($ $primcall name args)
        (debug 2 "*** Unhandled primcall: ~a~%" name))
 

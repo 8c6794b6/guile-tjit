@@ -54,20 +54,18 @@
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
 
-  (define (traced-ops bytecode-ptr bytecode-len ips)
+  (define (traced-ops bytecode-ptr bytecode-len envs)
     (let ((bytecode (pointer->bytevector bytecode-ptr bytecode-len))
           (end (/ bytecode-len 4)))
       (let lp ((acc '())
-               (bytecode-offset 0)
-               (ips (reverse! ips)))
-        (if (not (null? ips)) ;; (< bytecode-offset end)
-            (call-with-values
-                (lambda () (disassemble-one bytecode bytecode-offset))
-              (lambda (len elt)
-                (let ((env (car ips)))
-                  (lp (cons (cons elt env) acc)
-                      (+ bytecode-offset len)
-                      (cdr ips)))))
+               (offset 0)
+               (envs (reverse! envs)))
+        (if (not (null? envs)) ;; (< offset end)
+            (let-values (((len elt) (disassemble-one bytecode offset)))
+              (let ((env (car envs)))
+                (lp (cons (cons elt env) acc)
+                    (+ offset len)
+                    (cdr envs))))
             (reverse! acc)))))
 
   (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len ips))
@@ -92,15 +90,44 @@
         (_
          " ")))
 
+    (define (make-indent n)
+      (let lp ((n n) (acc '()))
+        (if (< 0 n)
+            (lp (- n 1) (cons #\_ (cons #\space acc)))
+            (list->string acc))))
+
+    (define (lowest-level ip-x-ops)
+      (let lp ((traces ip-x-ops) (level 0) (lowest 0))
+        (match traces
+          (((op _ . _) . traces)
+           (case (car op)
+             ((call call-label)
+              (lp traces (+ level 1) lowest))
+             ((return return-values subr-call foreign-call)
+              (let ((level (- level 1)))
+                (lp traces level (min level lowest))))
+             (else
+              (lp traces level lowest))))
+          (() lowest))))
+
     (define-syntax-rule (show-debug-messages scm cps code code-size)
       (when (<= 2 verbosity)
-        (display ";;; bytecode\n")
-        (for-each (match-lambda
-                   ((op ip . locals)
-                    ;; (when (<= 3 verbosity)
-                    ;;   (format #t "~a~%" locals))
-                    (format #t "~x  ~a~%" ip op)))
-                  ip-x-ops)
+        (let ((lowest (lowest-level ip-x-ops)))
+          (format #t ";;; bytecode: ~a:~a\n" (length ip-x-ops) lowest)
+          (let lp ((traces ip-x-ops) (level (abs lowest)))
+            (match traces
+              (((op ip . locals) . traces)
+               (when (<= 3 verbosity)
+                 (format #t "              ~a~%" locals))
+               (format #t "~x  ~a~a~%" ip (make-indent level) op)
+               (case (car op)
+                 ((call call-label)
+                  (lp traces (+ level 1)))
+                 ((return return-values subr-call foreign-call)
+                  (lp traces (- level 1)))
+                 (else
+                  (lp traces level))))
+              (() (values)))))
         (format #t ";;; scm:~%~a"
                 (call-with-output-string
                  (lambda (port) (pretty-print scm #:port port))))
@@ -128,14 +155,6 @@
           ;;  ((@@ (language cps dfg) compute-dfg)
           ;;   ((@@ (system base compile) compile) cps #:from 'cps2 #:to 'cps)))
           ))
-        ;; (format #t ";;; cps~%~{~4,,,'0@a  ~a~%~}"
-        ;;         (or (and cps (reverse! (intmap-fold
-        ;;                                 (lambda (i k acc)
-        ;;                                   (cons (unparse-cps k)
-        ;;                                         (cons i acc)))
-        ;;                                 cps
-        ;;                                 '())))
-        ;;             '()))
         (when (and code (<= 3 verbosity))
           (jit-print)
           (call-with-output-file

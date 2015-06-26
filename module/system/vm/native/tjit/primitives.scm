@@ -34,6 +34,7 @@
 
 (define *native-primitives*
   '((%frame-set! . (0 . 2))
+    (%address-ref . (1 . 1))
     (%fxadd . (1 . 2))
     (%fxadd1 . (1 . 1))
     (%fxsub . (1 . 2))
