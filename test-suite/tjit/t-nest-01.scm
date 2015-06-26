@@ -1,0 +1,11 @@
+(define (nest n)
+  (let lp ((i n) (acc 0))
+    (if (< 0 i)
+        (lp (- i 1)
+            (let lp ((j n) (acc acc))
+              (if (< 0 j)
+                  (lp (- j 1) (+ acc 1))
+                  acc)))
+        acc)))
+
+(nest 5000)

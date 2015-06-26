@@ -60,13 +60,20 @@
       (let lp ((acc '())
                (offset 0)
                (envs (reverse! envs)))
-        (if (not (null? envs)) ;; (< offset end)
-            (let-values (((len elt) (disassemble-one bytecode offset)))
-              (let ((env (car envs)))
-                (lp (cons (cons elt env) acc)
-                    (+ offset len)
-                    (cdr envs))))
-            (reverse! acc)))))
+        (match envs
+          ((env . envs)
+           (let-values (((len elt) (disassemble-one bytecode offset)))
+             (match env
+               ((ip #f . local)
+                (lp (cons (cons elt env) acc) (+ offset len) envs))
+               ;; Replace with vm-tjit specific `native-call' op when
+               ;; native code exists in recorded trace.
+               ((ip bv . local)
+                (let* ((addr (pointer-address (bytevector->pointer bv)))
+                       (op `(native-call ,addr)))
+                  (lp (cons (cons op env) acc) (+ offset len) envs))))))
+          (()
+           (reverse! acc))))))
 
   (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len ips))
         (verbosity (lightning-verbosity)))
@@ -99,7 +106,7 @@
     (define (lowest-level ip-x-ops)
       (let lp ((traces ip-x-ops) (level 0) (lowest 0))
         (match traces
-          (((op _ . _) . traces)
+          (((op _ _ . _) . traces)
            (case (car op)
              ((call call-label)
               (lp traces (+ level 1) lowest))
@@ -114,12 +121,13 @@
       (when (<= 2 verbosity)
         (let ((lowest (lowest-level ip-x-ops)))
           (format #t ";;; bytecode: ~a:~a\n" (length ip-x-ops) lowest)
-          (let lp ((traces ip-x-ops) (level (abs lowest)))
+          (let lp ((traces ip-x-ops) (level (- lowest)))
             (match traces
-              (((op ip . locals) . traces)
+              (((op ip bv . locals) . traces)
                (when (<= 3 verbosity)
                  (format #t "              ~a~%" locals))
-               (format #t "~x  ~a~a~%" ip (make-indent level) op)
+               (format #t "~x  ~a ~a~a~%"
+                       ip (or (and bv "*") " ") (make-indent level) op)
                (case (car op)
                  ((call call-label)
                   (lp traces (+ level 1)))

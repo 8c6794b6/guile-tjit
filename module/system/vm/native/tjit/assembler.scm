@@ -63,11 +63,14 @@
 
 (define fp (jit-fp))
 
-(define vp->fp-offset
+(define vp-offset
   (make-pointer (+ (expt 2 (* 8 %word-size)) (- %word-size))))
 
-(define register-offset
+(define vp->fp-offset
   (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 2 %word-size)))))
+
+(define register-offset
+  (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 3 %word-size)))))
 
 (define (make-offset-pointer offset n)
   (let ((addr (+ offset n)))
@@ -163,11 +166,12 @@
       (($ $kfun _ _ _ _ knext)
        (assemble-cont cps exp br-label loop-label knext))
 
-      (($ $kargs _ _ ($ $continue knext _ ($ $branch kt next-exp)))
+      (($ $kargs _ syms ($ $continue knext _ ($ $branch kt next-exp)))
        (let ((br-label (jit-forward))
              (loop-label (if (= k start) (jit-label) loop-label)))
          (assemble-cont cps next-exp br-label loop-label kt)
-         (assemble-cont cps exp #f loop-label knext)))
+         (assemble-exp exp syms br-label)
+         (assemble-cont cps #f #f loop-label knext)))
 
       (($ $kargs _ syms ($ $continue knext _ next-exp))
        (cond
@@ -341,6 +345,20 @@
            (jit-subi r0 r0 *inum-step*)
            (jit-stxi (moffs dst) fp r0)))))
 
+      (($ $primcall '%frame-ref (arg1))
+       (let ((dst (env-ref (car dst)))
+             (idx (env-ref arg1)))
+         (cond
+          ((not (constant? idx))
+           (debug 2 "*** %frame-ref: type mismatch ~a ~a~%" dst idx))
+          ((register? dst)
+           (local-ref (reg dst) (ref-value idx)))
+          ((memory? dst)
+           (local-ref r0 (ref-value idx))
+           (jit-stxi (moffs dst) fp r0))
+          (else
+           (debug 2 "*** %frame-ref: got ~a ~a~%" dst idx)))))
+
       (($ $primcall '%frame-set! (arg1 arg2))
        (let ((idx (env-ref arg1))
              (src (env-ref arg2)))
@@ -369,6 +387,21 @@
            (jit-stxi (moffs dst) fp r0))
           (else
            (debug 2 "*** %address-ref: ~a ~a~%" dst src)))))
+
+      (($ $primcall '%native-call (arg1))
+       (let ((addr (env-ref arg1)))
+         (cond
+          ((constant? addr)
+           (jit-prepare)
+           (jit-pushargr reg-thread)    ; thread
+           (jit-ldxi r0 fp vp-offset)
+           (jit-pushargr r0)            ; vp
+           (jit-pushargi %null-pointer) ; registers
+           (jit-pushargi %null-pointer) ; resume
+           (jit-movi r0 (constant addr))
+           (jit-callr r0))
+          (else
+           (debug "*** %native-call: ~a~%" arg1)))))
 
       (($ $primcall name args)
        (debug 2 "*** Unhandled primcall: ~a~%" name))
@@ -418,11 +451,11 @@
             (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
             (lp (+ n 1) end)))))
 
-    ;; Allocate space for spilled variables.  Allocating extra two words
-    ;; for arguments passed in C code, one for `vp->fp', and another for
+    ;; Allocate space for spilled variables.  Allocating extra three
+    ;; words for arguments passed from C code: `vp', `vp->fp', and
     ;; `*registers'.
     (let* ((nspills (max-moffs env))
-           (fp-offset (jit-allocai (imm (* (+ nspills 2) %word-size)))))
+           (fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size)))))
 
       ;; (debug 2 ";;; nspills: ~a, fp-offset: ~a~%" nspills fp-offset)
       ;; (debug 2 ";;; initial-locals: ~a~%" initial-locals)
@@ -433,8 +466,10 @@
       (jit-getarg r1 (jit-arg))         ; registers, for prompt
       (jit-getarg r2 (jit-arg))         ; resume
 
-      ;; Load `vp->fp' to r2, then store to vp->fp-offset. After this
-      ;; point, value of `resume' will be gone.
+      ;; Load `vp' to r2. After this point, value of `resume' will be gone.
+      (jit-stxi vp-offset fp r0)
+
+      ;; Load `vp->fp' to r2, then store to vp->fp-offset.
       (jit-ldxi r2 r0 (imm #x10))
       (jit-stxi vp->fp-offset fp r2)
 

@@ -183,17 +183,9 @@ scm_t_uint32* scm_tjit_bytecode_buffer (void)
       if (scm_is_true (code))                                           \
         {                                                               \
          scm_t_native_code fn;                                          \
-         SCM port = scm_current_output_port ();                         \
                                                                         \
          fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);       \
          ip = fn (thread, vp, registers, resume);                       \
-                                                                        \
-         /* XXX: Call native code from native codde. */                 \
-         scm_puts ("Found native code at #x", port);                    \
-         scm_display (scm_number_to_string (SCM_I_MAKINUM (ip),         \
-                                            SCM_I_MAKINUM (16)),        \
-                      port);                                            \
-         scm_puts (" while recording trace.\n", port);                  \
         }                                                               \
                                                                         \
       op = *ip & 0xff;                                                  \
@@ -212,7 +204,8 @@ scm_t_uint32* scm_tjit_bytecode_buffer (void)
       locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);           \
       for (i = 0; i < num_locals; ++i)                                  \
         scm_c_vector_set_x (locals, i, LOCAL_REF (i));                  \
-      env = scm_inline_cons (thread, SCM_I_MAKINUM (ip), locals);       \
+      env = scm_inline_cons (thread, code, locals);                     \
+      env = scm_inline_cons (thread, SCM_I_MAKINUM (ip), env);          \
                                                                         \
       *ips = scm_inline_cons (thread, env, *ips);                       \
                                                                         \

@@ -42,7 +42,10 @@ TESTS = \
 	t-toplevel-box-01.scm \
 	t-call-01.scm \
 	t-call-02.scm \
-	t-call-03.scm
+	t-call-03.scm \
+	t-nest-01.scm \
+	t-nest-02.scm \
+	t-nest-03.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
 

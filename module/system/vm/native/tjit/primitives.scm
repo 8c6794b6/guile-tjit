@@ -33,8 +33,10 @@
   #:export (initialize-tjit-primitives))
 
 (define *native-primitives*
-  '((%frame-set! . (0 . 2))
+  '((%frame-ref . (1 . 1))
+    (%frame-set! . (0 . 2))
     (%address-ref . (1 . 1))
+    (%native-call . (0 . 1))
     (%fxadd . (1 . 2))
     (%fxadd1 . (1 . 1))
     (%fxsub . (1 . 2))

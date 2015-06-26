@@ -73,7 +73,7 @@
 (define (lowest-offset traces)
   (let lp ((traces traces) (offset 0) (lowest 0))
     (match traces
-      (((op _ . _) . traces)
+      (((op _ _ . _) . traces)
        (match op
          (('call proc _)
           (lp traces (+ offset proc) lowest))
@@ -160,8 +160,7 @@
       ((op a1 a2 a3 a4 a5)
        (case op
          ((toplevel-box)
-          ;; Box will be removed during IR transformation, no need to store box
-          ;; in native code
+          ;; Box will be removed during IR transformation.
           (add! st a1))
          (else
           (nyi op)
@@ -174,7 +173,7 @@
 
   (define (acc st ops)
     (match ops
-      (((op ip . locals) . rest)
+      (((op ip bv . locals) . rest)
        (acc (acc-one st op) rest))
       (()
        st)))
@@ -200,6 +199,20 @@
             (lp (+ i 1) (cons `(%frame-set! ,i ,var) acc))))
          (else
           (lp (+ i 1) acc))))))
+
+  (define (load-frame vars exp)
+    (let ((end (vector-length vars)))
+      (let lp ((i 0))
+        (cond
+         ((= i end)
+          exp)
+         ((vector-ref vars i)
+          =>
+          (lambda (var)
+            `(let ((,var (%frame-ref ,i)))
+               ,(lp (+ i 1)))))
+         (else
+          (lp (+ i 1)))))))
 
   (define (make-var index)
     (string->symbol (string-append "v" (number->string index))))
@@ -325,6 +338,13 @@
         ;; XXX: abort
         ;; XXX: builtin-ref
 
+        ;; VM op `native-call' is specific to vm-tjit engine.
+        (('native-call addr)
+         `(begin
+            ,@(save-frame! vars)
+            (%native-call ,addr)
+            ,(load-frame vars (convert escape rest))))
+
         ;; *** Function prologues
 
         ;; XXX: br-if-nargs-ne
@@ -335,9 +355,10 @@
         ;; XXX: assert-nargs-le
         ;; XXX: alloc-frame
         ;; XXX: reset-frame
-        ;; XXX: assert-nargs-ee/locals
+
         (('assert-nargs-ee/locals expected nlocals)
          (convert escape rest))
+
         ;; XXX: br-if-npos-gt
         ;; XXX: bind-kw-args
         ;; XXX: bind-rest
@@ -622,18 +643,18 @@
 
     (define (convert escape traces)
       (match traces
-        (((op ip . locals) . rest)
+        (((op ip _ . locals) . rest)
          (convert-one escape op ip locals rest))
         (()
          `(loop ,@(filter identity (vector->list vars))))))
 
     ;; Debug.
-    (debug 2 ";;; max-local-num: ~a~%" max-local-num)
-    (debug 2 ";;; locals: ~a~%" (sort locals <))
-    (let lp ((i 0) (end (vector-length types)))
-      (when (< i end)
-        (debug 2 "ty~a => ~a~%" i (vector-ref types i))
-        (lp (+ i 1) end)))
+    ;; (debug 2 ";;; max-local-num: ~a~%" max-local-num)
+    ;; (debug 2 ";;; locals: ~a~%" (sort locals <))
+    ;; (let lp ((i 0) (end (vector-length types)))
+    ;;   (when (< i end)
+    ;;     (debug 2 "ty~a => ~a~%" i (vector-ref types i))
+    ;;     (lp (+ i 1) end)))
 
     (let* ((loop-body (call-with-escape-continuation
                        (lambda (escape)
@@ -648,10 +669,10 @@
                                        ,loop-body)))
                         entry))))
       ;; Debug, again
-      (debug 2 ";;; entry-guards:~%~y" entry-guards)
-      (debug 2 ";;; scm:~%~a"
-             (call-with-output-string
-              (lambda (port) (pretty-print scm #:port port))))
+      ;; (debug 2 ";;; entry-guards:~%~y" entry-guards)
+      ;; (debug 2 ";;; scm:~%~a"
+      ;;        (call-with-output-string
+      ;;         (lambda (port) (pretty-print scm #:port port))))
 
       (values locals scm))))
 
