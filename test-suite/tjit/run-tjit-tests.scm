@@ -53,7 +53,7 @@
           #f
           (list result-regular result-tjit)))))
 
-(define (run-tjit-tests paths)
+(define (main paths)
   (init-vm-tjit #t)
   (let ((results (map run-tjit-test paths)))
     (cond

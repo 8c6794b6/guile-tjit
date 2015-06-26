@@ -132,7 +132,9 @@
             (when (not (eq? old new))
               (let ((v0 (env-ref old))
                     (v1 (env-ref new)))
-                (when (not (eq? v0 v1))
+                (when (not (and (eq? (ref-type v0) (ref-type v1))
+                                (eq? (ref-value v0) (ref-value v1))))
+                  (debug 2 "maybe-move: mov ~a ~a~%" v0 v1)
                   (cond
                    ((and (register? v0) (register? v1))
                     (jit-movr (reg v0) (reg v1)))
@@ -169,7 +171,7 @@
 
       (($ $kargs _ syms ($ $continue knext _ next-exp))
        (cond
-        ((< knext k)                   ; Jump to the loop start.
+        ((< knext k)                    ; Jump to the loop start.
          (assemble-exp exp syms br-label)
          (maybe-move next-exp)
          (jump loop-label)
@@ -362,11 +364,11 @@
          (cond
           ((and (register? dst) (constant? src))
            (jit-ldi (reg dst) (constant src)))
-          ((and (memory? dst) (register? src))
+          ((and (memory? dst) (constant? src))
            (jit-ldi r0 (constant src))
            (jit-stxi (moffs dst) fp r0))
           (else
-           (debug 2 "*** %box-ref: ~a ~a~%" dst src)))))
+           (debug 2 "*** %address-ref: ~a ~a~%" dst src)))))
 
       (($ $primcall name args)
        (debug 2 "*** Unhandled primcall: ~a~%" name))
@@ -408,13 +410,13 @@
   (let*-values (((max-label max-var) (compute-max-label-and-var cps))
                 ((env initial-locals) (resolve-vars cps locals max-var)))
 
-    ;; (let ((verbosity (lightning-verbosity)))
-    ;;   (when (and verbosity (<= 2 verbosity))
-    ;;     (display ";;; cps env\n")
-    ;;     (let lp ((n 0) (end (vector-length env)))
-    ;;       (when (< n end)
-    ;;         (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
-    ;;         (lp (+ n 1) end)))))
+    (let ((verbosity (lightning-verbosity)))
+      (when (and verbosity (<= 3 verbosity))
+        (display ";;; cps env\n")
+        (let lp ((n 0) (end (vector-length env)))
+          (when (< n end)
+            (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
+            (lp (+ n 1) end)))))
 
     ;; Allocate space for spilled variables.  Allocating extra two words
     ;; for arguments passed in C code, one for `vp->fp', and another for

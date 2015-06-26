@@ -23,7 +23,7 @@ if BUILD_VM_LIGHTNING
 
 TESTS_ENVIRONMENT = \
 	$(top_builddir)/meta/guile \
-	-l $(srcdir)/run-tjit-tests.scm -e run-tjit-tests
+	-l $(srcdir)/run-tjit-tests.scm -e main
 
 TESTS = \
 	t-micro-mono.scm \
@@ -39,7 +39,8 @@ TESTS = \
 	t-sum-tailcall.scm \
 	t-ssa.scm \
 	t-micro-twice.scm \
-	t-toplevel-box-1.scm
+	t-toplevel-box-01.scm \
+	t-call-01.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
 
