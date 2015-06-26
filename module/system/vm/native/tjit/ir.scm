@@ -70,19 +70,45 @@
 ;;; Locals
 ;;;
 
-(define (accumulate-locals ops)
-  (define (nyi op)
-    ;; (debug 2 "ir:accumulate-locals: NYI ~a~%" op)
-    #f)
+(define (lowest-offset traces)
+  (let lp ((traces traces) (offset 0) (lowest 0))
+    (match traces
+      (((op _ . _) . traces)
+       (match op
+         (('call proc _)
+          (lp traces (+ offset proc) lowest))
+         (('call-label proc _ _)
+          (lp traces (+ offset proc) lowest))
+         (('receive _ proc _)
+          (let ((offset (- offset proc)))
+            (lp traces offset (min offset lowest))))
+         (('receive-values proc _ _)
+          (let ((offset (- offset proc)))
+            (lp traces offset (min offset lowest))))
+         (else
+          (lp traces offset lowest))))
+      (() lowest))))
 
-  (define-syntax-rule (add! st i)
-    (intset-add! st i))
-  (define-syntax-rule (add2! st i j)
-    (add! (add! st i) j))
-  (define-syntax-rule (add3! st i j k)
-    (add! (add2! st i j) k))
+(define (accumulate-locals local-offset ops)
+  (define (nyi op)
+    (debug 3 "ir:accumulate-locals: NYI ~a~%" op))
 
   (define (acc-one st op)
+    (define-syntax-rule (push-offset! n)
+      (set! local-offset (+ local-offset n)))
+
+    (define-syntax-rule (pop-offset! n)
+      (set! local-offset (- local-offset n)))
+
+    (define-syntax-rule (add! st i)
+      (intset-add! st (+ i local-offset)))
+
+    (define-syntax-rule (add2! st i j)
+      (add! (add! st i) j))
+
+    (define-syntax-rule (add3! st i j k)
+      (add! (add2! st i j) k))
+
     (match op
       ((op a1)
        (case op
@@ -95,11 +121,13 @@
           st)))
       ((op a1 a2)
        (case op
-         ((call
-           static-ref box-ref
+         ((call)
+          (push-offset! a1)
+          (add! st a1))
+         ((static-ref
            make-short-immediate make-long-immediate make-long-long-immediate)
           (add! st a1))
-         ((mov sub1 add1)
+         ((mov sub1 add1 box-ref)
           (add2! st a1 a2))
          ((assert-nargs-ee/locals)
           st)
@@ -110,8 +138,15 @@
        (case op
          ((add sub mul div quo)
           (add3! st a1 a2 a3))
+         ((call-label)
+          (push-offset! a1)
+          (add! st a1))
          ((receive)
+          (pop-offset! a2)
           (add2! st a1 a2))
+         ((receive-values)
+          (pop-offset! a1)
+          (add! st a1))
          (else
           (nyi op)
           st)))
@@ -127,7 +162,7 @@
          ((toplevel-box)
           ;; Box will be removed during IR transformation, no need to store box
           ;; in native code
-          st)
+          (add! st a1))
          (else
           (nyi op)
           st)))
@@ -144,8 +179,10 @@
       (()
        st)))
 
-  (intset-fold cons (acc empty-intset ops) '()))
+  ;; (debug 1 "accumulate-locals: lowest-offset=~a~%"
+  ;;        (lowest-offset ops))
 
+  (intset-fold cons (acc empty-intset ops) '()))
 
 (define (trace->scm ops)
   (define (dereference-scm addr)
@@ -180,8 +217,7 @@
         (lp (- i 1) locals (cons #f acc))))))
 
   (define (make-types vars)
-    (let ((num-vars (vector-length vars)))
-      (make-vector num-vars #f)))
+    (make-vector (vector-length vars) #f))
 
   (define (make-entry-guards ip vars types)
     (define (type-guard-op type)
@@ -210,24 +246,31 @@
   (define (initial-ip ops)
     (cadr (car ops)))
 
-  (let* ((locals (accumulate-locals ops))
-         (max-local-num (or (and (null? locals) 0) (apply max locals)))
+  (let* ((local-offset (- (lowest-offset ops)))
+         (locals (accumulate-locals local-offset ops))
+         (max-local-num (or (and (null? locals) 0) (1+ (apply max locals))))
          (args (map make-var (reverse locals)))
          (vars (make-vars max-local-num locals))
          (types (make-types vars))
-         (boxes (make-vector (+ max-local-num 1) #f))
-         (local-offset 0))
-    (define (push-offset! n)
+         (boxes (make-vector max-local-num #f)))
+
+    (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
-    (define (pop-offset! n)
+
+    (define-syntax-rule (pop-offset! n)
       (set! local-offset (- local-offset n)))
 
     (define (convert-one escape op ip locals rest)
+
       (define (local-ref i)
         (vector-ref locals i))
+
       (define (var-ref i)
         (vector-ref vars (+ i local-offset)))
-      (debug 2 "convert-one: ~a (~a) ~a~%" ip local-offset op)
+
+      ;; (debug 2 "convert-one: ~a (~a/~a) ~a~%"
+      ;;        ip local-offset max-local-num op)
+
       (match op
         ;; *** Call and return
 
@@ -238,6 +281,10 @@
          (convert escape rest))
 
         ;; XXX: call-label
+        (('call-label proc nlocals label)
+         (push-offset! proc)
+         (convert escape rest))
+
         ;; XXX: tail-call
         ;; XXX: tail-call-label
         ;; XXX: tail-call/shuffle
@@ -250,6 +297,9 @@
               ,(convert escape rest))))
 
         ;; XXX: receive-values
+        (('receive-values proc allow-extra? nvalues)
+         (pop-offset! proc)
+         (escape #f))
         ;; XXX: return
 
         (('return src)
@@ -450,7 +500,6 @@
                (vdst (var-ref dst))
                (va (var-ref a))
                (vb (var-ref b)))
-           (debug 2 "add: local-offset=~a~%" local-offset)
            (cond
             ((fixnums? ra rb)
              (vector-set! types a &exact-integer)
@@ -578,6 +627,14 @@
         (()
          `(loop ,@(filter identity (vector->list vars))))))
 
+    ;; Debug.
+    (debug 2 ";;; max-local-num: ~a~%" max-local-num)
+    (debug 2 ";;; locals: ~a~%" (sort locals <))
+    (let lp ((i 0) (end (vector-length types)))
+      (when (< i end)
+        (debug 2 "ty~a => ~a~%" i (vector-ref types i))
+        (lp (+ i 1) end)))
+
     (let* ((loop-body (call-with-escape-continuation
                        (lambda (escape)
                          (convert escape ops))))
@@ -590,12 +647,7 @@
                                (loop (lambda ,args
                                        ,loop-body)))
                         entry))))
-      ;; Debug output
-      (debug 2 ";;; locals: ~a~%" (sort locals <))
-      (let lp ((i 0) (end (vector-length types)))
-        (when (< i end)
-          (debug 2 "ty~a => ~a~%" i (vector-ref types i))
-          (lp (+ i 1) end)))
+      ;; Debug, again
       (debug 2 ";;; entry-guards:~%~y" entry-guards)
       (debug 2 ";;; scm:~%~a"
              (call-with-output-string
