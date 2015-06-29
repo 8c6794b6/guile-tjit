@@ -42,6 +42,7 @@
             ref-type
             constant?
             register?
+            fpr?
             memory?
             constant))
 
@@ -50,8 +51,7 @@
 ;;;
 
 (define (ref? x)
-  (and (pair? x)
-       (symbol? (car x))))
+  (and (pair? x) (symbol? (car x))))
 
 (define (ref-value x)
   (and (ref? x) (cdr x)))
@@ -66,13 +66,24 @@
   (eq? 'const (ref-type x)))
 
 (define (constant x)
-  (make-pointer (ref-value x)))
+  (let ((val (ref-value x)))
+    (cond
+     ((and (number? val) (exact? val))
+      (make-pointer (ref-value x)))
+     (else
+      (scm->pointer val)))))
 
 (define (make-register x)
   (cons 'reg x))
 
 (define (register? x)
   (eq? 'reg (ref-type x)))
+
+(define (make-fpr x)
+  (cons 'fpr x))
+
+(define (fpr? x)
+  (eq? 'fpr (ref-type x)))
 
 (define (make-memory x)
   (cons 'mem x))
@@ -91,34 +102,45 @@ locals and initial arguments."
 
   (define start (loop-start cps))
 
-  (define (resolve-cont env reqs init-syms loop-syms args mem-idx seen k)
-    (cond
-     ((and (intset-ref seen k)
-           (= k start))
-      ;; Jumping back to beginning of loop.  Sharing variables between arguments
-      ;; in this call and initial call when variable for next call is not in
-      ;; initial arguments, and not a constant.
-      (for-each
-       (lambda (arg loop-sym)
-         (when (and (not (eq? loop-sym arg))
-                    (not (memq arg loop-syms))
-                    (not (constant? (vector-ref env arg))))
-          (vector-set! env arg (vector-ref env loop-sym))))
-       args loop-syms)
-      (values env (local-var-alist locals init-syms)))
-     (else
-      (let ((seen (intset-add! seen k)))
+  (let ((init-syms '())
+        (loop-syms '())
+        (reqs '())
+        (seen empty-intset))
+
+    (define (resolve-cont env args mem-idx k)
+      (cond
+       ((and (intset-ref seen k)
+             (= k start))
+        ;; Jumping back to beginning of loop.  Sharing variables between arguments
+        ;; in this call and initial call when variable for next call is not in
+        ;; initial arguments, and not a constant.
+        (for-each
+         (lambda (arg loop-sym)
+           (when (and (not (eq? arg loop-sym))
+                      (not (memq arg loop-syms))
+                      (not (constant? (vector-ref env arg))))
+             (vector-set! env arg (vector-ref env loop-sym))))
+         args loop-syms)
+        (values env (local-var-alist locals init-syms)))
+       (else
+        (set! seen (intset-add! seen k))
         (match (intmap-ref cps k)
           (($ $kreceive _ knext)
-           (resolve-cont env reqs init-syms loop-syms '() mem-idx seen knext))
+           (resolve-cont env '() mem-idx knext))
 
           (($ $kargs names syms ($ $continue knext _ exp))
            (cond
             ((= k start)
-             (for-each (lambda (arg sym)
-                         (vector-set! env sym (vector-ref env arg)))
-                       args syms)
-             (resolve-exp exp env reqs init-syms syms mem-idx seen knext))
+             (for-each
+              (lambda (arg sym)
+                (match arg
+                  (($ $primcall '%scm-to-double (i))
+                   (vector-set! env sym (vector-ref env i)))
+                  (else
+                   (vector-set! env sym (vector-ref env arg)))))
+              args syms)
+             (set! loop-syms syms)
+             (resolve-exp exp env mem-idx knext))
 
             ((equal? names reqs)
              (let lp ((syms-tmp syms) (mem-idx mem-idx))
@@ -132,7 +154,8 @@ locals and initial arguments."
                     (vector-set! env sym (make-memory mem-idx))
                     (lp rest (+ mem-idx 1)))))
                  (()
-                  (resolve-exp exp env reqs syms loop-syms mem-idx seen knext)))))
+                  (set! init-syms syms)
+                  (resolve-exp exp env mem-idx knext)))))
 
             ((and (not (null? args)) (not (null? syms)))
              (let lp ((syms syms) (args args) (mem-idx mem-idx))
@@ -149,62 +172,49 @@ locals and initial arguments."
                     (vector-set! env sym (make-memory mem-idx))
                     (lp syms args (+ mem-idx 1)))))
                  (_
-                  (resolve-exp exp env reqs init-syms loop-syms mem-idx seen
-                               knext)))))
+                  (resolve-exp exp env mem-idx knext)))))
             (else
-             (resolve-exp exp env reqs init-syms loop-syms mem-idx seen
-                          knext))))
+             (resolve-exp exp env mem-idx knext))))
 
           (($ $kfun _ _ self _ knext)
            (vector-set! env self '(proc . self))
-           (resolve-cont env reqs init-syms loop-syms '() mem-idx seen
-                         knext))
+           (resolve-cont env '() mem-idx knext))
 
           (($ $ktail)
            (values env (local-var-alist locals init-syms)))
 
-          (($ $kclause ($ $arity reqs _ _ _ _) knext _)
-           (resolve-cont env reqs init-syms loop-syms '() mem-idx seen
-                         knext)))))))
+          (($ $kclause ($ $arity arity-reqs _ _ _ _) knext _)
+           (set! reqs arity-reqs)
+           (resolve-cont env '() mem-idx knext))))))
 
-  (define (resolve-exp exp env reqs init-syms loop-syms mem-idx seen k)
-    (match exp
-      (($ $const val)
-       (resolve-cont env reqs init-syms loop-syms
-                     (list (make-constant val))
-                     mem-idx seen k))
+    (define (resolve-exp exp env mem-idx k)
+      (match exp
+        (($ $const val)
+         (resolve-cont env (list (make-constant val)) mem-idx k))
 
-      (($ $branch kt exp)
-       (resolve-exp exp env reqs init-syms loop-syms mem-idx seen kt)
-       (resolve-cont env reqs init-syms loop-syms '() mem-idx seen k))
+        (($ $branch kt exp)
+         (resolve-exp exp env mem-idx kt)
+         (resolve-cont env '() mem-idx k))
 
-      (($ $primcall _ _)
-       (resolve-cont env reqs init-syms loop-syms (list exp) mem-idx seen k))
+        (($ $primcall _ _)
+         (resolve-cont env (list exp) mem-idx k))
 
-      (($ $values args)
-       (resolve-cont env reqs init-syms loop-syms args mem-idx seen k))
+        (($ $values args)
+         (resolve-cont env args mem-idx k))
 
-      ;; (($ $call 0 args)
-      ;;  ;; Jumping back to beginning of this procedure.  Variables could be
-      ;;  ;; shared between arguments in this call and initial call.
-      ;;  (for-each (lambda (init arg)
-      ;;              (vector-set! env arg (vector-ref env init)))
-      ;;            init-syms args)
-      ;;  (resolve-cont env reqs init-syms loop-syms '() mem-idx seen k))
+        (_
+         (resolve-cont env '() mem-idx k))))
 
-      (_
-       (resolve-cont env reqs init-syms loop-syms '() mem-idx seen k))))
-
-  ;; (format #t ";;; ~a~%~{~4,,,'0@a  ~a~%~}"
-  ;;         "resolve-vars"
-  ;;         (or (and cps (reverse! (intmap-fold
-  ;;                                 (lambda (i k acc)
-  ;;                                   (cons (unparse-cps k)
-  ;;                                         (cons i acc)))
-  ;;                                 cps
-  ;;                                 '())))
-  ;;             '()))
-  (resolve-cont (make-vector (+ max-var 1)) '() '() '() '() 0 empty-intset 0))
+    ;; (debug 1 ";;; ~a~%~{~4,,,'0@a  ~a~%~}"
+    ;;        "resolve-vars"
+    ;;        (or (and cps (reverse! (intmap-fold
+    ;;                                (lambda (i k acc)
+    ;;                                  (cons (unparse-cps k)
+    ;;                                        (cons i acc)))
+    ;;                                cps
+    ;;                                '())))
+    ;;            '()))
+    (resolve-cont (make-vector (+ max-var 1)) '() 0 0)))
 
 
 ;;;

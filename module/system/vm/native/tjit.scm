@@ -27,7 +27,6 @@
   #:use-module (ice-9 control)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
-  #:use-module (ice-9 pretty-print)
   #:use-module (language cps intmap)
   #:use-module (language cps2)
   #:use-module (rnrs bytevectors)
@@ -136,9 +135,7 @@
                  (else
                   (lp traces level))))
               (() (values)))))
-        (format #t ";;; scm:~%~a"
-                (call-with-output-string
-                 (lambda (port) (pretty-print scm #:port port))))
+        (format #t ";;; scm:~%~y" scm)
         (display ";;; cps\n")
         (cond
          ((not cps)

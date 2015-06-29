@@ -48,12 +48,48 @@
 
 (define *inum-step* (imm 4))
 
+(define-syntax scm-cell-object
+  (syntax-rules ()
+    ((_ dst obj 0)
+     (jit-ldr dst obj))
+    ((_ dst obj 1)
+     (jit-ldxi dst obj (imm %word-size)))
+    ((_ dst obj n)
+     (jit-ldxi dst obj (imm (* n %word-size))))))
+
+(define-syntax-rule (scm-cell-type dst src)
+  (scm-cell-object dst src 0))
+
+(define-syntax-rule (scm-typ16 dst obj)
+  (jit-andi dst obj (imm #xffff)))
+
+(define-syntax-rule (scm-real-value dst src)
+  (jit-ldxi-d dst src (imm (* 2 %word-size))))
+
+(define %scm-from-double
+  (dynamic-pointer "scm_from_double" (dynamic-link)))
+
+(define-syntax-rule (scm-from-double dst src)
+  (begin
+    (jit-prepare)
+    (jit-pushargr-d src)
+    (jit-calli %scm-from-double)
+    (jit-retval dst)))
+
+
+;;; Predicates
+
+(define-syntax-rule (scm-imp obj)
+  (jit-bmsi obj (imm 6)))
+
 (define-syntax-rule (scm-inump obj)
   (jit-bmsi obj (imm 2)))
 
 (define-syntax-rule (scm-not-inump obj)
   (jit-bmci obj (imm 2)))
 
+(define-syntax-rule (scm-realp tag)
+  (jit-beqi tag (imm (@@ (system base types) %tc16-real))))
 
 ;;;
 ;;; Auxiliary
@@ -121,6 +157,9 @@
   (define (reg x)
     (register-ref (ref-value x)))
 
+  (define (fpr x)
+    (fpr-ref (ref-value x)))
+
   (define (moffs x)
     (make-offset-pointer fp-offset (* (ref-value x) %word-size)))
 
@@ -187,8 +226,8 @@
          (jump loop-label)
          #f)
         (else
+         (assemble-exp exp syms br-label)
          (let ((loop-label (if (= k start) (jit-label) loop-label)))
-           (assemble-exp exp syms br-label)
            (assemble-cont cps next-exp br-label loop-label knext)))))
 
       (($ $ktail)
@@ -250,6 +289,22 @@
           (else
            (debug 2 "*** %fx<: ~a ~a~%" a b)))))
 
+      (($ $primcall '%fl< (arg1 arg2))
+       (let ((a (env-ref arg1))
+             (b (env-ref arg2)))
+         (cond
+          ((and (constant? a) (register? b))
+           (jump (jit-blti-d (fpr b) (constant a)) label))
+
+          ((and (register? a) (constant? b))
+           (jit-movi-d f0 (constant b))
+           (jump (jit-bltr-d f0 (fpr a)) label))
+          ((and (register? a) (register? b))
+           (jump (jit-bltr-d (fpr b) (fpr a)) label))
+
+          (else
+           (debug 2 "*** %fl<: ~a ~a~%" a b)))))
+
       (($ $primcall '= (arg1 arg2))
        (let ((a (env-ref arg1))
              (b (env-ref arg2)))
@@ -264,9 +319,22 @@
            (jit-ldxi r0 fp (moffs obj))
            (jump (scm-inump r0) label)))))
 
+      (($ $primcall '%guard-fl (arg1))
+       (let ((obj (env-ref arg1)))
+         (cond
+          ((register? obj)
+           (let ((fail (jit-forward)))
+             (jump (scm-imp (reg obj)) fail)
+             (scm-cell-type r0 (reg obj))
+             (scm-typ16 r0 r0)
+             (jump (scm-realp r0) label)
+             (jump label)
+             (jit-link fail)))
+          (else
+           (error "*** %guard-fl: ~a~%" obj)))))
 
       ;;
-      ;; Exact-integer arithmetic instructions
+      ;; Exact-integer arithmetic
       ;;
 
       (($ $primcall '%fxadd (arg1 arg2))
@@ -334,7 +402,9 @@
           ((and (memory? dst) (memory? src))
            (jit-ldxi r0 fp (moffs src))
            (jit-addi r0 r0 *inum-step*)
-           (jit-stxi (moffs dst) fp r0)))))
+           (jit-stxi (moffs dst) fp r0))
+          (else
+           (debug 2 "*** %fxadd1: ~a ~a~%" dst src)))))
 
       (($ $primcall '%fxsub1 (arg1))
        (let ((dst (env-ref (car dst)))
@@ -352,7 +422,75 @@
           ((and (memory? dst) (memory? src))
            (jit-ldxi r0 fp (moffs src))
            (jit-subi r0 r0 *inum-step*)
-           (jit-stxi (moffs dst) fp r0)))))
+           (jit-stxi (moffs dst) fp r0))
+          (else
+           (debug 2 "*** %fxsub1: ~a ~a~%" dst src)))))
+
+
+      ;;
+      ;; Floating-point arithmetic
+      ;;
+
+      (($ $primcall '%scm-to-double (arg1))
+       (let ((dst (env-ref (car dst)))
+             (src (env-ref arg1)))
+         (cond
+          ((and (register? dst) (register? src))
+           (scm-real-value (fpr dst) (reg src)))
+          (else
+           (error "*** %scm-to-double: ~a ~a~%" dst src)))))
+
+      (($ $primcall '%scm-from-double (arg1))
+       (let ((dst (env-ref (car dst)))
+             (src (env-ref arg1)))
+         (cond
+          ((and (register? dst) (constant? src))
+           (jit-movi-d f0 (constant src))
+           (scm-from-double (reg dst) f0))
+          ((and (register? dst) (register? src))
+           (scm-from-double (reg dst) (fpr src)))
+          ((and (register? dst) (memory? src))
+           (jit-ldxi-d f0 fp (moffs src))
+           (scm-from-double (reg dst) f0))
+
+          ((and (memory? dst) (constant? src))
+           (jit-movi-d f0 (constant src))
+           (scm-from-double r0 f0)
+           (jit-stxi (moffs dst) fp r0))
+          ((and (memory? dst) (register? src))
+           (scm-from-double r0 (fpr src))
+           (jit-stxi (moffs dst) fp r0))
+          (else
+           (error "*** %scm-from-double: ~a ~a~%" dst src)))))
+
+      (($ $primcall '%fladd (arg1 arg2))
+       (let ((dst (env-ref (car dst)))
+             (a (env-ref arg1))
+             (b (env-ref arg2)))
+         (cond
+          ((and (register? dst) (register? a) (register? b))
+           (jit-addr-d (fpr dst) (fpr a) (fpr b)))
+          ((and (register? dst) (constant? a) (register? b))
+           (jit-addi-d (fpr dst) (fpr b) (constant a)))
+          ((and (register? dst) (register? a) (constant? b))
+           (jit-addi-d (fpr dst) (fpr a) (constant b)))
+          (else
+           (debug 2 "*** %fladd: ~a ~a ~a~%" dst a b)))))
+
+      (($ $primcall '%flsub (arg1 arg2))
+       (let ((dst (env-ref (car dst)))
+             (a (env-ref arg1))
+             (b (env-ref arg2)))
+         (cond
+          ((and (register? dst) (register? a) (register? b))
+           (jit-subr-d (fpr dst) (fpr a) (fpr b)))
+          ((and (register? dst) (constant? a) (register? b))
+           (jit-movi-d f0 (constant a))
+           (jit-subr-d (fpr dst) f0 (reg b)))
+          ((and (register? dst) (register? a) (constant? b))
+           (jit-subi-d (fpr dst) (fpr a) (constant b)))
+          (else
+           (debug 2 "*** %flsub: ~a ~a ~a~%" dst a b)))))
 
 
       ;;

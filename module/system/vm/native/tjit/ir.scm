@@ -54,16 +54,16 @@
 ;;; Type check
 ;;;
 
-(define (fixnums? . args)
-  (define (fixnum? n)
-    (and (number? n)
-         (exact? n)
-         (< n most-positive-fixnum)
-         (> n most-negative-fixnum)))
-  (every fixnum? args))
+(define (type-of val)
+  ((@@ (language cps2 types) type-entry-type)
+   ((@@ (language cps2 types) constant-type) val)))
 
-(define (inexacts? a b)
-  (and (inexact? a) (inexact? b)))
+(define (exact-integer? val)
+  (and (= (type-of val) &exact-integer)
+       (< most-negative-fixnum val most-positive-fixnum)))
+
+(define (flonum? val)
+  (= (type-of val) &flonum))
 
 
 ;;;
@@ -186,18 +186,24 @@
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
 
-  (define (save-frame! vars)
+  (define (save-frame! vars types)
     (let ((end (vector-length vars)))
-      (let lp ((i 0) (acc '()))
+      (let lp ((i 0))
         (cond
-         ((= i end)
-          (reverse! acc))
+         ((= i end) '())
          ((vector-ref vars i)
           =>
           (lambda (var)
-            (lp (+ i 1) (cons `(%frame-set! ,i ,var) acc))))
+            (let ((type (vector-ref types i)))
+              (cond
+               ((eq? type &flonum)
+                (cons `(let ((,var (%scm-from-double ,var)))
+                         (%frame-set! ,i ,var))
+                      (lp (+ i 1))))
+               (else
+                (cons `(%frame-set! ,i ,var) (lp (+ i 1))))))))
          (else
-          (lp (+ i 1) acc))))))
+          (lp (+ i 1)))))))
 
   (define (load-frame vars exp)
     (let ((end (vector-length vars)))
@@ -231,29 +237,32 @@
   (define (make-types vars)
     (make-vector (vector-length vars) #f))
 
-  (define (make-entry-guards ip vars types)
-    (define (type-guard-op type)
-      (cond
-       ((eq? type &exact-integer) '%guard-fx)
-       (else #f)))
-    (let lp ((i 0) (end (vector-length types)) (acc '()))
+  (define (type-guard-op type)
+    (cond
+     ((eq? type &exact-integer) '%guard-fx)
+     ((eq? type &flonum) '%guard-fl)
+     (else #f)))
+
+  (define (unbox-op type var next-exp)
+    (cond
+     ((eq? type &flonum)
+      `(let ((,var (%scm-to-double ,var)))
+         ,next-exp))
+     (else
+      next-exp)))
+
+  (define (make-entry ip vars types loop-exp)
+    (let lp ((i 0) (end (vector-length types)))
       (if (< i end)
           (let* ((type (vector-ref types i))
+                 (var (and type (vector-ref vars i)))
                  (op (and type (type-guard-op type)))
-                 (guard (and op (list op (vector-ref vars i) ip)))
-                 (acc (or (and guard (cons guard acc)) acc)))
-            (lp (+ i 1) end acc))
-          (reverse! acc))))
-
-  (define (make-entry-body guards end)
-    (define (go guards)
-      (match guards
-        (() end)
-        (((op var ip) . rest)
-         `(if (,op ,var)
-              ,ip
-              ,(go rest)))))
-    (go guards))
+                 (exp (and op
+                           `(if (,op ,var)
+                                ,ip
+                                ,(unbox-op type var (lp (+ i 1) end))))))
+            (or exp (lp (+ i 1) end)))
+          loop-exp)))
 
   (define (initial-ip ops)
     (cadr (car ops)))
@@ -271,6 +280,9 @@
 
     (define-syntax-rule (pop-offset! n)
       (set! local-offset (- local-offset n)))
+
+    (define-syntax-rule (set-type! idx ty)
+      (vector-set! types idx ty))
 
     (define (convert-one escape op ip locals rest)
 
@@ -292,7 +304,6 @@
          (push-offset! proc)
          (convert escape rest))
 
-        ;; XXX: call-label
         (('call-label proc nlocals label)
          (push-offset! proc)
          (convert escape rest))
@@ -308,11 +319,9 @@
            `(let ((,vdst ,vproc))
               ,(convert escape rest))))
 
-        ;; XXX: receive-values
         (('receive-values proc allow-extra? nvalues)
          (pop-offset! proc)
          (escape #f))
-        ;; XXX: return
 
         (('return src)
          (let ((vsrc (var-ref src))
@@ -344,7 +353,7 @@
         ;;
         (('native-call addr)
          `(begin
-            ,@(save-frame! vars)
+            ,@(save-frame! vars types)
             (%native-call ,addr)
             ,(load-frame vars (convert escape rest))))
 
@@ -388,12 +397,12 @@
                (va (var-ref a))
                (vb (var-ref b)))
            (cond
-            ((fixnums? ra rb)
-             (vector-set! types a &exact-integer)
-             (vector-set! types b &exact-integer)
+            ((and (exact-integer? ra) (exact-integer? rb))
+             (set-type! a &exact-integer)
+             (set-type! b &exact-integer)
              `(if ,(if invert? `(not (= ,va ,vb)) `(= ,va ,vb))
                   (begin
-                    ,@(save-frame! vars)
+                    ,@(save-frame! vars types)
                     ,ip)
                   ,(convert escape rest)))
             (else
@@ -406,12 +415,20 @@
                (va (var-ref a))
                (vb (var-ref b)))
            (cond
-            ((fixnums? ra rb)
-             (vector-set! types a &exact-integer)
-             (vector-set! types b &exact-integer)
+            ((and (exact-integer? ra) (exact-integer? rb))
+             (set-type! a &exact-integer)
+             (set-type! b &exact-integer)
              `(if ,(if invert? `(%fx< ,vb ,va) `(%fx< ,va ,vb))
                   (begin
-                    ,@(save-frame! vars)
+                    ,@(save-frame! vars types)
+                    ,ip)
+                  ,(convert escape rest)))
+            ((and (flonum? ra) (flonum? rb))
+             (set-type! a &flonum)
+             (set-type! b &flonum)
+             `(if ,(if invert? `(%fl< ,vb ,va) `(%fl< ,va ,vb))
+                  (begin
+                    ,@(save-frame! vars types)
                     ,ip)
                   ,(convert escape rest)))
             (else
@@ -434,6 +451,8 @@
         (('box-ref dst src)
          ;; Need to perform `load' operation every time.
          ;;
+         ;; XXX: Not yet working for flonums.
+         ;;
          ;; XXX: Add guard to check for `variable' type?
          ;;
          (let ((vdst (var-ref dst))
@@ -441,6 +460,7 @@
            `(let ((,vdst (%box-ref ,vsrc)))
               ,(convert escape rest))))
 
+        ;; XXX: Not working for flonums.
         (('box-set! dst src)
          (let ((vdst (var-ref dst))
                (vsrc (var-ref src)))
@@ -481,7 +501,8 @@
         (('toplevel-box dst var-offset mod-offset sym-offset bound?)
          (let ((vdst (var-ref dst))
                (src (pointer-address
-                     (scm->pointer (dereference-scm (+ ip (* var-offset 4)))))))
+                     (scm->pointer
+                      (dereference-scm (+ ip (* var-offset 4)))))))
            `(let ((,vdst ,src))
               ,(convert escape rest))))
 
@@ -523,10 +544,15 @@
                (va (var-ref a))
                (vb (var-ref b)))
            (cond
-            ((fixnums? ra rb)
-             (vector-set! types a &exact-integer)
-             (vector-set! types b &exact-integer)
+            ((and (exact-integer? ra) (exact-integer? rb))
+             (set-type! a &exact-integer)
+             (set-type! b &exact-integer)
              `(let ((,vdst (%fxadd ,va ,vb)))
+                ,(convert escape rest)))
+            ((and (flonum? ra) (flonum? rb))
+             (set-type! a &flonum)
+             (set-type! b &flonum)
+             `(let ((,vdst (%fladd ,va ,vb)))
                 ,(convert escape rest)))
             (else
              (debug 2 "ir:convert add ~a ~a ~a~%" rdst ra rb)
@@ -538,8 +564,8 @@
                (vdst (var-ref dst))
                (vsrc (var-ref src)))
            (cond
-            ((fixnums? rdst rsrc)
-             (vector-set! types src &exact-integer)
+            ((exact-integer? rsrc)
+             (set-type! src &exact-integer)
              `(let ((,vdst (%fxadd1 ,vsrc)))
                 ,(convert escape rest)))
             (else
@@ -554,8 +580,15 @@
                (va (var-ref a))
                (vb (var-ref b)))
            (cond
-            ((fixnums? rdst ra rb)
+            ((and (exact-integer? ra) (exact-integer? rb))
+             (set-type! a &exact-integer)
+             (set-type! b &exact-integer)
              `(let ((,vdst (%fxsub ,va ,vb)))
+                ,(convert escape rest)))
+            ((and (flonum? ra) (flonum? rb))
+             (set-type! a &flonum)
+             (set-type! b &flonum)
+             `(let ((,vdst (%flsub ,va ,vb)))
                 ,(convert escape rest)))
             (else
              (debug 2 "ir:convert sub ~a ~a ~a~%" rdst ra rb)
@@ -567,8 +600,8 @@
                (vdst (var-ref dst))
                (vsrc (var-ref src)))
            (cond
-            ((fixnums? rsrc)
-             (vector-set! types src &exact-integer)
+            ((exact-integer? rsrc)
+             (set-type! src &exact-integer)
              `(let ((,vdst (%fxsub1 ,vsrc)))
                 ,(convert escape rest)))
             (else
@@ -660,8 +693,7 @@
     (let* ((loop-body (call-with-escape-continuation
                        (lambda (escape)
                          (convert escape ops))))
-           (entry-guards (make-entry-guards (initial-ip ops) vars types))
-           (entry-body (make-entry-body entry-guards `(loop ,@args)))
+           (entry-body (make-entry (initial-ip ops) vars types `(loop ,@args)))
            (scm (and entry-body
                      loop-body
                      `(letrec ((entry (lambda ,args
@@ -670,11 +702,9 @@
                                        ,loop-body)))
                         entry))))
       ;; Debug, again
+      ;; (debug 1 ";;; ir: types=~a~%" types)
       ;; (debug 2 ";;; entry-guards:~%~y" entry-guards)
-      ;; (debug 2 ";;; scm:~%~a"
-      ;;        (call-with-output-string
-      ;;         (lambda (port) (pretty-print scm #:port port))))
-
+      ;; (debug 2 ";;; scm:~%~y" scm)
       (values locals scm))))
 
 (define (scm->cps scm)

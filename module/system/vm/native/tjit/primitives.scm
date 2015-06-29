@@ -35,18 +35,27 @@
 (define *native-primitives*
   '((%frame-ref . (1 . 1))
     (%frame-set! . (0 . 2))
+    (%native-call . (0 . 1))
+
     (%box-ref . (1 . 1))
     (%box-set! . (0 . 2))
-    (%native-call . (0 . 1))
+
     (%fxadd . (1 . 2))
     (%fxadd1 . (1 . 1))
     (%fxsub . (1 . 2))
-    (%fxsub1 . (1 . 1))))
+    (%fxsub1 . (1 . 1))
+
+    (%scm-to-double . (1 . 1))
+    (%scm-from-double . (1 . 1))
+    (%fladd . (1 . 2))
+    (%flsub . (1 . 2))))
 
 (define *native-branching-primcall-arities*
-  '((%fx< . (1 . 2))
+  '((%guard-fx . (1 . 1))
+    (%fx< . (1 . 2))
     (%fx= . (1 . 2))
-    (%guard-fx . (1 . 1))))
+    (%guard-fl . (1 . 1))
+    (%fl< . (1 . 2))))
 
 ;;; Procedure (@@ (language cps primitives) branching-primitives?) extended with
 ;;; CPS primitives used in vm-tjit.  Branching primitives are merged to CPS term

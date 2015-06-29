@@ -38,6 +38,8 @@ TESTS = \
 	t-micro-deca.scm \
 	t-sum-tailcall.scm \
 	t-ssa.scm \
+	t-micro-flonum-01.scm \
+	t-micro-flonum-02.scm \
 	t-micro-twice.scm \
 	t-box-01.scm \
 	t-toplevel-box-01.scm \
