@@ -9,8 +9,8 @@
         (lp (- n 1) (+ acc *add-me*))
         acc)))
 
-(set! res1 (micro #e1e7))
+(set! res1 (micro #e1e5))
 (set! *add-me* 300)
-(set! res2 (micro #e1e7))
+(set! res2 (micro #e1e5))
 
 (list res1 res2)

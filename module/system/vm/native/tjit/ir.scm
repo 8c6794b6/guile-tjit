@@ -114,7 +114,7 @@
        (case op
          ((return)
           (add! st a1))
-         ((br)
+         ((br native-call)
           st)
          (else
           (nyi op)
@@ -127,7 +127,7 @@
          ((static-ref
            make-short-immediate make-long-immediate make-long-long-immediate)
           (add! st a1))
-         ((mov sub1 add1 box-ref)
+         ((mov sub1 add1 box-ref box-set!)
           (add2! st a1 a2))
          ((assert-nargs-ee/locals)
           st)
@@ -160,7 +160,6 @@
       ((op a1 a2 a3 a4 a5)
        (case op
          ((toplevel-box)
-          ;; Box will be removed during IR transformation.
           (add! st a1))
          (else
           (nyi op)
@@ -339,6 +338,10 @@
         ;; XXX: builtin-ref
 
         ;; VM op `native-call' is specific to vm-tjit engine.
+        ;;
+        ;; XXX: Add a guard to check the returned ip. If it differs, recompile
+        ;; native code.
+        ;;
         (('native-call addr)
          `(begin
             ,@(save-frame! vars)
@@ -429,24 +432,22 @@
         ;; XXX: box
 
         (('box-ref dst src)
-         ;; Calling `%address-ref' primitive. Contents of box may change, but
-         ;; assuming that the addresss of the box won't change. Need to perform
-         ;; `load' operation every time, though.
+         ;; Need to perform `load' operation every time.
          ;;
-         ;; XXX: Need to add guards for later operations? Box contents may have
-         ;; different type after toplevel `set!'.
-         ;;
-         ;; XXX: Add guard to check for is `variable' type?
+         ;; XXX: Add guard to check for `variable' type?
          ;;
          (let ((vdst (var-ref dst))
-               (vsrc (var-ref src))
-               (box (vector-ref boxes src)))
-           ;; (debug 2 "box-ref: box=~a~%" box)
-           `(let ((,vdst (%address-ref
-                          ,(+ (pointer-address (scm->pointer box)) %word-size))))
+               (vsrc (var-ref src)))
+           `(let ((,vdst (%box-ref ,vsrc)))
               ,(convert escape rest))))
 
-        ;; XXX: box-set!
+        (('box-set! dst src)
+         (let ((vdst (var-ref dst))
+               (vsrc (var-ref src)))
+           `(begin
+              (%box-set! ,vdst ,vsrc)
+              ,(convert escape rest))))
+
         ;; XXX: make-closure
         ;; XXX: free-ref
         ;; XXX: free-set!
@@ -479,10 +480,10 @@
 
         (('toplevel-box dst var-offset mod-offset sym-offset bound?)
          (let ((vdst (var-ref dst))
-               (var (dereference-scm (+ ip (* var-offset 4)))))
-           ;; (debug 2 "toplevel-box: var=~a~%" var)
-           (vector-set! boxes dst var)
-           (convert escape rest)))
+               (src (pointer-address
+                     (scm->pointer (dereference-scm (+ ip (* var-offset 4)))))))
+           `(let ((,vdst ,src))
+              ,(convert escape rest))))
 
         ;; XXX: module-box
 
@@ -566,12 +567,12 @@
                (vdst (var-ref dst))
                (vsrc (var-ref src)))
            (cond
-            ((fixnums? rdst rsrc)
+            ((fixnums? rsrc)
              (vector-set! types src &exact-integer)
              `(let ((,vdst (%fxsub1 ,vsrc)))
                 ,(convert escape rest)))
             (else
-             (debug 2 "ir:convert sub1 ~a ~a" rdst rsrc)
+             (debug 2 "ir:convert sub1 ~a ~a~%" rdst rsrc)
              (escape #f)))))
 
         ;; (('mul dst a b)
@@ -693,7 +694,6 @@
     (call-with-values
         (lambda ()
           (set! cps (optimize cps))
-          (set! cps (renumber cps))
           (go cps 0))
       (lambda (k cps)
         (set! cps (renumber cps k))

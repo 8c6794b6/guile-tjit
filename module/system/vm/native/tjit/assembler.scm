@@ -69,7 +69,7 @@
 (define vp->fp-offset
   (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 2 %word-size)))))
 
-(define register-offset
+(define registers-offset
   (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 3 %word-size)))))
 
 (define (make-offset-pointer offset n)
@@ -139,18 +139,24 @@
                                 (eq? (ref-value v0) (ref-value v1))))
                   (debug 2 "maybe-move: mov ~a ~a~%" v0 v1)
                   (cond
+                   ((and (register? v0) (constant? v1))
+                    (jit-movi (reg v0) (constant v1)))
                    ((and (register? v0) (register? v1))
                     (jit-movr (reg v0) (reg v1)))
                    ((and (register? v0) (memory? v1))
                     (jit-ldxi r0 fp (moffs v1))
                     (jit-movr (reg v0) r0))
+
+                   ((and (memory? v0) (constant? v1))
+                    (jit-movi r0 (constant v1))
+                    (jit-stxi (moffs v1) fp r0))
                    ((and (memory? v0) (register? v1))
                     (jit-stxi (moffs v0) fp (reg v1)))
                    ((and (memory? v0) (memory? v1))
                     (jit-ldxi r0 fp (moffs v1))
                     (jit-stxi (moffs v1) fp r0))
                    (else
-                    (error "NYI: moving arguments: ~a ~a" v0 v1)))))))
+                    (error "NYI: maybe-move: ~a ~a" v0 v1)))))))
           initial-args new-args)))))
 
   (define (assemble-cont cps exp br-label loop-label k)
@@ -240,7 +246,9 @@
           ((and (memory? a) (memory? b))
            (jit-ldxi r0 fp (moffs a))
            (jit-ldxi r1 fp (moffs b))
-           (jump (jit-bltr r1 r0) label)))))
+           (jump (jit-bltr r1 r0) label))
+          (else
+           (debug 2 "*** %fx<: ~a ~a~%" a b)))))
 
       (($ $primcall '= (arg1 arg2))
        (let ((a (env-ref arg1))
@@ -256,8 +264,9 @@
            (jit-ldxi r0 fp (moffs obj))
            (jump (scm-inump r0) label)))))
 
+
       ;;
-      ;; exact-integer
+      ;; Exact-integer arithmetic instructions
       ;;
 
       (($ $primcall '%fxadd (arg1 arg2))
@@ -345,6 +354,58 @@
            (jit-subi r0 r0 *inum-step*)
            (jit-stxi (moffs dst) fp r0)))))
 
+
+      ;;
+      ;; Lexical binding instructions
+      ;;
+
+      (($ $primcall '%box-ref (arg1))
+       (let ((dst (env-ref (car dst)))
+             (src (env-ref arg1)))
+         (cond
+          ((and (register? dst) (constant? src))
+           (jit-ldi (reg dst) (imm (+ (ref-value src) %word-size))))
+          ((and (register? dst) (register? src))
+           (jit-ldxi (reg dst) (reg src) (imm %word-size)))
+          ((and (register? dst) (memory? src))
+           (jit-ldxi r0 fp (moffs src))
+           (jit-ldxi (reg dst) r0 (imm %word-size)))
+
+          ((and (memory? dst) (constant? src))
+           (jit-ldi r0 (imm (+ (ref-value src) %word-size)))
+           (jit-stxi (moffs dst) fp r0))
+          ((and (memory? dst) (register? src))
+           (jit-ldxi r0 (reg src) (imm %word-size))
+           (jit-stxi (moffs dst) fp r0))
+          ((and (memory? dst) (memory? src))
+           (jit-ldxi r0 fp (moffs src))
+           (jit-ldxi r0 r0 (imm %word-size))
+           (jit-stxi (moffs dst) fp r0)))))
+
+      (($ $primcall '%box-set! (arg1 arg2))
+       (let ((dst (env-ref arg1))
+             (src (env-ref arg2)))
+         (cond
+          ((and (register? dst) (register? src))
+           (jit-stxi (imm %word-size) (reg dst) (reg src)))
+          ((and (register? dst) (memory? src))
+           (jit-ldxi r0 fp (moffs src))
+           (jit-stxi (imm %word-size) (reg dst) r0))
+
+          ((and (memory? dst) (register? src))
+           (jit-ldxi r0 fp (moffs src))
+           (jit-stxi (imm %word-size) r0 (reg src)))
+          ((and (memory? dst) (memory? src))
+           (jit-ldxi r0 fp (moffs dst))
+           (jit-ldxi r1 fp (moffs src))
+           (jit-stxi (imm %word-size) r0 r1))
+          (else
+           (debug 2 "*** %box-set!: ~a ~a~%" dst src)))))
+
+      ;;
+      ;; TJIT specific instructions
+      ;;
+
       (($ $primcall '%frame-ref (arg1))
        (let ((dst (env-ref (car dst)))
              (idx (env-ref arg1)))
@@ -376,18 +437,6 @@
           (else
            (debug 2 "*** %frame-set!: unknown args ~a ~a~%" idx src)))))
 
-      (($ $primcall '%address-ref (arg1))
-       (let ((dst (env-ref (car dst)))
-             (src (env-ref arg1)))
-         (cond
-          ((and (register? dst) (constant? src))
-           (jit-ldi (reg dst) (constant src)))
-          ((and (memory? dst) (constant? src))
-           (jit-ldi r0 (constant src))
-           (jit-stxi (moffs dst) fp r0))
-          (else
-           (debug 2 "*** %address-ref: ~a ~a~%" dst src)))))
-
       (($ $primcall '%native-call (arg1))
        (let ((addr (env-ref arg1)))
          (cond
@@ -405,21 +454,6 @@
 
       (($ $primcall name args)
        (debug 2 "*** Unhandled primcall: ~a~%" name))
-
-      ;; (($ $call 0 new-args)
-      ;;  (for-each
-      ;;   (lambda (old new)
-      ;;     (when (not (eq? old new))
-      ;;       (let ((v0 (env-ref old))
-      ;;             (v1 (env-ref new)))
-      ;;         (when (not (eq? v0 v1))
-      ;;           (cond
-      ;;            ((and (register? v0) (register? v1))
-      ;;             (jit-movr (reg v0) (reg v1)))
-      ;;            (else
-      ;;             (error "NYI: call to self: ~a ~a~%" v0 v1)))))))
-      ;;   initial-args new-args)
-      ;;  (jump loop-start))
 
       (($ $call proc args)
        (debug 2 "      exp:call ~a ~a~%" proc args))
@@ -474,7 +508,7 @@
       (jit-stxi vp->fp-offset fp r2)
 
       ;; Load registers for prompt, store to register-offset.
-      (jit-stxi register-offset fp r1)
+      (jit-stxi registers-offset fp r1)
 
       ;; Load initial locals.
       (for-each

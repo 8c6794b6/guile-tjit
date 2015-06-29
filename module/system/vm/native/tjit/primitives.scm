@@ -35,7 +35,8 @@
 (define *native-primitives*
   '((%frame-ref . (1 . 1))
     (%frame-set! . (0 . 2))
-    (%address-ref . (1 . 1))
+    (%box-ref . (1 . 1))
+    (%box-set! . (0 . 2))
     (%native-call . (0 . 1))
     (%fxadd . (1 . 2))
     (%fxadd1 . (1 . 1))

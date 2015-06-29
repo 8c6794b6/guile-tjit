@@ -96,12 +96,13 @@ locals and initial arguments."
      ((and (intset-ref seen k)
            (= k start))
       ;; Jumping back to beginning of loop.  Sharing variables between arguments
-      ;; in this call and initial call when variable for next call is not the
-      ;; initial one.
+      ;; in this call and initial call when variable for next call is not in
+      ;; initial arguments, and not a constant.
       (for-each
        (lambda (arg loop-sym)
          (when (and (not (eq? loop-sym arg))
-                    (not (memq arg loop-syms)))
+                    (not (memq arg loop-syms))
+                    (not (constant? (vector-ref env arg))))
           (vector-set! env arg (vector-ref env loop-sym))))
        args loop-syms)
       (values env (local-var-alist locals init-syms)))
