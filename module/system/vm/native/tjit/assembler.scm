@@ -470,6 +470,11 @@
     (jit-addi-d (fpr dst) (fpr b) (constant a)))
    ((and (register? dst) (register? a) (constant? b))
     (jit-addi-d (fpr dst) (fpr a) (constant b)))
+
+   ((and (memory? dst) (memory? a) (constant? b))
+    (jit-ldxi-d f0 fp (moffs asm a))
+    (jit-addi-d f0 f0 (constant b))
+    (jit-stxi-d (moffs asm dst) fp f0))
    (else
     (debug 2 "*** %fladd: ~a ~a ~a~%" dst a b))))
 
@@ -594,7 +599,6 @@
                     (v1 (env-ref new)))
                 (when (not (and (eq? (ref-type v0) (ref-type v1))
                                 (eq? (ref-value v0) (ref-value v1))))
-                  (debug 2 "maybe-move: mov ~a ~a~%" v0 v1)
                   (cond
                    ((and (register? v0) (constant? v1))
                     (jit-movi (reg v0) (constant v1)))

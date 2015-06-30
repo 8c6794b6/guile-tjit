@@ -37,10 +37,10 @@
   #:use-module (language cps2 renumber)
   #:use-module (language cps2 types)
   #:use-module (language scheme spec)
+  #:use-module (rnrs bytevectors)
   #:use-module ((srfi srfi-1) #:select (every))
   #:use-module (srfi srfi-9)
   #:use-module (system base compile)
-  #:use-module ((system base types) #:select (%word-size))
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:export (trace->cps
@@ -50,19 +50,15 @@
 
 
 ;;;
-;;; Type check
+;;; Type checker based on runtime values
 ;;;
 
-(define (type-of val)
-  ((@@ (language cps2 types) type-entry-type)
-   ((@@ (language cps2 types) constant-type) val)))
-
-(define (exact-integer? val)
-  (and (= (type-of val) &exact-integer)
+(define (fixnum? val)
+  (and (exact-integer? val)
        (< most-negative-fixnum val most-positive-fixnum)))
 
 (define (flonum? val)
-  (= (type-of val) &flonum))
+  (and (real? val) (inexact? val)))
 
 
 ;;;
@@ -185,7 +181,7 @@
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
 
-  (define (save-frame! vars types)
+  (define (save-frame! vars types locals)
     (let ((end (vector-length vars)))
       (let lp ((i 0))
         (cond
@@ -193,9 +189,13 @@
          ((vector-ref vars i)
           =>
           (lambda (var)
-            (let ((type (vector-ref types i)))
+
+            ;; XXX: No shiftings done with offset when peeking local.
+            (let ((local (and (< i (vector-length locals))
+                              (vector-ref locals i))))
+              (debug 2 "save-frame!: local[~a]=~a~%" i local)
               (cond
-               ((eq? type &flonum)
+               ((flonum? local)
                 (cons `(let ((,var (%from-double ,var)))
                          (%frame-set! ,i ,var))
                       (lp (+ i 1))))
@@ -337,7 +337,7 @@
         ;; *** Specialized call stubs
 
         ;; XXX: subr-call
-        ;; XXX: foreign-callp
+        ;; XXX: foreign-call
         ;; XXX: continuation-call
         ;; XXX: compose-continuation
         ;; XXX: tail-apply
@@ -352,7 +352,7 @@
         ;;
         (('native-call addr)
          `(begin
-            ,@(save-frame! vars types)
+            ,@(save-frame! vars types locals)
             (%native-call ,addr)
             ,(load-frame vars (convert escape rest))))
 
@@ -396,12 +396,12 @@
                (va (var-ref a))
                (vb (var-ref b)))
            (cond
-            ((and (exact-integer? ra) (exact-integer? rb))
+            ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
              `(if ,(if invert? `(not (%fx= ,va ,vb)) `(%fx= ,va ,vb))
                   (begin
-                    ,@(save-frame! vars types)
+                    ,@(save-frame! vars types locals)
                     ,ip)
                   ,(convert escape rest)))
             (else
@@ -414,12 +414,12 @@
                (va (var-ref a))
                (vb (var-ref b)))
            (cond
-            ((and (exact-integer? ra) (exact-integer? rb))
+            ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
              `(if ,(if invert? `(%fx< ,vb ,va) `(%fx< ,va ,vb))
                   (begin
-                    ,@(save-frame! vars types)
+                    ,@(save-frame! vars types locals)
                     ,ip)
                   ,(convert escape rest)))
             ((and (flonum? ra) (flonum? rb))
@@ -427,7 +427,7 @@
              (set-type! b &flonum)
              `(if ,(if invert? `(%fl< ,vb ,va) `(%fl< ,va ,vb))
                   (begin
-                    ,@(save-frame! vars types)
+                    ,@(save-frame! vars types locals)
                     ,ip)
                   ,(convert escape rest)))
             (else
@@ -543,7 +543,7 @@
                (va (var-ref a))
                (vb (var-ref b)))
            (cond
-            ((and (exact-integer? ra) (exact-integer? rb))
+            ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
              `(let ((,vdst (%fxadd ,va ,vb)))
@@ -563,7 +563,7 @@
                (vdst (var-ref dst))
                (vsrc (var-ref src)))
            (cond
-            ((exact-integer? rsrc)
+            ((fixnum? rsrc)
              (set-type! src &exact-integer)
              `(let ((,vdst (%fxadd1 ,vsrc)))
                 ,(convert escape rest)))
@@ -579,7 +579,7 @@
                (va (var-ref a))
                (vb (var-ref b)))
            (cond
-            ((and (exact-integer? ra) (exact-integer? rb))
+            ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
              `(let ((,vdst (%fxsub ,va ,vb)))
@@ -599,7 +599,7 @@
                (vdst (var-ref dst))
                (vsrc (var-ref src)))
            (cond
-            ((exact-integer? rsrc)
+            ((fixnum? rsrc)
              (set-type! src &exact-integer)
              `(let ((,vdst (%fxsub1 ,vsrc)))
                 ,(convert escape rest)))
@@ -703,7 +703,7 @@
       ;; Debug, again
       ;; (debug 1 ";;; ir: types=~a~%" types)
       ;; (debug 2 ";;; entry-guards:~%~y" entry-guards)
-      (debug 2 ";;; scm:~%~y" scm)
+      ;; (debug 2 ";;; scm:~%~y" scm)
       (values locals scm))))
 
 (define (scm->cps scm)
@@ -730,6 +730,11 @@
 
   (let ((cps (and scm (compile scm #:from 'scheme #:to 'cps2))))
     (set! cps (and cps (body-fun cps)))
+    ;; `infer-type' from (language cps2 types) does not understand CPS
+    ;; primitives for native code.
+
+    ;; (debug 2 ";; infer-type: ~a~%"
+    ;;        (intmap-fold acons (infer-types cps 0) '()))
     cps))
 
 (define (trace->cps trace)
