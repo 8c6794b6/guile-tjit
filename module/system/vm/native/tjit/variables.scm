@@ -134,7 +134,7 @@ locals and initial arguments."
              (for-each
               (lambda (arg sym)
                 (match arg
-                  (($ $primcall '%scm-to-double (i))
+                  (($ $primcall '%to-double (i))
                    (vector-set! env sym (vector-ref env i)))
                   (else
                    (vector-set! env sym (vector-ref env arg)))))

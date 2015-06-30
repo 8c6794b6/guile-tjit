@@ -38,7 +38,6 @@
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit parameters)
-  #:use-module (system vm native tjit primitives)
   #:use-module (system vm native tjit variables)
   #:export (compile-tjit
             init-vm-tjit)

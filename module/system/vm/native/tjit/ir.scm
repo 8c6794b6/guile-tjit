@@ -43,7 +43,6 @@
   #:use-module ((system base types) #:select (%word-size))
   #:use-module (system foreign)
   #:use-module (system vm native debug)
-  #:use-module (system vm native tjit primitives)
   #:export (trace->cps
             trace->scm
             scm->cps
@@ -197,7 +196,7 @@
             (let ((type (vector-ref types i)))
               (cond
                ((eq? type &flonum)
-                (cons `(let ((,var (%scm-from-double ,var)))
+                (cons `(let ((,var (%from-double ,var)))
                          (%frame-set! ,i ,var))
                       (lp (+ i 1))))
                (else
@@ -246,7 +245,7 @@
   (define (unbox-op type var next-exp)
     (cond
      ((eq? type &flonum)
-      `(let ((,var (%scm-to-double ,var)))
+      `(let ((,var (%to-double ,var)))
          ,next-exp))
      (else
       next-exp)))
@@ -400,7 +399,7 @@
             ((and (exact-integer? ra) (exact-integer? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
-             `(if ,(if invert? `(not (= ,va ,vb)) `(= ,va ,vb))
+             `(if ,(if invert? `(not (%fx= ,va ,vb)) `(%fx= ,va ,vb))
                   (begin
                     ,@(save-frame! vars types)
                     ,ip)
@@ -704,7 +703,7 @@
       ;; Debug, again
       ;; (debug 1 ";;; ir: types=~a~%" types)
       ;; (debug 2 ";;; entry-guards:~%~y" entry-guards)
-      ;; (debug 2 ";;; scm:~%~y" scm)
+      (debug 2 ";;; scm:~%~y" scm)
       (values locals scm))))
 
 (define (scm->cps scm)
