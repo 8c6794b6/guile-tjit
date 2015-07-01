@@ -723,14 +723,14 @@
        (when (= (length old-args) (length new-args))
          (for-each
           (lambda (old new)
-            (debug 2 "maybe-move: old=~a new=~a~%" old new)
+            (debug 2 ";;; maybe-move: old=~a new=~a~%" old new)
             (when (not (eq? old new))
               (let ((dst (env-ref old))
                     (src (env-ref new)))
-                (debug 2 "maybe-move: dst=~a src=~a~%" dst src)
+                (debug 2 ";;; maybe-move: dst=~a src=~a~%" dst src)
                 (when (not (and (eq? (ref-type dst) (ref-type src))
                                 (eq? (ref-value dst) (ref-value src))))
-                  (debug 2 "maybe-move: mov ~a ~a~%" dst src)
+                  (debug 2 ";;; maybe-move: mov ~a ~a~%" dst src)
                   (cond
                    ((and (gpr? dst) (constant? src))
                     (jit-movi (gpr dst) (constant src)))
@@ -766,7 +766,7 @@
                     (jit-stxi (moffs dst) fp r0))
 
                    (else
-                    (error "maybe-move: ~a ~a" dst src)))))))
+                    (debug 2 "*** maybe-move:" dst src)))))))
           old-args new-args)))))
 
   (define (assemble-cont cps exp br-label loop-label k)

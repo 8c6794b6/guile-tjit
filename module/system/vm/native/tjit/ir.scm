@@ -57,7 +57,7 @@
 
 (define (fixnum? val)
   (and (exact-integer? val)
-       (< most-negative-fixnum val most-positive-fixnum)))
+       (<= most-negative-fixnum val most-positive-fixnum)))
 
 (define (flonum? val)
   (and (real? val) (inexact? val)))
@@ -261,7 +261,7 @@
 
       (define (save-frame!)
         (let ((end (vector-length vars)))
-          (debug 2 "save-frame!: local-offset=~a~%" local-offset)
+          (debug 2 ";;; save-frame!: local-offset=~a~%" local-offset)
           (let lp ((i 0))
             (cond
              ((= i end) '())
@@ -271,7 +271,7 @@
                 (let* ((idx (+ i local-offset))
                        (local (and (< idx (vector-length locals))
                                    (vector-ref locals idx))))
-                  (debug 2 "save-frame!: local[~a]=~a~%" i local)
+                  (debug 2 ";;; save-frame!: local[~a]=~a~%" i local)
                   (cond
                    ((flonum? local)
                     (cons `(let ((,var (%from-double ,var)))
@@ -423,7 +423,7 @@
                     ,ip)
                   ,(convert escape rest)))
             (else
-             (debug 2 "ir:convert = ~a ~a~%" ra rb)
+             (debug 2 "*** ir:convert = ~a ~a~%" ra rb)
              (escape #f)))))
 
         (('br-if-< a b invert? offset)
@@ -520,7 +520,11 @@
             ,(convert escape rest)))
 
         (('make-long-immediate dst low-bits)
-         `(let ((,(var-ref dst) ,low-bits))
+         `(let ((,(var-ref dst) ,(ash low-bits -2)))
+            ,(convert escape rest)))
+
+        (('make-long-long-immediate dst high-bits low-bits)
+         `(let ((,(var-ref dst) ,(ash (logior (ash high-bits 32) low-bits) -2)))
             ,(convert escape rest)))
 
         ;; XXX: make-long-long-immediate
