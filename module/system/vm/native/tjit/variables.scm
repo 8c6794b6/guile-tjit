@@ -21,7 +21,7 @@
 ;;; Commentary:
 
 ;;; CPS variable resolution and register alloocatoion.  Applying naive strategy
-;;; to assign registers to locals, does nothing intellectual such as
+;;; to assign registers to locals, does nothing sophisticated such as
 ;;; linear-scan, binpacking, or graph coloring.
 
 ;;; Code:
@@ -39,14 +39,10 @@
   #:export (resolve-vars
             resolve-variables
             loop-start
-            ref?
-            ref-value
-            ref-type
-            constant?
-            register?
-            fpr?
-            memory?
-            constant))
+            ref? ref-value ref-type
+            constant? constant
+            register? gpr gpr? fpr fpr?
+            memory?))
 
 ;;;
 ;;; Variable
@@ -75,17 +71,27 @@
      (else
       (scm->pointer val)))))
 
-(define (make-register x)
-  (cons 'reg x))
+(define (make-gpr x)
+  (cons 'gpr x))
 
-(define (register? x)
-  (eq? 'reg (ref-type x)))
+(define (gpr x)
+  (register-ref (ref-value x)))
+
+(define (gpr? x)
+  (eq? 'gpr (ref-type x)))
 
 (define (make-fpr x)
   (cons 'fpr x))
 
+(define (fpr x)
+  (fpr-ref (ref-value x)))
+
 (define (fpr? x)
   (eq? 'fpr (ref-type x)))
+
+(define (register? x)
+  (or (eq? 'gpr (ref-type x))
+      (eq? 'fpr (ref-type x))))
 
 (define (make-memory x)
   (cons 'mem x))
@@ -96,8 +102,9 @@
 (define (resolve-variable-types cps max-var)
   "Resolve type of register used for variables appearing in CPS.
 
-Returns a vector with length MAX-VAR + 1, vector values are one of: symbol 'gpr,
-symbol 'fpr, or '(const . ${val}) where ${val} is a constant value."
+Returns a vector with length MAX-VAR + 1, vector values are one of: value `int'
+or `double' from (system foreign), or '(const . ${val}) where ${val} is a
+constant value."
   (let ((types (make-vector (+ max-var 1) #f))
         (entry-start-syms '())
         (entry-end-syms '())
@@ -114,7 +121,7 @@ symbol 'fpr, or '(const . ${val}) where ${val} is a constant value."
                    syms)
          (set! entry-start-syms syms))
         (_
-         (error "cps without entry clause."))))
+         (error "resolve-variable-types: cps without entry clause."))))
 
     (define kstart (loop-start cps))
 
@@ -125,8 +132,8 @@ symbol 'fpr, or '(const . ${val}) where ${val} is a constant value."
     (define (set-types! ty . is)
       (map (lambda (i) (set-type! ty i)) is))
 
+    ;; Module (system vm native tjit assembler) imports this module, using `@'.
     (define (lookup-prim-type op)
-      ;; (system vm native tjit assembler) imports this module, using `@'.
       (hashq-ref (@ (system vm native tjit assembler) *prim-types*) op))
 
     (define (expr-type op dst args)
@@ -137,10 +144,10 @@ symbol 'fpr, or '(const . ${val}) where ${val} is a constant value."
           (let ((vals (append dst args)))
             (cond
              ((= (length vals) (length tys))
-              (for-each (lambda (val ty)
+              (for-each (lambda (ty val)
                           (when (not (eq? void ty))
                             (set-type! ty val)))
-                        vals tys))
+                        tys vals))
              (else
               (debug 2 "*** expr-type: arity mismatch in ~a~%" op))))))
        (else
@@ -241,7 +248,7 @@ MAX-VAR + 1 which contains register and memory information."
     (define (next-gpr)
       (cond
        ((< gpr-idx *num-registers*)
-        (let ((r (make-register gpr-idx)))
+        (let ((r (make-gpr gpr-idx)))
           (set! gpr-idx (+ gpr-idx 1))
           r))
        (else (next-mem))))
@@ -249,7 +256,7 @@ MAX-VAR + 1 which contains register and memory information."
     (define (next-fpr)
       (cond
        ((< fpr-idx *num-fpr*)
-        (let ((r (make-register fpr-idx)))
+        (let ((r (make-fpr fpr-idx)))
           (set! fpr-idx (+ fpr-idx 1))
           r))
        (else (next-mem))))
