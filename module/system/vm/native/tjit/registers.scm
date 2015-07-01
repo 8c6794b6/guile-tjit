@@ -60,7 +60,7 @@
   `#(,f3 ,f4 ,f5 ,f6 ,f7 ,xmm7 ,xmm6 ,xmm5 ,xmm4 ,xmm3 ,xmm2 ,xmm1 ,xmm0))
 
 (define *num-registers*
-  (+ (vector-length *the-registers*) 1))
+  (vector-length *the-registers*))
 
 (define *num-fpr*
   (vector-length *fp-registers*))

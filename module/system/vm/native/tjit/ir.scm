@@ -46,7 +46,9 @@
   #:export (trace->cps
             trace->scm
             scm->cps
-            accumulate-locals))
+            accumulate-locals
+            fixnum?
+            flonum?))
 
 
 ;;;
@@ -181,43 +183,6 @@
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
 
-  (define (save-frame! vars types locals)
-    (let ((end (vector-length vars)))
-      (let lp ((i 0))
-        (cond
-         ((= i end) '())
-         ((vector-ref vars i)
-          =>
-          (lambda (var)
-
-            ;; XXX: No shiftings done with offset when peeking local.
-            (let ((local (and (< i (vector-length locals))
-                              (vector-ref locals i))))
-              (debug 2 "save-frame!: local[~a]=~a~%" i local)
-              (cond
-               ((flonum? local)
-                (cons `(let ((,var (%from-double ,var)))
-                         (%frame-set! ,i ,var))
-                      (lp (+ i 1))))
-               (else
-                (cons `(%frame-set! ,i ,var) (lp (+ i 1))))))))
-         (else
-          (lp (+ i 1)))))))
-
-  (define (load-frame vars exp)
-    (let ((end (vector-length vars)))
-      (let lp ((i 0))
-        (cond
-         ((= i end)
-          exp)
-         ((vector-ref vars i)
-          =>
-          (lambda (var)
-            `(let ((,var (%frame-ref ,i)))
-               ,(lp (+ i 1)))))
-         (else
-          (lp (+ i 1)))))))
-
   (define (make-var index)
     (string->symbol (string-append "v" (number->string index))))
 
@@ -246,6 +211,9 @@
     (cond
      ((eq? type &flonum)
       `(let ((,var (%to-double ,var)))
+         ,next-exp))
+     ((eq? type &exact-integer)
+      `(let ((,var (%to-fixnum ,var)))
          ,next-exp))
      (else
       next-exp)))
@@ -281,7 +249,7 @@
       (set! local-offset (- local-offset n)))
 
     (define-syntax-rule (set-type! idx ty)
-      (vector-set! types idx ty))
+      (vector-set! types (+ idx local-offset) ty))
 
     (define (convert-one escape op ip locals rest)
 
@@ -290,6 +258,56 @@
 
       (define (var-ref i)
         (vector-ref vars (+ i local-offset)))
+
+      (define (save-frame!)
+        (let ((end (vector-length vars)))
+          (debug 2 "save-frame!: local-offset=~a~%" local-offset)
+          (let lp ((i 0))
+            (cond
+             ((= i end) '())
+             ((vector-ref vars i)
+              =>
+              (lambda (var)
+                (let* ((idx (+ i local-offset))
+                       (local (and (< idx (vector-length locals))
+                                   (vector-ref locals idx))))
+                  (debug 2 "save-frame!: local[~a]=~a~%" i local)
+                  (cond
+                   ((flonum? local)
+                    (cons `(let ((,var (%from-double ,var)))
+                             (%frame-set! ,i ,var))
+                          (lp (+ i 1))))
+                   ((fixnum? local)
+                    (cons `(let ((,var (%from-fixnum ,var)))
+                             (%frame-set! ,i ,var))
+                          (lp (+ i 1))))
+                   (else
+                    (cons `(%frame-set! ,i ,var) (lp (+ i 1))))))))
+             (else
+              (lp (+ i 1)))))))
+
+      (define (load-frame exp)
+        (let ((end (vector-length vars)))
+          (let lp ((i 0))
+            (cond
+             ((= i end)
+              exp)
+             ((vector-ref vars i)
+              =>
+              (lambda (var)
+                (let* ((idx (+ i local-offset))
+                       (local (and (< idx (vector-length locals))
+                                   (vector-ref locals idx))))
+                  (cond
+                   ((fixnum? local)
+                    `(let ((,var (%frame-ref ,i)))
+                       (let ((,var (%to-fixnum ,var)))
+                         ,(lp (+ i 1)))))
+                   (else
+                    `(let ((,var (%frame-ref ,i)))
+                       ,(lp (+ i 1))))))))
+             (else
+              (lp (+ i 1)))))))
 
       ;; (debug 2 "convert-one: ~a (~a/~a) ~a~%"
       ;;        ip local-offset max-local-num op)
@@ -352,9 +370,9 @@
         ;;
         (('native-call addr)
          `(begin
-            ,@(save-frame! vars types locals)
+            ,@(save-frame!)
             (%native-call ,addr)
-            ,(load-frame vars (convert escape rest))))
+            ,(load-frame (convert escape rest))))
 
         ;; *** Function prologues
 
@@ -401,7 +419,7 @@
              (set-type! b &exact-integer)
              `(if ,(if invert? `(not (%fx= ,va ,vb)) `(%fx= ,va ,vb))
                   (begin
-                    ,@(save-frame! vars types locals)
+                    ,@(save-frame!)
                     ,ip)
                   ,(convert escape rest)))
             (else
@@ -419,7 +437,7 @@
              (set-type! b &exact-integer)
              `(if ,(if invert? `(%fx< ,vb ,va) `(%fx< ,va ,vb))
                   (begin
-                    ,@(save-frame! vars types locals)
+                    ,@(save-frame!)
                     ,ip)
                   ,(convert escape rest)))
             ((and (flonum? ra) (flonum? rb))
@@ -427,7 +445,7 @@
              (set-type! b &flonum)
              `(if ,(if invert? `(%fl< ,vb ,va) `(%fl< ,va ,vb))
                   (begin
-                    ,@(save-frame! vars types locals)
+                    ,@(save-frame!)
                     ,ip)
                   ,(convert escape rest)))
             (else
@@ -441,6 +459,11 @@
         (('mov dst src)
          (let ((vdst (var-ref dst))
                (vsrc (var-ref src)))
+           (cond
+            ((flonum? (local-ref src))
+             (set-type! src &flonum))
+            ((fixnum? (local-ref src))
+             (set-type! src &exact-integer)))
            `(let ((,vdst ,vsrc))
               ,(convert escape rest))))
 
@@ -450,22 +473,41 @@
         (('box-ref dst src)
          ;; Need to perform `load' operation every time.
          ;;
-         ;; XXX: Not yet working for flonums.
-         ;;
          ;; XXX: Add guard to check for `variable' type?
          ;;
          (let ((vdst (var-ref dst))
-               (vsrc (var-ref src)))
+               (vsrc (var-ref src))
+               (rsrc (and (< src (vector-length locals))
+                          (variable-ref (vector-ref locals src)))))
            `(let ((,vdst (%box-ref ,vsrc)))
-              ,(convert escape rest))))
+              ,(cond
+                ((flonum? rsrc)
+                 `(let ((,vdst (%to-double ,vdst)))
+                    ,(convert escape rest)))
+                ((fixnum? rsrc)
+                 `(let ((,vdst (%to-fixnum ,vdst)))
+                    ,(convert escape rest)))
+                (else
+                 (convert escape rest))))))
 
-        ;; XXX: Not working for flonums.
         (('box-set! dst src)
          (let ((vdst (var-ref dst))
-               (vsrc (var-ref src)))
-           `(begin
-              (%box-set! ,vdst ,vsrc)
-              ,(convert escape rest))))
+               (vsrc (var-ref src))
+               (rdst (and (< dst (vector-length locals))
+                          (variable-ref (vector-ref locals dst)))))
+           (cond
+            ((flonum? rdst)
+             `(let ((,vsrc (%from-double ,vsrc)))
+                (%box-set! ,vdst ,vsrc)
+                ,(convert escape rest)))
+            ((fixnum? rdst)
+             `(let ((,vsrc (%from-fixnum ,vsrc)))
+                (%box-set! ,vdst ,vsrc)
+                ,(convert escape rest)))
+            (else
+             `(begin
+                (%box-set! ,vdst ,vsrc)
+                ,(convert escape rest))))))
 
         ;; XXX: make-closure
         ;; XXX: free-ref
@@ -474,7 +516,7 @@
         ;; *** Immediates and statically allocated non-immediates
 
         (('make-short-immediate dst low-bits)
-         `(let ((,(var-ref dst) ,low-bits))
+         `(let ((,(var-ref dst) ,(ash low-bits -2)))
             ,(convert escape rest)))
 
         (('make-long-immediate dst low-bits)
@@ -607,12 +649,22 @@
              (debug 2 "ir:convert sub1 ~a ~a~%" rdst rsrc)
              (escape #f)))))
 
-        ;; (('mul dst a b)
-        ;;  (let ((vdst (var-ref dst))
-        ;;        (va (var-ref a))
-        ;;        (vb (var-ref b)))
-        ;;    `(let ((,vdst (* ,va ,vb)))
-        ;;       ,(convert escape rest))))
+        (('mul dst a b)
+         (let ((rdst (local-ref dst))
+               (ra (local-ref a))
+               (rb (local-ref b))
+               (vdst (var-ref dst))
+               (va (var-ref a))
+               (vb (var-ref b)))
+           (cond
+            ((and (flonum? ra) (flonum? rb))
+             (set-type! a &flonum)
+             (set-type! b &flonum)
+             `(let ((,vdst (%flmul ,va ,vb)))
+                ,(convert escape rest)))
+            (else
+             (debug 2 "*** ir:convert: NYI mul ~a ~a ~a~%" rdst ra rb)
+             (escape #f)))))
 
         ;; XXX: div
         ;; XXX: quo
@@ -730,9 +782,9 @@
 
   (let ((cps (and scm (compile scm #:from 'scheme #:to 'cps2))))
     (set! cps (and cps (body-fun cps)))
-    ;; `infer-type' from (language cps2 types) does not understand CPS
-    ;; primitives for native code.
-
+    ;; Tried `infer-type' from (language cps2 types), but realized that it does
+    ;; not understand CPS primitives for native code.
+    ;;
     ;; (debug 2 ";; infer-type: ~a~%"
     ;;        (intmap-fold acons (infer-types cps 0) '()))
     cps))

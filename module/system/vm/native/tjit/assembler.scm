@@ -39,10 +39,12 @@
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
-  #:use-module (system vm native tjit variables)
+  #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit registers)
+  #:use-module (system vm native tjit variables)
   #:export (assemble-tjit
-            initialize-tjit-primitives))
+            initialize-tjit-primitives
+            *prim-types*))
 
 
 ;;;
@@ -65,6 +67,17 @@
 
 (define-syntax-rule (scm-typ16 dst obj)
   (jit-andi dst obj (imm #xffff)))
+
+(define-syntax-rule (scm-i-inumr dst src)
+  (jit-rshi dst src (imm 2)))
+
+(define-syntax-rule (scm-i-makinumr dst src)
+  (begin
+    (jit-lshi dst src (imm 2))
+    (jit-addi dst dst (imm 2))))
+
+(define-syntax-rule (scm-i-makinumi n)
+  (imm (+ (ash n 2) 2)))
 
 (define-syntax-rule (scm-real-value dst src)
   (jit-ldxi-d dst src (imm (* 2 %word-size))))
@@ -149,6 +162,20 @@
        (jit-ldxi vp->fp fp vp->fp-offset)
        (jit-stxi (imm (* n %word-size)) vp->fp src)))))
 
+(define-syntax-rule (memory-ref asm dst src)
+  (cond
+   ((not (memory? src))
+    (error "memory-ref: not a memory" src))
+   (else
+    (jit-ldxi dst fp (moffs asm src)))))
+
+(define-syntax-rule (memory-set! asm dst src)
+  (cond
+   ((not (memory? dst))
+    (error "memory-set!: not a memory" dst))
+   (else
+    (jit-stxi (moffs asm dst) fp src))))
+
 
 ;;;
 ;;; Assembler state
@@ -189,6 +216,7 @@
 (define *simple-prim-arities* (make-hash-table))
 (define *branching-prim-arities* (make-hash-table))
 (define *all-prims* (make-hash-table))
+(define *prim-types* (make-hash-table))
 
 (define (args-for-arity args)
   (cond
@@ -201,6 +229,11 @@
 
 (define-syntax define-prim
   (syntax-rules ()
+    ((_ (name asm (ty arg) ...) <body>)
+     (begin
+       (define-prim (name asm arg ...)
+         <body>)
+       (hashq-set! *prim-types* 'name `(,ty ...))))
     ((_ (name asm arg ...) <body>)
      (begin
        (define (name asm arg ...)
@@ -212,11 +245,20 @@
 
 (define-syntax define-branching-prim
   (syntax-rules ()
+    ((_ (name asm (ty arg) ...) <body>)
+     (begin
+       (define-branching-prim (name asm arg ...)
+         <body>)
+       (hashq-set! *prim-types* 'name `(,ty ...))))
     ((_ (name asm arg ...) <body>)
      (begin
        (define (name asm arg ...)
          (let ((arg (env-ref asm arg))
                ...)
+           ;; (let ((verbosity (lightning-verbosity)))
+           ;;   (when (and verbosity (<= 3 verbosity))
+           ;;     (jit-note (format #f "~a" `(name ,arg ...)) 0))
+           ;;   (debug 3 ";;; ~a~%" `(name ,arg ...)))
            <body>))
        (hashq-set! *branching-prim-arities* 'name (args-for-arity '(arg ...)))
        (hashq-set! *all-prims* 'name name)))))
@@ -253,15 +295,15 @@
 ;;; Calls
 ;;;
 
-(define-prim (%native-call asm addr)
+(define-prim (%native-call asm (void addr))
   (cond
    ((constant? addr)
     (jit-prepare)
     (jit-pushargr reg-thread)           ; thread
     (jit-ldxi r0 fp vp-offset)
     (jit-pushargr r0)                   ; vp
-    (jit-pushargi %null-pointer)        ; registers
-    (jit-pushargi %null-pointer)        ; resume
+    ;; (jit-pushargi %null-pointer)        ; registers
+    ;; (jit-pushargi %null-pointer)        ; resume
     (jit-movi r0 (constant addr))
     (jit-callr r0))
    (else
@@ -272,7 +314,7 @@
 ;;; Exact integer
 ;;;
 
-(define-branching-prim (%guard-fx asm obj)
+(define-branching-prim (%guard-fx asm (int obj))
   (cond
    ((register? obj)
     (jump (scm-inump (reg obj)) (out-label asm)))
@@ -280,14 +322,65 @@
     (jit-ldxi r0 fp (moffs asm obj))
     (jump (scm-inump r0) (out-label asm)))))
 
-(define-branching-prim (%fx= asm a b)
+(define-prim (%to-fixnum asm (int dst) (int src))
+  (cond
+   ((and (register? dst) (register? src))
+    (scm-i-inumr (reg dst) (reg src)))
+   ((and (register? dst) (memory? src))
+    (memory-ref asm r0 src)
+    (scm-i-inumr r0 r0)
+    (jit-movr (reg dst) r0))
+
+   ((and (memory? dst) (register? src))
+    (scm-i-inumr r0 (reg src))
+    (jit-stxi (moffs asm dst) fp r0))
+   ((and (memory? dst) (memory? src))
+    (jit-ldxi r0 fp (moffs asm src))
+    (scm-i-inumr r0 r0)
+    (jit-stxi (moffs asm dst) fp r0))
+
+   (else
+    (debug 2 "*** %to-fixnum: ~a ~a~%" dst src))))
+
+(define-prim (%from-fixnum asm (int dst) (int src))
+  (cond
+   ((and (register? dst) (constant? src))
+    (jit-movi (reg dst) (scm-i-makinumi (ref-value src))))
+   ((and (register? dst) (register? src))
+    (scm-i-makinumr (reg dst) (reg src)))
+   ((and (register? dst) (memory? src))
+    (memory-ref asm r0 src)
+    (scm-i-makinumr (reg dst) r0))
+
+   ((and (memory? dst) (constant? src))
+    (jit-movi r0 (scm-i-makinumi (ref-value src)))
+    (memory-set! asm dst r0))
+   ((and (memory? dst) (register? src))
+    (scm-i-makinumr r0 (reg src))
+    (memory-set! asm dst r0))
+   ((and (memory? dst) (memory? src))
+    (memory-ref asm r0 src)
+    (scm-i-makinumr r0 r0)
+    (memory-set! asm dst r0))
+
+   (else
+    (debug 2 "*** %from-fixnum: ~a ~a~%" dst src))))
+
+(define-branching-prim (%fx= asm (int a) (int b))
   (cond
    ((and (register? a) (register? b))
     (jump (jit-bner (reg a) (reg b)) (out-label asm)))
+   ((and (memory? a) (register? b))
+    (jit-ldxi r0 fp (moffs asm a))
+    (jump (jit-bner r0 (reg b)) (out-label asm)))
+   ((and (memory? a) (memory? b))
+    (jit-ldxi r0 fp (moffs asm a))
+    (jit-ldxi r1 fp (moffs asm b))
+    (jump (jit-bner r0 r1) (out-label asm)))
    (else
     (debug 2 "*** %fx=: ~a ~a~%" a b))))
 
-(define-branching-prim (%fx< asm a b)
+(define-branching-prim (%fx< asm (int a) (int b))
   (let ((label (out-label asm)))
     (cond
      ((and (constant? a) (register? b))
@@ -319,84 +412,98 @@
      (else
       (debug 2 "*** %fx<: ~a ~a~%" a b)))))
 
-(define-prim (%fxadd asm dst a b)
+(define-prim (%fxadd asm (int dst) (int a) (int b))
   (cond
    ((and (register? dst) (register? a) (register? b))
     (jit-addr (reg dst) (reg a) (reg b))
-    (jit-subi (reg dst) (reg dst) (imm 2)))
+    ;; (jit-subi (reg dst) (reg dst) (imm 2))
+    )
    ((and (register? dst) (memory? a) (register? b))
     (jit-ldxi r0 fp (moffs asm a))
     (jit-addr (reg dst) r0 (reg b))
-    (jit-subi (reg dst) (reg dst) (imm 2)))
+    ;; (jit-subi (reg dst) (reg dst) (imm 2))
+    )
    ((and (register? dst) (register? a) (memory? b))
     (jit-ldxi r0 fp (moffs asm b))
     (jit-addr (reg dst) (reg a) r0)
-    (jit-subi (reg dst) (reg dst) (imm 2)))
+    ;; (jit-subi (reg dst) (reg dst) (imm 2))
+    )
    ((and (register? dst) (memory? a) (memory? b))
     (jit-ldxi r0 fp (moffs asm a))
     (jit-ldxi r1 fp (moffs asm b))
     (jit-addr (reg dst) r0 r1)
-    (jit-subi (reg dst) (reg dst) (imm 2)))
+    ;; (jit-subi (reg dst) (reg dst) (imm 2))
+    )
 
    ((and (memory? dst) (register? a) (register? b))
     (jit-ldxi r0 fp (moffs asm dst))
     (jit-addr r0 (reg a) (reg b))
-    (jit-subi r0 r0 (imm 2))
+    ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
    ((and (memory? dst) (memory? a) (register? b))
     (jit-ldxi r0 fp (moffs asm dst))
     (jit-ldxi r1 fp (moffs asm a))
     (jit-addr r0 r1 (reg b))
-    (jit-subi r0 r0 (imm 2))
+    ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
    ((and (memory? dst) (register? a) (memory? b))
     (jit-ldxi r0 fp (moffs asm dst))
     (jit-ldxi r1 fp (moffs asm b))
     (jit-addr r0 (reg a) r1)
-    (jit-subi r0 r0 (imm 2))
+    ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
    ((and (memory? dst) (memory? a) (memory? b))
     (jit-ldxi r0 fp (moffs asm dst))
     (jit-ldxi r1 fp (moffs asm a))
     (jit-ldxi r2 fp (moffs asm b))
     (jit-addr r0 r1 r2)
-    (jit-subi r0 r0 (imm 2))
+    ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
    (else
     (error "*** %fxadd: ~a ~a ~a~%" dst a b))))
 
-(define-prim (%fxadd1 asm dst src)
+(define-prim (%fxadd1 asm (int dst) (int src))
   (cond
    ((and (register? dst) (register? src))
-    (jit-addi (reg dst) (reg src) *inum-step*))
+    ;; (jit-addi (reg dst) (reg src) *inum-step*)
+    (jit-addi (reg dst) (reg src) (imm 1))
+    )
    ((and (register? dst) (memory? src))
     (jit-ldxi r0 fp (moffs asm src))
-    (jit-addi (reg dst) r0 *inum-step*))
+    (jit-addi (reg dst) r0 (imm 1))
+    ;; (jit-addi (reg dst) r0 *inum-step*)
+    )
 
    ((and (memory? dst) (register? src))
-    (jit-addi r0 (reg src) *inum-step*)
+    ;; (jit-addi r0 (reg src) *inum-step*)
+    (jit-addi r0 (reg src) (imm 1))
     (jit-stxi (moffs asm dst) fp r0))
    ((and (memory? dst) (memory? src))
     (jit-ldxi r0 fp (moffs asm src))
-    (jit-addi r0 r0 *inum-step*)
+    ;; (jit-addi r0 r0 *inum-step*)
+    (jit-addi r0 r0 (imm 1))
     (jit-stxi (moffs asm dst) fp r0))
    (else
     (debug 2 "*** %fxadd1: ~a ~a~%" dst src))))
 
-(define-prim (%fxsub1 asm dst src)
+(define-prim (%fxsub1 asm (int dst) (int src))
   (cond
    ((and (register? dst) (register? src))
-    (jit-subi (reg dst) (reg src) *inum-step*))
+    ;; (jit-subi (reg dst) (reg src) *inum-step*)
+    (jit-subi (reg dst) (reg src) (imm 1)))
    ((and (register? dst) (memory? src))
     (jit-ldxi r0 fp (moffs asm src))
-    (jit-subi (reg dst) r0 *inum-step*))
+    ;; (jit-subi (reg dst) r0 *inum-step*)
+    (jit-subi (reg dst) r0 (imm 1)))
 
    ((and (memory? dst) (register? src))
-    (jit-subi r0 (reg src) *inum-step*)
+    ;; (jit-subi r0 (reg src) *inum-step*)
+    (jit-subi r0 (reg src) (imm 1))
     (jit-stxi (moffs asm dst) fp r0))
    ((and (memory? dst) (memory? src))
     (jit-ldxi r0 fp (moffs asm src))
-    (jit-subi r0 r0 *inum-step*)
+    ;; (jit-subi r0 r0 *inum-step*)
+    (jit-subi r0 r0 (imm 1))
     (jit-stxi (moffs asm dst) fp r0))
    (else
     (debug 2 "*** %fxsub1: ~a ~a~%" dst src))))
@@ -406,14 +513,24 @@
 ;;; Floating point
 ;;;
 
-(define-prim (%to-double asm dst src)
+(define-prim (%to-double asm (double dst) (int src))
   (cond
    ((and (register? dst) (register? src))
     (scm-real-value (fpr dst) (reg src)))
+   ((and (register? dst) (memory? src))
+    (memory-ref asm r0 src)
+    (scm-real-value (fpr dst) r0))
+   ((and (memory? dst) (register? src))
+    (scm-real-value f0 (reg src))
+    (jit-stxi-d (moffs asm dst) fp f0))
+   ((and (memory? dst) (memory? src))
+    (jit-ldxi r0 fp (moffs asm src))
+    (scm-real-value f0 r0)
+    (jit-stxi-d (moffs asm dst) fp f0))
    (else
-    (error "*** %scm-to-double: ~a ~a~%" dst src))))
+    (error "*** %to-double: ~a ~a~%" dst src))))
 
-(define-prim (%from-double asm dst src)
+(define-prim (%from-double asm (int dst) (double src))
   (cond
    ((and (register? dst) (constant? src))
     (jit-movi-d f0 (constant src))
@@ -431,23 +548,34 @@
    ((and (memory? dst) (register? src))
     (scm-from-double r0 (fpr src))
     (jit-stxi (moffs asm dst) fp r0))
+   ((and (memory? dst) (memory? src))
+    (jit-ldxi-d f0 fp (moffs asm src))
+    (scm-from-double r0 f0)
+    (jit-stxi (moffs asm dst) f0 r0))
    (else
     (error "*** %scm-from-double: ~a ~a~%" dst src))))
 
-(define-branching-prim (%guard-fl asm obj)
+(define-branching-prim (%guard-fl asm (double obj))
  (cond
   ((register? obj)
-   (let ((label (out-label asm))
-         (fail (jit-forward)))
+   (let ((fail (jit-forward)))
      (jump (scm-imp (reg obj)) fail)
      (scm-cell-type r0 (reg obj))
      (scm-typ16 r0 r0)
-     (jump (scm-realp r0) label)
+     (jump (scm-realp r0) (out-label asm))
+     (jit-link fail)))
+  ((memory? obj)
+   (let ((fail (jit-forward)))
+     (memory-ref asm r0 obj)
+     (jump (scm-imp r0) fail)
+     (scm-cell-type r0 r0)
+     (scm-typ16 r0 r0)
+     (jump (scm-realp r0) (out-label asm))
      (jit-link fail)))
   (else
    (error "*** %guard-fl: ~a~%" obj))))
 
-(define-branching-prim (%fl< asm a b)
+(define-branching-prim (%fl< asm (double a) (double b))
   (let ((label (out-label asm)))
     (cond
      ((and (constant? a) (register? b))
@@ -462,14 +590,14 @@
      (else
       (debug 2 "*** %fl<: ~a ~a~%" a b)))))
 
-(define-prim (%fladd asm dst a b)
+(define-prim (%fladd asm (double dst) (double a) (double b))
   (cond
-   ((and (register? dst) (register? a) (register? b))
-    (jit-addr-d (fpr dst) (fpr a) (fpr b)))
    ((and (register? dst) (constant? a) (register? b))
     (jit-addi-d (fpr dst) (fpr b) (constant a)))
    ((and (register? dst) (register? a) (constant? b))
     (jit-addi-d (fpr dst) (fpr a) (constant b)))
+   ((and (register? dst) (register? a) (register? b))
+    (jit-addr-d (fpr dst) (fpr a) (fpr b)))
 
    ((and (memory? dst) (memory? a) (constant? b))
     (jit-ldxi-d f0 fp (moffs asm a))
@@ -478,7 +606,7 @@
    (else
     (debug 2 "*** %fladd: ~a ~a ~a~%" dst a b))))
 
-(define-prim (%flsub asm dst a b)
+(define-prim (%flsub asm (double dst) (double a) (double b))
   (cond
    ((and (register? dst) (register? a) (register? b))
     (jit-subr-d (fpr dst) (fpr a) (fpr b)))
@@ -490,12 +618,25 @@
    (else
     (debug 2 "*** %flsub: ~a ~a ~a~%" dst a b))))
 
+(define-prim (%flmul asm (double dst) (double a) (double b))
+  (cond
+   ((and (register? dst) (constant? a) (register? b))
+    (jit-muli-d (fpr dst) (fpr b) (constant a)))
+   ((and (register? dst) (register? a) (constant? b))
+    (jit-muli-d (fpr dst) (fpr a) (constant b)))
+   ((and (register? dst) (register? a) (register? b))
+    (jit-mulr-d (fpr dst) (fpr a) (fpr b)))
+   (else
+    (debug 2 "*** %flmul: ~a ~a ~a~%" dst a b))))
+
 
 ;;;
 ;;; Lexical binding instructions
 ;;;
 
-(define-prim (%box-ref asm dst src)
+;;; XXX: Find out a way to tag the value inside a box on guard failure.
+
+(define-prim (%box-ref asm (int dst) (int src))
   (cond
    ((and (register? dst) (constant? src))
     (jit-ldi (reg dst) (imm (+ (ref-value src) %word-size))))
@@ -518,7 +659,7 @@
    (else
     (debug 2 "*** %box-ref: ~a ~a~%" dst src))))
 
-(define-prim (%box-set! asm idx src)
+(define-prim (%box-set! asm (int idx) (int src))
   (cond
    ((and (register? idx) (register? src))
     (jit-stxi (imm %word-size) (reg idx) (reg src)))
@@ -541,7 +682,7 @@
 ;;; Frame instructions
 ;;;
 
-(define-prim (%frame-ref asm dst idx)
+(define-prim (%frame-ref asm (int dst) (void idx))
   (cond
    ((not (constant? idx))
     (debug 2 "*** %frame-ref: type mismatch ~a ~a~%" dst idx))
@@ -553,7 +694,7 @@
    (else
     (debug 2 "*** %frame-ref: got ~a ~a~%" dst idx))))
 
-(define-prim (%frame-set! asm idx src)
+(define-prim (%frame-set! asm (void idx) (int src))
   (cond
    ((not (constant? idx))
     (debug 2 "*** %frame-set!: type mismatch ~a ~a~%" idx src))
@@ -586,22 +727,32 @@
   (define (moffs x)
     (make-offset-pointer fp-offset (* (ref-value x) %word-size)))
 
-  (define start (loop-start cps))
+  (define kstart (loop-start cps))
 
-  (define (maybe-move exp)
+  (define (maybe-move exp old-args)
     (match exp
       (($ $values new-args)
-       (when (= (length initial-args) (length new-args))
+       (when (= (length old-args) (length new-args))
          (for-each
           (lambda (old new)
+            (debug 2 "maybe-move: old=~a new=~a~%" old new)
             (when (not (eq? old new))
               (let ((v0 (env-ref old))
                     (v1 (env-ref new)))
+                (debug 2 "maybe-move: v0=~a v1=~a~%" v0 v1)
                 (when (not (and (eq? (ref-type v0) (ref-type v1))
                                 (eq? (ref-value v0) (ref-value v1))))
+                  (debug 2 "maybe-move: mov ~a ~a~%" v0 v1)
                   (cond
                    ((and (register? v0) (constant? v1))
-                    (jit-movi (reg v0) (constant v1)))
+                    (let ((val (ref-value v1)))
+                      (cond
+                       ((fixnum? val)
+                        (jit-movi (reg v0) (constant v1)))
+                       ((flonum? val)
+                        (jit-movi-d (fpr v0) (constant v1)))
+                       (else
+                        (debug 2 "*** maybe-move: ~a ~a~%" v0 v1)))))
                    ((and (register? v0) (register? v1))
                     (jit-movr (reg v0) (reg v1)))
                    ((and (register? v0) (memory? v1))
@@ -618,7 +769,7 @@
                     (jit-stxi (moffs v1) fp r0))
                    (else
                     (error "NYI: maybe-move: ~a ~a" v0 v1)))))))
-          initial-args new-args)))))
+          old-args new-args)))))
 
   (define (assemble-cont cps exp br-label loop-label k)
     ;; (debug 1 "~4,,,'0@a  ~a~%" k (or (and (null? exp) exp
@@ -635,7 +786,7 @@
 
       (($ $kargs _ syms ($ $continue knext _ ($ $branch kt next-exp)))
        (let ((br-label (jit-forward))
-             (loop-label (if (= k start) (jit-label) loop-label)))
+             (loop-label (if (= k kstart) (jit-label) loop-label)))
          (assemble-cont cps next-exp br-label loop-label kt)
          (assemble-exp exp syms br-label)
          (assemble-cont cps #f #f loop-label knext)))
@@ -644,12 +795,12 @@
        (cond
         ((< knext k)                    ; Jump to the loop start.
          (assemble-exp exp syms br-label)
-         (maybe-move next-exp)
+         (maybe-move next-exp initial-args)
          (jump loop-label)
          #f)
         (else
          (assemble-exp exp syms br-label)
-         (let ((loop-label (if (= k start) (jit-label) loop-label)))
+         (let ((loop-label (if (= k kstart) (jit-label) loop-label)))
            (assemble-cont cps next-exp br-label loop-label knext)))))
 
       (($ $ktail)
@@ -705,19 +856,21 @@
           current)))
 
   (let*-values (((max-label max-var) (compute-max-label-and-var cps))
-                ((env initial-locals) (resolve-vars cps locals max-var)))
+                ;; ((env initial-locals) (resolve-vars cps locals max-var))
+                ((env initial-locals loop-start-args)
+                 (resolve-variables cps locals max-var))
+                )
 
-    (let ((verbosity (lightning-verbosity)))
-      (when (and verbosity (<= 3 verbosity))
-        (display ";;; cps env\n")
-        (let lp ((n 0) (end (vector-length env)))
-          (when (< n end)
-            (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
-            (lp (+ n 1) end)))))
+    ;; (let ((verbosity (lightning-verbosity)))
+    ;;   (when (and verbosity (<= 3 verbosity))
+    ;;     (display ";;; cps env\n")
+    ;;     (let lp ((n 0) (end (vector-length env)))
+    ;;       (when (< n end)
+    ;;         (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
+    ;;         (lp (+ n 1) end)))))
 
-    ;; Allocate space for spilled variables.  Allocating extra three
-    ;; words for arguments passed from C code: `vp', `vp->fp', and
-    ;; `*registers'.
+    ;; Allocate space for spilled variables, and three words for arguments
+    ;; passed from C code, `vp', `vp->fp', and `registers'.
     (let* ((nspills (max-moffs env))
            (fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size)))))
 
@@ -757,5 +910,15 @@
        initial-locals)
 
       ;; Assemble the loop.
-      (let ((initial-args (map cdr initial-locals)))
-        (assemble-cps cps env initial-args fp-offset)))))
+      (let (
+            ;; (initial-args (map cdr initial-locals))
+            )
+        ;; (debug 2 "assemble-tjit: initial-args=~a~%" initial-args)
+        ;; (debug 2 "assemble-tjit: loop-start-args=~a~%" loop-start-args)
+        (assemble-cps cps env loop-start-args fp-offset)
+        ;; (assemble-cps cps env initial-args fp-offset)
+        ))))
+
+;; (hash-for-each (lambda (k v)
+;;                  (format #t "~15a => ~a~%" k v))
+;;                *prim-types*)

@@ -32,10 +32,12 @@
   #:use-module (language cps intmap)
   #:use-module (language cps intset)
   #:use-module (language cps2)
+  #:use-module (srfi srfi-11)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
   #:use-module (system vm native tjit registers)
   #:export (resolve-vars
+            resolve-variables
             loop-start
             ref?
             ref-value
@@ -91,131 +93,286 @@
 (define (memory? x)
   (eq? 'mem (ref-type x)))
 
-(define (resolve-vars cps locals max-var)
-  "Resolve variables in CPS using local variables from LOCALS and MAX-VAR.
+(define (resolve-variable-types cps max-var)
+  "Resolve type of register used for variables appearing in CPS.
 
-Returns 2 values: vector containing resolved variables, and an accos list for
-locals and initial arguments."
+Returns a vector with length MAX-VAR + 1, vector values are one of: symbol 'gpr,
+symbol 'fpr, or '(const . ${val}) where ${val} is a constant value."
+  (let ((types (make-vector (+ max-var 1) #f))
+        (entry-start-syms '())
+        (entry-end-syms '())
+        (loop-start-syms '())
+        (loop-end-syms '())
+        (kend #f))                      ; internal states.
 
-  (define (local-var-alist locals vars)
-    (map cons (reverse locals) vars))
-
-  (define start (loop-start cps))
-
-  (let ((init-syms '())
-        (loop-syms '())
-        (reqs '())
-        (seen empty-intset))
-
-    (define (resolve-cont env args mem-idx k)
-      (cond
-       ((and (intset-ref seen k)
-             (= k start))
-        ;; Jumping back to beginning of loop.  Sharing variables between arguments
-        ;; in this call and initial call when variable for next call is not in
-        ;; initial arguments, and not a constant.
-        (for-each
-         (lambda (arg loop-sym)
-           (when (and (not (eq? arg loop-sym))
-                      (not (memq arg loop-syms))
-                      (not (constant? (vector-ref env arg))))
-             (vector-set! env arg (vector-ref env loop-sym))))
-         args loop-syms)
-        (values env (local-var-alist locals init-syms)))
-       (else
-        (set! seen (intset-add! seen k))
-        (match (intmap-ref cps k)
-          (($ $kreceive _ knext)
-           (resolve-cont env '() mem-idx knext))
-
-          (($ $kargs names syms ($ $continue knext _ exp))
-           (cond
-            ((= k start)
-             (for-each
-              (lambda (arg sym)
-                (match arg
-                  (($ $primcall '%to-double (i))
-                   (vector-set! env sym (vector-ref env i)))
-                  (else
-                   (vector-set! env sym (vector-ref env arg)))))
-              args syms)
-             (set! loop-syms syms)
-             (resolve-exp exp env mem-idx knext))
-
-            ((equal? names reqs)
-             (let lp ((syms-tmp syms) (mem-idx mem-idx))
-               (match syms-tmp
-                 ((sym . rest)
-                  (cond
-                   ((< sym *num-registers*)
-                    (vector-set! env sym (make-register (- sym 1)))
-                    (lp rest mem-idx))
-                   (else
-                    (vector-set! env sym (make-memory mem-idx))
-                    (lp rest (+ mem-idx 1)))))
-                 (()
-                  (set! init-syms syms)
-                  (resolve-exp exp env mem-idx knext)))))
-
-            ((and (not (null? args)) (not (null? syms)))
-             (let lp ((syms syms) (args args) (mem-idx mem-idx))
-               (match (cons syms args)
-                 (((sym . syms) . (arg . args))
-                  (cond
-                   ((constant? arg)
-                    (vector-set! env sym arg)
-                    (lp syms args mem-idx))
-                   ((< sym *num-registers*)
-                    (vector-set! env sym (make-register (- sym 1)))
-                    (lp syms args mem-idx))
-                   (else
-                    (vector-set! env sym (make-memory mem-idx))
-                    (lp syms args (+ mem-idx 1)))))
-                 (_
-                  (resolve-exp exp env mem-idx knext)))))
-            (else
-             (resolve-exp exp env mem-idx knext))))
-
-          (($ $kfun _ _ self _ knext)
-           (vector-set! env self '(proc . self))
-           (resolve-cont env '() mem-idx knext))
-
-          (($ $ktail)
-           (values env (local-var-alist locals init-syms)))
-
-          (($ $kclause ($ $arity arity-reqs _ _ _ _) knext _)
-           (set! reqs arity-reqs)
-           (resolve-cont env '() mem-idx knext))))))
-
-    (define (resolve-exp exp env mem-idx k)
-      (match exp
-        (($ $const val)
-         (resolve-cont env (list (make-constant val)) mem-idx k))
-
-        (($ $branch kt exp)
-         (resolve-exp exp env mem-idx kt)
-         (resolve-cont env '() mem-idx k))
-
-        (($ $primcall _ _)
-         (resolve-cont env (list exp) mem-idx k))
-
-        (($ $values args)
-         (resolve-cont env args mem-idx k))
-
+    (define (set-entry-syms!)
+      ;; Entry cont is always in intmap ref 2.
+      (match (intmap-ref cps 2)
+        (($ $kargs _ syms ($ $continue knext _ exp))
+         (for-each (lambda (sym)
+                     (vector-set! types sym int))
+                   syms)
+         (set! entry-start-syms syms))
         (_
-         (resolve-cont env '() mem-idx k))))
+         (error "cps without entry clause."))))
 
-    ;; (debug 1 ";;; ~a~%~{~4,,,'0@a  ~a~%~}"
-    ;;        "resolve-vars"
-    ;;        (or (and cps (reverse! (intmap-fold
-    ;;                                (lambda (i k acc)
-    ;;                                  (cons (unparse-cps k)
-    ;;                                        (cons i acc)))
-    ;;                                cps
-    ;;                                '())))
-    ;;            '()))
-    (resolve-cont (make-vector (+ max-var 1)) '() 0 0)))
+    (define kstart (loop-start cps))
 
+    (define (set-type! ty i)
+      (when (not (vector-ref types i))
+        (vector-set! types i ty)))
+
+    (define (set-types! ty . is)
+      (map (lambda (i) (set-type! ty i)) is))
+
+    (define (lookup-prim-type op)
+      ;; (system vm native tjit assembler) imports this module, using `@'.
+      (hashq-ref (@ (system vm native tjit assembler) *prim-types*) op))
+
+    (define (expr-type op dst args)
+      (cond
+       ((lookup-prim-type op)
+        =>
+        (lambda (tys)
+          (let ((vals (append dst args)))
+            (cond
+             ((= (length vals) (length tys))
+              (for-each (lambda (val ty)
+                          (when (not (eq? void ty))
+                            (set-type! ty val)))
+                        vals tys))
+             (else
+              (debug 2 "*** expr-type: arity mismatch in ~a~%" op))))))
+       (else
+        (debug 2 "*** expr-type: `~a' not found~%" op))))
+
+    (define (visit-exp syms exp)
+      (match exp
+        (($ $branch kt exp)
+         (visit-exp syms exp)
+         (visit-cont #f kt))
+        (($ $primcall op args)
+         (expr-type op syms args))
+        (($ $const val)
+         (match syms
+           ((sym)
+            (vector-set! types sym (make-constant val)))
+           (_
+            #f)))
+        (#f #f)
+        (_
+         (debug 2 ";;; match to exp: ~a~%" exp))))
+
+    (define (visit-cont exp k)
+      (match (intmap-ref cps k)
+        (($ $kfun _ _ self _ knext)
+         (visit-cont #f knext))
+        (($ $kclause _ knext kalternate)
+         (visit-cont #f knext))
+        (($ $kargs names syms ($ $continue knext _ enext))
+         (visit-exp syms exp)
+         (cond
+          ((< knext k)
+           (match enext
+             (($ $values vals)
+              (set! loop-end-syms vals)
+              (set! kend k))
+             (_
+              (debug 2 "loop with no values?: ~a~%" exp))))
+          ((= knext kstart)
+           (match enext
+             (($ $values vals)
+              (set! entry-end-syms vals)
+              (visit-cont #f knext))
+             (_
+              ;; Entry-end-syms could be null. Possible to emit something else
+              ;; than $values, when the loop takes single argument.
+              (visit-cont enext knext))))
+          ((= kstart k)
+           (set! loop-start-syms syms)
+           (visit-cont enext knext))
+          (else
+           (visit-cont enext knext))))
+        (($ $ktail)
+         (values))))
+
+    (set-entry-syms!)
+    (visit-cont #f 0)
+
+    ;; (debug 2 ";;; var-types:~%")
+    ;; (let ((end (vector-length types)))
+    ;;   (let lp ((i 0))
+    ;;     (when (< i end)
+    ;;       (debug 2 "  ~3@a: ~a~%" i (vector-ref types i))
+    ;;       (lp (+ i 1)))))
+
+    (debug 2 ";;; entry-start-syms: ~{~2@a ~}~%" entry-start-syms)
+    (debug 2 ";;; entry-end-syms:   ~{~2@a ~}~%" entry-end-syms)
+    (debug 2 ";;; loop-start-syms:  ~{~2@a ~}~%" loop-start-syms)
+    (debug 2 ";;; loop-end-syms:    ~{~2@a ~}~%" loop-end-syms)
+
+    (values types
+            kstart kend
+            entry-start-syms entry-end-syms
+            loop-start-syms loop-end-syms)))
+
+(define (resolve-variables cps locals max-var)
+  "Assign registers and memory addresses for variables in CPS.
+
+Returns initial local and register alist with LOCAL, and vector of length
+MAX-VAR + 1 which contains register and memory information."
+
+  (let ((gpr-idx 0)
+        (fpr-idx 0)
+        (mem-idx 0)
+        (vars (make-vector (+ max-var 1) #f)))
+
+    (define (var-ref i)
+      (vector-ref vars i))
+
+    (define (var-set! i x)
+      (vector-set! vars i x))
+
+    (define (next-mem)
+      (let ((m (make-memory mem-idx)))
+        (set! mem-idx (+ mem-idx 1))
+        m))
+
+    (define (next-gpr)
+      (cond
+       ((< gpr-idx *num-registers*)
+        (let ((r (make-register gpr-idx)))
+          (set! gpr-idx (+ gpr-idx 1))
+          r))
+       (else (next-mem))))
+
+    (define (next-fpr)
+      (cond
+       ((< fpr-idx *num-fpr*)
+        (let ((r (make-register fpr-idx)))
+          (set! fpr-idx (+ fpr-idx 1))
+          r))
+       (else (next-mem))))
+
+    (define (local-var-alist locals vars)
+      (map cons (reverse locals) vars))
+
+    (let-values (((types
+                   kstart kend
+                   entry-start-syms entry-end-syms
+                   loop-start-syms loop-end-syms)
+                  (resolve-variable-types cps max-var)))
+
+      (define (type i)
+        (vector-ref types i))
+
+      (define (gpr? i)
+        (eq? int (type i)))
+
+      (define (fpr? i)
+        (eq? double (type i)))
+
+      (define *loop-min-sym*
+        (apply min loop-start-syms))
+
+      (define *loop-max-sym*
+        (apply max loop-end-syms))
+
+      (define *loop-end-table*
+        (let ((t (make-hash-table)))
+          (for-each (lambda (sym)
+                      (let ((i (hashq-ref t sym 0)))
+                        (hashq-set! t sym (+ i 1))))
+                    loop-end-syms)
+          t))
+
+      (define (loop-end-shareable? loop-start-sym loop-end-sym)
+        (and (< (hashq-ref *loop-end-table* loop-end-sym) 2)
+             ;; XXX: Compare with constant?
+             (eq? (type loop-start-sym) (type loop-end-sym))))
+
+      (define (entry-end-shareable? entry-end-sym loop-start-sym)
+        (not (= entry-end-sym loop-start-sym)))
+
+      ;; Assign loop start syms.
+      (for-each
+       (lambda (sym)
+         (unless (var-ref sym)
+           (cond
+            ((gpr? sym) (var-set! sym (next-gpr)))
+            ((fpr? sym) (var-set! sym (next-fpr)))
+            (else
+             (error "resolve variable failed in loop-start" sym)))))
+       loop-start-syms)
+
+      ;; Assign loop end syms.
+      (for-each
+       (lambda (loop-end loop-start)
+         (cond
+          ((var-ref loop-end)
+           (values))                    ; Assigned already.
+          ((constant? (type loop-end))
+           (var-set! loop-end (type loop-end)))
+          ((loop-end-shareable? loop-start loop-end)
+           (var-set! loop-end (var-ref loop-start)))
+          ((gpr? loop-end)
+           (var-set! loop-end (next-gpr)))
+          ((fpr? loop-end)
+           (var-set! loop-end (next-fpr)))
+          (else
+           (error "resolve-variables failed in loop-end" loop-end))))
+       loop-end-syms loop-start-syms)
+
+      ;; Assign to variables inside loop body.
+      (let lp ((i *loop-min-sym*))
+        (when (< i *loop-max-sym*)
+          (let ((ty (type i)))
+            (cond
+             ((var-ref i) (values))     ; Assigned already.
+             ((constant? ty) (var-set! i ty))
+             ((gpr? i) (var-set! i (next-gpr)))
+             ((fpr? i) (var-set! i (next-fpr)))
+             (else
+              (error "resolve-variable failed in loop body"))))
+          (lp (+ i 1))))
+
+      ;; Assign shareable registers between loop start and entry end.
+      ;; Entry-end-syms could be null, but loop-start-syms is not.
+      (when (= (length entry-end-syms) (length loop-start-syms))
+        (for-each
+         (lambda (entry-end loop-start)
+           (cond
+            ((entry-end-shareable? entry-end loop-start)
+             (var-set! entry-end (var-ref loop-start)))
+            ((gpr? entry-end)
+             (var-set! entry-end (next-gpr)))
+            ((fpr? entry-end)
+             (var-set! entry-end (next-fpr)))
+            (else
+             (error "resolve-variable failed in entry-end" entry-end))))
+         entry-end-syms loop-start-syms))
+
+      ;; Rest of values.
+      (let lp ((i 1))
+        (when (< i (+ max-var 1))
+          (let ((ty (type i)))
+            (cond
+             ((var-ref i) (values))
+             ((constant? ty) (var-set! i ty))
+             ((gpr? i) (var-set! i (next-gpr)))
+             ((fpr? i) (var-set! i (next-fpr)))
+             (else (error "resolve-variables at rest" i))))
+          (lp (+ i 1))))
+
+      (debug 2 ";;; vars:~%")
+      (let lp ((i 0))
+        (when (< i (+ max-var 1))
+          (debug 2 ";;; ~3@a: ~a~%" i (vector-ref vars i))
+          (lp (+ i 1))))
+
+      (values vars
+              (local-var-alist locals entry-start-syms)
+              loop-start-syms))))
 
 ;;;
 ;;; Loop start
