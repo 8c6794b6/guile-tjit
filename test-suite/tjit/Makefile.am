@@ -43,6 +43,7 @@ TESTS = \
 	t-micro-flonum-03.scm \
 	t-micro-twice.scm \
 	t-box-01.scm \
+	t-box-02.scm \
 	t-toplevel-box-01.scm \
 	t-call-01.scm \
 	t-call-02.scm \
