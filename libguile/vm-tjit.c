@@ -134,12 +134,12 @@ ready_to_record_p (SCM ip, SCM current_count)
 }
 
 static inline scm_t_uint32*
-call_native (SCM code, scm_i_thread *thread, struct scm_vm *vp,
-             scm_i_jmp_buf *registers, int resume)
+call_native (SCM code, scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers)
 {
   scm_t_native_code fn;
+
   fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
-  return fn (thread, vp, registers, resume);
+  return fn (thread, fp, registers);
 }
 
 
@@ -161,7 +161,7 @@ call_native (SCM code, scm_i_thread *thread, struct scm_vm *vp,
     code = scm_hashq_ref (code_cache_table, s_ip, SCM_BOOL_F);          \
                                                                         \
     if (scm_is_true (code))                                             \
-      ip = call_native (code, thread, vp, registers, resume);           \
+      ip = call_native (code, thread, fp, registers);                   \
     else                                                                \
       {                                                                 \
         SCM current_count =                                             \
@@ -195,7 +195,7 @@ call_native (SCM code, scm_i_thread *thread, struct scm_vm *vp,
     code = scm_hashq_ref (code_cache_table, s_ip, SCM_BOOL_F);          \
                                                                         \
     if (scm_is_true (code))                                             \
-      ip = call_native (code, thread, vp, registers, resume);           \
+      ip = call_native (code, thread, fp, registers);                   \
                                                                         \
     opcode = *ip & 0xff;                                                \
                                                                         \

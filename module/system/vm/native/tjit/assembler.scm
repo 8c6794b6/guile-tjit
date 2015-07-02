@@ -116,14 +116,11 @@
 
 (define fp (jit-fp))
 
-(define vp-offset
+(define vp->fp-offset
   (make-pointer (+ (expt 2 (* 8 %word-size)) (- %word-size))))
 
-(define vp->fp-offset
-  (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 2 %word-size)))))
-
 (define registers-offset
-  (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 3 %word-size)))))
+  (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 2 %word-size)))))
 
 (define (make-offset-pointer offset n)
   (let ((addr (+ offset n)))
@@ -298,8 +295,8 @@
    ((constant? addr)
     (jit-prepare)
     (jit-pushargr reg-thread)              ; thread
-    (jit-ldxi r0 fp vp-offset)
-    (jit-pushargr r0)                      ; vp
+    (jit-ldxi r0 fp vp->fp-offset)
+    (jit-pushargr r0)                      ; vp->fp
     ;; (jit-pushargi %null-pointer)        ; registers
     ;; (jit-pushargi %null-pointer)        ; resume
     (jit-movi r0 (constant addr))
@@ -415,6 +412,10 @@
 
 (define-prim (%fxadd asm (int dst) (int a) (int b))
   (cond
+   ((and (gpr? dst) (gpr? a) (constant? b))
+    (jit-addi (gpr dst) (gpr a) (constant b))
+    ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
+    )
    ((and (gpr? dst) (gpr? a) (gpr? b))
     (jit-addr (gpr dst) (gpr a) (gpr b))
     ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
@@ -708,7 +709,7 @@
     (jit-ldxi r0 fp (moffs asm src))
     (local-set! (ref-value idx) r0))
    (else
-    (debug 2 "*** %frame-set!: unknown args ~a ~a~%" idx src))))
+    (debug 2 "*** %frame-set!: ~a ~a~%" idx src))))
 
 
 ;;;
@@ -882,20 +883,15 @@
     ;; Allocate space for spilled variables, and three words for arguments
     ;; passed from C code, `vp', `vp->fp', and `registers'.
     (let* ((nspills (max-moffs env))
-           (fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size)))))
+           (fp-offset (jit-allocai (imm (* (+ nspills 2) %word-size)))))
 
       ;; Get arguments.
       (jit-getarg reg-thread (jit-arg)) ; *thread
-      (jit-getarg r0 (jit-arg))         ; *vp
+      (jit-getarg r0 (jit-arg))         ; vp->fp
       (jit-getarg r1 (jit-arg))         ; registers, for prompt
-      (jit-getarg r2 (jit-arg))         ; resume
 
-      ;; Load `vp' to r2. After this point, value of `resume' will be gone.
-      (jit-stxi vp-offset fp r0)
-
-      ;; Load `vp->fp' to r2, then store to vp->fp-offset.
-      (jit-ldxi r2 r0 (imm #x10))
-      (jit-stxi vp->fp-offset fp r2)
+      ;; Load `vp->fp', store to vp->fp-offset.
+      (jit-stxi vp->fp-offset fp r0)
 
       ;; Load registers for prompt, store to register-offset.
       (jit-stxi registers-offset fp r1)
