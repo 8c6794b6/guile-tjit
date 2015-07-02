@@ -243,8 +243,8 @@
                  (op (and type (type-guard-op type)))
                  (exp (and op
                            `(if (,op ,var)
-                                ,ip
-                                ,(unbox-op type var (lp (+ i 1) end))))))
+                                ,(unbox-op type var (lp (+ i 1) end))
+                                ,ip))))
             (or exp (lp (+ i 1) end)))
           loop-exp)))
 
@@ -434,11 +434,11 @@
             ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
-             `(if ,(if (= ra rb) `(not (%eq ,va ,vb)) `(%eq ,va ,vb))
+             `(if ,(if (= ra rb) `(%eq ,va ,vb) `(not (%eq ,va ,vb)))
+                  ,(convert escape rest)
                   (begin
                     ,@(save-frame!)
-                    ,ip)
-                  ,(convert escape rest)))
+                    ,ip)))
             (else
              (debug 2 "*** ir:convert = ~a ~a~%" ra rb)
              (escape #f)))))
@@ -452,19 +452,19 @@
             ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
-             `(if ,(if (< ra rb) `(%fx< ,vb ,va) `(%fx< ,va ,vb))
+             `(if ,(if (< ra rb) `(%lt ,va ,vb) `(%lt ,vb ,va))
+                  ,(convert escape rest)
                   (begin
                     ,@(save-frame!)
-                    ,ip)
-                  ,(convert escape rest)))
+                    ,ip)))
             ((and (flonum? ra) (flonum? rb))
              (set-type! a &flonum)
              (set-type! b &flonum)
-             `(if ,(if (< ra rb) `(%fl< ,vb ,va) `(%fl< ,va ,vb))
+             `(if ,(if (< ra rb) `(%fl< ,va ,vb) `(%fl< ,vb ,va))
+                  ,(convert escape rest)
                   (begin
                     ,@(save-frame!)
-                    ,ip)
-                  ,(convert escape rest)))
+                    ,ip)))
             (else
              (debug 2 "ir:convert < ~a ~a~%" ra rb)
              (escape #f)))))
@@ -803,11 +803,6 @@
 
   (let ((cps (and scm (compile scm #:from 'scheme #:to 'cps2))))
     (set! cps (and cps (body-fun cps)))
-    ;; Tried `infer-type' from (language cps2 types), but realized that it does
-    ;; not understand CPS primitives for native code.
-    ;;
-    ;; (debug 2 ";; infer-type: ~a~%"
-    ;;        (intmap-fold acons (infer-types cps 0) '()))
     cps))
 
 (define (trace->cps trace)

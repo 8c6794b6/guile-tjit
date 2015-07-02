@@ -294,9 +294,9 @@
   (cond
    ((constant? addr)
     (jit-prepare)
-    (jit-pushargr reg-thread)              ; thread
+    (jit-pushargr reg-thread)           ; thread
     (jit-ldxi r0 fp vp->fp-offset)
-    (jit-pushargr r0)                      ; vp->fp
+    (jit-pushargr r0)         ; vp->fp
     ;; (jit-pushargi %null-pointer)        ; registers
     (jit-movi r0 (constant addr))
     (jit-callr r0))
@@ -309,61 +309,74 @@
 ;;;
 
 (define-branching-prim (%guard-fx asm (int obj))
-  (cond
-   ((gpr? obj)
-    (jump (scm-inump (gpr obj)) (out-label asm)))
-   ((memory? obj)
-    (jit-ldxi r0 fp (moffs asm obj))
-    (jump (scm-inump r0) (out-label asm)))))
+  (let ((next (jit-forward))
+        (out (out-label asm)))
+    (cond
+     ((gpr? obj)
+      (jump (scm-inump (gpr obj)) next))
+     ((memory? obj)
+      (memory-ref asm r0 obj)
+      (jump (scm-inump r0) next))
+     (else
+      (error "%guard-fx" obj)))
+    (jump out)
+    (jit-link next)))
 
 (define-branching-prim (%eq asm (int a) (int b))
-  (let ((out (out-label asm)))
+  (let ((out (out-label asm))
+        (next (jit-forward)))
     (cond
      ((and (gpr? a) (constant? b))
-      (jump (jit-bnei (gpr a) (constant b)) out))
+      (jump (jit-beqi (gpr a) (constant b)) next))
      ((and (gpr? a) (gpr? b))
-      (jump (jit-bner (gpr a) (gpr b)) out))
+      (jump (jit-beqr (gpr a) (gpr b)) next))
      ((and (memory? a) (gpr? b))
-      (jit-ldxi r0 fp (moffs asm a))
-      (jump (jit-bner r0 (gpr b)) out))
+      (memory-ref asm r0 a)
+      (jump (jit-beqr r0 (gpr b)) next))
      ((and (memory? a) (memory? b))
-      (jit-ldxi r0 fp (moffs asm a))
-      (jit-ldxi r1 fp (moffs asm b))
-      (jump (jit-bner r0 r1) out))
+      (memory-ref asm r0 a)
+      (memory-ref asm r1 b)
+      (jump (jit-beqr r0 r1) (next)))
      (else
-      (error "%eq" a b)))))
+      (error "%eq" a b)))
+    (jump out)
+    (jit-link next)))
 
-(define-branching-prim (%fx< asm (int a) (int b))
-  (let ((label (out-label asm)))
+(define-branching-prim (%lt asm (int a) (int b))
+  (let ((out (out-label asm))
+        (next (jit-forward)))
     (cond
      ((and (constant? a) (gpr? b))
-      (jump (jit-blti (gpr b) (constant a)) label))
+      (jit-movi r0 (constant a))
+      (jump (jit-bltr r0 (gpr b)) next))
      ((and (constant? a) (memory? b))
-      (jit-ldxi r0 fp (moffs asm b))
-      (jump (jit-blti r0 (constant a)) label))
+      (jit-movi r0 (constant a))
+      (memory-ref asm r1 b)
+      (jump (jit-bltr r0 r1) next))
 
      ((and (gpr? a) (constant? b))
-      (jit-movi r0 (constant b))
-      (jump (jit-bltr r0 (gpr a)) label))
+      (jump (jit-blti (gpr a) (constant b)) next))
      ((and (gpr? a) (gpr? b))
-      (jump (jit-bltr (gpr b) (gpr a)) label))
+      (jump (jit-bltr (gpr a) (gpr b)) next))
      ((and (gpr? a) (memory? b))
-      (jit-ldxi r0 fp (moffs asm b))
-      (jump (jit-bltr r0 (gpr a)) label))
+      (memory-ref r0 fp b)
+      (jump (jit-bltr (gpr a) r0) next))
 
      ((and (memory? a) (constant? b))
-      (jit-ldxi r0 fp (moffs asm a))
-      (jit-movi r1 (constant b))
-      (jump (jit-bltr r1 r0) label))
+      (memory-ref asm r0 a)
+      (jump (jit-blti r0 (constant b)) next))
      ((and (memory? a) (gpr? b))
-      (jit-ldxi r0 fp (moffs asm a))
-      (jump (jit-bltr r0 (gpr a)) label))
+      (memory-ref asm r0 a)
+      (jump (jit-bltr r0 (gpr a)) next))
      ((and (memory? a) (memory? b))
-      (jit-ldxi r0 fp (moffs asm a))
-      (jit-ldxi r1 fp (moffs asm b))
-      (jump (jit-bltr r1 r0) label))
+      (memory-ref asm r0 a)
+      (memory-ref asm r1 b)
+      (jump (jit-bltr r0 r1) next))
+
      (else
-      (error "%fx<" a b)))))
+      (error "%lt" a b)))
+    (jump out)
+    (jit-link next)))
 
 (define-prim (%fxadd asm (int dst) (int a) (int b))
   (cond
@@ -521,6 +534,7 @@
    (else
     (error "%lsh" dst a b))))
 
+
 ;;;
 ;;; Floating point
 ;;;
@@ -568,39 +582,46 @@
     (error "*** %scm-from-double: ~a ~a~%" dst src))))
 
 (define-branching-prim (%guard-fl asm (int obj))
- (cond
-  ((gpr? obj)
-   (let ((fail (jit-forward)))
-     (jump (scm-imp (gpr obj)) fail)
-     (scm-cell-type r0 (gpr obj))
-     (scm-typ16 r0 r0)
-     (jump (scm-realp r0) (out-label asm))
-     (jit-link fail)))
-  ((memory? obj)
-   (let ((fail (jit-forward)))
-     (memory-ref asm r0 obj)
-     (jump (scm-imp r0) fail)
-     (scm-cell-type r0 r0)
-     (scm-typ16 r0 r0)
-     (jump (scm-realp r0) (out-label asm))
-     (jit-link fail)))
-  (else
-   (error "%guard-fl~%" obj))))
+  ;;
+  ;; XXX: Make low level instructions to load cell object, and to compare
+  ;; typ16. Then rewrite this guard using thos instructions.
+  ;;
+  (let ((out (out-label asm))
+        (next (jit-forward)))
+    (cond
+     ((gpr? obj)
+      (jump (scm-imp (gpr obj)) out)
+      (scm-cell-type r0 (gpr obj))
+      (scm-typ16 r0 r0)
+      (jump (scm-realp r0) next))
+     ((memory? obj)
+      (memory-ref asm r0 obj)
+      (jump (scm-imp r0) out)
+      (scm-cell-type r0 r0)
+      (scm-typ16 r0 r0)
+      (jump (scm-realp r0) next))
+     (else
+      (error "%guard-fl~%" obj)))
+    (jump out)
+    (jit-link next)))
 
 (define-branching-prim (%fl< asm (double a) (double b))
-  (let ((label (out-label asm)))
+  (let ((out (out-label asm))
+        (next (jit-forward)))
     (cond
      ((and (constant? a) (fpr? b))
-      (jump (jit-blti-d (fpr b) (constant a)) label))
+      (jit-movi-d f0 (constant a))
+      (jump (jit-bltr-d f0 (fpr b)) next))
 
      ((and (fpr? a) (constant? b))
-      (jit-movi-d f0 (constant b))
-      (jump (jit-bltr-d f0 (fpr a)) label))
+      (jump (jit-blti-d (fpr a) (constant b)) next))
      ((and (fpr? a) (fpr? b))
-      (jump (jit-bltr-d (fpr b) (fpr a)) label))
+      (jump (jit-bltr-d (fpr a) (fpr b)) next))
 
      (else
-      (error "%fl<" a b)))))
+      (error "%fl<" a b)))
+    (jump out)
+    (jit-link next)))
 
 (define-prim (%fladd asm (double dst) (double a) (double b))
   (cond
@@ -646,7 +667,8 @@
 ;;; Lexical binding instructions
 ;;;
 
-;;; XXX: Find out a way to tag the value inside a box on guard failure.
+;;; XXX: Reconsider how to manage `box', `box-ref', and `box-set!'. Boxing back
+;;; to tagged value every time will make the loop slow.
 
 (define-prim (%box-ref asm (int dst) (int src))
   (cond
@@ -673,6 +695,8 @@
 
 (define-prim (%box-set! asm (int idx) (int src))
   (cond
+   ((and (constant? idx) (gpr? src))
+    (jit-sti (imm (+ (ref-value idx) %word-size)) (gpr src)))
    ((and (gpr? idx) (gpr? src))
     (jit-stxi (imm %word-size) (gpr idx) (gpr src)))
    ((and (gpr? idx) (memory? src))
@@ -693,6 +717,9 @@
 ;;;
 ;;; Frame instructions
 ;;;
+
+;;; XXX: Perhaps remove or modify these instructions, manage side exit and
+;;; snapshot data somewhere else.
 
 (define-prim (%frame-ref asm (int dst) (void idx))
   (cond
@@ -800,13 +827,14 @@
       (($ $kfun _ _ _ _ knext)
        (assemble-cont cps exp br-label loop-label knext))
 
-      (($ $kargs _ syms ($ $continue knext _ ($ $branch kt next-exp)))
+      (($ $kargs _ syms ($ $continue knext _ ($ $branch kt br-exp)))
        (let ((br-label (jit-forward))
              (loop-label (if (= k kstart) (jit-label) loop-label)))
          (when (= k kstart)
            (jit-note "loop" 0))
          (assemble-exp exp syms br-label)
-         (assemble-cont cps next-exp br-label loop-label kt)
+         (assemble-cont cps br-exp br-label loop-label kt)
+         (jit-link br-label)
          (assemble-cont cps #f #f loop-label knext)))
 
       (($ $kargs _ syms ($ $continue knext _ next-exp))
@@ -815,8 +843,6 @@
          (assemble-exp exp syms br-label)
          (maybe-move next-exp initial-args)
          (jump loop-label)
-         (when (and br-label (jit-forward-p br-label))
-           (jit-link br-label))
          #f)
         (else
          (assemble-exp exp syms br-label)
@@ -827,8 +853,6 @@
 
       (($ $ktail)
        (assemble-exp exp '() br-label)
-       (when (and br-label (jit-forward-p br-label))
-         (jit-link br-label))
        #f)))
 
   (define (assemble-exp exp dst label)
