@@ -417,9 +417,7 @@
             ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
-             `(if ,(if invert?
-                       `(not (%eq ,va ,vb))
-                       `(%eq ,va ,vb))
+             `(if ,(if (= ra rb) `(not (%eq ,va ,vb)) `(%eq ,va ,vb))
                   (begin
                     ,@(save-frame!)
                     ,ip)
@@ -437,7 +435,7 @@
             ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
-             `(if ,(if invert? `(%fx< ,vb ,va) `(%fx< ,va ,vb))
+             `(if ,(if (< ra rb) `(%fx< ,vb ,va) `(%fx< ,va ,vb))
                   (begin
                     ,@(save-frame!)
                     ,ip)
@@ -445,7 +443,7 @@
             ((and (flonum? ra) (flonum? rb))
              (set-type! a &flonum)
              (set-type! b &flonum)
-             `(if ,(if invert? `(%fl< ,vb ,va) `(%fl< ,va ,vb))
+             `(if ,(if (< ra rb) `(%fl< ,vb ,va) `(%fl< ,va ,vb))
                   (begin
                     ,@(save-frame!)
                     ,ip)

@@ -772,7 +772,7 @@
                     (jit-stxi (moffs dst) fp r0))
 
                    (else
-                    (debug 2 "*** maybe-move:" dst src)))))))
+                    (debug 2 "*** maybe-move: ~a ~a~%" dst src)))))))
           old-args new-args)))))
 
   (define (assemble-cont cps exp br-label loop-label k)
