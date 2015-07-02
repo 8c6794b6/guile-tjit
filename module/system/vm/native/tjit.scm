@@ -61,12 +61,12 @@
         (match envs
           ((env . envs)
            (let-values (((len elt) (disassemble-one bytecode offset)))
+             ;; Replace with vm-tjit specific `native-call' op when
+             ;; native code exists in recorded trace.
              (match env
-               ((ip #f . local)
+               ((ip #f local)
                 (lp (cons (cons elt env) acc) (+ offset len) envs))
-               ;; Replace with vm-tjit specific `native-call' op when
-               ;; native code exists in recorded trace.
-               ((ip bv . local)
+               ((ip bv local)
                 (let* ((addr (pointer-address (bytevector->pointer bv)))
                        (op `(native-call ,addr)))
                   (lp (cons (cons op env) acc) (+ offset len) envs))))))

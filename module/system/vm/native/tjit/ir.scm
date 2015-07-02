@@ -169,7 +169,7 @@
 
   (define (acc st ops)
     (match ops
-      (((op ip bv . locals) . rest)
+      (((op ip bv locals) . rest)
        (acc (acc-one st op) rest))
       (()
        st)))
@@ -417,7 +417,9 @@
             ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
-             `(if ,(if invert? `(not (%fx= ,va ,vb)) `(%fx= ,va ,vb))
+             `(if ,(if invert?
+                       `(not (%eq ,va ,vb))
+                       `(%eq ,va ,vb))
                   (begin
                     ,@(save-frame!)
                     ,ip)
@@ -732,7 +734,7 @@
 
     (define (convert escape traces)
       (match traces
-        (((op ip _ . locals) . rest)
+        (((op ip _ locals) . rest)
          (convert-one escape op ip locals rest))
         (()
          `(loop ,@(filter identity (vector->list vars))))))

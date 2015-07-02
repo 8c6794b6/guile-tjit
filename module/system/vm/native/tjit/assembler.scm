@@ -233,6 +233,10 @@
        (define (name asm arg ...)
          (let ((arg (env-ref asm arg))
                ...)
+           (let ((verbosity (lightning-verbosity)))
+             (when (and verbosity (<= 4 verbosity))
+               (jit-note (format #f "~a" `(name ,arg ...)) 0))
+             (debug 3 ";;; ~a~%" `(name ,arg ...)))
            <body>))
        (hashq-set! *simple-prim-arities* 'name (args-for-arity '(arg ...)))
        (hashq-set! *all-prims* 'name name)))))
@@ -249,10 +253,10 @@
        (define (name asm arg ...)
          (let ((arg (env-ref asm arg))
                ...)
-           ;; (let ((verbosity (lightning-verbosity)))
-           ;;   (when (and verbosity (<= 3 verbosity))
-           ;;     (jit-note (format #f "~a" `(name ,arg ...)) 0))
-           ;;   (debug 3 ";;; ~a~%" `(name ,arg ...)))
+           (let ((verbosity (lightning-verbosity)))
+             (when (and verbosity (<= 4 verbosity))
+               (jit-note (format #f "~a" `(name ,arg ...)) 0))
+             (debug 3 ";;; ~a~%" `(name ,arg ...)))
            <body>))
        (hashq-set! *branching-prim-arities* 'name (args-for-arity '(arg ...)))
        (hashq-set! *all-prims* 'name name)))))
@@ -293,9 +297,9 @@
   (cond
    ((constant? addr)
     (jit-prepare)
-    (jit-pushargr reg-thread)           ; thread
+    (jit-pushargr reg-thread)              ; thread
     (jit-ldxi r0 fp vp-offset)
-    (jit-pushargr r0)                   ; vp
+    (jit-pushargr r0)                      ; vp
     ;; (jit-pushargi %null-pointer)        ; registers
     ;; (jit-pushargi %null-pointer)        ; resume
     (jit-movi r0 (constant addr))
@@ -360,19 +364,22 @@
    (else
     (debug 2 "*** %from-fixnum: ~a ~a~%" dst src))))
 
-(define-branching-prim (%fx= asm (int a) (int b))
-  (cond
-   ((and (gpr? a) (gpr? b))
-    (jump (jit-bner (gpr a) (gpr b)) (out-label asm)))
-   ((and (memory? a) (gpr? b))
-    (jit-ldxi r0 fp (moffs asm a))
-    (jump (jit-bner r0 (gpr b)) (out-label asm)))
-   ((and (memory? a) (memory? b))
-    (jit-ldxi r0 fp (moffs asm a))
-    (jit-ldxi r1 fp (moffs asm b))
-    (jump (jit-bner r0 r1) (out-label asm)))
-   (else
-    (debug 2 "*** %fx=: ~a ~a~%" a b))))
+(define-branching-prim (%eq asm (int a) (int b))
+  (let ((out (out-label asm)))
+    (cond
+     ((and (gpr? a) (constant? b))
+      (jump (jit-bnei (gpr a) (constant b)) out))
+     ((and (gpr? a) (gpr? b))
+      (jump (jit-bner (gpr a) (gpr b)) out))
+     ((and (memory? a) (gpr? b))
+      (jit-ldxi r0 fp (moffs asm a))
+      (jump (jit-bner r0 (gpr b)) out))
+     ((and (memory? a) (memory? b))
+      (jit-ldxi r0 fp (moffs asm a))
+      (jit-ldxi r1 fp (moffs asm b))
+      (jump (jit-bner r0 r1) out))
+     (else
+      (debug 2 "*** %eq: ~a ~a~%" a b)))))
 
 (define-branching-prim (%fx< asm (int a) (int b))
   (let ((label (out-label asm)))
@@ -723,14 +730,12 @@
        (when (= (length old-args) (length new-args))
          (for-each
           (lambda (old new)
-            (debug 2 ";;; maybe-move: old=~a new=~a~%" old new)
             (when (not (eq? old new))
               (let ((dst (env-ref old))
                     (src (env-ref new)))
-                (debug 2 ";;; maybe-move: dst=~a src=~a~%" dst src)
                 (when (not (and (eq? (ref-type dst) (ref-type src))
                                 (eq? (ref-value dst) (ref-value src))))
-                  (debug 2 ";;; maybe-move: mov ~a ~a~%" dst src)
+                  (debug 2 ";;; maybe-move: (mov ~a ~a)~%" dst src)
                   (cond
                    ((and (gpr? dst) (constant? src))
                     (jit-movi (gpr dst) (constant src)))
@@ -774,6 +779,7 @@
     ;;        (or (and (null? exp) exp)
     ;;            (and cps (unparse-cps exp))))
     (match (intmap-ref cps k)
+      ;; (_ "ASSMBLING PHASE IGNORED.") ; Temporary, for debuging CPS IR.
       (($ $kreceive _ knext)
        (assemble-cont cps exp br-label loop-label knext))
 
@@ -786,8 +792,10 @@
       (($ $kargs _ syms ($ $continue knext _ ($ $branch kt next-exp)))
        (let ((br-label (jit-forward))
              (loop-label (if (= k kstart) (jit-label) loop-label)))
-         (assemble-cont cps next-exp br-label loop-label kt)
+         (when (= k kstart)
+           (jit-note "loop" 0))
          (assemble-exp exp syms br-label)
+         (assemble-cont cps next-exp br-label loop-label kt)
          (assemble-cont cps #f #f loop-label knext)))
 
       (($ $kargs _ syms ($ $continue knext _ next-exp))
@@ -796,10 +804,14 @@
          (assemble-exp exp syms br-label)
          (maybe-move next-exp initial-args)
          (jump loop-label)
+         (when (and br-label (jit-forward-p br-label))
+           (jit-link br-label))
          #f)
         (else
          (assemble-exp exp syms br-label)
          (let ((loop-label (if (= k kstart) (jit-label) loop-label)))
+           (when (= k kstart)
+             (jit-note "loop" 0))
            (assemble-cont cps next-exp br-label loop-label knext)))))
 
       (($ $ktail)

@@ -215,14 +215,13 @@
 #  define TJIT_MERGE(n)                                         \
   if (tjit_state == SCM_TJIT_STATE_RECORD)                      \
     {                                                           \
-      SCM_TJIT_MERGE (&tjit_state, &loop_start, &loop_end,      \
-                      &tjit_bc_idx, tjit_bytecode, &tjit_ips);  \
+      SCM_TJIT_MERGE ();                                        \
     }
 #  define TJIT_ENTER(n)                                                 \
   do {                                                                  \
     if (n < 0 && tjit_state == SCM_TJIT_STATE_INTERPRET)                \
       {                                                                 \
-        SCM_TJIT_ENTER (&tjit_state, &loop_start, &loop_end, n);        \
+        SCM_TJIT_ENTER (n);                                             \
         NEXT (0);                                                       \
       }                                                                 \
     else                                                                \
@@ -516,10 +515,10 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   size_t tjit_state = SCM_TJIT_STATE_INTERPRET;
 
   /* Instruction pointer to start a loop. */
-  scm_t_uintptr loop_start = NULL;
+  scm_t_uintptr tjit_loop_start = NULL;
 
   /* Instruction pointer to end a loop. */
-  scm_t_uintptr loop_end = NULL;
+  scm_t_uintptr tjit_loop_end = NULL;
 
   /* Current index of traced bytecode. */
   scm_t_uint32 tjit_bc_idx = 0;
@@ -527,8 +526,8 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   /* Buffer to contain traced bytecode. */
   scm_t_uint32 *tjit_bytecode = scm_tjit_bytecode_buffer ();
 
-  /* List of traced IPs. */
-  SCM tjit_ips = SCM_EOL;
+  /* Scheme list to contain recorded trace. */
+  SCM tjit_traces = SCM_EOL;
 
 #endif
 
