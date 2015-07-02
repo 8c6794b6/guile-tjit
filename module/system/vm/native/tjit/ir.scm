@@ -179,6 +179,23 @@
 
   (intset-fold cons (acc empty-intset ops) '()))
 
+
+;;;
+;;; Auxiliary procedures for ANF compiler
+;;;
+
+(define (from-fixnum i)
+  `(let ((tmp (%lsh ,i 2)))
+     (%fxadd tmp 2)))
+
+(define (to-fixnum scm)
+  `(%rsh ,scm 2))
+
+
+;;;
+;;; Scheme ANF compiler
+;;;
+
 (define (trace->scm ops)
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
@@ -213,7 +230,7 @@
       `(let ((,var (%to-double ,var)))
          ,next-exp))
      ((eq? type &exact-integer)
-      `(let ((,var (%to-fixnum ,var)))
+      `(let ((,var ,(to-fixnum var)))
          ,next-exp))
      (else
       next-exp)))
@@ -278,7 +295,7 @@
                              (%frame-set! ,i ,var))
                           (lp (+ i 1))))
                    ((fixnum? local)
-                    (cons `(let ((,var (%from-fixnum ,var)))
+                    (cons `(let ((,var ,(from-fixnum var)))
                              (%frame-set! ,i ,var))
                           (lp (+ i 1))))
                    (else
@@ -301,7 +318,7 @@
                   (cond
                    ((fixnum? local)
                     `(let ((,var (%frame-ref ,i)))
-                       (let ((,var (%to-fixnum ,var)))
+                       (let ((,var ,(to-fixnum var)))
                          ,(lp (+ i 1)))))
                    (else
                     `(let ((,var (%frame-ref ,i)))
@@ -485,7 +502,7 @@
                  `(let ((,vdst (%to-double ,vdst)))
                     ,(convert escape rest)))
                 ((fixnum? rsrc)
-                 `(let ((,vdst (%to-fixnum ,vdst)))
+                 `(let ((,vdst ,(to-fixnum vdst)))
                     ,(convert escape rest)))
                 (else
                  (convert escape rest))))))
@@ -501,7 +518,7 @@
                 (%box-set! ,vdst ,vsrc)
                 ,(convert escape rest)))
             ((fixnum? rdst)
-             `(let ((,vsrc (%from-fixnum ,vsrc)))
+             `(let ((,vsrc ,(from-fixnum vsrc)))
                 (%box-set! ,vdst ,vsrc)
                 ,(convert escape rest)))
             (else

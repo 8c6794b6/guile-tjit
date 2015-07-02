@@ -298,7 +298,6 @@
     (jit-ldxi r0 fp vp->fp-offset)
     (jit-pushargr r0)                      ; vp->fp
     ;; (jit-pushargi %null-pointer)        ; registers
-    ;; (jit-pushargi %null-pointer)        ; resume
     (jit-movi r0 (constant addr))
     (jit-callr r0))
    (else
@@ -317,50 +316,6 @@
     (jit-ldxi r0 fp (moffs asm obj))
     (jump (scm-inump r0) (out-label asm)))))
 
-(define-prim (%to-fixnum asm (int dst) (int src))
-  (cond
-   ((and (gpr? dst) (gpr? src))
-    (scm-i-inumr (gpr dst) (gpr src)))
-   ((and (gpr? dst) (memory? src))
-    (memory-ref asm r0 src)
-    (scm-i-inumr r0 r0)
-    (jit-movr (gpr dst) r0))
-
-   ((and (memory? dst) (gpr? src))
-    (scm-i-inumr r0 (gpr src))
-    (jit-stxi (moffs asm dst) fp r0))
-   ((and (memory? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs asm src))
-    (scm-i-inumr r0 r0)
-    (jit-stxi (moffs asm dst) fp r0))
-
-   (else
-    (debug 2 "*** %to-fixnum: ~a ~a~%" dst src))))
-
-(define-prim (%from-fixnum asm (int dst) (int src))
-  (cond
-   ((and (gpr? dst) (constant? src))
-    (jit-movi (gpr dst) (scm-i-makinumi (ref-value src))))
-   ((and (gpr? dst) (gpr? src))
-    (scm-i-makinumr (gpr dst) (gpr src)))
-   ((and (gpr? dst) (memory? src))
-    (memory-ref asm r0 src)
-    (scm-i-makinumr (gpr dst) r0))
-
-   ((and (memory? dst) (constant? src))
-    (jit-movi r0 (scm-i-makinumi (ref-value src)))
-    (memory-set! asm dst r0))
-   ((and (memory? dst) (gpr? src))
-    (scm-i-makinumr r0 (gpr src))
-    (memory-set! asm dst r0))
-   ((and (memory? dst) (memory? src))
-    (memory-ref asm r0 src)
-    (scm-i-makinumr r0 r0)
-    (memory-set! asm dst r0))
-
-   (else
-    (debug 2 "*** %from-fixnum: ~a ~a~%" dst src))))
-
 (define-branching-prim (%eq asm (int a) (int b))
   (let ((out (out-label asm)))
     (cond
@@ -376,7 +331,7 @@
       (jit-ldxi r1 fp (moffs asm b))
       (jump (jit-bner r0 r1) out))
      (else
-      (debug 2 "*** %eq: ~a ~a~%" a b)))))
+      (error "%eq" a b)))))
 
 (define-branching-prim (%fx< asm (int a) (int b))
   (let ((label (out-label asm)))
@@ -408,7 +363,7 @@
       (jit-ldxi r1 fp (moffs asm b))
       (jump (jit-bltr r1 r0) label))
      (else
-      (debug 2 "*** %fx<: ~a ~a~%" a b)))))
+      (error "%fx<" a b)))))
 
 (define-prim (%fxadd asm (int dst) (int a) (int b))
   (cond
@@ -437,21 +392,35 @@
     ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
     )
 
+
+   ((and (memory? dst) (gpr? a) (constant? b))
+    (jit-addi r0 (gpr a) (constant b))
+    ;; (jit-subi r0 r0 (imm 2))
+    (memory-set! asm dst r0))
    ((and (memory? dst) (gpr? a) (gpr? b))
     (jit-ldxi r0 fp (moffs asm dst))
     (jit-addr r0 (gpr a) (gpr b))
-    ;; (jit-subi r0 r0 (imm 2))
-    (jit-stxi (moffs asm dst) fp r0))
-   ((and (memory? dst) (memory? a) (gpr? b))
-    (jit-ldxi r0 fp (moffs asm dst))
-    (jit-ldxi r1 fp (moffs asm a))
-    (jit-addr r0 r1 (gpr b))
     ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
    ((and (memory? dst) (gpr? a) (memory? b))
     (jit-ldxi r0 fp (moffs asm dst))
     (jit-ldxi r1 fp (moffs asm b))
     (jit-addr r0 (gpr a) r1)
+    ;; (jit-subi r0 r0 (imm 2))
+    (jit-stxi (moffs asm dst) fp r0))
+
+   ((and (memory? dst) (constant? a) (memory? b))
+    (memory-ref asm r0 b)
+    (jit-addi r0 r0 (constant a))
+    (memory-set! asm dst r0))
+   ((and (memory? dst) (memory? a) (constant? b))
+    (memory-ref asm r0 a)
+    (jit-addi r0 r0 (constant b))
+    (memory-set! asm dst r0))
+   ((and (memory? dst) (memory? a) (gpr? b))
+    (jit-ldxi r0 fp (moffs asm dst))
+    (jit-ldxi r1 fp (moffs asm a))
+    (jit-addr r0 r1 (gpr b))
     ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
    ((and (memory? dst) (memory? a) (memory? b))
@@ -462,7 +431,7 @@
     ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
    (else
-    (error "*** %fxadd: ~a ~a ~a~%" dst a b))))
+    (error "%fxadd" dst a b))))
 
 (define-prim (%fxadd1 asm (int dst) (int src))
   (cond
@@ -486,7 +455,7 @@
     (jit-addi r0 r0 (imm 1))
     (jit-stxi (moffs asm dst) fp r0))
    (else
-    (debug 2 "*** %fxadd1: ~a ~a~%" dst src))))
+    (error "%fxadd1" dst src))))
 
 (define-prim (%fxsub1 asm (int dst) (int src))
   (cond
@@ -508,8 +477,49 @@
     (jit-subi r0 r0 (imm 1))
     (jit-stxi (moffs asm dst) fp r0))
    (else
-    (debug 2 "*** %fxsub1: ~a ~a~%" dst src))))
+    (error "%fxsub1" dst src))))
 
+(define-prim (%rsh asm (int dst) (int a) (int b))
+  (cond
+   ((and (gpr? dst) (gpr? a) (gpr? b))
+    (jit-rshr (gpr dst) (gpr a) (gpr b)))
+   ((and (gpr? dst) (gpr? a) (constant? b))
+    (jit-rshi (gpr dst) (gpr a) (constant b)))
+   ((and (gpr? dst) (memory? a) (constant? b))
+    (memory-ref asm r0 a)
+    (jit-rshi (gpr dst) r0 (constant b)))
+
+   ((and (memory? dst) (gpr? a) (constant? b))
+    (jit-rshi r0 (gpr a) (constant b))
+    (memory-set! asm dst r0))
+   ((and (memory? dst) (memory? a) (constant? b))
+    (memory-ref asm r0 a)
+    (jit-rshi r0 r0 (constant b))
+    (memory-set! asm dst r0))
+   (else
+    (error "%rsh" dst a b))))
+
+(define-prim (%lsh asm (int dst) (int a) (int b))
+  (cond
+   ((and (gpr? dst) (constant? a) (constant? b))
+    (jit-movi (gpr dst) (imm (ash (ref-value a) (ref-value b)))))
+   ((and (gpr? dst) (gpr? a) (constant? b))
+    (jit-lshi (gpr dst) (gpr a) (constant b)))
+   ((and (gpr? dst) (gpr? a) (gpr? b))
+    (jit-lshr (gpr dst) (gpr a) (gpr b)))
+
+   ((and (memory? dst) (constant? a) (constant? b))
+    (jit-movi r0 (imm (ash (ref-value a) (ref-value b))))
+    (memory-set! asm dst r0))
+   ((and (memory? dst) (gpr? a) (constant? b))
+    (jit-lshi r0 (gpr a) (constant b))
+    (memory-set! asm dst r0))
+   ((and (memory? dst) (memory? a) (constant? b))
+    (memory-ref asm r0 a)
+    (jit-lshi r0 r0 (constant b))
+    (memory-set! asm dst r0))
+   (else
+    (error "%lsh" dst a b))))
 
 ;;;
 ;;; Floating point
@@ -530,7 +540,7 @@
     (scm-real-value f0 r0)
     (jit-stxi-d (moffs asm dst) fp f0))
    (else
-    (error "*** %to-double: ~a ~a~%" dst src))))
+    (error "%to-double" dst src))))
 
 (define-prim (%from-double asm (int dst) (double src))
   (cond
@@ -575,7 +585,7 @@
      (jump (scm-realp r0) (out-label asm))
      (jit-link fail)))
   (else
-   (error "*** %guard-fl: ~a~%" obj))))
+   (error "%guard-fl~%" obj))))
 
 (define-branching-prim (%fl< asm (double a) (double b))
   (let ((label (out-label asm)))
@@ -590,7 +600,7 @@
       (jump (jit-bltr-d (fpr b) (fpr a)) label))
 
      (else
-      (debug 2 "*** %fl<: ~a ~a~%" a b)))))
+      (error "%fl<" a b)))))
 
 (define-prim (%fladd asm (double dst) (double a) (double b))
   (cond
@@ -606,7 +616,7 @@
     (jit-addi-d f0 f0 (constant b))
     (jit-stxi-d (moffs asm dst) fp f0))
    (else
-    (debug 2 "*** %fladd: ~a ~a ~a~%" dst a b))))
+    (error "%fladd" dst a b))))
 
 (define-prim (%flsub asm (double dst) (double a) (double b))
   (cond
@@ -618,7 +628,7 @@
    ((and (fpr? dst) (fpr? a) (constant? b))
     (jit-subi-d (fpr dst) (fpr a) (constant b)))
    (else
-    (debug 2 "*** %flsub: ~a ~a ~a~%" dst a b))))
+    (error "%flsub" dst a b))))
 
 (define-prim (%flmul asm (double dst) (double a) (double b))
   (cond
@@ -629,7 +639,7 @@
    ((and (fpr? dst) (fpr? a) (fpr? b))
     (jit-mulr-d (fpr dst) (fpr a) (fpr b)))
    (else
-    (debug 2 "*** %flmul: ~a ~a ~a~%" dst a b))))
+    (error "%flmul" dst a b))))
 
 
 ;;;
@@ -659,7 +669,7 @@
     (jit-ldxi r0 r0 (imm %word-size))
     (jit-stxi (moffs asm dst) fp r0))
    (else
-    (debug 2 "*** %box-ref: ~a ~a~%" dst src))))
+    (error "%box-ref" dst src))))
 
 (define-prim (%box-set! asm (int idx) (int src))
   (cond
@@ -677,7 +687,7 @@
     (jit-ldxi r1 fp (moffs asm src))
     (jit-stxi (imm %word-size) r0 r1))
    (else
-    (debug 2 "*** %box-set!: ~a ~a~%" idx src))))
+    (error "%box-set!" idx src))))
 
 
 ;;;
@@ -694,7 +704,7 @@
     (local-ref r0 (ref-value idx))
     (jit-stxi (moffs asm dst) fp r0))
    (else
-    (debug 2 "*** %frame-ref: got ~a ~a~%" dst idx))))
+    (error "%frame-ref" dst idx))))
 
 (define-prim (%frame-set! asm (void idx) (int src))
   (cond
@@ -709,7 +719,7 @@
     (jit-ldxi r0 fp (moffs asm src))
     (local-set! (ref-value idx) r0))
    (else
-    (debug 2 "*** %frame-set!: ~a ~a~%" idx src))))
+    (error "%frame-set!" idx src))))
 
 
 ;;;

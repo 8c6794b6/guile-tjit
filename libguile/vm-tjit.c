@@ -79,7 +79,7 @@ static int trace_id = 1;
  */
 
 static inline SCM
-scm_compile_tjit (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM ip_ptr)
+tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM ip_ptr)
 {
   SCM result;
   SCM s_id, s_bytecode, s_bc_idx;
@@ -230,8 +230,7 @@ call_native (SCM code, scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers)
         SCM code;                                                       \
                                                                         \
         SYNC_IP ();                                                     \
-        code =                                                          \
-          scm_compile_tjit (tjit_bytecode, &tjit_bc_idx, tjit_traces);  \
+        code = tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces);        \
         CACHE_FP ();                                                    \
         ++trace_id;                                                     \
                                                                         \
