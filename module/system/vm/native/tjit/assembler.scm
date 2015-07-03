@@ -68,17 +68,6 @@
 (define-syntax-rule (scm-typ16 dst obj)
   (jit-andi dst obj (imm #xffff)))
 
-(define-syntax-rule (scm-i-inumr dst src)
-  (jit-rshi dst src (imm 2)))
-
-(define-syntax-rule (scm-i-makinumr dst src)
-  (begin
-    (jit-lshi dst src (imm 2))
-    (jit-addi dst dst (imm 2))))
-
-(define-syntax-rule (scm-i-makinumi n)
-  (imm (+ (ash n 2) 2)))
-
 (define-syntax-rule (scm-real-value dst src)
   (jit-ldxi-d dst src (imm (* 2 %word-size))))
 
@@ -404,7 +393,6 @@
     (jit-addr (gpr dst) r0 r1)
     ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
     )
-
 
    ((and (memory? dst) (gpr? a) (constant? b))
     (jit-addi r0 (gpr a) (constant b))

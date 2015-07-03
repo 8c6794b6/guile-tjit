@@ -42,17 +42,19 @@ TESTS = \
 	t-micro-flonum-02.scm \
 	t-micro-flonum-03.scm \
 	t-micro-twice.scm \
+	t-assign-01.scm \
 	t-box-01.scm \
 	t-box-02.scm \
-	t-side-exit-01.scm \
-	t-toplevel-box-01.scm \
 	t-call-01.scm \
 	t-call-02.scm \
 	t-call-03.scm \
+	t-escape-01.scm \
 	t-nest-01.scm \
 	t-nest-02.scm \
 	t-nest-03.scm \
-	t-nest-04.scm
+	t-nest-04.scm \
+	t-side-exit-01.scm \
+	t-toplevel-box-01.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
 

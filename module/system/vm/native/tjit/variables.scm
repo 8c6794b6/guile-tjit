@@ -313,22 +313,38 @@ MAX-VAR + 1 which contains register and memory information."
        loop-start-syms)
 
       ;; Assign loop end syms.
-      (for-each
-       (lambda (loop-end loop-start)
-         (cond
-          ((var-ref loop-end)
-           (values))                    ; Assigned already.
-          ((constant? (type loop-end))
-           (var-set! loop-end (type loop-end)))
-          ((loop-end-shareable? loop-start loop-end)
-           (var-set! loop-end (var-ref loop-start)))
-          ((gpr? loop-end)
-           (var-set! loop-end (next-gpr)))
-          ((fpr? loop-end)
-           (var-set! loop-end (next-fpr)))
-          (else
-           (error "resolve-variables failed in loop-end" loop-end))))
-       loop-end-syms loop-start-syms)
+      ;;
+      ;; Commented for now, need to do more analysis to detect the
+      ;; `shareable'-ness of variables at the end loop. A failing case was
+      ;; variables 8 and 11 in:
+      ;;
+      ;; 0010    (kargs (v0 v1) (8 9) (continue 11 (const 65)))
+      ;; 0011  > (kargs (val) (10) (continue 15 (branch 12 (primcall %lt 8 10))))
+      ;; 0012    (kargs () () (continue 13 (primcall %fxadd1 8)))
+      ;; 0013    (kargs (val) (11) (continue 14 (primcall %fxadd 9 8)))
+      ;; 0014    (kargs (val) (12) (continue 10 (values 11 12)))
+      ;;
+      ;; In above case, 8 and 11 could not be shared, because of the `add' in
+      ;; line 0013. If 8 and 11 were shared, `add' in 0013 will add the
+      ;; incremented value which would be stored in variable 11, which is
+      ;; different from the original value in variable 8.
+
+      ;; (for-each
+      ;;  (lambda (loop-end loop-start)
+      ;;    (cond
+      ;;     ((var-ref loop-end)
+      ;;      (values))                    ; Assigned already.
+      ;;     ((constant? (type loop-end))
+      ;;      (var-set! loop-end (type loop-end)))
+      ;;     ((loop-end-shareable? loop-start loop-end)
+      ;;      (var-set! loop-end (var-ref loop-start)))
+      ;;     ((gpr? loop-end)
+      ;;      (var-set! loop-end (next-gpr)))
+      ;;     ((fpr? loop-end)
+      ;;      (var-set! loop-end (next-fpr)))
+      ;;     (else
+      ;;      (error "resolve-variables failed in loop-end" loop-end))))
+      ;;  loop-end-syms loop-start-syms)
 
       ;; Assign to variables inside loop body.
       (let lp ((i *loop-min-sym*))

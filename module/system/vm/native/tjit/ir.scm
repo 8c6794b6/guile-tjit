@@ -184,8 +184,8 @@
 ;;; Auxiliary procedures for ANF compiler
 ;;;
 
-(define (from-fixnum i)
-  `(let ((tmp (%lsh ,i 2)))
+(define (from-fixnum num)
+  `(let ((tmp (%lsh ,num 2)))
      (%fxadd tmp 2)))
 
 (define (to-fixnum scm)
@@ -460,7 +460,7 @@
             ((and (flonum? ra) (flonum? rb))
              (set-type! a &flonum)
              (set-type! b &flonum)
-             `(if ,(if (< ra rb) `(%fl< ,va ,vb) `(%fl< ,vb ,va))
+             `(if ,(if (< ra rb) `(%fl< ,va ,vb) `(not (%fl< ,va ,vb)))
                   ,(convert escape rest)
                   (begin
                     ,@(save-frame!)
@@ -477,10 +477,8 @@
          (let ((vdst (var-ref dst))
                (vsrc (var-ref src)))
            (cond
-            ((flonum? (local-ref src))
-             (set-type! src &flonum))
-            ((fixnum? (local-ref src))
-             (set-type! src &exact-integer)))
+            ((flonum? (local-ref src)) (set-type! src &flonum))
+            ((fixnum? (local-ref src)) (set-type! src &exact-integer)))
            `(let ((,vdst ,vsrc))
               ,(convert escape rest))))
 
