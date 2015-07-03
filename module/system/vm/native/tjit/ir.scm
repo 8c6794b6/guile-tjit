@@ -186,7 +186,7 @@
 
 (define (from-fixnum num)
   `(let ((tmp (%lsh ,num 2)))
-     (%fxadd tmp 2)))
+     (%add tmp 2)))
 
 (define (to-fixnum scm)
   `(%rsh ,scm 2))
@@ -463,7 +463,7 @@
             ((and (flonum? ra) (flonum? rb))
              (set-type! a &flonum)
              (set-type! b &flonum)
-             `(if ,(if (< ra rb) `(%fl< ,va ,vb) `(not (%fl< ,va ,vb)))
+             `(if ,(if (< ra rb) `(%flt ,va ,vb) `(not (%flt ,va ,vb)))
                   ,(convert escape rest)
                   (begin
                     ,@(save-frame!)
@@ -610,12 +610,12 @@
             ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
-             `(let ((,vdst (%fxadd ,va ,vb)))
+             `(let ((,vdst (%add ,va ,vb)))
                 ,(convert escape rest)))
             ((and (flonum? ra) (flonum? rb))
              (set-type! a &flonum)
              (set-type! b &flonum)
-             `(let ((,vdst (%fladd ,va ,vb)))
+             `(let ((,vdst (%fadd ,va ,vb)))
                 ,(convert escape rest)))
             (else
              (debug 2 "ir:convert add ~a ~a ~a~%" rdst ra rb)
@@ -629,7 +629,7 @@
            (cond
             ((fixnum? rsrc)
              (set-type! src &exact-integer)
-             `(let ((,vdst (%fxadd1 ,vsrc)))
+             `(let ((,vdst (%add ,vsrc 1)))
                 ,(convert escape rest)))
             (else
              (debug 2 "ir:convert add1 ~a ~a" rdst rsrc)
@@ -646,12 +646,12 @@
             ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
-             `(let ((,vdst (%fxsub ,va ,vb)))
+             `(let ((,vdst (%sub ,va ,vb)))
                 ,(convert escape rest)))
             ((and (flonum? ra) (flonum? rb))
              (set-type! a &flonum)
              (set-type! b &flonum)
-             `(let ((,vdst (%flsub ,va ,vb)))
+             `(let ((,vdst (%fsub ,va ,vb)))
                 ,(convert escape rest)))
             (else
              (debug 2 "ir:convert sub ~a ~a ~a~%" rdst ra rb)
@@ -665,7 +665,7 @@
            (cond
             ((fixnum? rsrc)
              (set-type! src &exact-integer)
-             `(let ((,vdst (%fxsub1 ,vsrc)))
+             `(let ((,vdst (%sub ,vsrc 1)))
                 ,(convert escape rest)))
             (else
              (debug 2 "ir:convert sub1 ~a ~a~%" rdst rsrc)
@@ -682,7 +682,7 @@
             ((and (flonum? ra) (flonum? rb))
              (set-type! a &flonum)
              (set-type! b &flonum)
-             `(let ((,vdst (%flmul ,va ,vb)))
+             `(let ((,vdst (%fmul ,va ,vb)))
                 ,(convert escape rest)))
             (else
              (debug 2 "*** ir:convert: NYI mul ~a ~a ~a~%" rdst ra rb)

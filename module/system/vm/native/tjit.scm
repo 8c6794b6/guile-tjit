@@ -119,7 +119,7 @@
       (when (<= 2 verbosity)
         (let ((lowest (lowest-level ip-x-ops)))
           (format #t ";;; bytecode: ~a:~a:~a~%"
-                  (length ip-x-ops) lowest locals)
+                  (length ip-x-ops) lowest (sort locals <))
           (let lp ((traces ip-x-ops) (level (- lowest)))
             (match traces
               (((op ip bv locals) . traces)

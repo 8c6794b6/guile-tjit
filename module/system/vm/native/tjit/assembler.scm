@@ -93,6 +93,30 @@
 
 
 ;;;
+;;; Assembler state
+;;;
+
+(define-record-type <asm>
+  (%make-asm %env %fp-offset %out-label %loop-label)
+  asm?
+  (%env asm-env set-asm-env!)
+  (%fp-offset fp-offset set-asm-fp-offset!)
+  (%out-label out-label set-asm-out-label!)
+  (%loop-label loop-label set-asm-loop-label!))
+
+(define (make-asm env fp-offset out-label)
+  (%make-asm env fp-offset out-label #f))
+
+(define (env-ref asm i)
+  (vector-ref (asm-env asm) i))
+
+(define (moffs asm r)
+  (make-offset-pointer (fp-offset asm) (* (ref-value r) %word-size)))
+
+(define-syntax-rule (constant-word i)
+  (imm (* (ref-value i) %word-size)))
+
+;;;
 ;;; Auxiliary
 ;;;
 
@@ -173,28 +197,6 @@
 
 
 ;;;
-;;; Assembler state
-;;;
-
-(define-record-type <asm>
-  (%make-asm %env %fp-offset %out-label %loop-label)
-  asm?
-  (%env asm-env set-asm-env!)
-  (%fp-offset fp-offset set-asm-fp-offset!)
-  (%out-label out-label set-asm-out-label!)
-  (%loop-label loop-label set-asm-loop-label!))
-
-(define (make-asm env fp-offset out-label)
-  (%make-asm env fp-offset out-label #f))
-
-(define (env-ref asm i)
-  (vector-ref (asm-env asm) i))
-
-(define (moffs asm r)
-  (make-offset-pointer (fp-offset asm) (* (ref-value r) %word-size)))
-
-
-;;;
 ;;; Primitives
 ;;;
 
@@ -231,7 +233,7 @@
            (let ((verbosity (lightning-verbosity)))
              (when (and verbosity (<= 4 verbosity))
                (jit-note (format #f "~a" `(name ,arg ...)) 0))
-             (debug 3 ";;; ~a~%" `(name ,arg ...)))
+             (debug 3 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
            <body>))
        (hashq-set! *simple-prim-arities* 'name (args-for-arity '(arg ...)))
        (hashq-set! *all-prims* 'name name)))))
@@ -251,11 +253,10 @@
            (let ((verbosity (lightning-verbosity)))
              (when (and verbosity (<= 4 verbosity))
                (jit-note (format #f "~a" `(name ,arg ...)) 0))
-             (debug 3 ";;; ~a~%" `(name ,arg ...)))
+             (debug 3 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
            <body>))
        (hashq-set! *branching-prim-arities* 'name (args-for-arity '(arg ...)))
        (hashq-set! *all-prims* 'name name)))))
-
 
 (define (initialize-tjit-primitives)
   ;; Extending (@@ (language cps primitives) branching-primitives?) procedure
@@ -376,7 +377,7 @@
     (jump out)
     (jit-link next)))
 
-(define-prim (%fxadd asm (int dst) (int a) (int b))
+(define-prim (%add asm (int dst) (int a) (int b))
   (cond
    ((and (gpr? dst) (gpr? a) (constant? b))
     (jit-addi (gpr dst) (gpr a) (constant b))
@@ -441,53 +442,26 @@
     ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
    (else
-    (error "%fxadd" dst a b))))
+    (error "%add" dst a b))))
 
-(define-prim (%fxadd1 asm (int dst) (int src))
+(define-prim (%sub asm (int dst) (int a) (int b))
   (cond
-   ((and (gpr? dst) (gpr? src))
-    ;; (jit-addi (gpr dst) (gpr src) *inum-step*)
-    (jit-addi (gpr dst) (gpr src) (imm 1))
-    )
-   ((and (gpr? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs asm src))
-    (jit-addi (gpr dst) r0 (imm 1))
-    ;; (jit-addi (gpr dst) r0 *inum-step*)
-    )
+   ((and (gpr? dst) (gpr? a) (constant? b))
+    (jit-subi (gpr dst) (gpr a) (constant b)))
+   ((and (gpr? dst) (memory? a) (constant? b))
+    (memory-ref asm r0 a)
+    (jit-subi (gpr dst) r0 (constant b)))
 
-   ((and (memory? dst) (gpr? src))
-    ;; (jit-addi r0 (gpr src) *inum-step*)
-    (jit-addi r0 (gpr src) (imm 1))
-    (jit-stxi (moffs asm dst) fp r0))
-   ((and (memory? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs asm src))
-    ;; (jit-addi r0 r0 *inum-step*)
-    (jit-addi r0 r0 (imm 1))
-    (jit-stxi (moffs asm dst) fp r0))
+   ((and (memory? dst) (gpr? a) (constant? b))
+    (jit-subi r0 (gpr a) (constant b))
+    (memory-set! asm dst r0))
+   ((and (memory? dst) (memory? a) (constant? b))
+    (memory-ref asm r0 a)
+    (jit-subi r0 r0 (constant b))
+    (memory-set! asm dst r0))
+
    (else
-    (error "%fxadd1" dst src))))
-
-(define-prim (%fxsub1 asm (int dst) (int src))
-  (cond
-   ((and (gpr? dst) (gpr? src))
-    ;; (jit-subi (gpr dst) (gpr src) *inum-step*)
-    (jit-subi (gpr dst) (gpr src) (imm 1)))
-   ((and (gpr? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs asm src))
-    ;; (jit-subi (gpr dst) r0 *inum-step*)
-    (jit-subi (gpr dst) r0 (imm 1)))
-
-   ((and (memory? dst) (gpr? src))
-    ;; (jit-subi r0 (gpr src) *inum-step*)
-    (jit-subi r0 (gpr src) (imm 1))
-    (jit-stxi (moffs asm dst) fp r0))
-   ((and (memory? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs asm src))
-    ;; (jit-subi r0 r0 *inum-step*)
-    (jit-subi r0 r0 (imm 1))
-    (jit-stxi (moffs asm dst) fp r0))
-   (else
-    (error "%fxsub1" dst src))))
+    (error "%sub" dst a b))))
 
 (define-prim (%rsh asm (int dst) (int a) (int b))
   (cond
@@ -536,6 +510,8 @@
 ;;; Floating point
 ;;;
 
+
+;;; XXX: Make lower level operation and rewrite.
 (define-prim (%from-double asm (int dst) (double src))
   (cond
    ((and (gpr? dst) (constant? src))
@@ -561,11 +537,9 @@
    (else
     (error "*** %scm-from-double: ~a ~a~%" dst src))))
 
+;;; XXX: Make low level instructions to load cell object, and to compare
+;;; typ16. Then rewrite this guard using thos instructions.
 (define-branching-prim (%guard-fl asm (int obj))
-  ;;
-  ;; XXX: Make low level instructions to load cell object, and to compare
-  ;; typ16. Then rewrite this guard using thos instructions.
-  ;;
   (let ((out (out-label asm))
         (next (jit-forward)))
     (cond
@@ -581,11 +555,11 @@
       (scm-typ16 r0 r0)
       (jump (scm-realp r0) next))
      (else
-      (error "%guard-fl~%" obj)))
+      (error "%guard-fl" obj)))
     (jump out)
     (jit-link next)))
 
-(define-branching-prim (%fl< asm (double a) (double b))
+(define-branching-prim (%flt asm (double a) (double b))
   (let ((out (out-label asm))
         (next (jit-forward)))
     (cond
@@ -599,11 +573,11 @@
       (jump (jit-bltr-d (fpr a) (fpr b)) next))
 
      (else
-      (error "%fl<" a b)))
+      (error "%flt" a b)))
     (jump out)
     (jit-link next)))
 
-(define-prim (%fladd asm (double dst) (double a) (double b))
+(define-prim (%fadd asm (double dst) (double a) (double b))
   (cond
    ((and (fpr? dst) (constant? a) (fpr? b))
     (jit-addi-d (fpr dst) (fpr b) (constant a)))
@@ -621,9 +595,9 @@
     (jit-addr-d f0 f0 (fpr b))
     (memory-set!/fpr asm dst f0))
    (else
-    (error "%fladd" dst a b))))
+    (error "%fadd" dst a b))))
 
-(define-prim (%flsub asm (double dst) (double a) (double b))
+(define-prim (%fsub asm (double dst) (double a) (double b))
   (cond
    ((and (fpr? dst) (fpr? a) (fpr? b))
     (jit-subr-d (fpr dst) (fpr a) (fpr b)))
@@ -633,9 +607,9 @@
    ((and (fpr? dst) (fpr? a) (constant? b))
     (jit-subi-d (fpr dst) (fpr a) (constant b)))
    (else
-    (error "%flsub" dst a b))))
+    (error "%fsub" dst a b))))
 
-(define-prim (%flmul asm (double dst) (double a) (double b))
+(define-prim (%fmul asm (double dst) (double a) (double b))
   (cond
    ((and (fpr? dst) (constant? a) (fpr? b))
     (jit-muli-d (fpr dst) (fpr b) (constant a)))
@@ -652,7 +626,7 @@
     (jit-mulr-d f0 f0 (fpr b))
     (memory-set!/fpr asm dst f0))
    (else
-    (error "%flmul" dst a b))))
+    (error "%fmul" dst a b))))
 
 
 ;;;
@@ -705,21 +679,24 @@
    (else
     (error "%box-set!" idx src))))
 
+
 ;;;
 ;;; Load and store
 ;;;
 
+
+
 (define-prim (%cell-object-f asm (double dst) (int src) (int idx))
   (cond
    ((and (fpr? dst) (gpr? src) (constant? idx))
-    (jit-ldxi-d (fpr dst) (gpr src) (imm (* (ref-value idx) %word-size))))
+    (jit-ldxi-d (fpr dst) (gpr src) (constant-word idx)))
    ((and (fpr? dst) (memory? src) (constant? idx))
     (memory-ref asm r0 src)
-    (jit-ldxi-d (fpr dst) r0 (imm (* (ref-value idx) %word-size))))
+    (jit-ldxi-d (fpr dst) r0 (constant-word idx)))
 
    ((and (memory? dst) (memory? src) (constant? idx))
     (memory-ref asm r0 src)
-    (jit-ldxi-d f0 r0 (imm (* (ref-value idx) %word-size)))
+    (jit-ldxi-d f0 r0 (constant-word idx))
     (memory-set!/fpr asm dst f0))
 
    (else
@@ -821,7 +798,7 @@
                     (src (env-ref new)))
                 (when (not (and (eq? (ref-type dst) (ref-type src))
                                 (eq? (ref-value dst) (ref-value src))))
-                  (debug 2 ";;; maybe-move: (move ~a ~a)~%" dst src)
+                  (debug 3 ";;; (%mov         ~a ~a)~%" dst src)
                   (move dst src)))))
           old-args new-args)))))
 
@@ -844,6 +821,8 @@
        (let ((br-label (jit-forward))
              (loop-label (if (= k kstart) (jit-label) loop-label)))
          (when (= k kstart)
+           (debug 3 ";;; loop:~%"))
+         (when (= k kstart)
            (jit-note "loop" 0))
          (assemble-exp exp syms br-label)
          (assemble-cont cps br-exp br-label loop-label kt)
@@ -855,13 +834,15 @@
         ((< knext k)                    ; Jump to the loop start.
          (assemble-exp exp syms br-label)
          (maybe-move next-exp initial-args)
+         (debug 3 ";;; -> loop~%")
          (jump loop-label)
          #f)
         (else
          (assemble-exp exp syms br-label)
          (let ((loop-label (if (= k kstart) (jit-label) loop-label)))
            (when (= k kstart)
-             (jit-note "loop" 0))
+             (jit-note "loop" 0)
+             (debug 3 ";;; loop:~%"))
            (assemble-cont cps next-exp br-label loop-label knext)))))
 
       (($ $ktail)
