@@ -155,12 +155,26 @@
    (else
     (jit-ldxi dst fp (moffs asm src)))))
 
+(define-syntax-rule (memory-ref/fpr asm dst src)
+  (cond
+   ((not (memory? src))
+    (error "memory-ref/fpr: not a memory" src))
+   (else
+    (jit-ldxi-d dst fp (moffs asm src)))))
+
 (define-syntax-rule (memory-set! asm dst src)
   (cond
    ((not (memory? dst))
     (error "memory-set!: not a memory" dst))
    (else
     (jit-stxi (moffs asm dst) fp src))))
+
+(define-syntax-rule (memory-set!/fpr asm dst src)
+  (cond
+   ((not (memory? dst))
+    (error "memory-set!/fpr: not a memory" dst))
+   (else
+    (jit-stxi-d (moffs asm dst) fp src))))
 
 
 ;;;
@@ -624,6 +638,10 @@
     (jit-ldxi-d f0 fp (moffs asm a))
     (jit-addi-d f0 f0 (constant b))
     (jit-stxi-d (moffs asm dst) fp f0))
+   ((and (memory? dst) (memory? a) (fpr? b))
+    (memory-ref/fpr asm f0 a)
+    (jit-addr-d f0 f0 (fpr b))
+    (memory-set!/fpr asm dst f0))
    (else
     (error "%fladd" dst a b))))
 
@@ -647,6 +665,14 @@
     (jit-muli-d (fpr dst) (fpr a) (constant b)))
    ((and (fpr? dst) (fpr? a) (fpr? b))
     (jit-mulr-d (fpr dst) (fpr a) (fpr b)))
+
+   ((and (memory? dst) (constant? a) (fpr? b))
+    (jit-muli-d f0 (fpr b) (constant a))
+    (memory-set!/fpr asm dst f0))
+   ((and (memory? dst) (memory? a) (fpr? b))
+    (memory-ref/fpr asm f0 a)
+    (jit-mulr-d f0 f0 (fpr b))
+    (memory-set!/fpr asm dst f0))
    (else
     (error "%flmul" dst a b))))
 

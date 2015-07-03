@@ -98,7 +98,7 @@
     (define (make-indent n)
       (let lp ((n n) (acc '()))
         (if (< 0 n)
-            (lp (- n 1) (cons #\_ (cons #\space acc)))
+            (lp (- n 1) (cons #\. (cons #\space acc)))
             (list->string acc))))
 
     (define (lowest-level ip-x-ops)
@@ -121,7 +121,7 @@
           (format #t ";;; bytecode: ~a:~a\n" (length ip-x-ops) lowest)
           (let lp ((traces ip-x-ops) (level (- lowest)))
             (match traces
-              (((op ip bv . locals) . traces)
+              (((op ip bv locals) . traces)
                (when (<= 3 verbosity)
                  (format #t "              ~a~%" locals))
                (format #t "~x  ~a ~a~a~%"
@@ -152,7 +152,7 @@
                    (($ $kargs _ _ ($ $continue knext _ _))
                     (when (< knext k)
                       (format #t "---- ->loop~%")))
-                   (_ #f))
+                   (_ (values)))
                  (lp conts)))))
           ;; (display ";;; dfg")
           ;; ((@@ (language cps dfg) dump-dfg)
