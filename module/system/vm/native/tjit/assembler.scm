@@ -51,8 +51,6 @@
 ;;; Raw Scheme, relates to C macro
 ;;;
 
-(define *inum-step* (imm 4))
-
 (define-syntax scm-cell-object
   (syntax-rules ()
     ((_ dst obj 0)
@@ -67,9 +65,6 @@
 
 (define-syntax-rule (scm-typ16 dst obj)
   (jit-andi dst obj (imm #xffff)))
-
-(define-syntax-rule (scm-real-value dst src)
-  (jit-ldxi-d dst src (imm (* 2 %word-size))))
 
 (define %scm-from-double
   (dynamic-pointer "scm_from_double" (dynamic-link)))
@@ -541,23 +536,6 @@
 ;;; Floating point
 ;;;
 
-(define-prim (%to-double asm (double dst) (int src))
-  (cond
-   ((and (fpr? dst) (gpr? src))
-    (scm-real-value (fpr dst) (gpr src)))
-   ((and (fpr? dst) (memory? src))
-    (memory-ref asm r0 src)
-    (scm-real-value (fpr dst) r0))
-   ((and (memory? dst) (gpr? src))
-    (scm-real-value f0 (gpr src))
-    (jit-stxi-d (moffs asm dst) fp f0))
-   ((and (memory? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs asm src))
-    (scm-real-value f0 r0)
-    (jit-stxi-d (moffs asm dst) fp f0))
-   (else
-    (error "%to-double" dst src))))
-
 (define-prim (%from-double asm (int dst) (double src))
   (cond
    ((and (gpr? dst) (constant? src))
@@ -727,6 +705,25 @@
    (else
     (error "%box-set!" idx src))))
 
+;;;
+;;; Load and store
+;;;
+
+(define-prim (%cell-object-f asm (double dst) (int src) (int idx))
+  (cond
+   ((and (fpr? dst) (gpr? src) (constant? idx))
+    (jit-ldxi-d (fpr dst) (gpr src) (imm (* (ref-value idx) %word-size))))
+   ((and (fpr? dst) (memory? src) (constant? idx))
+    (memory-ref asm r0 src)
+    (jit-ldxi-d (fpr dst) r0 (imm (* (ref-value idx) %word-size))))
+
+   ((and (memory? dst) (memory? src) (constant? idx))
+    (memory-ref asm r0 src)
+    (jit-ldxi-d f0 r0 (imm (* (ref-value idx) %word-size)))
+    (memory-set!/fpr asm dst f0))
+
+   (else
+    (error "cell-object-f" dst src idx))))
 
 ;;;
 ;;; Frame instructions
@@ -777,6 +774,43 @@
   (define kstart (loop-start cps))
 
   (define (maybe-move exp old-args)
+    (define (move dst src)
+      (cond
+       ((and (gpr? dst) (constant? src))
+        (jit-movi (gpr dst) (constant src)))
+       ((and (gpr? dst) (gpr? src))
+        (jit-movr (gpr dst) (gpr src)))
+       ((and (gpr? dst) (memory? src))
+        (jit-ldxi r0 fp (moffs src))
+        (jit-movr (gpr dst) r0))
+
+       ((and (fpr? dst) (constant? src))
+        (jit-movi-d (fpr dst) (constant src)))
+       ((and (fpr? dst) (fpr? src))
+        (jit-movr-d (fpr dst) (fpr src)))
+       ((and (fpr? dst) (memory? src))
+        (jit-ldxi-d f0 fp (moffs src))
+        (jit-movr-d (fpr dst) f0))
+
+       ((and (memory? dst) (constant? src))
+        (let ((val (ref-value src)))
+          (cond
+           ((fixnum? val)
+            (jit-movi r0 (constant src))
+            (jit-stxi (moffs src) fp r0))
+           ((flonum? val)
+            (jit-movi-d f0 (constant src))
+            (jit-stxi-d (moffs src) fp f0)))))
+       ((and (memory? dst) (gpr? src))
+        (jit-stxi (moffs src) fp (gpr src)))
+       ((and (memory? dst) (fpr? src))
+        (jit-stxi-d (moffs src) fp (fpr src)))
+       ((and (memory? dst) (memory? src))
+        (jit-ldxi r0 fp (moffs src))
+        (jit-stxi (moffs dst) fp r0))
+
+       (else
+        (debug 2 "*** maybe-move: ~a ~a~%" dst src))))
     (match exp
       (($ $values new-args)
        (when (= (length old-args) (length new-args))
@@ -787,43 +821,8 @@
                     (src (env-ref new)))
                 (when (not (and (eq? (ref-type dst) (ref-type src))
                                 (eq? (ref-value dst) (ref-value src))))
-                  (debug 2 ";;; maybe-move: (mov ~a ~a)~%" dst src)
-                  (cond
-                   ((and (gpr? dst) (constant? src))
-                    (jit-movi (gpr dst) (constant src)))
-                   ((and (gpr? dst) (gpr? src))
-                    (jit-movr (gpr dst) (gpr src)))
-                   ((and (gpr? dst) (memory? src))
-                    (jit-ldxi r0 fp (moffs src))
-                    (jit-movr (gpr dst) r0))
-
-                   ((and (fpr? dst) (constant? src))
-                    (jit-movi-d (fpr dst) (constant src)))
-                   ((and (fpr? dst) (fpr? src))
-                    (jit-movr-d (fpr dst) (fpr src)))
-                   ((and (fpr? dst) (memory? src))
-                    (jit-ldxi-d f0 fp (moffs src))
-                    (jit-movr-d (fpr dst) f0))
-
-                   ((and (memory? dst) (constant? src))
-                    (let ((val (ref-value src)))
-                      (cond
-                       ((fixnum? val)
-                        (jit-movi r0 (constant src))
-                        (jit-stxi (moffs src) fp r0))
-                       ((flonum? val)
-                        (jit-movi-d f0 (constant src))
-                        (jit-stxi-d (moffs src) fp f0)))))
-                   ((and (memory? dst) (gpr? src))
-                    (jit-stxi (moffs src) fp (gpr src)))
-                   ((and (memory? dst) (fpr? src))
-                    (jit-stxi-d (moffs src) fp (fpr src)))
-                   ((and (memory? dst) (memory? src))
-                    (jit-ldxi r0 fp (moffs src))
-                    (jit-stxi (moffs dst) fp r0))
-
-                   (else
-                    (debug 2 "*** maybe-move: ~a ~a~%" dst src)))))))
+                  (debug 2 ";;; maybe-move: (move ~a ~a)~%" dst src)
+                  (move dst src)))))
           old-args new-args)))))
 
   (define (assemble-cont cps exp br-label loop-label k)
@@ -928,8 +927,8 @@
     ;;         (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
     ;;         (lp (+ n 1) end)))))
 
-    ;; Allocate space for spilled variables, and three words for arguments
-    ;; passed from C code, `vp', `vp->fp', and `registers'.
+    ;; Allocate space for spilled variables, and two words for arguments passed
+    ;; from C code, `vp->fp', and `registers'.
     (let* ((nspills (max-moffs env))
            (fp-offset (jit-allocai (imm (* (+ nspills 2) %word-size)))))
 

@@ -115,10 +115,11 @@
               (lp traces level lowest))))
           (() lowest))))
 
-    (define-syntax-rule (show-debug-messages scm cps code code-size)
+    (define-syntax-rule (show-debug-messages scm locals cps code code-size)
       (when (<= 2 verbosity)
         (let ((lowest (lowest-level ip-x-ops)))
-          (format #t ";;; bytecode: ~a:~a\n" (length ip-x-ops) lowest)
+          (format #t ";;; bytecode: ~a:~a:~a~%"
+                  (length ip-x-ops) lowest locals)
           (let lp ((traces ip-x-ops) (level (- lowest)))
             (match traces
               (((op ip bv locals) . traces)
@@ -178,7 +179,7 @@
            (let ((sline (ip-ptr->source-line (car (car ips)))))
              (debug 1 ";;; trace ~a: ~a ~a~%" trace-id sline "abort")
              (debug 2 ";;; msg: ~a~%" msg)
-             (show-debug-messages scm cps #f #f))
+             (show-debug-messages scm locals cps #f #f))
            #f))
         (else
          (jit-epilog)
@@ -193,7 +194,7 @@
                (let ((sline (ip-ptr->source-line (car (car ips)))))
                  (format #t ";;; trace ~a: ~a size=~a~%"
                          trace-id sline (number->string code-size)))
-               (show-debug-messages scm cps code code-size)))
+               (show-debug-messages scm locals cps code code-size)))
            code)))))))
 
 

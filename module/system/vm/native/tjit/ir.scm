@@ -21,7 +21,7 @@
 ;;; Commentary:
 
 ;;; Compile traced bytecode to CPS intermediate representation via
-;;; Scheme in (almost) ANF format.
+;;; Scheme in (almost) ANF.
 
 ;;; Code:
 
@@ -191,6 +191,9 @@
 (define (to-fixnum scm)
   `(%rsh ,scm 2))
 
+(define (to-double scm)
+  `(%cell-object-f ,scm 2))
+
 
 ;;;
 ;;; Scheme ANF compiler
@@ -227,7 +230,7 @@
   (define (unbox-op type var next-exp)
     (cond
      ((eq? type &flonum)
-      `(let ((,var (%to-double ,var)))
+      `(let ((,var ,(to-double var)))
          ,next-exp))
      ((eq? type &exact-integer)
       `(let ((,var ,(to-fixnum var)))
@@ -497,7 +500,7 @@
            `(let ((,vdst (%box-ref ,vsrc)))
               ,(cond
                 ((flonum? rsrc)
-                 `(let ((,vdst (%to-double ,vdst)))
+                 `(let ((,vdst ,(to-double vdst)))
                     ,(convert escape rest)))
                 ((fixnum? rsrc)
                  `(let ((,vdst ,(to-fixnum vdst)))
@@ -778,6 +781,11 @@
       (values locals scm))))
 
 (define (scm->cps scm)
+  (define ignored-passes
+    '(#:prune-top-level-scopes? #f
+      #:specialize-primcalls? #f
+      #:type-fold? #f
+      #:inline-constructors? #f))
   (define (body-fun cps)
     (define (go cps k)
       (match (intmap-ref cps k)
@@ -793,7 +801,7 @@
          (error "body-fun: got ~a" (intmap-ref cps k)))))
     (call-with-values
         (lambda ()
-          (set! cps (optimize cps))
+          (set! cps (optimize cps ignored-passes))
           (go cps 0))
       (lambda (k cps)
         (set! cps (renumber cps k))
