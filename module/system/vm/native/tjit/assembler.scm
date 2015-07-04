@@ -817,8 +817,9 @@
            (debug 3 ";;; loop:~%"))
          (when (= k kstart)
            (jit-note "loop" 0))
-         (assemble-exp exp syms br-label)
-         (assemble-cont cps br-exp br-label loop-label kt)
+         (assemble-exp exp syms #f)
+         (assemble-exp br-exp '() br-label)
+         (assemble-cont cps #f #f loop-label kt)
          (jit-link br-label)
          (assemble-cont cps #f #f loop-label knext)))
 
