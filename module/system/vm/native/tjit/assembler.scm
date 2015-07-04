@@ -304,7 +304,7 @@
     (jit-movi r0 (constant addr))
     (jit-callr r0))
    (else
-    (debug "*** %native-call: ~a~%" addr))))
+    (error "%native-call" addr))))
 
 
 ;;;
@@ -362,7 +362,7 @@
      ((and (gpr? a) (gpr? b))
       (jump (jit-bltr (gpr a) (gpr b)) next))
      ((and (gpr? a) (memory? b))
-      (memory-ref r0 fp b)
+      (memory-ref asm r0 b)
       (jump (jit-bltr (gpr a) r0) next))
 
      ((and (memory? a) (constant? b))
