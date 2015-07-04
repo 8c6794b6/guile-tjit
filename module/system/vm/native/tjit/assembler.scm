@@ -203,6 +203,10 @@
 ;;; Primitives used for vm-tjit engine.  Primitives defined here are used during
 ;;; compilation from traced data to native code, and possibly useless for
 ;;; ordinal use as scheme procedure.
+;;;
+;;; Need at least 3 general purpose scratch registers, and 3 floating point
+;;; scratch registers. Currently using R0, R1, and R2 for general purpose, F0,
+;;; F1, and F2 for floating point.
 
 (define *simple-prim-arities* (make-hash-table))
 (define *branching-prim-arities* (make-hash-table))
@@ -630,61 +634,30 @@
 
 
 ;;;
-;;; Lexical binding instructions
-;;;
-
-;;; XXX: Reconsider how to manage `box', `box-ref', and `box-set!'. Boxing back
-;;; to tagged value every time will make the loop slow.
-
-(define-prim (%box-ref asm (int dst) (int src))
-  (cond
-   ((and (gpr? dst) (constant? src))
-    (jit-ldi (gpr dst) (imm (+ (ref-value src) %word-size))))
-   ((and (gpr? dst) (gpr? src))
-    (jit-ldxi (gpr dst) (gpr src) (imm %word-size)))
-   ((and (gpr? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs asm src))
-    (jit-ldxi (gpr dst) r0 (imm %word-size)))
-
-   ((and (memory? dst) (constant? src))
-    (jit-ldi r0 (imm (+ (ref-value src) %word-size)))
-    (jit-stxi (moffs asm dst) fp r0))
-   ((and (memory? dst) (gpr? src))
-    (jit-ldxi r0 (gpr src) (imm %word-size))
-    (jit-stxi (moffs asm dst) fp r0))
-   ((and (memory? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs asm src))
-    (jit-ldxi r0 r0 (imm %word-size))
-    (jit-stxi (moffs asm dst) fp r0))
-   (else
-    (error "%box-ref" dst src))))
-
-(define-prim (%box-set! asm (int idx) (int src))
-  (cond
-   ((and (constant? idx) (gpr? src))
-    (jit-sti (imm (+ (ref-value idx) %word-size)) (gpr src)))
-   ((and (gpr? idx) (gpr? src))
-    (jit-stxi (imm %word-size) (gpr idx) (gpr src)))
-   ((and (gpr? idx) (memory? src))
-    (jit-ldxi r0 fp (moffs asm src))
-    (jit-stxi (imm %word-size) (gpr idx) r0))
-
-   ((and (memory? idx) (gpr? src))
-    (jit-ldxi r0 fp (moffs asm src))
-    (jit-stxi (imm %word-size) r0 (gpr src)))
-   ((and (memory? idx) (memory? src))
-    (jit-ldxi r0 fp (moffs asm idx))
-    (jit-ldxi r1 fp (moffs asm src))
-    (jit-stxi (imm %word-size) r0 r1))
-   (else
-    (error "%box-set!" idx src))))
-
-
-;;;
 ;;; Load and store
 ;;;
 
+(define-prim (%cell-object asm (int dst) (int src) (int n))
+  (cond
+   ((and (gpr? dst) (constant? src) (constant? n))
+    (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))
+      (jit-ldi (gpr dst) (imm addr))))
+   ((and (gpr? dst) (gpr? src) (constant? n))
+    (jit-ldxi (gpr dst) (gpr src) (constant-word n)))
 
+   ((and (memory? dst) (constant? src) (constant? n))
+    (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))
+      (jit-ldi r0 (imm addr))
+      (memory-set! asm dst r0)))
+   ((and (memory? dst) (gpr? src) (constant? n))
+    (jit-ldxi r0 (gpr src) (constant-word n))
+    (memory-set! asm dst r0))
+   ((and (memory? dst) (memory? src) (constant? n))
+    (memory-ref asm r0 src)
+    (jit-ldxi r0 r0 (constant-word n))
+    (memory-set! asm dst r0))
+   (else
+    (error "%cell-object" dst src n))))
 
 (define-prim (%cell-object-f asm (double dst) (int src) (int idx))
   (cond
@@ -700,7 +673,27 @@
     (memory-set!/fpr asm dst f0))
 
    (else
-    (error "cell-object-f" dst src idx))))
+    (error "%cell-object-f" dst src idx))))
+
+(define-prim (%set-cell-object! asm (int cell) (int n) (int src))
+  (cond
+   ((and (gpr? cell) (constant? n) (gpr? src))
+    (jit-stxi (constant-word n) (gpr cell) (gpr src)))
+   ((and (gpr? cell) (constant? n) (memory? src))
+    (memory-ref asm r0 src)
+    (jit-stxi (constant-word n) (gpr cell) r0))
+
+   ((and (memory? cell) (constant? n) (gpr? src))
+    (memory-ref asm r0 cell)
+    (jit-stxi (constant-word n) r0 (gpr src)))
+   ((and (memory? cell) (constant? n) (memory? src))
+    (memory-ref asm r0 cell)
+    (memory-ref asm r1 src)
+    (jit-stxi (constant-word n) r0 r1))
+
+   (else
+    (error "%set-cell-object!" cell n src))))
+
 
 ;;;
 ;;; Frame instructions
@@ -850,11 +843,22 @@
        #f)))
 
   (define (assemble-exp exp dst label)
-    ;; Need at least 3 scratch registers. Currently using R0, R1, and
-    ;; R2.  Might use floating point registers as whell, when double
-    ;; numbers get involved.
-
     (match exp
+
+      ;; XXX: Need to differentiate from `$values' expression at the loop dend
+      ;; which jumps to loop start.
+
+      ;; (($ $values (exit-id ip))
+      ;;  (let ((a (env-ref ip)))
+      ;;    (cond
+      ;;     ((constant? a)
+      ;;      (jit-reti (constant a)))
+      ;;     ((gpr? a)
+      ;;      (jit-retr (gpr a)))
+      ;;     ((memory? a)
+      ;;      (jit-ldxi r0 fp (moffs a))
+      ;;      (jit-retr r0)))))
+
       (($ $primcall 'return (arg1))
        (let ((a (env-ref arg1)))
          (cond

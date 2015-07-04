@@ -20,8 +20,8 @@
 
 ;;; Commentary:
 
-;;; Compile traced bytecode to CPS intermediate representation via
-;;; Scheme in (almost) ANF.
+;;; Compile traced bytecode to CPS intermediate representation via Scheme in
+;;; (almost) ANF.
 
 ;;; Code:
 
@@ -260,7 +260,7 @@
          (args (map make-var (reverse locals)))
          (vars (make-vars max-local-num locals))
          (types (make-types vars))
-         (boxes (make-vector max-local-num #f)))
+         (exit-count 0))
 
     (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
@@ -270,6 +270,15 @@
 
     (define-syntax-rule (set-type! idx ty)
       (vector-set! types (+ idx local-offset) ty))
+
+    (define (make-exit ip)
+      (debug 2 ";;; make-exit: ~a ~a~%" exit-count ip)
+      (set! exit-count (+ exit-count 1))
+      ip
+      ;; (let ((current-exit-count exit-count))
+      ;;   (set! exit-count (+ exit-count 1))
+      ;;   `(values ,current-exit-count ,ip))
+      )
 
     (define (convert-one escape op ip locals rest)
 
@@ -441,7 +450,7 @@
                   ,(convert escape rest)
                   (begin
                     ,@(save-frame!)
-                    ,ip)))
+                    ,(make-exit ip))))
             (else
              (debug 2 "*** ir:convert = ~a ~a~%" ra rb)
              (escape #f)))))
@@ -459,7 +468,7 @@
                   ,(convert escape rest)
                   (begin
                     ,@(save-frame!)
-                    ,ip)))
+                    ,(make-exit ip))))
             ((and (flonum? ra) (flonum? rb))
              (set-type! a &flonum)
              (set-type! b &flonum)
@@ -467,7 +476,7 @@
                   ,(convert escape rest)
                   (begin
                     ,@(save-frame!)
-                    ,ip)))
+                    ,(make-exit ip))))
             (else
              (debug 2 "ir:convert < ~a ~a~%" ra rb)
              (escape #f)))))
@@ -488,6 +497,11 @@
         ;; XXX: long-mov
         ;; XXX: box
 
+        ;; XXX: Reconsider how to manage `box', `box-ref', and
+        ;; `box-set!'. Boxing back to tagged value every time will make the loop
+        ;; slow, though need more analysis when the storing could be removed
+        ;; from native code loop and delayed to side exit code.
+
         (('box-ref dst src)
          ;; Need to perform `load' operation every time.
          ;;
@@ -497,7 +511,7 @@
                (vsrc (var-ref src))
                (rsrc (and (< src (vector-length locals))
                           (variable-ref (vector-ref locals src)))))
-           `(let ((,vdst (%box-ref ,vsrc)))
+           `(let ((,vdst (%cell-object ,vsrc 1)))
               ,(cond
                 ((flonum? rsrc)
                  `(let ((,vdst ,(to-double vdst)))
@@ -516,15 +530,15 @@
            (cond
             ((flonum? rdst)
              `(let ((,vsrc (%from-double ,vsrc)))
-                (%box-set! ,vdst ,vsrc)
+                (%set-cell-object! ,vdst 1 ,vsrc)
                 ,(convert escape rest)))
             ((fixnum? rdst)
              `(let ((,vsrc ,(from-fixnum vsrc)))
-                (%box-set! ,vdst ,vsrc)
+                (%set-cell-object! ,vdst 1 ,vsrc)
                 ,(convert escape rest)))
             (else
              `(begin
-                (%box-set! ,vdst ,vsrc)
+                (%set-cell-object! ,vdst 1 ,vsrc)
                 ,(convert escape rest))))))
 
         ;; XXX: make-closure

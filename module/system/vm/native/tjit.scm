@@ -123,10 +123,13 @@
           (let lp ((traces ip-x-ops) (level (- lowest)))
             (match traces
               (((op ip bv locals) . traces)
-               (when (<= 3 verbosity)
-                 (format #t "              ~a~%" locals))
-               (format #t "~x  ~a ~a~a~%"
-                       ip (or (and bv "*") " ") (make-indent level) op)
+
+               (let ((op-val
+                      (format #f "~x  ~a ~a~a"
+                              ip (or (and bv "*") " ") (make-indent level) op)))
+                 (if (<= 3 verbosity)
+                     (format #t "~40a ; ~a~%" op-val locals)
+                     (format #t "~a~%" op-val)))
                (case (car op)
                  ((call call-label)
                   (lp traces (+ level 1)))

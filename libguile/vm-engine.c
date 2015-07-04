@@ -524,7 +524,7 @@ VM_NAME (scm_i_thread *thread, struct scm_vm *vp,
   scm_t_uint32 tjit_bc_idx = 0;
 
   /* Buffer to contain traced bytecode. */
-  scm_t_uint32 *tjit_bytecode = scm_tjit_bytecode_buffer ();
+  scm_t_uint32 *tjit_bytecode = tjit_bytecode_buffer ();
 
   /* Scheme list to contain recorded trace. */
   SCM tjit_traces = SCM_EOL;

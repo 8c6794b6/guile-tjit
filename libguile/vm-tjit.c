@@ -95,18 +95,36 @@ tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM ip_ptr)
   return result;
 }
 
+static inline scm_t_uint32*
+call_native (SCM code, scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers)
+{
+  scm_t_native_code fn;
+
+  fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
+  return fn (thread, fp, registers);
+}
+
+static inline scm_t_uint32*
+tjit_bytecode_buffer (void)
+{
+  return (scm_t_uint32 *) SCM_UNPACK (scm_fluid_ref (bytecode_buffer_fluid));
+}
+
 static inline void
-cleanup_states (size_t *state, SCM *ips, scm_t_uint32 *bc_idx)
+start_recording (size_t *state, scm_t_uint32 *start, scm_t_uint32 *end,
+                 scm_t_uintptr *loop_start, scm_t_uintptr *loop_end)
+{
+  *state = SCM_TJIT_STATE_RECORD;
+  *loop_start = (scm_t_uintptr) start;
+  *loop_end = (scm_t_uintptr) end;
+}
+
+static inline void
+stop_recording (size_t *state, SCM *ips, scm_t_uint32 *bc_idx)
 {
   *state = SCM_TJIT_STATE_INTERPRET;
   *ips = SCM_EOL;
   *bc_idx = 0;
-}
-
-static inline
-scm_t_uint32* scm_tjit_bytecode_buffer (void)
-{
-  return (scm_t_uint32 *) SCM_UNPACK (scm_fluid_ref (bytecode_buffer_fluid));
 }
 
 static inline void
@@ -126,21 +144,13 @@ increment_compilation_failure (SCM ip)
 }
 
 static inline int
-ready_to_record_p (SCM ip, SCM current_count)
+record_ready_p (SCM ip, SCM current_count)
 {
   return (tjit_hot_count < current_count &&
           scm_hashq_ref (failed_ip_table, ip, SCM_INUM0) <
           tjit_max_retries);
 }
 
-static inline scm_t_uint32*
-call_native (SCM code, scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers)
-{
-  scm_t_native_code fn;
-
-  fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
-  return fn (thread, fp, registers);
-}
 
 
 /* C macros for vm-tjit engine
@@ -167,12 +177,9 @@ call_native (SCM code, scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers)
         SCM current_count =                                             \
           scm_hashq_ref (ip_counter_table, s_ip, SCM_INUM0);            \
                                                                         \
-        if (ready_to_record_p (s_ip, current_count))                    \
-          {                                                             \
-            tjit_state = SCM_TJIT_STATE_RECORD;                         \
-            tjit_loop_start = (scm_t_uintptr) (ip + jump);              \
-            tjit_loop_end = (scm_t_uintptr) ip;                         \
-          }                                                             \
+        if (record_ready_p (s_ip, current_count))                       \
+          start_recording (&tjit_state, ip + jump, ip,                  \
+                           &tjit_loop_start, &tjit_loop_end);           \
         else                                                            \
           increment_ip_counter (current_count, s_ip);                   \
                                                                         \
@@ -223,7 +230,7 @@ call_native (SCM code, scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers)
       {                                                                 \
         /* XXX: Log the abort for too long trace. */                    \
         scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INUM1);     \
-        cleanup_states (&tjit_state, &tjit_traces, &tjit_bc_idx);       \
+        stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx);       \
       }                                                                 \
     else if (ip == ((scm_t_uint32 *) tjit_loop_end))                    \
       {                                                                 \
@@ -239,7 +246,7 @@ call_native (SCM code, scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers)
         else                                                            \
           increment_compilation_failure (s_loop_start);                 \
                                                                         \
-        cleanup_states (&tjit_state, &tjit_traces, &tjit_bc_idx);       \
+        stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx);       \
       }                                                                 \
   } while (0)
 
