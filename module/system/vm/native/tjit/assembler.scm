@@ -637,6 +637,12 @@
 ;;; Load and store
 ;;;
 
+;;; XXX: Not sure whether it's better to couple `xxx-ref' and `xxx-set!'
+;;; instructions with expected type as done in bytecode, to have vector-ref,
+;;; struct-ref, box-ref, string-ref, fluid-ref, bv-u8-ref ... etc or not. When
+;;; instructions specify its operand type, size of CPS will be more compact, but
+;;; may loose chances to optimize away type checking instructions.
+
 (define-prim (%cell-object asm (int dst) (int src) (int n))
   (cond
    ((and (gpr? dst) (constant? src) (constant? n))
@@ -795,20 +801,20 @@
                   (move dst src)))))
           old-args new-args)))))
 
-  (define (assemble-cont cps exp br-label loop-label k)
+  (define (assemble-cont cps exp loop-label k)
     ;; (debug 1 "~4,,,'0@a ~a~%" k
     ;;        (or (and (null? exp) exp)
     ;;            (and cps (unparse-cps exp))))
     (match (intmap-ref cps k)
       ;; (_ "ASSMBLING PHASE IGNORED.") ; Temporary, for debuging CPS IR.
       (($ $kreceive _ knext)
-       (assemble-cont cps exp br-label loop-label knext))
+       (assemble-cont cps exp loop-label knext))
 
       (($ $kclause _ knext)
-       (assemble-cont cps exp br-label loop-label knext))
+       (assemble-cont cps exp loop-label knext))
 
       (($ $kfun _ _ _ _ knext)
-       (assemble-cont cps exp br-label loop-label knext))
+       (assemble-cont cps exp loop-label knext))
 
       (($ $kargs _ syms ($ $continue knext _ ($ $branch kt br-exp)))
        (let ((br-label (jit-forward))
@@ -819,28 +825,28 @@
            (jit-note "loop" 0))
          (assemble-exp exp syms #f)
          (assemble-exp br-exp '() br-label)
-         (assemble-cont cps #f #f loop-label kt)
+         (assemble-cont cps #f loop-label kt)
          (jit-link br-label)
-         (assemble-cont cps #f #f loop-label knext)))
+         (assemble-cont cps #f loop-label knext)))
 
       (($ $kargs _ syms ($ $continue knext _ next-exp))
        (cond
         ((< knext k)                    ; Jump to the loop start.
-         (assemble-exp exp syms br-label)
+         (assemble-exp exp syms #f)
          (maybe-move next-exp initial-args)
          (debug 3 ";;; -> loop~%")
          (jump loop-label)
          #f)
         (else
-         (assemble-exp exp syms br-label)
+         (assemble-exp exp syms #f)
          (let ((loop-label (if (= k kstart) (jit-label) loop-label)))
            (when (= k kstart)
              (jit-note "loop" 0)
              (debug 3 ";;; loop:~%"))
-           (assemble-cont cps next-exp br-label loop-label knext)))))
+           (assemble-cont cps next-exp loop-label knext)))))
 
       (($ $ktail)
-       (assemble-exp exp '() br-label)
+       (assemble-exp exp '() #f)
        #f)))
 
   (define (assemble-exp exp dst label)
@@ -888,7 +894,7 @@
        ;; (debug 1 "      exp:~a~%" exp)
        #f)))
 
-  (assemble-cont cps '() #f #f 0))
+  (assemble-cont cps '() #f 0))
 
 (define (assemble-tjit locals cps)
   (define (max-moffs env)
