@@ -29,7 +29,7 @@
 
 (define-module (system vm native tjit registers)
   #:use-module (system vm native lightning)
-  #:export (*num-registers*
+  #:export (*num-gpr*
             *num-fpr*
             register-ref
             fpr-ref))
@@ -41,10 +41,10 @@
 (define rsi (jit-r 12))
 (define rdi (jit-r 13))
 
-;; (define *the-registers*
+;; (define *gp-registers*
 ;;   `#(,v1 ,v2 ,v3))
 
-(define *the-registers*
+(define *gp-registers*
   `#(,v1 ,v2 ,v3 ,r3 ,r8 ,r9 ,rcx ,rdx ,rsi ,rdi))
 
 (define xmm7 (jit-f 8))
@@ -59,14 +59,14 @@
 (define *fp-registers*
   `#(,f3 ,f4 ,f5 ,f6 ,f7 ,xmm7 ,xmm6 ,xmm5 ,xmm4 ,xmm3 ,xmm2 ,xmm1 ,xmm0))
 
-(define *num-registers*
-  (vector-length *the-registers*))
+(define *num-gpr*
+  (vector-length *gp-registers*))
 
 (define *num-fpr*
   (vector-length *fp-registers*))
 
 (define (register-ref i)
-  (vector-ref *the-registers* i))
+  (vector-ref *gp-registers* i))
 
 (define (fpr-ref i)
   (vector-ref *fp-registers* i))

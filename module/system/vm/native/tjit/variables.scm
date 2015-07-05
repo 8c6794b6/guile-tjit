@@ -247,7 +247,7 @@ MAX-VAR + 1 which contains register and memory information."
 
     (define (next-gpr)
       (cond
-       ((< gpr-idx *num-registers*)
+       ((< gpr-idx *num-gpr*)
         (let ((r (make-gpr gpr-idx)))
           (set! gpr-idx (+ gpr-idx 1))
           r))
