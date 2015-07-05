@@ -213,7 +213,7 @@
 (define *all-prims* (make-hash-table))
 (define *prim-types* (make-hash-table))
 
-(define (args-for-arity args)
+(define (arity-of-args args)
   (cond
    ((null? args)
     '(0 . 0))
@@ -228,6 +228,7 @@
      (begin
        (define-prim (name asm arg ...)
          <body>)
+       (hashq-set! *simple-prim-arities* 'name (arity-of-args '(arg ...)))
        (hashq-set! *prim-types* 'name `(,ty ...))))
     ((_ (name asm arg ...) <body>)
      (begin
@@ -239,28 +240,17 @@
                (jit-note (format #f "~a" `(name ,arg ...)) 0))
              (debug 3 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
            <body>))
-       (hashq-set! *simple-prim-arities* 'name (args-for-arity '(arg ...)))
+
        (hashq-set! *all-prims* 'name name)))))
 
 (define-syntax define-branching-prim
   (syntax-rules ()
     ((_ (name asm (ty arg) ...) <body>)
      (begin
-       (define-branching-prim (name asm arg ...)
+       (define-prim (name asm arg ...)
          <body>)
-       (hashq-set! *prim-types* 'name `(,ty ...))))
-    ((_ (name asm arg ...) <body>)
-     (begin
-       (define (name asm arg ...)
-         (let ((arg (env-ref asm arg))
-               ...)
-           (let ((verbosity (lightning-verbosity)))
-             (when (and verbosity (<= 4 verbosity))
-               (jit-note (format #f "~a" `(name ,arg ...)) 0))
-             (debug 3 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
-           <body>))
-       (hashq-set! *branching-prim-arities* 'name (args-for-arity '(arg ...)))
-       (hashq-set! *all-prims* 'name name)))))
+       (hashq-set! *branching-prim-arities* 'name (arity-of-args '(arg ...)))
+       (hashq-set! *prim-types* 'name `(,ty ...))))))
 
 (define (initialize-tjit-primitives)
   ;; Extending (@@ (language cps primitives) branching-primitives?) procedure
