@@ -90,8 +90,10 @@
 
     (define (mark-branch cont)
       (match cont
-        (($ $kargs _ _ ($ $continue _ _ ($ $branch _ _)))
-         ">")
+        (($ $kargs _ _ ($ $continue _ _ ($ $primcall name _)))
+         (case name
+           ((%eq %ne %lt %flt %guard-fx %guard-fl) ">")
+           (else " ")))
         (_
          " ")))
 
@@ -123,7 +125,6 @@
           (let lp ((traces ip-x-ops) (level (- lowest)))
             (match traces
               (((op ip bv locals) . traces)
-
                (let ((op-val
                       (format #f "~x  ~a ~a~a"
                               ip (or (and bv "*") " ") (make-indent level) op)))
@@ -174,9 +175,9 @@
 
     (with-jit-state
      (jit-prolog)
-     (let-values (((locals scm cps) (trace->cps ip-x-ops)))
+     (let-values (((locals snapshots scm cps) (trace->cps ip-x-ops)))
        (cond
-        ((if cps (assemble-tjit locals cps) "CPS conversion failed")
+        ((if cps (assemble-tjit locals snapshots cps) "CPS conversion failed")
          =>
          (lambda (msg)
            (let ((sline (ip-ptr->source-line (car (car ips)))))

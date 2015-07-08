@@ -22,6 +22,13 @@
 
 ;;; Compile traced bytecode to CPS intermediate representation via Scheme in
 ;;; (almost) ANF.
+;;;
+;;; One of the reasons to convert bytecode to CPS is to do floating point
+;;; arithmetic efficiently. VM bytecodes uses integer index to refer locals.
+;;; Those locals does not distinguish floating point values from other. In CPS
+;;; format, since every variables are named, it is possible to perform floating
+;;; point arithmetic directly with unboxed value in floating point register
+;;; inside a loop when registers and variables assigned properly.
 
 ;;; Code:
 
@@ -98,7 +105,8 @@
       (set! local-offset (- local-offset n)))
 
     (define-syntax-rule (add! st i)
-      (intset-add! st (+ i local-offset)))
+      (let ((n (+ i local-offset)))
+        (intset-add! st n)))
 
     (define-syntax-rule (add2! st i j)
       (add! (add! st i) j))
@@ -119,8 +127,9 @@
       ((op a1 a2)
        (case op
          ((call)
-          (push-offset! a1)
-          (add! st a1))
+          (let ((st (add! st a1)))
+            (push-offset! a1)
+            st))
          ((static-ref
            make-short-immediate make-long-immediate make-long-long-immediate)
           (add! st a1))
@@ -136,8 +145,9 @@
          ((add sub mul div quo)
           (add3! st a1 a2 a3))
          ((call-label)
-          (push-offset! a1)
-          (add! st a1))
+          (let ((st (add! st a1)))
+            (push-offset! a1)
+            st))
          ((receive)
           (pop-offset! a2)
           (add2! st a1 a2))
@@ -177,7 +187,9 @@
   ;; (debug 1 "accumulate-locals: lowest-offset=~a~%"
   ;;        (lowest-offset ops))
 
-  (intset-fold cons (acc empty-intset ops) '()))
+  (let ((locals (intset-fold cons (acc empty-intset ops) '())))
+    (debug 2 ";;; locals: ~a~%" locals)
+    locals))
 
 
 ;;;
@@ -239,28 +251,43 @@
       next-exp)))
 
   (define (make-entry ip vars types loop-exp)
-    (let lp ((i 0) (end (vector-length types)))
-      (if (< i end)
-          (let* ((type (vector-ref types i))
-                 (var (and type (vector-ref vars i)))
-                 (op (and type (type-guard-op type)))
-                 (exp (and op
-                           `(if (,op ,var)
-                                ,(unbox-op type var (lp (+ i 1) end))
-                                ,ip))))
-            (or exp (lp (+ i 1) end)))
-          loop-exp)))
+    (define (make-args vars)
+      (let ((end (vector-length vars)))
+        (let lp ((i 0) (acc '()))
+          (cond
+           ((= i end)
+            (reverse! acc))
+           ((vector-ref vars i)
+            =>
+            (lambda (var)
+              (lp (+ i 1) (cons var acc))))
+           (else
+            (lp (+ i 1) acc))))))
+    `(begin
+       (,ip ,@(make-args vars))
+       ,(let lp ((i 0) (end (vector-length types)))
+          (if (< i end)
+              (let* ((type (vector-ref types i))
+                     (var (and type (vector-ref vars i)))
+                     (op (and type (type-guard-op type)))
+                     (exp (and op
+                               `(begin
+                                  (,op ,var)
+                                  ,(unbox-op type var (lp (+ i 1) end))))))
+                (or exp (lp (+ i 1) end)))
+              loop-exp))))
 
   (define (initial-ip ops)
     (cadr (car ops)))
 
   (let* ((local-offset (- (lowest-offset ops)))
          (locals (accumulate-locals local-offset ops))
-         (max-local-num (or (and (null? locals) 0) (1+ (apply max locals))))
+         (max-local-num (or (and (null? locals) 0) (apply max locals)))
          (args (map make-var (reverse locals)))
          (vars (make-vars max-local-num locals))
          (types (make-types vars))
-         (exit-count 0))
+         (snapshots (make-hash-table))
+         (snapshot-id 0))
 
     (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
@@ -271,22 +298,17 @@
     (define-syntax-rule (set-type! idx ty)
       (vector-set! types (+ idx local-offset) ty))
 
-    (define (make-exit ip)
-      (debug 2 ";;; make-exit: ~a ~a~%" exit-count ip)
-      (set! exit-count (+ exit-count 1))
-      ip
-      ;; (let ((current-exit-count exit-count))
-      ;;   (set! exit-count (+ exit-count 1))
-      ;;   `(values ,current-exit-count ,ip))
-      )
-
     (define (convert-one escape op ip locals rest)
 
       (define (local-ref i)
         (vector-ref locals i))
 
       (define (var-ref i)
-        (vector-ref vars (+ i local-offset)))
+        ;; (debug 2 ";;; var-ref: op:~a i:~a local-offset:~a var:~a~%"
+        ;;        op i local-offset vars)
+        (let ((idx (+ i local-offset)))
+          (and (< idx (vector-length vars))
+               (vector-ref vars (+ i local-offset)))))
 
       (define (save-frame!)
         (let ((end (vector-length vars)))
@@ -297,7 +319,7 @@
              ((vector-ref vars i)
               =>
               (lambda (var)
-                (let* ((idx (+ i local-offset))
+                (let* ((idx (- i local-offset))
                        (local (and (< idx (vector-length locals))
                                    (vector-ref locals idx))))
                   (debug 2 ";;; save-frame!: local[~a]=~a~%" i local)
@@ -337,6 +359,45 @@
                        ,(lp (+ i 1))))))))
              (else
               (lp (+ i 1)))))))
+
+      (define (take-snapshot!)
+        (let ((end (vector-length vars)))
+          (debug 2 ";;; take-snapshot!:~%;;; locals=~a~%;;; vars=~a~%"
+                 locals vars)
+          (let lp ((i 0) (acc '()))
+            (cond
+             ((= i end)
+              (let ((acc (reverse! acc)))
+                ;; Using snapshot-id as key for hash-table. Identical IP could
+                ;; be used for entry clause and first operation in the loop.
+                (hashq-set! snapshots snapshot-id acc)
+                (set! snapshot-id (+ snapshot-id 1))
+
+                ;; Call to dummy procedure to capture CPS variables by emitting
+                ;; `$call' term.  It might not good to use `$call' this way,
+                ;; though no other idea to capture CPS variables with less
+                ;; amount of terms.
+                `(,ip ,@args)))
+             ((var-ref i)
+              =>
+              (lambda (var)
+                (let ((local (or (and (< i (vector-length locals))
+                                      (local-ref i))
+                                 #f)))
+                  (cond
+                   ((fixnum? local)
+                    (lp (+ i 1) (cons `(,i . ,&exact-integer) acc)))
+                   ((flonum? local)
+                    (lp (+ i 1) (cons `(,i . ,&flonum) acc)))
+                   ((variable? local)
+                    (lp (+ i 1) (cons `(,i . ,&box) acc)))
+                   ((not local)
+                    (lp (+ i 1) (cons `(,i . ,&false) acc)))
+                   (else
+                    (debug 2 ";;; take-snapshot!: local=~a~%" local)
+                    (lp (+ i 1) acc))))))
+             (else
+              (lp (+ i 1) acc))))))
 
       ;; (debug 2 "convert-one: ~a (~a/~a) ~a~%"
       ;;        ip local-offset max-local-num op)
@@ -446,11 +507,10 @@
             ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
-             `(if ,(if (= ra rb) `(%eq ,va ,vb) `(not (%eq ,va ,vb)))
-                  ,(convert escape rest)
-                  (begin
-                    ,@(save-frame!)
-                    ,(make-exit ip))))
+             `(begin
+                ,(take-snapshot!)
+                ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
+                ,(convert escape rest)))
             (else
              (debug 2 "*** ir:convert = ~a ~a~%" ra rb)
              (escape #f)))))
@@ -464,19 +524,18 @@
             ((and (fixnum? ra) (fixnum? rb))
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
-             `(if ,(if (< ra rb) `(%lt ,va ,vb) `(%lt ,vb ,va))
-                  ,(convert escape rest)
-                  (begin
-                    ,@(save-frame!)
-                    ,(make-exit ip))))
+             `(begin
+                ,(take-snapshot!)
+                ,(if (< ra rb) `(%lt ,va ,vb) `(%lt ,vb ,va))
+                ,(convert escape rest)))
+
             ((and (flonum? ra) (flonum? rb))
              (set-type! a &flonum)
              (set-type! b &flonum)
-             `(if ,(if (< ra rb) `(%flt ,va ,vb) `(not (%flt ,va ,vb)))
-                  ,(convert escape rest)
-                  (begin
-                    ,@(save-frame!)
-                    ,(make-exit ip))))
+             `(begin
+                ,(take-snapshot!)
+                ,(if (< ra rb) `(%flt ,va ,vb) `(%flt ,vb ,va))
+                ,(convert escape rest)))
             (else
              (debug 2 "ir:convert < ~a ~a~%" ra rb)
              (escape #f)))))
@@ -497,16 +556,15 @@
         ;; XXX: long-mov
         ;; XXX: box
 
-        ;; XXX: Reconsider how to manage `box', `box-ref', and
-        ;; `box-set!'. Boxing back to tagged value every time will make the loop
-        ;; slow, though need more analysis when the storing could be removed
-        ;; from native code loop and delayed to side exit code.
+        ;; XXX: Reconsider how to manage `box', `box-ref', and `box-set!'.
+        ;; Boxing back to tagged value every time will make the loop slow,
+        ;; though need more analysis when the storing could be removed from
+        ;; native code loop and delayed to side exit code.
+        ;;
+        ;; XXX: Add test for nested boxes.
 
         (('box-ref dst src)
-         ;; Need to perform `load' operation every time.
-         ;;
          ;; XXX: Add guard to check for `variable' type?
-         ;;
          (let ((vdst (var-ref dst))
                (vsrc (var-ref src))
                (rsrc (and (< src (vector-length locals))
@@ -556,7 +614,8 @@
             ,(convert escape rest)))
 
         (('make-long-long-immediate dst high-bits low-bits)
-         `(let ((,(var-ref dst) ,(ash (logior (ash high-bits 32) low-bits) -2)))
+         `(let ((,(var-ref dst)
+                 ,(ash (logior (ash high-bits 32) low-bits) -2)))
             ,(convert escape rest)))
 
         ;; XXX: make-long-long-immediate
@@ -771,7 +830,6 @@
 
     ;; Debug.
     ;; (debug 2 ";;; max-local-num: ~a~%" max-local-num)
-    ;; (debug 2 ";;; locals: ~a~%" (sort locals <))
     ;; (let lp ((i 0) (end (vector-length types)))
     ;;   (when (< i end)
     ;;     (debug 2 "ty~a => ~a~%" i (vector-ref types i))
@@ -781,18 +839,17 @@
                        (lambda (escape)
                          (convert escape ops))))
            (entry-body (make-entry (initial-ip ops) vars types `(loop ,@args)))
-           (scm (and entry-body
-                     loop-body
-                     `(letrec ((entry (lambda ,args
-                                        ,entry-body))
-                               (loop (lambda ,args
-                                       ,loop-body)))
-                        entry))))
+           (scm (and
+                 (and entry-body loop-body)
+                 `(letrec ((entry (lambda ,args ,entry-body))
+                           (loop (lambda ,args ,loop-body))
+                           )
+                    entry))))
       ;; Debug, again
-      ;; (debug 1 ";;; ir: types=~a~%" types)
       ;; (debug 2 ";;; entry-guards:~%~y" entry-guards)
       ;; (debug 2 ";;; scm:~%~y" scm)
-      (values locals scm))))
+      (debug 2 ";;; snapshot:~%~{;;; ~a~%~}~%" (hash-fold acons '() snapshots))
+      (values locals snapshots scm))))
 
 (define (scm->cps scm)
   (define ignored-passes
@@ -827,11 +884,6 @@
 
 (define (trace->cps trace)
   (call-with-values (lambda () (trace->scm trace))
-    (lambda (locals scm)
-      ;; (debug 2 ";;; scm~%~a"
-      ;;        (or (and scm
-      ;;                 (call-with-output-string
-      ;;                  (lambda (port)
-      ;;                    (pretty-print scm #:port port))))
-      ;;            "failed\n"))
-      (values locals scm (scm->cps scm)))))
+    (lambda (locals snapshots scm)
+      ;; (debug 2 ";;; scm~%~y" scm)
+      (values locals snapshots scm (scm->cps scm)))))

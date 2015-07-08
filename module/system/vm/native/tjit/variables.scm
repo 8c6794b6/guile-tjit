@@ -134,7 +134,7 @@ constant value."
 
     ;; Module (system vm native tjit assembler) imports this module, using `@'.
     (define (lookup-prim-type op)
-      (hashq-ref (@ (system vm native tjit assembler) *prim-types*) op))
+      (hashq-ref (@ (system vm native tjit assembler) *native-prim-types*) op))
 
     (define (expr-type op dst args)
       (cond
@@ -173,6 +173,8 @@ constant value."
     (define (visit-cont exp k)
       (match (intmap-ref cps k)
         (($ $kfun _ _ self _ knext)
+         (visit-cont #f knext))
+        (($ $kreceive _ knext)
          (visit-cont #f knext))
         (($ $kclause _ knext kalternate)
          (visit-cont #f knext))
@@ -308,8 +310,8 @@ MAX-VAR + 1 which contains register and memory information."
            (cond
             ((gpr? sym) (var-set! sym (next-gpr)))
             ((fpr? sym) (var-set! sym (next-fpr)))
-            (else
-             (error "resolve variable failed in loop-start" sym)))))
+            ((not (type sym)) (values)) ; Unused
+            (else (error "resolve variable failed in loop-start" sym)))))
        loop-start-syms)
 
       ;; Assign loop end syms.
@@ -355,6 +357,7 @@ MAX-VAR + 1 which contains register and memory information."
              ((constant? ty) (var-set! i ty))
              ((gpr? i) (var-set! i (next-gpr)))
              ((fpr? i) (var-set! i (next-fpr)))
+             ((not (type i)) (values))  ; Unused.
              (else
               (error "resolve-variable failed in loop body"))))
           (lp (+ i 1))))
@@ -371,6 +374,7 @@ MAX-VAR + 1 which contains register and memory information."
              (var-set! entry-end (next-gpr)))
             ((fpr? entry-end)
              (var-set! entry-end (next-fpr)))
+            ((not (type entry-end)) (values)) ; Unused.
             (else
              (error "resolve-variable failed in entry-end" entry-end))))
          entry-end-syms loop-start-syms))
@@ -380,10 +384,11 @@ MAX-VAR + 1 which contains register and memory information."
         (when (< i (+ max-var 1))
           (let ((ty (type i)))
             (cond
-             ((var-ref i) (values))
+             ((var-ref i) (values))     ; Assigned already
              ((constant? ty) (var-set! i ty))
              ((gpr? i) (var-set! i (next-gpr)))
              ((fpr? i) (var-set! i (next-fpr)))
+             ((not (type i)) (values))  ; Unused.
              (else (error "resolve-variables at rest" i))))
           (lp (+ i 1))))
 
@@ -408,6 +413,9 @@ MAX-VAR + 1 which contains register and memory information."
        (go next))
       (($ $kclause arity next)
        (go next))
+      (($ $kargs names syms ($ $continue next src ($ $call proc args)))
+       (or (and (< next k) next)
+           (go next)))
       (($ $kargs names syms ($ $continue next src ($ $branch kt exp)))
        (or (and (< next k) next)
            (go kt)
@@ -417,6 +425,6 @@ MAX-VAR + 1 which contains register and memory information."
            (go next)))
       (($ $ktail)
        #f)
-      (($ $kreceive _ _ next)
+      (($ $kreceive _ next)
        (go next))))
   (go kfun))

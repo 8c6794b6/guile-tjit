@@ -27,12 +27,15 @@
 (define-module (system vm native tjit assembler)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
+  #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 pretty-print)
   #:use-module (language cps intmap)
   #:use-module (language cps intset)
   #:use-module (language cps2)
+  #:use-module (language cps2 types)
   #:use-module (language cps2 utils)
   #:use-module (language tree-il primitives)
+  #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-11)
   #:use-module ((system base types) #:select (%word-size))
@@ -44,7 +47,7 @@
   #:use-module (system vm native tjit variables)
   #:export (assemble-tjit
             initialize-tjit-primitives
-            *prim-types*))
+            *native-prim-types*))
 
 
 ;;;
@@ -97,15 +100,15 @@
 ;;;
 
 (define-record-type <asm>
-  (%make-asm %env %fp-offset %out-label %loop-label)
+  (%make-asm %env %fp-offset %out-code %loop-label)
   asm?
   (%env asm-env set-asm-env!)
   (%fp-offset fp-offset set-asm-fp-offset!)
-  (%out-label out-label set-asm-out-label!)
+  (%out-code out-code set-asm-out-code!)
   (%loop-label loop-label set-asm-loop-label!))
 
-(define (make-asm env fp-offset out-label)
-  (%make-asm env fp-offset out-label #f))
+(define (make-asm env fp-offset out-code)
+  (%make-asm env fp-offset out-code #f))
 
 (define (env-ref asm i)
   (vector-ref (asm-env asm) i))
@@ -113,8 +116,6 @@
 (define (moffs asm r)
   (make-offset-pointer (fp-offset asm) (* (ref-value r) %word-size)))
 
-(define-syntax-rule (constant-word i)
-  (imm (* (ref-value i) %word-size)))
 
 ;;;
 ;;; Auxiliary
@@ -129,6 +130,9 @@
 
 (define registers-offset
   (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 2 %word-size)))))
+
+(define ra-offset
+  (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 3 %word-size)))))
 
 (define (make-offset-pointer offset n)
   (let ((addr (+ offset n)))
@@ -195,23 +199,25 @@
    (else
     (jit-stxi-d (moffs asm dst) fp src))))
 
+(define-syntax-rule (constant-word i)
+  (imm (* (ref-value i) %word-size)))
+
 
 ;;;
 ;;; Primitives
 ;;;
 
 ;;; Primitives used for vm-tjit engine.  Primitives defined here are used during
-;;; compilation from traced data to native code, and possibly useless for
-;;; ordinal use as scheme procedure.
+;;; compilation of traced data to native code, and possibly useless for ordinal
+;;; use as scheme procedure except for managing comment as document.
 ;;;
 ;;; Need at least 3 general purpose scratch registers, and 3 floating point
 ;;; scratch registers. Currently using R0, R1, and R2 for general purpose, F0,
 ;;; F1, and F2 for floating point.
 
-(define *simple-prim-arities* (make-hash-table))
-(define *branching-prim-arities* (make-hash-table))
-(define *all-prims* (make-hash-table))
-(define *prim-types* (make-hash-table))
+(define *native-prim-arities* (make-hash-table))
+(define *native-prim-procedures* (make-hash-table))
+(define *native-prim-types* (make-hash-table))
 
 (define (arity-of-args args)
   (cond
@@ -228,8 +234,8 @@
      (begin
        (define-prim (name asm arg ...)
          <body>)
-       (hashq-set! *simple-prim-arities* 'name (arity-of-args '(arg ...)))
-       (hashq-set! *prim-types* 'name `(,ty ...))))
+       (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
+       (hashq-set! *native-prim-types* 'name `(,ty ...))))
     ((_ (name asm arg ...) <body>)
      (begin
        (define (name asm arg ...)
@@ -241,27 +247,9 @@
              (debug 3 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
            <body>))
 
-       (hashq-set! *all-prims* 'name name)))))
-
-(define-syntax define-branching-prim
-  (syntax-rules ()
-    ((_ (name asm (ty arg) ...) <body>)
-     (begin
-       (define-prim (name asm arg ...)
-         <body>)
-       (hashq-set! *branching-prim-arities* 'name (arity-of-args '(arg ...)))
-       (hashq-set! *prim-types* 'name `(,ty ...))))))
+       (hashq-set! *native-prim-procedures* 'name name)))))
 
 (define (initialize-tjit-primitives)
-  ;; Extending (@@ (language cps primitives) branching-primitives?) procedure
-  ;; with CPS primitives used in vm-tjit.  Branching primitives are merged to
-  ;; CPS term during compilation from tree-il to cps, with using
-  ;; `branching-primitives?' predicate.
-  (define (branching-primitive? name)
-    (let ((cps-branching-primcall-arities (@@ (language cps primitives)
-                                              *branching-primcall-arities*)))
-      (or (and (assq name cps-branching-primcall-arities) #t)
-          (and (hashq-ref *branching-prim-arities* name) #t))))
   (for-each
    (match-lambda
     ((name . arity)
@@ -270,53 +258,24 @@
      (hashq-set! (force (@@ (language cps primitives) *prim-instructions*))
                  name name)
      (hashq-set! (@@ (language cps primitives) *prim-arities*) name arity)))
-   (append (hash-fold acons '() *simple-prim-arities*)
-           (hash-fold acons '() *branching-prim-arities*)))
-
-  ;; Overwrite the branch predicate procedure.
-  (module-define! (resolve-module '(language cps primitives))
-                  'branching-primitive?
-                  branching-primitive?))
+   (hash-fold acons '() *native-prim-arities*)))
 
 
 ;;;
-;;; Calls
+;;; Guards
 ;;;
 
-(define-prim (%native-call asm (void addr))
-  (cond
-   ((constant? addr)
-    (jit-prepare)
-    (jit-pushargr reg-thread)           ; thread
-    (jit-ldxi r0 fp vp->fp-offset)
-    (jit-pushargr r0)         ; vp->fp
-    ;; (jit-pushargi %null-pointer)        ; registers
-    (jit-movi r0 (constant addr))
-    (jit-callr r0))
-   (else
-    (error "%native-call" addr))))
+(define-syntax-rule (side-exit code)
+  ;; XXX: Update the contents of `out' when the side exit gets hot.
+  (let ((addr (jit-movi r1 (imm 0))))
+    (jit-stxi ra-offset fp r1)
+    (jit-movi r0 code)
+    (jit-jmpr r0)
+    (jit-patch addr)
+    (jit-retr r0)))
 
-
-;;;
-;;; Exact integer
-;;;
-
-(define-branching-prim (%guard-fx asm (int obj))
-  (let ((next (jit-forward))
-        (out (out-label asm)))
-    (cond
-     ((gpr? obj)
-      (jump (scm-inump (gpr obj)) next))
-     ((memory? obj)
-      (memory-ref asm r0 obj)
-      (jump (scm-inump r0) next))
-     (else
-      (error "%guard-fx" obj)))
-    (jump out)
-    (jit-link next)))
-
-(define-branching-prim (%eq asm (int a) (int b))
-  (let ((out (out-label asm))
+(define-prim (%eq asm (int a) (int b))
+  (let ((out (out-code asm))
         (next (jit-forward)))
     (cond
      ((and (gpr? a) (constant? b))
@@ -332,11 +291,24 @@
       (jump (jit-beqr r0 r1) (next)))
      (else
       (error "%eq" a b)))
-    (jump out)
+    (side-exit out)
     (jit-link next)))
 
-(define-branching-prim (%lt asm (int a) (int b))
-  (let ((out (out-label asm))
+(define-prim (%ne asm (int a) (int b))
+  (let ((out (out-code asm))
+        (next (jit-forward)))
+    (cond
+     ((and (gpr? a) (constant? b))
+      (jump (jit-bnei (gpr a) (constant b)) next))
+     ((and (gpr? a) (gpr? b))
+      (jump (jit-bner (gpr a) (gpr b)) next))
+     (else
+      (error "%ne" a b)))
+    (side-exit out)
+    (jit-link next)))
+
+(define-prim (%lt asm (int a) (int b))
+  (let ((out (out-code asm))
         (next (jit-forward)))
     (cond
      ((and (constant? a) (gpr? b))
@@ -368,8 +340,70 @@
 
      (else
       (error "%lt" a b)))
-    (jump out)
+
+    (side-exit out)
     (jit-link next)))
+
+(define-prim (%guard-fx asm (int obj))
+  (let ((next (jit-forward))
+        (out (out-code asm)))
+    (cond
+     ((gpr? obj)
+      (jump (scm-inump (gpr obj)) next))
+     ((memory? obj)
+      (memory-ref asm r0 obj)
+      (jump (scm-inump r0) next))
+     (else
+      (error "%guard-fx" obj)))
+    (side-exit out)
+    (jit-link next)))
+
+;;; XXX: Make low level instructions to load cell object, and to compare
+;;; typ16. Then rewrite this guard using those instructions.
+(define-prim (%guard-fl asm (int obj))
+  (let ((out (out-code asm))
+        (exit (jit-forward))
+        (next (jit-forward)))
+    (cond
+     ((gpr? obj)
+      (jump (scm-imp (gpr obj)) exit)
+      (scm-cell-type r0 (gpr obj))
+      (scm-typ16 r0 r0)
+      (jump (scm-realp r0) next))
+     ((memory? obj)
+      (memory-ref asm r0 obj)
+      (jump (scm-imp r0) exit)
+      (scm-cell-type r0 r0)
+      (scm-typ16 r0 r0)
+      (jump (scm-realp r0) next))
+     (else
+      (error "%guard-fl" obj)))
+    (jit-link exit)
+    (side-exit out)
+    (jit-link next)))
+
+(define-prim (%flt asm (double a) (double b))
+  (let ((out (out-code asm))
+        (next (jit-forward)))
+    (cond
+     ((and (constant? a) (fpr? b))
+      (jit-movi-d f0 (constant a))
+      (jump (jit-bltr-d f0 (fpr b)) next))
+
+     ((and (fpr? a) (constant? b))
+      (jump (jit-blti-d (fpr a) (constant b)) next))
+     ((and (fpr? a) (fpr? b))
+      (jump (jit-bltr-d (fpr a) (fpr b)) next))
+
+     (else
+      (error "%flt" a b)))
+    (side-exit out)
+    (jit-link next)))
+
+
+;;;
+;;; Exact integer
+;;;
 
 (define-prim (%add asm (int dst) (int a) (int b))
   (cond
@@ -504,7 +538,6 @@
 ;;; Floating point
 ;;;
 
-
 ;;; XXX: Make lower level operation and rewrite.
 (define-prim (%from-double asm (int dst) (double src))
   (cond
@@ -531,46 +564,6 @@
    (else
     (error "*** %scm-from-double: ~a ~a~%" dst src))))
 
-;;; XXX: Make low level instructions to load cell object, and to compare
-;;; typ16. Then rewrite this guard using thos instructions.
-(define-branching-prim (%guard-fl asm (int obj))
-  (let ((out (out-label asm))
-        (next (jit-forward)))
-    (cond
-     ((gpr? obj)
-      (jump (scm-imp (gpr obj)) out)
-      (scm-cell-type r0 (gpr obj))
-      (scm-typ16 r0 r0)
-      (jump (scm-realp r0) next))
-     ((memory? obj)
-      (memory-ref asm r0 obj)
-      (jump (scm-imp r0) out)
-      (scm-cell-type r0 r0)
-      (scm-typ16 r0 r0)
-      (jump (scm-realp r0) next))
-     (else
-      (error "%guard-fl" obj)))
-    (jump out)
-    (jit-link next)))
-
-(define-branching-prim (%flt asm (double a) (double b))
-  (let ((out (out-label asm))
-        (next (jit-forward)))
-    (cond
-     ((and (constant? a) (fpr? b))
-      (jit-movi-d f0 (constant a))
-      (jump (jit-bltr-d f0 (fpr b)) next))
-
-     ((and (fpr? a) (constant? b))
-      (jump (jit-blti-d (fpr a) (constant b)) next))
-     ((and (fpr? a) (fpr? b))
-      (jump (jit-bltr-d (fpr a) (fpr b)) next))
-
-     (else
-      (error "%flt" a b)))
-    (jump out)
-    (jit-link next)))
-
 (define-prim (%fadd asm (double dst) (double a) (double b))
   (cond
    ((and (fpr? dst) (constant? a) (fpr? b))
@@ -580,10 +573,13 @@
    ((and (fpr? dst) (fpr? a) (fpr? b))
     (jit-addr-d (fpr dst) (fpr a) (fpr b)))
 
+   ((and (memory? dst) (fpr? a) (fpr? b))
+    (jit-addr-d f0 (fpr a) (fpr b))
+    (memory-set!/fpr asm dst f0))
    ((and (memory? dst) (memory? a) (constant? b))
-    (jit-ldxi-d f0 fp (moffs asm a))
+    (memory-ref/fpr asm f0 a)
     (jit-addi-d f0 f0 (constant b))
-    (jit-stxi-d (moffs asm dst) fp f0))
+    (memory-set!/fpr asm dst f0))
    ((and (memory? dst) (memory? a) (fpr? b))
     (memory-ref/fpr asm f0 a)
     (jit-addr-d f0 f0 (fpr b))
@@ -727,10 +723,30 @@
 
 
 ;;;
+;;; Calls
+;;;
+
+(define-prim (%native-call asm (void addr))
+  (cond
+   ((constant? addr)
+    (jit-prepare)
+    (jit-pushargr reg-thread)           ; thread
+    (jit-ldxi r0 fp vp->fp-offset)
+    (jit-pushargr r0)         ; vp->fp
+    ;; (jit-pushargi %null-pointer)        ; registers
+    (jit-movi r0 (constant addr))
+    (jit-callr r0))
+   (else
+    (error "%native-call" addr))))
+
+
+;;;
 ;;; Code generation
 ;;;
 
-(define (assemble-cps cps env initial-args fp-offset)
+(define native-code-guardian (make-guardian))
+
+(define (assemble-cps cps env snapshots initial-args fp-offset)
   (define (env-ref i)
     (vector-ref env i))
 
@@ -738,6 +754,9 @@
     (make-offset-pointer fp-offset (* (ref-value x) %word-size)))
 
   (define kstart (loop-start cps))
+
+  (define side-exit-code (make-hash-table))
+  (define current-side-exit 0)
 
   (define (maybe-move exp old-args)
     (define (move dst src)
@@ -791,12 +810,67 @@
                   (move dst src)))))
           old-args new-args)))))
 
+  (define (restore-frame local-x-type var-ref)
+    (let ((var (env-ref var-ref))
+          (local (car local-x-type))
+          (type (cdr local-x-type)))
+      (cond
+       ((= type &exact-integer)
+        (cond
+         ((constant? var)
+          (jit-movi r0 (constant var))
+          (jit-lshi r0 r0 (imm 2))
+          (jit-addi r0 r0 (imm 2))
+          (local-set! local r0))
+         ((gpr? var)
+          (jit-lshi (gpr var) (gpr var) (imm 2))
+          (jit-addi (gpr var) (gpr var) (imm 2))
+          (local-set! local (gpr var)))
+         ((memory? var)
+          (jit-ldxi r0 fp (moffs var))
+          (jit-lshi r0 r0 (imm 2))
+          (jit-addi r0 r0 (imm 2))
+          (local-set! local r0))))
+       ((= type &flonum)
+        (cond
+         ((constant? var)
+          (jit-movi-d f0 (constant var))
+          (scm-from-double r0 f0)
+          (local-set! local r0))
+         ((fpr? var)
+          (scm-from-double r0 (fpr var))
+          (local-set! local r0))
+         ((memory? var)
+          (jit-ldxi-d f0 fp (moffs var))
+          (scm-from-double r0 f0)
+          (local-set! local r0))))
+       ((= type &box)
+        (cond
+         ((gpr? var)
+          (local-set! local (gpr var)))
+         ((memory? var)
+          (jit-ldxi r0 fp (moffs var))
+          (local-set! local r0))
+         (else
+          (error "restore-frame: box" local type var))))
+       ((= type &false)
+        (jit-movi r0 (scm->pointer #f))
+        (local-set! local r0))
+       (else
+        (error "Unknown local-x-type, var" local-x-type var)))))
+
   (define (assemble-cont cps exp loop-label k)
+    (define (make-loop-label)
+      (if (= k kstart)
+          (begin
+            (debug 3 ";;; loop:~%")
+            (jit-note "loop" 0)
+            (jit-label))
+          loop-label))
     ;; (debug 1 "~4,,,'0@a ~a~%" k
     ;;        (or (and (null? exp) exp)
     ;;            (and cps (unparse-cps exp))))
     (match (intmap-ref cps k)
-      ;; (_ "ASSMBLING PHASE IGNORED.") ; Temporary, for debuging CPS IR.
       (($ $kreceive _ knext)
        (assemble-cont cps exp loop-label knext))
 
@@ -806,87 +880,92 @@
       (($ $kfun _ _ _ _ knext)
        (assemble-cont cps exp loop-label knext))
 
-      (($ $kargs _ syms ($ $continue knext _ ($ $branch kt br-exp)))
-       (let ((br-label (jit-forward))
-             (loop-label (if (= k kstart) (jit-label) loop-label)))
-         (when (= k kstart)
-           (debug 3 ";;; loop:~%"))
-         (when (= k kstart)
-           (jit-note "loop" 0))
-         (assemble-exp exp syms #f)
-         (assemble-exp br-exp '() br-label)
-         (assemble-cont cps #f loop-label kt)
-         (jit-link br-label)
-         (assemble-cont cps #f loop-label knext)))
-
       (($ $kargs _ syms ($ $continue knext _ next-exp))
+       (assemble-exp exp syms #f)
        (cond
         ((< knext k)                    ; Jump to the loop start.
-         (assemble-exp exp syms #f)
          (maybe-move next-exp initial-args)
          (debug 3 ";;; -> loop~%")
          (jump loop-label)
          #f)
         (else
-         (assemble-exp exp syms #f)
-         (let ((loop-label (if (= k kstart) (jit-label) loop-label)))
-           (when (= k kstart)
-             (jit-note "loop" 0)
-             (debug 3 ";;; loop:~%"))
+         (let ((loop-label (make-loop-label)))
            (assemble-cont cps next-exp loop-label knext)))))
 
       (($ $ktail)
        (assemble-exp exp '() #f)
        #f)))
 
-  (define (assemble-exp exp dst label)
-    (match exp
+  (define (assemble-prim name dsts args label)
+    (cond
+     ((hashq-ref *native-prim-procedures* name)
+      =>
+      (lambda (proc)
+        (let* ((side-exit (hashq-ref side-exit-code current-side-exit))
+               (asm (make-asm env fp-offset side-exit)))
+          (apply proc asm (append dsts args)))))
+     (else
+      (error "Unhandled primcall" name))))
 
-      ;; XXX: Need to differentiate from `$values' expression at the loop dend
-      ;; which jumps to loop start.
-
-      ;; (($ $values (exit-id ip))
-      ;;  (let ((a (env-ref ip)))
-      ;;    (cond
-      ;;     ((constant? a)
-      ;;      (jit-reti (constant a)))
-      ;;     ((gpr? a)
-      ;;      (jit-retr (gpr a)))
-      ;;     ((memory? a)
-      ;;      (jit-ldxi r0 fp (moffs a))
-      ;;      (jit-retr r0)))))
-
-      (($ $primcall 'return (arg1))
-       (let ((a (env-ref arg1)))
-         (cond
-          ((constant? a)
-           (jit-reti (constant a)))
-          ((register? a)
-           (jit-retr (gpr a)))
-          ((memory? a)
-           (jit-ldxi r0 fp (moffs a))
-           (jit-retr r0)))))
-
-      (($ $primcall name args)
+  (define (assemble-exit proc args)
+    (with-jit-state
+     (jit-prolog)
+     (jit-tramp (imm (* 4 %word-size)))
+     (let ((proc (env-ref proc)))
+       (when (not (constant? proc))
+         (error "assemble-exit: not a constant" proc args))
        (cond
-        ((hashq-ref *all-prims* name)
+        ((hashq-ref snapshots (- current-side-exit 1))
          =>
-         (lambda (proc)
-           (let ((asm (make-asm env fp-offset label)))
-             (apply proc asm (append dst args)))))
+         (lambda (local-x-types)
+           (for-each restore-frame local-x-types args)))
         (else
-         (debug 2 "*** Unhandled primcall: ~a~%" name))))
+         (debug 2 ";;; assemble-exit: entry IP #x~x~%" (ref-value proc))))
 
+       ;; Caller places return address to address `fp + ra-offset', and
+       ;; expects `R0' to hold return value.
+       (jit-movi r0 (constant proc))
+       (jit-ldxi r1 fp ra-offset)
+       (jit-jmpr r1)
+
+       (jit-epilog)
+       (jit-realize))
+
+     (let* ((estimated-code-size (jit-code-size))
+            (code (make-bytevector estimated-code-size)))
+       (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
+       (jit-emit)
+       (make-bytevector-executable! code)
+
+       ;; XXX: Avoiding garbage collector to wipe out the contents of native
+       ;; code in bytevector.  Store somewhere accessible from C code, to
+       ;; replace the contents later.
+       (native-code-guardian code)
+
+       (set! current-side-exit (+ current-side-exit 1))
+       (hashq-set! side-exit-code current-side-exit (bytevector->pointer code))
+
+       (let ((verbosity (lightning-verbosity)))
+         (when (and verbosity (<= 3 verbosity))
+           (call-with-output-file
+               (format #f "/tmp/bailout-~a.o" proc)
+             (lambda (port)
+               (put-bytevector port code)
+               (jit-print))))))))
+
+  (define (assemble-exp exp dsts label)
+    (match exp
+      (($ $primcall name args)
+       (assemble-prim name dsts args label))
       (($ $call proc args)
-       (debug 2 "      exp:call ~a ~a~%" proc args))
-
+       (assemble-exit proc args))
       (_
        ;; (debug 1 "      exp:~a~%" exp)
        #f)))
 
   (assemble-cont cps '() #f 0))
 
-(define (assemble-tjit locals cps)
+(define (assemble-tjit locals snapshots cps)
   (define (max-moffs env)
     (let lp ((i 0) (end (vector-length env)) (current 0))
       (if (< i end)
@@ -901,28 +980,19 @@
        ((env initial-locals loop-start-args)
         (resolve-variables cps locals max-var)))
 
-    ;; (let ((verbosity (lightning-verbosity)))
-    ;;   (when (and verbosity (<= 3 verbosity))
-    ;;     (display ";;; cps env\n")
-    ;;     (let lp ((n 0) (end (vector-length env)))
-    ;;       (when (< n end)
-    ;;         (format #t ";;; ~3@a: ~a~%" n (vector-ref env n))
-    ;;         (lp (+ n 1) end)))))
-
-    ;; Allocate space for spilled variables, and two words for arguments passed
-    ;; from C code, `vp->fp', and `registers'.
+    ;; Allocate spaces. For spilled variables, and two words for arguments
+    ;; passed from C code: `vp->fp', and `registers', and one word for return
+    ;; address used by side exits.
     (let* ((nspills (max-moffs env))
-           (fp-offset (jit-allocai (imm (* (+ nspills 2) %word-size)))))
+           (fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size)))))
 
       ;; Get arguments.
       (jit-getarg reg-thread (jit-arg)) ; *thread
       (jit-getarg r0 (jit-arg))         ; vp->fp
       (jit-getarg r1 (jit-arg))         ; registers, for prompt
 
-      ;; Load `vp->fp', store to vp->fp-offset.
+      ;; Load and store `vp->fp' and `registers'.
       (jit-stxi vp->fp-offset fp r0)
-
-      ;; Load registers for prompt, store to register-offset.
       (jit-stxi registers-offset fp r1)
 
       ;; Load initial locals.
@@ -938,8 +1008,8 @@
                (local-ref r0 local-idx)
                (jit-stxi (make-offset-pointer fp-offset offset) fp r0)))
             (else
-             (debug 2 "Unknown initial argument: ~a~%" var))))))
+             (error "Unknown initial argument" var))))))
        initial-locals)
 
       ;; Assemble the loop.
-      (assemble-cps cps env loop-start-args fp-offset))))
+      (assemble-cps cps env snapshots loop-start-args fp-offset))))
