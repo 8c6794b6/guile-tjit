@@ -26,8 +26,9 @@
 
 (define-module (system vm native tjit parameters)
   #:export (tjit-ip-counter
-            tjit-hot-count
-            set-tjit-hot-count!
+            tjit-hot-loop
+            tjit-hot-exit
+            set-tjit-hot-loop!
             tjit-stats))
 
 (load-extension (string-append "libguile-" (effective-version))
@@ -41,13 +42,13 @@
 (define (tjit-stats)
   (let ((num-loops 0)
         (num-hot-loops 0)
-        (hot-count (tjit-hot-count)))
+        (hot-loop (tjit-hot-loop)))
     (hash-fold (lambda (k v acc)
                  (set! num-loops (+ num-loops 1))
-                 (when (< hot-count v)
+                 (when (< hot-loop v)
                    (set! num-hot-loops (+ num-hot-loops 1))))
                '()
                (tjit-ip-counter))
-    (list `(hot-count . ,hot-count)
+    (list `(hot-loop . ,hot-loop)
           `(num-loops . ,num-loops)
           `(num-hot-loops . ,num-hot-loops))))

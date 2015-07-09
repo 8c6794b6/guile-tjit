@@ -48,7 +48,8 @@
 ;;; Compilation
 ;;;
 
-(define (compile-tjit trace-id bytecode-ptr bytecode-len ips)
+(define (compile-tjit trace-id bytecode-ptr bytecode-len ips
+                      parent-ip parent-exit-id)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
 
@@ -61,15 +62,23 @@
         (match envs
           ((env . envs)
            (let-values (((len elt) (disassemble-one bytecode offset)))
-             ;; Replace with vm-tjit specific `native-call' op when
-             ;; native code exists in recorded trace.
              (match env
-               ((ip #f local)
-                (lp (cons (cons elt env) acc) (+ offset len) envs))
-               ((ip bv local)
-                (let* ((addr (pointer-address (bytevector->pointer bv)))
-                       (op `(native-call ,addr)))
-                  (lp (cons (cons op env) acc) (+ offset len) envs))))))
+               ((ip _ local)
+                (lp (cons (cons elt env) acc) (+ offset len) envs)))
+
+             ;; XXX: Formerly, replaced opcode with vm-tjit specific
+             ;; `native-call' when native code exists in recorded
+             ;; trace.  When patching hote side exits are done, `bv'
+             ;; element in trace may removed.
+
+             ;; (match env
+             ;;   ((ip #f local)
+             ;;    (lp (cons (cons elt env) acc) (+ offset len) envs))
+             ;;   ((ip bv local)
+             ;;    (let* ((addr (pointer-address (bytevector->pointer bv)))
+             ;;           (op `(native-call ,addr)))
+             ;;      (lp (cons (cons op env) acc) (+ offset len) envs))))
+             ))
           (()
            (reverse! acc))))))
 
@@ -88,11 +97,18 @@
                  (or (source-file source) "(unknown file)")
                  (source-line-for-user source)))))
 
+    (define (mark-call cont)
+      (match cont
+        (($ $kargs _ _ ($ $continue _ _ ($ $call _ _)))
+         "+")
+        (_
+         " ")))
+
     (define (mark-branch cont)
       (match cont
         (($ $kargs _ _ ($ $continue _ _ ($ $primcall name _)))
          (case name
-           ((%eq %ne %lt %flt %guard-fx %guard-fl) ">")
+           ((%eq %ne %lt %flt %le %ge %guard-fx %guard-fl) ">")
            (else " ")))
         (_
          " ")))
@@ -139,7 +155,7 @@
                  (else
                   (lp traces level))))
               (() (values)))))
-        (format #t ";;; scm:~%~y" scm)
+        ;; (format #t ";;; scm:~%~y" scm)
         (display ";;; cps\n")
         (cond
          ((not cps)
@@ -151,19 +167,14 @@
                 (() #f)
                 (((k . cont) . conts)
                  (and (= k kstart) (format #t "---- loop:~%"))
-                 (format #t "~4,,,'0@a  ~a ~a~%"
-                         k (mark-branch cont) (unparse-cps cont))
+                 (format #t "~4,,,'0@a  ~a~a ~a~%" k
+                         (mark-branch cont) (mark-call cont) (unparse-cps cont))
                  (match cont
                    (($ $kargs _ _ ($ $continue knext _ _))
                     (when (< knext k)
                       (format #t "---- ->loop~%")))
                    (_ (values)))
-                 (lp conts)))))
-          ;; (display ";;; dfg")
-          ;; ((@@ (language cps dfg) dump-dfg)
-          ;;  ((@@ (language cps dfg) compute-dfg)
-          ;;   ((@@ (system base compile) compile) cps #:from 'cps2 #:to 'cps)))
-          ))
+                 (lp conts)))))))
         (when (and code (<= 3 verbosity))
           (jit-print)
           (call-with-output-file
@@ -181,7 +192,7 @@
          =>
          (lambda (msg)
            (let ((sline (ip-ptr->source-line (car (car ips)))))
-             (debug 1 ";;; trace ~a: ~a ~a~%" trace-id sline "abort")
+             (debug 1 ";;; trace ~a:~a ~a~%" trace-id sline "abort")
              (debug 2 ";;; msg: ~a~%" msg)
              (show-debug-messages scm locals cps #f #f))
            #f))
@@ -196,8 +207,11 @@
              (make-bytevector-executable! code)
              (when (and verbosity (<= 1 verbosity))
                (let ((sline (ip-ptr->source-line (car (car ips)))))
-                 (format #t ";;; trace ~a: ~a size=~a~%"
-                         trace-id sline (number->string code-size)))
+                 (format #t ";;; trace ~a:~a ~a~a~%"
+                         trace-id sline code-size
+                         (if (< 0 parent-ip)
+                             (format #f " (~x:~a)" parent-ip parent-exit-id)
+                             "")))
                (show-debug-messages scm locals cps code code-size)))
            code)))))))
 

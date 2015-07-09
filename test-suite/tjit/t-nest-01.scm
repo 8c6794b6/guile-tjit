@@ -8,4 +8,4 @@
                   acc)))
         acc)))
 
-(nest 1000)
+(nest 100)

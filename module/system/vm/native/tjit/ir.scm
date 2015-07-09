@@ -212,6 +212,7 @@
 ;;;
 
 (define (trace->scm ops)
+  (define br-op-size 2)
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
 
@@ -360,7 +361,7 @@
              (else
               (lp (+ i 1)))))))
 
-      (define (take-snapshot!)
+      (define (take-snapshot! offset)
         (let ((end (vector-length vars)))
           (debug 2 ";;; take-snapshot!:~%;;; locals=~a~%;;; vars=~a~%"
                  locals vars)
@@ -377,7 +378,7 @@
                 ;; `$call' term.  It might not good to use `$call' this way,
                 ;; though no other idea to capture CPS variables with less
                 ;; amount of terms.
-                `(,ip ,@args)))
+                `(,(+ ip (* offset 4)) ,@args)))
              ((var-ref i)
               =>
               (lambda (var)
@@ -508,7 +509,10 @@
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
              `(begin
-                ,(take-snapshot!)
+                ,(take-snapshot!
+                  (if (= ra rb)
+                      (if invert? offset 2)
+                      (if invert? 2 offset)))
                 ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
                 ,(convert escape rest)))
             (else
@@ -525,16 +529,22 @@
              (set-type! a &exact-integer)
              (set-type! b &exact-integer)
              `(begin
-                ,(take-snapshot!)
-                ,(if (< ra rb) `(%lt ,va ,vb) `(%lt ,vb ,va))
+                ,(take-snapshot!
+                  (if (< ra rb)
+                      (if invert? offset br-op-size)
+                      (if invert? br-op-size offset)))
+                ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))
                 ,(convert escape rest)))
 
             ((and (flonum? ra) (flonum? rb))
              (set-type! a &flonum)
              (set-type! b &flonum)
              `(begin
-                ,(take-snapshot!)
-                ,(if (< ra rb) `(%flt ,va ,vb) `(%flt ,vb ,va))
+                ,(take-snapshot!
+                  (if (< ra rb)
+                      (if invert? offset 2)
+                      (if invert? 2 offset)))
+                ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
                 ,(convert escape rest)))
             (else
              (debug 2 "ir:convert < ~a ~a~%" ra rb)

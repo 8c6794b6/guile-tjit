@@ -70,11 +70,12 @@
   (jit-andi dst obj (imm #xffff)))
 
 (define %scm-from-double
-  (dynamic-pointer "scm_from_double" (dynamic-link)))
+  (dynamic-pointer "scm_do_inline_from_double" (dynamic-link)))
 
 (define-syntax-rule (scm-from-double dst src)
   (begin
     (jit-prepare)
+    (jit-pushargr reg-thread)
     (jit-pushargr-d src)
     (jit-calli %scm-from-double)
     (jit-retval dst)))
@@ -275,8 +276,7 @@
     (jit-retr r0)))
 
 (define-prim (%eq asm (int a) (int b))
-  (let ((out (out-code asm))
-        (next (jit-forward)))
+  (let ((next (jit-forward)))
     (cond
      ((and (gpr? a) (constant? b))
       (jump (jit-beqi (gpr a) (constant b)) next))
@@ -291,25 +291,27 @@
       (jump (jit-beqr r0 r1) (next)))
      (else
       (error "%eq" a b)))
-    (side-exit out)
+    (side-exit (out-code asm))
     (jit-link next)))
 
 (define-prim (%ne asm (int a) (int b))
-  (let ((out (out-code asm))
-        (next (jit-forward)))
+  (let ((next (jit-forward)))
     (cond
      ((and (gpr? a) (constant? b))
       (jump (jit-bnei (gpr a) (constant b)) next))
      ((and (gpr? a) (gpr? b))
       (jump (jit-bner (gpr a) (gpr b)) next))
+
+     ((and (memory? a) (gpr? b))
+      (memory-ref asm r0 a)
+      (jump (jit-bner r0 (gpr b)) next))
      (else
       (error "%ne" a b)))
-    (side-exit out)
+    (side-exit (out-code asm))
     (jit-link next)))
 
 (define-prim (%lt asm (int a) (int b))
-  (let ((out (out-code asm))
-        (next (jit-forward)))
+  (let ((next (jit-forward)))
     (cond
      ((and (constant? a) (gpr? b))
       (jit-movi r0 (constant a))
@@ -341,12 +343,57 @@
      (else
       (error "%lt" a b)))
 
-    (side-exit out)
+    (side-exit (out-code asm))
+    (jit-link next)))
+
+(define-prim (%ge asm (int a) (int b))
+  (let ((next (jit-forward)))
+    (cond
+     ((and (constant? a) (gpr? b))
+      (jit-movi r0 (constant a))
+      (jump (jit-bger r0 (gpr b)) next))
+
+     ((and (gpr? a) (constant? b))
+      (jump (jit-bgei (gpr a) (constant b)) next))
+     ((and (gpr? a) (gpr? b))
+      (jump (jit-bger (gpr a) (gpr b)) next))
+     ((and (gpr? a) (memory? b))
+      (memory-ref asm r0 b)
+      (jump (jit-bger (gpr a) r0) next))
+     (else
+      (error "%ge" a b)))
+    (side-exit (out-code asm))
+    (jit-link next)))
+
+(define-prim (%flt asm (double a) (double b))
+  (let ((next (jit-forward)))
+    (cond
+     ((and (constant? a) (fpr? b))
+      (jit-movi-d f0 (constant a))
+      (jump (jit-bltr-d f0 (fpr b)) next))
+
+     ((and (fpr? a) (constant? b))
+      (jump (jit-blti-d (fpr a) (constant b)) next))
+     ((and (fpr? a) (fpr? b))
+      (jump (jit-bltr-d (fpr a) (fpr b)) next))
+
+     (else
+      (error "%flt" a b)))
+    (side-exit (out-code asm))
+    (jit-link next)))
+
+(define-prim (%fge asm (double a) (double b))
+  (let ((next (jit-forward)))
+    (cond
+     ((and (fpr? a) (fpr? b))
+      (jump (jit-bger-d (fpr a) (fpr b)) next))
+     (else
+      (error "%fge" a b)))
+    (side-exit (out-code asm))
     (jit-link next)))
 
 (define-prim (%guard-fx asm (int obj))
-  (let ((next (jit-forward))
-        (out (out-code asm)))
+  (let ((next (jit-forward)))
     (cond
      ((gpr? obj)
       (jump (scm-inump (gpr obj)) next))
@@ -355,14 +402,13 @@
       (jump (scm-inump r0) next))
      (else
       (error "%guard-fx" obj)))
-    (side-exit out)
+    (side-exit (out-code asm))
     (jit-link next)))
 
 ;;; XXX: Make low level instructions to load cell object, and to compare
 ;;; typ16. Then rewrite this guard using those instructions.
 (define-prim (%guard-fl asm (int obj))
-  (let ((out (out-code asm))
-        (exit (jit-forward))
+  (let ((exit (jit-forward))
         (next (jit-forward)))
     (cond
      ((gpr? obj)
@@ -379,25 +425,7 @@
      (else
       (error "%guard-fl" obj)))
     (jit-link exit)
-    (side-exit out)
-    (jit-link next)))
-
-(define-prim (%flt asm (double a) (double b))
-  (let ((out (out-code asm))
-        (next (jit-forward)))
-    (cond
-     ((and (constant? a) (fpr? b))
-      (jit-movi-d f0 (constant a))
-      (jump (jit-bltr-d f0 (fpr b)) next))
-
-     ((and (fpr? a) (constant? b))
-      (jump (jit-blti-d (fpr a) (constant b)) next))
-     ((and (fpr? a) (fpr? b))
-      (jump (jit-bltr-d (fpr a) (fpr b)) next))
-
-     (else
-      (error "%flt" a b)))
-    (side-exit out)
+    (side-exit (out-code asm))
     (jit-link next)))
 
 
@@ -407,6 +435,8 @@
 
 (define-prim (%add asm (int dst) (int a) (int b))
   (cond
+   ((and (gpr? dst) (constant? a) (constant? b))
+    (jit-movi (gpr dst) (imm (+ (ref-value a) (ref-value b)))))
    ((and (gpr? dst) (gpr? a) (constant? b))
     (jit-addi (gpr dst) (gpr a) (constant b))
     ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
@@ -432,6 +462,9 @@
     ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
     )
 
+   ((and (memory? dst) (constant? a) (constant? b))
+    (jit-movi r0 (imm (+ (ref-value a) (ref-value b))))
+    (memory-set! asm dst r0))
    ((and (memory? dst) (gpr? a) (constant? b))
     (jit-addi r0 (gpr a) (constant b))
     ;; (jit-subi r0 r0 (imm 2))
@@ -908,6 +941,14 @@
       (error "Unhandled primcall" name))))
 
   (define (assemble-exit proc args)
+    (define (shift-ip ip)
+      (cond
+       ((= %word-size 4)
+        (logand (ash ip 16) #xffffffff))
+       ((= %word-size 8)
+        (logand (ash ip 32) #xffffffffffffffff))
+       (else
+        (error "assemble-exit: unknown architecture"))))
     (with-jit-state
      (jit-prolog)
      (jit-tramp (imm (* 4 %word-size)))
@@ -924,7 +965,17 @@
 
        ;; Caller places return address to address `fp + ra-offset', and
        ;; expects `R0' to hold return value.
-       (jit-movi r0 (constant proc))
+       ;;
+       ;; Doing some bit-shift mangling to return bytecode IP and current
+       ;; side-exit number. High address part of bytecode IPs could be recovered
+       ;; from original bytecode IP. Formerly done with returning a pair, but it
+       ;; was increasing garbage collection time in nested loops.
+       ;;
+       (let* ((ip (ref-value proc))
+              (ip-shifted (shift-ip ip))
+              (retval (+ ip-shifted current-side-exit)))
+         (jit-movi r0 (imm retval)))
+
        (jit-ldxi r1 fp ra-offset)
        (jit-jmpr r1)
 
