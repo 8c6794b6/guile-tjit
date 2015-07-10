@@ -188,7 +188,7 @@ constant value."
               (set! kend k))
              (_
               (debug 2 "loop with no values?: ~a~%" exp))))
-          ((= knext kstart)
+          ((eq? knext kstart)
            (match enext
              (($ $values vals)
               (set! entry-end-syms vals)
@@ -197,7 +197,7 @@ constant value."
               ;; Entry-end-syms could be null. Possible to emit something else
               ;; than $values, when the loop takes single argument.
               (visit-cont enext knext))))
-          ((= kstart k)
+          ((eq? kstart k)
            (set! loop-start-syms syms)
            (visit-cont enext knext))
           (else
@@ -282,10 +282,14 @@ MAX-VAR + 1 which contains register and memory information."
         (eq? double (type i)))
 
       (define *loop-min-sym*
-        (apply min loop-start-syms))
+        (cond
+         ((null? loop-start-syms) 0)
+         (else (apply min loop-start-syms))))
 
       (define *loop-max-sym*
-        (apply max loop-end-syms))
+        (cond
+         ((null? loop-end-syms) 0)
+         (else (apply max loop-end-syms))))
 
       (define *loop-end-table*
         (let ((t (make-hash-table)))

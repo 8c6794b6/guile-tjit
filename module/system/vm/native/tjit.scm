@@ -48,7 +48,7 @@
 ;;; Compilation
 ;;;
 
-(define (compile-tjit trace-id bytecode-ptr bytecode-len ips
+(define (compile-tjit trace-id bytecode-ptr bytecode-len envs
                       parent-ip parent-exit-id)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
@@ -82,7 +82,7 @@
           (()
            (reverse! acc))))))
 
-  (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len ips))
+  (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
         (verbosity (lightning-verbosity)))
 
     (define-syntax-rule (debug n fmt . args)
@@ -166,7 +166,7 @@
               (match conts
                 (() #f)
                 (((k . cont) . conts)
-                 (and (= k kstart) (format #t "---- loop:~%"))
+                 (and (eq? k kstart) (format #t "---- loop:~%"))
                  (format #t "~4,,,'0@a  ~a~a ~a~%" k
                          (mark-branch cont)
                          (mark-call cont)
@@ -180,29 +180,31 @@
         (when (and code (<= 3 verbosity))
           (jit-print)
           (call-with-output-file
-              (format #f "/tmp/trace-~x.o" (car (car ips)))
+              (format #f "/tmp/trace-~x.o" (car (car envs)))
             (lambda (port)
               (let ((code-copy (make-bytevector code-size)))
                 (bytevector-copy! code 0 code-copy 0 code-size)
                 (put-bytevector port code-copy)))))))
 
+    (define nlog (get-nlog parent-ip))
+
     (let ((verbosity (lightning-verbosity)))
       (when (and verbosity (<= 2 verbosity))
-        (let ((nlog (get-nlog parent-ip)))
-          (and nlog (dump-nlog nlog)))))
+        (and nlog (dump-nlog nlog))))
 
     (with-jit-state
      (jit-prolog)
-     (let-values (((locals snapshots scm cps) (trace->cps ip-x-ops)))
-       (let ((sline (ip-ptr->source-line (car (car ips)))))
+     (let-values (((locals snapshots scm cps)
+                   (trace->cps nlog ip-x-ops)))
+       (let ((sline (ip-ptr->source-line (car (car envs)))))
          (cond
           ((not cps)
            (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
            (debug 2 ";;; CPS conversion failed~%")
            #f)
-          ((assemble-tjit locals snapshots cps)
+          ((assemble-tjit locals snapshots nlog parent-exit-id cps)
            =>
-           (lambda (loop-label)
+           (lambda (side-exit-variables)
              (jit-epilog)
              (jit-realize)
              (let* ((estimated-size (jit-code-size))
@@ -224,9 +226,10 @@
                    (show-debug-messages scm locals cps code code-size)))
                (let* ((ip (cadr (car ip-x-ops)))
                       (nlog (make-nlog trace-id code (make-hash-table)
-                                       ip snapshots
-                                       (jit-address loop-label) #f)))
+                                       ip snapshots side-exit-variables #f)))
                  (put-nlog! ip nlog))
+               ;; XXX: When this trace is a side trace, replace the
+               ;; contents of bailout code in parent nlog
                code)))
           (else
            (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)

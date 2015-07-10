@@ -41,7 +41,7 @@
             nlog-code
             nlog-entry-ip
             nlog-snapshots
-            nlog-loop-start-address
+            nlog-side-exit-variables
             nlog-loop-header
 
             put-nlog!
@@ -71,7 +71,7 @@
 ;;;
 (define-record-type <nlog>
   (%make-nlog id code exit-counts entry-ip
-              snapshots loop-start-address loop-header)
+              snapshots side-exit-variables loop-header)
   nlog?
 
   ;; Trace id number.
@@ -89,17 +89,19 @@
   ;; Snapshot locals and types.
   (snapshots nlog-snapshots)
 
-  ;; Address of start of the loop in native code.
-  (loop-start-address nlog-loop-start-address)
+  ;; ;; Address of start of the loop in native code.
+  ;; (loop-start-address nlog-loop-start-address)
+
+  ;; Hash-table containing variables for side exit.
+  (side-exit-variables nlog-side-exit-variables)
 
   ;; Header information of loop.
   (loop-header nlog-loop-header))
 
-(define (make-nlog id code exit-counts entry-ip snapshots loop-addr loop-header)
-  (%make-nlog id code exit-counts entry-ip snapshots loop-addr loop-header))
+(define make-nlog %make-nlog)
 
 (define (dump-nlog nlog)
-  (format #t "~19@a~%" "*** nlog ***")
+  (format #t "~20@a~a~%" "*****" " nlog *****")
   (format #t "~19@a: ~a~%" 'id (nlog-id nlog))
   (format #t "~19@a: addr=~a size=~a~%" 'code
           (bytevector->pointer (nlog-code nlog))
@@ -112,7 +114,11 @@
             (sort (hash-fold acons '() snapshots)
                   (lambda (a b)
                     (< (car a) (car b))))))
-  (format #t "~19@a: ~a~%" 'loop-start-address (nlog-loop-start-address nlog))
+  (format #t "~19@a: ~{~a~^~%                     ~}~%" 'side-exit-vars
+          (let ((vars (nlog-side-exit-variables nlog)))
+            (sort (hash-fold acons '() vars)
+                  (lambda (a b)
+                    (< (car a) (car b))))))
   (format #t "~19@a: ~a~%" 'loop-header (nlog-loop-header nlog)))
 
 (define (put-nlog! key nlog)

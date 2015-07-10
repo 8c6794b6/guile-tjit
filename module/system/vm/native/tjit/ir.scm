@@ -211,7 +211,7 @@
 ;;; Scheme ANF compiler
 ;;;
 
-(define (trace->scm ops)
+(define (trace->scm nlog ops)
   (define br-op-size 2)
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
@@ -378,7 +378,13 @@
                 ;; `$call' term.  It might not good to use `$call' this way,
                 ;; though no other idea to capture CPS variables with less
                 ;; amount of terms.
-                `(,(+ ip (* offset 4)) ,@args)))
+                `(,(cond
+                    ;; XXX: When offset=#f, regard as snapsot at the end of side
+                    ;; exit. Use IP=0 to tell assembler that this is not a
+                    ;; ordinal snapshot.
+                    (offset (+ ip (* offset 4)))
+                    (else 0))
+                  ,@args)))
              ((var-ref i)
               =>
               (lambda (var)
@@ -459,11 +465,12 @@
         ;; XXX: Add a guard to check the returned ip. If it differs, recompile
         ;; native code.
         ;;
-        (('native-call addr)
-         `(begin
-            ,@(save-frame!)
-            (%native-call ,addr)
-            ,(load-frame (convert escape rest))))
+
+        ;; (('native-call addr)
+        ;;  `(begin
+        ;;     ,@(save-frame!)
+        ;;     (%native-call ,addr)
+        ;;     ,(load-frame (convert escape rest))))
 
         ;; *** Function prologues
 
@@ -827,16 +834,28 @@
         ;; XXX: struct-ref
         ;; XXX: struct-set!
 
+        ;; *** Misc
+
+        (('patch-to-native)
+         (take-snapshot! #f))
+
         (op
          (debug 2 "*** ir:convert: NYI ~a~%" (car op))
          (escape #f))))
 
     (define (convert escape traces)
+      ;; (debug 2 ";;; convert: ~a~%" traces)
       (match traces
+        (((op ip _ locals) . ())
+         (cond
+          (nlog
+           (convert-one escape '(patch-to-native) ip locals '()))
+          (else
+           (convert-one escape op ip locals
+                        `(loop ,@(filter identity (vector->list vars)))))))
         (((op ip _ locals) . rest)
          (convert-one escape op ip locals rest))
-        (()
-         `(loop ,@(filter identity (vector->list vars))))))
+        (_ traces)))
 
     ;; Debug.
     ;; (debug 2 ";;; max-local-num: ~a~%" max-local-num)
@@ -845,18 +864,26 @@
     ;;     (debug 2 "ty~a => ~a~%" i (vector-ref types i))
     ;;     (lp (+ i 1) end)))
 
+    (define (make-scm entry-body loop-body)
+      (cond
+       ((and nlog loop-body)            ; Side trace.
+        `(letrec ((loop (lambda ,args ,loop-body)))
+           loop))
+       ((and entry-body loop-body)      ; Root trace.
+        `(letrec ((entry (lambda ,args ,entry-body))
+                  (loop (lambda ,args ,loop-body)))
+           entry))
+       (else
+        (debug 2 ";;; Bytecode to Scheme conversion failed.~%")
+        #f)))
+
     (let* ((loop-body (call-with-escape-continuation
                        (lambda (escape)
                          (convert escape ops))))
            (entry-body (make-entry (initial-ip ops) vars types `(loop ,@args)))
-           (scm (and
-                 (and entry-body loop-body)
-                 `(letrec ((entry (lambda ,args ,entry-body))
-                           (loop (lambda ,args ,loop-body)))
-                    entry))))
+           (scm (make-scm entry-body loop-body)))
       ;; Debug, again
       ;; (debug 2 ";;; entry-guards:~%~y" entry-guards)
-      ;; (debug 2 ";;; scm:~%~y" scm)
       (debug 2 ";;; snapshot:~%~{;;; ~a~%~}~%" (hash-fold acons '() snapshots))
       (values locals snapshots scm))))
 
@@ -891,8 +918,7 @@
     (set! cps (and cps (body-fun cps)))
     cps))
 
-(define (trace->cps trace)
-  (call-with-values (lambda () (trace->scm trace))
+(define (trace->cps nlog trace)
+  (call-with-values (lambda () (trace->scm nlog trace))
     (lambda (locals snapshots scm)
-      ;; (debug 2 ";;; scm~%~y" scm)
       (values locals snapshots scm (scm->cps scm)))))
