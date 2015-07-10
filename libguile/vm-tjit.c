@@ -71,18 +71,10 @@ static const int op_sizes[256] = {
 
 static SCM ip_counter_table;
 static SCM failed_ip_table;
-static SCM native_code_table;
-static SCM exit_log_table;
+static SCM nlog_table;
 static SCM bytecode_buffer_fluid;
 static SCM compile_tjit_var;
 static int trace_id = 1;
-
-/* struct scm_native_entry */
-/* { */
-/*   int trace_id; */
-/*   SCM code; */
-/*   SCM exit_log; */
-/* }; */
 
 
 /*
@@ -111,22 +103,6 @@ tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM ip_ptr,
 }
 
 static inline void
-add_native_code (scm_i_thread *thread, SCM s_ip, int trace_id, SCM code)
-{
-  /* Allocating memory and creating struct was showing segfault in
-     nested loop example. */
-
-  /* struct scm_native_entry* cache = */
-  /*   scm_inline_gc_malloc (thread, sizeof (struct scm_native_code *)); */
-  /* cache->trace_id = trace_id; */
-  /* cache->code = code; */
-  /* scm_hashq_set_x (native_code_table, s_ip, SCM_PACK_POINTER (cache)); */
-
-  scm_hashq_set_x (native_code_table, s_ip, code);
-  scm_hashq_set_x (exit_log_table, s_ip, scm_c_make_hash_table (31));
-}
-
-static inline void
 start_recording (size_t *state, scm_t_uint32 *start, scm_t_uint32 *end,
                  scm_t_uintptr *loop_start, scm_t_uintptr *loop_end)
 {
@@ -147,7 +123,7 @@ stop_recording (size_t *state, SCM *ips, scm_t_uint32 *bc_idx,
 }
 
 static inline scm_t_uint32*
-call_native (SCM s_ip, SCM code,
+call_native (SCM s_ip, SCM nlog,
              scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
              scm_t_uintptr *parent_ip, int *parent_exit_id)
@@ -156,44 +132,42 @@ call_native (SCM s_ip, SCM code,
   scm_t_bits ret;
   scm_t_bits high_addr;
   scm_t_uintptr next_ip;
-  SCM exit_id, exit_log, count;
+  SCM code, exit_id, exit_counts, count;
 
+  code = SCM_NLOG_CODE (nlog);
   fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
   ret = fn (thread, fp, registers);
 
-#if SCM_SIZEOF_UINTPTR_T == 8
- /* Assuming as 64bit architecture. */
+#if SCM_SIZEOF_UINTPTR_T == 8 /* 64bit architecture. */
   high_addr = SCM_I_INUM (s_ip) & 0xffffffff00000000;
   next_ip = high_addr | (ret >> 32);
-#else
- /* XXX: Not tested, assuming as 32bit architecture. */
+#else /* XXX: Not tested, 32bit architecture. */
   high_addr = SCM_I_INUM (s_ip) & 0xffff0000;
   next_ip = high_addr | (ret >> 16);
 #endif
 
   exit_id = SCM_I_MAKINUM (0xffff & ret);
-  exit_log = scm_hashq_ref (exit_log_table, s_ip, SCM_BOOL_F);
+  exit_counts = SCM_NLOG_EXIT_COUNTS (nlog);
 
-  count = scm_hashq_ref (exit_log, exit_id, SCM_INUM0);
+  count = scm_hashq_ref (exit_counts, exit_id, SCM_INUM0);
   count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
-  scm_hashq_set_x (exit_log, exit_id, count);
+  scm_hashq_set_x (exit_counts, exit_id, count);
 
   if (tjit_hot_exit < count)
     {
-      /* XXX: Detect trace exit to bytecode IP which is same as start
-         ip. This could happen when initial arguments to native code had
-         different types than at the time recording trace the first
-         time, which will make guards in entry clause to fail.  Might
-         not need to test for existing native code, because when
-         patching went well, different IP should returned. */
-      SCM code = scm_hashq_ref (native_code_table, SCM_I_MAKINUM (next_ip),
-                                SCM_BOOL_F);
+      /* XXX: Detect trace exit to bytecode IP which is same as entry
+         ip. This could happen when arguments to native code had
+         different types than the types used while recording traces,
+         which will make guards in entry clause to fail. Might not need
+         to test for existing native code, because different IP should
+         be returned when patching went well. */
+      SCM s_next_ip = SCM_I_MAKINUM (next_ip);
+      SCM nlog = scm_hashq_ref (nlog_table, s_next_ip, SCM_BOOL_F);
 
-      if (scm_is_false (code))
+      if (scm_is_false (nlog))
         {
           scm_t_uint32 *start = (scm_t_uint32 *) next_ip;
           scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
-          SCM s_next_ip = SCM_I_MAKINUM (next_ip);
 
           if (scm_hashq_ref (failed_ip_table, s_next_ip, SCM_INUM0) <
               tjit_max_retries)
@@ -251,13 +225,13 @@ hot_loop_p (SCM ip, SCM current_count)
 
 #define SCM_TJIT_ENTER(jump)                                            \
   do {                                                                  \
-    SCM s_ip, code;                                                     \
+    SCM s_ip, nlog;                                                     \
                                                                         \
     s_ip = SCM_I_MAKINUM (ip + jump);                                   \
-    code = scm_hashq_ref (native_code_table, s_ip, SCM_BOOL_F);         \
+    nlog = scm_hashq_ref (nlog_table, s_ip, SCM_BOOL_F);                \
                                                                         \
-    if (scm_is_true (code))                                             \
-      ip = call_native (s_ip, code, thread, fp, registers,              \
+    if (scm_is_true (nlog))                                             \
+      ip = call_native (s_ip, nlog, thread, fp, registers,              \
                         &tjit_state, &tjit_loop_start, &tjit_loop_end,  \
                         &tjit_parent_ip, &tjit_parent_exit_id);         \
     else                                                                \
@@ -277,30 +251,16 @@ hot_loop_p (SCM ip, SCM current_count)
   } while (0)
 
 
+/*
+   XXX: Lookup nlog, call `tjitc' when native code is found during
+   recording trace.  Side exit could link to other native code than the
+   one it start. Nested loops does this patching to different native
+   code.
+*/
 #define SCM_TJIT_MERGE()                                                \
   do {                                                                  \
-    SCM s_loop_start, locals;                                           \
-    int num_locals;                                                     \
-    int opcode, i;                                                      \
-                                                                        \
-    s_loop_start = SCM_I_MAKINUM (tjit_loop_start);                     \
-                                                                        \
-    opcode = *ip & 0xff;                                                \
-                                                                        \
-    /* Store current bytecode and increment bytecode index. */          \
-    for (i = 0; i < op_sizes[opcode]; ++i)                              \
-      {                                                                 \
-        tjit_bytecode[tjit_bc_idx] = ip[i];                             \
-        tjit_bc_idx += 1;                                               \
-      }                                                                 \
-                                                                        \
-    /* Store current IP and frame locals. Copying the local    */       \
-    /* contents to vector manually, to get updated information */       \
-    /* from *fp, not from *vp which may out of sync.           */       \
-    num_locals = FRAME_LOCALS_COUNT ();                                 \
-    locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);             \
-    for (i = 0; i < num_locals; ++i)                                    \
-      scm_c_vector_set_x (locals, i, LOCAL_REF (i));                    \
+    SCM s_ip = SCM_I_MAKINUM (ip);                                      \
+    SCM s_loop_start = SCM_I_MAKINUM (tjit_loop_start);                 \
                                                                         \
     if (SCM_I_INUM (tjit_max_record) < tjit_bc_idx)                     \
       {                                                                 \
@@ -311,17 +271,15 @@ hot_loop_p (SCM ip, SCM current_count)
       }                                                                 \
     else if (ip == ((scm_t_uint32 *) tjit_loop_end))                    \
       {                                                                 \
-        SCM code;                                                       \
+        SCM ret;                                                        \
                                                                         \
         SYNC_IP ();                                                     \
-        code = tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces,         \
-                      &tjit_parent_ip, tjit_parent_exit_id);            \
+        ret = tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces,          \
+                     &tjit_parent_ip, tjit_parent_exit_id);             \
         CACHE_FP ();                                                    \
         ++trace_id;                                                     \
                                                                         \
-        if (scm_is_true (code))                                         \
-          add_native_code (thread, s_loop_start, trace_id, code);       \
-        else                                                            \
+        if (scm_is_false (ret))                                         \
           increment_compilation_failure (s_loop_start);                 \
                                                                         \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
@@ -329,8 +287,28 @@ hot_loop_p (SCM ip, SCM current_count)
       }                                                                 \
     else                                                                \
       {                                                                 \
+        SCM locals;                                                     \
         SCM trace = SCM_EOL;                                            \
-        SCM s_ip = SCM_I_MAKINUM (ip);                                  \
+                                                                        \
+        int num_locals;                                                 \
+        int opcode, i;                                                  \
+                                                                        \
+        opcode = *ip & 0xff;                                            \
+                                                                        \
+        /* Store current bytecode and increment bytecode index. */      \
+        for (i = 0; i < op_sizes[opcode]; ++i)                          \
+          {                                                             \
+            tjit_bytecode[tjit_bc_idx] = ip[i];                         \
+            tjit_bc_idx += 1;                                           \
+          }                                                             \
+                                                                        \
+        /* Store current IP and frame locals. Copying the local    */   \
+        /* contents to vector manually, to get updated information */   \
+        /* from *fp, not from *vp which may out of sync.           */   \
+        num_locals = FRAME_LOCALS_COUNT ();                             \
+        locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);         \
+        for (i = 0; i < num_locals; ++i)                                \
+          scm_c_vector_set_x (locals, i, LOCAL_REF (i));                \
                                                                         \
         trace = scm_inline_cons (thread, locals, trace);                \
         trace = scm_inline_cons (thread, SCM_BOOL_F, trace);            \
@@ -393,6 +371,14 @@ SCM_DEFINE (scm_set_tjit_hot_exit_x, "set-tjit-hot-exit!", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_nlog_table, "nlog-table", 0, 0, 0, (void),
+            "Hash table containing nlogs.")
+#define FUNC_NAME s_scm_nlog_table
+{
+  return nlog_table;
+}
+#undef FUNC_NAME
+
 
 /*
  * Initialization
@@ -410,9 +396,8 @@ scm_bootstrap_vm_tjit(void)
   scm_fluid_set_x (bytecode_buffer_fluid, SCM_PACK (buffer));
 
   ip_counter_table = scm_c_make_hash_table (31);
-  native_code_table = scm_c_make_hash_table (31);
   failed_ip_table = scm_c_make_hash_table (31);
-  exit_log_table = scm_c_make_hash_table (31);
+  nlog_table = scm_c_make_hash_table (31);
   compile_tjit_var = SCM_VARIABLE_REF (scm_c_lookup ("compile-tjit"));
 
   GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);

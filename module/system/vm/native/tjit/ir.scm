@@ -852,8 +852,7 @@
            (scm (and
                  (and entry-body loop-body)
                  `(letrec ((entry (lambda ,args ,entry-body))
-                           (loop (lambda ,args ,loop-body))
-                           )
+                           (loop (lambda ,args ,loop-body)))
                     entry))))
       ;; Debug, again
       ;; (debug 2 ";;; entry-guards:~%~y" entry-guards)

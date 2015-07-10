@@ -108,7 +108,7 @@
       (match cont
         (($ $kargs _ _ ($ $continue _ _ ($ $primcall name _)))
          (case name
-           ((%eq %ne %lt %flt %le %ge %guard-fx %guard-fl) ">")
+           ((%eq %ne %lt %flt %le %ge %fge %guard-fx %guard-fl) ">")
            (else " ")))
         (_
          " ")))
@@ -168,7 +168,9 @@
                 (((k . cont) . conts)
                  (and (= k kstart) (format #t "---- loop:~%"))
                  (format #t "~4,,,'0@a  ~a~a ~a~%" k
-                         (mark-branch cont) (mark-call cont) (unparse-cps cont))
+                         (mark-branch cont)
+                         (mark-call cont)
+                         (unparse-cps cont))
                  (match cont
                    (($ $kargs _ _ ($ $continue knext _ _))
                     (when (< knext k)
@@ -184,36 +186,52 @@
                 (bytevector-copy! code 0 code-copy 0 code-size)
                 (put-bytevector port code-copy)))))))
 
+    (let ((verbosity (lightning-verbosity)))
+      (when (and verbosity (<= 2 verbosity))
+        (let ((nlog (get-nlog parent-ip)))
+          (and nlog (dump-nlog nlog)))))
+
     (with-jit-state
      (jit-prolog)
      (let-values (((locals snapshots scm cps) (trace->cps ip-x-ops)))
-       (cond
-        ((if cps (assemble-tjit locals snapshots cps) "CPS conversion failed")
-         =>
-         (lambda (msg)
-           (let ((sline (ip-ptr->source-line (car (car ips)))))
-             (debug 1 ";;; trace ~a:~a ~a~%" trace-id sline "abort")
-             (debug 2 ";;; msg: ~a~%" msg)
-             (show-debug-messages scm locals cps #f #f))
-           #f))
-        (else
-         (jit-epilog)
-         (jit-realize)
-         (let* ((estimated-code-size (jit-code-size))
-                (code (make-bytevector estimated-code-size)))
-           (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
-           (let* ((fptr (jit-emit))
-                  (code-size (jit-code-size)))
-             (make-bytevector-executable! code)
-             (when (and verbosity (<= 1 verbosity))
-               (let ((sline (ip-ptr->source-line (car (car ips)))))
-                 (format #t ";;; trace ~a:~a ~a~a~%"
-                         trace-id sline code-size
-                         (if (< 0 parent-ip)
-                             (format #f " (~x:~a)" parent-ip parent-exit-id)
-                             "")))
-               (show-debug-messages scm locals cps code code-size)))
-           code)))))))
+       (let ((sline (ip-ptr->source-line (car (car ips)))))
+         (cond
+          ((not cps)
+           (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
+           (debug 2 ";;; CPS conversion failed~%")
+           #f)
+          ((assemble-tjit locals snapshots cps)
+           =>
+           (lambda (loop-label)
+             (jit-epilog)
+             (jit-realize)
+             (let* ((estimated-size (jit-code-size))
+                    (code (make-bytevector estimated-size)))
+               (jit-set-code (bytevector->pointer code) (imm estimated-size))
+               (let* ((fptr (jit-emit))
+                      (code-size (jit-code-size)))
+                 (make-bytevector-executable! code)
+                 (when (and verbosity (<= 1 verbosity))
+                   (let ((nlog (get-nlog parent-ip)))
+                     (format #t ";;; trace ~a:~a ~a~a~%"
+                             trace-id sline code-size
+                             (if (< 0 parent-ip)
+                                 (format #f " (~a:~a)"
+                                         (or (and nlog (nlog-id nlog))
+                                             (format #f "~x" parent-ip))
+                                         parent-exit-id)
+                                 "")))
+                   (show-debug-messages scm locals cps code code-size)))
+               (let* ((ip (cadr (car ip-x-ops)))
+                      (nlog (make-nlog trace-id code (make-hash-table)
+                                       ip snapshots
+                                       (jit-address loop-label) #f)))
+                 (put-nlog! ip nlog))
+               code)))
+          (else
+           (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
+           (debug 2 ";;; Native code generation failed~%")
+           #f)))))))
 
 
 ;;;
