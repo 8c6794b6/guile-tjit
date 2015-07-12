@@ -34,13 +34,13 @@ SCM_API SCM scm_tjit_hot_loop (void);
 SCM_API SCM scm_set_tjit_hot_loop_x (SCM count);
 SCM_API SCM scm_tjit_hot_exit (void);
 SCM_API SCM scm_set_tjit_hot_exit_x (SCM count);
-SCM_API SCM scm_nlog_table (void);
+SCM_API SCM scm_tlog_table (void);
 
-/* Fields in record-type `nlog', from:
+/* Fields in record-type `tlog', from:
    "module/system/vm/native/tjit/parameters.scm". */
-#define SCM_NLOG_CODE(N)         SCM_STRUCT_SLOT_REF (N, 1)
-#define SCM_NLOG_EXIT_COUNTS(N)  SCM_STRUCT_SLOT_REF (N, 2)
-#define SCM_NLOG_ENTRY_IP(N)     SCM_STRUCT_SLOT_REF (N, 3)
+#define SCM_TLOG_CODE(T)         SCM_STRUCT_SLOT_REF (T, 1)
+#define SCM_TLOG_EXIT_COUNTS(T)  SCM_STRUCT_SLOT_REF (T, 2)
+#define SCM_TLOG_ENTRY_IP(T)     SCM_STRUCT_SLOT_REF (T, 3)
 
 SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);

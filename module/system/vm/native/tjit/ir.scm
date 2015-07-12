@@ -55,7 +55,8 @@
             scm->cps
             accumulate-locals
             fixnum?
-            flonum?))
+            flonum?
+            *ip-key-end-of-side-trace*))
 
 
 ;;;
@@ -190,6 +191,13 @@
   (let ((locals (intset-fold cons (acc empty-intset ops) '())))
     (debug 2 ";;; locals: ~a~%" locals)
     locals))
+
+
+;;;
+;;; IP Keys
+;;;
+
+(define *ip-key-end-of-side-trace* 0)
 
 
 ;;;
@@ -383,7 +391,7 @@
                     ;; exit. Use IP=0 to tell assembler that this is not a
                     ;; ordinal snapshot.
                     (offset (+ ip (* offset 4)))
-                    (else 0))
+                    (else *ip-key-end-of-side-trace*))
                   ,@args)))
              ((var-ref i)
               =>
@@ -848,11 +856,11 @@
       (match traces
         (((op ip _ locals) . ())
          (cond
-          (nlog
-           (convert-one escape '(patch-to-native) ip locals '()))
-          (else
+          ((not nlog)
            (convert-one escape op ip locals
-                        `(loop ,@(filter identity (vector->list vars)))))))
+                        `(loop ,@(filter identity (vector->list vars)))))
+          (else
+           (convert-one escape '(patch-to-native) ip locals '()))))
         (((op ip _ locals) . rest)
          (convert-one escape op ip locals rest))
         (_ traces)))

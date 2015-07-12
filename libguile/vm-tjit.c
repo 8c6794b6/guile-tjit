@@ -71,7 +71,7 @@ static const int op_sizes[256] = {
 
 static SCM ip_counter_table;
 static SCM failed_ip_table;
-static SCM nlog_table;
+static SCM tlog_table;
 static SCM bytecode_buffer_fluid;
 static SCM compile_tjit_var;
 static int trace_id = 1;
@@ -123,7 +123,7 @@ stop_recording (size_t *state, SCM *ips, scm_t_uint32 *bc_idx,
 }
 
 static inline scm_t_uint32*
-call_native (SCM s_ip, SCM nlog,
+call_native (SCM s_ip, SCM tlog,
              scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
              scm_t_uintptr *parent_ip, int *parent_exit_id)
@@ -134,7 +134,7 @@ call_native (SCM s_ip, SCM nlog,
   scm_t_uintptr next_ip;
   SCM code, exit_id, exit_counts, count;
 
-  code = SCM_NLOG_CODE (nlog);
+  code = SCM_TLOG_CODE (tlog);
   fn = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
   ret = fn (thread, fp, registers);
 
@@ -147,7 +147,7 @@ call_native (SCM s_ip, SCM nlog,
 #endif
 
   exit_id = SCM_I_MAKINUM (0xffff & ret);
-  exit_counts = SCM_NLOG_EXIT_COUNTS (nlog);
+  exit_counts = SCM_TLOG_EXIT_COUNTS (tlog);
 
   count = scm_hashq_ref (exit_counts, exit_id, SCM_INUM0);
   count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
@@ -162,9 +162,9 @@ call_native (SCM s_ip, SCM nlog,
          to test for existing native code, because different IP should
          be returned when patching went well. */
       SCM s_next_ip = SCM_I_MAKINUM (next_ip);
-      SCM nlog = scm_hashq_ref (nlog_table, s_next_ip, SCM_BOOL_F);
+      SCM tlog = scm_hashq_ref (tlog_table, s_next_ip, SCM_BOOL_F);
 
-      if (scm_is_false (nlog))
+      if (scm_is_false (tlog))
         {
           scm_t_uint32 *start = (scm_t_uint32 *) next_ip;
           scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
@@ -225,13 +225,13 @@ hot_loop_p (SCM ip, SCM current_count)
 
 #define SCM_TJIT_ENTER(jump)                                            \
   do {                                                                  \
-    SCM s_ip, nlog;                                                     \
+    SCM s_ip, tlog;                                                     \
                                                                         \
     s_ip = SCM_I_MAKINUM (ip + jump);                                   \
-    nlog = scm_hashq_ref (nlog_table, s_ip, SCM_BOOL_F);                \
+    tlog = scm_hashq_ref (tlog_table, s_ip, SCM_BOOL_F);                \
                                                                         \
-    if (scm_is_true (nlog))                                             \
-      ip = call_native (s_ip, nlog, thread, fp, registers,              \
+    if (scm_is_true (tlog))                                             \
+      ip = call_native (s_ip, tlog, thread, fp, registers,              \
                         &tjit_state, &tjit_loop_start, &tjit_loop_end,  \
                         &tjit_parent_ip, &tjit_parent_exit_id);         \
     else                                                                \
@@ -252,7 +252,7 @@ hot_loop_p (SCM ip, SCM current_count)
 
 
 /*
-   XXX: Lookup nlog, call `tjitc' when native code is found during
+   XXX: Lookup tlog, call `tjitc' when native code is found during
    recording trace.  Side exit could link to other native code than the
    one it start. Nested loops does this patching to different native
    code.
@@ -371,11 +371,11 @@ SCM_DEFINE (scm_set_tjit_hot_exit_x, "set-tjit-hot-exit!", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_nlog_table, "nlog-table", 0, 0, 0, (void),
-            "Hash table containing nlogs.")
-#define FUNC_NAME s_scm_nlog_table
+SCM_DEFINE (scm_tlog_table, "tlog-table", 0, 0, 0, (void),
+            "Hash table containing tlogs.")
+#define FUNC_NAME s_scm_tlog_table
 {
-  return nlog_table;
+  return tlog_table;
 }
 #undef FUNC_NAME
 
@@ -397,7 +397,7 @@ scm_bootstrap_vm_tjit(void)
 
   ip_counter_table = scm_c_make_hash_table (31);
   failed_ip_table = scm_c_make_hash_table (31);
-  nlog_table = scm_c_make_hash_table (31);
+  tlog_table = scm_c_make_hash_table (31);
   compile_tjit_var = SCM_VARIABLE_REF (scm_c_lookup ("compile-tjit"));
 
   GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);

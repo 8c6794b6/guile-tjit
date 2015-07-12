@@ -188,7 +188,7 @@ constant value."
               (set! kend k))
              (_
               (debug 2 "loop with no values?: ~a~%" exp))))
-          ((eq? knext kstart)
+          ((= knext kstart)
            (match enext
              (($ $values vals)
               (set! entry-end-syms vals)
@@ -197,7 +197,7 @@ constant value."
               ;; Entry-end-syms could be null. Possible to emit something else
               ;; than $values, when the loop takes single argument.
               (visit-cont enext knext))))
-          ((eq? kstart k)
+          ((= kstart k)
            (set! loop-start-syms syms)
            (visit-cont enext knext))
           (else
@@ -419,14 +419,17 @@ MAX-VAR + 1 which contains register and memory information."
        (go next))
       (($ $kargs names syms ($ $continue next src ($ $call proc args)))
        (or (and (< next k) next)
-           (go next)))
+           (go next)
+           -1))
       (($ $kargs names syms ($ $continue next src ($ $branch kt exp)))
        (or (and (< next k) next)
            (go kt)
-           (go next)))
+           (go next)
+           -1))
       (($ $kargs names syms ($ $continue next src exp))
        (or (and (< next k) next)
-           (go next)))
+           (go next)
+           -1))
       (($ $ktail)
        #f)
       (($ $kreceive _ next)

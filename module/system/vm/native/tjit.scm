@@ -38,10 +38,103 @@
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit parameters)
+  #:use-module (system vm native tjit tlog)
   #:use-module (system vm native tjit variables)
   #:export (compile-tjit
             init-vm-tjit)
   #:re-export (tjit-stats))
+
+
+;;;
+;;; Showing IR dump
+;;;
+
+(define (show-dump ip-x-ops scm locals cps code code-size)
+  (define (mark-call cont)
+    (match cont
+      (($ $kargs _ _ ($ $continue _ _ ($ $call _ _)))
+       "+")
+      (_
+       " ")))
+  (define (mark-branch cont)
+    (match cont
+      (($ $kargs _ _ ($ $continue _ _ ($ $primcall name _)))
+       (case name
+         ((%eq %ne %lt %flt %le %ge %fge %guard-fx %guard-fl) ">")
+         (else " ")))
+      (_
+       " ")))
+  (define (make-indent n)
+    (let lp ((n n) (acc '()))
+      (if (< 0 n)
+          (lp (- n 1) (cons #\. (cons #\space acc)))
+          (list->string acc))))
+  (define (lowest-level ip-x-ops)
+    (let lp ((traces ip-x-ops) (level 0) (lowest 0))
+      (match traces
+        (((op _ _ . _) . traces)
+         (case (car op)
+           ((call call-label)
+            (lp traces (+ level 1) lowest))
+           ((return return-values subr-call foreign-call)
+            (let ((level (- level 1)))
+              (lp traces level (min level lowest))))
+           (else
+            (lp traces level lowest))))
+        (() lowest))))
+
+  (let ((verbosity (lightning-verbosity)))
+    (when (<= 2 verbosity)
+      (let ((lowest (lowest-level ip-x-ops)))
+        (format #t ";;; bytecode: ~a:~a:~a~%"
+                (length ip-x-ops) lowest (sort locals <))
+        (let lp ((traces ip-x-ops) (level (- lowest)))
+          (match traces
+            (((op ip bv locals) . traces)
+             (let ((op-val
+                    (format #f "~x  ~a ~a~a"
+                            ip (or (and bv "*") " ") (make-indent level) op)))
+               (if (<= 3 verbosity)
+                   (format #t "~40a ; ~a~%" op-val locals)
+                   (format #t "~a~%" op-val)))
+             (case (car op)
+               ((call call-label)
+                (lp traces (+ level 1)))
+               ((return return-values subr-call foreign-call)
+                (lp traces (- level 1)))
+               (else
+                (lp traces level))))
+            (() (values)))))
+      ;; (format #t ";;; scm:~%~y" scm)
+      (display ";;; cps\n")
+      (cond
+       ((not cps)
+        (display "#f\n"))
+       (else
+        (let ((kstart (loop-start cps)))
+          (let lp ((conts (reverse! (intmap-fold acons cps '()))))
+            (match conts
+              (() #f)
+              (((k . cont) . conts)
+               (and (eq? k kstart) (format #t "---- loop:~%"))
+               (format #t "~4,,,'0@a  ~a~a ~a~%" k
+                       (mark-branch cont)
+                       (mark-call cont)
+                       (unparse-cps cont))
+               (match cont
+                 (($ $kargs _ _ ($ $continue knext _ _))
+                  (when (< knext k)
+                    (format #t "---- ->loop~%")))
+                 (_ (values)))
+               (lp conts)))))))
+      (when (and code (<= 3 verbosity))
+        (jit-print)
+        (call-with-output-file
+            (format #f "/tmp/trace-~x.o" (cadr (car ip-x-ops)))
+          (lambda (port)
+            (let ((code-copy (make-bytevector code-size)))
+              (bytevector-copy! code 0 code-copy 0 code-size)
+              (put-bytevector port code-copy))))))))
 
 
 ;;;
@@ -66,10 +159,10 @@
                ((ip _ local)
                 (lp (cons (cons elt env) acc) (+ offset len) envs)))
 
-             ;; XXX: Formerly, replaced opcode with vm-tjit specific
-             ;; `native-call' when native code exists in recorded
-             ;; trace.  When patching hote side exits are done, `bv'
-             ;; element in trace may removed.
+             ;; XXX: Formerly, opcode was replaced with vm-tjit specific
+             ;; `native-call' when native code exists in recorded trace.
+             ;; When patching hote side exits are done, `bv' element in
+             ;; trace may removed.
 
              ;; (match env
              ;;   ((ip #f local)
@@ -83,7 +176,8 @@
            (reverse! acc))))))
 
   (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
-        (verbosity (lightning-verbosity)))
+        (verbosity (lightning-verbosity))
+        (tlog (get-tlog parent-ip)))
 
     (define-syntax-rule (debug n fmt . args)
       (when (and verbosity (<= n verbosity))
@@ -97,112 +191,22 @@
                  (or (source-file source) "(unknown file)")
                  (source-line-for-user source)))))
 
-    (define (mark-call cont)
-      (match cont
-        (($ $kargs _ _ ($ $continue _ _ ($ $call _ _)))
-         "+")
-        (_
-         " ")))
-
-    (define (mark-branch cont)
-      (match cont
-        (($ $kargs _ _ ($ $continue _ _ ($ $primcall name _)))
-         (case name
-           ((%eq %ne %lt %flt %le %ge %fge %guard-fx %guard-fl) ">")
-           (else " ")))
-        (_
-         " ")))
-
-    (define (make-indent n)
-      (let lp ((n n) (acc '()))
-        (if (< 0 n)
-            (lp (- n 1) (cons #\. (cons #\space acc)))
-            (list->string acc))))
-
-    (define (lowest-level ip-x-ops)
-      (let lp ((traces ip-x-ops) (level 0) (lowest 0))
-        (match traces
-          (((op _ _ . _) . traces)
-           (case (car op)
-             ((call call-label)
-              (lp traces (+ level 1) lowest))
-             ((return return-values subr-call foreign-call)
-              (let ((level (- level 1)))
-                (lp traces level (min level lowest))))
-             (else
-              (lp traces level lowest))))
-          (() lowest))))
-
-    (define-syntax-rule (show-debug-messages scm locals cps code code-size)
-      (when (<= 2 verbosity)
-        (let ((lowest (lowest-level ip-x-ops)))
-          (format #t ";;; bytecode: ~a:~a:~a~%"
-                  (length ip-x-ops) lowest (sort locals <))
-          (let lp ((traces ip-x-ops) (level (- lowest)))
-            (match traces
-              (((op ip bv locals) . traces)
-               (let ((op-val
-                      (format #f "~x  ~a ~a~a"
-                              ip (or (and bv "*") " ") (make-indent level) op)))
-                 (if (<= 3 verbosity)
-                     (format #t "~40a ; ~a~%" op-val locals)
-                     (format #t "~a~%" op-val)))
-               (case (car op)
-                 ((call call-label)
-                  (lp traces (+ level 1)))
-                 ((return return-values subr-call foreign-call)
-                  (lp traces (- level 1)))
-                 (else
-                  (lp traces level))))
-              (() (values)))))
-        ;; (format #t ";;; scm:~%~y" scm)
-        (display ";;; cps\n")
-        (cond
-         ((not cps)
-          (display "#f\n"))
-         (else
-          (let ((kstart (loop-start cps)))
-            (let lp ((conts (reverse! (intmap-fold acons cps '()))))
-              (match conts
-                (() #f)
-                (((k . cont) . conts)
-                 (and (eq? k kstart) (format #t "---- loop:~%"))
-                 (format #t "~4,,,'0@a  ~a~a ~a~%" k
-                         (mark-branch cont)
-                         (mark-call cont)
-                         (unparse-cps cont))
-                 (match cont
-                   (($ $kargs _ _ ($ $continue knext _ _))
-                    (when (< knext k)
-                      (format #t "---- ->loop~%")))
-                   (_ (values)))
-                 (lp conts)))))))
-        (when (and code (<= 3 verbosity))
-          (jit-print)
-          (call-with-output-file
-              (format #f "/tmp/trace-~x.o" (car (car envs)))
-            (lambda (port)
-              (let ((code-copy (make-bytevector code-size)))
-                (bytevector-copy! code 0 code-copy 0 code-size)
-                (put-bytevector port code-copy)))))))
-
-    (define nlog (get-nlog parent-ip))
-
     (let ((verbosity (lightning-verbosity)))
       (when (and verbosity (<= 2 verbosity))
-        (and nlog (dump-nlog nlog))))
+        (and tlog (dump-tlog tlog))))
 
     (with-jit-state
      (jit-prolog)
      (let-values (((locals snapshots scm cps)
-                   (trace->cps nlog ip-x-ops)))
+                   (trace->cps tlog ip-x-ops)))
        (let ((sline (ip-ptr->source-line (car (car envs)))))
          (cond
           ((not cps)
            (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
            (debug 2 ";;; CPS conversion failed~%")
+           (show-dump ip-x-ops scm locals cps #f #f)
            #f)
-          ((assemble-tjit locals snapshots nlog parent-exit-id cps)
+          ((assemble-tjit cps locals snapshots tlog parent-exit-id)
            =>
            (lambda (side-exit-variables)
              (jit-epilog)
@@ -210,26 +214,26 @@
              (let* ((estimated-size (jit-code-size))
                     (code (make-bytevector estimated-size)))
                (jit-set-code (bytevector->pointer code) (imm estimated-size))
-               (let* ((fptr (jit-emit))
-                      (code-size (jit-code-size)))
-                 (make-bytevector-executable! code)
+               (jit-emit)
+               (make-bytevector-executable! code)
+               (let ((code-size (jit-code-size)))
                  (when (and verbosity (<= 1 verbosity))
-                   (let ((nlog (get-nlog parent-ip)))
+                   (let ((tlog (get-tlog parent-ip)))
                      (format #t ";;; trace ~a:~a ~a~a~%"
                              trace-id sline code-size
                              (if (< 0 parent-ip)
                                  (format #f " (~a:~a)"
-                                         (or (and nlog (nlog-id nlog))
+                                         (or (and tlog (tlog-id tlog))
                                              (format #f "~x" parent-ip))
                                          parent-exit-id)
                                  "")))
-                   (show-debug-messages scm locals cps code code-size)))
+                   (show-dump ip-x-ops scm locals cps code code-size)))
                (let* ((ip (cadr (car ip-x-ops)))
-                      (nlog (make-nlog trace-id code (make-hash-table)
+                      (tlog (make-tlog trace-id code (make-hash-table)
                                        ip snapshots side-exit-variables #f)))
-                 (put-nlog! ip nlog))
+                 (put-tlog! ip tlog))
                ;; XXX: When this trace is a side trace, replace the
-               ;; contents of bailout code in parent nlog
+               ;; contents of trampolin in parent tlog
                code)))
           (else
            (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
