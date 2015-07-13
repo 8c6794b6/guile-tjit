@@ -646,10 +646,10 @@
           (else (make-intset/prune a-min a-shift root)))))))))
 
 (define (intset-subtract a b)
-  (define tmp (new-leaf))
   ;; Intersect leaves.
   (define (subtract-leaves a b)
-    (logand a (lognot b)))
+    (let ((out (logand a (lognot b))))
+      (if (zero? out) #f out)))
   ;; Subtract B from A starting at index I; the result will be fresh.
   (define (subtract-branches/fresh shift a b i fresh)
     (let lp ((i 0))
@@ -721,7 +721,9 @@
                      (new (lp a-min a-shift old)))
                 (if (eq? old new)
                     a-root
-                    (clone-branch-and-set a-root a-idx new)))))))))))
+                    (let ((root (clone-branch-and-set a-root a-idx new)))
+                      (and (or new (not (branch-empty? root)))
+                           root))))))))))))
 
 (define (bitvector->intset bv)
   (define (finish-tail out min tail)
