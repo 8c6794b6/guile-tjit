@@ -508,6 +508,8 @@
   (match (cons a b)
     ((($ <intset> a-min a-shift a-root) . ($ <intset> b-min b-shift b-root))
      (cond
+      ((not b-root) a)
+      ((not a-root) b)
       ((not (= b-shift a-shift))
        ;; Hoist the set with the lowest shift to meet the one with the
        ;; higher shift.
