@@ -37,7 +37,10 @@
 
             ;; Various utilities.
             fold1 fold2
+            trivial-intset
             intmap-map
+            intmap-keys
+            invert-bijection invert-partition
             intset->intmap
             worklist-fold
             fixpoint
@@ -108,11 +111,38 @@
          (lambda (s0 s1)
            (lp l s0 s1)))))))
 
+(define (trivial-intset set)
+  "Returns the sole member of @var{set}, if @var{set} has exactly one
+member, or @code{#f} otherwise."
+  (let ((first (intset-next set)))
+    (and first
+         (not (intset-next set (1+ first)))
+         first)))
+
 (define (intmap-map proc map)
   (persistent-intmap
    (intmap-fold (lambda (k v out) (intmap-replace! out k (proc k v)))
                 map
                 map)))
+
+(define (intmap-keys map)
+  "Return an intset of the keys in @var{map}."
+  (persistent-intset
+   (intmap-fold (lambda (k v keys) (intset-add! keys k)) map empty-intset)))
+
+(define (invert-bijection map)
+  "Assuming the values of @var{map} are integers and are unique, compute
+a map in which each value maps to its key.  If the values are not
+unique, an error will be signalled."
+  (intmap-fold (lambda (k v out) (intmap-add out v k)) map empty-intmap))
+
+(define (invert-partition map)
+  "Assuming the values of @var{map} are disjoint intsets, compute a map
+in which each member of each set maps to its key.  If the values are not
+disjoint, an error will be signalled."
+  (intmap-fold (lambda (k v* out)
+                 (intset-fold (lambda (v out) (intmap-add out v k)) v* out))
+               map empty-intmap))
 
 (define (intset->intmap f set)
   (persistent-intmap

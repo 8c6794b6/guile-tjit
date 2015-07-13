@@ -105,10 +105,6 @@ references."
                                  (persistent-intset defs)))))))
   (visit-fun kfun))
 
-(define (intmap-keys map)
-  (persistent-intset
-   (intmap-fold (lambda (k v keys) (intset-add! keys k)) map empty-intset)))
-
 (define (compute-sorted-strongly-connected-components edges)
   (define nodes
     (intmap-keys edges))
