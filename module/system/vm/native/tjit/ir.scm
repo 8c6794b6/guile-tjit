@@ -56,7 +56,8 @@
             accumulate-locals
             fixnum?
             flonum?
-            *ip-key-end-of-side-trace*))
+            *ip-key-end-of-side-trace*
+            *ip-key-end-of-entry*))
 
 
 ;;;
@@ -185,12 +186,7 @@
       (()
        st)))
 
-  ;; (debug 1 "accumulate-locals: lowest-offset=~a~%"
-  ;;        (lowest-offset ops))
-
-  (let ((locals (intset-fold cons (acc empty-intset ops) '())))
-    (debug 2 ";;; locals: ~a~%" locals)
-    locals))
+  (intset-fold cons (acc empty-intset ops) '()))
 
 
 ;;;
@@ -198,6 +194,7 @@
 ;;;
 
 (define *ip-key-end-of-side-trace* 0)
+(define *ip-key-end-of-entry* 1)
 
 
 ;;;
@@ -313,15 +310,12 @@
         (vector-ref locals i))
 
       (define (var-ref i)
-        ;; (debug 2 ";;; var-ref: op:~a i:~a local-offset:~a var:~a~%"
-        ;;        op i local-offset vars)
         (let ((idx (+ i local-offset)))
           (and (< idx (vector-length vars))
                (vector-ref vars (+ i local-offset)))))
 
       (define (save-frame!)
         (let ((end (vector-length vars)))
-          (debug 2 ";;; save-frame!: local-offset=~a~%" local-offset)
           (let lp ((i 0))
             (cond
              ((= i end) '())
@@ -331,7 +325,6 @@
                 (let* ((idx (- i local-offset))
                        (local (and (< idx (vector-length locals))
                                    (vector-ref locals idx))))
-                  (debug 2 ";;; save-frame!: local[~a]=~a~%" i local)
                   (cond
                    ((flonum? local)
                     (cons `(let ((,var (%from-double ,var)))
@@ -369,10 +362,8 @@
              (else
               (lp (+ i 1)))))))
 
-      (define (take-snapshot! offset)
+      (define (take-snapshot! ip offset)
         (let ((end (vector-length vars)))
-          (debug 2 ";;; take-snapshot!:~%;;; locals=~a~%;;; vars=~a~%"
-                 locals vars)
           (let lp ((i 0) (acc '()))
             (cond
              ((= i end)
@@ -386,13 +377,7 @@
                 ;; `$call' term.  It might not good to use `$call' this way,
                 ;; though no other idea to capture CPS variables with less
                 ;; amount of terms.
-                `(,(cond
-                    ;; XXX: When offset=#f, regard as snapsot at the end of side
-                    ;; exit. Use IP=0 to tell assembler that this is not a
-                    ;; ordinal snapshot.
-                    (offset (+ ip (* offset 4)))
-                    (else *ip-key-end-of-side-trace*))
-                  ,@args)))
+                `(,(+ ip (* offset 4)) ,@args)))
              ((var-ref i)
               =>
               (lambda (var)
@@ -409,7 +394,8 @@
                    ((not local)
                     (lp (+ i 1) (cons `(,i . ,&false) acc)))
                    (else
-                    (debug 2 ";;; take-snapshot!: local=~a~%" local)
+                    ;; XXX: Add more types.
+                    (debug 2 "*** take-snapshot!: ~a~%" local)
                     (lp (+ i 1) acc))))))
              (else
               (lp (+ i 1) acc))))))
@@ -519,51 +505,48 @@
                (rb (local-ref b))
                (va (var-ref a))
                (vb (var-ref b)))
-           (cond
-            ((and (fixnum? ra) (fixnum? rb))
-             (set-type! a &exact-integer)
-             (set-type! b &exact-integer)
-             `(begin
-                ,(take-snapshot!
-                  (if (= ra rb)
-                      (if invert? offset 2)
-                      (if invert? 2 offset)))
-                ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
-                ,(convert escape rest)))
-            (else
-             (debug 2 "*** ir:convert = ~a ~a~%" ra rb)
-             (escape #f)))))
+           (let ((dest (if (= ra rb)
+                           (if invert? offset br-op-size)
+                           (if invert? br-op-size offset))))
+             (cond
+              ((and (fixnum? ra) (fixnum? rb))
+               (set-type! a &exact-integer)
+               (set-type! b &exact-integer)
+               `(begin
+                  ,(take-snapshot! ip dest)
+                  ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
+                  ,(convert escape rest)))
+              (else
+               (debug 2 "*** ir:convert = ~a ~a~%" ra rb)
+               (escape #f))))))
 
         (('br-if-< a b invert? offset)
          (let ((ra (local-ref a))
                (rb (local-ref b))
                (va (var-ref a))
                (vb (var-ref b)))
-           (cond
-            ((and (fixnum? ra) (fixnum? rb))
-             (set-type! a &exact-integer)
-             (set-type! b &exact-integer)
-             `(begin
-                ,(take-snapshot!
-                  (if (< ra rb)
-                      (if invert? offset br-op-size)
-                      (if invert? br-op-size offset)))
-                ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))
-                ,(convert escape rest)))
+           (let ((dest (if (< ra rb)
+                           (if invert? offset br-op-size)
+                           (if invert? br-op-size offset))))
+             (cond
+              ((and (fixnum? ra) (fixnum? rb))
+               (set-type! a &exact-integer)
+               (set-type! b &exact-integer)
+               `(begin
+                  ,(take-snapshot! ip dest)
+                  ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))
+                  ,(convert escape rest)))
 
-            ((and (flonum? ra) (flonum? rb))
-             (set-type! a &flonum)
-             (set-type! b &flonum)
-             `(begin
-                ,(take-snapshot!
-                  (if (< ra rb)
-                      (if invert? offset 2)
-                      (if invert? 2 offset)))
-                ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
-                ,(convert escape rest)))
-            (else
-             (debug 2 "ir:convert < ~a ~a~%" ra rb)
-             (escape #f)))))
+              ((and (flonum? ra) (flonum? rb))
+               (set-type! a &flonum)
+               (set-type! b &flonum)
+               `(begin
+                  ,(take-snapshot! ip dest)
+                  ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
+                  ,(convert escape rest)))
+              (else
+               (debug 2 "ir:convert < ~a ~a~%" ra rb)
+               (escape #f))))))
 
         ;; XXX: br-if-<=
 
@@ -845,14 +828,13 @@
         ;; *** Misc
 
         (('patch-to-native)
-         (take-snapshot! #f))
+         (take-snapshot! *ip-key-end-of-side-trace* 0))
 
         (op
          (debug 2 "*** ir:convert: NYI ~a~%" (car op))
          (escape #f))))
 
     (define (convert escape traces)
-      ;; (debug 2 ";;; convert: ~a~%" traces)
       (match traces
         (((op ip _ locals) . ())
          (cond
@@ -865,18 +847,11 @@
          (convert-one escape op ip locals rest))
         (_ traces)))
 
-    ;; Debug.
-    ;; (debug 2 ";;; max-local-num: ~a~%" max-local-num)
-    ;; (let lp ((i 0) (end (vector-length types)))
-    ;;   (when (< i end)
-    ;;     (debug 2 "ty~a => ~a~%" i (vector-ref types i))
-    ;;     (lp (+ i 1) end)))
-
     (define (make-scm entry-body loop-body)
       (cond
        ((and nlog loop-body)            ; Side trace.
-        `(letrec ((loop (lambda ,args ,loop-body)))
-           loop))
+        `(letrec ((patch (lambda ,args ,loop-body)))
+           patch))
        ((and entry-body loop-body)      ; Root trace.
         `(letrec ((entry (lambda ,args ,entry-body))
                   (loop (lambda ,args ,loop-body)))
@@ -888,11 +863,12 @@
     (let* ((loop-body (call-with-escape-continuation
                        (lambda (escape)
                          (convert escape ops))))
-           (entry-body (make-entry (initial-ip ops) vars types `(loop ,@args)))
+           (entry-body (make-entry (initial-ip ops) vars types
+                                   `(begin
+                                     (,*ip-key-end-of-entry* ,@args)
+                                     (loop ,@args))))
            (scm (make-scm entry-body loop-body)))
-      ;; Debug, again
-      ;; (debug 2 ";;; entry-guards:~%~y" entry-guards)
-      (debug 2 ";;; snapshot:~%~{;;; ~a~%~}~%" (hash-fold acons '() snapshots))
+      (debug 2 ";;; snapshot:~%~{;;;   ~a~%~}" (hash-fold acons '() snapshots))
       (values locals snapshots scm))))
 
 (define (scm->cps scm)

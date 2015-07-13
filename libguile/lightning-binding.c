@@ -393,7 +393,7 @@ set_flag (signed char *bv, size_t n)
 {
   char *start = (char *) ((((scm_t_bits) bv) / page_size) * page_size);
   int len = (scm_t_bits) bv + n - (scm_t_bits) start;
-  if (mprotect (start, len, PROT_READ | PROT_EXEC))
+  if (mprotect (start, len, PROT_WRITE | PROT_READ | PROT_EXEC))
     {
       printf ("ERROR: ");
       if (errno == EINVAL)

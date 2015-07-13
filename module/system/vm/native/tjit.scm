@@ -105,7 +105,7 @@
                (else
                 (lp traces level))))
             (() (values)))))
-      ;; (format #t ";;; scm:~%~y" scm)
+      (format #t ";;; scm:~%~y" scm)
       (display ";;; cps\n")
       (cond
        ((not cps)
@@ -161,7 +161,7 @@
 
              ;; XXX: Formerly, opcode was replaced with vm-tjit specific
              ;; `native-call' when native code exists in recorded trace.
-             ;; When patching hote side exits are done, `bv' element in
+             ;; When patching hot side exits are done, `bv' element in
              ;; trace may removed.
 
              ;; (match env
@@ -175,70 +175,84 @@
           (()
            (reverse! acc))))))
 
+  (define-syntax-rule (ip-ptr->source-line addr)
+    (and=>
+     (find-source-for-addr addr)
+     (lambda (source)
+       (format #f "~a:~d"
+               (or (source-file source) "(unknown file)")
+               (source-line-for-user source)))))
+
   (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
         (verbosity (lightning-verbosity))
-        (tlog (get-tlog parent-ip)))
+        (tlog (get-tlog parent-ip))
+        (sline (ip-ptr->source-line (car (car envs)))))
 
-    (define-syntax-rule (debug n fmt . args)
-      (when (and verbosity (<= n verbosity))
-        (format #t fmt . args)))
-
-    (define-syntax-rule (ip-ptr->source-line addr)
-      (and=>
-       (find-source-for-addr addr)
-       (lambda (source)
-         (format #f "~a:~d"
-                 (or (source-file source) "(unknown file)")
-                 (source-line-for-user source)))))
-
-    (let ((verbosity (lightning-verbosity)))
-      (when (and verbosity (<= 2 verbosity))
-        (and tlog (dump-tlog tlog))))
+    (when (and verbosity (<= 2 verbosity))
+      (and tlog (dump-tlog tlog)))
 
     (with-jit-state
      (jit-prolog)
      (let-values (((locals snapshots scm cps)
                    (trace->cps tlog ip-x-ops)))
-       (let ((sline (ip-ptr->source-line (car (car envs)))))
-         (cond
-          ((not cps)
-           (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
-           (debug 2 ";;; CPS conversion failed~%")
-           (show-dump ip-x-ops scm locals cps #f #f)
-           #f)
-          ((assemble-tjit cps locals snapshots tlog parent-exit-id)
-           =>
-           (lambda (side-exit-variables)
-             (jit-epilog)
-             (jit-realize)
-             (let* ((estimated-size (jit-code-size))
-                    (code (make-bytevector estimated-size)))
-               (jit-set-code (bytevector->pointer code) (imm estimated-size))
-               (jit-emit)
-               (make-bytevector-executable! code)
-               (let ((code-size (jit-code-size)))
-                 (when (and verbosity (<= 1 verbosity))
-                   (let ((tlog (get-tlog parent-ip)))
-                     (format #t ";;; trace ~a:~a ~a~a~%"
-                             trace-id sline code-size
-                             (if (< 0 parent-ip)
-                                 (format #f " (~a:~a)"
-                                         (or (and tlog (tlog-id tlog))
-                                             (format #f "~x" parent-ip))
-                                         parent-exit-id)
-                                 "")))
-                   (show-dump ip-x-ops scm locals cps code code-size)))
-               (let* ((ip (cadr (car ip-x-ops)))
-                      (tlog (make-tlog trace-id code (make-hash-table)
-                                       ip snapshots side-exit-variables #f)))
-                 (put-tlog! ip tlog))
-               ;; XXX: When this trace is a side trace, replace the
-               ;; contents of trampolin in parent tlog
-               code)))
-          (else
-           (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
-           (debug 2 ";;; Native code generation failed~%")
-           #f)))))))
+       (cond
+        ((not cps)
+         (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
+         (debug 2 ";;; CPS conversion failed~%")
+         (show-dump ip-x-ops scm locals cps #f #f)
+         #f)
+        (else
+         (let-values
+             (((side-exit-variables
+                side-exit-codes
+                trampoline
+                loop-label
+                loop-locals
+                loop-vars)
+               (assemble-tjit cps locals snapshots tlog parent-exit-id)))
+           (jit-epilog)
+           (jit-realize)
+           (let* ((estimated-size (jit-code-size))
+                  (code (make-bytevector estimated-size)))
+             (jit-set-code (bytevector->pointer code) (imm estimated-size))
+             (jit-emit)
+             (make-bytevector-executable! code)
+             (let ((code-size (jit-code-size)))
+               (when (and verbosity (<= 1 verbosity))
+                 (let ((tlog (get-tlog parent-ip)))
+                   (format #t ";;; trace ~a:~a ~a~a~%"
+                           trace-id sline code-size
+                           (if (< 0 parent-ip)
+                               (format #f " (~a:~a)"
+                                       (or (and tlog (tlog-id tlog))
+                                           (format #f "~x" parent-ip))
+                                       parent-exit-id)
+                               "")))
+                 (show-dump ip-x-ops scm locals cps code code-size)))
+             (let ((ip (cadr (car ip-x-ops))))
+               (put-tlog! ip (make-tlog trace-id
+                                        code
+                                        (make-hash-table)
+                                        ip
+                                        snapshots
+                                        side-exit-variables
+                                        side-exit-codes
+                                        trampoline
+                                        (and loop-label
+                                             (jit-address loop-label))
+                                        loop-locals
+                                        loop-vars)))
+
+             ;; When this trace is a side trace, replace the native code
+             ;; of trampoline in parent tlog.
+             (when tlog
+               (let ((trampoline (tlog-trampoline tlog))
+                     (ptr (bytevector->pointer code))
+                     (parent-side-exit-codes (tlog-side-exit-codes tlog)))
+                 (trampoline-set! trampoline parent-exit-id ptr)
+                 (hashq-set! parent-side-exit-codes parent-exit-id code)))
+
+             code))))))))
 
 
 ;;;

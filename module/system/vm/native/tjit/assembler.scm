@@ -297,6 +297,9 @@
 (define-prim (%ne asm (int a) (int b))
   (let ((next (jit-forward)))
     (cond
+     ((and (constant? a) (gpr? b))
+      (jump (jit-bnei (gpr b) (constant a)) next))
+
      ((and (gpr? a) (constant? b))
       (jump (jit-bnei (gpr a) (constant b)) next))
      ((and (gpr? a) (gpr? b))
@@ -863,9 +866,9 @@
      (else
       (error "Unknown local-x-type, src" local-x-type src)))))
 
-(define native-code-guardian (make-guardian))
+;; (define native-code-guardian (make-guardian))
 
-(define (assemble-cps cps env snapshots initial-args fp-offset tlog)
+(define (assemble-cps cps env snapshots initial-args fp-offset tlog trampoline)
   (define (env-ref i)
     (vector-ref env i))
 
@@ -873,7 +876,7 @@
     (make-offset-pointer fp-offset (* (ref-value x) %word-size)))
 
   (define kstart (loop-start cps))
-  (define side-exit-code (make-hash-table))
+  (define side-exit-codes (make-hash-table))
   (define side-exit-variables (make-hash-table))
   (define current-side-exit 0)
   (define (dump-side-exit-variables)
@@ -881,6 +884,8 @@
     (hash-for-each (lambda (k v)
                      (debug 2 "~a => ~a~%" k v))
                    side-exit-variables))
+  (define loop-locals #f)
+  (define loop-vars #f)
 
   (define (maybe-move exp old-args)
     (match exp
@@ -904,7 +909,7 @@
      ((hashq-ref *native-prim-procedures* name)
       =>
       (lambda (proc)
-        (let* ((side-exit (hashq-ref side-exit-code current-side-exit))
+        (let* ((side-exit (trampoline-ref trampoline (- current-side-exit 1)))
                (asm (make-asm env fp-offset side-exit)))
           (apply proc asm (append dsts args)))))
      (else
@@ -920,31 +925,74 @@
        (else
         (error "assemble-exit: unknown architecture"))))
 
-    (define (end-of-side-trace? var)
-      (= (ref-value var) 0))
-
     (let* ((proc (env-ref proc))
            (ip (ref-value proc)))
       (when (not (constant? proc))
         (error "assemble-exit: not a constant" proc args))
       (cond
        ((= ip *ip-key-end-of-side-trace*)
-        ;; (end-of-side-trace? proc)       ; End of side trace, restore frame.
-        (debug 2 ";;; assemble-exit: IP=0, current-side-exit=~a~%"
-               current-side-exit)
-        (debug 2 ";;; snapshots: ~{~a ~}~%" (hash-fold acons '() snapshots))
+        (let ((current-locals (make-hash-table))
+              (loop-locals (tlog-loop-locals tlog)))
+          (cond
+           ((hashq-ref snapshots current-side-exit)
+            =>
+            (lambda (local-x-types)
+              (for-each
+               (lambda (local-x-type arg)
+                 (let ((local (car local-x-type))
+                       (type (cdr local-x-type)))
+                   ;; Value at the end of side trace is not passed back to
+                   ;; beginning of loop, save to frame.
+                   (when (not (assq local loop-locals))
+                     (restore-frame moffs local-x-type (env-ref arg)))
+                   (hashq-set! current-locals local (env-ref arg))))
+               local-x-types args)
+              (for-each
+               (lambda (local-x-type dst)
+                 (let* ((local (car local-x-type))
+                        (type (cdr local-x-type))
+                        (src (hashq-ref current-locals local)))
+                   (cond
+                    (src
+                     (jit-movr r0 (gpr src)))
+                    (else
+                     (local-ref r0 local)
+                     (cond
+                      ;; XXX: Move out the code, share the codes with
+                      ;; initialization part of side trace.
+                      ((= type &exact-integer)
+                       (jit-rshi r0 r0 (imm 2)))
+                      (else
+                       (error "NYI: patching side-exit of type" type)))))
+                   (cond
+                    ((gpr? dst)
+                     (jit-movr (gpr dst) r0))
+                    ((fpr? dst)
+                     (jit-movr-d (fpr dst) f0))
+                    ((and (memory? dst) (= type &flonum))
+                     (jit-stxi-d (moffs dst) fp f0))
+                    ((memory? dst)
+                     (jit-stxi (moffs dst) fp r0)))))
+               loop-locals (tlog-loop-vars tlog))
+
+              ;; Jump to beginning of loop in parent trace.
+              (jit-movi r0 (tlog-loop-address tlog))
+              (jit-jmpr r0)))
+           (else
+            (debug 2 ";;; assemble-exit: IP is 0, local info not found~%")))))
+
+       ((= ip *ip-key-end-of-entry*)
         (cond
-         ((hashq-ref snapshots current-side-exit)
+         ((hashq-ref snapshots (- current-side-exit 1))
           =>
           (lambda (local-x-types)
-            (for-each (lambda (local-x-type arg)
-                        (restore-frame moffs local-x-type (env-ref arg)))
-                      local-x-types args)
-            (jit-movi r0 (bytevector->pointer (tlog-code tlog)))
-            (jit-jmpr r0)))
+            (set! loop-locals local-x-types)
+            (set! loop-vars (map env-ref args))))
          (else
-          (debug 2 ";;; assemble-exit: IP is 0, local info not found~%"))))
-       (else                            ; Emit bailout code with snapshot.
+          (debug 2 ";;; end-of-entry: no snapshot at ~a~%" current-side-exit))))
+
+       (else
+        ;; Emit bailout code with snapshot, save it for later use.
         (with-jit-state
          (jit-prolog)
          (jit-tramp (imm (* 4 %word-size)))
@@ -952,9 +1000,11 @@
           ((hashq-ref snapshots (- current-side-exit 1))
            =>
            (lambda (local-x-types)
-             (for-each (lambda (local-x-type arg)
-                         (restore-frame moffs local-x-type (env-ref arg)))
-                       local-x-types args)))
+             (for-each
+              (lambda (local-x-type arg)
+                ;; XXX: Save frame of parent trace when compiling side trace.
+                (restore-frame moffs local-x-type (env-ref arg)))
+              local-x-types args)))
           (else
            (debug 2 ";;; assemble-exit: entry IP #x~x~%" (ref-value proc))))
 
@@ -982,13 +1032,7 @@
            ;; XXX: Avoiding garbage collector to wipe out the contents of native
            ;; code in bytevector.  Store somewhere, then replace the contents
            ;; when the exit get hot.
-           (native-code-guardian code)
-
-           (set! current-side-exit (+ current-side-exit 1))
-           (hashq-set! side-exit-code current-side-exit
-                       (bytevector->pointer code))
-           (hashq-set! side-exit-variables current-side-exit
-                       (map env-ref args))
+           ;; (native-code-guardian code)
 
            (let ((verbosity (lightning-verbosity)))
              (when (and verbosity (<= 3 verbosity))
@@ -996,7 +1040,14 @@
                    (format #f "/tmp/bailout-~a.o" (ref-value proc))
                  (lambda (port)
                    (put-bytevector port code)
-                   (jit-print)))))))))))
+                   (jit-print)))))
+
+           (let ((dest (bytevector->pointer code)))
+             (hashq-set! side-exit-codes current-side-exit code)
+             (trampoline-set! trampoline current-side-exit dest))
+           (hashq-set! side-exit-variables current-side-exit
+                       (map env-ref args))
+           (set! current-side-exit (+ current-side-exit 1))))))))
 
   (define (assemble-exp exp dsts label)
     (match exp
@@ -1014,9 +1065,14 @@
         (debug 3 ";;; loop:~%")
         (jit-note "loop" 0)
         (jit-label)))
+    (define (done loop-label)
+      (values side-exit-variables side-exit-codes
+              trampoline loop-label loop-locals loop-vars))
+
     ;; (debug 1 "~4,,,'0@a ~a~%" k
     ;;        (or (and (null? exp) exp)
     ;;            (and cps (unparse-cps exp))))
+
     (match (intmap-ref cps k)
       (($ $kreceive _ knext)
        (assemble-cont cps exp loop-label knext))
@@ -1030,22 +1086,23 @@
       (($ $kargs _ syms ($ $continue knext _ next-exp))
        (assemble-exp exp syms #f)
        (cond
-        ((< knext k)                    ; Jump to the loop start.
+        ((< knext k)
+         ;; Jump back to beginning of loop, return to caller.
          (maybe-move next-exp initial-args)
          (debug 3 ";;; -> loop~%")
          (jump loop-label)
          (dump-side-exit-variables)
-         side-exit-variables)           ; End of CPS iteration.
-        ((eq? kstart k)
+         (done loop-label))
+        ((= kstart k)
          (let ((loop-label (make-loop-label)))
            (assemble-cont cps next-exp loop-label knext)))
         (else
          (assemble-cont cps next-exp loop-label knext))))
 
-      (($ $ktail)                       ; End of CPS iteration.
+      (($ $ktail)
        (assemble-exp exp '() #f)
        (dump-side-exit-variables)
-       side-exit-variables)))
+       (done loop-label))))
 
   (assemble-cont cps '() #f 0))
 
@@ -1063,11 +1120,14 @@
       (((max-label max-var) (compute-max-label-and-var cps))
        ((env initial-locals loop-args) (resolve-variables cps locals max-var)))
 
-    ;; Allocate spaces. For spilled variables, and two words for arguments
-    ;; passed from C code: `vp->fp', and `registers', and one word for return
-    ;; address used by side exits.
+    ;; Allocate spaces for spilled variables, two words for arguments passed
+    ;; from C code: `vp->fp', and `registers', and one word for return address
+    ;; used by side exits.
     (let* ((nspills (max-moffs env))
-           (fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size)))))
+           (fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size))))
+           (trampoline-size
+            (hash-fold (lambda (k v acc) (+ acc 1)) 1 snapshots))
+           (trampoline (make-trampoline trampoline-size)))
       (cond
        ((not tlog)                      ; Root trace.
 
@@ -1098,46 +1158,64 @@
 
        (else                        ; Side trace.
         ;; Load initial arguments from parent trace.
-
-        ;; (debug 2 ";;; assemble-tjit: exit-id=~a, tlog-snapshot=~a~%"
-        ;;        exit-id (hashq-ref (tlog-snapshots tlog) (- exit-id 1)))
-        ;; (debug 2 ";;; side-exit-vars: ~a~%"
-        ;;        (hashq-ref (tlog-side-exit-variables tlog) exit-id))
-        ;; (debug 2 ";;; loop-args: ~a~%" loop-args)
-
         (jit-tramp (imm (* 4 %word-size)))
-        (let ((args (make-hash-table)))
+        (let ((args (make-hash-table))
+              ;; XXX: Get fp offset from parent tlog, offset for
+              ;; spilled variables need to shifted with parent's
+              ;; offset.
+              (moffs (lambda (mem)
+                       (let ((offset (* (ref-value mem) %word-size)))
+                         (make-offset-pointer fp-offset offset)))))
           (for-each
-           (lambda (local-and-type var)
-             (hashq-set! args (car local-and-type) var))
+           (lambda (local-x-type var)
+             (let ((local (car local-x-type))
+                   (type (cdr local-x-type)))
+               ;; XXX: Save locals in parent trace which are not passed to side
+               ;; trace?
+               ;;
+               ;; (when (not (assq local initial-locals))
+               ;;   (restore-frame moffs local-x-type var))
+               (hashq-set! args local var)))
            (hashq-ref (tlog-snapshots tlog) (- exit-id 1))
-           (hashq-ref (tlog-side-exit-variables tlog) exit-id))
-
-          ;; (debug 2 ";;; args:~%")
-          ;; (hash-for-each (lambda (k v)
-          ;;                  (debug 2 ";;;   ~a => ~a~%" k v))
-          ;;                args)
-
+           (hashq-ref (tlog-side-exit-variables tlog) (- exit-id 1)))
           (for-each
            (match-lambda
             ((local-idx . var-idx)
              (let ((dst (vector-ref env var-idx))
                    (src (hashq-ref args local-idx))
-                   (moffs (lambda (mem)
-                            ;; XXX: Get fp offset from parent tlog, offset for spilled
-                            ;; variables need to shifted with parent's offset.
-                            (let ((offset (* (ref-value mem) %word-size)))
-                              (make-offset-pointer fp-offset offset)))))
-               ;; (debug 2 ";;; local[~a]: (mov ~a ~a)~%" local-idx dst src)
+                   )
                (cond
-                (src                    ; Side exit variable from parent trace.
+                (src                    ; Move variable from parent trace.
                  (move moffs dst src))
-                ((gpr? dst)
-                 (local-ref (gpr dst) local-idx))
-                ((memory? dst)
+                (else                   ; Load from frame.
                  (local-ref r0 local-idx)
-                 (jit-stxi (moffs dst) fp r0))))))
+                 (let* ((snapshot (hashq-ref snapshots 0))
+                        (type (assq-ref snapshot local-idx)))
+
+                   ;; Untagging the value when loading from frame. Using
+                   ;; type information found in snapshot of side trace.
+                   ;;
+                   ;; XXX: Share the code with side exit patching part.
+                   (cond
+                    ((= type &exact-integer)
+                     (jit-rshi r0 r0 (imm 2)))
+                    ((= type &flonum)
+                     (jit-ldxi-d f0 r0 (imm (* 2 %word-size))))
+                    (else
+                     #f))
+
+                   (cond
+                    ((gpr? dst)
+                     (jit-movr (gpr dst) r0))
+                    ((fpr? dst)
+                     (jit-movr-d (fpr dst) f0))
+                    ((and (memory? dst) (= type &flonum))
+                     (jit-stxi-d (moffs dst) fp f0))
+                    ((memory? dst)
+                     (jit-stxi (moffs dst) fp r0))
+                    (else
+                     (error "side trace initialization" dst)))))))))
            initial-locals))))
 
       ;; Assemble the loop.
-      (assemble-cps cps env snapshots loop-args fp-offset tlog))))
+      (assemble-cps cps env snapshots loop-args fp-offset tlog trampoline))))

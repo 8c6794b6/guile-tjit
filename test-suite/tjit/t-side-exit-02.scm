@@ -3,9 +3,9 @@
     (cond
      ((= i 1000)
       acc)
-     ((< low i)
+     ((< high i)
       (lp (+ i 1) (+ acc 1)))
-     ((< i high)
+     ((< low i)
       (lp (+ i 1) (+ acc 2)))
      (else
       (lp (+ i 1) acc)))))

@@ -39,7 +39,11 @@
             tlog-entry-ip
             tlog-snapshots
             tlog-side-exit-variables
-            tlog-loop-header
+            tlog-side-exit-codes
+            tlog-trampoline
+            tlog-loop-address
+            tlog-loop-locals
+            tlog-loop-vars
 
             dump-tlog
             put-tlog!
@@ -142,7 +146,8 @@
 ;;
 (define-record-type <tlog>
   (%make-tlog id code exit-counts entry-ip
-              snapshots side-exit-variables loop-header)
+              snapshots side-exit-variables side-exit-codes trampoline
+              loop-address loop-locals loop-vars)
   tlog?
 
   ;; Trace id number.
@@ -166,8 +171,20 @@
   ;; Hash-table containing variables for side exit.
   (side-exit-variables tlog-side-exit-variables)
 
-  ;; Header information of loop.
-  (loop-header tlog-loop-header))
+  ;; Hash-table containing side exit codes.
+  (side-exit-codes tlog-side-exit-codes)
+
+  ;; Trampoline, native code containing jump destinations.
+  (trampoline tlog-trampoline)
+
+  ;; Address of start of loop.
+  (loop-address tlog-loop-address)
+
+  ;; Local header information of loop.
+  (loop-locals tlog-loop-locals)
+
+  ;; Variable header information of loop.
+  (loop-vars tlog-loop-vars))
 
 (define make-tlog %make-tlog)
 
@@ -190,7 +207,14 @@
             (sort (hash-fold acons '() vars)
                   (lambda (a b)
                     (< (car a) (car b))))))
-  (format #t "~19@a: ~a~%" 'loop-header (tlog-loop-header tlog)))
+  (format #t "~19@a: ~a~%" 'side-exit-codes (tlog-side-exit-codes tlog))
+  (let ((code (tlog-trampoline tlog)))
+    (format #t "~19@a: ~a:~a~%" 'trampoline
+            (and (bytevector? code) (bytevector->pointer code))
+            (and (bytevector? code) (bytevector-length code))))
+  (format #t "~19@a: ~a~%" 'loop-address (tlog-loop-address tlog))
+  (format #t "~19@a: ~a~%" 'loop-locals (tlog-loop-locals tlog))
+  (format #t "~19@a: ~a~%" 'loop-vars (tlog-loop-vars tlog)))
 
 (define (put-tlog! key tlog)
   (hashq-set! (tlog-table) key tlog))
