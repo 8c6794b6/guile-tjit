@@ -148,10 +148,11 @@ CPS_LANG_SOURCES =						\
 
 CPS2_LANG_SOURCES =						\
   language/cps2.scm						\
-  language/cps2/cse.scm						\
+  language/cps2/closure-conversion.scm				\
   language/cps2/compile-cps.scm					\
   language/cps2/constructors.scm				\
   language/cps2/contification.scm				\
+  language/cps2/cse.scm						\
   language/cps2/dce.scm						\
   language/cps2/effects-analysis.scm				\
   language/cps2/elide-values.scm				\
