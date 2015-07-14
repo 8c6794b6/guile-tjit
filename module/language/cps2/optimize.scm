@@ -37,7 +37,8 @@
   #:use-module (language cps2 split-rec)
   #:use-module (language cps2 type-fold)
   #:use-module (language cps2 verify)
-  #:export (optimize))
+  #:export (optimize-higher-order-cps
+            optimize-first-order-cps))
 
 (define (kw-arg-ref args kw default)
   (match (memq kw args)
@@ -51,40 +52,45 @@
       (verify program)
       program))
 
-(define* (optimize program #:optional (opts '()))
-  (define (run-pass! pass kw default)
+(define-syntax-rule (define-optimizer optimize (pass kw default) ...)
+  (define* (optimize program #:optional (opts '()))
+    ;; This series of assignments to `program' used to be a series of
+    ;; let* bindings of `program', as you would imagine.  In compiled
+    ;; code this is fine because the compiler is able to allocate all
+    ;; let*-bound variable to the same slot, which also means that the
+    ;; garbage collector doesn't have to retain so many copies of the
+    ;; term being optimized.  However during bootstrap, the interpreter
+    ;; doesn't do this optimization, leading to excessive data retention
+    ;; as the terms are rewritten.  To marginally improve bootstrap
+    ;; memory usage, here we use set! instead.  The compiler should
+    ;; produce the same code in any case, though currently it does not
+    ;; because it doesn't do escape analysis on the box created for the
+    ;; set!.
+    (maybe-verify program)
     (set! program
-          (if (kw-arg-ref opts kw default)
-              (maybe-verify (pass program))
-              program)))
+      (if (kw-arg-ref opts kw default)
+          (maybe-verify (pass program))
+          program))
+    ...
+    (verify program)
+    program))
 
-  (maybe-verify program)
+(define-optimizer optimize-higher-order-cps
+  (split-rec #:split-rec? #t)
+  (eliminate-dead-code #:eliminate-dead-code? #t)
+  (prune-top-level-scopes #:prune-top-level-scopes? #t)
+  (simplify #:simplify? #t)
+  (contify #:contify? #t)
+  (inline-constructors #:inline-constructors? #t)
+  (specialize-primcalls #:specialize-primcalls? #t)
+  (elide-values #:elide-values? #t)
+  (prune-bailouts #:prune-bailouts? #t)
+  (eliminate-common-subexpressions #:cse? #t)
+  (type-fold #:type-fold? #t)
+  (resolve-self-references #:resolve-self-references? #t)
+  (eliminate-dead-code #:eliminate-dead-code? #t)
+  (simplify #:simplify? #t))
 
-  ;; This series of assignments to `program' used to be a series of let*
-  ;; bindings of `program', as you would imagine.  In compiled code this
-  ;; is fine because the compiler is able to allocate all let*-bound
-  ;; variable to the same slot, which also means that the garbage
-  ;; collector doesn't have to retain so many copies of the term being
-  ;; optimized.  However during bootstrap, the interpreter doesn't do
-  ;; this optimization, leading to excessive data retention as the terms
-  ;; are rewritten.  To marginally improve bootstrap memory usage, here
-  ;; we use set! instead.  The compiler should produce the same code in
-  ;; any case, though currently it does not because it doesn't do escape
-  ;; analysis on the box created for the set!.
-
-  (run-pass! split-rec #:split-rec? #t)
-  (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
-  (run-pass! prune-top-level-scopes #:prune-top-level-scopes? #t)
-  (run-pass! simplify #:simplify? #t)
-  (run-pass! contify #:contify? #t)
-  (run-pass! inline-constructors #:inline-constructors? #t)
-  (run-pass! specialize-primcalls #:specialize-primcalls? #t)
-  (run-pass! elide-values #:elide-values? #t)
-  (run-pass! prune-bailouts #:prune-bailouts? #t)
-  (run-pass! eliminate-common-subexpressions #:cse? #t)
-  (run-pass! type-fold #:type-fold? #t)
-  (run-pass! resolve-self-references #:resolve-self-references? #t)
-  (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
-  (run-pass! simplify #:simplify? #t)
-
-  (verify program))
+(define-optimizer optimize-first-order-cps
+  (eliminate-dead-code #:eliminate-dead-code? #t)
+  (simplify #:simplify? #t))

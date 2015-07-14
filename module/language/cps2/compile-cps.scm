@@ -100,5 +100,5 @@
   (convert-fun 0))
 
 (define (compile-cps exp env opts)
-  (let ((exp (renumber (optimize exp opts))))
+  (let ((exp (renumber (optimize-higher-order-cps exp opts))))
     (values (conts->fun exp) env env)))
