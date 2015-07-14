@@ -254,7 +254,11 @@
        (hashq-set! *native-prim-procedures* 'name name)))))
 
 (define-syntax-rule (side-exit code)
-  ;; XXX: Update the contents of `out' when the side exit gets hot.
+  ;; Save return address, then jump to address of CODE.
+  ;;
+  ;; Expecting that CODE will jump back to return address, or patched to parent
+  ;; trace already. When returned to patched address, exit from native code with
+  ;; returning the contents of register R0.
   (let ((addr (jit-movi r1 (imm 0))))
     (jit-stxi ra-offset fp r1)
     (jit-movi r0 code)
@@ -1236,14 +1240,13 @@
              (lambda (local-x-type var)
                (let ((local (car local-x-type))
                      (type (cdr local-x-type)))
-                 ;; XXX: Save locals in parent trace which are not passed to side
-                 ;; trace?
-                 ;;
-                 ;; (when (not (assq local initial-locals))
-                 ;;   (store-frame moffs local type var))
+                 ;; Save to frame when values from parent trace are not passed
+                 ;; to side trace.
+                 (when (not (assq local initial-locals))
+                   (store-frame moffs local type var))
                  (hashq-set! args local var)))
              (hashq-ref (tlog-snapshots tlog) (- exit-id 1))
-             (hashq-ref (tlog-side-exit-variables tlog) (- exit-id 1)))
+             (hashq-ref (tlog-side-exit-variables tlog) exit-id))
             (for-each
              (match-lambda
               ((local . var)
