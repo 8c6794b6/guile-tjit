@@ -128,6 +128,10 @@
               (($ $kfun src meta self tail clause)
                (rename-var self vars))
               (_ vars))))
+  (define (maybe-visit-fun kfun labels vars)
+    (if (intmap-ref labels kfun (lambda (_) #f))
+        (values labels vars)
+        (visit-fun kfun labels vars)))
   (define (visit-nested-funs k labels vars)
     (match (intmap-ref conts k)
       (($ $kargs names syms ($ $continue k src ($ $fun kfun)))
@@ -135,6 +139,14 @@
       (($ $kargs names syms ($ $continue k src ($ $rec names* syms*
                                                   (($ $fun kfun) ...))))
        (fold2 visit-fun kfun labels vars))
+      (($ $kargs names syms ($ $continue k src ($ $closure kfun nfree)))
+       ;; Closures with zero free vars get copy-propagated so it's
+       ;; possible to already have visited them.
+       (maybe-visit-fun kfun labels vars))
+      (($ $kargs names syms ($ $continue k src ($ $callk kfun)))
+       ;; Well-known functions never have a $closure created for them
+       ;; and are only referenced by their $callk call sites.
+       (maybe-visit-fun kfun labels vars))
       (_ (values labels vars))))
   (define (visit-fun kfun labels vars)
     (let* ((preds (compute-predecessors conts kfun))
