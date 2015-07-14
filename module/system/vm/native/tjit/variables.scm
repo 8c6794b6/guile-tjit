@@ -264,7 +264,11 @@ MAX-VAR + 1 which contains register and memory information."
        (else (next-mem))))
 
     (define (local-var-alist locals vars)
-      (map cons (reverse locals) vars))
+      (cond
+       ((= (length locals) (length vars))
+        (map cons (reverse locals) vars))
+       (else
+        '())))
 
     (let-values (((types
                    kstart kend

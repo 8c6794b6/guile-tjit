@@ -44,6 +44,7 @@
             tlog-loop-address
             tlog-loop-locals
             tlog-loop-vars
+            tlog-fp-offset
 
             dump-tlog
             put-tlog!
@@ -147,7 +148,7 @@
 (define-record-type <tlog>
   (%make-tlog id code exit-counts entry-ip
               snapshots side-exit-variables side-exit-codes trampoline
-              loop-address loop-locals loop-vars)
+              loop-address loop-locals loop-vars fp-offset)
   tlog?
 
   ;; Trace id number.
@@ -184,7 +185,10 @@
   (loop-locals tlog-loop-locals)
 
   ;; Variable header information of loop.
-  (loop-vars tlog-loop-vars))
+  (loop-vars tlog-loop-vars)
+
+  ;; FP offset in native code.
+  (fp-offset tlog-fp-offset))
 
 (define make-tlog %make-tlog)
 
@@ -214,7 +218,8 @@
             (and (bytevector? code) (bytevector-length code))))
   (format #t "~19@a: ~a~%" 'loop-address (tlog-loop-address tlog))
   (format #t "~19@a: ~a~%" 'loop-locals (tlog-loop-locals tlog))
-  (format #t "~19@a: ~a~%" 'loop-vars (tlog-loop-vars tlog)))
+  (format #t "~19@a: ~a~%" 'loop-vars (tlog-loop-vars tlog))
+  (format #t "~19@a: ~a~%" 'fp-offset (tlog-fp-offset tlog)))
 
 (define (put-tlog! key tlog)
   (hashq-set! (tlog-table) key tlog))

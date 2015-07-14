@@ -50,6 +50,7 @@
   #:use-module (system base compile)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
+  #:use-module (system vm native tjit tlog)
   #:export (trace->cps
             trace->scm
             scm->cps
@@ -216,7 +217,7 @@
 ;;; Scheme ANF compiler
 ;;;
 
-(define (trace->scm nlog ops)
+(define (trace->scm tlog ops)
   (define br-op-size 2)
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
@@ -270,16 +271,29 @@
            (else
             (lp (+ i 1) acc))))))
     `(begin
-       (,ip ,@(make-args vars))
+       ;; (,ip ,@(make-args vars))
+       (,ip)
        ,(let lp ((i 0) (end (vector-length types)))
           (if (< i end)
               (let* ((type (vector-ref types i))
                      (var (and type (vector-ref vars i)))
                      (op (and type (type-guard-op type)))
-                     (exp (and op
-                               `(begin
-                                  (,op ,var)
-                                  ,(unbox-op type var (lp (+ i 1) end))))))
+                     (exp
+                      (and op
+                           `(begin
+                              (,op ,var)
+                              ,(unbox-op type var (lp (+ i 1) end))))
+                      ;; (cond
+                      ;;  (op
+                      ;;   `(let ((,var (%frame-ref ,i)))
+                      ;;      (,op ,var)
+                      ;;      ,(unbox-op type var (lp (+ i 1) end))))
+                      ;;  (var
+                      ;;   `(let ((,var (%frame-ref ,i)))
+                      ;;      ,(lp (+ i 1) end)))
+                      ;;  (else
+                      ;;   (lp (+ i 1) end)))
+                      ))
                 (or exp (lp (+ i 1) end)))
               loop-exp))))
 
@@ -409,6 +423,7 @@
         ;; XXX: halt
 
         (('call proc nlocals)
+         (set-type! proc &procedure)
          (push-offset! proc)
          (convert escape rest))
 
@@ -577,6 +592,7 @@
                (vsrc (var-ref src))
                (rsrc (and (< src (vector-length locals))
                           (variable-ref (vector-ref locals src)))))
+           (set-type! src &box)
            `(let ((,vdst (%cell-object ,vsrc 1)))
               ,(cond
                 ((flonum? rsrc)
@@ -593,6 +609,7 @@
                (vsrc (var-ref src))
                (rdst (and (< dst (vector-length locals))
                           (variable-ref (vector-ref locals dst)))))
+           (set-type! dst &box)
            (cond
             ((flonum? rdst)
              `(let ((,vsrc (%from-double ,vsrc)))
@@ -838,7 +855,7 @@
       (match traces
         (((op ip _ locals) . ())
          (cond
-          ((not nlog)
+          ((not tlog)
            (convert-one escape op ip locals
                         `(loop ,@(filter identity (vector->list vars)))))
           (else
@@ -847,27 +864,26 @@
          (convert-one escape op ip locals rest))
         (_ traces)))
 
-    (define (make-scm entry-body loop-body)
+    (define (make-scm exp-body)
       (cond
-       ((and nlog loop-body)            ; Side trace.
-        `(letrec ((patch (lambda ,args ,loop-body)))
-           patch))
-       ((and entry-body loop-body)      ; Root trace.
-        `(letrec ((entry (lambda ,args ,entry-body))
-                  (loop (lambda ,args ,loop-body)))
-           entry))
-       (else
+       ((not exp-body)
         (debug 2 ";;; Bytecode to Scheme conversion failed.~%")
-        #f)))
+        #f)
+       (tlog                            ; Side trace.
+        `(letrec ((patch (lambda ,args ,exp-body)))
+           patch))
+       (else                            ; Root trace.
+        (let ((entry-body (make-entry (initial-ip ops) vars types
+                                      `(begin
+                                         (,*ip-key-end-of-entry* ,@args)
+                                         (loop ,@args)))))
+          `(letrec ((entry (lambda ,args ,entry-body))
+                    (loop (lambda ,args ,exp-body)))
+             entry)))))
 
-    (let* ((loop-body (call-with-escape-continuation
-                       (lambda (escape)
-                         (convert escape ops))))
-           (entry-body (make-entry (initial-ip ops) vars types
-                                   `(begin
-                                     (,*ip-key-end-of-entry* ,@args)
-                                     (loop ,@args))))
-           (scm (make-scm entry-body loop-body)))
+    (let ((scm (make-scm (call-with-escape-continuation
+                          (lambda (escape)
+                            (convert escape ops))))))
       (debug 2 ";;; snapshot:~%~{;;;   ~a~%~}" (hash-fold acons '() snapshots))
       (values locals snapshots scm))))
 
@@ -902,7 +918,17 @@
     (set! cps (and cps (body-fun cps)))
     cps))
 
-(define (trace->cps nlog trace)
-  (call-with-values (lambda () (trace->scm nlog trace))
+(define (trace->cps tlog trace)
+  ;; (define (dump-cps conts)
+  ;;   (and conts
+  ;;        (intmap-fold (lambda (k v out)
+  ;;                       (debug 2 "~4,,,'0@a:  ~a~%" k (unparse-cps v))
+  ;;                       out)
+  ;;                     conts
+  ;;                     conts)))
+  (call-with-values (lambda () (trace->scm tlog trace))
     (lambda (locals snapshots scm)
-      (values locals snapshots scm (scm->cps scm)))))
+      (let ((cps (scm->cps scm)))
+        ;; (debug 2 ";;; scm: ~y~%" scm)
+        ;; (dump-cps cps)
+        (values locals snapshots scm cps)))))

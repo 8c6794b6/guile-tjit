@@ -41,11 +41,15 @@
 (define rsi (jit-r 12))
 (define rdi (jit-r 13))
 
+(define *callee-save-registers*
+  `#(,v1 ,v2 ,v3 ,r3))
+
 ;; (define *gp-registers*
 ;;   `#(,v1 ,v2 ,v3))
 
 (define *gp-registers*
-  `#(,v1 ,v2 ,v3 ,r3 ,r8 ,r9 ,rcx ,rdx ,rsi ,rdi))
+  (list->vector (append (vector->list *callee-save-registers*)
+                        `(,r8 ,r9 ,rcx ,rdx ,rsi ,rdi))))
 
 (define xmm7 (jit-f 8))
 (define xmm6 (jit-f 9))
@@ -58,6 +62,9 @@
 
 (define *fp-registers*
   `#(,f3 ,f4 ,f5 ,f6 ,f7 ,xmm7 ,xmm6 ,xmm5 ,xmm4 ,xmm3 ,xmm2 ,xmm1 ,xmm0))
+
+(define *num-callee-save*
+  (vector-length *callee-save-registers*))
 
 (define *num-gpr*
   (vector-length *gp-registers*))

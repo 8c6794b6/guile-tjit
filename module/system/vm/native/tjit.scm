@@ -208,7 +208,8 @@
                 trampoline
                 loop-label
                 loop-locals
-                loop-vars)
+                loop-vars
+                fp-offset)
                (assemble-tjit cps locals snapshots tlog parent-exit-id)))
            (jit-epilog)
            (jit-realize)
@@ -219,15 +220,14 @@
              (make-bytevector-executable! code)
              (let ((code-size (jit-code-size)))
                (when (and verbosity (<= 1 verbosity))
-                 (let ((tlog (get-tlog parent-ip)))
-                   (format #t ";;; trace ~a:~a ~a~a~%"
-                           trace-id sline code-size
-                           (if (< 0 parent-ip)
-                               (format #f " (~a:~a)"
-                                       (or (and tlog (tlog-id tlog))
-                                           (format #f "~x" parent-ip))
-                                       parent-exit-id)
-                               "")))
+                 (format #t ";;; trace ~a:~a ~a~a~%"
+                         trace-id sline code-size
+                         (if (< 0 parent-ip)
+                             (format #f " (~a:~a)"
+                                     (or (and tlog (tlog-id tlog))
+                                         (format #f "~x" parent-ip))
+                                     parent-exit-id)
+                             ""))
                  (show-dump ip-x-ops scm locals cps code code-size)))
              (let ((ip (cadr (car ip-x-ops))))
                (put-tlog! ip (make-tlog trace-id
@@ -241,7 +241,8 @@
                                         (and loop-label
                                              (jit-address loop-label))
                                         loop-locals
-                                        loop-vars)))
+                                        loop-vars
+                                        fp-offset)))
 
              ;; When this trace is a side trace, replace the native code
              ;; of trampoline in parent tlog.
