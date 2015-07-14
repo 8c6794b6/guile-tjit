@@ -314,7 +314,13 @@
       (jump (jit-bnei (gpr a) (constant b)) next))
      ((and (gpr? a) (gpr? b))
       (jump (jit-bner (gpr a) (gpr b)) next))
+     ((and (gpr? a) (memory? b))
+      (memory-ref asm r0 b)
+      (jump (jit-bner (gpr a) r0) next))
 
+     ((and (memory? a) (constant? b))
+      (memory-ref asm r0 a)
+      (jump (jit-bnei r0 (constant b)) next))
      ((and (memory? a) (gpr? b))
       (memory-ref asm r0 a)
       (jump (jit-bner r0 (gpr b)) next))
@@ -369,6 +375,10 @@
      ((and (constant? a) (gpr? b))
       (jit-movi r0 (constant a))
       (jump (jit-bger r0 (gpr b)) next))
+     ((and (constant? a) (memory? b))
+      (jit-movi r0 (constant a))
+      (memory-ref asm r1 b)
+      (jump (jit-bger r0 r1) next))
 
      ((and (gpr? a) (constant? b))
       (jump (jit-bgei (gpr a) (constant b)) next))
@@ -440,8 +450,7 @@
     (side-exit (out-code asm))
     (jit-link next)))
 
-;;; XXX: Make low level instructions to load cell object, and to compare
-;;; typ16. Then rewrite this guard using those instructions.
+;;; XXX: Make low level instructions to compare typ16, rewrite this guard.
 (define-prim (%guard-fl asm (int obj))
   (let ((exit (jit-forward))
         (next (jit-forward)))
@@ -996,8 +1005,6 @@
 
     (let* ((proc (env-ref proc))
            (ip (ref-value proc)))
-      ;; (when (not (constant? proc))
-      ;;   (error "assemble-exit: not a constant" proc args))
       (cond
        ((not (constant? proc))
         (debug 2 ";;; assemble-exit: not a constant ~a ~a~%" proc args))
@@ -1027,7 +1034,8 @@
                     ((hashq-ref current-locals local)
                      =>
                      (lambda (src)      ; Move variable to parent trace.
-                       (move moffs dst src)))
+                       (when (not (equal? dst src))
+                         (move moffs dst src))))
                     (else               ; Load from frame.
                      (load-frame moffs local type dst)))))
                loop-locals (tlog-loop-vars tlog))
@@ -1225,7 +1233,9 @@
 
        (else                            ; Side trace.
         (let* ((nspills (max-moffs env))
-               (fp-offset (+ (tlog-fp-offset tlog) %word-size)))
+               ;; (fp-offset (+ (tlog-fp-offset tlog) (* nspills %word-size)))
+               (fp-offset (tlog-fp-offset tlog)))
+          (debug 2 ";;; side trace: nspills=~a~%" nspills)
 
           ;; XXX: Allocate more memory if nspills of side trace is greater than
           ;; area allocated by the parent trace.
@@ -1233,9 +1243,10 @@
 
           ;; Load initial arguments from parent trace.
           (let ((args (make-hash-table))
-                (moffs (lambda (mem)
-                         (let ((offset (* (ref-value mem) %word-size)))
-                           (make-offset-pointer fp-offset offset)))))
+                (moffs
+                 (lambda (mem)
+                   (let ((offset (* (ref-value mem) %word-size)))
+                     (make-offset-pointer fp-offset offset)))))
             (for-each
              (lambda (local-x-type var)
                (let ((local (car local-x-type))
@@ -1255,7 +1266,8 @@
                   ((hashq-ref args local)
                    =>
                    (lambda (src)        ; Move variable from parent trace.
-                     (move moffs dst src)))
+                     (when (not (equal? dst src))
+                       (move moffs dst src))))
                   (else                 ; Load from frame.
                    (let* ((snapshot (hashq-ref snapshots 0))
                           (type (assq-ref snapshot local)))
