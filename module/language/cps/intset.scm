@@ -768,13 +768,8 @@
     (match ranges
       (()
        (format port "#<~a>" tag))
-      (((0 . _) . _)
-       (format port "#<~a ~a>" tag (range-string ranges)))
-      (((min . end) . ranges)
-       (let ((ranges (map (match-lambda
-                            ((start . end) (cons (- start min) (- end min))))
-                          (acons min end ranges))))
-         (format port "#<~a ~a+~a>" tag min (range-string ranges)))))))
+      (_
+       (format port "#<~a ~a>" tag (range-string ranges))))))
 
 (define (print-intset intset port)
   (print-helper port "intset" intset))
