@@ -911,7 +911,7 @@
       (local-ref (gpr dst) local))
      ((memory? dst)
       (local-ref r0 local)
-      (jit-stxi-d (moffs dst) fp r0))))
+      (jit-stxi (moffs dst) fp r0))))
    (else
     (error "load-frame" local type dst))))
 
@@ -1207,10 +1207,13 @@
         ;; from C code: `vp->fp', and `registers', and one word for return
         ;; address used by side exits.
         (let* ((nspills (max-moffs env))
-               (fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size)))))
+               (fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size))))
+               (moffs (lambda (mem)
+                        (let ((offset (* (ref-value mem) %word-size)))
+                          (make-offset-pointer fp-offset offset)))))
 
           ;; Get arguments.
-          (jit-getarg reg-thread (jit-arg)) ; *thread
+          (jit-getarg reg-thread (jit-arg)) ; thread
           (jit-getarg r0 (jit-arg))         ; vp->fp
           (jit-getarg r1 (jit-arg))         ; registers, for prompt
 
@@ -1218,23 +1221,11 @@
           (jit-stxi vp->fp-offset fp r0)
           (jit-stxi registers-offset fp r1)
 
-          ;; Initialize callee save registers.
-          ;; (init-callee-save-registers)
-
           ;; Load initial locals.
           (for-each
            (match-lambda
-            ((local-idx . var-idx)
-             (let ((var (vector-ref env var-idx)))
-               (cond
-                ((gpr? var)
-                 (local-ref (gpr var) local-idx))
-                ((memory? var)
-                 (let ((offset (* (ref-value var) %word-size)))
-                   (local-ref r0 local-idx)
-                   (jit-stxi (make-offset-pointer fp-offset offset) fp r0)))
-                (else
-                 (error "Unknown initial argument" var))))))
+            ((local . var)
+             (load-frame moffs local &box (vector-ref env var))))
            initial-locals)
 
           ;; Assemble the loop.
@@ -1243,7 +1234,6 @@
 
        (else                            ; Side trace.
         (let* ((nspills (max-moffs env))
-               ;; (fp-offset (+ (tlog-fp-offset tlog) (* nspills %word-size)))
                (fp-offset (tlog-fp-offset tlog)))
           (debug 2 ";;; side trace: nspills=~a~%" nspills)
 
