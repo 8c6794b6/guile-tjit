@@ -159,38 +159,37 @@ sites."
         (($ $kargs _ vars) vars)
         (_ #f)))
 
-    (define (visit-live-exp label k exp live-exps live-vars)
+    (define (visit-live-exp label k exp live-labels live-vars)
       (match exp
         ((or ($ $const) ($ $prim))
-         (values live-exps live-vars))
+         (values live-labels live-vars))
         (($ $fun body)
-         (visit-fun body live-exps live-vars))
+         (values (intset-add live-labels body) live-vars))
         (($ $rec names vars (($ $fun kfuns) ...))
          (let lp ((vars vars) (kfuns kfuns)
-                  (live-exps live-exps) (live-vars live-vars))
+                  (live-labels live-labels) (live-vars live-vars))
            (match (vector vars kfuns)
-             (#(() ()) (values live-exps live-vars))
+             (#(() ()) (values live-labels live-vars))
              (#((var . vars) (kfun . kfuns))
-              (if (var-live? var live-vars)
-                  (call-with-values (lambda ()
-                                      (visit-fun kfun live-exps live-vars))
-                    (lambda (live-exps live-vars)
-                      (lp vars kfuns live-exps live-vars)))
-                  (lp vars kfuns live-exps live-vars))))))
+              (lp vars kfuns
+                  (if (var-live? var live-vars)
+                      (intset-add live-labels kfun)
+                      live-labels)
+                  live-vars)))))
         (($ $prompt escape? tag handler)
-         (values live-exps (adjoin-var tag live-vars)))
+         (values live-labels (adjoin-var tag live-vars)))
         (($ $call proc args)
-         (values live-exps (adjoin-vars args (adjoin-var proc live-vars))))
+         (values live-labels (adjoin-vars args (adjoin-var proc live-vars))))
         (($ $callk k proc args)
-         (values live-exps (adjoin-vars args (adjoin-var proc live-vars))))
+         (values live-labels (adjoin-vars args (adjoin-var proc live-vars))))
         (($ $primcall name args)
-         (values live-exps (adjoin-vars args live-vars)))
+         (values live-labels (adjoin-vars args live-vars)))
         (($ $branch k ($ $primcall name args))
-         (values live-exps (adjoin-vars args live-vars)))
+         (values live-labels (adjoin-vars args live-vars)))
         (($ $branch k ($ $values (arg)))
-         (values live-exps (adjoin-var arg live-vars)))
+         (values live-labels (adjoin-var arg live-vars)))
         (($ $values args)
-         (values live-exps
+         (values live-labels
                  (match (cont-defs k)
                    (#f (adjoin-vars args live-vars))
                    (defs (fold (lambda (use def live-vars)
@@ -199,11 +198,11 @@ sites."
                                      live-vars))
                                live-vars args defs)))))))
             
-    (define (visit-exp label k exp live-exps live-vars)
+    (define (visit-exp label k exp live-labels live-vars)
       (cond
-       ((intset-ref live-exps label)
+       ((intset-ref live-labels label)
         ;; Expression live already.
-        (visit-live-exp label k exp live-exps live-vars))
+        (visit-live-exp label k exp live-labels live-vars))
        ((let ((defs (cont-defs k))
               (fx (intmap-ref effects label)))
           (or
@@ -233,31 +232,44 @@ sites."
                        (not (intset-ref known-allocations obj))))
                   (_ #t)))))
         ;; Mark expression as live and visit.
-        (visit-live-exp label k exp (intset-add live-exps label) live-vars))
+        (visit-live-exp label k exp (intset-add live-labels label) live-vars))
        (else
         ;; Still dead.
-        (values live-exps live-vars))))
+        (values live-labels live-vars))))
 
-    (define (visit-fun label live-exps live-vars)
+    (define (visit-fun label live-labels live-vars)
       ;; Visit uses before definitions.
       (postorder-fold-local-conts2
-       (lambda (label cont live-exps live-vars)
+       (lambda (label cont live-labels live-vars)
          (match cont
            (($ $kargs _ _ ($ $continue k src exp))
-            (visit-exp label k exp live-exps live-vars))
+            (visit-exp label k exp live-labels live-vars))
            (($ $kreceive arity kargs)
-            (values live-exps live-vars))
+            (values live-labels live-vars))
            (($ $kclause arity kargs kalt)
-            (values live-exps (adjoin-vars (cont-defs kargs) live-vars)))
+            (values live-labels (adjoin-vars (cont-defs kargs) live-vars)))
            (($ $kfun src meta self)
-            (values live-exps (adjoin-var self live-vars)))
+            (values live-labels (adjoin-var self live-vars)))
            (($ $ktail)
-            (values live-exps live-vars))))
-       conts label live-exps live-vars))
+            (values live-labels live-vars))))
+       conts label live-labels live-vars))
        
-    (fixpoint (lambda (live-exps live-vars)
-                (visit-fun 0 live-exps live-vars))
-              empty-intset
+    (fixpoint (lambda (live-labels live-vars)
+                (let lp ((label 0)
+                         (live-labels live-labels)
+                         (live-vars live-vars))
+                  (match (intset-next live-labels label)
+                    (#f (values live-labels live-vars))
+                    (label
+                     (call-with-values
+                         (lambda ()
+                           (match (intmap-ref conts label)
+                             (($ $kfun)
+                              (visit-fun label live-labels live-vars))
+                             (_ (values live-labels live-vars))))
+                       (lambda (live-labels live-vars)
+                         (lp (1+ label) live-labels live-vars)))))))
+              (intset 0)
               empty-intset)))
 
 (define-syntax adjoin-conts
@@ -271,9 +283,9 @@ sites."
     ((_ cps)
      cps)))
 
-(define (process-eliminations conts live-exps live-vars)
-  (define (exp-live? label)
-    (intset-ref live-exps label))
+(define (process-eliminations conts live-labels live-vars)
+  (define (label-live? label)
+    (intset-ref live-labels label))
   (define (value-live? var)
     (intset-ref live-vars var))
   (define (make-adaptor k src defs)
@@ -288,7 +300,7 @@ sites."
   (define (visit-term label term cps)
     (match term
       (($ $continue k src exp)
-       (if (exp-live? label)
+       (if (label-live? label)
            (match exp
              (($ $fun body)
               (values (visit-fun body cps)
@@ -370,8 +382,8 @@ sites."
   ;; inference.
   (let ((conts (renumber conts)))
     (call-with-values (lambda () (compute-live-code conts))
-      (lambda (live-exps live-vars)
-        (process-eliminations conts live-exps live-vars)))))
+      (lambda (live-labels live-vars)
+        (process-eliminations conts live-labels live-vars)))))
 
 ;;; Local Variables:
 ;;; eval: (put 'adjoin-conts 'scheme-indent-function 1)
