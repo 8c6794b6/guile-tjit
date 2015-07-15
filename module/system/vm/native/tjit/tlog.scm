@@ -38,13 +38,14 @@
             tlog-code
             tlog-entry-ip
             tlog-snapshots
-            tlog-side-exit-variables
-            tlog-side-exit-codes
+            tlog-exit-variables
+            tlog-exit-codes
             tlog-trampoline
             tlog-loop-address
             tlog-loop-locals
             tlog-loop-vars
             tlog-fp-offset
+            tlog-end-address
 
             dump-tlog
             put-tlog!
@@ -59,11 +60,12 @@
 ;;; Trampoline
 ;;;
 
-;;; `Trampoline' is a chunk of native code containing jump
-;;; destinations. Updating the contents of bytevector containing naitve code
-;;; will not work when the size of new bytevector is larget than the size of old
-;;; bytevector.  To make things work with different size of native code, using a
-;;; layer of native code containing jump destinations.
+;;; `Trampoline' is a chunk of native code containing jump destinations.
+;;; Updating the contents of bytevector containing naitve code will not work
+;;; when the size of new bytevector is larget than the size of old bytevector.
+;;; Each native code entry in trampoline is a fragment of code containing jump
+;;; to absolute address, which has same sizes. These fragments of native code
+;;; are used as a layer to cope with updating native codes with different sizes.
 
 (define (emit-to-bytevector!)
   (let* ((size (jit-code-size))
@@ -147,8 +149,8 @@
 ;;
 (define-record-type <tlog>
   (%make-tlog id code exit-counts entry-ip
-              snapshots side-exit-variables side-exit-codes trampoline
-              loop-address loop-locals loop-vars fp-offset)
+              snapshots exit-variables exit-codes trampoline
+              loop-address loop-locals loop-vars fp-offset end-address)
   tlog?
 
   ;; Trace id number.
@@ -166,14 +168,11 @@
   ;; Snapshot locals and types.
   (snapshots tlog-snapshots)
 
-  ;; ;; Address of start of the loop in native code.
-  ;; (loop-start-address tlog-loop-start-address)
+  ;; Hash-table containing variables for exits.
+  (exit-variables tlog-exit-variables)
 
-  ;; Hash-table containing variables for side exit.
-  (side-exit-variables tlog-side-exit-variables)
-
-  ;; Hash-table containing side exit codes.
-  (side-exit-codes tlog-side-exit-codes)
+  ;; Hash-table containing code for exits.
+  (exit-codes tlog-exit-codes)
 
   ;; Trampoline, native code containing jump destinations.
   (trampoline tlog-trampoline)
@@ -188,7 +187,10 @@
   (loop-vars tlog-loop-vars)
 
   ;; FP offset in native code.
-  (fp-offset tlog-fp-offset))
+  (fp-offset tlog-fp-offset)
+
+  ;; End address.
+  (end-address tlog-end-address))
 
 (define make-tlog %make-tlog)
 
@@ -206,12 +208,12 @@
             (sort (hash-fold acons '() snapshots)
                   (lambda (a b)
                     (< (car a) (car b))))))
-  (format #t "~19@a: ~{~a~^~%                     ~}~%" 'side-exit-vars
-          (let ((vars (tlog-side-exit-variables tlog)))
+  (format #t "~19@a: ~{~a~^~%                     ~}~%" 'exit-vars
+          (let ((vars (tlog-exit-variables tlog)))
             (sort (hash-fold acons '() vars)
                   (lambda (a b)
                     (< (car a) (car b))))))
-  (format #t "~19@a: ~a~%" 'side-exit-codes (tlog-side-exit-codes tlog))
+  (format #t "~19@a: ~a~%" 'exit-codes (tlog-exit-codes tlog))
   (let ((code (tlog-trampoline tlog)))
     (format #t "~19@a: ~a:~a~%" 'trampoline
             (and (bytevector? code) (bytevector->pointer code))
@@ -219,7 +221,8 @@
   (format #t "~19@a: ~a~%" 'loop-address (tlog-loop-address tlog))
   (format #t "~19@a: ~a~%" 'loop-locals (tlog-loop-locals tlog))
   (format #t "~19@a: ~a~%" 'loop-vars (tlog-loop-vars tlog))
-  (format #t "~19@a: ~a~%" 'fp-offset (tlog-fp-offset tlog)))
+  (format #t "~19@a: ~a~%" 'fp-offset (tlog-fp-offset tlog))
+  (format #t "~19@a: ~a~%" 'end-address (tlog-end-address tlog)))
 
 (define (put-tlog! key tlog)
   (hashq-set! (tlog-table) key tlog))

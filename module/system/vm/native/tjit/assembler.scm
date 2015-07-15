@@ -105,14 +105,15 @@
 ;;;
 
 (define-record-type <asm>
-  (%make-asm %env %fp-offset %out-code)
+  (%make-asm %env %fp-offset %out-code %end-address)
   asm?
   (%env asm-env set-asm-env!)
   (%fp-offset asm-fp-offset set-asm-fp-offset!)
-  (%out-code out-code set-out-code!))
+  (%out-code asm-out-code set-out-code!)
+  (%end-address asm-end-address set-asm-end-address!))
 
-(define (make-asm env fp-offset out-code)
-  (%make-asm env fp-offset out-code))
+(define (make-asm env fp-offset out-code end-address)
+  (%make-asm env fp-offset out-code end-address))
 
 (define (env-ref asm i)
   (vector-ref (asm-env asm) i))
@@ -152,6 +153,11 @@
      (jit-patch-at (jit-jmpi) label))
     ((_ condition label)
      (jit-patch-at condition label))))
+
+(define-syntax jumpi
+  (syntax-rules ()
+    ((_ address)
+     (jit-patch-abs (jit-jmpi) address))))
 
 (define-syntax local-ref
   (syntax-rules ()
@@ -253,18 +259,29 @@
 
        (hashq-set! *native-prim-procedures* 'name name)))))
 
-(define-syntax-rule (side-exit code)
+(define-syntax-rule (goto-exit asm)
   ;; Save return address, then jump to address of CODE.
   ;;
   ;; Expecting that CODE will jump back to return address, or patched to parent
   ;; trace already. When returned to patched address, exit from native code with
   ;; returning the contents of register R0.
+  ;;
+  ;; Side trace reuses RSP shifting from parent trace. Native code of side trace
+  ;; does not reset stack pointer, because it uses `jit-tramp'.
+  ;;
   (let ((addr (jit-movi r1 (imm 0))))
     (jit-stxi ra-offset fp r1)
-    (jit-movi r0 code)
-    (jit-jmpr r0)
+    (jumpi (asm-out-code asm))
     (jit-patch addr)
-    (jit-retr r0)))
+    (cond
+     ((asm-end-address asm)
+      =>
+      (lambda (address)
+        (debug 2 ";;; side-exit: jumping to ~a~%" address)
+        (jumpi address)))
+     (else
+      (debug 2 ";;; side-exit: returning R0~%")
+      (jit-retr r0)))))
 
 (define (initialize-tjit-primitives)
   (for-each
@@ -298,7 +315,7 @@
       (jump (jit-beqr r0 r1) (next)))
      (else
       (error "%eq" a b)))
-    (side-exit (out-code asm))
+    (goto-exit asm)
     (jit-link next)))
 
 (define-prim (%ne asm (int a) (int b))
@@ -330,7 +347,7 @@
       (jump (jit-bner r0 r1) next))
      (else
       (error "%ne" a b)))
-    (side-exit (out-code asm))
+    (goto-exit asm)
     (jit-link next)))
 
 (define-prim (%lt asm (int a) (int b))
@@ -366,7 +383,7 @@
      (else
       (error "%lt" a b)))
 
-    (side-exit (out-code asm))
+    (goto-exit asm)
     (jit-link next)))
 
 (define-prim (%ge asm (int a) (int b))
@@ -398,7 +415,7 @@
 
      (else
       (error "%ge" a b)))
-    (side-exit (out-code asm))
+    (goto-exit asm)
     (jit-link next)))
 
 (define-prim (%flt asm (double a) (double b))
@@ -415,7 +432,7 @@
 
      (else
       (error "%flt" a b)))
-    (side-exit (out-code asm))
+    (goto-exit asm)
     (jit-link next)))
 
 (define-prim (%fge asm (double a) (double b))
@@ -434,7 +451,7 @@
 
      (else
       (error "%fge" a b)))
-    (side-exit (out-code asm))
+    (goto-exit asm)
     (jit-link next)))
 
 (define-prim (%guard-fx asm (int obj))
@@ -447,7 +464,7 @@
       (jump (scm-inump r0) next))
      (else
       (error "%guard-fx" obj)))
-    (side-exit (out-code asm))
+    (goto-exit asm)
     (jit-link next)))
 
 ;;; XXX: Make low level instructions to compare typ16, rewrite this guard.
@@ -469,7 +486,7 @@
      (else
       (error "%guard-fl" obj)))
     (jit-link exit)
-    (side-exit (out-code asm))
+    (goto-exit asm)
     (jit-link next)))
 
 
@@ -908,9 +925,9 @@
       (jit-addi r0 r0 (imm 2))
       (local-set! local r0))
      ((gpr? src)
-      (jit-lshi (gpr src) (gpr src) (imm 2))
-      (jit-addi (gpr src) (gpr src) (imm 2))
-      (local-set! local (gpr src)))
+      (jit-lshi r0 (gpr src) (imm 2))
+      (jit-addi r0 r0 (imm 2))
+      (local-set! local r0))
      ((memory? src)
       (jit-ldxi r0 fp (moffs src))
       (jit-lshi r0 r0 (imm 2))
@@ -944,9 +961,8 @@
    (else
     (error "Unknown local, type, src" local type src))))
 
-;; (define native-code-guardian (make-guardian))
-
-(define (assemble-cps cps env snapshots initial-args fp-offset tlog trampoline)
+(define (assemble-cps cps env snapshots initial-args fp-offset tlog trampoline
+                      end-address)
   (define (env-ref i)
     (vector-ref env i))
 
@@ -954,14 +970,23 @@
     (make-offset-pointer fp-offset (* (ref-value x) %word-size)))
 
   (define kstart (loop-start cps))
-  (define side-exit-codes (make-hash-table))
-  (define side-exit-variables (make-hash-table))
+  (define exit-codes (make-hash-table))
+  (define exit-variables (make-hash-table))
   (define current-side-exit 0)
-  (define (dump-side-exit-variables)
-    (debug 2 ";;; side-exit-variables:~%")
+  (define (dump-exit-variables)
+    (debug 2 ";;; exit-variables:~%")
     (hash-for-each (lambda (k v)
                      (debug 2 "~a => ~a~%" k v))
-                   side-exit-variables))
+                   exit-variables))
+  (define (dump-bailout ip current-side-exit code)
+    (let ((verbosity (lightning-verbosity)))
+      (when (and verbosity (<= 3 verbosity))
+        (call-with-output-file
+            (format #f "/tmp/bailout-~x-~4,,,'0@a.o"
+                    ip current-side-exit)
+          (lambda (port)
+            (put-bytevector port code)
+            (jit-print))))))
   (define loop-locals #f)
   (define loop-vars #f)
 
@@ -982,13 +1007,13 @@
       (_
        (debug "*** maybe-move: ~a ~a~%" exp old-args))))
 
-  (define (assemble-prim name dsts args label)
+  (define (assemble-prim name dsts args)
     (cond
      ((hashq-ref *native-prim-procedures* name)
       =>
       (lambda (proc)
         (let* ((side-exit (trampoline-ref trampoline (- current-side-exit 1)))
-               (asm (make-asm env fp-offset side-exit)))
+               (asm (make-asm env fp-offset side-exit end-address)))
           (apply proc asm (append dsts args)))))
      (else
       (error "Unhandled primcall" name))))
@@ -1003,138 +1028,122 @@
        (else
         (error "assemble-exit: unknown architecture"))))
 
+    (define (emit-bailout ip)
+      (with-jit-state
+       (jit-prolog)
+       (jit-tramp (imm (* 4 %word-size)))
+       (cond
+        ((hashq-ref snapshots (- current-side-exit 1))
+         =>
+         (lambda (local-x-types)
+           (for-each
+            (lambda (local-x-type arg)
+              ;; XXX: Save frame of parent trace when compiling side trace?
+              (let ((local (car local-x-type))
+                    (type (cdr local-x-type)))
+                (store-frame moffs local type (env-ref arg))))
+            local-x-types args)))
+        (else
+         (debug 2 ";;; assemble-exit: entry IP #x~x~%" ip)))
+
+       ;; Caller places return address to address `fp + ra-offset', and
+       ;; expects `R0' to hold return value.
+       ;;
+       ;; Doing some bit-shifts to return bytecode IP and current side-exit
+       ;; number. High address part of bytecode IPs could be recovered from
+       ;; original bytecode IP. Formerly done with returning a pair, but was
+       ;; increasing garbage collection time in nested loops.
+       ;;
+       (let* ((ip-shifted (shift-ip ip))
+              (retval (+ ip-shifted current-side-exit)))
+         (jit-movi r0 (imm retval)))
+       (jit-ldxi r1 fp ra-offset)
+       (jit-jmpr r1)
+       (jit-epilog)
+       (jit-realize)
+       (let* ((estimated-code-size (jit-code-size))
+              (code (make-bytevector estimated-code-size)))
+         (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
+         (let ((ptr (jit-emit)))
+           (make-bytevector-executable! code)
+           (dump-bailout ip current-side-exit code)
+           (hashq-set! exit-codes current-side-exit code)
+           (hashq-set! exit-variables current-side-exit (map env-ref args))
+           (trampoline-set! trampoline current-side-exit ptr)
+           (set! current-side-exit (+ current-side-exit 1))))))
+
+    (define (jump-to-patched-code)
+      (let ((current-locals (make-hash-table))
+            (loop-locals (tlog-loop-locals tlog)))
+        (cond
+         ((hashq-ref snapshots current-side-exit)
+          =>
+          (lambda (local-x-types)
+            (for-each
+             (lambda (local-x-type arg)
+               (let ((local (car local-x-type))
+                     (type (cdr local-x-type)))
+                 ;; Value at the end of side trace is not passed back to
+                 ;; linked native code, store to frame.
+                 (when (not (assq local loop-locals))
+                   (store-frame moffs local type (env-ref arg)))
+                 (hashq-set! current-locals local (env-ref arg))))
+             local-x-types args)
+            (for-each
+             (lambda (local-x-type dst)
+               (let* ((local (car local-x-type))
+                      (type (cdr local-x-type)))
+                 (cond
+                  ((hashq-ref current-locals local)
+                   =>
+                   (lambda (src)        ; Move variable to parent trace.
+                     (when (not (equal? dst src))
+                       (move moffs dst src))))
+                  (else                 ; Load from frame.
+                   (load-frame moffs local type dst)))))
+             loop-locals (tlog-loop-vars tlog))
+
+            ;; Jump to beginning of the loop in linked code.
+            (jumpi (tlog-loop-address tlog))))
+         (else
+          (debug 2 ";;; assemble-exit: IP is 0, local info not found~%")))))
+
+    (define (save-loop-info)
+      (cond
+       ((hashq-ref snapshots (- current-side-exit 1))
+        =>
+        (lambda (local-x-types)
+          (set! loop-locals local-x-types)
+          (set! loop-vars (map env-ref args))))
+       (else
+        (debug 2 ";;; end-of-entry: no snapshot at ~a~%" current-side-exit))))
+
     (let* ((proc (env-ref proc))
            (ip (ref-value proc)))
       (cond
        ((not (constant? proc))
-        (debug 2 ";;; assemble-exit: not a constant ~a ~a~%" proc args))
-
+        (error "assemble-exit: not a constant" proc))
        ((= ip *ip-key-end-of-side-trace*)
-        (let ((current-locals (make-hash-table))
-              (loop-locals (tlog-loop-locals tlog)))
-          (cond
-           ((hashq-ref snapshots current-side-exit)
-            =>
-            (lambda (local-x-types)
-              (for-each
-               (lambda (local-x-type arg)
-                 (let ((local (car local-x-type))
-                       (type (cdr local-x-type)))
-                   ;; Value at the end of side trace is not passed back to
-                   ;; beginning of the loop, save to frame.
-                   (when (not (assq local loop-locals))
-                     (store-frame moffs local type (env-ref arg)))
-                   (hashq-set! current-locals local (env-ref arg))))
-               local-x-types args)
-              (for-each
-               (lambda (local-x-type dst)
-                 (let* ((local (car local-x-type))
-                        (type (cdr local-x-type)))
-                   (cond
-                    ((hashq-ref current-locals local)
-                     =>
-                     (lambda (src)      ; Move variable to parent trace.
-                       (when (not (equal? dst src))
-                         (move moffs dst src))))
-                    (else               ; Load from frame.
-                     (load-frame moffs local type dst)))))
-               loop-locals (tlog-loop-vars tlog))
-
-              ;; Jump to beginning of loop in parent trace.
-              (jit-movi r0 (tlog-loop-address tlog))
-              (jit-jmpr r0)))
-           (else
-            (debug 2 ";;; assemble-exit: IP is 0, local info not found~%")))))
-
+        (jump-to-patched-code))
        ((= ip *ip-key-end-of-entry*)
-        (cond
-         ((hashq-ref snapshots (- current-side-exit 1))
-          =>
-          (lambda (local-x-types)
-            (set! loop-locals local-x-types)
-            (set! loop-vars (map env-ref args))))
-         (else
-          (debug 2 ";;; end-of-entry: no snapshot at ~a~%" current-side-exit))))
+        (save-loop-info))
+       (else                            ; IP is bytecode destination.
+        (emit-bailout ip)))))
 
-       (else
-        ;; Emit bailout code with snapshot, save it for later use.
-        (with-jit-state
-         (jit-prolog)
-         (jit-tramp (imm (* 4 %word-size)))
-         (cond
-          ((hashq-ref snapshots (- current-side-exit 1))
-           =>
-           (lambda (local-x-types)
-             (for-each
-              (lambda (local-x-type arg)
-                ;; XXX: Save frame of parent trace when compiling side trace.
-                (let ((local (car local-x-type))
-                      (type (cdr local-x-type)))
-                  (store-frame moffs local type (env-ref arg))))
-              local-x-types args)))
-          (else
-           (debug 2 ";;; assemble-exit: entry IP #x~x~%" (ref-value proc))))
-
-         ;; Caller places return address to address `fp + ra-offset', and
-         ;; expects `R0' to hold return value.
-         ;;
-         ;; Doing some bit-shift mangling to return bytecode IP and current
-         ;; side-exit number. High address part of bytecode IPs could be
-         ;; recovered from original bytecode IP. Formerly done with returning a
-         ;; pair, but it was increasing garbage collection time in nested loops.
-         (let* ((ip (ref-value proc))
-                (ip-shifted (shift-ip ip))
-                (retval (+ ip-shifted current-side-exit)))
-           (jit-movi r0 (imm retval)))
-         (jit-ldxi r1 fp ra-offset)
-         (jit-jmpr r1)
-         (jit-epilog)
-         (jit-realize)
-         (let* ((estimated-code-size (jit-code-size))
-                (code (make-bytevector estimated-code-size)))
-           (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
-           (jit-emit)
-           (make-bytevector-executable! code)
-
-           ;; XXX: Avoiding garbage collector to wipe out the contents of native
-           ;; code in bytevector.  Store somewhere, then replace the contents
-           ;; when the exit get hot.
-           ;;
-           ;; (native-code-guardian code)
-
-           (let ((verbosity (lightning-verbosity)))
-             (when (and verbosity (<= 3 verbosity))
-               (call-with-output-file
-                   (format #f "/tmp/bailout-~a.o" (ref-value proc))
-                 (lambda (port)
-                   (put-bytevector port code)
-                   (jit-print)))))
-
-           (let ((dest (bytevector->pointer code)))
-             (hashq-set! side-exit-codes current-side-exit code)
-             (trampoline-set! trampoline current-side-exit dest))
-           (hashq-set! side-exit-variables current-side-exit
-                       (map env-ref args))
-           (set! current-side-exit (+ current-side-exit 1))))))))
-
-  (define (assemble-exp exp dsts label)
+  (define (assemble-exp exp dsts)
     (match exp
       (($ $primcall name args)
-       (assemble-prim name dsts args label))
+       (assemble-prim name dsts args))
       (($ $call proc args)
        (assemble-exit proc args))
       (_
        ;; (debug 1 "      exp:~a~%" exp)
-       #f)))
+       (values))))
 
   (define (assemble-cont cps exp loop-label k)
-    (define (make-loop-label)
-      (begin
-        (debug 3 ";;; loop:~%")
-        (jit-note "loop" 0)
-        (jit-label)))
-    (define (done loop-label)
-      (values side-exit-variables side-exit-codes
+    (define (done)
+      (dump-exit-variables)
+      (values exit-variables exit-codes
               trampoline loop-label loop-locals loop-vars fp-offset))
 
     ;; (debug 1 "~4,,,'0@a ~a~%" k
@@ -1152,25 +1161,25 @@
        (assemble-cont cps exp loop-label knext))
 
       (($ $kargs _ syms ($ $continue knext _ next-exp))
-       (assemble-exp exp syms #f)
+       (assemble-exp exp syms)
        (cond
         ((< knext k)
          ;; Jump back to beginning of loop, return to caller.
          (maybe-move next-exp initial-args)
          (debug 3 ";;; -> loop~%")
          (jump loop-label)
-         (dump-side-exit-variables)
-         (done loop-label))
+         (done))
         ((= kstart k)
-         (let ((loop-label (make-loop-label)))
-           (assemble-cont cps next-exp loop-label knext)))
+         ;; Emit label to mark beginning of the loop.
+         (debug 3 ";;; loop:~%")
+         (jit-note "loop" 0)
+         (assemble-cont cps next-exp (jit-label) knext))
         (else
          (assemble-cont cps next-exp loop-label knext))))
 
       (($ $ktail)
-       (assemble-exp exp '() #f)
-       (dump-side-exit-variables)
-       (done loop-label))))
+       (assemble-exp exp '())
+       (done))))
 
   (assemble-cont cps '() #f 0))
 
@@ -1189,13 +1198,14 @@
        ((env initial-locals loop-args) (resolve-variables cps locals max-var)))
     (let* ((trampoline-size
             (hash-fold (lambda (k v acc) (+ acc 1)) 1 snapshots))
-           (trampoline (make-trampoline trampoline-size)))
+           (trampoline (make-trampoline trampoline-size))
+           (end-addr (and tlog (tlog-end-address tlog))))
       (cond
        ((not tlog)                      ; Root trace.
 
         ;; Allocate spaces for spilled variables, two words for arguments passed
-        ;; from C code: `vp->fp', and `registers', and one word for return address
-        ;; used by side exits.
+        ;; from C code: `vp->fp', and `registers', and one word for return
+        ;; address used by side exits.
         (let* ((nspills (max-moffs env))
                (fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size)))))
 
@@ -1229,7 +1239,7 @@
 
           ;; Assemble the loop.
           (assemble-cps cps env snapshots loop-args fp-offset tlog
-                        trampoline)))
+                        trampoline end-addr)))
 
        (else                            ; Side trace.
         (let* ((nspills (max-moffs env))
@@ -1257,23 +1267,38 @@
                    (store-frame moffs local type var))
                  (hashq-set! args local var)))
              (hashq-ref (tlog-snapshots tlog) (- exit-id 1))
-             (hashq-ref (tlog-side-exit-variables tlog) exit-id))
-            (for-each
-             (match-lambda
-              ((local . var)
-               (let ((dst (vector-ref env var)))
-                 (cond
-                  ((hashq-ref args local)
-                   =>
-                   (lambda (src)        ; Move variable from parent trace.
-                     (when (not (equal? dst src))
-                       (move moffs dst src))))
-                  (else                 ; Load from frame.
-                   (let* ((snapshot (hashq-ref snapshots 0))
-                          (type (assq-ref snapshot local)))
-                     (load-frame moffs local type dst)))))))
-             initial-locals))
+             (hashq-ref (tlog-exit-variables tlog) exit-id))
+
+            ;; Move variables from parent trace before loading from frame.
+            ;;
+            ;; Values stored in register passed from parent trace could be
+            ;; overwritten by values loaded from frame, since the pairing of
+            ;; locals and register could be different from how it was done in
+            ;; parent trace.
+            ;;
+            (let* ((snapshot (hashq-ref snapshots 0))
+                   (variables-to-load-from-frame
+                    (let lp ((locals initial-locals) (acc '()))
+                      (match locals
+                        (((local . var) . locals)
+                         (let ((dst (vector-ref env var)))
+                           (cond
+                            ((hashq-ref args local)
+                             =>
+                             (lambda (src)
+                               (move moffs dst src)
+                               (lp locals acc)))
+                            (else
+                             (let* ((type (assq-ref snapshot local))
+                                    (ltd (list local type dst)))
+                               (lp locals (cons ltd acc)))))))
+                        (() (reverse! acc))))))
+              (for-each
+               (match-lambda
+                ((local type dst)
+                 (load-frame moffs local type dst)))
+               variables-to-load-from-frame)))
 
           ;; Assemble the loop.
           (assemble-cps cps env snapshots loop-args fp-offset tlog
-                        trampoline)))))))
+                        trampoline end-addr)))))))

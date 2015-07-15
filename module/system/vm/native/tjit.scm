@@ -183,6 +183,16 @@
                (or (source-file source) "(unknown file)")
                (source-line-for-user source)))))
 
+  (define-syntax-rule (show-one-line sline tlog code-size)
+    (format #t ";;; trace ~a:~a ~a~a~%"
+            trace-id sline code-size
+            (if (< 0 parent-ip)
+                (format #f " (~a:~a)"
+                        (or (and tlog (tlog-id tlog))
+                            (format #f "~x" parent-ip))
+                        parent-exit-id)
+                "")))
+
   (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
         (verbosity (lightning-verbosity))
         (tlog (get-tlog parent-ip))
@@ -193,8 +203,7 @@
 
     (with-jit-state
      (jit-prolog)
-     (let-values (((locals snapshots scm cps)
-                   (trace->cps tlog ip-x-ops)))
+     (let-values (((locals snapshots scm cps) (trace->cps tlog ip-x-ops)))
        (cond
         ((not cps)
          (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
@@ -203,57 +212,56 @@
          #f)
         (else
          (let-values
-             (((side-exit-variables
-                side-exit-codes
+             (((exit-variables
+                exit-codes
                 trampoline
                 loop-label
                 loop-locals
                 loop-vars
                 fp-offset)
                (assemble-tjit cps locals snapshots tlog parent-exit-id)))
-           (jit-epilog)
-           (jit-realize)
-           (let* ((estimated-size (jit-code-size))
-                  (code (make-bytevector estimated-size)))
-             (jit-set-code (bytevector->pointer code) (imm estimated-size))
-             (jit-emit)
-             (make-bytevector-executable! code)
-             (let ((code-size (jit-code-size)))
-               (when (and verbosity (<= 1 verbosity))
-                 (format #t ";;; trace ~a:~a ~a~a~%"
-                         trace-id sline code-size
-                         (if (< 0 parent-ip)
-                             (format #f " (~a:~a)"
-                                     (or (and tlog (tlog-id tlog))
-                                         (format #f "~x" parent-ip))
-                                     parent-exit-id)
-                             ""))
-                 (show-dump ip-x-ops scm locals cps code code-size)))
-             (let ((ip (cadr (car ip-x-ops))))
-               (put-tlog! ip (make-tlog trace-id
-                                        code
-                                        (make-hash-table)
-                                        ip
-                                        snapshots
-                                        side-exit-variables
-                                        side-exit-codes
-                                        trampoline
-                                        (and loop-label
-                                             (jit-address loop-label))
-                                        loop-locals
-                                        loop-vars
-                                        fp-offset)))
+           (let ((epilog-address (jit-label)))
+             (jit-patch epilog-address)
+             (jit-epilog)
+             (jit-realize)
+             (let* ((estimated-size (jit-code-size))
+                    (code (make-bytevector estimated-size)))
+               (jit-set-code (bytevector->pointer code) (imm estimated-size))
+               (let* ((ptr (jit-emit))
+                      (ip (cadr (car ip-x-ops)))
+                      (exit-counts (make-hash-table))
+                      (loop-address (and loop-label (jit-address loop-label)))
+                      (end-address (or (and tlog (tlog-end-address tlog))
+                                       (jit-address epilog-address))))
+                 (make-bytevector-executable! code)
+                 (put-tlog! ip (make-tlog trace-id
+                                          code
+                                          exit-counts
+                                          ip
+                                          snapshots
+                                          exit-variables
+                                          exit-codes
+                                          trampoline
+                                          loop-address
+                                          loop-locals
+                                          loop-vars
+                                          fp-offset
+                                          end-address))
 
-             ;; When this trace is a side trace, replace the native code
-             ;; of trampoline in parent tlog.
-             (when tlog
-               (let ((trampoline (tlog-trampoline tlog))
-                     (ptr (bytevector->pointer code))
-                     (parent-side-exit-codes (tlog-side-exit-codes tlog)))
-                 (trampoline-set! trampoline parent-exit-id ptr)
-                 (hashq-set! parent-side-exit-codes parent-exit-id code)))
+                 (when (and verbosity (<= 1 verbosity))
+                   (let ((code-size (jit-code-size)))
+                     (show-one-line sline tlog code-size)
+                     (show-dump ip-x-ops scm locals cps code code-size)))
 
-             code))))))))
+                 ;; When this trace is a side trace, replace the native code
+                 ;; of trampoline in parent tlog.
+                 (when tlog
+                   (let ((trampoline (tlog-trampoline tlog))
+                         (parent-exit-codes (tlog-exit-codes tlog)))
+                     (trampoline-set! trampoline parent-exit-id ptr)
+                     (hashq-set! parent-exit-codes parent-exit-id code)))
+
+                 code))))))))))
 
 
 ;;;

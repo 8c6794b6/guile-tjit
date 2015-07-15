@@ -328,53 +328,53 @@
           (and (< idx (vector-length vars))
                (vector-ref vars (+ i local-offset)))))
 
-      (define (save-frame!)
-        (let ((end (vector-length vars)))
-          (let lp ((i 0))
-            (cond
-             ((= i end) '())
-             ((vector-ref vars i)
-              =>
-              (lambda (var)
-                (let* ((idx (- i local-offset))
-                       (local (and (< idx (vector-length locals))
-                                   (vector-ref locals idx))))
-                  (cond
-                   ((flonum? local)
-                    (cons `(let ((,var (%from-double ,var)))
-                             (%frame-set! ,i ,var))
-                          (lp (+ i 1))))
-                   ((fixnum? local)
-                    (cons `(let ((,var ,(from-fixnum var)))
-                             (%frame-set! ,i ,var))
-                          (lp (+ i 1))))
-                   (else
-                    (cons `(%frame-set! ,i ,var) (lp (+ i 1))))))))
-             (else
-              (lp (+ i 1)))))))
+      ;; (define (save-frame!)
+      ;;   (let ((end (vector-length vars)))
+      ;;     (let lp ((i 0))
+      ;;       (cond
+      ;;        ((= i end) '())
+      ;;        ((vector-ref vars i)
+      ;;         =>
+      ;;         (lambda (var)
+      ;;           (let* ((idx (- i local-offset))
+      ;;                  (local (and (< idx (vector-length locals))
+      ;;                              (vector-ref locals idx))))
+      ;;             (cond
+      ;;              ((flonum? local)
+      ;;               (cons `(let ((,var (%from-double ,var)))
+      ;;                        (%frame-set! ,i ,var))
+      ;;                     (lp (+ i 1))))
+      ;;              ((fixnum? local)
+      ;;               (cons `(let ((,var ,(from-fixnum var)))
+      ;;                        (%frame-set! ,i ,var))
+      ;;                     (lp (+ i 1))))
+      ;;              (else
+      ;;               (cons `(%frame-set! ,i ,var) (lp (+ i 1))))))))
+      ;;        (else
+      ;;         (lp (+ i 1)))))))
 
-      (define (load-frame exp)
-        (let ((end (vector-length vars)))
-          (let lp ((i 0))
-            (cond
-             ((= i end)
-              exp)
-             ((vector-ref vars i)
-              =>
-              (lambda (var)
-                (let* ((idx (+ i local-offset))
-                       (local (and (< idx (vector-length locals))
-                                   (vector-ref locals idx))))
-                  (cond
-                   ((fixnum? local)
-                    `(let ((,var (%frame-ref ,i)))
-                       (let ((,var ,(to-fixnum var)))
-                         ,(lp (+ i 1)))))
-                   (else
-                    `(let ((,var (%frame-ref ,i)))
-                       ,(lp (+ i 1))))))))
-             (else
-              (lp (+ i 1)))))))
+      ;; (define (load-frame exp)
+      ;;   (let ((end (vector-length vars)))
+      ;;     (let lp ((i 0))
+      ;;       (cond
+      ;;        ((= i end)
+      ;;         exp)
+      ;;        ((vector-ref vars i)
+      ;;         =>
+      ;;         (lambda (var)
+      ;;           (let* ((idx (+ i local-offset))
+      ;;                  (local (and (< idx (vector-length locals))
+      ;;                              (vector-ref locals idx))))
+      ;;             (cond
+      ;;              ((fixnum? local)
+      ;;               `(let ((,var (%frame-ref ,i)))
+      ;;                  (let ((,var ,(to-fixnum var)))
+      ;;                    ,(lp (+ i 1)))))
+      ;;              (else
+      ;;               `(let ((,var (%frame-ref ,i)))
+      ;;                  ,(lp (+ i 1))))))))
+      ;;        (else
+      ;;         (lp (+ i 1)))))))
 
       (define (take-snapshot! ip offset)
         (let ((end (vector-length vars)))
@@ -844,8 +844,8 @@
 
         ;; *** Misc
 
-        (('patch-to-native)
-         (take-snapshot! *ip-key-end-of-side-trace* 0))
+        (('take-snapshot! ip offset)
+         (take-snapshot! ip offset))
 
         (op
          (debug 2 "*** ir:convert: NYI ~a~%" (car op))
@@ -859,10 +859,29 @@
            (convert-one escape op ip locals
                         `(loop ,@(filter identity (vector->list vars)))))
           (else
-           (convert-one escape '(patch-to-native) ip locals '()))))
+           (let* ((snap! `(take-snapshot! ,*ip-key-end-of-side-trace* 0))
+                  (last-op `((,snap! ,ip #f ,locals))))
+             (convert-one escape op ip locals last-op)))))
         (((op ip _ locals) . rest)
          (convert-one escape op ip locals rest))
         (_ traces)))
+
+    (define (enter-convert escape traces)
+      (cond
+       ((not tlog)
+        (convert escape traces))
+       ((not (null? traces))
+        (match (car traces)
+          ((op ip _ locals)
+           `(begin
+              ,(convert-one escape `(take-snapshot! ,ip 0) ip locals '())
+              ,(convert escape traces)))
+          (_
+           (debug 2 "*** ir.scm: malformed traces")
+           (escape #f))))
+       (else
+        (debug 2 "*** ir.scm: empty trace")
+        (escape #f))))
 
     (define (make-scm exp-body)
       (cond
@@ -883,7 +902,7 @@
 
     (let ((scm (make-scm (call-with-escape-continuation
                           (lambda (escape)
-                            (convert escape ops))))))
+                            (enter-convert escape ops))))))
       (debug 2 ";;; snapshot:~%~{;;;   ~a~%~}" (hash-fold acons '() snapshots))
       (values locals snapshots scm))))
 
