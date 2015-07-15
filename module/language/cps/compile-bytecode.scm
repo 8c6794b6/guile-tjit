@@ -517,7 +517,9 @@
   ;;
   ;; (set! exp (optimize exp opts))
 
-  (set! exp (convert-closures exp))
+  (set! exp (if (not (kw-arg-ref opts #:cps2-convert? #f))
+                (convert-closures exp)
+                exp))
   ;; first-order optimization should go here
   (set! exp (reify-primitives exp))
   (set! exp (renumber exp))

@@ -27,6 +27,7 @@
   #:use-module (language cps2)
   #:use-module ((language cps) #:prefix cps:)
   #:use-module (language cps2 utils)
+  #:use-module (language cps2 closure-conversion)
   #:use-module (language cps2 optimize)
   #:use-module (language cps2 renumber)
   #:use-module (language cps intmap)
@@ -34,7 +35,7 @@
 
 ;; Precondition: For each function in CONTS, the continuation names are
 ;; topologically sorted.
-(define (conts->fun conts)
+(define* (conts->fun conts #:optional (kfun 0))
   (define (convert-fun kfun)
     (let ((doms (compute-dom-edges (compute-idoms conts kfun))))
       (define (visit-cont label)
@@ -97,8 +98,26 @@
         (($ $kfun src meta self tail clause)
          (kfun (cps:$kfun src meta self (tail (cps:$ktail))
                  ,(visit-clause clause)))))))
-  (convert-fun 0))
+  (convert-fun kfun))
+
+(define (conts->fun* conts)
+  (cps:build-cps-term
+   (cps:$program
+    ,(intmap-fold-right (lambda (label cont out)
+                          (match cont
+                            (($ $kfun)
+                             (cons (conts->fun conts label) out))
+                            (_ out)))
+                        conts
+                        '()))))
+
+(define (kw-arg-ref args kw default)
+  (match (memq kw args)
+    ((_ val . _) val)
+    (_ default)))
 
 (define (compile-cps exp env opts)
-  (let ((exp (renumber (optimize-higher-order-cps exp opts))))
-    (values (conts->fun exp) env env)))
+  (let ((exp (optimize-higher-order-cps exp opts)))
+    (if (kw-arg-ref opts #:cps2-convert? #f)
+        (values (conts->fun* (renumber (convert-closures exp))) env env)
+        (values (conts->fun (renumber exp)) env env))))
