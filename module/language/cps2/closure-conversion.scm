@@ -261,16 +261,16 @@ shared closures to use the appropriate 'self' variable, if possible."
                  ($prompt escape? (subst tag) handler))))))))
 
     (define (visit-exp label cps names vars k src exp)
-      (define (compute-env label bound self rec-bound env)
-        (define (add-bound-var bound env)
+      (define (compute-env label bound self rec-bound rec-labels env)
+        (define (add-bound-var bound label env)
           (intmap-add env bound (cons self label) (lambda (old new) new)))
         (if (intmap-ref shared label (lambda (_) #f))
             ;; Within a function with a shared closure, rewrite
             ;; references to bound vars to use the "self" var.
-            (fold add-bound-var env rec-bound)
+            (fold add-bound-var env rec-bound rec-labels)
             ;; Otherwise be sure to use "self" references in any
             ;; closure.
-            (add-bound-var bound env)))
+            (add-bound-var bound label env)))
       (match exp
         (($ $fun label)
          (rewrite-fun label cps env))
@@ -279,7 +279,8 @@ shared closures to use the appropriate 'self' variable, if possible."
                  (match (intmap-ref cps label)
                    (($ $kfun src meta self)
                     (rewrite-fun label cps
-                                 (compute-env label var self vars env)))))
+                                 (compute-env label var self vars labels
+                                              env)))))
                cps labels vars))
         (_ (rename-exp label cps names vars k src exp))))
     
@@ -395,11 +396,18 @@ references."
 (define (eliminate-closure? label free-vars)
   (eq? (intmap-ref free-vars label) empty-intset))
 
+(define (closure-label label shared bound->label)
+  (cond
+   ((intmap-ref shared label (lambda (_) #f))
+    => (lambda (closure)
+         (intmap-ref bound->label closure)))
+   (else label)))
+
 (define (closure-alias label well-known free-vars)
   (and (intset-ref well-known label)
        (trivial-intset (intmap-ref free-vars label))))
 
-(define (prune-free-vars free-vars bound->label well-known)
+(define (prune-free-vars free-vars bound->label well-known shared)
   "Given the label->bound-var map @var{free-vars}, remove free variables
 that are known functions with zero free variables, and replace
 references to well-known functions with one free variable with that free
@@ -412,7 +420,8 @@ variable, until we reach a fixed point on the free-vars map."
                       (cond
                        ((eliminate-closure? label free-vars)
                         (intset-remove free var))
-                       ((closure-alias label well-known free-vars)
+                       ((closure-alias (closure-label label shared bound->label)
+                                       well-known free-vars)
                         => (lambda (alias)
                              ;; If VAR is free in LABEL, then ALIAS must
                              ;; also be free because its definition must
@@ -455,7 +464,7 @@ variable, until we reach a fixed point on the free-vars map."
 
   (let* ((free (intmap-ref free-vars label))
          (nfree (intset-count free))
-         (self-known? (well-known? label))
+         (self-known? (well-known? (closure-label label shared bound->label)))
          (self (match (intmap-ref cps label) (($ $kfun _ _ self) self))))
     (define (convert-arg cps var k)
       "Convert one possibly free variable reference to a bound reference.
@@ -642,7 +651,7 @@ bound to @var{var}, and continue to @var{k}."
         (with-cps cps
           ($ (with-cps-constants ((false #f))
                ($ (have-closure false))))))
-       ((and (well-known? label)
+       ((and (well-known? (closure-label label shared bound->label))
              (trivial-intset (intmap-ref free-vars label)))
         ;; Well-known closures with one free variable are
         ;; replaced at their use sites by uses of the one free
@@ -810,7 +819,7 @@ and allocate and initialize flat closures."
                                             kfun))
          ;; label -> free-var...
          (free-vars (compute-free-vars cps kfun shared))
-         (free-vars (prune-free-vars free-vars bound->label well-known)))
+         (free-vars (prune-free-vars free-vars bound->label well-known shared)))
     (let ((free-in-program (intmap-ref free-vars kfun)))
       (unless (eq? empty-intset free-in-program)
         (error "Expected no free vars in program" free-in-program)))
