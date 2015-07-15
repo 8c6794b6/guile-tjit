@@ -401,7 +401,7 @@ references."
 
 (define (prune-free-vars free-vars bound->label well-known)
   "Given the label->bound-var map @var{free-vars}, remove free variables
-that are well-known functions with zero free variables, and replace
+that are known functions with zero free variables, and replace
 references to well-known functions with one free variable with that free
 variable, until we reach a fixed point on the free-vars map."
   (define (prune-free in-label free free-vars)
