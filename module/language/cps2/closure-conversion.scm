@@ -201,7 +201,6 @@ the bound vars of the closure."
            ((eq? empty-intset unknown-kfuns)
             ;; All functions are well-known; we can share a closure.  Use
             ;; the first bound variable.
-            (pk 'all-well-known kfuns)
             (let ((closure (car vars)))
               (intset-fold (lambda (kfun out)
                              (intmap-add out kfun closure))
@@ -211,7 +210,6 @@ the bound vars of the closure."
                  ;; Only one function is not-well-known.  Use that
                  ;; function's closure as the shared closure.
                  (let ((closure (assq-ref (map cons kfuns vars) unknown-kfun)))
-                   (pk 'one-not-well-known kfuns closure)
                    (intset-fold (lambda (kfun out)
                                   (intmap-add out kfun closure))
                                 kfuns-set out))))
@@ -789,7 +787,6 @@ bound to @var{var}, and continue to @var{k}."
                  ($continue k src
                    ($prompt escape? tag handler)))))))))
 
-    (pk 'convert-one label body free self-known?)
     (intset-fold (lambda (label cps)
                    (match (intmap-ref cps label (lambda (_) #f))
                      (($ $kargs names vars term)

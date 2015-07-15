@@ -517,7 +517,7 @@
   ;;
   ;; (set! exp (optimize exp opts))
 
-  (set! exp (if (not (kw-arg-ref opts #:cps2-convert? #f))
+  (set! exp (if (not (kw-arg-ref opts #:cps2-convert? #t))
                 (convert-closures exp)
                 exp))
   ;; first-order optimization should go here

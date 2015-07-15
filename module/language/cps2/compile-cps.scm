@@ -118,6 +118,6 @@
 
 (define (compile-cps exp env opts)
   (let ((exp (optimize-higher-order-cps exp opts)))
-    (if (kw-arg-ref opts #:cps2-convert? #f)
+    (if (kw-arg-ref opts #:cps2-convert? #t)
         (values (conts->fun* (renumber (convert-closures exp))) env env)
         (values (conts->fun (renumber exp)) env env))))
