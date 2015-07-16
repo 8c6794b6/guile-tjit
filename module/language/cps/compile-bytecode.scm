@@ -29,7 +29,6 @@
   #:use-module (language cps)
   #:use-module (language cps dfg)
   #:use-module (language cps primitives)
-  #:use-module (language cps reify-primitives)
   #:use-module (language cps renumber)
   #:use-module (language cps slot-allocation)
   #:use-module (system vm assembler)
@@ -443,7 +442,7 @@
        (compile-entry)))))
 
 (define (compile-bytecode exp env opts)
-  (let* ((exp (renumber (reify-primitives exp)))
+  (let* ((exp (renumber exp))
          (asm (make-assembler)))
     (match exp
       (($ $program funs)

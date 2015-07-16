@@ -126,7 +126,6 @@ CPS_LANG_SOURCES =						\
   language/cps/compile-bytecode.scm				\
   language/cps/dfg.scm						\
   language/cps/primitives.scm					\
-  language/cps/reify-primitives.scm				\
   language/cps/renumber.scm					\
   language/cps/slot-allocation.scm				\
   language/cps/spec.scm						\
@@ -144,6 +143,7 @@ CPS2_LANG_SOURCES =						\
   language/cps2/elide-values.scm				\
   language/cps2/prune-bailouts.scm				\
   language/cps2/prune-top-level-scopes.scm			\
+  language/cps2/reify-primitives.scm				\
   language/cps2/renumber.scm					\
   language/cps2/optimize.scm					\
   language/cps2/simplify.scm					\
