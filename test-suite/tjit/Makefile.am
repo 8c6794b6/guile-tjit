@@ -26,22 +26,16 @@ TESTS_ENVIRONMENT = \
 	-l $(srcdir)/run-tjit-tests.scm -e main
 
 TESTS = \
-	t-micro-mono.scm \
-	t-micro-di.scm \
-	t-micro-tri.scm \
-	t-micro-tetra.scm \
-	t-micro-penta.scm \
-	t-micro-hexa.scm \
-	t-micro-hepta.scm \
-	t-micro-octa.scm \
-	t-micro-nona.scm \
-	t-micro-deca.scm \
-	t-sum-tailcall.scm \
-	t-ssa.scm \
-	t-micro-flonum-01.scm \
-	t-micro-flonum-02.scm \
-	t-micro-flonum-03.scm \
-	t-micro-twice.scm \
+	t-args-01.scm \
+	t-args-02.scm \
+	t-args-03.scm \
+	t-args-04.scm \
+	t-args-05.scm \
+	t-args-06.scm \
+	t-args-07.scm \
+	t-args-08.scm \
+	t-args-09.scm \
+	t-args-10.scm \
 	t-assign-01.scm \
 	t-box-01.scm \
 	t-box-02.scm \
@@ -49,6 +43,10 @@ TESTS = \
 	t-call-02.scm \
 	t-call-03.scm \
 	t-escape-01.scm \
+	t-flonum-01.scm \
+	t-flonum-02.scm \
+	t-flonum-03.scm \
+	t-guard-01.scm \
 	t-nest-01.scm \
 	t-nest-02.scm \
 	t-nest-03.scm \
@@ -56,7 +54,9 @@ TESTS = \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \
-	t-toplevel-box-01.scm
+	t-tailcall-01.scm \
+	t-toplevel-box-01.scm \
+	t-twice-01.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
 
