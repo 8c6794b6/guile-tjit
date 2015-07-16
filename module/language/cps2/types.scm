@@ -833,16 +833,17 @@ minimum, and maximum."
 (define-simple-type-checker (mul &number &number))
 (define-type-inferrer (mul a b result)
   (let ((min-a (&min a)) (max-a (&max a))
-        (min-b (&min b)) (max-b (&max b)))
+        (min-b (&min b)) (max-b (&max b))
+        ;; We only really get +inf.0 at runtime for flonums and
+        ;; compnums.  If we have inferred that the arguments are not
+        ;; flonums and not compnums, then the result of (* +inf.0 0) at
+        ;; range inference time is 0 and not +nan.0.
+        (nan-impossible? (not (logtest (logior (&type a) (&type b))
+                                       (logior &flonum &complex)))))
     (define (nan* a b)
-      ;; We only really get +inf.0 at runtime for flonums and compnums.
-      ;; If we have inferred that the arguments are not flonums and not
-      ;; compnums, then the result of (* +inf.0 0) at range inference
-      ;; time is 0 and not +nan.0.
       (if (and (or (and (inf? a) (zero? b))
                    (and (zero? a) (inf? b)))
-               (not (logtest (logior (&type a) (&type b))
-                             (logior &flonum &complex))))
+               nan-impossible?)
           0 
           (* a b)))
     (let ((-- (nan* min-a min-b))
