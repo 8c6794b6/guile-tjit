@@ -182,56 +182,24 @@ definitions that are available at LABEL."
      (compute-available-definitions conts kfun)
      first-order)))
 
-(define (reachable-functions conts kfun)
-  (worklist-fold*
-   (lambda (kfun kfuns)
-     ;(pk 'verify kfun kfuns)
-     (let ((kfuns (intset-add kfuns kfun)))
-       (values (intset-fold
-                (lambda (label nested)
-                  (define (return kfun*)
-                    ;(pk 'return label kfuns kfun* nested)
-                    (append (filter (lambda (kfun)
-                                      (not (intset-ref kfuns kfun)))
-                                    kfun*)
-                            nested))
-                  (define (return1 kfun) (return (list kfun)))
-                  (define (return0) (return '()))
-                  (match (intmap-ref conts label)
-                    (($ $kargs _ _ ($ $continue _ _ exp))
-                     (match exp
-                       (($ $fun label) (return1 label))
-                       (($ $rec _ _ (($ $fun labels) ...)) (return labels))
-                       (($ $closure label nfree) (return1 label))
-                       (($ $callk label) (return1 label))
-                       (_ (return0))))
-                    (_ (return0))))
-                (compute-function-body conts kfun)
-                '())
-               kfuns)))
-   (intset kfun)
-   empty-intset))
-
 (define (check-label-partition conts kfun)
   ;; A continuation can only belong to one function.
-  (intset-fold
-   (lambda (kfun seen)
+  (intmap-fold
+   (lambda (kfun body seen)
      (intset-fold
       (lambda (label seen)
         (intmap-add seen label kfun
                     (lambda (old new)
                       (error "label used by two functions" label old new))))
-      (compute-function-body conts kfun)
+      body
       seen))
-   (reachable-functions conts kfun)
+   (compute-reachable-functions conts kfun)
    empty-intmap))
 
 (define (compute-reachable-labels conts kfun)
-  (intset-fold
-   (lambda (kfun seen)
-     (intset-union seen (compute-function-body conts kfun)))
-   (reachable-functions conts kfun)
-   empty-intset))
+  (intmap-fold (lambda (kfun body seen) (intset-union seen body))
+               (compute-reachable-functions conts kfun)
+               empty-intset))
 
 (define (check-arities conts kfun)
   (define (check-arity exp cont)

@@ -48,6 +48,7 @@
             ;; Flow analysis.
             compute-constant-values
             compute-function-body
+            compute-reachable-functions
             compute-successors
             invert-graph
             compute-predecessors
@@ -230,6 +231,44 @@ disjoint, an error will be signalled."
                             (($ $prompt escape? tag k)
                              (visit-cont k labels))
                             (_ labels)))))))))))
+
+(define (compute-reachable-functions conts kfun)
+  "Compute a mapping LABEL->LABEL..., where each key is a reachable
+$kfun and each associated value is the body of the function, as an
+intset."
+  (define (intset-cons i set) (intset-add set i))
+  (define (visit-fun kfun body to-visit)
+    (intset-fold
+     (lambda (label to-visit)
+       (define (return kfun*) (fold intset-cons to-visit kfun*))
+       (define (return1 kfun) (intset-add to-visit kfun))
+       (define (return0) to-visit)
+       (match (intmap-ref conts label)
+         (($ $kargs _ _ ($ $continue _ _ exp))
+          (match exp
+            (($ $fun label) (return1 label))
+            (($ $rec _ _ (($ $fun labels) ...)) (return labels))
+            (($ $closure label nfree) (return1 label))
+            (($ $callk label) (return1 label))
+            (_ (return0))))
+         (_ (return0))))
+     body
+     to-visit))
+  (let lp ((to-visit (intset kfun)) (visited empty-intmap))
+    (let ((to-visit (intset-subtract to-visit (intmap-keys visited))))
+      (if (eq? to-visit empty-intset)
+          visited
+          (call-with-values
+              (lambda ()
+                (intset-fold
+                 (lambda (kfun to-visit visited)
+                   (let ((body (compute-function-body conts kfun)))
+                     (values (visit-fun kfun body to-visit)
+                             (intmap-add visited kfun body))))
+                 to-visit
+                 empty-intset
+                 visited))
+            lp)))))
 
 (define (compute-successors conts kfun)
   (define (visit label succs)

@@ -74,7 +74,7 @@
     (match cont
       (($ $kargs _ _ ($ $continue _ _ exp))
        (match exp
-         ((or ($ $const) ($ $prim) ($ $fun) ($ $rec))
+         ((or ($ $const) ($ $prim) ($ $fun) ($ $rec) ($ $closure))
           (values single multiple))
          (($ $call proc args)
           (ref* (cons proc args)))
@@ -118,30 +118,24 @@
         (() #t)
         ((var . vars)
          (and (intset-ref singly-used var) (singly-used? vars)))))
-    (define (visit-fun kfun nested-funs eta)
-      (let ((body (compute-function-body conts kfun)))
-        (define (visit-cont label nested-funs eta)
-          (match (intmap-ref conts label)
-            (($ $kargs names vars ($ $continue k src ($ $values vars)))
-             (values nested-funs
-                     (intset-maybe-add! eta label
-                                        (match (intmap-ref conts k)
-                                          (($ $kargs)
-                                           (and (not (eqv? label k)) ; A
-                                                (not (intset-ref eta label)) ; B
-                                                (singly-used? vars)))
-                                          (_ #f)))))
-            (($ $kargs _ _ ($ $continue _ _ ($ $fun kfun)))
-             (values (intset-add! nested-funs kfun) eta))
-            (($ $kargs _ _ ($ $continue _ _ ($ $rec _ _ (($ $fun kfun) ...))))
-             (values (intset-add*! nested-funs kfun) eta))
-            (_
-             (values nested-funs eta))))
-        (intset-fold visit-cont body nested-funs eta)))
-    (define (visit-funs worklist eta)
-      (intset-fold visit-fun worklist empty-intset eta))
+    (define (visit-fun kfun body eta)
+      (define (visit-cont label eta)
+        (match (intmap-ref conts label)
+          (($ $kargs names vars ($ $continue k src ($ $values vars)))
+           (intset-maybe-add! eta label
+                              (match (intmap-ref conts k)
+                                (($ $kargs)
+                                 (and (not (eqv? label k)) ; A
+                                      (not (intset-ref eta label)) ; B
+                                      (singly-used? vars)))
+                                (_ #f))))
+          (_
+           eta)))
+      (intset-fold visit-cont body eta))
     (persistent-intset
-     (worklist-fold visit-funs (intset-add empty-intset kfun) empty-intset))))
+     (intmap-fold visit-fun
+                  (compute-reachable-functions conts kfun)
+                  empty-intset))))
 
 (define (eta-reduce conts kfun)
   (let ((label-set (compute-eta-reductions conts kfun)))
@@ -197,32 +191,26 @@
                      (persistent-intset multiple))))
 
 (define (compute-beta-reductions conts kfun)
-  (define (visit-fun kfun nested-funs beta)
-    (let* ((body (compute-function-body conts kfun))
-           (single (compute-singly-referenced-labels conts body)))
-      (define (visit-cont label nested-funs beta)
+  (define (visit-fun kfun body beta)
+    (let ((single (compute-singly-referenced-labels conts body)))
+      (define (visit-cont label beta)
         (match (intmap-ref conts label)
           ;; A continuation's body can be inlined in place of a $values
           ;; expression if the continuation is a $kargs.  It should only
           ;; be inlined if it is used only once, and not recursively.
           (($ $kargs _ _ ($ $continue k src ($ $values)))
-           (values nested-funs
-                   (intset-maybe-add! beta label
-                                      (and (intset-ref single k)
-                                           (match (intmap-ref conts k)
-                                             (($ $kargs) #t)
-                                             (_ #f))))))
-          (($ $kargs _ _ ($ $continue _ _ ($ $fun kfun)))
-           (values (intset-add nested-funs kfun) beta))
-          (($ $kargs _ _ ($ $continue _ _ ($ $rec _ _ (($ $fun kfun) ...))))
-           (values (intset-add* nested-funs kfun) beta))
+           (intset-maybe-add! beta label
+                              (and (intset-ref single k)
+                                   (match (intmap-ref conts k)
+                                     (($ $kargs) #t)
+                                     (_ #f)))))
           (_
-           (values nested-funs beta))))
-      (intset-fold visit-cont body nested-funs beta)))
-  (define (visit-funs worklist beta)
-    (intset-fold visit-fun worklist empty-intset beta))
+           beta)))
+      (intset-fold visit-cont body beta)))
   (persistent-intset
-   (worklist-fold visit-funs (intset-add empty-intset kfun) empty-intset)))
+   (intmap-fold visit-fun
+                (compute-reachable-functions conts kfun)
+                empty-intset)))
 
 (define (compute-beta-var-substitutions conts label-set)
   (define (add-var-substs label var-map)
