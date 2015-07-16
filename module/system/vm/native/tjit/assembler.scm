@@ -216,7 +216,7 @@
   (imm (* (ref-value i) %word-size)))
 
 (define-syntax-rule (goto-exit asm)
-  ;; Save return address, then jump to address of CODE.
+  ;; Save return address, then jump to address of asm-code of ASM.
   ;;
   ;; Expecting that CODE will jump back to return address, or patched to parent
   ;; trace already. When returned to patched address, exit from native code with
@@ -1013,8 +1013,10 @@
                   (debug 3 ";;; (%mov         ~a ~a)~%" dst src)
                   (move moffs dst src)))))
           old-args new-args)))
+      (($ $primcall name args)
+       (assemble-prim name initial-args args))
       (_
-       (debug "*** maybe-move: ~a ~a~%" exp old-args))))
+       (debug 2 "*** maybe-move: ~a ~a~%" exp old-args))))
 
   (define (assemble-prim name dsts args)
     (cond

@@ -23,7 +23,7 @@
 ;;; Compile traced bytecode to CPS intermediate representation via Scheme in
 ;;; (almost) ANF.
 ;;;
-;;; One of the reasons to convert bytecode to CPS is to do floating point
+;;; One of the main reasons to convert bytecode to CPS is to do floating point
 ;;; arithmetic efficiently. VM bytecodes uses integer index to refer locals.
 ;;; Those locals does not distinguish floating point values from other. In CPS
 ;;; format, since every variables are named, it is possible to perform floating
@@ -40,6 +40,7 @@
   #:use-module (language cps intmap)
   #:use-module (language cps intset)
   #:use-module (language cps2)
+  #:use-module (language cps2 closure-conversion)
   #:use-module (language cps2 optimize)
   #:use-module (language cps2 renumber)
   #:use-module (language cps2 types)
@@ -222,6 +223,7 @@
 
 (define (trace->scm tlog ops)
   (define br-op-size 2)
+  (define root-trace? (not tlog))
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
 
@@ -860,10 +862,10 @@
       (match traces
         (((op ip _ locals) . ())
          (cond
-          ((not tlog)
+          (root-trace?
            (convert-one escape op ip locals
                         `(loop ,@(filter identity (vector->list vars)))))
-          (else
+          (else                         ; side trace.
            (let* ((snap! `(take-snapshot! ,*ip-key-end-of-side-trace* 0))
                   (last-op `((,snap! ,ip #f ,locals))))
              (convert-one escape op ip locals last-op)))))
@@ -873,9 +875,9 @@
 
     (define (enter-convert escape traces)
       (cond
-       ((not tlog)
+       (root-trace?
         (convert escape traces))
-       ((not (null? traces))
+       ((not (null? traces))            ; side trace.
         (match (car traces)
           ((op ip _ locals)
            `(begin
@@ -893,17 +895,17 @@
        ((not exp-body)
         (debug 2 ";;; Bytecode to Scheme conversion failed.~%")
         #f)
-       (tlog                            ; Side trace.
-        `(letrec ((patch (lambda ,args ,exp-body)))
-           patch))
-       (else                            ; Root trace.
+       (root-trace?
         (let ((entry-body (make-entry (initial-ip ops) vars types
                                       `(begin
                                          (,*ip-key-end-of-entry* ,@args)
                                          (loop ,@args)))))
           `(letrec ((entry (lambda ,args ,entry-body))
                     (loop (lambda ,args ,exp-body)))
-             entry)))))
+             entry)))
+       (else                            ; side trace.
+        `(letrec ((patch (lambda ,args ,exp-body)))
+           patch))))
 
     (let ((scm (make-scm (call-with-escape-continuation
                           (lambda (escape)
@@ -932,7 +934,10 @@
          (error "body-fun: got ~a" (intmap-ref cps k)))))
     (call-with-values
         (lambda ()
-          (set! cps (optimize cps ignored-passes))
+          (set! cps (optimize-higher-order-cps cps ignored-passes))
+          (set! cps (convert-closures cps))
+          (set! cps (optimize-first-order-cps cps))
+          (set! cps (renumber cps))
           (go cps 0))
       (lambda (k cps)
         (set! cps (renumber cps k))
