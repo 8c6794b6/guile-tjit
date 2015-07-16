@@ -84,6 +84,9 @@
     (jit-calli %scm-from-double)
     (jit-retval dst)))
 
+(define %scm-do-inline-double-cell
+  (dynamic-pointer "scm_do_inline_double_cell" (dynamic-link)))
+
 
 ;;; Predicates
 
@@ -212,6 +215,30 @@
 (define-syntax-rule (constant-word i)
   (imm (* (ref-value i) %word-size)))
 
+(define-syntax-rule (goto-exit asm)
+  ;; Save return address, then jump to address of CODE.
+  ;;
+  ;; Expecting that CODE will jump back to return address, or patched to parent
+  ;; trace already. When returned to patched address, exit from native code with
+  ;; returning the contents of register R0.
+  ;;
+  ;; Side trace reuses RSP shifting from parent trace. Native code of side trace
+  ;; does not reset stack pointer, because side traces use `jit-tramp'.
+  ;;
+  (let ((addr (jit-movi r1 (imm 0))))
+    (jit-stxi ra-offset fp r1)
+    (jumpi (asm-out-code asm))
+    (jit-patch addr)
+    (cond
+     ((asm-end-address asm)
+      =>
+      (lambda (address)
+        (debug 2 ";;; side-exit: jumping to ~a~%" address)
+        (jumpi address)))
+     (else
+      (debug 2 ";;; side-exit: returning R0~%")
+      (jit-retr r0)))))
+
 
 ;;;
 ;;; Primitives
@@ -256,32 +283,7 @@
                (jit-note (format #f "~a" `(name ,arg ...)) 0))
              (debug 3 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
            <body>))
-
        (hashq-set! *native-prim-procedures* 'name name)))))
-
-(define-syntax-rule (goto-exit asm)
-  ;; Save return address, then jump to address of CODE.
-  ;;
-  ;; Expecting that CODE will jump back to return address, or patched to parent
-  ;; trace already. When returned to patched address, exit from native code with
-  ;; returning the contents of register R0.
-  ;;
-  ;; Side trace reuses RSP shifting from parent trace. Native code of side trace
-  ;; does not reset stack pointer, because it uses `jit-tramp'.
-  ;;
-  (let ((addr (jit-movi r1 (imm 0))))
-    (jit-stxi ra-offset fp r1)
-    (jumpi (asm-out-code asm))
-    (jit-patch addr)
-    (cond
-     ((asm-end-address asm)
-      =>
-      (lambda (address)
-        (debug 2 ";;; side-exit: jumping to ~a~%" address)
-        (jumpi address)))
-     (else
-      (debug 2 ";;; side-exit: returning R0~%")
-      (jit-retr r0)))))
 
 (define (initialize-tjit-primitives)
   (for-each
@@ -961,8 +963,8 @@
    (else
     (error "Unknown local, type, src" local type src))))
 
-(define (assemble-cps cps env snapshots initial-args fp-offset tlog trampoline
-                      end-address)
+(define (assemble-cps cps env entry-ip snapshots initial-args fp-offset tlog
+                      trampoline end-address linked-ip)
   (define (env-ref i)
     (vector-ref env i))
 
@@ -970,14 +972,23 @@
     (make-offset-pointer fp-offset (* (ref-value x) %word-size)))
 
   (define kstart (loop-start cps))
+
   (define exit-codes (make-hash-table))
+
   (define exit-variables (make-hash-table))
+
   (define current-side-exit 0)
+
+  (define loop-locals #f)
+
+  (define loop-vars #f)
+
   (define (dump-exit-variables)
     (debug 2 ";;; exit-variables:~%")
     (hash-for-each (lambda (k v)
                      (debug 2 "~a => ~a~%" k v))
                    exit-variables))
+
   (define (dump-bailout ip current-side-exit code)
     (let ((verbosity (lightning-verbosity)))
       (when (and verbosity (<= 3 verbosity))
@@ -987,8 +998,6 @@
           (lambda (port)
             (put-bytevector port code)
             (jit-print))))))
-  (define loop-locals #f)
-  (define loop-vars #f)
 
   (define (maybe-move exp old-args)
     (match exp
@@ -1019,62 +1028,10 @@
       (error "Unhandled primcall" name))))
 
   (define (assemble-exit proc args)
-    (define (shift-ip ip)
-      (cond
-       ((= %word-size 4)
-        (logand (ash ip 16) #xffffffff))
-       ((= %word-size 8)
-        (logand (ash ip 32) #xffffffffffffffff))
-       (else
-        (error "assemble-exit: unknown architecture"))))
-
-    (define (emit-bailout ip)
-      (with-jit-state
-       (jit-prolog)
-       (jit-tramp (imm (* 4 %word-size)))
-       (cond
-        ((hashq-ref snapshots (- current-side-exit 1))
-         =>
-         (lambda (local-x-types)
-           (for-each
-            (lambda (local-x-type arg)
-              ;; XXX: Save frame of parent trace when compiling side trace?
-              (let ((local (car local-x-type))
-                    (type (cdr local-x-type)))
-                (store-frame moffs local type (env-ref arg))))
-            local-x-types args)))
-        (else
-         (debug 2 ";;; assemble-exit: entry IP #x~x~%" ip)))
-
-       ;; Caller places return address to address `fp + ra-offset', and
-       ;; expects `R0' to hold return value.
-       ;;
-       ;; Doing some bit-shifts to return bytecode IP and current side-exit
-       ;; number. High address part of bytecode IPs could be recovered from
-       ;; original bytecode IP. Formerly done with returning a pair, but was
-       ;; increasing garbage collection time in nested loops.
-       ;;
-       (let* ((ip-shifted (shift-ip ip))
-              (retval (+ ip-shifted current-side-exit)))
-         (jit-movi r0 (imm retval)))
-       (jit-ldxi r1 fp ra-offset)
-       (jit-jmpr r1)
-       (jit-epilog)
-       (jit-realize)
-       (let* ((estimated-code-size (jit-code-size))
-              (code (make-bytevector estimated-code-size)))
-         (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
-         (let ((ptr (jit-emit)))
-           (make-bytevector-executable! code)
-           (dump-bailout ip current-side-exit code)
-           (hashq-set! exit-codes current-side-exit code)
-           (hashq-set! exit-variables current-side-exit (map env-ref args))
-           (trampoline-set! trampoline current-side-exit ptr)
-           (set! current-side-exit (+ current-side-exit 1))))))
-
-    (define (jump-to-patched-code)
-      (let ((current-locals (make-hash-table))
-            (loop-locals (tlog-loop-locals tlog)))
+    (define (jump-to-linked-code)
+      (let* ((tlog (get-tlog linked-ip))
+             (current-locals (make-hash-table))
+             (loop-locals (tlog-loop-locals tlog)))
         (cond
          ((hashq-ref snapshots current-side-exit)
           =>
@@ -1118,13 +1075,59 @@
        (else
         (debug 2 ";;; end-of-entry: no snapshot at ~a~%" current-side-exit))))
 
+    (define (emit-bailout next-ip)
+      (define (make-retval dst)
+        (jit-prepare)
+        (jit-pushargr reg-thread)
+        (jit-pushargi (imm (+ (ash next-ip 2) 2)))
+        (jit-pushargi (imm (+ (ash current-side-exit 2) 2)))
+        (jit-pushargi (imm (+ (ash entry-ip 2) 2)))
+        (jit-pushargi (scm->pointer #f))
+        (jit-calli %scm-do-inline-double-cell)
+        (jit-retval dst))
+
+      (with-jit-state
+       (jit-prolog)
+       (jit-tramp (imm (* 4 %word-size)))
+       (cond
+        ((hashq-ref snapshots (- current-side-exit 1))
+         =>
+         (lambda (local-x-types)
+           (for-each
+            (lambda (local-x-type arg)
+              ;; XXX: Save frame of parent trace when compiling side trace?
+              (let ((local (car local-x-type))
+                    (type (cdr local-x-type)))
+                (store-frame moffs local type (env-ref arg))))
+            local-x-types args)))
+        (else
+         (debug 2 ";;; assemble-exit: entry IP ~x~%" next-ip)))
+
+       ;; Caller places return address to address `fp + ra-offset', and
+       ;; expects `R0' to hold the packed return values.
+       (make-retval r0)
+       (jit-ldxi r1 fp ra-offset)
+       (jit-jmpr r1)
+       (jit-epilog)
+       (jit-realize)
+       (let* ((estimated-code-size (jit-code-size))
+              (code (make-bytevector estimated-code-size)))
+         (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
+         (let ((ptr (jit-emit)))
+           (make-bytevector-executable! code)
+           (dump-bailout next-ip current-side-exit code)
+           (hashq-set! exit-codes current-side-exit code)
+           (hashq-set! exit-variables current-side-exit (map env-ref args))
+           (trampoline-set! trampoline current-side-exit ptr)
+           (set! current-side-exit (+ current-side-exit 1))))))
+
     (let* ((proc (env-ref proc))
            (ip (ref-value proc)))
       (cond
        ((not (constant? proc))
         (error "assemble-exit: not a constant" proc))
        ((= ip *ip-key-end-of-side-trace*)
-        (jump-to-patched-code))
+        (jump-to-linked-code))
        ((= ip *ip-key-end-of-entry*)
         (save-loop-info))
        (else                            ; IP is bytecode destination.
@@ -1183,7 +1186,7 @@
 
   (assemble-cont cps '() #f 0))
 
-(define (assemble-tjit cps locals snapshots tlog exit-id)
+(define (assemble-tjit cps entry-ip locals snapshots tlog exit-id linked-ip)
   (define (max-moffs env)
     (let lp ((i 0) (end (vector-length env)) (current 0))
       (if (< i end)
@@ -1229,8 +1232,8 @@
            initial-locals)
 
           ;; Assemble the loop.
-          (assemble-cps cps env snapshots loop-args fp-offset tlog
-                        trampoline end-addr)))
+          (assemble-cps cps env entry-ip snapshots loop-args fp-offset tlog
+                        trampoline end-addr linked-ip)))
 
        (else                            ; Side trace.
         (let* ((nspills (max-moffs env))
@@ -1290,5 +1293,5 @@
                variables-to-load-from-frame)))
 
           ;; Assemble the loop.
-          (assemble-cps cps env snapshots loop-args fp-offset tlog
-                        trampoline end-addr)))))))
+          (assemble-cps cps env entry-ip snapshots loop-args fp-offset tlog
+                        trampoline end-addr linked-ip)))))))

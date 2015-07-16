@@ -142,7 +142,7 @@
 ;;;
 
 (define (compile-tjit trace-id bytecode-ptr bytecode-len envs
-                      parent-ip parent-exit-id)
+                      parent-ip parent-exit-id linked-ip)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
 
@@ -155,9 +155,7 @@
         (match envs
           ((env . envs)
            (let-values (((len elt) (disassemble-one bytecode offset)))
-             (match env
-               ((ip _ local)
-                (lp (cons (cons elt env) acc) (+ offset len) envs)))
+             (lp (cons (cons elt env) acc) (+ offset len) envs)
 
              ;; XXX: Formerly, opcode was replaced with vm-tjit specific
              ;; `native-call' when native code exists in recorded trace.
@@ -184,22 +182,30 @@
                (source-line-for-user source)))))
 
   (define-syntax-rule (show-one-line sline tlog code-size)
-    (format #t ";;; trace ~a:~a ~a~a~%"
-            trace-id sline code-size
+    (format #t ";;; trace ~a:~a ~a~a~a~%"
+            trace-id sline
+            code-size
             (if (< 0 parent-ip)
                 (format #f " (~a:~a)"
                         (or (and tlog (tlog-id tlog))
                             (format #f "~x" parent-ip))
                         parent-exit-id)
-                "")))
+                "")
+            (if (or (= parent-ip 0))
+                ""
+                (format #f " -> ~a" (tlog-id (get-tlog linked-ip))))))
 
-  (let ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
-        (verbosity (lightning-verbosity))
-        (tlog (get-tlog parent-ip))
-        (sline (ip-ptr->source-line (car (car envs)))))
+  (let* ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
+         (entry-ip (cadr (car ip-x-ops)))
+         (verbosity (lightning-verbosity))
+         (tlog (get-tlog parent-ip))
+         (sline (ip-ptr->source-line (cadr (car ip-x-ops)))))
 
     (when (and verbosity (<= 2 verbosity))
-      (and tlog (dump-tlog tlog)))
+      (and tlog (dump-tlog tlog))
+      (format #t
+              ";;; tjit.scm: parent-ip=~x, linked-ip=~x, parent-exit-id=~a~%"
+              parent-ip linked-ip parent-exit-id))
 
     (with-jit-state
      (jit-prolog)
@@ -219,7 +225,8 @@
                 loop-locals
                 loop-vars
                 fp-offset)
-               (assemble-tjit cps locals snapshots tlog parent-exit-id)))
+               (assemble-tjit cps entry-ip locals snapshots tlog
+                              parent-exit-id linked-ip)))
            (let ((epilog-address (jit-label)))
              (jit-patch epilog-address)
              (jit-epilog)
@@ -228,25 +235,24 @@
                     (code (make-bytevector estimated-size)))
                (jit-set-code (bytevector->pointer code) (imm estimated-size))
                (let* ((ptr (jit-emit))
-                      (ip (cadr (car ip-x-ops)))
                       (exit-counts (make-hash-table))
                       (loop-address (and loop-label (jit-address loop-label)))
                       (end-address (or (and tlog (tlog-end-address tlog))
                                        (jit-address epilog-address))))
                  (make-bytevector-executable! code)
-                 (put-tlog! ip (make-tlog trace-id
-                                          code
-                                          exit-counts
-                                          ip
-                                          snapshots
-                                          exit-variables
-                                          exit-codes
-                                          trampoline
-                                          loop-address
-                                          loop-locals
-                                          loop-vars
-                                          fp-offset
-                                          end-address))
+                 (put-tlog! entry-ip (make-tlog trace-id
+                                                code
+                                                exit-counts
+                                                entry-ip
+                                                snapshots
+                                                exit-variables
+                                                exit-codes
+                                                trampoline
+                                                loop-address
+                                                loop-locals
+                                                loop-vars
+                                                fp-offset
+                                                end-address))
 
                  (when (and verbosity (<= 1 verbosity))
                    (let ((code-size (jit-code-size)))
