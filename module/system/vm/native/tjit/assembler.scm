@@ -1040,25 +1040,39 @@
              (lambda (local-x-type arg)
                (let ((local (car local-x-type))
                      (type (cdr local-x-type)))
-                 ;; Value at the end of side trace is not passed back to
-                 ;; linked native code, store to frame.
+                 ;; Value at the end of side trace is not passed to linked
+                 ;; native code, store to frame.
                  (when (not (assq local loop-locals))
                    (store-frame moffs local type (env-ref arg)))
                  (hashq-set! current-locals local (env-ref arg))))
              local-x-types args)
-            (for-each
-             (lambda (local-x-type dst)
-               (let* ((local (car local-x-type))
-                      (type (cdr local-x-type)))
-                 (cond
-                  ((hashq-ref current-locals local)
-                   =>
-                   (lambda (src)        ; Move variable to parent trace.
-                     (when (not (equal? dst src))
-                       (move moffs dst src))))
-                  (else                 ; Load from frame.
-                   (load-frame moffs local type dst)))))
-             loop-locals (tlog-loop-vars tlog))
+
+            ;; Move registers first, then load from frame.
+            (let ((variables-to-load-from-frame
+                   (let lp ((locals loop-locals)
+                            (dsts (tlog-loop-vars tlog))
+                            (acc '()))
+                     (match locals
+                       (((local . type) . locals)
+                        (match dsts
+                          ((dst . dsts)
+                           (cond
+                            ((hashq-ref current-locals local)
+                             =>
+                             (lambda (src)
+                               ;; XXX: When number of registers increase, src will
+                               ;; be overwritten by move.
+                               (move moffs dst src)
+                               (lp locals dsts acc)))
+                            (else
+                             (let ((ltd (list local type dst)))
+                               (lp locals dsts (cons ltd acc))))))))
+                       (() (reverse! acc))))))
+              (for-each
+               (match-lambda
+                ((local type dst)
+                 (load-frame moffs local type dst)))
+               variables-to-load-from-frame))
 
             ;; Jump to beginning of the loop in linked code.
             (jumpi (tlog-loop-address tlog))))
@@ -1279,6 +1293,8 @@
                             ((hashq-ref args local)
                              =>
                              (lambda (src)
+                               ;; XXX: When number of registers increase, src will
+                               ;; be overwritten by move.
                                (move moffs dst src)
                                (lp locals acc)))
                             (else
