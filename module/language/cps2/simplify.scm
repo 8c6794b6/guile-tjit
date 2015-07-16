@@ -238,7 +238,7 @@
           (build-term
            ($continue k src
              ,(rewrite-exp exp
-                ((or ($ $const) ($ $prim) ($ $fun) ($ $rec))
+                ((or ($ $const) ($ $prim) ($ $fun) ($ $rec) ($ $closure))
                  ,exp)
                 (($ $call proc args)
                  ($call (subst proc) ,(map subst args)))
