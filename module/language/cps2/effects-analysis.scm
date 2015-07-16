@@ -438,7 +438,7 @@ is or might be a read or a write to the same location as A."
   (match exp
     ((or ($ $const) ($ $prim) ($ $values))
      &no-effects)
-    ((or ($ $fun) ($ $rec))
+    ((or ($ $fun) ($ $rec) ($ $closure))
      (&allocate &unknown-memory-kinds))
     (($ $prompt)
      (&write-object &prompt))

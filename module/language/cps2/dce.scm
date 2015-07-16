@@ -165,6 +165,8 @@ sites."
          (values live-labels live-vars))
         (($ $fun body)
          (values (intset-add live-labels body) live-vars))
+        (($ $closure body)
+         (values (intset-add live-labels body) live-vars))
         (($ $rec names vars (($ $fun kfuns) ...))
          (let lp ((vars vars) (kfuns kfuns)
                   (live-labels live-labels) (live-vars live-vars))
@@ -180,8 +182,9 @@ sites."
          (values live-labels (adjoin-var tag live-vars)))
         (($ $call proc args)
          (values live-labels (adjoin-vars args (adjoin-var proc live-vars))))
-        (($ $callk k proc args)
-         (values live-labels (adjoin-vars args (adjoin-var proc live-vars))))
+        (($ $callk kfun proc args)
+         (values (intset-add live-labels kfun)
+                 (adjoin-vars args (adjoin-var proc live-vars))))
         (($ $primcall name args)
          (values live-labels (adjoin-vars args live-vars)))
         (($ $branch k ($ $primcall name args))
@@ -303,7 +306,10 @@ sites."
        (if (label-live? label)
            (match exp
              (($ $fun body)
-              (values (visit-fun body cps)
+              (values cps
+                      term))
+             (($ $closure body nfree)
+              (values cps
                       term))
              (($ $rec names vars funs)
               (match (filter-map (lambda (name var fun)
@@ -314,11 +320,7 @@ sites."
                  (values cps
                          (build-term ($continue k src ($values ())))))
                 (((names vars funs) ...)
-                 (values (fold1 (lambda (fun cps)
-                                  (match fun
-                                    (($ $fun kfun)
-                                     (visit-fun kfun cps))))
-                                funs cps)
+                 (values cps
                          (build-term ($continue k src
                                        ($rec names vars funs)))))))
              (_
@@ -370,10 +372,17 @@ sites."
                  (label ($kreceive req rest adapt)))))))
       (_
        (adjoin-conts cps (label ,cont)))))
-  (define (visit-fun kfun cps)
-    (fold-local-conts visit-cont conts kfun cps))
   (with-fresh-name-state conts
-    (persistent-intmap (visit-fun 0 empty-intmap))))
+    (persistent-intmap
+     (intmap-fold (lambda (label cont cps)
+                    (match cont
+                      (($ $kfun)
+                       (if (label-live? label)
+                           (fold-local-conts visit-cont conts label cps)
+                           cps))
+                      (_ cps)))
+                  conts
+                  empty-intmap))))
 
 (define (eliminate-dead-code conts)
   ;; We work on a renumbered program so that we can easily visit uses
