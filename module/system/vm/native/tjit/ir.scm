@@ -72,6 +72,9 @@
 (define (flonum? val)
   (and (real? val) (inexact? val)))
 
+(define (undefined? x)
+  (= (pointer-address (scm->pointer x))) #x904)
+
 
 ;;;
 ;;; Locals
@@ -407,6 +410,8 @@
                     (lp (+ i 1) (cons `(,i . ,&box) acc)))
                    ((not local)
                     (lp (+ i 1) (cons `(,i . ,&false) acc)))
+                   ((undefined? local)
+                    (lp (+ i 1) (cons `(,i . ,&unbound) acc)))
                    (else
                     ;; XXX: Add more types.
                     (debug 2 "*** take-snapshot!: ~a~%" local)

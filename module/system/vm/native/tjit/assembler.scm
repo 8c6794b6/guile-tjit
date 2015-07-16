@@ -889,7 +889,7 @@
 
 (define (load-frame moffs local type dst)
   (cond
-   ((= type &exact-integer)
+   ((eq? type &exact-integer)
     (cond
      ((gpr? dst)
       (local-ref (gpr dst) local)
@@ -898,7 +898,7 @@
       (local-ref r0 local)
       (jit-rshi r0 r0 (imm 2))
       (jit-stxi (moffs dst) fp r0))))
-   ((= type &flonum)
+   ((eq? type &flonum)
     (cond
      ((fpr? dst)
       (local-ref r0 local)
@@ -907,7 +907,7 @@
       (local-ref r0 local)
       (scm-real-value f0 r0)
       (jit-stxi-d (moffs dst) fp f0))))
-   ((= type &box)
+   ((eq? type &box)
     (cond
      ((gpr? dst)
       (local-ref (gpr dst) local))
@@ -919,7 +919,7 @@
 
 (define (store-frame moffs local type src)
   (cond
-   ((= type &exact-integer)
+   ((eq? type &exact-integer)
     (cond
      ((constant? src)
       (jit-movi r0 (constant src))
@@ -935,7 +935,7 @@
       (jit-lshi r0 r0 (imm 2))
       (jit-addi r0 r0 (imm 2))
       (local-set! local r0))))
-   ((= type &flonum)
+   ((eq? type &flonum)
     (cond
      ((constant? src)
       (jit-movi-d f0 (constant src))
@@ -948,7 +948,7 @@
       (jit-ldxi-d f0 fp (moffs src))
       (scm-from-double r0 f0)
       (local-set! local r0))))
-   ((= type &box)
+   ((eq? type &box)
     (cond
      ((gpr? src)
       (local-set! local (gpr src)))
@@ -957,7 +957,7 @@
       (local-set! local r0))
      (else
       (error "store-frame: box" local type src))))
-   ((= type &false)
+   ((eq? type &false)
     (jit-movi r0 (scm->pointer #f))
     (local-set! local r0))
    (else
@@ -1069,9 +1069,8 @@
                                (lp locals dsts (cons ltd acc))))))))
                        (() (reverse! acc))))))
               (for-each
-               (match-lambda
-                ((local type dst)
-                 (load-frame moffs local type dst)))
+               (match-lambda ((local type dst)
+                              (load-frame moffs local type dst)))
                variables-to-load-from-frame))
 
             ;; Jump to beginning of the loop in linked code.
@@ -1154,7 +1153,7 @@
       (($ $call proc args)
        (assemble-exit proc args))
       (_
-       ;; (debug 1 "      exp:~a~%" exp)
+       (debug 2 "      exp:~a~%" exp)
        (values))))
 
   (define (assemble-cont cps exp loop-label k)
@@ -1162,10 +1161,6 @@
       (dump-exit-variables)
       (values exit-variables exit-codes
               trampoline loop-label loop-locals loop-vars fp-offset))
-
-    ;; (debug 1 "~4,,,'0@a ~a~%" k
-    ;;        (or (and (null? exp) exp)
-    ;;            (and cps (unparse-cps exp))))
 
     (match (intmap-ref cps k)
       (($ $kreceive _ knext)
@@ -1245,7 +1240,7 @@
              (load-frame moffs local &box (vector-ref env var))))
            initial-locals)
 
-          ;; Assemble the loop.
+          ;; Assemble the primitives in CPS.
           (assemble-cps cps env entry-ip snapshots loop-args fp-offset tlog
                         trampoline end-addr linked-ip)))
 
@@ -1254,8 +1249,10 @@
                (fp-offset (tlog-fp-offset tlog)))
           (debug 2 ";;; side trace: nspills=~a~%" nspills)
 
-          ;; XXX: Allocate more memory if nspills of side trace is greater than
-          ;; area allocated by the parent trace.
+          ;; XXX: Cannot allocate more memory if nspills of side trace is
+          ;; greater than area allocated by the parent trace, because side
+          ;; traces use `jit-tramp'.  Perhaps better to allocate constant amount
+          ;; in root trace, and make the amount configurable via parameter.
           (jit-tramp (imm (* 4 %word-size)))
 
           ;; Load initial arguments from parent trace.
@@ -1303,11 +1300,10 @@
                                (lp locals (cons ltd acc)))))))
                         (() (reverse! acc))))))
               (for-each
-               (match-lambda
-                ((local type dst)
-                 (load-frame moffs local type dst)))
+               (match-lambda ((local type dst)
+                              (load-frame moffs local type dst)))
                variables-to-load-from-frame)))
 
-          ;; Assemble the loop.
+          ;; Assemble the primitives in CPS.
           (assemble-cps cps env entry-ip snapshots loop-args fp-offset tlog
                         trampoline end-addr linked-ip)))))))
