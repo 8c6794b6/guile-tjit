@@ -75,6 +75,16 @@
     (verify program)
     program))
 
+;; Passes that are needed:
+;;
+;;  * Abort contification: turning abort primcalls into continuation
+;;    calls, and eliding prompts if possible.
+;;
+;;  * Loop peeling.  Unrolls the first round through a loop if the
+;;    loop has effects that CSE can work on.  Requires effects
+;;    analysis.  When run before CSE, loop peeling is the equivalent
+;;    of loop-invariant code motion (LICM).
+;;
 (define-optimizer optimize-higher-order-cps
   (split-rec #:split-rec? #t)
   (eliminate-dead-code #:eliminate-dead-code? #t)

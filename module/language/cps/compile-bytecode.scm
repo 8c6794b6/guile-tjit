@@ -27,84 +27,18 @@
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
   #:use-module (language cps)
-  #:use-module (language cps closure-conversion)
-  #:use-module (language cps contification)
-  #:use-module (language cps constructors)
-  #:use-module (language cps cse)
-  #:use-module (language cps dce)
   #:use-module (language cps dfg)
-  #:use-module (language cps elide-values)
   #:use-module (language cps primitives)
-  #:use-module (language cps prune-bailouts)
-  #:use-module (language cps prune-top-level-scopes)
   #:use-module (language cps reify-primitives)
   #:use-module (language cps renumber)
-  #:use-module (language cps self-references)
-  #:use-module (language cps simplify)
   #:use-module (language cps slot-allocation)
-  #:use-module (language cps specialize-primcalls)
-  #:use-module (language cps type-fold)
   #:use-module (system vm assembler)
   #:export (compile-bytecode))
-
-;; TODO: Local var names.
 
 (define (kw-arg-ref args kw default)
   (match (memq kw args)
     ((_ val . _) val)
     (_ default)))
-
-(define (optimize exp opts)
-  (define (run-pass! pass kw default)
-    (set! exp
-          (if (kw-arg-ref opts kw default)
-              (pass exp)
-              exp)))
-
-  ;; The first DCE pass is mainly to eliminate functions that aren't
-  ;; called.  The last is mainly to eliminate rest parameters that
-  ;; aren't used, and thus shouldn't be consed.
-
-  ;; This series of assignments to `env' used to be a series of let*
-  ;; bindings of `env', as you would imagine.  In compiled code this is
-  ;; fine because the compiler is able to allocate all let*-bound
-  ;; variable to the same slot, which also means that the garbage
-  ;; collector doesn't have to retain so many copies of the term being
-  ;; optimized.  However during bootstrap, the interpreter doesn't do
-  ;; this optimization, leading to excessive data retention as the terms
-  ;; are rewritten.  To marginally improve bootstrap memory usage, here
-  ;; we use set! instead.  The compiler should produce the same code in
-  ;; any case, though currently it does not because it doesn't do escape
-  ;; analysis on the box created for the set!.
-
-  (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
-  ;; The prune-top-level-scopes pass doesn't work if CSE has run
-  ;; beforehand.  Since hopefully we will be able to just remove all the
-  ;; old CPS stuff, let's just disable the pass for now.
-  ;; (run-pass! prune-top-level-scopes #:prune-top-level-scopes? #t)
-  (run-pass! simplify #:simplify? #t)
-  (run-pass! contify #:contify? #t)
-  (run-pass! inline-constructors #:inline-constructors? #t)
-  (run-pass! specialize-primcalls #:specialize-primcalls? #t)
-  (run-pass! elide-values #:elide-values? #t)
-  (run-pass! prune-bailouts #:prune-bailouts? #t)
-  (run-pass! eliminate-common-subexpressions #:cse? #t)
-  (run-pass! type-fold #:type-fold? #t)
-  (run-pass! resolve-self-references #:resolve-self-references? #t)
-  (run-pass! eliminate-dead-code #:eliminate-dead-code? #t)
-  (run-pass! simplify #:simplify? #t)
-
-  ;; Passes that are needed:
-  ;;
-  ;;  * Abort contification: turning abort primcalls into continuation
-  ;;    calls, and eliding prompts if possible.
-  ;;
-  ;;  * Loop peeling.  Unrolls the first round through a loop if the
-  ;;    loop has effects that CSE can work on.  Requires effects
-  ;;    analysis.  When run before CSE, loop peeling is the equivalent
-  ;;    of loop-invariant code motion (LICM).
-
-  exp)
 
 (define (compile-fun f asm)
   (let* ((dfg (compute-dfg f #:global? #f))
@@ -509,21 +443,8 @@
        (compile-entry)))))
 
 (define (compile-bytecode exp env opts)
-  ;; See comment in `optimize' about the use of set!.
-
-  ;; Since CPS2's optimization pass replaces CPS and uses less memory,
-  ;; we disable the optimization pass for now.  We'll remove it once
-  ;; we're sure.
-  ;;
-  ;; (set! exp (optimize exp opts))
-
-  (set! exp (if (not (kw-arg-ref opts #:cps2-convert? #t))
-                (convert-closures exp)
-                exp))
-  ;; first-order optimization should go here
-  (set! exp (reify-primitives exp))
-  (set! exp (renumber exp))
-  (let* ((asm (make-assembler)))
+  (let* ((exp (renumber (reify-primitives exp)))
+         (asm (make-assembler)))
     (match exp
       (($ $program funs)
        (for-each (lambda (fun) (compile-fun fun asm))

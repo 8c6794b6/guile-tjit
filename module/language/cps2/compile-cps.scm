@@ -117,7 +117,11 @@
     (_ default)))
 
 (define (compile-cps exp env opts)
-  (let ((exp (optimize-higher-order-cps exp opts)))
-    (if (kw-arg-ref opts #:cps2-convert? #t)
-        (values (conts->fun* (renumber (convert-closures exp))) env env)
-        (values (conts->fun (renumber exp)) env env))))
+  ;; Use set! to save memory at bootstrap-time.  (The interpreter holds
+  ;; onto all free variables locally bound in a function, so if we used
+  ;; let*, we'd hold onto earlier copies of the term.)
+  (set! exp (optimize-higher-order-cps exp opts))
+  (set! exp (convert-closures exp))
+  (set! exp (optimize-first-order-cps exp opts))
+  (set! exp (renumber exp))
+  (values (conts->fun* exp) env env))
