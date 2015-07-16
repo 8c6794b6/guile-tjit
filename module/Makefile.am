@@ -123,27 +123,13 @@ TREE_IL_LANG_SOURCES =						\
 
 CPS_LANG_SOURCES =						\
   language/cps.scm						\
-  language/cps/closure-conversion.scm				\
   language/cps/compile-bytecode.scm				\
-  language/cps/constructors.scm					\
-  language/cps/contification.scm				\
-  language/cps/cse.scm						\
-  language/cps/dce.scm						\
   language/cps/dfg.scm						\
-  language/cps/effects-analysis.scm				\
-  language/cps/elide-values.scm					\
   language/cps/primitives.scm					\
-  language/cps/prune-bailouts.scm				\
-  language/cps/prune-top-level-scopes.scm			\
   language/cps/reify-primitives.scm				\
   language/cps/renumber.scm					\
-  language/cps/self-references.scm				\
   language/cps/slot-allocation.scm				\
-  language/cps/simplify.scm					\
   language/cps/spec.scm						\
-  language/cps/specialize-primcalls.scm				\
-  language/cps/type-fold.scm					\
-  language/cps/types.scm					\
   language/cps/verify.scm
 
 CPS2_LANG_SOURCES =						\
