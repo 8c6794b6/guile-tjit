@@ -650,7 +650,6 @@
                  ,(ash (logior (ash high-bits 32) low-bits) -2)))
             ,(convert escape rest)))
 
-        ;; XXX: make-long-long-immediate
         ;; XXX: make-non-immediate
 
         (('static-ref dst offset)

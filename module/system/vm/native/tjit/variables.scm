@@ -41,7 +41,9 @@
             loop-start
             ref? ref-value ref-type
             constant? constant
-            register? gpr gpr? fpr fpr?
+            register?
+            gpr? gpr
+            fpr? fpr
             memory?))
 
 ;;;
@@ -155,9 +157,6 @@ constant value."
 
     (define (visit-exp syms exp)
       (match exp
-        (($ $branch kt exp)
-         (visit-exp syms exp)
-         (visit-cont #f kt))
         (($ $primcall op args)
          (expr-type op syms args))
         (($ $const val)
@@ -408,7 +407,8 @@ MAX-VAR + 1 which contains register and memory information."
 
       (values vars
               (local-var-alist locals entry-start-syms)
-              loop-start-syms))))
+              loop-start-syms
+              kstart))))
 
 ;;;
 ;;; Loop start
@@ -423,11 +423,6 @@ MAX-VAR + 1 which contains register and memory information."
        (go next))
       (($ $kargs names syms ($ $continue next src ($ $call proc args)))
        (or (and (< next k) next)
-           (go next)
-           -1))
-      (($ $kargs names syms ($ $continue next src ($ $branch kt exp)))
-       (or (and (< next k) next)
-           (go kt)
            (go next)
            -1))
       (($ $kargs names syms ($ $continue next src exp))

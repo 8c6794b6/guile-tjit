@@ -133,14 +133,13 @@
 
 (define fp (jit-fp))
 
-(define vp->fp-offset
-  (make-pointer (+ (expt 2 (* 8 %word-size)) (- %word-size))))
+(define *max-address* (expt 2 (* 8 %word-size)))
 
-(define registers-offset
-  (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 2 %word-size)))))
-
-(define ra-offset
-  (make-pointer (+ (expt 2 (* 8 %word-size)) (- (* 3 %word-size)))))
+(define (make-negative-pointer addr)
+  "Make negative pointer with ADDR."
+  (when (< 0 addr)
+    (error "make-negative-pointer: expecting negative address" addr))
+  (make-pointer (+ (expt 2 (* 8 %word-size)) addr)))
 
 (define (make-offset-pointer offset n)
   (let ((addr (+ offset n)))
@@ -148,7 +147,16 @@
      ((<= 0 addr)
       (make-pointer addr))
      (else
-      (make-pointer (+ (expt 2 (* 8 %word-size)) addr))))))
+      (make-negative-pointer addr)))))
+
+(define vp->fp-offset
+  (make-negative-pointer (- %word-size)))
+
+(define registers-offset
+  (make-negative-pointer (- (* 2 %word-size))))
+
+(define ra-offset
+  (make-negative-pointer (- (* 3 %word-size))))
 
 (define-syntax jump
   (syntax-rules ()
@@ -276,13 +284,11 @@
     ((_ (name asm arg ...) <body>)
      (begin
        (define (name asm arg ...)
-         (let ((arg (env-ref asm arg))
-               ...)
-           (let ((verbosity (lightning-verbosity)))
-             (when (and verbosity (<= 4 verbosity))
-               (jit-note (format #f "~a" `(name ,arg ...)) 0))
-             (debug 3 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
-           <body>))
+         (let ((verbosity (lightning-verbosity)))
+           (when (and verbosity (<= 4 verbosity))
+             (jit-note (format #f "~a" `(name ,arg ...)) 0))
+           (debug 3 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
+         <body>)
        (hashq-set! *native-prim-procedures* 'name name)))))
 
 (define (initialize-tjit-primitives)
@@ -501,69 +507,49 @@
    ((and (gpr? dst) (constant? a) (constant? b))
     (jit-movi (gpr dst) (imm (+ (ref-value a) (ref-value b)))))
    ((and (gpr? dst) (gpr? a) (constant? b))
-    (jit-addi (gpr dst) (gpr a) (constant b))
-    ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
-    )
+    (jit-addi (gpr dst) (gpr a) (constant b)))
    ((and (gpr? dst) (gpr? a) (gpr? b))
-    (jit-addr (gpr dst) (gpr a) (gpr b))
-    ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
-    )
-   ((and (gpr? dst) (memory? a) (gpr? b))
-    (jit-ldxi r0 fp (moffs asm a))
-    (jit-addr (gpr dst) r0 (gpr b))
-    ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
-    )
+    (jit-addr (gpr dst) (gpr a) (gpr b)))
    ((and (gpr? dst) (gpr? a) (memory? b))
     (jit-ldxi r0 fp (moffs asm b))
-    (jit-addr (gpr dst) (gpr a) r0)
-    ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
-    )
+    (jit-addr (gpr dst) (gpr a) r0))
+   ((and (gpr? dst) (memory? a) (gpr? b))
+    (%add asm dst b a))
    ((and (gpr? dst) (memory? a) (memory? b))
     (jit-ldxi r0 fp (moffs asm a))
     (jit-ldxi r1 fp (moffs asm b))
-    (jit-addr (gpr dst) r0 r1)
-    ;; (jit-subi (gpr dst) (gpr dst) (imm 2))
-    )
+    (jit-addr (gpr dst) r0 r1))
 
    ((and (memory? dst) (constant? a) (constant? b))
     (jit-movi r0 (imm (+ (ref-value a) (ref-value b))))
     (memory-set! asm dst r0))
-   ((and (memory? dst) (gpr? a) (constant? b))
-    (jit-addi r0 (gpr a) (constant b))
-    ;; (jit-subi r0 r0 (imm 2))
+   ((and (memory? dst) (constant? a) (gpr? b))
+    (jit-addi r0 (gpr b) (constant a))
     (memory-set! asm dst r0))
+   ((and (memory? dst) (gpr? a) (constant? b))
+    (%add asm dst b a))
    ((and (memory? dst) (gpr? a) (gpr? b))
     (jit-ldxi r0 fp (moffs asm dst))
     (jit-addr r0 (gpr a) (gpr b))
-    ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
    ((and (memory? dst) (gpr? a) (memory? b))
     (jit-ldxi r0 fp (moffs asm dst))
     (jit-ldxi r1 fp (moffs asm b))
     (jit-addr r0 (gpr a) r1)
-    ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
-
    ((and (memory? dst) (constant? a) (memory? b))
     (memory-ref asm r0 b)
     (jit-addi r0 r0 (constant a))
     (memory-set! asm dst r0))
    ((and (memory? dst) (memory? a) (constant? b))
-    (memory-ref asm r0 a)
-    (jit-addi r0 r0 (constant b))
-    (memory-set! asm dst r0))
+    (%add asm dst b a))
    ((and (memory? dst) (memory? a) (gpr? b))
-    (jit-ldxi r0 fp (moffs asm dst))
-    (jit-ldxi r1 fp (moffs asm a))
-    (jit-addr r0 r1 (gpr b))
-    ;; (jit-subi r0 r0 (imm 2))
-    (jit-stxi (moffs asm dst) fp r0))
+    (%add asm dst b a))
    ((and (memory? dst) (memory? a) (memory? b))
     (jit-ldxi r0 fp (moffs asm dst))
     (jit-ldxi r1 fp (moffs asm a))
     (jit-ldxi r2 fp (moffs asm b))
     (jit-addr r0 r1 r2)
-    ;; (jit-subi r0 r0 (imm 2))
     (jit-stxi (moffs asm dst) fp r0))
    (else
     (error "%add" dst a b))))
@@ -665,7 +651,7 @@
    ((and (fpr? dst) (constant? a) (fpr? b))
     (jit-addi-d (fpr dst) (fpr b) (constant a)))
    ((and (fpr? dst) (fpr? a) (constant? b))
-    (jit-addi-d (fpr dst) (fpr a) (constant b)))
+    (%fadd asm dst b a))
    ((and (fpr? dst) (fpr? a) (fpr? b))
     (jit-addr-d (fpr dst) (fpr a) (fpr b)))
 
@@ -709,7 +695,7 @@
    ((and (fpr? dst) (constant? a) (fpr? b))
     (jit-muli-d (fpr dst) (fpr b) (constant a)))
    ((and (fpr? dst) (fpr? a) (constant? b))
-    (jit-muli-d (fpr dst) (fpr a) (constant b)))
+    (%fmul asm dst b a))
    ((and (fpr? dst) (fpr? a) (fpr? b))
     (jit-mulr-d (fpr dst) (fpr a) (fpr b)))
 
@@ -963,15 +949,13 @@
    (else
     (error "Unknown local, type, src" local type src))))
 
-(define (assemble-cps cps env entry-ip snapshots initial-args fp-offset tlog
-                      trampoline end-address linked-ip)
+(define (assemble-cps cps env kstart entry-ip snapshots initial-args fp-offset
+                      tlog trampoline end-address linked-ip)
   (define (env-ref i)
     (vector-ref env i))
 
   (define (moffs x)
     (make-offset-pointer fp-offset (* (ref-value x) %word-size)))
-
-  (define kstart (loop-start cps))
 
   (define exit-codes (make-hash-table))
 
@@ -1025,7 +1009,10 @@
       (lambda (proc)
         (let* ((side-exit (trampoline-ref trampoline (- current-side-exit 1)))
                (asm (make-asm env fp-offset side-exit end-address)))
-          (apply proc asm (append dsts args)))))
+          (apply proc asm
+                 (map (lambda (arg)
+                        (env-ref arg))
+                      (append dsts args))))))
      (else
       (error "Unhandled primcall" name))))
 
@@ -1038,6 +1025,8 @@
          ((hashq-ref snapshots current-side-exit)
           =>
           (lambda (local-x-types)
+            ;; XXX: Lots of code are duplicating with side trace
+            ;; initialization. Factor out and share.
             (for-each
              (lambda (local-x-type arg)
                (let ((local (car local-x-type))
@@ -1062,8 +1051,7 @@
                             ((hashq-ref current-locals local)
                              =>
                              (lambda (src)
-                               ;; XXX: When number of registers increase, src will
-                               ;; be overwritten by move.
+                               ;; XXX: src could be overwritten by move.
                                (move moffs dst src)
                                (lp locals dsts acc)))
                             (else
@@ -1155,7 +1143,7 @@
       (($ $call proc args)
        (assemble-exit proc args))
       (_
-       (debug 2 "      exp:~a~%" exp)
+       ;; (debug 2 "      exp:~a~%" exp)
        (values))))
 
   (define (assemble-cont cps exp loop-label k)
@@ -1209,7 +1197,8 @@
 
   (let*-values
       (((max-label max-var) (compute-max-label-and-var cps))
-       ((env initial-locals loop-args) (resolve-variables cps locals max-var)))
+       ((env initial-locals loop-args kstart)
+        (resolve-variables cps locals max-var)))
     (let* ((trampoline-size
             (hash-fold (lambda (k v acc) (+ acc 1)) 1 snapshots))
            (trampoline (make-trampoline trampoline-size))
@@ -1243,8 +1232,8 @@
            initial-locals)
 
           ;; Assemble the primitives in CPS.
-          (assemble-cps cps env entry-ip snapshots loop-args fp-offset tlog
-                        trampoline end-addr linked-ip)))
+          (assemble-cps cps env kstart entry-ip snapshots loop-args fp-offset
+                        tlog trampoline end-addr linked-ip)))
 
        (else                            ; Side trace.
         (let* ((nspills (max-moffs env))
@@ -1292,8 +1281,7 @@
                             ((hashq-ref args local)
                              =>
                              (lambda (src)
-                               ;; XXX: When number of registers increase, src will
-                               ;; be overwritten by move.
+                               ;; XXX: src could be overwritten by move.
                                (move moffs dst src)
                                (lp locals acc)))
                             (else
@@ -1307,5 +1295,5 @@
                variables-to-load-from-frame)))
 
           ;; Assemble the primitives in CPS.
-          (assemble-cps cps env entry-ip snapshots loop-args fp-offset tlog
-                        trampoline end-addr linked-ip)))))))
+          (assemble-cps cps env kstart entry-ip snapshots loop-args fp-offset
+                        tlog trampoline end-addr linked-ip)))))))

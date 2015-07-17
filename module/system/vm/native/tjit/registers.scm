@@ -41,15 +41,18 @@
 (define rsi (jit-r 12))
 (define rdi (jit-r 13))
 
-(define *callee-save-registers*
+(define *non-volatile-registers*
   `#(,v1 ,v2 ,v3 ,r3))
+
+(define *volatile-registers*
+  `#(,r8 ,r9 ,rcx ,rdx ,rsi ,rdi))
 
 ;; (define *gp-registers*
 ;;   `#(,v1 ,v2 ,v3))
 
-(define *gp-registers*
-  (list->vector (append (vector->list *callee-save-registers*)
-                        `(,r8 ,r9 ,rcx ,rdx ,rsi ,rdi))))
+(define *gprs*
+  (list->vector (append (vector->list *non-volatile-registers*)
+                        (vector->list *volatile-registers*))))
 
 (define xmm7 (jit-f 8))
 (define xmm6 (jit-f 9))
@@ -60,20 +63,17 @@
 (define xmm1 (jit-f 14))
 (define xmm0 (jit-f 15))
 
-(define *fp-registers*
+(define *fprs*
   `#(,f3 ,f4 ,f5 ,f6 ,f7 ,xmm7 ,xmm6 ,xmm5 ,xmm4 ,xmm3 ,xmm2 ,xmm1 ,xmm0))
 
-(define *num-callee-save*
-  (vector-length *callee-save-registers*))
-
 (define *num-gpr*
-  (vector-length *gp-registers*))
+  (vector-length *gprs*))
 
 (define *num-fpr*
-  (vector-length *fp-registers*))
+  (vector-length *fprs*))
 
 (define (register-ref i)
-  (vector-ref *gp-registers* i))
+  (vector-ref *gprs* i))
 
 (define (fpr-ref i)
-  (vector-ref *fp-registers* i))
+  (vector-ref *fprs* i))
