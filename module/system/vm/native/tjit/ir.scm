@@ -476,18 +476,6 @@
         ;; XXX: abort
         ;; XXX: builtin-ref
 
-        ;; VM op `native-call' is specific to vm-tjit engine.
-        ;;
-        ;; XXX: Add a guard to check the returned ip. If it differs, recompile
-        ;; native code.
-        ;;
-
-        ;; (('native-call addr)
-        ;;  `(begin
-        ;;     ,@(save-frame!)
-        ;;     (%native-call ,addr)
-        ;;     ,(load-frame (convert escape rest))))
-
         ;; *** Function prologues
 
         ;; XXX: br-if-nargs-ne

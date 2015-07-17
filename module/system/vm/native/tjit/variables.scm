@@ -42,8 +42,8 @@
             ref? ref-value ref-type
             constant? constant
             register?
-            gpr? gpr
-            fpr? fpr
+            make-gpr gpr? gpr
+            make-fpr fpr? fpr
             memory?))
 
 ;;;

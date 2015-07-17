@@ -47,8 +47,8 @@
 (define *volatile-registers*
   `#(,r8 ,r9 ,rcx ,rdx ,rsi ,rdi))
 
-;; (define *gp-registers*
-;;   `#(,v1 ,v2 ,v3))
+;; (define *gprs*
+;;   `#())
 
 (define *gprs*
   (list->vector (append (vector->list *non-volatile-registers*)
@@ -72,8 +72,19 @@
 (define *num-fpr*
   (vector-length *fprs*))
 
+;; Using negative number to refer scratch registers.
+
 (define (register-ref i)
-  (vector-ref *gprs* i))
+  (cond
+   ((= i -1) r0)
+   ((= i -2) r1)
+   ((= i -3) r2)
+   (else (vector-ref *gprs* i))))
 
 (define (fpr-ref i)
-  (vector-ref *fprs* i))
+  (cond
+   ((= i -1) f0)
+   ((= i -2) f1)
+   ((= i -3) f2)
+   (else
+    (vector-ref *fprs* i))))

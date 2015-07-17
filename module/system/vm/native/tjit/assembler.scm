@@ -329,6 +329,9 @@
 (define-prim (%ne asm (int a) (int b))
   (let ((next (jit-forward)))
     (cond
+     ((and (constant? a) (constant? b))
+      (when (not (eq? (ref-value a) (ref-value b)))
+        (jump next)))
      ((and (constant? a) (gpr? b))
       (jump (jit-bnei (gpr b) (constant a)) next))
      ((and (constant? a) (memory? b))
@@ -413,6 +416,9 @@
       (memory-ref asm r0 b)
       (jump (jit-bger (gpr a) r0) next))
 
+     ((and (memory? a) (constant? b))
+      (memory-ref asm r0 a)
+      (jump (jit-bgei r0 (constant b)) next))
      ((and (memory? a) (gpr? b))
       (memory-ref asm r0 a)
       (jump (jit-bger r0 (gpr b)) next))
@@ -556,12 +562,17 @@
 
 (define-prim (%sub asm (int dst) (int a) (int b))
   (cond
+   ((and (gpr? dst) (constant? a) (constant? b))
+    (jit-movi (gpr dst) (imm (- (ref-value a) (ref-value b)))))
    ((and (gpr? dst) (gpr? a) (constant? b))
     (jit-subi (gpr dst) (gpr a) (constant b)))
    ((and (gpr? dst) (memory? a) (constant? b))
     (memory-ref asm r0 a)
     (jit-subi (gpr dst) r0 (constant b)))
 
+   ((and (memory? dst) (constant? a) (constant? b))
+    (jit-movi r0 (imm (- (ref-value a) (ref-value b))))
+    (memory-set! asm dst r0))
    ((and (memory? dst) (gpr? a) (constant? b))
     (jit-subi r0 (gpr a) (constant b))
     (memory-set! asm dst r0))
@@ -814,24 +825,6 @@
 
 
 ;;;
-;;; Calls
-;;;
-
-;; (define-prim (%native-call asm (void addr))
-;;   (cond
-;;    ((constant? addr)
-;;     (jit-prepare)
-;;     (jit-pushargr reg-thread)           ; thread
-;;     (jit-ldxi r0 fp vp->fp-offset)
-;;     (jit-pushargr r0)         ; vp->fp
-;;     ;; (jit-pushargi %null-pointer)        ; registers
-;;     (jit-movi r0 (constant addr))
-;;     (jit-callr r0))
-;;    (else
-;;     (error "%native-call" addr))))
-
-
-;;;
 ;;; Code generation
 ;;;
 
@@ -947,7 +940,101 @@
     (jit-movi r0 (scm->pointer #f))
     (local-set! local r0))
    (else
-    (error "Unknown local, type, src" local type src))))
+    (error "store-frame: Unknown local, type, src" local type src))))
+
+(define (maybe-store moffs local-x-types srcs src-unwrapper references)
+  "Store src in SRCS to frame when local is not found in references."
+  (let lp ((local-x-types local-x-types)
+           (srcs srcs)
+           (acc (make-hash-table)))
+    (match local-x-types
+      (((local . type) . local-x-types)
+       (match srcs
+         ((src . srcs)
+          (let ((unwrapped-src (src-unwrapper src)))
+            (when (not (assq local references))
+              (store-frame moffs local type unwrapped-src))
+            (hashq-set! acc local unwrapped-src))
+          (lp local-x-types srcs acc))))
+      (() acc))))
+
+(define (move-or-load-carefully dsts srcs types moffs)
+  "Move or load carefully.
+
+Avoids overwriting source in hash-table SRCS while updating destinations in
+hash-table DSTS.  If source is not found, load value from frame with using type
+from hash-table TYPES. Hash-table key of SRCS, DSTS, TYPES are local index
+number."
+
+  (define (same-sets? as bs)
+    (and (= (length as) (length bs))
+         (let lp ((as as))
+           (match as
+             ((a . as) (and (member a bs) (lp as)))
+             (() #t)))))
+  (define (in-srcs? var)
+    (hash-fold (lambda (k v acc)
+                 (or acc (and (equal? v var) (hashq-ref dsts k))))
+               #f
+               srcs))
+  (define (find-src-local var)
+    (hash-fold (lambda (k v ret)
+                 (or ret (and (equal? v var) k)))
+               #f
+               srcs))
+  (define (dump-move local dst src)
+    (debug 2 ";;; molc: [local ~a] (move ~a ~a)~%" local dst src))
+  (define (dump-load local dst type)
+    (debug 2 ";;; molc: [local ~a] loading to ~a, type=~a~%" local dst type))
+  (let ((dsts-list (hash-map->list cons dsts))
+        (car-< (lambda (a b) (< (car a) (car b)))))
+    (debug 2 ";;; molc: dsts: ~a~%" (sort dsts-list car-<))
+    (debug 2 ";;; molc: srcs: ~a~%" (sort (hash-map->list cons srcs) car-<))
+    (let lp ((dsts dsts-list))
+      (match dsts
+        (((local . dst-var) . rest)
+         (cond
+          ((in-srcs? dst-var)
+           =>
+           (lambda (src-var)
+             (cond
+              ((equal? dst-var src-var)
+               (hashq-remove! srcs local)
+               (lp rest))
+              (else
+               ;; When all of the elements in dsts are in srcs, move one of the
+               ;; srcs to temporary location. Else, rotate the list and try
+               ;; again.
+               (let ((srcs-list (hash-map->list cons srcs)))
+                 (cond
+                  ((same-sets? (map cdr dsts) (map cdr srcs-list))
+                   ;; `-2' is for gpr R1 or fpr F1 in lightning, used as scratch
+                   ;; register in this module.
+                   (let ((tmp (or (and (fpr? src-var) (make-fpr -2))
+                                  (make-gpr -2)))
+                         (src-local (find-src-local src-var)))
+                     (dump-move local tmp src-var)
+                     (move moffs tmp src-var)
+                     (hashq-set! srcs src-local tmp)
+                     (lp dsts)))
+                  (else
+                   (lp (append rest (list (cons local dst-var)))))))))))
+          ((hashq-ref srcs local)
+           =>
+           (lambda (src-var)
+             (when (not (equal? src-var dst-var))
+               (dump-move local dst-var src-var)
+               (move moffs dst-var src-var))
+             (hashq-remove! srcs local)
+             (lp rest)))
+          (else
+           (dump-load local dst-var (hashq-ref types local))
+           (let ((type (hashq-ref types local)))
+             ;; XXX: Add test to check the case ignoring `load-frame'.
+             (when type
+               (load-frame moffs local type dst-var)))
+           (lp rest))))
+        (() (values))))))
 
 (define (assemble-cps cps env kstart entry-ip snapshots initial-args fp-offset
                       tlog trampoline end-address linked-ip)
@@ -1025,44 +1112,23 @@
          ((hashq-ref snapshots current-side-exit)
           =>
           (lambda (local-x-types)
-            ;; XXX: Lots of code are duplicating with side trace
-            ;; initialization. Factor out and share.
-            (for-each
-             (lambda (local-x-type arg)
-               (let ((local (car local-x-type))
-                     (type (cdr local-x-type)))
-                 ;; Value at the end of side trace is not passed to linked
-                 ;; native code, store to frame.
-                 (when (not (assq local loop-locals))
-                   (store-frame moffs local type (env-ref arg)))
-                 (hashq-set! current-locals local (env-ref arg))))
-             local-x-types args)
-
-            ;; Move registers first, then load from frame.
-            (let ((variables-to-load-from-frame
-                   (let lp ((locals loop-locals)
-                            (dsts (tlog-loop-vars tlog))
-                            (acc '()))
-                     (match locals
-                       (((local . type) . locals)
-                        (match dsts
-                          ((dst . dsts)
-                           (cond
-                            ((hashq-ref current-locals local)
-                             =>
-                             (lambda (src)
-                               ;; XXX: src could be overwritten by move.
-                               (move moffs dst src)
-                               (lp locals dsts acc)))
-                            (else
-                             (let ((ltd (list local type dst)))
-                               (lp locals dsts (cons ltd acc))))))))
-                       (() (reverse! acc))))))
-              (for-each
-               (match-lambda ((local type dst)
-                              (load-frame moffs local type dst)))
-               variables-to-load-from-frame))
-
+            ;; Store unpassed variables, move registers from parent, then load
+            ;; the locals from frame when not passed from parent.
+            (let ((dst-table (make-hash-table))
+                  (src-table
+                   (maybe-store moffs local-x-types args env-ref loop-locals))
+                  (type-table (make-hash-table)))
+              (let lp ((locals loop-locals)
+                       (dsts (tlog-loop-vars tlog)))
+                (match locals
+                  (((local . type) . locals)
+                   (hashq-set! type-table local type)
+                   (match dsts
+                     ((dst . dsts)
+                      (hashq-set! dst-table local dst)
+                      (lp locals dsts))))
+                  (() values)))
+              (move-or-load-carefully dst-table src-table type-table moffs))
             ;; Jump to beginning of the loop in linked code.
             (jumpi (tlog-loop-address tlog))))
          (else
@@ -1096,13 +1162,26 @@
         ((hashq-ref snapshots (- current-side-exit 1))
          =>
          (lambda (local-x-types)
-           (for-each
-            (lambda (local-x-type arg)
-              ;; XXX: Save frame of parent trace when compiling side trace?
-              (let ((local (car local-x-type))
-                    (type (cdr local-x-type)))
-                (store-frame moffs local type (env-ref arg))))
-            local-x-types args)))
+           (let lp ((local-x-types local-x-types)
+                    (args args))
+             ;; XXX: Add more tests to see whether it's fine to ignore args.
+             ;;
+             ;; Matching ends when no more values found in local, args exceeding
+             ;; the number of locals are ignored.
+             (match local-x-types
+               (((local . type) . local-x-types)
+                (match args
+                  ((arg . args)
+                   (store-frame moffs local type (env-ref arg))
+                   (lp local-x-types args))))
+               (() (values))))
+           ;; (for-each
+           ;;  (lambda (local-x-type arg)
+           ;;    (let ((local (car local-x-type))
+           ;;          (type (cdr local-x-type)))
+           ;;      (store-frame moffs local type (env-ref arg))))
+           ;;  local-x-types args)
+           ))
         (else
          (debug 2 ";;; assemble-exit: entry IP ~x~%" next-ip)))
 
@@ -1247,52 +1326,50 @@
           (jit-tramp (imm (* 4 %word-size)))
 
           ;; Load initial arguments from parent trace.
-          (let ((args (make-hash-table))
-                (moffs
+          (let ((moffs
                  (lambda (mem)
                    (let ((offset (* (ref-value mem) %word-size)))
-                     (make-offset-pointer fp-offset offset)))))
-            (for-each
-             (lambda (local-x-type var)
-               (let ((local (car local-x-type))
-                     (type (cdr local-x-type)))
-                 ;; Save to frame when values from parent trace are not passed
-                 ;; to side trace.
-                 (when (not (assq local initial-locals))
-                   (store-frame moffs local type var))
-                 (hashq-set! args local var)))
-             (hashq-ref (tlog-snapshots tlog) (- exit-id 1))
-             (hashq-ref (tlog-exit-variables tlog) exit-id))
+                     (make-offset-pointer fp-offset offset))))
+                (snapshot (hashq-ref snapshots 0)))
 
-            ;; Move variables from parent trace before loading from frame.
+            ;; Store values passed from parent trace when it's unused in this
+            ;; side trace.
+            (maybe-store moffs
+                         (hashq-ref (tlog-snapshots tlog) (- exit-id 1))
+                         (hashq-ref (tlog-exit-variables tlog) exit-id)
+                         identity
+                         initial-locals)
+
+            ;; When passing values from parent trace to side-trace, src could be
+            ;; overwritten by move or load.
             ;;
             ;; Values stored in register passed from parent trace could be
-            ;; overwritten by values loaded from frame, since the pairing of
-            ;; locals and register could be different from how it was done in
-            ;; parent trace.
-            ;;
-            (let* ((snapshot (hashq-ref snapshots 0))
-                   (variables-to-load-from-frame
-                    (let lp ((locals initial-locals) (acc '()))
-                      (match locals
-                        (((local . var) . locals)
-                         (let ((dst (vector-ref env var)))
-                           (cond
-                            ((hashq-ref args local)
-                             =>
-                             (lambda (src)
-                               ;; XXX: src could be overwritten by move.
-                               (move moffs dst src)
-                               (lp locals acc)))
-                            (else
-                             (let* ((type (assq-ref snapshot local))
-                                    (ltd (list local type dst)))
-                               (lp locals (cons ltd acc)))))))
-                        (() (reverse! acc))))))
+            ;; overwritten by values loaded from frame or moved from parent,
+            ;; since the pairing of locals and register could be different from
+            ;; how it was done in parent trace.  Prepare hash tables containing
+            ;; dst, src, and types. Then move or load values to destinations
+            ;; with avoiding overwrites of source values.
+            (let ((local-x-types (hashq-ref (tlog-snapshots tlog) (- exit-id 1)))
+                  (vars (hashq-ref (tlog-exit-variables tlog) exit-id))
+                  (dst-table (make-hash-table))
+                  (src-table (make-hash-table))
+                  (type-table (make-hash-table)))
               (for-each
-               (match-lambda ((local type dst)
-                              (load-frame moffs local type dst)))
-               variables-to-load-from-frame)))
+               (match-lambda
+                ((local . var)
+                 (hashq-set! type-table local (assq-ref snapshot local))
+                 (hashq-set! dst-table local (vector-ref env var))))
+               initial-locals)
+              (let lp ((local-x-types local-x-types)
+                       (vars vars))
+                (match local-x-types
+                  (((local . type) . local-x-types)
+                   (match vars
+                     ((var . vars)
+                      (hashq-set! src-table local var)
+                      (lp local-x-types vars))))
+                  (() (values))))
+              (move-or-load-carefully dst-table src-table type-table moffs)))
 
           ;; Assemble the primitives in CPS.
           (assemble-cps cps env kstart entry-ip snapshots loop-args fp-offset
