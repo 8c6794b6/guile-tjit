@@ -445,7 +445,7 @@
         (('receive dst proc nlocals)
          (pop-offset! proc)
          (let ((vdst (var-ref dst))
-               (vproc (var-ref proc)))
+               (vproc (var-ref (+ proc 1))))
            `(let ((,vdst ,vproc))
               ,(convert escape rest))))
 
@@ -455,7 +455,7 @@
 
         (('return src)
          (let ((vsrc (var-ref src))
-               (vdst (var-ref 0)))
+               (vdst (var-ref 1)))
            (cond
             ((eq? vdst vsrc)
              (convert escape rest))
