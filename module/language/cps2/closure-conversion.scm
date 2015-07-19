@@ -443,16 +443,6 @@ variable, until we reach a fixed point on the free-vars map."
        ((= start i) idx)
        (else (lp (1+ idx) (1+ start)))))))
 
-(define (intmap-select map set)
-  (persistent-intmap
-   (intmap-fold
-    (lambda (k v out)
-      (if (intset-ref set k)
-          (intmap-add! out k v)
-          out))
-    map
-    empty-intmap)))
-
 (define (intset-count set)
   (intset-fold (lambda (_ count) (1+ count)) set 0))
 

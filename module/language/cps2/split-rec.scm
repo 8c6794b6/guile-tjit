@@ -105,51 +105,6 @@ references."
                                  (persistent-intset defs)))))))
   (visit-fun kfun))
 
-(define (compute-sorted-strongly-connected-components edges)
-  (define nodes
-    (intmap-keys edges))
-  ;; Add a "start" node that links to all nodes in the graph, and then
-  ;; remove it from the result.
-  (define components
-    (intmap-remove
-     (compute-strongly-connected-components (intmap-add edges 0 nodes) 0)
-     0))
-  (define node-components
-    (intmap-fold (lambda (id nodes out)
-                   (intset-fold (lambda (node out) (intmap-add out node id))
-                                nodes out))
-                 components
-                 empty-intmap))
-  (define (node-component node)
-    (intmap-ref node-components node))
-  (define (component-successors id nodes)
-    (intset-remove
-     (intset-fold (lambda (node out)
-                    (intset-fold
-                     (lambda (successor out)
-                       (intset-add out (node-component successor)))
-                     (intmap-ref edges node)
-                     out))
-                  nodes
-                  empty-intset)
-     id))
-  (define component-edges
-    (intmap-map component-successors components))
-  (define preds
-    (invert-graph component-edges))
-  (define roots
-    (intmap-fold (lambda (id succs out)
-                   (if (eq? empty-intset succs)
-                       (intset-add out id)
-                       out))
-                 component-edges
-                 empty-intset))
-  ;; As above, add a "start" node that links to the roots, and remove it
-  ;; from the result.
-  (match (compute-reverse-post-order (intmap-add preds 0 roots) 0)
-    ((0 . ids)
-     (map (lambda (id) (intmap-ref components id)) ids))))
-
 (define (compute-split fns free-vars)
   (define (get-free kfun)
     ;; It's possible for a fun to have been skipped by

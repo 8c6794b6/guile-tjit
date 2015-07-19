@@ -54,6 +54,7 @@
             compute-predecessors
             compute-reverse-post-order
             compute-strongly-connected-components
+            compute-sorted-strongly-connected-components
             compute-idoms
             compute-dom-edges
             ))
@@ -270,7 +271,7 @@ intset."
                  visited))
             lp)))))
 
-(define (compute-successors conts kfun)
+(define* (compute-successors conts #:optional (kfun (intmap-next conts)))
   (define (visit label succs)
     (let visit ((label kfun) (succs empty-intmap))
       (define (propagate0)
@@ -373,6 +374,58 @@ partitioning the labels into strongly connected components (SCCs)."
          (intmap-add sccs scc labels intset-union)))
      (fold visit-scc empty-intmap (compute-reverse-post-order succs start))
      empty-intmap)))
+
+(define (compute-sorted-strongly-connected-components edges)
+  "Given a LABEL->SUCCESSOR... graph, return a list of strongly
+connected components in sorted order."
+  (define nodes
+    (intmap-keys edges))
+  ;; Add a "start" node that links to all nodes in the graph, and then
+  ;; remove it from the result.
+  (define start
+    (if (eq? nodes empty-intset)
+        0
+        (1+ (intset-prev nodes))))
+  (define components
+    (intmap-remove
+     (compute-strongly-connected-components (intmap-add edges start nodes)
+                                            start)
+     start))
+  (define node-components
+    (intmap-fold (lambda (id nodes out)
+                   (intset-fold (lambda (node out) (intmap-add out node id))
+                                nodes out))
+                 components
+                 empty-intmap))
+  (define (node-component node)
+    (intmap-ref node-components node))
+  (define (component-successors id nodes)
+    (intset-remove
+     (intset-fold (lambda (node out)
+                    (intset-fold
+                     (lambda (successor out)
+                       (intset-add out (node-component successor)))
+                     (intmap-ref edges node)
+                     out))
+                  nodes
+                  empty-intset)
+     id))
+  (define component-edges
+    (intmap-map component-successors components))
+  (define preds
+    (invert-graph component-edges))
+  (define roots
+    (intmap-fold (lambda (id succs out)
+                   (if (eq? empty-intset succs)
+                       (intset-add out id)
+                       out))
+                 component-edges
+                 empty-intset))
+  ;; As above, add a "start" node that links to the roots, and remove it
+  ;; from the result.
+  (match (compute-reverse-post-order (intmap-add preds start roots) start)
+    (((? (lambda (id) (eqv? id start))) . ids)
+     (map (lambda (id) (intmap-ref components id)) ids))))
 
 ;; Precondition: For each function in CONTS, the continuation names are
 ;; topologically sorted.
