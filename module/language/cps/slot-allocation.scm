@@ -281,7 +281,7 @@ are comparable with eqv?.  A tmp slot may be used."
           0
           (1- (find-first-trailing-zero live-slots))))
 
-    (define (recompute-live-slots k nargs)
+    (define (recompute-live-slots k)
       (let ((in (dfa-k-in dfa (label->idx k))))
         (let lp ((v 0) (live-slots 0))
           (let ((v (intset-next in v)))
@@ -589,10 +589,10 @@ are comparable with eqv?.  A tmp slot may be used."
            (hashq-set! call-allocations label
                        (make-call-allocation #f moves #f))))))
 
-    (define (allocate-prompt label k handler nargs)
+    (define (allocate-prompt label k handler)
       (match (lookup-cont handler dfg)
         (($ $kreceive arity kargs)
-         (let* ((handler-live (recompute-live-slots handler nargs))
+         (let* ((handler-live (recompute-live-slots handler))
                 (proc-slot (compute-prompt-handler-proc-slot handler-live))
                 (result-vars (vector-ref defv (label->idx kargs)))
                 (value-slots (map (cut + proc-slot 1 <>)
@@ -618,8 +618,8 @@ are comparable with eqv?.  A tmp slot may be used."
     ;; This traversal will visit definitions before uses, as
     ;; definitions dominate uses and a block's dominator will appear
     ;; before it, in reverse post-order.
-    (define (visit-clause n nargs live)
-      (let lp ((n n) (live (recompute-live-slots (idx->label n) nargs)))
+    (define (visit-clause n live)
+      (let lp ((n n) (live (recompute-live-slots (idx->label n))))
         (define (kill-dead live vars-by-label-idx pred)
           (fold (lambda (v live)
                   (let ((slot (vector-ref slots v)))
@@ -636,7 +636,7 @@ are comparable with eqv?.  A tmp slot may be used."
             n
             (let* ((label (idx->label n))
                    (live (if (control-point? label dfg)
-                             (recompute-live-slots label nargs)
+                             (recompute-live-slots label)
                              live))
                    (live (kill-dead-defs (allocate-defs! n live)))
                    (post-live (kill-dead-uses live)))
@@ -649,7 +649,7 @@ are comparable with eqv?.  A tmp slot may be used."
                  (define (compute-k-live k)
                    (match (lookup-predecessors k dfg)
                      ((_) post-live)
-                     (_ (recompute-live-slots k nargs))))
+                     (_ (recompute-live-slots k))))
                  (let ((uses (vector-ref usev n)))
                    (match (find-call body)
                      (($ $continue k src (or ($ $call) ($ $callk)))
@@ -658,7 +658,7 @@ are comparable with eqv?.  A tmp slot may be used."
                      (($ $continue k src ($ $values))
                       (allocate-values label k uses live (compute-k-live k)))
                      (($ $continue k src ($ $prompt escape? tag handler))
-                      (allocate-prompt label k handler nargs))
+                      (allocate-prompt label k handler))
                      (_ #f)))
                  (lp (1+ n) post-live))
                 ((or ($ $kreceive) ($ $ktail))
@@ -675,7 +675,6 @@ are comparable with eqv?.  A tmp slot may be used."
              (error "Unexpected label order"))
            (let* ((nargs (length names))
                   (next (visit-clause (1+ n)
-                                      nargs
                                       (fold allocate! live
                                             (vector-ref defv (1+ n))
                                             (cdr (iota (1+ nargs)))))))
