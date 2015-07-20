@@ -542,19 +542,7 @@ are comparable with eqv?.  A tmp slot may be used."
            (hashq-set! call-allocations label
                        (make-call-allocation proc-slot arg-moves dead-slot-map))
            (hashq-set! call-allocations k
-                       (make-call-allocation proc-slot result-moves #f))))
-
-        (_
-         (let* ((proc-slot (compute-call-proc-slot post-live))
-                (call-slots (map (cut + proc-slot <>) (iota (length uses))))
-                (pre-live (fold allocate! pre-live uses call-slots))
-                (arg-moves (parallel-move (map (cut vector-ref slots <>) uses)
-                                          call-slots
-                                          (compute-tmp-slot pre-live
-                                                            call-slots))))
-           (bump-nlocals! (+ proc-slot (length uses)))
-           (hashq-set! call-allocations label
-                       (make-call-allocation proc-slot arg-moves #f))))))
+                       (make-call-allocation proc-slot result-moves #f))))))
                          
     (define (allocate-values label k uses pre-live post-live)
       (match (lookup-cont k dfg)
