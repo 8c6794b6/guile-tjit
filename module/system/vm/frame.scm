@@ -206,7 +206,10 @@
       (when (< offset 0)
         (error "ip did not correspond to an instruction boundary?"))
       (if (zero? offset)
-          (let ((live (if top-frame?
+          ;; It shouldn't be the case that both OFFSET and N are zero
+          ;; but TOP-FRAME? is false.  Still, it could happen, as is
+          ;; currently the case in frame-arguments.
+          (let ((live (if (or top-frame? (zero? n))
                           (vector-ref inv n)
                           ;; If we're not at a top frame, the IP points
                           ;; to the continuation -- but we haven't

@@ -1,6 +1,6 @@
 ;;; Guile VM debugging facilities
 
-;;; Copyright (C) 2001, 2009, 2010, 2011, 2013, 2014 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2011, 2013, 2014, 2015 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -134,7 +134,8 @@
         (format port "~&In ~a:~&" file))
     (format port "~9@a~:[~*~3_~;~3d~] ~v:@y~%"
             (if line (format #f "~a:~a" line col) "")
-            index index width (frame-call-representation frame))
+            index index width
+            (frame-call-representation frame #:top-frame? (zero? index)))
     (if full?
         (print-locals frame #:width width
                       #:per-line-prefix "     "))))
