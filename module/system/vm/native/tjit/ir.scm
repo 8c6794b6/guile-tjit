@@ -73,7 +73,7 @@
 (define (flonum? val)
   (and (real? val) (inexact? val)))
 
-(define (undefined? x)
+(define (unbound? x)
   (= (pointer-address (scm->pointer x))) #x904)
 
 
@@ -283,22 +283,10 @@
               (let* ((type (vector-ref types i))
                      (var (and type (vector-ref vars i)))
                      (op (and type (type-guard-op type)))
-                     (exp
-                      (and op
-                           `(begin
-                              (,op ,var)
-                              ,(unbox-op type var (lp (+ i 1) end))))
-                      ;; (cond
-                      ;;  (op
-                      ;;   `(let ((,var (%frame-ref ,i)))
-                      ;;      (,op ,var)
-                      ;;      ,(unbox-op type var (lp (+ i 1) end))))
-                      ;;  (var
-                      ;;   `(let ((,var (%frame-ref ,i)))
-                      ;;      ,(lp (+ i 1) end)))
-                      ;;  (else
-                      ;;   (lp (+ i 1) end)))
-                      ))
+                     (exp (and op
+                               `(begin
+                                  (,op ,var)
+                                  ,(unbox-op type var (lp (+ i 1) end))))))
                 (or exp (lp (+ i 1) end)))
               loop-exp))))
 
@@ -313,7 +301,8 @@
          (types (make-types vars))
          (snapshot-id 0)
          (snapshots (make-hash-table))
-         (up-locals #f))
+         (up-locals #f)
+         (parent-frame #f))
 
     (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
@@ -324,7 +313,7 @@
     (define-syntax-rule (set-type! idx ty)
       (vector-set! types (+ idx local-offset) ty))
 
-    (define (convert-one escape op ip locals rest)
+    (define (convert-one escape op ip fp locals rest)
 
       (define (local-ref i)
         (vector-ref locals i))
@@ -335,9 +324,11 @@
                (vector-ref vars (+ i local-offset)))))
 
       (define (take-snapshot! ip offset)
-        ;; XXX: When procedure get inlined, need to take snapshot of previous
-        ;; frame, because the contents of previous frame could be changed in the
-        ;; loop in native code.
+        ;; When procedure get inlined, need to take snapshot of previous frame,
+        ;; because the contents of previous frame could be changed in the loop
+        ;; in native code.
+        ;;
+        ;; XXX: Support nested inline procedures.
         (debug 2 ";;; take-snapshot!:~%")
         (debug 2 ";;;   snapshot-id=~a~%" snapshot-id)
         (debug 2 ";;;   ip=~x, offset=~a~%" ip offset)
@@ -355,10 +346,10 @@
                 (lp (+ i 1) (cons `(,i . ,&flonum) acc)))
                ((variable? local)
                 (lp (+ i 1) (cons `(,i . ,&box) acc)))
+               ((unbound? local)
+                (lp (+ i 1) (cons `(,i . ,&unbound) acc)))
                ((not local)
                 (lp (+ i 1) (cons `(,i . ,&false) acc)))
-               ((undefined? local)
-                (lp (+ i 1) (cons `(,i . ,&unbound) acc)))
                (else
                 ;; XXX: Add more types.
                 (debug 2 "*** take-snapshot!: ~a~%" local)
@@ -380,19 +371,28 @@
                 ;; amount of terms.
                 `(,(+ ip (* offset 4)) ,@args)))
 
-             ((and up-locals
-                   (< i local-offset))
-              (let ((local (vector-ref up-locals i)))
-                (debug 2 ";;;   i=~a, from up-locals, local=~a~%" i local)
-                (add-local local)))
+             ((and up-locals (< 0 local-offset))
+              (cond
+               ((= i (- local-offset 2))
+                (debug 2 ";;;   i=~a, dynamic-link=~a~%" i (car parent-frame))
+                (lp (+ i 1) (cons `(,i . ,(car parent-frame)) acc)))
 
-             ((and (< 0 local-offset)
-                   (<= local-offset i)
-                   (< (- i local-offset) (vector-length locals)))
-              (let ((local (local-ref (- i local-offset))))
-                (debug 2 ";;;   i=~a, (local-ref ~a)=~a~%"
-                       i (- i local-offset) local)
-                (add-local local)))
+               ((= i (- local-offset 1))
+                (debug 2 ";;;   i=~a, vm-ra=~a~%" i (cdr parent-frame))
+                (lp (+ i 1) (cons `(,i . ,(cdr parent-frame)) acc)))
+
+               ((<= local-offset i)
+                (let ((j (- i local-offset)))
+                  (if (< j (vector-length locals))
+                      (let ((local (local-ref j)))
+                        (debug 2 ";;;   i=~a, (local-ref ~a)=~a~%" i j local)
+                        (add-local local))
+                      (lp (+ i 1) acc))))
+
+               (else
+                (let ((local (vector-ref up-locals i)))
+                  (debug 2 ";;;   i=~a, from up-locals, local=~a~%" i local)
+                  (add-local local)))))
 
              ((and (= local-offset 0)
                    (var-ref i))
@@ -421,6 +421,7 @@
          (set-type! proc &procedure)
          (push-offset! proc)
          (set! up-locals locals)
+         (set! parent-frame (cons fp (make-pointer (+ ip (* 2 4)))))
          (convert escape rest))
 
         (('call-label proc nlocals label)
@@ -853,17 +854,17 @@
 
     (define (convert escape traces)
       (match traces
-        (((op ip _ locals) . ())
+        (((op ip fp locals) . ())
          (cond
           (root-trace?
-           (convert-one escape op ip locals
+           (convert-one escape op ip fp locals
                         `(loop ,@(filter identity (vector->list vars)))))
           (else                         ; side trace.
            (let* ((snap! `(take-snapshot! ,*ip-key-end-of-side-trace* 0))
                   (last-op `((,snap! ,ip #f ,locals))))
-             (convert-one escape op ip locals last-op)))))
-        (((op ip _ locals) . rest)
-         (convert-one escape op ip locals rest))
+             (convert-one escape op ip fp locals last-op)))))
+        (((op ip fp locals) . rest)
+         (convert-one escape op ip fp locals rest))
         (_ traces)))
 
     (define (enter-convert escape traces)
@@ -872,9 +873,9 @@
         (convert escape traces))
        ((not (null? traces))            ; side trace.
         (match (car traces)
-          ((op ip _ locals)
+          ((op ip fp locals)
            `(begin
-              ,(convert-one escape `(take-snapshot! ,ip 0) ip locals '())
+              ,(convert-one escape `(take-snapshot! ,ip 0) ip fp locals '())
               ,(convert escape traces)))
           (_
            (debug 2 "*** ir.scm: malformed traces")

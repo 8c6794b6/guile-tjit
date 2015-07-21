@@ -87,6 +87,12 @@
 (define %scm-do-inline-double-cell
   (dynamic-pointer "scm_do_inline_double_cell" (dynamic-link)))
 
+(define *scm-false*
+  (scm->pointer #f))
+
+(define *scm-undefined*
+  (make-pointer #x904))
+
 
 ;;; Predicates
 
@@ -910,15 +916,34 @@
    ((eq? type &false)
     (cond
      ((gpr? dst)
-      (jit-movi (gpr dst) (scm->pointer #f)))
+      (jit-movi (gpr dst) *scm-false*))
      ((memory? dst)
-      (jit-movi r0 (scm->pointer #f))
+      (jit-movi r0 *scm-false*)
+      (jit-stxi-d (moffs dst) fp r0))))
+   ((eq? type &unbound)
+    (cond
+     ((gpr? dst)
+      (jit-movi (gpr dst) *scm-undefined*))
+     ((memory? dst)
+      (jit-movi r0 *scm-undefined*)
       (jit-stxi-d (moffs dst) fp r0))))
    (else
     (error "load-frame" local type dst))))
 
 (define (store-frame moffs local type src)
   (cond
+   ;; When type is a pointer, moving type value itself to frame local.
+   ;;
+   ;; Dynamic-link and return address of VM frame need to be recovered when
+   ;; taking exit from inlined procedure call. The actual values for
+   ;; dynamic-link and return address are captured at the time of bytecode to
+   ;; Scheme IR conversion, and stored in snapshot as pointer.
+   ((pointer? type)
+    (debug 2 "store-frame: local=~a, type=~a, src=~a~%" local type src)
+    (jit-movi r0 type)
+    (local-set! local r0))
+
+   ;; Check type, recover SCM value appropriately.
    ((eq? type &exact-integer)
     (cond
      ((constant? src)
@@ -957,14 +982,15 @@
       (local-set! local (gpr src)))
      ((memory? src)
       (jit-ldxi r0 fp (moffs src))
-      (local-set! local r0))
-     (else
-      (error "store-frame: box" local type src))))
+      (local-set! local r0))))
    ((eq? type &false)
-    (jit-movi r0 (scm->pointer #f))
+    (jit-movi r0 *scm-false*)
+    (local-set! local r0))
+   ((eq? type &unbound)
+    (jit-movi r0 *scm-undefined*)
     (local-set! local r0))
    (else
-    (error "store-frame: Unknown local, type, src" local type src))))
+    (error "store-frame: Unknown local, type, src:" local type src))))
 
 (define (maybe-store moffs local-x-types srcs src-unwrapper references)
   "Store src in SRCS to frame when local is not found in references."

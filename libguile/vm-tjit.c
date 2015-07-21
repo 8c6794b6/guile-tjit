@@ -234,11 +234,12 @@ dump_fps (SCM *old_fp, SCM *fp)
 }
 
 static inline SCM
-add_trace (scm_i_thread *thread, SCM s_ip, SCM locals, SCM traces)
+record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
 {
   SCM trace = SCM_EOL;
+  SCM s_fp = scm_from_pointer ((void *) fp, NULL);
   trace = scm_inline_cons (thread, locals, trace);
-  trace = scm_inline_cons (thread, SCM_BOOL_F, trace);
+  trace = scm_inline_cons (thread, s_fp, trace);
   trace = scm_inline_cons (thread, s_ip, trace);
   return scm_inline_cons (thread, trace, traces);
 }
@@ -269,21 +270,12 @@ add_trace (scm_i_thread *thread, SCM s_ip, SCM locals, SCM traces)
                            &tjit_state,                                 \
                            &tjit_loop_start, &tjit_loop_end,            \
                            &tjit_parent_ip, &tjit_parent_exit_id);      \
-        shift = (scm_t_uint32) SCM_I_INUM (SCM_CDR (ret));              \
                                                                         \
-        /* XXX: Recorver return address and dynamic link in native   */ \
-        /* code.  Inlined call to procedure could be done for        */ \
-        /* levels, keep track of dynamic links and return addresses. */ \
-        /* `ip - 2' used for return address is manually done.        */ \
-        /* Variables "fp" and "ip" are using register in             */ \
-        /* "libguile/vm-engine.h", assign in C code.                 */ \
+        /* Update `fp' and `ip' in C code.  Variables `fp' and `ip'  */ \
+        /* are using registers, see "libguile/vm-engine.h".          */ \
+        shift = (scm_t_uint32) SCM_I_INUM (SCM_CDR (ret));              \
         old_fp = fp;                                                    \
         fp = vp->fp = old_fp + shift;                                   \
-        if (0 < shift)                                                  \
-          {                                                             \
-            SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);                    \
-            SCM_FRAME_SET_RETURN_ADDRESS (fp, ip - 2);                  \
-          }                                                             \
         ip = (scm_t_uint32 *) SCM_I_INUM (SCM_CAR (ret));               \
       }                                                                 \
     else                                                                \
@@ -355,7 +347,7 @@ add_trace (scm_i_thread *thread, SCM s_ip, SCM locals, SCM traces)
         for (i = 0; i < num_locals; ++i)                                \
           scm_c_vector_set_x (locals, i, LOCAL_REF (i));                \
                                                                         \
-        tjit_traces = add_trace (thread, s_ip, locals, tjit_traces);    \
+        tjit_traces = record (thread, s_ip, fp, locals, tjit_traces);   \
       }                                                                 \
   } while (0)
 

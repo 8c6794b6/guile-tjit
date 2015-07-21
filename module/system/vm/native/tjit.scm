@@ -90,10 +90,8 @@
                 (length ip-x-ops) lowest (sort locals <))
         (let lp ((traces ip-x-ops) (level (- lowest)))
           (match traces
-            (((op ip bv locals) . traces)
-             (let ((op-val
-                    (format #f "~x  ~a ~a~a"
-                            ip (or (and bv "*") " ") (make-indent level) op)))
+            (((op ip fp locals) . traces)
+             (let ((op-val (format #f "~x  ~a~a" ip (make-indent level) op)))
                (if (<= 3 verbosity)
                    (format #t "~40a ; ~a~%" op-val locals)
                    (format #t "~a~%" op-val)))
