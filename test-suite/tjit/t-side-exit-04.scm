@@ -1,0 +1,13 @@
+(define (loop a b c d)
+  (let lp ((i 0) (acc 0))
+    (if (< i a)
+        (if (< i b)
+            (if (< i c)
+                (if (< i d)
+                    (lp (+ i 1) (+ acc 1))
+                    (lp (+ i 1) (+ acc 2)))
+                (lp (+ i 1) (+ acc 3)))
+            (lp (+ i 1) (+ acc 4)))
+        acc)))
+
+(loop 3000 2000 1000 500)

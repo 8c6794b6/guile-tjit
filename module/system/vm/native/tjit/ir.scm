@@ -311,8 +311,9 @@
          (args (map make-var (reverse locals)))
          (vars (make-vars max-local-num locals))
          (types (make-types vars))
+         (snapshot-id 0)
          (snapshots (make-hash-table))
-         (snapshot-id 0))
+         (up-locals #f))
 
     (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
@@ -333,63 +334,44 @@
           (and (< idx (vector-length vars))
                (vector-ref vars (+ i local-offset)))))
 
-      ;; (define (save-frame!)
-      ;;   (let ((end (vector-length vars)))
-      ;;     (let lp ((i 0))
-      ;;       (cond
-      ;;        ((= i end) '())
-      ;;        ((vector-ref vars i)
-      ;;         =>
-      ;;         (lambda (var)
-      ;;           (let* ((idx (- i local-offset))
-      ;;                  (local (and (< idx (vector-length locals))
-      ;;                              (vector-ref locals idx))))
-      ;;             (cond
-      ;;              ((flonum? local)
-      ;;               (cons `(let ((,var (%from-double ,var)))
-      ;;                        (%frame-set! ,i ,var))
-      ;;                     (lp (+ i 1))))
-      ;;              ((fixnum? local)
-      ;;               (cons `(let ((,var ,(from-fixnum var)))
-      ;;                        (%frame-set! ,i ,var))
-      ;;                     (lp (+ i 1))))
-      ;;              (else
-      ;;               (cons `(%frame-set! ,i ,var) (lp (+ i 1))))))))
-      ;;        (else
-      ;;         (lp (+ i 1)))))))
-
-      ;; (define (load-frame exp)
-      ;;   (let ((end (vector-length vars)))
-      ;;     (let lp ((i 0))
-      ;;       (cond
-      ;;        ((= i end)
-      ;;         exp)
-      ;;        ((vector-ref vars i)
-      ;;         =>
-      ;;         (lambda (var)
-      ;;           (let* ((idx (+ i local-offset))
-      ;;                  (local (and (< idx (vector-length locals))
-      ;;                              (vector-ref locals idx))))
-      ;;             (cond
-      ;;              ((fixnum? local)
-      ;;               `(let ((,var (%frame-ref ,i)))
-      ;;                  (let ((,var ,(to-fixnum var)))
-      ;;                    ,(lp (+ i 1)))))
-      ;;              (else
-      ;;               `(let ((,var (%frame-ref ,i)))
-      ;;                  ,(lp (+ i 1))))))))
-      ;;        (else
-      ;;         (lp (+ i 1)))))))
-
       (define (take-snapshot! ip offset)
+        ;; XXX: When procedure get inlined, need to take snapshot of previous
+        ;; frame, because the contents of previous frame could be changed in the
+        ;; loop in native code.
+        (debug 2 ";;; take-snapshot!:~%")
+        (debug 2 ";;;   snapshot-id=~a~%" snapshot-id)
+        (debug 2 ";;;   ip=~x, offset=~a~%" ip offset)
+        (debug 2 ";;;   var=~a~%" vars)
+        (debug 2 ";;;   local=~a~%" locals)
+        (debug 2 ";;;   local-offset=~a~%" local-offset)
+        (debug 2 ";;;   up-locals=~a~%" up-locals)
         (let ((end (vector-length vars)))
           (let lp ((i 0) (acc '()))
+            (define (add-local local)
+              (cond
+               ((fixnum? local)
+                (lp (+ i 1) (cons `(,i . ,&exact-integer) acc)))
+               ((flonum? local)
+                (lp (+ i 1) (cons `(,i . ,&flonum) acc)))
+               ((variable? local)
+                (lp (+ i 1) (cons `(,i . ,&box) acc)))
+               ((not local)
+                (lp (+ i 1) (cons `(,i . ,&false) acc)))
+               ((undefined? local)
+                (lp (+ i 1) (cons `(,i . ,&unbound) acc)))
+               (else
+                ;; XXX: Add more types.
+                (debug 2 "*** take-snapshot!: ~a~%" local)
+                (lp (+ i 1) acc))))
             (cond
              ((= i end)
               (let ((acc (reverse! acc)))
                 ;; Using snapshot-id as key for hash-table. Identical IP could
                 ;; be used for entry clause and first operation in the loop.
-                (hashq-set! snapshots snapshot-id acc)
+                ;;
+                ;; CAR of a snapshot is local offset, CDR is a list of pair of
+                ;; local id and type.
+                (hashq-set! snapshots snapshot-id (cons local-offset acc))
                 (set! snapshot-id (+ snapshot-id 1))
 
                 ;; Call to dummy procedure to capture CPS variables by emitting
@@ -397,28 +379,34 @@
                 ;; though no other idea to capture CPS variables with less
                 ;; amount of terms.
                 `(,(+ ip (* offset 4)) ,@args)))
-             ((var-ref i)
-              =>
-              (lambda (var)
-                (let ((local (or (and (< i (vector-length locals))
-                                      (local-ref i))
-                                 #f)))
-                  (cond
-                   ((fixnum? local)
-                    (lp (+ i 1) (cons `(,i . ,&exact-integer) acc)))
-                   ((flonum? local)
-                    (lp (+ i 1) (cons `(,i . ,&flonum) acc)))
-                   ((variable? local)
-                    (lp (+ i 1) (cons `(,i . ,&box) acc)))
-                   ((not local)
-                    (lp (+ i 1) (cons `(,i . ,&false) acc)))
-                   ((undefined? local)
-                    (lp (+ i 1) (cons `(,i . ,&unbound) acc)))
-                   (else
-                    ;; XXX: Add more types.
-                    (debug 2 "*** take-snapshot!: ~a~%" local)
-                    (lp (+ i 1) acc))))))
+
+             ((and up-locals
+                   (< i local-offset))
+              (let ((local (vector-ref up-locals i)))
+                (debug 2 ";;;   i=~a, from up-locals, local=~a~%" i local)
+                (add-local local)))
+
+             ((and (< 0 local-offset)
+                   (<= local-offset i)
+                   (< (- i local-offset) (vector-length locals)))
+              (let ((local (local-ref (- i local-offset))))
+                (debug 2 ";;;   i=~a, (local-ref ~a)=~a~%"
+                       i (- i local-offset) local)
+                (add-local local)))
+
+             ((and (= local-offset 0)
+                   (var-ref i))
+              (let ((local (cond
+                            ((and up-locals (<= local-offset i))
+                             (local-ref (- i local-offset)))
+                            (else
+                             (and (< i (vector-length locals))
+                                  (local-ref i))))))
+                (debug 2 ";;;   i=~a, local=~a~%" i local)
+                (add-local local)))
+
              (else
+              (debug 2 ";;;   skiiping i=~a, var-ref=~a~%" i (var-ref i))
               (lp (+ i 1) acc))))))
 
       ;; (debug 2 "convert-one: ~a (~a/~a) ~a~%"
@@ -432,6 +420,7 @@
         (('call proc nlocals)
          (set-type! proc &procedure)
          (push-offset! proc)
+         (set! up-locals locals)
          (convert escape rest))
 
         (('call-label proc nlocals label)
@@ -783,7 +772,24 @@
         ;; XXX: div
         ;; XXX: quo
         ;; XXX: rem
-        ;; XXX: mod
+
+        (('mod dst a b)
+         (let ((rdst (local-ref dst))
+               (ra (local-ref a))
+               (rb (local-ref b))
+               (vdst (var-ref dst))
+               (va (var-ref a))
+               (vb (var-ref b)))
+           (cond
+            ((and (fixnum? ra) (fixnum? rb))
+             (set-type! a &exact-integer)
+             (set-type! b &exact-integer)
+             `(let ((,vdst (%mod ,va ,vb)))
+                ,(convert escape rest)))
+            (else
+             (debug 2 "*** ir:convert: NYI mod ~a ~a ~a~%" rdst ra rb)
+             (escape #f)))))
+
         ;; XXX: ash
         ;; XXX: logand
         ;; XXX: logior

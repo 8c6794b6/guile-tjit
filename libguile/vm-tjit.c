@@ -124,7 +124,7 @@ stop_recording (size_t *state, SCM *ips, scm_t_uint32 *bc_idx,
   *exit_id = 0;
 }
 
-static inline scm_t_uint32*
+static inline SCM
 call_native (SCM s_ip, SCM tlog,
              scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
@@ -132,6 +132,7 @@ call_native (SCM s_ip, SCM tlog,
 {
   scm_t_native_code f;
   scm_t_uintptr next_ip;
+  SCM s_next_ip, fp_offset;
   SCM code, ret, exit_id, exit_ip, exit_counts, count;
 
   code = SCM_TLOG_CODE (tlog);
@@ -141,7 +142,9 @@ call_native (SCM s_ip, SCM tlog,
   next_ip = (scm_t_uintptr) (SCM_I_INUM (SCM_CELL_OBJECT_0 (ret)));
   exit_id = SCM_CELL_OBJECT_1 (ret);
   exit_ip = SCM_CELL_OBJECT_2 (ret);
+  fp_offset = SCM_CELL_OBJECT_3 (ret);
 
+  s_next_ip = SCM_I_MAKINUM (next_ip);
   tlog = scm_hashq_ref (tlog_table, exit_ip, SCM_BOOL_F);
 
   if (scm_is_true (tlog))
@@ -168,7 +171,6 @@ call_native (SCM s_ip, SCM tlog,
          which will make guards in entry clause to fail. Might not need
          to test for existing native code, because different IP should
          be returned when patching went well. */
-      SCM s_next_ip = SCM_I_MAKINUM (next_ip);
       SCM tlog = scm_hashq_ref (tlog_table, s_next_ip, SCM_BOOL_F);
 
       if (scm_is_false (tlog))
@@ -186,7 +188,8 @@ call_native (SCM s_ip, SCM tlog,
         }
     }
 
-  return (scm_t_uint32 *) next_ip;
+  /* return (scm_t_uint32 *) next_ip; */
+  return scm_inline_cons (thread, s_next_ip, fp_offset);
 }
 
 static inline scm_t_uint32*
@@ -194,7 +197,6 @@ tjit_bytecode_buffer (void)
 {
   return (scm_t_uint32 *) SCM_UNPACK (scm_fluid_ref (bytecode_buffer_fluid));
 }
-
 
 static inline void
 increment_ip_counter (SCM count, SCM ip)
@@ -220,6 +222,26 @@ hot_loop_p (SCM ip, SCM current_count)
           tjit_max_retries);
 }
 
+static inline void
+dump_fps (SCM *old_fp, SCM *fp)
+{
+  SCM port = scm_current_output_port ();
+  scm_puts ("old_fp:", port);
+  scm_display (SCM_PACK (old_fp), port);
+  scm_puts (", fp:", port);
+  scm_display (SCM_PACK (fp), port);
+  scm_newline (port);
+}
+
+static inline SCM
+add_trace (scm_i_thread *thread, SCM s_ip, SCM locals, SCM traces)
+{
+  SCM trace = SCM_EOL;
+  trace = scm_inline_cons (thread, locals, trace);
+  trace = scm_inline_cons (thread, SCM_BOOL_F, trace);
+  trace = scm_inline_cons (thread, s_ip, trace);
+  return scm_inline_cons (thread, trace, traces);
+}
 
 /* C macros for vm-tjit engine
 
@@ -238,9 +260,32 @@ hot_loop_p (SCM ip, SCM current_count)
     tlog = scm_hashq_ref (tlog_table, s_ip, SCM_BOOL_F);                \
                                                                         \
     if (scm_is_true (tlog))                                             \
-      ip = call_native (s_ip, tlog, thread, fp, registers,              \
-                        &tjit_state, &tjit_loop_start, &tjit_loop_end,  \
-                        &tjit_parent_ip, &tjit_parent_exit_id);         \
+     {                                                                  \
+        SCM *old_fp;                                                    \
+        SCM ret;                                                        \
+        scm_t_uint32 shift;                                             \
+                                                                        \
+        ret = call_native (s_ip, tlog, thread, fp, registers,           \
+                           &tjit_state,                                 \
+                           &tjit_loop_start, &tjit_loop_end,            \
+                           &tjit_parent_ip, &tjit_parent_exit_id);      \
+        shift = (scm_t_uint32) SCM_I_INUM (SCM_CDR (ret));              \
+                                                                        \
+        /* XXX: Recorver return address and dynamic link in native   */ \
+        /* code.  Inlined call to procedure could be done for        */ \
+        /* levels, keep track of dynamic links and return addresses. */ \
+        /* `ip - 2' used for return address is manually done.        */ \
+        /* Variables "fp" and "ip" are using register in             */ \
+        /* "libguile/vm-engine.h", assign in C code.                 */ \
+        old_fp = fp;                                                    \
+        fp = vp->fp = old_fp + shift;                                   \
+        if (0 < shift)                                                  \
+          {                                                             \
+            SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);                    \
+            SCM_FRAME_SET_RETURN_ADDRESS (fp, ip - 2);                  \
+          }                                                             \
+        ip = (scm_t_uint32 *) SCM_I_INUM (SCM_CAR (ret));               \
+      }                                                                 \
     else                                                                \
       {                                                                 \
         SCM current_count =                                             \
@@ -257,13 +302,6 @@ hot_loop_p (SCM ip, SCM current_count)
       }                                                                 \
   } while (0)
 
-
-/*
-   XXX: Lookup tlog, call `tjitc' when native code is found during
-   recording trace.  Side exit could link to other native code than the
-   one it start. Nested loops does this patching to different native
-   code.
-*/
 #define SCM_TJIT_MERGE()                                                \
   do {                                                                  \
     SCM s_ip = SCM_I_MAKINUM (ip);                                      \
@@ -297,8 +335,6 @@ hot_loop_p (SCM ip, SCM current_count)
     else                                                                \
       {                                                                 \
         SCM locals;                                                     \
-        SCM trace = SCM_EOL;                                            \
-                                                                        \
         int num_locals;                                                 \
         int opcode, i;                                                  \
                                                                         \
@@ -319,13 +355,9 @@ hot_loop_p (SCM ip, SCM current_count)
         for (i = 0; i < num_locals; ++i)                                \
           scm_c_vector_set_x (locals, i, LOCAL_REF (i));                \
                                                                         \
-        trace = scm_inline_cons (thread, locals, trace);                \
-        trace = scm_inline_cons (thread, SCM_BOOL_F, trace);            \
-        trace = scm_inline_cons (thread, s_ip, trace);                  \
-        tjit_traces = scm_inline_cons (thread, trace, tjit_traces);     \
+        tjit_traces = add_trace (thread, s_ip, locals, tjit_traces);    \
       }                                                                 \
   } while (0)
-
 
 /*
  * Scheme interfaces

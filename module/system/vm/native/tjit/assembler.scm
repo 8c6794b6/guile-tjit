@@ -241,10 +241,10 @@
      ((asm-end-address asm)
       =>
       (lambda (address)
-        (debug 2 ";;; side-exit: jumping to ~a~%" address)
+        (debug 2 ";;; goto-exit: jumping to ~a~%" address)
         (jumpi address)))
      (else
-      (debug 2 ";;; side-exit: returning R0~%")
+      (debug 2 ";;; goto-exit: returning R0~%")
       (jit-retr r0)))))
 
 
@@ -400,6 +400,9 @@
 (define-prim (%ge asm (int a) (int b))
   (let ((next (jit-forward)))
     (cond
+     ((and (constant? a) (constant? b))
+      (when (>= (ref-value a) (ref-value b))
+        (jump next)))
      ((and (constant? a) (gpr? b))
       (jit-movi r0 (constant a))
       (jump (jit-bger r0 (gpr b)) next))
@@ -566,6 +569,8 @@
     (jit-movi (gpr dst) (imm (- (ref-value a) (ref-value b)))))
    ((and (gpr? dst) (gpr? a) (constant? b))
     (jit-subi (gpr dst) (gpr a) (constant b)))
+   ((and (gpr? dst) (gpr? a) (gpr? b))
+    (jit-subr (gpr dst) (gpr a) (gpr b)))
    ((and (gpr? dst) (memory? a) (constant? b))
     (memory-ref asm r0 a)
     (jit-subi (gpr dst) r0 (constant b)))
@@ -625,6 +630,15 @@
     (memory-set! asm dst r0))
    (else
     (error "%lsh" dst a b))))
+
+(define-prim (%mod asm (int dst) (int a) (int b))
+  (cond
+   ((and (gpr? dst) (gpr? a) (constant? b))
+    (jit-remi (gpr dst) (gpr a) (constant b)))
+   ((and (gpr? dst) (gpr? a) (gpr? b))
+    (jit-remr (gpr dst) (gpr a) (gpr b)))
+   (else
+    (error "%mod" dst a b))))
 
 
 ;;;
@@ -893,6 +907,13 @@
      ((memory? dst)
       (local-ref r0 local)
       (jit-stxi (moffs dst) fp r0))))
+   ((eq? type &false)
+    (cond
+     ((gpr? dst)
+      (jit-movi (gpr dst) (scm->pointer #f)))
+     ((memory? dst)
+      (jit-movi r0 (scm->pointer #f))
+      (jit-stxi-d (moffs dst) fp r0))))
    (else
     (error "load-frame" local type dst))))
 
@@ -929,6 +950,9 @@
       (local-set! local r0))))
    ((eq? type &box)
     (cond
+     ((constant? src)
+      (jit-movi r0 (constant src))
+      (local-set! local r0))
      ((gpr? src)
       (local-set! local (gpr src)))
      ((memory? src)
@@ -944,6 +968,9 @@
 
 (define (maybe-store moffs local-x-types srcs src-unwrapper references)
   "Store src in SRCS to frame when local is not found in references."
+  (debug 2 ";;; maybe-store:~%")
+  (debug 2 ";;;   local-x-types=~a~%" local-x-types)
+  (debug 2 ";;;   srcs=~a~%" srcs)
   (let lp ((local-x-types local-x-types)
            (srcs srcs)
            (acc (make-hash-table)))
@@ -955,7 +982,10 @@
             (when (not (assq local references))
               (store-frame moffs local type unwrapped-src))
             (hashq-set! acc local unwrapped-src))
-          (lp local-x-types srcs acc))))
+          (lp local-x-types srcs acc))
+         (()
+          (debug 2 ";;;   srcs=null, local-x-types=~a~%" local-x-types)
+          acc)))
       (() acc))))
 
 (define (move-or-load-carefully dsts srcs types moffs)
@@ -986,6 +1016,7 @@ number."
     (debug 2 ";;; molc: [local ~a] (move ~a ~a)~%" local dst src))
   (define (dump-load local dst type)
     (debug 2 ";;; molc: [local ~a] loading to ~a, type=~a~%" local dst type))
+
   (let ((dsts-list (hash-map->list cons dsts))
         (car-< (lambda (a b) (< (car a) (car b)))))
     (debug 2 ";;; molc: dsts: ~a~%" (sort dsts-list car-<))
@@ -1111,7 +1142,8 @@ number."
         (cond
          ((hashq-ref snapshots current-side-exit)
           =>
-          (lambda (local-x-types)
+          (match-lambda
+           ((local-offset . local-x-types)
             ;; Store unpassed variables, move registers from parent, then load
             ;; the locals from frame when not passed from parent.
             (let ((dst-table (make-hash-table))
@@ -1126,11 +1158,14 @@ number."
                    (match dsts
                      ((dst . dsts)
                       (hashq-set! dst-table local dst)
-                      (lp locals dsts))))
-                  (() values)))
+                      (lp locals dsts))
+                     (()
+                      (debug 2 ";;; assemble-exit: dsts=null, locals=~a~%"
+                             locals))))
+                  (() (values))))
               (move-or-load-carefully dst-table src-table type-table moffs))
             ;; Jump to beginning of the loop in linked code.
-            (jumpi (tlog-loop-address tlog))))
+            (jumpi (tlog-loop-address tlog)))))
          (else
           (debug 2 ";;; assemble-exit: IP is 0, local info not found~%")))))
 
@@ -1138,22 +1173,24 @@ number."
       (cond
        ((hashq-ref snapshots (- current-side-exit 1))
         =>
-        (lambda (local-x-types)
+        (match-lambda
+         ((_ . local-x-types)
           (set! loop-locals local-x-types)
-          (set! loop-vars (map env-ref args))))
+          (set! loop-vars (map env-ref args)))))
        (else
         (debug 2 ";;; end-of-entry: no snapshot at ~a~%" current-side-exit))))
 
     (define (emit-bailout next-ip)
-      (define (make-retval dst)
+      (define (make-retval local-offset)
         (jit-prepare)
         (jit-pushargr reg-thread)
         (jit-pushargi (imm (+ (ash next-ip 2) 2)))
         (jit-pushargi (imm (+ (ash current-side-exit 2) 2)))
         (jit-pushargi (imm (+ (ash entry-ip 2) 2)))
-        (jit-pushargi (scm->pointer #f))
+        ;; (jit-pushargi (scm->pointer #f))
+        (jit-pushargi (imm (+ (ash local-offset 2) 2)))
         (jit-calli %scm-do-inline-double-cell)
-        (jit-retval dst))
+        (jit-retval r0))
 
       (with-jit-state
        (jit-prolog)
@@ -1161,10 +1198,17 @@ number."
        (cond
         ((hashq-ref snapshots (- current-side-exit 1))
          =>
-         (lambda (local-x-types)
+         (match-lambda
+          ((local-offset . local-x-types)
+           (debug 2 ";;; emit-bailout:~%")
+           (debug 2 ";;;   local-x-types=~a~%" local-x-types)
+           (debug 2 ";;;   args=~a~%" args)
            (let lp ((local-x-types local-x-types)
                     (args args))
-             ;; XXX: Add more tests to see whether it's fine to ignore args.
+
+             ;; XXX: Length of args and locals should match. Update snapshots
+             ;; and save args.  Snapshot data need to contain locals in caller
+             ;; procedure when VM bytecode op made this side exit was inlined.
              ;;
              ;; Matching ends when no more values found in local, args exceeding
              ;; the number of locals are ignored.
@@ -1173,21 +1217,29 @@ number."
                 (match args
                   ((arg . args)
                    (store-frame moffs local type (env-ref arg))
-                   (lp local-x-types args))))
-               (() (values))))
-           ;; (for-each
-           ;;  (lambda (local-x-type arg)
-           ;;    (let ((local (car local-x-type))
-           ;;          (type (cdr local-x-type)))
-           ;;      (store-frame moffs local type (env-ref arg))))
-           ;;  local-x-types args)
-           ))
+                   (lp local-x-types args))
+                  (()
+                   (debug 2 ";;;   args=null, local-x-types=~a~%" local-x-types))))
+               (() (values)))
+
+             ;; (for-each
+             ;;  (lambda (local-x-type arg)
+             ;;    (let ((local (car local-x-type))
+             ;;          (type (cdr local-x-type)))
+             ;;      (store-frame moffs local type (env-ref arg))))
+             ;;  local-x-types args)
+
+             )
+           (when (< 0 local-offset)
+             (debug 2 ";;; assemble-exit: shifting FP for ~a.~%" local-offset))
+           (make-retval local-offset))))
         (else
-         (debug 2 ";;; assemble-exit: entry IP ~x~%" next-ip)))
+         (debug 2 ";;; assemble-exit: entry IP ~x~%" next-ip)
+         (make-retval 0)))
 
        ;; Caller places return address to address `fp + ra-offset', and
        ;; expects `R0' to hold the packed return values.
-       (make-retval r0)
+       ;; (make-retval r0)
        (jit-ldxi r1 fp ra-offset)
        (jit-jmpr r1)
        (jit-epilog)
@@ -1205,6 +1257,7 @@ number."
 
     (let* ((proc (env-ref proc))
            (ip (ref-value proc)))
+      (debug 2 ";;; assemble-exit: args=~a~%" args)
       (cond
        ((not (constant? proc))
         (error "assemble-exit: not a constant" proc))
@@ -1320,9 +1373,9 @@ number."
           (debug 2 ";;; side trace: nspills=~a~%" nspills)
 
           ;; XXX: Cannot allocate more memory if nspills of side trace is
-          ;; greater than area allocated by the parent trace, because side
-          ;; traces use `jit-tramp'.  Perhaps better to allocate constant amount
-          ;; in root trace, and make the amount configurable via parameter.
+          ;; greater than area allocated by the parent trace, because side trace
+          ;; uses `jit-tramp'.  Perhaps better to allocate constant amount in
+          ;; root trace, and make the amount configurable via parameter.
           (jit-tramp (imm (* 4 %word-size)))
 
           ;; Load initial arguments from parent trace.
@@ -1330,15 +1383,20 @@ number."
                  (lambda (mem)
                    (let ((offset (* (ref-value mem) %word-size)))
                      (make-offset-pointer fp-offset offset))))
-                (snapshot (hashq-ref snapshots 0)))
+                (snapshot (cdr (hashq-ref snapshots 0))))
 
             ;; Store values passed from parent trace when it's unused in this
             ;; side trace.
-            (maybe-store moffs
-                         (hashq-ref (tlog-snapshots tlog) (- exit-id 1))
-                         (hashq-ref (tlog-exit-variables tlog) exit-id)
-                         identity
-                         initial-locals)
+            (cond
+             ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
+              =>
+              (match-lambda
+               ((_ . local-x-types)
+                (maybe-store moffs
+                             local-x-types
+                             (hashq-ref (tlog-exit-variables tlog) exit-id)
+                             identity
+                             initial-locals)))))
 
             ;; When passing values from parent trace to side-trace, src could be
             ;; overwritten by move or load.
@@ -1349,8 +1407,7 @@ number."
             ;; how it was done in parent trace.  Prepare hash tables containing
             ;; dst, src, and types. Then move or load values to destinations
             ;; with avoiding overwrites of source values.
-            (let ((local-x-types (hashq-ref (tlog-snapshots tlog) (- exit-id 1)))
-                  (vars (hashq-ref (tlog-exit-variables tlog) exit-id))
+            (let ((vars (hashq-ref (tlog-exit-variables tlog) exit-id))
                   (dst-table (make-hash-table))
                   (src-table (make-hash-table))
                   (type-table (make-hash-table)))
@@ -1360,15 +1417,23 @@ number."
                  (hashq-set! type-table local (assq-ref snapshot local))
                  (hashq-set! dst-table local (vector-ref env var))))
                initial-locals)
-              (let lp ((local-x-types local-x-types)
-                       (vars vars))
-                (match local-x-types
-                  (((local . type) . local-x-types)
-                   (match vars
-                     ((var . vars)
-                      (hashq-set! src-table local var)
-                      (lp local-x-types vars))))
-                  (() (values))))
+              (cond
+               ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
+                =>
+                (match-lambda
+                 ((_ . local-x-types)
+                  (let lp ((local-x-types local-x-types)
+                           (vars vars))
+                    (match local-x-types
+                      (((local . type) . local-x-types)
+                       (match vars
+                         ((var . vars)
+                          (hashq-set! src-table local var)
+                          (lp local-x-types vars))
+                         (()
+                          (debug 2 ";;; side-exit: vars=null, local-x-types=~a~%"
+                                 local-x-types))))
+                      (() (values))))))))
               (move-or-load-carefully dst-table src-table type-table moffs)))
 
           ;; Assemble the primitives in CPS.
