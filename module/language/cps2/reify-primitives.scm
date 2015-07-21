@@ -108,6 +108,16 @@
     (letk kclause ($kclause ('() '() #f '() #f) kbody #f))
     kclause))
 
+;; A $kreceive continuation should have only one predecessor.
+(define (uniquify-receive cps k)
+  (match (intmap-ref cps k)
+    (($ $kreceive ($ $arity req () rest () #f) kargs)
+     (with-cps cps
+       (letk k ($kreceive req rest kargs))
+       k))
+    (_
+     (with-cps cps k))))
+
 (define (reify-primitives cps)
   (define (visit-cont label cont cps)
     (define (resolve-prim cps name k src)
@@ -123,6 +133,7 @@
          (setk label ($kfun src meta self tail clause))))
       (($ $kargs names vars ($ $continue k src ($ $prim name)))
        (with-cps cps
+         (let$ k (uniquify-receive k))
          (let$ body (resolve-prim name k src))
          (setk label ($kargs names vars ,body))))
       (($ $kargs names vars
@@ -135,10 +146,21 @@
            cps
            (with-cps cps
              (letv proc)
+             (let$ k (uniquify-receive k))
              (letk kproc ($kargs ('proc) (proc)
                            ($continue k src ($call proc args))))
              (let$ body (resolve-prim name kproc src))
              (setk label ($kargs names vars ,body)))))
+      (($ $kargs names vars ($ $continue k src ($ $call proc args)))
+       (with-cps cps
+         (let$ k (uniquify-receive k))
+         (setk label ($kargs names vars
+                       ($continue k src ($call proc args))))))
+      (($ $kargs names vars ($ $continue k src ($ $callk k* proc args)))
+       (with-cps cps
+         (let$ k (uniquify-receive k))
+         (setk label ($kargs names vars
+                       ($continue k src ($callk k* proc args))))))
       (_ cps)))
 
   (with-fresh-name-state cps
