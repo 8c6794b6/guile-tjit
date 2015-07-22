@@ -21,7 +21,7 @@
 (define-module (language cps2 spec)
   #:use-module (system base language)
   #:use-module (language cps2)
-  #:use-module (language cps2 compile-cps)
+  #:use-module (language cps2 compile-bytecode)
   #:export (cps2))
 
 (define* (write-cps exp #:optional (port (current-output-port)))
@@ -32,6 +32,6 @@
   #:reader	(lambda (port env) (read port))
   #:printer	write-cps
   #:parser      parse-cps
-  #:compilers   `((cps . ,compile-cps))
+  #:compilers   `((bytecode . ,compile-bytecode))
   #:for-humans? #f
   )
