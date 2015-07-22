@@ -134,6 +134,7 @@ CPS_LANG_SOURCES =						\
 CPS2_LANG_SOURCES =						\
   language/cps2.scm						\
   language/cps2/closure-conversion.scm				\
+  language/cps2/compile-bytecode.scm				\
   language/cps2/compile-cps.scm					\
   language/cps2/constructors.scm				\
   language/cps2/contification.scm				\
@@ -148,6 +149,7 @@ CPS2_LANG_SOURCES =						\
   language/cps2/optimize.scm					\
   language/cps2/simplify.scm					\
   language/cps2/self-references.scm				\
+  language/cps2/slot-allocation.scm				\
   language/cps2/spec.scm					\
   language/cps2/specialize-primcalls.scm			\
   language/cps2/split-rec.scm					\
