@@ -122,20 +122,12 @@ TREE_IL_LANG_SOURCES =						\
   language/tree-il/spec.scm
 
 CPS_LANG_SOURCES =						\
-  language/cps.scm						\
-  language/cps/compile-bytecode.scm				\
-  language/cps/dfg.scm						\
-  language/cps/primitives.scm					\
-  language/cps/renumber.scm					\
-  language/cps/slot-allocation.scm				\
-  language/cps/spec.scm						\
-  language/cps/verify.scm
+  language/cps/primitives.scm
 
 CPS2_LANG_SOURCES =						\
   language/cps2.scm						\
   language/cps2/closure-conversion.scm				\
   language/cps2/compile-bytecode.scm				\
-  language/cps2/compile-cps.scm					\
   language/cps2/constructors.scm				\
   language/cps2/contification.scm				\
   language/cps2/cse.scm						\
