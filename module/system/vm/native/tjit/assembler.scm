@@ -84,8 +84,8 @@
     (jit-calli %scm-from-double)
     (jit-retval dst)))
 
-(define %scm-do-inline-double-cell
-  (dynamic-pointer "scm_do_inline_double_cell" (dynamic-link)))
+(define %scm-make-tlog-retval
+  (dynamic-pointer "scm_make_tlog_retval" (dynamic-link)))
 
 (define *scm-false*
   (scm->pointer #f))
@@ -1169,7 +1169,7 @@ of SRCS, DSTS, TYPES are local index number."
          ((hashq-ref snapshots current-side-exit)
           =>
           (match-lambda
-           (($ <snapshot> local-offset local-x-types)
+           (($ <snapshot> local-offset _ local-x-types)
             ;; Store unpassed variables, move registers from parent, then load
             ;; the locals from frame when not passed from parent.
             (let ((dst-table (make-hash-table))
@@ -1200,22 +1200,24 @@ of SRCS, DSTS, TYPES are local index number."
        ((hashq-ref snapshots (- current-side-exit 1))
         =>
         (match-lambda
-         (($ <snapshot> _ local-x-types)
+         (($ <snapshot> _ _ local-x-types)
           (set! loop-locals local-x-types)
           (set! loop-vars (map env-ref args)))))
        (else
         (debug 2 ";;; end-of-entry: no snapshot at ~a~%" current-side-exit))))
 
     (define (emit-bailout next-ip)
-      (define (make-retval local-offset)
+      (define (scm-i-makinumi n)
+        (imm (+ (ash n 2) 2)))
+      (define (make-retval nlocals local-offset)
         (jit-prepare)
         (jit-pushargr reg-thread)
-        (jit-pushargi (imm (+ (ash next-ip 2) 2)))
-        (jit-pushargi (imm (+ (ash current-side-exit 2) 2)))
-        (jit-pushargi (imm (+ (ash entry-ip 2) 2)))
-        ;; (jit-pushargi (scm->pointer #f))
-        (jit-pushargi (imm (+ (ash local-offset 2) 2)))
-        (jit-calli %scm-do-inline-double-cell)
+        (jit-pushargi (scm-i-makinumi next-ip))
+        (jit-pushargi (scm-i-makinumi current-side-exit))
+        (jit-pushargi (scm-i-makinumi entry-ip))
+        (jit-pushargi (scm-i-makinumi nlocals))
+        (jit-pushargi (scm-i-makinumi local-offset))
+        (jit-calli %scm-make-tlog-retval)
         (jit-retval r0))
 
       (with-jit-state
@@ -1225,7 +1227,7 @@ of SRCS, DSTS, TYPES are local index number."
         ((hashq-ref snapshots (- current-side-exit 1))
          =>
          (match-lambda
-          (($ <snapshot> local-offset local-x-types)
+          (($ <snapshot> local-offset nlocals local-x-types)
            (debug 2 ";;; emit-bailout:~%")
            (debug 2 ";;;   local-x-types=~a~%" local-x-types)
            (debug 2 ";;;   args=~a~%" args)
@@ -1259,10 +1261,10 @@ of SRCS, DSTS, TYPES are local index number."
              )
            (when (< 0 local-offset)
              (debug 2 ";;; assemble-exit: shifting FP for ~a.~%" local-offset))
-           (make-retval local-offset))))
+           (make-retval nlocals local-offset))))
         (else
          (debug 2 ";;; assemble-exit: entry IP ~x~%" next-ip)
-         (make-retval 0)))
+         (make-retval 0 0)))
 
        ;; Caller places return address to address `fp + ra-offset', and
        ;; expects `R0' to hold the packed return values.
@@ -1418,7 +1420,7 @@ of SRCS, DSTS, TYPES are local index number."
              ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
               =>
               (match-lambda
-               (($ <snapshot> _ local-x-types)
+               (($ <snapshot> _ _ local-x-types)
                 (maybe-store moffs
                              local-x-types
                              (hashq-ref (tlog-exit-variables tlog) exit-id)
@@ -1448,7 +1450,7 @@ of SRCS, DSTS, TYPES are local index number."
                ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
                 =>
                 (match-lambda
-                 (($ <snapshot> _ local-x-types)
+                 (($ <snapshot> _ _ local-x-types)
                   (let lp ((local-x-types local-x-types)
                            (vars vars))
                     (match local-x-types

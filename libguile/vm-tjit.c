@@ -124,14 +124,16 @@ stop_recording (size_t *state, SCM *ips, scm_t_uint32 *bc_idx,
   *exit_id = 0;
 }
 
-static inline SCM
+static inline scm_t_uint32 *
 call_native (SCM s_ip, SCM tlog,
              scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
-             scm_t_uintptr *parent_ip, int *parent_exit_id)
+             scm_t_uintptr *parent_ip, int *parent_exit_id,
+             scm_t_uint32 *fp_offset_out, scm_t_uint32 *nlocals_out)
 {
   scm_t_native_code f;
   scm_t_uintptr next_ip;
+  scm_t_uint32 nlocals;
   SCM s_next_ip, fp_offset;
   SCM code, ret, exit_id, exit_ip, exit_counts, count;
 
@@ -139,10 +141,11 @@ call_native (SCM s_ip, SCM tlog,
   f = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
   ret = f (thread, fp, registers);
 
-  next_ip = (scm_t_uintptr) (SCM_I_INUM (SCM_CELL_OBJECT_0 (ret)));
-  exit_id = SCM_CELL_OBJECT_1 (ret);
-  exit_ip = SCM_CELL_OBJECT_2 (ret);
-  fp_offset = SCM_CELL_OBJECT_3 (ret);
+  next_ip = SCM_TLOG_RETVAL_NEXT_IP (ret);
+  exit_id = SCM_TLOG_RETVAL_EXIT_ID (ret);
+  exit_ip = SCM_TLOG_RETVAL_EXIT_IP (ret);
+  nlocals = SCM_TLOG_RETVAL_NLOCALS (ret);
+  fp_offset = SCM_TLOG_RETVAL_LOCAL_OFFSET (ret);
 
   s_next_ip = SCM_I_MAKINUM (next_ip);
   tlog = scm_hashq_ref (tlog_table, exit_ip, SCM_BOOL_F);
@@ -188,8 +191,10 @@ call_native (SCM s_ip, SCM tlog,
         }
     }
 
-  /* return (scm_t_uint32 *) next_ip; */
-  return scm_inline_cons (thread, s_next_ip, fp_offset);
+  *fp_offset_out = SCM_I_INUM (fp_offset);
+  *nlocals_out = nlocals;
+
+  return (scm_t_uint32 *) next_ip;
 }
 
 static inline scm_t_uint32*
@@ -222,25 +227,16 @@ hot_loop_p (SCM ip, SCM current_count)
           tjit_max_retries);
 }
 
-static inline void
-dump_fps (SCM *old_fp, SCM *fp)
-{
-  SCM port = scm_current_output_port ();
-  scm_puts ("old_fp:", port);
-  scm_display (SCM_PACK (old_fp), port);
-  scm_puts (", fp:", port);
-  scm_display (SCM_PACK (fp), port);
-  scm_newline (port);
-}
-
 static inline SCM
 record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
 {
   SCM trace = SCM_EOL;
   SCM s_fp = scm_from_pointer ((void *) fp, NULL);
+
   trace = scm_inline_cons (thread, locals, trace);
   trace = scm_inline_cons (thread, s_fp, trace);
   trace = scm_inline_cons (thread, s_ip, trace);
+
   return scm_inline_cons (thread, trace, traces);
 }
 
@@ -263,25 +259,24 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
     if (scm_is_true (tlog))                                             \
      {                                                                  \
         SCM *old_fp;                                                    \
-        SCM ret;                                                        \
-        scm_t_uint32 shift;                                             \
-                                                                        \
-        ret = call_native (s_ip, tlog, thread, fp, registers,           \
-                           &tjit_state,                                 \
-                           &tjit_loop_start, &tjit_loop_end,            \
-                           &tjit_parent_ip, &tjit_parent_exit_id);      \
+        scm_t_uint32 shift, nlocals;                                    \
                                                                         \
         /* Update `fp' and `ip' in C code.  Variables `fp' and `ip'  */ \
         /* are using registers, see "libguile/vm-engine.h".          */ \
-        shift = (scm_t_uint32) SCM_I_INUM (SCM_CDR (ret));              \
+        ip = call_native (s_ip, tlog, thread, fp, registers,            \
+                          &tjit_state,                                  \
+                          &tjit_loop_start, &tjit_loop_end,             \
+                          &tjit_parent_ip, &tjit_parent_exit_id,        \
+                          &shift, &nlocals);                            \
+                                                                        \
         old_fp = fp;                                                    \
         fp = vp->fp = old_fp + shift;                                   \
-        ip = (scm_t_uint32 *) SCM_I_INUM (SCM_CAR (ret));               \
                                                                         \
-        /* XXX: Return num locals from native code, set vp->sp with  */ \
-        /* it. vp->sp need to be recovered after taking side exit.   */ \
-        if (0 < shift)                                                  \
-          vp->sp = &SCM_FRAME_LOCAL (fp, 1);                            \
+        /* When fp is shifted, setting vp->sp with number of locals  */ \
+        /* returned from native code, vp->sp need to be recovered    */ \
+        /* after taking side exit.                                   */ \
+        if (shift != 0)                                                 \
+          vp->sp = &SCM_FRAME_LOCAL (fp, nlocals - 1);                  \
       }                                                                 \
     else                                                                \
       {                                                                 \
@@ -418,10 +413,19 @@ SCM_DEFINE (scm_tlog_table, "tlog-table", 0, 0, 0, (void),
 #undef FUNC_NAME
 
 SCM
-scm_do_inline_double_cell (scm_i_thread *thread, scm_t_bits a, scm_t_bits b,
-                           scm_t_bits c, scm_t_bits d)
+scm_make_tlog_retval (scm_i_thread *thread, scm_t_bits next_ip,
+                      scm_t_bits exit_id, scm_t_bits exit_ip,
+                      scm_t_bits nlocals, scm_t_bits local_offset)
 {
-  return scm_inline_double_cell (thread, a, b, c, d);
+  SCM ret = scm_inline_gc_malloc_words (thread, 5);
+
+  SCM_SET_CELL_WORD (ret, 0, next_ip);
+  SCM_SET_CELL_WORD (ret, 1, exit_id);
+  SCM_SET_CELL_WORD (ret, 2, exit_ip);
+  SCM_SET_CELL_WORD (ret, 3, nlocals);
+  SCM_SET_CELL_WORD (ret, 4, local_offset);
+
+  return ret;
 }
 
 

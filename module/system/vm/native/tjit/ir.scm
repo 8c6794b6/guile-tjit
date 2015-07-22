@@ -64,6 +64,7 @@
             make-snapshot
             snapshot?
             snapshot-offset
+            snapshot-nlocals
             snapshot-locals))
 
 
@@ -272,9 +273,16 @@
 
 ;; Record type for snapshot.
 (define-record-type <snapshot>
-  (make-snapshot offset locals)
+  (make-snapshot offset nlocals locals)
   snapshot?
+
+  ;; Integer number to shift vp->fp after returning with this snapshot.
   (offset snapshot-offset)
+
+  ;; Number of current locals.
+  (nlocals snapshot-nlocals)
+
+  ;; Association list of (local . type).
   (locals snapshot-locals))
 
 ;;;
@@ -372,6 +380,13 @@
     (define-syntax-rule (pop-offset! n)
       (set! local-offset (- local-offset n)))
 
+    ;; XXX: Manage expected types and known types.
+    ;;
+    ;; Some bytecode operation fills in locals with statically known value, e.g:
+    ;; `make-short-immediate', `static-ref', ... etc.  Some bytecode operations
+    ;; expect certain type, e.g: `add', `mul', ... etc.  Fill in known type when
+    ;; bytecode filling known value, add type to expect with expecting bytecode
+    ;; operations.
     (define-syntax-rule (set-type! idx ty)
       (let ((i (+ idx local-offset)))
         (when (not (vector-ref types i))
@@ -403,6 +418,7 @@
           (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame))
           (debug 2 ";;;   past-frame-locals=~a~%" (past-frame-locals past-frame)))
         (debug 2 ";;;   end=~a~%" (vector-length vars))
+
         (let ((end (vector-length vars)))
           (let lp ((i 0) (acc '()))
             (define (add-local local)
@@ -421,13 +437,14 @@
                 ;; XXX: Add more types.
                 (debug 2 "*** take-snapshot!: ~a~%" local)
                 (lp (+ i 1) acc))))
-            (debug 2 ";;;   i=~a~%" i)
             (cond
              ((= i end)
               (let ((acc (reverse! acc)))
                 ;; Using snapshot-id as key for hash-table. Identical IP could
                 ;; be used for entry clause and first operation in the loop.
-                (let ((snapshot (make-snapshot local-offset acc)))
+                (let ((snapshot (make-snapshot local-offset
+                                               (vector-length locals)
+                                               acc)))
                   (hashq-set! snapshots snapshot-id snapshot))
                 (set! snapshot-id (+ snapshot-id 1))
 
@@ -442,44 +459,44 @@
                ((assq-ref (past-frame-dls past-frame) i)
                 =>
                 (lambda (dl)
-                  (debug 2 ";;;   i=~a, dynamic-link: ~a~%" i dl)
+                  ;; (debug 2 ";;;   i=~a, dynamic-link: ~a~%" i dl)
                   (lp (+ i 1) (cons `(,i . ,dl) acc))))
 
                ((assq-ref (past-frame-ras past-frame) i)
                 =>
                 (lambda (ra)
-                  (debug 2 ";;;   i=~a, return-address: ~a~%" i ra)
+                  ;; (debug 2 ";;;   i=~a, return-address: ~a~%" i ra)
                   (lp (+ i 1) (cons `(,i . ,ra) acc))))
 
                ((<= local-offset i)
                 (let ((j (- i local-offset)))
-                  (debug 2 ";;; j = ~a, local = ~a~%"
-                         j (and (< j (vector-length locals))
-                                (local-ref j)))
+                  ;; (debug 2 ";;; j = ~a, local = ~a~%"
+                  ;;        j (and (< j (vector-length locals))
+                  ;;               (local-ref j)))
 
                   (if (< j (vector-length locals))
                       (let ((local (local-ref j)))
-                        (debug 2 ";;;   i=~a, (local-ref ~a)=~a~%" i j local)
+                        ;; (debug 2 ";;;   i=~a, (local-ref ~a)=~a~%" i j local)
                         (add-local local))
                       (lp (+ i 1) acc))))
 
                (else
                 (let ((local (past-frame-local-ref past-frame i)))
-                  (debug 2 ";;;   i=~a, from past-frame, local=~a~%" i local)
+                  ;; (debug 2 ";;;   i=~a, from past-frame, local=~a~%" i local)
                   (add-local local)))))
 
              ((and (= local-offset 0)
                    (var-ref i))
               =>
               (lambda (ref)
-                (debug 2 ";;;   local-offset=0, (var-ref ~a)=~a~%" i ref)
+                ;; (debug 2 ";;;   local-offset=0, (var-ref ~a)=~a~%" i ref)
                 (let ((local (and (< i (vector-length locals))
                                   (local-ref i))))
-                  (debug 2 ";;;   i=~a, local=~a~%" i local)
+                  ;; (debug 2 ";;;   i=~a, local=~a~%" i local)
                   (add-local local))))
 
              (else
-              (debug 2 ";;;   skipping i=~a, var-ref=~a~%" i (var-ref i))
+              ;; (debug 2 ";;;   skipping i=~a, var-ref=~a~%" i (var-ref i))
               (lp (+ i 1) acc))))))
 
       ;; (debug 2 "convert-one: ~a (~a/~a) ~a~%"
