@@ -107,8 +107,9 @@
       (() lowest))))
 
 (define (accumulate-locals local-offset ops)
-  (define (nyi op)
-    (debug 3 "ir:accumulate-locals: NYI ~a~%" op))
+  (define (nyi st op)
+    (debug 3 "ir:accumulate-locals: NYI ~a~%" op)
+    st)
 
   (define (acc-one st op)
     (define-syntax-rule (push-offset! n)
@@ -117,26 +118,26 @@
     (define-syntax-rule (pop-offset! n)
       (set! local-offset (- local-offset n)))
 
-    (define-syntax-rule (add! st i)
-      (let ((n (+ i local-offset)))
-        ;; XXX: Manage negative locals properly. Currently locals with negative
-        ;; number are ignored.
-        (cond
-         ((< n 0)
-          (debug 1 ";;; ir.scm:acc: [~a] negative index found at ~a~%"
-                     local-offset op)
-          st)
-         (else
-          (intset-add! st n)))))
-
-    (define-syntax-rule (add2! st i j)
-      (add! (add! st i) j))
-
-    (define-syntax-rule (add3! st i j k)
-      (add! (add2! st i j) k))
-
-    (define-syntax-rule (add4! st i j k l)
-      (add2! (add2! st i j) k l))
+    (define-syntax add!
+      (syntax-rules ()
+        ((_ st i j k l)
+         (add! (add! st i j) k l))
+        ((_ st i j k)
+         (add! (add! st i j) k))
+        ((_ st i j)
+         (add! (add! st i) j))
+        ((_ st i)
+         (let ((n (+ i local-offset)))
+           ;; XXX: Manage negative locals properly. Currently negative locals
+           ;; are ignored. Negative locals occure with nested loops of inlined
+           ;; procedures.
+           (cond
+            ((< n 0)
+             (debug 1 ";;; ir.scm:acc: [~a] negative index found at ~a~%"
+                    local-offset op)
+             st)
+            (else
+             (intset-add! st n)))))))
 
     (match op
       ((op a1)
@@ -144,12 +145,11 @@
          ((return)
           ;; Store proc, returned value, VM frame dynamic link and VM frame
           ;; return address.
-          (add4! st a1 1 -1 -2))
+          (add! st a1 1 -1 -2))
          ((br tail-call)
           st)
          (else
-          (nyi op)
-          st)))
+          (nyi st op))))
       ((op a1 a2)
        (case op
          ((call)
@@ -160,46 +160,41 @@
            make-short-immediate make-long-immediate make-long-long-immediate)
           (add! st a1))
          ((mov sub1 add1 box-ref box-set!)
-          (add2! st a1 a2))
+          (add! st a1 a2))
          ((assert-nargs-ee/locals)
           st)
          (else
-          (nyi op)
-          st)))
+          (nyi st op))))
       ((op a1 a2 a3)
        (case op
          ((add sub mul div quo)
-          (add3! st a1 a2 a3))
+          (add! st a1 a2 a3))
          ((call-label)
           (let ((st (add! st a1)))
             (push-offset! a1)
             st))
          ((receive)
           (pop-offset! a2)
-          (add2! st a1 a2))
+          (add! st a1 a2))
          ((receive-values)
           (pop-offset! a1)
           (add! st a1))
          (else
-          (nyi op)
-          st)))
+          (nyi st op))))
       ((op a1 a2 a3 a4)
        (case op
          ((br-if-< br-if-= br-if-<=)
-          (add2! st a1 a2))
+          (add! st a1 a2))
          (else
-          (nyi op)
-          st)))
+          (nyi st op))))
       ((op a1 a2 a3 a4 a5)
        (case op
          ((toplevel-box)
           (add! st a1))
          (else
-          (nyi op)
-          st)))
-      (op
-       (nyi op)
-       st)
+          (nyi st op))))
+      ((op)
+       (nyi st op))
       (_
        (error (format #f "ir:accumulate-locals: ~a" ops)))))
 
