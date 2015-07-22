@@ -277,6 +277,11 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
         old_fp = fp;                                                    \
         fp = vp->fp = old_fp + shift;                                   \
         ip = (scm_t_uint32 *) SCM_I_INUM (SCM_CAR (ret));               \
+                                                                        \
+        /* XXX: Return num locals from native code, set vp->sp with  */ \
+        /* it. vp->sp need to be recovered after taking side exit.   */ \
+        if (0 < shift)                                                  \
+          vp->sp = &SCM_FRAME_LOCAL (fp, 1);                            \
       }                                                                 \
     else                                                                \
       {                                                                 \

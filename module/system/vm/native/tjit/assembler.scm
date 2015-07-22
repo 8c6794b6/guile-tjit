@@ -1015,12 +1015,12 @@
       (() acc))))
 
 (define (move-or-load-carefully dsts srcs types moffs)
-  "Move or load carefully.
+  "Move SRCS to DSTS or load with TYPES and MOFFS, carefully.
 
 Avoids overwriting source in hash-table SRCS while updating destinations in
 hash-table DSTS.  If source is not found, load value from frame with using type
-from hash-table TYPES. Hash-table key of SRCS, DSTS, TYPES are local index
-number."
+from hash-table TYPES and procedure MOFFS to get memory offset.  Hash-table key
+of SRCS, DSTS, TYPES are local index number."
 
   (define (same-sets? as bs)
     (and (= (length as) (length bs))
@@ -1169,7 +1169,7 @@ number."
          ((hashq-ref snapshots current-side-exit)
           =>
           (match-lambda
-           ((local-offset . local-x-types)
+           (($ <snapshot> local-offset local-x-types)
             ;; Store unpassed variables, move registers from parent, then load
             ;; the locals from frame when not passed from parent.
             (let ((dst-table (make-hash-table))
@@ -1200,7 +1200,7 @@ number."
        ((hashq-ref snapshots (- current-side-exit 1))
         =>
         (match-lambda
-         ((_ . local-x-types)
+         (($ <snapshot> _ local-x-types)
           (set! loop-locals local-x-types)
           (set! loop-vars (map env-ref args)))))
        (else
@@ -1225,7 +1225,7 @@ number."
         ((hashq-ref snapshots (- current-side-exit 1))
          =>
          (match-lambda
-          ((local-offset . local-x-types)
+          (($ <snapshot> local-offset local-x-types)
            (debug 2 ";;; emit-bailout:~%")
            (debug 2 ";;;   local-x-types=~a~%" local-x-types)
            (debug 2 ";;;   args=~a~%" args)
@@ -1245,7 +1245,8 @@ number."
                    (store-frame moffs local type (env-ref arg))
                    (lp local-x-types args))
                   (()
-                   (debug 2 ";;;   args=null, local-x-types=~a~%" local-x-types))))
+                   (debug 2 ";;;   args=null, local-x-types=~a~%"
+                          local-x-types))))
                (() (values)))
 
              ;; (for-each
@@ -1409,7 +1410,7 @@ number."
                  (lambda (mem)
                    (let ((offset (* (ref-value mem) %word-size)))
                      (make-offset-pointer fp-offset offset))))
-                (snapshot (cdr (hashq-ref snapshots 0))))
+                (locals (snapshot-locals (hashq-ref snapshots 0))))
 
             ;; Store values passed from parent trace when it's unused in this
             ;; side trace.
@@ -1417,7 +1418,7 @@ number."
              ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
               =>
               (match-lambda
-               ((_ . local-x-types)
+               (($ <snapshot> _ local-x-types)
                 (maybe-store moffs
                              local-x-types
                              (hashq-ref (tlog-exit-variables tlog) exit-id)
@@ -1440,14 +1441,14 @@ number."
               (for-each
                (match-lambda
                 ((local . var)
-                 (hashq-set! type-table local (assq-ref snapshot local))
+                 (hashq-set! type-table local (assq-ref locals local))
                  (hashq-set! dst-table local (vector-ref env var))))
                initial-locals)
               (cond
                ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
                 =>
                 (match-lambda
-                 ((_ . local-x-types)
+                 (($ <snapshot> _ local-x-types)
                   (let lp ((local-x-types local-x-types)
                            (vars vars))
                     (match local-x-types

@@ -87,7 +87,7 @@
     (when (<= 2 verbosity)
       (let ((lowest (lowest-level ip-x-ops)))
         (format #t ";;; bytecode: ~a:~a:~a~%"
-                (length ip-x-ops) lowest (sort locals <))
+                (length ip-x-ops) lowest (and locals (sort locals <)))
         (let lp ((traces ip-x-ops) (level (- lowest)))
           (match traces
             (((op ip fp locals) . traces)
@@ -153,21 +153,7 @@
         (match envs
           ((env . envs)
            (let-values (((len elt) (disassemble-one bytecode offset)))
-             (lp (cons (cons elt env) acc) (+ offset len) envs)
-
-             ;; XXX: Formerly, opcode was replaced with vm-tjit specific
-             ;; `native-call' when native code exists in recorded trace.
-             ;; When patching hot side exits are done, `bv' element in
-             ;; trace may removed.
-
-             ;; (match env
-             ;;   ((ip #f local)
-             ;;    (lp (cons (cons elt env) acc) (+ offset len) envs))
-             ;;   ((ip bv local)
-             ;;    (let* ((addr (pointer-address (bytevector->pointer bv)))
-             ;;           (op `(native-call ,addr)))
-             ;;      (lp (cons (cons op env) acc) (+ offset len) envs))))
-             ))
+             (lp (cons (cons elt env) acc) (+ offset len) envs)))
           (()
            (reverse! acc))))))
 
