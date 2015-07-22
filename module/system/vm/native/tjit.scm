@@ -193,7 +193,8 @@
 
     (with-jit-state
      (jit-prolog)
-     (let-values (((locals snapshots scm cps) (trace->cps tlog ip-x-ops)))
+     (let-values (((locals snapshots scm cps)
+                   (trace->cps tlog parent-exit-id ip-x-ops)))
        (cond
         ((not cps)
          (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)

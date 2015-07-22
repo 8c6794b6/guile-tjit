@@ -939,7 +939,6 @@
    ;; dynamic-link and return address are captured at the time of bytecode to
    ;; Scheme IR conversion, and stored in snapshot as pointer.
    ((pointer? type)
-    (debug 2 "store-frame: local=~a, type=~a, src=~a~%" local type src)
     (jit-movi r0 type)
     (local-set! local r0))
 
@@ -1114,7 +1113,7 @@ of SRCS, DSTS, TYPES are local index number."
   (define (dump-exit-variables)
     (debug 2 ";;; exit-variables:~%")
     (hash-for-each (lambda (k v)
-                     (debug 2 "~a => ~a~%" k v))
+                     (debug 2 ";;;   ~a => ~a~%" k v))
                    exit-variables))
 
   (define (dump-bailout ip current-side-exit code)

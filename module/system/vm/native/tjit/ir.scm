@@ -80,7 +80,7 @@
   (and (real? val) (inexact? val)))
 
 (define (unbound? x)
-  (= (pointer-address (scm->pointer x))) #x904)
+  (= (pointer-address (scm->pointer x)) #x904))
 
 
 ;;;
@@ -119,7 +119,15 @@
 
     (define-syntax-rule (add! st i)
       (let ((n (+ i local-offset)))
-        (intset-add! st n)))
+        ;; XXX: Manage negative locals properly. Currently locals with negative
+        ;; number are ignored.
+        (cond
+         ((< n 0)
+          (debug 1 ";;; ir.scm:acc: [~a] negative index found at ~a~%"
+                     local-offset op)
+          st)
+         (else
+          (intset-add! st n)))))
 
     (define-syntax-rule (add2! st i j)
       (add! (add! st i) j))
@@ -127,11 +135,16 @@
     (define-syntax-rule (add3! st i j k)
       (add! (add2! st i j) k))
 
+    (define-syntax-rule (add4! st i j k l)
+      (add2! (add2! st i j) k l))
+
     (match op
       ((op a1)
        (case op
          ((return)
-          (add2! st a1 1))
+          ;; Store proc, returned value, VM frame dynamic link and VM frame
+          ;; return address.
+          (add4! st a1 1 -1 -2))
          ((br tail-call)
           st)
          (else
@@ -192,7 +205,7 @@
 
   (define (acc st ops)
     (match ops
-      (((op ip bv locals) . rest)
+      (((op _ _ _) . rest)
        (acc (acc-one st op) rest))
       (()
        st)))
@@ -289,7 +302,7 @@
 ;;; Scheme ANF compiler
 ;;;
 
-(define (trace->scm tlog ops)
+(define (trace->scm tlog exit-id ops)
   (define br-op-size 2)
   (define root-trace? (not tlog))
   (define (dereference-scm addr)
@@ -395,7 +408,7 @@
     (define (convert-one escape op ip fp locals rest)
 
       (define (local-ref i)
-        (debug 2 ";;; local-ref: i=~a, locals=~a~%" i locals)
+        ;; (debug 2 ";;; local-ref: i=~a, locals=~a~%" i locals)
         (and (< i (vector-length locals))
              (vector-ref locals i)))
 
@@ -421,7 +434,14 @@
 
         (let ((end (vector-length vars)))
           (let lp ((i 0) (acc '()))
+            (define (dl-or-ra-from-parent-trace i)
+              (let* ((snapshot (and tlog (hashq-ref (tlog-snapshots tlog)
+                                                    (- exit-id 1))))
+                     (locals (and snapshot (snapshot-locals snapshot)))
+                     (val (and locals (assq-ref locals i))))
+                (and (pointer? val) val)))
             (define (add-local local)
+              (debug 2 ";;;   i=~a, adding local=~a~%" i local)
               (cond
                ((fixnum? local)
                 (lp (+ i 1) (cons `(,i . ,&exact-integer) acc)))
@@ -454,36 +474,42 @@
                 ;; CPS terms.
                 `(,(+ ip (* offset 4)) ,@args)))
 
-             ((and past-frame (< 0 local-offset))
+             ((< 0 local-offset)
               (cond
-               ((assq-ref (past-frame-dls past-frame) i)
+               ;; Dynamic link and return address might need to be passed from
+               ;; parent trace. When inlined procedure take bailout code, traced
+               ;; information might not contain bytecode operation to fill in
+               ;; the `past-frame' data.
+               ((or (and past-frame
+                         (or (assq-ref (past-frame-dls past-frame) i)
+                             (assq-ref (past-frame-ras past-frame) i)))
+                    (dl-or-ra-from-parent-trace i))
                 =>
-                (lambda (dl)
-                  ;; (debug 2 ";;;   i=~a, dynamic-link: ~a~%" i dl)
-                  (lp (+ i 1) (cons `(,i . ,dl) acc))))
-
-               ((assq-ref (past-frame-ras past-frame) i)
-                =>
-                (lambda (ra)
-                  ;; (debug 2 ";;;   i=~a, return-address: ~a~%" i ra)
-                  (lp (+ i 1) (cons `(,i . ,ra) acc))))
+                (lambda (val)
+                  ;; (debug 2 ";;;   i=~a, val: ~a~%" i val)
+                  (lp (+ i 1) (cons `(,i . ,val) acc))))
 
                ((<= local-offset i)
                 (let ((j (- i local-offset)))
                   ;; (debug 2 ";;; j = ~a, local = ~a~%"
                   ;;        j (and (< j (vector-length locals))
                   ;;               (local-ref j)))
-
                   (if (< j (vector-length locals))
                       (let ((local (local-ref j)))
                         ;; (debug 2 ";;;   i=~a, (local-ref ~a)=~a~%" i j local)
                         (add-local local))
                       (lp (+ i 1) acc))))
 
-               (else
+               (past-frame
                 (let ((local (past-frame-local-ref past-frame i)))
                   ;; (debug 2 ";;;   i=~a, from past-frame, local=~a~%" i local)
-                  (add-local local)))))
+                  (add-local local)))
+               ((vector-ref vars i)
+                =>
+                (lambda (ref) (add-local #f)))
+               (else
+                (debug 2 ";;;   i=~a, skipping~%" i)
+                (lp (+ i 1) acc))))
 
              ((and (= local-offset 0)
                    (var-ref i))
@@ -1008,7 +1034,9 @@
     (let ((scm (make-scm (call-with-escape-continuation
                           (lambda (escape)
                             (enter-convert escape ops))))))
-      (debug 2 ";;; snapshot:~%~{;;;   ~a~%~}" (hash-fold acons '() snapshots))
+      (debug 2 ";;; snapshot:~%~{;;;   ~a~%~}"
+             (sort (hash-fold acons '() snapshots)
+                   (lambda (a b) (< (car a) (car b)))))
       (values locals snapshots scm))))
 
 (define (scm->cps scm)
@@ -1045,7 +1073,7 @@
     (set! cps (and cps (body-fun cps)))
     cps))
 
-(define (trace->cps tlog trace)
+(define (trace->cps tlog exit-id trace)
   (define (dump-cps conts)
     (and conts
          (intmap-fold (lambda (k v out)
@@ -1053,7 +1081,7 @@
                         out)
                       conts
                       conts)))
-  (call-with-values (lambda () (trace->scm tlog trace))
+  (call-with-values (lambda () (trace->scm tlog exit-id trace))
     (lambda (locals snapshots scm)
       ;; (debug 2 ";;; scm:~%~y" scm)
       (let ((cps (scm->cps scm)))

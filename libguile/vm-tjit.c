@@ -240,6 +240,17 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
   return scm_inline_cons (thread, trace, traces);
 }
 
+static inline void
+dump_fps(SCM *old_fp, SCM *fp)
+{
+  SCM port = scm_current_output_port ();
+  scm_puts ("old_fp:", port);
+  scm_display (scm_from_pointer ((void *) old_fp, NULL), port);
+  scm_puts (", fp:", port);
+  scm_display (scm_from_pointer ((void *) fp, NULL), port);
+  scm_newline (port);
+}
+
 /* C macros for vm-tjit engine
 
   These two macros were perviously defined as static inline functions.
@@ -257,8 +268,7 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
     tlog = scm_hashq_ref (tlog_table, s_ip, SCM_BOOL_F);                \
                                                                         \
     if (scm_is_true (tlog))                                             \
-     {                                                                  \
-        SCM *old_fp;                                                    \
+      {                                                                 \
         scm_t_uint32 shift, nlocals;                                    \
                                                                         \
         /* Update `fp' and `ip' in C code.  Variables `fp' and `ip'  */ \
@@ -269,14 +279,16 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
                           &tjit_parent_ip, &tjit_parent_exit_id,        \
                           &shift, &nlocals);                            \
                                                                         \
-        old_fp = fp;                                                    \
-        fp = vp->fp = old_fp + shift;                                   \
-                                                                        \
         /* When fp is shifted, setting vp->sp with number of locals  */ \
         /* returned from native code, vp->sp need to be recovered    */ \
         /* after taking side exit.                                   */ \
         if (shift != 0)                                                 \
-          vp->sp = &SCM_FRAME_LOCAL (fp, nlocals - 1);                  \
+          {                                                             \
+            SCM *old_fp;                                                \
+            old_fp = fp;                                                \
+            fp = vp->fp = old_fp + shift;                               \
+            ALLOC_FRAME (nlocals);                                      \
+          }                                                             \
       }                                                                 \
     else                                                                \
       {                                                                 \

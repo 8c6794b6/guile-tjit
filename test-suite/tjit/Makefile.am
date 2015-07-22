@@ -61,6 +61,7 @@ TESTS = \
 	t-side-exit-06.scm \
 	t-side-exit-07.scm \
 	t-side-exit-08.scm \
+	t-side-exit-09.scm \
 	t-tailcall-01.scm \
 	t-toplevel-box-01.scm \
 	t-twice-01.scm
