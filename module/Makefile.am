@@ -60,7 +60,6 @@ SOURCES =					\
 						\
   language/tree-il.scm				\
   $(TREE_IL_LANG_SOURCES)			\
-  $(CPS2_LANG_SOURCES)				\
   $(CPS_LANG_SOURCES)				\
   $(BYTECODE_LANG_SOURCES)			\
   $(VALUE_LANG_SOURCES)				\
@@ -117,39 +116,37 @@ TREE_IL_LANG_SOURCES =						\
   language/tree-il/canonicalize.scm                             \
   language/tree-il/analyze.scm					\
   language/tree-il/inline.scm 					\
-  language/tree-il/compile-cps2.scm 				\
+  language/tree-il/compile-cps.scm 				\
   language/tree-il/debug.scm 					\
   language/tree-il/spec.scm
 
 CPS_LANG_SOURCES =						\
-  language/cps/primitives.scm
-
-CPS2_LANG_SOURCES =						\
-  language/cps2.scm						\
-  language/cps2/closure-conversion.scm				\
-  language/cps2/compile-bytecode.scm				\
-  language/cps2/constructors.scm				\
-  language/cps2/contification.scm				\
-  language/cps2/cse.scm						\
-  language/cps2/dce.scm						\
-  language/cps2/effects-analysis.scm				\
-  language/cps2/elide-values.scm				\
-  language/cps2/prune-bailouts.scm				\
-  language/cps2/prune-top-level-scopes.scm			\
-  language/cps2/reify-primitives.scm				\
-  language/cps2/renumber.scm					\
-  language/cps2/optimize.scm					\
-  language/cps2/simplify.scm					\
-  language/cps2/self-references.scm				\
-  language/cps2/slot-allocation.scm				\
-  language/cps2/spec.scm					\
-  language/cps2/specialize-primcalls.scm			\
-  language/cps2/split-rec.scm					\
-  language/cps2/type-fold.scm					\
-  language/cps2/types.scm					\
-  language/cps2/utils.scm					\
-  language/cps2/verify.scm					\
-  language/cps2/with-cps.scm
+  language/cps.scm						\
+  language/cps/closure-conversion.scm				\
+  language/cps/compile-bytecode.scm				\
+  language/cps/constructors.scm					\
+  language/cps/contification.scm				\
+  language/cps/cse.scm						\
+  language/cps/dce.scm						\
+  language/cps/effects-analysis.scm				\
+  language/cps/elide-values.scm					\
+  language/cps/primitives.scm					\
+  language/cps/prune-bailouts.scm				\
+  language/cps/prune-top-level-scopes.scm			\
+  language/cps/reify-primitives.scm				\
+  language/cps/renumber.scm					\
+  language/cps/optimize.scm					\
+  language/cps/simplify.scm					\
+  language/cps/self-references.scm				\
+  language/cps/slot-allocation.scm				\
+  language/cps/spec.scm						\
+  language/cps/specialize-primcalls.scm				\
+  language/cps/split-rec.scm					\
+  language/cps/type-fold.scm					\
+  language/cps/types.scm					\
+  language/cps/utils.scm					\
+  language/cps/verify.scm					\
+  language/cps/with-cps.scm
 
 BYTECODE_LANG_SOURCES =						\
   language/bytecode.scm						\

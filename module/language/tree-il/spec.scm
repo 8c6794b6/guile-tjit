@@ -1,6 +1,6 @@
 ;;; Tree Intermediate Language
 
-;; Copyright (C) 2009, 2010, 2011, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011, 2013, 2015 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -22,7 +22,7 @@
   #:use-module (system base language)
   #:use-module (system base pmatch)
   #:use-module (language tree-il)
-  #:use-module (language tree-il compile-cps2)
+  #:use-module (language tree-il compile-cps)
   #:export (tree-il))
 
 (define (write-tree-il exp . port)
@@ -42,5 +42,5 @@
   #:printer	write-tree-il
   #:parser      parse-tree-il
   #:joiner      join
-  #:compilers   `((cps2 . ,compile-cps2))
+  #:compilers   `((cps . ,compile-cps))
   #:for-humans? #f)

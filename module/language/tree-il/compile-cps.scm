@@ -49,20 +49,20 @@
 ;;;
 ;;; Code:
 
-(define-module (language tree-il compile-cps2)
+(define-module (language tree-il compile-cps)
   #:use-module (ice-9 match)
   #:use-module ((srfi srfi-1) #:select (fold filter-map))
   #:use-module (srfi srfi-26)
   #:use-module ((system foreign) #:select (make-pointer pointer->scm))
-  #:use-module (language cps2)
-  #:use-module (language cps2 utils)
-  #:use-module (language cps2 with-cps)
+  #:use-module (language cps)
+  #:use-module (language cps utils)
+  #:use-module (language cps with-cps)
   #:use-module (language cps primitives)
   #:use-module (language tree-il analyze)
   #:use-module (language tree-il optimize)
   #:use-module (language tree-il)
   #:use-module (language cps intmap)
-  #:export (compile-cps2))
+  #:export (compile-cps))
 
 ;;; Guile's semantics are that a toplevel lambda captures a reference on
 ;;; the current module, and that all contained lambdas use that module
@@ -931,7 +931,7 @@ integer."
        (_ exp)))
    exp))
 
-(define (compile-cps2 exp env opts)
+(define (compile-cps exp env opts)
   (values (cps-convert/thunk
            (canonicalize (optimize-tree-il exp env opts)))
           env
