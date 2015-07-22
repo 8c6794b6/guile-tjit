@@ -102,7 +102,6 @@
   (root transient-intset-root set-transient-intset-root!)
   (edit transient-intset-edit set-transient-intset-edit!))
 
-(define (new-leaf) 0)
 (define-inlinable (clone-leaf-and-set leaf i val)
   (if val
       (if leaf
@@ -573,10 +572,10 @@
           (else (make-intset a-min a-shift root)))))))))
 
 (define (intset-intersect a b)
-  (define tmp (new-leaf))
   ;; Intersect leaves.
   (define (intersect-leaves a b)
-    (logand a b))
+    (let ((leaf (logand a b)))
+      (if (eqv? leaf 0) #f leaf)))
   ;; Intersect A and B from index I; the result will be fresh.
   (define (intersect-branches/fresh shift a b i fresh)
     (let lp ((i 0))
