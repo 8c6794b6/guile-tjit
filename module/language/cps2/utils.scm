@@ -293,8 +293,8 @@ intset."
              (propagate1 k))
             (($ $kfun src meta self tail clause)
              (if clause
-                 (propagate1 clause)
-                 (propagate0)))
+                 (propagate2 clause tail)
+                 (propagate1 tail)))
             (($ $kclause arity kbody kalt)
              (if kalt
                  (propagate2 kbody kalt)
