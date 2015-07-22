@@ -84,8 +84,8 @@
     (jit-calli %scm-from-double)
     (jit-retval dst)))
 
-(define %scm-make-tlog-retval
-  (dynamic-pointer "scm_make_tlog_retval" (dynamic-link)))
+(define %scm-make-tjit-retval
+  (dynamic-pointer "scm_make_tjit_retval" (dynamic-link)))
 
 (define *scm-false*
   (scm->pointer #f))
@@ -1216,7 +1216,7 @@ of SRCS, DSTS, TYPES are local index number."
         (jit-pushargi (scm-i-makinumi entry-ip))
         (jit-pushargi (scm-i-makinumi nlocals))
         (jit-pushargi (scm-i-makinumi local-offset))
-        (jit-calli %scm-make-tlog-retval)
+        (jit-calli %scm-make-tjit-retval)
         (jit-retval r0))
 
       (with-jit-state

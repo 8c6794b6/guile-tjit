@@ -90,6 +90,9 @@ tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM traces,
   SCM s_parent_ip, s_parent_exit_id;
   SCM result;
 
+  if (scm_is_null (traces))
+    return SCM_UNSPECIFIED;
+
   s_id = SCM_I_MAKINUM (trace_id);
   s_bytecode = scm_from_pointer (bytecode, NULL);
   s_bc_idx = SCM_I_MAKINUM (*bc_idx * sizeof (scm_t_uint32));
@@ -141,11 +144,11 @@ call_native (SCM s_ip, SCM tlog,
   f = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
   ret = f (thread, fp, registers);
 
-  next_ip = SCM_TLOG_RETVAL_NEXT_IP (ret);
-  exit_id = SCM_TLOG_RETVAL_EXIT_ID (ret);
-  exit_ip = SCM_TLOG_RETVAL_EXIT_IP (ret);
-  nlocals = SCM_TLOG_RETVAL_NLOCALS (ret);
-  fp_offset = SCM_TLOG_RETVAL_LOCAL_OFFSET (ret);
+  next_ip = SCM_TJIT_RETVAL_NEXT_IP (ret);
+  exit_id = SCM_TJIT_RETVAL_EXIT_ID (ret);
+  exit_ip = SCM_TJIT_RETVAL_EXIT_IP (ret);
+  nlocals = SCM_TJIT_RETVAL_NLOCALS (ret);
+  fp_offset = SCM_TJIT_RETVAL_LOCAL_OFFSET (ret);
 
   s_next_ip = SCM_I_MAKINUM (next_ip);
   tlog = scm_hashq_ref (tlog_table, exit_ip, SCM_BOOL_F);
@@ -166,28 +169,24 @@ call_native (SCM s_ip, SCM tlog,
       count = 0;
     }
 
-  if (tjit_hot_exit < count)
+  if (tjit_hot_exit < count &&
+      scm_hashq_ref (failed_ip_table, s_next_ip, SCM_INUM0) <
+      tjit_max_retries)
     {
-      /* XXX: Detect trace exit to bytecode IP which is same as entry
-         ip. This could happen when arguments to native code had
-         different types than the types used while recording traces,
-         which will make guards in entry clause to fail. Might not need
-         to test for existing native code, because different IP should
-         be returned when patching went well. */
-      SCM tlog = scm_hashq_ref (tlog_table, s_next_ip, SCM_BOOL_F);
+      scm_t_uint32 *start = (scm_t_uint32 *) next_ip;
+      scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
 
-      if (scm_is_false (tlog))
+      /* Deoptimizing current native code when start and end is the same
+         IP.  Native code got different argument types than the types
+         used while recording traces, which made the guards in entry
+         clause to fail. */
+      if (start == end)
+        scm_hashq_remove_x (tlog_table, s_ip);
+      else
         {
-          scm_t_uint32 *start = (scm_t_uint32 *) next_ip;
-          scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
-
-          if (scm_hashq_ref (failed_ip_table, s_next_ip, SCM_INUM0) <
-              tjit_max_retries)
-            {
-              start_recording (state, start, end, loop_start, loop_end);
-              *parent_ip = (scm_t_uintptr) SCM_I_INUM (exit_ip);
-              *parent_exit_id = (int) SCM_I_INUM (exit_id);
-            }
+          start_recording (state, start, end, loop_start, loop_end);
+          *parent_ip = (scm_t_uintptr) SCM_I_INUM (exit_ip);
+          *parent_exit_id = (int) SCM_I_INUM (exit_id);
         }
     }
 
@@ -425,7 +424,7 @@ SCM_DEFINE (scm_tlog_table, "tlog-table", 0, 0, 0, (void),
 #undef FUNC_NAME
 
 SCM
-scm_make_tlog_retval (scm_i_thread *thread, scm_t_bits next_ip,
+scm_make_tjit_retval (scm_i_thread *thread, scm_t_bits next_ip,
                       scm_t_bits exit_id, scm_t_bits exit_ip,
                       scm_t_bits nlocals, scm_t_bits local_offset)
 {
