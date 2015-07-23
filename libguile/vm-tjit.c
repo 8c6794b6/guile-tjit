@@ -176,17 +176,32 @@ call_native (SCM s_ip, SCM tlog,
       scm_t_uint32 *start = (scm_t_uint32 *) next_ip;
       scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
 
-      /* Deoptimizing current native code when start and end is the same
-         IP.  Native code got different argument types than the types
-         used while recording traces, which made the guards in entry
-         clause to fail. */
       if (start == end)
-        scm_hashq_remove_x (tlog_table, s_ip);
+        {
+          /* Deoptimizing root trace. When start and end is the same IP,
+             assuming that this happened because of a guard failure in
+             entry clause of the native code.  Recording starts when VM
+             entered the same loop next time. */
+          scm_hashq_remove_x (tlog_table, s_ip);
+        }
+      else if (exit_ip == s_next_ip)
+        {
+          /* Deoptimizing side trace. When exit IP and next is the
+             same IP, assuming that the guard failure caused this
+             was at the beginning of side trace's native code. */
+          scm_hashq_remove_x (tlog_table, exit_ip);
+
+          /* Using exit ID from parent of the side trace, to replace
+             the exit code of side trace's parent trace. */
+          *parent_ip = (scm_t_uintptr) SCM_I_INUM (s_ip);
+          *parent_exit_id = (int) SCM_I_INUM (SCM_TLOG_PARENT_EXIT_ID (tlog));
+          start_recording (state, start, end, loop_start, loop_end);
+        }
       else
         {
-          start_recording (state, start, end, loop_start, loop_end);
           *parent_ip = (scm_t_uintptr) SCM_I_INUM (exit_ip);
           *parent_exit_id = (int) SCM_I_INUM (exit_id);
+          start_recording (state, start, end, loop_start, loop_end);
         }
     }
 

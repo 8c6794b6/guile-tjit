@@ -148,7 +148,7 @@
 ;; contents.
 ;;
 (define-record-type <tlog>
-  (%make-tlog id code exit-counts entry-ip
+  (%make-tlog id code exit-counts entry-ip parent-exit-id
               snapshots exit-variables exit-codes trampoline
               loop-address loop-locals loop-vars fp-offset end-address)
   tlog?
@@ -164,6 +164,9 @@
 
   ;; Entry bytecode IP.
   (entry-ip tlog-entry-ip)
+
+  ;; Exit id taken by parent, root traces constantly have 0.
+  (parent-exit-id tlog-parent-exit-id)
 
   ;; Snapshot locals and types.
   (snapshots tlog-snapshots)
@@ -203,6 +206,7 @@
   (format #t "~19@a: ~{~a ~}~%" 'exit-counts
           (reverse! (hash-fold acons '() (tlog-exit-counts tlog))))
   (format #t "~19@a: ~x~%" 'entry-ip (tlog-entry-ip tlog))
+  (format #t "~19@a: ~a~%" 'parent-exit-id (tlog-parent-exit-id tlog))
   (format #t "~19@a: ~{~a~^~%                     ~}~%" 'snapshots
           (let ((snapshots (tlog-snapshots tlog)))
             (sort (hash-fold acons '() snapshots)

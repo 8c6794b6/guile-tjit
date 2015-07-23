@@ -229,6 +229,7 @@
                                                 code
                                                 exit-counts
                                                 entry-ip
+                                                parent-exit-id
                                                 snapshots
                                                 exit-variables
                                                 exit-codes

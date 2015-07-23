@@ -82,6 +82,9 @@
 (define (unbound? x)
   (= (pointer-address (scm->pointer x)) #x904))
 
+(define (false? x)
+  (eq? x #f))
+
 
 ;;;
 ;;; Locals
@@ -133,7 +136,7 @@
            ;; procedures.
            (cond
             ((< n 0)
-             (debug 1 ";;; ir.scm:acc: [~a] negative index found at ~a~%"
+             (debug 1 "*** ir.scm:acc: [~a] negative index found at ~a~%"
                     local-offset op)
              st)
             (else
@@ -277,7 +280,11 @@
   past-frame)
 
 (define (past-frame-local-ref past-frame i)
-  (vector-ref (past-frame-locals past-frame) i))
+  (let* ((locals (past-frame-locals past-frame))
+         (len (vector-length locals)))
+    (if (< i len)
+        (vector-ref locals i)
+        (debug 1 "*** index ~a exceeds past-frame local length ~a~%" i len))))
 
 ;; Record type for snapshot.
 (define-record-type <snapshot>
@@ -446,8 +453,11 @@
                 (lp (+ i 1) (cons `(,i . ,&box) acc)))
                ((unbound? local)
                 (lp (+ i 1) (cons `(,i . ,&unbound) acc)))
-               ((not local)
+               ((false? local)
                 (lp (+ i 1) (cons `(,i . ,&false) acc)))
+               ((procedure? local)
+                (lp (+ i 1) (cons `(,i . ,&procedure) acc)))
+
                (else
                 ;; XXX: Add more types.
                 (debug 2 "*** take-snapshot!: ~a~%" local)
@@ -542,8 +552,15 @@
                                                (vector-length vars)
                                                local-offset
                                                locals)))))
-         (push-offset! proc)
-         (convert escape rest))
+         (let ((vproc (var-ref proc))
+               (rproc (local-ref proc)))
+           (debug 2 ";;; ir.scm:call vproc=~a, rproc=~a~%" vproc rproc)
+           `(begin
+              ,(take-snapshot! ip 0)
+              (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
+              ,(begin
+                 (push-offset! proc)
+                 (convert escape rest)))))
 
         (('call-label proc nlocals label)
          (push-offset! proc)

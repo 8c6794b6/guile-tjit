@@ -972,7 +972,7 @@
       (jit-ldxi-d f0 fp (moffs src))
       (scm-from-double r0 f0)
       (local-set! local r0))))
-   ((eq? type &box)
+   ((memq type (list &box &procedure))
     (cond
      ((constant? src)
       (jit-movi r0 (constant src))

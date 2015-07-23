@@ -45,9 +45,10 @@ SCM_API SCM scm_make_tjit_retval (scm_i_thread *thread,
 
 /* Fields in record-type `tlog', from:
    "module/system/vm/native/tjit/parameters.scm". */
-#define SCM_TLOG_CODE(T)         SCM_STRUCT_SLOT_REF (T, 1)
-#define SCM_TLOG_EXIT_COUNTS(T)  SCM_STRUCT_SLOT_REF (T, 2)
-#define SCM_TLOG_ENTRY_IP(T)     SCM_STRUCT_SLOT_REF (T, 3)
+#define SCM_TLOG_CODE(T)           SCM_STRUCT_SLOT_REF (T, 1)
+#define SCM_TLOG_EXIT_COUNTS(T)    SCM_STRUCT_SLOT_REF (T, 2)
+#define SCM_TLOG_ENTRY_IP(T)       SCM_STRUCT_SLOT_REF (T, 3)
+#define SCM_TLOG_PARENT_EXIT_ID(T) SCM_STRUCT_SLOT_REF (T, 4)
 
 #define SCM_TJIT_RETVAL_NEXT_IP(R) \
   (scm_t_uintptr) (SCM_I_INUM (SCM_CELL_OBJECT (R, 0)))
