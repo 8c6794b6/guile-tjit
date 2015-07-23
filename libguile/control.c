@@ -73,7 +73,7 @@ make_partial_continuation (SCM vm_cont)
   scm_t_bits flags = SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION;
   SCM ret;
 
-  ret = scm_words (scm_tc7_program | (nfree << 16) | flags, nfree + 3);
+  ret = scm_words (scm_tc7_program | (nfree << 16) | flags, nfree + 2);
   SCM_SET_CELL_WORD_1 (ret, compose_continuation_code);
   SCM_PROGRAM_FREE_VARIABLE_SET (ret, 0, vm_cont);
 

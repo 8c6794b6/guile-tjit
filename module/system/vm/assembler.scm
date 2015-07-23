@@ -1395,7 +1395,7 @@ should be .data or .rodata), and return the resulting linker object.
                ((4) (* (1+ (string-length x)) 4))
                (else (error "bad string bytes per char" x))))))
        ((static-procedure? x)
-        (* 3 word-size))
+        (* 2 word-size))
        ((string? x)
         (* 4 word-size))
        ((pair? x)

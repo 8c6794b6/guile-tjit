@@ -318,31 +318,6 @@ scm_i_program_arity (SCM program, int *req, int *opt, int *rest)
 
 
 
-SCM_DEFINE (scm_set_native_code_x, "set-native-code!",
-            2, 0, 0, (SCM program, SCM ptr),
-            "Set jit compiled code of PROGRAM to PTR.")
-#define FUNC_NAME s_scm_set_native_code_x
-{
-  scm_t_bits old_flags = SCM_CELL_WORD_0 (program);
-  SCM_SET_CELL_WORD_0 (program, old_flags | SCM_F_PROGRAM_IS_NATIVE);
-  SCM_SET_CELL_WORD_2 (program, SCM_POINTER_VALUE (ptr));
-  return SCM_UNSPECIFIED;
-}
-#undef FUNC_NAME
-
-SCM_DEFINE (scm_native_code, "native-code",
-            1, 0, 0, (SCM program),
-            "Get pointer of jit compiled code for PROGRAM.")
-#define FUNC_NAME s_scm_native_code
-{
-  return SCM_PROGRAM_IS_NATIVE (program) ?
-    scm_from_uintptr_t ((scm_t_uintptr) SCM_CELL_WORD (program, 2)) :
-    SCM_BOOL_F;
-}
-#undef FUNC_NAME
-
-
-
 void
 scm_bootstrap_programs (void)
 {

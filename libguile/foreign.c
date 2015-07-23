@@ -802,11 +802,11 @@ cif_to_procedure (SCM cif, SCM func_ptr)
 
   c_cif = (ffi_cif *) SCM_POINTER_VALUE (cif);
 
-  ret = scm_words (scm_tc7_program | (nfree << 16) | flags, nfree + 3);
+  ret = scm_words (scm_tc7_program | (nfree << 16) | flags, nfree + 2);
   SCM_SET_CELL_WORD_1 (ret, get_foreign_stub_code (c_cif->nargs));
   SCM_PROGRAM_FREE_VARIABLE_SET (ret, 0, cif);
   SCM_PROGRAM_FREE_VARIABLE_SET (ret, 1, func_ptr);
-
+  
   return ret;
 }
 

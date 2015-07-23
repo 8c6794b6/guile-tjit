@@ -27,7 +27,7 @@
 
 #define SCM_PROGRAM_P(x) (SCM_HAS_TYP7 (x, scm_tc7_program))
 #define SCM_PROGRAM_CODE(x) ((scm_t_uint32 *) SCM_CELL_WORD_1 (x))
-#define SCM_PROGRAM_FREE_VARIABLES(x) (SCM_CELL_OBJECT_LOC (x, 3))
+#define SCM_PROGRAM_FREE_VARIABLES(x) (SCM_CELL_OBJECT_LOC (x, 2))
 #define SCM_PROGRAM_FREE_VARIABLE_REF(x,i) (SCM_PROGRAM_FREE_VARIABLES (x)[i])
 #define SCM_PROGRAM_FREE_VARIABLE_SET(x,i,v) (SCM_PROGRAM_FREE_VARIABLES (x)[i]=(v))
 #define SCM_PROGRAM_NUM_FREE_VARIABLES(x) (SCM_CELL_WORD_0 (x) >> 16)
@@ -39,7 +39,6 @@
 #define SCM_F_PROGRAM_IS_CONTINUATION 0x800
 #define SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION 0x1000
 #define SCM_F_PROGRAM_IS_FOREIGN 0x2000
-#define SCM_F_PROGRAM_IS_NATIVE 0x4000
 
 #define SCM_PROGRAM_IS_BOOT(x)	(SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_BOOT)
 #define SCM_PROGRAM_IS_PRIMITIVE(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_PRIMITIVE)
@@ -47,18 +46,12 @@
 #define SCM_PROGRAM_IS_CONTINUATION(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_CONTINUATION)
 #define SCM_PROGRAM_IS_PARTIAL_CONTINUATION(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_PARTIAL_CONTINUATION)
 #define SCM_PROGRAM_IS_FOREIGN(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_FOREIGN)
-#define SCM_PROGRAM_IS_NATIVE(x) (SCM_CELL_WORD_0 (x) & SCM_F_PROGRAM_IS_NATIVE)
-
-#define SCM_INITIAL_NATIVE_CODE SCM_BOOL_F
 
 #ifdef BUILDING_LIBGUILE
 static inline SCM
-scm_i_make_program (const scm_t_uint32 *bytecode)
+scm_i_make_program (const scm_t_uint32 *code)
 {
-  SCM cell = scm_words (scm_tc7_program, 3);
-  SCM_SET_CELL_WORD_1 (cell, (scm_t_bits) bytecode);
-  SCM_SET_CELL_WORD_2 (cell, SCM_INITIAL_NATIVE_CODE);
-  return cell;
+  return scm_cell (scm_tc7_program, (scm_t_bits)code);
 }
 #endif
 
@@ -85,9 +78,6 @@ SCM_INTERNAL void scm_i_program_print (SCM program, SCM port,
                                        scm_print_state *pstate);
 SCM_INTERNAL void scm_bootstrap_programs (void);
 SCM_INTERNAL void scm_init_programs (void);
-
-SCM_API SCM scm_set_native_code_x (SCM program, SCM code);
-SCM_API SCM scm_native_code (SCM program);
 
 #endif /* _SCM_PROGRAMS_H_ */
 
