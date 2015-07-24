@@ -130,6 +130,7 @@ CPS_LANG_SOURCES =						\
   language/cps/dce.scm						\
   language/cps/effects-analysis.scm				\
   language/cps/elide-values.scm					\
+  language/cps/licm.scm						\
   language/cps/primitives.scm					\
   language/cps/prune-bailouts.scm				\
   language/cps/prune-top-level-scopes.scm			\
