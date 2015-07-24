@@ -32,6 +32,7 @@
   #:use-module (language cps licm)
   #:use-module (language cps prune-top-level-scopes)
   #:use-module (language cps prune-bailouts)
+  #:use-module (language cps rotate-loops)
   #:use-module (language cps self-references)
   #:use-module (language cps simplify)
   #:use-module (language cps specialize-primcalls)
@@ -105,4 +106,5 @@
 
 (define-optimizer optimize-first-order-cps
   (eliminate-dead-code #:eliminate-dead-code? #t)
+  (rotate-loops #:rotate-loops? #t)
   (simplify #:simplify? #t))
