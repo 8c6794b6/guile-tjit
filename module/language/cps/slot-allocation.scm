@@ -128,48 +128,6 @@
 (define (lookup-nlocals k allocation)
   (intmap-ref (allocation-frame-sizes allocation) k))
 
-(define (intset-pop set)
-  (match (intset-next set)
-    (#f (values set #f))
-    (i (values (intset-remove set i) i))))
-
-(define (solve-flow-equations succs in out kill gen subtract add meet)
-  "Find a fixed point for flow equations for SUCCS, where IN and OUT are
-the initial conditions as intmaps with one key for every node in SUCCS.
-KILL and GEN are intmaps indicating the state that is killed or defined
-at every node, and SUBTRACT, ADD, and MEET operates on that state."
-  (define (visit label in out)
-    (let* ((in-1 (intmap-ref in label))
-           (kill-1 (intmap-ref kill label))
-           (gen-1 (intmap-ref gen label))
-           (out-1 (intmap-ref out label))
-           (out-1* (add (subtract in-1 kill-1) gen-1)))
-      (if (eq? out-1 out-1*)
-          (values empty-intset in out)
-          (let ((out (intmap-replace! out label out-1*)))
-            (call-with-values
-                (lambda ()
-                  (intset-fold (lambda (succ in changed)
-                                 (let* ((in-1 (intmap-ref in succ))
-                                        (in-1* (meet in-1 out-1*)))
-                                   (if (eq? in-1 in-1*)
-                                       (values in changed)
-                                       (values (intmap-replace! in succ in-1*)
-                                               (intset-add changed succ)))))
-                               (intmap-ref succs label) in empty-intset))
-              (lambda (in changed)
-                (values changed in out)))))))
-
-  (let run ((worklist (intmap-keys succs)) (in in) (out out))
-    (call-with-values (lambda () (intset-pop worklist))
-      (lambda (worklist popped)
-        (if popped
-            (call-with-values (lambda () (visit popped in out))
-              (lambda (changed in out)
-                (run (intset-union worklist changed) in out)))
-            (values (persistent-intmap in)
-                    (persistent-intmap out)))))))
-
 (define-syntax-rule (persistent-intmap2 exp)
   (call-with-values (lambda () exp)
     (lambda (a b)
@@ -321,14 +279,11 @@ the definitions that are live before and after LABEL, as intsets."
          (old->new (compute-reverse-control-flow-order preds)))
     (call-with-values
         (lambda ()
-          (let ((init (rename-keys
-                       (intmap-map (lambda (k v) empty-intset) preds)
-                       old->new)))
-            (solve-flow-equations (rename-graph preds old->new)
-                                  init init
-                                  (rename-keys defs old->new)
-                                  (rename-keys uses old->new)
-                                  intset-subtract intset-union intset-union)))
+          (solve-flow-equations (rename-graph preds old->new)
+                                empty-intset
+                                (rename-keys defs old->new)
+                                (rename-keys uses old->new)
+                                intset-subtract intset-union intset-union))
       (lambda (in out)
         ;; As a reverse control-flow problem, the values flowing into a
         ;; node are actually the live values after the node executes.
@@ -448,12 +403,9 @@ is an active call."
     (call-with-values
         (lambda ()
           (let ((succs (rename-graph preds old->new))
-                (in (rename-keys (intmap-map (lambda (k v) #f) preds) old->new))
-                (out (rename-keys (intmap-map (lambda (k v) #f) preds) old->new))
-                                        ;(out (rename-keys gens old->new))
                 (kills (rename-keys kills old->new))
                 (gens (rename-keys gens old->new)))
-            (solve-flow-equations succs in out kills gens subtract add meet)))
+            (solve-flow-equations succs #f kills gens subtract add meet)))
       (lambda (in out)
         ;; A variable is lazy if its uses reach its definition.
         (intmap-fold (lambda (label out lazy)

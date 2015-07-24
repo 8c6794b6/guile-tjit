@@ -57,6 +57,7 @@
             compute-sorted-strongly-connected-components
             compute-idoms
             compute-dom-edges
+            solve-flow-equations
             ))
 
 (define label-counter (make-parameter #f))
@@ -233,7 +234,7 @@ disjoint, an error will be signalled."
                              (visit-cont k labels))
                             (_ labels)))))))))))
 
-(define (compute-reachable-functions conts kfun)
+(define* (compute-reachable-functions conts #:optional (kfun 0))
   "Compute a mapping LABEL->LABEL..., where each key is a reachable
 $kfun and each associated value is the body of the function, as an
 intset."
@@ -475,3 +476,46 @@ connected components in sorted order."
                      (else (intmap-add! doms idom label snoc)))))
                 idoms
                 empty-intmap)))
+
+(define (intset-pop set)
+  (match (intset-next set)
+    (#f (values set #f))
+    (i (values (intset-remove set i) i))))
+
+(define (solve-flow-equations succs init kill gen subtract add meet)
+  "Find a fixed point for flow equations for SUCCS, where INIT is the
+initial state at each node in SUCCS.  KILL and GEN are intmaps
+indicating the state that is killed or defined at every node, and
+SUBTRACT, ADD, and MEET operates on that state."
+  (define (visit label in out)
+    (let* ((in-1 (intmap-ref in label))
+           (kill-1 (intmap-ref kill label))
+           (gen-1 (intmap-ref gen label))
+           (out-1 (intmap-ref out label))
+           (out-1* (add (subtract in-1 kill-1) gen-1)))
+      (if (eq? out-1 out-1*)
+          (values empty-intset in out)
+          (let ((out (intmap-replace! out label out-1*)))
+            (call-with-values
+                (lambda ()
+                  (intset-fold (lambda (succ in changed)
+                                 (let* ((in-1 (intmap-ref in succ))
+                                        (in-1* (meet in-1 out-1*)))
+                                   (if (eq? in-1 in-1*)
+                                       (values in changed)
+                                       (values (intmap-replace! in succ in-1*)
+                                               (intset-add changed succ)))))
+                               (intmap-ref succs label) in empty-intset))
+              (lambda (in changed)
+                (values changed in out)))))))
+
+  (let ((init (intmap-map (lambda (k v) init) succs)))
+    (let run ((worklist (intmap-keys succs)) (in init) (out init))
+      (call-with-values (lambda () (intset-pop worklist))
+        (lambda (worklist popped)
+          (if popped
+              (call-with-values (lambda () (visit popped in out))
+                (lambda (changed in out)
+                  (run (intset-union worklist changed) in out)))
+              (values (persistent-intmap in)
+                      (persistent-intmap out))))))))
