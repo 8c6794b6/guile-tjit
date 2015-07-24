@@ -32,47 +32,11 @@
   #:use-module (language cps)
   #:use-module (language cps effects-analysis)
   #:use-module (language cps renumber)
-  #:use-module (language cps types)
+  #:use-module (language cps type-checks)
   #:use-module (language cps utils)
   #:use-module (language cps intmap)
   #:use-module (language cps intset)
   #:export (eliminate-dead-code))
-
-(define (elide-type-checks conts kfun effects)
-  "Elide &type-check effects from EFFECTS for the function starting at
-KFUN where we can prove that no assertion will be raised at run-time."
-  (let ((types (infer-types conts kfun)))
-    (define (visit-primcall effects fx label name args)
-      (if (primcall-types-check? types label name args)
-          (intmap-replace! effects label (logand fx (lognot &type-check)))
-          effects))
-    (persistent-intmap
-     (intmap-fold (lambda (label types effects)
-                    (let ((fx (intmap-ref effects label)))
-                      (cond
-                       ((causes-all-effects? fx) effects)
-                       ((causes-effect? fx &type-check)
-                        (match (intmap-ref conts label)
-                          (($ $kargs _ _ exp)
-                           (match exp
-                             (($ $continue k src ($ $primcall name args))
-                              (visit-primcall effects fx label name args))
-                             (($ $continue k src
-                                 ($ $branch _ ($primcall name args)))
-                              (visit-primcall effects fx label name args))
-                             (_ effects)))
-                          (_ effects)))
-                       (else effects))))
-                  types
-                  effects))))
-
-(define (compute-effects/elide-type-checks conts)
-  (intmap-fold (lambda (label cont effects)
-                 (match cont
-                   (($ $kfun) (elide-type-checks conts label effects))
-                   (_ effects)))
-               conts
-               (compute-effects conts)))
 
 (define (fold-local-conts proc conts label seed)
   (match (intmap-ref conts label)

@@ -142,6 +142,7 @@ CPS_LANG_SOURCES =						\
   language/cps/spec.scm						\
   language/cps/specialize-primcalls.scm				\
   language/cps/split-rec.scm					\
+  language/cps/type-checks.scm					\
   language/cps/type-fold.scm					\
   language/cps/types.scm					\
   language/cps/utils.scm					\
