@@ -66,6 +66,12 @@
   (exits loop-exits)
   (body loop-body))
 
+(define (loop-successors scc succs)
+  (intset-subtract (intset-fold (lambda (label exits)
+                                  (intset-union exits (intmap-ref succs label)))
+                                scc empty-intset)
+                   scc))
+
 (define (find-exits scc succs)
   (intset-fold (lambda (label exits)
                  (if (eq? empty-intset
@@ -84,6 +90,7 @@
           ($ $kargs entry-names entry-vars
              ($ $continue entry-kf entry-src ($ $branch entry-kt entry-exp))))
      (let* ((exit-if-true? (intset-ref body-labels entry-kf))
+            (loop-exits (find-exits body-labels succs))
             (exit (if exit-if-true? entry-kt entry-kf))
             (new-entry-label (if exit-if-true? entry-kf entry-kt))
             (join-label (fresh-label))
@@ -149,31 +156,48 @@
               (cps (intmap-replace! cps new-entry-label new-entry-cont)))
          (intset-fold
           (lambda (label cps)
-            (if (intset-ref back-edges label)
-                (match (intmap-ref cps label)
-                  (($ $kargs names vars ($ $continue _ src exp))
-                   (match (rename-exp exp body-vars)
-                     (($ $values args)
-                      (attach-trampoline label src names vars args))
-                     (exp
-                      (let* ((args (make-fresh-vars))
-                             (bind-label (fresh-label))
-                             (edge* (build-cont
-                                      ($kargs names vars
-                                        ($continue bind-label src ,exp))))
-                             (cps (intmap-replace! cps label edge*))
-                             ;; attach-trampoline uses intmap-replace!.
-                             (cps (intmap-add! cps bind-label #f)))
-                        (attach-trampoline bind-label src
-                                           entry-names args args))))))
-                (match (intmap-ref cps label)
-                  (($ $kargs names vars ($ $continue k src exp))
-                   (let ((cont (build-cont
-                                 ($kargs names vars
-                                   ($continue k src
-                                     ,(rename-exp exp body-vars))))))
-                     (intmap-replace! cps label cont)))
-                  (($ $kreceive) cps))))
+            (cond
+             ((intset-ref back-edges label)
+              (match (intmap-ref cps label)
+                (($ $kargs names vars ($ $continue _ src exp))
+                 (match (rename-exp exp body-vars)
+                   (($ $values args)
+                    (attach-trampoline label src names vars args))
+                   (exp
+                    (let* ((args (make-fresh-vars))
+                           (bind-label (fresh-label))
+                           (edge* (build-cont
+                                    ($kargs names vars
+                                      ($continue bind-label src ,exp))))
+                           (cps (intmap-replace! cps label edge*))
+                           ;; attach-trampoline uses intmap-replace!.
+                           (cps (intmap-add! cps bind-label #f)))
+                      (attach-trampoline bind-label src
+                                         entry-names args args)))))))
+             ((intset-ref loop-exits label)
+              (match (intmap-ref cps label)
+                (($ $kargs names vars
+                    ($ $continue kf src ($ $branch kt exp)))
+                 (let* ((trampoline-out-label (fresh-label))
+                        (trampoline-out-cont
+                         (make-trampoline join-label src body-vars))
+                        (kf (if (eqv? kf exit) trampoline-out-label kf))
+                        (kt (if (eqv? kt exit) trampoline-out-label kt))
+                        (cont (build-cont
+                                ($kargs names vars
+                                  ($continue kf src
+                                    ($branch kt ,(rename-exp exp body-vars))))))
+                        (cps (intmap-replace! cps label cont)))
+                   (intmap-add! cps trampoline-out-label trampoline-out-cont)))))
+             (else
+              (match (intmap-ref cps label)
+                (($ $kargs names vars ($ $continue k src exp))
+                 (let ((cont (build-cont
+                               ($kargs names vars
+                                 ($continue k src
+                                   ,(rename-exp exp body-vars))))))
+                   (intmap-replace! cps label cont)))
+                (($ $kreceive) cps)))))
           (intset-remove body-labels entry-label)
           cps))))))
 
@@ -198,8 +222,11 @@
               (let ((back-edges (intset-intersect scc
                                                   (intmap-ref preds entry))))
                 (if (and (can-rotate? back-edges)
-                         (eqv? (trivial-intset (find-exits scc succs)) entry))
-                    ;; Loop header is the only exit.  It must be a
+                         (trivial-intset
+                          (intset-subtract (intmap-ref succs entry) scc))
+                         (trivial-intset (loop-successors scc succs)))
+                    ;; Loop header is an exit, and there is only one
+                    ;; exit continuation.  Loop header must then be a
                     ;; conditional branch and only one successor is an
                     ;; exit.  The values flowing out of the loop are the
                     ;; loop variables.
