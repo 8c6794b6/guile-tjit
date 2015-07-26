@@ -62,10 +62,14 @@ TESTS = \
 	t-side-exit-07.scm \
 	t-side-exit-08.scm \
 	t-side-exit-09.scm \
+	t-side-exit-10.scm \
+	t-side-exit-11.scm \
+	t-side-exit-12.scm \
 	t-tailcall-01.scm \
 	t-toplevel-box-01.scm \
 	t-toplevel-box-02.scm \
 	t-toplevel-box-03.scm \
+	t-types-01.scm \
 	t-twice-01.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)

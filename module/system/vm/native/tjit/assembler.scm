@@ -320,6 +320,10 @@
       (jump (jit-beqi (gpr a) (constant b)) next))
      ((and (gpr? a) (gpr? b))
       (jump (jit-beqr (gpr a) (gpr b)) next))
+
+     ((and (memory? a) (constant? b))
+      (memory-ref asm r0 a)
+      (jump (jit-beqi r0 (constant b)) next))
      ((and (memory? a) (gpr? b))
       (memory-ref asm r0 a)
       (jump (jit-beqr r0 (gpr b)) next))
@@ -1111,10 +1115,10 @@ of SRCS, DSTS, TYPES are local index number."
   (define loop-vars #f)
 
   (define (dump-exit-variables)
-    (debug 2 ";;; exit-variables:~%")
-    (hash-for-each (lambda (k v)
-                     (debug 2 ";;;   ~a => ~a~%" k v))
-                   exit-variables))
+    (debug 2 ";;; exit-variables:~%~{;;;   ~a~%~}"
+            (sort (hash-map->list cons exit-variables)
+                  (lambda (a b)
+                    (< (car a) (car b))))))
 
   (define (dump-bailout ip current-side-exit code)
     (let ((verbosity (lightning-verbosity)))

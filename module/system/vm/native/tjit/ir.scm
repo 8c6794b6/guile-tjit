@@ -46,7 +46,6 @@
   #:use-module (language cps2 types)
   #:use-module (language scheme spec)
   #:use-module (rnrs bytevectors)
-  #:use-module ((srfi srfi-1) #:select (every))
   #:use-module (srfi srfi-9)
   #:use-module (system base compile)
   #:use-module (system foreign)
@@ -246,6 +245,10 @@
   past-frame?
 
   ;; Association list for dynamic link: (local . pointer to fp).
+  ;;
+  ;; XXX: Use offset value for fp, fp could move with ALLOC_FRAME in
+  ;; "libguile/vm-engine.c". Make separate record types for dynamic link and
+  ;; return address.
   (dls past-frame-dls set-past-frame-dls!)
 
   ;; Association list for return address: (local . pointer to ra).
@@ -255,11 +258,17 @@
   (locals past-frame-locals set-past-frame-locals!))
 
 (define (make-past-frame dls ras size local-offset locals)
-  (let ((vec (make-vector size *unspecified*)))
+  ;; XXX: Manage index properly. Vector length mismatch should not occure.
+  (let ((vec (make-vector size *unspecified*))
+        (end (- (vector-length locals) local-offset))
+        (nlocals (vector-length locals)))
     (let lp ((i 0)
-             (end (- (vector-length locals) local-offset)))
+             (end end))
       (when (< i end)
-        (vector-set! vec (+ i local-offset) (vector-ref locals i))
+        (let ((elem (and (< i nlocals) (vector-ref locals i)))
+              (j (+ i local-offset)))
+          (when (< j size)
+            (vector-set! vec (+ i local-offset) elem)))
         (lp (+ i 1) end)))
     (%make-past-frame dls ras locals)))
 
@@ -274,17 +283,21 @@
       (lp (+ i 1) end to-update)))
   past-frame)
 
-(define (pop-past-frame! past-frame local-offset locals)
-  (set-past-frame-dls! past-frame (cdr (past-frame-dls past-frame)))
-  (set-past-frame-ras! past-frame (cdr (past-frame-ras past-frame)))
-  past-frame)
+(define (pop-past-frame! past-frame)
+  (let ((old-dls (past-frame-dls past-frame))
+        (old-ras (past-frame-ras past-frame)))
+    (when (not (null? old-dls))
+      (set-past-frame-dls! past-frame (cdr old-dls)))
+    (when (not (null? old-ras))
+      (set-past-frame-ras! past-frame (cdr old-ras)))
+    past-frame))
 
 (define (past-frame-local-ref past-frame i)
   (let* ((locals (past-frame-locals past-frame))
          (len (vector-length locals)))
     (if (< i len)
         (vector-ref locals i)
-        (debug 1 "*** index ~a exceeds past-frame local length ~a~%" i len))))
+        (debug 1 "*** past-frame nlocals=~a, index=~a~%" len i))))
 
 ;; Record type for snapshot.
 (define-record-type <snapshot>
@@ -299,6 +312,7 @@
 
   ;; Association list of (local . type).
   (locals snapshot-locals))
+
 
 ;;;
 ;;; Scheme ANF compiler
@@ -365,11 +379,12 @@
           (if (< i end)
               (let* ((type (vector-ref types i))
                      (var (and type (vector-ref vars i)))
-                     (op (and type (type-guard-op type)))
-                     (exp (and op
-                               `(begin
-                                  (,op ,var)
-                                  ,(unbox-op type var (lp (+ i 1) end))))))
+                     (guard (and type (type-guard-op type)))
+                     (exp (if guard
+                              `(begin
+                                 (,guard ,var)
+                                 ,(unbox-op type var (lp (+ i 1) end)))
+                              (unbox-op type var (lp (+ i 1) end)))))
                 (or exp (lp (+ i 1) end)))
               loop-exp))))
 
@@ -381,7 +396,8 @@
          (max-local-num (or (and (null? locals) 0) (apply max locals)))
          (args (map make-var (reverse locals)))
          (vars (make-vars max-local-num locals))
-         (types (make-types vars))
+         (expecting-types (make-types vars))
+         (known-types (make-types vars))
          (snapshot-id 0)
          (snapshots (make-hash-table))
          (past-frame #f))
@@ -395,17 +411,23 @@
     (define-syntax-rule (pop-offset! n)
       (set! local-offset (- local-offset n)))
 
-    ;; XXX: Manage expected types and known types.
-    ;;
     ;; Some bytecode operation fills in locals with statically known value, e.g:
-    ;; `make-short-immediate', `static-ref', ... etc.  Some bytecode operations
-    ;; expect certain type, e.g: `add', `mul', ... etc.  Fill in known type when
-    ;; bytecode filling known value, add type to expect with expecting bytecode
-    ;; operations.
-    (define-syntax-rule (set-type! idx ty)
+    ;; `make-short-immediate', `static-ref', `toplevel-box' ... etc.  Some
+    ;; bytecode operations expect certain type, e.g: `add', `mul', ... etc.
+    ;; Fill in known type when bytecode filling known value, add type to expect
+    ;; with expecting bytecode operations.
+    (define-syntax-rule (set-expecting-type! idx ty)
       (let ((i (+ idx local-offset)))
-        (when (not (vector-ref types i))
-          (vector-set! types i ty))))
+        (when (and (not (vector-ref expecting-types i))
+                   (not (vector-ref known-types i)))
+          (debug 2 ";;; set-expecting-type!: ~a => ~a~%" idx ty)
+          (vector-set! expecting-types i ty))))
+
+    (define-syntax-rule (set-known-type! idx ty)
+      (let ((i (+ idx local-offset)))
+        (when (not (vector-ref known-types i))
+          (debug 2 ";;; set-known-type!: ~a => ~a~%" idx ty)
+          (vector-set! known-types i ty))))
 
     (define (convert-one escape op ip fp locals rest)
 
@@ -426,12 +448,13 @@
         (debug 2 ";;;   snapshot-id=~a~%" snapshot-id)
         (debug 2 ";;;   ip=~x, offset=~a~%" ip offset)
         (debug 2 ";;;   var=~a~%" vars)
-        (debug 2 ";;;   local=~a~%" locals)
+        (debug 2 ";;;   (vector-length locals)=~a~%" (vector-length locals))
         (debug 2 ";;;   local-offset=~a~%" local-offset)
         (when past-frame
           (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
           (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame))
-          (debug 2 ";;;   past-frame-locals=~a~%" (past-frame-locals past-frame)))
+          ;; (debug 2 ";;;   past-frame-locals=~a~%" (past-frame-locals past-frame))
+          )
         (debug 2 ";;;   end=~a~%" (vector-length vars))
 
         (let ((end (vector-length vars)))
@@ -443,7 +466,6 @@
                      (val (and locals (assq-ref locals i))))
                 (and (pointer? val) val)))
             (define (add-local local)
-              (debug 2 ";;;   i=~a, adding local=~a~%" i local)
               (cond
                ((fixnum? local)
                 (lp (+ i 1) (cons `(,i . ,&exact-integer) acc)))
@@ -460,7 +482,7 @@
 
                (else
                 ;; XXX: Add more types.
-                (debug 2 "*** take-snapshot!: ~a~%" local)
+                ;; (debug 2 "*** take-snapshot!: ~a~%" local)
                 (lp (+ i 1) acc))))
             (cond
              ((= i end)
@@ -482,32 +504,25 @@
              ((< 0 local-offset)
               (cond
                ;; Dynamic link and return address might need to be passed from
-               ;; parent trace. When inlined procedure take bailout code, traced
-               ;; information might not contain bytecode operation to fill in
-               ;; the `past-frame' data.
+               ;; parent trace. When inlined procedure take bailout code,
+               ;; recorded traced might not contain bytecode operation to fill
+               ;; in the dynamic link and return address of past frame.
                ((or (and past-frame
                          (or (assq-ref (past-frame-dls past-frame) i)
                              (assq-ref (past-frame-ras past-frame) i)))
                     (dl-or-ra-from-parent-trace i))
                 =>
                 (lambda (val)
-                  ;; (debug 2 ";;;   i=~a, val: ~a~%" i val)
                   (lp (+ i 1) (cons `(,i . ,val) acc))))
 
                ((<= local-offset i)
                 (let ((j (- i local-offset)))
-                  ;; (debug 2 ";;; j = ~a, local = ~a~%"
-                  ;;        j (and (< j (vector-length locals))
-                  ;;               (local-ref j)))
                   (if (< j (vector-length locals))
-                      (let ((local (local-ref j)))
-                        ;; (debug 2 ";;;   i=~a, (local-ref ~a)=~a~%" i j local)
-                        (add-local local))
+                      (add-local (local-ref j))
                       (lp (+ i 1) acc))))
 
                (past-frame
                 (let ((local (past-frame-local-ref past-frame i)))
-                  ;; (debug 2 ";;;   i=~a, from past-frame, local=~a~%" i local)
                   (add-local local)))
                ((vector-ref vars i)
                 =>
@@ -520,18 +535,19 @@
                    (var-ref i))
               =>
               (lambda (ref)
-                ;; (debug 2 ";;;   local-offset=0, (var-ref ~a)=~a~%" i ref)
                 (let ((local (and (< i (vector-length locals))
                                   (local-ref i))))
-                  ;; (debug 2 ";;;   i=~a, local=~a~%" i local)
                   (add-local local))))
 
              (else
-              ;; (debug 2 ";;;   skipping i=~a, var-ref=~a~%" i (var-ref i))
               (lp (+ i 1) acc))))))
 
-      ;; (debug 2 "convert-one: ~a (~a/~a) ~a~%"
-      ;;        ip local-offset max-local-num op)
+      ;; (debug 2 ";;; convert-one: ~a (~a/~a) ~a~%"
+      ;;        (or (and (number? ip) (number->string ip 16))
+      ;;            #f)
+      ;;        local-offset
+      ;;        max-local-num
+      ;;        op)
 
       (match op
         ;; *** Call and return
@@ -539,7 +555,7 @@
         ;; XXX: halt
 
         (('call proc nlocals)
-         (set-type! proc &procedure)
+         (set-expecting-type! proc &procedure)
          (let* ((dl (cons (- (+ proc local-offset) 2) fp))
                 (ra (cons (- (+ proc local-offset) 1)
                           (make-pointer (+ ip (* 2 4))))))
@@ -587,7 +603,9 @@
         (('return src)
          (let ((vsrc (var-ref src))
                (vdst (var-ref 1)))
-           (and past-frame (pop-past-frame! past-frame local-offset locals))
+           (debug 2 ";;; popping past-frame!~%")
+           (and past-frame (pop-past-frame! past-frame))
+           (debug 2 ";;; popped!~%")
            (cond
             ((eq? vdst vsrc)
              (convert escape rest))
@@ -652,8 +670,8 @@
                            (if invert? br-op-size offset))))
              (cond
               ((and (fixnum? ra) (fixnum? rb))
-               (set-type! a &exact-integer)
-               (set-type! b &exact-integer)
+               (set-expecting-type! a &exact-integer)
+               (set-expecting-type! b &exact-integer)
                `(begin
                   ,(take-snapshot! ip dest)
                   ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
@@ -672,16 +690,16 @@
                            (if invert? br-op-size offset))))
              (cond
               ((and (fixnum? ra) (fixnum? rb))
-               (set-type! a &exact-integer)
-               (set-type! b &exact-integer)
+               (set-expecting-type! a &exact-integer)
+               (set-expecting-type! b &exact-integer)
                `(begin
                   ,(take-snapshot! ip dest)
                   ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))
                   ,(convert escape rest)))
 
               ((and (flonum? ra) (flonum? rb))
-               (set-type! a &flonum)
-               (set-type! b &flonum)
+               (set-expecting-type! a &flonum)
+               (set-expecting-type! b &flonum)
                `(begin
                   ,(take-snapshot! ip dest)
                   ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
@@ -695,11 +713,17 @@
         ;; *** Lexical binding instructions
 
         (('mov dst src)
+
          (let ((vdst (var-ref dst))
                (vsrc (var-ref src)))
            (cond
-            ((flonum? (local-ref src)) (set-type! src &flonum))
-            ((fixnum? (local-ref src)) (set-type! src &exact-integer)))
+            ((flonum? (local-ref src))
+             (set-expecting-type! src &flonum)
+             (set-known-type! dst &flonum))
+            ((fixnum? (local-ref src))
+             (set-expecting-type! src &exact-integer)
+             (set-known-type! dst &exact-integer)))
+
            `(let ((,vdst ,vsrc))
               ,(convert escape rest))))
 
@@ -719,7 +743,7 @@
                (vsrc (var-ref src))
                (rsrc (and (< src (vector-length locals))
                           (variable-ref (vector-ref locals src)))))
-           (set-type! src &box)
+           (set-expecting-type! src &box)
            `(let ((,vdst (%cell-object ,vsrc 1)))
               ,(cond
                 ((flonum? rsrc)
@@ -736,7 +760,7 @@
                (vsrc (var-ref src))
                (rdst (and (< dst (vector-length locals))
                           (variable-ref (vector-ref locals dst)))))
-           (set-type! dst &box)
+           (set-expecting-type! dst &box)
            (cond
             ((flonum? rdst)
              `(let ((,vsrc (%from-double ,vsrc)))
@@ -758,10 +782,12 @@
         ;; *** Immediates and statically allocated non-immediates
 
         (('make-short-immediate dst low-bits)
+         (set-known-type! dst &exact-integer)
          `(let ((,(var-ref dst) ,(ash low-bits -2)))
             ,(convert escape rest)))
 
         (('make-long-immediate dst low-bits)
+         (set-known-type! dst &exact-integer)
          `(let ((,(var-ref dst) ,(ash low-bits -2)))
             ,(convert escape rest)))
 
@@ -786,6 +812,7 @@
         ;; XXX: define!
 
         (('toplevel-box dst var-offset mod-offset sym-offset bound?)
+         (set-known-type! dst &box)
          (let ((vdst (var-ref dst))
                (src (pointer-address
                      (scm->pointer
@@ -832,13 +859,13 @@
                (vb (var-ref b)))
            (cond
             ((and (fixnum? ra) (fixnum? rb))
-             (set-type! a &exact-integer)
-             (set-type! b &exact-integer)
+             (set-expecting-type! a &exact-integer)
+             (set-expecting-type! b &exact-integer)
              `(let ((,vdst (%add ,va ,vb)))
                 ,(convert escape rest)))
             ((and (flonum? ra) (flonum? rb))
-             (set-type! a &flonum)
-             (set-type! b &flonum)
+             (set-expecting-type! a &flonum)
+             (set-expecting-type! b &flonum)
              `(let ((,vdst (%fadd ,va ,vb)))
                 ,(convert escape rest)))
             (else
@@ -852,7 +879,7 @@
                (vsrc (var-ref src)))
            (cond
             ((fixnum? rsrc)
-             (set-type! src &exact-integer)
+             (set-expecting-type! src &exact-integer)
              `(let ((,vdst (%add ,vsrc 1)))
                 ,(convert escape rest)))
             (else
@@ -868,13 +895,13 @@
                (vb (var-ref b)))
            (cond
             ((and (fixnum? ra) (fixnum? rb))
-             (set-type! a &exact-integer)
-             (set-type! b &exact-integer)
+             (set-expecting-type! a &exact-integer)
+             (set-expecting-type! b &exact-integer)
              `(let ((,vdst (%sub ,va ,vb)))
                 ,(convert escape rest)))
             ((and (flonum? ra) (flonum? rb))
-             (set-type! a &flonum)
-             (set-type! b &flonum)
+             (set-expecting-type! a &flonum)
+             (set-expecting-type! b &flonum)
              `(let ((,vdst (%fsub ,va ,vb)))
                 ,(convert escape rest)))
             (else
@@ -888,7 +915,7 @@
                (vsrc (var-ref src)))
            (cond
             ((fixnum? rsrc)
-             (set-type! src &exact-integer)
+             (set-expecting-type! src &exact-integer)
              `(let ((,vdst (%sub ,vsrc 1)))
                 ,(convert escape rest)))
             (else
@@ -904,8 +931,8 @@
                (vb (var-ref b)))
            (cond
             ((and (flonum? ra) (flonum? rb))
-             (set-type! a &flonum)
-             (set-type! b &flonum)
+             (set-expecting-type! a &flonum)
+             (set-expecting-type! b &flonum)
              `(let ((,vdst (%fmul ,va ,vb)))
                 ,(convert escape rest)))
             (else
@@ -925,8 +952,8 @@
                (vb (var-ref b)))
            (cond
             ((and (fixnum? ra) (fixnum? rb))
-             (set-type! a &exact-integer)
-             (set-type! b &exact-integer)
+             (set-expecting-type! a &exact-integer)
+             (set-expecting-type! b &exact-integer)
              `(let ((,vdst (%mod ,va ,vb)))
                 ,(convert escape rest)))
             (else
@@ -1032,7 +1059,7 @@
         (debug 2 ";;; Bytecode to Scheme conversion failed.~%")
         #f)
        (root-trace?
-        (let ((entry-body (make-entry (initial-ip ops) vars types
+        (let ((entry-body (make-entry (initial-ip ops) vars expecting-types
                                       `(begin
                                          (,*ip-key-end-of-entry* ,@args)
                                          (loop ,@args)))))

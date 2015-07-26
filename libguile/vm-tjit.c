@@ -127,6 +127,39 @@ stop_recording (size_t *state, SCM *ips, scm_t_uint32 *bc_idx,
   *exit_id = 0;
 }
 
+static inline SCM
+to_hex (SCM n)
+{
+  return scm_number_to_string (n, SCM_I_MAKINUM (16));
+}
+
+static inline void
+dump_fps(SCM *old_fp, SCM *fp)
+{
+  SCM port = scm_current_output_port ();
+  scm_puts ("old_fp:", port);
+  scm_display (scm_from_pointer ((void *) old_fp, NULL), port);
+  scm_puts (", fp:", port);
+  scm_display (scm_from_pointer ((void *) fp, NULL), port);
+  scm_newline (port);
+}
+
+static inline void
+dump_locals (int n, SCM *fp)
+{
+  int i;
+  SCM port = scm_current_output_port ();
+  scm_puts ("locals", port);
+  for (i = 0; i < n; ++i)
+    {
+      scm_puts(" [", port);
+      scm_display (SCM_I_MAKINUM (i), port);
+      scm_puts("]:", port);
+      scm_display (SCM_PACK (fp[i]), port);
+    }
+  scm_newline (port);
+}
+
 static inline scm_t_uint32 *
 call_native (SCM s_ip, SCM tlog,
              scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers,
@@ -166,7 +199,7 @@ call_native (SCM s_ip, SCM tlog,
       scm_puts ("XXX: No trace for exit_ip ", port);
       scm_display (scm_number_to_string (exit_ip, SCM_I_MAKINUM (16)), port);
       scm_newline (port);
-      count = 0;
+      count = SCM_INUM0;
     }
 
   if (tjit_hot_exit < count &&
@@ -180,15 +213,15 @@ call_native (SCM s_ip, SCM tlog,
         {
           /* Deoptimizing root trace. When start and end is the same IP,
              assuming that this happened because of a guard failure in
-             entry clause of the native code.  Recording starts when VM
+             entry clause of the native code. Recording starts when VM
              entered the same loop next time. */
           scm_hashq_remove_x (tlog_table, s_ip);
         }
       else if (exit_ip == s_next_ip)
         {
-          /* Deoptimizing side trace. When exit IP and next is the
-             same IP, assuming that the guard failure caused this
-             was at the beginning of side trace's native code. */
+          /* Deoptimizing side trace. When exit IP and next IP is the
+             same IP, assuming that the guard failure caused this was at
+             the beginning of side trace's native code. */
           scm_hashq_remove_x (tlog_table, exit_ip);
 
           /* Using exit ID from parent of the side trace, to replace
@@ -254,17 +287,6 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
   return scm_inline_cons (thread, trace, traces);
 }
 
-static inline void
-dump_fps(SCM *old_fp, SCM *fp)
-{
-  SCM port = scm_current_output_port ();
-  scm_puts ("old_fp:", port);
-  scm_display (scm_from_pointer ((void *) old_fp, NULL), port);
-  scm_puts (", fp:", port);
-  scm_display (scm_from_pointer ((void *) fp, NULL), port);
-  scm_newline (port);
-}
-
 /* C macros for vm-tjit engine
 
   These two macros were perviously defined as static inline functions.
@@ -283,7 +305,8 @@ dump_fps(SCM *old_fp, SCM *fp)
                                                                         \
     if (scm_is_true (tlog))                                             \
       {                                                                 \
-        scm_t_uint32 shift, nlocals;                                    \
+        scm_t_uint32 shift = 0;                                         \
+        scm_t_uint32 nlocals = 0;                                       \
                                                                         \
         /* Update `fp' and `ip' in C code.  Variables `fp' and `ip'  */ \
         /* are using registers, see "libguile/vm-engine.h".          */ \
