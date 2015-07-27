@@ -482,7 +482,8 @@ connected components in sorted order."
     (#f (values set #f))
     (i (values (intset-remove set i) i))))
 
-(define (solve-flow-equations succs init kill gen subtract add meet)
+(define* (solve-flow-equations succs in out kill gen subtract add meet
+                               #:optional (worklist (intmap-keys succs)))
   "Find a fixed point for flow equations for SUCCS, where INIT is the
 initial state at each node in SUCCS.  KILL and GEN are intmaps
 indicating the state that is killed or defined at every node, and
@@ -509,13 +510,12 @@ SUBTRACT, ADD, and MEET operates on that state."
               (lambda (in changed)
                 (values changed in out)))))))
 
-  (let ((init (intmap-map (lambda (k v) init) succs)))
-    (let run ((worklist (intmap-keys succs)) (in init) (out init))
-      (call-with-values (lambda () (intset-pop worklist))
-        (lambda (worklist popped)
-          (if popped
-              (call-with-values (lambda () (visit popped in out))
-                (lambda (changed in out)
-                  (run (intset-union worklist changed) in out)))
-              (values (persistent-intmap in)
-                      (persistent-intmap out))))))))
+  (let run ((worklist worklist) (in in) (out out))
+    (call-with-values (lambda () (intset-pop worklist))
+      (lambda (worklist popped)
+        (if popped
+            (call-with-values (lambda () (visit popped in out))
+              (lambda (changed in out)
+                (run (intset-union worklist changed) in out)))
+            (values (persistent-intmap in)
+                    (persistent-intmap out)))))))

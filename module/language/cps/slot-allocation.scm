@@ -276,11 +276,15 @@ body continuation in the prompt."
 the definitions that are live before and after LABEL, as intsets."
   (let* ((succs (add-prompt-control-flow-edges cps (compute-successors cps)))
          (preds (invert-graph succs))
-         (old->new (compute-reverse-control-flow-order preds)))
+         (old->new (compute-reverse-control-flow-order preds))
+         (init (persistent-intmap (intmap-fold
+                                   (lambda (old new init)
+                                     (intmap-add! init new empty-intset))
+                                   old->new empty-intmap))))
     (call-with-values
         (lambda ()
           (solve-flow-equations (rename-graph preds old->new)
-                                empty-intset
+                                init init
                                 (rename-keys defs old->new)
                                 (rename-keys uses old->new)
                                 intset-subtract intset-union intset-union))
@@ -403,9 +407,15 @@ is an active call."
     (call-with-values
         (lambda ()
           (let ((succs (rename-graph preds old->new))
+                (init (persistent-intmap
+                       (intmap-fold
+                        (lambda (old new in)
+                          (intmap-add! in new #f))
+                        old->new empty-intmap)))
                 (kills (rename-keys kills old->new))
                 (gens (rename-keys gens old->new)))
-            (solve-flow-equations succs #f kills gens subtract add meet)))
+            (solve-flow-equations succs init init kills gens
+                                  subtract add meet)))
       (lambda (in out)
         ;; A variable is lazy if its uses reach its definition.
         (intmap-fold (lambda (label out lazy)
