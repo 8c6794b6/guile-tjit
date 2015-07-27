@@ -55,9 +55,42 @@
     set
     empty-intmap)))
 
+;; Any $values expression that continues to a $kargs and causes no
+;; shuffles is a forwarding label.
+(define (compute-forwarding-labels cps allocation)
+  (fixpoint
+   (lambda (forwarding-map)
+     (intmap-fold (lambda (label target forwarding-map)
+                    (let ((new-target (intmap-ref forwarding-map target
+                                                  (lambda (target) target))))
+                      (if (eqv? target new-target)
+                          forwarding-map
+                          (intmap-replace forwarding-map label new-target))))
+                  forwarding-map forwarding-map))
+   (intmap-fold (lambda (label cont forwarding-labels)
+                  (match cont
+                    (($ $kargs _ _ ($ $continue k _ ($ $values)))
+                     (match (lookup-parallel-moves label allocation)
+                       (()
+                        (match (intmap-ref cps k)
+                          (($ $ktail) forwarding-labels)
+                          (_ (intmap-add forwarding-labels label k))))
+                       (_ forwarding-labels)))
+                    (_ forwarding-labels)))
+                cps empty-intmap)))
+
 (define (compile-function cps asm)
-  (let ((allocation (allocate-slots cps))
-        (frame-size #f))
+  (let* ((allocation (allocate-slots cps))
+         (forwarding-labels (compute-forwarding-labels cps allocation))
+         (frame-size #f))
+    (define (forward-label k)
+      (intmap-ref forwarding-labels k (lambda (k) k)))
+
+    (define (elide-cont? label)
+      (match (intmap-ref forwarding-labels label (lambda (_) #f))
+        (#f #f)
+        (target (not (eqv? label target)))))
+
     (define (maybe-slot sym)
       (lookup-maybe-slot sym allocation))
 
@@ -242,18 +275,6 @@
         (($ $primcall 'unwind ())
          (emit-unwind asm))))
 
-    (define (forward-label label seen)
-      (if (memv label seen)
-          label
-          (match (intmap-ref cps label)
-            (($ $kargs _ _ ($ $continue k _ ($ $values)))
-             (match (lookup-parallel-moves label allocation)
-               (() (match (intmap-ref cps k)
-                     (($ $ktail) label)
-                     (_ (forward-label k (cons label seen)))))
-               (_ label)))
-            (cont label))))
-
     (define (compile-values label exp syms)
       (match exp
         (($ $values args)
@@ -262,62 +283,60 @@
                    (lookup-parallel-moves label allocation)))))
 
     (define (compile-test label exp kt kf next-label)
-      (let* ((kt (forward-label kt '()))
-             (kf (forward-label kf '())))
-        (define (prefer-true?)
-          (if (< (max kt kf) label)
-              ;; Two backwards branches.  Prefer
-              ;; the nearest.
-              (> kt kf)
-              ;; Otherwise prefer a backwards
-              ;; branch or a near jump.
-              (< kt kf)))
-        (define (unary op sym)
-          (cond
-           ((eq? kt next-label)
-            (op asm (slot sym) #t kf))
-           ((eq? kf next-label)
-            (op asm (slot sym) #f kt))
-           (else
-            (let ((invert? (not (prefer-true?))))
-              (op asm (slot sym) invert? (if invert? kf kt))
-              (emit-br asm (if invert? kt kf))))))
-        (define (binary op a b)
-          (cond
-           ((eq? kt next-label)
-            (op asm (slot a) (slot b) #t kf))
-           ((eq? kf next-label)
-            (op asm (slot a) (slot b) #f kt))
-           (else
-            (let ((invert? (not (prefer-true?))))
-              (op asm (slot a) (slot b) invert? (if invert? kf kt))
-              (emit-br asm (if invert? kt kf))))))
-        (match exp
-          (($ $values (sym)) (unary emit-br-if-true sym))
-          (($ $primcall 'null? (a)) (unary emit-br-if-null a))
-          (($ $primcall 'nil? (a)) (unary emit-br-if-nil a))
-          (($ $primcall 'pair? (a)) (unary emit-br-if-pair a))
-          (($ $primcall 'struct? (a)) (unary emit-br-if-struct a))
-          (($ $primcall 'char? (a)) (unary emit-br-if-char a))
-          (($ $primcall 'symbol? (a)) (unary emit-br-if-symbol a))
-          (($ $primcall 'variable? (a)) (unary emit-br-if-variable a))
-          (($ $primcall 'vector? (a)) (unary emit-br-if-vector a))
-          (($ $primcall 'string? (a)) (unary emit-br-if-string a))
-          (($ $primcall 'bytevector? (a)) (unary emit-br-if-bytevector a))
-          (($ $primcall 'bitvector? (a)) (unary emit-br-if-bitvector a))
-          (($ $primcall 'keyword? (a)) (unary emit-br-if-keyword a))
-          ;; Add more TC7 tests here.  Keep in sync with
-          ;; *branching-primcall-arities* in (language cps primitives) and
-          ;; the set of macro-instructions in assembly.scm.
-          (($ $primcall 'eq? (a b)) (binary emit-br-if-eq a b))
-          (($ $primcall 'eqv? (a b)) (binary emit-br-if-eqv a b))
-          (($ $primcall 'equal? (a b)) (binary emit-br-if-equal a b))
-          (($ $primcall '< (a b)) (binary emit-br-if-< a b))
-          (($ $primcall '<= (a b)) (binary emit-br-if-<= a b))
-          (($ $primcall '= (a b)) (binary emit-br-if-= a b))
-          (($ $primcall '>= (a b)) (binary emit-br-if-<= b a))
-          (($ $primcall '> (a b)) (binary emit-br-if-< b a))
-          (($ $primcall 'logtest (a b)) (binary emit-br-if-logtest a b)))))
+      (define (prefer-true?)
+        (if (< (max kt kf) label)
+            ;; Two backwards branches.  Prefer
+            ;; the nearest.
+            (> kt kf)
+            ;; Otherwise prefer a backwards
+            ;; branch or a near jump.
+            (< kt kf)))
+      (define (unary op sym)
+        (cond
+         ((eq? kt next-label)
+          (op asm (slot sym) #t kf))
+         ((eq? kf next-label)
+          (op asm (slot sym) #f kt))
+         (else
+          (let ((invert? (not (prefer-true?))))
+            (op asm (slot sym) invert? (if invert? kf kt))
+            (emit-br asm (if invert? kt kf))))))
+      (define (binary op a b)
+        (cond
+         ((eq? kt next-label)
+          (op asm (slot a) (slot b) #t kf))
+         ((eq? kf next-label)
+          (op asm (slot a) (slot b) #f kt))
+         (else
+          (let ((invert? (not (prefer-true?))))
+            (op asm (slot a) (slot b) invert? (if invert? kf kt))
+            (emit-br asm (if invert? kt kf))))))
+      (match exp
+        (($ $values (sym)) (unary emit-br-if-true sym))
+        (($ $primcall 'null? (a)) (unary emit-br-if-null a))
+        (($ $primcall 'nil? (a)) (unary emit-br-if-nil a))
+        (($ $primcall 'pair? (a)) (unary emit-br-if-pair a))
+        (($ $primcall 'struct? (a)) (unary emit-br-if-struct a))
+        (($ $primcall 'char? (a)) (unary emit-br-if-char a))
+        (($ $primcall 'symbol? (a)) (unary emit-br-if-symbol a))
+        (($ $primcall 'variable? (a)) (unary emit-br-if-variable a))
+        (($ $primcall 'vector? (a)) (unary emit-br-if-vector a))
+        (($ $primcall 'string? (a)) (unary emit-br-if-string a))
+        (($ $primcall 'bytevector? (a)) (unary emit-br-if-bytevector a))
+        (($ $primcall 'bitvector? (a)) (unary emit-br-if-bitvector a))
+        (($ $primcall 'keyword? (a)) (unary emit-br-if-keyword a))
+        ;; Add more TC7 tests here.  Keep in sync with
+        ;; *branching-primcall-arities* in (language cps primitives) and
+        ;; the set of macro-instructions in assembly.scm.
+        (($ $primcall 'eq? (a b)) (binary emit-br-if-eq a b))
+        (($ $primcall 'eqv? (a b)) (binary emit-br-if-eqv a b))
+        (($ $primcall 'equal? (a b)) (binary emit-br-if-equal a b))
+        (($ $primcall '< (a b)) (binary emit-br-if-< a b))
+        (($ $primcall '<= (a b)) (binary emit-br-if-<= a b))
+        (($ $primcall '= (a b)) (binary emit-br-if-= a b))
+        (($ $primcall '>= (a b)) (binary emit-br-if-<= b a))
+        (($ $primcall '> (a b)) (binary emit-br-if-< b a))
+        (($ $primcall 'logtest (a b)) (binary emit-br-if-logtest a b))))
 
     (define (compile-trunc label k exp nreq rest-var)
       (define (do-call proc args emit-call)
@@ -359,13 +378,17 @@
                   (lambda (asm proc-slot nargs)
                     (emit-call-label asm proc-slot nargs k))))))
 
+    (define (skip-elided-conts label)
+      (if (elide-cont? label)
+          (skip-elided-conts (1+ label))
+          label))
+
     (define (compile-expression label k exp)
-      (let* ((fallthrough? (= k (1+ label))))
+      (let* ((forwarded-k (forward-label k))
+             (fallthrough? (= forwarded-k (skip-elided-conts (1+ label)))))
         (define (maybe-emit-jump)
-          (unless (or fallthrough?
-                      (= (forward-label k '())
-                         (forward-label (1+ label) '())))
-            (emit-br asm k)))
+          (unless fallthrough?
+            (emit-br asm forwarded-k)))
         (match (intmap-ref cps k)
           (($ $ktail)
            (compile-tail label exp))
@@ -377,7 +400,8 @@
           (($ $kargs () ())
            (match exp
              (($ $branch kt exp)
-              (compile-test label exp kt k (1+ label)))
+              (compile-test label exp (forward-label kt) forwarded-k
+                            (skip-elided-conts (1+ label))))
              (_
               (compile-effect label exp k)
               (maybe-emit-jump))))
@@ -389,8 +413,11 @@
                           (and rest
                                (match (intmap-ref cps kargs)
                                  (($ $kargs names (_ ... rest)) rest))))
-           (unless (and fallthrough? (= kargs (1+ k)))
-             (emit-br asm kargs))))))
+           (let* ((kargs (forward-label kargs))
+                  (fallthrough? (and fallthrough?
+                                     (= kargs (skip-elided-conts (1+ k))))))
+             (unless fallthrough?
+               (emit-br asm kargs)))))))
 
     (define (compile-cont label cont)
       (match cont
@@ -421,7 +448,8 @@
                    names vars)
          (when src
            (emit-source asm src))
-         (compile-expression label k exp))
+         (unless (elide-cont? label)
+           (compile-expression label k exp)))
         (($ $kreceive arity kargs)
          (emit-label asm label))
         (($ $ktail)
