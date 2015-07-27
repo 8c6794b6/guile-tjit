@@ -405,10 +405,13 @@ MAX-VAR + 1 which contains register and memory information."
           (debug 2 ";;; ~3@a: ~a~%" i (vector-ref vars i))
           (lp (+ i 1))))
 
+      (debug 2 ";;; resolve-variables: mem-idx=~a~%" mem-idx)
+
       (values vars
               (local-var-alist locals entry-start-syms)
               loop-start-syms
-              kstart))))
+              kstart
+              (max 0 (- mem-idx 1))))))
 
 ;;;
 ;;; Loop start

@@ -1352,18 +1352,9 @@ of SRCS, DSTS, TYPES are local index number."
   (assemble-cont cps '() #f 0))
 
 (define (assemble-tjit cps entry-ip locals snapshots tlog exit-id linked-ip)
-  (define (max-moffs env)
-    (let lp ((i 0) (end (vector-length env)) (current 0))
-      (if (< i end)
-          (let ((var (vector-ref env i)))
-            (if (and (memory? var) (< current (ref-value var)))
-                (lp (+ i 1) end (ref-value var))
-                (lp (+ i 1) end current)))
-          current)))
-
   (let*-values
       (((max-label max-var) (compute-max-label-and-var cps))
-       ((env initial-locals loop-args kstart)
+       ((env initial-locals loop-args kstart nspills)
         (resolve-variables cps locals max-var)))
     (let* ((trampoline-size
             (hash-fold (lambda (k v acc) (+ acc 1)) 1 snapshots))
@@ -1375,8 +1366,13 @@ of SRCS, DSTS, TYPES are local index number."
         ;; Allocate spaces for spilled variables, two words for arguments passed
         ;; from C code: `vp->fp', and `registers', and one word for return
         ;; address used by side exits.
-        (let* ((nspills (max-moffs env))
-               (fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size))))
+        ;;
+        ;; XXX: Cannot increase memory if number of spilled variables in side
+        ;; trace is greater than area allocated by the parent trace, because
+        ;; side trace uses `jit-tramp'.  Perhaps better to allocate constant
+        ;; amount in root trace, and make that amount configurable via
+        ;; parameter.
+        (let* ((fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size))))
                (moffs (lambda (mem)
                         (let ((offset (* (ref-value mem) %word-size)))
                           (make-offset-pointer fp-offset offset)))))
@@ -1402,73 +1398,67 @@ of SRCS, DSTS, TYPES are local index number."
                         tlog trampoline end-addr linked-ip)))
 
        (else                            ; Side trace.
-        (let* ((nspills (max-moffs env))
-               (fp-offset (tlog-fp-offset tlog)))
-          (debug 2 ";;; side trace: nspills=~a~%" nspills)
+        (let* ((fp-offset (tlog-fp-offset tlog))
+               (moffs
+                (lambda (mem)
+                  (let ((offset (* (ref-value mem) %word-size)))
+                    (make-offset-pointer fp-offset offset)))))
 
-          ;; XXX: Cannot allocate more memory if nspills of side trace is
-          ;; greater than area allocated by the parent trace, because side trace
-          ;; uses `jit-tramp'.  Perhaps better to allocate constant amount in
-          ;; root trace, and make that amount configurable via parameter.
+          ;; Avoid emitting prologue.
           (jit-tramp (imm (* 4 %word-size)))
 
           ;; Load initial arguments from parent trace.
-          (let ((moffs
-                 (lambda (mem)
-                   (let ((offset (* (ref-value mem) %word-size)))
-                     (make-offset-pointer fp-offset offset))))
-                (locals (snapshot-locals (hashq-ref snapshots 0))))
+          (cond
+           ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
+            =>
+            (match-lambda
+             (($ $snapshot _ _ local-x-types)
 
-            ;; Store values passed from parent trace when it's unused in this
-            ;; side trace.
-            (cond
-             ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
-              =>
-              (match-lambda
-               (($ $snapshot _ _ local-x-types)
-                (maybe-store moffs
-                             local-x-types
-                             (hashq-ref (tlog-exit-variables tlog) exit-id)
-                             identity
-                             initial-locals)))))
+              ;; Store values passed from parent trace when it's unused in this
+              ;; side trace.
+              (maybe-store moffs
+                           local-x-types
+                           (hashq-ref (tlog-exit-variables tlog) exit-id)
+                           identity
+                           initial-locals)
 
-            ;; When passing values from parent trace to side-trace, src could be
-            ;; overwritten by move or load.
-            ;;
-            ;; Values stored in register passed from parent trace could be
-            ;; overwritten by values loaded from frame or moved from parent,
-            ;; since the pairing of locals and register could be different from
-            ;; how it was done in parent trace.  Prepare hash tables containing
-            ;; dst, src, and types. Then move or load values to destinations
-            ;; with avoiding overwrites of source values.
-            (let ((vars (hashq-ref (tlog-exit-variables tlog) exit-id))
-                  (dst-table (make-hash-table))
-                  (src-table (make-hash-table))
-                  (type-table (make-hash-table)))
-              (for-each
-               (match-lambda
-                ((local . var)
-                 (hashq-set! type-table local (assq-ref locals local))
-                 (hashq-set! dst-table local (vector-ref env var))))
-               initial-locals)
-              (cond
-               ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
-                =>
-                (match-lambda
-                 (($ $snapshot _ _ local-x-types)
-                  (let lp ((local-x-types local-x-types)
-                           (vars vars))
-                    (match local-x-types
-                      (((local . type) . local-x-types)
-                       (match vars
-                         ((var . vars)
-                          (hashq-set! src-table local var)
-                          (lp local-x-types vars))
-                         (()
-                          (debug 2 ";;; side-exit: vars=null, local-x-types=~a~%"
-                                 local-x-types))))
-                      (() (values))))))))
-              (move-or-load-carefully dst-table src-table type-table moffs)))
+              ;; When passing values from parent trace to side-trace, src could
+              ;; be overwritten by move or load.
+              ;;
+              ;; Values stored in register passed from parent trace could be
+              ;; overwritten by values loaded from frame or moved from parent,
+              ;; since the pairing of locals and register could be different
+              ;; from how it was done in parent trace.  Prepare hash tables
+              ;; containing dst, src, and types. Then move or load values to
+              ;; destinations with avoiding overwrites of source values.
+              (let ((vars (hashq-ref (tlog-exit-variables tlog) exit-id))
+                    (locals (snapshot-locals (hashq-ref snapshots 0)))
+                    (dst-table (make-hash-table))
+                    (src-table (make-hash-table))
+                    (type-table (make-hash-table)))
+                (for-each
+                 (match-lambda
+                  ((local . var)
+                   (hashq-set! type-table local (assq-ref locals local))
+                   (hashq-set! dst-table local (vector-ref env var))))
+                 initial-locals)
+                (let lp ((local-x-types local-x-types)
+                         (vars vars))
+                  (match local-x-types
+                    (((local . type) . local-x-types)
+                     (match vars
+                       ((var . vars)
+                        (hashq-set! src-table local var)
+                        (lp local-x-types vars))
+                       (()
+                        (debug 2 ";;; side-exit: vars=null, local-x-types=~a~%"
+                               local-x-types))))
+                    (() (values))))
+                (move-or-load-carefully dst-table src-table type-table
+                                        moffs)))))
+           (else
+            (error "assemble-tjit: snapshot not found in parent trace"
+                   (- exit-id 1))))
 
           ;; Assemble the primitives in CPS.
           (assemble-cps cps env kstart entry-ip snapshots loop-args fp-offset
