@@ -30,6 +30,7 @@
   #:use-module (language cps dce)
   #:use-module (language cps elide-values)
   #:use-module (language cps licm)
+  #:use-module (language cps peel-loops)
   #:use-module (language cps prune-top-level-scopes)
   #:use-module (language cps prune-bailouts)
   #:use-module (language cps rotate-loops)
@@ -82,11 +83,6 @@
 ;;  * Abort contification: turning abort primcalls into continuation
 ;;    calls, and eliding prompts if possible.
 ;;
-;;  * Loop peeling.  Unrolls the first round through a loop if the
-;;    loop has effects that CSE can work on.  Requires effects
-;;    analysis.  When run before CSE, loop peeling is the equivalent
-;;    of loop-invariant code motion (LICM).
-;;
 (define-optimizer optimize-higher-order-cps
   (split-rec #:split-rec? #t)
   (eliminate-dead-code #:eliminate-dead-code? #t)
@@ -97,7 +93,7 @@
   (specialize-primcalls #:specialize-primcalls? #t)
   (elide-values #:elide-values? #t)
   (prune-bailouts #:prune-bailouts? #t)
-  (hoist-loop-invariant-code #:licm? #t)
+  (peel-loops #:peel-loops? #t)
   (eliminate-common-subexpressions #:cse? #t)
   (type-fold #:type-fold? #t)
   (resolve-self-references #:resolve-self-references? #t)
@@ -105,6 +101,8 @@
   (simplify #:simplify? #t))
 
 (define-optimizer optimize-first-order-cps
+  (hoist-loop-invariant-code #:licm? #t)
+  ;; FIXME: CSE here to eliminate duplicate free-ref terms.
   (eliminate-dead-code #:eliminate-dead-code? #t)
   (rotate-loops #:rotate-loops? #t)
   (simplify #:simplify? #t))
