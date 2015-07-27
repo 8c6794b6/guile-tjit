@@ -349,6 +349,34 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
     SCM s_loop_start = SCM_I_MAKINUM (tjit_loop_start);                 \
     SCM tlog = scm_hashq_ref (tlog_table, s_ip, SCM_BOOL_F);            \
                                                                         \
+    SCM locals;                                                         \
+    int opcode, i, num_locals;                                          \
+                                                                        \
+    /* Record bytecode IP, FP, and locals. When tlog is true,        */ \
+    /* current record is side trace, and the current bytecode IP is  */ \
+    /* already recorded by root trace.                               */ \
+    if (scm_is_false (tlog))                                            \
+      {                                                                 \
+        opcode = *ip & 0xff;                                            \
+                                                                        \
+        /* Store current bytecode and increment bytecode index. */      \
+        for (i = 0; i < op_sizes[opcode]; ++i)                          \
+          {                                                             \
+            tjit_bytecode[tjit_bc_idx] = ip[i];                         \
+            tjit_bc_idx += 1;                                           \
+          }                                                             \
+                                                                        \
+        /* Copying the local contents to vector manually, to get     */ \
+        /* updated information from *fp, not from *vp which may out  */ \
+        /* of sync.                                                  */ \
+        num_locals = FRAME_LOCALS_COUNT ();                             \
+        locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);         \
+        for (i = 0; i < num_locals; ++i)                                \
+          scm_c_vector_set_x (locals, i, LOCAL_REF (i));                \
+                                                                        \
+        tjit_traces = record (thread, s_ip, fp, locals, tjit_traces);   \
+      }                                                                 \
+                                                                        \
     if (ip == ((scm_t_uint32 *) tjit_loop_end) || scm_is_true (tlog))   \
       {                                                                 \
         SCM ret;                                                        \
@@ -372,31 +400,6 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
         scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INUM1);     \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
                         &tjit_parent_ip, &tjit_parent_exit_id);         \
-      }                                                                 \
-    else                                                                \
-      {                                                                 \
-        SCM locals;                                                     \
-        int num_locals;                                                 \
-        int opcode, i;                                                  \
-                                                                        \
-        opcode = *ip & 0xff;                                            \
-                                                                        \
-        /* Store current bytecode and increment bytecode index. */      \
-        for (i = 0; i < op_sizes[opcode]; ++i)                          \
-          {                                                             \
-            tjit_bytecode[tjit_bc_idx] = ip[i];                         \
-            tjit_bc_idx += 1;                                           \
-          }                                                             \
-                                                                        \
-        /* Store current IP and frame locals. Copying the local    */   \
-        /* contents to vector manually, to get updated information */   \
-        /* from *fp, not from *vp which may out of sync.           */   \
-        num_locals = FRAME_LOCALS_COUNT ();                             \
-        locals = scm_c_make_vector (num_locals, SCM_UNDEFINED);         \
-        for (i = 0; i < num_locals; ++i)                                \
-          scm_c_vector_set_x (locals, i, LOCAL_REF (i));                \
-                                                                        \
-        tjit_traces = record (thread, s_ip, fp, locals, tjit_traces);   \
       }                                                                 \
   } while (0)
 

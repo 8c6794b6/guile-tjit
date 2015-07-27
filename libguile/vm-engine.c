@@ -391,7 +391,7 @@
             offset >>= 8; /* Sign-extending shift. */                   \
             if (offset <= 0)                                            \
               VM_HANDLE_INTERRUPTS;                                     \
-            NEXT (offset);                                              \
+            TJIT_ENTER (offset);                                        \
           }                                                             \
         NEXT (3);                                                       \
       }                                                                 \
@@ -407,7 +407,7 @@
             offset >>= 8; /* Sign-extending shift. */                   \
             if (offset <= 0)                                            \
               VM_HANDLE_INTERRUPTS;                                     \
-            NEXT (offset);                                              \
+            TJIT_ENTER (offset);                                        \
           }                                                             \
         NEXT (3);                                                       \
       }                                                                 \

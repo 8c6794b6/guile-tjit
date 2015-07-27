@@ -1,3 +1,5 @@
+;; Side exit in inlined procedure, depth of inline is 2.
+
 (define (f a)
   (if (< a 200)
       (+ a 1)

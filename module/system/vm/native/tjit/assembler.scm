@@ -29,11 +29,11 @@
   #:use-module (ice-9 match)
   #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 pretty-print)
+  #:use-module (language cps)
   #:use-module (language cps intmap)
   #:use-module (language cps intset)
-  #:use-module (language cps2)
-  #:use-module (language cps2 types)
-  #:use-module (language cps2 utils)
+  #:use-module (language cps types)
+  #:use-module (language cps utils)
   #:use-module (language tree-il primitives)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
@@ -232,12 +232,13 @@
 (define-syntax-rule (goto-exit asm)
   ;; Save return address, then jump to address of asm-code of ASM.
   ;;
-  ;; Expecting that CODE will jump back to return address, or patched to parent
-  ;; trace already. When returned to patched address, exit from native code with
-  ;; returning the contents of register R0.
+  ;; Expecting that out-code of asm will jump back to return address, or patched
+  ;; to parent trace already. When returned to patched address, exit from native
+  ;; code with returning the contents of register R0.
   ;;
-  ;; Side trace reuses RSP shifting from parent trace. Native code of side trace
-  ;; does not reset stack pointer, because side traces use `jit-tramp'.
+  ;; Side trace reuses RSP shifting from epilog of parent trace. Native code of
+  ;; side trace does not reset stack pointer, because side traces use
+  ;; `jit-tramp'.
   ;;
   (let ((addr (jit-movi r1 (imm 0))))
     (jit-stxi ra-offset fp r1)
@@ -1025,12 +1026,11 @@ hash-table DSTS.  If source is not found, load value from frame with using type
 from hash-table TYPES and procedure MOFFS to get memory offset.  Hash-table key
 of SRCS, DSTS, TYPES are local index number."
 
-  (define (same-sets? as bs)
-    (and (= (length as) (length bs))
-         (let lp ((as as))
+  (define (dst-is-full? as bs)
+    (let lp ((as as))
            (match as
              ((a . as) (and (member a bs) (lp as)))
-             (() #t)))))
+             (() #t))))
   (define (in-srcs? var)
     (hash-fold (lambda (k v acc)
                  (or acc (and (equal? v var) (hashq-ref dsts k))))
@@ -1067,7 +1067,7 @@ of SRCS, DSTS, TYPES are local index number."
                ;; again.
                (let ((srcs-list (hash-map->list cons srcs)))
                  (cond
-                  ((same-sets? (map cdr dsts) (map cdr srcs-list))
+                  ((dst-is-full? (map cdr dsts) (map cdr srcs-list))
                    ;; `-2' is for gpr R1 or fpr F1 in lightning, used as scratch
                    ;; register in this module.
                    (let ((tmp (or (and (fpr? src-var) (make-fpr -2))
@@ -1116,9 +1116,9 @@ of SRCS, DSTS, TYPES are local index number."
 
   (define (dump-exit-variables)
     (debug 2 ";;; exit-variables:~%~{;;;   ~a~%~}"
-            (sort (hash-map->list cons exit-variables)
-                  (lambda (a b)
-                    (< (car a) (car b))))))
+           (sort (hash-map->list cons exit-variables)
+                 (lambda (a b)
+                   (< (car a) (car b))))))
 
   (define (dump-bailout ip current-side-exit code)
     (let ((verbosity (lightning-verbosity)))
@@ -1154,25 +1154,22 @@ of SRCS, DSTS, TYPES are local index number."
      ((hashq-ref *native-prim-procedures* name)
       =>
       (lambda (proc)
-        (let* ((side-exit (trampoline-ref trampoline (- current-side-exit 1)))
-               (asm (make-asm env fp-offset side-exit end-address)))
-          (apply proc asm
-                 (map (lambda (arg)
-                        (env-ref arg))
-                      (append dsts args))))))
+        (let* ((out-code (trampoline-ref trampoline (- current-side-exit 1)))
+               (asm (make-asm env fp-offset out-code end-address)))
+          (apply proc asm (map env-ref (append dsts args))))))
      (else
       (error "Unhandled primcall" name))))
 
   (define (assemble-exit proc args)
     (define (jump-to-linked-code)
-      (let* ((tlog (get-tlog linked-ip))
+      (let* ((linked-tlog (get-tlog linked-ip))
              (current-locals (make-hash-table))
-             (loop-locals (tlog-loop-locals tlog)))
+             (loop-locals (tlog-loop-locals linked-tlog)))
         (cond
          ((hashq-ref snapshots current-side-exit)
           =>
           (match-lambda
-           (($ <snapshot> local-offset _ local-x-types)
+           (($ $snapshot local-offset _ local-x-types)
             ;; Store unpassed variables, move registers from parent, then load
             ;; the locals from frame when not passed from parent.
             (let ((dst-table (make-hash-table))
@@ -1180,7 +1177,7 @@ of SRCS, DSTS, TYPES are local index number."
                    (maybe-store moffs local-x-types args env-ref loop-locals))
                   (type-table (make-hash-table)))
               (let lp ((locals loop-locals)
-                       (dsts (tlog-loop-vars tlog)))
+                       (dsts (tlog-loop-vars linked-tlog)))
                 (match locals
                   (((local . type) . locals)
                    (hashq-set! type-table local type)
@@ -1194,7 +1191,7 @@ of SRCS, DSTS, TYPES are local index number."
                   (() (values))))
               (move-or-load-carefully dst-table src-table type-table moffs))
             ;; Jump to beginning of the loop in linked code.
-            (jumpi (tlog-loop-address tlog)))))
+            (jumpi (tlog-loop-address linked-tlog)))))
          (else
           (debug 2 ";;; assemble-exit: IP is 0, local info not found~%")))))
 
@@ -1203,7 +1200,7 @@ of SRCS, DSTS, TYPES are local index number."
        ((hashq-ref snapshots (- current-side-exit 1))
         =>
         (match-lambda
-         (($ <snapshot> _ _ local-x-types)
+         (($ $snapshot _ _ local-x-types)
           (set! loop-locals local-x-types)
           (set! loop-vars (map env-ref args)))))
        (else
@@ -1226,48 +1223,53 @@ of SRCS, DSTS, TYPES are local index number."
       (with-jit-state
        (jit-prolog)
        (jit-tramp (imm (* 4 %word-size)))
-       (cond
-        ((hashq-ref snapshots (- current-side-exit 1))
-         =>
-         (match-lambda
-          (($ <snapshot> local-offset nlocals local-x-types)
-           (debug 2 ";;; emit-bailout:~%")
-           (debug 2 ";;;   local-x-types=~a~%" local-x-types)
-           (debug 2 ";;;   args=~a~%" args)
-           (let lp ((local-x-types local-x-types)
-                    (args args))
+       ;; Snapshots in root traces have empty $call to capture CPS variables.
+       (let ((side-exit-id (if tlog
+                               current-side-exit
+                               (- current-side-exit 1))))
+         (cond
+          ((hashq-ref snapshots side-exit-id)
+           =>
+           (match-lambda
+            (($ $snapshot local-offset nlocals local-x-types)
+             (debug 2 ";;; emit-bailout:~%")
+             (debug 2 ";;;   side-exit-id=~a~%" side-exit-id)
+             (debug 2 ";;;   local-x-types=~a~%" local-x-types)
+             (debug 2 ";;;   args=~a~%" args)
+             (let lp ((local-x-types local-x-types)
+                      (args args))
 
-             ;; XXX: Length of args and locals should match. Update snapshots
-             ;; and save args.  Snapshot data need to contain locals in caller
-             ;; procedure when VM bytecode op made this side exit was inlined.
-             ;;
-             ;; Matching ends when no more values found in local, args exceeding
-             ;; the number of locals are ignored.
-             (match local-x-types
-               (((local . type) . local-x-types)
-                (match args
-                  ((arg . args)
-                   (store-frame moffs local type (env-ref arg))
-                   (lp local-x-types args))
-                  (()
-                   (debug 2 ";;;   args=null, local-x-types=~a~%"
-                          local-x-types))))
-               (() (values)))
+               ;; XXX: Length of args and locals should match. Update snapshots
+               ;; and save args.  Snapshot data need to contain locals in caller
+               ;; procedure when VM bytecode op made this side exit was inlined.
+               ;;
+               ;; Matching ends when no more values found in local, args exceeding
+               ;; the number of locals are ignored.
+               (match local-x-types
+                 (((local . type) . local-x-types)
+                  (match args
+                    ((arg . args)
+                     (store-frame moffs local type (env-ref arg))
+                     (lp local-x-types args))
+                    (()
+                     (debug 2 ";;;   args=null, local-x-types=~a~%"
+                            local-x-types))))
+                 (() (values)))
 
-             ;; (for-each
-             ;;  (lambda (local-x-type arg)
-             ;;    (let ((local (car local-x-type))
-             ;;          (type (cdr local-x-type)))
-             ;;      (store-frame moffs local type (env-ref arg))))
-             ;;  local-x-types args)
+               ;; (for-each
+               ;;  (lambda (local-x-type arg)
+               ;;    (let ((local (car local-x-type))
+               ;;          (type (cdr local-x-type)))
+               ;;      (store-frame moffs local type (env-ref arg))))
+               ;;  local-x-types args)
 
-             )
-           (when (< 0 local-offset)
-             (debug 2 ";;; assemble-exit: shifting FP for ~a.~%" local-offset))
-           (make-retval nlocals local-offset))))
-        (else
-         (debug 2 ";;; assemble-exit: entry IP ~x~%" next-ip)
-         (make-retval 0 0)))
+               )
+             (when (< 0 local-offset)
+               (debug 2 ";;; assemble-exit: shifting FP for ~a.~%" local-offset))
+             (make-retval nlocals local-offset))))
+          (else
+           (debug 2 ";;; assemble-exit: entry IP ~x~%" next-ip)
+           (make-retval 0 0))))
 
        ;; Caller places return address to address `fp + ra-offset', and
        ;; expects `R0' to hold the packed return values.
@@ -1407,7 +1409,7 @@ of SRCS, DSTS, TYPES are local index number."
           ;; XXX: Cannot allocate more memory if nspills of side trace is
           ;; greater than area allocated by the parent trace, because side trace
           ;; uses `jit-tramp'.  Perhaps better to allocate constant amount in
-          ;; root trace, and make the amount configurable via parameter.
+          ;; root trace, and make that amount configurable via parameter.
           (jit-tramp (imm (* 4 %word-size)))
 
           ;; Load initial arguments from parent trace.
@@ -1423,7 +1425,7 @@ of SRCS, DSTS, TYPES are local index number."
              ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
               =>
               (match-lambda
-               (($ <snapshot> _ _ local-x-types)
+               (($ $snapshot _ _ local-x-types)
                 (maybe-store moffs
                              local-x-types
                              (hashq-ref (tlog-exit-variables tlog) exit-id)
@@ -1453,7 +1455,7 @@ of SRCS, DSTS, TYPES are local index number."
                ((hashq-ref (tlog-snapshots tlog) (- exit-id 1))
                 =>
                 (match-lambda
-                 (($ <snapshot> _ _ local-x-types)
+                 (($ $snapshot _ _ local-x-types)
                   (let lp ((local-x-types local-x-types)
                            (vars vars))
                     (match local-x-types

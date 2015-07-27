@@ -37,13 +37,13 @@
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
   #:use-module (ice-9 pretty-print)
+  #:use-module (language cps)
   #:use-module (language cps intmap)
   #:use-module (language cps intset)
-  #:use-module (language cps2)
-  #:use-module (language cps2 closure-conversion)
-  #:use-module (language cps2 optimize)
-  #:use-module (language cps2 renumber)
-  #:use-module (language cps2 types)
+  #:use-module (language cps closure-conversion)
+  #:use-module (language cps optimize)
+  #:use-module (language cps renumber)
+  #:use-module (language cps types)
   #:use-module (language scheme spec)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
@@ -59,7 +59,7 @@
             flonum?
             *ip-key-end-of-side-trace*
             *ip-key-end-of-entry*
-            <snapshot>
+            $snapshot
             make-snapshot
             snapshot?
             snapshot-offset
@@ -240,15 +240,14 @@
 ;; Data type to contain past frame data. Used to store dynamic link, return
 ;; addresses, and locals of caller procedure when inlined procedure exist in
 ;; trace.
-(define-record-type <past-frame>
+(define-record-type $past-frame
   (%make-past-frame dls ras locals)
   past-frame?
 
   ;; Association list for dynamic link: (local . pointer to fp).
   ;;
   ;; XXX: Use offset value for fp, fp could move with ALLOC_FRAME in
-  ;; "libguile/vm-engine.c". Make separate record types for dynamic link and
-  ;; return address.
+  ;; "libguile/vm-engine.c". Differentiate dynamic link and return address.
   (dls past-frame-dls set-past-frame-dls!)
 
   ;; Association list for return address: (local . pointer to ra).
@@ -300,7 +299,7 @@
         (debug 1 "*** past-frame nlocals=~a, index=~a~%" len i))))
 
 ;; Record type for snapshot.
-(define-record-type <snapshot>
+(define-record-type $snapshot
   (make-snapshot offset nlocals locals)
   snapshot?
 
@@ -420,13 +419,11 @@
       (let ((i (+ idx local-offset)))
         (when (and (not (vector-ref expecting-types i))
                    (not (vector-ref known-types i)))
-          (debug 2 ";;; set-expecting-type!: ~a => ~a~%" idx ty)
           (vector-set! expecting-types i ty))))
 
     (define-syntax-rule (set-known-type! idx ty)
       (let ((i (+ idx local-offset)))
         (when (not (vector-ref known-types i))
-          (debug 2 ";;; set-known-type!: ~a => ~a~%" idx ty)
           (vector-set! known-types i ty))))
 
     (define (convert-one escape op ip fp locals rest)
@@ -442,6 +439,13 @@
                (vector-ref vars (+ i local-offset)))))
 
       (define (take-snapshot! ip offset)
+        (define parent-locals
+          (let ((snapshot (and tlog (hashq-ref (tlog-snapshots tlog)
+                                               (- exit-id 1)))))
+            (match snapshot
+              (($ $snapshot _ _ locals)
+               locals)
+              (_ #f))))
         ;; When procedure get inlined, taking snapshot of previous frame,
         ;; contents of previous frame could change in native code loop.
         (debug 2 ";;; take-snapshot!:~%")
@@ -452,20 +456,16 @@
         (debug 2 ";;;   local-offset=~a~%" local-offset)
         (when past-frame
           (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
-          (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame))
-          ;; (debug 2 ";;;   past-frame-locals=~a~%" (past-frame-locals past-frame))
-          )
+          (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame)))
         (debug 2 ";;;   end=~a~%" (vector-length vars))
 
         (let ((end (vector-length vars)))
           (let lp ((i 0) (acc '()))
             (define (dl-or-ra-from-parent-trace i)
-              (let* ((snapshot (and tlog (hashq-ref (tlog-snapshots tlog)
-                                                    (- exit-id 1))))
-                     (locals (and snapshot (snapshot-locals snapshot)))
-                     (val (and locals (assq-ref locals i))))
+              (let ((val (and parent-locals (assq-ref parent-locals i))))
                 (and (pointer? val) val)))
             (define (add-local local)
+              (debug 2 ";;; take-snapshot!:add-local: i=~a, local=~a~%" i local)
               (cond
                ((fixnum? local)
                 (lp (+ i 1) (cons `(,i . ,&exact-integer) acc)))
@@ -525,8 +525,13 @@
                 (let ((local (past-frame-local-ref past-frame i)))
                   (add-local local)))
                ((vector-ref vars i)
-                =>
-                (lambda (ref) (add-local #f)))
+                (cond
+                 ((assq-ref parent-locals i)
+                  =>
+                  (lambda (type)
+                    (lp (+ i 1) (cons `(,i . ,type) acc))))
+                 (else
+                  (lp (+ i 1) acc))))
                (else
                 (debug 2 ";;;   i=~a, skipping~%" i)
                 (lp (+ i 1) acc))))
@@ -540,6 +545,7 @@
                   (add-local local))))
 
              (else
+              (debug 2 ";;;   i=~a, skipping~%" i)
               (lp (+ i 1) acc))))))
 
       ;; (debug 2 ";;; convert-one: ~a (~a/~a) ~a~%"
@@ -603,9 +609,7 @@
         (('return src)
          (let ((vsrc (var-ref src))
                (vdst (var-ref 1)))
-           (debug 2 ";;; popping past-frame!~%")
            (and past-frame (pop-past-frame! past-frame))
-           (debug 2 ";;; popped!~%")
            (cond
             ((eq? vdst vsrc)
              (convert escape rest))
@@ -713,7 +717,6 @@
         ;; *** Lexical binding instructions
 
         (('mov dst src)
-
          (let ((vdst (var-ref dst))
                (vsrc (var-ref src)))
            (cond
@@ -1028,7 +1031,10 @@
           (root-trace?
            (convert-one escape op ip fp locals
                         `(loop ,@(filter identity (vector->list vars)))))
-          (else                         ; side trace.
+          (else
+           ;;  Side trace. Capturing CPS variables with /take-snapshot!/, so
+           ;;  that the side trace code can pass the register information to
+           ;;  native code of linked trace.
            (let* ((snap! `(take-snapshot! ,*ip-key-end-of-side-trace* 0))
                   (last-op `((,snap! ,ip #f ,locals))))
              (convert-one escape op ip fp locals last-op)))))
@@ -1108,7 +1114,7 @@
         (set! cps (renumber cps k))
         cps)))
 
-  (let ((cps (and scm (compile scm #:from 'scheme #:to 'cps2))))
+  (let ((cps (and scm (compile scm #:from 'scheme #:to 'cps))))
     (set! cps (and cps (body-fun cps)))
     cps))
 

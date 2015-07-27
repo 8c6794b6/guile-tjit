@@ -1,3 +1,5 @@
+;; Nested branches with inlined procedures.
+
 (define (f a)
   (if (< a 400)
       (+ a 2)
