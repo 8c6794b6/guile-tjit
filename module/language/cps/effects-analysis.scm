@@ -63,6 +63,7 @@
             &struct
             &string
             &bytevector
+            &closure
 
             &object
             &field
@@ -180,7 +181,10 @@
   ;; Indicates that an expression depends on the contents of a
   ;; bytevector.  We cannot be more precise, as bytevectors may alias
   ;; other bytevectors.
-  &bytevector)
+  &bytevector
+
+  ;; Indicates a dependency on a free variable of a closure.
+  &closure)
 
 (define-inlinable (&field kind field)
   (ash (logior (ash field &memory-kind-bits) kind) &effect-kind-bits))
@@ -372,6 +376,17 @@ is or might be a read or a write to the same location as A."
   ((bv-s64-set! bv n x)            (&write-object &bytevector) &type-check)
   ((bv-f32-set! bv n x)            (&write-object &bytevector) &type-check)
   ((bv-f64-set! bv n x)            (&write-object &bytevector) &type-check))
+
+;; Closures.
+(define (closure-field n constants)
+  (indexed-field &closure n constants))
+(define (read-closure-field n constants)
+  (logior &read (closure-field n constants)))
+(define (write-closure-field n constants)
+  (logior &write (closure-field n constants)))
+(define-primitive-effects* constants
+  ((free-ref closure idx)          (read-closure-field idx constants))
+  ((free-set! closure idx val)     (write-closure-field idx constants)))
 
 ;; Modules.
 (define-primitive-effects
