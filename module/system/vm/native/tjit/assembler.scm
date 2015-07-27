@@ -114,12 +114,21 @@
 ;;;
 
 (define-record-type <asm>
-  (%make-asm %env %fp-offset %out-code %end-address)
+  (%make-asm env fp-offset out-code end-address)
   asm?
-  (%env asm-env set-asm-env!)
-  (%fp-offset asm-fp-offset set-asm-fp-offset!)
-  (%out-code asm-out-code set-out-code!)
-  (%end-address asm-end-address set-asm-end-address!))
+
+  ;; Vector containing CPS variables. Index of vector is CPS variable ID, value
+  ;; is reference to logical register or memory.
+  (env asm-env)
+
+  ;; Offset for fp register. This is the offset allocated with `jit-allocai'.
+  (fp-offset asm-fp-offset)
+
+  ;; Pointer of native code for current side exit.
+  (out-code asm-out-code)
+
+  ;; Pointer of native code at the end of parent trace.
+  (end-address asm-end-address))
 
 (define (make-asm env fp-offset out-code end-address)
   (%make-asm env fp-offset out-code end-address))
@@ -1098,21 +1107,19 @@ of SRCS, DSTS, TYPES are local index number."
 
 (define (assemble-cps cps env kstart entry-ip snapshots initial-args fp-offset
                       tlog trampoline end-address linked-ip)
+
+  ;; Internal states.
+  (define exit-codes (make-hash-table))
+  (define exit-variables (make-hash-table))
+  (define current-side-exit 0)
+  (define loop-locals #f)
+  (define loop-vars #f)
+
   (define (env-ref i)
     (vector-ref env i))
 
   (define (moffs x)
     (make-offset-pointer fp-offset (* (ref-value x) %word-size)))
-
-  (define exit-codes (make-hash-table))
-
-  (define exit-variables (make-hash-table))
-
-  (define current-side-exit 0)
-
-  (define loop-locals #f)
-
-  (define loop-vars #f)
 
   (define (dump-exit-variables)
     (debug 2 ";;; exit-variables:~%~{;;;   ~a~%~}"
@@ -1124,8 +1131,7 @@ of SRCS, DSTS, TYPES are local index number."
     (let ((verbosity (lightning-verbosity)))
       (when (and verbosity (<= 3 verbosity))
         (call-with-output-file
-            (format #f "/tmp/bailout-~x-~4,,,'0@a.o"
-                    ip current-side-exit)
+            (format #f "/tmp/bailout-~x-~4,,,'0@a.o" ip current-side-exit)
           (lambda (port)
             (put-bytevector port code)
             (jit-print))))))
@@ -1312,44 +1318,40 @@ of SRCS, DSTS, TYPES are local index number."
        ;; (debug 2 "      exp:~a~%" exp)
        (values))))
 
-  (define (assemble-cont cps exp loop-label k)
-    (define (done)
+  (define (assemble-cont cps)
+    (define (done loop-label)
       (dump-exit-variables)
-      (values exit-variables exit-codes
-              trampoline loop-label loop-locals loop-vars fp-offset))
+      (values exit-variables exit-codes trampoline
+              loop-label loop-locals loop-vars fp-offset))
+    (let lp ((exp #f) (loop-label #f) (k 0))
+      (match (intmap-ref cps k)
+        (($ $kreceive _ knext)
+         (lp exp loop-label knext))
+        (($ $kclause _ knext)
+         (lp exp loop-label knext))
+        (($ $kfun _ _ _ _ knext)
+         (lp exp loop-label knext))
+        (($ $kargs _ syms ($ $continue knext _ next-exp))
+         (assemble-exp exp syms)
+         (cond
+          ((< knext k)
+           ;; Jump back to beginning of loop, return to caller.
+           (maybe-move next-exp initial-args)
+           (debug 3 ";;; -> loop~%")
+           (jump loop-label)
+           (done loop-label))
+          ((= kstart k)
+           ;; Emit label to mark beginning of the loop.
+           (debug 3 ";;; loop:~%")
+           (jit-note "loop" 0)
+           (lp next-exp (jit-label) knext))
+          (else
+           (lp next-exp loop-label knext))))
+        (($ $ktail)
+         (assemble-exp exp '())
+         (done loop-label)))))
 
-    (match (intmap-ref cps k)
-      (($ $kreceive _ knext)
-       (assemble-cont cps exp loop-label knext))
-
-      (($ $kclause _ knext)
-       (assemble-cont cps exp loop-label knext))
-
-      (($ $kfun _ _ _ _ knext)
-       (assemble-cont cps exp loop-label knext))
-
-      (($ $kargs _ syms ($ $continue knext _ next-exp))
-       (assemble-exp exp syms)
-       (cond
-        ((< knext k)
-         ;; Jump back to beginning of loop, return to caller.
-         (maybe-move next-exp initial-args)
-         (debug 3 ";;; -> loop~%")
-         (jump loop-label)
-         (done))
-        ((= kstart k)
-         ;; Emit label to mark beginning of the loop.
-         (debug 3 ";;; loop:~%")
-         (jit-note "loop" 0)
-         (assemble-cont cps next-exp (jit-label) knext))
-        (else
-         (assemble-cont cps next-exp loop-label knext))))
-
-      (($ $ktail)
-       (assemble-exp exp '())
-       (done))))
-
-  (assemble-cont cps '() #f 0))
+  (assemble-cont cps))
 
 (define (assemble-tjit cps entry-ip locals snapshots tlog exit-id linked-ip)
   (let*-values
