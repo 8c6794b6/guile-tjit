@@ -64,10 +64,15 @@ TESTS = \
 	t-side-exit-10.scm \
 	t-side-exit-11.scm \
 	t-side-exit-12.scm \
+	t-side-exit-13.scm \
+	t-side-exit-14.scm \
+	t-side-exit-15.scm \
+	t-side-exit-16.scm \
 	t-tailcall-01.scm \
 	t-toplevel-box-01.scm \
 	t-toplevel-box-02.scm \
 	t-toplevel-box-03.scm \
+	t-toplevel-box-04.scm \
 	t-types-01.scm \
 	t-twice-01.scm
 

@@ -59,12 +59,21 @@
             flonum?
             *ip-key-end-of-side-trace*
             *ip-key-end-of-entry*
+
             $snapshot
             make-snapshot
             snapshot?
             snapshot-offset
             snapshot-nlocals
-            snapshot-locals))
+            snapshot-locals
+
+            $return-address
+            return-address?
+            return-address-pointer
+
+            $dynamic-link
+            dynamic-link?
+            dynamic-link-offset))
 
 
 ;;;
@@ -236,6 +245,19 @@
 ;;;
 ;;; Record types
 ;;;
+
+(define-record-type $return-address
+  (%make-return-address pointer)
+  return-address?
+  (pointer return-address-pointer))
+
+(define (make-return-address ip)
+  (%make-return-address (make-pointer ip)))
+
+(define-record-type $dynamic-link
+  (make-dynamic-link offset)
+  dynamic-link?
+  (offset dynamic-link-offset))
 
 ;; Data type to contain past frame data. Used to store dynamic link, return
 ;; addresses, and locals of caller procedure when inlined procedure exist in
@@ -463,7 +485,8 @@
           (let lp ((i 0) (acc '()))
             (define (dl-or-ra-from-parent-trace i)
               (let ((val (and parent-locals (assq-ref parent-locals i))))
-                (and (pointer? val) val)))
+                (or (and (dynamic-link? val) val)
+                    (and (return-address? val) val))))
             (define (add-local local)
               (debug 2 ";;; take-snapshot!:add-local: i=~a, local=~a~%" i local)
               (cond
@@ -562,9 +585,10 @@
 
         (('call proc nlocals)
          (set-expecting-type! proc &procedure)
-         (let* ((dl (cons (- (+ proc local-offset) 2) fp))
+         (let* ((dl (cons (- (+ proc local-offset) 2)
+                          (make-dynamic-link local-offset)))
                 (ra (cons (- (+ proc local-offset) 1)
-                          (make-pointer (+ ip (* 2 4))))))
+                          (make-return-address (+ ip (* 2 4))))))
            (cond
             (past-frame
              (push-past-frame! past-frame dl ra local-offset locals))

@@ -946,17 +946,24 @@
 
 (define (store-frame moffs local type src)
   (cond
-   ;; When type is a pointer, moving type value itself to frame local.
-   ;;
-   ;; Dynamic-link and return address of VM frame need to be recovered when
-   ;; taking exit from inlined procedure call. The actual values for
-   ;; dynamic-link and return address are captured at the time of bytecode to
-   ;; Scheme IR conversion, and stored in snapshot as pointer.
-   ((pointer? type)
-    (jit-movi r0 type)
+   ;; Type is return address, moving value coupled with type to frame
+   ;; local. Return address of VM frame need to be recovered when taking exit
+   ;; from inlined procedure call. The actual value for return address is
+   ;; captured at the time of bytecode to Scheme IR conversion, and stored in
+   ;; snapshot as pointer.
+   ((return-address? type)
+    (jit-movi r0 (return-address-pointer type))
     (local-set! local r0))
 
-   ;; Check type, recover SCM value appropriately.
+   ;; Type is dynamic link, storing fp to local. Dynamic link is stored as
+   ;; offset in coupled in type, VM's fp could move, may use different value at
+   ;; the time of compilation and execution.
+   ((dynamic-link? type)
+    (jit-ldxi r0 fp vp->fp-offset)
+    (jit-addi r0 r0 (imm (* (dynamic-link-offset type) %word-size)))
+    (local-set! local r0))
+
+   ;; Check type, recover SCM value.
    ((eq? type &exact-integer)
     (cond
      ((constant? src)
@@ -1006,7 +1013,11 @@
     (error "store-frame: Unknown local, type, src:" local type src))))
 
 (define (maybe-store moffs local-x-types srcs src-unwrapper references)
-  "Store src in SRCS to frame when local is not found in references."
+  "Store src in SRCS to frame when local is not found in REFERENCES.
+
+Locals are loaded with MOFFS to refer memory offset. Returns a hash-table
+containing src with SRC-UNWRAPPER applied. Key of the returned hash-table is
+local index in LOCAL-X-TYPES."
   (debug 2 ";;; maybe-store:~%")
   (debug 2 ";;;   local-x-types=~a~%" local-x-types)
   (debug 2 ";;;   srcs=~a~%" srcs)
@@ -1176,8 +1187,9 @@ of SRCS, DSTS, TYPES are local index number."
           =>
           (match-lambda
            (($ $snapshot local-offset _ local-x-types)
-            ;; Store unpassed variables, move registers from parent, then load
-            ;; the locals from frame when not passed from parent.
+            ;; Store unpassed variables, move registers from parent, then move
+            ;; or load the locals from frame to pass the register and memory
+            ;; variables to linked trace.
             (let ((dst-table (make-hash-table))
                   (src-table
                    (maybe-store moffs local-x-types args env-ref loop-locals))
