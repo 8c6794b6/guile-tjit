@@ -51,20 +51,11 @@
 
 (define-module (language cps rotate-loops)
   #:use-module (ice-9 match)
-  #:use-module ((srfi srfi-1) #:select (filter-map))
-  #:use-module (srfi srfi-9)
   #:use-module (language cps)
   #:use-module (language cps utils)
   #:use-module (language cps intmap)
   #:use-module (language cps intset)
   #:export (rotate-loops))
-
-(define-record-type $loop
-  (make-loop entry exits body)
-  loop?
-  (entry loop-entry)
-  (exits loop-exits)
-  (body loop-body))
 
 (define (loop-successors scc succs)
   (intset-subtract (intset-fold (lambda (label exits)
