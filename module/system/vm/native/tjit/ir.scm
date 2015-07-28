@@ -247,12 +247,9 @@
 ;;;
 
 (define-record-type $return-address
-  (%make-return-address pointer)
+  (make-return-address pointer)
   return-address?
   (pointer return-address-pointer))
-
-(define (make-return-address ip)
-  (%make-return-address (make-pointer ip)))
 
 (define-record-type $dynamic-link
   (make-dynamic-link offset)
@@ -367,6 +364,7 @@
     (cond
      ((eq? type &exact-integer) '%guard-fx)
      ((eq? type &flonum) '%guard-fl)
+     ;; XXX: Add more.
      (else #f)))
 
   (define (unbox-op type var next-exp)
@@ -381,20 +379,7 @@
       next-exp)))
 
   (define (make-entry ip vars types loop-exp)
-    (define (make-args vars)
-      (let ((end (vector-length vars)))
-        (let lp ((i 0) (acc '()))
-          (cond
-           ((= i end)
-            (reverse! acc))
-           ((vector-ref vars i)
-            =>
-            (lambda (var)
-              (lp (+ i 1) (cons var acc))))
-           (else
-            (lp (+ i 1) acc))))))
     `(begin
-       ;; (,ip ,@(make-args vars))
        (,ip)
        ,(let lp ((i 0) (end (vector-length types)))
           (if (< i end)
@@ -419,9 +404,12 @@
          (vars (make-vars max-local-num locals))
          (expecting-types (make-types vars))
          (known-types (make-types vars))
-         (snapshot-id 0)
          (snapshots (make-hash-table))
-         (past-frame #f))
+         (past-frame #f)
+         ;; Snapshot ID `0' in root trace contains no local information, used
+         ;; for guard failure in entry clause to quickly return to VM
+         ;; interpreter without recovering frame data.
+         (snapshot-id (if root-trace? 1 0)))
 
     ;; XXX: Keep track of vp->sp, used to record locals when tracing side exit
     ;; from inlined procedure.
@@ -462,8 +450,8 @@
 
       (define (take-snapshot! ip offset)
         (define parent-locals
-          (let ((snapshot (and tlog (hashq-ref (tlog-snapshots tlog)
-                                               (- exit-id 1)))))
+          (let ((snapshot (and tlog
+                               (hashq-ref (tlog-snapshots tlog) exit-id))))
             (match snapshot
               (($ $snapshot _ _ locals)
                locals)
@@ -479,7 +467,6 @@
         (when past-frame
           (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
           (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame)))
-        (debug 2 ";;;   end=~a~%" (vector-length vars))
 
         (let ((end (vector-length vars)))
           (let lp ((i 0) (acc '()))
@@ -588,7 +575,7 @@
          (let* ((dl (cons (- (+ proc local-offset) 2)
                           (make-dynamic-link local-offset)))
                 (ra (cons (- (+ proc local-offset) 1)
-                          (make-return-address (+ ip (* 2 4))))))
+                          (make-return-address (make-pointer (+ ip (* 2 4)))))))
            (cond
             (past-frame
              (push-past-frame! past-frame dl ra local-offset locals))
@@ -1055,10 +1042,9 @@
           (root-trace?
            (convert-one escape op ip fp locals
                         `(loop ,@(filter identity (vector->list vars)))))
-          (else
-           ;;  Side trace. Capturing CPS variables with /take-snapshot!/, so
-           ;;  that the side trace code can pass the register information to
-           ;;  native code of linked trace.
+          (else ; side trace
+           ;; Capturing CPS variables with /take-snapshot!/ at the end, so that
+           ;; the native code can pass the register information to linked trace.
            (let* ((snap! `(take-snapshot! ,*ip-key-end-of-side-trace* 0))
                   (last-op `((,snap! ,ip #f ,locals))))
              (convert-one escape op ip fp locals last-op)))))
