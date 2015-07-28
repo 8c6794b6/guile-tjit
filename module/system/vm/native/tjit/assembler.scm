@@ -156,6 +156,11 @@
     (error "make-negative-pointer: expecting negative address" addr))
   (make-pointer (+ (expt 2 (* 8 %word-size)) addr)))
 
+(define (make-signed-pointer addr)
+  (if (<= 0 addr)
+      (make-pointer addr)
+      (make-negative-pointer addr)))
+
 (define (make-offset-pointer offset n)
   (let ((addr (+ offset n)))
     (cond
@@ -198,14 +203,18 @@
 
 (define-syntax local-set!
   (syntax-rules ()
-    ((_ 0 src)
-     (let ((vp->fp (if (eq? src r0) r1 r0)))
-      (jit-ldxi vp->fp fp vp->fp-offset)
-      (jit-str vp->fp src)))
     ((_ n src)
      (let ((vp->fp (if (eq? src r0) r1 r0)))
        (jit-ldxi vp->fp fp vp->fp-offset)
-       (jit-stxi (imm (* n %word-size)) vp->fp src)))))
+       (cond
+        ((= 0 n)
+         (jit-str vp->fp src))
+        ((< 0 n)
+         (jit-stxi (imm (* n %word-size)) vp->fp src))
+        (else
+         (debug 2 ";;; local-set!: negative local ~a~%" n)
+         (let ((offset (make-negative-pointer (* n %word-size))))
+           (jit-stxi offset vp->fp src))))))))
 
 (define-syntax-rule (memory-ref asm dst src)
   (cond
@@ -275,6 +284,8 @@
 ;;; Need at least 3 general purpose scratch registers, and 3 floating point
 ;;; scratch registers. Currently using R0, R1, and R2 for general purpose, F0,
 ;;; F1, and F2 for floating point.
+
+;;; XXX: Add more helper macros, e.g: %ne, %eq, %lt, %ge have similar structure.
 
 (define *native-prim-arities* (make-hash-table))
 (define *native-prim-procedures* (make-hash-table))
@@ -941,6 +952,9 @@
      ((memory? dst)
       (jit-movi r0 *scm-undefined*)
       (jit-stxi-d (moffs dst) fp r0))))
+   ((or (return-address? type)
+        (dynamic-link? type))
+    (values))
    (else
     (error "load-frame" local type dst))))
 
@@ -960,7 +974,9 @@
    ;; the time of compilation and execution.
    ((dynamic-link? type)
     (jit-ldxi r0 fp vp->fp-offset)
-    (jit-addi r0 r0 (imm (* (dynamic-link-offset type) %word-size)))
+    (let* ((amount (* (dynamic-link-offset type) %word-size))
+           (ptr (make-signed-pointer amount)))
+      (jit-addi r0 r0 ptr))
     (local-set! local r0))
 
    ;; Check type, recover SCM value.
@@ -1018,6 +1034,10 @@
 Locals are loaded with MOFFS to refer memory offset. Returns a hash-table
 containing src with SRC-UNWRAPPER applied. Key of the returned hash-table is
 local index in LOCAL-X-TYPES."
+  (debug 2 ";;; maybe-store:~%")
+  (debug 2 ";;;   srcs=~a~%" srcs)
+  (debug 2 ";;;   local-x-types=~a~%" local-x-types)
+  (debug 2 ";;;   references=~a~%" references)
   (let lp ((local-x-types local-x-types)
            (srcs srcs)
            (acc (make-hash-table)))
@@ -1216,7 +1236,10 @@ of SRCS, DSTS, TYPES are local index number."
 
     (define (emit-bailout next-ip)
       (define (scm-i-makinumi n)
-        (imm (+ (ash n 2) 2)))
+        (let ((k (+ (ash n 2) 2)))
+          (if (< 0 k)
+              (make-pointer k)
+              (make-negative-pointer k))))
       (define (make-retval nlocals local-offset)
         (jit-prepare)
         (jit-pushargr reg-thread)

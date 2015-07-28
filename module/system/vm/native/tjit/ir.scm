@@ -118,105 +118,102 @@
       (() lowest))))
 
 (define (accumulate-locals local-offset ops)
-  (define (nyi st op)
-    (debug 3 "ir:accumulate-locals: NYI ~a~%" op)
-    st)
+  (let ((locals (make-hash-table)))
+    (define (nyi st op)
+      (debug 3 "ir:accumulate-locals: NYI ~a~%" op)
+      st)
 
-  (define (acc-one st op)
-    (define-syntax-rule (push-offset! n)
-      (set! local-offset (+ local-offset n)))
+    (define (acc-one st op)
+      (define-syntax-rule (push-offset! n)
+        (set! local-offset (+ local-offset n)))
 
-    (define-syntax-rule (pop-offset! n)
-      (set! local-offset (- local-offset n)))
+      (define-syntax-rule (pop-offset! n)
+        (set! local-offset (- local-offset n)))
 
-    (define-syntax add!
-      (syntax-rules ()
-        ((_ st i j k l)
-         (add! (add! st i j) k l))
-        ((_ st i j k)
-         (add! (add! st i j) k))
-        ((_ st i j)
-         (add! (add! st i) j))
-        ((_ st i)
-         (let ((n (+ i local-offset)))
-           ;; XXX: Manage negative locals properly. Currently negative locals
-           ;; are ignored. Negative locals occure with nested loops of inlined
-           ;; procedures.
-           (cond
-            ((< n 0)
-             (debug 1 "*** ir.scm:acc: [~a] negative index found at ~a~%"
-                    local-offset op)
-             st)
-            (else
-             (intset-add! st n)))))))
+      (define-syntax add!
+        (syntax-rules ()
+          ((_ st i j k l)
+           (add! (add! st i j) k l))
+          ((_ st i j k)
+           (add! (add! st i j) k))
+          ((_ st i j)
+           (add! (add! st i) j))
+          ((_ st i)
+           (let ((n (+ i local-offset)))
+             (hashq-set! st n #t)
+             st))))
 
-    (match op
-      ((op a1)
-       (case op
-         ((return)
-          ;; Store proc, returned value, VM frame dynamic link and VM frame
-          ;; return address.
-          (add! st a1 1 -1 -2))
-         ((br tail-call)
-          st)
-         (else
-          (nyi st op))))
-      ((op a1 a2)
-       (case op
-         ((call)
-          (let ((st (add! st a1)))
-            (push-offset! a1)
-            st))
-         ((static-ref
-           make-short-immediate make-long-immediate make-long-long-immediate)
-          (add! st a1))
-         ((mov sub1 add1 box-ref box-set!)
-          (add! st a1 a2))
-         ((assert-nargs-ee/locals)
-          st)
-         (else
-          (nyi st op))))
-      ((op a1 a2 a3)
-       (case op
-         ((add sub mul div quo)
-          (add! st a1 a2 a3))
-         ((call-label)
-          (let ((st (add! st a1)))
-            (push-offset! a1)
-            st))
-         ((receive)
-          (pop-offset! a2)
-          (add! st a1 a2))
-         ((receive-values)
-          (pop-offset! a1)
-          (add! st a1))
-         (else
-          (nyi st op))))
-      ((op a1 a2 a3 a4)
-       (case op
-         ((br-if-< br-if-= br-if-<=)
-          (add! st a1 a2))
-         (else
-          (nyi st op))))
-      ((op a1 a2 a3 a4 a5)
-       (case op
-         ((toplevel-box)
-          (add! st a1))
-         (else
-          (nyi st op))))
-      ((op)
-       (nyi st op))
-      (_
-       (error (format #f "ir:accumulate-locals: ~a" ops)))))
+      (match op
+        ((op a1)
+         (case op
+           ((return)
+            ;; Store proc, returned value, VM frame dynamic link and VM frame
+            ;; return address.
+            (add! st a1 1 -1 -2))
+           ((br tail-call)
+            st)
+           (else
+            (nyi st op))))
+        ((op a1 a2)
+         (case op
+           ((call)
+            (let ((st (add! st a1)))
+              (push-offset! a1)
+              st))
+           ((static-ref
+             make-short-immediate make-long-immediate make-long-long-immediate)
+            (add! st a1))
+           ((mov sub1 add1 box-ref box-set!)
+            (add! st a1 a2))
+           ((assert-nargs-ee/locals)
+            st)
+           (else
+            (nyi st op))))
+        ((op a1 a2 a3)
+         (case op
+           ((add sub mul div quo)
+            (add! st a1 a2 a3))
+           ((call-label)
+            (let ((st (add! st a1)))
+              (push-offset! a1)
+              st))
+           ((receive)
+            (pop-offset! a2)
+            (add! st a1 a2))
+           ((receive-values)
+            (pop-offset! a1)
+            (add! st a1))
+           (else
+            (nyi st op))))
+        ((op a1 a2 a3 a4)
+         (case op
+           ((br-if-< br-if-= br-if-<=)
+            (add! st a1 a2))
+           (else
+            (nyi st op))))
+        ((op a1 a2 a3 a4 a5)
+         (case op
+           ((toplevel-box)
+            (add! st a1))
+           (else
+            (nyi st op))))
+        ((op)
+         (nyi st op))
+        (_
+         (error (format #f "ir:accumulate-locals: ~a" ops)))))
 
-  (define (acc st ops)
-    (match ops
-      (((op _ _ _) . rest)
-       (acc (acc-one st op) rest))
-      (()
-       st)))
+    (define (acc st ops)
+      (match ops
+        (((op _ _ _) . rest)
+         (acc (acc-one st op) rest))
+        (()
+         st)))
 
-  (intset-fold cons (acc empty-intset ops) '()))
+    (let ((lst (hash-fold (lambda (k v acc)
+                            (cons k acc))
+                          '()
+                          (acc locals ops))))
+      (sort lst >))))
 
 
 ;;;
@@ -264,9 +261,6 @@
   past-frame?
 
   ;; Association list for dynamic link: (local . pointer to fp).
-  ;;
-  ;; XXX: Use offset value for fp, fp could move with ALLOC_FRAME in
-  ;; "libguile/vm-engine.c". Differentiate dynamic link and return address.
   (dls past-frame-dls set-past-frame-dls!)
 
   ;; Association list for return address: (local . pointer to ra).
@@ -276,19 +270,17 @@
   (locals past-frame-locals set-past-frame-locals!))
 
 (define (make-past-frame dls ras size local-offset locals)
-  ;; XXX: Manage index properly. Vector length mismatch should not occure.
-  (let ((vec (make-vector size *unspecified*))
-        (end (- (vector-length locals) local-offset))
+  ;; Using hash-table to contain locals, since local index could take negative
+  ;; value.
+  (let ((table (make-hash-table))
         (nlocals (vector-length locals)))
-    (let lp ((i 0)
-             (end end))
+    (let lp ((i 0) (end nlocals))
       (when (< i end)
         (let ((elem (and (< i nlocals) (vector-ref locals i)))
               (j (+ i local-offset)))
-          (when (< j size)
-            (vector-set! vec (+ i local-offset) elem)))
+          (hashq-set! table j elem))
         (lp (+ i 1) end)))
-    (%make-past-frame dls ras locals)))
+    (%make-past-frame dls ras table)))
 
 (define (push-past-frame! past-frame dl ra local-offset locals)
   (set-past-frame-dls! past-frame (cons dl (past-frame-dls past-frame)))
@@ -297,7 +289,7 @@
            (end (- (vector-length locals) local-offset))
            (to-update (past-frame-locals past-frame)))
     (when (< i end)
-      (vector-set! to-update (+ i local-offset) (vector-ref locals i))
+      (hashq-set! to-update (+ i local-offset) (vector-ref locals i))
       (lp (+ i 1) end to-update)))
   past-frame)
 
@@ -311,11 +303,7 @@
     past-frame))
 
 (define (past-frame-local-ref past-frame i)
-  (let* ((locals (past-frame-locals past-frame))
-         (len (vector-length locals)))
-    (if (< i len)
-        (vector-ref locals i)
-        (debug 1 "*** past-frame nlocals=~a, index=~a~%" len i))))
+  (hashq-ref (past-frame-locals past-frame) i))
 
 ;; Record type for snapshot.
 (define-record-type $snapshot
@@ -345,20 +333,13 @@
   (define (make-var index)
     (string->symbol (string-append "v" (number->string index))))
 
-  (define (make-vars nlocals locals)
-    (let lp ((i nlocals) (locals locals) (acc '()))
-      (cond
-       ((< i 0)
-        (list->vector acc))
-       ((null? locals)
-        (lp (- i 1) locals (cons #f acc)))
-       ((= i (car locals))
-        (lp (- i 1) (cdr locals) (cons (make-var i) acc)))
-       (else
-        (lp (- i 1) locals (cons #f acc))))))
-
-  (define (make-types vars)
-    (make-vector (vector-length vars) #f))
+  (define (make-vars locals)
+    ;; XXX: Use other data structure than alist for variables. Number of
+    ;; variables won't change after getting number of locals from
+    ;; `accumulate-locals'.
+    (map (lambda (n)
+           (cons n (make-var n)))
+         locals))
 
   (define (type-guard-op type)
     (cond
@@ -381,35 +362,52 @@
   (define (make-entry ip vars types loop-exp)
     `(begin
        (,ip)
-       ,(let lp ((i 0) (end (vector-length types)))
-          (if (< i end)
-              (let* ((type (vector-ref types i))
-                     (var (and type (vector-ref vars i)))
-                     (guard (and type (type-guard-op type)))
-                     (exp (if guard
-                              `(begin
-                                 (,guard ,var)
-                                 ,(unbox-op type var (lp (+ i 1) end)))
-                              (unbox-op type var (lp (+ i 1) end)))))
-                (or exp (lp (+ i 1) end)))
-              loop-exp))))
+       ,(let lp ((types (hash-map->list cons types)))
+          (match types
+            (((i . type) . types)
+             (let* ((var (assq-ref vars i))
+                    (guard (and var (type-guard-op type)))
+                    (exp (if guard
+                             `(begin
+                                (,guard ,var)
+                                ,(unbox-op type var (lp types)))
+                             (unbox-op type var (lp types)))))
+               (or exp (lp types))))
+            (()
+             loop-exp)))))
 
   (define (initial-ip ops)
     (cadr (car ops)))
 
-  (let* ((local-offset (- (lowest-offset ops)))
+  (define (get-initial-offset)
+    (if root-trace?
+        0
+        ;; Initial offset of side trace is where parent trace left, using offset
+        ;; value from snapshot data.
+        (cond
+         ((hashq-ref (tlog-snapshots tlog) exit-id)
+          =>
+          (match-lambda (($ $snapshot offset) offset)))
+         (else
+          (error "parent snapshot not found" exit-id)))))
+
+  (define (get-initial-snapshot-id)
+    ;; Snapshot ID `0' in root trace contains no local information, used
+    ;; for guard failure in entry clause to quickly return to VM
+    ;; interpreter without recovering frame data.
+    (if root-trace? 1 0))
+
+  (let* ((local-offset (get-initial-offset))
          (locals (accumulate-locals local-offset ops))
+         (min-local-num (or (and (null? locals) 0) (apply min locals)))
          (max-local-num (or (and (null? locals) 0) (apply max locals)))
          (args (map make-var (reverse locals)))
-         (vars (make-vars max-local-num locals))
-         (expecting-types (make-types vars))
-         (known-types (make-types vars))
+         (vars (make-vars locals))
+         (expecting-types (make-hash-table))
+         (known-types (make-hash-table))
          (snapshots (make-hash-table))
          (past-frame #f)
-         ;; Snapshot ID `0' in root trace contains no local information, used
-         ;; for guard failure in entry clause to quickly return to VM
-         ;; interpreter without recovering frame data.
-         (snapshot-id (if root-trace? 1 0)))
+         (snapshot-id (get-initial-snapshot-id)))
 
     ;; XXX: Keep track of vp->sp, used to record locals when tracing side exit
     ;; from inlined procedure.
@@ -425,37 +423,35 @@
     ;; bytecode operations expect certain type, e.g: `add', `mul', ... etc.
     ;; Fill in known type when bytecode filling known value, add type to expect
     ;; with expecting bytecode operations.
+
     (define-syntax-rule (set-expecting-type! idx ty)
       (let ((i (+ idx local-offset)))
-        (when (and (not (vector-ref expecting-types i))
-                   (not (vector-ref known-types i)))
-          (vector-set! expecting-types i ty))))
+        (when (and (not (hashq-ref expecting-types i))
+                   (not (hashq-ref known-types i)))
+          (hashq-set! expecting-types i ty))))
 
     (define-syntax-rule (set-known-type! idx ty)
       (let ((i (+ idx local-offset)))
-        (when (not (vector-ref known-types i))
-          (vector-set! known-types i ty))))
+        (when (not (hashq-ref known-types i))
+          (hashq-set! known-types i ty))))
 
     (define (convert-one escape op ip fp locals rest)
-
       (define (local-ref i)
-        ;; (debug 2 ";;; local-ref: i=~a, locals=~a~%" i locals)
-        (and (< i (vector-length locals))
-             (vector-ref locals i)))
+        (vector-ref locals i))
 
       (define (var-ref i)
-        (let ((idx (+ i local-offset)))
-          (and (< idx (vector-length vars))
-               (vector-ref vars (+ i local-offset)))))
+        (let* ((j (+ i local-offset))
+               (var (assq-ref vars j)))
+          (debug 2 ";;; var-ref: i=~a, var=~a~%" i var)
+          var))
+
+      (define parent-locals
+        (let ((snapshot (and tlog (hashq-ref (tlog-snapshots tlog) exit-id))))
+          (match snapshot
+            (($ $snapshot _ _ locals) locals)
+            (_ #f))))
 
       (define (take-snapshot! ip offset)
-        (define parent-locals
-          (let ((snapshot (and tlog
-                               (hashq-ref (tlog-snapshots tlog) exit-id))))
-            (match snapshot
-              (($ $snapshot _ _ locals)
-               locals)
-              (_ #f))))
         ;; When procedure get inlined, taking snapshot of previous frame,
         ;; contents of previous frame could change in native code loop.
         (debug 2 ";;; take-snapshot!:~%")
@@ -467,96 +463,90 @@
         (when past-frame
           (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
           (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame)))
+        (let lp ((vars (reverse vars)) (acc '()))
+          (match vars
+            (()
+             (let ((acc (reverse! acc)))
+               ;; Using snapshot-id as key for hash-table. Identical IP could
+               ;; be used for entry clause and first operation in the loop.
+               (let ((snapshot (make-snapshot local-offset
+                                              (vector-length locals)
+                                              acc)))
+                 (hashq-set! snapshots snapshot-id snapshot))
+               (set! snapshot-id (+ snapshot-id 1))
 
-        (let ((end (vector-length vars)))
-          (let lp ((i 0) (acc '()))
-            (define (dl-or-ra-from-parent-trace i)
-              (let ((val (and parent-locals (assq-ref parent-locals i))))
-                (or (and (dynamic-link? val) val)
-                    (and (return-address? val) val))))
-            (define (add-local local)
-              (debug 2 ";;; take-snapshot!:add-local: i=~a, local=~a~%" i local)
-              (cond
-               ((fixnum? local)
-                (lp (+ i 1) (cons `(,i . ,&exact-integer) acc)))
-               ((flonum? local)
-                (lp (+ i 1) (cons `(,i . ,&flonum) acc)))
-               ((variable? local)
-                (lp (+ i 1) (cons `(,i . ,&box) acc)))
-               ((unbound? local)
-                (lp (+ i 1) (cons `(,i . ,&unbound) acc)))
-               ((false? local)
-                (lp (+ i 1) (cons `(,i . ,&false) acc)))
-               ((procedure? local)
-                (lp (+ i 1) (cons `(,i . ,&procedure) acc)))
+               ;; Call to dummy procedure to capture CPS variables by emitting
+               ;; `$call' term.  It might not a good way to use `$call', though
+               ;; no other idea to capture CPS variables with less amount of
+               ;; CPS terms.
+               `(,(+ ip (* offset 4)) ,@args)))
 
-               (else
-                ;; XXX: Add more types.
-                ;; (debug 2 "*** take-snapshot!: ~a~%" local)
-                (lp (+ i 1) acc))))
-            (cond
-             ((= i end)
-              (let ((acc (reverse! acc)))
-                ;; Using snapshot-id as key for hash-table. Identical IP could
-                ;; be used for entry clause and first operation in the loop.
-                (let ((snapshot (make-snapshot local-offset
-                                               (vector-length locals)
-                                               acc)))
-                  (hashq-set! snapshots snapshot-id snapshot))
-                (set! snapshot-id (+ snapshot-id 1))
+            (((i . _) . vars)
+             (define (dl-or-ra-from-parent-trace i)
+               (let ((val (and parent-locals (assq-ref parent-locals i))))
+                 (or (and (dynamic-link? val) val)
+                     (and (return-address? val) val))))
+             (define (add-local local)
+               (debug 2 ";;; take-snapshot!:add-local: i=~a, local=~a~%" i local)
+               (cond
+                ((fixnum? local)
+                 (lp vars (cons `(,i . ,&exact-integer) acc)))
+                ((flonum? local)
+                 (lp vars (cons `(,i . ,&flonum) acc)))
+                ((variable? local)
+                 (lp vars (cons `(,i . ,&box) acc)))
+                ((unbound? local)
+                 (lp vars (cons `(,i . ,&unbound) acc)))
+                ((false? local)
+                 (lp vars (cons `(,i . ,&false) acc)))
+                ((procedure? local)
+                 (lp vars (cons `(,i . ,&procedure) acc)))
 
-                ;; Call to dummy procedure to capture CPS variables by emitting
-                ;; `$call' term.  It might not a good way to use `$call', though
-                ;; no other idea to capture CPS variables with less amount of
-                ;; CPS terms.
-                `(,(+ ip (* offset 4)) ,@args)))
+                (else
+                 ;; XXX: Add more types.
+                 ;; (debug 2 "*** take-snapshot!: ~a~%" local)
+                 (lp vars acc))))
+             (cond
+              ((< 0 local-offset)
+               (cond
+                ;; Dynamic link and return address might need to be passed from
+                ;; parent trace. When inlined procedure take bailout code,
+                ;; recorded traced might not contain bytecode operation to fill
+                ;; in the dynamic link and return address of past frame.
+                ((or (and past-frame
+                          (or (assq-ref (past-frame-dls past-frame) i)
+                              (assq-ref (past-frame-ras past-frame) i)))
+                     (dl-or-ra-from-parent-trace i))
+                 =>
+                 (lambda (val)
+                   (lp vars (cons `(,i . ,val) acc))))
 
-             ((< 0 local-offset)
-              (cond
-               ;; Dynamic link and return address might need to be passed from
-               ;; parent trace. When inlined procedure take bailout code,
-               ;; recorded traced might not contain bytecode operation to fill
-               ;; in the dynamic link and return address of past frame.
-               ((or (and past-frame
-                         (or (assq-ref (past-frame-dls past-frame) i)
-                             (assq-ref (past-frame-ras past-frame) i)))
-                    (dl-or-ra-from-parent-trace i))
-                =>
-                (lambda (val)
-                  (lp (+ i 1) (cons `(,i . ,val) acc))))
+                ((<= local-offset i)
+                 (let ((j (- i local-offset)))
+                   (if (< -1 j (vector-length locals))
+                       (add-local (local-ref j))
+                       (lp vars acc))))
 
-               ((<= local-offset i)
-                (let ((j (- i local-offset)))
-                  (if (< j (vector-length locals))
-                      (add-local (local-ref j))
-                      (lp (+ i 1) acc))))
+                (past-frame
+                 (let ((local (past-frame-local-ref past-frame i)))
+                   (add-local local)))
+                (else
+                 (cond
+                  ((assq-ref parent-locals i)
+                   =>
+                   (lambda (type)
+                     (lp vars (cons `(,i . ,type) acc))))
+                  (else
+                   (lp vars acc))))))
 
-               (past-frame
-                (let ((local (past-frame-local-ref past-frame i)))
-                  (add-local local)))
-               ((vector-ref vars i)
-                (cond
-                 ((assq-ref parent-locals i)
-                  =>
-                  (lambda (type)
-                    (lp (+ i 1) (cons `(,i . ,type) acc))))
-                 (else
-                  (lp (+ i 1) acc))))
-               (else
-                (debug 2 ";;;   i=~a, skipping~%" i)
-                (lp (+ i 1) acc))))
+              ((= local-offset 0)
+               (let ((local (and (< -1 i (vector-length locals))
+                                 (local-ref i))))
+                 (add-local local)))
 
-             ((and (= local-offset 0)
-                   (var-ref i))
-              =>
-              (lambda (ref)
-                (let ((local (and (< i (vector-length locals))
-                                  (local-ref i))))
-                  (add-local local))))
-
-             (else
-              (debug 2 ";;;   i=~a, skipping~%" i)
-              (lp (+ i 1) acc))))))
+              (else
+               (debug 2 ";;;   i=~a, skipping~%" i)
+               (lp vars acc)))))))
 
       ;; (debug 2 ";;; convert-one: ~a (~a/~a) ~a~%"
       ;;        (or (and (number? ip) (number->string ip 16))
@@ -582,7 +572,7 @@
             (else
              (set! past-frame (make-past-frame (list dl)
                                                (list ra)
-                                               (vector-length vars)
+                                               (length vars)
                                                local-offset
                                                locals)))))
          (let ((vproc (var-ref proc))
@@ -1041,8 +1031,8 @@
          (cond
           (root-trace?
            (convert-one escape op ip fp locals
-                        `(loop ,@(filter identity (vector->list vars)))))
-          (else ; side trace
+                        `(loop ,@(filter identity (reverse (map cdr vars))))))
+          (else                         ; side trace
            ;; Capturing CPS variables with /take-snapshot!/ at the end, so that
            ;; the native code can pass the register information to linked trace.
            (let* ((snap! `(take-snapshot! ,*ip-key-end-of-side-trace* 0))
@@ -1086,6 +1076,9 @@
         `(letrec ((patch (lambda ,args ,exp-body)))
            patch))))
 
+    (debug 2 ";;; trace->scm: min-local-num=~a~%" min-local-num)
+    (debug 2 ";;; trace->scm: max-local-num=~a~%" max-local-num)
+    (debug 2 ";;; trace->scm: locals=~a~%" locals)
     (let ((scm (make-scm (call-with-escape-continuation
                           (lambda (escape)
                             (enter-convert escape ops))))))

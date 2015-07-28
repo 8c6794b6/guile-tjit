@@ -165,7 +165,7 @@ call_native (SCM s_ip, SCM tlog,
              scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
              scm_t_uintptr *parent_ip, int *parent_exit_id,
-             scm_t_uint32 *fp_offset_out, scm_t_uint32 *nlocals_out)
+             scm_t_int32 *fp_offset_out, scm_t_uint32 *nlocals_out)
 {
   scm_t_native_code f;
   scm_t_uintptr next_ip;
@@ -305,7 +305,7 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
                                                                         \
     if (scm_is_true (tlog))                                             \
       {                                                                 \
-        scm_t_uint32 shift = 0;                                         \
+        scm_t_int32 shift = 0;                                          \
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
         /* Update `fp' and `ip' in C code.  Variables `fp' and `ip'  */ \
@@ -323,6 +323,7 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
           {                                                             \
             SCM *old_fp;                                                \
             old_fp = fp;                                                \
+            /* XXX: Use SCM_FRAME_DYNAMIC_LINK ? */                     \
             fp = vp->fp = old_fp + shift;                               \
             ALLOC_FRAME (nlocals);                                      \
           }                                                             \
