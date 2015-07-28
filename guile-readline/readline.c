@@ -2,17 +2,17 @@
 
 /* Copyright (C) 1997,1999,2000,2001, 2002, 2003, 2006, 2007, 2008,
  *   2009, 2010, 2013 Free Software Foundation, Inc.
- * 
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 3, or (at your option)
  * any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this software; see the file COPYING.  If not, write to
  * the Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
@@ -52,7 +52,7 @@ scm_t_option scm_readline_opts[] = {
 
 extern void stifle_history (int max);
 
-SCM_DEFINE (scm_readline_options, "readline-options-interface", 0, 1, 0, 
+SCM_DEFINE (scm_readline_options, "readline-options-interface", 0, 1, 0,
             (SCM setting),
 "")
 #define FUNC_NAME s_scm_readline_options
@@ -60,7 +60,9 @@ SCM_DEFINE (scm_readline_options, "readline-options-interface", 0, 1, 0,
   SCM ans = scm_options (setting,
 			 scm_readline_opts,
 			 FUNC_NAME);
-  stifle_history (SCM_HISTORY_LENGTH);
+  if (!SCM_UNBNDP (setting)) {
+    stifle_history (SCM_HISTORY_LENGTH);
+  }
   return ans;
 }
 #undef FUNC_NAME
@@ -107,13 +109,13 @@ void
 rl_free_line_state ()
 {
   register HIST_ENTRY *entry;
-   
+
   free_undo_list ();
 
   entry = current_history ();
   if (entry)
-    entry->data = (char *)NULL; 
-  
+    entry->data = (char *)NULL;
+
   _rl_kill_kbd_macro ();
   rl_clear_message ();
   _rl_init_argument ();
@@ -145,15 +147,15 @@ static void unwind_readline (void *unused);
 static void reentry_barrier (void);
 
 
-SCM_DEFINE (scm_readline, "%readline", 0, 4, 0, 
+SCM_DEFINE (scm_readline, "%readline", 0, 4, 0,
             (SCM text, SCM inp, SCM outp, SCM read_hook),
 "")
 #define FUNC_NAME s_scm_readline
 {
   SCM ans;
-  
+
   reentry_barrier ();
-  
+
   before_read = SCM_BOOL_F;
 
   if (!SCM_UNBNDP (text))
@@ -164,7 +166,7 @@ SCM_DEFINE (scm_readline, "%readline", 0, 4, 0,
 	  scm_wrong_type_arg (s_scm_readline, SCM_ARG1, text);
 	}
     }
-  
+
   if (!((SCM_UNBNDP (inp) && SCM_OPINFPORTP (scm_current_input_port ()))
 	|| SCM_OPINFPORTP (inp)))
     {
@@ -173,7 +175,7 @@ SCM_DEFINE (scm_readline, "%readline", 0, 4, 0,
 		      "Input port is not open or not a file port",
 		      SCM_EOL);
     }
-  
+
   if (!((SCM_UNBNDP (outp) && SCM_OPOUTFPORTP (scm_current_output_port ()))
 	|| SCM_OPOUTFPORTP (outp)))
     {
@@ -197,7 +199,7 @@ SCM_DEFINE (scm_readline, "%readline", 0, 4, 0,
 
   scm_dynwind_begin (0);
   scm_dynwind_unwind_handler (unwind_readline, NULL, 0);
-  
+
   ans = internal_readline (text);
 
   scm_dynwind_end ();
@@ -249,7 +251,7 @@ internal_readline (SCM text)
   s = readline (prompt);
   if (s)
     ret = scm_from_port_string (s, output_port);
-  else 
+  else
     ret = SCM_EOF_VAL;
 
   if (!SCM_UNBNDP (text))
@@ -287,10 +289,10 @@ scm_readline_init_ports (SCM inp, SCM outp)
 {
   if (SCM_UNBNDP (inp))
     inp = scm_current_input_port ();
-  
+
   if (SCM_UNBNDP (outp))
     outp = scm_current_output_port ();
-  
+
   if (!SCM_OPINFPORTP (inp)) {
     scm_misc_error (0,
                     "Input port is not open or not a file port",
@@ -311,7 +313,7 @@ scm_readline_init_ports (SCM inp, SCM outp)
 
 
 
-SCM_DEFINE (scm_add_history, "add-history", 1, 0, 0, 
+SCM_DEFINE (scm_add_history, "add-history", 1, 0, 0,
             (SCM text),
 "")
 #define FUNC_NAME s_scm_add_history
@@ -327,7 +329,7 @@ SCM_DEFINE (scm_add_history, "add-history", 1, 0, 0,
 #undef FUNC_NAME
 
 
-SCM_DEFINE (scm_read_history, "read-history", 1, 0, 0, 
+SCM_DEFINE (scm_read_history, "read-history", 1, 0, 0,
             (SCM file),
 "")
 #define FUNC_NAME s_scm_read_history
@@ -343,7 +345,7 @@ SCM_DEFINE (scm_read_history, "read-history", 1, 0, 0,
 #undef FUNC_NAME
 
 
-SCM_DEFINE (scm_write_history, "write-history", 1, 0, 0, 
+SCM_DEFINE (scm_write_history, "write-history", 1, 0, 0,
             (SCM file),
 "")
 #define FUNC_NAME s_scm_write_history
@@ -358,7 +360,7 @@ SCM_DEFINE (scm_write_history, "write-history", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_clear_history, "clear-history", 0, 0, 0, 
+SCM_DEFINE (scm_clear_history, "clear-history", 0, 0, 0,
             (),
 	    "Clear the history buffer of the readline machinery.")
 #define FUNC_NAME s_scm_clear_history
@@ -369,7 +371,7 @@ SCM_DEFINE (scm_clear_history, "clear-history", 0, 0, 0,
 #undef FUNC_NAME
 
 
-SCM_DEFINE (scm_filename_completion_function, "filename-completion-function", 2, 0, 0, 
+SCM_DEFINE (scm_filename_completion_function, "filename-completion-function", 2, 0, 0,
             (SCM text, SCM continuep),
 "")
 #define FUNC_NAME s_scm_filename_completion_function
@@ -408,10 +410,10 @@ completion_function (char *text, int continuep)
       SCM t = scm_from_locale_string (text);
       SCM c = scm_from_bool (continuep);
       res = scm_apply (compfunc, scm_list_2 (t, c), SCM_EOL);
-  
+
       if (scm_is_false (res))
 	return NULL;
-  
+
       return scm_to_locale_string (res);
     }
 }
@@ -525,7 +527,7 @@ scm_init_readline ()
   rl_getc_function = current_input_getc;
 #if defined (_RL_FUNCTION_TYPEDEF)
   rl_completion_entry_function = (rl_compentry_func_t*) completion_function;
-#else  
+#else
   rl_completion_entry_function = (Function*) completion_function;
 #endif
   rl_basic_word_break_characters = " \t\n\"'`;()";
@@ -535,12 +537,12 @@ scm_init_readline ()
 #if defined (HAVE_DECL_RL_CATCH_SIGNALS) && HAVE_DECL_RL_CATCH_SIGNALS
   rl_catch_signals = 0;
 #endif
-  
+
   /* But let readline handle SIGWINCH. */
 #if defined (HAVE_DECL_RL_CATCH_SIGWINCH) && HAVE_DECL_RL_CATCH_SIGWINCH
   rl_catch_sigwinch = 1;
 #endif
-  
+
   reentry_barrier_mutex = scm_make_mutex ();
   scm_init_opts (scm_readline_options,
 		 scm_readline_opts);
