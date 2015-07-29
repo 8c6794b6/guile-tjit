@@ -98,25 +98,6 @@
 ;;; Locals
 ;;;
 
-(define (lowest-offset traces)
-  (let lp ((traces traces) (offset 0) (lowest 0))
-    (match traces
-      (((op _ _ . _) . traces)
-       (match op
-         (('call proc _)
-          (lp traces (+ offset proc) lowest))
-         (('call-label proc _ _)
-          (lp traces (+ offset proc) lowest))
-         (('receive _ proc _)
-          (let ((offset (- offset proc)))
-            (lp traces offset (min offset lowest))))
-         (('receive-values proc _ _)
-          (let ((offset (- offset proc)))
-            (lp traces offset (min offset lowest))))
-         (else
-          (lp traces offset lowest))))
-      (() lowest))))
-
 (define (accumulate-locals local-offset ops)
   (let ((locals (make-hash-table)))
     (define (nyi st op)
@@ -399,8 +380,6 @@
 
   (let* ((local-offset (get-initial-offset))
          (locals (accumulate-locals local-offset ops))
-         (min-local-num (or (and (null? locals) 0) (apply min locals)))
-         (max-local-num (or (and (null? locals) 0) (apply max locals)))
          (args (map make-var (reverse locals)))
          (vars (make-vars locals))
          (expecting-types (make-hash-table))
@@ -507,45 +486,38 @@
                  ;; (debug 2 "*** take-snapshot!: ~a~%" local)
                  (lp vars acc))))
              (cond
-              ((< 0 local-offset)
-               (cond
-                ;; Dynamic link and return address might need to be passed from
-                ;; parent trace. When inlined procedure take bailout code,
-                ;; recorded traced might not contain bytecode operation to fill
-                ;; in the dynamic link and return address of past frame.
-                ((or (and past-frame
-                          (or (assq-ref (past-frame-dls past-frame) i)
-                              (assq-ref (past-frame-ras past-frame) i)))
-                     (dl-or-ra-from-parent-trace i))
-                 =>
-                 (lambda (val)
-                   (lp vars (cons `(,i . ,val) acc))))
-
-                ((<= local-offset i)
-                 (let ((j (- i local-offset)))
-                   (if (< -1 j (vector-length locals))
-                       (add-local (local-ref j))
-                       (lp vars acc))))
-
-                (past-frame
-                 (let ((local (past-frame-local-ref past-frame i)))
-                   (add-local local)))
-                (else
-                 (cond
-                  ((assq-ref parent-locals i)
-                   =>
-                   (lambda (type)
-                     (lp vars (cons `(,i . ,type) acc))))
-                  (else
-                   (lp vars acc))))))
-
               ((= local-offset 0)
                (let ((local (and (< -1 i (vector-length locals))
                                  (local-ref i))))
                  (add-local local)))
 
+              ;; Dynamic link and return address might need to be passed from
+              ;; parent trace. When inlined procedure take bailout code,
+              ;; recorded traced might not contain bytecode operation to fill
+              ;; in the dynamic link and return address of past frame.
+              ((or (and past-frame
+                        (or (assq-ref (past-frame-dls past-frame) i)
+                            (assq-ref (past-frame-ras past-frame) i)))
+                   (dl-or-ra-from-parent-trace i))
+               =>
+               (lambda (val)
+                 (lp vars (cons `(,i . ,val) acc))))
+
+              ((<= local-offset i)
+               (let ((j (- i local-offset)))
+                 (if (< -1 j (vector-length locals))
+                     (add-local (local-ref j))
+                     (lp vars acc))))
+
+              (past-frame
+               (let ((local (past-frame-local-ref past-frame i)))
+                 (add-local local)))
+
+              ((assq-ref parent-locals i)
+               =>
+               (lambda (type)
+                 (lp vars (cons `(,i . ,type) acc))))
               (else
-               (debug 2 ";;;   i=~a, skipping~%" i)
                (lp vars acc)))))))
 
       ;; (debug 2 ";;; convert-one: ~a (~a/~a) ~a~%"
@@ -1076,8 +1048,6 @@
         `(letrec ((patch (lambda ,args ,exp-body)))
            patch))))
 
-    (debug 2 ";;; trace->scm: min-local-num=~a~%" min-local-num)
-    (debug 2 ";;; trace->scm: max-local-num=~a~%" max-local-num)
     (debug 2 ";;; trace->scm: locals=~a~%" locals)
     (let ((scm (make-scm (call-with-escape-continuation
                           (lambda (escape)
