@@ -190,16 +190,23 @@
     ((_ address)
      (jit-patch-abs (jit-jmpi) address))))
 
+;;; XXX: Manage negative locals in `local-ref' and `local-set!' properly. Need
+;;; to shift FP with as it done in C macro `SCM_SET_DYNAMIC_LINK'.
+
 (define-syntax local-ref
   (syntax-rules ()
-    ((_ dst 0)
-     (let ((vp->fp (if (eq? dst r0) r1 r0)))
-       (jit-ldxi vp->fp fp vp->fp-offset)
-       (jit-ldr dst vp->fp)))
     ((_ dst n)
      (let ((vp->fp (if (eq? dst r0) r1 r0)))
        (jit-ldxi vp->fp fp vp->fp-offset)
-       (jit-ldxi dst vp->fp (imm (* n %word-size)))))))
+       (cond
+        ((= 0 n)
+         (jit-ldr dst vp->fp))
+        ((< 0 n)
+         (jit-ldxi dst vp->fp (imm (* n %word-size))))
+        (else
+         (debug 2 ";;; local-ref: negative local ~a~%" n)
+         (let ((offset (make-negative-pointer (* n %word-size))))
+           (jit-ldxi dst vp->fp offset))))))))
 
 (define-syntax local-set!
   (syntax-rules ()

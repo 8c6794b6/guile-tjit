@@ -98,19 +98,35 @@
 ;;; Locals
 ;;;
 
+(define-record-type $local-info
+  (%make-local-info locals lower-frames)
+  local-info?
+  (locals local-info-locals)
+  (lower-frames local-info-lower-frames set-local-info-lower-frames!))
+
+(define (make-local-info)
+  (%make-local-info (make-hash-table) '()))
+
+(define (lower-frame-ref local-info i)
+  (let ((frames (local-info-lower-frames local-info)))
+    (match frames
+      (((offset . locals) . _)
+       (let ((j (- i offset)))
+         (or (and (<= 0 j) (vector-ref locals j))
+             #f)))
+      (_ #f))))
+
 (define (accumulate-locals local-offset ops)
-  (let ((locals (make-hash-table)))
+  (let* ((local-info (make-local-info))
+         (ret (local-info-locals local-info)))
     (define (nyi st op)
       (debug 3 "ir:accumulate-locals: NYI ~a~%" op)
       st)
-
-    (define (acc-one st op)
+    (define (acc-one st op locals)
       (define-syntax-rule (push-offset! n)
         (set! local-offset (+ local-offset n)))
-
       (define-syntax-rule (pop-offset! n)
         (set! local-offset (- local-offset n)))
-
       (define-syntax add!
         (syntax-rules ()
           ((_ st i j k l)
@@ -123,7 +139,6 @@
            (let ((n (+ i local-offset)))
              (hashq-set! st n #t)
              st))))
-
       (match op
         ((op a1)
          (case op
@@ -160,7 +175,10 @@
               st))
            ((receive)
             (pop-offset! a2)
-            (add! st a1 a2))
+            (let* ((old-frames (local-info-lower-frames local-info))
+                   (new-frames (acons local-offset locals old-frames)))
+              (set-local-info-lower-frames! local-info new-frames)
+              (add! st a1 a2)))
            ((receive-values)
             (pop-offset! a1)
             (add! st a1))
@@ -182,19 +200,14 @@
          (nyi st op))
         (_
          (error (format #f "ir:accumulate-locals: ~a" ops)))))
-
     (define (acc st ops)
       (match ops
-        (((op _ _ _) . rest)
-         (acc (acc-one st op) rest))
+        (((op _ _ locals) . rest)
+         (acc (acc-one st op locals) rest))
         (()
-         st)))
+         local-info)))
 
-    (let ((lst (hash-fold (lambda (k v acc)
-                            (cons k acc))
-                          '()
-                          (acc locals ops))))
-      (sort lst >))))
+    (acc ret ops)))
 
 
 ;;;
@@ -294,7 +307,7 @@
   ;; Integer number to shift vp->fp after returning with this snapshot.
   (offset snapshot-offset)
 
-  ;; Number of current locals.
+  ;; Number of locals at the time of snapshot.
   (nlocals snapshot-nlocals)
 
   ;; Association list of (local . type).
@@ -315,8 +328,8 @@
     (string->symbol (string-append "v" (number->string index))))
 
   (define (make-vars locals)
-    ;; XXX: Use other data structure than alist for variables. Number of
-    ;; variables won't change after getting number of locals from
+    ;; Might better to use other data structure than alist for variables.
+    ;; Number of variables won't change after getting the number of locals from
     ;; `accumulate-locals'.
     (map (lambda (n)
            (cons n (make-var n)))
@@ -378,8 +391,16 @@
     ;; interpreter without recovering frame data.
     (if root-trace? 1 0))
 
+  (define (sort-locals local-info)
+    (sort (hash-fold (lambda (k v acc)
+                       (cons k acc))
+                     '()
+                     (local-info-locals local-info))
+          >))
+
   (let* ((local-offset (get-initial-offset))
-         (locals (accumulate-locals local-offset ops))
+         (local-info (accumulate-locals local-offset ops))
+         (locals (sort-locals local-info))
          (args (map make-var (reverse locals)))
          (vars (make-vars locals))
          (expecting-types (make-hash-table))
@@ -412,14 +433,11 @@
           (hashq-set! known-types i ty))))
 
     (define (convert-one escape op ip fp locals rest)
-      (define (local-ref i)
+      (define-syntax-rule (local-ref i)
         (vector-ref locals i))
 
-      (define (var-ref i)
-        (let* ((j (+ i local-offset))
-               (var (assq-ref vars j)))
-          (debug 2 ";;; var-ref: i=~a, var=~a~%" i var)
-          var))
+      (define-syntax-rule (var-ref i)
+        (assq-ref vars (+ i local-offset)))
 
       (define parent-locals
         (let ((snapshot (and tlog (hashq-ref (tlog-snapshots tlog) exit-id))))
@@ -433,7 +451,7 @@
         (debug 2 ";;; take-snapshot!:~%")
         (debug 2 ";;;   snapshot-id=~a~%" snapshot-id)
         (debug 2 ";;;   ip=~x, offset=~a~%" ip offset)
-        (debug 2 ";;;   var=~a~%" vars)
+        (debug 2 ";;;   vars=~a~%" vars)
         (debug 2 ";;;   (vector-length locals)=~a~%" (vector-length locals))
         (debug 2 ";;;   local-offset=~a~%" local-offset)
         (when past-frame
@@ -441,29 +459,13 @@
           (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame)))
         (let lp ((vars (reverse vars)) (acc '()))
           (match vars
-            (()
-             (let ((acc (reverse! acc)))
-               ;; Using snapshot-id as key for hash-table. Identical IP could
-               ;; be used for entry clause and first operation in the loop.
-               (let ((snapshot (make-snapshot local-offset
-                                              (vector-length locals)
-                                              acc)))
-                 (hashq-set! snapshots snapshot-id snapshot))
-               (set! snapshot-id (+ snapshot-id 1))
-
-               ;; Call to dummy procedure to capture CPS variables by emitting
-               ;; `$call' term.  It might not a good way to use `$call', though
-               ;; no other idea to capture CPS variables with less amount of
-               ;; CPS terms.
-               `(,(+ ip (* offset 4)) ,@args)))
-
             (((i . _) . vars)
              (define (dl-or-ra-from-parent-trace i)
                (let ((val (and parent-locals (assq-ref parent-locals i))))
                  (or (and (dynamic-link? val) val)
                      (and (return-address? val) val))))
              (define (add-local local)
-               (debug 2 ";;; take-snapshot!:add-local: i=~a, local=~a~%" i local)
+               (debug 2 ";;;   add-local: i=~a, local=~a~%" i local)
                (cond
                 ((fixnum? local)
                  (lp vars (cons `(,i . ,&exact-integer) acc)))
@@ -484,9 +486,14 @@
                  (lp vars acc))))
              (cond
               ((= local-offset 0)
-               (let ((local (and (< -1 i (vector-length locals))
-                                 (local-ref i))))
-                 (add-local local)))
+               (cond
+                ((< i 0)
+                 (let ((local (lower-frame-ref local-info i)))
+                   (add-local local)))
+                (else
+                 (let ((local (and (< -1 i (vector-length locals))
+                                   (local-ref i))))
+                   (add-local local)))))
 
               ;; Dynamic link and return address might need to be passed from
               ;; parent trace. When inlined procedure take bailout code,
@@ -500,9 +507,15 @@
                (lambda (val)
                  (lp vars (cons `(,i . ,val) acc))))
 
-              ((<= local-offset i)
+              ((<= 0 local-offset i)
                (let ((j (- i local-offset)))
                  (if (< -1 j (vector-length locals))
+                     (add-local (local-ref j))
+                     (lp vars acc))))
+
+              ((< i 0)
+               (let ((j (- i local-offset)))
+                 (if (<= 0 j)
                      (add-local (local-ref j))
                      (lp vars acc))))
 
@@ -515,7 +528,22 @@
                (lambda (type)
                  (lp vars (cons `(,i . ,type) acc))))
               (else
-               (lp vars acc)))))))
+               (lp vars acc))))
+            (()
+             (let ((acc (reverse! acc)))
+               ;; Using snapshot-id as key for hash-table. Identical IP could
+               ;; be used for entry clause and first operation in the loop.
+               (let ((snapshot (make-snapshot local-offset
+                                              (vector-length locals)
+                                              acc)))
+                 (hashq-set! snapshots snapshot-id snapshot))
+               (set! snapshot-id (+ snapshot-id 1))
+
+               ;; Call dummy procedure to capture CPS variables by emitting
+               ;; `$call' term.  It might not a good way to use `$call', though
+               ;; no other idea to capture CPS variables with less amount of CPS
+               ;; terms.
+               `(,(+ ip (* offset 4)) ,@args))))))
 
       ;; (debug 2 ";;; convert-one: ~a (~a/~a) ~a~%"
       ;;        (or (and (number? ip) (number->string ip 16))
@@ -1045,7 +1073,7 @@
         `(letrec ((patch (lambda ,args ,exp-body)))
            patch))))
 
-    (debug 2 ";;; trace->scm: locals=~a~%" locals)
+    (debug 2 ";;; trace->scm: local-info=~a~%" local-info)
     (let ((scm (make-scm (call-with-escape-continuation
                           (lambda (escape)
                             (enter-convert escape ops))))))
