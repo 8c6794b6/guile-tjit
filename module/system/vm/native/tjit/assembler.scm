@@ -813,6 +813,10 @@
     (memory-ref asm r0 src)
     (jit-ldxi-d (fpr dst) r0 (constant-word idx)))
 
+   ((and (memory? dst) (gpr? src) (constant? idx))
+    (jit-ldxi-d f0 (gpr src) (constant-word idx))
+    (memory-set!/fpr asm dst f0))
+
    ((and (memory? dst) (memory? src) (constant? idx))
     (memory-ref asm r0 src)
     (jit-ldxi-d f0 r0 (constant-word idx))
