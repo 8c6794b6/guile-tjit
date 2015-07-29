@@ -230,13 +230,13 @@
                                                 exit-counts
                                                 entry-ip
                                                 parent-exit-id
+                                                loop-address
+                                                loop-locals
+                                                loop-vars
                                                 snapshots
                                                 exit-variables
                                                 exit-codes
                                                 trampoline
-                                                loop-address
-                                                loop-locals
-                                                loop-vars
                                                 fp-offset
                                                 end-address))
 

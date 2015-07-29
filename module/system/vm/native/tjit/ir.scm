@@ -388,9 +388,6 @@
          (past-frame #f)
          (snapshot-id (get-initial-snapshot-id)))
 
-    ;; XXX: Keep track of vp->sp, used to record locals when tracing side exit
-    ;; from inlined procedure.
-
     (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
 

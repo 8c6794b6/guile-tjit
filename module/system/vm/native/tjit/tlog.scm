@@ -149,8 +149,9 @@
 ;;
 (define-record-type <tlog>
   (%make-tlog id code exit-counts entry-ip parent-exit-id
+              loop-address loop-locals loop-vars
               snapshots exit-variables exit-codes trampoline
-              loop-address loop-locals loop-vars fp-offset end-address)
+              fp-offset end-address)
   tlog?
 
   ;; Trace id number.
@@ -168,6 +169,15 @@
   ;; Exit id taken by parent, root traces constantly have 0.
   (parent-exit-id tlog-parent-exit-id)
 
+  ;; Address of start of loop.
+  (loop-address tlog-loop-address)
+
+  ;; Local header information of loop.
+  (loop-locals tlog-loop-locals)
+
+  ;; Variable header information of loop.
+  (loop-vars tlog-loop-vars)
+
   ;; Snapshot locals and types.
   (snapshots tlog-snapshots)
 
@@ -179,15 +189,6 @@
 
   ;; Trampoline, native code containing jump destinations.
   (trampoline tlog-trampoline)
-
-  ;; Address of start of loop.
-  (loop-address tlog-loop-address)
-
-  ;; Local header information of loop.
-  (loop-locals tlog-loop-locals)
-
-  ;; Variable header information of loop.
-  (loop-vars tlog-loop-vars)
 
   ;; FP offset in native code.
   (fp-offset tlog-fp-offset)

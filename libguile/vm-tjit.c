@@ -287,6 +287,12 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
   return scm_inline_cons (thread, trace, traces);
 }
 
+static inline int
+is_root_trace (SCM tlog)
+{
+  return scm_is_true (tlog) && scm_is_true (SCM_TLOG_LOOP_ADDRESS (tlog));
+}
+
 /* C macros for vm-tjit engine
 
   These two macros were perviously defined as static inline functions.
@@ -378,7 +384,7 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
         tjit_traces = record (thread, s_ip, fp, locals, tjit_traces);   \
       }                                                                 \
                                                                         \
-    if (ip == ((scm_t_uint32 *) tjit_loop_end) || scm_is_true (tlog))   \
+    if (ip == ((scm_t_uint32 *) tjit_loop_end) || is_root_trace (tlog)) \
       {                                                                 \
         SCM ret;                                                        \
                                                                         \
