@@ -26,9 +26,9 @@
 ;;; One of the main reasons to convert bytecode to CPS is to do floating point
 ;;; arithmetic efficiently. VM bytecodes uses integer index to refer locals.
 ;;; Those locals does not distinguish floating point values from other. In CPS
-;;; format, since every variables are named, it is possible to perform floating
-;;; point arithmetic directly with unboxed value in floating point register
-;;; inside a loop when registers and variables assigned properly.
+;;; format, since every variables are named uniquely, it is possible to perform
+;;; floating point arithmetic directly with unboxed value in floating point
+;;; register inside loop.
 
 ;;; Code:
 
@@ -89,9 +89,10 @@
   dynamic-link?
   (offset dynamic-link-offset))
 
-;; Data type to contain past frame data. Used to store dynamic link, return
-;; addresses, and locals of caller procedure when inlined procedure exist in
-;; trace.
+;; Data type to contain past frame data.
+;;
+;; Stores dynamic link, return addresses, and locals of caller procedure when
+;; inlined procedure exist in trace.
 (define-record-type $past-frame
   (%make-past-frame dls ras locals local-indices lowers)
   past-frame?
@@ -145,14 +146,16 @@
     past-frame))
 
 (define (past-frame-local-ref past-frame i)
-  (hashq-ref (past-frame-locals past-frame) i))
+  (hashq-get-handle (past-frame-locals past-frame) i))
 
 (define (past-frame-lower-ref past-frame i)
   (let ((frames (past-frame-lowers past-frame)))
     (match frames
       (((offset . locals) . _)
        (let ((j (- i offset)))
-         (or (and (<= 0 j) (vector-ref locals j))
+         (or (and (<= 0 j)
+                  (< j (vector-length locals))
+                  (vector-ref locals j))
              #f)))
       (_ #f))))
 
@@ -281,13 +284,23 @@
         (((op _ _ locals) . rest)
          (acc (acc-one st op locals) rest))
         (()
-         (let ((lst (hash-fold (lambda (k v acc)
-                                 (cons k acc))
-                               '()
-                               st)))
-           (make-past-frame '() '() local-offset #() (sort lst >) frames)))))
+         st)))
 
-    (acc ret ops)))
+    (let ((local-indices (sort (hash-fold (lambda (k v acc)
+                                            (cons k acc))
+                                          '()
+                                          (acc ret ops))
+                               >)))
+
+      ;; Make past-frame with locals in lower frames.
+      ;;
+      ;; Lower frame data is saved at the time of accumulation. Otherwise, if
+      ;; one of the guard operation appeared soon after bytecode sequence
+      ;; `return' and `receive', snapshot does not know the value of locals in
+      ;; lower frame. When recorded bytecode contains `return', snapshot will
+      ;; recover a frame lower than the one used to enter the native call.
+      ;;
+      (make-past-frame '() '() local-offset #() local-indices frames))))
 
 
 ;;;
@@ -436,7 +449,7 @@
             (($ $snapshot _ _ locals) locals)
             (_ #f))))
 
-      (define (parent-local-ref i)
+      (define (parent-snapshot-local-ref i)
         (and parent-locals
              (assq-ref parent-locals i)))
 
@@ -456,7 +469,7 @@
           (match is
             ((i . is)
              (define (dl-or-ra-from-parent-trace i)
-               (let ((val (and parent-locals (assq-ref parent-locals i))))
+               (let ((val (parent-snapshot-local-ref i)))
                  (or (and (dynamic-link? val) val)
                      (and (return-address? val) val))))
              (define (add-local local)
@@ -482,40 +495,58 @@
               ((= local-offset 0)
                (cond
                 ((< i 0)
-                 (let ((local (past-frame-lower-ref past-frame i)))
-                   (add-local local)))
+                 (add-local (past-frame-lower-ref past-frame i)))
                 (else
-                 (let ((local (and (< -1 i (vector-length locals))
-                                   (local-ref i))))
-                   (add-local local)))))
+                 (add-local (and (< i (vector-length locals))
+                                 (local-ref i))))))
+
               ;; Dynamic link and return address might need to be passed from
-              ;; parent trace. When inlined procedure take bailout code,
-              ;; recorded trace might not contain bytecode operation to fill in
-              ;; the dynamic link and return address of past frame.
+              ;; parent trace. When side trace of inlined procedure takes
+              ;; bailout code, recorded trace might not contain bytecode
+              ;; operation to fill in the dynamic link and return address of
+              ;; past frame.
               ((or (or (assq-ref (past-frame-dls past-frame) i)
                        (assq-ref (past-frame-ras past-frame) i))
                    (dl-or-ra-from-parent-trace i))
                =>
                (lambda (val)
                  (lp is (cons `(,i . ,val) acc))))
+
+              ;; Local in inlined procedure.
               ((<= 0 local-offset i)
                (let ((j (- i local-offset)))
                  (if (< -1 j (vector-length locals))
                      (add-local (local-ref j))
                      (lp is acc))))
-              ((< i 0)
+
+              ;; Local in lower frame.
+              ((<= local-offset i 0)
                (let ((j (- i local-offset)))
                  (if (<= 0 j)
                      (add-local (local-ref j))
                      (lp is acc))))
+
+              ;; When side trace contains inlined procedure and the guard taking
+              ;; this snapshot is from the caller of the inlined procedure,
+              ;; saving local in upper frame. Looking up locals from newest
+              ;; locals in past-frame.
               ((past-frame-local-ref past-frame i)
                =>
-               add-local)
-              ((parent-local-ref i)
+               (match-lambda ((_ . local)
+                              (add-local local))))
+
+              ;; Side trace could start from the middle of inlined procedure,
+              ;; locals in past frame may not have enough information to recover
+              ;; locals in caller of the inlined procedure. In such case, look
+              ;; up locals in the snapshot of parent trace.
+              ((parent-snapshot-local-ref i)
                =>
                (lambda (type)
                  (lp is (cons `(,i . ,type) acc))))
+
+              ;; Give up.
               (else
+               (debug 1 ";;;   i=~a, skipping~%" i)
                (lp is acc))))
             (()
              (let ((acc (reverse! acc)))
