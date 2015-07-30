@@ -169,14 +169,17 @@
      (else
       (make-negative-pointer addr)))))
 
-(define vp->fp-offset
+(define vp-offset
   (make-negative-pointer (- %word-size)))
 
-(define registers-offset
+(define vp->fp-offset
   (make-negative-pointer (- (* 2 %word-size))))
 
-(define ra-offset
+(define registers-offset
   (make-negative-pointer (- (* 3 %word-size))))
+
+(define ra-offset
+  (make-negative-pointer (- (* 4 %word-size))))
 
 (define-syntax jump
   (syntax-rules ()
@@ -970,6 +973,7 @@
     (error "load-frame" local type dst))))
 
 (define (store-frame moffs local type src)
+  (debug 2 ";;; store-frame: local=~a type=~a src=~a~%" local type src)
   (cond
    ;; Type is return address, moving value coupled with type to frame
    ;; local. Return address of VM frame need to be recovered when taking exit
@@ -981,8 +985,8 @@
     (local-set! local r0))
 
    ;; Type is dynamic link, storing fp to local. Dynamic link is stored as
-   ;; offset in coupled in type, VM's fp could move, may use different value at
-   ;; the time of compilation and execution.
+   ;; offset in type. VM's fp could move, may use different value at the time of
+   ;; compilation and execution.
    ((dynamic-link? type)
     (jit-ldxi r0 fp vp->fp-offset)
     (let* ((amount (* (dynamic-link-offset type) %word-size))
@@ -1252,6 +1256,21 @@ of SRCS, DSTS, TYPES are local index number."
               (make-pointer k)
               (make-negative-pointer k))))
       (define (make-retval nlocals local-offset)
+        ;; Shift `vp->fp' when local offset is not 0.
+        ;;
+        ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP',
+        ;; called from C code in `libguile/vm-tjit.c'.
+        (when (not (= local-offset 0))
+          (let ((vp r0)
+                (vp->fp r1))
+            (jit-ldxi vp fp vp-offset)
+            (jit-ldxi vp->fp fp vp->fp-offset)
+            (if (< 0 local-offset)
+                (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
+                (jit-subi vp->fp vp->fp (imm (* (- local-offset) %word-size))))
+            (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
+
+        ;; Pack and return values.
         (jit-prepare)
         (jit-pushargr reg-thread)
         (jit-pushargi (scm-i-makinumi next-ip))
@@ -1271,9 +1290,12 @@ of SRCS, DSTS, TYPES are local index number."
          (match-lambda
           (($ $snapshot local-offset nlocals local-x-types)
            (debug 2 ";;; emit-bailout:~%")
-           (debug 2 ";;;   current-side-exit=~a~%" current-side-exit)
-           (debug 2 ";;;   local-x-types=~a~%" local-x-types)
-           (debug 2 ";;;   args=~a~%" args)
+           (debug 2 ";;;   current-side-exit: ~a~%" current-side-exit)
+           (debug 2 ";;;   local-offset: ~a~%" local-offset)
+           (debug 2 ";;;   nlocals: ~a~%" nlocals)
+           (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
+           (debug 2 ";;;   args: ~a~%" args)
+
            (let lp ((local-x-types local-x-types)
                     (args args))
 
@@ -1311,7 +1333,6 @@ of SRCS, DSTS, TYPES are local index number."
 
        ;; Caller places return address to address `fp + ra-offset', and
        ;; expects `R0' to hold the packed return values.
-       ;; (make-retval r0)
        (jit-ldxi r1 fp ra-offset)
        (jit-jmpr r1)
        (jit-epilog)
@@ -1400,27 +1421,33 @@ of SRCS, DSTS, TYPES are local index number."
     (cond
      ((not tlog)                        ; Root trace.
 
-      ;; Allocate spaces for spilled variables, two words for arguments passed
-      ;; from C code: `vp->fp', and `registers', and one word for return
-      ;; address used by side exits.
+      ;; Allocate spaces for spilled variables, three words to store `vp',
+      ;; `vp->fp', and `registers', and one more word for return address used by
+      ;; side exits.
       ;;
       ;; XXX: Cannot increase memory in side trace, because side trace uses
       ;; `jit-tramp'. Won't work if number of spilled variables in side trace is
       ;; greater than the area allocated by the parent trace. Perhaps better to
       ;; allocate constant amount in root trace, and make that amount
       ;; configurable via parameter.
-      (let* ((fp-offset (jit-allocai (imm (* (+ nspills 3) %word-size))))
+      (let* ((fp-offset (jit-allocai (imm (* (+ nspills 4) %word-size))))
              (moffs (lambda (mem)
                       (let ((offset (* (ref-value mem) %word-size)))
                         (make-offset-pointer fp-offset offset)))))
 
         ;; Get arguments.
         (jit-getarg reg-thread (jit-arg)) ; thread
-        (jit-getarg r0 (jit-arg))         ; vp->fp
+        (jit-getarg r0 (jit-arg))         ; vp
         (jit-getarg r1 (jit-arg))         ; registers, for prompt
 
-        ;; Load and store `vp->fp' and `registers'.
+        ;; Store `vp'.
+        (jit-stxi vp-offset fp r0)
+
+        ;; Load and store `vp->fp'.
+        (jit-ldxi r0 r0 (imm (* 2 %word-size)))
         (jit-stxi vp->fp-offset fp r0)
+
+        ;; And store `registers'.
         (jit-stxi registers-offset fp r1)
 
         ;; Load initial locals.

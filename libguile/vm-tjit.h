@@ -26,7 +26,8 @@ enum {
   SCM_TJIT_STATE_RECORD,
 };
 
-typedef SCM (*scm_t_native_code) (scm_i_thread *thread, SCM *fp,
+typedef SCM (*scm_t_native_code) (scm_i_thread *thread,
+                                  struct scm_vm *vp,
                                   scm_i_jmp_buf *registers);
 
 SCM_API SCM scm_tjit_ip_counter (void);

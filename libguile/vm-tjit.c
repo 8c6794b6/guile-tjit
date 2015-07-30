@@ -139,8 +139,13 @@ dump_fps(SCM *old_fp, SCM *fp)
   SCM port = scm_current_output_port ();
   scm_puts ("old_fp:", port);
   scm_display (scm_from_pointer ((void *) old_fp, NULL), port);
-  scm_puts (", fp:", port);
+  scm_newline (port);
+  scm_puts ("fp:", port);
   scm_display (scm_from_pointer ((void *) fp, NULL), port);
+  scm_newline (port);
+  scm_puts ("SCM_FRAME_DYNAMIC_LINK (old_fp):", port);
+  scm_display (scm_from_pointer ((void *) SCM_FRAME_DYNAMIC_LINK (old_fp), NULL),
+               port);
   scm_newline (port);
 }
 
@@ -162,7 +167,7 @@ dump_locals (int n, SCM *fp)
 
 static inline scm_t_uint32 *
 call_native (SCM s_ip, SCM tlog,
-             scm_i_thread *thread, SCM *fp, scm_i_jmp_buf *registers,
+             scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
              scm_t_uintptr *parent_ip, int *parent_exit_id,
              scm_t_int32 *fp_offset_out, scm_t_uint32 *nlocals_out)
@@ -175,7 +180,7 @@ call_native (SCM s_ip, SCM tlog,
 
   code = SCM_TLOG_CODE (tlog);
   f = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
-  ret = f (thread, fp, registers);
+  ret = f (thread, vp, registers);
 
   next_ip = SCM_TJIT_RETVAL_NEXT_IP (ret);
   exit_id = SCM_TJIT_RETVAL_EXIT_ID (ret);
@@ -316,7 +321,7 @@ is_root_trace (SCM tlog)
                                                                         \
         /* Update `fp' and `ip' in C code.  Variables `fp' and `ip'  */ \
         /* are using registers, see "libguile/vm-engine.h".          */ \
-        ip = call_native (s_ip, tlog, thread, fp, registers,            \
+        ip = call_native (s_ip, tlog, thread, vp, registers,            \
                           &tjit_state,                                  \
                           &tjit_loop_start, &tjit_loop_end,             \
                           &tjit_parent_ip, &tjit_parent_exit_id,        \
@@ -327,10 +332,8 @@ is_root_trace (SCM tlog)
         /* after taking side exit.                                   */ \
         if (shift != 0)                                                 \
           {                                                             \
-            SCM *old_fp;                                                \
-            old_fp = fp;                                                \
             /* XXX: Use SCM_FRAME_DYNAMIC_LINK ? */                     \
-            fp = vp->fp = old_fp + shift;                               \
+            CACHE_FP ();                                                \
             ALLOC_FRAME (nlocals);                                      \
           }                                                             \
       }                                                                 \
@@ -476,7 +479,7 @@ scm_make_tjit_retval (scm_i_thread *thread, scm_t_bits next_ip,
                       scm_t_bits exit_id, scm_t_bits exit_ip,
                       scm_t_bits nlocals, scm_t_bits local_offset)
 {
-  SCM ret = scm_inline_gc_malloc_words (thread, 5);
+  SCM ret = scm_inline_gc_malloc_pointerless (thread, 5 * sizeof (void *));
 
   SCM_SET_CELL_WORD (ret, 0, next_ip);
   SCM_SET_CELL_WORD (ret, 1, exit_id);
