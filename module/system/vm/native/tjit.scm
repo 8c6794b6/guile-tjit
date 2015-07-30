@@ -49,7 +49,7 @@
 ;;; Showing IR dump
 ;;;
 
-(define (show-dump ip-x-ops scm locals cps code code-size)
+(define (show-dump ip-x-ops scm locals cps snapshots tlog code code-size)
   (define (mark-call cont)
     (match cont
       (($ $kargs _ _ ($ $continue _ _ ($ $call _ _)))
@@ -82,6 +82,27 @@
            (else
             (lp traces level lowest))))
         (() lowest))))
+  (define (call-term? cont)
+    (match cont
+      (($ $kargs _ _ ($ $continue _ _ ($ $call)))
+       #t)
+      (_
+       #f)))
+  (define (dump-snapshot cont snapshot-id)
+    (when (call-term? cont)
+      (let ((snapshot (hashq-ref snapshots snapshot-id)))
+        (if snapshot
+            (format #t "====     [snapshot ~2,,,' @a] ~a:~a ~a~%"
+                    snapshot-id
+                    (snapshot-offset snapshot)
+                    (snapshot-nlocals snapshot)
+                    (snapshot-locals snapshot))
+            (format #t "====     [snapshot ~2,,,' @a] ---~%"
+                    snapshot-id)))))
+  (define (increment-snapshot-id cont snapshot-id)
+    (if (call-term? cont)
+        (+ snapshot-id 1)
+        snapshot-id))
 
   (let ((verbosity (lightning-verbosity)))
     (when (<= 2 verbosity)
@@ -110,11 +131,13 @@
         (display "#f\n"))
        (else
         (let ((kstart (loop-start cps)))
-          (let lp ((conts (reverse! (intmap-fold acons cps '()))))
+          (let lp ((conts (reverse! (intmap-fold acons cps '())))
+                   (snapshot-id 0))
             (match conts
-              (() #f)
               (((k . cont) . conts)
-               (and (eq? k kstart) (format #t "---- loop:~%"))
+               (and (eq? k kstart)
+                    (format #t "---- loop:~%"))
+               (dump-snapshot cont snapshot-id)
                (format #t "~4,,,'0@a  ~a~a ~a~%" k
                        (mark-branch cont)
                        (mark-call cont)
@@ -124,7 +147,8 @@
                   (when (< knext k)
                     (format #t "---- ->loop~%")))
                  (_ (values)))
-               (lp conts)))))))
+               (lp conts (increment-snapshot-id cont snapshot-id)))
+              (() values))))))
       (when (and code (<= 3 verbosity))
         (jit-print)
         (call-with-output-file
@@ -166,18 +190,17 @@
                (source-line-for-user source)))))
 
   (define-syntax-rule (show-one-line sline tlog code-size)
-    (format #t ";;; trace ~a:~a ~a~a~a~%"
-            trace-id sline
-            code-size
-            (if (< 0 parent-ip)
-                (format #f " (~a:~a)"
-                        (or (and tlog (tlog-id tlog))
-                            (format #f "~x" parent-ip))
-                        parent-exit-id)
-                "")
-            (if (or (= parent-ip 0))
-                ""
-                (format #f " -> ~a" (tlog-id (get-tlog linked-ip))))))
+    (let ((exit-pair (if (< 0 parent-ip)
+                         (format #f " (~a:~a)"
+                                 (or (and tlog (tlog-id tlog))
+                                     (format #f "~x" parent-ip))
+                                 parent-exit-id)
+                         ""))
+          (linked-id (if (= parent-ip 0)
+                         ""
+                         (format #f " -> ~a" (tlog-id (get-tlog linked-ip))))))
+      (format #t ";;; trace ~a:~a ~a~a~a~%"
+              trace-id sline code-size exit-pair linked-id)))
 
   (let* ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
          (entry-ip (cadr (car ip-x-ops)))
@@ -199,7 +222,7 @@
         ((not cps)
          (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
          (debug 2 ";;; CPS conversion failed~%")
-         (show-dump ip-x-ops scm locals cps #f #f)
+         (show-dump ip-x-ops scm locals cps snapshots tlog #f #f)
          #f)
         (else
          (let-values
@@ -243,7 +266,8 @@
                  (when (and verbosity (<= 1 verbosity))
                    (let ((code-size (jit-code-size)))
                      (show-one-line sline tlog code-size)
-                     (show-dump ip-x-ops scm locals cps code code-size)))
+                     (show-dump ip-x-ops scm locals cps snapshots tlog
+                                code code-size)))
 
                  ;; When this trace is a side trace, replace the native code
                  ;; of trampoline in parent tlog.

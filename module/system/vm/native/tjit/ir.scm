@@ -69,7 +69,7 @@
 
             $return-address
             return-address?
-            return-address-pointer
+            return-address-ip
 
             $dynamic-link
             dynamic-link?
@@ -80,9 +80,9 @@
 ;;;
 
 (define-record-type $return-address
-  (make-return-address pointer)
+  (make-return-address ip)
   return-address?
-  (pointer return-address-pointer))
+  (ip return-address-ip))
 
 (define-record-type $dynamic-link
   (make-dynamic-link offset)
@@ -385,6 +385,9 @@
   (define (initial-ip ops)
     (cadr (car ops)))
 
+  (define (initial-locals ops)
+    (cadddr (car ops)))
+
   (define (get-initial-offset)
     (if root-trace?
         0
@@ -436,133 +439,135 @@
         (when (not (hashq-ref known-types i))
           (hashq-set! known-types i ty))))
 
+    (define parent-locals
+      (let ((snapshot (and tlog (hashq-ref (tlog-snapshots tlog) exit-id))))
+        (match snapshot
+          (($ $snapshot _ _ locals) locals)
+          (_ #f))))
+
+    (define (parent-snapshot-local-ref i)
+      (and parent-locals
+           (assq-ref parent-locals i)))
+
+    (define (take-snapshot! ip offset locals)
+      (define-syntax-rule (local-ref i)
+        (vector-ref locals i))
+      ;; When procedure get inlined, taking snapshot of previous frame,
+      ;; contents of previous frame could change in native code loop.
+      (debug 2 ";;; take-snapshot!:~%")
+      (debug 2 ";;;   snapshot-id=~a~%" snapshot-id)
+      (debug 2 ";;;   ip=~x, offset=~a~%" ip offset)
+      (debug 2 ";;;   vars=~a~%" vars)
+      (debug 2 ";;;   (vector-length locals)=~a~%" (vector-length locals))
+      (debug 2 ";;;   local-offset=~a~%" local-offset)
+      (when past-frame
+        (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
+        (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame)))
+      (let lp ((is (reverse local-indices)) (acc '()))
+        (match is
+          ((i . is)
+           (define (dl-or-ra-from-parent-trace i)
+             (let ((val (parent-snapshot-local-ref i)))
+               (or (and (dynamic-link? val) val)
+                   (and (return-address? val) val))))
+           (define (add-local local)
+             (debug 2 ";;;   add-local: i=~a, local=~a~%" i local)
+             (cond
+              ((fixnum? local)
+               (lp is (cons `(,i . ,&exact-integer) acc)))
+              ((flonum? local)
+               (lp is (cons `(,i . ,&flonum) acc)))
+              ((variable? local)
+               (lp is (cons `(,i . ,&box) acc)))
+              ((unbound? local)
+               (lp is (cons `(,i . ,&unbound) acc)))
+              ((false? local)
+               (lp is (cons `(,i . ,&false) acc)))
+              ((procedure? local)
+               (lp is (cons `(,i . ,&procedure) acc)))
+              (else
+               ;; XXX: Add more types.
+               ;; (debug 2 "*** take-snapshot!: ~a~%" local)
+               (lp is acc))))
+           (cond
+            ((= local-offset 0)
+             (cond
+              ((< i 0)
+               (add-local (past-frame-lower-ref past-frame i)))
+              (else
+               (add-local (and (< i (vector-length locals))
+                               (local-ref i))))))
+
+            ;; Dynamic link and return address might need to be passed from
+            ;; parent trace. When side trace of inlined procedure takes
+            ;; bailout code, recorded trace might not contain bytecode
+            ;; operation to fill in the dynamic link and return address of
+            ;; past frame.
+            ((or (or (assq-ref (past-frame-dls past-frame) i)
+                     (assq-ref (past-frame-ras past-frame) i))
+                 (dl-or-ra-from-parent-trace i))
+             =>
+             (lambda (val)
+               (lp is (cons `(,i . ,val) acc))))
+
+            ;; Local in inlined procedure.
+            ((<= 0 local-offset i)
+             (let ((j (- i local-offset)))
+               (if (< -1 j (vector-length locals))
+                   (add-local (local-ref j))
+                   (lp is acc))))
+
+            ;; Local in lower frame.
+            ((<= local-offset i 0)
+             (let ((j (- i local-offset)))
+               (if (<= 0 j)
+                   (add-local (local-ref j))
+                   (lp is acc))))
+
+            ;; When side trace contains inlined procedure and the guard taking
+            ;; this snapshot is from the caller of the inlined procedure,
+            ;; saving local in upper frame. Looking up locals from newest
+            ;; locals in past-frame.
+            ((past-frame-local-ref past-frame i)
+             =>
+             (match-lambda ((_ . local)
+                            (add-local local))))
+
+            ;; Side trace could start from the middle of inlined procedure,
+            ;; locals in past frame may not have enough information to recover
+            ;; locals in caller of the inlined procedure. In such case, look
+            ;; up locals in the snapshot of parent trace.
+            ((parent-snapshot-local-ref i)
+             =>
+             (lambda (type)
+               (lp is (cons `(,i . ,type) acc))))
+
+            ;; Give up.
+            (else
+             (debug 1 ";;;   i=~a, skipping~%" i)
+             (lp is acc))))
+          (()
+           (let ((acc (reverse! acc)))
+             ;; Using snapshot-id as key for hash-table. Identical IP could
+             ;; be used for entry clause and first operation in the loop.
+             (let ((snapshot (make-snapshot local-offset
+                                            (vector-length locals)
+                                            acc)))
+               (hashq-set! snapshots snapshot-id snapshot))
+             (set! snapshot-id (+ snapshot-id 1))
+
+             ;; Call dummy procedure to capture CPS variables by emitting
+             ;; `$call' term.  It might not a good way to use `$call', though
+             ;; no other idea to capture CPS variables with less amount of CPS
+             ;; terms.
+             `(,(+ ip (* offset 4)) ,@args))))))
+
     (define (convert-one escape op ip fp locals rest)
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
 
       (define-syntax-rule (var-ref i)
         (assq-ref vars (+ i local-offset)))
-
-      (define parent-locals
-        (let ((snapshot (and tlog (hashq-ref (tlog-snapshots tlog) exit-id))))
-          (match snapshot
-            (($ $snapshot _ _ locals) locals)
-            (_ #f))))
-
-      (define (parent-snapshot-local-ref i)
-        (and parent-locals
-             (assq-ref parent-locals i)))
-
-      (define (take-snapshot! ip offset)
-        ;; When procedure get inlined, taking snapshot of previous frame,
-        ;; contents of previous frame could change in native code loop.
-        (debug 2 ";;; take-snapshot!:~%")
-        (debug 2 ";;;   snapshot-id=~a~%" snapshot-id)
-        (debug 2 ";;;   ip=~x, offset=~a~%" ip offset)
-        (debug 2 ";;;   vars=~a~%" vars)
-        (debug 2 ";;;   (vector-length locals)=~a~%" (vector-length locals))
-        (debug 2 ";;;   local-offset=~a~%" local-offset)
-        (when past-frame
-          (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
-          (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame)))
-        (let lp ((is (reverse local-indices)) (acc '()))
-          (match is
-            ((i . is)
-             (define (dl-or-ra-from-parent-trace i)
-               (let ((val (parent-snapshot-local-ref i)))
-                 (or (and (dynamic-link? val) val)
-                     (and (return-address? val) val))))
-             (define (add-local local)
-               (debug 2 ";;;   add-local: i=~a, local=~a~%" i local)
-               (cond
-                ((fixnum? local)
-                 (lp is (cons `(,i . ,&exact-integer) acc)))
-                ((flonum? local)
-                 (lp is (cons `(,i . ,&flonum) acc)))
-                ((variable? local)
-                 (lp is (cons `(,i . ,&box) acc)))
-                ((unbound? local)
-                 (lp is (cons `(,i . ,&unbound) acc)))
-                ((false? local)
-                 (lp is (cons `(,i . ,&false) acc)))
-                ((procedure? local)
-                 (lp is (cons `(,i . ,&procedure) acc)))
-                (else
-                 ;; XXX: Add more types.
-                 ;; (debug 2 "*** take-snapshot!: ~a~%" local)
-                 (lp is acc))))
-             (cond
-              ((= local-offset 0)
-               (cond
-                ((< i 0)
-                 (add-local (past-frame-lower-ref past-frame i)))
-                (else
-                 (add-local (and (< i (vector-length locals))
-                                 (local-ref i))))))
-
-              ;; Dynamic link and return address might need to be passed from
-              ;; parent trace. When side trace of inlined procedure takes
-              ;; bailout code, recorded trace might not contain bytecode
-              ;; operation to fill in the dynamic link and return address of
-              ;; past frame.
-              ((or (or (assq-ref (past-frame-dls past-frame) i)
-                       (assq-ref (past-frame-ras past-frame) i))
-                   (dl-or-ra-from-parent-trace i))
-               =>
-               (lambda (val)
-                 (lp is (cons `(,i . ,val) acc))))
-
-              ;; Local in inlined procedure.
-              ((<= 0 local-offset i)
-               (let ((j (- i local-offset)))
-                 (if (< -1 j (vector-length locals))
-                     (add-local (local-ref j))
-                     (lp is acc))))
-
-              ;; Local in lower frame.
-              ((<= local-offset i 0)
-               (let ((j (- i local-offset)))
-                 (if (<= 0 j)
-                     (add-local (local-ref j))
-                     (lp is acc))))
-
-              ;; When side trace contains inlined procedure and the guard taking
-              ;; this snapshot is from the caller of the inlined procedure,
-              ;; saving local in upper frame. Looking up locals from newest
-              ;; locals in past-frame.
-              ((past-frame-local-ref past-frame i)
-               =>
-               (match-lambda ((_ . local)
-                              (add-local local))))
-
-              ;; Side trace could start from the middle of inlined procedure,
-              ;; locals in past frame may not have enough information to recover
-              ;; locals in caller of the inlined procedure. In such case, look
-              ;; up locals in the snapshot of parent trace.
-              ((parent-snapshot-local-ref i)
-               =>
-               (lambda (type)
-                 (lp is (cons `(,i . ,type) acc))))
-
-              ;; Give up.
-              (else
-               (debug 1 ";;;   i=~a, skipping~%" i)
-               (lp is acc))))
-            (()
-             (let ((acc (reverse! acc)))
-               ;; Using snapshot-id as key for hash-table. Identical IP could
-               ;; be used for entry clause and first operation in the loop.
-               (let ((snapshot (make-snapshot local-offset
-                                              (vector-length locals)
-                                              acc)))
-                 (hashq-set! snapshots snapshot-id snapshot))
-               (set! snapshot-id (+ snapshot-id 1))
-
-               ;; Call dummy procedure to capture CPS variables by emitting
-               ;; `$call' term.  It might not a good way to use `$call', though
-               ;; no other idea to capture CPS variables with less amount of CPS
-               ;; terms.
-               `(,(+ ip (* offset 4)) ,@args))))))
 
       ;; (debug 2 ";;; convert-one: ~a (~a/~a) ~a~%"
       ;;        (or (and (number? ip) (number->string ip 16))
@@ -587,7 +592,7 @@
                (rproc (local-ref proc)))
            (debug 2 ";;; ir.scm:call vproc=~a, rproc=~a~%" vproc rproc)
            `(begin
-              ,(take-snapshot! ip 0)
+              ,(take-snapshot! ip 0 locals)
               (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
               ,(begin
                  (push-offset! proc)
@@ -686,7 +691,7 @@
                (set-expecting-type! a &exact-integer)
                (set-expecting-type! b &exact-integer)
                `(begin
-                  ,(take-snapshot! ip dest)
+                  ,(take-snapshot! ip dest locals)
                   ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
                   ,(convert escape rest)))
               (else
@@ -706,7 +711,7 @@
                (set-expecting-type! a &exact-integer)
                (set-expecting-type! b &exact-integer)
                `(begin
-                  ,(take-snapshot! ip dest)
+                  ,(take-snapshot! ip dest locals)
                   ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))
                   ,(convert escape rest)))
 
@@ -714,7 +719,7 @@
                (set-expecting-type! a &flonum)
                (set-expecting-type! b &flonum)
                `(begin
-                  ,(take-snapshot! ip dest)
+                  ,(take-snapshot! ip dest locals)
                   ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
                   ,(convert escape rest)))
               (else
@@ -743,9 +748,9 @@
         ;; XXX: box
 
         ;; XXX: Reconsider how to manage `box', `box-ref', and `box-set!'.
-        ;; Boxing back to tagged value every time will make the loop slow,
-        ;; though need more analysis when the storing could be removed from
-        ;; native code loop and delayed to side exit code.
+        ;; Boxing back tagged value every time will make the loop slow, need
+        ;; more analysis when the storing could be removed from native code loop
+        ;; and delayed to side exit code.
         ;;
         ;; XXX: Add test for nested boxes.
 
@@ -1027,7 +1032,7 @@
         ;; *** Misc
 
         (('take-snapshot! ip offset)
-         (take-snapshot! ip offset))
+         (take-snapshot! ip offset locals))
 
         (op
          (debug 2 "*** ir:convert: NYI ~a~%" (car op))
@@ -1073,10 +1078,13 @@
         (debug 2 ";;; Bytecode to Scheme conversion failed.~%")
         #f)
        (root-trace?
-        (let ((entry-body (make-entry (initial-ip ops) vars expecting-types
-                                      `(begin
-                                         (,*ip-key-end-of-entry* ,@args)
-                                         (loop ,@args)))))
+        (let* ((initial-snapshot
+                (take-snapshot! *ip-key-end-of-entry* 0 (initial-locals ops)))
+               (entry-body
+                (make-entry (initial-ip ops) vars expecting-types
+                            `(begin
+                               ,initial-snapshot
+                               (loop ,@args)))))
           `(letrec ((entry (lambda ,args ,entry-body))
                     (loop (lambda ,args ,exp-body)))
              entry)))

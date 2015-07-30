@@ -977,7 +977,7 @@
    ;; captured at the time of bytecode to Scheme IR conversion, and stored in
    ;; snapshot as pointer.
    ((return-address? type)
-    (jit-movi r0 (return-address-pointer type))
+    (jit-movi r0 (return-address-ip type))
     (local-set! local r0))
 
    ;; Type is dynamic link, storing fp to local. Dynamic link is stored as
