@@ -92,12 +92,14 @@
     (when (call-term? cont)
       (let ((snapshot (hashq-ref snapshots snapshot-id)))
         (if snapshot
-            (format #t "====     [snapshot ~2,,,' @a] ~a:~a ~a~%"
+            (format #t "~a     [snapshot ~2,,,' @a] ~a:~a ~a~%"
+                    (cyan "====")
                     snapshot-id
                     (snapshot-offset snapshot)
                     (snapshot-nlocals snapshot)
                     (snapshot-locals snapshot))
-            (format #t "====     [snapshot ~2,,,' @a] ---~%"
+            (format #t "~a     [snapshot ~2,,,' @a] ---~%"
+                    (cyan "====")
                     snapshot-id)))))
   (define (increment-snapshot-id cont snapshot-id)
     (if (call-term? cont)
