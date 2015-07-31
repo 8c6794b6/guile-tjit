@@ -28,12 +28,17 @@
   #:export (tjit-ip-counter
             tjit-hot-loop
             tjit-hot-exit
+            tjit-max-spills
             tlog-table
             set-tjit-hot-loop!
             tjit-stats))
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_tjit")
+
+;; Maximum number of spilled variables.
+(define tjit-max-spills
+  (make-parameter 256))
 
 (define (tjit-stats)
   (let ((hot-loop (tjit-hot-loop))

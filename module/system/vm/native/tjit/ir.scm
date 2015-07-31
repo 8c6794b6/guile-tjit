@@ -460,16 +460,18 @@
       (debug 2 ";;;   vars=~a~%" vars)
       (debug 2 ";;;   (vector-length locals)=~a~%" (vector-length locals))
       (debug 2 ";;;   local-offset=~a~%" local-offset)
-      (when past-frame
-        (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
-        (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame)))
+      (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
+      (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame))
       (let lp ((is (reverse local-indices)) (acc '()))
         (match is
           ((i . is)
-           (define (dl-or-ra-from-parent-trace i)
-             (let ((val (parent-snapshot-local-ref i)))
-               (or (and (dynamic-link? val) val)
-                   (and (return-address? val) val))))
+           (define (dl-or-ra i)
+             (or (assq-ref (past-frame-dls past-frame) i)
+                 (assq-ref (past-frame-ras past-frame) i)
+                 (let ((val (parent-snapshot-local-ref i)))
+                   (and (or (dynamic-link? val)
+                            (return-address? val))
+                        val))))
            (define (add-local local)
              (debug 2 ";;;   add-local: i=~a, local=~a~%" i local)
              (cond
@@ -489,40 +491,50 @@
                ;; XXX: Add more types.
                ;; (debug 2 "*** take-snapshot!: ~a~%" local)
                (lp is acc))))
+           (define (add-val val)
+             (debug 2 ";;;   add-val: i=~a, val=~a~%" i val)
+             (lp is (cons `(,i . ,val) acc)))
            (cond
             ((= local-offset 0)
              (cond
               ((< i 0)
-               (add-local (past-frame-lower-ref past-frame i)))
+               (cond
+                ((dl-or-ra i)
+                 =>
+                 add-val)
+                (else
+                 (add-local (past-frame-lower-ref past-frame i)))))
               (else
                (add-local (and (< i (vector-length locals))
                                (local-ref i))))))
 
             ;; Dynamic link and return address might need to be passed from
-            ;; parent trace. When side trace of inlined procedure takes
-            ;; bailout code, recorded trace might not contain bytecode
-            ;; operation to fill in the dynamic link and return address of
-            ;; past frame.
-            ((or (or (assq-ref (past-frame-dls past-frame) i)
-                     (assq-ref (past-frame-ras past-frame) i))
-                 (dl-or-ra-from-parent-trace i))
+            ;; parent trace. When side trace of inlined procedure takes bailout
+            ;; code, recorded trace might not contain bytecode operation to fill
+            ;; in the dynamic link and return address of past frame.
+            ((dl-or-ra i)
              =>
-             (lambda (val)
-               (lp is (cons `(,i . ,val) acc))))
+             add-val)
 
             ;; Local in inlined procedure.
             ((<= 0 local-offset i)
              (let ((j (- i local-offset)))
                (if (< -1 j (vector-length locals))
                    (add-local (local-ref j))
-                   (lp is acc))))
+                   (begin
+                     (debug 1 ";;;   i=~a, local-offset=~a, skipping~%"
+                            i local-offset)
+                     (lp is acc)))))
 
             ;; Local in lower frame.
             ((<= local-offset i 0)
              (let ((j (- i local-offset)))
                (if (<= 0 j)
                    (add-local (local-ref j))
-                   (lp is acc))))
+                   (begin
+                     (debug 1 ";;;   i=~a, local-offset=~a, skipping~%"
+                            i local-offset)
+                     (lp is acc)))))
 
             ;; When side trace contains inlined procedure and the guard taking
             ;; this snapshot is from the caller of the inlined procedure,
@@ -539,10 +551,9 @@
             ;; up locals in the snapshot of parent trace.
             ((parent-snapshot-local-ref i)
              =>
-             (lambda (type)
-               (lp is (cons `(,i . ,type) acc))))
+             add-val)
 
-            ;; Give up.
+            ;; Giving up, skip this local.
             (else
              (debug 1 ";;;   i=~a, skipping~%" i)
              (lp is acc))))

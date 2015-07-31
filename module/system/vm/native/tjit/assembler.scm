@@ -43,6 +43,7 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit ir)
+  #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit tlog)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit variables)
@@ -993,11 +994,16 @@
    ;; Type is dynamic link, storing fp to local. Dynamic link is stored as
    ;; offset in type. VM's fp could move, may use different value at the time of
    ;; compilation and execution.
+   ;;
+   ;; XXX: Currently, negative offset is ignored, storing to local without
+   ;; adding the shift amount. Will not work when more than one levels of
+   ;; `return' were found in traced bytecode.
    ((dynamic-link? type)
     (jit-ldxi r0 fp vp->fp-offset)
     (let* ((amount (* (dynamic-link-offset type) %word-size))
            (ptr (make-signed-pointer amount)))
-      (jit-addi r0 r0 ptr))
+      (when (< 0 amount)
+        (jit-addi r0 r0 ptr)))
     (local-set! local r0))
 
    ;; Check type, recover SCM value.
@@ -1153,6 +1159,14 @@ of SRCS, DSTS, TYPES are local index number."
            (lp rest))))
         (() (values))))))
 
+;; XXX: Should refer the shifting amount from snapshot per frame. Otherwise,
+;; frames below two levels from current frame will not work.
+(define (lowest-snapshot-offset snapshots)
+  (hash-fold (lambda (k v acc)
+               (min acc (snapshot-offset v)))
+             0
+             snapshots))
+
 (define (dump-bailout ip exit-id code)
   (let ((verbosity (lightning-verbosity)))
     (when (and verbosity (<= 3 verbosity))
@@ -1237,14 +1251,12 @@ of SRCS, DSTS, TYPES are local index number."
               (jit-stxi vp->fp-offset fp r0)
               (let lp ((locals local-x-types)
                        (args args)
-                       (shift 6))
+                       (shift (- (lowest-snapshot-offset snapshots))))
                 (match locals
                   (((local . type) . locals)
                    (match args
                      ((arg . args)
-                      (when (and (< local 0)
-                                 (not (= -2 local))
-                                 (not (= -1 local)))
+                      (when (< local 0)
                         (let ((local (+ local shift))
                               (var (env-ref arg)))
                           (store-frame moffs local type var)))
@@ -1462,21 +1474,23 @@ of SRCS, DSTS, TYPES are local index number."
        ((trampoline) (make-trampoline trampoline-size))
        ((end-address) (and tlog (tlog-end-address tlog)))
 
-       ;; XXX: Allocate enough space for side trace.
-       ;;
        ;; Root trace allocates spaces for spilled variables, three words to
        ;; store `vp', `vp->fp', and `registers', and one more word for return
        ;; address used by side exits.
        ;;
        ;; Side trace can not allocate additional memory, because side trace uses
-       ;; `jit-tramp'. Won't work if number of spilled variables in side trace
-       ;; is greater than the area allocated by the parent trace. Perhaps better
-       ;; to allocate constant amount in root trace, and make that amount
-       ;; configurable via parameter.
+       ;; `jit-tramp'.
        ;;
+       ;; Won't work if number of spilled variables exceeds the number returned
+       ;; from parameter `(tjit-max-spills)'.
        ((fp-offset)
         (if (not tlog)
-            (jit-allocai (imm (* (+ nspills 4) %word-size)))
+            (let ((max-spills (tjit-max-spills)))
+              (when (< max-spills nspills)
+                ;; XXX: Escape somewhere and increase count of compilation
+                ;; failure for this entry-ip.
+                (error "Too many spilled variables" nspills))
+              (jit-allocai (imm (* (+ max-spills 4) %word-size))))
             (tlog-fp-offset tlog)))
 
        ((moffs)
@@ -1558,13 +1572,14 @@ of SRCS, DSTS, TYPES are local index number."
 
             ;; Load locals in lower frame, if any.
             ;;
-            ;; XXX: Get shift value and the number to invoke
-            ;; `scm-frame-dynamic-link' from snapshot.
-            (let ((shift 6)
+            ;; XXX: Refer snapshot to get the `shift' value and number to invoke
+            ;; `scm-frame-dynamic-link'.
+            (let ((shift (- (lowest-snapshot-offset snapshots)))
                   (locals (filter (lambda (n-v)
                                     (< (car n-v) 0))
                                   initial-locals)))
-              ;; Shift `vp->fp', load from frame, and shift `vp->fp' back.
+
+              ;; Shift `vp->fp', load locals, then shift `vp->fp' back.
               (jit-ldxi r0 fp vp->fp-offset)
               (scm-frame-dynamic-link r0 r0)
               (jit-stxi vp->fp-offset fp r0)
