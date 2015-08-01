@@ -20,136 +20,36 @@
 
 ;;; Commentary:
 
-;;; Assemble CPS to native code.
+;;; Primitives for native code used in vm-tjit engine.
 
 ;;; Code:
 
 (define-module (system vm native tjit assembler)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
-  #:use-module (ice-9 binary-ports)
-  #:use-module (ice-9 pretty-print)
-  #:use-module (language cps)
-  #:use-module (language cps intmap)
-  #:use-module (language cps intset)
   #:use-module (language cps types)
-  #:use-module (language cps utils)
   #:use-module (language tree-il primitives)
-  #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
-  #:use-module (srfi srfi-11)
-  #:use-module ((system base types) #:select (%word-size))
   #:use-module (system foreign)
+  #:use-module ((system base types) #:select (%word-size))
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
-  #:use-module (system vm native tjit ir)
-  #:use-module (system vm native tjit parameters)
-  #:use-module (system vm native tjit tlog)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit variables)
-  #:export (assemble-tjit
+  #:export (*native-prim-procedures*
+            *native-prim-types*
             initialize-tjit-primitives
-            *native-prim-types*))
-
-
-;;;
-;;; Raw Scheme, relates to C macro
-;;;
-
-(define-syntax scm-cell-object
-  (syntax-rules ()
-    ((_ dst obj 0)
-     (jit-ldr dst obj))
-    ((_ dst obj 1)
-     (jit-ldxi dst obj (imm %word-size)))
-    ((_ dst obj n)
-     (jit-ldxi dst obj (imm (* n %word-size))))))
-
-(define-syntax-rule (scm-cell-type dst src)
-  (scm-cell-object dst src 0))
-
-(define-syntax-rule (scm-typ16 dst obj)
-  (jit-andi dst obj (imm #xffff)))
-
-(define-syntax-rule (scm-real-value dst src)
-  (jit-ldxi-d dst src (imm (* 2 %word-size))))
-
-(define %scm-from-double
-  (dynamic-pointer "scm_do_inline_from_double" (dynamic-link)))
-
-(define-syntax-rule (scm-from-double dst src)
-  (begin
-    (jit-prepare)
-    (jit-pushargr reg-thread)
-    (jit-pushargr-d src)
-    (jit-calli %scm-from-double)
-    (jit-retval dst)))
-
-(define %scm-make-tjit-retval
-  (dynamic-pointer "scm_make_tjit_retval" (dynamic-link)))
-
-(define *scm-false*
-  (scm->pointer #f))
-
-(define *scm-undefined*
-  (make-pointer #x904))
-
-
-;;; Predicates
-
-(define-syntax-rule (scm-imp obj)
-  (jit-bmsi obj (imm 6)))
-
-(define-syntax-rule (scm-inump obj)
-  (jit-bmsi obj (imm 2)))
-
-(define-syntax-rule (scm-not-inump obj)
-  (jit-bmci obj (imm 2)))
-
-(define-syntax-rule (scm-realp tag)
-  (jit-beqi tag (imm (@@ (system base types) %tc16-real))))
-
-
-;;;
-;;; Assembler state
-;;;
-
-(define-record-type <asm>
-  (%make-asm env fp-offset out-code end-address)
-  asm?
-
-  ;; Vector containing CPS variables. Index of vector is CPS variable ID, value
-  ;; is reference to logical register or memory.
-  (env asm-env)
-
-  ;; Offset for fp register. This is the offset allocated with `jit-allocai'.
-  (fp-offset asm-fp-offset)
-
-  ;; Pointer of native code for current side exit.
-  (out-code asm-out-code)
-
-  ;; Pointer of native code at the end of parent trace.
-  (end-address asm-end-address))
-
-(define (make-asm env fp-offset out-code end-address)
-  (%make-asm env fp-offset out-code end-address))
-
-(define (env-ref asm i)
-  (vector-ref (asm-env asm) i))
-
-(define (moffs asm r)
-  (make-offset-pointer (asm-fp-offset asm) (* (ref-value r) %word-size)))
-
-
-;;;
-;;; Auxiliary
-;;;
-
-(define reg-thread v0)
-
-(define fp (jit-fp))
-
-(define *max-address* (expt 2 (* 8 %word-size)))
+            make-asm
+            asm-fp-offset
+            asm-out-code
+            asm-end-address
+            make-negative-pointer
+            make-signed-pointer
+            jump
+            jumpi
+            return-to-interpreter
+            constant-word
+            scm-from-double))
 
 (define (make-negative-pointer addr)
   "Make negative pointer with ADDR."
@@ -162,132 +62,8 @@
       (make-pointer addr)
       (make-negative-pointer addr)))
 
-(define (make-offset-pointer offset n)
-  (let ((addr (+ offset n)))
-    (cond
-     ((<= 0 addr)
-      (make-pointer addr))
-     (else
-      (make-negative-pointer addr)))))
-
-(define vp-offset
-  (make-negative-pointer (- %word-size)))
-
-(define vp->fp-offset
-  (make-negative-pointer (- (* 2 %word-size))))
-
-(define registers-offset
-  (make-negative-pointer (- (* 3 %word-size))))
-
-(define ra-offset
-  (make-negative-pointer (- (* 4 %word-size))))
-
-(define-syntax-rule (scm-frame-dynamic-link dst src)
-  (jit-ldxi dst src (make-negative-pointer (* -2 %word-size))))
-
-(define-syntax-rule (vm-cache-fp vp)
-  (let ((vp->fp (if (eq? vp r0) r1 r0)))
-    (jit-ldxi vp->fp vp (make-pointer (* 2 %word-size)))
-    (jit-stxi vp->fp-offset fp vp->fp)))
-
-(define-syntax-rule (vm-save-fp vp->fp)
-  (let ((vp (if (eq? vp->fp r0) r1 r0)))
-    (jit-ldxi vp fp vp-offset)
-    (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
-
-(define-syntax jump
-  (syntax-rules ()
-    ((_ label)
-     (jit-patch-at (jit-jmpi) label))
-    ((_ condition label)
-     (jit-patch-at condition label))))
-
-(define-syntax jumpi
-  (syntax-rules ()
-    ((_ address)
-     (jit-patch-abs (jit-jmpi) address))))
-
-(define-syntax local-ref
-  (syntax-rules ()
-    ((_ dst n)
-     (let ((vp->fp (if (eq? dst r0) r1 r0)))
-       (jit-ldxi vp->fp fp vp->fp-offset)
-       (cond
-        ((= 0 n)
-         (jit-ldr dst vp->fp))
-        ((< 0 n)
-         (jit-ldxi dst vp->fp (imm (* n %word-size))))
-        (else
-         (debug 2 ";;; local-ref: skipping negative local ~a~%" n)))))))
-
-(define-syntax local-set!
-  (syntax-rules ()
-    ((_ n src)
-     (let ((vp->fp (if (eq? src r0) r1 r0)))
-       (jit-ldxi vp->fp fp vp->fp-offset)
-       (cond
-        ((= 0 n)
-         (jit-str vp->fp src))
-        ((< 0 n)
-         (jit-stxi (imm (* n %word-size)) vp->fp src))
-        (else
-         (debug 2 ";;; local-set!: skipping negative local ~a~%" n)))))))
-
-(define-syntax-rule (memory-ref asm dst src)
-  (cond
-   ((not (memory? src))
-    (error "memory-ref: not a memory" src))
-   (else
-    (jit-ldxi dst fp (moffs asm src)))))
-
-(define-syntax-rule (memory-ref/fpr asm dst src)
-  (cond
-   ((not (memory? src))
-    (error "memory-ref/fpr: not a memory" src))
-   (else
-    (jit-ldxi-d dst fp (moffs asm src)))))
-
-(define-syntax-rule (memory-set! asm dst src)
-  (cond
-   ((not (memory? dst))
-    (error "memory-set!: not a memory" dst))
-   (else
-    (jit-stxi (moffs asm dst) fp src))))
-
-(define-syntax-rule (memory-set!/fpr asm dst src)
-  (cond
-   ((not (memory? dst))
-    (error "memory-set!/fpr: not a memory" dst))
-   (else
-    (jit-stxi-d (moffs asm dst) fp src))))
-
 (define-syntax-rule (constant-word i)
   (imm (* (ref-value i) %word-size)))
-
-(define-syntax-rule (goto-exit asm)
-  ;; Save return address, then jump to address of asm-code of ASM.
-  ;;
-  ;; Expecting that out-code of asm will jump back to return address, or patched
-  ;; to parent trace already. When returned to patched address, exit from native
-  ;; code with returning the contents of register R0.
-  ;;
-  ;; Side trace reuses RSP shifting from epilog of parent trace. Native code of
-  ;; side trace does not reset stack pointer, because side traces use
-  ;; `jit-tramp'.
-  ;;
-  (let ((addr (jit-movi r1 (imm 0))))
-    (jit-stxi ra-offset fp r1)
-    (jumpi (asm-out-code asm))
-    (jit-patch addr)
-    (cond
-     ((asm-end-address asm)
-      =>
-      (lambda (address)
-        (debug 2 ";;; goto-exit: jumping to ~a~%" address)
-        (jumpi address)))
-     (else
-      (debug 2 ";;; goto-exit: returning R0~%")
-      (jit-retr r0)))))
 
 
 ;;;
@@ -301,8 +77,6 @@
 ;;; Need at least 3 general purpose scratch registers, and 3 floating point
 ;;; scratch registers. Currently using R0, R1, and R2 for general purpose, F0,
 ;;; F1, and F2 for floating point.
-
-;;; XXX: Add more helper macros, e.g: %ne, %eq, %lt, %ge have similar structure.
 
 (define *native-prim-arities* (make-hash-table))
 (define *native-prim-procedures* (make-hash-table))
@@ -346,6 +120,158 @@
      (hashq-set! (@@ (language cps primitives) *prim-arities*) name arity)))
    (hash-fold acons '() *native-prim-arities*)))
 
+
+;;;
+;;; SCM macros
+;;;
+
+(define-syntax scm-cell-object
+  (syntax-rules ()
+    ((_ dst obj 0)
+     (jit-ldr dst obj))
+    ((_ dst obj 1)
+     (jit-ldxi dst obj (imm %word-size)))
+    ((_ dst obj n)
+     (jit-ldxi dst obj (imm (* n %word-size))))))
+
+(define-syntax-rule (scm-cell-type dst src)
+  (scm-cell-object dst src 0))
+
+(define-syntax-rule (scm-typ16 dst obj)
+  (jit-andi dst obj (imm #xffff)))
+
+(define %scm-from-double
+  (dynamic-pointer "scm_do_inline_from_double" (dynamic-link)))
+
+(define-syntax-rule (scm-from-double dst src)
+  (begin
+    (jit-prepare)
+    (jit-pushargr reg-thread)
+    (jit-pushargr-d src)
+    (jit-calli %scm-from-double)
+    (jit-retval dst)))
+
+
+;;;
+;;; Predicates
+;;;
+
+(define-syntax-rule (scm-imp obj)
+  (jit-bmsi obj (imm 6)))
+
+(define-syntax-rule (scm-inump obj)
+  (jit-bmsi obj (imm 2)))
+
+(define-syntax-rule (scm-not-inump obj)
+  (jit-bmci obj (imm 2)))
+
+(define-syntax-rule (scm-realp tag)
+  (jit-beqi tag (imm (@@ (system base types) %tc16-real))))
+
+
+;;;
+;;; Assembler state
+;;;
+
+(define-record-type <asm>
+  (%make-asm env fp-offset out-code end-address)
+  asm?
+
+  ;; Vector containing CPS variables. Index of vector is CPS variable ID, value
+  ;; is reference to logical register or memory.
+  (env asm-env)
+
+  ;; Offset for fp register. This is the offset allocated with `jit-allocai'.
+  (fp-offset asm-fp-offset)
+
+  ;; Pointer of native code for current side exit.
+  (out-code asm-out-code)
+
+  ;; Pointer of native code at the end of parent trace.
+  (end-address asm-end-address))
+
+(define (make-asm env fp-offset out-code end-address)
+  (%make-asm env fp-offset out-code end-address))
+
+(define-syntax jump
+  (syntax-rules ()
+    ((_ label)
+     (jit-patch-at (jit-jmpi) label))
+    ((_ condition label)
+     (jit-patch-at condition label))))
+
+(define-syntax jumpi
+  (syntax-rules ()
+    ((_ address)
+     (jit-patch-abs (jit-jmpi) address))))
+
+(define-syntax-rule (moffs asm r)
+  (make-signed-pointer (+ (asm-fp-offset asm)
+                          (* (ref-value r) %word-size))))
+
+(define-syntax-rule (memory-ref asm dst src)
+  (cond
+   ((not (memory? src))
+    (error "memory-ref: not a memory" src))
+   (else
+    (jit-ldxi dst fp (moffs asm src)))))
+
+(define-syntax-rule (memory-ref/fpr asm dst src)
+  (cond
+   ((not (memory? src))
+    (error "memory-ref/fpr: not a memory" src))
+   (else
+    (jit-ldxi-d dst fp (moffs asm src)))))
+
+(define-syntax-rule (memory-set! asm dst src)
+  (cond
+   ((not (memory? dst))
+    (error "memory-set!: not a memory" dst))
+   (else
+    (jit-stxi (moffs asm dst) fp src))))
+
+(define-syntax-rule (memory-set!/fpr asm dst src)
+  (cond
+   ((not (memory? dst))
+    (error "memory-set!/fpr: not a memory" dst))
+   (else
+    (jit-stxi-d (moffs asm dst) fp src))))
+
+(define *ra-offset*
+  (make-negative-pointer (- (* 4 %word-size))))
+
+(define-syntax-rule (return-to-interpreter)
+  (begin
+    (jit-ldxi r1 fp *ra-offset*)
+    (jit-jmpr r1)))
+
+(define-syntax-rule (goto-exit asm)
+  ;; Save return address, then jump to address of asm-code of ASM.
+  ;;
+  ;; Expecting that out-code of asm will jump back to return address, or patched
+  ;; to parent trace already. When returned to patched address, exit from native
+  ;; code with returning the contents of register R0.
+  ;;
+  ;; Side trace reuses RSP shifting from epilog of parent trace. Native code of
+  ;; side trace does not reset stack pointer, because side traces use
+  ;; `jit-tramp'.
+  ;;
+  (let ((addr (jit-movi r1 (imm 0))))
+    (jit-stxi *ra-offset* fp r1)
+    (jumpi (asm-out-code asm))
+    (jit-patch addr)
+    (cond
+     ((asm-end-address asm)
+      =>
+      (lambda (address)
+        (debug 2 ";;; goto-exit: jumping to ~a~%" address)
+        (jumpi address)))
+     (else
+      (debug 2 ";;; goto-exit: returning R0~%")
+      (jit-retr reg-retval)))))
+
+
+;;; XXX: Add more helper macros, e.g: %ne, %eq, %lt, %ge have similar structure.
 
 ;;;
 ;;; Guards
@@ -853,751 +779,3 @@
 
    (else
     (error "%set-cell-object!" cell n src))))
-
-
-;;;
-;;; Frame instructions
-;;;
-
-;;; XXX: Perhaps remove or modify these instructions, manage side exit and
-;;; snapshot data somewhere else.
-
-(define-prim (%frame-ref asm (int dst) (void idx))
-  (cond
-   ((not (constant? idx))
-    (error "%frame-ref: type mismatch~%" dst idx))
-   ((gpr? dst)
-    (local-ref (gpr dst) (ref-value idx)))
-   ((memory? dst)
-    (local-ref r0 (ref-value idx))
-    (memory-set! asm dst r0))
-   (else
-    (error "%frame-ref" dst idx))))
-
-(define-prim (%frame-set! asm (void idx) (int src))
-  (cond
-   ((not (constant? idx))
-    (debug 2 "*** %frame-set!: type mismatch ~a ~a~%" idx src))
-   ((constant? src)
-    (jit-movi r0 (constant src))
-    (local-set! (ref-value idx) r0))
-   ((gpr? src)
-    (local-set! (ref-value idx) (gpr src)))
-   ((memory? src)
-    (jit-ldxi r0 fp (moffs asm src))
-    (local-set! (ref-value idx) r0))
-   (else
-    (error "%frame-set!" idx src))))
-
-
-;;;
-;;; Code generation
-;;;
-
-(define (move moffs dst src)
-  (cond
-   ((and (gpr? dst) (constant? src))
-    (jit-movi (gpr dst) (constant src)))
-   ((and (gpr? dst) (gpr? src))
-    (jit-movr (gpr dst) (gpr src)))
-   ((and (gpr? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs src))
-    (jit-movr (gpr dst) r0))
-
-   ((and (fpr? dst) (constant? src))
-    (jit-movi-d (fpr dst) (constant src)))
-   ((and (fpr? dst) (fpr? src))
-    (jit-movr-d (fpr dst) (fpr src)))
-   ((and (fpr? dst) (memory? src))
-    (jit-ldxi-d f0 fp (moffs src))
-    (jit-movr-d (fpr dst) f0))
-
-   ((and (memory? dst) (constant? src))
-    (let ((val (ref-value src)))
-      (cond
-       ((fixnum? val)
-        (jit-movi r0 (constant src))
-        (jit-stxi (moffs dst) fp r0))
-       ((flonum? val)
-        (jit-movi-d f0 (constant src))
-        (jit-stxi-d (moffs dst) fp f0)))))
-   ((and (memory? dst) (gpr? src))
-    (jit-stxi (moffs dst) fp (gpr src)))
-   ((and (memory? dst) (fpr? src))
-    (jit-stxi-d (moffs dst) fp (fpr src)))
-   ((and (memory? dst) (memory? src))
-    (jit-ldxi r0 fp (moffs src))
-    (jit-stxi (moffs dst) fp r0))
-
-   (else
-    (debug 2 "*** move: ~a ~a~%" dst src))))
-
-(define (load-frame moffs local type dst)
-  (cond
-   ((eq? type &exact-integer)
-    (cond
-     ((gpr? dst)
-      (local-ref (gpr dst) local)
-      (jit-rshi (gpr dst) (gpr dst) (imm 2)))
-     ((memory? dst)
-      (local-ref r0 local)
-      (jit-rshi r0 r0 (imm 2))
-      (jit-stxi (moffs dst) fp r0))))
-   ((eq? type &flonum)
-    (cond
-     ((fpr? dst)
-      (local-ref r0 local)
-      (scm-real-value (fpr dst) r0))
-     ((memory? dst)
-      (local-ref r0 local)
-      (scm-real-value f0 r0)
-      (jit-stxi-d (moffs dst) fp f0))))
-   ((memq type (list &box &procedure))
-    (cond
-     ((gpr? dst)
-      (local-ref (gpr dst) local))
-     ((memory? dst)
-      (local-ref r0 local)
-      (jit-stxi (moffs dst) fp r0))))
-   ((eq? type &false)
-    (cond
-     ((gpr? dst)
-      (jit-movi (gpr dst) *scm-false*))
-     ((memory? dst)
-      (jit-movi r0 *scm-false*)
-      (jit-stxi-d (moffs dst) fp r0))))
-   ((eq? type &unbound)
-    (cond
-     ((gpr? dst)
-      (jit-movi (gpr dst) *scm-undefined*))
-     ((memory? dst)
-      (jit-movi r0 *scm-undefined*)
-      (jit-stxi-d (moffs dst) fp r0))))
-   ((or (return-address? type)
-        (dynamic-link? type))
-    (values))
-   (else
-    (error "load-frame" local type dst))))
-
-(define (store-frame moffs local type src)
-  (debug 2 ";;; store-frame: local=~a type=~a src=~a~%" local type src)
-  (cond
-   ;; Type is return address, moving value coupled with type to frame
-   ;; local. Return address of VM frame need to be recovered when taking exit
-   ;; from inlined procedure call. The actual value for return address is
-   ;; captured at the time of bytecode to Scheme IR conversion, and stored in
-   ;; snapshot as pointer.
-   ((return-address? type)
-    (jit-movi r0 (return-address-ip type))
-    (local-set! local r0))
-
-   ;; Type is dynamic link, storing fp to local. Dynamic link is stored as
-   ;; offset in type. VM's fp could move, may use different value at the time of
-   ;; compilation and execution.
-   ;;
-   ;; XXX: Currently, negative offset is ignored, storing to local without
-   ;; adding the shift amount. Will not work when more than one levels of
-   ;; `return' were found in traced bytecode.
-   ((dynamic-link? type)
-    (jit-ldxi r0 fp vp->fp-offset)
-    (let* ((amount (* (dynamic-link-offset type) %word-size))
-           (ptr (make-signed-pointer amount)))
-      (when (< 0 amount)
-        (jit-addi r0 r0 ptr)))
-    (local-set! local r0))
-
-   ;; Check type, recover SCM value.
-   ((eq? type &exact-integer)
-    (cond
-     ((constant? src)
-      (jit-movi r0 (constant src))
-      (jit-lshi r0 r0 (imm 2))
-      (jit-addi r0 r0 (imm 2))
-      (local-set! local r0))
-     ((gpr? src)
-      (jit-lshi r0 (gpr src) (imm 2))
-      (jit-addi r0 r0 (imm 2))
-      (local-set! local r0))
-     ((memory? src)
-      (jit-ldxi r0 fp (moffs src))
-      (jit-lshi r0 r0 (imm 2))
-      (jit-addi r0 r0 (imm 2))
-      (local-set! local r0))))
-   ((eq? type &flonum)
-    (cond
-     ((constant? src)
-      (jit-movi-d f0 (constant src))
-      (scm-from-double r0 f0)
-      (local-set! local r0))
-     ((fpr? src)
-      (scm-from-double r0 (fpr src))
-      (local-set! local r0))
-     ((memory? src)
-      (jit-ldxi-d f0 fp (moffs src))
-      (scm-from-double r0 f0)
-      (local-set! local r0))))
-   ((memq type (list &box &procedure))
-    (cond
-     ((constant? src)
-      (jit-movi r0 (constant src))
-      (local-set! local r0))
-     ((gpr? src)
-      (local-set! local (gpr src)))
-     ((memory? src)
-      (jit-ldxi r0 fp (moffs src))
-      (local-set! local r0))))
-   ((eq? type &false)
-    (jit-movi r0 *scm-false*)
-    (local-set! local r0))
-   ((eq? type &unbound)
-    (jit-movi r0 *scm-undefined*)
-    (local-set! local r0))
-   (else
-    (error "store-frame: Unknown local, type, src:" local type src))))
-
-(define (maybe-store moffs local-x-types srcs src-unwrapper references)
-  "Store src in SRCS to frame when local is not found in REFERENCES.
-
-Locals are loaded with MOFFS to refer memory offset. Returns a hash-table
-containing src with SRC-UNWRAPPER applied. Key of the returned hash-table is
-local index in LOCAL-X-TYPES."
-  (debug 2 ";;; maybe-store:~%")
-  (debug 2 ";;;   srcs=~a~%" srcs)
-  (debug 2 ";;;   local-x-types=~a~%" local-x-types)
-  (debug 2 ";;;   references=~a~%" references)
-  (let lp ((local-x-types local-x-types)
-           (srcs srcs)
-           (acc (make-hash-table)))
-    (match local-x-types
-      (((local . type) . local-x-types)
-       (match srcs
-         ((src . srcs)
-          (let ((unwrapped-src (src-unwrapper src)))
-            (when (not (assq local references))
-              (store-frame moffs local type unwrapped-src))
-            (hashq-set! acc local unwrapped-src))
-          (lp local-x-types srcs acc))
-         (()
-          (debug 2 ";;;   srcs=null, local-x-types=~a~%" local-x-types)
-          acc)))
-      (() acc))))
-
-(define (move-or-load-carefully dsts srcs types moffs)
-  "Move SRCS to DSTS or load with TYPES and MOFFS, carefully.
-
-Avoids overwriting source in hash-table SRCS while updating destinations in
-hash-table DSTS.  If source is not found, load value from frame with using type
-from hash-table TYPES and procedure MOFFS to get memory offset.  Hash-table key
-of SRCS, DSTS, TYPES are local index number."
-
-  (define (dst-is-full? as bs)
-    (let lp ((as as))
-      (match as
-        ((a . as) (and (member a bs) (lp as)))
-        (() #t))))
-  (define (in-srcs? var)
-    (hash-fold (lambda (k v acc)
-                 (or acc (and (equal? v var) (hashq-ref dsts k))))
-               #f
-               srcs))
-  (define (find-src-local var)
-    (hash-fold (lambda (k v ret)
-                 (or ret (and (equal? v var) k)))
-               #f
-               srcs))
-  (define (dump-move local dst src)
-    (debug 2 ";;; molc: [local ~a] (move ~a ~a)~%" local dst src))
-  (define (dump-load local dst type)
-    (debug 2 ";;; molc: [local ~a] loading to ~a, type=~a~%" local dst type))
-
-  (let ((dsts-list (hash-map->list cons dsts))
-        (car-< (lambda (a b) (< (car a) (car b)))))
-    (debug 2 ";;; molc: dsts: ~a~%" (sort dsts-list car-<))
-    (debug 2 ";;; molc: srcs: ~a~%" (sort (hash-map->list cons srcs) car-<))
-    (let lp ((dsts dsts-list))
-      (match dsts
-        (((local . dst-var) . rest)
-         (cond
-          ((in-srcs? dst-var)
-           =>
-           (lambda (src-var)
-             (cond
-              ((equal? dst-var src-var)
-               (hashq-remove! srcs local)
-               (lp rest))
-              (else
-               (let ((srcs-list (hash-map->list cons srcs)))
-                 (cond
-                  ((dst-is-full? (map cdr dsts) (map cdr srcs-list))
-                   ;; When all of the elements in dsts are in srcs, move one of
-                   ;; the srcs to temporary location.  `-2' is for gpr R1 or fpr
-                   ;; F1 in lightning, used as scratch register in this module.
-                   (let ((tmp (or (and (fpr? src-var) (make-fpr -2))
-                                  (make-gpr -2)))
-                         (src-local (find-src-local src-var)))
-                     (dump-move local tmp src-var)
-                     (move moffs tmp src-var)
-                     (hashq-set! srcs src-local tmp)
-                     (lp dsts)))
-                  (else
-                   ;; Rotate the list and try again.
-                   (lp (append rest (list (cons local dst-var)))))))))))
-          ((hashq-ref srcs local)
-           =>
-           (lambda (src-var)
-             (when (not (equal? src-var dst-var))
-               (dump-move local dst-var src-var)
-               (move moffs dst-var src-var))
-             (hashq-remove! srcs local)
-             (lp rest)))
-          (else
-           (dump-load local dst-var (hashq-ref types local))
-           (let ((type (hashq-ref types local)))
-             ;; XXX: Add test to check the case ignoring `load-frame'.
-             (when type
-               (load-frame moffs local type dst-var)))
-           (lp rest))))
-        (() (values))))))
-
-;; XXX: Should refer the shifting amount from snapshot per frame. Otherwise,
-;; frames below two levels from current frame will not work.
-(define (lowest-snapshot-offset snapshots)
-  (hash-fold (lambda (k v acc)
-               (min acc (snapshot-offset v)))
-             0
-             snapshots))
-
-(define (dump-bailout ip exit-id code)
-  (let ((verbosity (lightning-verbosity)))
-    (when (and verbosity (<= 3 verbosity))
-      (call-with-output-file
-          (format #f "/tmp/bailout-~x-~4,,,'0@a.o" ip exit-id)
-        (lambda (port)
-          (put-bytevector port code)
-          (jit-print))))))
-
-(define (assemble-cps cps env kstart entry-ip snapshots loop-args fp-offset
-                      tlog trampoline end-address linked-ip)
-
-  ;; Internal states.
-  (define exit-codes (make-hash-table))
-  (define exit-variables (make-hash-table))
-  (define current-side-exit 0)
-  (define loop-locals #f)
-  (define loop-vars #f)
-
-  (define (env-ref i)
-    (vector-ref env i))
-
-  (define (moffs x)
-    (make-offset-pointer fp-offset (* (ref-value x) %word-size)))
-
-  (define (maybe-move exp old-args)
-    (match exp
-      (($ $values new-args)
-       (when (= (length old-args) (length new-args))
-         (for-each
-          (lambda (old new)
-            (when (not (eq? old new))
-              (let ((dst (env-ref old))
-                    (src (env-ref new)))
-                (when (not (and (eq? (ref-type dst) (ref-type src))
-                                (eq? (ref-value dst) (ref-value src))))
-                  (debug 3 ";;; (%mov         ~a ~a)~%" dst src)
-                  (move moffs dst src)))))
-          old-args new-args)))
-      (($ $primcall name args)
-       (assemble-prim name loop-args args))
-      (_
-       (debug 2 "*** maybe-move: ~a ~a~%" exp old-args))))
-
-  (define (assemble-prim name dsts args)
-    (cond
-     ((hashq-ref *native-prim-procedures* name)
-      =>
-      (lambda (proc)
-        (let* ((out-code (trampoline-ref trampoline (- current-side-exit 1)))
-               (asm (make-asm env fp-offset out-code end-address)))
-          (apply proc asm (map env-ref (append dsts args))))))
-     (else
-      (error "Unhandled primcall" name))))
-
-  (define (assemble-exit proc args)
-    (define (jump-to-linked-code)
-      (let* ((linked-tlog (get-tlog linked-ip))
-             (loop-locals (tlog-loop-locals linked-tlog)))
-        (cond
-         ((hashq-ref snapshots current-side-exit)
-          =>
-          (match-lambda
-           (($ $snapshot local-offset _ local-x-types)
-
-            ;; Store unpassed variables, move registers from parent, then move
-            ;; or load the locals from frame to pass the register and memory
-            ;; variables to linked trace.
-            ;;
-            (let ((dst-table (make-hash-table))
-                  (src-table (maybe-store moffs local-x-types args env-ref
-                                          loop-locals))
-                  (type-table (make-hash-table)))
-
-              ;; Store lower frame data. Shift FP before storing locals, then
-              ;; shift cache FP back to the one from parent trace.
-              ;;
-              ;; XXX: Get shift amount from snapshot. Save dynamic link at the
-              ;; time of taking snapshot for end of side trace.
-              (jit-ldxi r0 fp vp->fp-offset)
-              (scm-frame-dynamic-link r0 r0)
-              (jit-stxi vp->fp-offset fp r0)
-              (let lp ((locals local-x-types)
-                       (args args)
-                       (shift (- (lowest-snapshot-offset snapshots))))
-                (match locals
-                  (((local . type) . locals)
-                   (match args
-                     ((arg . args)
-                      (when (< local 0)
-                        (let ((local (+ local shift))
-                              (var (env-ref arg)))
-                          (store-frame moffs local type var)))
-                      (lp locals args shift))
-                     (_ (values))))
-                  (_ (values))))
-              (jit-ldxi r0 fp vp-offset)
-              (vm-cache-fp r0)
-
-              ;; Prepare arguments for linked trace.
-              (let lp ((locals loop-locals)
-                       (dsts (tlog-loop-vars linked-tlog)))
-                (match locals
-                  (((local . type) . locals)
-                   (hashq-set! type-table local type)
-                   (match dsts
-                     ((dst . dsts)
-                      (hashq-set! dst-table local dst)
-                      (lp locals dsts))
-                     (()
-                      (debug 2 ";;; assemble-exit: dsts=null, locals=~a~%"
-                             locals))))
-                  (_ (values))))
-              (move-or-load-carefully dst-table src-table type-table moffs))
-
-            ;; Jump to the beginning of loop in linked code.
-            (jumpi (tlog-loop-address linked-tlog)))))
-         (else
-          (debug 2 ";;; assemble-exit: IP is 0, local info not found~%")))))
-
-    (define (set-loop-info!)
-      (cond
-       ((hashq-ref snapshots current-side-exit)
-        =>
-        (match-lambda
-         (($ $snapshot _ _ local-x-types)
-          (set! loop-locals local-x-types)
-          (set! loop-vars (map env-ref args)))))
-       (else
-        (debug 2 ";;; end-of-entry: no snapshot at ~a~%" current-side-exit))))
-
-    (define (emit-bailout next-ip)
-      (define (scm-i-makinumi n)
-        (let ((k (+ (ash n 2) 2)))
-          (if (< 0 k)
-              (make-pointer k)
-              (make-negative-pointer k))))
-      (define (maybe-store-snapshot)
-        (cond
-         ((hashq-ref snapshots current-side-exit)
-          =>
-          (match-lambda
-           (($ $snapshot local-offset nlocals local-x-types)
-            (debug 2 ";;; emit-bailout:~%")
-            (debug 2 ";;;   current-side-exit: ~a~%" current-side-exit)
-            (debug 2 ";;;   local-offset: ~a~%" local-offset)
-            (debug 2 ";;;   nlocals: ~a~%" nlocals)
-            (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
-            (debug 2 ";;;   args: ~a~%" args)
-
-            (when (< 0 local-offset)
-              (debug 2 ";;; assemble-exit: shifting FP for ~a.~%"
-                     local-offset))
-
-            ;; Shift FP, use the one from lower frame.
-            (when (< local-offset 0)
-              (jit-ldxi r0 fp vp->fp-offset)
-              (scm-frame-dynamic-link r0 r0)
-              (jit-stxi vp->fp-offset fp r0))
-
-            (let lp ((local-x-types local-x-types)
-                     (args args)
-                     (shift (if (< local-offset 0)
-                                local-offset
-                                0)))
-
-              ;; Matching ends when no more values found in local, args
-              ;; exceeding the number of locals are ignored.
-              ;;
-              ;; XXX: Length of args and locals should match. Update
-              ;; snapshots and save args.  Snapshot data need to contain
-              ;; locals in caller procedure when VM bytecode op made this
-              ;; side exit was inlined.
-              (match local-x-types
-                (((local . type) . local-x-types)
-                 (match args
-                   ((arg . args)
-                    (let ((local (- local shift))
-                          (var (env-ref arg)))
-                      (store-frame moffs local type var)
-                      (lp local-x-types args shift)))
-                   (()
-                    (debug 2 ";;;   args=null, local-x-types=~a~%"
-                           local-x-types))))
-                (()
-                 (values nlocals local-offset)))))))
-         (else
-          (debug 2 ";;; assemble-exit: entry IP ~x~%" next-ip)
-          (values 0 0))))
-
-      (with-jit-state
-       (jit-prolog)
-       (jit-tramp (imm (* 4 %word-size)))
-       (let-values (((nlocals local-offset) (maybe-store-snapshot)))
-         ;; Update `vp->fp' field in `vp' when local offset when local-offset is
-         ;; not 0.
-         ;;
-         ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP',
-         ;; called by C code written in `libguile/vm-tjit.c'. Adding offset for
-         ;; positive local offset, fp is already shifted in maybe-store-snapshot
-         ;; for negative local offset.
-         ;;
-         (when (not (= 0 local-offset))
-           (let ((vp->fp r0))
-             (jit-ldxi vp->fp fp vp->fp-offset)
-             (when (< 0 local-offset)
-               (jit-addi vp->fp vp->fp (imm (* local-offset %word-size))))
-             (vm-save-fp vp->fp)))
-
-         ;; Make tjit-retval.
-         (jit-prepare)
-         (jit-pushargr reg-thread)
-         (jit-pushargi (scm-i-makinumi next-ip))
-         (jit-pushargi (scm-i-makinumi current-side-exit))
-         (jit-pushargi (scm-i-makinumi entry-ip))
-         (jit-pushargi (scm-i-makinumi nlocals))
-         (jit-pushargi (scm-i-makinumi local-offset))
-         (jit-calli %scm-make-tjit-retval)
-         (jit-retval r0))
-
-       ;; Caller places return address to address `fp + ra-offset', and
-       ;; expects `R0' to hold the packed return values.
-       (jit-ldxi r1 fp ra-offset)
-       (jit-jmpr r1)
-       (jit-epilog)
-       (jit-realize)
-       (let* ((estimated-code-size (jit-code-size))
-              (code (make-bytevector estimated-code-size)))
-         (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
-         (let ((ptr (jit-emit)))
-           (make-bytevector-executable! code)
-           (dump-bailout next-ip current-side-exit code)
-           (hashq-set! exit-codes current-side-exit code)
-           (hashq-set! exit-variables current-side-exit (map env-ref args))
-           (trampoline-set! trampoline current-side-exit ptr)
-           (set! current-side-exit (+ current-side-exit 1))))))
-
-    (let* ((proc (env-ref proc))
-           (ip (ref-value proc)))
-      (debug 2 ";;; assemble-exit: args=~a~%" args)
-      (cond
-       ((not (constant? proc))
-        (error "assemble-exit: not a constant" proc))
-       ((= ip *ip-key-end-of-side-trace*)
-        (jump-to-linked-code))
-       ((= ip *ip-key-end-of-entry*)
-        (set-loop-info!))
-       (else                            ; IP is bytecode destination.
-        (emit-bailout ip)))))
-
-  (define (assemble-exp exp dsts)
-    (match exp
-      (($ $primcall name args)
-       (assemble-prim name dsts args))
-      (($ $call proc args)
-       (assemble-exit proc args))
-      (_
-       (values))))
-
-  (define (assemble-cont cps)
-    (define (go k term exp loop-label)
-      (match term
-        (($ $kfun _ _ _ _ _)
-         (values #f loop-label))
-        (($ $kclause _ _)
-         (values #f loop-label))
-        (($ $kreceive _ _)
-         (assemble-exp exp '())
-         (values #f loop-label))
-        (($ $kargs _ syms ($ $continue knext _ next-exp))
-         (assemble-exp exp syms)
-         (cond
-          ((< knext k)
-           ;; Jump back to beginning of loop, return to caller.
-           (maybe-move next-exp loop-args)
-           (debug 3 ";;; -> loop~%")
-           (jump loop-label)
-           (values next-exp loop-label))
-          ((= kstart k)
-           ;; Emit label to mark beginning of the loop.
-           (debug 3 ";;; loop:~%")
-           (jit-note "loop" 0)
-           (values next-exp (jit-label)))
-          (else
-           (values next-exp loop-label))))
-        (($ $ktail)
-         (assemble-exp exp '())
-         (values #f loop-label))))
-
-    (call-with-values
-        (lambda () (intmap-fold go cps #f #f))
-      (lambda (_ loop-label)
-        (values exit-variables exit-codes trampoline
-                loop-label loop-locals loop-vars fp-offset))))
-
-  (assemble-cont cps))
-
-(define (assemble-tjit cps entry-ip locals snapshots tlog exit-id linked-ip)
-  (let*-values
-      (((max-label max-var) (compute-max-label-and-var cps))
-       ((env initial-locals loop-args kstart nspills)
-        (resolve-variables cps locals max-var))
-       ((trampoline-size)
-        (hash-fold (lambda (k v acc) (+ acc 1)) 1 snapshots))
-       ((trampoline) (make-trampoline trampoline-size))
-       ((end-address) (and tlog (tlog-end-address tlog)))
-
-       ;; Root trace allocates spaces for spilled variables, three words to
-       ;; store `vp', `vp->fp', and `registers', and one more word for return
-       ;; address used by side exits.
-       ;;
-       ;; Side trace can not allocate additional memory, because side trace uses
-       ;; `jit-tramp'.
-       ;;
-       ;; Won't work if number of spilled variables exceeds the number returned
-       ;; from parameter `(tjit-max-spills)'.
-       ((fp-offset)
-        (if (not tlog)
-            (let ((max-spills (tjit-max-spills)))
-              (when (< max-spills nspills)
-                ;; XXX: Escape somewhere and increase count of compilation
-                ;; failure for this entry-ip.
-                (error "Too many spilled variables" nspills))
-              (jit-allocai (imm (* (+ max-spills 4) %word-size))))
-            (tlog-fp-offset tlog)))
-
-       ((moffs)
-        (lambda (mem)
-          (let ((offset (* (ref-value mem) %word-size)))
-            (make-offset-pointer fp-offset offset)))))
-
-    (cond
-     ;; Root trace.
-     ((not tlog)
-      ;; Get arguments.
-      (jit-getarg reg-thread (jit-arg)) ; thread
-      (jit-getarg r0 (jit-arg))         ; vp
-      (jit-getarg r1 (jit-arg))         ; registers, for prompt
-
-      ;; Store `vp', `vp->fp', and `registers'.
-      (jit-stxi vp-offset fp r0)
-      (vm-cache-fp r0)
-      (jit-stxi registers-offset fp r1)
-
-      ;; Load initial locals.
-      (for-each
-       (match-lambda
-        ((local . var)
-         (load-frame moffs local &box (vector-ref env var))))
-       initial-locals))
-
-     ;; Side trace.
-     (else
-      ;; Avoid emitting prologue.
-      (jit-tramp (imm (* 4 %word-size)))
-
-      ;; Load initial arguments from parent trace.
-      (cond
-       ((hashq-ref (tlog-snapshots tlog) exit-id)
-        =>
-        (match-lambda
-         (($ $snapshot _ _ local-x-types)
-          ;; Store values passed from parent trace when it's not used by this
-          ;; side trace.
-          (maybe-store moffs
-                       local-x-types
-                       (hashq-ref (tlog-exit-variables tlog) exit-id)
-                       identity
-                       initial-locals)
-
-          ;; When passing values from parent trace to side-trace, src
-          ;; could be overwritten by move or load.
-          ;;
-          ;; Pairings of local and register could be different from how
-          ;; it was done in parent trace and this side trace, move or
-          ;; load without overwriting the sources .
-          (let ((vars (hashq-ref (tlog-exit-variables tlog) exit-id))
-                (locals (snapshot-locals (hashq-ref snapshots 0)))
-                (dst-table (make-hash-table))
-                (src-table (make-hash-table))
-                (type-table (make-hash-table)))
-            (for-each
-             (match-lambda
-              ((local . var)
-               (hashq-set! type-table local (assq-ref locals local))
-               (hashq-set! dst-table local (vector-ref env var))))
-             initial-locals)
-            (let lp ((local-x-types local-x-types)
-                     (vars vars))
-              (match local-x-types
-                (((local . type) . local-x-types)
-                 (match vars
-                   ((var . vars)
-                    (hashq-set! src-table local var)
-                    (lp local-x-types vars))
-                   (()
-                    (debug 2 ";;; side-exit: vars=null, local-x-types=~a~%"
-                           local-x-types))))
-                (() (values))))
-
-            ;; Load locals in current frame.
-            (move-or-load-carefully dst-table src-table type-table moffs)
-
-            ;; Load locals in lower frame, if any.
-            ;;
-            ;; XXX: Refer snapshot to get the `shift' value and number to invoke
-            ;; `scm-frame-dynamic-link'.
-            (let ((shift (- (lowest-snapshot-offset snapshots)))
-                  (locals (filter (lambda (n-v)
-                                    (< (car n-v) 0))
-                                  initial-locals)))
-
-              ;; Shift `vp->fp', load locals, then shift `vp->fp' back.
-              (jit-ldxi r0 fp vp->fp-offset)
-              (scm-frame-dynamic-link r0 r0)
-              (jit-stxi vp->fp-offset fp r0)
-              (let lp ((locals locals))
-                (match locals
-                  (((local . var) . locals)
-                   (let ((local (+ local shift))
-                         (type (hashq-ref type-table local))
-                         (var (vector-ref env var)))
-                     (load-frame moffs local type var)
-                     (lp locals)))
-                  (_ (values))))
-              (jit-ldxi r0 fp vp-offset)
-              (vm-cache-fp r0))))))
-       (else
-        (error "assemble-tjit: snapshot not found in parent trace"
-               exit-id)))))
-
-    ;; Assemble the primitives in CPS.
-    (assemble-cps cps env kstart entry-ip snapshots loop-args fp-offset
-                  tlog trampoline end-address linked-ip)))

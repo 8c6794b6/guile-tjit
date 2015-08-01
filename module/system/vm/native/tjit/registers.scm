@@ -32,7 +32,16 @@
   #:export (*num-gpr*
             *num-fpr*
             register-ref
-            fpr-ref))
+            fpr-ref
+            fp
+            reg-thread
+            reg-retval))
+
+(define fp (jit-fp))
+
+(define-syntax reg-thread (identifier-syntax v0))
+
+(define-syntax reg-retval (identifier-syntax r0))
 
 (define r8 (jit-r 8))
 (define r9 (jit-r 9))

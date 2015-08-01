@@ -20,7 +20,7 @@
 
 ;;; Commentary:
 
-;;; JIT compiler for `vm-tjit' engine.
+;;; Entry point of just-in-time compiler for `vm-tjit' engine.
 
 (define-module (system vm native tjit)
   #:use-module (ice-9 binary-ports)
@@ -36,11 +36,12 @@
   #:use-module (system vm native debug)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit assembler)
+  #:use-module (system vm native tjit compile-native)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit tlog)
   #:use-module (system vm native tjit variables)
-  #:export (compile-tjit
+  #:export (tjitc
             init-vm-tjit)
   #:re-export (tjit-stats))
 
@@ -162,14 +163,14 @@
 
 
 ;;;
-;;; Compilation
+;;; Entry point
 ;;;
 
-(define (compile-tjit trace-id bytecode-ptr bytecode-len envs
-                      parent-ip parent-exit-id linked-ip)
+;; This procedure is called from C code in "libguile/vm-tjit.c".
+(define (tjitc trace-id bytecode-ptr bytecode-len envs
+               parent-ip parent-exit-id linked-ip)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
-
   (define (traced-ops bytecode-ptr bytecode-len envs)
     (let ((bytecode (pointer->bytevector bytecode-ptr bytecode-len))
           (end (/ bytecode-len 4)))
@@ -182,7 +183,6 @@
              (lp (cons (cons elt env) acc) (+ offset len) envs)))
           (()
            (reverse! acc))))))
-
   (define-syntax-rule (ip-ptr->source-line addr)
     (and=>
      (find-source-for-addr addr)
@@ -190,7 +190,6 @@
        (format #f "~a:~d"
                (or (source-file source) "(unknown file)")
                (source-line-for-user source)))))
-
   (define-syntax-rule (show-one-line sline tlog code-size)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
@@ -235,8 +234,8 @@
                 loop-locals
                 loop-vars
                 fp-offset)
-               (assemble-tjit cps entry-ip locals snapshots tlog
-                              parent-exit-id linked-ip)))
+               (compile-native cps entry-ip locals snapshots tlog
+                               parent-exit-id linked-ip)))
            (let ((epilog-address (jit-label)))
              (jit-patch epilog-address)
              (jit-epilog)

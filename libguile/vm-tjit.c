@@ -73,7 +73,7 @@ static SCM ip_counter_table;
 static SCM failed_ip_table;
 static SCM tlog_table;
 static SCM bytecode_buffer_fluid;
-static SCM compile_tjit_var;
+static SCM tjitc_var;
 static int trace_id = 1;
 
 
@@ -100,7 +100,7 @@ tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM traces,
   s_parent_exit_id = SCM_I_MAKINUM (parent_exit_id);
 
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  result = scm_call_7 (compile_tjit_var, s_id, s_bytecode, s_bc_idx,
+  result = scm_call_7 (tjitc_var, s_id, s_bytecode, s_bc_idx,
                        traces, s_parent_ip, s_parent_exit_id, linked_ip);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
 
@@ -509,7 +509,7 @@ scm_bootstrap_vm_tjit(void)
   ip_counter_table = scm_c_make_hash_table (31);
   failed_ip_table = scm_c_make_hash_table (31);
   tlog_table = scm_c_make_hash_table (31);
-  compile_tjit_var = SCM_VARIABLE_REF (scm_c_lookup ("compile-tjit"));
+  tjitc_var = SCM_VARIABLE_REF (scm_c_lookup ("tjitc"));
 
   GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);
 }
