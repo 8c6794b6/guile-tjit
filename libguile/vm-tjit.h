@@ -36,6 +36,7 @@ SCM_API SCM scm_set_tjit_hot_loop_x (SCM count);
 SCM_API SCM scm_tjit_hot_exit (void);
 SCM_API SCM scm_set_tjit_hot_exit_x (SCM count);
 SCM_API SCM scm_tlog_table (void);
+SCM_API SCM scm_failed_ip_table (void);
 
 SCM_API SCM scm_make_tjit_retval (scm_i_thread *thread,
                                   scm_t_bits exit_id,

@@ -83,8 +83,8 @@ static int trace_id = 1;
 
 static inline SCM
 tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM traces,
-       scm_t_uintptr *parent_ip, int parent_exit_id,
-       SCM linked_ip)
+       scm_t_uintptr *parent_ip, int parent_exit_id, SCM linked_ip,
+       SCM loop_p)
 {
   SCM s_id, s_bytecode, s_bc_idx;
   SCM s_parent_ip, s_parent_exit_id;
@@ -100,8 +100,8 @@ tjitc (scm_t_uint32 *bytecode, scm_t_uint32 *bc_idx, SCM traces,
   s_parent_exit_id = SCM_I_MAKINUM (parent_exit_id);
 
   scm_c_set_vm_engine_x (SCM_VM_REGULAR_ENGINE);
-  result = scm_call_7 (tjitc_var, s_id, s_bytecode, s_bc_idx,
-                       traces, s_parent_ip, s_parent_exit_id, linked_ip);
+  result = scm_call_8 (tjitc_var, s_id, s_bytecode, s_bc_idx, traces,
+                       s_parent_ip, s_parent_exit_id, linked_ip, loop_p);
   scm_c_set_vm_engine_x (SCM_VM_TJIT_ENGINE);
 
   return result;
@@ -356,7 +356,7 @@ is_root_trace (SCM tlog)
     SCM s_loop_start = SCM_I_MAKINUM (tjit_loop_start);                 \
     SCM tlog = scm_hashq_ref (tlog_table, s_ip, SCM_BOOL_F);            \
                                                                         \
-    SCM locals;                                                         \
+    SCM locals, s_loop_p;                                               \
     int opcode, i, num_locals;                                          \
                                                                         \
     /* Record bytecode IP, FP, and locals. When tlog is true,        */ \
@@ -384,19 +384,17 @@ is_root_trace (SCM tlog)
         tjit_traces = record (thread, s_ip, fp, locals, tjit_traces);   \
       }                                                                 \
                                                                         \
-    if (ip == ((scm_t_uint32 *) tjit_loop_end) || is_root_trace (tlog)) \
-      {                                                                 \
-        SCM ret;                                                        \
+    s_loop_p = (ip == ((scm_t_uint32 *) tjit_loop_end)) ?               \
+      SCM_BOOL_T : SCM_BOOL_F;                                          \
                                                                         \
+    if (scm_is_true (s_loop_p) || is_root_trace (tlog))                 \
+      {                                                                 \
         SYNC_IP ();                                                     \
-        ret = tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces,          \
-                     &tjit_parent_ip, tjit_parent_exit_id,              \
-                     s_ip);                                             \
+        tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces,                \
+               &tjit_parent_ip, tjit_parent_exit_id,                    \
+               s_ip, s_loop_p);                                         \
         CACHE_FP ();                                                    \
         ++trace_id;                                                     \
-                                                                        \
-        if (scm_is_false (ret))                                         \
-          increment_compilation_failure (s_loop_start);                 \
                                                                         \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
                         &tjit_parent_ip, &tjit_parent_exit_id);         \
@@ -404,7 +402,7 @@ is_root_trace (SCM tlog)
     else if (SCM_I_INUM (tjit_max_record) < tjit_bc_idx)                \
       {                                                                 \
         /* XXX: Log the abort for too long trace. */                    \
-        scm_hashq_set_x (failed_ip_table, s_loop_start, SCM_INUM1);     \
+        increment_compilation_failure (s_loop_start);                   \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
                         &tjit_parent_ip, &tjit_parent_exit_id);         \
       }                                                                 \
@@ -468,6 +466,14 @@ SCM_DEFINE (scm_tlog_table, "tlog-table", 0, 0, 0, (void),
 #define FUNC_NAME s_scm_tlog_table
 {
   return tlog_table;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_failed_ip_table, "failed-ip-table", 0, 0, 0, (void),
+            "Hash table containing failed ips.")
+#define FUNC_NAME s_scm_failed_ip_table
+{
+  return failed_ip_table;
 }
 #undef FUNC_NAME
 

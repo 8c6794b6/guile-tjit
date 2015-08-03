@@ -168,7 +168,7 @@
 
 ;; This procedure is called from C code in "libguile/vm-tjit.c".
 (define (tjitc trace-id bytecode-ptr bytecode-len envs
-               parent-ip parent-exit-id linked-ip)
+               parent-ip parent-exit-id linked-ip loop?)
   (define disassemble-one
     (@@ (system vm disassembler) disassemble-one))
   (define (traced-ops bytecode-ptr bytecode-len envs)
@@ -183,6 +183,9 @@
              (lp (cons (cons elt env) acc) (+ offset len) envs)))
           (()
            (reverse! acc))))))
+  (define-syntax-rule (increment-compilation-failure ip)
+    (let ((count (hashq-ref (failed-ip-table) ip 0)))
+      (hashq-set! (failed-ip-table) ip (+ count 1))))
   (define-syntax-rule (ip-ptr->source-line addr)
     (and=>
      (find-source-for-addr addr)
@@ -190,14 +193,14 @@
        (format #f "~a:~d"
                (or (source-file source) "(unknown file)")
                (source-line-for-user source)))))
-  (define-syntax-rule (show-one-line sline tlog code-size linked-to-self?)
+  (define-syntax-rule (show-one-line sline tlog code-size)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
                                  (or (and tlog (tlog-id tlog))
                                      (format #f "~x" parent-ip))
                                  parent-exit-id)
                          ""))
-          (linked-id (if linked-to-self?
+          (linked-id (if loop?
                          ""
                          (format #f " -> ~a" (tlog-id (get-tlog linked-ip))))))
       (format #t ";;; trace ~a:~a ~a~a~a~%"
@@ -217,14 +220,14 @@
       (and tlog (dump-tlog tlog)))
     (with-jit-state
      (jit-prolog)
-     (let-values (((locals snapshots scm cps linked-to-self?)
-                   (trace->cps tlog parent-exit-id ip-x-ops)))
+     (let-values (((locals snapshots scm cps)
+                   (trace->cps tlog parent-exit-id loop? ip-x-ops)))
        (cond
         ((not cps)
          (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
          (debug 2 ";;; CPS conversion failed~%")
          (show-dump ip-x-ops scm locals cps snapshots tlog #f #f)
-         #f)
+         (increment-compilation-failure entry-ip))
         (else
          (let-values
              (((exit-variables
@@ -265,7 +268,7 @@
                                                 end-address))
                  (when (and verbosity (<= 1 verbosity))
                    (let ((code-size (jit-code-size)))
-                     (show-one-line sline tlog code-size linked-to-self?)
+                     (show-one-line sline tlog code-size)
                      (show-dump ip-x-ops scm locals cps snapshots tlog
                                 code code-size)))
                  ;; When this trace is a side trace, replace the native code
@@ -274,8 +277,9 @@
                    (let ((trampoline (tlog-trampoline tlog))
                          (parent-exit-codes (tlog-exit-codes tlog)))
                      (trampoline-set! trampoline parent-exit-id ptr)
-                     (hashq-set! parent-exit-codes parent-exit-id code)))
-                 code))))))))))
+                     (hashq-set! parent-exit-codes
+                                 parent-exit-id
+                                 code)))))))))))))
 
 
 ;;;

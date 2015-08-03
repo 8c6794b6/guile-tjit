@@ -331,7 +331,7 @@
 ;;; Scheme ANF compiler
 ;;;
 
-(define (trace->scm tlog exit-id ops)
+(define (trace->scm tlog exit-id loop? ops)
   (define br-op-size 2)
   (define root-trace? (not tlog))
   (define (dereference-scm addr)
@@ -380,8 +380,7 @@
          (expecting-types (make-hash-table))
          (known-types (make-hash-table))
          (snapshots (make-hash-table))
-         (snapshot-id (get-initial-snapshot-id))
-         (linked-to-self? #f))
+         (snapshot-id (get-initial-snapshot-id)))
 
     (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
@@ -1017,40 +1016,14 @@
          (debug 2 "*** ir:convert: NYI ~a~%" (car op))
          (escape #f))))
 
-    (define (loop? op ip locals)
-      ;; XXX: Pass the cause ended the recording from C code. Then this
-      ;; procedure could be removed.
-      (define (jump-to-initial-ip? pred a b invert? offset)
-        (let* ((ra (vector-ref locals a))
-               (rb (vector-ref locals b))
-               (next-ip (+ ip (* (if (pred ra rb)
-                                     (if invert? br-op-size offset)
-                                     (if invert? offset br-op-size))
-                                 4))))
-          (let ((result (= next-ip *initial-ip*)))
-            (debug 2 ";;; loop?: next-ip=~a, *initial-ip*=~a, result=~a~%"
-                   next-ip *initial-ip* result)
-            result)))
-      (let ((result
-             (match op
-               (('br-if-= a b invert? offset)
-                (jump-to-initial-ip? = a b invert? offset))
-               (('br-if-< a b invert? offset)
-                (jump-to-initial-ip? < a b invert? offset))
-               (('br offset)
-                (= *initial-ip* (+ ip (* 4 offset))))
-               (_ #f))))
-        (and result (set! linked-to-self? result))
-        result))
-
     (define (convert escape traces)
       (match traces
         (((op ip fp locals) . ())
          (cond
-          ((and root-trace? (loop? op ip locals)) ; root trace with loop.
+          ((and root-trace? loop?)      ; root trace with loop.
            (convert-one escape op ip fp locals
                         `(loop ,@(filter identity (reverse (map cdr vars))))))
-          (else
+          (else                         ; side trace or loop-less root trace.
            ;; Capturing CPS variables with `take-snapshot!' at the end, so that
            ;; the native code can pass the register information to linked trace.
            (let* ((snap! `(take-snapshot! ,*ip-key-jump-to-linked-code* 0))
@@ -1138,7 +1111,7 @@
       (debug 2 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))
-      (values local-indices snapshots scm linked-to-self?))))
+      (values local-indices snapshots scm))))
 
 (define (scm->cps scm)
   (define ignored-passes
@@ -1173,7 +1146,7 @@
     (set! cps (and cps (body-fun cps)))
     cps))
 
-(define (trace->cps tlog exit-id trace)
+(define (trace->cps tlog exit-id loop? trace)
   (define (dump-cps conts)
     (and conts
          (intmap-fold (lambda (k v out)
@@ -1181,9 +1154,9 @@
                         out)
                       conts
                       conts)))
-  (call-with-values (lambda () (trace->scm tlog exit-id trace))
-    (lambda (locals snapshots scm linked-to-self?)
+  (call-with-values (lambda () (trace->scm tlog exit-id loop? trace))
+    (lambda (locals snapshots scm)
       ;; (debug 2 ";;; scm:~%~y" scm)
       (let ((cps (scm->cps scm)))
         ;; (dump-cps cps)
-        (values locals snapshots scm cps linked-to-self?)))))
+        (values locals snapshots scm cps)))))

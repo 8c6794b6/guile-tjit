@@ -30,6 +30,7 @@
             tjit-hot-exit
             tjit-max-spills
             tlog-table
+            failed-ip-table
             set-tjit-hot-loop!
             tjit-stats))
 
