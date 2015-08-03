@@ -57,8 +57,8 @@
             accumulate-locals
             fixnum?
             flonum?
-            *ip-key-end-of-side-trace*
-            *ip-key-end-of-entry*
+            *ip-key-jump-to-linked-code*
+            *ip-key-set-loop-info!*
 
             $snapshot
             make-snapshot
@@ -234,7 +234,8 @@
         ((op a1 a2)
          (case op
            ((call)
-            (let ((st (add! st a1)))
+            ;; Store proc, VM frame dynamic link and VM frame return address.
+            (let ((st (add! st a1 (- a1 1) (- a1 2))))
               (push-offset! a1)
               st))
            ((static-ref
@@ -307,8 +308,8 @@
 ;;; IP Keys
 ;;;
 
-(define *ip-key-end-of-side-trace* 0)
-(define *ip-key-end-of-entry* 1)
+(define *ip-key-jump-to-linked-code* 0)
+(define *ip-key-set-loop-info!* 1)
 
 
 ;;;
@@ -347,45 +348,10 @@
            (cons n (make-var n)))
          locals))
 
-  (define (type-guard-op type)
-    (cond
-     ((eq? type &exact-integer) '%guard-fx)
-     ((eq? type &flonum) '%guard-fl)
-     ;; XXX: Add more.
-     (else #f)))
-
-  (define (unbox-op type var next-exp)
-    (cond
-     ((eq? type &flonum)
-      `(let ((,var ,(to-double var)))
-         ,next-exp))
-     ((eq? type &exact-integer)
-      `(let ((,var ,(to-fixnum var)))
-         ,next-exp))
-     (else
-      next-exp)))
-
-  (define (make-entry ip vars types loop-exp)
-    `(begin
-       (,ip)
-       ,(let lp ((types (hash-map->list cons types)))
-          (match types
-            (((i . type) . types)
-             (let* ((var (assq-ref vars i))
-                    (guard (and var (type-guard-op type)))
-                    (exp (if guard
-                             `(begin
-                                (,guard ,var)
-                                ,(unbox-op type var (lp types)))
-                             (unbox-op type var (lp types)))))
-               (or exp (lp types))))
-            (()
-             loop-exp)))))
-
-  (define (initial-ip ops)
+  (define *initial-ip*
     (cadr (car ops)))
 
-  (define (initial-locals ops)
+  (define *initial-locals*
     (cadddr (car ops)))
 
   (define (get-initial-offset)
@@ -414,7 +380,8 @@
          (expecting-types (make-hash-table))
          (known-types (make-hash-table))
          (snapshots (make-hash-table))
-         (snapshot-id (get-initial-snapshot-id)))
+         (snapshot-id (get-initial-snapshot-id))
+         (linked-to-self? #f))
 
     (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
@@ -555,7 +522,8 @@
 
             ;; Giving up, skip this local.
             (else
-             (debug 1 ";;;   i=~a, skipping~%" i)
+             (debug 1 ";;;   skipping i=~a, snapshot-id=~a~%"
+                    i snapshot-id)
              (lp is acc))))
           (()
            (let ((acc (reverse! acc)))
@@ -1049,17 +1017,43 @@
          (debug 2 "*** ir:convert: NYI ~a~%" (car op))
          (escape #f))))
 
+    (define (loop? op ip locals)
+      ;; XXX: Pass the cause ended the recording from C code. Then this
+      ;; procedure could be removed.
+      (define (jump-to-initial-ip? pred a b invert? offset)
+        (let* ((ra (vector-ref locals a))
+               (rb (vector-ref locals b))
+               (next-ip (+ ip (* (if (pred ra rb)
+                                     (if invert? br-op-size offset)
+                                     (if invert? offset br-op-size))
+                                 4))))
+          (let ((result (= next-ip *initial-ip*)))
+            (debug 2 ";;; loop?: next-ip=~a, *initial-ip*=~a, result=~a~%"
+                   next-ip *initial-ip* result)
+            result)))
+      (let ((result
+             (match op
+               (('br-if-= a b invert? offset)
+                (jump-to-initial-ip? = a b invert? offset))
+               (('br-if-< a b invert? offset)
+                (jump-to-initial-ip? < a b invert? offset))
+               (('br offset)
+                (= *initial-ip* (+ ip (* 4 offset))))
+               (_ #f))))
+        (and result (set! linked-to-self? result))
+        result))
+
     (define (convert escape traces)
       (match traces
         (((op ip fp locals) . ())
          (cond
-          (root-trace?
+          ((and root-trace? (loop? op ip locals)) ; root trace with loop.
            (convert-one escape op ip fp locals
                         `(loop ,@(filter identity (reverse (map cdr vars))))))
-          (else                         ; side trace
+          (else
            ;; Capturing CPS variables with `take-snapshot!' at the end, so that
            ;; the native code can pass the register information to linked trace.
-           (let* ((snap! `(take-snapshot! ,*ip-key-end-of-side-trace* 0))
+           (let* ((snap! `(take-snapshot! ,*ip-key-jump-to-linked-code* 0))
                   (last-op `((,snap! ,ip #f ,locals))))
              (convert-one escape op ip fp locals last-op)))))
         (((op ip fp locals) . rest)
@@ -1083,6 +1077,41 @@
         (debug 2 "*** ir.scm: empty trace")
         (escape #f))))
 
+    (define (type-guard-op type)
+      (cond
+       ((eq? type &exact-integer) '%guard-fx)
+       ((eq? type &flonum) '%guard-fl)
+       ;; XXX: Add more.
+       (else #f)))
+
+    (define (unbox-op type var next-exp)
+      (cond
+       ((eq? type &flonum)
+        `(let ((,var ,(to-double var)))
+           ,next-exp))
+       ((eq? type &exact-integer)
+        `(let ((,var ,(to-fixnum var)))
+           ,next-exp))
+       (else
+        next-exp)))
+
+    (define (make-entry ip vars types loop-exp)
+      `(begin
+         (,ip)
+         ,(let lp ((types (hash-map->list cons types)))
+            (match types
+              (((i . type) . types)
+               (let* ((var (assq-ref vars i))
+                      (type-guard (and var (type-guard-op type)))
+                      (exp (if type-guard
+                               `(begin
+                                  (,type-guard ,var)
+                                  ,(unbox-op type var (lp types)))
+                               (unbox-op type var (lp types)))))
+                 (or exp (lp types))))
+              (()
+               loop-exp)))))
+
     (define (make-scm exp-body)
       (cond
        ((not exp-body)
@@ -1090,9 +1119,9 @@
         #f)
        (root-trace?
         (let* ((initial-snapshot
-                (take-snapshot! *ip-key-end-of-entry* 0 (initial-locals ops)))
+                (take-snapshot! *ip-key-set-loop-info!* 0 *initial-locals*))
                (entry-body
-                (make-entry (initial-ip ops) vars expecting-types
+                (make-entry *initial-ip* vars expecting-types
                             `(begin
                                ,initial-snapshot
                                (loop ,@args)))))
@@ -1109,7 +1138,7 @@
       (debug 2 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))
-      (values local-indices snapshots scm))))
+      (values local-indices snapshots scm linked-to-self?))))
 
 (define (scm->cps scm)
   (define ignored-passes
@@ -1140,7 +1169,6 @@
       (lambda (k cps)
         (set! cps (renumber cps k))
         cps)))
-
   (let ((cps (and scm (compile scm #:from 'scheme #:to 'cps))))
     (set! cps (and cps (body-fun cps)))
     cps))
@@ -1154,8 +1182,8 @@
                       conts
                       conts)))
   (call-with-values (lambda () (trace->scm tlog exit-id trace))
-    (lambda (locals snapshots scm)
+    (lambda (locals snapshots scm linked-to-self?)
       ;; (debug 2 ";;; scm:~%~y" scm)
       (let ((cps (scm->cps scm)))
         ;; (dump-cps cps)
-        (values locals snapshots scm cps)))))
+        (values locals snapshots scm cps linked-to-self?)))))

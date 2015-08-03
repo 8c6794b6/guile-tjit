@@ -134,17 +134,17 @@ to_hex (SCM n)
 }
 
 static inline void
-dump_fps(SCM *old_fp, SCM *fp)
+dump_fp (SCM *fp, SCM port)
 {
-  SCM port = scm_current_output_port ();
-  scm_puts ("old_fp:", port);
-  scm_display (scm_from_pointer ((void *) old_fp, NULL), port);
-  scm_newline (port);
-  scm_puts ("fp:", port);
+  scm_puts ("  fp:                            ", port);
   scm_display (scm_from_pointer ((void *) fp, NULL), port);
   scm_newline (port);
-  scm_puts ("SCM_FRAME_DYNAMIC_LINK (old_fp):", port);
-  scm_display (scm_from_pointer ((void *) SCM_FRAME_DYNAMIC_LINK (old_fp), NULL),
+  scm_puts ("  SCM_FRAME_DYNAMIC_LINK (fp):   ", port);
+  scm_display (scm_from_pointer ((void *) SCM_FRAME_DYNAMIC_LINK (fp), NULL),
+               port);
+  scm_newline (port);
+  scm_puts ("  SCM_FRAME_RETURN_ADDRESS (fp): ", port);
+  scm_display (scm_from_pointer ((void *) SCM_FRAME_RETURN_ADDRESS (fp), NULL),
                port);
   scm_newline (port);
 }
@@ -165,7 +165,7 @@ dump_locals (int n, SCM *fp)
   scm_newline (port);
 }
 
-static inline scm_t_uint32 *
+static inline void
 call_native (SCM s_ip, SCM tlog,
              scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
@@ -245,8 +245,7 @@ call_native (SCM s_ip, SCM tlog,
 
   *fp_offset_out = SCM_I_INUM (fp_offset);
   *nlocals_out = nlocals;
-
-  return (scm_t_uint32 *) next_ip;
+  vp->ip = (scm_t_uint32 *) next_ip;
 }
 
 static inline scm_t_uint32*
@@ -319,23 +318,21 @@ is_root_trace (SCM tlog)
         scm_t_int32 shift = 0;                                          \
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
+        call_native (s_ip, tlog, thread, vp, registers,                 \
+                     &tjit_state,                                       \
+                     &tjit_loop_start, &tjit_loop_end,                  \
+                     &tjit_parent_ip, &tjit_parent_exit_id,             \
+                     &shift, &nlocals);                                 \
+                                                                        \
         /* Update `fp' and `ip' in C code.  Variables `fp' and `ip'  */ \
         /* are using registers, see "libguile/vm-engine.h".          */ \
-        ip = call_native (s_ip, tlog, thread, vp, registers,            \
-                          &tjit_state,                                  \
-                          &tjit_loop_start, &tjit_loop_end,             \
-                          &tjit_parent_ip, &tjit_parent_exit_id,        \
-                          &shift, &nlocals);                            \
+        CACHE_REGISTER ();                                              \
                                                                         \
         /* When fp is shifted, setting vp->sp with number of locals  */ \
         /* returned from native code, vp->sp need to be recovered    */ \
         /* after taking side exit.                                   */ \
         if (shift != 0)                                                 \
-          {                                                             \
-            /* XXX: Use SCM_FRAME_DYNAMIC_LINK ? */                     \
-            CACHE_FP ();                                                \
-            ALLOC_FRAME (nlocals);                                      \
-          }                                                             \
+          ALLOC_FRAME (nlocals);                                        \
       }                                                                 \
     else                                                                \
       {                                                                 \

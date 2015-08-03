@@ -68,6 +68,11 @@
 (define-syntax-rule (scm-frame-dynamic-link dst src)
   (jit-ldxi dst src (make-negative-pointer (* -2 %word-size))))
 
+(define-syntax-rule (scm-frame-set-dynamic-link! dst src)
+  (jit-stxi (make-negative-pointer (* -2 %word-size)) dst src))
+
+(define-syntax-rule (scm-frame-set-return-address! dst src)
+  (jit-stxi (make-negative-pointer (* -1 %word-size)) dst src))
 
 ;;;
 ;;; VM constants and syntax
@@ -445,22 +450,66 @@ of SRCS, DSTS, TYPES are local index number."
     (define (jump-to-linked-code)
       (let* ((linked-tlog (get-tlog linked-ip))
              (loop-locals (tlog-loop-locals linked-tlog)))
+        (define (shift-if-not-tlog local-offset loop-locals)
+          (if (not tlog)
+              (map (match-lambda ((local . type)
+                                  (cons (+ local local-offset) type)))
+                   loop-locals)
+              loop-locals))
+        (define (find-ra local-x-types)
+          ;; XXX: Will not work when nesting level is more than one.
+          (let lp ((local-x-types local-x-types))
+            (match local-x-types
+              (((local . ($ $return-address ip)) . _)
+               ip)
+              ((lt . local-x-types)
+               (lp local-x-types))
+              (_ #f))))
         (cond
          ((hashq-ref snapshots current-side-exit)
           =>
           (match-lambda
            (($ $snapshot local-offset _ local-x-types)
 
-            ;; Store unpassed variables, move registers from parent, then move
-            ;; or load the locals from frame to pass the register and memory
-            ;; variables to linked trace.
-            (let ((dst-table (make-hash-table))
-                  (src-table (maybe-store moffs local-x-types args env-ref
-                                          loop-locals))
-                  (type-table (make-hash-table)))
+            ;; Store unpassed variables.
+            (let* ((dst-table (make-hash-table))
+                   ;; When (not tlog), shifting locals for references used in
+                   ;; `maybe-store'.
+                   ;;
+                   ;; XXX: Move the shifting code somewhere else.
+                   ;;
+                   (src-table (maybe-store moffs local-x-types args env-ref
+                                           (shift-if-not-tlog local-offset
+                                                              loop-locals)))
+                   (type-table (make-hash-table)))
+
+              ;; When jumping from non-looping root trace, shift the locals in
+              ;; source code. Also shift the FP used in VM. Shifting after the
+              ;; call to `maybe-store', to store lower frame info first.
+              ;;
+              ;; XXX: Is the shifting always required?
+              ;;
+              (when (not tlog)
+                (let ((tmp (make-hash-table)))
+                  (hash-for-each (lambda (k v)
+                                   (hashq-set! tmp (- k local-offset) v))
+                                 src-table)
+                  (set! src-table tmp)
+                  (when (< 0 local-offset)
+                    (let ((old-fp r0)
+                          (new-fp r1)
+                          (ra (find-ra local-x-types)))
+                      (jit-ldxi old-fp fp vp->fp-offset)
+                      (jit-addi new-fp old-fp (imm (* local-offset %word-size)))
+                      (scm-frame-set-dynamic-link! new-fp old-fp)
+                      (when ra
+                        (jit-movi r0 ra)
+                        (debug 2 ";;; ra=~a~%" ra)
+                        (scm-frame-set-return-address! new-fp r0))
+                      (vm-save-fp new-fp)))))
 
               ;; Store lower frame data. Shift FP before storing locals, then
-              ;; shift cache FP back to the one from parent trace.
+              ;; shift FP back to the one from parent trace.
               ;;
               ;; XXX: Get shift amount from snapshot. Save dynamic link at the
               ;; time of taking snapshot for end of side trace.
@@ -498,6 +547,8 @@ of SRCS, DSTS, TYPES are local index number."
                       (debug 2 ";;; compile-exit: dsts=null, locals=~a~%"
                              locals))))
                   (_ (values))))
+
+              ;; Move variables to linked trace.
               (move-or-load-carefully dst-table src-table type-table moffs))
 
             ;; Jump to the beginning of loop in linked code.
@@ -627,9 +678,9 @@ of SRCS, DSTS, TYPES are local index number."
       (cond
        ((not (constant? proc))
         (error "compile-exit: not a constant" proc))
-       ((= ip *ip-key-end-of-side-trace*)
+       ((= ip *ip-key-jump-to-linked-code*)
         (jump-to-linked-code))
-       ((= ip *ip-key-end-of-entry*)
+       ((= ip *ip-key-set-loop-info!*)
         (set-loop-info!))
        (else                            ; IP is bytecode destination.
         (emit-bailout ip)))))
@@ -640,7 +691,10 @@ of SRCS, DSTS, TYPES are local index number."
       =>
       (lambda (proc)
         (let* ((out-code (trampoline-ref trampoline (- current-side-exit 1)))
-               (end-address (and tlog (tlog-end-address tlog)))
+               ;; (end-address (and tlog (tlog-end-address tlog)))
+               (end-address (or (and tlog (tlog-end-address tlog))
+                                (and=> (get-tlog linked-ip)
+                                       tlog-end-address)))
                (asm (make-asm env fp-offset out-code end-address)))
           (apply proc asm (map env-ref (append dsts args))))))
      (else
@@ -774,6 +828,8 @@ of SRCS, DSTS, TYPES are local index number."
                 (dst-table (make-hash-table))
                 (src-table (make-hash-table))
                 (type-table (make-hash-table)))
+            (debug 2 ";;; side-trace: initial-locals: ~a~%" initial-locals)
+            (debug 2 ";;; side-trace: locals: ~a~%" locals)
             (for-each
              (match-lambda
               ((local . var)
@@ -804,6 +860,8 @@ of SRCS, DSTS, TYPES are local index number."
                   (locals (filter (lambda (n-v)
                                     (< (car n-v) 0))
                                   initial-locals)))
+              (when (not (null? locals))
+                (debug 2 ";;; side-trace entry, loading lower frame.~%"))
 
               ;; Shift `vp->fp', load locals, then shift `vp->fp' back.
               (jit-ldxi r0 fp vp->fp-offset)
@@ -812,10 +870,10 @@ of SRCS, DSTS, TYPES are local index number."
               (let lp ((locals locals))
                 (match locals
                   (((local . var) . locals)
-                   (let ((local (+ local shift))
+                   (let ((shifted-local (+ local shift))
                          (type (hashq-ref type-table local))
                          (var (vector-ref env var)))
-                     (load-frame moffs local type var)
+                     (load-frame moffs shifted-local type var)
                      (lp locals)))
                   (_ (values))))
               (jit-ldxi r0 fp vp-offset)

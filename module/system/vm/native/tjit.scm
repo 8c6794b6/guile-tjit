@@ -190,14 +190,14 @@
        (format #f "~a:~d"
                (or (source-file source) "(unknown file)")
                (source-line-for-user source)))))
-  (define-syntax-rule (show-one-line sline tlog code-size)
+  (define-syntax-rule (show-one-line sline tlog code-size linked-to-self?)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
                                  (or (and tlog (tlog-id tlog))
                                      (format #f "~x" parent-ip))
                                  parent-exit-id)
                          ""))
-          (linked-id (if (= parent-ip 0)
+          (linked-id (if linked-to-self?
                          ""
                          (format #f " -> ~a" (tlog-id (get-tlog linked-ip))))))
       (format #t ";;; trace ~a:~a ~a~a~a~%"
@@ -208,16 +208,16 @@
          (verbosity (lightning-verbosity))
          (tlog (get-tlog parent-ip))
          (sline (ip-ptr->source-line (cadr (car ip-x-ops)))))
-
     (when (and verbosity (<= 2 verbosity))
-      (and tlog (dump-tlog tlog))
-      (format #t
-              ";;; tjit.scm: parent-ip=~x, linked-ip=~x, parent-exit-id=~a~%"
-              parent-ip linked-ip parent-exit-id))
-
+      (format #t ";;; tjit.scm:~%")
+      (format #t ":;;   entry-ip:       ~x~%" entry-ip)
+      (format #t ";;;   parent-ip:      ~x~%" parent-ip)
+      (format #t ";;;   linked-ip:      ~x~%" linked-ip)
+      (format #t ";;;   parent-exit-id: ~a~%" parent-exit-id)
+      (and tlog (dump-tlog tlog)))
     (with-jit-state
      (jit-prolog)
-     (let-values (((locals snapshots scm cps)
+     (let-values (((locals snapshots scm cps linked-to-self?)
                    (trace->cps tlog parent-exit-id ip-x-ops)))
        (cond
         ((not cps)
@@ -263,13 +263,11 @@
                                                 trampoline
                                                 fp-offset
                                                 end-address))
-
                  (when (and verbosity (<= 1 verbosity))
                    (let ((code-size (jit-code-size)))
-                     (show-one-line sline tlog code-size)
+                     (show-one-line sline tlog code-size linked-to-self?)
                      (show-dump ip-x-ops scm locals cps snapshots tlog
                                 code code-size)))
-
                  ;; When this trace is a side trace, replace the native code
                  ;; of trampoline in parent tlog.
                  (when tlog
@@ -277,7 +275,6 @@
                          (parent-exit-codes (tlog-exit-codes tlog)))
                      (trampoline-set! trampoline parent-exit-id ptr)
                      (hashq-set! parent-exit-codes parent-exit-id code)))
-
                  code))))))))))
 
 
