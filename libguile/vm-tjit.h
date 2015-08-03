@@ -38,7 +38,6 @@ SCM_API SCM scm_set_tjit_hot_exit_x (SCM count);
 SCM_API SCM scm_tlog_table (void);
 
 SCM_API SCM scm_make_tjit_retval (scm_i_thread *thread,
-                                  scm_t_bits next_ip,
                                   scm_t_bits exit_id,
                                   scm_t_bits exit_ip,
                                   scm_t_bits nlocals,
@@ -53,12 +52,10 @@ SCM_API SCM scm_make_tjit_retval (scm_i_thread *thread,
 #define SCM_TLOG_PARENT_EXIT_ID(T) SCM_STRUCT_SLOT_REF (T, 4)
 #define SCM_TLOG_LOOP_ADDRESS(T)   SCM_STRUCT_SLOT_REF (T, 5)
 
-#define SCM_TJIT_RETVAL_NEXT_IP(R) \
-  (scm_t_uintptr) (SCM_I_INUM (SCM_CELL_OBJECT (R, 0)))
-#define SCM_TJIT_RETVAL_EXIT_ID(R) SCM_CELL_OBJECT (R, 1)
-#define SCM_TJIT_RETVAL_EXIT_IP(R) SCM_CELL_OBJECT (R, 2)
-#define SCM_TJIT_RETVAL_NLOCALS(R) SCM_I_INUM (SCM_CELL_OBJECT (R, 3))
-#define SCM_TJIT_RETVAL_LOCAL_OFFSET(R) SCM_CELL_OBJECT (R, 4)
+#define SCM_TJIT_RETVAL_EXIT_ID(R) SCM_CELL_OBJECT (R, 0)
+#define SCM_TJIT_RETVAL_EXIT_IP(R) SCM_CELL_OBJECT (R, 1)
+#define SCM_TJIT_RETVAL_NLOCALS(R) SCM_I_INUM (SCM_CELL_OBJECT (R, 2))
+#define SCM_TJIT_RETVAL_LOCAL_OFFSET(R) SCM_CELL_OBJECT (R, 3)
 
 SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);

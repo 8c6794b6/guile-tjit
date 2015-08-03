@@ -92,10 +92,15 @@
     (jit-ldxi vp->fp vp (make-pointer (* 2 %word-size)))
     (jit-stxi vp->fp-offset fp vp->fp)))
 
-(define-syntax-rule (vm-save-fp vp->fp)
+(define-syntax-rule (vm-sync-fp vp->fp)
   (let ((vp (if (eq? vp->fp r0) r1 r0)))
     (jit-ldxi vp fp vp-offset)
     (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
+
+(define-syntax-rule (vm-sync-ip ip)
+  (let ((vp (if (eq? ip r0) r1 r0)))
+    (jit-ldxi vp fp vp-offset)
+    (jit-str vp ip)))
 
 (define-syntax-rule (local-ref dst n)
   (let ((vp->fp (if (eq? dst r0) r1 r0)))
@@ -506,7 +511,7 @@ of SRCS, DSTS, TYPES are local index number."
                         (jit-movi r0 ra)
                         (debug 2 ";;; ra=~a~%" ra)
                         (scm-frame-set-return-address! new-fp r0))
-                      (vm-save-fp new-fp)))))
+                      (vm-sync-fp new-fp)))))
 
               ;; Store lower frame data. Shift FP before storing locals, then
               ;; shift FP back to the one from parent trace.
@@ -643,12 +648,15 @@ of SRCS, DSTS, TYPES are local index number."
              (jit-ldxi vp->fp fp vp->fp-offset)
              (when (< 0 local-offset)
                (jit-addi vp->fp vp->fp (imm (* local-offset %word-size))))
-             (vm-save-fp vp->fp)))
+             (vm-sync-fp vp->fp)))
+
+         ;; Sync next IP for VM interpreter.
+         (jit-movi r0 (imm next-ip))
+         (vm-sync-ip r0)
 
          ;; Make tjit-retval.
          (jit-prepare)
          (jit-pushargr reg-thread)
-         (jit-pushargi (scm-i-makinumi next-ip))
          (jit-pushargi (scm-i-makinumi current-side-exit))
          (jit-pushargi (scm-i-makinumi entry-ip))
          (jit-pushargi (scm-i-makinumi nlocals))

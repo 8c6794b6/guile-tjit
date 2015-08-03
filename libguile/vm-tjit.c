@@ -173,7 +173,6 @@ call_native (SCM s_ip, SCM tlog,
              scm_t_int32 *fp_offset_out, scm_t_uint32 *nlocals_out)
 {
   scm_t_native_code f;
-  scm_t_uintptr next_ip;
   scm_t_uint32 nlocals;
   SCM s_next_ip, fp_offset;
   SCM code, ret, exit_id, exit_ip, exit_counts, count;
@@ -182,13 +181,12 @@ call_native (SCM s_ip, SCM tlog,
   f = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
   ret = f (thread, vp, registers);
 
-  next_ip = SCM_TJIT_RETVAL_NEXT_IP (ret);
   exit_id = SCM_TJIT_RETVAL_EXIT_ID (ret);
   exit_ip = SCM_TJIT_RETVAL_EXIT_IP (ret);
   nlocals = SCM_TJIT_RETVAL_NLOCALS (ret);
   fp_offset = SCM_TJIT_RETVAL_LOCAL_OFFSET (ret);
 
-  s_next_ip = SCM_I_MAKINUM (next_ip);
+  s_next_ip = SCM_I_MAKINUM ((scm_t_uintptr) vp->ip);
   tlog = scm_hashq_ref (tlog_table, exit_ip, SCM_BOOL_F);
 
   if (scm_is_true (tlog))
@@ -211,7 +209,7 @@ call_native (SCM s_ip, SCM tlog,
       scm_hashq_ref (failed_ip_table, s_next_ip, SCM_INUM0) <
       tjit_max_retries)
     {
-      scm_t_uint32 *start = (scm_t_uint32 *) next_ip;
+      scm_t_uint32 *start = vp->ip;
       scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
 
       if (start == end)
@@ -219,7 +217,10 @@ call_native (SCM s_ip, SCM tlog,
           /* Deoptimizing root trace. When start and end is the same IP,
              assuming that this happened because of a guard failure in
              entry clause of the native code. Recording starts when VM
-             entered the same loop next time. */
+             entered the same loop next time.
+
+             XXX: Do PIC, extend entry clause instead of removing the
+             old one. */
           scm_hashq_remove_x (tlog_table, s_ip);
         }
       else if (exit_ip == s_next_ip)
@@ -245,7 +246,6 @@ call_native (SCM s_ip, SCM tlog,
 
   *fp_offset_out = SCM_I_INUM (fp_offset);
   *nlocals_out = nlocals;
-  vp->ip = (scm_t_uint32 *) next_ip;
 }
 
 static inline scm_t_uint32*
@@ -472,17 +472,16 @@ SCM_DEFINE (scm_tlog_table, "tlog-table", 0, 0, 0, (void),
 #undef FUNC_NAME
 
 SCM
-scm_make_tjit_retval (scm_i_thread *thread, scm_t_bits next_ip,
+scm_make_tjit_retval (scm_i_thread *thread,
                       scm_t_bits exit_id, scm_t_bits exit_ip,
                       scm_t_bits nlocals, scm_t_bits local_offset)
 {
-  SCM ret = scm_inline_gc_malloc_pointerless (thread, 5 * sizeof (void *));
+  SCM ret = scm_inline_gc_malloc_pointerless (thread, 4 * sizeof (void *));
 
-  SCM_SET_CELL_WORD (ret, 0, next_ip);
-  SCM_SET_CELL_WORD (ret, 1, exit_id);
-  SCM_SET_CELL_WORD (ret, 2, exit_ip);
-  SCM_SET_CELL_WORD (ret, 3, nlocals);
-  SCM_SET_CELL_WORD (ret, 4, local_offset);
+  SCM_SET_CELL_WORD (ret, 0, exit_id);
+  SCM_SET_CELL_WORD (ret, 1, exit_ip);
+  SCM_SET_CELL_WORD (ret, 2, nlocals);
+  SCM_SET_CELL_WORD (ret, 3, local_offset);
 
   return ret;
 }
