@@ -739,7 +739,6 @@
             ((fixnum? (local-ref src))
              (set-expecting-type! src &exact-integer)
              (set-known-type! dst &exact-integer)))
-
            `(let ((,vdst ,vsrc))
               ,(convert escape rest))))
 

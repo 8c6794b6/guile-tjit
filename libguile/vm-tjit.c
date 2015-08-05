@@ -136,16 +136,17 @@ to_hex (SCM n)
 static inline void
 dump_fp (SCM *fp, SCM port)
 {
+  SCM *old_fp = SCM_FRAME_DYNAMIC_LINK (fp);
+  scm_t_uint32 *ra = SCM_FRAME_RETURN_ADDRESS (fp);
+
   scm_puts ("  fp:                            ", port);
   scm_display (scm_from_pointer ((void *) fp, NULL), port);
   scm_newline (port);
   scm_puts ("  SCM_FRAME_DYNAMIC_LINK (fp):   ", port);
-  scm_display (scm_from_pointer ((void *) SCM_FRAME_DYNAMIC_LINK (fp), NULL),
-               port);
+  scm_display (scm_from_pointer ((void *) old_fp, NULL), port);
   scm_newline (port);
   scm_puts ("  SCM_FRAME_RETURN_ADDRESS (fp): ", port);
-  scm_display (scm_from_pointer ((void *) SCM_FRAME_RETURN_ADDRESS (fp), NULL),
-               port);
+  scm_display (scm_from_pointer ((void *) ra, NULL), port);
   scm_newline (port);
 }
 
@@ -163,6 +164,26 @@ dump_locals (int n, SCM *fp)
       scm_display (SCM_PACK (fp[i]), port);
     }
   scm_newline (port);
+}
+
+static inline int
+is_hot_loop (SCM ip, SCM count)
+{
+  return (tjit_hot_loop < count &&
+          scm_hashq_ref (failed_ip_table, ip, SCM_INUM0) < tjit_max_retries);
+}
+
+static inline int
+is_hot_exit (SCM ip, SCM count)
+{
+  return (tjit_hot_exit < count &&
+          scm_hashq_ref (failed_ip_table, ip, SCM_INUM0) < tjit_max_retries);
+}
+
+static inline int
+is_root_trace (SCM tlog)
+{
+  return scm_is_true (tlog) && SCM_INUM0 == (SCM_TLOG_PARENT_ID (tlog));
 }
 
 static inline void
@@ -205,9 +226,7 @@ call_native (SCM s_ip, SCM tlog,
       count = SCM_INUM0;
     }
 
-  if (tjit_hot_exit < count &&
-      scm_hashq_ref (failed_ip_table, s_next_ip, SCM_INUM0) <
-      tjit_max_retries)
+  if (is_hot_exit (s_next_ip, count))
     {
       scm_t_uint32 *start = vp->ip;
       scm_t_uint32 *end = (scm_t_uint32 *) SCM_I_INUM (s_ip);
@@ -257,14 +276,6 @@ increment_compilation_failure (SCM ip)
   scm_hashq_set_x (failed_ip_table, ip, retries);
 }
 
-static inline int
-is_hot_loop (SCM ip, SCM current_count)
-{
-  return (tjit_hot_loop < current_count &&
-          scm_hashq_ref (failed_ip_table, ip, SCM_INUM0) <
-          tjit_max_retries);
-}
-
 static inline SCM
 record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
 {
@@ -278,12 +289,6 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
   trace = scm_inline_cons (thread, s_ip, trace);
 
   return scm_inline_cons (thread, trace, traces);
-}
-
-static inline int
-is_root_trace (SCM tlog)
-{
-  return scm_is_true (tlog) && scm_is_true (SCM_TLOG_LOOP_ADDRESS (tlog));
 }
 
 
@@ -303,7 +308,7 @@ is_root_trace (SCM tlog)
     s_ip = SCM_I_MAKINUM (ip + jump);                                   \
     tlog = scm_hashq_ref (tlog_table, s_ip, SCM_BOOL_F);                \
                                                                         \
-    if (scm_is_true (tlog))                                             \
+    if (is_root_trace (tlog))                                           \
       {                                                                 \
         scm_t_int32 shift = 0;                                          \
         scm_t_uint32 nlocals = 0;                                       \
@@ -326,14 +331,13 @@ is_root_trace (SCM tlog)
       }                                                                 \
     else                                                                \
       {                                                                 \
-        SCM current_count =                                             \
-          scm_hashq_ref (ip_counter_table, s_ip, SCM_INUM0);            \
+        SCM count = scm_hashq_ref (ip_counter_table, s_ip, SCM_INUM0);  \
                                                                         \
-        if (is_hot_loop (s_ip, current_count))                          \
+        if (is_hot_loop (s_ip, count))                                  \
           start_recording (&tjit_state, ip + jump, ip,                  \
                            &tjit_loop_start, &tjit_loop_end);           \
         else                                                            \
-          increment_ip_counter (current_count, s_ip);                   \
+          increment_ip_counter (count, s_ip);                           \
                                                                         \
         /* Next IP is jump destination specified in bytecode. */        \
         ip += jump;                                                     \
@@ -404,7 +408,8 @@ is_root_trace (SCM tlog)
  * Scheme interfaces
  */
 
-SCM_DEFINE (scm_tjit_ip_counter, "tjit-ip-counter", 0, 0, 0, (void), "")
+SCM_DEFINE (scm_tjit_ip_counter, "tjit-ip-counter", 0, 0, 0, (void),
+            "Hash table to count number of jumped visits, per IP.")
 #define FUNC_NAME s_scm_tjit_ip_counter
 {
   return ip_counter_table;

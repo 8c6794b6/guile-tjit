@@ -148,7 +148,7 @@
 ;; contents.
 ;;
 (define-record-type <tlog>
-  (%make-tlog id code exit-counts entry-ip parent-exit-id
+  (%make-tlog id code exit-counts entry-ip parent-id parent-exit-id
               loop-address loop-locals loop-vars
               snapshots exit-variables exit-codes trampoline
               fp-offset end-address)
@@ -165,6 +165,9 @@
 
   ;; Entry bytecode IP.
   (entry-ip tlog-entry-ip)
+
+  ;; Trace id of parent trace, 0 for root trace.
+  (parent-id tlog-parent-id)
 
   ;; Exit id taken by parent, root traces constantly have 0.
   (parent-exit-id tlog-parent-exit-id)

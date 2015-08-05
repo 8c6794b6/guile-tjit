@@ -300,7 +300,7 @@
     (jit-movi r0 *scm-unspecified*)
     (local-set! local r0))
    (else
-    (error "store-frame: Unknown local, type, src:" local type src))))
+    (error "store-frame" local type src))))
 
 (define (maybe-store moffs local-x-types srcs src-unwrapper references)
   "Store src in SRCS to frame when local is not found in REFERENCES.
@@ -779,18 +779,15 @@ of SRCS, DSTS, TYPES are local index number."
        ((fp-offset)
         ;; Root trace allocates spaces for spilled variables, three words to
         ;; store `vp', `vp->fp', and `registers', and one more word for return
-        ;; address used by side exits.
-        ;;
-        ;; Side trace can not allocate additional memory, because side trace uses
-        ;; `jit-tramp'.
-        ;;
-        ;; Won't work if number of spilled variables exceeds the number returned
-        ;; from parameter `(tjit-max-spills)'.
+        ;; address used by side exits. Side trace cannot allocate additional
+        ;; memory, because side trace uses `jit-tramp'. Native code will not
+        ;; work if number of spilled variables exceeds the number returned from
+        ;; parameter `(tjit-max-spills)'.
         (if (not tlog)
             (let ((max-spills (tjit-max-spills)))
               (when (< max-spills nspills)
-                ;; XXX: Escape somewhere and increase count of compilation
-                ;; failure for this entry-ip.
+                ;; XXX: Escape somewhere and increment compilation failure for
+                ;; this entry-ip.
                 (error "Too many spilled variables" nspills))
               (jit-allocai (imm (* (+ max-spills 4) %word-size))))
             (tlog-fp-offset tlog)))
@@ -838,12 +835,10 @@ of SRCS, DSTS, TYPES are local index number."
                        identity
                        initial-locals)
 
-          ;; When passing values from parent trace to side-trace, src
-          ;; could be overwritten by move or load.
-          ;;
-          ;; Pairings of local and register could be different from how
-          ;; it was done in parent trace and this side trace, move or
-          ;; load without overwriting the sources .
+          ;; When passing values from parent trace to side-trace, src could be
+          ;; overwritten by move or load.  Pairings of local and register could
+          ;; be different from how it was done in parent trace and this side
+          ;; trace, move or load without overwriting the sources .
           (let ((vars (hashq-ref (tlog-exit-variables tlog) exit-id))
                 (locals (snapshot-locals (hashq-ref snapshots 0)))
                 (dst-table (make-hash-table))
@@ -879,8 +874,8 @@ of SRCS, DSTS, TYPES are local index number."
 
             ;; Load locals in lower frame, if any.
             ;;
-            ;; XXX: Refer snapshot to get the `shift' value and number to invoke
-            ;; `scm-frame-dynamic-link'.
+            ;; XXX: Save locals in snapshot per frame, set frame properly by
+            ;; invokeing `scm-frame-dynamic-link'.
             (let ((shift (- (lowest-snapshot-offset snapshots)))
                   (locals (filter (match-lambda
                                    ((n . _)

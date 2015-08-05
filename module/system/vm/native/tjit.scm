@@ -255,12 +255,15 @@
                       (exit-counts (make-hash-table))
                       (loop-address (and loop-label (jit-address loop-label)))
                       (end-address (or (and tlog (tlog-end-address tlog))
-                                       (jit-address epilog-address))))
+                                       (jit-address epilog-address)))
+                      (parent-id (or (and tlog (tlog-id tlog))
+                                     0)))
                  (make-bytevector-executable! code)
                  (put-tlog! entry-ip (make-tlog trace-id
                                                 code
                                                 exit-counts
                                                 entry-ip
+                                                parent-id
                                                 parent-exit-id
                                                 loop-address
                                                 loop-locals
