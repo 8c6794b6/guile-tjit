@@ -191,6 +191,9 @@
 (define (false? x)
   (eq? x #f))
 
+(define (true? x)
+  (eq? x #t))
+
 
 ;;;
 ;;; Locals
@@ -282,7 +285,7 @@
          (error (format #f "ir:accumulate-locals: ~a" ops)))))
     (define (acc st ops)
       (match ops
-        (((op _ _ locals) . rest)
+        (((op _ _ _ locals) . rest)
          (acc (acc-one st op locals) rest))
         (()
          st)))
@@ -352,7 +355,7 @@
     (cadr (car ops)))
 
   (define *initial-locals*
-    (cadddr (car ops)))
+    (list-ref (car ops) 4))
 
   (define (get-initial-offset)
     (if root-trace?
@@ -362,7 +365,8 @@
         (cond
          ((hashq-ref (tlog-snapshots tlog) exit-id)
           =>
-          (match-lambda (($ $snapshot offset) offset)))
+          (match-lambda (($ $snapshot offset)
+                         offset)))
          (else
           (error "parent snapshot not found" exit-id)))))
 
@@ -445,17 +449,23 @@
                (lp is (cons `(,i . ,&exact-integer) acc)))
               ((flonum? local)
                (lp is (cons `(,i . ,&flonum) acc)))
-              ((variable? local)
-               (lp is (cons `(,i . ,&box) acc)))
+              ((unspecified? local)
+               (lp is (cons `(,i . ,&unspecified) acc)))
               ((unbound? local)
                (lp is (cons `(,i . ,&unbound) acc)))
               ((false? local)
                (lp is (cons `(,i . ,&false) acc)))
+              ((true? local)
+               (lp is (cons `(,i . ,&true) acc)))
               ((procedure? local)
                (lp is (cons `(,i . ,&procedure) acc)))
+              ((pair? local)
+               (lp is (cons `(,i . ,&pair) acc)))
+              ((variable? local)
+               (lp is (cons `(,i . ,&box) acc)))
               (else
                ;; XXX: Add more types.
-               ;; (debug 2 "*** take-snapshot!: ~a~%" local)
+               (debug 2 "*** take-snapshot!: ~a~%" local)
                (lp is acc))))
            (define (add-val val)
              (debug 2 ";;;   add-val: i=~a, val=~a~%" i val)
@@ -521,9 +531,9 @@
 
             ;; Giving up, skip this local.
             (else
-             (debug 1 ";;;   skipping i=~a, snapshot-id=~a~%"
-                    i snapshot-id)
-             (lp is acc))))
+             (debug 2 "*** local for snapshot-id=~a i=~a not found~%"
+                    snapshot-id i)
+             (add-local #f))))
           (()
            (let ((acc (reverse! acc)))
              ;; Using snapshot-id as key for hash-table. Identical IP could
@@ -540,19 +550,19 @@
              ;; terms.
              `(,(+ ip (* offset 4)) ,@args))))))
 
-    (define (convert-one escape op ip fp locals rest)
+    (define (convert-one escape op ip fp ra locals rest)
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
 
       (define-syntax-rule (var-ref i)
         (assq-ref vars (+ i local-offset)))
 
-      ;; (debug 2 ";;; convert-one: ~a (~a/~a) ~a~%"
+      ;; (debug 2 ";;; convert-one: ~a ~a ~a ~a~%"
       ;;        (or (and (number? ip) (number->string ip 16))
       ;;            #f)
       ;;        local-offset
-      ;;        max-local-num
-      ;;        op)
+      ;;        op
+      ;;        locals)
 
       (match op
         ;; *** Call and return
@@ -566,15 +576,20 @@
                 (ra (cons (- (+ proc local-offset) 1)
                           (make-return-address (make-pointer (+ ip (* 2 4)))))))
            (push-past-frame! past-frame dl ra local-offset locals))
-         (let ((vproc (var-ref proc))
-               (rproc (local-ref proc)))
-           (debug 2 ";;; ir.scm:call vproc=~a, rproc=~a~%" vproc rproc)
+         (let* ((vproc (var-ref proc))
+                (rproc (local-ref proc))
+                (callf (if (<= 0 local-offset)
+                           '()
+                           `((%callf ,(+ ip (* 2 4))))))
+                (snapshot (take-snapshot! ip 0 locals)))
+           (debug 2 ";;; ir.scm:call proc=~a local-offset=~a fp=~a~%"
+                  rproc local-offset fp)
+           (push-offset! proc)
            `(begin
-              ,(take-snapshot! ip 0 locals)
+              ,snapshot
               (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
-              ,(begin
-                 (push-offset! proc)
-                 (convert escape rest)))))
+              ,@callf
+              ,(convert escape rest))))
 
         (('call-label proc nlocals label)
          (push-offset! proc)
@@ -599,15 +614,21 @@
          (escape #f))
 
         (('return src)
-         (let ((vsrc (var-ref src))
-               (vdst (var-ref 1)))
+         (let* ((vsrc (var-ref src))
+                (vdst (var-ref 1))
+                (assign (if (eq? vdst vsrc)
+                            '()
+                            `((,vdst ,vsrc))))
+                (retf (if (< 0 local-offset)
+                          '()
+                          `(,(take-snapshot! ip 0 locals)
+                            (%retf ,ra)))))
            (pop-past-frame! past-frame)
-           (cond
-            ((eq? vdst vsrc)
-             (convert escape rest))
-            (else
-             `(let ((,vdst ,vsrc))
-                ,(convert escape rest))))))
+           (debug 2 ";;; ir.scm:return fp=~a ip=~x ra=~x local-offset=~a~%"
+                  fp ip ra local-offset)
+           `(let ,assign
+              ,@retf
+              ,(convert escape rest))))
 
         ;; XXX: return-values
 
@@ -733,7 +754,7 @@
         ;; XXX: Add test for nested boxes.
 
         (('box-ref dst src)
-         ;; XXX: Add guard to check for `variable' type?
+         ;; XXX: Add guard to check type of box contents.
          (let ((vdst (var-ref dst))
                (vsrc (var-ref src))
                (rsrc (and (< src (vector-length locals))
@@ -1018,19 +1039,19 @@
 
     (define (convert escape traces)
       (match traces
-        (((op ip fp locals) . ())
+        (((op ip fp ra locals) . ())
          (cond
           ((and root-trace? loop?)      ; root trace with loop.
-           (convert-one escape op ip fp locals
+           (convert-one escape op ip fp ra locals
                         `(loop ,@(filter identity (reverse (map cdr vars))))))
           (else                         ; side trace or loop-less root trace.
            ;; Capturing CPS variables with `take-snapshot!' at the end, so that
            ;; the native code can pass the register information to linked trace.
            (let* ((snap! `(take-snapshot! ,*ip-key-jump-to-linked-code* 0))
-                  (last-op `((,snap! ,ip #f ,locals))))
-             (convert-one escape op ip fp locals last-op)))))
-        (((op ip fp locals) . rest)
-         (convert-one escape op ip fp locals rest))
+                  (last-op `((,snap! ,ip #f #f ,locals))))
+             (convert-one escape op ip fp ra locals last-op)))))
+        (((op ip fp ra locals) . rest)
+         (convert-one escape op ip fp ra locals rest))
         (_ traces)))
 
     (define (enter-convert escape traces)
@@ -1039,9 +1060,9 @@
         (convert escape traces))
        ((not (null? traces))            ; side trace.
         (match (car traces)
-          ((op ip fp locals)
+          ((op ip fp ra locals)
            `(begin
-              ,(convert-one escape `(take-snapshot! ,ip 0) ip fp locals '())
+              ,(convert-one escape `(take-snapshot! ,ip 0) ip fp ra locals '())
               ,(convert escape traces)))
           (_
            (debug 2 "*** ir.scm: malformed traces")

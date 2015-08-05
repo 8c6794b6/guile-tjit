@@ -31,16 +31,19 @@
   #:use-module (system vm native lightning)
   #:export (*num-gpr*
             *num-fpr*
-            register-ref
+            gpr-ref
             fpr-ref
             fp
             reg-thread
             reg-retval))
 
+;; Non-volatile register to refer FP in native code.
 (define fp (jit-fp))
 
+;; Non-volatile register to hold thread.
 (define-syntax reg-thread (identifier-syntax v0))
 
+;; Volatile register to hold return value from native code to VM.
 (define-syntax reg-retval (identifier-syntax r0))
 
 (define r8 (jit-r 8))
@@ -83,7 +86,7 @@
 
 ;; Using negative number to refer scratch registers.
 
-(define (register-ref i)
+(define (gpr-ref i)
   (cond
    ((= i -1) r0)
    ((= i -2) r1)

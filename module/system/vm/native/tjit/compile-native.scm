@@ -56,6 +56,12 @@
 (define *scm-false*
   (scm->pointer #f))
 
+(define *scm-true*
+  (scm->pointer #t))
+
+(define *scm-unspecified*
+  (scm->pointer *unspecified*))
+
 (define *scm-undefined*
   (make-pointer #x904))
 
@@ -65,24 +71,10 @@
 (define-syntax-rule (scm-real-value dst src)
   (jit-ldxi-d dst src (imm (* 2 %word-size))))
 
-(define-syntax-rule (scm-frame-dynamic-link dst src)
-  (jit-ldxi dst src (make-negative-pointer (* -2 %word-size))))
-
-(define-syntax-rule (scm-frame-set-dynamic-link! dst src)
-  (jit-stxi (make-negative-pointer (* -2 %word-size)) dst src))
-
-(define-syntax-rule (scm-frame-set-return-address! dst src)
-  (jit-stxi (make-negative-pointer (* -1 %word-size)) dst src))
 
 ;;;
 ;;; VM constants and syntax
 ;;;
-
-(define vp-offset
-  (make-negative-pointer (- %word-size)))
-
-(define vp->fp-offset
-  (make-negative-pointer (- (* 2 %word-size))))
 
 (define registers-offset
   (make-negative-pointer (- (* 3 %word-size))))
@@ -187,7 +179,7 @@
       (local-ref r0 local)
       (scm-real-value f0 r0)
       (jit-stxi-d (moffs dst) fp f0))))
-   ((memq type (list &box &procedure))
+   ((memq type (list &box &procedure &pair))
     (cond
      ((gpr? dst)
       (local-ref (gpr dst) local))
@@ -200,6 +192,20 @@
       (jit-movi (gpr dst) *scm-false*))
      ((memory? dst)
       (jit-movi r0 *scm-false*)
+      (jit-stxi-d (moffs dst) fp r0))))
+   ((eq? type &true)
+    (cond
+     ((gpr? dst)
+      (jit-movi (gpr dst) *scm-true*))
+     ((memory? dst)
+      (jit-movi r0 *scm-true*)
+      (jit-stxi-d (moffs dst) fp r0))))
+   ((eq? type &unspecified)
+    (cond
+     ((gpr? dst)
+      (jit-movi (gpr dst) *scm-unspecified*))
+     ((memory? dst)
+      (jit-movi r0 *scm-unspecified*)
       (jit-stxi-d (moffs dst) fp r0))))
    ((eq? type &unbound)
     (cond
@@ -271,7 +277,7 @@
       (jit-ldxi-d f0 fp (moffs src))
       (scm-from-double r0 f0)
       (local-set! local r0))))
-   ((memq type (list &box &procedure))
+   ((memq type (list &box &procedure &pair))
     (cond
      ((constant? src)
       (jit-movi r0 (constant src))
@@ -284,8 +290,14 @@
    ((eq? type &false)
     (jit-movi r0 *scm-false*)
     (local-set! local r0))
+   ((eq? type &true)
+    (jit-movi r0 *scm-true*)
+    (local-set! local r0))
    ((eq? type &unbound)
     (jit-movi r0 *scm-undefined*)
+    (local-set! local r0))
+   ((eq? type &unspecified)
+    (jit-movi r0 *scm-unspecified*)
     (local-set! local r0))
    (else
     (error "store-frame: Unknown local, type, src:" local type src))))
@@ -476,13 +488,12 @@ of SRCS, DSTS, TYPES are local index number."
           (match-lambda
            (($ $snapshot local-offset _ local-x-types)
 
-            ;; Store unpassed variables.
+            ;; Store unpassed variables. When (not tlog), shifting locals for
+            ;; references used in `maybe-store'.
+            ;;
+            ;; XXX: Move the shifting code somewhere else.
+            ;;
             (let* ((dst-table (make-hash-table))
-                   ;; When (not tlog), shifting locals for references used in
-                   ;; `maybe-store'.
-                   ;;
-                   ;; XXX: Move the shifting code somewhere else.
-                   ;;
                    (src-table (maybe-store moffs local-x-types args env-ref
                                            (shift-if-not-tlog local-offset
                                                               loop-locals)))
@@ -518,6 +529,7 @@ of SRCS, DSTS, TYPES are local index number."
               ;;
               ;; XXX: Get shift amount from snapshot. Save dynamic link at the
               ;; time of taking snapshot for end of side trace.
+              ;
               (jit-ldxi r0 fp vp->fp-offset)
               (scm-frame-dynamic-link r0 r0)
               (jit-stxi vp->fp-offset fp r0)
@@ -554,7 +566,9 @@ of SRCS, DSTS, TYPES are local index number."
                   (_ (values))))
 
               ;; Move variables to linked trace.
-              (move-or-load-carefully dst-table src-table type-table moffs))
+              (move-or-load-carefully dst-table src-table type-table moffs)
+              (debug 2 ";;; compile-exit: end of jtlc, local-offset=~a~%"
+                     local-offset))
 
             ;; Jump to the beginning of loop in linked code.
             (jumpi (tlog-loop-address linked-tlog)))))
@@ -650,7 +664,7 @@ of SRCS, DSTS, TYPES are local index number."
                (jit-addi vp->fp vp->fp (imm (* local-offset %word-size))))
              (vm-sync-fp vp->fp)))
 
-         ;; Sync next IP for VM interpreter.
+         ;; Sync next IP with vp->ip for VM.
          (jit-movi r0 (imm next-ip))
          (vm-sync-ip r0)
 
@@ -664,8 +678,6 @@ of SRCS, DSTS, TYPES are local index number."
          (jit-calli %scm-make-tjit-retval)
          (jit-retval reg-retval))
 
-       ;; Caller places return address to address `fp + ra-offset', and
-       ;; expects `R0' to hold the packed return values.
        (return-to-interpreter)
        (jit-epilog)
        (jit-realize)
@@ -682,7 +694,8 @@ of SRCS, DSTS, TYPES are local index number."
 
     (let* ((proc (env-ref proc))
            (ip (ref-value proc)))
-      (debug 2 ";;; compile-exit: args=~a~%" args)
+      (debug 2 ";;; compile-exit: args=~a current-side-exit=~a~%"
+             args current-side-exit)
       (cond
        ((not (constant? proc))
         (error "compile-exit: not a constant" proc))
@@ -851,6 +864,10 @@ of SRCS, DSTS, TYPES are local index number."
                  (match vars
                    ((var . vars)
                     (hashq-set! src-table local var)
+                    (when (not (hashq-ref type-table local))
+                      (debug 2 ";;; side-exit entry, setting type from parent,")
+                      (debug 2 "local ~a to type ~a~%" local type)
+                      (hashq-set! type-table local type))
                     (lp local-x-types vars))
                    (()
                     (debug 2 ";;; side-exit: vars=null, local-x-types=~a~%"
@@ -865,11 +882,18 @@ of SRCS, DSTS, TYPES are local index number."
             ;; XXX: Refer snapshot to get the `shift' value and number to invoke
             ;; `scm-frame-dynamic-link'.
             (let ((shift (- (lowest-snapshot-offset snapshots)))
-                  (locals (filter (lambda (n-v)
-                                    (< (car n-v) 0))
+                  (locals (filter (match-lambda
+                                   ((n . _)
+                                    (< n 0)))
                                   initial-locals)))
               (when (not (null? locals))
-                (debug 2 ";;; side-trace entry, loading lower frame.~%"))
+                (debug 2 ";;; side-trace entry, loading lower frame.~%")
+                (debug 2 ";;;   locals=~a~%" locals)
+                (debug 2 ";;;   shift=~a~%" shift)
+                (debug 2 ";;;   type-table=~a~%"
+                       (sort (hash-map->list cons type-table)
+                             (lambda (a b)
+                               (< (car a) (car b))))))
 
               ;; Shift `vp->fp', load locals, then shift `vp->fp' back.
               (jit-ldxi r0 fp vp->fp-offset)

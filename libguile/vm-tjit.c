@@ -227,7 +227,10 @@ call_native (SCM s_ip, SCM tlog,
         {
           /* Deoptimizing side trace. When exit IP and next IP is the
              same IP, assuming that the guard failure caused this was at
-             the beginning of side trace's native code. */
+             the beginning of side trace's native code.
+
+             XXX: Extend side trace instead of removing.
+          */
           scm_hashq_remove_x (tlog_table, exit_ip);
 
           /* Using exit ID from parent of the side trace, to replace
@@ -283,8 +286,10 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
 {
   SCM trace = SCM_EOL;
   SCM s_fp = scm_from_pointer ((void *) fp, NULL);
+  SCM s_ra = SCM_I_MAKINUM (SCM_FRAME_RETURN_ADDRESS (fp));
 
   trace = scm_inline_cons (thread, locals, trace);
+  trace = scm_inline_cons (thread, s_ra, trace);
   trace = scm_inline_cons (thread, s_fp, trace);
   trace = scm_inline_cons (thread, s_ip, trace);
 

@@ -45,11 +45,17 @@
             asm-end-address
             make-negative-pointer
             make-signed-pointer
+            constant-word
             jump
             jumpi
             return-to-interpreter
-            constant-word
-            scm-from-double))
+            scm-from-double
+            scm-frame-dynamic-link
+            scm-frame-set-dynamic-link!
+            scm-frame-return-address
+            scm-frame-set-return-address!
+            vp-offset
+            vp->fp-offset))
 
 (define (make-negative-pointer addr)
   "Make negative pointer with ADDR."
@@ -151,6 +157,23 @@
     (jit-calli %scm-from-double)
     (jit-retval dst)))
 
+(define-syntax-rule (scm-frame-dynamic-link dst src)
+  (jit-ldxi dst src (make-negative-pointer (* -2 %word-size))))
+
+(define-syntax-rule (scm-frame-set-dynamic-link! dst src)
+  (jit-stxi (make-negative-pointer (* -2 %word-size)) dst src))
+
+(define-syntax-rule (scm-frame-return-address dst src)
+  (jit-ldxi dst src (make-negative-pointer (- %word-size))))
+
+(define-syntax-rule (scm-frame-set-return-address! dst src)
+  (jit-stxi (make-negative-pointer (- %word-size)) dst src))
+
+(define vp-offset
+  (make-negative-pointer (- %word-size)))
+
+(define vp->fp-offset
+  (make-negative-pointer (- (* 2 %word-size))))
 
 ;;;
 ;;; Predicates
@@ -241,6 +264,8 @@
   (make-negative-pointer (- (* 4 %word-size))))
 
 (define-syntax-rule (return-to-interpreter)
+  ;; Caller places return address to address `fp + ra-offset', and expects
+  ;; `reg-retval' to hold the packed return values.
   (begin
     (jit-ldxi r1 fp *ra-offset*)
     (jit-jmpr r1)))
@@ -477,6 +502,27 @@
      (else
       (error "%guard-fl" obj)))
     (jit-link exit)
+    (goto-exit asm)
+    (jit-link next)))
+
+(define-prim (%callf asm (int ip))
+  (cond
+   ((constant? ip)
+    (jit-ldxi r0 fp vp->fp-offset)
+    (jit-movi r1 (constant ip))
+    (scm-frame-set-return-address! r0 r1))
+   (else
+    (error "%callf" ip))))
+
+(define-prim (%retf asm (int ip))
+  (let ((next (jit-forward)))
+    (cond
+     ((constant? ip)
+      (jit-ldxi r0 fp vp->fp-offset)
+      (scm-frame-return-address r0 r0)
+      (jump (jit-beqi r0 (constant ip)) next))
+     (else
+      (error "%retf" ip)))
     (goto-exit asm)
     (jit-link next)))
 

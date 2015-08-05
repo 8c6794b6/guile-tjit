@@ -1,4 +1,4 @@
-;;; List of two inlined nested loops.
+;;; Inlined inter-procedure nested loop, wrapped with `list'.
 
 (define (loop1 n acc)
   (let lp ((i n) (acc acc))

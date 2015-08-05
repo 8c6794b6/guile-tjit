@@ -77,7 +77,7 @@
   (cons 'gpr x))
 
 (define (gpr x)
-  (register-ref (ref-value x)))
+  (gpr-ref (ref-value x)))
 
 (define (gpr? x)
   (eq? 'gpr (ref-type x)))

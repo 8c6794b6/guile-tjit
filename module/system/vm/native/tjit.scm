@@ -61,8 +61,12 @@
     (match cont
       (($ $kargs _ _ ($ $continue _ _ ($ $primcall name _)))
        (case name
-         ((%eq %ne %lt %flt %le %ge %fge %guard-fx %guard-fl) ">")
-         (else " ")))
+         ((%retf
+           %eq %ne %lt %flt %le %ge %fge
+           %guard-fx %guard-fl)
+          ">")
+         (else
+          " ")))
       (_
        " ")))
   (define (make-indent n)
@@ -73,7 +77,7 @@
   (define (lowest-level ip-x-ops)
     (let lp ((traces ip-x-ops) (level 0) (lowest 0))
       (match traces
-        (((op _ _ . _) . traces)
+        (((op . _) . traces)
          (case (car op)
            ((call call-label)
             (lp traces (+ level 1) lowest))
@@ -114,7 +118,7 @@
                 (length ip-x-ops) lowest (and locals (sort locals <)))
         (let lp ((traces ip-x-ops) (level (- lowest)))
           (match traces
-            (((op ip fp locals) . traces)
+            (((op ip fp ra locals) . traces)
              (let ((op-val (format #f "~x  ~a~a" ip (make-indent level) op)))
                (if (<= 3 verbosity)
                    (format #t "~40a ; ~a~%" op-val locals)
@@ -217,6 +221,7 @@
       (format #t ";;;   parent-ip:      ~x~%" parent-ip)
       (format #t ";;;   linked-ip:      ~x~%" linked-ip)
       (format #t ";;;   parent-exit-id: ~a~%" parent-exit-id)
+      (format #t ";;;   loop?:          ~a~%" loop?)
       (and tlog (dump-tlog tlog)))
     (with-jit-state
      (jit-prolog)
