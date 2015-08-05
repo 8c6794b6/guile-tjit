@@ -1,4 +1,7 @@
-;; Redefining top-level procedure, more than twice.
+;; Redefining top-level procedure, more than twice. Test for replacing
+;; the first bailout code in side trace. Failing guard tests whether the
+;; IP of callee procedure passed at runtime matches with the one used
+;; at compilation time.
 
 (define *result* '())
 (define *num-loops* 1000)

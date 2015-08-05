@@ -223,22 +223,6 @@ call_native (SCM s_ip, SCM tlog,
              old one. */
           scm_hashq_remove_x (tlog_table, s_ip);
         }
-      else if (exit_ip == s_next_ip)
-        {
-          /* Deoptimizing side trace. When exit IP and next IP is the
-             same IP, assuming that the guard failure caused this was at
-             the beginning of side trace's native code.
-
-             XXX: Extend side trace instead of removing.
-          */
-          scm_hashq_remove_x (tlog_table, exit_ip);
-
-          /* Using exit ID from parent of the side trace, to replace
-             the exit code of side trace's parent trace. */
-          *parent_ip = (scm_t_uintptr) SCM_I_INUM (s_ip);
-          *parent_exit_id = (int) SCM_I_INUM (SCM_TLOG_PARENT_EXIT_ID (tlog));
-          start_recording (state, start, end, loop_start, loop_end);
-        }
       else
         {
           *parent_ip = (scm_t_uintptr) SCM_I_INUM (exit_ip);
@@ -274,7 +258,7 @@ increment_compilation_failure (SCM ip)
 }
 
 static inline int
-hot_loop_p (SCM ip, SCM current_count)
+is_hot_loop (SCM ip, SCM current_count)
 {
   return (tjit_hot_loop < current_count &&
           scm_hashq_ref (failed_ip_table, ip, SCM_INUM0) <
@@ -301,6 +285,7 @@ is_root_trace (SCM tlog)
 {
   return scm_is_true (tlog) && scm_is_true (SCM_TLOG_LOOP_ADDRESS (tlog));
 }
+
 
 /* C macros for vm-tjit engine
 
@@ -344,7 +329,7 @@ is_root_trace (SCM tlog)
         SCM current_count =                                             \
           scm_hashq_ref (ip_counter_table, s_ip, SCM_INUM0);            \
                                                                         \
-        if (hot_loop_p (s_ip, current_count))                           \
+        if (is_hot_loop (s_ip, current_count))                          \
           start_recording (&tjit_state, ip + jump, ip,                  \
                            &tjit_loop_start, &tjit_loop_end);           \
         else                                                            \
@@ -360,14 +345,18 @@ is_root_trace (SCM tlog)
     SCM s_ip = SCM_I_MAKINUM (ip);                                      \
     SCM s_loop_start = SCM_I_MAKINUM (tjit_loop_start);                 \
     SCM tlog = scm_hashq_ref (tlog_table, s_ip, SCM_BOOL_F);            \
+    int found_root_trace = is_root_trace (tlog);                        \
                                                                         \
     SCM locals, s_loop_p;                                               \
     int opcode, i, num_locals;                                          \
                                                                         \
+    s_loop_p = (ip == ((scm_t_uint32 *) tjit_loop_end)) ?               \
+      SCM_BOOL_T : SCM_BOOL_F;                                          \
+                                                                        \
     /* Record bytecode IP, FP, and locals. When tlog is true,        */ \
     /* current record is side trace, and the current bytecode IP is  */ \
     /* already recorded by root trace.                               */ \
-    if (scm_is_false (tlog))                                            \
+    if (!found_root_trace)                                              \
       {                                                                 \
         opcode = *ip & 0xff;                                            \
                                                                         \
@@ -389,10 +378,8 @@ is_root_trace (SCM tlog)
         tjit_traces = record (thread, s_ip, fp, locals, tjit_traces);   \
       }                                                                 \
                                                                         \
-    s_loop_p = (ip == ((scm_t_uint32 *) tjit_loop_end)) ?               \
-      SCM_BOOL_T : SCM_BOOL_F;                                          \
-                                                                        \
-    if (scm_is_true (s_loop_p) || is_root_trace (tlog))                 \
+    /* Stop recording when IP reached to end or found a link. */        \
+    if (scm_is_true (s_loop_p) || found_root_trace)                     \
       {                                                                 \
         SYNC_IP ();                                                     \
         tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces,                \
@@ -400,7 +387,6 @@ is_root_trace (SCM tlog)
                s_ip, s_loop_p);                                         \
         CACHE_FP ();                                                    \
         ++trace_id;                                                     \
-                                                                        \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
                         &tjit_parent_ip, &tjit_parent_exit_id);         \
       }                                                                 \
@@ -412,6 +398,7 @@ is_root_trace (SCM tlog)
                         &tjit_parent_ip, &tjit_parent_exit_id);         \
       }                                                                 \
   } while (0)
+
 
 /*
  * Scheme interfaces
