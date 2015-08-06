@@ -578,9 +578,6 @@
            (push-past-frame! past-frame dl ra local-offset locals))
          (let* ((vproc (var-ref proc))
                 (rproc (local-ref proc))
-                (callf (if (<= 0 local-offset)
-                           '()
-                           `((%callf ,(+ ip (* 2 4))))))
                 (snapshot (take-snapshot! ip 0 locals)))
            (debug 2 ";;; ir.scm:call proc=~a local-offset=~a fp=~a~%"
                   rproc local-offset fp)
@@ -588,7 +585,6 @@
            `(begin
               ,snapshot
               (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
-              ,@callf
               ,(convert escape rest))))
 
         (('call-label proc nlocals label)

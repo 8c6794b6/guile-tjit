@@ -505,15 +505,6 @@
     (goto-exit asm)
     (jit-link next)))
 
-(define-prim (%callf asm (int ip))
-  (cond
-   ((constant? ip)
-    (jit-ldxi r0 fp vp->fp-offset)
-    (jit-movi r1 (constant ip))
-    (scm-frame-set-return-address! r0 r1))
-   (else
-    (error "%callf" ip))))
-
 (define-prim (%retf asm (int ip))
   (let ((next (jit-forward)))
     (cond

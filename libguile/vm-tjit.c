@@ -139,13 +139,13 @@ dump_fp (SCM *fp, SCM port)
   SCM *old_fp = SCM_FRAME_DYNAMIC_LINK (fp);
   scm_t_uint32 *ra = SCM_FRAME_RETURN_ADDRESS (fp);
 
-  scm_puts ("  fp:                            ", port);
+  scm_puts ("  fp: ", port);
   scm_display (scm_from_pointer ((void *) fp, NULL), port);
   scm_newline (port);
-  scm_puts ("  SCM_FRAME_DYNAMIC_LINK (fp):   ", port);
+  scm_puts ("  dl: ", port);
   scm_display (scm_from_pointer ((void *) old_fp, NULL), port);
   scm_newline (port);
-  scm_puts ("  SCM_FRAME_RETURN_ADDRESS (fp): ", port);
+  scm_puts ("  ra: ", port);
   scm_display (scm_from_pointer ((void *) ra, NULL), port);
   scm_newline (port);
 }
