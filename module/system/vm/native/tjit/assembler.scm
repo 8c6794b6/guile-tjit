@@ -38,6 +38,10 @@
   #:use-module (system vm native tjit variables)
   #:export (*native-prim-procedures*
             *native-prim-types*
+            *scm-false*
+            *scm-true*
+            *scm-undefined*
+            *scm-unspecified*
             initialize-tjit-primitives
             make-asm
             asm-fp-offset
@@ -48,12 +52,15 @@
             constant-word
             jump
             jumpi
+            local-ref
+            local-set!
             return-to-interpreter
             scm-from-double
             scm-frame-dynamic-link
             scm-frame-set-dynamic-link!
             scm-frame-return-address
             scm-frame-set-return-address!
+            scm-real-value
             vp-offset
             vp->fp-offset))
 
@@ -146,6 +153,9 @@
 (define-syntax-rule (scm-typ16 dst obj)
   (jit-andi dst obj (imm #xffff)))
 
+(define-syntax-rule (scm-real-value dst src)
+  (jit-ldxi-d dst src (imm (* 2 %word-size))))
+
 (define %scm-from-double
   (dynamic-pointer "scm_do_inline_from_double" (dynamic-link)))
 
@@ -175,6 +185,29 @@
 (define vp->fp-offset
   (make-negative-pointer (- (* 2 %word-size))))
 
+(define-syntax-rule (local-ref dst n)
+  (let ((vp->fp (if (eq? dst r0) r1 r0)))
+    (jit-ldxi vp->fp fp vp->fp-offset)
+    (cond
+     ((= 0 n)
+      (jit-ldr dst vp->fp))
+     ((< 0 n)
+      (jit-ldxi dst vp->fp (imm (* n %word-size))))
+     (else
+      (debug 2 ";;; local-ref: skipping negative local ~a~%" n)))))
+
+(define-syntax-rule (local-set! n src)
+  (let ((vp->fp (if (eq? src r0) r1 r0)))
+    (jit-ldxi vp->fp fp vp->fp-offset)
+    (cond
+     ((= 0 n)
+      (jit-str vp->fp src))
+     ((< 0 n)
+      (jit-stxi (imm (* n %word-size)) vp->fp src))
+     (else
+      (debug 2 ";;; local-set!: skipping negative local ~a~%" n)))))
+
+
 ;;;
 ;;; Predicates
 ;;;
@@ -190,6 +223,9 @@
 
 (define-syntax-rule (scm-realp tag)
   (jit-beqi tag (imm (@@ (system base types) %tc16-real))))
+
+(define-syntax-rule (scm-not-realp tag)
+  (jit-bnei tag (imm (@@ (system base types) %tc16-real))))
 
 
 ;;;
@@ -294,6 +330,21 @@
      (else
       (debug 2 ";;; goto-exit: returning R0~%")
       (jit-retr reg-retval)))))
+
+;;;
+;;; Scheme constants
+
+(define *scm-false*
+  (scm->pointer #f))
+
+(define *scm-true*
+  (scm->pointer #t))
+
+(define *scm-unspecified*
+  (scm->pointer *unspecified*))
+
+(define *scm-undefined*
+  (make-pointer #x904))
 
 
 ;;; XXX: Add more helper macros, e.g: %ne, %eq, %lt, %ge have similar structure.
@@ -469,6 +520,8 @@
       (error "%fge" a b)))
     (goto-exit asm)
     (jit-link next)))
+
+
 
 (define-prim (%guard-fx asm (int obj))
   (let ((next (jit-forward)))
@@ -755,6 +808,80 @@
 ;;; struct-ref, box-ref, string-ref, fluid-ref, bv-u8-ref ... etc or not. When
 ;;; instructions specify its operand type, size of CPS will be more compact, but
 ;;; may loose chances to optimize away type checking instructions.
+
+;; Load frame local to gpr or memory.
+(define-prim (%local-ref/g asm (int dst) (void n) (void type))
+  (let ((exit (jit-forward))
+        (next (jit-forward)))
+    (define-syntax-rule (load-immediate immediate)
+      (begin
+        (jump (jit-bnei r0 immediate) exit)
+        (cond
+         ((gpr? dst)
+          (jit-movr (gpr dst) r0))
+         ((memory? dst)
+          (memory-set! asm dst r0))
+         (else
+          (error "%local-ref/g" dst n type)))))
+    (when (or (not (constant? n))
+              (not (constant? type)))
+      (error "%local-ref/g" dst n type))
+    (local-ref r0 (ref-value n))
+    (let ((type (ref-value type)))
+      (cond
+       ((eq? type &exact-integer)
+        (jump (scm-not-inump r0) exit)
+        (cond
+         ((gpr? dst)
+          (jit-rshi (gpr dst) r0 (imm 2)))
+         ((memory? dst)
+          (jit-rshi r0 r0 (imm 2))
+          (memory-set! asm dst r0))))
+       ((eq? type &false)
+        (load-immediate *scm-false*))
+       ((eq? type &true)
+        (load-immediate *scm-true*))
+       ((eq? type &unspecified)
+        (load-immediate *scm-unspecified*))
+       ((eq? type &unbound)
+        (load-immediate *scm-undefined*))
+       ((memq type (list &box &procedure &pair))
+        ;; XXX: Guard each type.
+        (cond
+         ((gpr? dst)
+          (jit-movr (gpr dst) r0))
+         ((memory? dst)
+          (memory-set! asm dst r0))))
+       (else
+        (error "local-ref/g" dst n type))))
+    (jump next)
+    (jit-link exit)
+    (goto-exit asm)
+    (jit-link next)))
+
+;; Load frame local to fpr or memory.
+(define-prim (%local-ref/f asm (double dst) (void n))
+  (let ((exit (jit-forward))
+        (next (jit-forward)))
+    (when (not (constant? n))
+      (error "%local-ref/f" dst n))
+    (local-ref r0 (ref-value n))
+    (jump (scm-imp r0) exit)
+    (scm-cell-type r1 r0)
+    (scm-typ16 r1 r1)
+    (jump (scm-not-realp r1) exit)
+    (cond
+     ((fpr? dst)
+      (scm-real-value (fpr dst) r0))
+     ((memory? dst)
+      (scm-real-value f0 r0)
+      (memory-set!/fpr asm dst f0))
+     (else
+      (error "%local-ref/f" dst n)))
+    (jump next)
+    (jit-link exit)
+    (goto-exit asm)
+    (jit-link next)))
 
 (define-prim (%cell-object asm (int dst) (int src) (int n))
   (cond

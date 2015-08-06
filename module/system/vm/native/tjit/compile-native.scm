@@ -53,23 +53,8 @@
 ;;; Scheme constants and syntax
 ;;;
 
-(define *scm-false*
-  (scm->pointer #f))
-
-(define *scm-true*
-  (scm->pointer #t))
-
-(define *scm-unspecified*
-  (scm->pointer *unspecified*))
-
-(define *scm-undefined*
-  (make-pointer #x904))
-
 (define %scm-make-tjit-retval
   (dynamic-pointer "scm_make_tjit_retval" (dynamic-link)))
-
-(define-syntax-rule (scm-real-value dst src)
-  (jit-ldxi-d dst src (imm (* 2 %word-size))))
 
 
 ;;;
@@ -93,28 +78,6 @@
   (let ((vp (if (eq? ip r0) r1 r0)))
     (jit-ldxi vp fp vp-offset)
     (jit-str vp ip)))
-
-(define-syntax-rule (local-ref dst n)
-  (let ((vp->fp (if (eq? dst r0) r1 r0)))
-    (jit-ldxi vp->fp fp vp->fp-offset)
-    (cond
-     ((= 0 n)
-      (jit-ldr dst vp->fp))
-     ((< 0 n)
-      (jit-ldxi dst vp->fp (imm (* n %word-size))))
-     (else
-      (debug 2 ";;; local-ref: skipping negative local ~a~%" n)))))
-
-(define-syntax-rule (local-set! n src)
-  (let ((vp->fp (if (eq? src r0) r1 r0)))
-    (jit-ldxi vp->fp fp vp->fp-offset)
-    (cond
-     ((= 0 n)
-      (jit-str vp->fp src))
-     ((< 0 n)
-      (jit-stxi (imm (* n %word-size)) vp->fp src))
-     (else
-      (debug 2 ";;; local-set!: skipping negative local ~a~%" n)))))
 
 
 ;;;
@@ -807,14 +770,7 @@ of SRCS, DSTS, TYPES are local index number."
       ;; Store `vp', `vp->fp', and `registers'.
       (jit-stxi vp-offset fp r0)
       (vm-cache-fp r0)
-      (jit-stxi registers-offset fp r1)
-
-      ;; Load initial locals.
-      (for-each
-       (match-lambda
-        ((local . var)
-         (load-frame moffs local &box (vector-ref env var))))
-       initial-locals))
+      (jit-stxi registers-offset fp r1))
 
      ;; Side trace.
      (else

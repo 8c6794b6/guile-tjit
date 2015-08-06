@@ -1066,38 +1066,19 @@
         (debug 2 "*** ir.scm: empty trace")
         (escape #f))))
 
-    (define (type-guard-op type)
-      (cond
-       ((eq? type &exact-integer) '%guard-fx)
-       ((eq? type &flonum) '%guard-fl)
-       ;; XXX: Add more.
-       (else #f)))
-
-    (define (unbox-op type var next-exp)
-      (cond
-       ((eq? type &flonum)
-        `(let ((,var ,(to-double var)))
-           ,next-exp))
-       ((eq? type &exact-integer)
-        `(let ((,var ,(to-fixnum var)))
-           ,next-exp))
-       (else
-        next-exp)))
-
     (define (make-entry ip vars types loop-exp)
       `(begin
          (,ip)
-         ,(let lp ((types (hash-map->list cons types)))
-            (match types
-              (((i . type) . types)
-               (let* ((var (assq-ref vars i))
-                      (type-guard (and var (type-guard-op type)))
-                      (exp (if type-guard
-                               `(begin
-                                  (,type-guard ,var)
-                                  ,(unbox-op type var (lp types)))
-                               (unbox-op type var (lp types)))))
-                 (or exp (lp types))))
+         ,(let lp ((vars vars))
+            (match vars
+              (((i . var) . vars)
+               (let* ((type (or (hashq-ref types i) &box))
+                      (exp (if (= type &flonum)
+                               `(let ((,var (%local-ref/f ,i)))
+                                  ,(lp vars))
+                               `(let ((,var (%local-ref/g ,i ,type)))
+                                  ,(lp vars)))))
+                 (or exp (lp vars))))
               (()
                loop-exp)))))
 
@@ -1114,7 +1095,7 @@
                             `(begin
                                ,initial-snapshot
                                (loop ,@args)))))
-          `(letrec ((entry (lambda ,args ,entry-body))
+          `(letrec ((entry (lambda () ,entry-body))
                     (loop (lambda ,args ,exp-body)))
              entry)))
        (else                            ; side trace.
