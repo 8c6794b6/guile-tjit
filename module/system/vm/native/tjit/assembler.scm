@@ -887,7 +887,7 @@
     (goto-exit asm)
     (jit-link next)))
 
-(define-prim (%cell-object asm (int dst) (int src) (int n))
+(define-prim (%cell-object asm (int dst) (int src) (void n))
   (cond
    ((and (gpr? dst) (constant? src) (constant? n))
     (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))
@@ -909,27 +909,27 @@
    (else
     (error "%cell-object" dst src n))))
 
-(define-prim (%cell-object/f asm (double dst) (int src) (int idx))
+(define-prim (%cell-object/f asm (double dst) (int src) (void n))
   (cond
-   ((and (fpr? dst) (gpr? src) (constant? idx))
-    (jit-ldxi-d (fpr dst) (gpr src) (constant-word idx)))
-   ((and (fpr? dst) (memory? src) (constant? idx))
+   ((and (fpr? dst) (gpr? src) (constant? n))
+    (jit-ldxi-d (fpr dst) (gpr src) (constant-word n)))
+   ((and (fpr? dst) (memory? src) (constant? n))
     (memory-ref asm r0 src)
-    (jit-ldxi-d (fpr dst) r0 (constant-word idx)))
+    (jit-ldxi-d (fpr dst) r0 (constant-word n)))
 
-   ((and (memory? dst) (gpr? src) (constant? idx))
-    (jit-ldxi-d f0 (gpr src) (constant-word idx))
+   ((and (memory? dst) (gpr? src) (constant? n))
+    (jit-ldxi-d f0 (gpr src) (constant-word n))
     (memory-set!/fpr asm dst f0))
 
-   ((and (memory? dst) (memory? src) (constant? idx))
+   ((and (memory? dst) (memory? src) (constant? n))
     (memory-ref asm r0 src)
-    (jit-ldxi-d f0 r0 (constant-word idx))
+    (jit-ldxi-d f0 r0 (constant-word n))
     (memory-set!/fpr asm dst f0))
 
    (else
-    (error "%cell-object/f" dst src idx))))
+    (error "%cell-object/f" dst src n))))
 
-(define-prim (%set-cell-object! asm (int cell) (int n) (int src))
+(define-prim (%set-cell-object! asm (int cell) (void n) (int src))
   (cond
    ((and (gpr? cell) (constant? n) (gpr? src))
     (jit-stxi (constant-word n) (gpr cell) (gpr src)))
