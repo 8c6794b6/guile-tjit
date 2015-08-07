@@ -1103,7 +1103,10 @@
                (lp vars)
                (let* ((snapshot-00 (hashq-ref snapshots 0))
                       (i (- n (snapshot-offset snapshot-00)))
-                      (local (vector-ref *initial-locals* i))
+                      (local (if (and (< -1 i)
+                                      (< i (vector-length *initial-locals*)))
+                                 (vector-ref *initial-locals* i)
+                                 #f))
                       ;; XXX: Replace &box with &any or &scm.
                       (type (if (hashq-ref known-types n)
                                 &box
