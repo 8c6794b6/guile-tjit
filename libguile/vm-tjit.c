@@ -351,11 +351,8 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
     SCM tlog = scm_hashq_ref (tlog_table, s_ip, SCM_BOOL_F);            \
     int found_root_trace = is_root_trace (tlog);                        \
                                                                         \
-    SCM locals, s_loop_p;                                               \
+    SCM locals;                                                         \
     int opcode, i, num_locals;                                          \
-                                                                        \
-    s_loop_p = (ip == ((scm_t_uint32 *) tjit_loop_end)) ?               \
-      SCM_BOOL_T : SCM_BOOL_F;                                          \
                                                                         \
     /* Record bytecode IP, FP, and locals. When tlog is true,        */ \
     /* current record is side trace, and the current bytecode IP is  */ \
@@ -383,12 +380,12 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
       }                                                                 \
                                                                         \
     /* Stop recording when IP reached to end or found a link. */        \
-    if (scm_is_true (s_loop_p) || found_root_trace)                     \
+    if (ip == ((scm_t_uint32 *) tjit_loop_end) || found_root_trace)     \
       {                                                                 \
         SYNC_IP ();                                                     \
         tjitc (tjit_bytecode, &tjit_bc_idx, tjit_traces,                \
-               &tjit_parent_ip, tjit_parent_exit_id,                    \
-               s_ip, s_loop_p);                                         \
+               &tjit_parent_ip, tjit_parent_exit_id, s_ip,              \
+               found_root_trace ? SCM_BOOL_F : SCM_BOOL_T);             \
         CACHE_FP ();                                                    \
         ++trace_id;                                                     \
         stop_recording (&tjit_state, &tjit_traces, &tjit_bc_idx,        \
