@@ -1,4 +1,4 @@
-;; Simple inter-procedure nested loop.
+;;; Simple inter-procedure nested loop.
 
 (define (loop1 n acc)
   (let lp ((i n) (acc acc))

@@ -29,6 +29,7 @@
   #:use-module (ice-9 match)
   #:use-module (language cps)
   #:use-module (language cps intmap)
+  #:use-module (language cps types)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-11)
   #:use-module (system foreign)
@@ -61,9 +62,10 @@
     (match cont
       (($ $kargs _ _ ($ $continue _ _ ($ $primcall name _)))
        (case name
-         ((%retf
+         ((%return
            %eq %ne %lt %flt %le %ge %fge
-           %guard-fx %guard-fl)
+           %guard-fx %guard-fl
+           %frame-ref %frame-ref/f)
           ">")
          (else
           " ")))
@@ -93,19 +95,45 @@
        #t)
       (_
        #f)))
+  (define (pretty-type type)
+    (cond
+     ((eq? type &exact-integer) (blue "snum"))
+     ((eq? type &flonum) (magenta "fnum"))
+     ((eq? type &char) (blue "char"))
+     ((eq? type &unspecified) (green "unsp"))
+     ((eq? type &unbound) (green "unbn"))
+     ((eq? type &false) (green "fals"))
+     ((eq? type &true) (green "true"))
+     ((eq? type &nil) (green "nil"))
+     ((eq? type &symbol) (blue "symb"))
+     ((eq? type &keyword) (blue "kw"))
+     ((eq? type &procedure) (red "proc"))
+     ((eq? type &pair) (yellow "pair"))
+     ((eq? type &vector) (yellow "vec"))
+     ((eq? type &box) (yellow "box"))
+     ((eq? type &struct) (yellow "strc"))
+     ((dynamic-link? type)
+      (string-append "dl:" (number->string (dynamic-link-offset type))))
+     ((return-address? type)
+      (let ((ra (number->string (pointer-address (return-address-ip type)) 16)))
+        (string-append "ra:" ra)))
+     (else type)))
+  (define (dump-locals locals)
+    (map (match-lambda
+          ((n . type) (cons n (pretty-type type))))
+         locals))
   (define (dump-snapshot cont snapshot-id)
     (when (call-term? cont)
       (let ((snapshot (hashq-ref snapshots snapshot-id)))
-        (if snapshot
-            (format #t "~a     [snapshot ~2,,,' @a] ~a:~a ~a~%"
-                    (cyan "====")
-                    snapshot-id
-                    (snapshot-offset snapshot)
-                    (snapshot-nlocals snapshot)
-                    (snapshot-locals snapshot))
-            (format #t "~a     [snapshot ~2,,,' @a] ---~%"
-                    (cyan "====")
-                    snapshot-id)))))
+        (match snapshot
+          (($ $snapshot offset nlocals locals)
+           (format #t "----     [snap~3,,,' @a] ~a:~a ~a~%"
+                   snapshot-id
+                   offset
+                   nlocals
+                   (dump-locals locals)))
+          (_
+           (format #t "----     [snap~3,,,' @a] ---~%" snapshot-id))))))
   (define (increment-snapshot-id cont snapshot-id)
     (if (call-term? cont)
         (+ snapshot-id 1)
@@ -143,7 +171,7 @@
             (match conts
               (((k . cont) . conts)
                (and (eq? k kstart)
-                    (format #t "---- loop:~%"))
+                    (format #t "==== loop:~%"))
                (dump-snapshot cont snapshot-id)
                (format #t "~4,,,'0@a  ~a~a ~a~%" k
                        (mark-branch cont)
@@ -152,7 +180,7 @@
                (match cont
                  (($ $kargs _ _ ($ $continue knext _ _))
                   (when (< knext k)
-                    (format #t "---- ->loop~%")))
+                    (format #t "==== ->loop~%")))
                  (_ (values)))
                (lp conts (increment-snapshot-id cont snapshot-id)))
               (() values))))))

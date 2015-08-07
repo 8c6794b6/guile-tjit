@@ -267,6 +267,7 @@ MAX-VAR + 1 which contains register and memory information."
        ((= (length locals) (length vars))
         (map cons (reverse locals) vars))
        (else
+        (debug 2 "*** local-var-alist: length mismatch ~a ~a~%" locals vars)
         '())))
 
     (let-values (((types

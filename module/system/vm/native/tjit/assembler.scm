@@ -52,8 +52,8 @@
             constant-word
             jump
             jumpi
-            local-ref
-            local-set!
+            frame-ref
+            frame-set!
             return-to-interpreter
             scm-from-double
             scm-frame-dynamic-link
@@ -185,7 +185,7 @@
 (define vp->fp-offset
   (make-negative-pointer (- (* 2 %word-size))))
 
-(define-syntax-rule (local-ref dst n)
+(define-syntax-rule (frame-ref dst n)
   (let ((vp->fp (if (eq? dst r0) r1 r0)))
     (jit-ldxi vp->fp fp vp->fp-offset)
     (cond
@@ -194,9 +194,9 @@
      ((< 0 n)
       (jit-ldxi dst vp->fp (imm (* n %word-size))))
      (else
-      (debug 2 ";;; local-ref: skipping negative local ~a~%" n)))))
+      (debug 2 ";;; frame-ref: skipping negative local ~a~%" n)))))
 
-(define-syntax-rule (local-set! n src)
+(define-syntax-rule (frame-set! n src)
   (let ((vp->fp (if (eq? src r0) r1 r0)))
     (jit-ldxi vp->fp fp vp->fp-offset)
     (cond
@@ -205,7 +205,7 @@
      ((< 0 n)
       (jit-stxi (imm (* n %word-size)) vp->fp src))
      (else
-      (debug 2 ";;; local-set!: skipping negative local ~a~%" n)))))
+      (debug 2 ";;; frame-set!: skipping negative local ~a~%" n)))))
 
 
 ;;;
@@ -523,42 +523,42 @@
 
 
 
-(define-prim (%guard-fx asm (int obj))
-  (let ((next (jit-forward)))
-    (cond
-     ((gpr? obj)
-      (jump (scm-inump (gpr obj)) next))
-     ((memory? obj)
-      (memory-ref asm r0 obj)
-      (jump (scm-inump r0) next))
-     (else
-      (error "%guard-fx" obj)))
-    (goto-exit asm)
-    (jit-link next)))
+;; (define-prim (%guard-fx asm (int obj))
+;;   (let ((next (jit-forward)))
+;;     (cond
+;;      ((gpr? obj)
+;;       (jump (scm-inump (gpr obj)) next))
+;;      ((memory? obj)
+;;       (memory-ref asm r0 obj)
+;;       (jump (scm-inump r0) next))
+;;      (else
+;;       (error "%guard-fx" obj)))
+;;     (goto-exit asm)
+;;     (jit-link next)))
 
-;;; XXX: Make low level instructions to compare typ16, rewrite this guard.
-(define-prim (%guard-fl asm (int obj))
-  (let ((exit (jit-forward))
-        (next (jit-forward)))
-    (cond
-     ((gpr? obj)
-      (jump (scm-imp (gpr obj)) exit)
-      (scm-cell-type r0 (gpr obj))
-      (scm-typ16 r0 r0)
-      (jump (scm-realp r0) next))
-     ((memory? obj)
-      (memory-ref asm r0 obj)
-      (jump (scm-imp r0) exit)
-      (scm-cell-type r0 r0)
-      (scm-typ16 r0 r0)
-      (jump (scm-realp r0) next))
-     (else
-      (error "%guard-fl" obj)))
-    (jit-link exit)
-    (goto-exit asm)
-    (jit-link next)))
+;; ;;; XXX: Make low level instructions to compare typ16, rewrite this guard.
+;; (define-prim (%guard-fl asm (int obj))
+;;   (let ((exit (jit-forward))
+;;         (next (jit-forward)))
+;;     (cond
+;;      ((gpr? obj)
+;;       (jump (scm-imp (gpr obj)) exit)
+;;       (scm-cell-type r0 (gpr obj))
+;;       (scm-typ16 r0 r0)
+;;       (jump (scm-realp r0) next))
+;;      ((memory? obj)
+;;       (memory-ref asm r0 obj)
+;;       (jump (scm-imp r0) exit)
+;;       (scm-cell-type r0 r0)
+;;       (scm-typ16 r0 r0)
+;;       (jump (scm-realp r0) next))
+;;      (else
+;;       (error "%guard-fl" obj)))
+;;     (jit-link exit)
+;;     (goto-exit asm)
+;;     (jit-link next)))
 
-(define-prim (%retf asm (int ip))
+(define-prim (%return asm (int ip))
   (let ((next (jit-forward)))
     (cond
      ((constant? ip)
@@ -566,7 +566,7 @@
       (scm-frame-return-address r0 r0)
       (jump (jit-beqi r0 (constant ip)) next))
      (else
-      (error "%retf" ip)))
+      (error "%return" ip)))
     (goto-exit asm)
     (jit-link next)))
 
@@ -809,24 +809,27 @@
 ;;; instructions specify its operand type, size of CPS will be more compact, but
 ;;; may loose chances to optimize away type checking instructions.
 
-;; Load frame local to gpr or memory.
-(define-prim (%local-ref/g asm (int dst) (void n) (void type))
+;; Load frame local to gpr or memory, with type check.
+(define-prim (%frame-ref asm (int dst) (void n) (void type))
   (let ((exit (jit-forward))
         (next (jit-forward)))
-    (define-syntax-rule (load-immediate immediate)
+    (define-syntax-rule (load-constant constant)
       (begin
-        (jump (jit-bnei r0 immediate) exit)
+        (jump (jit-bnei r0 constant) exit)
         (cond
          ((gpr? dst)
           (jit-movr (gpr dst) r0))
          ((memory? dst)
           (memory-set! asm dst r0))
          (else
-          (error "%local-ref/g" dst n type)))))
+          (error "%frame-ref" dst n type)))))
     (when (or (not (constant? n))
               (not (constant? type)))
-      (error "%local-ref/g" dst n type))
-    (local-ref r0 (ref-value n))
+      (error "%frame-ref" dst n type))
+
+    ;; XXX: Won't work when n is negative.
+    (frame-ref r0 (ref-value n))
+
     (let ((type (ref-value type)))
       (cond
        ((eq? type &exact-integer)
@@ -838,13 +841,13 @@
           (jit-rshi r0 r0 (imm 2))
           (memory-set! asm dst r0))))
        ((eq? type &false)
-        (load-immediate *scm-false*))
+        (load-constant *scm-false*))
        ((eq? type &true)
-        (load-immediate *scm-true*))
+        (load-constant *scm-true*))
        ((eq? type &unspecified)
-        (load-immediate *scm-unspecified*))
+        (load-constant *scm-unspecified*))
        ((eq? type &unbound)
-        (load-immediate *scm-undefined*))
+        (load-constant *scm-undefined*))
        ((memq type (list &box &procedure &pair))
         ;; XXX: Guard each type.
         (cond
@@ -853,19 +856,20 @@
          ((memory? dst)
           (memory-set! asm dst r0))))
        (else
-        (error "local-ref/g" dst n type))))
+        (error "frame-ref" dst n type))))
     (jump next)
     (jit-link exit)
     (goto-exit asm)
     (jit-link next)))
 
-;; Load frame local to fpr or memory.
-(define-prim (%local-ref/f asm (double dst) (void n))
+;; Load frame local to fpr or memory, with type check. This primitive is used
+;; for loading to floating point register.
+(define-prim (%frame-ref/f asm (double dst) (void n))
   (let ((exit (jit-forward))
         (next (jit-forward)))
     (when (not (constant? n))
-      (error "%local-ref/f" dst n))
-    (local-ref r0 (ref-value n))
+      (error "%frame-ref/f" dst n))
+    (frame-ref r0 (ref-value n))
     (jump (scm-imp r0) exit)
     (scm-cell-type r1 r0)
     (scm-typ16 r1 r1)
@@ -877,7 +881,7 @@
       (scm-real-value f0 r0)
       (memory-set!/fpr asm dst f0))
      (else
-      (error "%local-ref/f" dst n)))
+      (error "%frame-ref/f" dst n)))
     (jump next)
     (jit-link exit)
     (goto-exit asm)
@@ -905,7 +909,7 @@
    (else
     (error "%cell-object" dst src n))))
 
-(define-prim (%cell-object-f asm (double dst) (int src) (int idx))
+(define-prim (%cell-object/f asm (double dst) (int src) (int idx))
   (cond
    ((and (fpr? dst) (gpr? src) (constant? idx))
     (jit-ldxi-d (fpr dst) (gpr src) (constant-word idx)))
@@ -923,7 +927,7 @@
     (memory-set!/fpr asm dst f0))
 
    (else
-    (error "%cell-object-f" dst src idx))))
+    (error "%cell-object/f" dst src idx))))
 
 (define-prim (%set-cell-object! asm (int cell) (int n) (int src))
   (cond

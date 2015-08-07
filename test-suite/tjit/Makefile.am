@@ -52,10 +52,6 @@ TESTS = \
 	t-nest-03.scm \
 	t-nest-04.scm \
 	t-nest-05.scm \
-	t-nest-06.scm \
-	t-nest-07.scm \
-	t-nest-08.scm \
-	t-nest-09.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \
@@ -72,6 +68,7 @@ TESTS = \
 	t-side-exit-14.scm \
 	t-side-exit-15.scm \
 	t-side-exit-16.scm \
+	t-side-exit-17.scm \
 	t-tailcall-01.scm \
 	t-toplevel-box-01.scm \
 	t-toplevel-box-02.scm \

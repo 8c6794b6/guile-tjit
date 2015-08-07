@@ -127,27 +127,27 @@
    ((eq? type &exact-integer)
     (cond
      ((gpr? dst)
-      (local-ref (gpr dst) local)
+      (frame-ref (gpr dst) local)
       (jit-rshi (gpr dst) (gpr dst) (imm 2)))
      ((memory? dst)
-      (local-ref r0 local)
+      (frame-ref r0 local)
       (jit-rshi r0 r0 (imm 2))
       (jit-stxi (moffs dst) fp r0))))
    ((eq? type &flonum)
     (cond
      ((fpr? dst)
-      (local-ref r0 local)
+      (frame-ref r0 local)
       (scm-real-value (fpr dst) r0))
      ((memory? dst)
-      (local-ref r0 local)
+      (frame-ref r0 local)
       (scm-real-value f0 r0)
       (jit-stxi-d (moffs dst) fp f0))))
    ((memq type (list &box &procedure &pair))
     (cond
      ((gpr? dst)
-      (local-ref (gpr dst) local))
+      (frame-ref (gpr dst) local))
      ((memory? dst)
-      (local-ref r0 local)
+      (frame-ref r0 local)
       (jit-stxi (moffs dst) fp r0))))
    ((eq? type &false)
     (cond
@@ -193,7 +193,7 @@
    ;; snapshot as pointer.
    ((return-address? type)
     (jit-movi r0 (return-address-ip type))
-    (local-set! local r0))
+    (frame-set! local r0))
 
    ;; Type is dynamic link, storing fp to local. Dynamic link is stored as
    ;; offset in type. VM's fp could move, may use different value at the time of
@@ -208,7 +208,7 @@
            (ptr (make-signed-pointer amount)))
       (when (< 0 amount)
         (jit-addi r0 r0 ptr)))
-    (local-set! local r0))
+    (frame-set! local r0))
 
    ;; Check type, recover SCM value.
    ((eq? type &exact-integer)
@@ -217,51 +217,51 @@
       (jit-movi r0 (constant src))
       (jit-lshi r0 r0 (imm 2))
       (jit-addi r0 r0 (imm 2))
-      (local-set! local r0))
+      (frame-set! local r0))
      ((gpr? src)
       (jit-lshi r0 (gpr src) (imm 2))
       (jit-addi r0 r0 (imm 2))
-      (local-set! local r0))
+      (frame-set! local r0))
      ((memory? src)
       (jit-ldxi r0 fp (moffs src))
       (jit-lshi r0 r0 (imm 2))
       (jit-addi r0 r0 (imm 2))
-      (local-set! local r0))))
+      (frame-set! local r0))))
    ((eq? type &flonum)
     (cond
      ((constant? src)
       (jit-movi-d f0 (constant src))
       (scm-from-double r0 f0)
-      (local-set! local r0))
+      (frame-set! local r0))
      ((fpr? src)
       (scm-from-double r0 (fpr src))
-      (local-set! local r0))
+      (frame-set! local r0))
      ((memory? src)
       (jit-ldxi-d f0 fp (moffs src))
       (scm-from-double r0 f0)
-      (local-set! local r0))))
+      (frame-set! local r0))))
    ((memq type (list &box &procedure &pair))
     (cond
      ((constant? src)
       (jit-movi r0 (constant src))
-      (local-set! local r0))
+      (frame-set! local r0))
      ((gpr? src)
-      (local-set! local (gpr src)))
+      (frame-set! local (gpr src)))
      ((memory? src)
       (jit-ldxi r0 fp (moffs src))
-      (local-set! local r0))))
+      (frame-set! local r0))))
    ((eq? type &false)
     (jit-movi r0 *scm-false*)
-    (local-set! local r0))
+    (frame-set! local r0))
    ((eq? type &true)
     (jit-movi r0 *scm-true*)
-    (local-set! local r0))
+    (frame-set! local r0))
    ((eq? type &unbound)
     (jit-movi r0 *scm-undefined*)
-    (local-set! local r0))
+    (frame-set! local r0))
    ((eq? type &unspecified)
     (jit-movi r0 *scm-unspecified*)
-    (local-set! local r0))
+    (frame-set! local r0))
    (else
     (error "store-frame" local type src))))
 
@@ -369,14 +369,6 @@ of SRCS, DSTS, TYPES are local index number."
            (lp rest))))
         (() (values))))))
 
-;; XXX: Should refer the shifting amount from snapshot per frame. Otherwise,
-;; frames below two levels from current frame will not work.
-(define (lowest-snapshot-offset snapshots)
-  (hash-fold (lambda (k v acc)
-               (min acc (snapshot-offset v)))
-             0
-             snapshots))
-
 (define (dump-bailout ip exit-id code)
   (let ((verbosity (lightning-verbosity)))
     (when (and verbosity (<= 3 verbosity))
@@ -385,6 +377,14 @@ of SRCS, DSTS, TYPES are local index number."
         (lambda (port)
           (put-bytevector port code)
           (jit-print))))))
+
+;; XXX: Should refer the shifting amount from snapshot per frame. Otherwise,
+;; frames below two levels from current frame will not work.
+(define (lowest-snapshot-offset snapshots)
+  (hash-fold (lambda (k v acc)
+               (min acc (snapshot-offset v)))
+             0
+             snapshots))
 
 
 ;;;
@@ -492,7 +492,7 @@ of SRCS, DSTS, TYPES are local index number."
               ;;
               ;; XXX: Get shift amount from snapshot. Save dynamic link at the
               ;; time of taking snapshot for end of side trace.
-              ;
+                                        ;
               (jit-ldxi r0 fp vp->fp-offset)
               (scm-frame-dynamic-link r0 r0)
               (jit-stxi vp->fp-offset fp r0)
@@ -567,7 +567,6 @@ of SRCS, DSTS, TYPES are local index number."
             (debug 2 ";;;   nlocals: ~a~%" nlocals)
             (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
             (debug 2 ";;;   args: ~a~%" args)
-
             (when (< 0 local-offset)
               (debug 2 ";;; compile-exit: shifting FP for ~a.~%"
                      local-offset))
@@ -578,6 +577,7 @@ of SRCS, DSTS, TYPES are local index number."
               (scm-frame-dynamic-link r0 r0)
               (jit-stxi vp->fp-offset fp r0))
 
+            ;; XXX: local-x-types for snapshot 0 is incorrect for side trace.
             (let lp ((local-x-types local-x-types)
                      (args args)
                      (shift (if (< local-offset 0)
@@ -601,11 +601,12 @@ of SRCS, DSTS, TYPES are local index number."
                       (lp local-x-types args shift)))
                    (()
                     (debug 2 ";;;   args=null, local-x-types=~a~%"
-                           local-x-types))))
+                           local-x-types)
+                    (values nlocals local-offset))))
                 (()
                  (values nlocals local-offset)))))))
          (else
-          (debug 2 ";;; compile-exit: entry IP ~x~%" next-ip)
+          (debug 2 ";;; compile-exit: root trace entry ~x~%" next-ip)
           (values 0 0))))
 
       (with-jit-state
@@ -648,6 +649,7 @@ of SRCS, DSTS, TYPES are local index number."
               (code (make-bytevector estimated-code-size)))
          (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
          (let ((ptr (jit-emit)))
+           (debug 2 ";;; emit-bailout: ptr=~a~%" ptr)
            (make-bytevector-executable! code)
            (dump-bailout next-ip current-side-exit code)
            (hashq-set! exit-codes current-side-exit code)

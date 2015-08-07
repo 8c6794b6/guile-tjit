@@ -327,7 +327,7 @@
   `(%rsh ,scm 2))
 
 (define (to-double scm)
-  `(%cell-object-f ,scm 2))
+  `(%cell-object/f ,scm 2))
 
 
 ;;;
@@ -358,17 +358,17 @@
     (list-ref (car ops) 4))
 
   (define (get-initial-offset)
-    (if root-trace?
-        0
-        ;; Initial offset of side trace is where parent trace left, using offset
-        ;; value from snapshot data.
-        (cond
-         ((hashq-ref (tlog-snapshots tlog) exit-id)
-          =>
-          (match-lambda (($ $snapshot offset)
-                         offset)))
-         (else
-          (error "parent snapshot not found" exit-id)))))
+    (cond
+     (root-trace?
+      0)
+     ((hashq-ref (tlog-snapshots tlog) exit-id)
+      =>
+      ;; Initial offset of side trace is where parent trace left, using offset
+      ;; value from snapshot data.
+      (match-lambda (($ $snapshot offset)
+                     offset)))
+     (else
+      (error "parent snapshot not found" exit-id))))
 
   (define (get-initial-snapshot-id)
     ;; Snapshot ID `0' in root trace contains no local information, used
@@ -419,7 +419,24 @@
       (and parent-locals
            (assq-ref parent-locals i)))
 
-    (define (take-snapshot! ip offset locals)
+    (define (type-of obj)
+      (cond
+       ((fixnum? obj) &exact-integer)
+       ((flonum? obj) &flonum)
+       ((char? obj) &char)
+       ((unspecified? obj) &unspecified)
+       ((unbound? obj) &unbound)
+       ((false? obj) &false)
+       ((true? obj) &true)
+       ((procedure? obj) &procedure)
+       ((pair? obj) &pair)
+       ((variable? obj) &box)
+       (else
+        ;; (error "Type not determined" obj)
+        (debug 2 "*** Type not determined: ~a~%" obj)
+        #f)))
+
+    (define (take-snapshot! ip offset locals indices args)
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
       ;; When procedure get inlined, taking snapshot of previous frame,
@@ -432,7 +449,7 @@
       (debug 2 ";;;   local-offset=~a~%" local-offset)
       (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
       (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame))
-      (let lp ((is (reverse local-indices)) (acc '()))
+      (let lp ((is (reverse indices)) (acc '()))
         (match is
           ((i . is)
            (define (dl-or-ra i)
@@ -444,29 +461,10 @@
                         val))))
            (define (add-local local)
              (debug 2 ";;;   add-local: i=~a, local=~a~%" i local)
-             (cond
-              ((fixnum? local)
-               (lp is (cons `(,i . ,&exact-integer) acc)))
-              ((flonum? local)
-               (lp is (cons `(,i . ,&flonum) acc)))
-              ((unspecified? local)
-               (lp is (cons `(,i . ,&unspecified) acc)))
-              ((unbound? local)
-               (lp is (cons `(,i . ,&unbound) acc)))
-              ((false? local)
-               (lp is (cons `(,i . ,&false) acc)))
-              ((true? local)
-               (lp is (cons `(,i . ,&true) acc)))
-              ((procedure? local)
-               (lp is (cons `(,i . ,&procedure) acc)))
-              ((pair? local)
-               (lp is (cons `(,i . ,&pair) acc)))
-              ((variable? local)
-               (lp is (cons `(,i . ,&box) acc)))
-              (else
-               ;; XXX: Add more types.
-               (debug 2 "*** take-snapshot!: ~a~%" local)
-               (lp is acc))))
+             (let ((type (type-of local)))
+               (if type
+                   (lp is (cons `(,i . ,type) acc))
+                   (lp is acc))))
            (define (add-val val)
              (debug 2 ";;;   add-val: i=~a, val=~a~%" i val)
              (lp is (cons `(,i . ,val) acc)))
@@ -578,7 +576,7 @@
            (push-past-frame! past-frame dl ra local-offset locals))
          (let* ((vproc (var-ref proc))
                 (rproc (local-ref proc))
-                (snapshot (take-snapshot! ip 0 locals)))
+                (snapshot (take-snapshot! ip 0 locals local-indices args)))
            (debug 2 ";;; ir.scm:call proc=~a local-offset=~a fp=~a~%"
                   rproc local-offset fp)
            (push-offset! proc)
@@ -617,8 +615,8 @@
                             `((,vdst ,vsrc))))
                 (retf (if (< 0 local-offset)
                           '()
-                          `(,(take-snapshot! ip 0 locals)
-                            (%retf ,ra)))))
+                          `(,(take-snapshot! ip 0 locals local-indices args)
+                            (%return ,ra)))))
            (pop-past-frame! past-frame)
            (debug 2 ";;; ir.scm:return fp=~a ip=~x ra=~x local-offset=~a~%"
                   fp ip ra local-offset)
@@ -686,7 +684,7 @@
                (set-expecting-type! a &exact-integer)
                (set-expecting-type! b &exact-integer)
                `(begin
-                  ,(take-snapshot! ip dest locals)
+                  ,(take-snapshot! ip dest locals local-indices args)
                   ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
                   ,(convert escape rest)))
               (else
@@ -706,7 +704,7 @@
                (set-expecting-type! a &exact-integer)
                (set-expecting-type! b &exact-integer)
                `(begin
-                  ,(take-snapshot! ip dest locals)
+                  ,(take-snapshot! ip dest locals local-indices args)
                   ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))
                   ,(convert escape rest)))
 
@@ -714,7 +712,7 @@
                (set-expecting-type! a &flonum)
                (set-expecting-type! b &flonum)
                `(begin
-                  ,(take-snapshot! ip dest locals)
+                  ,(take-snapshot! ip dest locals local-indices args)
                   ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
                   ,(convert escape rest)))
               (else
@@ -1026,7 +1024,7 @@
         ;; *** Misc
 
         (('take-snapshot! ip offset)
-         (take-snapshot! ip offset locals))
+         (take-snapshot! ip offset locals local-indices args))
 
         (op
          (debug 2 "*** ir:convert: NYI ~a~%" (car op))
@@ -1057,8 +1055,13 @@
         (match (car traces)
           ((op ip fp ra locals)
            `(begin
-              ,(convert-one escape `(take-snapshot! ,ip 0) ip fp ra locals '())
-              ,(convert escape traces)))
+              ,(let ((args (args-from-parent vars parent-locals)))
+                 (take-snapshot! *initial-ip*
+                                 0
+                                 *initial-locals*
+                                 (local-indices-of-args)
+                                 args))
+              ,(add-initial-loads vars parent-locals (convert escape traces))))
           (_
            (debug 2 "*** ir.scm: malformed traces")
            (escape #f))))
@@ -1074,13 +1077,58 @@
               (((i . var) . vars)
                (let* ((type (or (hashq-ref types i) &box))
                       (exp (if (= type &flonum)
-                               `(let ((,var (%local-ref/f ,i)))
+                               `(let ((,var (%frame-ref/f ,i)))
                                   ,(lp vars))
-                               `(let ((,var (%local-ref/g ,i ,type)))
+                               `(let ((,var (%frame-ref ,i ,type)))
                                   ,(lp vars)))))
-                 (or exp (lp vars))))
+                 exp))
               (()
                loop-exp)))))
+
+    (define (args-from-parent vars parent-locals)
+      (let lp ((vars vars) (acc '()))
+        (match vars
+          (((n . var) . vars)
+           (if (assq-ref parent-locals n)
+               (lp vars (cons var acc))
+               (lp vars acc)))
+          (()
+           acc))))
+
+    (define (add-initial-loads vars parent-locals exp-body)
+      (let lp ((vars vars))
+        (match vars
+          (((n . var) . vars)
+           (if (assq-ref parent-locals n)
+               (lp vars)
+               (let* ((snapshot-00 (hashq-ref snapshots 0))
+                      (i (- n (snapshot-offset snapshot-00)))
+                      (local (vector-ref *initial-locals* i))
+                      ;; XXX: Replace &box with &any or &scm.
+                      (type (if (hashq-ref known-types n)
+                                &box
+                                (type-of local))))
+                 (if (= type &flonum)
+                     `(let ((,var (%frame-ref/f ,n)))
+                        ,(lp vars))
+                     `(let ((,var (%frame-ref ,n ,type)))
+                        ,(lp vars))))))
+          (()
+           exp-body))))
+
+    (define (local-indices-of-args)
+      (cond
+       (root-trace?
+        local-indices)
+       (else
+        (let lp ((local-indices local-indices) (acc '()))
+          (match local-indices
+            ((n . local-indices)
+             (if (assq-ref parent-locals n)
+                 (lp local-indices (cons n acc))
+                 (lp local-indices acc)))
+            (()
+             (reverse! acc)))))))
 
     (define (make-scm exp-body)
       (cond
@@ -1088,19 +1136,25 @@
         (debug 2 ";;; Bytecode to Scheme conversion failed.~%")
         #f)
        (root-trace?
-        (let* ((initial-snapshot
-                (take-snapshot! *ip-key-set-loop-info!* 0 *initial-locals*))
+        (let* ((loop-start-snapshot
+                (take-snapshot! *ip-key-set-loop-info!*
+                                0
+                                *initial-locals*
+                                local-indices
+                                args))
                (entry-body
                 (make-entry *initial-ip* vars expecting-types
                             `(begin
-                               ,initial-snapshot
+                               ,loop-start-snapshot
                                (loop ,@args)))))
           `(letrec ((entry (lambda () ,entry-body))
                     (loop (lambda ,args ,exp-body)))
              entry)))
        (else                            ; side trace.
-        `(letrec ((patch (lambda ,args ,exp-body)))
-           patch))))
+        (let* ((args (args-from-parent vars parent-locals)))
+          `(letrec ((patch (lambda ,args
+                             ,exp-body)))
+             patch)))))
 
     (let ((scm (make-scm (call-with-escape-continuation
                           (lambda (escape)
@@ -1108,7 +1162,7 @@
       (debug 2 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))
-      (values local-indices snapshots scm))))
+      (values (local-indices-of-args) snapshots scm))))
 
 (define (scm->cps scm)
   (define ignored-passes
