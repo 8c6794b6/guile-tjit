@@ -62,7 +62,10 @@
             scm-frame-set-return-address!
             scm-real-value
             vp-offset
-            vp->fp-offset))
+            vp->fp-offset
+            vm-cache-fp
+            vm-sync-fp
+            vm-sync-ip))
 
 (define (make-negative-pointer addr)
   "Make negative pointer with ADDR."
@@ -167,23 +170,38 @@
     (jit-calli %scm-from-double)
     (jit-retval dst)))
 
-(define-syntax-rule (scm-frame-dynamic-link dst src)
-  (jit-ldxi dst src (make-negative-pointer (* -2 %word-size))))
-
-(define-syntax-rule (scm-frame-set-dynamic-link! dst src)
-  (jit-stxi (make-negative-pointer (* -2 %word-size)) dst src))
-
 (define-syntax-rule (scm-frame-return-address dst src)
   (jit-ldxi dst src (make-negative-pointer (- %word-size))))
 
 (define-syntax-rule (scm-frame-set-return-address! dst src)
   (jit-stxi (make-negative-pointer (- %word-size)) dst src))
 
+(define-syntax-rule (scm-frame-dynamic-link dst src)
+  (jit-ldxi dst src (make-negative-pointer (* -2 %word-size))))
+
+(define-syntax-rule (scm-frame-set-dynamic-link! dst src)
+  (jit-stxi (make-negative-pointer (* -2 %word-size)) dst src))
+
 (define vp-offset
   (make-negative-pointer (- %word-size)))
 
 (define vp->fp-offset
   (make-negative-pointer (- (* 2 %word-size))))
+
+(define-syntax-rule (vm-cache-fp vp)
+  (let ((vp->fp (if (eq? vp r0) r1 r0)))
+    (jit-ldxi vp->fp vp (make-pointer (* 2 %word-size)))
+    (jit-stxi vp->fp-offset fp vp->fp)))
+
+(define-syntax-rule (vm-sync-fp vp->fp)
+  (let ((vp (if (eq? vp->fp r0) r1 r0)))
+    (jit-ldxi vp fp vp-offset)
+    (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
+
+(define-syntax-rule (vm-sync-ip ip)
+  (let ((vp (if (eq? ip r0) r1 r0)))
+    (jit-ldxi vp fp vp-offset)
+    (jit-str vp ip)))
 
 (define-syntax-rule (frame-ref dst n)
   (let ((vp->fp (if (eq? dst r0) r1 r0)))
@@ -521,8 +539,6 @@
     (goto-exit asm)
     (jit-link next)))
 
-
-
 ;; (define-prim (%guard-fx asm (int obj))
 ;;   (let ((next (jit-forward)))
 ;;     (cond
@@ -558,18 +574,24 @@
 ;;     (goto-exit asm)
 ;;     (jit-link next)))
 
+;;; Return from procedure call. Guard with return address, check whether it
+;;; matches with IP.
 (define-prim (%return asm (int ip))
-  (let ((next (jit-forward)))
+  (let ((next (jit-forward))
+        (vp->fp r0)
+        (ra r1))
     (cond
      ((constant? ip)
-      (jit-ldxi r0 fp vp->fp-offset)
-      (scm-frame-return-address r0 r0)
-      (jump (jit-beqi r0 (constant ip)) next))
+      (jit-ldxi vp->fp fp vp->fp-offset)
+      (scm-frame-return-address ra vp->fp)
+      (jump (jit-beqi ra (constant ip)) next))
      (else
       (error "%return" ip)))
     (goto-exit asm)
-    (jit-link next)))
-
+    (jit-link next)
+    (scm-frame-dynamic-link vp->fp vp->fp)
+    (jit-stxi vp->fp-offset fp vp->fp)
+    (vm-sync-fp vp->fp)))
 
 ;;;
 ;;; Exact integer

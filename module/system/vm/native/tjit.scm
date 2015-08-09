@@ -253,7 +253,7 @@
       (and tlog (dump-tlog tlog)))
     (with-jit-state
      (jit-prolog)
-     (let-values (((locals snapshots scm cps)
+     (let-values (((locals snapshots lowest-offset scm cps)
                    (trace->cps tlog parent-exit-id loop? ip-x-ops)))
        (cond
         ((not cps)
@@ -271,7 +271,7 @@
                 loop-vars
                 fp-offset)
                (compile-native cps entry-ip locals snapshots tlog
-                               parent-exit-id linked-ip)))
+                               parent-exit-id linked-ip lowest-offset)))
            (let ((epilog-address (jit-label)))
              (jit-patch epilog-address)
              (jit-epilog)

@@ -201,7 +201,7 @@
 
 (define (accumulate-locals local-offset ops)
   (let* ((ret (make-hash-table))
-         (frames '())
+         (lowers '())
          (offset local-offset))
     (define (nyi st op)
       (debug 3 "ir:accumulate-locals: NYI ~a~%" op)
@@ -222,6 +222,15 @@
           ((_ st i)
            (let ((n (+ i offset)))
              (hashq-set! st n #t)
+             ;; (cond
+             ;;  ((hashq-ref st offset)
+             ;;   =>
+             ;;   (lambda (locals)
+             ;;     (hashq-set! locals i #t)))
+             ;;  (else
+             ;;   (let ((locals (make-hash-table)))
+             ;;     (hashq-set! locals i #t)
+             ;;     (hashq-set! st offset locals))))
              st))))
       (match op
         ((op a1)
@@ -260,7 +269,7 @@
               st))
            ((receive)
             (pop-offset! a2)
-            (set! frames (acons offset locals frames))
+            (set! lowers (acons offset locals lowers))
             (add! st a1 a2))
            ((receive-values)
             (pop-offset! a1)
@@ -289,12 +298,44 @@
          (acc (acc-one st op locals) rest))
         (()
          st)))
+    (define (organize-locals st)
+      (define (accumulate-and-sort indices)
+        (sort (hash-fold (lambda (k v acc)
+                           (cons k acc))
+                         '()
+                         indices)
+              >))
+      (hash-fold (lambda (o indices acc)
+                   (hashq-set! acc o (accumulate-and-sort indices))
+                   acc)
+                 (make-hash-table)
+                 st))
 
-    (let ((local-indices (sort (hash-fold (lambda (k v acc)
+    (let (
+          (local-indices (sort (hash-fold (lambda (k v acc)
                                             (cons k acc))
                                           '()
                                           (acc ret ops))
-                               >)))
+                               >))
+          ;; (local-indices (organize-locals (acc ret ops)))
+          )
+      (let ((verbosity (lightning-verbosity)))
+        (when (and (number? verbosity)
+                   (<= 2 verbosity))
+          (format #t ";;; local-indices:~%")
+          (format #t ";;;   ~a~%" local-indices)
+          ;; (let ((sorted (sort (hash-map->list cons local-indices)
+          ;;                     (lambda (a b)
+          ;;                       (< (car a) (car b))))))
+          ;;   (for-each
+          ;;    (match-lambda
+          ;;     ((k . v)
+          ;;      (format #t ";;; ~2,,,' @a: ~a~%" k (sort v <))))
+          ;;    sorted))
+          (format #t ";;; lowers:~%")
+          (for-each (lambda (lower)
+                      (format #t ";;;;  ~a~%" lower))
+                    lowers)))
 
       ;; Make past-frame with locals in lower frames.
       ;;
@@ -304,7 +345,7 @@
       ;; lower frame. When recorded bytecode contains `return', snapshot will
       ;; recover a frame lower than the one used to enter the native call.
       ;;
-      (make-past-frame '() '() local-offset #() local-indices frames))))
+      (make-past-frame '() '() local-offset #() local-indices lowers))))
 
 
 ;;;
@@ -379,10 +420,13 @@
   (let* ((local-offset (get-initial-offset))
          (past-frame (accumulate-locals local-offset ops))
          (local-indices (past-frame-local-indices past-frame))
+         ;; (local-indices (hashq-ref (past-frame-local-indices past-frame)
+         ;;                           local-offset))
          (args (map make-var (reverse local-indices)))
          (vars (make-vars local-indices))
          (expecting-types (make-hash-table))
          (known-types (make-hash-table))
+         (lowest-offset 0)
          (snapshots (make-hash-table))
          (snapshot-id (get-initial-snapshot-id)))
 
@@ -439,6 +483,25 @@
     (define (take-snapshot! ip offset locals indices args)
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
+      (define (compute-args args)
+        (debug 2 ";;;   compute-args: lowest-offset=~a local-offset=~a~%"
+               lowest-offset local-offset)
+        args
+        ;; (if (< lowest-offset local-offset)
+        ;;     (filter (lambda (arg)
+        ;;               ;; XXX: Getting number from symbol.
+        ;;               (let* ((str (substring (symbol->string arg) 1))
+        ;;                      (n (string->number str)))
+        ;;                 ;; (< 0 n)
+        ;;                 (< lowest-offset n)))
+        ;;             args)
+        ;;     args)
+        )
+      (define (shift-lowest acc)
+        (map (match-lambda
+              ((n . local)
+               `(,(- n lowest-offset) . ,local)))
+             acc))
       ;; When procedure get inlined, taking snapshot of previous frame,
       ;; contents of previous frame could change in native code loop.
       (debug 2 ";;; take-snapshot!:~%")
@@ -449,6 +512,8 @@
       (debug 2 ";;;   local-offset=~a~%" local-offset)
       (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
       (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame))
+      (when (< local-offset lowest-offset)
+        (set! lowest-offset local-offset))
       (let lp ((is (reverse indices)) (acc '()))
         (match is
           ((i . is)
@@ -476,8 +541,13 @@
                 ((dl-or-ra i)
                  =>
                  add-val)
+                ;; ((< lowest-offset local-offset)
+                ;;  (add-local (past-frame-lower-ref past-frame i)))
                 (else
-                 (add-local (past-frame-lower-ref past-frame i)))))
+                 (add-local (past-frame-lower-ref past-frame i))
+                 ;; (debug 2 ";;; i=~a, local-offset is 0, skipping~%" i)
+                 ;; (lp is acc)
+                 )))
               (else
                (add-local (and (< i (vector-length locals))
                                (local-ref i))))))
@@ -499,6 +569,11 @@
                      (debug 1 ";;;   i=~a, local-offset=~a, skipping~%"
                             i local-offset)
                      (lp is acc)))))
+
+            ;; ((and (<= 0 local-offset)
+            ;;       (< i 0))
+            ;;  (debug 1 ";;;    i=~a, local-offset=~a, skipping~%")
+            ;;  (lp is acc))
 
             ;; Local in lower frame.
             ((<= local-offset i 0)
@@ -533,13 +608,14 @@
                     snapshot-id i)
              (add-local #f))))
           (()
-           (let ((acc (reverse! acc)))
+           (let* ((acc (reverse! acc))
+                  (args (compute-args args))
+                  (snapshot (make-snapshot local-offset
+                                           (vector-length locals)
+                                           (shift-lowest acc))))
              ;; Using snapshot-id as key for hash-table. Identical IP could
              ;; be used for entry clause and first operation in the loop.
-             (let ((snapshot (make-snapshot local-offset
-                                            (vector-length locals)
-                                            acc)))
-               (hashq-set! snapshots snapshot-id snapshot))
+             (hashq-set! snapshots snapshot-id snapshot)
              (set! snapshot-id (+ snapshot-id 1))
 
              ;; Call dummy procedure to capture CPS variables by emitting
@@ -554,6 +630,35 @@
 
       (define-syntax-rule (var-ref i)
         (assq-ref vars (+ i local-offset)))
+
+      (define (load-lowers offset exp)
+        (debug 2 ";;; load-lowers: offset=~a~%" offset)
+        (if (< 0 offset)
+            exp
+            (let lp ((vars vars))
+              (match vars
+                (((n . var) . vars)
+                 (cond
+                  ((or (= n -1) (= n -2))
+                   ;; Two locals below callee procedure was containing VM frame
+                   ;; dynamic link and VM frame return address.  VM interpreter
+                   ;; refills these two locals with #f, doing the same thing.
+                   `(let ((,var #f))
+                      ,(lp vars)))
+                  ((< n 0)
+                   (let* ((i (- n offset))
+                          (val (if (< -1 i (vector-length locals))
+                                   (vector-ref locals i)
+                                   #f))
+                          (type (type-of val)))
+                     (debug 2 ";;; load-lowers: n=~a var=~a type=~a~%"
+                            n var type)
+                     `(let ((,var (%frame-ref ,(- n offset) ,type)))
+                        ,(lp vars))))
+                  (else
+                   (lp vars))))
+                (()
+                 exp)))))
 
       ;; (debug 2 ";;; convert-one: ~a ~a ~a ~a~%"
       ;;        (or (and (number? ip) (number->string ip 16))
@@ -600,8 +705,9 @@
          (pop-offset! proc)
          (let ((vdst (var-ref dst))
                (vproc (var-ref (+ proc 1))))
-           `(let ((,vdst ,vproc))
-              ,(convert escape rest))))
+           (load-lowers local-offset
+                        `(let ((,vdst ,vproc))
+                           ,(convert escape rest)))))
 
         (('receive-values proc allow-extra? nvalues)
          (pop-offset! proc)
@@ -615,8 +721,10 @@
                             `((,vdst ,vsrc))))
                 (retf (if (< 0 local-offset)
                           '()
-                          `(,(take-snapshot! ip 0 locals local-indices args)
-                            (%return ,ra)))))
+                          `( ;; ,(take-snapshot! ip 0 locals local-indices args)
+                            (%return ,ra))))
+                ;; (exp (load-lowers local-offset (convert escape rest)))
+                )
            (pop-past-frame! past-frame)
            (debug 2 ";;; ir.scm:return fp=~a ip=~x ra=~x local-offset=~a~%"
                   fp ip ra local-offset)
@@ -1099,23 +1207,29 @@
       (let lp ((vars vars))
         (match vars
           (((n . var) . vars)
-           (if (assq-ref parent-locals n)
-               (lp vars)
-               (let* ((snapshot-00 (hashq-ref snapshots 0))
-                      (i (- n (snapshot-offset snapshot-00)))
-                      (local (if (and (< -1 i)
-                                      (< i (vector-length *initial-locals*)))
-                                 (vector-ref *initial-locals* i)
-                                 #f))
-                      ;; XXX: Replace &box with &any or &scm.
-                      (type (if (hashq-ref known-types n)
-                                &box
-                                (type-of local))))
-                 (if (= type &flonum)
-                     `(let ((,var (%frame-ref/f ,n)))
-                        ,(lp vars))
-                     `(let ((,var (%frame-ref ,n ,type)))
-                        ,(lp vars))))))
+           (cond
+            ((assq-ref parent-locals n)
+             (lp vars))
+            ((< n 0)
+             ;; Locals from lower frame won't be passed as argument. Loading
+             ;; later with CPS IR '%frame-ref' or '%frame-ref/f'.
+             (lp vars))
+            (else
+             (let* ((snapshot-00 (hashq-ref snapshots 0))
+                    (i (- n (snapshot-offset snapshot-00)))
+                    (local (if (and (< -1 i)
+                                    (< i (vector-length *initial-locals*)))
+                               (vector-ref *initial-locals* i)
+                               #f))
+                    ;; XXX: Replace &box with &any or &scm.
+                    (type (if (hashq-ref known-types n)
+                              &box
+                              (type-of local))))
+               (if (= type &flonum)
+                   `(let ((,var (%frame-ref/f ,n)))
+                      ,(lp vars))
+                   `(let ((,var (%frame-ref ,n ,type)))
+                      ,(lp vars)))))))
           (()
            exp-body))))
 
@@ -1161,11 +1275,20 @@
 
     (let ((scm (make-scm (call-with-escape-continuation
                           (lambda (escape)
-                            (enter-convert escape ops))))))
+                            (enter-convert escape ops)))))
+          (lowest-offset (let lp ((lowers (past-frame-lowers past-frame))
+                                  (lowest 0))
+                           (match lowers
+                             (((n . _) . lowers)
+                              (if (< n lowest)
+                                  (lp lowers n)
+                                  (lp lowers lowest)))
+                             (()
+                              lowest)))))
       (debug 2 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))
-      (values (local-indices-of-args) snapshots scm))))
+      (values (local-indices-of-args) snapshots lowest-offset scm))))
 
 (define (scm->cps scm)
   (define ignored-passes
@@ -1209,8 +1332,8 @@
                       conts
                       conts)))
   (call-with-values (lambda () (trace->scm tlog exit-id loop? trace))
-    (lambda (locals snapshots scm)
+    (lambda (locals snapshots lowest-offset scm)
       ;; (debug 2 ";;; scm:~%~y" scm)
       (let ((cps (scm->cps scm)))
         ;; (dump-cps cps)
-        (values locals snapshots scm cps)))))
+        (values locals snapshots lowest-offset scm cps)))))

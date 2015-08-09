@@ -64,21 +64,6 @@
 (define registers-offset
   (make-negative-pointer (- (* 3 %word-size))))
 
-(define-syntax-rule (vm-cache-fp vp)
-  (let ((vp->fp (if (eq? vp r0) r1 r0)))
-    (jit-ldxi vp->fp vp (make-pointer (* 2 %word-size)))
-    (jit-stxi vp->fp-offset fp vp->fp)))
-
-(define-syntax-rule (vm-sync-fp vp->fp)
-  (let ((vp (if (eq? vp->fp r0) r1 r0)))
-    (jit-ldxi vp fp vp-offset)
-    (jit-stxi (imm (* 2 %word-size)) vp vp->fp)))
-
-(define-syntax-rule (vm-sync-ip ip)
-  (let ((vp (if (eq? ip r0) r1 r0)))
-    (jit-ldxi vp fp vp-offset)
-    (jit-str vp ip)))
-
 
 ;;;
 ;;; Code generation
@@ -199,9 +184,8 @@
    ;; offset in type. VM's fp could move, may use different value at the time of
    ;; compilation and execution.
    ;;
-   ;; XXX: Currently, negative offset is ignored, storing to local without
-   ;; adding the shift amount. Will not work when more than one levels of
-   ;; `return' were found in traced bytecode.
+   ;; Negative offset is ignored, storing to local without adding the shift
+   ;; amount.
    ((dynamic-link? type)
     (jit-ldxi r0 fp vp->fp-offset)
     (let* ((amount (* (dynamic-link-offset type) %word-size))
@@ -392,7 +376,7 @@ of SRCS, DSTS, TYPES are local index number."
 ;;;
 
 (define (compile-cps cps env kstart entry-ip snapshots loop-args fp-offset
-                     tlog trampoline linked-ip)
+                     tlog trampoline linked-ip lowest-offset)
 
   ;; Internal states.
   (define exit-codes (make-hash-table))
@@ -428,23 +412,31 @@ of SRCS, DSTS, TYPES are local index number."
 
   (define (compile-exit proc args)
     (define (jump-to-linked-code)
+      (debug 2 ";;; start of jtlc: proc=~a args=~a~%" proc args)
       (let* ((linked-tlog (get-tlog linked-ip))
              (loop-locals (tlog-loop-locals linked-tlog)))
-        (define (shift-if-not-tlog local-offset loop-locals)
-          (if (not tlog)
-              (map (match-lambda ((local . type)
-                                  (cons (+ local local-offset) type)))
-                   loop-locals)
-              loop-locals))
-        (define (find-ra local-x-types)
-          ;; XXX: Will not work when nesting level is more than one.
-          (let lp ((local-x-types local-x-types))
-            (match local-x-types
-              (((local . ($ $return-address ip)) . _)
-               ip)
-              ((lt . local-x-types)
-               (lp local-x-types))
-              (_ #f))))
+        (define (shift-with-offset offset loop-locals)
+          ;; Shifting with lowest local offset in IR.
+          (map (match-lambda ((local . type)
+                              `(,(- local lowest-offset) . ,type)))
+               loop-locals))
+
+        ;; (define (shift-if-not-tlog local-offset loop-locals)
+        ;;   (if (not tlog)
+        ;;       (map (match-lambda ((local . type)
+        ;;                           (cons (+ local local-offset) type)))
+        ;;            loop-locals)
+        ;;       loop-locals))
+
+        ;; (define (find-ra local-x-types)
+        ;;   ;; XXX: Will not work when nesting level is more than one.
+        ;;   (let lp ((local-x-types local-x-types))
+        ;;     (match local-x-types
+        ;;       (((local . ($ $return-address ip)) . _)
+        ;;        ip)
+        ;;       ((lt . local-x-types)
+        ;;        (lp local-x-types))
+        ;;       (_ #f))))
         (cond
          ((hashq-ref snapshots current-side-exit)
           =>
@@ -457,9 +449,10 @@ of SRCS, DSTS, TYPES are local index number."
             ;; XXX: Move the shifting code somewhere else.
             ;;
             (let* ((dst-table (make-hash-table))
+                   (references (shift-with-offset local-offset loop-locals))
+                   ;; (references (shift-if-not-tlog local-offset loop-locals))
                    (src-table (maybe-store moffs local-x-types args env-ref
-                                           (shift-if-not-tlog local-offset
-                                                              loop-locals)))
+                                           references))
                    (type-table (make-hash-table)))
 
               ;; When jumping from non-looping root trace, shift the locals in
@@ -468,50 +461,50 @@ of SRCS, DSTS, TYPES are local index number."
               ;;
               ;; XXX: Is the shifting always required?
               ;;
-              (when (not tlog)
-                (let ((tmp (make-hash-table)))
-                  (hash-for-each (lambda (k v)
-                                   (hashq-set! tmp (- k local-offset) v))
-                                 src-table)
-                  (set! src-table tmp)
-                  (when (< 0 local-offset)
-                    (let ((old-fp r0)
-                          (new-fp r1)
-                          (ra (find-ra local-x-types)))
-                      (jit-ldxi old-fp fp vp->fp-offset)
-                      (jit-addi new-fp old-fp (imm (* local-offset %word-size)))
-                      (scm-frame-set-dynamic-link! new-fp old-fp)
-                      (when ra
-                        (jit-movi r0 ra)
-                        (debug 2 ";;; ra=~a~%" ra)
-                        (scm-frame-set-return-address! new-fp r0))
-                      (vm-sync-fp new-fp)))))
+              ;; (when (not tlog)
+              ;;   (let ((tmp (make-hash-table)))
+              ;;     (hash-for-each (lambda (k v)
+              ;;                      (hashq-set! tmp (- k local-offset) v))
+              ;;                    src-table)
+              ;;     (set! src-table tmp)
+              ;;     (when (< 0 local-offset)
+              ;;       (let ((old-fp r0)
+              ;;             (new-fp r1)
+              ;;             (ra (find-ra local-x-types)))
+              ;;         (jit-ldxi old-fp fp vp->fp-offset)
+              ;;         (jit-addi new-fp old-fp (imm (* local-offset %word-size)))
+              ;;         (scm-frame-set-dynamic-link! new-fp old-fp)
+              ;;         (when ra
+              ;;           (jit-movi r0 ra)
+              ;;           (debug 2 ";;; ra=~a~%" ra)
+              ;;           (scm-frame-set-return-address! new-fp r0))
+              ;;         (vm-sync-fp new-fp)))))
 
               ;; Store lower frame data. Shift FP before storing locals, then
               ;; shift FP back to the one from parent trace.
               ;;
               ;; XXX: Get shift amount from snapshot. Save dynamic link at the
               ;; time of taking snapshot for end of side trace.
-                                        ;
-              (jit-ldxi r0 fp vp->fp-offset)
-              (scm-frame-dynamic-link r0 r0)
-              (jit-stxi vp->fp-offset fp r0)
-              (let lp ((locals local-x-types)
-                       (args args)
-                       (shift (- (lowest-snapshot-offset snapshots))))
-                (match locals
-                  (((local . type) . locals)
-                   (match args
-                     ((arg . args)
-                      (when (< local 0)
-                        (let ((local (+ local shift))
-                              (var (env-ref arg)))
-                          (store-frame moffs local type var)))
-                      (lp locals args shift))
-                     (_ (values))))
-                  (_ (values))))
-              (jit-ldxi r0 fp vp-offset)
-              (vm-cache-fp r0)
+              ;;
+              ;; (jit-ldxi r0 fp vp->fp-offset)
+              ;; (scm-frame-dynamic-link r0 r0)
+              ;; (jit-stxi vp->fp-offset fp r0)
+              ;; (let lp ((locals local-x-types)
+              ;;          (args args)
+              ;;          (shift (- (lowest-snapshot-offset snapshots))))
+              ;;   (match locals
+              ;;     (((local . type) . locals)
+              ;;      (match args
+              ;;        ((arg . args)
+              ;;         (when (< local 0)
+              ;;           (let ((local (+ local shift))
+              ;;                 (var (env-ref arg)))
+              ;;             (store-frame moffs local type var)))
+              ;;         (lp locals args shift))
+              ;;        (_ (values))))
+              ;;     (_ (values))))
+              ;; (jit-ldxi r0 fp vp-offset)
+              ;; (vm-cache-fp r0)
 
               ;; Prepare arguments for linked trace.
               (let lp ((locals loop-locals)
@@ -521,7 +514,8 @@ of SRCS, DSTS, TYPES are local index number."
                    (hashq-set! type-table local type)
                    (match dsts
                      ((dst . dsts)
-                      (hashq-set! dst-table local dst)
+                      ;; Shifting with lowest offset from IR.
+                      (hashq-set! dst-table (- local lowest-offset) dst)
                       (lp locals dsts))
                      (()
                       (debug 2 ";;; compile-exit: dsts=null, locals=~a~%"
@@ -532,6 +526,14 @@ of SRCS, DSTS, TYPES are local index number."
               (move-or-load-carefully dst-table src-table type-table moffs)
               (debug 2 ";;; compile-exit: end of jtlc, local-offset=~a~%"
                      local-offset))
+
+            ;; Shift back FP. Not synching fp with vp at this point, since not
+            ;; getting out from native code yet.
+            (when (< lowest-offset 0)
+             (let ((vp->fp r0))
+               (jit-ldxi vp->fp fp vp->fp-offset)
+               (jit-addi vp->fp vp->fp (imm (* (- lowest-offset) %word-size)))
+               (jit-stxi vp->fp-offset fp vp->fp)))
 
             ;; Jump to the beginning of loop in linked code.
             (jumpi (tlog-loop-address linked-tlog)))))
@@ -572,17 +574,18 @@ of SRCS, DSTS, TYPES are local index number."
                      local-offset))
 
             ;; Shift FP, use the one from lower frame.
-            (when (< local-offset 0)
-              (jit-ldxi r0 fp vp->fp-offset)
-              (scm-frame-dynamic-link r0 r0)
-              (jit-stxi vp->fp-offset fp r0))
+            ;; (when (< local-offset 0)
+            ;;   (jit-ldxi r0 fp vp->fp-offset)
+            ;;   (scm-frame-dynamic-link r0 r0)
+            ;;   (jit-stxi vp->fp-offset fp r0))
 
             ;; XXX: local-x-types for snapshot 0 is incorrect for side trace.
             (let lp ((local-x-types local-x-types)
                      (args args)
-                     (shift (if (< local-offset 0)
-                                local-offset
-                                0)))
+                     ;; (shift (if (< local-offset 0)
+                     ;;            local-offset
+                     ;;            0))
+                     )
 
               ;; Matching ends when no more values found in local, args
               ;; exceeding the number of locals are ignored.
@@ -595,10 +598,13 @@ of SRCS, DSTS, TYPES are local index number."
                 (((local . type) . local-x-types)
                  (match args
                    ((arg . args)
-                    (let ((local (- local shift))
+                    (let (
+                          ;; (local (- local shift))
                           (var (env-ref arg)))
                       (store-frame moffs local type var)
-                      (lp local-x-types args shift)))
+                      (lp local-x-types args
+                          ;; shift
+                          )))
                    (()
                     (debug 2 ";;;   args=null, local-x-types=~a~%"
                            local-x-types)
@@ -621,7 +627,7 @@ of SRCS, DSTS, TYPES are local index number."
          ;; positive local offset, fp is already shifted in maybe-store-snapshot
          ;; for negative local offset.
          ;;
-         (when (not (= 0 local-offset))
+         (when (< 0 local-offset) ;; (not (= 0 local-offset))
            (let ((vp->fp r0))
              (jit-ldxi vp->fp fp vp->fp-offset)
              (when (< 0 local-offset)
@@ -677,7 +683,6 @@ of SRCS, DSTS, TYPES are local index number."
       =>
       (lambda (proc)
         (let* ((out-code (trampoline-ref trampoline (- current-side-exit 1)))
-               ;; (end-address (and tlog (tlog-end-address tlog)))
                (end-address (or (and tlog (tlog-end-address tlog))
                                 (and=> (get-tlog linked-ip)
                                        tlog-end-address)))
@@ -733,7 +738,8 @@ of SRCS, DSTS, TYPES are local index number."
 
   (compile-cont cps))
 
-(define (compile-native cps entry-ip locals snapshots tlog exit-id linked-ip)
+(define (compile-native cps entry-ip locals snapshots tlog exit-id linked-ip
+                        lowest-offset)
   (let*-values
       (((max-label max-var) (compute-max-label-and-var cps))
        ((env initial-locals loop-args kstart nspills)
@@ -834,39 +840,41 @@ of SRCS, DSTS, TYPES are local index number."
             ;;
             ;; XXX: Save locals in snapshot per frame, set frame properly by
             ;; invokeing `scm-frame-dynamic-link'.
-            (let ((shift (- (lowest-snapshot-offset snapshots)))
-                  (locals (filter (match-lambda
-                                   ((n . _)
-                                    (< n 0)))
-                                  initial-locals)))
-              (when (not (null? locals))
-                (debug 2 ";;; side-trace entry, loading lower frame.~%")
-                (debug 2 ";;;   locals=~a~%" locals)
-                (debug 2 ";;;   shift=~a~%" shift)
-                (debug 2 ";;;   type-table=~a~%"
-                       (sort (hash-map->list cons type-table)
-                             (lambda (a b)
-                               (< (car a) (car b))))))
+            ;; (let ((shift (- (lowest-snapshot-offset snapshots)))
+            ;;       (locals (filter (match-lambda
+            ;;                        ((n . _)
+            ;;                         (< n 0)))
+            ;;                       initial-locals)))
+            ;;   (when (not (null? locals))
+            ;;     (debug 2 ";;; side-trace entry, loading lower frame.~%")
+            ;;     (debug 2 ";;;   locals=~a~%" locals)
+            ;;     (debug 2 ";;;   shift=~a~%" shift)
+            ;;     (debug 2 ";;;   type-table=~a~%"
+            ;;            (sort (hash-map->list cons type-table)
+            ;;                  (lambda (a b)
+            ;;                    (< (car a) (car b))))))
 
-              ;; Shift `vp->fp', load locals, then shift `vp->fp' back.
-              (jit-ldxi r0 fp vp->fp-offset)
-              (scm-frame-dynamic-link r0 r0)
-              (jit-stxi vp->fp-offset fp r0)
-              (let lp ((locals locals))
-                (match locals
-                  (((local . var) . locals)
-                   (let ((shifted-local (+ local shift))
-                         (type (hashq-ref type-table local))
-                         (var (vector-ref env var)))
-                     (load-frame moffs shifted-local type var)
-                     (lp locals)))
-                  (_ (values))))
-              (jit-ldxi r0 fp vp-offset)
-              (vm-cache-fp r0))))))
+            ;;   ;; Shift `vp->fp', load locals, then shift `vp->fp' back.
+            ;;   (jit-ldxi r0 fp vp->fp-offset)
+            ;;   (scm-frame-dynamic-link r0 r0)
+            ;;   (jit-stxi vp->fp-offset fp r0)
+            ;;   (let lp ((locals locals))
+            ;;     (match locals
+            ;;       (((local . var) . locals)
+            ;;        (let ((shifted-local (+ local shift))
+            ;;              (type (hashq-ref type-table local))
+            ;;              (var (vector-ref env var)))
+            ;;          (load-frame moffs shifted-local type var)
+            ;;          (lp locals)))
+            ;;       (_ (values))))
+            ;;   (jit-ldxi r0 fp vp-offset)
+            ;;   (vm-cache-fp r0))
+
+            ))))
        (else
         (error "compile-tjit: snapshot not found in parent trace"
                exit-id)))))
 
     ;; Assemble the primitives in CPS.
     (compile-cps cps env kstart entry-ip snapshots loop-args fp-offset
-                 tlog trampoline linked-ip)))
+                 tlog trampoline linked-ip lowest-offset)))
