@@ -12,4 +12,6 @@
         (lp (- i 1) (loop1 n acc))
         acc )))
 
-(loop2 100)
+(list (loop2 #e1e2)
+      (loop2 #e1e3)
+      (loop2 #e1e4))

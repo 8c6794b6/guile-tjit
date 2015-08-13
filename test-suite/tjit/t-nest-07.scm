@@ -1,19 +1,20 @@
-;; More inlined procedures in nested loop. Callee has three loops,
-;; and calling the loop twice to return a list.
+;; More inlined procedures in nested loop. Inner procedure has three
+;; loops, calling the inner loop and outer loop 50 times each, returning
+;; list of results.
 
 (define (loop1 n acc)
-    (let lp ((i n) (acc acc))
-      (if (= 0 i)
-          acc
-          (lp (- i 1)
-              (let lp ((i n) (acc acc))
-                (if (= 0 i)
-                    acc
-                    (lp (- i 1)
-                        (let lp ((i n) (acc acc))
-                          (if (= 0 i)
-                              acc
-                              (lp (- i 1) (+ acc 1)))))))))))
+  (let lp ((i n) (acc acc))
+    (if (= 0 i)
+        acc
+        (lp (- i 1)
+            (let lp ((i n) (acc acc))
+              (if (= 0 i)
+                  acc
+                  (lp (- i 1)
+                      (let lp ((i n) (acc acc))
+                        (if (= 0 i)
+                            acc
+                            (lp (- i 1) (+ acc 1)))))))))))
 
 (define (loop2 n)
   (let lp ((i n) (acc 0))
@@ -21,5 +22,18 @@
         (lp (- i 1) (loop1 n acc))
         acc)))
 
-(list (loop2 10)
-      (loop2 100))
+(define (run1 n)
+  (map (lambda (k)
+         (cons k (loop1 k 0)))
+       (iota n)))
+
+(define (run2 n)
+  (map (lambda (k)
+         (cons k (loop2 k)))
+       (iota n)))
+
+;; XXX: At the moment, need to call loop2 once before calling `run1' to
+;; pass this test.
+(list (loop2 20)
+      (run1 50)
+      (run2 50))

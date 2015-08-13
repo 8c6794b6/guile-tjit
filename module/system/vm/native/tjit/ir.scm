@@ -398,6 +398,9 @@
   (define *initial-locals*
     (list-ref (car ops) 4))
 
+  (define *initial-nlocals*
+    (vector-length *initial-locals*))
+
   (define (get-initial-offset)
     (cond
      (root-trace?
@@ -486,17 +489,11 @@
       (define (compute-args args)
         (debug 2 ";;;   compute-args: lowest-offset=~a local-offset=~a~%"
                lowest-offset local-offset)
-        args
-        ;; (if (< lowest-offset local-offset)
-        ;;     (filter (lambda (arg)
-        ;;               ;; XXX: Getting number from symbol.
-        ;;               (let* ((str (substring (symbol->string arg) 1))
-        ;;                      (n (string->number str)))
-        ;;                 ;; (< 0 n)
-        ;;                 (< lowest-offset n)))
-        ;;             args)
-        ;;     args)
-        )
+        ;; XXX: Getting number from symbol.
+        (filter (lambda (arg)
+                  (let* ((str (substring (symbol->string arg) 1)))
+                    (<= lowest-offset (string->number str))))
+                args))
       (define (shift-lowest acc)
         (map (match-lambda
               ((n . local)
@@ -578,7 +575,7 @@
             ;; Local in lower frame.
             ((<= local-offset i 0)
              (let ((j (- i local-offset)))
-               (if (<= 0 j)
+               (if (< -1 j (vector-length locals))
                    (add-local (local-ref j))
                    (begin
                      (debug 1 ";;;   i=~a, local-offset=~a, skipping~%"
@@ -613,6 +610,8 @@
                   (snapshot (make-snapshot local-offset
                                            (vector-length locals)
                                            (shift-lowest acc))))
+             (debug 2 ";;; computed-args=~a~%" args)
+
              ;; Using snapshot-id as key for hash-table. Identical IP could
              ;; be used for entry clause and first operation in the loop.
              (hashq-set! snapshots snapshot-id snapshot)
@@ -673,6 +672,9 @@
         ;; XXX: halt
 
         (('call proc nlocals)
+         ;; XXX: Need to add the local index for `proc' matches with the value
+         ;; used during compilation. Otherwise, frame local after returning from
+         ;; callee procedure will differ.
          (set-expecting-type! proc &procedure)
          (let* ((dl (cons (- (+ proc local-offset) 2)
                           (make-dynamic-link local-offset)))
@@ -1183,7 +1185,8 @@
          ,(let lp ((vars vars))
             (match vars
               (((i . var) . vars)
-               (let* ((type (or (hashq-ref types i) &box))
+               (let* ((type (or (hashq-ref types i)
+                                &box))
                       (exp (if (= type &flonum)
                                `(let ((,var (%frame-ref/f ,i)))
                                   ,(lp vars))
@@ -1204,6 +1207,58 @@
            acc))))
 
     (define (add-initial-loads vars parent-locals exp-body)
+      (define (choose-type-for-local n local)
+        ;; Current policy for deciding the type of initial argument loaded from
+        ;; frame:
+        ;;
+        ;; * If local index is not in initial locals, ignore the load.
+        ;;
+        ;; * Else if local has known type, use the known type.
+        ;;
+        ;; * Else if local has expecting type, use the expecting type.
+        ;;
+        ;; * Else if local is found, load from frame with type of the found
+        ;; value.
+        ;;
+        ;; * Otherwise, initialize the variable as false, without loading from
+        ;; frame.
+        (cond
+         ((<= *initial-nlocals* n)
+          'skip)
+         ((hashq-ref known-types n)
+          => identity)
+         ((hashq-ref expecting-types n)
+          => identity)
+         ((type-of local)
+          => type-of)
+         (else
+          #f))
+        ;; t-nest-07.scm works, t-side-exit-17.scm shows segfault.
+        ;; (cond
+        ;;  ((hashq-ref known-types n)
+        ;;   => identity)
+        ;;  ((hashq-ref expecting-types n)
+        ;;   => identity)
+        ;;  ((type-of local)
+        ;;   => type-of)
+        ;;  (else
+        ;;   #f))
+
+        ;; t-nest-07.scm shows incorrect result, t-side-exit-17.scm
+        ;; works.
+        ;; (cond
+        ;;  ((hashq-ref expecting-types n)
+        ;;   => identity)
+        ;;  ((hashq-ref known-types n)
+        ;;   => (const #f))
+        ;;  ((type-of local)
+        ;;   => type-of)
+        ;;  (else
+        ;;   #f))
+        )
+      (debug 2 ";;; add-initial-loads:")
+      (debug 2 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
+      (debug 2 ";;;   initial-locals=~a~%" *initial-locals*)
       (let lp ((vars vars))
         (match vars
           (((n . var) . vars)
@@ -1221,15 +1276,25 @@
                                     (< i (vector-length *initial-locals*)))
                                (vector-ref *initial-locals* i)
                                #f))
-                    ;; XXX: Replace &box with &any or &scm.
-                    (type (if (hashq-ref known-types n)
-                              &box
-                              (type-of local))))
-               (if (= type &flonum)
-                   `(let ((,var (%frame-ref/f ,n)))
-                      ,(lp vars))
-                   `(let ((,var (%frame-ref ,n ,type)))
-                      ,(lp vars)))))))
+                    (type (choose-type-for-local n local)))
+
+               (debug 2 ";;; add-initial-loads: n=~a local=~a~%" n local)
+               (debug 2 ";;;   known-type:     ~a~%" (hashq-ref known-types n))
+               (debug 2 ";;;   expecting-type: ~a~%" (hashq-ref expecting-types n))
+               (debug 2 ";;;   local:          ~a~%" local)
+               (debug 2 ";;;   type:           ~a~%" type)
+               (cond
+                ((eq? type 'skip)
+                 (lp vars))
+                ((not type)
+                 `(let ((,var #f))
+                    ,(lp vars)))
+                ((= type &flonum)
+                 `(let ((,var (%frame-ref/f ,n)))
+                    ,(lp vars)))
+                (else
+                 `(let ((,var (%frame-ref ,n ,type)))
+                    ,(lp vars))))))))
           (()
            exp-body))))
 
