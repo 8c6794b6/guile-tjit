@@ -414,18 +414,12 @@ of SRCS, DSTS, TYPES are local index number."
       (debug 2 ";;; start of jtlc: proc=~a args=~a~%" proc args)
       (let* ((linked-tlog (get-tlog linked-ip))
              (loop-locals (tlog-loop-locals linked-tlog)))
-        (define (shift-with-offset offset locals)
-          ;; Shifting with lowest local offset in IR.
+        (define (shift-offset offset locals)
+          ;; Shifting locals with lowest given offset in IR.
+          (debug 2 ";;; [jtlc] shift-offset: offset=~a~%" offset)
           (map (match-lambda ((local . type)
-                              `(,(- local lowest-offset) . ,type)))
+                              `(,(- local offset) . ,type)))
                locals))
-
-        (define (shift-if-not-tlog local-offset locals)
-          (debug 2 ";;; shift-if-not-tlog: local-offset=~a~%" local-offset)
-          (map (match-lambda ((local . type)
-                              `(,(+ local local-offset) . ,type)))
-               locals))
-
         (define (find-ra local-x-types)
           ;; XXX: Will not work when nesting level is more than one.
           (let lp ((local-x-types local-x-types))
@@ -446,12 +440,10 @@ of SRCS, DSTS, TYPES are local index number."
                ;; XXX: Move the shifting code somewhere else.
                ;;
                (let* ((dst-table (make-hash-table))
-                      ;; (references (shift-with-offset local-offset loop-locals))
-                      ;; (references (shift-if-not-tlog local-offset loop-locals))
                       (references
                        (if tlog
-                           (shift-with-offset local-offset loop-locals)
-                           (shift-if-not-tlog local-offset loop-locals)))
+                           (shift-offset lowest-offset loop-locals)
+                           (shift-offset local-offset loop-locals)))
                       (src-table (maybe-store moffs local-x-types args env-ref
                                               references))
                       (type-table (make-hash-table)))
@@ -462,26 +454,25 @@ of SRCS, DSTS, TYPES are local index number."
                  ;;
                  ;; XXX: Is the shifting always required?
                  ;;
-                 ;; (when (not tlog)
-                 ;;   (let ((tmp (make-hash-table)))
-                 ;;     (hash-for-each (lambda (k v)
-                 ;;                      (hashq-set! tmp (- k local-offset) v))
-                 ;;                    src-table)
-                 ;;     (set! src-table tmp)
-                 ;;     (when (< 0 local-offset)
-                 ;;       (debug 2 ";;; [jtlc] local-offset=~a~%" local-offset)
-                 ;;       (let ((old-fp r0)
-                 ;;             (new-fp r1)
-                 ;;             (ra (find-ra local-x-types)))
-                 ;;         (jit-ldxi old-fp fp vp->fp-offset)
-                 ;;         (jit-addi new-fp old-fp
-                 ;;                   (imm (* local-offset %word-size)))
-                 ;;         (scm-frame-set-dynamic-link! new-fp old-fp)
-                 ;;         (when ra
-                 ;;           (jit-movi r0 ra)
-                 ;;           (debug 2 ";;; ra=~a~%" ra)
-                 ;;           (scm-frame-set-return-address! new-fp r0))
-                 ;;         (vm-sync-fp new-fp)))))
+                 (when (not tlog)
+                   (let ((tmp (make-hash-table)))
+                     (hash-for-each (lambda (k v)
+                                      (hashq-set! tmp (- k local-offset) v))
+                                    src-table)
+                     (set! src-table tmp)
+                     (when (< 0 local-offset)
+                       (debug 2 ";;; [jtlc] local-offset=~a~%" local-offset)
+                       (let ((old-fp r0)
+                             (new-fp r1)
+                             (ra (find-ra local-x-types))
+                             (shift (* local-offset %word-size)))
+                         (jit-ldxi old-fp fp vp->fp-offset)
+                         (jit-addi new-fp old-fp (imm shift))
+                         (scm-frame-set-dynamic-link! new-fp old-fp)
+                         (when ra
+                           (jit-movi r0 ra)
+                           (debug 2 ";;; ra=~a~%" ra)
+                           (scm-frame-set-return-address! new-fp r0))))))
 
                  ;; Prepare arguments for linked trace.
                  (let lp ((locals loop-locals)
@@ -511,6 +502,16 @@ of SRCS, DSTS, TYPES are local index number."
                    (jit-ldxi vp->fp fp vp->fp-offset)
                    (jit-addi vp->fp vp->fp (imm (* (- lowest-offset) %word-size)))
                    (jit-stxi vp->fp-offset fp vp->fp)))
+
+               ;; Jumping from loop-less root trace, shifting FP.
+               ;;
+               ;; XXX: Add more tests for checking loop-less root traces.
+               (when (not tlog)
+                 (let ((vp->fp r0))
+                   (jit-ldxi vp->fp fp vp->fp-offset)
+                   (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
+                   (jit-stxi vp->fp-offset fp vp->fp)
+                   (vm-sync-fp vp->fp)))
 
                ;; Jump to the beginning of loop in linked code.
                (jumpi (tlog-loop-address linked-tlog)))))

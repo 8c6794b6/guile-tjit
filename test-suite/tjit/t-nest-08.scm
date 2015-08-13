@@ -12,4 +12,4 @@
         acc
         (lp (- i 1) (list (loop1 n 0))))))
 
-(loop2 200)
+(map loop2 (iota 100))

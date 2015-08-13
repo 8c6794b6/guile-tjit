@@ -634,17 +634,17 @@
          ;; XXX: Need to add the local index for `proc' matches with the value
          ;; used during compilation. Otherwise, frame local after returning from
          ;; callee procedure will differ.
-         (set-expecting-type! proc &procedure)
          (let* ((dl (cons (- (+ proc local-offset) 2)
                           (make-dynamic-link local-offset)))
                 (ra (cons (- (+ proc local-offset) 1)
-                          (make-return-address (make-pointer (+ ip (* 2 4)))))))
-           (push-past-frame! past-frame dl ra local-offset locals))
-         (let* ((vproc (var-ref proc))
+                          (make-return-address (make-pointer (+ ip (* 2 4))))))
+                (vproc (var-ref proc))
                 (rproc (local-ref proc))
                 (snapshot (take-snapshot! ip 0 locals local-indices args)))
            (debug 2 ";;; ir.scm:call proc=~a local-offset=~a fp=~a~%"
                   rproc local-offset fp)
+           (set-expecting-type! proc &procedure)
+           (push-past-frame! past-frame dl ra local-offset locals)
            (push-offset! proc)
            `(begin
               ,snapshot
