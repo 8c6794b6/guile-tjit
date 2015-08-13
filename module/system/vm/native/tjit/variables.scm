@@ -141,17 +141,16 @@ constant value."
     (define (expr-type op dst args)
       (cond
        ((lookup-prim-type op)
-        =>
-        (lambda (tys)
-          (let ((vals (append dst args)))
-            (cond
-             ((= (length vals) (length tys))
-              (for-each (lambda (ty val)
-                          (when (not (eq? void ty))
-                            (set-type! ty val)))
-                        tys vals))
-             (else
-              (debug 2 "*** expr-type: arity mismatch in ~a~%" op))))))
+        => (lambda (tys)
+             (let ((vals (append dst args)))
+               (cond
+                ((= (length vals) (length tys))
+                 (for-each (lambda (ty val)
+                             (when (not (eq? void ty))
+                               (set-type! ty val)))
+                           tys vals))
+                (else
+                 (debug 2 "*** expr-type: arity mismatch in ~a~%" op))))))
        (else
         (debug 2 "*** expr-type: `~a' not found~%" op))))
 

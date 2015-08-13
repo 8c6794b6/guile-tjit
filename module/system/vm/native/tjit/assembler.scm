@@ -831,7 +831,8 @@
 ;;; instructions specify its operand type, size of CPS will be more compact, but
 ;;; may loose chances to optimize away type checking instructions.
 
-;; Load frame local to gpr or memory, with type check.
+;; Load frame local to gpr or memory, with type check. Won't work when n is
+;; negative.
 (define-prim (%frame-ref asm (int dst) (void n) (void type))
   (let ((exit (jit-forward))
         (next (jit-forward)))
@@ -849,7 +850,6 @@
               (not (constant? type)))
       (error "%frame-ref" dst n type))
 
-    ;; XXX: Won't work when n is negative.
     (frame-ref r0 (ref-value n))
 
     (let ((type (ref-value type)))

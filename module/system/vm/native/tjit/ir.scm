@@ -222,15 +222,6 @@
           ((_ st i)
            (let ((n (+ i offset)))
              (hashq-set! st n #t)
-             ;; (cond
-             ;;  ((hashq-ref st offset)
-             ;;   =>
-             ;;   (lambda (locals)
-             ;;     (hashq-set! locals i #t)))
-             ;;  (else
-             ;;   (let ((locals (make-hash-table)))
-             ;;     (hashq-set! locals i #t)
-             ;;     (hashq-set! st offset locals))))
              st))))
       (match op
         ((op a1)
@@ -298,40 +289,16 @@
          (acc (acc-one st op locals) rest))
         (()
          st)))
-    (define (organize-locals st)
-      (define (accumulate-and-sort indices)
-        (sort (hash-fold (lambda (k v acc)
-                           (cons k acc))
-                         '()
-                         indices)
-              >))
-      (hash-fold (lambda (o indices acc)
-                   (hashq-set! acc o (accumulate-and-sort indices))
-                   acc)
-                 (make-hash-table)
-                 st))
-
-    (let (
-          (local-indices (sort (hash-fold (lambda (k v acc)
+    (let ((local-indices (sort (hash-fold (lambda (k v acc)
                                             (cons k acc))
                                           '()
                                           (acc ret ops))
-                               >))
-          ;; (local-indices (organize-locals (acc ret ops)))
-          )
+                               >)))
       (let ((verbosity (lightning-verbosity)))
         (when (and (number? verbosity)
                    (<= 2 verbosity))
           (format #t ";;; local-indices:~%")
           (format #t ";;;   ~a~%" local-indices)
-          ;; (let ((sorted (sort (hash-map->list cons local-indices)
-          ;;                     (lambda (a b)
-          ;;                       (< (car a) (car b))))))
-          ;;   (for-each
-          ;;    (match-lambda
-          ;;     ((k . v)
-          ;;      (format #t ";;; ~2,,,' @a: ~a~%" k (sort v <))))
-          ;;    sorted))
           (format #t ";;; lowers:~%")
           (for-each (lambda (lower)
                       (format #t ";;;;  ~a~%" lower))
@@ -406,11 +373,10 @@
      (root-trace?
       0)
      ((hashq-ref (tlog-snapshots tlog) exit-id)
-      =>
       ;; Initial offset of side trace is where parent trace left, using offset
       ;; value from snapshot data.
-      (match-lambda (($ $snapshot offset)
-                     offset)))
+      => (match-lambda (($ $snapshot offset)
+                        offset)))
      (else
       (error "parent snapshot not found" exit-id))))
 
@@ -479,7 +445,6 @@
        ((pair? obj) &pair)
        ((variable? obj) &box)
        (else
-        ;; (error "Type not determined" obj)
         (debug 2 "*** Type not determined: ~a~%" obj)
         #f)))
 
@@ -499,6 +464,7 @@
               ((n . local)
                `(,(- n lowest-offset) . ,local)))
              acc))
+
       ;; When procedure get inlined, taking snapshot of previous frame,
       ;; contents of previous frame could change in native code loop.
       (debug 2 ";;; take-snapshot!:~%")
@@ -536,15 +502,11 @@
               ((< i 0)
                (cond
                 ((dl-or-ra i)
-                 =>
-                 add-val)
+                 => add-val)
                 ;; ((< lowest-offset local-offset)
                 ;;  (add-local (past-frame-lower-ref past-frame i)))
                 (else
-                 (add-local (past-frame-lower-ref past-frame i))
-                 ;; (debug 2 ";;; i=~a, local-offset is 0, skipping~%" i)
-                 ;; (lp is acc)
-                 )))
+                 (add-local (past-frame-lower-ref past-frame i)))))
               (else
                (add-local (and (< i (vector-length locals))
                                (local-ref i))))))
@@ -554,8 +516,7 @@
             ;; code, recorded trace might not contain bytecode operation to fill
             ;; in the dynamic link and return address of past frame.
             ((dl-or-ra i)
-             =>
-             add-val)
+             => add-val)
 
             ;; Local in inlined procedure.
             ((<= 0 local-offset i)
@@ -587,17 +548,15 @@
             ;; saving local in upper frame. Looking up locals from newest
             ;; locals in past-frame.
             ((past-frame-local-ref past-frame i)
-             =>
-             (match-lambda ((_ . local)
-                            (add-local local))))
+             => (match-lambda ((_ . local)
+                               (add-local local))))
 
             ;; Side trace could start from the middle of inlined procedure,
             ;; locals in past frame may not have enough information to recover
             ;; locals in caller of the inlined procedure. In such case, look
             ;; up locals in the snapshot of parent trace.
             ((parent-snapshot-local-ref i)
-             =>
-             add-val)
+             => add-val)
 
             ;; Giving up, skip this local.
             (else
@@ -1232,30 +1191,7 @@
          ((type-of local)
           => type-of)
          (else
-          #f))
-        ;; t-nest-07.scm works, t-side-exit-17.scm shows segfault.
-        ;; (cond
-        ;;  ((hashq-ref known-types n)
-        ;;   => identity)
-        ;;  ((hashq-ref expecting-types n)
-        ;;   => identity)
-        ;;  ((type-of local)
-        ;;   => type-of)
-        ;;  (else
-        ;;   #f))
-
-        ;; t-nest-07.scm shows incorrect result, t-side-exit-17.scm
-        ;; works.
-        ;; (cond
-        ;;  ((hashq-ref expecting-types n)
-        ;;   => identity)
-        ;;  ((hashq-ref known-types n)
-        ;;   => (const #f))
-        ;;  ((type-of local)
-        ;;   => type-of)
-        ;;  (else
-        ;;   #f))
-        )
+          #f)))
       (debug 2 ";;; add-initial-loads:")
       (debug 2 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
       (debug 2 ";;;   initial-locals=~a~%" *initial-locals*)
