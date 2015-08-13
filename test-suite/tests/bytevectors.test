@@ -1,6 +1,6 @@
 ;;;; bytevectors.test --- R6RS bytevectors. -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;; Copyright (C) 2009-2014 Free Software Foundation, Inc.
+;;;; Copyright (C) 2009-2015 Free Software Foundation, Inc.
 ;;;;
 ;;;; Ludovic Courtès
 ;;;;
@@ -23,6 +23,9 @@
   :use-module (system base compile)
   :use-module (rnrs bytevectors)
   :use-module (srfi srfi-4))
+
+(define exception:decoding-error
+  (cons 'decoding-error "input (locale conversion|decoding) error"))
 
 ;;; Some of the tests in here are examples taken from the R6RS Standard
 ;;; Libraries document.
@@ -500,6 +503,15 @@
       (and (string? str)
            (= (string-length str)
               (- (bytevector-length utf8) 2)))))
+
+  (pass-if-equal "utf8->string [replacement character]"
+      '(104 105 65533)
+    (map char->integer
+         (string->list (utf8->string #vu8(104 105 239 191 189)))))
+
+  (pass-if-exception "utf8->string [invalid encoding]"
+      exception:decoding-error
+    (utf8->string #vu8(104 105 239 191 50)))
 
   (pass-if "utf16->string"
     (let* ((utf16  (uint-list->bytevector (map char->integer

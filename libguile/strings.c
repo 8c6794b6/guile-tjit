@@ -1,4 +1,5 @@
-/* Copyright (C) 1995,1996,1998,2000,2001, 2004, 2006, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
+/* Copyright (C) 1995, 1996, 1998, 2000, 2001, 2004, 2006,
+ *   2008-2015 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -1673,9 +1674,9 @@ scm_from_utf8_stringn (const char *str, size_t len)
 
           ascii = 0;
 
-          nbytes = u8_mbtouc (&c, ustr + i, len - i);
+          nbytes = u8_mbtoucr (&c, ustr + i, len - i);
 
-          if (c == 0xfffd)
+          if (nbytes < 0)
             /* Bad UTF-8.  */
             decoding_error (__func__, errno, str, len);
 
