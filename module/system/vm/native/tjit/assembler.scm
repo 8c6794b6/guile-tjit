@@ -574,24 +574,25 @@
 ;;     (goto-exit asm)
 ;;     (jit-link next)))
 
-;;; Return from procedure call. Guard with return address, check whether it
-;;; matches with IP.
+;;; Return from procedure call. Shift current FP to the one from dynamic
+;;; link. Guard with return address, check whether it matches with IP used at
+;;; compilation time.
 (define-prim (%return asm (int ip))
   (let ((next (jit-forward))
         (vp->fp r0)
         (ra r1))
-    (cond
-     ((constant? ip)
-      (jit-ldxi vp->fp fp vp->fp-offset)
-      (scm-frame-return-address ra vp->fp)
-      (jump (jit-beqi ra (constant ip)) next))
-     (else
-      (error "%return" ip)))
+    (when (not (constant? ip))
+      (error "%return" ip))
+    (jit-ldxi vp->fp fp vp->fp-offset)
+    (scm-frame-return-address ra vp->fp)
+    (jump (jit-beqi ra (constant ip)) next)
     (goto-exit asm)
+
     (jit-link next)
     (scm-frame-dynamic-link vp->fp vp->fp)
     (jit-stxi vp->fp-offset fp vp->fp)
     (vm-sync-fp vp->fp)))
+
 
 ;;;
 ;;; Exact integer

@@ -267,7 +267,11 @@ local index in LOCAL-X-TYPES."
        (match srcs
          ((src . srcs)
           (let ((unwrapped-src (src-unwrapper src)))
-            (when (not (assq local references))
+            ;; XXX: Might need to add more conditions for storing dynamic link
+            ;; and return addresses, not sure always these should be stored.
+            (when (or (dynamic-link? type)
+                      (return-address? type)
+                      (not (assq local references)))
               (store-frame moffs local type unwrapped-src))
             (hashq-set! acc local unwrapped-src))
           (lp local-x-types srcs acc))
@@ -360,14 +364,6 @@ of SRCS, DSTS, TYPES are local index number."
         (lambda (port)
           (put-bytevector port code)
           (jit-print))))))
-
-;; XXX: Should refer the shifting amount from snapshot per frame. Otherwise,
-;; frames below two levels from current frame will not work.
-(define (lowest-snapshot-offset snapshots)
-  (hash-fold (lambda (k v acc)
-               (min acc (snapshot-offset v)))
-             0
-             snapshots))
 
 
 ;;;
@@ -495,18 +491,23 @@ of SRCS, DSTS, TYPES are local index number."
                  (debug 2 ";;; compile-exit: end of jtlc, local-offset=~a~%"
                         local-offset))
 
-               ;; Shift back FP. Not synching fp with vp at this point, since not
-               ;; getting out from native code yet.
+               ;; Shift back FP.
                (when (< lowest-offset 0)
+                 (debug 2 ";;; compile-exit: shifting FP, lowest-offset=~a~%"
+                        lowest-offset)
                  (let ((vp->fp r0))
                    (jit-ldxi vp->fp fp vp->fp-offset)
                    (jit-addi vp->fp vp->fp (imm (* (- lowest-offset) %word-size)))
-                   (jit-stxi vp->fp-offset fp vp->fp)))
+                   (jit-stxi vp->fp-offset fp vp->fp)
+                   ;; XXX: Without sync, getting wrong result. With sync,
+                   ;; getting segfault.
+                   (vm-sync-fp vp->fp)))
 
                ;; Jumping from loop-less root trace, shifting FP.
                ;;
                ;; XXX: Add more tests for checking loop-less root traces.
                (when (not tlog)
+                 (debug 2 ";;; compile-exit: shifting FP, not tlog~%")
                  (let ((vp->fp r0))
                    (jit-ldxi vp->fp fp vp->fp-offset)
                    (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
@@ -545,9 +546,6 @@ of SRCS, DSTS, TYPES are local index number."
                (debug 2 ";;;   nlocals: ~a~%" nlocals)
                (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
                (debug 2 ";;;   args: ~a~%" args)
-               (when (< 0 local-offset)
-                 (debug 2 ";;; compile-exit: shifting FP for ~a.~%"
-                        local-offset))
 
                (let lp ((local-x-types local-x-types)
                         (args args))
@@ -590,8 +588,11 @@ of SRCS, DSTS, TYPES are local index number."
          ;;
          (when (< 0 local-offset)
            (let ((vp->fp r0))
+             (debug 2 ";;; compile-exit: shifting FP, local-offset=~a~%"
+                    local-offset)
              (jit-ldxi vp->fp fp vp->fp-offset)
              (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
+             (jit-stxi vp->fp-offset fp vp->fp)
              (vm-sync-fp vp->fp)))
 
          ;; Sync next IP with vp->ip for VM.

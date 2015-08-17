@@ -631,7 +631,7 @@
         ;; XXX: halt
 
         (('call proc nlocals)
-         ;; XXX: Need to add the local index for `proc' matches with the value
+         ;; XXX: Need to add a guard of the `proc' local matches with the value
          ;; used during compilation. Otherwise, frame local after returning from
          ;; callee procedure will differ.
          (let* ((dl (cons (- (+ proc local-offset) 2)
@@ -666,6 +666,7 @@
          (pop-offset! proc)
          (let ((vdst (var-ref dst))
                (vproc (var-ref (+ proc 1))))
+           (debug 2 ";;; ir.scm:receive args=~a~%" args)
            (load-lowers local-offset
                         `(let ((,vdst ,vproc))
                            ,(convert escape rest)))))
@@ -682,10 +683,7 @@
                             `((,vdst ,vsrc))))
                 (retf (if (< 0 local-offset)
                           '()
-                          `( ;; ,(take-snapshot! ip 0 locals local-indices args)
-                            (%return ,ra))))
-                ;; (exp (load-lowers local-offset (convert escape rest)))
-                )
+                          `((%return ,ra)))))
            (pop-past-frame! past-frame)
            (debug 2 ";;; ir.scm:return fp=~a ip=~x ra=~x local-offset=~a~%"
                   fp ip ra local-offset)
@@ -1047,7 +1045,26 @@
         ;; XXX: vector-length
         ;; XXX: vector-ref
         ;; XXX: vector-ref/immediate
+
         ;; XXX: vector-set!
+        (('vector-set! dst idx src)
+         (let ((rdst (local-ref dst))
+               (rsrc (local-ref src))
+               (ridx (local-ref idx))
+               (vdst (var-ref dst))
+               (vsrc (var-ref src))
+               (vidx (var-ref idx)))
+           (cond
+            ((and (vector? rsrc) (fixnum? ridx))
+             (set-expecting-type! dst &vector)
+             `(begin
+                (%vector-set! ,vdst ,vsrc ,vidx)
+                ,(convert escape rest)))
+            (else
+             (debug 2 "*** ir.scm:convert: NYI vector-set! ~a ~a ~a~%"
+                    rdst rsrc ridx)
+             (escape #f)))))
+
         ;; XXX: vector-set!/immediate
 
         ;; *** Structs and GOOPS
