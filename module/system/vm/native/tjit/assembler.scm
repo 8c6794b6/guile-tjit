@@ -63,6 +63,8 @@
             scm-real-value
             vp-offset
             vp->fp-offset
+            registers-offset
+            vp-ra-offset
             vm-cache-fp
             vm-sync-fp
             vm-sync-ip))
@@ -138,6 +140,23 @@
 
 
 ;;;
+;;; Scheme constants
+;;;
+
+(define *scm-false*
+  (scm->pointer #f))
+
+(define *scm-true*
+  (scm->pointer #t))
+
+(define *scm-unspecified*
+  (scm->pointer *unspecified*))
+
+(define *scm-undefined*
+  (make-pointer #x904))
+
+
+;;;
 ;;; SCM macros
 ;;;
 
@@ -186,7 +205,16 @@
   (make-negative-pointer (- %word-size)))
 
 (define vp->fp-offset
-  (make-negative-pointer (- (* 2 %word-size))))
+  (make-negative-pointer (* -2 %word-size)))
+
+(define registers-offset
+  (make-negative-pointer (* -3 %word-size)))
+
+(define *ra-offset*
+  (make-negative-pointer (* -4 %word-size)))
+
+(define vp-ra-offset
+  (make-negative-pointer (* -5 %word-size)))
 
 (define-syntax-rule (vm-cache-fp vp)
   (let ((vp->fp (if (eq? vp r0) r1 r0)))
@@ -223,7 +251,7 @@
      ((< 0 n)
       (jit-stxi (imm (* n %word-size)) vp->fp src))
      (else
-      (debug 2 ";;; frame-set!: skipping negative local ~a~%" n)))))
+      (debug 2 ";;; frame-set!: negative local ~a~%" n)))))
 
 
 ;;;
@@ -314,9 +342,6 @@
    (else
     (jit-stxi-d (moffs asm dst) fp src))))
 
-(define *ra-offset*
-  (make-negative-pointer (- (* 4 %word-size))))
-
 (define-syntax-rule (return-to-interpreter)
   ;; Caller places return address to address `fp + ra-offset', and expects
   ;; `reg-retval' to hold the packed return values.
@@ -348,21 +373,6 @@
      (else
       (debug 2 ";;; goto-exit: returning R0~%")
       (jit-retr reg-retval)))))
-
-;;;
-;;; Scheme constants
-
-(define *scm-false*
-  (scm->pointer #f))
-
-(define *scm-true*
-  (scm->pointer #t))
-
-(define *scm-unspecified*
-  (scm->pointer *unspecified*))
-
-(define *scm-undefined*
-  (make-pointer #x904))
 
 
 ;;; XXX: Add more helper macros, e.g: %ne, %eq, %lt, %ge have similar structure.
@@ -579,19 +589,20 @@
 ;;; compilation time.
 (define-prim (%return asm (int ip))
   (let ((next (jit-forward))
-        (vp->fp r0)
+        (old-fp r0)
+        (new-fp r1)
         (ra r1))
     (when (not (constant? ip))
       (error "%return" ip))
-    (jit-ldxi vp->fp fp vp->fp-offset)
-    (scm-frame-return-address ra vp->fp)
+    (jit-ldxi old-fp fp vp->fp-offset)
+    (scm-frame-return-address ra old-fp)
     (jump (jit-beqi ra (constant ip)) next)
     (goto-exit asm)
 
     (jit-link next)
-    (scm-frame-dynamic-link vp->fp vp->fp)
-    (jit-stxi vp->fp-offset fp vp->fp)
-    (vm-sync-fp vp->fp)))
+    (scm-frame-dynamic-link new-fp old-fp)
+    (jit-stxi vp->fp-offset fp new-fp)
+    (vm-sync-fp new-fp)))
 
 
 ;;;

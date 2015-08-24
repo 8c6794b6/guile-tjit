@@ -301,7 +301,7 @@
           (format #t ";;;   ~a~%" local-indices)
           (format #t ";;; lowers:~%")
           (for-each (lambda (lower)
-                      (format #t ";;;;  ~a~%" lower))
+                      (format #t ";;;   ~a~%" lower))
                     lowers)))
 
       ;; Make past-frame with locals in lower frames.
@@ -667,6 +667,8 @@
          (let ((vdst (var-ref dst))
                (vproc (var-ref (+ proc 1))))
            (debug 2 ";;; ir.scm:receive args=~a~%" args)
+           (debug 2 ";;; ir.scm:receive fp=~x ra=~x ip=~x~%"
+                  (pointer-address fp) ra ip)
            (load-lowers local-offset
                         `(let ((,vdst ,vproc))
                            ,(convert escape rest)))))
@@ -685,8 +687,10 @@
                           '()
                           `((%return ,ra)))))
            (pop-past-frame! past-frame)
-           (debug 2 ";;; ir.scm:return fp=~a ip=~x ra=~x local-offset=~a~%"
+           (debug 2 ";;; ir.scm:return~%;;;    fp=~a ip=~x ra=~x local-offset=~a~%"
                   fp ip ra local-offset)
+           (debug 2 ";;;    locals=~a~%;;;    local-indices=~a~%;;;    args=~a~%"
+                  locals local-indices args)
            `(let ,assign
               ,@retf
               ,(convert escape rest))))
@@ -1209,7 +1213,7 @@
           => type-of)
          (else
           #f)))
-      (debug 2 ";;; add-initial-loads:")
+      (debug 2 ";;; add-initial-loads:~%")
       (debug 2 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
       (debug 2 ";;;   initial-locals=~a~%" *initial-locals*)
       (let lp ((vars vars))

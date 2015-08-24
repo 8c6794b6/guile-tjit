@@ -58,14 +58,6 @@
 
 
 ;;;
-;;; VM constants and syntax
-;;;
-
-(define registers-offset
-  (make-negative-pointer (- (* 3 %word-size))))
-
-
-;;;
 ;;; Code generation
 ;;;
 
@@ -411,7 +403,7 @@ of SRCS, DSTS, TYPES are local index number."
       (let* ((linked-tlog (get-tlog linked-ip))
              (loop-locals (tlog-loop-locals linked-tlog)))
         (define (shift-offset offset locals)
-          ;; Shifting locals with lowest given offset in IR.
+          ;; Shifting locals with given offset.
           (debug 2 ";;; [jtlc] shift-offset: offset=~a~%" offset)
           (map (match-lambda ((local . type)
                               `(,(- local offset) . ,type)))
@@ -495,13 +487,26 @@ of SRCS, DSTS, TYPES are local index number."
                (when (< lowest-offset 0)
                  (debug 2 ";;; compile-exit: shifting FP, lowest-offset=~a~%"
                         lowest-offset)
-                 (let ((vp->fp r0))
-                   (jit-ldxi vp->fp fp vp->fp-offset)
-                   (jit-addi vp->fp vp->fp (imm (* (- lowest-offset) %word-size)))
-                   (jit-stxi vp->fp-offset fp vp->fp)
-                   ;; XXX: Without sync, getting wrong result. With sync,
-                   ;; getting segfault.
-                   (vm-sync-fp vp->fp)))
+                 (let ((old-fp r0)
+                       (new-fp r1)
+                       (ra (find-ra local-x-types)))
+                   (jit-ldxi old-fp fp vp->fp-offset)
+
+                   ;; Shifting FP. Shifting back lowest-offset for `%return',
+                   ;; and local-offset for procedure call.
+                   (let ((shift (+ (- lowest-offset) local-offset)))
+                     (jit-addi new-fp old-fp (imm (* shift %word-size))))
+
+                   (scm-frame-set-dynamic-link! new-fp old-fp)
+                   (jit-stxi vp->fp-offset fp new-fp)
+
+                   ;; XXX: Using `find-ra', return address determined at
+                   ;; compilation time.
+                   (jit-movi r0 ra)
+                   (scm-frame-set-return-address! new-fp r0)
+
+                   ;; Sync FP.
+                   (vm-sync-fp new-fp)))
 
                ;; Jumping from loop-less root trace, shifting FP.
                ;;
@@ -549,7 +554,6 @@ of SRCS, DSTS, TYPES are local index number."
 
                (let lp ((local-x-types local-x-types)
                         (args args))
-
                  ;; Matching ends when no more values found in local, args
                  ;; exceeding the number of locals are ignored.
                  ;;
@@ -557,6 +561,7 @@ of SRCS, DSTS, TYPES are local index number."
                  ;; snapshots and save args.  Snapshot data need to contain
                  ;; locals in caller procedure when VM bytecode op made this
                  ;; side exit was inlined.
+                 ;;
                  (match local-x-types
                    (((local . type) . local-x-types)
                     (match args
@@ -739,7 +744,11 @@ of SRCS, DSTS, TYPES are local index number."
       ;; Store `vp', `vp->fp', and `registers'.
       (jit-stxi vp-offset fp r0)
       (vm-cache-fp r0)
-      (jit-stxi registers-offset fp r1))
+      (jit-stxi registers-offset fp r1)
+
+      (jit-ldxi r0 fp vp->fp-offset)
+      (scm-frame-return-address r1 r0)
+      (jit-stxi vp-ra-offset fp r1))
 
      ;; Side trace.
      (else

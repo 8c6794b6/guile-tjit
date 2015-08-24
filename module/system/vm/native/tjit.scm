@@ -272,8 +272,8 @@
                 fp-offset)
                (compile-native cps entry-ip locals snapshots tlog
                                parent-exit-id linked-ip lowest-offset)))
-           (let ((epilog-address (jit-label)))
-             (jit-patch epilog-address)
+           (let ((epilog-label (jit-label)))
+             (jit-patch epilog-label)
              (jit-epilog)
              (jit-realize)
              (let* ((estimated-size (jit-code-size))
@@ -283,10 +283,15 @@
                       (exit-counts (make-hash-table))
                       (loop-address (and loop-label (jit-address loop-label)))
                       (end-address (or (and tlog (tlog-end-address tlog))
-                                       (jit-address epilog-address)))
+                                       (jit-address epilog-label)))
                       (parent-id (or (and tlog (tlog-id tlog))
                                      0)))
                  (make-bytevector-executable! code)
+
+                 ;;; XXX: Same entry-ip could be used when side exit 0
+                 ;;; was taken for multiple times. Add another way to
+                 ;;; store tlogs, otherwise native code of tlog could be
+                 ;;; garbage collected while still in use.
                  (put-tlog! entry-ip (make-tlog trace-id
                                                 code
                                                 exit-counts
