@@ -50,7 +50,7 @@
   #:use-module (system base compile)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
-  #:use-module (system vm native tjit tlog)
+  #:use-module (system vm native tjit fragment)
   #:export (trace->cps
             trace->scm
             scm->cps
@@ -342,9 +342,9 @@
 ;;; Scheme ANF compiler
 ;;;
 
-(define (trace->scm tlog exit-id loop? ops)
+(define (trace->scm fragment exit-id loop? ops)
   (define br-op-size 2)
-  (define root-trace? (not tlog))
+  (define root-trace? (not fragment))
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
 
@@ -372,7 +372,7 @@
     (cond
      (root-trace?
       0)
-     ((hashq-ref (tlog-snapshots tlog) exit-id)
+     ((hashq-ref (fragment-snapshots fragment) exit-id)
       ;; Initial offset of side trace is where parent trace left, using offset
       ;; value from snapshot data.
       => (match-lambda (($ $snapshot offset)
@@ -423,7 +423,8 @@
           (hashq-set! known-types i ty))))
 
     (define parent-locals
-      (let ((snapshot (and tlog (hashq-ref (tlog-snapshots tlog) exit-id))))
+      (let ((snapshot (and fragment
+                           (hashq-ref (fragment-snapshots fragment) exit-id))))
         (match snapshot
           (($ $snapshot _ _ locals) locals)
           (_ #f))))
@@ -1345,7 +1346,7 @@
     (set! cps (and cps (body-fun cps)))
     cps))
 
-(define (trace->cps tlog exit-id loop? trace)
+(define (trace->cps fragment exit-id loop? trace)
   (define (dump-cps conts)
     (and conts
          (intmap-fold (lambda (k v out)
@@ -1353,7 +1354,7 @@
                         out)
                       conts
                       conts)))
-  (call-with-values (lambda () (trace->scm tlog exit-id loop? trace))
+  (call-with-values (lambda () (trace->scm fragment exit-id loop? trace))
     (lambda (locals snapshots lowest-offset scm)
       ;; (debug 2 ";;; scm:~%~y" scm)
       (let ((cps (scm->cps scm)))

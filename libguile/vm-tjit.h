@@ -35,7 +35,7 @@ SCM_API SCM scm_tjit_hot_loop (void);
 SCM_API SCM scm_set_tjit_hot_loop_x (SCM count);
 SCM_API SCM scm_tjit_hot_exit (void);
 SCM_API SCM scm_set_tjit_hot_exit_x (SCM count);
-SCM_API SCM scm_tlog_table (void);
+SCM_API SCM scm_fragment_table (void);
 SCM_API SCM scm_failed_ip_table (void);
 
 SCM_API SCM scm_make_tjit_retval (scm_i_thread *thread,
@@ -44,15 +44,15 @@ SCM_API SCM scm_make_tjit_retval (scm_i_thread *thread,
                                   scm_t_bits nlocals,
                                   scm_t_bits local_offset);
 
-/* Fields in record-type `tlog', from:
+/* Fields in record-type `fragment', from:
    "module/system/vm/native/tjit/parameters.scm". */
-#define SCM_TLOG_ID(T)             SCM_STRUCT_SLOT_REF (T, 0)
-#define SCM_TLOG_CODE(T)           SCM_STRUCT_SLOT_REF (T, 1)
-#define SCM_TLOG_EXIT_COUNTS(T)    SCM_STRUCT_SLOT_REF (T, 2)
-#define SCM_TLOG_ENTRY_IP(T)       SCM_STRUCT_SLOT_REF (T, 3)
-#define SCM_TLOG_PARENT_ID(T)      SCM_STRUCT_SLOT_REF (T, 4)
-#define SCM_TLOG_PARENT_EXIT_ID(T) SCM_STRUCT_SLOT_REF (T, 5)
-#define SCM_TLOG_LOOP_ADDRESS(T)   SCM_STRUCT_SLOT_REF (T, 6)
+#define SCM_FRAGMENT_ID(T)             SCM_STRUCT_SLOT_REF (T, 0)
+#define SCM_FRAGMENT_CODE(T)           SCM_STRUCT_SLOT_REF (T, 1)
+#define SCM_FRAGMENT_EXIT_COUNTS(T)    SCM_STRUCT_SLOT_REF (T, 2)
+#define SCM_FRAGMENT_ENTRY_IP(T)       SCM_STRUCT_SLOT_REF (T, 3)
+#define SCM_FRAGMENT_PARENT_ID(T)      SCM_STRUCT_SLOT_REF (T, 4)
+#define SCM_FRAGMENT_PARENT_EXIT_ID(T) SCM_STRUCT_SLOT_REF (T, 5)
+#define SCM_FRAGMENT_LOOP_ADDRESS(T)   SCM_STRUCT_SLOT_REF (T, 6)
 
 #define SCM_TJIT_RETVAL_EXIT_ID(R) SCM_CELL_OBJECT (R, 0)
 #define SCM_TJIT_RETVAL_EXIT_IP(R) SCM_CELL_OBJECT (R, 1)

@@ -40,7 +40,7 @@
   #:use-module (system vm native tjit compile-native)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit parameters)
-  #:use-module (system vm native tjit tlog)
+  #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit variables)
   #:export (tjitc
             init-vm-tjit)
@@ -51,7 +51,7 @@
 ;;; Showing IR dump
 ;;;
 
-(define (show-dump ip-x-ops scm locals cps snapshots tlog code code-size)
+(define (show-dump ip-x-ops scm locals cps snapshots fragment code code-size)
   (define (mark-call cont)
     (match cont
       (($ $kargs _ _ ($ $continue _ _ ($ $call _ _)))
@@ -225,23 +225,24 @@
        (format #f "~a:~d"
                (or (source-file source) "(unknown file)")
                (source-line-for-user source)))))
-  (define-syntax-rule (show-one-line sline tlog code-size)
+  (define-syntax-rule (show-one-line sline fragment code-size)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
-                                 (or (and tlog (tlog-id tlog))
+                                 (or (and fragment (fragment-id fragment))
                                      (format #f "~x" parent-ip))
                                  parent-exit-id)
                          ""))
           (linked-id (if loop?
                          ""
-                         (format #f " -> ~a" (tlog-id (get-tlog linked-ip))))))
+                         (format #f " -> ~a"
+                                 (fragment-id (get-fragment linked-ip))))))
       (format #t ";;; trace ~a:~a ~a~a~a~%"
               trace-id sline code-size exit-pair linked-id)))
 
   (let* ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
          (entry-ip (cadr (car ip-x-ops)))
          (verbosity (lightning-verbosity))
-         (tlog (get-tlog parent-ip))
+         (fragment (get-fragment parent-ip))
          (sline (ip-ptr->source-line (cadr (car ip-x-ops)))))
     (when (and verbosity (<= 2 verbosity))
       (format #t ";;; tjit.scm:~%")
@@ -250,16 +251,16 @@
       (format #t ";;;   linked-ip:      ~x~%" linked-ip)
       (format #t ";;;   parent-exit-id: ~a~%" parent-exit-id)
       (format #t ";;;   loop?:          ~a~%" loop?)
-      (and tlog (dump-tlog tlog)))
+      (and fragment (dump-fragment fragment)))
     (with-jit-state
      (jit-prolog)
      (let-values (((locals snapshots lowest-offset scm cps)
-                   (trace->cps tlog parent-exit-id loop? ip-x-ops)))
+                   (trace->cps fragment parent-exit-id loop? ip-x-ops)))
        (cond
         ((not cps)
          (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
          (debug 2 ";;; CPS conversion failed~%")
-         (show-dump ip-x-ops scm locals cps snapshots tlog #f #f)
+         (show-dump ip-x-ops scm locals cps snapshots fragment #f #f)
          (increment-compilation-failure entry-ip))
         (else
          (let-values
@@ -270,7 +271,7 @@
                 loop-locals
                 loop-vars
                 fp-offset)
-               (compile-native cps entry-ip locals snapshots tlog
+               (compile-native cps entry-ip locals snapshots fragment
                                parent-exit-id linked-ip lowest-offset)))
            (let ((epilog-label (jit-label)))
              (jit-patch epilog-label)
@@ -282,41 +283,42 @@
                (let* ((ptr (jit-emit))
                       (exit-counts (make-hash-table))
                       (loop-address (and loop-label (jit-address loop-label)))
-                      (end-address (or (and tlog (tlog-end-address tlog))
+                      (end-address (or (and fragment
+                                            (fragment-end-address fragment))
                                        (jit-address epilog-label)))
-                      (parent-id (or (and tlog (tlog-id tlog))
+                      (parent-id (or (and fragment (fragment-id fragment))
                                      0)))
                  (make-bytevector-executable! code)
 
-                 ;;; XXX: Same entry-ip could be used when side exit 0
-                 ;;; was taken for multiple times. Add another way to
-                 ;;; store tlogs, otherwise native code of tlog could be
-                 ;;; garbage collected while still in use.
-                 (put-tlog! entry-ip (make-tlog trace-id
-                                                code
-                                                exit-counts
-                                                entry-ip
-                                                parent-id
-                                                parent-exit-id
-                                                loop-address
-                                                loop-locals
-                                                loop-vars
-                                                snapshots
-                                                exit-variables
-                                                exit-codes
-                                                trampoline
-                                                fp-offset
-                                                end-address))
+                 ;; XXX: Same entry-ip could be used when side exit 0
+                 ;; was taken for multiple times. Add another way to
+                 ;; store fragments, otherwise native code of fragment
+                 ;; could be garbage collected while still in use.
+                 (put-fragment! entry-ip (make-fragment trace-id
+                                                        code
+                                                        exit-counts
+                                                        entry-ip
+                                                        parent-id
+                                                        parent-exit-id
+                                                        loop-address
+                                                        loop-locals
+                                                        loop-vars
+                                                        snapshots
+                                                        exit-variables
+                                                        exit-codes
+                                                        trampoline
+                                                        fp-offset
+                                                        end-address))
                  (when (and verbosity (<= 1 verbosity))
                    (let ((code-size (jit-code-size)))
-                     (show-one-line sline tlog code-size)
-                     (show-dump ip-x-ops scm locals cps snapshots tlog
+                     (show-one-line sline fragment code-size)
+                     (show-dump ip-x-ops scm locals cps snapshots fragment
                                 code code-size)))
                  ;; When this trace is a side trace, replace the native code
-                 ;; of trampoline in parent tlog.
-                 (when tlog
-                   (let ((trampoline (tlog-trampoline tlog))
-                         (parent-exit-codes (tlog-exit-codes tlog)))
+                 ;; of trampoline in parent fragment.
+                 (when fragment
+                   (let ((trampoline (fragment-trampoline fragment))
+                         (parent-exit-codes (fragment-exit-codes fragment)))
                      (trampoline-set! trampoline parent-exit-id ptr)
                      (hashq-set! parent-exit-codes
                                  parent-exit-id

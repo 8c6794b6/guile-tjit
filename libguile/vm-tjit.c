@@ -71,7 +71,7 @@ static const int op_sizes[256] = {
 
 static SCM ip_counter_table;
 static SCM failed_ip_table;
-static SCM tlog_table;
+static SCM fragment_table;
 static SCM bytecode_buffer_fluid;
 static SCM tjitc_var;
 static int trace_id = 1;
@@ -179,13 +179,14 @@ is_hot_exit (SCM ip, SCM count)
 }
 
 static inline int
-is_root_trace (SCM tlog)
+is_root_trace (SCM fragment)
 {
-  return scm_is_true (tlog) && SCM_INUM0 == (SCM_TLOG_PARENT_ID (tlog));
+  return scm_is_true (fragment) &&
+    SCM_INUM0 == (SCM_FRAGMENT_PARENT_ID (fragment));
 }
 
 static inline void
-call_native (SCM s_ip, SCM tlog,
+call_native (SCM s_ip, SCM fragment,
              scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
              scm_t_uintptr *parent_ip, int *parent_exit_id,
@@ -196,7 +197,7 @@ call_native (SCM s_ip, SCM tlog,
   SCM s_next_ip, fp_offset;
   SCM code, ret, exit_id, exit_ip, exit_counts, count;
 
-  code = SCM_TLOG_CODE (tlog);
+  code = SCM_FRAGMENT_CODE (fragment);
   f = (scm_t_native_code) SCM_BYTEVECTOR_CONTENTS (code);
   ret = f (thread, vp, registers);
 
@@ -206,11 +207,11 @@ call_native (SCM s_ip, SCM tlog,
   fp_offset = SCM_TJIT_RETVAL_LOCAL_OFFSET (ret);
 
   s_next_ip = SCM_I_MAKINUM ((scm_t_uintptr) vp->ip);
-  tlog = scm_hashq_ref (tlog_table, exit_ip, SCM_BOOL_F);
+  fragment = scm_hashq_ref (fragment_table, exit_ip, SCM_BOOL_F);
 
-  if (scm_is_true (tlog))
+  if (scm_is_true (fragment))
     {
-      exit_counts = SCM_TLOG_EXIT_COUNTS (tlog);
+      exit_counts = SCM_FRAGMENT_EXIT_COUNTS (fragment);
       count = scm_hashq_ref (exit_counts, exit_id, SCM_INUM0);
       count = SCM_PACK (SCM_UNPACK (count) + INUM_STEP);
       scm_hashq_set_x (exit_counts, exit_id, count);
@@ -238,7 +239,7 @@ call_native (SCM s_ip, SCM tlog,
 
              XXX: Do PIC, extend entry clause instead of removing the
              old one. */
-          scm_hashq_remove_x (tlog_table, s_ip);
+          scm_hashq_remove_x (fragment_table, s_ip);
         }
       else
         {
@@ -301,17 +302,17 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
 
 #define SCM_TJIT_ENTER(jump)                                            \
   do {                                                                  \
-    SCM s_ip, tlog;                                                     \
+    SCM s_ip, fragment;                                                 \
                                                                         \
     s_ip = SCM_I_MAKINUM (ip + jump);                                   \
-    tlog = scm_hashq_ref (tlog_table, s_ip, SCM_BOOL_F);                \
+    fragment = scm_hashq_ref (fragment_table, s_ip, SCM_BOOL_F);        \
                                                                         \
-    if (is_root_trace (tlog))                                           \
+    if (is_root_trace (fragment))                                       \
       {                                                                 \
         scm_t_int32 shift = 0;                                          \
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
-        call_native (s_ip, tlog, thread, vp, registers,                 \
+        call_native (s_ip, fragment, thread, vp, registers,             \
                      &tjit_state,                                       \
                      &tjit_loop_start, &tjit_loop_end,                  \
                      &tjit_parent_ip, &tjit_parent_exit_id,             \
@@ -346,13 +347,13 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
   do {                                                                  \
     SCM s_ip = SCM_I_MAKINUM (ip);                                      \
     SCM s_loop_start = SCM_I_MAKINUM (tjit_loop_start);                 \
-    SCM tlog = scm_hashq_ref (tlog_table, s_ip, SCM_BOOL_F);            \
-    int found_root_trace = is_root_trace (tlog);                        \
+    SCM fragment = scm_hashq_ref (fragment_table, s_ip, SCM_BOOL_F);    \
+    int found_root_trace = is_root_trace (fragment);                    \
                                                                         \
     SCM locals;                                                         \
     int opcode, i, num_locals;                                          \
                                                                         \
-    /* Record bytecode IP, FP, and locals. When tlog is true,        */ \
+    /* Record bytecode IP, FP, and locals. When fragment is true,    */ \
     /* current record is side trace, and the current bytecode IP is  */ \
     /* already recorded by root trace.                               */ \
     if (!found_root_trace)                                              \
@@ -453,11 +454,11 @@ SCM_DEFINE (scm_set_tjit_hot_exit_x, "set-tjit-hot-exit!", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_tlog_table, "tlog-table", 0, 0, 0, (void),
-            "Hash table containing tlogs.")
-#define FUNC_NAME s_scm_tlog_table
+SCM_DEFINE (scm_fragment_table, "fragment-table", 0, 0, 0, (void),
+            "Hash table containing fragments.")
+#define FUNC_NAME s_scm_fragment_table
 {
-  return tlog_table;
+  return fragment_table;
 }
 #undef FUNC_NAME
 
@@ -502,7 +503,7 @@ scm_bootstrap_vm_tjit(void)
 
   ip_counter_table = scm_c_make_hash_table (31);
   failed_ip_table = scm_c_make_hash_table (31);
-  tlog_table = scm_c_make_hash_table (31);
+  fragment_table = scm_c_make_hash_table (31);
   tjitc_var = SCM_VARIABLE_REF (scm_c_lookup ("tjitc"));
 
   GC_expand_hp (1024 * 1024 * SIZEOF_SCM_T_BITS);

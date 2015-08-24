@@ -24,7 +24,7 @@
 
 ;;; Code:
 
-(define-module (system vm native tjit tlog)
+(define-module (system vm native tjit fragment)
   #:use-module (ice-9 format)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
@@ -32,24 +32,24 @@
   #:use-module (system foreign)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit parameters)
-  #:export (<tlog>
-            make-tlog
-            tlog-id
-            tlog-code
-            tlog-entry-ip
-            tlog-snapshots
-            tlog-exit-variables
-            tlog-exit-codes
-            tlog-trampoline
-            tlog-loop-address
-            tlog-loop-locals
-            tlog-loop-vars
-            tlog-fp-offset
-            tlog-end-address
+  #:export (<fragment>
+            make-fragment
+            fragment-id
+            fragment-code
+            fragment-entry-ip
+            fragment-snapshots
+            fragment-exit-variables
+            fragment-exit-codes
+            fragment-trampoline
+            fragment-loop-address
+            fragment-loop-locals
+            fragment-loop-vars
+            fragment-fp-offset
+            fragment-end-address
 
-            dump-tlog
-            put-tlog!
-            get-tlog
+            dump-fragment
+            put-fragment!
+            get-fragment
 
             make-trampoline
             trampoline-ref
@@ -144,96 +144,96 @@
 ;; bytecode IP, patching native code from side exit, ... etc.
 ;;
 ;; This record type is shared with C code. Macros written in
-;; "libguile/vm-tjit.h" with "SCM_TLOG" prefix are referring the
+;; "libguile/vm-tjit.h" with "SCM_FRAGMENT" prefix are referring the
 ;; contents.
 ;;
-(define-record-type <tlog>
-  (%make-tlog id code exit-counts entry-ip parent-id parent-exit-id
-              loop-address loop-locals loop-vars
-              snapshots exit-variables exit-codes trampoline
-              fp-offset end-address)
-  tlog?
+(define-record-type <fragment>
+  (%make-fragment id code exit-counts entry-ip parent-id parent-exit-id
+                  loop-address loop-locals loop-vars
+                  snapshots exit-variables exit-codes trampoline
+                  fp-offset end-address)
+  fragment?
 
   ;; Trace id number.
-  (id tlog-id)
+  (id fragment-id)
 
   ;; Bytevector of compiled native code.
-  (code tlog-code)
+  (code fragment-code)
 
   ;; Hash-table containing number of exits taken, per exit-id.
-  (exit-counts tlog-exit-counts)
+  (exit-counts fragment-exit-counts)
 
   ;; Entry bytecode IP.
-  (entry-ip tlog-entry-ip)
+  (entry-ip fragment-entry-ip)
 
   ;; Trace id of parent trace, 0 for root trace.
-  (parent-id tlog-parent-id)
+  (parent-id fragment-parent-id)
 
   ;; Exit id taken by parent, root traces constantly have 0.
-  (parent-exit-id tlog-parent-exit-id)
+  (parent-exit-id fragment-parent-exit-id)
 
   ;; Address of start of loop.
-  (loop-address tlog-loop-address)
+  (loop-address fragment-loop-address)
 
   ;; Local header information of loop.
-  (loop-locals tlog-loop-locals)
+  (loop-locals fragment-loop-locals)
 
   ;; Variable header information of loop.
-  (loop-vars tlog-loop-vars)
+  (loop-vars fragment-loop-vars)
 
   ;; Snapshot locals and types.
-  (snapshots tlog-snapshots)
+  (snapshots fragment-snapshots)
 
   ;; Hash-table containing variables for exits.
-  (exit-variables tlog-exit-variables)
+  (exit-variables fragment-exit-variables)
 
   ;; Hash-table containing code for exits.
-  (exit-codes tlog-exit-codes)
+  (exit-codes fragment-exit-codes)
 
   ;; Trampoline, native code containing jump destinations.
-  (trampoline tlog-trampoline)
+  (trampoline fragment-trampoline)
 
   ;; FP offset in native code.
-  (fp-offset tlog-fp-offset)
+  (fp-offset fragment-fp-offset)
 
   ;; End address.
-  (end-address tlog-end-address))
+  (end-address fragment-end-address))
 
-(define make-tlog %make-tlog)
+(define make-fragment %make-fragment)
 
-(define (dump-tlog tlog)
-  (format #t "~20@a~a~%" "*****" " tlog *****")
-  (format #t "~19@a: ~a~%" 'id (tlog-id tlog))
+(define (dump-fragment fragment)
+  (format #t "~20@a~a~%" "*****" " fragment *****")
+  (format #t "~19@a: ~a~%" 'id (fragment-id fragment))
   (format #t "~19@a: addr=~a size=~a~%" 'code
-          (bytevector->pointer (tlog-code tlog))
-          (bytevector-length (tlog-code tlog)))
+          (bytevector->pointer (fragment-code fragment))
+          (bytevector-length (fragment-code fragment)))
   (format #t "~19@a: ~{~a ~}~%" 'exit-counts
-          (reverse! (hash-fold acons '() (tlog-exit-counts tlog))))
-  (format #t "~19@a: ~x~%" 'entry-ip (tlog-entry-ip tlog))
-  (format #t "~19@a: ~a~%" 'parent-exit-id (tlog-parent-exit-id tlog))
+          (reverse! (hash-fold acons '() (fragment-exit-counts fragment))))
+  (format #t "~19@a: ~x~%" 'entry-ip (fragment-entry-ip fragment))
+  (format #t "~19@a: ~a~%" 'parent-exit-id (fragment-parent-exit-id fragment))
   (format #t "~19@a: ~{~a~^~%                     ~}~%" 'snapshots
-          (let ((snapshots (tlog-snapshots tlog)))
+          (let ((snapshots (fragment-snapshots fragment)))
             (sort (hash-fold acons '() snapshots)
                   (lambda (a b)
                     (< (car a) (car b))))))
   (format #t "~19@a: ~{~a~^~%                     ~}~%" 'exit-vars
-          (let ((vars (tlog-exit-variables tlog)))
+          (let ((vars (fragment-exit-variables fragment)))
             (sort (hash-fold acons '() vars)
                   (lambda (a b)
                     (< (car a) (car b))))))
-  (format #t "~19@a: ~a~%" 'exit-codes (tlog-exit-codes tlog))
-  (let ((code (tlog-trampoline tlog)))
+  (format #t "~19@a: ~a~%" 'exit-codes (fragment-exit-codes fragment))
+  (let ((code (fragment-trampoline fragment)))
     (format #t "~19@a: ~a:~a~%" 'trampoline
             (and (bytevector? code) (bytevector->pointer code))
             (and (bytevector? code) (bytevector-length code))))
-  (format #t "~19@a: ~a~%" 'loop-address (tlog-loop-address tlog))
-  (format #t "~19@a: ~a~%" 'loop-locals (tlog-loop-locals tlog))
-  (format #t "~19@a: ~a~%" 'loop-vars (tlog-loop-vars tlog))
-  (format #t "~19@a: ~a~%" 'fp-offset (tlog-fp-offset tlog))
-  (format #t "~19@a: ~a~%" 'end-address (tlog-end-address tlog)))
+  (format #t "~19@a: ~a~%" 'loop-address (fragment-loop-address fragment))
+  (format #t "~19@a: ~a~%" 'loop-locals (fragment-loop-locals fragment))
+  (format #t "~19@a: ~a~%" 'loop-vars (fragment-loop-vars fragment))
+  (format #t "~19@a: ~a~%" 'fp-offset (fragment-fp-offset fragment))
+  (format #t "~19@a: ~a~%" 'end-address (fragment-end-address fragment)))
 
-(define (put-tlog! key tlog)
-  (hashq-set! (tlog-table) key tlog))
+(define (put-fragment! key fragment)
+  (hashq-set! (fragment-table) key fragment))
 
-(define (get-tlog key)
-  (hashq-ref (tlog-table) key #f))
+(define (get-fragment key)
+  (hashq-ref (fragment-table) key #f))

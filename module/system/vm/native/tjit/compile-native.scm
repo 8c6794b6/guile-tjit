@@ -43,7 +43,7 @@
   #:use-module (system vm native tjit assembler)
   #:use-module (system vm native tjit ir)
   #:use-module (system vm native tjit parameters)
-  #:use-module (system vm native tjit tlog)
+  #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit registers)
   #:use-module (system vm native tjit variables)
   #:export (compile-native))
@@ -363,7 +363,7 @@ of SRCS, DSTS, TYPES are local index number."
 ;;;
 
 (define (compile-cps cps env kstart entry-ip snapshots loop-args fp-offset
-                     tlog trampoline linked-ip lowest-offset)
+                     fragment trampoline linked-ip lowest-offset)
 
   ;; Internal states.
   (define exit-codes (make-hash-table))
@@ -400,8 +400,8 @@ of SRCS, DSTS, TYPES are local index number."
   (define (compile-exit proc args)
     (define (jump-to-linked-code)
       (debug 2 ";;; start of jtlc: proc=~a args=~a~%" proc args)
-      (let* ((linked-tlog (get-tlog linked-ip))
-             (loop-locals (tlog-loop-locals linked-tlog)))
+      (let* ((linked-fragment (get-fragment linked-ip))
+             (loop-locals (fragment-loop-locals linked-fragment)))
         (define (shift-offset offset locals)
           ;; Shifting locals with given offset.
           (debug 2 ";;; [jtlc] shift-offset: offset=~a~%" offset)
@@ -422,14 +422,14 @@ of SRCS, DSTS, TYPES are local index number."
           => (match-lambda
               (($ $snapshot local-offset _ local-x-types)
 
-               ;; Store unpassed variables. When (not tlog), shifting locals for
-               ;; references used in `maybe-store'.
+               ;; Store unpassed variables. When (not fragment), shifting locals
+               ;; for references used in `maybe-store'.
                ;;
                ;; XXX: Move the shifting code somewhere else.
                ;;
                (let* ((dst-table (make-hash-table))
                       (references
-                       (if tlog
+                       (if fragment
                            (shift-offset lowest-offset loop-locals)
                            (shift-offset local-offset loop-locals)))
                       (src-table (maybe-store moffs local-x-types args env-ref
@@ -442,7 +442,7 @@ of SRCS, DSTS, TYPES are local index number."
                  ;;
                  ;; XXX: Is the shifting always required?
                  ;;
-                 (when (not tlog)
+                 (when (not fragment)
                    (let ((tmp (make-hash-table)))
                      (hash-for-each (lambda (k v)
                                       (hashq-set! tmp (- k local-offset) v))
@@ -464,7 +464,7 @@ of SRCS, DSTS, TYPES are local index number."
 
                  ;; Prepare arguments for linked trace.
                  (let lp ((locals loop-locals)
-                          (dsts (tlog-loop-vars linked-tlog)))
+                          (dsts (fragment-loop-vars linked-fragment)))
                    (match locals
                      (((local . type) . locals)
                       (hashq-set! type-table local type)
@@ -511,8 +511,8 @@ of SRCS, DSTS, TYPES are local index number."
                ;; Jumping from loop-less root trace, shifting FP.
                ;;
                ;; XXX: Add more tests for checking loop-less root traces.
-               (when (not tlog)
-                 (debug 2 ";;; compile-exit: shifting FP, not tlog~%")
+               (when (not fragment)
+                 (debug 2 ";;; compile-exit: shifting FP, not fragment~%")
                  (let ((vp->fp r0))
                    (jit-ldxi vp->fp fp vp->fp-offset)
                    (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
@@ -520,7 +520,7 @@ of SRCS, DSTS, TYPES are local index number."
                    (vm-sync-fp vp->fp)))
 
                ;; Jump to the beginning of loop in linked code.
-               (jumpi (tlog-loop-address linked-tlog)))))
+               (jumpi (fragment-loop-address linked-fragment)))))
          (else
           (debug 2 ";;; compile-exit: IP is 0, local info not found~%")))))
 
@@ -649,9 +649,10 @@ of SRCS, DSTS, TYPES are local index number."
       => (lambda (proc)
            (let* ((out-code (trampoline-ref trampoline
                                             (- current-side-exit 1)))
-                  (end-address (or (and tlog (tlog-end-address tlog))
-                                   (and=> (get-tlog linked-ip)
-                                          tlog-end-address)))
+                  (end-address (or (and fragment
+                                        (fragment-end-address fragment))
+                                   (and=> (get-fragment linked-ip)
+                                          fragment-end-address)))
                   (asm (make-asm env fp-offset out-code end-address)))
              (apply proc asm (map env-ref (append dsts args))))))
      (else
@@ -704,7 +705,7 @@ of SRCS, DSTS, TYPES are local index number."
 
   (compile-cont cps))
 
-(define (compile-native cps entry-ip locals snapshots tlog exit-id linked-ip
+(define (compile-native cps entry-ip locals snapshots fragment exit-id linked-ip
                         lowest-offset)
   (let*-values
       (((max-label max-var) (compute-max-label-and-var cps))
@@ -720,14 +721,14 @@ of SRCS, DSTS, TYPES are local index number."
         ;; memory, because side trace uses `jit-tramp'. Native code will not
         ;; work if number of spilled variables exceeds the number returned from
         ;; parameter `(tjit-max-spills)'.
-        (if (not tlog)
+        (if (not fragment)
             (let ((max-spills (tjit-max-spills)))
               (when (< max-spills nspills)
                 ;; XXX: Escape from this procedure, increment compilation
                 ;; failure for this entry-ip.
                 (error "Too many spilled variables" nspills))
               (jit-allocai (imm (* (+ max-spills 4) %word-size))))
-            (tlog-fp-offset tlog)))
+            (fragment-fp-offset fragment)))
        ((moffs)
         (lambda (mem)
           (let ((offset (* (ref-value mem) %word-size)))
@@ -735,7 +736,7 @@ of SRCS, DSTS, TYPES are local index number."
 
     (cond
      ;; Root trace.
-     ((not tlog)
+     ((not fragment)
       ;; Get arguments.
       (jit-getarg reg-thread (jit-arg)) ; thread
       (jit-getarg r0 (jit-arg))         ; vp
@@ -757,14 +758,14 @@ of SRCS, DSTS, TYPES are local index number."
 
       ;; Load initial arguments from parent trace.
       (cond
-       ((hashq-ref (tlog-snapshots tlog) exit-id)
+       ((hashq-ref (fragment-snapshots fragment) exit-id)
         => (match-lambda
             (($ $snapshot _ _ local-x-types)
              ;; Store values passed from parent trace when it's not used by this
              ;; side trace.
              (maybe-store moffs
                           local-x-types
-                          (hashq-ref (tlog-exit-variables tlog) exit-id)
+                          (hashq-ref (fragment-exit-variables fragment) exit-id)
                           identity
                           initial-locals)
 
@@ -772,7 +773,7 @@ of SRCS, DSTS, TYPES are local index number."
              ;; be overwritten by move or load.  Pairings of local and register
              ;; could be different from how it was done in parent trace and this
              ;; side trace, move or load without overwriting the sources .
-             (let ((vars (hashq-ref (tlog-exit-variables tlog) exit-id))
+             (let ((vars (hashq-ref (fragment-exit-variables fragment) exit-id))
                    (locals (snapshot-locals (hashq-ref snapshots 0)))
                    (dst-table (make-hash-table))
                    (src-table (make-hash-table))
@@ -809,4 +810,4 @@ of SRCS, DSTS, TYPES are local index number."
 
     ;; Assemble the primitives in CPS.
     (compile-cps cps env kstart entry-ip snapshots loop-args fp-offset
-                 tlog trampoline linked-ip lowest-offset)))
+                 fragment trampoline linked-ip lowest-offset)))
