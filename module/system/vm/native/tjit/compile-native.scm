@@ -470,8 +470,14 @@ of SRCS, DSTS, TYPES are local index number."
                       (hashq-set! type-table local type)
                       (match dsts
                         ((dst . dsts)
-                         ;; Shifting with lowest offset from IR.
-                         (hashq-set! dst-table (- local lowest-offset) dst)
+                         ;; If loop-less root trace, shiting with lowest offset.
+                         ;; Otherwise shifting with lowest offset and local
+                         ;; offset.
+                         (let ((shift
+                                (if fragment
+                                    (+ (- local lowest-offset) local-offset)
+                                    (- local lowest-offset))))
+                           (hashq-set! dst-table shift dst))
                          (lp locals dsts))
                         (()
                          (debug 2 ";;; compile-exit: dsts=null, locals=~a~%"
