@@ -66,6 +66,8 @@
             snapshot-offset
             snapshot-nlocals
             snapshot-locals
+            snapshot-variables
+            set-snapshot-variables!
 
             $return-address
             return-address?
@@ -161,7 +163,7 @@
 
 ;; Record type for snapshot.
 (define-record-type $snapshot
-  (make-snapshot offset nlocals locals)
+  (%make-snapshot offset nlocals locals variables)
   snapshot?
 
   ;; Integer number to shift vp->fp after returning with this snapshot.
@@ -171,7 +173,14 @@
   (nlocals snapshot-nlocals)
 
   ;; Association list of (local . type).
-  (locals snapshot-locals))
+  (locals snapshot-locals)
+
+  ;; Variables used at the time of taking exit.
+  (variables snapshot-variables set-snapshot-variables!))
+
+(define (make-snapshot offset nlocals locals)
+  ;; Initial variables are empty, using #f.
+  (%make-snapshot offset nlocals locals #f))
 
 
 ;;;

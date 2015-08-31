@@ -367,7 +367,6 @@ of SRCS, DSTS, TYPES are local index number."
 
   ;; Internal states.
   (define exit-codes (make-hash-table))
-  (define exit-variables (make-hash-table))
   (define current-side-exit 0)
   (define loop-locals #f)
   (define loop-vars #f)
@@ -421,7 +420,6 @@ of SRCS, DSTS, TYPES are local index number."
          ((hashq-ref snapshots current-side-exit)
           => (match-lambda
               (($ $snapshot local-offset _ local-x-types)
-
                ;; Store unpassed variables. When (not fragment), shifting locals
                ;; for references used in `maybe-store'.
                ;;
@@ -549,46 +547,46 @@ of SRCS, DSTS, TYPES are local index number."
       (define (maybe-store-snapshot)
         (cond
          ((hashq-ref snapshots current-side-exit)
-          => (match-lambda
-              (($ $snapshot local-offset nlocals local-x-types)
-               (debug 2 ";;; emit-bailout:~%")
-               (debug 2 ";;;   current-side-exit: ~a~%" current-side-exit)
-               (debug 2 ";;;   local-offset: ~a~%" local-offset)
-               (debug 2 ";;;   nlocals: ~a~%" nlocals)
-               (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
-               (debug 2 ";;;   args: ~a~%" args)
-
-               (let lp ((local-x-types local-x-types)
-                        (args args))
-                 ;; Matching ends when no more values found in local, args
-                 ;; exceeding the number of locals are ignored.
-                 ;;
-                 ;; XXX: Length of args and locals should match. Update
-                 ;; snapshots and save args.  Snapshot data need to contain
-                 ;; locals in caller procedure when VM bytecode op made this
-                 ;; side exit was inlined.
-                 ;;
-                 (match local-x-types
-                   (((local . type) . local-x-types)
-                    (match args
-                      ((arg . args)
-                       (let ((var (env-ref arg)))
-                         (store-frame moffs local type var)
-                         (lp local-x-types args)))
+          => (lambda (snapshot)
+               (match snapshot
+                 (($ $snapshot local-offset nlocals local-x-types)
+                  (debug 2 ";;; emit-bailout:~%")
+                  (debug 2 ";;;   current-side-exit: ~a~%" current-side-exit)
+                  (debug 2 ";;;   local-offset: ~a~%" local-offset)
+                  (debug 2 ";;;   nlocals: ~a~%" nlocals)
+                  (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
+                  (debug 2 ";;;   args: ~a~%" args)
+                  (let lp ((local-x-types local-x-types)
+                           (args args))
+                    ;; Matching ends when no more values found in local, args
+                    ;; exceeding the number of locals are ignored.
+                    ;;
+                    ;; XXX: Length of args and locals should match. Update
+                    ;; snapshots and save args.  Snapshot data need to contain
+                    ;; locals in caller procedure when VM bytecode op made this
+                    ;; side exit was inlined.
+                    ;;
+                    (match local-x-types
+                      (((local . type) . local-x-types)
+                       (match args
+                         ((arg . args)
+                          (let ((var (env-ref arg)))
+                            (store-frame moffs local type var)
+                            (lp local-x-types args)))
+                         (()
+                          (debug 2 ";;;   args=null, local-x-types=~a~%"
+                                 local-x-types)
+                          (values nlocals local-offset snapshot))))
                       (()
-                       (debug 2 ";;;   args=null, local-x-types=~a~%"
-                              local-x-types)
-                       (values nlocals local-offset))))
-                   (()
-                    (values nlocals local-offset)))))))
+                       (values nlocals local-offset snapshot))))))))
          (else
           (debug 2 ";;; compile-exit: root trace entry ~x~%" next-ip)
-          (values 0 0))))
+          (values 0 0 #f))))
 
       (with-jit-state
        (jit-prolog)
        (jit-tramp (imm (* 4 %word-size)))
-       (let-values (((nlocals local-offset) (maybe-store-snapshot)))
+       (let-values (((nlocals local-offset snapshot) (maybe-store-snapshot)))
          ;; Update `vp->fp' field in `vp' when local-offset is greater than 0.
          ;;
          ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP',
@@ -617,22 +615,25 @@ of SRCS, DSTS, TYPES are local index number."
          (jit-pushargi (scm-i-makinumi nlocals))
          (jit-pushargi (scm-i-makinumi local-offset))
          (jit-calli %scm-make-tjit-retval)
-         (jit-retval reg-retval))
-
-       (return-to-interpreter)
-       (jit-epilog)
-       (jit-realize)
-       (let* ((estimated-code-size (jit-code-size))
-              (code (make-bytevector estimated-code-size)))
-         (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
-         (let ((ptr (jit-emit)))
-           (debug 2 ";;; emit-bailout: ptr=~a~%" ptr)
-           (make-bytevector-executable! code)
-           (dump-bailout next-ip current-side-exit code)
-           (hashq-set! exit-codes current-side-exit code)
-           (hashq-set! exit-variables current-side-exit (map env-ref args))
-           (trampoline-set! trampoline current-side-exit ptr)
-           (set! current-side-exit (+ current-side-exit 1))))))
+         (jit-retval reg-retval)
+         (return-to-interpreter)
+         (jit-epilog)
+         (jit-realize)
+         (let* ((estimated-code-size (jit-code-size))
+                (code (make-bytevector estimated-code-size))
+                (exit-vars (map env-ref args)))
+           (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
+           (let ((ptr (jit-emit)))
+             (debug 2 ";;; emit-bailout: ptr=~a~%" ptr)
+             (make-bytevector-executable! code)
+             (dump-bailout next-ip current-side-exit code)
+             (hashq-set! exit-codes current-side-exit code)
+             (if snapshot
+                 (set-snapshot-variables! snapshot exit-vars)
+                 (debug 2 ";;; emit-bailout: no snapshot, exit-vars=~a~%"
+                        exit-vars))
+             (trampoline-set! trampoline current-side-exit ptr)
+             (set! current-side-exit (+ current-side-exit 1)))))))
 
     (let* ((proc (env-ref proc))
            (ip (ref-value proc)))
@@ -705,7 +706,7 @@ of SRCS, DSTS, TYPES are local index number."
     (call-with-values
         (lambda () (intmap-fold go cps #f #f))
       (lambda (_ loop-label)
-        (values exit-variables exit-codes trampoline
+        (values exit-codes trampoline
                 loop-label loop-locals loop-vars fp-offset))))
 
   (compile-cont cps))
@@ -764,21 +765,20 @@ of SRCS, DSTS, TYPES are local index number."
       (cond
        ((hashq-ref (fragment-snapshots fragment) exit-id)
         => (match-lambda
-            (($ $snapshot _ _ local-x-types)
+            (($ $snapshot _ _ local-x-types exit-variables)
              ;; Store values passed from parent trace when it's not used by this
              ;; side trace.
              (maybe-store moffs
                           local-x-types
-                          (hashq-ref (fragment-exit-variables fragment) exit-id)
+                          exit-variables
                           identity
                           initial-locals)
 
              ;; When passing values from parent trace to side-trace, src could
              ;; be overwritten by move or load.  Pairings of local and register
              ;; could be different from how it was done in parent trace and this
-             ;; side trace, move or load without overwriting the sources .
-             (let ((vars (hashq-ref (fragment-exit-variables fragment) exit-id))
-                   (locals (snapshot-locals (hashq-ref snapshots 0)))
+             ;; side trace, move or load without overwriting the sources.
+             (let ((locals (snapshot-locals (hashq-ref snapshots 0)))
                    (dst-table (make-hash-table))
                    (src-table (make-hash-table))
                    (type-table (make-hash-table)))
@@ -791,7 +791,7 @@ of SRCS, DSTS, TYPES are local index number."
                   (hashq-set! dst-table local (vector-ref env var))))
                 initial-locals)
                (let lp ((local-x-types local-x-types)
-                        (vars vars))
+                        (vars exit-variables))
                  (match local-x-types
                    (((local . type) . local-x-types)
                     (match vars

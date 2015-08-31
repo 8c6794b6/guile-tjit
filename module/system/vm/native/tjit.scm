@@ -252,20 +252,19 @@
       (format #t ";;;   parent-exit-id: ~a~%" parent-exit-id)
       (format #t ";;;   loop?:          ~a~%" loop?)
       (and fragment (dump-fragment fragment)))
-    (with-jit-state
-     (jit-prolog)
-     (let-values (((locals snapshots lowest-offset scm cps)
-                   (trace->cps fragment parent-exit-id loop? ip-x-ops)))
-       (cond
-        ((not cps)
-         (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
-         (debug 2 ";;; CPS conversion failed~%")
-         (show-dump ip-x-ops scm locals cps snapshots fragment #f #f)
-         (increment-compilation-failure entry-ip))
-        (else
+    (let-values (((locals snapshots lowest-offset scm cps)
+                  (trace->cps fragment parent-exit-id loop? ip-x-ops)))
+      (cond
+       ((not cps)
+        (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
+        (debug 2 ";;; CPS conversion failed~%")
+        (show-dump ip-x-ops scm locals cps snapshots fragment #f #f)
+        (increment-compilation-failure entry-ip))
+       (else
+        (with-jit-state
+         (jit-prolog)
          (let-values
-             (((exit-variables
-                exit-codes
+             (((exit-codes
                 trampoline
                 loop-label
                 loop-locals
@@ -304,7 +303,6 @@
                                                         loop-locals
                                                         loop-vars
                                                         snapshots
-                                                        exit-variables
                                                         exit-codes
                                                         trampoline
                                                         fp-offset

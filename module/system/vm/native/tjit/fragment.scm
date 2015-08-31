@@ -38,7 +38,6 @@
             fragment-code
             fragment-entry-ip
             fragment-snapshots
-            fragment-exit-variables
             fragment-exit-codes
             fragment-trampoline
             fragment-loop-address
@@ -61,11 +60,14 @@
 ;;;
 
 ;;; `Trampoline' is a chunk of native code containing jump destinations.
-;;; Updating the contents of bytevector containing naitve code will not work
-;;; when the size of new bytevector is larget than the size of old bytevector.
-;;; Each native code entry in trampoline is a fragment of code containing jump
-;;; to absolute address, which has same sizes. These fragments of native code
-;;; are used as a layer to cope with updating native codes with different sizes.
+;;; Initially contains bailout code returning to VM interpreter.  Later when
+;;; certain exit get hot, the bailout code will be replaced by native code of
+;;; the side exit.  Updating the contents of bytevector containing naitve code
+;;; will not work when the size of new bytevector is larget than the size of old
+;;; bytevector.  Each native code entry in trampoline is a fragment of code
+;;; containing jump to absolute address, which has same sizes. These fragments
+;;; of native code are used as a layer to cope with updating native codes with
+;;; different sizes.
 
 (define (emit-to-bytevector!)
   (let* ((size (jit-code-size))
@@ -136,7 +138,7 @@
 
 
 ;;;
-;;; Trace compilation log
+;;; The fragment data
 ;;;
 
 ;; Record type to contain various information for compilation of trace to native
@@ -149,9 +151,8 @@
 ;;
 (define-record-type <fragment>
   (%make-fragment id code exit-counts entry-ip parent-id parent-exit-id
-                  loop-address loop-locals loop-vars
-                  snapshots exit-variables exit-codes trampoline
-                  fp-offset end-address)
+                  loop-address loop-locals loop-vars snapshots
+                  exit-codes trampoline fp-offset end-address)
   fragment?
 
   ;; Trace id number.
@@ -184,9 +185,6 @@
   ;; Snapshot locals and types.
   (snapshots fragment-snapshots)
 
-  ;; Hash-table containing variables for exits.
-  (exit-variables fragment-exit-variables)
-
   ;; Hash-table containing code for exits.
   (exit-codes fragment-exit-codes)
 
@@ -214,11 +212,6 @@
   (format #t "~19@a: ~{~a~^~%                     ~}~%" 'snapshots
           (let ((snapshots (fragment-snapshots fragment)))
             (sort (hash-fold acons '() snapshots)
-                  (lambda (a b)
-                    (< (car a) (car b))))))
-  (format #t "~19@a: ~{~a~^~%                     ~}~%" 'exit-vars
-          (let ((vars (fragment-exit-variables fragment)))
-            (sort (hash-fold acons '() vars)
                   (lambda (a b)
                     (< (car a) (car b))))))
   (format #t "~19@a: ~a~%" 'exit-codes (fragment-exit-codes fragment))
