@@ -248,9 +248,9 @@ Locals are loaded with MOFFS to refer memory offset. Returns a hash-table
 containing src with SRC-UNWRAPPER applied. Key of the returned hash-table is
 local index in LOCAL-X-TYPES."
   (debug 2 ";;; maybe-store:~%")
-  (debug 2 ";;;   srcs=~a~%" srcs)
-  (debug 2 ";;;   local-x-types=~a~%" local-x-types)
-  (debug 2 ";;;   references=~a~%" references)
+  (debug 2 ";;;   srcs:          ~a~%" srcs)
+  (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
+  (debug 2 ";;;   references:    ~a~%" references)
   (let lp ((local-x-types local-x-types)
            (srcs srcs)
            (acc (make-hash-table)))
@@ -583,8 +583,7 @@ of SRCS, DSTS, TYPES are local index number."
        (jit-prolog)
        (jit-tramp (imm (* 4 %word-size)))
        (let-values (((nlocals local-offset) (maybe-store-snapshot)))
-         ;; Update `vp->fp' field in `vp' when local offset when local-offset is
-         ;; greater than 0.
+         ;; Update `vp->fp' field in `vp' when local-offset is greater than 0.
          ;;
          ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP',
          ;; called by C code written in `libguile/vm-tjit.c'. Adding offset for
@@ -748,8 +747,7 @@ of SRCS, DSTS, TYPES are local index number."
       (jit-stxi registers-offset fp r1)
 
       (jit-ldxi r0 fp vp->fp-offset)
-      (scm-frame-return-address r1 r0)
-      (jit-stxi vp-ra-offset fp r1))
+      (scm-frame-return-address r1 r0))
 
      ;; Side trace.
      (else

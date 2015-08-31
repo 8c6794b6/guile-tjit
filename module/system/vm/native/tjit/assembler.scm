@@ -64,7 +64,6 @@
             vp-offset
             vp->fp-offset
             registers-offset
-            vp-ra-offset
             vm-cache-fp
             vm-sync-fp
             vm-sync-ip))
@@ -212,9 +211,6 @@
 
 (define *ra-offset*
   (make-negative-pointer (* -4 %word-size)))
-
-(define vp-ra-offset
-  (make-negative-pointer (* -5 %word-size)))
 
 (define-syntax-rule (vm-cache-fp vp)
   (let ((vp->fp (if (eq? vp r0) r1 r0)))
@@ -843,8 +839,8 @@
 ;;; instructions specify its operand type, size of CPS will be more compact, but
 ;;; may loose chances to optimize away type checking instructions.
 
-;; Load frame local to gpr or memory, with type check. Won't work when n is
-;; negative.
+;; Type check local N with TYPE and load to gpr or memory DST.  Won't work when
+;; n is negative.
 (define-prim (%frame-ref asm (int dst) (void n) (void type))
   (let ((exit (jit-forward))
         (next (jit-forward)))
