@@ -376,262 +376,233 @@ of SRCS, DSTS, TYPES are local index number."
   (define (moffs x)
     (make-signed-pointer (+  fp-offset (* (ref-value x) %word-size))))
 
-  (define (maybe-move exp old-args)
-    (match exp
-      (($ $values new-args)
-       (when (= (length old-args) (length new-args))
-         (for-each
-          (lambda (old new)
-            (when (not (eq? old new))
-              (let ((dst (env-ref old))
-                    (src (env-ref new)))
-                (when (not (and (eq? (ref-type dst) (ref-type src))
-                                (eq? (ref-value dst) (ref-value src))))
-                  (debug 3 ";;; (%mov         ~a ~a)~%" dst src)
-                  (move moffs dst src)))))
-          old-args new-args)))
-      (($ $primcall name args)
-       (compile-primcall name loop-args args))
-      (_
-       (debug 2 "*** maybe-move: ~a ~a~%" exp old-args))))
-
-  (define (compile-call proc args)
-    (define (jump-to-linked-code)
-      (debug 2 ";;; start of jtlc: proc=~a args=~a~%" proc args)
-      (let* ((linked-fragment (get-fragment linked-ip))
-             (loop-locals (fragment-loop-locals linked-fragment)))
-        (define (shift-offset offset locals)
-          ;; Shifting locals with given offset.
-          (debug 2 ";;; [jtlc] shift-offset: offset=~a~%" offset)
-          (map (match-lambda ((local . type)
-                              `(,(- local offset) . ,type)))
-               locals))
-        (define (find-ra local-x-types)
-          ;; XXX: Will not work when nesting level is more than one.
-          (let lp ((local-x-types local-x-types))
-            (match local-x-types
-              (((local . ($ $return-address ip)) . _)
-               ip)
-              ((lt . local-x-types)
-               (lp local-x-types))
-              (_ #f))))
-        (cond
-         ((hashq-ref snapshots current-side-exit)
-          => (match-lambda
-              (($ $snapshot local-offset _ local-x-types)
-               ;; Store unpassed variables. When (not fragment), shifting locals
-               ;; for references used in `maybe-store'.
-               ;;
-               ;; XXX: Move the shifting code somewhere else.
-               ;;
-               (let* ((dst-table (make-hash-table))
-                      (references
-                       (if fragment
-                           (shift-offset lowest-offset loop-locals)
-                           (shift-offset local-offset loop-locals)))
-                      (src-table (maybe-store moffs local-x-types args env-ref
-                                              references))
-                      (type-table (make-hash-table)))
-
-                 ;; When jumping from non-looping root trace, shift the locals
-                 ;; in source code. Also shift the FP used in VM. Shifting after
-                 ;; the call to `maybe-store', to store lower frame info first.
-                 ;;
-                 ;; XXX: Is the shifting always required?
-                 ;;
-                 (when (not fragment)
-                   (let ((tmp (make-hash-table)))
-                     (hash-for-each (lambda (k v)
-                                      (hashq-set! tmp (- k local-offset) v))
-                                    src-table)
-                     (set! src-table tmp)
-                     (when (< 0 local-offset)
-                       (debug 2 ";;; [jtlc] local-offset=~a~%" local-offset)
-                       (let ((old-fp r0)
-                             (new-fp r1)
-                             (ra (find-ra local-x-types))
-                             (shift (* local-offset %word-size)))
-                         (jit-ldxi old-fp fp vp->fp-offset)
-                         (jit-addi new-fp old-fp (imm shift))
-                         (scm-frame-set-dynamic-link! new-fp old-fp)
-                         (when ra
-                           (jit-movi r0 ra)
-                           (debug 2 ";;; ra=~a~%" ra)
-                           (scm-frame-set-return-address! new-fp r0))))))
-
-                 ;; Prepare arguments for linked trace.
-                 (let lp ((locals loop-locals)
-                          (dsts (fragment-loop-vars linked-fragment)))
-                   (match locals
-                     (((local . type) . locals)
-                      (hashq-set! type-table local type)
-                      (match dsts
-                        ((dst . dsts)
-                         ;; If loop-less root trace, shiting with lowest offset.
-                         ;; Otherwise shifting with lowest offset and local
-                         ;; offset.
-                         (let ((shift
-                                (if fragment
-                                    (+ (- local lowest-offset) local-offset)
-                                    (- local lowest-offset))))
-                           (hashq-set! dst-table shift dst))
-                         (lp locals dsts))
-                        (()
-                         (debug 2 ";;; compile-call: dsts=null, locals=~a~%"
-                                locals))))
-                     (_ (values))))
-
-                 ;; Move variables to linked trace.
-                 (move-or-load-carefully dst-table src-table type-table moffs)
-                 (debug 2 ";;; compile-call: end of jtlc, local-offset=~a~%"
-                        local-offset))
-
-               ;; Shift back FP.
-               (when (< lowest-offset 0)
-                 (debug 2 ";;; compile-call: shifting FP, lowest-offset=~a~%"
-                        lowest-offset)
-                 (let ((old-fp r0)
-                       (new-fp r1)
-                       (ra (find-ra local-x-types)))
-                   (jit-ldxi old-fp fp vp->fp-offset)
-
-                   ;; Shifting FP. Shifting back lowest-offset for `%return',
-                   ;; and local-offset for procedure call.
-                   (let ((shift (+ (- lowest-offset) local-offset)))
-                     (jit-addi new-fp old-fp (imm (* shift %word-size))))
-
-                   (scm-frame-set-dynamic-link! new-fp old-fp)
-                   (jit-stxi vp->fp-offset fp new-fp)
-
-                   ;; XXX: Using `find-ra', return address determined at
-                   ;; compilation time.
-                   (jit-movi r0 ra)
-                   (scm-frame-set-return-address! new-fp r0)
-
-                   ;; Sync FP.
-                   (vm-sync-fp new-fp)))
-
-               ;; Jumping from loop-less root trace, shifting FP.
-               ;;
-               ;; XXX: Add more tests for checking loop-less root traces.
-               (when (not fragment)
-                 (debug 2 ";;; compile-call: shifting FP, not fragment~%")
-                 (let ((vp->fp r0))
-                   (jit-ldxi vp->fp fp vp->fp-offset)
-                   (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
-                   (jit-stxi vp->fp-offset fp vp->fp)
-                   (vm-sync-fp vp->fp)))
-
-               ;; Jump to the beginning of loop in linked code.
-               (jumpi (fragment-loop-address linked-fragment)))))
-         (else
-          (debug 2 ";;; compile-call: IP is 0, local info not found~%")))))
-
-    (define (set-loop-info!)
+  (define (compile-link args)
+    (let* ((linked-fragment (get-fragment linked-ip))
+           (loop-locals (fragment-loop-locals linked-fragment)))
+      (define (shift-offset offset locals)
+        ;; Shifting locals with given offset.
+        (debug 2 ";;; [jtlc] shift-offset: offset=~a~%" offset)
+        (map (match-lambda ((local . type)
+                            `(,(- local offset) . ,type)))
+             locals))
+      (define (find-ra local-x-types)
+        ;; XXX: Will not work when nesting level is more than one.
+        (let lp ((local-x-types local-x-types))
+          (match local-x-types
+            (((local . ($ $return-address ip)) . _)
+             ip)
+            ((lt . local-x-types)
+             (lp local-x-types))
+            (_ #f))))
+      (debug 2 ";;; start of jtlc: args=~a~%" args)
       (cond
        ((hashq-ref snapshots current-side-exit)
         => (match-lambda
-            (($ $snapshot _ _ local-x-types)
-             (set! loop-locals local-x-types)
-             (set! loop-vars (map env-ref args)))))
-       (else
-        (debug 2 ";;; end-of-entry: no snapshot at ~a~%" current-side-exit))))
+            (($ $snapshot local-offset _ local-x-types)
+             ;; Store unpassed variables. When (not fragment), shifting locals
+             ;; for references used in `maybe-store'.
+             ;;
+             ;; XXX: Move the shifting code somewhere else.
+             ;;
+             (let* ((dst-table (make-hash-table))
+                    (references
+                     (if fragment
+                         (shift-offset lowest-offset loop-locals)
+                         (shift-offset local-offset loop-locals)))
+                    (src-table (maybe-store moffs local-x-types args env-ref
+                                            references))
+                    (type-table (make-hash-table)))
 
-    (define (emit-bailout next-ip)
-      (define (scm-i-makinumi n)
-        (make-signed-pointer (+ (ash n 2) 2)))
-      (define (maybe-store-snapshot)
-        (cond
-         ((hashq-ref snapshots current-side-exit)
-          => (lambda (snapshot)
-               (match snapshot
-                 (($ $snapshot local-offset nlocals local-x-types)
-                  (debug 2 ";;; emit-bailout:~%")
-                  (debug 2 ";;;   current-side-exit: ~a~%" current-side-exit)
-                  (debug 2 ";;;   local-offset: ~a~%" local-offset)
-                  (debug 2 ";;;   nlocals: ~a~%" nlocals)
-                  (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
-                  (debug 2 ";;;   args: ~a~%" args)
-                  (let lp ((local-x-types local-x-types)
-                           (args args))
-                    ;; Matching ends when no more values found in local, args
-                    ;; exceeding the number of locals are ignored.
-                    ;;
-                    ;; XXX: Length of args and locals should match. Update
-                    ;; snapshots and save args.  Snapshot data need to contain
-                    ;; locals in caller procedure when VM bytecode op made this
-                    ;; side exit was inlined.
-                    ;;
-                    (match local-x-types
-                      (((local . type) . local-x-types)
-                       (match args
-                         ((arg . args)
-                          (let ((var (env-ref arg)))
-                            (store-frame moffs local type var)
-                            (lp local-x-types args)))
-                         (()
-                          (debug 2 ";;;   args=null, local-x-types=~a~%"
-                                 local-x-types)
-                          (values nlocals local-offset snapshot))))
+               ;; When jumping from non-looping root trace, shift the locals
+               ;; in source code. Also shift the FP used in VM. Shifting after
+               ;; the call to `maybe-store', to store lower frame info first.
+               ;;
+               ;; XXX: Is the shifting always required?
+               ;;
+               (when (not fragment)
+                 (let ((tmp (make-hash-table)))
+                   (hash-for-each (lambda (k v)
+                                    (hashq-set! tmp (- k local-offset) v))
+                                  src-table)
+                   (set! src-table tmp)
+                   (when (< 0 local-offset)
+                     (debug 2 ";;; [jtlc] local-offset=~a~%" local-offset)
+                     (let ((old-fp r0)
+                           (new-fp r1)
+                           (ra (find-ra local-x-types))
+                           (shift (* local-offset %word-size)))
+                       (jit-ldxi old-fp fp vp->fp-offset)
+                       (jit-addi new-fp old-fp (imm shift))
+                       (scm-frame-set-dynamic-link! new-fp old-fp)
+                       (when ra
+                         (jit-movi r0 ra)
+                         (debug 2 ";;; ra=~a~%" ra)
+                         (scm-frame-set-return-address! new-fp r0))))))
+
+               ;; Prepare arguments for linked trace.
+               (let lp ((locals loop-locals)
+                        (dsts (fragment-loop-vars linked-fragment)))
+                 (match locals
+                   (((local . type) . locals)
+                    (hashq-set! type-table local type)
+                    (match dsts
+                      ((dst . dsts)
+                       ;; If loop-less root trace, shiting with lowest offset.
+                       ;; Otherwise shifting with lowest offset and local
+                       ;; offset.
+                       (let ((shift
+                              (if fragment
+                                  (+ (- local lowest-offset) local-offset)
+                                  (- local lowest-offset))))
+                         (hashq-set! dst-table shift dst))
+                       (lp locals dsts))
                       (()
-                       (values nlocals local-offset snapshot))))))))
-         (else
-          (debug 2 ";;; compile-call: root trace entry ~x~%" next-ip)
-          (values 0 0 #f))))
+                       (debug 2 ";;; compile-link: dsts=null, locals=~a~%"
+                              locals))))
+                   (_ (values))))
 
-      (with-jit-state
-       (jit-prolog)
-       (jit-tramp (imm (* 4 %word-size)))
-       (let-values (((nlocals local-offset snapshot) (maybe-store-snapshot)))
-         ;; Update `vp->fp' field in `vp' when local-offset is greater than 0.
-         ;;
-         ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP',
-         ;; called by C code written in `libguile/vm-tjit.c'. Adding offset for
-         ;; positive local offset, fp is already shifted in maybe-store-snapshot
-         ;; for negative local offset.
-         ;;
-         (when (< 0 local-offset)
-           (let ((vp->fp r0))
-             (debug 2 ";;; compile-call: shifting FP, local-offset=~a~%"
-                    local-offset)
-             (jit-ldxi vp->fp fp vp->fp-offset)
-             (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
-             (jit-stxi vp->fp-offset fp vp->fp)
-             (vm-sync-fp vp->fp)))
+               ;; Move variables to linked trace.
+               (move-or-load-carefully dst-table src-table type-table moffs)
+               (debug 2 ";;; compile-link: end of jtlc, local-offset=~a~%"
+                      local-offset))
 
-         ;; Sync next IP with vp->ip for VM.
-         (jit-movi r0 (imm next-ip))
-         (vm-sync-ip r0)
+             ;; Shift back FP.
+             (when (< lowest-offset 0)
+               (debug 2 ";;; compile-link: shifting FP, lowest-offset=~a~%"
+                      lowest-offset)
+               (let ((old-fp r0)
+                     (new-fp r1)
+                     (ra (find-ra local-x-types)))
+                 (jit-ldxi old-fp fp vp->fp-offset)
 
-         ;; Make tjit-retval.
-         (jit-prepare)
-         (jit-pushargr reg-thread)
-         (jit-pushargi (scm-i-makinumi current-side-exit))
-         (jit-pushargi (scm-i-makinumi entry-ip))
-         (jit-pushargi (scm-i-makinumi nlocals))
-         (jit-pushargi (scm-i-makinumi local-offset))
-         (jit-calli %scm-make-tjit-retval)
-         (jit-retval reg-retval)
-         (return-to-interpreter)
-         (jit-epilog)
-         (jit-realize)
-         (let* ((estimated-code-size (jit-code-size))
-                (code (make-bytevector estimated-code-size))
-                (exit-vars (map env-ref args)))
-           (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
-           (let ((ptr (jit-emit)))
-             (debug 2 ";;; emit-bailout: ptr=~a~%" ptr)
-             (make-bytevector-executable! code)
-             (dump-bailout next-ip current-side-exit code)
-             (if snapshot
-                 (begin
-                   (set-snapshot-variables! snapshot exit-vars)
-                   (set-snapshot-code! snapshot code))
-                 (debug 2 ";;; emit-bailout: no snapshot, exit-vars=~a~%"
-                        exit-vars))
-             (trampoline-set! trampoline current-side-exit ptr)
-             (set! current-side-exit (+ current-side-exit 1)))))))
+                 ;; Shifting FP. Shifting back lowest-offset for `%return',
+                 ;; and local-offset for procedure call.
+                 (let ((shift (+ (- lowest-offset) local-offset)))
+                   (jit-addi new-fp old-fp (imm (* shift %word-size))))
 
+                 (scm-frame-set-dynamic-link! new-fp old-fp)
+                 (jit-stxi vp->fp-offset fp new-fp)
+
+                 ;; XXX: Using `find-ra', return address determined at
+                 ;; compilation time.
+                 (jit-movi r0 ra)
+                 (scm-frame-set-return-address! new-fp r0)
+
+                 ;; Sync FP.
+                 (vm-sync-fp new-fp)))
+
+             ;; Jumping from loop-less root trace, shifting FP.
+             ;;
+             ;; XXX: Add more tests for checking loop-less root traces.
+             (when (not fragment)
+               (debug 2 ";;; compile-link: shifting FP, not fragment~%")
+               (let ((vp->fp r0))
+                 (jit-ldxi vp->fp fp vp->fp-offset)
+                 (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
+                 (jit-stxi vp->fp-offset fp vp->fp)
+                 (vm-sync-fp vp->fp)))
+
+             ;; Jump to the beginning of loop in linked code.
+             (jumpi (fragment-loop-address linked-fragment)))))
+       (else
+        (debug 2 ";;; compile-link: IP is 0, snapshot not found~%")))))
+
+  (define (compile-bailout next-ip args)
+    (define (scm-i-makinumi n)
+      (make-signed-pointer (+ (ash n 2) 2)))
+    (define (maybe-store-snapshot)
+      (cond
+       ((hashq-ref snapshots current-side-exit)
+        => (lambda (snapshot)
+             (match snapshot
+               (($ $snapshot local-offset nlocals local-x-types)
+                (debug 2 ";;; maybe-store-snapshot:~%")
+                (debug 2 ";;;   current-side-exit: ~a~%" current-side-exit)
+                (debug 2 ";;;   local-offset: ~a~%" local-offset)
+                (debug 2 ";;;   nlocals: ~a~%" nlocals)
+                (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
+                (debug 2 ";;;   args: ~a~%" args)
+                (let lp ((local-x-types local-x-types)
+                         (args args))
+                  ;; Matching ends when no more values found in local, args
+                  ;; exceeding the number of locals are ignored.
+                  ;;
+                  ;; XXX: Length of args and locals should match. Update
+                  ;; snapshots and save args.  Snapshot data need to contain
+                  ;; locals in caller procedure when VM bytecode op made this
+                  ;; side exit was inlined.
+                  ;;
+                  (match local-x-types
+                    (((local . type) . local-x-types)
+                     (match args
+                       ((arg . args)
+                        (let ((var (env-ref arg)))
+                          (store-frame moffs local type var)
+                          (lp local-x-types args)))
+                       (()
+                        (debug 2 ";;;   args=null, local-x-types=~a~%"
+                               local-x-types)
+                        (values nlocals local-offset snapshot))))
+                    (()
+                     (values nlocals local-offset snapshot))))))))
+       (else
+        (debug 2 ";;; maybe-store-snapshot: root trace entry ~x~%" next-ip)
+        (values 0 0 #f))))
+
+    (with-jit-state
+     (jit-prolog)
+     (jit-tramp (imm (* 4 %word-size)))
+     (let-values (((nlocals local-offset snapshot) (maybe-store-snapshot)))
+       ;; Update `vp->fp' field in `vp' when local-offset is greater than 0.
+       ;;
+       ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP',
+       ;; called by C code written in `libguile/vm-tjit.c'. Adding offset for
+       ;; positive local offset, fp is already shifted in maybe-store-snapshot
+       ;; for negative local offset.
+       ;;
+       (when (< 0 local-offset)
+         (let ((vp->fp r0))
+           (debug 2 ";;; compile-bailout: shifting FP, local-offset=~a~%"
+                  local-offset)
+           (jit-ldxi vp->fp fp vp->fp-offset)
+           (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
+           (jit-stxi vp->fp-offset fp vp->fp)
+           (vm-sync-fp vp->fp)))
+
+       ;; Sync next IP with vp->ip for VM.
+       (jit-movi r0 (imm next-ip))
+       (vm-sync-ip r0)
+
+       ;; Make tjit-retval.
+       (jit-prepare)
+       (jit-pushargr reg-thread)
+       (jit-pushargi (scm-i-makinumi current-side-exit))
+       (jit-pushargi (scm-i-makinumi entry-ip))
+       (jit-pushargi (scm-i-makinumi nlocals))
+       (jit-pushargi (scm-i-makinumi local-offset))
+       (jit-calli %scm-make-tjit-retval)
+       (jit-retval reg-retval)
+       (return-to-interpreter)
+       (jit-epilog)
+       (jit-realize)
+       (let* ((estimated-code-size (jit-code-size))
+              (code (make-bytevector estimated-code-size))
+              (exit-vars (map env-ref args)))
+         (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
+         (let ((ptr (jit-emit)))
+           (debug 2 ";;; compile-bailout: ptr=~a~%" ptr)
+           (make-bytevector-executable! code)
+           (dump-bailout next-ip current-side-exit code)
+           (if snapshot
+               (begin
+                 (set-snapshot-variables! snapshot exit-vars)
+                 (set-snapshot-code! snapshot code))
+               (debug 2 ";;; compile-bailout: no snapshot, exit-vars=~a~%"
+                      exit-vars))
+           (trampoline-set! trampoline current-side-exit ptr)
+           (set! current-side-exit (+ current-side-exit 1)))))))
+
+  (define (compile-call proc args)
     (let* ((proc (env-ref proc))
            (ip (ref-value proc)))
       (debug 2 ";;; compile-call: args=~a current-side-exit=~a~%"
@@ -639,12 +610,19 @@ of SRCS, DSTS, TYPES are local index number."
       (cond
        ((not (constant? proc))
         (error "compile-call: not a constant" proc))
-       ((= ip *ip-key-jump-to-linked-code*)
-        (jump-to-linked-code))
        ((= ip *ip-key-set-loop-info!*)
-        (set-loop-info!))
+        (cond
+         ((hashq-ref snapshots current-side-exit)
+          => (match-lambda
+              (($ $snapshot _ _ local-x-types)
+               (set! loop-locals local-x-types)
+               (set! loop-vars (map env-ref args)))))
+         (else
+          (debug 2 ";;; compile-call: no snapshot at ~a~%" current-side-exit))))
+       ((= ip *ip-key-jump-to-linked-code*)
+        (compile-link args))
        (else                            ; IP is bytecode destination.
-        (emit-bailout ip)))))
+        (compile-bailout ip args)))))
 
   (define (compile-primcall name dsts args)
     (cond
@@ -671,6 +649,24 @@ of SRCS, DSTS, TYPES are local index number."
        (values))))
 
   (define (compile-cont cps)
+    (define (maybe-move exp old-args)
+      (match exp
+        (($ $values new-args)
+         (when (= (length old-args) (length new-args))
+           (for-each
+            (lambda (old new)
+              (when (not (eq? old new))
+                (let ((dst (env-ref old))
+                      (src (env-ref new)))
+                  (when (not (and (eq? (ref-type dst) (ref-type src))
+                                  (eq? (ref-value dst) (ref-value src))))
+                    (debug 3 ";;; (%mov         ~a ~a)~%" dst src)
+                    (move moffs dst src)))))
+            old-args new-args)))
+        (($ $primcall name args)
+         (compile-primcall name loop-args args))
+        (_
+         (debug 2 "*** maybe-move: ~a ~a~%" exp old-args))))
     (define (go k term exp loop-label)
       (match term
         (($ $kfun _ _ _ _ _)
@@ -684,7 +680,7 @@ of SRCS, DSTS, TYPES are local index number."
          (compile-exp exp syms)
          (cond
           ((< knext k)
-           ;; Jump back to beginning of loop, return to caller.
+           ;; Jump back to beginning of the loop, return to caller.
            (maybe-move next-exp loop-args)
            (debug 3 ";;; -> loop~%")
            (jump loop-label)
