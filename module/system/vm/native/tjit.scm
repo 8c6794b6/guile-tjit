@@ -264,12 +264,7 @@
         (with-jit-state
          (jit-prolog)
          (let-values
-             (((exit-codes
-                trampoline
-                loop-label
-                loop-locals
-                loop-vars
-                fp-offset)
+             (((trampoline loop-label loop-locals loop-vars fp-offset)
                (compile-native cps entry-ip locals snapshots fragment
                                parent-exit-id linked-ip lowest-offset)))
            (let ((epilog-label (jit-label)))
@@ -303,7 +298,6 @@
                                                         loop-locals
                                                         loop-vars
                                                         snapshots
-                                                        exit-codes
                                                         trampoline
                                                         fp-offset
                                                         end-address))
@@ -316,11 +310,10 @@
                  ;; of trampoline in parent fragment.
                  (when fragment
                    (let ((trampoline (fragment-trampoline fragment))
-                         (parent-exit-codes (fragment-exit-codes fragment)))
+                         (snapshot (hashq-ref (fragment-snapshots fragment)
+                                              parent-exit-id)))
                      (trampoline-set! trampoline parent-exit-id ptr)
-                     (hashq-set! parent-exit-codes
-                                 parent-exit-id
-                                 code)))))))))))))
+                     (set-snapshot-code! snapshot code)))))))))))))
 
 
 ;;;

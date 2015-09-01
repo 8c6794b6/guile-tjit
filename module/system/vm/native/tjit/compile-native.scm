@@ -366,7 +366,6 @@ of SRCS, DSTS, TYPES are local index number."
                      fragment trampoline linked-ip lowest-offset)
 
   ;; Internal states.
-  (define exit-codes (make-hash-table))
   (define current-side-exit 0)
   (define loop-locals #f)
   (define loop-vars #f)
@@ -392,11 +391,11 @@ of SRCS, DSTS, TYPES are local index number."
                   (move moffs dst src)))))
           old-args new-args)))
       (($ $primcall name args)
-       (compile-prim name loop-args args))
+       (compile-primcall name loop-args args))
       (_
        (debug 2 "*** maybe-move: ~a ~a~%" exp old-args))))
 
-  (define (compile-exit proc args)
+  (define (compile-call proc args)
     (define (jump-to-linked-code)
       (debug 2 ";;; start of jtlc: proc=~a args=~a~%" proc args)
       (let* ((linked-fragment (get-fragment linked-ip))
@@ -478,18 +477,18 @@ of SRCS, DSTS, TYPES are local index number."
                            (hashq-set! dst-table shift dst))
                          (lp locals dsts))
                         (()
-                         (debug 2 ";;; compile-exit: dsts=null, locals=~a~%"
+                         (debug 2 ";;; compile-call: dsts=null, locals=~a~%"
                                 locals))))
                      (_ (values))))
 
                  ;; Move variables to linked trace.
                  (move-or-load-carefully dst-table src-table type-table moffs)
-                 (debug 2 ";;; compile-exit: end of jtlc, local-offset=~a~%"
+                 (debug 2 ";;; compile-call: end of jtlc, local-offset=~a~%"
                         local-offset))
 
                ;; Shift back FP.
                (when (< lowest-offset 0)
-                 (debug 2 ";;; compile-exit: shifting FP, lowest-offset=~a~%"
+                 (debug 2 ";;; compile-call: shifting FP, lowest-offset=~a~%"
                         lowest-offset)
                  (let ((old-fp r0)
                        (new-fp r1)
@@ -516,7 +515,7 @@ of SRCS, DSTS, TYPES are local index number."
                ;;
                ;; XXX: Add more tests for checking loop-less root traces.
                (when (not fragment)
-                 (debug 2 ";;; compile-exit: shifting FP, not fragment~%")
+                 (debug 2 ";;; compile-call: shifting FP, not fragment~%")
                  (let ((vp->fp r0))
                    (jit-ldxi vp->fp fp vp->fp-offset)
                    (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
@@ -526,7 +525,7 @@ of SRCS, DSTS, TYPES are local index number."
                ;; Jump to the beginning of loop in linked code.
                (jumpi (fragment-loop-address linked-fragment)))))
          (else
-          (debug 2 ";;; compile-exit: IP is 0, local info not found~%")))))
+          (debug 2 ";;; compile-call: IP is 0, local info not found~%")))))
 
     (define (set-loop-info!)
       (cond
@@ -540,10 +539,7 @@ of SRCS, DSTS, TYPES are local index number."
 
     (define (emit-bailout next-ip)
       (define (scm-i-makinumi n)
-        (let ((k (+ (ash n 2) 2)))
-          (if (< 0 k)
-              (make-pointer k)
-              (make-negative-pointer k))))
+        (make-signed-pointer (+ (ash n 2) 2)))
       (define (maybe-store-snapshot)
         (cond
          ((hashq-ref snapshots current-side-exit)
@@ -580,7 +576,7 @@ of SRCS, DSTS, TYPES are local index number."
                       (()
                        (values nlocals local-offset snapshot))))))))
          (else
-          (debug 2 ";;; compile-exit: root trace entry ~x~%" next-ip)
+          (debug 2 ";;; compile-call: root trace entry ~x~%" next-ip)
           (values 0 0 #f))))
 
       (with-jit-state
@@ -596,7 +592,7 @@ of SRCS, DSTS, TYPES are local index number."
          ;;
          (when (< 0 local-offset)
            (let ((vp->fp r0))
-             (debug 2 ";;; compile-exit: shifting FP, local-offset=~a~%"
+             (debug 2 ";;; compile-call: shifting FP, local-offset=~a~%"
                     local-offset)
              (jit-ldxi vp->fp fp vp->fp-offset)
              (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
@@ -627,9 +623,10 @@ of SRCS, DSTS, TYPES are local index number."
              (debug 2 ";;; emit-bailout: ptr=~a~%" ptr)
              (make-bytevector-executable! code)
              (dump-bailout next-ip current-side-exit code)
-             (hashq-set! exit-codes current-side-exit code)
              (if snapshot
-                 (set-snapshot-variables! snapshot exit-vars)
+                 (begin
+                   (set-snapshot-variables! snapshot exit-vars)
+                   (set-snapshot-code! snapshot code))
                  (debug 2 ";;; emit-bailout: no snapshot, exit-vars=~a~%"
                         exit-vars))
              (trampoline-set! trampoline current-side-exit ptr)
@@ -637,11 +634,11 @@ of SRCS, DSTS, TYPES are local index number."
 
     (let* ((proc (env-ref proc))
            (ip (ref-value proc)))
-      (debug 2 ";;; compile-exit: args=~a current-side-exit=~a~%"
+      (debug 2 ";;; compile-call: args=~a current-side-exit=~a~%"
              args current-side-exit)
       (cond
        ((not (constant? proc))
-        (error "compile-exit: not a constant" proc))
+        (error "compile-call: not a constant" proc))
        ((= ip *ip-key-jump-to-linked-code*)
         (jump-to-linked-code))
        ((= ip *ip-key-set-loop-info!*)
@@ -649,7 +646,7 @@ of SRCS, DSTS, TYPES are local index number."
        (else                            ; IP is bytecode destination.
         (emit-bailout ip)))))
 
-  (define (compile-prim name dsts args)
+  (define (compile-primcall name dsts args)
     (cond
      ((hashq-ref *native-prim-procedures* name)
       => (lambda (proc)
@@ -667,9 +664,9 @@ of SRCS, DSTS, TYPES are local index number."
   (define (compile-exp exp dsts)
     (match exp
       (($ $primcall name args)
-       (compile-prim name dsts args))
+       (compile-primcall name dsts args))
       (($ $call proc args)
-       (compile-exit proc args))
+       (compile-call proc args))
       (_
        (values))))
 
@@ -706,8 +703,7 @@ of SRCS, DSTS, TYPES are local index number."
     (call-with-values
         (lambda () (intmap-fold go cps #f #f))
       (lambda (_ loop-label)
-        (values exit-codes trampoline
-                loop-label loop-locals loop-vars fp-offset))))
+        (values trampoline loop-label loop-locals loop-vars fp-offset))))
 
   (compile-cont cps))
 

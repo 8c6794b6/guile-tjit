@@ -26,12 +26,14 @@
 
 (define-module (system vm native tjit fragment)
   #:use-module (ice-9 format)
+  #:use-module (ice-9 match)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-9)
   #:use-module ((system base types) #:select (%word-size))
   #:use-module (system foreign)
   #:use-module (system vm native lightning)
   #:use-module (system vm native tjit parameters)
+  #:use-module (system vm native tjit ir)
   #:export (<fragment>
             make-fragment
             fragment-id
@@ -152,7 +154,7 @@
 (define-record-type <fragment>
   (%make-fragment id code exit-counts entry-ip parent-id parent-exit-id
                   loop-address loop-locals loop-vars snapshots
-                  exit-codes trampoline fp-offset end-address)
+                  trampoline fp-offset end-address)
   fragment?
 
   ;; Trace id number.
@@ -185,9 +187,6 @@
   ;; Snapshot locals and types.
   (snapshots fragment-snapshots)
 
-  ;; Hash-table containing code for exits.
-  (exit-codes fragment-exit-codes)
-
   ;; Trampoline, native code containing jump destinations.
   (trampoline fragment-trampoline)
 
@@ -209,12 +208,16 @@
           (reverse! (hash-fold acons '() (fragment-exit-counts fragment))))
   (format #t "~19@a: ~x~%" 'entry-ip (fragment-entry-ip fragment))
   (format #t "~19@a: ~a~%" 'parent-exit-id (fragment-parent-exit-id fragment))
-  (format #t "~19@a: ~{~a~^~%                     ~}~%" 'snapshots
-          (let ((snapshots (fragment-snapshots fragment)))
-            (sort (hash-fold acons '() snapshots)
-                  (lambda (a b)
-                    (< (car a) (car b))))))
-  (format #t "~19@a: ~a~%" 'exit-codes (fragment-exit-codes fragment))
+  (format #t "~19@a:~%" 'snapshots)
+  (for-each
+   (match-lambda
+    ((i . ($ $snapshot offset nlocals locals variables code))
+     (format #t "~21@a: offset=~a nlocals=~a locals=~a variables=~a code=~a~%"
+             i offset nlocals locals variables
+             (and code (bytevector->pointer code)))))
+   (sort (hash-fold acons '() (fragment-snapshots fragment))
+         (lambda (a b)
+           (< (car a) (car b)))))
   (let ((code (fragment-trampoline fragment)))
     (format #t "~19@a: ~a:~a~%" 'trampoline
             (and (bytevector? code) (bytevector->pointer code))
