@@ -97,7 +97,7 @@
     (jit-stxi (moffs dst) fp r0))
 
    (else
-    (debug 2 "*** move: ~a ~a~%" dst src))))
+    (debug 3 "*** move: ~a ~a~%" dst src))))
 
 (define (load-frame moffs local type dst)
   (cond
@@ -161,7 +161,7 @@
     (error "load-frame" local type dst))))
 
 (define (store-frame moffs local type src)
-  (debug 2 ";;; store-frame: local=~a type=~a src=~a~%" local type src)
+  (debug 3 ";;; store-frame: local=~a type=~a src=~a~%" local type src)
   (cond
    ;; Type is return address, moving value coupled with type to frame
    ;; local. Return address of VM frame need to be recovered when taking exit
@@ -245,10 +245,10 @@
 Locals are loaded with MOFFS to refer memory offset. Returns a hash-table
 containing src with SRC-UNWRAPPER applied. Key of the returned hash-table is
 local index in LOCAL-X-TYPES."
-  (debug 2 ";;; maybe-store:~%")
-  (debug 2 ";;;   srcs:          ~a~%" srcs)
-  (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
-  (debug 2 ";;;   references:    ~a~%" references)
+  (debug 3 ";;; maybe-store:~%")
+  (debug 3 ";;;   srcs:          ~a~%" srcs)
+  (debug 3 ";;;   local-x-types: ~a~%" local-x-types)
+  (debug 3 ";;;   references:    ~a~%" references)
   (let lp ((local-x-types local-x-types)
            (srcs srcs)
            (acc (make-hash-table)))
@@ -266,7 +266,7 @@ local index in LOCAL-X-TYPES."
             (hashq-set! acc local unwrapped-src))
           (lp local-x-types srcs acc))
          (()
-          (debug 2 ";;;   srcs=null, local-x-types=~a~%" local-x-types)
+          (debug 3 ";;;   srcs=null, local-x-types=~a~%" local-x-types)
           acc)))
       (() acc))))
 
@@ -294,14 +294,14 @@ of SRCS, DSTS, TYPES are local index number."
                #f
                srcs))
   (define (dump-move local dst src)
-    (debug 2 ";;; molc: [local ~a] (move ~a ~a)~%" local dst src))
+    (debug 3 ";;; molc: [local ~a] (move ~a ~a)~%" local dst src))
   (define (dump-load local dst type)
-    (debug 2 ";;; molc: [local ~a] loading to ~a, type=~a~%" local dst type))
+    (debug 3 ";;; molc: [local ~a] loading to ~a, type=~a~%" local dst type))
 
   (let ((dsts-list (hash-map->list cons dsts))
         (car-< (lambda (a b) (< (car a) (car b)))))
-    (debug 2 ";;; molc: dsts: ~a~%" (sort dsts-list car-<))
-    (debug 2 ";;; molc: srcs: ~a~%" (sort (hash-map->list cons srcs) car-<))
+    (debug 3 ";;; molc: dsts: ~a~%" (sort dsts-list car-<))
+    (debug 3 ";;; molc: srcs: ~a~%" (sort (hash-map->list cons srcs) car-<))
     (let lp ((dsts dsts-list))
       (match dsts
         (((local . dst-var) . rest)
@@ -348,7 +348,7 @@ of SRCS, DSTS, TYPES are local index number."
 
 (define (dump-bailout ip exit-id code)
   (let ((verbosity (lightning-verbosity)))
-    (when (and verbosity (<= 3 verbosity))
+    (when (and verbosity (<= 4 verbosity))
       (call-with-output-file
           (format #f "/tmp/bailout-~x-~4,,,'0@a.o" ip exit-id)
         (lambda (port)
@@ -379,7 +379,7 @@ of SRCS, DSTS, TYPES are local index number."
            (loop-locals (fragment-loop-locals linked-fragment)))
       (define (shift-offset offset locals)
         ;; Shifting locals with given offset.
-        (debug 2 ";;; compile-link: shift-offset, offset=~a~%" offset)
+        (debug 3 ";;; compile-link: shift-offset, offset=~a~%" offset)
         (map (match-lambda ((local . type)
                             `(,(- local offset) . ,type)))
              locals))
@@ -392,7 +392,7 @@ of SRCS, DSTS, TYPES are local index number."
             ((lt . local-x-types)
              (lp local-x-types))
             (_ #f))))
-      (debug 2 ";;; compile-link: args=~a~%" args)
+      (debug 3 ";;; compile-link: args=~a~%" args)
       (cond
        ((hashq-ref snapshots current-side-exit)
         => (match-lambda
@@ -424,7 +424,7 @@ of SRCS, DSTS, TYPES are local index number."
                                   src-table)
                    (set! src-table tmp)
                    (when (< 0 local-offset)
-                     (debug 2 ";;; [jtlc] local-offset=~a~%" local-offset)
+                     (debug 3 ";;; [jtlc] local-offset=~a~%" local-offset)
                      (let ((old-fp r0)
                            (new-fp r1)
                            (ra (find-ra local-x-types))
@@ -434,7 +434,7 @@ of SRCS, DSTS, TYPES are local index number."
                        (scm-frame-set-dynamic-link! new-fp old-fp)
                        (when ra
                          (jit-movi r0 ra)
-                         (debug 2 ";;; ra=~a~%" ra)
+                         (debug 3 ";;; ra=~a~%" ra)
                          (scm-frame-set-return-address! new-fp r0))))))
 
                ;; Prepare arguments for linked trace.
@@ -455,18 +455,18 @@ of SRCS, DSTS, TYPES are local index number."
                          (hashq-set! dst-table shift dst))
                        (lp locals dsts))
                       (()
-                       (debug 2 ";;; compile-link: dsts=null, locals=~a~%"
+                       (debug 3 ";;; compile-link: dsts=null, locals=~a~%"
                               locals))))
                    (_ (values))))
 
                ;; Move variables to linked trace.
                (move-or-load-carefully dst-table src-table type-table moffs)
-               (debug 2 ";;; compile-link: end of jtlc, local-offset=~a~%"
+               (debug 3 ";;; compile-link: end of jtlc, local-offset=~a~%"
                       local-offset))
 
              ;; Shift back FP.
              (when (< lowest-offset 0)
-               (debug 2 ";;; compile-link: shifting FP, lowest-offset=~a~%"
+               (debug 3 ";;; compile-link: shifting FP, lowest-offset=~a~%"
                       lowest-offset)
                (let ((old-fp r0)
                      (new-fp r1)
@@ -493,7 +493,7 @@ of SRCS, DSTS, TYPES are local index number."
              ;;
              ;; XXX: Add more tests for checking loop-less root traces.
              (when (not fragment)
-               (debug 2 ";;; compile-link: shifting FP, not fragment~%")
+               (debug 3 ";;; compile-link: shifting FP, not fragment~%")
                (let ((vp->fp r0))
                  (jit-ldxi vp->fp fp vp->fp-offset)
                  (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
@@ -503,7 +503,7 @@ of SRCS, DSTS, TYPES are local index number."
              ;; Jump to the beginning of loop in linked code.
              (jumpi (fragment-loop-address linked-fragment)))))
        (else
-        (debug 2 ";;; compile-link: IP is 0, snapshot not found~%")))))
+        (debug 3 ";;; compile-link: IP is 0, snapshot not found~%")))))
 
   (define (compile-bailout next-ip args)
     (define (scm-i-makinumi n)
@@ -514,12 +514,12 @@ of SRCS, DSTS, TYPES are local index number."
         => (lambda (snapshot)
              (match snapshot
                (($ $snapshot local-offset nlocals local-x-types)
-                (debug 2 ";;; maybe-store-snapshot:~%")
-                (debug 2 ";;;   current-side-exit: ~a~%" current-side-exit)
-                (debug 2 ";;;   local-offset: ~a~%" local-offset)
-                (debug 2 ";;;   nlocals: ~a~%" nlocals)
-                (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
-                (debug 2 ";;;   args: ~a~%" args)
+                (debug 3 ";;; maybe-store-snapshot:~%")
+                (debug 3 ";;;   current-side-exit: ~a~%" current-side-exit)
+                (debug 3 ";;;   local-offset: ~a~%" local-offset)
+                (debug 3 ";;;   nlocals: ~a~%" nlocals)
+                (debug 3 ";;;   local-x-types: ~a~%" local-x-types)
+                (debug 3 ";;;   args: ~a~%" args)
                 ;; Matching ends when no more values found in local, args
                 ;; exceeding the number of locals are ignored.
                 ;;
@@ -538,7 +538,7 @@ of SRCS, DSTS, TYPES are local index number."
                           (store-frame moffs local type var)
                           (lp local-x-types args)))
                        (()
-                        (debug 2 ";;;   args=null, local-x-types=~a~%"
+                        (debug 3 ";;;   args=null, local-x-types=~a~%"
                                local-x-types)
                         (values nlocals local-offset snapshot))))
                     (()
@@ -549,7 +549,7 @@ of SRCS, DSTS, TYPES are local index number."
         ;; the bytevector of compiled native code could be stored in fragment,
         ;; to avoid garbage collection.
         ;;
-        (debug 2 ";;; maybe-store-snapshot: no snapshot, side-exit=~a ip=~x~%"
+        (debug 3 ";;; maybe-store-snapshot: no snapshot, side-exit=~a ip=~x~%"
                current-side-exit next-ip)
         (let ((snapshot (make-snapshot 0 0 '())))
           (hashq-set! snapshots current-side-exit snapshot)
@@ -567,7 +567,7 @@ of SRCS, DSTS, TYPES are local index number."
        ;; for negative local offset.
        ;;
        (when (< 0 local-offset)
-         (debug 2 ";;; compile-bailout: shifting FP, local-offset=~a~%"
+         (debug 3 ";;; compile-bailout: shifting FP, local-offset=~a~%"
                 local-offset)
          (let ((vp->fp r0))
            (jit-ldxi vp->fp fp vp->fp-offset)
@@ -596,7 +596,7 @@ of SRCS, DSTS, TYPES are local index number."
               (exit-vars (map env-ref args)))
          (jit-set-code (bytevector->pointer code) (imm estimated-code-size))
          (let ((ptr (jit-emit)))
-           (debug 2 ";;; compile-bailout: ptr=~a~%" ptr)
+           (debug 3 ";;; compile-bailout: ptr=~a~%" ptr)
            (make-bytevector-executable! code)
            (dump-bailout next-ip current-side-exit code)
            (set-snapshot-variables! snapshot exit-vars)
@@ -605,10 +605,10 @@ of SRCS, DSTS, TYPES are local index number."
            (set! current-side-exit (+ current-side-exit 1)))))))
 
   (define (compile-call proc args)
+    (debug 3 ";;; compile-call: proc=~a args=~a current-side-exit=~a~%"
+           proc args current-side-exit)
     (let* ((proc (env-ref proc))
            (ip (ref-value proc)))
-      (debug 2 ";;; compile-call: args=~a current-side-exit=~a~%"
-             args current-side-exit)
       (cond
        ((not (constant? proc))
         (error "compile-call: not a constant" proc))
@@ -620,7 +620,7 @@ of SRCS, DSTS, TYPES are local index number."
                (set! loop-locals local-x-types)
                (set! loop-vars (map env-ref args)))))
          (else
-          (debug 2 ";;; compile-call: no snapshot at ~a~%" current-side-exit))))
+          (debug 3 ";;; compile-call: no snapshot at ~a~%" current-side-exit))))
        ((= ip *ip-key-jump-to-linked-code*)
         (compile-link args))
        (else                            ; IP is bytecode destination.
@@ -668,7 +668,7 @@ of SRCS, DSTS, TYPES are local index number."
         (($ $primcall name args)
          (compile-primcall name loop-args args))
         (_
-         (debug 2 "*** maybe-move: ~a ~a~%" exp old-args))))
+         (debug 3 "*** maybe-move: ~a ~a~%" exp old-args))))
     (define (go k term exp loop-label)
       (match term
         (($ $kfun _ _ _ _ _)
@@ -776,8 +776,8 @@ of SRCS, DSTS, TYPES are local index number."
                    (dst-table (make-hash-table))
                    (src-table (make-hash-table))
                    (type-table (make-hash-table)))
-               (debug 2 ";;; side-trace: initial-locals: ~a~%" initial-locals)
-               (debug 2 ";;; side-trace: locals: ~a~%" locals)
+               (debug 3 ";;; side-trace: initial-locals: ~a~%" initial-locals)
+               (debug 3 ";;; side-trace: locals: ~a~%" locals)
                (for-each
                 (match-lambda
                  ((local . var)
@@ -792,12 +792,12 @@ of SRCS, DSTS, TYPES are local index number."
                       ((var . vars)
                        (hashq-set! src-table local var)
                        (when (not (hashq-ref type-table local))
-                         (debug 2 ";;; side-exit entry, setting type from parent,")
-                         (debug 2 "local ~a to type ~a~%" local type)
+                         (debug 3 ";;; side-exit entry, setting type from parent,")
+                         (debug 3 "local ~a to type ~a~%" local type)
                          (hashq-set! type-table local type))
                        (lp local-x-types vars))
                       (()
-                       (debug 2 ";;; side-exit: vars=null, local-x-types=~a~%"
+                       (debug 3 ";;; side-exit: vars=null, local-x-types=~a~%"
                               local-x-types))))
                    (() (values))))
 

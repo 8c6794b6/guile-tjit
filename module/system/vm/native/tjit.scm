@@ -184,7 +184,7 @@
                  (_ (values)))
                (lp conts (increment-snapshot-id cont snapshot-id)))
               (() values))))))
-      (when (and code (<= 3 verbosity))
+      (when (and code (<= 4 verbosity))
         (jit-print)
         (call-with-output-file
             (format #f "/tmp/trace-~x.o" (cadr (car ip-x-ops)))

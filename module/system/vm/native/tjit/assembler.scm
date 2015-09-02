@@ -120,9 +120,9 @@
      (begin
        (define (name asm arg ...)
          (let ((verbosity (lightning-verbosity)))
-           (when (and verbosity (<= 4 verbosity))
+           (when (and verbosity (<= 5 verbosity))
              (jit-note (format #f "~a" `(name ,arg ...)) 0))
-           (debug 3 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
+           (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
          <body>)
        (hashq-set! *native-prim-procedures* 'name name)))))
 
@@ -236,7 +236,7 @@
      ((< 0 n)
       (jit-ldxi dst vp->fp (imm (* n %word-size))))
      (else
-      (debug 2 ";;; frame-ref: skipping negative local ~a~%" n)))))
+      (debug 3 ";;; frame-ref: skipping negative local ~a~%" n)))))
 
 (define-syntax-rule (frame-set! n src)
   (let ((vp->fp (if (eq? src r0) r1 r0)))
@@ -247,7 +247,7 @@
      ((< 0 n)
       (jit-stxi (imm (* n %word-size)) vp->fp src))
      (else
-      (debug 2 ";;; frame-set!: negative local ~a~%" n)))))
+      (debug 3 ";;; frame-set!: negative local ~a~%" n)))))
 
 
 ;;;
@@ -364,10 +364,10 @@
      ((asm-end-address asm)
       =>
       (lambda (address)
-        (debug 2 ";;; goto-exit: jumping to ~a~%" address)
+        (debug 3 ";;; goto-exit: jumping to ~a~%" address)
         (jumpi address)))
      (else
-      (debug 2 ";;; goto-exit: returning R0~%")
+      (debug 3 ";;; goto-exit: returning R0~%")
       (jit-retr reg-retval)))))
 
 

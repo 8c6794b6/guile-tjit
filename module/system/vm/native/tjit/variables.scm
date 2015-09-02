@@ -150,9 +150,9 @@ constant value."
                                (set-type! ty val)))
                            tys vals))
                 (else
-                 (debug 2 "*** expr-type: arity mismatch in ~a~%" op))))))
+                 (debug 3 "*** expr-type: arity mismatch in ~a~%" op))))))
        (else
-        (debug 2 "*** expr-type: `~a' not found~%" op))))
+        (debug 3 "*** expr-type: `~a' not found~%" op))))
 
     (define (visit-exp syms exp)
       (match exp
@@ -166,7 +166,7 @@ constant value."
             #f)))
         (#f #f)
         (_
-         (debug 2 ";;; match to exp: ~a~%" exp))))
+         (debug 3 ";;; match to exp: ~a~%" exp))))
 
     (define (visit-cont exp k)
       (match (intmap-ref cps k)
@@ -185,7 +185,7 @@ constant value."
               (set! loop-end-syms vals)
               (set! kend k))
              (_
-              (debug 2 "loop with no values?: ~a~%" exp))))
+              (debug 3 "loop with no values?: ~a~%" exp))))
           ((= knext kstart)
            (match enext
              (($ $values vals)
@@ -206,17 +206,17 @@ constant value."
     (set-entry-syms!)
     (visit-cont #f 0)
 
-    ;; (debug 2 ";;; var-types:~%")
+    ;; (debug 3 ";;; var-types:~%")
     ;; (let ((end (vector-length types)))
     ;;   (let lp ((i 0))
     ;;     (when (< i end)
-    ;;       (debug 2 "  ~3@a: ~a~%" i (vector-ref types i))
+    ;;       (debug 3 "  ~3@a: ~a~%" i (vector-ref types i))
     ;;       (lp (+ i 1)))))
 
-    (debug 2 ";;; entry-start-syms: ~{~2@a ~}~%" entry-start-syms)
-    (debug 2 ";;; entry-end-syms:   ~{~2@a ~}~%" entry-end-syms)
-    (debug 2 ";;; loop-start-syms:  ~{~2@a ~}~%" loop-start-syms)
-    (debug 2 ";;; loop-end-syms:    ~{~2@a ~}~%" loop-end-syms)
+    (debug 3 ";;; entry-start-syms: ~{~2@a ~}~%" entry-start-syms)
+    (debug 3 ";;; entry-end-syms:   ~{~2@a ~}~%" entry-end-syms)
+    (debug 3 ";;; loop-start-syms:  ~{~2@a ~}~%" loop-start-syms)
+    (debug 3 ";;; loop-end-syms:    ~{~2@a ~}~%" loop-end-syms)
 
     (values types
             kstart kend
@@ -266,7 +266,7 @@ MAX-VAR + 1 which contains register and memory information."
        ((= (length locals) (length vars))
         (map cons (reverse locals) vars))
        (else
-        (debug 2 "*** local-var-alist: length mismatch ~a ~a~%" locals vars)
+        (debug 3 "*** local-var-alist: length mismatch ~a ~a~%" locals vars)
         '())))
 
     (let-values (((types
@@ -399,13 +399,13 @@ MAX-VAR + 1 which contains register and memory information."
              (else (error "resolve-variables at rest" i))))
           (lp (+ i 1))))
 
-      (debug 2 ";;; vars:~%")
+      (debug 3 ";;; vars:~%")
       (let lp ((i 0))
         (when (< i (+ max-var 1))
-          (debug 2 ";;; ~3@a: ~a~%" i (vector-ref vars i))
+          (debug 3 ";;; ~3@a: ~a~%" i (vector-ref vars i))
           (lp (+ i 1))))
 
-      (debug 2 ";;; resolve-variables: mem-idx=~a~%" mem-idx)
+      (debug 3 ";;; resolve-variables: mem-idx=~a~%" mem-idx)
 
       (values vars
               (local-var-alist locals entry-start-syms)

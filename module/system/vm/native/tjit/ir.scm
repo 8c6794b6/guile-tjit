@@ -309,7 +309,7 @@
                                >)))
       (let ((verbosity (lightning-verbosity)))
         (when (and (number? verbosity)
-                   (<= 2 verbosity))
+                   (<= 3 verbosity))
           (format #t ";;; local-indices:~%")
           (format #t ";;;   ~a~%" local-indices)
           (format #t ";;; lowers:~%")
@@ -459,14 +459,14 @@
        ((pair? obj) &pair)
        ((variable? obj) &box)
        (else
-        (debug 2 "*** Type not determined: ~a~%" obj)
+        (debug 3 "*** Type not determined: ~a~%" obj)
         #f)))
 
     (define (take-snapshot! ip offset locals indices args)
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
       (define (compute-args args)
-        (debug 2 ";;;   compute-args: lowest-offset=~a local-offset=~a~%"
+        (debug 3 ";;;   compute-args: lowest-offset=~a local-offset=~a~%"
                lowest-offset local-offset)
         ;; XXX: Getting number from symbol.
         (filter (lambda (arg)
@@ -481,14 +481,14 @@
 
       ;; When procedure get inlined, taking snapshot of previous frame,
       ;; contents of previous frame could change in native code loop.
-      (debug 2 ";;; take-snapshot!:~%")
-      (debug 2 ";;;   snapshot-id=~a~%" snapshot-id)
-      (debug 2 ";;;   ip=~x, offset=~a~%" ip offset)
-      (debug 2 ";;;   vars=~a~%" vars)
-      (debug 2 ";;;   (vector-length locals)=~a~%" (vector-length locals))
-      (debug 2 ";;;   local-offset=~a~%" local-offset)
-      (debug 2 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
-      (debug 2 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame))
+      (debug 3 ";;; take-snapshot!:~%")
+      (debug 3 ";;;   snapshot-id=~a~%" snapshot-id)
+      (debug 3 ";;;   ip=~x, offset=~a~%" ip offset)
+      (debug 3 ";;;   vars=~a~%" vars)
+      (debug 3 ";;;   (vector-length locals)=~a~%" (vector-length locals))
+      (debug 3 ";;;   local-offset=~a~%" local-offset)
+      (debug 3 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
+      (debug 3 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame))
       (when (< local-offset lowest-offset)
         (set! lowest-offset local-offset))
       (let lp ((is (reverse indices)) (acc '()))
@@ -502,13 +502,13 @@
                             (return-address? val))
                         val))))
            (define (add-local local)
-             (debug 2 ";;;   add-local: i=~a, local=~a~%" i local)
+             (debug 3 ";;;   add-local: i=~a, local=~a~%" i local)
              (let ((type (type-of local)))
                (if type
                    (lp is (cons `(,i . ,type) acc))
                    (lp is acc))))
            (define (add-val val)
-             (debug 2 ";;;   add-val: i=~a, val=~a~%" i val)
+             (debug 3 ";;;   add-val: i=~a, val=~a~%" i val)
              (lp is (cons `(,i . ,val) acc)))
            (cond
             ((= local-offset 0)
@@ -574,7 +574,7 @@
 
             ;; Giving up, skip this local.
             (else
-             (debug 2 "*** local for snapshot-id=~a i=~a not found~%"
+             (debug 3 "*** local for snapshot-id=~a i=~a not found~%"
                     snapshot-id i)
              (add-local #f))))
           (()
@@ -583,7 +583,7 @@
                   (snapshot (make-snapshot local-offset
                                            (vector-length locals)
                                            (shift-lowest acc))))
-             (debug 2 ";;; computed-args=~a~%" args)
+             (debug 3 ";;; computed-args=~a~%" args)
 
              ;; Using snapshot-id as key for hash-table. Identical IP could
              ;; be used for entry clause and first operation in the loop.
@@ -604,7 +604,7 @@
         (assq-ref vars (+ i local-offset)))
 
       (define (load-lowers offset exp)
-        (debug 2 ";;; load-lowers: offset=~a~%" offset)
+        (debug 3 ";;; load-lowers: offset=~a~%" offset)
         (if (< 0 offset)
             exp
             (let lp ((vars vars))
@@ -623,7 +623,7 @@
                                    (vector-ref locals i)
                                    #f))
                           (type (type-of val)))
-                     (debug 2 ";;; load-lowers: n=~a var=~a type=~a~%"
+                     (debug 3 ";;; load-lowers: n=~a var=~a type=~a~%"
                             n var type)
                      `(let ((,var (%frame-ref ,(- n offset) ,type)))
                         ,(lp vars))))
@@ -632,7 +632,7 @@
                 (()
                  exp)))))
 
-      ;; (debug 2 ";;; convert-one: ~a ~a ~a ~a~%"
+      ;; (debug 3 ";;; convert-one: ~a ~a ~a ~a~%"
       ;;        (or (and (number? ip) (number->string ip 16))
       ;;            #f)
       ;;        local-offset
@@ -655,7 +655,7 @@
                 (vproc (var-ref proc))
                 (rproc (local-ref proc))
                 (snapshot (take-snapshot! ip 0 locals local-indices args)))
-           (debug 2 ";;; ir.scm:call proc=~a local-offset=~a fp=~a~%"
+           (debug 3 ";;; ir.scm:call proc=~a local-offset=~a fp=~a~%"
                   rproc local-offset fp)
            (set-expecting-type! proc &procedure)
            (push-past-frame! past-frame dl ra local-offset locals)
@@ -680,8 +680,8 @@
          (pop-offset! proc)
          (let ((vdst (var-ref dst))
                (vproc (var-ref (+ proc 1))))
-           (debug 2 ";;; ir.scm:receive args=~a~%" args)
-           (debug 2 ";;; ir.scm:receive fp=~x ra=~x ip=~x~%"
+           (debug 3 ";;; ir.scm:receive args=~a~%" args)
+           (debug 3 ";;; ir.scm:receive fp=~x ra=~x ip=~x~%"
                   (pointer-address fp) ra ip)
            (load-lowers local-offset
                         `(let ((,vdst ,vproc))
@@ -701,9 +701,9 @@
                           '()
                           `((%return ,ra)))))
            (pop-past-frame! past-frame)
-           (debug 2 ";;; ir.scm:return~%;;;    fp=~a ip=~x ra=~x local-offset=~a~%"
+           (debug 3 ";;; ir.scm:return~%;;;    fp=~a ip=~x ra=~x local-offset=~a~%"
                   fp ip ra local-offset)
-           (debug 2 ";;;    locals=~a~%;;;    local-indices=~a~%;;;    args=~a~%"
+           (debug 3 ";;;    locals=~a~%;;;    local-indices=~a~%;;;    args=~a~%"
                   locals local-indices args)
            `(let ,assign
               ,@retf
@@ -773,7 +773,7 @@
                   ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
                   ,(convert escape rest)))
               (else
-               (debug 2 "*** ir:convert = ~a ~a~%" ra rb)
+               (debug 3 "*** ir:convert = ~a ~a~%" ra rb)
                (escape #f))))))
 
         (('br-if-< a b invert? offset)
@@ -801,7 +801,7 @@
                   ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
                   ,(convert escape rest)))
               (else
-               (debug 2 "ir:convert < ~a ~a~%" ra rb)
+               (debug 3 "ir:convert < ~a ~a~%" ra rb)
                (escape #f))))))
 
         ;; XXX: br-if-<=
@@ -963,7 +963,7 @@
              `(let ((,vdst (%fadd ,va ,vb)))
                 ,(convert escape rest)))
             (else
-             (debug 2 "ir:convert add ~a ~a ~a~%" rdst ra rb)
+             (debug 3 "ir:convert add ~a ~a ~a~%" rdst ra rb)
              (escape #f)))))
 
         (('add1 dst src)
@@ -977,7 +977,7 @@
              `(let ((,vdst (%add ,vsrc 1)))
                 ,(convert escape rest)))
             (else
-             (debug 2 "ir:convert add1 ~a ~a" rdst rsrc)
+             (debug 3 "ir:convert add1 ~a ~a" rdst rsrc)
              (escape #f)))))
 
         (('sub dst a b)
@@ -999,7 +999,7 @@
              `(let ((,vdst (%fsub ,va ,vb)))
                 ,(convert escape rest)))
             (else
-             (debug 2 "ir:convert sub ~a ~a ~a~%" rdst ra rb)
+             (debug 3 "ir:convert sub ~a ~a ~a~%" rdst ra rb)
              (escape #f)))))
 
         (('sub1 dst src)
@@ -1013,7 +1013,7 @@
              `(let ((,vdst (%sub ,vsrc 1)))
                 ,(convert escape rest)))
             (else
-             (debug 2 "ir:convert sub1 ~a ~a~%" rdst rsrc)
+             (debug 3 "ir:convert sub1 ~a ~a~%" rdst rsrc)
              (escape #f)))))
 
         (('mul dst a b)
@@ -1030,7 +1030,7 @@
              `(let ((,vdst (%fmul ,va ,vb)))
                 ,(convert escape rest)))
             (else
-             (debug 2 "*** ir:convert: NYI mul ~a ~a ~a~%" rdst ra rb)
+             (debug 3 "*** ir:convert: NYI mul ~a ~a ~a~%" rdst ra rb)
              (escape #f)))))
 
         ;; XXX: div
@@ -1051,7 +1051,7 @@
              `(let ((,vdst (%mod ,va ,vb)))
                 ,(convert escape rest)))
             (else
-             (debug 2 "*** ir:convert: NYI mod ~a ~a ~a~%" rdst ra rb)
+             (debug 3 "*** ir:convert: NYI mod ~a ~a ~a~%" rdst ra rb)
              (escape #f)))))
 
         ;; XXX: ash
@@ -1079,7 +1079,7 @@
                 (%vector-set! ,vdst ,vsrc ,vidx)
                 ,(convert escape rest)))
             (else
-             (debug 2 "*** ir.scm:convert: NYI vector-set! ~a ~a ~a~%"
+             (debug 3 "*** ir.scm:convert: NYI vector-set! ~a ~a ~a~%"
                     rdst rsrc ridx)
              (escape #f)))))
 
@@ -1131,7 +1131,7 @@
          (take-snapshot! ip offset locals local-indices args))
 
         (op
-         (debug 2 "*** ir:convert: NYI ~a~%" (car op))
+         (debug 3 "*** ir:convert: NYI ~a~%" (car op))
          (escape #f))))
 
     (define (convert escape traces)
@@ -1167,10 +1167,10 @@
                                  args))
               ,(add-initial-loads vars parent-locals (convert escape traces))))
           (_
-           (debug 2 "*** ir.scm: malformed traces")
+           (debug 3 "*** ir.scm: malformed traces")
            (escape #f))))
        (else
-        (debug 2 "*** ir.scm: empty trace")
+        (debug 3 "*** ir.scm: empty trace")
         (escape #f))))
 
     (define (make-entry ip vars types loop-exp)
@@ -1227,9 +1227,9 @@
           => type-of)
          (else
           #f)))
-      (debug 2 ";;; add-initial-loads:~%")
-      (debug 2 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
-      (debug 2 ";;;   initial-locals=~a~%" *initial-locals*)
+      (debug 3 ";;; add-initial-loads:~%")
+      (debug 3 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
+      (debug 3 ";;;   initial-locals=~a~%" *initial-locals*)
       (let lp ((vars vars))
         (match vars
           (((n . var) . vars)
@@ -1249,11 +1249,11 @@
                                #f))
                     (type (choose-type-for-local n local)))
 
-               (debug 2 ";;; add-initial-loads: n=~a local=~a~%" n local)
-               (debug 2 ";;;   known-type:     ~a~%" (hashq-ref known-types n))
-               (debug 2 ";;;   expecting-type: ~a~%" (hashq-ref expecting-types n))
-               (debug 2 ";;;   local:          ~a~%" local)
-               (debug 2 ";;;   type:           ~a~%" type)
+               (debug 3 ";;; add-initial-loads: n=~a local=~a~%" n local)
+               (debug 3 ";;;   known-type:     ~a~%" (hashq-ref known-types n))
+               (debug 3 ";;;   expecting-type: ~a~%" (hashq-ref expecting-types n))
+               (debug 3 ";;;   local:          ~a~%" local)
+               (debug 3 ";;;   type:           ~a~%" type)
                (cond
                 ((eq? type 'skip)
                  (lp vars))
@@ -1286,7 +1286,7 @@
     (define (make-scm exp-body)
       (cond
        ((not exp-body)
-        (debug 2 ";;; Bytecode to Scheme conversion failed.~%")
+        (debug 3 ";;; Bytecode to Scheme conversion failed.~%")
         #f)
        (root-trace?
         (let* ((loop-start-snapshot
@@ -1321,7 +1321,7 @@
                                   (lp lowers lowest)))
                              (()
                               lowest)))))
-      (debug 2 ";;; snapshot:~%~{;;;   ~a~%~}"
+      (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))
       (values (local-indices-of-args) snapshots lowest-offset scm))))
@@ -1363,13 +1363,13 @@
   (define (dump-cps conts)
     (and conts
          (intmap-fold (lambda (k v out)
-                        (debug 2 "~4,,,'0@a:  ~a~%" k (unparse-cps v))
+                        (debug 3 "~4,,,'0@a:  ~a~%" k (unparse-cps v))
                         out)
                       conts
                       conts)))
   (call-with-values (lambda () (trace->scm fragment exit-id loop? trace))
     (lambda (locals snapshots lowest-offset scm)
-      ;; (debug 2 ";;; scm:~%~y" scm)
+      ;; (debug 3 ";;; scm:~%~y" scm)
       (let ((cps (scm->cps scm)))
         ;; (dump-cps cps)
         (values locals snapshots lowest-offset scm cps)))))
