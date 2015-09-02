@@ -174,10 +174,8 @@
 
    ;; Type is dynamic link, storing fp to local. Dynamic link is stored as
    ;; offset in type. VM's fp could move, may use different value at the time of
-   ;; compilation and execution.
-   ;;
-   ;; Negative offset is ignored, storing to local without adding the shift
-   ;; amount.
+   ;; compilation and execution. Negative offset is ignored, storing to local
+   ;; without adding the shift amount.
    ((dynamic-link? type)
     (jit-ldxi r0 fp vp->fp-offset)
     (let* ((amount (* (dynamic-link-offset type) %word-size))
@@ -381,7 +379,7 @@ of SRCS, DSTS, TYPES are local index number."
            (loop-locals (fragment-loop-locals linked-fragment)))
       (define (shift-offset offset locals)
         ;; Shifting locals with given offset.
-        (debug 2 ";;; [jtlc] shift-offset: offset=~a~%" offset)
+        (debug 2 ";;; compile-link: shift-offset, offset=~a~%" offset)
         (map (match-lambda ((local . type)
                             `(,(- local offset) . ,type)))
              locals))
@@ -394,7 +392,7 @@ of SRCS, DSTS, TYPES are local index number."
             ((lt . local-x-types)
              (lp local-x-types))
             (_ #f))))
-      (debug 2 ";;; start of jtlc: args=~a~%" args)
+      (debug 2 ";;; compile-link: args=~a~%" args)
       (cond
        ((hashq-ref snapshots current-side-exit)
         => (match-lambda
@@ -522,16 +520,16 @@ of SRCS, DSTS, TYPES are local index number."
                 (debug 2 ";;;   nlocals: ~a~%" nlocals)
                 (debug 2 ";;;   local-x-types: ~a~%" local-x-types)
                 (debug 2 ";;;   args: ~a~%" args)
+                ;; Matching ends when no more values found in local, args
+                ;; exceeding the number of locals are ignored.
+                ;;
+                ;; XXX: Length of args and locals should match. Update snapshots
+                ;; and save args.  Snapshot data need to contain locals in
+                ;; caller procedure when VM bytecode op made this side exit was
+                ;; inlined.
+                ;;
                 (let lp ((local-x-types local-x-types)
                          (args args))
-                  ;; Matching ends when no more values found in local, args
-                  ;; exceeding the number of locals are ignored.
-                  ;;
-                  ;; XXX: Length of args and locals should match. Update
-                  ;; snapshots and save args.  Snapshot data need to contain
-                  ;; locals in caller procedure when VM bytecode op made this
-                  ;; side exit was inlined.
-                  ;;
                   (match local-x-types
                     (((local . type) . local-x-types)
                      (match args
@@ -546,8 +544,16 @@ of SRCS, DSTS, TYPES are local index number."
                     (()
                      (values nlocals local-offset snapshot))))))))
        (else
-        (debug 2 ";;; maybe-store-snapshot: root trace entry ~x~%" next-ip)
-        (values 0 0 #f))))
+        ;; When side exit id is 0 and trace is root trace, snapshot does not
+        ;; exit. Inserting dummy snapshot to hash table at this point, so that
+        ;; the bytevector of compiled native code could be stored in fragment,
+        ;; to avoid garbage collection.
+        ;;
+        (debug 2 ";;; maybe-store-snapshot: no snapshot, side-exit=~a ip=~x~%"
+               current-side-exit next-ip)
+        (let ((snapshot (make-snapshot 0 0 '())))
+          (hashq-set! snapshots current-side-exit snapshot)
+          (values 0 0 snapshot)))))
 
     (with-jit-state
      (jit-prolog)
@@ -561,9 +567,9 @@ of SRCS, DSTS, TYPES are local index number."
        ;; for negative local offset.
        ;;
        (when (< 0 local-offset)
+         (debug 2 ";;; compile-bailout: shifting FP, local-offset=~a~%"
+                local-offset)
          (let ((vp->fp r0))
-           (debug 2 ";;; compile-bailout: shifting FP, local-offset=~a~%"
-                  local-offset)
            (jit-ldxi vp->fp fp vp->fp-offset)
            (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
            (jit-stxi vp->fp-offset fp vp->fp)
@@ -593,12 +599,8 @@ of SRCS, DSTS, TYPES are local index number."
            (debug 2 ";;; compile-bailout: ptr=~a~%" ptr)
            (make-bytevector-executable! code)
            (dump-bailout next-ip current-side-exit code)
-           (if snapshot
-               (begin
-                 (set-snapshot-variables! snapshot exit-vars)
-                 (set-snapshot-code! snapshot code))
-               (debug 2 ";;; compile-bailout: no snapshot, exit-vars=~a~%"
-                      exit-vars))
+           (set-snapshot-variables! snapshot exit-vars)
+           (set-snapshot-code! snapshot code)
            (trampoline-set! trampoline current-side-exit ptr)
            (set! current-side-exit (+ current-side-exit 1)))))))
 
