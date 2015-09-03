@@ -233,8 +233,8 @@
           ((_ st i j)
            (add! (add! st i) j))
           ((_ st i)
-           (let ((n (+ i offset)))
-             (hashq-set! st n #t)
+           (begin
+             (hashq-set! st (+ i offset) #t)
              st))))
       (match op
         ((op a1)
@@ -1321,6 +1321,12 @@
                                   (lp lowers lowest)))
                              (()
                               lowest)))))
+
+      ;; Adding initial snapshot for root trace with key=0, to hold bytevector
+      ;; of native code later.
+      (when root-trace?
+        (hashq-set! snapshots 0 (make-snapshot 0 *initial-nlocals* '())))
+
       (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))

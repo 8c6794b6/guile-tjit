@@ -119,9 +119,14 @@
         (string-append "ra:" ra)))
      (else type)))
   (define (dump-locals locals)
-    (map (match-lambda
-          ((n . type) (cons n (pretty-type type))))
-         locals))
+    ;; Locals could be null. Snapshot 0 in root trace does not contain
+    ;; locals.
+    (if (null? locals)
+        "--"
+        (map (match-lambda
+              ((n . type)
+               (cons n (pretty-type type))))
+             locals)))
   (define (dump-snapshot cont snapshot-id)
     (when (call-term? cont)
       (let ((snapshot (hashq-ref snapshots snapshot-id)))

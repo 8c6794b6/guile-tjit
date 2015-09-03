@@ -519,39 +519,40 @@ of SRCS, DSTS, TYPES are local index number."
          (debug 3 ";;;   nlocals: ~a~%" nlocals)
          (debug 3 ";;;   local-x-types: ~a~%" local-x-types)
          (debug 3 ";;;   args: ~a~%" args)
-         ;; Matching ends when no more values found in local, args
-         ;; exceeding the number of locals are ignored.
-         ;;
-         ;; XXX: Length of args and locals should match. Update snapshots
-         ;; and save args.  Snapshot data need to contain locals in
-         ;; caller procedure when VM bytecode op made this side exit was
-         ;; inlined.
-         ;;
-         (let lp ((local-x-types local-x-types)
-                  (args args))
-           (match local-x-types
-             (((local . type) . local-x-types)
-              (match args
-                ((arg . args)
-                 (let ((var (env-ref arg)))
-                   (store-frame moffs local type var)
-                   (lp local-x-types args)))
-                (()
-                 (debug 3 ";;;   args=null, local-x-types=~a~%" local-x-types)
-                 (values nlocals local-offset snapshot))))
-             (()
-              (values nlocals local-offset snapshot)))))
+         (cond
+          ((and (not fragment) (= current-side-exit 0))
+           ;; When trace is root trace and side exit id is 0, no need to recover
+           ;; the frame with snapshot.  Still snapshot data is used, so that the
+           ;; bytevector of compiled native code could be stored in fragment, to
+           ;; avoid garbage collection.
+           ;;
+           (values nlocals local-offset snapshot))
+          (else
+           ;; Matching ends when no more values found in local, args
+           ;; exceeding the number of locals are ignored.
+           ;;
+           ;; XXX: Length of args and locals should match. Update snapshots
+           ;; and save args.  Snapshot data need to contain locals in
+           ;; caller procedure when VM bytecode op made this side exit was
+           ;; inlined.
+           ;;
+           (let lp ((local-x-types local-x-types)
+                    (args args))
+             (match local-x-types
+               (((local . type) . local-x-types)
+                (match args
+                  ((arg . args)
+                   (let ((var (env-ref arg)))
+                     (store-frame moffs local type var)
+                     (lp local-x-types args)))
+                  (()
+                   (debug 3 ";;;   args=null, local-x-types=~a~%" local-x-types)
+                   (values nlocals local-offset snapshot))))
+               (()
+                (values nlocals local-offset snapshot)))))))
         (_
-         ;; When side exit id is 0 and trace is root trace, snapshot does
-         ;; not exit. Inserting dummy snapshot to hash table at this
-         ;; point, so that the bytevector of compiled native code could
-         ;; be stored in fragment, to avoid garbage collection.
-         ;;
-         (debug 3 ";;; store-snapshot: no snapshot, side-exit=~a ip=~x~%"
-                current-side-exit next-ip)
-         (let ((snapshot (make-snapshot 0 0 '())))
-           (hashq-set! snapshots current-side-exit snapshot)
-           (values 0 0 snapshot)))))
+         (debug 3 ";;; store-snapshot: exit ~a, not a snapshot ~a~%"
+                current-side-exit snapshot))))
 
     (with-jit-state
      (jit-prolog)

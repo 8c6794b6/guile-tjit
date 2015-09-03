@@ -321,7 +321,7 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
                                                                         \
         /* Setting vp->sp with number of locals returnd from native  */ \
         /* code, vp->sp need to be recovered after taking side exit. */ \
-        if (nlocals != FRAME_LOCALS_COUNT () && 0 < nlocals)            \
+        if (nlocals != FRAME_LOCALS_COUNT ())                           \
           ALLOC_FRAME (nlocals);                                        \
       }                                                                 \
     else                                                                \
