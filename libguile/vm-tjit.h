@@ -41,8 +41,7 @@ SCM_API SCM scm_failed_ip_table (void);
 SCM_API SCM scm_make_tjit_retval (scm_i_thread *thread,
                                   scm_t_bits exit_id,
                                   scm_t_bits exit_ip,
-                                  scm_t_bits nlocals,
-                                  scm_t_bits local_offset);
+                                  scm_t_bits nlocals);
 
 /* Fields in record-type `fragment', from:
    "module/system/vm/native/tjit/parameters.scm". */
@@ -57,7 +56,6 @@ SCM_API SCM scm_make_tjit_retval (scm_i_thread *thread,
 #define SCM_TJIT_RETVAL_EXIT_ID(R) SCM_CELL_OBJECT (R, 0)
 #define SCM_TJIT_RETVAL_EXIT_IP(R) SCM_CELL_OBJECT (R, 1)
 #define SCM_TJIT_RETVAL_NLOCALS(R) SCM_I_INUM (SCM_CELL_OBJECT (R, 2))
-#define SCM_TJIT_RETVAL_LOCAL_OFFSET(R) SCM_CELL_OBJECT (R, 3)
 
 SCM_API void scm_bootstrap_vm_tjit (void);
 SCM_API void scm_init_vm_tjit (void);

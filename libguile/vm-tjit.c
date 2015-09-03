@@ -190,11 +190,11 @@ call_native (SCM s_ip, SCM fragment,
              scm_i_thread *thread, struct scm_vm *vp, scm_i_jmp_buf *registers,
              size_t *state, scm_t_uintptr *loop_start, scm_t_uintptr *loop_end,
              scm_t_uintptr *parent_ip, int *parent_exit_id,
-             scm_t_int32 *fp_offset_out, scm_t_uint32 *nlocals_out)
+             scm_t_uint32 *nlocals_out)
 {
   scm_t_native_code f;
   scm_t_uint32 nlocals;
-  SCM s_next_ip, fp_offset;
+  SCM s_next_ip;
   SCM code, ret, exit_id, exit_ip, exit_counts, count;
 
   code = SCM_FRAGMENT_CODE (fragment);
@@ -204,7 +204,6 @@ call_native (SCM s_ip, SCM fragment,
   exit_id = SCM_TJIT_RETVAL_EXIT_ID (ret);
   exit_ip = SCM_TJIT_RETVAL_EXIT_IP (ret);
   nlocals = SCM_TJIT_RETVAL_NLOCALS (ret);
-  fp_offset = SCM_TJIT_RETVAL_LOCAL_OFFSET (ret);
 
   s_next_ip = SCM_I_MAKINUM ((scm_t_uintptr) vp->ip);
   fragment = scm_hashq_ref (fragment_table, exit_ip, SCM_BOOL_F);
@@ -249,7 +248,6 @@ call_native (SCM s_ip, SCM fragment,
         }
     }
 
-  *fp_offset_out = SCM_I_INUM (fp_offset);
   *nlocals_out = nlocals;
 }
 
@@ -309,23 +307,21 @@ record (scm_i_thread *thread, SCM s_ip, SCM *fp, SCM locals, SCM traces)
                                                                         \
     if (is_root_trace (fragment))                                       \
       {                                                                 \
-        scm_t_int32 shift = 0;                                          \
         scm_t_uint32 nlocals = 0;                                       \
                                                                         \
         call_native (s_ip, fragment, thread, vp, registers,             \
                      &tjit_state,                                       \
                      &tjit_loop_start, &tjit_loop_end,                  \
                      &tjit_parent_ip, &tjit_parent_exit_id,             \
-                     &shift, &nlocals);                                 \
+                     &nlocals);                                         \
                                                                         \
         /* Update `fp' and `ip' in C code.  Variables `fp' and `ip'  */ \
         /* are using registers, see "libguile/vm-engine.h".          */ \
         CACHE_REGISTER ();                                              \
                                                                         \
-        /* When fp is shifted, setting vp->sp with number of locals  */ \
-        /* returned from native code, vp->sp need to be recovered    */ \
-        /* after taking side exit.                                   */ \
-        if (shift != 0)                                                 \
+        /* Setting vp->sp with number of locals returnd from native  */ \
+        /* code, vp->sp need to be recovered after taking side exit. */ \
+        if (nlocals != FRAME_LOCALS_COUNT () && 0 < nlocals)            \
           ALLOC_FRAME (nlocals);                                        \
       }                                                                 \
     else                                                                \
@@ -473,14 +469,13 @@ SCM_DEFINE (scm_failed_ip_table, "failed-ip-table", 0, 0, 0, (void),
 SCM
 scm_make_tjit_retval (scm_i_thread *thread,
                       scm_t_bits exit_id, scm_t_bits exit_ip,
-                      scm_t_bits nlocals, scm_t_bits local_offset)
+                      scm_t_bits nlocals)
 {
-  SCM ret = scm_inline_gc_malloc_pointerless (thread, 4 * sizeof (void *));
+  SCM ret = scm_inline_gc_malloc_pointerless (thread, 3 * sizeof (void *));
 
   SCM_SET_CELL_WORD (ret, 0, exit_id);
   SCM_SET_CELL_WORD (ret, 1, exit_ip);
   SCM_SET_CELL_WORD (ret, 2, nlocals);
-  SCM_SET_CELL_WORD (ret, 3, local_offset);
 
   return ret;
 }

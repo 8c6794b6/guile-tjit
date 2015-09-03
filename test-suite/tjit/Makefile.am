@@ -41,6 +41,7 @@ TESTS = \
 	t-call-01.scm \
 	t-call-02.scm \
 	t-call-03.scm \
+	t-deoptimize-01.scm \
 	t-escape-01.scm \
 	t-flonum-01.scm \
 	t-flonum-02.scm \
@@ -57,6 +58,7 @@ TESTS = \
 	t-nest-08.scm \
 	t-nest-09.scm \
 	t-nest-10.scm \
+	t-nest-10b.scm \
 	t-side-exit-01.scm \
 	t-side-exit-02.scm \
 	t-side-exit-03.scm \
@@ -79,8 +81,7 @@ TESTS = \
 	t-toplevel-box-02.scm \
 	t-toplevel-box-03.scm \
 	t-toplevel-box-04.scm \
-	t-types-01.scm \
-	t-twice-01.scm
+	t-types-01.scm
 
 EXTRA_DIST = run-tjit-tests.scm $(TESTS)
 

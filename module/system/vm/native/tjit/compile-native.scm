@@ -424,7 +424,8 @@ of SRCS, DSTS, TYPES are local index number."
                                   src-table)
                    (set! src-table tmp)
                    (when (< 0 local-offset)
-                     (debug 3 ";;; [jtlc] local-offset=~a~%" local-offset)
+                     (debug 3 ";;; compile-link: local-offset=~a~%"
+                            local-offset)
                      (let ((old-fp r0)
                            (new-fp r1)
                            (ra (find-ra local-x-types))
@@ -579,13 +580,12 @@ of SRCS, DSTS, TYPES are local index number."
        (jit-movi r0 (imm next-ip))
        (vm-sync-ip r0)
 
-       ;; Make tjit-retval.
+       ;; Make and return tjit-retval.
        (jit-prepare)
        (jit-pushargr reg-thread)
        (jit-pushargi (scm-i-makinumi current-side-exit))
        (jit-pushargi (scm-i-makinumi entry-ip))
        (jit-pushargi (scm-i-makinumi nlocals))
-       (jit-pushargi (scm-i-makinumi local-offset))
        (jit-calli %scm-make-tjit-retval)
        (jit-retval reg-retval)
        (return-to-interpreter)
