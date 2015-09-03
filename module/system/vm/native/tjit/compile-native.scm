@@ -403,10 +403,10 @@ of SRCS, DSTS, TYPES are local index number."
              ;; XXX: Move the shifting code somewhere else.
              ;;
              (let* ((dst-table (make-hash-table))
-                    (references
-                     (if fragment
-                         (shift-offset lowest-offset loop-locals)
-                         (shift-offset local-offset loop-locals)))
+                    (shift-amount (if fragment
+                                      lowest-offset
+                                      local-offset))
+                    (references (shift-offset shift-amount loop-locals))
                     (src-table (maybe-store moffs local-x-types args env-ref
                                             references))
                     (type-table (make-hash-table)))
@@ -461,11 +461,12 @@ of SRCS, DSTS, TYPES are local index number."
                    (_ (values))))
 
                ;; Move variables to linked trace.
-               (move-or-load-carefully dst-table src-table type-table moffs)
-               (debug 3 ";;; compile-link: end of jtlc, local-offset=~a~%"
-                      local-offset))
+               (move-or-load-carefully dst-table src-table type-table moffs))
 
              ;; Shift back FP.
+             ;;
+             ;; XXX: Using `find-ra', return address determined at
+             ;; compilation time.
              (when (< lowest-offset 0)
                (debug 3 ";;; compile-link: shifting FP, lowest-offset=~a~%"
                       lowest-offset)
@@ -474,16 +475,16 @@ of SRCS, DSTS, TYPES are local index number."
                      (ra (find-ra local-x-types)))
                  (jit-ldxi old-fp fp vp->fp-offset)
 
-                 ;; Shifting FP. Shifting back lowest-offset for `%return',
-                 ;; and local-offset for procedure call.
+                 ;; Shifting FP. Shifting back lowest-offset moved by `%return',
+                 ;; and shifting for local-offset to match the FP in middle of
+                 ;; procedure call.
                  (let ((shift (+ (- lowest-offset) local-offset)))
                    (jit-addi new-fp old-fp (imm (* shift %word-size))))
 
                  (scm-frame-set-dynamic-link! new-fp old-fp)
                  (jit-stxi vp->fp-offset fp new-fp)
 
-                 ;; XXX: Using `find-ra', return address determined at
-                 ;; compilation time.
+                 ;; Update return address.
                  (jit-movi r0 ra)
                  (scm-frame-set-return-address! new-fp r0)
 
@@ -509,62 +510,59 @@ of SRCS, DSTS, TYPES are local index number."
   (define (compile-bailout next-ip args)
     (define (scm-i-makinumi n)
       (make-signed-pointer (+ (ash n 2) 2)))
-    (define (maybe-store-snapshot)
-      (cond
-       ((hashq-ref snapshots current-side-exit)
-        => (lambda (snapshot)
-             (match snapshot
-               (($ $snapshot local-offset nlocals local-x-types)
-                (debug 3 ";;; maybe-store-snapshot:~%")
-                (debug 3 ";;;   current-side-exit: ~a~%" current-side-exit)
-                (debug 3 ";;;   local-offset: ~a~%" local-offset)
-                (debug 3 ";;;   nlocals: ~a~%" nlocals)
-                (debug 3 ";;;   local-x-types: ~a~%" local-x-types)
-                (debug 3 ";;;   args: ~a~%" args)
-                ;; Matching ends when no more values found in local, args
-                ;; exceeding the number of locals are ignored.
-                ;;
-                ;; XXX: Length of args and locals should match. Update snapshots
-                ;; and save args.  Snapshot data need to contain locals in
-                ;; caller procedure when VM bytecode op made this side exit was
-                ;; inlined.
-                ;;
-                (let lp ((local-x-types local-x-types)
-                         (args args))
-                  (match local-x-types
-                    (((local . type) . local-x-types)
-                     (match args
-                       ((arg . args)
-                        (let ((var (env-ref arg)))
-                          (store-frame moffs local type var)
-                          (lp local-x-types args)))
-                       (()
-                        (debug 3 ";;;   args=null, local-x-types=~a~%"
-                               local-x-types)
-                        (values nlocals local-offset snapshot))))
-                    (()
-                     (values nlocals local-offset snapshot))))))))
-       (else
-        ;; When side exit id is 0 and trace is root trace, snapshot does not
-        ;; exit. Inserting dummy snapshot to hash table at this point, so that
-        ;; the bytevector of compiled native code could be stored in fragment,
-        ;; to avoid garbage collection.
-        ;;
-        (debug 3 ";;; maybe-store-snapshot: no snapshot, side-exit=~a ip=~x~%"
-               current-side-exit next-ip)
-        (let ((snapshot (make-snapshot 0 0 '())))
-          (hashq-set! snapshots current-side-exit snapshot)
-          (values 0 0 snapshot)))))
+    (define (store-snapshot snapshot)
+      (match snapshot
+        (($ $snapshot local-offset nlocals local-x-types)
+         (debug 3 ";;; store-snapshot:~%")
+         (debug 3 ";;;   current-side-exit: ~a~%" current-side-exit)
+         (debug 3 ";;;   local-offset: ~a~%" local-offset)
+         (debug 3 ";;;   nlocals: ~a~%" nlocals)
+         (debug 3 ";;;   local-x-types: ~a~%" local-x-types)
+         (debug 3 ";;;   args: ~a~%" args)
+         ;; Matching ends when no more values found in local, args
+         ;; exceeding the number of locals are ignored.
+         ;;
+         ;; XXX: Length of args and locals should match. Update snapshots
+         ;; and save args.  Snapshot data need to contain locals in
+         ;; caller procedure when VM bytecode op made this side exit was
+         ;; inlined.
+         ;;
+         (let lp ((local-x-types local-x-types)
+                  (args args))
+           (match local-x-types
+             (((local . type) . local-x-types)
+              (match args
+                ((arg . args)
+                 (let ((var (env-ref arg)))
+                   (store-frame moffs local type var)
+                   (lp local-x-types args)))
+                (()
+                 (debug 3 ";;;   args=null, local-x-types=~a~%" local-x-types)
+                 (values nlocals local-offset snapshot))))
+             (()
+              (values nlocals local-offset snapshot)))))
+        (_
+         ;; When side exit id is 0 and trace is root trace, snapshot does
+         ;; not exit. Inserting dummy snapshot to hash table at this
+         ;; point, so that the bytevector of compiled native code could
+         ;; be stored in fragment, to avoid garbage collection.
+         ;;
+         (debug 3 ";;; store-snapshot: no snapshot, side-exit=~a ip=~x~%"
+                current-side-exit next-ip)
+         (let ((snapshot (make-snapshot 0 0 '())))
+           (hashq-set! snapshots current-side-exit snapshot)
+           (values 0 0 snapshot)))))
 
     (with-jit-state
      (jit-prolog)
      (jit-tramp (imm (* 4 %word-size)))
-     (let-values (((nlocals local-offset snapshot) (maybe-store-snapshot)))
+     (let-values (((nlocals local-offset snapshot)
+                   (store-snapshot (hashq-ref snapshots current-side-exit))))
        ;; Update `vp->fp' field in `vp' when local-offset is greater than 0.
        ;;
        ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP',
        ;; called by C code written in `libguile/vm-tjit.c'. Adding offset for
-       ;; positive local offset, fp is already shifted in maybe-store-snapshot
+       ;; positive local offset, fp is already shifted in store-snapshot
        ;; for negative local offset.
        ;;
        (when (< 0 local-offset)
@@ -580,7 +578,7 @@ of SRCS, DSTS, TYPES are local index number."
        (jit-movi r0 (imm next-ip))
        (vm-sync-ip r0)
 
-       ;; Make and return tjit-retval.
+       ;; Return tjit-retval to VM interpreter.
        (jit-prepare)
        (jit-pushargr reg-thread)
        (jit-pushargi (scm-i-makinumi current-side-exit))
@@ -762,10 +760,7 @@ of SRCS, DSTS, TYPES are local index number."
             (($ $snapshot _ _ local-x-types exit-variables)
              ;; Store values passed from parent trace when it's not used by this
              ;; side trace.
-             (maybe-store moffs
-                          local-x-types
-                          exit-variables
-                          identity
+             (maybe-store moffs local-x-types exit-variables identity
                           initial-locals)
 
              ;; When passing values from parent trace to side-trace, src could
