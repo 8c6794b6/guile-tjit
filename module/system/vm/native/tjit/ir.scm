@@ -20,8 +20,8 @@
 
 ;;; Commentary:
 
-;;; Compile traced bytecode to CPS intermediate representation via Scheme in
-;;; (almost) ANF.
+;;; Compile list of bytecode operations to CPS intermediate representation via
+;;; Scheme in (almost) ANF.
 ;;;
 ;;; One of the main reasons to convert bytecode to CPS is to do floating point
 ;;; arithmetic efficiently. VM bytecodes uses integer index to refer locals.
@@ -29,6 +29,12 @@
 ;;; format, since every variables are named uniquely, it is possible to perform
 ;;; floating point arithmetic directly with unboxed value in floating point
 ;;; register inside loop.
+;;;
+;;; Traced bytecode operations are compiled to CPS IR via Scheme IR. Use of
+;;; Scheme as another intermediate representation is because once compiled to
+;;; Scheme, compiling to CPS could be done with `(@@ (system base compile)
+;;; compile)' procedure.
+
 
 ;;; Code:
 
@@ -240,7 +246,7 @@
         ((op a1)
          (case op
            ((return)
-            ;; Store proc, returned value, VM frame dynamic link and VM frame
+            ;; Store proc, returned value, VM frame dynamic link, and VM frame
             ;; return address.
             (add! st a1 1 -1 -2))
            ((br tail-call)
@@ -250,7 +256,7 @@
         ((op a1 a2)
          (case op
            ((call)
-            ;; Store proc, VM frame dynamic link and VM frame return address.
+            ;; Store proc, VM frame dynamic link, and VM frame return address.
             (let ((st (add! st a1 (- a1 1) (- a1 2))))
               (push-offset! a1)
               st))
@@ -356,14 +362,21 @@
 ;;;
 
 (define (trace->scm fragment exit-id loop? ops)
-  (define br-op-size 2)
+  (define-syntax br-op-size (identifier-syntax 2))
   (define root-trace? (not fragment))
+  (define *initial-ip*
+    (cadr (car ops)))
+  (define *initial-locals*
+    (list-ref (car ops) 4))
+  (define *initial-nlocals*
+    (vector-length *initial-locals*))
+  (define *parent-snapshot*
+    (and fragment
+         (hashq-ref (fragment-snapshots fragment) exit-id)))
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
-
   (define (make-var index)
     (string->symbol (string-append "v" (number->string index))))
-
   (define (make-vars locals)
     ;; Might better to use other data structure than alist for variables.
     ;; Number of variables won't change after getting the number of locals from
@@ -371,39 +384,25 @@
     (map (lambda (n)
            (cons n (make-var n)))
          locals))
-
-  (define *initial-ip*
-    (cadr (car ops)))
-
-  (define *initial-locals*
-    (list-ref (car ops) 4))
-
-  (define *initial-nlocals*
-    (vector-length *initial-locals*))
-
   (define (get-initial-offset)
-    (cond
-     (root-trace?
-      0)
-     ((hashq-ref (fragment-snapshots fragment) exit-id)
-      ;; Initial offset of side trace is where parent trace left, using offset
-      ;; value from snapshot data.
-      => (match-lambda (($ $snapshot offset)
-                        offset)))
-     (else
-      (error "parent snapshot not found" exit-id))))
-
+    ;; Initial offset of side trace is where parent trace left, using offset
+    ;; value from snapshot data.
+    (if root-trace?
+        0
+        (match *parent-snapshot*
+          (($ $snapshot offset)
+           offset)
+          (_
+           (error "parent snapshot not found" exit-id)))))
   (define (get-initial-snapshot-id)
-    ;; Snapshot ID `0' in root trace contains no local information, used
-    ;; for guard failure in entry clause to quickly return to VM
-    ;; interpreter without recovering frame data.
+    ;; Snapshot ID `0' in root trace contains no locals, used for guard failure
+    ;; in entry clause to quickly return to VM interpreter without restoring
+    ;; frame locals.
     (if root-trace? 1 0))
 
   (let* ((local-offset (get-initial-offset))
          (past-frame (accumulate-locals local-offset ops))
          (local-indices (past-frame-local-indices past-frame))
-         ;; (local-indices (hashq-ref (past-frame-local-indices past-frame)
-         ;;                           local-offset))
          (args (map make-var (reverse local-indices)))
          (vars (make-vars local-indices))
          (expecting-types (make-hash-table))
@@ -418,33 +417,52 @@
     (define-syntax-rule (pop-offset! n)
       (set! local-offset (- local-offset n)))
 
-    ;; Some bytecode operation fills in locals with statically known value, e.g:
-    ;; `make-short-immediate', `static-ref', `toplevel-box' ... etc.  Some
-    ;; bytecode operations expect certain type, e.g: `add', `mul', ... etc.
-    ;; Fill in known type when bytecode filling known value, add type to expect
-    ;; with expecting bytecode operations.
+    ;; Some bytecode operation fills in local with statically known value:
+    ;; `make-short-immediate', `static-ref', `toplevel-box' ... etc. Filling in
+    ;; known type when those bytecode operations were seen.
+    (define-syntax-rule (set-known-type! idx ty)
+      (let ((i (+ idx local-offset)))
+        (when (not (hashq-ref known-types i))
+          (hashq-set! known-types i ty))))
 
+    ;; Some bytecode operations expect particular type: `add', `mul', ... etc.
+    ;; Add type to expect with expecting bytecode operations.
     (define-syntax-rule (set-expecting-type! idx ty)
       (let ((i (+ idx local-offset)))
         (when (and (not (hashq-ref expecting-types i))
                    (not (hashq-ref known-types i)))
           (hashq-set! expecting-types i ty))))
 
-    (define-syntax-rule (set-known-type! idx ty)
-      (let ((i (+ idx local-offset)))
-        (when (not (hashq-ref known-types i))
-          (hashq-set! known-types i ty))))
+    (define *parent-snapshot-locals*
+      (match *parent-snapshot*
+        (($ $snapshot _ _ locals) locals)
+        (_ #f)))
 
-    (define parent-locals
-      (let ((snapshot (and fragment
-                           (hashq-ref (fragment-snapshots fragment) exit-id))))
-        (match snapshot
-          (($ $snapshot _ _ locals) locals)
-          (_ #f))))
+    (define *args-from-parent*
+      (let lp ((vars vars) (acc '()))
+        (match vars
+          (((n . var) . vars)
+           (if (assq-ref *parent-snapshot-locals* n)
+               (lp vars (cons var acc))
+               (lp vars acc)))
+          (()
+           acc))))
+
+    (define *local-indices-of-args*
+      (if root-trace?
+          local-indices
+          (let lp ((local-indices local-indices) (acc '()))
+            (match local-indices
+              ((n . local-indices)
+               (if (assq-ref *parent-snapshot-locals* n)
+                   (lp local-indices (cons n acc))
+                   (lp local-indices acc)))
+              (()
+               (reverse! acc))))))
 
     (define (parent-snapshot-local-ref i)
-      (and parent-locals
-           (assq-ref parent-locals i)))
+      (and *parent-snapshot-locals*
+           (assq-ref *parent-snapshot-locals* i)))
 
     (define (type-of obj)
       (cond
@@ -478,9 +496,6 @@
               ((n . local)
                `(,(- n lowest-offset) . ,local)))
              acc))
-
-      ;; When procedure get inlined, taking snapshot of previous frame,
-      ;; contents of previous frame could change in native code loop.
       (debug 3 ";;; take-snapshot!:~%")
       (debug 3 ";;;   snapshot-id=~a~%" snapshot-id)
       (debug 3 ";;;   ip=~x, offset=~a~%" ip offset)
@@ -512,18 +527,13 @@
              (lp is (cons `(,i . ,val) acc)))
            (cond
             ((= local-offset 0)
-             (cond
-              ((< i 0)
-               (cond
-                ((dl-or-ra i)
-                 => add-val)
-                ;; ((< lowest-offset local-offset)
-                ;;  (add-local (past-frame-lower-ref past-frame i)))
-                (else
-                 (add-local (past-frame-lower-ref past-frame i)))))
-              (else
-               (add-local (and (< i (vector-length locals))
-                               (local-ref i))))))
+             (if (< i 0)
+                 (let ((frame-val (dl-or-ra i)))
+                   (if frame-val
+                       (add-val frame-val)
+                       (add-local (past-frame-lower-ref past-frame i))))
+                 (add-local (and (< i (vector-length locals))
+                                 (local-ref i)))))
 
             ;; Dynamic link and return address might need to be passed from
             ;; parent trace. When side trace of inlined procedure takes bailout
@@ -541,11 +551,6 @@
                      (debug 1 ";;;   i=~a, local-offset=~a, skipping~%"
                             i local-offset)
                      (lp is acc)))))
-
-            ;; ((and (<= 0 local-offset)
-            ;;       (< i 0))
-            ;;  (debug 1 ";;;    i=~a, local-offset=~a, skipping~%")
-            ;;  (lp is acc))
 
             ;; Local in lower frame.
             ((<= local-offset i 0)
@@ -596,41 +601,41 @@
              ;; terms.
              `(,(+ ip (* offset 4)) ,@args))))))
 
+    (define (load-lower offset locals exp)
+      (debug 3 ";;; load-lower: offset=~a~%" offset)
+      (if (< 0 offset)
+          exp
+          (let lp ((vars vars))
+            (match vars
+              (((n . var) . vars)
+               (cond
+                ;; Two locals below callee procedure contain VM frame
+                ;; dynamic link and VM frame return address.  VM
+                ;; interpreter refills these two locals with #f, doing the
+                ;; same thing.
+                ((or (= n -1) (= n -2))
+                 `(let ((,var #f))
+                    ,(lp vars)))
+                ((< n 0)
+                 (let* ((i (- n offset))
+                        (val (if (< -1 i (vector-length locals))
+                                 (vector-ref locals i)
+                                 #f))
+                        (type (type-of val)))
+                   (debug 3 ";;; load-lower: n=~a var=~a type=~a~%"
+                          n var type)
+                   `(let ((,var (%frame-ref ,(- n offset) ,type)))
+                      ,(lp vars))))
+                (else
+                 (lp vars))))
+              (()
+               exp)))))
+
     (define (convert-one escape op ip fp ra locals rest)
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
-
       (define-syntax-rule (var-ref i)
         (assq-ref vars (+ i local-offset)))
-
-      (define (load-lowers offset exp)
-        (debug 3 ";;; load-lowers: offset=~a~%" offset)
-        (if (< 0 offset)
-            exp
-            (let lp ((vars vars))
-              (match vars
-                (((n . var) . vars)
-                 (cond
-                  ((or (= n -1) (= n -2))
-                   ;; Two locals below callee procedure was containing VM frame
-                   ;; dynamic link and VM frame return address.  VM interpreter
-                   ;; refills these two locals with #f, doing the same thing.
-                   `(let ((,var #f))
-                      ,(lp vars)))
-                  ((< n 0)
-                   (let* ((i (- n offset))
-                          (val (if (< -1 i (vector-length locals))
-                                   (vector-ref locals i)
-                                   #f))
-                          (type (type-of val)))
-                     (debug 3 ";;; load-lowers: n=~a var=~a type=~a~%"
-                            n var type)
-                     `(let ((,var (%frame-ref ,(- n offset) ,type)))
-                        ,(lp vars))))
-                  (else
-                   (lp vars))))
-                (()
-                 exp)))))
 
       ;; (debug 3 ";;; convert-one: ~a ~a ~a ~a~%"
       ;;        (or (and (number? ip) (number->string ip 16))
@@ -645,9 +650,12 @@
         ;; XXX: halt
 
         (('call proc nlocals)
-         ;; XXX: Need to add a guard of the `proc' local matches with the value
-         ;; used during compilation. Otherwise, frame local after returning from
-         ;; callee procedure will differ.
+         ;; When procedure get inlined, taking snapshot of previous frame,
+         ;; contents of previous frame could change in native code loop.
+         ;;
+         ;; XXX: Need to add a guard to test that whether the `proc' local match
+         ;; with the value used during compilation? Frame local after returning
+         ;; from callee procedure might differ.
          (let* ((dl (cons (- (+ proc local-offset) 2)
                           (make-dynamic-link local-offset)))
                 (ra (cons (- (+ proc local-offset) 1)
@@ -662,6 +670,8 @@
            (push-offset! proc)
            `(begin
               ,snapshot
+              ;; Adding `%eq' guard to test the procedure value, so that
+              ;; re-defined procedure with same name will not get updated.
               (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
               ,(convert escape rest))))
 
@@ -683,9 +693,10 @@
            (debug 3 ";;; ir.scm:receive args=~a~%" args)
            (debug 3 ";;; ir.scm:receive fp=~x ra=~x ip=~x~%"
                   (pointer-address fp) ra ip)
-           (load-lowers local-offset
-                        `(let ((,vdst ,vproc))
-                           ,(convert escape rest)))))
+           (load-lower local-offset
+                       locals
+                       `(let ((,vdst ,vproc))
+                          ,(convert escape rest)))))
 
         (('receive-values proc allow-extra? nvalues)
          (pop-offset! proc)
@@ -697,16 +708,16 @@
                 (assign (if (eq? vdst vsrc)
                             '()
                             `((,vdst ,vsrc))))
-                (retf (if (< 0 local-offset)
-                          '()
-                          `((%return ,ra)))))
+                (return (if (< 0 local-offset)
+                            '()
+                            `((%return ,ra)))))
            (pop-past-frame! past-frame)
            (debug 3 ";;; ir.scm:return~%;;;    fp=~a ip=~x ra=~x local-offset=~a~%"
                   fp ip ra local-offset)
            (debug 3 ";;;    locals=~a~%;;;    local-indices=~a~%;;;    args=~a~%"
                   locals local-indices args)
            `(let ,assign
-              ,@retf
+              ,@return
               ,(convert escape rest))))
 
         ;; XXX: return-values
@@ -1151,82 +1162,27 @@
          (convert-one escape op ip fp ra locals rest))
         (_ traces)))
 
-    (define (enter-convert escape traces)
+    (define (choose-type-for-local n local)
+      ;; Current policy for deciding the type of initial argument loaded from
+      ;; frame:
+      ;;
+      ;; * If local has known type, use the known type.
+      ;; * Else if local has expecting type, use the expecting type.
+      ;; * Else if local is found, load from frame with type of the found
+      ;;   value.
+      ;; * Otherwise, initialize the variable as false, without loading from
+      ;;   frame.
       (cond
-       (root-trace?
-        (convert escape traces))
-       ((not (null? traces))            ; side trace.
-        (match (car traces)
-          ((op ip fp ra locals)
-           `(begin
-              ,(let ((args (args-from-parent vars parent-locals)))
-                 (take-snapshot! *initial-ip*
-                                 0
-                                 *initial-locals*
-                                 (local-indices-of-args)
-                                 args))
-              ,(add-initial-loads vars parent-locals (convert escape traces))))
-          (_
-           (debug 3 "*** ir.scm: malformed traces")
-           (escape #f))))
+       ((hashq-ref known-types n)
+        => identity)
+       ((hashq-ref expecting-types n)
+        => identity)
+       ((type-of local)
+        => identity)
        (else
-        (debug 3 "*** ir.scm: empty trace")
-        (escape #f))))
+        #f)))
 
-    (define (make-entry ip vars types loop-exp)
-      `(begin
-         (,ip)
-         ,(let lp ((vars vars))
-            (match vars
-              (((i . var) . vars)
-               (let* ((type (or (hashq-ref types i)
-                                &box))
-                      (exp (if (= type &flonum)
-                               `(let ((,var (%frame-ref/f ,i)))
-                                  ,(lp vars))
-                               `(let ((,var (%frame-ref ,i ,type)))
-                                  ,(lp vars)))))
-                 exp))
-              (()
-               loop-exp)))))
-
-    (define (args-from-parent vars parent-locals)
-      (let lp ((vars vars) (acc '()))
-        (match vars
-          (((n . var) . vars)
-           (if (assq-ref parent-locals n)
-               (lp vars (cons var acc))
-               (lp vars acc)))
-          (()
-           acc))))
-
-    (define (add-initial-loads vars parent-locals exp-body)
-      (define (choose-type-for-local n local)
-        ;; Current policy for deciding the type of initial argument loaded from
-        ;; frame:
-        ;;
-        ;; * If local index is not in initial locals, ignore the load.
-        ;;
-        ;; * Else if local has known type, use the known type.
-        ;;
-        ;; * Else if local has expecting type, use the expecting type.
-        ;;
-        ;; * Else if local is found, load from frame with type of the found
-        ;; value.
-        ;;
-        ;; * Otherwise, initialize the variable as false, without loading from
-        ;; frame.
-        (cond
-         ((<= *initial-nlocals* n)
-          'skip)
-         ((hashq-ref known-types n)
-          => identity)
-         ((hashq-ref expecting-types n)
-          => identity)
-         ((type-of local)
-          => type-of)
-         (else
-          #f)))
+    (define (add-initial-loads vars exp-body)
       (debug 3 ";;; add-initial-loads:~%")
       (debug 3 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
       (debug 3 ";;;   initial-locals=~a~%" *initial-locals*)
@@ -1234,28 +1190,27 @@
         (match vars
           (((n . var) . vars)
            (cond
-            ((assq-ref parent-locals n)
+            ((assq-ref *parent-snapshot-locals* n)
              (lp vars))
             ((< n 0)
              ;; Locals from lower frame won't be passed as argument. Loading
              ;; later with CPS IR '%frame-ref' or '%frame-ref/f'.
              (lp vars))
             (else
-             (let* ((snapshot-00 (hashq-ref snapshots 0))
-                    (i (- n (snapshot-offset snapshot-00)))
+             (let* ((snapshot0 (hashq-ref snapshots 0))
+                    (i (- n (snapshot-offset snapshot0)))
                     (local (if (and (< -1 i)
                                     (< i (vector-length *initial-locals*)))
                                (vector-ref *initial-locals* i)
                                #f))
                     (type (choose-type-for-local n local)))
-
                (debug 3 ";;; add-initial-loads: n=~a local=~a~%" n local)
                (debug 3 ";;;   known-type:     ~a~%" (hashq-ref known-types n))
                (debug 3 ";;;   expecting-type: ~a~%" (hashq-ref expecting-types n))
                (debug 3 ";;;   local:          ~a~%" local)
                (debug 3 ";;;   type:           ~a~%" type)
                (cond
-                ((eq? type 'skip)
+                ((<= *initial-nlocals* n)
                  (lp vars))
                 ((not type)
                  `(let ((,var #f))
@@ -1269,68 +1224,77 @@
           (()
            exp-body))))
 
-    (define (local-indices-of-args)
-      (cond
-       (root-trace?
-        local-indices)
-       (else
-        (let lp ((local-indices local-indices) (acc '()))
-          (match local-indices
-            ((n . local-indices)
-             (if (assq-ref parent-locals n)
-                 (lp local-indices (cons n acc))
-                 (lp local-indices acc)))
-            (()
-             (reverse! acc)))))))
+    (define (make-entry-body)
+      `(begin
+         (,*initial-ip*)
+         ,(let lp ((vars vars))
+            (match vars
+              (((i . var) . vars)
+               (let* ((type (or (hashq-ref expecting-types i)
+                                &box))
+                      (exp (if (= type &flonum)
+                               `(let ((,var (%frame-ref/f ,i)))
+                                  ,(lp vars))
+                               `(let ((,var (%frame-ref ,i ,type)))
+                                  ,(lp vars)))))
+                 exp))
+              (()
+               `(begin
+                  ,(take-snapshot! *ip-key-set-loop-info!*
+                                   0
+                                   *initial-locals*
+                                   local-indices
+                                   args)
+                  (loop ,@args)))))))
 
-    (define (make-scm exp-body)
+    (define (make-scm escape traces)
       (cond
-       ((not exp-body)
-        (debug 3 ";;; Bytecode to Scheme conversion failed.~%")
-        #f)
        (root-trace?
-        (let* ((loop-start-snapshot
-                (take-snapshot! *ip-key-set-loop-info!*
-                                0
-                                *initial-locals*
-                                local-indices
-                                args))
-               (entry-body
-                (make-entry *initial-ip* vars expecting-types
-                            `(begin
-                               ,loop-start-snapshot
-                               (loop ,@args)))))
-          `(letrec ((entry (lambda () ,entry-body))
-                    (loop (lambda ,args ,exp-body)))
+        ;; `convert' is invoked before `make-entry-body', since
+        ;; `make-entry-body' uses updated information in `expecting-types'.
+        (let* ((loop (convert escape traces))
+               (entry (make-entry-body)))
+          `(letrec ((entry (lambda ()
+                             ,entry))
+                    (loop (lambda ,args
+                            ,loop)))
              entry)))
-       (else                            ; side trace.
-        (let* ((args (args-from-parent vars parent-locals)))
-          `(letrec ((patch (lambda ,args
-                             ,exp-body)))
+       (else
+        (let ((patch `(begin
+                        ,(take-snapshot! *initial-ip*
+                                         0
+                                         *initial-locals*
+                                         *local-indices-of-args*
+                                         *args-from-parent*)
+                        ,(add-initial-loads vars
+                                            (convert escape traces)))))
+          `(letrec ((patch (lambda ,*args-from-parent*
+                             ,patch)))
              patch)))))
 
-    (let ((scm (make-scm (call-with-escape-continuation
-                          (lambda (escape)
-                            (enter-convert escape ops)))))
-          (lowest-offset (let lp ((lowers (past-frame-lowers past-frame))
-                                  (lowest 0))
-                           (match lowers
-                             (((n . _) . lowers)
-                              (if (< n lowest)
-                                  (lp lowers n)
-                                  (lp lowers lowest)))
-                             (()
-                              lowest)))))
+    (define (get-lowest-offset)
+      (let lp ((lowers (past-frame-lowers past-frame))
+               (lowest 0))
+        (match lowers
+          (((n . _) . lowers)
+           (if (< n lowest)
+               (lp lowers n)
+               (lp lowers lowest)))
+          (()
+           lowest))))
 
+    (let ((scm (call-with-escape-continuation
+                (lambda (escape)
+                  (make-scm escape ops)))))
       ;; Adding initial snapshot for root trace with key=0, to hold bytevector
       ;; of native code later.
       (when root-trace?
         (hashq-set! snapshots 0 (make-snapshot 0 *initial-nlocals* '())))
-
       (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))
-      (values (local-indices-of-args) snapshots lowest-offset scm))))
+
+      (values *local-indices-of-args* snapshots (get-lowest-offset) scm))))
 
 (define (scm->cps scm)
   (define ignored-passes
