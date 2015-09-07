@@ -373,6 +373,10 @@
   (define *parent-snapshot*
     (and fragment
          (hashq-ref (fragment-snapshots fragment) exit-id)))
+  (define *parent-snapshot-locals*
+    (match *parent-snapshot*
+      (($ $snapshot _ _ locals) locals)
+      (_ #f)))
   (define (dereference-scm addr)
     (pointer->scm (dereference-pointer (make-pointer addr))))
   (define (make-var index)
@@ -433,20 +437,18 @@
                    (not (hashq-ref known-types i)))
           (hashq-set! expecting-types i ty))))
 
-    (define *parent-snapshot-locals*
-      (match *parent-snapshot*
-        (($ $snapshot _ _ locals) locals)
-        (_ #f)))
-
-    (define *args-from-parent*
+    (define *vars-from-parent*
       (let lp ((vars vars) (acc '()))
         (match vars
           (((n . var) . vars)
            (if (assq-ref *parent-snapshot-locals* n)
-               (lp vars (cons var acc))
+               (lp vars (cons (cons n var) acc))
                (lp vars acc)))
           (()
            acc))))
+
+    (define *args-from-parent*
+      (map cdr *vars-from-parent*))
 
     (define *local-indices-of-args*
       (if root-trace?
@@ -486,7 +488,7 @@
       (define (compute-args args)
         (debug 3 ";;;   compute-args: lowest-offset=~a local-offset=~a~%"
                lowest-offset local-offset)
-        ;; XXX: Getting number from symbol.
+        ;; XXX: Getting number from symbol. Could use `vars' instead of `args'.
         (filter (lambda (arg)
                   (let* ((str (substring (symbol->string arg) 1)))
                     (<= lowest-offset (string->number str))))
@@ -601,36 +603,6 @@
              ;; terms.
              `(,(+ ip (* offset 4)) ,@args))))))
 
-    (define (load-lower offset locals exp)
-      (debug 3 ";;; load-lower: offset=~a~%" offset)
-      (if (< 0 offset)
-          exp
-          (let lp ((vars vars))
-            (match vars
-              (((n . var) . vars)
-               (cond
-                ;; Two locals below callee procedure contain VM frame
-                ;; dynamic link and VM frame return address.  VM
-                ;; interpreter refills these two locals with #f, doing the
-                ;; same thing.
-                ((or (= n -1) (= n -2))
-                 `(let ((,var #f))
-                    ,(lp vars)))
-                ((< n 0)
-                 (let* ((i (- n offset))
-                        (val (if (< -1 i (vector-length locals))
-                                 (vector-ref locals i)
-                                 #f))
-                        (type (type-of val)))
-                   (debug 3 ";;; load-lower: n=~a var=~a type=~a~%"
-                          n var type)
-                   `(let ((,var (%frame-ref ,(- n offset) ,type)))
-                      ,(lp vars))))
-                (else
-                 (lp vars))))
-              (()
-               exp)))))
-
     (define (convert-one escape op ip fp ra locals rest)
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
@@ -688,15 +660,42 @@
 
         (('receive dst proc nlocals)
          (pop-offset! proc)
-         (let ((vdst (var-ref dst))
-               (vproc (var-ref (+ proc 1))))
-           (debug 3 ";;; ir.scm:receive args=~a~%" args)
-           (debug 3 ";;; ir.scm:receive fp=~x ra=~x ip=~x~%"
-                  (pointer-address fp) ra ip)
-           (load-lower local-offset
-                       locals
-                       `(let ((,vdst ,vproc))
-                          ,(convert escape rest)))))
+         (debug 3 ";;; ir.scm:receive args=~a fp=~x ra=~x ip=~x~%"
+                args (pointer-address fp) ra ip)
+
+         ;; `local-offset' could be modified during `convert' with
+         ;; `push-offset!' and `pop-offset!'. Wrapping next expression as
+         ;; anonymous procedure to prevent overriding variables at this point.
+         (let* ((vdst (var-ref dst))
+                (vret (var-ref (+ proc 1)))
+                (do-next-convert (lambda ()
+                                   `(let ((,vdst ,vret))
+                                      ,(convert escape rest)))))
+           (if (< 0 local-offset)
+               (do-next-convert)
+               (let lp ((vars vars))
+                 (match vars
+                   (((n . var) . vars)
+                    (debug 3 ";;; ir.scm::receive n=~a var=~a~%" n var)
+                    (cond
+                     ;; Two locals below callee procedure in VM frame contain
+                     ;; dynamic link and return address. VM interpreter refills
+                     ;; these two with #f, doing the same thing.
+                     ((or (= n -1) (= n -2))
+                      `(let ((,var #f))
+                         ,(lp vars)))
+                     ((< n 0)
+                      (let* ((i (- n local-offset))
+                             (val (if (< -1 i (vector-length locals))
+                                      (vector-ref locals i)
+                                      #f))
+                             (type (type-of val)))
+                        `(let ((,var (%frame-ref ,(- n local-offset) ,type)))
+                           ,(lp vars))))
+                     (else
+                      (lp vars))))
+                   (()
+                    (do-next-convert)))))))
 
         (('receive-values proc allow-extra? nvalues)
          (pop-offset! proc)
@@ -1148,16 +1147,18 @@
     (define (convert escape traces)
       (match traces
         (((op ip fp ra locals) . ())
-         (cond
-          ((and root-trace? loop?)      ; root trace with loop.
-           (convert-one escape op ip fp ra locals
-                        `(loop ,@(filter identity (reverse (map cdr vars))))))
-          (else                         ; side trace or loop-less root trace.
-           ;; Capturing CPS variables with `take-snapshot!' at the end, so that
-           ;; the native code can pass the register information to linked trace.
-           (let* ((snap! `(take-snapshot! ,*ip-key-jump-to-linked-code* 0))
-                  (last-op `((,snap! ,ip #f #f ,locals))))
-             (convert-one escape op ip fp ra locals last-op)))))
+         (if (and root-trace? loop?)
+             ;; Root trace with loop. Emit `loop', which is the name of
+             ;; procedure for looping the body of Scheme IR emitted in
+             ;; `make-scm'.
+             (convert-one escape op ip fp ra locals
+                          `(loop ,@(filter identity (reverse (map cdr vars)))))
+             ;; Side trace or loop-less root trace.  Capturing CPS variables with
+             ;; `take-snapshot!' at the end, so that the native code can pass the
+             ;; register information to linked trace.
+             (let* ((snap! `(take-snapshot! ,*ip-key-jump-to-linked-code* 0))
+                    (last-op `((,snap! ,ip #f #f ,locals))))
+               (convert-one escape op ip fp ra locals last-op))))
         (((op ip fp ra locals) . rest)
          (convert-one escape op ip fp ra locals rest))
         (_ traces)))
@@ -1182,7 +1183,7 @@
        (else
         #f)))
 
-    (define (add-initial-loads vars exp-body)
+    (define (add-initial-loads exp-body)
       (debug 3 ";;; add-initial-loads:~%")
       (debug 3 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
       (debug 3 ";;;   initial-locals=~a~%" *initial-locals*)
@@ -1190,11 +1191,19 @@
         (match vars
           (((n . var) . vars)
            (cond
-            ((assq-ref *parent-snapshot-locals* n)
-             (lp vars))
-            ((< n 0)
-             ;; Locals from lower frame won't be passed as argument. Loading
-             ;; later with CPS IR '%frame-ref' or '%frame-ref/f'.
+            ;; When locals index was found in parent snapshot locals, the local
+            ;; will be passed from parent fragment, ignoreing.
+            ;;
+            ;; If local index is negative, locals from lower frame won't be
+            ;; passed as argument. Loading later with CPS IR '%frame-ref'
+            ;; or '%frame-ref/f'.
+            ;;
+            ;; Locals index exceeding initial number of locals are also ignored,
+            ;; should not loaded at the time of entering the native code.
+            ;;
+            ((or (assq-ref *parent-snapshot-locals* n)
+                 (< n 0)
+                 (<= *initial-nlocals* n))
              (lp vars))
             (else
              (let* ((snapshot0 (hashq-ref snapshots 0))
@@ -1210,8 +1219,6 @@
                (debug 3 ";;;   local:          ~a~%" local)
                (debug 3 ";;;   type:           ~a~%" type)
                (cond
-                ((<= *initial-nlocals* n)
-                 (lp vars))
                 ((not type)
                  `(let ((,var #f))
                     ,(lp vars)))
@@ -1227,16 +1234,16 @@
     (define (make-entry-body)
       `(begin
          (,*initial-ip*)
-         ,(let lp ((vars vars))
-            (match vars
-              (((i . var) . vars)
+         ,(let lp ((lp-vars vars))
+            (match lp-vars
+              (((i . var) . lp-vars)
                (let* ((type (or (hashq-ref expecting-types i)
                                 &box))
                       (exp (if (= type &flonum)
                                `(let ((,var (%frame-ref/f ,i)))
-                                  ,(lp vars))
+                                  ,(lp lp-vars))
                                `(let ((,var (%frame-ref ,i ,type)))
-                                  ,(lp vars)))))
+                                  ,(lp lp-vars)))))
                  exp))
               (()
                `(begin
@@ -1250,27 +1257,24 @@
     (define (make-scm escape traces)
       (cond
        (root-trace?
-        ;; `convert' is invoked before `make-entry-body', since
-        ;; `make-entry-body' uses updated information in `expecting-types'.
-        (let* ((loop (convert escape traces))
-               (entry (make-entry-body)))
+        ;; `make-entry-body' uses updated information in `expecting-types',
+        ;; invoke `convert' before `make-entry-body'.
+        (let ((loop (convert escape traces)))
           `(letrec ((entry (lambda ()
-                             ,entry))
+                             ,(make-entry-body)))
                     (loop (lambda ,args
                             ,loop)))
              entry)))
        (else
-        (let ((patch `(begin
-                        ,(take-snapshot! *initial-ip*
-                                         0
-                                         *initial-locals*
-                                         *local-indices-of-args*
-                                         *args-from-parent*)
-                        ,(add-initial-loads vars
-                                            (convert escape traces)))))
-          `(letrec ((patch (lambda ,*args-from-parent*
-                             ,patch)))
-             patch)))))
+        `(letrec ((patch (lambda ,*args-from-parent*
+                           (begin
+                             ,(take-snapshot! *initial-ip*
+                                              0
+                                              *initial-locals*
+                                              *local-indices-of-args*
+                                              *args-from-parent*)
+                             ,(add-initial-loads (convert escape traces))))))
+           patch))))
 
     (define (get-lowest-offset)
       (let lp ((lowers (past-frame-lowers past-frame))
