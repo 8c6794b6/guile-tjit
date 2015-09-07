@@ -35,7 +35,7 @@ static SCM tjit_hot_exit = SCM_I_MAKINUM (10);
 static SCM tjit_max_record = SCM_I_MAKINUM (6000);
 
 /* Maximum count of retries for failed compilation. */
-static SCM tjit_max_retries = SCM_I_MAKINUM (1);
+static SCM tjit_max_retries = SCM_I_MAKINUM (2);
 
 
 /*
@@ -408,6 +408,22 @@ SCM_DEFINE (scm_tjit_ip_counter, "tjit-ip-counter", 0, 0, 0, (void),
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_fragment_table, "fragment-table", 0, 0, 0, (void),
+            "Hash table containing fragments.")
+#define FUNC_NAME s_scm_fragment_table
+{
+  return fragment_table;
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_failed_ip_table, "failed-ip-table", 0, 0, 0, (void),
+            "Hash table containing failed ips.")
+#define FUNC_NAME s_scm_failed_ip_table
+{
+  return failed_ip_table;
+}
+#undef FUNC_NAME
+
 SCM_DEFINE (scm_tjit_hot_loop, "tjit-hot-loop", 0, 0, 0, (void),
             "Number of iterations to decide loop is hot.")
 #define FUNC_NAME s_scm_tjit_hot_loop
@@ -450,19 +466,24 @@ SCM_DEFINE (scm_set_tjit_hot_exit_x, "set-tjit-hot-exit!", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_fragment_table, "fragment-table", 0, 0, 0, (void),
-            "Hash table containing fragments.")
-#define FUNC_NAME s_scm_fragment_table
+SCM_DEFINE (scm_tjit_max_retries, "tjit-max-retries", 0, 0, 0, (void),
+            "Number of retries for failed IP.")
+#define FUNC_NAME s_scm_tjit_max_retries
 {
-  return fragment_table;
+  return tjit_max_retries;
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_failed_ip_table, "failed-ip-table", 0, 0, 0, (void),
-            "Hash table containing failed ips.")
-#define FUNC_NAME s_scm_failed_ip_table
+SCM_DEFINE (scm_set_tjit_max_retries_x, "set-tjit-max-retries!", 1, 0, 0,
+            (SCM count),
+            "Set number of max retries for failed IP.")
+#define FUNC_NAME s_scm_set_tjit_max_retries_x
 {
-  return failed_ip_table;
+  if (SCM_I_NINUMP (count) || count < 0)
+    SCM_MISC_ERROR ("Unknown hot exit: ~a", scm_list_1 (count));
+
+  tjit_max_retries = count;
+  return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
 

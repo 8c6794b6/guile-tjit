@@ -26,12 +26,17 @@
 
 (define-module (system vm native tjit parameters)
   #:export (tjit-ip-counter
-            tjit-hot-loop
-            tjit-hot-exit
-            tjit-max-spills
             fragment-table
             failed-ip-table
+
+            tjit-hot-loop
             set-tjit-hot-loop!
+            tjit-hot-exit
+            set-tjit-hot-exit!
+            tjit-max-retries
+            set-tjit-max-retries!
+
+            tjit-max-spills
             tjit-stats))
 
 (load-extension (string-append "libguile-" (effective-version))

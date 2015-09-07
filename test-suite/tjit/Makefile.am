@@ -55,6 +55,7 @@ TESTS = \
 	t-nest-05.scm \
 	t-nest-06.scm \
 	t-nest-07.scm \
+	t-nest-07b.scm \
 	t-nest-08.scm \
 	t-nest-09.scm \
 	t-nest-10.scm \
