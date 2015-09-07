@@ -51,7 +51,45 @@
 ;;; Showing IR dump
 ;;;
 
-(define (show-dump ip-x-ops scm locals cps snapshots fragment code code-size)
+(define (dump-bytecode ip-x-ops)
+  (define (lowest-level ip-x-ops)
+    (let lp ((ip-x-ops ip-x-ops) (level 0) (lowest 0))
+      (match ip-x-ops
+        (((op . _) . ip-x-ops)
+         (case (car op)
+           ((call call-label)
+            (lp ip-x-ops (+ level 1) lowest))
+           ((return return-values subr-call foreign-call)
+            (let ((level (- level 1)))
+              (lp ip-x-ops level (min level lowest))))
+           (else
+            (lp ip-x-ops level lowest))))
+        (() lowest))))
+  (define (make-indent n)
+    (let lp ((n n) (acc '()))
+      (if (< 0 n)
+          (lp (- n 1) (cons #\. (cons #\space acc)))
+          (list->string acc))))
+  (let ((lowest (lowest-level ip-x-ops)))
+    (format #t ";;; bytecode: ~a:~a~%"
+            (length ip-x-ops) lowest)
+    (let lp ((traces ip-x-ops) (level (- lowest)))
+      (match traces
+        (((op ip fp ra locals) . traces)
+         (let ((op-val (format #f "~x  ~a~a" ip (make-indent level) op)))
+           (if (<= 3 (lightning-verbosity))
+               (format #t "~40a ; ~a~%" op-val locals)
+               (format #t "~a~%" op-val)))
+         (case (car op)
+           ((call call-label)
+            (lp traces (+ level 1)))
+           ((return return-values subr-call foreign-call)
+            (lp traces (- level 1)))
+           (else
+            (lp traces level))))
+        (() (values))))))
+
+(define (dump-cps cps snapshots)
   (define (mark-call cont)
     (match cont
       (($ $kargs _ _ ($ $continue _ _ ($ $call _ _)))
@@ -76,19 +114,6 @@
       (if (< 0 n)
           (lp (- n 1) (cons #\. (cons #\space acc)))
           (list->string acc))))
-  (define (lowest-level ip-x-ops)
-    (let lp ((traces ip-x-ops) (level 0) (lowest 0))
-      (match traces
-        (((op . _) . traces)
-         (case (car op)
-           ((call call-label)
-            (lp traces (+ level 1) lowest))
-           ((return return-values subr-call foreign-call)
-            (let ((level (- level 1)))
-              (lp traces level (min level lowest))))
-           (else
-            (lp traces level lowest))))
-        (() lowest))))
   (define (call-term? cont)
     (match cont
       (($ $kargs _ _ ($ $continue _ _ ($ $call)))
@@ -145,58 +170,40 @@
         snapshot-id))
 
   (let ((verbosity (lightning-verbosity)))
-    (when (<= 2 verbosity)
-      (let ((lowest (lowest-level ip-x-ops)))
-        (format #t ";;; bytecode: ~a:~a:~a~%"
-                (length ip-x-ops) lowest (and locals (sort locals <)))
-        (let lp ((traces ip-x-ops) (level (- lowest)))
-          (match traces
-            (((op ip fp ra locals) . traces)
-             (let ((op-val (format #f "~x  ~a~a" ip (make-indent level) op)))
-               (if (<= 3 verbosity)
-                   (format #t "~40a ; ~a~%" op-val locals)
-                   (format #t "~a~%" op-val)))
-             (case (car op)
-               ((call call-label)
-                (lp traces (+ level 1)))
-               ((return return-values subr-call foreign-call)
-                (lp traces (- level 1)))
-               (else
-                (lp traces level))))
-            (() (values)))))
-      (format #t ";;; scm:~%~y" scm)
-      (display ";;; cps\n")
-      (cond
-       ((not cps)
-        (display "#f\n"))
-       (else
-        (let ((kstart (loop-start cps)))
-          (let lp ((conts (reverse! (intmap-fold acons cps '())))
-                   (snapshot-id 0))
-            (match conts
-              (((k . cont) . conts)
-               (and (eq? k kstart)
-                    (format #t "==== loop:~%"))
-               (dump-snapshot cont snapshot-id)
-               (format #t "~4,,,'0@a  ~a~a ~a~%" k
-                       (mark-branch cont)
-                       (mark-call cont)
-                       (unparse-cps cont))
-               (match cont
-                 (($ $kargs _ _ ($ $continue knext _ _))
-                  (when (< knext k)
-                    (format #t "==== ->loop~%")))
-                 (_ (values)))
-               (lp conts (increment-snapshot-id cont snapshot-id)))
-              (() values))))))
-      (when (and code (<= 4 verbosity))
-        (jit-print)
-        (call-with-output-file
-            (format #f "/tmp/trace-~x.o" (cadr (car ip-x-ops)))
-          (lambda (port)
-            (let ((code-copy (make-bytevector code-size)))
-              (bytevector-copy! code 0 code-copy 0 code-size)
-              (put-bytevector port code-copy))))))))
+    (cond
+     ((not cps)
+      (display "#f\n"))
+     (else
+      (let ((kstart (loop-start cps)))
+        (let lp ((conts (reverse! (intmap-fold acons cps '())))
+                 (snapshot-id 0))
+          (match conts
+            (((k . cont) . conts)
+             (and (eq? k kstart)
+                  (format #t "==== loop:~%"))
+             (dump-snapshot cont snapshot-id)
+             (format #t "~4,,,'0@a  ~a~a ~a~%" k
+                     (mark-branch cont)
+                     (mark-call cont)
+                     (unparse-cps cont))
+             (match cont
+               (($ $kargs _ _ ($ $continue knext _ _))
+                (when (< knext k)
+                  (format #t "==== ->loop~%")))
+               (_ (values)))
+             (lp conts (increment-snapshot-id cont snapshot-id)))
+            (() values))))))))
+
+(define (dump-native-code trace-id ip-x-ops code code-size)
+  (jit-print)
+  (let ((path (format #f "/tmp/trace-~a-~x.o"
+                      trace-id (cadr (car ip-x-ops)))))
+    (format #t ";;; Writing native code to ~a~%" path)
+    (call-with-output-file path
+      (lambda (port)
+        (let ((code-copy (make-bytevector code-size)))
+          (bytevector-copy! code 0 code-copy 0 code-size)
+          (put-bytevector port code-copy))))))
 
 
 ;;;
@@ -257,13 +264,16 @@
       (format #t ";;;   parent-exit-id: ~a~%" parent-exit-id)
       (format #t ";;;   loop?:          ~a~%" loop?)
       (and fragment (dump-fragment fragment)))
+    (when (<= 2 verbosity)
+      (dump-bytecode ip-x-ops))
     (let-values (((locals snapshots lowest-offset scm cps)
                   (trace->cps fragment parent-exit-id loop? ip-x-ops)))
+      (when (<= 2 verbosity)
+        (dump-cps cps snapshots))
       (cond
        ((not cps)
         (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
         (debug 2 ";;; CPS conversion failed~%")
-        (show-dump ip-x-ops scm locals cps snapshots fragment #f #f)
         (increment-compilation-failure entry-ip))
        (else
         (with-jit-state
@@ -309,8 +319,8 @@
                  (when (and verbosity (<= 1 verbosity))
                    (let ((code-size (jit-code-size)))
                      (show-one-line sline fragment code-size)
-                     (show-dump ip-x-ops scm locals cps snapshots fragment
-                                code code-size)))
+                     (when (<= 4 verbosity)
+                       (dump-native-code trace-id ip-x-ops code code-size))))
                  ;; When this trace is a side trace, replace the native code
                  ;; of trampoline in parent fragment.
                  (when fragment

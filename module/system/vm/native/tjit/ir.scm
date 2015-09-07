@@ -1335,16 +1335,8 @@
     cps))
 
 (define (trace->cps fragment exit-id loop? trace)
-  (define (dump-cps conts)
-    (and conts
-         (intmap-fold (lambda (k v out)
-                        (debug 3 "~4,,,'0@a:  ~a~%" k (unparse-cps v))
-                        out)
-                      conts
-                      conts)))
   (call-with-values (lambda () (trace->scm fragment exit-id loop? trace))
     (lambda (locals snapshots lowest-offset scm)
-      ;; (debug 3 ";;; scm:~%~y" scm)
+      (debug 2 ";;; scm:~%~y" scm)
       (let ((cps (scm->cps scm)))
-        ;; (dump-cps cps)
         (values locals snapshots lowest-offset scm cps)))))
