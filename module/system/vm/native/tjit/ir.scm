@@ -445,10 +445,10 @@
                (lp vars (cons (cons n var) acc))
                (lp vars acc)))
           (()
-           acc))))
+           (reverse! acc)))))
 
     (define *args-from-parent*
-      (map cdr *vars-from-parent*))
+      (reverse (map cdr *vars-from-parent*)))
 
     (define *local-indices-of-args*
       (if root-trace?
@@ -482,17 +482,18 @@
         (debug 3 "*** Type not determined: ~a~%" obj)
         #f)))
 
-    (define (take-snapshot! ip offset locals indices args)
+    (define (take-snapshot! ip offset locals indices vars)
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
-      (define (compute-args args)
-        (debug 3 ";;;   compute-args: lowest-offset=~a local-offset=~a~%"
-               lowest-offset local-offset)
-        ;; XXX: Getting number from symbol. Could use `vars' instead of `args'.
-        (filter (lambda (arg)
-                  (let* ((str (substring (symbol->string arg) 1)))
-                    (<= lowest-offset (string->number str))))
-                args))
+      (define (compute-args vars)
+        (let lp ((vars vars) (acc '()))
+          (match vars
+            (((n . var) . vars)
+             (if (<= lowest-offset n)
+                 (lp vars (cons var acc))
+                 (lp vars acc)))
+            (()
+             acc))))
       (define (shift-lowest acc)
         (map (match-lambda
               ((n . local)
@@ -586,7 +587,7 @@
              (add-local #f))))
           (()
            (let* ((acc (reverse! acc))
-                  (args (compute-args args))
+                  (args (compute-args vars))
                   (snapshot (make-snapshot local-offset
                                            (vector-length locals)
                                            (shift-lowest acc))))
@@ -634,7 +635,7 @@
                           (make-return-address (make-pointer (+ ip (* 2 4))))))
                 (vproc (var-ref proc))
                 (rproc (local-ref proc))
-                (snapshot (take-snapshot! ip 0 locals local-indices args)))
+                (snapshot (take-snapshot! ip 0 locals local-indices vars)))
            (debug 3 ";;; ir.scm:call proc=~a local-offset=~a fp=~a~%"
                   rproc local-offset fp)
            (set-expecting-type! proc &procedure)
@@ -779,7 +780,7 @@
                (set-expecting-type! a &exact-integer)
                (set-expecting-type! b &exact-integer)
                `(begin
-                  ,(take-snapshot! ip dest locals local-indices args)
+                  ,(take-snapshot! ip dest locals local-indices vars)
                   ,(if (= ra rb) `(%eq ,va ,vb) `(%ne ,va ,vb))
                   ,(convert escape rest)))
               (else
@@ -799,7 +800,7 @@
                (set-expecting-type! a &exact-integer)
                (set-expecting-type! b &exact-integer)
                `(begin
-                  ,(take-snapshot! ip dest locals local-indices args)
+                  ,(take-snapshot! ip dest locals local-indices vars)
                   ,(if (< ra rb) `(%lt ,va ,vb) `(%ge ,va ,vb))
                   ,(convert escape rest)))
 
@@ -807,7 +808,7 @@
                (set-expecting-type! a &flonum)
                (set-expecting-type! b &flonum)
                `(begin
-                  ,(take-snapshot! ip dest locals local-indices args)
+                  ,(take-snapshot! ip dest locals local-indices vars)
                   ,(if (< ra rb) `(%flt ,va ,vb) `(%fge ,va ,vb))
                   ,(convert escape rest)))
               (else
@@ -1138,7 +1139,7 @@
         ;; *** Misc
 
         (('take-snapshot! ip offset)
-         (take-snapshot! ip offset locals local-indices args))
+         (take-snapshot! ip offset locals local-indices vars))
 
         (op
          (debug 3 "*** ir:convert: NYI ~a~%" (car op))
@@ -1251,7 +1252,7 @@
                                    0
                                    *initial-locals*
                                    local-indices
-                                   args)
+                                   vars)
                   (loop ,@args)))))))
 
     (define (make-scm escape traces)
@@ -1272,7 +1273,7 @@
                                               0
                                               *initial-locals*
                                               *local-indices-of-args*
-                                              *args-from-parent*)
+                                              *vars-from-parent*)
                              ,(add-initial-loads (convert escape traces))))))
            patch))))
 
