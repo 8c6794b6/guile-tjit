@@ -170,6 +170,7 @@
         snapshot-id))
 
   (let ((verbosity (lightning-verbosity)))
+    (format #t ";;; cps:~%")
     (cond
      ((not cps)
       (display "#f\n"))
@@ -237,7 +238,7 @@
        (format #f "~a:~d"
                (or (source-file source) "(unknown file)")
                (source-line-for-user source)))))
-  (define-syntax-rule (show-one-line sline fragment code-size)
+  (define-syntax-rule (show-one-line sline fragment)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
                                  (or (and fragment (fragment-id fragment))
@@ -248,34 +249,36 @@
                          ""
                          (format #f " -> ~a"
                                  (fragment-id (get-fragment linked-ip))))))
-      (format #t ";;; trace ~a:~a ~a~a~a~%"
-              trace-id sline code-size exit-pair linked-id)))
+      (format #f ";;; trace ~a:~a~a~a~%" trace-id sline exit-pair linked-id)))
 
   (let* ((ip-x-ops (traced-ops bytecode-ptr bytecode-len envs))
          (entry-ip (cadr (car ip-x-ops)))
          (verbosity (lightning-verbosity))
          (fragment (get-fragment parent-ip))
          (sline (ip-ptr->source-line (cadr (car ip-x-ops)))))
-    (when (and verbosity (<= 2 verbosity))
-      (format #t ";;; tjit.scm:~%")
-      (format #t ":;;   entry-ip:       ~x~%" entry-ip)
-      (format #t ";;;   parent-ip:      ~x~%" parent-ip)
-      (format #t ";;;   linked-ip:      ~x~%" linked-ip)
-      (format #t ";;;   parent-exit-id: ~a~%" parent-exit-id)
-      (format #t ";;;   loop?:          ~a~%" loop?)
-      (and fragment (dump-fragment fragment)))
-    (when (<= 2 verbosity)
-      (dump-bytecode ip-x-ops))
     (let-values (((locals snapshots lowest-offset scm cps)
                   (trace->cps fragment parent-exit-id loop? ip-x-ops)))
-      (when (<= 2 verbosity)
-        (dump-cps cps snapshots))
+      (define-syntax-rule (do-dumps)
+        (when (and verbosity (<= 2 verbosity))
+          (format #t ";;; tjit.scm:~%")
+          (format #t ":;;   entry-ip:       ~x~%" entry-ip)
+          (format #t ";;;   parent-ip:      ~x~%" parent-ip)
+          (format #t ";;;   linked-ip:      ~x~%" linked-ip)
+          (format #t ";;;   parent-exit-id: ~a~%" parent-exit-id)
+          (format #t ";;;   loop?:          ~a~%" loop?)
+          (and fragment (dump-fragment fragment))
+          (dump-bytecode ip-x-ops)
+          (format #t ";;; scm:~%~y" scm)
+          (and cps (dump-cps cps snapshots))))
       (cond
        ((not cps)
         (debug 1 ";;; trace ~a:~a abort~%" trace-id sline)
         (debug 2 ";;; CPS conversion failed~%")
+        (do-dumps)
         (increment-compilation-failure entry-ip))
        (else
+        (debug 1 "~a" (show-one-line sline fragment))
+        (do-dumps)
         (with-jit-state
          (jit-prolog)
          (let-values
@@ -316,11 +319,8 @@
                                                         trampoline
                                                         fp-offset
                                                         end-address))
-                 (when (and verbosity (<= 1 verbosity))
-                   (let ((code-size (jit-code-size)))
-                     (show-one-line sline fragment code-size)
-                     (when (<= 4 verbosity)
-                       (dump-native-code trace-id ip-x-ops code code-size))))
+                 (when (and verbosity (<= 4 verbosity))
+                   (dump-native-code trace-id ip-x-ops code (jit-code-size)))
                  ;; When this trace is a side trace, replace the native code
                  ;; of trampoline in parent fragment.
                  (when fragment

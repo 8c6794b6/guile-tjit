@@ -1347,6 +1347,5 @@
 (define (trace->cps fragment exit-id loop? trace)
   (call-with-values (lambda () (trace->scm fragment exit-id loop? trace))
     (lambda (locals snapshots lowest-offset scm)
-      (debug 2 ";;; scm:~%~y" scm)
       (let ((cps (scm->cps scm)))
         (values locals snapshots lowest-offset scm cps)))))
