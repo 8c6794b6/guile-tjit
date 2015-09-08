@@ -508,7 +508,7 @@ of SRCS, DSTS, TYPES are local index number."
         (debug 3 ";;; compile-link: IP is 0, snapshot not found~%")))))
 
   (define (compile-bailout next-ip args)
-    (define (scm-i-makinumi n)
+    (define-syntax-rule (scm-i-makinumi n)
       (make-signed-pointer (+ (ash n 2) 2)))
     (define (store-snapshot snapshot)
       (match snapshot

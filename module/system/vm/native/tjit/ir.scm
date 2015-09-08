@@ -398,28 +398,51 @@
            offset)
           (_
            (error "parent snapshot not found" exit-id)))))
-  (define (get-initial-snapshot-id)
+  (define (get-initial-snapshot-id snapshots)
     ;; Snapshot ID `0' in root trace contains no locals, used for guard failure
     ;; in entry clause to quickly return to VM interpreter without restoring
-    ;; frame locals.
-    (if root-trace? 1 0))
+    ;; frame locals. For root trace, adding initial snapshot trace with key=0,
+    ;; to hold bytevector of native code later.
+    (if root-trace?
+        (begin
+          (hashq-set! snapshots 0 (make-snapshot 0 *initial-nlocals* '()))
+          1)
+        0))
+  (define (make-vars-from-parent vars)
+    (let lp ((vars vars) (acc '()))
+      (match vars
+        (((n . var) . vars)
+         (if (assq-ref *parent-snapshot-locals* n)
+             (lp vars (cons (cons n var) acc))
+             (lp vars acc)))
+        (()
+         (reverse! acc)))))
 
   (let* ((local-offset (get-initial-offset))
          (past-frame (accumulate-locals local-offset ops))
          (local-indices (past-frame-local-indices past-frame))
          (args (map make-var (reverse local-indices)))
          (vars (make-vars local-indices))
+         (*vars-from-parent* (make-vars-from-parent vars))
+         (*args-from-parent* (reverse (map cdr *vars-from-parent*)))
          (expecting-types (make-hash-table))
          (known-types (make-hash-table))
          (lowest-offset 0)
+         (highest-offset
+          (apply max 0 (map car (if root-trace?
+                                    vars
+                                    *vars-from-parent*))))
          (snapshots (make-hash-table))
-         (snapshot-id (get-initial-snapshot-id)))
+         (snapshot-id (get-initial-snapshot-id snapshots)))
 
     (define-syntax-rule (push-offset! n)
       (set! local-offset (+ local-offset n)))
 
     (define-syntax-rule (pop-offset! n)
-      (set! local-offset (- local-offset n)))
+      (begin
+        (set! local-offset (- local-offset n))
+        (when (< local-offset lowest-offset)
+          (set! lowest-offset local-offset))))
 
     ;; Some bytecode operation fills in local with statically known value:
     ;; `make-short-immediate', `static-ref', `toplevel-box' ... etc. Filling in
@@ -436,19 +459,6 @@
         (when (and (not (hashq-ref expecting-types i))
                    (not (hashq-ref known-types i)))
           (hashq-set! expecting-types i ty))))
-
-    (define *vars-from-parent*
-      (let lp ((vars vars) (acc '()))
-        (match vars
-          (((n . var) . vars)
-           (if (assq-ref *parent-snapshot-locals* n)
-               (lp vars (cons (cons n var) acc))
-               (lp vars acc)))
-          (()
-           (reverse! acc)))))
-
-    (define *args-from-parent*
-      (reverse (map cdr *vars-from-parent*)))
 
     (define *local-indices-of-args*
       (if root-trace?
@@ -486,10 +496,12 @@
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
       (define (compute-args vars)
+        (debug 3 ";;; compute-args: (low high)=(~a ~a)~%"
+               lowest-offset highest-offset)
         (let lp ((vars vars) (acc '()))
           (match vars
             (((n . var) . vars)
-             (if (<= lowest-offset n)
+             (if (<= lowest-offset n highest-offset)
                  (lp vars (cons var acc))
                  (lp vars acc)))
             (()
@@ -507,8 +519,6 @@
       (debug 3 ";;;   local-offset=~a~%" local-offset)
       (debug 3 ";;;   past-frame-dls=~a~%" (past-frame-dls past-frame))
       (debug 3 ";;;   past-frame-ras=~a~%" (past-frame-ras past-frame))
-      (when (< local-offset lowest-offset)
-        (set! lowest-offset local-offset))
       (let lp ((is (reverse indices)) (acc '()))
         (match is
           ((i . is)
@@ -608,7 +618,10 @@
       (define-syntax-rule (local-ref i)
         (vector-ref locals i))
       (define-syntax-rule (var-ref i)
-        (assq-ref vars (+ i local-offset)))
+        (let ((n (+ i local-offset)))
+          (when (< highest-offset n)
+            (set! highest-offset n))
+          (assq-ref vars n)))
 
       ;; (debug 3 ";;; convert-one: ~a ~a ~a ~a~%"
       ;;        (or (and (number? ip) (number->string ip 16))
@@ -1136,11 +1149,6 @@
         ;; XXX: struct-ref
         ;; XXX: struct-set!
 
-        ;; *** Misc
-
-        (('take-snapshot! ip offset)
-         (take-snapshot! ip offset locals local-indices vars))
-
         (op
          (debug 3 "*** ir:convert: NYI ~a~%" (car op))
          (escape #f))))
@@ -1148,18 +1156,24 @@
     (define (convert escape traces)
       (match traces
         (((op ip fp ra locals) . ())
-         (if (and root-trace? loop?)
-             ;; Root trace with loop. Emit `loop', which is the name of
-             ;; procedure for looping the body of Scheme IR emitted in
-             ;; `make-scm'.
-             (convert-one escape op ip fp ra locals
-                          `(loop ,@(filter identity (reverse (map cdr vars)))))
-             ;; Side trace or loop-less root trace.  Capturing CPS variables with
-             ;; `take-snapshot!' at the end, so that the native code can pass the
-             ;; register information to linked trace.
-             (let* ((snap! `(take-snapshot! ,*ip-key-jump-to-linked-code* 0))
-                    (last-op `((,snap! ,ip #f #f ,locals))))
-               (convert-one escape op ip fp ra locals last-op))))
+         (let ((last-exp
+                (if (and root-trace? loop?)
+                    ;; Root trace with loop. Emit `loop', which is the name of
+                    ;; procedure for looping the body of Scheme IR emitted in
+                    ;; `make-scm'.
+                    `(loop ,@(reverse (map cdr vars)))
+
+                    ;; Side trace or loop-less root trace.  Capturing CPS
+                    ;; variables with `take-snapshot!' at the end, so that the
+                    ;; native code can pass the register information to linked
+                    ;; code.
+                    ;;
+                    ;; XXX: Get vars passed to linked code, replace `vars' with
+                    ;; it.
+                    ;;
+                    (take-snapshot! *ip-key-jump-to-linked-code*
+                                    0 locals local-indices vars))))
+           (convert-one escape op ip fp ra locals last-exp)))
         (((op ip fp ra locals) . rest)
          (convert-one escape op ip fp ra locals rest))
         (_ traces)))
@@ -1288,17 +1302,13 @@
           (()
            lowest))))
 
+    (debug 3 ";;; initial highest-offset: ~a~%" highest-offset)
     (let ((scm (call-with-escape-continuation
                 (lambda (escape)
                   (make-scm escape ops)))))
-      ;; Adding initial snapshot for root trace with key=0, to hold bytevector
-      ;; of native code later.
-      (when root-trace?
-        (hashq-set! snapshots 0 (make-snapshot 0 *initial-nlocals* '())))
       (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))
-
       (values *local-indices-of-args* snapshots (get-lowest-offset) scm))))
 
 (define (scm->cps scm)

@@ -32,8 +32,7 @@
          (cons k (loop2 k)))
        (iota n)))
 
-;; XXX: At the moment, need to call loop2 once before calling `run1' to
-;; pass this test.
+;; See comments in "t-nest-07b.scm" for the call of `(loop2 20)'.
 (list (loop2 20)
       (run1 50)
       (run2 50))
