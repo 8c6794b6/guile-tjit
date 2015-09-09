@@ -698,12 +698,12 @@
                (let lp ((vars vars))
                  (match vars
                    (((n . var) . vars)
-                    (debug 3 ";;; ir.scm::receive n=~a var=~a~%" n var)
                     (cond
                      ;; Two locals below callee procedure in VM frame contain
                      ;; dynamic link and return address. VM interpreter refills
                      ;; these two with #f, doing the same thing.
-                     ((or (= n -1) (= n -2))
+                     ((or (= n (- (+ proc local-offset) 1))
+                          (= n (- (+ proc local-offset) 2)))
                       `(let ((,var #f))
                          ,(lp vars)))
                      ((< n 0)
