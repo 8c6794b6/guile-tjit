@@ -409,7 +409,7 @@
                (jump (reg-reg-op r0 (gpr b)) next))
               ((and (memory? a) (memory? b))
                (memory-ref asm r0 a)
-               (memory-ref asm r1 a)
+               (memory-ref asm r1 b)
                (jump (reg-reg-op r0 r1) next))
 
               (else
