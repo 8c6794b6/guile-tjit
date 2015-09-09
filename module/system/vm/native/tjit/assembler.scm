@@ -339,35 +339,34 @@
     (jit-stxi-d (moffs asm dst) fp src))))
 
 (define-syntax-rule (return-to-interpreter)
-  ;; Caller places return address to address `fp + ra-offset', and expects
-  ;; `reg-retval' to hold the packed return values.
+  "Emit native code which returns to VM interpreter.
+
+This macro emits native code for jumping to return address."
   (begin
     (jit-ldxi r1 fp *ra-offset*)
     (jit-jmpr r1)))
 
-(define-syntax-rule (goto-exit asm)
-  ;; Save return address, then jump to address of asm-code of ASM.
-  ;;
-  ;; Expecting that out-code of asm will jump back to return address, or patched
-  ;; to parent trace already. When returned to patched address, exit from native
-  ;; code with returning the contents of register R0.
-  ;;
-  ;; Side trace reuses RSP shifting from epilog of parent trace. Native code of
-  ;; side trace does not reset stack pointer, because side traces use
-  ;; `jit-tramp'.
-  ;;
+(define-syntax-rule (emit-side-exit asm)
+  "Macro to emit native code of side exit.
+
+This macro emits native code which does jumping to current side exit, and does
+storing of return address used by next side exit. Assuming that the `out-code'
+of ASM contains native code for next side exit.
+
+Side trace reuses native code which does %rsp shifting from parent trace's
+epilog part. Native code of side trace does not reset %rsp, since the use of
+`jit-tramp'."
   (let ((addr (jit-movi r1 (imm 0))))
     (jit-stxi *ra-offset* fp r1)
     (jumpi (asm-out-code asm))
-    (jit-patch addr)
+    (jit-patch addr) ; The jump destination for `return-to-interpreter'.
     (cond
      ((asm-end-address asm)
-      =>
-      (lambda (address)
-        (debug 3 ";;; goto-exit: jumping to ~a~%" address)
-        (jumpi address)))
+      => (lambda (address)
+           (debug 3 ";;; emit-side-exit: jumping to ~a~%" address)
+           (jumpi address)))
      (else
-      (debug 3 ";;; goto-exit: returning R0~%")
+      (debug 3 ";;; emit-side-exit: returning `reg-retval'~%")
       (jit-retr reg-retval)))))
 
 
@@ -377,6 +376,13 @@
 
 (define-syntax define-binary-int-guard
   (lambda (x)
+    "Macro for defining guard primitive which takes two int arguments.
+
+(define-binary-int-guard NAME CONST-CONST-OP REG-CONST-OP REG-REG-OP) will
+define a primitive named NAME. Uses CONST-CONST-OP when both arguments matched
+`constant?' predicate. Uses REG-CONST-OP when the first argument matched `gpr?'
+or `memory?' predicate while the second was constant. And, uses REG-REG-OP when
+both arguments were register or memory."
     (syntax-case x ()
       ((_ name const-const-op reg-const-op reg-reg-op)
        #`(define-prim (name asm (int a) (int b))
@@ -414,7 +420,7 @@
 
               (else
                (error #,(symbol->string (syntax->datum #'name)) a b)))
-             (goto-exit asm)
+             (emit-side-exit asm)
              (jit-link next)))))))
 
 ;; Auxiliary procedure for %ne.
@@ -439,7 +445,7 @@
 
      (else
       (error "%flt" a b)))
-    (goto-exit asm)
+    (emit-side-exit asm)
     (jit-link next)))
 
 (define-prim (%fge asm (double a) (double b))
@@ -458,7 +464,7 @@
 
      (else
       (error "%fge" a b)))
-    (goto-exit asm)
+    (emit-side-exit asm)
     (jit-link next)))
 
 ;;; Return from procedure call. Shift current FP to the one from dynamic
@@ -474,7 +480,7 @@
     (jit-ldxi old-fp fp vp->fp-offset)
     (scm-frame-return-address ra old-fp)
     (jump (jit-beqi ra (constant ip)) next)
-    (goto-exit asm)
+    (emit-side-exit asm)
 
     (jit-link next)
     (scm-frame-dynamic-link new-fp old-fp)
@@ -761,7 +767,7 @@
         (error "frame-ref" dst n type))))
     (jump next)
     (jit-link exit)
-    (goto-exit asm)
+    (emit-side-exit asm)
     (jit-link next)))
 
 ;; Load frame local to fpr or memory, with type check. This primitive is used
@@ -786,7 +792,7 @@
       (error "%frame-ref/f" dst n)))
     (jump next)
     (jit-link exit)
-    (goto-exit asm)
+    (emit-side-exit asm)
     (jit-link next)))
 
 (define-prim (%cell-object asm (int dst) (int src) (void n))

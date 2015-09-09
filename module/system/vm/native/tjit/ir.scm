@@ -372,13 +372,13 @@
 ;;; Scheme ANF compiler
 ;;;
 
-(define (trace->scm fragment exit-id loop? ops)
+(define (trace->scm fragment exit-id loop? traces)
   (define-syntax br-op-size (identifier-syntax 2))
   (define root-trace? (not fragment))
   (define *initial-ip*
-    (cadr (car ops)))
+    (cadr (car traces)))
   (define *initial-locals*
-    (list-ref (car ops) 4))
+    (list-ref (car traces) 4))
   (define *initial-nlocals*
     (vector-length *initial-locals*))
   (define *parent-snapshot*
@@ -430,7 +430,7 @@
          (reverse! acc)))))
 
   (let* ((local-offset (get-initial-offset))
-         (past-frame (accumulate-locals local-offset ops))
+         (past-frame (accumulate-locals local-offset traces))
          (local-indices (past-frame-local-indices past-frame))
          (args (map make-var (reverse local-indices)))
          (vars (make-vars local-indices))
@@ -455,17 +455,17 @@
         (when (< local-offset lowest-offset)
           (set! lowest-offset local-offset))))
 
-    ;; Some bytecode operation fills in local with statically known value:
-    ;; `make-short-immediate', `static-ref', `toplevel-box' ... etc. Filling in
-    ;; known type when those bytecode operations were seen.
     (define-syntax-rule (set-known-type! idx ty)
+      ;; Some bytecode operation fills in local with statically known value:
+      ;; `make-short-immediate', `static-ref', `toplevel-box' ... etc. Filling
+      ;; in known type when those bytecode operations were seen.
       (let ((i (+ idx local-offset)))
         (when (not (hashq-ref known-types i))
           (hashq-set! known-types i ty))))
 
-    ;; Some bytecode operations expect particular type: `add', `mul', ... etc.
-    ;; Add type to expect with expecting bytecode operations.
     (define-syntax-rule (set-expecting-type! idx ty)
+      ;; Some bytecode operations expect particular type: `add', `mul', ... etc.
+      ;; Add type to expect with expecting bytecode operations.
       (let ((i (+ idx local-offset)))
         (when (and (not (hashq-ref expecting-types i))
                    (not (hashq-ref known-types i)))
@@ -1209,6 +1209,18 @@
        (else
         #f)))
 
+    (define-syntax-rule (call-with-frame-ref proc args var type idx)
+      (cond
+       ((not type)
+        `(let ((,var #f))
+           ,(proc args)))
+       ((= type &flonum)
+        `(let ((,var (%frame-ref/f ,idx)))
+           ,(proc args)))
+       (else
+        `(let ((,var (%frame-ref ,idx ,type)))
+           ,(proc args)))))
+
     (define (add-initial-loads exp-body)
       (debug 3 ";;; add-initial-loads:~%")
       (debug 3 ";;;   known-types=~{~a ~}~%" (hash-map->list cons known-types))
@@ -1224,8 +1236,9 @@
             ;; passed as argument. Loading later with CPS IR '%frame-ref'
             ;; or '%frame-ref/f'.
             ;;
-            ;; Locals index exceeding initial number of locals are also ignored,
-            ;; should not loaded at the time of entering the native code.
+            ;; Locals with its index exceeding initial number of locals are also
+            ;; ignored, those are likely to be locals in inlined procedure,
+            ;; which will get assigned or loaded from frame later.
             ;;
             ((or (assq-ref *parent-snapshot-locals* n)
                  (< n 0)
@@ -1244,16 +1257,7 @@
                (debug 3 ";;;   expecting-type: ~a~%" (hashq-ref expecting-types n))
                (debug 3 ";;;   local:          ~a~%" local)
                (debug 3 ";;;   type:           ~a~%" type)
-               (cond
-                ((not type)
-                 `(let ((,var #f))
-                    ,(lp vars)))
-                ((= type &flonum)
-                 `(let ((,var (%frame-ref/f ,n)))
-                    ,(lp vars)))
-                (else
-                 `(let ((,var (%frame-ref ,n ,type)))
-                    ,(lp vars))))))))
+               (call-with-frame-ref lp vars var type n)))))
           (()
            exp-body))))
 
@@ -1263,14 +1267,9 @@
          ,(let lp ((lp-vars vars))
             (match lp-vars
               (((i . var) . lp-vars)
-               (let* ((type (or (hashq-ref expecting-types i)
-                                &box))
-                      (exp (if (= type &flonum)
-                               `(let ((,var (%frame-ref/f ,i)))
-                                  ,(lp lp-vars))
-                               `(let ((,var (%frame-ref ,i ,type)))
-                                  ,(lp lp-vars)))))
-                 exp))
+               (let ((type (or (hashq-ref expecting-types i)
+                               &box)))
+                 (call-with-frame-ref lp lp-vars var type i)))
               (()
                `(begin
                   ,(take-snapshot! *ip-key-set-loop-info!*
@@ -1284,7 +1283,7 @@
       (cond
        (root-trace?
         ;; `make-entry-body' uses updated information in `expecting-types',
-        ;; invoke `convert' before `make-entry-body'.
+        ;; invoking `convert' before `make-entry-body'.
         (let ((loop (convert escape traces)))
           `(letrec ((entry (lambda ()
                              ,(make-entry-body)))
@@ -1302,25 +1301,14 @@
                              ,(add-initial-loads (convert escape traces))))))
            patch))))
 
-    (define (get-lowest-offset)
-      (let lp ((lowers (past-frame-lowers past-frame))
-               (lowest 0))
-        (match lowers
-          (((n . _) . lowers)
-           (if (< n lowest)
-               (lp lowers n)
-               (lp lowers lowest)))
-          (()
-           lowest))))
-
     (debug 3 ";;; initial highest-offset: ~a~%" highest-offset)
     (let ((scm (call-with-escape-continuation
                 (lambda (escape)
-                  (make-scm escape ops)))))
+                  (make-scm escape traces)))))
       (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))
-      (values *local-indices-of-args* snapshots (get-lowest-offset) scm))))
+      (values *local-indices-of-args* snapshots lowest-offset scm))))
 
 (define (scm->cps scm)
   (define ignored-passes

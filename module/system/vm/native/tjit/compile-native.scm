@@ -521,10 +521,9 @@ of SRCS, DSTS, TYPES are local index number."
          (debug 3 ";;;   args: ~a~%" args)
          (cond
           ((and (not fragment) (= current-side-exit 0))
-           ;; When trace is root trace and side exit id is 0, no need to recover
-           ;; the frame with snapshot.  Still snapshot data is used, so that the
-           ;; bytevector of compiled native code could be stored in fragment, to
-           ;; avoid garbage collection.
+           ;; No need to recover the frame with snapshot.  Still snapshot data
+           ;; is used, so that the bytevector of compiled native code could be
+           ;; stored in fragment, to avoid garbage collection.
            ;;
            (values nlocals local-offset snapshot))
           (else
@@ -559,14 +558,10 @@ of SRCS, DSTS, TYPES are local index number."
      (jit-tramp (imm (* 4 %word-size)))
      (let-values (((nlocals local-offset snapshot)
                    (store-snapshot (hashq-ref snapshots current-side-exit))))
-       ;; Update `vp->fp' field in `vp' when local-offset is greater than 0.
-       ;;
-       ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP',
-       ;; called by C code written in `libguile/vm-tjit.c'. Adding offset for
-       ;; positive local offset, fp is already shifted in store-snapshot
-       ;; for negative local offset.
-       ;;
        (when (< 0 local-offset)
+         ;; Internal FP in VM_ENGINE will get updated with C macro `CACHE_FP'.
+         ;; Adding offset for positive local offset, fp is already shifted in
+         ;; store-snapshot for negative local offset.
          (debug 3 ";;; compile-bailout: shifting FP, local-offset=~a~%"
                 local-offset)
          (let ((vp->fp r0))
@@ -629,8 +624,7 @@ of SRCS, DSTS, TYPES are local index number."
     (cond
      ((hashq-ref *native-prim-procedures* name)
       => (lambda (proc)
-           (let* ((out-code (trampoline-ref trampoline
-                                            (- current-side-exit 1)))
+           (let* ((out-code (trampoline-ref trampoline (- current-side-exit 1)))
                   (end-address (or (and fragment
                                         (fragment-end-address fragment))
                                    (and=> (get-fragment linked-ip)
