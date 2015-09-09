@@ -4,17 +4,23 @@
 ;;; address of the first call to `loop1' is different from the second
 ;;; call to `loop1'.
 
-(define (loop1 n acc)
+(define (loop1a n acc)
     (let lp ((i n) (acc acc))
       (if (< 0 i)
-          (lp (- i 1) (+ acc 1))
+          (lp (- i 1) (+ acc 2))
+          acc)))
+
+(define (loop1b n acc)
+    (let lp ((i n) (acc acc))
+      (if (< 0 i)
+          (lp (- i 1) (+ acc 3))
           acc)))
 
 (define (loop2 n)
   (let lp ((i n) (acc 0))
     (if (< 0 i)
-        (lp (- i 1) (+ (loop1 n 0)
-                       (loop1 n 0)))
+        (lp (- i 1) (list (loop1a n 0)
+                          (loop1b n 0)))
         acc)))
 
 (loop2 100)

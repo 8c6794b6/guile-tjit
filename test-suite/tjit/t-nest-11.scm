@@ -1,5 +1,6 @@
 ;;; Another inlined procedures in nested loop. Procedure `loop3' calls
-;;; `loop1' and `loop2', and sums the results.
+;;; `loop1' and `loop2', and sums the results. Procedure `loop2' adds 2,
+;;; to avoid the use of bytecode operation `add1'.
 
 (define (loop1 n acc)
   (let lp ((i n) (acc acc))
@@ -7,7 +8,6 @@
         acc
         (lp (- i 1) (+ acc 1)))))
 
-;; `loop2' adds 2, to avoid the use of bytecode OP `add1'.
 (define (loop2 n acc)
   (let lp ((i n) (acc acc))
     (if (= 0 i)

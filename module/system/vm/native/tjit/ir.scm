@@ -278,9 +278,21 @@
               (push-offset! a1)
               st))
            ((receive)
-            (pop-offset! a2)
-            (set! lowers (acons offset locals lowers))
-            (add! st a1 a2))
+            ;; Modifying locals since procedure taking snapshot uses frame
+            ;; lowers to recover the values after this `receive' bytecode
+            ;; operation. Making a copy of locals so that later procedure can
+            ;; see the original locals.
+            (let ((locals-copy (vector-copy locals))
+                  (ret-index (+ a2 1)))
+              (pop-offset! a2)
+              ;; XXX: If this test for `when' is removed, "mandelbrot.scm" with
+              ;; `--jit-debug=0' will fail. However, running with `--jit-debug'
+              ;; value greater than 0 will work.
+              (when (and (< ret-index (vector-length locals))
+                         (< a1 (vector-length locals-copy)))
+                (vector-set! locals-copy a1 (vector-ref locals ret-index)))
+              (set! lowers (acons offset locals-copy lowers))
+              (add! st a1 a2)))
            ((receive-values)
             (pop-offset! a1)
             (add! st a1))
@@ -314,8 +326,7 @@
                                           (acc ret ops))
                                >)))
       (let ((verbosity (lightning-verbosity)))
-        (when (and (number? verbosity)
-                   (<= 3 verbosity))
+        (when (and verbosity (<= 3 verbosity))
           (format #t ";;; local-indices:~%")
           (format #t ";;;   ~a~%" local-indices)
           (format #t ";;; lowers:~%")
@@ -636,12 +647,9 @@
         ;; XXX: halt
 
         (('call proc nlocals)
-         ;; When procedure get inlined, taking snapshot of previous frame,
-         ;; contents of previous frame could change in native code loop.
-         ;;
-         ;; XXX: Need to add a guard to test that whether the `proc' local match
-         ;; with the value used during compilation? Frame local after returning
-         ;; from callee procedure might differ.
+         ;; When procedure get inlined, taking snapshot of previous frame.
+         ;; Contents of previous frame could change in native code. Note that
+         ;; frame return address will get checked at the time of `%return'.
          (let* ((dl (cons (- (+ proc local-offset) 2)
                           (make-dynamic-link local-offset)))
                 (ra (cons (- (+ proc local-offset) 1)
@@ -656,8 +664,8 @@
            (push-offset! proc)
            `(begin
               ,snapshot
-              ;; Adding `%eq' guard to test the procedure value, so that
-              ;; re-defined procedure with same name will not get updated.
+              ;; Adding `%eq' guard to test the procedure value, to bailout when
+              ;; procedure with same name has been redefined.
               (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
               ,(convert escape rest))))
 
@@ -900,6 +908,9 @@
         ;; *** Immediates and statically allocated non-immediates
 
         (('make-short-immediate dst low-bits)
+         ;; XXX: `make-short-immediate' could be used for other value than small
+         ;; integer, e.g: '(). Check type from value of `low-bits' and choose
+         ;; the type appropriately.
          (set-known-type! dst &exact-integer)
          `(let ((,(var-ref dst) ,(ash low-bits -2)))
             ,(convert escape rest)))

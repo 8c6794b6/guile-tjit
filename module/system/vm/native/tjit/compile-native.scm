@@ -495,7 +495,7 @@ of SRCS, DSTS, TYPES are local index number."
              ;;
              ;; XXX: Add more tests for checking loop-less root traces.
              (when (not fragment)
-               (debug 3 ";;; compile-link: shifting FP, not fragment~%")
+               (debug 3 ";;; compile-link: shifting FP, loop-less root~%")
                (let ((vp->fp r0))
                  (jit-ldxi vp->fp fp vp->fp-offset)
                  (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
