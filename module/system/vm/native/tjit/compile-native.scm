@@ -403,25 +403,13 @@ of SRCS, DSTS, TYPES are local index number."
                                             references))
                     (type-table (make-hash-table)))
 
-               ;; When jumping from non-looping root trace, shift the locals
-               ;; in source code. Also shift the FP used in VM. Shifting after
-               ;; the call to `maybe-store', to store lower frame info first.
-               ;;
-               ;; XXX: Is the shifting always required?
-               ;;
-               (when (not fragment)
-                 (let ((tmp (make-hash-table)))
-                   (hash-for-each (lambda (k v)
-                                    (hashq-set! tmp (- k local-offset) v))
-                                  src-table)
-                   (set! src-table tmp)
-                   (when (< 0 local-offset)
-                     (let ((old-fp r0)
-                           (new-fp r1)
-                           (shift (* local-offset %word-size)))
-                       (jit-ldxi old-fp fp vp->fp-offset)
-                       (jit-addi new-fp old-fp (imm shift))
-                       (scm-frame-set-dynamic-link! new-fp old-fp)))))
+               ;; Shift the locals in source code. Shifting after the call to
+               ;; `maybe-store', to store lower frame info first.
+               (let ((tmp (make-hash-table)))
+                 (hash-for-each (lambda (k v)
+                                  (hashq-set! tmp (- k local-offset) v))
+                                src-table)
+                 (set! src-table tmp))
 
                ;; Prepare arguments for linked trace.
                (let lp ((locals loop-locals)
@@ -431,14 +419,8 @@ of SRCS, DSTS, TYPES are local index number."
                     (hashq-set! type-table local type)
                     (match dsts
                       ((dst . dsts)
-                       ;; If loop-less root trace, shiting with lowest offset.
-                       ;; Otherwise shifting with lowest offset and local
-                       ;; offset.
-                       (let ((shift
-                              (if fragment
-                                  (+ (- local lowest-offset) local-offset)
-                                  (- local lowest-offset))))
-                         (hashq-set! dst-table shift dst))
+                       ;; Shiting with lowest offset.
+                       (hashq-set! dst-table (- local lowest-offset) dst)
                        (lp locals dsts))
                       (()
                        (debug 3 ";;; compile-link: dsts=null, locals=~a~%"
@@ -456,7 +438,7 @@ of SRCS, DSTS, TYPES are local index number."
                       lowest-offset)
                (let ((old-fp r0)
                      (new-fp r1)
-                     (shift (+ (- lowest-offset) local-offset)))
+                     (shift (- local-offset lowest-offset)))
                  (jit-ldxi old-fp fp vp->fp-offset)
                  (jit-addi new-fp old-fp (imm (* shift %word-size)))
                  (scm-frame-set-dynamic-link! new-fp old-fp)
