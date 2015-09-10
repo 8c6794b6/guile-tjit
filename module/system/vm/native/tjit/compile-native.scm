@@ -383,20 +383,12 @@ of SRCS, DSTS, TYPES are local index number."
         (map (match-lambda ((local . type)
                             `(,(- local offset) . ,type)))
              locals))
-      (define (find-ra local-x-types)
-        ;; XXX: Will not work when nesting level is more than one.
-        (let lp ((local-x-types local-x-types))
-          (match local-x-types
-            (((local . ($ $return-address ip)) . _)
-             ip)
-            ((_ . local-x-types)
-             (lp local-x-types))
-            (_ #f))))
       (debug 3 ";;; compile-link: args=~a~%" args)
       (cond
        ((hashq-ref snapshots current-side-exit)
         => (match-lambda
             (($ $snapshot local-offset _ local-x-types)
+             (debug 3 ";;; compile-link: local-offset=~a~%" local-offset)
              ;; Store unpassed variables. When (not fragment), shifting locals
              ;; for references used in `maybe-store'.
              ;;
@@ -424,19 +416,12 @@ of SRCS, DSTS, TYPES are local index number."
                                   src-table)
                    (set! src-table tmp)
                    (when (< 0 local-offset)
-                     (debug 3 ";;; compile-link: local-offset=~a~%"
-                            local-offset)
                      (let ((old-fp r0)
                            (new-fp r1)
-                           (ra (find-ra local-x-types))
                            (shift (* local-offset %word-size)))
                        (jit-ldxi old-fp fp vp->fp-offset)
                        (jit-addi new-fp old-fp (imm shift))
-                       (scm-frame-set-dynamic-link! new-fp old-fp)
-                       (when ra
-                         (jit-movi r0 ra)
-                         (debug 3 ";;; ra=~a~%" ra)
-                         (scm-frame-set-return-address! new-fp r0))))))
+                       (scm-frame-set-dynamic-link! new-fp old-fp)))))
 
                ;; Prepare arguments for linked trace.
                (let lp ((locals loop-locals)
@@ -463,32 +448,19 @@ of SRCS, DSTS, TYPES are local index number."
                ;; Move variables to linked trace.
                (move-or-load-carefully dst-table src-table type-table moffs))
 
-             ;; Shift back FP.
-             ;;
-             ;; XXX: Using `find-ra', return address determined at
-             ;; compilation time.
+             ;; Shift back FP and sync. Shifting back lowest-offset moved by
+             ;; `%return', and shifting for local-offset to match the FP in
+             ;; middle of procedure call.
              (when (< lowest-offset 0)
                (debug 3 ";;; compile-link: shifting FP, lowest-offset=~a~%"
                       lowest-offset)
                (let ((old-fp r0)
                      (new-fp r1)
-                     (ra (find-ra local-x-types)))
+                     (shift (+ (- lowest-offset) local-offset)))
                  (jit-ldxi old-fp fp vp->fp-offset)
-
-                 ;; Shifting FP. Shifting back lowest-offset moved by `%return',
-                 ;; and shifting for local-offset to match the FP in middle of
-                 ;; procedure call.
-                 (let ((shift (+ (- lowest-offset) local-offset)))
-                   (jit-addi new-fp old-fp (imm (* shift %word-size))))
-
+                 (jit-addi new-fp old-fp (imm (* shift %word-size)))
                  (scm-frame-set-dynamic-link! new-fp old-fp)
                  (jit-stxi vp->fp-offset fp new-fp)
-
-                 ;; Update return address.
-                 (jit-movi r0 ra)
-                 (scm-frame-set-return-address! new-fp r0)
-
-                 ;; Sync FP.
                  (vm-sync-fp new-fp)))
 
              ;; Jumping from loop-less root trace, shifting FP.
