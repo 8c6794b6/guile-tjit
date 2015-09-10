@@ -372,13 +372,13 @@
 ;;; Scheme ANF compiler
 ;;;
 
-(define (trace->scm fragment exit-id loop? traces)
+(define (trace->scm fragment exit-id loop? trace)
   (define-syntax br-op-size (identifier-syntax 2))
   (define root-trace? (not fragment))
   (define *initial-ip*
-    (cadr (car traces)))
+    (cadr (car trace)))
   (define *initial-locals*
-    (list-ref (car traces) 4))
+    (list-ref (car trace) 4))
   (define *initial-nlocals*
     (vector-length *initial-locals*))
   (define *parent-snapshot*
@@ -430,11 +430,12 @@
          (reverse! acc)))))
 
   (let* ((local-offset (get-initial-offset))
-         (past-frame (accumulate-locals local-offset traces))
+         (past-frame (accumulate-locals local-offset trace))
          (local-indices (past-frame-local-indices past-frame))
          (args (map make-var (reverse local-indices)))
          (vars (make-vars local-indices))
          (*vars-from-parent* (make-vars-from-parent vars))
+         (*local-indices-from-parent* (map car *vars-from-parent*))
          (*args-from-parent* (reverse (map cdr *vars-from-parent*)))
          (expecting-types (make-hash-table))
          (known-types (make-hash-table))
@@ -470,18 +471,6 @@
         (when (and (not (hashq-ref expecting-types i))
                    (not (hashq-ref known-types i)))
           (hashq-set! expecting-types i ty))))
-
-    (define *local-indices-of-args*
-      (if root-trace?
-          local-indices
-          (let lp ((local-indices local-indices) (acc '()))
-            (match local-indices
-              ((n . local-indices)
-               (if (assq-ref *parent-snapshot-locals* n)
-                   (lp local-indices (cons n acc))
-                   (lp local-indices acc)))
-              (()
-               (reverse! acc))))))
 
     (define (parent-snapshot-local-ref i)
       (and *parent-snapshot-locals*
@@ -682,8 +671,11 @@
 
         (('receive dst proc nlocals)
          (pop-offset! proc)
-         (debug 3 ";;; ir.scm:receive args=~a fp=~x ra=~x ip=~x~%"
+         (debug 3 ";;; ir.scm:receive~%")
+         (debug 3 ";;;   dst=~a proc=~a nlocals=~a~%" dst proc nlocals)
+         (debug 3 ";;;   args=~a fp=~x ra=~x ip=~x~%"
                 args (pointer-address fp) ra ip)
+         (debug 3 ";;;   local-offset=~a~%" local-offset)
 
          ;; `local-offset' could be modified during `convert' with
          ;; `push-offset!' and `pop-offset!'. Wrapping next expression as
@@ -1164,8 +1156,8 @@
          (debug 3 "*** ir:convert: NYI ~a~%" (car op))
          (escape #f))))
 
-    (define (convert escape traces)
-      (match traces
+    (define (convert escape trace)
+      (match trace
         (((op ip fp ra locals) . ())
          (let ((last-exp
                 (if (and root-trace? loop?)
@@ -1187,7 +1179,7 @@
            (convert-one escape op ip fp ra locals last-exp)))
         (((op ip fp ra locals) . rest)
          (convert-one escape op ip fp ra locals rest))
-        (_ traces)))
+        (_ trace)))
 
     (define (choose-type-for-local n local)
       ;; Current policy for deciding the type of initial argument loaded from
@@ -1279,12 +1271,12 @@
                                    vars)
                   (loop ,@args)))))))
 
-    (define (make-scm escape traces)
+    (define (make-scm escape trace)
       (cond
        (root-trace?
         ;; `make-entry-body' uses updated information in `expecting-types',
         ;; invoking `convert' before `make-entry-body'.
-        (let ((loop (convert escape traces)))
+        (let ((loop (convert escape trace)))
           `(letrec ((entry (lambda ()
                              ,(make-entry-body)))
                     (loop (lambda ,args
@@ -1296,19 +1288,24 @@
                              ,(take-snapshot! *initial-ip*
                                               0
                                               *initial-locals*
-                                              *local-indices-of-args*
+                                              *local-indices-from-parent*
                                               *vars-from-parent*)
-                             ,(add-initial-loads (convert escape traces))))))
+                             ,(add-initial-loads (convert escape trace))))))
            patch))))
 
     (debug 3 ";;; initial highest-offset: ~a~%" highest-offset)
     (let ((scm (call-with-escape-continuation
                 (lambda (escape)
-                  (make-scm escape traces)))))
+                  (make-scm escape trace)))))
       (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))
-      (values *local-indices-of-args* snapshots lowest-offset scm))))
+      (values (if root-trace?
+                  local-indices
+                  *local-indices-from-parent*)
+              snapshots
+              lowest-offset
+              scm))))
 
 (define (scm->cps scm)
   (define ignored-passes

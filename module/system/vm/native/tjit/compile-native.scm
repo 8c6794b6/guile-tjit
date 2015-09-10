@@ -389,7 +389,7 @@ of SRCS, DSTS, TYPES are local index number."
           (match local-x-types
             (((local . ($ $return-address ip)) . _)
              ip)
-            ((lt . local-x-types)
+            ((_ . local-x-types)
              (lp local-x-types))
             (_ #f))))
       (debug 3 ";;; compile-link: args=~a~%" args)
