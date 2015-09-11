@@ -472,6 +472,18 @@
                    (not (hashq-ref known-types i)))
           (hashq-set! expecting-types i ty))))
 
+    (define-syntax-rule (call-with-frame-ref proc args var type idx)
+      (cond
+       ((not type)
+        `(let ((,var #f))
+           ,(proc args)))
+       ((= type &flonum)
+        `(let ((,var (%frame-ref/f ,idx)))
+           ,(proc args)))
+       (else
+        `(let ((,var (%frame-ref ,idx ,type)))
+           ,(proc args)))))
+
     (define (parent-snapshot-local-ref i)
       (and *parent-snapshot-locals*
            (assq-ref *parent-snapshot-locals* i)))
@@ -684,8 +696,9 @@
                 (vret (var-ref (+ proc 1)))
                 (do-next-convert (lambda ()
                                    `(let ((,vdst ,vret))
-                                      ,(convert escape rest)))))
-           (if (< 0 local-offset)
+                                      ,(convert escape rest))))
+                (proc-offset (+ proc local-offset)))
+           (if (<= 0 local-offset)
                (do-next-convert)
                (let lp ((vars vars))
                  (match vars
@@ -694,18 +707,18 @@
                      ;; Two locals below callee procedure in VM frame contain
                      ;; dynamic link and return address. VM interpreter refills
                      ;; these two with #f, doing the same thing.
-                     ((or (= n (- (+ proc local-offset) 1))
-                          (= n (- (+ proc local-offset) 2)))
+                     ((or (= n (- proc-offset 1))
+                          (= n (- proc-offset 2)))
                       `(let ((,var #f))
                          ,(lp vars)))
-                     ((< n 0)
+                     ((<= local-offset n (+ proc-offset -3))
                       (let* ((i (- n local-offset))
                              (val (if (< -1 i (vector-length locals))
                                       (vector-ref locals i)
                                       #f))
                              (type (type-of val)))
-                        `(let ((,var (%frame-ref ,(- n local-offset) ,type)))
-                           ,(lp vars))))
+                        (let ((idx (- n local-offset)))
+                          (call-with-frame-ref lp vars var type idx))))
                      (else
                       (lp vars))))
                    (()
@@ -1200,18 +1213,6 @@
         => identity)
        (else
         #f)))
-
-    (define-syntax-rule (call-with-frame-ref proc args var type idx)
-      (cond
-       ((not type)
-        `(let ((,var #f))
-           ,(proc args)))
-       ((= type &flonum)
-        `(let ((,var (%frame-ref/f ,idx)))
-           ,(proc args)))
-       (else
-        `(let ((,var (%frame-ref ,idx ,type)))
-           ,(proc args)))))
 
     (define (add-initial-loads exp-body)
       (debug 3 ";;; add-initial-loads:~%")
