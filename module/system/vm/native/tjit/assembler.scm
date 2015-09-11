@@ -469,23 +469,23 @@ both arguments were register or memory."
 
 ;;; Return from procedure call. Shift current FP to the one from dynamic
 ;;; link. Guard with return address, check whether it matches with IP used at
-;;; compilation time.
+;;; the time of compilation.
 (define-prim (%return asm (int ip))
   (let ((next (jit-forward))
-        (old-fp r0)
-        (new-fp r1)
+        (old-vp->fp r0)
+        (new-vp->fp r1)
         (ra r1))
     (when (not (constant? ip))
       (error "%return" ip))
-    (jit-ldxi old-fp fp vp->fp-offset)
-    (scm-frame-return-address ra old-fp)
+    (jit-ldxi old-vp->fp fp vp->fp-offset)
+    (scm-frame-return-address ra old-vp->fp)
     (jump (jit-beqi ra (constant ip)) next)
     (emit-side-exit asm)
 
     (jit-link next)
-    (scm-frame-dynamic-link new-fp old-fp)
-    (jit-stxi vp->fp-offset fp new-fp)
-    (vm-sync-fp new-fp)))
+    (scm-frame-dynamic-link new-vp->fp old-vp->fp)
+    (jit-stxi vp->fp-offset fp new-vp->fp)
+    (vm-sync-fp new-vp->fp)))
 
 
 ;;;

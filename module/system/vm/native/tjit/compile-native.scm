@@ -166,25 +166,22 @@
 (define (store-frame moffs local type src)
   (debug 3 ";;; store-frame: local=~a type=~a src=~a~%" local type src)
   (cond
-   ;; Type is return address, moving value coupled with type to frame
-   ;; local. Return address of VM frame need to be recovered when taking exit
-   ;; from inlined procedure call. The actual value for return address is
-   ;; captured at the time of bytecode to Scheme IR conversion, and stored in
-   ;; snapshot as pointer.
    ((return-address? type)
+    ;; Moving value coupled with type to frame local. Return address of VM frame
+    ;; need to be recovered when taking exit from inlined procedure call. The
+    ;; actual value for return address is captured at the time of Scheme IR
+    ;; conversion and stored in snapshot as pointer.
     (jit-movi r0 (return-address-ip type))
     (frame-set! local r0))
 
-   ;; Type is dynamic link, storing fp to local. Dynamic link is stored as
-   ;; offset in type. VM's fp could move, may use different value at the time of
-   ;; compilation and execution. Negative offset is ignored, storing to local
-   ;; without adding the shift amount.
    ((dynamic-link? type)
+    ;; Storing fp to local. Dynamic link is stored as offset in type. VM's fp
+    ;; could move, may use different value at the time of compilation and
+    ;; execution.
     (jit-ldxi r0 fp vp->fp-offset)
     (let* ((amount (* (dynamic-link-offset type) %word-size))
            (ptr (make-signed-pointer amount)))
-      (when (< 0 amount)
-        (jit-addi r0 r0 ptr)))
+      (jit-addi r0 r0 ptr))
     (frame-set! local r0))
 
    ;; Check type, recover SCM value.
@@ -386,6 +383,36 @@ of SRCS, DSTS, TYPES are local index number."
         (map (match-lambda ((local . type)
                             `(,(- local offset) . ,type)))
              locals))
+      (define (refill-dynamic-links local-offset local-x-types)
+        ;; Take difference of dynamic links from the previous one, then refill
+        ;; and update the chain of dynamic links.
+        (let ((old-vp->fp r0)
+              (new-vp->fp r1)
+              (offsets
+               (let lp ((local-x-types (reverse local-x-types))
+                        (last-offset local-offset)
+                        (acc '()))
+                 (match local-x-types
+                   (((_ . ($ $dynamic-link offset)) . local-x-types)
+                    (lp local-x-types
+                        offset
+                        (cons (- last-offset offset) acc)))
+                   ((_ . local-x-types)
+                    (lp local-x-types last-offset acc))
+                   (()
+                    acc)))))
+          (jit-ldxi old-vp->fp fp vp->fp-offset)
+          (jit-movr new-vp->fp old-vp->fp)
+          (let lp ((offsets offsets))
+            (match offsets
+              ((offset . offsets)
+               (jit-addi new-vp->fp old-vp->fp (imm (* offset %word-size)))
+               (scm-frame-set-dynamic-link! new-vp->fp old-vp->fp)
+               (jit-movr old-vp->fp new-vp->fp)
+               (lp offsets))
+              (()
+               (jit-stxi vp->fp-offset fp new-vp->fp)
+               (vm-sync-fp new-vp->fp))))))
       (debug 3 ";;; compile-link: args=~a~%" args)
       (cond
        ((hashq-ref snapshots current-side-exit)
@@ -439,14 +466,7 @@ of SRCS, DSTS, TYPES are local index number."
              (when (< lowest-offset 0)
                (debug 3 ";;; compile-link: shifting FP, lowest-offset=~a~%"
                       lowest-offset)
-               (let ((old-vp->fp r0)
-                     (new-vp->fp r1)
-                     (shift (- local-offset lowest-offset)))
-                 (jit-ldxi old-vp->fp fp vp->fp-offset)
-                 (jit-addi new-vp->fp old-vp->fp (imm (* shift %word-size)))
-                 (scm-frame-set-dynamic-link! new-vp->fp old-vp->fp)
-                 (jit-stxi vp->fp-offset fp new-vp->fp)
-                 (vm-sync-fp new-vp->fp)))
+               (refill-dynamic-links local-offset local-x-types))
 
              ;; Jumping from loop-less root trace, shifting FP.
              ;;
@@ -540,7 +560,7 @@ of SRCS, DSTS, TYPES are local index number."
        (jit-calli %scm-make-tjit-retval)
        (jit-retval reg-retval)
        (let* ((verbosity (lightning-verbosity)))
-         (when (and verbosity (<= 3 verbosity))
+         (when (and verbosity (<= 2 verbosity))
            (jit-movr reg-thread reg-retval)
            (jit-prepare)
            (jit-pushargi (scm-i-makinumi trace-id))
@@ -703,10 +723,7 @@ of SRCS, DSTS, TYPES are local index number."
       ;; Store `vp', `vp->fp', and `registers'.
       (jit-stxi vp-offset fp r0)
       (vm-cache-fp r0)
-      (jit-stxi registers-offset fp r1)
-
-      (jit-ldxi r0 fp vp->fp-offset)
-      (scm-frame-return-address r1 r0))
+      (jit-stxi registers-offset fp r1))
 
      ;; Side trace.
      (else
