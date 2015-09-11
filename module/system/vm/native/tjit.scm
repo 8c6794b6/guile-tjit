@@ -291,7 +291,8 @@
          (let-values
              (((trampoline loop-label loop-locals loop-vars fp-offset)
                (compile-native cps entry-ip locals snapshots fragment
-                               parent-exit-id linked-ip lowest-offset)))
+                               parent-exit-id linked-ip lowest-offset
+                               trace-id)))
            (let ((epilog-label (jit-label)))
              (jit-patch epilog-label)
              (jit-retr reg-retval)

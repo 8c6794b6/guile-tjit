@@ -501,6 +501,25 @@ scm_make_tjit_retval (scm_i_thread *thread,
   return ret;
 }
 
+SCM
+scm_dump_tjit_retval (SCM trace_id, SCM tjit_retval)
+{
+  SCM port = scm_current_output_port ();
+
+  scm_puts (";;; trace ", port);
+  scm_display (trace_id, port);
+  scm_puts (": ", port);
+  scm_puts ("exit_id=", port);
+  scm_display (SCM_TJIT_RETVAL_EXIT_ID (tjit_retval), port);
+  scm_puts (" exit_ip=", port);
+  scm_display (to_hex (SCM_TJIT_RETVAL_EXIT_IP (tjit_retval)), port);
+  scm_puts (" nlocals=", port);
+  scm_display (SCM_I_MAKINUM (SCM_TJIT_RETVAL_NLOCALS (tjit_retval)), port);
+  scm_newline (port);
+
+  return SCM_UNSPECIFIED;
+}
+
 
 /*
  * Initialization

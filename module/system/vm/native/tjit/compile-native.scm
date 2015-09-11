@@ -56,6 +56,9 @@
 (define %scm-make-tjit-retval
   (dynamic-pointer "scm_make_tjit_retval" (dynamic-link)))
 
+(define %scm-dump-tjit-retval
+  (dynamic-pointer "scm_dump_tjit_retval" (dynamic-link)))
+
 
 ;;;
 ;;; Code generation
@@ -361,7 +364,7 @@ of SRCS, DSTS, TYPES are local index number."
 ;;;
 
 (define (compile-cps cps env kstart entry-ip snapshots loop-args fp-offset
-                     fragment trampoline linked-ip lowest-offset)
+                     fragment trampoline linked-ip lowest-offset trace-id)
 
   ;; Internal states.
   (define current-side-exit 0)
@@ -436,14 +439,14 @@ of SRCS, DSTS, TYPES are local index number."
              (when (< lowest-offset 0)
                (debug 3 ";;; compile-link: shifting FP, lowest-offset=~a~%"
                       lowest-offset)
-               (let ((old-fp r0)
-                     (new-fp r1)
+               (let ((old-vp->fp r0)
+                     (new-vp->fp r1)
                      (shift (- local-offset lowest-offset)))
-                 (jit-ldxi old-fp fp vp->fp-offset)
-                 (jit-addi new-fp old-fp (imm (* shift %word-size)))
-                 (scm-frame-set-dynamic-link! new-fp old-fp)
-                 (jit-stxi vp->fp-offset fp new-fp)
-                 (vm-sync-fp new-fp)))
+                 (jit-ldxi old-vp->fp fp vp->fp-offset)
+                 (jit-addi new-vp->fp old-vp->fp (imm (* shift %word-size)))
+                 (scm-frame-set-dynamic-link! new-vp->fp old-vp->fp)
+                 (jit-stxi vp->fp-offset fp new-vp->fp)
+                 (vm-sync-fp new-vp->fp)))
 
              ;; Jumping from loop-less root trace, shifting FP.
              ;;
@@ -536,6 +539,14 @@ of SRCS, DSTS, TYPES are local index number."
        (jit-pushargi (scm-i-makinumi nlocals))
        (jit-calli %scm-make-tjit-retval)
        (jit-retval reg-retval)
+       (let* ((verbosity (lightning-verbosity)))
+         (when (and verbosity (<= 3 verbosity))
+           (jit-movr reg-thread reg-retval)
+           (jit-prepare)
+           (jit-pushargi (scm-i-makinumi trace-id))
+           (jit-pushargr reg-retval)
+           (jit-calli %scm-dump-tjit-retval)
+           (jit-movr reg-retval reg-thread)))
        (return-to-interpreter)
        (jit-epilog)
        (jit-realize)
@@ -653,7 +664,7 @@ of SRCS, DSTS, TYPES are local index number."
   (compile-cont cps))
 
 (define (compile-native cps entry-ip locals snapshots fragment exit-id linked-ip
-                        lowest-offset)
+                        lowest-offset trace-id)
   (let*-values
       (((max-label max-var) (compute-max-label-and-var cps))
        ((env initial-locals loop-args kstart nspills)
@@ -752,4 +763,4 @@ of SRCS, DSTS, TYPES are local index number."
 
     ;; Assemble the primitives in CPS.
     (compile-cps cps env kstart entry-ip snapshots loop-args fp-offset
-                 fragment trampoline linked-ip lowest-offset)))
+                 fragment trampoline linked-ip lowest-offset trace-id)))
