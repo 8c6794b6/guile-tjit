@@ -90,6 +90,18 @@
             (lp traces level))))
         (() (values))))))
 
+(define-syntax-rule (addr->source-line addr)
+  (cond
+   ((find-source-for-addr addr)
+    => (lambda (source)
+         (format #f "~a:~d"
+                 (let ((file (source-file source)))
+                   (or (and (string? file) (basename file))
+                       "(unknown file)"))
+                 (source-line-for-user source))))
+   (else
+    "(invalid IP)")))
+
 (define (dump-cps cps snapshots)
   (define (mark-call cont)
     (match cont
@@ -139,10 +151,13 @@
      ((eq? type &box) (yellow "box"))
      ((eq? type &struct) (yellow "strc"))
      ((dynamic-link? type)
-      (string-append "dl:" (number->string (dynamic-link-offset type))))
+      (let ((diff (number->string (dynamic-link-offset type))))
+        (string-append "dl:" (cyan diff))))
      ((return-address? type)
-      (let ((ra (number->string (pointer-address (return-address-ip type)) 16)))
-        (string-append "ra:" ra)))
+      (let* ((addr (pointer-address (return-address-ip type)))
+             (hex-ip (number->string addr 16)))
+        (string-append "ra:" (cyan hex-ip)
+                       "/" (bold (addr->source-line addr)))))
      (else type)))
   (define (dump-locals locals)
     ;; Locals could be null. Snapshot 0 in root trace does not contain
@@ -232,13 +247,7 @@
   (define-syntax-rule (increment-compilation-failure ip)
     (let ((count (hashq-ref (failed-ip-table) ip 0)))
       (hashq-set! (failed-ip-table) ip (+ count 1))))
-  (define-syntax-rule (ip-ptr->source-line addr)
-    (and=>
-     (find-source-for-addr addr)
-     (lambda (source)
-       (format #f "~a:~d"
-               (or (basename (source-file source)) "(unknown file)")
-               (source-line-for-user source)))))
+
   (define-syntax-rule (show-one-line sline fragment)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
@@ -256,7 +265,7 @@
          (entry-ip (cadr (car ip-x-ops)))
          (verbosity (lightning-verbosity))
          (fragment (get-fragment parent-ip))
-         (sline (ip-ptr->source-line (cadr (car ip-x-ops)))))
+         (sline (addr->source-line (cadr (car ip-x-ops)))))
     (debug 1 "~a" (show-one-line sline fragment))
     (when (and verbosity (<= 2 verbosity))
       (format #t ":;;   entry-ip:       ~x~%" entry-ip)

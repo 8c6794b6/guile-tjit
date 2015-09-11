@@ -30,7 +30,8 @@
   #:export (debug
             lightning-verbosity lightning-trace
             try-program-name
-            black red green yellow blue magenta cyan white))
+            black red green yellow blue magenta cyan white
+            bold underline))
 
 ;; Parameter to control verbosity level.
 ;;
@@ -67,15 +68,17 @@
 ;;; ANSI escape sequence for messages
 ;;;
 
-(define-syntax-rule (define-coloured name num)
+(define-syntax-rule (define-ansi name num)
   (define (name str)
     (string-append "\x1b[" (number->string num) ";2m" str "\x1b[0m")))
 
-(define-coloured black 30)
-(define-coloured red 31)
-(define-coloured green 32)
-(define-coloured yellow 33)
-(define-coloured blue 34)
-(define-coloured magenta 35)
-(define-coloured cyan 36)
-(define-coloured white 37)
+(define-ansi black 30)
+(define-ansi red 31)
+(define-ansi green 32)
+(define-ansi yellow 33)
+(define-ansi blue 34)
+(define-ansi magenta 35)
+(define-ansi cyan 36)
+(define-ansi white 37)
+(define-ansi bold 1)
+(define-ansi unerline 4)
