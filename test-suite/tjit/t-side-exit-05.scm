@@ -3,7 +3,7 @@
     (cond
      ((= i 10000)
       acc)
-     ((< low i mid)
+     ((< low i (+ mid 1))
       (lp (+ i 1) (+ acc 1)))
      ((< mid i high)
       (lp (+ i 1) (+ acc 2)))

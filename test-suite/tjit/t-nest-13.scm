@@ -26,7 +26,7 @@
   (let loop ((n n) (v 0))
     (if (zero? n)
         v
-        (loop (- n 1) (+ v (func-loops 18))))))
+        (loop (- n 1) (+ v (func-loops 15))))))
 
-(list (run-nestedloop 20)
-      (run-nestedloop 20))
+(list (run-nestedloop 15)
+      (run-nestedloop 15))
