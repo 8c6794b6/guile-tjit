@@ -45,6 +45,7 @@ SCM_API SCM scm_make_tjit_retval (scm_i_thread *thread,
                                   scm_t_bits exit_ip,
                                   scm_t_bits nlocals);
 SCM_API SCM scm_dump_tjit_retval (SCM trace_id, SCM tjit_retval);
+SCM_API void scm_dump_locals (SCM trace_id, int n, SCM *fp);
 
 /* Fields in record-type `fragment', from:
    "module/system/vm/native/tjit/parameters.scm". */

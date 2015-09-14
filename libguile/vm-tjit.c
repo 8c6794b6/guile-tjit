@@ -148,22 +148,6 @@ dump_fp (SCM *fp, SCM port)
   scm_newline (port);
 }
 
-static inline void
-dump_locals (int n, SCM *fp)
-{
-  int i;
-  SCM port = scm_current_output_port ();
-  scm_puts ("locals", port);
-  for (i = 0; i < n; ++i)
-    {
-      scm_puts(" [", port);
-      scm_display (SCM_I_MAKINUM (i), port);
-      scm_puts("]:", port);
-      scm_display (SCM_PACK (fp[i]), port);
-    }
-  scm_newline (port);
-}
-
 static inline int
 is_hot_loop (SCM ip, SCM count)
 {
@@ -508,8 +492,7 @@ scm_dump_tjit_retval (SCM trace_id, SCM tjit_retval)
 
   scm_puts (";;; trace ", port);
   scm_display (trace_id, port);
-  scm_puts (": ", port);
-  scm_puts ("exit_id=", port);
+  scm_puts (": exit_id=", port);
   scm_display (SCM_TJIT_RETVAL_EXIT_ID (tjit_retval), port);
   scm_puts (" exit_ip=", port);
   scm_display (to_hex (SCM_TJIT_RETVAL_EXIT_IP (tjit_retval)), port);
@@ -520,6 +503,36 @@ scm_dump_tjit_retval (SCM trace_id, SCM tjit_retval)
   return SCM_UNSPECIFIED;
 }
 
+void
+scm_dump_locals (SCM trace_id, int n, SCM *fp)
+{
+  int i;
+  SCM port = scm_current_output_port ();
+  SCM *dl = SCM_FRAME_DYNAMIC_LINK (fp);
+  scm_t_uint32 *ra = SCM_FRAME_RETURN_ADDRESS (fp);
+
+  scm_puts (";;; trace ", port);
+  scm_display (trace_id, port);
+  scm_puts (": fp=", port);
+  scm_display (to_hex (SCM_I_MAKINUM (fp)), port);
+  scm_puts (" dl=", port);
+  scm_display (to_hex (SCM_I_MAKINUM (dl)), port);
+  scm_puts (" ra=", port);
+  scm_display (to_hex (SCM_I_MAKINUM (ra)), port);
+  scm_newline (port);
+
+  scm_puts (";;; trace ", port);
+  scm_display (trace_id, port);
+  scm_puts (": locals", port);
+  for (i = 0; i < n; ++i)
+    {
+      scm_puts(" [", port);
+      scm_display (SCM_I_MAKINUM (i), port);
+      scm_puts("]:", port);
+      scm_display (SCM_PACK (fp[i]), port);
+    }
+  scm_newline (port);
+}
 
 /*
  * Initialization

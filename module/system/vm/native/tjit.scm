@@ -49,7 +49,7 @@
 
 
 ;;;
-;;; Showing IR dump
+;;; Debug procedures
 ;;;
 
 (define (dump-bytecode ip-x-ops)
@@ -138,8 +138,8 @@
      ((eq? type &exact-integer) (blue "snum"))
      ((eq? type &flonum) (magenta "fnum"))
      ((eq? type &char) (blue "char"))
-     ((eq? type &unspecified) (green "unsp"))
-     ((eq? type &unbound) (green "unbn"))
+     ((eq? type &unspecified) (green "uspc"))
+     ((eq? type &unbound) (green "ubnd"))
      ((eq? type &false) (green "fals"))
      ((eq? type &true) (green "true"))
      ((eq? type &nil) (green "nil"))
@@ -247,7 +247,6 @@
   (define-syntax-rule (increment-compilation-failure ip)
     (let ((count (hashq-ref (failed-ip-table) ip 0)))
       (hashq-set! (failed-ip-table) ip (+ count 1))))
-
   (define-syntax-rule (show-one-line sline fragment)
     (let ((exit-pair (if (< 0 parent-ip)
                          (format #f " (~a:~a)"
@@ -267,13 +266,14 @@
          (fragment (get-fragment parent-ip))
          (sline (addr->source-line (cadr (car ip-x-ops)))))
     (debug 1 "~a" (show-one-line sline fragment))
+    (when (and verbosity (<= 3 verbosity))
+      (format #t ":;; entry-ip:       ~x~%" entry-ip)
+      (format #t ";;; parent-ip:      ~x~%" parent-ip)
+      (format #t ";;; linked-ip:      ~x~%" linked-ip)
+      (format #t ";;; parent-exit-id: ~a~%" parent-exit-id)
+      (format #t ";;; loop?:          ~a~%" loop?)
+      (and fragment (dump-fragment fragment)))
     (when (and verbosity (<= 2 verbosity))
-      (format #t ":;;   entry-ip:       ~x~%" entry-ip)
-      (format #t ";;;   parent-ip:      ~x~%" parent-ip)
-      (format #t ";;;   linked-ip:      ~x~%" linked-ip)
-      (format #t ";;;   parent-exit-id: ~a~%" parent-exit-id)
-      (format #t ";;;   loop?:          ~a~%" loop?)
-      (and fragment (dump-fragment fragment))
       (dump-bytecode ip-x-ops))
     (let-values (((locals snapshots lowest-offset scm cps)
                   (trace->cps fragment parent-exit-id loop? ip-x-ops)))

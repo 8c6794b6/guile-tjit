@@ -440,10 +440,9 @@
          (expecting-types (make-hash-table))
          (known-types (make-hash-table))
          (lowest-offset 0)
-         (highest-offset
-          (apply max 0 (map car (if root-trace?
-                                    vars
-                                    *vars-from-parent*))))
+         (highest-offset (apply max 0 (map car (if root-trace?
+                                                   vars
+                                                   *vars-from-parent*))))
          (snapshots (make-hash-table))
          (snapshot-id (get-initial-snapshot-id snapshots)))
 
@@ -542,10 +541,12 @@
                             (return-address? val))
                         val))))
            (define (add-local local)
-             (debug 3 ";;;   add-local: i=~a, local=~a~%" i local)
              (let ((type (type-of local)))
-               (if type
-                   (lp is (cons `(,i . ,type) acc))
+               (if (and type
+                        (<= lowest-offset i highest-offset))
+                   (begin
+                     (debug 3 ";;;   add-local: i=~a, local=~a~%" i local)
+                     (lp is (cons `(,i . ,type) acc)))
                    (lp is acc))))
            (define (add-val val)
              (debug 3 ";;;   add-val: i=~a, val=~a~%" i val)
@@ -736,13 +737,15 @@
                             `((,vdst ,vsrc))))
                 (return (if (< 0 local-offset)
                             '()
-                            `((%return ,ra)))))
+                            `((%return ,ra))))
+                (snapshot (take-snapshot! ip 0 locals local-indices vars)))
            (pop-past-frame! past-frame)
            (debug 3 ";;; ir.scm:return~%;;;    fp=~a ip=~x ra=~x local-offset=~a~%"
                   fp ip ra local-offset)
            (debug 3 ";;;    locals=~a~%;;;    local-indices=~a~%;;;    args=~a~%"
                   locals local-indices args)
            `(let ,assign
+              ,snapshot
               ,@return
               ,(convert escape rest))))
 

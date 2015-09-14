@@ -59,6 +59,9 @@
 (define %scm-dump-tjit-retval
   (dynamic-pointer "scm_dump_tjit_retval" (dynamic-link)))
 
+(define %scm-dump-locals
+  (dynamic-pointer "scm_dump_locals" (dynamic-link)))
+
 
 ;;;
 ;;; Code generation
@@ -551,7 +554,7 @@ of SRCS, DSTS, TYPES are local index number."
        (jit-movi r0 (imm next-ip))
        (vm-sync-ip r0)
 
-       ;; Return tjit-retval to VM interpreter.
+       ;; Make tjit-retval for VM interpreter.
        (jit-prepare)
        (jit-pushargr reg-thread)
        (jit-pushargi (scm-i-makinumi current-side-exit))
@@ -559,14 +562,26 @@ of SRCS, DSTS, TYPES are local index number."
        (jit-pushargi (scm-i-makinumi nlocals))
        (jit-calli %scm-make-tjit-retval)
        (jit-retval reg-retval)
-       (let* ((verbosity (lightning-verbosity)))
+
+       ;; Debug code to dump tjit-retval and locals.
+       (let ((verbosity (lightning-verbosity)))
          (when (and verbosity (<= 2 verbosity))
            (jit-movr reg-thread reg-retval)
            (jit-prepare)
            (jit-pushargi (scm-i-makinumi trace-id))
            (jit-pushargr reg-retval)
            (jit-calli %scm-dump-tjit-retval)
+           (jit-movr reg-retval reg-thread))
+         (when (and verbosity (<= 3 verbosity))
+           (jit-movr reg-thread reg-retval)
+           (jit-prepare)
+           (jit-pushargi (scm-i-makinumi trace-id))
+           (jit-pushargi (imm nlocals))
+           (jit-ldxi r0 fp vp->fp-offset)
+           (jit-pushargr r0)
+           (jit-calli %scm-dump-locals)
            (jit-movr reg-retval reg-thread)))
+
        (return-to-interpreter)
        (jit-epilog)
        (jit-realize)
