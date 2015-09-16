@@ -1,4 +1,4 @@
-;;; -*- mode: scheme; coding: utf-8; -*-
+;;;; Entry point for compiler used in vm-tjit engine
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -19,8 +19,11 @@
 ;;;;
 
 ;;; Commentary:
-
-;;; Entry point of just-in-time compiler for `vm-tjit' engine.
+;;;
+;;; Module exporting @code{tjitc}, entry point of just-in-time compiler
+;;; for `vm-tjit' engine.
+;;;
+;;; Code:
 
 (define-module (system vm native tjit)
   #:use-module (ice-9 binary-ports)

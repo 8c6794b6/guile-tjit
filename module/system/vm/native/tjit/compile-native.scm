@@ -1,4 +1,4 @@
-;;; -*- mode: scheme; coding: utf-8; -*-
+;;;; CPS to native code compiler for vm-tjit
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -19,9 +19,9 @@
 ;;;;
 
 ;;; Commentary:
-
+;;;
 ;;; Compile CPS to native code.
-
+;;;
 ;;; Code:
 
 (define-module (system vm native tjit compile-native)

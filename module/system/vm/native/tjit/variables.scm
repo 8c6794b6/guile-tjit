@@ -1,4 +1,4 @@
-;;; -*- mode: scheme; coding: utf-8; -*-
+;;;; Variable resoluation for vm-tjit engine
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -19,11 +19,11 @@
 ;;;;
 
 ;;; Commentary:
-
+;;;
 ;;; CPS variable resolution and register alloocatoion.  Applying naive strategy
 ;;; to assign registers to locals, does nothing sophisticated such as
 ;;; linear-scan, binpacking, or graph coloring.
-
+;;;
 ;;; Code:
 
 (define-module (system vm native tjit variables)

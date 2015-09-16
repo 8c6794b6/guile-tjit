@@ -1,4 +1,4 @@
-;;; -*- mode: scheme; coding: utf-8; -*-
+;;;; Bytecode to CPS IR compiler
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -19,7 +19,7 @@
 ;;;;
 
 ;;; Commentary:
-
+;;;
 ;;; Compile list of bytecode operations to CPS intermediate representation via
 ;;; Scheme in (almost) ANF.
 ;;;
@@ -34,8 +34,7 @@
 ;;; Scheme as another intermediate representation is because once compiled to
 ;;; Scheme, compiling to CPS could be done with `(@@ (system base compile)
 ;;; compile)' procedure.
-
-
+;;;
 ;;; Code:
 
 (define-module (system vm native tjit ir)

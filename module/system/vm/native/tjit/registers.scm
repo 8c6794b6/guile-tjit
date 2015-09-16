@@ -1,4 +1,4 @@
-;;; -*- mode: scheme; coding: utf-8; -*-
+;;;; Registers used in vm-tjit engine
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -19,12 +19,12 @@
 ;;;;
 
 ;;; Commentary:
-
-;;; Register related codes. Currently works under x86-64 only, using
-;;; architecture dependent registers.  Lightning has it's own register
+;;;
+;;; Module containing register related codes. Currently works under x86-64 only,
+;;; using architecture dependent registers.  Lightning has it's own register
 ;;; management policy, not sure how it works under other architecture than
 ;;; x86-64 linux.
-
+;;;
 ;;; Code:
 
 (define-module (system vm native tjit registers)

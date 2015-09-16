@@ -1,4 +1,4 @@
-;;; -*- mode: scheme; coding: utf-8; -*-
+;;;; Fragment data type
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -19,9 +19,10 @@
 ;;;;
 
 ;;; Commentary:
-
-;;; Log of native compilation.
-
+;;;
+;;; A module defining data types for fragment. Fragment is a log of native
+;;; compilation. Fragments are stored in hash table for later use.
+;;;
 ;;; Code:
 
 (define-module (system vm native tjit fragment)

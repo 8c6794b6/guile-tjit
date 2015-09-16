@@ -1,4 +1,4 @@
-;;; -*- mode: scheme; coding: utf-8; -*-
+;;;; Assembler for VM tjit engine
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -19,9 +19,9 @@
 ;;;;
 
 ;;; Commentary:
-
+;;;
 ;;; Primitives for native code used in vm-tjit engine.
-
+;;;
 ;;; Code:
 
 (define-module (system vm native tjit assembler)

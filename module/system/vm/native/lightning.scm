@@ -1,4 +1,4 @@
-;;; -*- mode: scheme; coding: utf-8; -*-
+;;;; GNU Lightning FFI
 
 ;;;; Copyright (C) 2014, 2015  Free Software Foundation, Inc.
 ;;;;
@@ -19,8 +19,10 @@
 ;;;;
 
 ;;; Commentary:
-
-;;; FFI binding of lightning for guile.
+;;;
+;;; FFI binding of Lightning.
+;;;
+;;; Code:
 
 (define-module (system vm native lightning)
   #:use-module (ice-9 regex)

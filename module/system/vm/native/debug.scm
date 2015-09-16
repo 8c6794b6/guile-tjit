@@ -1,4 +1,4 @@
-;;; -*- mode: scheme; coding: utf-8; -*-
+;;;; Debug utilities for native VM engine
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -19,9 +19,9 @@
 ;;;;
 
 ;;; Commentary:
-
-;;; Debugging codes for vm-lightning.
-
+;;;
+;;; Debugging codes for native VM engines.
+;;;
 ;;; Code:
 
 (define-module (system vm native debug)

@@ -1,4 +1,4 @@
-;;; -*- mode: scheme; coding: utf-8; -*-
+;;;; Parameters for vm-tjit engine
 
 ;;;; Copyright (C) 2014, 2015 Free Software Foundation, Inc.
 ;;;;
@@ -19,9 +19,11 @@
 ;;;;
 
 ;;; Commentary:
-
-;;; Parameters and statistics in vm-tjit.
-
+;;;
+;;; Module containing procedure for parameters and statistics used for vm-tjit
+;;; engine. This module contains @code{load-extension} with
+;;; @code{scm_init_vm_tjit}.
+;;;
 ;;; Code:
 
 (define-module (system vm native tjit parameters)
