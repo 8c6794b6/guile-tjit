@@ -112,19 +112,15 @@
   (syntax-rules ()
     ((_ (name asm (ty arg) ...) <body>)
      (begin
-       (define-prim (name asm arg ...)
-         <body>)
-       (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
-       (hashq-set! *native-prim-types* 'name `(,ty ...))))
-    ((_ (name asm arg ...) <body>)
-     (begin
        (define (name asm arg ...)
          (let ((verbosity (lightning-verbosity)))
            (when (and verbosity (<= 5 verbosity))
              (jit-note (format #f "~a" `(name ,arg ...)) 0))
            (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
          <body>)
-       (hashq-set! *native-prim-procedures* 'name name)))))
+       (hashq-set! *native-prim-procedures* 'name name)
+       (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
+       (hashq-set! *native-prim-types* 'name `(,ty ...))))))
 
 (define (initialize-tjit-primitives)
   (for-each

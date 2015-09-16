@@ -433,15 +433,14 @@
          (local-indices (past-frame-local-indices past-frame))
          (args (map make-var (reverse local-indices)))
          (vars (make-vars local-indices))
-         (*vars-from-parent* (make-vars-from-parent vars))
-         (*local-indices-from-parent* (map car *vars-from-parent*))
-         (*args-from-parent* (reverse (map cdr *vars-from-parent*)))
+         (vars-from-parent (make-vars-from-parent vars))
+         (local-indices-from-parent (map car vars-from-parent))
          (expecting-types (make-hash-table))
          (known-types (make-hash-table))
          (lowest-offset 0)
          (highest-offset (apply max 0 (map car (if root-trace?
                                                    vars
-                                                   *vars-from-parent*))))
+                                                   vars-from-parent))))
          (snapshots (make-hash-table))
          (snapshot-id (get-initial-snapshot-id snapshots)))
 
@@ -470,7 +469,7 @@
                    (not (hashq-ref known-types i)))
           (hashq-set! expecting-types i ty))))
 
-    (define-syntax-rule (call-with-frame-ref proc args var type idx)
+    (define-syntax-rule (with-frame-ref proc args var type idx)
       (cond
        ((not type)
         `(let ((,var #f))
@@ -718,7 +717,7 @@
                                       #f))
                              (type (type-of val)))
                         (let ((idx (- n local-offset)))
-                          (call-with-frame-ref lp vars var type idx))))
+                          (with-frame-ref lp vars var type idx))))
                      (else
                       (lp vars))))
                    (()
@@ -1196,7 +1195,7 @@
          (convert-one escape op ip fp ra locals rest))
         (_ trace)))
 
-    (define (choose-type-for-local n local)
+    (define (type-of-local n local)
       ;; Current policy for deciding the type of initial argument loaded from
       ;; frame:
       ;;
@@ -1246,53 +1245,49 @@
                                     (< i (vector-length *initial-locals*)))
                                (vector-ref *initial-locals* i)
                                #f))
-                    (type (choose-type-for-local n local)))
+                    (type (type-of-local n local)))
                (debug 3 ";;; add-initial-loads: n=~a local=~a~%" n local)
                (debug 3 ";;;   known-type:     ~a~%" (hashq-ref known-types n))
                (debug 3 ";;;   expecting-type: ~a~%" (hashq-ref expecting-types n))
                (debug 3 ";;;   local:          ~a~%" local)
                (debug 3 ";;;   type:           ~a~%" type)
-               (call-with-frame-ref lp vars var type n)))))
+               (with-frame-ref lp vars var type n)))))
           (()
            exp-body))))
-
-    (define (make-entry-body)
-      `(begin
-         (,*initial-ip*)
-         ,(let lp ((lp-vars vars))
-            (match lp-vars
-              (((i . var) . lp-vars)
-               (let ((type (or (hashq-ref expecting-types i)
-                               &box)))
-                 (call-with-frame-ref lp lp-vars var type i)))
-              (()
-               `(begin
-                  ,(take-snapshot! *ip-key-set-loop-info!*
-                                   0
-                                   *initial-locals*
-                                   local-indices
-                                   vars)
-                  (loop ,@args)))))))
 
     (define (make-scm escape trace)
       (cond
        (root-trace?
-        ;; `make-entry-body' uses updated information in `expecting-types',
-        ;; invoking `convert' before `make-entry-body'.
+        ;; Invoking `convert' prior to entry clause so that the
+        ;; `expecting-types' gets filled in.
         (let ((loop (convert escape trace)))
           `(letrec ((entry (lambda ()
-                             ,(make-entry-body)))
+                             (,*initial-ip*)
+                             ,(let lp ((lp-vars vars))
+                                (match lp-vars
+                                  (((n . var) . lp-vars)
+                                   (let ((type (or (hashq-ref expecting-types n)
+                                                   &box)))
+                                     (with-frame-ref lp lp-vars var type n)))
+                                  (()
+                                   `(begin
+                                      ,(take-snapshot! *ip-key-set-loop-info!*
+                                                       0
+                                                       *initial-locals*
+                                                       local-indices
+                                                       vars)
+                                      (loop ,@args)))))))
                     (loop (lambda ,args
                             ,loop)))
              entry)))
        (else
-        `(letrec ((patch (lambda ,*args-from-parent*
+        `(letrec ((patch (lambda ,(reverse (map cdr vars-from-parent))
                            (begin
                              ,(take-snapshot! *initial-ip*
                                               0
                                               *initial-locals*
-                                              *local-indices-from-parent*
-                                              *vars-from-parent*)
+                                              local-indices-from-parent
+                                              vars-from-parent)
                              ,(add-initial-loads (convert escape trace))))))
            patch))))
 
@@ -1303,12 +1298,10 @@
       (debug 3 ";;; snapshot:~%~{;;;   ~a~%~}"
              (sort (hash-fold acons '() snapshots)
                    (lambda (a b) (< (car a) (car b)))))
-      (values (if root-trace?
-                  local-indices
-                  *local-indices-from-parent*)
-              snapshots
-              lowest-offset
-              scm))))
+      (let ((indices (if root-trace?
+                         local-indices
+                         local-indices-from-parent)))
+        (values indices snapshots lowest-offset scm)))))
 
 (define (scm->cps scm)
   (define ignored-passes

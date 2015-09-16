@@ -242,12 +242,13 @@
    (else
     (error "store-frame" local type src))))
 
-(define (maybe-store moffs local-x-types srcs src-unwrapper references)
+(define (maybe-store moffs local-x-types srcs src-unwrapper references shift)
   "Store src in SRCS to frame when local is not found in REFERENCES.
 
 Locals are loaded with MOFFS to refer memory offset. Returns a hash-table
 containing src with SRC-UNWRAPPER applied. Key of the returned hash-table is
-local index in LOCAL-X-TYPES."
+local index in LOCAL-X-TYPES. Locals in returned hash-table is shifted for
+SHIFT."
   (debug 3 ";;; maybe-store:~%")
   (debug 3 ";;;   srcs:          ~a~%" srcs)
   (debug 3 ";;;   local-x-types: ~a~%" local-x-types)
@@ -266,7 +267,7 @@ local index in LOCAL-X-TYPES."
                       (return-address? type)
                       (not (assq local references)))
               (store-frame moffs local type unwrapped-src))
-            (hashq-set! acc local unwrapped-src))
+            (hashq-set! acc (+ local shift) unwrapped-src))
           (lp local-x-types srcs acc))
          (()
           (debug 3 ";;;   srcs=null, local-x-types=~a~%" local-x-types)
@@ -421,30 +422,18 @@ of SRCS, DSTS, TYPES are local index number."
        ((hashq-ref snapshots current-side-exit)
         => (match-lambda
             (($ $snapshot local-offset _ local-x-types)
+             ;; Store unpassed variables, and move variables to linked trace.
+             ;; Shift amount in `maybe-store' depending on whether the trace is
+             ;; root trace or not.
              (debug 3 ";;; compile-link: local-offset=~a~%" local-offset)
-             ;; Store unpassed variables. When (not fragment), shifting locals
-             ;; for references used in `maybe-store'.
-             ;;
-             ;; XXX: Move the shifting code somewhere else.
-             ;;
-             (let* ((dst-table (make-hash-table))
-                    (shift-amount (if fragment
+             (let* ((shift-amount (if fragment
                                       lowest-offset
                                       local-offset))
                     (references (shift-offset shift-amount loop-locals))
                     (src-table (maybe-store moffs local-x-types args env-ref
-                                            references))
-                    (type-table (make-hash-table)))
-
-               ;; Shift the locals in source code. Shifting after the call to
-               ;; `maybe-store', to store lower frame info first.
-               (let ((tmp (make-hash-table)))
-                 (hash-for-each (lambda (k v)
-                                  (hashq-set! tmp (- k local-offset) v))
-                                src-table)
-                 (set! src-table tmp))
-
-               ;; Prepare arguments for linked trace.
+                                            references (- local-offset)))
+                    (type-table (make-hash-table))
+                    (dst-table (make-hash-table)))
                (let lp ((locals loop-locals)
                         (dsts (fragment-loop-vars linked-fragment)))
                  (match locals
@@ -452,15 +441,12 @@ of SRCS, DSTS, TYPES are local index number."
                     (hashq-set! type-table local type)
                     (match dsts
                       ((dst . dsts)
-                       ;; Shiting with lowest offset.
                        (hashq-set! dst-table (- local lowest-offset) dst)
                        (lp locals dsts))
                       (()
                        (debug 3 ";;; compile-link: dsts=null, locals=~a~%"
                               locals))))
                    (_ (values))))
-
-               ;; Move variables to linked trace.
                (move-or-load-carefully dst-table src-table type-table moffs))
 
              ;; Shift back FP and sync. Shifting back lowest-offset moved by
@@ -753,7 +739,7 @@ of SRCS, DSTS, TYPES are local index number."
              ;; Store values passed from parent trace when it's not used by this
              ;; side trace.
              (maybe-store moffs local-x-types exit-variables identity
-                          initial-locals)
+                          initial-locals 0)
 
              ;; When passing values from parent trace to side-trace, src could
              ;; be overwritten by move or load.  Pairings of local and register
