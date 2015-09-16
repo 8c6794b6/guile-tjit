@@ -39,6 +39,7 @@
             make-fragment
             fragment-id
             fragment-code
+            fragment-exit-counts
             fragment-entry-ip
             fragment-snapshots
             fragment-exit-codes
