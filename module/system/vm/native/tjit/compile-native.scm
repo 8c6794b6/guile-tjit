@@ -45,6 +45,7 @@
   #:use-module (system vm native tjit parameters)
   #:use-module (system vm native tjit fragment)
   #:use-module (system vm native tjit registers)
+  #:use-module (system vm native tjit snapshot)
   #:use-module (system vm native tjit variables)
   #:export (compile-native))
 
