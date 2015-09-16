@@ -108,16 +108,21 @@
    (else
     `(0 . ,(length args)))))
 
+(define-syntax-parameter asm
+  (lambda (x)
+    (syntax-violation 'asm "asm used outside of primitive definition" x)))
+
 (define-syntax define-prim
   (syntax-rules ()
-    ((_ (name asm (ty arg) ...) <body>)
+    ((_ (name (ty arg) ...) <body>)
      (begin
-       (define (name asm arg ...)
+       (define (name asm-in-arg arg ...)
          (let ((verbosity (lightning-verbosity)))
            (when (and verbosity (<= 5 verbosity))
              (jit-note (format #f "~a" `(name ,arg ...)) 0))
            (debug 4 ";;; (~12a ~{~a~^ ~})~%" 'name `(,arg ...)))
-         <body>)
+         (syntax-parameterize ((asm (identifier-syntax asm-in-arg)))
+           <body>))
        (hashq-set! *native-prim-procedures* 'name name)
        (hashq-set! *native-prim-arities* 'name (arity-of-args '(arg ...)))
        (hashq-set! *native-prim-types* 'name `(,ty ...))))))
@@ -302,37 +307,37 @@
     ((_ address)
      (jit-patch-abs (jit-jmpi) address))))
 
-(define-syntax-rule (moffs asm r)
+(define-syntax-rule (moffs r)
   (make-signed-pointer (+ (asm-fp-offset asm)
                           (* (ref-value r) %word-size))))
 
-(define-syntax-rule (memory-ref asm dst src)
+(define-syntax-rule (memory-ref dst src)
   (cond
    ((not (memory? src))
     (error "memory-ref: not a memory" src))
    (else
-    (jit-ldxi dst fp (moffs asm src)))))
+    (jit-ldxi dst fp (moffs src)))))
 
-(define-syntax-rule (memory-ref/fpr asm dst src)
+(define-syntax-rule (memory-ref/fpr dst src)
   (cond
    ((not (memory? src))
     (error "memory-ref/fpr: not a memory" src))
    (else
-    (jit-ldxi-d dst fp (moffs asm src)))))
+    (jit-ldxi-d dst fp (moffs src)))))
 
-(define-syntax-rule (memory-set! asm dst src)
+(define-syntax-rule (memory-set! dst src)
   (cond
    ((not (memory? dst))
     (error "memory-set!: not a memory" dst))
    (else
-    (jit-stxi (moffs asm dst) fp src))))
+    (jit-stxi (moffs dst) fp src))))
 
-(define-syntax-rule (memory-set!/fpr asm dst src)
+(define-syntax-rule (memory-set!/fpr dst src)
   (cond
    ((not (memory? dst))
     (error "memory-set!/fpr: not a memory" dst))
    (else
-    (jit-stxi-d (moffs asm dst) fp src))))
+    (jit-stxi-d (moffs dst) fp src))))
 
 (define-syntax-rule (return-to-interpreter)
   "Emit native code which returns to VM interpreter.
@@ -342,7 +347,7 @@ This macro emits native code for jumping to return address."
     (jit-ldxi r1 fp *ra-offset*)
     (jit-jmpr r1)))
 
-(define-syntax-rule (emit-side-exit asm)
+(define-syntax-rule (emit-side-exit)
   "Macro to emit native code of side exit.
 
 This macro emits native code which does jumping to current side exit, and does
@@ -381,7 +386,7 @@ or `memory?' predicate while the second was constant. And, uses REG-REG-OP when
 both arguments were register or memory."
     (syntax-case x ()
       ((_ name const-const-op reg-const-op reg-reg-op)
-       #`(define-prim (name asm (int a) (int b))
+       #`(define-prim (name (int a) (int b))
            (let ((next (jit-forward)))
              (cond
               ((and (constant? a) (constant? b))
@@ -392,7 +397,7 @@ both arguments were register or memory."
                (jump (reg-reg-op r0 (gpr b)) next))
               ((and (constant? a) (memory? b))
                (jit-movi r0 (constant a))
-               (memory-ref asm r1 b)
+               (memory-ref r1 b)
                (jump (reg-reg-op r0 r1) next))
 
               ((and (gpr? a) (constant? b))
@@ -400,23 +405,23 @@ both arguments were register or memory."
               ((and (gpr? a) (gpr? b))
                (jump (reg-reg-op (gpr a) (gpr b)) next))
               ((and (gpr? a) (memory? b))
-               (memory-ref asm r0 b)
+               (memory-ref r0 b)
                (jump (reg-reg-op (gpr a) r0) next))
 
               ((and (memory? a) (constant? b))
-               (memory-ref asm r0 a)
+               (memory-ref r0 a)
                (jump (reg-const-op r0 (constant b))  next))
               ((and (memory? a) (gpr? b))
-               (memory-ref asm r0 a)
+               (memory-ref r0 a)
                (jump (reg-reg-op r0 (gpr b)) next))
               ((and (memory? a) (memory? b))
-               (memory-ref asm r0 a)
-               (memory-ref asm r1 b)
+               (memory-ref r0 a)
+               (memory-ref r1 b)
                (jump (reg-reg-op r0 r1) next))
 
               (else
                (error #,(symbol->string (syntax->datum #'name)) a b)))
-             (emit-side-exit asm)
+             (emit-side-exit)
              (jit-link next)))))))
 
 ;; Auxiliary procedure for %ne.
@@ -427,7 +432,7 @@ both arguments were register or memory."
 (define-binary-int-guard %lt < jit-blti jit-bltr)
 (define-binary-int-guard %ge >= jit-bgei jit-bger)
 
-(define-prim (%flt asm (double a) (double b))
+(define-prim (%flt (double a) (double b))
   (let ((next (jit-forward)))
     (cond
      ((and (constant? a) (fpr? b))
@@ -441,32 +446,32 @@ both arguments were register or memory."
 
      (else
       (error "%flt" a b)))
-    (emit-side-exit asm)
+    (emit-side-exit)
     (jit-link next)))
 
-(define-prim (%fge asm (double a) (double b))
+(define-prim (%fge (double a) (double b))
   (let ((next (jit-forward)))
     (cond
      ((and (fpr? a) (fpr? b))
       (jump (jit-bger-d (fpr a) (fpr b)) next))
      ((and (fpr? a) (memory? b))
-      (memory-ref/fpr asm f0 b)
+      (memory-ref/fpr f0 b)
       (jump (jit-bger-d (fpr a) f0) next))
 
      ((and (memory? a) (memory? b))
-      (memory-ref/fpr asm f0 a)
-      (memory-ref/fpr asm f1 b)
+      (memory-ref/fpr f0 a)
+      (memory-ref/fpr f1 b)
       (jump (jit-bger-d f0 f1) next))
 
      (else
       (error "%fge" a b)))
-    (emit-side-exit asm)
+    (emit-side-exit)
     (jit-link next)))
 
 ;;; Return from procedure call. Shift current FP to the one from dynamic
 ;;; link. Guard with return address, check whether it matches with IP used at
 ;;; the time of compilation.
-(define-prim (%return asm (int ip))
+(define-prim (%return (int ip))
   (let ((next (jit-forward))
         (old-vp->fp r0)
         (new-vp->fp r1)
@@ -476,7 +481,7 @@ both arguments were register or memory."
     (jit-ldxi old-vp->fp fp vp->fp-offset)
     (scm-frame-return-address ra old-vp->fp)
     (jump (jit-beqi ra (constant ip)) next)
-    (emit-side-exit asm)
+    (emit-side-exit)
 
     (jit-link next)
     (scm-frame-dynamic-link new-vp->fp old-vp->fp)
@@ -493,7 +498,7 @@ both arguments were register or memory."
   (lambda (x)
     (syntax-case x ()
       ((_ name const-const-op reg-const-op reg-reg-op)
-       #`(define-prim (name asm (int dst) (int a) (int b))
+       #`(define-prim (name (int dst) (int a) (int b))
            (cond
             ((and (gpr? dst) (constant? a) (constant? b))
              (let ((result (const-const-op (ref-value a) (ref-value b))))
@@ -503,53 +508,53 @@ both arguments were register or memory."
             ((and (gpr? dst) (gpr? a) (gpr? b))
              (reg-reg-op (gpr dst) (gpr a) (gpr b)))
             ((and (gpr? dst) (gpr? a) (memory? b))
-             (memory-ref asm r0 b)
+             (memory-ref r0 b)
              (reg-reg-op (gpr dst) (gpr a) r0))
             ((and (gpr? dst) (memory? a) (gpr? b))
-             (memory-ref asm r0 a)
+             (memory-ref r0 a)
              (reg-reg-op (gpr dst) r0 (gpr b)))
             ((and (gpr? dst) (memory? a) (memory? b))
-             (memory-ref asm r0 a)
-             (memory-ref asm r1 b)
+             (memory-ref r0 a)
+             (memory-ref r1 b)
              (reg-reg-op (gpr dst) r0 r1))
 
             ((and (memory? dst) (constant? a) (constant? b))
              (let ((result (const-const-op (ref-value a) (ref-value b))))
                (jit-movi r0 (make-signed-pointer result))
-               (memory-set! asm dst r0)))
+               (memory-set! dst r0)))
             ((and (memory? dst) (constant? a) (gpr? b))
              (jit-movi r0 (constant a))
              (reg-reg-op r0 r0 (gpr b))
-             (memory-set! asm dst r0))
+             (memory-set! dst r0))
             ((and (memory? dst) (gpr? a) (constant? b))
              (reg-const-op r0 (gpr a) (constant b))
-             (memory-set! asm dst r0))
+             (memory-set! dst r0))
             ((and (memory? dst) (gpr? a) (gpr? b))
              (reg-reg-op r0 (gpr a) (gpr b))
-             (memory-set! asm dst r0))
+             (memory-set! dst r0))
             ((and (memory? dst) (gpr? a) (memory? b))
-             (memory-ref asm r1 b)
+             (memory-ref r1 b)
              (reg-reg-op r0 (gpr a) r1)
-             (memory-set! asm dst r0))
+             (memory-set! dst r0))
             ((and (memory? dst) (constant? a) (memory? b))
              (jit-movi r0 (constant a))
-             (memory-ref asm r1 b)
+             (memory-ref r1 b)
              (reg-reg-op r0 r0 r1)
-             (memory-set! asm dst r0))
+             (memory-set! dst r0))
             ((and (memory? dst) (memory? a) (constant? b))
-             (memory-ref asm r0 a)
+             (memory-ref r0 a)
              (jit-movi r1 (constant b))
              (reg-reg-op r0 r0 r1)
-             (memory-set! asm dst r0))
+             (memory-set! dst r0))
             ((and (memory? dst) (memory? a) (gpr? b))
-             (memory-ref asm r0 a)
+             (memory-ref r0 a)
              (reg-reg-op r0 r0 (gpr b))
-             (memory-set! asm dst r0))
+             (memory-set! dst r0))
             ((and (memory? dst) (memory? a) (memory? b))
-             (memory-ref asm r1 a)
-             (memory-ref asm r2 b)
+             (memory-ref r1 a)
+             (memory-ref r2 b)
              (reg-reg-op r0 r1 r2)
-             (memory-set! asm dst r0))
+             (memory-set! dst r0))
 
             (else
              (error #,(symbol->string (syntax->datum #'name)) dst a b))))))))
@@ -557,27 +562,27 @@ both arguments were register or memory."
 (define-binary-int-prim %add + jit-addi jit-addr)
 (define-binary-int-prim %sub - jit-subi jit-subr)
 
-(define-prim (%rsh asm (int dst) (int a) (int b))
+(define-prim (%rsh (int dst) (int a) (int b))
   (cond
    ((and (gpr? dst) (gpr? a) (gpr? b))
     (jit-rshr (gpr dst) (gpr a) (gpr b)))
    ((and (gpr? dst) (gpr? a) (constant? b))
     (jit-rshi (gpr dst) (gpr a) (constant b)))
    ((and (gpr? dst) (memory? a) (constant? b))
-    (memory-ref asm r0 a)
+    (memory-ref r0 a)
     (jit-rshi (gpr dst) r0 (constant b)))
 
    ((and (memory? dst) (gpr? a) (constant? b))
     (jit-rshi r0 (gpr a) (constant b))
-    (memory-set! asm dst r0))
+    (memory-set! dst r0))
    ((and (memory? dst) (memory? a) (constant? b))
-    (memory-ref asm r0 a)
+    (memory-ref r0 a)
     (jit-rshi r0 r0 (constant b))
-    (memory-set! asm dst r0))
+    (memory-set! dst r0))
    (else
     (error "%rsh" dst a b))))
 
-(define-prim (%lsh asm (int dst) (int a) (int b))
+(define-prim (%lsh (int dst) (int a) (int b))
   (cond
    ((and (gpr? dst) (constant? a) (constant? b))
     (jit-movi (gpr dst) (imm (ash (ref-value a) (ref-value b)))))
@@ -588,18 +593,18 @@ both arguments were register or memory."
 
    ((and (memory? dst) (constant? a) (constant? b))
     (jit-movi r0 (imm (ash (ref-value a) (ref-value b))))
-    (memory-set! asm dst r0))
+    (memory-set! dst r0))
    ((and (memory? dst) (gpr? a) (constant? b))
     (jit-lshi r0 (gpr a) (constant b))
-    (memory-set! asm dst r0))
+    (memory-set! dst r0))
    ((and (memory? dst) (memory? a) (constant? b))
-    (memory-ref asm r0 a)
+    (memory-ref r0 a)
     (jit-lshi r0 r0 (constant b))
-    (memory-set! asm dst r0))
+    (memory-set! dst r0))
    (else
     (error "%lsh" dst a b))))
 
-(define-prim (%mod asm (int dst) (int a) (int b))
+(define-prim (%mod (int dst) (int a) (int b))
   (cond
    ((and (gpr? dst) (gpr? a) (constant? b))
     (jit-remi (gpr dst) (gpr a) (constant b)))
@@ -614,7 +619,7 @@ both arguments were register or memory."
 ;;;
 
 ;;; XXX: Make lower level operation and rewrite.
-(define-prim (%from-double asm (int dst) (double src))
+(define-prim (%from-double (int dst) (double src))
   (cond
    ((and (gpr? dst) (constant? src))
     (jit-movi-d f0 (constant src))
@@ -622,24 +627,24 @@ both arguments were register or memory."
    ((and (gpr? dst) (fpr? src))
     (scm-from-double (gpr dst) (fpr src)))
    ((and (gpr? dst) (memory? src))
-    (jit-ldxi-d f0 fp (moffs asm src))
+    (jit-ldxi-d f0 fp (moffs src))
     (scm-from-double (gpr dst) f0))
 
    ((and (memory? dst) (constant? src))
     (jit-movi-d f0 (constant src))
     (scm-from-double r0 f0)
-    (jit-stxi (moffs asm dst) fp r0))
+    (jit-stxi (moffs dst) fp r0))
    ((and (memory? dst) (fpr? src))
     (scm-from-double r0 (fpr src))
-    (jit-stxi (moffs asm dst) fp r0))
+    (jit-stxi (moffs dst) fp r0))
    ((and (memory? dst) (memory? src))
-    (jit-ldxi-d f0 fp (moffs asm src))
+    (jit-ldxi-d f0 fp (moffs src))
     (scm-from-double r0 f0)
-    (jit-stxi (moffs asm dst) f0 r0))
+    (jit-stxi (moffs dst) f0 r0))
    (else
     (error "*** %scm-from-double: ~a ~a~%" dst src))))
 
-(define-prim (%fadd asm (double dst) (double a) (double b))
+(define-prim (%fadd (double dst) (double a) (double b))
   (cond
    ((and (fpr? dst) (constant? a) (fpr? b))
     (jit-addi-d (fpr dst) (fpr b) (constant a)))
@@ -650,19 +655,19 @@ both arguments were register or memory."
 
    ((and (memory? dst) (fpr? a) (fpr? b))
     (jit-addr-d f0 (fpr a) (fpr b))
-    (memory-set!/fpr asm dst f0))
+    (memory-set!/fpr dst f0))
    ((and (memory? dst) (memory? a) (constant? b))
-    (memory-ref/fpr asm f0 a)
+    (memory-ref/fpr f0 a)
     (jit-addi-d f0 f0 (constant b))
-    (memory-set!/fpr asm dst f0))
+    (memory-set!/fpr dst f0))
    ((and (memory? dst) (memory? a) (fpr? b))
-    (memory-ref/fpr asm f0 a)
+    (memory-ref/fpr f0 a)
     (jit-addr-d f0 f0 (fpr b))
-    (memory-set!/fpr asm dst f0))
+    (memory-set!/fpr dst f0))
    (else
     (error "%fadd" dst a b))))
 
-(define-prim (%fsub asm (double dst) (double a) (double b))
+(define-prim (%fsub (double dst) (double a) (double b))
   (cond
    ((and (fpr? dst) (fpr? a) (fpr? b))
     (jit-subr-d (fpr dst) (fpr a) (fpr b)))
@@ -674,16 +679,16 @@ both arguments were register or memory."
 
    ((and (memory? dst) (fpr? a) (fpr? b))
     (jit-subr-d f0 (fpr a) (fpr b))
-    (memory-set!/fpr asm dst f0))
+    (memory-set!/fpr dst f0))
    ((and (memory? dst) (memory? a) (memory? b))
-    (memory-ref/fpr asm f0 a)
-    (memory-ref/fpr asm f1 b)
+    (memory-ref/fpr f0 a)
+    (memory-ref/fpr f1 b)
     (jit-subr-d f0 f0 f1)
-    (memory-set!/fpr asm dst f0))
+    (memory-set!/fpr dst f0))
    (else
     (error "%fsub" dst a b))))
 
-(define-prim (%fmul asm (double dst) (double a) (double b))
+(define-prim (%fmul (double dst) (double a) (double b))
   (cond
    ((and (fpr? dst) (constant? a) (fpr? b))
     (jit-muli-d (fpr dst) (fpr b) (constant a)))
@@ -694,11 +699,11 @@ both arguments were register or memory."
 
    ((and (memory? dst) (constant? a) (fpr? b))
     (jit-muli-d f0 (fpr b) (constant a))
-    (memory-set!/fpr asm dst f0))
+    (memory-set!/fpr dst f0))
    ((and (memory? dst) (memory? a) (fpr? b))
-    (memory-ref/fpr asm f0 a)
+    (memory-ref/fpr f0 a)
     (jit-mulr-d f0 f0 (fpr b))
-    (memory-set!/fpr asm dst f0))
+    (memory-set!/fpr dst f0))
    (else
     (error "%fmul" dst a b))))
 
@@ -715,7 +720,7 @@ both arguments were register or memory."
 
 ;; Type check local N with TYPE and load to gpr or memory DST.  Won't work when
 ;; n is negative.
-(define-prim (%frame-ref asm (int dst) (void n) (void type))
+(define-prim (%frame-ref (int dst) (void n) (void type))
   (let ((exit (jit-forward))
         (next (jit-forward)))
     (define-syntax-rule (load-constant constant)
@@ -725,7 +730,7 @@ both arguments were register or memory."
          ((gpr? dst)
           (jit-movr (gpr dst) r0))
          ((memory? dst)
-          (memory-set! asm dst r0))
+          (memory-set! dst r0))
          (else
           (error "%frame-ref" dst n type)))))
     (when (or (not (constant? n))
@@ -743,7 +748,7 @@ both arguments were register or memory."
           (jit-rshi (gpr dst) r0 (imm 2)))
          ((memory? dst)
           (jit-rshi r0 r0 (imm 2))
-          (memory-set! asm dst r0))))
+          (memory-set! dst r0))))
        ((eq? type &false)
         (load-constant *scm-false*))
        ((eq? type &true)
@@ -758,17 +763,17 @@ both arguments were register or memory."
          ((gpr? dst)
           (jit-movr (gpr dst) r0))
          ((memory? dst)
-          (memory-set! asm dst r0))))
+          (memory-set! dst r0))))
        (else
         (error "frame-ref" dst n type))))
     (jump next)
     (jit-link exit)
-    (emit-side-exit asm)
+    (emit-side-exit)
     (jit-link next)))
 
 ;; Load frame local to fpr or memory, with type check. This primitive is used
 ;; for loading to floating point register.
-(define-prim (%frame-ref/f asm (double dst) (void n))
+(define-prim (%frame-ref/f (double dst) (void n))
   (let ((exit (jit-forward))
         (next (jit-forward)))
     (when (not (constant? n))
@@ -783,15 +788,15 @@ both arguments were register or memory."
       (scm-real-value (fpr dst) r0))
      ((memory? dst)
       (scm-real-value f0 r0)
-      (memory-set!/fpr asm dst f0))
+      (memory-set!/fpr dst f0))
      (else
       (error "%frame-ref/f" dst n)))
     (jump next)
     (jit-link exit)
-    (emit-side-exit asm)
+    (emit-side-exit)
     (jit-link next)))
 
-(define-prim (%cell-object asm (int dst) (int src) (void n))
+(define-prim (%cell-object (int dst) (int src) (void n))
   (cond
    ((and (gpr? dst) (constant? src) (constant? n))
     (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))
@@ -802,51 +807,51 @@ both arguments were register or memory."
    ((and (memory? dst) (constant? src) (constant? n))
     (let ((addr (+ (ref-value src) (* (ref-value n) %word-size))))
       (jit-ldi r0 (imm addr))
-      (memory-set! asm dst r0)))
+      (memory-set! dst r0)))
    ((and (memory? dst) (gpr? src) (constant? n))
     (jit-ldxi r0 (gpr src) (constant-word n))
-    (memory-set! asm dst r0))
+    (memory-set! dst r0))
    ((and (memory? dst) (memory? src) (constant? n))
-    (memory-ref asm r0 src)
+    (memory-ref r0 src)
     (jit-ldxi r0 r0 (constant-word n))
-    (memory-set! asm dst r0))
+    (memory-set! dst r0))
    (else
     (error "%cell-object" dst src n))))
 
-(define-prim (%cell-object/f asm (double dst) (int src) (void n))
+(define-prim (%cell-object/f (double dst) (int src) (void n))
   (cond
    ((and (fpr? dst) (gpr? src) (constant? n))
     (jit-ldxi-d (fpr dst) (gpr src) (constant-word n)))
    ((and (fpr? dst) (memory? src) (constant? n))
-    (memory-ref asm r0 src)
+    (memory-ref r0 src)
     (jit-ldxi-d (fpr dst) r0 (constant-word n)))
 
    ((and (memory? dst) (gpr? src) (constant? n))
     (jit-ldxi-d f0 (gpr src) (constant-word n))
-    (memory-set!/fpr asm dst f0))
+    (memory-set!/fpr dst f0))
 
    ((and (memory? dst) (memory? src) (constant? n))
-    (memory-ref asm r0 src)
+    (memory-ref r0 src)
     (jit-ldxi-d f0 r0 (constant-word n))
-    (memory-set!/fpr asm dst f0))
+    (memory-set!/fpr dst f0))
 
    (else
     (error "%cell-object/f" dst src n))))
 
-(define-prim (%set-cell-object! asm (int cell) (void n) (int src))
+(define-prim (%set-cell-object! (int cell) (void n) (int src))
   (cond
    ((and (gpr? cell) (constant? n) (gpr? src))
     (jit-stxi (constant-word n) (gpr cell) (gpr src)))
    ((and (gpr? cell) (constant? n) (memory? src))
-    (memory-ref asm r0 src)
+    (memory-ref r0 src)
     (jit-stxi (constant-word n) (gpr cell) r0))
 
    ((and (memory? cell) (constant? n) (gpr? src))
-    (memory-ref asm r0 cell)
+    (memory-ref r0 cell)
     (jit-stxi (constant-word n) r0 (gpr src)))
    ((and (memory? cell) (constant? n) (memory? src))
-    (memory-ref asm r0 cell)
-    (memory-ref asm r1 src)
+    (memory-ref r0 cell)
+    (memory-ref r1 src)
     (jit-stxi (constant-word n) r0 r1))
 
    (else
