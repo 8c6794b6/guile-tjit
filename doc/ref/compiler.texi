@@ -513,11 +513,7 @@ Optimization passes performed on Tree-IL currently include:
 and calls to primitives to primcalls)
 @item Partial evaluation (comprising inlining, copy propagation, and
 constant folding)
-@item Common subexpression elimination (CSE)
 @end itemize
-
-In the future, we will move the CSE pass to operate over the lower-level
-CPS language.
 
 @node Continuation-Passing Style
 @subsection Continuation-Passing Style
@@ -534,6 +530,7 @@ compiler.
 * An Introduction to CPS::
 * CPS in Guile::
 * Building CPS::
+* CPS Soup::
 * Compiling CPS::
 @end menu
 
@@ -624,12 +621,57 @@ details manifest, and gives them names.
 @node CPS in Guile
 @subsubsection CPS in Guile
 
-Guile's CPS language is composed of @dfn{terms}, @dfn{expressions},
-and @dfn{continuations}.
+@cindex continuation, CPS
+Guile's CPS language is composed of @dfn{continuations}.  A continuation
+is a labelled program point.  If you are used to traditional compilers,
+think of a continuation as a trivial basic block.  A program is a
+``soup'' of continuations, represented as a map from labels to
+continuations.
 
-A term can either evaluate an expression and pass the resulting values
-to some continuation, or it can declare local continuations and contain
-a sub-term in the scope of those continuations.
+@cindex term, CPS
+@cindex expression, CPS
+Like basic blocks, each continuation belongs to only one function.  Some
+continuations are special, like the continuation corresponding to a
+function's entry point, or the continuation that represents the tail of
+a function.  Others contain a @dfn{term}.  A term contains an
+@dfn{expression}, which evaluates to zero or more values.  The term also
+records the continuation to which it will pass its values.  Some terms,
+like conditional branches, may continue to one of a number of
+continuations.
+
+Continuation labels are small integers.  This makes it easy to sort them
+and to group them into sets.  Whenever a term refers to a continuation,
+it does so by name, simply recording the label of the continuation.
+Continuation labels are unique among the set of labels in a program.
+
+Variables are also named by small integers.  Variable names are unique
+among the set of variables in a program.
+
+For example, a simple continuation that receives two values and adds
+them together can be matched like this, using the @code{match} form from
+@code{(ice-9 match)}:
+
+@smallexample
+(match cont
+  (($ $kargs (x-name y-name) (x-var y-var)
+      ($ $continue k src ($ $primcall '+ (x-var y-var))))
+   (format #t "Add ~a and ~a and pass the result to label ~a"
+           x-var y-var k)))
+@end smallexample
+
+Here we see the most common kind of continuation, @code{$kargs}, which
+binds some number of values to variables and then evaluates a term.
+
+@deftp {CPS Continuation} $kargs names vars term
+Bind the incoming values to the variables @var{vars}, with original
+names @var{names}, and then evaluate @var{term}.
+@end deftp
+
+The @var{names} of a @code{$kargs} are just for debugging, and will end
+up residualized in the object file for use by the debugger.
+
+The @var{term} in a @code{$kargs} is always a @code{$continue}, which
+evaluates an expression and continues to a continuation.
 
 @deftp {CPS Term} $continue k src exp
 Evaluate the expression @var{exp} and pass the resulting values (if any)
@@ -639,44 +681,33 @@ as in @code{source-properties} or is @code{#f} if there is no associated
 source.
 @end deftp
 
-@deftp {CPS Term} $letk conts body
-Bind @var{conts}, a list of continuations (@code{$cont} instances), in
-the scope of the sub-term @var{body}.  The continuations are mutually
-recursive.
+There are a number of expression kinds.  Above you see an example of
+@code{$primcall}.
+
+@deftp {CPS Expression} $primcall name args
+Perform the primitive operation identified by @code{name}, a well-known
+symbol, passing it the arguments @var{args}, and pass all resulting
+values to the continuation.  The set of available primitives includes
+all primitives known to Tree-IL and then some more; see the source code
+for details.
 @end deftp
 
-Additionally, the early stages of CPS allow for a set of mutually
-recursive functions to be declared as a term.  This @code{$letrec} type
-is like Tree-IL's @code{<fix>}.  The contification pass will attempt to
-transform the functions declared in a @code{$letrec} into local
-continuations.  Any remaining functions are later lowered to @code{$fun}
-expressions.
-
-@deftp {CPS Term} $letrec names syms funs body
-Declare the mutually recursive set of functions denoted by @var{names},
-@var{syms}, and @var{funs} within the sub-term @var{body}.  @var{names}
-and @var{syms} are lists of symbols, and @var{funs} is a list of
-@code{$fun} values.  @var{syms} are globally unique.
-@end deftp
-
-A higher-order CPS program is a @code{$cont} containing a @code{$kfun}
-(see below), and the @code{$kfun} which contains clauses and those
-clauses contain terms.  A first-order CPS program, on the other hand, is
-the result of closure conversion and does not contain nested functions.
-Closure conversion lifts code for all functions up to the top, collects
-their entry continuations as a list of @code{$cont} @code{$kfun}
-instances and binds them in a @code{$program}.
-
-@deftp {CPS Term} $program funs
-A first-order CPS term declaring a recursive scope for first-order
-functions in a compilation unit.  @var{funs} is a list of @code{$cont}
-@code{$kfun} instances.  The first entry in the list is the entry
-function for the program.
-@end deftp
+@cindex dominate, CPS
+The variables that are used by @code{$primcall}, or indeed by any
+expression, must be defined before the expression is evaluated.  An
+equivalent way of saying this is that predecessor @code{$kargs}
+continuation(s) that bind the variables(s) used by the expression must
+@dfn{dominate} the continuation that uses the expression: definitions
+dominate uses.  This condition is trivially satisfied in our example
+above, but in general to determine the set of variables that are in
+``scope'' for a given term, you need to do a flow analysis to see what
+continuations dominate a term.  The variables that are in scope are
+those variables defined by the continuations that dominate a term.
 
 Here is an inventory of the kinds of expressions in Guile's CPS
-language.  Recall that all expressions are wrapped in a @code{$continue}
-term which specifies their continuation.
+language, besides @code{$primcall} which has already been described.
+Recall that all expressions are wrapped in a @code{$continue} term which
+specifies their continuation.
 
 @deftp {CPS Expression} $const val
 Continue with the constant value @var{val}.
@@ -687,47 +718,11 @@ Continue with the procedure that implements the primitive operation
 named by @var{name}.
 @end deftp
 
-@deftp {CPS Expression} $fun free body
-Continue with a procedure.  @var{free} is a list of free variables
-accessed by the procedure.  Early CPS uses an empty list for @var{free};
-only after closure conversion is it correctly populated.  Finally,
-@var{body} is the @code{$kfun} @code{$cont} of the procedure entry.
-@end deftp
-
-@code{$fun} is part of higher-level CPS.  After closure conversion,
-@code{$fun} instances are given a concrete representation.  By default,
-a closure is represented as an object built by a @code{$closure}
-expression
-
-@deftp {CPS Expression} $closure label nfree
-Build a closure that joins the code at the continuation named
-@var{label} with space for @var{nfree} free variables.  The variables
-will be initialized later via @code{free-variable-set!} primcalls.
-@end deftp
-
-If the closure can be proven to never escape its scope then other
-lighter-weight representations can be chosen.
-
 @deftp {CPS Expression} $call proc args
-@deftpx {CPS Expression} $callk label proc args
 Call @var{proc} with the arguments @var{args}, and pass all values to
 the continuation.  @var{proc} and the elements of the @var{args} list
 should all be variable names.  The continuation identified by the term's
 @var{k} should be a @code{$kreceive} or a @code{$ktail} instance.
-
-@code{$callk} is for the case where the call target is known to be in
-the same compilation unit.  @var{label} should be some continuation
-label, though it need not be in scope.  In this case the @var{proc} is
-simply an additional argument, since it is not used to determine the
-call target at run-time.
-@end deftp
-
-@deftp {CPS Expression} $primcall name args
-Perform the primitive operation identified by @code{name}, a well-known
-symbol, passing it the arguments @var{args}, and pass all resulting
-values to the continuation.  The set of available primitives includes
-all primitives known to Tree-IL and then some more; see the source code
-for details.
 @end deftp
 
 @deftp {CPS Expression} $values args
@@ -736,7 +731,8 @@ Pass the values named by the list @var{args} to the continuation.
 
 @deftp {CPS Expression} $branch kt exp
 Evaluate the branching expression @var{exp}, and continue to @var{kt}
-with zero values if the test evaluates to true.  Otherwise, in the false
+with zero values if the test evaluates to true.  Otherwise continue to
+the continuation named in the outer @code{$continue} term.
 
 Only certain expressions are valid in a @var{$branch}.  Compiling a
 @code{$branch} avoids allocating space for the test variable, so the
@@ -744,9 +740,9 @@ expression should be evaluatable without temporary values.  In practice
 this condition is true for @code{$primcall}s to @code{null?}, @code{=},
 and similar primitives that have corresponding @code{br-if-@var{foo}} VM
 operations; see the source code for full details.  When in doubt, bind
-the test expression to a variable, and reference the variable in the
-@code{$branch} expression.  The optimizer should inline the reference if
-possible.
+the test expression to a variable, and branch on a @code{$values}
+expression that references that variable.  The optimizer should inline
+the reference if possible.
 @end deftp
 
 @deftp {CPS Expression} $prompt escape? tag handler
@@ -758,30 +754,73 @@ the continuation labelled @var{handler}, which should be a
 @code{pop-prompt} primcalls.
 @end deftp
 
-The remaining element of the CPS language in Guile is the continuation.
-In CPS, all continuations have unique labels.  Since this aspect is
-common to all continuation types, all continuations are contained in a
-@code{$cont} instance:
+@cindex higher-order CPS
+@cindex CPS, higher-order
+@cindex first-order CPS
+@cindex CPS, first-order
+There are two sub-languages of CPS, @dfn{higher-order CPS} and
+@dfn{first-order CPS}.  The difference is that in higher-order CPS,
+there are @code{$fun} and @code{$rec} expressions that bind functions or
+mutually-recursive functions in the implicit scope of their use sites.
+Guile transforms higher-order CPS into first-order CPS by @dfn{closure
+conversion}, which chooses representations for all closures and which
+arranges to access free variables through the implicit closure parameter
+that is passed to every function call.
 
-@deftp {CPS Continuation Wrapper} $cont k cont
-Declare a continuation labelled @var{k}.  All references to the
-continuation will use this label.
+@deftp {CPS Expression} $fun body
+Continue with a procedure.  @var{body} names the entry point of the
+function, which should be a @code{$kfun}.  This expression kind is only
+valid in higher-order CPS, which is the CPS language before closure
+conversion.
 @end deftp
 
-The most common kind of continuation binds some number of values, and
-then evaluates a sub-term.  @code{$kargs} is this kind of simple
-@code{lambda}.
-
-@deftp {CPS Continuation} $kargs names syms body
-Bind the incoming values to the variables @var{syms}, with original
-names @var{names}, and then evaluate the sub-term @var{body}.
+@deftp {CPS Expression} $rec names vars funs
+Continue with a set of mutually recursive procedures denoted by
+@var{names}, @var{vars}, and @var{funs}.  @var{names} is a list of
+symbols, @var{vars} is a list of variable names (unique integers), and
+@var{funs} is a list of @code{$fun} values.  Note that the @code{$kargs}
+continuation should also define @var{names}/@var{vars} bindings.
 @end deftp
 
-Variable names (the names in the @var{syms} of a @code{$kargs}) should
-be unique among all other variable names.  To bind a value to a variable
-and then evaluate some term, you would continue with the value to a
-@code{$kargs} that declares one variable.  The bound value would then be
-available for use within the body of the @code{$kargs}.
+The contification pass will attempt to transform the functions declared
+in a @code{$rec} into local continuations.  Any remaining @code{$fun}
+instances are later removed by the closure conversion pass.  By default,
+a closure is represented as an object built by a @code{$closure}
+expression.
+
+@deftp {CPS Expression} $closure label nfree
+Build a closure that joins the code at the continuation named
+@var{label} with space for @var{nfree} free variables.  The variables
+will be initialized later via @code{free-set!} primcalls.  This
+expression kind is part of first-order CPS.
+@end deftp
+
+If the closure can be proven to never escape its scope then other
+lighter-weight representations can be chosen.  Additionally, if all call
+sites are known, closure conversion will hard-wire the calls by lowering
+@code{$call} to @code{$callk}.
+
+@deftp {CPS Expression} $callk label proc args
+Like @code{$call}, but for the case where the call target is known to be
+in the same compilation unit.  @var{label} should denote some
+@code{$kfun} continuation in the program.  In this case the @var{proc}
+is simply an additional argument, since it is not used to determine the
+call target at run-time.
+@end deftp
+
+At this point we have described terms, expressions, and the most common
+kind of continuation, @code{$kargs}.  @code{$kargs} is used when the
+predecessors of the continuation can be instructed to pass the values
+where the continuation wants them.  For example, if a @code{$kargs}
+continuation @var{k} binds a variable @var{v}, and the compiler decides
+to allocate @var{v} to slot 6, all predecessors of @var{k} should put
+the value for @var{v} in slot 6 before jumping to @var{k}.  One
+situation in which this isn't possible is receiving values from function
+calls.  Guile has a calling convention for functions which currently
+places return values on the stack.  A continuation of a call must check
+that the number of values returned from a function matches the expected
+number of values, and then must shuffle or collect those values to named
+variables.  @code{$kreceive} denotes this kind of continuation.
 
 @deftp {CPS Continuation} $kreceive arity k
 Receive values on the stack.  Parse them according to @var{arity}, and
@@ -806,18 +845,18 @@ Note that all of these names with the exception of the @var{var}s in the
 @var{kw} list are source names, not unique variable names.
 @end deftp
 
-Additionally, there are three specific kinds of continuations that can
-only be declared at function entries.
+Additionally, there are three specific kinds of continuations that are
+only used in function entries.
 
 @deftp {CPS Continuation} $kfun src meta self tail clauses
 Declare a function entry.  @var{src} is the source information for the
 procedure declaration, and @var{meta} is the metadata alist as described
 above in Tree-IL's @code{<lambda>}.  @var{self} is a variable bound to
 the procedure being called, and which may be used for self-references.
-@var{tail} declares the @code{$cont} wrapping the @code{$ktail} for this
-function, corresponding to the function's tail continuation.
-@var{clause} is the first @code{$kclause} @code{$cont} instance for the
-first @code{case-lambda} clause in the function, or otherwise @code{#f}.
+@var{tail} is the label of the @code{$ktail} for this function,
+corresponding to the function's tail continuation.  @var{clause} is the
+label of the first @code{$kclause} for the first @code{case-lambda}
+clause in the function, or otherwise @code{#f}.
 @end deftp
 
 @deftp {CPS Continuation} $ktail
@@ -826,10 +865,10 @@ A tail continuation.
 
 @deftp {CPS Continuation} $kclause arity cont alternate
 A clause of a function with a given arity.  Applications of a function
-with a compatible set of actual arguments will continue to @var{cont}, a
-@code{$kargs} @code{$cont} instance representing the clause body.  If
-the arguments are incompatible, control proceeds to @var{alternate},
-which is a @code{$kclause} @code{$cont} for the next clause, or
+with a compatible set of actual arguments will continue to the
+continuation labelled @var{cont}, a @code{$kargs} instance representing
+the clause body.  If the arguments are incompatible, control proceeds to
+@var{alternate}, which is a @code{$kclause} for the next clause, or
 @code{#f} if there is no next clause.
 @end deftp
 
@@ -842,41 +881,41 @@ constructors or accessors, or instead of S-expression matching.
 
 Deconstruction and matching is handled adequately by the @code{match}
 form from @code{(ice-9 match)}.  @xref{Pattern Matching}.  Construction
-is handled by a set of mutually recursive builder macros:
-@code{build-cps-term}, @code{build-cps-cont}, and @code{build-cps-exp}.
+is handled by a set of mutually builder macros:
+@code{build-term}, @code{build-cont}, and @code{build-exp}.
 
-In the following interface definitions, consider variables containing
-@code{cont} to be recursively build by @code{build-cps-cont}, and
-likewise for @code{term} and @code{exp}.  Consider any other name to be
-evaluated as a Scheme expression.  Many of these forms recognize
-@code{unquote} in some contexts, to splice in a previously-built value;
-see the specifications below for full details.
+In the following interface definitions, consider @code{term} and
+@code{exp} to be built by @code{build-term} or @code{build-exp},
+respectively.  Consider any other name to be evaluated as a Scheme
+expression.  Many of these forms recognize @code{unquote} in some
+contexts, to splice in a previously-built value; see the specifications
+below for full details.
 
-@deffn {Scheme Syntax} build-cps-term ,val
-@deffnx {Scheme Syntax} build-cps-term ($letk (cont ...) term)
-@deffnx {Scheme Syntax} build-cps-term ($letrec names syms funs term)
-@deffnx {Scheme Syntax} build-cps-term ($continue k src exp)
-@deffnx {Scheme Syntax} build-cps-term ($program conts)
-@deffnx {Scheme Syntax} build-cps-exp ,val
-@deffnx {Scheme Syntax} build-cps-exp ($const val)
-@deffnx {Scheme Syntax} build-cps-exp ($prim name)
-@deffnx {Scheme Syntax} build-cps-exp ($fun src meta free body)
-@deffnx {Scheme Syntax} build-cps-exp ($call proc (arg ...))
-@deffnx {Scheme Syntax} build-cps-exp ($call proc args)
-@deffnx {Scheme Syntax} build-cps-exp ($primcall name (arg ...))
-@deffnx {Scheme Syntax} build-cps-exp ($primcall name args)
-@deffnx {Scheme Syntax} build-cps-exp ($values (arg ...))
-@deffnx {Scheme Syntax} build-cps-exp ($values args)
-@deffnx {Scheme Syntax} build-cps-exp ($prompt escape? tag handler)
-@deffnx {Scheme Syntax} build-cps-cont ,val
-@deffnx {Scheme Syntax} build-cps-cont (k ($kargs (name ...) (sym ...) term))
-@deffnx {Scheme Syntax} build-cps-cont (k ($kargs names syms term))
-@deffnx {Scheme Syntax} build-cps-cont (k ($kif kt kf))
-@deffnx {Scheme Syntax} build-cps-cont (k ($kreceive req rest kargs))
-@deffnx {Scheme Syntax} build-cps-cont (k ($kentry self tail-cont ,clauses))
-@deffnx {Scheme Syntax} build-cps-cont (k ($kentry self tail-cont (cont ...)))
-@deffnx {Scheme Syntax} build-cps-cont (k ($kclause ,arity cont))
-@deffnx {Scheme Syntax} build-cps-cont (k ($kclause (req opt rest kw aok?) cont))
+@deffn {Scheme Syntax} build-term ,val
+@deffnx {Scheme Syntax} build-term ($continue k src exp)
+@deffnx {Scheme Syntax} build-exp ,val
+@deffnx {Scheme Syntax} build-exp ($const val)
+@deffnx {Scheme Syntax} build-exp ($prim name)
+@deffnx {Scheme Syntax} build-exp ($branch kt exp)
+@deffnx {Scheme Syntax} build-exp ($fun kentry)
+@deffnx {Scheme Syntax} build-exp ($rec names syms funs)
+@deffnx {Scheme Syntax} build-exp ($closure k nfree)
+@deffnx {Scheme Syntax} build-exp ($call proc (arg ...))
+@deffnx {Scheme Syntax} build-exp ($call proc args)
+@deffnx {Scheme Syntax} build-exp ($callk k proc (arg ...))
+@deffnx {Scheme Syntax} build-exp ($callk k proc args)
+@deffnx {Scheme Syntax} build-exp ($primcall name (arg ...))
+@deffnx {Scheme Syntax} build-exp ($primcall name args)
+@deffnx {Scheme Syntax} build-exp ($values (arg ...))
+@deffnx {Scheme Syntax} build-exp ($values args)
+@deffnx {Scheme Syntax} build-exp ($prompt escape? tag handler)
+@deffnx {Scheme Syntax} build-cont ,val
+@deffnx {Scheme Syntax} build-cont ($kargs (name ...) (sym ...) term)
+@deffnx {Scheme Syntax} build-cont ($kargs names syms term)
+@deffnx {Scheme Syntax} build-cont ($kreceive req rest kargs)
+@deffnx {Scheme Syntax} build-cont ($kfun src meta self ktail kclause)
+@deffnx {Scheme Syntax} build-cont ($kclause ,arity kbody kalt)
+@deffnx {Scheme Syntax} build-cont ($kclause (req opt rest kw aok?) kbody)
 Construct a CPS term, expression, or continuation.
 @end deffn
 
@@ -886,18 +925,178 @@ There are a few more miscellaneous interfaces as well.
 A procedural constructor for @code{$arity} objects.
 @end deffn
 
-@deffn {Scheme Syntax} let-gensyms (sym ...) body ...
-Bind @var{sym...} to fresh names, and evaluate @var{body...}.
-@end deffn
-
-@deffn {Scheme Syntax} rewrite-cps-term val (pat term) ...
-@deffnx {Scheme Syntax} rewrite-cps-exp val (pat exp) ...
-@deffnx {Scheme Syntax} rewrite-cps-cont val (pat cont) ...
+@deffn {Scheme Syntax} rewrite-term val (pat term) ...
+@deffnx {Scheme Syntax} rewrite-exp val (pat exp) ...
+@deffnx {Scheme Syntax} rewrite-cont val (pat cont) ...
 Match @var{val} against the series of patterns @var{pat...}, using
 @code{match}.  The body of the matching clause should be a template in
-the syntax of @code{build-cps-term}, @code{build-cps-exp}, or
-@code{build-cps-cont}, respectively.
+the syntax of @code{build-term}, @code{build-exp}, or @code{build-cont},
+respectively.
 @end deffn
+
+@node CPS Soup
+@subsubsection CPS Soup
+
+We describe programs in Guile's CPS language as being a kind of ``soup''
+because all continuations in the program are mixed into the same
+``pot'', so to speak.  A program in CPS is a map from continuation
+labels to continuation values.  As discussed in the introduction, a
+continuation label is an integer.  No label may be negative.
+
+As a matter of convention, label 0 should map to the @code{$kfun}
+continuation of the entry to the program, which should be a function of
+no arguments.  The body of a function consists of the labelled
+continuations that are reachable from the function entry.  A program can
+refer to other functions, either via @code{$fun} and @code{$rec} in
+higher-order CPS, or via @code{$closure} and @code{$callk} in
+first-order CPS.  The program logically contains all continuations of
+all functions reachable from the entry function.  A compiler pass may
+leave unreachable continuations in a program, but analyses should
+usually either apply only to reachable continuations, or should make
+translations that are oblivious as to whether a continuation is
+reachable or not.
+
+@cindex intmap
+The map itself is implemented as an @dfn{intmap}, a functional
+array-mapped trie specialized for integer keys.  Currently intmaps are a
+private data structure only used by the CPS phase of the compiler.  To
+work with intmaps, load the @code{(language cps intmap)} module:
+
+@example
+(use-modules (language cps intmap))
+@end example
+
+Intmaps are functional data structures, so there is no constructor as
+such: one can simply start with the empty intmap and add entries to it.
+
+@example
+(intmap? empty-intmap) @result{} #t
+(define x (intmap-add empty-intmap 42 "hi"))
+(intmap? x) @result{} #t
+(intmap-ref x 42) @result{} "hi"
+(intmap-ref x 43) @result{} @i{error: 43 not present}
+(intmap-ref x 43 (lambda (k) "yo!")) @result{} "yo"
+(intmap-add x 42 "hej") @result{} @i{error: 42 already present}
+@end example
+
+@code{intmap-ref} and @code{intmap-add} are the core of the intmap
+interface.  There is also @code{intmap-replace}, which replaces the
+value associated with a given key, requiring that the key was present
+already, and @code{intmap-remove}, which removes a key from an intmap.
+
+Intmaps have a tree-like structure that is well-suited to set operations
+such as union and intersection, so there is are also the binary
+@code{intmap-union} and @code{intmap-intersect} procedures.  If the
+result is equivalent to either argument, that argument is returned
+as-is; in that way, one can detect whether the set operation produced a
+new result simply by checking with @code{eq?}.  This makes intmaps
+useful when computing fixed points.
+
+If a key is present in both intmaps and the key is not the same in the
+sense of @code{eq?}, the resulting value is determined by a ``meet''
+procedure, which is the optional last argument to @code{intmap-union},
+@code{intmap-intersect}, and also to @code{intmap-add},
+@code{intmap-replace}, and similar functions.  The meet procedure will
+be called with the two values and should return the intersected or
+unioned value in some appropriate way.  If no meet procedure is given,
+the default meet procedure will raise an error.
+
+To traverse over the set of values in an intmap, there are the
+@code{intmap-next} and @code{intmap-prev} procedures.  For example, if
+intmap @var{x} has one entry mapping 42 to some value, we would have:
+
+@example
+(intmap-next x) @result{} 42
+(intmap-next x 0) @result{} 42
+(intmap-next x 42) @result{} 42
+(intmap-next x 43) @result{} #f
+(intmap-prev x) @result{} 42
+(intmap-prev x 42) @result{} 42
+(intmap-prev x 41) @result{} #f
+@end example
+
+There is also the @code{intmap-fold} procedure, which folds over keys
+and values in the intmap from lowest to highest value, and
+@code{intmap-fold-right} which does so in the opposite direction.  These
+procedures may take up to 3 seed values.  The number of values that the
+fold procedure returns is the number of seed values.
+
+@example
+(define q (intmap-add (intmap-add empty-intmap 1 2) 3 4))
+(intmap-fold acons q '()) @result{} ((3 . 4) (1 . 2))
+(intmap-fold-right acons q '()) @result{} ((1 . 2) (3 . 4))
+@end example
+
+When an entry in an intmap is updated (removed, added, or changed), a
+new intmap is created that shares structure with the original intmap.
+This operation ensures that the result of existing computations is not
+affected by future computations: no mutation is ever visible to user
+code.  This is a great property in a compiler data structure, as it lets
+us hold a copy of a program before a transformation and use it while we
+build a post-transformation program.
+
+However, the allocation costs are sometimes too much, especially in
+cases when we know that we can just update the intmap in place.  As an
+example, say we have an intmap mapping the integers 1 to 100 to the
+integers 42 to 141.  Let's say that we want to transform this map by
+adding 1 to each value.  There is already an efficient @code{intmap-map}
+procedure in the @code{(language cps utils}) module, but if we didn't
+know about that we might do:
+
+@example
+(define (intmap-increment map)
+  (let lp ((k 0) (map map))
+    (let ((k (intmap-next map k)))
+      (if k
+          (let ((v (intmap-ref map k)))
+            (lp (1+ k) (intmap-replace map k (1+ v))))
+          map))))
+@end example
+
+@cindex intmap, transient
+@cindex transient intmaps
+Observe that the intermediate values created by @code{intmap-replace}
+are completely invisible to the program -- only the last result of
+@code{intmap-replace} value is needed.  The rest might as well share
+state with the last one, and we could update in place.  Guile allows
+this kind of interface via @dfn{transient intmaps}, inspired by
+Clojure's transient interface (@uref{http://clojure.org/transients}).
+
+The @code{intmap-add!} and @code{intmap-replace!} procedures return
+transient intmaps.  If one of these in-place procedures is called on a
+normal persistent intmap, a new transient intmap is created.  This is an
+O(1) operation.  In all other respects the interface is like their
+persistent counterparts, @code{intmap-add} and @code{intmap-replace}.
+
+If an in-place procedure is called on a transient intmap, the intmap is
+mutated in-place and the same value is returned.  If a persistent
+operation like @code{intmap-add} is called on a transient intmap, the
+transient's mutable substructure is then marked as persistent, and
+@code{intmap-add} then runs on a new persistent intmap sharing structure
+but not state with the original transient.  Mutating a transient will
+cause enough copying to ensure that it can make its change, but if part
+of its substructure is already ``owned'' by it, no more copying is
+needed.
+
+We can use transients to make @code{intmap-increment} more efficient.
+The two changed elements have been marked @strong{like this}.
+
+@example
+(define (intmap-increment map)
+  (let lp ((k 0) (map map))
+    (let ((k (intmap-next map k)))
+      (if k
+          (let ((v (intmap-ref map k)))
+            (lp (1+ k) (@strong{intmap-replace!} map k (1+ v))))
+          (@strong{persistent-intmap} map)))))
+@end example
+
+Be sure to tag the result as persistent using the
+@code{persistent-intmap} procedure to prevent the mutability from
+leaking to other parts of the program.  For added paranoia, you could
+call @code{persistent-intmap} on the incoming map, to ensure that if it
+were already transient, that the mutations in the body of
+@code{intmap-increment} wouldn't affect the incoming value.
 
 @node Compiling CPS
 @subsubsection Compiling CPS
