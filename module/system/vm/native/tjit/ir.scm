@@ -897,6 +897,7 @@
         (values indices snapshots lowest-offset scm)))))
 
 (define (scm->cps scm)
+  "Compiles SCM to CPS IR."
   (define ignored-passes
     '(#:prune-top-level-scopes? #f
       #:specialize-primcalls? #f
@@ -930,6 +931,11 @@
     cps))
 
 (define (trace->cps fragment exit-id loop? trace)
+  "Compiles TRACE to CPS IR.
+
+If the trace to be compiles is a side trace, expects FRAGMENT as from parent
+trace, and EXIT-ID is the hot exit id from the parent trace. LOOP? is should be
+a boolean to indicate whether the trace contains loop or not."
   (call-with-values (lambda () (trace->scm fragment exit-id loop? trace))
     (lambda (locals snapshots lowest-offset scm)
       (let ((cps (scm->cps scm)))

@@ -82,7 +82,7 @@
       (match traces
         (((op ip fp ra locals) . traces)
          (let ((op-val (format #f "~x  ~a~a" ip (make-indent level) op)))
-           (if (<= 3 (lightning-verbosity))
+           (if (tjit-dump-locals? (tjit-dump-option))
                (format #t "~40a ; ~a~%" op-val locals)
                (format #t "~a~%" op-val)))
          (case (car op)

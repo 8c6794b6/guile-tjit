@@ -34,6 +34,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (system foreign)
   #:use-module (system vm native debug)
+  #:use-module (system vm native tjit parameters)
   #:export (type-of
             fixnum?
             flonum?
@@ -105,6 +106,7 @@
    ((procedure? obj) &procedure)
    ((pair? obj) &pair)
    ((variable? obj) &box)
+   ((struct? obj) &struct)
    (else
     (debug 3 "*** Type not determined: ~a~%" obj)
     #f)))
@@ -331,9 +333,10 @@
           (format #t ";;; local-indices:~%")
           (format #t ";;;   ~a~%" local-indices)
           (format #t ";;; lowers:~%")
-          (for-each (lambda (lower)
-                      (format #t ";;;   ~a~%" lower))
-                    lowers)))
+          (when (tjit-dump-locals? (tjit-dump-option))
+            (for-each (lambda (lower)
+                        (format #t ";;;   ~a~%" lower))
+                      lowers))))
 
       ;; Make past-frame with locals in lower frames.
       ;;

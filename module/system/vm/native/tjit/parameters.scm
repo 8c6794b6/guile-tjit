@@ -27,6 +27,7 @@
 ;;; Code:
 
 (define-module (system vm native tjit parameters)
+  #:use-module (srfi srfi-9)
   #:export (tjit-ip-counter
             fragment-table
             failed-ip-table
@@ -38,17 +39,58 @@
             tjit-max-retries
             set-tjit-max-retries!
 
+            tjit-dump-option
+            tjit-dump-locals?
+            tjit-dump-exit?
+            parse-tjit-dump-flags
+
             tjit-max-spills
             tjit-stats))
 
 (load-extension (string-append "libguile-" (effective-version))
                 "scm_init_vm_tjit")
 
-;; Maximum number of spilled variables.
+;; Record type for configuring dump options.
+(define-record-type <tjit-dump>
+  (make-tjit-dump locals exit)
+  tjit-dump?
+  (locals tjit-dump-locals? set-tjit-dump-locals!)
+  (exit tjit-dump-exit? set-tjit-dump-exit!))
+
+(define (make-empty-tjit-dump-option)
+  "Makes tjit-dump data with all fields set to #f"
+  (make-tjit-dump #f #f))
+
+(define tjit-dump-option
+  ;; Parameter to control dump setting during compilation of traces.
+  (make-parameter (make-empty-tjit-dump-option)))
+
+(define (parse-tjit-dump-flags str)
+  "Parse dump flags in string STR."
+  (let ((o (make-empty-tjit-dump-option)))
+    (let lp ((cs (string->list str)))
+      (let-syntax ((p (syntax-rules ()
+                        ((_ (char setter) ...)
+                         (if (null? cs)
+                             o
+                             (let ((c (car cs))
+                                   (cs (cdr cs)))
+                               (cond
+                                ((char=? c char)
+                                 (setter o #t)
+                                 (lp cs))
+                                ...
+                                (else
+                                 (lp cs)))))))))
+        (p (#\l set-tjit-dump-locals!)
+           (#\x set-tjit-dump-exit!))))))
+
 (define tjit-max-spills
+  ;; Maximum number of spilled variables.
   (make-parameter 256))
 
 (define (tjit-stats)
+  "Returns statistics of vm-tjit engine."
   (let ((hot-loop (tjit-hot-loop))
         (hot-exit (tjit-hot-exit))
         (num-loops 0)

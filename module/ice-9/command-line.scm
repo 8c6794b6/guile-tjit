@@ -33,7 +33,6 @@
 
 (define-module (ice-9 command-line)
   #:autoload (system vm vm) (set-default-vm-engine! set-vm-engine!)
-  #:autoload (system vm native mjit) (init-vm-mjit)
   #:autoload (system vm native tjit) (init-vm-tjit)
   #:export (compile-shell-switches
             version-etc
@@ -130,7 +129,6 @@ If FILE begins with `-' the -s switch is mandatory.
   --no-debug     start with the normal VM engine (backtraces but
                  no breakpoints); default is --debug for interactive
                  use, but not for `-s' and `-c'.
-  --mjit         start with the \"mjit\" VM engine (EXPERIMENTAL)
   --tjit         start with the \"tjit\" VM engine (EXPERIMENTAL)
   --auto-compile compile source files automatically
   --fresh-auto-compile  invalidate auto-compilation cache
@@ -206,7 +204,6 @@ If FILE begins with `-' the -s switch is mandatory.
         (inhibit-user-init? #f)
         (turn-on-debugging? #f)
         (turn-off-debugging? #f)
-        (mjit? #f)
         (tjit? #f))
 
     (define (error fmt . args)
@@ -412,10 +409,6 @@ If FILE begins with `-' the -s switch is mandatory.
                          (assq-ref %guile-build-info 'packager-version))
             (exit 0))
 
-           ((string=? arg "--mjit")
-            (set! mjit? #t)
-            (parse args out))
-
            ((string=? arg "--tjit")
             (set! tjit? #t)
             (parse args out))
@@ -424,6 +417,14 @@ If FILE begins with `-' the -s switch is mandatory.
             (parse args
                    (cons `((@ (system vm native debug) lightning-verbosity)
                            ,(string->number (substring arg 12)))
+                         out)))
+           ((string-prefix? "--tjit-dump=" arg)
+            (parse args
+                   (cons `((@ (system vm native tjit parameters)
+                              tjit-dump-option)
+                           ((@ (system vm native tjit parameters)
+                               parse-tjit-dump-flags)
+                            (substring ,arg 12)))
                          out)))
 
            (else
@@ -443,17 +444,10 @@ If FILE begins with `-' the -s switch is mandatory.
       (if (or turn-on-debugging?
               (and interactive?
                    (not turn-off-debugging?)
-                   (not mjit?)
                    (not tjit?)))
           (begin
             (set-default-vm-engine! 'debug)
             (set-vm-engine! 'debug)))
-
-      ;; Use vm-mjit engine
-      (when mjit?
-        (init-vm-mjit interactive?)
-        (set-default-vm-engine! 'mjit)
-        (set-vm-engine! 'mjit))
 
       ;; Use vm-tjit engine
       (when tjit?
