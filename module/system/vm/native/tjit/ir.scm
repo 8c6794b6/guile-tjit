@@ -121,11 +121,19 @@
           (hashq-set! snapshots 0 (%make-snapshot 0 nlocals '() #f #f))
           1)
         0))
-  (define (make-vars-from-parent vars parent-snapshot-locals)
+  (define (make-vars-from-parent vars
+                                 parent-snapshot-locals
+                                 parent-snapshot-offset)
     (let lp ((vars vars) (acc '()))
       (match vars
         (((n . var) . vars)
-         (if (assq-ref parent-snapshot-locals n)
+         ;; When parent-snapshot-offset is negative, side trace entered from a
+         ;; side exit which is somewhere in a bytecode in the middle of lower
+         ;; frame than the beginning of root trace.
+         (if (assq-ref parent-snapshot-locals
+                       (if (< parent-snapshot-offset 0)
+                           (- n parent-snapshot-offset)
+                           n))
              (lp vars (cons (cons n var) acc))
              (lp vars acc)))
         (()
@@ -140,12 +148,17 @@
          (parent-snapshot-locals (match parent-snapshot
                                    (($ $snapshot _ _ locals) locals)
                                    (_ #f)))
+         (parent-snapshot-offset (match parent-snapshot
+                                   (($ $snapshot offset) offset)
+                                   (_ 0)))
          (local-offset (get-initial-offset parent-snapshot))
          (past-frame (accumulate-locals local-offset trace))
          (local-indices (past-frame-local-indices past-frame))
          (args (map make-var (reverse local-indices)))
          (vars (make-vars local-indices))
-         (vars-from-parent (make-vars-from-parent vars parent-snapshot-locals))
+         (vars-from-parent (make-vars-from-parent vars
+                                                  parent-snapshot-locals
+                                                  parent-snapshot-offset))
          (args-from-parent (reverse (map cdr vars-from-parent)))
          (local-indices-from-parent (map car vars-from-parent))
          (expecting-types (make-hash-table))
@@ -247,20 +260,25 @@
                           (make-dynamic-link local-offset)))
                 (ra (cons (- (+ proc local-offset) 1)
                           (make-return-address (make-pointer (+ ip (* 2 4))))))
+                (vdl (var-ref (- proc 2)))
+                (vra (var-ref (- proc 1)))
                 (vproc (var-ref proc))
                 (rproc (local-ref proc))
                 (snapshot (take-snapshot! ip 0 locals local-indices vars)))
-           (debug 3 ";;; ir.scm:call proc=~a local-offset=~a fp=~a~%"
-                  rproc local-offset fp)
            (set-expecting-type! proc &procedure)
            (push-past-frame! past-frame dl ra local-offset locals)
            (push-offset! proc)
-           `(begin
-              ,snapshot
-              ;; Adding `%eq' guard to test the procedure value, to bailout when
-              ;; procedure with same name has been redefined.
-              (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
-              ,(convert escape rest))))
+
+           ;; Refilling dynamic link and return address for CPS compilation
+           ;; only. These two locals would be restored with values in snapshot
+           ;; when taiking side exit.
+           `(let ((,vdl #f))
+              (let ((,vra ,(+ ip (* 2 4))))
+                ,snapshot
+                ;; Adding `%eq' guard to test the procedure value, to bailout when
+                ;; procedure has been redefined.
+                (%eq ,vproc ,(pointer-address (scm->pointer rproc)))
+                ,(convert escape rest)))))
 
         (('call-label proc nlocals label)
          (push-offset! proc)
@@ -285,10 +303,18 @@
          ;; `push-offset!' and `pop-offset!'. Wrapping next expression as
          ;; anonymous procedure to prevent overriding variables at this point.
          (let* ((vdst (var-ref dst))
+                (vdl (var-ref (- proc 2)))
+                (vra (var-ref (- proc 1)))
                 (vret (var-ref (+ proc 1)))
-                (do-next-convert (lambda ()
-                                   `(let ((,vdst ,vret))
-                                      ,(convert escape rest))))
+                (do-next-convert
+                 (lambda ()
+                   ;; Two locals below callee procedure in VM frame contain
+                   ;; dynamic link and return address. VM interpreter refills
+                   ;; these two with #f, doing the same thing.
+                   `(let ((,vdl #f))
+                      (let ((,vra #f))
+                        (let ((,vdst ,vret))
+                          ,(convert escape rest))))))
                 (proc-offset (+ proc local-offset)))
            (if (<= 0 local-offset)
                (do-next-convert)
@@ -296,13 +322,6 @@
                  (match vars
                    (((n . var) . vars)
                     (cond
-                     ;; Two locals below callee procedure in VM frame contain
-                     ;; dynamic link and return address. VM interpreter refills
-                     ;; these two with #f, doing the same thing.
-                     ((or (= n (- proc-offset 1))
-                          (= n (- proc-offset 2)))
-                      `(let ((,var #f))
-                         ,(lp vars)))
                      ((<= local-offset n (+ proc-offset -3))
                       (let* ((i (- n local-offset))
                              (val (if (< -1 i (vector-length locals))

@@ -257,23 +257,19 @@ SHIFT."
   (let lp ((local-x-types local-x-types)
            (srcs srcs)
            (acc (make-hash-table)))
-    (match local-x-types
-      (((local . type) . local-x-types)
-       (match srcs
-         ((src . srcs)
-          (let ((unwrapped-src (src-unwrapper src)))
-            ;; XXX: Might need to add more conditions for storing dynamic link
-            ;; and return addresses, not sure always these should be stored.
-            (when (or (dynamic-link? type)
-                      (return-address? type)
-                      (not (assq local references)))
-              (store-frame moffs local type unwrapped-src))
-            (hashq-set! acc (+ local shift) unwrapped-src))
-          (lp local-x-types srcs acc))
-         (()
-          (debug 3 ";;;   srcs=null, local-x-types=~a~%" local-x-types)
-          acc)))
-      (() acc))))
+    (match (list local-x-types srcs)
+      ((((local . type) . local-x-types) (src . srcs))
+       (let ((unwrapped-src (src-unwrapper src)))
+         ;; XXX: Might need to add more conditions for storing dynamic link and
+         ;; return addresses, not sure always these should be stored.
+         (when (or (dynamic-link? type)
+                   (return-address? type)
+                   (not (assq local references)))
+           (store-frame moffs local type unwrapped-src))
+         (hashq-set! acc (+ local shift) unwrapped-src)
+         (lp local-x-types srcs acc)))
+      ((() ())
+       acc))))
 
 (define (move-or-load-carefully dsts srcs types moffs)
   "Move SRCS to DSTS or load with TYPES and MOFFS, carefully.
@@ -379,6 +375,38 @@ of SRCS, DSTS, TYPES are local index number."
   (define (moffs x)
     (make-signed-pointer (+  fp-offset (* (ref-value x) %word-size))))
 
+  (define (refill-dynamic-links local-offset local-x-types)
+    ;; Take difference of dynamic links from the previous one, then refill
+    ;; and update the chain of dynamic links.
+    (let ((old-vp->fp r0)
+          (new-vp->fp r1)
+          (offsets
+           (let lp ((local-x-types (reverse local-x-types))
+                    (last-offset local-offset)
+                    (acc '()))
+             (match local-x-types
+               (((_ . ($ $dynamic-link offset)) . local-x-types)
+                (lp local-x-types
+                    offset
+                    (cons (- last-offset offset) acc)))
+               ((_ . local-x-types)
+                (lp local-x-types last-offset acc))
+               (()
+                acc)))))
+      (jit-ldxi old-vp->fp fp vp->fp-offset)
+      (jit-movr new-vp->fp old-vp->fp)
+      (let lp ((offsets offsets))
+        (match offsets
+          ((offset . offsets)
+           (jit-addi new-vp->fp old-vp->fp
+                     (make-signed-pointer (* offset %word-size)))
+           (scm-frame-set-dynamic-link! new-vp->fp old-vp->fp)
+           (jit-movr old-vp->fp new-vp->fp)
+           (lp offsets))
+          (()
+           (jit-stxi vp->fp-offset fp new-vp->fp)
+           (vm-sync-fp new-vp->fp))))))
+
   (define (compile-link args)
     (let* ((linked-fragment (get-fragment linked-ip))
            (loop-locals (fragment-loop-locals linked-fragment)))
@@ -388,36 +416,6 @@ of SRCS, DSTS, TYPES are local index number."
         (map (match-lambda ((local . type)
                             `(,(- local offset) . ,type)))
              locals))
-      (define (refill-dynamic-links local-offset local-x-types)
-        ;; Take difference of dynamic links from the previous one, then refill
-        ;; and update the chain of dynamic links.
-        (let ((old-vp->fp r0)
-              (new-vp->fp r1)
-              (offsets
-               (let lp ((local-x-types (reverse local-x-types))
-                        (last-offset local-offset)
-                        (acc '()))
-                 (match local-x-types
-                   (((_ . ($ $dynamic-link offset)) . local-x-types)
-                    (lp local-x-types
-                        offset
-                        (cons (- last-offset offset) acc)))
-                   ((_ . local-x-types)
-                    (lp local-x-types last-offset acc))
-                   (()
-                    acc)))))
-          (jit-ldxi old-vp->fp fp vp->fp-offset)
-          (jit-movr new-vp->fp old-vp->fp)
-          (let lp ((offsets offsets))
-            (match offsets
-              ((offset . offsets)
-               (jit-addi new-vp->fp old-vp->fp (imm (* offset %word-size)))
-               (scm-frame-set-dynamic-link! new-vp->fp old-vp->fp)
-               (jit-movr old-vp->fp new-vp->fp)
-               (lp offsets))
-              (()
-               (jit-stxi vp->fp-offset fp new-vp->fp)
-               (vm-sync-fp new-vp->fp))))))
       (debug 3 ";;; compile-link: args=~a~%" args)
       (cond
        ((hashq-ref snapshots current-side-exit)
@@ -494,27 +492,13 @@ of SRCS, DSTS, TYPES are local index number."
            ;;
            (values nlocals local-offset snapshot))
           (else
-           ;; Matching ends when no more values found in local, args
-           ;; exceeding the number of locals are ignored.
-           ;;
-           ;; XXX: Length of args and locals should match. Update snapshots
-           ;; and save args.  Snapshot data need to contain locals in
-           ;; caller procedure when VM bytecode op made this side exit was
-           ;; inlined.
-           ;;
            (let lp ((local-x-types local-x-types)
                     (args args))
-             (match local-x-types
-               (((local . type) . local-x-types)
-                (match args
-                  ((arg . args)
-                   (let ((var (env-ref arg)))
-                     (store-frame moffs local type var)
-                     (lp local-x-types args)))
-                  (()
-                   (debug 3 ";;;   args=null, local-x-types=~a~%" local-x-types)
-                   (values nlocals local-offset snapshot))))
-               (()
+             (match (list local-x-types args)
+               ((((local . type) . local-x-types) (arg . args))
+                (store-frame moffs local type (env-ref arg))
+                (lp local-x-types args))
+               (_
                 (values nlocals local-offset snapshot)))))))
         (_
          (debug 3 ";;; store-snapshot: exit ~a, not a snapshot ~a~%"
@@ -531,11 +515,11 @@ of SRCS, DSTS, TYPES are local index number."
          ;; store-snapshot for negative local offset.
          (debug 3 ";;; compile-bailout: shifting FP, local-offset=~a~%"
                 local-offset)
-         (let ((vp->fp r0))
-           (jit-ldxi vp->fp fp vp->fp-offset)
-           (jit-addi vp->fp vp->fp (imm (* local-offset %word-size)))
-           (jit-stxi vp->fp-offset fp vp->fp)
-           (vm-sync-fp vp->fp)))
+         (match snapshot
+           (($ $snapshot offset _ local-x-types)
+            (refill-dynamic-links offset local-x-types))
+           (_
+            (debug 1 "*** not a snapshot: ~a~%" snapshot))))
 
        ;; Sync next IP with vp->ip for VM.
        (jit-movi r0 (imm next-ip))
@@ -760,20 +744,16 @@ of SRCS, DSTS, TYPES are local index number."
                 initial-locals)
                (let lp ((local-x-types local-x-types)
                         (vars exit-variables))
-                 (match local-x-types
-                   (((local . type) . local-x-types)
-                    (match vars
-                      ((var . vars)
-                       (hashq-set! src-table local var)
-                       (when (not (hashq-ref type-table local))
-                         (debug 3 ";;; side-exit entry, setting type from parent,")
-                         (debug 3 "local ~a to type ~a~%" local type)
-                         (hashq-set! type-table local type))
-                       (lp local-x-types vars))
-                      (()
-                       (debug 3 ";;; side-exit: vars=null, local-x-types=~a~%"
-                              local-x-types))))
-                   (() (values))))
+                 (match (list local-x-types vars)
+                   ((((local . type) . local-x-types) (var . vars))
+                    (hashq-set! src-table local var)
+                    (when (not (hashq-ref type-table local))
+                      (debug 3 ";;; side-exit entry, setting type from parent,")
+                      (debug 3 "local ~a to type ~a~%" local type)
+                      (hashq-set! type-table local type))
+                    (lp local-x-types vars))
+                   (_
+                    (values))))
 
                ;; Move or load locals in current frame.
                (move-or-load-carefully dst-table src-table type-table moffs)))))
