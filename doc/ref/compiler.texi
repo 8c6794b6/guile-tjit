@@ -939,7 +939,8 @@ respectively.
 
 We describe programs in Guile's CPS language as being a kind of ``soup''
 because all continuations in the program are mixed into the same
-``pot'', so to speak.  A program in CPS is a map from continuation
+``pot'', so to speak, without explicit markers as to what function or
+scope a continuation is in.  A program in CPS is a map from continuation
 labels to continuation values.  As discussed in the introduction, a
 continuation label is an integer.  No label may be negative.
 
@@ -951,16 +952,18 @@ refer to other functions, either via @code{$fun} and @code{$rec} in
 higher-order CPS, or via @code{$closure} and @code{$callk} in
 first-order CPS.  The program logically contains all continuations of
 all functions reachable from the entry function.  A compiler pass may
-leave unreachable continuations in a program, but analyses should
-usually either apply only to reachable continuations, or should make
-translations that are oblivious as to whether a continuation is
-reachable or not.
+leave unreachable continuations in a program; subsequent compiler passes
+should ensure that their transformations and analyses only take
+reachable continuations into account.  It's OK though if transformation
+runs over all continuations if including the unreachable continuations
+has no effect on the transformations on the live continuations.
 
 @cindex intmap
-The map itself is implemented as an @dfn{intmap}, a functional
-array-mapped trie specialized for integer keys.  Currently intmaps are a
-private data structure only used by the CPS phase of the compiler.  To
-work with intmaps, load the @code{(language cps intmap)} module:
+The ``soup'' itself is implemented as an @dfn{intmap}, a functional
+array-mapped trie specialized for integer keys.  Intmaps associate
+integers with values of any kind.  Currently intmaps are a private data
+structure only used by the CPS phase of the compiler.  To work with
+intmaps, load the @code{(language cps intmap)} module:
 
 @example
 (use-modules (language cps intmap))
@@ -992,14 +995,14 @@ as-is; in that way, one can detect whether the set operation produced a
 new result simply by checking with @code{eq?}.  This makes intmaps
 useful when computing fixed points.
 
-If a key is present in both intmaps and the key is not the same in the
-sense of @code{eq?}, the resulting value is determined by a ``meet''
-procedure, which is the optional last argument to @code{intmap-union},
-@code{intmap-intersect}, and also to @code{intmap-add},
-@code{intmap-replace}, and similar functions.  The meet procedure will
-be called with the two values and should return the intersected or
-unioned value in some appropriate way.  If no meet procedure is given,
-the default meet procedure will raise an error.
+If a key is present in both intmaps and the associated values are not
+the same in the sense of @code{eq?}, the resulting value is determined
+by a ``meet'' procedure, which is the optional last argument to
+@code{intmap-union}, @code{intmap-intersect}, and also to
+@code{intmap-add}, @code{intmap-replace}, and similar functions.  The
+meet procedure will be called with the two values and should return the
+intersected or unioned value in some domain-specific way.  If no meet
+procedure is given, the default meet procedure will raise an error.
 
 To traverse over the set of values in an intmap, there are the
 @code{intmap-next} and @code{intmap-prev} procedures.  For example, if
@@ -1033,15 +1036,16 @@ This operation ensures that the result of existing computations is not
 affected by future computations: no mutation is ever visible to user
 code.  This is a great property in a compiler data structure, as it lets
 us hold a copy of a program before a transformation and use it while we
-build a post-transformation program.
+build a post-transformation program.  Updating an intmap is O(log
+@var{n}) in the size of the intmap.
 
-However, the allocation costs are sometimes too much, especially in
-cases when we know that we can just update the intmap in place.  As an
-example, say we have an intmap mapping the integers 1 to 100 to the
-integers 42 to 141.  Let's say that we want to transform this map by
-adding 1 to each value.  There is already an efficient @code{intmap-map}
-procedure in the @code{(language cps utils}) module, but if we didn't
-know about that we might do:
+However, the O(log @var{n}) allocation costs are sometimes too much,
+especially in cases when we know that we can just update the intmap in
+place.  As an example, say we have an intmap mapping the integers 1 to
+100 to the integers 42 to 141.  Let's say that we want to transform this
+map by adding 1 to each value.  There is already an efficient
+@code{intmap-map} procedure in the @code{(language cps utils}) module,
+but if we didn't know about that we might do:
 
 @example
 (define (intmap-increment map)
@@ -1062,21 +1066,21 @@ state with the last one, and we could update in place.  Guile allows
 this kind of interface via @dfn{transient intmaps}, inspired by
 Clojure's transient interface (@uref{http://clojure.org/transients}).
 
-The @code{intmap-add!} and @code{intmap-replace!} procedures return
-transient intmaps.  If one of these in-place procedures is called on a
-normal persistent intmap, a new transient intmap is created.  This is an
-O(1) operation.  In all other respects the interface is like their
+The in-place @code{intmap-add!} and @code{intmap-replace!} procedures
+return transient intmaps.  If one of these in-place procedures is called
+on a normal persistent intmap, a new transient intmap is created.  This
+is an O(1) operation.  In all other respects the interface is like their
 persistent counterparts, @code{intmap-add} and @code{intmap-replace}.
-
 If an in-place procedure is called on a transient intmap, the intmap is
-mutated in-place and the same value is returned.  If a persistent
-operation like @code{intmap-add} is called on a transient intmap, the
-transient's mutable substructure is then marked as persistent, and
-@code{intmap-add} then runs on a new persistent intmap sharing structure
-but not state with the original transient.  Mutating a transient will
-cause enough copying to ensure that it can make its change, but if part
-of its substructure is already ``owned'' by it, no more copying is
-needed.
+mutated in-place and the same value is returned.
+
+If a persistent operation like @code{intmap-add} is called on a
+transient intmap, the transient's mutable substructure is then marked as
+persistent, and @code{intmap-add} then runs on a new persistent intmap
+sharing structure but not state with the original transient.  Mutating a
+transient will cause enough copying to ensure that it can make its
+change, but if part of its substructure is already ``owned'' by it, no
+more copying is needed.
 
 We can use transients to make @code{intmap-increment} more efficient.
 The two changed elements have been marked @strong{like this}.
@@ -1098,6 +1102,10 @@ call @code{persistent-intmap} on the incoming map, to ensure that if it
 were already transient, that the mutations in the body of
 @code{intmap-increment} wouldn't affect the incoming value.
 
+In summary, programs in CPS are intmaps whose values are continuations.
+See the source code of @code{(language cps utils)} for a number of
+useful facilities for working with CPS values.
+
 @node Compiling CPS
 @subsubsection Compiling CPS
 
@@ -1114,16 +1122,18 @@ variables (in Tree-IL, locals that are @code{<lexical-set>}) are
 converted to being boxed values on the heap.  @xref{Variables and the
 VM}.
 
-After CPS conversion, Guile runs some optimization passes.  The major
-optimization performed on CPS is contification, in which functions that
-are always called with the same continuation are incorporated directly
-into a function's body.  This opens up space for more optimizations, and
-turns procedure calls into @code{goto}.  It can also make loops out of
-recursive function nests.
+After CPS conversion, Guile runs some optimization passes over the CPS.
+Most optimization in Guile is done on the CPS language.  The one major
+exception is partial evaluation, which for historic reasons is done on
+Tree-IL.
 
-At the time of this writing (2014), most high-level optimization in
-Guile is done on Tree-IL.  We would like to rewrite many of these passes
-to operate on CPS instead, as it is easier to reason about CPS.
+The major optimization performed on CPS is contification, in which
+functions that are always called with the same continuation are
+incorporated directly into a function's body.  This opens up space for
+more optimizations, and turns procedure calls into @code{goto}.  It can
+also make loops out of recursive function nests.  Guile also does dead
+code elimination, common subexpression elimination, loop peeling and
+invariant code motion, and range and type inference.
 
 The rest of the optimization passes are really cleanups and
 canonicalizations.  CPS spans the gap between high-level languages and
